@@ -64,6 +64,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"skills/setWorkspaceDraftGrant": "mcp:settings.admin",
 	"skills/withdrawWorkspaceDraftProposal": "mcp:skills.write",
 	"workItems/fileAgentReview": "mcp:work.write",
+	"workMap/read": "mcp:work.read",
 	"workItems/listCliProjection": "mcp:work.read",
 	"workItems/getCheckpointProjection": "mcp:work.read",
 	"workItems/listAttemptCliProjection": "mcp:work.read",

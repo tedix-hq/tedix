@@ -992,6 +992,9 @@ export const workFleetQueryOptions = () =>
 export const dispatcherHealthQueryOptions = () =>
 	osQuery.dispatcherHealth.list.queryOptions({});
 
+export const workMapQueryOptions = (stalledAfterHours: number) =>
+	osQuery.workMap.read.queryOptions({ input: { stalledAfterHours } });
+
 /** Polled every 10s: the board is a glance surface for live local sessions. */
 export const WORK_AGENT_SESSIONS_REFETCH_MS = 10_000;
 

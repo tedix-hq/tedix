@@ -30,7 +30,6 @@ export type WorkView = Readonly<{
 					| "/work/approvals"
 					| "/work/interactions"
 					| "/work/admission"
-					| "/work/graph"
 					| "/work/cases"
 					| "/work/capacity";
 				search?: undefined;
@@ -76,11 +75,13 @@ export const WORK_VIEWS: readonly WorkView[] = [
 		search: { app: "portfolio" },
 	},
 	{
-		id: "graph",
-		label: "Graph",
-		description: "Which Work Items have to finish before others can start.",
+		id: "map",
+		label: "Map",
+		description:
+			"What is running, which purpose it serves, and what is not moving and who must act.",
 		group: "planning",
-		to: "/work/graph",
+		to: "/work",
+		search: { app: "map" },
 	},
 	{
 		id: "cases",

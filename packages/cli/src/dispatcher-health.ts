@@ -692,3 +692,32 @@ export function collectDispatcherHealth(
 			a.lane.localeCompare(b.lane),
 	);
 }
+
+/**
+ * The supervisor's own heartbeat, one row per organization it serves. Tedix
+ * OS shows the supervisor as down when these stop, which is also what a
+ * failed sign-in looks like from outside.
+ */
+export function collectSupervisorBeats(
+	env: NodeJS.ProcessEnv,
+	now = Date.now(),
+): LocalDispatcherHealth[] {
+	const reporterId = dispatcherReporterId(env);
+	const observedAt = new Date(now).toISOString();
+	const scopes = new Map<string, { workspace: string; organization: string }>();
+	for (const report of collectDispatcherHealth(env, now))
+		scopes.set(`${report.organization}\0${report.workspace}`, report);
+	return [...scopes.values()].map(({ workspace, organization }) => ({
+		workspace,
+		organization,
+		reporterId,
+		executor: "supervisor",
+		lane: "supervisor",
+		running: true,
+		observedAt,
+		lastAdmissionAt: null,
+		slotsInUse: 0,
+		slotsTotal: 0,
+		topReason: null,
+	}));
+}

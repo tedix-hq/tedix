@@ -186,6 +186,9 @@ export const apiRouter = {
 	dispatcherHealth: lazyRouter(() =>
 		import("./dispatcher-health").then((m) => m.dispatcherHealthContractRouter),
 	),
+	workMap: lazyRouter(() =>
+		import("./work-map").then((m) => m.workMapContractRouter),
+	),
 	repositoryObserver: lazyRouter(() =>
 		import("./repository-observer").then(
 			(m) => m.repositoryObserverContractRouter,

@@ -13,6 +13,7 @@ import {
 	updateAttentionFixtureLayout,
 	visitAttentionFixture,
 } from "../attention-fixtures";
+import { workMapFixture } from "../work-map-fixture";
 import { officeActivityFixture } from "../office-activity-fixture";
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
 import { LOCAL_OUTBOUND } from "../outbound-fixture";
@@ -133,6 +134,7 @@ function cancelLocalProposal(id: string) {
 export const workHandlers: Record<string, (input: never) => unknown> = {
 	"decisionGraph/getContext": (input: { cardId: string }) =>
 		decisionGraphFixture(input.cardId),
+	"workMap/read": () => workMapFixture(),
 	"attention/listDeckCards": () => ({
 		cards: [],
 		count: 0,

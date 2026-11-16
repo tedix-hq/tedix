@@ -773,15 +773,6 @@ export async function prefetchWorkPortfolioRoute(queryClient: QueryClient) {
 	);
 }
 
-export async function prefetchWorkGraphRoute(queryClient: QueryClient) {
-	await Promise.allSettled([
-		queryClient.ensureQueryData(
-			workGraphItemsQueryOptions({}, WORK_ROUTE_LIMIT),
-		),
-		queryClient.ensureQueryData(workItemRelationsQueryOptions({}, 5000)),
-	]);
-}
-
 export async function prefetchWorkAttemptsRoute(queryClient: QueryClient) {
 	await queryClient
 		.ensureQueryData(workAttemptProjectionQueryOptions())

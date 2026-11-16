@@ -24,7 +24,7 @@ describe("Work views registry", () => {
 			"/work?view=items",
 			"/work?app=projects",
 			"/work?app=portfolio",
-			"/work/graph",
+			"/work?app=map",
 			"/work/cases",
 			"/work?view=triage",
 			"/work/approvals",

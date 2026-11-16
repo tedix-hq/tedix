@@ -21,6 +21,7 @@ export const WORK_APP_ENTRIES = {
 	agents: "tedix:app/agents",
 	office: "tedix:app/office",
 	outbound: "tedix:app/outbound-review",
+	map: "tedix:app/work-map",
 } as const;
 const appId =
 	/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
