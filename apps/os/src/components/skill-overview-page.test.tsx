@@ -2,11 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { skillDetailQueryOptions } from "@/lib/os-query-options";
-import {
-	SkillOverviewPage,
-	SkillOverviewSummary,
-	type SkillReliabilityRead,
-} from "./skill-overview-page";
+import { SkillOverviewPage } from "./skill-overview-page";
 import { SkillBundleTree } from "./skill-bundle-tree";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -15,198 +11,6 @@ vi.mock("@tanstack/react-router", () => ({
 		<a href={to}>{children}</a>
 	),
 }));
-
-const read = (
-	overrides: Partial<SkillReliabilityRead>,
-): SkillReliabilityRead => ({
-	isPending: false,
-	isError: false,
-	isFetching: false,
-	error: null,
-	refetch: () => Promise.resolve(),
-	...overrides,
-});
-
-describe("Skill overview summary", () => {
-	it("uses semantic evidence facts instead of dashboard cards", () => {
-		const html = renderToStaticMarkup(
-			<SkillOverviewSummary
-				description="Verifies a customer export."
-				tags={["verification", "exports"]}
-				reliability={read({
-					data: {
-						runCount: 10,
-						completedCount: 9,
-						successRate: 0.9,
-						averageDurationMs: 1200,
-						warnings: ["Sample is partial."],
-					},
-				})}
-				successCount={4}
-				failureCount={1}
-			/>,
-		);
-
-		expect(html).toContain('aria-label="Skill summary"');
-		expect(html).toContain("Observed reliability");
-		expect(html).toContain("90%");
-		expect(html).toContain("Sample is partial.");
-		expect(html).toContain("4 helpful · 1 unhelpful");
-		expect(html).not.toContain('data-slot="card"');
-	});
-
-	it("explains incomplete evidence in plain words and keeps counting rules under Technical details", () => {
-		const html = renderToStaticMarkup(
-			<SkillOverviewSummary
-				description={null}
-				tags={[]}
-				reliability={read({
-					data: {
-						runCount: 10,
-						completedCount: 9,
-						successRate: 0.9,
-						averageDurationMs: null,
-						warnings: [
-							"3 of 10 selected runs have no steps/** evidence; retry, rollback, tool-call, and failed-step counts are lower bounds.",
-						],
-					},
-				})}
-				successCount={0}
-				failureCount={0}
-			/>,
-		);
-		expect(html).toContain("Some runs have incomplete records");
-		expect(html).toContain("counts shown may be incomplete");
-		expect(html).toContain("Technical details");
-		expect(html).toContain("steps/** evidence");
-	});
-
-	it("states unavailable evidence in place instead of a raw error alert", () => {
-		const html = renderToStaticMarkup(
-			<SkillOverviewSummary
-				description={null}
-				tags={[]}
-				reliability={read({
-					isError: true,
-					error: new Error("Not Found"),
-				})}
-				successCount={0}
-				failureCount={0}
-			/>,
-		);
-		expect(html).toContain("Unavailable");
-		expect(html).toContain("Retry");
-		expect(html).not.toContain("Not Found");
-		expect(html).not.toContain("No runs yet");
-	});
-
-	it("marks a pending evidence read instead of claiming no executions", () => {
-		const html = renderToStaticMarkup(
-			<SkillOverviewSummary
-				description={null}
-				tags={[]}
-				reliability={read({ isPending: true })}
-				successCount={0}
-				failureCount={0}
-			/>,
-		);
-		expect(html).toContain("Reading…");
-		expect(html).not.toContain("No runs yet");
-		expect(html).not.toContain("Appears after observed execution.");
-	});
-
-	it("keeps cached evidence visible when a refresh fails", () => {
-		const html = renderToStaticMarkup(
-			<SkillOverviewSummary
-				description={null}
-				tags={[]}
-				reliability={read({
-					isError: true,
-					error: new Error("socket hang up"),
-					data: {
-						runCount: 10,
-						completedCount: 9,
-						successRate: 0.9,
-						averageDurationMs: null,
-						warnings: [],
-					},
-				})}
-				successCount={0}
-				failureCount={0}
-			/>,
-		);
-		expect(html).toContain("90%");
-		expect(html).toContain("out of date");
-		expect(html).toContain("Retry");
-		expect(html).not.toContain("Unavailable");
-	});
-
-	it("leads with the newest runs so an old rate cannot hide a skill that now fails", () => {
-		const evidence = {
-			runCount: 100,
-			completedCount: 73,
-			successRate: 0.73,
-			averageDurationMs: null,
-			warnings: [],
-		};
-		const failing = renderToStaticMarkup(
-			<SkillOverviewSummary
-				description={null}
-				tags={[]}
-				reliability={read({ data: evidence })}
-				recent={{ finished: 5, completed: 0, failed: 5 }}
-				successCount={0}
-				failureCount={0}
-			/>,
-		);
-		expect(failing).toContain("Last 5 runs failed");
-		expect(failing).toContain("73% overall: 73 of 100 sampled runs completed");
-		const mixed = renderToStaticMarkup(
-			<SkillOverviewSummary
-				description={null}
-				tags={[]}
-				reliability={read({ data: evidence })}
-				recent={{ finished: 5, completed: 3, failed: 1 }}
-				successCount={0}
-				failureCount={0}
-			/>,
-		);
-		expect(mixed).toContain("3 of the last 5 runs completed");
-		const steady = renderToStaticMarkup(
-			<SkillOverviewSummary
-				description={null}
-				tags={[]}
-				reliability={read({ data: evidence })}
-				recent={{ finished: 1, completed: 1, failed: 0 }}
-				successCount={0}
-				failureCount={0}
-			/>,
-		);
-		expect(steady).toContain("Last run completed");
-	});
-
-	it("says no runs only when a landed read proves it", () => {
-		const html = renderToStaticMarkup(
-			<SkillOverviewSummary
-				description={null}
-				tags={[]}
-				reliability={read({
-					data: {
-						runCount: 0,
-						completedCount: 0,
-						successRate: null,
-						averageDurationMs: null,
-						warnings: [],
-					},
-				})}
-				successCount={0}
-				failureCount={0}
-			/>,
-		);
-		expect(html).toContain("No runs yet");
-		expect(html).toContain("Appears after observed execution.");
-	});
-});
 
 describe("Skill overview bundle", () => {
 	it("shows arbitrary supporting paths instead of only workflow source", () => {
@@ -256,5 +60,42 @@ describe("SkillOverviewPage missing record", () => {
 		const missing = renderPage({ entry: null });
 		expect(missing).toContain("Skill not found");
 		expect(missing).toContain("may have been");
+	});
+});
+
+describe("SkillOverviewPage content", () => {
+	it("leads with run metrics and recent runs, not workflow anatomy", () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false, enabled: false } },
+		});
+		client.setQueryData(skillDetailQueryOptions("skill-1").queryKey, {
+			entry: {
+				id: "skill-1",
+				organizationId: "example",
+				title: "Weekly digest",
+				content: "# Weekly digest",
+				files: {
+					"scripts/workflow.ts":
+						"export default async (env) => { await step.do('read', () => env.MCP.os.get_os_output({})); }",
+				},
+				successCount: 4,
+				failureCount: 1,
+				revision: 2,
+				visibility: "org",
+				paceLayer: "record",
+			},
+		} as never);
+		const html = renderToStaticMarkup(
+			<QueryClientProvider client={client}>
+				<SkillOverviewPage />
+			</QueryClientProvider>,
+		);
+		expect(html).toContain("How it is doing");
+		expect(html).toContain("Recent runs");
+		expect(html).toContain("What it uses and produces");
+		expect(html).toContain("Feedback");
+		expect(html).toContain("4 found it helpful · 1 found it unhelpful");
+		expect(html).not.toContain("Workflow anatomy");
+		expect(html).not.toContain("Observed reliability");
 	});
 });
