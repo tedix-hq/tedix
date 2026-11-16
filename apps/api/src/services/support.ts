@@ -33,6 +33,23 @@ export function supportReporter(context: BaseContext) {
 		"Support requires an attributable authenticated caller",
 	);
 }
+/**
+ * Who answers for a new ticket's Work Item in the reporter's organization: the
+ * owner of its Support project when one is named, otherwise the person or tedi
+ * who filed it. A report filed by a key or an outside agent with nobody behind
+ * it has no owner, so its Work Item waits in triage.
+ */
+export function supportWorkOwner(
+	context: BaseContext,
+	project: { ownerUserId: string | null; leadTediId: string | null },
+): { type: "user" | "tedi"; id: string } | null {
+	const userId = context.userId ?? context.gatewayEndUserId;
+	if (project.ownerUserId) return { type: "user", id: project.ownerUserId };
+	if (project.leadTediId) return { type: "tedi", id: project.leadTediId };
+	if (userId) return { type: "user", id: userId };
+	if (context.tediId) return { type: "tedi", id: context.tediId };
+	return null;
+}
 export async function supportStaff(context: BaseContext, humanOnly = false) {
 	const config = await supportConfig(context);
 	const userId = context.userId ?? context.gatewayEndUserId;

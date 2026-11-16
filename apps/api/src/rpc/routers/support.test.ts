@@ -189,6 +189,55 @@ describe("Support intake authorization and human publication", () => {
 			}),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	});
+	it("makes the reporter the accountable owner, uses the Support project's owner when it has one, and leaves an ownerless report in triage", async () => {
+		const { client, sqlite } = await fixture(),
+			input = await request();
+		const source = (workItemId: string) =>
+			sqlite
+				.prepare(
+					"SELECT disposition, accountable_owner_type AS ownerType, accountable_owner_id AS ownerId, project_id IS NOT NULL AS hasProject FROM work_items WHERE id=?",
+				)
+				.get(workItemId);
+		const byPerson = await client().file(input);
+		expect(source(byPerson.workItemId)).toEqual({
+			disposition: "accepted",
+			ownerType: "user",
+			ownerId: "reporter",
+			hasProject: 1,
+		});
+		// A key with nobody behind it names no owner: the ticket is recorded and
+		// its Work Item waits in triage.
+		const key = {
+			authType: "apikey" as const,
+			userId: undefined,
+			user: undefined,
+			apiKey: { id: "key-1", scopes: ["mcp:work.write"] },
+		} as unknown as Partial<BaseContext>;
+		const byKey = await client(key).file({
+			...input,
+			idempotencyKey: "request-2",
+		});
+		expect(byKey.mirrorDelivery).toBe("delivered");
+		expect(source(byKey.workItemId)).toEqual({
+			disposition: "proposed",
+			ownerType: null,
+			ownerId: null,
+			hasProject: 1,
+		});
+		sqlite
+			.prepare("UPDATE projects SET owner_user_id=? WHERE org_id=?")
+			.run("support-owner", tenant);
+		const withProjectOwner = await client(key).file({
+			...input,
+			idempotencyKey: "request-3",
+		});
+		expect(source(withProjectOwner.workItemId)).toEqual({
+			disposition: "accepted",
+			ownerType: "user",
+			ownerId: "support-owner",
+			hasProject: 1,
+		});
+	});
 	it("lets only the designated Support tedi draft, keeps the draft private, and requires the designated human to publish", async () => {
 		const { client, sqlite } = await fixture(),
 			receipt = await client().file(await request());

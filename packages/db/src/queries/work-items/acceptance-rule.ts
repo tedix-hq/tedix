@@ -12,10 +12,9 @@ import type {
 export function missingForAcceptance(
 	item: Pick<WorkItem, "projectId" | "accountableOwnerId">,
 	contract: Pick<WorkItemAcceptanceContract, "doneLooksLike"> | null,
-	options: { systemEnvelope?: boolean } = {},
 ): string[] {
 	return [
-		...(item.projectId || options.systemEnvelope ? [] : ["a project"]),
+		...(item.projectId ? [] : ["a project"]),
 		...(contract?.doneLooksLike?.trim()
 			? []
 			: ["a statement of what done looks like"]),

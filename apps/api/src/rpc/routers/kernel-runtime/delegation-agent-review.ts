@@ -30,7 +30,9 @@ import {
 } from "../kernel/delegation-approver";
 import {
 	delegationWorkItemTitle,
+	homeRequestProjectId,
 	requiredProofKindForExecution,
+	waitingInTriageForProject,
 } from "../kernel/delegation-work-item";
 import type { HomeDelegationAgentReviewRequest } from "../kernel/turn-work-context";
 
@@ -87,6 +89,11 @@ export async function requestHomeDelegationAgentReview(
 		sourceIntentId,
 	});
 	if (!item) {
+		const projectId = await homeRequestProjectId(context, {
+			organizationId: input.organizationId,
+			objectiveId: input.objectiveId,
+			tediId: input.targetTediId,
+		});
 		const created = await createWorkItem(context.db, {
 			id: crypto.randomUUID(),
 			orgId: input.organizationId,
@@ -94,6 +101,7 @@ export async function requestHomeDelegationAgentReview(
 			description: reviewDescription(input),
 			workKind: "operations",
 			priority: "medium",
+			projectId: projectId ?? undefined,
 			requiredAuthorities: [HOME_DELEGATION_AUTHORITY],
 			accountableOwnerType: "tedi",
 			accountableOwnerId: input.targetTediId,
@@ -126,6 +134,10 @@ export async function requestHomeDelegationAgentReview(
 			},
 			createdAt: input.requestedAt,
 		});
+		// Without a project the held delegation is a proposal like any other:
+		// it waits in Triage and no approver is asked.
+		if (!created.projectId)
+			throw new Error(waitingInTriageForProject(created.id));
 		item = await acceptWorkItem(context.db, {
 			orgId: input.organizationId,
 			workItemId: created.id,
@@ -136,7 +148,6 @@ export async function requestHomeDelegationAgentReview(
 			},
 			actor: { type: "system", id: "home" },
 			acceptedAt: input.requestedAt,
-			systemEnvelope: true,
 		});
 	}
 	if (item.disposition !== "accepted") {

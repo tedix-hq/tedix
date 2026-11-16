@@ -41,12 +41,14 @@ import {
 	listWorkItems,
 } from "@tedix/db/queries/work-items/crud";
 import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
+import { findRequestContextProjectId } from "@tedix/db/queries/projects";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import {
 	findWorkItemsBlockedBy,
 	queryWorkItemBlockers,
 } from "@tedix/db/queries/work-items/relations";
 import { toJsonRecord } from "@tedix/db/utils/json";
+import { requestFilingSettings } from "../../../services/request-filing-settings";
 import { type BaseContext, createError, ErrorCodes } from "../../orpc";
 import { type ChildRunLiveness } from "./child-run-liveness";
 import { readChildRunResultAndLiveness } from "./child-run-reads";
@@ -288,6 +290,41 @@ async function hasOwnActiveAttempt(
 }
 
 /**
+ * The project a Home request already points at: its objective's project, the
+ * project the delegated tedi leads, the requesting person's default project,
+ * or the organization's only project. Null when the request names none; Home
+ * then leaves the Work Item proposed so a person places it in Triage.
+ */
+export async function homeRequestProjectId(
+	context: BaseContext,
+	input: {
+		organizationId: string;
+		objectiveId?: string | null;
+		tediId: string;
+	},
+): Promise<string | null> {
+	const userId = context.userId ?? context.gatewayEndUserId;
+	return findRequestContextProjectId(context.db, {
+		orgId: input.organizationId,
+		objectiveId: input.objectiveId,
+		leadTediId: input.tediId,
+		defaultProjectId: userId
+			? (
+					await requestFilingSettings(context.db, {
+						organizationId: input.organizationId,
+						userId,
+					})
+				).intakeProjectId
+			: null,
+	});
+}
+
+/** What Home tells the person when work cannot start for want of a project. */
+export function waitingInTriageForProject(workItemId: string): string {
+	return `No project is known for this request, so Work Item ${workItemId} is waiting in Triage instead of starting. Give it a project and accept it there.`;
+}
+
+/**
  * Reuse an operator-selected canonical Work Item or eagerly create one and
  * start its fenced attempt
  * for a kernel DIRECT delegation. New items are keyed to the child run id so a
@@ -387,6 +424,11 @@ export async function createDelegationWorkItem(
 			`Work Item ${input.workItemId} is unavailable for this delegation`,
 		);
 	}
+	const projectId = await homeRequestProjectId(context, {
+		organizationId: input.organizationId,
+		objectiveId: input.objectiveId,
+		tediId: input.assigneeTediId,
+	});
 	const workItem = await createWorkItem(context.db, {
 		id: crypto.randomUUID(),
 		orgId: input.organizationId,
@@ -394,6 +436,7 @@ export async function createDelegationWorkItem(
 		description: input.content.trim() || undefined,
 		workKind: "operations",
 		priority: "medium",
+		projectId: projectId ?? undefined,
 		accountableOwnerType: "tedi",
 		accountableOwnerId: input.assigneeTediId,
 		stewardType: "system",
@@ -426,6 +469,13 @@ export async function createDelegationWorkItem(
 		},
 		createdAt: input.createdAt,
 	});
+	// Without a project the delegation is a proposal like any other: it stays
+	// in Triage and no Attempt starts.
+	if (!workItem.projectId)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			waitingInTriageForProject(workItem.id),
+		);
 	const acceptedWorkItem = await acceptWorkItem(context.db, {
 		orgId: input.organizationId,
 		workItemId: workItem.id,
@@ -436,7 +486,6 @@ export async function createDelegationWorkItem(
 		},
 		actor: { type: "system", id: "home" },
 		acceptedAt: input.createdAt,
-		systemEnvelope: true,
 	});
 	const admission = await admitWorkAttempt(context.db, {
 		workItem: acceptedWorkItem,

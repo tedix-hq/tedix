@@ -267,14 +267,22 @@ export async function listSupportTickets(
 		.orderBy(asc(supportTickets.nextUpdateDue))
 		.limit(p.limit);
 }
+/**
+ * The reporter's own Work Item follows the acceptance rule: with an accountable
+ * owner it is accepted on filing; without one it stays proposed and waits in
+ * triage. The ticket is recorded either way.
+ */
 export async function createSupportTicket(
 	db: DbQueryClient,
 	ticket: typeof supportTickets.$inferInsert,
+	owner: { type: "user" | "tedi"; id: string } | null,
 ) {
 	const stewardship = await resolveWorkItemSteward(db, {
 		orgId: ticket.orgId,
 		projectId: ticket.projectId,
 		workKind: "operations",
+		accountableOwnerType: owner?.type,
+		accountableOwnerId: owner?.id,
 	});
 	const purpose = await supportWorkPurpose(
 		db,
@@ -292,11 +300,13 @@ export async function createSupportTicket(
 				title: ticket.report.title,
 				description: JSON.stringify(ticket.report),
 				workKind: "operations",
-				disposition: "accepted",
+				disposition: owner ? "accepted" : "proposed",
 				riskLevel: "low",
 				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
 				...purpose,
 				...stewardship,
+				accountableOwnerType: owner?.type,
+				accountableOwnerId: owner?.id,
 				acceptanceContract: {
 					version: 1,
 					doneLooksLike:
@@ -304,7 +314,7 @@ export async function createSupportTicket(
 				},
 				sourceIntentId: `support:${ticket.id}`,
 				createdAt: ticket.createdAt,
-				acceptedAt: ticket.createdAt,
+				acceptedAt: owner ? ticket.createdAt : null,
 			})
 			.onConflictDoNothing(),
 		db.insert(supportTickets).values(ticket).onConflictDoNothing(),
@@ -474,10 +484,13 @@ export async function updateSupportTicket(
 			db
 				.update(workItems)
 				.set({
+					// A ticket update never accepts work that is still in triage.
 					disposition:
 						(p.patch.status ?? old.status) === "resolved"
 							? "completed"
-							: "accepted",
+							: sql<
+									"proposed" | "accepted"
+								>`CASE WHEN ${workItems.acceptedAt} IS NULL THEN 'proposed' ELSE 'accepted' END`,
 					completedAt:
 						(p.patch.status ?? old.status) === "resolved" ? p.now : null,
 					deadline: p.patch.nextUpdateDue ?? old.nextUpdateDue,

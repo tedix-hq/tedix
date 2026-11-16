@@ -37,14 +37,12 @@ const accept = (
 	db: ReturnType<typeof seeded>["db"],
 	workItemId: string,
 	doneLooksLike: string,
-	systemEnvelope?: boolean,
 ) =>
 	acceptWorkItem(db, {
 		orgId: "org-acme",
 		workItemId,
 		actor: { type: "user", id: "fictional-owner" },
 		acceptanceContract: { version: 1, doneLooksLike },
-		systemEnvelope,
 	});
 
 it("names each thing a proposal still lacks", () => {
@@ -88,16 +86,15 @@ it("refuses to accept a proposal without a project, a done-when or an owner", as
 	sqlite.close();
 });
 
-it("lets Home accept its own delegation wrapper before a project is known, but never without an owner", async () => {
-	const { sqlite, db } = seeded([
-		["wrapper", null, "fictional-tedi"],
-		["ownerless", null, null],
-	]);
-	expect((await accept(db, "wrapper", "Settled", true)).disposition).toBe(
-		"accepted",
+it("holds Home's delegation wrapper to the same rule as any proposal", async () => {
+	const { sqlite, db } = seeded([["wrapper", null, "fictional-tedi"]]);
+	await expect(accept(db, "wrapper", "Settled")).rejects.toThrow(
+		/Missing: a project\./,
 	);
-	await expect(accept(db, "ownerless", "Settled", true)).rejects.toThrow(
-		/Missing: an accountable owner\./,
-	);
+	expect(
+		sqlite
+			.prepare("SELECT disposition FROM work_items WHERE id=?")
+			.get("wrapper")?.disposition,
+	).toBe("proposed");
 	sqlite.close();
 });

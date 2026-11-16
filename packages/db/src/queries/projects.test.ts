@@ -6,6 +6,7 @@ import { workItems } from "../schema/work-items";
 import {
 	archiveProject,
 	createProject,
+	findRequestContextProjectId,
 	getProjectById,
 	getProjectByIdForOrganization,
 	getProjectByKey,
@@ -707,4 +708,62 @@ it("excludes a protected project before counting, search and paging", async () =
 			})
 		).total,
 	).toBe(1);
+});
+
+it("finds the one project a request already points at", async () => {
+	const { db, sqlite } = fixture();
+	const add = (
+		id: string,
+		orgId: string,
+		lead: string | null,
+		objective: string | null,
+		status = "active",
+	) =>
+		sqlite
+			.prepare(
+				"INSERT INTO projects(id,org_id,key,name,status,lead_tedi_id,objective_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
+			)
+			.run(id, orgId, id, id, status, lead, objective, NOW);
+	add("by-objective", ORG, null, "objective-a");
+	add("by-lead", ORG, "tedi-a", null);
+	add("requester-default", ORG, null, null);
+	add("two-leads-1", ORG, "tedi-b", null);
+	add("two-leads-2", ORG, "tedi-b", null);
+	add("paused", ORG, "tedi-c", "objective-c", "paused");
+	add("foreign", "other-org", "tedi-d", "objective-d");
+	const find = (
+		params: Omit<Parameters<typeof findRequestContextProjectId>[1], "orgId">,
+	) => findRequestContextProjectId(db, { orgId: ORG, ...params });
+	expect(
+		await find({
+			objectiveId: "objective-a",
+			leadTediId: "tedi-a",
+			defaultProjectId: "requester-default",
+		}),
+	).toBe("by-objective");
+	expect(
+		await find({ leadTediId: "tedi-a", defaultProjectId: "requester-default" }),
+	).toBe("by-lead");
+	// Two projects with the same lead is no answer; the requester's default is.
+	expect(
+		await find({ leadTediId: "tedi-b", defaultProjectId: "requester-default" }),
+	).toBe("requester-default");
+	expect(await find({ leadTediId: "tedi-b" })).toBeNull();
+	expect(
+		await find({ objectiveId: "objective-c", leadTediId: "tedi-c" }),
+	).toBeNull();
+	expect(
+		await find({
+			objectiveId: "objective-d",
+			leadTediId: "tedi-d",
+			defaultProjectId: "foreign",
+		}),
+	).toBeNull();
+	expect(await find({})).toBeNull();
+	// An organization with a single active project has only one place to put it.
+	add("only-one", "small-org", null, null);
+	add("archived", "small-org", null, null, "archived");
+	expect(await findRequestContextProjectId(db, { orgId: "small-org" })).toBe(
+		"only-one",
+	);
 });
