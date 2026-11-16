@@ -180,6 +180,7 @@ const INSERT_GROUPS: OsPresentationElementType[][] = [
 const EXPORTS = [
 	["pptx", "PowerPoint"],
 	["pdf", "PDF"],
+	["html", "HTML"],
 	["outline", "Outline"],
 ] as const;
 

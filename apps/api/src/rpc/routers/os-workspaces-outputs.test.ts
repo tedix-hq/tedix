@@ -2227,9 +2227,18 @@ describe("output export", () => {
 				unzipSync(bodies.get(pptxExport.key)!)["ppt/slides/slide1.xml"]!,
 			),
 		).toContain("<a:t>Up 12%</a:t>");
+		const htmlExport = await client.outputs.export({
+			outputId: deck.id,
+			format: "html",
+		});
+		expect(htmlExport.key).toBe(`os-exports/org-1/${deck.id}/rev-1.html`);
+		expect(new TextDecoder().decode(bodies.get(htmlExport.key)!)).toContain(
+			"Up 12%",
+		);
 		expect(puts.map((put) => put.contentType)).toEqual([
 			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+			"text/html; charset=utf-8",
 		]);
 	});
 

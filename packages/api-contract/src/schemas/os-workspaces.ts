@@ -982,7 +982,7 @@ export const OS_OUTPUT_EXPORT_FORMAT_KINDS = {
 	docx: ["document"],
 	pptx: ["presentation"],
 	markdown: ["document"],
-	html: ["document"],
+	html: ["document", "presentation"],
 	csv: ["sheet"],
 } as const satisfies Record<
 	z.infer<typeof OsOutputExportFormatSchema>,

@@ -2078,6 +2078,15 @@ describe("portable Slides canvas", () => {
 				expectedRevision: 4,
 			}),
 		);
+		await vi.waitFor(() => expect(button("more").disabled).toBe(false));
+		download("html");
+		await vi.waitFor(() =>
+			expect(api.call).toHaveBeenCalledWith("app.exportOutput", {
+				slot: "slides",
+				format: "html",
+				expectedRevision: 4,
+			}),
+		);
 	});
 	it("opens Format on demand and with Enter on a selected element", async () => {
 		await mount();
