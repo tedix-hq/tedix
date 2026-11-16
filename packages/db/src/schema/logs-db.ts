@@ -33,6 +33,7 @@
 
 import { sqliteTable, text, type SQLiteTable } from "drizzle-orm/sqlite-core";
 import { auditEvents } from "./audit-events";
+import { auditMetadataRefs } from "./audit-metadata-refs";
 import { skillRunArtifacts } from "./cognitive";
 import { kernelRuntimeEvents, tediRuntimeEvents } from "./cognitive-runtime";
 import { externalAgentAttributions } from "./external-agent-identity";
@@ -56,6 +57,7 @@ export const logPartition = sqliteTable("log_partition", {
 
 export const LOGS_DB_TABLES: readonly SQLiteTable[] = [
 	auditEvents,
+	auditMetadataRefs,
 	tediRuntimeEvents,
 	kernelRuntimeEvents,
 	skillRunArtifacts,
@@ -80,6 +82,10 @@ export const LOGS_DB_INDEXES: readonly {
 	{
 		table: "audit_events",
 		ddl: `CREATE INDEX "idx_audit_events_org_app_timestamp" ON "audit_events" ("organization_id", json_extract("metadata", '$.appId'), "timestamp");`,
+	},
+	{
+		table: "audit_events",
+		ddl: `CREATE INDEX "idx_audit_events_org_app_ref_timestamp" ON "audit_events" ("organization_id", json_extract("metadata", '$._r.a'), "timestamp");`,
 	},
 	{
 		table: "audit_events",

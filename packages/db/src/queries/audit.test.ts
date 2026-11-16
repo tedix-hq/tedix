@@ -2,9 +2,13 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
+import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { listRecentAnalyticsAuditActivity } from "./analytics-audit";
+import {
+	getAnalyticsAppFreshness,
+	listRecentAnalyticsAuditActivity,
+} from "./analytics-audit";
 import {
 	buildInsertAuditEventStatement,
 	getAuditEventsByResource,
@@ -30,7 +34,7 @@ let sqlite: DatabaseSync;
 let db: DbClient;
 beforeEach(() => {
 	sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(schemaDdl(auditEvents));
+	sqlite.exec(schemaDdl(auditEvents, auditMetadataRefs));
 	db = createDbClient(createD1Facade(sqlite));
 });
 afterEach(() => sqlite.close());
@@ -219,7 +223,8 @@ describe("compact MCP telemetry metadata", () => {
 		resourceType: "mcp_tool",
 		resourceId: "code",
 		metadata: {
-			appId: "app-1",
+			appId: "app_01JCG8Z3F5N4K6M7P8Q9R0STUV",
+			clientId: "https://os.tedix.dev/.well-known/oauth-client/opencode.json",
 			subjectUserId: "actor-first",
 			tediId: "tedi-1",
 			agentTediId: "tedi-1",
@@ -235,15 +240,37 @@ describe("compact MCP telemetry metadata", () => {
 			).metadata,
 		);
 
-	it("stores flags for repeated ids and restores them for every reader", async () => {
+	it("stores short refs and repeated-id flags, then restores every reader", async () => {
 		await insertAuditEvent(db, { ...mcp, id: "mcp" });
-		expect(storedMetadata("mcp")).toEqual({
-			appId: "app-1",
+		const stored = storedMetadata("mcp");
+		expect(stored).toEqual({
 			agentTediId: "tedi-1",
 			delegationMode: "human_to_tedi",
 			subjectIsActor: true,
 			tediIsAgent: true,
+			_r: { a: expect.any(String), c: expect.any(String) },
 		});
+		expect(stored._r.a).toHaveLength(22);
+		expect(stored._r.c).toHaveLength(22);
+		expect(
+			(await db.select().from(auditMetadataRefs))
+				.map(({ kind, value }) => ({ kind, value }))
+				.sort((a, b) => a.kind.localeCompare(b.kind)),
+		).toEqual([
+			{ kind: "app", value: mcp.metadata?.appId },
+			{ kind: "client", value: mcp.metadata?.clientId },
+		]);
+		const inlineBytes = Buffer.byteLength(
+			JSON.stringify({
+				appId: mcp.metadata?.appId,
+				clientId: mcp.metadata?.clientId,
+				agentTediId: "tedi-1",
+				delegationMode: "human_to_tedi",
+				subjectIsActor: true,
+				tediIsAgent: true,
+			}),
+		);
+		expect(Buffer.byteLength(JSON.stringify(stored))).toBeLessThan(inlineBytes);
 		const [searched] = (
 			await searchAuditEvents(db, { organizationId: "org-first" })
 		).data;
@@ -261,6 +288,16 @@ describe("compact MCP telemetry metadata", () => {
 		});
 		expect(activity?.subjectUserId).toBe("actor-first");
 		expect(activity?.agentTediId).toBe("tedi-1");
+		expect(activity?.appId).toBe(mcp.metadata?.appId);
+		expect(activity?.clientId).toBe(mcp.metadata?.clientId);
+		expect(activity?.oauthClientId).toBe(mcp.metadata?.clientId);
+		const freshness = await getAnalyticsAppFreshness(db, {
+			organizationId: "org-first",
+			appId: String(mcp.metadata?.appId),
+			windowStartSeconds: 0,
+			windowEndSeconds: 2_000_000_000,
+		});
+		expect(freshness.countsRow?.codeExecutions).toBe(1);
 	});
 
 	it("keeps differing ids and every non-MCP row as written", async () => {
@@ -276,8 +313,20 @@ describe("compact MCP telemetry metadata", () => {
 			id: "approval",
 			action: "approval.approved",
 		});
-		expect(storedMetadata("distinct")).toEqual(distinct);
+		expect(storedMetadata("distinct")).toMatchObject({
+			subjectUserId: "someone-else",
+			tediId: "tedi-1",
+			agentTediId: "tedi-2",
+			_r: { a: expect.any(String) },
+		});
 		expect(storedMetadata("approval")).toEqual(mcp.metadata);
+		const [restored] = (
+			await searchAuditEvents(db, {
+				organizationId: "org-first",
+				resourceType: "mcp_tool",
+			})
+		).data.filter((row) => row.id === "distinct");
+		expect(restored?.metadata).toEqual(distinct);
 		const [activity] = await listRecentAnalyticsAuditActivity(db, {
 			organizationId: "org-first",
 			limit: 5,

@@ -4,9 +4,11 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, gte, lte, lt, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, lt, or } from "drizzle-orm";
 import { getLogStores, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
+import { auditMetadataRefs } from "../schema/audit-metadata-refs";
+import { chunkForBoundParams } from "../utils/batch";
 import {
 	compareTimestampId,
 	mergeLogStoreRows,
@@ -105,8 +107,53 @@ export async function insertAuditEvent(
 	const target = MCP_TELEMETRY_ACTIONS.has(event.action)
 		? (getLogStores(db)?.logs ?? db)
 		: db;
-	const { id, statement } = buildInsertAuditEventStatement(target, event);
-	await statement;
+	const compacted = compactAuditMetadata(event);
+	const referenced = event.action.startsWith("mcp.")
+		? await compactAuditMetadataRefs(target, event.organizationId, compacted)
+		: { metadata: compacted, refs: [] };
+	const { id, statement } = buildInsertAuditEventStatement(target, {
+		...event,
+		metadata: referenced.metadata,
+	});
+	if (referenced.refs.length === 0) await statement;
+	else {
+		const existing = await target
+			.select()
+			.from(auditMetadataRefs)
+			.where(
+				and(
+					eq(auditMetadataRefs.organizationId, event.organizationId),
+					// bound-params: one app ref and one client ref per audit event
+					inArray(
+						auditMetadataRefs.ref,
+						referenced.refs.map((entry) => entry.ref),
+					),
+				),
+			);
+		for (const row of existing) {
+			const expected = referenced.refs.find((entry) => entry.ref === row.ref);
+			if (
+				!expected ||
+				expected.kind !== row.kind ||
+				expected.value !== row.value
+			)
+				throw new Error(`Audit metadata reference collision: ${row.ref}`);
+		}
+		const [firstRef, ...restRefs] = referenced.refs;
+		await target.batch([
+			target
+				.insert(auditMetadataRefs)
+				.values({ organizationId: event.organizationId, ...firstRef! })
+				.onConflictDoNothing(),
+			...restRefs.map((entry) =>
+				target
+					.insert(auditMetadataRefs)
+					.values({ organizationId: event.organizationId, ...entry })
+					.onConflictDoNothing(),
+			),
+			statement,
+		]);
+	}
 	return id;
 }
 
@@ -132,6 +179,56 @@ export async function insertAuditEventsBatch(
  */
 const AUDIT_SUBJECT_IS_ACTOR = "subjectIsActor";
 const AUDIT_TEDI_IS_AGENT = "tediIsAgent";
+const AUDIT_METADATA_REFS = "_r";
+
+type AuditMetadataRefKind = "app" | "client";
+
+async function auditMetadataRef(
+	organizationId: string,
+	kind: AuditMetadataRefKind,
+	value: string,
+): Promise<string> {
+	const input = new TextEncoder().encode(
+		`${organizationId}\0${kind}\0${value}`,
+	);
+	const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", input));
+	let binary = "";
+	for (const byte of digest.subarray(0, 16))
+		binary += String.fromCharCode(byte);
+	return btoa(binary)
+		.replaceAll("+", "-")
+		.replaceAll("/", "_")
+		.replaceAll("=", "");
+}
+
+async function compactAuditMetadataRefs(
+	db: DbClient,
+	organizationId: string,
+	metadata: Record<string, JsonValue> | null,
+): Promise<{
+	metadata: Record<string, JsonValue> | null;
+	refs: { ref: string; kind: AuditMetadataRefKind; value: string }[];
+}> {
+	if (!metadata) return { metadata, refs: [] };
+	const compacted = { ...metadata };
+	if (compacted[AUDIT_METADATA_REFS] !== undefined)
+		return { metadata: compacted, refs: [] };
+	const refs: { ref: string; kind: AuditMetadataRefKind; value: string }[] = [];
+	const metadataRefs: Record<string, JsonValue> = {};
+	for (const [key, refKey, kind] of [
+		["appId", "a", "app"],
+		["clientId", "c", "client"],
+	] as const) {
+		const value = compacted[key];
+		if (typeof value !== "string") continue;
+		const ref = await auditMetadataRef(organizationId, kind, value);
+		delete compacted[key];
+		metadataRefs[refKey] = ref;
+		refs.push({ ref, kind, value });
+	}
+	if (refs.length > 0) compacted[AUDIT_METADATA_REFS] = metadataRefs;
+	return { metadata: compacted, refs };
+}
 
 function compactAuditMetadata(
 	event: InsertAuditEventParams,
@@ -181,6 +278,67 @@ export function expandAuditMetadata<
 			expanded.tediId = expanded.agentTediId;
 	}
 	return { ...row, metadata: expanded };
+}
+
+async function expandAuditMetadataRefs<
+	T extends {
+		organizationId: string;
+		actorId: string;
+		metadata: Record<string, JsonValue> | null;
+	},
+>(db: DbClient, rows: T[]): Promise<T[]> {
+	const refs = [
+		...new Set(
+			rows.flatMap((row) => {
+				const metadata = row.metadata;
+				if (!metadata) return [];
+				const metadataRefs = metadata[AUDIT_METADATA_REFS];
+				if (
+					typeof metadataRefs !== "object" ||
+					metadataRefs === null ||
+					Array.isArray(metadataRefs)
+				)
+					return [];
+				return [metadataRefs.a, metadataRefs.c].filter(
+					(value): value is string => typeof value === "string",
+				);
+			}),
+		),
+	];
+	if (refs.length === 0) return rows.map(expandAuditMetadata);
+	const values = new Map<string, string>();
+	for (const chunk of chunkForBoundParams(refs, 50)) {
+		const mappings = await db
+			.select()
+			.from(auditMetadataRefs)
+			.where(inArray(auditMetadataRefs.ref, chunk));
+		for (const mapping of mappings)
+			values.set(`${mapping.organizationId}\0${mapping.ref}`, mapping.value);
+	}
+	return rows.map((row) => {
+		if (!row.metadata) return expandAuditMetadata(row);
+		const metadata = { ...row.metadata };
+		const metadataRefs = metadata[AUDIT_METADATA_REFS];
+		if (
+			typeof metadataRefs !== "object" ||
+			metadataRefs === null ||
+			Array.isArray(metadataRefs)
+		)
+			return expandAuditMetadata(row);
+		for (const [refKey, key] of [
+			["a", "appId"],
+			["c", "clientId"],
+		] as const) {
+			const ref = metadataRefs[refKey];
+			if (typeof ref !== "string") continue;
+			const value = values.get(`${row.organizationId}\0${ref}`);
+			if (value === undefined)
+				throw new Error(`Missing audit metadata reference: ${ref}`);
+			metadata[key] = value;
+		}
+		delete metadata[AUDIT_METADATA_REFS];
+		return expandAuditMetadata({ ...row, metadata });
+	});
 }
 
 /** Unexecuted audit insert, for `db.batch()` composition. */
@@ -280,7 +438,7 @@ export async function searchAuditEvents(
 
 	const total = await db.$count(auditEvents, whereClause);
 
-	return { data: data.map(expandAuditMetadata), total };
+	return { data: await expandAuditMetadataRefs(db, data), total };
 }
 
 /**
@@ -319,5 +477,5 @@ export async function getAuditEventsByResource(
 		)
 		.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
 		.limit(limit);
-	return rows.map(expandAuditMetadata);
+	return expandAuditMetadataRefs(db, rows);
 }

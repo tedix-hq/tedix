@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
+import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { tediRationaleRecords } from "../schema/rationale-records";
 import { chunkForBoundParams } from "../utils/batch";
@@ -109,9 +110,42 @@ function auditMetadataNumeric(key: string) {
 	>`json_extract(${auditEvents.metadata}, ${`$.${key}`})`.as(key);
 }
 
+function auditReferencedMetadata(
+	key: "appId" | "clientId",
+	refKey: "a" | "c",
+	kind: "app" | "client",
+) {
+	return sql<string | null>`coalesce(
+		json_extract(${auditEvents.metadata}, ${`$.${key}`}),
+		(
+			select ${auditMetadataRefs.value}
+			from ${auditMetadataRefs}
+			where ${auditMetadataRefs.organizationId} = ${auditEvents.organizationId}
+				and ${auditMetadataRefs.ref} = json_extract(${auditEvents.metadata}, ${`$._r.${refKey}`})
+				and ${auditMetadataRefs.kind} = ${kind}
+		)
+	)`;
+}
+
+const auditAppId = auditReferencedMetadata("appId", "a", "app");
+const auditClientId = auditReferencedMetadata("clientId", "c", "client");
+
+function auditAppMatches(appId: string) {
+	return sql`(
+		json_extract(${auditEvents.metadata}, '$.appId') = ${appId}
+		or json_extract(${auditEvents.metadata}, '$._r.a') = (
+			select ${auditMetadataRefs.ref}
+			from ${auditMetadataRefs}
+			where ${auditMetadataRefs.organizationId} = ${auditEvents.organizationId}
+				and ${auditMetadataRefs.kind} = 'app'
+				and ${auditMetadataRefs.value} = ${appId}
+		)
+	)`;
+}
+
 const auditOauthClientId = sql<
 	string | null
->`coalesce(json_extract(${auditEvents.metadata}, '$.clientId'), json_extract(${auditEvents.metadata}, '$.oauthClientId'))`;
+>`coalesce(${auditClientId}, json_extract(${auditEvents.metadata}, '$.oauthClientId'))`;
 
 const auditActivityFields = {
 	action: auditEvents.action,
@@ -119,12 +153,12 @@ const auditActivityFields = {
 	actorType: auditEvents.actorType,
 	resourceId: auditEvents.resourceId,
 	timestamp: auditTimestamp.as("timestamp"),
-	appId: auditMetadata("appId"),
+	appId: auditAppId.as("appId"),
 	durationMs: auditMetadataNumeric("durationMs"),
 	errorCode: auditMetadata("errorCode"),
 	executionId: auditMetadata("executionId"),
 	traceId: auditMetadata("traceId"),
-	clientId: auditMetadata("clientId"),
+	clientId: auditClientId.as("clientId"),
 	subjectUserId: auditSubjectUserId.as("subjectUserId"),
 	agentTediId: auditMetadata("agentTediId"),
 	oauthClientId: auditOauthClientId.as("oauthClientId"),
@@ -148,9 +182,7 @@ function optionalActivityScope(input: {
 }) {
 	return [
 		optionalOrganization(input.organizationId),
-		input.appId
-			? sql`json_extract(${auditEvents.metadata}, '$.appId') = ${input.appId}`
-			: undefined,
+		input.appId ? auditAppMatches(input.appId) : undefined,
 		input.actorId ? eq(auditEvents.actorId, input.actorId) : undefined,
 	];
 }
@@ -197,7 +229,7 @@ export async function getAnalyticsAppFreshness(
 	}
 	const appScope = and(
 		eq(auditEvents.organizationId, input.organizationId),
-		sql`json_extract(${auditEvents.metadata}, '$.appId') = ${input.appId}`,
+		auditAppMatches(input.appId),
 	);
 	const [countsRow] = await db
 		.select({
@@ -271,7 +303,7 @@ export async function listAnalyticsExecutionAuditRows(
 			durationMs: auditMetadataNumeric("durationMs"),
 			errorCode: auditMetadata("errorCode"),
 			traceId: auditMetadata("traceId"),
-			clientId: auditMetadata("clientId"),
+			clientId: auditClientId.as("clientId"),
 			subjectUserId: auditSubjectUserId.as("subjectUserId"),
 			agentTediId: auditMetadata("agentTediId"),
 			oauthClientId: auditOauthClientId.as("oauthClientId"),

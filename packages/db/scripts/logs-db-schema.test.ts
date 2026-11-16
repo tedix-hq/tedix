@@ -87,6 +87,7 @@ describe("logs database migrations", () => {
 			"idx_audit_events_trace_timestamp",
 			"idx_audit_events_execution_timestamp",
 			"idx_audit_events_org_app_timestamp",
+			"idx_audit_events_org_app_ref_timestamp",
 			"idx_audit_events_org_actor_timestamp",
 		]) {
 			expect(logsDdl).toContain(name);

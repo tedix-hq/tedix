@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { configureLogStore, createDbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
+import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { logPartition } from "../schema/logs-db";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
@@ -18,7 +19,7 @@ import {
 
 function store() {
 	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(schemaDdl(auditEvents, logPartition));
+	sqlite.exec(schemaDdl(auditEvents, auditMetadataRefs, logPartition));
 	const binding = createD1Facade(sqlite);
 	return { sqlite, binding, db: createDbClient(binding) };
 }
