@@ -296,6 +296,15 @@ function fixture(role = "owner", write = true) {
 		deny() {
 			denied = true;
 		},
+		externalDeck(
+			change: (
+				deck: NonNullable<PresentationContent["deck"]>,
+			) => NonNullable<PresentationContent["deck"]>,
+		) {
+			savedBy = "user";
+			revision++;
+			content = { ...content, deck: change(structuredClone(content.deck!)) };
+		},
 		external(by = "user", text = "External title") {
 			savedBy = by;
 			revision++;
@@ -1243,7 +1252,7 @@ describe("portable Slides canvas", () => {
 			await vi.advanceTimersByTimeAsync(4_100);
 			expect(document.querySelector(".landed")).toBeNull();
 		});
-		it("takes someone who is only watching to the changed slide, and nobody else", async () => {
+		it("follows an editor to the changed slide only 2.5 seconds after they chose a slide", async () => {
 			const api = await mount();
 			thumb("slide-2").dispatchEvent(
 				new PointerEvent("pointerdown", { bubbles: true }),
@@ -1266,6 +1275,49 @@ describe("portable Slides canvas", () => {
 			);
 			expect(stageElement().textContent).toBe("Second change");
 			expect(stageElement().classList.contains("landed")).toBe(true);
+		});
+		const renameSecond = (deck: NonNullable<PresentationContent["deck"]>) => ({
+			...deck,
+			slides: deck.slides.map((slide) =>
+				slide.id === "slide-2" ? { ...slide, name: "Renamed" } : slide,
+			),
+		});
+		it("leaves someone with an element selected on their slide and keeps the selection", async () => {
+			const api = await mount();
+			clickElement("artwork");
+			vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000);
+			api.externalDeck(renameSecond);
+			api.notify();
+			await vi.waitFor(() =>
+				expect(thumb("slide-2").classList.contains("landed")).toBe(true),
+			);
+			expect(thumb("slide-1").classList.contains("current")).toBe(true);
+			expect(stageElement("artwork").classList.contains("selected")).toBe(true);
+		});
+		it("never moves a reader", async () => {
+			const api = await mount("use", false);
+			vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000);
+			api.externalDeck(renameSecond);
+			api.notify();
+			await vi.waitFor(() =>
+				expect(thumb("slide-2").classList.contains("landed")).toBe(true),
+			);
+			expect(thumb("slide-1").classList.contains("current")).toBe(true);
+		});
+		it("keeps the person's slide when someone else changes the deck's current slide", async () => {
+			const api = await mount();
+			api.externalDeck((deck) => ({
+				...deck,
+				activeSlideId: "slide-2",
+				slides: deck.slides.map((slide) =>
+					slide.id === "slide-1" ? { ...slide, name: "First" } : slide,
+				),
+			}));
+			api.notify();
+			await vi.waitFor(() =>
+				expect(thumb("slide-1").classList.contains("landed")).toBe(true),
+			);
+			expect(thumb("slide-1").classList.contains("current")).toBe(true);
 		});
 		it("offers to undo an agent's change and undoes it as a new saved change", async () => {
 			const api = await mount();
