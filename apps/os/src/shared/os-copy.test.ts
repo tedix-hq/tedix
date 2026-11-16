@@ -1,8 +1,45 @@
 import { afterEach, expect, it } from "vite-plus/test";
+import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 import { setOsFormattingPreferences } from "@/lib/format";
+import { WORK_VIEW_GROUPS, WORK_VIEWS } from "@/lib/work-views";
 import { OS_COPY, decisionText } from "./os-copy";
 
 afterEach(() => setOsFormattingPreferences({ locale: null, timezone: null }));
+
+function visibleStrings(value: unknown): string[] {
+	if (typeof value === "string") return [value];
+	if (!value || typeof value !== "object") return [];
+	return Object.values(value).flatMap(visibleStrings);
+}
+
+// The visible word is Goal, by the owner's decision of 15 Nov 2026. The API
+// name `objective` is unchanged: keys, routes and field names keep it, labels
+// never show it. Do not switch this copy back to Objective.
+it("says Goal, never Objective, in visible Work copy", () => {
+	const workCopy = () => [
+		...visibleStrings(OS_COPY.work),
+		...visibleStrings(OS_COPY.workHome),
+		...visibleStrings(OS_COPY.navigation),
+		...WORK_VIEW_GROUPS.map((group) => group.label),
+		...WORK_VIEWS.flatMap((view) => [view.label, view.description]),
+	];
+	const english = [...workCopy(), ...visibleStrings(ATTENTION_COPY)];
+	expect(english.filter((text) => /\bobjectives?\b/i.test(text))).toEqual([]);
+	expect(OS_COPY.work.objective).toBe("Goal");
+	expect(OS_COPY.work.objectives).toBe("Goals");
+	expect(ATTENTION_COPY.goal).toBe("Goal");
+	expect(ATTENTION_COPY.goals).toBe("Goals");
+	expect(WORK_VIEWS.find((view) => view.id === "goals")).toMatchObject({
+		label: "Goals",
+		description: "Every goal and the projects and epics serving it.",
+	});
+
+	setOsFormattingPreferences({ locale: "es-MX", timezone: null });
+	expect(workCopy().filter((text) => /\bobjetivos?\b/i.test(text))).toEqual([]);
+	expect(OS_COPY.work.objective).toBe("Meta");
+	expect(OS_COPY.work.objectives).toBe("Metas");
+	expect(WORK_VIEWS.find((view) => view.id === "goals")?.label).toBe("Metas");
+});
 
 it("follows personal Spanish preferences after the app modules have already loaded", () => {
 	expect(OS_COPY.decisionDeck.title).toBe("One decision at a time");
@@ -12,8 +49,8 @@ it("follows personal Spanish preferences after the app modules have already load
 	expect(OS_COPY.feedDeckVisual.clear).toBe("Todo decidido");
 	expect(OS_COPY.workspace.overview).toBe("Resumen");
 	expect(OS_COPY.work.status).toBe("Estado");
-	expect(OS_COPY.work.objective).toBe("Objetivo");
-	expect(OS_COPY.work.objectives).toBe("Objetivos");
+	expect(OS_COPY.work.objective).toBe("Meta");
+	expect(OS_COPY.work.objectives).toBe("Metas");
 	expect(OS_COPY.work.dispositions).toEqual({
 		proposed: "Propuesto",
 		accepted: "Aceptado",
@@ -33,8 +70,8 @@ it("follows personal Spanish preferences after the app modules have already load
 	expect(OS_COPY.workspace.overview).toBe("Overview");
 	expect(OS_COPY.work.dispositions.accepted).toBe("Accepted");
 	expect(OS_COPY.work.status).toBe("Status");
-	expect(OS_COPY.work.objective).toBe("Objective");
-	expect(OS_COPY.work.objectives).toBe("Objectives");
+	expect(OS_COPY.work.objective).toBe("Goal");
+	expect(OS_COPY.work.objectives).toBe("Goals");
 	expect(decisionText("Confirm decision")).toBe("Confirm decision");
 });
 
