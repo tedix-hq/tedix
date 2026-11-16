@@ -658,6 +658,34 @@ describe("a runner's hold request", () => {
 		f.sqlite.close();
 	});
 
+	it("reaches the deck with its fixed summary, over one a model wrote earlier", async () => {
+		const f = await hold("execution_hold");
+		const { requestOutput } = await import("../rpc/routers/work-interactions");
+		const { laneHoldFace } =
+			await import("@tedix/api-contract/utils/lane-hold-decision");
+		const fixed = laneHoldFace(f.request);
+		expect(fixed?.recommendation).toMatch(/^Try again/);
+		expect(requestOutput(f.request).metadata.cardPresentation).toEqual(fixed);
+		const modelWritten = {
+			version: 2 as const,
+			title: "Edit the task so it starts again?",
+			body: "The task starts again after your edit.",
+			recommendation: "Yes — editing the task releases it.",
+		};
+		expect(
+			requestOutput(
+				{
+					...f.request,
+					metadata: { ...f.request.metadata, cardPresentation: modelWritten },
+				},
+				undefined,
+				undefined,
+				modelWritten,
+			).metadata.cardPresentation,
+		).toEqual(fixed);
+		f.sqlite.close();
+	});
+
 	it("Try again lifts the hold and queues the task for the same agent", async () => {
 		const f = await hold("execution_hold");
 		const result = await executeDecisionCardEffect(

@@ -1,3 +1,4 @@
+import { laneHoldFace } from "@tedix/api-contract/utils/lane-hold-decision";
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
 import {
@@ -217,6 +218,7 @@ export async function generateDecisionCard(
 		kind: string;
 		metadata: Record<string, unknown>;
 		createdAt?: string;
+		workItemId?: string | null;
 	},
 	onFailure?: (reason: string) => void,
 	// Context is always required; requireContext remains for existing callers.
@@ -230,6 +232,9 @@ export async function generateDecisionCard(
 		onFailure?.("unsafe_source");
 		return null;
 	}
+	// A runner's hold card has a fixed summary that matches its answers.
+	const holdFace = laneHoldFace(request);
+	if (holdFace) return holdFace;
 	const decision = request.metadata.decisionDeck;
 	const preferences = await readDraftPreferences(
 		context.db,

@@ -29,6 +29,7 @@ import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-
 import { agentDecisionReviewIds } from "@tedix/api-contract/utils/agent-decision-journal";
 import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
 import { deckAsk, deckAskKind } from "@tedix/api-contract/utils/deck-ask";
+import { laneHoldDecision } from "@tedix/api-contract/utils/lane-hold-decision";
 import {
 	nextHidingClasses,
 	planDeckSweep,
@@ -60,6 +61,18 @@ function isProtected(row: CardRow) {
 	);
 }
 
+/**
+ * The card's answers as the person sees them: the stored ones, or the ones a
+ * runner's hold request gets when it is read.
+ */
+function cardDecision(row: CardRow) {
+	return (
+		DecisionEnvelopeSchema.safeParse(row.metadata.decisionDeck).data ??
+		laneHoldDecision(row) ??
+		undefined
+	);
+}
+
 export function sweepCard(
 	row: CardRow,
 	dispositions: ReadonlyMap<string, string>,
@@ -83,8 +96,7 @@ export function sweepCard(
 		protected: isProtected(row),
 		askKind: deckAskKind({
 			kind,
-			decision: DecisionEnvelopeSchema.safeParse(row.metadata.decisionDeck)
-				.data,
+			decision: cardDecision(row),
 			request: { metadata: row.metadata },
 		}),
 	};
@@ -308,9 +320,7 @@ export async function sweepOrganizationDeck(
 					facts?.chain.find((step) => step.edge.kind === "card_from_work")?.node
 						.id ??
 					null;
-				const decision = DecisionEnvelopeSchema.safeParse(
-					row.metadata.decisionDeck,
-				).data;
+				const decision = cardDecision(row);
 				const ask = deckAsk(
 					{
 						kind: deckInteractionKind(row.kind, row.metadata),

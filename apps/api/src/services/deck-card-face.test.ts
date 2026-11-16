@@ -2,6 +2,10 @@ import { beforeEach, expect, it, vi } from "vite-plus/test";
 import type { DeckCard } from "@tedix/api-contract/schemas/attention";
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import { checkDecisionCardCopy } from "@tedix/api-contract/utils/decision-card-copy";
+import {
+	laneHoldDecision,
+	laneHoldFace,
+} from "@tedix/api-contract/utils/lane-hold-decision";
 import type { BaseContext } from "../rpc/orpc";
 const mocks = vi.hoisted(() => ({
 	get: vi.fn(),
@@ -666,4 +670,79 @@ it("regenerates a saved face that turns another account into the reader's own", 
 	} as unknown as DeckCard;
 	expect(await prepareDeckCardFace(context, instinctCard)).toMatchObject(fixed);
 	expect(mocks.generate).toHaveBeenCalledTimes(1);
+});
+
+it("gives a runner's hold card its fixed summary without calling a model", async () => {
+	const filed = {
+		id: "10000000-0000-4000-8000-000000000003",
+		workItemId: "10000000-0000-4000-8000-000000000004",
+		subject: 'What should happen with "Port the landing page"?',
+		prompt:
+			'Claude Code stopped working on "Port the landing page". Three tries failed.\n\nThe task stays accepted and no agent starts it. To run it again, edit the task.',
+		requestedFromId: "fictional-person",
+		version: 1,
+		metadata: {
+			source: "lane-dispatch-blocker",
+			laneBlocker: {
+				kind: "execution_hold",
+				executor: "claude-code",
+				workVersion: 7,
+			},
+		},
+	};
+	const decision = laneHoldDecision(filed)!;
+	const holdCard = {
+		...card,
+		id: "interaction:fictional-hold",
+		factory: undefined,
+		decision,
+		interaction: {
+			request: {
+				...filed,
+				// What a read returns: the derived answers, and a summary a model
+				// wrote earlier from the filed text alone.
+				metadata: {
+					...filed.metadata,
+					decisionDeck: decision,
+					cardPresentation: {
+						...copy,
+						recommendation: "Yes — edit the task to start it again.",
+					},
+				},
+			},
+		},
+	} as unknown as DeckCard;
+	const [displayed] = await prepareDeckCardFaces(context, [holdCard]);
+	expect(displayed?.presentation).toEqual(laneHoldFace(filed));
+	expect(displayed?.presentation?.recommendation).toMatch(/^Try again/);
+	expect(displayed?.faceText).toContain("Try again");
+	expect(displayed?.faceText).not.toContain("Summary");
+	expect(mocks.generate).not.toHaveBeenCalled();
+	expect(mocks.put).not.toHaveBeenCalled();
+	expect(mocks.save).not.toHaveBeenCalled();
+});
+
+it("tells the writer what a task approval's Approve and Reject do", () => {
+	const source = deckCardWritingSource({
+		...card,
+		factory: undefined,
+		workApproval: {
+			proposal: {
+				action: "admission",
+				proposal: {},
+				requestRationale: "The shortlist is ready.",
+			},
+			workItem: { title: "Review supplier shortlist" },
+		},
+	} as unknown as DeckCard);
+	expect(JSON.parse(source.prompt)).toEqual({
+		action: "admission",
+		rationale: "The shortlist is ready.",
+		task: "Review supplier shortlist",
+		request:
+			'Allow work to start on "Review supplier shortlist" as the task is written now.',
+		ifApproved:
+			"Work on this task may start, as long as the task stays as it is written now.",
+		ifRejected: "The task does not start and the requester sees your reason.",
+	});
 });

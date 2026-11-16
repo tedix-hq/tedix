@@ -2,7 +2,11 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
-import { laneHoldDecision } from "@tedix/api-contract/utils/lane-hold-decision";
+import {
+	laneHoldDecision,
+	laneHoldFace,
+} from "@tedix/api-contract/utils/lane-hold-decision";
+import { CardFaceContext } from "@/components/deck-presentation-context";
 import { DecisionEnvelopeCard } from "./decision-envelope-card";
 
 vi.mock("@/components/kumo/toast", () => ({ toast: { success: vi.fn() } }));
@@ -202,3 +206,56 @@ it("gives a stopped task three answers and asks before closing it", async () => 
 		host.remove();
 	}
 });
+
+it.each(["execution_hold", "result_unverified", "accountable_owner"] as const)(
+	"waits for a person on a %s card even with auto when confident",
+	async (kind) => {
+		vi.useFakeTimers();
+		const host = document.createElement("div");
+		document.body.append(host);
+		const root = createRoot(host);
+		const filed = {
+			workItemId: "00000000-0000-4000-8000-000000000002",
+			subject: 'What should happen with "Port the landing page"?',
+			prompt: 'Claude Code stopped working on "Port the landing page".',
+			metadata: {
+				source: "lane-dispatch-blocker",
+				laneBlocker: { kind, executor: "claude-code", workVersion: 7 },
+			},
+		};
+		const onDecision = vi.fn(async () => undefined);
+		try {
+			await act(async () =>
+				root.render(
+					<CardFaceContext.Provider
+						value={{
+							// The worst case: a summary that names an answer to pick.
+							presentation: {
+								...laneHoldFace(filed)!,
+								recommendedIntent: "approve",
+							},
+							confidence: 0.99,
+							preferences: { decideForMe: { decision: "auto" } },
+						}}
+					>
+						<DecisionEnvelopeCard
+							decision={laneHoldDecision(filed)!}
+							askedBy="Claude Code runner"
+							onDecision={onDecision}
+						/>
+					</CardFaceContext.Provider>,
+				),
+			);
+			expect(host.querySelector(".fd-auto-decide")).toBeNull();
+			await act(async () => {
+				vi.advanceTimersByTime(10000);
+			});
+			await act(async () => {});
+			expect(onDecision).not.toHaveBeenCalled();
+		} finally {
+			await act(async () => root.unmount());
+			host.remove();
+			vi.useRealTimers();
+		}
+	},
+);
