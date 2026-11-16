@@ -87,11 +87,11 @@ const englishContent = {
 	},
 	home: {
 		hero: {
-			line1: "A platform for",
-			line2: "agents, apps,",
-			line3: "and work.",
-			subtitleIntro: "People and AI agents,",
-			subtitleHighlight: "working together.",
+			line1: "Share connections, systems",
+			line2: "and knowledge across a",
+			line3: "unified infrastructure layer.",
+			subtitleIntro: "Build your AI stack once.",
+			subtitleHighlight: "Every department and subsidiary can use it.",
 			description:
 				"Keep shared tasks, project knowledge, apps, decisions, and results in one place.",
 			primaryCta: "Signup",
@@ -403,11 +403,12 @@ const germanContent = {
 	},
 	home: {
 		hero: {
-			line1: "Eine Plattform für",
-			line2: "Agenten, Apps",
-			line3: "und Arbeit.",
-			subtitleIntro: "Menschen und KI-Agenten,",
-			subtitleHighlight: "die zusammenarbeiten.",
+			line1: "Verbindungen, Systeme und",
+			line2: "Wissen teilen – über eine",
+			line3: "einheitliche Infrastrukturebene.",
+			subtitleIntro: "Den KI-Stack einmal aufbauen.",
+			subtitleHighlight:
+				"Jede Abteilung und Tochtergesellschaft kann ihn nutzen.",
 			description:
 				"Aufgaben, Projektwissen, Apps, Entscheidungen und Ergebnisse an einem gemeinsamen Ort.",
 			primaryCta: "Registrieren",
@@ -715,11 +716,11 @@ const spanishContent = {
 	},
 	home: {
 		hero: {
-			line1: "Una plataforma para",
-			line2: "agentes, apps",
-			line3: "y trabajo.",
-			subtitleIntro: "Personas y agentes de IA,",
-			subtitleHighlight: "trabajando juntos.",
+			line1: "Comparte conexiones, sistemas",
+			line2: "y conocimiento en una capa",
+			line3: "de infraestructura unificada.",
+			subtitleIntro: "Construye tu stack de IA una vez.",
+			subtitleHighlight: "Cada departamento y filial puede usarlo.",
 			description:
 				"Tareas, conocimientos del proyecto, apps, decisiones y resultados en un mismo lugar.",
 			primaryCta: "Registrarse",
