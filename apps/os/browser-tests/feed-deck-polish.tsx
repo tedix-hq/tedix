@@ -17,6 +17,7 @@ import { DeckCardSchema } from "@tedix/api-contract/schemas/attention";
 import { OsGadgetManifestSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { WorkspaceAppRenderer } from "../src/components/workspace-app-renderer";
 import { WorkDecisionCard } from "../src/components/work-decision-card";
+import { ActivityFeedApp } from "../src/components/activity-feed-app";
 import {
 	osQuery,
 	pendingApprovalsQueryOptions,
@@ -252,6 +253,94 @@ client.setQueryData(
 		pageParams: [undefined],
 	},
 );
+// `surface=feed&stalled` opens Stalled work: one tedi paused three times on the
+// same Work Item, another Work Item failed twice, and a third paused once.
+const stalledWorkItemId = "33333333-3333-4333-8333-333333333333";
+if (params.has("stalled")) {
+	const stalledAttempt = (
+		index: number,
+		outcome: "expired" | "failed",
+		workItemId: string,
+		title: string,
+		summary: string | null,
+	) => ({
+		attempt: {
+			id: `fictional-stalled-${index}`,
+			orgId: projectId,
+			workItemId,
+			executorType: "tedi",
+			executorId: "88888888-8888-4888-8888-888888888888",
+			executorSessionId: null,
+			externalSessionKey: null,
+			runtimeState: "finished",
+			outcome,
+			runId: null,
+			admissionId: null,
+			attemptNumber: index + 1,
+			startedAt: today.toISOString(),
+			heartbeatAt: today.toISOString(),
+			expiresAt: null,
+			finishedAt: new Date(today.getTime() - index * 86_400_000).toISOString(),
+			summary,
+			metadata: {},
+		},
+		workItem: {
+			id: workItemId,
+			title,
+			disposition: "accepted",
+			workKind: "other",
+			riskLevel: "low",
+			priority: "medium",
+			projectId,
+			accountableOwnerType: null,
+			accountableOwnerId: null,
+		},
+	});
+	client.setQueryData(
+		osQuery.workItems.listAttemptProjection.infiniteOptions({
+			input: () => ({
+				...input,
+				outcomes: ["succeeded", "failed", "expired", "cancelled"],
+			}),
+			...options,
+		}).queryKey,
+		{
+			pages: [
+				{
+					data: [
+						...[0, 1, 2].map((index) =>
+							stalledAttempt(
+								index,
+								"expired",
+								stalledWorkItemId,
+								"Workspace file",
+								null,
+							),
+						),
+						...[3, 4].map((index) =>
+							stalledAttempt(
+								index,
+								"failed",
+								"44444444-4444-4444-8444-444444444444",
+								"March ledger",
+								"The bank export was empty, so nothing could be matched.",
+							),
+						),
+						stalledAttempt(
+							5,
+							"expired",
+							"55555555-5555-4555-8555-555555555555",
+							"Supplier review",
+							null,
+						),
+					],
+					nextCursor: null,
+				},
+			],
+			pageParams: [undefined],
+		},
+	);
+}
 client.setQueryData(
 	osQuery.workInteractions.listInbox.infiniteOptions({
 		input: () => input,
@@ -854,7 +943,14 @@ createRoot(document.getElementById("root")!).render(
 						])
 					}
 				>
-					<WorkspaceAppRenderer manifest={manifest} />
+					{params.has("stalled") ? (
+						<ActivityFeedApp
+							config={ActivityFeedConfigSchema.parse(manifest.config)}
+							navigation={{ filter: "stalled", showRunningNow: false }}
+						/>
+					) : (
+						<WorkspaceAppRenderer manifest={manifest} />
+					)}
 				</WorkActorDirectoryContext.Provider>
 			)}
 		</ProofFrame>

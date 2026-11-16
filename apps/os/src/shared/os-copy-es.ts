@@ -377,6 +377,38 @@ export const SPANISH_FEED_DECK_COPY = {
 			stalled: "Trabajo detenido",
 			noFinished: "Ningún trabajo terminado coincide con estos filtros.",
 			noStalled: "Ningún trabajo detenido coincide con estos filtros.",
+			stalledCauses: {
+				expired: {
+					label: "En pausa",
+					why: "El intento dejó de informar antes de entregar un resultado.",
+				},
+				failed: {
+					label: "No terminó",
+					why: "El intento terminó con un fallo.",
+				},
+				partial: {
+					label: "Hecho en parte",
+					why: "El intento entregó una parte del trabajo y dejó el resto.",
+				},
+				cancelled: {
+					label: "Detenido",
+					why: "El intento se canceló antes de terminar.",
+				},
+				blocked: {
+					label: "Bloqueado",
+					why: "Algo está bloqueando este trabajo.",
+				},
+				other: { label: "Detenido", why: "" },
+			},
+			stalledList: "Trabajo detenido, una fila por causa",
+			stalledRow: (target: string, label: string, times: number) =>
+				`${target}: ${label}${times > 1 ? `, ${times} veces` : ""}`,
+			stalledTimes: (times: number) => `${times} veces`,
+			stalledLastReport: (report: string) => `Último informe: ${report}`,
+			stalledOpenWork: "Abrir el trabajo",
+			stalledOpenSource: "Abrir",
+			stalledShow: (count: number) => `Mostrar los ${count} registros`,
+			stalledHide: "Ocultar los registros",
 			region: "Actividad",
 			opening: "Abriendo tu actividad…",
 			preferences: "Preferencias de actividad",

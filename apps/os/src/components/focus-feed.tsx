@@ -41,11 +41,13 @@ import { SegmentedControl } from "./kumo/segmented-control";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
 import { ActivityGroupRow } from "./activity-group-row";
+import { StalledCauseRow } from "./stalled-cause-row";
 import {
 	ACTIVITY_WHO,
 	activityDays,
 	collapseActivity,
 	matchesActivityWho,
+	stalledCauses,
 	type ActivityWho,
 } from "@/lib/feed-timeline";
 import { osLocale } from "@/lib/format";
@@ -625,6 +627,35 @@ export function FocusFeed({
 			if (!next.delete(key)) next.add(key);
 			return next;
 		});
+	// Stalled work reads by cause: a repeat is one row with a count, not a list.
+	const causes = (list: FocusItem[]) => (
+		<div
+			role="list"
+			aria-label={OS_COPY.feed.timeline.stalledList}
+			className="focus-list"
+		>
+			{stalledCauses(list).map((group) =>
+				// A stall that happened once is its own record already.
+				group.items.length === 1 ? (
+					render(group.items[0]!)
+				) : (
+					<Fragment key={group.key}>
+						<StalledCauseRow
+							group={group}
+							actor={feedStoryActor(group.items[0]!, names)}
+							project={
+								config.projects.find((p) => p.id === group.items[0]!.projectId)
+									?.label
+							}
+							open={openGroups.has(group.key)}
+							onToggle={() => toggleGroup(group.key)}
+						/>
+						{openGroups.has(group.key) && group.items.map((i) => render(i))}
+					</Fragment>
+				),
+			)}
+		</div>
+	);
 	const days = (list: FocusItem[], budgeted = false) =>
 		activityDays(list, timeZone, now, osLocale()).map((day) => (
 			<section key={day.day} aria-label={day.label} className="ft-day">
@@ -797,7 +828,9 @@ export function FocusFeed({
 				}
 				aria-busy={loading || revealing}
 			>
-				{timeline ? (
+				{filter === "stalled" ? (
+					visible.length > 0 && causes(visible)
+				) : timeline ? (
 					days(visible)
 				) : (
 					<>

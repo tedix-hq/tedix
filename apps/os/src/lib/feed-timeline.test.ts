@@ -10,6 +10,7 @@ import {
 	activityStatus,
 	collapseActivity,
 	matchesActivityWho,
+	stalledCauses,
 } from "./feed-timeline";
 
 afterEach(() => setOsFormattingPreferences({ locale: null, timezone: null }));
@@ -215,6 +216,114 @@ describe("activity timeline", () => {
 			"done",
 			"result",
 			"ask",
+		]);
+	});
+
+	it("shows repeated stalled records as one cause with a count, newest cause first", () => {
+		const file = "11111111-1111-4111-8111-111111111111";
+		const ledger = "22222222-2222-4222-8222-222222222222";
+		const paused = (n: number, summary?: string) =>
+			item({
+				id: `attempt:${n}`,
+				kind: "result",
+				classId: "tedi:result:expired",
+				resultOutcome: "expired",
+				workItemId: file,
+				sentence: "Workspace file — paused before finishing.",
+				attachment: { title: "Workspace file", summary },
+				at: `2026-10-2${n}T09:00:00.000Z`,
+				stalled: true,
+				done: false,
+				explanation: "The linked attempt records this outcome.",
+			});
+		const causes = stalledCauses([
+			paused(1),
+			paused(3),
+			paused(2, "Could not open budget.xlsx: the file is locked."),
+			// The Work event for the same pause is the same cause, not a fourth pause.
+			item({
+				id: "work:expired",
+				classId: "work:attempt.expired",
+				workItemId: file,
+				sentence: "Workspace file needs a fresh attempt.",
+				at: "2026-10-23T09:00:01.000Z",
+				stalled: true,
+				done: false,
+			}),
+			// The same Work Item failing is a different cause.
+			item({
+				id: "attempt:failed",
+				kind: "result",
+				classId: "tedi:result:failed",
+				resultOutcome: "failed",
+				workItemId: file,
+				sentence: "Workspace file — Didn't finish.",
+				attachment: { title: "Workspace file" },
+				at: "2026-10-20T09:00:00.000Z",
+				stalled: true,
+				done: false,
+			}),
+			item({
+				id: "work:ledger",
+				classId: "work:attempt.failed",
+				workItemId: ledger,
+				sentence: "March ledger needs another look.",
+				explanation:
+					"The bank export was empty.\n\nRecorded in the linked Work history.",
+				at: "2026-10-24T09:00:00.000Z",
+				stalled: true,
+				done: false,
+			}),
+		]);
+		expect(
+			causes.map(({ cause, target, times, report, items }) => ({
+				cause,
+				target,
+				times,
+				report,
+				ids: items.map((i) => i.id),
+			})),
+		).toEqual([
+			{
+				cause: "failed",
+				target: "March ledger",
+				times: 1,
+				report: "The bank export was empty.",
+				ids: ["work:ledger"],
+			},
+			{
+				cause: "expired",
+				target: "Workspace file",
+				times: 3,
+				report: "Could not open budget.xlsx: the file is locked.",
+				ids: ["work:expired", "attempt:3", "attempt:2", "attempt:1"],
+			},
+			{
+				cause: "failed",
+				target: "Workspace file",
+				times: 1,
+				report: "",
+				ids: ["attempt:failed"],
+			},
+		]);
+		// Without a Work Item, the same actor posting the same line is one cause.
+		const alarm = (id: string, actor = "Tedix") =>
+			item({
+				id,
+				actor,
+				kind: "result",
+				sentence: "Decisions cleanup has not run for over 2 h",
+				stalled: true,
+				done: false,
+			});
+		expect(
+			stalledCauses([alarm("a"), alarm("b"), alarm("c", "Cedar")]).map((c) => [
+				c.cause,
+				c.times,
+			]),
+		).toEqual([
+			["other", 2],
+			["other", 1],
 		]);
 	});
 
