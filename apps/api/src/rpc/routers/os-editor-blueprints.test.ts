@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "@tedix/db/query-client";
+import { DOC_BLUEPRINT_VERSION } from "@tedix/api-contract/assets/office-editor-versions";
 import { eq } from "drizzle-orm";
 import {
 	osGadgets,
@@ -154,7 +155,7 @@ describe("workspace editor blueprints", () => {
 		expect(current.currentRevision?.revision).toBe(2);
 		expect(current.currentRevision?.manifest.config?.settings).toMatchObject({
 			editor: "document-v4",
-			blueprintVersion: 28,
+			blueprintVersion: DOC_BLUEPRINT_VERSION,
 		});
 		expect((await db.select().from(osGadgetRevisions)).length).toBe(2);
 		await expect(
