@@ -15,6 +15,8 @@ const WORKSPACE = "/workspace";
 export const CMS_BUILD_TIMEOUT_MS = 8 * 60 * 1000;
 export const CMS_BUILD_OBSERVATION_GRACE_MS = 10_000;
 export const CMS_BUILD_CONTROL_RPC_TIMEOUT_MS = 90_000;
+/** Consecutive failed status reads tolerated while a build is running. */
+export const CMS_BUILD_STATUS_OBSERVATION_ATTEMPTS = 3;
 export const CMS_BUILD_POLL_MS = 5000;
 export const CMS_BUILD_SUCCESS_MARKERS = [
 	"[build] Complete!",
@@ -259,10 +261,29 @@ export async function runCmsSandboxBuildToCompletion(
 		Date.now() +
 		(options.buildTimeoutMs ?? CMS_BUILD_TIMEOUT_MS) +
 		CMS_BUILD_OBSERVATION_GRACE_MS;
+	// Reading status is read-only, and Cloudflare's container service fails
+	// individual calls now and then. Re-read a few times before declaring the
+	// still-running build's outcome unknown and failing the whole deploy.
+	let failedObservations = 0;
 	while (true) {
-		const current = await observe("status observation", () =>
-			snapshot(sandbox, launch.jobId),
-		);
+		let current: CmsBuildSnapshot;
+		try {
+			current = await observe("status observation", () =>
+				snapshot(sandbox, launch.jobId),
+			);
+			failedObservations = 0;
+		} catch (error) {
+			failedObservations += 1;
+			if (
+				failedObservations >= CMS_BUILD_STATUS_OBSERVATION_ATTEMPTS ||
+				Date.now() >= deadline
+			)
+				throw error;
+			await new Promise((resolve) =>
+				setTimeout(resolve, options.pollMs ?? CMS_BUILD_POLL_MS),
+			);
+			continue;
+		}
 		if (current.message === "CMS theme build process was not found") {
 			throw new CmsUnknownProcessOutcomeError(
 				"CMS build process lookup is unknown; native process may still be running",
