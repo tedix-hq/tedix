@@ -240,12 +240,30 @@ export const skillHandlers: Record<string, (input: never) => unknown> = {
 		};
 	},
 	"skills/runWorkflowHistory": (
-		input: { status?: SkillRunRow["status"]; limit?: number } | undefined,
+		input:
+			| {
+					status?: SkillRunRow["status"];
+					trigger?: "scheduled" | "manual" | "agent" | "test";
+					startedAfter?: string;
+					limit?: number;
+					offset?: number;
+			  }
+			| undefined,
 	) => {
-		const rows = state.skillRuns.filter(
-			(run) => input?.status === undefined || run.status === input.status,
-		);
-		return { runs: rows.map(skillRunSummary) };
+		const offset = input?.offset ?? 0;
+		const runs = state.skillRuns
+			.filter(
+				(run) => input?.status === undefined || run.status === input.status,
+			)
+			.map(skillRunSummary)
+			.filter(
+				(run) =>
+					(input?.trigger === undefined || run.trigger === input.trigger) &&
+					(input?.startedAfter === undefined ||
+						(run.startedAt != null && run.startedAt >= input.startedAfter)),
+			)
+			.slice(offset, offset + (input?.limit ?? 50));
+		return { runs };
 	},
 	"skills/listWorkflowRetryCandidates": () => ({
 		candidates: state.skillRuns

@@ -483,13 +483,28 @@ export const skillCatalogQueryOptions = (
 export const skillDetailQueryOptions = (skillId: string) =>
 	osQuery.skills.get.queryOptions({ input: { id: skillId } });
 
+type SkillRunsInput = ClientInput<typeof osApi.skills.runWorkflowHistory>;
+
+/**
+ * One skill's runs, newest first. A status alone, or a filter that is
+ * empty, reads the same list the Overview tab and the Draft notice use.
+ */
 export const skillRunsQueryOptions = (
 	skillId: string,
-	status?: ClientInput<typeof osApi.skills.runWorkflowHistory>["status"],
+	filter?:
+		| SkillRunsInput["status"]
+		| Pick<
+				SkillRunsInput,
+				"status" | "trigger" | "skillRevision" | "startedAfter" | "offset"
+		  >,
 	limit = 50,
 ) =>
 	osQuery.skills.runWorkflowHistory.queryOptions({
-		input: { skillId, ...(status ? { status } : {}), limit },
+		input: {
+			skillId,
+			...(typeof filter === "string" ? { status: filter } : filter),
+			limit,
+		},
 	});
 
 export const skillReliabilityQueryOptions = (skillId: string) =>

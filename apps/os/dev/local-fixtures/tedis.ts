@@ -521,6 +521,17 @@ export const skillRunSummary = (run: SkillRunRow) => ({
 	hasError: run.error !== null,
 	outcome: run.status === "completed" ? ("delivered" as const) : null,
 	workItemId: null,
+	trigger: run.certification
+		? ("test" as const)
+		: run.createdBy === "schedule"
+			? ("scheduled" as const)
+			: run.createdBy === "dev-operator" || run.createdBy?.startsWith("user:")
+				? ("manual" as const)
+				: run.createdBy
+					? ("agent" as const)
+					: null,
+	errorPreview: run.error,
+	resultSummary: run.resultSummary ?? null,
 });
 
 export const runtimeProvenanceNulls = {

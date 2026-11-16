@@ -718,10 +718,10 @@ export async function prefetchSkillOverviewRoute(
 export async function prefetchSkillRunsRoute(
 	queryClient: QueryClient,
 	skillId: string,
-	status?: Parameters<typeof skillRunsQueryOptions>[1],
+	filter?: Parameters<typeof skillRunsQueryOptions>[1],
 ) {
 	await queryClient
-		.ensureQueryData(skillRunsQueryOptions(skillId, status))
+		.ensureQueryData(skillRunsQueryOptions(skillId, filter))
 		.catch(() => undefined);
 }
 

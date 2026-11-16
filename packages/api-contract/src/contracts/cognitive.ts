@@ -30,6 +30,7 @@ import {
 	SkillRunSchema,
 	SkillRunStatusSchema,
 	SkillRunSummarySchema,
+	SkillRunTriggerSchema,
 	SkillWorkflowRetryCandidateSchema,
 	SkillWorkflowRunTimelineSchema,
 	SkillMoveToTediInputSchema,
@@ -1778,6 +1779,19 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 					.optional()
 					.describe("Filter to runs whose skill carries this exact tag"),
 				status: SkillRunStatusSchema.optional(),
+				trigger: SkillRunTriggerSchema.optional().describe(
+					"Filter by what started the run",
+				),
+				skillRevision: z
+					.number()
+					.int()
+					.positive()
+					.optional()
+					.describe("Filter to runs of one skill revision"),
+				startedAfter: z.iso
+					.datetime()
+					.optional()
+					.describe("Only runs started at or after this ISO time"),
 				limit: z.number().int().min(1).max(200).optional().default(50),
 				offset: z
 					.number()

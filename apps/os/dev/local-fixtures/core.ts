@@ -228,6 +228,10 @@ export type SkillRunRow = {
 	completedAt: string | null;
 	error: string | null;
 	createdBy: string | null;
+	/** The result's summary line, when the run left one. */
+	resultSummary?: string;
+	/** An owner's or admin's test of the skill. */
+	certification?: boolean;
 };
 
 export type LocalState = {
