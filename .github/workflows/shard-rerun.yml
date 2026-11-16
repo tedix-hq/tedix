@@ -125,9 +125,15 @@ jobs:
           if [ -n "$TEST_SHARD" ]; then command+=(--shard "$TEST_SHARD"); fi
           if [ "$CAPTURE_BROWSER_STATE" = true ]; then
             mkdir -p "$BROWSER_DIAGNOSTICS_DIR"
+            # Runner hardware varies; the CPU decides which code a software
+            # rasterizer compiles, so record it in the log and the artifact.
+            grep -m1 '^model name' /proc/cpuinfo || true
+            echo "AVX-512 flags: $(grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep '^avx512' | tr '\n' ' ')"
             (
               uname -a
               cat /etc/os-release
+              grep -m1 '^model name' /proc/cpuinfo
+              grep -m1 '^flags' /proc/cpuinfo
               while true; do
                 date -u +%FT%TZ
                 ps -eLo pid,ppid,tid,stat,pcpu,wchan:40,comm
@@ -141,6 +147,7 @@ jobs:
               TEDIX_BROWSER_PROTOCOL_DIR="$BROWSER_DIAGNOSTICS_DIR/protocol" \
               TEDIX_BROWSER_EVIDENCE_DIR="$BROWSER_DIAGNOSTICS_DIR/traces" \
               "${command[@]}" > "$BROWSER_DIAGNOSTICS_DIR/protocol.log" 2>&1 || status=$?
+            grep -a -E '^\[run-specs\] (PASS|FAIL)' "$BROWSER_DIAGNOSTICS_DIR/protocol.log" || true
             echo "Diagnostic shard exited $status; protocol and process state are in the artifact."
             exit "$status"
           fi
