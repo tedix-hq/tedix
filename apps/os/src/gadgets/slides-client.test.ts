@@ -1630,6 +1630,75 @@ describe("portable Slides canvas", () => {
 			expect(button("zoom-fit").textContent).toBe("Fit");
 		});
 	});
+	describe("bleed, auto-height text, deck logo and new element types", () => {
+		const saved = (api: Awaited<ReturnType<typeof mount>>) =>
+			api.result().revision.content.deck!;
+		it("draws the deck logo on every slide but the first", async () => {
+			await mount("owner", true, (api) => {
+				const content = api.result().revision.content;
+				api.load({
+					...content,
+					deck: {
+						...content.deck!,
+						logo: {
+							src: "data:image/png;base64,aGVsbG8=",
+							position: "top-right",
+							showOnCover: false,
+						},
+					},
+				});
+			});
+			expect(stage().querySelector("[data-slide-logo]")).toBeNull();
+			expect(
+				thumb("slide-2").querySelector("[data-slide-logo]"),
+			).not.toBeNull();
+			key(stage(), { key: "ArrowRight" });
+			expect(stage().querySelector("[data-slide-logo]")).not.toBeNull();
+			format();
+			expect(field("Logo corner").value).toBe("top-right");
+		});
+		it("moves an element past the slide edge", async () => {
+			const api = await mount();
+			clickElement("artwork");
+			format();
+			change("X", "-60");
+			await api.app.save();
+			expect(saved(api).slides[0]!.elements[1]!.x).toBe(-60);
+		});
+		it("inserts a section label that fits its text", async () => {
+			const api = await mount();
+			insert("sectionLabel");
+			await api.app.save();
+			const added = saved(api).slides[0]!.elements.at(-1)!;
+			expect(added.type).toBe("sectionLabel");
+			expect(added.props?.autoHeight).toBe(true);
+			format();
+			expect(field("Text height").value).toBe("fits text");
+		});
+		it("gives text a fixed height once its bottom edge is dragged", async () => {
+			const api = await mount();
+			insert("text");
+			fullSizeStage();
+			const grip = document.querySelector<HTMLElement>(
+				'.slides-stage .selected .slides-resize[data-handle="s"]',
+			)!;
+			grip.dispatchEvent(
+				new PointerEvent("pointerdown", {
+					bubbles: true,
+					button: 0,
+					pointerId: 1,
+					clientX: 300,
+					clientY: 320,
+				}),
+			);
+			move(300, 400);
+			release();
+			await api.app.save();
+			expect(saved(api).slides[0]!.elements.at(-1)!.props?.autoHeight).toBe(
+				undefined,
+			);
+		});
+	});
 	describe("changes someone else makes while the presentation is open", () => {
 		const banner = () => document.querySelector(".slides-updates")!;
 		const offer = () =>

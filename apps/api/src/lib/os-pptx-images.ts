@@ -48,6 +48,8 @@ export async function prepareOsPptxImages(
 		converted.set(key, result);
 		return result;
 	};
+	if (copy.deck?.logo)
+		copy.deck.logo.src = await png(copy.deck.logo.src, 240, 36, "contain");
 	for (const slide of copy.deck?.slides ?? []) {
 		if (slide.backgroundImage)
 			slide.backgroundImage = await png(
@@ -57,7 +59,7 @@ export async function prepareOsPptxImages(
 				"cover",
 			);
 		for (const element of slide.elements) {
-			if (element.type === "image" && element.src)
+			if ((element.type === "image" || element.type === "logo") && element.src)
 				element.src = await png(
 					element.src,
 					element.width,

@@ -1,6 +1,7 @@
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
+	OsPresentationLogo,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { outputAssetDigest } from "@tedix/api-contract/utils/os-output-assets";
 import {
@@ -57,8 +58,12 @@ export function createSlideLinkedImages(
 				for (const image of images(link)) image.dataset.linkedState = "failed";
 			});
 	}
-	function track(node: HTMLElement, link: string | null | undefined) {
-		const image = node.querySelector<HTMLImageElement>(":scope > img");
+	function track(
+		node: HTMLElement,
+		link: string | null | undefined,
+		selector = ":scope > img",
+	) {
+		const image = node.querySelector<HTMLImageElement>(selector);
 		if (!image || !isLink(link)) return;
 		image.dataset.linkedImage = link;
 		if (embedded.has(link)) return;
@@ -94,14 +99,17 @@ export function createSlideLinkedImages(
 			node: HTMLElement,
 			slide: OsPresentationCanvasSlide,
 			appearance?: PresentationAppearance,
+			logo?: OsPresentationLogo,
 		) {
 			const link = slide.backgroundImage;
 			node.innerHTML = slideBackgroundMarkup(
 				isLink(link) ? { ...slide, backgroundImage: shown(link) } : slide,
 				"canvas",
 				appearance,
+				logo && isLink(logo.src) ? { ...logo, src: shown(logo.src) } : logo,
 			);
-			track(node, link);
+			track(node, link, ":scope > img:not([data-slide-logo])");
+			track(node, logo?.src, ":scope > img[data-slide-logo]");
 		},
 		/** The embedded copy of a source, once it has been read. */
 		copy: (source: string | null | undefined) =>

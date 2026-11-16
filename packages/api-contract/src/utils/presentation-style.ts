@@ -1,12 +1,20 @@
 import type {
 	OsPresentationCanvasSlide,
+	OsPresentationDeck,
 	OsPresentationElement,
+	OsPresentationLogo,
 	OsPresentationTheme,
 } from "../schemas/os-workspaces";
 import {
 	DEFAULT_ORGANIZATION_OS_THEME,
 	type OrganizationOsTheme,
 } from "../schemas/os-theme";
+import {
+	OS_SLIDE_MAX_X,
+	OS_SLIDE_MAX_Y,
+	OS_SLIDE_MIN_X,
+	OS_SLIDE_MIN_Y,
+} from "./os-output-limits";
 
 export interface PresentationAppearance {
 	name?: string;
@@ -49,8 +57,8 @@ export function slideElementBox(element: OsPresentationElement) {
 	if (element.type !== "arrow" || (!element.props?.from && !element.props?.to))
 		return element;
 	const { from, to } = slideArrowEndpoints(element);
-	const x = Math.max(0, Math.min(from.x, to.x) - 16);
-	const y = Math.max(0, Math.min(from.y, to.y) - 28);
+	const x = Math.max(OS_SLIDE_MIN_X, Math.min(from.x, to.x) - 16);
+	const y = Math.max(OS_SLIDE_MIN_Y, Math.min(from.y, to.y) - 28);
 	return {
 		...element,
 		x,
@@ -91,9 +99,16 @@ export function slideElementStyle(
 	const { style } = element;
 	const box = slideElementBox(element);
 	const container = element.type === "card" || element.type === "box";
-	const pill = element.type === "label" && element.props?.tone !== undefined;
-	const tone = slideTone(element.props?.tone, organization);
-	const fontSize = style.fontSize ?? 24;
+	const pill =
+		element.type === "tonePill" ||
+		(element.type === "label" && element.props?.tone !== undefined);
+	// A section label is the small uppercase heading above a slide's title.
+	const section = element.type === "sectionLabel";
+	const tone = slideTone(
+		element.props?.tone ?? (section ? "accent" : undefined),
+		organization,
+	);
+	const fontSize = style.fontSize ?? (section ? 10 : 24);
 	const length =
 		sizing === "pixels"
 			? (value: number) => `${value}px`
@@ -103,8 +118,12 @@ export function slideElementStyle(
 		top: sizing === "pixels" ? length(box.y) : `${(box.y / 675) * 100}%`,
 		width:
 			sizing === "pixels" ? length(box.width) : `${(box.width / 1200) * 100}%`,
-		height:
-			sizing === "pixels" ? length(box.height) : `${(box.height / 675) * 100}%`,
+		// Text with auto height takes the height its content needs.
+		height: element.props?.autoHeight
+			? "auto"
+			: sizing === "pixels"
+				? length(box.height)
+				: `${(box.height / 675) * 100}%`,
 		fontFamily: slideThemeFontFamily(element, theme) ?? "Arial, sans-serif",
 		fontSize: length(fontSize),
 		lineHeight: style.lineHeight ?? (fontSize >= 40 ? 1.1 : 1.3),
@@ -115,11 +134,14 @@ export function slideElementStyle(
 					? 500
 					: style.fontWeight === "light"
 						? 300
-						: (style.fontWeight ?? "normal"),
+						: (style.fontWeight ?? (section || pill ? 600 : "normal")),
 		letterSpacing:
 			style.letterSpacing === undefined
-				? "normal"
+				? section
+					? length(1)
+					: "normal"
 				: length(style.letterSpacing),
+		textTransform: section ? ("uppercase" as const) : undefined,
 		display: style.verticalAlign ? "flex" : undefined,
 		flexDirection: style.verticalAlign ? ("column" as const) : undefined,
 		justifyContent:
@@ -130,7 +152,7 @@ export function slideElementStyle(
 					: style.verticalAlign
 						? "flex-start"
 						: undefined,
-		color: style.color ?? (pill ? tone.color : undefined),
+		color: style.color ?? (pill || section ? tone.color : undefined),
 		background: style.background ?? (container || pill ? tone.fill : undefined),
 		borderColor: style.borderColor ?? (container ? tone.border : undefined),
 		borderStyle:
@@ -153,6 +175,10 @@ export function slideElementStyle(
 					),
 		textAlign: style.textAlign,
 		opacity: style.opacity,
+		boxShadow:
+			element.type === "card" && element.props?.topStripe
+				? `inset 0 ${length(4)} 0 ${tone.color}`
+				: undefined,
 		transform: style.rotation ? `rotate(${style.rotation}deg)` : undefined,
 		padding:
 			style.padding !== undefined
@@ -352,10 +378,24 @@ export function slideElementMarkup(
 	return text(element.text ?? "");
 }
 
+/** The deck logo slide `index` shows: none on the first slide unless asked. */
+export function slideDeckLogo(
+	deck: Pick<OsPresentationDeck, "logo"> | undefined,
+	index: number,
+): OsPresentationLogo | undefined {
+	const logo = deck?.logo;
+	return logo && (index > 0 || logo.showOnCover) ? logo : undefined;
+}
+
+/**
+ * A slide's background layers, and the deck logo when given. The logo is
+ * drawn above the slide's elements, in its corner.
+ */
 export function slideBackgroundMarkup(
 	slide: OsPresentationCanvasSlide,
 	sizing: "canvas" | "pixels" = "canvas",
 	organization: PresentationAppearance = {},
+	logo?: OsPresentationLogo,
 ): string {
 	const length =
 		sizing === "pixels"
@@ -369,6 +409,11 @@ export function slideBackgroundMarkup(
 		markup += `<div data-slide-background="dots" style="${slideCss({ position: "absolute", inset: "0", pointerEvents: "none", opacity: slide.dotGridOpacity, backgroundImage: `radial-gradient(${slideTone("neutral", organization).color} 1px, transparent 1px)`, backgroundSize: `${length(20)} ${length(20)}` })}"></div>`;
 	if (slide.insetSurface)
 		markup += `<div data-slide-background="inset" style="${slideCss({ position: "absolute", pointerEvents: "none", inset: length(slide.insetSurface.inset), background: slide.insetSurface.color, borderRadius: length(slide.insetSurface.radius) })}"></div>`;
+	const logoSource = slideImageSource(logo?.src);
+	if (logo && logoSource) {
+		const [vertical, horizontal] = (logo.position ?? "top-right").split("-");
+		markup += `<img data-slide-logo alt="${escapeSlideHtml(logo.alt ?? "Logo")}" src="${escapeSlideHtml(logoSource)}" draggable="false" style="${slideCss({ position: "absolute", zIndex: 1, [vertical!]: length(28), [horizontal!]: length(32), height: length(36), maxWidth: length(240), width: "auto", objectFit: "contain", pointerEvents: "none" })}">`;
+	}
 	return markup;
 }
 
@@ -386,12 +431,18 @@ export function slideElementGeometry(
 	const { from, to } = slideArrowEndpoints(element);
 	const point = ({ x, y }: { x: number; y: number }) => ({
 		x: Math.max(
-			0,
-			Math.min(1200, next.x + ((x - element.x) * next.width) / element.width),
+			OS_SLIDE_MIN_X,
+			Math.min(
+				OS_SLIDE_MAX_X,
+				next.x + ((x - element.x) * next.width) / element.width,
+			),
 		),
 		y: Math.max(
-			0,
-			Math.min(675, next.y + ((y - element.y) * next.height) / element.height),
+			OS_SLIDE_MIN_Y,
+			Math.min(
+				OS_SLIDE_MAX_Y,
+				next.y + ((y - element.y) * next.height) / element.height,
+			),
 		),
 	});
 	return {

@@ -195,12 +195,15 @@ export async function inlineOsExportImages<T extends OsOutputContent>(
 		return result;
 	};
 	if (copy.kind === "presentation") {
+		if (copy.deck?.logo) copy.deck.logo.src = await inline(copy.deck.logo.src);
 		for (const slide of copy.deck?.slides ?? []) {
 			if (slide.backgroundImage)
 				slide.backgroundImage = await inline(slide.backgroundImage);
 			for (const element of slide.elements) {
 				if (
-					(element.type === "image" || element.type === "svg") &&
+					(element.type === "image" ||
+						element.type === "svg" ||
+						element.type === "logo") &&
 					element.src
 				) {
 					element.src = await inline(element.src);

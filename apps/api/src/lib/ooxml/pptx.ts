@@ -25,6 +25,7 @@ import {
 import {
 	parseSlideText,
 	slideArrowEndpoints,
+	slideDeckLogo,
 	slideTone,
 	type PresentationAppearance,
 } from "@tedix/api-contract/utils/presentation-style";
@@ -60,6 +61,8 @@ const DEFAULT_FONT_PX: Record<string, number> = {
 	text: 18,
 	bullet: 24,
 	label: 14,
+	tonePill: 14,
+	sectionLabel: 10,
 	card: 18,
 	box: 18,
 	shape: 18,
@@ -89,7 +92,15 @@ const WEIGHT_VARIANT: Record<string, string> = {
 	light: "Light",
 	medium: "Medium",
 };
-const TEXT_TYPES = new Set(["title", "subtitle", "text", "bullet", "label"]);
+const TEXT_TYPES = new Set([
+	"title",
+	"subtitle",
+	"text",
+	"bullet",
+	"label",
+	"tonePill",
+	"sectionLabel",
+]);
 
 /** First family of a CSS font stack, unquoted, for an OOXML typeface name. */
 function firstFontFamily(stack: string | undefined): string | undefined {
@@ -258,7 +269,7 @@ function shapeXml(
 				? ' anchor="b"'
 				: "";
 	const body = hasText
-		? `<p:txBody><a:bodyPr wrap="square" lIns="${inset}" tIns="${inset}" rIns="${inset}" bIns="${inset}"${anchor}><a:normAutofit/></a:bodyPr><a:lstStyle/>${paragraphs(
+		? `<p:txBody><a:bodyPr wrap="square" lIns="${inset}" tIns="${inset}" rIns="${inset}" bIns="${inset}"${anchor}>${element.props?.autoHeight ? "<a:spAutoFit/>" : "<a:normAutofit/>"}</a:bodyPr><a:lstStyle/>${paragraphs(
 				element,
 				organization,
 			)}</p:txBody>`
@@ -423,9 +434,14 @@ export async function buildPptx(
 		canvasSlides.length > 0
 			? canvasSlides
 			: [canvasFromOutline({ title: "Untitled", bullets: [] }, 0)]
-	).map((slide) => ({
+	).map((slide, index) => ({
 		...slide,
-		elements: pptxSlideParts(slide, organization, theme),
+		elements: pptxSlideParts(
+			slide,
+			organization,
+			theme,
+			slideDeckLogo(content.deck, index),
+		),
 	}));
 	const images = await collectPptxImages(slides);
 	const parts: ZipEntry[] = [

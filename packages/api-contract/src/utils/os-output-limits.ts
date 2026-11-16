@@ -30,6 +30,14 @@ export const OS_SHEET_CELL_MAX_LENGTH = 8_192;
 export const OS_DECK_MAX_SLIDES = 500;
 /** Elements one slide may hold. */
 export const OS_SLIDE_MAX_ELEMENTS = 1_000;
+/**
+ * Where an element may sit, in slide pixels: past the 1200 × 675 slide's
+ * edges, so a picture or shape can bleed off it.
+ */
+export const OS_SLIDE_MIN_X = -100;
+export const OS_SLIDE_MAX_X = 1_300;
+export const OS_SLIDE_MIN_Y = -100;
+export const OS_SLIDE_MAX_Y = 800;
 /** Characters of text one slide may hold in all: its elements and its notes. */
 export const OS_SLIDE_MAX_TEXT_CHARS = 900_000;
 

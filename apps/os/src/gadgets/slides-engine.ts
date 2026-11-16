@@ -5,6 +5,12 @@ import type {
 	OsPresentationElementType,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { slideElementGeometry } from "@tedix/api-contract/utils/presentation-style";
+import {
+	OS_SLIDE_MAX_X,
+	OS_SLIDE_MAX_Y,
+	OS_SLIDE_MIN_X,
+	OS_SLIDE_MIN_Y,
+} from "@tedix/api-contract/utils/os-output-limits";
 import { createElement } from "../lib/slide-element-defaults";
 import {
 	normalizePresentationContent,
@@ -63,15 +69,10 @@ export function newCanvasSlide(
 	layout: NewSlideLayout = "title-content",
 ): OsPresentationCanvasSlide {
 	const section = block(
-		"label",
-		{ x: 36, y: 35, width: 160, height: 28 },
+		"sectionLabel",
+		{ x: 36, y: 35, width: 240, height: 24 },
 		"SECTION",
-		{
-			fontSize: 10,
-			fontWeight: "semibold",
-			color: "#525252",
-			letterSpacing: 1,
-		},
+		{},
 	);
 	const elements: OsPresentationElement[] =
 		layout === "title"
@@ -168,10 +169,23 @@ export function updateElementGeometry(
 ) {
 	const next = { ...element, ...changes };
 	// Whole slide pixels, so dragged positions stay readable in the panel.
-	next.x = Math.max(0, Math.min(1200, Math.round(next.x)));
-	next.y = Math.max(0, Math.min(675, Math.round(next.y)));
-	next.width = Math.max(1, Math.min(1200, Math.round(next.width)));
-	next.height = Math.max(1, Math.min(675, Math.round(next.height)));
+	// An element may bleed up to 100 slide pixels past the edges.
+	next.x = Math.max(
+		OS_SLIDE_MIN_X,
+		Math.min(OS_SLIDE_MAX_X, Math.round(next.x)),
+	);
+	next.y = Math.max(
+		OS_SLIDE_MIN_Y,
+		Math.min(OS_SLIDE_MAX_Y, Math.round(next.y)),
+	);
+	next.width = Math.max(
+		1,
+		Math.min(OS_SLIDE_MAX_X - OS_SLIDE_MIN_X, Math.round(next.width)),
+	);
+	next.height = Math.max(
+		1,
+		Math.min(OS_SLIDE_MAX_Y - OS_SLIDE_MIN_Y, Math.round(next.height)),
+	);
 	return slideElementGeometry(element, next);
 }
 

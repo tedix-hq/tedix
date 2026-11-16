@@ -1,6 +1,7 @@
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
+	OsPresentationLogo,
 	OsPresentationTheme,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useEffect } from "react";
@@ -20,17 +21,20 @@ export function useSlideTextColor() {
 	);
 }
 
+/** A slide's background layers and, when given, the deck logo in its corner. */
 export function SlideBackground({
 	slide,
+	logo,
 }: {
 	slide: OsPresentationCanvasSlide;
+	logo?: OsPresentationLogo;
 }) {
 	const organization = usePresentationAppearance();
 	return (
 		<div
 			style={{ display: "contents" }}
 			dangerouslySetInnerHTML={{
-				__html: slideBackgroundMarkup(slide, "canvas", organization),
+				__html: slideBackgroundMarkup(slide, "canvas", organization, logo),
 			}}
 		/>
 	);
@@ -89,10 +93,12 @@ export function ReadOnlySlide({
 	slide,
 	className,
 	theme,
+	logo,
 }: {
 	slide: OsPresentationCanvasSlide;
 	className: string;
 	theme?: OsPresentationTheme;
+	logo?: OsPresentationLogo;
 }) {
 	const color = useSlideTextColor();
 	return (
@@ -104,7 +110,7 @@ export function ReadOnlySlide({
 				containerType: "inline-size",
 			}}
 		>
-			<SlideBackground slide={slide} />
+			<SlideBackground slide={slide} logo={logo} />
 			{slide.elements.map((element) => (
 				<ReadOnlyElement key={element.id} element={element} theme={theme} />
 			))}
