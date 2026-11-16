@@ -35,6 +35,8 @@ import {
 import {
 	CmsRestoreFenceUnavailableError,
 	cmsRestoreFenceResponse,
+	cmsTemporarilyUnavailableResponse,
+	isTransientUnavailable,
 	type CmsRestoreFenceIdentity,
 	withCmsRestoreResponsePermit,
 	withSharedCmsRestorePermit,
@@ -1914,8 +1916,10 @@ async function fetchCmsSite(
 			}
 		} catch (loaderErr) {
 			if (loaderErr instanceof CmsRestoreFenceUnavailableError) {
+				// The site's permit coordinator failed for a moment; a closed fence
+				// is refused before this point. The public handler retries reads.
 				console.error(`[cms-runtime] restore permit unavailable for ${slug}`);
-				return cmsRestoreFenceResponse();
+				return cmsTemporarilyUnavailableResponse();
 			}
 			const loaderMsg =
 				loaderErr instanceof Error ? loaderErr.message : String(loaderErr);
@@ -2205,7 +2209,19 @@ export default {
 		const replayable = request.method === "GET" || request.method === "HEAD";
 		for (let attempt = 1; ; attempt++) {
 			try {
-				return await serve();
+				const response = await serve();
+				if (
+					replayable &&
+					attempt < PUBLIC_SERVE_ATTEMPTS &&
+					isTransientUnavailable(response)
+				) {
+					console.warn("[cms-runtime] public request unavailable; retrying", {
+						attempt,
+					});
+					await new Promise((resolve) => setTimeout(resolve, attempt * 150));
+					continue;
+				}
+				return response;
 			} catch (error) {
 				const detail = describePublicServeError(error);
 				if (replayable && attempt < PUBLIC_SERVE_ATTEMPTS) {
@@ -2216,11 +2232,11 @@ export default {
 					await new Promise((resolve) => setTimeout(resolve, attempt * 150));
 					continue;
 				}
-				console.error("[cms-runtime] public restore permit unavailable:", {
+				console.error("[cms-runtime] public request failed:", {
 					attempt,
 					detail,
 				});
-				return cmsRestoreFenceResponse();
+				return cmsTemporarilyUnavailableResponse();
 			}
 		}
 	},

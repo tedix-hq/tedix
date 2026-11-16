@@ -305,9 +305,40 @@ function isBufferableResponse(response: Response): boolean {
 	);
 }
 
+/** Why a public request got 503: a closed restore fence, or a passing failure. */
+const UNAVAILABLE_REASON_HEADER = "X-Tedix-Cms-Unavailable";
+
+/** The site is closed by a restore, pause or deprovision. */
 export function cmsRestoreFenceResponse(): Response {
 	return new Response("CMS site temporarily unavailable during restore", {
 		status: 503,
-		headers: { "Cache-Control": "no-store", "Retry-After": "30" },
+		headers: {
+			"Cache-Control": "no-store",
+			"Retry-After": "30",
+			[UNAVAILABLE_REASON_HEADER]: "restore",
+		},
 	});
+}
+
+/** A lookup or permit check failed for a moment; no restore is closing the site. */
+export function cmsTemporarilyUnavailableResponse(): Response {
+	return new Response(
+		"This page is briefly unavailable. Please reload in a few seconds.",
+		{
+			status: 503,
+			headers: {
+				"Cache-Control": "no-store",
+				"Retry-After": "5",
+				[UNAVAILABLE_REASON_HEADER]: "transient",
+			},
+		},
+	);
+}
+
+/** True for the passing-failure 503, which a bodyless read may retry. */
+export function isTransientUnavailable(response: Response): boolean {
+	return (
+		response.status === 503 &&
+		response.headers.get(UNAVAILABLE_REASON_HEADER) === "transient"
+	);
 }

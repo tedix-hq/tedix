@@ -36,6 +36,9 @@ describe("CMS custom hostname routing", () => {
 		// Each of the three attempts resolved the hostname, then stopped at
 		// missing test provider bindings before loading the tenant bundle.
 		expect(first.status).toBe(503);
+		// No restore was running, so the visitor is not told one is.
+		expect(first.headers.get("X-Tedix-Cms-Unavailable")).toBe("transient");
+		expect(await first.text()).toContain("briefly unavailable");
 		const removed = await cmsRuntime.fetch(request, env, {} as never);
 		expect(removed.status).toBe(404);
 		expect(mocks.getSiteByHostname).toHaveBeenCalledTimes(4);
@@ -64,6 +67,7 @@ describe("CMS custom hostname routing", () => {
 			{} as never,
 		);
 		expect(response.status).toBe(503);
+		expect(response.headers.get("X-Tedix-Cms-Unavailable")).toBe("transient");
 		expect(mocks.getSiteByHostname).toHaveBeenCalledTimes(1);
 	});
 
