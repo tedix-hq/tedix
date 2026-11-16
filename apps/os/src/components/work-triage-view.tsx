@@ -33,7 +33,10 @@ import {
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { workOwnerName } from "@/components/work-factory-pages";
-import { useWorkPrincipalNames } from "@/components/work-operations-shared";
+import {
+	OperationPicker,
+	useWorkPrincipalNames,
+} from "@/components/work-operations-shared";
 import {
 	WorkListSkeleton,
 	WorkPageHeader,
@@ -45,6 +48,7 @@ import {
 	osQuery,
 	projectListQueryOptions,
 	userProfileQueryOptions,
+	workNeedsProjectQueryOptions,
 	workTriageQueryOptions,
 } from "@/lib/os-query-options";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
@@ -514,6 +518,201 @@ function TriageDialog({
 	);
 }
 
+type NeedsProjectItem = Pick<
+	WorkItem,
+	| "id"
+	| "title"
+	| "accountableOwnerType"
+	| "accountableOwnerId"
+	| "version"
+	| "acceptedAt"
+	| "createdAt"
+>;
+
+/** Running tasks with no project, each with a picker that files it at once. */
+export function NeedsProjectTable({
+	items,
+	projectOptions,
+	principalNames,
+	movingId,
+	onMove,
+}: {
+	items: readonly NeedsProjectItem[];
+	projectOptions: { value: string; label: string }[];
+	principalNames?: Map<string, string>;
+	/** The task being moved right now, if any. */
+	movingId?: string;
+	/** Absent for people who may not move work: the list is then read-only. */
+	onMove?: (item: NeedsProjectItem, projectId: string) => void;
+}) {
+	return (
+		<Table
+			scrollLabel="Needs a project"
+			mobileLayout="stacked"
+			className="table-fixed sm:min-w-[44rem]"
+		>
+			<TableHeader>
+				<TableRow>
+					<TableHead className="w-[40%]">Title</TableHead>
+					<TableHead className="w-[18%]">{OS_COPY.work.owner}</TableHead>
+					<TableHead className="w-[12%]">Started</TableHead>
+					{onMove ? (
+						<TableHead className="w-[30%]">{OS_COPY.work.project}</TableHead>
+					) : null}
+				</TableRow>
+			</TableHeader>
+			<TableBody>
+				{items.map((item) => {
+					const owner = workOwnerName(
+						item.accountableOwnerType,
+						item.accountableOwnerId,
+						principalNames,
+					);
+					const started = item.acceptedAt ?? item.createdAt;
+					return (
+						<TableRow key={item.id}>
+							<TableCell className="py-2! whitespace-normal">
+								<Link
+									variant="record"
+									href={`/work/items/${item.id}`}
+									className="font-medium"
+								>
+									<span className="line-clamp-2">
+										{plainWorkText(item.title)}
+									</span>
+								</Link>
+							</TableCell>
+							<TableCell
+								className="py-2! sm:truncate"
+								label={OS_COPY.work.owner}
+								title={owner}
+							>
+								{owner}
+							</TableCell>
+							<TableCell className="py-2!" label="Started">
+								<time dateTime={started}>{workDate(started)}</time>
+							</TableCell>
+							{onMove ? (
+								<TableCell
+									className="py-2! whitespace-normal"
+									label={OS_COPY.work.project}
+								>
+									{item.id === movingId ? (
+										<Text as="span" tone="secondary">
+											Moving…
+										</Text>
+									) : (
+										<div className="grid min-w-0">
+											<OperationPicker
+												label="Choose a project"
+												options={projectOptions}
+												value=""
+												onSelect={(projectId) => onMove(item, projectId)}
+											/>
+										</div>
+									)}
+								</TableCell>
+							) : null}
+						</TableRow>
+					);
+				})}
+			</TableBody>
+		</Table>
+	);
+}
+
+/**
+ * Tasks Home started without a project. Choosing a project files the task
+ * there; the API then drops it from this list.
+ */
+function NeedsProjectSection({
+	projectNames,
+	mayMove,
+}: {
+	projectNames: ReadonlyMap<string, string>;
+	mayMove: boolean;
+}) {
+	const client = useQueryClient();
+	const headingId = useId();
+	const tasks = useQuery(workNeedsProjectQueryOptions());
+	const items = tasks.data?.data ?? [];
+	const principalNames = useWorkPrincipalNames(items[0]?.orgId);
+	const projectOptions = useMemo(
+		() =>
+			[...projectNames]
+				.map(([value, label]) => ({ value, label }))
+				.sort((a, b) => a.label.localeCompare(b.label)),
+		[projectNames],
+	);
+	const move = useMutation({
+		mutationFn: ({
+			item,
+			projectId,
+		}: {
+			item: NeedsProjectItem;
+			projectId: string;
+		}) =>
+			osApi.workItems.updateSpecification({
+				id: item.id,
+				expectedWorkItemVersion: item.version,
+				projectId,
+			}),
+		onSettled: () =>
+			client.invalidateQueries({
+				queryKey: osQuery.workItems.key({ type: "query" }),
+			}),
+	});
+	// Nothing to sort is the normal case; the section then stays out of the way.
+	if (!items.length && !tasks.isError) return null;
+	const total = tasks.data?.pagination.total ?? items.length;
+	return (
+		<section aria-labelledby={headingId} className="grid min-w-0 gap-2">
+			<Text as="h2" id={headingId} role="section" className="m-0">
+				Needs a project
+			</Text>
+			<Text tone="secondary">
+				Home started these tasks without a project because the request pointed
+				at none. They are already running. Choose a project to file each one.
+			</Text>
+			{items.length ? (
+				<NeedsProjectTable
+					items={items}
+					projectOptions={projectOptions}
+					principalNames={principalNames}
+					movingId={move.isPending ? move.variables.item.id : undefined}
+					onMove={
+						mayMove
+							? (item, projectId) => move.mutate({ item, projectId })
+							: undefined
+					}
+				/>
+			) : (
+				<WorkReadFailure
+					title="Tasks without a project unavailable"
+					error={tasks.error}
+					onRetry={() => tasks.refetch()}
+					retrying={tasks.isRefetching}
+				/>
+			)}
+			{move.isError ? (
+				<div role="alert">
+					<Text tone="error">
+						{errorMessage(move.error, "That did not work. Try again.")}
+					</Text>
+				</div>
+			) : null}
+			<Text tone="secondary" aria-live="polite">
+				{total > items.length
+					? `Showing the first ${items.length} of ${total} without a project.`
+					: null}
+				{mayMove
+					? null
+					: " An organization owner or admin moves work into a project."}
+			</Text>
+		</section>
+	);
+}
+
 /** Work → Triage: proposed work waiting for a decision, one queue at a time. */
 export function WorkTriageView({
 	project,
@@ -614,6 +813,7 @@ export function WorkTriageView({
 					? null
 					: " An organization owner or admin decides what leaves triage."}
 			</Text>
+			<NeedsProjectSection projectNames={projectNames} mayMove={mayDecide} />
 			{deciding ? (
 				<TriageDialog
 					key={`${deciding.exit}:${deciding.item.id}`}

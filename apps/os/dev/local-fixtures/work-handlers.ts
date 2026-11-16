@@ -105,6 +105,8 @@ const LOCAL_GOALS = [
 const LOCAL_SNOOZES = new Map<string, string>();
 /** Proposals declined or closed as duplicates in this local session. */
 const LOCAL_TRIAGE_EXITS = new Set<string>();
+/** Tasks given a project in this local session, by Work Item id. */
+const LOCAL_PROJECT_MOVES = new Map<string, string>();
 
 function localProposal(id: string) {
 	const item = WORK_ITEMS.find((row) => row.id === id);
@@ -492,6 +494,7 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 					projectId?: string;
 					titleContains?: string;
 					mattersThrough?: string;
+					needsProject?: true;
 					limit?: number;
 					offset?: number;
 			  }
@@ -500,6 +503,9 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 		paginate(
 			WORK_ITEMS.filter(
 				(row) =>
+					(!input?.needsProject ||
+						(row.metadata?.needsProject === true &&
+							!LOCAL_PROJECT_MOVES.has(row.id))) &&
 					(input?.mattersThrough === undefined ||
 						row.priority === "critical" ||
 						row.priority === "high" ||
@@ -545,6 +551,24 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 			),
 			queues: [...counts].map(([projectId, count]) => ({ projectId, count })),
 			snoozed: proposed.length - waiting.length,
+		};
+	},
+	// The sample board stays as seeded; a moved task only leaves "Needs a project".
+	"workItems/updateSpecification": (input: {
+		id: string;
+		projectId?: string;
+	}) => {
+		const item = WORK_ITEMS.find((row) => row.id === input.id);
+		if (!item) throw new RpcError("NOT_FOUND", "Work item not found");
+		if (!input.projectId) return item;
+		if (!PROJECTS.some((row) => row.id === input.projectId))
+			throw new RpcError("NOT_FOUND", "Project not found");
+		LOCAL_PROJECT_MOVES.set(item.id, input.projectId);
+		return {
+			...item,
+			projectId: input.projectId,
+			metadata: null,
+			version: item.version + 1,
 		};
 	},
 	"workItems/decline": (input: { id: string }) => cancelLocalProposal(input.id),

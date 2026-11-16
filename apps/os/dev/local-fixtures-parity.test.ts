@@ -396,7 +396,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"workItems/putResourcePool",
 		"workItems/replaceAdmissionSpecification",
 		"workItems/updateCase",
-		"workItems/updateSpecification",
 	],
 	"ActivityFeedSources failed-source state": ["workItems/listActivity"],
 	"FocusFeed catches feedback failure without removing the item": [

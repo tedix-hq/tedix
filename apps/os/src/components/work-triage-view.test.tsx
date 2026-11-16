@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
+	NeedsProjectTable,
 	snoozeUntil,
 	TriageTable,
 	triageQueueOptions,
@@ -68,5 +69,37 @@ describe("Triage view", () => {
 		const reading = renderToStaticMarkup(<TriageTable {...props} />);
 		expect(reading).not.toContain(">Accept<");
 		expect(reading).toContain("Proposal birch");
+	});
+
+	it("lists running tasks without a project, with a picker only for someone who may move work", () => {
+		const props = {
+			items: [
+				{
+					id: "larch",
+					title: "Compare courier quotes",
+					accountableOwnerType: null,
+					accountableOwnerId: null,
+					version: 3,
+					acceptedAt: "2026-11-10T00:00:00.000Z",
+					createdAt: "2026-11-01T00:00:00.000Z",
+				},
+			],
+			projectOptions: [{ value: "project-pine", label: "Pine launch" }],
+		};
+		const moving = renderToStaticMarkup(
+			<NeedsProjectTable {...props} onMove={() => {}} />,
+		);
+		expect(moving).toContain("Compare courier quotes");
+		expect(moving).toContain('href="/work/items/larch"');
+		expect(moving).toContain('aria-label="Choose a project"');
+		expect(moving).toContain('dateTime="2026-11-10T00:00:00.000Z"');
+		expect(
+			renderToStaticMarkup(
+				<NeedsProjectTable {...props} movingId="larch" onMove={() => {}} />,
+			),
+		).not.toContain('aria-label="Choose a project"');
+		const reading = renderToStaticMarkup(<NeedsProjectTable {...props} />);
+		expect(reading).toContain("Compare courier quotes");
+		expect(reading).not.toContain('aria-label="Choose a project"');
 	});
 });

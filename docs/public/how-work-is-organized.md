@@ -78,6 +78,9 @@ ticket itself is still sent to Support.
 
 In Tedix OS, open Work, then More views, then Triage. It shows one list at a
 time with the four actions, and how many proposals wait in each project.
+Below it, "Needs a project" lists the running tasks Home started without a
+project. Choose a project next to a task to file it there; the task then
+leaves the list. Moving it any other way does the same.
 
 Triage is an inbox that should be empty, not a backlog.
 
