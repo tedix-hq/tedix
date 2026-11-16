@@ -9,6 +9,7 @@ import {
 	hasScope,
 } from "@tedix/mcp-shared/auth/scopes";
 import type { WorkspaceScope } from "./env";
+import { workspaceLog } from "./log";
 
 export interface WorkspaceSession {
 	scope: WorkspaceScope;
@@ -40,7 +41,13 @@ export async function workspaceSessionAllowed(
 			session,
 		);
 		return operationAllowed(role, "app.chat");
-	} catch {
+	} catch (error) {
+		// Fails closed; the line tells a refused person from a failed read.
+		workspaceLog.warn("Workspace access check failed", {
+			event: "workspace.access_check_failed",
+			workspaceId: session.scope.workspaceId,
+			error,
+		});
 		return false;
 	}
 }

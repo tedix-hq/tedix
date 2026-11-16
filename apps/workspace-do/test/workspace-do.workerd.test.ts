@@ -8,7 +8,7 @@ import {
 import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { getTableColumns, getTableName } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test, vi } from "vite-plus/test";
 import {
 	osGadgets,
 	osGadgetRevisions,
@@ -3790,5 +3790,75 @@ describe("workspace transport authorization", () => {
 		expect((await closed).code).toBe(1008);
 		await ws.awaitTurn(privateScope, started.turnId, 1000);
 		expect(received).toEqual([]);
+	});
+
+	test("a closed socket, a failed alarm and a wake each leave a line without chat content", async () => {
+		const lines: Record<string, unknown>[] = [];
+		const spies = (["info", "warn", "error"] as const).map((level) =>
+			vi.spyOn(console, level).mockImplementation((line: unknown) => {
+				if (line && typeof line === "object")
+					lines.push(line as Record<string, unknown>);
+			}),
+		);
+		try {
+			const { ws, privateScope } = await fixture();
+			const socket = await open(ws, privateScope);
+			socket.accept();
+			const closed = new Promise<CloseEvent>((resolve) =>
+				socket.addEventListener("close", resolve, { once: true }),
+			);
+			await testEnv.DB.prepare(
+				"DELETE FROM os_workspace_access_edges WHERE workspace_id = ? AND target_user_id = 'fictional-builder'",
+			)
+				.bind(privateScope.workspaceId)
+				.run();
+			await ws.scriptModel(privateScope, [{ text: "Secret answer text" }]);
+			const started = await ws.sendTurn(privateScope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Secret question text",
+			});
+			expect((await closed).code).toBe(1008);
+			await ws.awaitTurn(privateScope, started.turnId, 1000);
+			expect(lines).toContainEqual(
+				expect.objectContaining({
+					component: "workspace.object",
+					event: "workspace.socket_denied",
+					where: "push",
+					reason: "access_denied",
+					closeCode: 1008,
+					workspaceId: privateScope.workspaceId,
+				}),
+			);
+
+			// The alarm still fails, so the runtime retries it; the line says why.
+			await runInDurableObject(ws, async (instance, state) => {
+				state.storage.sql.exec("DROP TABLE change_records");
+				await expect(instance.alarm!()).rejects.toThrow("change_records");
+			});
+			expect(lines).toContainEqual(
+				expect.objectContaining({
+					event: "workspace.alarm_failed",
+					retryCount: 0,
+					turns: { finished: 1 },
+				}),
+			);
+
+			await runInDurableObject(ws, (_instance, state) =>
+				state.abort("restart"),
+			).catch(() => {});
+			await workspace(privateScope).listConversations(privateScope);
+			expect(lines).toContainEqual(
+				expect.objectContaining({
+					event: "workspace.woke",
+					interrupted: 0,
+					sockets: 0,
+					turns: { finished: 1 },
+				}),
+			);
+			expect(JSON.stringify(lines)).not.toMatch(/Secret (question|answer)/);
+		} finally {
+			for (const spy of spies) spy.mockRestore();
+		}
 	});
 });
