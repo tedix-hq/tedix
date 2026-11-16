@@ -84,7 +84,7 @@ export function CanvasOutputView({
 	};
 	return (
 		<div className="grid gap-3" data-canvas-output-view="">
-			<div className="flex flex-wrap items-center justify-between gap-2">
+			<div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
 				<div className="grid min-w-0 gap-1">
 					<CanvasOutputTitle outputId={output.id} title={output.title} />
 					<Text role="body" tone="secondary">
@@ -121,7 +121,7 @@ export function CanvasOutputView({
 				</div>
 			</div>
 			{editable && (
-				<Alert>
+				<Alert className="mx-4">
 					<AlertTitle>To make changes, open it in its editor</AlertTitle>
 					<AlertDescription>
 						The editor is an app in this workspace. The file and its version

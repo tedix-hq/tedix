@@ -244,14 +244,25 @@ function useTabsOverflow(ref: RefObject<HTMLElement | null>) {
 			childList: true,
 			characterData: true,
 			subtree: true,
+			// The selected-tab highlight takes its tab's size through its style.
+			attributes: true,
+			attributeFilter: ["style"],
 		});
 		element.addEventListener("scroll", check, { passive: true });
+		// The highlight follows its tab's new width a moment after the tab
+		// changes, and animates there. While it is still the old, wider size
+		// it makes the list scrollable; unless the list is read again when it
+		// settles, a scroll button stays over a tab's Close on a phone.
+		element.addEventListener("transitionend", check);
+		element.addEventListener("transitioncancel", check);
 		check();
 
 		return () => {
 			resizeObserver.disconnect();
 			mutationObserver.disconnect();
 			element.removeEventListener("scroll", check);
+			element.removeEventListener("transitionend", check);
+			element.removeEventListener("transitioncancel", check);
 		};
 	}, [ref]);
 
