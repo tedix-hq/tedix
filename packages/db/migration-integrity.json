@@ -1508,6 +1508,10 @@
 		{
 			"name": "20261116143434_owned_channel_publish_boundary/migration.sql",
 			"sha256": "57b5b2893ec5e651d8bc6dcee3ef50c9a67fcea462ed33bbc96ef1cd77ae33e2"
+		},
+		{
+			"name": "20261116222247_hot_read_lookup_indexes/migration.sql",
+			"sha256": "b5676e36ef5966785da7fe3f7894534959393760970659f6dc7c5ee54b0037ca"
 		}
 	]
 }

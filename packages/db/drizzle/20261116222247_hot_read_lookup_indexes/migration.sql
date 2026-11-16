@@ -1,0 +1,2 @@
+CREATE INDEX `workspace_output_index_org_revision_idx` ON `workspace_output_index` (`organization_id`,`revision_id`);--> statement-breakpoint
+CREATE INDEX `idx_work_items_org_owner_disposition_created` ON `work_items` (`org_id`,`accountable_owner_id`,`disposition`,`created_at`,`id`);

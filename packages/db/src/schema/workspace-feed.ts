@@ -210,6 +210,13 @@ export const workspaceOutputIndex = sqliteTable(
 			table.workspaceId,
 			table.outputId,
 		),
+		// One revision by its id. Without this the lookup walked the
+		// organization's index rows until it met the revision (about 1,100 rows
+		// per call, 248k calls and 272M rows on 16 Nov 2026).
+		index("workspace_output_index_org_revision_idx").on(
+			table.organizationId,
+			table.revisionId,
+		),
 	],
 );
 
