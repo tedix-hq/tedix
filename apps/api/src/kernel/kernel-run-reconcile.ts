@@ -434,10 +434,13 @@ async function reconcileStaleSubmissions(
 						// spent budget, falls through to the crash-fail below.
 						const runMetadata =
 							(runRow.metadata as Record<string, unknown> | null) ?? {};
+						// A recorded delegation decision is past routing even if the route marker was never written.
 						if (
+							runMetadata.homeDelegation == null &&
 							submissionBridge.decideKernelRedrive({
 								runStatus: runRow.status,
-								kernelRoute: (runMetadata.kernelRoute ?? undefined) as
+								// Pass the marker as stored: null means "not routed yet", absent proves nothing.
+								kernelRoute: runMetadata.kernelRoute as
 									| string
 									| null
 									| undefined,
@@ -461,11 +464,11 @@ async function reconcileStaleSubmissions(
 									...runMetadata,
 									redriveCount,
 								};
-								// CAS-reset: re-drive only while still non-terminal (a
+								// CAS-reset: re-drive only while still non-terminal and unrouted (a
 								// concurrent real completion/route wins the race; 0 rows → skip).
 								const reset = await (
 									await import("@tedix/db/queries/kernel-do-storage")
-								).transitionKernelRunForRecovery(context.db, {
+								).claimUnroutedKernelRunForRedrive(context.db, {
 									id: submission.runId,
 									organizationId,
 									expectedStatus: runRow.status,
@@ -496,8 +499,9 @@ async function reconcileStaleSubmissions(
 										`[kernel.sweep] re-drove pre-side-effect crashed kernel run=${submission.runId} attempt=${(submission.attemptCount ?? 0) + 1}`,
 									);
 									reconciled += 1;
-									continue;
 								}
+								// Claim lost: the run was routed or settled after this read. Leave it for the next sweep's fresh read.
+								continue;
 							}
 						}
 						// Align the run-row patch with the decided outcome: an abort-driven terminalization (durable operator stamp,
