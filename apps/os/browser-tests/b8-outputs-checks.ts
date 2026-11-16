@@ -539,7 +539,7 @@ export async function runB8OutputsChecks(
 			assert.equal(await cards().count(), 20);
 			await visible(page.getByText("Showing 20 of 200 items", { exact: true }));
 			await visible(
-				page.getByText("Showing the 200 most recently updated outputs.", {
+				page.getByText("Showing the 200 most recently updated documents.", {
 					exact: true,
 				}),
 			);
