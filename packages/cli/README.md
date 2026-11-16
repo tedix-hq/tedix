@@ -681,7 +681,7 @@ it again. A `landed_unverified` result with no commit on `origin/main` fails.
 Legacy results without that declaration remain open for verification.
 
 When nothing can be done before a known date, for example a measurement that
-needs three days of production data, use `outcome: "deferred"` with `reason`
+has to run for three days first, use `outcome: "deferred"` with `reason`
 and `notBefore` (an ISO-8601 UTC time). The runner sets that time as the task's
 start date and leaves a comment with the reason. Tedix does not offer a task to
 any runner before its start date, and `tedix work readiness <id>` reports
