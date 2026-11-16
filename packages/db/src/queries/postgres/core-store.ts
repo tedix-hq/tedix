@@ -18,10 +18,10 @@ export interface CoreStoreClients<PostgresClient> {
  * client supplied by the shared Postgres schema package.
  */
 export function resolveCoreStore<PostgresClient>(
-	config: { plane: CoreStorePlane },
+	config: { plane?: CoreStorePlane },
 	clients: CoreStoreClients<PostgresClient>,
 ): CoreStoreBinding<PostgresClient> {
-	if (config.plane === "platform-d1") {
+	if (config.plane === undefined || config.plane === "platform-d1") {
 		return { plane: "platform-d1", db: clients.platform };
 	}
 	if (!clients.postgres) {

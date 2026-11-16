@@ -65,3 +65,22 @@ export function stringifyJsonField<T>(
 		return null;
 	}
 }
+
+/** Stable JSON text across SQLite TEXT and Postgres jsonb; invalid legacy text is preserved. */
+export function normalizeStoredJsonText(value: string | null): string | null {
+	if (value === null) return null;
+	try {
+		const parsed: JsonValue = JSON.parse(value);
+		return JSON.stringify(parsed, (_key, entry: JsonValue) =>
+			entry && typeof entry === "object" && !Array.isArray(entry)
+				? Object.fromEntries(
+						Object.keys(entry)
+							.sort()
+							.map((key) => [key, entry[key]]),
+					)
+				: entry,
+		);
+	} catch {
+		return value;
+	}
+}

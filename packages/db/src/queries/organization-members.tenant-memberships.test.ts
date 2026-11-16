@@ -93,7 +93,7 @@ describe("getMembershipsByDescopeTenants", () => {
 				organizationId: "org-a",
 				descopeTenantId: "T_a",
 				status: "active",
-				inboundClientPolicyJson: '{"mode":"audit","entries":[]}',
+				inboundClientPolicyJson: '{"entries":[],"mode":"audit"}',
 			},
 			{
 				organizationId: "org-b",

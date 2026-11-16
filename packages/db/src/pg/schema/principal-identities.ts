@@ -1,4 +1,8 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type {
+	PrincipalType,
+	PrincipalIdentityStatus,
+} from "../../schema/principal-identities";
 import { sql } from "drizzle-orm";
 import {
 	check,
@@ -17,12 +21,15 @@ export const principalIdentities = pgTable(
 		organizationId: text("organization_id").references(() => organizations.id, {
 			onDelete: "cascade",
 		}),
-		principalType: text("principal_type").notNull(),
+		principalType: text("principal_type").$type<PrincipalType>().notNull(),
 		principalId: text("principal_id").notNull(),
 		provider: text("provider").notNull(),
 		issuer: text("issuer").notNull(),
 		subject: text("subject").notNull(),
-		status: text("status").notNull().default("active"),
+		status: text("status")
+			.$type<PrincipalIdentityStatus>()
+			.notNull()
+			.default("active"),
 		metadata: jsonb("metadata")
 			.$type<Record<string, JsonValue>>()
 			.notNull()

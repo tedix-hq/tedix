@@ -1,4 +1,14 @@
 import {
+	isOrganizationOffboarding as organizationIsOffboarding,
+	projectOrganizationWidgetQuota as organizationWidgetQuota,
+} from "../utils/organizations";
+
+export const isOrganizationOffboarding = organizationIsOffboarding;
+export const projectOrganizationWidgetQuota = organizationWidgetQuota;
+import * as pg from "../pg/queries/organizations";
+import type { PgQueryClient } from "../pg/query-client";
+import type { CoreStoreBinding } from "./postgres/core-store";
+import {
 	ConnectionConsumerGrantsSchema,
 	type ConnectionConsumerGrants,
 } from "@tedix/api-contract/schemas/connections";
@@ -55,22 +65,6 @@ import {
 // ============================================================================
 
 /**
- * True once offboarding has started: phase-one cancellation stamps
- * `metadata.cancelledAt`, retirement stamps `metadata.retiredAt`. Such an
- * organization keeps its rows and existing grants during the grace period, but
- * is no longer offered as a workspace or a new consent selection.
- */
-export function isOrganizationOffboarding(
-	metadata: Organization["metadata"] | Record<string, unknown> | null,
-): boolean {
-	const lifecycle = metadata as {
-		cancelledAt?: unknown;
-		retiredAt?: unknown;
-	} | null;
-	return Boolean(lifecycle?.cancelledAt || lifecycle?.retiredAt);
-}
-
-/**
  * Get organization by ID with members and apps
  * Uses Relations API for efficient single-query loading
  *
@@ -83,16 +77,26 @@ export function isOrganizationOffboarding(
  * console.log(org?.members.length); // Type-safe access
  */
 export async function getOrganizationById(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<Organization | undefined> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.getOrganizationById(db.db, id);
+		db = db.db;
+	}
+
 	return db.query.organizations.findFirst({ where: { id } });
 }
 
 export async function getOrganizationSecretEgressMode(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<"block" | "warn"> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.getOrganizationSecretEgressMode(db.db, id);
+		db = db.db;
+	}
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -106,9 +110,14 @@ export async function getOrganizationSecretEgressMode(
  * Absent or malformed metadata resolves to off.
  */
 export async function getOrganizationPersonalDataRedaction(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<boolean> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.getOrganizationPersonalDataRedaction(db.db, id);
+		db = db.db;
+	}
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -118,9 +127,15 @@ export async function getOrganizationPersonalDataRedaction(
 }
 
 export async function getOrganizationSessionProjectBindings(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.getOrganizationSessionProjectBindings(db.db, id);
+		db = db.db;
+	}
+
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -146,9 +161,15 @@ export async function getOrganizationSessionProjectBindings(
 
 /** Narrow identity-edge lookup that avoids hydrating an organization's relations. */
 export async function getOrganizationDescopeTenantId(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<string | null | undefined> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.getOrganizationDescopeTenantId(db.db, id);
+		db = db.db;
+	}
+
 	const [row] = await db
 		.select({ descopeTenantId: organizations.descopeTenantId })
 		.from(organizations)
@@ -163,9 +184,15 @@ export async function getOrganizationDescopeTenantId(
  * origin stays readable after the row itself is unreachable.
  */
 export async function getOrganizationDisplayName(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<string | undefined> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.getOrganizationDisplayName(db.db, id);
+		db = db.db;
+	}
+
 	const [row] = await db
 		.select({ name: organizations.name })
 		.from(organizations)
@@ -193,9 +220,14 @@ export interface OrganizationProfileRow {
  * render a name.
  */
 export async function getOrganizationProfile(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<OrganizationProfileRow | null> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.getOrganizationProfile(db.db, id);
+		db = db.db;
+	}
+
 	const [row] = await db
 		.select({
 			id: organizations.id,
@@ -226,9 +258,15 @@ export interface OrganizationGuestProfileRow {
  * the rest of the metadata bag never leaves the database.
  */
 export async function getOrganizationGuestProfile(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<OrganizationGuestProfileRow | null> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.getOrganizationGuestProfile(db.db, id);
+		db = db.db;
+	}
+
 	const path = (jsonPath: string, alias: string) =>
 		sql<
 			string | null
@@ -267,9 +305,14 @@ export async function getOrganizationGuestProfile(
  * that only need a name/logo never hydrate the organization's metadata bag.
  */
 export async function getOrganizationOsTheme(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<OrganizationMetadata["osTheme"] | null> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.getOrganizationOsTheme(db.db, id);
+		db = db.db;
+	}
+
 	const [row] = await db
 		.select({ metadata: organizations.metadata })
 		.from(organizations)
@@ -285,9 +328,14 @@ export async function getOrganizationOsTheme(
  * @param slug - Organization slug (unique identifier)
  */
 export async function getOrganizationBySlug(
-	db: DbClient | DbQueryClient | D1Database,
+	db: DbClient | DbQueryClient | D1Database | CoreStoreBinding<PgQueryClient>,
 	slug: string,
 ): Promise<Organization | undefined> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.getOrganizationBySlug(db.db, slug);
+		db = db.db;
+	}
+
 	const query = "prepare" in db ? createDbQueryClient(db) : db;
 	const [row] = await query
 		.select()
@@ -310,9 +358,15 @@ export async function getOrganizationBySlug(
  * @param descopeTenantId - Descope tenant ID
  */
 export async function getOrganizationByDescopeId(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	descopeTenantId: string,
 ): Promise<Organization | undefined> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.getOrganizationByDescopeId(db.db, descopeTenantId);
+		db = db.db;
+	}
+
 	const [row] = await db
 		.select()
 		.from(organizations)
@@ -327,9 +381,15 @@ export async function getOrganizationByDescopeId(
 }
 
 export async function getOrganizationByExternalIdentity(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	identity: ExternalIdentity,
 ): Promise<Organization | undefined> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.getOrganizationByExternalIdentity(db.db, identity);
+		db = db.db;
+	}
+
 	const mapping = await resolvePrincipalIdentity(db, identity, {
 		principalType: "organization",
 	});
@@ -337,11 +397,22 @@ export async function getOrganizationByExternalIdentity(
 }
 
 export async function bindOrganizationExternalIdentity(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	organizationId: string,
 	identity: ExternalIdentity,
 	verifiedAt?: string,
 ): Promise<void> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.bindOrganizationExternalIdentity(
+				db.db,
+				organizationId,
+				identity,
+				verifiedAt,
+			);
+		db = db.db;
+	}
+
 	await bindPrincipalIdentity(db, {
 		organizationId,
 		principalType: "organization",
@@ -358,12 +429,17 @@ export async function bindOrganizationExternalIdentity(
  * @param opts - Pagination and filter options
  */
 export async function listOrganizations(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	opts?: {
 		limit?: number;
 		offset?: number;
 	},
 ): Promise<Organization[]> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.listOrganizations(db.db, opts);
+		db = db.db;
+	}
+
 	const conditions = [
 		sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
 	];
@@ -391,33 +467,18 @@ export interface OrganizationWidgetQuotaStatus {
 }
 
 /**
- * Project the embedded widget turn quota an organization set, or null per
- * ceiling when it never did. Pure; a malformed value counts as unset.
- */
-export function projectOrganizationWidgetQuota(
-	metadata: OrganizationMetadata | null | undefined,
-): Pick<
-	OrganizationWidgetQuotaStatus,
-	"visitorTurnsPerHour" | "originTurnsPerHour"
-> {
-	const quota = metadata?.tediWidget?.turnQuota;
-	const read = (value: unknown): number | null =>
-		typeof value === "number" && Number.isInteger(value) && value > 0
-			? value
-			: null;
-	return {
-		visitorTurnsPerHour: read(quota?.visitorTurnsPerHour),
-		originTurnsPerHour: read(quota?.originTurnsPerHour),
-	};
-}
-
-/**
  * Platform-operator drift read: every active (non-retired) organization with
  * only its embedded widget turn quota. No other metadata leaves this query.
  */
 export async function listOrganizationWidgetQuotaStatus(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 ): Promise<OrganizationWidgetQuotaStatus[]> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.listOrganizationWidgetQuotaStatus(db.db);
+		db = db.db;
+	}
+
 	const rows = await db
 		.select({
 			id: organizations.id,
@@ -445,9 +506,15 @@ export async function listOrganizationWidgetQuotaStatus(
  * @param descopeUserId - Descope user ID (sub claim from JWT)
  */
 export async function getPersonalOrganization(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	descopeUserId: string,
 ): Promise<Organization | undefined> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.getPersonalOrganization(db.db, descopeUserId);
+		db = db.db;
+	}
+
 	// Deliberately the relational query builder and not a `.select()` join.
 	//
 	// A no-argument `.select()` across a join emits the raw column names of both
@@ -492,13 +559,19 @@ function monthAfter(instant: string): string {
 }
 
 export async function createOrganization(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	data: Omit<NewOrganization, "id" | "createdAt" | "updatedAt">,
 	options: {
 		settlementMode: BillingSettlementMode;
 		runtimeEntitlementGrants?: RuntimeEntitlementGrant[];
 	},
 ): Promise<Organization> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.createOrganization(db.db, data, options);
+		db = db.db;
+	}
+
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 
@@ -573,11 +646,16 @@ export async function createOrganization(
  * @param data - Fields to update
  */
 export async function updateOrganization(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 	data: Partial<Omit<NewOrganization, "id" | "createdAt">>,
 	audit?: InsertAuditEventParams,
 ): Promise<Organization> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.updateOrganization(db.db, id, data);
+		db = db.db;
+	}
+
 	const now = new Date().toISOString();
 
 	const update = db
@@ -625,9 +703,14 @@ export interface RetireOrganizationParams {
  * returns no row while the whole batch remains idempotent.
  */
 export async function retireOrganization(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	params: RetireOrganizationParams,
 ): Promise<Organization | undefined> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.retireOrganization(db.db, params);
+		db = db.db;
+	}
+
 	const [, , , , retiredOrganizations] = await db.batch([
 		db
 			.update(tedis)
@@ -697,10 +780,16 @@ export async function retireOrganization(
  * @param tier - Canonical billing plan key
  */
 export async function applyOrganizationPlanFeatures(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 	tier: OrganizationFeaturePlanKey,
 ): Promise<Organization> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.applyOrganizationPlanFeatures(db.db, id, tier);
+		db = db.db;
+	}
+
 	const now = new Date().toISOString();
 
 	await db
@@ -733,9 +822,14 @@ export async function applyOrganizationPlanFeatures(
  * @param id - Organization ID
  */
 export async function getOrganizationFeatures(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<OrganizationFeatures | null> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.getOrganizationFeatures(db.db, id);
+		db = db.db;
+	}
+
 	const org = await getOrganizationById(db, id);
 	if (!org) return null;
 
@@ -758,10 +852,16 @@ export async function getOrganizationFeatures(
  * @param features - Features to update
  */
 export async function updateOrganizationFeatures(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 	features: Partial<OrganizationFeatures>,
 ): Promise<Organization> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.updateOrganizationFeatures(db.db, id, features);
+		db = db.db;
+	}
+
 	const existing = await getOrganizationById(db, id);
 	if (!existing) {
 		throw new Error(`Organization not found: ${id}`);
@@ -782,9 +882,14 @@ export async function updateOrganizationFeatures(
  * @param id - Organization ID
  */
 export async function canCreateApp(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<{ allowed: boolean; reason?: string }> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.canCreateApp(db.db, id);
+		db = db.db;
+	}
+
 	const org = await getOrganizationById(db, id);
 	if (!org) {
 		return { allowed: false, reason: "Organization not found" };
@@ -842,10 +947,16 @@ export async function canCreateApp(
  * @param metadata - Metadata to update
  */
 export async function updateOrganizationMetadata(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 	metadata: Partial<OrganizationMetadata>,
 ): Promise<Organization> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.updateOrganizationMetadata(db.db, id, metadata);
+		db = db.db;
+	}
+
 	const existing = await getOrganizationById(db, id);
 	if (!existing) {
 		throw new Error(`Organization not found: ${id}`);
@@ -871,9 +982,14 @@ export async function updateOrganizationMetadata(
  * @param id - Organization ID
  */
 export async function incrementAppCount(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<void> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.incrementAppCount(db.db, id);
+		db = db.db;
+	}
+
 	const now = new Date().toISOString();
 
 	await db
@@ -893,9 +1009,14 @@ export async function incrementAppCount(
  * @param id - Organization ID
  */
 export async function decrementAppCount(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	id: string,
 ): Promise<void> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.decrementAppCount(db.db, id);
+		db = db.db;
+	}
+
 	const now = new Date().toISOString();
 
 	await db
@@ -914,7 +1035,15 @@ export async function decrementAppCount(
  * @param db - Database client
  * @param id - Organization ID
  */
-export async function syncAppCount(db: DbClient, id: string): Promise<number> {
+export async function syncAppCount(
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	id: string,
+): Promise<number> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.syncAppCount(db.db, id);
+		db = db.db;
+	}
+
 	const actualCount = await db.$count(apps, eq(apps.organizationId, id));
 	const now = new Date().toISOString();
 
@@ -941,10 +1070,16 @@ export async function syncAppCount(db: DbClient, id: string): Promise<number> {
  * @param excludeId - Organization ID to exclude (for updates)
  */
 export async function isSlugAvailable(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	slug: string,
 	excludeId?: string,
 ): Promise<boolean> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.isSlugAvailable(db.db, slug, excludeId);
+		db = db.db;
+	}
+
 	const existing = await getOrganizationBySlug(db, slug);
 	if (!existing) return true;
 	if (excludeId && existing.id === excludeId) return true;
@@ -958,9 +1093,14 @@ export async function isSlugAvailable(
  * @param name - Organization name
  */
 export async function generateUniqueSlug(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	name: string,
 ): Promise<string> {
+	if ("plane" in db) {
+		if (db.plane === "postgres") return pg.generateUniqueSlug(db.db, name);
+		db = db.db;
+	}
+
 	// Convert name to slug format
 	const baseSlug = name
 		.toLowerCase()
@@ -987,10 +1127,20 @@ export async function generateUniqueSlug(
 
 /** Replace only platform-owned onboarding defaults without overwriting other metadata. */
 export async function setProviderOnboardingConfiguration(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	organizationId: string,
 	config: NonNullable<OrganizationMetadata["providerOnboarding"]>,
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.setProviderOnboardingConfiguration(
+				db.db,
+				organizationId,
+				config,
+			);
+		db = db.db;
+	}
+
 	const [row] = await db
 		.update(organizations)
 		.set({
@@ -1008,11 +1158,22 @@ function connectionConsumerGrantsPath(providerId: string, instanceId?: string) {
 }
 
 export async function getConnectionConsumerGrants(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	organizationId: string,
 	providerId: string,
 	instanceId?: string,
 ): Promise<ConnectionConsumerGrants> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.getConnectionConsumerGrants(
+				db.db,
+				organizationId,
+				providerId,
+				instanceId,
+			);
+		db = db.db;
+	}
+
 	const [row] = await db
 		.select({
 			policy: sql<
@@ -1030,12 +1191,24 @@ export async function getConnectionConsumerGrants(
 }
 
 export async function setConnectionConsumerGrants(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	organizationId: string,
 	providerId: string,
 	policy: ConnectionConsumerGrants,
 	instanceId?: string,
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.setConnectionConsumerGrants(
+				db.db,
+				organizationId,
+				providerId,
+				policy,
+				instanceId,
+			);
+		db = db.db;
+	}
+
 	const validated = ConnectionConsumerGrantsSchema.parse(policy);
 	const [row] = await db
 		.update(organizations)

@@ -17,6 +17,14 @@ describe("resolveCoreStore", () => {
 		expect(binding).toEqual({ plane: "platform-d1", db });
 	});
 
+	it("defaults to D1 when no cutover is configured", () => {
+		const db = platform();
+		expect(resolveCoreStore({}, { platform: db, postgres: {} })).toEqual({
+			plane: "platform-d1",
+			db,
+		});
+	});
+
 	it("binds the configured Postgres client", () => {
 		const postgres = { dialect: "postgres" as const };
 		const binding = resolveCoreStore(
