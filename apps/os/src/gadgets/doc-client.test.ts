@@ -1236,6 +1236,62 @@ describe("portable rich Doc client", () => {
 			expect(statusText(view.root)).toBe("");
 		});
 	});
+	describe("color, tables and shortcuts", () => {
+		it("colors and highlights the selected text from the palette", async () => {
+			const { root, editor } = await fixture().mount();
+			editor.commands.selectAll();
+			click(root, "Text color and highlight");
+			expect(root.querySelector(".doc-colors")!.hasAttribute("hidden")).toBe(
+				false,
+			);
+			click(root, "Text: Red");
+			editor.commands.selectAll();
+			click(root, "Text color and highlight");
+			click(root, "Highlight: Yellow");
+			const json = JSON.stringify(editor.getJSON());
+			expect(json).toContain('"color":"#c0262d"');
+			expect(json).toContain('"type":"highlight"');
+			expect(root.querySelector(".doc-colors")!.hasAttribute("hidden")).toBe(
+				true,
+			);
+		});
+		it("adds and removes table rows and columns and toggles the header row", async () => {
+			const { root, editor } = await fixture().mount();
+			editor
+				.chain()
+				.focus("end")
+				.insertTable({ rows: 2, cols: 2, withHeaderRow: true })
+				.run();
+			type Node = { type?: string; content?: Node[] };
+			const table = () =>
+				(editor.getJSON() as Node).content!.find(
+					(node) => node.type === "table",
+				)!;
+			const shape = () => [
+				table().content!.length,
+				table().content![0]!.content!.length,
+			];
+			click(root, "Add row above");
+			click(root, "Add column to the left");
+			expect(shape()).toEqual([3, 3]);
+			click(root, "Delete row");
+			click(root, "Delete column");
+			expect(shape()).toEqual([2, 2]);
+			const first = () => table().content![0]!.content![0]!.type;
+			const before = first();
+			click(root, "Header row");
+			expect(first()).not.toBe(before);
+		});
+		it("lists the keyboard shortcuts on Cmd or Ctrl+/", async () => {
+			const { root, editor } = await fixture().mount();
+			press(editor.view.dom, { key: "/", metaKey: true });
+			const sheet = root.querySelector<HTMLElement>(".doc-keys")!;
+			expect(sheet.hidden).toBe(false);
+			expect(sheet.textContent).toContain("Move a block up or down");
+			press(editor.view.dom, { key: "Escape" });
+			expect(sheet.hidden).toBe(true);
+		});
+	});
 	describe("insert list on /", () => {
 		const options = (root: HTMLElement) =>
 			[
@@ -1262,6 +1318,9 @@ describe("portable rich Doc client", () => {
 				"Bulleted list",
 				"Numbered list",
 				"To-do list",
+				"Quote",
+				"Code block",
+				"Note",
 				"Table",
 				"Image",
 				"Divider",
