@@ -52,10 +52,11 @@ export function updateElementGeometry(
 	changes: Partial<Pick<OsPresentationElement, "x" | "y" | "width" | "height">>,
 ) {
 	const next = { ...element, ...changes };
-	next.x = Math.max(0, Math.min(1200, next.x));
-	next.y = Math.max(0, Math.min(675, next.y));
-	next.width = Math.max(1, Math.min(1200, next.width));
-	next.height = Math.max(1, Math.min(675, next.height));
+	// Whole slide pixels, so dragged positions stay readable in the panel.
+	next.x = Math.max(0, Math.min(1200, Math.round(next.x)));
+	next.y = Math.max(0, Math.min(675, Math.round(next.y)));
+	next.width = Math.max(1, Math.min(1200, Math.round(next.width)));
+	next.height = Math.max(1, Math.min(675, Math.round(next.height)));
 	return slideElementGeometry(element, next);
 }
 

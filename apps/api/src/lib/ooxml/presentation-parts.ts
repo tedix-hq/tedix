@@ -81,8 +81,8 @@ export function pptxSlideParts(
 		if (element.type === "logo") {
 			parts.push({
 				...resolved,
-				type: organization.logoUrl ? "image" : "text",
-				src: organization.logoUrl ?? undefined,
+				type: (element.src ?? organization.logoUrl) ? "image" : "text",
+				src: element.src ?? organization.logoUrl ?? undefined,
 				text: organization.name ?? "",
 			});
 		} else if (container) {

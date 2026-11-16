@@ -7,6 +7,7 @@ import type {
 import {
 	slideElementStyle,
 	slideThemeFontFamily,
+	slideTone,
 	type PresentationAppearance,
 } from "@tedix/api-contract/utils/presentation-style";
 import {
@@ -118,6 +119,10 @@ const SAVE_IDLE_MS = 220,
 	MIN_HEIGHT = 24,
 	EASE = "cubic-bezier(0.2,0.8,0.2,1)";
 
+/** Font sizes ⌘⇧. and ⌘⇧, step through. */
+const TYPE_SCALE = [
+	10, 12, 14, 16, 17, 19, 22, 24, 28, 32, 36, 42, 48, 58, 64, 72, 84, 96, 120,
+];
 const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const NO_TEXT: OsPresentationElementType[] = [
 	"image",
@@ -215,7 +220,7 @@ export async function mountSlidesClient(
 	document.head.append(style);
 	root.innerHTML = `<main class="slides-app" aria-label="Slides gadget" data-loading>
 <header class="slides-bar"><div class="slides-bar-left"><h1>Slides</h1></div>
-<div class="slides-bar-tools" role="toolbar" aria-label="Slide tools">${tool("undo", "Undo", icon("undo"), keys("Z"))}${tool("redo", "Redo", icon("redo"), keys("Z", true))}${divider}${tool("add-slide", "Add slide", glyph(GLYPHS.addSlide))}<span class="slides-menu-anchor">${tool("insert", "Insert", glyph(GLYPHS.insert), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu" id="insert-menu" role="menu" aria-label="Insert" hidden>${INSERT_GROUPS.map(
+<div class="slides-bar-tools" role="toolbar" aria-label="Slide tools">${tool("undo", "Undo", icon("undo"), keys("Z"))}${tool("redo", "Redo", icon("redo"), keys("Z", true))}${divider}${tool("add-slide", "Add slide", glyph(GLYPHS.addSlide))}<span class="slides-menu-anchor">${tool("insert", "Insert", glyph(GLYPHS.insert), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu" id="insert-menu" role="menu" aria-label="Insert" hidden><input type="search" class="slides-menu-search" placeholder="Search elements" aria-label="Search elements" autocomplete="off">${INSERT_GROUPS.map(
 		(group) =>
 			group
 				.map(
@@ -237,12 +242,36 @@ export async function mountSlidesClient(
 <div class="slides-bar-right"><span class="slides-save" role="img" hidden></span><div class="slides-status" role="status" aria-live="polite"></div><button id="format" class="ghost" title="Format (Enter)" aria-expanded="false" aria-controls="slides-inspector">${glyph(GLYPHS.format)} Format</button><button id="present" class="ghost primary">${icon("play")} Present</button><span class="slides-menu-anchor">${tool("more", "More", glyph(GLYPHS.more), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu end" id="more-menu" role="menu" aria-label="More" hidden>${EXPORTS.map(
 		([format, name]) =>
 			`<button role="menuitem" data-export="${format}">Download as ${name}</button>`,
-	).join("")}</div></span></div></header>
+	).join(
+		"",
+	)}<hr><button role="menuitem" id="toggle-rail">Hide slide list</button><button role="menuitem" id="show-shortcuts">Keyboard shortcuts</button></div></span></div></header>
 <div class="slides-updates" role="status" aria-live="polite"></div>
 <div class="slides-layout"><aside class="slides-rail"><nav aria-label="Slides"><div class="slides-skeleton"></div><div class="slides-skeleton"></div><div class="slides-skeleton"></div></nav></aside>
 <section class="slides-workspace"><div class="slides-canvas"><div class="slides-stage" tabindex="0" aria-label="Slide canvas" aria-describedby="slides-help"></div></div><p class="slides-sr" id="slides-help">Select an element to move or resize it. Double-click text to write. Arrow keys move the selected element; Shift moves by 10 pixels. Press Enter to format the selected element. Drop or paste an image onto the canvas.</p><label class="slides-notes"><span class="slides-sr">Speaker notes</span><textarea id="notes" maxlength="${OS_SLIDE_MAX_TEXT_CHARS}" placeholder="Speaker notes"></textarea></label></section>
 <aside class="slides-inspector" id="slides-inspector" aria-label="Slide and element properties" data-open="false"><div class="slides-inspector-body"><div id="properties"></div><h2>Layers</h2><div id="layers"></div></div></aside></div>
 <input type="file" id="image-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
+<section class="slides-shortcuts" id="shortcuts" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" tabindex="-1" hidden><div class="slides-shortcuts-card"><h2 id="shortcuts-title">Keyboard shortcuts</h2><dl>${[
+		["Move between slides", "← → Space Page Up Page Down Home End"],
+		["Insert an element", "/"],
+		["Present", "F"],
+		["Move the selected element", "Arrow keys, Shift for 10 pixels"],
+		["Write in the selected text", "Double-click or F2"],
+		["Format the selected element", "Enter"],
+		["Larger or smaller text", `${keys(".", true)} ${keys(",", true)}`],
+		[
+			"Copy, cut, paste, duplicate",
+			`${keys("C")} ${keys("X")} ${keys("V")} ${keys("D")}`,
+		],
+		["Delete the selected element", "Delete"],
+		["Undo, redo", `${keys("Z")} ${keys("Z", true)}`],
+		["Hide or show the slide list", keys("\\")],
+		["Show these shortcuts", keys("/")],
+		["Deselect, close", "Esc"],
+	]
+		.map(([what, key]) => `<dt>${what}</dt><dd>${key}</dd>`)
+		.join(
+			"",
+		)}</dl><button type="button" id="close-shortcuts">Close</button></div></section>
 <section id="presenter" hidden tabindex="-1" aria-label="Presentation"><div class="slides-present-stage"></div><div class="slides-present-pill" id="position" role="status" aria-live="polite"></div><div class="slides-present-controls">${tool("previous", "Previous slide", glyph(GLYPHS.previous), "←")}${tool("next", "Next slide", glyph(GLYPHS.next), "→")}${tool("exit", "Exit presentation", glyph(GLYPHS.close), "Esc")}</div></section></main>`;
 	const find = <T extends HTMLElement = HTMLElement>(selector: string) =>
 		root.querySelector<T>(selector)!;
@@ -398,6 +427,7 @@ export async function mountSlidesClient(
 			select: HTMLButtonElement;
 			number: HTMLElement;
 			canvas: HTMLElement;
+			caption: HTMLElement;
 			slide?: OsPresentationCanvasSlide;
 			theme?: OsPresentationDeck["theme"];
 			label?: string;
@@ -799,6 +829,10 @@ export async function mountSlidesClient(
 				fresh = new Set(result.selectedIds);
 		});
 	}
+	const sameType = (
+		slide: OsPresentationCanvasSlide,
+		type: OsPresentationElementType,
+	) => slide.elements.filter((element) => element.type === type).length;
 	function addElement(element: OsPresentationElement) {
 		mutate(() => {
 			const slide = active()!;
@@ -810,7 +844,7 @@ export async function mountSlidesClient(
 	function insertElement(type: OsPresentationElementType) {
 		const slide = active();
 		if (!slide || slide.elements.length >= OS_SLIDE_MAX_ELEMENTS) return;
-		addElement(newSlideElement(type, slide.elements.length));
+		addElement(newSlideElement(type, sameType(slide, type)));
 		// Ready for arrow keys and typing shortcuts straight away.
 		stage.focus({ preventScroll: true });
 	}
@@ -1042,7 +1076,10 @@ export async function mountSlidesClient(
 		select.className = "slides-thumbnail";
 		const canvas = document.createElement("div");
 		canvas.className = "slides-thumb-canvas";
-		select.append(canvas);
+		const caption = document.createElement("span");
+		caption.className = "slides-thumb-caption";
+		caption.setAttribute("aria-hidden", "true");
+		select.append(canvas, caption);
 		const actions = document.createElement("div");
 		actions.className = "slides-thumb-actions";
 		for (const [name, label, glyphName] of [
@@ -1118,7 +1155,7 @@ export async function mountSlidesClient(
 			if (from < to) to--;
 			moveSlide(moved, to);
 		};
-		return { item, select, number, canvas };
+		return { item, select, number, canvas, caption };
 	}
 	/** Keep one thumbnail per slide, repainting only slides that changed. */
 	function renderRail() {
@@ -1156,6 +1193,14 @@ export async function mountSlidesClient(
 				entry.slide = slide;
 				entry.theme = deck?.theme;
 			}
+			// Under the thumbnail: the slide's title, or its name without one.
+			const caption =
+				slide.elements
+					.find((element) => element.type === "title" && element.text?.trim())
+					?.text?.trim()
+					.split("\n")[0] ?? slide.name;
+			if (entry.caption.textContent !== caption)
+				entry.caption.textContent = caption;
 			const label = `Slide ${index + 1}: ${slide.name}`;
 			if (entry.label !== label) {
 				entry.label = label;
@@ -1285,6 +1330,35 @@ export async function mountSlidesClient(
 			if (input.value !== get()) set(input.value);
 		};
 		swatch.append(fill, input);
+		// One click for the usual colors: black, gray, white and the
+		// organization's tones; the swatch still opens any color.
+		const palette = document.createElement("span");
+		palette.className = "slides-palette";
+		palette.setAttribute("role", "group");
+		palette.setAttribute("aria-label", `${label} palette`);
+		for (const [name, color] of paletteColors()) {
+			const chip = document.createElement("button");
+			chip.type = "button";
+			chip.title = name;
+			chip.dataset.color = hexColor(color, color);
+			chip.setAttribute("aria-label", `${label}: ${name}`);
+			chip.style.background = color;
+			chip.onclick = (event) => {
+				event.preventDefault();
+				if (hexColor(get(), "") !== chip.dataset.color) set(color);
+			};
+			palette.append(chip);
+		}
+		const mark = () => {
+			const current = hexColor(get(), "");
+			for (const chip of palette.querySelectorAll("button"))
+				chip.setAttribute(
+					"aria-pressed",
+					String(chip.dataset.color === current),
+				);
+		};
+		mark();
+		syncs.push(mark);
 		if (none) {
 			const clear = document.createElement("button");
 			clear.type = "button";
@@ -1296,8 +1370,22 @@ export async function mountSlidesClient(
 			};
 			wrapper.append(clear);
 		}
-		wrapper.append(swatch);
+		wrapper.append(swatch, palette);
 		parent.append(wrapper);
+	}
+	function paletteColors(): Array<[string, string]> {
+		const tone = (name: Parameters<typeof slideTone>[0]) =>
+			slideTone(name, context.appearance).color;
+		return [
+			["Black", "#000000"],
+			["Gray", "#747474"],
+			["White", "#ffffff"],
+			["Accent", tone("accent")],
+			["Green", tone("success")],
+			["Amber", tone("warning")],
+			["Red", tone("danger")],
+			["Blue", tone("info")],
+		];
 	}
 	function buildInspector(element: OsPresentationElement | undefined) {
 		syncs = [];
@@ -1492,7 +1580,92 @@ export async function mountSlidesClient(
 				"info",
 			]);
 		}
-		if (type === "arrow") propsField("Arrow label", "label", "");
+		if (type === "title")
+			field(
+				basics,
+				"Highlight words (comma list)",
+				() => (selected()?.props?.highlight ?? []).join(", "),
+				(value) => {
+					const words = value
+						.split(",")
+						.map((word) => word.trim())
+						.filter(Boolean)
+						.slice(0, 100);
+					edit((current) => ({
+						...current,
+						props: {
+							...current.props,
+							highlight: words.length ? words : undefined,
+						},
+					}));
+				},
+				{ wide: true },
+			);
+		if (type === "bullet")
+			field(
+				basics,
+				"Bullet spacing",
+				() => (selected()?.props?.compact ? "compact" : "normal"),
+				(value) =>
+					edit((current) => ({
+						...current,
+						props: {
+							...current.props,
+							compact: value === "compact" || undefined,
+						},
+					})),
+				{ choices: ["normal", "compact"], wide: true },
+			);
+		if (type === "arrow") {
+			propsField("Arrow label", "label", "");
+			colorField(
+				basics,
+				"Line color",
+				() => selected()?.props?.color ?? selected()?.style.color ?? "#737373",
+				(value) =>
+					edit(
+						(current) => ({
+							...current,
+							props: { ...current.props, color: value },
+						}),
+						"color:arrow",
+					),
+			);
+			field(
+				basics,
+				"Line",
+				() => (selected()?.props?.dashed ? "dashed" : "solid"),
+				(value) =>
+					edit((current) => ({
+						...current,
+						props: {
+							...current.props,
+							dashed: value === "dashed" || undefined,
+						},
+					})),
+				{ choices: ["solid", "dashed"] },
+			);
+			field(
+				basics,
+				"Line width",
+				() => selected()?.props?.strokeWidth ?? 2,
+				(value) =>
+					edit((current) => ({
+						...current,
+						props: { ...current.props, strokeWidth: Number(value) },
+					})),
+				{ type: "number", min: 0.5, max: 24, step: "0.5" },
+			);
+		}
+		if (type === "image" || type === "svg" || type === "logo") {
+			const replace = document.createElement("button");
+			replace.type = "button";
+			replace.className = "wide";
+			replace.textContent = selected()?.src ? "Replace image" : "Add image";
+			replace.disabled = !canWrite();
+			replace.onclick = () => chooseImage(element.id);
+			basics.append(replace);
+		}
 		if (type === "image" || type === "svg")
 			styleField(basics, "Image fit", "fit", "contain", {
 				choices: ["contain", "cover"],
@@ -2600,18 +2773,40 @@ export async function mountSlidesClient(
 		const items = () =>
 			Array.from(
 				list.querySelectorAll<HTMLButtonElement>("[role=menuitem]"),
-			).filter((item) => !item.disabled);
-		trigger.onclick = () => {
-			if (!list.hidden) return close();
+			).filter((item) => !item.disabled && !item.hidden);
+		const search = list.querySelector<HTMLInputElement>(".slides-menu-search");
+		const filter = () => {
+			if (!search) return;
+			const query = search.value.trim().toLowerCase();
+			for (const item of list.querySelectorAll<HTMLButtonElement>(
+				"[role=menuitem]",
+			))
+				item.hidden =
+					!!query && !item.textContent!.toLowerCase().includes(query);
+			for (const rule of list.querySelectorAll("hr")) rule.hidden = !!query;
+		};
+		if (search) search.oninput = filter;
+		const open = () => {
 			for (const other of menus) other();
+			if (search) {
+				search.value = "";
+				filter();
+			}
 			list.hidden = false;
 			trigger.setAttribute("aria-expanded", "true");
-			items()[0]?.focus();
+			(search ?? items()[0])?.focus();
+		};
+		trigger.onclick = () => {
+			if (!list.hidden) return close();
+			open();
 		};
 		list.onkeydown = (event) => {
 			const all = items(),
 				at = all.indexOf(document.activeElement as HTMLButtonElement);
-			if (event.key === "Escape") close(true);
+			const typing = event.target === search;
+			if (typing && event.key === "Enter") all[0]?.click();
+			else if (typing && (event.key === "Home" || event.key === "End")) return;
+			else if (event.key === "Escape") close(true);
 			else if (event.key === "ArrowDown") all[(at + 1) % all.length]?.focus();
 			else if (event.key === "ArrowUp")
 				all[(at - 1 + all.length) % all.length]?.focus();
@@ -2626,10 +2821,63 @@ export async function mountSlidesClient(
 			if ((event.target as HTMLElement).closest("[role=menuitem]")) close(true);
 		});
 		menus.push(close);
+		return open;
 	}
-	menu(button("insert"), find("#insert-menu"));
+	const openInsert = menu(button("insert"), find("#insert-menu"));
 	menu(button("more"), find("#more-menu"));
 	menu(button("align"), find("#align-menu"));
+	function toggleRail() {
+		const hide = main.dataset.rail !== "hidden";
+		if (hide) main.dataset.rail = "hidden";
+		else delete main.dataset.rail;
+		button("toggle-rail").textContent = hide
+			? "Show slide list"
+			: "Hide slide list";
+		fit();
+	}
+	button("toggle-rail").onclick = toggleRail;
+	const shortcuts = find("#shortcuts");
+	let shortcutsFrom: HTMLElement | null = null;
+	function showShortcuts(show: boolean) {
+		if (show === !shortcuts.hidden) return;
+		shortcuts.hidden = !show;
+		if (show) {
+			shortcutsFrom = document.activeElement as HTMLElement | null;
+			shortcuts.focus();
+		} else shortcutsFrom?.focus?.();
+	}
+	button("show-shortcuts").onclick = () => showShortcuts(true);
+	button("close-shortcuts").onclick = () => showShortcuts(false);
+	shortcuts.onclick = (event) => {
+		if (event.target === shortcuts) showShortcuts(false);
+	};
+	/** Step the selected text's font size along the type scale, as one undo step. */
+	function stepFontSize(by: 1 | -1) {
+		const along = (current: number) =>
+			by > 0
+				? (TYPE_SCALE.find((size) => size > current) ?? TYPE_SCALE.at(-1)!)
+				: ([...TYPE_SCALE].reverse().find((size) => size < current) ??
+					TYPE_SCALE[0]!);
+		const texts = selectedElements().filter(
+			(element) => !NO_TEXT.includes(element.type),
+		);
+		if (!texts.length || !canWrite()) return;
+		const next = texts.map((element) => ({
+			...element,
+			style: {
+				...element.style,
+				fontSize: along(element.style.fontSize ?? 24),
+			},
+		}));
+		if (
+			next.every(
+				(element, index) =>
+					element.style.fontSize === texts[index]!.style.fontSize,
+			)
+		)
+			return;
+		mutate(() => updateElements(next), `font-size:${[...selection].join()}`);
+	}
 	const onOutside = (event: Event) => {
 		if (!(event.target as HTMLElement).closest?.(".slides-menu-anchor"))
 			for (const close of menus) close();
@@ -2672,10 +2920,8 @@ export async function mountSlidesClient(
 			const src = await storeImage(await fileToSlideImageSource(file));
 			const slide = active();
 			if (!slide || !canWrite()) return;
-			const element = newSlideElement(
-				file.type === "image/svg+xml" ? "svg" : "image",
-				slide.elements.length,
-			);
+			const type = file.type === "image/svg+xml" ? "svg" : "image";
+			const element = newSlideElement(type, sameType(slide, type));
 			element.src = src;
 			element.text = file.name;
 			addElement(element);
@@ -2683,11 +2929,36 @@ export async function mountSlidesClient(
 			message(reason(error), true, 6000);
 		}
 	}
+	/** Put a chosen image into an existing image, SVG or logo element. */
+	async function replaceImage(file: File, id: string) {
+		if (!canWrite()) return;
+		try {
+			const src = await storeImage(await fileToSlideImageSource(file));
+			const current = active()?.elements.find((element) => element.id === id);
+			if (!current || !canWrite()) return;
+			mutate(() =>
+				updateElement({
+					...current,
+					src,
+					text: current.type === "logo" ? current.text : file.name,
+				}),
+			);
+		} catch (error) {
+			message(reason(error), true, 6000);
+		}
+	}
 	const imageInput = find<HTMLInputElement>("#image-file");
-	button("upload").onclick = () => imageInput.click();
+	let replacing: string | undefined;
+	function chooseImage(id?: string) {
+		replacing = id;
+		imageInput.click();
+	}
+	button("upload").onclick = () => chooseImage();
 	imageInput.onchange = () => {
 		const file = imageInput.files?.[0];
-		if (file) void insertImage(file);
+		if (file && replacing) void replaceImage(file, replacing);
+		else if (file) void insertImage(file);
+		replacing = undefined;
 		imageInput.value = "";
 	};
 	stage.ondragover = (event) => {
@@ -2797,6 +3068,13 @@ export async function mountSlidesClient(
 			void flush(true);
 			return;
 		}
+		if (!shortcuts.hidden) {
+			if (event.key === "Escape" || (command && event.key === "/")) {
+				event.preventDefault();
+				showShortcuts(false);
+			}
+			return;
+		}
 		const target = event.target as HTMLElement;
 		if (
 			target.closest(
@@ -2832,6 +3110,37 @@ export async function mountSlidesClient(
 			button("redo").click();
 			return;
 		}
+		if (command && !event.altKey && event.key === "/") {
+			event.preventDefault();
+			showShortcuts(true);
+			return;
+		}
+		if (command && !event.altKey && event.key === "\\") {
+			event.preventDefault();
+			toggleRail();
+			return;
+		}
+		if (command && event.shiftKey && [".", ">", ",", "<"].includes(event.key)) {
+			event.preventDefault();
+			stepFontSize(event.key === "." || event.key === ">" ? 1 : -1);
+			return;
+		}
+		if (!command && !event.altKey && event.key === "/" && canWrite()) {
+			event.preventDefault();
+			openInsert();
+			return;
+		}
+		if (
+			!command &&
+			!event.altKey &&
+			!event.shiftKey &&
+			event.key.toLowerCase() === "f" &&
+			!target.closest("button")
+		) {
+			event.preventDefault();
+			button("present").click();
+			return;
+		}
 		const action = slideElementShortcut(event);
 		if (action) {
 			event.preventDefault();
@@ -2847,10 +3156,16 @@ export async function mountSlidesClient(
 		}
 		const chosen = selectedElements();
 		if (!chosen.length) {
-			if (event.key === "PageDown" || event.key === "PageUp") {
-				event.preventDefault();
-				step(event.key === "PageDown" ? 1 : -1);
-			}
+			// The slide list handles its own arrow keys.
+			if (target.closest(".slides-rail") || command || event.altKey) return;
+			const last = (deck?.slides.length ?? 1) - 1;
+			if (["ArrowRight", "PageDown"].includes(event.key)) step(1);
+			else if (event.key === " " && !target.closest("button")) step(1);
+			else if (["ArrowLeft", "PageUp"].includes(event.key)) step(-1);
+			else if (event.key === "Home") selectSlide(0);
+			else if (event.key === "End") selectSlide(last);
+			else return;
+			event.preventDefault();
 			return;
 		}
 		if (event.key === "Enter") {

@@ -1160,8 +1160,8 @@ const outputsExport = authorOs.outputs.export.handler(
 				for (const slide of revision.content.deck?.slides ?? []) {
 					for (const element of slide.elements) {
 						if (element.type === "logo") {
-							element.type = organization.logoUrl ? "image" : "text";
-							element.src = organization.logoUrl ?? undefined;
+							element.src ??= organization.logoUrl ?? undefined;
+							element.type = element.src ? "image" : "text";
 							element.text = organization.name ?? "";
 						}
 					}
