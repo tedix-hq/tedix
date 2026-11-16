@@ -69,7 +69,7 @@ const ENGLISH_COPY = {
 		decisions: (count: number) =>
 			`Your profile includes ${count} recent ${count === 1 ? "decision" : "decisions"}.`,
 		approvals: (count: number) =>
-			`${count} outbound ${count === 1 ? "approval" : "approvals"}. The latest 10 are shown below.`,
+			`${count} outbound ${count === 1 ? "approval" : "approvals"}.${count > 10 ? " The latest 10 are shown below." : ""}`,
 		readAccess: {
 			verified:
 				"Sent-mail read access verified. Import only reads Gmail; it never sends or changes mail.",

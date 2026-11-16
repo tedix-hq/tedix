@@ -390,7 +390,10 @@ export function OutboundStyleProfile() {
 	const accounts = useQuery(
 		osQuery.workInteractions.outbound.accounts.queryOptions({ input: {} }),
 	);
-	const [account, setAccount] = useState<string | null>(null);
+	const [picked, setAccount] = useState<string | null>(null);
+	// One account needs no choice; several are never guessed between.
+	const account =
+		picked ?? (accounts.data?.length === 1 ? accounts.data[0]!.id : null);
 	const learn = useMutation({
 		mutationFn: (connectionInstanceId: string) =>
 			osApi.workInteractions.outbound.importSentStyle({ connectionInstanceId }),

@@ -369,3 +369,101 @@ it.each([
 		});
 	},
 );
+
+async function mountProfile(
+	accounts: Array<{
+		id: string;
+		label: string;
+		readAccess: "verified" | "denied" | "unknown";
+	}>,
+	approvalCount: number,
+) {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	client.setQueryData(
+		osQuery.workInteractions.outbound.accounts.queryOptions({ input: {} })
+			.queryKey,
+		accounts,
+	);
+	client.setQueryData(
+		osQuery.workInteractions.outbound.profile.queryOptions({ input: {} })
+			.queryKey,
+		{
+			approvals: [],
+			lessons: [],
+			preferences: [],
+			decisionCount: 0,
+			approvalCount,
+			sentExamples: 0,
+			sentStyleHints: [],
+		},
+	);
+	vi.spyOn(client, "invalidateQueries").mockResolvedValue(undefined);
+	importSentStyle.mockReset().mockResolvedValue({ imported: 10 });
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root!.render(
+			<QueryClientProvider client={client}>
+				<OutboundStyleProfile />
+			</QueryClientProvider>,
+		),
+	);
+	return host;
+}
+const accountPicker = () =>
+	document.querySelector('[aria-label="Gmail account for style examples"]')!;
+
+it("shows the only Gmail account's address and read access without a click, and still imports only on request", async () => {
+	const panel = await mountProfile(
+		[{ id: connectionId, label: "rosa@example.test", readAccess: "denied" }],
+		0,
+	);
+	expect(accountPicker().textContent).toContain("rosa@example.test");
+	expect(panel.textContent).toContain("Google denied sent-mail read access.");
+	expect(importSentStyle).not.toHaveBeenCalled();
+	await pressButton("Learn from my last 10 sent emails");
+	expect(importSentStyle).toHaveBeenCalledWith({
+		connectionInstanceId: connectionId,
+	});
+});
+
+it("never guesses between several Gmail accounts", async () => {
+	const panel = await mountProfile(
+		[
+			{ id: connectionId, label: "rosa@example.test", readAccess: "verified" },
+			{
+				id: "33333333-3333-4333-8333-333333333333",
+				label: "lina@example.test",
+				readAccess: "verified",
+			},
+		],
+		0,
+	);
+	expect(accountPicker().textContent).not.toContain("example.test");
+	expect(panel.textContent).not.toContain("Sent-mail read access");
+	expect(
+		[...document.querySelectorAll("button")].find(
+			(element) =>
+				element.textContent?.trim() === "Learn from my last 10 sent emails",
+		)!.disabled,
+	).toBe(true);
+});
+
+it.each([
+	[0, "0 outbound approvals.", false],
+	[1, "1 outbound approval.", false],
+	[10, "10 outbound approvals.", false],
+	[12, "12 outbound approvals. The latest 10 are shown below.", true],
+])(
+	"says the latest 10 approvals are shown only when there are more (%i)",
+	async (count, line, capped) => {
+		const panel = await mountProfile([], count);
+		expect(panel.textContent).toContain(line);
+		expect(panel.textContent?.includes("The latest 10 are shown below")).toBe(
+			capped,
+		);
+	},
+);
