@@ -1481,7 +1481,9 @@ export const WorkItemSchema = z.object({
 });
 export type WorkItem = z.infer<typeof WorkItemSchema>;
 
+/** What an epic is for. `delivery` is a feature or other result due by a date. */
 export const WorkCaseKindSchema = z.enum([
+	"delivery",
 	"investigation",
 	"incident",
 	"customer",

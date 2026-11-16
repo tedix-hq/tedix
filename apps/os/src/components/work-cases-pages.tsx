@@ -116,6 +116,22 @@ function DueDate({ at }: { at: string }) {
 	);
 }
 
+/** Plain names for an epic's kind, in the order the create form offers them. */
+const WORK_EPIC_KIND_LABELS = {
+	delivery: "Delivery",
+	investigation: "Investigation",
+	incident: "Incident",
+	customer: "Customer",
+	opportunity: "Opportunity",
+	legal: "Legal",
+	operations: "Operations",
+	other: "Other",
+} as const;
+type WorkEpicKind = keyof typeof WORK_EPIC_KIND_LABELS;
+const EPIC_KIND_OPTIONS = Object.entries(WORK_EPIC_KIND_LABELS).map(
+	([value, label]) => ({ value, label }),
+);
+
 const caseFormSchema = z.object({
 	title: z.string().trim().min(1, "Give the epic a name."),
 });
@@ -298,11 +314,12 @@ function NewWorkStreamForm({
 	});
 	const [ownerId, setOwnerId] = useState(currentUserId ?? "");
 	const [projectId, setProjectId] = useState("");
+	const [kind, setKind] = useState<WorkEpicKind>("other");
 	const create = useMutation({
 		mutationFn: (value: z.output<typeof caseFormSchema>) =>
 			osApi.workItems.createCase({
 				title: value.title,
-				kind: "other",
+				kind,
 				accountableOwnerType: "user",
 				accountableOwnerId: ownerId || currentUserId || "",
 				...(projectId ? { projectId } : {}),
@@ -310,6 +327,7 @@ function NewWorkStreamForm({
 		onSuccess: async () => {
 			form.reset();
 			setProjectId("");
+			setKind("other");
 			await onCreated();
 		},
 	});
@@ -329,7 +347,7 @@ function NewWorkStreamForm({
 	return (
 		<Surface className="p-4">
 			<form
-				className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end"
+				className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end"
 				onSubmit={(event) => {
 					event.preventDefault();
 					event.stopPropagation();
@@ -339,6 +357,17 @@ function NewWorkStreamForm({
 				<FormField form={form} name="title" label="Name">
 					{(field, meta) => <FormInput field={field} {...meta} />}
 				</FormField>
+				<div className="grid min-w-0 gap-1">
+					<Text as="span" role="label" tone="secondary">
+						Kind
+					</Text>
+					<OperationPicker
+						label="Choose kind"
+						options={EPIC_KIND_OPTIONS}
+						value={kind}
+						onSelect={(value) => setKind(value as WorkEpicKind)}
+					/>
+				</div>
 				<div className="grid min-w-0 gap-1">
 					<Text as="span" role="label" tone="secondary">
 						Owner
