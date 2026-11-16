@@ -113,8 +113,8 @@ manifests, snapshot, plugin peer ranges, and lockfiles aligned. Existing
 bundles keep their compiled version until rebuilt; before activating a new
 release for a tenant, check its migrations against that tenant's data.
 
-Patches live in `patches/emdash@1.4.0.patch` and
-`patches/@emdash-cms/cloudflare@1.4.0.patch` (root is canonical; starters copy
+Patches live in `patches/emdash@1.5.0.patch` and
+`patches/@emdash-cms/cloudflare@1.5.0.patch` (root is canonical; starters copy
 them, checked by `apps/cms/src/emdash-patches.test.ts`).
 `worker-loader-do-sql-runtime.ts` in each starter forks the DO SQL dialect.
 Delete a hunk only when its fix ships in the release the starters pin:
@@ -125,7 +125,6 @@ Delete a hunk only when its fix ships in the release the starters pin:
 | `SandboxRunner.validateBundle` before registry writes                | Discussion #3635                          | Hook released                                   |
 | Failed `plugin:install`/`plugin:activate` hook fails install/update  | PR #3634 (our hook-must-exist rule stays) | #3634 released                                  |
 | Draft-content authorization on MCP and REST reads                    | Local                                     | Equivalent upstream authorization verified      |
-| Import blocker `collection_deletion_unfinished`                      | Issue #3637                               | Fix released                                    |
 | DO SQL stub resolver (the whole dialect fork)                        | Discussion #3636                          | Resolver released                               |
 | Exact `@cloudflare/kumo` peer                                        | Issue #3638, PR #3658                     | Published with a peer range                     |
 | Canonical sitemap URLs (`X-EmDash-Sitemap-Canonical: 1`)             | Not filed                                 | Upstream passes `emdash-sitemap-canonical.test` |

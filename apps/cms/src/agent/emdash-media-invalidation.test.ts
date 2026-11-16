@@ -37,8 +37,15 @@ const { createDialect } = (await import(/* @vite-ignore */ starterAdapter)) as {
 };
 const { Kysely } =
 	await import("../../templates/marketing/node_modules/kysely");
-const { MediaUsageRepository } =
-	await import("../../templates/marketing/node_modules/emdash/src/database/repositories/media-usage");
+const mediaUsageRepository =
+	"../../templates/marketing/node_modules/emdash/src/database/repositories/media-usage";
+const { MediaUsageRepository } = (await import(
+	/* @vite-ignore */ mediaUsageRepository
+)) as {
+	MediaUsageRepository: new (db: never) => {
+		invalidateIndexStatusForSchemaChange(slug: string): Promise<boolean>;
+	};
+};
 
 sqlite.exec(`
 	CREATE TABLE _emdash_media_usage_index_status (adapter_id TEXT NOT NULL, scope_type TEXT NOT NULL, scope_key TEXT NOT NULL, status TEXT NOT NULL, change_epoch INTEGER NOT NULL DEFAULT 0, reconciliation_required INTEGER NOT NULL DEFAULT 0, completed_at TEXT, cursor TEXT, last_error_code TEXT, updated_at TEXT NOT NULL, collection_id TEXT, capture_state TEXT, PRIMARY KEY (adapter_id, scope_type, scope_key));

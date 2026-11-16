@@ -310,9 +310,12 @@ describe("native editor descriptor registration", () => {
 		const execute = new Function(
 			"adaptSandboxEntry",
 			"pluginDef0",
-			generated
+			`${generated
 				.replace(/^import .*;$/gm, "")
-				.replace("export const plugins =", "return"),
+				.replace(
+					"export function plugins()",
+					"function plugins()",
+				)}\nreturn plugins();`,
 		);
 		return execute(adaptSandboxEntry, plugin)[0];
 	}
@@ -405,7 +408,7 @@ describe("installed native browser draft capture", () => {
 			"const captureEditorDraft = React.useCallback(",
 		);
 		const callbackStart = editor.indexOf("(access:", captureStart);
-		const callbackEnd = editor.indexOf("\n\t\t[fields],", callbackStart);
+		const callbackEnd = editor.indexOf("\n\t\t[fields, room],", callbackStart);
 		if (captureStart < 0 || callbackStart < 0 || callbackEnd < 0)
 			throw new Error("Installed native capture callback missing");
 		const captureSource = editor
@@ -432,6 +435,7 @@ describe("installed native browser draft capture", () => {
 			"editorContextRef",
 			"formDataRef",
 			"editorGenerationRef",
+			"room",
 			compile(`export default ${captureSource};`),
 		)(
 			captureModule,
@@ -441,6 +445,7 @@ describe("installed native browser draft capture", () => {
 			{ current: { ...draft, collection: "pages" } },
 			{ current: formData },
 			{ current: 4 },
+			null,
 		);
 		const capture = captureModule.exports.default;
 		const full = capture({ read: { translatable: true } });

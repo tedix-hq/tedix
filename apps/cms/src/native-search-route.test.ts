@@ -36,6 +36,7 @@ vi.mock("virtual:emdash/sandbox-runner", () => ({
 }));
 vi.mock("virtual:emdash/sandboxed-plugins", () => ({ sandboxedPlugins: [] }));
 vi.mock("virtual:emdash/scheduler", () => ({ createScheduler: null }));
+vi.mock("virtual:emdash/rooms", () => ({ createRoomHost: null }));
 vi.mock("virtual:emdash/storage", () => ({ createStorage: null }));
 vi.mock("virtual:emdash/seed", () => ({ seed: null, userSeed: null }));
 import { onRequest as installedMiddleware } from "../templates/tedix/node_modules/emdash/dist/astro/middleware.mjs";

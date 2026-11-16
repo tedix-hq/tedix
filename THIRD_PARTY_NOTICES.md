@@ -36,7 +36,7 @@ License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 
 ## emdash-core-collection-deletion-guard
 
-Includes a patch to emdash 1.4.0 that preserves guarded collection deletion, import fencing, the Durable Object transaction bypass, external provider roles for first users, native atomic menu replacement, and normalized content validation on publish and revision restore, Copyright 2026 Cloudflare Inc., under the MIT License.
+Includes a patch to emdash 1.5.0 that preserves guarded collection deletion, import fencing, the Durable Object transaction bypass, external provider roles for first users, native atomic menu replacement, and normalized content validation on publish and revision restore, Copyright 2026 Cloudflare Inc., under the MIT License.
 
 License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 
