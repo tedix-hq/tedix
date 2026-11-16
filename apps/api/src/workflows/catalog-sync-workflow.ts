@@ -1,11 +1,10 @@
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { assetsBaseUrl as resolveAssetsBaseUrl } from "./assets-base-url";
 import {
-	CatalogSnapshotSchema,
-	type CatalogSnapshot,
+	CatalogSnapshotManifestSchema,
+	type CatalogSnapshotItem,
 } from "@tedix/api-contract/schemas/catalog-snapshot";
 import {
-	SNAPSHOT_PART_SIZE,
 	locateSnapshotBatch,
 	snapshotBatchCount,
 	snapshotPartCount,
@@ -390,29 +389,18 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				const snapshotKey = event.payload.snapshotKey;
 				const provenanceKey = event.payload.snapshotProvenanceKey;
 				const removalSources = event.payload.snapshotRemovalSources ?? [];
-				// The snapshot is too large to keep in the Workflow body for a run of
-				// over a thousand steps. Validate it once, write it out as small part
-				// files, and let each batch step read only its own part.
+				// The capture stored the listings as part files beside a small
+				// manifest. Each batch step reads only its own part, so the run
+				// never holds the whole directory.
 				const itemCount = await step.do(
-					"split-snapshot",
-					{ retries: { limit: 2, delay: "10 seconds" }, timeout: "5 minutes" },
+					"read-snapshot-manifest",
+					{ retries: { limit: 2, delay: "10 seconds" }, timeout: "1 minute" },
 					async () => {
 						const archived = await this.readR2Json(snapshotKey);
 						if (archived.inputHash !== event.payload.snapshotInputHash)
 							throw new NonRetryableError("Snapshot input identity mismatch");
-						const { items } = CatalogSnapshotSchema.parse(archived.snapshot);
-						for (let part = 0; part < snapshotPartCount(items.length); part++)
-							await this.env.R2_BUCKET.put(
-								snapshotPartKey(snapshotKey, part),
-								JSON.stringify(
-									items.slice(
-										part * SNAPSHOT_PART_SIZE,
-										(part + 1) * SNAPSHOT_PART_SIZE,
-									),
-								),
-								{ httpMetadata: { contentType: "application/json" } },
-							);
-						return items.length;
+						return CatalogSnapshotManifestSchema.parse(archived.manifest)
+							.itemCount;
 					},
 				);
 				totalAppsDiscovered = itemCount;
@@ -427,7 +415,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 							const { part, start, end } = locateSnapshotBatch(index);
 							const partItems = (await this.readR2Json(
 								snapshotPartKey(snapshotKey, part),
-							)) as unknown as CatalogSnapshot["items"];
+							)) as unknown as CatalogSnapshotItem[];
 							// Mark every listing this feed writes so a registry sync's
 							// removal pass for the same source leaves it to this feed's
 							// own reconciliation.
@@ -473,13 +461,6 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 						}
 					}
 				}
-				await step.do("remove-snapshot-parts", async () => {
-					await this.env.R2_BUCKET.delete(
-						Array.from({ length: snapshotPartCount(itemCount) }, (_, part) =>
-							snapshotPartKey(snapshotKey, part),
-						),
-					);
-				});
 				filesProcessed.push(snapshotKey);
 			} else if (syncType === "upload") {
 				// Upload mode: process data from request body in one step

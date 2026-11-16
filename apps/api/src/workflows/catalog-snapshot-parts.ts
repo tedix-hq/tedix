@@ -1,10 +1,9 @@
 /**
- * A supplier snapshot holds every listing of a store. Keeping it in the
- * Workflow body costs its full size for the whole run and again on every
- * replay, so the Workflow splits it once into part files and each batch step
- * reads only the part it needs.
+ * A supplier snapshot holds every listing of a store. It is too large for one
+ * browser message or to keep in memory for a long run, so the capture stores
+ * it as part files and each Workflow batch step reads only the part it needs.
  */
-export const SNAPSHOT_PART_SIZE = 100;
+export const SNAPSHOT_PART_SIZE = 500;
 export const SNAPSHOT_BATCH_SIZE = 10;
 
 export function snapshotPartKey(snapshotKey: string, part: number): string {
