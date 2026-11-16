@@ -1699,6 +1699,84 @@ describe("portable Slides canvas", () => {
 			);
 		});
 	});
+	describe("slide list search, counter and limits", () => {
+		const saved = (api: Awaited<ReturnType<typeof mount>>) =>
+			api.result().revision.content.deck!;
+		it("searches slides by their text and opens the first match on Enter", async () => {
+			await mount();
+			const search = field("Search slides") as HTMLInputElement;
+			search.value = "second notes";
+			search.dispatchEvent(new Event("input"));
+			expect(thumb("slide-1").hidden).toBe(true);
+			expect(thumb("slide-2").hidden).toBe(false);
+			expect(document.querySelector("#slide-matches")!.textContent).toBe(
+				"1 of 2 slides match",
+			);
+			key(search, { key: "Enter" });
+			expect(thumb("slide-2").classList.contains("current")).toBe(true);
+			key(search, { key: "Escape" });
+			expect(thumb("slide-1").hidden).toBe(false);
+		});
+		it("shows the slide position and jumps to a slide from its menu", async () => {
+			await mount();
+			expect(button("slide-count").textContent).toBe("1 / 2");
+			expect(button("slide-previous").disabled).toBe(true);
+			button("slide-count").click();
+			const items = document.querySelectorAll<HTMLButtonElement>(
+				"#goto-menu [role=menuitem]",
+			);
+			expect([...items].map((item) => item.textContent)).toEqual([
+				"1. Original title",
+				"2. Two",
+			]);
+			items[1]!.click();
+			expect(button("slide-count").textContent).toBe("2 / 2");
+			button("slide-previous").click();
+			expect(button("slide-count").textContent).toBe("1 / 2");
+		});
+		it("duplicates the focused slide with the shortcut in the slide list", async () => {
+			const api = await mount();
+			key(thumb("slide-2").querySelector(".slides-thumbnail")!, {
+				key: "d",
+				metaKey: true,
+			});
+			await api.app.save();
+			expect(saved(api).slides.map((slide) => slide.name)).toEqual([
+				"One",
+				"Two",
+				"Two copy",
+			]);
+		});
+		it("keeps a blank slide when the last one is deleted", async () => {
+			const api = await mount();
+			for (const id of ["slide-1", "slide-2"])
+				key(thumb(id).querySelector(".slides-thumbnail")!, { key: "Delete" });
+			await api.app.save();
+			const slides = saved(api).slides;
+			expect(slides).toHaveLength(1);
+			expect(slides[0]!.layout).toBe("title");
+		});
+		it("stops a bullet list at six points", async () => {
+			await mount();
+			insert("bullet");
+			document
+				.querySelector(".slides-stage .slides-element.selected")!
+				.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+			const editor = document.querySelector<HTMLTextAreaElement>(
+				".slides-inline-editor",
+			)!;
+			editor.value = "1\n2\n3\n4\n5\n6";
+			editor.dispatchEvent(new Event("input"));
+			const enter = new KeyboardEvent("keydown", {
+				key: "Enter",
+				bubbles: true,
+				cancelable: true,
+			});
+			editor.dispatchEvent(enter);
+			expect(enter.defaultPrevented).toBe(true);
+			expect(status()).toBe("A list holds up to 6 points.");
+		});
+	});
 	describe("changes someone else makes while the presentation is open", () => {
 		const banner = () => document.querySelector(".slides-updates")!;
 		const offer = () =>

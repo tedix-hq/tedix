@@ -44,6 +44,13 @@ body{padding:0!important;min-height:560px;overflow:hidden}
 .slides-layout{position:relative;flex:1;min-height:0;display:flex}
 .slides-rail{flex:none;width:168px;overflow-y:auto;padding:10px 8px 10px 4px;border-right:1px solid var(--line)}
 .slides-rail nav{display:grid;gap:10px}
+.slides-rail-search{position:sticky;top:-10px;z-index:1;margin:-10px 0 8px 20px;padding:8px 0 4px;background:var(--bg)}
+.slides-rail-search input{width:100%;min-width:0;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font-size:12px}
+.slides-thumb[hidden]{display:none}
+.slides-counter{display:inline-flex;align-items:center}
+.slides-app .slides-counter button{min-width:26px;padding:4px 6px;font-variant-numeric:tabular-nums}
+#goto-menu{max-height:60vh;overflow-y:auto}
+#goto-menu [aria-current=true]{font-weight:600}
 .slides-app[data-rail=hidden] .slides-rail{display:none}
 .slides-app[data-mode=view] .slides-bar-tools,.slides-app[data-mode=view] #format{display:none}
 .slides-app[data-mode=view] .slides-stage .slides-element{cursor:default}
