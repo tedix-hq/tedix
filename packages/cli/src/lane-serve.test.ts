@@ -3126,6 +3126,64 @@ describe("dispatcher admission", () => {
 		expect(settle.args).toContain("a".repeat(40));
 		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
 	});
+	it("settles a landed but unconfirmed result as succeeded, holds the Work and asks its owner once", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		const sha = "a".repeat(40);
+		f.control.commits = [sha];
+		f.control.finalMessage = `Pushed\nTEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(), outcome: "landed_unverified", unverified: "The deploy could not be read" })}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+		expect(settle.args).toContain(sha);
+		expect(settle.input?.metadata).toMatchObject({
+			laneResult: { outcome: "landed_unverified" },
+		});
+		for (let pass = 0; pass < 3; pass++) await f.restart().tick();
+		expect(f.releases).toHaveLength(1);
+		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+		const holds = f.events.filter((e) => e.verb === "dispatch-hold");
+		expect(holds).toHaveLength(1);
+		expect(holds[0]!.input).toEqual({
+			expectedWorkItemVersion: 2,
+			laneDispatch: {
+				state: "held",
+				reason:
+					"The change is on main, but the agent could not confirm the result. A person checks it and completes the task.",
+				note: "The deploy could not be read",
+			},
+		});
+		const requests = f.events.filter((e) => e.verb === "interaction-create");
+		expect(requests).toHaveLength(1);
+		expect(requests[0]!.input).toMatchObject({
+			subject: 'Check the result of "Summarize the guide"',
+			requestedFrom: { type: "user", id: "fictional-owner" },
+			metadata: {
+				source: "lane-dispatch-blocker",
+				laneBlocker: { kind: "result_unverified", workVersion: 3 },
+			},
+		});
+		expect(requests[0]!.input!.prompt).toContain("aaaaaaaaaaaa");
+		expect(requests[0]!.input!.prompt).toContain(
+			"Not confirmed: The deploy could not be read",
+		);
+	});
+	it("fails a landed but unconfirmed result that has no commit on main", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(), outcome: "landed_unverified", unverified: "The deploy could not be read" })}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+	});
 	it.each(["completed", "incomplete"] as const)(
 		"preserves %s commit/evidence declarations on the admitted Work and Attempt",
 		async (outcome) => {

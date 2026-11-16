@@ -664,6 +664,13 @@ the Work, version, contract and accepted-outcome fields supplied in its brief.
 Use `outcome: "completed"` only when the entire accepted outcome happened.
 Otherwise use `outcome: "incomplete"` with `remaining` explaining what is unmet.
 A successful process exit or landed partial commit does not complete Work.
+When the change is on main but its result could not be confirmed, for example
+because a check failed or the deploy cannot be read, use
+`outcome: "landed_unverified"` with `unverified` saying what is not confirmed.
+The run then counts as succeeded with its commits and is not started again.
+The runner records a hold on the task and sends its owner one request to check
+the result; the owner completes the task, or edits it to have an agent work on
+it again. A `landed_unverified` result with no commit on `origin/main` fails.
 Legacy results without that declaration remain open for verification.
 
 For an already satisfied CI recovery, use `outcome: "already_satisfied"` with

@@ -29,6 +29,13 @@ export const LaneResultSchema = z.discriminatedUnion("outcome", [
 		outcome: z.literal("incomplete"),
 		remaining: z.string().min(1).max(1800),
 	}),
+	// The change is on main, but its result could not be confirmed.
+	z.strictObject({
+		...fence,
+		...proof,
+		outcome: z.literal("landed_unverified"),
+		unverified: z.string().min(1).max(1800),
+	}),
 	z.strictObject({
 		...fence,
 		outcome: z.literal("waiting_on_user"),
