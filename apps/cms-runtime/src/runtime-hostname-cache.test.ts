@@ -26,6 +26,7 @@ describe("CMS custom hostname routing", () => {
 			.mockResolvedValueOnce({ slug: "alpha" })
 			.mockResolvedValueOnce({ slug: "alpha" })
 			.mockResolvedValueOnce({ slug: "alpha" })
+			.mockResolvedValueOnce({ slug: "alpha" })
 			.mockResolvedValueOnce(null);
 		const env = {
 			ENVIRONMENT: "production",
@@ -33,7 +34,7 @@ describe("CMS custom hostname routing", () => {
 		} as never;
 		const request = new Request("https://blog.example.com/");
 		const first = await cmsRuntime.fetch(request, env, {} as never);
-		// Each of the three attempts resolved the hostname, then stopped at
+		// Each of the four attempts resolved the hostname, then stopped at
 		// missing test provider bindings before loading the tenant bundle.
 		expect(first.status).toBe(503);
 		// No restore was running, so the visitor is not told one is.
@@ -41,7 +42,7 @@ describe("CMS custom hostname routing", () => {
 		expect(await first.text()).toContain("briefly unavailable");
 		const removed = await cmsRuntime.fetch(request, env, {} as never);
 		expect(removed.status).toBe(404);
-		expect(mocks.getSiteByHostname).toHaveBeenCalledTimes(4);
+		expect(mocks.getSiteByHostname).toHaveBeenCalledTimes(5);
 	});
 
 	it("retries a failed site lookup instead of answering 503", async () => {
