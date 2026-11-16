@@ -53,6 +53,33 @@ A tedi acts under its own identity rather than signing in as the person who
 asked. The requester stays on the record, but their permissions are not
 copied to the tedi.
 
+## Project Work operators
+
+An organization owner can delegate accepting, completing and cancelling Work
+to active members in a particular project. Each action checks the current
+membership and the project's policy. The project must be active; removing the
+grant or deactivating the member ends their delegated authority.
+
+The owner sets `metadata.workOperators` through the project API. For example:
+
+```json
+{
+	"version": 1,
+	"userIds": ["member-user-id"],
+	"actions": ["acceptance", "completion", "cancellation"]
+}
+```
+
+List only the actions the member needs. Set `workOperators` to `null` to revoke
+it; omitting the key preserves the existing grant. Review this access change
+before granting it and test the member's own account both inside and outside
+the delegated project. Owner and admin lifecycle rights remain unchanged.
+
+This delegation grants no approval, factory, team, settings, secrets or billing
+authority. Acceptance still needs an accountable owner and an outcome;
+completion and cancellation retain their existing transition and active
+Attempt checks. Recording completion does not prove the result is correct.
+
 ## Critical-only autonomy
 
 An organization can opt into low- and medium-risk delegation and tool actions

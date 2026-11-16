@@ -1,3 +1,4 @@
+import { workItemOperatorAuthor } from "./operator-policy";
 import { implement } from "@orpc/server";
 import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
 import { ExternalAgentWorkManagementGrantSchema } from "@tedix/api-contract/schemas/external-agent-identity";
@@ -143,7 +144,10 @@ export async function workItemStewardActor(
 	if (actor.type === "user") {
 		return {
 			type: "user" as const,
-			id: await requireOwnerAdminWorkItemAuthor(context, item.orgId),
+			id:
+				action === "specification"
+					? await requireOwnerAdminWorkItemAuthor(context, item.orgId)
+					: await workItemOperatorAuthor(context, item, action),
 		};
 	}
 	if (
@@ -246,7 +250,7 @@ export function hasWorkAcceptanceScope(
 	>,
 ): boolean {
 	// The caller must resolve the owner-host session before using this grant.
-	// Ordinary human acceptance continues to use owner/admin membership.
+	// Ordinary human acceptance uses membership and project operator policy.
 	if (context.authType === "user") {
 		return Boolean(
 			context.ownerHostSessionId &&
@@ -274,22 +278,26 @@ export function hasWorkAcceptanceScope(
  * driving the owner's CLI OAuth session could already accept, and the board
  * recorded a human who had not acted. It now records who actually did.
  *
- * Human authority is unchanged — an owner/admin still accepts without any extra
- * scope, and every other principal fails closed with the scope named.
+ * An owner/admin still accepts without any extra scope; project member
+ * operators use their explicit project policy. Other
+ * principals fail closed with the scope named.
  */
 export async function workItemAcceptanceActor(
 	context: BaseContext,
 	orgId: string,
+	item?: WorkItem,
 ): Promise<{ type: "user" | "tedi" | "external_agent"; id: string }> {
 	const actor = await verifiedActiveWorkActor(context, orgId);
 	if (actor.type === "user") {
 		return {
 			type: "user",
-			id: await requireOwnerAdminWorkItemAuthor(
-				context,
-				orgId,
-				"Work Item acceptance",
-			),
+			id: item
+				? await workItemOperatorAuthor(context, item, "acceptance")
+				: await requireOwnerAdminWorkItemAuthor(
+						context,
+						orgId,
+						"Work Item acceptance",
+					),
 		};
 	}
 	if (context.ownerHostSessionId) {

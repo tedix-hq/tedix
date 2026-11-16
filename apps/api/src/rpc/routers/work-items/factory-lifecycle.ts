@@ -525,7 +525,11 @@ export const acceptProcedure = factoryOs.accept.handler(
 		// may accept under its own principal when its credential carries the
 		// explicitly granted work:accept scope. acceptWorkItem already takes a
 		// principal-typed actor, so the identity is recorded, not flattened.
-		const actor = await workItemAcceptanceActor(context, workItem.orgId);
+		const actor = await workItemAcceptanceActor(
+			context,
+			workItem.orgId,
+			workItem,
+		);
 		try {
 			requireFactoryAcceptance(workItem.metadata, input.acceptanceContract);
 			return await acceptWorkItem(context.db, {

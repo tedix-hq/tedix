@@ -9,3 +9,13 @@ export const WorkSpecificationContributorsSchema = z.strictObject({
 	version: z.literal(1),
 	userIds: z.array(z.string().min(1).max(300)).max(100),
 });
+
+/** Project-scoped lifecycle authority, delegated only by an organization owner. */
+export const WorkOperatorsSchema = z.strictObject({
+	version: z.literal(1),
+	userIds: z.array(z.string().min(1).max(300)).max(100),
+	actions: z
+		.array(z.enum(["acceptance", "completion", "cancellation"]))
+		.min(1)
+		.max(3),
+});
