@@ -126,7 +126,7 @@ Delete a hunk only when its fix ships in the release the starters pin:
 | Failed `plugin:install`/`plugin:activate` hook fails install/update  | PR #3634 (our hook-must-exist rule stays) | #3634 released                                  |
 | Draft-content authorization on MCP and REST reads                    | Local                                     | Equivalent upstream authorization verified      |
 | DO SQL stub resolver (the whole dialect fork)                        | Discussion #3636                          | Resolver released                               |
-| Exact `@cloudflare/kumo` peer                                        | Issue #3638, PR #3658                     | Published with a peer range                     |
+| Exact `@cloudflare/kumo` peer                                        | Issue #3638, PR #3658: declined upstream  | Published with a peer range                     |
 | Canonical sitemap URLs (`X-EmDash-Sitemap-Canonical: 1`)             | Not filed                                 | Upstream passes `emdash-sitemap-canonical.test` |
 
 Not filed yet: external-auth first-user role, missing registry bundle in R2,
