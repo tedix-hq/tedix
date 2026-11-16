@@ -42,6 +42,13 @@ import {
 	type OutputMergePreference,
 } from "@tedix/api-contract/utils/output-merge";
 import { iconButton } from "./editor-icons";
+import {
+	FUNCTION_HELP,
+	callAt,
+	cycleReference,
+	functionSuggestions,
+	referenceSlot,
+} from "../lib/formula-assist";
 import { lastingSaveFailure } from "../lib/save-failure";
 import { createOutputSync } from "../lib/output-sync";
 import {
@@ -157,6 +164,7 @@ const css = [
 	// Notices and prompts float over the grid instead of pushing it down.
 	`.overlay{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:20;display:flex;flex-direction:column;gap:6px;align-items:center;width:max-content;max-width:calc(100% - 24px);pointer-events:none}.overlay>*{pointer-events:auto}`,
 	`[role=tab][data-touched]::after{content:"";display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:var(--primary);vertical-align:middle}`,
+	`.formula-help{position:fixed;z-index:30;max-width:min(360px,calc(100vw - 16px));padding:4px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.formula-help button{display:flex;gap:8px;width:100%;padding:4px 8px;border:0;border-radius:5px;background:none;color:var(--fg);text-align:left;cursor:pointer}.formula-help button[aria-selected=true]{background:var(--tint,color-mix(in srgb,var(--fg) 8%,transparent))}.formula-help small{color:var(--muted)}.formula-help .sig{padding:4px 8px}.formula-help .sig b{color:var(--primary)}td.picking{box-shadow:inset 0 0 0 2px var(--primary);background-image:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--primary) 12%,transparent) 4px 8px)}`,
 	`.find{display:flex;gap:6px;align-items:center;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.find input{width:min(240px,50vw)}#find-count{min-width:60px;color:var(--muted);font-variant-numeric:tabular-nums}.fill-grip{position:absolute;right:0;bottom:0;z-index:4;width:7px;height:7px;background:var(--primary);border:1px solid var(--bg);cursor:crosshair;touch-action:none}td.fill-target{box-shadow:inset 0 0 0 1px var(--primary)}`,
 	`#updates,.command{display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:100%;padding:6px 8px 6px 12px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent);animation:drop .14s var(--ease)}#updates:empty{display:none}`,
 	`#updates button,.command button{height:26px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);cursor:pointer;transition:background-color .12s var(--ease),transform .12s var(--ease)}#updates button:hover,.command button:hover{background:var(--hover)}#updates button:active,.command button:active{transform:scale(.97)}`,
@@ -186,6 +194,11 @@ const SHORTCUTS: [string, string][] = [
 	["Ctrl/⌘ D, R", "Fill down and fill right"],
 	["Drag the corner square", "Fill the selection down or right"],
 	["Ctrl/⌘ F", "Find in the sheet; Enter for the next match"],
+	[
+		"While writing a formula",
+		"Pick a function with ↑ ↓ and Enter; click or drag over cells to add them",
+	],
+	["F4", "Switch a reference between A1, $A$1, A$1 and $A1"],
 	["Double-click a column edge", "Fit the column to its contents"],
 	["Delete", "Clear the selected cells"],
 	["Ctrl/⌘ S", "Save now (changes also save on their own)"],
@@ -1495,6 +1508,206 @@ export async function mountSheetClient(
 		}
 		follow();
 	}
+	// ---- Formula help: suggestions, argument hints, clicked cells, F4 ----
+	const help = document.createElement("div");
+	help.className = "formula-help";
+	help.setAttribute("role", "listbox");
+	help.setAttribute("aria-label", "Formula help");
+	help.hidden = true;
+	help.addEventListener("mousedown", (event) => event.preventDefault());
+	root.append(help);
+	let helpFor: HTMLInputElement | undefined,
+		helpPick = 0,
+		helpNames: string[] = [],
+		helpStart = 0;
+	/** Put `next` in the input with the caret at `caret`, as if typed. */
+	function typeInto(input: HTMLInputElement, next: string, caret: number) {
+		input.value = next;
+		input.setSelectionRange(caret, caret);
+		input.dispatchEvent(new Event("input", { bubbles: true }));
+	}
+	function closeHelp() {
+		help.hidden = true;
+		helpNames = [];
+		helpFor = undefined;
+	}
+	/** Show what fits the caret: matching functions, or the current call's arguments. */
+	function showHelp(input: HTMLInputElement) {
+		const caret = input.selectionStart ?? input.value.length;
+		const found = functionSuggestions(input.value, caret);
+		help.replaceChildren();
+		helpFor = input;
+		if (found) {
+			helpNames = found.names;
+			helpStart = found.start;
+			helpPick = Math.min(helpPick, helpNames.length - 1);
+			help.setAttribute("role", "listbox");
+			helpNames.forEach((name, index) => {
+				const option = document.createElement("button");
+				option.type = "button";
+				option.setAttribute("role", "option");
+				option.setAttribute("aria-selected", String(index === helpPick));
+				option.innerHTML = `<span></span><small></small>`;
+				option.firstElementChild!.textContent = name;
+				option.lastElementChild!.textContent = FUNCTION_HELP[name]!.about;
+				option.onclick = () => chooseHelp(index);
+				help.append(option);
+			});
+		} else {
+			helpNames = [];
+			helpPick = 0;
+			const call = callAt(input.value, caret);
+			if (!call) return closeHelp();
+			const { args, about } = FUNCTION_HELP[call.name]!;
+			const signature = document.createElement("div");
+			signature.className = "sig";
+			signature.setAttribute("role", "note");
+			signature.append(`${call.name}(`);
+			args.forEach((arg, index) => {
+				if (index) signature.append(", ");
+				const repeating = arg === "…" || /\]$/.test(arg);
+				const current =
+					index === call.argument ||
+					(repeating && call.argument >= index && index === args.length - 1);
+				if (current) {
+					const bold = document.createElement("b");
+					bold.textContent = arg;
+					signature.append(bold);
+				} else signature.append(arg);
+			});
+			signature.append(")");
+			const line = document.createElement("small");
+			line.textContent = about;
+			line.style.display = "block";
+			signature.append(line);
+			help.setAttribute("role", "tooltip");
+			help.append(signature);
+		}
+		help.hidden = false;
+		const box = input.getBoundingClientRect();
+		help.style.left = `${Math.max(8, Math.min(box.left, innerWidth - help.offsetWidth - 8))}px`;
+		help.style.top = `${box.bottom + 4}px`;
+	}
+	function chooseHelp(index: number) {
+		const input = helpFor;
+		const name = helpNames[index];
+		if (!input || !name) return;
+		const caret = input.selectionStart ?? input.value.length;
+		const next =
+			input.value.slice(0, helpStart) + name + "(" + input.value.slice(caret);
+		typeInto(input, next, helpStart + name.length + 1);
+		input.focus();
+		showHelp(input);
+	}
+	/** Give a formula input suggestions, argument hints and F4. */
+	function assist(input: HTMLInputElement) {
+		const refresh = () => {
+			if (input.value.startsWith("=") && document.activeElement === input)
+				showHelp(input);
+			else if (helpFor === input) closeHelp();
+		};
+		input.addEventListener("input", refresh);
+		input.addEventListener("click", refresh);
+		input.addEventListener("keyup", (event) => {
+			if (event.key.startsWith("Arrow") && !helpNames.length) refresh();
+		});
+		input.addEventListener("blur", () => {
+			if (helpFor === input) closeHelp();
+		});
+		// Runs before the input's own keys, so a picked suggestion is not also
+		// taken as Enter or Tab.
+		input.addEventListener(
+			"keydown",
+			(event) => {
+				if (event.isComposing) return;
+				if (event.key === "F4") {
+					const caret = input.selectionStart ?? input.value.length;
+					const next = cycleReference(input.value, caret);
+					if (next) {
+						event.preventDefault();
+						typeInto(input, next.text, next.caret);
+					}
+					return;
+				}
+				if (!helpNames.length || helpFor !== input) return;
+				const stop = () => {
+					event.preventDefault();
+					event.stopImmediatePropagation();
+				};
+				if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+					stop();
+					helpPick =
+						(helpPick +
+							(event.key === "ArrowDown" ? 1 : helpNames.length - 1)) %
+						helpNames.length;
+					showHelp(input);
+				} else if (event.key === "Enter" || event.key === "Tab") {
+					stop();
+					chooseHelp(helpPick);
+				} else if (event.key === "Escape") {
+					stop();
+					closeHelp();
+				}
+			},
+			true,
+		);
+	}
+	/**
+	 * The formula being written that a click on a cell adds to, and where its
+	 * reference goes; undefined when a click should just select the cell.
+	 */
+	function pickTarget() {
+		const input =
+			editing ??
+			(document.activeElement === formula
+				? (formula as HTMLInputElement)
+				: undefined);
+		if (!input || !input.value.startsWith("=")) return undefined;
+		const caret = input.selectionStart ?? input.value.length;
+		const slot = referenceSlot(input.value, caret);
+		return slot ? { input, slot } : undefined;
+	}
+	let picking:
+		| {
+				input: HTMLInputElement;
+				start: number;
+				anchor: { row: number; column: number };
+				end: number;
+		  }
+		| undefined;
+	const pickMarks: Element[] = [];
+	/** Write the picked cell or range into the formula and outline it. */
+	function placePick(focus: { row: number; column: number }) {
+		if (!picking) return;
+		const { input, start, anchor, end } = picking;
+		const range =
+			focus.row === anchor.row && focus.column === anchor.column
+				? cellLabel(anchor)
+				: `${cellLabel({ row: Math.min(anchor.row, focus.row), column: Math.min(anchor.column, focus.column) })}:${cellLabel({ row: Math.max(anchor.row, focus.row), column: Math.max(anchor.column, focus.column) })}`;
+		const next = input.value.slice(0, start) + range + input.value.slice(end);
+		picking.end = start + range.length;
+		typeInto(input, next, picking.end);
+		for (const cell of pickMarks.splice(0)) cell.classList.remove("picking");
+		for (
+			let row = Math.min(anchor.row, focus.row);
+			row <= Math.max(anchor.row, focus.row);
+			row++
+		)
+			for (
+				let column = Math.min(anchor.column, focus.column);
+				column <= Math.max(anchor.column, focus.column);
+				column++
+			) {
+				const cell = cellAt(row, column);
+				if (cell) {
+					cell.classList.add("picking");
+					pickMarks.push(cell);
+				}
+			}
+	}
+	function clearPickMarks() {
+		for (const cell of pickMarks.splice(0)) cell.classList.remove("picking");
+	}
 	function startEdit(initial?: string) {
 		if (!editable()) return;
 		const point = selection.focus;
@@ -1509,6 +1722,7 @@ export async function mountSheetClient(
 		input.maxLength = 8192;
 		editing = input;
 		cell.append(input);
+		assist(input);
 		input.oninput = () => {
 			formula.value = input.value;
 			retainSoon();
@@ -2253,6 +2467,23 @@ export async function mountSheetClient(
 	table.addEventListener("mousedown", (event) => {
 		const td = (event.target as Element).closest<HTMLElement>("td[data-row]");
 		if (!td || event.button !== 0 || event.target === editing) return;
+		// Writing a formula: a click adds the cell to it instead of moving there.
+		const target = pickTarget();
+		if (target) {
+			event.preventDefault();
+			const at = {
+				row: Number(td.dataset.row),
+				column: Number(td.dataset.column),
+			};
+			picking = {
+				input: target.input,
+				start: target.slot.start,
+				end: target.slot.end,
+				anchor: at,
+			};
+			placePick(at);
+			return;
+		}
 		commitCell();
 		event.preventDefault();
 		dragging = true;
@@ -2260,6 +2491,15 @@ export async function mountSheetClient(
 		grid.focus();
 	});
 	table.addEventListener("mouseover", (event) => {
+		if (picking) {
+			const td = (event.target as Element).closest<HTMLElement>("td[data-row]");
+			if (td)
+				placePick({
+					row: Number(td.dataset.row),
+					column: Number(td.dataset.column),
+				});
+			return;
+		}
 		if (!dragging) return;
 		const td = (event.target as Element).closest<HTMLElement>("td[data-row]");
 		if (!td) return;
@@ -2494,6 +2734,7 @@ export async function mountSheetClient(
 		edit(() => put(p.row, p.column, value));
 	}
 	formula.maxLength = 8192;
+	assist(formula as HTMLInputElement);
 	formula.oninput = () => {
 		if (!editable()) return;
 		formulaDirty = true;
@@ -3286,6 +3527,13 @@ export async function mountSheetClient(
 
 	const mouseup = () => {
 		dragging = false;
+		// A picked range stays outlined only while it is being chosen.
+		if (picking) {
+			const input = picking.input;
+			picking = undefined;
+			clearPickMarks();
+			input.focus();
+		}
 	};
 	document.addEventListener("mouseup", mouseup);
 	grid.addEventListener(

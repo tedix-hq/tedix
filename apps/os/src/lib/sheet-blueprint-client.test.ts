@@ -479,6 +479,66 @@ describe("Portable Sheet grid", () => {
 		change("#tabs", app.saved().workbook!.sheets[1]!.id);
 		expect(display("C1")).toBe("3");
 	});
+	describe("writing formulas", () => {
+		const typeIn = (input: HTMLInputElement, value: string) => {
+			input.value = value;
+			input.setSelectionRange(value.length, value.length);
+			input.dispatchEvent(new Event("input"));
+		};
+		const help = () => q(".formula-help");
+		it("suggests functions, inserts the chosen one and shows its arguments", async () => {
+			await editor();
+			select("D1");
+			key("=");
+			const input = q<HTMLInputElement>(".cell-edit");
+			typeIn(input, "=su");
+			expect(help().hidden).toBe(false);
+			expect(
+				[...help().querySelectorAll("[role=option] span")].map(
+					(n) => n.textContent,
+				),
+			).toContain("SUMIF");
+			key("Enter", {}, input);
+			// Enter picked the function; the cell is still being written.
+			expect(q(".cell-edit")).toBe(input);
+			expect(input.value).toBe("=SUM(");
+			expect(help().textContent).toContain("SUM(number1");
+			expect(help().querySelector("b")!.textContent).toBe("number1");
+		});
+		it("adds clicked and dragged cells to the formula, then saves it", async () => {
+			const app = await editor();
+			select("D1");
+			key("=");
+			const input = q<HTMLInputElement>(".cell-edit");
+			typeIn(input, "=SUM(");
+			cell("A1").dispatchEvent(
+				new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+			);
+			expect(input.value).toBe("=SUM(A1");
+			cell("B1").dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+			expect(input.value).toBe("=SUM(A1:B1");
+			expect(cell("B1").classList.contains("picking")).toBe(true);
+			document.dispatchEvent(new MouseEvent("mouseup"));
+			expect(cell("B1").classList.contains("picking")).toBe(false);
+			typeIn(input, input.value + ")");
+			key("Enter", {}, input);
+			await saved();
+			expect(app.saved().workbook!.sheets[0]!.rows[0]![3]!.input).toBe(
+				"=SUM(A1:B1)",
+			);
+		});
+		it("switches a reference's $ form with F4", async () => {
+			await editor();
+			select("D1");
+			key("=");
+			const input = q<HTMLInputElement>(".cell-edit");
+			typeIn(input, "=A1");
+			key("F4", {}, input);
+			expect(input.value).toBe("=$A$1");
+			key("F4", {}, input);
+			expect(input.value).toBe("=A$1");
+		});
+	});
 	it("marks a tab someone else changed while you were on another one", async () => {
 		const app = await editor();
 		const tab = (id: string) => q(`[role=tab][data-sheet="${id}"]`);
