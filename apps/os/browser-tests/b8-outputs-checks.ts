@@ -298,7 +298,7 @@ export async function runB8OutputsChecks(
 					await page.close();
 					page = await context.newPage();
 					observePage();
-					search = page.getByRole("searchbox", { name: "Search outputs" });
+					search = page.getByRole("searchbox", { name: "Search documents" });
 				}
 				await run();
 				console.log(`PASS ${label} ${name}`);
@@ -312,7 +312,7 @@ export async function runB8OutputsChecks(
 				});
 			}
 		}
-		let search = page.getByRole("searchbox", { name: "Search outputs" });
+		let search = page.getByRole("searchbox", { name: "Search documents" });
 		const cards = () => page.locator('li[aria-label^="Open "]');
 		const ready = async () => {
 			await visible(search);
@@ -368,7 +368,7 @@ export async function runB8OutputsChecks(
 			await keyboardFocus(page, search);
 			await inspect(page, `${label}-search-focus`, phone);
 			await search.fill("no-such-output-b8");
-			await visible(page.getByText("No matching outputs", { exact: true }));
+			await visible(page.getByText("No matching documents", { exact: true }));
 			assert.equal(await cards().count(), 0);
 			await inspect(page, `${label}-no-matches`, phone, [search]);
 			await search.fill("");
@@ -452,11 +452,11 @@ export async function runB8OutputsChecks(
 				),
 			);
 			assert.equal(
-				await page.getByText("No outputs yet", { exact: true }).count(),
+				await page.getByText("No documents yet", { exact: true }).count(),
 				0,
 			);
 			assert.equal(
-				await page.getByText("No matching outputs", { exact: true }).count(),
+				await page.getByText("No matching documents", { exact: true }).count(),
 				0,
 			);
 			await inspect(page, `${label}-pending`, phone);
@@ -473,7 +473,7 @@ export async function runB8OutputsChecks(
 				page.getByText("Documents are unavailable", { exact: true }),
 			);
 			assert.equal(
-				await page.getByText("No outputs yet", { exact: true }).count(),
+				await page.getByText("No documents yet", { exact: true }).count(),
 				0,
 			);
 			await inspect(page, `${label}-error`, phone, [
@@ -501,11 +501,11 @@ export async function runB8OutputsChecks(
 					.first(),
 			);
 			assert.equal(
-				await page.getByText("No outputs yet", { exact: true }).count(),
+				await page.getByText("No documents yet", { exact: true }).count(),
 				0,
 			);
 			assert.equal(
-				await page.getByText("No matching outputs", { exact: true }).count(),
+				await page.getByText("No matching documents", { exact: true }).count(),
 				0,
 			);
 			await inspect(page, `${label}-retry-pending`, phone);

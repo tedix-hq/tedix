@@ -719,7 +719,7 @@ export async function runWorkIphone(
 			await check("/outputs", "input[type=search]");
 			await targets(
 				"/outputs",
-				page.getByRole("searchbox", { name: "Search outputs" }),
+				page.getByRole("searchbox", { name: "Search documents" }),
 				"search",
 			);
 		}
