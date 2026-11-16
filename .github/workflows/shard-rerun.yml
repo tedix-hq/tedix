@@ -111,6 +111,17 @@ jobs:
         uses: ./.github/actions/playwright-browsers
         with:
           browsers: ${{ steps.plan.outputs.browsers }}
+      # A crashed browser process otherwise pipes its dump to the image's
+      # crash reporter: the process hangs for about a minute, and nothing
+      # this job can read is kept. Write dumps to files and read them below.
+      - name: Keep browser crash dumps as files
+        if: inputs.capture_browser_state
+        run: |
+          mkdir -p "$RUNNER_TEMP/browser-cores"
+          sudo sysctl -w kernel.core_pattern="$RUNNER_TEMP/browser-cores/core.%p.%e"
+          sudo dmesg --clear || true
+          timeout --kill-after=30s 5m sudo sh -c 'apt-get update -qq && apt-get install -y --no-install-recommends gdb' ||
+            echo "::warning title=No gdb::gdb was not installed; crash dumps will not be read"
       - name: Run the shard
         env:
           WORKSPACE: ${{ inputs.workspace }}
@@ -125,6 +136,8 @@ jobs:
           if [ -n "$TEST_SHARD" ]; then command+=(--shard "$TEST_SHARD"); fi
           if [ "$CAPTURE_BROWSER_STATE" = true ]; then
             mkdir -p "$BROWSER_DIAGNOSTICS_DIR"
+            # Browsers inherit this limit; without it no dump file is written.
+            ulimit -c unlimited 2>/dev/null || true
             # Runner hardware varies; the CPU decides which code a software
             # rasterizer compiles, so record it in the log and the artifact.
             grep -m1 '^model name' /proc/cpuinfo || true
@@ -158,6 +171,37 @@ jobs:
           else
             "${command[@]}"
           fi
+      # The kernel names the faulting thread, signal and library; gdb adds the
+      # stack of every thread. Dumps themselves are too large to keep.
+      - name: Read browser crash dumps
+        if: always() && inputs.capture_browser_state
+        env:
+          DEBUGINFOD_URLS: https://debuginfod.ubuntu.com
+        run: |
+          out="$RUNNER_TEMP/browser-diagnostics/crashes"
+          mkdir -p "$out"
+          sudo dmesg | grep -a -i -E 'segfault|traps:|protection fault|invalid opcode|bus error|core dump' |
+            tee "$out/kernel-faults.log" || true
+          shopt -s nullglob
+          read=0
+          for core in "$RUNNER_TEMP"/browser-cores/core.*; do
+            name="$(basename "$core")"
+            echo "Crash dump: $name ($(du -h "$core" | cut -f1))"
+            if [ "$read" -ge 3 ] || ! command -v gdb >/dev/null; then continue; fi
+            read=$((read + 1))
+            exe="$(gdb -batch -c "$core" -ex 'info auxv' 2>/dev/null |
+              sed -n 's/.*AT_EXECFN.*"\(.*\)"$/\1/p' | head -n1 || true)"
+            timeout --kill-after=30s 8m gdb -batch \
+              -iex 'set debuginfod enabled on' -iex 'set pagination off' \
+              ${exe:+"$exe"} -c "$core" \
+              -ex 'echo \n== fault ==\n' -ex "print \$_siginfo" \
+              -ex 'echo \n== faulting thread ==\n' -ex 'bt 60' \
+              -ex 'info registers' -ex "x/16i \$pc" \
+              -ex 'echo \n== libraries ==\n' -ex 'info sharedlibrary' \
+              -ex 'echo \n== all threads ==\n' -ex 'thread apply all bt 30' \
+              > "$out/$name.txt" 2>&1 || echo "gdb did not finish reading $name"
+            sed -n '/== fault ==/,/== libraries ==/p' "$out/$name.txt" | head -n 160 || true
+          done
       - name: Retain browser protocol and process state
         if: always() && inputs.capture_browser_state
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
