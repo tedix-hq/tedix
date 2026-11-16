@@ -49,6 +49,8 @@ export const LaneResultSchema = z.discriminatedUnion("outcome", [
 		outcome: z.literal("deferred"),
 		reason: z.string().min(1).max(1800),
 		until: z.iso.datetime().optional(),
+		// A wait only a date can end; the runner records it as the Work's start date.
+		notBefore: z.iso.datetime().optional(),
 	}),
 	z.strictObject({
 		...fence,

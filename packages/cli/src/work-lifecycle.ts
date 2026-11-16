@@ -729,6 +729,42 @@ export async function workMove(ctx: WorkContext, id: string): Promise<number> {
 	);
 }
 
+/** Set or clear the start date; runners are not handed Work before it. */
+export async function workNotBefore(
+	ctx: WorkContext,
+	id: string,
+	when: string,
+): Promise<number> {
+	const usage =
+		"work not-before requires a work item id and a time such as 2026-12-01 or 2026-12-01T09:00:00Z, or clear";
+	const text = when.trim();
+	if (!id || !text) throw new Error(usage);
+	const at = Date.parse(
+		/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00:00Z` : text,
+	);
+	if (text !== "clear" && !Number.isFinite(at)) throw new Error(usage);
+	const startAt = text === "clear" ? null : new Date(at).toISOString();
+	mutationCallable(ctx.work.as?.trim(), "work.update_work_item_specification");
+	id = await resolveWorkItemId(ctx, id);
+	const call = await boardCall(ctx, "work.update_work_item_specification", {
+		id,
+		startAt,
+	});
+	if (call.error)
+		return fail(
+			ctx,
+			call.error,
+			`Could not set the start date of ${id}: ${call.error.message}${ownerActionHint(ctx, call.error)}`,
+		);
+	return ok(ctx, call.value, () =>
+		console.log(
+			startAt
+				? `${green("Set", ctx.color)} ${id} to start no earlier than ${startAt}. Runners are not handed it before then.`
+				: `${green("Cleared", ctx.color)} the start date of ${id}.`,
+		),
+	);
+}
+
 export async function workCancel(
 	ctx: WorkContext,
 	id: string,

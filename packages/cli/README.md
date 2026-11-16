@@ -680,6 +680,15 @@ the result; the owner completes the task, or edits it to have an agent work on
 it again. A `landed_unverified` result with no commit on `origin/main` fails.
 Legacy results without that declaration remain open for verification.
 
+When nothing can be done before a known date, for example a measurement that
+needs three days of production data, use `outcome: "deferred"` with `reason`
+and `notBefore` (an ISO-8601 UTC time). The runner sets that time as the task's
+start date and leaves a comment with the reason. Tedix does not offer a task to
+any runner before its start date, and `tedix work readiness <id>` reports
+`not_before` with the date until then. A person sets or removes the date with
+`tedix work not-before <id> <time|clear>`, for example
+`tedix work not-before <id> 2026-12-01`.
+
 For an already satisfied CI recovery, use `outcome: "already_satisfied"` with
 the full existing fix `commitSha`, `runId`, `workflowName`, `minimumCommit`
 and `rootCause`. This mode requires GitHub CLI read access to the checkout's

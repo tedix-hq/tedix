@@ -199,6 +199,28 @@ describe("verified executor readiness", () => {
 			true,
 		);
 	});
+	it("stays not ready before the start date although the executor would be admitted", async () => {
+		const base = await mocks.readiness();
+		const wait = {
+			gate: "not_before",
+			evaluation: "failed",
+			detail: "Waits for its start date, 2026-11-10T00:00:00.000Z.",
+		};
+		mocks.readiness.mockResolvedValue({
+			...base,
+			gates: [...base.gates, wait],
+		});
+		mocks.preview.mockResolvedValue({});
+		const result = await readiness({ tediId: "tedi-1" });
+		expect(result).toMatchObject({
+			ready: false,
+			state: "not_before",
+			reasons: [{ code: "not_before", detail: wait.detail }],
+		});
+		expect(result.gates.filter((gate) => gate.evaluation !== "passed")).toEqual(
+			[wait],
+		);
+	});
 	it("checks access before previewing an authenticated tedi", async () => {
 		mocks.preview.mockResolvedValue({});
 		await readiness({ tediId: "tedi-1" });

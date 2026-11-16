@@ -54,6 +54,7 @@ import {
 	workTrailers,
 	workCancel,
 	workMove,
+	workNotBefore,
 } from "./work-lifecycle";
 import {
 	workComment,
@@ -246,6 +247,8 @@ Lifecycle:
   complete <id>
   cancel <id> [--reason <summary>]
   move <id> --project <id>   (owner/admin; objective Work takes that project's objective)
+  not-before <id> <time|clear>   (start date, UTC: 2026-12-01 or 2026-12-01T09:00:00Z;
+              runners are not handed the Work before it and readiness reports not_before)
   trailers <id>
   authorize-blog <id> · revoke-blog <id>
 
@@ -356,6 +359,7 @@ const VERBS: Record<string, VerbHandler> = {
 	complete: (ctx, id) => workComplete(ctx, id),
 	cancel: (ctx, id) => workCancel(ctx, id),
 	move: (ctx, id) => workMove(ctx, id),
+	"not-before": (ctx, id, text) => workNotBefore(ctx, id, text),
 	delegate: (ctx, id, text) => workDelegate(ctx, text ? `${id} ${text}` : id),
 	context: (ctx, id) => workContext(ctx, id),
 	evidence: (ctx, id) => workEvidence(ctx, id),

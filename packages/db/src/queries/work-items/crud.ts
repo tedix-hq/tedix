@@ -341,6 +341,8 @@ export interface ListWorkItemsPageOptions {
 	orgId: string;
 	executor?: string | string[];
 	dispatchReadyOnly?: boolean;
+	/** The instant `dispatchReadyOnly` compares start dates with; defaults to now. */
+	now?: string;
 	projectId?: string | null;
 	parentWorkItemId?: string | null;
 	disposition?: WorkItem["disposition"];
@@ -395,6 +397,7 @@ export async function listWorkItemsPage(
 	const limit = Math.min(Math.max(Math.trunc(options.limit ?? 50), 1), 100);
 	const offset = Math.max(Math.trunc(options.offset ?? 0), 0);
 	const idPrefix = options.idPrefix?.trim().toLowerCase();
+	const dispatchNow = options.now ?? new Date().toISOString();
 	const titleContains = options.titleContains?.toLowerCase();
 	const executors = Array.isArray(options.executor)
 		? options.executor
@@ -430,6 +433,10 @@ export async function listWorkItemsPage(
 			: undefined,
 		options.dispatchReadyOnly
 			? sql`json_extract(${workItems.metadata}, '$.laneDispatch.state') = 'ready'`
+			: undefined,
+		// Work whose start date is still ahead is not offered to a runner.
+		options.dispatchReadyOnly
+			? or(isNull(workItems.startAt), lte(workItems.startAt, dispatchNow))
 			: undefined,
 		options.workKind ? eq(workItems.workKind, options.workKind) : undefined,
 		options.objectiveId

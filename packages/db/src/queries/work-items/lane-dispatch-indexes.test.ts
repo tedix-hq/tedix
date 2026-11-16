@@ -4,6 +4,7 @@ import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import { listWorkItemsPage } from "./crud";
+import { deriveWorkItemReadiness } from "./readiness";
 
 const migration = "20261022073425_work_items_lane_dispatch_indexes";
 const backfill = "20261115163121_lane_ready_requires_state";
@@ -167,5 +168,63 @@ describe("dispatch order and readiness", () => {
 			"e-high-undated",
 			"a-old-medium",
 		]);
+	});
+
+	it("keeps Work off the ready list until its start date and says so in readiness", async () => {
+		const sqlite = createMigratedSqlite({ foreignKeys: false });
+		const row = sqlite.prepare(
+			`INSERT INTO work_items(id,org_id,title,disposition,metadata,start_at,created_at,admission_spec_revision,work_class,purpose_exception_expires_at) VALUES(?,'o','t','accepted','{"executor":"codex","laneDispatch":{"state":"ready"}}',?,'2026-01-01','r','maintenance','2026-11-30T00:00:00.000Z')`,
+		);
+		row.run("undated", null);
+		row.run("started", "2026-11-01T00:00:00.000Z");
+		row.run("waiting", "2026-11-07T00:00:00.000Z");
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const early = "2026-11-04T00:04:00.000Z";
+		const due = "2026-11-07T00:00:00.000Z";
+		const ready = async (now: string) =>
+			(
+				await listWorkItemsPage(db, {
+					orgId: "o",
+					disposition: "accepted",
+					dispatchReadyOnly: true,
+					now,
+				})
+			).data
+				.map((r) => r.id)
+				.sort();
+		expect(await ready(early)).toEqual(["started", "undated"]);
+		expect(await ready(due)).toEqual(["started", "undated", "waiting"]);
+		// Only the runners' ready list leaves it out.
+		expect(
+			(await listWorkItemsPage(db, { orgId: "o", now: early })).total,
+		).toBe(3);
+
+		const readiness = (workItemId: string, derivedAt: string) =>
+			deriveWorkItemReadiness(db, { orgId: "o", workItemId, derivedAt });
+		const before = await readiness("waiting", early);
+		expect(before).toMatchObject({
+			state: "not_before",
+			ready: false,
+			reasons: [
+				{
+					code: "not_before",
+					detail: expect.stringContaining(
+						"Waits for its start date, 2026-11-07T00:00:00.000Z",
+					),
+				},
+			],
+		});
+		expect(before.gates.find((gate) => gate.gate === "not_before")).toEqual({
+			gate: "not_before",
+			evaluation: "failed",
+			detail: before.reasons[0]!.detail,
+		});
+		const after = await readiness("waiting", due);
+		expect(after).toMatchObject({ state: "ready", ready: true });
+		expect(
+			after.gates.find((gate) => gate.gate === "not_before")?.evaluation,
+		).toBe("passed");
+		expect((await readiness("undated", early)).ready).toBe(true);
+		sqlite.close();
 	});
 });

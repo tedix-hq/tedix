@@ -118,7 +118,12 @@ export function WorkHomeOverview() {
 		{ id: string; title: string; reason: string }
 	>();
 	for (const row of readiness.data?.data ?? []) {
-		if (row.readiness.ready || row.readiness.state === "already_running")
+		// Running work and work waiting for its start date are not stuck.
+		if (
+			row.readiness.ready ||
+			row.readiness.state === "already_running" ||
+			row.readiness.state === "not_before"
+		)
 			continue;
 		stuck.set(row.workItem.id, {
 			id: row.workItem.id,
