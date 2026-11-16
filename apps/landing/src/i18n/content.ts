@@ -24,9 +24,9 @@ export const supportedLocaleCodes = Object.keys(supportedLocales) as Locale[];
 
 const englishContent = {
 	meta: {
-		title: "Tedix — A platform for agents, apps, and work",
+		title: "Tedix — A unified infrastructure layer for enterprise AI",
 		description:
-			"A platform for agents, apps, and work. Coordinate people and AI agents with shared tasks, project knowledge, apps, and decisions.",
+			"Share connections, systems and knowledge across a unified infrastructure layer. Build your AI stack once, and every department and subsidiary can use it.",
 	},
 	layout: {
 		skipToContent: "Skip to content",
@@ -45,7 +45,7 @@ const englishContent = {
 		menuLabel: "Menu",
 	},
 	footer: {
-		tagline: "A platform for agents, apps, and work.",
+		tagline: "A unified infrastructure layer for enterprise AI.",
 		product: "Product",
 		appStore: "App Store",
 		howItWorks: "How It Works",
@@ -340,9 +340,9 @@ export type TimelineContent = HomeContent["timeline"];
 
 const germanContent = {
 	meta: {
-		title: "Tedix — Eine Plattform für Agenten, Apps und Arbeit",
+		title: "Tedix — Eine einheitliche Infrastrukturebene für KI im Unternehmen",
 		description:
-			"Eine Plattform für Agenten, Apps und Arbeit. Menschen und KI-Agenten teilen Aufgaben, Projektwissen, Apps und Entscheidungen.",
+			"Verbindungen, Systeme und Wissen über eine einheitliche Infrastrukturebene teilen. Den KI-Stack einmal aufbauen – jede Abteilung und Tochtergesellschaft kann ihn nutzen.",
 	},
 	layout: {
 		skipToContent: "Zum Inhalt springen",
@@ -361,7 +361,7 @@ const germanContent = {
 		menuLabel: "Menü",
 	},
 	footer: {
-		tagline: "Eine Plattform für Agenten, Apps und Arbeit.",
+		tagline: "Eine einheitliche Infrastrukturebene für KI im Unternehmen.",
 		product: "Produkt",
 		appStore: "App Store",
 		howItWorks: "So funktioniert es",
@@ -653,9 +653,10 @@ const germanContent = {
 
 const spanishContent = {
 	meta: {
-		title: "Tedix — Una plataforma para agentes, apps y trabajo",
+		title:
+			"Tedix — Una capa de infraestructura unificada para la IA empresarial",
 		description:
-			"Una plataforma para agentes, apps y trabajo. Personas y agentes de IA comparten tareas, conocimientos del proyecto, apps y decisiones.",
+			"Comparte conexiones, sistemas y conocimiento en una capa de infraestructura unificada. Construye tu stack de IA una vez y cada departamento y filial puede usarlo.",
 	},
 	layout: {
 		skipToContent: "Saltar al contenido",
@@ -674,7 +675,7 @@ const spanishContent = {
 		menuLabel: "Menú",
 	},
 	footer: {
-		tagline: "Una plataforma para agentes, apps y trabajo.",
+		tagline: "Una capa de infraestructura unificada para la IA empresarial.",
 		product: "Producto",
 		appStore: "App Store",
 		howItWorks: "Cómo funciona",

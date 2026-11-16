@@ -61,7 +61,7 @@ export const GET: APIRoute = () => {
 	lines.push("## Platform");
 	lines.push("");
 	lines.push(
-		"- [Tedix Homepage](https://tedix.dev): A platform for agents, apps, and work",
+		"- [Tedix Homepage](https://tedix.dev): A unified infrastructure layer for enterprise AI",
 	);
 	lines.push(
 		"- [AI App Directory](https://tedix.dev/apps): Browse AI apps across ChatGPT, Claude, and more",
