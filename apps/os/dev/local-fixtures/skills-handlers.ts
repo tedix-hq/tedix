@@ -55,6 +55,38 @@ import {
 	WORKFLOW_HEALTH,
 } from "./tedis";
 
+/** The files and run record one sample run pinned. */
+function pinnedRevision(runId: string) {
+	const run = findSkillRun(runId);
+	const skill = SKILLS.find((entry) => entry.id === run.skillId);
+	return {
+		provenance: "observed_executed_run" as const,
+		revision: {
+			runId: run.id,
+			skillId: run.skillId,
+			tediId: run.tediId,
+			skillSlug: run.skillSlug,
+			revision: 3,
+			status: run.status,
+			observedAt: run.startedAt,
+			observedRunCount: 4,
+			firstObservedAt: T0,
+			lastObservedAt: run.startedAt,
+			completedCount: 3,
+			failedCount: run.status === "failed" ? 1 : 0,
+			canceledCount: 0,
+			workflowSourceSha256: null,
+			skillDocSha256: null,
+			runtimeVariants: [],
+			runtimeDriftObserved: false,
+			runtimeDriftBlocked: false,
+			...runtimeProvenanceNulls,
+		},
+		workflowSource: LOCAL_WORKFLOW_SOURCE,
+		skillDoc: skill?.content ?? null,
+	};
+}
+
 export const skillHandlers: Record<string, (input: never) => unknown> = {
 	"tedis/list": (input: Pagination | undefined) => paginate(TEDIS, input),
 	"tedis/get": (input: { tediId: string }) => {
@@ -599,34 +631,37 @@ export const skillHandlers: Record<string, (input: never) => unknown> = {
 			nextOffset: null,
 		};
 	},
-	"skills/getWorkflowRevision": (input: { runId: string }) => {
-		const run = findSkillRun(input.runId);
-		const skill = SKILLS.find((entry) => entry.id === run.skillId);
+	"skills/getWorkflowRevision": (input: { runId: string }) =>
+		pinnedRevision(input.runId),
+	// Every sample run pins the same automation, so only instructions can differ.
+	"skills/compareWorkflowRevisions": (input: {
+		baselineRunId: string;
+		candidateRunId: string;
+	}) => {
+		const baseline = pinnedRevision(input.baselineRunId);
+		const candidate = pinnedRevision(input.candidateRunId);
 		return {
-			provenance: "observed_executed_run" as const,
-			revision: {
-				runId: run.id,
-				skillId: run.skillId,
-				tediId: run.tediId,
-				skillSlug: run.skillSlug,
-				revision: 3,
-				status: run.status,
-				observedAt: run.startedAt,
-				observedRunCount: 4,
-				firstObservedAt: T0,
-				lastObservedAt: run.startedAt,
-				completedCount: 3,
-				failedCount: run.status === "failed" ? 1 : 0,
-				canceledCount: 0,
-				workflowSourceSha256: null,
-				skillDocSha256: null,
-				runtimeVariants: [],
-				runtimeDriftObserved: false,
-				runtimeDriftBlocked: false,
-				...runtimeProvenanceNulls,
+			provenance: "observed_executed_runs" as const,
+			baseline: baseline.revision,
+			candidate: candidate.revision,
+			changes: {
+				revisionDelta: 0,
+				workflowSourceChanged: false,
+				skillDocChanged: baseline.skillDoc !== candidate.skillDoc,
+				workerVersionChanged: false,
+				executionCompatibilityChanged: false,
+				compatibilityDateChanged: false,
+				dispatchShimVersionChanged: false,
+				dynamicWorkflowsVersionChanged: false,
+				loaderConfigChanged: false,
+				tenantLimitsChanged: false,
+				workflowSourceLineDelta: 0,
+				skillDocLineDelta: null,
 			},
-			workflowSource: LOCAL_WORKFLOW_SOURCE,
-			skillDoc: skill?.content ?? null,
+			baselineSource: baseline.workflowSource,
+			candidateSource: candidate.workflowSource,
+			baselineSkillDoc: baseline.skillDoc,
+			candidateSkillDoc: candidate.skillDoc,
 		};
 	},
 	"skills/proposeWorkflowImprovement": (input: {

@@ -539,8 +539,8 @@ describe("native skill ownership", () => {
 				],
 			} as never),
 		);
-		expect(host.textContent).toContain("may omit older executions");
-		await click("Technical evidence");
+		expect(host.textContent).toContain("older runs are not counted");
+		await click("Technical details");
 		expect(host.textContent).toContain("sha-workflow");
 		expect(host.textContent).toContain("sha-doc");
 		expect(host.textContent).toContain("Runtime variants: 1");

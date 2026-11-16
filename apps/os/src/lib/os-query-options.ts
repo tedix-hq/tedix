@@ -536,6 +536,15 @@ export const skillWorkflowRevisionSourceQueryOptions = (runId: string) =>
 		input: { runId, includeSource: true },
 	});
 
+/** The files of two versions that ran, older first, to show what changed. */
+export const skillWorkflowRevisionCompareQueryOptions = (
+	baselineRunId: string,
+	candidateRunId: string,
+) =>
+	osQuery.skills.compareWorkflowRevisions.queryOptions({
+		input: { baselineRunId, candidateRunId, includeSource: true },
+	});
+
 export const skillSpecificSchedulesQueryOptions = (skillId: string) =>
 	osQuery.skills.listWorkflowSchedules.queryOptions({
 		input: { skillId, limit: SKILL_SCHEDULES_LIMIT },

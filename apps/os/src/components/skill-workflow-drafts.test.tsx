@@ -340,14 +340,15 @@ describe("drafts on the versions page", () => {
 		expect(harness.listByOrg).toHaveBeenCalledWith(
 			expect.objectContaining({ improvementsOf: baseline.id, offset: 0 }),
 		);
-		expect(document.body.textContent).toContain("Adopted (1)");
+		// The waiting draft is the card; finished ones sit behind one disclosure.
+		expect(document.querySelectorAll('[aria-label^="Draft "]')).toHaveLength(1);
+		expect(document.body.textContent).not.toContain("Adopted as revision 3");
+		expect(document.body.textContent).not.toContain("Rejected copy");
+		await click(button("Earlier drafts (2)"));
 		expect(document.body.textContent).toContain("Adopted as revision 3");
 		expect(document.body.textContent).toContain("Reduce duplicate requests");
 		expect(document.body.textContent).toContain("View passed test run");
-		expect(document.body.textContent).toContain("Waiting for review (1)");
-		expect(document.body.textContent).not.toContain("Rejected copy");
-		await click(button("Rejected or abandoned (1)"));
-		expect(document.body.textContent).toContain("Rejected copy");
+		expect(document.body.textContent).toContain("Rejected copy · not adopted");
 		expect(document.body.textContent).not.toContain("Adopted as revision 99");
 	});
 
@@ -370,7 +371,7 @@ describe("drafts on the versions page", () => {
 			total: 2,
 		}));
 		await mount(<SkillWorkflowDrafts skillId={baseline.id} />);
-		await click(button("Show more improvements"));
+		await click(button("Show more drafts"));
 		expect(document.body.textContent).toContain("Later proposal");
 		expect(harness.listByOrg).toHaveBeenCalledWith(
 			expect.objectContaining({ improvementsOf: baseline.id, offset: 1 }),
@@ -401,8 +402,8 @@ describe("drafts on the versions page", () => {
 		await mount(<SkillWorkflowDrafts skillId={baseline.id} />);
 		expect(document.body.textContent).toContain("Based on revision 4");
 		expect(document.body.textContent).toContain("Not tested yet");
-		expect(button("Switch on").disabled).toBe(true);
-		await click(button("Test this draft (dry run)"));
+		expect(button("Adopt").disabled).toBe(true);
+		await click(button("Test"));
 		expect(harness.runWorkflow).toHaveBeenCalledWith(
 			expect.objectContaining({
 				skillId: draft.id,
@@ -413,8 +414,8 @@ describe("drafts on the versions page", () => {
 		);
 		await flush();
 		expect(document.body.textContent).toContain("Test passed");
-		expect(button("Switch on").disabled).toBe(false);
-		await click(button("Switch on"));
+		expect(button("Adopt").disabled).toBe(false);
+		await click(button("Adopt"));
 		expect(harness.activateWorkflowImprovement).toHaveBeenCalledWith(
 			expect.objectContaining({ id: draft.id, certificationRunId: "test-1" }),
 		);
@@ -440,8 +441,8 @@ describe("drafts on the versions page", () => {
 		expect(document.body.textContent).toContain(
 			"sheets.append_rows: 403 from the sheet",
 		);
-		expect(button("Switch on").disabled).toBe(true);
-		expect(button("Test again (dry run)").disabled).toBe(false);
+		expect(button("Adopt").disabled).toBe(true);
+		expect(button("Test again").disabled).toBe(false);
 	});
 
 	it("offers the dry run of the current version when no baseline run exists, then saves the draft", async () => {

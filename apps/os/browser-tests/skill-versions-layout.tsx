@@ -49,7 +49,15 @@ const baseline: SkillEntry = {
 	visibility: "org",
 	paceLayer: "innovation",
 	revision: 3,
-	revisionReasoning: "Clearer review conditions.",
+	// The automatic cleanup notes must stay out of the list.
+	revisionReasoning: [
+		"Clearer review conditions.",
+		...[1, 2, 3].map(
+			(n) =>
+				`Removed 1 workflow improvement copy (0000000${n}-1111-4222-8333-444444444444): The main skill has advanced, or this draft has had no review or changes for 7 days.`,
+		),
+	].join("\n"),
+	updatedAt: "2026-10-30T11:00:00Z",
 };
 client.setQueryData(skillDetailQueryOptions(skillId).queryKey, {
 	entry: baseline,
@@ -69,6 +77,8 @@ const proposal = {
 	sourceSkillId: skillId,
 	sourceRevision: 3,
 	tags: ["workflow-improvement"],
+	revisionReasoning:
+		"Workflow improvement proposed from run 00000009-1111-4222-8333-444444444444 at baseline revision 3. Ask for each source once\nBaseline fictional-a; candidate fictional-b.",
 };
 const improvements = showImprovements
 	? [
@@ -77,6 +87,8 @@ const improvements = showImprovements
 				...proposal,
 				id: "adopted-copy",
 				lifecycleState: "archived",
+				revisionReasoning:
+					"Workflow improvement proposed from run 00000008-1111-4222-8333-444444444444 at baseline revision 2. Skip duplicate source requests\nBaseline fictional-a; candidate fictional-b.",
 				improvementAdoption: {
 					activatedIntoRevision: 3,
 					certificationRunId: "passed-test",
@@ -119,10 +131,10 @@ const revisions: SkillWorkflowRevision[] = [3, 2, 1].map((revision) => ({
 	tenantSubRequests: null,
 	runId: `fictional-run-${revision}`,
 	revision,
-	observedRunCount: 2,
-	completedCount: 2,
-	failedCount: 0,
-	canceledCount: 0,
+	observedRunCount: revision === 1 ? 12 : 2,
+	completedCount: revision === 1 ? 8 : 2,
+	failedCount: revision === 1 ? 3 : 0,
+	canceledCount: revision === 1 ? 1 : 0,
 	runtimeVariants: [],
 	workflowSourceSha256: "fictional-workflow",
 	skillDocSha256: "fictional-instructions",
