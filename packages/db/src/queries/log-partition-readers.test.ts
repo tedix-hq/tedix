@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { configureLogStore, createDbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
+import { auditMetadataRefs } from "../schema/audit-metadata-refs";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { logPartition } from "../schema/logs-db";
 import { tedis } from "../schema/tedis";
@@ -194,5 +195,77 @@ describe("partition-aware query callers", () => {
 				(row) => row.id,
 			),
 		).toContain("written");
+	});
+
+	it("reads and writes a logs database that has no identifier dictionary yet", async () => {
+		const { main, old, active } = await split();
+		// Main and one logs database are migrated; the sealed partition is not.
+		for (const migrated of [main, active])
+			migrated.sqlite.exec(
+				tableDdl(auditMetadataRefs, { foreignKeys: false }).join("\n"),
+			);
+		await insertAuditEvent(main.db, {
+			id: "compact",
+			organizationId: ORG,
+			actorId: TEDI,
+			actorType: "tedi",
+			action: "mcp.tool.execute",
+			resourceType: "mcp_tool",
+			resourceId: "compact",
+			occurredAt: new Date("2026-02-02"),
+			metadata: { appId: "app-example", clientId: "client-example" },
+		});
+		expect(
+			active.sqlite
+				.prepare("SELECT metadata FROM audit_events WHERE id = 'compact'")
+				.get()?.metadata,
+		).not.toContain("app-example");
+		expect(
+			old.sqlite
+				.prepare("SELECT metadata FROM audit_events WHERE id = 'old'")
+				.get()?.metadata,
+		).toContain("app-example");
+		const activity = await listRecentAnalyticsAuditActivity(main.db, {
+			organizationId: ORG,
+			appId: "app-example",
+			limit: 10,
+		});
+		expect(
+			activity.map((row) => [row.resourceId, row.appId, row.clientId]),
+		).toEqual([
+			["compact", "app-example", "client-example"],
+			["new", "app-example", null],
+			["middle", "app-example", null],
+			["old", "app-example", null],
+		]);
+		const found = await searchAuditEvents(main.db, { organizationId: ORG });
+		expect(found.data.map((row) => [row.id, row.metadata?.appId])).toEqual([
+			["compact", "app-example"],
+			["new", "app-example"],
+			["middle", "app-example"],
+			["old", "app-example"],
+		]);
+	});
+
+	it("still fails when a store is broken for another reason", async () => {
+		const { main, old } = await split();
+		old.sqlite.exec("DROP TABLE audit_events");
+		await expect(
+			listRecentAnalyticsAuditActivity(main.db, {
+				organizationId: ORG,
+				limit: 5,
+			}),
+		).rejects.toThrow();
+		main.sqlite.exec("DROP TABLE audit_events");
+		await expect(
+			insertAuditEvent(main.db, {
+				organizationId: ORG,
+				actorId: TEDI,
+				actorType: "tedi",
+				action: "mcp.session.open",
+				resourceType: "mcp_session",
+				metadata: { appId: "app-example" },
+			}),
+		).rejects.toThrow();
 	});
 });
