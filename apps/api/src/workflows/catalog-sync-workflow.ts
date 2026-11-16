@@ -4,6 +4,7 @@ import {
 	CatalogSnapshotManifestSchema,
 	type CatalogSnapshotItem,
 } from "@tedix/api-contract/schemas/catalog-snapshot";
+import { captureCatalogSnapshot } from "../lib/catalog-snapshot-capture";
 import {
 	locateSnapshotBatch,
 	snapshotBatchCount,
@@ -118,6 +119,7 @@ export interface CatalogSyncWorkflowParams {
 	snapshotKey?: string;
 	snapshotFeed?: string;
 	snapshotUpstreamUrl?: string;
+	snapshotExpression?: string;
 	snapshotProvenanceKey?: string;
 	snapshotRemovalSources?: Source[];
 	snapshotOwner?: string;
@@ -389,14 +391,58 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				const snapshotKey = event.payload.snapshotKey;
 				const provenanceKey = event.payload.snapshotProvenanceKey;
 				const removalSources = event.payload.snapshotRemovalSources ?? [];
-				// The capture stored the listings as part files beside a small
-				// manifest. Each batch step reads only its own part, so the run
-				// never holds the whole directory.
+				const captureUrl = event.payload.snapshotUpstreamUrl;
+				const captureExpression = event.payload.snapshotExpression;
+				if (!captureUrl || !captureExpression || !this.env.BROWSER)
+					throw new NonRetryableError(
+						"Snapshot capture needs a source page, an expression and a browser",
+					);
+				const browser = this.env.BROWSER;
+				// Reading a large directory out of the page takes longer than a
+				// caller waits for one request, so the capture runs here. It stores
+				// the listings as part files and writes a small manifest last; each
+				// batch step then reads only its own part.
 				const itemCount = await step.do(
-					"read-snapshot-manifest",
-					{ retries: { limit: 2, delay: "10 seconds" }, timeout: "1 minute" },
+					"capture-snapshot",
+					{ retries: { limit: 2, delay: "30 seconds" }, timeout: "15 minutes" },
 					async () => {
-						const archived = await this.readR2Json(snapshotKey);
+						const stored = await this.env.R2_BUCKET.get(snapshotKey);
+						let archived: { inputHash?: unknown; manifest?: unknown };
+						if (stored) archived = await stored.json();
+						else {
+							const manifest = await captureCatalogSnapshot(
+								browser,
+								captureUrl,
+								captureExpression,
+								async (part, items) => {
+									for (const item of items) {
+										const provenance = item.rawData?.[provenanceKey];
+										if (
+											!provenance ||
+											typeof provenance !== "object" ||
+											Array.isArray(provenance)
+										)
+											throw new NonRetryableError(
+												"Every listing must carry the declared feed provenance object",
+											);
+									}
+									await this.env.R2_BUCKET.put(
+										snapshotPartKey(snapshotKey, part),
+										JSON.stringify(items),
+										{ httpMetadata: { contentType: "application/json" } },
+									);
+								},
+							);
+							archived = {
+								inputHash: event.payload.snapshotInputHash,
+								manifest,
+							};
+							await this.env.R2_BUCKET.put(
+								snapshotKey,
+								JSON.stringify(archived),
+								{ httpMetadata: { contentType: "application/json" } },
+							);
+						}
 						if (archived.inputHash !== event.payload.snapshotInputHash)
 							throw new NonRetryableError("Snapshot input identity mismatch");
 						return CatalogSnapshotManifestSchema.parse(archived.manifest)
