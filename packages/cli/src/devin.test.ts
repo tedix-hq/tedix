@@ -34,6 +34,7 @@ import { runLaneProcess } from "./lane-run";
 import { parseLaneResult } from "./lane-result";
 import novemberTranscript from "./fixtures/devin-2026-11-05.atif.json";
 import { createDevinWorkBridge } from "./devin-work-bridge";
+import { CliReadError } from "./hooks/hook-io";
 import { writeExternalAgentProfile } from "./external-agent-store";
 import {
 	devinContextOutput,
@@ -1240,6 +1241,9 @@ test.each([
 	"duplicate-declarations",
 	"bad-confirmation",
 	"wrong-native-session",
+	"delivery-reset",
+	"verification-reset",
+	"delivery-denied",
 ])("bounded two-turn Devin runner: %s", async (mode) => {
 	const dir = temporary();
 	const binary = fakeDevin(dir);
@@ -1278,6 +1282,8 @@ test.each([
 	};
 	const comments: unknown[] = [];
 	let writes = 0;
+	// A passing fault in the result exchange keeps the session's own result.
+	const retained = mode === "delivery-reset" || mode === "verification-reset";
 	// Sanitized ATIF agent messages from the 5 Nov shiny-newt attempt.
 	const retainedMessage = novemberTranscript.steps[0]!.message;
 	const declaration = `TEDIX_LANE_RESULT ${JSON.stringify({ workItemId: binding.workItemId, workVersion: 2, contractVersion: 1, outcomeText: workItem.acceptanceContract.doneLooksLike, outcome: "completed" })}`;
@@ -1293,9 +1299,25 @@ test.each([
 	const firstMessage =
 		mode === "november-5"
 			? retainedMessage
-			: `${mode === "duplicate-declarations" ? `${declaration}\n` : ""}TEDIX_WORK_RESULT ${JSON.stringify({ binding, outcome: "succeeded", note })}`;
+			: `${mode === "duplicate-declarations" || retained || mode === "delivery-denied" ? `${declaration}\n` : ""}TEDIX_WORK_RESULT ${JSON.stringify({ binding, outcome: "succeeded", note: retained || mode === "delivery-denied" ? note.split("\n")[0] : note })}`;
+	// Reads: 1 context, 2 before the post, 3 after it, 4 verification.
+	let reads = 0;
 	const bridge = createDevinWorkBridge(binding, {
-		read: async () => ({ workItem, attempt, comments }),
+		read: async () => {
+			reads++;
+			if (
+				(reads === 2 && mode === "delivery-reset") ||
+				(reads === 4 && mode === "verification-reset")
+			)
+				throw new CliReadError(
+					'Tedix CLI read failed (exit 2): {"message":"ECONNRESET: The socket connection was closed unexpectedly."}',
+				);
+			if (reads === 2 && mode === "delivery-denied")
+				throw new CliReadError(
+					'Tedix CLI read failed (exit 2): {"message":"MCP tool error: FORBIDDEN: Attempt is not held by this session"}',
+				);
+			return { workItem, attempt, comments };
+		},
 		post: async (body) => {
 			writes++;
 			const comment = {
@@ -1376,15 +1398,16 @@ test.each([
 		mode === "verified" ||
 		mode === "november-5" ||
 		mode === "duplicate-declarations";
-	expect(exit).toBe(verified ? 0 : 1);
-	expect(writes).toBe(1);
+	const delivered = !mode.startsWith("delivery-");
+	expect(exit).toBe(verified || retained ? 0 : 1);
+	expect(writes).toBe(delivered ? 1 : 0);
 	const turns = readFileSync(join(dir, "turns.jsonl"), "utf8")
 		.trim()
 		.split("\n")
 		.map((line) => JSON.parse(line));
-	expect(turns).toHaveLength(2);
+	expect(turns).toHaveLength(delivered ? 2 : 1);
 	// Each turn starts with a renewed lane-only credential, never the host store.
-	expect(renewals).toHaveLength(2);
+	expect(renewals).toHaveLength(turns.length);
 	for (const renewal of renewals)
 		expect(renewal).toMatchObject({
 			workspace: "connect",
@@ -1397,8 +1420,21 @@ test.each([
 		expect(turn.args).toContain("--sandbox");
 		expect(turn.config.permissions.deny).toContain("mcp__tedix__*");
 	}
-	expect(turns[1].prompt).toContain(note.split("\n")[0]);
-	if (mode === "duplicate-declarations") {
+	if (delivered) expect(turns[1].prompt).toContain(note.split("\n")[0]);
+	if (retained) {
+		const message = (last as { finalMessage: string }).finalMessage;
+		expect(last).toMatchObject({
+			outcome: "succeeded",
+			shas: ["a".repeat(40)],
+		});
+		expect(message).toStartWith("Devin Work exchange did not finish");
+		expect(message).toContain("ECONNRESET");
+		expect(message).toContain(note.split("\n")[0]!);
+		expect(parseLaneResult(message)).toMatchObject({
+			workItemId: binding.workItemId,
+			outcome: "completed",
+		});
+	} else if (mode === "duplicate-declarations") {
 		const message = (last as { finalMessage: string }).finalMessage;
 		expect(last).toMatchObject({ outcome: "succeeded" });
 		expect(

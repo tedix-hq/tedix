@@ -26,6 +26,7 @@ import {
 	laneLandingBrief,
 	provisionLaneWorktree,
 	landedLaneCommits,
+	existingLaneCommits,
 	mergeDispatcherReceipts,
 	retainedLaneWorktree,
 	dispatchSkip,
@@ -163,6 +164,8 @@ function fixture({
 		installError: undefined as Error | undefined,
 		installed: [] as string[],
 		commits: [] as string[],
+		existingRefusal: undefined as string | undefined,
+		existingChecks: [] as string[][],
 		unpushedCommits: [] as string[],
 		unpushedWait: undefined as Promise<string[]> | undefined,
 		heartbeatExpiry: false,
@@ -237,6 +240,11 @@ function fixture({
 		landedCommits: async () => {
 			if (control.proofError) throw control.proofError;
 			return control.commits;
+		},
+		existingCommits: async (_repo, cited) => {
+			if (control.proofError) throw control.proofError;
+			control.existingChecks.push(cited);
+			return control.existingRefusal;
 		},
 		unpushedCommits: async () =>
 			control.unpushedWait ?? control.unpushedCommits,
@@ -3360,6 +3368,71 @@ describe("dispatcher admission", () => {
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
 		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
 	});
+	it("settles a result that changed nothing as succeeded when the commits it cites are already on main", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		const cited = ["b".repeat(40), "c".repeat(40)];
+		f.control.finalMessage = `Already fixed on main\nTEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(), outcome: "landed_unverified", unverified: "Tests after deploy could not be read", existingCommits: cited })}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(f.control.existingChecks).toEqual([cited]);
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+		// Not `--commit`: that would record them as commits this run shipped.
+		expect(settle.args).not.toContain("--commit");
+		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
+			"No change was needed",
+		);
+		expect(settle.input?.metadata).toMatchObject({
+			laneResult: { outcome: "landed_unverified", existingCommits: cited },
+			settlement: {
+				mode: "existing_commits",
+				commitSha: cited[0],
+				commitShas: cited,
+			},
+		});
+		for (let pass = 0; pass < 3; pass++) await f.restart().tick();
+		// The run is not started again; its owner gets one request to check.
+		expect(f.releases).toHaveLength(1);
+		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+		const requests = f.events.filter((e) => e.verb === "interaction-create");
+		expect(requests).toHaveLength(1);
+		expect(requests[0]!.input!.prompt).toContain("bbbbbbbbbbbb");
+	});
+	it("fails a result that cites existing commits the checkout cannot prove", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		f.control.existingRefusal = `${"b".repeat(12)} is not on origin/main`;
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(), outcome: "landed_unverified", unverified: "The deploy could not be read", existingCommits: ["b".repeat(40)] })}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+		expect(settle.args).not.toContain("--commit");
+		const note = settle.args[settle.args.indexOf("--note") + 1]!;
+		expect(note).toContain(
+			"The result says a change landed, but no commit for it is on origin/main.",
+		);
+		expect(note).toContain("bbbbbbbbbbbb is not on origin/main");
+		expect(settle.input?.metadata).not.toHaveProperty("settlement");
+	});
+	it("keeps a no-change result for a later check while origin cannot be read", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.proofError = new LaneCommitFetchError("origin is unreachable");
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(), outcome: "landed_unverified", unverified: "The deploy could not be read", existingCommits: ["b".repeat(40)] })}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(f.events.some((event) => event.verb === "settle")).toBe(false);
+	});
 	it.each(["completed", "incomplete"] as const)(
 		"preserves %s commit/evidence declarations on the admitted Work and Attempt",
 		async (outcome) => {
@@ -6206,6 +6279,55 @@ it("extracts and deduplicates final-message and local commits, accepting only or
 		await landedLaneCommits(repo, landed, `Rebased onto ${landed}`),
 	).toEqual([]);
 	await expect(landedLaneCommits(repo, "f".repeat(40), "")).rejects.toThrow();
+});
+
+it("accepts cited existing commits only when each is on origin/main and the checkout holds no change of its own", async () => {
+	const { root, repo, git } = gitFixture();
+	const commit = (subject: string) => {
+		git([
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"--allow-empty",
+			"-m",
+			subject,
+		]);
+		return git(["rev-parse", "HEAD"]);
+	};
+	const remote = join(root, "origin.git");
+	git(["init", "--bare", remote]);
+	git(["remote", "add", "origin", remote]);
+	const tracked = "fix.txt";
+	writeFileSync(join(repo, tracked), "fixed");
+	git(["add", tracked]);
+	const first = commit("earlier fix");
+	const second = commit("later fix");
+	git(["push", "origin", "main"]);
+	expect(await existingLaneCommits(repo, [first, second])).toBeUndefined();
+	expect(await existingLaneCommits(repo, [first, "f".repeat(40)])).toBe(
+		"ffffffffffff is not on origin/main",
+	);
+	// Files the run only created, such as test output, are not a change.
+	writeFileSync(join(repo, "test-output.log"), "passed");
+	expect(await existingLaneCommits(repo, [first])).toBeUndefined();
+	writeFileSync(join(repo, tracked), "changed by the run");
+	expect(await existingLaneCommits(repo, [first])).toBe(
+		"the checkout has uncommitted changes to tracked files",
+	);
+	git(["checkout", "--", tracked]);
+	const unpushed = commit("not pushed");
+	expect(await existingLaneCommits(repo, [first])).toBe(
+		"the checkout has 1 commit that is not on origin/main",
+	);
+	// A commit that never reached main is no evidence, even when cited.
+	expect(await existingLaneCommits(repo, [unpushed])).toBe(
+		`${unpushed.slice(0, 12)} is not on origin/main`,
+	);
+	git(["reset", "--hard", second]);
+	git(["remote", "set-url", "origin", join(root, "missing.git")]);
+	await expect(existingLaneCommits(repo, [first])).rejects.toBeInstanceOf(
+		LaneCommitFetchError,
+	);
 });
 
 it("recovers cited same-Work history only with original session custody on origin/main", async () => {

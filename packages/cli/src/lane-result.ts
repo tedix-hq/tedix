@@ -35,6 +35,13 @@ export const LaneResultSchema = z.discriminatedUnion("outcome", [
 		...proof,
 		outcome: z.literal("landed_unverified"),
 		unverified: z.string().min(1).max(1800),
+		// The run changed nothing: these earlier commits on main already meet
+		// the outcome. The runner checks each one before it counts.
+		existingCommits: z
+			.array(z.string().regex(/^[a-f0-9]{40}$/))
+			.min(1)
+			.max(10)
+			.optional(),
 	}),
 	z.strictObject({
 		...fence,

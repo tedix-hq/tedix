@@ -62,6 +62,58 @@ describe("one read retry budget", () => {
 		expect(calls).toBe(1);
 	});
 
+	test.each([
+		`Tedix CLI read failed (exit 2): {"message":"MCP tool error: The organization's tool policy could not be verified; no action was executed."}`,
+		`Tedix CLI read failed (exit 2): {"message":"ECONNRESET: The socket connection was closed unexpectedly. [traceId: 00000000-0000-4000-8000-000000000000]"}`,
+		`Tedix CLI read failed (exit 2): {"message":"MCP tools/call error: \\"external_agent_validation_unavailable\\" [traceId: 00000000-0000-4000-8000-000000000000]"}`,
+	])(
+		"retries a server fault reported as a message only: %s",
+		async (message) => {
+			let calls = 0;
+			expect(
+				await retryRead(
+					async () => {
+						if (++calls < 3) throw new CliReadError(message);
+						return "read";
+					},
+					{
+						operation: "dispatch-get",
+						budgetMs: 60_000,
+						attemptMs: 20_000,
+						wait: async () => {},
+						log: () => {},
+					},
+				),
+			).toBe("read");
+			expect(calls).toBe(3);
+		},
+	);
+
+	test.each([
+		`Tedix CLI read failed (exit 2): {"message":"MCP tool error: FORBIDDEN: Work Item completion requires its owner or steward"}`,
+		`Tedix CLI read failed (exit 2): {"message":"MCP tool error: FORBIDDEN: policy_unavailable for this Attempt"}`,
+		`Tedix CLI read failed (exit 2): {"message":"MCP tool error: CONFLICT: Attempt is no longer current"}`,
+		"Tedix CLI read failed (exit 1): Error: not signed in",
+	])("keeps a refusal reported as a message final: %s", async (message) => {
+		let calls = 0;
+		await expect(
+			retryRead(
+				async () => {
+					calls++;
+					throw new CliReadError(message);
+				},
+				{
+					operation: "dispatch-get",
+					budgetMs: 60_000,
+					attemptMs: 20_000,
+					wait: async () => {},
+					log: () => {},
+				},
+			),
+		).rejects.toThrow(message);
+		expect(calls).toBe(1);
+	});
+
 	test("caps immediate transient retries and scales the load ceiling", async () => {
 		let calls = 0;
 		await expect(
