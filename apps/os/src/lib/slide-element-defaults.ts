@@ -4,40 +4,61 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { createOutputNodeId } from "@/lib/output-models";
 
-const ELEMENT_DEFAULTS: Record<
-	OsPresentationElementType,
-	Pick<OsPresentationElement, "width" | "height" | "text" | "style">
-> = {
+/** Each further element of the same type lands this much lower and to the right. */
+const STAGGER = 16;
+
+type ElementDefault = Pick<
+	OsPresentationElement,
+	"x" | "y" | "width" | "height" | "text" | "style" | "props"
+>;
+
+const ELEMENT_DEFAULTS: Record<OsPresentationElementType, ElementDefault> = {
 	title: {
-		width: 900,
-		height: 90,
+		x: 33,
+		y: 197,
+		width: 760,
+		height: 140,
 		text: "Title",
-		style: { fontSize: 48, fontWeight: "bold", color: "#171717" },
+		style: {
+			fontSize: 58,
+			fontWeight: "bold",
+			color: "#171717",
+			lineHeight: 1.1,
+			letterSpacing: -1.7,
+		},
 	},
 	subtitle: {
-		width: 800,
-		height: 65,
+		x: 33,
+		y: 350,
+		width: 760,
+		height: 40,
 		text: "Subtitle",
-		style: { fontSize: 28, color: "#555555" },
+		style: { fontSize: 17, fontWeight: "semibold", color: "#555555" },
 	},
 	text: {
-		width: 540,
-		height: 140,
+		x: 100,
+		y: 200,
+		width: 400,
+		height: 120,
 		text: "Text",
-		style: { fontSize: 24, color: "#242424" },
+		style: { fontSize: 19, color: "#000000", lineHeight: 1.6 },
 	},
 	bullet: {
-		width: 650,
-		height: 250,
+		x: 100,
+		y: 200,
+		width: 850,
+		height: 220,
 		text: "First point\nSecond point",
-		style: { fontSize: 26, color: "#242424" },
+		style: { fontSize: 19, color: "#000000", lineHeight: 1.6 },
 	},
 	label: {
+		x: 36,
+		y: 35,
 		width: 220,
-		height: 48,
+		height: 40,
 		text: "LABEL",
 		style: {
-			fontSize: 18,
+			fontSize: 14,
 			fontWeight: "semibold",
 			color: "#333333",
 			background: "#f1f1f1",
@@ -45,69 +66,106 @@ const ELEMENT_DEFAULTS: Record<
 		},
 	},
 	card: {
-		width: 360,
-		height: 220,
+		x: 100,
+		y: 240,
+		width: 280,
+		height: 260,
 		text: "Card",
 		style: {
-			fontSize: 24,
+			fontSize: 19,
 			color: "#242424",
 			background: "#ffffff",
 			borderColor: "#d1d1d1",
-			borderWidth: 2,
-			borderRadius: 18,
+			borderWidth: 1,
+			borderRadius: 12,
 		},
 	},
 	box: {
-		width: 300,
-		height: 180,
+		x: 100,
+		y: 240,
+		width: 220,
+		height: 110,
 		text: "Box",
 		style: {
-			fontSize: 22,
+			fontSize: 17,
 			color: "#242424",
 			background: "#f3f5ff",
 			borderRadius: 12,
 		},
 	},
 	image: {
-		width: 420,
-		height: 260,
+		x: 600,
+		y: 0,
+		width: 600,
+		height: 675,
 		text: "Image",
-		style: { background: "#eeeeee", borderRadius: 12 },
+		style: { background: "#eeeeee", fit: "cover" },
 	},
 	svg: {
+		x: 100,
+		y: 200,
 		width: 280,
 		height: 200,
 		text: "SVG",
 		style: { background: "#eeeeee" },
 	},
-	divider: { width: 700, height: 8, style: { background: "#222222" } },
+	divider: {
+		x: 100,
+		y: 400,
+		width: 400,
+		height: 2,
+		style: { background: "#d4d4d4" },
+	},
 	shape: {
-		width: 180,
-		height: 180,
+		x: 100,
+		y: 200,
+		width: 200,
+		height: 200,
 		style: { background: "#e5e5e5", borderRadius: 2 },
 	},
 	arrow: {
-		width: 300,
-		height: 40,
-		text: "→",
-		style: { fontSize: 56, color: "#222222", textAlign: "center" },
+		x: 184,
+		y: 372,
+		width: 432,
+		height: 56,
+		props: { from: { x: 200, y: 400 }, to: { x: 600, y: 400 }, strokeWidth: 2 },
+		style: { color: "#737373" },
 	},
 	logo: {
-		width: 200,
-		height: 60,
-		style: { fontSize: 24, fontWeight: "semibold" },
+		x: 1000,
+		y: 30,
+		width: 160,
+		height: 48,
+		style: { fontSize: 24, fontWeight: "bold" },
 	},
 };
 
+/**
+ * A new element of `type` with its type's defaults, moved along by `sameType`
+ * steps so a second one does not land exactly on the first.
+ */
 export function createElement(
 	type: OsPresentationElementType,
-	index: number,
+	sameType: number,
 ): OsPresentationElement {
+	const { x, y, ...rest } = structuredClone(ELEMENT_DEFAULTS[type]);
+	const step = Math.max(
+		0,
+		Math.min(
+			(sameType % 10) * STAGGER,
+			1_200 - rest.width - x,
+			675 - rest.height - y,
+		),
+	);
+	const shift = (point?: { x: number; y: number }) =>
+		point && { x: point.x + step, y: point.y + step };
+	if (rest.props?.from) rest.props.from = shift(rest.props.from);
+	if (rest.props?.to) rest.props.to = shift(rest.props.to);
 	return {
 		id: createOutputNodeId(type),
 		type,
-		x: 80 + (index % 5) * 24,
-		y: 80 + (index % 5) * 24,
-		...ELEMENT_DEFAULTS[type],
+		x: x + step,
+		y: y + step,
+		...rest,
 	};
 }

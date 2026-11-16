@@ -302,7 +302,7 @@ export function slideElementMarkup(
 	const image = (source: string, alt: string) =>
 		`<img src="${escapeSlideHtml(source)}" alt="${escapeSlideHtml(alt)}" draggable="false" class="h-full w-full object-${element.style.fit === "cover" ? "cover" : "contain"}" style="width:100%;height:100%;object-fit:${element.style.fit === "cover" ? "cover" : "contain"}${focal ? `;object-position:${escapeSlideHtml(focal)}` : ""}">`;
 	if (element.type === "logo") {
-		const source = slideImageSource(organization.logoUrl);
+		const source = slideImageSource(element.src ?? organization.logoUrl);
 		return source
 			? image(source, organization.name ?? "Organization logo")
 			: text(organization.name ?? "");

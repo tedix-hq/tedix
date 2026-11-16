@@ -1411,6 +1411,108 @@ describe("portable Slides canvas", () => {
 		expect(node.classList.contains("selected")).toBe(true);
 		expect(button("undo").disabled).toBe(false);
 	});
+	describe("editing shortcuts and quick controls", () => {
+		const saved = (api: Awaited<ReturnType<typeof mount>>) =>
+			api.result().revision.content.deck!;
+		it("moves between slides with the arrow keys, Home and End when nothing is selected", async () => {
+			await mount();
+			key(stage(), { key: "ArrowRight" });
+			expect(thumb("slide-2").classList.contains("current")).toBe(true);
+			key(stage(), { key: "Home" });
+			expect(thumb("slide-1").classList.contains("current")).toBe(true);
+			key(stage(), { key: "End" });
+			expect(thumb("slide-2").classList.contains("current")).toBe(true);
+			key(stage(), { key: "ArrowLeft" });
+			expect(thumb("slide-1").classList.contains("current")).toBe(true);
+		});
+		it("steps the selected text through the type scale", async () => {
+			const api = await mount();
+			clickElement("title-1");
+			key(stage(), { key: ">", metaKey: true, shiftKey: true });
+			await api.app.save();
+			expect(saved(api).slides[0]!.elements[0]!.style.fontSize).toBe(48);
+			key(stage(), { key: "<", metaKey: true, shiftKey: true });
+			key(stage(), { key: "<", metaKey: true, shiftKey: true });
+			await api.app.save();
+			expect(saved(api).slides[0]!.elements[0]!.style.fontSize).toBe(36);
+		});
+		it("opens a searchable insert menu with / and inserts the first match on Enter", async () => {
+			const api = await mount();
+			key(stage(), { key: "/" });
+			const search = document.querySelector<HTMLInputElement>(
+				".slides-menu-search",
+			)!;
+			expect(
+				document.querySelector("#insert-menu")!.hasAttribute("hidden"),
+			).toBe(false);
+			expect(document.activeElement).toBe(search);
+			search.value = "divi";
+			search.dispatchEvent(new Event("input"));
+			expect(
+				document.querySelector<HTMLElement>('[data-insert="text"]')!.hidden,
+			).toBe(true);
+			key(search, { key: "Enter" });
+			await api.app.save();
+			expect(saved(api).slides[0]!.elements.at(-1)!.type).toBe("divider");
+		});
+		it("lands each further paste a step along", async () => {
+			const api = await mount();
+			clickElement("artwork");
+			key(stage(), { key: "c", metaKey: true });
+			key(stage(), { key: "v", metaKey: true });
+			key(stage(), { key: "v", metaKey: true });
+			await api.app.save();
+			const [, , first, second] = saved(api).slides[0]!.elements;
+			expect([first!.x, second!.x]).toEqual([124, 148]);
+		});
+		it("sets a color from the palette in one click", async () => {
+			const api = await mount();
+			clickElement("title-1");
+			format();
+			document
+				.querySelector<HTMLButtonElement>('[aria-label="Text color: White"]')!
+				.click();
+			await api.app.save();
+			expect(saved(api).slides[0]!.elements[0]!.style.color).toBe("#ffffff");
+			expect(
+				document
+					.querySelector('[aria-label="Text color: White"]')!
+					.getAttribute("aria-pressed"),
+			).toBe("true");
+		});
+		it("edits title highlight words", async () => {
+			const api = await mount();
+			clickElement("title-1");
+			format();
+			change("Highlight words (comma list)", "Original, title ,");
+			await api.app.save();
+			expect(saved(api).slides[0]!.elements[0]!.props?.highlight).toEqual([
+				"Original",
+				"title",
+			]);
+		});
+		it("hides the slide list, shows shortcuts, and captions thumbnails with their title", async () => {
+			await mount();
+			expect(
+				thumb("slide-1").querySelector(".slides-thumb-caption")!.textContent,
+			).toBe("Original title");
+			expect(
+				thumb("slide-2").querySelector(".slides-thumb-caption")!.textContent,
+			).toBe("Two");
+			key(stage(), { key: "\\", metaKey: true });
+			expect(
+				document.querySelector<HTMLElement>(".slides-app")!.dataset.rail,
+			).toBe("hidden");
+			key(stage(), { key: "/", metaKey: true });
+			expect(document.querySelector<HTMLElement>("#shortcuts")!.hidden).toBe(
+				false,
+			);
+			key(document.querySelector("#shortcuts")!, { key: "Escape" });
+			expect(document.querySelector<HTMLElement>("#shortcuts")!.hidden).toBe(
+				true,
+			);
+		});
+	});
 	describe("changes someone else makes while the presentation is open", () => {
 		const banner = () => document.querySelector(".slides-updates")!;
 		const offer = () =>

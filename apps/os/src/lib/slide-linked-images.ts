@@ -83,7 +83,7 @@ export function createSlideLinkedImages(
 			track(
 				node,
 				element.type === "logo"
-					? logo
+					? (element.src ?? logo)
 					: element.type === "image" || element.type === "svg"
 						? element.src
 						: undefined,

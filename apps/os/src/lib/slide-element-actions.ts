@@ -62,6 +62,8 @@ export function applySlideElementAction(
 	if (action === "paste") {
 		if (!clipboard.length) return null;
 		const pasted = clipboard.map(offsetCopy);
+		// The next paste lands a step further along, not on top of this one.
+		clipboard = structuredClone(pasted);
 		return {
 			slide: { ...slide, elements: [...slide.elements, ...pasted] },
 			selectedIds: pasted.map((element) => element.id),
