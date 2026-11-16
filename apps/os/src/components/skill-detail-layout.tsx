@@ -14,6 +14,7 @@ import { useState } from "react";
 import * as z from "zod";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
+import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
@@ -47,10 +48,14 @@ import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import {
 	osQueryKeys,
 	skillDetailQueryOptions,
+	skillRunsQueryOptions,
+	skillRunStatusQueryOptions,
+	skillSpecificSchedulesQueryOptions,
 	tediRosterQueryOptions,
 	workflowDefinitionHealthQueryOptions,
 	WORKFLOW_DEFINITIONS_LIMIT,
 } from "@/lib/os-query-options";
+import { skillDraftReason } from "@/lib/skill-draft-reason";
 import {
 	TEDIS_MANAGE_DENIED_REASON,
 	useCanManageTedis,
@@ -94,6 +99,47 @@ export function SkillDetailLayout() {
 			pathname.endsWith(`/${tab}`),
 		) ?? "overview";
 	const executable = Boolean(skill?.files?.["scripts/workflow.ts"]);
+	// A draft says why it is a draft; the reads are the ones its tabs use.
+	const isDraft = skill?.lifecycleState === "draft";
+	const draftRuns = useQuery({
+		...skillRunsQueryOptions(skillId),
+		enabled: isDraft,
+	});
+	const draftSchedules = useQuery({
+		...skillSpecificSchedulesQueryOptions(skillId),
+		enabled: isDraft,
+	});
+	const draftBeforeError = skill
+		? skillDraftReason({
+				skill,
+				runs: draftRuns.data?.runs,
+				schedules: draftSchedules.data?.schedules,
+				canTurnOn: Boolean(canTurnBackOn),
+			})
+		: null;
+	const failedRunId = draftBeforeError?.lastFailedRunId ?? null;
+	const failedRun = useQuery({
+		...skillRunStatusQueryOptions(failedRunId ?? ""),
+		enabled: Boolean(failedRunId),
+	});
+	const draft =
+		skill && draftBeforeError
+			? skillDraftReason({
+					skill,
+					runs: draftRuns.data?.runs,
+					schedules: draftSchedules.data?.schedules,
+					lastError: failedRun.data?.error,
+					canTurnOn: Boolean(canTurnBackOn),
+				})
+			: null;
+	const canTest = executable && canRun && canTurnBackOn;
+	// Turning on leads only once the newest run of this version completed.
+	const turnOnLeads =
+		!canTest || (draft != null && draft.kind !== "unknown" && !draft.testFirst);
+	const openTest = () => {
+		setTestRun(true);
+		setDialogOpen(true);
+	};
 
 	const runNow = useMutation({
 		mutationFn: (input: { tediId: string; params: Record<string, unknown> }) =>
@@ -198,8 +244,17 @@ export function SkillDetailLayout() {
 					</PageHeading>
 					{executable || canRun || canTurnBackOn ? (
 						<PageActions>
+							{canTest ? (
+								<Button
+									variant={turnOnLeads ? "outline" : "default"}
+									onClick={openTest}
+								>
+									Run a test
+								</Button>
+							) : null}
 							{canTurnBackOn ? (
 								<Button
+									variant={turnOnLeads ? "default" : "outline"}
 									disabled={turnBackOn.isPending}
 									onClick={() => turnBackOn.mutate()}
 								>
@@ -232,6 +287,39 @@ export function SkillDetailLayout() {
 						</PageActions>
 					) : null}
 				</PageHeader>
+				{draft ? (
+					<Alert
+						variant={draft.kind === "failed_runs" ? "warning" : "info"}
+						aria-label="Why this skill is a draft"
+					>
+						<AlertTitle>{draft.title}</AlertTitle>
+						<AlertDescription className="grid gap-2 text-pretty">
+							{draft.why.map((line) => (
+								<div key={line} className="[overflow-wrap:anywhere]">
+									{line}
+								</div>
+							))}
+							{draft.lastFailedRunId ? (
+								<div>
+									<Link
+										to="/work/runs/$runId"
+										params={{ runId: draft.lastFailedRunId }}
+									>
+										Open the failed run
+									</Link>
+								</div>
+							) : null}
+							<div>
+								<span className="font-medium">What to do next</span>
+								<ol className="m-0 mt-1 grid list-decimal gap-1 pl-5">
+									{draft.next.map((step) => (
+										<li key={step}>{step}</li>
+									))}
+								</ol>
+							</div>
+						</AlertDescription>
+					</Alert>
+				) : null}
 				{turnBackOn.error ? (
 					<div role="alert">
 						<Text role="label" tone="error">
@@ -243,13 +331,7 @@ export function SkillDetailLayout() {
 									}`}
 						</Text>
 						{needsTest && executable && canRun && canTurnBackOn ? (
-							<Button
-								variant="outline"
-								onClick={() => {
-									setTestRun(true);
-									setDialogOpen(true);
-								}}
-							>
+							<Button variant="outline" onClick={openTest}>
 								Run a test first
 							</Button>
 						) : null}
@@ -333,9 +415,13 @@ export function SkillDetailLayout() {
 			<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
 				<DialogContent>
 					<DialogHeader>
-						<DialogTitle>Run {skill.title}</DialogTitle>
+						<DialogTitle>
+							{testRun ? `Test run of ${skill.title}` : `Run ${skill.title}`}
+						</DialogTitle>
 						<DialogDescription>
-							Runs this skill with the selected tedi’s permissions.
+							{testRun
+								? `Runs revision ${skill.revision} once as a test, with the selected tedi’s permissions. It does what a normal run does. The test counts only when the run finishes and reports that it passed; some skills pass only with particular parameters, which their instructions name. After a passed test you can turn the skill back on.`
+								: "Runs this skill with the selected tedi’s permissions."}
 						</DialogDescription>
 					</DialogHeader>
 					<form
@@ -383,7 +469,11 @@ export function SkillDetailLayout() {
 								Cancel
 							</Button>
 							<Button type="submit" disabled={runNow.isPending}>
-								{runNow.isPending ? "Dispatching…" : "Run now"}
+								{runNow.isPending
+									? "Dispatching…"
+									: testRun
+										? "Run test"
+										: "Run now"}
 							</Button>
 						</DialogFooter>
 					</form>

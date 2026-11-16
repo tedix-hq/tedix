@@ -141,6 +141,50 @@ describe("Skill overview summary", () => {
 		expect(html).not.toContain("Unavailable");
 	});
 
+	it("leads with the newest runs so an old rate cannot hide a skill that now fails", () => {
+		const evidence = {
+			runCount: 100,
+			completedCount: 73,
+			successRate: 0.73,
+			averageDurationMs: null,
+			warnings: [],
+		};
+		const failing = renderToStaticMarkup(
+			<SkillOverviewSummary
+				description={null}
+				tags={[]}
+				reliability={read({ data: evidence })}
+				recent={{ finished: 5, completed: 0, failed: 5 }}
+				successCount={0}
+				failureCount={0}
+			/>,
+		);
+		expect(failing).toContain("Last 5 runs failed");
+		expect(failing).toContain("73% overall: 73 of 100 sampled runs completed");
+		const mixed = renderToStaticMarkup(
+			<SkillOverviewSummary
+				description={null}
+				tags={[]}
+				reliability={read({ data: evidence })}
+				recent={{ finished: 5, completed: 3, failed: 1 }}
+				successCount={0}
+				failureCount={0}
+			/>,
+		);
+		expect(mixed).toContain("3 of the last 5 runs completed");
+		const steady = renderToStaticMarkup(
+			<SkillOverviewSummary
+				description={null}
+				tags={[]}
+				reliability={read({ data: evidence })}
+				recent={{ finished: 1, completed: 1, failed: 0 }}
+				successCount={0}
+				failureCount={0}
+			/>,
+		);
+		expect(steady).toContain("Last run completed");
+	});
+
 	it("says no runs only when a landed read proves it", () => {
 		const html = renderToStaticMarkup(
 			<SkillOverviewSummary
