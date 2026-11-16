@@ -46,7 +46,50 @@ describe("CMS product session broker", () => {
 		);
 		expect(response?.status).toBe(302);
 		expect(response?.headers.get("location")).toContain(
-			"/_emdash/api/auth/session-broker/start?redirect_to=",
+			"/_emdash/api/auth/session-broker/continue?redirect_to=",
+		);
+	});
+
+	it("rejects a start that arrives straight from another Tedix surface", async () => {
+		const response = await handleCmsSessionBroker(
+			new Request(
+				"https://tedix.cms.tedix.dev/_emdash/api/auth/session-broker/start?redirect_to=%2F_emdash%2Fadmin",
+				{ headers: { "Sec-Fetch-Site": "same-site" } },
+			),
+			env,
+			"org_tedix",
+			"tedix",
+		);
+		expect(response?.status).toBe(403);
+	});
+
+	it("re-issues sign-in from the CMS origin through the continue page", async () => {
+		const response = await handleCmsSessionBroker(
+			new Request(
+				"https://tedix.cms.tedix.dev/_emdash/api/auth/session-broker/continue?redirect_to=%2F_emdash%2Fadmin%2Fposts",
+				{ headers: { Accept: "text/html", "Sec-Fetch-Site": "same-site" } },
+			),
+			env,
+			"org_tedix",
+			"tedix",
+		);
+		expect(response?.status).toBe(200);
+		expect(await response?.text()).toContain(
+			'content="0; url=/_emdash/api/auth/session-broker/start?redirect_to=%2F_emdash%2Fadmin%2Fposts"',
+		);
+	});
+
+	it("keeps the continue page's redirect inside the admin", async () => {
+		const response = await handleCmsSessionBroker(
+			new Request(
+				"https://tedix.cms.tedix.dev/_emdash/api/auth/session-broker/continue?redirect_to=https%3A%2F%2Fevil.example",
+			),
+			env,
+			"org_tedix",
+			"tedix",
+		);
+		expect(await response?.text()).toContain(
+			'start?redirect_to=%2F_emdash%2Fadmin"',
 		);
 	});
 
@@ -77,7 +120,7 @@ describe("CMS product session broker", () => {
 		);
 		expect(response?.status).toBe(302);
 		expect(response?.headers.get("location")).toBe(
-			"https://tedix.cms.tedix.dev/_emdash/api/auth/session-broker/start?redirect_to=%2F_emdash%2Fadmin",
+			"https://tedix.cms.tedix.dev/_emdash/api/auth/session-broker/continue?redirect_to=%2F_emdash%2Fadmin",
 		);
 	});
 

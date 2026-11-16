@@ -20,6 +20,13 @@ export const CMS_BROKER_SESSION_COOKIE =
 export const CMS_BROKER_START_PATH = "/_emdash/api/auth/session-broker/start";
 export const CMS_BROKER_CALLBACK_PATH =
 	"/_emdash/api/auth/session-broker/callback";
+/**
+ * Same-origin bounce in front of `start`. A signed-out visitor who arrives from
+ * the OS Sites page (or any other site) carries cross-origin provenance, which
+ * `start` rejects; this page re-issues the navigation from the CMS origin.
+ */
+export const CMS_BROKER_CONTINUE_PATH =
+	"/_emdash/api/auth/session-broker/continue";
 export const CMS_FORWARDED_USER_AUTH_HEADER = "X-Tedix-CMS-Forwarded-User-Auth";
 
 export interface CmsSessionBrokerEnv {
@@ -197,6 +204,7 @@ export async function handleCmsSessionBroker(
 		const brokerPath =
 			url.pathname === CMS_BROKER_START_PATH ||
 			url.pathname === CMS_BROKER_CALLBACK_PATH ||
+			url.pathname === CMS_BROKER_CONTINUE_PATH ||
 			url.pathname === "/_emdash/api/auth/logout";
 		if (!brokerPath && !isBrowserAdminNavigation(request, url)) return null;
 		const location = new URL(`${url.pathname}${url.search}`, canonicalOrigin);
@@ -215,6 +223,14 @@ export async function handleCmsSessionBroker(
 		if (!mounted)
 			return new Response("Session broker unavailable\n", { status: 503 });
 		return mounted.finish(request);
+	}
+	if (url.pathname === CMS_BROKER_CONTINUE_PATH) {
+		if (!mounted)
+			return new Response("Session broker unavailable\n", { status: 503 });
+		return mounted.continue({
+			redirectPath: safeAdminRedirect(url.searchParams.get("redirect_to")),
+			request,
+		});
 	}
 	if (
 		url.pathname === CMS_BROKER_START_PATH ||
@@ -239,7 +255,7 @@ export async function handleCmsSessionBroker(
 		CMS_BROKER_SESSION_COOKIE,
 	);
 	if (!session) {
-		const redirect = new URL(CMS_BROKER_START_PATH, url.origin);
+		const redirect = new URL(CMS_BROKER_CONTINUE_PATH, url.origin);
 		redirect.searchParams.set(
 			"redirect_to",
 			url.pathname === "/_emdash/admin/login"
