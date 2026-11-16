@@ -123,7 +123,6 @@ export const prefetchWorkQueueRoute = demandLoaded("prefetchWorkQueueRoute");
 export const prefetchWorkPortfolioRoute = demandLoaded(
 	"prefetchWorkPortfolioRoute",
 );
-export const prefetchWorkGraphRoute = demandLoaded("prefetchWorkGraphRoute");
 export const prefetchWorkAttemptsRoute = demandLoaded(
 	"prefetchWorkAttemptsRoute",
 );

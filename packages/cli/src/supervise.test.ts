@@ -331,6 +331,17 @@ describe("dispatcher health publication", () => {
 		expect(run.lines).toEqual([]);
 	});
 
+	test("beats once per organization as the supervisor lane, one at a time", async () => {
+		lanes("alpha", "beta");
+		const sent: string[] = [];
+		const run = reporter((executor) => {
+			sent.push(executor);
+		});
+		await Promise.all([run.runner.beat(), run.runner.beat()]);
+		expect(sent).toEqual(["supervisor"]);
+		expect(run.lines).toEqual([]);
+	});
+
 	test("logs the elapsed time of a failed report and sends the rest", async () => {
 		lanes("alpha", "beta");
 		const sent: string[] = [];

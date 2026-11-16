@@ -109,6 +109,7 @@ import {
 } from "./supervise-questions";
 import {
 	collectDispatcherHealth,
+	collectSupervisorBeats,
 	type LocalDispatcherHealth,
 } from "./dispatcher-health";
 import {
@@ -133,6 +134,8 @@ const DETAIL_TIMEOUT_MS = 15_000;
 const RECHECK_MAX_MS = 10 * 60 * 1000;
 const PRUNE_EVERY_MS = 60 * 60 * 1000;
 export const HEALTH_REPORT_INTERVAL_MS = 2 * 60 * 1000;
+/** The supervisor's own beat; Tedix OS shows it down after 45 s of silence. */
+export const SUPERVISOR_BEAT_INTERVAL_MS = 20_000;
 /** Each report's retries share this; the first attempt gets DETAIL_TIMEOUT_MS. */
 const HEALTH_REPORT_BUDGET_MS = 45_000;
 
@@ -315,6 +318,41 @@ export class Supervisor {
 					`dispatcher ${report.executor} health report failed after ${Math.round(clock() - started)} ms and ${attempts} attempt${attempts === 1 ? "" : "s"}: ${(error as Error).message?.slice(0, 200)}`,
 				);
 			}
+		}
+	}
+
+	private beating = false;
+
+	/** One quick report per organization; a miss is simply the next beat. */
+	async beat(): Promise<void> {
+		if (this.beating) return;
+		this.beating = true;
+		try {
+			for (const {
+				workspace,
+				organization,
+				...report
+			} of collectSupervisorBeats(this.deps.env, this.now())) {
+				try {
+					await this.deps.read(
+						[
+							"--workspace",
+							workspace,
+							"--organization",
+							organization,
+							"work",
+							"dispatcher-health-record",
+							"--input",
+							JSON.stringify(report),
+						],
+						DETAIL_TIMEOUT_MS,
+					);
+				} catch {
+					// Silence is the signal; the log already records report failures.
+				}
+			}
+		} finally {
+			this.beating = false;
 		}
 	}
 
@@ -1203,6 +1241,11 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		};
 		checkRunners();
 		const runnerTimer = setInterval(checkRunners, SUPERVISE_INTERVAL_MS);
+		const beatTimer = setInterval(
+			() => void supervisor.beat(),
+			SUPERVISOR_BEAT_INTERVAL_MS,
+		);
+		void supervisor.beat();
 		while (!stopped) {
 			await supervisor.tick();
 			for (
@@ -1213,6 +1256,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 				await pause(1000);
 		}
 		clearInterval(runnerTimer);
+		clearInterval(beatTimer);
 		runners?.stop();
 		releaseAwake();
 		supervisorLog(env, "supervisor stopped");

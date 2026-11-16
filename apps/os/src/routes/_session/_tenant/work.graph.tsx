@@ -1,10 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { WorkGraphPage } from "@/components/work-factory-pages";
-import { prefetchWorkGraphRoute } from "@/lib/os-route-loaders";
-import { ListPending } from "@/routes/-pending";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+/** The dependency list grew into the Work Map app. */
 export const Route = createFileRoute("/_session/_tenant/work/graph")({
-	loader: ({ context }) => prefetchWorkGraphRoute(context.queryClient),
-	component: WorkGraphPage,
-	pendingComponent: ListPending,
+	beforeLoad: () => {
+		throw redirect({ to: "/work", search: { app: "map" }, replace: true });
+	},
 });

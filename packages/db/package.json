@@ -475,6 +475,7 @@
 		"./queries/work-items/approvals": "./src/queries/work-items/approvals.ts",
 		"./queries/work-items/capture-health": "./src/queries/work-items/capture-health.ts",
 		"./queries/work-items/dispatcher-health": "./src/queries/work-items/dispatcher-health.ts",
+		"./queries/work-items/map": "./src/queries/work-items/map.ts",
 		"./queries/work-items/stewardship": "./src/queries/work-items/stewardship.ts",
 		"./queries/work-items/triage": "./src/queries/work-items/triage.ts",
 		"./queries/work-items/work-routing": "./src/queries/work-items/work-routing.ts",

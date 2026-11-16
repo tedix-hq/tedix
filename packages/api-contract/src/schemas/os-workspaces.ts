@@ -20,6 +20,7 @@ import { OsLocaleSchema } from "./user-settings";
 import { FactoryBlueprintSchema } from "./factory-blueprints";
 import { type JsonValue, JsonValueSchema } from "./common";
 import { CARD_REVIEW_ENTRY, CardReviewConfigSchema } from "./os-card-review";
+import { WORK_MAP_ENTRY, WorkMapConfigSchema } from "./os-work-map";
 import {
 	APP_RUNTIME_ENTRY,
 	AppRuntimeConfigSchema,
@@ -732,9 +733,11 @@ export const OsGadgetManifestWriteSchema = OsGadgetManifestSchema.superRefine(
 										? ActivityFeedConfigSchema
 										: value.entry.trim() === WORK_DISPATCH_ENTRY
 											? WorkDispatchConfigSchema
-											: value.entry.trim() === APP_RUNTIME_ENTRY
-												? AppRuntimeConfigSchema
-												: null;
+											: value.entry.trim() === WORK_MAP_ENTRY
+												? WorkMapConfigSchema
+												: value.entry.trim() === APP_RUNTIME_ENTRY
+													? AppRuntimeConfigSchema
+													: null;
 		if (!schema) return;
 		const parsed = schema.safeParse(value.config);
 		if (parsed.success) return;

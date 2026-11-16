@@ -404,6 +404,7 @@ const CALLS = {
 	"workItems/list": { limit: 50 },
 	"tediObjectives/list": { limit: 100 },
 	"workItems/listCases": {},
+	"workMap/read": {},
 	"dispatcherHealth/list": {},
 	"workItems/listResourcePools": {},
 	"workItems/listBudgetEnvelopes": {},
