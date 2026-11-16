@@ -1496,6 +1496,10 @@
 		{
 			"name": "20261115203018_carry_milestones_into_epics/migration.sql",
 			"sha256": "ef9c6b55498e8ea6d6813ab048991593c4a8429ad37aced3abdc30ce0c9909ac"
+		},
+		{
+			"name": "20261116000545_d1_recovery_read_indexes/migration.sql",
+			"sha256": "cfed2f9b0f5237c2d41648f727f595bab2a54f52591ceba244577d403650e335"
 		}
 	]
 }

@@ -103,6 +103,12 @@ export const learningInteractionEvents = sqliteTable(
 			table.surface,
 			table.occurredAt,
 		),
+		index("idx_learning_event_decision_choice").on(
+			table.surface,
+			sql`json_extract(${table.metadata}, '$.decisionChoice')`,
+			table.scopeKind,
+			table.occurredAt,
+		),
 		// Producer-surface reads (filing lessons, reflection by surface) used to
 		// walk every event of the tenant through idx_learning_event_issue.
 		index("idx_learning_event_surface_kind_occurred").on(
