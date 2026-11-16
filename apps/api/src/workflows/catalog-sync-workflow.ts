@@ -1,6 +1,16 @@
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { assetsBaseUrl as resolveAssetsBaseUrl } from "./assets-base-url";
-import { CatalogSnapshotSchema } from "@tedix/api-contract/schemas/catalog-snapshot";
+import {
+	CatalogSnapshotSchema,
+	type CatalogSnapshot,
+} from "@tedix/api-contract/schemas/catalog-snapshot";
+import {
+	SNAPSHOT_PART_SIZE,
+	locateSnapshotBatch,
+	snapshotBatchCount,
+	snapshotPartCount,
+	snapshotPartKey,
+} from "./catalog-snapshot-parts";
 /**
  * CatalogSyncWorkflow - Cloudflare Workflow for syncing Catalog
  *
@@ -377,22 +387,36 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 					throw new NonRetryableError(
 						"Snapshot archive and provenance are required",
 					);
-				const archived = await this.readR2Json(event.payload.snapshotKey);
-				if (archived.inputHash !== event.payload.snapshotInputHash)
-					throw new NonRetryableError("Snapshot input identity mismatch");
-				const snapshot = CatalogSnapshotSchema.parse(archived.snapshot);
-				totalAppsDiscovered = snapshot.items.length;
-				// Mark every listing this feed writes so a registry sync's removal
-				// pass for the same source leaves it to this feed's own reconciliation.
-				const feedItems = snapshot.items.map((item) => ({
-					...item,
-					rawData: {
-						...(item.rawData ?? {}),
-						[SNAPSHOT_FEED_MARKER]: event.payload.snapshotProvenanceKey!,
+				const snapshotKey = event.payload.snapshotKey;
+				const provenanceKey = event.payload.snapshotProvenanceKey;
+				const removalSources = event.payload.snapshotRemovalSources ?? [];
+				// The snapshot is too large to keep in the Workflow body for a run of
+				// over a thousand steps. Validate it once, write it out as small part
+				// files, and let each batch step read only its own part.
+				const itemCount = await step.do(
+					"split-snapshot",
+					{ retries: { limit: 2, delay: "10 seconds" }, timeout: "5 minutes" },
+					async () => {
+						const archived = await this.readR2Json(snapshotKey);
+						if (archived.inputHash !== event.payload.snapshotInputHash)
+							throw new NonRetryableError("Snapshot input identity mismatch");
+						const { items } = CatalogSnapshotSchema.parse(archived.snapshot);
+						for (let part = 0; part < snapshotPartCount(items.length); part++)
+							await this.env.R2_BUCKET.put(
+								snapshotPartKey(snapshotKey, part),
+								JSON.stringify(
+									items.slice(
+										part * SNAPSHOT_PART_SIZE,
+										(part + 1) * SNAPSHOT_PART_SIZE,
+									),
+								),
+								{ httpMetadata: { contentType: "application/json" } },
+							);
+						return items.length;
 					},
-				}));
-				const batches = this.splitIntoBatches(feedItems, 10);
-				for (const [index, batch] of batches.entries()) {
+				);
+				totalAppsDiscovered = itemCount;
+				for (let index = 0; index < snapshotBatchCount(itemCount); index++) {
 					const result = await step.do(
 						`sync-snapshot-batch-${index}`,
 						{
@@ -400,6 +424,22 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 							timeout: "5 minutes",
 						},
 						async () => {
+							const { part, start, end } = locateSnapshotBatch(index);
+							const partItems = (await this.readR2Json(
+								snapshotPartKey(snapshotKey, part),
+							)) as unknown as CatalogSnapshot["items"];
+							// Mark every listing this feed writes so a registry sync's
+							// removal pass for the same source leaves it to this feed's
+							// own reconciliation.
+							const batch: SyncCatalogAppInput[] = partItems
+								.slice(start, end)
+								.map((item) => ({
+									...item,
+									rawData: {
+										...(item.rawData ?? {}),
+										[SNAPSHOT_FEED_MARKER]: provenanceKey,
+									},
+								}));
 							const outcome = await runCatalogSyncBatch(batch, {
 								normalize: (items) => this.normalizeCatalogAssets(items),
 								sync: (items) =>
@@ -411,22 +451,36 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 								throw new Error(
 									`Snapshot batch ${index} failed: ${outcome.errors.join("; ")}`,
 								);
-							return outcome;
+							return {
+								inserted: outcome.inserted,
+								updated: outcome.updated,
+								listings: batch.map((item) => ({
+									source: item.source,
+									sourceAppId: item.sourceAppId,
+								})),
+							};
 						},
 					);
 					totalInserted += result.inserted;
 					totalUpdated += result.updated;
-				}
-				for (const item of snapshot.items) {
-					if (!sourcesProcessed.includes(item.source))
-						sourcesProcessed.push(item.source);
-					if (event.payload.snapshotRemovalSources?.includes(item.source)) {
-						const ids = sourceAppIds.get(item.source) ?? [];
-						ids.push(item.sourceAppId);
-						sourceAppIds.set(item.source, ids);
+					for (const item of result.listings) {
+						if (!sourcesProcessed.includes(item.source))
+							sourcesProcessed.push(item.source);
+						if (removalSources.includes(item.source)) {
+							const ids = sourceAppIds.get(item.source) ?? [];
+							ids.push(item.sourceAppId);
+							sourceAppIds.set(item.source, ids);
+						}
 					}
 				}
-				filesProcessed.push(event.payload.snapshotKey);
+				await step.do("remove-snapshot-parts", async () => {
+					await this.env.R2_BUCKET.delete(
+						Array.from({ length: snapshotPartCount(itemCount) }, (_, part) =>
+							snapshotPartKey(snapshotKey, part),
+						),
+					);
+				});
+				filesProcessed.push(snapshotKey);
 			} else if (syncType === "upload") {
 				// Upload mode: process data from request body in one step
 				if (!data) {
