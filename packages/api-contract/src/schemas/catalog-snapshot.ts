@@ -151,25 +151,28 @@ export const CatalogSnapshotItemSchema = z.strictObject({
 		),
 });
 
-export const CatalogSnapshotSchema = z
+/** Upper bound on listings in one snapshot; a store directory above this needs a deliberate raise. */
+export const CATALOG_SNAPSHOT_MAX_ITEMS = 50_000;
+
+/** One stored part of a snapshot: a bounded run of listings. */
+export const CatalogSnapshotPartSchema = z
+	.array(CatalogSnapshotItemSchema)
+	.min(1)
+	.max(1_000);
+
+/**
+ * What a capture declares about itself. The listings are stored beside it in
+ * part files, so a large directory never has to fit in one message or in memory.
+ */
+export const CatalogSnapshotManifestSchema = z
 	.strictObject({
 		expectedSourceCount: z.number().int().positive(),
 		capturedSourceCount: z.number().int().positive(),
-		items: z.array(CatalogSnapshotItemSchema).min(1).max(20_000),
+		itemCount: z.number().int().min(1).max(CATALOG_SNAPSHOT_MAX_ITEMS),
 	})
 	.superRefine((value, ctx) => {
 		if (value.expectedSourceCount !== value.capturedSourceCount)
 			ctx.addIssue({ code: "custom", message: "Source capture is incomplete" });
-		const ids = new Set<string>();
-		for (const item of value.items) {
-			const key = JSON.stringify([item.source, item.sourceAppId]);
-			if (ids.has(key))
-				ctx.addIssue({
-					code: "custom",
-					message: `Duplicate store listing: ${key}`,
-				});
-			ids.add(key);
-		}
 	});
 
 export const ImportCatalogSnapshotInputSchema = z.strictObject({
@@ -201,4 +204,7 @@ export const ImportCatalogSnapshotOutputSchema = z.strictObject({
 	capturedSourceCount: z.number().int(),
 	listingsCount: z.number().int(),
 });
-export type CatalogSnapshot = z.infer<typeof CatalogSnapshotSchema>;
+export type CatalogSnapshotItem = z.infer<typeof CatalogSnapshotItemSchema>;
+export type CatalogSnapshotManifest = z.infer<
+	typeof CatalogSnapshotManifestSchema
+>;
