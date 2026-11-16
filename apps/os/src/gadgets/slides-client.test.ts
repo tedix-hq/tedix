@@ -1777,6 +1777,46 @@ describe("portable Slides canvas", () => {
 			expect(status()).toBe("A list holds up to 6 points.");
 		});
 	});
+	describe("card parts and word highlights", () => {
+		const saved = (api: Awaited<ReturnType<typeof mount>>) =>
+			api.result().revision.content.deck!;
+		it("writes a card's body right on the slide", async () => {
+			const api = await mount();
+			stageElement("artwork")
+				.querySelector('[data-slide-part="body"]')!
+				.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+			const editor = document.querySelector<HTMLTextAreaElement>(
+				".slides-inline-editor",
+			)!;
+			expect(editor.value).toBe("Keep this");
+			editor.value = "New body";
+			editor.dispatchEvent(new Event("input"));
+			editor.blur();
+			await api.app.save();
+			const card = saved(api).slides[0]!.elements[1]!;
+			expect(card.props?.body).toBe("New body");
+			expect(card.props?.title).toBe("Artwork");
+		});
+		it("lights up the words someone else added", async () => {
+			const lit: string[] = [];
+			const highlights = new Map<string, unknown>();
+			vi.stubGlobal("CSS", { highlights });
+			vi.stubGlobal(
+				"Highlight",
+				class {
+					constructor(...ranges: Range[]) {
+						lit.push(...ranges.map((range) => range.toString()));
+					}
+				},
+			);
+			const api = await mount();
+			api.external("user", "Original revised title");
+			api.notify();
+			await vi.waitFor(() => expect(highlights.has("slides-added")).toBe(true));
+			expect(lit).toEqual(["revised"]);
+			vi.unstubAllGlobals();
+		});
+	});
 	describe("changes someone else makes while the presentation is open", () => {
 		const banner = () => document.querySelector(".slides-updates")!;
 		const offer = () =>
