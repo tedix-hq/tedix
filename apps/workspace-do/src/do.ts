@@ -78,6 +78,7 @@ import {
 	workspaceSessionAllowed,
 	type WorkspaceSession,
 } from "./session-access";
+import { workspaceLog, type WorkspaceLogFields } from "./log";
 import { handleMcpRequest } from "./mcp";
 import {
 	catalogWorkspaceModels,
@@ -108,6 +109,15 @@ export const COMPATIBILITY_DATE = "2026-05-14";
 /** Turns with more history than this run in their own facet. */
 export const ISOLATE_AFTER_MESSAGES = 40;
 const KEEPALIVE_MS = 60_000;
+/** Client frame types a diagnostic line may name; anything else is "unknown". */
+const FRAME_TYPES = new Set([
+	"subscribe",
+	"send_turn",
+	"decide_approval",
+	"cancel_turn",
+	"read_ledger",
+	"ping",
+]);
 const TURN_IDLE_TIMEOUT_MS = 15 * 60_000;
 /** How long an object reuses the published model catalog before rereading it. */
 const MODEL_CATALOG_TTL_MS = 60_000;
@@ -320,9 +330,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		});
 		// A turn interrupted by eviction is marked failed; the user sees it at once.
 		const now = new Date().toISOString();
+		let interrupted = 0;
 		for (const row of this.#store.exec<TurnRow>(
 			"SELECT * FROM turns WHERE status = 'running'",
 		)) {
+			interrupted += 1;
 			this.#store.run(
 				"UPDATE turns SET status = 'failed', error = 'interrupted', finished_at = ? WHERE turn_id = ?",
 				now,
@@ -336,6 +348,47 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				durationMs: Date.parse(now) - Date.parse(row.started_at),
 			});
 		}
+		// Repeated wakes with sockets attached and no line after them mean the
+		// object is being reset rather than hibernated.
+		workspaceLog.info("Workspace object woke", {
+			event: "workspace.woke",
+			...this.#diagnostics(() => ({ latestSeq: this.#events.latestSeq() })),
+			interrupted,
+		});
+	}
+
+	/** Counts for a diagnostic line; never chat or file content. */
+	#diagnostics(more?: () => Partial<WorkspaceLogFields>) {
+		const objectId = this.ctx.id.toString();
+		try {
+			const turns: Record<string, number> = {};
+			for (const row of this.#store.exec<{ status: string; total: number }>(
+				"SELECT status, COUNT(*) AS total FROM turns GROUP BY status",
+			))
+				turns[row.status] = row.total;
+			return {
+				objectId,
+				workspaceId:
+					this.#store.get<WorkspaceScope>("activity-scope")?.workspaceId,
+				sockets: this.ctx.getWebSockets().length,
+				turns,
+				...more?.(),
+			};
+		} catch {
+			// A line about a failure must not fail on the same storage.
+			return { objectId };
+		}
+	}
+
+	#closeDenied(ws: WebSocket, where: string) {
+		workspaceLog.warn("Workspace chat socket closed by its object", {
+			event: "workspace.socket_denied",
+			where,
+			reason: "access_denied",
+			closeCode: 1008,
+			...this.#diagnostics(),
+		});
+		ws.close(1008, "Workspace access denied");
 	}
 
 	// ------------------------------------------------------------------ RPC
@@ -1282,10 +1335,20 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				code: "access_denied",
 				message: "Workspace access denied",
 			});
-			ws.close(1008, "Workspace access denied");
+			this.#closeDenied(ws, "frame");
 			return;
 		}
 		const { scope } = attachment;
+		const frameType = FRAME_TYPES.has(String(frame?.type))
+			? String(frame?.type)
+			: "unknown";
+		// Written before the work, so a reset names the frame it was handling.
+		if (frameType !== "ping")
+			workspaceLog.info("Workspace chat frame received", {
+				event: "workspace.frame",
+				frameType,
+				...this.#diagnostics(),
+			});
 		try {
 			switch (frame?.type) {
 				case "subscribe":
@@ -1354,6 +1417,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					});
 			}
 		} catch (error) {
+			workspaceLog.warn("Workspace chat frame failed", {
+				event: "workspace.frame_failed",
+				frameType,
+				error,
+				...this.#diagnostics(),
+			});
 			this.#control(ws, {
 				type: "error",
 				code: "failed",
@@ -1365,11 +1434,44 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		}
 	}
 
-	override async webSocketClose(ws: WebSocket) {
+	override async webSocketClose(
+		ws: WebSocket,
+		code: number,
+		_reason: string,
+		wasClean: boolean,
+	) {
+		workspaceLog.info("Workspace chat socket closed", {
+			event: "workspace.socket_closed",
+			closeCode: code,
+			wasClean,
+			...this.#diagnostics(),
+		});
 		ws.close();
 	}
 
-	override async alarm() {
+	override async webSocketError(_ws: WebSocket, error: unknown) {
+		workspaceLog.warn("Workspace chat socket failed", {
+			event: "workspace.socket_error",
+			error,
+			...this.#diagnostics(),
+		});
+	}
+
+	override async alarm(alarmInfo?: AlarmInvocationInfo) {
+		try {
+			await this.#runAlarm();
+		} catch (error) {
+			workspaceLog.error("Workspace alarm failed; the runtime retries it", {
+				event: "workspace.alarm_failed",
+				error,
+				retryCount: alarmInfo?.retryCount ?? 0,
+				...this.#diagnostics(),
+			});
+			throw error;
+		}
+	}
+
+	async #runAlarm() {
 		for (const turn of this.#store.exec<TurnRow>(
 			"SELECT * FROM turns WHERE status = 'running'",
 		)) {
@@ -1377,17 +1479,25 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				"SELECT max(at) AS at FROM events WHERE turn_id = ?",
 				turn.turn_id,
 			);
-			if (!this.#running.has(turn.turn_id))
-				this.#stopTurn(
-					turn,
-					"Stopped: no live executor for this turn.",
-					"failed",
-				);
-			else if (
-				Date.now() - Date.parse(last?.at ?? turn.started_at) >=
-				TURN_IDLE_TIMEOUT_MS
-			)
-				this.#stopTurn(turn, "Stopped: no progress for 15 minutes.", "failed");
+			const reason = !this.#running.has(turn.turn_id)
+				? "no_executor"
+				: Date.now() - Date.parse(last?.at ?? turn.started_at) >=
+					  TURN_IDLE_TIMEOUT_MS
+					? "idle"
+					: null;
+			if (!reason) continue;
+			workspaceLog.warn("Workspace alarm stopped a turn", {
+				event: "workspace.turn_stopped",
+				reason,
+				...this.#diagnostics(),
+			});
+			this.#stopTurn(
+				turn,
+				reason === "idle"
+					? "Stopped: no progress for 15 minutes."
+					: "Stopped: no live executor for this turn.",
+				"failed",
+			);
 		}
 		for (const [outputId, pending] of Object.entries(this.#outputTransfers())) {
 			try {
@@ -1830,7 +1940,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		if (
 			!(await workspaceSessionAllowed(this.env.DB, ws.deserializeAttachment()))
 		) {
-			ws.close(1008, "Workspace access denied");
+			this.#closeDenied(ws, "subscribe");
 			return;
 		}
 		this.bindScope(scope);
@@ -1844,10 +1954,23 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			conversations: this.listConversations(scope),
 			models: this.configuredModels(),
 		});
+		let replayEvents = 0;
+		let replayBytes = 0;
 		for (const event of this.#events.replay(cursor, conversationId)) {
-			ws.send(JSON.stringify(event));
+			const frame = JSON.stringify(event);
+			replayEvents += 1;
+			replayBytes += frame.length;
+			ws.send(frame);
 		}
 		this.#control(ws, { type: "caught_up", cursor: latest, conversationId });
+		workspaceLog.info("Workspace chat socket subscribed", {
+			event: "workspace.subscribed",
+			cursor,
+			latestSeq: latest,
+			replayEvents,
+			replayBytes,
+			...this.#diagnostics(),
+		});
 	}
 
 	#control(ws: WebSocket, frame: WireControlFrame) {
@@ -1865,7 +1988,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				| (WorkspaceSession & { conversationId?: string | null })
 				| null;
 			if (!(await workspaceSessionAllowed(this.env.DB, attachment))) {
-				ws.close(1008, "Workspace access denied");
+				this.#closeDenied(ws, "push");
 				continue;
 			}
 			if (
@@ -2357,6 +2480,19 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			const plan = await this.#plan(scope, turnId, conversationId, input);
 			const isolate =
 				input.isolate ?? plan.history.length > ISOLATE_AFTER_MESSAGES;
+			// Written before the model call, so a reset mid-turn shows its size.
+			workspaceLog.info("Workspace turn running", {
+				event: "workspace.turn_running",
+				isolated: isolate,
+				historyMessages: plan.history.length,
+				...this.#diagnostics(() => ({
+					historyBytes:
+						this.#store.exec<{ bytes: number }>(
+							"SELECT coalesce(sum(length(message)), 0) AS bytes FROM (SELECT message FROM messages WHERE conversation_id = ? ORDER BY seq DESC LIMIT 200)",
+							conversationId,
+						)[0]?.bytes ?? 0,
+				})),
+			});
 			const result = isolate
 				? await this.#runIsolated(plan, controller.signal)
 				: await executeTurn(plan, {
@@ -2400,6 +2536,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		} catch (error) {
 			if (this.#turn(turnId)?.status !== "running") return;
 			const cancelled = controller.signal.aborted;
+			// The message stays on the turn; a model error can quote the chat.
+			workspaceLog.warn("Workspace turn did not finish", {
+				event: "workspace.turn_failed",
+				reason: cancelled
+					? "cancelled"
+					: error instanceof Error
+						? error.name
+						: "error",
+				durationMs: Date.now() - startedAt,
+				...this.#diagnostics(),
+			});
 			const message = cancelled
 				? "cancelled by user"
 				: error instanceof Error
