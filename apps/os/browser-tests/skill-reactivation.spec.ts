@@ -170,7 +170,7 @@ try {
 					.isVisible(),
 			);
 			const testButton = page.getByRole("button", {
-				name: "Run a test",
+				name: "Test run",
 				exact: true,
 			});
 			assert(

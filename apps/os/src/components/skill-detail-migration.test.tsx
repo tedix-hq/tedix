@@ -242,7 +242,7 @@ describe("native skill ownership", () => {
 	const headerButtons = (host: HTMLElement) =>
 		[...host.querySelectorAll<HTMLElement>("button")]
 			.map((button) => button.textContent?.trim())
-			.filter((text) => text === "Run a test" || text === "Turn back on");
+			.filter((text) => text === "Test run" || text === "Turn back on");
 
 	it("tells an owner a skill went to draft after failed runs, with the date, the error and the test first", async () => {
 		authority.role = "owner";
@@ -280,13 +280,13 @@ describe("native skill ownership", () => {
 			"Open the Settings tab and turn the schedule back on if it is still paused.",
 		]);
 		// The test comes before turning the skill back on.
-		expect(headerButtons(host)).toEqual(["Run a test", "Turn back on"]);
+		expect(headerButtons(host)).toEqual(["Test run", "Turn back on"]);
 	});
 
 	it("starts a test run of the draft from the page and says it is a test", async () => {
 		authority.role = "owner";
 		const { click } = await mount(<SkillDetailLayout />, seedDraft([]));
-		await click("Run a test");
+		await click("Test run");
 		const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')!;
 		expect(dialog.textContent).toContain("Test run of Customer export");
 		expect(dialog.textContent).toContain("Runs revision 3 once as a test");

@@ -16,10 +16,7 @@ import {
 	PageSection,
 } from "../src/components/kumo/page";
 import { setOsFormattingPreferences } from "../src/lib/format";
-import {
-	skillReliabilityQueryOptions,
-	skillRunsQueryOptions,
-} from "../src/lib/os-query-options";
+import { skillRunsQueryOptions } from "../src/lib/os-query-options";
 import "../src/styles.css";
 
 const dark = new URLSearchParams(location.search).get("theme") === "dark";
@@ -71,8 +68,6 @@ const router = createRouter({
 });
 Object.assign(window, {
 	overviewFixture: {
-		refreshReliability: () =>
-			client.refetchQueries(skillReliabilityQueryOptions("alpha")),
 		refreshRuns: () => client.refetchQueries(skillRunsQueryOptions("alpha")),
 		navigate: (skillId: string) =>
 			router.navigate({ to: "/skills/$skillId", params: { skillId } }),

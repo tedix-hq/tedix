@@ -15,6 +15,17 @@ import * as z from "zod";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/kumo/alert-dialog";
+import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
@@ -56,6 +67,9 @@ import {
 	WORKFLOW_DEFINITIONS_LIMIT,
 } from "@/lib/os-query-options";
 import { skillDraftReason } from "@/lib/skill-draft-reason";
+import { skillStatus } from "@/lib/skill-status";
+import { absoluteTime } from "@/lib/time";
+import { useTediNames } from "@/lib/use-tedi-names";
 import {
 	TEDIS_MANAGE_DENIED_REASON,
 	useCanManageTedis,
@@ -111,10 +125,9 @@ export function SkillDetailLayout() {
 		...skillRunsQueryOptions(skillId),
 		enabled: isDraft,
 	});
-	const draftSchedules = useQuery({
-		...skillSpecificSchedulesQueryOptions(skillId),
-		enabled: isDraft,
-	});
+	const draftSchedules = useQuery(skillSpecificSchedulesQueryOptions(skillId));
+	const tediNames = useTediNames();
+	const [turnOffOpen, setTurnOffOpen] = useState(false);
 	const draftBeforeError = skill
 		? skillDraftReason({
 				skill,
@@ -138,6 +151,19 @@ export function SkillDetailLayout() {
 					canTurnOn: Boolean(canTurnBackOn),
 				})
 			: null;
+	const status = skill ? skillStatus(skill, draft) : null;
+	const nextRun = isDraft
+		? null
+		: (draftSchedules.data?.schedules ?? [])
+				.filter((schedule) => schedule.enabled)
+				.map((schedule) => schedule.nextFireAt)
+				.sort()[0];
+	const owner = skill?.tediId ? tediNames[skill.tediId] : undefined;
+	const canTurnOff =
+		skill != null &&
+		skill.lifecycleState !== "draft" &&
+		skill.lifecycleState !== "archived" &&
+		(role === "owner" || role === "admin");
 	const canTest = executable && canRun && canTurnBackOn;
 	// Turning on leads only once the newest run of this version completed.
 	const turnOnLeads =
@@ -211,6 +237,27 @@ export function SkillDetailLayout() {
 		},
 	});
 
+	const turnOff = useMutation({
+		mutationFn: () =>
+			osApi.skills.improve({
+				id: skillId,
+				lifecycleState: "draft",
+				force: true,
+				revisionReasoning:
+					"Owner or admin turned the skill off from its Tedix OS page.",
+			}),
+		onSuccess: () => {
+			setTurnOffOpen(false);
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.skills() });
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.skillSchedules() });
+			queryClient.invalidateQueries({
+				queryKey: workflowDefinitionHealthQueryOptions(
+					WORKFLOW_DEFINITIONS_LIMIT,
+				).queryKey,
+			});
+		},
+	});
+
 	const needsTest =
 		(turnBackOn.error as { data?: { rule?: string } } | null)?.data?.rule ===
 		"pace_layer_requires_eval";
@@ -239,13 +286,33 @@ export function SkillDetailLayout() {
 					<PageHeading>
 						<PageTitle>{skill.title}</PageTitle>
 						<PageDescription>
-							{skill.summary ?? skill.description ?? "Reusable procedure"}
+							{skill.description ?? skill.summary ?? "Reusable procedure"}
 						</PageDescription>
 						<PageMeta>
-							<li>Revision {skill.revision}</li>
-							{skill.lifecycleState ? (
-								<li>{sentenceCase(skill.lifecycleState)}</li>
+							{status ? (
+								<li>
+									<Badge
+										variant={
+											status.tone === "success"
+												? "success"
+												: status.tone === "warning"
+													? "warning"
+													: "secondary"
+										}
+									>
+										{status.label}
+									</Badge>
+									{status.reason ? ` ${status.reason}` : ""}
+								</li>
 							) : null}
+							{skill.tediId ? <li>Owned by {owner ?? "a tedi"}</li> : null}
+							{nextRun ? (
+								<li>
+									Next run{" "}
+									<time dateTime={nextRun}>{absoluteTime(nextRun)}</time>
+								</li>
+							) : null}
+							<li>Version {skill.revision}</li>
 						</PageMeta>
 					</PageHeading>
 					{executable || canRun || canTurnBackOn ? (
@@ -255,7 +322,7 @@ export function SkillDetailLayout() {
 									variant={turnOnLeads ? "outline" : "default"}
 									onClick={openTest}
 								>
-									Run a test
+									Test run
 								</Button>
 							) : null}
 							{canTurnBackOn ? (
@@ -276,6 +343,11 @@ export function SkillDetailLayout() {
 									}}
 								>
 									<FolderOpen size={15} /> Move
+								</Button>
+							) : null}
+							{canTurnOff ? (
+								<Button variant="outline" onClick={() => setTurnOffOpen(true)}>
+									Turn off
 								</Button>
 							) : null}
 							{executable ? (
@@ -365,6 +437,35 @@ export function SkillDetailLayout() {
 				/>
 			</div>
 			<Outlet />
+
+			<AlertDialog open={turnOffOpen} onOpenChange={setTurnOffOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Turn off {skill.title}?</AlertDialogTitle>
+						<AlertDialogDescription>
+							It stops running on its schedule. You can turn it back on later.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					{turnOff.error ? (
+						<Text role="label" tone="error">
+							Couldn't turn it off: {(turnOff.error as Error).message}
+						</Text>
+					) : null}
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							disabled={turnOff.isPending}
+							onClick={(event) => {
+								event.preventDefault();
+								turnOff.mutate();
+							}}
+						>
+							{turnOff.isPending ? "Turning off…" : "Turn off"}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 
 			<Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
 				<DialogContent>

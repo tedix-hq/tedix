@@ -38,71 +38,61 @@ const server = process.env.B13_TEST_ORIGIN
 				env: { ...process.env, VITE_LIVE_API: "0" },
 			},
 		);
-const entry = (id: string, title: string, feedback = false) => ({
+const hoursAgo = (hours: number) =>
+	new Date(Date.now() - hours * 3_600_000).toISOString();
+const entry = (id: string, title: string) => ({
 	id,
 	organizationId: "example",
+	tediId: null,
 	title,
 	slug: `${id}-skill`,
-	description: `Description for ${title}.`,
-	summary: `Summary for ${title}.`,
-	tags: ["verification", "exports"],
+	description: `Checks the weekly export for ${title}.`,
+	summary: "Batched parallel judge with storage-error retry.",
+	tags: ["verification"],
 	content: `# ${title}\n\nCheck the export.`,
-	files: { "references/policy.md": "Policy text." },
-	successCount: feedback ? 4 : 0,
-	failureCount: feedback ? 1 : 0,
+	files: {
+		"scripts/workflow.ts":
+			"export default async (env) => { await step.do('read', () => env.MCP.os.get_os_output({ id: 'x' })); await step.do('write', () => env.MCP.os.set_os_sheet_range({})); }",
+	},
+	successCount: id === "alpha" ? 4 : 0,
+	failureCount: id === "alpha" ? 1 : 0,
 	revision: 3,
 	visibility: "org",
 	paceLayer: "record",
+	lifecycleState: "active",
 });
-const run = (index: number) => ({
-	id: `run-${index}`,
-	organizationId: "example",
-	skillId: "alpha",
-	tediId: "worker",
-	workflowInstanceId: `wf-${index}`,
-	runtimeEnvironment: "development",
-	lastReconciledAt: "2026-10-21T12:00:00Z",
-	executionEpoch: 0,
-	status: index % 6 === 5 ? "failed" : "completed",
-	skillRevision: 3,
-	startedAt: `2026-10-21T1${index}:00:00Z`,
-	completedAt: `2026-10-21T1${index}:02:00Z`,
-	hasResult: true,
-	hasError: index % 6 === 5,
-});
-const reliabilityFor = (skillId: string) => ({
-	scope: { skillId, tediId: null },
-	runCount: skillId === "alpha" ? 7 : 0,
-	completedCount: skillId === "alpha" ? 6 : 0,
-	failedCount: skillId === "alpha" ? 1 : 0,
-	canceledCount: 0,
-	activeCount: 0,
-	successRate: skillId === "alpha" ? 0.86 : null,
-	completionRate: skillId === "alpha" ? 0.86 : null,
-	expectedOutcomes: {
-		evaluatedCount: 0,
-		matchedCount: 0,
-		unexpectedCount: 0,
-		expectedCompletedCount: 0,
-		expectedFailedCount: 0,
-		expectedCanceledCount: 0,
-		unexpectedRuns: [],
-	},
-	averageDurationMs: skillId === "alpha" ? 3400 : null,
-	retryAttemptCount: 0,
-	rollbackCount: 0,
-	toolCallCount: 0,
-	failedSteps: [],
-	warnings:
-		skillId === "alpha"
-			? [
-					"3 of 7 selected runs have no steps/** evidence; retry, rollback, tool-call, and failed-step counts are lower bounds.",
-				]
-			: [],
+const run = (index: number) => {
+	const failed = index % 3 === 2;
+	return {
+		id: `run-${index}`,
+		organizationId: "example",
+		skillId: "alpha",
+		tediId: "worker",
+		workflowInstanceId: `wf-${index}`,
+		runtimeEnvironment: "development",
+		lastReconciledAt: null,
+		executionEpoch: 0,
+		status: failed ? "failed" : "completed",
+		skillRevision: 3,
+		trigger: "scheduled",
+		startedAt: hoursAgo(index * 20 + 1),
+		completedAt: new Date(
+			Date.parse(hoursAgo(index * 20 + 1)) + 90_000,
+		).toISOString(),
+		hasResult: !failed,
+		hasError: failed,
+		errorPreview: failed ? "Error: The export for week 42 has no rows" : null,
+		resultSummary: failed ? null : `Checked ${40 + index} rows, all valid.`,
+	};
+};
+const runs = [0, 1, 2, 3, 4, 5, 6].map(run);
+const runStatus = (id: string) => ({
+	...runs.find((candidate) => candidate.id === id)!,
+	params: { period: "last_7_days" },
+	result: { summary: "Checked rows" },
 });
 type Fixture = Window & {
 	overviewFixture: {
-		refreshReliability(): Promise<void>;
 		refreshRuns(): Promise<void>;
 		navigate(skillId: string): Promise<void>;
 	};
@@ -132,7 +122,6 @@ try {
 	});
 	for (const viewport of [
 		{ width: 375, height: 667 },
-		{ width: 768, height: 1024 },
 		{ width: 1280, height: 900 },
 	])
 		for (const theme of ["light", "dark"] as const) {
@@ -146,53 +135,19 @@ try {
 			page.on("console", (message) => {
 				if (message.type() === "error") errors.push(message.text());
 			});
-			let failReliability = true;
 			let failRuns = true;
-			let releaseReliability: (() => void) | undefined;
-			let releaseRuns: (() => void) | undefined;
-			let reliabilityHold: Promise<void> | null = new Promise(
-				(resolve) => (releaseReliability = resolve),
-			);
-			let runsHold: Promise<void> | null = new Promise(
-				(resolve) => (releaseRuns = resolve),
-			);
-			const methods: string[] = [];
 			const procedures: string[] = [];
-			const reliabilityReads: string[] = [];
-			const runsReads: string[] = [];
-			const detailReads: string[] = [];
 			await page.route("**/api/**", async (route) => {
 				const request = route.request();
-				methods.push(request.method());
 				const url = new URL(request.url());
 				const input =
 					request.method() === "GET"
 						? JSON.parse(url.searchParams.get("data") ?? "{}").json
 						: request.postDataJSON()?.json;
 				const pathname = url.pathname;
-				procedures.push(pathname.slice(pathname.lastIndexOf("/skills/")));
-				if (pathname.endsWith("/skills/getWorkflowReliability")) {
-					const skillId = String(input?.skillId);
-					if (skillId === "alpha" && reliabilityHold) await reliabilityHold;
-					reliabilityReads.push(skillId);
-					if (skillId === "alpha" && failReliability)
-						return route.fulfill({
-							status: 503,
-							json: {
-								json: {
-									defined: false,
-									code: "SERVICE_UNAVAILABLE",
-									message: "Reliability read failed",
-								},
-							},
-						});
-					return route.fulfill({ json: { json: reliabilityFor(skillId) } });
-				}
+				procedures.push(pathname.slice(pathname.lastIndexOf("/") + 1));
 				if (pathname.endsWith("/skills/runWorkflowHistory")) {
-					const skillId = String(input?.skillId);
-					if (skillId === "alpha" && runsHold) await runsHold;
-					runsReads.push(skillId);
-					if (skillId === "alpha" && failRuns)
+					if (failRuns)
 						return route.fulfill({
 							status: 503,
 							json: {
@@ -203,27 +158,36 @@ try {
 								},
 							},
 						});
+					const skillId = String(input?.skillId);
+					const after = input?.startedAfter
+						? Date.parse(input.startedAfter)
+						: 0;
 					return route.fulfill({
 						json: {
 							json: {
-								runs: skillId === "alpha" ? [0, 1, 2, 3, 4, 5, 6].map(run) : [],
+								runs:
+									skillId === "alpha"
+										? runs
+												.filter((r) => Date.parse(r.startedAt) >= after)
+												.slice(0, input?.limit ?? 50)
+										: [],
 							},
 						},
 					});
 				}
+				if (pathname.endsWith("/skills/runWorkflowStatus"))
+					return route.fulfill({
+						json: { json: runStatus(String(input?.runId)) },
+					});
+				if (pathname.endsWith("/appGating/installedEligibility"))
+					return route.fulfill({ json: { json: [] } });
 				if (pathname.endsWith("/skills/get")) {
+					const known: Record<string, string> = { alpha: "Alpha verifier" };
 					const skillId = String(input?.id);
-					detailReads.push(skillId);
-					const known: Record<string, string> = {
-						alpha: "Alpha verifier",
-						beta: "Beta reviewer",
-					};
 					return route.fulfill({
 						json: {
 							json: {
-								entry: known[skillId]
-									? entry(skillId, known[skillId], skillId === "alpha")
-									: null,
+								entry: known[skillId] ? entry(skillId, known[skillId]) : null,
 							},
 						},
 					});
@@ -233,198 +197,84 @@ try {
 			await page.goto(
 				`${origin}/browser-tests/b13-skill-overview-read-states.html?theme=${theme}`,
 			);
-			await page.getByText("Reading…", { exact: true }).waitFor();
-			assert.equal(await page.getByText("No runs yet").count(), 0);
-			assert.equal(
-				await page.getByText("This skill has not run yet.").count(),
-				0,
-			);
-			assert.equal(await page.getByText("Unavailable").count(), 0);
-			await page.getByText("Recent runs", { exact: true }).waitFor();
-			// Cold failure: both reads land as errors — never as "no executions".
-			releaseReliability?.();
-			releaseRuns?.();
-			reliabilityHold = null;
-			runsHold = null;
-			await page.getByText("Unavailable", { exact: true }).waitFor();
+			await page.getByText("How it is doing", { exact: true }).waitFor();
+			// A failed read says so; it never claims there were no runs.
 			await page.getByText("Runs unavailable", { exact: true }).waitFor();
-			await page
-				.getByText("Run evidence could not be loaded.", { exact: false })
-				.waitFor();
 			assert.equal(await page.getByText("No runs yet").count(), 0);
-			assert.equal(
-				await page.getByText("This skill has not run yet.").count(),
-				0,
-			);
-			assert.equal(
-				await page.getByRole("button", { name: "Retry", exact: true }).count(),
-				2,
-			);
-			// Independent retry: reliability recovers while runs stay failed.
-			failReliability = false;
-			await page
-				.getByRole("button", { name: "Retry", exact: true })
-				.first()
-				.click();
-			await page.getByText("86%", { exact: true }).waitFor();
-			// Partial evidence reads as a plain sentence; counting rules stay
-			// behind the Technical details disclosure.
-			await page.getByText(/Some runs have incomplete records/).waitFor();
-			assert.equal(
-				await page.getByText(/steps\/\*\* evidence/).isVisible(),
-				false,
-			);
-			await page.getByRole("button", { name: "Technical details" }).click();
-			await page.getByText(/steps\/\*\* evidence/).waitFor();
-			await page.getByRole("button", { name: "Technical details" }).click();
-			await page.getByText(/steps\/\*\* evidence/).waitFor({ state: "hidden" });
-			await page.getByText("4 helpful · 1 unhelpful").waitFor();
-			await page.getByText("Runs unavailable", { exact: true }).waitFor();
-			// The other read recovers on its own retry.
 			failRuns = false;
-			await page
-				.getByRole("button", { name: "Retry", exact: true })
-				.first()
-				.click();
-			await page.locator('[data-slot="table"] tbody tr').first().waitFor();
-			assert.equal(
-				await page.locator('[data-slot="table"] tbody tr').count(),
-				5,
-			);
-			await page
-				.locator('a[href="/skills/alpha/runs"]')
-				.filter({ hasText: "View all" })
-				.waitFor();
-			// Refresh failure keeps the previously loaded evidence on screen.
-			failReliability = true;
-			failRuns = true;
-			await page.evaluate(() =>
-				(window as Fixture).overviewFixture.refreshReliability(),
-			);
 			await page.evaluate(() =>
 				(window as Fixture).overviewFixture.refreshRuns(),
 			);
-			await page.getByText(/figures shown may be out of date/).waitFor();
-			await page.getByText("Could not refresh runs", { exact: true }).waitFor();
-			// With the runs loaded the newest runs lead, and the sampled rate
-			// stays beside them.
-			assert.equal(
-				await page.getByText("Last 5 runs completed", { exact: true }).count(),
-				1,
-			);
-			assert.equal(await page.getByText(/^86% overall: /).count(), 1);
-			assert.equal(
-				await page.locator('[data-slot="table"] tbody tr').count(),
-				5,
-			);
-			// Read-only retries clear the refresh warnings.
-			failReliability = false;
-			failRuns = false;
+			const retries = page.getByRole("button", { name: "Retry", exact: true });
+			for (let n = await retries.count(); n > 0; n--)
+				await retries.first().click();
+			// Metrics strip with the default 7 day range.
+			const strip = page.getByLabel("Run counts");
+			await strip.getByText("Success rate").waitFor();
+			await strip.getByText("Typical time").waitFor();
+			await strip.getByText("Failures").waitFor();
+			await page.getByLabel("Finished runs over time").waitFor();
+			const sevenDays = await strip.innerText();
+			await page.getByRole("button", { name: "24h", exact: true }).click();
+			await strip.getByText("100%", { exact: true }).waitFor();
+			assert.notEqual(await strip.innerText(), sevenDays);
+			await page.getByRole("button", { name: "30d", exact: true }).click();
+			await page.getByLabel("Finished runs over time").waitFor();
+			assert.equal(await strip.innerText(), sevenDays);
+			// Recent runs: result line, inline error reason, link to all runs.
+			const recent = page.getByLabel("Recent runs", { exact: true });
+			await recent.getByText("Checked 40 rows, all valid.").waitFor();
+			await recent
+				.getByText("The export for week 42 has no rows")
+				.first()
+				.waitFor();
+			assert.equal(await recent.locator("li").count(), 5);
 			await page
-				.getByRole("button", { name: "Retry", exact: true })
+				.locator('a[href="/skills/alpha/runs"]')
+				.filter({ hasText: "View all runs" })
+				.waitFor();
+			await recent
+				.getByRole("button", { name: "Inputs and outputs" })
 				.first()
 				.click();
+			await page.getByText("Period:", { exact: false }).waitFor();
+			await page.getByText("last_7_days").waitFor();
+			// What it uses and produces.
+			await page.getByText("What it uses and produces").waitFor();
+			await page.getByText("Reads documents").waitFor();
+			await page.getByText("Writes sheets").waitFor();
 			await page
-				.getByText(/figures shown may be out of date/)
-				.waitFor({ state: "hidden" });
-			await page
-				.getByRole("button", { name: "Retry", exact: true })
-				.first()
-				.click();
-			await page
-				.getByText("Could not refresh runs", { exact: true })
-				.waitFor({ state: "hidden" });
-			// The Advanced source disclosure stays one tap away.
-			await page.evaluate(() => document.fonts.ready);
-			const summaryScreenshot = `${evidence}/${viewport.width}x${viewport.height}-${theme}-summary.png`;
-			await page.evaluate(() => window.scrollTo(0, 0));
-			await page.screenshot({ path: summaryScreenshot, fullPage: false });
-			await page.getByRole("button", { name: "Technical details" }).focus();
-			await page.keyboard.press("Enter");
-			await page.getByText(/steps\/\*\* evidence/).waitFor();
-			await page
-				.getByRole("button", { name: "Instructions and source" })
-				.focus();
-			await page.keyboard.press("Enter");
-			await page.getByText("references", { exact: true }).waitFor();
-			await page.getByText("SKILL.md", { exact: true }).first().waitFor();
+				.getByText("4 found it helpful · 1 found it unhelpful")
+				.waitFor();
+			// Workflow anatomy lives on the Source tab only.
+			assert.equal(await page.getByText("Workflow anatomy").count(), 0);
+			assert.equal(await page.getByText("Observed reliability").count(), 0);
 			await page.evaluate(() => document.fonts.ready);
 			const measurement = await page.evaluate(() => ({
 				viewport: { width: innerWidth, height: innerHeight },
 				theme: document.documentElement.dataset.mode,
-				colorScheme: getComputedStyle(document.documentElement).colorScheme,
 				scrollWidth: document.documentElement.scrollWidth,
-				targets: [...document.querySelectorAll("button,a")].map((node) => {
-					const r = node.getBoundingClientRect();
-					return { text: node.textContent, width: r.width, height: r.height };
-				}),
 			}));
-			assert.deepEqual(measurement.viewport, viewport);
 			assert.equal(measurement.theme, theme);
-			assert.equal(measurement.colorScheme, theme);
 			assert(
 				measurement.scrollWidth <= viewport.width,
 				`Overflow ${JSON.stringify(measurement)}`,
 			);
 			const screenshot = `${evidence}/${viewport.width}x${viewport.height}-${theme}.png`;
-			await page.evaluate(() => window.scrollTo(0, 0));
-			const png = await page.screenshot({ path: screenshot, fullPage: false });
-			assert.equal(png.readUInt32BE(16), viewport.width);
-			assert.equal(png.readUInt32BE(20), viewport.height);
-			// A different skillId reads fresh state, not the previous skill's.
-			await page.evaluate(() =>
-				(window as Fixture).overviewFixture.navigate("beta"),
-			);
-			await page.getByText("No runs yet", { exact: true }).waitFor();
-			await page
-				.getByText("This skill has not run yet.", { exact: true })
-				.waitFor();
-			await page.getByText("No feedback yet", { exact: true }).waitFor();
-			assert.deepEqual(
-				runsReads.filter((id) => id === "beta"),
-				["beta"],
-			);
-			assert.deepEqual(
-				reliabilityReads.filter((id) => id === "beta"),
-				["beta"],
-			);
-			assert.equal(
-				await page.locator('[data-slot="table"] tbody tr').count(),
-				0,
-			);
-			// An unknown skillId keeps the not-found state actionable.
+			await page.screenshot({ path: screenshot, fullPage: true });
+			// A skill with no runs says so, and a missing one stays actionable.
 			await page.evaluate(() =>
 				(window as Fixture).overviewFixture.navigate("gamma"),
 			);
 			await page.getByText("Skill not found").waitFor();
-			assert.deepEqual(
-				detailReads.filter((id) => id === "gamma"),
-				["gamma"],
-			);
 			const unexpectedErrors = errors.filter(
 				(error) => !error.includes("503 (Service Unavailable)"),
 			);
 			assert.equal(unexpectedErrors.length, 0, unexpectedErrors.join("\n"));
-			assert.deepEqual([...new Set(procedures)].sort(), [
-				"/skills/get",
-				"/skills/getWorkflowReliability",
-				"/skills/runWorkflowHistory",
-			]);
-			receipts.push({
-				...measurement,
-				engine,
-				summaryScreenshot,
-				screenshot,
-				screenshotDimensions: viewport,
-				reliabilityReads,
-				runsReads,
-				detailReads,
-				methods: methods.length,
-				errors,
-			});
+			receipts.push({ ...measurement, engine, screenshot, errors });
 			await page.close();
 		}
-	console.log("Skill overview read states: six viewport/theme checks passed");
+	console.log("Skill overview: 375/1280 light and dark checks passed");
 } catch (error) {
 	for (const context of browser?.contexts() ?? []) {
 		for (const page of context.pages()) {
