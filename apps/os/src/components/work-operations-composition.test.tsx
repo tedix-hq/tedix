@@ -284,6 +284,28 @@ describe("Epics", () => {
 		expect(page.host.querySelector("#open-case-form")).toBeNull();
 	});
 
+	it("creates an epic as Other unless a kind such as Delivery is chosen", async () => {
+		const page = await mount(asOwner(<WorkCasesPage />));
+		const open = () =>
+			[...page.host.querySelectorAll("button")]
+				.find((button) => button.textContent?.trim() === "New epic")!
+				.click();
+		await act(async () => open());
+		await page.type("Name", "Supplier audit");
+		await page.submit("Create");
+		expect(mutations("workItems.createCase")[0]).toMatchObject({
+			kind: "other",
+		});
+		await act(async () => open());
+		await page.type("Name", "Invoice export");
+		await page.pick("Choose kind", "Delivery");
+		await page.submit("Create");
+		expect(mutations("workItems.createCase")[1]).toMatchObject({
+			title: "Invoice export",
+			kind: "delivery",
+		});
+	});
+
 	it("shows a due date only when one is set, fully visible on a 390px phone", async () => {
 		viewport(true);
 		api.reads["workItems.listCases"] = {

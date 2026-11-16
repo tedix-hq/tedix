@@ -38,6 +38,8 @@ it ends; leave an area open.
 Tedix has no sprints and no milestones. When a date matters, open an epic and
 give it a target date. Before you close an epic, record on it what was
 delivered, for example a link to the result. Tedix does not check that for you.
+For a feature or another result due by a date, choose the kind Delivery
+(`delivery` in the API and the CLI).
 
 An Attempt is the Work-side record of a try. A run is the saved record of one
 tedi turn or skill run. One Attempt can point at several runs.
