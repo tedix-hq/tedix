@@ -7,7 +7,7 @@ const MCP_PROTOCOL_BINDING =
 export const tedixAgentCard = {
 	name: "Tedix",
 	description:
-		"A platform for agents, apps, and work. Connect AI assistants to shared tasks, project knowledge, apps, decisions, and results through MCP.",
+		"A unified infrastructure layer for enterprise AI. Connect AI assistants to shared connections, systems and knowledge through MCP.",
 	supportedInterfaces: [
 		{
 			url: "https://tedix-unified.mcp.tedix.dev/mcp",
