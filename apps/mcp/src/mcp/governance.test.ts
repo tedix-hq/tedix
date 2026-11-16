@@ -3,6 +3,7 @@ import * as analytics from "./utils/analytics";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	callToolResultText,
+	isTedixOwnedChannelPublishBoundary,
 	requireDestructiveToolApproval,
 	stripDestructiveApprovalArgs,
 	withDestructiveApprovalSchema,
@@ -1064,12 +1065,113 @@ describe("destructive tool approval — Work Item authorization", () => {
 		campaignKey: "promptwatch-repositioning",
 		validUntil: "2026-08-01T12:00:00.000Z",
 	};
+	const ownedChannelPublish = {
+		routes: [
+			"tedix-unified:cms_landing__content_publish",
+			"tedix-unified:cms_tedix__content_publish",
+			"tedix-unified:cms-tedix__content_publish",
+			"cms-tedix-landing:cms__content_publish",
+			"cms-tedix-landing:content_publish",
+			"cms-tedix:cms__content_publish",
+			"cms-tedix:content_publish",
+		],
+		connectionLabels: ["tedix"],
+	};
 	const publishTool = {
 		toolId: "cms_landing__content_publish",
 		title: "Publish content",
-		config: { approvalPolicy: "work_item" as const },
+		config: { approvalPolicy: "work_item" as const, ownedChannelPublish },
 	};
 	const publishArgs = { collection: "posts", id: "post-1" };
+
+	it("decides every backfilled publish route exactly as the former slug list did", () => {
+		const formerBoundary = (
+			appSlug: string | undefined,
+			toolId: string,
+			label: string | undefined,
+		) =>
+			(appSlug === "tedix-unified" &&
+				[
+					"cms_landing__content_publish",
+					"cms_tedix__content_publish",
+					"cms-tedix__content_publish",
+				].includes(toolId)) ||
+			((appSlug === "cms-tedix-landing" || appSlug === "cms-tedix") &&
+				["cms__content_publish", "content_publish"].includes(toolId)) ||
+			(label?.trim().toLowerCase() === "tedix" &&
+				(toolId === "content_publish" || toolId.endsWith("__content_publish")));
+		const appSlugs = [
+			undefined,
+			"tedix-unified",
+			"cms-tedix-landing",
+			"cms-tedix",
+			"cms",
+			"acme-unified",
+			"cms-acme",
+		];
+		const toolIds = [
+			"content_publish",
+			"cms__content_publish",
+			"cms_landing__content_publish",
+			"cms_tedix__content_publish",
+			"cms-tedix__content_publish",
+			"cms-acme__content_publish",
+			"tedix__cms__content_publish",
+		];
+		const labels = [undefined, "", "tedix", " Tedix ", "tedix-landing", "acme"];
+		let onBoundary = 0;
+		for (const appSlug of appSlugs) {
+			for (const toolId of toolIds) {
+				for (const requestLabel of labels) {
+					for (const aggregateLabel of labels) {
+						const decision = isTedixOwnedChannelPublishBoundary(
+							{
+								appSlug,
+								connectionLabel: requestLabel,
+							} as Parameters<typeof isTedixOwnedChannelPublishBoundary>[0],
+							{
+								toolId,
+								title: toolId,
+								config: {
+									ownedChannelPublish,
+									...(aggregateLabel === undefined
+										? {}
+										: { _aggregateConnectionLabel: aggregateLabel }),
+								},
+							},
+						);
+						expect(
+							decision,
+							`${appSlug}:${toolId} request=${requestLabel} aggregate=${aggregateLabel}`,
+						).toBe(
+							formerBoundary(appSlug, toolId, aggregateLabel ?? requestLabel),
+						);
+						if (decision) onBoundary += 1;
+					}
+				}
+			}
+		}
+		expect(onBoundary).toBeGreaterThan(0);
+	});
+
+	it("keeps an undeclared tool off the owned-channel boundary", () => {
+		const undeclared: Array<Record<string, JsonValue> | null> = [
+			null,
+			{},
+			{ ownedChannelPublish: ["tedix"] },
+		];
+		for (const config of undeclared) {
+			expect(
+				isTedixOwnedChannelPublishBoundary(
+					{
+						appSlug: "tedix-unified",
+						connectionLabel: "tedix",
+					} as Parameters<typeof isTedixOwnedChannelPublishBoundary>[0],
+					{ toolId: "notes__content_publish", title: "Publish", config },
+				),
+			).toBe(false);
+		}
+	});
 
 	it("allows an agent only when the API resolves an active owner/admin receipt", async () => {
 		const elicitInput = vi.fn();
@@ -1115,7 +1217,7 @@ describe("destructive tool approval — Work Item authorization", () => {
 				authType: "tedi",
 				appSlug: "tedix-unified",
 			}),
-			{ ...publishTool, config: {} },
+			{ ...publishTool, config: { ownedChannelPublish } },
 			{ destructiveHint: false },
 			{
 				allowSyncMrtr: false,
@@ -1144,7 +1246,7 @@ describe("destructive tool approval — Work Item authorization", () => {
 			{
 				toolId: "cms_tedix__content_publish",
 				title: "Retired blog",
-				config: {},
+				config: { ownedChannelPublish },
 			},
 			{ destructiveHint: false },
 			{ autoConfirmAgent: true, args: publishArgs },
@@ -1202,7 +1304,7 @@ describe("destructive tool approval — Work Item authorization", () => {
 			{
 				toolId: "cms__content_publish",
 				title: "Publish Content",
-				config: { _aggregateConnectionLabel: "tedix" },
+				config: { _aggregateConnectionLabel: "tedix", ownedChannelPublish },
 			},
 			{ destructiveHint: true },
 			{
@@ -1240,7 +1342,7 @@ describe("destructive tool approval — Work Item authorization", () => {
 			{
 				toolId: "content_publish",
 				title: "Publish Content",
-				config: {},
+				config: { ownedChannelPublish },
 			},
 			{ destructiveHint: true },
 			{
@@ -1269,6 +1371,7 @@ describe("destructive tool approval — Work Item authorization", () => {
 				toolId: "cms-acme__content_publish",
 				title: "Publish Acme content",
 				config: {
+					ownedChannelPublish,
 					approvalPolicies: {
 						"tedix-unified:cms_landing__content_publish": "work_item",
 					},

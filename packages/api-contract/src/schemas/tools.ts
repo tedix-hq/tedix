@@ -1493,6 +1493,18 @@ export interface ToolConfig {
 	 * aggregates and only one tenant/tool pair has a special policy.
 	 */
 	approvalPolicies?: Record<string, "always" | "once" | "never" | "work_item">;
+	/**
+	 * Declares this tool as a publisher to an organization-owned channel. A
+	 * call is on the owned-channel publish boundary — Work Item authorization
+	 * for every non-user caller, whatever `approvalPolicy` says — when its
+	 * `{gatewayAppSlug}:{toolId}` is listed in `routes`, or when the effective
+	 * connection label (trimmed, lowercase) is listed in `connectionLabels`.
+	 * Aggregated tools inherit the declaration from their source row.
+	 */
+	ownedChannelPublish?: {
+		routes?: string[];
+		connectionLabels?: string[];
+	};
 
 	// -- Identity override flags --
 
