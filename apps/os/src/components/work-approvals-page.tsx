@@ -30,6 +30,7 @@ import {
 } from "@/components/kumo/collapsible";
 import { DateTimePicker } from "@/components/kumo/date-picker";
 import { FormField } from "@/components/kumo/forms/form-field";
+import { IconFrame } from "@/components/kumo/icon-frame";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { Link } from "@/components/kumo/link";
 import {
@@ -138,7 +139,7 @@ export function WorkApprovalsPage() {
 				onValueChange={(value) => setTab(value as ApprovalsTab)}
 				value={tab}
 			>
-				<TabsList aria-label="Approvals" className="-mx-1" variant="line">
+				<TabsList aria-label="Approvals" variant="line">
 					<TabsTrigger className="px-2!" value="needs-you">
 						Needs you
 						{waiting > 0 ? (
@@ -358,12 +359,9 @@ function ApprovalCard({
 						name={item.tedi.name}
 					/>
 				) : (
-					<span
-						aria-hidden
-						className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-kumo-fill text-kumo-subtle"
-					>
+					<IconFrame aria-hidden appearance="fill" size="sm" className="mt-0.5">
 						<Pulse size={16} />
-					</span>
+					</IconFrame>
 				)}
 				<div className="grid min-w-0 flex-1 gap-1">
 					<Text as="h3" className="m-0 break-words" role="body" tone="strong">

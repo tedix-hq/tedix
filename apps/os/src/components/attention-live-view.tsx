@@ -11,7 +11,6 @@ import {
 	FactoryIcon,
 	TimerIcon,
 	QuestionIcon,
-	PushPinIcon,
 } from "@phosphor-icons/react";
 import type { AttentionResult } from "@tedix/api-contract/schemas/work-attention";
 import {
@@ -23,6 +22,7 @@ import { Button } from "@/components/kumo/button";
 import { Empty } from "@/components/kumo/empty";
 import { cn } from "@/lib/utils";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
+import { Switch } from "@/components/kumo/switch";
 import { Input } from "@/components/kumo/input";
 import {
 	Card,
@@ -432,26 +432,26 @@ export function AttentionBoard({
 									.filter((c) => attentionSource(c) === id)
 									.reduce((n, c) => n + activityDuration(c, now), 0);
 								return (
-									<Button
+									<Switch
 										key={key}
-										variant={
-											layout.sourceFilters.includes(id) ? "secondary" : "ghost"
-										}
 										size="sm"
 										disabled={!saveLayout || saving}
-										aria-pressed={layout.sourceFilters.includes(id)}
-										onClick={() =>
+										checked={layout.sourceFilters.includes(id)}
+										onCheckedChange={(checked) =>
 											change({
-												sourceFilters: layout.sourceFilters.includes(id)
-													? layout.sourceFilters.filter((s) => s !== id)
-													: [...layout.sourceFilters, id],
+												sourceFilters: checked
+													? [...layout.sourceFilters, id]
+													: layout.sourceFilters.filter((s) => s !== id),
 											})
 										}
-									>
-										<SourceIcon source={id} />
-										{source.label} ·{" "}
-										{total ? Math.round((time / total) * 100) : 0}%
-									</Button>
+										label={
+											<span className="inline-flex items-center gap-1">
+												<SourceIcon source={id} />
+												{source.label} ·{" "}
+												{total ? Math.round((time / total) * 100) : 0}%
+											</span>
+										}
+									/>
 								);
 							})}
 					</div>
@@ -675,67 +675,48 @@ export function AttentionBoard({
 						</Select>
 						<div className="flex flex-wrap gap-2">
 							{allData.projects.map((p) => (
-								<Button
+								<Switch
 									key={p.id}
 									size="sm"
-									variant={
-										layout.pinnedProjects.includes(p.id)
-											? "secondary"
-											: "outline"
-									}
-									className="h-auto max-w-full whitespace-normal [overflow-wrap:anywhere]"
-									aria-pressed={layout.pinnedProjects.includes(p.id)}
+									label={`Pin ${p.name}`}
+									checked={layout.pinnedProjects.includes(p.id)}
 									disabled={saving}
-									onClick={() =>
+									onCheckedChange={(checked) =>
 										change({
-											pinnedProjects: layout.pinnedProjects.includes(p.id)
-												? layout.pinnedProjects.filter((id) => id !== p.id)
-												: [...layout.pinnedProjects, p.id],
+											pinnedProjects: checked
+												? [...layout.pinnedProjects, p.id]
+												: layout.pinnedProjects.filter((id) => id !== p.id),
 										})
 									}
-								>
-									<PushPinIcon />
-									{p.name}
-								</Button>
+								/>
 							))}
 						</div>
 						<div className="flex flex-wrap gap-2">
 							{ATTENTION_COLUMNS.map(([key, title]) => (
-								<Button
+								<Switch
 									key={key}
 									size="sm"
-									variant="outline"
-									aria-pressed={!layout.hiddenColumns.includes(key)}
+									label={`${ATTENTION_COPY.show} ${title}`}
+									checked={!layout.hiddenColumns.includes(key)}
 									disabled={saving}
-									onClick={() =>
+									onCheckedChange={(checked) =>
 										change({
-											hiddenColumns: layout.hiddenColumns.includes(key)
+											hiddenColumns: checked
 												? layout.hiddenColumns.filter((k) => k !== key)
 												: [...layout.hiddenColumns, key],
 										})
 									}
-								>
-									{layout.hiddenColumns.includes(key)
-										? ATTENTION_COPY.show
-										: ATTENTION_COPY.hide}{" "}
-									{title}
-								</Button>
+								/>
 							))}
-							<Button
+							<Switch
 								size="sm"
-								variant="outline"
+								label={ATTENTION_COPY.compact}
+								checked={layout.density === "compact"}
 								disabled={saving}
-								onClick={() =>
-									change({
-										density:
-											layout.density === "compact" ? "comfortable" : "compact",
-									})
+								onCheckedChange={(checked) =>
+									change({ density: checked ? "compact" : "comfortable" })
 								}
-							>
-								{layout.density === "compact"
-									? ATTENTION_COPY.comfortable
-									: ATTENTION_COPY.compact}
-							</Button>
+							/>
 						</div>
 						<div className="flex flex-wrap gap-2">
 							{layout.widgets.map((key, i) => (

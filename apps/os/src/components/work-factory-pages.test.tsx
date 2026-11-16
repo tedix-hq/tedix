@@ -1088,7 +1088,7 @@ describe("Recorded Work outcomes and activity", () => {
 			await act(async () => disclosure.click());
 			const next = [...host.querySelectorAll("button")].find(
 				(button) =>
-					button.textContent?.trim() === "Next page" && !button.disabled,
+					button.getAttribute("aria-label") === "Next page" && !button.disabled,
 			);
 			if (!next) throw new Error("Attempt next-page control missing");
 			await act(async () => next.click());

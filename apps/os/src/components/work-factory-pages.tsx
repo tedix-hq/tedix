@@ -5,6 +5,7 @@ import {
 	WorkEmpty,
 } from "@/components/work-surface-primitives";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
+import { Pagination } from "@/components/kumo/pagination";
 import { WorkActorAvatar } from "@/components/work-actor-avatar";
 import { workActorReference } from "@/lib/work-actor";
 import { WorkExecutorChoice } from "@/components/work-dispatch-app";
@@ -1228,32 +1229,25 @@ export function WorkGraphPage() {
 						titles={titles}
 						truncated={relationsQuery.data.truncated}
 					/>
-					<div
-						className="flex flex-wrap items-center gap-3"
-						aria-label="Dependency pages"
+					<Pagination
+						page={currentPage + 1}
+						perPage={GRAPH_PAGE_SIZE}
+						totalCount={relations.length}
+						setPage={(nextPage) => setPage(nextPage - 1)}
+						labels={{
+							navigation: "Dependency pages",
+							previousPage: "Previous dependencies",
+							nextPage: "Next dependencies",
+						}}
+						className="flex-wrap gap-3"
 					>
-						<Text role="label" tone="secondary" aria-live="polite">
-							{offset + 1}–
-							{Math.min(offset + GRAPH_PAGE_SIZE, relations.length)} of{" "}
-							{relations.length} returned dependencies
-						</Text>
-						<Button
-							variant="secondary"
-							className="min-h-11"
-							disabled={currentPage === 0}
-							onClick={() => setPage(currentPage - 1)}
-						>
-							Previous dependencies
-						</Button>
-						<Button
-							variant="secondary"
-							className="min-h-11"
-							disabled={offset + GRAPH_PAGE_SIZE >= relations.length}
-							onClick={() => setPage(currentPage + 1)}
-						>
-							Next dependencies
-						</Button>
-					</div>
+						<Pagination.Info>
+							{({ pageShowingRange, totalCount }) =>
+								`${pageShowingRange.replace("-", "–")} of ${totalCount} returned dependencies`
+							}
+						</Pagination.Info>
+						<Pagination.Controls controls="simple" />
+					</Pagination>
 				</>
 			)}
 		</Page>
@@ -1284,7 +1278,7 @@ function WorkGraphEndpoint({
 					size="sm"
 					text={`${id.slice(0, 8)}…`}
 					textToCopy={id}
-					className="min-h-11 max-w-full text-kumo-subtle [&_button]:min-h-11 [&_button]:min-w-11"
+					className="max-w-full text-kumo-subtle"
 				/>
 			</span>
 		</div>

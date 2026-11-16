@@ -29,6 +29,7 @@ import {
 } from "@/components/kumo/card";
 import { Link } from "@/components/kumo/link";
 import { Collection } from "@/components/kumo/page";
+import { Pagination } from "@/components/kumo/pagination";
 import { Text } from "@/components/kumo/text";
 import { sentenceCase } from "@/lib/format";
 import { normalizeD1Timestamp } from "@/lib/time";
@@ -336,23 +337,37 @@ export function PageControls({
 	onNext: () => void;
 }) {
 	if (!hasPrevious && !hasNext) return null;
+	// Cursor paging knows only whether an earlier page exists, not its number;
+	// the previous and next controls need no more than that.
+	const page = hasPrevious ? 2 : 1;
 	return (
-		<nav
-			aria-label={label ? `${label} pages` : "Pages"}
-			className="flex flex-wrap gap-2"
+		<Pagination
+			page={page}
+			hasNextPage={hasNext}
+			setPage={(nextPage) => {
+				if (nextPage > page) onNext();
+				else (onBack ?? onPrevious)();
+			}}
+			labels={{
+				navigation: label ? `${label} pages` : "Pages",
+				previousPage: onBack
+					? label
+						? `Previous ${label} page`
+						: "Previous page"
+					: label
+						? `First ${label} page`
+						: "First page",
+				nextPage: label ? `Next ${label} page` : "Next page",
+			}}
+			className="w-auto flex-wrap"
 		>
-			<Button variant="outline" disabled={!hasPrevious} onClick={onPrevious}>
-				{label ? `First ${label} page` : "First page"}
-			</Button>
 			{onBack ? (
-				<Button variant="outline" disabled={!hasPrevious} onClick={onBack}>
-					{label ? `Previous ${label} page` : "Back"}
+				<Button variant="outline" disabled={!hasPrevious} onClick={onPrevious}>
+					{label ? `First ${label} page` : "First page"}
 				</Button>
 			) : null}
-			<Button variant="outline" disabled={!hasNext} onClick={onNext}>
-				{label ? `Next ${label} page` : "Next page"}
-			</Button>
-		</nav>
+			<Pagination.Controls controls="simple" className="grow-0" />
+		</Pagination>
 	);
 }
 
