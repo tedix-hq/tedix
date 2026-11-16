@@ -19,6 +19,20 @@ import type { DevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import type { LaneObservation } from "./lane-telemetry";
 import { laneOutput } from "./lane-output";
+import { transientReadFailure } from "./read-retry";
+
+/** Whether a Devin delivery turn ended with a result envelope saying it succeeded. */
+function devinDeclaredSuccess(message: string): boolean {
+	try {
+		return (
+			JSON.parse(
+				message.trim().split("\n").at(-1)!.slice("TEDIX_WORK_RESULT ".length),
+			).outcome === "succeeded"
+		);
+	} catch {
+		return false;
+	}
+}
 
 export const laneRunUsage = `tedix lane run --executor codex|claude-code|opencode|devin|tedi|skill --brief <file> --project <id>
   [--model <id>] [--reasoning <effort>] [--rate-scope <scope>] [--work-item <id>]
@@ -508,6 +522,7 @@ async function runLaneProcessWithReporter(
 		buffer = "";
 	let devinStderr = "";
 	let devinDeclaration = "";
+	let devinDelivery = "";
 	let streamError = false;
 	let streamFailureMessage = "";
 	let lastTextMessage: string | undefined;
@@ -912,6 +927,7 @@ async function runLaneProcessWithReporter(
 		}
 
 		if (bridge && exitCode === 0 && !signal) {
+			if (turn === 0) devinDelivery = telemetry.finalMessage;
 			try {
 				if (turn === 0) {
 					const readback = await bridge.deliver(telemetry.finalMessage);
@@ -934,6 +950,20 @@ async function runLaneProcessWithReporter(
 					if (result.outcome !== "succeeded") exitCode = 1;
 				}
 			} catch (error) {
+				// A passing server or network fault while saving or reading back the
+				// note says nothing about the work. The session's own result goes to
+				// settlement, which checks it and waits out an unreachable server
+				// without starting the session again. A refusal still fails the run.
+				if (
+					transientReadFailure(error) &&
+					devinDeclaredSuccess(devinDelivery)
+				) {
+					telemetry.finalMessage = `Devin Work exchange did not finish (${String(error).slice(0, 400)}); its note on the Work is not confirmed and settlement uses the session's own result.\n${devinDelivery}`;
+					telemetry.shas = [
+						...new Set(telemetry.finalMessage.match(/\b[a-f0-9]{40}\b/g) ?? []),
+					].slice(0, 100);
+					break;
+				}
 				exitCode = 1;
 				telemetry.finalMessage = `Devin Work exchange failed: ${String(error)}\n${telemetry.finalMessage}`;
 			}

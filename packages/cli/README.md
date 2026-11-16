@@ -694,6 +694,21 @@ the result; the owner completes the task, or edits it to have an agent work on
 it again. A `landed_unverified` result with no commit on `origin/main` fails.
 Legacy results without that declaration remain open for verification.
 
+When the run changed nothing because earlier commits on main already meet the
+accepted outcome, add `existingCommits` (up to 10 full SHAs of those commits)
+to the `landed_unverified` result. The runner checks that each one is on
+`origin/main` and that the run's checkout has no commit or edit of its own.
+The run then counts as succeeded with those commits recorded as
+`existing_commits` evidence, and its owner gets the same request to check. If
+any cited commit is not on `origin/main`, or the checkout has its own changes,
+the run fails as before.
+
+For a Devin run, a passing network or server fault while its result note is
+saved to the task no longer fails the run. The reads are retried, and if the
+note still cannot be confirmed the runner settles from the session's own
+result, waiting for the server to be reachable instead of starting the session
+again. A refusal, such as a denied permission, still fails the run.
+
 When nothing can be done before a known date, for example a measurement that
 has to run for three days first, use `outcome: "deferred"` with `reason`
 and `notBefore` (an ISO-8601 UTC time). The runner sets that time as the task's
