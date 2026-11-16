@@ -54,6 +54,8 @@ try {
 			.waitFor({ timeout: 15_000 });
 	const question = (tab: Tab) =>
 		tab.frame.getByRole("button", { name: "Keep mine" });
+	// After a clash the editor keeps the person's cells and says so.
+	const kept = (tab: Tab) => tab.frame.getByText(/Your version was kept/);
 	const stored = async () =>
 		(
 			(await tabs.saved()).content.workbook.sheets[0].rows as {
@@ -127,13 +129,11 @@ try {
 	await a.page.waitForTimeout(1_500);
 	await type(b, 2, 1, "333");
 	await type(b, 5, 1, "66");
-	await question(a).waitFor({ timeout: 15_000 });
-	assert.equal(await question(b).count(), 0, "only the later writer is asked");
-	// Nothing of A's is saved or dropped while the question is open.
+	await kept(a).waitFor({ timeout: 15_000 });
+	assert.equal(await kept(b).count(), 0, "only the later writer is told");
+	assert.equal(await question(a).count(), 0, "A was not asked");
 	await shows(a, 2, 1, "300");
-	assert.equal((await stored())[2]![1], "333");
 	release();
-	await question(a).click();
 	expected[2]![1] = "300";
 	expected[5] = ["Washers", "66"];
 	await settle(expected, "A's value won the shared cell; the rest is kept");
@@ -180,7 +180,7 @@ try {
 		await a.page.unroute("**/api/rpc/osWorkspaces/outputs/patch");
 	}
 	console.log(
-		"Sheet concurrent edits passed: server merge, editor merge, new rows and columns, and a choice only for the same cell",
+		"Sheet concurrent edits passed: server merge, editor merge, new rows and columns, and the writer's value kept on the same cell",
 	);
 } finally {
 	await tabs.stop();
