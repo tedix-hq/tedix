@@ -208,6 +208,8 @@ export function ReadinessOverview({
 					<WorkReadFailure
 						title="Readiness overview unavailable"
 						error={query.error}
+						onRetry={() => query.refetch({ cancelRefetch: false })}
+						retrying={query.isFetching}
 					/>
 				) : rows.length === 0 ? (
 					<WorkEmpty

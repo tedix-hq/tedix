@@ -459,7 +459,12 @@ export function WorkCasesPage() {
 				{query.isPending ? (
 					<WorkListSkeleton />
 				) : query.isError ? (
-					<WorkReadFailure title="Epics unavailable" error={query.error} />
+					<WorkReadFailure
+						title="Epics unavailable"
+						error={query.error}
+						onRetry={() => query.refetch({ cancelRefetch: false })}
+						retrying={query.isFetching}
+					/>
 				) : records.length === 0 ? (
 					<WorkEmpty
 						title="No epics yet"
@@ -708,7 +713,12 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 		return (
 			<Page width="lg">
 				<PageBack render={<Link href="/work/cases" />}>All epics</PageBack>
-				<WorkReadFailure title="Epic unavailable" error={query.error} />
+				<WorkReadFailure
+					title="Epic unavailable"
+					error={query.error}
+					onRetry={() => query.refetch({ cancelRefetch: false })}
+					retrying={query.isFetching}
+				/>
 			</Page>
 		);
 	const record = query.data.workCase;

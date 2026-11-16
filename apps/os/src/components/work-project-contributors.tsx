@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ListWorkProjectContributorsResultSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 import type * as z from "zod";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import {
@@ -26,28 +26,6 @@ import {
 import { workProjectContributorsQueryOptions } from "@/lib/os-query-options";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
-
-function RetryButton({
-	onRetry,
-	fetching,
-}: {
-	onRetry: () => void;
-	fetching: boolean;
-}) {
-	return (
-		<Button
-			size="sm"
-			variant="secondary"
-			aria-label="Retry loading contributors"
-			disabled={fetching}
-			onClick={() => {
-				if (!fetching) onRetry();
-			}}
-		>
-			{fetching ? "Retrying…" : "Retry"}
-		</Button>
-	);
-}
 
 type Contributor = z.output<
 	typeof ListWorkProjectContributorsResultSchema
@@ -273,9 +251,13 @@ export function WorkProjectContributors({
 				</SectionHeading>
 			</SectionHeader>
 			{stale ? (
-				<Alert variant="warning" data-contributors-stale="">
-					<AlertTitle>Contributors could not be refreshed</AlertTitle>
-					<AlertDescription>
+				<LoadError
+					data-contributors-stale=""
+					title="Contributors could not be refreshed"
+					error={query.error}
+					onRetry={retry}
+					retrying={query.isFetching}
+					help={
 						<p>
 							{contributors?.length
 								? "These sessions were last loaded "
@@ -292,9 +274,8 @@ export function WorkProjectContributors({
 								? " and may be out of date."
 								: " and that is not confirmed now."}
 						</p>
-						<RetryButton onRetry={retry} fetching={query.isFetching} />
-					</AlertDescription>
-				</Alert>
+					}
+				/>
 			) : null}
 			{contributors ? (
 				contributors.length ? (
@@ -328,8 +309,9 @@ export function WorkProjectContributors({
 					<WorkReadFailure
 						title="Contributors unavailable"
 						error={query.error}
+						onRetry={retry}
+						retrying={query.isFetching}
 					/>
-					<RetryButton onRetry={retry} fetching={query.isFetching} />
 				</>
 			) : (
 				<WorkListSkeleton rows={2} label="Loading contributors" />

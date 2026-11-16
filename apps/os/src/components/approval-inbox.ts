@@ -611,6 +611,14 @@ export function useApprovalInbox({
 			runtime.isPending ||
 			workStart.isPending,
 		readError: runtime.error ?? workStart.error,
+		readRetrying: runtime.isFetching || workStart.isFetching,
+		retryReads: () =>
+			Promise.all([
+				...(runtime.isError ? [runtime.refetch({ cancelRefetch: false })] : []),
+				...(workStart.isError
+					? [workStart.refetch({ cancelRefetch: false })]
+					: []),
+			]),
 		error,
 		outcome,
 		dismissOutcome: () => setOutcome(null),

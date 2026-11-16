@@ -10,7 +10,7 @@ import type { Objective } from "@tedix/api-contract/contracts/tedi-objectives";
 import type { WorkCase } from "@tedix/api-contract/schemas/work-items";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useContext, useEffect, useMemo, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import {
 	Collapsible,
@@ -54,7 +54,6 @@ import { WorkEmpty } from "@/components/work-surface-primitives";
 import { sentenceCase } from "@/lib/format";
 import { OS_COPY } from "@/shared/os-copy";
 import { plainWorkText } from "@/lib/work-detail";
-import { errorMessage } from "@/lib/orpc-error";
 import {
 	factoryScoreboardQueryOptions,
 	goalEpicListQueryOptions,
@@ -488,12 +487,12 @@ function FactoryScoreboard() {
 			{scoreboard.isPending ? (
 				<Skeleton className="h-24" />
 			) : scoreboard.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Factories unavailable</AlertTitle>
-					<AlertDescription>
-						{errorMessage(scoreboard.error, "Factories could not be loaded.")}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Factories unavailable"
+					error={scoreboard.error}
+					onRetry={() => scoreboard.refetch({ cancelRefetch: false })}
+					retrying={scoreboard.isFetching}
+				/>
 			) : groups.length ? (
 				<div className="columns-1 gap-3 md:max-[1200px]:columns-2 min-[1200px]:columns-3">
 					{groups.map((group) => (
@@ -751,12 +750,16 @@ function GoalLinks({
 }
 
 export function GoalsOverview({
+	onRetry,
+	retrying,
 	goals,
 	projects,
 	epics,
 	pending = false,
 	error,
 }: {
+	onRetry?: () => unknown;
+	retrying?: boolean;
 	goals: readonly Objective[];
 	projects: readonly ProjectPortfolioEntry[];
 	epics: readonly WorkCase[];
@@ -776,15 +779,15 @@ export function GoalsOverview({
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
-			{pending ? (
+			{error ? (
+				<LoadError
+					title="Goals unavailable"
+					error={error}
+					onRetry={onRetry}
+					retrying={retrying}
+				/>
+			) : pending ? (
 				<Skeleton className="h-40 w-full" />
-			) : error ? (
-				<Alert variant="destructive">
-					<AlertTitle>Goals unavailable</AlertTitle>
-					<AlertDescription>
-						{errorMessage(error, "Goals could not be loaded.")}
-					</AlertDescription>
-				</Alert>
 			) : goals.length === 0 ? (
 				<WorkEmpty
 					title="No goals yet"
@@ -863,15 +866,25 @@ export function PortfolioApp({
 	const goals = useInfiniteQuery(goalListQueryOptions());
 	const goalEpics = useInfiniteQuery(goalEpicListQueryOptions());
 	useEffect(() => {
-		if (goals.hasNextPage && !goals.isFetchingNextPage)
+		if (goals.hasNextPage && !goals.isFetchingNextPage && !goals.isError)
 			void goals.fetchNextPage();
-	}, [goals.hasNextPage, goals.isFetchingNextPage, goals.fetchNextPage]);
+	}, [
+		goals.hasNextPage,
+		goals.isFetchingNextPage,
+		goals.isError,
+		goals.fetchNextPage,
+	]);
 	useEffect(() => {
-		if (goalEpics.hasNextPage && !goalEpics.isFetchingNextPage)
+		if (
+			goalEpics.hasNextPage &&
+			!goalEpics.isFetchingNextPage &&
+			!goalEpics.isError
+		)
 			void goalEpics.fetchNextPage();
 	}, [
 		goalEpics.hasNextPage,
 		goalEpics.isFetchingNextPage,
+		goalEpics.isError,
 		goalEpics.fetchNextPage,
 	]);
 	const inbox = useQuery({
@@ -919,6 +932,15 @@ export function PortfolioApp({
 				goalEpics.hasNextPage,
 			)}
 			error={goals.error ?? goalEpics.error}
+			onRetry={() =>
+				Promise.all([
+					...(goals.isError ? [goals.refetch({ cancelRefetch: false })] : []),
+					...(goalEpics.isError
+						? [goalEpics.refetch({ cancelRefetch: false })]
+						: []),
+				])
+			}
+			retrying={goals.isFetching || goalEpics.isFetching}
 		/>
 	);
 	return (
@@ -961,12 +983,12 @@ export function PortfolioApp({
 					<Skeleton className="h-64 w-full" />
 				</div>
 			) : portfolio.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Projects unavailable</AlertTitle>
-					<AlertDescription>
-						{errorMessage(portfolio.error, "Projects could not be loaded.")}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Projects unavailable"
+					error={portfolio.error}
+					onRetry={() => portfolio.refetch({ cancelRefetch: false })}
+					retrying={portfolio.isFetching}
+				/>
 			) : entries.length === 0 ? (
 				<WorkEmpty
 					title="No projects yet"

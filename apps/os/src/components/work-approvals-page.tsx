@@ -235,6 +235,8 @@ function NeedsYou({
 				<WorkReadFailure
 					title="Approvals could not be loaded"
 					error={inbox.readError}
+					onRetry={inbox.retryReads}
+					retrying={inbox.readRetrying}
 				/>
 			) : total === 0 ? (
 				<WorkEmpty
@@ -888,6 +890,8 @@ function WorkStartHistory() {
 				<WorkReadFailure
 					title="Work start approvals unavailable"
 					error={query.error}
+					onRetry={() => query.refetch({ cancelRefetch: false })}
+					retrying={query.isFetching}
 				/>
 			) : rows.length === 0 ? (
 				<WorkEmpty

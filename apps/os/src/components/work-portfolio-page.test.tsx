@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	factoryScoreboardQueryOptions,
 	goalEpicListQueryOptions,
@@ -364,6 +364,85 @@ describe("Projects list model", () => {
 });
 
 describe("PortfolioApp", () => {
+	it.each(["goals", "epics"] as const)(
+		"waits for Retry after a failed next page of %s",
+		async (source) => {
+			const client = seededClient();
+			client.setDefaultOptions({
+				queries: { retry: false, staleTime: Infinity, retryOnMount: false },
+			});
+			const options =
+				source === "goals"
+					? goalListQueryOptions()
+					: goalEpicListQueryOptions();
+			const data = {
+				pages: [
+					source === "goals"
+						? {
+								data: [],
+								pagination: { limit: 100, offset: 0, total: 1, hasMore: true },
+							}
+						: {
+								data: [],
+								nextCursor: { at: "2026-09-01T00:00:00Z", id: ORG_ID },
+							},
+				],
+				pageParams: [source === "goals" ? 0 : undefined],
+			};
+			client.setQueryData<unknown>(options.queryKey, data);
+			const query = client
+				.getQueryCache()
+				.find({ queryKey: options.queryKey })!;
+			query.setState({
+				status: "error",
+				error: new Error("Next page unavailable"),
+			});
+			const fetch = vi.spyOn(query, "fetch").mockResolvedValue(data);
+			const host = document.createElement("div");
+			document.body.append(host);
+			const root = createRoot(host);
+			try {
+				await act(async () =>
+					root.render(
+						<QueryClientProvider client={client}>
+							<PortfolioApp />
+						</QueryClientProvider>,
+					),
+				);
+				expect(host.textContent).toContain("Goals unavailable");
+				expect(fetch).not.toHaveBeenCalled();
+				const retry = [...host.querySelectorAll("button")].find(
+					(button) => button.textContent === "Retry",
+				);
+				expect(retry).toBeDefined();
+				await act(async () => retry!.click());
+				expect(fetch).toHaveBeenCalledTimes(1);
+			} finally {
+				await act(async () => root.unmount());
+				fetch.mockRestore();
+				host.remove();
+				client.clear();
+			}
+		},
+	);
+
+	it("shows a failed goal read while another read or page is still pending", () => {
+		const html = renderToStaticMarkup(
+			<GoalsOverview
+				goals={[]}
+				projects={[]}
+				epics={[]}
+				pending
+				error={new Error("Next page unavailable")}
+				onRetry={() => {}}
+			/>,
+		);
+		expect(html).toContain("Goals unavailable");
+		expect(html).toContain('data-slot="load-error"');
+		expect(html).toContain("Retry");
+		expect(html).not.toContain("No goals yet");
+	});
+
 	it("lists each goal with success, owner, status, projects, and epics", () => {
 		const goalId = "55555555-5555-4555-8555-555555555555";
 		const project = projectRow(9, "Goal project", null, {

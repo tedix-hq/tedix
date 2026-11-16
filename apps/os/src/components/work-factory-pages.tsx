@@ -36,7 +36,12 @@ import {
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
 import { Link } from "@/components/kumo/link";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	Alert,
+	AlertDescription,
+	AlertTitle,
+	LoadError,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Button } from "@/components/kumo/button";
@@ -128,9 +133,13 @@ export function WorkItemReadOnlyLedgers({
 	acceptanceContract,
 	attempts,
 	attemptsError,
+	attemptsRetry,
+	attemptsRetrying,
 	attemptControls,
 	evidence,
 	evidenceError,
+	evidenceRetry,
+	evidenceRetrying,
 	evidenceControls,
 	events,
 	workItemId,
@@ -153,6 +162,8 @@ export function WorkItemReadOnlyLedgers({
 	>;
 
 	attemptsError?: unknown;
+	attemptsRetry?: () => unknown;
+	attemptsRetrying?: boolean;
 	attemptControls?: ReactNode;
 	evidence: Array<{
 		id: string;
@@ -169,6 +180,8 @@ export function WorkItemReadOnlyLedgers({
 		};
 	}>;
 	evidenceError?: unknown;
+	evidenceRetry?: () => unknown;
+	evidenceRetrying?: boolean;
 	evidenceControls?: ReactNode;
 	events: Array<{
 		id: string;
@@ -211,6 +224,8 @@ export function WorkItemReadOnlyLedgers({
 								fallback={PROJECTION_FAILURE_FALLBACK}
 								title="Attempts unavailable"
 								error={attemptsError}
+								onRetry={attemptsRetry}
+								retrying={attemptsRetrying}
 							/>
 						</li>
 					) : attempts.length ? (
@@ -279,6 +294,8 @@ export function WorkItemReadOnlyLedgers({
 								fallback={PROJECTION_FAILURE_FALLBACK}
 								title="Evidence unavailable"
 								error={evidenceError}
+								onRetry={evidenceRetry}
+								retrying={evidenceRetrying}
 							/>
 						</li>
 					) : evidence.length ? (
@@ -408,16 +425,28 @@ function EvidencePreview({
 			>
 				{preview.isFetching ? "Loading preview…" : "Preview evidence"}
 			</Button>
-			<EvidencePreviewResult failed={preview.isError} preview={preview.data} />
+			<EvidencePreviewResult
+				failed={preview.isError}
+				preview={preview.data}
+				error={preview.error}
+				onRetry={() => preview.refetch({ cancelRefetch: false })}
+				retrying={preview.isFetching}
+			/>
 		</div>
 	);
 }
 
 export function EvidencePreviewResult({
+	error,
+	onRetry,
+	retrying,
 	failed,
 	preview,
 }: {
 	failed: boolean;
+	error?: unknown;
+	onRetry?: () => unknown;
+	retrying?: boolean;
 	preview:
 		| {
 				status: "available";
@@ -431,13 +460,13 @@ export function EvidencePreviewResult({
 }) {
 	if (failed) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>Preview request failed</AlertTitle>
-				<AlertDescription>
-					Tedix could not load this preview. Retry without changing the evidence
-					record.
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="Preview request failed"
+				error={error}
+				help="Tedix could not load this preview. Retry without changing the evidence record."
+				onRetry={onRetry}
+				retrying={retrying}
+			/>
 		);
 	}
 	return preview?.status === "available" ? (
@@ -1048,6 +1077,9 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				<WorkReadFailure
 					fallback={PROJECTION_FAILURE_FALLBACK}
 					title="Project unavailable"
+					error={project.error}
+					onRetry={() => project.refetch({ cancelRefetch: false })}
+					retrying={project.isFetching}
 				/>
 			</Page>
 		);
@@ -1056,7 +1088,10 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 			<Page width="full">
 				<WorkReadFailure
 					fallback={PROJECTION_FAILURE_FALLBACK}
-					title={health.error?.message ?? "Project health unavailable"}
+					title="Project health unavailable"
+					error={health.error}
+					onRetry={() => health.refetch({ cancelRefetch: false })}
+					retrying={health.isFetching}
 				/>
 			</Page>
 		);
@@ -1151,6 +1186,9 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				<WorkReadFailure
 					fallback={PROJECTION_FAILURE_FALLBACK}
 					title="Project work unavailable"
+					error={items.error}
+					onRetry={() => items.refetch({ cancelRefetch: false })}
+					retrying={items.isFetching}
 				/>
 			) : items.data?.data.length ? (
 				<WorkItemsTable
@@ -1214,6 +1252,9 @@ export function WorkGraphPage() {
 				<WorkReadFailure
 					fallback={PROJECTION_FAILURE_FALLBACK}
 					title="Work graph unavailable"
+					error={relationsQuery.error}
+					onRetry={() => relationsQuery.refetch({ cancelRefetch: false })}
+					retrying={relationsQuery.isFetching}
 				/>
 			) : relationsQuery.isPending ? (
 				<WorkListSkeleton />
@@ -1543,6 +1584,8 @@ export function recordedSettlementCommits(
 }
 
 export function WorkRecordedOutcome({
+	onRetry,
+	retrying,
 	attempt,
 	pending = false,
 	error,
@@ -1553,6 +1596,8 @@ export function WorkRecordedOutcome({
 	} & WorkAttemptActivityFields;
 	pending?: boolean;
 	error?: unknown;
+	onRetry?: () => unknown;
+	retrying?: boolean;
 }) {
 	const commits = recordedSettlementCommits(attempt?.metadata);
 	return (
@@ -1567,6 +1612,8 @@ export function WorkRecordedOutcome({
 						fallback={PROJECTION_FAILURE_FALLBACK}
 						title="Recorded outcome unavailable"
 						error={error}
+						onRetry={onRetry}
+						retrying={retrying}
 					/>
 				) : pending ? (
 					<Skeleton className="h-16 w-full" />
@@ -1693,6 +1740,8 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 					attempt={latestAttempts.data?.data[0]}
 					pending={latestAttempts.isPending}
 					error={latestAttempts.error}
+					onRetry={() => latestAttempts.refetch({ cancelRefetch: false })}
+					retrying={latestAttempts.isFetching}
 				/>
 			) : null}
 			<Surface
@@ -1870,6 +1919,8 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 							acceptanceContract={item.acceptanceContract}
 							attempts={attempts.data?.data ?? []}
 							attemptsError={attempts.error}
+							attemptsRetry={() => attempts.refetch({ cancelRefetch: false })}
+							attemptsRetrying={attempts.isFetching}
 							attemptControls={
 								<PageControls
 									hasPrevious={attemptPaging.hasPrevious}
@@ -1884,6 +1935,8 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 							}
 							evidence={evidence.data?.data ?? []}
 							evidenceError={evidence.error}
+							evidenceRetry={() => evidence.refetch({ cancelRefetch: false })}
+							evidenceRetrying={evidence.isFetching}
 							evidenceControls={
 								<PageControls
 									hasPrevious={evidencePaging.hasPrevious}

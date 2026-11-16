@@ -11,7 +11,12 @@ import {
 } from "@/components/machine-approval-review";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	Alert,
+	AlertDescription,
+	AlertTitle,
+	LoadError,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { CodeBlock } from "@/components/kumo/code";
@@ -288,13 +293,23 @@ export function ApprovalManifestReview({
 					Loading exact requests…
 				</Text>
 			) : null}
-			{query.error || resolve.error ? (
+			{query.error ? (
+				<LoadError
+					title="Review needs refreshing"
+					error={query.error}
+					help="Refresh to read current state; decisions are never retried automatically."
+					onRetry={refresh}
+					retrying={query.isFetching}
+					retryDisabled={resolve.isPending}
+				/>
+			) : null}
+			{resolve.error ? (
 				<Alert variant="destructive">
 					<AlertTitle>Review needs refreshing</AlertTitle>
 					<AlertDescription>
-						{(query.error ?? resolve.error)?.message} A response failure does
-						not prove that no action ran. Refresh to read current state;
-						decisions are never retried automatically.
+						{resolve.error.message} A response failure does not prove that no
+						action ran. Refresh to read current state; decisions are never
+						retried automatically.
 					</AlertDescription>
 				</Alert>
 			) : null}
