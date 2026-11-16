@@ -10,8 +10,10 @@ import {
 	type PresentationAppearance,
 } from "@tedix/api-contract/utils/presentation-style";
 import {
+	alignSlideElements,
 	applySlideElementAction,
 	slideElementShortcut,
+	type SlideAlignMode,
 	type SlideElementAction,
 } from "../lib/slide-element-actions";
 import {
@@ -151,6 +153,23 @@ const EXPORTS = [
 	["outline", "Outline"],
 ] as const;
 
+const ALIGN_GROUPS: ReadonlyArray<ReadonlyArray<[SlideAlignMode, string]>> = [
+	[
+		["left", "Align left"],
+		["center", "Align centres"],
+		["right", "Align right"],
+	],
+	[
+		["top", "Align top"],
+		["middle", "Align middles"],
+		["bottom", "Align bottom"],
+	],
+	[
+		["distribute-horizontal", "Distribute horizontally"],
+		["distribute-vertical", "Distribute vertically"],
+	],
+];
+
 const glyph = (path: string) =>
 	`<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
 const GLYPHS = {
@@ -206,7 +225,15 @@ export async function mountSlidesClient(
 				.join(""),
 	).join(
 		"<hr>",
-	)}</div></span>${tool("upload", "Upload image", icon("image"))}${divider}${tool("duplicate-element", "Duplicate", icon("copy"), keys("D"))}${tool("delete-element", "Delete", icon("trash"), "Delete")}${tool("backward", "Send backward", icon("back"))}${tool("forward", "Bring forward", icon("front"))}</div>
+	)}</div></span>${tool("upload", "Upload image", icon("image"))}${divider}${tool("duplicate-element", "Duplicate", icon("copy"), keys("D"))}${tool("delete-element", "Delete", icon("trash"), "Delete")}${tool("backward", "Send backward", icon("back"))}${tool("forward", "Bring forward", icon("front"))}<span class="slides-menu-anchor">${tool("align", "Align and distribute", icon("alignLeft"), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu" id="align-menu" role="menu" aria-label="Align and distribute" hidden>${ALIGN_GROUPS.map(
+		(group) =>
+			group
+				.map(
+					([mode, label]) =>
+						`<button role="menuitem" data-align="${mode}">${label}</button>`,
+				)
+				.join(""),
+	).join("<hr>")}</div></span></div>
 <div class="slides-bar-right"><span class="slides-save" role="img" hidden></span><div class="slides-status" role="status" aria-live="polite"></div><button id="format" class="ghost" title="Format (Enter)" aria-expanded="false" aria-controls="slides-inspector">${glyph(GLYPHS.format)} Format</button><button id="present" class="ghost primary">${icon("play")} Present</button><span class="slides-menu-anchor">${tool("more", "More", glyph(GLYPHS.more), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu end" id="more-menu" role="menu" aria-label="More" hidden>${EXPORTS.map(
 		([format, name]) =>
 			`<button role="menuitem" data-export="${format}">Download as ${name}</button>`,
@@ -1695,6 +1722,16 @@ export async function mountSlidesClient(
 		button("upload").disabled = button("insert").disabled;
 		for (const id of ["duplicate-element", "delete-element"])
 			button(id).disabled = !write || !selectedElements().length;
+		// Lining up needs two elements; spacing them evenly needs three.
+		const many = selectedElements().length;
+		button("align").disabled = !write || many < 2;
+		const spacing = find("#align-menu").querySelectorAll<HTMLButtonElement>(
+			'[data-align^="distribute"]',
+		);
+		spacing.forEach((item) => (item.disabled = !write || many < 3));
+		const spacingRule = spacing[0]?.previousElementSibling;
+		if (spacingRule instanceof HTMLElement) spacingRule.hidden = many < 3;
+		spacing.forEach((item) => (item.hidden = many < 3));
 		// Layer order changes one element at a time.
 		for (const id of ["backward", "forward"])
 			button(id).disabled = !write || !selected();
@@ -2592,6 +2629,7 @@ export async function mountSlidesClient(
 	}
 	menu(button("insert"), find("#insert-menu"));
 	menu(button("more"), find("#more-menu"));
+	menu(button("align"), find("#align-menu"));
 	const onOutside = (event: Event) => {
 		if (!(event.target as HTMLElement).closest?.(".slides-menu-anchor"))
 			for (const close of menus) close();
@@ -2609,6 +2647,22 @@ export async function mountSlidesClient(
 		["forward", "forward"],
 	] as const)
 		button(id).onclick = () => elementAction(action);
+	for (const item of root.querySelectorAll<HTMLButtonElement>("[data-align]"))
+		item.onclick = () => alignSelection(item.dataset.align as SlideAlignMode);
+	/** Line up or evenly space the selection, as one change. */
+	function alignSelection(mode: SlideAlignMode) {
+		const chosen = selectedElements();
+		const moves = alignSlideElements(chosen, mode);
+		if (!moves.length) return;
+		const byId = new Map(chosen.map((element) => [element.id, element]));
+		mutate(() =>
+			updateElements(
+				moves.map(({ id, x, y }) =>
+					updateElementGeometry(byId.get(id)!, { x, y }),
+				),
+			),
+		);
+	}
 	button("add-slide").onclick = addSlide;
 	button("format").onclick = () => setInspector(!inspectorOpen);
 	notes.onchange = commitNotes;
