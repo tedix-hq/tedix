@@ -30,10 +30,11 @@ import {
 	commandPaletteWorkspacesQueryOptions,
 	skillCatalogQueryOptions,
 	skillRunHistoryQueryOptions,
+	workAppsQueryOptions,
 } from "@/lib/os-query-options";
 import { primaryOutputNavigationTarget } from "@/lib/output-navigation";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
-import { WORK_VIEWS, type WorkView } from "@/lib/work-views";
+import { openableWorkViews, WORK_VIEWS, type WorkView } from "@/lib/work-views";
 
 // Other resource groups remain bounded; workspace search loads every page.
 const PALETTE_LIST_LIMIT = 12;
@@ -60,8 +61,11 @@ type PaletteGroup = {
 };
 
 /** One "Go to …" command per Work view, so ⌘K is the first way to find them. */
-function workViewCommands(open: (view: WorkView) => void): PaletteCommand[] {
-	return WORK_VIEWS.map((view) => ({
+function workViewCommands(
+	open: (view: WorkView) => void,
+	views: readonly WorkView[] = WORK_VIEWS,
+): PaletteCommand[] {
+	return views.map((view) => ({
 		id: `work-view-${view.id}`,
 		title: `Go to ${view.label}`,
 		description: `Work · ${view.description}`,
@@ -166,6 +170,13 @@ export function OsCommandPalette({
 	});
 	const runs = useQuery({
 		...skillRunHistoryQueryOptions(PALETTE_RUNS_LIMIT),
+		enabled: open,
+		staleTime: 30_000,
+	});
+	// Decides which Work views are offered; a view whose app is missing or not
+	// yet known is left out instead of leading to "not available".
+	const workApps = useQuery({
+		...workAppsQueryOptions(),
 		enabled: open,
 		staleTime: 30_000,
 	});
@@ -286,11 +297,17 @@ export function OsCommandPalette({
 			}),
 		);
 
+		const workViews = openableWorkViews(
+			(workApps.data?.items ?? []).map((item) => ({
+				gadget: item.gadget,
+				manifest: item.currentRevision.manifest,
+			})),
+		);
 		const workViewItems = workViewCommands((view) => {
 			if (view.to === "/work")
 				void navigate({ to: view.to, search: view.search });
 			else void navigate({ to: view.to });
-		});
+		}, workViews);
 
 		return [
 			{ id: "pages", label: "OS", items: pages },
@@ -317,6 +334,7 @@ export function OsCommandPalette({
 		outputs.data,
 		runs.data,
 		skills.data,
+		workApps.data,
 		workspaces.data,
 	]);
 

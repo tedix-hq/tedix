@@ -6,6 +6,7 @@ import { workHomeSearch } from "@/lib/work-home-search";
 import {
 	WORK_VIEW_GROUPS,
 	WORK_VIEWS,
+	openableWorkViews,
 	workViewHref,
 	workViewsByGroup,
 } from "./work-views";
@@ -72,5 +73,31 @@ describe("Work views registry", () => {
 		expect(groups.flatMap((group) => group.views)).toHaveLength(
 			WORK_VIEWS.length,
 		);
+	});
+
+	it("offers an app view only when the organization has that app", () => {
+		const ids = (entries: string[]) =>
+			openableWorkViews(
+				entries.map((entry) => ({
+					gadget: { id: entry },
+					manifest: { entry },
+				})),
+			).map((view) => view.id);
+		const withoutApps = WORK_VIEWS.filter((view) => !view.requiresApp).map(
+			(view) => view.id,
+		);
+		expect(ids([])).toEqual(withoutApps);
+		expect(withoutApps).toEqual(
+			expect.arrayContaining(["projects", "goals", "capacity"]),
+		);
+		expect(ids(["tedix:app/outbound-review"])).toContain("outbound");
+		expect(ids(["tedix:app/outbound-review"])).not.toContain("office");
+		expect(
+			ids([
+				"tedix:app/agents",
+				"tedix:app/office",
+				"tedix:app/outbound-review",
+			]),
+		).toEqual(WORK_VIEWS.map((view) => view.id));
 	});
 });

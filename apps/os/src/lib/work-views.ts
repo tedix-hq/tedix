@@ -1,5 +1,9 @@
 import { OS_COPY } from "@/shared/os-copy";
-import type { WorkHomeSearch } from "@/lib/work-home-search";
+import {
+	selectedWorkApp,
+	type WORK_APP_ENTRIES,
+	type WorkHomeSearch,
+} from "@/lib/work-home-search";
 
 /**
  * Every Work view a person can open on purpose.
@@ -16,6 +20,8 @@ export type WorkView = Readonly<{
 	/** One plain sentence: what the person sees there. */
 	description: string;
 	group: WorkViewGroupId;
+	/** The Work app this view opens. Without that app the view is not offered. */
+	requiresApp?: keyof typeof WORK_APP_ENTRIES;
 }> &
 	Readonly<
 		| { to: "/work"; search: WorkHomeSearch }
@@ -121,6 +127,7 @@ export const WORK_VIEWS: readonly WorkView[] = [
 		group: "operations",
 		to: "/work",
 		search: { app: "agents" },
+		requiresApp: "agents",
 	},
 	{
 		id: "office",
@@ -129,6 +136,7 @@ export const WORK_VIEWS: readonly WorkView[] = [
 		group: "operations",
 		to: "/work",
 		search: { app: "office" },
+		requiresApp: "office",
 	},
 	{
 		id: "outbound",
@@ -137,6 +145,7 @@ export const WORK_VIEWS: readonly WorkView[] = [
 		group: "operations",
 		to: "/work",
 		search: { app: "outbound" },
+		requiresApp: "outbound",
 	},
 	{
 		id: "capacity",
@@ -163,6 +172,19 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	},
 ];
 
+/**
+ * The views this organization can open. A view backed by a Work app is left
+ * out until that app is known to be installed, so no entry leads to "This app
+ * is not available".
+ */
+export function openableWorkViews(
+	apps: readonly { gadget: { id: string }; manifest: { entry?: string } }[],
+): readonly WorkView[] {
+	return WORK_VIEWS.filter(
+		(view) => !view.requiresApp || selectedWorkApp(apps, view.requiresApp),
+	);
+}
+
 /** The shareable URL of a view, for plain anchors and tests. */
 export function workViewHref(view: WorkView): string {
 	if (!view.search) return view.to;
@@ -173,13 +195,15 @@ export function workViewHref(view: WorkView): string {
 	return query ? `${view.to}?${query}` : view.to;
 }
 
-export function workViewsByGroup(): readonly Readonly<{
+export function workViewsByGroup(
+	views: readonly WorkView[] = WORK_VIEWS,
+): readonly Readonly<{
 	id: WorkViewGroupId;
 	label: string;
 	views: readonly WorkView[];
 }>[] {
 	return WORK_VIEW_GROUPS.map((group) => ({
 		...group,
-		views: WORK_VIEWS.filter((view) => view.group === group.id),
+		views: views.filter((view) => view.group === group.id),
 	})).filter((group) => group.views.length > 0);
 }

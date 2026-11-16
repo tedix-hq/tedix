@@ -103,6 +103,25 @@ try {
 				.count(),
 			0,
 		);
+		// Every entry is named by its view; the sentence under it is its description.
+		const items = menu.getByRole("menuitem");
+		assert.equal(
+			await menu.getByRole("menuitem", { name: /\S/ }).count(),
+			await items.count(),
+		);
+		const outbound = menu.getByRole("menuitem", {
+			name: "Outbound review",
+			exact: true,
+		});
+		assert.equal(await outbound.count(), 1);
+		assert.equal(
+			await outbound.evaluate(
+				(item) =>
+					document.getElementById(item.getAttribute("aria-describedby")!)
+						?.textContent,
+			),
+			"Messages and documents to check before they go out.",
+		);
 		await page.keyboard.press("Escape");
 		await page.goBack();
 		await page.locator('[data-workspace-app-entry="agents"]').waitFor();
@@ -123,9 +142,11 @@ try {
 			const body = await response.json();
 			body.json.items = body.json.items.filter(
 				(item: { currentRevision: { manifest: { entry: string } } }) =>
-					!["tedix:app/office", "tedix:app/agents"].includes(
-						item.currentRevision.manifest.entry,
-					),
+					![
+						"tedix:app/office",
+						"tedix:app/agents",
+						"tedix:app/outbound-review",
+					].includes(item.currentRevision.manifest.entry),
 			);
 			await route.fulfill({ response, json: body });
 		},
@@ -139,6 +160,54 @@ try {
 	assert.deepEqual(await restrictedNav.getByRole("tab").allTextContents(), [
 		"Capacity",
 	]);
+	// The menu offers only what this organization can open.
+	await unavailable
+		.getByRole("button", { name: "More views: Agents", exact: true })
+		.click();
+	const restrictedMenu = unavailable.getByRole("menu");
+	await restrictedMenu.locator('[data-work-view="agents"]').waitFor();
+	assert.equal(
+		await restrictedMenu.locator('[data-work-view="outbound"]').count(),
+		0,
+	);
+	// Agents stays, because Capacity needs no app.
+	assert.match(
+		(await restrictedMenu
+			.locator('[data-work-view="agents"]')
+			.getAttribute("href"))!,
+		/^\/work\/capacity(\?|$)/,
+	);
+	for (const name of ["Projects", "Goals"]) {
+		await restrictedMenu.getByRole("menuitem", { name, exact: true }).click();
+		await unavailable
+			.getByRole("heading", { level: 1, name, exact: true })
+			.waitFor();
+		assert.equal(
+			await unavailable
+				.getByText("This app is not available in your workspaces.")
+				.count(),
+			0,
+		);
+		// Choosing a view closes the menu instead of covering the page.
+		await restrictedMenu.waitFor({ state: "detached" });
+		await unavailable
+			.getByRole("button", { name: `More views: ${name}`, exact: true })
+			.click();
+		await restrictedMenu.locator('[data-work-view="agents"]').waitFor();
+	}
+	await unavailable.keyboard.press("Escape");
+	await unavailable.goto(`${server.origin}/work?view=deck`);
+	const deckViews = unavailable.getByRole("group", {
+		name: "Decisions view",
+		exact: true,
+	});
+	await deckViews.waitFor();
+	for (const name of ["For you", "Everything waiting", "What you decided"])
+		assert.equal(
+			await deckViews.getByRole("button", { name, exact: true }).count(),
+			1,
+			`${name} needs an accessible name`,
+		);
 	await unavailable.goto(`${server.origin}/work?app=agents`);
 	await unavailable
 		.getByText("This app is not available in your workspaces.", {

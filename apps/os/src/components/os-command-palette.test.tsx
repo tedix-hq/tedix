@@ -30,6 +30,7 @@ const reads = vi.hoisted(() => ({
 	apps: vi.fn(async (_limit: number): Promise<unknown> => ({ data: [] })),
 	skills: vi.fn(async (_limit: number): Promise<unknown> => ({ entries: [] })),
 	runs: vi.fn(async (_limit: number): Promise<unknown> => ({ runs: [] })),
+	workApps: vi.fn(async (): Promise<unknown> => ({ items: [] })),
 	navigate: vi.fn(),
 }));
 
@@ -64,6 +65,10 @@ vi.mock("@/lib/os-query-options", async (importOriginal) => {
 		skillRunHistoryQueryOptions: (limit: number) => ({
 			...original.skillRunHistoryQueryOptions(limit),
 			queryFn: () => reads.runs(limit),
+		}),
+		workAppsQueryOptions: () => ({
+			...original.workAppsQueryOptions(),
+			queryFn: () => reads.workApps(),
 		}),
 	};
 });
@@ -112,6 +117,13 @@ describe("Work view commands", () => {
 			expect(open).toHaveBeenLastCalledWith(view);
 		}
 		expect(open).toHaveBeenCalledTimes(WORK_VIEWS.length);
+	});
+
+	it("offers only the views it is given", () => {
+		const views = WORK_VIEWS.filter((view) => !view.requiresApp);
+		expect(
+			workViewCommands(() => undefined, views).map((command) => command.title),
+		).toEqual(views.map((view) => `Go to ${view.label}`));
 	});
 
 	it("is found by the page name and by what the page shows", () => {
@@ -191,6 +203,7 @@ describe("mounted palette resource states", () => {
 		reads.apps.mockReset().mockResolvedValue({ data: [] });
 		reads.skills.mockReset().mockResolvedValue({ entries: [] });
 		reads.runs.mockReset().mockResolvedValue({ runs: [] });
+		reads.workApps.mockReset().mockResolvedValue({ items: [] });
 		reads.navigate.mockReset();
 		client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 		host = document.createElement("div");
@@ -331,6 +344,30 @@ describe("mounted palette resource states", () => {
 			to: "/workspace/$workspaceId",
 			params: { workspaceId: "pine-studio" },
 		});
+	});
+
+	it("offers an app-backed Work view only once the organization has the app", async () => {
+		await mount();
+		await openPalette();
+		await settled();
+		expect(document.body.textContent).toContain("Go to Capacity");
+		expect(document.body.textContent).not.toContain("Go to Outbound review");
+		expect(document.body.textContent).not.toContain("Go to Office");
+
+		reads.workApps.mockResolvedValue({
+			items: [
+				{
+					gadget: { id: "outbound-app" },
+					currentRevision: {
+						manifest: { entry: "tedix:app/outbound-review" },
+					},
+				},
+			],
+		});
+		await act(async () => client.invalidateQueries());
+		await settled();
+		expect(document.body.textContent).toContain("Go to Outbound review");
+		expect(document.body.textContent).not.toContain("Go to Office");
 	});
 
 	it("distinguishes cold loading from empty success without hiding static navigation", async () => {

@@ -1,6 +1,6 @@
 import { DotsThree } from "@phosphor-icons/react";
 import { useRouterState } from "@tanstack/react-router";
-import { Fragment } from "react";
+import { Fragment, useId } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	DropdownMenu,
@@ -13,7 +13,12 @@ import {
 } from "@/components/kumo/dropdown-menu";
 import { Text } from "@/components/kumo/text";
 import { OsRouterLink } from "@/components/kumo/link-provider";
-import { WORK_VIEWS, workViewsByGroup, type WorkView } from "@/lib/work-views";
+import {
+	openableWorkViews,
+	WORK_VIEWS,
+	workViewsByGroup,
+	type WorkView,
+} from "@/lib/work-views";
 import { OS_COPY } from "@/shared/os-copy";
 
 function viewLink(view: WorkView, agentHref: string) {
@@ -29,12 +34,19 @@ function viewLink(view: WorkView, agentHref: string) {
  * The one quiet entry to every secondary Work view. Feed and Deck stay the
  * only primary views; this menu sits at the end of their row and never grows
  * into a tab bar.
+ *
+ * It lists only what opens: a view backed by a Work app appears once that app
+ * is installed. Agents always has a destination, because Capacity needs no
+ * app, and stands for Office and Capacity too.
  */
 export function WorkMoreViewsMenu({
+	apps,
 	agentNavigation,
 }: {
+	apps: Parameters<typeof openableWorkViews>[0];
 	agentNavigation?: { active: boolean; href: string };
 }) {
+	const itemId = useId();
 	const label = OS_COPY.workHome.moreViews;
 	const selectedView = useRouterState({
 		select: ({ location }) => {
@@ -57,12 +69,14 @@ export function WorkMoreViewsMenu({
 		["office", "capacity"].includes(selectedView?.id ?? "")
 			? agents
 			: selectedView;
-	const groups = workViewsByGroup().map((group) => ({
-		...group,
-		views: group.views.filter(
-			(view) => !["office", "capacity"].includes(view.id),
+	const openable = openableWorkViews(apps);
+	const groups = workViewsByGroup(
+		WORK_VIEWS.filter(
+			(view) =>
+				view.id === "agents" ||
+				(openable.includes(view) && !["office", "capacity"].includes(view.id)),
 		),
-	}));
+	);
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
@@ -98,6 +112,12 @@ export function WorkMoreViewsMenu({
 								<DropdownMenuLinkItem
 									key={view.id}
 									data-work-view={view.id}
+									// A link item stays open by default and would cover the page
+									// it just opened.
+									closeOnClick
+									// The name is the view; its sentence is read as the description.
+									aria-labelledby={`${itemId}-${view.id}`}
+									aria-describedby={`${itemId}-${view.id}-about`}
 									aria-current={activeView?.id === view.id ? "page" : undefined}
 									render={viewLink(
 										view,
@@ -106,10 +126,15 @@ export function WorkMoreViewsMenu({
 									className="items-start py-2 aria-[current=page]:bg-kumo-tint"
 								>
 									<span className="grid min-w-0 gap-0.5">
-										<Text as="span" weight="medium">
+										<Text as="span" weight="medium" id={`${itemId}-${view.id}`}>
 											{view.label}
 										</Text>
-										<Text as="span" role="caption" tone="secondary">
+										<Text
+											as="span"
+											role="caption"
+											tone="secondary"
+											id={`${itemId}-${view.id}-about`}
+										>
 											{view.description}
 										</Text>
 									</span>

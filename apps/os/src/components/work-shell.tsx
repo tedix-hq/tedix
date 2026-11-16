@@ -122,7 +122,7 @@ export function WorkShell() {
 									</span>
 								)}
 						</Link>
-						<WorkMoreViewsMenu agentNavigation={agentNavigation} />
+						<WorkMoreViewsMenu apps={apps} agentNavigation={agentNavigation} />
 					</nav>
 					{(feed || deck) && (
 						<div ref={setToolbarTarget} className="fd-work-toolbar-slot" />
