@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 const switchTo = vi.hoisted(() => vi.fn());
 const directoryState = vi.hoisted(() => ({
 	loading: false,
+	role: "owner",
 	workspaces: null as unknown[] | null,
 }));
 
@@ -74,6 +75,18 @@ vi.mock("@/lib/workspace-switcher", async (importOriginal) => ({
 	}),
 }));
 
+vi.mock("@/lib/use-os-preferences", () => ({
+	useOsOperationalContext: () => ({
+		data: { authority: { role: directoryState.role, permissions: [] } },
+	}),
+}));
+
+vi.mock("@/components/kumo/link-provider", () => ({
+	OsRouterLink: ({ to, ...props }: { to: string }) => (
+		<a href={to} {...props} />
+	),
+}));
+
 vi.mock("@/lib/api", () => ({
 	osApi: { directory: { listMyWorkspaces: vi.fn() } },
 }));
@@ -103,6 +116,7 @@ function unmountAll() {
 afterEach(() => {
 	unmountAll();
 	directoryState.loading = false;
+	directoryState.role = "owner";
 	directoryState.workspaces = null;
 	vi.clearAllMocks();
 });
@@ -149,17 +163,46 @@ describe("OsWorkspaceSwitcher", () => {
 		expect(
 			items.map(
 				(item) =>
-					item.getAttribute("aria-label") ??
-					item.querySelector("[title]")?.textContent,
+					item.querySelector("[title]")?.textContent ?? item.textContent,
 			),
-		).toEqual(["Tedix", "Northwind Labs"]);
+		).toEqual([
+			"Tedix",
+			"Northwind Labs",
+			"Organization settings",
+			"Create organization",
+		]);
 		expect(items[0]?.getAttribute("aria-current")).toBe("true");
+		// Kumo's selected check; the other row has none.
+		expect(items[0]?.querySelector("svg")).not.toBeNull();
+		expect(items[1]?.querySelector("svg")).toBeNull();
 		expect(
-			items[0]?.querySelector('[aria-label="Current organization"]'),
-		).not.toBeNull();
+			menu?.querySelector('[role="group"]')?.getAttribute("aria-labelledby"),
+		).toBe(
+			[...(menu?.querySelectorAll("[id]") ?? [])].find(
+				(element) => element.textContent === "Organizations",
+			)?.id,
+		);
+		expect(menu?.querySelector('[role="separator"]')).not.toBeNull();
+		expect(items[2]?.getAttribute("href")).toBe("/admin/organization");
+		expect(items[3]?.getAttribute("href")).toBe("/account/onboarding?new=1");
 		expect(menu?.textContent).not.toContain("OS");
 		expect(menu?.textContent).not.toContain("CMS");
 		expect(menu?.querySelector('input[type="text"], input')).toBeNull();
+	});
+
+	it("shows no tooltip on the trigger and no settings link to a member", async () => {
+		directoryState.role = "member";
+		const { menu, trigger } = await openSwitcher(
+			<OsOrganizationIdentity fallbackLabel="tedix" />,
+		);
+
+		expect(trigger?.getAttribute("title")).toBeNull();
+		expect(trigger?.querySelector("[title]")).toBeNull();
+		expect(document.querySelector('[role="tooltip"]')).toBeNull();
+		expect(menu?.querySelector('a[href="/admin/organization"]')).toBeNull();
+		expect(
+			menu?.querySelector('a[href="/account/onboarding?new=1"]'),
+		).not.toBeNull();
 	});
 
 	it("opens another organization's OS", async () => {
@@ -195,9 +238,38 @@ describe("OsWorkspaceSwitcher", () => {
 		];
 		const { menu } = await openSwitcher();
 		expect(rowNames(menu)).toHaveLength(7);
-		expect(
-			document.querySelector('input[aria-label="Search organizations"]'),
-		).not.toBeNull();
+		const search = document.querySelector<HTMLInputElement>(
+			'input[aria-label="Search organizations"]',
+		);
+		expect(search?.getAttribute("role")).toBe("searchbox");
+		expect(search?.closest('[data-slot="input-group"]')).not.toBeNull();
+		const clear = () =>
+			document.querySelector<HTMLElement>(
+				'[aria-label="Clear organization search"]',
+			);
+		expect(clear()).toBeNull();
+
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(
+				HTMLInputElement.prototype,
+				"value",
+			)!.set!.call(search, "elm");
+			search!.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		expect(rowNames(menu)).toEqual(["elm-clinic"]);
+		expect(menu?.querySelectorAll('[role="menuitem"]')).toHaveLength(1);
+		const footer = menu
+			?.querySelector('[role="separator"]')
+			?.closest('[role="group"]');
+		expect(footer?.hasAttribute("hidden")).toBe(true);
+
+		await act(async () => clear()?.click());
+		expect(search?.value).toBe("");
+		expect(document.activeElement).toBe(search);
+		expect(clear()).toBeNull();
+		expect(footer?.hasAttribute("hidden")).toBe(false);
+		expect(rowNames(menu)).toHaveLength(7);
+		expect(menu?.querySelectorAll('[role="menuitem"]')).toHaveLength(9);
 	});
 
 	it("keeps the organization switcher available while the directory loads", async () => {
@@ -213,9 +285,6 @@ describe("OsWorkspaceSwitcher", () => {
 		);
 
 		expect(trigger?.querySelector("strong")?.textContent).toBe("Tedix");
-		expect(trigger?.querySelector("strong")?.getAttribute("title")).toBe(
-			"Tedix",
-		);
 		const logo = trigger?.querySelector('[data-entity-kind="workspace"] img');
 		expect(logo?.getAttribute("src")).toBe(
 			"https://images.example.test/tedix-logo.png",

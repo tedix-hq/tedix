@@ -3,8 +3,8 @@ import { createRoot } from "react-dom/client";
 import { OrganizationSwitcherMenu } from "../src/components/os-workspace-switcher";
 import "../src/styles.css";
 
-// The real switcher menu over twelve fictional organizations. Every third one
-// has a CMS; "Lantern Books" is still setting up. Switches are recorded on
+// The real switcher menu over twelve fictional organizations. "Harbor Kitchen"
+// has a logo; "Lantern Books" is still setting up. Switches are recorded on
 // `window.switches` instead of navigating.
 const params = new URLSearchParams(location.search);
 const dark = params.get("theme") === "dark";
@@ -26,13 +26,19 @@ const NAMES = [
 	"Lantern Books",
 ];
 
+const LOGO =
+	"data:image/svg+xml," +
+	encodeURIComponent(
+		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#e8622c"/></svg>',
+	);
+
 const workspaces: DirectoryWorkspaceRecord[] = NAMES.map((name, index) => {
 	const slug = name.split(" ")[0]!.toLowerCase();
 	const provisionComplete = name !== "Lantern Books";
 	return {
 		org: {
 			descopeTenantId: provisionComplete ? `org_${slug}` : null,
-			logoUrl: null,
+			logoUrl: name === "Harbor Kitchen" ? LOGO : null,
 			name,
 			organizationId: `0f0f0f0f-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
 			provisionComplete,
@@ -57,7 +63,9 @@ const switches: string[] = [];
 createRoot(document.getElementById("root")!).render(
 	<div className="h-dvh w-64 max-w-full bg-kumo-base p-2 text-kumo-default">
 		<OrganizationSwitcherMenu
+			createLink={<a href="#create" />}
 			currentSlug="harbor"
+			settingsLink={<a href="#settings" />}
 			isError={false}
 			isLoading={false}
 			onSwitch={(workspace, surface) =>

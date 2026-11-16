@@ -50,10 +50,7 @@ export function OsOrganizationIdentity({
 				className="size-6 rounded-md"
 			/>
 			<div className="flex min-w-0 flex-col text-left group-data-[state=collapsed]/sidebar:hidden">
-				<strong
-					className="max-w-[160px] truncate type-tedix-body font-semibold"
-					title={name}
-				>
+				<strong className="max-w-[160px] truncate type-tedix-body font-semibold">
 					{name}
 				</strong>
 				<span className="whitespace-nowrap text-kumo-subtle type-tedix-caption">

@@ -1,7 +1,9 @@
 "use client";
 
 import { DropdownMenu as KumoDropdownMenu } from "@cloudflare/kumo/components/dropdown";
+import { InputGroup as KumoInputGroup } from "@cloudflare/kumo/components/input-group";
 import { Menu as MenuPrimitive } from "@cloudflare/kumo/primitives/menu";
+import { MagnifyingGlass, X } from "@phosphor-icons/react";
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -47,19 +49,52 @@ const DropdownMenuFilterProvider = MenuPrimitive.FilterProvider;
 const DropdownMenuList = MenuPrimitive.List;
 const DropdownMenuEmpty = MenuPrimitive.Empty;
 
+// `InputGroup.Addon` hands each child the icon size of the field.
+function DropdownMenuFilterClear({
+	label,
+	size,
+}: {
+	label: string;
+	size?: number;
+}) {
+	return (
+		<MenuPrimitive.Clear
+			render={<KumoInputGroup.Button aria-label={label} shape="square" />}
+		>
+			<X aria-hidden="true" size={size} />
+		</MenuPrimitive.Clear>
+	);
+}
+
+// The clear button exists only while there is text; its addon keeps its width
+// so the field does not move when the button appears.
 const DropdownMenuFilterInput = React.forwardRef<
 	HTMLInputElement,
-	React.ComponentPropsWithoutRef<typeof MenuPrimitive.Input>
->(function DropdownMenuFilterInput({ className, ...props }, ref) {
+	React.ComponentPropsWithoutRef<typeof MenuPrimitive.Input> & {
+		clearLabel?: string;
+	}
+>(function DropdownMenuFilterInput(
+	{ className, clearLabel = "Clear search", ...props },
+	ref,
+) {
 	return (
-		<MenuPrimitive.Input
-			ref={ref}
-			className={cn(
-				"h-8 w-full min-w-0 rounded-md bg-kumo-base px-2 type-tedix-control text-kumo-default outline-none ring ring-kumo-line placeholder:text-kumo-subtle focus-visible:ring-kumo-brand max-sm:min-h-11 coarse:min-h-11",
-				className,
-			)}
-			{...props}
-		/>
+		<KumoInputGroup className="shrink-0 shadow-none max-sm:h-auto max-sm:min-h-11 coarse:h-auto coarse:min-h-11">
+			<KumoInputGroup.Addon>
+				<MagnifyingGlass aria-hidden="true" />
+			</KumoInputGroup.Addon>
+			<MenuPrimitive.Input
+				ref={ref}
+				render={<KumoInputGroup.Input />}
+				className={cn(
+					"type-tedix-control max-sm:min-h-11 coarse:min-h-11",
+					className,
+				)}
+				{...props}
+			/>
+			<KumoInputGroup.Addon align="end" className="w-8 justify-center pr-1">
+				<DropdownMenuFilterClear label={clearLabel} />
+			</KumoInputGroup.Addon>
+		</KumoInputGroup>
 	);
 });
 

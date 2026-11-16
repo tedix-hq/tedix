@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { CaretUpDown, Check } from "@phosphor-icons/react";
+import type { ReactElement, ReactNode } from "react";
+import { CaretUpDown, GearSix, Plus } from "@phosphor-icons/react";
 import type {
 	DirectorySurface,
 	DirectoryWorkspaceRecord,
@@ -8,6 +8,7 @@ import {
 	findWorkspaceSurface,
 	useSurfaceSwitch,
 } from "@/lib/workspace-switcher";
+import { canAccessAdminSection } from "@/components/admin-layout";
 import { Button } from "@/components/kumo/button";
 import {
 	DropdownMenu,
@@ -15,12 +16,18 @@ import {
 	DropdownMenuEmpty,
 	DropdownMenuFilterInput,
 	DropdownMenuFilterProvider,
+	DropdownMenuGroup,
 	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuLinkItem,
 	DropdownMenuList,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
+import { OsRouterLink } from "@/components/kumo/link-provider";
 import { EntityAvatar } from "@/shared/entity-avatar";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
+import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
 /** Above this many organizations the menu gets a search field. */
 const SEARCH_AFTER = 6;
@@ -33,15 +40,22 @@ const SEARCH_AFTER = 6;
 export function OsWorkspaceSwitcher({ children }: { children?: ReactNode }) {
 	const { tenant, ...directory } = useOsWorkspaceDirectory();
 	const surfaceSwitch = useSurfaceSwitch({});
+	const authority = useOsOperationalContext().data?.authority;
 
 	if (tenant.kind !== "tenant") return children;
 
 	return (
 		<OrganizationSwitcherMenu
+			createLink={<a href="/account/onboarding?new=1" />}
 			currentSlug={tenant.slug}
 			isError={directory.query.isError}
 			isLoading={directory.query.isLoading}
 			onSwitch={surfaceSwitch.switchTo}
+			settingsLink={
+				authority && canAccessAdminSection(authority) ? (
+					<OsRouterLink to="/admin/organization" />
+				) : undefined
+			}
 			workspaces={directory.workspaces}
 		>
 			{children}
@@ -51,18 +65,22 @@ export function OsWorkspaceSwitcher({ children }: { children?: ReactNode }) {
 
 /**
  * One compact row per organization, the current one first with a check.
- * Choosing a row opens that organization's OS; an organization whose CMS is
- * provisioned also gets a trailing "CMS" item on the same row.
+ * Choosing a row opens that organization's OS. The footer links to this
+ * organization's settings and to creating another organization; each shows
+ * only when its link is given.
  */
 export function OrganizationSwitcherMenu({
 	children,
+	createLink,
 	currentSlug,
 	isError,
 	isLoading,
 	onSwitch,
+	settingsLink,
 	workspaces,
 }: {
 	children?: ReactNode;
+	createLink?: ReactElement;
 	currentSlug: string;
 	isError: boolean;
 	isLoading: boolean;
@@ -70,6 +88,7 @@ export function OrganizationSwitcherMenu({
 		workspace: DirectoryWorkspaceRecord,
 		surface: DirectorySurface,
 	) => unknown;
+	settingsLink?: ReactElement;
 	workspaces: readonly DirectoryWorkspaceRecord[];
 }) {
 	const ordered = [
@@ -88,26 +107,57 @@ export function OrganizationSwitcherMenu({
 				{searchable ? (
 					<DropdownMenuFilterInput
 						aria-label="Search organizations"
+						clearLabel="Clear organization search"
 						placeholder="Search organizations…"
 					/>
 				) : null}
-				<DropdownMenuList className="max-h-[min(20rem,50dvh)] min-h-0 overflow-y-auto overscroll-contain">
-					{isLoading ? (
-						<DropdownMenuItem disabled>Loading organizations…</DropdownMenuItem>
+				<DropdownMenuList className="flex min-h-0 flex-col">
+					<DropdownMenuGroup className="max-h-[min(20rem,50dvh)] min-h-0 overflow-y-auto overscroll-contain">
+						<DropdownMenuLabel className="text-kumo-subtle type-tedix-caption font-medium">
+							Organizations
+						</DropdownMenuLabel>
+						{isLoading ? (
+							<DropdownMenuItem disabled>
+								Loading organizations…
+							</DropdownMenuItem>
+						) : null}
+						{isError ? (
+							<DropdownMenuItem disabled>
+								Organizations unavailable
+							</DropdownMenuItem>
+						) : null}
+						{ordered.map((workspace) => (
+							<OrganizationRow
+								isCurrent={workspace.org.slug === currentSlug}
+								key={workspace.org.organizationId}
+								onSwitch={onSwitch}
+								workspace={workspace}
+							/>
+						))}
+					</DropdownMenuGroup>
+					{settingsLink || createLink ? (
+						<DropdownMenuGroup className="shrink-0">
+							<DropdownMenuSeparator />
+							{settingsLink ? (
+								<DropdownMenuLinkItem
+									closeOnClick
+									icon={GearSix}
+									render={settingsLink}
+								>
+									Organization settings
+								</DropdownMenuLinkItem>
+							) : null}
+							{createLink ? (
+								<DropdownMenuLinkItem
+									closeOnClick
+									icon={Plus}
+									render={createLink}
+								>
+									Create organization
+								</DropdownMenuLinkItem>
+							) : null}
+						</DropdownMenuGroup>
 					) : null}
-					{isError ? (
-						<DropdownMenuItem disabled>
-							Organizations unavailable
-						</DropdownMenuItem>
-					) : null}
-					{ordered.map((workspace) => (
-						<OrganizationRow
-							isCurrent={workspace.org.slug === currentSlug}
-							key={workspace.org.organizationId}
-							onSwitch={onSwitch}
-							workspace={workspace}
-						/>
-					))}
 				</DropdownMenuList>
 				{searchable ? (
 					<DropdownMenuEmpty className="px-2 py-1.5 text-kumo-subtle type-tedix-control">
@@ -134,7 +184,6 @@ function SwitcherTrigger({ children }: { children?: ReactNode }) {
 					className="flex w-full min-w-0 items-center justify-start gap-2 px-0 group-data-[state=collapsed]/sidebar:justify-center"
 					multiline
 					size="sm"
-					title="Switch organization"
 					variant="ghost"
 				/>
 			}
@@ -164,35 +213,31 @@ function OrganizationRow({
 	const settingUp = !org.provisionComplete;
 	const os = findWorkspaceSurface(workspace, "os");
 	return (
-		<div className="flex min-w-0 items-center gap-1" data-org-row={org.slug}>
-			<DropdownMenuItem
-				aria-current={isCurrent ? "true" : undefined}
-				className="min-w-0 flex-1"
-				disabled={!isCurrent && (settingUp || !os?.provisioned)}
-				label={org.name}
-				onClick={() => {
-					if (!isCurrent) onSwitch(workspace, "os");
-				}}
-			>
-				<EntityAvatar
-					id={org.organizationId}
-					image={org.logoUrl}
-					name={org.name}
-					kind="workspace"
-					className="size-5 rounded"
-				/>
-				<span className="min-w-0 flex-1 truncate" title={org.name}>
-					{org.name}
+		<DropdownMenuItem
+			aria-current={isCurrent ? "true" : undefined}
+			data-org-row={org.slug}
+			disabled={!isCurrent && (settingUp || !os?.provisioned)}
+			label={org.name}
+			onClick={() => {
+				if (!isCurrent) onSwitch(workspace, "os");
+			}}
+			selected={isCurrent}
+		>
+			<EntityAvatar
+				id={org.organizationId}
+				image={org.logoUrl}
+				name={org.name}
+				kind="workspace"
+				className="size-5 rounded"
+			/>
+			<span className="min-w-0 flex-1 truncate" title={org.name}>
+				{org.name}
+			</span>
+			{settingUp ? (
+				<span className="shrink-0 text-kumo-subtle type-tedix-caption">
+					Setting up
 				</span>
-				{settingUp ? (
-					<span className="shrink-0 text-kumo-subtle type-tedix-caption">
-						Setting up
-					</span>
-				) : null}
-				{isCurrent ? (
-					<Check aria-label="Current organization" size={14} />
-				) : null}
-			</DropdownMenuItem>
-		</div>
+			) : null}
+		</DropdownMenuItem>
 	);
 }
