@@ -82,6 +82,7 @@ function fixture(
 import {
 	CMS_BUILD_OBSERVATION_GRACE_MS,
 	CMS_BUILD_CONTROL_RPC_TIMEOUT_MS,
+	CMS_BUILD_STATUS_OBSERVATION_ATTEMPTS,
 	startCmsSandboxBuild,
 	readCmsSandboxBuildStatus,
 	cancelCmsSandboxBuild,
@@ -275,15 +276,48 @@ describe("CMS native build processes", () => {
 			status: vi
 				.fn()
 				.mockResolvedValueOnce(initialStatus)
-				.mockRejectedValueOnce(new Error("status RPC unavailable")),
+				.mockRejectedValue(new Error("status RPC unavailable")),
 		} as NativeProcess;
 		const sandbox = {
 			...f.sandbox,
 			getProcess: vi.fn(async () => process),
 		};
 		await expect(
-			runCmsSandboxBuildToCompletion(sandbox, { jobId: "one" }),
+			runCmsSandboxBuildToCompletion(sandbox, { jobId: "one", pollMs: 1 }),
 		).rejects.toBeInstanceOf(CmsUnknownProcessOutcomeError);
+		expect(process.status).toHaveBeenCalledTimes(
+			1 + CMS_BUILD_STATUS_OBSERVATION_ATTEMPTS,
+		);
+		expect(f.kill).not.toHaveBeenCalled();
+	});
+	it("re-reads status after one failed observation and finishes the build", async () => {
+		const f = fixture();
+		const initialStatus = await f.process.status();
+		const exited = {
+			...initialStatus,
+			state: "exited",
+			exit: { code: 0, timedOut: false },
+			endedAt: new Date().toISOString(),
+		};
+		const process = {
+			...f.process,
+			status: vi
+				.fn()
+				.mockResolvedValueOnce(initialStatus)
+				.mockRejectedValueOnce(
+					new Error("Container service had an internal error: 38fc1130"),
+				)
+				.mockResolvedValue(exited),
+		} as NativeProcess;
+		const sandbox = {
+			...f.sandbox,
+			getProcess: vi.fn(async () => process),
+		};
+		const result = await runCmsSandboxBuildToCompletion(sandbox, {
+			jobId: "one",
+			pollMs: 1,
+		});
+		expect(result.running).toBe(false);
 		expect(f.kill).not.toHaveBeenCalled();
 	});
 	it.each(["launch", "status"])(
@@ -312,7 +346,12 @@ describe("CMS native build processes", () => {
 				const failure = expect(observation).rejects.toBeInstanceOf(
 					CmsUnknownProcessOutcomeError,
 				);
-				await vi.advanceTimersByTimeAsync(CMS_BUILD_CONTROL_RPC_TIMEOUT_MS);
+				await vi.advanceTimersByTimeAsync(
+					phase === "launch"
+						? CMS_BUILD_CONTROL_RPC_TIMEOUT_MS
+						: CMS_BUILD_STATUS_OBSERVATION_ATTEMPTS *
+								(CMS_BUILD_CONTROL_RPC_TIMEOUT_MS + 60_000),
+				);
 				await failure;
 				expect(f.kill).not.toHaveBeenCalled();
 			} finally {
