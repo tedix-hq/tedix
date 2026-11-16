@@ -226,3 +226,23 @@ test("spec processes get separate protocol files before Playwright imports", () 
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("spec processes keep the software rasterizer off AVX-512 unless told otherwise", () => {
+	const root = mkdtempSync(join(tmpdir(), "browser-rasterizer-"));
+	try {
+		const source = `console.log(process.env.GALLIUM_OVERRIDE_CPU_CAPS);`;
+		const pinned = runSpec(source, root, {
+			GALLIUM_OVERRIDE_CPU_CAPS: "",
+			[evidenceDirVariable]: "",
+		});
+		const chosen = runSpec(source, root, {
+			GALLIUM_OVERRIDE_CPU_CAPS: "sse4.1",
+			[evidenceDirVariable]: "",
+		});
+		expect(pinned.status, pinned.stderr).toBe(0);
+		expect(pinned.stdout.trim()).toBe("avx");
+		expect(chosen.stdout.trim()).toBe("sse4.1");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
