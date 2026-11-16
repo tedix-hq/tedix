@@ -23,6 +23,8 @@ import {
 	type RecordedStepEvidence,
 	type SkillAnatomyStep,
 	deriveSkillAnatomy,
+	inputKindPhrase,
+	inputLabel,
 	recordedStepsByName,
 } from "@/lib/skill-anatomy";
 import { workflowRunInspectQueryOptions } from "@/lib/os-query-options";
@@ -74,6 +76,7 @@ function StepFacts({ step }: { step: SkillAnatomyStep }) {
 	if (step.sleepDuration) facts.push(`for ${step.sleepDuration}`);
 	if (step.hasRollback) facts.push("rollback handler");
 	if (step.sensitiveOutput) facts.push("output marked sensitive");
+	if (step.nameExpression) facts.push(`name from ${step.nameExpression}`);
 	return (
 		<Text role="label" tone="mono-secondary" className="m-0 wrap-anywhere">
 			{facts.join(" · ")}
@@ -169,7 +172,13 @@ function AnatomyStepRow({
 						<Text
 							as="span"
 							role="control"
-							tone={step.dynamicName ? "mono-secondary" : "mono"}
+							tone={
+								step.nameExpression
+									? "default"
+									: step.dynamicName
+										? "mono-secondary"
+										: "mono"
+							}
 							className="min-w-0 wrap-anywhere"
 						>
 							{step.label}
@@ -270,22 +279,54 @@ export function SkillAnatomySection({
 					<Text role="label" tone="secondary" className="m-0">
 						Inputs
 					</Text>
-					<div className="flex flex-wrap gap-2">
+					<ul className="m-0 grid min-w-0 list-none gap-1 p-0">
 						{anatomy.inputs.map((input) => (
-							<Badge
+							<li
 								key={input.name}
-								variant="outline"
-								title={
-									input.description ??
-									(input.required ? "Required" : "Optional")
-								}
+								className="flex min-w-0 flex-wrap items-baseline gap-x-2"
 							>
-								{input.name}
-								{input.type ? `: ${input.type}` : ""}
-								{input.required ? " · required" : ""}
-							</Badge>
+								<Text as="span" role="control" className="wrap-anywhere">
+									{inputLabel(input.name)}
+								</Text>
+								<Text as="span" role="label" tone="secondary">
+									{input.required ? "Required" : "Optional"}
+								</Text>
+								<Text
+									as="span"
+									role="body"
+									tone="secondary"
+									className="min-w-0 wrap-anywhere"
+								>
+									{input.description ??
+										(inputKindPhrase(input.type)
+											? `${inputKindPhrase(input.type)}. No description yet.`
+											: "No description yet.")}
+								</Text>
+							</li>
 						))}
-					</div>
+					</ul>
+					<Collapsible>
+						<CollapsibleDefaultTrigger>
+							Technical details
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent keepMounted>
+							<ul className="m-0 grid min-w-0 list-none gap-0.5 px-2 pt-1 pb-2">
+								{anatomy.inputs.map((input) => (
+									<li key={input.name}>
+										<Text
+											role="label"
+											tone="mono-secondary"
+											className="m-0 wrap-anywhere"
+										>
+											{input.name}
+											{input.type ? `: ${input.type}` : ""}
+											{input.required ? " · required" : ""}
+										</Text>
+									</li>
+								))}
+							</ul>
+						</CollapsibleDefaultContent>
+					</Collapsible>
 				</div>
 			) : null}
 			{anatomy.steps.length > 0 ? (

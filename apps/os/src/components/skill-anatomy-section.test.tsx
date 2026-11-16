@@ -131,6 +131,53 @@ describe("SkillAnatomySection", () => {
 		expect(html).toContain("No runs recorded yet");
 	});
 
+	it("names a variable-named step by what it does and lists inputs in plain words", () => {
+		const html = render(
+			<SkillAnatomySection
+				skill={entry({
+					files: {
+						"scripts/workflow.ts": [
+							"export default { async run(event, step, env) {",
+							"  const name = event.payload.label;",
+							"  await step.do(name, async () => env.MCP.gmail.send_message({}));",
+							"  await step.do(name, async () => compute());",
+							"} };",
+						].join("\n"),
+					},
+					inputSchema: {
+						type: "object",
+						properties: {
+							mode: { type: "string", description: "Which report to build" },
+							dryRun: { type: "boolean" },
+						},
+						required: ["mode"],
+					},
+				})}
+				runs={[]}
+			/>,
+		);
+		expect(html).toContain("Send message in gmail");
+		expect(html).toContain("Step 2");
+		expect(html).toContain("named at run time");
+		// The name expression is never the step's label; it is a detail line.
+		expect(html).not.toMatch(/>name</);
+		expect(html).toContain("name from name");
+
+		const technical = html.indexOf("Technical details");
+		expect(technical).toBeGreaterThan(-1);
+		const readable = html.slice(html.indexOf("Inputs"), technical);
+		expect(readable).toContain("Mode");
+		expect(readable).toContain("Required");
+		expect(readable).toContain("Which report to build");
+		expect(readable).toContain("Dry run");
+		expect(readable).toContain("Optional");
+		expect(readable).toContain("Yes or no. No description yet.");
+		expect(readable).not.toContain("mode: string");
+		expect(readable).not.toContain("dryRun");
+		expect(html.slice(technical)).toContain("mode: string · required");
+		expect(html.slice(technical)).toContain("dryRun: boolean");
+	});
+
 	it("links matched steps to the recorded run", () => {
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false } },

@@ -28,8 +28,17 @@ export type SkillAnatomyStepKind =
 export type SkillAnatomyStep = {
 	/** Stable within one derivation; used as a React key. */
 	id: string;
-	/** What the row is called: the literal name, or a `…`-pattern for dynamic names. */
+	/**
+	 * What the row is called: the literal name, a `…`-pattern when the code
+	 * spells part of the name, or a plain description of what the step does
+	 * when the code leaves the whole name to run time.
+	 */
 	label: string;
+	/**
+	 * The code that computes the name, when the label is a description instead
+	 * of a name. Technical detail only — never shown as the step's name.
+	 */
+	nameExpression: string | null;
 	/** The statically-known step name, or null when the name is computed at run time. */
 	name: string | null;
 	kind: SkillAnatomyStepKind;
@@ -331,7 +340,8 @@ const unescapeName = (raw: string) => raw.replace(/\\(['"\\`])/g, "$1");
  */
 function classifyName(raw: string): {
 	name: string | null;
-	label: string;
+	/** Null when the code gives nothing readable to call the step. */
+	label: string | null;
 	dynamic: boolean;
 } {
 	const arg = raw.trim();
@@ -352,18 +362,92 @@ function classifyName(raw: string): {
 		const pattern = body
 			.replace(/\$\{[^}]*\}/g, "…")
 			.replace(/\\(['"\\`])/g, "$1");
+		// A pattern needs at least one spelled-out word to be worth reading.
 		return {
 			name: null,
-			label: pattern.trim().length > 0 ? pattern : "…",
+			label: /[A-Za-z0-9]/.test(pattern) ? pattern : null,
 			dynamic: true,
 		};
 	}
-	const compact = arg.replace(/\s+/g, " ");
-	return {
-		name: null,
-		label: compact.length > 0 ? compact.slice(0, 60) : "…",
-		dynamic: true,
-	};
+	return { name: null, label: null, dynamic: true };
+}
+
+function words(identifier: string): string {
+	return identifier
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.replace(/[_\-.]+/g, " ")
+		.trim()
+		.toLowerCase();
+}
+
+const sentenceCase = (text: string) =>
+	text.length > 0 ? text[0]!.toUpperCase() + text.slice(1) : text;
+
+/** "storefront.list_orders" → "list orders in storefront". */
+function toolPhrase(call: string): string {
+	const [namespace, method] = call.split(".");
+	return `${words(method ?? call)} in ${words(namespace ?? "")}`;
+}
+
+/**
+ * A step whose name is computed at run time is called by what it does, read
+ * from the same source: the pause, the event it waits for, the tool it uses.
+ * When the source says nothing readable, the row falls back to its position.
+ */
+function purposeLabel(
+	step: Pick<
+		SkillAnatomyStep,
+		| "kind"
+		| "sleepDuration"
+		| "eventType"
+		| "toolCalls"
+		| "usesModel"
+		| "usesNetwork"
+	>,
+	index: number,
+): string {
+	if (step.kind === "sleep")
+		return step.sleepDuration && /^[\w .-]+$/.test(step.sleepDuration)
+			? `Pause for ${step.sleepDuration}`
+			: "Pause";
+	if (step.kind === "sleep_until") return "Pause until a set time";
+	if (step.kind === "wait")
+		return step.eventType
+			? `Wait for ${words(step.eventType)}`
+			: "Wait for an event";
+	if (step.toolCalls.length > 0) {
+		const more = step.toolCalls.length - 1;
+		return `${sentenceCase(toolPhrase(step.toolCalls[0]!))}${
+			more > 0 ? ` and ${more} more` : ""
+		}`;
+	}
+	if (step.usesModel) return "Ask a model";
+	if (step.usesNetwork) return "Make a network request";
+	return `Step ${index + 1}`;
+}
+
+/** A readable label for an input's field name: "dryRun" → "Dry run". */
+export function inputLabel(name: string): string {
+	return sentenceCase(words(name)) || name;
+}
+
+/** What to enter, in plain words, for a declared input type. */
+export function inputKindPhrase(type: string | null): string | null {
+	switch (type) {
+		case "string":
+			return "Text";
+		case "boolean":
+			return "Yes or no";
+		case "number":
+		case "integer":
+			return "A number";
+		case "array":
+			return "A list";
+		case "object":
+			return "A group of values";
+		default:
+			return null;
+	}
 }
 
 const stringProp = (raw: string, prop: string): string | null => {
@@ -469,11 +553,28 @@ function workflowSteps(
 				.map((arg) => arg.raw)
 				.join("\n");
 		}
+		const facts = {
+			kind: stepKind(method),
+			eventType:
+				method === "waitForEvent"
+					? stringProp(args[1]?.raw ?? "", "type")
+					: null,
+			sleepDuration:
+				method === "sleep" && args[1]
+					? (/^(['"])(.*?)\1$/s.exec(args[1].raw.trim())?.[2] ??
+						args[1].raw.trim().slice(0, 40))
+					: null,
+			...innerCalls(body),
+		};
 		steps.push({
 			id: `s${steps.length}`,
-			label: nameInfo.label,
+			label: nameInfo.label ?? purposeLabel(facts, steps.length),
+			nameExpression:
+				nameInfo.label === null
+					? args[0]!.raw.trim().replace(/\s+/g, " ").slice(0, 80)
+					: null,
 			name: nameInfo.name,
-			kind: stepKind(method),
+			...facts,
 			sourcePath,
 			line: lineOf(source, match.index),
 			dynamicName: nameInfo.dynamic,
@@ -487,19 +588,9 @@ function workflowSteps(
 					? stringProp(args[1]?.raw ?? "", "timeout")
 					: null,
 			retryLimit: config ? retryLimit(config) : null,
-			eventType:
-				method === "waitForEvent"
-					? stringProp(args[1]?.raw ?? "", "type")
-					: null,
-			sleepDuration:
-				method === "sleep" && args[1]
-					? (/^(['"])(.*?)\1$/s.exec(args[1].raw.trim())?.[2] ??
-						args[1].raw.trim().slice(0, 40))
-					: null,
 			sensitiveOutput: config
 				? /sensitive\s*:\s*['"]output['"]/.test(config)
 				: false,
-			...innerCalls(body),
 			detail: null,
 		});
 	}
@@ -536,6 +627,7 @@ function instructionSteps(content: string): SkillAnatomyStep[] {
 	return outline.map((item, index) => ({
 		id: `s${index}`,
 		label: cleanInline(item.text).slice(0, 90) || `Step ${index + 1}`,
+		nameExpression: null,
 		name: null,
 		kind: "instruction" as const,
 		sourcePath: SKILL_DOC_PATH,
@@ -617,7 +709,7 @@ export function deriveSkillAnatomy(
 			);
 		if (foundDynamic)
 			notes.push(
-				"Steps marked … are named when the run executes; the same line of code can record many step names.",
+				"Steps tagged “named at run time” are named when the run executes, so one row can stand for many recorded steps. Where the code spells part of the name, … marks the part that changes; otherwise the row says what the step does.",
 			);
 		if (steps.some((step) => step.repeated))
 			notes.push("Steps inside a loop can run once per iteration.");
