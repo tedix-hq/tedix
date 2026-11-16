@@ -2068,12 +2068,17 @@ export const osWorkspacesContract = oc
 				)
 				.output(z.object({ proposal: OsCollaborationProposalSchema })),
 			accept: oc
+				.errors({
+					CONFLICT: {
+						data: z.object({ reason: z.literal("stale_base") }).optional(),
+					},
+				})
 				.route({
 					method: "POST",
 					path: "/collaboration-proposals/{proposalId}/accept",
 					summary: "Accept and freeze an agent collaboration proposal",
 					description:
-						"Freezes the preview for review with rationale and evidence. Acceptance alone is not canonical; merge is a separate explicit operation.",
+						"Freezes the preview for review with rationale and evidence. A stale app proposal is refused with reason stale_base when its changed files overlap mainline changes since its base. Disjoint file changes are rebased onto the current revision before acceptance. Acceptance alone is not canonical; merge is a separate explicit operation.",
 				})
 				.input(proposalDecisionInput)
 				.output(z.object({ proposal: OsCollaborationProposalSchema })),

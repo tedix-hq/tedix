@@ -3222,3 +3222,91 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 		});
 	});
 });
+
+describe("app proposal stale acceptance", () => {
+	it.each([true, false])(
+		"overlapping=%s: refuses stale edits or rebases disjoint files",
+		async (overlap) => {
+			const c = clients();
+			const { workspace } = await c.org1.workspaces.create({ name: "Apps" });
+			const { gadget } = await c.org1.gadgets.create({
+				workspaceId: workspace.id,
+				name: "Cards",
+			});
+			const scope = { workspaceId: workspace.id, gadgetId: gadget.id };
+			const manifest = {
+				entry: "tedix:runtime/v1",
+				capabilities: [],
+				config: { version: 1, settings: {} },
+			};
+			const files = {
+				"server.js": "export class App {}",
+				"client.js": "render(1)",
+			};
+			const base = await c.org1.gadgets.revise({ ...scope, manifest, files });
+			const { proposal } = await c.machineAgent.collaboration.create({
+				workspaceId: workspace.id,
+				documentType: "gadget",
+				documentId: gadget.id,
+				sourceKind: "agent_session",
+				sourceId: "codex:session-1",
+				content: { manifest, files: { ...files, "client.js": "render(2)" } },
+			});
+			expect(proposal.baseRevisionId).toBe(base.revision.id);
+			const newerFiles = overlap
+				? { ...files, "client.js": "render(3)" }
+				: {
+						...files,
+						"server.js": "export class App { async list() { return []; } }",
+					};
+			const mainline = await c.org1.gadgets.revise({
+				...scope,
+				expectedRevision: 1,
+				manifest,
+				files: newerFiles,
+			});
+			const accept = () =>
+				c.org1.collaboration.accept({
+					proposalId: proposal.id,
+					expectedSequence: 0,
+					rationale: "Reviewed draft",
+				});
+			if (overlap) {
+				await expect(accept()).rejects.toMatchObject({
+					code: "CONFLICT",
+					data: { reason: "stale_base" },
+					message: expect.stringContaining("stale"),
+				});
+				expect(
+					(await c.org1.collaboration.get({ proposalId: proposal.id }))
+						.proposal,
+				).toMatchObject({ status: "open", baseRevisionId: base.revision.id });
+				expect((await c.org1.gadgets.getCode(scope)).code).toMatchObject({
+					revisionId: mainline.revision.id,
+					files: newerFiles,
+				});
+			} else {
+				const accepted = await accept();
+				expect(accepted.proposal).toMatchObject({
+					status: "accepted",
+					baseRevisionId: mainline.revision.id,
+					baseRevision: 2,
+					content: {
+						manifest,
+						files: { ...newerFiles, "client.js": "render(2)" },
+					},
+				});
+				const merged = await c.org1.collaboration.merge({
+					proposalId: proposal.id,
+					expectedSequence: accepted.proposal.sequence,
+					rationale: "Apply reviewed draft",
+				});
+				expect(merged.revision.revision).toBe(3);
+				expect((await c.org1.gadgets.getCode(scope)).code).toMatchObject({
+					revisionId: merged.revision.id,
+					files: { ...newerFiles, "client.js": "render(2)" },
+				});
+			}
+		},
+	);
+});

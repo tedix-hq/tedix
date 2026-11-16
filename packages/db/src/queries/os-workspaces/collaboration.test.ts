@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import {
@@ -726,6 +726,203 @@ describe("OS collaboration proposals", () => {
 		).toEqual({
 			manifest: '{"entry":"x"}',
 			code: { files: '{"server.js":"ab","client.js":"c"}', codeLength: 3 },
+		});
+	});
+});
+
+const appManifest = {
+	entry: "tedix:runtime/v1",
+	capabilities: [],
+	config: { version: 1, settings: {} },
+};
+const appFiles = {
+	"server.js": "server-v1",
+	"client.js": "client-v1",
+	"old.txt": "old",
+};
+
+function recordAppRevision(
+	sqlite: DatabaseSync,
+	revision: number,
+	files: Record<string, string>,
+	manifest = appManifest,
+) {
+	const id = `gadget-rev-${revision}`;
+	if (revision === 1) {
+		sqlite
+			.prepare("UPDATE os_gadget_revisions SET manifest = ? WHERE id = ?")
+			.run(JSON.stringify(manifest), id);
+	} else {
+		sqlite
+			.prepare(
+				"INSERT INTO os_gadget_revisions VALUES (?, 'org-1', 'gadget-1', ?, ?, NULL, 'user', 'u-1', '2026-11-16')",
+			)
+			.run(id, revision, JSON.stringify(manifest));
+	}
+	const text = JSON.stringify(files);
+	sqlite
+		.prepare(
+			"INSERT INTO os_gadget_code_blobs VALUES ('org-1', ?, ?, ?, '2026-11-16')",
+		)
+		.run(id, text, text.length);
+	sqlite
+		.prepare(
+			"INSERT INTO os_gadget_code VALUES (?, 'org-1', 'gadget-1', '', ?, '2026-11-16', ?)",
+		)
+		.run(id, text.length, id);
+	sqlite
+		.prepare(
+			"UPDATE os_gadgets SET current_revision_id = ? WHERE id = 'gadget-1'",
+		)
+		.run(id);
+}
+
+describe("app proposal stale base", () => {
+	it.each(["changed", "added", "deleted", "reverted"])(
+		"refuses overlapping %s files without accepting or writing a revision",
+		async (change) => {
+			const { db, sqlite } = fixture();
+			recordAppRevision(sqlite, 1, appFiles);
+			const files: Record<string, string> = { ...appFiles };
+			const newer: Record<string, string> = { ...appFiles };
+			if (change === "changed" || change === "reverted") {
+				files["client.js"] = "draft";
+				newer["client.js"] = "mainline";
+			}
+			if (change === "added") {
+				files["new.txt"] = "draft";
+				newer["new.txt"] = "mainline";
+			}
+			if (change === "deleted") {
+				delete files["old.txt"];
+				newer["old.txt"] = "mainline";
+			}
+			recordAppRevision(sqlite, 2, newer);
+			if (change === "reverted") recordAppRevision(sqlite, 3, appFiles);
+			await seedProposal(db, {
+				documentType: "gadget",
+				documentId: "gadget-1",
+				baseRevisionId: "gadget-rev-1",
+				content: JSON.stringify({ manifest: appManifest, files }),
+			});
+			expect(
+				await decideOsCollaborationProposal(db, {
+					...decision,
+					expectedSequence: 0,
+					decision: "accepted",
+				}),
+			).toEqual({ reason: "stale_base" });
+			expect(await getOsCollaborationProposal(db, decision)).toMatchObject({
+				status: "open",
+				sequence: 0,
+				baseRevisionId: "gadget-rev-1",
+				content: JSON.stringify({ manifest: appManifest, files }),
+			});
+			expect(
+				sqlite.prepare("SELECT count(*) AS n FROM os_gadget_revisions").get(),
+			).toEqual({ n: change === "reverted" ? 3 : 2 });
+		},
+	);
+
+	it("rebases disjoint edits, additions and deletions and preserves newer manifest and code on merge", async () => {
+		const { db, sqlite } = fixture();
+		recordAppRevision(sqlite, 1, appFiles);
+		const newerManifest = {
+			...appManifest,
+			config: { version: 1, settings: { title: "Mainline" } },
+		};
+		recordAppRevision(
+			sqlite,
+			2,
+			{ ...appFiles, "server.js": "server-v2", "main.txt": "main" },
+			newerManifest,
+		);
+		const files = {
+			"server.js": "server-v1",
+			"client.js": "draft",
+			"new.txt": "new",
+		};
+		await seedProposal(db, {
+			documentType: "gadget",
+			documentId: "gadget-1",
+			baseRevisionId: "gadget-rev-1",
+			content: JSON.stringify({ manifest: appManifest, files }),
+		});
+		const accepted = await decideOsCollaborationProposal(db, {
+			...decision,
+			expectedSequence: 0,
+			decision: "accepted",
+		});
+		expect(accepted).toMatchObject({
+			status: "accepted",
+			baseRevisionId: "gadget-rev-2",
+			baseRevision: 2,
+		});
+		const expectedFiles = {
+			"server.js": "server-v2",
+			"client.js": "draft",
+			"main.txt": "main",
+			"new.txt": "new",
+		};
+		if (!accepted || "reason" in accepted)
+			throw new Error("Expected acceptance");
+		expect(JSON.parse(accepted.content)).toEqual({
+			manifest: newerManifest,
+			files: expectedFiles,
+		});
+		const merged = await mergeOsCollaborationProposal(db, {
+			...decision,
+			expectedSequence: 0,
+			revisionId: "gadget-rev-3",
+			mergedByKind: "user",
+			mergedById: "u-1",
+		});
+		expect(merged).toMatchObject({ ok: true, revision: { revision: 3 } });
+		if (!merged.ok) throw new Error("Expected merge");
+		expect(
+			JSON.parse((merged.revision as { manifest: string }).manifest),
+		).toEqual(newerManifest);
+		const code = sqlite
+			.prepare(
+				"SELECT b.files FROM os_gadget_code c JOIN os_gadget_code_blobs b ON b.organization_id = c.organization_id AND b.sha256 = c.files_sha256 WHERE c.revision_id = 'gadget-rev-3'",
+			)
+			.get() as { files: string };
+		expect(JSON.parse(code.files)).toEqual(expectedFiles);
+	});
+
+	it("fences a mainline advance between reading and accepting a disjoint rebase", async () => {
+		const { db, sqlite } = fixture();
+		recordAppRevision(sqlite, 1, appFiles);
+		recordAppRevision(sqlite, 2, { ...appFiles, "server.js": "server-v2" });
+		await seedProposal(db, {
+			documentType: "gadget",
+			documentId: "gadget-1",
+			baseRevisionId: "gadget-rev-1",
+			content: JSON.stringify({
+				manifest: appManifest,
+				files: { ...appFiles, "client.js": "draft" },
+			}),
+		});
+		const update = db.update.bind(db);
+		const race = vi.spyOn(db, "update").mockImplementationOnce((...args) => {
+			recordAppRevision(sqlite, 3, {
+				...appFiles,
+				"server.js": "server-v2",
+				"client.js": "racing",
+			});
+			return update(...args);
+		});
+		expect(
+			await decideOsCollaborationProposal(db, {
+				...decision,
+				expectedSequence: 0,
+				decision: "accepted",
+			}),
+		).toEqual({ reason: "stale_base" });
+		race.mockRestore();
+		expect(await getOsCollaborationProposal(db, decision)).toMatchObject({
+			status: "open",
+			baseRevisionId: "gadget-rev-1",
 		});
 	});
 });

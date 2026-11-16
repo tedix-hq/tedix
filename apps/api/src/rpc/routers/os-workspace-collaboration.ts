@@ -41,6 +41,7 @@ import {
 	AUTHZ,
 	type BaseContext,
 	createError,
+	createErrorWithData,
 	ErrorCodes,
 	withAuth,
 } from "../orpc";
@@ -342,55 +343,61 @@ async function closeAppDraft(
 		);
 }
 
-function collaborationDecision(
+type CollaborationDecisionInput = Parameters<
+	Parameters<typeof authorOs.collaboration.accept.handler>[0]
+>[0]["input"];
+
+async function collaborationDecision(
+	context: BaseContext,
+	input: CollaborationDecisionInput,
 	decision: "accepted" | "rejected",
-	handler:
-		| typeof authorOs.collaboration.accept
-		| typeof authorOs.collaboration.reject,
 ) {
-	return handler.handler(async ({ input, context }) => {
-		const proposal = await requireCollaborationProposal(
-			context,
-			input.proposalId,
-		);
-		await requireAppDraftBuilder(context, proposal);
-		if (
-			decision === "rejected" &&
-			proposal.status === "rejected" &&
-			proposal.sequence === input.expectedSequence
-		) {
-			await closeAppDraft(context, proposal, false);
-			return { proposal: mapCollaborationProposal(proposal) };
-		}
-		const creator = resolveCreator(context);
-		const updated = await decideOsCollaborationProposal(queryDb(context), {
-			organizationId: proposal.organizationId,
-			proposalId: proposal.id,
-			expectedSequence: input.expectedSequence,
-			decision,
-			rationale: input.rationale,
-			evidenceRefs: JSON.stringify(input.evidenceRefs),
-			decidedByKind: creator.kind,
-			decidedById: creator.id,
-		});
-		if (!updated) {
-			throw createError(
-				ErrorCodes.CONFLICT,
-				"Proposal decision lost against a sequence or status change",
-			);
-		}
-		if (decision === "rejected") await closeAppDraft(context, updated, false);
-		return { proposal: mapCollaborationProposal(updated) };
+	const proposal = await requireCollaborationProposal(
+		context,
+		input.proposalId,
+	);
+	await requireAppDraftBuilder(context, proposal);
+	if (
+		decision === "rejected" &&
+		proposal.status === "rejected" &&
+		proposal.sequence === input.expectedSequence
+	) {
+		await closeAppDraft(context, proposal, false);
+		return { proposal: mapCollaborationProposal(proposal) };
+	}
+	const creator = resolveCreator(context);
+	const updated = await decideOsCollaborationProposal(queryDb(context), {
+		organizationId: proposal.organizationId,
+		proposalId: proposal.id,
+		expectedSequence: input.expectedSequence,
+		decision,
+		rationale: input.rationale,
+		evidenceRefs: JSON.stringify(input.evidenceRefs),
+		decidedByKind: creator.kind,
+		decidedById: creator.id,
 	});
+	if (!updated) {
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Proposal decision lost against a sequence or status change",
+		);
+	}
+	if ("reason" in updated) {
+		throw createErrorWithData(
+			ErrorCodes.CONFLICT,
+			"Proposal is stale: mainline changed overlapping files or its base is unavailable. Re-propose on the current version.",
+			{ reason: updated.reason },
+		);
+	}
+	if (decision === "rejected") await closeAppDraft(context, updated, false);
+	return { proposal: mapCollaborationProposal(updated) };
 }
 
-const collaborationAccept = collaborationDecision(
-	"accepted",
-	authorOs.collaboration.accept,
+const collaborationAccept = authorOs.collaboration.accept.handler(
+	({ context, input }) => collaborationDecision(context, input, "accepted"),
 );
-const collaborationReject = collaborationDecision(
-	"rejected",
-	authorOs.collaboration.reject,
+const collaborationReject = authorOs.collaboration.reject.handler(
+	({ context, input }) => collaborationDecision(context, input, "rejected"),
 );
 
 const collaborationMerge = authorOs.collaboration.merge.handler(

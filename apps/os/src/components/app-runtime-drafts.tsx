@@ -267,9 +267,11 @@ function AppDraftCard({
 					{title}
 				</Text>
 				<Badge variant={proposal.status === "accepted" ? "info" : "secondary"}>
-					{proposal.status === "accepted"
-						? "Approved · not applied"
-						: "Needs you"}
+					{baseMoved
+						? "Stale"
+						: proposal.status === "accepted"
+							? "Approved · not applied"
+							: "Needs you"}
 				</Badge>
 				<Text as="span" role="label" tone="secondary">
 					{APP_DRAFT_SOURCE_LABELS[proposal.sourceKind]} · from version{" "}
@@ -296,8 +298,9 @@ function AppDraftCard({
 			)}
 			{baseMoved && (
 				<Text as="p" role="label" tone="warning" className="m-0">
-					The app changed since this draft was made. Update to latest to combine
-					changes and review any conflicts before accepting.
+					The app changed since this draft was made. Accept rebases changes to
+					separate files automatically. If files overlap, ask the agent to
+					re-propose on the latest version.
 				</Text>
 			)}
 			{baseMoved && (
@@ -406,7 +409,11 @@ function AppDraftCard({
 				</Button>
 				<Button
 					size="sm"
-					disabled={busy || !!mergeBlockedReason || baseMoved}
+					disabled={
+						busy ||
+						!!mergeBlockedReason ||
+						(baseMoved && proposal.status === "accepted")
+					}
 					onClick={() => accept.mutate()}
 				>
 					{accept.isPending ? "Accepting…" : "Accept"}
