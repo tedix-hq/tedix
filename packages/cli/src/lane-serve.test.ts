@@ -23,6 +23,7 @@ import {
 	cleanupLaneWorktree,
 	installLaneDependencies,
 	laneFailureSignature,
+	laneLandingBrief,
 	provisionLaneWorktree,
 	landedLaneCommits,
 	mergeDispatcherReceipts,
@@ -3097,6 +3098,172 @@ describe("dispatcher admission", () => {
 		});
 		expect(f.events.some((event) => event.verb === "complete")).toBe(true);
 	});
+	// On 15 Nov 2026 three runs of one task ended "TypeError: undefined is not
+	// an object (evaluating 't.workItemId')": each cited the earlier commit
+	// that had fixed it and declared no result, and the custody check read the
+	// missing declaration.
+	it("settles a run that cites an earlier commit without declaring a result", async () => {
+		const { repo, git } = gitFixture(true);
+		const originalSession = "codex:original-session";
+		git([
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"--allow-empty",
+			"-m",
+			`Fix\n\nWork-Item: ${item().id}\nAgent-Session: ${originalSession}`,
+		]);
+		const sha = git(["rev-parse", "HEAD"]);
+		git(["push", "origin", "main"]);
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		f.control.declareCompleted = false;
+		f.control.finalMessage = `The fix is already on origin/main as ${sha}.`;
+		f.deps.baseCommit = () => sha;
+		f.deps.landedCommits = (_repo, base, message, deps, recovery) =>
+			landedLaneCommits(repo, base, message, deps, recovery);
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		const saved = JSON.parse(
+			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+		);
+		f.control.history.data = [
+			{
+				id: saved.attemptId,
+				workItemId: item().id,
+				externalSessionKey: saved.session,
+				outcome: null,
+				expiresAt: new Date(Date.now() + 300000).toISOString(),
+				metadata: { dispatchVersion: 2 },
+			},
+			{
+				id: "original-attempt",
+				workItemId: item().id,
+				externalSessionKey: originalSession,
+				outcome: "succeeded",
+				admissionId: "original-admission",
+				startedAt: new Date(Date.now() - 60000).toISOString(),
+				expiresAt: new Date(Date.now() + 60000).toISOString(),
+				finishedAt: new Date(Date.now() + 60000).toISOString(),
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		f.releases[0]!();
+		await dispatcher.drain();
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--note") + 1]).not.toContain(
+			"TypeError",
+		);
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+		expect(settle.args).toContain(sha);
+		expect(settle.input?.metadata).toMatchObject({
+			laneResult: { outcome: "completed", workItemId: item().id },
+			recoveredCommits: [{ commitSha: sha, attemptId: "original-attempt" }],
+		});
+	});
+	// On 15 Nov 2026 runs on two tasks waited three times each on whole
+	// local test suites and never pushed; nothing on the task said why.
+	it("tells the agent how to land and records why commits stayed off main", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		const sha = "c".repeat(40);
+		f.control.unpushedCommits = [sha];
+		const reason = "The push was refused: main fails the apps/os type-check";
+		f.control.finalMessage = `Committed, not pushed.\nTEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(), outcome: "incomplete", remaining: reason })}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		expect(f.briefs[0]).toContain(
+			"run the type-check and the focused tests of what you changed, then push your commits to origin main. Do not run a whole workspace's or the whole repository's test suite locally unless this task asks for it. If the push is refused, do not wait and do not keep retrying: copy its one-sentence reason into a comment on this Work and end the run.",
+		);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const receipt = JSON.parse(
+			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+		);
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+		expect(settle.args[settle.args.indexOf("--note") + 1]).toStartWith(
+			`Result:\nUnlanded: 1 commit is not on origin/main (${sha}), kept in ${receipt.repo}. Reason: ${reason}.\n`,
+		);
+		expect(receipt.unpushedReason).toBe(`${reason}.`);
+	});
+	it("names the repository's own push command in the brief", () => {
+		const repo = mkdtempSync(join(tmpdir(), "lane-landing-"));
+		dirs.push(repo);
+		expect(laneLandingBrief(repo)).toContain(
+			"then push your commits to origin main.",
+		);
+		writeFileSync(
+			join(repo, "package.json"),
+			JSON.stringify({ scripts: { push: "bun scripts/dev/push-queue.ts" } }),
+		);
+		writeFileSync(join(repo, "bun.lock"), "");
+		expect(laneLandingBrief(repo)).toContain(
+			"then run `bun run push`, which runs the pre-push checks and puts your commits on main. Do not run a whole workspace's",
+		);
+	});
+	// On 15 Nov 2026 a run's proof reads waited five minutes behind the
+	// runner's other calls. Nothing renewed the lease meanwhile, so the server
+	// recorded the run as stopped and took its task off the ready list.
+	it("keeps renewing the lease while settlement collects proof", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		f.control.commits = ["a".repeat(40)];
+		const renewals = new Map<unknown, () => void>();
+		const intervals = spyOn(globalThis, "setInterval").mockImplementation(((
+			callback: () => void,
+			ms: number,
+		) => {
+			const handle = setTimeout(() => {}, 60_000);
+			if (ms === 60_000) renewals.set(handle, callback);
+			return handle;
+		}) as typeof setInterval);
+		const cleared = spyOn(globalThis, "clearInterval").mockImplementation(((
+			handle: ReturnType<typeof setTimeout>,
+		) => {
+			renewals.delete(handle);
+			clearTimeout(handle);
+		}) as typeof clearInterval);
+		let proofStarted = false;
+		let releaseProof!: () => void;
+		f.deps.landedCommits = async () => {
+			proofStarted = true;
+			await new Promise<void>((resolve) => {
+				releaseProof = resolve;
+			});
+			return f.control.commits;
+		};
+		const dispatcher = f.restart();
+		try {
+			await dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			await until(() => proofStarted);
+			// The run's own renewal ended with its child; one covers the proof.
+			expect(renewals.size).toBe(1);
+			const before = f.events.filter((e) => e.verb === "heartbeat").length;
+			for (const renew of renewals.values()) renew();
+			await until(
+				() => f.events.filter((e) => e.verb === "heartbeat").length > before,
+			);
+			expect(f.events.some((event) => event.verb === "settle")).toBe(false);
+			releaseProof();
+			await dispatcher.drain();
+			expect(renewals.size).toBe(0);
+			const verbs = f.events.map((event) => event.verb);
+			expect(verbs.lastIndexOf("heartbeat")).toBeLessThan(
+				verbs.indexOf("settle"),
+			);
+		} finally {
+			releaseProof?.();
+			intervals.mockRestore();
+			cleared.mockRestore();
+		}
+	});
 	it("fails an undeclared result that left no Attempt evidence", async () => {
 		const f = fixture();
 		f.items.splice(1);
@@ -3578,6 +3745,7 @@ describe("dispatcher admission", () => {
 				repo,
 				baseCommit: "b".repeat(40),
 				unpushedCommits: [sha],
+				unpushedReason: "The push was refused: a pre-push check timed out.",
 			}),
 		);
 		control.history.data = [
@@ -3598,10 +3766,11 @@ describe("dispatcher admission", () => {
 		expect(held).toMatchObject({
 			repo,
 			unpushedCommits: [sha],
+			unpushedReason: "The push was refused: a pre-push check timed out.",
 			retainedAttemptId: "verdict-attempt",
 		});
 		expect(held.note).toContain(
-			`Finished commits that are not on origin/main stay in ${repo}: ${sha}.`,
+			`Finished commits that are not on origin/main stay in ${repo}: ${sha}. Why they were not pushed: The push was refused: a pre-push check timed out. The next run`,
 		);
 		expect(events.find((e) => e.verb === "comment")?.args.join(" ")).toContain(
 			sha,
