@@ -75,6 +75,17 @@ for (const phone of [
 		await page.waitForFunction(() =>
 			document.querySelector("[data-app-runtime-frame][data-presenting]"),
 		);
+		await page.waitForFunction(({ width, height }) => {
+			const iframe = document.querySelector(
+				"[data-app-runtime-frame][data-presenting] iframe",
+			);
+			const box = iframe?.getBoundingClientRect();
+			return (
+				box &&
+				Math.round(box.width) === width &&
+				Math.round(box.height) === height
+			);
+		}, phone);
 		const shown = await coversScreen();
 		assert.deepEqual(
 			shown,
@@ -87,6 +98,9 @@ for (const phone of [
 			phone.width,
 			`${label}: slide width`,
 		);
+		// Layout can settle after the controls' idle timeout. A real tap outside
+		// the centered slide wakes them without advancing the presentation.
+		await presenter.tap({ position: { x: 4, y: 4 } });
 		await frame.locator("#next").tap();
 		assert.equal(await frame.locator("#position").textContent(), "2 / 2");
 		if (shots) await page.screenshot({ path: `${shots}/${label}-present.png` });

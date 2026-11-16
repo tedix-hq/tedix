@@ -168,8 +168,12 @@ try {
 		expected[at - 2]![1] = "Far B";
 		expected[2]![4] = `Wide B ${at}`;
 		await settle(expected, "every new cell is where it was typed");
-		await shows(b, at, 0, "Far A");
-		await shows(a, 2, 4, `Wide B ${at}`);
+		await Promise.all([
+			shows(a, at - 2, 1, "Far B"),
+			shows(a, 2, 4, `Wide B ${at}`),
+			shows(b, at, 0, "Far A"),
+			shows(b, 1, 3, `Wide A ${at}`),
+		]);
 		assert.equal(await question(a).count(), 0, "A was not asked");
 		assert.equal(await question(b).count(), 0, "B was not asked");
 		assert.equal(
