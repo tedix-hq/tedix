@@ -201,8 +201,6 @@ export const ImportCatalogSnapshotOutputSchema = z.strictObject({
 	syncLogId: z.uuid(),
 	workflowInstanceId: z.string(),
 	snapshotKey: z.string(),
-	capturedSourceCount: z.number().int(),
-	listingsCount: z.number().int(),
 });
 export type CatalogSnapshotItem = z.infer<typeof CatalogSnapshotItemSchema>;
 export type CatalogSnapshotManifest = z.infer<
