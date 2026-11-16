@@ -3,6 +3,24 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.20 — 2026-11-16
+
+### Patch Changes
+
+- 4ba27ff: Epics have a new kind, `delivery`, for a feature or another result due by a date. Pass `"kind":"delivery"` to `tedix work case-create`; `tedix work --help` now lists every epic kind. Existing epics keep their kind.
+- a629a18: Work commands and background runners keep working when Tedix Cloud is newer than the installed CLI. The CLI now checks each call against the schema the server publishes for the tool instead of refusing with "Native Work schema is stale" whenever that schema differs from the copy built into the CLI. If the server rejects a field the CLI sends, or requires one it does not send, the error names the field and suggests running `tedix update`.
+- 76e5603: Background runners (`tedix lane serve`) free disk they could not free before, and keep track of finished commits that did not reach main.
+
+  - A run folder whose checkout was already removed is archived. Before, the runner asked Git to read the missing checkout on every pass and logged `git cannot read the checkout` for it forever. The registration a removed checkout left behind is released, so the next run gets the same path instead of a `repo-2` copy.
+  - When the runner is over its disk cap, it now also removes checkouts that an earlier try of the same task left behind, and checkouts the ordinary cleanup had refused. Their commits and uncommitted files are saved first under `refs/lane-evicted/<run>/<checkout>`. A leftover folder that Git no longer knows is saved the same way before it is deleted.
+  - The reason `git cannot read the checkout` now includes what Git reported.
+  - When a run commits a change but cannot push it, the runner keeps the checkout and its commit list on record through later holds and failed starts. The hold on the task names those commits and where they are. The next run of the task is handed that checkout, or the Git ref that saved it. Before, a held task forgot the checkout, and the next run started from a clean copy of main.
+
+- 38ce78f: Background runners (`tedix lane serve`) no longer park a task silently. When a runner stops starting a task until someone changes it (three failed runs, a result already recorded for that version, or a finished run that Tedix refused to complete), it now records the hold on the task with a one-line reason and sends one request to the task's accountable owner. Tedix shows the task under Stuck on the Work page and stops offering it to runners; editing the task makes it ready again. Tasks that were already parked before this release are recorded the same way, a few per pass.
+- f93d938: Background runners (`tedix lane serve`) accept a new result, `landed_unverified`, for a change that is on main but whose result the agent could not confirm (a failed check, or a deploy or production it cannot read). The run counts as succeeded with its commits and the task is not started again. The runner records a hold on the task and sends its owner one request to check the result; the owner completes the task, or edits it to have an agent work on it again. Before, agents reported such a run as a wait and the runner ran the task again every six hours.
+- 802cbd8: Work, Deck and Feed reads no longer fail when Tedix Cloud returns a field this CLI version does not know yet. The CLI ignores the new field and still checks every field it reads, so `tedix work list`, `checkpoint`, `attempts`, `evidence`, `events`, the interaction inbox, agent-turn triage and background runners (`tedix lane serve`) keep working between CLI releases. If the server stops sending a field the CLI needs, or changes its type, the error now names that field and suggests running `tedix update`.
+- eba5eaf: A task can now wait for a date. `tedix work not-before <id> <time|clear>` sets or removes a task's start date (for example `2026-12-01`, UTC); Tedix does not offer the task to a runner before then and `tedix work readiness <id>` reports `not_before` with the date. An agent that finds nothing can be done before a known date ends with `outcome: "deferred"` and `notBefore`; the background runner (`tedix lane serve`) then sets that start date on the task and comments why, so no other runner starts it early. Before, such a task was started again and each run found nothing to do.
+
 ## 0.21.19 — 2026-11-15
 
 ### Patch Changes
