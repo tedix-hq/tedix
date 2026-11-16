@@ -9,6 +9,7 @@ import {
 	checkCmsRestoreWriteAdmission,
 	closeCmsRestoreFence,
 	countCmsRestorePermitsForSite,
+	deleteStaleCmsRestorePermits,
 	confirmCmsCaptureCronPause,
 	enterCmsProvisioningPermit,
 	enterCmsRestorePermit,
@@ -89,6 +90,31 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
+	it("sweeps day-old orphan permits in bounded batches and keeps live ones", async () => {
+		const { db, sqlite } = fixture();
+		expect(await enterCmsRestorePermit(db, { ...one, permitId: "live" })).toBe(
+			true,
+		);
+		sqlite.exec(`
+			INSERT INTO cms_restore_permits (id, site_id, slug, kind, entered_at) VALUES
+				('orphan-1', 'site-1', 'one', 'outer', datetime('now', '-2 days')),
+				('orphan-2', 'site-1', 'one', 'nested', datetime('now', '-30 hours')),
+				('orphan-3', 'site-2', 'two', 'scheduled', datetime('now', '-3 days')),
+				('recent', 'site-2', 'two', 'nested', datetime('now', '-2 hours'));
+		`);
+		const sweep = () =>
+			deleteStaleCmsRestorePermits(db, { olderThanSeconds: 86_400, limit: 2 });
+		expect(await sweep()).toBe(2);
+		expect(await sweep()).toBe(1);
+		expect(await sweep()).toBe(0);
+		expect(
+			sqlite
+				.prepare("SELECT id FROM cms_restore_permits ORDER BY id")
+				.all()
+				.map((row) => row.id),
+		).toEqual(["live", "recent"]);
+	});
+
 	it("checks write admission independently of an existing permit and rejects stale epochs after release", async () => {
 		const { db, sqlite } = fixture();
 		const writer = { ...one, permitId: "cached" };

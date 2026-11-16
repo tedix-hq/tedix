@@ -24,6 +24,8 @@ describe("CMS custom hostname routing", () => {
 	it("does not serve a removed hostname from an isolate cache", async () => {
 		mocks.getSiteByHostname
 			.mockResolvedValueOnce({ slug: "alpha" })
+			.mockResolvedValueOnce({ slug: "alpha" })
+			.mockResolvedValueOnce({ slug: "alpha" })
 			.mockResolvedValueOnce(null);
 		const env = {
 			ENVIRONMENT: "production",
@@ -31,12 +33,38 @@ describe("CMS custom hostname routing", () => {
 		} as never;
 		const request = new Request("https://blog.example.com/");
 		const first = await cmsRuntime.fetch(request, env, {} as never);
-		// The first request resolved the hostname, then stopped at missing test
-		// provider bindings before loading the tenant bundle.
+		// Each of the three attempts resolved the hostname, then stopped at
+		// missing test provider bindings before loading the tenant bundle.
 		expect(first.status).toBe(503);
 		const removed = await cmsRuntime.fetch(request, env, {} as never);
 		expect(removed.status).toBe(404);
+		expect(mocks.getSiteByHostname).toHaveBeenCalledTimes(4);
+	});
+
+	it("retries a failed site lookup instead of answering 503", async () => {
+		mocks.getSiteByHostname
+			.mockRejectedValueOnce(new Error("D1_ERROR: Network connection lost"))
+			.mockResolvedValueOnce(null);
+		const response = await cmsRuntime.fetch(
+			new Request("https://blog.example.com/posts"),
+			{ ENVIRONMENT: "production", PLATFORM_DB: {} } as never,
+			{} as never,
+		);
+		expect(response.status).toBe(404);
 		expect(mocks.getSiteByHostname).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not replay a failed write", async () => {
+		mocks.getSiteByHostname.mockRejectedValueOnce(
+			new Error("D1_ERROR: Network connection lost"),
+		);
+		const response = await cmsRuntime.fetch(
+			new Request("https://blog.example.com/contact", { method: "POST" }),
+			{ ENVIRONMENT: "production", PLATFORM_DB: {} } as never,
+			{} as never,
+		);
+		expect(response.status).toBe(503);
+		expect(mocks.getSiteByHostname).toHaveBeenCalledTimes(1);
 	});
 
 	it("redirects a verified www companion to its current apex with path and query", async () => {
