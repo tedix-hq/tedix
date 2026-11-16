@@ -30,7 +30,7 @@ License: MIT (`apps/cms/templates/blog/LICENSE`)
 
 ## emdash-cloudflare-collection-deletion-guard
 
-Includes a patch to @emdash-cms/cloudflare 1.4.0 that guards collection deletion and widens the Kumo peer range, Copyright 2026 Cloudflare Inc., under the MIT License.
+Includes a patch to @emdash-cms/cloudflare 1.5.0 that guards collection deletion and widens the Kumo peer range, Copyright 2026 Cloudflare Inc., under the MIT License.
 
 License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 
