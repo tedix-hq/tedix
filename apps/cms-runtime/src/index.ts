@@ -2074,8 +2074,10 @@ async function fetchCmsSite(
 	}
 }
 
-/** Public GET and HEAD attempts before a visitor sees the restore 503. */
-const PUBLIC_SERVE_ATTEMPTS = 3;
+/** Pauses before each retry of a bodyless public read. A platform database or
+ * permit hiccup can last a few seconds; together these ride out about 2.5 s. */
+const PUBLIC_SERVE_RETRY_DELAYS_MS = [250, 750, 1500];
+const PUBLIC_SERVE_ATTEMPTS = PUBLIC_SERVE_RETRY_DELAYS_MS.length + 1;
 
 /** Bounded error text for logs: message plus nested causes, no stack. */
 function describePublicServeError(error: unknown): string {
@@ -2218,7 +2220,9 @@ export default {
 					console.warn("[cms-runtime] public request unavailable; retrying", {
 						attempt,
 					});
-					await new Promise((resolve) => setTimeout(resolve, attempt * 150));
+					await new Promise((resolve) =>
+						setTimeout(resolve, PUBLIC_SERVE_RETRY_DELAYS_MS[attempt - 1]),
+					);
 					continue;
 				}
 				return response;
@@ -2229,7 +2233,9 @@ export default {
 						attempt,
 						detail,
 					});
-					await new Promise((resolve) => setTimeout(resolve, attempt * 150));
+					await new Promise((resolve) =>
+						setTimeout(resolve, PUBLIC_SERVE_RETRY_DELAYS_MS[attempt - 1]),
+					);
 					continue;
 				}
 				console.error("[cms-runtime] public request failed:", {
