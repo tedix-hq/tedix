@@ -156,6 +156,7 @@ const css = [
 	`.resize{position:absolute;right:-1px;top:0;width:7px;height:100%;cursor:col-resize;z-index:1}.resize:hover,.resize.on{background:color-mix(in srgb,var(--primary) 55%,transparent)}`,
 	// Notices and prompts float over the grid instead of pushing it down.
 	`.overlay{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:20;display:flex;flex-direction:column;gap:6px;align-items:center;width:max-content;max-width:calc(100% - 24px);pointer-events:none}.overlay>*{pointer-events:auto}`,
+	`.find{display:flex;gap:6px;align-items:center;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.find input{width:min(240px,50vw)}#find-count{min-width:60px;color:var(--muted);font-variant-numeric:tabular-nums}.fill-grip{position:absolute;right:0;bottom:0;z-index:4;width:7px;height:7px;background:var(--primary);border:1px solid var(--bg);cursor:crosshair;touch-action:none}td.fill-target{box-shadow:inset 0 0 0 1px var(--primary)}`,
 	`#updates,.command{display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:100%;padding:6px 8px 6px 12px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent);animation:drop .14s var(--ease)}#updates:empty{display:none}`,
 	`#updates button,.command button{height:26px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);cursor:pointer;transition:background-color .12s var(--ease),transform .12s var(--ease)}#updates button:hover,.command button:hover{background:var(--hover)}#updates button:active,.command button:active{transform:scale(.97)}`,
 	`#updates button.primary,.command button.primary{background:var(--primary);border-color:transparent;color:var(--on-primary)}.command input{height:26px;width:180px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}`,
@@ -182,6 +183,9 @@ const SHORTCUTS: [string, string][] = [
 	["Ctrl/⌘ Z, Shift Z", "Undo and redo"],
 	["Ctrl/⌘ B, I, U", "Bold, italic and underline"],
 	["Ctrl/⌘ D, R", "Fill down and fill right"],
+	["Drag the corner square", "Fill the selection down or right"],
+	["Ctrl/⌘ F", "Find in the sheet; Enter for the next match"],
+	["Double-click a column edge", "Fit the column to its contents"],
 	["Delete", "Clear the selected cells"],
 	["Ctrl/⌘ S", "Save now (changes also save on their own)"],
 	["Right-click", "More actions for cells, headings and tabs"],
@@ -224,7 +228,7 @@ export async function mountSheetClient(
 	root.innerHTML = `<h1 class="sr">Sheet</h1>
 <div class="bar"><div class="toolbar" role="toolbar" aria-label="Sheet tools"><span class="group" data-priority="1">${iconButton('id="undo"', "Undo (Ctrl/⌘ Z)", "undo")}${iconButton('id="redo"', "Redo (Ctrl/⌘ Shift Z)", "redo")}</span><span class="group" data-priority="1">${formatButtons}</span><span class="group" data-priority="3"><input id="font-size" title="Font size" aria-label="Font size" type="number" min="6" max="96" value="13">${colorButton("text-color", "Text color", "textColor", "#202020")}${colorButton("fill-color", "Fill color", "fillColor", "#ffffff")}</span><span class="group" data-priority="4"><span class="hidden-field" inert><select id="align" aria-label="Alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></span>${iconButton('data-align="left"', "Align left", "alignLeft")}${iconButton('data-align="center"', "Align center", "alignCenter")}${iconButton('data-align="right"', "Align right", "alignRight")}${iconButton('data-format="wrap"', "Wrap text", "wrap")}</span><span class="group" data-priority="2"><select id="number-format" title="Number format" aria-label="Number format"><option value="automatic">Automatic</option><option value="number">Number</option><option value="integer">Integer</option><option value="currency">Currency</option><option value="percent">Percent</option><option value="scientific">Scientific</option><option value="date">Date</option><option value="time">Time</option><option value="datetime">Date & time</option><option value="text">Text</option></select><span class="hidden-field" inert><input id="decimals" aria-label="Decimal places" type="number" min="0" max="15" value="2"></span><button type="button" id="dec-less" class="icon text" title="Fewer decimals" aria-label="Fewer decimals">.0</button><button type="button" id="dec-more" class="icon text" title="More decimals" aria-label="More decimals">.00</button></span><span class="group" data-priority="5">${sheetButton('id="sum"', "Sum the selection", "sum")}${iconButton('id="fill-down"', "Fill down (Ctrl/⌘ D)", "fillDown")}${iconButton('id="fill-right"', "Fill right (Ctrl/⌘ R)", "fillRight")}${iconButton('id="sort-asc"', "Sort A to Z", "sortUp")}${iconButton('id="sort-desc"', "Sort Z to A", "sortDown")}</span><span class="group" data-priority="6">${iconButton('id="add-row"', "Add row", "addRow")}${iconButton('id="add-column"', "Add column", "addColumn")}${iconButton('id="clear-format"', "Clear formatting", "eraser")}${iconButton('id="clear"', "Clear cells", "clear")}</span><span class="group" data-priority="1">${sheetButton('id="more" aria-haspopup="menu"', "More actions", "more")}</span></div><div class="bar-end"><div class="status" role="status" aria-live="polite" data-state="idle"><i class="dot" aria-hidden="true"></i><span></span></div>${sheetButton('id="help" aria-haspopup="dialog"', "Keyboard shortcuts", "help")}${iconButton('id="download" aria-haspopup="menu"', "Download", "download")}</div></div>
 <div class="formula"><input id="range" aria-label="Cell or range" value="A1"><label for="formula">fx</label><input id="formula" aria-label="Formula bar" autocomplete="off" spellcheck="false"></div>
-<div class="stage"><div class="grid" tabindex="0" aria-label="Spreadsheet keyboard navigation"><table role="grid" aria-label="Sheet cells" aria-multiselectable="true"><colgroup></colgroup><thead></thead><tbody></tbody></table></div><div class="overlay"><div id="updates" role="status" aria-live="polite"></div><div class="command" hidden><label id="command-label" for="command-value"></label><input id="command-value"><button type="button" id="command-apply" class="primary">Apply</button><button type="button" id="command-cancel">Cancel</button></div></div></div>
+<div class="stage"><div class="grid" tabindex="0" aria-label="Spreadsheet keyboard navigation"><table role="grid" aria-label="Sheet cells" aria-multiselectable="true"><colgroup></colgroup><thead></thead><tbody></tbody></table></div><div class="overlay"><div class="find" role="search" hidden><input id="find-value" type="search" placeholder="Find in this sheet" aria-label="Find in sheet" autocomplete="off"><span id="find-count" role="status" aria-live="polite"></span><button type="button" id="find-previous" aria-label="Previous match">↑</button><button type="button" id="find-next" aria-label="Next match">↓</button><button type="button" id="find-close" aria-label="Close find">✕</button></div><div id="updates" role="status" aria-live="polite"></div><div class="command" hidden><label id="command-label" for="command-value"></label><input id="command-value"><button type="button" id="command-apply" class="primary">Apply</button><button type="button" id="command-cancel">Cancel</button></div></div></div>
 <div class="strip">${iconButton('id="add-sheet"', "Add sheet", "plus")}<div id="tab-buttons" role="tablist" aria-label="Sheets"></div><span class="hidden-field"><label>Sheet <select id="tabs" aria-label="Active sheet"></select></label></span><div class="stats"></div></div>`;
 	const q = <T extends HTMLElement = HTMLElement>(selector: string) =>
 		root.querySelector<T>(selector)!;
@@ -782,6 +786,98 @@ export async function mountSheetClient(
 		for (let i = 0; i < column; i++) left += columnWidth(s, i);
 		return left;
 	};
+	const fillGrip = document.createElement("span");
+	fillGrip.className = "fill-grip";
+	fillGrip.setAttribute("aria-hidden", "true");
+	fillGrip.title = "Drag to fill";
+	fillGrip.onpointerdown = (event) => {
+		if (!editable() || !draft) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const start = bounds();
+		let target: { row: number; column: number } | undefined;
+		const marked: Element[] = [];
+		fillGrip.setPointerCapture?.(event.pointerId);
+		fillGrip.onpointermove = (move) => {
+			const td = document
+				.elementFromPoint(move.clientX, move.clientY)
+				?.closest<HTMLElement>("td[data-row]");
+			if (!td) return;
+			target = {
+				row: Number(td.dataset.row),
+				column: Number(td.dataset.column),
+			};
+			for (const cell of marked.splice(0)) cell.classList.remove("fill-target");
+			const range = fillTarget(start, target);
+			for (let row = range.rowStart; row <= range.rowEnd; row++)
+				for (let col = range.columnStart; col <= range.columnEnd; col++) {
+					const cell = cellAt(row, col);
+					if (cell) {
+						cell.classList.add("fill-target");
+						marked.push(cell);
+					}
+				}
+		};
+		fillGrip.onpointerup = fillGrip.onpointercancel = (end) => {
+			fillGrip.onpointermove =
+				fillGrip.onpointerup =
+				fillGrip.onpointercancel =
+					null;
+			for (const cell of marked.splice(0)) cell.classList.remove("fill-target");
+			if (end.type !== "pointerup" || !target) return;
+			const range = fillTarget(start, target);
+			const direction = range.rowEnd > start.rowEnd ? "down" : "right";
+			if (range.rowEnd === start.rowEnd && range.columnEnd === start.columnEnd)
+				return;
+			tabBounds = undefined;
+			selection = {
+				anchor: { row: range.rowStart, column: range.columnStart },
+				focus: { row: range.rowEnd, column: range.columnEnd },
+			};
+			rangeWorkbook((w) => fillRange(w, sheet().id, range, direction));
+		};
+	};
+	/**
+	 * The range a fill-handle drag covers: the selection grown down or to the
+	 * right, whichever way the pointer went further.
+	 */
+	function fillTarget(
+		start: ReturnType<typeof bounds>,
+		to: { row: number; column: number },
+	) {
+		const down = to.row - start.rowEnd,
+			right = to.column - start.columnEnd;
+		return down >= right
+			? { ...start, rowEnd: Math.max(start.rowEnd, to.row) }
+			: { ...start, columnEnd: Math.max(start.columnEnd, to.column) };
+	}
+	/** Size a column to its widest value, as drawn. */
+	function fitColumn(col: number) {
+		if (!editable() || !draft) return;
+		const s = sheet();
+		let probe: CanvasRenderingContext2D | null = null;
+		try {
+			probe = document.createElement("canvas").getContext("2d");
+		} catch {
+			// No canvas: estimate from the number of characters.
+		}
+		if (probe) probe.font = getComputedStyle(grid).font || "13px sans-serif";
+		const measure = (text: string) =>
+			probe ? probe.measureText(text).width : text.length * 7;
+		let widest = measure(s.columns[col]?.label ?? columnLabel(col));
+		for (const row of s.rows) {
+			const cell = row?.[col];
+			if (!cell) continue;
+			const text = String(cell.value ?? cell.input ?? "");
+			widest = Math.max(widest, measure(text) * (cell.format?.bold ? 1.08 : 1));
+		}
+		const size = Math.round(Math.max(48, Math.min(600, widest + 18)));
+		if (size === columnWidth(s, col)) return;
+		workbook((w) => {
+			ensure(0, col);
+			return resizeColumn(w, sheet().id, col, size);
+		});
+	}
 	const cellAt = (row: number, column: number) => {
 		const slot = slots.get(column);
 		return slot === undefined ? undefined : rowEls.get(row)?.children[slot];
@@ -957,7 +1053,11 @@ export async function mountSheetClient(
 			const handle = document.createElement("span");
 			handle.className = "resize";
 			handle.setAttribute("aria-label", "Resize column " + letter);
-			handle.onclick = handle.ondblclick = (event) => event.stopPropagation();
+			handle.onclick = (event) => event.stopPropagation();
+			handle.ondblclick = (event) => {
+				event.stopPropagation();
+				fitColumn(col);
+			};
 			handle.onpointerdown = (event) => {
 				if (!editable()) return;
 				event.stopPropagation();
@@ -1125,6 +1225,11 @@ export async function mountSheetClient(
 			activeCell = next;
 		}
 		next?.classList.add("active");
+		// The fill handle sits on the selection's bottom-right cell.
+		const corner = editable() ? cellAt(b.rowEnd, b.columnEnd) : undefined;
+		if (corner) {
+			if (fillGrip.parentElement !== corner) corner.append(fillGrip);
+		} else fillGrip.remove();
 		shownBounds = { ...b };
 		shownWhole = whole;
 	}
@@ -2191,10 +2296,86 @@ export async function mountSheetClient(
 		ArrowLeft: { row: 0, column: -1 },
 		ArrowRight: { row: 0, column: 1 },
 	};
+	// ---- Find: searches the sheet's data, not just the rows drawn ----
+	const findBar = q(".find"),
+		findInput = q<HTMLInputElement>("#find-value"),
+		findCount = q("#find-count");
+	let matches: Array<{ sheet: string; row: number; column: number }> = [],
+		matchAt = -1;
+	function search() {
+		const query = findInput.value.trim().toLowerCase();
+		matches = [];
+		if (query && draft?.workbook) {
+			// The tab in view first, then the others in order.
+			const sheets = [...draft.workbook.sheets].sort(
+				(a, b) => Number(b.id === sheet().id) - Number(a.id === sheet().id),
+			);
+			for (const item of sheets)
+				item.rows.forEach((row, rowIndex) =>
+					row?.forEach((cell, column) => {
+						const text = `${cell?.value ?? ""}\u0000${cell?.input ?? ""}`;
+						if (cell && text.toLowerCase().includes(query))
+							matches.push({ sheet: item.id, row: rowIndex, column });
+					}),
+				);
+		}
+		matchAt = -1;
+		findCount.textContent = query
+			? matches.length
+				? `${matches.length} found`
+				: "No matches"
+			: "";
+	}
+	function showMatch(by: 1 | -1) {
+		if (!matches.length) return;
+		matchAt = (matchAt + by + matches.length) % matches.length;
+		const match = matches[matchAt]!;
+		if (match.sheet !== sheet().id) switchTab(match.sheet);
+		tabBounds = undefined;
+		selection = {
+			anchor: { row: match.row, column: match.column },
+			focus: { row: match.row, column: match.column },
+		};
+		const d = dimensions();
+		if (match.row >= d.rows || match.column >= d.columns) syncGrid();
+		else selectionChanged();
+		reveal();
+		findCount.textContent = `${matchAt + 1} of ${matches.length}`;
+	}
+	function openFind() {
+		findBar.hidden = false;
+		findInput.select();
+		findInput.focus();
+		search();
+	}
+	function closeFind() {
+		findBar.hidden = true;
+		matches = [];
+		grid.focus();
+	}
+	findInput.oninput = search;
+	findInput.onkeydown = (event) => {
+		event.stopPropagation();
+		if (event.key === "Enter") {
+			event.preventDefault();
+			showMatch(event.shiftKey ? -1 : 1);
+		} else if (event.key === "Escape") {
+			event.preventDefault();
+			closeFind();
+		}
+	};
+	q("#find-next").onclick = () => showMatch(1);
+	q("#find-previous").onclick = () => showMatch(-1);
+	q("#find-close").onclick = closeFind;
 	grid.onkeydown = (event) => {
 		if (event.isComposing || editing || !draft || busy || !available) return;
 		const mod = event.ctrlKey || event.metaKey,
 			key = event.key.toLowerCase();
+		if (mod && key === "f") {
+			event.preventDefault();
+			openFind();
+			return;
+		}
 		if (mod && ["s", "z", "y", "a", "b", "i", "u", "d", "r"].includes(key)) {
 			event.preventDefault();
 			if (key === "s") void save(true);
