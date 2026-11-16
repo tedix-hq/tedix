@@ -374,6 +374,7 @@ async function mount(
 	role = "owner",
 	write = true,
 	prepare?: (api: ReturnType<typeof fixture>) => void,
+	view: "view" | "edit" = "edit",
 ) {
 	document.body.innerHTML = '<div id="app"></div>';
 	const api = fixture(role, write);
@@ -383,6 +384,12 @@ async function mount(
 		api.bridge,
 	);
 	cleanup.push(() => app.destroy());
+	// Most tests edit: switch out of the view mode a presentation opens in.
+	if (view !== "view") {
+		const mode = document.querySelector<HTMLButtonElement>("#mode");
+		if (mode && !mode.hidden && mode.getAttribute("aria-pressed") !== "true")
+			mode.click();
+	}
 	return { ...api, app };
 }
 
@@ -1511,6 +1518,116 @@ describe("portable Slides canvas", () => {
 			expect(document.querySelector<HTMLElement>("#shortcuts")!.hidden).toBe(
 				true,
 			);
+		});
+	});
+	describe("layouts, view mode, selection bar and arrows", () => {
+		const saved = (api: Awaited<ReturnType<typeof mount>>) =>
+			api.result().revision.content.deck!;
+		it("opens for viewing; E switches to editing and back", async () => {
+			await mount("owner", true, undefined, "view");
+			const app = document.querySelector<HTMLElement>(".slides-app")!;
+			expect(app.dataset.mode).toBe("view");
+			clickElement("title-1");
+			expect(stageElement().classList.contains("selected")).toBe(false);
+			key(stage(), { key: "e" });
+			expect(app.dataset.mode).toBe("edit");
+			expect(button("mode").textContent).toBe("Done");
+			clickElement("title-1");
+			expect(stageElement().classList.contains("selected")).toBe(true);
+			key(stage(), { key: "e" });
+			expect(app.dataset.mode).toBe("view");
+			expect(stageElement().classList.contains("selected")).toBe(false);
+		});
+		it("adds a slide from a layout", async () => {
+			const api = await mount();
+			document
+				.querySelector<HTMLButtonElement>('[data-layout="two-column"]')!
+				.click();
+			await api.app.save();
+			const added = saved(api).slides[1]!;
+			expect(added.layout).toBe("two-column");
+			expect(added.elements.map((element) => element.text)).toContain(
+				"Column heading",
+			);
+			button("add-slide").click();
+			await api.app.save();
+			expect(saved(api).slides[2]!.layout).toBe("title-content");
+		});
+		it("shows a selection bar whose actions apply to the selection", async () => {
+			const api = await mount();
+			clickElement("title-1");
+			const bar = document.querySelector<HTMLElement>(".slides-selbar")!;
+			expect(bar.hidden).toBe(false);
+			bar
+				.querySelector<HTMLButtonElement>('[aria-label="Larger text"]')!
+				.click();
+			bar.querySelector<HTMLButtonElement>('[aria-label="Duplicate"]')!.click();
+			await api.app.save();
+			const elements = saved(api).slides[0]!.elements;
+			expect(elements[0]!.style.fontSize).toBe(48);
+			expect(elements).toHaveLength(3);
+		});
+		it("starts writing when the selected text is clicked again", async () => {
+			await mount();
+			clickElement("title-1");
+			expect(document.querySelector(".slides-inline-editor")).toBeNull();
+			clickElement("title-1");
+			const editor = document.querySelector<HTMLTextAreaElement>(
+				".slides-inline-editor",
+			)!;
+			expect(editor.value).toBe("Original title");
+			expect(editor.placeholder).toBe("Type here");
+		});
+		it("shows only the fields an element type uses", async () => {
+			await mount();
+			clickElement("artwork");
+			format();
+			expect(field("Font size")).not.toBeNull();
+			clickElement("title-1");
+			button("upload");
+			document
+				.querySelector<HTMLButtonElement>('[data-insert="divider"]')!
+				.click();
+			expect(field("Font size")).toBeNull();
+			expect(field("Color")).not.toBeNull();
+		});
+		it("drags one end of an arrow and the arrow follows", async () => {
+			const api = await mount();
+			insert("arrow");
+			fullSizeStage();
+			const end = document.querySelector<HTMLElement>(
+				'.slides-resize[data-handle="to"]',
+			)!;
+			end.dispatchEvent(
+				new PointerEvent("pointerdown", {
+					bubbles: true,
+					button: 0,
+					pointerId: 1,
+					clientX: 600,
+					clientY: 400,
+				}),
+			);
+			move(700, 500);
+			release();
+			await api.app.save();
+			const arrow = saved(api).slides[0]!.elements.at(-1)!;
+			expect(arrow.props?.to).toEqual({ x: 700, y: 500 });
+			expect(arrow.props?.from).toEqual({ x: 200, y: 400 });
+		});
+		it("zooms in and back to fit", async () => {
+			await mount();
+			const area = document.querySelector<HTMLElement>(".slides-canvas")!;
+			Object.defineProperty(area, "clientWidth", { value: 648 });
+			Object.defineProperty(area, "clientHeight", { value: 1000 });
+			button("zoom-fit").click();
+			// 600 of 1200 slide pixels: fit is 50%; the next step is 75%.
+			expect(stage().style.width).toBe("600px");
+			button("zoom-in").click();
+			expect(stage().style.width).toBe("900px");
+			expect(button("zoom-fit").textContent).toBe("75%");
+			key(stage(), { key: "0", metaKey: true });
+			expect(stage().style.width).toBe("600px");
+			expect(button("zoom-fit").textContent).toBe("Fit");
 		});
 	});
 	describe("changes someone else makes while the presentation is open", () => {

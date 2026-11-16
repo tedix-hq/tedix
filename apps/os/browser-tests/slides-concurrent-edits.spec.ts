@@ -44,6 +44,8 @@ const tabs = await startEditorTabs({
 try {
 	const a = await tabs.open();
 	const b = await tabs.open();
+	// A presentation opens for viewing: both start editing.
+	for (const tab of [a, b]) await tab.frame.locator("#mode").click();
 	type Tab = typeof a;
 	const stage = (tab: Tab, id: string) =>
 		tab.frame.locator(`.slides-stage [data-element-id="${id}"]`);
