@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { findSecretValuePattern } from "./secret-egress-scan";
+import {
+	EXEMPT_IDENTIFIER_PATTERNS,
+	findSecretValuePattern,
+} from "./secret-egress-scan";
+
+const CMS_JOB_PATTERN = EXEMPT_IDENTIFIER_PATTERNS[1];
 
 // Fakes are assembled at runtime so the repository secret scan stays quiet.
 const GITHUB_TOKEN = ["ghp", "0123456789abcdefghij0123"].join("_");
@@ -111,6 +116,36 @@ describe("findSecretValuePattern", () => {
 				{ type: "object", properties: { sourceCommit: { type: "string" } } },
 			),
 		).toBe("long opaque token");
+	});
+
+	it("allows CMS deploy job IDs only under their exact schema pattern", () => {
+		const sha = "abcdef0123".repeat(4);
+		const site = "94d7d45c-642b-41ea-93c6-efdd1162cd28";
+		const schema = {
+			type: "object",
+			properties: { jobId: { type: "string", pattern: CMS_JOB_PATTERN } },
+		};
+		for (const jobId of [`cms-${site}-e1-v11`, `cms-${site}-e1-v11-s${sha}`]) {
+			expect(findSecretValuePattern({ jobId }, schema)).toBeNull();
+			expect(findSecretValuePattern({ jobId })).toBe("long opaque token");
+			expect(
+				findSecretValuePattern(
+					{ jobId },
+					{ type: "object", properties: { jobId: { type: "string" } } },
+				),
+			).toBe("long opaque token");
+		}
+		for (const jobId of [
+			`cms-${OPAQUE_KEY}-e1-v11`,
+			`cms-${site}-e1-v11-s${OPAQUE_KEY}`,
+			`cms-${site.toUpperCase()}-e1-v11`,
+			`cms-${site}-e1-v11 ${OPAQUE_KEY}`,
+			OPAQUE_KEY,
+			GITHUB_TOKEN,
+			JWT,
+		]) {
+			expect(findSecretValuePattern({ jobId }, schema)).not.toBeNull();
+		}
 	});
 
 	describe("file uploads", () => {
