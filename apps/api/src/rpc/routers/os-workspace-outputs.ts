@@ -1206,6 +1206,20 @@ const outputsExport = authorOs.outputs.export.handler(
 						}),
 			);
 		} else if (
+			input.format === "html" &&
+			revision.content.kind === "presentation"
+		) {
+			// The same page the PDF is printed from, with every image inlined,
+			// so the file opens on its own.
+			const content = await inlineOsExportImages(revision.content, readAsset);
+			bytes = new TextEncoder().encode(
+				renderOsOutputHtml(
+					mapOsOutputRow(output),
+					{ ...revision, content },
+					organization,
+				),
+			);
+		} else if (
 			input.format === "xlsx" ||
 			input.format === "docx" ||
 			input.format === "pptx"

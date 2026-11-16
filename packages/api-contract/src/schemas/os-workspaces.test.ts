@@ -209,6 +209,7 @@ describe("portable output export formats", () => {
 			"pdf",
 			"png",
 			"pptx",
+			"html",
 		]);
 	});
 });
