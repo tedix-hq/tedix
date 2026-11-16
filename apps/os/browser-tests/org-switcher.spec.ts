@@ -4,9 +4,9 @@ import { chromium, webkit, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
 // The sidebar organization switcher with twelve organizations: one compact row
-// each, current first, CMS only where provisioned, a search field, a short
-// scrolling list, and arrow/Enter/Escape. Chromium and WebKit at 375 and
-// 1280 px, light and dark.
+// each, current first, a search field with a clear button, a short scrolling
+// list over a settings/create footer, and arrow/Enter/Escape. Chromium and
+// WebKit at 375 and 1280 px, light and dark.
 const fixture = "/browser-tests/org-switcher.html";
 const server = await startFixtureServer(fixture);
 const evidenceDir = process.env.ORG_SWITCHER_EVIDENCE_DIR;
@@ -27,8 +27,16 @@ const switches = (page: Page) =>
 
 const visibleRows = (page: Page) =>
 	page
-		.locator('[role="menu"] [data-org-row]:has([role="menuitem"])')
+		.locator('[role="menu"] [data-org-row]')
 		.evaluateAll((rows) => rows.map((row) => row.getAttribute("data-org-row")));
+
+const rowCount = (page: Page, count: number) =>
+	page.waitForFunction(
+		(expected) =>
+			document.querySelectorAll('[role="menu"] [data-org-row]').length ===
+			expected,
+		count,
+	);
 
 try {
 	for (const engine of [chromium, webkit]) {
@@ -64,10 +72,21 @@ try {
 					assert.equal(await current.count(), 1);
 					assert.match((await current.textContent()) ?? "", /Harbor Kitchen/);
 					assert.equal(
-						await current
-							.getByLabel("Current organization", { exact: true })
-							.count(),
+						await current.locator("img").count(),
 						1,
+						`${label}: the org logo renders`,
+					);
+					assert.equal(
+						await current.locator("svg").count(),
+						1,
+						`${label}: the current org has the menu's check`,
+					);
+					assert.match(
+						(await menu
+							.locator('[data-org-row="birch"] [data-entity-kind="workspace"]')
+							.textContent()) ?? "",
+						/BS/,
+						`${label}: no logo means initials`,
 					);
 					assert.equal(
 						await menu.getByText("CMS", { exact: true }).count(),
@@ -81,25 +100,58 @@ try {
 					);
 					assert.equal(
 						await menu
-							.locator('[data-org-row="lantern"] [role="menuitem"]')
+							.locator('[data-org-row="lantern"]')
 							.getAttribute("aria-disabled"),
 						"true",
 						`${label}: an org still setting up is disabled`,
 					);
 
-					// Fits the viewport, no sideways scroll, and the list scrolls.
-					// With a search field Base UI makes the popup a dialog that holds
-					// the search box and the menu list.
+					// A group label above the rows, a footer below, and nothing
+					// popping over the trigger while the menu is open.
+					await menu.getByRole("group", { name: "Organizations" }).waitFor();
+					assert.equal(
+						await menu.locator('a[href="#settings"]').textContent(),
+						"Organization settings",
+						`${label}: settings footer`,
+					);
+					assert.equal(
+						await menu.locator('a[href="#create"]').textContent(),
+						"Create organization",
+						`${label}: create footer`,
+					);
+					assert.equal(
+						await page.locator('[role="tooltip"]').count(),
+						0,
+						`${label}: no tooltip over the open menu`,
+					);
+					assert.equal(
+						await trigger.evaluate(
+							(element) =>
+								element.hasAttribute("title") ||
+								element.querySelector("[title]") !== null,
+						),
+						false,
+						`${label}: no native tooltip on the trigger`,
+					);
+
+					// Fits the viewport, no sideways scroll, and the rows scroll
+					// above a footer that stays in view. With a search field Base UI
+					// makes the popup a dialog that holds the search box and the
+					// menu list.
 					const geometry = await menu.evaluate((list) => {
 						const popup = list.closest<HTMLElement>('[role="dialog"]')!;
+						const rows = list.querySelector<HTMLElement>('[role="group"]')!;
 						const rect = popup.getBoundingClientRect();
 						return {
 							left: rect.left,
 							right: rect.right,
 							bottom: rect.bottom,
 							popupOverflowX: popup.scrollWidth - popup.clientWidth,
-							listScrolls: list.scrollHeight > list.clientHeight,
-							listHeight: list.clientHeight,
+							listScrolls: rows.scrollHeight > rows.clientHeight,
+							listHeight: rows.clientHeight,
+							footerBottom: list
+								.querySelector('a[href="#create"]')!
+								.getBoundingClientRect().bottom,
 							rowsOverflowX: [
 								...popup.querySelectorAll<HTMLElement>("[data-org-row]"),
 							].some((row) => row.scrollWidth > row.clientWidth),
@@ -115,6 +167,10 @@ try {
 					assert.equal(geometry.rowsOverflowX, false, `${label}: rows fit`);
 					assert(geometry.listScrolls, `${label}: list scrolls`);
 					assert(geometry.listHeight <= 320, `${label}: short list`);
+					assert(
+						geometry.footerBottom <= geometry.bottom,
+						`${label}: footer stays inside the menu`,
+					);
 					if (evidenceDir)
 						await page.screenshot({
 							path: `${evidenceDir}/org-switcher-${engine.name()}-${width}-${theme}.png`,
@@ -138,14 +194,20 @@ try {
 							document.activeElement?.getAttribute("aria-label") ===
 							"Search organizations",
 					);
+					const fieldSize = () =>
+						search.evaluate((field) => {
+							const { left, width, height } = field.getBoundingClientRect();
+							return { left, width, height };
+						});
+					const emptyField = await fieldSize();
 					await page.keyboard.type("juni");
-					await page.waitForFunction(
-						() =>
-							document.querySelectorAll(
-								'[role="menu"] [data-org-row]:has([role="menuitem"])',
-							).length === 1,
-					);
+					await rowCount(page, 1);
 					assert.deepEqual(await visibleRows(page), ["juniper"]);
+					assert.deepEqual(
+						await fieldSize(),
+						emptyField,
+						`${label}: the clear button does not move the field`,
+					);
 					await page.keyboard.press("ArrowDown");
 					await page.keyboard.press("Enter");
 					assert.deepEqual(
@@ -153,6 +215,25 @@ try {
 						"juniper:os",
 						`${label}: Enter opens the highlighted org's OS`,
 					);
+					await menu.waitFor({ state: "hidden" });
+
+					// The clear button brings every row back.
+					await trigger.focus();
+					await page.keyboard.press("Enter");
+					await menu.waitFor();
+					await page.waitForFunction(
+						() =>
+							document.activeElement?.getAttribute("aria-label") ===
+							"Search organizations",
+					);
+					await page.keyboard.type("juni");
+					await rowCount(page, 1);
+					await page
+						.locator('[aria-label="Clear organization search"]')
+						.click();
+					await rowCount(page, 12);
+					assert.equal(await search.inputValue(), "");
+					await page.keyboard.press("Escape");
 					await menu.waitFor({ state: "hidden" });
 
 					// Arrow keys walk the rows; Escape closes back to the trigger.
