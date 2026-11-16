@@ -156,9 +156,22 @@ export const tediRuntimeEvents = sqliteTable(
 		createdAt: text("created_at")
 			.notNull()
 			.default(sql`(CURRENT_TIMESTAMP)`),
+		// Monotonic recovery marker, maintained by migration-installed triggers.
+		terminalSeen: integer("terminal_seen").notNull().default(0),
 	},
 	(table) => [
 		index("idx_tedi_runtime_events_org").on(table.organizationId),
+		index("idx_tedi_runtime_events_unfinished").on(
+			table.terminalSeen,
+			table.kind,
+			table.createdAt,
+		),
+		index("idx_tedi_runtime_events_org_unfinished").on(
+			table.organizationId,
+			table.terminalSeen,
+			table.kind,
+			table.createdAt,
+		),
 		// Standalone created_at index for global retention sweeps
 		// (`WHERE created_at < cutoff` — no tedi/org prefix). Every existing index
 		// leads with tedi_id/organization_id, so created_at is non-leading and a

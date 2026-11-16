@@ -10,8 +10,6 @@ export const STALE_FAILED_DELEGATION_REASON = "stale_failed_delegation";
 /** A failed delegation nobody retried within this window is abandoned. */
 export const STALE_FAILED_DELEGATION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-const KERNEL_DELEGATION_SOURCE = "kernelRuntime.directDelegation";
-
 export interface SweepStaleFailedDelegationsResult {
 	/** Abandoned delegation items observed in this bounded pass. */
 	observed: number;
@@ -53,7 +51,7 @@ export async function sweepStaleFailedDelegationWorkItems(
 		.where(
 			and(
 				eq(workItems.disposition, "accepted"),
-				sql`json_extract(${workItems.provenance}, '$.source') = ${KERNEL_DELEGATION_SOURCE}`,
+				sql`json_extract(${workItems.provenance}, '$.source') = 'kernelRuntime.directDelegation'`,
 				sql`COALESCE(${workItems.updatedAt}, ${workItems.createdAt}) <= ${cutoff}`,
 				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${workItems.orgId} AND active_attempt.work_item_id = ${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying'))`,
 				sql`EXISTS (SELECT 1 FROM ${workAttempts} latest_attempt WHERE latest_attempt.org_id = ${workItems.orgId} AND latest_attempt.work_item_id = ${workItems.id} AND latest_attempt.runtime_state = 'failed' AND latest_attempt.finished_at <= ${cutoff} AND latest_attempt.attempt_number = (SELECT MAX(any_attempt.attempt_number) FROM ${workAttempts} any_attempt WHERE any_attempt.org_id = ${workItems.orgId} AND any_attempt.work_item_id = ${workItems.id}))`,

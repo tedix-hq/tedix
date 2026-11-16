@@ -906,14 +906,20 @@ export async function findOrphanRuns(
 
 	const rows = await db
 		.select({
-			id: run.id,
-			tedi_id: run.tediId,
-			organization_id: run.organizationId,
+			id: sql<string>`${run.id}`.as("id"),
+			tedi_id: sql<string>`${run.tediId}`.as("tedi_id"),
+			organization_id: sql<string>`${run.organizationId}`.as("organization_id"),
 			run_id: sql<string>`${run.runId}`.as("run_id"),
-			conversation_id: run.conversationId,
-			runtime_backend: run.runtimeBackend,
-			runtime_external_id: run.runtimeExternalId,
-			created_at: run.createdAt,
+			conversation_id: sql<string | null>`${run.conversationId}`.as(
+				"conversation_id",
+			),
+			runtime_backend: sql<
+				TediRuntimeEventRow["runtimeBackend"]
+			>`${run.runtimeBackend}`.as("runtime_backend"),
+			runtime_external_id: sql<string | null>`${run.runtimeExternalId}`.as(
+				"runtime_external_id",
+			),
+			created_at: sql<string>`${run.createdAt}`.as("created_at"),
 			succeeded_lost: sql<number>`${exists(
 				db
 					.select(one)
@@ -927,10 +933,15 @@ export async function findOrphanRuns(
 					),
 			)}`.as("succeeded_lost"),
 		})
-		.from(run)
+		.from(
+			organizationId
+				? sql`${run} INDEXED BY idx_tedi_runtime_events_org_unfinished`
+				: sql`${run} INDEXED BY idx_tedi_runtime_events_unfinished`,
+		)
 		.where(
 			and(
 				sql`${run.kind} = 'run.started'`,
+				eq(run.terminalSeen, 0),
 				isNotNull(run.runId),
 				organizationId ? eq(run.organizationId, organizationId) : undefined,
 				sql`${run.createdAt} < ${orphanCutoff}`,

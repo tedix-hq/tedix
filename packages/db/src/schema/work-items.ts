@@ -302,6 +302,16 @@ export const workItems = sqliteTable(
 		index("idx_work_items_due_date").on(table.dueDate),
 		index("idx_work_items_org_created").on(table.orgId, table.createdAt),
 		index("idx_work_items_org_disposition").on(table.orgId, table.disposition),
+		index("idx_work_items_stale_delegation")
+			.on(
+				table.disposition,
+				sql`COALESCE(${table.updatedAt}, ${table.createdAt})`,
+				table.orgId,
+				table.id,
+			)
+			.where(
+				sql`json_extract(${table.provenance}, '$.source') = 'kernelRuntime.directDelegation'`,
+			),
 		index("idx_work_items_lane_executor").on(
 			table.orgId,
 			table.disposition,

@@ -210,11 +210,11 @@ describe("hot production query plans", () => {
 		expect(plan).not.toContain("USE TEMP B-TREE FOR ORDER BY");
 	});
 
-	it("seeks the orphan sweep's run.started window on the global kind index", async () => {
+	it("seeks the orphan sweep's unfinished run.started window", async () => {
 		const { db, lastPlan } = fixture();
 		await findOrphanRuns(db, { now: new Date("2026-10-23T12:00:00.000Z") });
 		expect(lastPlan()).toContain(
-			"SEARCH tedi_runtime_events USING INDEX idx_tedi_runtime_events_global_kind_created (kind=? AND created_at>? AND created_at<?)",
+			"SEARCH tedi_runtime_events USING INDEX idx_tedi_runtime_events_unfinished (terminal_seen=? AND kind=? AND created_at>? AND created_at<?)",
 		);
 	});
 

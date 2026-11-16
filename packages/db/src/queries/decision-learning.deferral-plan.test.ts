@@ -4,7 +4,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { createMigratedSqlite } from "../test/migrated-sqlite";
 import { listUnlabelledDecisionDeferrals } from "./decision-learning";
 
-it("finds deferrals through the surface index, not by scanning every learning event", async () => {
+it("seeks only personal Later choices instead of every event on the surface", async () => {
 	const sqlite = createMigratedSqlite({ foreignKeys: false });
 	const plans: string[] = [];
 	const db = createDbQueryClient(
@@ -25,7 +25,7 @@ it("finds deferrals through the surface index, not by scanning every learning ev
 	await listUnlabelledDecisionDeferrals(db as never, "2026-01-01T00:00:00Z");
 	const plan = plans.join("\n");
 	expect(plan).toMatch(
-		/SEARCH learning_interaction_events USING INDEX idx_learning_event_surface_occurred \(surface=\?/,
+		/SEARCH learning_interaction_events USING INDEX idx_learning_event_decision_choice \(surface=\? AND <expr>=\? AND scope_kind=\?\)/,
 	);
 	expect(plan).not.toMatch(/SCAN learning_interaction_events/);
 });
