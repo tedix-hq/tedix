@@ -54,6 +54,22 @@ export const VALIDATION_BUDGET_MS = 3_000;
 
 class ValidationBudgetExceeded extends Error {}
 
+/**
+ * What the Workers runtime says when a validation waits on the SDK's shared
+ * key-refresh promise after the request that started it has ended. Newer
+ * runtimes reject that wait at once instead of leaving it pending; older ones
+ * refuse the I/O object. Either way the client is unusable for good and the
+ * token was never judged.
+ */
+const DEAD_REQUEST_PATTERN =
+	/created by a request that has since ended|on behalf of a different request/i;
+
+function clientBelongsToEndedRequest(error: unknown): boolean {
+	return DEAD_REQUEST_PATTERN.test(
+		error instanceof Error ? error.message : String(error),
+	);
+}
+
 function withValidationBudget<T>(promise: Promise<T>): Promise<T> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const deadline = new Promise<never>((_, reject) => {
@@ -73,9 +89,10 @@ function withValidationBudget<T>(promise: Promise<T>): Promise<T> {
  * and clears it only when the fetch settles. On Workers the fetch belongs to
  * the request that started it: if that request is cancelled, the fetch is
  * dropped, the promise never settles, and every later validation in the
- * isolate waits on it forever. A stuck client is therefore dropped and the
- * validation retried once on a new one, whose key fetch belongs to this
- * request.
+ * isolate waits on it forever, or is rejected at once on runtimes that refuse
+ * a wait on an ended request's promise. Such a client is therefore dropped and
+ * the validation retried once on a new one, whose key fetch belongs to this
+ * request. The retry runs the full check, so nothing is accepted unverified.
  */
 async function validateSessionBounded(
 	projectId: string,
@@ -90,10 +107,12 @@ async function validateSessionBounded(
 		try {
 			return await withValidationBudget(validate(client));
 		} catch (error) {
-			if (!(error instanceof ValidationBudgetExceeded)) throw error;
+			const stalled = error instanceof ValidationBudgetExceeded;
+			if (!stalled && !clientBelongsToEndedRequest(error)) throw error;
 			if (validationClients.get(key) === client) validationClients.delete(key);
 			console.warn({
 				event: "auth.validation_client_replaced",
+				reason: stalled ? "budget_exceeded" : "request_ended",
 				attempt,
 				budgetMs: VALIDATION_BUDGET_MS,
 			});
