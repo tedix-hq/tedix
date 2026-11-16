@@ -188,6 +188,111 @@ describe("mergeOutputContent: sheets", () => {
 		expect(rows[4]![1]!.input).toBe("edit");
 	});
 
+	/** What a sheet editor does to reach a cell outside the grid. */
+	function typeAt(content: Sheet, row: number, column: number, input: string) {
+		const next = structuredClone(content);
+		const target = next.workbook!.sheets[0]!;
+		while (target.columns.length <= column)
+			target.columns.push({
+				id: `column-${input}-${target.columns.length}`,
+				label: String.fromCharCode(65 + target.columns.length),
+				width: 120,
+			});
+		while (target.rows.length <= row)
+			target.rows.push(target.columns.map(() => null));
+		for (const line of target.rows)
+			while (line.length < target.columns.length) line.push(null);
+		target.rows[row]![column] = cell(input);
+		return next;
+	}
+	const inputs = (content: OsOutputContent) =>
+		(content as Sheet).workbook!.sheets[0]!.rows.map((row) =>
+			row.map((value) => value?.input ?? null),
+		);
+
+	it("keeps cells both typed below the last row where each typed them", () => {
+		const base = grid();
+		const mine = typeAt(setCell(base, 1, 1, "kept"), 8, 0, "mine");
+		const theirs = typeAt(base, 6, 2, "theirs");
+		const result = merged(mergeOutputContent(base, mine, theirs));
+		const blankRow = [null, null, null];
+		expect(inputs(result)).toEqual([
+			["a", null, null],
+			[null, "kept", null],
+			blankRow,
+			blankRow,
+			blankRow,
+			blankRow,
+			[null, null, "theirs"],
+			blankRow,
+			["mine", null, null],
+		]);
+		// The same in the other order.
+		expect(inputs(merged(mergeOutputContent(base, theirs, mine)))).toEqual(
+			inputs(result),
+		);
+	});
+
+	it("treats a column both added at one position as one column", () => {
+		const base = grid();
+		const mine = typeAt(base, 0, 4, "mine");
+		const theirs = typeAt(typeAt(base, 2, 3, "theirs"), 5, 0, "below");
+		const result = merged(mergeOutputContent(base, mine, theirs)) as Sheet;
+		const target = result.workbook!.sheets[0]!;
+		expect(target.columns.map((column) => column.label)).toEqual([
+			"A",
+			"B",
+			"C",
+			"D",
+			"E",
+		]);
+		expect(new Set(target.columns.map((column) => column.id)).size).toBe(5);
+		expect(target.columns[3]!.id).toBe(
+			theirs.workbook!.sheets[0]!.columns[3]!.id,
+		);
+		expect(inputs(result)).toEqual([
+			["a", null, null, null, "mine"],
+			[null, null, null, null, null],
+			[null, null, null, "theirs", null],
+			[null, null, null, null, null],
+			[null, null, null, null, null],
+			["below", null, null, null, null],
+		]);
+		expect(result.columns).toEqual(["A", "B", "C", "D", "E"]);
+	});
+
+	it("asks when both typed into the same new cell", () => {
+		const base = grid();
+		const mine = typeAt(base, 7, 1, "mine");
+		const theirs = typeAt(typeAt(base, 7, 1, "theirs"), 9, 0, "more");
+		expect(mergeOutputContent(base, mine, theirs).ok).toBe(false);
+		const chosen = merged(mergeOutputContent(base, mine, theirs, "mine"));
+		expect(inputs(chosen)[7]).toEqual([null, "mine", null]);
+		expect(inputs(chosen)[9]).toEqual(["more", null, null]);
+	});
+
+	it("does not line rows up by position when one side moved them", () => {
+		const base = sheet([
+			["a", "1", null],
+			["b", "2", null],
+			["c", "3", null],
+		]);
+		// Mine inserts a row in the middle; theirs types below the last row
+		// and edits the last row.
+		const mine = structuredClone(base);
+		mine.workbook!.sheets[0]!.rows.splice(1, 0, [cell("new"), null, null]);
+		const theirs = typeAt(setCell(base, 2, 2, "edit"), 4, 0, "below");
+		// The edit stays with the row it was made on.
+		expect(inputs(merged(mergeOutputContent(base, mine, theirs)))).toEqual([
+			["a", "1", null],
+			["new", null, null],
+			["b", "2", null],
+			["c", "3", "edit"],
+			[null, null, null],
+			["below", null, null],
+		]);
+	});
+
 	it("does not treat which sheet each person has open as a conflict", () => {
 		const base = grid();
 		const mine = setCell(base, 0, 1, "m");

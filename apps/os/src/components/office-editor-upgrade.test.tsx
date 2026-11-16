@@ -132,23 +132,23 @@ describe("automatic office editor upgrade", () => {
 		});
 		expect(
 			officeEditorUpgrade(manifest(["readDocument", "replaceDocument"])),
-		).toMatchObject({ kind: "document", version: 1, currentVersion: 26 });
+		).toMatchObject({ kind: "document", version: 1, currentVersion: 27 });
 		expect(
 			officeEditorUpgrade(manifest(["readSheet", "replaceSheet"])),
-		).toMatchObject({ kind: "sheet", version: 1, currentVersion: 19 });
+		).toMatchObject({ kind: "sheet", version: 1, currentVersion: 20 });
 		expect(
 			officeEditorUpgrade(
 				manifest(["readPresentation", "replacePresentation"]),
 			),
-		).toMatchObject({ kind: "presentation", version: 1, currentVersion: 17 });
+		).toMatchObject({ kind: "presentation", version: 1, currentVersion: 18 });
 		expect(
 			officeEditorUpgrade(
-				manifest(["readDocument", "replaceDocument"], { blueprintVersion: 26 }),
+				manifest(["readDocument", "replaceDocument"], { blueprintVersion: 27 }),
 			),
 		).toBeNull();
 		expect(
 			officeEditorUpgrade(
-				manifest(["readSheet", "replaceSheet"], { blueprintVersion: 19 }),
+				manifest(["readSheet", "replaceSheet"], { blueprintVersion: 20 }),
 			),
 		).toBeNull();
 		expect(officeEditorUpgrade(manifest(["customOperation"]))).toBeNull();
