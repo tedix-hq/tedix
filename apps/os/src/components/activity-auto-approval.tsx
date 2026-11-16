@@ -24,6 +24,7 @@ import {
 	CollapsibleDefaultTrigger,
 } from "@/components/kumo/collapsible";
 import { Empty } from "@/components/kumo/empty";
+import { IconFrame } from "@/components/kumo/icon-frame";
 import { Link } from "@/components/kumo/link";
 import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
@@ -108,12 +109,14 @@ function PolicyRow({
 }) {
 	return (
 		<li className="flex min-w-0 gap-3 border-b border-kumo-hairline px-4 py-3 last:border-b-0">
-			<span
+			<IconFrame
 				aria-hidden
-				className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-kumo-fill text-kumo-subtle"
+				appearance="fill"
+				size="sm"
+				className="mt-0.5 size-7"
 			>
 				{icon}
-			</span>
+			</IconFrame>
 			<div className="grid min-w-0 flex-1 gap-1.5">
 				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
 					<span className="min-w-0 font-medium text-kumo-default type-tedix-control">
@@ -234,9 +237,8 @@ function SavedRuleRow({
 					</div>
 				) : (
 					<Button
-						className="-ml-2 w-fit"
 						size="sm"
-						variant="ghost"
+						variant="link"
 						onClick={() => setConfirmDelete(true)}
 					>
 						<Trash size={14} /> Delete rule

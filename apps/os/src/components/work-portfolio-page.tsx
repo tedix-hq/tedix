@@ -33,11 +33,7 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
-import {
-	Progress,
-	ProgressIndicator,
-	ProgressTrack,
-} from "@/components/kumo/progress";
+import { Meter } from "@/components/kumo/meter";
 import { SearchInput } from "@/components/kumo/search-input";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import {
@@ -587,15 +583,13 @@ function ProjectProgress({ open, done }: { open: number; done: number }) {
 			<Text as="span" role="label" className="tabular-nums">
 				{open} open · {done} done
 			</Text>
-			<Progress
+			<Meter
 				value={percent}
-				aria-label={`${percent}% of tasks done`}
+				label={`${percent}% of tasks done`}
+				hideLabel
 				className="w-full max-w-40"
-			>
-				<ProgressTrack className="h-1">
-					<ProgressIndicator />
-				</ProgressTrack>
-			</Progress>
+				trackClassName="h-1"
+			/>
 		</span>
 	);
 }

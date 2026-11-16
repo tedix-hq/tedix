@@ -39,6 +39,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import { Empty } from "@/components/kumo/empty";
+import { IconFrame } from "@/components/kumo/icon-frame";
 import { Link } from "@/components/kumo/link";
 import {
 	PopoverContent,
@@ -159,7 +160,6 @@ export function ApprovalNotifications({
 						</div>
 						<TabsList
 							aria-label="Activity and approvals sections"
-							className="-mx-1 border-b-0"
 							variant="line"
 						>
 							<TabsTrigger className="px-2!" value="review">
@@ -317,12 +317,14 @@ function ApprovalRow({
 							name={item.tedi.name}
 						/>
 					) : (
-						<span
+						<IconFrame
 							aria-hidden
-							className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-kumo-fill text-kumo-subtle"
+							appearance="fill"
+							size="sm"
+							className="mt-0.5 size-7"
 						>
 							<Pulse size={14} />
-						</span>
+						</IconFrame>
 					)}
 					<div className="grid min-w-0 flex-1 gap-1">
 						<CollapsibleTrigger

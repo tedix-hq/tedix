@@ -827,7 +827,19 @@ describe("Work factory cursor navigation", () => {
 		act(() => paging?.reset());
 		expect(paging?.cursor).toBeUndefined();
 		expect(paging?.hasPrevious).toBe(false);
-		expect(container.textContent).toContain("First pageBackNext page");
+		expect(container.textContent).toContain("First page");
+		const control = (name: string) =>
+			container.querySelector<HTMLButtonElement>(
+				`nav[aria-label="Pages"] button[aria-label="${name}"]`,
+			);
+		expect(control("Previous page")?.disabled).toBe(true);
+		act(() => control("Next page")?.click());
+		act(() => control("Next page")?.click());
+		expect(paging?.hasPrevious).toBe(true);
+		act(() => control("Previous page")?.click());
+		expect(paging?.hasPrevious).toBe(true);
+		act(() => control("Previous page")?.click());
+		expect(paging?.hasPrevious).toBe(false);
 	});
 
 	it("puts every server cursor into its contract-derived query key", () => {
