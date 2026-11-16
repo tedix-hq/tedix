@@ -53,6 +53,24 @@ export const DecisionEffectSchema = z.discriminatedUnion("kind", [
 		executor: z.string().trim().min(1).max(40),
 		workVersion: z.number().int().positive(),
 	}),
+	// Answers to a runner that stopped starting a task. Each is fenced on the
+	// task version the runner asked about.
+	z.strictObject({
+		kind: z.literal("restart_work"),
+		workItemId: z.uuid(),
+		executor: z.enum(["codex", "claude-code", "opencode", "devin"]),
+		workVersion: z.number().int().positive(),
+	}),
+	z.strictObject({
+		kind: z.literal("cancel_work"),
+		workItemId: z.uuid(),
+		workVersion: z.number().int().positive(),
+	}),
+	z.strictObject({
+		kind: z.literal("own_work"),
+		workItemId: z.uuid(),
+		workVersion: z.number().int().positive(),
+	}),
 	z.strictObject({
 		kind: z.literal("publish_support"),
 		ticketId: z.uuid(),

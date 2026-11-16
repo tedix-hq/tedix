@@ -579,6 +579,180 @@ describe("decision card effects", () => {
 	});
 });
 
+describe("a runner's hold request", () => {
+	// The text `tedix lane serve` files; it stores no card of its own.
+	async function hold(
+		kind: "execution_hold" | "result_unverified" | "accountable_owner",
+	) {
+		const f = await fixture();
+		f.sqlite
+			.prepare(
+				`update work_items set disposition='accepted', version=4, metadata='{"executor":"claude-code","laneDispatch":{"state":"held","reason":"Three runs failed or expired on this version of the task."}}', accountable_owner_type=?, accountable_owner_id=? where id=?`,
+			)
+			.run(
+				kind === "accountable_owner" ? null : "user",
+				kind === "accountable_owner" ? null : "person",
+				work,
+			);
+		const request = await createWorkInteraction(f.db, {
+			id: crypto.randomUUID(),
+			orgId: org,
+			workItemId: work,
+			kind: "input",
+			subject: 'What should happen with "Acme contract"?',
+			prompt:
+				'Claude Code stopped working on "Acme contract". Three runs failed or expired on this version of the task.\n\nLast note from the runner: the check timed out.\n\nThe task stays accepted and no agent starts it.',
+			creator: { type: "user", id: "person" },
+			targetType: "user",
+			targetId: "person",
+			metadata: {
+				source: "lane-dispatch-blocker",
+				laneBlocker: { kind, executor: "claude-code", workVersion: 4 },
+			},
+			now: new Date().toISOString(),
+		});
+		const answer = (cardAction: string, decisionChoice = "approve") => ({
+			...f.input,
+			interactionId: request.id,
+			responseKind: "input_provided" as const,
+			body: cardAction,
+			metadata: { source: "os-decision-card", cardAction, decisionChoice },
+		});
+		const task = () =>
+			f.sqlite
+				.prepare(
+					"select disposition, version, metadata, accountable_owner_id from work_items where id=?",
+				)
+				.get(work) as {
+				disposition: string;
+				version: number;
+				metadata: string;
+				accountable_owner_id: string | null;
+			};
+		// The answer is saved after the task changed, as the router does.
+		const save = (
+			result: Awaited<ReturnType<typeof executeDecisionCardEffect>>,
+		) =>
+			respondToWorkInteraction(f.db, {
+				...result,
+				id: crypto.randomUUID(),
+				now: new Date().toISOString(),
+			});
+		return { ...f, request, answer, task, save };
+	}
+
+	it("reaches the deck as a card with answers, without storing one", async () => {
+		const f = await hold("execution_hold");
+		const { requestOutput } = await import("../rpc/routers/work-interactions");
+		const shown = DecisionEnvelopeSchema.parse(
+			requestOutput(f.request).metadata.decisionDeck,
+		);
+		expect(shown.proposal).toBe('What should happen with "Acme contract"?');
+		expect(shown.options.map((option) => option.label)).toEqual([
+			"Try again",
+			"Give it to Codex",
+			"Close the task",
+			"Later",
+		]);
+		expect(f.request.metadata).not.toHaveProperty("decisionDeck");
+		f.sqlite.close();
+	});
+
+	it("Try again lifts the hold and queues the task for the same agent", async () => {
+		const f = await hold("execution_hold");
+		const result = await executeDecisionCardEffect(
+			f.context,
+			f.answer("retry"),
+		);
+		expect(result.metadata?.decisionEffect).toMatchObject({
+			kind: "restart_work",
+			status: "succeeded",
+			state: "queued",
+		});
+		const task = f.task();
+		expect(task.version).toBe(5);
+		expect(JSON.parse(task.metadata)).toMatchObject({
+			executor: "claude-code",
+			laneDispatch: { state: "ready" },
+		});
+		const saved = await f.save(result);
+		expect(saved.resolvesRequest).toBe(true);
+		f.sqlite.close();
+	});
+
+	it("Give it to another agent reassigns the task and queues it", async () => {
+		const f = await hold("execution_hold");
+		await executeDecisionCardEffect(f.context, f.answer("hand-over"));
+		expect(JSON.parse(f.task().metadata)).toMatchObject({
+			executor: "codex",
+			laneDispatch: { state: "ready" },
+		});
+		f.sqlite.close();
+	});
+
+	it("Close the task cancels it", async () => {
+		const f = await hold("execution_hold");
+		const result = await executeDecisionCardEffect(
+			f.context,
+			f.answer("close", "reject"),
+		);
+		expect(result.metadata?.decisionEffect).toMatchObject({
+			kind: "cancel_work",
+			status: "succeeded",
+			state: "cancelled",
+		});
+		expect(f.task().disposition).toBe("cancelled");
+		await f.save(result);
+		f.sqlite.close();
+	});
+
+	it("Complete the task completes a landed change the agent could not confirm", async () => {
+		const f = await hold("result_unverified");
+		const result = await executeDecisionCardEffect(
+			f.context,
+			f.answer("complete"),
+		);
+		expect(result.metadata?.decisionEffect).toMatchObject({
+			kind: "complete_work",
+			status: "succeeded",
+		});
+		expect(f.task().disposition).toBe("completed");
+		await f.save(result);
+		f.sqlite.close();
+	});
+
+	it("Make me the owner names the person who answered", async () => {
+		const f = await hold("accountable_owner");
+		await executeDecisionCardEffect(f.context, f.answer("own"));
+		expect(f.task()).toMatchObject({
+			accountable_owner_id: "person",
+			version: 5,
+		});
+		f.sqlite.close();
+	});
+
+	it("refuses every answer once the task changed, and Later changes nothing", async () => {
+		const f = await hold("execution_hold");
+		const later = await executeDecisionCardEffect(f.context, {
+			...f.answer("later", "later"),
+			resolvesRequest: false,
+		});
+		expect(later.metadata?.decisionEffect).toBeUndefined();
+		expect(f.task().version).toBe(4);
+		f.sqlite.prepare("update work_items set version=5 where id=?").run(work);
+		for (const [action, choice] of [
+			["retry", "approve"],
+			["hand-over", "approve"],
+			["close", "reject"],
+		] as const)
+			await expect(
+				executeDecisionCardEffect(f.context, f.answer(action, choice)),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(f.task()).toMatchObject({ disposition: "accepted", version: 5 });
+		f.sqlite.close();
+	});
+});
+
 it("records the default decline without executing the proposed effect", async () => {
 	const f = await fixture();
 	const input = {

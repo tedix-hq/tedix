@@ -9,6 +9,7 @@ import { WorkInteractionDecisionCard } from "./work-interaction-decision-card";
 import { DecisionAttentionContext } from "./decision-attention-context";
 import { CardFaceContext } from "./deck-presentation-context";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
+import { laneHoldDecision } from "@tedix/api-contract/utils/lane-hold-decision";
 
 const { get, respond } = vi.hoisted(() => ({
 	get: vi.fn(() => new Promise<never>(() => {})),
@@ -232,6 +233,72 @@ it("opens the original lane ask instead of offering a misleading Yes", async () 
 		).not.toContain(label);
 	expect(host.querySelector("textarea")).toBeNull();
 	expect(host.textContent).not.toContain("Grants access and resumes testing.");
+});
+
+it("answers a runner's stopped task with one click wherever the request is opened", async () => {
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	const filed = {
+		workItemId: "44444444-4444-4444-8444-444444444444",
+		kind: "input" as const,
+		subject: 'What should happen with "Port the landing page"?',
+		prompt:
+			'Claude Code stopped working on "Port the landing page". Three runs failed or expired on this version of the task.',
+		metadata: {
+			source: "lane-dispatch-blocker",
+			laneBlocker: {
+				kind: "execution_hold",
+				executor: "claude-code",
+				workVersion: 7,
+			},
+		},
+	};
+	// The API serves the runner's plain request with its answers attached.
+	const request = {
+		...preview.request,
+		...filed,
+		metadata: { ...filed.metadata, decisionDeck: laneHoldDecision(filed) },
+	};
+	client.setQueryData(workInteractionDetailQueryOptions(request.id).queryKey, {
+		request,
+		effectiveState: "open",
+		canRespond: true,
+		canCancel: false,
+		responses: { data: [], nextCursor: null, hasMore: false },
+	});
+	respond.mockResolvedValue({ request, response: { id: "saved" } });
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<WorkInteractionDecisionCard requestId={request.id} />
+			</QueryClientProvider>,
+		),
+	);
+	expect(host.querySelector(".fd-proposer")?.textContent).toContain(
+		"Claude Code runner",
+	);
+	expect(host.querySelector("textarea")).toBeNull();
+	const buttons = [
+		...host.querySelectorAll<HTMLButtonElement>("button[data-decision-intent]"),
+	];
+	expect(
+		buttons.map(
+			(button) => button.textContent?.split(/(?<=[a-z])(?=[A-Z])/)[0],
+		),
+	).toEqual(["Try again", "Give it to Codex", "Close the task", "Later"]);
+	await act(async () => buttons[0]!.click());
+	expect(respond).toHaveBeenCalledTimes(1);
+	expect(respond.mock.calls[0]![0]).toMatchObject({
+		requestId: request.id,
+		expectedRequestVersion: 3,
+		responseKind: "input_provided",
+		resolvesRequest: true,
+		metadata: { cardAction: "retry", decisionChoice: "approve" },
+	});
 });
 
 it("keeps a third-party access subject and its original next step", async () => {

@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
+import { laneHoldDecision } from "@tedix/api-contract/utils/lane-hold-decision";
 import { DecisionEnvelopeCard } from "./decision-envelope-card";
 
 vi.mock("@/components/kumo/toast", () => ({ toast: { success: vi.fn() } }));
@@ -125,6 +126,77 @@ it("lets the owner narrow a delegation's scope sentence and sends it with Allow"
 			body: "Codex may rotate only the fictional staging key.",
 			originalBody: decision.preview.body,
 		});
+	} finally {
+		await act(async () => root.unmount());
+		host.remove();
+	}
+});
+
+it("gives a stopped task three answers and asks before closing it", async () => {
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	const decision = laneHoldDecision({
+		workItemId: "00000000-0000-4000-8000-000000000002",
+		subject: 'What should happen with "Port the landing page"?',
+		prompt:
+			'Claude Code stopped working on "Port the landing page". Three runs failed or expired on this version of the task.\n\nLast note from the runner: the browser check timed out.',
+		metadata: {
+			source: "lane-dispatch-blocker",
+			laneBlocker: {
+				kind: "execution_hold",
+				executor: "claude-code",
+				workVersion: 7,
+			},
+		},
+	})!;
+	const onDecision = vi.fn(async () => undefined);
+	const press = (label: string) =>
+		act(async () =>
+			[...document.querySelectorAll("button")]
+				.find((button) => button.textContent?.startsWith(label))!
+				.click(),
+		);
+	try {
+		await act(async () =>
+			root.render(
+				<DecisionEnvelopeCard
+					decision={decision}
+					askedBy="Claude Code runner"
+					onDecision={onDecision}
+				/>,
+			),
+		);
+		expect(host.textContent).toContain(
+			'What should happen with "Port the landing page"?',
+		);
+		expect(host.textContent).toContain(
+			"Three runs failed or expired on this version of the task.",
+		);
+		expect(host.textContent).toContain("the browser check timed out");
+		for (const label of ["Try again", "Give it to Codex", "Close the task"])
+			expect(
+				[...host.querySelectorAll("button")].some((button) =>
+					button.textContent?.startsWith(label),
+				),
+			).toBe(true);
+		// No free-text answer: nobody reads one.
+		expect(host.querySelector("textarea")).toBeNull();
+		await press("Close the task");
+		expect(onDecision).not.toHaveBeenCalled();
+		expect(
+			document.querySelector('[role="alertdialog"]')?.textContent,
+		).toContain("Cancels the task.");
+		await press("Go back");
+		expect(onDecision).not.toHaveBeenCalled();
+		await press("Try again");
+		expect(onDecision).toHaveBeenCalledTimes(1);
+		const [feedback, choice] = onDecision.mock.calls[0] as unknown as [
+			{ action: string },
+			string,
+		];
+		expect(feedback.action).toBe("retry");
+		expect(choice).toBe("approve");
 	} finally {
 		await act(async () => root.unmount());
 		host.remove();

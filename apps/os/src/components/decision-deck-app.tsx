@@ -59,7 +59,7 @@ import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
-import { decisionFeedbackMetadata } from "@/lib/decision-deck";
+import { envelopeAnswer } from "@/lib/decision-deck";
 import { DeckCardAgentContext } from "@/lib/deck-card-agent";
 import { WorkApprovalDecisionCard } from "@/components/work-approval-decision-card";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
@@ -693,28 +693,13 @@ function DecisionDeckContent({
 															const request = selected.row!.request;
 															const result = await respondConfirmed(
 																osApi.workInteractions,
-																{
-																	requestId: request.id,
-																	expectedRequestVersion: request.version,
-																	responseKind: "answer",
-																	body:
-																		choice === "change"
-																			? feedback.body
-																			: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
-																	resolvesRequest: choice !== "later",
-																	...(feedback.reviewedChangesThrough
-																		? {
-																				reviewedChangesThrough:
-																					feedback.reviewedChangesThrough,
-																			}
-																		: {}),
-																	metadata: decisionFeedbackMetadata(
-																		feedback,
-																		current.classId,
-																		choice,
-																		elapsedMs,
-																	),
-																},
+																envelopeAnswer(
+																	request,
+																	current,
+																	feedback,
+																	choice,
+																	elapsedMs,
+																),
 															);
 															// Outside the decide queue nothing removes the card
 															// optimistically, so read the queue again.

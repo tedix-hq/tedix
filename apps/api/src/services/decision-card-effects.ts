@@ -15,6 +15,7 @@ import {
 	respondToWorkInteraction,
 	type RespondWorkInteractionParams,
 } from "@tedix/db/queries/work-items/interactions";
+import { laneHoldDecision } from "@tedix/api-contract/utils/lane-hold-decision";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
 import {
 	recheckDecisionAction,
@@ -236,6 +237,70 @@ async function dispatchEffect(
 				state: "delegated",
 			};
 		}
+		case "restart_work":
+		case "cancel_work":
+		case "own_work": {
+			const orgId = requireOrgId(context);
+			const card = await getWorkInteraction(context.db, {
+				orgId,
+				interactionId: requestId,
+			});
+			const work = await getWorkItemById(context.db, effect.workItemId, orgId);
+			if (!work || card?.workItemId !== work.id)
+				throw createError(ErrorCodes.NOT_FOUND, "The task is unavailable");
+			if (
+				work.disposition !== "accepted" ||
+				work.version !== effect.workVersion
+			)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"The task changed since this card was made; open the task to see where it stands",
+				);
+			// Each procedure applies the task's own owner, admin and steward rules.
+			const { workItemsContractRouter } =
+				await import("../rpc/routers/work-items");
+			const row =
+				effect.kind === "cancel_work"
+					? await call(
+							workItemsContractRouter.cancel,
+							{
+								id: work.id,
+								reason: `Closed from the card “${proposal}”.`.slice(0, 2000),
+							},
+							{ context },
+						)
+					: await call(
+							workItemsContractRouter.updateSpecification,
+							{
+								id: work.id,
+								expectedWorkItemVersion: work.version,
+								...(effect.kind === "own_work"
+									? {
+											accountableOwnerType: "user" as const,
+											accountableOwnerId: ownerId,
+										}
+									: {
+											// A changed agent queues the task for it; the same
+											// agent only needs the runner's hold lifted.
+											...(effect.executor === work.metadata?.executor
+												? {}
+												: { executor: effect.executor }),
+											laneDispatch: { state: "ready" as const },
+										}),
+							},
+							{ context },
+						);
+			return {
+				kind: effect.kind,
+				targetId: work.id,
+				state:
+					effect.kind === "own_work"
+						? "owned"
+						: effect.kind === "restart_work"
+							? "queued"
+							: row.disposition,
+			};
+		}
 		case "publish_docs": {
 			const { docsContractRouter } = await import("../rpc/routers/docs");
 			const published = await call(
@@ -301,8 +366,10 @@ export async function executeDecisionCardEffect(
 		orgId: input.orgId,
 		interactionId: input.interactionId,
 	});
+	// A runner's hold request is plain text; its answers are derived, not stored.
 	const parsed = DecisionEnvelopeSchema.safeParse(
-		request?.metadata.decisionDeck,
+		request?.metadata.decisionDeck ??
+			(request ? (laneHoldDecision(request) ?? undefined) : undefined),
 	);
 	if (request?.metadata.decisionDeck !== undefined && !parsed.success)
 		throw createError(
@@ -380,8 +447,13 @@ export async function executeDecisionCardEffect(
 	if (
 		!input.resolvesRequest ||
 		(option.intent !== "approve" &&
-			!(option.intent === "reject" && option.effect.kind === "file_request")) ||
-		input.responseKind !== "answer"
+			!(
+				option.intent === "reject" &&
+				(option.effect.kind === "file_request" ||
+					option.effect.kind === "cancel_work")
+			)) ||
+		input.responseKind !==
+			(request.kind === "input" ? "input_provided" : "answer")
 	)
 		throw createError(
 			ErrorCodes.BAD_REQUEST,

@@ -159,6 +159,10 @@ export function DecisionEnvelopeCard({
 					? option.intent === "delegate"
 					: option.intent === "approve",
 				description: `${option.consequence} ${decisionText("Cost:")} ${option.cost}`,
+				// Closing a task cannot be taken back, whatever the other answers do.
+				...(option.effect?.kind === "cancel_work"
+					? { confirm: `${option.consequence} ${option.cost}` }
+					: {}),
 				...(option.intent === "approve" &&
 				(decision.reversibility !== "two_way" ||
 					decision.protectedEffects.length > 0)
@@ -166,7 +170,10 @@ export function DecisionEnvelopeCard({
 							confirm: [
 								option.consequence,
 								renderCardDateText(decision.blastRadius),
-								"This saves your decision; execution still follows the originating Work's permissions.",
+								// An answer with an effect does the thing itself.
+								option.effect
+									? ""
+									: "This saves your decision; execution still follows the originating Work's permissions.",
 							]
 								.map((part) => part.trim().replace(/([^.!?])$/, "$1."))
 								.filter(Boolean)

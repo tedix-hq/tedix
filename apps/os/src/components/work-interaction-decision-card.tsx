@@ -14,7 +14,12 @@ import {
 	connectorApprovalSummary,
 	interactionCardKind,
 } from "@/lib/interaction-card-kind";
-import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
+import {
+	decisionEnvelope,
+	decisionDeadlinePassed,
+	envelopeAnswer,
+} from "@/lib/decision-deck";
+import { DecisionEnvelopeCard } from "@/components/decision-envelope-card";
 import { decisionOutcome } from "@/lib/decision-outcome";
 import { respondConfirmed } from "@/lib/respond-confirmed";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
@@ -435,6 +440,34 @@ export function WorkInteractionDecisionCard({
 			? request.metadata.originChatTitle
 			: (askedBy ??
 				(request.creatorType === "tedi" ? "Your tedi" : "Your agent")));
+	// A card whose answers do the thing offers exactly those answers wherever
+	// it is opened; a typed answer would run none of them.
+	if (
+		decision?.options.some((option) => option.effect) &&
+		effectiveState === "open" &&
+		canRespond
+	)
+		return (
+			<div className="grid min-w-0 gap-3">
+				{readNotice}
+				<DecisionEnvelopeCard
+					key={request.id}
+					decision={decision}
+					askedBy={source}
+					revisionTarget={{ requestId, version: request.version }}
+					onNext={onNext}
+					onPrevious={onPrevious}
+					onDecision={async (feedback, choice, elapsedMs) => {
+						const result = await respondConfirmed(
+							osApi.workInteractions,
+							envelopeAnswer(request, decision, feedback, choice, elapsedMs),
+						);
+						if (!optimistic) void refresh();
+						return result;
+					}}
+				/>
+			</div>
+		);
 	const draft = latestDraftOf(detail);
 	const proposal = request.kind === "handoff";
 	const plan = proposal

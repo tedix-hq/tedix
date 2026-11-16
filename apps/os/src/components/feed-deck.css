@@ -818,6 +818,28 @@
 	background: color-mix(in oklch, var(--primary) 45%, var(--fd-surface));
 	color: var(--primary-foreground);
 }
+/* Several ways to say yes: the first is the primary, the rest read as alternatives. */
+.feed-deck
+	[data-decision-actions]
+	> button[data-decision-intent="approve"]
+	~ button[data-decision-intent="approve"]:not(:disabled) {
+	background: transparent;
+	border: 1px solid var(--border);
+	color: var(--card-foreground);
+}
+.feed-deck
+	[data-decision-actions]
+	> button[data-decision-intent="approve"]
+	~ button[data-decision-intent="approve"]:hover:not(:disabled) {
+	background: var(--accent);
+}
+.feed-deck
+	[data-decision-actions]
+	> button[data-decision-intent="approve"]
+	~ button[data-decision-intent="approve"]:disabled {
+	background: var(--muted);
+	color: var(--muted-foreground);
+}
 .fd-card-body {
 	font-size: 0.9375rem;
 	line-height: 1.55;
