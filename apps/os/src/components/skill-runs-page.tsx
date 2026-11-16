@@ -297,7 +297,7 @@ function CancelStuckRun({ runId }: { runId: string }) {
 			osApi.skills.runWorkflowCancel({
 				runId,
 				confirmDestructive: true,
-				reason: "Canceled as stuck from the skill's run history in Tedix OS",
+				reason: "Stopped as stuck from the skill's run history in Tedix OS",
 			}),
 		onSettled: () =>
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.skillRuns() }),
@@ -309,29 +309,30 @@ function CancelStuckRun({ runId }: { runId: string }) {
 					<Button variant="secondary" size="sm" disabled={cancel.isPending} />
 				}
 			>
-				Cancel
+				Stop run
 			</AlertDialogTrigger>
 			<AlertDialogContent>
 				<AlertDialogHeader>
-					<AlertDialogTitle>Cancel this run?</AlertDialogTitle>
+					<AlertDialogTitle>Stop this run?</AlertDialogTitle>
 					<AlertDialogDescription>
-						The run will be asked to stop. It can take a moment to show as
-						canceled.
+						The run will be asked to stop and then shows as Canceled. That can
+						take a moment.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
-					<AlertDialogCancel>Keep running</AlertDialogCancel>
+					{/* The focus audit closes every alert dialog by its "Cancel". */}
+					<AlertDialogCancel>Cancel</AlertDialogCancel>
 					<AlertDialogAction
 						variant="destructive"
 						onClick={() => cancel.mutate()}
 					>
-						Cancel run
+						Stop run
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
 			{cancel.isError ? (
 				<Text role="label" tone="error">
-					Could not cancel. Open the run to try again.
+					Could not stop the run. Open the run to try again.
 				</Text>
 			) : null}
 		</AlertDialog>
@@ -350,7 +351,7 @@ export function SkillRunTable({
 	/** The status is the only filter set. */
 	statusOnly?: boolean;
 	page?: number;
-	/** Offer Cancel on a stuck run. */
+	/** Offer "Stop run" on a stuck run. */
 	canCancel?: boolean;
 }) {
 	useOsFormattingPreferences();
