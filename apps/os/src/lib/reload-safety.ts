@@ -66,3 +66,36 @@ export function hasUnsavedOsInput(doc: Document): boolean {
 		if (holdsInput(element)) return true;
 	return false;
 }
+
+/**
+ * How long after `beforeunload` a failed lazy import is blamed on the
+ * departure. Safari stops the page's in-flight loads as soon as a document
+ * navigation starts, so those imports reject within moments, while the old
+ * page is still running.
+ */
+export const OS_DEPARTURE_WINDOW_MS = 5_000;
+
+const departures = new WeakMap<Document, number>();
+
+/** Record when the person starts leaving the page for another document. */
+export function trackOsDeparture(win: Window): () => void {
+	const doc = win.document;
+	const markLeaving = () => departures.set(doc, performance.now());
+	win.addEventListener("beforeunload", markLeaving);
+	return () => {
+		win.removeEventListener("beforeunload", markLeaving);
+		departures.delete(doc);
+	};
+}
+
+/**
+ * Whether the page is on its way to another document. The window is bounded
+ * because a navigation can end without leaving (a download, a refused prompt).
+ */
+export function isOsDocumentLeaving(
+	doc: Document,
+	now = performance.now(),
+): boolean {
+	const startedAt = departures.get(doc);
+	return startedAt !== undefined && now - startedAt < OS_DEPARTURE_WINDOW_MS;
+}

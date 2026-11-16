@@ -15,7 +15,7 @@ import { Loader } from "@/components/kumo/loader";
 import { Page } from "@/components/kumo/page";
 import { reportOsIssue } from "@/lib/error-reporting/install";
 import { getOsSurface } from "@/lib/os-navigation";
-import { hasUnsavedOsInput } from "@/lib/reload-safety";
+import { hasUnsavedOsInput, isOsDocumentLeaving } from "@/lib/reload-safety";
 import { OS_COPY } from "@/shared/os-copy";
 
 /**
@@ -143,7 +143,8 @@ type ReloadWindow = {
 };
 
 /**
- * Reload once for a stale chunk. Returns whether a reload was started, so the
+ * Reload once for a stale chunk. Returns whether the document is being
+ * replaced (a reload was started, or the person is already leaving), so the
  * caller can skip work the unload would discard.
  */
 export function reloadOnceForStaleChunk(
@@ -151,6 +152,9 @@ export function reloadOnceForStaleChunk(
 	error: unknown,
 ): boolean {
 	if (!isStaleChunkError(error)) return false;
+	// Safari cancels in-flight imports when a document navigation starts. A
+	// reload here would cancel that navigation and return to this page.
+	if (isOsDocumentLeaving(document)) return true;
 	if (hasUnsavedOsInput(document)) return false;
 	try {
 		if (win.sessionStorage.getItem(OS_CHUNK_RELOAD_GUARD_KEY) !== null) {

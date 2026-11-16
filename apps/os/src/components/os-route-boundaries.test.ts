@@ -14,6 +14,11 @@ import {
 	OS_CHUNK_RELOAD_GUARD_KEY,
 	reloadOnceForStaleChunk,
 } from "./os-route-boundaries";
+import {
+	isOsDocumentLeaving,
+	OS_DEPARTURE_WINDOW_MS,
+	trackOsDeparture,
+} from "@/lib/reload-safety";
 
 function fakeWindow() {
 	const map = new Map<string, string>();
@@ -141,6 +146,40 @@ describe("stale chunk draft protection", () => {
 			expect(harness.store.size).toBe(0);
 		} finally {
 			input.remove();
+		}
+	});
+});
+
+describe("stale chunk while leaving the page", () => {
+	const cancelledImport = new TypeError("Importing a module script failed.");
+
+	it("does not reload over a document navigation that already started", () => {
+		// Safari cancels in-flight imports when the person leaves for another
+		// document; a reload here would cancel that navigation.
+		const stopTracking = trackOsDeparture(window);
+		try {
+			window.dispatchEvent(new Event("beforeunload"));
+			expect(reloadOnceForStaleChunk(harness.win, cancelledImport)).toBe(true);
+			expect(harness.reload).not.toHaveBeenCalled();
+			expect(harness.store.size).toBe(0);
+		} finally {
+			stopTracking();
+		}
+		expect(reloadOnceForStaleChunk(harness.win, cancelledImport)).toBe(true);
+		expect(harness.reload).toHaveBeenCalledTimes(1);
+	});
+
+	it("recovers again when the navigation ended without leaving", () => {
+		const stopTracking = trackOsDeparture(window);
+		try {
+			window.dispatchEvent(new Event("beforeunload"));
+			const left = performance.now();
+			expect(isOsDocumentLeaving(document, left)).toBe(true);
+			expect(
+				isOsDocumentLeaving(document, left + OS_DEPARTURE_WINDOW_MS + 50),
+			).toBe(false);
+		} finally {
+			stopTracking();
 		}
 	});
 });
