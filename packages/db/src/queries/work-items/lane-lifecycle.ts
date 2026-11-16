@@ -1,4 +1,5 @@
 import { and, asc, eq, sql } from "drizzle-orm";
+import type { LaneDispatchPlan } from "@tedix/api-contract/schemas/work-items";
 import type { DbQueryClient } from "../../query-client";
 import { workAttempts, workEvents, workItems } from "../../schema/work-items";
 import { workInteractions } from "../../schema/work-factory";
@@ -237,11 +238,19 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 			)
 			.onConflictDoNothing()
 			.returning({ id: workInteractions.id });
+		// A hold with its reason, like a runner's own: the Work is listed as
+		// stuck and its next edit makes it ready again. This used to write a
+		// `blocked` state that no list showed and no edit released; by 16 Nov
+		// 2026 it had parked 110 of the 199 accepted tasks assigned to runners.
+		const hold: LaneDispatchPlan = {
+			state: "held",
+			reason: `Run ${row.attemptNumber} of this task stopped before it finished (${row.eventType === "lane.stale" ? "no heartbeat" : "its time ran out"}). Only a first run is retried automatically. Check the last run, then edit the task to have an agent start it again.`,
+		};
 		if (created.length > 0 && !retryAvailable)
 			await db
 				.update(workItems)
 				.set({
-					metadata: sql`json_set(${workItems.metadata}, '$.laneDispatch', json(${JSON.stringify({ state: "blocked", recovery: laneLifecycle.recovery })}), '$.laneLifecycle', json(${JSON.stringify(laneLifecycle)}))`,
+					metadata: sql`json_set(${workItems.metadata}, '$.laneDispatch', json(${JSON.stringify(hold)}), '$.laneLifecycle', json(${JSON.stringify(laneLifecycle)}))`,
 				})
 				.where(
 					and(eq(workItems.orgId, row.orgId), eq(workItems.id, row.workItemId)),

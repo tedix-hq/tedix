@@ -18,6 +18,7 @@ import {
 import { tedis } from "../../schema/tedis";
 import { agentSessionRequests } from "../../schema/agent-session-requests";
 import { sweepElapsedWorkAttempts } from "./attempts";
+import { LaneDispatchPlanSchema } from "@tedix/api-contract/schemas/work-items";
 
 const start = "2026-10-17T12:00:00.000Z";
 const stale = "2026-10-17T12:02:30.000Z";
@@ -137,8 +138,15 @@ describe("server lane lifecycle", () => {
 			},
 		});
 		expect(notice?.prompt).toContain("item is blocked");
-		expect((await db.select().from(workItems))[0]?.metadata).toMatchObject({
-			laneDispatch: { state: "blocked" },
+		// A hold the contract knows: it carries its reason, so the Work is
+		// listed as stuck and its next edit makes it ready again. The earlier
+		// `blocked` state was outside the contract; nothing showed or released it.
+		const dispatch = (await db.select().from(workItems))[0]?.metadata
+			?.laneDispatch;
+		expect(LaneDispatchPlanSchema.parse(dispatch)).toEqual({
+			state: "held",
+			reason:
+				"Run 2 of this task stopped before it finished (its time ran out). Only a first run is retried automatically. Check the last run, then edit the task to have an agent start it again.",
 		});
 	});
 	it("does not notify a recovered heartbeat and can detect its next lapse", async () => {

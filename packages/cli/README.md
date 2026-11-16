@@ -615,6 +615,15 @@ knows is saved the same way. A run folder whose checkout is already gone is
 archived. When a run commits a change it cannot push, later holds on the task
 name those commits, and the next run is handed that checkout or the ref that
 saved it.
+The brief tells the agent how to land a change: run the type-check and the
+focused tests of what it changed, then push with the repository's own push
+command (`bun run push` where `package.json` has a `push` script), and do not
+run a whole workspace's or the whole repository's test suite locally unless
+the task asks for it. If the push is refused, the agent copies the
+one-sentence reason to the task and ends the run. A run that ends with commits
+that are not on `origin/main` settles with a note that starts with those
+commits, where they are kept and the reason the run gave; later holds and the
+next run's brief repeat the reason.
 A retry of a revision whose earlier dispatch failed before admission reuses
 that run's checkout when it is clean and holds no unlanded commit; otherwise
 the checkout stays for inspection and the retry gets a fresh sibling path.
@@ -649,7 +658,12 @@ five fast attempts, then reconciles every fifteen minutes after re-reading the
 same Work revision and original latest succeeded Attempt. Terminal Work clears
 the pending receipt; changed or unreadable authority stays retained. It never
 relaunches the worker to close the item. The server
-watcher detects stale lanes. Completion records the reported outcome; it does
+watcher detects stale lanes: a run whose lease is not renewed for half its
+length is recorded as stopped. The dispatcher therefore keeps renewing the
+lease after the agent finishes, until it has checked the result and sent the
+settlement. When a second or later run of a task stops, the server holds the
+task with that reason; it is listed as stuck and its next edit makes it ready
+again. Completion records the reported outcome; it does
 not independently verify the result.
 
 For a human dependency, native sessions can append one `TEDIX_LANE_RESULT`
