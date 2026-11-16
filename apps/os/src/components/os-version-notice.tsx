@@ -1,12 +1,17 @@
 import { osToastManager } from "@/components/kumo/toast";
 import { reloadOnceForStaleChunk } from "@/components/os-route-boundaries";
 import { installOsVersionChecks } from "@/lib/os-version";
-import { hasUnsavedOsInput, trackOsInput } from "@/lib/reload-safety";
+import {
+	hasUnsavedOsInput,
+	trackOsDeparture,
+	trackOsInput,
+} from "@/lib/reload-safety";
 
 const NOTICE_ID = "os-version-reload";
 
 export function installOsVersionNotice(): () => void {
 	const stopTracking = trackOsInput(document);
+	const stopTrackingDeparture = trackOsDeparture(window);
 	// Reload confirmation stays in the toast: a native confirm() blocks the
 	// page, and automation driving the browser cannot see or answer it.
 	const confirmReload = (chunkFailure: boolean) => {
@@ -68,6 +73,7 @@ export function installOsVersionNotice(): () => void {
 	window.addEventListener("vite:preloadError", onPreloadError);
 	return () => {
 		stopTracking();
+		stopTrackingDeparture();
 		stopChecking();
 		window.removeEventListener("vite:preloadError", onPreloadError);
 		osToastManager.close(NOTICE_ID);
