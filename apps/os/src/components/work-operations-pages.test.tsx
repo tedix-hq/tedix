@@ -1133,8 +1133,10 @@ describe("Work request and capacity navigation", () => {
 		expect(html).toContain('href="/work/items/work-1"');
 		expect(html).toContain("Ship exact scope");
 		expect(html).toContain("Codex implementation");
-		expect(html).toContain("Additional holders are omitted");
-		expect(html).toContain("then retry admission");
+		expect(html).toContain(
+			"More Work Items are using this than are listed here",
+		);
+		expect(html).toContain("start your work again");
 		expect(
 			renderToStaticMarkup(
 				<ResourceHolders
@@ -1143,12 +1145,12 @@ describe("Work request and capacity navigation", () => {
 					details={{ holders: [] }}
 				/>,
 			),
-		).toContain("No current linked Work holder");
+		).toContain("the Work Item using it could not be found");
 		expect(
 			renderToStaticMarkup(
 				<ResourceHolders names={new Map()} activeReserved={1} details={{}} />,
 			),
-		).toContain("Holder details unavailable");
+		).toContain("Could not load who is using this");
 	});
 
 	it("preserves exact resource filtering in the generated query input and paging key", () => {
@@ -1246,7 +1248,7 @@ describe("Read-only operations entry", () => {
 		);
 		expect(inspect).toBeDefined();
 		await act(async () => inspect?.click());
-		expect(container.textContent).toContain("Current readiness");
+		expect(container.textContent).toContain("Checks for this Work Item");
 		expect(fetch).not.toHaveBeenCalled();
 		vi.restoreAllMocks();
 	});

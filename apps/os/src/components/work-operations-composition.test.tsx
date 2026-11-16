@@ -761,12 +761,12 @@ describe("Work admission and capacity", () => {
 		viewport(false);
 		const page = await mount(<WorkAdmissionPage />);
 		expect(page.host.querySelectorAll("form")).toHaveLength(0);
-		await page.submit("Advanced: IDs and specification JSON");
+		await page.submit("Developer details: load by ID and edit requirements");
 		expect(page.host.querySelectorAll("form")).toHaveLength(2);
 		await page.type("Work Item ID", "not-a-uuid");
 		await page.submit("Load");
 		expect(page.host.textContent).toContain(
-			"Enter a canonical Work Item UUID.",
+			"Enter the full Work Item ID (36 characters).",
 		);
 		expect(
 			api.calls.some(
@@ -821,7 +821,7 @@ describe("Work admission and capacity", () => {
 			surfaces[1]!.querySelector<HTMLElement>("button")!.click(),
 		);
 		await page.type("Spending limit (US dollars)", "ten");
-		await page.submit("Create envelope");
+		await page.submit("Add budget");
 		expect(mutations("workItems.putBudgetEnvelope")).toEqual([]);
 		expect(page.host.textContent).toContain(
 			"Enter an amount in dollars, like 25 or 12.50.",

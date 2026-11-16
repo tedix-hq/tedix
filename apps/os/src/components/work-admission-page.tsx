@@ -37,7 +37,10 @@ import {
 import { ReadinessOverview, MutationError } from "./work-operations-shared";
 
 const admissionLookupSchema = z.object({
-	itemId: z.string().trim().uuid("Enter a canonical Work Item UUID."),
+	itemId: z
+		.string()
+		.trim()
+		.uuid("Enter the full Work Item ID (36 characters)."),
 });
 
 const admissionSpecificationSchema = z.object({
@@ -72,9 +75,7 @@ export function WorkAdmissionPage() {
 	const replace = useMutation({
 		mutationFn: (value: z.output<typeof admissionSpecificationSchema>) => {
 			if (!spec.data)
-				throw new Error(
-					"Load the current admission specification before editing",
-				);
+				throw new Error("Load the Work Item's requirements before editing");
 			return osApi.workItems.replaceAdmissionSpecification({
 				id: loadedId,
 				expectedWorkItemVersion: spec.data.workItemVersion,
@@ -138,7 +139,7 @@ export function WorkAdmissionPage() {
 		<Page width="full">
 			<WorkPageHeader
 				title="Admission"
-				description="See which tasks are ready to start and what each needs. Readiness is checked again when work starts."
+				description="See which Work Items can start now and what the others are waiting for. Choose one to see every check it has to pass."
 			/>
 			<ReadinessOverview
 				selectedId={loadedId}
@@ -158,15 +159,16 @@ export function WorkAdmissionPage() {
 			) : null}
 			<Collapsible>
 				<CollapsibleDefaultTrigger>
-					Advanced: IDs and specification JSON
+					Developer details: load by ID and edit requirements
 				</CollapsibleDefaultTrigger>
 				<CollapsibleDefaultContent>
 					<Card>
 						<CardHeader>
-							<CardTitle>Admission specification</CardTitle>
+							<CardTitle>Requirements</CardTitle>
 							<CardDescription>
-								Select Work above or load an exact ID here. Replacing its
-								resource and budget requirements requires an explicit save.
+								The shared resources and budget a Work Item needs before it can
+								start. Choose a Work Item above or load one by its ID. Nothing
+								changes until you save.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="grid gap-3">
@@ -208,7 +210,7 @@ export function WorkAdmissionPage() {
 										)
 									}
 								>
-									Use current specification
+									Reset to saved requirements
 								</Button>
 							) : null}
 							<form
@@ -235,7 +237,7 @@ export function WorkAdmissionPage() {
 									type="submit"
 									disabled={!spec.data || spec.isFetching || replace.isPending}
 								>
-									Replace specification
+									Save requirements
 								</Button>
 							</form>
 							<MutationError error={replace.error} />
@@ -246,16 +248,17 @@ export function WorkAdmissionPage() {
 			{readiness.data ? (
 				<Card>
 					<CardHeader>
-						<CardTitle>Current readiness</CardTitle>
+						<CardTitle>Checks for this Work Item</CardTitle>
 						<CardDescription>
-							Derived{" "}
+							Every check has to pass before work can start. You cannot change
+							the result here. Last checked{" "}
 							<time
 								dateTime={readiness.data.derivedAt}
 								title={absoluteTime(readiness.data.derivedAt)}
 							>
 								{absoluteTime(readiness.data.derivedAt)}
-							</time>{" "}
-							from every admission gate; this state is read-only.
+							</time>
+							.
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="grid gap-3">

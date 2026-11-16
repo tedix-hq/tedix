@@ -1208,7 +1208,7 @@ export function WorkGraphPage() {
 		<Page width="full">
 			<WorkPageHeader
 				title="Work graph"
-				description="Which tasks have to finish before others can start. Grouping tasks under a project does not decide who does them."
+				description="See which Work Items have to finish before others can start, and which replace, duplicate or refer to another. Open either Work Item in a row to read it."
 			/>
 			{relationsQuery.isError ? (
 				<WorkReadFailure
@@ -1219,8 +1219,8 @@ export function WorkGraphPage() {
 				<WorkListSkeleton />
 			) : relations.length === 0 ? (
 				<WorkEmpty
-					title="No dependency edges"
-					description="Tasks that do not depend on each other still appear in the queue. Add a link only when one task really blocks, repeats, or refers to another."
+					title="No links yet"
+					description="No Work Item is waiting on another one. Work Items without a link can start in any order; link two only when one really blocks, replaces, duplicates or refers to the other."
 				/>
 			) : (
 				<>
@@ -1235,15 +1235,15 @@ export function WorkGraphPage() {
 						totalCount={relations.length}
 						setPage={(nextPage) => setPage(nextPage - 1)}
 						labels={{
-							navigation: "Dependency pages",
-							previousPage: "Previous dependencies",
-							nextPage: "Next dependencies",
+							navigation: "Link pages",
+							previousPage: "Previous links",
+							nextPage: "Next links",
 						}}
 						className="flex-wrap gap-3"
 					>
 						<Pagination.Info>
 							{({ pageShowingRange, totalCount }) =>
-								`${pageShowingRange.replace("-", "–")} of ${totalCount} returned dependencies`
+								`${pageShowingRange.replace("-", "–")} of ${totalCount} links`
 							}
 						</Pagination.Info>
 						<Pagination.Controls controls="simple" />
@@ -1300,22 +1300,22 @@ export function WorkGraphLedger({
 		<div className="grid gap-3">
 			{truncated ? (
 				<Alert>
-					<AlertTitle>Dependency view is truncated</AlertTitle>
+					<AlertTitle>This list is incomplete</AlertTitle>
 					<AlertDescription>
-						Only the first 5,000 returned edges are available in these pages.
-						Refine the dependency query before treating it as complete.
+						Only the first 5,000 links are listed here. There are more, so a
+						Work Item may wait on something this list does not show.
 					</AlertDescription>
 				</Alert>
 			) : null}
 			<div
 				role="region"
-				aria-label="Work dependency edges"
+				aria-label="Links between Work Items"
 				tabIndex={0}
 				className="max-h-[min(65vh,40rem)] overflow-y-auto overscroll-y-contain border-y border-kumo-hairline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-kumo-focus"
 			>
 				<Collection
 					appearance="inline"
-					aria-label="Work dependency edges"
+					aria-label="Links between Work Items"
 					className="sm:hidden"
 				>
 					{relations.map((edge) => (
@@ -1340,9 +1340,9 @@ export function WorkGraphLedger({
 				>
 					<TableHeader className="sticky top-0 z-10 bg-kumo-base">
 						<TableRow>
-							<TableHead className="w-[42%]">From</TableHead>
-							<TableHead className="w-40">Relation</TableHead>
-							<TableHead>To</TableHead>
+							<TableHead className="w-[42%]">Work Item</TableHead>
+							<TableHead className="w-40">Link</TableHead>
+							<TableHead>Linked Work Item</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
