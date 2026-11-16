@@ -20,6 +20,7 @@ import {
 	getWorkItemById,
 	getWorkItemBySourceIntentId,
 } from "@tedix/db/queries/work-items/crud";
+import { addWorkItemCommentIfAbsent } from "@tedix/db/queries/work-items/comments";
 import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { BaseContext } from "../../orpc";
@@ -31,8 +32,9 @@ import {
 import {
 	delegationWorkItemTitle,
 	homeRequestProjectId,
+	NEEDS_PROJECT_METADATA,
+	NEEDS_PROJECT_NOTE,
 	requiredProofKindForExecution,
-	waitingInTriageForProject,
 } from "../kernel/delegation-work-item";
 import type { HomeDelegationAgentReviewRequest } from "../kernel/turn-work-context";
 
@@ -123,6 +125,7 @@ export async function requestHomeDelegationAgentReview(
 				homeRunId: input.homeRunId,
 				delegatedTediId: input.targetTediId,
 				approverTediId: input.approverTediId,
+				...(projectId ? {} : NEEDS_PROJECT_METADATA),
 				purposeContext: input.objectiveId
 					? "objective"
 					: "transitional_home_exception",
@@ -134,10 +137,17 @@ export async function requestHomeDelegationAgentReview(
 			},
 			createdAt: input.requestedAt,
 		});
-		// Without a project the held delegation is a proposal like any other:
-		// it waits in Triage and no approver is asked.
-		if (!created.projectId)
-			throw new Error(waitingInTriageForProject(created.id));
+		if (!projectId)
+			await addWorkItemCommentIfAbsent(context.db, {
+				id: `${created.id}:needs-project`,
+				workItemId: created.id,
+				orgId: input.organizationId,
+				authorType: "system",
+				authorId: "home",
+				body: NEEDS_PROJECT_NOTE,
+				metadata: NEEDS_PROJECT_METADATA,
+				createdAt: input.requestedAt,
+			});
 		item = await acceptWorkItem(context.db, {
 			orgId: input.organizationId,
 			workItemId: created.id,
@@ -148,6 +158,7 @@ export async function requestHomeDelegationAgentReview(
 			},
 			actor: { type: "system", id: "home" },
 			acceptedAt: input.requestedAt,
+			allowMissingProject: !projectId,
 		});
 	}
 	if (item.disposition !== "accepted") {

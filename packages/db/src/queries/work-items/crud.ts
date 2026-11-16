@@ -752,6 +752,12 @@ export async function acceptWorkItem(
 		acceptanceContract: WorkItemAcceptanceContract;
 		actor: WorkActor;
 		acceptedAt?: string;
+		/**
+		 * Only for Home's own delegation tasks when the request points at no
+		 * project: Home still starts the delegation and marks the task as
+		 * needing a project. Never set this for work a person or agent proposed.
+		 */
+		allowMissingProject?: boolean;
 	},
 ): Promise<WorkItem> {
 	const acceptedAt = params.acceptedAt ?? new Date().toISOString();
@@ -760,7 +766,9 @@ export async function acceptWorkItem(
 	// done looks like and who answers for it.
 	const missing =
 		prior.disposition === "proposed"
-			? missingForAcceptance(prior, params.acceptanceContract)
+			? missingForAcceptance(prior, params.acceptanceContract, {
+					allowMissingProject: params.allowMissingProject,
+				})
 			: [];
 	if (missing.length)
 		throw new WorkFactoryError(
@@ -807,7 +815,7 @@ export async function acceptWorkItem(
 				eq(workItems.disposition, "proposed"),
 				eq(workItems.version, prior.version),
 				isNotNull(workItems.accountableOwnerId),
-				isNotNull(workItems.projectId),
+				params.allowMissingProject ? undefined : isNotNull(workItems.projectId),
 			),
 		)
 		.returning();

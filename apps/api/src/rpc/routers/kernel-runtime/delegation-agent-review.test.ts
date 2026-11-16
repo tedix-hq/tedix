@@ -192,28 +192,31 @@ describe("Home delegation agent review over the Work approval plane", () => {
 		).rejects.toThrow(/home_delegation/);
 	});
 
-	it("leaves a held delegation with no project proposed in triage and asks no approver", async () => {
+	it("still holds and proposes a delegation when no project is known, and marks it for sorting", async () => {
 		const f = currentFixture;
 		f.sqlite.exec("UPDATE projects SET status='archived'");
-		await expect(requestReview(f)).rejects.toThrow(/waiting in Triage/);
+		const review = await requestReview(f);
+		expect(review.status).toBe("pending");
 		expect(
 			f.sqlite
 				.prepare(
-					"SELECT disposition, project_id, accountable_owner_id FROM work_items",
+					"SELECT disposition, project_id, accountable_owner_id, json_extract(metadata,'$.needsProject') AS needsProject FROM work_items",
 				)
 				.all(),
 		).toEqual([
 			{
-				disposition: "proposed",
+				disposition: "accepted",
 				project_id: null,
 				accountable_owner_id: "tedi-cpo",
+				needsProject: 1,
 			},
 		]);
 		expect(
 			f.sqlite
-				.prepare("SELECT count(*) AS n FROM work_approval_proposals")
-				.get(),
-		).toEqual({ n: 0 });
+				.prepare("SELECT body FROM work_item_comments")
+				.all()
+				.map((row) => String(row.body)),
+		).toEqual([expect.stringContaining("without a project")]);
 	});
 
 	it("the target tedi cannot decide its own delegation", async () => {

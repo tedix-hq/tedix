@@ -293,7 +293,8 @@ async function hasOwnActiveAttempt(
  * The project a Home request already points at: its objective's project, the
  * project the delegated tedi leads, the requesting person's default project,
  * or the organization's only project. Null when the request names none; Home
- * then leaves the Work Item proposed so a person places it in Triage.
+ * then still starts the delegation and marks the task with
+ * {@link NEEDS_PROJECT_METADATA} so a person can sort it later.
  */
 export async function homeRequestProjectId(
 	context: BaseContext,
@@ -319,10 +320,12 @@ export async function homeRequestProjectId(
 	});
 }
 
-/** What Home tells the person when work cannot start for want of a project. */
-export function waitingInTriageForProject(workItemId: string): string {
-	return `No project is known for this request, so Work Item ${workItemId} is waiting in Triage instead of starting. Give it a project and accept it there.`;
-}
+/** Marks a Home task that started without a project, so it can be sorted later. */
+export const NEEDS_PROJECT_METADATA = { needsProject: true } as const;
+
+/** The note Home leaves on a task it started without a project. */
+export const NEEDS_PROJECT_NOTE =
+	"Home started this without a project because the request pointed at none. Move it to a project to sort it.";
 
 /**
  * Reuse an operator-selected canonical Work Item or eagerly create one and
@@ -459,6 +462,7 @@ export async function createDelegationWorkItem(
 			homeRunId: input.homeRunId,
 			childRunId: input.childRunId,
 			source: "kernelRuntime.directDelegation",
+			...(projectId ? {} : NEEDS_PROJECT_METADATA),
 			purposeContext: input.objectiveId
 				? "objective"
 				: "transitional_home_exception",
@@ -469,13 +473,17 @@ export async function createDelegationWorkItem(
 		},
 		createdAt: input.createdAt,
 	});
-	// Without a project the delegation is a proposal like any other: it stays
-	// in Triage and no Attempt starts.
-	if (!workItem.projectId)
-		throw createError(
-			ErrorCodes.CONFLICT,
-			waitingInTriageForProject(workItem.id),
-		);
+	if (!projectId)
+		await addWorkItemCommentIfAbsent(context.db, {
+			id: `${workItem.id}:needs-project`,
+			workItemId: workItem.id,
+			orgId: input.organizationId,
+			authorType: "system",
+			authorId: "home",
+			body: NEEDS_PROJECT_NOTE,
+			metadata: NEEDS_PROJECT_METADATA,
+			createdAt: input.createdAt,
+		});
 	const acceptedWorkItem = await acceptWorkItem(context.db, {
 		orgId: input.organizationId,
 		workItemId: workItem.id,
@@ -486,6 +494,7 @@ export async function createDelegationWorkItem(
 		},
 		actor: { type: "system", id: "home" },
 		acceptedAt: input.createdAt,
+		allowMissingProject: !projectId,
 	});
 	const admission = await admitWorkAttempt(context.db, {
 		workItem: acceptedWorkItem,

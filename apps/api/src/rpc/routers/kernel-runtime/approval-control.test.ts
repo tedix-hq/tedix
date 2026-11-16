@@ -980,50 +980,37 @@ describe("Home plan Work promotion", () => {
 			leadTediId: "tedi-research",
 			createdAt: AT,
 		});
-	it("leaves an assignment with no project proposed in triage and does not start it", async () => {
+	it("still accepts an assignment when no project is known, and marks it for sorting", async () => {
 		const f = await planFixture();
-		const input = {
+		const result = await approveHomePlanAssignmentsCore(f.context, {
 			organizationId: ORG,
 			homeRunId: f.run.id,
 			assignmentIds: ["assignment"],
-			dispatch: true,
-		};
-		const held = await approveHomePlanAssignmentsCore(f.context, input);
-		expect(held.assignments[0]).toMatchObject({
-			status: "approved",
-			childRunId: null,
-			error: expect.stringContaining("waiting in Triage"),
+			dispatch: false,
 		});
-		const work = () =>
+		expect(result.assignments[0]).toMatchObject({ status: "approved" });
+		expect(result.assignments[0]?.error ?? null).toBeNull();
+		expect(
 			f.sqlite
 				.prepare(
-					"SELECT disposition, project_id, accountable_owner_id FROM work_items",
+					"SELECT disposition, project_id, accountable_owner_id, json_extract(metadata,'$.needsProject') AS needsProject FROM work_items",
 				)
-				.all();
-		expect(work()).toEqual([
+				.all(),
+		).toEqual([
 			{
-				disposition: "proposed",
+				disposition: "accepted",
 				project_id: null,
 				accountable_owner_id: "tedi-research",
+				needsProject: 1,
 			},
 		]);
 		expect(
-			f.sqlite.prepare("SELECT count(*) AS n FROM work_attempts").get(),
-		).toEqual({ n: 0 });
-		expect(effects.dispatch).not.toHaveBeenCalled();
-		// Once a person gives it a project, the same approval accepts it.
-		f.sqlite.exec("UPDATE work_items SET project_id = 'project-research'");
-		await approveHomePlanAssignmentsCore(f.context, {
-			...input,
-			dispatch: false,
-		});
-		expect(work()).toEqual([
-			{
-				disposition: "accepted",
-				project_id: "project-research",
-				accountable_owner_id: "tedi-research",
-			},
-		]);
+			(
+				f.sqlite.prepare("SELECT body FROM work_item_comments").all() as Array<{
+					body: string;
+				}>
+			).some((comment) => comment.body.includes("without a project")),
+		).toBe(true);
 	});
 	it("promotes once and reuses the accepted Work for an explicitly repeated selection", async () => {
 		const f = await planFixture();
