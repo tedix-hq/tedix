@@ -12,15 +12,17 @@ const source = readFileSync(
 const loadEndpoint = new Function(
 	"handleSitemapData",
 	"getSiteSettingsWithDb",
-	"getPublicOrigin",
+	"getPublicSiteUrl",
 	"resolveLocalizedContentRoutePath",
 	"getI18nConfig",
 	"isI18nEnabled",
 	"buildSeoImageUrl",
 	"virtualConfig",
 	"parseCollectionSitemapName",
-	source.replace(/^import .*;$/gm, "").replace(/^export .*;$/gm, "") +
-		"\nreturn GET;",
+	source
+		.replace(/^import .*;$/gm, "")
+		.replace(/^export .*;$/gm, "")
+		.replaceAll("import.meta.env.BASE_URL", '"/"') + "\nreturn GET;",
 );
 
 async function sitemap(canonical: string | null) {

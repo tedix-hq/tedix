@@ -1,7 +1,7 @@
-diff --git a/dist/adapters-D9a1PfqH.d.mts b/dist/adapters-D9a1PfqH.d.mts
-index 282f0a9..16e16e7 100644
---- a/dist/adapters-D9a1PfqH.d.mts
-+++ b/dist/adapters-D9a1PfqH.d.mts
+diff --git a/dist/adapters-DFsc9XjW.d.mts b/dist/adapters-DFsc9XjW.d.mts
+index 040a213..7cf25ce 100644
+--- a/dist/adapters-DFsc9XjW.d.mts
++++ b/dist/adapters-DFsc9XjW.d.mts
 @@ -31,6 +31,11 @@ type CollectionDeletionGuardInput = {
    collectionSlug: string;
    leaseToken: string;
@@ -23,45 +23,11 @@ index 282f0a9..16e16e7 100644
  } | {
    outcome: "dropped";
  };
-diff --git a/dist/api--PYoyeTo.mjs b/dist/api--PYoyeTo.mjs
-index 7c35226..f65d346 100644
---- a/dist/api--PYoyeTo.mjs
-+++ b/dist/api--PYoyeTo.mjs
-@@ -4555,6 +4555,7 @@ async function handleRegistryInstall(db, storage, sandboxRunner, registryConfigI
- 			success: true,
- 			data: result
- 		};
-+		await sandboxRunner.validateBundle?.(bundle.manifest, bundle.backendCode);
- 		await storeBundleInR2(storage, pluginId, version, bundle, "registry");
- 		try {
- 			await stateRepo.upsert(pluginId, version, "active", {
-@@ -4946,6 +4947,7 @@ async function handleRegistryUpdate(db, storage, sandboxRunner, registryConfigIn
- 				}
- 			}
- 		};
-+		await sandboxRunner.validateBundle?.(bundle.manifest, bundle.backendCode);
- 		await storeBundleInR2(storage, pluginId, newVersion, bundle, "registry");
- 		await stateRepo.upsert(pluginId, newVersion, "active", {
- 			source: "registry",
-diff --git a/dist/astro/middleware.mjs b/dist/astro/middleware.mjs
-index a56b04f..32a2db4 100644
---- a/dist/astro/middleware.mjs
-+++ b/dist/astro/middleware.mjs
-@@ -777,9 +777,7 @@ const onRequest = defineMiddleware(async (context, next) => {
- 						metrics,
- 						deferredTasks
- 					};
--					const acceptsHtml = (request.headers.get("accept") ?? "").split(",", 1)[0].trim().startsWith("text/html");
- 					return runWithContext(ctx, async () => {
--						if (acceptsHtml && anonScoped.db.getExecutor().adapter.supportsMultipleConnections !== false) after(() => prefetchLayoutData());
- 						return finishScoped(lifecycle, runAnon);
- 					});
- 				}
 diff --git a/dist/astro/middleware/auth.mjs b/dist/astro/middleware/auth.mjs
-index 3b41543..59bd20a 100644
+index 7087c1f..913b14e 100644
 --- a/dist/astro/middleware/auth.mjs
 +++ b/dist/astro/middleware/auth.mjs
-@@ -403,9 +403,7 @@ async function handleExternalAuth(context, next, authMode, _isApiRoute) {
+@@ -417,9 +417,7 @@ async function handleExternalAuth(context, next, authMode, _isApiRoute) {
  					...MW_CACHE_HEADERS
  				}
  			});
@@ -72,7 +38,7 @@ index 3b41543..59bd20a 100644
  			const now = (/* @__PURE__ */ new Date()).toISOString();
  			const newUser = {
  				id: ulid(),
-@@ -416,10 +414,14 @@ async function handleExternalAuth(context, next, authMode, _isApiRoute) {
+@@ -430,10 +428,14 @@ async function handleExternalAuth(context, next, authMode, _isApiRoute) {
  				created_at: now,
  				updated_at: now
  			};
@@ -91,10 +57,10 @@ index 3b41543..59bd20a 100644
  			let newName;
  			let newRole;
 diff --git a/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs b/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs
-index 5dc69d1..4327529 100644
+index 55b066f..32c4057 100644
 --- a/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs
 +++ b/dist/astro/routes/api/admin/plugins/registry/_id_/update.mjs
-@@ -144,8 +144,9 @@ const POST = async ({ params, request, locals }) => {
+@@ -61,8 +61,9 @@ const POST = async ({ params, request, locals }) => {
  		if (!previousState) return apiError("UPDATE_FAILED", "Failed to update plugin", 500);
  		await finalizePluginUpdate({
  			pluginId: id,
@@ -106,10 +72,10 @@ index 5dc69d1..4327529 100644
  			runRollbackLifecycle: () => previousState.status === "active" ? emdash.runPluginActivateLifecycle(id) : Promise.resolve()
  		});
 diff --git a/dist/astro/routes/api/admin/plugins/registry/install.mjs b/dist/astro/routes/api/admin/plugins/registry/install.mjs
-index 112d7a1..48e1027 100644
+index 4ab41b2..5cec4fc 100644
 --- a/dist/astro/routes/api/admin/plugins/registry/install.mjs
 +++ b/dist/astro/routes/api/admin/plugins/registry/install.mjs
-@@ -140,8 +140,9 @@ const POST = async ({ request, locals }) => {
+@@ -63,8 +63,9 @@ const POST = async ({ request, locals }) => {
  		if (!result.success) return unwrapResult(result);
  		await finalizePluginInstall({
  			pluginId: result.data.pluginId,
@@ -117,14 +83,14 @@ index 112d7a1..48e1027 100644
  			syncRuntime: () => emdash.syncRegistryPlugins(),
 -			runLifecycle: () => emdash.runPluginInstallLifecycle(result.data.pluginId),
 +			runLifecycle: () => emdash.runPluginInstallLifecycle(result.data.pluginId, true),
- 			rollback: () => handleRegistryUninstall(emdash.db, emdash.storage, result.data.pluginId, { deleteData: true })
+ 			rollback: () => handleRegistryUninstall(emdash.db, emdash.storage, result.data.pluginId, { rollbackInstall: true })
  		});
  		return unwrapResult(result, 201);
 diff --git a/dist/astro/routes/api/content/_collection_/index.mjs b/dist/astro/routes/api/content/_collection_/index.mjs
-index 057e944..db42277 100644
+index c07ca6d..c75ec70 100644
 --- a/dist/astro/routes/api/content/_collection_/index.mjs
 +++ b/dist/astro/routes/api/content/_collection_/index.mjs
-@@ -35,9 +35,11 @@ const GET = async ({ params, url, locals }) => {
+@@ -21,9 +21,11 @@ const GET = async ({ params, url, locals }) => {
  	const collection = params.collection;
  	const query = parseQuery(url, contentListQuery);
  	if (isParseError(query)) return query;
@@ -139,10 +105,10 @@ index 057e944..db42277 100644
  	return unwrapResult(await emdash.handleContentList(collection, params_));
  };
 diff --git a/dist/astro/routes/api/mcp.mjs b/dist/astro/routes/api/mcp.mjs
-index 68ab38a..bdb88c1 100644
+index 3046214..fe5cf09 100644
 --- a/dist/astro/routes/api/mcp.mjs
 +++ b/dist/astro/routes/api/mcp.mjs
-@@ -947,7 +947,8 @@ function createMcpServer(pluginTools = [], request) {
+@@ -924,7 +924,8 @@ function createMcpServer(pluginTools = [], request) {
  			cursor: args.cursor,
  			orderBy: args.orderBy,
  			order: args.order,
@@ -152,7 +118,7 @@ index 68ab38a..bdb88c1 100644
  		});
  		if (result.success && args.markdown) {
  			const payload = result.data;
-@@ -968,7 +969,7 @@ function createMcpServer(pluginTools = [], request) {
+@@ -945,7 +946,7 @@ function createMcpServer(pluginTools = [], request) {
  	}, async (args, extra) => {
  		requireScope(extra, "content:read");
  		const ec = getEmDash(extra);
@@ -176,21 +142,19 @@ index dda3123..1adfbed 100644
  //# sourceMappingURL=items.d.mts.map
 \ No newline at end of file
 diff --git a/dist/astro/routes/api/menus/_name_/items.mjs b/dist/astro/routes/api/menus/_name_/items.mjs
-index fb06738..ca7edfc 100644
+index cc4c181..db8d4ae 100644
 --- a/dist/astro/routes/api/menus/_name_/items.mjs
 +++ b/dist/astro/routes/api/menus/_name_/items.mjs
-@@ -6,7 +6,7 @@ import "../../../../../query-BFHjCzSh.mjs";
- import "../../../../../object-cache-DmKr09La.mjs";
- import "../../../../../url-DTfGDJhI.mjs";
- import "../../../../../types-DwhEvIVb.mjs";
--import { i as handleMenuItemCreate } from "../../../../../menus-B0Qqv_cS.mjs";
-+import { i as handleMenuItemCreate, d as menuHandlers } from "../../../../../menus-B0Qqv_cS.mjs";
- import { t as menuTag } from "../../../../../chrome-tags-BIKBMZYO.mjs";
- import "../../../../../errors-B4f4It-2.mjs";
- import "../../../../../errors-8gJqv-XV.mjs";
-@@ -25,6 +25,18 @@ import "../../../../../api/schemas/index.mjs";
- import { o as requirePerm } from "../../../../../authorize-NJgp8kLI.mjs";
- import { t as invalidateRouteCache } from "../../../../../route-cache-QSOyDEw0.mjs";
+@@ -1,5 +1,5 @@
+ import { t as menuTag } from "../../../../../chrome-tags-BocDVqqx.mjs";
+-import { i as handleMenuItemCreate } from "../../../../../menus--MSfZ5Eu.mjs";
++import { i as handleMenuItemCreate, d as menuHandlers } from "../../../../../menus--MSfZ5Eu.mjs";
+ import { a as unwrapResult, r as handleError } from "../../../../../error-DcDNU7hZ.mjs";
+ import { i as parseQuery, n as parseBody, t as isParseError } from "../../../../../parse-B1E5cdyD.mjs";
+ import { b as localeFilterQuery } from "../../../../../redirects-dFPJ0HrD.mjs";
+@@ -7,6 +7,18 @@ import { n as createMenuItemBody } from "../../../../../menus-C8h6Jtpu.mjs";
+ import { o as requirePerm } from "../../../../../authorize-B-4ogCQG.mjs";
+ import { t as invalidateRouteCache } from "../../../../../route-cache-DkhMwAIC.mjs";
  
 +import { z } from "zod";
 +
@@ -207,7 +171,7 @@ index fb06738..ca7edfc 100644
  //#region src/astro/routes/api/menus/[name]/items.ts
  const prerender = false;
  const POST = async ({ params, request, locals, cache }) => {
-@@ -46,6 +58,34 @@ const POST = async ({ params, request, locals, cache }) => {
+@@ -28,6 +40,34 @@ const POST = async ({ params, request, locals, cache }) => {
  	}
  };
  
@@ -245,10 +209,10 @@ index fb06738..ca7edfc 100644
  //# sourceMappingURL=items.mjs.map
 \ No newline at end of file
 diff --git a/dist/astro/routes/sitemap-_collection_.xml.mjs b/dist/astro/routes/sitemap-_collection_.xml.mjs
-index a27f168..3f27cce 100644
+index fd4d826..3ef7fac 100644
 --- a/dist/astro/routes/sitemap-_collection_.xml.mjs
 +++ b/dist/astro/routes/sitemap-_collection_.xml.mjs
-@@ -85,7 +85,13 @@ const GET = async ({ params, locals, url }) => {
+@@ -71,7 +71,13 @@ const GET = async ({ params, locals, url }) => {
  				locale: entry.locale,
  				trailingSlash: virtualConfig?.trailingSlash
  			});
@@ -263,7 +227,7 @@ index a27f168..3f27cce 100644
  			urlByEntry.set(entry.id, absolute);
  			return absolute;
  		};
-@@ -135,6 +141,7 @@ const GET = async ({ params, locals, url }) => {
+@@ -121,6 +127,7 @@ const GET = async ({ params, locals, url }) => {
  			status: 200,
  			headers: {
  				"Content-Type": "application/xml; charset=utf-8",
@@ -271,11 +235,11 @@ index a27f168..3f27cce 100644
  				"Cache-Control": "public, max-age=3600"
  			}
  		});
-diff --git a/dist/config-sDhZvkLR.d.mts b/dist/config-sDhZvkLR.d.mts
-index ba2483c..bc72235 100644
---- a/dist/config-sDhZvkLR.d.mts
-+++ b/dist/config-sDhZvkLR.d.mts
-@@ -3072,8 +3072,8 @@ declare class EmDashRuntime {
+diff --git a/dist/config-B4F2ttAZ.d.mts b/dist/config-B4F2ttAZ.d.mts
+index a0d46d9..6997dca 100644
+--- a/dist/config-B4F2ttAZ.d.mts
++++ b/dist/config-B4F2ttAZ.d.mts
+@@ -3348,8 +3348,8 @@ declare class EmDashRuntime {
    }>;
    /** Dispatch teardown lifecycle while the runtime-installed isolate is still loaded. */
    runPluginUninstallLifecycle(pluginId: string, deleteData: boolean): Promise<void>;
@@ -284,13 +248,13 @@ index ba2483c..bc72235 100644
 +  runPluginInstallLifecycle(pluginId: string, requireInstallHook?: boolean): Promise<Array<{ success: boolean; error?: Error }>>;
 +  runPluginActivateLifecycle(pluginId: string, requireInstallHook?: boolean): Promise<Array<{ success: boolean; error?: Error }>>;
    /**
-    * Run install → activate once for each native plugin registered in the
+    * Run install → activate once for each loaded plugin registered in the
     * integration config that has no `_plugin_state` row.
-diff --git a/dist/emdash-runtime-C8T-pZpS.mjs b/dist/emdash-runtime-C8T-pZpS.mjs
-index 29cbec2..e518aa9 100644
---- a/dist/emdash-runtime-C8T-pZpS.mjs
-+++ b/dist/emdash-runtime-C8T-pZpS.mjs
-@@ -1367,12 +1367,22 @@ var EmDashRuntime = class EmDashRuntime {
+diff --git a/dist/emdash-runtime-CXsdCQnM.mjs b/dist/emdash-runtime-CXsdCQnM.mjs
+index 8971824..4993189 100644
+--- a/dist/emdash-runtime-CXsdCQnM.mjs
++++ b/dist/emdash-runtime-CXsdCQnM.mjs
+@@ -1808,12 +1808,22 @@ var EmDashRuntime = class EmDashRuntime {
  			console.error(`EmDash: Plugin ${pluginId} uninstall hook failed:`, error);
  		}
  	}
@@ -315,8 +279,8 @@ index 29cbec2..e518aa9 100644
 +		return results;
  	}
  	/**
- 	* Run install → activate once for each native plugin registered in the
-@@ -1526,6 +1536,7 @@ var EmDashRuntime = class EmDashRuntime {
+ 	* Run install → activate once for each loaded plugin registered in the
+@@ -1993,6 +2003,7 @@ var EmDashRuntime = class EmDashRuntime {
  				}
  				const bundle = await loadBundleFromR2(this.storage, pluginId, version, source);
  				if (!bundle) {
@@ -324,7 +288,7 @@ index 29cbec2..e518aa9 100644
  					console.warn(`EmDash: ${source} plugin ${pluginId}@${version} not found in R2`);
  					continue;
  				}
-@@ -1557,6 +1568,7 @@ var EmDashRuntime = class EmDashRuntime {
+@@ -2025,6 +2036,7 @@ var EmDashRuntime = class EmDashRuntime {
  			if (pipelineChanged) await this.rebuildHookPipeline();
  		} catch (error) {
  			console.error(`EmDash: Failed to sync ${source} plugins:`, error);
@@ -332,15 +296,15 @@ index 29cbec2..e518aa9 100644
  		}
  	}
  	/**
-@@ -1826,6 +1838,7 @@ var EmDashRuntime = class EmDashRuntime {
- 					const { validateSeed } = await import("./validate-Dz-TIOFB.mjs").then((n) => n.r);
+@@ -2326,6 +2338,7 @@ var EmDashRuntime = class EmDashRuntime {
+ 					const { validateSeed } = await import("./validate-BNupiQtz.mjs").then((n) => n.r);
  					const seed = await loadSeed();
  					if (!validateSeed(seed).valid) return false;
 +					await (await assertSiteWriteAllowed(db))();
  					const seedResult = await applySeed(db, seed, { onConflict: "skip" });
  					await new OptionsRepository(db).set(AUTO_SEED_COMPLETE_OPTION, true);
  					console.log("Auto-seeded default collections");
-@@ -2628,13 +2641,44 @@ var EmDashRuntime = class EmDashRuntime {
+@@ -3170,13 +3183,44 @@ var EmDashRuntime = class EmDashRuntime {
  		} catch {}
  	}
  	async handleContentList(collection, params) {
@@ -374,7 +338,7 @@ index 29cbec2..e518aa9 100644
  	async handleContentAuthors(collection) {
  		return handleContentAuthors(this.db, collection);
  	}
- 	async handleContentGet(collection, id, locale, referenceOptions) {
+ 	async handleContentGet(collection, id, locale, referenceOptions, draftOptions) {
  		const result = await handleContentGet(this.db, collection, id, locale, referenceOptions);
 +		if (referenceOptions?.includeDrafts === false && result.success) return {
 +			...result,
@@ -383,10 +347,10 @@ index 29cbec2..e518aa9 100644
 +				item: { ...result.data.item, draftRevisionId: null, liveData: void 0 }
 +			}
 +		};
- 		return this.hydrateDraftData(result);
+ 		return this.hydrateDraftData(result, draftOptions);
  	}
  	async handleContentGetIncludingTrashed(collection, id, locale) {
-@@ -3206,10 +3250,8 @@ var EmDashRuntime = class EmDashRuntime {
+@@ -3876,10 +3920,8 @@ var EmDashRuntime = class EmDashRuntime {
  				message: "Revision precondition did not match"
  			}
  		};
@@ -399,7 +363,7 @@ index 29cbec2..e518aa9 100644
  		if (name !== "content:beforeUnpublish") try {
  			current = await this.hydrateDraftData(current, {
  				includeStagedSlug: true,
-@@ -3226,6 +3268,40 @@ var EmDashRuntime = class EmDashRuntime {
+@@ -3896,6 +3938,40 @@ var EmDashRuntime = class EmDashRuntime {
  				}
  			};
  		}
@@ -440,10 +404,10 @@ index 29cbec2..e518aa9 100644
  		const origin = options.origin ?? { source: "system" };
  		const actor = options.actor && (origin.source === "api" || origin.source === "mcp" || origin.source === "visual-editor") ? {
  			...options.actor,
-@@ -3572,7 +3648,39 @@ var EmDashRuntime = class EmDashRuntime {
- 				message: `Revision not found: ${revisionId}`
- 			}
- 		};
+@@ -4326,7 +4402,39 @@ var EmDashRuntime = class EmDashRuntime {
+ 	async restoreRevision(revisionId, revision, callerUserId, role) {
+ 		const revisionRepo = new RevisionRepository(this.db);
+ 		if (revision.kind === "recovery") return this.restoreRecoveryRevision(revision, callerUserId, role);
 -		if (!((await this.schemaRegistry.getCollectionWithFields(revision.collection))?.supports?.includes("revisions") ?? false)) {
 +		const collectionInfo = await this.schemaRegistry.getCollectionWithFields(revision.collection);
 +		try {
@@ -481,10 +445,10 @@ index 29cbec2..e518aa9 100644
  			const result = await handleRevisionRestore(this.db, revisionId, callerUserId);
  			if (result.success) await this.refreshContentUsageAfterSuccessfulWrite(revision.collection, [revision.entryId]);
  			return this.hydrateDraftData(result);
-diff --git a/dist/install-finalization-RU6VrHOX.mjs b/dist/install-finalization-RU6VrHOX.mjs
-index 4569754..3c009d3 100644
---- a/dist/install-finalization-RU6VrHOX.mjs
-+++ b/dist/install-finalization-RU6VrHOX.mjs
+diff --git a/dist/install-finalization-CIl610wT.mjs b/dist/install-finalization-CIl610wT.mjs
+index 9ccd49c..35d6643 100644
+--- a/dist/install-finalization-CIl610wT.mjs
++++ b/dist/install-finalization-CIl610wT.mjs
 @@ -1,8 +1,15 @@
  //#region src/plugins/install-finalization.ts
 +function requireSuccessfulLifecycleHook(pluginId, result) {
@@ -512,88 +476,66 @@ index 4569754..3c009d3 100644
  	} catch (updateError) {
  		const failures = [updateError];
  		let rollbackSucceeded = false;
-diff --git a/dist/loader-DhnedqY4.mjs b/dist/loader-DhnedqY4.mjs
-index 690d0ac..18bec36 100644
---- a/dist/loader-DhnedqY4.mjs
-+++ b/dist/loader-DhnedqY4.mjs
-@@ -2,7 +2,7 @@ import { f as __exportAll } from "./runner-Bkkfk4O8.mjs";
+diff --git a/dist/loader-CSEfTKzr.mjs b/dist/loader-CSEfTKzr.mjs
+index 3ce8b9f..0bc9717 100644
+--- a/dist/loader-CSEfTKzr.mjs
++++ b/dist/loader-CSEfTKzr.mjs
+@@ -2,7 +2,7 @@ import { m as __exportAll } from "./runner-4BfB04Rg.mjs";
  import { n as isMissingColumnError, r as isMissingTableError, t as getMissingColumnIdentifier } from "./db-errors-unnO6yiZ.mjs";
  import { t as validateIdentifier } from "./validate-DANX1-Qi.mjs";
- import { n as buildStatusCondition, u as isPostgres } from "./dialect-helpers-B1XN2HGB.mjs";
+ import { n as buildStatusCondition, u as isPostgres } from "./dialect-helpers-DqUMP9fJ.mjs";
 -import { i as getLocaleCandidates, r as getI18nConfig } from "./config-Cs_AwWXI.mjs";
-+import { n as getFallbackChain, i as getLocaleCandidates, r as getI18nConfig } from "./config-Cs_AwWXI.mjs";
- import { t as after } from "./after-32yNRvd2.mjs";
++import { i as getLocaleCandidates, n as getFallbackChain, r as getI18nConfig } from "./config-Cs_AwWXI.mjs";
  import { getRequestContext } from "./request-context.mjs";
- import { n as invalidateSingleFlightCache, r as singleFlightCached, t as createSingleFlightCache } from "./single-flight-cache-D0EaGbN1.mjs";
-@@ -1018,36 +1018,33 @@ function isIndexedPivotSort(orderBy) {
- 	const primary = getPrimarySort(orderBy);
- 	return validSortKeys.length <= 1 && (primary.field === "published_at" || primary.field === "created_at");
- }
--/**
--* Resolve a taxonomy filter (`name` + one or more `slug`s, optionally scoped to
--* `locale`) to the set of `translation_group`s the pivot stores in
--* `content_taxonomies.taxonomy_id`. Exact terms only — no subtree expansion.
--*
--* Mirrors the meaning of the old EXISTS join (`t.name = ? AND t.slug IN (?)
--* [AND t.locale = ?]`): a pivot row matches when its group has a term with that
--* name/slug in the active locale. Resolving to explicit values (rather than an
--* `IN (subquery)`) keeps the single-term case a plain equality on the pivot
--* index, which is what gives the clean early-`LIMIT` seek.
--*
--* With `probeCollection`, `large` reports whether a resolved term has at least
--* {@link LARGE_TERM_ASSIGNMENTS} pivot rows in that collection. The capped
--* probe rides in this query; a query of its own would add a round trip to
--* every listing.
--*/
-+/** Resolve taxonomy slugs in locale priority order without matching old slugs of translated terms. */
- async function resolveTermGroups(db, name, slugs, locale, probeCollection) {
--	let query = db.selectFrom("taxonomies").select("translation_group").distinct().where("name", "=", name).where("slug", "in", slugs).$if(probeCollection !== void 0, (qb) => qb.select((eb) => eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", probeCollection).whereRef("content_taxonomies.taxonomy_id", "=", "taxonomies.translation_group").limit(1).offset(LARGE_TERM_ASSIGNMENTS - 1).as("large")));
+ import { t as after } from "./after-B3AvMfBQ.mjs";
+ import { n as invalidateSingleFlightCache, r as singleFlightCached, t as createSingleFlightCache } from "./single-flight-cache-BCP1Tvcm.mjs";
+@@ -1074,14 +1074,28 @@ function isIndexedPivotSort(orderBy) {
+ * to tell a few dozen assignments from thousands.
+ */
+ async function resolveTermGroups(db, name, slugs, locale, probeCollection, countCollection) {
+-	let query = db.selectFrom("taxonomies").select("translation_group").distinct().where("name", "=", name).where(taxonomyValuesCondition(db, "slug", slugs)).$if(probeCollection !== void 0, (qb) => qb.select((eb) => eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", probeCollection).whereRef("content_taxonomies.taxonomy_id", "=", "taxonomies.translation_group").limit(1).offset(LARGE_TERM_ASSIGNMENTS - 1).as("large"))).$if(countCollection !== void 0, (qb) => qb.select((eb) => eb.selectFrom(eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", countCollection).whereRef("content_taxonomies.taxonomy_id", "=", "taxonomies.translation_group").limit(LARGE_TERM_ASSIGNMENTS).as("capped")).select((inner) => inner.fn.countAll().as("n")).as("assignments")));
 -	if (locale) query = query.where(localeMatches("locale", locale));
 -	const rows = await query.execute();
- 	const groups = /* @__PURE__ */ new Set();
+ 	const counts = /* @__PURE__ */ new Map();
  	let large = false;
 -	for (const row of rows) {
--		if (row.translation_group) groups.add(row.translation_group);
+-		if (row.translation_group) counts.set(row.translation_group, Number(row.assignments ?? 0));
 -		if (row.large != null) large = true;
-+	if (!locale) {
-+		const rows = await db.selectFrom("taxonomies").select("translation_group").distinct().where("name", "=", name).where("slug", "in", slugs).$if(probeCollection !== void 0, (qb) => qb.select((eb) => eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", probeCollection).whereRef("content_taxonomies.taxonomy_id", "=", "taxonomies.translation_group").limit(1).offset(LARGE_TERM_ASSIGNMENTS - 1).as("large"))).execute();
++	const withProbes = (qb, groupRef) => qb.$if(probeCollection !== void 0, (q) => q.select((eb) => eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", probeCollection).whereRef("content_taxonomies.taxonomy_id", "=", groupRef).limit(1).offset(LARGE_TERM_ASSIGNMENTS - 1).as("large"))).$if(countCollection !== void 0, (q) => q.select((eb) => eb.selectFrom(eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", countCollection).whereRef("content_taxonomies.taxonomy_id", "=", groupRef).limit(LARGE_TERM_ASSIGNMENTS).as("capped")).select((inner) => inner.fn.countAll().as("n")).as("assignments")));
++	const record = (rows) => {
 +		for (const row of rows) {
-+			if (row.translation_group) groups.add(row.translation_group);
++			if (row.translation_group) counts.set(row.translation_group, Number(row.assignments ?? 0));
 +			if (row.large != null) large = true;
 +		}
-+		return { groups: [...groups], large };
++	};
++	if (!locale) record(await withProbes(db.selectFrom("taxonomies").select("translation_group").distinct().where("name", "=", name).where(taxonomyValuesCondition(db, "slug", slugs)), "taxonomies.translation_group").execute());
++	else {
++		const unresolved = new Set(slugs);
++		const preferredLocales = [];
++		for (const termLocale of getFallbackChain(locale)) {
++			if (unresolved.size === 0) break;
++			let query = withProbes(db.selectFrom("taxonomies as term").select(["term.slug", "term.translation_group"]).distinct().where("term.name", "=", name).where(taxonomyValuesCondition(db, "term.slug", [...unresolved])).where(localeMatches("term.locale", termLocale)), "term.translation_group");
++			if (preferredLocales.length > 0) query = query.where((eb) => eb.not(eb.exists(eb.selectFrom("taxonomies as preferred").select("preferred.id").whereRef("preferred.translation_group", "=", "term.translation_group").where("preferred.locale", "in", preferredLocales))));
++			const rows = await query.execute();
++			record(rows);
++			for (const row of rows) if (row.translation_group) unresolved.delete(row.slug);
++			preferredLocales.push(termLocale);
++		}
  	}
--	return {
--		groups: [...groups],
--		large
--	};
-+	const unresolved = /* @__PURE__ */ new Set(slugs);
-+	const preferredLocales = [];
-+	for (const termLocale of getFallbackChain(locale)) {
-+		if (unresolved.size === 0) break;
-+		let query = db.selectFrom("taxonomies as term").select(["term.slug", "term.translation_group"]).distinct().where("term.name", "=", name).where("term.slug", "in", [...unresolved]).where(localeMatches("term.locale", termLocale)).$if(probeCollection !== void 0, (qb) => qb.select((eb) => eb.selectFrom("content_taxonomies").select(sql`1`.as("hit")).where("content_taxonomies.collection", "=", probeCollection).whereRef("content_taxonomies.taxonomy_id", "=", "term.translation_group").limit(1).offset(LARGE_TERM_ASSIGNMENTS - 1).as("large")));
-+		if (preferredLocales.length > 0) query = query.where((eb) => eb.not(eb.exists(eb.selectFrom("taxonomies as preferred").select("preferred.id").whereRef("preferred.translation_group", "=", "term.translation_group").where("preferred.locale", "in", preferredLocales))));
-+		for (const row of await query.execute()) {
-+			if (!row.translation_group) continue;
-+			groups.add(row.translation_group);
-+			unresolved.delete(row.slug);
-+			if (row.large != null) large = true;
-+		}
-+		preferredLocales.push(termLocale);
-+	}
-+	return { groups: [...groups], large };
- }
- /** Equality (single) or `IN` (multiple) condition on a pivot group column. */
- function pivotGroupCondition(ref, groups) {
-@@ -1310,14 +1307,17 @@ function emdashLoader() {
- 					const cursorCond = cursorCondition ? sql`AND ${cursorCondition}` : sql``;
+ 	let assignments = 0;
+ 	for (const n of counts.values()) assignments += n;
+@@ -1362,14 +1376,20 @@ function emdashLoader() {
+ 					const taxonomySlugsAsJson = taxonomyFilters.reduce((sum, taxFilter) => sum + taxFilter.slugs.length, 0) + Object.values(fieldFilters).reduce((sum, value) => sum + (Array.isArray(value) ? value.length : 0), 0) > SQL_BATCH_SIZE;
  					const fieldConds = buildFieldConditions(db, fieldFilters);
  					const fieldCondsSQL = fieldConds.length > 0 ? sql`${sql.join(fieldConds, sql` AND `)}` : null;
 -					const taxonomyCond = taxonomyFilters.length > 0 ? sql`${sql.join(taxonomyFilters.map((f) => sql`AND EXISTS (
 +					const groupSets = [];
 +					for (const taxFilter of taxonomyFilters) {
 +						const { groups } = await resolveTermGroups(db, taxFilter.name, taxFilter.slugs, locale);
-+						if (groups.length === 0) return { entries: [], cacheHint: { tags: [type] } };
++						if (groups.length === 0) return {
++							entries: [],
++							cacheHint: { tags: [type] }
++						};
 +						groupSets.push(groups);
 +					}
 +					const taxonomyCond = groupSets.length > 0 ? sql`${sql.join(groupSets.map((groups) => sql`AND EXISTS (
@@ -602,23 +544,23 @@ index 690d0ac..18bec36 100644
  							WHERE ct.collection = ${type}
  								AND ct.entry_id = ${sql.ref(tableName)}.translation_group
 -								AND t.name = ${f.name}
--								AND t.slug IN (${sql.join(f.slugs.map((s) => sql`${s}`))})
+-								AND ${taxonomyValuesCondition(db, "t.slug", f.slugs, taxonomySlugsAsJson)}
 -							${locale ? sql`AND ${localeMatches("t.locale", locale)}` : sql``}
-+								AND ${pivotGroupCondition("ct.taxonomy_id", groups)}
++								AND ${taxonomyValuesCondition(db, "ct.taxonomy_id", groups, taxonomySlugsAsJson)}
  						)`), sql` `)}` : sql``;
  					const bylineCond = bylineFilter ? sql`AND EXISTS (
  							SELECT 1 FROM _emdash_content_bylines cb
-diff --git a/dist/media-usage-work-BCK2J-v_.mjs b/dist/media-usage-work-BCK2J-v_.mjs
-index 10f1452..14b65d5 100644
---- a/dist/media-usage-work-BCK2J-v_.mjs
-+++ b/dist/media-usage-work-BCK2J-v_.mjs
+diff --git a/dist/media-usage-work-BxHWfbKq.mjs b/dist/media-usage-work-BxHWfbKq.mjs
+index 3df69e3..751331a 100644
+--- a/dist/media-usage-work-BxHWfbKq.mjs
++++ b/dist/media-usage-work-BxHWfbKq.mjs
 @@ -2,7 +2,6 @@ import { r as isMissingTableError } from "./db-errors-unnO6yiZ.mjs";
  import { t as validateIdentifier } from "./validate-DANX1-Qi.mjs";
- import { u as isPostgres } from "./dialect-helpers-B1XN2HGB.mjs";
- import { l as decodeCursor, u as encodeCursor } from "./types-DwhEvIVb.mjs";
--import { t as withTransaction } from "./transaction-CkoQ5wqQ.mjs";
- import { t as FTSManager } from "./fts-manager-6861qcwk.mjs";
- import { n as verifyMediaUsageCaptureTriggers } from "./capture-triggers-BezAvWcB.mjs";
+ import { u as isPostgres } from "./dialect-helpers-DqUMP9fJ.mjs";
+ import { l as decodeCursor, u as encodeCursor } from "./types-BBH-w_KS.mjs";
+-import { t as withTransaction } from "./transaction-SKrr6u84.mjs";
+ import { n as verifyMediaUsageCaptureTriggers } from "./capture-triggers-BZmIEdX2.mjs";
+ import { t as FTSManager } from "./fts-manager-B3iLXCGz.mjs";
  import { sql } from "kysely";
 @@ -198,16 +197,7 @@ var MediaUsageCollectionDeletionRepository = class {
  		}).where("collection_id", "=", input.collectionId).where("state", "=", "leased").where("lease_token", "=", input.leaseToken).where(liveLease(this.db)).executeTakeFirst();
@@ -686,13 +628,33 @@ index 10f1452..14b65d5 100644
  	if (isPostgres(trx)) return await trx.selectFrom("_emdash_media_usage_collection_deletions").select("collection_id").where("collection_id", "=", input.collectionId).where("collection_slug", "=", input.collectionSlug).where("state", "=", "leased").where("phase", "=", phase).where("lease_token", "=", input.leaseToken).where(liveLease(trx)).forUpdate().executeTakeFirst() !== void 0;
  	const locked = await trx.updateTable("_emdash_media_usage_collection_deletions").set({ updated_at: sql`updated_at` }).where("collection_id", "=", input.collectionId).where("collection_slug", "=", input.collectionSlug).where("state", "=", "leased").where("phase", "=", phase).where("lease_token", "=", input.leaseToken).where(liveLease(trx)).executeTakeFirst();
  	return Number(locked.numUpdatedRows ?? 0) === 1;
-diff --git a/dist/revision-Dx7Uth1X.mjs b/dist/revision-Dx7Uth1X.mjs
-index cc4730f..6b7f1e6 100644
---- a/dist/revision-Dx7Uth1X.mjs
-+++ b/dist/revision-Dx7Uth1X.mjs
-@@ -205,6 +205,12 @@ var RevisionRepository = class {
- 		const row = await this.db.selectFrom("revisions").selectAll().where("id", "=", id).executeTakeFirst();
- 		return row ? this.normalizeRow(row) : null;
+diff --git a/dist/registry-Cf9vkVxW.mjs b/dist/registry-Cf9vkVxW.mjs
+index f06dd02..cba379a 100644
+--- a/dist/registry-Cf9vkVxW.mjs
++++ b/dist/registry-Cf9vkVxW.mjs
+@@ -903,6 +903,7 @@ async function handleRegistryInstall(db, storage, sandboxRunner, registryConfigI
+ 			success: true,
+ 			data: result
+ 		};
++		await sandboxRunner.validateBundle?.(bundle.manifest, bundle.backendCode);
+ 		await storeBundleInR2(storage, pluginId, version, bundle, "registry");
+ 		const displayProfile = packageView.cid === records.profile.cid ? profile : packageView.profile;
+ 		try {
+@@ -1296,6 +1297,7 @@ async function handleRegistryUpdate(db, storage, sandboxRunner, registryConfigIn
+ 				}
+ 			}
+ 		};
++		await sandboxRunner.validateBundle?.(bundle.manifest, bundle.backendCode);
+ 		await storeBundleInR2(storage, pluginId, newVersion, bundle, "registry");
+ 		const displayProfile = packageView.cid === records.profile.cid ? profile : packageView.profile;
+ 		await stateRepo.upsert(pluginId, newVersion, "active", {
+diff --git a/dist/revision-D7EedSdU.mjs b/dist/revision-D7EedSdU.mjs
+index 8559ef3..6ba7721 100644
+--- a/dist/revision-D7EedSdU.mjs
++++ b/dist/revision-D7EedSdU.mjs
+@@ -252,6 +252,12 @@ var RevisionRepository = class {
+ 	findRow(id) {
+ 		return this.db.selectFrom("revisions").selectAll().where("id", "=", id).executeTakeFirst();
  	}
 +	/** Fetch the draft revisions for one content-list page in a single query. */
 +	async findManyByIds(ids) {
@@ -703,10 +665,10 @@ index cc4730f..6b7f1e6 100644
  	/** Shallow-merge `patch` into a stored revision's data. */
  	async mergeData(id, patch) {
  		const row = await this.db.selectFrom("revisions").select("data").where("id", "=", id).executeTakeFirst();
-diff --git a/dist/seo-ClB-dw9w.mjs b/dist/seo-ClB-dw9w.mjs
-index 4b87801..f578e1a 100644
---- a/dist/seo-ClB-dw9w.mjs
-+++ b/dist/seo-ClB-dw9w.mjs
+diff --git a/dist/seo-DPW6k5_-.mjs b/dist/seo-DPW6k5_-.mjs
+index 1ee60ce..5bf5165 100644
+--- a/dist/seo-DPW6k5_-.mjs
++++ b/dist/seo-DPW6k5_-.mjs
 @@ -133,7 +133,7 @@ async function handleSitemapData(db, collectionSlug, options = {}) {
  						LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
  					)
@@ -726,87 +688,23 @@ index 4b87801..f578e1a 100644
  				};
  				(Number(row.on_page) === 1 ? entries : translations).push(entry);
  			}
-diff --git a/dist/transaction-CkoQ5wqQ.mjs b/dist/transaction-CkoQ5wqQ.mjs
-index 27f9b98..eb1a3b0 100644
---- a/dist/transaction-CkoQ5wqQ.mjs
-+++ b/dist/transaction-CkoQ5wqQ.mjs
-@@ -9,6 +9,7 @@ let transactionsSupported = null;
- const TRANSACTIONS_NOT_SUPPORTED_RE = /transactions are not supported/i;
- async function withTransaction(db, fn) {
- 	if (db.isTransaction) return fn(db);
+diff --git a/dist/transaction-SKrr6u84.mjs b/dist/transaction-SKrr6u84.mjs
+index 31dffef..d51b2d3 100644
+--- a/dist/transaction-SKrr6u84.mjs
++++ b/dist/transaction-SKrr6u84.mjs
+@@ -24,6 +24,7 @@ async function withTransaction(db, fn) {
+ 	return withRoomNotificationQueue(() => runTransaction(db, fn));
+ }
+ async function runTransaction(db, fn) {
 +	if (db.getExecutor().adapter.supportsTransactions === false) return fn(db);
- 	if (transactionsSupported === true) return db.transaction().execute(fn);
+ 	if (transactionsSupported === true) return deferObjectCacheInvalidations(() => db.transaction().execute(fn));
  	if (transactionsSupported === false) return fn(db);
  	try {
-diff --git a/dist/transfer-DTGblAj2.mjs b/dist/transfer-DTGblAj2.mjs
-index 2e2b50b..99705e8 100644
---- a/dist/transfer-DTGblAj2.mjs
-+++ b/dist/transfer-DTGblAj2.mjs
-@@ -552,6 +552,19 @@ async function inspectPortableDomain(db) {
- 		code: "table_not_empty",
- 		table: "_emdash_sections"
- 	});
-+	const deletions = await db.selectFrom("_emdash_media_usage_collection_deletions").select([
-+		"collection_id",
-+		"collection_slug",
-+		"state",
-+		"phase"
-+	]).orderBy("collection_slug").execute();
-+	for (const deletion of deletions) blockers.push({
-+		code: "collection_deletion_unfinished",
-+		id: deletion.collection_id,
-+		slug: deletion.collection_slug,
-+		state: deletion.state,
-+		phase: deletion.phase
-+	});
- 	const collections = await db.selectFrom("_emdash_collections").select([
- 		"id",
- 		"slug",
-@@ -947,6 +960,7 @@ function analysisTargetContext(config) {
- }
- const DOMAIN_BLOCKER_MESSAGES = {
- 	table_not_empty: "The site already has content of this kind",
-+	collection_deletion_unfinished: "A collection deletion must finish before import",
- 	collection_not_seeded: "The site has a collection that was not created by setup",
- 	collection_has_entries: "A collection on the site already has entries",
- 	taxonomy_def_not_scaffold: "The site has a taxonomy that was not created by setup",
-@@ -955,6 +969,11 @@ const DOMAIN_BLOCKER_MESSAGES = {
- function domainBlocker(blocker) {
- 	const detail = { reason: blocker.code };
- 	if (blocker.code === "table_not_empty") detail.table = blocker.table;
-+	else if (blocker.code === "collection_deletion_unfinished") {
-+		detail.collection = blocker.slug;
-+		detail.state = blocker.state;
-+		detail.phase = blocker.phase;
-+	}
- 	else if (blocker.code === "taxonomy_def_not_scaffold") detail.taxonomy = blocker.name;
- 	else if (blocker.code === "block_type_not_seeded") detail.blockType = blocker.slug;
- 	else detail.collection = blocker.slug;
-@@ -7603,7 +7622,7 @@ async function clearScaffold(context, step, checkpoint) {
- 				step: next
- 			};
- 			context.budget.start();
--			await removeItem(context, item);
-+			if (await removeItem(context, item) === "wait") return { state: "wait", step: next };
- 			if (item.type === "menu" || item.type === "menu_item") removedMenus = true;
- 			if (item.type === "widget" || item.type === "widget_area") removedWidgets = true;
- 			next++;
-@@ -7640,6 +7659,14 @@ async function removeItem(context, item) {
- 				await new SchemaRegistry(db).deleteCollection(row.slug);
- 			} catch (error) {
- 				if (error instanceof SchemaError && error.code === "COLLECTION_NOT_FOUND") return;
-+				if (error instanceof SchemaError && error.code === "CONFLICT") {
-+					const activeDeletion = await db.selectFrom("_emdash_media_usage_collection_deletions").select("collection_id").where("collection_id", "=", item.id).where("collection_slug", "=", row.slug).where("state", "in", ["pending", "leased", "retry"]).executeTakeFirst();
-+					if (activeDeletion) {
-+						const tick = await processDueMediaUsageCollectionDeletions(db);
-+						if (tick.outcome === "failed") throw new TransferError("TRANSFER_IMPORT_ERROR", "Removing the seeded scaffold collections failed");
-+						return "wait";
-+					}
-+				}
- 				if (error instanceof SchemaError) throw new TransferError("TRANSFER_TARGET_NOT_EMPTY", "Scaffold collection is in use", {
- 					detail: {
- 						type: item.type,
-@@ -7942,6 +7969,7 @@ async function reserve(context) {
+diff --git a/dist/transfer-B3CsI5MG.mjs b/dist/transfer-B3CsI5MG.mjs
+index daf2c37..22a694f 100644
+--- a/dist/transfer-B3CsI5MG.mjs
++++ b/dist/transfer-B3CsI5MG.mjs
+@@ -7995,6 +7995,7 @@ async function reserve(context) {
  		stage: "clear_scaffold",
  		step: 0
  	}, { markMutationStarted: true });
@@ -815,10 +713,10 @@ index 2e2b50b..99705e8 100644
  async function assertMappedUsersExist(context) {
  	const mappings = Object.entries(context.plan.decisions.principalMappings);
 diff --git a/src/api/handlers/registry.ts b/src/api/handlers/registry.ts
-index 440d746..a4aec1c 100644
+index 8918156..5ed04d2 100644
 --- a/src/api/handlers/registry.ts
 +++ b/src/api/handlers/registry.ts
-@@ -1030,6 +1030,11 @@ export async function handleRegistryInstall(
+@@ -1035,6 +1035,11 @@ export async function handleRegistryInstall(
  		};
  		if (opts?.verifyOnly) return { success: true, data: result };
  
@@ -830,7 +728,7 @@ index 440d746..a4aec1c 100644
  		// Step 7: store in R2 under the registry prefix.
  		await storeBundleInR2(storage, pluginId, version, bundle, "registry");
  
-@@ -1652,6 +1657,11 @@ export async function handleRegistryUpdate(
+@@ -1664,6 +1669,11 @@ export async function handleRegistryUpdate(
  			};
  		}
  
@@ -843,10 +741,10 @@ index 440d746..a4aec1c 100644
  		// so a retry of the same update is idempotent.
  		await storeBundleInR2(storage, pluginId, newVersion, bundle, "registry");
 diff --git a/src/astro/middleware/auth.ts b/src/astro/middleware/auth.ts
-index f52c9f5..22905c8 100644
+index 4dd0a23..3a4b495 100644
 --- a/src/astro/middleware/auth.ts
 +++ b/src/astro/middleware/auth.ts
-@@ -551,14 +551,8 @@ async function handleExternalAuth(
+@@ -572,14 +572,8 @@ async function handleExternalAuth(
  				});
  			}
  
@@ -863,7 +761,7 @@ index f52c9f5..22905c8 100644
  
  			// Create user
  			const now = new Date().toISOString();
-@@ -572,15 +566,19 @@ async function handleExternalAuth(
+@@ -593,15 +587,19 @@ async function handleExternalAuth(
  				updated_at: now,
  			};
  
@@ -903,7 +801,7 @@ index 267e823..fa981da 100644
  				rollbackPluginUpdate(
  					emdash.db,
 diff --git a/src/astro/routes/api/admin/plugins/registry/install.ts b/src/astro/routes/api/admin/plugins/registry/install.ts
-index ec463d4..9c8c0af 100644
+index 1eef303..910eecd 100644
 --- a/src/astro/routes/api/admin/plugins/registry/install.ts
 +++ b/src/astro/routes/api/admin/plugins/registry/install.ts
 @@ -118,8 +118,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
@@ -916,7 +814,7 @@ index ec463d4..9c8c0af 100644
 +			runLifecycle: () => emdash.runPluginInstallLifecycle(result.data.pluginId, true),
  			rollback: () =>
  				handleRegistryUninstall(emdash.db, emdash.storage, result.data.pluginId, {
- 					deleteData: true,
+ 					rollbackInstall: true,
 diff --git a/src/astro/routes/api/content/[collection]/index.ts b/src/astro/routes/api/content/[collection]/index.ts
 index c539643..843d0b3 100644
 --- a/src/astro/routes/api/content/[collection]/index.ts
@@ -1005,11 +903,11 @@ index b4cf6c1..265dde8 100644
 +	}
 +};
 diff --git a/src/database/repositories/revision.ts b/src/database/repositories/revision.ts
-index 5085573..d97de2b 100644
+index 69f6c29..3bd6c3b 100644
 --- a/src/database/repositories/revision.ts
 +++ b/src/database/repositories/revision.ts
-@@ -121,6 +121,17 @@ export class RevisionRepository {
- 		return row ? this.normalizeRow(row) : null;
+@@ -199,6 +199,17 @@ export class RevisionRepository {
+ 		return this.db.selectFrom("revisions").selectAll().where("id", "=", id).executeTakeFirst();
  	}
  
 +	/** Fetch the draft revisions for one content-list page in a single query. */
@@ -1027,13 +925,13 @@ index 5085573..d97de2b 100644
  	async mergeData(id: string, patch: Record<string, unknown>): Promise<void> {
  		const row = await this.db
 diff --git a/src/database/transaction.ts b/src/database/transaction.ts
-index 69bf167..fb53480 100644
+index 1043a23..8a8b257 100644
 --- a/src/database/transaction.ts
 +++ b/src/database/transaction.ts
-@@ -41,6 +41,11 @@ export async function withTransaction<DB, T>(
- 	if (db.isTransaction) {
- 		return fn(db);
- 	}
+@@ -62,6 +62,11 @@ async function runTransaction<DB, T>(
+ 	db: Kysely<DB>,
+ 	fn: (trx: Kysely<DB> | Transaction<DB>) => Promise<T>,
+ ): Promise<T> {
 +	// The Worker Loader DO dialect cannot probe beginTransaction across RPC contexts.
 +	const adapter = db.getExecutor().adapter as { supportsTransactions?: boolean };
 +	if (adapter.supportsTransactions === false) {
@@ -1041,7 +939,7 @@ index 69bf167..fb53480 100644
 +	}
  	// Fast path: we already know transactions work
  	if (transactionsSupported === true) {
- 		return db.transaction().execute(fn);
+ 		return deferObjectCacheInvalidations(() => db.transaction().execute(fn));
 diff --git a/src/db/adapters.ts b/src/db/adapters.ts
 index 1f98d07..7b4ece3 100644
 --- a/src/db/adapters.ts
@@ -1068,10 +966,10 @@ index 1f98d07..7b4ece3 100644
  
  export type ExecuteCollectionDeletionGuard = (
 diff --git a/src/emdash-runtime.ts b/src/emdash-runtime.ts
-index cf17707..739b48a 100644
+index 375c75f..c58c6e9 100644
 --- a/src/emdash-runtime.ts
 +++ b/src/emdash-runtime.ts
-@@ -1149,13 +1149,26 @@ export class EmDashRuntime {
+@@ -1426,13 +1426,26 @@ export class EmDashRuntime {
  		}
  	}
  
@@ -1101,7 +999,7 @@ index cf17707..739b48a 100644
  	}
  
  	/**
-@@ -1383,6 +1396,7 @@ export class EmDashRuntime {
+@@ -1728,6 +1741,7 @@ export class EmDashRuntime {
  
  				const bundle = await loadBundleFromR2(this.storage, pluginId, version, source);
  				if (!bundle) {
@@ -1109,7 +1007,7 @@ index cf17707..739b48a 100644
  					console.warn(`EmDash: ${source} plugin ${pluginId}@${version} not found in R2`);
  					continue;
  				}
-@@ -1424,6 +1438,7 @@ export class EmDashRuntime {
+@@ -1770,6 +1784,7 @@ export class EmDashRuntime {
  			}
  		} catch (error) {
  			console.error(`EmDash: Failed to sync ${source} plugins:`, error);
@@ -1117,7 +1015,7 @@ index cf17707..739b48a 100644
  		}
  	}
  
-@@ -1873,6 +1888,8 @@ export class EmDashRuntime {
+@@ -2277,6 +2292,8 @@ export class EmDashRuntime {
  						const validation = validateSeed(seed);
  						if (!validation.valid) return false;
  
@@ -1126,7 +1024,7 @@ index cf17707..739b48a 100644
  						const seedResult = await applySeed(db, seed, { onConflict: "skip" });
  						await new OptionsRepository(db).set(AUTO_SEED_COMPLETE_OPTION, true);
  						console.log("Auto-seeded default collections");
-@@ -3364,9 +3381,47 @@ export class EmDashRuntime {
+@@ -3827,9 +3844,47 @@ export class EmDashRuntime {
  			bylinesNone?: boolean;
  			includeInferredBylines?: boolean;
  			fieldFilters?: ContentFieldFilters;
@@ -1175,8 +1073,8 @@ index cf17707..739b48a 100644
  	}
  
  	async handleContentAuthors(collection: string) {
-@@ -3380,6 +3435,15 @@ export class EmDashRuntime {
- 		referenceOptions?: { includeDrafts: boolean },
+@@ -3844,6 +3899,15 @@ export class EmDashRuntime {
+ 		draftOptions?: { includeStagedSlug?: boolean },
  	) {
  		const result = await handleContentGet(this.db, collection, id, locale, referenceOptions);
 +		if (referenceOptions?.includeDrafts === false && result.success) {
@@ -1188,10 +1086,10 @@ index cf17707..739b48a 100644
 +				},
 +			};
 +		}
- 		return this.hydrateDraftData(result);
+ 		return this.hydrateDraftData(result, draftOptions);
  	}
  
-@@ -4499,7 +4563,8 @@ export class EmDashRuntime {
+@@ -5111,7 +5175,8 @@ export class EmDashRuntime {
  			};
  		}
  
@@ -1201,7 +1099,7 @@ index cf17707..739b48a 100644
  		if (name !== "content:beforeUnpublish") {
  			try {
  				current = await this.hydrateDraftData(current, {
-@@ -4516,6 +4581,40 @@ export class EmDashRuntime {
+@@ -5128,6 +5193,40 @@ export class EmDashRuntime {
  			}
  		}
  
@@ -1242,7 +1140,7 @@ index cf17707..739b48a 100644
  		const origin = options.origin ?? { source: "system" };
  		const actor =
  			options.actor &&
-@@ -5169,6 +5268,37 @@ export class EmDashRuntime {
+@@ -5876,6 +5975,37 @@ export class EmDashRuntime {
  		}
  
  		const collectionInfo = await this.schemaRegistry.getCollectionWithFields(revision.collection);
@@ -1281,7 +1179,7 @@ index cf17707..739b48a 100644
  
  		// Non-revision collections: keep the legacy behavior of writing the
 diff --git a/src/loader.ts b/src/loader.ts
-index 18e39e3..de405a4 100644
+index 8d9813b..2e14b41 100644
 --- a/src/loader.ts
 +++ b/src/loader.ts
 @@ -24,7 +24,7 @@ import {
@@ -1293,42 +1191,16 @@ index 18e39e3..de405a4 100644
  import {
  	canonicalLocaleColumn,
  	storedLocaleOrder,
-@@ -1253,20 +1253,11 @@ function isIndexedPivotSort(orderBy: OrderBySpec | undefined): boolean {
- }
- 
- /**
-- * Resolve a taxonomy filter (`name` + one or more `slug`s, optionally scoped to
-- * `locale`) to the set of `translation_group`s the pivot stores in
-- * `content_taxonomies.taxonomy_id`. Exact terms only — no subtree expansion.
-- *
-- * Mirrors the meaning of the old EXISTS join (`t.name = ? AND t.slug IN (?)
-- * [AND t.locale = ?]`): a pivot row matches when its group has a term with that
-- * name/slug in the active locale. Resolving to explicit values (rather than an
-- * `IN (subquery)`) keeps the single-term case a plain equality on the pivot
-- * index, which is what gives the clean early-`LIMIT` seek.
-- *
-- * With `probeCollection`, `large` reports whether a resolved term has at least
-- * {@link LARGE_TERM_ASSIGNMENTS} pivot rows in that collection. The capped
-- * probe rides in this query; a query of its own would add a round trip to
-- * every listing.
-+ * Resolve each taxonomy slug to a translation group in locale priority order.
-+ * A fallback group qualifies only when it has no term in a preferred locale:
-+ * a translated term with a new slug must not match its old slug. Exact terms
-+ * only; explicit groups preserve the single-term pivot index seek.
-+ * The optional capped probe reports whether the result has many assignments.
-  */
- async function resolveTermGroups(
- 	db: Kysely<Database>,
-@@ -1275,31 +1266,75 @@ async function resolveTermGroups(
- 	locale: string | undefined,
+@@ -1294,47 +1294,91 @@ async function resolveTermGroups(
  	probeCollection?: string,
- ): Promise<{ groups: string[]; large: boolean }> {
+ 	countCollection?: string,
+ ): Promise<{ groups: string[]; large: boolean; assignments: number }> {
 -	let query = db
 -		.selectFrom("taxonomies")
 -		.select("translation_group")
 -		.distinct()
 -		.where("name", "=", name)
--		.where("slug", "in", slugs)
+-		.where(taxonomyValuesCondition(db, "slug", slugs))
 -		.$if(probeCollection !== undefined, (qb) =>
 -			qb.select((eb) =>
 -				eb
@@ -1340,99 +1212,124 @@ index 18e39e3..de405a4 100644
 -					.offset(LARGE_TERM_ASSIGNMENTS - 1)
 -					.as("large"),
 -			),
+-		)
+-		.$if(countCollection !== undefined, (qb) =>
+-			qb.select((eb) =>
+-				eb
+-					.selectFrom(
+-						eb
+-							.selectFrom("content_taxonomies")
+-							.select(sql<number>`1`.as("hit"))
+-							.where("content_taxonomies.collection", "=", countCollection!)
+-							.whereRef("content_taxonomies.taxonomy_id", "=", "taxonomies.translation_group")
+-							.limit(LARGE_TERM_ASSIGNMENTS)
+-							.as("capped"),
+-					)
+-					.select((inner) => inner.fn.countAll<number>().as("n"))
+-					.as("assignments"),
+-			),
 -		);
 -	if (locale) query = query.where(localeMatches("locale", locale));
 -	const rows = await query.execute();
- 	const groups = new Set<string>();
++	// Tedix: resolve each slug in locale fallback order. A fallback group counts
++	// only when it has no term in a preferred locale, so a translated term with a
++	// new slug never matches its old slug.
+ 	const counts = new Map<string, number>();
  	let large = false;
 -	for (const row of rows) {
--		if (row.translation_group) groups.add(row.translation_group);
+-		if (row.translation_group) counts.set(row.translation_group, Number(row.assignments ?? 0));
 -		if (row.large != null) large = true;
-+	if (!locale) {
-+		const rows = await db
-+			.selectFrom("taxonomies")
-+			.select("translation_group")
-+			.distinct()
-+			.where("name", "=", name)
-+			.where("slug", "in", slugs)
-+			.$if(probeCollection !== undefined, (qb) =>
-+				qb.select((eb) =>
-+					eb.selectFrom("content_taxonomies")
++	const withProbes = (qb: any, groupRef: string) =>
++		qb
++			.$if(probeCollection !== undefined, (q: any) =>
++				q.select((eb: any) =>
++					eb
++						.selectFrom("content_taxonomies")
 +						.select(sql<number>`1`.as("hit"))
 +						.where("content_taxonomies.collection", "=", probeCollection!)
-+						.whereRef("content_taxonomies.taxonomy_id", "=", "taxonomies.translation_group")
++						.whereRef("content_taxonomies.taxonomy_id", "=", groupRef)
 +						.limit(1)
 +						.offset(LARGE_TERM_ASSIGNMENTS - 1)
 +						.as("large"),
 +				),
 +			)
-+			.execute();
++			.$if(countCollection !== undefined, (q: any) =>
++				q.select((eb: any) =>
++					eb
++						.selectFrom(
++							eb
++								.selectFrom("content_taxonomies")
++								.select(sql<number>`1`.as("hit"))
++								.where("content_taxonomies.collection", "=", countCollection!)
++								.whereRef("content_taxonomies.taxonomy_id", "=", groupRef)
++								.limit(LARGE_TERM_ASSIGNMENTS)
++								.as("capped"),
++						)
++						.select((inner: any) => inner.fn.countAll().as("n"))
++						.as("assignments"),
++				),
++			);
++	const record = (rows: Array<{ translation_group: string | null; large?: unknown; assignments?: unknown }>) => {
 +		for (const row of rows) {
-+			if (row.translation_group) groups.add(row.translation_group);
++			if (row.translation_group) counts.set(row.translation_group, Number(row.assignments ?? 0));
 +			if (row.large != null) large = true;
 +		}
-+		return { groups: [...groups], large };
-+	}
-+
-+	const unresolved = new Set(slugs);
-+	const preferredLocales: string[] = [];
-+	for (const termLocale of getFallbackChain(locale)) {
-+		if (unresolved.size === 0) break;
-+		let query = db
-+			.selectFrom("taxonomies as term")
-+			.select(["term.slug", "term.translation_group"])
-+			.distinct()
-+			.where("term.name", "=", name)
-+			.where("term.slug", "in", [...unresolved])
-+			.where(localeMatches("term.locale", termLocale))
-+			.$if(probeCollection !== undefined, (qb) =>
-+				qb.select((eb) =>
-+					eb.selectFrom("content_taxonomies")
-+						.select(sql<number>`1`.as("hit"))
-+						.where("content_taxonomies.collection", "=", probeCollection!)
-+						.whereRef("content_taxonomies.taxonomy_id", "=", "term.translation_group")
-+						.limit(1)
-+						.offset(LARGE_TERM_ASSIGNMENTS - 1)
-+						.as("large"),
-+				),
++	};
++	if (!locale) {
++		const query = withProbes(
++			db
++				.selectFrom("taxonomies")
++				.select("translation_group")
++				.distinct()
++				.where("name", "=", name)
++				.where(taxonomyValuesCondition(db, "slug", slugs)),
++			"taxonomies.translation_group",
++		);
++		record(await query.execute());
++	} else {
++		const unresolved = new Set(slugs);
++		const preferredLocales: string[] = [];
++		for (const termLocale of getFallbackChain(locale)) {
++			if (unresolved.size === 0) break;
++			let query = withProbes(
++				db
++					.selectFrom("taxonomies as term")
++					.select(["term.slug", "term.translation_group"])
++					.distinct()
++					.where("term.name", "=", name)
++					.where(taxonomyValuesCondition(db, "term.slug", [...unresolved]))
++					.where(localeMatches("term.locale", termLocale)),
++				"term.translation_group",
 +			);
-+		if (preferredLocales.length > 0) {
-+			query = query.where((eb) =>
-+				eb.not(
-+					eb.exists(
-+						eb.selectFrom("taxonomies as preferred")
-+							.select("preferred.id")
-+							.whereRef("preferred.translation_group", "=", "term.translation_group")
-+							.where("preferred.locale", "in", preferredLocales),
++			if (preferredLocales.length > 0) {
++				query = query.where((eb: any) =>
++					eb.not(
++						eb.exists(
++							eb
++								.selectFrom("taxonomies as preferred")
++								.select("preferred.id")
++								.whereRef("preferred.translation_group", "=", "term.translation_group")
++								.where("preferred.locale", "in", preferredLocales),
++						),
 +					),
-+				),
-+			);
++				);
++			}
++			const rows = await query.execute();
++			record(rows);
++			for (const row of rows) if (row.translation_group) unresolved.delete(row.slug);
++			preferredLocales.push(termLocale);
 +		}
-+		for (const row of await query.execute()) {
-+			if (!row.translation_group) continue;
-+			groups.add(row.translation_group);
-+			unresolved.delete(row.slug);
-+			if (row.large != null) large = true;
-+		}
-+		preferredLocales.push(termLocale);
  	}
- 	return { groups: [...groups], large };
- }
-@@ -1864,7 +1899,7 @@ export function emdashLoader(): LiveLoader<EntryData, EntryFilter, LoaderCollect
- 					return { entries: [], cacheHint: { tags: [type] } };
- 				}
- 
--				if (taxonomyFilters.length > 0 && Object.keys(fieldFilters).length === 0) {
-+			if (taxonomyFilters.length > 0 && Object.keys(fieldFilters).length === 0) {
- 					// Pivot-drive fast path (#1834): seek the matching entries on the
- 					// denormalized `content_taxonomies` pivot instead of scanning the
- 					// whole collection and probing a taxonomy EXISTS per row. Only the
-@@ -1941,25 +1976,31 @@ export function emdashLoader(): LiveLoader<EntryData, EntryFilter, LoaderCollect
+ 	let assignments = 0;
+ 	for (const n of counts.values()) assignments += n;
+@@ -2016,20 +2060,25 @@ export function emdashLoader(): LiveLoader<EntryData, EntryFilter, LoaderCollect
  
  					// One `EXISTS` per taxonomy, AND'd together: an entry must be
  					// tagged with a matching term in *every* requested taxonomy.
 -					// Each clause pins its own `t.name`, so slugs never pool
 -					// across taxonomies (they're only unique within one).
++					// Tedix: slugs resolve through the locale fallback chain first,
++					// so each set holds one taxonomy's translation groups.
 +					const groupSets: string[][] = [];
 +					for (const taxFilter of taxonomyFilters) {
 +						const { groups } = await resolveTermGroups(db, taxFilter.name, taxFilter.slugs, locale);
@@ -1441,46 +1338,30 @@ index 18e39e3..de405a4 100644
 +						}
 +						groupSets.push(groups);
 +					}
-+
-+					// Each resolved group set belongs to one taxonomy. Array slugs
-+					// OR within that set; separate sets AND across taxonomies.
  					const taxonomyCond =
 -						taxonomyFilters.length > 0
 +						groupSets.length > 0
  							? sql`${sql.join(
 -									taxonomyFilters.map(
 -										(f) => sql`AND EXISTS (
--							SELECT 1 FROM content_taxonomies ct
++									groupSets.map(
++										(groups) => sql`AND EXISTS (
+ 							SELECT 1 FROM content_taxonomies ct
 -							INNER JOIN taxonomies t ON t.translation_group = ct.taxonomy_id
--							WHERE ct.collection = ${type}
--								AND ct.entry_id = ${sql.ref(tableName)}.translation_group
+ 							WHERE ct.collection = ${type}
+ 								AND ct.entry_id = ${sql.ref(tableName)}.translation_group
 -								AND t.name = ${f.name}
--								AND t.slug IN (${sql.join(f.slugs.map((s) => sql`${s}`))})
+-								AND ${taxonomyValuesCondition(db, "t.slug", f.slugs, taxonomySlugsAsJson)}
 -							${locale ? sql`AND ${localeMatches("t.locale", locale)}` : sql``}
--						)`,
--									),
--									sql` `,
--								)}`
--							: sql``;
-+										groupSets.map(
-+											(groups) => sql`AND EXISTS (
-+								SELECT 1 FROM content_taxonomies ct
-+								WHERE ct.collection = ${type}
-+									AND ct.entry_id = ${sql.ref(tableName)}.translation_group
-+									AND ${pivotGroupCondition("ct.taxonomy_id", groups)}
-+							)`,
-+										),
-+										sql` `,
-+									)}`
-+								: sql``;
- 
- 					// `_emdash_content_bylines.byline_id` stores the byline's
- 					// translation_group (migration 040), so a credit spans every
++								AND ${taxonomyValuesCondition(db, "ct.taxonomy_id", groups, taxonomySlugsAsJson)}
+ 						)`,
+ 									),
+ 									sql` `,
 diff --git a/src/mcp/server.ts b/src/mcp/server.ts
-index 4f38c6c..27b0ac1 100644
+index 03d68e5..946e439 100644
 --- a/src/mcp/server.ts
 +++ b/src/mcp/server.ts
-@@ -1080,6 +1080,7 @@ export function createMcpServer(
+@@ -1108,6 +1108,7 @@ export function createMcpServer(
  				orderBy: args.orderBy,
  				order: args.order,
  				locale: args.locale,
@@ -1488,7 +1369,7 @@ index 4f38c6c..27b0ac1 100644
  			});
  			if (result.success && args.markdown) {
  				const payload = result.data;
-@@ -1126,7 +1127,9 @@ export function createMcpServer(
+@@ -1154,7 +1155,9 @@ export function createMcpServer(
  		async (args, extra) => {
  			requireScope(extra, "content:read");
  			const ec = getEmDash(extra);
@@ -1674,63 +1555,6 @@ index 00446a2..6094388 100644
  	} catch (updateError) {
  		const failures: unknown[] = [updateError];
  		let rollbackSucceeded = false;
-diff --git a/src/transfer/analyze/target.ts b/src/transfer/analyze/target.ts
-index 54eace0..fb38f05 100644
---- a/src/transfer/analyze/target.ts
-+++ b/src/transfer/analyze/target.ts
-@@ -52,6 +52,7 @@ export function analysisTargetContext(config: {
- 
- const DOMAIN_BLOCKER_MESSAGES: Record<DomainBlocker["code"], string> = {
- 	table_not_empty: "The site already has content of this kind",
-+	collection_deletion_unfinished: "A collection deletion must finish before import",
- 	collection_not_seeded: "The site has a collection that was not created by setup",
- 	collection_has_entries: "A collection on the site already has entries",
- 	taxonomy_def_not_scaffold: "The site has a taxonomy that was not created by setup",
-@@ -61,6 +62,11 @@ const DOMAIN_BLOCKER_MESSAGES: Record<DomainBlocker["code"], string> = {
- function domainBlocker(blocker: DomainBlocker): PlanBlocker {
- 	const detail: Record<string, string> = { reason: blocker.code };
- 	if (blocker.code === "table_not_empty") detail.table = blocker.table;
-+	else if (blocker.code === "collection_deletion_unfinished") {
-+		detail.collection = blocker.slug;
-+		detail.state = blocker.state;
-+		detail.phase = blocker.phase;
-+	}
- 	else if (blocker.code === "taxonomy_def_not_scaffold") detail.taxonomy = blocker.name;
- 	else if (blocker.code === "block_type_not_seeded") detail.blockType = blocker.slug;
- 	else detail.collection = blocker.slug;
-diff --git a/src/transfer/domain.ts b/src/transfer/domain.ts
-index 295ae53..f46bc9b 100644
---- a/src/transfer/domain.ts
-+++ b/src/transfer/domain.ts
-@@ -40,6 +40,7 @@ export type ScaffoldItem =
- 
- export type DomainBlocker =
- 	| { code: "table_not_empty"; table: string }
-+	| { code: "collection_deletion_unfinished"; id: string; slug: string; state: string; phase: string }
- 	| { code: "collection_not_seeded"; id: string; slug: string }
- 	| { code: "block_type_not_seeded"; id: string; slug: string }
- 	| { code: "collection_has_entries"; id: string; slug: string }
-@@ -104,6 +105,20 @@ export async function inspectPortableDomain(
- 	});
- 	if (flags.user_sections != null)
- 		blockers.push({ code: "table_not_empty", table: "_emdash_sections" });
-+	const deletions = await db
-+		.selectFrom("_emdash_media_usage_collection_deletions")
-+		.select(["collection_id", "collection_slug", "state", "phase"])
-+		.orderBy("collection_slug")
-+		.execute();
-+	for (const deletion of deletions) {
-+		blockers.push({
-+			code: "collection_deletion_unfinished",
-+			id: deletion.collection_id,
-+			slug: deletion.collection_slug,
-+			state: deletion.state,
-+			phase: deletion.phase,
-+		});
-+	}
- 
- 	const collections = await db
- 		.selectFrom("_emdash_collections")
 diff --git a/src/transfer/import/advance.ts b/src/transfer/import/advance.ts
 index 4ed2e74..c2f1f35 100644
 --- a/src/transfer/import/advance.ts
@@ -1753,53 +1577,3 @@ index 4ed2e74..c2f1f35 100644
  }
  
  async function assertMappedUsersExist(context: ImportContext): Promise<void> {
-diff --git a/src/transfer/import/scaffold.ts b/src/transfer/import/scaffold.ts
-index fd74045..ecf300c 100644
---- a/src/transfer/import/scaffold.ts
-+++ b/src/transfer/import/scaffold.ts
-@@ -58,7 +58,9 @@ export async function clearScaffold(
- 				return { state: "continue", step: next };
- 			}
- 			context.budget.start();
--			await removeItem(context, item);
-+			if ((await removeItem(context, item)) === "wait") {
-+				return { state: "wait", step: next };
-+			}
- 			if (item.type === "menu" || item.type === "menu_item") removedMenus = true;
- 			if (item.type === "widget" || item.type === "widget_area") removedWidgets = true;
- 			next++;
-@@ -95,7 +97,7 @@ export async function clearScaffold(
- 	return { state: "done" };
- }
- 
--async function removeItem(context: ImportContext, item: ScaffoldItemRef): Promise<void> {
-+async function removeItem(context: ImportContext, item: ScaffoldItemRef): Promise<"wait" | void> {
- 	const db = context.db;
- 	switch (item.type) {
- 		case "collection": {
-@@ -115,6 +117,25 @@ async function removeItem(context: ImportContext, item: ScaffoldItemRef): Promis
- 				await new SchemaRegistry(db).deleteCollection(row.slug);
- 			} catch (error) {
- 				if (error instanceof SchemaError && error.code === "COLLECTION_NOT_FOUND") return;
-+				if (error instanceof SchemaError && error.code === "CONFLICT") {
-+					const activeDeletion = await db
-+						.selectFrom("_emdash_media_usage_collection_deletions")
-+						.select("collection_id")
-+						.where("collection_id", "=", item.id)
-+						.where("collection_slug", "=", row.slug)
-+						.where("state", "in", ["pending", "leased", "retry"])
-+						.executeTakeFirst();
-+					if (activeDeletion) {
-+						const tick = await processDueMediaUsageCollectionDeletions(db);
-+						if (tick.outcome === "failed") {
-+							throw new TransferError(
-+								"TRANSFER_IMPORT_ERROR",
-+								"Removing the seeded scaffold collections failed",
-+							);
-+						}
-+						return "wait";
-+					}
-+				}
- 				if (error instanceof SchemaError) {
- 					throw new TransferError("TRANSFER_TARGET_NOT_EMPTY", "Scaffold collection is in use", {
- 						detail: { type: item.type, id: item.id, reason: error.code },

@@ -4721,6 +4721,7 @@
 							"revisions",
 							"preview",
 							"scheduling",
+							"no-scheduling",
 							"search",
 							"seo"
 						]
@@ -4819,6 +4820,7 @@
 							"revisions",
 							"preview",
 							"scheduling",
+							"no-scheduling",
 							"search",
 							"seo"
 						]
@@ -4893,10 +4895,18 @@
 				"dateField": {
 					"anyOf": [
 						{
-							"type": "string",
-							"minLength": 1,
-							"maxLength": 63,
-							"pattern": "^[a-z][a-z0-9_]*$"
+							"anyOf": [
+								{
+									"type": "string",
+									"enum": ["publishedAt", "createdAt", "updatedAt"]
+								},
+								{
+									"type": "string",
+									"minLength": 1,
+									"maxLength": 63,
+									"pattern": "^[a-z][a-z0-9_]*$"
+								}
+							]
 						},
 						{
 							"type": "null"

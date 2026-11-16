@@ -13,13 +13,13 @@
 		"@astrojs/cloudflare": "^14.4.7",
 		"@astrojs/react": "^7.1.7",
 		"@cloudflare/vite-plugin": "1.68.0",
-		"@emdash-cms/auth": "1.4.0",
-		"@emdash-cms/cloudflare": "1.4.0",
+		"@emdash-cms/auth": "1.5.0",
+		"@emdash-cms/cloudflare": "1.5.0",
 		"@emdash-cms/plugin-embeds": "^0.1.58",
 		"@emdash-cms/plugin-forms": "^0.2.12",
 		"@orpc/client": "2.0.0-beta.50",
 		"astro": "^7.4.10",
-		"emdash": "1.4.0",
+		"emdash": "1.5.0",
 		"emprivacy": "^0.3.0",
 		"jose": "^6.2.17",
 		"react": "19.3.1",
@@ -61,9 +61,9 @@
 		"seed": "seed/seed.json"
 	},
 	"patchedDependencies": {
-		"@emdash-cms/cloudflare@1.4.0": "patches/@emdash-cms/cloudflare@1.4.0.patch",
+		"@emdash-cms/cloudflare@1.5.0": "patches/@emdash-cms/cloudflare@1.5.0.patch",
 		"@emdash-cms/plugin-forms@0.2.12": "patches/@emdash-cms/plugin-forms@0.2.12.patch",
-		"emdash@1.4.0": "patches/emdash@1.4.0.patch"
+		"emdash@1.5.0": "patches/emdash@1.5.0.patch"
 	},
 	"trustedDependencies": [
 		"better-sqlite3",

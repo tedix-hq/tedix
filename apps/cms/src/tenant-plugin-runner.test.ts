@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import type { PluginManifest, SerializedRequest } from "emdash";
 import { POST } from "emdash/internal/routes/api/plugins/_pluginId_/_...path_";
-import {
-	finalizePluginInstall,
-	finalizePluginUpdate,
-} from "../node_modules/emdash/src/plugins/install-finalization";
+
+// Emdash source is stricter than this app's tsc settings allow; load it by
+// runtime specifier so the type-check stays on Tedix code.
+type FinalizeOptions = Record<string, unknown>;
+const installFinalization =
+	"../node_modules/emdash/src/plugins/install-finalization";
+const { finalizePluginInstall, finalizePluginUpdate } = (await import(
+	/* @vite-ignore */ installFinalization
+)) as {
+	finalizePluginInstall(options: FinalizeOptions): Promise<unknown>;
+	finalizePluginUpdate(options: FinalizeOptions): Promise<unknown>;
+};
 
 const binding = vi.hoisted(() => ({
 	current: {

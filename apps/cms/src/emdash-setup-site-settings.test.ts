@@ -40,6 +40,8 @@ function fixture(external = true, complete = true) {
 		setupBody: {},
 		isParseError: () => false,
 		loadSeed: async () => ({ settings: { title: "My Blog" } }),
+		loadSeedMediaBasePath: async () => undefined,
+		invalidateSiteSettingsCache: () => {},
 		validateSeed: () => ({ valid: true }),
 		applySeedWithinBudget: async () => {
 			seedRuns++;

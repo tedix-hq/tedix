@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 // @ts-expect-error Pinned native repository chunks have no declarations.
-import { t as OptionsRepository } from "../templates/tedix/node_modules/emdash/dist/options-DhrI7eMv.mjs";
+import { t as OptionsRepository } from "../templates/tedix/node_modules/emdash/dist/options-CMocxAku.mjs";
 // @ts-expect-error Pinned native completion chunk has no declarations.
-import { n as finalizeSetup } from "../templates/tedix/node_modules/emdash/dist/setup-complete-qsJYWutC.mjs";
+import { n as finalizeSetup } from "../templates/tedix/node_modules/emdash/dist/setup-complete-BGRiC59t.mjs";
 // @ts-expect-error Pinned native repository chunks have no declarations.
-import { t as ContentRepository } from "../templates/tedix/node_modules/emdash/dist/content-BKHUVsE5.mjs";
+import { t as ContentRepository } from "../templates/tedix/node_modules/emdash/dist/content-Dxztag5t.mjs";
 // @ts-expect-error Pinned native repository chunks have no declarations.
-import { n as SchemaRegistry } from "../templates/tedix/node_modules/emdash/dist/registry-B0-O575m.mjs";
+import { n as SchemaRegistry } from "../templates/tedix/node_modules/emdash/dist/registry-CDzYrAFY.mjs";
 import { createDialect } from "emdash/db/sqlite";
 import { runMigrations } from "emdash/db";
 import {
