@@ -50,7 +50,7 @@ function fixture() {
 	const work = () =>
 		sqlite
 			.prepare(
-				"SELECT disposition, project_id, accountable_owner_type, accountable_owner_id FROM work_items ORDER BY created_at, id",
+				"SELECT disposition, project_id, accountable_owner_type, accountable_owner_id, json_extract(metadata,'$.needsProject') AS needsProject FROM work_items ORDER BY created_at, id",
 			)
 			.all();
 	const attempts = () =>
@@ -68,23 +68,27 @@ beforeEach(() => {
 });
 afterEach(() => f.sqlite.close());
 
-describe("Home delegation follows the acceptance rule", () => {
-	it("leaves a delegation with no known project proposed in triage and starts nothing", async () => {
+describe("Home delegation and the project a request points at", () => {
+	it("still starts a delegation when no project is known, and marks the task for sorting", async () => {
 		f.addProject("finance", null);
 		f.addProject("growth", null);
-		await expect(f.delegate("child-run-1")).rejects.toMatchObject({
-			code: "CONFLICT",
-			message: expect.stringContaining("waiting in Triage"),
-		});
+		await f.delegate("child-run-1");
 		expect(f.work()).toEqual([
 			{
-				disposition: "proposed",
+				disposition: "accepted",
 				project_id: null,
 				accountable_owner_type: "tedi",
 				accountable_owner_id: "tedi-cfo",
+				needsProject: 1,
 			},
 		]);
-		expect(f.attempts()).toBe(0);
+		expect(f.attempts()).toBe(1);
+		expect(
+			f.sqlite
+				.prepare("SELECT body FROM work_item_comments")
+				.all()
+				.map((row) => String(row.body)),
+		).toEqual([expect.stringContaining("without a project")]);
 	});
 
 	it("files the delegation under the project the tedi leads and starts it", async () => {
@@ -97,6 +101,7 @@ describe("Home delegation follows the acceptance rule", () => {
 				project_id: "finance",
 				accountable_owner_type: "tedi",
 				accountable_owner_id: "tedi-cfo",
+				needsProject: null,
 			},
 		]);
 		expect(f.attempts()).toBe(1);

@@ -65,15 +65,16 @@ message names what is missing. `list_work_triage` lists what still waits: one
 list per project, and one for the organization with the proposals that have no
 project yet.
 
-The same rule covers work Tedix files for you. When you ask Home to hand a task
-to a tedi, that tedi is the owner, and Home picks the project the request
-already points at: the project for the goal you named, the project that tedi
-leads, your own default project, or the organization's only project. If none
-of these gives one answer, the task waits in triage and does not start until
-someone gives it a project and accepts it. A support ticket is owned by the
+Tedix also files work for you. When you ask Home to hand a task to a tedi,
+that tedi is the owner, and Home picks the project the request already points
+at: the project for the goal you named, the project that tedi leads, your own
+default project, or the organization's only project. If none of these gives
+one answer, the task still starts, without a project, and Home leaves a note
+on it so you can move it to a project later
+(`tedix work move <id> --project <id>`). A support ticket is owned by the
 owner of your Support project, or by whoever filed it. A ticket filed by an
-API key with no person behind it waits in triage in the same way; the ticket
-itself is still sent to Support.
+API key with no person behind it waits in triage until someone takes it; the
+ticket itself is still sent to Support.
 
 In Tedix OS, open Work, then More views, then Triage. It shows one list at a
 time with the four actions, and how many proposals wait in each project.
