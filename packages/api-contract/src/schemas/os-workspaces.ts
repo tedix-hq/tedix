@@ -55,6 +55,10 @@ import {
 	OS_SHEET_MAX_ROWS,
 	OS_SLIDE_MAX_ELEMENTS,
 	OS_SLIDE_MAX_TEXT_CHARS,
+	OS_SLIDE_MAX_X,
+	OS_SLIDE_MAX_Y,
+	OS_SLIDE_MIN_X,
+	OS_SLIDE_MIN_Y,
 } from "../utils/os-output-limits";
 import { OS_OUTPUT_EMBEDDED_IMAGE_MAX_CHARS } from "../utils/os-output-assets";
 import {
@@ -1275,6 +1279,8 @@ export const OsPresentationElementTypeSchema = z.enum([
 	"shape",
 	"arrow",
 	"logo",
+	"sectionLabel",
+	"tonePill",
 ]);
 
 export const OsPresentationElementPropsSchema = z.object({
@@ -1286,10 +1292,16 @@ export const OsPresentationElementPropsSchema = z.object({
 		.optional(),
 	highlight: z.array(z.string().min(1).max(300)).max(100).optional(),
 	from: z
-		.object({ x: z.number().min(0).max(1_200), y: z.number().min(0).max(675) })
+		.object({
+			x: z.number().min(OS_SLIDE_MIN_X).max(OS_SLIDE_MAX_X),
+			y: z.number().min(OS_SLIDE_MIN_Y).max(OS_SLIDE_MAX_Y),
+		})
 		.optional(),
 	to: z
-		.object({ x: z.number().min(0).max(1_200), y: z.number().min(0).max(675) })
+		.object({
+			x: z.number().min(OS_SLIDE_MIN_X).max(OS_SLIDE_MAX_X),
+			y: z.number().min(OS_SLIDE_MIN_Y).max(OS_SLIDE_MAX_Y),
+		})
 		.optional(),
 	label: z.string().max(300).optional(),
 	dashed: z.boolean().optional(),
@@ -1298,6 +1310,16 @@ export const OsPresentationElementPropsSchema = z.object({
 	kind: z.enum(["rectangle", "ellipse"]).default("rectangle").optional(),
 	radius: z.number().min(0).max(600).optional(),
 	compact: z.boolean().optional(),
+	autoHeight: z
+		.boolean()
+		.optional()
+		.describe(
+			"Text that grows or shrinks with its content; `height` then records the last measured height. Omitted for a fixed height",
+		),
+	topStripe: z
+		.boolean()
+		.optional()
+		.describe("A card's colored stripe along its top edge; omitted for none"),
 	focalPoint: z
 		.object({
 			x: z.number().min(0).max(1),
@@ -1315,10 +1337,28 @@ export type OsPresentationElementProps = z.infer<
 export const OsPresentationElementSchema = z.object({
 	id: z.string().min(1).max(80),
 	type: OsPresentationElementTypeSchema,
-	x: z.number().min(0).max(1_200),
-	y: z.number().min(0).max(675),
-	width: z.number().min(1).max(1_200),
-	height: z.number().min(1).max(675),
+	x: z
+		.number()
+		.min(OS_SLIDE_MIN_X)
+		.max(OS_SLIDE_MAX_X)
+		.describe(
+			"Left edge on the 1200-wide slide; up to 100 past either edge lets an element bleed off the slide",
+		),
+	y: z
+		.number()
+		.min(OS_SLIDE_MIN_Y)
+		.max(OS_SLIDE_MAX_Y)
+		.describe(
+			"Top edge on the 675-high slide; up to 100 past either edge lets an element bleed off the slide",
+		),
+	width: z
+		.number()
+		.min(1)
+		.max(OS_SLIDE_MAX_X - OS_SLIDE_MIN_X),
+	height: z
+		.number()
+		.min(1)
+		.max(OS_SLIDE_MAX_Y - OS_SLIDE_MIN_Y),
 	text: z
 		.string()
 		.max(OS_SLIDE_MAX_TEXT_CHARS)
@@ -1516,12 +1556,36 @@ export const OsPresentationThemeSchema = z
 	})
 	.strict();
 
+/** A logo drawn in one corner of every slide. */
+export const OsPresentationLogoSchema = z
+	.object({
+		src: z
+			.string()
+			.max(OS_OUTPUT_EMBEDDED_IMAGE_MAX_CHARS)
+			.describe(
+				"Logo image: an https link, a `tedix-asset:<sha256>` reference or an embedded data:image URL, stored with the file on save",
+			),
+		position: z
+			.enum(["top-left", "top-right", "bottom-left", "bottom-right"])
+			.default("top-right"),
+		showOnCover: z
+			.boolean()
+			.default(false)
+			.describe("Whether the first slide shows the logo too"),
+		alt: z.string().max(300).optional(),
+	})
+	.strict();
+export type OsPresentationLogo = z.infer<typeof OsPresentationLogoSchema>;
+
 export const OsPresentationDeckSchema = z.object({
 	width: z.literal(1_200).default(1_200),
 	height: z.literal(675).default(675),
 	activeSlideId: z.string().min(1).max(80),
 	theme: OsPresentationThemeSchema.optional().describe(
 		"Deck-level font defaults shared by every slide; omitted for the presentation default",
+	),
+	logo: OsPresentationLogoSchema.optional().describe(
+		"A logo in one corner of every slide; omitted for none",
 	),
 	slides: z
 		.array(

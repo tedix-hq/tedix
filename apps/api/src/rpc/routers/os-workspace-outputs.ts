@@ -1267,14 +1267,19 @@ const DISPLAY_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 /** Whether the content itself links to this image. A deck's logo element is checked separately. */
 function contentLinksImage(content: OsOutputContent, url: string): boolean {
 	if (content.kind === "presentation")
-		return (content.deck?.slides ?? []).some(
-			(slide) =>
-				slide.backgroundImage === url ||
-				slide.elements.some(
-					(element) =>
-						(element.type === "image" || element.type === "svg") &&
-						element.src === url,
-				),
+		return (
+			content.deck?.logo?.src === url ||
+			(content.deck?.slides ?? []).some(
+				(slide) =>
+					slide.backgroundImage === url ||
+					slide.elements.some(
+						(element) =>
+							(element.type === "image" ||
+								element.type === "svg" ||
+								element.type === "logo") &&
+							element.src === url,
+					),
+			)
 		);
 	if (content.kind !== "document") return false;
 	const linked = (node: OsRichTextNode): boolean =>

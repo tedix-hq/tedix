@@ -3,12 +3,14 @@ import type {
 	OsPresentationDeck,
 	OsPresentationElement,
 	OsPresentationElementType,
+	OsPresentationLogo,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	slideElementStyle,
 	slideThemeFontFamily,
 	slideTone,
 	slideArrowEndpoints,
+	slideDeckLogo,
 	slideElementBox,
 	type PresentationAppearance,
 } from "@tedix/api-contract/utils/presentation-style";
@@ -41,6 +43,10 @@ import {
 	OS_EDITOR_UNDO_STEPS,
 	OS_SLIDE_MAX_ELEMENTS,
 	OS_SLIDE_MAX_TEXT_CHARS,
+	OS_SLIDE_MAX_X,
+	OS_SLIDE_MAX_Y,
+	OS_SLIDE_MIN_X,
+	OS_SLIDE_MIN_Y,
 } from "@tedix/api-contract/utils/os-output-limits";
 import {
 	fileToSlideImageSource,
@@ -104,6 +110,8 @@ type FieldOptions = {
 const EAGER_THUMBNAILS = 40;
 /** How long after choosing a slide the editor leaves the person there. */
 const FOLLOW_AFTER_NAV_MS = 2_500;
+/** What `chooseImage` targets to set the deck logo rather than an element. */
+const DECK_LOGO = "deck-logo";
 /**
  * A save sends only what changed, so it follows a short pause in editing and
  * never waits long while someone keeps editing. A failed save that may pass
@@ -155,9 +163,11 @@ const ELEMENT_NAMES: Record<OsPresentationElementType, string> = {
 	image: "Image",
 	svg: "SVG",
 	logo: "Logo",
+	sectionLabel: "Section label",
+	tonePill: "Pill",
 };
 const INSERT_GROUPS: OsPresentationElementType[][] = [
-	["text", "title", "subtitle", "bullet", "label"],
+	["text", "title", "subtitle", "bullet", "sectionLabel", "label", "tonePill"],
 	["shape", "card", "box", "arrow", "divider"],
 	["image", "svg", "logo"],
 ];
@@ -434,6 +444,7 @@ export async function mountSlidesClient(
 		| undefined;
 	/** On-screen pixels per slide pixel, or undefined to fit the slide. */
 	let zoom: number | undefined;
+	let measureAuto = false;
 	let editing: HTMLTextAreaElement | undefined, editingId: string | undefined;
 	let inspectorOpen = false,
 		advancedOpen = false,
@@ -448,6 +459,7 @@ export async function mountSlidesClient(
 	let stageSlideId: string | undefined,
 		stageSlide: OsPresentationCanvasSlide | undefined,
 		stageTheme: OsPresentationDeck["theme"],
+		stageLogo: OsPresentationLogo | undefined,
 		stageBackground: HTMLElement | undefined,
 		fresh = new Set<string>();
 	const thumbs = new Map<
@@ -460,6 +472,7 @@ export async function mountSlidesClient(
 			caption: HTMLElement;
 			slide?: OsPresentationCanvasSlide;
 			theme?: OsPresentationDeck["theme"];
+			logo?: OsPresentationLogo;
 			label?: string;
 			/** In or near the visible part of the slide list. */
 			near?: boolean;
@@ -488,15 +501,22 @@ export async function mountSlidesClient(
 		canvas: HTMLElement;
 		slide?: OsPresentationCanvasSlide;
 		theme?: OsPresentationDeck["theme"];
+		logo?: OsPresentationLogo;
 	}) {
 		const slide = deck?.slides.find(
 			(row) => row.id === entry.item.dataset.slideId,
 		);
-		if (!slide || (entry.slide === slide && entry.theme === deck?.theme))
+		if (
+			!slide ||
+			(entry.slide === slide &&
+				entry.theme === deck?.theme &&
+				entry.logo === logoOf(slide))
+		)
 			return;
 		paintCanvas(entry.canvas, slide);
 		entry.slide = slide;
 		entry.theme = deck?.theme;
+		entry.logo = logoOf(slide);
 	}
 	let railOrder: string | undefined,
 		railCurrent: string | undefined,
@@ -669,6 +689,8 @@ export async function mountSlidesClient(
 		}
 		dirty = true;
 		edits++;
+		// Text that grows with its content records its new height once drawn.
+		measureAuto = true;
 		markSave();
 		if (!typing || Date.now() - draftAt >= DRAFT_TYPING_MS) void retainDraft();
 		else
@@ -957,6 +979,9 @@ export async function mountSlidesClient(
 			target[key] = next[key] === undefined ? "" : String(next[key]);
 		ensureSlideFontLoaded(slideThemeFontFamily(element, deck?.theme));
 	}
+	/** The deck logo this slide shows, if any. */
+	const logoOf = (slide: OsPresentationCanvasSlide) =>
+		slideDeckLogo(deck, deck?.slides.indexOf(slide) ?? 0);
 	const elementLabel = (element: OsPresentationElement) =>
 		`${ELEMENT_NAMES[element.type]}: ${(element.text || element.props?.title || "Visual").slice(0, 80)}`;
 	/** Paint a whole slide from scratch: thumbnails and the presenter. */
@@ -969,7 +994,7 @@ export async function mountSlidesClient(
 		if (!slide) return;
 		const background = document.createElement("div");
 		background.className = "slides-background";
-		linked.background(background, slide, context.appearance);
+		linked.background(background, slide, context.appearance, logoOf(slide));
 		container.append(background);
 		for (const element of slide.elements) {
 			const node = document.createElement("div");
@@ -1065,8 +1090,10 @@ export async function mountSlidesClient(
 			stageBackground.className = "slides-background";
 			stage.append(stageBackground, guides, selbar);
 		}
-		if (stageSlide !== slide)
-			linked.background(stageBackground, slide, context.appearance);
+		if (stageSlide !== slide || stageLogo !== logoOf(slide)) {
+			stageLogo = logoOf(slide);
+			linked.background(stageBackground, slide, context.appearance, stageLogo);
+		}
 		const restyle = stageTheme !== deck?.theme;
 		const keep = new Set<string>();
 		let previous: Element = stageBackground;
@@ -1228,7 +1255,9 @@ export async function mountSlidesClient(
 				thumbWatch?.observe(entry.item);
 			}
 			if (
-				(entry.slide !== slide || entry.theme !== deck?.theme) &&
+				(entry.slide !== slide ||
+					entry.theme !== deck?.theme ||
+					entry.logo !== logoOf(slide)) &&
 				(!thumbWatch ||
 					index < EAGER_THUMBNAILS ||
 					entry.near ||
@@ -1237,6 +1266,7 @@ export async function mountSlidesClient(
 				paintCanvas(entry.canvas, slide);
 				entry.slide = slide;
 				entry.theme = deck?.theme;
+				entry.logo = logoOf(slide);
 			}
 			// Under the thumbnail: the slide's title, or its name without one.
 			const caption =
@@ -1524,6 +1554,54 @@ export async function mountSlidesClient(
 					),
 				{ label: "None", value: "" },
 			);
+			// The deck logo: one image in a corner of every slide.
+			const logo = document.createElement("button");
+			logo.type = "button";
+			logo.className = "wide";
+			logo.textContent = deck?.logo ? "Replace deck logo" : "Add deck logo";
+			logo.disabled = !canWrite();
+			logo.onclick = () => chooseImage(DECK_LOGO);
+			basics.append(logo);
+			if (deck?.logo) {
+				const editLogo = (
+					make: (current: OsPresentationLogo) => OsPresentationLogo | undefined,
+				) =>
+					mutate(() => {
+						if (!deck?.logo) return;
+						const next = make(deck.logo);
+						deck = { ...deck, logo: next };
+						if (!next) delete deck.logo;
+					});
+				field(
+					basics,
+					"Logo corner",
+					() => deck?.logo?.position ?? "top-right",
+					(value) =>
+						editLogo((current) => ({
+							...current,
+							position: value as OsPresentationLogo["position"],
+						})),
+					{ choices: ["top-left", "top-right", "bottom-left", "bottom-right"] },
+				);
+				field(
+					basics,
+					"Logo on first slide",
+					() => (deck?.logo?.showOnCover ? "show" : "hide"),
+					(value) =>
+						editLogo((current) => ({
+							...current,
+							showOnCover: value === "show",
+						})),
+					{ choices: ["hide", "show"] },
+				);
+				const remove = document.createElement("button");
+				remove.type = "button";
+				remove.className = "wide";
+				remove.textContent = "Remove deck logo";
+				remove.disabled = !canWrite();
+				remove.onclick = () => editLogo(() => undefined);
+				basics.append(remove);
+			}
 			for (const key of ["headingFont", "bodyFont"] as const)
 				field(
 					extras,
@@ -1618,6 +1696,28 @@ export async function mountSlidesClient(
 			);
 		if (type === "shape")
 			propsField("Shape", "kind", "rectangle", ["rectangle", "ellipse"]);
+		if (type === "card")
+			field(
+				basics,
+				"Top stripe",
+				() => (selected()?.props?.topStripe ? "on" : "off"),
+				(value) =>
+					edit((current) => ({
+						...current,
+						props: { ...current.props, topStripe: value === "on" || undefined },
+					})),
+				{ choices: ["off", "on"] },
+			);
+		if (type === "tonePill" || type === "label")
+			propsField("Tone", "tone", type === "tonePill" ? "neutral" : "", [
+				...(type === "label" ? [""] : []),
+				"neutral",
+				"accent",
+				"success",
+				"warning",
+				"danger",
+				"info",
+			]);
 		if (type === "card" || type === "box") {
 			for (const key of ["eyebrow", "title", "body"] as const)
 				propsField(`Card ${key}`, key, "");
@@ -1781,9 +1881,36 @@ export async function mountSlidesClient(
 					),
 				{
 					type: "number",
-					min: key === "width" || key === "height" ? 1 : 0,
-					max: key === "x" || key === "width" ? 1200 : 675,
+					min:
+						key === "width" || key === "height"
+							? 1
+							: key === "x"
+								? OS_SLIDE_MIN_X
+								: OS_SLIDE_MIN_Y,
+					max:
+						key === "x"
+							? OS_SLIDE_MAX_X
+							: key === "y"
+								? OS_SLIDE_MAX_Y
+								: key === "width"
+									? OS_SLIDE_MAX_X - OS_SLIDE_MIN_X
+									: OS_SLIDE_MAX_Y - OS_SLIDE_MIN_Y,
 				},
+			);
+		if (textual)
+			field(
+				extras,
+				"Text height",
+				() => (selected()?.props?.autoHeight ? "fits text" : "fixed"),
+				(value) =>
+					edit((current) => ({
+						...current,
+						props: {
+							...current.props,
+							autoHeight: value === "fits text" || undefined,
+						},
+					})),
+				{ choices: ["fits text", "fixed"], wide: true },
 			);
 		if (lettered)
 			styleField(extras, "Font family", "fontFamily", "Arial, sans-serif", {
@@ -1866,7 +1993,11 @@ export async function mountSlidesClient(
 									},
 								},
 							})),
-						{ type: "number", min: 0, max: axis === "x" ? 1200 : 675 },
+						{
+							type: "number",
+							min: axis === "x" ? OS_SLIDE_MIN_X : OS_SLIDE_MIN_Y,
+							max: axis === "x" ? OS_SLIDE_MAX_X : OS_SLIDE_MAX_Y,
+						},
 					);
 	}
 	/** Refresh the Format panel; its fields are rebuilt only when the selection changes. */
@@ -1881,7 +2012,8 @@ export async function mountSlidesClient(
 				? `element:${element.id}:${element.type}`
 				: several > 1
 					? `several:${slide.id}:${several}`
-					: `slide:${slide.id}`;
+					: // The slide panel changes with the deck logo's controls.
+						`slide:${slide.id}:${deck?.logo ? "logo" : ""}`;
 		if (key !== inspectorKey) {
 			inspectorKey = key;
 			if (slide && !element && several > 1) {
@@ -2012,6 +2144,10 @@ export async function mountSlidesClient(
 		}
 		for (const [id, entry] of thumbs)
 			entry.item.classList.toggle("landed", lit.has(id));
+		if (measureAuto) {
+			measureAuto = false;
+			recordAutoHeights();
+		}
 		renderInspector();
 		renderSelbar();
 		if (document.activeElement !== notes) notes.value = active()?.notes ?? "";
@@ -2200,8 +2336,14 @@ export async function mountSlidesClient(
 		const xs = elements.map((element) => element.x),
 			ys = elements.map((element) => element.y);
 		return [
-			Math.max(-Math.min(...xs), Math.min(1200 - Math.max(...xs), dx)),
-			Math.max(-Math.min(...ys), Math.min(675 - Math.max(...ys), dy)),
+			Math.max(
+				OS_SLIDE_MIN_X - Math.min(...xs),
+				Math.min(OS_SLIDE_MAX_X - Math.max(...xs), dx),
+			),
+			Math.max(
+				OS_SLIDE_MIN_Y - Math.min(...ys),
+				Math.min(OS_SLIDE_MAX_Y - Math.max(...ys), dy),
+			),
 		] as const;
 	}
 	/** The box around every element, for snapping a group as one. */
@@ -2244,7 +2386,11 @@ export async function mountSlidesClient(
 			height = Math.max(minHeight, (width * original.height) / original.width);
 			if (handle.includes("n")) y = bottom - height;
 		}
-		return updateElementGeometry(original, { x, y, width, height });
+		const sized = updateElementGeometry(original, { x, y, width, height });
+		// Dragging the top or bottom edge gives text a fixed height.
+		return original.props?.autoHeight && /[ns]/.test(handle)
+			? { ...sized, props: { ...sized.props, autoHeight: undefined } }
+			: sized;
 	}
 	/** Drag one end of an arrow; its box follows both ends. */
 	function movedEnd(
@@ -2255,8 +2401,12 @@ export async function mountSlidesClient(
 	) {
 		const ends = slideArrowEndpoints(original);
 		const point = {
-			x: Math.round(Math.max(0, Math.min(1200, ends[end].x + dx))),
-			y: Math.round(Math.max(0, Math.min(675, ends[end].y + dy))),
+			x: Math.round(
+				Math.max(OS_SLIDE_MIN_X, Math.min(OS_SLIDE_MAX_X, ends[end].x + dx)),
+			),
+			y: Math.round(
+				Math.max(OS_SLIDE_MIN_Y, Math.min(OS_SLIDE_MAX_Y, ends[end].y + dy)),
+			),
 		};
 		return slideElementBox({
 			...original,
@@ -2452,6 +2602,14 @@ export async function mountSlidesClient(
 		let remembered = false;
 		input.onpointerdown = (event) => event.stopPropagation();
 		input.ondblclick = (event) => event.stopPropagation();
+		// Auto-height text grows with what is typed.
+		const grow = () => {
+			if (!element.props?.autoHeight) return;
+			input.style.height = "auto";
+			input.style.height = `${input.scrollHeight}px`;
+		};
+		input.addEventListener("input", grow);
+		grow();
 		input.oninput = () => {
 			const current = active()?.elements.find((row) => row.id === elementId);
 			if (!current) return;
@@ -3030,6 +3188,25 @@ export async function mountSlidesClient(
 	shortcuts.onclick = (event) => {
 		if (event.target === shortcuts) showShortcuts(false);
 	};
+	/**
+	 * Store the drawn height of auto-height text on this slide, so snapping,
+	 * the selection box and exports know how tall it is. Runs only after the
+	 * person's own edit, so opening a deck never changes it.
+	 */
+	function recordAutoHeights() {
+		const slide = active();
+		const scale = stage.getBoundingClientRect().height / 675;
+		if (!slide || !canWrite() || !(scale > 0)) return;
+		const next = slide.elements.flatMap((element) => {
+			if (!element.props?.autoHeight) return [];
+			const node = stageNodes.get(element.id)?.node;
+			const drawn = node ? Math.round(node.offsetHeight / scale) : 0;
+			return drawn > 0 && drawn !== element.height
+				? [{ ...element, height: Math.min(900, drawn) }]
+				: [];
+		});
+		if (next.length) updateElements(next);
+	}
 	/** Switch between viewing and editing. Leaving edit mode keeps every change. */
 	function setMode(edit: boolean, draw = true) {
 		if (!editable || edit === editMode) return;
@@ -3295,11 +3472,26 @@ export async function mountSlidesClient(
 			message(reason(error), true, 6000);
 		}
 	}
-	/** Put a chosen image into an existing image, SVG or logo element. */
+	/** Put a chosen image into an existing image, SVG or logo element, or the deck logo. */
 	async function replaceImage(file: File, id: string) {
 		if (!canWrite()) return;
 		try {
 			const src = await storeImage(await fileToSlideImageSource(file));
+			if (id === DECK_LOGO) {
+				if (!deck || !canWrite()) return;
+				mutate(() => {
+					deck = {
+						...deck!,
+						logo: {
+							position: "top-right",
+							showOnCover: false,
+							...deck!.logo,
+							src,
+						},
+					};
+				});
+				return;
+			}
 			const current = active()?.elements.find((element) => element.id === id);
 			if (!current || !canWrite()) return;
 			mutate(() =>

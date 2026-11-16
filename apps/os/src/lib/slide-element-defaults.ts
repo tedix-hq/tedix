@@ -14,6 +14,7 @@ type ElementDefault = Pick<
 
 const ELEMENT_DEFAULTS: Record<OsPresentationElementType, ElementDefault> = {
 	title: {
+		props: { autoHeight: true },
 		x: 33,
 		y: 197,
 		width: 760,
@@ -28,6 +29,7 @@ const ELEMENT_DEFAULTS: Record<OsPresentationElementType, ElementDefault> = {
 		},
 	},
 	subtitle: {
+		props: { autoHeight: true },
 		x: 33,
 		y: 350,
 		width: 760,
@@ -36,6 +38,7 @@ const ELEMENT_DEFAULTS: Record<OsPresentationElementType, ElementDefault> = {
 		style: { fontSize: 17, fontWeight: "semibold", color: "#555555" },
 	},
 	text: {
+		props: { autoHeight: true },
 		x: 100,
 		y: 200,
 		width: 400,
@@ -44,6 +47,7 @@ const ELEMENT_DEFAULTS: Record<OsPresentationElementType, ElementDefault> = {
 		style: { fontSize: 19, color: "#000000", lineHeight: 1.6 },
 	},
 	bullet: {
+		props: { autoHeight: true },
 		x: 100,
 		y: 200,
 		width: 850,
@@ -64,6 +68,24 @@ const ELEMENT_DEFAULTS: Record<OsPresentationElementType, ElementDefault> = {
 			background: "#f1f1f1",
 			borderRadius: 12,
 		},
+	},
+	sectionLabel: {
+		props: { autoHeight: true },
+		x: 36,
+		y: 35,
+		width: 240,
+		height: 24,
+		text: "SECTION",
+		style: {},
+	},
+	tonePill: {
+		x: 100,
+		y: 200,
+		width: 160,
+		height: 34,
+		text: "Pill",
+		props: { tone: "accent" },
+		style: { fontSize: 14, textAlign: "center" },
 	},
 	card: {
 		x: 100,

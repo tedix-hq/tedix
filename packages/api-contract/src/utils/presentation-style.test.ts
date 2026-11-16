@@ -5,6 +5,7 @@ import {
 	slideArrowPath,
 	slideBackgroundMarkup,
 	slideCss,
+	slideDeckLogo,
 	slideElementStyle,
 	slideElementMarkup,
 	escapeSlideHtml,
@@ -147,5 +148,58 @@ describe("slide styles", () => {
 		});
 		expect(markup).toContain("inset:calc(24 * 100cqw / 1200)");
 		expect(markup).toContain("background-size:calc(20 * 100cqw / 1200)");
+	});
+	it("lets elements bleed past the slide and rejects them further out", () => {
+		const bleed = { ...element, x: -100, y: 760 };
+		expect(OsPresentationElementSchema.parse(bleed).x).toBe(-100);
+		expect(() =>
+			OsPresentationElementSchema.parse({ ...element, x: -101 }),
+		).toThrow();
+		expect(slideElementStyle(bleed, "pixels").left).toBe("-100px");
+	});
+	it("draws auto-height text at its content's height", () => {
+		const auto = { ...element, props: { autoHeight: true } };
+		expect(slideElementStyle(auto).height).toBe("auto");
+		expect(slideElementStyle(element).height).not.toBe("auto");
+	});
+	it("styles section labels, tone pills and a card's top stripe", () => {
+		const section = slideElementStyle(
+			OsPresentationElementSchema.parse({ ...element, type: "sectionLabel" }),
+		);
+		expect(section.textTransform).toBe("uppercase");
+		expect(section.fontWeight).toBe(600);
+		const pill = slideElementStyle(
+			OsPresentationElementSchema.parse({ ...element, type: "tonePill" }),
+		);
+		expect(pill.borderRadius).toContain("600");
+		const card = slideElementStyle(
+			OsPresentationElementSchema.parse({
+				...element,
+				type: "card",
+				props: { topStripe: true },
+			}),
+		);
+		expect(card.boxShadow).toContain("inset");
+	});
+	it("puts the deck logo on every slide but the first unless asked", () => {
+		const logo = {
+			src: "https://example.com/logo.png",
+			position: "bottom-left" as const,
+			showOnCover: false,
+		};
+		expect(slideDeckLogo({ logo }, 0)).toBeUndefined();
+		expect(slideDeckLogo({ logo }, 1)).toBe(logo);
+		expect(
+			slideDeckLogo({ logo: { ...logo, showOnCover: true } }, 0),
+		).toBeDefined();
+		const markup = slideBackgroundMarkup(
+			{ id: "s", name: "S", layout: "blank", background: "#fff", elements: [] },
+			"pixels",
+			{},
+			logo,
+		);
+		expect(markup).toContain("data-slide-logo");
+		expect(markup).toContain("bottom:28px");
+		expect(markup).toContain("left:32px");
 	});
 });

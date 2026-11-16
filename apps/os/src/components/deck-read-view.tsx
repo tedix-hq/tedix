@@ -6,6 +6,7 @@ import { Text } from "@/components/kumo/text";
 import { isTypingEvent } from "@/lib/keyboard";
 import { normalizePresentationContent } from "@/lib/output-models";
 import { ReadOnlySlide } from "@/components/output-slide-element";
+import { slideDeckLogo } from "@tedix/api-contract/utils/presentation-style";
 import { SLIDE_NAV_ATTRIBUTE, SlideDeckBar } from "@/components/slide-deck-bar";
 import { useSlideEntrance, useSlideSwipe } from "@/components/slide-motion";
 import {
@@ -106,6 +107,7 @@ export function DeckReadView({
 								slide={candidate}
 								className="deck-read-thumb-canvas"
 								theme={deck.theme}
+								logo={slideDeckLogo(deck, candidateIndex)}
 							/>
 							<span className="deck-read-thumb-name">
 								<span className="deck-read-thumb-number">
@@ -126,6 +128,7 @@ export function DeckReadView({
 						slide={slide}
 						className="deck-read-canvas relative overflow-hidden rounded-md"
 						theme={deck.theme}
+						logo={slideDeckLogo(deck, index)}
 					/>
 				</div>
 				<div className="deck-read-footer grid justify-items-center gap-3">

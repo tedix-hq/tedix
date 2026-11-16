@@ -49,6 +49,7 @@ type RichNode = {
 type ImageContent = {
 	kind: string;
 	deck?: {
+		logo?: { src: string };
 		slides: Array<{
 			backgroundImage?: string;
 			elements: Array<{ type: string; src?: string }>;
@@ -65,8 +66,9 @@ type ImageContent = {
 
 /**
  * Visit every image source a presentation or document carries: slide element
- * `src`, slide `backgroundImage` and document image `attrs.src`. A string
- * returned by `visit` replaces the source in place.
+ * `src` (images, SVGs and logos), slide `backgroundImage`, the deck logo and
+ * document image `attrs.src`. A string returned by `visit` replaces the source
+ * in place.
  */
 export function visitOutputImageSources(
 	content: unknown,
@@ -81,10 +83,17 @@ export function visitOutputImageSources(
 			canvas.backgroundImage =
 				visit(canvas.backgroundImage) ?? canvas.backgroundImage;
 		for (const element of canvas.elements ?? [])
-			if ((element.type === "image" || element.type === "svg") && element.src)
+			if (
+				(element.type === "image" ||
+					element.type === "svg" ||
+					element.type === "logo") &&
+				element.src
+			)
 				element.src = visit(element.src) ?? element.src;
 	};
 	if (body?.kind === "presentation") {
+		if (body.deck?.logo?.src)
+			body.deck.logo.src = visit(body.deck.logo.src) ?? body.deck.logo.src;
 		for (const entry of body.deck?.slides ?? []) slide(entry);
 		for (const entry of body.slides ?? [])
 			if (entry.canvas) slide(entry.canvas);

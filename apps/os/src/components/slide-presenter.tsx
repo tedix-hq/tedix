@@ -9,7 +9,11 @@ import {
 import type { OsPresentationDeck } from "@tedix/api-contract/schemas/os-workspaces";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
-import { ReadOnlyElement } from "@/components/output-slide-element";
+import {
+	ReadOnlyElement,
+	SlideBackground,
+} from "@/components/output-slide-element";
+import { slideDeckLogo } from "@tedix/api-contract/utils/presentation-style";
 import { useSlideEntrance, useSlideSwipe } from "@/components/slide-motion";
 import { bareKey, slideNavigationTarget } from "@/components/slide-navigation";
 
@@ -177,6 +181,7 @@ export function SlidePresenter({
 							containerType: "inline-size",
 						}}
 					>
+						<SlideBackground slide={slide} logo={slideDeckLogo(deck, index)} />
 						{slide.elements.map((element) => (
 							<ReadOnlyElement
 								key={element.id}

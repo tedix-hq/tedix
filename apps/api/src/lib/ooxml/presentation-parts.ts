@@ -1,6 +1,7 @@
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
+	OsPresentationLogo,
 	OsPresentationTheme,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import {
@@ -14,6 +15,7 @@ export function pptxSlideParts(
 	slide: OsPresentationCanvasSlide,
 	organization: PresentationAppearance,
 	theme?: OsPresentationTheme,
+	logo?: OsPresentationLogo,
 ): OsPresentationElement[] {
 	const parts: OsPresentationElement[] = [];
 	if (slide.backgroundImage)
@@ -56,7 +58,10 @@ export function pptxSlideParts(
 	for (const element of slide.elements) {
 		const tone = slideTone(element.props?.tone, organization);
 		const container = element.type === "card" || element.type === "box";
-		const pill = element.type === "label" && element.props?.tone;
+		const pill =
+			element.type === "tonePill" ||
+			(element.type === "label" && element.props?.tone);
+		const section = element.type === "sectionLabel";
 		const resolved: OsPresentationElement = {
 			...element,
 			style: {
@@ -65,7 +70,19 @@ export function pptxSlideParts(
 				background:
 					element.style.background ??
 					(container || pill ? tone.fill : undefined),
-				color: element.style.color ?? (pill ? tone.color : undefined),
+				color:
+					element.style.color ??
+					(pill
+						? tone.color
+						: section
+							? slideTone("accent", organization).color
+							: undefined),
+				...(section
+					? {
+							fontSize: element.style.fontSize ?? 10,
+							fontWeight: element.style.fontWeight ?? "semibold",
+						}
+					: {}),
 				borderColor:
 					element.style.borderColor ?? (container ? tone.border : undefined),
 				borderWidth: element.style.borderWidth ?? (container ? 1 : undefined),
@@ -85,8 +102,23 @@ export function pptxSlideParts(
 				src: element.src ?? organization.logoUrl ?? undefined,
 				text: organization.name ?? "",
 			});
+		} else if (section) {
+			parts.push({
+				...resolved,
+				type: "text",
+				text: (element.text ?? "").toUpperCase(),
+			});
 		} else if (container) {
 			parts.push({ ...resolved, type: "shape", text: undefined });
+			if (element.type === "card" && element.props?.topStripe)
+				parts.push({
+					...element,
+					id: `${element.id}-stripe`,
+					type: "shape",
+					height: 4,
+					text: undefined,
+					style: { background: tone.color },
+				});
 			const card = element.type === "card",
 				padding = card ? 20 : 14;
 			const definitions = [
@@ -198,6 +230,22 @@ export function pptxSlideParts(
 		} else {
 			parts.push(resolved);
 		}
+	}
+	// The deck logo sits above everything in its corner, as on screen.
+	if (logo) {
+		const right = logo.position?.endsWith("right") ?? true,
+			bottom = logo.position?.startsWith("bottom") ?? false;
+		parts.push({
+			id: "deck-logo",
+			type: "image",
+			src: logo.src,
+			text: logo.alt ?? "Logo",
+			x: right ? 1200 - 32 - 240 : 32,
+			y: bottom ? 675 - 28 - 36 : 28,
+			width: 240,
+			height: 36,
+			style: { fit: "contain" },
+		});
 	}
 	return parts;
 }

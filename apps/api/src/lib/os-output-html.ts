@@ -14,6 +14,7 @@ import {
 	parseSlideText,
 	slideElementMarkup,
 	slideBackgroundMarkup,
+	slideDeckLogo,
 	slideCss,
 	type PresentationAppearance,
 	slideElementStyle,
@@ -340,11 +341,12 @@ function renderDeck(
 				? organization.logoUrl
 				: undefined,
 	};
-	return content.deck.slides
-		.map(
-			(slide) =>
-				`<section class="canvas-slide" style="${slideCss({ background: slide.background })}">${slideBackgroundMarkup({ ...slide, backgroundImage: slide.backgroundImage && isExportImage(slide.backgroundImage) ? slide.backgroundImage : undefined }, "pixels", safeOrganization)}${slide.elements.map((element) => renderDeckElement(element, safeOrganization, content.deck!.theme)).join("")}</section>`,
-		)
+	const deck = content.deck;
+	return deck.slides
+		.map((slide, index) => {
+			const logo = slideDeckLogo(deck, index);
+			return `<section class="canvas-slide" style="${slideCss({ background: slide.background })}">${slideBackgroundMarkup({ ...slide, backgroundImage: slide.backgroundImage && isExportImage(slide.backgroundImage) ? slide.backgroundImage : undefined }, "pixels", safeOrganization, logo && isExportImage(logo.src) ? logo : undefined)}${slide.elements.map((element) => renderDeckElement(element, safeOrganization, deck.theme)).join("")}</section>`;
+		})
 		.join("");
 }
 
