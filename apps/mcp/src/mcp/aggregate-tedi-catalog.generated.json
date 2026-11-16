@@ -4003,6 +4003,43 @@
 					"metadata": {
 						"type": "object",
 						"properties": {
+							"workOperators": {
+								"description": "Owner-controlled project member lifecycle delegation. Null revokes; omission preserves the existing grant.",
+								"anyOf": [
+									{
+										"type": "object",
+										"properties": {
+											"version": {
+												"type": "number",
+												"const": 1
+											},
+											"userIds": {
+												"maxItems": 100,
+												"type": "array",
+												"items": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 300
+												}
+											},
+											"actions": {
+												"minItems": 1,
+												"maxItems": 3,
+												"type": "array",
+												"items": {
+													"type": "string",
+													"enum": ["acceptance", "completion", "cancellation"]
+												}
+											}
+										},
+										"required": ["version", "userIds", "actions"],
+										"additionalProperties": false
+									},
+									{
+										"type": "null"
+									}
+								]
+							},
 							"continuity": {
 								"type": "object",
 								"properties": {
@@ -4271,6 +4308,43 @@
 					"metadata": {
 						"type": "object",
 						"properties": {
+							"workOperators": {
+								"description": "Owner-controlled project member lifecycle delegation. Null revokes; omission preserves the existing grant.",
+								"anyOf": [
+									{
+										"type": "object",
+										"properties": {
+											"version": {
+												"type": "number",
+												"const": 1
+											},
+											"userIds": {
+												"maxItems": 100,
+												"type": "array",
+												"items": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 300
+												}
+											},
+											"actions": {
+												"minItems": 1,
+												"maxItems": 3,
+												"type": "array",
+												"items": {
+													"type": "string",
+													"enum": ["acceptance", "completion", "cancellation"]
+												}
+											}
+										},
+										"required": ["version", "userIds", "actions"],
+										"additionalProperties": false
+									},
+									{
+										"type": "null"
+									}
+								]
+							},
 							"continuity": {
 								"type": "object",
 								"properties": {
