@@ -10,9 +10,16 @@ import {
 const now = Math.floor(Date.now() / 1000);
 const claims = { sub: "U_example", iss: "P_example", exp: now + 600 };
 
-/** One entry per SDK client the module creates: true means it never answers. */
-let stuckClients: boolean[] = [];
+/**
+ * One entry per SDK client the module creates: true means it never answers,
+ * a string means every call is rejected with that SDK error.
+ */
+let stuckClients: (boolean | string)[] = [];
 let clientsCreated = 0;
+
+/** The SDK's wrapping of what workerd says about an ended request's promise. */
+const ENDED_REQUEST_ERROR =
+	"session validation failed. Error: Error: This promise was created by a request that has since ended, so it can never settle. With the handle_cross_request_promise_resolution compatibility flag, a promise can only settle in the request that created it, and settling it after that request ends is dropped.";
 
 vi.mock("@descope/node-sdk", () => ({
 	default: () => {
@@ -20,9 +27,11 @@ vi.mock("@descope/node-sdk", () => ({
 		clientsCreated += 1;
 		return {
 			validateSession: () =>
-				stuck
-					? new Promise(() => {})
-					: Promise.resolve({ jwt: "token", token: claims }),
+				typeof stuck === "string"
+					? Promise.reject(new Error(stuck))
+					: stuck
+						? new Promise(() => {})
+						: Promise.resolve({ jwt: "token", token: claims }),
 		};
 	},
 }));
@@ -65,5 +74,42 @@ describe("validateToken with a client that stopped answering", () => {
 		expect((error as InstanceType<typeof TokenValidationError>).code).toBe(
 			"KEYS_UNAVAILABLE",
 		);
+	});
+
+	it("replaces a client whose key refresh belongs to an ended request", async () => {
+		stuckClients = [ENDED_REQUEST_ERROR, false];
+		const first = await validateToken("token", { projectId: "P_ended" });
+		expect(first.sub).toBe("U_example");
+		expect(clientsCreated).toBe(2);
+
+		const second = await validateToken("token", { projectId: "P_ended" });
+		expect(second.sub).toBe("U_example");
+		expect(clientsCreated).toBe(2);
+	});
+
+	it("answers retryable, never invalid, when the new client is rejected the same way", async () => {
+		stuckClients = [ENDED_REQUEST_ERROR, ENDED_REQUEST_ERROR];
+		const error = await validateToken("token", {
+			projectId: "P_ended_twice",
+		}).catch((caught: unknown) => caught);
+		expect(error).toBeInstanceOf(TokenValidationError);
+		expect((error as InstanceType<typeof TokenValidationError>).code).toBe(
+			"KEYS_UNAVAILABLE",
+		);
+		expect(clientsCreated).toBe(2);
+	});
+
+	it("keeps the client and rejects the token on an ordinary verification failure", async () => {
+		stuckClients = [
+			"session validation failed. Error: JWSSignatureVerificationFailed: signature verification failed",
+			false,
+		];
+		const error = await validateToken("token", {
+			projectId: "P_bad_signature",
+		}).catch((caught: unknown) => caught);
+		expect((error as InstanceType<typeof TokenValidationError>).code).toBe(
+			"SIGNATURE_INVALID",
+		);
+		expect(clientsCreated).toBe(1);
 	});
 });
