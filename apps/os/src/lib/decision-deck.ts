@@ -1,5 +1,8 @@
 import { cardIsDue } from "@tedix/api-contract/utils/card-schedule";
-import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import {
+	DecisionEnvelopeSchema,
+	type DecisionEnvelope,
+} from "@tedix/api-contract/schemas/os-decision-deck";
 import { currentDeckCuration } from "@tedix/api-contract/utils/deck-curator";
 import type { DecisionCardFeedback } from "@/components/work-decision-card";
 import diff from "fast-diff";
@@ -92,6 +95,42 @@ export function decisionFeedbackMetadata(
 					),
 				}
 			: {}),
+	};
+}
+
+/** The saved answer for one option of a card that states its own options. */
+export function envelopeAnswer(
+	request: { id: string; version: number; kind: string },
+	decision: Pick<DecisionEnvelope, "classId" | "options">,
+	feedback: DecisionCardFeedback,
+	choice: string,
+	elapsedMs: number,
+) {
+	const option = decision.options.find(
+		(option) => option.id === feedback.action,
+	);
+	return {
+		requestId: request.id,
+		expectedRequestVersion: request.version,
+		// A request for input takes its own response kind; the option decides the rest.
+		responseKind:
+			request.kind === "input"
+				? ("input_provided" as const)
+				: ("answer" as const),
+		body:
+			choice === "change" || !option
+				? feedback.body
+				: `${option.label}: ${option.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
+		resolvesRequest: choice !== "later",
+		...(feedback.reviewedChangesThrough
+			? { reviewedChangesThrough: feedback.reviewedChangesThrough }
+			: {}),
+		metadata: decisionFeedbackMetadata(
+			feedback,
+			decision.classId,
+			choice,
+			elapsedMs,
+		),
 	};
 }
 

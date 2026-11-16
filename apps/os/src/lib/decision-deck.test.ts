@@ -14,6 +14,7 @@ import {
 	classReadiness,
 	decisionEnvelope,
 	decisionFeedbackMetadata,
+	envelopeAnswer,
 	type DecisionLearningReceipt,
 } from "./decision-deck";
 
@@ -100,6 +101,57 @@ describe("decision deck policy projection", () => {
 		expect(
 			decisionFeedbackMetadata(feedback, "acme-style", "change", 0).editRatio,
 		).toBeGreaterThan(0);
+	});
+	it("saves the chosen option's own words, in the kind of response the request takes", () => {
+		const decision = {
+			classId: "lane-hold.execution_hold",
+			options: [
+				{
+					id: "retry",
+					label: "Try again",
+					intent: "approve" as const,
+					consequence: "The agent starts this task again.",
+					cost: "Agent time.",
+				},
+				{
+					id: "later",
+					label: "Later",
+					intent: "later" as const,
+					consequence: "Keeps this card.",
+					cost: "The task waits.",
+				},
+			],
+		};
+		const feedback = (action: string) => ({
+			action,
+			body: "",
+			signal: "approve-as-is" as const,
+		});
+		expect(
+			envelopeAnswer(
+				{ id: "request", version: 3, kind: "input" },
+				decision,
+				feedback("retry"),
+				"approve",
+				40,
+			),
+		).toMatchObject({
+			requestId: "request",
+			expectedRequestVersion: 3,
+			responseKind: "input_provided",
+			body: "Try again: The agent starts this task again.",
+			resolvesRequest: true,
+			metadata: { cardAction: "retry", decisionChoice: "approve" },
+		});
+		expect(
+			envelopeAnswer(
+				{ id: "request", version: 3, kind: "question" },
+				decision,
+				feedback("later"),
+				"later",
+				40,
+			),
+		).toMatchObject({ responseKind: "answer", resolvesRequest: false });
 	});
 	it("validates a tenant-neutral manifest with all six kinds and bounded organization settings", () => {
 		const config = DecisionDeckConfigSchema.parse({
