@@ -344,6 +344,17 @@ export async function mountSheetClient(
 	// The slot is known once the host has answered, hence the late start.
 	let sync: ReturnType<typeof createOutputSync<Content, Saved>>;
 	const readLatest = () => sync.latest(readSheet);
+	/** The saved sheet at `revision`, or undefined when it is no longer stored. */
+	const olderSheet = (revision: number) =>
+		bridge
+			.call<Saved>("outputs.readRevision", { slot, revision })
+			.then((value) =>
+				value?.revision?.revision === revision &&
+				value.revision.content?.kind === "sheet"
+					? value.revision.content
+					: undefined,
+			)
+			.catch(() => undefined);
 	const evaluate = (content: Content) =>
 		bridge.call<Content>("sheet.evaluate", { content });
 	const sheet = () =>
@@ -2729,11 +2740,25 @@ export async function mountSheetClient(
 					() => undefined,
 				);
 			}
+			// Changes kept from an older revision merge into the newer saved
+			// sheet cell by cell; a question is left only when the same cells
+			// changed or that older revision is no longer stored.
+			let combined: Content | undefined;
+			if (retained && kept && retained.revision !== result.revision.revision) {
+				const older = await olderSheet(retained.revision);
+				const merged = older
+					? mergeOutputContent(await evaluate(older), kept, saved)
+					: undefined;
+				if (destroyed) return;
+				if (merged?.ok) combined = await evaluate(merged.content as Content);
+				if (destroyed) return;
+			}
 			retainedConflict =
-				retained && retained.revision !== result.revision.revision
+				retained && retained.revision !== result.revision.revision && !combined
 					? retained
 					: undefined;
-			const matching = retained && !retainedConflict ? kept : undefined;
+			const matching =
+				combined ?? (retained && !retainedConflict ? kept : undefined);
 			draft = matching ?? saved;
 			basis = result.revision.revision;
 			available = true;

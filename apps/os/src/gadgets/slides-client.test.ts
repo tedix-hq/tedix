@@ -202,6 +202,18 @@ function fixture(role = "owner", write = true) {
 			}
 			if (method === "app.call" && input.method === "readPresentation")
 				return result();
+			if (method === "outputs.readRevision") {
+				if (input.revision === undefined) return result();
+				const older = stored.get(input.revision);
+				if (!older) throw new Error("Output revision not found");
+				return {
+					output: result().output,
+					revision: {
+						revision: input.revision,
+						content: structuredClone(older),
+					},
+				};
+			}
 			if (method === "outputs.patch") {
 				if (failures-- > 0) throw new Error("Network unreachable");
 				if (input.slot !== "slides" || input.baseRevision !== revision)
@@ -1110,8 +1122,56 @@ describe("portable Slides canvas", () => {
 		).toMatchObject({ text: "External title" });
 		expect(status()).not.toContain("conflict");
 	});
+	it("merges restored edits into a newer saved presentation without asking", async () => {
+		const api = await mount("owner", true, (fresh) => {
+			fresh.result();
+			fresh.seedDraft(3, "Original title");
+			fresh.draft()!.content.deck!.slides[1]!.notes = "Restored note";
+			fresh.external("user", "Her newer title");
+		});
+		const updates = document.querySelector<HTMLElement>(".slides-updates")!;
+		await vi.waitFor(() =>
+			expect(api.result().revision.content.deck!.slides[1]!.notes).toBe(
+				"Restored note",
+			),
+		);
+		expect(api.result().revision.content.slides[0]?.title).toBe(
+			"Her newer title",
+		);
+		expect(stageElement().textContent).toBe("Her newer title");
+		expect(updates.textContent).toBe("");
+		expect(api.call).toHaveBeenCalledWith(
+			"outputs.readRevision",
+			expect.objectContaining({ revision: 3 }),
+		);
+	});
+	it("asks only about the clashing part when restored edits overlap a newer save", async () => {
+		const api = await mount("owner", true, (fresh) => {
+			fresh.result();
+			fresh.seedDraft(3, "My restored title");
+			fresh.draft()!.content.deck!.slides[1]!.notes = "Restored note";
+			fresh.external("user", "Her newer title");
+		});
+		const updates = document.querySelector<HTMLElement>(".slides-updates")!;
+		await vi.waitFor(() =>
+			expect(updates.textContent).toContain("some of the same parts"),
+		);
+		expect(api.saves()).toBe(0);
+		Array.from(updates.querySelectorAll("button"))
+			.find((option) => option.textContent === "Keep mine")!
+			.click();
+		await vi.waitFor(() =>
+			expect(api.result().revision.content.slides[0]?.title).toBe(
+				"My restored title",
+			),
+		);
+		expect(api.result().revision.content.deck!.slides[1]!.notes).toBe(
+			"Restored note",
+		);
+		expect(updates.textContent).toBe("");
+	});
 	it.each(["Keep my edits", "Use the saved version"])(
-		"asks what to keep when restored edits predate the saved presentation (%s)",
+		"asks which whole version to keep when restored edits start from a revision no longer stored (%s)",
 		async (answer) => {
 			vi.useFakeTimers();
 			const api = await mount("owner", true, (fresh) =>
@@ -1119,7 +1179,8 @@ describe("portable Slides canvas", () => {
 			);
 			const updates = document.querySelector<HTMLElement>(".slides-updates")!;
 			expect(stageElement().textContent).toBe("Older unsaved title");
-			expect(updates.textContent).toContain("changed somewhere else");
+			await vi.advanceTimersByTimeAsync(0);
+			expect(updates.textContent).toContain("no longer stored");
 			await vi.advanceTimersByTimeAsync(6000);
 			expect(api.saves()).toBe(0);
 			Array.from(updates.querySelectorAll("button"))

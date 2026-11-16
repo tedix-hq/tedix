@@ -435,10 +435,12 @@ export async function mountDocClient(
 		);
 		say("Agent change undone.", false, [], true);
 	}
-	function ask() {
+	function ask(whole = false) {
 		clearTimeout(saveTimer);
 		say(
-			"Someone else changed the same words. Which version should stay there?",
+			whole
+				? "Your unsaved changes on this device started from a version that is no longer stored, so they cannot be combined with the newer saved version. Which whole version should stay?"
+				: "Someone else changed the same words. Which version should stay there?",
 			false,
 			[
 				["Keep mine", () => void sync("mine")],
@@ -450,10 +452,15 @@ export async function mountDocClient(
 	 * Bring a newer saved copy into the editor. Changes to different parts
 	 * are both kept, down to different words of one paragraph; a choice is
 	 * asked for only where the same words changed.
-	 * A draft restored from an older copy has nothing to compare against, so
-	 * it is kept or replaced as a whole.
+	 * A draft restored from an older copy is compared with that copy
+	 * (`older`); only when it is no longer stored is the draft kept or
+	 * replaced as a whole.
 	 */
-	function absorb(latest: Saved, prefer?: OutputMergePreference) {
+	function absorb(
+		latest: Saved,
+		prefer?: OutputMergePreference,
+		older?: DocumentContent,
+	) {
 		const saved = latest.revision.content;
 		let content = saved;
 		if (dirty) {
@@ -466,20 +473,19 @@ export async function mountDocClient(
 							richText: check(value).toJSON() as OsRichTextDocument,
 						}
 					: value;
-			const result =
-				basis !== loaded!.revision.revision
-					? prefer
-						? { ok: true as const, content: prefer === "mine" ? mine : saved }
-						: { ok: false as const }
-					: mergeOutputContent(
-							normal(loaded!.revision.content),
-							mine,
-							normal(saved),
-							{ prefer, documentBlocks: blocksFromRichText },
-						);
+			const base =
+				basis === loaded!.revision.revision ? loaded!.revision.content : older;
+			const result = !base
+				? prefer
+					? { ok: true as const, content: prefer === "mine" ? mine : saved }
+					: { ok: false as const }
+				: mergeOutputContent(normal(base), mine, normal(saved), {
+						prefer,
+						documentBlocks: blocksFromRichText,
+					});
 			if (!result.ok) {
 				theirs = latest;
-				return ask();
+				return ask(!base);
 			}
 			content = result.content as DocumentContent;
 		}
@@ -514,6 +520,23 @@ export async function mountDocClient(
 		clearDraft();
 		controls();
 	}
+	/** The saved copy at `revision`, or undefined when it is no longer stored. */
+	async function olderCopy(
+		revision: number,
+	): Promise<DocumentContent | undefined> {
+		try {
+			const value = await bridge.call<Saved>("outputs.readRevision", {
+				slot,
+				revision,
+			});
+			return value?.revision?.revision === revision &&
+				value.revision.content?.kind === "document"
+				? value.revision.content
+				: undefined;
+		} catch {
+			return undefined;
+		}
+	}
 	/** Fetch the latest saved copy in the background and fold it in. */
 	async function refresh(prefer?: OutputMergePreference): Promise<boolean> {
 		if (!loaded || !editor || !available || destroyed) return false;
@@ -525,7 +548,12 @@ export async function mountDocClient(
 				// A draft restored from an older copy still has to be settled.
 				else if (!dirty || basis === loaded.revision.revision) return false;
 			}
-			absorb(latest, prefer);
+			const older =
+				dirty && basis !== loaded.revision.revision
+					? await olderCopy(basis)
+					: undefined;
+			if (destroyed) return false;
+			absorb(latest, prefer, older);
 		} catch (error) {
 			if (dirty) throw error;
 			close(error);
