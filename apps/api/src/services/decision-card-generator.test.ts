@@ -22,6 +22,7 @@ import {
 	generateDecisionCard,
 } from "./decision-card-generator";
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
+import { laneHoldFace } from "@tedix/api-contract/utils/lane-hold-decision";
 const request = {
 	orgId: "fictional",
 	targetId: "robin",
@@ -1115,4 +1116,26 @@ it("states the real next step on a consent ask", async () => {
 	);
 	expect(card).toBeNull();
 	expect(failures[0]).toContain("next_step_missing");
+});
+it("returns a runner's hold card its fixed summary and calls no model", async () => {
+	const hold = {
+		...request,
+		workItemId: "10000000-0000-4000-8000-000000000004",
+		subject: 'What should happen with "Port the landing page"?',
+		prompt:
+			'Claude Code stopped working on "Port the landing page".\n\nThe task stays accepted and no agent starts it. To run it again, edit the task.',
+		metadata: {
+			source: "lane-dispatch-blocker",
+			laneBlocker: {
+				kind: "execution_hold",
+				executor: "claude-code",
+				workVersion: 7,
+			},
+		},
+	};
+	const face = await generateDecisionCard({ db: {}, env: {} } as never, hold);
+	expect(face).toEqual(laneHoldFace(hold));
+	expect(face?.recommendation).toMatch(/^Try again/);
+	expect(mocks.model).not.toHaveBeenCalled();
+	expect(mocks.preferences).not.toHaveBeenCalled();
 });

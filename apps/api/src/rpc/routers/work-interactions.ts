@@ -1,6 +1,9 @@
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { laneRunnerAsker } from "@tedix/api-contract/utils/lane-runner-asker";
-import { laneHoldDecision } from "@tedix/api-contract/utils/lane-hold-decision";
+import {
+	laneHoldDecision,
+	laneHoldFace,
+} from "@tedix/api-contract/utils/lane-hold-decision";
 import { PersonalAgentContributionSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
 import {
 	ListWorkInteractionCliInboxResultSchema,
@@ -223,12 +226,15 @@ export function requestOutput(
 		(typeof row.metadata.cardRevision === "number"
 			? undefined
 			: legacyPresentation);
-	// A runner's hold request reads as a card with one-click answers.
+	// A runner's hold request reads as a card with one-click answers, under
+	// a fixed summary: a model-written one cannot know those answers.
 	const holdDecision = laneHoldDecision(row);
+	const cardPresentation =
+		(holdDecision && laneHoldFace(row)) || currentPresentation;
 	const metadata = {
 		...sourceMetadata,
 		...(holdDecision ? { decisionDeck: holdDecision } : {}),
-		...(currentPresentation ? { cardPresentation: currentPresentation } : {}),
+		...(cardPresentation ? { cardPresentation } : {}),
 	};
 	const follow = row.metadata.followThrough;
 	const reaskNote =

@@ -1,5 +1,7 @@
 import { expect, it } from "vite-plus/test";
-import { laneHoldDecision } from "./lane-hold-decision";
+import { DecisionCardPresentationSchema } from "../schemas/decision-card-presentation";
+import { checkDecisionCardCopy } from "./decision-card-copy";
+import { laneHoldDecision, laneHoldFace } from "./lane-hold-decision";
 
 const workItemId = "00000000-0000-4000-8000-000000000002";
 const request = (kind: string, prompt: string, subject: string) => ({
@@ -146,6 +148,135 @@ it("needs the task the runner stopped on", () => {
 	expect(
 		laneHoldDecision({
 			...request("execution_hold", "Stopped.", "What should happen?"),
+			workItemId: null,
+		}),
+	).toBeNull();
+});
+
+const HOLD_SUBJECTS = {
+	execution_hold: 'What should happen with "Port the landing page"?',
+	result_unverified: 'Check the result of "Port the landing page"',
+	accountable_owner: 'Choose an accountable owner for "Port the landing page"',
+};
+
+it.each(
+	(
+		["execution_hold", "result_unverified", "accountable_owner"] as const
+	).flatMap((kind) =>
+		(["codex", "claude-code", "opencode", "devin"] as const).map(
+			(executor) => [kind, executor] as const,
+		),
+	),
+)(
+	"writes a fixed summary for a %s card from %s that passes the card copy rules",
+	(kind, executor) => {
+		const filed = request(kind, "Stopped.", HOLD_SUBJECTS[kind]);
+		const face = laneHoldFace({
+			...filed,
+			metadata: {
+				...filed.metadata,
+				laneBlocker: { kind, executor, workVersion: 7 },
+			},
+		})!;
+		expect(DecisionCardPresentationSchema.safeParse(face).success).toBe(true);
+		expect(checkDecisionCardCopy(face)).toEqual([]);
+		expect(face.title).toContain("Port the landing page");
+		expect(face.context && face.story && face.whyMe).toBeTruthy();
+		// One short story: at most 60 words on the card, in two or three sentences.
+		expect(
+			words(`${face.title} ${face.story} ${face.whyMe} ${face.recommendation}`),
+		).toBeLessThanOrEqual(60);
+		// The summary names no single answer to pick: the buttons state their own.
+		expect(face.recommendedIntent).toBeUndefined();
+		expect(face.actionLabels).toBeUndefined();
+		expect(face.model).toBeUndefined();
+	},
+);
+
+it("recommends in the summary what the card's own answers recommend", () => {
+	const filed = request(
+		"execution_hold",
+		"Stopped.",
+		HOLD_SUBJECTS.execution_hold,
+	);
+	const decision = laneHoldDecision(filed)!;
+	const face = laneHoldFace(filed)!;
+	// Both open with the first button's own words.
+	expect(face.recommendation.startsWith(decision.options[0]!.label)).toBe(true);
+	expect(decision.recommendation.startsWith(decision.options[0]!.label)).toBe(
+		true,
+	);
+	expect(
+		laneHoldFace(
+			request("result_unverified", "Landed.", HOLD_SUBJECTS.result_unverified),
+		)!.recommendation,
+	).toMatch(/^Check the change, then complete the task/);
+	expect(
+		laneHoldFace(
+			request("accountable_owner", "Paused.", HOLD_SUBJECTS.accountable_owner),
+		)!.recommendation,
+	).toMatch(/^Make yourself the owner/);
+});
+
+it("keeps the summary valid when the task's name breaks the card copy rules", () => {
+	for (const title of [
+		// Words a card never shows, a raw identifier, and a name too long for one line.
+		"Fix the workflow session kernel",
+		"Deploy 0123456789abcdef now",
+		"A very long task name that goes on and on and on well past what one short card line can hold",
+	]) {
+		const face = laneHoldFace(
+			request(
+				"execution_hold",
+				"Stopped.",
+				`What should happen with "${title}"?`,
+			),
+		)!;
+		expect(checkDecisionCardCopy(face)).toEqual([]);
+		expect(face.title).toBe("What should happen with this task?");
+	}
+});
+
+it("also recognises a hold request that already carries its derived answers", () => {
+	const filed = request(
+		"execution_hold",
+		"Stopped.",
+		HOLD_SUBJECTS.execution_hold,
+	);
+	const read = {
+		...filed,
+		metadata: { ...filed.metadata, decisionDeck: laneHoldDecision(filed) },
+	};
+	expect(laneHoldFace(read)).toEqual(laneHoldFace(filed));
+});
+
+it("writes no fixed summary for any other request", () => {
+	expect(
+		laneHoldFace({
+			workItemId,
+			subject: "Ask",
+			metadata: { source: "elsewhere" },
+		}),
+	).toBeNull();
+	// A permission card carries its own answers and keeps its own summary.
+	expect(
+		laneHoldFace({
+			workItemId,
+			subject: "Ask?",
+			metadata: {
+				source: "lane-dispatch-blocker",
+				decisionDeck: { classId: "lane.delegation" },
+				laneBlocker: {
+					kind: "execution_hold",
+					executor: "codex",
+					workVersion: 1,
+				},
+			},
+		}),
+	).toBeNull();
+	expect(
+		laneHoldFace({
+			...request("execution_hold", "Stopped.", "Ask?"),
 			workItemId: null,
 		}),
 	).toBeNull();

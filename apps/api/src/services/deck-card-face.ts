@@ -6,6 +6,8 @@ import { AttentionOfferedChoicesSchema } from "@tedix/api-contract/schemas/atten
 import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
 import { parseJsonField, toJsonRecord } from "@tedix/db/utils/json";
 import { currentDeckCuration } from "@tedix/api-contract/utils/deck-curator";
+import { laneHoldFace } from "@tedix/api-contract/utils/lane-hold-decision";
+import { workApprovalDecision } from "@tedix/api-contract/utils/work-approval-decision";
 import { getCardRevision } from "@tedix/db/queries/work-items/card-revisions";
 import type { BaseContext } from "../rpc/orpc";
 import { requireOrgId } from "../rpc/org-scope";
@@ -131,6 +133,23 @@ export async function prepareDeckCardFaces(
 	);
 }
 
+/** What a task approval asks and what each answer does, in the words the card's buttons use. */
+function workApprovalSource(row: NonNullable<DeckCard["workApproval"]>) {
+	const { what, ifApproved, ifRejected } = workApprovalDecision({
+		action: row.proposal.action,
+		proposal: row.proposal.proposal,
+		taskTitle: row.workItem.title,
+	});
+	return {
+		action: row.proposal.action,
+		rationale: row.proposal.requestRationale,
+		task: row.workItem.title,
+		request: what,
+		ifApproved,
+		ifRejected,
+	};
+}
+
 /** Display-only source. Never send saved tool arguments or executable effects to the writer. */
 export function deckCardWritingSource(card: DeckCard) {
 	const request = card.interaction?.request;
@@ -143,11 +162,7 @@ export function deckCardWritingSource(card: DeckCard) {
 			(card.factory
 				? `${card.factory.why}\nDraft: ${card.factory.draft}\nSource: ${card.factory.sourceText}`
 				: card.workApproval
-					? JSON.stringify({
-							action: card.workApproval.proposal.action,
-							rationale: card.workApproval.proposal.requestRationale,
-							task: card.workApproval.workItem.title,
-						})
+					? JSON.stringify(workApprovalSource(card.workApproval))
 					: card.runtimeApproval
 						? JSON.stringify({
 								description: card.runtimeApproval.description,
@@ -212,6 +227,10 @@ export async function prepareDeckCardFace(
 	retry = false,
 	writingContext?: () => Promise<[string, ReaderPreferences]>,
 ) {
+	// A runner's hold card has a fixed summary that matches its answers; no
+	// model writes it and nothing is stored per person.
+	const holdFace = card.interaction && laneHoldFace(card.interaction.request);
+	if (holdFace) return holdFace;
 	if (!context.userId) return null;
 	const orgId = requireOrgId(context);
 	const source = deckCardWritingSource(card);

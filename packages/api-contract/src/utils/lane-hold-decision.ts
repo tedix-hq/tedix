@@ -1,8 +1,10 @@
 import { z } from "zod";
+import type { DecisionCardPresentation } from "../schemas/decision-card-presentation";
 import {
 	DecisionEnvelopeSchema,
 	type DecisionEnvelope,
 } from "../schemas/os-decision-deck";
+import { checkDecisionCardCopy } from "./decision-card-copy";
 
 const holdRequest = z.object({
 	source: z.literal("lane-dispatch-blocker"),
@@ -187,4 +189,78 @@ export function laneHoldDecision(request: {
 			],
 		}).data ?? null
 	);
+}
+
+type HoldFace = Extract<DecisionCardPresentation, { version: 2 }>;
+
+function holdFace(
+	kind: z.infer<typeof holdRequest>["laneBlocker"]["kind"],
+	agent: string,
+	task: string,
+): HoldFace {
+	if (kind === "accountable_owner")
+		return {
+			version: 2,
+			title: `Will you be the owner of ${task}?`,
+			context: "The task is paused until a person owns it.",
+			story: `${agent} paused this task. It needs permission from an owner, and the task has none.`,
+			whyMe: "Only a person can own a task.",
+			body: "You become the owner; the agent then asks you to allow or refuse the step.",
+			recommendation:
+				"Make yourself the owner if you can answer for this task.",
+			effectStatus: "known",
+		};
+	if (kind === "result_unverified")
+		return {
+			version: 2,
+			title: `Is the result of ${task} right?`,
+			context: "The change is on main and nobody has confirmed the result.",
+			story: `${agent} changed main but could not confirm the result. The task waits for you.`,
+			whyMe: "Only a person can judge the result.",
+			body: "Marks the task done as it stands; no agent starts it again.",
+			recommendation:
+				"Check the change, then complete the task if it is right.",
+			effectStatus: "known",
+		};
+	return {
+		version: 2,
+		title: `What should happen with ${task}?`,
+		context: "No agent works on this task until someone answers.",
+		story: `${agent} stopped starting this task. It waits until you answer.`,
+		whyMe: "Only a person can restart it, hand it over or close it.",
+		body: `${agent} starts the task again on its next check.`,
+		recommendation:
+			"Try again if the cause was a one-off; otherwise edit the task.",
+		effectStatus: "known",
+	};
+}
+
+/**
+ * The summary of a runner's hold card, written here and never by a model: a
+ * model reads the request as filed and cannot know the answers
+ * `laneHoldDecision` gives it, so its recommendation could contradict the
+ * buttons. Names no single answer to pick. Null for every other request.
+ */
+export function laneHoldFace(request: {
+	subject: string;
+	workItemId?: string | null;
+	metadata: Record<string, unknown>;
+}): HoldFace | null {
+	const parsed = holdRequest.safeParse(request.metadata);
+	if (!parsed.success || !request.workItemId) return null;
+	const { kind, executor } = parsed.data.laneBlocker;
+	// A request read back already carries the answers derived above.
+	const carried = request.metadata.decisionDeck;
+	if (
+		carried !== undefined &&
+		DecisionEnvelopeSchema.safeParse(carried).data?.classId !==
+			`lane-hold.${kind}`
+	)
+		return null;
+	const name = /"(.+)"/.exec(request.subject)?.[1]?.trim();
+	const named = name ? holdFace(kind, AGENTS[executor], `"${name}"`) : null;
+	// A task name the card rules refuse (too long, an identifier) gives way.
+	return named && !checkDecisionCardCopy(named).length
+		? named
+		: holdFace(kind, AGENTS[executor], "this task");
 }

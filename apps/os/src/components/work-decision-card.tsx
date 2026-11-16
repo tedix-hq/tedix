@@ -133,6 +133,12 @@ export interface DecisionCardAction {
 	confirmDisabled?: boolean;
 	disabled?: boolean;
 	description?: string;
+	/**
+	 * Choosing this answer does something beyond saving it: it restarts,
+	 * reassigns, closes, completes or takes over a task, or sends something.
+	 * A card with such an answer always waits for a person.
+	 */
+	acts?: boolean;
 }
 export interface DecisionCardFeedback {
 	action: string;
@@ -567,11 +573,14 @@ export function WorkDecisionCard({
 					(action.intent === "delegate" && !action.disabled && !rail),
 			);
 	const [autoStopped, setAutoStopped] = useState(false);
+	// "Auto when confident" only ever saves an answer. A card where any answer
+	// acts on a task is never picked for the person, whatever the summary says.
 	const autoAction =
 		decideMode === "auto" &&
 		!autoStopped &&
 		recommended &&
 		!recommended.confirm &&
+		!actions.some((action) => action.acts) &&
 		kind !== "outbound" &&
 		(faceState?.confidence ?? 0) >= AUTO_DECIDE_CONFIDENCE
 			? recommended

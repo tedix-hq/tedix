@@ -665,6 +665,41 @@ it("auto-decides a confident card after a visible countdown the person can stop"
 	}
 });
 
+it.each([
+	["the recommended answer", "yes"],
+	["another answer on the card", "later"],
+])(
+	"never auto-decides a card when %s acts on a task",
+	async (_name, actingId) => {
+		vi.useFakeTimers();
+		try {
+			const decide = await mountFace(
+				{
+					presentation: { ...FACE, recommendedIntent: "approve" as const },
+					confidence: 0.99,
+					preferences: { decideForMe: { decision: "auto" as const } },
+				},
+				undefined,
+				{
+					actions: FACE_ACTIONS.map((action) =>
+						action.id === actingId ? { ...action, acts: true } : action,
+					),
+				},
+			);
+			expect(host.querySelector(".fd-auto-decide")).toBeNull();
+			await act(async () => {
+				vi.advanceTimersByTime(10000);
+			});
+			await act(async () => {});
+			expect(decide).not.toHaveBeenCalled();
+			// The person can still pick it.
+			expect(actionButtons().some((button) => !button.disabled)).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	},
+);
+
 it("leaves focus alone on mount and supports Enter after keyboard focus", async () => {
 	const decide = await mount({ autoFocus: true });
 	expect(document.activeElement).not.toBe(host.querySelector("section"));

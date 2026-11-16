@@ -701,3 +701,36 @@ it("keeps a daily agent-decision review until its decisions have outcomes", asyn
 		retirement: { reason: "already_decided" },
 	});
 });
+
+it("judges a runner's hold card by the answers the person sees", () => {
+	const row = {
+		id: "card-hold",
+		kind: "question",
+		status: "open",
+		subject: 'What should happen with "Port the landing page"?',
+		prompt:
+			'Claude Code stopped working on "Port the landing page". Three tries failed.',
+		creatorType: "user",
+		creatorId: "owner-1",
+		workItemId: "10000000-0000-4000-8000-000000000004",
+		dueAt: null,
+		expiresAt: null,
+		createdAt: "2026-10-20T08:00:00.000Z",
+		resolvedAt: null,
+		cancelledAt: null,
+		version: 1,
+		metadata: {
+			source: "lane-dispatch-blocker",
+			laneBlocker: {
+				kind: "execution_hold",
+				executor: "claude-code",
+				workVersion: 7,
+			},
+		},
+	} as unknown as Parameters<typeof sweepCard>[0];
+	// As filed it is a free-text question; with its answers it is a choice.
+	expect(sweepCard(row, new Map()).askKind).toBe("decide");
+	expect(
+		sweepCard({ ...row, metadata: {} } as typeof row, new Map()).askKind,
+	).toBe("answer");
+});

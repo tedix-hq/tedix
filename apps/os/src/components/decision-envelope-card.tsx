@@ -159,6 +159,8 @@ export function DecisionEnvelopeCard({
 					? option.intent === "delegate"
 					: option.intent === "approve",
 				description: `${option.consequence} ${decisionText("Cost:")} ${option.cost}`,
+				// An answer with an effect is never picked for the person.
+				acts: Boolean(option.effect),
 				// Closing a task cannot be taken back, whatever the other answers do.
 				...(option.effect?.kind === "cancel_work"
 					? { confirm: `${option.consequence} ${option.cost}` }
