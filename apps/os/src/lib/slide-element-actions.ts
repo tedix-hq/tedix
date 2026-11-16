@@ -103,6 +103,70 @@ export function applySlideElementAction(
 	}
 }
 
+export type SlideAlignMode =
+	| "left"
+	| "center"
+	| "right"
+	| "top"
+	| "middle"
+	| "bottom"
+	| "distribute-horizontal"
+	| "distribute-vertical";
+
+/**
+ * Where each element goes to line the group up along one edge or centre of
+ * the box around them all, or to space them evenly inside it. Distributing
+ * needs three elements; the outermost ones stay put. Returns only the
+ * elements that move.
+ */
+export function alignSlideElements(
+	elements: readonly OsPresentationElement[],
+	mode: SlideAlignMode,
+): Array<{ id: string; x: number; y: number }> {
+	if (elements.length < 2) return [];
+	const left = Math.min(...elements.map((element) => element.x)),
+		right = Math.max(...elements.map((element) => element.x + element.width)),
+		top = Math.min(...elements.map((element) => element.y)),
+		bottom = Math.max(...elements.map((element) => element.y + element.height));
+	const next = new Map(
+		elements.map((element) => [element.id, { x: element.x, y: element.y }]),
+	);
+	if (mode === "distribute-horizontal" || mode === "distribute-vertical") {
+		if (elements.length < 3) return [];
+		const across = mode === "distribute-horizontal";
+		const size = (element: OsPresentationElement) =>
+			across ? element.width : element.height;
+		const sorted = [...elements].sort((a, b) =>
+			across ? a.x - b.x : a.y - b.y,
+		);
+		const total = sorted.reduce((sum, element) => sum + size(element), 0);
+		const gap =
+			((across ? right - left : bottom - top) - total) / (sorted.length - 1);
+		let cursor = across ? left : top;
+		for (const element of sorted) {
+			next.get(element.id)![across ? "x" : "y"] = Math.round(cursor);
+			cursor += size(element) + gap;
+		}
+	} else
+		for (const element of elements) {
+			const place = next.get(element.id)!;
+			if (mode === "left") place.x = left;
+			else if (mode === "center")
+				place.x = Math.round((left + right) / 2 - element.width / 2);
+			else if (mode === "right") place.x = Math.round(right - element.width);
+			else if (mode === "top") place.y = top;
+			else if (mode === "middle")
+				place.y = Math.round((top + bottom) / 2 - element.height / 2);
+			else place.y = Math.round(bottom - element.height);
+		}
+	return elements.flatMap((element) => {
+		const place = next.get(element.id)!;
+		return place.x === element.x && place.y === element.y
+			? []
+			: [{ id: element.id, ...place }];
+	});
+}
+
 const SHORTCUTS: Record<string, SlideElementAction | undefined> = {
 	c: "copy",
 	x: "cut",

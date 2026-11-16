@@ -1003,6 +1003,33 @@ describe("portable Slides canvas", () => {
 				"artwork",
 			]);
 		});
+		it("lines up the selection from the Align menu as one undo step", async () => {
+			const api = await mount();
+			expect(button("align").disabled).toBe(true);
+			clickElement();
+			expect(button("align").disabled).toBe(true);
+			pressWith("artwork", { shiftKey: true });
+			release();
+			expect(button("align").disabled).toBe(false);
+			const item = (mode: string) =>
+				document.querySelector<HTMLButtonElement>(`[data-align="${mode}"]`)!;
+			// Spacing evenly needs three elements.
+			expect(item("distribute-horizontal").disabled).toBe(true);
+			item("right").click();
+			expect(await elementsOf(api)).toEqual({
+				"title-1": { x: 72, y: 60 },
+				artwork: { x: 522, y: 240 },
+			});
+			item("middle").click();
+			expect(await elementsOf(api)).toEqual({
+				"title-1": { x: 72, y: 190 },
+				artwork: { x: 522, y: 150 },
+			});
+			button("undo").click();
+			button("undo").click();
+			expect(button("undo").disabled).toBe(true);
+			expect(chosenIds()).toEqual(["title-1", "artwork"]);
+		});
 		it("keeps the selection when someone else's save lands, minus what they removed", async () => {
 			const api = await mount();
 			selectBoth();
