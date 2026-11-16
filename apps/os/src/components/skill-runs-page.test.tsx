@@ -327,7 +327,7 @@ describe("skill run log", () => {
 		expect(last.updateSearch).toHaveBeenCalledWith({ page: undefined });
 	});
 
-	it("flags a run that has been running for hours and lets a manager cancel it", async () => {
+	it("flags a run that has been running for hours and lets a manager stop it", async () => {
 		cancel.mockResolvedValue({});
 		const { row, button } = await mountLog({}, [
 			{
@@ -352,8 +352,20 @@ describe("skill run log", () => {
 		expect(row("fresh")?.textContent).not.toContain("Stuck");
 		expect(row("fresh")?.querySelector("button")).toBeNull();
 		await act(async () => row("old")!.querySelector("button")!.click());
-		expect(document.body.textContent).toContain("Cancel this run?");
-		await act(async () => button("Cancel run")!.click());
+		expect(document.body.textContent).toContain("Stop this run?");
+		// The dialog's own way out is named "Cancel", as the focus audit expects.
+		expect(
+			[...document.querySelectorAll('[role="alertdialog"] button')].map(
+				(item) => item.textContent?.trim(),
+			),
+		).toEqual(["Cancel", "Stop run"]);
+		await act(async () =>
+			document
+				.querySelector<HTMLButtonElement>(
+					'[role="alertdialog"] button:last-of-type',
+				)!
+				.click(),
+		);
 		await act(async () => {
 			await new Promise((done) => setTimeout(done, 20));
 		});
@@ -362,7 +374,7 @@ describe("skill run log", () => {
 		);
 	});
 
-	it("flags a stuck run without Cancel for someone who cannot manage it", async () => {
+	it("flags a stuck run without a stop button for someone who cannot manage it", async () => {
 		canManage.value = false;
 		const { row } = await mountLog({}, [
 			{
