@@ -10,10 +10,7 @@ import {
 	vi,
 } from "vite-plus/test";
 import type { CardReviewConfig } from "@tedix/api-contract/schemas/os-card-review";
-import type {
-	WebMcpToolDef,
-	WebMcpToolResult,
-} from "@tedix/webmcp-core/model-context";
+import type { WebMcpSpecTool } from "@tedix/webmcp-core/model-context";
 import {
 	setModelContextResolverForTests,
 	setWebMcpInvocationObserver,
@@ -211,7 +208,7 @@ function detail(sheet: Sheet) {
 	};
 }
 
-let tools: WebMcpToolDef[] = [];
+let tools: WebMcpSpecTool[] = [];
 let root: Root | null = null;
 let host: HTMLElement | null = null;
 
@@ -226,8 +223,11 @@ beforeEach(() => {
 	setWebMcpInvocationObserver(null);
 	tools = [];
 	setModelContextResolverForTests(() => ({
-		provideContext: (context) => {
-			tools = context.tools;
+		registerTool: (tool, options) => {
+			tools = [...tools, tool];
+			options?.signal?.addEventListener("abort", () => {
+				tools = tools.filter((t) => t !== tool);
+			});
 		},
 	}));
 	api.outputs.list.mockImplementation(async () => ({
@@ -292,18 +292,27 @@ async function mount(appConfig: CardReviewConfig = config) {
 async function call(
 	name: string,
 	args: Record<string, unknown> = {},
-): Promise<WebMcpToolResult & { data: Record<string, unknown> }> {
+): Promise<{ data: Record<string, unknown>; isError?: true }> {
 	const tool = tools.find((t) => t.name === name);
 	if (!tool) throw new Error(`tool not registered: ${name}`);
-	let result: WebMcpToolResult | undefined;
+	let result:
+		| { data: Record<string, unknown>; isError?: true; message?: string }
+		| undefined;
 	await act(async () => {
-		result = await tool.execute(args);
+		// The spec surface resolves to structured data and rejects on errors.
+		try {
+			const value = await tool.execute(args);
+			result = { data: (value ?? {}) as Record<string, unknown> };
+		} catch (error) {
+			result = {
+				data: {},
+				isError: true,
+				message: error instanceof Error ? error.message : String(error),
+			};
+		}
 	});
 	await flush();
-	return {
-		...result!,
-		data: (result!.structuredContent ?? {}) as Record<string, unknown>,
-	};
+	return result!;
 }
 
 const shownWho = () =>

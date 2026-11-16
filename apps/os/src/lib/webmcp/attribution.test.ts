@@ -1,5 +1,6 @@
 import type {
 	ModelContextLike,
+	WebMcpSpecTool,
 	WebMcpToolDef,
 } from "@tedix/webmcp-core/model-context";
 import { webMcpResult } from "@tedix/webmcp-core/model-context";
@@ -14,15 +15,15 @@ afterEach(() => {
 	setModelContextResolverForTests(null);
 });
 
-/** Registers one scope and returns the projected (instrumented) tools. */
+/** Registers one scope and returns the projected (spec-wrapped) tools. */
 function projectTools(tools: WebMcpToolDef[]) {
-	const projected: WebMcpToolDef[][] = [];
+	const projected: WebMcpSpecTool[] = [];
 	const context: ModelContextLike = {
-		provideContext: ({ tools: t }) => projected.push(t),
+		registerTool: (tool) => projected.push(tool),
 	};
 	setModelContextResolverForTests(() => context);
 	registerWebMcpScope("work", tools);
-	return projected.at(-1) ?? [];
+	return projected;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

@@ -77,7 +77,7 @@ afterEach(() => {
 	hoisted.branding.mockResolvedValue(null);
 	hoisted.voice.length = 0;
 	hoisted.confirm.mockReset();
-	delete (navigator as { modelContext?: unknown }).modelContext;
+	delete (document as { modelContext?: unknown }).modelContext;
 });
 
 describe("mounting", () => {
@@ -762,7 +762,7 @@ describe("WebMCP", () => {
 		const w = await bootWidget({
 			before: () =>
 				setTimeout(() => {
-					(navigator as { modelContext?: unknown }).modelContext = host;
+					(document as { modelContext?: unknown }).modelContext = host;
 				}, 300),
 		});
 		await tick(700);
@@ -772,20 +772,17 @@ describe("WebMCP", () => {
 			"ask_tedi",
 			"request_tedi_approval",
 		]);
-		const opened = (await host.tools
+		// A spec host sees the structured result itself; error results reject.
+		const opened = await host.tools
 			.get("open_tedi_widget")!
-			.execute({ suggestedPrompt: "Draft this" })) as {
-			structuredContent: unknown;
-		};
-		expect(opened.structuredContent).toEqual({ open: true, promptSent: false });
+			.execute({ suggestedPrompt: "Draft this" });
+		expect(opened).toEqual({ open: true, promptSent: false });
 		expect(w.input().value).toBe("Draft this");
 		expect(transport().streams).toHaveLength(0);
-		const context = (await host.tools
+		const context = await host.tools
 			.get("get_tedi_widget_context")!
-			.execute({})) as {
-			structuredContent: Record<string, unknown>;
-		};
-		expect(context.structuredContent).toMatchObject({
+			.execute({});
+		expect(context).toMatchObject({
 			tenant: "demo-shop",
 			open: true,
 		});
@@ -812,7 +809,7 @@ describe("WebMCP", () => {
 		const host = modelContextHost();
 		const w = await bootWidget({
 			before: () =>
-				((navigator as { modelContext?: unknown }).modelContext = host),
+				((document as { modelContext?: unknown }).modelContext = host),
 		});
 		expect(host.tools.size).toBeGreaterThan(0);
 		w.Tedix.shutdown();
@@ -841,7 +838,7 @@ describe("WebMCP", () => {
 		const host = modelContextHost();
 		const w = await bootWidget({
 			before: () =>
-				((navigator as { modelContext?: unknown }).modelContext = host),
+				((document as { modelContext?: unknown }).modelContext = host),
 			options: {
 				session: vi.fn(async () => sessionResult(profile(tools))),
 				...options,
@@ -860,13 +857,9 @@ describe("WebMCP", () => {
 		const { host } = await portable([readTool], { portableTool });
 		const completed = vi.fn();
 		window.addEventListener("tedix:tool-completed", completed);
-		const result = (await host.tools
-			.get("get_record")!
-			.execute({ id: "one" })) as {
-			structuredContent: unknown;
-		};
+		const result = await host.tools.get("get_record")!.execute({ id: "one" });
 		window.removeEventListener("tedix:tool-completed", completed);
-		expect(result.structuredContent).toEqual({ id: "one" });
+		expect(result).toEqual({ id: "one" });
 		expect(portableTool).toHaveBeenCalledWith({
 			callable: "os.get_record",
 			args: { id: "one" },
@@ -886,12 +879,10 @@ describe("WebMCP", () => {
 		controller.abort();
 		const completed = vi.fn();
 		window.addEventListener("tedix:tool-completed", completed);
-		const cancelled = (await host.tools
+		const cancelled = await host.tools
 			.get("get_record")!
-			.execute({ id: "one" }, { signal: controller.signal })) as {
-			structuredContent: unknown;
-		};
-		expect(cancelled.structuredContent).toEqual({
+			.execute({ id: "one" }, { signal: controller.signal });
+		expect(cancelled).toEqual({
 			status: "cancelled",
 			changed: false,
 		});
@@ -926,12 +917,10 @@ describe("WebMCP", () => {
 			portableTool,
 		});
 		hoisted.confirm.mockResolvedValueOnce(false);
-		const declined = (await host.tools
+		const declined = await host.tools
 			.get("update_record")!
-			.execute({ id: "one" })) as {
-			structuredContent: unknown;
-		};
-		expect(declined.structuredContent).toEqual({
+			.execute({ id: "one" });
+		expect(declined).toEqual({
 			status: "cancelled",
 			changed: false,
 		});
@@ -961,7 +950,7 @@ describe("WebMCP", () => {
 			const w = await bootWidget({
 				src: `https://widget.tedix.dev${pathname}?host-sdk=3`,
 				before: () =>
-					((navigator as { modelContext?: unknown }).modelContext = host),
+					((document as { modelContext?: unknown }).modelContext = host),
 				options: {
 					portableTool: vi.fn(async () => ({ id: "one" })),
 					session: vi.fn(async () =>
@@ -1009,16 +998,14 @@ describe("WebMCP", () => {
 				rankedIds: ["os.list_records", "os.get_record"],
 				receipt: { executionId: "exec-1", usagePersistence: "persisted" },
 			});
-		const advice = (await host.tools
+		const advice = await host.tools
 			.get("find_tedi_widget_tool")!
-			.execute({ query: "all records" })) as {
-			structuredContent: Record<string, any>;
-		};
+			.execute({ query: "all records" });
 		expect(w.client()!.rankPortableTools).toHaveBeenCalledWith({
 			query: "all records",
 			callables: ["os.get_record", "os.list_records"],
 		});
-		expect(advice.structuredContent).toEqual({
+		expect(advice).toEqual({
 			advisory: true,
 			rankingReceipt: {
 				ref: "jev-execution:exec-1",
@@ -1030,26 +1017,21 @@ describe("WebMCP", () => {
 			],
 		});
 		expect(portableTool).not.toHaveBeenCalled();
-		const refused = (await host.tools
-			.get("find_tedi_widget_tool")!
-			.execute({ query: "x" })) as { isError?: boolean };
-		expect(refused.isError).toBe(true);
+		// On the spec surface an error result is a rejected execute.
+		await expect(
+			host.tools.get("find_tedi_widget_tool")!.execute({ query: "x" }),
+		).rejects.toThrow();
 		// Advice computed for a route the page has left is withdrawn.
 		let rank!: (value: unknown) => void;
 		w.client()!.rankPortableTools.mockReturnValueOnce(
 			new Promise((resolve) => (rank = resolve)),
 		);
 		const finder = host.tools.get("find_tedi_widget_tool")!;
-		const stale = finder.execute({ query: "all records" }) as Promise<{
-			isError?: boolean;
-			content: Array<{ text: string }>;
-		}>;
+		const stale = finder.execute({ query: "all records" });
 		await tick(0);
 		w.Tedix.context({ pathname: "/elsewhere" });
 		rank({ rankedIds: ["os.get_record", "os.list_records"] });
-		const result = await stale;
-		expect(result.isError).toBe(true);
-		expect(result.content[0]!.text).toBe("Page tool scope changed");
+		await expect(stale).rejects.toThrow("Page tool scope changed");
 	});
 });
 

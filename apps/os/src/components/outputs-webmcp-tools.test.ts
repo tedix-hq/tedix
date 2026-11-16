@@ -90,7 +90,7 @@ describe("buildOutputsWebMcpTools", () => {
 	});
 
 	it("registers the six outputs tools on the WebMCP surface", () => {
-		const context: ModelContextLike = { provideContext: () => {} };
+		const context: ModelContextLike = { registerTool: () => {} };
 		setModelContextResolverForTests(() => context);
 		const dispose = registerWebMcpScope(
 			"outputs",

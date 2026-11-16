@@ -136,7 +136,7 @@ describe("buildWorkspaceWebMcpTools", () => {
 
 	it("registers the four workspace-scoped tools under an id-keyed scope", () => {
 		const context: ModelContextLike = {
-			provideContext: () => {},
+			registerTool: () => {},
 		};
 		setModelContextResolverForTests(() => context);
 		const dispose = registerWebMcpScope(

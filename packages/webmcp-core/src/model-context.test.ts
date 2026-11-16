@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import type { ModelContextLike } from "./model-context";
 import {
 	describeModelContextApi,
-	resolveModelContextSource,
+	resolveModelContext,
 	toSpecToolOutput,
 	webMcpContextUnavailable,
 	webMcpError,
@@ -54,29 +54,22 @@ function restoreHosts(): void {
 
 afterEach(restoreHosts);
 
-describe("resolveModelContextSource", () => {
-	it("reports no host when neither surface carries modelContext", () => {
+describe("resolveModelContext", () => {
+	it("reports no host when document carries no modelContext", () => {
 		setHosts({});
-		expect(resolveModelContextSource()).toBeNull();
+		expect(resolveModelContext()).toBeNull();
 	});
 
-	it("reports the navigator surface when only navigator carries it", () => {
-		const context: ModelContextLike = { provideContext: () => {} };
+	it("returns the document surface", () => {
+		const context: ModelContextLike = { registerTool: () => {} };
+		setHosts({ document: context });
+		expect(resolveModelContext()).toBe(context);
+	});
+
+	it("ignores a navigator-only modelContext", () => {
+		const context: ModelContextLike = { registerTool: () => {} };
 		setHosts({ navigator: context });
-		expect(resolveModelContextSource()).toEqual({
-			context,
-			source: "navigator",
-		});
-	});
-
-	it("prefers the document surface when both exist", () => {
-		const fromDocument: ModelContextLike = { registerTool: () => {} };
-		const fromNavigator: ModelContextLike = { provideContext: () => {} };
-		setHosts({ document: fromDocument, navigator: fromNavigator });
-		expect(resolveModelContextSource()).toEqual({
-			context: fromDocument,
-			source: "document",
-		});
+		expect(resolveModelContext()).toBeNull();
 	});
 });
 
@@ -85,15 +78,6 @@ describe("describeModelContextApi", () => {
 		expect(describeModelContextApi({ registerTool: () => {} })).toBe(
 			"registerTool",
 		);
-		expect(describeModelContextApi({ provideContext: () => {} })).toBe(
-			"provideContext",
-		);
-		expect(
-			describeModelContextApi({
-				registerTool: () => {},
-				provideContext: () => {},
-			}),
-		).toBe("registerTool");
 		expect(describeModelContextApi({})).toBe("none");
 		expect(describeModelContextApi(null)).toBe("none");
 	});

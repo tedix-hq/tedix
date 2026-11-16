@@ -123,7 +123,7 @@ describe("buildChatWebMcpTools", () => {
 	});
 
 	it("registers the six chat tools under the chat scope", () => {
-		const context: ModelContextLike = { provideContext: () => {} };
+		const context: ModelContextLike = { registerTool: () => {} };
 		setModelContextResolverForTests(() => context);
 		const dispose = registerWebMcpScope("chat", buildChatWebMcpTools());
 		expect(webMcpRegisteredToolNames()).toEqual([

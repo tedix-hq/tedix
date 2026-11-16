@@ -1,7 +1,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import type { WebMcpToolDef } from "@tedix/webmcp-core/model-context";
+import type { WebMcpSpecTool } from "@tedix/webmcp-core/model-context";
 import { webMcpResult } from "@tedix/webmcp-core/model-context";
 import {
 	setModelContextResolverForTests,
@@ -10,7 +10,7 @@ import {
 } from "@tedix/webmcp-core/registry";
 import { useAppWebMcpTools } from "./use-app-webmcp-tools";
 
-let tools: WebMcpToolDef[] = [];
+let tools: WebMcpSpecTool[] = [];
 
 function App({ count }: { count: number }) {
 	useAppWebMcpTools(
@@ -56,8 +56,11 @@ describe("useAppWebMcpTools", () => {
 		// Invocation telemetry posts to the network; it has its own suite.
 		setWebMcpInvocationObserver(null);
 		setModelContextResolverForTests(() => ({
-			provideContext: (context) => {
-				tools = context.tools;
+			registerTool: (tool, options) => {
+				tools = [...tools, tool];
+				options?.signal?.addEventListener("abort", () => {
+					tools = tools.filter((t) => t !== tool);
+				});
 			},
 		}));
 
@@ -68,7 +71,7 @@ describe("useAppWebMcpTools", () => {
 		render(createElement(App, { count: 2 }));
 		expect(webMcpRegistrationStatus().generation).toBe(generation);
 		const result = await tools[0]!.execute({});
-		expect(result.structuredContent).toEqual({ count: 2 });
+		expect(result).toEqual({ count: 2 });
 
 		render(createElement("div"));
 		expect(tools).toEqual([]);

@@ -17,7 +17,7 @@ import {
 	reduceTranscript,
 } from "@tedix/chat-transport/transcript-reducer";
 import {
-	resolveModelContextSource,
+	resolveModelContext,
 	webMcpError,
 	webMcpResult,
 } from "@tedix/webmcp-core/model-context";
@@ -3140,7 +3140,7 @@ import {
 			const generation = ++portableProjectionGeneration;
 			disposePortableWebMcp();
 			disposePortableWebMcp = () => {};
-			if (destroyed || !resolveModelContextSource()) return;
+			if (destroyed || !resolveModelContext()) return;
 			try {
 				const session = await getEmbeddedSession();
 				if (destroyed || generation !== portableProjectionGeneration) return;
@@ -3319,7 +3319,7 @@ import {
 		};
 		const registerWidgetWebMcp = () => {
 			if (destroyed) return;
-			if (!resolveModelContextSource()) {
+			if (!resolveModelContext()) {
 				if (webMcpReadinessAttempts++ < 20) {
 					webMcpReadinessTimer = setTimeout(registerWidgetWebMcp, 250);
 				}
@@ -3619,7 +3619,7 @@ import {
 						endpoint.startsWith("/") || endpoint.startsWith(location.origin)
 							? "passed"
 							: "failed",
-					webmcp: resolveModelContextSource() ? "passed" : "unavailable",
+					webmcp: resolveModelContext() ? "passed" : "unavailable",
 					session: "not_checked",
 					transport: "capn-web",
 				};
