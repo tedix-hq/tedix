@@ -130,7 +130,7 @@ describe("public-egress secret scanning", () => {
 	describe("calls to the organization's own tedi", () => {
 		const slugArg = {
 			message:
-				"https://www.reddit.com/r/NintendoDE/comments/1xq7wbp/nintendo_switch_in_media_markt_nuernberg_2026_edition/ evidence",
+				"https://docs.google.com/document/d/1aBcD3fGhIjK4lMnOpQrStUvWxYz5aBcDeFgHiJkLm/edit evidence",
 		};
 		const tediCall = (tediOrgId: string, publicEgress = false) => {
 			const { ctx } = context("block");
@@ -144,7 +144,7 @@ describe("public-egress secret scanning", () => {
 			return ctx;
 		};
 
-		it("does not scan a same-organization tedi call, so a long URL slug is not mistaken for a key", async () => {
+		it("does not scan a same-organization tedi call, so a long document ID in a URL is not mistaken for a key", async () => {
 			const ctx = tediCall("org");
 			await new ToolHandler().execute(slugArg, ctx).catch(() => undefined);
 			expect(ctx.secretEgressDecision).toBeUndefined();
@@ -173,7 +173,7 @@ describe("public-egress secret scanning", () => {
 	describe("calls to the organization's own tedi", () => {
 		const slugArg = {
 			message:
-				"https://www.reddit.com/r/NintendoDE/comments/1xq7wbp/nintendo_switch_in_media_markt_nuernberg_2026_edition/ evidence",
+				"https://docs.google.com/document/d/1aBcD3fGhIjK4lMnOpQrStUvWxYz5aBcDeFgHiJkLm/edit evidence",
 		};
 		const tediCall = (tediOrgId: string, publicEgress = false) => {
 			const { ctx } = context("block");
@@ -187,7 +187,7 @@ describe("public-egress secret scanning", () => {
 			return ctx;
 		};
 
-		it("does not scan a same-organization tedi call, so a long URL slug is not mistaken for a key", async () => {
+		it("does not scan a same-organization tedi call, so a long document ID in a URL is not mistaken for a key", async () => {
 			const ctx = tediCall("org");
 			await new ToolHandler().execute(slugArg, ctx).catch(() => undefined);
 			expect(ctx.secretEgressDecision).toBeUndefined();
