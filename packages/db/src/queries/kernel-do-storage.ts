@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type KernelRuntimeRun,
@@ -134,6 +134,43 @@ export async function transitionKernelRunForRecovery(
 				eq(kernelRuntimeRuns.id, input.id),
 				eq(kernelRuntimeRuns.organizationId, input.organizationId),
 				eq(kernelRuntimeRuns.status, input.expectedStatus),
+			),
+		)
+		.returning({ id: kernelRuntimeRuns.id });
+	return rows.length > 0;
+}
+
+/**
+ * Claim a stale Home run for a same-run re-drive. Unlike the status-only
+ * recovery transition, this refuses a run that was routed, delegated or held
+ * for a delegation decision after the caller read it, so the patch can never
+ * overwrite a route or delegation that settled concurrently.
+ */
+export async function claimUnroutedKernelRunForRedrive(
+	db: DbClient,
+	input: {
+		id: string;
+		organizationId: string;
+		expectedStatus: KernelRuntimeRun["status"];
+		patch: Pick<
+			typeof kernelRuntimeRuns.$inferInsert,
+			"updatedAt" | "metadata"
+		>;
+	},
+): Promise<boolean> {
+	const rows = await db
+		.update(kernelRuntimeRuns)
+		.set(input.patch)
+		.where(
+			and(
+				eq(kernelRuntimeRuns.id, input.id),
+				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				eq(kernelRuntimeRuns.status, input.expectedStatus),
+				isNull(kernelRuntimeRuns.delegatedTediId),
+				isNull(kernelRuntimeRuns.childRunId),
+				// 'null' is the stored "route not decided yet" marker; an absent key proves nothing.
+				sql`json_type(${kernelRuntimeRuns.metadata}, '$.kernelRoute') = 'null'`,
+				sql`coalesce(json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation'), 'null') = 'null'`,
 			),
 		)
 		.returning({ id: kernelRuntimeRuns.id });
