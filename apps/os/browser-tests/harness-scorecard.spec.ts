@@ -27,6 +27,11 @@ try {
 			await scorecard
 				.getByRole("cell", { name: "codex", exact: true })
 				.waitFor();
+			// Runner rows come from health reports and can render before the
+			// Attempt pages load; the counts are ready once this caption is gone.
+			await scorecard
+				.getByText(/Counts are unknown/)
+				.waitFor({ state: "detached" });
 			await page.evaluate(() => document.fonts.ready);
 			assert.deepEqual(
 				await scorecard.getByRole("columnheader").allTextContents(),
