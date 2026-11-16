@@ -50,6 +50,16 @@ describe("plain decision text", () => {
 		);
 	});
 
+	it("keeps the id inside a link target so the link still opens the record", () => {
+		expect(
+			plainDecisionSource(
+				"The check failed (trace 894b5978-1c2d-4e5f-8a9b-0c1d2e3f4a5b).\n\nWhat to do next: [open the skill](/skills/3f2e8e1a-a21d-44b7-ba8a-13d089160185) and run it once.",
+			),
+		).toBe(
+			"The check failed.\n\nWhat to do next: [open the skill](/skills/3f2e8e1a-a21d-44b7-ba8a-13d089160185) and run it once.",
+		);
+	});
+
 	it("drops sentences built on variable names but keeps product names", () => {
 		expect(
 			plainDecisionSource(

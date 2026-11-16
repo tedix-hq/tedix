@@ -19,6 +19,7 @@ import {
 	recordSkillScheduleSuppressed,
 } from "@tedix/db/queries/skill-schedules";
 import { isPlatformSkillFailure } from "@tedix/db/queries/skill-lifecycle";
+import { raiseSkillStoppedNotice } from "@tedix/db/queries/skill-stop-notice";
 import type { SkillSchedule } from "@tedix/db/schema/cognitive";
 import { getTediById } from "@tedix/db/queries/tedis";
 import { recordTediSubmissionStarted } from "../kernel/runtime-submission-bridge";
@@ -256,6 +257,25 @@ async function admitScheduledRun(
 		!["active", "proven", "crystallized"].includes(skill.lifecycleState ?? "")
 	) {
 		await pauseSkillSchedule(db, skill.id, schedule.organizationId);
+		// An improvement proposal is a working copy and an archived skill was
+		// put away on purpose; the owner is told only when a skill they rely
+		// on stopped.
+		if (
+			!skill.tags?.includes("workflow-improvement") &&
+			skill.lifecycleState !== "archived"
+		) {
+			await raiseSkillStoppedNotice(db, {
+				organizationId: schedule.organizationId,
+				skillId: skill.id,
+				cause: { kind: "inactive" },
+				now: input.observedAt,
+			}).catch((error) => {
+				console.warn("[skill-scheduler] skill-stopped notice not filed", {
+					skillId: skill.id,
+					error: error instanceof Error ? error.name : "unknown",
+				});
+			});
+		}
 		return {
 			status: "suppressed",
 			error: "Skill is inactive or an improvement proposal; schedule paused",

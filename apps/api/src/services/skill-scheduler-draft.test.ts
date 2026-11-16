@@ -7,6 +7,12 @@ const mocks = vi.hoisted(() => ({
 	recordSkillScheduleRetry: vi.fn(),
 	recordSkillScheduleError: vi.fn(),
 }));
+const raiseSkillStoppedNotice = vi.hoisted(() =>
+	vi.fn(async () => ({ raised: true })),
+);
+vi.mock("@tedix/db/queries/skill-stop-notice", () => ({
+	raiseSkillStoppedNotice,
+}));
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
 	getSkillEntry: mocks.getSkillEntry,
@@ -28,6 +34,7 @@ it.each([
 ])(
 	"pauses a stored $lifecycleState timer ($tags) without dispatching a run",
 	async ({ lifecycleState, tags }) => {
+		raiseSkillStoppedNotice.mockClear();
 		mocks.listDueSkillSchedules.mockResolvedValue([
 			{ id: "timer", skillId: "skill", tediId: "tedi", organizationId: "org" },
 		]);
@@ -49,6 +56,19 @@ it.each([
 			"org",
 		);
 		expect(fetch).not.toHaveBeenCalled();
+		// The owner is told when a skill they rely on stopped, not for an
+		// improvement proposal or a skill archived on purpose.
+		if (tags || lifecycleState === "archived")
+			expect(raiseSkillStoppedNotice).not.toHaveBeenCalled();
+		else
+			expect(raiseSkillStoppedNotice).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					organizationId: "org",
+					skillId: "skill",
+					cause: { kind: "inactive" },
+				}),
+			);
 	},
 );
 

@@ -43,6 +43,7 @@ import {
 	skillUsageEvents,
 } from "../schema/cognitive";
 import {
+	countConsecutiveRecentFailures,
 	isSkillLifecyclePromotion,
 	loadSkillUsageSignals,
 	nextSkillLifecycleState,
@@ -244,6 +245,46 @@ async function recordSkillUsageEventInternal(
 				(updated.lifecycleState ?? "draft") === "draft"
 			) {
 				await insertActivatedSkillSchedule(db, updated);
+			}
+			// Failed runs turned the skill off: tell its owner. The usage
+			// record above already stands, so a notice that cannot be filed
+			// is logged and never fails the recording.
+			if (
+				applied.length > 0 &&
+				patch.lifecycleState === "draft" &&
+				updated.lifecycleState === "active"
+			) {
+				try {
+					const { raiseSkillStoppedNotice } =
+						await import("./skill-stop-notice");
+					const notice = await raiseSkillStoppedNotice(db, {
+						organizationId: input.organizationId,
+						skillId: input.skillId,
+						cause: {
+							kind: "failed_runs",
+							failedRuns: countConsecutiveRecentFailures(
+								signals.recentOutcomes,
+							),
+							lastError: input.error ?? null,
+						},
+						runId: input.source === "workflow_run" ? runId : null,
+						now,
+					});
+					if (
+						!notice.raised &&
+						(notice.reason === "no_owner" ||
+							notice.reason === "no_work_context")
+					)
+						console.warn("[skill-usage] skill stopped with nobody to tell", {
+							skillId: input.skillId,
+							reason: notice.reason,
+						});
+				} catch (error) {
+					console.warn("[skill-usage] skill-stopped notice not filed", {
+						skillId: input.skillId,
+						error: error instanceof Error ? error.name : "unknown",
+					});
+				}
 			}
 		}
 	}
