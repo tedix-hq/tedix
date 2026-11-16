@@ -12,6 +12,7 @@ import type {
 	ConnectionConsumerGrants,
 } from "@tedix/api-contract/schemas/connections";
 import type { OrganizationPermission } from "@tedix/api-contract/schemas/user-settings";
+import type { OrganizationMember } from "../../schema/organization-members";
 import { sql } from "drizzle-orm";
 import type { DecisionLearningConfig } from "@tedix/api-contract/schemas/decision-learning";
 import type { OutboundPolicy } from "@tedix/api-contract/schemas/outbound";
@@ -86,12 +87,20 @@ export const organizationMembers = pgTable(
 		email: text("email").notNull(),
 		name: text("name"),
 		avatarUrl: text("avatar_url"),
-		kind: text("kind").notNull().default("human"),
+		kind: text("kind")
+			.$type<OrganizationMember["kind"]>()
+			.notNull()
+			.default("human"),
 		representedUserId: text("represented_user_id"),
-		role: text("role").notNull().default("member"),
+		role: text("role")
+			.$type<OrganizationMember["role"]>()
+			.notNull()
+			.default("member"),
 		customPermissions:
 			jsonb("custom_permissions").$type<OrganizationPermission[]>(),
-		status: text("status").default("active"),
+		status: text("status")
+			.$type<OrganizationMember["status"]>()
+			.default("active"),
 		invitedAt: text("invited_at"),
 		inviteAcceptedAt: text("invite_accepted_at"),
 		invitedBy: text("invited_by"),
@@ -161,6 +170,13 @@ export interface OrganizationFeatures {
  * Additional organization information
  */
 export interface OrganizationMetadata {
+	cancelledAt?: OrganizationContractMetadata["cancelledAt"];
+	retiredAt?: OrganizationContractMetadata["retiredAt"];
+	retiredSlug?: OrganizationContractMetadata["retiredSlug"];
+	memoryRetained?: OrganizationContractMetadata["memoryRetained"];
+
+	secretEgressMode?: "block" | "warn";
+	personalDataRedaction?: { enabled: boolean };
 	agentRequestApprovals?: OrganizationContractMetadata["agentRequestApprovals"];
 	sessionProjectBindings?: OrganizationContractMetadata["sessionProjectBindings"];
 	modelFallback?: OrganizationContractMetadata["modelFallback"];

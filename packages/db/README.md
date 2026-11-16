@@ -97,6 +97,25 @@ const site = await getDocsSiteBySlug(db, "handbook");
 Applications use these package factories; they do not call `drizzle()`
 directly.
 
+Organization, membership/invitation, principal-identity and OIDC-session queries
+also accept an explicit core-store binding. Callers provide their existing
+platform and Postgres clients to the resolver:
+
+```typescript
+import { resolveCoreStore } from "@tedix/db/queries/postgres/core-store";
+import { getOrganizationById } from "@tedix/db/queries/organizations";
+
+const store = resolveCoreStore({}, { platform: db, postgres: pg });
+const organization = await getOrganizationById(store, organizationId);
+```
+
+An omitted `plane` selects D1. `{ plane: "postgres" }` selects the supplied
+Postgres client and throws if it is missing; existing calls with a D1 client
+continue to use D1. Project bindings, organization retirement, app count
+reconciliation, tedi-backed membership lists and aggregator gateway lookups
+use the same explicit binding. Postgres retirement runs in a transaction.
+The resolver does not perform a cutover or copy data.
+
 ### Querying Data
 
 ```typescript

@@ -1,0 +1,680 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "47404360-f368-4cc1-adae-732601c70080",
+	"prevIds": ["51e2fc4d-9fc0-4b5a-bef7-329dde578f55"],
+	"footprints": [
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "api_keys"],
+			"writes": [
+				"s|tbl|public.api_keys",
+				"n|tbl|public.api_keys",
+				"e|tbl|public.api_keys",
+				"n|rel|public.api_keys",
+				"n|type|public.api_keys",
+				"n|rel|public.api_keys_pkey",
+				"n|rel|public.api_keys_key_hash_key"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": ["index", "public", "api_keys", "idx_api_key_org"],
+			"writes": [
+				"s|idx|public.idx_api_key_org",
+				"n|idx|public.idx_api_key_org",
+				"e|idx|public.idx_api_key_org",
+				"n|rel|public.idx_api_key_org"
+			],
+			"reads": [
+				"n|tbl|public.api_keys",
+				"n|sch|public",
+				"n|col|public.api_keys.organization_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": ["index", "public", "api_keys", "idx_api_key_status"],
+			"writes": [
+				"s|idx|public.idx_api_key_status",
+				"n|idx|public.idx_api_key_status",
+				"e|idx|public.idx_api_key_status",
+				"n|rel|public.idx_api_key_status"
+			],
+			"reads": [
+				"n|tbl|public.api_keys",
+				"n|sch|public",
+				"n|col|public.api_keys.status"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": ["index", "public", "api_keys", "idx_api_key_env"],
+			"writes": [
+				"s|idx|public.idx_api_key_env",
+				"n|idx|public.idx_api_key_env",
+				"e|idx|public.idx_api_key_env",
+				"n|rel|public.idx_api_key_env"
+			],
+			"reads": [
+				"n|tbl|public.api_keys",
+				"n|sch|public",
+				"n|col|public.api_keys.environment"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": ["index", "public", "api_keys", "idx_api_key_hash"],
+			"writes": [
+				"s|idx|public.idx_api_key_hash",
+				"n|idx|public.idx_api_key_hash",
+				"e|idx|public.idx_api_key_hash",
+				"n|rel|public.idx_api_key_hash"
+			],
+			"reads": [
+				"n|tbl|public.api_keys",
+				"n|sch|public",
+				"n|col|public.api_keys.key_hash"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "api_keys"],
+			"writes": [
+				"s|fk|public.api_keys.api_keys_organization_id_organizations_id_fkey",
+				"n|fk|public.api_keys.api_keys_organization_id_organizations_id_fkey",
+				"e|fk|public.api_keys.api_keys_organization_id_organizations_id_fkey",
+				"n|con|public.api_keys.api_keys_organization_id_organizations_id_fkey"
+			],
+			"reads": [
+				"n|tbl|public.api_keys",
+				"n|sch|public",
+				"n|tbl|public.organizations",
+				"n|sch|public",
+				"n|col|public.api_keys.organization_id",
+				"n|col|public.organizations.id",
+				"e|uniqueness|public.organizations.id"
+			]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "api_keys",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "name",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "description",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "purpose",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'general'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "key_hash",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "key_preview",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "scopes",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "environment",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": "'test'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "last_used_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "requests_this_month",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "total_requests",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "ip_allowlist",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "expires_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "rate_limit",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "status",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": "'active'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "rotated_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "rotation_schedule_days",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "previous_key_hash",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "previous_key_expires_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "revoked_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "revoked_by",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "revoke_reason",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "metadata",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "created_by",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "updated_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "idx_api_key_org",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "idx_api_key_status",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "status",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "idx_api_key_env",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "environment",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "idx_api_key_hash",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "key_hash",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "api_keys_organization_id_organizations_id_fkey",
+				"nameExplicit": false,
+				"columns": ["organization_id"],
+				"schemaTo": "public",
+				"tableTo": "organizations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "api_keys_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "api_keys",
+				"name": "api_keys_key_hash_key",
+				"nameExplicit": false,
+				"columns": ["key_hash"],
+				"nullsNotDistinct": false,
+				"entityType": "uniques"
+			}
+		}
+	]
+}

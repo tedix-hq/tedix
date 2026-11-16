@@ -112,6 +112,11 @@ export interface OrganizationFeatures {
  * Additional organization information
  */
 export interface OrganizationMetadata {
+	cancelledAt?: OrganizationContractMetadata["cancelledAt"];
+	retiredAt?: OrganizationContractMetadata["retiredAt"];
+	retiredSlug?: OrganizationContractMetadata["retiredSlug"];
+	memoryRetained?: OrganizationContractMetadata["memoryRetained"];
+
 	personalAgentProtocol?: OrganizationContractMetadata["personalAgentProtocol"];
 	sensitiveDataEgressApproval?: boolean;
 	/** Public-egress argument scanning policy; absent defaults to block. */

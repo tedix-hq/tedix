@@ -482,12 +482,12 @@ export const appCatalog = pgTable(
 		index("app_catalog_public_browse_name_idx")
 			.on(table.name)
 			.where(
-				sql`${table.isDiscoverable} = 1 AND ${table.status} = 'ENABLED' AND ${table.reviewStatus} = 'RELEASED' AND ${table.developerType} IN ('TRUSTED_PARTNER', 'OAI', 'THIRD_PARTY')`,
+				sql`${table.isDiscoverable} IS TRUE AND ${table.status} = 'ENABLED' AND ${table.reviewStatus} = 'RELEASED' AND ${table.developerType} IN ('TRUSTED_PARTNER', 'OAI', 'THIRD_PARTY')`,
 			),
 		index("app_catalog_explore_name_idx")
 			.on(table.name)
 			.where(
-				sql`${table.isDiscoverable} = 1 AND ${table.status} = 'ENABLED' AND ${table.reviewStatus} = 'RELEASED' AND ${table.developerType} IN ('TRUSTED_PARTNER', 'OAI', 'THIRD_PARTY') AND ${table.exploreShadowed} = 0`,
+				sql`${table.isDiscoverable} IS TRUE AND ${table.status} = 'ENABLED' AND ${table.reviewStatus} = 'RELEASED' AND ${table.developerType} IN ('TRUSTED_PARTNER', 'OAI', 'THIRD_PARTY') AND ${table.exploreShadowed} IS FALSE`,
 			),
 		index("app_catalog_vendor_key_idx").on(table.vendorKey),
 		index("app_catalog_slug_idx").on(table.slug),
