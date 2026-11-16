@@ -94,6 +94,8 @@ body{padding:0!important;min-height:560px;overflow:hidden}
 .slides-guide{position:absolute;background:var(--tedix-primary,#3669e8)}
 .slides-guide.v{top:0;bottom:0;width:1px}
 .slides-guide.h{left:0;right:0;height:1px}
+.slides-marquee{position:absolute;border:1px solid var(--tedix-primary,#3669e8);background:color-mix(in srgb,var(--tedix-primary,#3669e8) 12%,transparent)}
+.slides-hint{margin:0;color:var(--muted-fg);font-size:13px;line-height:1.4}
 .slides-inline-editor{display:block;width:100%;height:100%;resize:none;border:0!important;border-radius:0;padding:0!important;margin:0;background:transparent;color:inherit!important;font:inherit!important;text-align:inherit;line-height:inherit;letter-spacing:inherit;outline:none!important;user-select:text;cursor:text}
 .slides-empty{position:absolute;inset:0;display:grid;place-items:center;color:#666;font-size:16px}
 .slides-notes{flex:none;display:block;padding:0 24px 14px}

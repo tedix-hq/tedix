@@ -287,7 +287,8 @@ export async function mountSlidesClient(
 		deck: OsPresentationDeck | undefined,
 		basis = 0,
 		viewedId: string | undefined,
-		selectedId: string | null = null;
+		// The selected elements on the current slide.
+		selection = new Set<string>();
 	let dirty = false,
 		loading = true,
 		available = false,
@@ -326,17 +327,25 @@ export async function mountSlidesClient(
 		future: OsPresentationDeck[] = [],
 		group = "",
 		groupAt = 0;
+	// One press on the slide: moving or resizing elements, or drawing a
+	// selection box over the empty slide.
 	let pointer:
 		| {
 				id: number;
 				x: number;
 				y: number;
 				box: DOMRect;
-				node: HTMLElement;
-				original: OsPresentationElement;
-				next?: OsPresentationElement;
 				handle: Handle | null;
+				moving: Array<{
+					node: HTMLElement;
+					original: OsPresentationElement;
+					next?: OsPresentationElement;
+				}>;
+				moved: boolean;
+				// A plain click on one element of several selects only that one.
+				collapse?: string;
 				targets?: SnapTargets;
+				marquee?: { node: HTMLElement; base: Set<string> };
 		  }
 		| undefined;
 	let editing: HTMLTextAreaElement | undefined, editingId: string | undefined;
@@ -354,7 +363,7 @@ export async function mountSlidesClient(
 		stageSlide: OsPresentationCanvasSlide | undefined,
 		stageTheme: OsPresentationDeck["theme"],
 		stageBackground: HTMLElement | undefined,
-		freshId: string | undefined;
+		fresh = new Set<string>();
 	const thumbs = new Map<
 		string,
 		{
@@ -465,8 +474,27 @@ export async function mountSlidesClient(
 		deck?.slides.find((slide) => slide.id === viewedId) ??
 		deck?.slides.find((slide) => slide.id === deck?.activeSlideId) ??
 		deck?.slides[0];
+	/** The selected element when exactly one is selected. */
 	const selected = () =>
-		active()?.elements.find((element) => element.id === selectedId);
+		selection.size === 1
+			? active()?.elements.find((element) => selection.has(element.id))
+			: undefined;
+	const selectedElements = () =>
+		active()?.elements.filter((element) => selection.has(element.id)) ?? [];
+	const selectOnly = (id?: string) => {
+		selection = new Set(id ? [id] : []);
+	};
+	const toggleSelected = (id: string) => {
+		selection = new Set(selection);
+		if (!selection.delete(id)) selection.add(id);
+	};
+	/** After the slide changed underneath: drop what no longer exists. */
+	const keepSelection = () => {
+		const ids = new Set(active()?.elements.map((element) => element.id));
+		selection = new Set([...selection].filter((id) => ids.has(id)));
+	};
+	const adding = (event: MouseEvent | KeyboardEvent) =>
+		event.shiftKey || event.metaKey || event.ctrlKey;
 	const draftArgs = () => ({ slot, outputId: loaded!.output.id });
 	function parse(value: Saved) {
 		if (
@@ -694,15 +722,19 @@ export async function mountSlidesClient(
 			),
 		};
 	}
-	function updateElement(next: OsPresentationElement) {
+	function updateElements(next: OsPresentationElement[]) {
 		const slide = active();
-		if (slide)
-			updateSlide({
-				...slide,
-				elements: slide.elements.map((element) =>
-					element.id === next.id ? next : element,
-				),
-			});
+		if (!slide) return;
+		const byId = new Map(next.map((element) => [element.id, element]));
+		updateSlide({
+			...slide,
+			elements: slide.elements.map(
+				(element) => byId.get(element.id) ?? element,
+			),
+		});
+	}
+	function updateElement(next: OsPresentationElement) {
+		updateElements([next]);
 	}
 	/**
 	 * Apply one edit as one undo step. Edits that share a `together` name and
@@ -731,21 +763,21 @@ export async function mountSlidesClient(
 	function elementAction(action: SlideElementAction) {
 		const slide = active();
 		if (!slide || !canWrite()) return;
-		const result = applySlideElementAction(action, slide, selectedId);
+		const result = applySlideElementAction(action, slide, [...selection]);
 		if (!result?.slide) return;
 		mutate(() => {
 			updateSlide(result.slide!);
-			selectedId = result.selectedId;
+			selection = new Set(result.selectedIds);
 			if (action === "paste" || action === "duplicate")
-				freshId = result.selectedId ?? undefined;
+				fresh = new Set(result.selectedIds);
 		});
 	}
 	function addElement(element: OsPresentationElement) {
 		mutate(() => {
 			const slide = active()!;
 			updateSlide({ ...slide, elements: [...slide.elements, element] });
-			selectedId = element.id;
-			freshId = element.id;
+			selectOnly(element.id);
+			fresh = new Set([element.id]);
 		});
 	}
 	function insertElement(type: OsPresentationElementType) {
@@ -762,7 +794,7 @@ export async function mountSlidesClient(
 			slides.splice(index < 0 ? slides.length : index + 1, 0, slide);
 			deck = { ...deck!, activeSlideId: slide.id, slides };
 			viewedId = slide.id;
-			selectedId = null;
+			selectOnly();
 			lastNav = Date.now();
 		});
 	}
@@ -783,7 +815,7 @@ export async function mountSlidesClient(
 			const slides = deck!.slides.filter((slide) => slide.id !== id);
 			if (current === id) {
 				viewedId = slides[Math.min(index, slides.length - 1)]?.id;
-				selectedId = null;
+				selectOnly();
 				lastNav = Date.now();
 			}
 			deck = {
@@ -808,7 +840,7 @@ export async function mountSlidesClient(
 		const slide = deck?.slides[index];
 		if (!slide) return;
 		viewedId = slide.id;
-		selectedId = null;
+		selectOnly();
 		lastNav = Date.now();
 		render();
 		if (focus) thumbs.get(slide.id)?.select.focus();
@@ -878,12 +910,12 @@ export async function mountSlidesClient(
 				beginText(id);
 			} else if (
 				(event.key === "Enter" || event.key === " ") &&
-				selectedId !== id
+				!(selection.size === 1 && selection.has(id))
 			) {
 				// Enter on the element that is already selected opens Format.
 				event.preventDefault();
 				event.stopPropagation();
-				selectedId = id;
+				selectOnly(id);
 				render();
 			}
 		};
@@ -950,19 +982,18 @@ export async function mountSlidesClient(
 			}
 			if (previous.nextSibling !== node) previous.after(node);
 			previous = node;
-			const chosen = selectedId === element.id;
+			const chosen = selection.has(element.id),
+				// Resize handles belong to a single selected element.
+				resizable = chosen && selection.size === 1 && !typing;
 			node.classList.toggle("selected", chosen);
 			node.setAttribute("aria-pressed", String(chosen));
 			const grips = node.querySelector(":scope > .slides-resize");
-			if (chosen && !typing && !grips) addHandles(node, element.id);
-			else if ((!chosen || typing) && grips)
+			if (resizable && !grips) addHandles(node, element.id);
+			else if (!resizable && grips)
 				node
 					.querySelectorAll(":scope > .slides-resize")
 					.forEach((grip) => grip.remove());
-			if (freshId === element.id) {
-				freshId = undefined;
-				node.classList.add("fresh");
-			}
+			if (fresh.delete(element.id)) node.classList.add("fresh");
 		}
 		for (const [id, entry] of stageNodes)
 			if (!keep.has(id)) {
@@ -1581,15 +1612,27 @@ export async function mountSlidesClient(
 	function renderInspector() {
 		if (!inspectorOpen) return;
 		const slide = active(),
-			element = selected();
+			element = selected(),
+			several = selectedElements().length;
 		const key = !slide
 			? ""
 			: element
 				? `element:${element.id}:${element.type}`
-				: `slide:${slide.id}`;
+				: several > 1
+					? `several:${slide.id}:${several}`
+					: `slide:${slide.id}`;
 		if (key !== inspectorKey) {
 			inspectorKey = key;
-			if (slide) buildInspector(element);
+			if (slide && !element && several > 1) {
+				syncs = [];
+				const heading = document.createElement("h2");
+				heading.textContent = `${several} elements`;
+				const hint = document.createElement("p");
+				hint.className = "slides-hint";
+				hint.textContent =
+					"Drag them, nudge them with the arrow keys, or delete them together. Select one element to format it.";
+				properties.replaceChildren(heading, hint);
+			} else if (slide) buildInspector(element);
 			else {
 				syncs = [];
 				properties.replaceChildren();
@@ -1601,10 +1644,11 @@ export async function mountSlidesClient(
 			const item = existing[index] ?? document.createElement("button");
 			const label = `${ELEMENT_NAMES[row.type]} · ${(row.text || row.props?.title || "Untitled").slice(0, 36)}`;
 			if (item.textContent !== label) item.textContent = label;
-			item.setAttribute("aria-pressed", String(row.id === selectedId));
-			item.onclick = () => {
+			item.setAttribute("aria-pressed", String(selection.has(row.id)));
+			item.onclick = (event) => {
 				commitText();
-				selectedId = row.id;
+				if (adding(event)) toggleSelected(row.id);
+				else selectOnly(row.id);
 				render();
 			};
 			if (!existing[index]) layers.append(item);
@@ -1649,12 +1693,10 @@ export async function mountSlidesClient(
 		button("insert").disabled =
 			!write || !slide || slide.elements.length >= OS_SLIDE_MAX_ELEMENTS;
 		button("upload").disabled = button("insert").disabled;
-		for (const id of [
-			"duplicate-element",
-			"delete-element",
-			"backward",
-			"forward",
-		])
+		for (const id of ["duplicate-element", "delete-element"])
+			button(id).disabled = !write || !selectedElements().length;
+		// Layer order changes one element at a time.
+		for (const id of ["backward", "forward"])
 			button(id).disabled = !write || !selected();
 		button("format").disabled = !available;
 		button("present").disabled = !available || !slide;
@@ -1757,22 +1799,67 @@ export async function mountSlidesClient(
 		const element = active()?.elements.find((row) => row.id === elementId),
 			node = stageNodes.get(elementId)?.node;
 		if (!element || !node) return;
-		if (selectedId !== elementId) {
-			selectedId = elementId;
+		let collapse: string | undefined;
+		if (!handle && adding(event)) {
+			toggleSelected(elementId);
 			render();
-		}
+		} else if (!selection.has(elementId)) {
+			selectOnly(elementId);
+			render();
+		} else if (!handle && selection.size > 1) collapse = elementId;
 		stage.focus({ preventScroll: true });
-		if (!canWrite()) return;
+		// Taking an element out of the selection leaves nothing to drag.
+		if (!selection.has(elementId)) return;
+		if (!canWrite()) {
+			if (collapse) {
+				selectOnly(collapse);
+				render();
+			}
+			return;
+		}
+		const moving = handle
+			? [{ node, original: element }]
+			: selectedElements().flatMap((original) => {
+					const member = stageNodes.get(original.id)?.node;
+					return member ? [{ node: member, original }] : [];
+				});
 		pointer = {
 			id: event.pointerId,
 			x: event.clientX,
 			y: event.clientY,
 			box: stage.getBoundingClientRect(),
-			node,
-			original: element,
 			handle,
+			moving,
+			moved: false,
+			collapse,
 		};
 		if (handle) capture(event.pointerId);
+	}
+	/** How far a group may move so that every member stays on the slide. */
+	function groupShift(
+		elements: readonly OsPresentationElement[],
+		dx: number,
+		dy: number,
+	) {
+		const xs = elements.map((element) => element.x),
+			ys = elements.map((element) => element.y);
+		return [
+			Math.max(-Math.min(...xs), Math.min(1200 - Math.max(...xs), dx)),
+			Math.max(-Math.min(...ys), Math.min(675 - Math.max(...ys), dy)),
+		] as const;
+	}
+	/** The box around every element, for snapping a group as one. */
+	function groupBox(elements: readonly OsPresentationElement[]) {
+		const x = Math.min(...elements.map((element) => element.x)),
+			y = Math.min(...elements.map((element) => element.y));
+		return {
+			x,
+			y,
+			width:
+				Math.max(...elements.map((element) => element.x + element.width)) - x,
+			height:
+				Math.max(...elements.map((element) => element.y + element.height)) - y,
+		};
 	}
 	function resized(
 		original: OsPresentationElement,
@@ -1803,59 +1890,122 @@ export async function mountSlidesClient(
 		}
 		return updateElementGeometry(original, { x, y, width, height });
 	}
+	/** Select every element the selection box touches, plus what was selected before. */
+	function drawMarquee(
+		gesture: NonNullable<typeof pointer>,
+		marquee: NonNullable<NonNullable<typeof pointer>["marquee"]>,
+		dx: number,
+		dy: number,
+	) {
+		const x = ((gesture.x - gesture.box.left) * 1200) / gesture.box.width,
+			y = ((gesture.y - gesture.box.top) * 675) / gesture.box.height;
+		const left = Math.min(x, x + dx),
+			top = Math.min(y, y + dy),
+			right = Math.max(x, x + dx),
+			bottom = Math.max(y, y + dy);
+		Object.assign(marquee.node.style, {
+			left: `${(left / 1200) * 100}%`,
+			top: `${(top / 675) * 100}%`,
+			width: `${((right - left) / 1200) * 100}%`,
+			height: `${((bottom - top) / 675) * 100}%`,
+		});
+		const next = new Set(marquee.base);
+		for (const element of active()?.elements ?? [])
+			if (
+				element.x < right &&
+				element.x + element.width > left &&
+				element.y < bottom &&
+				element.y + element.height > top
+			)
+				next.add(element.id);
+		if (
+			next.size !== selection.size ||
+			[...next].some((id) => !selection.has(id))
+		) {
+			selection = next;
+			render();
+		}
+	}
 	const onPointerMove = (event: PointerEvent) => {
 		const gesture = pointer;
 		if (!gesture || event.pointerId !== gesture.id || !gesture.box.width)
 			return;
 		const moveX = event.clientX - gesture.x,
 			moveY = event.clientY - gesture.y;
-		if (!gesture.next && Math.hypot(moveX, moveY) < DRAG_SLOP) return;
-		const { original, handle } = gesture;
+		if (!gesture.moved && Math.hypot(moveX, moveY) < DRAG_SLOP) return;
 		const dx = (moveX * 1200) / gesture.box.width,
 			dy = (moveY * 675) / gesture.box.height;
-		if (!gesture.next) capture(event.pointerId);
-		let next: OsPresentationElement;
-		if (handle) next = resized(original, handle, dx, dy, event.shiftKey);
+		if (!gesture.moved) capture(event.pointerId);
+		gesture.moved = true;
+		if (gesture.marquee) return drawMarquee(gesture, gesture.marquee, dx, dy);
+		const { handle, moving } = gesture;
+		const originals = moving.map((member) => member.original);
+		let nexts: OsPresentationElement[];
+		if (handle)
+			nexts = [resized(originals[0]!, handle, dx, dy, event.shiftKey)];
 		else {
-			next = updateElementGeometry(original, {
-				x: original.x + dx,
-				y: original.y + dy,
-			});
+			let [shiftX, shiftY] = groupShift(originals, dx, dy);
 			if (event.altKey) showGuides();
 			else {
+				// The group snaps as one box, to everything that is not moving.
 				gesture.targets ??= computeSnapTargets(
-					active()!.elements.filter((element) => element.id !== original.id),
+					active()!.elements.filter((element) => !selection.has(element.id)),
 					1200,
 					675,
 				);
-				const snapped = applySnap(next, gesture.targets);
-				next = updateElementGeometry(original, { x: snapped.x, y: snapped.y });
+				const box = groupBox(originals),
+					snapped = applySnap(
+						{ ...box, x: box.x + shiftX, y: box.y + shiftY },
+						gesture.targets,
+					);
+				[shiftX, shiftY] = groupShift(
+					originals,
+					snapped.x - box.x,
+					snapped.y - box.y,
+				);
 				showGuides(snapped.guidesV, snapped.guidesH);
 			}
+			nexts = originals.map((original) =>
+				updateElementGeometry(original, {
+					x: original.x + shiftX,
+					y: original.y + shiftY,
+				}),
+			);
 		}
-		gesture.next = next;
-		// Only the moving node is touched until the gesture ends.
-		cssBox(gesture.node, next);
-		if (next.props !== original.props) {
-			linked.element(gesture.node, next, context.appearance);
-			addHandles(gesture.node, next.id);
-		}
+		// Only the moving nodes are touched until the gesture ends.
+		moving.forEach((member, index) => {
+			const next = nexts[index]!;
+			member.next = next;
+			cssBox(member.node, next);
+			if (next.props !== member.original.props) {
+				linked.element(member.node, next, context.appearance);
+				if (selection.size === 1) addHandles(member.node, next.id);
+			}
+		});
 	};
 	const endPointer = (event: PointerEvent) => {
 		const gesture = pointer;
 		if (!gesture || event.pointerId !== gesture.id) return;
 		pointer = undefined;
 		showGuides();
-		if (gesture.next && event.type === "pointercancel") {
-			const entry = stageNodes.get(gesture.original.id);
-			if (entry) entry.element = undefined;
+		const moved = gesture.moving.flatMap((member) =>
+			member.next ? [member.next] : [],
+		);
+		if (moved.length && event.type === "pointercancel") {
+			for (const member of gesture.moving) {
+				const entry = stageNodes.get(member.original.id);
+				if (entry) entry.element = undefined;
+			}
 			render();
-		} else if (gesture.next) {
+		} else if (moved.length) {
 			// The whole gesture is one undo step, one draft and one save.
 			remember();
 			group = "";
-			updateElement(gesture.next);
+			updateElements(moved);
 			changed();
+			render();
+		} else if (gesture.collapse && event.type !== "pointercancel") {
+			selectOnly(gesture.collapse);
 			render();
 		}
 		// A save that waited for this gesture goes out now.
@@ -1872,10 +2022,28 @@ export async function mountSlidesClient(
 			(event.target as HTMLElement).classList.contains("slides-empty")
 		) {
 			commitText();
-			if (selectedId) {
-				selectedId = null;
+			if (!adding(event) && selection.size) {
+				selectOnly();
 				render();
 			}
+			if (event.button !== 0 || !active() || pointer) return;
+			// Dragging over the empty slide draws a selection box.
+			event.preventDefault();
+			stage.focus({ preventScroll: true });
+			const node = document.createElement("div");
+			node.className = "slides-marquee";
+			guides.append(node);
+			pointer = {
+				id: event.pointerId,
+				x: event.clientX,
+				y: event.clientY,
+				box: stage.getBoundingClientRect(),
+				handle: null,
+				moving: [],
+				moved: false,
+				marquee: { node, base: new Set(selection) },
+			};
+			capture(event.pointerId);
 		}
 	};
 
@@ -1886,7 +2054,7 @@ export async function mountSlidesClient(
 		if (!element || !canWrite() || NO_TEXT.includes(element.type)) return;
 		if (editingId === elementId) return;
 		commitText();
-		selectedId = elementId;
+		selectOnly(elementId);
 		editingId = elementId;
 		render();
 		const entry = stageNodes.get(elementId)!;
@@ -1980,7 +2148,7 @@ export async function mountSlidesClient(
 			await clearDraft(true).catch(() => undefined);
 		}
 		deck = undefined;
-		selectedId = null;
+		selectOnly();
 		inspectorKey = "";
 		thumbs.clear();
 		railOrder = undefined;
@@ -2096,7 +2264,7 @@ export async function mountSlidesClient(
 		}
 		const at = before.slides.indexOf(shown);
 		viewedId = deck.slides[Math.min(at, deck.slides.length - 1)]?.id;
-		selectedId = null;
+		selectOnly();
 	}
 	/**
 	 * Follow someone else's edit to its slide only while editing and not busy:
@@ -2108,7 +2276,7 @@ export async function mountSlidesClient(
 		return (
 			canWrite() &&
 			presenter.hidden &&
-			selectedId === null &&
+			!selection.size &&
 			!dirty &&
 			!pointer &&
 			!editing &&
@@ -2151,7 +2319,7 @@ export async function mountSlidesClient(
 		remember();
 		group = "";
 		deck = deckOf(content);
-		if (!selected()) selectedId = null;
+		keepSelection();
 		changed();
 		light(before);
 		render();
@@ -2208,7 +2376,7 @@ export async function mountSlidesClient(
 		basis = loaded!.revision.revision;
 		history = [];
 		future = [];
-		selectedId = null;
+		selectOnly();
 		void clearDraft(true).catch(() => undefined);
 		render();
 		refreshExternal();
@@ -2233,7 +2401,7 @@ export async function mountSlidesClient(
 			land(before, savedByAgent(latest.revision));
 			find("h1").textContent = latest.output.title;
 			main.dataset.revision = String(basis);
-			if (!selected()) selectedId = null;
+			keepSelection();
 			render();
 		} catch (error) {
 			pendingRevision = 0;
@@ -2322,7 +2490,7 @@ export async function mountSlidesClient(
 			deck = deckOf(result.content as PresentationContent);
 			land(before, savedByAgent(latest.revision));
 			main.dataset.revision = String(basis);
-			if (!selected()) selectedId = null;
+			keepSelection();
 			done = true;
 			edits++;
 			render();
@@ -2617,14 +2785,14 @@ export async function mountSlidesClient(
 			return;
 		}
 		if (event.key === "Escape") {
-			if (selectedId) {
-				selectedId = null;
+			if (selection.size) {
+				selectOnly();
 				render();
 			} else if (inspectorOpen) setInspector(false);
 			return;
 		}
-		const element = selected();
-		if (!element) {
+		const chosen = selectedElements();
+		if (!chosen.length) {
 			if (event.key === "PageDown" || event.key === "PageUp") {
 				event.preventDefault();
 				step(event.key === "PageDown" ? 1 : -1);
@@ -2653,16 +2821,19 @@ export async function mountSlidesClient(
 			}[event.key] ?? [];
 		if (dx === undefined || dy === undefined) return;
 		event.preventDefault();
-		// A run of nudges is one undo step and one save.
+		// The selection moves together; a run of nudges is one undo step and one save.
+		const [shiftX, shiftY] = groupShift(chosen, dx, dy);
 		mutate(
 			() =>
-				updateElement(
-					updateElementGeometry(selected()!, {
-						x: element.x + dx,
-						y: element.y + dy,
-					}),
+				updateElements(
+					chosen.map((element) =>
+						updateElementGeometry(element, {
+							x: element.x + shiftX,
+							y: element.y + shiftY,
+						}),
+					),
 				),
-			`nudge:${element.id}`,
+			`nudge:${chosen.map((element) => element.id).join(",")}`,
 		);
 	};
 	root.addEventListener("keydown", onKeyDown);
