@@ -479,6 +479,57 @@ describe("Portable Sheet grid", () => {
 		change("#tabs", app.saved().workbook!.sheets[1]!.id);
 		expect(display("C1")).toBe("3");
 	});
+	it("finds values across the sheet and jumps to each match", async () => {
+		await editor();
+		key("f", { metaKey: true });
+		const input = q<HTMLInputElement>("#find-value");
+		expect(q(".find").hidden).toBe(false);
+		input.value = "sum";
+		input.dispatchEvent(new Event("input"));
+		expect(q("#find-count").textContent).toBe("2 found");
+		key("Enter", {}, input);
+		// The tab in view comes first.
+		expect(q("#find-count").textContent).toBe("1 of 2");
+		expect(cell("C1").classList.contains("active")).toBe(true);
+		key("Enter", {}, input);
+		expect(q("#find-count").textContent).toBe("2 of 2");
+		key("Escape", {}, input);
+		expect(q(".find").hidden).toBe(true);
+	});
+	it("fills down by dragging the corner square", async () => {
+		const app = await editor();
+		select("C1");
+		const grip = q(".fill-grip");
+		expect(grip.parentElement).toBe(cell("C1"));
+		const target = cell("C3");
+		const original = document.elementFromPoint;
+		document.elementFromPoint = () => target;
+		grip.dispatchEvent(
+			new PointerEvent("pointerdown", { bubbles: true, pointerId: 1 }),
+		);
+		grip.dispatchEvent(
+			new PointerEvent("pointermove", { bubbles: true, pointerId: 1 }),
+		);
+		expect(target.classList.contains("fill-target")).toBe(true);
+		grip.dispatchEvent(
+			new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }),
+		);
+		document.elementFromPoint = original;
+		await saved();
+		expect(app.saved().workbook!.sheets[0]!.rows[2]![2]!.input).toBe(
+			"=SUM(A3:B3)",
+		);
+	});
+	it("fits a column to its contents on a double-click of its edge", async () => {
+		const app = await editor();
+		edit("B1", "a much longer value than fits");
+		q("thead th:nth-child(3) .resize").dispatchEvent(
+			new MouseEvent("dblclick", { bubbles: true }),
+		);
+		await saved();
+		const width = app.saved().workbook!.sheets[0]!.columns[1]!.width!;
+		expect(width).toBeGreaterThan(120);
+	});
 	it("fills relative formulas, sorts bounded tables, resizes and freezes panes", async () => {
 		const app = await editor();
 		select("A2");
