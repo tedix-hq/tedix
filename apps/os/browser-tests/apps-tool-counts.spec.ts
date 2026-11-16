@@ -61,7 +61,44 @@ try {
 					`[data-app-row="${width < 640 ? "mobile" : "desktop"}"]`,
 				);
 				await rows.first().waitFor();
+				// Each row leads with purpose, account status and the next action;
+				// gateway, address and protocol facts wait in Technical details.
+				const details = rows.getByRole("button", {
+					name: "Technical details",
+				});
+				assert.equal(
+					await details.count(),
+					await rows.count(),
+					`${label}: every row has Technical details`,
+				);
+				// The sample gateway app carries the terms in its own name.
+				for (const lead of await rows
+					.filter({ hasNotText: "Solstice Unified MCP" })
+					.allInnerTexts()) {
+					assert.ok(
+						!/MCP|Gateway|tedix\.dev|tools? listed/i.test(lead),
+						`${label}: no gateway or protocol terms before Technical details: ${lead}`,
+					);
+					assert.ok(lead.includes("Open"), `${label}: row offers Open`);
+				}
+				assert.ok(
+					(await rows.locator('[data-slot="badge"]:visible').count()) >=
+						(await rows.count()),
+					`${label}: every row states its account status`,
+				);
+				await page.screenshot({
+					path: join(
+						evidence,
+						`${engine.name()}-apps-lead-${width}-${theme}.png`,
+					),
+					fullPage: true,
+				});
+				for (const trigger of await details.all()) await trigger.click();
 				await rows.getByText(/3 tools listed/).waitFor();
+				await rows
+					.getByRole("button", { name: /^Check MCP service for / })
+					.first()
+					.waitFor();
 				const appsText = await page.locator("body").innerText();
 				assert.ok(
 					appsText.includes("3 tools listed"),

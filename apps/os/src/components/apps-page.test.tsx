@@ -273,14 +273,18 @@ describe("AppRowMain", () => {
 		});
 	});
 
-	it("renders name, slug, MCP host, and the visibility chip", () => {
+	it("leads with the name and what the app does, without hostnames or chips", () => {
 		const html = renderToStaticMarkup(<AppRowMain app={baseApp} />);
 		expect(html).toContain("Acme");
-		expect(html).toContain("acme · acme.mcp.tedix.dev");
-		expect(html).toContain('data-tone="done"');
-		expect(html).toContain("Public");
 		expect(html).toContain("Auto repair shop operations");
-		expect(html.indexOf("Acme")).toBeLessThan(html.indexOf("Public"));
+		expect(html).not.toContain("acme.mcp.tedix.dev");
+		expect(html).not.toContain("Public");
+		expect(html).not.toContain('data-slot="badge"');
+		expect(
+			renderToStaticMarkup(
+				<AppRowMain app={{ ...baseApp, visibility: "disabled" }} />,
+			),
+		).toContain("Turned off");
 	});
 
 	it("keeps the identity block narrow enough for table and mobile rows", () => {
@@ -288,7 +292,7 @@ describe("AppRowMain", () => {
 		expect(html).toContain('class="grid min-w-0 gap-1"');
 	});
 
-	it("renders the governance badge and tool count when eligibility is known", () => {
+	it("renders the setup badge when eligibility has a gap", () => {
 		const html = renderToStaticMarkup(
 			<AppRowMain
 				app={baseApp}
@@ -300,11 +304,10 @@ describe("AppRowMain", () => {
 		);
 		expect(html).toContain("Setup needed");
 		expect(html).toContain('data-tone="warn"');
-		expect(html).toContain("2 tools listed · 1 gated");
-		expect(html).not.toContain("gated listed");
+		expect(html).not.toContain("tools listed");
 	});
 
-	it("keeps governance and inventory distinct from service checks", () => {
+	it("earns no chip when requirements are met", () => {
 		const html = renderToStaticMarkup(
 			<AppRowMain
 				app={baseApp}
@@ -314,23 +317,8 @@ describe("AppRowMain", () => {
 		// Met requirements are the normal state; only a gap earns a chip.
 		expect(html).not.toContain("Requirements met");
 		expect(html).not.toContain("Ready to use");
-		expect(html).toContain("3 tools listed · acme · acme.mcp.tedix.dev");
-		expect(html.match(/data-slot="badge"/g)).toHaveLength(1);
+		expect(html).not.toContain('data-slot="badge"');
 		expect(html).not.toContain(">Healthy<");
-	});
-
-	it("keeps an unknown inventory distinct from listed tools", () => {
-		const html = renderToStaticMarkup(
-			<AppRowMain
-				app={baseApp}
-				eligibility={{
-					badge: "ready",
-					result: { ...readyResult, availableTools: [] },
-				}}
-			/>,
-		);
-		expect(html).toContain("tool count unavailable · acme");
-		expect(html).not.toContain("unavailable listed");
 	});
 
 	it("omits badge and description when absent", () => {
@@ -355,7 +343,7 @@ describe("installed app statuses", () => {
 			),
 		).toEqual({ label: "Needs setup", tone: "warn" });
 		expect(appConnectionStatus([], true)).toEqual({
-			label: "Not listed",
+			label: "No account linked",
 			tone: "neutral",
 		});
 		expect(
@@ -368,7 +356,7 @@ describe("installed app statuses", () => {
 			),
 		).toEqual({ label: "Needs setup", tone: "warn" });
 		expect(appConnectionStatus([], false)).toEqual({
-			label: "Unavailable",
+			label: "Status unavailable",
 			tone: "neutral",
 		});
 	});
@@ -498,14 +486,11 @@ describe("Installed Apps layout", () => {
 		const page = await mountAppsPage({ apps: [baseApp] });
 		const table = page.host.querySelector('[aria-label="Installed apps"]');
 		expect(table?.getAttribute("data-slot")).toBe("table-container");
-		expect(table?.textContent).toContain("Connection");
-		expect(table?.textContent).toContain("Gateway");
-		expect(table?.textContent).toContain("MCP service");
+		expect(table?.textContent).toContain("Account and actions");
 		const mobile = page.host.querySelector(
 			'[aria-label="Installed apps mobile"]',
 		);
 		expect(mobile?.getAttribute("data-slot")).toBe("collection");
-		expect(mobile?.textContent).toContain("Check MCP");
 		expect(mobile?.textContent).toContain("Open");
 		expect(page.rows()).toHaveLength(1);
 		expect(page.host.querySelectorAll('[data-app-row="desktop"]')).toHaveLength(
@@ -514,6 +499,51 @@ describe("Installed Apps layout", () => {
 		expect(page.host.querySelectorAll('[data-app-row="mobile"]')).toHaveLength(
 			1,
 		);
+	});
+
+	it("leads each row with purpose, account status and the next action; gateway and protocol facts sit in Technical details", async () => {
+		const page = await mountAppsPage({
+			apps: [baseApp],
+			connections: [
+				{ ...connectedInventory, accountState: "missing", connection: null },
+			],
+		});
+		for (const row of page.host.querySelectorAll("[data-app-row]")) {
+			const details = row.querySelector("[data-app-technical-details]")!;
+			const trigger = details.querySelector("button")!;
+			expect(trigger.textContent).toContain("Technical details");
+			expect(trigger.getAttribute("aria-expanded")).toBe("false");
+			for (const fact of [
+				"acme.mcp.tedix.dev",
+				"Gateway",
+				"MCP service",
+				"Not checked",
+				"Check MCP",
+			])
+				expect(details.textContent).toContain(fact);
+
+			const lead = row.cloneNode(true) as HTMLElement;
+			lead.querySelector("[data-app-technical-details]")!.remove();
+			expect(lead.textContent).toContain("Auto repair shop operations");
+			expect(lead.textContent).toContain("Needs setup");
+			expect(lead.textContent).not.toMatch(/MCP|Gateway|tedix\.dev/i);
+			const links = [...lead.querySelectorAll("a")].map((link) => [
+				link.textContent,
+				link.getAttribute("href"),
+			]);
+			expect(links).toEqual([
+				["Connect", "/account/connections?q=Initech&status=all"],
+				["Open", `/apps/${baseApp.id}`],
+			]);
+		}
+
+		const connected = await mountAppsPage({
+			apps: [baseApp],
+			connections: [connectedInventory],
+		});
+		const row = connected.host.querySelector('[data-app-row="mobile"]')!;
+		expect(row.textContent).toContain("Connected");
+		expect(row.querySelector('a[href^="/account/connections"]')).toBeNull();
 	});
 
 	it("keeps one capability navigator instead of a duplicate Browse apps CTA", async () => {
@@ -536,11 +566,21 @@ describe("Installed Apps layout", () => {
 			id: "11111111-1111-4111-8111-111111111111",
 			name: "Example gateway",
 		};
-		const page = await mountAppsPage({ apps: [baseApp], gateway });
+		const page = await mountAppsPage({
+			apps: [
+				baseApp,
+				{ ...baseApp, id: "22222222-2222-4222-8222-222222222222" },
+			],
+			gateway,
+		});
 		const line = page.host.querySelector("[data-gateway-line]");
 		expect(line?.textContent).toContain(
-			"Tedix reaches these apps through one gateway, Example gateway.",
+			"Technical details: Tedix reaches these apps through one gateway, Example gateway.",
 		);
+		expect(
+			line?.compareDocumentPosition(page.host.querySelector("[data-app-row]")!),
+			"the gateway note follows the app list",
+		).toBe(Node.DOCUMENT_POSITION_PRECEDING);
 		expect(line?.querySelector("a")?.getAttribute("href")).toBe(
 			`/apps/${gateway.id}`,
 		);
@@ -671,10 +711,12 @@ async function mountAppsPage({
 	apps,
 	hasMore = false,
 	gateway = null,
+	connections = [],
 }: {
 	apps: AppListItem[];
 	hasMore?: boolean;
 	gateway?: { id: string; name: string } | null;
+	connections?: ConnectionInventoryRow[];
 }) {
 	const searches: string[] = [];
 	function Harness() {
@@ -708,7 +750,7 @@ async function mountAppsPage({
 					limit: 100,
 					offset: 0,
 				}).queryKey,
-				{ rows: [] } as never,
+				{ rows: scope === "organization" ? connections : [] } as never,
 			);
 	});
 	const buttonOrNull = (name: string) =>

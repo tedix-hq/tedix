@@ -16,10 +16,15 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { getOsSurface } from "@/lib/os-navigation";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
+} from "@/components/kumo/collapsible";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import { AppLogo } from "@/components/app-logo";
 import {
@@ -213,20 +218,21 @@ export function connectionFailureMessage(localEvaluation: boolean): string {
 
 export type AppStatus = { label: string; tone: ChipTone };
 
+function needsAccountSetup(row: ConnectionInventoryRow): boolean {
+	return (
+		["missing", "expired", "restricted"].includes(row.accountState) ||
+		row.connection?.status === "expired" ||
+		row.connection?.status === "reconnect_needed" ||
+		row.connection?.status === "revoked"
+	);
+}
+
 export function appConnectionStatus(
 	rows: readonly ConnectionInventoryRow[],
 	loaded: boolean,
 ): AppStatus {
-	if (!loaded) return { label: "Unavailable", tone: "neutral" };
-	if (
-		rows.some(
-			(row) =>
-				["missing", "expired", "restricted"].includes(row.accountState) ||
-				row.connection?.status === "expired" ||
-				row.connection?.status === "reconnect_needed" ||
-				row.connection?.status === "revoked",
-		)
-	)
+	if (!loaded) return { label: "Status unavailable", tone: "neutral" };
+	if (rows.some(needsAccountSetup))
 		return { label: "Needs setup", tone: "warn" };
 	if (
 		rows.some(
@@ -237,7 +243,7 @@ export function appConnectionStatus(
 	)
 		return { label: "Connected", tone: "done" };
 	return {
-		label: rows.length > 0 ? "Not evaluated" : "Not listed",
+		label: rows.length > 0 ? "Account not confirmed" : "No account linked",
 		tone: "neutral",
 	};
 }
@@ -339,27 +345,17 @@ export function AppRowMain({
 				<Text as="strong" weight="medium" truncate>
 					{app.name}
 				</Text>
-				<AppChip tone={visibilityTone(app.visibility)}>
-					{sentenceCase(visibilityLabel(app.visibility))}
-				</AppChip>
+				{app.visibility === "disabled" ? (
+					<AppChip tone="blocked">Turned off</AppChip>
+				) : null}
 				{eligibility && eligibility.badge !== "ready" ? (
 					<AppChip tone={badgeTone(eligibility.badge)}>
 						{sentenceCase(BADGE_LABELS[eligibility.badge])}
 					</AppChip>
 				) : null}
 			</span>
-			<Text as="span" role="caption" tone="secondary" truncate>
-				{eligibility ? `${toolCountLabel(eligibility.result)} · ` : null}
-				{app.slug} · {appMcpHost(app)}
-			</Text>
 			{app.description ? (
-				<Text
-					as="span"
-					role="label"
-					tone="secondary"
-					truncate
-					className="max-sm:hidden"
-				>
+				<Text as="span" role="label" tone="secondary" className="line-clamp-2">
 					{app.description}
 				</Text>
 			) : null}
@@ -367,45 +363,10 @@ export function AppRowMain({
 	);
 }
 
-/** Phone rows state the three independent statuses as one quiet line. */
-function AppStatusLine({
-	statuses,
-}: {
-	statuses: readonly { label: string; status: AppStatus }[];
-}) {
-	return (
-		<Text as="p" role="caption" tone="secondary" className="m-0">
-			{statuses.map(({ label, status }, index) => (
-				<span key={label}>
-					{index > 0 ? " · " : null}
-					{label}{" "}
-					<span
-						data-tone={status.tone}
-						className={
-							status.tone === "blocked"
-								? "text-kumo-danger"
-								: status.tone === "warn"
-									? "text-kumo-warning"
-									: "text-kumo-default"
-						}
-					>
-						{status.label.toLowerCase()}
-					</span>
-				</span>
-			))}
-		</Text>
-	);
-}
-
 function AppServiceDetail({ check }: { check?: AppServiceCheck }) {
 	if (!check) return null;
 	return (
-		<Text
-			as="p"
-			role="caption"
-			tone="secondary"
-			className="m-0 max-w-56 whitespace-normal"
-		>
+		<Text as="p" role="caption" tone="secondary" className="m-0">
 			{check.detail} Provider API health and credential usability were not
 			tested.
 			{check.toolCount != null
@@ -415,35 +376,103 @@ function AppServiceDetail({ check }: { check?: AppServiceCheck }) {
 	);
 }
 
-function AppActions({
+/** Gateway, endpoint and protocol facts stay behind one labelled disclosure. */
+export function AppTechnicalDetails({
 	app,
+	eligibility,
+	gateway,
+	service,
 	check,
 	onCheck,
 }: {
 	app: AppListItem;
+	eligibility?: { badge: EligibilityBadge; result: EligibilityResult };
+	gateway: AppStatus;
+	service: AppStatus;
 	check?: AppServiceCheck;
 	onCheck: () => void;
 }) {
 	const checking = check?.status === "checking";
+	const facts = [
+		["Address", appMcpHost(app)],
+		["Identifier", app.slug],
+		["Visibility", sentenceCase(visibilityLabel(app.visibility))],
+		...(eligibility ? [["Tools", toolCountLabel(eligibility.result)]] : []),
+		["Gateway", gateway.label],
+		["MCP service", service.label],
+	];
+	return (
+		<Collapsible
+			className="min-w-0 text-kumo-subtle type-tedix-control"
+			data-app-technical-details
+		>
+			<CollapsibleDefaultTrigger className="group/disclosure -mx-2">
+				Technical details
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent keepMounted>
+				<div className="grid justify-items-start gap-2 pb-1">
+					<dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+						{facts.map(([term, value]) => (
+							<Fragment key={term}>
+								<dt>{term}</dt>
+								<dd className="m-0 wrap-anywhere text-kumo-default">{value}</dd>
+							</Fragment>
+						))}
+					</dl>
+					<AppServiceDetail check={check} />
+					<Button
+						size="sm"
+						variant="outline"
+						aria-label={`${checking ? "Checking" : "Check"} MCP service for ${app.name}`}
+						disabled={checking}
+						onClick={onCheck}
+					>
+						<Pulse size={15} aria-hidden />{" "}
+						{checking ? "Checking…" : "Check MCP"}
+					</Button>
+				</div>
+			</CollapsibleDefaultContent>
+		</Collapsible>
+	);
+}
+
+/** The row's own line: whether an account is connected, and what to do next. */
+function AppStatusActions({
+	app,
+	connection,
+	connectQuery,
+}: {
+	app: AppListItem;
+	connection: AppStatus;
+	connectQuery: string | null;
+}) {
 	return (
 		<div className="flex flex-wrap items-center gap-2">
-			<Button
-				size="sm"
-				variant="outline"
-				aria-label={`${checking ? "Checking" : "Check"} MCP service for ${app.name}`}
-				disabled={checking}
-				onClick={onCheck}
-			>
-				<Pulse size={15} aria-hidden /> {checking ? "Checking…" : "Check MCP"}
-			</Button>
-			<Button
-				size="sm"
-				variant="secondary"
-				aria-label={`Open ${app.name}`}
-				render={<Link to="/apps/$appId" params={{ appId: app.id }} />}
-			>
-				Open
-			</Button>
+			<AppChip tone={connection.tone}>{connection.label}</AppChip>
+			<span className="ml-auto flex flex-wrap items-center gap-2">
+				{connectQuery != null ? (
+					<Button
+						size="sm"
+						aria-label={`Connect an account for ${app.name}`}
+						render={
+							<Link
+								to="/account/connections"
+								search={{ q: connectQuery, status: "all" }}
+							/>
+						}
+					>
+						Connect
+					</Button>
+				) : null}
+				<Button
+					size="sm"
+					variant="secondary"
+					aria-label={`Open ${app.name}`}
+					render={<Link to="/apps/$appId" params={{ appId: app.id }} />}
+				>
+					Open
+				</Button>
+			</span>
 		</div>
 	);
 }
@@ -457,8 +486,8 @@ export function AppsEmpty() {
 				</EmptyMedia>
 				<EmptyTitle>No apps yet</EmptyTitle>
 				<EmptyDescription>
-					MCP apps are provisioned through the Tedix CLI, a tedi, or the App
-					Store — the same config-driven apps render here.
+					Add an app from the App Store, or ask a tedi or the Tedix CLI to set
+					one up. It will appear here.
 				</EmptyDescription>
 			</EmptyHeader>
 		</Empty>
@@ -898,6 +927,8 @@ export function AppsPage({
 				Boolean(organizationConnections.data && personalConnections.data),
 			),
 			gateway: appGatewayStatus(gatewayState),
+			connectQuery:
+				connectionRows.find(needsAccountSetup)?.provider.name ?? null,
 			service: appServiceStatus(serviceChecks[app.id]),
 			check: serviceChecks[app.id],
 			providerLogoUrl:
@@ -923,25 +954,6 @@ export function AppsPage({
 					</PageHeading>
 				</PageHeader>
 				<CapabilityNavigation active="installed" />
-				{gatewayMemberships.data?.gateway ? (
-					<Text
-						as="p"
-						role="label"
-						tone="secondary"
-						data-gateway-line=""
-						className="m-0 break-words"
-					>
-						Tedix reaches these apps through one gateway,{" "}
-						{gatewayMemberships.data.gateway.name}.{" "}
-						<Link
-							to="/apps/$appId"
-							params={{ appId: gatewayMemberships.data.gateway.id }}
-							className="text-kumo-link underline-offset-2 hover:underline"
-						>
-							Gateway details
-						</Link>
-					</Text>
-				) : null}
 			</div>
 
 			<PageSection>
@@ -1002,10 +1014,7 @@ export function AppsPage({
 								<TableHeader>
 									<TableRow>
 										<TableHead>App</TableHead>
-										<TableHead>Connection</TableHead>
-										<TableHead>Gateway</TableHead>
-										<TableHead>MCP service</TableHead>
-										<TableHead>Actions</TableHead>
+										<TableHead>Account and actions</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -1013,41 +1022,40 @@ export function AppsPage({
 										({
 											app,
 											connection,
+											connectQuery,
 											gateway,
 											service,
 											check,
 											providerLogoUrl,
 										}) => (
 											<TableRow key={app.id} data-app-row="desktop">
-												<TableCell className="min-w-60 max-w-80 whitespace-normal">
+												<TableCell className="min-w-60 whitespace-normal">
 													<div className="flex min-w-0 items-start gap-3">
 														<InstalledAppLogo
 															app={app}
 															providerLogoUrl={providerLogoUrl}
 														/>
-														<AppRowMain
-															app={app}
-															eligibility={eligibilityByAppId[app.id]}
-														/>
+														<div className="grid min-w-0 gap-1">
+															<AppRowMain
+																app={app}
+																eligibility={eligibilityByAppId[app.id]}
+															/>
+															<AppTechnicalDetails
+																app={app}
+																eligibility={eligibilityByAppId[app.id]}
+																gateway={gateway}
+																service={service}
+																check={check}
+																onCheck={() => void checkService(app)}
+															/>
+														</div>
 													</div>
 												</TableCell>
-												<TableCell>
-													<AppChip tone={connection.tone}>
-														{connection.label}
-													</AppChip>
-												</TableCell>
-												<TableCell>
-													<AppChip tone={gateway.tone}>{gateway.label}</AppChip>
-												</TableCell>
-												<TableCell className="min-w-40">
-													<AppChip tone={service.tone}>{service.label}</AppChip>
-													<AppServiceDetail check={check} />
-												</TableCell>
-												<TableCell>
-													<AppActions
+												<TableCell className="align-top">
+													<AppStatusActions
 														app={app}
-														check={check}
-														onCheck={() => void checkService(app)}
+														connection={connection}
+														connectQuery={connectQuery}
 													/>
 												</TableCell>
 											</TableRow>
@@ -1064,6 +1072,7 @@ export function AppsPage({
 								({
 									app,
 									connection,
+									connectQuery,
 									gateway,
 									service,
 									check,
@@ -1084,16 +1093,16 @@ export function AppsPage({
 												eligibility={eligibilityByAppId[app.id]}
 											/>
 										</div>
-										<AppStatusLine
-											statuses={[
-												{ label: "Connection", status: connection },
-												{ label: "Gateway", status: gateway },
-												{ label: "MCP", status: service },
-											]}
-										/>
-										<AppServiceDetail check={check} />
-										<AppActions
+										<AppStatusActions
 											app={app}
+											connection={connection}
+											connectQuery={connectQuery}
+										/>
+										<AppTechnicalDetails
+											app={app}
+											eligibility={eligibilityByAppId[app.id]}
+											gateway={gateway}
+											service={service}
 											check={check}
 											onCheck={() => void checkService(app)}
 										/>
@@ -1142,6 +1151,25 @@ export function AppsPage({
 						permission badges.
 					</Text>
 				)}
+				{gatewayMemberships.data?.gateway ? (
+					<Text
+						as="p"
+						role="label"
+						tone="secondary"
+						data-gateway-line=""
+						className="m-0 break-words"
+					>
+						Technical details: Tedix reaches these apps through one gateway,{" "}
+						{gatewayMemberships.data.gateway.name}.{" "}
+						<Link
+							to="/apps/$appId"
+							params={{ appId: gatewayMemberships.data.gateway.id }}
+							className="text-kumo-link underline-offset-2 hover:underline"
+						>
+							Gateway details
+						</Link>
+					</Text>
+				) : null}
 			</PageSection>
 		</Page>
 	);
