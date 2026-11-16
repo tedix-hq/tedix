@@ -698,6 +698,40 @@ describe("portable rich Doc client", () => {
 		expect(test.retained()).toBeNull();
 		expect(statusText(second.root)).toBe("");
 	});
+	it("merges a restored draft with a newer save to another paragraph without asking", async () => {
+		const paragraphs = (...values: string[]) => ({
+			type: "doc" as const,
+			content: values.map((value) => ({
+				type: "paragraph",
+				content: [{ type: "text", text: value }],
+			})),
+		});
+		const test = fixture();
+		test.external(paragraphs("Slide notes", "Her paragraph"));
+		const first = await test.mount();
+		fakeClock();
+		test.offline(true);
+		first.editor.commands.insertContentAt(1, "My ");
+		await vi.advanceTimersByTimeAsync(1000);
+		first.mounted.destroy();
+		first.root.remove();
+		vi.useRealTimers();
+		test.offline(false);
+		const basis = test.retained()!.revision;
+		test.external(paragraphs("Slide notes", "Her newer paragraph"));
+		const second = await test.mount();
+		await second.mounted.save();
+		await vi.waitFor(() =>
+			expect(second.editor.getText()).toBe(
+				"My Slide notes\n\nHer newer paragraph",
+			),
+		);
+		expect(second.root.textContent).not.toContain("Keep mine");
+		expect(test.calls).toHaveBeenCalledWith(
+			"outputs.readRevision",
+			expect.objectContaining({ revision: basis }),
+		);
+	});
 	it("keeps a restored draft over a newer save when asked to", async () => {
 		const test = fixture(),
 			first = await test.mount();

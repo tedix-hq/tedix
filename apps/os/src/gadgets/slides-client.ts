@@ -2012,7 +2012,10 @@ export async function mountSlidesClient(
 			deck = deckOf(retained?.content ?? value.revision.content);
 			basis = retained?.revision ?? value.revision.revision;
 			dirty = !!retained;
-			stale = basis < value.revision.revision;
+			// Edits kept from an older revision are merged into the newer saved
+			// copy like any other catch-up, part by part.
+			if (basis < value.revision.revision)
+				pendingRevision = Math.max(pendingRevision, value.revision.revision);
 			available = true;
 			find("h1").textContent = value.output.title;
 			main.dataset.revision = String(value.revision.revision);
@@ -2117,7 +2120,7 @@ export async function mountSlidesClient(
 		if (stale)
 			return showChoice(
 				"stale",
-				"This presentation was changed somewhere else after your last unsaved edits here. Choose which one to keep.",
+				"Your unsaved edits on this device started from a version that is no longer stored, so they cannot be combined with the newer saved version. Choose which whole version to keep.",
 				[
 					["Keep my edits", () => resolveStale(true)],
 					["Use the saved version", () => resolveStale(false)],
@@ -2201,6 +2204,27 @@ export async function mountSlidesClient(
 		}
 	}
 	/**
+	 * The saved copy the unsaved canvas was edited from: the loaded one, or
+	 * the older revision that edits kept on this device started from.
+	 * Undefined when that revision is no longer stored.
+	 */
+	async function baseContent(): Promise<PresentationContent | undefined> {
+		if (basis === loaded!.revision.revision) return loaded!.revision.content;
+		try {
+			const older = await bridge.call<Saved>("outputs.readRevision", {
+				slot,
+				revision: basis,
+			});
+			return older?.revision?.revision === basis &&
+				older.revision.content?.kind === "presentation"
+				? older.revision.content
+				: undefined;
+		} catch (error) {
+			if (DENIED.test(reason(error))) throw error;
+			return undefined;
+		}
+	}
+	/**
 	 * Bring someone else's newer save into the unsaved canvas. Both sides'
 	 * changes are kept; where they touch the same part, the person chooses.
 	 */
@@ -2214,7 +2238,7 @@ export async function mountSlidesClient(
 			destroyed ||
 			pointer ||
 			editing ||
-			basis !== loaded.revision.revision
+			stale
 		)
 			return;
 		reading = true;
@@ -2230,8 +2254,16 @@ export async function mountSlidesClient(
 			if (pointer || editing) return;
 			// Never retry in a loop: the next change notice or save tries again.
 			pendingRevision = 0;
+			const base = await baseContent();
+			if (destroyed) return;
+			if (!base) {
+				// The revision these edits started from is gone: only a choice
+				// between the two whole versions is left.
+				stale = true;
+				return;
+			}
 			const result = mergeOutputContent(
-				normalizePresentationContent(loaded.revision.content),
+				normalizePresentationContent(base),
 				projectDeck(deck),
 				normalizePresentationContent(latest.revision.content),
 				{ prefer, presentationSlides: (merged) => projectDeck(merged).slides },

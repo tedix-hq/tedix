@@ -1139,6 +1139,20 @@ describe("Portable Sheet grid", () => {
 		expect(app.drafts.size).toBe(0);
 		expect(app.revision()).toBe(2);
 	});
+	it("merges earlier unsaved changes with a newer save to other cells without asking", async () => {
+		const app = await editor();
+		app.offline(true);
+		edit("B1", "5");
+		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
+		app.changeExternal(4);
+		await app.reopen();
+		app.offline(false);
+		expect(q("#updates").textContent).not.toContain("earlier visit");
+		expect(display("C1")).toBe("9");
+		await vi.waitFor(() => expect(app.revision()).toBe(3), { timeout: 4000 });
+		expect(app.saved().rows[0]).toEqual([4, 5, 9]);
+		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
+	});
 	it("saves earlier unsaved changes over a newer version only when asked to keep them", async () => {
 		const app = await editor();
 		app.offline(true);
