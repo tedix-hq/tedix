@@ -141,23 +141,27 @@ try {
 				})
 				.waitFor();
 			assert.deepEqual(writes.at(-1), { id: "alpha", enabled: false });
-			await page.getByText("Paused · not scheduled", { exact: true }).waitFor();
+			await page.getByText("Off · no runs planned", { exact: true }).waitFor();
 			// Turn it back on.
 			await page.getByRole("button", { name: "Turn on", exact: true }).click();
-			await page.getByText(/On — runs daily at 9 AM \(UTC\)/).waitFor();
+			// 09:00 UTC in New York: 5 AM in summer, 4 AM in winter.
+			await page.getByText(/On\. Every day at [45]:00 AM\./).waitFor();
 			assert.deepEqual(writes.at(-1), { id: "alpha", enabled: true });
-			// Change the time through the dialog.
+			// Change the time through the dialog, as a local time.
 			await page
 				.getByRole("button", { name: "Change time", exact: true })
 				.click();
 			await page.getByText("Change schedule", { exact: true }).waitFor();
-			await page.getByLabel("Time (UTC)").fill("21:30");
-			await page
-				.getByText("Runs daily at 9:30 PM (UTC)", { exact: true })
-				.waitFor();
+			await page.getByLabel("Time", { exact: true }).fill("21:30");
+			await page.getByText("Every day at 9:30 PM.", { exact: true }).waitFor();
 			await page.getByRole("button", { name: "Save", exact: true }).click();
-			await page.getByText(/On — runs daily at 9:30 PM \(UTC\)/).waitFor();
-			assert.deepEqual(writes.at(-1), { id: "alpha", cron: "30 21 * * *" });
+			await page
+				.locator("[data-schedule-cadence]")
+				.getByText("Every day at 9:30 PM", { exact: true })
+				.waitFor();
+			// 21:30 in New York is saved in UTC, on the following day.
+			assert.equal(writes.at(-1)?.id, "alpha");
+			assert.match(String(writes.at(-1)?.cron), /^30 [12] \* \* \*$/);
 			const measurement = await page.evaluate(() => ({
 				viewport: { width: innerWidth, height: innerHeight },
 				theme: document.documentElement.dataset.mode,

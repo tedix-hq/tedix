@@ -162,7 +162,7 @@ try {
 			);
 			assert.match(
 				reason,
-				/What to do next[\s\S]*Open the failed run[\s\S]*Run a test[\s\S]*Turn it back on[\s\S]*Open the Schedule tab/,
+				/What to do next[\s\S]*Open the failed run[\s\S]*Run a test[\s\S]*Turn it back on[\s\S]*Open the Settings tab/,
 			);
 			assert(
 				await notice

@@ -194,7 +194,7 @@ try {
 			await page.keyboard.press("Enter");
 			await page.getByText(/Next run in 1h/).waitFor();
 			assert.equal(
-				await page.getByText("Paused · not scheduled", { exact: true }).count(),
+				await page.getByText("Off · no runs planned", { exact: true }).count(),
 				2,
 			);
 			assert.equal(
@@ -202,10 +202,12 @@ try {
 				3,
 			);
 			await page
-				.getByText("Cron timezone: UTC · Timestamps: America/New_York", {
-					exact: true,
+				.getByText("Times are in your time zone, America/New_York.", {
+					exact: false,
 				})
 				.waitFor();
+			// The stored expression stays behind Technical details.
+			assert.doesNotMatch(await page.locator("body").innerText(), /Cron|UTC/);
 			failure = true;
 			await page.evaluate(() => (window as Fixture).scheduleFixture.refresh());
 			await page
@@ -259,7 +261,10 @@ try {
 				.waitFor({ state: "hidden" });
 			await page.evaluate(() => (window as Fixture).scheduleFixture.navigate());
 			await page
-				.getByText("This skill declares no schedules.", { exact: true })
+				.getByText(
+					"This skill has no schedule. It runs only when someone starts it.",
+					{ exact: true },
+				)
 				.waitFor();
 			assert.equal(betaReads, 1);
 			assert.equal(await page.getByText(/Next run in 1h/).count(), 0);

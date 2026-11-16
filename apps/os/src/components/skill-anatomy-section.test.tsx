@@ -131,7 +131,7 @@ describe("SkillAnatomySection", () => {
 		expect(html).toContain("No runs recorded yet");
 	});
 
-	it("names a variable-named step by what it does and lists inputs in plain words", () => {
+	it("names a variable-named step by what it does and leaves inputs to Settings", () => {
 		const html = render(
 			<SkillAnatomySection
 				skill={entry({
@@ -163,19 +163,9 @@ describe("SkillAnatomySection", () => {
 		expect(html).not.toMatch(/>name</);
 		expect(html).toContain("name from name");
 
-		const technical = html.indexOf("Technical details");
-		expect(technical).toBeGreaterThan(-1);
-		const readable = html.slice(html.indexOf("Inputs"), technical);
-		expect(readable).toContain("Mode");
-		expect(readable).toContain("Required");
-		expect(readable).toContain("Which report to build");
-		expect(readable).toContain("Dry run");
-		expect(readable).toContain("Optional");
-		expect(readable).toContain("Yes or no. No description yet.");
-		expect(readable).not.toContain("mode: string");
-		expect(readable).not.toContain("dryRun");
-		expect(html.slice(technical)).toContain("mode: string · required");
-		expect(html.slice(technical)).toContain("dryRun: boolean");
+		// Inputs are listed once, on Settings (see skill-inputs-list.test.tsx).
+		expect(html).not.toContain("Which report to build");
+		expect(html).not.toContain("dryRun");
 	});
 
 	it("links matched steps to the recorded run", () => {

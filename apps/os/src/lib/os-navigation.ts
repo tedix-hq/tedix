@@ -516,9 +516,24 @@ export const OS_PAGES: readonly OsPage[] = [
 		breadcrumb: "parent",
 	},
 	{
-		id: "skill-schedule",
+		id: "skill-settings",
+		path: "/skills/$skillId/settings",
+		label: "Settings",
+		parentId: "skill",
+		breadcrumb: "parent",
+	},
+	{
+		// Former Schedule tab; the route redirects to Settings (above).
+		id: "skill-schedule-redirect",
 		path: "/skills/$skillId/schedule",
-		label: "Schedule",
+		label: "Settings",
+		parentId: "skill",
+		breadcrumb: "parent",
+	},
+	{
+		id: "skill-source",
+		path: "/skills/$skillId/source",
+		label: "Source",
 		parentId: "skill",
 		breadcrumb: "parent",
 	},

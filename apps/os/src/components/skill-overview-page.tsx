@@ -19,8 +19,6 @@ import {
 } from "@/components/kumo/collapsible";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Text } from "@/components/kumo/text";
-import { SkillAnatomySection } from "@/components/skill-anatomy-section";
-import { SkillBundleTree } from "@/components/skill-bundle-tree";
 import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import {
 	skillDetailQueryOptions,
@@ -63,7 +61,6 @@ export function SkillOverviewPage() {
 				successCount={skill.successCount}
 				failureCount={skill.failureCount}
 			/>
-			<SkillAnatomySection skill={skill} runs={runs.data?.runs ?? []} />
 			<PageSection aria-labelledby="skill-recent-runs-title">
 				<SectionHeader>
 					<SectionHeading>
@@ -92,16 +89,6 @@ export function SkillOverviewPage() {
 				/>
 				{runs.data ? <SkillRunTable runs={recentRuns} /> : null}
 			</PageSection>
-			<Collapsible>
-				<CollapsibleDefaultTrigger>
-					Instructions and source
-				</CollapsibleDefaultTrigger>
-				<CollapsibleDefaultContent>
-					<div className="grid gap-4 pt-3">
-						<SkillBundleTree content={skill.content} files={skill.files} />
-					</div>
-				</CollapsibleDefaultContent>
-			</Collapsible>
 		</PageSection>
 	);
 }

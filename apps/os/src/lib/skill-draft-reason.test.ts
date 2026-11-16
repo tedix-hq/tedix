@@ -67,7 +67,7 @@ describe("why a skill is a draft", () => {
 			"Open the failed run, see what went wrong and fix it.",
 			"Run a test. Tedix normally turns a skill on only after a test run of this version has passed.",
 			"Turn it back on.",
-			"Open the Schedule tab and turn the schedule back on if it is still paused.",
+			"Open the Settings tab and turn the schedule back on if it is still paused.",
 		]);
 	});
 
@@ -172,7 +172,7 @@ describe("why a skill is a draft", () => {
 		expect(reason.why.at(-1)).toBe(
 			"Its schedule is paused, so no scheduled runs start.",
 		);
-		expect(reason.next.at(-1)).toMatch(/^Open the Schedule tab/);
+		expect(reason.next.at(-1)).toMatch(/^Open the Settings tab/);
 	});
 
 	it("sends a proposed change to the skill it would change", () => {

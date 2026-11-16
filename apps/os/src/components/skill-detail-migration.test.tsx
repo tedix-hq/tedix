@@ -277,7 +277,7 @@ describe("native skill ownership", () => {
 			"Open the failed run, see what went wrong and fix it.",
 			"Run a test. Tedix normally turns a skill on only after a test run of this version has passed.",
 			"Turn it back on.",
-			"Open the Schedule tab and turn the schedule back on if it is still paused.",
+			"Open the Settings tab and turn the schedule back on if it is still paused.",
 		]);
 		// The test comes before turning the skill back on.
 		expect(headerButtons(host)).toEqual(["Run a test", "Turn back on"]);
@@ -379,6 +379,15 @@ describe("native skill ownership", () => {
 		const tabs = [...(list?.querySelectorAll('[role="tab"]') ?? [])];
 		expect(tabs.length).toBeGreaterThan(0);
 		for (const tab of tabs) expect(tab.tagName).toBe("A");
+		expect(
+			tabs.map((tab) => [tab.textContent?.trim(), tab.getAttribute("href")]),
+		).toEqual([
+			["Overview", "/skills/$skillId"],
+			["Runs", "/skills/$skillId/runs"],
+			["Versions", "/skills/$skillId/versions"],
+			["Settings", "/skills/$skillId/settings"],
+			["Source", "/skills/$skillId/source"],
+		]);
 		const run = [...host.querySelectorAll("button")].find((button) =>
 			button.textContent?.includes("Run now"),
 		);

@@ -457,12 +457,21 @@ export function fixtureSkillEntry(entry: (typeof SKILLS)[number]) {
 		entry.id === SKILL_REVENUE
 			? {
 					files: { "scripts/workflow.ts": LOCAL_WORKFLOW_SOURCE },
+					// The storefront connection is linked to its installed app; the
+					// sheets one found no app, so Settings shows both states.
+					mcpAppBindings: { storefront: APP_STOREFRONT },
 					inputSchema: {
 						type: "object",
 						properties: {
 							period: {
 								type: "string",
 								description: "Reporting period to summarize",
+								enum: ["last_7_days", "last_30_days"],
+							},
+							includeRefunds: {
+								type: "boolean",
+								description: "Count refunded orders in the totals",
+								default: false,
 							},
 						},
 						required: ["period"],

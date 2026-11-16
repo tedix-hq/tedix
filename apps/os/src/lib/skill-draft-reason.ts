@@ -216,7 +216,7 @@ export function skillDraftReason(input: {
 		}
 		if (schedulePaused)
 			next.push(
-				"Open the Schedule tab and turn the schedule back on if it is still paused.",
+				"Open the Settings tab and turn the schedule back on if it is still paused.",
 			);
 	}
 	return {

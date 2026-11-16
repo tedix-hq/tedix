@@ -126,16 +126,16 @@ async function mount(rows?: SkillSchedule[]) {
 describe("manifest skill schedule clocks", () => {
 	it.each([
 		[true, "2026-10-21T13:00:00Z", "Next run in 1h"],
-		[false, "2026-10-21T13:00:00Z", "Paused · not scheduled"],
-		[false, "2026-10-21T11:00:00Z", "Paused · not scheduled"],
+		[false, "2026-10-21T13:00:00Z", "Off · no runs planned"],
+		[false, "2026-10-21T11:00:00Z", "Off · no runs planned"],
 		[true, "2026-10-21T11:00:00Z", "Next run unavailable"],
 		[true, now, "Next run unavailable"],
 		[true, "invalid", "Next run unavailable"],
 	])("enabled=%s next=%s reads %s", async (enabled, nextFireAt, label) => {
 		const { node } = await mount([schedule({ enabled, nextFireAt })]);
 		expect(node.textContent).toContain(label);
-		expect(node.textContent).toContain("Cron timezone: UTC");
-		expect(node.textContent).toContain("Timestamps: UTC");
+		expect(node.textContent).toContain("Times are in your time zone, UTC.");
+		expect(node.textContent).not.toContain("Cron timezone");
 		if (
 			!enabled ||
 			Date.parse(nextFireAt) <= Date.parse(now) ||
@@ -167,7 +167,7 @@ describe("manifest skill schedule clocks", () => {
 		const status = [...node.querySelectorAll("span")].find((element) =>
 			element.textContent?.includes("Next run in 1h"),
 		);
-		expect(status?.textContent).toContain("last fired 2h ago");
+		expect(status?.textContent).toContain("last ran 2h ago");
 		expect(status?.textContent).not.toContain("Last error");
 		expect(
 			[...node.querySelectorAll("span")].some(
@@ -175,8 +175,9 @@ describe("manifest skill schedule clocks", () => {
 			),
 		).toBe(true);
 		expect(node.textContent).toContain(
-			"Budget blocked 1h ago · governed learning · Daily limit",
+			"Held back by the spending limit 1h ago · Daily limit",
 		);
+		expect(node.textContent).toContain("Spending class: governed learning");
 		expect(
 			node.querySelector('a[href="/work/runs/run-example"]'),
 		).not.toBeNull();
@@ -187,15 +188,21 @@ describe("manifest skill schedule clocks", () => {
 				timezone: "America/New_York",
 			}),
 		);
-		expect(node.textContent).toContain("Timestamps: America/New_York");
+		expect(node.textContent).toContain(
+			"Times are in your time zone, America/New_York.",
+		);
 		expect(node.querySelector("a")?.title).not.toBe(before);
-		expect(node.textContent).toContain("Cron timezone: UTC");
+		// The cadence follows the zone; the stored expression stays in UTC.
+		expect(node.querySelector("[data-schedule-cadence]")?.textContent).toBe(
+			"Every day at 9:00 AM",
+		);
+		expect(node.textContent).toContain("Stored schedule (UTC): 0 13 * * *");
 	});
 	it("recovers a failed discovery with a read and returns to loading while fetching", async () => {
 		mocks.read.mockRejectedValueOnce(new Error("Discovery failed"));
 		const { node } = await mount();
 		expect(node.textContent).toContain("Schedules unavailable");
-		expect(node.textContent).not.toContain("declares no schedules");
+		expect(node.textContent).not.toContain("has no schedule");
 		const retry = [...node.querySelectorAll("button")].find(
 			(button) => button.textContent?.trim() === "Retry",
 		)!;
@@ -208,7 +215,7 @@ describe("manifest skill schedule clocks", () => {
 		await act(async () => retry.click());
 		await flush();
 		expect(node.querySelector("button")).toBeNull();
-		expect(node.textContent).not.toContain("declares no schedules");
+		expect(node.textContent).not.toContain("has no schedule");
 		await act(async () => resolve({ schedules: [schedule()] }));
 		await flush();
 		expect(node.textContent).toContain("Next run in 1h");
@@ -226,10 +233,92 @@ describe("manifest skill schedule clocks", () => {
 		expect(node.textContent).toContain("Showing previously loaded schedules");
 		expect(node.textContent).toContain("Next run in 1h");
 	});
-	it("heads each row with the cadence in words, keeping the raw cron alongside", async () => {
+	it("heads each row with the cadence in words and keeps the stored expression under Technical details", async () => {
+		const { node } = await mount([
+			schedule({ params: { period: "last_7_days" } }),
+		]);
+		const row = node.querySelector("[data-schedule-row]")!;
+		expect(row.querySelector("[data-schedule-cadence]")?.textContent).toBe(
+			"Every day at 1:00 PM",
+		);
+		expect(row.textContent).toContain("Runs as Example worker");
+		expect(row.textContent).toContain("starts with Period: last_7_days");
+		const technical = [...row.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Technical details",
+		)!;
+		expect(technical.getAttribute("aria-expanded")).toBe("false");
+		const visible = row.textContent!.slice(
+			0,
+			row.textContent!.indexOf("Technical details"),
+		);
+		expect(visible).not.toContain("0 13 * * *");
+		expect(visible).not.toContain("schedule");
+		expect(row.textContent).toContain("Stored schedule (UTC): 0 13 * * *");
+		expect(row.textContent).toContain("Schedule id: schedule");
+	});
+	it("names a schedule it cannot put into words without showing its expression", async () => {
+		const { node } = await mount([schedule({ cron: "0 9,17 * * *" })]);
+		const row = node.querySelector("[data-schedule-row]")!;
+		expect(row.querySelector("[data-schedule-cadence]")?.textContent).toBe(
+			"Custom schedule",
+		);
+		expect(row.textContent).toContain("Next run in 1h");
+	});
+	it("changes the time as a local time and saves it in UTC", async () => {
+		setOsFormattingPreferences({
+			locale: "en-US",
+			timezone: "Europe/Berlin",
+		});
+		mocks.update.mockReset();
+		mocks.update.mockResolvedValue({
+			skillId: "alpha",
+			slug: "alpha-skill",
+			action: "updated",
+			changed: true,
+			cron: "30 7 * * *",
+			scheduleEnabled: true,
+			nextFireAt: "2026-10-22T07:30:00Z",
+		});
 		const { node } = await mount([schedule()]);
-		expect(node.textContent).toContain("daily at 1 PM");
-		expect(node.textContent).toContain("0 13 * * *");
+		// 13:00 UTC is 15:00 in Berlin in October.
+		expect(node.querySelector("[data-schedule-cadence]")?.textContent).toBe(
+			"Every day at 3:00 PM",
+		);
+		const change = [...node.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Change time",
+		)!;
+		await act(async () => change.click());
+		await flush();
+		const dialog = document.querySelector('[role="dialog"]')!;
+		expect(dialog.textContent).toContain(
+			"It currently runs every day at 3:00 PM, in your time zone (Europe/Berlin).",
+		);
+		expect(dialog.textContent).not.toContain("UTC");
+		expect(
+			[...dialog.querySelectorAll("button")].some(
+				(button) => button.textContent?.trim() === "Cancel",
+			),
+		).toBe(true);
+		const input = dialog.querySelector<HTMLInputElement>('input[type="time"]')!;
+		expect(input.value).toBe("15:00");
+		const setValue = Object.getOwnPropertyDescriptor(
+			HTMLInputElement.prototype,
+			"value",
+		)!.set!;
+		await act(async () => {
+			setValue.call(input, "09:30");
+			input.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		expect(dialog.textContent).toContain("Every day at 9:30 AM.");
+		const save = [...dialog.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Save",
+		)!;
+		await act(async () => save.click());
+		await flush();
+		expect(mocks.update).toHaveBeenCalledWith({
+			id: "alpha",
+			cron: "30 7 * * *",
+		});
 	});
 	it("reports a failed schedule write once at section level", async () => {
 		mocks.update.mockRejectedValue(new Error("forbidden"));

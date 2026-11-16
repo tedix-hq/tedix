@@ -71,6 +71,7 @@ import {
 	projectPortfolioQueryOptions,
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
+	installedAppEligibilityQueryOptions,
 	skillDetailQueryOptions,
 	skillReliabilityQueryOptions,
 	skillRevisionsQueryOptions,
@@ -734,12 +735,22 @@ export async function prefetchSkillVersionsRoute(
 		.catch(() => undefined);
 }
 
-export async function prefetchSkillScheduleRoute(
+export async function prefetchSkillSettingsRoute(
+	queryClient: QueryClient,
+	skillId: string,
+) {
+	await Promise.allSettled([
+		queryClient.ensureQueryData(skillSpecificSchedulesQueryOptions(skillId)),
+		queryClient.ensureQueryData(installedAppEligibilityQueryOptions()),
+	]);
+}
+
+export async function prefetchSkillSourceRoute(
 	queryClient: QueryClient,
 	skillId: string,
 ) {
 	await queryClient
-		.ensureQueryData(skillSpecificSchedulesQueryOptions(skillId))
+		.ensureQueryData(skillRunsQueryOptions(skillId))
 		.catch(() => undefined);
 }
 
