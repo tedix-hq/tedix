@@ -17,6 +17,10 @@ export function projectMetadataForUpdate(
 		});
 	return {
 		...incoming,
+		...(incoming.workOperators === undefined &&
+		existing?.workOperators !== undefined
+			? { workOperators: existing.workOperators }
+			: {}),
 		...(incoming.workSpecificationContributors === undefined &&
 		existing?.workSpecificationContributors !== undefined
 			? {

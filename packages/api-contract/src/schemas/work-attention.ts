@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { WorkOperatorsSchema } from "./work-specification-policy";
 import { AgentSessionRequestSchema } from "./agent-session-requests";
 import { JsonValueSchema } from "./common";
 import { WorkItemKindSchema, WorkItemPrioritySchema } from "./work-items";
@@ -121,6 +122,11 @@ export type RecurringWorkTemplate = z.infer<typeof RecurringWorkTemplateSchema>;
 
 export const ProjectMetadataSchema = z
 	.object({
+		workOperators: WorkOperatorsSchema.nullable()
+			.optional()
+			.describe(
+				"Owner-controlled project member lifecycle delegation. Null revokes; omission preserves the existing grant.",
+			),
 		continuity: ContinuityPolicySchema.optional(),
 		recurringWork: z
 			.array(RecurringWorkTemplateSchema)
