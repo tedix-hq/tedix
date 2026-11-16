@@ -1,6 +1,5 @@
-import { PoppyRuntimeRequestSchema } from "@tedix/api-contract/schemas/personal-agent-conversation";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
-import { PoppyConversations, type PoppyJob } from "./poppy-conversations";
+import type { PoppyConversations, PoppyJob } from "./poppy-conversations";
 
 export async function handlePoppyRuntime(
 	request: Request,
@@ -10,6 +9,8 @@ export async function handlePoppyRuntime(
 		kick: () => Promise<void>;
 	},
 ) {
+	const { PoppyRuntimeRequestSchema } =
+		await import("@tedix/api-contract/schemas/personal-agent-conversation");
 	const parsed = PoppyRuntimeRequestSchema.safeParse(
 		await request.json().catch(() => null),
 	);
@@ -96,13 +97,16 @@ export class PoppyRuntime {
 			) => Promise<{ assistantText: string; turnError: string | null }>;
 		},
 	) {}
-	private store() {
+	// Loaded on first use: the protocol schemas are too costly for Worker startup.
+	private async store() {
+		const { PoppyConversations } = await import("./poppy-conversations");
 		return new PoppyConversations(this.host.storage.sql, (operation) =>
 			this.host.storage.transactionSync(operation),
 		);
 	}
 	async kick() {
-		for (const conversationId of this.store().pendingConversations()) {
+		const store = await this.store();
+		for (const conversationId of store.pendingConversations()) {
 			if (this.scheduled.has(conversationId)) continue;
 			this.scheduled.add(conversationId);
 			try {
@@ -121,10 +125,10 @@ export class PoppyRuntime {
 		)
 			await this.kick();
 	}
-	handle(request: Request) {
+	async handle(request: Request) {
 		return handlePoppyRuntime(request, {
 			organizationId: this.host.organizationId(),
-			store: this.store(),
+			store: await this.store(),
 			kick: () => this.kick(),
 		});
 	}
@@ -132,7 +136,7 @@ export class PoppyRuntime {
 		const existing = this.active.get(conversationId);
 		if (existing) return existing;
 		const run = async () => {
-			const store = this.store();
+			const store = await this.store();
 			for (
 				let job = store.nextJob(conversationId);
 				job;
