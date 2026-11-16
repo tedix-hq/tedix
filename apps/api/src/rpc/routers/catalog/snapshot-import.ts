@@ -34,11 +34,21 @@ export const importCatalogSnapshot = fleetCatalogOs.importSnapshot
 		const snapshotKey = `catalog/snapshots/${organizationId}/${input.snapshotId}.json`;
 		let object = await env.R2_BUCKET.get(snapshotKey);
 		if (!object) {
+			// Name the cause for the operator: a bare failure here surfaced as an
+			// unexplained 500 and its message is hashed in the logs.
 			const snapshot = await captureCatalogSnapshot(
 				env.BROWSER,
 				input.url,
 				input.expression,
-			);
+			).catch((error: unknown) => {
+				throw createError(
+					ErrorCodes.BAD_GATEWAY,
+					`Catalog capture failed: ${error instanceof Error ? error.message : String(error)}`.slice(
+						0,
+						500,
+					),
+				);
+			});
 			for (const item of snapshot.items) {
 				const provenance = item.rawData?.[input.provenanceKey];
 				if (
