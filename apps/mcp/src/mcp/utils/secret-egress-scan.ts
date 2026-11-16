@@ -15,8 +15,9 @@ import {
  * identify: base64 file bytes (by file signature, or a field the tool schema or
  * the argument shape declares as file content) and declared pagination
  * cursors, plus structured identifiers (full Git commit IDs, CMS deploy job
- * IDs) constrained by the exact schema pattern below. Base64 that decodes to
- * text is scanned as that text.
+ * IDs) constrained by the exact schema pattern below, and lowercase
+ * snake_case word slugs such as copy keys. Base64 that decodes to text is
+ * scanned as that text.
  *
  * @module @tedix/mcp/secret-egress-scan
  */
@@ -192,11 +193,26 @@ function findHighConfidencePattern(text: string): string | null {
 	return null;
 }
 
+/**
+ * A lowercase snake_case word slug such as a copy key
+ * (`ui_invoice_ocr_latency_spiked_2_9_on_jun_7_...`): at least six segments,
+ * each at most 12 characters and either all letters or all digits. Random
+ * base64/base62/hex tokens mix case or mix letters and digits within short
+ * chunks, so they essentially never take this shape; provider-prefixed keys
+ * are matched by the high-confidence patterns before this check runs.
+ */
+const WORD_SLUG_RE =
+	/^(?:[a-z]{1,12}|[0-9]{1,12})(?:_(?:[a-z]{1,12}|[0-9]{1,12})){5,}$/;
+
 function findOpaqueToken(text: string): string | null {
 	LONG_OPAQUE_SECRET_RE.lastIndex = 0;
 	for (const match of text.matchAll(LONG_OPAQUE_SECRET_RE)) {
 		const candidate = match[0];
-		if (HAS_LETTER_RE.test(candidate) && HAS_DIGIT_RE.test(candidate))
+		if (
+			HAS_LETTER_RE.test(candidate) &&
+			HAS_DIGIT_RE.test(candidate) &&
+			!WORD_SLUG_RE.test(candidate)
+		)
 			return "long opaque token";
 	}
 	return null;
