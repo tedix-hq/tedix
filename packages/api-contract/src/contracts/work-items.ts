@@ -780,7 +780,9 @@ export const workItemsContract = oc
 						.datetime()
 						.nullable()
 						.optional()
-						.describe("Omit to preserve the planned start; null clears it."),
+						.describe(
+							"Start date: runners are not handed the Work before it, and readiness reports not_before until then. Omit to preserve it; null clears it.",
+						),
 					durationDays: z
 						.number()
 						.int()

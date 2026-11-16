@@ -578,20 +578,30 @@ function executorReadiness(
 	readiness: WorkItemReadinessResult,
 	rejection: Awaited<ReturnType<typeof previewWorkAttempt>>["rejection"],
 ): WorkItemReadinessResult {
+	// Admission does not look at the start date, so a passed preview keeps it.
+	const waitsForStart = readiness.gates.find(
+		(gate) => gate.gate === "not_before" && gate.evaluation === "failed",
+	);
 	if (!rejection)
 		return {
 			...readiness,
-			state: "ready",
-			ready: true,
-			reasons: [],
-			gates: readiness.gates.map((gate) => ({
-				...gate,
-				evaluation: "passed",
-				detail:
-					gate.evaluation === "passed"
-						? gate.detail
-						: "Verified executor admission preview passed",
-			})),
+			state: waitsForStart ? "not_before" : "ready",
+			ready: !waitsForStart,
+			reasons: waitsForStart
+				? [{ code: "not_before", detail: waitsForStart.detail }]
+				: [],
+			gates: readiness.gates.map((gate) =>
+				gate.gate === "not_before"
+					? gate
+					: {
+							...gate,
+							evaluation: "passed",
+							detail:
+								gate.evaluation === "passed"
+									? gate.detail
+									: "Verified executor admission preview passed",
+						},
+			),
 		};
 	const gateByCode: Record<
 		WorkAdmissionRejectionCode,

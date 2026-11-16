@@ -42,6 +42,7 @@ export const WORK_ITEM_READINESS_VALUES = [
 	"budget_blocked",
 	"resource_blocked",
 	"already_running",
+	"not_before",
 	"terminal",
 ] as const;
 export type WorkItemReadiness = (typeof WORK_ITEM_READINESS_VALUES)[number];

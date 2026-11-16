@@ -39,7 +39,8 @@ export type WorkItemReadinessGateName =
 	| "risk"
 	| "budget"
 	| "resources"
-	| "attempt";
+	| "attempt"
+	| "not_before";
 export interface WorkItemReadinessGate {
 	gate: WorkItemReadinessGateName;
 	evaluation: "passed" | "failed" | "unknown";
@@ -92,6 +93,23 @@ interface ReadinessFacts {
 	resourcesAvailable?: boolean;
 }
 
+/**
+ * The Work's start date while it is still ahead: no runner is handed the Work
+ * before it. A person, or an agent that found it has to wait for a date, sets it.
+ */
+function workNotBefore(
+	item: Pick<WorkItem, "startAt">,
+	now: string,
+): string | undefined {
+	return item.startAt && Date.parse(item.startAt) > Date.parse(now)
+		? item.startAt
+		: undefined;
+}
+
+function notBeforeDetail(startAt: string) {
+	return `Waits for its start date, ${startAt}. No runner starts it earlier; clear or change the start date to start it sooner.`;
+}
+
 function evaluateWorkItemReadiness(
 	facts: ReadinessFacts,
 ): WorkItemReadinessResult {
@@ -106,6 +124,7 @@ function evaluateWorkItemReadiness(
 	const terminal =
 			item.disposition === "completed" || item.disposition === "cancelled",
 		accepted = item.disposition === "accepted";
+	const notBefore = workNotBefore(item, derivedAt);
 	const missingCapability =
 		facts.availableCapabilities === undefined
 			? undefined
@@ -265,6 +284,15 @@ function evaluateWorkItemReadiness(
 				? `Active attempt ${activeAttemptId}`
 				: "No active attempt",
 		},
+		{
+			gate: "not_before",
+			evaluation: notBefore ? "failed" : "passed",
+			detail: notBefore
+				? notBeforeDetail(notBefore)
+				: item.startAt
+					? `Start date ${item.startAt} has passed`
+					: "No start date",
+		},
 	];
 	let state: WorkItemReadiness = "ready",
 		detail: string | undefined;
@@ -277,6 +305,9 @@ function evaluateWorkItemReadiness(
 	} else if (!eligibility.eligible) {
 		state = eligibility.blocker!;
 		detail = eligibility.detail!;
+	} else if (notBefore) {
+		state = "not_before";
+		detail = notBeforeDetail(notBefore);
 	}
 	return {
 		workItemId: item.id,

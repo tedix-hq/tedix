@@ -304,7 +304,9 @@ function fixture({
 				// Like the server: planning a hold is a new Work version.
 				const row = items.find((row) => row.id === args[6])!;
 				row.version++;
-				row.metadata = { ...row.metadata, laneDispatch: input.laneDispatch };
+				if (input.laneDispatch)
+					row.metadata = { ...row.metadata, laneDispatch: input.laneDispatch };
+				if (input.startAt) row.startAt = input.startAt;
 				response = row;
 			} else if (verb === "interaction-create")
 				response = { id: "fictional-request" };
@@ -7832,6 +7834,56 @@ describe("structured dispatcher outcomes", () => {
 			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
 		},
 	);
+	it("records a deferred run's not-before date as the Work's start date, once, and starts nothing earlier", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const notBefore = new Date(Date.now() + 3 * 86_400_000).toISOString();
+		const deferred = () => ({
+			...common(),
+			outcome: "deferred",
+			reason: "The measurement needs three days of production data",
+			notBefore,
+		});
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(deferred())}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		f.control.history.data[0]!.outcome = "cancelled";
+		f.control.history.data[0]!.metadata = {
+			dispatchVersion: 2,
+			laneResult: deferred(),
+		};
+		const path = join(f.dir, `${item().id}-2.json`);
+		expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+			phase: "deferred",
+			outcome: "cancelled",
+			retryAt: Date.parse(notBefore),
+		});
+		for (let pass = 0; pass < 3; pass++) await f.restart().tick();
+		const records = f.events.filter((e) => e.verb === "dispatch-hold");
+		expect(records).toHaveLength(1);
+		expect(records[0]!.input).toEqual({
+			expectedWorkItemVersion: 2,
+			startAt: notBefore,
+		});
+		expect(f.items[0]).toMatchObject({ version: 3, startAt: notBefore });
+		const comments = f.events.filter(
+			(e) => e.verb === "comment" && e.args.join(" ").includes(notBefore),
+		);
+		expect(comments).toHaveLength(1);
+		expect(comments[0]!.args.join(" ")).toContain(
+			"The measurement needs three days of production data",
+		);
+		expect(JSON.parse(readFileSync(path, "utf8")).notBeforeRecorded).toBe(true);
+		// The new Work version stays listed in this fake, and is still not started.
+		expect(f.releases).toHaveLength(1);
+		expect(
+			f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
+		).toHaveLength(1);
+		expect(f.events.some((e) => e.verb === "interaction-create")).toBe(false);
+	});
 	it("retries a second deferral on schedule despite the first deferral's cancelled Attempt", async () => {
 		const f = fixture();
 		f.items.splice(1);

@@ -120,6 +120,7 @@ export const WorkItemReadinessStateSchema = z.enum([
 	"resource_blocked",
 	"evaluation_required",
 	"already_running",
+	"not_before",
 	"terminal",
 ]);
 
@@ -178,6 +179,7 @@ export const WorkItemReadinessSchema = z.object({
 				"budget",
 				"resources",
 				"attempt",
+				"not_before",
 			]),
 			evaluation: z.enum(["passed", "failed", "unknown"]),
 			detail: z.string().min(1).max(2_000),
@@ -1454,7 +1456,9 @@ export const WorkItemSchema = z.object({
 	startAt: z.iso
 		.datetime()
 		.nullable()
-		.describe("Null when work has no planned start."),
+		.describe(
+			"Start date. Runners are not handed the Work before it; null when there is none.",
+		),
 	durationDays: z
 		.number()
 		.int()
@@ -1988,7 +1992,9 @@ export const CreateWorkItemInputSchema = z
 		startAt: z.iso
 			.datetime()
 			.optional()
-			.describe("Optional planned start for schedule views."),
+			.describe(
+				"Optional start date. Runners are not handed the Work before it, and readiness reports not_before until then.",
+			),
 		durationDays: z
 			.number()
 			.int()

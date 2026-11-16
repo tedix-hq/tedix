@@ -1223,6 +1223,24 @@ describe("canonical work lifecycle", () => {
 		expect(workUsage()).toContain("move <id> --project <id>");
 	});
 
+	test("sets and clears the start date runners wait for", async () => {
+		const set = makeContext();
+		expect(await runWork(`not-before ${ITEM} 2026-12-01`, set.ctx)).toBe(0);
+		expect(set.sources[0]).toContain("work.update_work_item_specification");
+		expect(set.sources[0]).toContain('"startAt":"2026-12-01T00:00:00.000Z"');
+		const timed = makeContext();
+		await runWork(`not-before ${ITEM} 2026-12-01T09:30:00+01:00`, timed.ctx);
+		expect(timed.sources[0]).toContain('"startAt":"2026-12-01T08:30:00.000Z"');
+		const cleared = makeContext();
+		expect(await runWork(`not-before ${ITEM} clear`, cleared.ctx)).toBe(0);
+		expect(cleared.sources[0]).toContain('"startAt":null');
+		for (const bad of ["", "soon"])
+			await expect(
+				runWork(`not-before ${ITEM} ${bad}`, makeContext().ctx),
+			).rejects.toThrow("work not-before requires");
+		expect(workUsage()).toContain("not-before <id> <time|clear>");
+	});
+
 	test("rejects --as for mutations instead of treating a namespace as authority", async () => {
 		const { ctx, sources } = makeContext({ as: "research-lead" });
 		await expect(runWork(`start ${ITEM}`, ctx)).rejects.toThrow(
@@ -4121,6 +4139,7 @@ describe("native dispatcher coverage", () => {
 			start: {},
 			handoff: { work: { host: "codex" } },
 			comment: { args: `${ITEM} An observed result` },
+			"not-before": { args: `${ITEM} 2026-12-01` },
 			"authorize-blog": {
 				work: {
 					campaign: "example",
@@ -4302,7 +4321,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(68);
+		expect(covered).toHaveLength(69);
 	});
 });
 
