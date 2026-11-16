@@ -1024,6 +1024,48 @@ describe("CMS tenant bundle activation CAS", () => {
 		expect(objects.has("acme/v4/chunks/version-test.mjs")).toBe(true);
 	});
 
+	it("reads the release version beside Emdash 1.5's site-settings version chunk", async () => {
+		const { db, sqlite } = createD1Fixture(true);
+		const { bucket, objects } = createBucket();
+		seedBundle(sqlite, 4, false);
+		seedBundle(sqlite, 5, true);
+		seedCompatibleBundle(sqlite, objects, 4, "acme", "1.5.0");
+		const modules = [
+			"entry.mjs",
+			"chunks/config_test.mjs",
+			"chunks/dialect_test.mjs",
+			"chunks/version-test.mjs",
+			"chunks/version-settings.mjs",
+		];
+		sqlite
+			.prepare(
+				"UPDATE tenant_bundles SET modules_json = ? WHERE slug = ? AND version = ?",
+			)
+			.run(JSON.stringify(modules), "acme", 4);
+		objects.set(
+			"acme/v4/manifest.json",
+			JSON.stringify({
+				mainModule: "entry.mjs",
+				modules,
+				etag: "etag-4",
+				version: 4,
+			}),
+		);
+		objects.set(
+			"acme/v4/chunks/version-settings.mjs",
+			"function normalizeSiteSettingsVersion(input) { return input; }",
+		);
+
+		await expect(
+			activateTenantBundleVersion(
+				{ platformDb: db, bundlesBucket: bucket },
+				"acme",
+				4,
+			),
+		).resolves.toEqual({ success: true, humanAuthority: "unchanged" });
+		expect(activeVersions(sqlite)).toEqual([4]);
+	});
+
 	it("refuses an ambiguous compiled Emdash version before rollback", async () => {
 		const { db, sqlite } = createD1Fixture(true);
 		const { bucket, objects } = createBucket();
