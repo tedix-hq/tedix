@@ -200,6 +200,19 @@ export const WORK_ITEMS = [
 		T5,
 		"GUILD",
 	),
+	// Home started this one without a project; Triage asks for one.
+	{
+		...workItem(
+			12,
+			"Compare courier quotes for the spring fair",
+			"in_progress",
+			TEDI_JUNO,
+			"medium",
+			T5,
+		),
+		projectId: null,
+		metadata: { needsProject: true },
+	},
 ];
 
 export const workItemId = (n: number) => fid("70", n);

@@ -207,6 +207,7 @@ export const listProcedure = authOs.list.handler(async ({ input, context }) => {
 		titleContains: input?.titleContains,
 		customerVisiblePreFilter: input?.customerVisibleOnly,
 		mattersThrough: input?.mattersThrough,
+		needsProject: input?.needsProject,
 		limit,
 		offset,
 	});

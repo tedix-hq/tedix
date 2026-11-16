@@ -365,6 +365,8 @@ export interface ListWorkItemsPageOptions {
 	customerVisiblePreFilter?: boolean;
 	/** Critical or high priority, or own due date or deadline no later than this instant. */
 	mattersThrough?: string;
+	/** Only tasks Home started without a project that still have none. */
+	needsProject?: boolean;
 	limit?: number;
 	offset?: number;
 }
@@ -477,6 +479,12 @@ export async function listWorkItemsPage(
 						isNotNull(workItems.dueDate),
 						lte(workItems.dueDate, options.mattersThrough),
 					),
+				)
+			: undefined,
+		options.needsProject
+			? and(
+					isNull(workItems.projectId),
+					sql`json_extract(${workItems.metadata}, '$.needsProject') = 1`,
 				)
 			: undefined,
 	);
@@ -1295,14 +1303,20 @@ export async function updateWorkItemSpecification(
 			: null;
 	const receiptId = crypto.randomUUID();
 	const planningOnly = isPlanningOnlyUpdate(prior, params);
+	// Home marks a task it started without a project; any move into a project
+	// answers that, so the mark goes with it.
+	const { needsProject, ...sortedMetadata } = prior.metadata ?? {};
+	const clearNeedsProject = Boolean(projectMove?.to) && needsProject === true;
 	const updateMutation = db
 		.update(workItems)
 		.set({
 			metadata:
-				params.executor === undefined && laneDispatch === undefined
+				params.executor === undefined &&
+				laneDispatch === undefined &&
+				!clearNeedsProject
 					? undefined
 					: {
-							...prior.metadata,
+							...(clearNeedsProject ? sortedMetadata : prior.metadata),
 							...(dispatch ? { laneDispatchReceiptId: receiptId } : {}),
 							...(params.executor === undefined
 								? {}

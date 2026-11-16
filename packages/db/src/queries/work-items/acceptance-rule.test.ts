@@ -10,7 +10,11 @@ import {
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { missingForAcceptance } from "./acceptance-rule";
-import { acceptWorkItem } from "./crud";
+import {
+	acceptWorkItem,
+	listWorkItemsPage,
+	updateWorkItemSpecification,
+} from "./crud";
 
 function seeded(rows: Array<[string, string | null, string | null]>) {
 	const sqlite = new DatabaseSync(":memory:");
@@ -102,5 +106,44 @@ it("lets Home start its own delegation task without a project only when it says 
 	await expect(accept(db, "ownerless", "Settled", true)).rejects.toThrow(
 		/Missing: an accountable owner\./,
 	);
+	sqlite.close();
+});
+
+it("lists tasks Home started without a project until one is chosen", async () => {
+	const { sqlite, db } = seeded([
+		["unsorted", null, "fictional-tedi"],
+		["never-marked", null, "fictional-tedi"],
+		["stale-mark", "project", "fictional-tedi"],
+	]);
+	sqlite.exec(
+		`UPDATE work_items SET disposition='accepted', metadata='{"needsProject":true,"homeRunId":"run-1"}' WHERE id<>'never-marked'`,
+	);
+	const waiting = async () =>
+		(
+			await listWorkItemsPage(db, {
+				orgId: "org-acme",
+				disposition: "accepted",
+				needsProject: true,
+			})
+		).data.map((row) => row.id);
+	expect(await waiting()).toEqual(["unsorted"]);
+	const actor = { type: "user" as const, id: "fictional-owner" };
+	// An edit that sets no project leaves the mark.
+	const renamed = await updateWorkItemSpecification(db, {
+		orgId: "org-acme",
+		workItemId: "unsorted",
+		actor,
+		title: "Fictional ask, renamed",
+	});
+	expect(renamed.metadata).toMatchObject({ needsProject: true });
+	const moved = await updateWorkItemSpecification(db, {
+		orgId: "org-acme",
+		workItemId: "unsorted",
+		actor,
+		projectId: "project",
+	});
+	expect(moved.projectId).toBe("project");
+	expect(moved.metadata).toEqual({ homeRunId: "run-1" });
+	expect(await waiting()).toEqual([]);
 	sqlite.close();
 });

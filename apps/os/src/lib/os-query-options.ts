@@ -632,6 +632,17 @@ export const workTriageQueryOptions = (projectId?: string) =>
 		input: { ...(projectId ? { projectId } : {}), limit: 100, offset: 0 },
 	});
 
+/** Triage: running tasks Home started without a project. */
+export const workNeedsProjectQueryOptions = () =>
+	osQuery.workItems.list.queryOptions({
+		input: {
+			disposition: "accepted",
+			needsProject: true,
+			limit: 50,
+			offset: 0,
+		},
+	});
+
 export const workItemDetailQueryOptions = (id: string) =>
 	osQuery.workItems.getById.queryOptions({ input: { id } });
 

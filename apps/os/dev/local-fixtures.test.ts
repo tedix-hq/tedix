@@ -424,6 +424,10 @@ const CALLS = {
 	"workItems/listReadinessProjection": { limit: 25 },
 	"workItems/listRecoveryProjection": { limit: 100 },
 	"workItems/listTriage": { limit: 100 },
+	"workItems/updateSpecification": {
+		id: "00000070-0000-4000-8000-00000000000c",
+		projectId: "00000076-0000-4000-8000-000000000001",
+	},
 	"workItems/snooze": {
 		id: "00000070-0000-4000-8000-000000000007",
 		until: "2099-10-27T09:00:00.000Z",

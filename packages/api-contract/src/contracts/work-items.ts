@@ -325,6 +325,12 @@ export const workItemsContract = oc
 							.describe(
 								"Server-side Work-home filter: keep critical or high-priority Work, or Work whose own due date or deadline falls on or before this instant.",
 							),
+						needsProject: z
+							.literal(true)
+							.optional()
+							.describe(
+								"Server-side filter: keep only tasks Home started without a project that still have none. Moving a task into a project removes it from this list.",
+							),
 					})
 					.extend(PaginationSchema.shape)
 					// Strict: a silently stripped unknown key (e.g. `status`) would
