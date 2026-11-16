@@ -537,6 +537,17 @@ export function WorkCapacityPage({
 				<WorkReadFailure
 					title="Capacity unavailable"
 					error={pools.error ?? budgets.error}
+					onRetry={() =>
+						Promise.all([
+							...(pools.isError
+								? [pools.refetch({ cancelRefetch: false })]
+								: []),
+							...(budgets.isError
+								? [budgets.refetch({ cancelRefetch: false })]
+								: []),
+						])
+					}
+					retrying={pools.isFetching || budgets.isFetching}
 				/>
 			) : (
 				<div className="grid gap-3">

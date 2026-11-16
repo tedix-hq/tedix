@@ -243,6 +243,34 @@ describe("Ordered exact approval review", () => {
 		});
 		expect(button("Submit explicit decisions").disabled).toBe(true);
 	});
+	it("retries a failed review read without resubmitting decisions", async () => {
+		api.getReviewManifest.mockResolvedValue(manifest);
+		await mount();
+		await act(async () => button("Choose approval").click());
+		api.getReviewManifest.mockRejectedValue(
+			new Error("Review read unavailable"),
+		);
+		await act(async () => {
+			await client.invalidateQueries();
+		});
+		await vi.waitFor(() =>
+			expect(host.querySelector('[data-slot="load-error"]')).not.toBeNull(),
+		);
+		expect(button("Submit explicit decisions").disabled).toBe(true);
+		expect(button("Choose approval").disabled).toBe(true);
+		const before = api.getReviewManifest.mock.calls.length;
+		api.getReviewManifest.mockResolvedValue(manifest);
+		await act(async () => button("Retry").click());
+		await vi.waitFor(() =>
+			expect(host.querySelector('[data-slot="load-error"]')).toBeNull(),
+		);
+		expect(api.getReviewManifest).toHaveBeenCalledTimes(before + 1);
+		expect(api.resolveReviewManifest).not.toHaveBeenCalled();
+		expect(button("Choose approval").getAttribute("aria-pressed")).toBe(
+			"false",
+		);
+		expect(button("Submit explicit decisions").disabled).toBe(true);
+	});
 	it("never retries uncertain writes and requires fresh review before new choices", async () => {
 		api.getReviewManifest.mockResolvedValue(manifest);
 		api.resolveReviewManifest.mockRejectedValue(

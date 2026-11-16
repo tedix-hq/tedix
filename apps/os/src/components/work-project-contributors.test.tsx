@@ -98,7 +98,9 @@ async function mount() {
 		retry: () => {
 			const button = [...host.querySelectorAll("button")].find(
 				(candidate) =>
-					candidate.getAttribute("aria-label") === "Retry loading contributors",
+					candidate.closest('[data-slot="load-error"]') &&
+					(candidate.textContent === "Retry" ||
+						candidate.textContent === "Trying again…"),
 			);
 			if (!button) throw new Error("Retry button missing");
 			return button;
@@ -349,7 +351,7 @@ describe("Project contributors read recovery", () => {
 			expect(reads.fn).toHaveBeenCalledTimes(3);
 			await vi.waitFor(() => {
 				expect(view.retry().hasAttribute("disabled")).toBe(true);
-				expect(view.host.textContent).toContain("Retrying");
+				expect(view.host.textContent).toContain("Trying again…");
 			});
 			await act(async () => release({ contributors: [session("a:1")] }));
 			await settle();
