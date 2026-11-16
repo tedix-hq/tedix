@@ -515,6 +515,11 @@ export async function mediaBucketAdminResponse(args: {
 }): Promise<Response | null> {
 	const { accountId, env, r2Token, request, slug, url } = args;
 	if (url.pathname !== MEDIA_BUCKET_ADMIN_PATH) return null;
+	const mediaBucketConfig = {
+		accountId,
+		apiToken: r2Token,
+		r2Jurisdiction: env.CF_R2_JURISDICTION || undefined,
+	};
 	if (!(await verifyInternalCmsRequest(request, env))) {
 		return jsonResponse(
 			{ success: false, error: "unauthorized" },
@@ -568,7 +573,7 @@ export async function mediaBucketAdminResponse(args: {
 			);
 		}
 		try {
-			const config = { accountId, apiToken: r2Token };
+			const config = mediaBucketConfig;
 			const permitted = await withCmsMediaBucketPermit(
 				db,
 				{ siteId, slug, restoreEpoch: site.restoreEpoch },
@@ -586,7 +591,7 @@ export async function mediaBucketAdminResponse(args: {
 		}
 	}
 	try {
-		const config = { accountId, apiToken: r2Token };
+		const config = mediaBucketConfig;
 		if (request.method === "DELETE") {
 			const denied = await cmsDeprovisionDeleteGuard(env, request, slug);
 			if (denied) return denied;

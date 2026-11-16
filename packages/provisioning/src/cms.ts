@@ -65,6 +65,8 @@ interface D1Database {
 export interface CmsProvisioningConfig {
 	accountId: string;
 	apiToken: string;
+	/** R2 jurisdiction of tenant media buckets, such as "eu"; unset for the default. */
+	r2Jurisdiction?: string;
 }
 
 /**
@@ -351,6 +353,10 @@ async function cfFetch<T = unknown>(
 		headers: {
 			Authorization: `Bearer ${config.apiToken}`,
 			"Content-Type": "application/json",
+			// R2 only finds or creates a jurisdiction bucket when the request names it.
+			...(config.r2Jurisdiction && path.includes("/r2/buckets")
+				? { "cf-r2-jurisdiction": config.r2Jurisdiction }
+				: {}),
 			...(init?.headers as Record<string, string>),
 		},
 	});

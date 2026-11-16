@@ -64,6 +64,30 @@ describe("CMS media bucket provisioning", () => {
 		expect(fetch).toHaveBeenCalledTimes(3);
 	});
 
+	it("inspects and creates the bucket in the configured jurisdiction", async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json(
+					{ success: false, result: null, errors: [{ message: "not found" }] },
+					{ status: 404 },
+				),
+			)
+			.mockResolvedValueOnce(
+				Response.json({ success: true, result: {}, errors: [] }),
+			)
+			.mockResolvedValueOnce(
+				Response.json({ success: true, result: {}, errors: [] }),
+			);
+		vi.stubGlobal("fetch", fetch);
+
+		await provisionCmsMediaBucket({ ...config, r2Jurisdiction: "eu" }, "acme");
+
+		expect(fetch).toHaveBeenCalledTimes(3);
+		for (const [, init] of fetch.mock.calls)
+			expect(init.headers).toMatchObject({ "cf-r2-jurisdiction": "eu" });
+	});
+
 	it("does not mistake an authorization failure for a missing bucket", async () => {
 		vi.stubGlobal(
 			"fetch",
