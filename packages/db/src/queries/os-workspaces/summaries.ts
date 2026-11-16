@@ -22,6 +22,7 @@ import {
 	type OsWorkspaceSummaryRow,
 	osWorkspaceProjects,
 	osWorkspaceSummaries,
+	osWorkspaces,
 } from "../../schema/os-workspaces";
 
 /** Run statuses a workspace summary counts as still active. */
@@ -106,6 +107,10 @@ export function parseOsWorkspaceSummaryPayload(
 	}
 }
 
+/** Marks a usage rollup the workspace object reported from its own chat. */
+const OBJECT_USAGE_SOURCE = '"source":"workspace_object"';
+const objectOwnsUsage = sql`${osWorkspaceSummaries.usage} LIKE ${`%${OBJECT_USAGE_SOURCE}%`}`;
+
 /**
  * Apply one published snapshot, newest revision wins. Returns the applied
  * row, or `undefined` when the stored row is already at a newer or equal
@@ -141,8 +146,10 @@ export async function applyOsWorkspaceSummary(
 			set: {
 				organizationId: params.organizationId,
 				revision: params.revision,
-				usage: params.usage,
-				runStatus: params.runStatus,
+				// Chat counts a workspace object reported stay: the core's own
+				// count reads kernel rows, which that workspace's chat never writes.
+				usage: sql`CASE WHEN ${objectOwnsUsage} THEN ${osWorkspaceSummaries.usage} ELSE excluded.usage END`,
+				runStatus: sql`CASE WHEN ${objectOwnsUsage} THEN ${osWorkspaceSummaries.runStatus} ELSE excluded.run_status END`,
 				workLinks: params.workLinks,
 				publishedAt: params.publishedAt,
 				appliedAt: params.appliedAt,
@@ -196,17 +203,11 @@ export async function deleteOsWorkspaceSummary(
 		);
 }
 
-/**
- * Re-derive one workspace's full summary payload from the source tables:
- * active Work project links, the kernel run rollup over workspace
- * conversations, and the usage rollup. The publisher calls this so every
- * message carries a complete, self-contained snapshot.
- */
-export async function computeOsWorkspaceSummary(
+function listActiveOsWorkspaceWorkLinks(
 	db: DbQueryClient,
 	params: OsWorkspaceSummaryScopeParams,
-): Promise<OsWorkspaceSummaryPayload> {
-	const links = await db
+): Promise<OsWorkspaceWorkLink[]> {
+	return db
 		.select({
 			id: osWorkspaceProjects.id,
 			organizationId: osWorkspaceProjects.organizationId,
@@ -227,6 +228,86 @@ export async function computeOsWorkspaceSummary(
 				eq(osWorkspaceProjects.status, "active"),
 			),
 		);
+}
+
+/**
+ * Store the chat counts a workspace object reports from its own conversations
+ * and turns. The object serializes its reports and writes them directly, so
+ * they need no ordering key: `revision` and the Work links stay with the core
+ * publisher, and a queued core snapshot is never dropped because of a report.
+ * Returns false when the workspace has no core row to attach a summary to.
+ */
+export async function applyOsWorkspaceObjectUsage(
+	db: DbQueryClient,
+	params: OsWorkspaceSummaryScopeParams & {
+		usage: OsWorkspaceUsageSummary;
+		runStatus: OsWorkspaceRunStatusSummary;
+		publishedAt: string;
+	},
+): Promise<boolean> {
+	const usage = `{${OBJECT_USAGE_SOURCE},${JSON.stringify(params.usage).slice(1)}`;
+	const reported = {
+		usage,
+		runStatus: JSON.stringify(params.runStatus),
+		publishedAt: params.publishedAt,
+		appliedAt: params.publishedAt,
+		updatedAt: params.publishedAt,
+	};
+	const updated = await db
+		.update(osWorkspaceSummaries)
+		.set(reported)
+		.where(
+			and(
+				eq(osWorkspaceSummaries.organizationId, params.organizationId),
+				eq(osWorkspaceSummaries.workspaceId, params.workspaceId),
+			),
+		)
+		.returning({ workspaceId: osWorkspaceSummaries.workspaceId });
+	if (updated.length > 0) return true;
+	const [workspace] = await db
+		.select({ id: osWorkspaces.id })
+		.from(osWorkspaces)
+		.where(
+			and(
+				eq(osWorkspaces.organizationId, params.organizationId),
+				eq(osWorkspaces.id, params.workspaceId),
+			),
+		)
+		.limit(1);
+	if (!workspace) return false;
+	// First row for this workspace: read the Work links so Work-board readers
+	// of the summary never see an empty list the core did not publish.
+	const revision = Date.now();
+	const workLinks = await listActiveOsWorkspaceWorkLinks(db, params);
+	await db
+		.insert(osWorkspaceSummaries)
+		.values({
+			workspaceId: params.workspaceId,
+			organizationId: params.organizationId,
+			revision,
+			workLinks: JSON.stringify(workLinks),
+			createdAt: params.publishedAt,
+			...reported,
+		})
+		.onConflictDoUpdate({
+			target: osWorkspaceSummaries.workspaceId,
+			set: reported,
+			setWhere: eq(osWorkspaceSummaries.organizationId, params.organizationId),
+		});
+	return true;
+}
+
+/**
+ * Re-derive one workspace's full summary payload from the source tables:
+ * active Work project links, the kernel run rollup over workspace
+ * conversations, and the usage rollup. The publisher calls this so every
+ * message carries a complete, self-contained snapshot.
+ */
+export async function computeOsWorkspaceSummary(
+	db: DbQueryClient,
+	params: OsWorkspaceSummaryScopeParams,
+): Promise<OsWorkspaceSummaryPayload> {
+	const links = await listActiveOsWorkspaceWorkLinks(db, params);
 
 	const [latestRun] = await db
 		.select({

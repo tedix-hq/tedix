@@ -18,8 +18,14 @@ import {
 	osOutputRevisions,
 	osWorkspaceProjects,
 	osWorkspaceResources,
+	osWorkspaceSummaries,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	applyOsWorkspaceSummary,
+	getOsWorkspaceSummary,
+	parseOsWorkspaceSummaryPayload,
+} from "@tedix/db/queries/os-workspaces/summaries";
 import { tedis } from "@tedix/db/schema/tedis";
 import { organizations } from "@tedix/db/schema/organizations";
 import {
@@ -195,6 +201,7 @@ async function seedCore() {
 		workspaceWorkLinks,
 		osWorkspaceProjects,
 		osWorkspaceResources,
+		osWorkspaceSummaries,
 		osGadgets,
 		tedis,
 		projects,
@@ -2827,6 +2834,99 @@ test.each(["before", "after"] as const)(
 		);
 	},
 );
+
+test("a workspace chat reaches the core's workspace summary and survives a core snapshot", async () => {
+	await seedCore();
+	const summaryScope = { ...scope, workspaceId: crypto.randomUUID() };
+	await seedWorkspaceRows([summaryScope]);
+	await testEnv.DB.prepare(
+		"INSERT INTO os_workspace_projects (id, organization_id, workspace_id, project_id, status, created_by_kind, created_by_id, created_at) VALUES (?, ?, ?, 'proj1', 'active', 'user', 'u1', '2026-11-07T10:00:00.000Z')",
+	)
+		.bind(
+			crypto.randomUUID(),
+			summaryScope.organizationId,
+			summaryScope.workspaceId,
+		)
+		.run();
+	const core = createDbQueryClient(testEnv.DB);
+	const read = async () => {
+		const row = await getOsWorkspaceSummary(core, summaryScope);
+		return row ? parseOsWorkspaceSummaryPayload(row) : null;
+	};
+	const ws = workspace(summaryScope);
+	await ws.scriptModel(summaryScope, [{ text: "First answer." }]);
+	const first = await ws.sendTurn(summaryScope, {
+		actorId: "u1",
+		actorKind: "user",
+		text: "First question",
+	});
+	await ws.awaitTurn(summaryScope, first.turnId, 20_000);
+	await ws.retryProjections(summaryScope);
+	const afterFirst = await read();
+	expect(afterFirst?.usage).toMatchObject({
+		conversationCount: 1,
+		messageCount: 2,
+		runCount: 1,
+	});
+	expect(afterFirst?.runStatus).toMatchObject({
+		activeRunCount: 0,
+		latestRun: { id: first.turnId, status: "completed" },
+	});
+	// The first row carries the workspace's active Work links from the core.
+	expect(afterFirst?.workLinks.map((link) => link.projectId)).toEqual([
+		"proj1",
+	]);
+
+	// The core's own snapshot counts kernel rows, which a workspace object's
+	// chat never writes. It still owns the Work links, not the chat counts.
+	await applyOsWorkspaceSummary(core, {
+		...summaryScope,
+		revision: Date.now() + 60_000,
+		usage: JSON.stringify({
+			conversationCount: 0,
+			messageCount: 0,
+			runCount: 0,
+		}),
+		runStatus: JSON.stringify({ activeRunCount: 0, latestRun: null }),
+		workLinks: "[]",
+		publishedAt: new Date().toISOString(),
+		appliedAt: new Date().toISOString(),
+	});
+	const afterCore = await read();
+	expect(afterCore?.workLinks).toEqual([]);
+	expect(afterCore?.usage).toMatchObject({
+		conversationCount: 1,
+		messageCount: 2,
+		runCount: 1,
+	});
+	expect(afterCore?.runStatus.latestRun?.id).toBe(first.turnId);
+
+	await ws.scriptModel(summaryScope, [{ text: "Second answer." }]);
+	const second = await ws.sendTurn(summaryScope, {
+		actorId: "u1",
+		actorKind: "user",
+		text: "Second question",
+	});
+	await ws.awaitTurn(summaryScope, second.turnId, 20_000);
+	await ws.retryProjections(summaryScope);
+	const afterSecond = await read();
+	expect(afterSecond?.usage).toMatchObject({
+		conversationCount: 2,
+		messageCount: 4,
+		runCount: 2,
+	});
+	// The object's later write leaves the core's Work links as they were.
+	expect(afterSecond?.workLinks).toEqual([]);
+
+	// A rebuild from the object restores a lost row.
+	await testEnv.DB.prepare(
+		"DELETE FROM os_workspace_summaries WHERE workspace_id = ?",
+	)
+		.bind(summaryScope.workspaceId)
+		.run();
+	await ws.replayActivity(summaryScope, { source: "events" });
+	expect((await read())?.usage).toMatchObject({ conversationCount: 2 });
+});
 
 test("retains each metadata operation while publication is unavailable", async () => {
 	await seedCore();
