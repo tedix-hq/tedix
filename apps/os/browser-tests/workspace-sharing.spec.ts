@@ -52,6 +52,11 @@ async function mockApi(
 ) {
 	const calls: Calls = {};
 	const publicLinks: unknown[] = [];
+	// The workspace event stream: a change to the mocked permissions is the
+	// one thing that happens behind this fixture, so it is the one hint sent.
+	const accessState = () => `${options.runtime}:${options.denied}`;
+	let eventCursor = 0;
+	let eventState = accessState();
 	await page.route("**/api/**", async (route) => {
 		const request = route.request();
 		const pathname = new URL(request.url()).pathname;
@@ -264,6 +269,41 @@ document.querySelector('button').onclick = async () => { const result = await te
 					},
 				],
 			};
+		} else if (endpoint === "events") {
+			// Like the server's long poll: answer at once without `after`, else
+			// hold until access changes or the wait runs out. Losing access
+			// refuses the stream, like every workspace read.
+			const deadline =
+				input.after === undefined
+					? 0
+					: Date.now() + Math.min(Number(input.waitMs ?? 0), 20_000);
+			while (
+				!options.denied &&
+				accessState() === eventState &&
+				Date.now() < deadline &&
+				!page.isClosed()
+			)
+				await new Promise((resolve) => setTimeout(resolve, 50));
+			if (page.isClosed()) return;
+			if (options.denied)
+				return route
+					.fulfill({
+						status: 403,
+						json: { json: { code: "FORBIDDEN", message: "Access changed" } },
+					})
+					.catch(() => {});
+			const kinds: string[] = [];
+			if (input.after !== undefined && accessState() !== eventState) {
+				eventState = accessState();
+				eventCursor += 1;
+				kinds.push("access");
+			}
+			return route
+				.fulfill({
+					contentType: "application/json",
+					body: JSON.stringify({ json: { cursor: eventCursor, kinds } }),
+				})
+				.catch(() => {});
 		} else if (endpoint === "listShared") json = { items: [] };
 		else throw new Error(`Unexpected request ${endpoint}`);
 		await route.fulfill({
