@@ -49,7 +49,9 @@ export default function ConsentBannerIsland({
 	compactLabel,
 }: ConsentBannerIslandProps) {
 	const isCompact = variant === "compact";
-	const [bannerVisible, setBannerVisible] = useState(false);
+	// The server renders the banner so it paints with the page; ConsentBanner.astro
+	// hides it before paint when a choice is already saved.
+	const [bannerVisible, setBannerVisible] = useState(true);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [analytics, setAnalytics] = useState(false);
 
@@ -73,9 +75,8 @@ export default function ConsentBannerIsland({
 	useEffect(() => {
 		const saved = readConsent(browserStorage());
 		if (saved) {
+			setBannerVisible(false);
 			publishConsent(saved);
-		} else {
-			setBannerVisible(true);
 		}
 		const onClick = (event: MouseEvent) => {
 			const trigger =
