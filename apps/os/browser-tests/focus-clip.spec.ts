@@ -316,7 +316,9 @@ async function settle(page: Page) {
 			await page.waitForFunction(
 				readiness,
 				{ phase },
-				{ timeout: phase === "animations" ? 3000 : 4000 },
+				// Loaded CI runners can take longer than 4s to load a route's data,
+				// and the audit only needs the page to finish, not to be fast.
+				{ timeout: 15_000 },
 			);
 		} catch (cause) {
 			throw new Error(
