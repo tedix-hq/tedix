@@ -1532,6 +1532,10 @@
 		{
 			"name": "20261117040312_learning_decision_history_indexes/migration.sql",
 			"sha256": "b92f7822a4c110983b53e59399434c7527175de568ed29f3d1f80a04cd15e374"
+		},
+		{
+			"name": "20261117044111_work_items_repository_observer_sweep_indexes/migration.sql",
+			"sha256": "afba09d0de1b89deda5a98586829d3132e474c28fea6571cc1b65783cddb3cb4"
 		}
 	]
 }
