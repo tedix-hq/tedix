@@ -97,6 +97,7 @@ import {
 	waitForLaneProcessIdentity,
 } from "./lane-process-recovery";
 import { unpushedLaneCommits } from "./lane-unpushed";
+import { kernelProcessCwd, kernelProcessTable } from "./process-facts";
 import { beginFileLock } from "./local-file-lock";
 import {
 	readRunnerDuties,
@@ -1257,6 +1258,14 @@ export function retainedLaneWorktree(
 async function laneWorktreeInUse(destination: string): Promise<boolean> {
 	try {
 		const root = realpathSync(dirname(destination));
+		// A known cwd match is enough to retain the checkout. Missing kernel
+		// facts still need the complete lsof/ps probes before allowing removal.
+		for (const row of kernelProcessTable() ?? []) {
+			try {
+				const cwd = kernelProcessCwd(row.pid);
+				if (cwd === root || cwd?.startsWith(`${root}${sep}`)) return true;
+			} catch {}
+		}
 		const options = {
 			encoding: "utf8" as const,
 			timeout: 5000,
@@ -2031,6 +2040,7 @@ interface DispatcherDeps {
 		modelProvider: string;
 	}>;
 	launch: typeof runLaneProcess;
+	waitForIdentity: typeof waitForLaneProcessIdentity;
 	darkWake: typeof inDarkWake;
 	provision: (source: string, destination: string) => string | Promise<string>;
 	installDependencies: typeof installLaneDependencies;
@@ -2081,6 +2091,7 @@ const defaultDeps: DispatcherDeps = {
 					? createOpenCodeLaneThread(cwd, model ?? "", resume)
 					: createCodexLaneThread(cwd, "codex", model, resume),
 	launch: runLaneProcess,
+	waitForIdentity: waitForLaneProcessIdentity,
 	darkWake: inDarkWake,
 	cleanup: (source, destination, evict, refused) =>
 		cleanupLaneWorktree(source, destination, undefined, evict, refused),
@@ -2112,6 +2123,7 @@ const defaultDeps: DispatcherDeps = {
 
 export class LaneDispatcher {
 	private running = new Map<string, Promise<void>>();
+	private identityReads = new Set<Promise<void>>();
 	private preparing = new Set<string>();
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
 	private cleanupCursor = 0;
@@ -2240,8 +2252,9 @@ export class LaneDispatcher {
 		pid: number,
 		repo: string,
 	) {
-		void waitForLaneProcessIdentity(pid, receipt.session!, repo).then(
-			(identity) => {
+		const task = this.deps
+			.waitForIdentity(pid, receipt.session!, repo)
+			.then((identity) => {
 				if (receipt.pid !== pid || receipt.processIdentity || !alive(pid))
 					return;
 				receipt.processIdentity = identity;
@@ -2252,8 +2265,11 @@ export class LaneDispatcher {
 						receipt.itemId,
 						`Process ${pid} never showed its session; it cannot be stopped as an orphan`,
 					);
-			},
-		);
+			})
+			.finally(() => {
+				this.identityReads.delete(task);
+			});
+		this.identityReads.add(task);
 	}
 	private saveBudgets() {
 		const path = join(this.directory, "budgets.state");
@@ -6013,6 +6029,7 @@ export class LaneDispatcher {
 			return await Promise.race([
 				(async () => {
 					await Promise.all(this.running.values());
+					await Promise.all(this.identityReads);
 					await Promise.all(this.maintenance.values());
 					return true as const;
 				})(),
