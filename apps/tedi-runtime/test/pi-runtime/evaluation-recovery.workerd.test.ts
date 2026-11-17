@@ -20,6 +20,7 @@ it("does not redispatch an isolated evaluation after its settled receipt but bef
 	const name = crypto.randomUUID();
 	const runId = "settled-evaluation";
 	const agent = await fixture(name);
+	await agent.prepareEvaluation(runId);
 	await runInDurableObject(agent, async (_facet, ctx) => {
 		await ctx.storage.put("evaluation:receipt-failure", "hold");
 	});
@@ -87,6 +88,7 @@ it("does not redispatch an isolated evaluation after its settled receipt but bef
 
 it("does not issue another SDK request when a settled evaluation receipt acknowledgement fails", async () => {
 	const agent = await fixture(crypto.randomUUID());
+	await agent.prepareEvaluation("receipt-ack-evaluation");
 	await runInDurableObject(agent, async (_facet, ctx) => {
 		await ctx.storage.put("evaluation:receipt-failure", "ack");
 	});
@@ -103,6 +105,7 @@ it("preserves an unknown evaluation attempt across cold recovery without a secon
 	const name = crypto.randomUUID();
 	const runId = "unknown-evaluation";
 	const agent = await fixture(name);
+	await agent.prepareEvaluation(runId);
 	await runInDurableObject(agent, async (_facet, ctx) => {
 		await ctx.storage.put("tool-free:hold-sdk", true);
 	});

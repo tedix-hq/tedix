@@ -1526,7 +1526,7 @@ export class PiJudgeFixture extends JudgeSessionFacet {
 	}
 }
 export class PiSynthesisFixture extends SynthesisSessionFacet {
-	async evaluation(runId: string, failure?: "artifact" | "event") {
+	async prepareEvaluation(runId: string) {
 		const agents = "Keep customer information private.";
 		const admission: EvaluationAdmission = {
 			policy: "isolated-evaluation-v1",
@@ -1542,7 +1542,6 @@ export class PiSynthesisFixture extends SynthesisSessionFacet {
 		};
 		const text = "Judge only this blinded input.";
 		await this.ctx.storage.put("evaluation:pinned", { admission, text });
-		if (failure) await this.ctx.storage.put(`evaluation:fail-${failure}`, true);
 		await this.configureSynthesisTurn({
 			runId,
 			sessionKey: evaluationSessionKey(runId),
@@ -1551,6 +1550,11 @@ export class PiSynthesisFixture extends SynthesisSessionFacet {
 			modelRef: "workers-ai/@cf/synthesis-model",
 			aigMetadata: { orgId: "tool-free-org", tediId: "tool-free-tedi" },
 		});
+		return text;
+	}
+	async evaluation(runId: string, failure?: "artifact" | "event") {
+		const text = await this.prepareEvaluation(runId);
+		if (failure) await this.ctx.storage.put(`evaluation:fail-${failure}`, true);
 		let error: string | null = null;
 		try {
 			await this.runSynthesisTurn({ text: wrapUntrustedInput(text, "mcp") });

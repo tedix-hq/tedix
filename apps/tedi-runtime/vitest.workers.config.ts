@@ -76,6 +76,8 @@ export default defineConfig({
 		setupFiles: ["./test/pi-runtime/model-catalog-setup.ts"],
 		exclude: ["test/app-runtime/**"],
 		testTimeout: 15_000,
+		// Recovery tests abort the shared workerd DO runtime and cannot overlap files.
+		fileParallelism: false,
 		// workerd cannot read Vitest's on-disk module cache (default since 5.0.4).
 		fsModuleCache: false,
 	},
