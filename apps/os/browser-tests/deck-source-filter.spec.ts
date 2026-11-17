@@ -59,7 +59,8 @@ try {
 			.getByRole("region", { name: /Review the fictional (inbox|social)/ })
 			.waitFor();
 
-		await page.goto(`${origin}/work?view=feed`);
+		// The ranked feed can hold these cards behind its daily attention budget.
+		await page.goto(`${origin}/work?view=feed&filter=attention`);
 		const inbox = page.getByRole("link", {
 			name: /Review the fictional inbox opportunity/,
 		});
