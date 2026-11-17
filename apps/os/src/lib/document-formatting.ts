@@ -54,6 +54,84 @@ export function moveDocumentBlock(editor: Editor, direction: -1 | 1): boolean {
 	return true;
 }
 
+/** Where top-level block `index` starts in the document. */
+export function documentBlockStart(editor: Editor, index: number): number {
+	let start = 0;
+	for (let i = 0; i < index; i++) start += editor.state.doc.child(i).nodeSize;
+	return start;
+}
+
+/**
+ * Move top-level block `from` so it lands before the block now at `to`
+ * (`to` may be the block count, for the end). Returns whether it moved.
+ */
+export function moveDocumentBlockTo(
+	editor: Editor,
+	from: number,
+	to: number,
+): boolean {
+	const { doc } = editor.state;
+	if (!editor.isEditable || from < 0 || from >= doc.childCount) return false;
+	const target = Math.max(0, Math.min(doc.childCount, to));
+	if (target === from || target === from + 1) return false;
+	const node = doc.child(from),
+		start = documentBlockStart(editor, from);
+	const tr = editor.state.tr.delete(start, start + node.nodeSize);
+	const at = tr.mapping.map(documentBlockStart(editor, target));
+	tr.insert(at, node);
+	tr.setSelection(TextSelection.near(tr.doc.resolve(at + 1)));
+	editor.view.dispatch(tr.scrollIntoView());
+	editor.view.focus();
+	return true;
+}
+
+/** Put a copy of top-level block `index` right after it, and the caret in it. */
+export function duplicateDocumentBlock(editor: Editor, index: number): boolean {
+	const { doc } = editor.state;
+	if (!editor.isEditable || index < 0 || index >= doc.childCount) return false;
+	const node = doc.child(index),
+		end = documentBlockStart(editor, index) + node.nodeSize;
+	const tr = editor.state.tr.insert(end, node.copy(node.content));
+	tr.setSelection(TextSelection.near(tr.doc.resolve(end + 1)));
+	editor.view.dispatch(tr.scrollIntoView());
+	editor.view.focus();
+	return true;
+}
+
+/** Remove top-level block `index`; a document never ends up with no block. */
+export function deleteDocumentBlock(editor: Editor, index: number): boolean {
+	const { doc, schema } = editor.state;
+	if (!editor.isEditable || index < 0 || index >= doc.childCount) return false;
+	const start = documentBlockStart(editor, index),
+		node = doc.child(index);
+	const tr =
+		doc.childCount === 1
+			? editor.state.tr.replaceWith(
+					0,
+					doc.content.size,
+					schema.nodes.paragraph!.create(),
+				)
+			: editor.state.tr.delete(start, start + node.nodeSize);
+	tr.setSelection(
+		TextSelection.near(tr.doc.resolve(Math.min(start, tr.doc.content.size))),
+	);
+	editor.view.dispatch(tr);
+	editor.view.focus();
+	return true;
+}
+
+/** Put the caret in top-level block `index`, so a style applies to it. */
+export function focusDocumentBlock(editor: Editor, index: number) {
+	const start = documentBlockStart(editor, index);
+	editor
+		.chain()
+		.focus()
+		.setTextSelection(
+			TextSelection.near(editor.state.doc.resolve(start + 1)).from,
+		)
+		.run();
+}
+
 export const DocumentFormatting = Extension.create({
 	name: "documentFormatting",
 	addGlobalAttributes() {

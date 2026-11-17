@@ -1282,6 +1282,15 @@ describe("portable rich Doc client", () => {
 			click(root, "Header row");
 			expect(first()).not.toBe(before);
 		});
+		it("duplicates the block the caret is in with Cmd or Ctrl+D", async () => {
+			const { editor } = await fixture().mount();
+			editor.commands.focus("end");
+			const last = editor.state.doc.lastChild!.textContent;
+			const blocks = editor.state.doc.childCount;
+			press(editor.view.dom, { key: "d", metaKey: true });
+			expect(editor.state.doc.childCount).toBe(blocks + 1);
+			expect(editor.state.doc.lastChild!.textContent).toBe(last);
+		});
 		it("lists the keyboard shortcuts on Cmd or Ctrl+/", async () => {
 			const { root, editor } = await fixture().mount();
 			press(editor.view.dom, { key: "/", metaKey: true });

@@ -5,6 +5,11 @@ import {
 	retryLinkedImages,
 	showLanded,
 } from "./doc-engine";
+import {
+	deleteDocumentBlock,
+	duplicateDocumentBlock,
+	moveDocumentBlockTo,
+} from "@/lib/document-formatting";
 
 afterEach(() => document.body.replaceChildren());
 
@@ -86,5 +91,43 @@ describe("what someone else removed", () => {
 		expect(ranges.map((range) => range.removed)).toEqual(["block"]);
 		showLanded(editor, ranges);
 		expect(element.querySelector(".doc-removed-block")).not.toBeNull();
+	});
+});
+
+describe("moving, copying and removing whole blocks", () => {
+	const setup = (...texts: string[]) => {
+		const element = document.body.appendChild(document.createElement("div"));
+		const editor = createDocEngine({
+			element,
+			editable: true,
+			onUpdate: () => undefined,
+		});
+		editor.commands.setContent({
+			type: "doc",
+			content: texts.map((text) => ({
+				type: "paragraph",
+				content: [{ type: "text", text }],
+			})),
+		});
+		const texts_ = () =>
+			editor.state.doc.content.content.map((node) => node.textContent);
+		return { editor, texts: texts_ };
+	};
+	it("moves a block before another, or to the end", () => {
+		const { editor, texts } = setup("One", "Two", "Three");
+		expect(moveDocumentBlockTo(editor, 2, 0)).toBe(true);
+		expect(texts()).toEqual(["Three", "One", "Two"]);
+		expect(moveDocumentBlockTo(editor, 0, 3)).toBe(true);
+		expect(texts()).toEqual(["One", "Two", "Three"]);
+		// Dropping a block where it already is changes nothing.
+		expect(moveDocumentBlockTo(editor, 1, 2)).toBe(false);
+	});
+	it("duplicates and deletes a block, keeping one empty block at least", () => {
+		const { editor, texts } = setup("Only");
+		duplicateDocumentBlock(editor, 0);
+		expect(texts()).toEqual(["Only", "Only"]);
+		deleteDocumentBlock(editor, 0);
+		deleteDocumentBlock(editor, 0);
+		expect(texts()).toEqual([""]);
 	});
 });

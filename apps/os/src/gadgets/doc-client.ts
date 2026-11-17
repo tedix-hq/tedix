@@ -9,6 +9,13 @@ import {
 	currentDocumentStyle,
 	type Editor,
 } from "./doc-engine";
+import {
+	deleteDocumentBlock,
+	documentBlockStart,
+	duplicateDocumentBlock,
+	focusDocumentBlock,
+	moveDocumentBlockTo,
+} from "@/lib/document-formatting";
 import type {
 	OsOutputContent,
 	OsRichTextDocument,
@@ -80,7 +87,7 @@ const HIGHLIGHTS: [string, string][] = [
 	["Pink", "#fbcfe8"],
 	["Orange", "#fed7aa"],
 ];
-const css = `:root{--ease:cubic-bezier(.2,.8,.2,1);--fg:var(--tedix-fg,CanvasText);--bg:var(--tedix-bg,Canvas);--pri:var(--tedix-primary,Highlight);--mut:var(--tedix-muted-fg,GrayText);--hov:color-mix(in srgb,var(--fg) 5.5%,var(--bg));--act:color-mix(in srgb,var(--fg) 8.5%,var(--bg));--line:color-mix(in srgb,var(--fg) 8%,transparent);--edge:color-mix(in srgb,var(--fg) 15%,transparent);--card:var(--tedix-surface,var(--bg));font:14px var(--tedix-font,system-ui,sans-serif);color:var(--fg);scrollbar-width:thin;scrollbar-color:var(--edge) transparent}*{box-sizing:border-box}body{margin:0;padding:0!important;background:var(--bg)}button,input,select{font:inherit;color:inherit}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--pri);outline-offset:1px}.doc-toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:6px 26px 6px 10px;background:var(--bg);border-bottom:1px solid transparent;transition:border-color .12s}.doc-toolbar[data-scrolled]{border-color:var(--line)}.doc-toolbar>*{flex:none}.doc-table{display:contents}.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-status button{height:29px;min-width:29px;display:inline-grid;place-items:center;padding:0 6px;border:0;border-radius:6px;background:none;cursor:pointer;transition:background .12s var(--ease),transform .12s var(--ease)}:is(button,select):hover:not(:disabled){background:var(--hov)}button:active:not(:disabled){background:var(--act);transform:scale(.94)}:is(button,select):disabled{opacity:.38;cursor:default}button[aria-pressed=true]{background:var(--act);color:var(--pri)}.doc-sep{flex:none;width:1px;height:16px;margin:0 5px;background:var(--edge)}.doc-readonly{padding:0 8px;font-size:12px;color:var(--mut)}.doc-toolbar .doc-more{margin-left:auto;position:sticky;right:0;background:var(--bg)}.doc-page{max-width:calc(700px + 2*clamp(20px,5.5vw,52px));margin:0 auto;padding:22px clamp(20px,5.5vw,52px) min(40vh,300px)}.doc-skel{animation:doc-fade .3s .25s both}.doc-skel i{display:block;height:12px;margin-bottom:15px;border-radius:6px;background:var(--act)}.doc-skel i:first-child{width:45%;height:26px;margin-bottom:24px}.doc-skel i:last-child{width:60%}@keyframes doc-fade{from{opacity:0}}@keyframes doc-in{from{opacity:0;transform:scale(.96)}}.doc-status,.doc-link,.doc-menu{position:fixed;background:var(--card);border:1px solid var(--edge);box-shadow:0 6px 22px #0002;animation:doc-in .16s var(--ease)}.doc-status{top:48px;right:12px;z-index:4;max-width:min(380px,calc(100% - 24px));display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 11px;border-radius:14px;font-size:12px;line-height:1.45;color:var(--mut)}.doc-status:empty{display:none}.doc-save{position:fixed;top:18px;right:12px;z-index:4;width:7px;height:7px;border-radius:50%;background:var(--mut)}.doc-save[data-s="1"]{background:#1a7f37}.doc-save[data-s="2"]{background:#c0262d}.doc-status[data-error=true]{color:var(--tedix-danger,#c0262d)}.doc-status button{height:24px;color:var(--fg);background:var(--hov)}.doc-link,.doc-menu{z-index:5;padding:5px;border-radius:10px;transform-origin:0 0}.doc-link{display:flex;gap:4px}.doc-link input{width:min(250px,60vw);height:29px;padding:0 8px;border:0;border-radius:6px;background:var(--hov)}.doc-link button{height:29px;padding:0 10px;border:0;border-radius:6px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);cursor:pointer}.doc-menu{display:grid;min-width:180px}.doc-menu button{justify-content:start;padding:0 9px}.doc-menu div{display:flex;gap:2px}.doc-slash{max-height:min(320px,60vh);overflow-y:auto}.doc-colors p,.doc-keys p{margin:4px 6px 2px;font-size:11px;color:var(--mut)}.doc-colors div{display:flex;gap:4px;padding:2px 4px 6px}.doc-menu .doc-swatch{width:22px;min-width:22px;height:22px;padding:0;border:1px solid var(--edge);border-radius:50%;background:var(--swatch)}.doc-paint{font-weight:700;text-decoration:underline 2px;text-underline-offset:3px}.doc-keys{min-width:min(420px,calc(100vw - 24px))}.doc-keys dl{display:grid;grid-template-columns:1fr auto;gap:6px 16px;margin:4px 8px 8px;font-size:13px}.doc-keys dd{margin:0;color:var(--mut);text-align:right}.doc-slash button[aria-selected=true]{background:var(--act)}.doc-menu hr{width:100%;height:0;border:0;border-top:1px solid var(--line);margin:4px 0}.tiptap{outline:0;font-size:16px;line-height:1.62;min-height:50vh;caret-color:var(--pri);overflow-wrap:anywhere}.tiptap>:first-child{margin-top:0}.tiptap p{margin:0 0 .8em}.tiptap h1{font-size:1.875em;line-height:1.22;font-weight:680;letter-spacing:-.024em;margin:1.3em 0 .4em}.tiptap h2{font-size:1.4em;line-height:1.3;font-weight:640;letter-spacing:-.016em;margin:1.3em 0 .35em}.tiptap h3{font-size:1.15em;line-height:1.4;font-weight:620;margin:1.2em 0 .3em}.tiptap .doc-title{font-size:2.3em;font-weight:700}.tiptap [data-hint]:before{content:attr(data-hint);float:left;height:0;pointer-events:none;color:var(--mut);opacity:.65}.tiptap blockquote{margin:0 0 .8em;padding-left:14px;border-left:2px solid var(--edge);color:color-mix(in srgb,var(--fg) 72%,transparent)}.tiptap pre{font:13px/1.55 var(--tedix-font-mono,ui-monospace,monospace);background:var(--hov);margin:0 0 1em;padding:12px 14px;border-radius:8px;white-space:pre-wrap}.tiptap code{font-family:var(--tedix-font-mono,ui-monospace,monospace);font-size:.9em}.tiptap :not(pre)>code{background:var(--act);padding:.1em .3em;border-radius:4px}.tiptap hr{border:0;border-top:1px solid var(--edge);margin:1.6em 0}.tiptap ul,.tiptap ol{margin:0 0 .8em;padding-left:1.5em}.tiptap li p{margin:0 0 .2em}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-checked]{display:flex;gap:9px}.tiptap li[data-checked]>div{flex:1}.tiptap li[data-checked=true]>div{color:var(--mut)}.tiptap input[type=checkbox]{appearance:none;display:grid;place-content:center;width:16px;height:16px;margin:5px 0 0;border:1.5px solid color-mix(in srgb,var(--fg) 34%,transparent);border-radius:4.5px;cursor:pointer;transition:background .12s}.tiptap input:checked{background:var(--pri);border-color:var(--pri)}.tiptap input:checked:after{content:"";width:8px;height:4px;margin-top:-2px;border:solid var(--tedix-on-primary,HighlightText);border-width:0 0 2px 2px;transform:rotate(-45deg)}.tiptap table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;margin:0 0 1em;border:1px solid var(--edge);border-radius:8px;overflow:hidden}.tiptap th,.tiptap td{border:solid var(--line);border-width:0 1px 1px 0;min-width:60px;padding:7px 10px;position:relative;vertical-align:top;text-align:left}.tiptap :is(th,td):last-child{border-right:0}.tiptap tr:last-child>*{border-bottom:0}.tiptap th{background:color-mix(in srgb,var(--fg) 3.5%,transparent);font-weight:600}.tiptap :is(th,td) p{margin:0}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--pri) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:0;top:0;bottom:0;width:3px;background:var(--pri)}.tiptap img{max-width:100%;height:auto;border-radius:6px}.tiptap .ProseMirror-selectednode{outline:2px solid var(--pri)}.tiptap aside,.tiptap [data-type=details]{margin:0 0 1em;padding:11px 14px;border-radius:8px;background:var(--hov)}.tiptap [data-type=details]{display:flex;gap:6px}.tiptap [data-type=details]>button{flex:none;width:22px;height:26px;border:0;border-radius:5px;background:none;cursor:pointer}.tiptap [data-type=details]>button:before{content:"▸"}.tiptap .is-open>button:before{content:"▾"}.tiptap [data-type=details]>div{flex:1;min-width:0}.tiptap summary{list-style:none;font-weight:600}.tiptap :is(aside,[data-type=detailsContent])>:last-child{margin-bottom:0}.tiptap a{color:var(--pri);text-decoration:underline}@keyframes doc-land{0%,25%{background:color-mix(in srgb,var(--pri) 24%,transparent)}to{background:transparent}}@keyframes doc-arrive{0%{opacity:0}12%{opacity:1}}.doc-landed,.doc-landed-words{border-radius:3px;animation:doc-land 2.4s var(--ease) both}.doc-landed{animation-name:doc-land,doc-arrive}@keyframes doc-gone{0%,55%{opacity:1}to{opacity:0}}.doc-removed{display:inline-block;width:2px;height:1.1em;margin:0 1px;vertical-align:text-bottom;border-radius:1px;background:var(--tedix-danger,#c0262d);animation:doc-gone 2.4s var(--ease) both;pointer-events:none}.doc-removed-block{display:block;height:2px;margin:-1px 0;border-radius:1px;background:var(--tedix-danger,#c0262d);animation:doc-gone 2.4s var(--ease) both;pointer-events:none}@media(prefers-reduced-motion:reduce){.doc-landed,.doc-landed-words{animation:none;background:color-mix(in srgb,var(--pri) 14%,transparent)}}@media(pointer:coarse){.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-link input,.doc-link button{height:44px;min-width:44px}.doc-save{top:25px}.doc-status{top:62px}}`;
+const css = `:root{--ease:cubic-bezier(.2,.8,.2,1);--fg:var(--tedix-fg,CanvasText);--bg:var(--tedix-bg,Canvas);--pri:var(--tedix-primary,Highlight);--mut:var(--tedix-muted-fg,GrayText);--hov:color-mix(in srgb,var(--fg) 5.5%,var(--bg));--act:color-mix(in srgb,var(--fg) 8.5%,var(--bg));--line:color-mix(in srgb,var(--fg) 8%,transparent);--edge:color-mix(in srgb,var(--fg) 15%,transparent);--card:var(--tedix-surface,var(--bg));font:14px var(--tedix-font,system-ui,sans-serif);color:var(--fg);scrollbar-width:thin;scrollbar-color:var(--edge) transparent}*{box-sizing:border-box}body{margin:0;padding:0!important;background:var(--bg)}button,input,select{font:inherit;color:inherit}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--pri);outline-offset:1px}.doc-toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:6px 26px 6px 10px;background:var(--bg);border-bottom:1px solid transparent;transition:border-color .12s}.doc-toolbar[data-scrolled]{border-color:var(--line)}.doc-toolbar>*{flex:none}.doc-table{display:contents}.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-status button{height:29px;min-width:29px;display:inline-grid;place-items:center;padding:0 6px;border:0;border-radius:6px;background:none;cursor:pointer;transition:background .12s var(--ease),transform .12s var(--ease)}:is(button,select):hover:not(:disabled){background:var(--hov)}button:active:not(:disabled){background:var(--act);transform:scale(.94)}:is(button,select):disabled{opacity:.38;cursor:default}button[aria-pressed=true]{background:var(--act);color:var(--pri)}.doc-sep{flex:none;width:1px;height:16px;margin:0 5px;background:var(--edge)}.doc-readonly{padding:0 8px;font-size:12px;color:var(--mut)}.doc-toolbar .doc-more{margin-left:auto;position:sticky;right:0;background:var(--bg)}.doc-page{max-width:calc(700px + 2*clamp(20px,5.5vw,52px));margin:0 auto;padding:22px clamp(20px,5.5vw,52px) min(40vh,300px)}.doc-skel{animation:doc-fade .3s .25s both}.doc-skel i{display:block;height:12px;margin-bottom:15px;border-radius:6px;background:var(--act)}.doc-skel i:first-child{width:45%;height:26px;margin-bottom:24px}.doc-skel i:last-child{width:60%}@keyframes doc-fade{from{opacity:0}}@keyframes doc-in{from{opacity:0;transform:scale(.96)}}.doc-status,.doc-link,.doc-menu{position:fixed;background:var(--card);border:1px solid var(--edge);box-shadow:0 6px 22px #0002;animation:doc-in .16s var(--ease)}.doc-status{top:48px;right:12px;z-index:4;max-width:min(380px,calc(100% - 24px));display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 11px;border-radius:14px;font-size:12px;line-height:1.45;color:var(--mut)}.doc-status:empty{display:none}.doc-save{position:fixed;top:18px;right:12px;z-index:4;width:7px;height:7px;border-radius:50%;background:var(--mut)}.doc-save[data-s="1"]{background:#1a7f37}.doc-save[data-s="2"]{background:#c0262d}.doc-status[data-error=true]{color:var(--tedix-danger,#c0262d)}.doc-status button{height:24px;color:var(--fg);background:var(--hov)}.doc-link,.doc-menu{z-index:5;padding:5px;border-radius:10px;transform-origin:0 0}.doc-link{display:flex;gap:4px}.doc-link input{width:min(250px,60vw);height:29px;padding:0 8px;border:0;border-radius:6px;background:var(--hov)}.doc-link button{height:29px;padding:0 10px;border:0;border-radius:6px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);cursor:pointer}.doc-menu{display:grid;min-width:180px}.doc-menu button{justify-content:start;padding:0 9px}.doc-menu div{display:flex;gap:2px}.doc-slash{max-height:min(320px,60vh);overflow-y:auto}.doc-handle{position:absolute;z-index:2;width:22px;height:26px;padding:0;border:0;border-radius:5px;background:none;color:var(--mut);font-size:12px;letter-spacing:-2px;cursor:grab;opacity:.7}.doc-handle:hover{background:var(--hov);opacity:1}.doc-drop{position:absolute;z-index:2;height:2px;border-radius:1px;background:var(--pri);pointer-events:none}.doc-block-menu p{margin:4px 9px 2px;font-size:11px;color:var(--mut)}.doc-colors p,.doc-keys p{margin:4px 6px 2px;font-size:11px;color:var(--mut)}.doc-colors div{display:flex;gap:4px;padding:2px 4px 6px}.doc-menu .doc-swatch{width:22px;min-width:22px;height:22px;padding:0;border:1px solid var(--edge);border-radius:50%;background:var(--swatch)}.doc-paint{font-weight:700;text-decoration:underline 2px;text-underline-offset:3px}.doc-keys{min-width:min(420px,calc(100vw - 24px))}.doc-keys dl{display:grid;grid-template-columns:1fr auto;gap:6px 16px;margin:4px 8px 8px;font-size:13px}.doc-keys dd{margin:0;color:var(--mut);text-align:right}.doc-slash button[aria-selected=true]{background:var(--act)}.doc-menu hr{width:100%;height:0;border:0;border-top:1px solid var(--line);margin:4px 0}.tiptap{outline:0;font-size:16px;line-height:1.62;min-height:50vh;caret-color:var(--pri);overflow-wrap:anywhere}.tiptap>:first-child{margin-top:0}.tiptap p{margin:0 0 .8em}.tiptap h1{font-size:1.875em;line-height:1.22;font-weight:680;letter-spacing:-.024em;margin:1.3em 0 .4em}.tiptap h2{font-size:1.4em;line-height:1.3;font-weight:640;letter-spacing:-.016em;margin:1.3em 0 .35em}.tiptap h3{font-size:1.15em;line-height:1.4;font-weight:620;margin:1.2em 0 .3em}.tiptap .doc-title{font-size:2.3em;font-weight:700}.tiptap [data-hint]:before{content:attr(data-hint);float:left;height:0;pointer-events:none;color:var(--mut);opacity:.65}.tiptap blockquote{margin:0 0 .8em;padding-left:14px;border-left:2px solid var(--edge);color:color-mix(in srgb,var(--fg) 72%,transparent)}.tiptap pre{font:13px/1.55 var(--tedix-font-mono,ui-monospace,monospace);background:var(--hov);margin:0 0 1em;padding:12px 14px;border-radius:8px;white-space:pre-wrap}.tiptap code{font-family:var(--tedix-font-mono,ui-monospace,monospace);font-size:.9em}.tiptap :not(pre)>code{background:var(--act);padding:.1em .3em;border-radius:4px}.tiptap hr{border:0;border-top:1px solid var(--edge);margin:1.6em 0}.tiptap ul,.tiptap ol{margin:0 0 .8em;padding-left:1.5em}.tiptap li p{margin:0 0 .2em}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-checked]{display:flex;gap:9px}.tiptap li[data-checked]>div{flex:1}.tiptap li[data-checked=true]>div{color:var(--mut)}.tiptap input[type=checkbox]{appearance:none;display:grid;place-content:center;width:16px;height:16px;margin:5px 0 0;border:1.5px solid color-mix(in srgb,var(--fg) 34%,transparent);border-radius:4.5px;cursor:pointer;transition:background .12s}.tiptap input:checked{background:var(--pri);border-color:var(--pri)}.tiptap input:checked:after{content:"";width:8px;height:4px;margin-top:-2px;border:solid var(--tedix-on-primary,HighlightText);border-width:0 0 2px 2px;transform:rotate(-45deg)}.tiptap table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;margin:0 0 1em;border:1px solid var(--edge);border-radius:8px;overflow:hidden}.tiptap th,.tiptap td{border:solid var(--line);border-width:0 1px 1px 0;min-width:60px;padding:7px 10px;position:relative;vertical-align:top;text-align:left}.tiptap :is(th,td):last-child{border-right:0}.tiptap tr:last-child>*{border-bottom:0}.tiptap th{background:color-mix(in srgb,var(--fg) 3.5%,transparent);font-weight:600}.tiptap :is(th,td) p{margin:0}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--pri) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:0;top:0;bottom:0;width:3px;background:var(--pri)}.tiptap img{max-width:100%;height:auto;border-radius:6px}.tiptap .ProseMirror-selectednode{outline:2px solid var(--pri)}.tiptap aside,.tiptap [data-type=details]{margin:0 0 1em;padding:11px 14px;border-radius:8px;background:var(--hov)}.tiptap [data-type=details]{display:flex;gap:6px}.tiptap [data-type=details]>button{flex:none;width:22px;height:26px;border:0;border-radius:5px;background:none;cursor:pointer}.tiptap [data-type=details]>button:before{content:"▸"}.tiptap .is-open>button:before{content:"▾"}.tiptap [data-type=details]>div{flex:1;min-width:0}.tiptap summary{list-style:none;font-weight:600}.tiptap :is(aside,[data-type=detailsContent])>:last-child{margin-bottom:0}.tiptap a{color:var(--pri);text-decoration:underline}@keyframes doc-land{0%,25%{background:color-mix(in srgb,var(--pri) 24%,transparent)}to{background:transparent}}@keyframes doc-arrive{0%{opacity:0}12%{opacity:1}}.doc-landed,.doc-landed-words{border-radius:3px;animation:doc-land 2.4s var(--ease) both}.doc-landed{animation-name:doc-land,doc-arrive}@keyframes doc-gone{0%,55%{opacity:1}to{opacity:0}}.doc-removed{display:inline-block;width:2px;height:1.1em;margin:0 1px;vertical-align:text-bottom;border-radius:1px;background:var(--tedix-danger,#c0262d);animation:doc-gone 2.4s var(--ease) both;pointer-events:none}.doc-removed-block{display:block;height:2px;margin:-1px 0;border-radius:1px;background:var(--tedix-danger,#c0262d);animation:doc-gone 2.4s var(--ease) both;pointer-events:none}@media(prefers-reduced-motion:reduce){.doc-landed,.doc-landed-words{animation:none;background:color-mix(in srgb,var(--pri) 14%,transparent)}}@media(pointer:coarse){.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-link input,.doc-link button{height:44px;min-width:44px}.doc-save{top:25px}.doc-status{top:62px}}`;
 
 export async function mountDocClient(
 	root: HTMLElement,
@@ -90,7 +97,7 @@ export async function mountDocClient(
 	style.textContent = css;
 	document.head.append(style);
 	root.innerHTML =
-		'<main aria-label="Doc gadget"><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><i class="doc-save" role="img" hidden></i><div class="doc-status" role="status" aria-live="polite"></div><form class="doc-link" hidden><input type="text" aria-label="Link URL" placeholder="Paste or type a link"><button type="submit">Apply</button></form><div class="doc-menu" role="menu" aria-label="More" hidden></div><div class="doc-menu doc-slash" role="listbox" aria-label="Insert" hidden></div><div class="doc-menu doc-colors" role="dialog" aria-label="Text color and highlight" hidden></div><div class="doc-menu doc-keys" role="dialog" aria-label="Keyboard shortcuts" hidden></div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden><section class="doc-page" aria-label="Document page"><div class="doc-skel"><i></i><i></i><i></i><i></i><i></i></div></section></main>';
+		'<main aria-label="Doc gadget"><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><i class="doc-save" role="img" hidden></i><div class="doc-status" role="status" aria-live="polite"></div><form class="doc-link" hidden><input type="text" aria-label="Link URL" placeholder="Paste or type a link"><button type="submit">Apply</button></form><div class="doc-menu" role="menu" aria-label="More" hidden></div><div class="doc-menu doc-slash" role="listbox" aria-label="Insert" hidden></div><div class="doc-menu doc-block-menu" role="menu" aria-label="Block" hidden></div><button type="button" class="doc-handle" aria-label="Drag to move, or click for block actions" title="Drag to move · Click for options" hidden>⋮⋮</button><i class="doc-drop" hidden></i><div class="doc-menu doc-colors" role="dialog" aria-label="Text color and highlight" hidden></div><div class="doc-menu doc-keys" role="dialog" aria-label="Keyboard shortcuts" hidden></div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden><section class="doc-page" aria-label="Document page"><div class="doc-skel"><i></i><i></i><i></i><i></i><i></i></div></section></main>';
 	const get = <T extends HTMLElement>(selector: string) =>
 		root.querySelector<T>(selector)!;
 	const saveDot = get(".doc-save"),
@@ -100,6 +107,9 @@ export async function mountDocClient(
 		menu = get(".doc-menu"),
 		slash = get(".doc-slash"),
 		colors = get(".doc-colors"),
+		blockMenu = get(".doc-block-menu"),
+		handle = get<HTMLButtonElement>(".doc-handle"),
+		drop = get(".doc-drop"),
 		shortcuts = get(".doc-keys"),
 		linkForm = get<HTMLFormElement>(".doc-link"),
 		linkInput = get<HTMLInputElement>(".doc-link input"),
@@ -872,6 +882,7 @@ export async function mountDocClient(
 		)
 			editor?.commands.focus();
 		linkForm.hidden =
+			blockMenu.hidden =
 			menu.hidden =
 			slash.hidden =
 			colors.hidden =
@@ -1351,6 +1362,144 @@ export async function mountDocClient(
 			event.returnValue = "";
 		}
 	};
+	// ---- Block handle: drag a block to move it, click for its actions ----
+	/** The top-level block at a height on screen, with its element. */
+	function blockAt(clientY: number) {
+		if (!editor) return undefined;
+		const box = editor.view.dom.getBoundingClientRect();
+		const found = editor.view.posAtCoords({
+			left: box.left + 8,
+			top: Math.max(box.top + 1, Math.min(box.bottom - 1, clientY)),
+		});
+		if (!found) return undefined;
+		const index = editor.state.doc.resolve(found.pos).index(0);
+		if (index >= editor.state.doc.childCount) return undefined;
+		const dom = editor.view.nodeDOM(documentBlockStart(editor, index));
+		return dom instanceof HTMLElement ? { index, dom } : undefined;
+	}
+	let handleIndex = -1;
+	/** Where an element sits on the page, for placing the handle and drop line. */
+	const within = (element: HTMLElement) => {
+		const box = element.getBoundingClientRect();
+		return {
+			top: box.top + scrollY,
+			bottom: box.bottom + scrollY,
+			left: box.left + scrollX,
+		};
+	};
+	page.addEventListener("mousemove", (event) => {
+		if (!editor?.isEditable || dragFrom >= 0 || !blockMenu.hidden) return;
+		if (event.target === handle) return;
+		const block = blockAt(event.clientY);
+		if (!block) return;
+		handleIndex = block.index;
+		const at = within(block.dom);
+		handle.hidden = false;
+		handle.style.top = `${at.top}px`;
+		handle.style.left = `${Math.max(0, at.left - 26)}px`;
+	});
+	page.addEventListener("mouseleave", (event) => {
+		if (dragFrom < 0 && event.relatedTarget !== handle && blockMenu.hidden)
+			handle.hidden = true;
+	});
+	let dragFrom = -1,
+		dragTo = -1,
+		dragMoved = false;
+	handle.onmousedown = (event) => event.preventDefault();
+	handle.onpointerdown = (event) => {
+		if (!editor?.isEditable || handleIndex < 0 || event.button !== 0) return;
+		event.preventDefault();
+		dragFrom = handleIndex;
+		dragTo = -1;
+		dragMoved = false;
+		const y = event.clientY;
+		handle.setPointerCapture?.(event.pointerId);
+		handle.onpointermove = (move) => {
+			if (!dragMoved && Math.abs(move.clientY - y) < 4) return;
+			dragMoved = true;
+			const block = blockAt(move.clientY);
+			if (!block) return;
+			const box = block.dom.getBoundingClientRect();
+			const after = move.clientY > box.top + box.height / 2;
+			dragTo = block.index + (after ? 1 : 0);
+			const at = within(block.dom);
+			const lane = editor!.view.dom.getBoundingClientRect();
+			drop.hidden = false;
+			drop.style.left = `${lane.left + scrollX}px`;
+			drop.style.width = `${lane.width}px`;
+			drop.style.top = `${(after ? at.bottom : at.top) - 1}px`;
+		};
+		handle.onpointerup = handle.onpointercancel = (end) => {
+			handle.onpointermove = handle.onpointerup = handle.onpointercancel = null;
+			drop.hidden = true;
+			const from = dragFrom;
+			dragFrom = -1;
+			if (end.type !== "pointerup" || !editor) return;
+			if (dragMoved && dragTo >= 0) {
+				moveDocumentBlockTo(editor, from, dragTo);
+				handle.hidden = true;
+			} else openBlockMenu(from);
+		};
+	};
+	// Keyboard users reach the same menu from the handle.
+	handle.onkeydown = (event) => {
+		if (event.key === "Enter" || event.key === " ") {
+			event.preventDefault();
+			if (handleIndex >= 0) openBlockMenu(handleIndex);
+		}
+	};
+	/** The actions for one block: change its kind, duplicate or delete it. */
+	function openBlockMenu(index: number) {
+		if (!editor) return;
+		closePopups();
+		const items: [string, () => unknown][] = [
+			["Text", () => applyDocumentStyle(editor!, "paragraph")],
+			["Heading 1", () => applyDocumentStyle(editor!, "1")],
+			["Heading 2", () => applyDocumentStyle(editor!, "2")],
+			["Heading 3", () => applyDocumentStyle(editor!, "3")],
+			["Quote", () => applyDocumentStyle(editor!, "quote")],
+			["Code block", () => applyDocumentStyle(editor!, "code")],
+			["Bulleted list", () => addList("bulletList")],
+			["Numbered list", () => addList("orderedList")],
+			["To-do list", () => addList("taskList")],
+		];
+		const label = document.createElement("p");
+		label.textContent = "Turn into";
+		blockMenu.replaceChildren(label);
+		for (const [name, apply] of items) {
+			const item = document.createElement("button");
+			item.type = "button";
+			item.setAttribute("role", "menuitem");
+			item.textContent = name;
+			item.onmousedown = (event) => event.preventDefault();
+			item.onclick = () => {
+				focusDocumentBlock(editor!, index);
+				apply();
+				closePopups();
+			};
+			blockMenu.append(item);
+		}
+		blockMenu.append(document.createElement("hr"));
+		for (const [name, run] of [
+			["Duplicate" + keys("D"), () => duplicateDocumentBlock(editor!, index)],
+			["Delete", () => deleteDocumentBlock(editor!, index)],
+		] as const) {
+			const item = document.createElement("button");
+			item.type = "button";
+			item.setAttribute("role", "menuitem");
+			item.textContent = name.trim();
+			item.onmousedown = (event) => event.preventDefault();
+			item.onclick = () => {
+				run();
+				closePopups();
+				handle.hidden = true;
+			};
+			blockMenu.append(item);
+		}
+		const box = handle.getBoundingClientRect();
+		place(blockMenu, box.left, box.bottom + 4);
+		blockMenu.querySelector("button")?.focus();
+	}
 	/** The keyboard shortcuts this editor answers to, in the middle of the page. */
 	function showShortcuts() {
 		const rows: [string, string][] = [
@@ -1364,7 +1513,8 @@ export async function mountDocClient(
 				`${keys("8", true)} ${keys("7", true)} ${keys("9", true)}`,
 			],
 			["Insert a block", "/ on an empty line"],
-			["Move a block up or down", "Alt+Shift+↑ ↓"],
+			["Move a block up or down", "Alt+Shift+↑ ↓, or drag its handle"],
+			["Duplicate the block", keys("D")],
 			["Undo, redo", `${keys("Z")} ${keys("Z", true)}`],
 			["Save now", keys("S")],
 			["Show these shortcuts", keys("/")],
@@ -1418,6 +1568,8 @@ export async function mountDocClient(
 			closePopups();
 			if (open) showShortcuts();
 		} else if (mod && key === "k") openLink();
+		else if (mod && key === "d" && editor?.isEditable && !event.shiftKey)
+			duplicateDocumentBlock(editor, editor.state.selection.$from.index(0));
 		else if (
 			editor &&
 			event.altKey &&
