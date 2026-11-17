@@ -255,6 +255,55 @@ describe("base MCP domain routing", () => {
 		}
 	});
 
+	it("answers an exception no route handled as a retryable 503, not a Worker crash", async () => {
+		getBySlugWithTools.mockResolvedValue({
+			app: {
+				id: "app-acme",
+				slug: "acme",
+				name: "Acme",
+				organizationId: null,
+				visibility: "public",
+				metadata: { mcpConfig: { authMode: "public" } },
+			},
+			tools: [],
+		});
+		const thrown = new Error(
+			"Cannot perform I/O on behalf of a different request.",
+		);
+		mountMcp.mockRejectedValueOnce(thrown);
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const response = await worker.fetch(
+				new Request("https://acme.mcp.tedix.tech/mcp", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+				}),
+				createEnv(),
+				createExecutionContext(),
+			);
+			expect(mountMcp).toHaveBeenCalledOnce();
+			expect(response.status).toBe(503);
+			expect(response.headers.get("Retry-After")).toBe("2");
+			expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+			expect(response.headers.get("X-Tedix-Trace-Id")).toBeTruthy();
+			expect(await response.json()).toMatchObject({
+				error: "gateway_unexpected_error",
+				retryAfter: 2,
+			});
+			expect(
+				errorSpy.mock.calls.map(([entry]) => entry as Record<string, unknown>),
+			).toContainEqual(
+				expect.objectContaining({
+					event: "router.unhandled_exception",
+					exception: expect.objectContaining({ message: thrown.message }),
+				}),
+			);
+		} finally {
+			errorSpy.mockRestore();
+		}
+	});
+
 	it("rejects base-domain /mcp when no custom or default app is configured", async () => {
 		const env = createEnv();
 		const response = await worker.fetch(
