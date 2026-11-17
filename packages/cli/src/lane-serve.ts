@@ -1271,24 +1271,47 @@ async function laneWorktreeInUse(destination: string): Promise<boolean> {
 			timeout: 5000,
 			maxBuffer: 16 * 1024 * 1024,
 		};
-		const [cwds, processes] = await Promise.all([
-			promisify(execFile)("lsof", ["-d", "cwd", "-Fn"], options).catch(
-				() => undefined,
-			),
-			promisify(execFile)("ps", ["-axo", "command="], options).catch(
-				() => undefined,
-			),
-		]);
-		if (!cwds || !processes || !cwds.stdout) return true;
-		return (
-			cwds.stdout
-				.split("\n")
-				.some(
-					(line) => line === `n${root}` || line.startsWith(`n${root}${sep}`),
-				) ||
+		const processes = await promisify(execFile)(
+			"ps",
+			["-axo", "pid=,ppid=,command="],
+			options,
+		).catch(() => undefined);
+		if (!processes) return true;
+		if (
 			processes.stdout.includes(root) ||
 			processes.stdout.includes(dirname(destination))
+		)
+			return true;
+		const rows = processes.stdout
+			.split("\n")
+			.map((line) => line.match(/^\s*(\d+)\s+(\d+)\s/))
+			.filter((row): row is RegExpMatchArray => Boolean(row));
+		// A global cwd scan can exceed the cleanup test's entire five-second
+		// budget on a busy runner. Lane children stay in this process tree.
+		const descendants = new Set([process.pid]);
+		for (let added = true; added;) {
+			added = false;
+			for (const row of rows) {
+				const pid = Number(row[1]);
+				if (!descendants.has(pid) && descendants.has(Number(row[2]))) {
+					descendants.add(pid);
+					added = true;
+				}
+			}
+		}
+		const cwds = await promisify(execFile)(
+			"lsof",
+			["-a", "-p", [...descendants].join(","), "-d", "cwd", "-Fn"],
+			options,
+		).catch((error: { stdout?: unknown }) =>
+			// lsof exits nonzero when a snapshotted child ended, but its output for
+			// the remaining live processes is still complete and usable.
+			typeof error.stdout === "string" ? { stdout: error.stdout } : undefined,
 		);
+		if (!cwds?.stdout) return true;
+		return cwds.stdout
+			.split("\n")
+			.some((line) => line === `n${root}` || line.startsWith(`n${root}${sep}`));
 	} catch {
 		return true;
 	}
@@ -2328,9 +2351,15 @@ export class LaneDispatcher {
 			if (statSync(path).size > DISPATCHER_LOG_CAP_BYTES)
 				renameSync(path, `${path}.1`);
 		} catch {}
-		appendFileSync(path, `${line}\n`, {
-			mode: 0o600,
-		});
+		try {
+			appendFileSync(path, `${line}\n`, {
+				mode: 0o600,
+			});
+		} catch (error) {
+			// A delayed timer can finish after a stopped dispatcher's directory is
+			// removed. Logging must not turn that completed cleanup into a crash.
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		}
 		process.stderr.write(`${line}\n`);
 	}
 	private holdRecheck(key: string, until?: number) {
