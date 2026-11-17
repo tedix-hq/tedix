@@ -45,6 +45,12 @@ export async function recordStaleLanes(db: DbQueryClient, now: string) {
 		eq(workAttempts.executorType, "external_agent"),
 		sql`json_extract(${workAttempts.metadata}, '$.lane') = 1`,
 		sql`${workAttempts.outcome} IS NULL`,
+		// An Attempt without an outcome is in one of these states
+		// (chk_work_attempt_terminal_state), so this changes no result. It
+		// is uniq_work_attempt_active's own condition, word for word, and
+		// lets the sweep read the few live Attempts instead of every Attempt
+		// ever made.
+		sql`${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')`,
 		sql`julianday(${now}) >= (julianday(${workAttempts.heartbeatAt}) + julianday(${workAttempts.expiresAt})) / 2`,
 		sql`NOT EXISTS (SELECT 1 FROM work_events e WHERE e.org_id = ${workAttempts.orgId} AND e.attempt_id = ${workAttempts.id} AND e.event_type = 'lane.stale' AND json_extract(e.payload, '$.heartbeatAt') = ${workAttempts.heartbeatAt})`,
 	);
