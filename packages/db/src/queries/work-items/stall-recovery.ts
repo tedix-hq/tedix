@@ -9,6 +9,7 @@ import {
 	lt,
 	ne,
 	or,
+	type SQL,
 	sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -18,7 +19,13 @@ import {
 	learningImprovementProposals,
 	learningInteractionEvents,
 } from "../../schema/learning-feedback";
+import {
+	osGadgetExecutions,
+	osWorkspaceProjects,
+} from "../../schema/os-workspaces";
 import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
+import { tediTasks } from "../../schema/tedi-objectives";
+import { workAgentSessions } from "../../schema/work-agent-sessions";
 import {
 	workInteractionAttention,
 	workInteractions,
@@ -49,14 +56,18 @@ export interface ContinuityScope {
  * main database for about 1.5 s (query insights, 15 to 16 Nov 2026). Each
  * statement now covers at most this many scopes and this many Work Items, so
  * the first read of a scope takes WORK_ITEMS / SCOPES of its Work Items.
- * Agent sessions, gadget executions and tedi tasks are still read whole per
- * scope, with the first slice: they have no per-statement limit yet.
+ * Agent sessions, gadget executions and tedi tasks have no per-statement
+ * limit; `readContinuityHistory` reads them in a statement of their own.
  */
 export const CONTINUITY_SCOPES_PER_STATEMENT = 10;
 export const CONTINUITY_WORK_ITEMS_PER_STATEMENT = 2_000;
 
 /** One statement's rows: the public scope plus where its Work slice ended. */
-type ContinuityScopeSlice = ContinuityScope & { workEnd: number | null };
+type ContinuityScopeSlice = ContinuityScope & {
+	workEnd: number | null;
+	/** The objective whose tedi tasks count as this scope's activity. */
+	objectiveId: string | null;
+};
 
 interface ContinuitySliceParams {
 	after: string;
@@ -161,29 +172,13 @@ function readContinuityScopeSlice(
  SELECT w.key, max(julianday(CASE WHEN r.status IN ('completed','failed','canceled') THEN coalesce(r.completed_at, r.started_at) ELSE coalesce(r.last_reconciled_at, r.started_at) END))
  FROM scope_work w CROSS JOIN skill_runs r ON r.work_item_id = w.workItemId AND r.organization_id = w.orgId
  WHERE r.runtime_environment = ${environment} GROUP BY w.key
- ${
-		// History that does not hang off Work Items is read with the first slice only.
-		workAfter !== null
-			? sql``
-			: sql`UNION ALL
- SELECT s.key, max(julianday(l.last_event_at)) FROM page s CROSS JOIN work_agent_sessions l
- ON l.organization_id = s.orgId AND l.project_id = s.id WHERE s.kind = 'project' GROUP BY s.key
- UNION ALL
- SELECT s.key, max(julianday(coalesce(g.completed_at, g.created_at)))
- FROM page s CROSS JOIN os_workspace_projects p ON p.organization_id = s.orgId AND p.project_id = s.id AND p.status = 'active'
- CROSS JOIN os_gadget_executions g ON g.organization_id = p.organization_id AND g.workspace_id = p.workspace_id
- WHERE s.kind = 'project' AND g.runtime_environment = ${environment} GROUP BY s.key
- UNION ALL
- SELECT s.key, max(julianday(coalesce(k.updated_at, k.created_at)))
- FROM page s CROSS JOIN tedi_tasks k ON k.org_id = s.orgId AND k.objective_id = s.objectiveId GROUP BY s.key`
- }
  ), latest_activity AS (
  SELECT key, max(activity) AS activity FROM activity GROUP BY key
  )
  SELECT s.key, s.id, s.orgId, s.kind, s.name, s.policy, strftime('%Y-%m-%dT%H:%M:%fZ', s.createdAt) AS createdAt,
  coalesce(t.id, c.id) AS tediId, coalesce(t.slug, c.slug) AS slug, (t.id IS NOT NULL) AS hasOwner,
  strftime('%Y-%m-%dT%H:%M:%fZ', max(julianday(s.createdAt), coalesce(l.activity, julianday(s.createdAt)))) AS lastActivityAt,
- coalesce(w.pendingCount, 0) AS pendingCount, coalesce(a.failedCount, 0) AS failedCount, s.workEnd
+ coalesce(w.pendingCount, 0) AS pendingCount, coalesce(a.failedCount, 0) AS failedCount, s.workEnd, s.objectiveId
  FROM page s LEFT JOIN tedis t ON t.id = s.owner AND t.organization_id = s.orgId AND t.status = 'active'
  LEFT JOIN tedis c ON c.id = json_extract(s.policy, '$.coordinatorTediId') AND c.organization_id = s.orgId AND c.status = 'active'
  LEFT JOIN latest_activity l ON l.key = s.key
@@ -191,6 +186,170 @@ function readContinuityScopeSlice(
  LEFT JOIN attempt_activity a ON a.key = s.key
  ORDER BY s.key
  `);
+}
+
+/** Latest activity that does not hang off Work Items, in the inventory's timestamp text. */
+interface ContinuityHistoryRow {
+	source: "session" | "link" | "workspace" | "objective";
+	/** Scope key, on `session` and `link` rows. */
+	key: string | null;
+	orgId: string | null;
+	/** Workspace id on `link` and `workspace` rows, objective id on `objective` rows. */
+	id: string | null;
+	activity: string | null;
+}
+
+/** Shared history already read for this page: owner to its latest activity. */
+type ContinuityHistorySeen = Map<string, string | null>;
+
+/** The owner of shared history, as the JSON pair the statement compares against. */
+const historyOwner = (orgId: string, id: string) => JSON.stringify([orgId, id]);
+
+/**
+ * Agent sessions, gadget executions and tedi tasks of a few scopes, in a
+ * statement apart from their Work. Their rows are wide and were read whole,
+ * once per project, inside the Work statement: a workspace linked to several
+ * projects, or an objective several projects share, was read again for each.
+ * `seenWorkspaces` and `seenObjectives` name the ones an earlier statement of
+ * the same page already read; this statement skips them.
+ *
+ * The scopes travel as one JSON array, `[key, orgId, kind, id, objectiveId]`
+ * each. CROSS JOIN keeps them outside the indexed history lookups, as in
+ * `readContinuityScopeSlice`.
+ */
+function readContinuityHistory(
+	db: DbQueryClient,
+	scopes: ContinuityScopeSlice[],
+	environment: string,
+	seenWorkspaces: ContinuityHistorySeen,
+	seenObjectives: ContinuityHistorySeen,
+): Promise<ContinuityHistoryRow[]> {
+	const page = JSON.stringify(
+		scopes.map((scope) => [
+			scope.key,
+			scope.orgId,
+			scope.kind,
+			scope.id,
+			scope.objectiveId,
+		]),
+	);
+	const scopePage = () => sql`json_each(${page}) AS s`;
+	const key = sql<string>`json_extract(s.value, '$[0]')`;
+	const orgId = sql<string>`json_extract(s.value, '$[1]')`;
+	const isProject = sql`json_extract(s.value, '$[2]') = 'project'`;
+	const id = sql<string>`json_extract(s.value, '$[3]')`;
+	const objectiveId = sql<string | null>`json_extract(s.value, '$[4]')`;
+	const unseen = (owners: ContinuityHistorySeen, org: SQL, owner: SQL) =>
+		sql`NOT EXISTS (SELECT 1 FROM json_each(${`[${[...owners.keys()].join(",")}]`}) AS v
+			WHERE json_extract(v.value, '$[0]') = ${org} AND json_extract(v.value, '$[1]') = ${owner})`;
+	const latest = (at: SQL) =>
+		sql<
+			string | null
+		>`strftime('%Y-%m-%dT%H:%M:%fZ', max(julianday(${at})))`.as("activity");
+	const none = () => sql<string | null>`NULL`;
+
+	const l = alias(workAgentSessions, "l");
+	const p = alias(osWorkspaceProjects, "p");
+	const g = alias(osGadgetExecutions, "g");
+	const k = alias(tediTasks, "k");
+	const linked = and(
+		isProject,
+		eq(p.organizationId, orgId),
+		eq(p.projectId, id),
+		eq(p.status, "active"),
+	);
+	const workspaces = db
+		.selectDistinct({
+			orgId: p.organizationId,
+			workspaceId: p.workspaceId,
+		})
+		.from(scopePage())
+		.crossJoin(p)
+		.where(
+			and(
+				linked,
+				unseen(seenWorkspaces, sql`${p.organizationId}`, sql`${p.workspaceId}`),
+			),
+		)
+		.as("u");
+	const objectives = db
+		.selectDistinct({
+			orgId: orgId.as("orgId"),
+			objectiveId: objectiveId.as("objectiveId"),
+		})
+		.from(scopePage())
+		.where(
+			and(
+				sql`${objectiveId} IS NOT NULL`,
+				unseen(seenObjectives, orgId, objectiveId),
+			),
+		)
+		.as("q");
+
+	return db
+		.select({
+			source: sql<ContinuityHistoryRow["source"]>`'session'`.as("source"),
+			key: sql<string | null>`${key}`.as("key"),
+			orgId: none().as("orgId"),
+			id: none().as("id"),
+			activity: latest(sql`${l.lastEventAt}`),
+		})
+		.from(scopePage())
+		.crossJoin(l)
+		.where(and(isProject, eq(l.organizationId, orgId), eq(l.projectId, id)))
+		.groupBy(key)
+		.unionAll(
+			db
+				.select({
+					source: sql<ContinuityHistoryRow["source"]>`'link'`.as("source"),
+					key: sql<string | null>`${key}`.as("key"),
+					orgId: sql<string | null>`${p.organizationId}`.as("orgId"),
+					id: sql<string | null>`${p.workspaceId}`.as("id"),
+					activity: none().as("activity"),
+				})
+				.from(scopePage())
+				.crossJoin(p)
+				.where(linked),
+		)
+		.unionAll(
+			db
+				.select({
+					source: sql<ContinuityHistoryRow["source"]>`'workspace'`.as("source"),
+					key: none().as("key"),
+					orgId: sql<string | null>`${workspaces.orgId}`.as("orgId"),
+					id: sql<string | null>`${workspaces.workspaceId}`.as("id"),
+					activity: latest(sql`coalesce(${g.completedAt}, ${g.createdAt})`),
+				})
+				.from(workspaces)
+				.crossJoin(g)
+				.where(
+					and(
+						eq(g.organizationId, workspaces.orgId),
+						eq(g.workspaceId, workspaces.workspaceId),
+						eq(g.runtimeEnvironment, environment),
+					),
+				)
+				.groupBy(workspaces.orgId, workspaces.workspaceId),
+		)
+		.unionAll(
+			db
+				.select({
+					source: sql<ContinuityHistoryRow["source"]>`'objective'`.as("source"),
+					key: none().as("key"),
+					orgId: sql<string | null>`${objectives.orgId}`.as("orgId"),
+					id: sql<string | null>`${objectives.objectiveId}`.as("id"),
+					activity: latest(sql`coalesce(${k.updatedAt}, ${k.createdAt})`),
+				})
+				.from(objectives)
+				.crossJoin(k)
+				.where(
+					and(
+						eq(k.orgId, objectives.orgId),
+						eq(k.objectiveId, objectives.objectiveId),
+					),
+				)
+				.groupBy(objectives.orgId, objectives.objectiveId),
+		);
 }
 
 /**
@@ -202,8 +361,12 @@ function readContinuityScopeSlice(
  * continued in rowid order until its last Work Item. Every Work Item is read
  * exactly once, counts add up and the latest activity is the latest of the
  * slices (the timestamps share one fixed-width format, so the later text is
- * the later time). The result is what the single statement returned; only the
- * statements are no longer one snapshot, as two pages never were.
+ * the later time). History that does not hang off Work Items (agent sessions,
+ * gadget executions, tedi tasks) is read by one more statement per few scopes;
+ * the gadget executions of a workspace and the tedi tasks of an objective are
+ * read once per page, however many of the page's projects share them. The
+ * result is what the single statement returned; only the statements are no
+ * longer one snapshot, as two pages never were.
  */
 export async function listContinuityScopes(
 	db: DbQueryClient,
@@ -212,6 +375,8 @@ export async function listContinuityScopes(
 	environment = "production",
 ): Promise<ContinuityScope[]> {
 	const scopes: ContinuityScope[] = [];
+	const workspaceActivity: ContinuityHistorySeen = new Map();
+	const objectiveActivity: ContinuityHistorySeen = new Map();
 	let cursor = after;
 	while (scopes.length < CONTINUITY_SCOPE_BATCH_SIZE) {
 		const scopeLimit = Math.min(
@@ -228,7 +393,44 @@ export async function listContinuityScopes(
 				CONTINUITY_WORK_ITEMS_PER_STATEMENT / CONTINUITY_SCOPES_PER_STATEMENT,
 			),
 		});
-		for (const { workEnd, ...scope } of slices) {
+		if (slices.length === 0) break;
+
+		// Latest activity outside Work, per scope key.
+		const history = new Map<string, Array<string | null>>();
+		const note = (key: string, activity: string | null) =>
+			history.set(key, [...(history.get(key) ?? []), activity]);
+		const links: Array<{ key: string; owner: string }> = [];
+		for (const row of await readContinuityHistory(
+			db,
+			slices,
+			environment,
+			workspaceActivity,
+			objectiveActivity,
+		)) {
+			if (row.source === "session") note(row.key!, row.activity);
+			else if (row.source === "link")
+				links.push({ key: row.key!, owner: historyOwner(row.orgId!, row.id!) });
+			else
+				(row.source === "workspace"
+					? workspaceActivity
+					: objectiveActivity
+				).set(historyOwner(row.orgId!, row.id!), row.activity);
+		}
+		// A workspace or objective with no history returned no row; it was read
+		// all the same and is not read again for this page.
+		for (const { key, owner } of links) {
+			if (!workspaceActivity.has(owner)) workspaceActivity.set(owner, null);
+			note(key, workspaceActivity.get(owner)!);
+		}
+		for (const { workEnd, objectiveId, ...scope } of slices) {
+			if (objectiveId !== null) {
+				const owner = historyOwner(scope.orgId, objectiveId);
+				if (!objectiveActivity.has(owner)) objectiveActivity.set(owner, null);
+				note(scope.key, objectiveActivity.get(owner)!);
+			}
+			for (const activity of history.get(scope.key) ?? [])
+				if (activity !== null && activity > scope.lastActivityAt)
+					scope.lastActivityAt = activity;
 			let workAfter = workEnd;
 			while (workAfter !== null) {
 				const [more] = await readContinuityScopeSlice(db, {
