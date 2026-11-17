@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deliveryHashes } from "./context-delivery";
+import { devinHookEvent } from "./devin-event";
 import type { JsonObject } from "./hook-io";
 import { gatewayCode, openRequestLines, render } from "./prompt-context";
 import {
@@ -171,6 +172,21 @@ async function run(
 }
 
 describe("session event upload", () => {
+	test("uploads the turn of a real recorded Devin Stop event", async () => {
+		// Recorded from `devin -p` 3000.12.57 with a Stop hook that saved stdin.
+		const raw = readFileSync(
+			join(import.meta.dir, "fixtures", "devin-stop.json"),
+			"utf8",
+		);
+		const mapped = devinHookEvent(raw, { DEVIN_PROJECT_DIR: process.cwd() });
+		const [batch] = await run("turn", JSON.parse(mapped.stdin), {
+			env: { ...mapped.env } as Record<string, string>,
+		});
+		expect(
+			batch!.map((event) => [event.kind, event.harness, event.text]),
+		).toEqual([["turn", "devin", "pong"]]);
+	});
+
 	test("scheduled ticks and notifications never enter the outbox", async () => {
 		for (const prompt of [
 			"Lead NIGHT SHIFT v3 tick. Count lanes and follow guardrails.",

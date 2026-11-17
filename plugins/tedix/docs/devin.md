@@ -50,6 +50,14 @@ Older Tedix CLIs do not understand `--plugin` and their plugin hook calls fail
 open; update the CLI before relying on those hooks. Do not infer hook execution
 from `plugins info` alone.
 
+Turn capture: a real Devin 3000.12.57 `Stop` event (recorded from `devin -p`,
+fixture `packages/cli/src/hooks/fixtures/devin-stop.json`) carries
+`last_assistant_message` directly, so the turn is uploaded even though Devin
+gives no transcript path; the docs list only `stop_hook_active`, so the field is
+undocumented and could change. The recording was headless, not an attended
+terminal session. Devin has no await hook here: an answer given in Tedix OS
+reaches a Devin chat with its next prompt.
+
 For a local development install:
 
 ```sh
