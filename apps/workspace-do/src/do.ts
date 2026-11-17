@@ -1243,12 +1243,29 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			server.serializeAttachment({ ...session, conversationId: null });
 			const cursor = Number(url.searchParams.get("after") ?? "");
 			if (Number.isFinite(cursor) && url.searchParams.has("after")) {
-				await this.#subscribe(
-					server,
-					scope,
-					url.searchParams.get("conversation"),
-					cursor,
-				);
+				try {
+					await this.#subscribe(
+						server,
+						scope,
+						url.searchParams.get("conversation"),
+						cursor,
+					);
+				} catch (error) {
+					// The socket is accepted: say what failed instead of dropping it.
+					workspaceLog.warn("Workspace chat frame failed", {
+						event: "workspace.frame_failed",
+						frameType: "subscribe",
+						where: "upgrade",
+						error,
+						...this.#diagnostics(),
+					});
+					this.#control(server, {
+						type: "error",
+						code: "replay_failed",
+						message:
+							"This chat's history could not be loaded. Reload the page; if it keeps happening, tell your workspace owner.",
+					});
+				}
 			}
 			return new Response(null, { status: 101, webSocket: client });
 		}
@@ -1357,7 +1374,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						ws,
 						scope,
 						frame.conversationId,
-						frame.cursor ?? 0,
+						frame.cursor ?? null,
 					);
 					return;
 				case "send_turn": {
@@ -1392,17 +1409,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					await this.cancelTurn(scope, frame.turnId);
 					return;
 				case "read_ledger": {
-					const limit = frame.limit ?? 500;
-					const page = this.readLedger(scope, frame.conversationId, {
-						before: frame.before,
-						limit: limit + 1,
-					});
-					const hasMore = page.length > limit;
+					this.bindScope(scope);
+					const page = this.#events.historyPage(
+						frame.conversationId,
+						frame.before,
+						frame.limit ?? 500,
+					);
 					this.#control(ws, {
 						type: "ledger.page",
 						conversationId: frame.conversationId,
-						events: hasMore ? page.slice(1) : page,
-						hasMore,
+						events: page.events,
+						hasMore: page.more,
 					});
 					return;
 				}
@@ -1931,11 +1948,19 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return true;
 	}
 
+	/**
+	 * Answer a subscribe with one bounded page of the ledger. A socket with a
+	 * cursor gets the events after it, oldest first, and `replay.more` while
+	 * events remain; it asks again from that cursor. A socket without a cursor
+	 * has folded nothing: it gets the newest page of its conversation and pages
+	 * backwards with `read_ledger`, and one that follows no conversation needs
+	 * no replay at all.
+	 */
 	async #subscribe(
 		ws: WebSocket,
 		scope: WorkspaceScope,
 		conversationId: string | null,
-		cursor: number,
+		cursor: number | null,
 	) {
 		if (
 			!(await workspaceSessionAllowed(this.env.DB, ws.deserializeAttachment()))
@@ -1954,21 +1979,40 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			conversations: this.listConversations(scope),
 			models: this.configuredModels(),
 		});
+		const page =
+			cursor !== null
+				? this.#events.replayPage(cursor, conversationId)
+				: conversationId
+					? this.#events.historyPage(conversationId, null, 1_000)
+					: { events: [], more: false };
 		let replayEvents = 0;
 		let replayBytes = 0;
-		for (const event of this.#events.replay(cursor, conversationId)) {
+		for (const event of page.events) {
 			const frame = JSON.stringify(event);
 			replayEvents += 1;
 			replayBytes += frame.length;
 			ws.send(frame);
 		}
-		this.#control(ws, { type: "caught_up", cursor: latest, conversationId });
+		const last = page.events.at(-1)?.seq;
+		if (cursor !== null && page.more && last !== undefined) {
+			this.#control(ws, { type: "replay.more", cursor: last, conversationId });
+		} else {
+			if (cursor === null && page.more && conversationId)
+				this.#control(ws, {
+					type: "ledger.page",
+					conversationId,
+					events: [],
+					hasMore: true,
+				});
+			this.#control(ws, { type: "caught_up", cursor: latest, conversationId });
+		}
 		workspaceLog.info("Workspace chat socket subscribed", {
 			event: "workspace.subscribed",
-			cursor,
+			cursor: cursor ?? undefined,
 			latestSeq: latest,
 			replayEvents,
 			replayBytes,
+			replayMore: page.more,
 			...this.#diagnostics(),
 		});
 	}

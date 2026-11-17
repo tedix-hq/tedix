@@ -219,6 +219,12 @@ export type WorkspaceChatControlMessage =
 	  }
 	| { type: "caught_up"; conversationId: string | null }
 	| {
+			/** The replay stopped at `cursor`; subscribe again from it for the rest. */
+			type: "replay.more";
+			cursor: number;
+			conversationId: string | null;
+	  }
+	| {
 			type: "turn.accepted";
 			clientTurnId: string;
 			turnId: string;
@@ -257,6 +263,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 const CONTROL_TYPES = new Set<WorkspaceChatControlMessage["type"]>([
 	"hello",
 	"caught_up",
+	"replay.more",
 	"turn.accepted",
 	"ledger.page",
 	"pong",

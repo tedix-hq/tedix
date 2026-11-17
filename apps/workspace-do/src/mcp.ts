@@ -66,7 +66,7 @@ export const MCP_TOOLS = [
 	{
 		name: "read_events",
 		description:
-			"Replay the workspace's event ledger after a sequence number: turn.started, assistant.delta, step.started/finished, approval.requested, turn.finished, each with its timestamp.",
+			"Replay the workspace's event ledger after a sequence number: turn.started, assistant.delta, step.started/finished, approval.requested, turn.finished, each with its timestamp. A reply holds at most a few megabytes: call again with afterSeq set to the last seq returned until it comes back empty.",
 		inputSchema: {
 			type: "object",
 			properties: {

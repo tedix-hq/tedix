@@ -216,6 +216,53 @@ describe("createWorkspaceChatClient", () => {
 		expect(client.getSnapshot().state.turns[0]?.reply).toBe("Hello");
 	});
 
+	it("asks for each next page of a long replay and resumes a dropped one where it stopped", () => {
+		const { client, sockets, hello, advance } = harness();
+		const first = sockets[0]!;
+		first.open();
+		hello(first, 9);
+		first.receive(delta(1, "a"));
+		// Another conversation's replay is not this tab's to continue.
+		first.receive({ type: "replay.more", cursor: 1, conversationId: "other" });
+		expect(first.sent).toHaveLength(1);
+		first.receive({ type: "replay.more", cursor: 1, conversationId: "c1" });
+		expect(first.sent.at(-1)).toEqual({
+			type: "subscribe",
+			conversationId: "c1",
+			cursor: 1,
+		});
+		expect(client.getSnapshot().catchingUp).toBe(true);
+		// A live frame runs ahead of the replay, then the socket drops.
+		first.receive(delta(9, "z"));
+		advance(6_000);
+		first.drop();
+		advance(0);
+		const second = sockets[1]!;
+		second.open();
+		expect(second.sent[0]).toEqual({
+			type: "subscribe",
+			conversationId: "c1",
+			cursor: 1,
+		});
+		hello(second, 9);
+		second.receive(delta(2, "b"));
+		second.receive({ type: "caught_up", conversationId: "c1" });
+		advance(20);
+		expect(client.getSnapshot().catchingUp).toBe(false);
+		expect(client.getSnapshot().state.turns[0]?.reply).toBe("abz");
+		// Caught up: the next drop resumes from the newest folded event.
+		advance(6_000);
+		second.drop();
+		advance(0);
+		const third = sockets[2]!;
+		third.open();
+		expect(third.sent[0]).toEqual({
+			type: "subscribe",
+			conversationId: "c1",
+			cursor: 9,
+		});
+	});
+
 	it("climbs the backoff ladder while the object stays away", () => {
 		const { client, sockets, advance } = harness();
 		sockets[0]!.open();
