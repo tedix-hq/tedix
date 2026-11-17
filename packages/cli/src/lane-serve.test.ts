@@ -1596,7 +1596,9 @@ describe("dispatcher admission", () => {
 				await f.dispatcher.tick();
 				await until(() => f.releases.length === 1);
 				for (let minute = 0; minute < 20; minute++) {
-					now += 60_000;
+					now += 30_000;
+					leaseCheck();
+					now += 30_000;
 					heartbeat();
 					await until(
 						() =>
@@ -6756,13 +6758,14 @@ it("detects a live process inside a landed worktree independently of its receipt
 		detached: true,
 		stdio: "ignore",
 	});
+	const ended = once(child, "exit");
 	await once(child, "spawn");
 	try {
 		expect(await cleanupLaneWorktree(repo, destination)).toBe(false);
 		expect(existsSync(destination)).toBe(true);
 	} finally {
-		const ended = once(child, "exit");
-		process.kill(-child.pid!, "SIGTERM");
+		if (child.exitCode === null && child.signalCode === null)
+			child.kill("SIGTERM");
 		await ended;
 	}
 });
