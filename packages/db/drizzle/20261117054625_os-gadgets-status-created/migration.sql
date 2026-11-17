@@ -1,0 +1,1 @@
+CREATE INDEX `os_gadgets_status_created_idx` ON `os_gadgets` (`status`,`created_at`,`id`);
