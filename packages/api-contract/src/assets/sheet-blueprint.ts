@@ -52,8 +52,15 @@ Type or press F2 to edit a cell; the formula bar edits its source. Tab and
 Enter move within a selected range. Copy/paste supports quoted multiline
 TSV, formula-relative copies and cell formats. Undo and redo preserve the
 workbook draft. The toolbar provides number/text formats, fills, alignment,
-sorting and filling; More actions and the right-click menus on cells,
-headings and tabs cover row/column operations, sizing and frozen panes. Workbooks
+sorting and filling; drag the selection's corner square to fill. While
+writing a formula, matching functions and the current function's arguments
+show below it, clicking or dragging over cells adds their reference, and F4
+switches between A1, $A$1, A$1 and $A1. Ctrl/⌘ F finds values on every tab.
+More actions and the right-click menus on cells, headings and tabs cover
+row/column operations, sizing, frozen panes and filters: Create a filter
+makes the selected row the header, and each heading's menu chooses which
+values show and sorts the rows below. A filter is part of the sheet, so
+everyone sees the same rows. Workbooks
 can contain up to 32 tabs, each with 50,000 rows and 702 columns (A to ZZ).
 
 Changes save on their own a moment after you stop editing; Ctrl/⌘ S saves at
@@ -64,8 +71,9 @@ keeps everything else. A workbook holds up to 8 MB of UTF-8 content. A failed sa
 keeps your changes and is tried again, unless trying again cannot help (a
 file over the limit, or lost edit access): then Sheet says why and waits for
 your next change. When someone else saves first, their
-changes and yours are merged; you are asked which version to keep only for a
-cell you both changed. Editors with nothing unsaved show external writes in
+changes and yours are merged; for a cell you both changed your value is kept
+and saved, and Use theirs brings their value back for half a minute. Undo
+takes back only your own changes, never theirs. Editors with nothing unsaved show external writes in
 place.
 
 Agent range edits retain typed inputs and last-calculated values; an open

@@ -1,6 +1,8 @@
 import type { OsWorkbookSheet } from "@tedix/api-contract/schemas/os-workspaces";
 import { describe, expect, it } from "vite-plus/test";
 import {
+	filterChoices,
+	filteredRows,
 	boundsToTsv,
 	functionGroups,
 	hasUncomputedCells,
@@ -235,5 +237,38 @@ describe("sheet grid", () => {
 			"Lookup",
 		]);
 		expect(groups[0]?.functions).toEqual(["SUM"]);
+	});
+});
+
+describe("sheet filters", () => {
+	const sheet = (filter?: OsWorkbookSheet["filter"]): OsWorkbookSheet => ({
+		id: "s",
+		name: "S",
+		columns: [{ id: "a", label: "A", width: 120 }],
+		rows: [
+			[{ input: "Status", value: "Status" }],
+			[{ input: "Open", value: "Open" }],
+			[{ input: "Done", value: "Done" }],
+			[null],
+			[{ input: "Open", value: "Open" }],
+		],
+		frozenRows: 0,
+		frozenColumns: 0,
+		filter,
+	});
+	it("hides rows below the header whose value is filtered out, never the header", () => {
+		expect(filteredRows(sheet())).toEqual(new Set());
+		expect(
+			filteredRows(
+				sheet({ headerRow: 0, hidden: [{ column: 0, values: ["Open", ""] }] }),
+			),
+		).toEqual(new Set([1, 3, 4]));
+	});
+	it("lists each value below the header once with its count, blanks last", () => {
+		expect(filterChoices(sheet({ headerRow: 0, hidden: [] }), 0)).toEqual([
+			{ value: "Done", count: 1 },
+			{ value: "Open", count: 2 },
+			{ value: "", count: 1 },
+		]);
 	});
 });

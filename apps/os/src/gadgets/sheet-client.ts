@@ -10,6 +10,8 @@ import {
 	clampCoordinate,
 	columnLabel,
 	copyBounds,
+	filterChoices,
+	filteredRows,
 	isErrorValue,
 	jumpToDataEdge,
 	parseClipboardTable,
@@ -164,6 +166,7 @@ const css = [
 	// Notices and prompts float over the grid instead of pushing it down.
 	`.overlay{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:20;display:flex;flex-direction:column;gap:6px;align-items:center;width:max-content;max-width:calc(100% - 24px);pointer-events:none}.overlay>*{pointer-events:auto}`,
 	`[role=tab][data-touched]::after{content:"";display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:var(--primary);vertical-align:middle}`,
+	`.filter-btn{position:absolute;right:2px;top:50%;transform:translateY(-50%);z-index:3;width:18px;height:18px;padding:0;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--muted);font-size:10px;line-height:1;cursor:pointer}.filter-btn[data-active]{background:var(--primary);color:var(--bg);border-color:var(--primary)}tr[hidden]{display:none}.filter-menu{min-width:220px}.filter-sorts,.filter-actions{display:flex;gap:6px;padding:4px}.filter-values{max-height:240px;overflow:auto;padding:4px;border-block:1px solid var(--line)}.filter-values label{display:flex;gap:8px;align-items:center;padding:2px 4px}.filter-values span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.filter-values small{color:var(--muted)}`,
 	`.formula-help{position:fixed;z-index:30;max-width:min(360px,calc(100vw - 16px));padding:4px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.formula-help button{display:flex;gap:8px;width:100%;padding:4px 8px;border:0;border-radius:5px;background:none;color:var(--fg);text-align:left;cursor:pointer}.formula-help button[aria-selected=true]{background:var(--tint,color-mix(in srgb,var(--fg) 8%,transparent))}.formula-help small{color:var(--muted)}.formula-help .sig{padding:4px 8px}.formula-help .sig b{color:var(--primary)}td.picking{box-shadow:inset 0 0 0 2px var(--primary);background-image:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--primary) 12%,transparent) 4px 8px)}`,
 	`.find{display:flex;gap:6px;align-items:center;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.find input{width:min(240px,50vw)}#find-count{min-width:60px;color:var(--muted);font-variant-numeric:tabular-nums}.fill-grip{position:absolute;right:0;bottom:0;z-index:4;width:7px;height:7px;background:var(--primary);border:1px solid var(--bg);cursor:crosshair;touch-action:none}td.fill-target{box-shadow:inset 0 0 0 1px var(--primary)}`,
 	`#updates,.command{display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:100%;padding:6px 8px 6px 12px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent);animation:drop .14s var(--ease)}#updates:empty{display:none}`,
@@ -793,6 +796,11 @@ export async function mountSheetClient(
 		statsQueued = false;
 	const rowHeight = (s: OsWorkbookSheet, row: number) =>
 		s.rowHeights?.[row] ?? ROW;
+	// Rows the active sheet's filter hides, recomputed when the sheet changes.
+	let hiddenRows = new Set<number>();
+	/** A row's height on screen: none while its filter hides it. */
+	const shownHeight = (s: OsWorkbookSheet, row: number) =>
+		hiddenRows.has(row) ? 0 : rowHeight(s, row);
 	const columnWidth = (s: OsWorkbookSheet, column: number) =>
 		s.columns[column]?.width ?? COLUMN;
 	const columnLeft = (s: OsWorkbookSheet, column: number) => {
@@ -1144,8 +1152,9 @@ export async function mountSheetClient(
 	function paintRow(tr: HTMLTableRowElement, row: number) {
 		const s = sheet(),
 			line = s.rows[row],
-			height = rowHeight(s, row),
+			height = shownHeight(s, row),
 			top = row < s.frozenRows ? HEAD + offsets[row]! : -1;
+		tr.hidden = height === 0;
 		if (tr.style.height !== height + "px") {
 			tr.style.height = height + "px";
 			tr.style.setProperty("--h", height - 1 + "px");
@@ -1188,6 +1197,28 @@ export async function mountSheetClient(
 			td.classList.toggle("error", isErrorValue(cell?.value));
 			if (here || td.classList.contains("landed"))
 				td.classList.toggle("landed", !!here?.has(row + ":" + col));
+			// The filter header carries a button per column for its filter menu.
+			const header = s.filter?.headerRow === row && col < s.columns.length;
+			let button = td.querySelector<HTMLButtonElement>(":scope > .filter-btn");
+			if (header && !button) {
+				button = document.createElement("button");
+				button.type = "button";
+				button.className = "filter-btn";
+				button.textContent = "▾";
+				button.onmousedown = (event) => event.stopPropagation();
+				td.append(button);
+			} else if (!header && button) button.remove();
+			if (button) {
+				const active = !!s.filter?.hidden.some(
+					(rule) => rule.column === col && rule.values.length,
+				);
+				button.dataset.column = String(col);
+				button.toggleAttribute("data-active", active);
+				button.setAttribute(
+					"aria-label",
+					`Filter ${s.columns[col]?.label ?? columnLabel(col)}${active ? " (filtered)" : ""}`,
+				);
+			}
 		}
 	}
 	function markRow(
@@ -1447,9 +1478,10 @@ export async function mountSheetClient(
 		const s = sheet(),
 			d = dimensions();
 		table.setAttribute("aria-rowcount", String(d.rows));
+		hiddenRows = filteredRows(s);
 		offsets = [0];
 		for (let row = 0; row < d.rows; row++)
-			offsets.push(offsets[row]! + rowHeight(s, row));
+			offsets.push(offsets[row]! + shownHeight(s, row));
 		updateWindow(true);
 		paintSelection(true);
 		syncChrome();
@@ -1467,6 +1499,13 @@ export async function mountSheetClient(
 	}
 	function choose(row: number, column: number, extend = false) {
 		tabBounds = undefined;
+		// Rows the filter hides are stepped over, in the direction of travel.
+		if (hiddenRows.has(row)) {
+			const step = row >= selection.focus.row ? 1 : -1;
+			let next = row;
+			while (hiddenRows.has(next)) next += step;
+			row = next < 0 ? selection.focus.row : next;
+		}
 		// Walking past the last row or column opens more of the sheet.
 		const d = draft ? dimensions() : undefined,
 			grow =
@@ -1491,7 +1530,7 @@ export async function mountSheetClient(
 		if (point.row >= s.frozenRows) {
 			const frozen = offsets[Math.min(s.frozenRows, offsets.length - 1)] ?? 0,
 				top = offsets[point.row] ?? 0,
-				height = rowHeight(s, point.row),
+				height = shownHeight(s, point.row),
 				view = (grid.clientHeight || 420) - HEAD;
 			if (top - frozen < grid.scrollTop) grid.scrollTop = top - frozen;
 			else if (top + height > grid.scrollTop + view)
@@ -1925,6 +1964,105 @@ export async function mountSheetClient(
 		q(".command").hidden = true;
 		grid.focus();
 	};
+	/** Set or remove the active sheet's filter, as one undo step that saves. */
+	function setFilter(filter: OsWorkbookSheet["filter"]) {
+		const id = sheet().id;
+		workbook((w) => ({
+			...w,
+			sheets: w.sheets.map((item) => {
+				if (item.id !== id) return item;
+				const next = { ...item, filter };
+				if (!filter) delete next.filter;
+				return next;
+			}),
+		}));
+	}
+	/** The filter menu for one column: which values show, and sorting below the header. */
+	function openFilter(anchor: HTMLElement, column: number) {
+		const s = sheet(),
+			filter = s.filter;
+		if (!filter) return;
+		const hidden = new Set(
+			filter.hidden.find((rule) => rule.column === column)?.values ?? [],
+		);
+		const name = s.columns[column]?.label ?? columnLabel(column);
+		popover(anchor, `Filter ${name}`, "dialog", (panel, close) => {
+			panel.classList.add("filter-menu");
+			const sorts = document.createElement("div");
+			sorts.className = "filter-sorts";
+			for (const [label, direction] of [
+				["Sort A to Z", "ascending"],
+				["Sort Z to A", "descending"],
+			] as const) {
+				const sort = document.createElement("button");
+				sort.type = "button";
+				sort.textContent = label;
+				sort.disabled = !editable();
+				sort.onclick = () => {
+					close();
+					const range = {
+						rowStart: filter.headerRow,
+						rowEnd: Math.max(filter.headerRow, s.rows.length - 1),
+						columnStart: 0,
+						columnEnd: s.columns.length - 1,
+					};
+					workbook((w) =>
+						sortRange(w, sheet().id, range, column, direction, true),
+					);
+				};
+				sorts.append(sort);
+			}
+			const list = document.createElement("div");
+			list.className = "filter-values";
+			const boxes: HTMLInputElement[] = [];
+			for (const { value, count } of filterChoices(s, column)) {
+				const row = document.createElement("label");
+				const box = document.createElement("input");
+				box.type = "checkbox";
+				box.checked = !hidden.has(value);
+				box.value = value;
+				boxes.push(box);
+				const text = document.createElement("span");
+				text.textContent = value === "" ? "(Blank)" : value;
+				const tally = document.createElement("small");
+				tally.textContent = String(count);
+				row.append(box, text, tally);
+				list.append(row);
+			}
+			const actions = document.createElement("div");
+			actions.className = "filter-actions";
+			const all = document.createElement("button");
+			all.type = "button";
+			all.textContent = "Select all";
+			all.onclick = () => boxes.forEach((box) => (box.checked = true));
+			const none = document.createElement("button");
+			none.type = "button";
+			none.textContent = "Clear";
+			none.onclick = () => boxes.forEach((box) => (box.checked = false));
+			const apply = document.createElement("button");
+			apply.type = "button";
+			apply.className = "primary";
+			apply.textContent = "Apply";
+			apply.disabled = !editable();
+			apply.onclick = () => {
+				close();
+				const values = boxes
+					.filter((box) => !box.checked)
+					.map((box) => box.value);
+				const current = sheet().filter;
+				if (!current) return;
+				setFilter({
+					...current,
+					hidden: [
+						...current.hidden.filter((rule) => rule.column !== column),
+						...(values.length ? [{ column, values }] : []),
+					],
+				});
+			};
+			actions.append(all, none, apply);
+			panel.append(sorts, list, actions);
+		});
+	}
 	function structure(action: string) {
 		commitCell();
 		if (!editable()) return;
@@ -2072,6 +2210,13 @@ export async function mountSheetClient(
 				break;
 			case "unfreeze":
 				apply((w) => freezePanes(w, id, 0, 0));
+				break;
+			case "filter-create":
+				// The selection's top row holds the headings.
+				setFilter({ headerRow: b.rowStart, hidden: [] });
+				break;
+			case "filter-remove":
+				setFilter(undefined);
 				break;
 		}
 	}
@@ -2357,6 +2502,10 @@ export async function mountSheetClient(
 			act("Freeze up to the selection", "freeze"),
 			act("Unfreeze", "unfreeze"),
 			"-",
+			sheet().filter
+				? act("Remove filter", "filter-remove")
+				: act("Create a filter", "filter-create"),
+			"-",
 			act("Add sheet", "add-sheet"),
 			...sheetItems(),
 		]);
@@ -2509,6 +2658,12 @@ export async function mountSheetClient(
 			return;
 		selection.focus = { row, column };
 		selectionChanged();
+	});
+	table.addEventListener("click", (event) => {
+		const button = (event.target as Element).closest<HTMLButtonElement>(
+			".filter-btn",
+		);
+		if (button) openFilter(button, Number(button.dataset.column));
 	});
 	table.addEventListener("dblclick", (event) => {
 		if ((event.target as Element).closest("td[data-row]")) startEdit();
