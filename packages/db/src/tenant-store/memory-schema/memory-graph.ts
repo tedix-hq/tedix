@@ -182,6 +182,10 @@ export const memoryFacts = sqliteTable(
 		index("idx_memory_facts_org_lifecycle")
 			.on(table.organizationId, sql`COALESCE(updated_at, created_at)`, table.id)
 			.where(sql`valid_to IS NOT NULL OR archived_at IS NOT NULL`),
+		// Keep parity with the core table's content-hash lookup index.
+		index("idx_memory_facts_org_source_hash")
+			.on(table.organizationId, table.sourceHash)
+			.where(sql`source_hash IS NOT NULL`),
 	],
 );
 

@@ -14,7 +14,7 @@ import type {
 	MemoryFactType,
 	MemoryFeedbackSignal,
 } from "@tedix/api-contract/constants/enums";
-import { and, desc, eq, inArray, isNull, not, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, not, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { recordOwnerInstructionEdges } from "../decision-graph-writers";
 import {
@@ -44,13 +44,30 @@ export async function findFactBySourceHash(
 	sourceHash: string,
 ): Promise<MemoryFact | undefined> {
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
-	return db.query.memoryFacts.findFirst({
-		where: {
-			organizationId: orgId,
-			sourceHash,
-			archivedAt: { isNull: true },
-		},
-	});
+	// Seek the hash through idx_memory_facts_org_source_hash. The unary plus
+	// keeps `archived_at` and the ordering away from the live-fact index, which
+	// offers both and would walk every live fact of the organization again.
+	// The ordering names the fact that walk reached first, so the same one of
+	// several facts with one hash is returned as before.
+	const [fact] = await db
+		.select()
+		.from(memoryFacts)
+		.where(
+			and(
+				eq(memoryFacts.organizationId, orgId),
+				eq(memoryFacts.sourceHash, sourceHash),
+				sql`+${memoryFacts.archivedAt} IS NULL`,
+			),
+		)
+		.orderBy(
+			sql`+${memoryFacts.validTo}`,
+			asc(memoryFacts.confidence),
+			asc(memoryFacts.lastAccessedAt),
+			asc(memoryFacts.createdAt),
+			sql`${memoryFacts}.rowid`,
+		)
+		.limit(1);
+	return fact;
 }
 
 export async function findCurrentFactsByTopicKey(

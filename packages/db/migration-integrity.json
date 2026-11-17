@@ -1524,6 +1524,10 @@
 		{
 			"name": "20261117000735_work_items_owner_list_partial_index/migration.sql",
 			"sha256": "970f3e7e24adc9b79cc61bf19d3b6dcf09d40d662acd98106d6e1f069d523ccd"
+		},
+		{
+			"name": "20261117025123_memory_facts_source_hash_index/migration.sql",
+			"sha256": "cc2ef5d9962e8b610850ac0ae000badefa0af87dfcad86fb06c7815c1b652220"
 		}
 	]
 }
