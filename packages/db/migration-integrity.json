@@ -1544,6 +1544,10 @@
 		{
 			"name": "20261117054625_os-gadgets-status-created/migration.sql",
 			"sha256": "374fb94c9da70da0c764c8f1bf99e64119b403de9f937a474fd0aff0a29fbed3"
+		},
+		{
+			"name": "20261117122638_approval_sweep_indexes/migration.sql",
+			"sha256": "f356729ded8b01618ec2cd2873232dce5a4106b26724522c2d540ff75158781a"
 		}
 	]
 }

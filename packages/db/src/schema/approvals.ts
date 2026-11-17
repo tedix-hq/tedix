@@ -8,6 +8,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { sql } from "drizzle-orm";
 import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { organizations } from "./organizations";
 import { tedis } from "./tedis";
@@ -40,6 +41,26 @@ export type ApprovalActionType = (typeof APPROVAL_ACTION_TYPE_VALUES)[number];
 // =============================================================================
 // TABLE
 // =============================================================================
+
+/**
+ * The two installation sweeps over approvals look across all organizations,
+ * so no organization index can seek them. Each constant below is the WHERE of
+ * one partial index on `tedi_approval_requests` and of the sweeps that use it,
+ * word for word, because SQLite offers a partial index only to a query that
+ * states the index's condition. Changing one needs a migration that rebuilds
+ * its index.
+ *
+ * `pendingApproval`: a request nobody has answered. The expiry sweep closes
+ * those whose window has passed.
+ */
+export const pendingApproval = sql`status = 'pending'`;
+/** The run state of an approved tool call, as the sweeps and their index spell it. */
+export const ownerToolRunStatus = sql`json_extract(payload, '$.execution.status')`;
+/**
+ * `openOwnerToolRun`: an approved tool call whose run is waiting, running or
+ * failed and that nobody dismissed. The queue sweeps read only these.
+ */
+export const openOwnerToolRun = sql`status = 'approved' AND action_type = 'mcp.tool_call' AND ${ownerToolRunStatus} IN ('queued', 'running', 'failed') AND json_extract(payload, '$.execution.dismissedAt') IS NULL`;
 
 export const tediApprovalRequests = sqliteTable(
 	"tedi_approval_requests",
@@ -92,6 +113,15 @@ export const tediApprovalRequests = sqliteTable(
 		index("idx_approval_requests_resolved").on(table.resolvedAt),
 		index("idx_approval_requests_status").on(table.orgId, table.status),
 		index("idx_approval_requests_tedi_status").on(table.tediId, table.status),
+		// The expiry sweep walks pending requests in expiry order and stops at
+		// the first that is still open. Almost every request is long resolved.
+		index("idx_approval_requests_pending_expiry")
+			.on(table.expiresAt)
+			.where(pendingApproval),
+		// The tool-call queue sweeps seek one run state, then the window.
+		index("idx_approval_requests_open_tool_run")
+			.on(ownerToolRunStatus, table.expiresAt)
+			.where(openOwnerToolRun),
 	],
 );
 
