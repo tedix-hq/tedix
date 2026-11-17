@@ -1,13 +1,22 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deliveryHashes } from "./context-delivery";
 import type { JsonObject } from "./hook-io";
 import { gatewayCode, openRequestLines, render } from "./prompt-context";
 import {
+	enqueue,
 	FILTERED_MARK,
+	flush,
 	ledgerText,
+	outboxDir,
 	runRequestLedger,
 	readTurnTranscript,
 } from "./request-ledger";
@@ -123,11 +132,13 @@ async function run(
 		env = {},
 		fail = false,
 		authFail = false,
+		poison,
 	}: {
 		binding?: JsonObject;
 		env?: Record<string, string>;
 		fail?: boolean;
 		authFail?: boolean;
+		poison?: string;
 	} = {},
 ) {
 	const uploads: JsonObject[][] = [];
@@ -147,7 +158,10 @@ async function run(
 				if (fail) throw new Error("offline");
 				const prefix = "async () => await work.record_agent_session_events(";
 				expect(input).toStartWith(prefix);
-				uploads.push(JSON.parse(input.slice(prefix.length, -1)).events);
+				const events = JSON.parse(input.slice(prefix.length, -1)).events;
+				if (poison && JSON.stringify(events).includes(poison))
+					throw new Error("BAD_REQUEST: Input validation failed");
+				uploads.push(events);
 				return { accepted: 1, duplicates: 0 };
 			}
 			throw new Error(`unexpected read ${args.join(" ")}`);
@@ -256,6 +270,75 @@ describe("session event upload", () => {
 			["turn", "The login page works."],
 		]);
 		expect(outbox()).toEqual([]);
+	});
+
+	test("an event the server keeps rejecting is set aside with its reason and never holds back newer events", async () => {
+		const poison = "unstorable";
+		await run("prompt", { prompt: `An ${poison} message` }, { poison });
+		expect(outbox()).toHaveLength(1);
+		for (const pass of [1, 2, 3]) {
+			const uploads = await run(
+				"prompt",
+				{ prompt: `Newer request ${pass}` },
+				{ poison },
+			);
+			expect(uploads.flat().map((event) => event.text)).toEqual([
+				`Newer request ${pass}`,
+			]);
+		}
+		const [log, rejected] = outbox().sort();
+		expect(outbox()).toHaveLength(2);
+		const dir = join(config, "session-events", "fixture--default");
+		const [file] = readdirSync(join(dir, rejected!));
+		expect(readFileSync(join(dir, rejected!, file!), "utf8")).toContain(poison);
+		expect(readFileSync(join(dir, log!), "utf8")).toContain(
+			`set aside ${file}: rejected 3 times: BAD_REQUEST: Input validation failed`,
+		);
+		expect(
+			await run("turn", { last_assistant_message: "Done." }, { poison }),
+		).toHaveLength(1);
+	});
+
+	test("an outage counts against no event", async () => {
+		await run("prompt", { prompt: "First request" }, { fail: true });
+		await run("prompt", { prompt: "Second request" }, { fail: true });
+		expect(outbox().every((file) => /-[0-9a-f]{12}\.json$/.test(file))).toBe(
+			true,
+		);
+		const [batch] = await run("prompt", { prompt: "Third request" });
+		expect(batch).toHaveLength(3);
+		expect(outbox()).toEqual([]);
+	});
+
+	test("trimming the outbox and setting an unreadable file aside each leave a log line", async () => {
+		const dir = outboxDir({ TEDIX_CONFIG_DIR: config }, BINDING)!;
+		const event = {
+			kind: "prompt" as const,
+			harness: "claude-code",
+			sessionKey: SESSION,
+			sourceAt: "2026-10-06T10:00:00Z",
+			text: "Fix the login page",
+		};
+		for (let index = 0; index < 502; index++) enqueue(dir, event);
+		expect(outbox().filter((file) => file.endsWith(".json"))).toHaveLength(500);
+		const log = () => readFileSync(join(dir, "outbox.log"), "utf8");
+		expect(
+			log().match(/trimmed 1 oldest unsent events beyond 500/g),
+		).toHaveLength(2);
+		writeFileSync(join(dir, "000-torn.json"), "{");
+		await flush({ read: async () => ({}) }, ["-w", "fixture"], dir);
+		expect(log()).toContain("set aside 000-torn.json: unreadable");
+		expect(readdirSync(join(dir, "rejected"))).toEqual(["000-torn.json"]);
+	});
+
+	test("bounds a very long turn, keeping its start and end", async () => {
+		const [batch] = await run("turn", {
+			last_assistant_message: `Opening summary. ${"Detail ".repeat(100_000)}Say go to publish.`,
+		});
+		const text = batch![0]!.text as string;
+		expect(text.length).toBeLessThanOrEqual(500_000);
+		expect(text).toStartWith("Opening summary.");
+		expect(text).toEndWith("Say go to publish.");
 	});
 
 	test("a turn carries the activity digest of its transcript", async () => {

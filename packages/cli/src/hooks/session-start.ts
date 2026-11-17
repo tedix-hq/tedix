@@ -446,12 +446,21 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 		}
 	}
 
+	let unsent: Promise<number> | undefined;
 	if (
 		bound &&
 		binding.decisionCapture === true &&
 		session &&
 		source === "stored-login"
 	) {
+		// Events an earlier chat left behind go now, not when this one first replies.
+		const { flush, outboxDir } = await import("./request-ledger");
+		const outbox = outboxDir(env, binding, false);
+		if (outbox)
+			unsent = flush(deps, command, outbox, {
+				timeoutMs: 6500,
+				isolate: false,
+			}).catch(() => 0);
 		try {
 			const data = await read(
 				[
@@ -490,6 +499,7 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 		: undefined;
 	send([needs?.text, ...lines].filter(Boolean).join("\n"));
 	needs?.delivered();
+	await unsent;
 }
 
 /** Only an ISO timestamp with an explicit zone can claim a lease state. */
