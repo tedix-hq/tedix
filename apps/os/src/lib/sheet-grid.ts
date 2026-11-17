@@ -346,7 +346,7 @@ const FUNCTION_GROUPS: Record<string, string[]> = {
 	Logical: ["IF", "IFS", "IFERROR", "AND", "OR", "NOT", "SWITCH"],
 	Text: [
 		"CONCAT",
-		"CONCATENATE",
+		"TEXTJOIN",
 		"LEFT",
 		"RIGHT",
 		"MID",
@@ -356,9 +356,20 @@ const FUNCTION_GROUPS: Record<string, string[]> = {
 		"TRIM",
 		"SUBSTITUTE",
 		"TEXT",
+		"HYPERLINK",
 	],
 	Lookup: ["VLOOKUP", "HLOOKUP", "INDEX", "MATCH", "CHOOSE", "LOOKUP"],
-	Date: ["TODAY", "NOW", "DATE", "YEAR", "MONTH", "DAY", "WEEKDAY", "EDATE"],
+	Date: [
+		"TODAY",
+		"NOW",
+		"DATE",
+		"YEAR",
+		"MONTH",
+		"DAY",
+		"WEEKDAY",
+		"EDATE",
+		"DATEDIF",
+	],
 };
 
 export function functionGroups(

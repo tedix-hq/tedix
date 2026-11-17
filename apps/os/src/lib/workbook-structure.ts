@@ -551,6 +551,136 @@ export function fillRange(
 	});
 }
 
+/**
+ * The series a drag-fill continues along one line of the source, as
+ * spreadsheets do: two or more plain numbers continue their trend (least
+ * squares, so 1, 3, 4 works too) and text ending in a number counts on
+ * ("Item 1" → "Item 2"; with several, by their common step, keeping zero
+ * padding). Anything else, a formula, a blank, or a lone or formatted number,
+ * is copied instead (undefined). `at(k)` is the value k places from the
+ * line's first source cell; null leaves the cell empty.
+ */
+export function fillSeries(
+	values: string[],
+): ((k: number) => string | null) | undefined {
+	if (values.some((value) => value === "" || value.startsWith("=")))
+		return undefined;
+	const n = values.length;
+	if (
+		n >= 2 &&
+		values.every((value) =>
+			/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(value.trim()),
+		)
+	) {
+		const ys = values.map(Number);
+		const mx = (n - 1) / 2,
+			my = ys.reduce((sum, y) => sum + y, 0) / n;
+		let sxy = 0,
+			sxx = 0;
+		ys.forEach((y, x) => {
+			sxy += (x - mx) * (y - my);
+			sxx += (x - mx) ** 2;
+		});
+		const slope = sxx ? sxy / sxx : 0;
+		return (k) => String(Number((my + slope * (k - mx)).toPrecision(12)));
+	}
+	// Any other number ("1.5", "$5", "1,200", "15%") is copied, as a lone one is.
+	if (values.some((value) => /^[-+]?\$?[\d,]*\.?\d+%?$/.test(value.trim())))
+		return undefined;
+	const parts = values.map((value) => /^(.*?)(\d+)$/.exec(value));
+	if (parts.some((part) => !part || part[1] !== parts[0]![1])) return undefined;
+	const numbers = parts.map((part) => Number(part![2]));
+	const step = n === 1 ? 1 : numbers[1]! - numbers[0]!;
+	if (numbers.some((x, i) => x !== numbers[0]! + step * i)) return undefined;
+	const [, prefix = "", digits = ""] = parts[0]!;
+	return (k) => {
+		const x = numbers[0]! + step * k;
+		return x < 0
+			? null
+			: prefix +
+					String(x).padStart(digits.startsWith("0") ? digits.length : 1, "0");
+	};
+}
+
+/**
+ * Fill `target` from `source`, the drag-fill way: target grows the source in
+ * one direction (up, down, left or right). Each line along that direction
+ * continues its series when it has one; otherwise the source block repeats,
+ * formulas keep pointing at the same relative cells, formats copy, and an
+ * empty source cell clears its target.
+ */
+export function dragFill(
+	workbook: OsWorkbook,
+	sheetId: string,
+	source: WorkbookRange,
+	target: WorkbookRange,
+): OsWorkbook {
+	return changeSheet(workbook, sheetId, (sheet) => {
+		const rows = sheet.rows.map((row) => [...row]);
+		const vertical =
+			target.rowStart !== source.rowStart || target.rowEnd !== source.rowEnd;
+		const height = source.rowEnd - source.rowStart + 1,
+			width = source.columnEnd - source.columnStart + 1;
+		const mod = (value: number, size: number) => ((value % size) + size) % size;
+		const lines = vertical ? width : height;
+		for (let line = 0; line < lines; line++) {
+			const along = vertical ? height : width;
+			const at = (index: number) =>
+				vertical
+					? sheet.rows[source.rowStart + index]?.[source.columnStart + line]
+					: sheet.rows[source.rowStart + line]?.[source.columnStart + index];
+			const series = fillSeries(
+				Array.from({ length: along }, (_, index) => at(index)?.input ?? ""),
+			);
+			const from = vertical ? target.rowStart : target.columnStart,
+				to = vertical ? target.rowEnd : target.columnEnd,
+				start = vertical ? source.rowStart : source.columnStart,
+				end = vertical ? source.rowEnd : source.columnEnd;
+			for (let place = from; place <= to; place++) {
+				if (place >= start && place <= end) continue;
+				const k = place - start;
+				const r = vertical ? place : source.rowStart + line,
+					c = vertical ? source.columnStart + line : place;
+				while (rows.length <= r) rows.push([]);
+				const row = rows[r]!;
+				while (row.length <= c) row.push(null);
+				const copyFrom = at(mod(k, along));
+				if (series) {
+					const value = series(k);
+					row[c] =
+						value === null
+							? null
+							: {
+									...(copyFrom ?? emptyCell()),
+									input: value,
+									value:
+										value !== "" && Number.isFinite(Number(value))
+											? Number(value)
+											: value,
+								};
+					continue;
+				}
+				if (!copyFrom || !copyFrom.input) {
+					row[c] = copyFrom?.format
+						? { ...emptyCell(), format: copyFrom.format }
+						: null;
+					continue;
+				}
+				const offset = k - mod(k, along);
+				row[c] = {
+					...copyFrom,
+					input: offsetFormula(
+						copyFrom.input,
+						vertical ? offset : 0,
+						vertical ? 0 : offset,
+					),
+				};
+			}
+		}
+		return { ...sheet, rows };
+	});
+}
+
 export function renameSheet(
 	workbook: OsWorkbook,
 	sheetId: string,

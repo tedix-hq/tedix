@@ -11,6 +11,7 @@ import {
 	columnLabel,
 	copyBounds,
 	filterChoices,
+	functionGroups,
 	filteredRows,
 	isErrorValue,
 	jumpToDataEdge,
@@ -29,6 +30,7 @@ import {
 	deleteRows,
 	deleteSheet,
 	duplicateSheet,
+	dragFill,
 	fillRange,
 	freezePanes,
 	insertColumns,
@@ -47,6 +49,7 @@ import { iconButton } from "./editor-icons";
 import {
 	FUNCTION_HELP,
 	callAt,
+	signatureArguments,
 	cycleReference,
 	functionSuggestions,
 	referenceSlot,
@@ -166,9 +169,11 @@ const css = [
 	`.overlay{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:20;display:flex;flex-direction:column;gap:6px;align-items:center;width:max-content;max-width:calc(100% - 24px);pointer-events:none}.overlay>*{pointer-events:auto}`,
 	`[role=tab]{position:relative}[role=tab][data-touched]::after{content:"";position:absolute;top:5px;right:5px;width:5px;height:5px;border-radius:50%;background:var(--primary);animation:tab-touch 1.6s var(--ease) both}@keyframes tab-touch{0%{opacity:0;transform:scale(.4)}15%{opacity:1;transform:none}70%{opacity:1}to{opacity:0}}`,
 	`.filter-btn{position:absolute;right:2px;top:50%;transform:translateY(-50%);z-index:3;width:18px;height:18px;padding:0;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--muted);font-size:10px;line-height:1;cursor:pointer}.filter-btn[data-active]{background:var(--primary);color:var(--bg);border-color:var(--primary)}tr[hidden]{display:none}.filter-menu{min-width:220px}.filter-sorts,.filter-actions{display:flex;gap:6px;padding:4px}.filter-values{max-height:240px;overflow:auto;padding:4px;border-block:1px solid var(--line)}.filter-values label{display:flex;gap:8px;align-items:center;padding:2px 4px}.filter-values span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.filter-values small{color:var(--muted)}`,
-	`.formula-help{position:fixed;z-index:30;max-width:min(360px,calc(100vw - 16px));padding:4px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.formula-help button{display:flex;gap:8px;width:100%;padding:4px 8px;border:0;border-radius:5px;background:none;color:var(--fg);text-align:left;cursor:pointer}.formula-help button[aria-selected=true]{background:var(--tint,color-mix(in srgb,var(--fg) 8%,transparent))}.formula-help small{color:var(--muted)}.formula-help .sig{padding:4px 8px}.formula-help .sig b{color:var(--primary)}td.picking{box-shadow:inset 0 0 0 2px var(--primary);background-image:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--primary) 12%,transparent) 4px 8px)}`,
+	`td.ref-range{box-shadow:inset 0 0 0 1.5px #3478c7;background-image:linear-gradient(color-mix(in srgb,#3478c7 9%,transparent),color-mix(in srgb,#3478c7 9%,transparent))}`,
+	`.fn-menu{width:280px;max-height:60vh;overflow:auto}.fn-menu input[type=search]{width:100%;margin-bottom:6px}.fn-head,.fn-item{display:flex;gap:8px;align-items:center;width:100%;padding:5px 8px;border:0;border-radius:6px;background:none;color:var(--fg);text-align:left;cursor:pointer}.fn-head span{flex:1;font-weight:600}.fn-head small,.fn-item small{color:var(--muted)}.fn-item span{flex:1}.fn-head i{transition:transform .15s}.fn-group.open .fn-head i{transform:rotate(90deg)}.fn-group:not(.open) .fn-items{display:none}.fn-head:hover,.fn-item:hover{background:var(--tint,color-mix(in srgb,var(--fg) 8%,transparent))}.fn-empty{padding:8px;color:var(--muted)}`,
+	`.formula-help{position:fixed;z-index:30;max-width:min(360px,calc(100vw - 16px));padding:4px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.formula-help button{display:flex;gap:8px;width:100%;padding:4px 8px;border:0;border-radius:5px;background:none;color:var(--fg);text-align:left;cursor:pointer}.formula-help button[aria-selected=true]{background:var(--tint,color-mix(in srgb,var(--fg) 8%,transparent))}.formula-help small{color:var(--muted)}.formula-help .sig{padding:4px 8px}.formula-help .sig .current{color:var(--primary);font-weight:600}td.picking{box-shadow:inset 0 0 0 2px var(--primary);background-image:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--primary) 12%,transparent) 4px 8px)}`,
 	`td.find-hit{background-image:linear-gradient(color-mix(in srgb,#f0bf2c 30%,transparent),color-mix(in srgb,#f0bf2c 30%,transparent))}td.find-current{background-image:linear-gradient(color-mix(in srgb,#f0bf2c 55%,transparent),color-mix(in srgb,#f0bf2c 55%,transparent))}#find-count[data-bad]{color:var(--danger,#c0262d)}#find-options[data-on]{color:var(--primary)}`,
-	`.find{display:flex;gap:6px;align-items:center;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.find input{width:min(240px,50vw)}#find-count{min-width:60px;color:var(--muted);font-variant-numeric:tabular-nums}.fill-grip{position:absolute;right:0;bottom:0;z-index:4;width:7px;height:7px;background:var(--primary);border:1px solid var(--bg);cursor:crosshair;touch-action:none}td.fill-target{box-shadow:inset 0 0 0 1px var(--primary)}`,
+	`.find{display:flex;gap:6px;align-items:center;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.find input{width:min(240px,50vw)}#find-count{min-width:60px;color:var(--muted);font-variant-numeric:tabular-nums}.fill-grip{position:absolute;right:0;bottom:0;z-index:4;width:7px;height:7px;border-radius:2px;background:var(--primary);border:1px solid var(--bg);cursor:crosshair;touch-action:none;transition:transform .12s}.fill-grip:hover{transform:scale(1.35)}td.fill-preview{background-image:linear-gradient(color-mix(in srgb,var(--primary) 10%,transparent),color-mix(in srgb,var(--primary) 10%,transparent));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 55%,transparent)}`,
 	`#updates,.command{display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:100%;padding:6px 8px 6px 12px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent);animation:drop .14s var(--ease)}#updates:empty{display:none}`,
 	`#updates button,.command button{height:26px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);cursor:pointer;transition:background-color .12s var(--ease),transform .12s var(--ease)}#updates button:hover,.command button:hover{background:var(--hover)}#updates button:active,.command button:active{transform:scale(.97)}`,
 	`#updates button.primary,.command button.primary{background:var(--primary);border-color:transparent;color:var(--on-primary)}.command input{height:26px;width:180px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}`,
@@ -213,7 +218,7 @@ const SHORTCUTS: [string, string][] = [
 		"While writing a formula",
 		"Pick a function with ↑ ↓ and Enter; click or drag over cells to add them",
 	],
-	["F4", "Switch a reference between A1, $A$1, A$1 and $A1"],
+	["Ctrl/⌘ Shift L", "Lock a reference: A1 → $A$1 → A$1 → $A1"],
 	["Double-click a column edge", "Fit the column to its contents"],
 	["Delete", "Clear the selected cells"],
 	["Ctrl/⌘ S", "Save now (changes also save on their own)"],
@@ -255,7 +260,7 @@ export async function mountSheetClient(
 	) =>
 		`<label class="icon" title="${label}">${glyph(name)}<i class="swatch" aria-hidden="true"></i><input id="${id}" aria-label="${label}" type="color" value="${value}"></label>`;
 	root.innerHTML = `<h1 class="sr">Sheet</h1>
-<div class="bar"><div class="toolbar" role="toolbar" aria-label="Sheet tools"><span class="group" data-priority="1">${iconButton('id="undo"', "Undo (Ctrl/⌘ Z)", "undo")}${iconButton('id="redo"', "Redo (Ctrl/⌘ Shift Z)", "redo")}</span><span class="group" data-priority="1">${formatButtons}</span><span class="group" data-priority="3"><input id="font-size" title="Font size" aria-label="Font size" type="number" min="6" max="96" value="13">${colorButton("text-color", "Text color", "textColor", "#202020")}${colorButton("fill-color", "Fill color", "fillColor", "#ffffff")}</span><span class="group" data-priority="4"><span class="hidden-field" inert><select id="align" aria-label="Alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></span>${iconButton('data-align="left"', "Align left", "alignLeft")}${iconButton('data-align="center"', "Align center", "alignCenter")}${iconButton('data-align="right"', "Align right", "alignRight")}${iconButton('data-format="wrap"', "Wrap text", "wrap")}</span><span class="group" data-priority="2"><select id="number-format" title="Number format" aria-label="Number format"><option value="automatic">Automatic</option><option value="number">Number</option><option value="integer">Integer</option><option value="currency">Currency</option><option value="percent">Percent</option><option value="scientific">Scientific</option><option value="date">Date</option><option value="time">Time</option><option value="datetime">Date & time</option><option value="text">Text</option></select><span class="hidden-field" inert><input id="decimals" aria-label="Decimal places" type="number" min="0" max="15" value="2"></span><button type="button" id="dec-less" class="icon text" title="Fewer decimals" aria-label="Fewer decimals">.0</button><button type="button" id="dec-more" class="icon text" title="More decimals" aria-label="More decimals">.00</button></span><span class="group" data-priority="5">${sheetButton('id="sum"', "Sum the selection", "sum")}${iconButton('id="fill-down"', "Fill down (Ctrl/⌘ D)", "fillDown")}${iconButton('id="fill-right"', "Fill right (Ctrl/⌘ R)", "fillRight")}${iconButton('id="sort-asc"', "Sort A to Z", "sortUp")}${iconButton('id="sort-desc"', "Sort Z to A", "sortDown")}</span><span class="group" data-priority="6">${iconButton('id="add-row"', "Add row", "addRow")}${iconButton('id="add-column"', "Add column", "addColumn")}${iconButton('id="clear-format"', "Clear formatting", "eraser")}${iconButton('id="clear"', "Clear cells", "clear")}</span><span class="group" data-priority="1">${sheetButton('id="more" aria-haspopup="menu"', "More actions", "more")}</span></div><div class="bar-end"><div class="status" role="status" aria-live="polite" data-state="idle"><i class="dot" aria-hidden="true"></i><span></span></div>${sheetButton('id="help" aria-haspopup="dialog"', "Keyboard shortcuts", "help")}${iconButton('id="download" aria-haspopup="menu"', "Download", "download")}</div></div>
+<div class="bar"><div class="toolbar" role="toolbar" aria-label="Sheet tools"><span class="group" data-priority="1">${iconButton('id="undo"', "Undo (Ctrl/⌘ Z)", "undo")}${iconButton('id="redo"', "Redo (Ctrl/⌘ Shift Z)", "redo")}</span><span class="group" data-priority="1">${formatButtons}</span><span class="group" data-priority="3"><input id="font-size" title="Font size" aria-label="Font size" type="number" min="6" max="96" value="13">${colorButton("text-color", "Text color", "textColor", "#202020")}${colorButton("fill-color", "Fill color", "fillColor", "#ffffff")}</span><span class="group" data-priority="4"><span class="hidden-field" inert><select id="align" aria-label="Alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></span>${iconButton('data-align="left"', "Align left", "alignLeft")}${iconButton('data-align="center"', "Align center", "alignCenter")}${iconButton('data-align="right"', "Align right", "alignRight")}${iconButton('data-format="wrap"', "Wrap text", "wrap")}</span><span class="group" data-priority="2"><select id="number-format" title="Number format" aria-label="Number format"><option value="automatic">Automatic</option><option value="number">Number</option><option value="integer">Integer</option><option value="currency">Currency</option><option value="percent">Percent</option><option value="scientific">Scientific</option><option value="date">Date</option><option value="time">Time</option><option value="datetime">Date & time</option><option value="text">Text</option></select><span class="hidden-field" inert><input id="decimals" aria-label="Decimal places" type="number" min="0" max="15" value="2"></span><button type="button" id="dec-less" class="icon text" title="Fewer decimals" aria-label="Fewer decimals">.0</button><button type="button" id="dec-more" class="icon text" title="More decimals" aria-label="More decimals">.00</button></span><span class="group" data-priority="5">${sheetButton('id="sum"', "Sum the selection", "sum")}<button type="button" id="fx" class="icon text" title="Insert function" aria-label="Insert function" aria-haspopup="dialog">ƒx</button><button type="button" id="lock-ref" class="icon text" title="Lock reference ($A$1 → A$1 → $A1 → A1) (Ctrl/⌘ Shift L)" aria-label="Lock reference">$</button>${iconButton('id="fill-down"', "Fill down (Ctrl/⌘ D)", "fillDown")}${iconButton('id="fill-right"', "Fill right (Ctrl/⌘ R)", "fillRight")}${iconButton('id="sort-asc"', "Sort A to Z", "sortUp")}${iconButton('id="sort-desc"', "Sort Z to A", "sortDown")}</span><span class="group" data-priority="6">${iconButton('id="add-row"', "Add row", "addRow")}${iconButton('id="add-column"', "Add column", "addColumn")}${iconButton('id="clear-format"', "Clear formatting", "eraser")}${iconButton('id="clear"', "Clear cells", "clear")}</span><span class="group" data-priority="1">${sheetButton('id="more" aria-haspopup="menu"', "More actions", "more")}</span></div><div class="bar-end"><div class="status" role="status" aria-live="polite" data-state="idle"><i class="dot" aria-hidden="true"></i><span></span></div>${sheetButton('id="help" aria-haspopup="dialog"', "Keyboard shortcuts", "help")}${iconButton('id="download" aria-haspopup="menu"', "Download", "download")}</div></div>
 <div class="formula"><input id="range" aria-label="Cell or range" value="A1"><label for="formula">fx</label><input id="formula" aria-label="Formula bar" autocomplete="off" spellcheck="false"></div>
 <div class="stage"><div class="grid" tabindex="0" aria-label="Spreadsheet keyboard navigation"><table role="grid" aria-label="Sheet cells" aria-multiselectable="true"><colgroup></colgroup><thead></thead><tbody></tbody></table></div><div class="overlay"><div class="find" role="search" hidden><input id="find-value" type="search" placeholder="Find in sheet" aria-label="Find in sheet" autocomplete="off"><span id="find-count" role="status" aria-live="polite"></span><button type="button" id="find-previous" aria-label="Previous match" title="Previous match (⇧↵)">↑</button><button type="button" id="find-next" aria-label="Next match" title="Next match (↵)">↓</button><button type="button" id="find-options" aria-label="Search options" title="Search options" aria-haspopup="menu">…</button><button type="button" id="find-close" aria-label="Close" title="Close (Esc)">✕</button></div><div id="updates" role="status" aria-live="polite"></div><div class="command" hidden><label id="command-label" for="command-value"></label><input id="command-value"><button type="button" id="command-apply" class="primary">Apply</button><button type="button" id="command-cancel">Cancel</button></div></div></div>
 <div class="strip">${iconButton('id="add-sheet"', "Add sheet", "plus")}<div id="tab-buttons" role="tablist" aria-label="Sheets"></div><span class="hidden-field"><label>Sheet <select id="tabs" aria-label="Active sheet"></select></label></span><div class="stats"></div></div>`;
@@ -860,9 +865,14 @@ export async function mountSheetClient(
 			const range = fillTarget(start, target);
 			for (let row = range.rowStart; row <= range.rowEnd; row++)
 				for (let col = range.columnStart; col <= range.columnEnd; col++) {
-					const cell = cellAt(row, col);
+					const inside =
+						row >= start.rowStart &&
+						row <= start.rowEnd &&
+						col >= start.columnStart &&
+						col <= start.columnEnd;
+					const cell = inside ? undefined : cellAt(row, col);
 					if (cell) {
-						cell.classList.add("fill-target");
+						cell.classList.add("fill-preview");
 						marked.push(cell);
 					}
 				}
@@ -872,33 +882,58 @@ export async function mountSheetClient(
 				fillGrip.onpointerup =
 				fillGrip.onpointercancel =
 					null;
-			for (const cell of marked.splice(0)) cell.classList.remove("fill-target");
+			for (const cell of marked.splice(0))
+				cell.classList.remove("fill-preview");
 			if (end.type !== "pointerup" || !target) return;
 			const range = fillTarget(start, target);
-			const direction = range.rowEnd > start.rowEnd ? "down" : "right";
-			if (range.rowEnd === start.rowEnd && range.columnEnd === start.columnEnd)
+			if (
+				range.rowStart === start.rowStart &&
+				range.rowEnd === start.rowEnd &&
+				range.columnStart === start.columnStart &&
+				range.columnEnd === start.columnEnd
+			)
 				return;
 			tabBounds = undefined;
 			selection = {
 				anchor: { row: range.rowStart, column: range.columnStart },
 				focus: { row: range.rowEnd, column: range.columnEnd },
 			};
-			rangeWorkbook((w) => fillRange(w, sheet().id, range, direction));
+			rangeWorkbook((w) => dragFill(w, sheet().id, start, range));
 		};
 	};
 	/**
-	 * The range a fill-handle drag covers: the selection grown down or to the
-	 * right, whichever way the pointer went further.
+	 * The range a fill-handle drag covers: the selection grown up, down, left
+	 * or right, whichever way the pointer went further.
 	 */
 	function fillTarget(
 		start: ReturnType<typeof bounds>,
 		to: { row: number; column: number },
 	) {
-		const down = to.row - start.rowEnd,
-			right = to.column - start.columnEnd;
-		return down >= right
-			? { ...start, rowEnd: Math.max(start.rowEnd, to.row) }
-			: { ...start, columnEnd: Math.max(start.columnEnd, to.column) };
+		// Whichever axis the pointer went further outside the selection on.
+		const vertical =
+				to.row > start.rowEnd
+					? to.row - start.rowEnd
+					: to.row < start.rowStart
+						? start.rowStart - to.row
+						: 0,
+			horizontal =
+				to.column > start.columnEnd
+					? to.column - start.columnEnd
+					: to.column < start.columnStart
+						? start.columnStart - to.column
+						: 0;
+		if (!vertical && !horizontal) return start;
+		return vertical >= horizontal
+			? {
+					...start,
+					rowStart: Math.min(start.rowStart, to.row),
+					rowEnd: Math.max(start.rowEnd, to.row),
+				}
+			: {
+					...start,
+					columnStart: Math.min(start.columnStart, to.column),
+					columnEnd: Math.max(start.columnEnd, to.column),
+				};
 	}
 	/**
 	 * Fit columns to what their cells show, each in its own font: the column
@@ -1333,7 +1368,8 @@ export async function mountSheetClient(
 		}
 		next?.classList.add("active");
 		// The fill handle sits on the selection's bottom-right cell.
-		const corner = editable() ? cellAt(b.rowEnd, b.columnEnd) : undefined;
+		const corner =
+			editable() && !editing ? cellAt(b.rowEnd, b.columnEnd) : undefined;
 		if (corner) {
 			if (fillGrip.parentElement !== corner) corner.append(fillGrip);
 		} else fillGrip.remove();
@@ -1654,21 +1690,21 @@ export async function mountSheetClient(
 			helpPick = 0;
 			const call = callAt(input.value, caret);
 			if (!call) return closeHelp();
-			const { args, about } = FUNCTION_HELP[call.name]!;
+			const { signature: text, about } = FUNCTION_HELP[call.name]!;
+			const args = signatureArguments(text);
 			const signature = document.createElement("div");
 			signature.className = "sig";
 			signature.setAttribute("role", "note");
 			signature.append(`${call.name}(`);
+			// The argument being written; past the last, the last stays marked.
+			const current = Math.min(call.argument, args.length - 1);
 			args.forEach((arg, index) => {
 				if (index) signature.append(", ");
-				const repeating = arg === "…" || /\]$/.test(arg);
-				const current =
-					index === call.argument ||
-					(repeating && call.argument >= index && index === args.length - 1);
-				if (current) {
-					const bold = document.createElement("b");
-					bold.textContent = arg;
-					signature.append(bold);
+				if (index === current) {
+					const mark = document.createElement("span");
+					mark.className = "current";
+					mark.textContent = arg;
+					signature.append(mark);
 				} else signature.append(arg);
 			});
 			signature.append(")");
@@ -1690,17 +1726,171 @@ export async function mountSheetClient(
 		if (!input || !name) return;
 		const caret = input.selectionStart ?? input.value.length;
 		const next =
-			input.value.slice(0, helpStart) + name + "(" + input.value.slice(caret);
+			input.value.slice(0, helpStart) + name + "()" + input.value.slice(caret);
 		typeInto(input, next, helpStart + name.length + 1);
 		input.focus();
 		showHelp(input);
 	}
-	/** Give a formula input suggestions, argument hints and F4. */
+	/** Cycle the $ form of the reference at the caret: A1 → $A$1 → A$1 → $A1 → A1. */
+	function lockReference(input?: HTMLInputElement) {
+		if (!input || !input.value.startsWith("="))
+			return note("No cell reference selected");
+		const caret = input.selectionStart ?? input.value.length;
+		const next = cycleReference(input.value, caret);
+		if (!next) return note("Place the caret in a cell reference");
+		typeInto(input, next.text, next.caret);
+		input.focus();
+	}
+	/** The formula being written, in the cell or the formula bar, if any. */
+	const formulaInput = () =>
+		editing ??
+		(document.activeElement === formula
+			? (formula as HTMLInputElement)
+			: undefined);
+	/** Put a function in the formula being written, or start one in the active cell. */
+	function insertFunction(name: string) {
+		const input = formulaInput();
+		if (input && input.value.startsWith("=")) {
+			const start = input.selectionStart ?? input.value.length,
+				end = input.selectionEnd ?? start;
+			typeInto(
+				input,
+				input.value.slice(0, start) + name + "()" + input.value.slice(end),
+				start + name.length + 1,
+			);
+			input.focus();
+			return;
+		}
+		if (!editable()) return;
+		startEdit(`=${name}()`);
+		const cell = editing as HTMLInputElement | undefined;
+		cell?.setSelectionRange(name.length + 2, name.length + 2);
+	}
+	/** The Insert function menu: groups to open, a search box, Enter for the first match. */
+	function openFunctionMenu(owner: HTMLElement) {
+		popover(owner, "Insert function", "dialog", (panel, close) => {
+			panel.classList.add("fn-menu");
+			const search = document.createElement("input");
+			search.type = "search";
+			search.placeholder = "Search functions";
+			search.setAttribute("aria-label", "Search functions");
+			panel.append(search);
+			const groups = functionGroups(Object.keys(FUNCTION_HELP)).map(
+				({ name, functions }, index) => {
+					const group = document.createElement("section");
+					group.className = "fn-group";
+					const head = document.createElement("button");
+					head.type = "button";
+					head.className = "fn-head";
+					head.innerHTML =
+						'<span></span><small></small><i aria-hidden="true">›</i>';
+					head.children[0]!.textContent = name;
+					head.children[1]!.textContent = String(functions.length);
+					const items = functions.map((fn) => {
+						const item = document.createElement("button");
+						item.type = "button";
+						item.className = "fn-item";
+						item.innerHTML = "<span></span><small></small>";
+						item.children[0]!.textContent = fn;
+						item.children[1]!.textContent = FUNCTION_HELP[
+							fn
+						]!.signature.replace(/^[^(]*/, "").slice(0, 26);
+						item.onclick = () => {
+							close();
+							insertFunction(fn);
+						};
+						return { fn, item };
+					});
+					const list = document.createElement("div");
+					list.className = "fn-items";
+					list.append(...items.map(({ item }) => item));
+					const toggle = (open: boolean) => {
+						group.classList.toggle("open", open);
+						head.setAttribute("aria-expanded", String(open));
+					};
+					head.onclick = () => {
+						if (!search.value.trim()) toggle(!group.classList.contains("open"));
+					};
+					toggle(index === 0);
+					group.append(head, list);
+					panel.append(group);
+					return { group, toggle, items, first: index === 0 };
+				},
+			);
+			const empty = document.createElement("div");
+			empty.className = "fn-empty";
+			empty.textContent = "No matching functions";
+			empty.hidden = true;
+			panel.append(empty);
+			search.oninput = () => {
+				const query = search.value.trim().toUpperCase();
+				let found = 0;
+				for (const { group, toggle, items, first } of groups) {
+					let shown = 0;
+					for (const { fn, item } of items) {
+						const match = !query || fn.includes(query);
+						item.hidden = !match;
+						if (match) shown++;
+					}
+					group.hidden = !shown;
+					toggle(query ? true : first);
+					found += shown;
+				}
+				empty.hidden = !!found;
+			};
+			search.onkeydown = (event) => {
+				event.stopPropagation();
+				if (event.key !== "Enter" || !search.value.trim()) return;
+				event.preventDefault();
+				const first = groups
+					.flatMap(({ items }) => items)
+					.find(({ item }) => !item.hidden);
+				if (first) {
+					close();
+					insertFunction(first.fn);
+				}
+			};
+			requestAnimationFrame(() => search.focus());
+		});
+	}
+	const refMarks: Element[] = [];
+	/** Outline every range the formula being written refers to on this sheet. */
+	function markReferences(text: string) {
+		for (const cell of refMarks.splice(0)) cell.classList.remove("ref-range");
+		if (!text.startsWith("=")) return;
+		const pattern =
+			/(?:'[^']+'!|[A-Za-z0-9_]+!)?\$?([A-Za-z]{1,3})\$?(\d+)(?::\$?([A-Za-z]{1,3})\$?(\d+))?/g;
+		const index = (letters: string) =>
+			[...letters.toUpperCase()].reduce(
+				(sum, char) => sum * 26 + char.charCodeAt(0) - 64,
+				0,
+			) - 1;
+		for (const match of text.matchAll(pattern)) {
+			// References to other sheets are not on this grid.
+			if (match[0].includes("!")) continue;
+			const [, c1 = "", r1 = "", c2 = c1, r2 = r1] = match;
+			const top = Math.min(Number(r1), Number(r2)) - 1,
+				bottom = Math.max(Number(r1), Number(r2)) - 1,
+				left = Math.min(index(c1), index(c2)),
+				right = Math.max(index(c1), index(c2));
+			if (bottom - top > 500 || right - left > 100) continue;
+			for (let row = top; row <= bottom; row++)
+				for (let column = left; column <= right; column++) {
+					const cell = cellAt(row, column);
+					if (cell) {
+						cell.classList.add("ref-range");
+						refMarks.push(cell);
+					}
+				}
+		}
+	}
+	/** Give a formula input suggestions and argument hints. */
 	function assist(input: HTMLInputElement) {
 		const refresh = () => {
 			if (input.value.startsWith("=") && document.activeElement === input)
 				showHelp(input);
 			else if (helpFor === input) closeHelp();
+			markReferences(document.activeElement === input ? input.value : "");
 		};
 		input.addEventListener("input", refresh);
 		input.addEventListener("click", refresh);
@@ -1709,6 +1899,7 @@ export async function mountSheetClient(
 		});
 		input.addEventListener("blur", () => {
 			if (helpFor === input) closeHelp();
+			markReferences("");
 		});
 		// Runs before the input's own keys, so a picked suggestion is not also
 		// taken as Enter or Tab.
@@ -1716,13 +1907,14 @@ export async function mountSheetClient(
 			"keydown",
 			(event) => {
 				if (event.isComposing) return;
-				if (event.key === "F4") {
-					const caret = input.selectionStart ?? input.value.length;
-					const next = cycleReference(input.value, caret);
-					if (next) {
-						event.preventDefault();
-						typeInto(input, next.text, next.caret);
-					}
+				if (
+					(event.ctrlKey || event.metaKey) &&
+					event.shiftKey &&
+					event.key.toLowerCase() === "l"
+				) {
+					event.preventDefault();
+					event.stopImmediatePropagation();
+					lockReference(input);
 					return;
 				}
 				if (!helpNames.length || helpFor !== input) return;
@@ -3173,6 +3365,13 @@ export async function mountSheetClient(
 	}
 	formula.maxLength = 8192;
 	assist(formula as HTMLInputElement);
+	q("#fx").addEventListener("mousedown", (event) => event.preventDefault());
+	q("#lock-ref").addEventListener("mousedown", (event) =>
+		event.preventDefault(),
+	);
+	q("#fx").onclick = (event) =>
+		openFunctionMenu(event.currentTarget as HTMLElement);
+	q("#lock-ref").onclick = () => lockReference(formulaInput());
 	formula.oninput = () => {
 		if (!editable()) return;
 		formulaDirty = true;
