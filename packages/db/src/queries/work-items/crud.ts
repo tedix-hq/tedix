@@ -47,6 +47,7 @@ import {
 	workAttempts,
 	workEvents,
 	workItemComments,
+	workItemOrgCounts,
 	workItemProjections,
 	workItemRelations,
 	workItems,
@@ -413,8 +414,7 @@ export async function listWorkItemsPage(
 			: undefined;
 	if (executors && (executors.length < 1 || executors.length > 10))
 		throw new Error("Executor filter requires between 1 and 10 values");
-	const where = and(
-		eq(workItems.orgId, options.orgId),
+	const filters = [
 		options.projectId === undefined
 			? undefined
 			: options.projectId === null
@@ -508,7 +508,8 @@ export async function listWorkItemsPage(
 					sql`json_extract(${workItems.metadata}, '$.needsProject') = 1`,
 				)
 			: undefined,
-	);
+	];
+	const where = and(eq(workItems.orgId, options.orgId), ...filters);
 	// Runners take the most important ready task first: priority, then the
 	// nearest due date (undated last), then the oldest.
 	const listOrder = options.dispatchReadyOnly
@@ -527,10 +528,18 @@ export async function listWorkItemsPage(
 		.orderBy(...listOrder)
 		.limit(limit)
 		.offset(offset);
-	const [counted] = await db
-		.select({ total: sql<number>`count(*)` })
-		.from(workItems)
-		.where(where);
+	// With no filter the total is the organization's whole Work, which
+	// database triggers keep exact in one row; counting it read every Work
+	// Item of the organization (about 28,000 rows per call on 17 Nov 2026).
+	const [counted] = filters.some((filter) => filter !== undefined)
+		? await db
+				.select({ total: sql<number>`count(*)` })
+				.from(workItems)
+				.where(where)
+		: await db
+				.select({ total: workItemOrgCounts.total })
+				.from(workItemOrgCounts)
+				.where(eq(workItemOrgCounts.orgId, options.orgId));
 	return {
 		data: rows.map(normalizeWorkItemRow),
 		total: Number(counted?.total ?? 0),

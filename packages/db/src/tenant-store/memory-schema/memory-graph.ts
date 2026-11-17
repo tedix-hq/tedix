@@ -189,6 +189,15 @@ export const memoryFacts = sqliteTable(
 	],
 );
 
+/**
+ * The store's fact total, kept by the same triggers as in the main database
+ * (`MEMORY_FACT_ORG_COUNT_TRIGGERS`); a workspace store holds one organization.
+ */
+export const memoryFactOrgCounts = sqliteTable("memory_fact_org_counts", {
+	organizationId: text("organization_id").primaryKey(),
+	total: integer("total").notNull().default(0),
+});
+
 export const memoryEdges = sqliteTable(
 	"memory_edges",
 	{

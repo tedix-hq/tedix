@@ -296,6 +296,44 @@ export const memoryFacts = sqliteTable(
 	],
 );
 
+/**
+ * How many memory facts an organization has in this database. Database
+ * triggers (`MEMORY_FACT_ORG_COUNT_TRIGGERS`) keep `total` equal to the
+ * organization's rows on every insert and delete, including cascade deletes
+ * and writes that bypass the query helpers. The graph projection check reads
+ * its fact count here instead of counting every fact.
+ */
+export const memoryFactOrgCounts = sqliteTable("memory_fact_org_counts", {
+	organizationId: text("organization_id")
+		.primaryKey()
+		.references(() => organizations.id, { onDelete: "cascade" }),
+	total: integer("total").notNull().default(0),
+});
+
+/**
+ * The triggers behind `memory_fact_org_counts`, as their migration created
+ * them. Drizzle does not model triggers: tests that build `memory_facts` from
+ * the schema add these, and a test compares them with the migrated database.
+ */
+export const MEMORY_FACT_ORG_COUNT_TRIGGERS = [
+	`CREATE TRIGGER memory_fact_org_counts_insert AFTER INSERT ON memory_facts
+BEGIN
+  INSERT INTO memory_fact_org_counts (organization_id, total) VALUES (NEW.organization_id, 1)
+  ON CONFLICT(organization_id) DO UPDATE SET total = total + 1;
+END;`,
+	`CREATE TRIGGER memory_fact_org_counts_delete AFTER DELETE ON memory_facts
+BEGIN
+  UPDATE memory_fact_org_counts SET total = total - 1 WHERE organization_id = OLD.organization_id;
+END;`,
+	`CREATE TRIGGER memory_fact_org_counts_move AFTER UPDATE OF organization_id ON memory_facts
+WHEN OLD.organization_id != NEW.organization_id
+BEGIN
+  UPDATE memory_fact_org_counts SET total = total - 1 WHERE organization_id = OLD.organization_id;
+  INSERT INTO memory_fact_org_counts (organization_id, total) VALUES (NEW.organization_id, 1)
+  ON CONFLICT(organization_id) DO UPDATE SET total = total + 1;
+END;`,
+] as const;
+
 // ============================================================================
 // Memory Edges — Relationships between facts
 // ============================================================================

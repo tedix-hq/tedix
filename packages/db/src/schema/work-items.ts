@@ -406,6 +406,44 @@ export const workItems = sqliteTable(
 	],
 );
 
+/**
+ * How many Work Items an organization has. Database triggers
+ * (`WORK_ITEM_ORG_COUNT_TRIGGERS`) keep `total` equal to the organization's
+ * rows on every insert, delete and move between organizations, including
+ * cascade deletes and writes that bypass the query helpers. The unfiltered
+ * Work list reads its total here instead of counting every row.
+ */
+export const workItemOrgCounts = sqliteTable("work_item_org_counts", {
+	orgId: text("org_id")
+		.primaryKey()
+		.references(() => organizations.id, { onDelete: "cascade" }),
+	total: integer("total").notNull().default(0),
+});
+
+/**
+ * The triggers behind `work_item_org_counts`, as their migration created
+ * them. Drizzle does not model triggers: tests that build `work_items` from
+ * the schema add these, and a test compares them with the migrated database.
+ */
+export const WORK_ITEM_ORG_COUNT_TRIGGERS = [
+	`CREATE TRIGGER work_item_org_counts_insert AFTER INSERT ON work_items
+BEGIN
+  INSERT INTO work_item_org_counts (org_id, total) VALUES (NEW.org_id, 1)
+  ON CONFLICT(org_id) DO UPDATE SET total = total + 1;
+END;`,
+	`CREATE TRIGGER work_item_org_counts_delete AFTER DELETE ON work_items
+BEGIN
+  UPDATE work_item_org_counts SET total = total - 1 WHERE org_id = OLD.org_id;
+END;`,
+	`CREATE TRIGGER work_item_org_counts_move AFTER UPDATE OF org_id ON work_items
+WHEN OLD.org_id != NEW.org_id
+BEGIN
+  UPDATE work_item_org_counts SET total = total - 1 WHERE org_id = OLD.org_id;
+  INSERT INTO work_item_org_counts (org_id, total) VALUES (NEW.org_id, 1)
+  ON CONFLICT(org_id) DO UPDATE SET total = total + 1;
+END;`,
+] as const;
+
 export type WorkItem = Omit<
 	typeof workItems.$inferSelect,
 	"reviewerLeaseExpiresAt"

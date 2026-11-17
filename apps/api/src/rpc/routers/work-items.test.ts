@@ -1,10 +1,11 @@
 import { createD1Facade } from "@tedix/db/test/d1-facade";
-import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { maintainedTotalsDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
 	workCaseItems,
 	workCases,
 	workInteractions,
 } from "@tedix/db/schema/work-factory";
+import { workItems } from "@tedix/db/schema/work-items";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -127,6 +128,8 @@ function seed(row: {
 beforeEach(() => {
 	sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
+	// The unfiltered list total is read from the trigger-maintained row.
+	sqlite.exec(maintainedTotalsDdl(workItems));
 	sqlite.exec(schemaDdl(workInteractions));
 	sqlite.exec(schemaDdl(workCases));
 	sqlite.exec(schemaDdl(workCaseItems));

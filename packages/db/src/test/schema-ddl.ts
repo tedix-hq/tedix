@@ -28,8 +28,15 @@ import { organizations } from "../schema/organizations";
 import { projects } from "../schema/projects";
 import { tediObjectives } from "../schema/tedi-objectives";
 import {
+	MEMORY_FACT_ORG_COUNT_TRIGGERS,
+	memoryFactOrgCounts,
+	memoryFacts,
+} from "../schema/memory-graph";
+import {
+	WORK_ITEM_ORG_COUNT_TRIGGERS,
 	workAttempts,
 	workItemComments,
+	workItemOrgCounts,
 	workItemRelations,
 	workItems,
 } from "../schema/work-items";
@@ -185,7 +192,51 @@ export function schemaDdl(
 	const isOptions = !is(optionsOrTable, SQLiteTable);
 	const options = isOptions ? (optionsOrTable as TableDdlOptions) : {};
 	const list = isOptions ? tables : [optionsOrTable as SQLiteTableT, ...tables];
-	return list.flatMap((table) => tableDdl(table, options)).join("\n");
+	return list
+		.flatMap((table) => [
+			...tableDdl(table, options),
+			...maintainedTotalDdl(table, list),
+		])
+		.join("\n");
+}
+
+/**
+ * Tables whose per-organization total is kept by database triggers, which
+ * Drizzle does not model. A test double of such a table gets the total's table
+ * and triggers with it, so reads of the total see what production sees.
+ */
+const MAINTAINED_TOTALS = new Map<
+	SQLiteTable,
+	{ totals: SQLiteTable; triggers: readonly string[] }
+>([
+	[
+		workItems,
+		{ totals: workItemOrgCounts, triggers: WORK_ITEM_ORG_COUNT_TRIGGERS },
+	],
+	[
+		memoryFacts,
+		{ totals: memoryFactOrgCounts, triggers: MEMORY_FACT_ORG_COUNT_TRIGGERS },
+	],
+]);
+
+/**
+ * The totals table and triggers of a table a test double wrote by hand, to
+ * run after its own `CREATE TABLE`.
+ */
+export function maintainedTotalsDdl(table: SQLiteTable): string {
+	return maintainedTotalDdl(table, []).join("\n");
+}
+
+function maintainedTotalDdl(table: SQLiteTable, list: SQLiteTable[]): string[] {
+	const maintained = MAINTAINED_TOTALS.get(table);
+	if (!maintained) return [];
+	return [
+		// Without its foreign key: many doubles have no organizations table.
+		...(list.includes(maintained.totals)
+			? []
+			: tableDdl(maintained.totals, { foreignKeys: false })),
+		...maintained.triggers,
+	];
 }
 
 /** Current artifact-neutral Work factory schema for focused in-memory tests. */
