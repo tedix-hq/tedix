@@ -1674,9 +1674,9 @@ const retryExecutionProcedure = authedOs.retryExecution
 	});
 
 /**
- * Clear an approved owner call whose last run failed or was cut off. Only an
- * active owner or admin may; the dismissal is recorded on the request and in
- * the audit log, and the call never runs again.
+ * Clear an approved owner call whose continuation is queued or whose last run
+ * failed or was cut off. Only an active owner or admin may; the dismissal is
+ * recorded on the request and in the audit log, and the call never runs again.
  */
 const dismissExecutionProcedure = authedOs.dismissExecution
 	.use(AUTHZ.osApprove)
@@ -1724,7 +1724,7 @@ const dismissExecutionProcedure = authedOs.dismissExecution
 		if (!dismissed)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"Only an approved call whose last run failed or was cut off can be dismissed; a queued or running call keeps going",
+				"Only an approved call whose continuation is queued or whose last run failed or was cut off can be dismissed; a running call keeps going",
 			);
 		await insertAuditEvent(context.db, {
 			organizationId: existing.orgId,

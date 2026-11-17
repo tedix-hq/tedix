@@ -396,3 +396,27 @@ it("offers Dismiss instead of a Retry the server refuses", () => {
 	expect(html).toContain("Tedix will not run it again");
 	expect(html).toContain("Example tedi has to send this again");
 });
+
+it("offers Stop for a queued continuation", () => {
+	const html = renderPage(
+		[],
+		[
+			{
+				...runtimeRequest(1, 20),
+				status: "approved",
+				actionType: "mcp.tool_call",
+				payload: {
+					kind: "mcp_tool_call",
+					appSlug: "example-unified",
+					execution: {
+						status: "queued",
+						startedAt: new Date(Date.now() - HOUR).toISOString(),
+						nextAttemptAt: new Date(Date.now() + HOUR).toISOString(),
+					},
+				},
+			},
+		],
+	);
+	expect(html).toContain(">Stop<");
+	expect(html).not.toContain(">Dismiss<");
+});

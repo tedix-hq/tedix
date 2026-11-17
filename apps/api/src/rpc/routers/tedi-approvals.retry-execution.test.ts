@@ -362,6 +362,30 @@ describe("approved calls a retry cannot help", () => {
 		expect(mocks.executor).not.toHaveBeenCalled();
 	});
 
+	it("stops a queued continuation before the queue runs it again", async () => {
+		const fixture = createFixture();
+		await seedFailedCall(fixture, {
+			status: "queued",
+			startedAt: "2026-10-28T13:23:45.692Z",
+			nextAttemptAt: "2026-10-28T13:24:45.692Z",
+		});
+		const result = await client(fixture).dismissExecution({ id: APPROVAL_ID });
+		expect(result.payload.execution).toMatchObject({
+			status: "queued",
+			dismissedBy: "admin-2",
+		});
+		expect(
+			await runQueuedOwnerToolApprovals(
+				userContext({
+					db: fixture.db,
+					env: fixture.env,
+					organizationId: "org-1",
+				}),
+			),
+		).toBe(0);
+		expect(mocks.executor).not.toHaveBeenCalled();
+	});
+
 	it("does not dismiss a live run, and is for owners and admins only", async () => {
 		const live = createFixture();
 		await seedFailedCall(live, {
