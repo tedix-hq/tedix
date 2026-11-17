@@ -27,6 +27,7 @@ import { schemaDdl, tableDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	D1_ARCHIVE_PREFIX,
+	D1_RETENTION_SKIPS_PER_SWEEP,
 	runD1Retention,
 	withOverloadBackoff,
 } from "./d1-retention-archive";
@@ -588,10 +589,15 @@ describe("runD1Retention", () => {
 
 	it("resumes scanning past retained pages after the time budget and wraps to reconsider them", async () => {
 		const logs = logsFixture();
-		const { db, d1, seed, count, policy } = fixture(
-			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
+		const { db, d1, sqlite, seedRuntime, count, policy } = fixture(
+			"('tedi_runtime_events','move_to_logs_db',14,2000,'2026-10-21')",
 		);
-		seed([...Array.from({ length: 1000 }, () => 1), 120]);
+		// 1,000 rows the sweep may not skip: the database calls them older
+		// than the cutoff, but their timestamp cannot be read, so they stay.
+		seedRuntime([...Array.from({ length: 1000 }, () => 1), 120]);
+		sqlite.exec(
+			"UPDATE tedi_runtime_events SET created_at = '0000-invalid' WHERE id <> 'runtime-1000'",
+		);
 		const bucket = new MemoryBucket();
 		let clock = 0;
 		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock);
@@ -616,9 +622,9 @@ describe("runD1Retention", () => {
 				stoppedBy: "time_budget",
 				scanAfterRowid: 1000,
 			});
-			expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(
-				1000,
-			);
+			expect(
+				JSON.parse(policy("tedi_runtime_events").report).scanAfterRowid,
+			).toBe(1000);
 			// The next tick re-reads the head (nothing expired there) and then
 			// continues the sweep from rowid 1000 instead of rowid 0.
 			const second = await tick();
@@ -628,6 +634,50 @@ describe("runD1Retention", () => {
 				scanAfterRowid: -1,
 			});
 			expect(second.tables[0]?.timings.pages).toBe(2);
+			expect(count("tedi_runtime_events")).toBe(1000);
+		} finally {
+			mocked.mockRestore();
+			d1.prepare = prepare;
+		}
+	});
+
+	it("goes straight to an old row behind pages inside the keep window, then wraps", async () => {
+		const logs = logsFixture();
+		const { db, d1, seed, count, policy } = fixture(
+			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
+		);
+		seed([...Array.from({ length: 1000 }, () => 1), 120]);
+		const bucket = new MemoryBucket();
+		let clock = 0;
+		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock);
+		const prepare = d1.prepare.bind(d1);
+		const reads: string[] = [];
+		d1.prepare = (query) => {
+			// Each page read takes 1ms; the budget below fits three pages.
+			if (query.startsWith("SELECT") && query.includes("__rowid")) clock += 1;
+			if (/^select/i.test(query) && query.includes('"audit_events"'))
+				reads.push(query);
+			return prepare(query);
+		};
+		try {
+			// The head page and the first sweep page hold no old row. Walking
+			// on took the whole budget before; the index names row 1001 at once.
+			const first = await runD1Retention({
+				db,
+				logsDb: logs.db,
+				bucket: bucket as unknown as R2Bucket,
+				now: NOW,
+				timeBudgetMs: 4,
+			});
+			expect(first.tables[0]).toMatchObject({
+				deletedRows: 1,
+				stoppedBy: "done",
+				scanAfterRowid: -1,
+			});
+			expect(first.tables[0]?.timings.pages).toBe(3);
+			expect(reads.filter((query) => query.includes("+rowid >"))).toHaveLength(
+				1,
+			);
 			expect(count()).toBe(1000);
 		} finally {
 			mocked.mockRestore();
@@ -648,6 +698,131 @@ describe("runD1Retention", () => {
 		});
 		expect(later.deletedRows).toBe(1000);
 		expect(count()).toBe(0);
+	});
+
+	it("selects the rows a sweep that reads every page selects, in fewer pages", async () => {
+		// Old rows alone, in runs, behind long stretches inside the keep
+		// window and at the very end; unreadable and date-only timestamps
+		// among them; a row cap that takes several ticks.
+		const age = (index: number) =>
+			index < 180 ||
+			index % 331 === 0 ||
+			(index > 1700 && index < 1760) ||
+			index >= 3190
+				? 90
+				: 1;
+		const run = async (skipsPerSweep: number) => {
+			const logs = logsFixture();
+			const { db, seedRuntime, sqlite, count } = fixture(
+				"('tedi_runtime_events','move_to_logs_db',14,400,'2026-10-21')",
+			);
+			seedRuntime(Array.from({ length: 3200 }, (_, index) => age(index)));
+			sqlite.exec(
+				`UPDATE tedi_runtime_events SET created_at = '0000-invalid' WHERE id IN ('runtime-5', 'runtime-1720', 'runtime-2500', 'runtime-3195');
+				 UPDATE tedi_runtime_events SET created_at = '2026-07-01' WHERE id IN ('runtime-9', 'runtime-2600');
+				 UPDATE tedi_runtime_events SET created_at = '2026-07-01 08:00:00' WHERE id IN ('runtime-11', 'runtime-2900');
+				 DELETE FROM tedi_runtime_events WHERE id IN ('runtime-600', 'runtime-601', 'runtime-1730');`,
+			);
+			const bucket = new MemoryBucket();
+			let pages = 0;
+			const deletedPerTick: number[] = [];
+			// Until two ticks in a row move nothing: every sweep has wrapped.
+			while (deletedPerTick.slice(-2).join() !== "0,0") {
+				const result = await runD1Retention({
+					db,
+					logsDb: logs.db,
+					bucket: bucket as unknown as R2Bucket,
+					now: NOW,
+					skipsPerSweep,
+				});
+				expect(result.tables[0]?.error).toBeUndefined();
+				pages += result.tables[0]!.timings.pages;
+				deletedPerTick.push(result.deletedRows);
+				expect(deletedPerTick.length).toBeLessThan(40);
+			}
+			const ids = (database: DatabaseSync) =>
+				(
+					database
+						.prepare("SELECT id FROM tedi_runtime_events ORDER BY id")
+						.all() as Array<{ id: string }>
+				).map((row) => row.id);
+			const archived = (
+				await Promise.all([...bucket.objects.values()].map(gunzipLines))
+			)
+				.flat()
+				.map((line) => JSON.parse(line).id as string)
+				.sort();
+			return {
+				kept: ids(sqlite),
+				moved: ids(logs.sqlite),
+				archived,
+				remaining: count("tedi_runtime_events"),
+				pages,
+				ticks: deletedPerTick.length,
+			};
+		};
+		const everyPage = await run(0);
+		const skipping = await run(D1_RETENTION_SKIPS_PER_SWEEP);
+		expect(skipping.kept).toEqual(everyPage.kept);
+		expect(skipping.moved).toEqual(everyPage.moved);
+		expect(skipping.archived).toEqual(everyPage.archived);
+		// 180 + 9 + 59 + 10 old rows, less the unreadable and deleted ones.
+		expect(skipping.moved).toHaveLength(everyPage.moved.length);
+		expect(skipping.moved.length).toBeGreaterThan(240);
+		expect(skipping.archived).toEqual(skipping.moved);
+		for (const id of [
+			"runtime-5",
+			"runtime-1720",
+			"runtime-2500",
+			"runtime-3195",
+			"runtime-100000",
+		])
+			expect(skipping.moved, id).not.toContain(id);
+		for (const id of [
+			"runtime-9",
+			"runtime-2600",
+			"runtime-11",
+			"runtime-2900",
+		])
+			expect(skipping.moved, id).toContain(id);
+		expect(skipping.kept).toContain("runtime-2500");
+		expect(skipping.pages).toBeLessThan(everyPage.pages);
+		expect(skipping.ticks).toBeLessThanOrEqual(everyPage.ticks);
+	});
+
+	it("reads page after page again once a sweep has used its skips", async () => {
+		const logs = logsFixture();
+		const { db, d1, seedRuntime, count } = fixture(
+			"('tedi_runtime_events','move_to_logs_db',14,5000,'2026-10-21')",
+		);
+		// Six old rows, each behind 1,100 rows inside the keep window: more
+		// stretches without an old row than the sweep may skip.
+		seedRuntime(
+			Array.from({ length: 6 * 1101 }, (_, index) =>
+				index % 1101 === 1100 ? 90 : 1,
+			),
+		);
+		const prepare = d1.prepare.bind(d1);
+		let skips = 0;
+		d1.prepare = (query) => {
+			if (query.includes("+rowid >")) skips += 1;
+			return prepare(query);
+		};
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: new MemoryBucket() as unknown as R2Bucket,
+			now: NOW,
+			skipsPerSweep: 2,
+		});
+		d1.prepare = prepare;
+		expect(skips).toBe(2);
+		expect(result.tables[0]).toMatchObject({
+			deletedRows: 6,
+			stoppedBy: "done",
+			scanAfterRowid: -1,
+		});
+		expect(count("tedi_runtime_events")).toBe(6 * 1100);
 	});
 
 	it("moves rows that expired at the head while the sweep is parked in retained rows", async () => {
@@ -679,9 +854,10 @@ describe("runD1Retention", () => {
 			scanAfterRowid: -1,
 		});
 		// Head: rows 1-500 (moved 100) and 501-1000 (nothing). Sweep: resumed
-		// at 1500 (rows 1501-2000, then the empty page that marks the end), so
-		// rows 1001-1500 were not read again this tick.
-		expect(result.tables[0]?.timings.pages).toBe(4);
+		// at 1500 (rows 1501-2000, all inside the keep window; the index has
+		// no old row after them, which ends the sweep), so rows 1001-1500
+		// were not read again this tick.
+		expect(result.tables[0]?.timings.pages).toBe(3);
 		expect(count()).toBe(1900);
 		expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(-1);
 	});

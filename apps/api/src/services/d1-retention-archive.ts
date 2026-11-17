@@ -16,7 +16,10 @@
  * waiting behind tables that only re-check retained rows. The rest of the
  * tick continues each long sweep through retained rows from the rowid saved
  * in `last_report` (`scanAfterRowid`), so out-of-order old rows are still
- * found and a completed sweep wraps to reconsider retained rows. If a run stops
+ * found and a completed sweep wraps to reconsider retained rows. A sweep does
+ * not read its way through rows that are all inside the keep window: after a
+ * page without one old row it asks the timestamp index where the next old row
+ * is and continues there, or ends if there is none. If a run stops
  * between the R2 write and the delete, the next tick rewrites the same rows
  * to the same deterministic key before deleting them.
  *
@@ -52,6 +55,8 @@ import {
 	hasD1RetentionExpiredRows,
 	isD1RetentionExpired,
 	listActiveD1RetentionPolicies,
+	mayBeOlderThanD1RetentionCutoff,
+	nextD1RetentionOldRowid,
 	readD1RetentionPage,
 	recordD1RetentionRun,
 	verifyD1LogsCopy,
@@ -217,7 +222,17 @@ interface ExpiredChunk {
 	referencedRows: number;
 	afterRowid: number;
 	reachedEnd: boolean;
+	/** The page held a row the database would call older than the cutoff. */
+	hasOldRow: boolean;
 }
+
+/**
+ * How often one table's sweep may ask the index for the next old row in a
+ * tick. Each question reads every index entry older than the cutoff, so a
+ * table whose old rows lie scattered among newer ones falls back to reading
+ * page after page, as every sweep used to.
+ */
+export const D1_RETENTION_SKIPS_PER_SWEEP = 8;
 
 /** Read one page after the cursor; keep its expired rows, retain newer and invalid timestamps. */
 async function readExpiredChunk(
@@ -244,6 +259,9 @@ async function readExpiredChunk(
 		afterRowid: page[page.length - 1]?.__rowid ?? afterRowid,
 		// A short page is the end of the table as of this read.
 		reachedEnd: page.length < limit,
+		hasOldRow: page.some((row) =>
+			mayBeOlderThanD1RetentionCutoff(row[tableSpec.timestamp.name], cutoff),
+		),
 	};
 }
 
@@ -430,6 +448,7 @@ async function movePages(
 	deadline: number,
 	turn: PolicyTurn,
 	phase: "head" | "sweep",
+	skipsPerSweep: number,
 ): Promise<void> {
 	const { result } = turn;
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
@@ -457,6 +476,7 @@ async function movePages(
 		return pending;
 	};
 	let next: Promise<ExpiredChunk> | null = null;
+	let skips = 0;
 	try {
 		while (true) {
 			const remaining = rowCap - result.deletedRows;
@@ -472,11 +492,8 @@ async function movePages(
 				next ??
 				read(readAfterRowid, Math.min(D1_ARCHIVE_CHUNK_ROWS, remaining));
 			next = null;
-			const { rows, referencedRows, afterRowid, reachedEnd } = await timed(
-				timings,
-				"readMs",
-				() => pending,
-			);
+			const { rows, referencedRows, afterRowid, reachedEnd, hasOldRow } =
+				await timed(timings, "readMs", () => pending);
 			timings.pages += 1;
 			result.referencedRows += referencedRows;
 			if (phase === "head" && rows.length === 0) {
@@ -488,6 +505,26 @@ async function movePages(
 				break;
 			}
 			readAfterRowid = afterRowid;
+			if (!hasOldRow && !reachedEnd && skips < skipsPerSweep) {
+				// Every row of this page is inside the keep window, and so may
+				// be the pages after it. Continue at the next old row instead of
+				// reading up to it; none left ends the sweep, as reaching the
+				// end of the table does.
+				skips += 1;
+				const nextOldRowid = await timed(timings, "readMs", () =>
+					withOverloadBackoff(
+						() => nextD1RetentionOldRowid(db, tableSpec, cutoff, afterRowid),
+						deadline,
+					),
+				);
+				if (nextOldRowid === null) {
+					result.scanAfterRowid = -1;
+					break;
+				}
+				readAfterRowid = nextOldRowid - 1;
+				result.scanAfterRowid = readAfterRowid;
+				continue;
+			}
 			// The next page has higher rowids than every row this one may
 			// delete, so it is read while this page is copied and deleted.
 			const nextLimit = Math.min(
@@ -613,7 +650,10 @@ export async function runD1Retention(params: {
 	bucket?: R2Bucket;
 	now: Date;
 	timeBudgetMs?: number;
+	/** Default `D1_RETENTION_SKIPS_PER_SWEEP`; 0 reads every page of a sweep. */
+	skipsPerSweep?: number;
 }): Promise<D1RetentionRunResult> {
+	const skipsPerSweep = params.skipsPerSweep ?? D1_RETENTION_SKIPS_PER_SWEEP;
 	const deadline = Date.now() + (params.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS);
 	const policies = await listActiveD1RetentionPolicies(params.db);
 	const shareOf = (remainingTables: number) => {
@@ -675,6 +715,7 @@ export async function runD1Retention(params: {
 				tableDeadline,
 				turn,
 				"head",
+				skipsPerSweep,
 			);
 		}
 	}
@@ -689,6 +730,7 @@ export async function runD1Retention(params: {
 			shareOf(sweeping.length - index),
 			turn,
 			"sweep",
+			skipsPerSweep,
 		);
 	}
 	const tables = turns.map((turn) => turn.result);
