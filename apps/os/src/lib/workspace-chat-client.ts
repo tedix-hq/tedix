@@ -5,7 +5,9 @@
  * folds replay and live frames through the same reducer, and when the socket
  * drops it reconnects on the shared backoff ladder (`nextBackoffDelayMs`) with
  * the cursor it already has. Nothing is lost on a drop: the object replays the
- * gap. The UI shows "Reconnecting" while this runs and never a dead end.
+ * gap, in pages when the gap is large (`replay.more`), and this side asks for
+ * each next page. The UI shows "Reconnecting" while this runs and never a dead
+ * end.
  *
  * A connection counts as open only once the object answered `hello` (the
  * reference runtime proves each candidate with a ping before trusting it). A
@@ -136,6 +138,13 @@ export function createWorkspaceChatClient(
 	let state = initialWorkspaceChatState(conversationId);
 	let connection: WorkspaceChatConnection = { phase: "connecting", attempt: 0 };
 	let catchingUp = true;
+	/**
+	 * How far a paged replay has come, until it is caught up. Live frames arrive
+	 * between its pages and move `state.cursor` past events not replayed yet, so
+	 * a drop in the middle resumes from here instead.
+	 */
+	let replayCursor: number | null = null;
+	const resumeCursor = () => replayCursor ?? state.cursor;
 	let snapshot: WorkspaceChatSnapshot = { state, connection, catchingUp };
 	const listeners = new Set<() => void>();
 
@@ -275,13 +284,12 @@ export function createWorkspaceChatClient(
 		if (closed) return;
 		if (connection.phase !== "reconnecting")
 			setConnection({ phase: "connecting", attempt });
+		const from = resumeCursor();
 		let candidate: SocketLike;
 		try {
 			// The cursor rides on the URL too, so the object can start its replay
 			// before the first frame arrives.
-			candidate = createSocket(
-				state.cursor === null ? url : `${url}?after=${state.cursor}`,
-			);
+			candidate = createSocket(from === null ? url : `${url}?after=${from}`);
 		} catch {
 			scheduleReconnect();
 			return;
@@ -293,7 +301,7 @@ export function createWorkspaceChatClient(
 			if (socket !== candidate) return;
 			sawOpen = true;
 			// Subscribe before anything else, so no frame falls into a gap.
-			send({ type: "subscribe", conversationId, cursor: state.cursor });
+			send({ type: "subscribe", conversationId, cursor: from });
 			helloTimer = setTimeoutFn(() => {
 				helloTimer = null;
 				if (socket === candidate) dropSocket("no hello");
@@ -394,6 +402,7 @@ export function createWorkspaceChatClient(
 					draftEvents = [];
 					completedSteps.clear();
 					notifiedOutputSteps.clear();
+					replayCursor = null;
 					send({ type: "subscribe", conversationId, cursor: null });
 				}
 				state = {
@@ -408,8 +417,14 @@ export function createWorkspaceChatClient(
 			}
 			case "caught_up":
 				if (message.conversationId !== conversationId) return;
+				replayCursor = null;
 				catchingUp = false;
 				publish();
+				return;
+			case "replay.more":
+				if (message.conversationId !== conversationId) return;
+				replayCursor = message.cursor;
+				send({ type: "subscribe", conversationId, cursor: message.cursor });
 				return;
 			case "turn.accepted": {
 				outbox.delete(message.clientTurnId);
@@ -424,6 +439,7 @@ export function createWorkspaceChatClient(
 					);
 					notifyOutputChanges(draftEvents);
 					draftEvents = [];
+					replayCursor = null;
 					send({ type: "subscribe", conversationId, cursor: state.cursor });
 				}
 				publish();
@@ -479,6 +495,7 @@ export function createWorkspaceChatClient(
 					conversations: state.conversations,
 					models: state.models,
 				};
+				replayCursor = null;
 				send({ type: "subscribe", conversationId: null, cursor: state.cursor });
 			}
 			const clientTurnId = newId();

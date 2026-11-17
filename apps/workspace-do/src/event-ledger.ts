@@ -22,6 +22,19 @@ CREATE INDEX IF NOT EXISTS events_turn_at ON events(turn_id, at);
 /** Retain this many events; older rows are trimmed when the object is idle. */
 export const EVENT_RETENTION = 100_000;
 
+/**
+ * The most event-body characters one replay or history page carries. A write
+ * step keeps the whole written file in its event, so a busy chat reaches tens
+ * of megabytes; loading that in one read exceeds the object's memory.
+ */
+export const EVENT_PAGE_CHARS = 4_000_000;
+
+export interface EventPage {
+	events: WireEvent[];
+	/** Events remain beyond this page, in the direction it was read. */
+	more: boolean;
+}
+
 interface EventRow {
 	seq: number;
 	conversation_id: string;
@@ -68,26 +81,27 @@ export class SqlEventLedger {
 		return event;
 	}
 
-	/** Events after `afterSeq`, oldest first; one conversation or all. */
+	/**
+	 * Events after `afterSeq`, oldest first; one conversation or all. Stops at
+	 * `EVENT_PAGE_CHARS`, so a caller that needs the rest asks again from the
+	 * last seq it received.
+	 */
 	replay(
 		afterSeq: number,
 		conversationId: string | null,
 		limit = 1_000,
 	): WireEvent[] {
-		const bounded = Math.min(Math.max(limit, 1), 5_000);
-		const rows = conversationId
-			? this.storage.exec<EventRow>(
-					"SELECT * FROM events WHERE conversation_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?",
-					conversationId,
-					afterSeq,
-					bounded,
-				)
-			: this.storage.exec<EventRow>(
-					"SELECT * FROM events WHERE seq > ? ORDER BY seq ASC LIMIT ?",
-					afterSeq,
-					bounded,
-				);
-		return rows.map(rowToEvent);
+		return this.replayPage(afterSeq, conversationId, limit).events;
+	}
+
+	/** One bounded step of a replay; `more` says events remain after it. */
+	replayPage(
+		afterSeq: number,
+		conversationId: string | null,
+		limit = 1_000,
+		maxChars = EVENT_PAGE_CHARS,
+	): EventPage {
+		return this.#page("after", afterSeq, conversationId, limit, maxChars);
 	}
 
 	/** The newest events before `beforeSeq` (history paging), oldest first. */
@@ -96,15 +110,64 @@ export class SqlEventLedger {
 		beforeSeq: number | null,
 		limit = 500,
 	): WireEvent[] {
+		return this.historyPage(conversationId, beforeSeq, limit).events;
+	}
+
+	/** One bounded history page; `more` says older events remain before it. */
+	historyPage(
+		conversationId: string,
+		beforeSeq: number | null,
+		limit = 500,
+		maxChars = EVENT_PAGE_CHARS,
+	): EventPage {
+		return this.#page(
+			"before",
+			beforeSeq ?? Number.MAX_SAFE_INTEGER,
+			conversationId,
+			limit,
+			maxChars,
+		);
+	}
+
+	/**
+	 * Sizes are read first, so only the bodies that fit are loaded. A single
+	 * event larger than the budget is still returned, alone.
+	 */
+	#page(
+		direction: "after" | "before",
+		seq: number,
+		conversationId: string | null,
+		limit: number,
+		maxChars: number,
+	): EventPage {
 		const bounded = Math.min(Math.max(limit, 1), 5_000);
-		return this.storage
-			.exec<EventRow>(
-				"SELECT * FROM (SELECT * FROM events WHERE conversation_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?) ORDER BY seq ASC",
-				conversationId,
-				beforeSeq ?? Number.MAX_SAFE_INTEGER,
-				bounded,
-			)
-			.map(rowToEvent);
+		const scope = conversationId ? "conversation_id = ? AND " : "";
+		const scopeParams = conversationId ? [conversationId] : [];
+		const sizes = this.storage.exec<{ seq: number; size: number }>(
+			direction === "after"
+				? `SELECT seq, LENGTH(body) AS size FROM events WHERE ${scope}seq > ? ORDER BY seq ASC LIMIT ?`
+				: `SELECT seq, LENGTH(body) AS size FROM events WHERE ${scope}seq < ? ORDER BY seq DESC LIMIT ?`,
+			...scopeParams,
+			seq,
+			bounded + 1,
+		);
+		let taken = 0;
+		let chars = 0;
+		for (const row of sizes) {
+			if (taken === bounded || (taken > 0 && chars + row.size > maxChars))
+				break;
+			chars += row.size;
+			taken += 1;
+		}
+		const edge = sizes[taken - 1]?.seq;
+		if (edge === undefined) return { events: [], more: false };
+		const rows = this.storage.exec<EventRow>(
+			`SELECT * FROM events WHERE ${scope}seq >= ? AND seq <= ? ORDER BY seq ASC`,
+			...scopeParams,
+			direction === "after" ? seq + 1 : edge,
+			direction === "after" ? edge : seq - 1,
+		);
+		return { events: rows.map(rowToEvent), more: taken < sizes.length };
 	}
 
 	latestSeq(): number {

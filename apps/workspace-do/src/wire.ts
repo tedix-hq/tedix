@@ -130,6 +130,15 @@ export type WireControlFrame =
 	  }
 	| { type: "caught_up"; cursor: number; conversationId: string | null }
 	| {
+			/**
+			 * The replay stopped at `cursor` with events still to come. The client
+			 * subscribes again from it, so no page outgrows the object's memory.
+			 */
+			type: "replay.more";
+			cursor: number;
+			conversationId: string | null;
+	  }
+	| {
 			type: "ledger.page";
 			conversationId: string;
 			events: WireEvent[];

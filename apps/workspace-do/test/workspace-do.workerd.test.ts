@@ -53,6 +53,7 @@ import {
 	listWorkspaceActivity,
 } from "@tedix/db/queries/workspace-feed/read";
 import { storeOutputBody, TenantDataPort } from "../src/data-port-tenant";
+import { EVENT_PAGE_CHARS } from "../src/event-ledger";
 import {
 	getOsAppEditDraft,
 	decideOsCollaborationProposal,
@@ -2318,6 +2319,199 @@ describe("WorkspaceDO", () => {
 				.filter((frame) => typeof frame.seq === "number")
 				.every((frame) => Number(frame.seq) > started.seq),
 		).toBe(true);
+	});
+
+	test("a chat whose history is tens of megabytes replays in bounded pages", async () => {
+		await seedCore();
+		const scope = {
+			organizationId: "org_large_ledger",
+			workspaceId: crypto.randomUUID(),
+		};
+		await seedWorkspaceRows([scope]);
+		const ws = workspace(scope);
+		await ws.scriptModel(scope, [{ text: "A short answer." }]);
+		const started = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Edit the deck",
+		});
+		await ws.awaitTurn(scope, started.turnId, 20_000);
+		const conversationId = started.conversationId;
+		// Each write of a 1.2 MB deck leaves its whole payload in the ledger
+		// twice: the step and its approval request. Twenty writes are 48 MB.
+		const deck = "d".repeat(1_200_000);
+		await runInDurableObject(
+			ws as unknown as DurableObjectStub,
+			(_instance, state) => {
+				for (let write = 0; write < 20; write += 1) {
+					const stepId = `write-${write}`;
+					for (const body of [
+						{
+							type: "step.started",
+							turnId: started.turnId,
+							stepId,
+							label: "Saving a presentation revision",
+							kind: "write",
+							tool: "presentations.replace",
+							input: { deck },
+						},
+						{
+							type: "approval.requested",
+							turnId: started.turnId,
+							stepId,
+							approvalId: `approval-${write}`,
+							title: "Save the deck",
+							reason: "fixture",
+							input: { deck },
+						},
+						{
+							type: "step.finished",
+							turnId: started.turnId,
+							stepId,
+							status: "ok",
+							durationMs: 1,
+						},
+					])
+						state.storage.sql.exec(
+							"INSERT INTO events (conversation_id, turn_id, at, type, body) VALUES (?, ?, ?, ?, ?)",
+							conversationId,
+							started.turnId,
+							"2026-11-16T09:30:00.000Z",
+							body.type,
+							JSON.stringify(body),
+						);
+				}
+			},
+		);
+
+		const open = async (query: string) => {
+			const socket = (
+				await ws.fetch(
+					new Request(`https://workspace.test/subscribe${query}`, {
+						headers: {
+							Upgrade: "websocket",
+							"X-Workspace-Org": scope.organizationId,
+							"X-Workspace-Id": scope.workspaceId,
+							"X-Workspace-Actor-Id": "u1",
+						},
+					}),
+				)
+			).webSocket;
+			if (!socket) throw new Error("upgrade did not return a WebSocket");
+			const frames: Record<string, unknown>[] = [];
+			socket.addEventListener("message", (event) => {
+				frames.push(JSON.parse(String(event.data)));
+			});
+			socket.accept();
+			/** Index of the first frame at or after `from` with one of `types`. */
+			const until = (from: number, ...types: string[]) =>
+				vi.waitFor(
+					() => {
+						const index = frames.findIndex(
+							(frame, at) => at >= from && types.includes(String(frame.type)),
+						);
+						if (index < 0) throw new Error(`waiting for ${types.join("/")}`);
+						return index;
+					},
+					{ timeout: 10_000 },
+				);
+			return { socket, frames, until };
+		};
+		const chars = (frames: Record<string, unknown>[]) =>
+			frames
+				.filter((frame) => typeof frame.seq === "number")
+				.reduce((total, frame) => total + JSON.stringify(frame).length, 0);
+		const seqs = (frames: Record<string, unknown>[]) =>
+			frames
+				.filter((frame) => typeof frame.seq === "number")
+				.map((frame) => Number(frame.seq));
+		// One event may overshoot the budget; a page never holds a second one.
+		const pageLimit = EVENT_PAGE_CHARS + 1_300_000;
+
+		// A tab that reconnects with an old cursor: the whole gap, page by page.
+		const stale = await open("?after=0");
+		try {
+			expect(await stale.until(0, "hello")).toBe(0);
+			const latest = Number(stale.frames[0]?.cursor);
+			let from = 0;
+			let pages = 0;
+			for (;;) {
+				const mark = await stale.until(from, "replay.more", "caught_up");
+				expect(chars(stale.frames.slice(from, mark))).toBeLessThan(pageLimit);
+				const frame = stale.frames[mark]!;
+				from = mark + 1;
+				if (frame.type === "caught_up") break;
+				pages += 1;
+				expect(frame.cursor).toBe(seqs(stale.frames).at(-1));
+				stale.socket.send(
+					JSON.stringify({
+						type: "subscribe",
+						conversationId: null,
+						cursor: frame.cursor,
+					}),
+				);
+			}
+			expect(pages).toBeGreaterThan(5);
+			// Nothing lost, nothing sent twice, in order.
+			expect(seqs(stale.frames)).toEqual(
+				Array.from({ length: latest }, (_, index) => index + 1),
+			);
+		} finally {
+			stale.socket.close(1000, "test complete");
+		}
+
+		// A new tab on the conversation: its newest page, then earlier on request.
+		const fresh = await open("");
+		try {
+			fresh.socket.send(
+				JSON.stringify({ type: "subscribe", conversationId, cursor: null }),
+			);
+			const done = await fresh.until(0, "caught_up");
+			const first = fresh.frames.slice(0, done);
+			const shown = seqs(first);
+			expect(chars(first)).toBeLessThan(pageLimit);
+			expect(shown.at(-1)).toBe(fresh.frames[0]?.cursor);
+			expect(shown[0]).toBeGreaterThan(1);
+			expect(first).toContainEqual({
+				type: "ledger.page",
+				conversationId,
+				events: [],
+				hasMore: true,
+			});
+			fresh.socket.send(
+				JSON.stringify({
+					type: "read_ledger",
+					conversationId,
+					before: shown[0],
+					limit: 40,
+				}),
+			);
+			const earlier = fresh.frames[await fresh.until(done, "ledger.page")] as {
+				events: Array<{ seq: number }>;
+				hasMore: boolean;
+			};
+			expect(JSON.stringify(earlier.events).length).toBeLessThan(pageLimit);
+			expect(earlier.events.at(-1)?.seq).toBe(shown[0]! - 1);
+			expect(earlier.hasMore).toBe(true);
+		} finally {
+			fresh.socket.close(1000, "test complete");
+		}
+
+		// A new tab on no conversation has nothing to fold: no replay at all.
+		const blank = await open("");
+		try {
+			blank.socket.send(
+				JSON.stringify({
+					type: "subscribe",
+					conversationId: null,
+					cursor: null,
+				}),
+			);
+			const done = await blank.until(0, "caught_up");
+			expect(seqs(blank.frames.slice(0, done))).toEqual([]);
+		} finally {
+			blank.socket.close(1000, "test complete");
+		}
 	});
 
 	test("the MCP entry negotiates discovery, lists tools and completes a workspace turn", async () => {

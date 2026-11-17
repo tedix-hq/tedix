@@ -24,6 +24,8 @@ export type WorkspaceLogFields = {
 	cursor: number;
 	replayEvents: number;
 	replayBytes: number;
+	/** The replay stopped at its size budget; the client asks for the rest. */
+	replayMore: boolean;
 	historyMessages: number;
 	historyBytes: number;
 	isolated: boolean;
