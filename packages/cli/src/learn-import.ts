@@ -129,6 +129,29 @@ export function humanText(raw: string): string | null {
 	return text;
 }
 
+const HOST_BLOCK =
+	/<(pasted_content|system-reminder|task-notification|user-prompt-submit-hook|command-(?:name|message|args)|local-command-(?:stdout|stderr|caveat)|bash-(?:input|stdout|stderr))\b[^>]*>[\s\S]*?(?:<\/\1>|$)/g;
+
+/**
+ * What is left of a submitted prompt that `humanText` dropped, when the person
+ * may still have typed an ask in it: inside a code fence or a tag pair, or
+ * beside a pasted log. Null for host blocks, host phrases and test prompts.
+ */
+export function typedRemainder(raw: string): string | null {
+	const text = raw
+		.replace(HOST_BLOCK, "")
+		.replace(/<image [^>]*>/g, "")
+		.trim();
+	if (
+		!/[\p{L}\p{N}]/u.test(text) ||
+		/^\[Request interrupted/.test(text) ||
+		META_PROMPT.test(text) ||
+		INJECTED.test(text.replace(/^(?:\s|<[^>\n]*>|```[\w-]*|[<{[>])+/, ""))
+	)
+		return null;
+	return text;
+}
+
 /** A reply long enough to teach something on its own. */
 export function humanReply(raw: string): string | null {
 	const text = humanText(raw);

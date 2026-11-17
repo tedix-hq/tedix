@@ -6,6 +6,7 @@ import { deliveryHashes } from "./context-delivery";
 import type { JsonObject } from "./hook-io";
 import { gatewayCode, openRequestLines, render } from "./prompt-context";
 import {
+	FILTERED_MARK,
 	ledgerText,
 	runRequestLedger,
 	readTurnTranscript,
@@ -187,6 +188,49 @@ describe("session event upload", () => {
 			],
 		]);
 		expect(outbox()).toEqual([]);
+	});
+
+	test("uploads an ask typed wholly inside a code fence or a tag pair", async () => {
+		for (const prompt of [
+			"```\nPlease rename the login route to /signin\n```",
+			"<request>Please rename the login route to /signin</request>",
+		]) {
+			const [batch] = await run("prompt", { prompt });
+			expect(batch).toHaveLength(1);
+			expect(batch![0]!.kind).toBe("prompt");
+			expect(batch![0]!.text).toStartWith(FILTERED_MARK);
+			expect(batch![0]!.text).toContain("rename the login route to /signin");
+		}
+	});
+
+	test("uploads a short ask below a long pasted log, redacted and bounded", async () => {
+		const log = Array.from(
+			{ length: 200 },
+			(_, index) =>
+				`2026-10-06T10:00:${String(index % 60).padStart(2, "0")}Z error worker ${index} failed token=supersecretvalue123`,
+		).join("\n");
+		const [batch] = await run("prompt", {
+			prompt: `${log}\nwhy does the worker keep failing? fix it`,
+		});
+		expect(batch).toHaveLength(1);
+		const text = String(batch![0]!.text);
+		expect(text).toStartWith(FILTERED_MARK);
+		expect(text).toEndWith("why does the worker keep failing? fix it");
+		expect(text).not.toContain("supersecretvalue123");
+		expect(text.length).toBeLessThan(2200);
+	});
+
+	test("host blocks, pastes and test prompts stay out of the fallback", () => {
+		for (const prompt of [
+			"<system-reminder>Follow the rules</system-reminder>",
+			"<pasted_content>some pasted file",
+			"<command-name>/clear</command-name>",
+			"```\n---\n```",
+			"[Request interrupted by user]",
+			"```\nReply only with OK\n```",
+			"<note>This session is being continued from before</note>",
+		])
+			expect(ledgerText("prompt", { prompt })).toBeUndefined();
 	});
 
 	test("keeps a failed upload and sends it with the next event", async () => {
