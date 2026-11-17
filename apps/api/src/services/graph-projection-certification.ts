@@ -13,11 +13,15 @@ import {
 	GRAPH_PROJECTION_EDGE_SAMPLE_LIMIT,
 	GRAPH_PROJECTION_LIFECYCLE_SAMPLE_LIMIT,
 	GRAPH_PROJECTION_SAMPLE_LIMIT,
+	type GraphProjectionManagedCountAttempt,
 	type GraphProjectionManagedCounts,
+	clearGraphProjectionManagedCountAttempt,
 	getGraphProjectionCanonicalEdgeSample,
 	getGraphProjectionCanonicalLifecycleSample,
 	getGraphProjectionCanonicalManagedCounts,
 	getGraphProjectionCanonicalSample,
+	getGraphProjectionManagedCountAttempt,
+	recordGraphProjectionManagedCountAttempt,
 } from "@tedix/db/queries/graph-projection-health";
 import { getGraphClient } from "../integrations/graph-db/client";
 import {
@@ -51,6 +55,13 @@ export type GraphProjectionInspection = {
 	edges: GraphProjectionEdgeDiagnostic;
 	lifecycle: GraphProjectionLifecycleDiagnostic;
 	managedCounts: GraphProjectionManagedCountDiagnostic;
+	/** Where `managedCounts` came from, for the certification that follows. */
+	managedCountCheck: {
+		source: "counted" | "reused" | "skipped";
+		/** Whether the projection side was read, so the two sides were compared. */
+		compared: boolean;
+		previous: GraphProjectionManagedCountAttempt | null;
+	};
 	schema: GraphProjectionSchemaState;
 	parityPasses: boolean;
 };
@@ -77,14 +88,43 @@ const EMPTY_MANAGED_COUNTS: GraphProjectionManagedCounts = {
  * The exact managed-count inventory reads every canonical row of the org
  * (34k rationale records and 30k facts per check for the largest org on
  * 2026-10-12), so the drain's per-tick certification runs it once per UTC
- * hour. A failed count leaves `lastCertifiedAt` in the earlier hour, so the
- * next tick counts again until parity passes.
+ * hour. A count that does not certify leaves `lastCertifiedAt` in the earlier
+ * hour; `managedCountStep` decides whether the next tick counts again.
  */
 export function managedCountsDue(
 	lastCertifiedAt: string | null | undefined,
 	checkedAt: string,
 ): boolean {
 	return lastCertifiedAt?.slice(0, 13) !== checkedAt.slice(0, 13);
+}
+
+/** Inventories in a row that may fail to certify before ticks stop recounting for the hour. */
+export const GRAPH_PROJECTION_MANAGED_COUNT_QUICK_RETRIES = 3;
+
+/**
+ * What a drain tick does about the exact inventory once certification is
+ * possible. An inventory that does not certify is repeated on the next tick,
+ * so a count that raced a write recovers within minutes. After
+ * GRAPH_PROJECTION_MANAGED_COUNT_QUICK_RETRIES such inventories in a row the
+ * tick reuses the stored counts until the next UTC hour: a projection that
+ * stayed out of parity was otherwise counted on every two-minute tick (749
+ * inventories of about 200k rows each on 16 Nov 2026).
+ */
+export function managedCountStep(input: {
+	lastCertifiedAt: string | null | undefined;
+	checkedAt: string;
+	previous: Pick<
+		GraphProjectionManagedCountAttempt,
+		"checkedAt" | "attempts"
+	> | null;
+}): "skip" | "count" | "reuse" {
+	if (!managedCountsDue(input.lastCertifiedAt, input.checkedAt)) return "skip";
+	const { previous } = input;
+	return previous &&
+		previous.attempts >= GRAPH_PROJECTION_MANAGED_COUNT_QUICK_RETRIES &&
+		previous.checkedAt.slice(0, 13) === input.checkedAt.slice(0, 13)
+		? "reuse"
+		: "count";
 }
 
 type ReadState = Awaited<ReturnType<typeof getGraphProjectionReadState>>;
@@ -131,13 +171,40 @@ export async function inspectGraphProjection(input: {
 	);
 	const graphClient = getGraphClient(input.env);
 	const configured = graphClient !== null;
-	// A drain tick cannot certify while the projection is unconfigured, behind
-	// or unrepaired, so the inventory would only repeat a known "not ready".
-	const countManaged =
-		input.managedCounts !== "hourly" ||
-		(configured &&
+	const transportHealthy = graphClient
+		? await graphClient.isHealthy().catch(() => false)
+		: false;
+	// A drain tick cannot certify while the projection is unconfigured,
+	// unreachable, behind or unrepaired, so the inventory would only repeat a
+	// known "not ready".
+	let managedCountSource: GraphProjectionInspection["managedCountCheck"]["source"] =
+		"counted";
+	let previousAttempt: GraphProjectionManagedCountAttempt | null = null;
+	if (input.managedCounts === "hourly") {
+		managedCountSource = "skipped";
+		if (
+			configured &&
+			transportHealthy &&
 			projectionBacklogState(readiness, backlog).certifiable &&
-			managedCountsDue(readiness?.lastCertifiedAt, checkedAt));
+			managedCountsDue(readiness?.lastCertifiedAt, checkedAt)
+		) {
+			previousAttempt = await getGraphProjectionManagedCountAttempt(
+				input.db,
+				input.organizationId,
+			);
+			managedCountSource =
+				managedCountStep({
+					lastCertifiedAt: readiness?.lastCertifiedAt,
+					checkedAt,
+					previous: previousAttempt,
+				}) === "reuse"
+					? "reused"
+					: "counted";
+		}
+	}
+	const countManaged = managedCountSource === "counted";
+	const reusedAttempt =
+		managedCountSource === "reused" ? previousAttempt : null;
 	const [
 		canonicalFacts,
 		canonicalEdges,
@@ -161,17 +228,14 @@ export async function inspectGraphProjection(input: {
 		),
 		countManaged
 			? getGraphProjectionCanonicalManagedCounts(input.db, input.organizationId)
-			: EMPTY_MANAGED_COUNTS,
+			: (reusedAttempt?.canonical ?? EMPTY_MANAGED_COUNTS),
 	]);
-	const transportHealthy = graphClient
-		? await graphClient.isHealthy().catch(() => false)
-		: false;
 	let projectedFacts: Awaited<ReturnType<typeof readGraphProjectionRows>> = [];
 	let projectedLifecycle: Awaited<ReturnType<typeof readGraphProjectionRows>> =
 		[];
 	let projectedEdges: Awaited<ReturnType<typeof readGraphProjectionEdgeRows>> =
 		[];
-	let projectedManagedCounts = EMPTY_MANAGED_COUNTS;
+	let projectedManagedCounts = reusedAttempt?.projected ?? EMPTY_MANAGED_COUNTS;
 	let schema: GraphProjectionSchemaState = {
 		version: GRAPH_PROJECTION_SCHEMA_VERSION,
 		constraints: [],
@@ -204,7 +268,7 @@ export async function inspectGraphProjection(input: {
 				),
 				countManaged
 					? readGraphProjectionManagedCounts(input.env, input.organizationId)
-					: EMPTY_MANAGED_COUNTS,
+					: projectedManagedCounts,
 				readGraphProjectionSchemaState(input.env),
 			]);
 		} catch (error) {
@@ -232,10 +296,14 @@ export async function inspectGraphProjection(input: {
 		projectedFacts: projectedLifecycle,
 		transportHealthy: projectionReadable,
 	});
+	// Reused counts stand for the tick that took them: if that tick could not
+	// read the projection, nothing was compared and the gate stays closed.
+	const managedCountsCompared =
+		projectionReadable && (reusedAttempt?.compared ?? true);
 	const managedCounts = assessGraphProjectionManagedCounts({
 		canonical: canonicalManagedCounts,
 		projected: projectedManagedCounts,
-		transportHealthy: projectionReadable,
+		transportHealthy: managedCountsCompared,
 	});
 	return {
 		configured,
@@ -247,6 +315,11 @@ export async function inspectGraphProjection(input: {
 		edges,
 		lifecycle,
 		managedCounts,
+		managedCountCheck: {
+			source: managedCountSource,
+			compared: managedCountsCompared,
+			previous: previousAttempt,
+		},
 		schema,
 		parityPasses:
 			facts.passesGate &&
@@ -330,6 +403,28 @@ export async function certifyGraphProjection(input: {
 			inspection.lifecycle.missingCount + inspection.lifecycle.mismatchCount,
 		certified: ready,
 	});
+	if (input.managedCounts === "hourly") {
+		const { source, compared, previous } = inspection.managedCountCheck;
+		if (ready) {
+			if (previous)
+				await clearGraphProjectionManagedCountAttempt(
+					input.db,
+					input.organizationId,
+				);
+		} else if (source === "counted") {
+			await recordGraphProjectionManagedCountAttempt(
+				input.db,
+				input.organizationId,
+				{
+					checkedAt: inspection.checkedAt,
+					attempts: (previous?.attempts ?? 0) + 1,
+					canonical: inspection.managedCounts.canonical,
+					projected: inspection.managedCounts.projected,
+					compared,
+				},
+			);
+		}
+	}
 	return {
 		...inspection,
 		readiness: await getGraphProjectionReadState(

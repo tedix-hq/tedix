@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	GRAPH_PROJECTION_MANAGED_COUNT_QUICK_RETRIES,
 	graphProjectionReadAdmission,
+	managedCountStep,
 	managedCountsDue,
 	projectionBacklogState,
 } from "./graph-projection-certification";
@@ -188,5 +190,39 @@ describe("managed-count cadence", () => {
 			managedCountsDue("2026-07-27T06:58:00.000Z", "2026-07-27T06:59:00.000Z"),
 		).toBe(false);
 		expect(managedCountsDue("2026-07-26T06:30:00.000Z", checkedAt)).toBe(true);
+	});
+
+	it("recounts a few times after a count that did not certify, then once per UTC hour", () => {
+		const step = (
+			previous: { checkedAt: string; attempts: number } | null,
+			lastCertifiedAt: string | null = "2026-07-27T05:59:00.000Z",
+		) => managedCountStep({ lastCertifiedAt, checkedAt, previous });
+		// Certified this hour: nothing to count, whatever is stored.
+		expect(
+			step(
+				{ checkedAt: "2026-07-27T05:58:00.000Z", attempts: 9 },
+				"2026-07-27T06:00:00.000Z",
+			),
+		).toBe("skip");
+		expect(step(null)).toBe("count");
+		expect(step(null, null)).toBe("count");
+		for (
+			let attempts = 1;
+			attempts < GRAPH_PROJECTION_MANAGED_COUNT_QUICK_RETRIES;
+			attempts++
+		)
+			expect(step({ checkedAt: "2026-07-27T06:00:00.000Z", attempts })).toBe(
+				"count",
+			);
+		const exhausted = GRAPH_PROJECTION_MANAGED_COUNT_QUICK_RETRIES;
+		expect(
+			step({ checkedAt: "2026-07-27T06:00:00.000Z", attempts: exhausted }),
+		).toBe("reuse");
+		expect(
+			step({ checkedAt: "2026-07-27T05:58:00.000Z", attempts: exhausted + 4 }),
+		).toBe("count");
+		expect(
+			step({ checkedAt: "2026-07-26T06:00:00.000Z", attempts: exhausted }),
+		).toBe("count");
 	});
 });

@@ -31,7 +31,8 @@ import {
 	memoryFacts,
 	tediExpertise,
 } from "../schema/memory-graph";
-import { tediRationaleRecords } from "../schema/rationale-records";
+import { platformCronCheckpoints } from "../schema/platform-cron-executions";
+import { rationaleOrgCounts } from "../schema/rationale-records";
 import { tedis } from "../schema/tedis";
 
 export const GRAPH_PROJECTION_SAMPLE_LIMIT = 25;
@@ -112,10 +113,13 @@ export async function getGraphProjectionCanonicalManagedCounts(
 			.select({ value: count() })
 			.from(tedis)
 			.where(eq(tedis.organizationId, orgId)),
+		// Database triggers keep this total equal to the organization's
+		// rationale records on every insert and delete, so one row replaces a
+		// count over all of them (36k rows per call on 16 Nov 2026).
 		db
-			.select({ value: count() })
-			.from(tediRationaleRecords)
-			.where(eq(tediRationaleRecords.orgId, orgId)),
+			.select({ value: rationaleOrgCounts.total })
+			.from(rationaleOrgCounts)
+			.where(eq(rationaleOrgCounts.orgId, orgId)),
 		db
 			.select({ value: count() })
 			.from(knowledgeEntries)
@@ -170,6 +174,102 @@ export async function getGraphProjectionCanonicalManagedCounts(
 		entities: selectedCount(entities),
 		entityResolutions: selectedCount(resolutions),
 	};
+}
+
+/**
+ * The last exact inventory a drain tick ran without certifying the
+ * projection, kept so later ticks of the same hour can reuse it instead of
+ * counting again.
+ */
+export type GraphProjectionManagedCountAttempt = {
+	checkedAt: string;
+	/** Inventories in a row that did not certify the projection. */
+	attempts: number;
+	canonical: GraphProjectionManagedCounts;
+	projected: GraphProjectionManagedCounts;
+	/** False when the projection could not be read, so nothing was compared. */
+	compared: boolean;
+};
+
+const MANAGED_COUNT_ATTEMPT = "graph-projection-managed-counts:org:";
+
+function storedManagedCounts(
+	value: unknown,
+): GraphProjectionManagedCounts | null {
+	if (!value || typeof value !== "object") return null;
+	const counts = value as Record<string, unknown>;
+	return GRAPH_PROJECTION_MANAGED_COUNT_KEYS.every(
+		(key) => typeof counts[key] === "number",
+	)
+		? (Object.fromEntries(
+				GRAPH_PROJECTION_MANAGED_COUNT_KEYS.map((key) => [key, counts[key]]),
+			) as GraphProjectionManagedCounts)
+		: null;
+}
+
+/** Null when nothing is stored or the stored value cannot be read back whole. */
+export async function getGraphProjectionManagedCountAttempt(
+	db: DbClient,
+	orgId: string,
+): Promise<GraphProjectionManagedCountAttempt | null> {
+	const [row] = await db
+		.select({ through: platformCronCheckpoints.through })
+		.from(platformCronCheckpoints)
+		.where(
+			eq(platformCronCheckpoints.scheduleId, MANAGED_COUNT_ATTEMPT + orgId),
+		)
+		.limit(1);
+	if (!row) return null;
+	let stored: Record<string, unknown> | null;
+	try {
+		stored = JSON.parse(row.through) as Record<string, unknown> | null;
+	} catch {
+		return null;
+	}
+	const canonical = storedManagedCounts(stored?.canonical);
+	const projected = storedManagedCounts(stored?.projected);
+	if (
+		!stored ||
+		!canonical ||
+		!projected ||
+		typeof stored.checkedAt !== "string" ||
+		typeof stored.attempts !== "number" ||
+		typeof stored.compared !== "boolean"
+	)
+		return null;
+	return {
+		checkedAt: stored.checkedAt,
+		attempts: stored.attempts,
+		canonical,
+		projected,
+		compared: stored.compared,
+	};
+}
+
+export async function recordGraphProjectionManagedCountAttempt(
+	db: DbClient,
+	orgId: string,
+	attempt: GraphProjectionManagedCountAttempt,
+): Promise<void> {
+	const through = JSON.stringify(attempt);
+	await db
+		.insert(platformCronCheckpoints)
+		.values({ scheduleId: MANAGED_COUNT_ATTEMPT + orgId, through })
+		.onConflictDoUpdate({
+			target: platformCronCheckpoints.scheduleId,
+			set: { through },
+		});
+}
+
+export async function clearGraphProjectionManagedCountAttempt(
+	db: DbClient,
+	orgId: string,
+): Promise<void> {
+	await db
+		.delete(platformCronCheckpoints)
+		.where(
+			eq(platformCronCheckpoints.scheduleId, MANAGED_COUNT_ATTEMPT + orgId),
+		);
 }
 
 export type GraphProjectionCanonicalFact = {
