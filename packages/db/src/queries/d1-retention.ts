@@ -287,6 +287,49 @@ export async function readD1RetentionPage(
 	)) as D1RetentionRow[];
 }
 
+/**
+ * Whether the database's own `timestamp < cutoff` could be true of a stored
+ * value: the test `hasD1RetentionExpiredRows` and `nextD1RetentionOldRowid`
+ * make in SQL, repeated on a row already read. It answers true whenever it is
+ * not sure, so a page is called free of old rows only when it is.
+ * `isD1RetentionExpired` is stricter: it also wants a well-formed timestamp.
+ */
+export function mayBeOlderThanD1RetentionCutoff(
+	value: unknown,
+	cutoff: D1RetentionCutoff,
+): boolean {
+	// NULL is never less than anything.
+	if (value === null || value === undefined) return false;
+	if (typeof cutoff === "number")
+		return typeof value !== "number" || value < cutoff;
+	// SQLite compares text byte by byte; that is this comparison for ASCII.
+	if (typeof value !== "string" || !/^[\x20-\x7e]*$/.test(value)) return true;
+	return value < cutoff;
+}
+
+/**
+ * The first row after `afterRowid`, in rowid order, that is older than the
+ * cutoff, or null when there is none. Read from the index on the timestamp
+ * alone: it visits the entries older than the cutoff and no table row. Both
+ * unary pluses keep SQLite from walking the table in rowid order instead,
+ * which it does for a bare `min(rowid)` or a rowid range and which reads
+ * every newer row on the way.
+ */
+export async function nextD1RetentionOldRowid(
+	db: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	cutoff: D1RetentionCutoff,
+	afterRowid: number,
+): Promise<number | null> {
+	const [row] = await db
+		.select({ nextRowid: sql<number | null>`min(+rowid)`.as("next_rowid") })
+		.from(tableSpec.table)
+		.where(sql`${tableSpec.timestamp} < ${cutoff} AND +rowid > ${afterRowid}`);
+	return row?.nextRowid === null || row?.nextRowid === undefined
+		? null
+		: Number(row.nextRowid);
+}
+
 /** Resolve indirect tenant ownership without changing the raw archive/copy rows. */
 export async function groupD1RetentionArchiveRows(
 	db: DbQueryClient,
