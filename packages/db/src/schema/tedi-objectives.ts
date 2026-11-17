@@ -8,6 +8,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { organizations } from "./organizations";
 import { tedis } from "./tedis";
@@ -162,6 +163,16 @@ export type NewTediObjective = Omit<
 	"linkedDomains"
 >;
 
+/**
+ * True for every task: `created_at` is text and never null, and no text sorts
+ * before the empty string. It is the WHERE of idx_tasks_org_objective_latest
+ * and of the one read that uses it, word for word. SQLite offers a partial
+ * index only to a query that states the index's condition, so no other read
+ * of tasks can be planned onto it. The unary plus stops SQLite from taking
+ * this as the start of a range.
+ */
+export const anyTediTask = sql`+created_at >= ''`;
+
 export const tediTasks = sqliteTable(
 	"tedi_tasks",
 	{
@@ -230,6 +241,12 @@ export const tediTasks = sqliteTable(
 	(table) => [
 		index("idx_tasks_objective").on(table.objectiveId),
 		index("idx_tasks_tedi_status").on(table.tediId, table.status),
+		// The stalled-work inventory reads an objective's latest task change
+		// from the end of this index: the latest update, and the latest creation
+		// among tasks never updated.
+		index("idx_tasks_org_objective_latest")
+			.on(table.orgId, table.objectiveId, table.updatedAt, table.createdAt)
+			.where(anyTediTask),
 	],
 );
 

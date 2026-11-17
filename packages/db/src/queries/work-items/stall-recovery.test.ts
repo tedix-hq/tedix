@@ -86,7 +86,7 @@ describe("migrated stall recovery", () => {
 			expect(details).toContain("idx_work_items_org_objective");
 			expect(details).toContain("uniq_work_attempt_number");
 			expect(details).toContain(
-				"os_gadget_executions_org_workspace_environment_idx",
+				"idx_os_gadget_executions_org_workspace_environment_latest",
 			);
 			expect(details).toContain("os_workspace_projects_org_project_status_idx");
 		},
