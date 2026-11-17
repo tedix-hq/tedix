@@ -31,6 +31,8 @@ import {
 	type SkillRun,
 	type SkillRunStatus,
 	skillEntries,
+	skillRunAwaitingReconcile,
+	skillRunReconcileOrder,
 	skillRuns,
 	skillWorkflowSources,
 } from "../schema/cognitive";
@@ -208,6 +210,65 @@ export async function getSkillRun(
 		)
 		.limit(1);
 	return rows[0];
+}
+
+export type SkillRunAwaitingReconcileResult = Pick<
+	SkillRun,
+	| "id"
+	| "skillId"
+	| "tediId"
+	| "workflowInstanceId"
+	| "organizationId"
+	| "params"
+	| "status"
+	| "error"
+	| "executionEpoch"
+	| "restartRequestedAt"
+	| "restartCommandId"
+	| "startedAt"
+>;
+
+/**
+ * The runs of one environment the reconciler has to look at, longest
+ * unvisited first: unfinished runs, runs waiting for a restart, and runs that
+ * failed before their workflow was created. Reads across organizations on
+ * purpose; only the runtime's scheduled reconciler calls it.
+ *
+ * The condition and the order are the ones `idx_skill_runs_reconcile_pending`
+ * is built on, so the read touches at most `limit` runs plus the few revoked
+ * ones it skips, instead of every run the environment ever had.
+ */
+export async function listSkillRunsAwaitingReconcile(
+	db: DbClient,
+	runtimeEnvironment: SkillRunRuntimeEnvironment,
+	limit: number,
+): Promise<SkillRunAwaitingReconcileResult[]> {
+	return db
+		.select({
+			id: skillRuns.id,
+			skillId: skillRuns.skillId,
+			tediId: skillRuns.tediId,
+			workflowInstanceId: skillRuns.workflowInstanceId,
+			organizationId: skillRuns.organizationId,
+			params: skillRuns.params,
+			status: skillRuns.status,
+			error: skillRuns.error,
+			executionEpoch: skillRuns.executionEpoch,
+			restartRequestedAt: skillRuns.restartRequestedAt,
+			restartCommandId: skillRuns.restartCommandId,
+			startedAt: skillRuns.startedAt,
+		})
+		.from(skillRuns)
+		.where(
+			and(
+				skillRunEnvironmentCondition(runtimeEnvironment),
+				skillRunAwaitingReconcile,
+				sql`coalesce(${skillRuns.error}, '') <> 'REVOKED'`,
+				sql`coalesce(${skillRuns.error}, '') NOT GLOB 'REVOKED:*'`,
+			),
+		)
+		.orderBy(asc(skillRunReconcileOrder), asc(skillRuns.startedAt))
+		.limit(limit);
 }
 
 export interface UpdateSkillRunFields {

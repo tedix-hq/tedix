@@ -592,6 +592,18 @@ export const skillWorkflowSources = sqliteTable(
 	(table) => [primaryKey({ columns: [table.skillId, table.sha256] })],
 );
 
+/**
+ * A run the reconciler still has to look at: not retired, and either not
+ * finished, waiting for a restart, or failed before its workflow was created.
+ * This is the WHERE of `idx_skill_runs_reconcile_pending` and of the read that
+ * uses it, word for word, because SQLite offers a partial index only to a
+ * query that states the index's condition. `skillRunReconcileOrder` is the
+ * index's second column and that read's ORDER BY in the same way. Changing
+ * either needs a migration that rebuilds the index.
+ */
+export const skillRunAwaitingReconcile = sql`workflow_retired_at IS NULL AND (status IN ('queued', 'running', 'paused') OR restart_requested_at IS NOT NULL OR (status = 'failed' AND (error LIKE 'WORKFLOW_ADMISSION_CREATE_FAILED:%' OR error LIKE 'WORKFLOW_ADMISSION_PENDING:%')))`;
+export const skillRunReconcileOrder = sql`coalesce(last_reconciled_at, started_at)`;
+
 export const skillRuns = sqliteTable(
 	"skill_runs",
 	{
@@ -703,6 +715,13 @@ export const skillRuns = sqliteTable(
 			table.runtimeEnvironment,
 			table.lastReconciledAt,
 		),
+		// The reconciler's scheduled scan reads the runs it has not looked at
+		// for longest. On the index above it walked every run of the
+		// environment, nearly all finished long ago, and sorted them. This one
+		// holds only the runs still awaiting it, already in scan order.
+		index("idx_skill_runs_reconcile_pending")
+			.on(table.runtimeEnvironment, skillRunReconcileOrder, table.startedAt)
+			.where(skillRunAwaitingReconcile),
 		uniqueIndex("uniq_skill_runs_workflow_instance").on(
 			table.workflowInstanceId,
 		),
