@@ -519,52 +519,219 @@ export function viewRowOrder(
 	return [...head, ...body];
 }
 
-/** The text a filter compares: the cell's value, or "" for an empty cell. */
-export function filterText(
+type SheetFilter = NonNullable<OsWorkbookSheet["filter"]>;
+
+/** A cell's value as a filter compares it: n:12, s:text, b:1, e:#N/A, or z: for blank. */
+export function filterToken(
 	cell: { value?: unknown; input?: string } | null | undefined,
 ): string {
-	const value = cell?.value ?? cell?.input ?? "";
-	return value === null ? "" : String(value);
+	const value = cell?.value;
+	if (value === null || value === undefined || value === "")
+		return cell?.input && !cell.input.startsWith("=")
+			? `s:${cell.input}`
+			: "z:";
+	if (isErrorValue(value)) return `e:${value}`;
+	if (typeof value === "number") return `n:${value}`;
+	if (typeof value === "boolean") return `b:${value ? "1" : "0"}`;
+	return `s:${String(value)}`;
 }
 
-/** Rows below a sheet's filter header that its filter hides. */
+/** The last row a filter's table covers in this sheet. */
+export function filterEnd(sheet: OsWorkbookSheet, filter: SheetFilter): number {
+	return Math.min(filter.endRow, sheet.rows.length - 1);
+}
+
+/** The columns a filter covers: its own list, or every column. */
+export function filterColumns(
+	sheet: OsWorkbookSheet,
+	filter: SheetFilter,
+): number[] {
+	return filter.columns.length
+		? filter.columns
+		: sheet.columns.map((_, column) => column);
+}
+
+/** Table rows the sheet's filter hides: a filtered column's value is not chosen. */
 export function filteredRows(sheet: OsWorkbookSheet): Set<number> {
 	const hidden = new Set<number>();
 	const filter = sheet.filter;
-	if (!filter?.hidden.length) return hidden;
-	const rules = filter.hidden.map(
-		({ column, values }) => [column, new Set(values)] as const,
-	);
-	for (let row = filter.headerRow + 1; row < sheet.rows.length; row++) {
+	if (!filter) return hidden;
+	const rules = Object.entries(filter.criteria)
+		.filter(([, tokens]) => tokens.length)
+		.map(([column, tokens]) => [Number(column), new Set(tokens)] as const);
+	if (!rules.length) return hidden;
+	for (let row = filter.row + 1; row <= filterEnd(sheet, filter); row++) {
 		const line = sheet.rows[row];
 		if (
-			rules.some(([column, values]) => values.has(filterText(line?.[column])))
+			rules.some(([column, tokens]) => !tokens.has(filterToken(line?.[column])))
 		)
 			hidden.add(row);
 	}
 	return hidden;
 }
 
-/** The distinct values below the header in one column, with how often each appears. */
+/** Sort order for values: numbers, then text, blanks last. */
+export function compareSortValues(
+	a: unknown,
+	b: unknown,
+	ascending = true,
+): number {
+	const blank = (value: unknown) =>
+		value === null || value === undefined || value === "";
+	if (blank(a) || blank(b))
+		return blank(a) === blank(b) ? 0 : blank(a) ? 1 : -1;
+	const order =
+		typeof a === "number" && typeof b === "number"
+			? a - b
+			: typeof a === "number"
+				? -1
+				: typeof b === "number"
+					? 1
+					: String(a).localeCompare(String(b), undefined, { numeric: true });
+	return ascending ? order : -order;
+}
+
+/**
+ * The values below a filter's header in one column, each once as its first
+ * cell shows it, in sort order; blanks read "(Blanks)".
+ */
 export function filterChoices(
 	sheet: OsWorkbookSheet,
 	column: number,
-	limit = 500,
-): Array<{ value: string; count: number }> {
-	const counts = new Map<string, number>();
-	const start = (sheet.filter?.headerRow ?? 0) + 1;
-	for (let row = start; row < sheet.rows.length; row++) {
-		const text = filterText(sheet.rows[row]?.[column]);
-		counts.set(text, (counts.get(text) ?? 0) + 1);
-		if (counts.size >= limit) break;
+	show: (cell: OsWorkbookSheet["rows"][number][number]) => string,
+): Array<{ token: string; label: string }> {
+	const filter = sheet.filter;
+	if (!filter) return [];
+	const found = new Map<string, { label: string; value: unknown }>();
+	for (let row = filter.row + 1; row <= filterEnd(sheet, filter); row++) {
+		const cell = sheet.rows[row]?.[column];
+		const token = filterToken(cell);
+		if (!found.has(token))
+			found.set(token, {
+				label: token === "z:" ? "(Blanks)" : show(cell ?? null),
+				value: cell?.value ?? cell?.input ?? "",
+			});
 	}
-	return [...counts]
-		.map(([value, count]) => ({ value, count }))
-		.sort((a, b) =>
-			a.value === ""
-				? 1
-				: b.value === ""
-					? -1
-					: a.value.localeCompare(b.value, undefined, { numeric: true }),
+	return [...found.entries()]
+		.sort((a, b) => compareSortValues(a[1].value, b[1].value))
+		.map(([token, { label }]) => ({ token, label }));
+}
+
+/**
+ * The table to filter: the selection when it spans rows; otherwise the block
+ * of data around the active cell, with the likeliest heading row as header.
+ */
+export function detectFilterRange(
+	sheet: OsWorkbookSheet,
+	bounds: Bounds,
+	focus: Coordinate,
+): SheetFilter | undefined {
+	const has = (row: number, column: number) => {
+		const cell = sheet.rows[row]?.[column];
+		return (
+			!!cell &&
+			((cell.input ?? "") !== "" ||
+				(cell.value !== null && cell.value !== undefined && cell.value !== ""))
 		);
+	};
+	const order = (from: number, to: number) =>
+		Array.from(
+			{ length: Math.max(0, to - from) },
+			(_, index) => from + 1 + index,
+		);
+	if (bounds.rowEnd > bounds.rowStart) {
+		const columns: number[] = [];
+		for (let column = bounds.columnStart; column <= bounds.columnEnd; column++)
+			for (let row = bounds.rowStart; row <= bounds.rowEnd; row++)
+				if (has(row, column)) {
+					columns.push(column);
+					break;
+				}
+		return columns.length
+			? {
+					row: bounds.rowStart,
+					endRow: bounds.rowEnd,
+					columns,
+					criteria: {},
+					rowOrder: order(bounds.rowStart, bounds.rowEnd),
+					sort: null,
+				}
+			: undefined;
+	}
+	let minRow = Infinity,
+		maxRow = -1,
+		minColumn = Infinity,
+		maxColumn = -1;
+	sheet.rows.forEach((line, row) =>
+		line.forEach((_, column) => {
+			if (!has(row, column)) return;
+			minRow = Math.min(minRow, row);
+			maxRow = Math.max(maxRow, row);
+			minColumn = Math.min(minColumn, column);
+			maxColumn = Math.max(maxColumn, column);
+		}),
+	);
+	if (maxRow <= minRow || maxColumn < minColumn) return undefined;
+	// Prefer the block around the active cell; blank rows and columns bound it.
+	if (
+		focus.row >= minRow &&
+		focus.row <= maxRow &&
+		focus.column >= minColumn &&
+		focus.column <= maxColumn &&
+		has(focus.row, focus.column)
+	) {
+		const rowHas = (row: number) => {
+			for (let column = minColumn; column <= maxColumn; column++)
+				if (has(row, column)) return true;
+			return false;
+		};
+		let top = focus.row,
+			bottom = focus.row;
+		while (top > minRow && rowHas(top - 1)) top--;
+		while (bottom < maxRow && rowHas(bottom + 1)) bottom++;
+		const columnHas = (column: number) => {
+			for (let row = top; row <= bottom; row++)
+				if (has(row, column)) return true;
+			return false;
+		};
+		let left = focus.column,
+			right = focus.column;
+		while (left > minColumn && columnHas(left - 1)) left--;
+		while (right < maxColumn && columnHas(right + 1)) right++;
+		[minRow, maxRow, minColumn, maxColumn] = [top, bottom, left, right];
+	}
+	let best: { row: number; score: number } | undefined;
+	for (let row = minRow; row <= Math.min(maxRow - 1, minRow + 12); row++) {
+		let headings = 0,
+			supported = 0;
+		for (let column = minColumn; column <= maxColumn; column++) {
+			if (has(row, column)) headings++;
+			for (let below = row + 1; below <= maxRow; below++)
+				if (has(below, column)) {
+					supported++;
+					break;
+				}
+		}
+		if (!headings || !supported) continue;
+		const score = headings * 5 + supported * 3 - (row - minRow) * 2;
+		if (!best || score > best.score) best = { row, score };
+	}
+	if (!best) return undefined;
+	const columns: number[] = [];
+	for (let column = minColumn; column <= maxColumn; column++)
+		for (let row = best.row; row <= maxRow; row++)
+			if (has(row, column)) {
+				columns.push(column);
+				break;
+			}
+	return columns.length
+		? {
+				row: best.row,
+				endRow: maxRow,
+				columns,
+				criteria: {},
+				rowOrder: order(best.row, maxRow),
+				sort: null,
+			}
+		: undefined;
 }

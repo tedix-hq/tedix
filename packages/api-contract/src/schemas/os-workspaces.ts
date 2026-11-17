@@ -1257,33 +1257,59 @@ export const OsWorkbookSheetSchema = z.object({
 	frozenRows: z.number().int().min(0).max(OS_SHEET_MAX_ROWS).default(0),
 	frozenColumns: z.number().int().min(0).max(OS_SHEET_MAX_COLUMNS).default(0),
 	filter: z
-		.object({
-			headerRow: z
-				.number()
-				.int()
-				.min(0)
-				.max(OS_SHEET_MAX_ROWS)
-				.describe(
-					"The row holding the column headings; rows below it are filtered",
-				),
-			hidden: z
-				.array(
-					z.object({
+		.preprocess(
+			// A filter saved by an earlier editor (header row and hidden values)
+			// becomes the current shape, showing every row.
+			(value) =>
+				value && typeof value === "object" && "headerRow" in value
+					? {
+							row: (value as { headerRow: number }).headerRow,
+							endRow: OS_SHEET_MAX_ROWS - 1,
+							columns: [],
+							criteria: {},
+							rowOrder: [],
+							sort: null,
+						}
+					: value,
+			z.object({
+				row: z
+					.number()
+					.int()
+					.min(0)
+					.max(OS_SHEET_MAX_ROWS)
+					.describe("The header row; the table's rows below it are filtered"),
+				endRow: z
+					.number()
+					.int()
+					.min(0)
+					.max(OS_SHEET_MAX_ROWS)
+					.describe("The table's last row"),
+				columns: z
+					.array(z.number().int().min(0).max(OS_SHEET_MAX_COLUMNS))
+					.max(OS_SHEET_MAX_COLUMNS)
+					.describe("The columns the filter covers; empty for every column"),
+				criteria: z
+					.record(z.string(), z.array(z.string().max(8_194)).max(500))
+					.describe(
+						"Per column (by position), the value tokens that show: n:12, s:text, b:1, e:#N/A, z: for blank, x:__none__ for none. A column without an entry shows everything",
+					),
+				rowOrder: z
+					.array(z.number().int().min(0))
+					.max(OS_SHEET_MAX_ROWS)
+					.default([])
+					.describe("Where each table row began, so a sort can be undone"),
+				sort: z
+					.object({
 						column: z.number().int().min(0).max(OS_SHEET_MAX_COLUMNS),
-						values: z
-							.array(z.string().max(500))
-							.max(1_000)
-							.describe(
-								'Shown values to hide in this column; an empty cell is ""',
-							),
-					}),
-				)
-				.max(OS_SHEET_MAX_COLUMNS)
-				.default([]),
-		})
+						direction: z.enum(["asc", "desc"]),
+					})
+					.nullable()
+					.default(null),
+			}),
+		)
 		.optional()
 		.describe(
-			"A filter everyone sees: rows below the header whose value in a filtered column is hidden are not shown. Omitted for no filter",
+			"A filter everyone sees: table rows whose value in a filtered column is not chosen are not shown. Omitted for no filter",
 		),
 });
 

@@ -1,7 +1,9 @@
 import type { OsWorkbookSheet } from "@tedix/api-contract/schemas/os-workspaces";
 import { describe, expect, it } from "vite-plus/test";
 import {
+	detectFilterRange,
 	filterChoices,
+	filterToken,
 	filteredRows,
 	boundsToTsv,
 	functionGroups,
@@ -244,31 +246,67 @@ describe("sheet filters", () => {
 	const sheet = (filter?: OsWorkbookSheet["filter"]): OsWorkbookSheet => ({
 		id: "s",
 		name: "S",
-		columns: [{ id: "a", label: "A", width: 120 }],
+		columns: [
+			{ id: "a", label: "A", width: 120 },
+			{ id: "b", label: "B", width: 120 },
+		],
 		rows: [
-			[{ input: "Status", value: "Status" }],
-			[{ input: "Open", value: "Open" }],
-			[{ input: "Done", value: "Done" }],
-			[null],
-			[{ input: "Open", value: "Open" }],
+			[
+				{ input: "Status", value: "Status" },
+				{ input: "Amount", value: "Amount" },
+			],
+			[
+				{ input: "Open", value: "Open" },
+				{ input: "3", value: 3 },
+			],
+			[
+				{ input: "Done", value: "Done" },
+				{ input: "1", value: 1 },
+			],
+			[null, null],
+			[
+				{ input: "Open", value: "Open" },
+				{ input: "2", value: 2 },
+			],
 		],
 		frozenRows: 0,
 		frozenColumns: 0,
 		filter,
 	});
-	it("hides rows below the header whose value is filtered out, never the header", () => {
-		expect(filteredRows(sheet())).toEqual(new Set());
-		expect(
-			filteredRows(
-				sheet({ headerRow: 0, hidden: [{ column: 0, values: ["Open", ""] }] }),
-			),
-		).toEqual(new Set([1, 3, 4]));
+	const filter = (criteria: Record<string, string[]> = {}) => ({
+		row: 0,
+		endRow: 4,
+		columns: [0, 1],
+		criteria,
+		rowOrder: [1, 2, 3, 4],
+		sort: null,
 	});
-	it("lists each value below the header once with its count, blanks last", () => {
-		expect(filterChoices(sheet({ headerRow: 0, hidden: [] }), 0)).toEqual([
-			{ value: "Done", count: 1 },
-			{ value: "Open", count: 2 },
-			{ value: "", count: 1 },
+	it("shows only rows whose values are chosen, never the header", () => {
+		expect(filteredRows(sheet())).toEqual(new Set());
+		expect(filteredRows(sheet(filter({ 0: ["s:Done"] })))).toEqual(
+			new Set([1, 3, 4]),
+		);
+		expect(filteredRows(sheet(filter({ 0: ["x:__none__"] })))).toEqual(
+			new Set([1, 2, 3, 4]),
+		);
+	});
+	it("lists each value once as shown, in sort order, blanks as (Blanks)", () => {
+		expect(
+			filterChoices(sheet(filter()), 0, (cell) => String(cell?.value ?? "")),
+		).toEqual([
+			{ token: "s:Done", label: "Done" },
+			{ token: "s:Open", label: "Open" },
+			{ token: "z:", label: "(Blanks)" },
 		]);
+		expect(filterToken({ value: 3 })).toBe("n:3");
+	});
+	it("finds the table and its heading row around the active cell", () => {
+		const found = detectFilterRange(
+			sheet(),
+			{ rowStart: 1, rowEnd: 1, columnStart: 0, columnEnd: 0 },
+			{ row: 1, column: 0 },
+		);
+		// The blank row ends the table.
+		expect(found).toMatchObject({ row: 0, endRow: 2, columns: [0, 1] });
 	});
 });

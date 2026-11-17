@@ -61,10 +61,11 @@ outlined, and Ctrl/⌘ Shift L or $ locks a reference (A1 → $A$1 → A$1 → $
 Ctrl/⌘ F finds what cells show on this sheet, or on all sheets and in
 formulas from its options.
 More actions and the right-click menus on cells, headings and tabs cover
-row/column operations, sizing, frozen panes and filters: Create a filter
-makes the selected row the header, and each heading's menu chooses which
-values show and sorts the rows below. A filter is part of the sheet, so
-everyone sees the same rows. Workbooks
+row/column operations, sizing, frozen panes and filters: Filter on the
+toolbar finds the table and its heading row (or uses a selection spanning
+rows), and each heading's menu sorts the table, restores its original order,
+and chooses which values show. A filter is part of the sheet, so everyone
+sees the same rows. Workbooks
 can contain up to 32 tabs, each with 50,000 rows and 702 columns (A to ZZ).
 
 Changes save on their own a moment after you stop editing; Ctrl/⌘ S saves at
