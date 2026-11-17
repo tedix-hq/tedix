@@ -10,6 +10,7 @@ import { resolveFacetGeneration } from "./facet-generation-settings";
 /** Native Pi facet for structurally blind, tool-free verification. Parent retains admission and the ledger. */
 import {
 	defineExtension,
+	LiveDoc,
 	type AgentChange,
 	type Extension,
 	type HarnessSettings,
@@ -256,11 +257,19 @@ export class SynthesisSessionFacet extends PiAgent<
 		const terminal = await (
 			await this.nativePiSession()
 		).prompt(input.text, { operationId });
-		if (terminal.status !== "done")
-			throw new Error(terminal.reason ?? "synthesis Pi turn failed");
+		const conversation = await this.nativeConversation();
+		if (terminal.status !== "done") {
+			const live = await (
+				await this.piHarness.pi()
+			).snapshot(LiveDoc, conversation.id, BACKGROUND_CONTEXT);
+			throw new Error(
+				live?.runFailure?.detail ??
+					terminal.reason ??
+					"synthesis Pi turn failed",
+			);
+		}
 		await this.accounting.assertComplete();
 		const context = BACKGROUND_CONTEXT;
-		const conversation = await this.nativeConversation();
 		const record = await (
 			await this.piHarness.storage()
 		).submissionByRequest(conversation.id, operationId, context);

@@ -11,6 +11,7 @@ it("inspects a parked native tool without submitting or dispatching an effect", 
 		}
 	).PI_CONVERSATION;
 	const agent = await getAgentByName(namespace, crypto.randomUUID());
+	await agent.turn("recovery-bootstrap");
 	await agent.setup("tool");
 	const running = agent.turn("diagnostic-operation", { approval: true });
 	let approval: { approvalId: string } | undefined;
@@ -66,6 +67,7 @@ it("reports an interrupted native operation after eviction without duplicating a
 	).PI_CONVERSATION;
 	const name = crypto.randomUUID();
 	const first = await getAgentByName(namespace, name);
+	await first.turn("recovery-bootstrap");
 	await first.setup("tool");
 	const interrupted = first
 		.turn("interrupted-diagnostic", { approval: true })
