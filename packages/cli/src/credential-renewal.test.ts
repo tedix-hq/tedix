@@ -442,7 +442,7 @@ test("a token endpoint slower than the former 15s deadline saves its rotation", 
 }, 20_000);
 
 test("a rotated but unanswered exchange never replays its spent token", async () => {
-	const { server, state } = rotatingServer(200);
+	const { server, state, requested } = rotatingServer(200);
 	const base = `http://127.0.0.1:${server.port}`;
 	try {
 		storeExpiredLogin(base, state.current);
@@ -454,6 +454,20 @@ test("a rotated but unanswered exchange never replays its spent token", async ()
 			await refreshStoredSession(provider, {
 				timeoutMs: 50,
 				isDarkWake: () => false,
+				fetchFn: async (input, init) => {
+					const response = fetch(input, { ...init, signal: undefined });
+					void response.catch(() => {});
+					await requested;
+					const signal = init?.signal;
+					if (!signal) throw new Error("Expected a bounded refresh request");
+					if (signal.aborted) signal.throwIfAborted();
+					await new Promise<void>((_resolve, reject) =>
+						signal.addEventListener("abort", () => reject(signal.reason), {
+							once: true,
+						}),
+					);
+					return response;
+				},
 			}),
 		).toBe("uncertain");
 		for (let n = 0; n < 4; n++)
