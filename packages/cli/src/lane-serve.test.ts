@@ -7377,6 +7377,7 @@ describe("structured dispatcher outcomes", () => {
 	const existing = () => ({
 		...common(),
 		outcome: "already_satisfied",
+		ciApprovalId: "77777777-7777-4777-8777-777777777777",
 		commitSha: "b".repeat(40),
 		runId: 123,
 		workflowName: "Full suite hourly",
@@ -8353,6 +8354,7 @@ describe("structured dispatcher outcomes", () => {
 					throw new LaneOutcomeReadError("Provider unavailable");
 				return {
 					mode: "verified_existing",
+					ciApprovalId: existing().ciApprovalId,
 					commitSha: "b".repeat(40),
 					runId: 123,
 					runAttempt: 1,
@@ -8374,8 +8376,15 @@ describe("structured dispatcher outcomes", () => {
 			if (mode === "verified") {
 				expect(settlements).toHaveLength(1);
 				expect(settlements[0]!.args).not.toContain("--commit");
+				expect(
+					f.events.find((e) => e.verb === "approval-audit-list")?.input,
+				).toEqual({ proposalId: existing().ciApprovalId, limit: 1 });
 				expect(settlements[0]!.input?.metadata).toMatchObject({
-					settlement: { mode: "verified_existing", commitSha: "b".repeat(40) },
+					settlement: {
+						mode: "verified_existing",
+						commitSha: "b".repeat(40),
+						ciApprovalId: existing().ciApprovalId,
+					},
 				});
 				// Completion rechecks the exact succeeded Attempt through the existing recovery path.
 				expect(

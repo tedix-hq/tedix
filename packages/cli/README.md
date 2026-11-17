@@ -719,15 +719,33 @@ any runner before its start date, and `tedix work readiness <id>` reports
 `tedix work not-before <id> 2026-12-01`.
 
 For an already satisfied CI recovery, use `outcome: "already_satisfied"` with
-the full existing fix `commitSha`, `runId`, `workflowName`, `minimumCommit`
-and `rootCause`. This mode requires GitHub CLI read access to the checkout's
-origin. The accepted outcome must name that workflow and minimum commit.
-The dispatcher checks the cited run succeeded on main and contains both the
-fix and minimum commit, that the workflow's latest run on main succeeded and
-contains the cited run (a run name may end in ` @ <sha>`), and that its commit
-is on `origin/main`. Settlement records `verified_existing` evidence rather than
-claiming the old fix as a new commit. Work and the original live Attempt are
-rechecked before settlement; completion uses the existing recovery fences.
+`ciApprovalId`, the full existing fix `commitSha`, `runId`, `workflowName`,
+`minimumCommit` and `rootCause`. GitHub CLI read access to the checkout's
+origin is required. Keep `outcomeText` equal to the accepted outcome.
+
+The owner adds `ci:recovery` to Work's required admission authorities through
+the normal specification workflow before dispatch. An independent designated
+approver approves an `admission` proposal for that exact Work version and
+authority. The immutable `proposal.ciRecovery` object contains:
+
+- `contractVersion` and `outcomeText`, matching the accepted contract;
+- `repository`, `workflowId`, `workflowName` (the workflow display name),
+  and `workflowPath` (for example `.github/workflows/full-suite.yml`);
+- `runId`, `runAttempt`, `runName` (the REST run's `name`), `runCommitSha`,
+  and `event` (`schedule` or `workflow_dispatch`);
+- `minimumCommit` (a full SHA) and `requiredJobs` (the exact full-suite test
+  job names that must each complete successfully).
+
+The declaration cites that proposal as `ciApprovalId`; its workflow, run and
+minimum commit must match. The dispatcher reads the approved server receipt,
+checks both GitHub naming fields separately and checks the authorized attempt's
+jobs across every page. A push gate cannot qualify. The authorized run must be
+the latest full run across scheduled and manually requested runs; a newer push
+gate does not displace it. Both the fix and minimum commit must be ancestors
+of the successful run, whose commit must be on `origin/main`.
+Settlement records `verified_existing` evidence and the approval ID rather
+than claiming the old fix as a new commit. Work and the original live Attempt
+are rechecked before settlement; completion uses the existing recovery fences.
 Unavailable proof stays retained. Ordinary coding success requires
 landed commits, the declared completed skill revision, or an installed
 runtime app revision. A `completed` result may cite an existing fix with
