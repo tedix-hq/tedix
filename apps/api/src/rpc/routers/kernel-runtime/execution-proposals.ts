@@ -18,6 +18,7 @@ import {
 	userHoldsPermission,
 } from "../../orpc";
 import { decideAutonomousAction } from "@tedix/api-contract/utils/approval-policy";
+import { directDelegationRisk } from "./direct-delegation-risk";
 import { recordDelegationFyi } from "@tedix/db/queries/work-items/delegation-autonomy";
 import {
 	type ExecutionRequirement,
@@ -431,22 +432,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// cap; defaults apply when absent.
 		const [governancePolicy, sessionWriteAllowlist, priorCauseRead] =
 			await ingressReads;
-		if (
-			input.delegateToTediId &&
-			!workstationAttach &&
-			governancePolicy?.autonomy &&
-			!decideAutonomousAction({
-				policy: governancePolicy.autonomy,
-				risk: "unknown",
-				content: turnContent,
-				classId: "delegation:embodied",
-			}).autoApprove
-		) {
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"This delegation requires a human approval. Submit this task through Home without delegateToTediId so Home can prepare its approval card. Nothing was dispatched.",
-			);
-		}
 		// Kernel turns are persisted BEFORE the kernel runs and the kernel work
 		// is registered with `context.waitUntil` (see `turnWork` below): a
 		// caller that disconnects mid-kernel (e.g. an MCP client's inner
@@ -476,6 +461,30 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					organizationId,
 				)
 			: null;
+		// A delegation named by an operator is rated by its linked Work. Without
+		// one it is an ordinary request: standing consent up to medium risk lets
+		// it run, while human-reserved actions (payments, deletions, publishing,
+		// customer messages) and classes the organization asks for still stop
+		// here. Each tool call the tedi then makes keeps its own approval gates.
+		if (
+			input.delegateToTediId &&
+			!workstationAttach &&
+			governancePolicy?.autonomy &&
+			!decideAutonomousAction({
+				policy: governancePolicy.autonomy,
+				risk: directDelegationRisk(
+					requestedDelegationWorkItemId,
+					requestedWorkItem?.riskLevel,
+				),
+				content: turnContent,
+				classId: "delegation:embodied",
+			}).autoApprove
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"This delegation requires a human approval. Submit this task through Home without delegateToTediId so Home can prepare its approval card. Nothing was dispatched.",
+			);
+		}
 		// Org standing consent can replace the human click for non-critical work.
 		// Certification and runtime dispatch checks remain independent of consent.
 		const dispatchPolicy = workstationAttach
