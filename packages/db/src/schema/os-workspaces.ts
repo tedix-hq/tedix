@@ -265,6 +265,11 @@ export const osGadgets = sqliteTable(
 			table.name,
 		),
 		index("os_gadgets_org_idx").on(table.organizationId),
+		index("os_gadgets_status_created_idx").on(
+			table.status,
+			table.createdAt,
+			table.id,
+		),
 	],
 );
 
