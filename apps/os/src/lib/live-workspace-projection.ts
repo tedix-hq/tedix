@@ -8,6 +8,8 @@ import {
 	canvasGadgetsQueryOptions,
 	canvasOutputsQueryOptions,
 	outputDetailQueryOptions,
+	osQuery,
+	workspaceCollaboratorsQueryOptions,
 } from "@/lib/os-query-options";
 
 /**
@@ -116,6 +118,21 @@ function workspaceQueryKeys(scope: LiveWorkspaceScope): QueryKey[] {
 	return keys;
 }
 
+/**
+ * Workspace-wide reads whose inputs vary (document, status filter, limit), so
+ * they match by their workspace prefix: the caller's own role, the access
+ * list, proposals and drafts, and gadget runs.
+ */
+function workspacePrefixQueryKeys(workspaceId: string): QueryKey[] {
+	const input = { workspaceId };
+	return [
+		osQuery.osCollaborators.access.key({ type: "query", input }),
+		workspaceCollaboratorsQueryOptions(workspaceId).queryKey,
+		osQuery.osWorkspaces.collaboration.list.key({ type: "query", input }),
+		osQuery.osWorkspaces.executions.list.key({ type: "query", input }),
+	];
+}
+
 /** Refetches only the active workspace projection from its D1/API owners. */
 export function reconcileLiveWorkspace(
 	queryClient: QueryClient,
@@ -123,6 +140,9 @@ export function reconcileLiveWorkspace(
 ): void {
 	for (const queryKey of workspaceQueryKeys(scope)) {
 		void queryClient.invalidateQueries({ queryKey, exact: true });
+	}
+	for (const queryKey of workspacePrefixQueryKeys(scope.workspaceId)) {
+		void queryClient.invalidateQueries({ queryKey });
 	}
 }
 

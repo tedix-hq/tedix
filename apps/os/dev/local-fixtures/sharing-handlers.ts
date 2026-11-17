@@ -23,6 +23,20 @@ export const sharingHandlers: Record<string, (input: never) => unknown> = {
 		findWorkspace(input.workspaceId);
 		return { role: "build" };
 	},
+	// Nothing changes behind a local fixture; hold like the server's long poll so
+	// the client's stream stays open without spinning.
+	"osCollaborators/events": (input: {
+		workspaceId: string;
+		after?: number;
+		waitMs?: number;
+	}) => {
+		findWorkspace(input.workspaceId);
+		const idle = { cursor: input.after ?? 0, kinds: [] };
+		if (input.after === undefined) return idle;
+		return new Promise((resolve) =>
+			setTimeout(resolve, Math.min(input.waitMs ?? 20_000, 20_000), idle),
+		);
+	},
 	"osCollaborators/presence": (input: { workspaceId: string }) => ({
 		workspaceId: findWorkspace(input.workspaceId).id,
 		userId: "local-you",

@@ -19,6 +19,7 @@ import {
 	osOutputs,
 } from "../../schema/os-workspaces";
 import { normalizeStoredJsonText } from "../../utils/json";
+import { announceOsWorkspaceChange } from "../os-workspace-events";
 import { getOsGadgetRevision } from "./gadgets";
 import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envelope";
 import { chunkForBoundParams } from "../../utils/batch";
@@ -42,7 +43,7 @@ export interface ListOsCollaborationProposalsOptions {
 	limit?: number;
 }
 
-export async function createOsCollaborationProposal(
+async function createOsCollaborationProposalUnannounced(
 	db: DbQueryClient,
 	proposal: NewOsCollaborationProposalRow,
 ): Promise<OsCollaborationProposalRow> {
@@ -52,6 +53,21 @@ export async function createOsCollaborationProposal(
 		.returning();
 	if (!row) throw new Error("OS collaboration proposal insert returned no row");
 	return row;
+}
+
+export async function createOsCollaborationProposal(
+	db: DbQueryClient,
+	proposal: NewOsCollaborationProposalRow,
+): Promise<OsCollaborationProposalRow> {
+	const result = await createOsCollaborationProposalUnannounced(db, proposal);
+	if (result && "workspaceId" in result) {
+		await announceOsWorkspaceChange(
+			db,
+			result.workspaceId,
+			result.documentType === "gadget" ? "drafts" : "proposals",
+		);
+	}
+	return result;
 }
 
 export async function getOsCollaborationProposal(
@@ -157,7 +173,7 @@ export async function listOsIdsWithCollaborationProposals(
 	return found;
 }
 
-export async function updateOsCollaborationProposalPreview(
+async function updateOsCollaborationProposalPreviewUnannounced(
 	db: DbQueryClient,
 	params: OsCollaborationProposalScope & {
 		expectedSequence: number;
@@ -188,7 +204,30 @@ export async function updateOsCollaborationProposalPreview(
 	return row;
 }
 
-export async function rebaseOsAppDraft(
+export async function updateOsCollaborationProposalPreview(
+	db: DbQueryClient,
+	params: OsCollaborationProposalScope & {
+		expectedSequence: number;
+		content: string;
+		sourceKind: OsCollaborationProposalRow["sourceKind"];
+		sourceId: string;
+	},
+): Promise<OsCollaborationProposalRow | undefined> {
+	const result = await updateOsCollaborationProposalPreviewUnannounced(
+		db,
+		params,
+	);
+	if (result && "workspaceId" in result) {
+		await announceOsWorkspaceChange(
+			db,
+			result.workspaceId,
+			result.documentType === "gadget" ? "drafts" : "proposals",
+		);
+	}
+	return result;
+}
+
+async function rebaseOsAppDraftUnannounced(
 	db: DbQueryClient,
 	params: OsCollaborationProposalScope & {
 		expectedSequence: number;
@@ -223,6 +262,26 @@ export async function rebaseOsAppDraft(
 		)
 		.returning();
 	return row;
+}
+
+export async function rebaseOsAppDraft(
+	db: DbQueryClient,
+	params: OsCollaborationProposalScope & {
+		expectedSequence: number;
+		baseRevisionId: string;
+		baseRevision: number;
+		content: string;
+	},
+): Promise<OsCollaborationProposalRow | undefined> {
+	const result = await rebaseOsAppDraftUnannounced(db, params);
+	if (result && "workspaceId" in result) {
+		await announceOsWorkspaceChange(
+			db,
+			result.workspaceId,
+			result.documentType === "gadget" ? "drafts" : "proposals",
+		);
+	}
+	return result;
 }
 
 type StaleProposalResult = { reason: "stale_base" };
@@ -334,7 +393,7 @@ async function rebaseStaleAppProposal(
 	};
 }
 
-export async function decideOsCollaborationProposal(
+async function decideOsCollaborationProposalUnannounced(
 	db: DbQueryClient,
 	params: OsCollaborationProposalScope & {
 		expectedSequence: number;
@@ -430,6 +489,28 @@ export async function decideOsCollaborationProposal(
 	return row ?? (acceptanceFence ? { reason: "stale_base" } : undefined);
 }
 
+export async function decideOsCollaborationProposal(
+	db: DbQueryClient,
+	params: OsCollaborationProposalScope & {
+		expectedSequence: number;
+		decision: "accepted" | "rejected";
+		rationale: string;
+		evidenceRefs: string;
+		decidedByKind: OsCollaborationProposalRow["createdByKind"];
+		decidedById: string;
+	},
+): Promise<OsCollaborationProposalRow | StaleProposalResult | undefined> {
+	const result = await decideOsCollaborationProposalUnannounced(db, params);
+	if (result && "workspaceId" in result) {
+		await announceOsWorkspaceChange(
+			db,
+			result.workspaceId,
+			result.documentType === "gadget" ? "drafts" : "proposals",
+		);
+	}
+	return result;
+}
+
 export type MergeOsCollaborationProposalResult =
 	| {
 			ok: true;
@@ -492,7 +573,7 @@ export function splitGadgetProposalContent(content: string): {
 	};
 }
 
-export async function mergeOsCollaborationProposal(
+async function mergeOsCollaborationProposalUnannounced(
 	db: DbQueryClient,
 	params: OsCollaborationProposalScope & {
 		expectedSequence: number;
@@ -767,6 +848,34 @@ export async function mergeOsCollaborationProposal(
 	return revision && mergedProposal
 		? { ok: true, proposal: mergedProposal, revision }
 		: { ok: false, reason: "revision_conflict" };
+}
+
+export async function mergeOsCollaborationProposal(
+	db: DbQueryClient,
+	params: OsCollaborationProposalScope & {
+		expectedSequence: number;
+		revisionId: string;
+		rationale: string;
+		evidenceRefs: string;
+		mergedByKind: OsCollaborationProposalRow["createdByKind"];
+		mergedById: string;
+		outputBody?: {
+			contentSha256: string;
+			contentBytes: number;
+			bodyR2Key: string;
+			content: string;
+		};
+	},
+): Promise<MergeOsCollaborationProposalResult> {
+	const result = await mergeOsCollaborationProposalUnannounced(db, params);
+	if (result.ok) {
+		await announceOsWorkspaceChange(
+			db,
+			result.proposal.workspaceId,
+			result.proposal.documentType === "gadget" ? "drafts" : "proposals",
+		);
+	}
+	return result;
 }
 
 export interface AppEditSource {

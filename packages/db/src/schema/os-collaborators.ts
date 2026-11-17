@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+	index,
+	integer,
+	sqliteTable,
+	text,
+	uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import { organizations } from "./organizations";
 
 /**
@@ -123,6 +129,33 @@ export const osWorkspaceShareKeys = sqliteTable(
 	(table) => [index("os_workspace_share_keys_link_idx").on(table.linkId)],
 );
 
+/**
+ * Append-only change hints for one workspace: access, proposals, runs and
+ * drafts. A row names what changed, never its content, so a reader refetches
+ * the canonical API read. `seq` is the cursor a stream resumes from.
+ */
+export const osWorkspaceEvents = sqliteTable(
+	"os_workspace_events",
+	{
+		seq: integer("seq").primaryKey({ autoIncrement: true }),
+		workspaceId: text("workspace_id").notNull(),
+		kind: text("kind", {
+			enum: ["access", "proposals", "runs", "drafts"],
+		}).notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(datetime('now'))`),
+	},
+	(table) => [
+		index("os_workspace_events_workspace_seq_idx").on(
+			table.workspaceId,
+			table.seq,
+		),
+		index("os_workspace_events_created_idx").on(table.createdAt),
+	],
+);
+
+export type OsWorkspaceEventRow = typeof osWorkspaceEvents.$inferSelect;
 export type OsWorkspaceCollaboratorRow =
 	typeof osWorkspaceCollaborators.$inferSelect;
 export type OsWorkspaceAccessEdgeRow =

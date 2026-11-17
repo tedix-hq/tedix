@@ -54,6 +54,10 @@ import {
 } from "@/lib/os-query-options";
 import { absoluteTime, formatDurationBetween, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import {
+	useWorkspaceEventStreamOpen,
+	workspacePollMs,
+} from "@/lib/workspace-event-stream";
 import type { ActorDirectory } from "@/lib/work-actor";
 
 const GADGET_EXECUTION_LIMIT = 20;
@@ -984,6 +988,7 @@ export function CanvasGadgetExecutions({
 	const [started, setStarted] = useState<OsGadgetExecution | null>(null);
 	const [formOpen, setFormOpen] = useState(false);
 
+	const streamOpen = useWorkspaceEventStreamOpen();
 	const executions = useQuery({
 		...gadgetExecutionsQueryOptions(
 			workspaceId,
@@ -998,7 +1003,7 @@ export function CanvasGadgetExecutions({
 					(!isTrace(execution) &&
 						!TERMINAL_EXECUTION_STATUSES.has(execution.status)),
 			)
-				? 2_500
+				? workspacePollMs(streamOpen, 2_500)
 				: false,
 	});
 	const runs = useMemo(() => {

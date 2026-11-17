@@ -1560,6 +1560,10 @@
 		{
 			"name": "20261117143707_maintained_work_and_fact_org_totals/migration.sql",
 			"sha256": "c1fd18e270a267e787fcbe698dfd64c97a7aeafb8478e3584e5b07c87485e89c"
+		},
+		{
+			"name": "20261117151111_os-workspace-events/migration.sql",
+			"sha256": "d0e3e943b89cdf74f1e1d67d204c15b00bd191c63081db607a20a76104c8b59b"
 		}
 	]
 }

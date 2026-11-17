@@ -4,6 +4,10 @@ import {
 	dismissOsSharedWorkspace,
 	listOsSharedWorkspacesForUser,
 } from "@tedix/db/queries/os-collaborators";
+import {
+	getLatestOsWorkspaceEventCursor,
+	listOsWorkspaceEventsAfter,
+} from "@tedix/db/queries/os-workspace-events";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	addWorkspaceCollaborator,
@@ -48,6 +52,57 @@ const access = collaborator.access
 		);
 		return { role: access.role! };
 	});
+/** How often a held request looks for a newer event. */
+const EVENT_POLL_MS = 1_500;
+const EVENT_PAGE_LIMIT = 50;
+
+const events = collaborator.events
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"The handler requires a signed-in human and rechecks their workspace permission graph on every poll, so revoked access ends the stream.",
+			},
+			"apps:read",
+		),
+	)
+	.handler(async ({ input, context }) => {
+		const db = createDbQueryClient(context.env.DB);
+		const check = () =>
+			requireWorkspaceCollaboratorAccess(
+				context,
+				input.workspaceId,
+				"metadata.read",
+			);
+		await check();
+		if (input.after === undefined) {
+			return {
+				cursor: await getLatestOsWorkspaceEventCursor(db, input.workspaceId),
+				kinds: [],
+			};
+		}
+		const deadline = Date.now() + (input.waitMs ?? 20_000);
+		for (;;) {
+			const found = await listOsWorkspaceEventsAfter(db, {
+				workspaceId: input.workspaceId,
+				after: input.after,
+				limit: EVENT_PAGE_LIMIT,
+			});
+			const last = found.at(-1);
+			if (last) {
+				return {
+					cursor: last.cursor,
+					kinds: [...new Set(found.map((event) => event.kind))],
+				};
+			}
+			if (Date.now() + EVENT_POLL_MS > deadline) {
+				return { cursor: input.after, kinds: [] };
+			}
+			await new Promise((resolve) => setTimeout(resolve, EVENT_POLL_MS));
+			await check();
+		}
+	});
+
 const open = collaborator.open
 	.use(
 		withAuthorization(
@@ -229,6 +284,7 @@ const dismissShared = collaborator.dismissShared
 
 export const osCollaboratorsContractRouter = os.router({
 	access,
+	events,
 	open,
 	presence,
 	list,

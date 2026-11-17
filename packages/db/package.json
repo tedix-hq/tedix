@@ -318,6 +318,7 @@
 		"./queries/os-review-batches": "./src/queries/os-review-batches.ts",
 		"./queries/os-shares": "./src/queries/os-shares.ts",
 		"./queries/os-collaborators": "./src/queries/os-collaborators.ts",
+		"./queries/os-workspace-events": "./src/queries/os-workspace-events.ts",
 		"./queries/os-workspaces/outputs": "./src/queries/os-workspaces/outputs.ts",
 		"./queries/os-workspaces/collaboration": "./src/queries/os-workspaces/collaboration.ts",
 		"./queries/os-workspaces/archived-purge": "./src/queries/os-workspaces/archived-purge.ts",

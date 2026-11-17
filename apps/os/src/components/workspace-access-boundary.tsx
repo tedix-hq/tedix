@@ -8,6 +8,11 @@ import {
 	isWorkspaceAccessDenied,
 } from "@/lib/workspace-verification";
 import { osQuery } from "@/lib/os-query-options";
+import {
+	WORKSPACE_STREAM_FALLBACK_MS,
+	WorkspaceEventStreamProvider,
+	useWorkspaceEventStream,
+} from "@/lib/workspace-event-stream";
 
 const SharedWorkspacePage = lazy(async () => ({
 	default: (await import("@/components/shared-workspace-page"))
@@ -15,9 +20,12 @@ const SharedWorkspacePage = lazy(async () => ({
 }));
 
 /**
- * A permission change must close the editors within a few seconds, so the
- * check stays frequent. It runs in visible tabs, on focus and when the
- * browser comes back online.
+ * A permission change must close the editors within a few seconds. While the
+ * workspace event stream is open, the stream refetches the check the moment
+ * access changes, and a refused stream rechecks at once, so the interval is
+ * only a slow fallback (`WORKSPACE_STREAM_FALLBACK_MS`). Without the stream the
+ * check stays frequent. It also runs on focus and when the browser comes back
+ * online.
  */
 export const WORKSPACE_ACCESS_CHECK_MS = 3_000;
 
@@ -33,11 +41,14 @@ export function WorkspaceAccessBoundary({
 	workspaceId: string;
 	children: ReactNode;
 }) {
+	const streamOpen = useWorkspaceEventStream(workspaceId);
 	const access = useQuery(
 		osQuery.osCollaborators.access.queryOptions({
 			input: { workspaceId },
 			staleTime: 0,
-			refetchInterval: WORKSPACE_ACCESS_CHECK_MS,
+			refetchInterval: streamOpen
+				? WORKSPACE_STREAM_FALLBACK_MS
+				: WORKSPACE_ACCESS_CHECK_MS,
 			refetchOnWindowFocus: true,
 			refetchOnReconnect: true,
 			retry: (failures, error) =>
@@ -81,7 +92,9 @@ export function WorkspaceAccessBoundary({
 	const paused = !verified;
 	return (
 		<WorkspaceVerificationPausedContext.Provider value={paused}>
-			{children}
+			<WorkspaceEventStreamProvider value={streamOpen}>
+				{children}
+			</WorkspaceEventStreamProvider>
 			{paused && (
 				<div
 					role="status"

@@ -175,3 +175,12 @@ export const OsCollaboratorTargetSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("link"), linkId: z.string().uuid() }),
 ]);
 export type OsCollaboratorTarget = z.infer<typeof OsCollaboratorTargetSchema>;
+
+/** What changed in a workspace; a reader refetches the matching canonical read. */
+export const OsWorkspaceEventKindSchema = z.enum([
+	"access",
+	"proposals",
+	"runs",
+	"drafts",
+]);
+export type OsWorkspaceEventKind = z.infer<typeof OsWorkspaceEventKindSchema>;

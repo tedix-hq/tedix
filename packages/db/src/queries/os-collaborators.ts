@@ -13,6 +13,7 @@ import {
 } from "../schema/os-collaborators";
 import { type OsWorkspaceRow, osWorkspaces } from "../schema/os-workspaces";
 import { chunkForBoundParams } from "../utils/batch";
+import { announceOsWorkspaceChange } from "./os-workspace-events";
 
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
 
@@ -252,6 +253,7 @@ export async function grantOsWorkspaceAccess(
 	);
 	if (statements.length === 0) return;
 	await db.batch(statements as Batch);
+	await announceOsWorkspaceChange(db, params.workspaceId, "access");
 }
 
 /**
@@ -287,6 +289,7 @@ export async function severOsWorkspaceUserAccess(
 			grantStatements(db, params, edge, params.now),
 		),
 	] as Batch);
+	await announceOsWorkspaceChange(db, params.workspaceId, "access");
 }
 
 /**
@@ -325,6 +328,7 @@ export async function revokeOsWorkspaceShareLink(
 			grantStatements(db, params, edge, params.now),
 		),
 	] as Batch);
+	await announceOsWorkspaceChange(db, params.workspaceId, "access");
 }
 
 export async function createOsWorkspaceShareLink(
@@ -382,6 +386,7 @@ export async function updateOsWorkspaceShareLink(
 			),
 		)
 		.returning();
+	if (row) await announceOsWorkspaceChange(db, params.workspaceId, "access");
 	return row;
 }
 

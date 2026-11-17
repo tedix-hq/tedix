@@ -42,6 +42,10 @@ import {
 	outputDetailQueryOptions,
 } from "@/lib/os-query-options";
 import { cn } from "@/lib/utils";
+import {
+	useWorkspaceEventStreamOpen,
+	workspacePollMs,
+} from "@/lib/workspace-event-stream";
 
 const PROPOSAL_LIST_LIMIT = 20;
 
@@ -248,6 +252,7 @@ export function CanvasProposals({
 	onMerged,
 }: CanvasProposalsProps) {
 	const queryClient = useQueryClient();
+	const streamOpen = useWorkspaceEventStreamOpen();
 	const [rationales, setRationales] = useState<Record<string, string>>({});
 	const proposalsInput = {
 		workspaceId,
@@ -262,7 +267,7 @@ export function CanvasProposals({
 				(proposal) =>
 					proposal.status === "open" || proposal.status === "accepted",
 			)
-				? 1_000
+				? workspacePollMs(streamOpen, 1_000)
 				: false,
 	});
 
