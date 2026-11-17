@@ -524,7 +524,7 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 						row.title
 							.toLowerCase()
 							.includes(input.titleContains.toLowerCase())),
-			),
+			).map((row) => ({ ...row, latestAttempt: null })),
 			input,
 		),
 	"workItems/listTriage": (
