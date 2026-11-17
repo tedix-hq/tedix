@@ -83,8 +83,10 @@ export function sessionRequestSource(row: SessionRequest): string {
 
 export function SessionRequestsSection({
 	rows,
+	unprocessedEvents = 0,
 }: {
 	rows: readonly SessionRequest[];
+	unprocessedEvents?: number;
 }) {
 	const client = useQueryClient();
 	const [filter, setFilter] = useState<Filter>("active");
@@ -109,6 +111,14 @@ export function SessionRequestsSection({
 					<SectionDescription>
 						What you asked your agent sessions, so nothing gets lost. {active}{" "}
 						still open. Only you see these.
+						{unprocessedEvents ? (
+							<span data-unprocessed-events={unprocessedEvents}>
+								{" "}
+								{unprocessedEvents} stored{" "}
+								{unprocessedEvents === 1 ? "message is" : "messages are"} not
+								processed yet.
+							</span>
+						) : null}
 					</SectionDescription>
 				</SectionHeading>
 				<SectionActions>

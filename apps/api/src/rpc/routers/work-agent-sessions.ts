@@ -42,6 +42,7 @@ import {
 	getAgentSessionActivitySnapshot,
 	listAgentSessionActivity,
 	listAgentSessionActivityCoverage,
+	countUnprocessedAgentSessionEvents,
 	getAgentSessionRequest,
 	listAgentSessionRequests,
 	updateAgentSessionRequests,
@@ -761,16 +762,20 @@ const listActivityProcedure = authenticatedOs
 
 const listRequestsProcedure = readOs.listRequests.handler(
 	async ({ input, context }) => {
-		const rows = await listAgentSessionRequests(context.db, {
-			...requireBoardOwner(context),
-			statuses: input.statuses,
-			changedSince: input.changedSince,
-			harness: input.harness,
-			sessionKey: input.sessionKey,
-			limit: input.limit,
-			newestFirst: input.order === "newest",
-		});
-		return { data: rows.map(requestOutput) };
+		const owner = requireBoardOwner(context);
+		const [rows, unprocessedEvents] = await Promise.all([
+			listAgentSessionRequests(context.db, {
+				...owner,
+				statuses: input.statuses,
+				changedSince: input.changedSince,
+				harness: input.harness,
+				sessionKey: input.sessionKey,
+				limit: input.limit,
+				newestFirst: input.order === "newest",
+			}),
+			countUnprocessedAgentSessionEvents(context.db, owner),
+		]);
+		return { data: rows.map(requestOutput), unprocessedEvents };
 	},
 );
 

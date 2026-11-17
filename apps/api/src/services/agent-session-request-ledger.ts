@@ -57,6 +57,7 @@ import {
 	recordAgentSessionEvents,
 	recordAgentSessionRequests,
 	retryFailedAgentSessionEvents,
+	requeueFailedAgentSessionEvents,
 	rebuildFailedAgentSession,
 	type RebuildFailedAgentSessionParams,
 	settleAgentSessionEvent,
@@ -978,6 +979,17 @@ export async function acceptAgentSessionEvents(
 		events,
 		now: input.now,
 	});
+	// A new event retries its session's failed ones first, in order.
+	if (accepted)
+		for (const session of new Map(
+			events.map((event) => [`${event.harness}\n${event.sessionKey}`, event]),
+		).values())
+			await requeueFailedAgentSessionEvents(db, {
+				organizationId: input.organizationId,
+				userId: input.userId,
+				session,
+				now: input.now,
+			});
 	const retried = input.retryFailed
 		? await retryFailedAgentSessionEvents(db, {
 				organizationId: input.organizationId,
@@ -1000,7 +1012,8 @@ export const EVENTS_PER_PASS = 4;
  * Process the caller's pending events oldest first: a `prompt` through the
  * observer, a `turn` through the reflector. Each event is claimed first, so
  * two passes never process it twice; a model failure leaves it pending for a
- * later pass (failed after three attempts). Returns events processed.
+ * later pass (failed after three attempts). A failed event gets one more
+ * attempt an hour later, for three days. Returns events processed.
  */
 export async function processAgentSessionEvents(
 	db: DbQueryClient,
@@ -1014,6 +1027,7 @@ export async function processAgentSessionEvents(
 ): Promise<number> {
 	const now = options.now ?? (() => new Date().toISOString());
 	let processed = 0;
+	await requeueFailedAgentSessionEvents(db, { ...owner, now: now() });
 	for (let index = 0; index < (options.limit ?? EVENTS_PER_PASS); index++) {
 		const [event] = await listPendingAgentSessionEvents(db, {
 			...owner,

@@ -197,6 +197,10 @@ export const AGENT_SESSION_EVENT_BATCH_LIMIT = 20;
 const EVENT_LEASE_MS = 2 * 60_000;
 /** Attempts before an event is left as failed. */
 export const AGENT_SESSION_EVENT_MAX_ATTEMPTS = 3;
+/** A failed event rests this long before the schedule retries it. */
+const FAILED_EVENT_RETRY_REST_MS = 60 * 60_000;
+/** The schedule stops retrying a failed event this long after it happened. */
+const FAILED_EVENT_RETRY_WINDOW_MS = 3 * 24 * 60 * 60_000;
 
 export interface RecordAgentSessionEventsParams extends AgentSessionRequestOwner {
 	events: ReadonlyArray<{
@@ -397,12 +401,111 @@ export async function recordAgentSessionInferenceReflection(
 		);
 }
 
-/** Explicit retries never rewind a session past later completed or leased work. */
+/** Retries never rewind a session past later completed or leased work. */
+function noLaterSettledEvent(db: DbQueryClient) {
+	const later = alias(agentSessionEvents, "later_session_event");
+	return notExists(
+		db
+			.select({ id: later.id })
+			.from(later)
+			.where(
+				and(
+					eq(later.organizationId, agentSessionEvents.organizationId),
+					eq(later.userId, agentSessionEvents.userId),
+					eq(later.harness, agentSessionEvents.harness),
+					eq(later.sessionKey, agentSessionEvents.sessionKey),
+					or(eq(later.status, "processed"), isNotNull(later.claimedAt)),
+					or(
+						gt(later.sourceAt, agentSessionEvents.sourceAt),
+						and(
+							eq(later.sourceAt, agentSessionEvents.sourceAt),
+							gt(later.id, agentSessionEvents.id),
+						),
+					),
+				),
+			),
+	);
+}
+
+/**
+ * A failed event the schedule may retry: its last attempt (kept in
+ * processed_at) has rested, and it is recent enough to bound the retries.
+ */
+function failedEventDueForRetry(db: DbQueryClient, now: string) {
+	const at = Date.parse(now);
+	return and(
+		eq(agentSessionEvents.status, "failed"),
+		gte(
+			agentSessionEvents.sourceAt,
+			new Date(at - FAILED_EVENT_RETRY_WINDOW_MS).toISOString(),
+		),
+		or(
+			isNull(agentSessionEvents.processedAt),
+			lte(
+				agentSessionEvents.processedAt,
+				new Date(at - FAILED_EVENT_RETRY_REST_MS).toISOString(),
+			),
+		),
+		noLaterSettledEvent(db),
+	);
+}
+
+/**
+ * Give the owner's failed events one more attempt each, without a client
+ * flag. With `session` (a new upload arrived there): every failed event of
+ * that session, so it runs before the new one. Otherwise: recent failed
+ * events whose last attempt has rested. Returns events made pending.
+ */
+export async function requeueFailedAgentSessionEvents(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & {
+		now: string;
+		session?: { harness: WorkAgentSessionHarness; sessionKey: string };
+	},
+): Promise<number> {
+	const rows = await db
+		.update(agentSessionEvents)
+		.set({ status: "pending", claimedAt: null })
+		.where(
+			and(
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				params.session
+					? and(
+							eq(agentSessionEvents.harness, params.session.harness),
+							eq(agentSessionEvents.sessionKey, params.session.sessionKey),
+							eq(agentSessionEvents.status, "failed"),
+							noLaterSettledEvent(db),
+						)
+					: failedEventDueForRetry(db, params.now),
+			),
+		)
+		.returning({ id: agentSessionEvents.id });
+	return rows.length;
+}
+
+/** Stored events that are not in the ledger yet: pending or failed. */
+export async function countUnprocessedAgentSessionEvents(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner,
+): Promise<number> {
+	const [row] = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				inArray(agentSessionEvents.status, ["pending", "failed"]),
+			),
+		);
+	return row?.count ?? 0;
+}
+
 export async function retryFailedAgentSessionEvents(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner & { sourceKeys: readonly string[] },
 ): Promise<number> {
-	const later = alias(agentSessionEvents, "later_session_event");
 	let retried = 0;
 	for (const keys of chunkForBoundParams(
 		[...params.sourceKeys],
@@ -422,27 +525,7 @@ export async function retryFailedAgentSessionEvents(
 					eq(agentSessionEvents.userId, params.userId),
 					inArray(agentSessionEvents.sourceKey, keys),
 					eq(agentSessionEvents.status, "failed"),
-					notExists(
-						db
-							.select({ id: later.id })
-							.from(later)
-							.where(
-								and(
-									eq(later.organizationId, agentSessionEvents.organizationId),
-									eq(later.userId, agentSessionEvents.userId),
-									eq(later.harness, agentSessionEvents.harness),
-									eq(later.sessionKey, agentSessionEvents.sessionKey),
-									or(eq(later.status, "processed"), isNotNull(later.claimedAt)),
-									or(
-										gt(later.sourceAt, agentSessionEvents.sourceAt),
-										and(
-											eq(later.sourceAt, agentSessionEvents.sourceAt),
-											gt(later.id, agentSessionEvents.id),
-										),
-									),
-								),
-							),
-					),
+					noLaterSettledEvent(db),
 				),
 			)
 			.returning({ id: agentSessionEvents.id });
@@ -622,22 +705,37 @@ export async function listPendingAgentSessionEventOwners(
 		.select({ organizationId: owners.organizationId, userId: owners.userId })
 		.from(owners)
 		.where(
-			exists(
-				db
-					.select({ id: agentSessionEvents.id })
-					.from(agentSessionEvents)
-					.where(
-						and(
-							eq(agentSessionEvents.organizationId, owners.organizationId),
-							eq(agentSessionEvents.userId, owners.userId),
-							eq(agentSessionEvents.status, "pending"),
-							or(
-								isNull(agentSessionEvents.claimedAt),
-								lt(agentSessionEvents.claimedAt, stale),
+			or(
+				exists(
+					db
+						.select({ id: agentSessionEvents.id })
+						.from(agentSessionEvents)
+						.where(
+							and(
+								eq(agentSessionEvents.organizationId, owners.organizationId),
+								eq(agentSessionEvents.userId, owners.userId),
+								eq(agentSessionEvents.status, "pending"),
+								or(
+									isNull(agentSessionEvents.claimedAt),
+									lt(agentSessionEvents.claimedAt, stale),
+								),
 							),
-						),
-					)
-					.limit(1),
+						)
+						.limit(1),
+				),
+				exists(
+					db
+						.select({ id: agentSessionEvents.id })
+						.from(agentSessionEvents)
+						.where(
+							and(
+								eq(agentSessionEvents.organizationId, owners.organizationId),
+								eq(agentSessionEvents.userId, owners.userId),
+								failedEventDueForRetry(db, now),
+							),
+						)
+						.limit(1),
+				),
 			),
 		)
 		.limit(100);
@@ -790,6 +888,8 @@ export async function settleAgentSessionEvent(
 				? { status: "processed", processedAt: params.now, claimedAt: null }
 				: {
 						status: sql`CASE WHEN ${agentSessionEvents.attempts} >= ${AGENT_SESSION_EVENT_MAX_ATTEMPTS} THEN 'failed' ELSE 'pending' END`,
+						// A failed event keeps when it last failed, to space its retries.
+						processedAt: sql`CASE WHEN ${agentSessionEvents.attempts} >= ${AGENT_SESSION_EVENT_MAX_ATTEMPTS} THEN ${params.now} ELSE NULL END`,
 						claimedAt: null,
 					},
 		)
