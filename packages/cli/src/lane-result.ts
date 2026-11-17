@@ -237,15 +237,16 @@ export function verifyExistingLaneResult(
 	const sha = proof.head_sha;
 	if (
 		proof.id !== result.runId ||
-		proof.name !== result.workflowName ||
+		// Run names may carry the commit ("Full test run @ <sha>").
+		(proof.name !== result.workflowName &&
+			proof.name !== `${result.workflowName} @ ${sha}`) ||
 		proof.status !== "completed" ||
 		proof.conclusion !== "success" ||
 		proof.head_branch !== "main" ||
-		latest.id !== result.runId ||
-		latest.run_attempt !== proof.run_attempt ||
 		latest.status !== "completed" ||
 		latest.conclusion !== "success" ||
-		latest.head_sha !== sha
+		(latest.id === proof.id &&
+			(latest.run_attempt !== proof.run_attempt || latest.head_sha !== sha))
 	)
 		throw new Error(
 			"Existing CI outcome is not the latest successful main workflow run",
@@ -254,6 +255,10 @@ export function verifyExistingLaneResult(
 		[result.commitSha, sha],
 		[result.minimumCommit, sha],
 		[sha, "refs/remotes/origin/main"],
+		// A newer successful run of the same workflow file (for example the push
+		// Deploy gate after a dispatched full run) must contain the proven run.
+		[sha, latest.head_sha],
+		[latest.head_sha, "refs/remotes/origin/main"],
 	]) {
 		try {
 			run("git", ["merge-base", "--is-ancestor", ancestor!, descendant!]);

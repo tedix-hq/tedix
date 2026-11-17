@@ -722,9 +722,10 @@ For an already satisfied CI recovery, use `outcome: "already_satisfied"` with
 the full existing fix `commitSha`, `runId`, `workflowName`, `minimumCommit`
 and `rootCause`. This mode requires GitHub CLI read access to the checkout's
 origin. The accepted outcome must name that workflow and minimum commit.
-The dispatcher checks the latest workflow run on main is successful and
-contains both the fix and minimum commit, and that its commit is on
-`origin/main`. Settlement records `verified_existing` evidence rather than
+The dispatcher checks the cited run succeeded on main and contains both the
+fix and minimum commit, that the workflow's latest run on main succeeded and
+contains the cited run (a run name may end in ` @ <sha>`), and that its commit
+is on `origin/main`. Settlement records `verified_existing` evidence rather than
 claiming the old fix as a new commit. Work and the original live Attempt are
 rechecked before settlement; completion uses the existing recovery fences.
 Unavailable proof stays retained. Ordinary coding success requires
