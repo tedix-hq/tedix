@@ -121,6 +121,7 @@ async function renderPanel(terminal = false, scheduled = false) {
 						priority: "high",
 						startAt: scheduled ? "2026-10-24T00:00:00.000Z" : null,
 						durationDays: scheduled ? 3 : null,
+						latestAttempt: null,
 						version: 1,
 					},
 				],
