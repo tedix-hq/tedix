@@ -16,6 +16,7 @@ import {
 } from "@tedix/db/schema/work-factory";
 import { workItems } from "@tedix/db/schema/work-items";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
+import { platformCronCheckpoints } from "@tedix/db/schema/platform-cron-executions";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import {
 	learningInteractionEvents,
@@ -49,6 +50,7 @@ function fixture() {
 			learningInteractionEvents,
 			decisionExposures,
 			decisionOutcomeLabels,
+			platformCronCheckpoints,
 		),
 	);
 	sqlite.exec("PRAGMA foreign_keys=OFF");
@@ -615,5 +617,149 @@ it("learns jump-then-decide only from the linked canonical response, once", asyn
 		elapsedMs: 70000,
 		evidenceSource: "canonical_receipt",
 		serverObserved: true,
+	});
+});
+
+describe("bounded receipt scans", () => {
+	const labelledReceipts = (sqlite: DatabaseSync) =>
+		sqlite
+			.prepare("SELECT outcome FROM decision_outcome_labels")
+			.all()
+			.map((row) => String(JSON.parse(String(row.outcome)).receiptId))
+			.sort();
+	const checkpoints = (sqlite: DatabaseSync) =>
+		Object.fromEntries(
+			sqlite
+				.prepare("SELECT schedule_id, through FROM platform_cron_checkpoints")
+				.all()
+				.map((row) => [String(row.schedule_id), String(row.through)]),
+		);
+	const approve = (sqlite: DatabaseSync, id: string, resolvedAt: string) =>
+		sqlite
+			.prepare(
+				`INSERT INTO tedi_approval_requests
+ (id,tedi_id,org_id,action_type,description,payload,status,created_at,expires_at,resolved_at,resolved_by)
+ VALUES (?, 'tedi-lighthouse', 'org-lighthouse', 'review', 'Review', '{}', 'approved', ?, '2031-01-01T00:00:00.000Z', ?, 'person-lighthouse')`,
+			)
+			.run(id, now.toISOString(), resolvedAt);
+	const exposeApproval = (sqlite: DatabaseSync, id: string) =>
+		sqlite
+			.prepare(
+				`INSERT INTO decision_exposures
+ (id,organization_id,actor_id,card_id,session_id,class_id,snapshot,context,occurred_at,expires_at)
+ VALUES (?, 'org-lighthouse', 'person-lighthouse', ?, 'session', 'review', '{}', '{}', ?, '2031-01-01T00:00:00.000Z')`,
+			)
+			.run(`exposure-${id}`, `approval:${id}`, now.toISOString());
+
+	it("labels every receipt across runs: new ones in the next run, late-stored ones in the next daily sweep", async () => {
+		const { db, sqlite } = fixture();
+		await request(db);
+		await expose(db);
+		for (const id of ["approval-a", "approval-b", "approval-late"])
+			exposeApproval(sqlite, id);
+		await respond(db, { decisionChoice: "later" }, "response-a");
+		approve(sqlite, "approval-a", "2030-01-01T12:01:00.000Z");
+
+		// No checkpoint yet: the first run sweeps everything and records its time.
+		await labelDecisionOutcomes(db, new Date("2030-01-01T12:02:00Z"));
+		expect(labelledReceipts(sqlite)).toEqual(["approval-a", "response-a"]);
+		expect(checkpoints(sqlite)).toEqual({
+			"decision-outcome-labeller:responses": "2030-01-01T12:02:00.000Z",
+			"decision-outcome-labeller:approvals": "2030-01-01T12:02:00.000Z",
+		});
+
+		// Receipts after the checkpoint are labelled by the bounded run.
+		await labelDecisionOutcomes(db, new Date("2030-01-01T14:58:00Z"));
+		await respond(
+			db,
+			{ decisionChoice: "approve", feedbackSignal: "approve-as-is" },
+			"response-b",
+			"2030-01-01T15:00:00.000Z",
+		);
+		approve(sqlite, "approval-b", "2030-01-01T15:00:30.000Z");
+		// Stored now with a time more than an hour before the checkpoint.
+		await respond(
+			db,
+			{ decisionChoice: "later" },
+			"response-late",
+			"2030-01-01T12:00:30.000Z",
+		);
+		approve(sqlite, "approval-late", "2030-01-01T12:00:30.000Z");
+		await labelDecisionOutcomes(db, new Date("2030-01-01T15:02:00Z"));
+		expect(labelledReceipts(sqlite)).toEqual([
+			"approval-a",
+			"approval-b",
+			"response-a",
+			"response-b",
+		]);
+
+		// A receipt stored within the overlap hour is still read the same day.
+		await respond(
+			db,
+			{ decisionChoice: "later" },
+			"response-overlap",
+			"2030-01-01T14:30:00.000Z",
+		);
+		await labelDecisionOutcomes(db, new Date("2030-01-01T15:04:00Z"));
+		expect(labelledReceipts(sqlite)).toContain("response-overlap");
+		expect(labelledReceipts(sqlite)).not.toContain("response-late");
+
+		// The first run of the next UTC day sweeps everything again.
+		await labelDecisionOutcomes(db, new Date("2030-01-02T00:00:00Z"));
+		expect(labelledReceipts(sqlite)).toEqual([
+			"approval-a",
+			"approval-b",
+			"approval-late",
+			"response-a",
+			"response-b",
+			"response-late",
+			"response-overlap",
+		]);
+		expect(checkpoints(sqlite)).toEqual({
+			"decision-outcome-labeller:responses": "2030-01-02T00:00:00.000Z",
+			"decision-outcome-labeller:approvals": "2030-01-02T00:00:00.000Z",
+		});
+	});
+
+	it("holds the checkpoint while a page is full, so a backlog drains instead of being stepped over", async () => {
+		const { db, sqlite } = fixture();
+		await request(db);
+		await labelDecisionOutcomes(db, new Date("2030-01-01T12:02:00Z"));
+		const ids = Array.from(
+			{ length: 120 },
+			(_, i) => `approval-${String(i).padStart(3, "0")}`,
+		);
+		for (const [i, id] of ids.entries()) {
+			exposeApproval(sqlite, id);
+			approve(
+				sqlite,
+				id,
+				new Date(Date.parse("2030-01-01T13:00:00Z") + i * 1000).toISOString(),
+			);
+		}
+		await labelDecisionOutcomes(db, new Date("2030-01-01T14:30:00Z"));
+		expect(labelledReceipts(sqlite)).toHaveLength(50);
+		expect(checkpoints(sqlite)).toMatchObject({
+			"decision-outcome-labeller:approvals": "2030-01-01T12:02:00.000Z",
+		});
+		// By now the first receipts are more than an hour behind this run's
+		// time; only the held checkpoint keeps them in range.
+		await labelDecisionOutcomes(db, new Date("2030-01-01T14:32:00Z"));
+		await labelDecisionOutcomes(db, new Date("2030-01-01T14:34:00Z"));
+		expect(labelledReceipts(sqlite)).toEqual(ids);
+		expect(checkpoints(sqlite)).toMatchObject({
+			"decision-outcome-labeller:approvals": "2030-01-01T14:34:00.000Z",
+		});
+	});
+
+	it("does not move a checkpoint backwards for a delayed tick", async () => {
+		const { db, sqlite } = fixture();
+		await request(db);
+		await labelDecisionOutcomes(db, new Date("2030-01-01T12:10:00Z"));
+		await labelDecisionOutcomes(db, new Date("2030-01-01T12:02:00Z"));
+		expect(checkpoints(sqlite)).toEqual({
+			"decision-outcome-labeller:responses": "2030-01-01T12:10:00.000Z",
+			"decision-outcome-labeller:approvals": "2030-01-01T12:10:00.000Z",
+		});
 	});
 });

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
 import {
 	decisionExposures,
 	decisionOutcomeLabels,
@@ -19,6 +19,7 @@ import {
 } from "@tedix/api-contract/schemas/decision-learning";
 import type { DbQueryClient } from "../query-client";
 import { organizations } from "../schema/organizations";
+import { platformCronCheckpoints } from "../schema/platform-cron-executions";
 import { chunkForBoundParams } from "../utils/batch";
 
 export async function getDecisionLearningConfig(
@@ -200,57 +201,136 @@ export async function listDecisionInstrumentation(
 	return { exposures, labels };
 }
 
-/** Bounded source scan excludes already labelled receipts in SQL; undecided cards cannot starve it. */
+const LABEL_SCAN_CHECKPOINT = "decision-outcome-labeller:";
+export type DecisionLabelScanSource = "responses" | "approvals";
+
+/** Latest scheduled time through which this source's receipts were all examined. */
+export async function getDecisionLabelScanCheckpoint(
+	db: DbQueryClient,
+	source: DecisionLabelScanSource,
+) {
+	const [row] = await db
+		.select({ through: platformCronCheckpoints.through })
+		.from(platformCronCheckpoints)
+		.where(
+			eq(platformCronCheckpoints.scheduleId, LABEL_SCAN_CHECKPOINT + source),
+		)
+		.limit(1);
+	return row?.through ?? null;
+}
+/** Compare-and-set progress; a delayed duplicate tick cannot rewind a newer checkpoint. */
+export async function advanceDecisionLabelScanCheckpoint(
+	db: DbQueryClient,
+	source: DecisionLabelScanSource,
+	previous: string | null,
+	next: string,
+) {
+	await db
+		.insert(platformCronCheckpoints)
+		.values({ scheduleId: LABEL_SCAN_CHECKPOINT + source, through: next })
+		.onConflictDoUpdate({
+			target: platformCronCheckpoints.scheduleId,
+			set: { through: next },
+			setWhere:
+				previous === null
+					? sql`0`
+					: eq(platformCronCheckpoints.through, previous),
+		});
+}
+
+const unlabelledResponseColumns = {
+	exposureId: sql<string>`${decisionExposures.id}`.as("exposure_id"),
+	organizationId: decisionExposures.organizationId,
+	actorId: decisionExposures.actorId,
+	cardId: decisionExposures.cardId,
+	classId: decisionExposures.classId,
+	expiresAt: decisionExposures.expiresAt,
+	responseId: workInteractionResponses.id,
+	respondedAt: workInteractionResponses.respondedAt,
+	metadata: workInteractionResponses.metadata,
+	responseKind: workInteractionResponses.responseKind,
+};
+const unlabelledResponseOrder = [
+	asc(workInteractionResponses.respondedAt),
+	asc(workInteractionResponses.id),
+	desc(decisionExposures.occurredAt),
+	desc(decisionExposures.id),
+];
+/** The exposure a response answers: same tenant, person, card and request version, shown first. */
+function responseAnswersExposure() {
+	return and(
+		eq(workInteractionResponses.orgId, decisionExposures.organizationId),
+		eq(workInteractionResponses.interactionId, decisionExposures.cardId),
+		eq(workInteractionResponses.responderId, decisionExposures.actorId),
+		eq(workInteractionResponses.responderType, "user"),
+		sql`${workInteractionResponses.respondedAt} >= ${decisionExposures.occurredAt}`,
+		// The response stores the post-save version; the exposure saw the prior request.
+		sql`json_extract(${decisionExposures.context},'$.sourceVersion') + 1 = ${workInteractionResponses.resolvedRequestVersion}`,
+	);
+}
+function unlabelledUnexpiredResponse(now: string) {
+	return and(
+		gt(decisionExposures.expiresAt, now),
+		sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${decisionExposures.organizationId} AND l.actor_id=${decisionExposures.actorId} AND l.id=(${decisionExposures.organizationId} || ':' || ${workInteractionResponses.id} || ':immediate'))`,
+	);
+}
+
+/**
+ * Responses that answer an unexpired exposure and have no immediate label yet,
+ * oldest first. Labelled receipts are excluded in SQL, so undecided cards
+ * cannot starve the page.
+ *
+ * Without `respondedFrom` this is the complete sweep: it reads every unexpired
+ * exposure. With it, only responses at or after that time are read, through
+ * the response time index, and each looks its exposures up by tenant, person
+ * and card. The caller owns the checkpoint that makes the bounded read safe.
+ */
 export async function listUnlabelledDecisionResponses(
 	db: DbQueryClient,
 	now: string,
 	limit = 50,
+	respondedFrom: string | null = null,
 ) {
+	if (respondedFrom === null)
+		return db
+			.select(unlabelledResponseColumns)
+			.from(decisionExposures)
+			.innerJoin(workInteractionResponses, responseAnswersExposure())
+			.where(unlabelledUnexpiredResponse(now))
+			.orderBy(...unlabelledResponseOrder)
+			.limit(limit);
+	// CROSS JOIN fixes the loop order: the recent responses drive the exposure
+	// lookup. Left to itself SQLite starts from every unexpired exposure.
 	return db
-		.select({
-			exposureId: sql<string>`${decisionExposures.id}`.as("exposure_id"),
-			organizationId: decisionExposures.organizationId,
-			actorId: decisionExposures.actorId,
-			cardId: decisionExposures.cardId,
-			classId: decisionExposures.classId,
-			expiresAt: decisionExposures.expiresAt,
-			responseId: workInteractionResponses.id,
-			respondedAt: workInteractionResponses.respondedAt,
-			metadata: workInteractionResponses.metadata,
-			responseKind: workInteractionResponses.responseKind,
-		})
-		.from(decisionExposures)
-		.innerJoin(
-			workInteractionResponses,
-			and(
-				eq(workInteractionResponses.orgId, decisionExposures.organizationId),
-				eq(workInteractionResponses.interactionId, decisionExposures.cardId),
-				eq(workInteractionResponses.responderId, decisionExposures.actorId),
-				eq(workInteractionResponses.responderType, "user"),
-				sql`${workInteractionResponses.respondedAt} >= ${decisionExposures.occurredAt}`,
-				// The response stores the post-save version; the exposure saw the prior request.
-				sql`json_extract(${decisionExposures.context},'$.sourceVersion') + 1 = ${workInteractionResponses.resolvedRequestVersion}`,
-			),
-		)
+		.select(unlabelledResponseColumns)
+		.from(workInteractionResponses)
+		.crossJoin(decisionExposures)
 		.where(
 			and(
-				gt(decisionExposures.expiresAt, now),
-				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${decisionExposures.organizationId} AND l.actor_id=${decisionExposures.actorId} AND l.id=(${decisionExposures.organizationId} || ':' || ${workInteractionResponses.id} || ':immediate'))`,
+				gte(workInteractionResponses.respondedAt, respondedFrom),
+				responseAnswersExposure(),
+				unlabelledUnexpiredResponse(now),
 			),
 		)
-		.orderBy(
-			asc(workInteractionResponses.respondedAt),
-			asc(workInteractionResponses.id),
-			desc(decisionExposures.occurredAt),
-			desc(decisionExposures.id),
-		)
+		.orderBy(...unlabelledResponseOrder)
 		.limit(limit);
 }
 
+/**
+ * Approval decisions by the person an unexpired exposure was shown to, with
+ * no immediate label yet, oldest first; up to `limit` rows from each of the
+ * two approval tables.
+ *
+ * Without `decidedFrom` this is the complete sweep: it walks every Work
+ * approval decision and every tedi approval request. With it, both walks start
+ * at that time in their time index. The caller owns the checkpoint that makes
+ * the bounded read safe.
+ */
 export async function listUnlabelledDecisionApprovals(
 	db: DbQueryClient,
 	now: string,
 	limit = 50,
+	decidedFrom: string | null = null,
 ) {
 	const work = await db
 		.select({
@@ -264,25 +344,24 @@ export async function listUnlabelledDecisionApprovals(
 			decidedAt: workApprovalDecisions.decidedAt,
 			decision: workApprovalDecisions.decision,
 		})
-		.from(decisionExposures)
-		.innerJoin(
-			workApprovalProposals,
-			and(
-				eq(workApprovalProposals.orgId, decisionExposures.organizationId),
-				sql`${decisionExposures.cardId} = ('work-approval:' || ${workApprovalProposals.id})`,
-			),
-		)
-		.innerJoin(
-			workApprovalDecisions,
-			and(
-				eq(workApprovalDecisions.proposalId, workApprovalProposals.id),
-				eq(workApprovalDecisions.deciderType, "user"),
-				eq(workApprovalDecisions.deciderId, decisionExposures.actorId),
-				sql`${workApprovalDecisions.decidedAt}>=${decisionExposures.occurredAt}`,
-			),
-		)
+		// CROSS JOIN fixes the loop order: decisions in time order, each one's
+		// proposal by id, then the exposures of that tenant, person and card.
+		// The card id is derived from the proposal id, so starting from the
+		// exposures would walk the tenant's proposals once per exposure.
+		.from(workApprovalDecisions)
+		.crossJoin(workApprovalProposals)
+		.crossJoin(decisionExposures)
 		.where(
 			and(
+				decidedFrom === null
+					? undefined
+					: gte(workApprovalDecisions.decidedAt, decidedFrom),
+				eq(workApprovalDecisions.proposalId, workApprovalProposals.id),
+				eq(workApprovalDecisions.deciderType, "user"),
+				eq(workApprovalProposals.orgId, decisionExposures.organizationId),
+				eq(workApprovalDecisions.deciderId, decisionExposures.actorId),
+				sql`${decisionExposures.cardId} = ('work-approval:' || ${workApprovalProposals.id})`,
+				sql`${workApprovalDecisions.decidedAt}>=${decisionExposures.occurredAt}`,
 				gt(decisionExposures.expiresAt, now),
 				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${decisionExposures.organizationId} AND l.id=(${decisionExposures.organizationId} || ':' || ${workApprovalDecisions.id} || ':immediate'))`,
 			),
@@ -307,6 +386,9 @@ export async function listUnlabelledDecisionApprovals(
 		.crossJoin(decisionExposures)
 		.where(
 			and(
+				decidedFrom === null
+					? undefined
+					: gte(tediApprovalRequests.resolvedAt, decidedFrom),
 				eq(tediApprovalRequests.orgId, decisionExposures.organizationId),
 				sql`${decisionExposures.cardId} = ('approval:' || ${tediApprovalRequests.id})`,
 				eq(tediApprovalRequests.resolvedBy, decisionExposures.actorId),

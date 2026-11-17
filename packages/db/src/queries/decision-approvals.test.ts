@@ -131,6 +131,15 @@ it("looks up exposures by tenant, actor and card for each resolved approval", as
 	expect(
 		plan.some((line) => line.includes("idx_decision_exposure_expiry")),
 	).toBe(false);
+	// A lower time bound only leaves out approvals resolved before it.
+	expect(
+		(await listUnlabelledDecisionApprovals(db, now, 50, now)).map(
+			(r) => r.exposureId,
+		),
+	).toEqual(["match"]);
+	expect(await listUnlabelledDecisionApprovals(db, now, 50, expiry)).toEqual(
+		[],
+	);
 	await insertDecisionOutcomeLabel(db, {
 		id: "org-lighthouse:target:immediate",
 		organizationId: "org-lighthouse",
