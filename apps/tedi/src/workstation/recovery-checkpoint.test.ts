@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+	cpSync,
 	mkdtempSync,
 	readFileSync,
 	writeFileSync,
@@ -9,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import {
 	persistWorkstationRecoveryCheckpoint as persist,
 	restoreWorkstationRecoveryCheckpoint as restore,
@@ -100,8 +101,16 @@ function nativeFixture(cwd: string) {
 	};
 	return { native, withLockedCheckpoint };
 }
-function fixture() {
-	const directory = mkdtempSync(join(tmpdir(), "checkpoint-git-"));
+let seed:
+	| {
+			directory: string;
+			source: string;
+			target: string;
+			preparedStartSha: string;
+	  }
+	| undefined;
+beforeAll(() => {
+	const directory = mkdtempSync(join(tmpdir(), "checkpoint-git-seed-"));
 	const source = join(directory, "source");
 	const target = join(directory, "target");
 	run(directory, "git init -q source");
@@ -119,6 +128,19 @@ function fixture() {
 	);
 	const preparedStartSha = run(source, "git rev-parse HEAD").trim();
 	run(directory, "git clone --quiet --no-local source target");
+	seed = { directory, source, target, preparedStartSha };
+});
+afterAll(() => {
+	if (seed) rmSync(seed.directory, { recursive: true, force: true });
+});
+function fixture() {
+	if (!seed) throw new Error("checkpoint seed is unavailable");
+	const directory = mkdtempSync(join(tmpdir(), "checkpoint-git-"));
+	const source = join(directory, "source");
+	const target = join(directory, "target");
+	cpSync(seed.source, source, { recursive: true });
+	cpSync(seed.target, target, { recursive: true });
+	const preparedStartSha = seed.preparedStartSha;
 	const store = storageFixture();
 	const producer = nativeFixture(source);
 	const consumer = nativeFixture(target);

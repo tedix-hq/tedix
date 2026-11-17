@@ -771,6 +771,8 @@ describe("native checkpoint lock and incarnation fences", () => {
 		const env = { ...process.env };
 		for (const key of Object.keys(env))
 			if (key.startsWith("GIT_")) Reflect.deleteProperty(env, key);
+		env.GIT_AUTHOR_NAME = env.GIT_COMMITTER_NAME = "Test";
+		env.GIT_AUTHOR_EMAIL = env.GIT_COMMITTER_EMAIL = "test@example.invalid";
 		const git = (cwd: string, ...args: string[]) =>
 			execFileSync("git", args, {
 				cwd,
@@ -778,19 +780,24 @@ describe("native checkpoint lock and incarnation fences", () => {
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "pipe"],
 			}).trim();
+		const head = (cwd: string) => {
+			const gitDirectory = join(cwd, ".git");
+			const value = readFileSync(join(gitDirectory, "HEAD"), "utf8").trim();
+			return value.startsWith("ref: ")
+				? readFileSync(join(gitDirectory, value.slice(5)), "utf8").trim()
+				: value;
+		};
 		try {
 			git(origin, "init", "-b", "main");
-			git(origin, "config", "user.name", "Test");
-			git(origin, "config", "user.email", "test@example.invalid");
 			writeFileSync(join(origin, "base"), "base");
 			git(origin, "add", ".");
 			git(origin, "commit", "-m", "base");
-			const base = git(origin, "rev-parse", "HEAD");
+			const base = head(origin);
 			git(origin, "checkout", "-b", "task");
 			writeFileSync(join(origin, "task"), "unpublished");
 			git(origin, "add", ".");
 			git(origin, "commit", "-m", "task commit");
-			const taskHead = git(origin, "rev-parse", "HEAD");
+			const taskHead = head(origin);
 			writeFileSync(join(origin, "dirty"), "dirty data");
 			const store = new Map<string, string>();
 			const storage = {
@@ -975,9 +982,11 @@ describe("dependency preparation identity in a real shell", () => {
 			createHash("sha256")
 				.update(readFileSync(join(dir, "bun.lock")))
 				.digest("hex");
-		const nativeNode = execFileSync("node", ["-p", "process.execPath"], {
-			encoding: "utf8",
-		}).trim();
+		const nativeNode = execFileSync(
+			"bun",
+			["-e", "process.stdout.write(process.execPath)"],
+			{ encoding: "utf8" },
+		).trim();
 		const localize = (command: string) =>
 			command.replaceAll("/home/tedi/workstation", join(dir, "workstation"));
 		mkdirSync(bin);
@@ -1001,7 +1010,7 @@ if [ "\${TEST_CHANGE_LOCKFILE:-}" = 1 ]; then printf 'changed during install' > 
 			join(bin, "node"),
 			`#!/bin/bash
 export TEST_NODE_SCRIPT="$2"
-exec ${JSON.stringify(nativeNode)} -e 'for (const [key, env] of [["platform", "TEST_PLATFORM"], ["arch", "TEST_ARCH"], ["version", "TEST_NODE_VERSION"]]) { if (process.env[env]) Object.defineProperty(process, key, { value: process.env[env] }); } eval(process.env.TEST_NODE_SCRIPT);' "\${@:3}"
+exec ${JSON.stringify(nativeNode)} -e 'globalThis.require = (await import("node:module")).createRequire(import.meta.url); for (const [key, env] of [["platform", "TEST_PLATFORM"], ["arch", "TEST_ARCH"], ["version", "TEST_NODE_VERSION"]]) { if (process.env[env]) Object.defineProperty(process, key, { value: process.env[env] }); } eval(process.env.TEST_NODE_SCRIPT);' "\${@:3}"
 `,
 			{ mode: 0o755 },
 		);

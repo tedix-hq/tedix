@@ -68,6 +68,15 @@ function fixture() {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 		}).trim();
+	const head = () => {
+		const value = readFileSync(join(repo, ".git", "HEAD"), "utf8").trim();
+		return value.startsWith("ref: ")
+			? readFileSync(join(repo, ".git", value.slice(5)), "utf8").trim()
+			: value;
+	};
+	const branch = (name: string, sha = head()) => {
+		writeFileSync(join(repo, ".git", "refs", "heads", name), `${sha}\n`);
+	};
 	if (seed) {
 		cpSync(seed.repo, repo, { recursive: true });
 		cpSync(seed.remote, remote, { recursive: true });
@@ -80,21 +89,21 @@ function fixture() {
 		git("commit", "-m", "initial");
 		git("remote", "add", "origin", remote);
 		git("push", "-u", "origin", "main");
-		git("config", "tedix.preparedStartSha", git("rev-parse", "HEAD"));
+		git("config", "tedix.preparedStartSha", head());
 	}
 	const commit = (file = "change", content = "changed\n") => {
 		writeFileSync(join(repo, file), content);
 		git("add", file);
 		git("commit", "-m", file);
-		return git("rev-parse", "HEAD");
+		return head();
 	};
 	const run = async (
 		command: string,
-		bypassReason?: string,
+		bypassReason: string | null = "publication fixture without path policy",
 		protectedPathExemptRemote?: string,
 	) => {
 		const script = await workstationCommandWithPushPublication(command, {
-			bypassReason,
+			bypassReason: bypassReason ?? undefined,
 			protectedPathExemptRemote,
 		});
 		const result = spawnSync("bash", ["-c", script], {
@@ -105,7 +114,7 @@ function fixture() {
 		});
 		return { ...result, proof: pushPublicationProof(result.stdout), script };
 	};
-	return { directory, repo, remote, git, commit, run };
+	return { directory, repo, remote, git, head, branch, commit, run };
 }
 describe("actual Git publication observation", () => {
 	it("derives an exempt remote only from admitted shell scope and an exact Artifacts path", () => {
@@ -173,14 +182,16 @@ describe("actual Git publication observation", () => {
 			`#!/bin/sh\ncat > ${quote(join(f.directory, "combined-hook-input"))}\n`,
 			{ mode: 0o755 },
 		);
-		f.git("config", "tedix.workstationCheckout", "true");
-		f.git("config", "core.hooksPath", ".githooks");
+		writeFileSync(
+			join(f.repo, ".git", "config"),
+			`${readFileSync(join(f.repo, ".git", "config"), "utf8")}\n[tedix]\n\tworkstationCheckout = true\n[core]\n\thooksPath = .githooks\n`,
+		);
 		expect(f.git("rev-list", "origin/main..HEAD")).toBe("");
 		writeFileSync(join(f.repo, "change"), "new contribution\n");
 		const result = await f.run(
 			"test -s change && git add change && git diff --cached --check && git commit -m 'combined contribution' && git push origin HEAD:refs/heads/combined",
 		);
-		const sha = f.git("rev-parse", "HEAD");
+		const sha = f.head();
 		expect(result.status, result.stderr).toBe(0);
 		expect(result.proof).toMatchObject({
 			status: "pushed",
@@ -206,7 +217,7 @@ describe("actual Git publication observation", () => {
 	it("uses non-HEAD source, multiple refs and Git -C", async () => {
 		const f = fixture(),
 			sha = f.commit();
-		f.git("branch", "source");
+		f.branch("source");
 		f.commit("later");
 		const r = await f.run(
 			`git -C ${quote(f.repo)} push origin source:refs/heads/one source:refs/heads/two`,
@@ -341,10 +352,10 @@ describe("actual Git publication observation", () => {
 	it("checks protected actual source instead of HEAD", async () => {
 		const f = fixture();
 		f.commit("package.json", "{}\n");
-		f.git("branch", "protected");
+		f.branch("protected");
 		f.git("switch", "-c", "safe", "origin/main");
 		f.commit("safe");
-		const r = await f.run("git push origin protected:refs/heads/feature");
+		const r = await f.run("git push origin protected:refs/heads/feature", null);
 		expect(r.stdout).toContain("TEDIX_PUSH_GUARD=protected_path");
 		expect(r.proof.status).toBe("failed");
 	});
@@ -353,7 +364,7 @@ describe("actual Git publication observation", () => {
 		f.commit("package.json", "{}\n");
 		const denied = await f.run(
 			"git push origin HEAD:refs/heads/theme",
-			undefined,
+			null,
 			`${f.remote}-other`,
 		);
 		expect(denied.stdout).toContain("TEDIX_PUSH_GUARD=protected_path");
@@ -364,7 +375,7 @@ describe("actual Git publication observation", () => {
 		const sha = f.commit("package.json", "{}\n");
 		const allowed = await f.run(
 			"git push origin HEAD:refs/heads/theme",
-			undefined,
+			null,
 			f.remote,
 		);
 		expect(allowed.status, allowed.stderr).toBe(0);
@@ -377,7 +388,7 @@ describe("actual Git publication observation", () => {
 		const f = fixture();
 		mkdirSync(join(f.repo, "café"));
 		f.commit("café/package.json", "{}\n");
-		const result = await f.run("git push origin HEAD:refs/heads/feature");
+		const result = await f.run("git push origin HEAD:refs/heads/feature", null);
 		expect(result.stdout).toContain("TEDIX_PUSH_GUARD=protected_path");
 		expect(result.proof.status).toBe("failed");
 	});
