@@ -8,6 +8,7 @@ import {
 import { recordObservedLearningInteraction } from "../../../services/learning-interaction-recorder";
 import {
 	assertValidWorkItemProject,
+	requireOrgObjective,
 	resolveWorkItemPurpose,
 	WorkItemProjectError,
 	WorkItemPurposeError,
@@ -32,6 +33,7 @@ import {
 	acceptWorkItem,
 	cancelWorkItem,
 	completeWorkItem,
+	restoreWorkItemFiling,
 	updateWorkItemSpecification,
 } from "@tedix/db/queries/work-items/crud";
 import {
@@ -517,6 +519,53 @@ export const updateSpecificationProcedure =
 			rethrowWorkItemWriteError(error);
 		}
 	});
+
+export const restoreFilingProcedure = factoryOs.restoreFiling.handler(
+	async ({ input, context }) => {
+		const workItem = await assertWorkItemAccess(context, input.id);
+		const userId = await requireOwnerAdminWorkItemAuthor(
+			context,
+			workItem.orgId,
+			"Restoring Work filing",
+		);
+		if (input.expectedWorkItemVersion !== workItem.version)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Work changed before filing restore",
+			);
+		try {
+			if (input.projectId)
+				await assertValidWorkItemProject(context.db, {
+					orgId: workItem.orgId,
+					projectId: input.projectId,
+				});
+			if (input.objectiveId) {
+				await requireOrgObjective(context.db, {
+					orgId: workItem.orgId,
+					objectiveId: input.objectiveId,
+				});
+			}
+			return await restoreWorkItemFiling(context.db, {
+				orgId: workItem.orgId,
+				workItemId: workItem.id,
+				actor: { type: "user", id: userId },
+				expectedWorkItemVersion: input.expectedWorkItemVersion,
+				filing: {
+					projectId: input.projectId,
+					objectiveId: input.objectiveId,
+					workClass: input.workClass,
+					purposeExceptionExpiresAt: input.purposeExceptionExpiresAt,
+				},
+			});
+		} catch (error) {
+			if (error instanceof WorkItemProjectError)
+				throw createError(ErrorCodes.NOT_FOUND, "Project not found");
+			if (error instanceof WorkItemPurposeError)
+				throw createError(ErrorCodes.BAD_REQUEST, error.message);
+			rethrowWorkItemWriteError(error);
+		}
+	},
+);
 
 export const acceptProcedure = factoryOs.accept.handler(
 	async ({ input, context }) => {

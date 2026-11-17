@@ -159,6 +159,8 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	add_comment: "workItems/addComment",
 	add_work_case_dependency: "workItems/addCaseDependency",
 	attach_work_case_item: "workItems/attachCaseWorkItem",
+	detach_work_case_item: "workItems/detachCaseWorkItem",
+	restore_work_filing: "workItems/restoreFiling",
 	authorize_owned_channel: "workItems/authorizeOwnedChannel",
 	cancel_work_interaction: "workInteractions/cancel",
 	cancel_work_items: "workItems/cancel",
