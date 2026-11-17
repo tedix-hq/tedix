@@ -451,6 +451,17 @@ export const osBlueprintRevisions = sqliteTable(
 );
 
 /**
+ * True for every execution: `created_at` is text and never null, and no text
+ * sorts before the empty string. It is the WHERE of
+ * idx_os_gadget_executions_org_workspace_environment_latest and of the one
+ * read that uses it, word for word. SQLite offers a partial index only to a
+ * query that states the index's condition, so no other read of executions can
+ * be planned onto it. The unary plus stops SQLite from taking this as the
+ * start of a range.
+ */
+export const anyOsGadgetExecution = sql`+created_at >= ''`;
+
+/**
  * Governed Gadget execution receipts. Every run — admitted or denied — records
  * the accountable actor, the pinned revision, the explicit capability set, the
  * policy decision, and (on completion) outputs, costs, and evidence refs.
@@ -545,6 +556,18 @@ export const osGadgetExecutions = sqliteTable(
 			table.workspaceId,
 			table.runtimeEnvironment,
 		),
+		// The stalled-work inventory reads a workspace's latest execution from
+		// the end of this index: the latest completion, and the latest start
+		// among executions not yet completed.
+		index("idx_os_gadget_executions_org_workspace_environment_latest")
+			.on(
+				table.organizationId,
+				table.workspaceId,
+				table.runtimeEnvironment,
+				table.completedAt,
+				table.createdAt,
+			)
+			.where(anyOsGadgetExecution),
 		index("os_gadget_executions_org_idx").on(table.organizationId),
 		index("os_gadget_executions_gadget_idx").on(
 			table.gadgetId,

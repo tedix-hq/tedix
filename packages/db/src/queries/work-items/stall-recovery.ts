@@ -12,7 +12,11 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import {
+	alias,
+	type AnySQLiteColumn,
+	type SQLiteTable,
+} from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -20,12 +24,16 @@ import {
 	learningInteractionEvents,
 } from "../../schema/learning-feedback";
 import {
+	anyOsGadgetExecution,
 	osGadgetExecutions,
 	osWorkspaceProjects,
 } from "../../schema/os-workspaces";
 import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
-import { tediTasks } from "../../schema/tedi-objectives";
-import { workAgentSessions } from "../../schema/work-agent-sessions";
+import { anyTediTask, tediTasks } from "../../schema/tedi-objectives";
+import {
+	anyWorkAgentSessionReport,
+	workAgentSessions,
+} from "../../schema/work-agent-sessions";
 import {
 	workInteractionAttention,
 	workInteractions,
@@ -196,8 +204,15 @@ interface ContinuityHistoryRow {
 	orgId: string | null;
 	/** Workspace id on `link` and `workspace` rows, objective id on `objective` rows. */
 	id: string | null;
+	/** Latest session report, execution completion or task update. */
 	activity: string | null;
+	/** Latest start among executions not completed, or tasks never updated. */
+	startedActivity: string | null;
 }
+
+/** The later of two inventory timestamps, either of which may be missing. */
+const laterActivity = (a: string | null, b: string | null) =>
+	a === null ? b : b === null || a > b ? a : b;
 
 /** Shared history already read for this page: owner to its latest activity. */
 type ContinuityHistorySeen = Map<string, string | null>;
@@ -206,16 +221,57 @@ type ContinuityHistorySeen = Map<string, string | null>;
 const historyOwner = (orgId: string, id: string) => JSON.stringify([orgId, id]);
 
 /**
+ * The latest time in one timestamp column among the rows `scope` selects, as
+ * a Julian day, or NULL when there is none: what `max(julianday(column))` over
+ * all of those rows returns, read from the end of an index on the scope's
+ * columns followed by this one.
+ *
+ * The end of the index is the latest timestamp as text. That is the latest
+ * time only among timestamps of one shape, and these columns hold two:
+ * `2026-11-17T09:00:00.000Z` from the API and `2026-11-17 09:00:00` from SQL
+ * defaults. Both begin with the UTC date, so the last text names the last day,
+ * and the rows of that day are compared as times.
+ */
+function latestInIndex<
+	Column extends string,
+	Table extends Record<Column, AnySQLiteColumn> & SQLiteTable,
+>(
+	db: DbQueryClient,
+	table: Table,
+	name: string,
+	column: Column,
+	/** The index's own condition, which a read must state to be given it. */
+	indexed: SQL,
+	scope: (table: Table) => SQL | undefined,
+): SQL {
+	// The aliases differ from `table` in name only.
+	const rows = alias(table, name) as unknown as Table;
+	const top = alias(table, `${name}_top`) as unknown as Table;
+	const lastDay = db
+		.select({ day: sql`substr(${top[column]}, 1, 10)`.as("day") })
+		.from(top as SQLiteTable)
+		.where(and(scope(top), indexed))
+		.orderBy(desc(top[column]))
+		.limit(1);
+	const latest = db
+		.select({ latest: sql`max(julianday(${rows[column]}))`.as("latest") })
+		.from(rows as SQLiteTable)
+		.where(and(scope(rows), indexed, gte(rows[column], sql`(${lastDay})`)));
+	return sql`(${latest})`;
+}
+
+/**
  * Agent sessions, gadget executions and tedi tasks of a few scopes, in a
- * statement apart from their Work. Their rows are wide and were read whole,
- * once per project, inside the Work statement: a workspace linked to several
- * projects, or an objective several projects share, was read again for each.
- * `seenWorkspaces` and `seenObjectives` name the ones an earlier statement of
- * the same page already read; this statement skips them.
+ * statement apart from their Work. A workspace linked to several projects, or
+ * an objective several projects share, is read once: `seenWorkspaces` and
+ * `seenObjectives` name the ones an earlier statement of the same page already
+ * read; this statement skips them.
+ *
+ * Only the latest activity is wanted, so each history is read from the end of
+ * an index that ends in its timestamp (see `latestInIndex`), not row by row.
  *
  * The scopes travel as one JSON array, `[key, orgId, kind, id, objectiveId]`
- * each. CROSS JOIN keeps them outside the indexed history lookups, as in
- * `readContinuityScopeSlice`.
+ * each.
  */
 function readContinuityHistory(
 	db: DbQueryClient,
@@ -242,16 +298,11 @@ function readContinuityHistory(
 	const unseen = (owners: ContinuityHistorySeen, org: SQL, owner: SQL) =>
 		sql`NOT EXISTS (SELECT 1 FROM json_each(${`[${[...owners.keys()].join(",")}]`}) AS v
 			WHERE json_extract(v.value, '$[0]') = ${org} AND json_extract(v.value, '$[1]') = ${owner})`;
-	const latest = (at: SQL) =>
-		sql<
-			string | null
-		>`strftime('%Y-%m-%dT%H:%M:%fZ', max(julianday(${at})))`.as("activity");
 	const none = () => sql<string | null>`NULL`;
+	const timestamp = (julian: SQL) =>
+		sql<string | null>`strftime('%Y-%m-%dT%H:%M:%fZ', ${julian})`;
 
-	const l = alias(workAgentSessions, "l");
 	const p = alias(osWorkspaceProjects, "p");
-	const g = alias(osGadgetExecutions, "g");
-	const k = alias(tediTasks, "k");
 	const linked = and(
 		isProject,
 		eq(p.organizationId, orgId),
@@ -286,18 +337,42 @@ function readContinuityHistory(
 		)
 		.as("q");
 
+	// An execution counts at its completion, or at its start while it has none.
+	const ofWorkspace = (g: typeof osGadgetExecutions) =>
+		and(
+			eq(g.organizationId, workspaces.orgId),
+			eq(g.workspaceId, workspaces.workspaceId),
+			eq(g.runtimeEnvironment, environment),
+		);
+	// A task counts at its last update, or at its creation while it has none.
+	const ofObjective = (k: typeof tediTasks) =>
+		and(
+			eq(k.orgId, objectives.orgId),
+			eq(k.objectiveId, objectives.objectiveId),
+		);
+
+	// Every scope, workspace and objective read returns a row; one with no
+	// history has no activity in it.
 	return db
 		.select({
 			source: sql<ContinuityHistoryRow["source"]>`'session'`.as("source"),
 			key: sql<string | null>`${key}`.as("key"),
 			orgId: none().as("orgId"),
 			id: none().as("id"),
-			activity: latest(sql`${l.lastEventAt}`),
+			activity: timestamp(
+				latestInIndex(
+					db,
+					workAgentSessions,
+					"l",
+					"lastEventAt",
+					anyWorkAgentSessionReport,
+					(l) => and(eq(l.organizationId, orgId), eq(l.projectId, id)),
+				),
+			).as("activity"),
+			startedActivity: none().as("startedActivity"),
 		})
 		.from(scopePage())
-		.crossJoin(l)
-		.where(and(isProject, eq(l.organizationId, orgId), eq(l.projectId, id)))
-		.groupBy(key)
+		.where(isProject)
 		.unionAll(
 			db
 				.select({
@@ -306,6 +381,7 @@ function readContinuityHistory(
 					orgId: sql<string | null>`${p.organizationId}`.as("orgId"),
 					id: sql<string | null>`${p.workspaceId}`.as("id"),
 					activity: none().as("activity"),
+					startedActivity: none().as("startedActivity"),
 				})
 				.from(scopePage())
 				.crossJoin(p)
@@ -318,18 +394,28 @@ function readContinuityHistory(
 					key: none().as("key"),
 					orgId: sql<string | null>`${workspaces.orgId}`.as("orgId"),
 					id: sql<string | null>`${workspaces.workspaceId}`.as("id"),
-					activity: latest(sql`coalesce(${g.completedAt}, ${g.createdAt})`),
+					activity: timestamp(
+						latestInIndex(
+							db,
+							osGadgetExecutions,
+							"g",
+							"completedAt",
+							anyOsGadgetExecution,
+							ofWorkspace,
+						),
+					).as("activity"),
+					startedActivity: timestamp(
+						latestInIndex(
+							db,
+							osGadgetExecutions,
+							"o",
+							"createdAt",
+							anyOsGadgetExecution,
+							(o) => and(ofWorkspace(o), isNull(o.completedAt)),
+						),
+					).as("startedActivity"),
 				})
-				.from(workspaces)
-				.crossJoin(g)
-				.where(
-					and(
-						eq(g.organizationId, workspaces.orgId),
-						eq(g.workspaceId, workspaces.workspaceId),
-						eq(g.runtimeEnvironment, environment),
-					),
-				)
-				.groupBy(workspaces.orgId, workspaces.workspaceId),
+				.from(workspaces),
 		)
 		.unionAll(
 			db
@@ -338,17 +424,23 @@ function readContinuityHistory(
 					key: none().as("key"),
 					orgId: sql<string | null>`${objectives.orgId}`.as("orgId"),
 					id: sql<string | null>`${objectives.objectiveId}`.as("id"),
-					activity: latest(sql`coalesce(${k.updatedAt}, ${k.createdAt})`),
+					activity: timestamp(
+						latestInIndex(
+							db,
+							tediTasks,
+							"k",
+							"updatedAt",
+							anyTediTask,
+							ofObjective,
+						),
+					).as("activity"),
+					startedActivity: timestamp(
+						latestInIndex(db, tediTasks, "n", "createdAt", anyTediTask, (n) =>
+							and(ofObjective(n), isNull(n.updatedAt)),
+						),
+					).as("startedActivity"),
 				})
-				.from(objectives)
-				.crossJoin(k)
-				.where(
-					and(
-						eq(k.orgId, objectives.orgId),
-						eq(k.objectiveId, objectives.objectiveId),
-					),
-				)
-				.groupBy(objectives.orgId, objectives.objectiveId),
+				.from(objectives),
 		);
 }
 
@@ -414,10 +506,13 @@ export async function listContinuityScopes(
 				(row.source === "workspace"
 					? workspaceActivity
 					: objectiveActivity
-				).set(historyOwner(row.orgId!, row.id!), row.activity);
+				).set(
+					historyOwner(row.orgId!, row.id!),
+					laterActivity(row.activity, row.startedActivity),
+				);
 		}
-		// A workspace or objective with no history returned no row; it was read
-		// all the same and is not read again for this page.
+		// A workspace or objective is not read again for this page, whether or
+		// not it had history.
 		for (const { key, owner } of links) {
 			if (!workspaceActivity.has(owner)) workspaceActivity.set(owner, null);
 			note(key, workspaceActivity.get(owner)!);

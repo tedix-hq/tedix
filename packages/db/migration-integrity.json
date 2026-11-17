@@ -1552,6 +1552,10 @@
 		{
 			"name": "20261117130503_billing_reservation_newest_index/migration.sql",
 			"sha256": "63206ce315e5ab0ed7ae5ef826ddd70c9e6f1e6e8d11bacacc019d8c376f395d"
+		},
+		{
+			"name": "20261117140846_stall_inventory_latest_activity_indexes/migration.sql",
+			"sha256": "efa75c32684efb0daf2ad253ab3df9e63fe781cc65ab6718d9d1d2ad47924b08"
 		}
 	]
 }

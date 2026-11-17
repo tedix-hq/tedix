@@ -73,6 +73,16 @@ export interface LaneTelemetry {
 	lessonStatus: "pending" | "extracted" | "unavailable";
 }
 
+/**
+ * True for every session: `last_event_at` is text and never null, and no text
+ * sorts before the empty string. It is the WHERE of
+ * idx_work_agent_sessions_org_project_last_event and of the one read that uses
+ * it, word for word. SQLite offers a partial index only to a query that states
+ * the index's condition, so no other read of sessions can be planned onto it.
+ * The unary plus stops SQLite from taking this as the start of a range.
+ */
+export const anyWorkAgentSessionReport = sql`+last_event_at >= ''`;
+
 export const workAgentSessions = sqliteTable(
 	"work_agent_sessions",
 	{
@@ -132,6 +142,11 @@ export const workAgentSessions = sqliteTable(
 			table.organizationId,
 			table.projectId,
 		),
+		// The stalled-work inventory reads a project's latest report from the
+		// end of this index, not every session of the project.
+		index("idx_work_agent_sessions_org_project_last_event")
+			.on(table.organizationId, table.projectId, table.lastEventAt)
+			.where(anyWorkAgentSessionReport),
 	],
 );
 

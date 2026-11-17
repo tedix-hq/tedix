@@ -341,6 +341,34 @@ function expected(sqlite: DatabaseSync, scope: ContinuityScope) {
 	};
 }
 
+/**
+ * A scope's latest activity as the inventory computed it before it read index
+ * ends: the latest of every timestamp of its whole history, compared as times.
+ */
+function latestByTime(sqlite: DatabaseSync, scope: ContinuityScope) {
+	const column = scope.kind === "project" ? "project_id" : "objective_id";
+	const objective =
+		scope.kind === "project"
+			? "(SELECT objective_id FROM projects WHERE org_id = ?1 AND id = ?2)"
+			: "?2";
+	const { latest } = sqlite
+		.prepare(
+			`SELECT strftime('%Y-%m-%dT%H:%M:%fZ', max(julianday(at))) AS latest FROM (
+			 SELECT ?3 AS at
+			 UNION ALL SELECT coalesce(a.finished_at, a.heartbeat_at, a.started_at) FROM work_items w
+				JOIN work_attempts a ON a.work_item_id = w.id AND a.org_id = w.org_id WHERE w.org_id = ?1 AND w.${column} = ?2
+			 UNION ALL SELECT coalesce(r.completed_at, r.started_at) FROM work_items w
+				JOIN skill_runs r ON r.work_item_id = w.id AND r.organization_id = w.org_id WHERE w.org_id = ?1 AND w.${column} = ?2
+			 UNION ALL SELECT last_event_at FROM work_agent_sessions WHERE organization_id = ?1 AND project_id = ?2 AND 'project' = '${scope.kind}'
+			 UNION ALL SELECT coalesce(g.completed_at, g.created_at) FROM os_workspace_projects p
+				JOIN os_gadget_executions g ON g.organization_id = p.organization_id AND g.workspace_id = p.workspace_id
+				WHERE p.organization_id = ?1 AND p.project_id = ?2 AND p.status = 'active' AND g.runtime_environment = 'production' AND 'project' = '${scope.kind}'
+			 UNION ALL SELECT coalesce(k.updated_at, k.created_at) FROM tedi_tasks k WHERE k.org_id = ?1 AND k.objective_id = ${objective})`,
+		)
+		.get(scope.orgId, scope.id, CREATED) as { latest: string };
+	return latest;
+}
+
 async function listAll(
 	db: ReturnType<typeof fixture>["db"],
 	orgId?: string,
@@ -498,18 +526,99 @@ describe.each([
 		for (const plan of [first, continued])
 			for (const table of ["SEARCH g ", "SEARCH k ", "SEARCH l USING INDEX"])
 				expect(plan.join("\n")).not.toContain(table);
-		// ...but by a statement of its own, through one index per table.
+		// ...but by a statement of its own, which reads only the end of an
+		// index per history: first the last day that has a timestamp, then
+		// that day's timestamps. No history row is read from its table, and
+		// the condition that keeps each index to this statement bounds nothing.
 		const history = explain(sqlite, statements.find(isHistory)!);
-		for (const read of [
-			"SEARCH l USING INDEX idx_work_agent_sessions_org_project (organization_id=? AND project_id=?)",
+		const sessions =
+			"USING COVERING INDEX idx_work_agent_sessions_org_project_last_event (organization_id=? AND project_id=?";
+		const executions =
+			"USING COVERING INDEX idx_os_gadget_executions_org_workspace_environment_latest (organization_id=? AND workspace_id=? AND runtime_environment=?";
+		const tasks =
+			"USING COVERING INDEX idx_tasks_org_objective_latest (org_id=? AND objective_id=?";
+		expect(
+			history.filter((line) => /^SEARCH (?:l|g|o|k|n)(?:_top)? /.test(line)),
+		).toEqual([
+			`SEARCH l ${sessions} AND last_event_at>?)`,
+			`SEARCH l_top ${sessions})`,
+			`SEARCH g ${executions} AND completed_at>?)`,
+			`SEARCH g_top ${executions})`,
+			`SEARCH o ${executions} AND completed_at=? AND created_at>?)`,
+			`SEARCH o_top ${executions} AND completed_at=?)`,
+			`SEARCH k ${tasks} AND updated_at>?)`,
+			`SEARCH k_top ${tasks})`,
+			`SEARCH n ${tasks} AND updated_at=? AND created_at>?)`,
+			`SEARCH n_top ${tasks} AND updated_at=?)`,
+		]);
+		expect(history).toContain(
 			"SEARCH p USING INDEX os_workspace_projects_org_project_status_idx (organization_id=? AND project_id=? AND status=?)",
-			"SEARCH g USING INDEX os_gadget_executions_org_workspace_environment_idx (organization_id=? AND workspace_id=? AND runtime_environment=?)",
-			"SEARCH k USING INDEX idx_tasks_objective (objective_id=?)",
-		])
-			expect(history).toContain(read);
-		expect(history.join("\n")).not.toMatch(/SCAN (?:p|l|g|k)\b/);
+		);
+		expect(history.join("\n")).not.toMatch(
+			/SCAN (?:p|l|g|o|k|n)\b|TEMP B-TREE FOR ORDER BY/,
+		);
 		expect(history.join("\n")).not.toMatch(
 			/work_items|work_attempts|skill_runs/,
+		);
+	});
+
+	it("finds the latest time among timestamps of both stored shapes", async () => {
+		const { sqlite, db } = fixture(productionLike);
+		// SQL defaults write `2026-11-13 23:30:00`, the API writes
+		// `2026-11-13T11:00:00.000Z`. Within one day the second shape is the
+		// later text whatever its time, so the end of an index is not always
+		// the latest time.
+		sqlite.exec(
+			`INSERT INTO work_agent_sessions(id,organization_id,user_id,harness,session_key,project_id,state,state_since,last_event_at,created_at,updated_at) VALUES
+				('lane-sql','${ORG}','ada','codex','session-sql','p-06','working','${CREATED}','2026-11-13 23:30:00','${CREATED}','${CREATED}'),
+				('lane-old','${ORG}','ada','codex','session-old','p-06','working','${CREATED}','2026-11-12T23:59:59.999Z','${CREATED}','${CREATED}'),
+				('lane-a','${ORG}','ada','codex','session-a','p-08','working','${CREATED}','2026-11-13T08:00:00.000Z','${CREATED}','${CREATED}'),
+				('lane-b','${ORG}','ada','codex','session-b','p-08','working','${CREATED}','2026-11-13 09:00:00','${CREATED}','${CREATED}'),
+				('lane-c','${ORG}','ada','codex','session-c','p-10','working','${CREATED}','2026-11-13 09:00:00','${CREATED}','${CREATED}'),
+				('lane-unbound','${ORG}','ada','codex','session-unbound',NULL,'working','${CREATED}','2026-12-30T00:00:00.000Z','${CREATED}','${CREATED}'),
+				('lane-foreign','${OTHER_ORG}','ada','codex','session-foreign','p-08','working','${CREATED}','2026-12-30T00:00:00.000Z','${CREATED}','${CREATED}');
+			 INSERT INTO os_gadget_executions(id,organization_id,workspace_id,gadget_id,status,granted_capabilities,policy_decision,created_by_kind,created_by_id,runtime_environment,created_at,completed_at) VALUES
+				('e-open-own','${ORG}','ws-own','gadget-example','running','[]','{}','user','ada','production','2026-11-15 08:00:00',NULL),
+				('e-open-old','${ORG}','ws-own','gadget-example','running','[]','{}','user','ada','production','2026-11-15T06:00:00.000Z',NULL),
+				('e-done-sql','${ORG}','ws-shared','gadget-example','completed','[]','{}','user','ada','production','2026-11-14 01:00:00','2026-11-14 12:30:00'),
+				('e-started-late','${ORG}','ws-shared','gadget-example','completed','[]','{}','user','ada','production','2026-12-20T00:00:00.000Z','2026-11-13T00:00:00.000Z'),
+				('e-no-environment','${ORG}','ws-shared','gadget-example','completed','[]','{}','user','ada',NULL,'2026-12-21T00:00:00.000Z',NULL);
+			 INSERT INTO tedi_tasks(id,org_id,tedi_id,objective_id,title,created_at,updated_at) VALUES
+				('t-sql','${ORG}','river','o-shared','Example','2026-11-01 00:00:00','2026-11-17 09:30:00'),
+				('t-new','${ORG}','river','o-small','Example','2026-11-18 10:30:00',NULL),
+				('t-created-late','${ORG}','river','o-small','Example','2026-12-19T00:00:00.000Z','2026-11-03T00:00:00.000Z'),
+				('t-only','${ORG}','river','o-big','Example','2026-11-19 00:00:00',NULL),
+				('t-ad-hoc','${ORG}','river',NULL,'Example','2026-12-22T00:00:00.000Z',NULL);`,
+		);
+		const scopes = await listAll(db, ORG);
+		expect(scopes).toHaveLength(25);
+		for (const scope of scopes)
+			expect
+				.soft(scope.lastActivityAt, scope.key)
+				.toBe(latestByTime(sqlite, scope));
+		const byKey = new Map(scopes.map((scope) => [scope.key, scope]));
+		expect(byKey.get("project:p-06")!.lastActivityAt).toBe(
+			"2026-11-13T23:30:00.000Z",
+		);
+		expect(byKey.get("project:p-08")!.lastActivityAt).toBe(
+			"2026-11-13T09:00:00.000Z",
+		);
+		// An execution that started after its completion time, or a task
+		// created after its update, counts at the completion or the update.
+		expect(byKey.get("project:p-12")!.lastActivityAt).toBe(
+			"2026-11-15T08:00:00.000Z",
+		);
+		expect(byKey.get("project:p-07")!.lastActivityAt).toBe(
+			"2026-11-14T12:30:00.000Z",
+		);
+		expect(byKey.get("project:p-15")!.lastActivityAt).toBe(
+			"2026-11-17T09:30:00.000Z",
+		);
+		expect(byKey.get("objective:o-small")!.lastActivityAt).toBe(
+			"2026-11-18T10:30:00.000Z",
+		);
+		expect(byKey.get("objective:o-big")!.lastActivityAt).toBe(
+			"2026-11-19T00:00:00.000Z",
 		);
 	});
 
@@ -543,7 +652,9 @@ describe.each([
 		]);
 		// ...but the executions of ws-shared and the tasks of o-shared are
 		// aggregated by the first statement that meets them and by no later one.
+		// o-big has no tasks; it is read once and returns a row with no activity.
 		expect(shared.sort()).toEqual([
+			"objective o-big",
 			"objective o-shared",
 			"objective o-small",
 			"workspace ws-own",

@@ -1,0 +1,3 @@
+CREATE INDEX `idx_os_gadget_executions_org_workspace_environment_latest` ON `os_gadget_executions` (`organization_id`,`workspace_id`,`runtime_environment`,`completed_at`,`created_at`) WHERE +created_at >= '';--> statement-breakpoint
+CREATE INDEX `idx_work_agent_sessions_org_project_last_event` ON `work_agent_sessions` (`organization_id`,`project_id`,`last_event_at`) WHERE +last_event_at >= '';--> statement-breakpoint
+CREATE INDEX `idx_tasks_org_objective_latest` ON `tedi_tasks` (`org_id`,`objective_id`,`updated_at`,`created_at`) WHERE +created_at >= '';
