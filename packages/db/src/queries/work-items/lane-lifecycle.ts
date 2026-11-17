@@ -1,10 +1,11 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import type { LaneDispatchPlan } from "@tedix/api-contract/schemas/work-items";
 import type { DbQueryClient } from "../../query-client";
 import { workAttempts, workEvents, workItems } from "../../schema/work-items";
 import { workInteractions } from "../../schema/work-factory";
 import { tedis } from "../../schema/tedis";
 import { externalAgentPrincipals } from "../../schema/external-agent-identity";
+import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
 
 export async function readLaneState(
 	db: DbQueryClient,
@@ -100,8 +101,52 @@ export async function recordStaleLanes(db: DbQueryClient, now: string) {
 	return recorded;
 }
 
-/** Retry notifications from the ledger even if a previous tick died after commit. */
-export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
+/** Stopped-lane events at or below this sequence were examined by an earlier tick. */
+const STOPPED_LANE_CHECKPOINT = "stopped-lane-notices";
+
+/** Events one call notifies at most; the rest wait for the next call. */
+const STOPPED_LANE_NOTICES_PER_CALL = 100;
+
+/**
+ * Retry notifications from the ledger even if a previous tick died after commit.
+ *
+ * A stopped-lane event is due a notice when it is written or never, unless
+ * something outside the lane changes later: its agent is reactivated or its
+ * Work is reopened. So a call examines
+ * the events written since the last call that finished, which a checkpoint
+ * remembers, and a call with `wholeLedger` examines every event ever written,
+ * as each call used to. The checkpoint moves only after the notices of a call
+ * are written; a call that dies examines the same events again.
+ *
+ * Without `wholeLedger`, an event that becomes due only through one of those
+ * later changes is noticed by the next whole-ledger call instead of the next
+ * call. Which events are noticed, and what a notice says, does not change.
+ */
+export async function notifyStoppedLanes(
+	db: DbQueryClient,
+	now: string,
+	options: { wholeLedger?: boolean } = {},
+) {
+	const stoppedLaneEvent = sql`${workEvents.eventType} IN ('lane.stale', 'attempt.expired')`;
+	let examinedThrough = 0;
+	if (!options.wholeLedger) {
+		const [checkpoint] = await db
+			.select({ through: platformCronCheckpoints.through })
+			.from(platformCronCheckpoints)
+			.where(eq(platformCronCheckpoints.scheduleId, STOPPED_LANE_CHECKPOINT))
+			.limit(1);
+		const through = Number(checkpoint?.through);
+		if (Number.isSafeInteger(through) && through > 0) examinedThrough = through;
+	}
+	// Read before the events: one written while this call runs has a higher
+	// sequence and is left for the next call.
+	const [newest] = await db
+		.select({ sequence: workEvents.sequence })
+		.from(workEvents)
+		.where(stoppedLaneEvent)
+		.orderBy(desc(workEvents.sequence))
+		.limit(1);
+	if (!newest || newest.sequence <= examinedThrough) return 0;
 	const machineTedi = sql<string | null>`COALESCE(
 		(SELECT id FROM ${tedis} WHERE organization_id=${workItems.orgId} AND id=${workItems.stewardId} AND ${workItems.stewardType}='tedi' AND retired_at IS NULL AND status='active'),
 		(SELECT id FROM ${tedis} WHERE organization_id=${workItems.orgId} AND id=${workItems.accountableOwnerId} AND ${workItems.accountableOwnerType}='tedi' AND retired_at IS NULL AND status='active'))`;
@@ -111,7 +156,7 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 	// tenant's stopped events (10.4M rows per tick in production); an existence
 	// check keeps the partial stopped-lane index as the driving scan.
 	const eligible = and(
-		sql`${workEvents.eventType} IN ('lane.stale', 'attempt.expired')`,
+		stoppedLaneEvent,
 		sql`EXISTS (SELECT 1 FROM ${externalAgentPrincipals} p WHERE p.organization_id = ${workAttempts.orgId} AND p.id = ${workAttempts.executorId} AND p.status = 'active')`,
 		sql`json_extract(${workAttempts.metadata}, '$.lane') = 1`,
 		sql`${workItems.disposition} NOT IN ('completed','cancelled')`,
@@ -122,6 +167,7 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 	const rows = await db
 		.select({
 			id: workEvents.id,
+			sequence: workEvents.sequence,
 			eventType: workEvents.eventType,
 			title: workItems.title,
 			workItemId: sql<string>`${workItems.id}`.as("lane_work_item_id"),
@@ -150,9 +196,9 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 				eq(workItems.id, workEvents.workItemId),
 			),
 		)
-		.where(eligible)
+		.where(and(eligible, gt(workEvents.sequence, examinedThrough)))
 		.orderBy(asc(workEvents.sequence))
-		.limit(100);
+		.limit(STOPPED_LANE_NOTICES_PER_CALL);
 	let notified = 0;
 	for (const row of rows) {
 		const nextMover = { type: row.targetType, id: row.targetId };
@@ -270,5 +316,20 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 				);
 		notified += created.length;
 	}
+	// A full page may have left due events behind it; a short one examined
+	// every event up to the newest read above. Never moves backwards, so a
+	// whole-ledger call that notices old events keeps the newer position.
+	const examined =
+		rows.length < STOPPED_LANE_NOTICES_PER_CALL
+			? newest.sequence
+			: rows.at(-1)!.sequence;
+	await db
+		.insert(platformCronCheckpoints)
+		.values({ scheduleId: STOPPED_LANE_CHECKPOINT, through: String(examined) })
+		.onConflictDoUpdate({
+			target: platformCronCheckpoints.scheduleId,
+			set: { through: String(examined) },
+			setWhere: sql`CAST(${platformCronCheckpoints.through} AS INTEGER) < ${examined}`,
+		});
 	return notified;
 }
