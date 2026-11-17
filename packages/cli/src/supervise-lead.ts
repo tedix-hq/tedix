@@ -17,7 +17,10 @@ import {
 	recordDutyStatus,
 	type SupervisorDutyStatus,
 } from "./supervise-duty-status";
-import { laneProcessIdentity } from "./lane-process-recovery";
+import {
+	laneProcessIdentity,
+	waitForLaneProcessIdentity,
+} from "./lane-process-recovery";
 import {
 	dispatcherReporterId,
 	supervisorDutyHealth,
@@ -308,7 +311,8 @@ export class LeadDuty {
 				return;
 			}
 			let activeSession: string | undefined;
-			const save = (pid: number | null) => {
+			let activePid: number | null = null;
+			const save = (pid: number | null, identity?: string) => {
 				writeFileSync(
 					`${statePath}.tmp`,
 					JSON.stringify({
@@ -316,9 +320,10 @@ export class LeadDuty {
 						pid,
 						session: activeSession,
 						identity:
-							pid && activeSession
+							identity ??
+							(pid && activeSession
 								? laneProcessIdentity(pid, activeSession, config.cwd)
-								: undefined,
+								: undefined),
 					}),
 					{ mode: 0o600 },
 				);
@@ -346,7 +351,21 @@ export class LeadDuty {
 						config,
 						executor,
 						prompt,
-						save,
+						(pid) => {
+							activePid = pid;
+							save(pid);
+							const session = activeSession!;
+							void waitForLaneProcessIdentity(pid, session, config.cwd).then(
+								(identity) => {
+									if (
+										identity &&
+										activePid === pid &&
+										activeSession === session
+									)
+										save(pid, identity);
+								},
+							);
+						},
 						(code) => {
 							exitCode = code;
 						},
@@ -354,6 +373,7 @@ export class LeadDuty {
 				} catch {
 					this.log(`${executor.executor} launch or receipt failed`);
 				}
+				activePid = null;
 				save(null);
 				record({
 					state: ok ? "waiting" : "failed",

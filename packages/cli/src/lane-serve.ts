@@ -90,7 +90,11 @@ import {
 } from "./devin-lane-thread";
 import { createDevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
-import { laneProcessIdentity, reapLaneProcess } from "./lane-process-recovery";
+import {
+	laneProcessIdentity,
+	reapLaneProcess,
+	waitForLaneProcessIdentity,
+} from "./lane-process-recovery";
 import { unpushedLaneCommits } from "./lane-unpushed";
 import { beginFileLock } from "./local-file-lock";
 import {
@@ -2248,25 +2252,21 @@ export class LaneDispatcher {
 		receipt: Receipt,
 		pid: number,
 		repo: string,
-		tries = IDENTITY_CAPTURE_TRIES,
 	) {
-		setTimeout(() => {
-			if (receipt.pid !== pid || receipt.processIdentity || !alive(pid)) return;
-			receipt.processIdentity = laneProcessIdentity(
-				pid,
-				receipt.session!,
-				repo,
-			);
-			if (receipt.processIdentity) this.save(path, receipt);
-			else if (tries > 1)
-				this.captureIdentityLater(path, receipt, pid, repo, tries - 1);
-			else
-				this.log(
-					"identity-unrecorded",
-					receipt.itemId,
-					`Process ${pid} never showed its session; it cannot be stopped as an orphan`,
-				);
-		}, 100).unref();
+		void waitForLaneProcessIdentity(pid, receipt.session!, repo).then(
+			(identity) => {
+				if (receipt.pid !== pid || receipt.processIdentity || !alive(pid))
+					return;
+				receipt.processIdentity = identity;
+				if (receipt.processIdentity) this.save(path, receipt);
+				else
+					this.log(
+						"identity-unrecorded",
+						receipt.itemId,
+						`Process ${pid} never showed its session; it cannot be stopped as an orphan`,
+					);
+			},
+		);
 	}
 	private saveBudgets() {
 		const path = join(this.directory, "budgets.state");
@@ -6077,8 +6077,6 @@ export function mergeDispatcherReceipts(directory: string, sources: string[]) {
  * lane for a whole model turn (claude-code, 5 Nov 2026: 61 minutes).
  */
 export const LANE_STOP_DRAIN_MS = 2 * 60_000;
-/** Identity reads after spawn, 100 ms apart. */
-const IDENTITY_CAPTURE_TRIES = 30;
 
 /** True when the supervisor's runner list has this runner enabled, so it is started again after it exits. */
 function supervised(key: string): boolean {

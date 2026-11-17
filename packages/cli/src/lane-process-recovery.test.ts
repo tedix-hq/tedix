@@ -6,6 +6,7 @@ import {
 	laneProcessIdentity,
 	reapLaneProcess,
 	setLaneProcessReaders,
+	waitForLaneProcessIdentity,
 } from "./lane-process-recovery";
 import { kernelProcessCwd, kernelProcessFacts } from "./process-facts";
 
@@ -25,6 +26,52 @@ function kernelReader(argv: () => string[]) {
 		};
 	};
 }
+
+it("retries Linux process identity while /proc cmdline is temporarily empty", async () => {
+	const id = "33333333-3333-4333-8333-333333333333";
+	const session = `codex:${id}`;
+	const cwd = process.cwd();
+	let reads = 0;
+	setLaneProcessReaders(
+		(pid) => ({
+			pgid: pid,
+			start: ["123"],
+			argv: ++reads < 3 ? [] : [process.execPath, id],
+		}),
+		() => cwd,
+	);
+	try {
+		const pending = waitForLaneProcessIdentity(123, session, cwd, {
+			attempts: 3,
+			delayMs: 1,
+		});
+		let yielded = false;
+		setTimeout(() => {
+			yielded = true;
+		}, 0);
+		expect(await pending).toMatch(/^v2:[a-f0-9]{64}$/);
+		expect(yielded).toBe(true);
+		expect(reads).toBe(3);
+
+		let boundedReads = 0;
+		setLaneProcessReaders(
+			(pid) => {
+				boundedReads++;
+				return { pgid: pid, start: ["123"], argv: [] };
+			},
+			() => cwd,
+		);
+		expect(
+			await waitForLaneProcessIdentity(123, session, cwd, {
+				attempts: 2,
+				delayMs: 1,
+			}),
+		).toBeUndefined();
+		expect(boundedReads).toBe(2);
+	} finally {
+		setLaneProcessReaders();
+	}
+});
 
 it("keeps a verified identity across a real exec and rejects changed birth, session, cwd and legacy argv", async () => {
 	const id = "22222222-2222-4222-8222-222222222222";
