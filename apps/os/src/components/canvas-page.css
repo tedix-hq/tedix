@@ -959,6 +959,49 @@
 	.canvas-surface[data-mobile-pane="workpiece"] .canvas-chat-pane {
 		display: none;
 	}
+
+	/* The pane that appears slides in a short way while it fades up. A hidden
+	   pane is display: none, so the animation restarts each time its pane is
+	   shown again. It is armed by the first manual switch, never first paint. */
+	.canvas-surface[data-canvas-transition="true"][data-mobile-pane="chat"]
+		.canvas-chat-pane {
+		animation: canvas-pane-enter-from-start 200ms cubic-bezier(0, 0, 0.2, 1);
+	}
+
+	.canvas-surface[data-canvas-transition="true"]:not([data-mobile-pane="chat"])
+		.canvas-stage {
+		animation: canvas-pane-enter-from-end 200ms cubic-bezier(0, 0, 0.2, 1);
+	}
+}
+
+@keyframes canvas-pane-enter-from-start {
+	from {
+		opacity: 0;
+		transform: translateX(-16px);
+	}
+}
+
+@keyframes canvas-pane-enter-from-end {
+	from {
+		opacity: 0;
+		transform: translateX(16px);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
+	.canvas-surface[data-canvas-transition="true"] .canvas-stage {
+		animation: none;
+	}
+}
+
+:root[data-motion="reduced"]
+	.canvas-surface[data-canvas-transition="true"]
+	.canvas-chat-pane,
+:root[data-motion="reduced"]
+	.canvas-surface[data-canvas-transition="true"]
+	.canvas-stage {
+	animation: none;
 }
 
 @media (max-width: 719px) {
