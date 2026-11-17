@@ -1,3 +1,4 @@
+import { compareSortValues } from "./sheet-grid";
 import {
 	OS_SHEET_MAX_COLUMNS,
 	OS_SHEET_MAX_ROWS,
@@ -678,6 +679,67 @@ export function dragFill(
 			}
 		}
 		return { ...sheet, rows };
+	});
+}
+
+/**
+ * Sort a filter's table rows by one column, or back to their original order
+ * (`direction` null). Whole rows move across the table's columns, and the
+ * filter remembers where each began and how it is sorted.
+ */
+export function sortFilter(
+	workbook: OsWorkbook,
+	sheetId: string,
+	column: number,
+	direction: "asc" | "desc" | null,
+): OsWorkbook {
+	return changeSheet(workbook, sheetId, (sheet) => {
+		const filter = sheet.filter;
+		if (!filter) return sheet;
+		const end = Math.min(filter.endRow, sheet.rows.length - 1);
+		const listed = filter.columns.length
+			? filter.columns
+			: sheet.columns.map((_, index) => index);
+		const first = Math.min(...listed),
+			last = Math.max(...listed);
+		const count = Math.max(0, end - filter.row);
+		const baseline =
+			filter.rowOrder.length === count
+				? filter.rowOrder
+				: Array.from({ length: count }, (_, index) => filter.row + 1 + index);
+		const entries = Array.from({ length: count }, (_, index) => {
+			const row = filter.row + 1 + index;
+			return {
+				cells: (sheet.rows[row] ?? []).slice(first, last + 1),
+				origin: baseline[index]!,
+				key:
+					sheet.rows[row]?.[column]?.value ??
+					sheet.rows[row]?.[column]?.input ??
+					"",
+			};
+		});
+		entries.sort((a, b) =>
+			direction === null
+				? a.origin - b.origin
+				: compareSortValues(a.key, b.key, direction === "asc"),
+		);
+		const rows = sheet.rows.map((line, row) => {
+			if (row <= filter.row || row > end) return line;
+			const moved = entries[row - filter.row - 1]!.cells;
+			const next = [...line];
+			for (let col = first; col <= last; col++)
+				next[col] = moved[col - first] ?? null;
+			return next;
+		});
+		return {
+			...sheet,
+			rows,
+			filter: {
+				...filter,
+				rowOrder: entries.map((entry) => entry.origin),
+				sort: direction === null ? null : { column, direction },
+			},
+		};
 	});
 }
 

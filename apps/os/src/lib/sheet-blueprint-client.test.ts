@@ -479,7 +479,7 @@ describe("Portable Sheet grid", () => {
 		change("#tabs", app.saved().workbook!.sheets[1]!.id);
 		expect(display("C1")).toBe("3");
 	});
-	it("filters rows by a column's values from the header, for everyone, and removes the filter", async () => {
+	it("filters a detected table by chosen values, sorts it and restores its order", async () => {
 		const app = await editor("owner", (content) => {
 			const s = content.workbook!.sheets[0]!;
 			s.rows = [
@@ -490,22 +490,27 @@ describe("Portable Sheet grid", () => {
 			];
 			return content;
 		});
-		select("A1");
-		operation("filter-create");
+		select("A2");
+		click("#filter-toggle");
 		const button = await vi.waitFor(() => {
 			const found = cell("A1").querySelector<HTMLButtonElement>(".filter-btn");
 			expect(found).not.toBeNull();
 			return found!;
 		});
+		expect(button.getAttribute("aria-label")).toBe("Filter column A");
 		button.click();
 		const menu = q(".filter-menu");
+		expect(menu.querySelector(".filter-head")!.textContent).toBe("Column A");
 		expect(
-			[...menu.querySelectorAll("label span")].map((n) => n.textContent),
+			[...menu.querySelectorAll(".filter-values label span")].map(
+				(n) => n.textContent,
+			),
 		).toEqual(["Done", "Open"]);
-		const open = [...menu.querySelectorAll<HTMLInputElement>("input")].find(
-			(box) => box.value === "Open",
-		)!;
-		open.checked = false;
+		const box = (label: string) =>
+			[...menu.querySelectorAll<HTMLLabelElement>(".filter-values label")]
+				.find((row) => row.textContent === label)!
+				.querySelector("input")!;
+		box("Open").checked = false;
 		[...menu.querySelectorAll<HTMLButtonElement>("button")]
 			.find((node) => node.textContent === "Apply")!
 			.click();
@@ -518,23 +523,32 @@ describe("Portable Sheet grid", () => {
 			false,
 		);
 		expect(
-			cell("A1").querySelector(".filter-btn")!.hasAttribute("data-active"),
-		).toBe(true);
-		// Moving down from the header steps over the hidden row.
-		select("A1");
-		key("ArrowDown");
-		expect(cell("A3").classList.contains("active")).toBe(true);
+			cell("A1").querySelector(".filter-btn")!.getAttribute("aria-label"),
+		).toBe("Change filter on column A");
 		await saved();
-		expect(app.saved().workbook!.sheets[0]!.filter).toEqual({
-			headerRow: 0,
-			hidden: [{ column: 0, values: ["Open"] }],
+		expect(app.saved().workbook!.sheets[0]!.filter).toMatchObject({
+			row: 0,
+			endRow: 3,
+			criteria: { 0: ["s:Done"] },
 		});
-		operation("filter-remove");
-		await vi.waitFor(() =>
-			expect((cell("A2").parentElement as HTMLTableRowElement).hidden).toBe(
-				false,
-			),
-		);
+		// Sort the table, then put it back.
+		const pick = (label: string) => {
+			cell("A1").querySelector<HTMLButtonElement>(".filter-btn")!.click();
+			[...q(".filter-menu").querySelectorAll<HTMLButtonElement>("button")]
+				.find((node) => node.textContent!.endsWith(label))!
+				.click();
+		};
+		pick("Sort A → Z");
+		await saved();
+		expect(
+			app.saved().workbook!.sheets[0]!.rows.map((row) => row[0]?.input),
+		).toEqual(["Status", "Done", "Open", "Open"]);
+		pick("Original order");
+		await saved();
+		expect(
+			app.saved().workbook!.sheets[0]!.rows.map((row) => row[0]?.input),
+		).toEqual(["Status", "Open", "Done", "Open"]);
+		click("#filter-toggle");
 		await saved();
 		expect(app.saved().workbook!.sheets[0]!.filter).toBeUndefined();
 	});

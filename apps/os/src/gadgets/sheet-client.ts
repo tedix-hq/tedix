@@ -10,7 +10,9 @@ import {
 	clampCoordinate,
 	columnLabel,
 	copyBounds,
+	detectFilterRange,
 	filterChoices,
+	filterColumns,
 	functionGroups,
 	filteredRows,
 	isErrorValue,
@@ -32,6 +34,7 @@ import {
 	duplicateSheet,
 	dragFill,
 	fillRange,
+	sortFilter,
 	freezePanes,
 	insertColumns,
 	insertRows,
@@ -191,6 +194,8 @@ const css = [
 	`@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}`,
 ].join("");
 
+/** Most values one column's filter can choose. */
+const MAX_FILTER_CHOICES = 500;
 /** Narrowest and widest a column can be fitted to its contents. */
 const FIT_MIN = 36;
 const FIT_MAX = 640;
@@ -260,7 +265,7 @@ export async function mountSheetClient(
 	) =>
 		`<label class="icon" title="${label}">${glyph(name)}<i class="swatch" aria-hidden="true"></i><input id="${id}" aria-label="${label}" type="color" value="${value}"></label>`;
 	root.innerHTML = `<h1 class="sr">Sheet</h1>
-<div class="bar"><div class="toolbar" role="toolbar" aria-label="Sheet tools"><span class="group" data-priority="1">${iconButton('id="undo"', "Undo (Ctrl/⌘ Z)", "undo")}${iconButton('id="redo"', "Redo (Ctrl/⌘ Shift Z)", "redo")}</span><span class="group" data-priority="1">${formatButtons}</span><span class="group" data-priority="3"><input id="font-size" title="Font size" aria-label="Font size" type="number" min="6" max="96" value="13">${colorButton("text-color", "Text color", "textColor", "#202020")}${colorButton("fill-color", "Fill color", "fillColor", "#ffffff")}</span><span class="group" data-priority="4"><span class="hidden-field" inert><select id="align" aria-label="Alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></span>${iconButton('data-align="left"', "Align left", "alignLeft")}${iconButton('data-align="center"', "Align center", "alignCenter")}${iconButton('data-align="right"', "Align right", "alignRight")}${iconButton('data-format="wrap"', "Wrap text", "wrap")}</span><span class="group" data-priority="2"><select id="number-format" title="Number format" aria-label="Number format"><option value="automatic">Automatic</option><option value="number">Number</option><option value="integer">Integer</option><option value="currency">Currency</option><option value="percent">Percent</option><option value="scientific">Scientific</option><option value="date">Date</option><option value="time">Time</option><option value="datetime">Date & time</option><option value="text">Text</option></select><span class="hidden-field" inert><input id="decimals" aria-label="Decimal places" type="number" min="0" max="15" value="2"></span><button type="button" id="dec-less" class="icon text" title="Fewer decimals" aria-label="Fewer decimals">.0</button><button type="button" id="dec-more" class="icon text" title="More decimals" aria-label="More decimals">.00</button></span><span class="group" data-priority="5">${sheetButton('id="sum"', "Sum the selection", "sum")}<button type="button" id="fx" class="icon text" title="Insert function" aria-label="Insert function" aria-haspopup="dialog">ƒx</button><button type="button" id="lock-ref" class="icon text" title="Lock reference ($A$1 → A$1 → $A1 → A1) (Ctrl/⌘ Shift L)" aria-label="Lock reference">$</button>${iconButton('id="fill-down"', "Fill down (Ctrl/⌘ D)", "fillDown")}${iconButton('id="fill-right"', "Fill right (Ctrl/⌘ R)", "fillRight")}${iconButton('id="sort-asc"', "Sort A to Z", "sortUp")}${iconButton('id="sort-desc"', "Sort Z to A", "sortDown")}</span><span class="group" data-priority="6">${iconButton('id="add-row"', "Add row", "addRow")}${iconButton('id="add-column"', "Add column", "addColumn")}${iconButton('id="clear-format"', "Clear formatting", "eraser")}${iconButton('id="clear"', "Clear cells", "clear")}</span><span class="group" data-priority="1">${sheetButton('id="more" aria-haspopup="menu"', "More actions", "more")}</span></div><div class="bar-end"><div class="status" role="status" aria-live="polite" data-state="idle"><i class="dot" aria-hidden="true"></i><span></span></div>${sheetButton('id="help" aria-haspopup="dialog"', "Keyboard shortcuts", "help")}${iconButton('id="download" aria-haspopup="menu"', "Download", "download")}</div></div>
+<div class="bar"><div class="toolbar" role="toolbar" aria-label="Sheet tools"><span class="group" data-priority="1">${iconButton('id="undo"', "Undo (Ctrl/⌘ Z)", "undo")}${iconButton('id="redo"', "Redo (Ctrl/⌘ Shift Z)", "redo")}</span><span class="group" data-priority="1">${formatButtons}</span><span class="group" data-priority="3"><input id="font-size" title="Font size" aria-label="Font size" type="number" min="6" max="96" value="13">${colorButton("text-color", "Text color", "textColor", "#202020")}${colorButton("fill-color", "Fill color", "fillColor", "#ffffff")}</span><span class="group" data-priority="4"><span class="hidden-field" inert><select id="align" aria-label="Alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></span>${iconButton('data-align="left"', "Align left", "alignLeft")}${iconButton('data-align="center"', "Align center", "alignCenter")}${iconButton('data-align="right"', "Align right", "alignRight")}${iconButton('data-format="wrap"', "Wrap text", "wrap")}</span><span class="group" data-priority="2"><select id="number-format" title="Number format" aria-label="Number format"><option value="automatic">Automatic</option><option value="number">Number</option><option value="integer">Integer</option><option value="currency">Currency</option><option value="percent">Percent</option><option value="scientific">Scientific</option><option value="date">Date</option><option value="time">Time</option><option value="datetime">Date & time</option><option value="text">Text</option></select><span class="hidden-field" inert><input id="decimals" aria-label="Decimal places" type="number" min="0" max="15" value="2"></span><button type="button" id="dec-less" class="icon text" title="Fewer decimals" aria-label="Fewer decimals">.0</button><button type="button" id="dec-more" class="icon text" title="More decimals" aria-label="More decimals">.00</button></span><span class="group" data-priority="5">${sheetButton('id="sum"', "Sum the selection", "sum")}<button type="button" id="fx" class="icon text" title="Insert function" aria-label="Insert function" aria-haspopup="dialog">ƒx</button><button type="button" id="lock-ref" class="icon text" title="Lock reference ($A$1 → A$1 → $A1 → A1) (Ctrl/⌘ Shift L)" aria-label="Lock reference">$</button>${iconButton('id="fill-down"', "Fill down (Ctrl/⌘ D)", "fillDown")}${iconButton('id="fill-right"', "Fill right (Ctrl/⌘ R)", "fillRight")}${iconButton('id="sort-asc"', "Sort A to Z", "sortUp")}${iconButton('id="sort-desc"', "Sort Z to A", "sortDown")}<button type="button" id="filter-toggle" class="icon text" title="Filter" aria-label="Filter" aria-pressed="false">Filter</button></span><span class="group" data-priority="6">${iconButton('id="add-row"', "Add row", "addRow")}${iconButton('id="add-column"', "Add column", "addColumn")}${iconButton('id="clear-format"', "Clear formatting", "eraser")}${iconButton('id="clear"', "Clear cells", "clear")}</span><span class="group" data-priority="1">${sheetButton('id="more" aria-haspopup="menu"', "More actions", "more")}</span></div><div class="bar-end"><div class="status" role="status" aria-live="polite" data-state="idle"><i class="dot" aria-hidden="true"></i><span></span></div>${sheetButton('id="help" aria-haspopup="dialog"', "Keyboard shortcuts", "help")}${iconButton('id="download" aria-haspopup="menu"', "Download", "download")}</div></div>
 <div class="formula"><input id="range" aria-label="Cell or range" value="A1"><label for="formula">fx</label><input id="formula" aria-label="Formula bar" autocomplete="off" spellcheck="false"></div>
 <div class="stage"><div class="grid" tabindex="0" aria-label="Spreadsheet keyboard navigation"><table role="grid" aria-label="Sheet cells" aria-multiselectable="true"><colgroup></colgroup><thead></thead><tbody></tbody></table></div><div class="overlay"><div class="find" role="search" hidden><input id="find-value" type="search" placeholder="Find in sheet" aria-label="Find in sheet" autocomplete="off"><span id="find-count" role="status" aria-live="polite"></span><button type="button" id="find-previous" aria-label="Previous match" title="Previous match (⇧↵)">↑</button><button type="button" id="find-next" aria-label="Next match" title="Next match (↵)">↓</button><button type="button" id="find-options" aria-label="Search options" title="Search options" aria-haspopup="menu">…</button><button type="button" id="find-close" aria-label="Close" title="Close (Esc)">✕</button></div><div id="updates" role="status" aria-live="polite"></div><div class="command" hidden><label id="command-label" for="command-value"></label><input id="command-value"><button type="button" id="command-apply" class="primary">Apply</button><button type="button" id="command-cancel">Cancel</button></div></div></div>
 <div class="strip">${iconButton('id="add-sheet"', "Add sheet", "plus")}<div id="tab-buttons" role="tablist" aria-label="Sheets"></div><span class="hidden-field"><label>Sheet <select id="tabs" aria-label="Active sheet"></select></label></span><div class="stats"></div></div>`;
@@ -979,7 +984,8 @@ export async function mountSheetClient(
 					widest = Math.max(widest, measure(text, font, f?.fontSize ?? 13));
 			}
 			if (!widest) return { column, width: COLUMN };
-			const room = s.filter && s.filter.headerRow < s.rows.length ? 22 : 0;
+			const room =
+				s.filter && filterColumns(s, s.filter).includes(column) ? 22 : 0;
 			const width = Math.ceil(
 				Math.max(FIT_MIN, Math.min(FIT_MAX, widest + 10 + 8 + room)),
 			);
@@ -1293,7 +1299,8 @@ export async function mountSheetClient(
 			if (here || td.classList.contains("landed"))
 				td.classList.toggle("landed", !!here?.has(row + ":" + col));
 			// The filter header carries a button per column for its filter menu.
-			const header = s.filter?.headerRow === row && col < s.columns.length;
+			const header =
+				s.filter?.row === row && filterColumns(s, s.filter).includes(col);
 			let button = td.querySelector<HTMLButtonElement>(":scope > .filter-btn");
 			if (header && !button) {
 				button = document.createElement("button");
@@ -1304,14 +1311,12 @@ export async function mountSheetClient(
 				td.append(button);
 			} else if (!header && button) button.remove();
 			if (button) {
-				const active = !!s.filter?.hidden.some(
-					(rule) => rule.column === col && rule.values.length,
-				);
+				const active = !!s.filter?.criteria[String(col)]?.length;
 				button.dataset.column = String(col);
 				button.toggleAttribute("data-active", active);
 				button.setAttribute(
 					"aria-label",
-					`Filter ${s.columns[col]?.label ?? columnLabel(col)}${active ? " (filtered)" : ""}`,
+					`${active ? "Change filter on column" : "Filter column"} ${columnLabel(col)}`,
 				);
 			}
 		}
@@ -1572,6 +1577,7 @@ export async function mountSheetClient(
 			d = dimensions();
 		table.setAttribute("aria-rowcount", String(d.rows));
 		hiddenRows = filteredRows(s);
+		q("#filter-toggle").setAttribute("aria-pressed", String(!!s.filter));
 		offsets = [0];
 		for (let row = 0; row < d.rows; row++)
 			offsets.push(offsets[row]! + shownHeight(s, row));
@@ -2300,91 +2306,170 @@ export async function mountSheetClient(
 			}),
 		}));
 	}
-	/** The filter menu for one column: which values show, and sorting below the header. */
+	/** Turn the filter on (finding the table and its header) or off. */
+	function toggleFilter() {
+		if (!editable() || !draft) return;
+		if (sheet().filter) return setFilter(undefined);
+		const found = detectFilterRange(sheet(), bounds(), selection.focus);
+		if (!found) return note("Select data with a header row", true);
+		setFilter(found);
+	}
+	/** One column's filter: sort, and choose which values show. */
 	function openFilter(anchor: HTMLElement, column: number) {
 		const s = sheet(),
 			filter = s.filter;
 		if (!filter) return;
-		const hidden = new Set(
-			filter.hidden.find((rule) => rule.column === column)?.values ?? [],
+		const choices = filterChoices(s, column, (cell) =>
+			formatWorkbookNumber(cell, draft!.workbook),
 		);
-		const name = s.columns[column]?.label ?? columnLabel(column);
-		popover(anchor, `Filter ${name}`, "dialog", (panel, close) => {
-			panel.classList.add("filter-menu");
-			const sorts = document.createElement("div");
-			sorts.className = "filter-sorts";
-			for (const [label, direction] of [
-				["Sort A to Z", "ascending"],
-				["Sort Z to A", "descending"],
-			] as const) {
-				const sort = document.createElement("button");
-				sort.type = "button";
-				sort.textContent = label;
-				sort.disabled = !editable();
-				sort.onclick = () => {
-					close();
-					const range = {
-						rowStart: filter.headerRow,
-						rowEnd: Math.max(filter.headerRow, s.rows.length - 1),
-						columnStart: 0,
-						columnEnd: s.columns.length - 1,
-					};
-					workbook((w) =>
-						sortRange(w, sheet().id, range, column, direction, true),
+		const current = filter.criteria[String(column)] ?? [];
+		const everything = !current.length;
+		popover(
+			anchor,
+			`Column ${columnLabel(column)}`,
+			"dialog",
+			(panel, close) => {
+				panel.classList.add("filter-menu");
+				const heading = document.createElement("div");
+				heading.className = "filter-head";
+				heading.textContent = `Column ${columnLabel(column)}`;
+				const sorts = document.createElement("div");
+				sorts.className = "filter-sorts";
+				const sortedBy =
+					filter.sort?.column === column ? filter.sort.direction : null;
+				for (const [label, direction, disabled] of [
+					["Sort A → Z", "asc", false],
+					["Sort Z → A", "desc", false],
+					["Original order", null, !filter.sort],
+				] as const) {
+					const sort = document.createElement("button");
+					sort.type = "button";
+					sort.setAttribute("role", "menuitemcheckbox");
+					sort.setAttribute(
+						"aria-checked",
+						String(direction !== null && sortedBy === direction),
 					);
+					sort.textContent = `${direction !== null && sortedBy === direction ? "✓ " : ""}${label}`;
+					sort.disabled = disabled || !editable();
+					sort.onclick = () => {
+						close();
+						workbook((w) => sortFilter(w, sheet().id, column, direction));
+					};
+					sorts.append(sort);
+				}
+				const list = document.createElement("div");
+				list.className = "filter-values";
+				const boxes: Array<{
+					token: string;
+					label: string;
+					box: HTMLInputElement;
+					row: HTMLElement;
+				}> = [];
+				if (!choices.length) {
+					const empty = document.createElement("div");
+					empty.className = "filter-empty";
+					empty.textContent = "No values below this row";
+					list.append(empty);
+				}
+				for (const { token, label } of choices) {
+					const row = document.createElement("label");
+					row.title = label;
+					const box = document.createElement("input");
+					box.type = "checkbox";
+					box.checked = everything || current.includes(token);
+					const text = document.createElement("span");
+					text.textContent = label;
+					row.append(box, text);
+					list.append(row);
+					boxes.push({ token, label, box, row });
+				}
+				const apply = document.createElement("button");
+				apply.type = "button";
+				apply.className = "primary";
+				apply.textContent = "Apply";
+				apply.disabled = !editable();
+				panel.append(heading, sorts, document.createElement("hr"));
+				if (boxes.length > 6) {
+					const search = document.createElement("input");
+					search.type = "search";
+					search.placeholder = "Search values";
+					search.setAttribute("aria-label", "Search filter values");
+					search.oninput = () => {
+						const query = search.value.trim().toLowerCase();
+						for (const entry of boxes)
+							entry.row.hidden =
+								!!query && !entry.label.toLowerCase().includes(query);
+					};
+					search.onkeydown = (event) => {
+						event.stopPropagation();
+						if (event.key === "Enter") {
+							event.preventDefault();
+							apply.click();
+						}
+					};
+					panel.append(search);
+					requestAnimationFrame(() => search.focus());
+				}
+				if (boxes.length > 1) {
+					const links = document.createElement("div");
+					links.className = "filter-links";
+					const all = document.createElement("button");
+					all.type = "button";
+					all.textContent = `Select all ${boxes.length}`;
+					all.onclick = () =>
+						boxes.forEach((entry) => (entry.box.checked = true));
+					const none = document.createElement("button");
+					none.type = "button";
+					none.textContent = "Clear";
+					none.onclick = () =>
+						boxes.forEach((entry) => (entry.box.checked = false));
+					links.append(all, none);
+					panel.append(links);
+				}
+				panel.append(list);
+				const actions = document.createElement("div");
+				actions.className = "filter-actions";
+				if (current.length) {
+					const reset = document.createElement("button");
+					reset.type = "button";
+					reset.textContent = "Reset";
+					reset.onclick = () => {
+						close();
+						const now = sheet().filter;
+						if (!now) return;
+						const criteria = { ...now.criteria };
+						delete criteria[String(column)];
+						setFilter({ ...now, criteria });
+					};
+					actions.append(reset);
+				}
+				apply.onclick = () => {
+					const now = sheet().filter;
+					if (!now) return close();
+					const chosen = boxes
+						.filter((entry) => entry.box.checked)
+						.map((entry) => entry.token);
+					if (
+						chosen.length !== boxes.length &&
+						chosen.length > MAX_FILTER_CHOICES
+					) {
+						note(
+							`Select at most ${MAX_FILTER_CHOICES} values, or deselect fewer values instead`,
+							true,
+						);
+						return;
+					}
+					close();
+					const criteria = { ...now.criteria };
+					if (chosen.length === boxes.length) delete criteria[String(column)];
+					else
+						criteria[String(column)] = chosen.length ? chosen : ["x:__none__"];
+					setFilter({ ...now, criteria });
 				};
-				sorts.append(sort);
-			}
-			const list = document.createElement("div");
-			list.className = "filter-values";
-			const boxes: HTMLInputElement[] = [];
-			for (const { value, count } of filterChoices(s, column)) {
-				const row = document.createElement("label");
-				const box = document.createElement("input");
-				box.type = "checkbox";
-				box.checked = !hidden.has(value);
-				box.value = value;
-				boxes.push(box);
-				const text = document.createElement("span");
-				text.textContent = value === "" ? "(Blank)" : value;
-				const tally = document.createElement("small");
-				tally.textContent = String(count);
-				row.append(box, text, tally);
-				list.append(row);
-			}
-			const actions = document.createElement("div");
-			actions.className = "filter-actions";
-			const all = document.createElement("button");
-			all.type = "button";
-			all.textContent = "Select all";
-			all.onclick = () => boxes.forEach((box) => (box.checked = true));
-			const none = document.createElement("button");
-			none.type = "button";
-			none.textContent = "Clear";
-			none.onclick = () => boxes.forEach((box) => (box.checked = false));
-			const apply = document.createElement("button");
-			apply.type = "button";
-			apply.className = "primary";
-			apply.textContent = "Apply";
-			apply.disabled = !editable();
-			apply.onclick = () => {
-				close();
-				const values = boxes
-					.filter((box) => !box.checked)
-					.map((box) => box.value);
-				const current = sheet().filter;
-				if (!current) return;
-				setFilter({
-					...current,
-					hidden: [
-						...current.hidden.filter((rule) => rule.column !== column),
-						...(values.length ? [{ column, values }] : []),
-					],
-				});
-			};
-			actions.append(all, none, apply);
-			panel.append(sorts, list, actions);
-		});
+				actions.append(apply);
+				panel.append(actions);
+			},
+		);
 	}
 	function structure(action: string) {
 		commitCell();
@@ -2535,11 +2620,8 @@ export async function mountSheetClient(
 				apply((w) => freezePanes(w, id, 0, 0));
 				break;
 			case "filter-create":
-				// The selection's top row holds the headings.
-				setFilter({ headerRow: b.rowStart, hidden: [] });
-				break;
 			case "filter-remove":
-				setFilter(undefined);
+				toggleFilter();
 				break;
 		}
 	}
@@ -3371,6 +3453,7 @@ export async function mountSheetClient(
 	);
 	q("#fx").onclick = (event) =>
 		openFunctionMenu(event.currentTarget as HTMLElement);
+	q("#filter-toggle").onclick = () => toggleFilter();
 	q("#lock-ref").onclick = () => lockReference(formulaInput());
 	formula.oninput = () => {
 		if (!editable()) return;
