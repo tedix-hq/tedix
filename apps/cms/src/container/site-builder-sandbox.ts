@@ -65,6 +65,55 @@ export class SiteBuilderSandboxRuntime extends NativeContainerSandbox<SiteBuilde
 			},
 		};
 	}
+	async listThemeFiles(
+		path: string,
+		options: { cursor: number; limit: number },
+	): Promise<{
+		entries: Array<{
+			relativePath: string;
+			size: number;
+		}>;
+		nextCursor: number | null;
+	}> {
+		if (
+			!Number.isInteger(options.cursor) ||
+			options.cursor < 0 ||
+			!Number.isInteger(options.limit) ||
+			options.limit < 1
+		)
+			throw new Error("Invalid theme file page");
+
+		await this.ensureContainer();
+		const root = path.replace(/\/$/, "");
+		const entries: Array<{
+			relativePath: string;
+			size: number;
+		}> = [];
+		let fileIndex = 0;
+		const walk = async (directory: string): Promise<boolean> => {
+			for (const entry of await this.files.readDirectory(directory)) {
+				const child = `${directory.replace(/\/$/, "")}/${entry.name}`;
+				if (entry.type === "directory") {
+					if (await walk(child)) return true;
+					continue;
+				}
+				if (entry.type !== "file") continue;
+				if (fileIndex++ < options.cursor) continue;
+				if (entries.length === options.limit) return true;
+				const info = await this.files.stat(child);
+				entries.push({
+					relativePath: child.slice(root.length + 1),
+					size: Number(info.size),
+				});
+			}
+			return false;
+		};
+		const hasMore = await walk(root);
+		return {
+			entries,
+			nextCursor: hasMore ? options.cursor + entries.length : null,
+		};
+	}
 	private authoringPreparation?: Promise<string>;
 	async getAuthoringWorkspaceState(): Promise<string> {
 		if (this.authoringPreparation) await this.authoringPreparation;
