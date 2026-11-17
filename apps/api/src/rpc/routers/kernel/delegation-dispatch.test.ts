@@ -2719,6 +2719,15 @@ describe("organization critical-only delegation autonomy", () => {
 			}),
 		).toMatchObject({ mode: "needs_approval", approvalRoute: "human" });
 	});
+	it("lets an admitted external agent use standing organization autonomy", () => {
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				speaker: { policyDelegationAuthority: true },
+				route: makeRoute({ risk: "medium" }),
+			}),
+		).toMatchObject({ mode: "auto", canAutoDispatch: true });
+	});
 	it.each([false, true])(
 		"auto-dispatches a running embodied target with lease warm=%s",
 		(hasWarmWorkstationLease) => {

@@ -4604,6 +4604,21 @@ it("threads only the original structured steward targets into the kernel produce
 	);
 });
 
+it("passes the admitted external agent identity to the dispatch gate", async () => {
+	const kernel = vi.fn(async () => ({
+		route: route({ routeKind: "answer_in_home", answer: "Handled here." }),
+		assistantContent: "Handled here.",
+	}));
+	await runKernelTurnWork(stubDeps({ kernel }), {
+		...turnInput(),
+		descopeUserId: undefined,
+		externalAgentPrincipalId: "agent-1",
+	});
+	expect(kernel).toHaveBeenCalledWith(
+		expect.objectContaining({ externalAgentPrincipalId: "agent-1" }),
+	);
+});
+
 it("parks a bounded direct skill run for human approval instead of a text-only no-delegation answer", async () => {
 	const args = {
 		skillId: "00000000-0000-4000-8000-000000000011",

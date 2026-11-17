@@ -501,6 +501,8 @@ export async function runKernel(args: {
 	env: KernelEnv;
 	organizationId: string;
 	descopeUserId?: string;
+	/** Gateway-verified external agent principal admitted at Home ingress. */
+	externalAgentPrincipalId?: string;
 	stewardCloseoutTargets?: StewardCloseoutTargets;
 	content: string;
 	/** A request that passed Home ingress catalog admission. */
@@ -579,6 +581,7 @@ export async function runKernel(args: {
 		organizationId,
 		contextCache,
 		descopeUserId,
+		externalAgentPrincipalId,
 		content: inputContent,
 		modelRef,
 		conversationId,
@@ -1362,6 +1365,7 @@ export async function runKernel(args: {
 				delegationDepth,
 				speaker: {
 					approvalAuthority: context.speaker?.approvalAuthority ?? false,
+					policyDelegationAuthority: Boolean(externalAgentPrincipalId),
 				},
 				gating: {
 					session: sessionLayer,

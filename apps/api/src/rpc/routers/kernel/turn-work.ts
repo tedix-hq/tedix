@@ -960,6 +960,7 @@ export async function runKernelTurnWork(
 									},
 									// Acting user used for org context and authority assembly.
 									descopeUserId: input.descopeUserId,
+									externalAgentPrincipalId: input.externalAgentPrincipalId,
 									content,
 									modelRef,
 									runId,
