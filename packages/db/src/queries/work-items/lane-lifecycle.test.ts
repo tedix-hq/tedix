@@ -10,6 +10,7 @@ import {
 	workBudgetReservations,
 } from "../../schema/work-factory";
 import { externalAgentPrincipals } from "../../schema/external-agent-identity";
+import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
 import {
 	recordStaleLanes,
 	notifyStoppedLanes,
@@ -37,6 +38,7 @@ async function fixture() {
 			tedis,
 			workResourceReservations,
 			workBudgetReservations,
+			platformCronCheckpoints,
 		),
 	);
 	sqlite.exec(

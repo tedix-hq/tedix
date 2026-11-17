@@ -106,9 +106,13 @@ export async function runWorkAttemptLeaseSweeperTick(
 			limit: MAX_INTERACTION_WRITES_PER_TICK,
 		})),
 		lanesStale,
+		// Each tick notices the lanes that stopped since the last one. Once an
+		// hour, with the stale-delegation sweep, it also looks at every older
+		// stopped lane, for one that became due after its own tick.
 		lanesNotified: await notifyStoppedLanes(
 			createDbQueryClient(env.DB),
 			new Date(scheduledTime).toISOString(),
+			{ wholeLedger: staleDelegationSweepDue(scheduledTime) },
 		),
 		...(await flushWorkInteractionDigests(
 			createDbQueryClient(env.DB),
