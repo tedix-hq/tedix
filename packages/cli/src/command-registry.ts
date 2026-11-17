@@ -11,6 +11,7 @@ import { superviseUsage } from "./supervise";
 import { localInstallationUsage } from "./local-installation";
 import { mcpUsage } from "./mcp-call";
 import { channelUsage } from "./event-channel";
+import { captureCheckUsage } from "./capture-check";
 import { CLI_VERSION } from "./shared";
 import { tediUsage } from "./tedi";
 import {
@@ -129,6 +130,15 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		mutability: "write",
 		output: HUMAN_JSON,
 		help: () => learnUsage,
+	},
+	{
+		name: "capture",
+		argHint: "check [days] [--limit <chats>]",
+		surface: "mixed",
+		summary: "Compare local chats with stored capture events",
+		mutability: "read",
+		output: HUMAN_JSON,
+		help: captureCheckUsage,
 	},
 	{
 		name: "chat",

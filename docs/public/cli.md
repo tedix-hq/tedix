@@ -105,6 +105,20 @@ Every hook does nothing until you opt in to its feature:
 | `await-draft`          | End of each turn; Codex only, may hold the turn up to 5 minutes                                    | Continues the turn with your pending Tedix OS answers to the session's questions, or an automatic tedi reply, and records each delivery once.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Same as `capture-stop`                                                                                                                                                                                                                                                                                  |
 | `status`               | Prompt submit, tool use, permission request, notification, stop, failure, session end (background) | Records a local status line and macOS notification; with a profile, sends the state, session ID, the session's name (its Claude Code `/rename` title or Codex thread name, else folder · branch), the bound project and Work Item, and a 160-character summary.                                                                                                                                                                                                                                                                                                                                                     | `~/.tedix/agent-status.json` with `"enabled": true`, or `TEDIX_AGENT_STATUS=1`                                                                                                                                                                                                                          |
 
+Check capture without enabling it or retrying anything:
+
+```bash
+tedix capture check
+```
+
+The command reads recent local Claude Code, Codex, OpenCode and Devin
+transcripts, the selected profile's private retry outbox, and your stored events
+in the selected organization. For each chat it prints exact prompt and turn-end
+counts as **captured**, **pending** in the outbox, **skipped** with a reason, or
+**missing**. It does not run hooks, upload pending events or read another
+provider. The default window is seven days; pass a number from 1 to 31 after
+`check`, and use `--limit` to bound chats per host.
+
 A tedi auto reply that lands after a Codex session's `await-draft` stopped
 waiting reaches nobody, so the session idles. `tedix supervise` checks every
 30 seconds and delivers such a reply: through `codex queue` to an open Codex
