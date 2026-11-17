@@ -1520,6 +1520,10 @@
 		{
 			"name": "20261116231500_drop_work_items_owner_list_index/migration.sql",
 			"sha256": "23fcfe9defb6c24583460f418909dd99d7e832576aa7e5664fcc482743fcc777"
+		},
+		{
+			"name": "20261117000735_work_items_owner_list_partial_index/migration.sql",
+			"sha256": "970f3e7e24adc9b79cc61bf19d3b6dcf09d40d662acd98106d6e1f069d523ccd"
 		}
 	]
 }

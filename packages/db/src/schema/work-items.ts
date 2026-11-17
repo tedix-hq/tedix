@@ -354,6 +354,20 @@ export const workItems = sqliteTable(
 			table.accountableOwnerType,
 			table.accountableOwnerId,
 		),
+		// One owner's Work in one disposition, newest first, for an owner of any
+		// type. Partial on purpose: SQLite may use it only when a query names the
+		// owner, so it is never an alternative for a lookup by organization and
+		// id. The same columns without the WHERE were chosen for exactly such a
+		// lookup and walked the organization (commitment-wakes.test.ts).
+		index("idx_work_items_owner_list")
+			.on(
+				table.orgId,
+				table.accountableOwnerId,
+				table.disposition,
+				table.createdAt,
+				table.id,
+			)
+			.where(sql`${table.accountableOwnerId} IS NOT NULL`),
 		index("idx_work_items_objective").on(table.objectiveId),
 		index("idx_work_items_org_objective").on(table.orgId, table.objectiveId),
 		index("idx_work_items_org_class").on(table.orgId, table.workClass),
