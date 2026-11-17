@@ -1,3 +1,13 @@
+Tedix 0.2.15 — explicit directory tools.
+
+The public OpenAI package now connects to a focused directory server where each
+operation is a separate typed tool. Its connection-details response omits
+internal account and commerce fields, and its OAuth request asks only for Work
+read/write and content read access. Other hosts keep the existing Connect URL
+and Code Mode surface. The review skill now carries its canonical instructions
+inside the package instead of following a mutable branch link. Installing this
+update does not grant additional access.
+
 Tedix 0.2.14 — OpenCode hooks start the CLI by its full path.
 
 The OpenCode hooks now find the installed Tedix CLI in your PATH folders and

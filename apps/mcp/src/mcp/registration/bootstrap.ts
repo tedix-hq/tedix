@@ -13,7 +13,7 @@ import { isNativeCatalogTool } from "../native-catalog-tools";
  * Bootstrap tool + resource registration.
  *
  * Always-on tools that don't come from D1 `app_tools`:
- * - `get_info` — server identity (name, slug, tool count, capabilities)
+ * - `get_info` (or configured `get_connection_info`) — server identity
  * - `__track_widget_analytics` — internal widget event reporter
  * - `app-info` resource — same identity payload, addressable as a resource
  *
@@ -23,7 +23,11 @@ import { isNativeCatalogTool } from "../native-catalog-tools";
  */
 
 import * as z from "zod";
-import { getInfoOutputSchema } from "./get-info-schema";
+import {
+	connectionInfoOutputSchema,
+	getInfoOutputSchema,
+} from "./get-info-schema";
+import { BootstrapInfoSchema } from "@tedix/api-contract/schemas/app";
 import {
 	McpNativeBootstrapSchema,
 	McpNativeDescriptorSchema,
@@ -197,21 +201,7 @@ export function buildBootstrapInfo(
 			? {
 					sidebarApp: {
 						...sidebarApp,
-						organizations:
-							agent.callerIdentity?.verifiedMultiOrgOrganizations?.map(
-								(org) => ({
-									id: org.organizationId,
-									label: org.gatewaySlug.replace(/-unified$/, ""),
-								}),
-							) ??
-							(agent.callerIdentity?.userId && agent.app?.organizationId
-								? [
-										{
-											id: agent.app.organizationId,
-											label: agent.app.name,
-										},
-									]
-								: []),
+						organizations: connectionOrganizations(agent),
 						accountId: agent.callerIdentity?.userId ?? null,
 					},
 				}
@@ -219,22 +209,45 @@ export function buildBootstrapInfo(
 	};
 }
 
+function connectionOrganizations(agent: ServerContext) {
+	return (
+		agent.callerIdentity?.verifiedMultiOrgOrganizations?.map((org) => ({
+			id: org.organizationId,
+			label: org.gatewaySlug.replace(/-unified$/, ""),
+		})) ??
+		(agent.callerIdentity?.userId && agent.app?.organizationId
+			? [{ id: agent.app.organizationId, label: agent.app.name }]
+			: [])
+	);
+}
+
 export function registerGetInfoTool(
 	agent: ServerContext,
 	registry?: ReadonlyArray<AppTool>,
 ): void {
 	const appName = agent.app?.name ?? "Unknown App";
+	const parsedConfig = BootstrapInfoSchema.safeParse(
+		agent.appMetadata?.mcpConfig?.bootstrapInfo,
+	);
+	const config = parsedConfig.success ? parsedConfig.data : null;
+	const toolId = config?.toolId ?? "get_info";
+	const connectionMode = config?.responseMode === "connection";
 
 	const getInfoTool = agent.server.registerTool(
-		"get_info",
+		toolId,
 		{
 			title:
+				config?.title ??
 				sidebarAppConfig(agent.appMetadata?.mcpConfig)?.title ??
 				`${appName} Info`,
 			_meta: sidebarAppToolMeta(agent.appSlug, agent.appMetadata?.mcpConfig),
-			description: `Get metadata about the ${appName} MCP server itself (name, version, tool count). Only use when the user asks about this server's identity or capabilities — NOT for answering general questions.`,
+			description:
+				config?.description ??
+				`Get metadata about the ${appName} MCP server itself (name, version, tool count). Only use when the user asks about this server's identity or capabilities — NOT for answering general questions.`,
 			inputSchema: z.object({}),
-			outputSchema: getInfoOutputSchema,
+			outputSchema: connectionMode
+				? connectionInfoOutputSchema
+				: getInfoOutputSchema,
 			annotations: {
 				readOnlyHint: true,
 				openWorldHint: false,
@@ -242,6 +255,22 @@ export function registerGetInfoTool(
 			},
 		},
 		async () => {
+			if (connectionMode) {
+				const info = {
+					serverVersion: agent.getServerVersion(),
+					organizations: connectionOrganizations(agent),
+					views: config?.views ?? [],
+				};
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Tedix connection with ${info.organizations.length} organization(s) and ${info.views.length} view(s).`,
+						},
+					],
+					structuredContent: info,
+				};
+			}
 			const info = buildBootstrapInfo(agent, registry);
 
 			const text = [
@@ -268,8 +297,8 @@ export function registerGetInfoTool(
 		},
 	);
 
-	agent.registeredTools.set("get_info", getInfoTool);
-	console.log("[MCP] Registered bootstrap tool: get_info");
+	agent.registeredTools.set(toolId, getInfoTool);
+	console.log(`[MCP] Registered bootstrap tool: ${toolId}`);
 }
 
 export function registerBootstrapTools(

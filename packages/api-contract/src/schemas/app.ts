@@ -301,6 +301,35 @@ export const SidebarAppSchema = z
 		},
 	);
 
+export const BootstrapInfoSchema = z
+	.strictObject({
+		toolId: z.enum(["get_info", "get_connection_info"]).default("get_info"),
+		title: z.string().min(1).max(80).optional(),
+		description: z.string().min(1).max(600).optional(),
+		responseMode: z.enum(["server", "connection"]).default("server"),
+		views: z
+			.array(
+				z.strictObject({
+					id: z
+						.string()
+						.regex(/^[a-z][a-z0-9_-]*$/)
+						.max(80),
+					label: z.string().min(1).max(80),
+					tool: z
+						.string()
+						.regex(/^[a-z][a-z0-9_]*$/)
+						.max(100),
+				}),
+			)
+			.max(10)
+			.default([]),
+	})
+	.refine(
+		(value) =>
+			new Set(value.views.map((view) => view.id)).size === value.views.length,
+		{ message: "Bootstrap view IDs must be unique" },
+	);
+
 /**
  * Per-server audience enforcement for AIH client-credentials (M2M) tokens.
  *
@@ -345,6 +374,7 @@ export const McpConfigSchema = z
 		widgetDomain: z.string().optional(),
 		serverName: z.string().optional(),
 		serverVersion: z.string().optional(),
+		bootstrapInfo: BootstrapInfoSchema.optional(),
 		/** Reverse-DNS registry name (e.g. io.github.owner/server); enables the public Server Card. */
 		registryName: z.string().optional(),
 		corsOrigins: z.array(z.string()).optional(),

@@ -333,6 +333,12 @@ describe("plugin packager", () => {
 	test("cloud has one identity and no local or operational files", () => {
 		const files = packageFiles();
 		expect(files.has("skills/tedix-session-guide/SKILL.md")).toBe(true);
+		expect(files.has("skills/review-tedix/references/AGENT-REVIEW.md")).toBe(
+			true,
+		);
+		expect(
+			new TextDecoder().decode(files.get("skills/review-tedix/SKILL.md")!),
+		).not.toContain("github.com/tedix-hq/tedix/blob/main/AGENT-REVIEW.md");
 		expect(files.has("mcp.json")).toBe(true);
 		expect(
 			[...files.keys()].some((name) => /^(hooks\/|review\/|\.)/.test(name)),
@@ -341,6 +347,21 @@ describe("plugin packager", () => {
 			false,
 		);
 		expect(decode(files, "plugin.json").name).toBe("tedix");
+		expect(decode(files, "mcp.json").mcpServers.tedix).toMatchObject({
+			url: "https://directory.mcp.tedix.dev/mcp",
+			extensions: {
+				"com.openai": {
+					auth: {
+						baseScopes: [],
+						defaultScopes: [
+							"mcp:content.read",
+							"mcp:work.read",
+							"mcp:work.write",
+						],
+					},
+				},
+			},
+		});
 		expect(
 			decode(files, "plugin.json").extensions["com.openai"].review.test_cases,
 		).toEqual(
@@ -362,6 +383,9 @@ describe("plugin packager", () => {
 			]),
 		);
 		const hooks = decode(local, "hooks/hooks.json").hooks;
+		expect(decode(local, "mcp.json").mcpServers.tedix.url).toBe(
+			"https://connect.mcp.tedix.dev/mcp",
+		);
 		expect(new Set(Object.keys(hooks))).toEqual(EVENTS);
 		// The status reporter observes every turn boundary but always runs in the background.
 		const status = handlers(hooks).filter(
