@@ -116,30 +116,46 @@ function fixture(policies: string) {
 	const insertRuntime = sqlite.prepare(
 		"INSERT INTO tedi_runtime_events(id, organization_id, tedi_id, kind, runtime_backend, payload, created_at) VALUES(?,?,?,?,?,?,?)",
 	);
+	// One transaction per seed: autocommit makes each of the 20k rows a
+	// separate commit, which dominated fixture time on a loaded machine.
+	const inTransaction = (write: () => void) => {
+		sqlite.exec("BEGIN");
+		try {
+			write();
+			sqlite.exec("COMMIT");
+		} catch (error) {
+			sqlite.exec("ROLLBACK");
+			throw error;
+		}
+	};
 	const seedRuntime = (ages: number[]) =>
-		ages.forEach((age, index) =>
-			insertRuntime.run(
-				`runtime-${index}`,
-				"fictional-lighthouse",
-				"tedi-ada",
-				"tool.completed",
-				"custom",
-				JSON.stringify({ n: index, body: "x".repeat(64) }),
-				new Date(NOW.getTime() - age * DAY * 1000).toISOString(),
+		inTransaction(() =>
+			ages.forEach((age, index) =>
+				insertRuntime.run(
+					`runtime-${index}`,
+					"fictional-lighthouse",
+					"tedi-ada",
+					"tool.completed",
+					"custom",
+					JSON.stringify({ n: index, body: "x".repeat(64) }),
+					new Date(NOW.getTime() - age * DAY * 1000).toISOString(),
+				),
 			),
 		);
 	const nowSeconds = Math.floor(NOW.getTime() / 1000);
 	const seed = (ages: number[]) =>
-		ages.forEach((age, index) =>
-			insert.run(
-				`audit-${index}`,
-				"fictional-lighthouse",
-				"user-ada",
-				"user",
-				"mcp.tool.execute",
-				"mcp_tool",
-				JSON.stringify({ n: index }),
-				nowSeconds - age * DAY,
+		inTransaction(() =>
+			ages.forEach((age, index) =>
+				insert.run(
+					`audit-${index}`,
+					"fictional-lighthouse",
+					"user-ada",
+					"user",
+					"mcp.tool.execute",
+					"mcp_tool",
+					JSON.stringify({ n: index }),
+					nowSeconds - age * DAY,
+				),
 			),
 		);
 	const count = (table = "audit_events") =>
