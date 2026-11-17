@@ -216,6 +216,16 @@ document.querySelector('button').onclick = async () => { const result = await te
 					canEdit: true,
 				},
 			};
+		else if (endpoint === "events")
+			return route.fulfill({
+				status: 503,
+				json: {
+					json: {
+						code: "INTERNAL_SERVER_ERROR",
+						message: "Event stream unavailable",
+					},
+				},
+			});
 		else if (endpoint === "access") {
 			if (options.denied)
 				return route.fulfill({
