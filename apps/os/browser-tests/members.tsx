@@ -306,7 +306,7 @@ client.setQueryData(
 	osQuery.workItems.listAttemptProjection.infiniteOptions({
 		input: () => ({
 			...pageInput,
-			outcomes: ["succeeded", "failed", "expired", "cancelled"],
+			outcomes: ["succeeded", "failed", "rejected", "expired", "cancelled"],
 		}),
 		...pagination,
 	}).queryKey,
