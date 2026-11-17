@@ -17,6 +17,9 @@ export default defineConfig({
 	test: {
 		globals: true,
 		environment: "node",
+		// Workstation tests launch real Git, shell, and Node processes. Parallel
+		// workers turn process startup contention into false 5-second timeouts.
+		maxWorkers: 1,
 		include: ["src/**/*.test.ts", "test/**/*.test.ts", "scripts/**/*.test.ts"],
 		exclude: ["e2e/**", "test/e2e/**", "src/**/*.workerd.test.ts"],
 		// `@cloudflare/containers` ships ESM with extensionless internal

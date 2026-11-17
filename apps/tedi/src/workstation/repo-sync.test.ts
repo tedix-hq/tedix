@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+	cpSync,
 	mkdtempSync,
 	mkdirSync,
 	writeFileSync,
@@ -9,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import type { TediConfig } from "../types";
 import type { WorkstationRuntimeBody } from "./computer-body";
 
@@ -80,7 +81,7 @@ async function fixture(run: (f: ReturnType<typeof setup>) => Promise<void>) {
 		rmSync(f.root, { recursive: true, force: true });
 	}
 }
-function setup() {
+function createSeed() {
 	const root = mkdtempSync(join(tmpdir(), "repo-transaction-")),
 		source = join(root, "source"),
 		origin = join(root, "origin.git"),
@@ -96,6 +97,30 @@ function setup() {
 	git(root, "clone", "--bare", source, origin);
 	mkdirSync(join(root, "repos", "team"), { recursive: true });
 	git(root, "clone", origin, workdir);
+	return { root, source, origin, workdir };
+}
+let seed: ReturnType<typeof createSeed> | undefined;
+beforeAll(() => {
+	seed = createSeed();
+});
+afterAll(() => {
+	if (seed) rmSync(seed.root, { recursive: true, force: true });
+});
+function setup() {
+	if (!seed) throw new Error("repository transaction seed is unavailable");
+	const root = mkdtempSync(join(tmpdir(), "repo-transaction-")),
+		source = join(root, "source"),
+		origin = join(root, "origin.git"),
+		workdir = join(root, "repos", "team", "repo");
+	mkdirSync(join(root, "repos", "team"), { recursive: true });
+	cpSync(seed.source, source, { recursive: true });
+	cpSync(seed.origin, origin, { recursive: true });
+	cpSync(seed.workdir, workdir, { recursive: true });
+	const workdirConfig = join(workdir, ".git", "config");
+	writeFileSync(
+		workdirConfig,
+		readFileSync(workdirConfig, "utf8").replace(seed.origin, origin),
+	);
 	const statuses = new Map<string, any>();
 	const body = {
 		run: vi.fn(async (command: string) => output(command)),

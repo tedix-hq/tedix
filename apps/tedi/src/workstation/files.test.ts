@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import {
 	mkdtempSync,
 	rmSync,
@@ -14,9 +14,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { workstationFiles } from "./files";
 const roots: string[] = [];
+const require = createRequire(import.meta.url);
 function setup(
 	options: {
 		failRename?: boolean;
@@ -80,22 +82,35 @@ function setup(
 		}),
 		exec: async ([command, ...args]: readonly [string, ...string[]]) => ({
 			output: async () => {
-				const result = spawnSync(
-					command === "node" ? process.execPath : command,
-					args.map((value, index) =>
-						options.failRename && index === 1
-							? `require("node:fs").renameSync = () => { throw new Error("rename failed"); };\n${value}`
-							: value,
-					),
-					{
-						encoding: "utf8",
-						maxBuffer: 1024 * 1024,
-					},
-				);
+				const [flag, script, requestPath] = args;
+				if (command !== "node" || flag !== "-e" || !script || !requestPath)
+					throw new Error("Unexpected native file command");
+				let stdout = "";
+				const childProcess = {
+					argv: [process.execPath, requestPath],
+					exitCode: 0,
+					stdout: { write: (value: string) => (stdout += value) },
+				};
+				const childRequire = (id: string) => {
+					const value = require(id);
+					return options.failRename && id === "node:fs"
+						? {
+								...value,
+								renameSync: () => {
+									throw new Error("rename failed");
+								},
+							}
+						: value;
+				};
+				runInNewContext(script, {
+					Buffer,
+					process: childProcess,
+					require: childRequire,
+				});
 				return {
-					stdout: result.stdout,
-					stderr: result.stderr,
-					exitCode: result.status,
+					stdout,
+					stderr: "",
+					exitCode: childProcess.exitCode,
 					timedOut: options.timedOut ?? false,
 					truncated: options.truncated ?? false,
 				};
