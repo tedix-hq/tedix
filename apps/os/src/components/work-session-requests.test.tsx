@@ -60,6 +60,19 @@ describe("Your requests ledger", () => {
 			"No requests yet. They appear here once the Tedix plugin records your messages (decision capture on).",
 		);
 	});
+	it("shows how many stored messages are not processed yet", () => {
+		const render = (unprocessedEvents?: number) =>
+			renderToStaticMarkup(
+				<QueryClientProvider client={client()}>
+					<SessionRequestsSection
+						rows={[row]}
+						unprocessedEvents={unprocessedEvents}
+					/>
+				</QueryClientProvider>,
+			);
+		expect(render(2)).toContain('data-unprocessed-events="2"');
+		expect(render(0)).not.toContain("data-unprocessed-events");
+	});
 	it("keeps Done connected to the existing mutation", async () => {
 		const update = vi
 			.mocked(osApi.workAgentSessions.updateRequest)

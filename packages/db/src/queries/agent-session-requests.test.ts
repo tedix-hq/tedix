@@ -965,7 +965,34 @@ it("unblocks a session only after bounded retries, retaining the failed event", 
 			processed: false,
 		});
 	}
-	const terminal = { ...first, status: "failed", attempts: 3 };
+	const terminal = {
+		...first,
+		status: "failed",
+		attempts: 3,
+		processedAt: T1,
+	};
+	// A terminal failure is retried by the sweep only after an hour's rest.
+	expect(await listPendingAgentSessionEventOwners(db, T1)).toEqual([owner]);
+	await db
+		.update(agentSessionEvents)
+		.set({ status: "processed" })
+		.where(eq(agentSessionEvents.id, second.id));
+	expect(await listPendingAgentSessionEventOwners(db, T1)).toEqual([]);
+	await db
+		.update(agentSessionEvents)
+		.set({ status: "failed", processedAt: T1 })
+		.where(eq(agentSessionEvents.id, second.id));
+	expect(await listPendingAgentSessionEventOwners(db, T1)).toEqual([]);
+	expect(
+		await listPendingAgentSessionEventOwners(db, "2026-10-06T11:05:00.000Z"),
+	).toEqual([owner]);
+	expect(
+		await listPendingAgentSessionEventOwners(db, "2026-10-09T10:06:00.000Z"),
+	).toEqual([]);
+	await db
+		.update(agentSessionEvents)
+		.set({ status: "pending", processedAt: null })
+		.where(eq(agentSessionEvents.id, second.id));
 	expect((await list()).map((event) => event.id)).toEqual([second.id]);
 	expect(
 		await claimAgentSessionEvent(db, { ...owner, id: first.id, now: T1 }),

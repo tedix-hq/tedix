@@ -143,6 +143,14 @@ export const ListAgentSessionRequestsInputSchema = z.strictObject({
 
 export const ListAgentSessionRequestsResultSchema = z.strictObject({
 	data: z.array(AgentSessionRequestSchema),
+	unprocessedEvents: z
+		.number()
+		.int()
+		.nonnegative()
+		.optional()
+		.describe(
+			"The caller's stored session events that are not in the ledger yet: waiting for processing, or failed and retried automatically for three days.",
+		),
 });
 
 export const UpdateAgentSessionRequestInputSchema = z.strictObject({

@@ -3,7 +3,10 @@ import { userConfigs } from "@tedix/db/schema/user-configs";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { listAgentSessionRequests } from "@tedix/db/queries/agent-session-requests";
+import {
+	countUnprocessedAgentSessionEvents,
+	listAgentSessionRequests,
+} from "@tedix/db/queries/agent-session-requests";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import {
@@ -1852,6 +1855,62 @@ it("requires an explicit retry to restart a failed duplicate event", async () =>
 		body: input.events[0]!.text,
 	});
 	expect(await rows(db)).toHaveLength(1);
+});
+
+describe("failed events without a client flag", () => {
+	const reply = (text: string) =>
+		JSON.stringify({ requests: [{ kind: "request", text }] });
+	const prompt = (text: string, sourceAt: string) => ({
+		organizationId: SCOPE.organizationId,
+		userId: SCOPE.userId,
+		now: sourceAt,
+		events: [{ ...SCOPE, kind: "prompt" as const, text, sourceAt }],
+	});
+	const failed = async () => {
+		const db = fixture();
+		await acceptAgentSessionEvents(db, prompt("Check the example import", T0));
+		for (let i = 0; i < 3; i++)
+			await processAgentSessionEvents(db, scripted(null).model, SCOPE, {
+				now: () => T0,
+			});
+		expect(await countUnprocessedAgentSessionEvents(db, SCOPE)).toBe(1);
+		return db;
+	};
+
+	it("processes a failed event an hour later once the model recovers", async () => {
+		const db = await failed();
+		const pass = (now: string) =>
+			processAgentSessionEvents(
+				db,
+				scripted(reply("Check the example import")).model,
+				SCOPE,
+				{ now: () => now },
+			);
+		expect(await pass("2026-10-06T10:59:00.000Z")).toBe(0);
+		expect(await pass("2026-10-06T11:00:00.000Z")).toBe(1);
+		expect(await rows(db)).toHaveLength(1);
+		expect(await countUnprocessedAgentSessionEvents(db, SCOPE)).toBe(0);
+	});
+
+	it("processes a failed event before the session's next upload", async () => {
+		const db = await failed();
+		const later = "2026-10-06T10:01:00.000Z";
+		expect(
+			await acceptAgentSessionEvents(db, prompt("Then deploy it", later)),
+		).toEqual({ accepted: 1, duplicates: 0 });
+		const { model, prompts } = scripted(
+			reply("Check the example import"),
+			reply("Deploy the example import"),
+		);
+		expect(
+			await processAgentSessionEvents(db, model, SCOPE, { now: () => later }),
+		).toBe(2);
+		expect(prompts[0]).toContain("Check the example import");
+		expect((await rows(db)).map((row) => row.text)).toEqual([
+			"Check the example import",
+			"Deploy the example import",
+		]);
+	});
 });
 
 it.each(["request", "idea", "issue"])(

@@ -902,7 +902,12 @@ export function OfficeApp() {
 			<OfficeLeaderboard />
 			<Notebook since={since} />
 			<SupportAttention />
-			{requests.data && <SessionRequestsSection rows={requests.data.data} />}
+			{requests.data && (
+				<SessionRequestsSection
+					rows={requests.data.data}
+					unprocessedEvents={requests.data.unprocessedEvents}
+				/>
+			)}
 			{requests.isError && (
 				<OfficeReadError resource="your requests" error={requests.error} />
 			)}
