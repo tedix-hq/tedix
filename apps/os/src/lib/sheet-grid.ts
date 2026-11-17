@@ -507,3 +507,53 @@ export function viewRowOrder(
 	}
 	return [...head, ...body];
 }
+
+/** The text a filter compares: the cell's value, or "" for an empty cell. */
+export function filterText(
+	cell: { value?: unknown; input?: string } | null | undefined,
+): string {
+	const value = cell?.value ?? cell?.input ?? "";
+	return value === null ? "" : String(value);
+}
+
+/** Rows below a sheet's filter header that its filter hides. */
+export function filteredRows(sheet: OsWorkbookSheet): Set<number> {
+	const hidden = new Set<number>();
+	const filter = sheet.filter;
+	if (!filter?.hidden.length) return hidden;
+	const rules = filter.hidden.map(
+		({ column, values }) => [column, new Set(values)] as const,
+	);
+	for (let row = filter.headerRow + 1; row < sheet.rows.length; row++) {
+		const line = sheet.rows[row];
+		if (
+			rules.some(([column, values]) => values.has(filterText(line?.[column])))
+		)
+			hidden.add(row);
+	}
+	return hidden;
+}
+
+/** The distinct values below the header in one column, with how often each appears. */
+export function filterChoices(
+	sheet: OsWorkbookSheet,
+	column: number,
+	limit = 500,
+): Array<{ value: string; count: number }> {
+	const counts = new Map<string, number>();
+	const start = (sheet.filter?.headerRow ?? 0) + 1;
+	for (let row = start; row < sheet.rows.length; row++) {
+		const text = filterText(sheet.rows[row]?.[column]);
+		counts.set(text, (counts.get(text) ?? 0) + 1);
+		if (counts.size >= limit) break;
+	}
+	return [...counts]
+		.map(([value, count]) => ({ value, count }))
+		.sort((a, b) =>
+			a.value === ""
+				? 1
+				: b.value === ""
+					? -1
+					: a.value.localeCompare(b.value, undefined, { numeric: true }),
+		);
+}

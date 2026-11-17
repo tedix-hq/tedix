@@ -479,6 +479,65 @@ describe("Portable Sheet grid", () => {
 		change("#tabs", app.saved().workbook!.sheets[1]!.id);
 		expect(display("C1")).toBe("3");
 	});
+	it("filters rows by a column's values from the header, for everyone, and removes the filter", async () => {
+		const app = await editor("owner", (content) => {
+			const s = content.workbook!.sheets[0]!;
+			s.rows = [
+				[{ input: "Status", value: "Status" }, null, null],
+				[{ input: "Open", value: "Open" }, null, null],
+				[{ input: "Done", value: "Done" }, null, null],
+				[{ input: "Open", value: "Open" }, null, null],
+			];
+			return content;
+		});
+		select("A1");
+		operation("filter-create");
+		const button = await vi.waitFor(() => {
+			const found = cell("A1").querySelector<HTMLButtonElement>(".filter-btn");
+			expect(found).not.toBeNull();
+			return found!;
+		});
+		button.click();
+		const menu = q(".filter-menu");
+		expect(
+			[...menu.querySelectorAll("label span")].map((n) => n.textContent),
+		).toEqual(["Done", "Open"]);
+		const open = [...menu.querySelectorAll<HTMLInputElement>("input")].find(
+			(box) => box.value === "Open",
+		)!;
+		open.checked = false;
+		[...menu.querySelectorAll<HTMLButtonElement>("button")]
+			.find((node) => node.textContent === "Apply")!
+			.click();
+		await vi.waitFor(() =>
+			expect((cell("A2").parentElement as HTMLTableRowElement).hidden).toBe(
+				true,
+			),
+		);
+		expect((cell("A3").parentElement as HTMLTableRowElement).hidden).toBe(
+			false,
+		);
+		expect(
+			cell("A1").querySelector(".filter-btn")!.hasAttribute("data-active"),
+		).toBe(true);
+		// Moving down from the header steps over the hidden row.
+		select("A1");
+		key("ArrowDown");
+		expect(cell("A3").classList.contains("active")).toBe(true);
+		await saved();
+		expect(app.saved().workbook!.sheets[0]!.filter).toEqual({
+			headerRow: 0,
+			hidden: [{ column: 0, values: ["Open"] }],
+		});
+		operation("filter-remove");
+		await vi.waitFor(() =>
+			expect((cell("A2").parentElement as HTMLTableRowElement).hidden).toBe(
+				false,
+			),
+		);
+		await saved();
+		expect(app.saved().workbook!.sheets[0]!.filter).toBeUndefined();
+	});
 	describe("writing formulas", () => {
 		const typeIn = (input: HTMLInputElement, value: string) => {
 			input.value = value;

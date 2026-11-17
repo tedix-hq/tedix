@@ -1256,6 +1256,35 @@ export const OsWorkbookSheetSchema = z.object({
 		.optional(),
 	frozenRows: z.number().int().min(0).max(OS_SHEET_MAX_ROWS).default(0),
 	frozenColumns: z.number().int().min(0).max(OS_SHEET_MAX_COLUMNS).default(0),
+	filter: z
+		.object({
+			headerRow: z
+				.number()
+				.int()
+				.min(0)
+				.max(OS_SHEET_MAX_ROWS)
+				.describe(
+					"The row holding the column headings; rows below it are filtered",
+				),
+			hidden: z
+				.array(
+					z.object({
+						column: z.number().int().min(0).max(OS_SHEET_MAX_COLUMNS),
+						values: z
+							.array(z.string().max(500))
+							.max(1_000)
+							.describe(
+								'Shown values to hide in this column; an empty cell is ""',
+							),
+					}),
+				)
+				.max(OS_SHEET_MAX_COLUMNS)
+				.default([]),
+		})
+		.optional()
+		.describe(
+			"A filter everyone sees: rows below the header whose value in a filtered column is hidden are not shown. Omitted for no filter",
+		),
 });
 
 export const OsWorkbookSchema = z.object({
