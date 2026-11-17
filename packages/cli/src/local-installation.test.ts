@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import {
 	localRepeatCommand,
 	parseLocalDevArguments,
+	runLocalInstallation,
 	runLocalProcess,
 } from "./local-installation";
 import { findTopLevelCommand, topLevelHelp } from "./command-registry";
@@ -82,13 +83,10 @@ describe("local installation launcher", () => {
 			expect(result.stdout.toString()).toContain("Tedix local installation");
 		}
 	});
-	test("noninteractive setup gives an explicit command instead of prompting", () => {
-		const result = Bun.spawnSync(
-			[process.execPath, "packages/cli/src/index.ts", "setup"],
-			{ cwd: root, stdin: "pipe" },
+	test("noninteractive setup gives an explicit command instead of prompting", async () => {
+		await expect(runLocalInstallation("setup", [])).rejects.toThrow(
+			"Use tedix dev",
 		);
-		expect(result.exitCode).toBe(1);
-		expect(result.stderr.toString()).toContain("Use tedix dev");
 	});
 	test("propagates process exit, spawn failure and signal exits", async () => {
 		expect(
