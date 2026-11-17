@@ -10,7 +10,10 @@ import {
 	WorkCaseSchema,
 } from "@tedix/api-contract/schemas/work-items";
 import { withAuthorization } from "../../orpc";
-import { workItemCreationActor } from "./creation-actor";
+import {
+	defaultAccountableOwner,
+	workItemCreationActor,
+} from "./creation-actor";
 import { getOrgGraphHealth } from "@tedix/db/queries/org-graph-health";
 import {
 	getProjectById,
@@ -130,10 +133,15 @@ export const createProcedure = authOs.create.handler(
 					? laneProject?.leadTediId
 					: undefined;
 			const laneDispatch = initialLaneDispatch(executor);
+			const createdBy = await workItemCreationActor(context, orgId);
+			const owner =
+				input.accountableOwnerType || input.accountableOwnerId
+					? undefined
+					: await defaultAccountableOwner(context, orgId, createdBy);
 			return await createWorkItem(context.db, {
 				id: crypto.randomUUID(),
 				orgId,
-				createdBy: await workItemCreationActor(context, orgId),
+				createdBy,
 				title: input.title,
 				description: input.description,
 				workKind: input.workKind,
@@ -141,8 +149,8 @@ export const createProcedure = authOs.create.handler(
 				requiredCapabilities: input.requiredCapabilities,
 				requiredAuthorities: input.requiredAuthorities,
 				priority: input.priority,
-				accountableOwnerType: input.accountableOwnerType,
-				accountableOwnerId: input.accountableOwnerId,
+				accountableOwnerType: input.accountableOwnerType ?? owner?.type,
+				accountableOwnerId: input.accountableOwnerId ?? owner?.id,
 				stewardType: input.stewardType ?? (laneSteward ? "tedi" : undefined),
 				stewardId: input.stewardId ?? laneSteward ?? undefined,
 				objectiveId: purpose.objectiveId ?? undefined,

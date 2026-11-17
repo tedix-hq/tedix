@@ -1041,6 +1041,8 @@ export async function main() {
 						workspace: resolveWorkspaceName(options),
 						organization: options.organization,
 						...(options.urlExplicit ? { url: options.url } : {}),
+						everyOrganization:
+							!options.organization && isMultiOrganizationMcpUrl(options.url),
 					},
 				),
 			);

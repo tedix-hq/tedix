@@ -1963,7 +1963,9 @@ export const CreateWorkItemInputSchema = z
 			.array(z.string().min(1).max(200))
 			.max(100)
 			.default([]),
-		accountableOwnerType: WorkItemOwnerTypeSchema.optional(),
+		accountableOwnerType: WorkItemOwnerTypeSchema.optional().describe(
+			"Who answers for the Work. Omit both owner fields and a person who creates Work answers for it; for an external agent, the person it acts for or who registered it. Work a tedi proposes names nobody.",
+		),
 		accountableOwnerId: z.string().max(300).optional(),
 		stewardType: WorkItemOwnerTypeSchema.optional(),
 		stewardId: z.string().max(300).optional(),

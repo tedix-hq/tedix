@@ -169,6 +169,42 @@ describe("codeDiscoveryErrorMessage", () => {
 		).toBe(original);
 	});
 
+	test("explains an organization-prefixed name on a call for one organization", () => {
+		const message = codeDiscoveryErrorMessage(
+			"MCP tool error: Execution error: acme_unified_tedix is not defined",
+			{ workspace: "connect", organization: "org_acme" },
+		);
+		expect(message).toContain(
+			'"acme_unified_tedix" is a name from a call without an organization target',
+		);
+		expect(message).toContain("org_acme");
+		expect(message).toContain("work.update_work_item_specification");
+		expect(message).toContain("--organization 'org_acme' code");
+	});
+
+	test("explains an organization's own name on a call for every organization", () => {
+		const message = codeDiscoveryErrorMessage("work is not defined", {
+			workspace: "connect",
+			everyOrganization: true,
+		});
+		expect(message).toContain("<organization>_unified_<app>");
+		expect(message).toContain("--organization <id-or-slug>");
+	});
+
+	test.each([
+		["acme_unified_tedix is not defined", { everyOrganization: true }],
+		["work is not defined", { organization: "org_acme" }],
+		["work is not defined", { workspace: "acme" }],
+		['Tool "send_mail" not found', { organization: "org_acme" }],
+	])(
+		"adds no target note when the name fits the target: %s",
+		(text, target) => {
+			const message = codeDiscoveryErrorMessage(text, target);
+			expect(message).not.toContain("organization target");
+			expect(message).not.toContain("every selected organization");
+		},
+	);
+
 	test.each([
 		'Tool "send_mail" not found',
 		"Tool not found: send_mail",

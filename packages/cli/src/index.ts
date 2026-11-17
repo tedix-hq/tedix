@@ -36,7 +36,12 @@ export async function runDirectCode(
 	client: Pick<TedixHomeClient, "runCode" | "runCodeWithDestructiveApproval">,
 	source: string,
 	destructiveApprovalReason?: string,
-	target?: { workspace?: string; organization?: string; url?: string },
+	target?: {
+		workspace?: string;
+		organization?: string;
+		url?: string;
+		everyOrganization?: boolean;
+	},
 ): Promise<unknown> {
 	try {
 		return destructiveApprovalReason
