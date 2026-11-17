@@ -17,10 +17,24 @@ const proof = {
 		.optional(),
 	evidenceRefs: z.array(z.string().trim().min(1).max(2000)).max(30).optional(),
 };
+const repositoryProof = {
+	repositoryProof: z
+		.strictObject({
+			repository: z
+				.string()
+				.regex(/^[\w.-]+\/[\w.-]+$/)
+				.max(300),
+			commitSha: z.string().regex(/^[a-f0-9]{40}$/),
+			runId: z.number().int().positive(),
+			workflowName: z.string().min(1).max(300),
+		})
+		.optional(),
+};
 export const LaneResultSchema = z.discriminatedUnion("outcome", [
 	z.strictObject({
 		...fence,
 		...proof,
+		...repositoryProof,
 		outcome: z.literal("completed"),
 	}),
 	z.strictObject({
@@ -33,6 +47,7 @@ export const LaneResultSchema = z.discriminatedUnion("outcome", [
 	z.strictObject({
 		...fence,
 		...proof,
+		...repositoryProof,
 		outcome: z.literal("landed_unverified"),
 		unverified: z.string().min(1).max(1800),
 		// The run changed nothing: these earlier commits on main already meet
@@ -75,6 +90,10 @@ export type LaneDeferral = Extract<LaneResult, { outcome: "deferred" }>;
 export type ExistingLaneResult = Extract<
 	LaneResult,
 	{ outcome: "already_satisfied" }
+>;
+type RepositoryCapableLaneResult = Extract<
+	LaneResult,
+	{ outcome: "completed" | "landed_unverified" }
 >;
 
 export function parseLaneResult(message: string): LaneResult | undefined {
@@ -156,6 +175,11 @@ const ciRunSchema = z.object({
 	head_sha: z.string().regex(/^[a-f0-9]{40}$/),
 });
 
+const githubRepository = (remote: string) =>
+	/^(?:https:\/\/github\.com\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(
+		remote,
+	)?.[1];
+
 const command = (repo: string, executable: string, args: string[]) =>
 	execFileSync(executable, args, {
 		cwd: repo,
@@ -180,10 +204,7 @@ export function verifyExistingLaneResult(
 			"Existing CI proof does not name the accepted workflow and minimum commit",
 		);
 	const remote = run("git", ["remote", "get-url", "origin"]);
-	const repository =
-		/^(?:https:\/\/github\.com\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(
-			remote,
-		)?.[1];
+	const repository = githubRepository(remote);
 	if (!repository)
 		throw new Error("Existing CI proof requires the checkout's GitHub origin");
 	let proof: z.infer<typeof ciRunSchema>;
@@ -250,5 +271,99 @@ export function verifyExistingLaneResult(
 		runCommitSha: sha,
 		evidenceUri: `https://github.com/${repository}/actions/runs/${result.runId}`,
 		rootCause: result.rootCause,
+	};
+}
+
+/** Verifies a result landed in another repository owned beside this checkout. */
+export function verifyRepositoryLaneResult(
+	repo: string,
+	result: RepositoryCapableLaneResult,
+	run = (executable: string, args: string[]) => command(repo, executable, args),
+) {
+	const repositoryProof = result.repositoryProof;
+	if (!repositoryProof) throw new Error("Repository proof is required");
+	const source = githubRepository(run("git", ["remote", "get-url", "origin"]));
+	if (!source)
+		throw new Error("Repository proof requires the checkout's GitHub origin");
+	const target = repositoryProof.repository;
+	if (
+		target.split("/")[0]!.toLowerCase() !== source.split("/")[0]!.toLowerCase()
+	)
+		throw new Error("Repository proof must target an allowed GitHub owner");
+
+	let proof: z.infer<typeof ciRunSchema>;
+	let latest: z.infer<typeof ciRunSchema>;
+	let main: string;
+	try {
+		proof = ciRunSchema.parse(
+			JSON.parse(
+				run("gh", [
+					"api",
+					`repos/${target}/actions/runs/${repositoryProof.runId}`,
+				]),
+			),
+		);
+		latest = z
+			.object({ workflow_runs: z.array(ciRunSchema).length(1) })
+			.parse(
+				JSON.parse(
+					run("gh", [
+						"api",
+						`repos/${target}/actions/workflows/${proof.workflow_id}/runs?branch=main&per_page=1`,
+					]),
+				),
+			).workflow_runs[0]!;
+		main = z
+			.object({ object: z.object({ sha: z.string().regex(/^[a-f0-9]{40}$/) }) })
+			.parse(
+				JSON.parse(run("gh", ["api", `repos/${target}/git/ref/heads/main`])),
+			).object.sha;
+	} catch (error) {
+		throw new LaneOutcomeReadError(String(error));
+	}
+	if (
+		proof.id !== repositoryProof.runId ||
+		proof.name !== repositoryProof.workflowName ||
+		proof.status !== "completed" ||
+		proof.conclusion !== "success" ||
+		proof.head_branch !== "main" ||
+		latest.id !== proof.id ||
+		latest.run_attempt !== proof.run_attempt ||
+		latest.status !== "completed" ||
+		latest.conclusion !== "success" ||
+		latest.head_sha !== proof.head_sha
+	)
+		throw new Error(
+			"Repository proof is not the latest successful main workflow run",
+		);
+	for (const [ancestor, descendant] of [
+		[repositoryProof.commitSha, proof.head_sha],
+		[proof.head_sha, main],
+	]) {
+		try {
+			z
+				.object({ status: z.enum(["ahead", "identical"]) })
+				.parse(
+					JSON.parse(
+						run("gh", [
+							"api",
+							`repos/${target}/compare/${ancestor}...${descendant}`,
+						]),
+					),
+				).status;
+		} catch (error) {
+			if (error instanceof z.ZodError)
+				throw new Error("Repository proof commits are not on target main");
+			throw new LaneOutcomeReadError(String(error));
+		}
+	}
+	return {
+		mode: "repository_commit" as const,
+		repository: target,
+		commitSha: repositoryProof.commitSha,
+		runId: proof.id,
+		runAttempt: proof.run_attempt,
+		runCommitSha: proof.head_sha,
+		evidenceUri: `https://github.com/${target}/actions/runs/${proof.id}`,
 	};
 }

@@ -164,6 +164,7 @@ function fixture({
 		installError: undefined as Error | undefined,
 		installed: [] as string[],
 		commits: [] as string[],
+		repositoryChecks: [] as string[],
 		existingRefusal: undefined as string | undefined,
 		existingChecks: [] as string[][],
 		unpushedCommits: [] as string[],
@@ -245,6 +246,19 @@ function fixture({
 			if (control.proofError) throw control.proofError;
 			control.existingChecks.push(cited);
 			return control.existingRefusal;
+		},
+		verifyRepository: (_repo, result) => {
+			const proof = result.repositoryProof!;
+			control.repositoryChecks.push(proof.repository);
+			return {
+				mode: "repository_commit",
+				repository: proof.repository,
+				commitSha: proof.commitSha,
+				runId: proof.runId,
+				runAttempt: 1,
+				runCommitSha: proof.commitSha,
+				evidenceUri: `https://github.com/${proof.repository}/actions/runs/${proof.runId}`,
+			};
 		},
 		unpushedCommits: async () =>
 			control.unpushedWait ?? control.unpushedCommits,
@@ -3367,6 +3381,40 @@ describe("dispatcher admission", () => {
 		const settle = f.events.find((event) => event.verb === "settle")!;
 		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
 		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+	});
+	it("settles a commit proven on an allowed target repository", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		const commitSha = "b".repeat(40);
+		const result = {
+			...completedResult(),
+			commitSha,
+			repositoryProof: {
+				repository: "tedix-hq/tedix-cloud-ops",
+				commitSha,
+				runId: 123,
+				workflowName: "Tests after deploy",
+			},
+		};
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(result)}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(f.control.repositoryChecks).toEqual(["tedix-hq/tedix-cloud-ops"]);
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+		expect(settle.args).toContain(commitSha);
+		expect(settle.input?.metadata).toMatchObject({
+			settlement: {
+				mode: "repository_commit",
+				repository: "tedix-hq/tedix-cloud-ops",
+				commitSha,
+				runId: 123,
+			},
+		});
+		expect(f.events.some((event) => event.verb === "complete")).toBe(true);
 	});
 	it("settles a result that changed nothing as succeeded when the commits it cites are already on main", async () => {
 		const f = fixture();
