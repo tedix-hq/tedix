@@ -1,3 +1,4 @@
+import { isInternalWorkPurposeContext } from "@tedix/api-contract/schemas/work-purpose-context";
 import type { TedixMcpRuntimeBinding } from "@tedix/mcp-client-core/runtime";
 import { resolveBrainBridgePlatformClient } from "./platform-client-factory";
 
@@ -88,8 +89,7 @@ export function isEmbeddedCustomerVisibleWorkItem(
 	if (metadata.agentHarness || metadata.agentSession || metadata.homeRunId)
 		return false;
 	if (String(item.sourceSessionKey || "").startsWith("agent:")) return false;
-	if (String(metadata.purposeContext || "").startsWith("transitional_"))
-		return false;
+	if (isInternalWorkPurposeContext(metadata.purposeContext)) return false;
 	return !String(item.title || "")
 		.trimStart()
 		.startsWith("[[tedix-context");

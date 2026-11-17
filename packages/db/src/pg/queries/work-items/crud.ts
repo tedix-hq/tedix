@@ -11,6 +11,7 @@ import {
 	LANE_READY_EXECUTORS,
 	type LaneDispatchPlan,
 } from "@tedix/api-contract/schemas/work-items";
+import { INTERNAL_WORK_PURPOSE_CONTEXTS } from "@tedix/api-contract/schemas/work-purpose-context";
 import {
 	and,
 	asc,
@@ -23,6 +24,7 @@ import {
 	lt,
 	lte,
 	ne,
+	notInArray,
 	or,
 	sql,
 } from "drizzle-orm";
@@ -365,7 +367,7 @@ export interface ListWorkItemsPageOptions {
 	titleContains?: string;
 	/**
 	 * Exclude records with metadata.agentSession or a metadata.purposeContext
-	 * beginning with `transitional_` before pagination. This coarse prefilter
+	 * in `INTERNAL_WORK_PURPOSE_CONTEXTS` before pagination. This coarse prefilter
 	 * is not authorization or a complete customer-visibility decision.
 	 */
 	customerVisiblePreFilter?: boolean;
@@ -466,10 +468,16 @@ export async function listWorkItemsPage(
 		titleContains
 			? sql`strpos(lower(${workItems.title}), ${titleContains}) > 0`
 			: undefined,
-		// `_` is a LIKE wildcard, so `transitional_` must be escaped or it also
-		// matches `transitionalX`.
 		options.customerVisiblePreFilter
-			? sql`(${workItems.metadata} #>> '{agentSession}') IS NULL AND ((${workItems.metadata} #>> '{purposeContext}') IS NULL OR (${workItems.metadata} #>> '{purposeContext}') NOT LIKE 'transitional\\_%' ESCAPE '\\')`
+			? and(
+					sql`(${workItems.metadata} #>> '{agentSession}') IS NULL`,
+					or(
+						sql`(${workItems.metadata} #>> '{purposeContext}') IS NULL`,
+						notInArray(sql`(${workItems.metadata} #>> '{purposeContext}')`, [
+							...INTERNAL_WORK_PURPOSE_CONTEXTS,
+						]),
+					),
+				)
 			: undefined,
 	);
 	// Runners take the most important ready task first: priority, then the

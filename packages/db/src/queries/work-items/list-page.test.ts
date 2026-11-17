@@ -378,9 +378,14 @@ describe("customerVisiblePreFilter", () => {
 	 * records — at low visible density a bounded window finds nothing and
 	 * renders "no open work".
 	 */
-	it("drops agent-session and transitional rows, keeps customer work", async () => {
+	it("drops agent-session and internal-purpose rows, keeps customer work", async () => {
 		seedWithMetadata(idFor(1), { agentSession: "claude-code:abc" });
-		seedWithMetadata(idFor(2), { purposeContext: "transitional_repair" });
+		seedWithMetadata(idFor(2), {
+			purposeContext: "transitional_home_exception",
+		});
+		seedWithMetadata(idFor(7), {
+			purposeContext: "transitional_task_intent_exception",
+		});
 		seedWithMetadata(idFor(3), {});
 		seedWithMetadata(idFor(4), { purposeContext: "customer_request" });
 
@@ -396,12 +401,12 @@ describe("customerVisiblePreFilter", () => {
 	});
 
 	/**
-	 * `_` is a LIKE wildcard. Unescaped, `transitional_%` also matches
-	 * `transitionalX…`, which would silently hide legitimate customer work whose
-	 * purpose context merely starts with the same letters.
+	 * Only the named internal purpose contexts are hidden. A prefix match would
+	 * silently hide customer work whose purpose context merely starts with the
+	 * same letters.
 	 */
-	it("does not treat the underscore as a wildcard", async () => {
-		seedWithMetadata(idFor(5), { purposeContext: "transitionalXcustomer" });
+	it("matches the internal purpose contexts exactly, not by prefix", async () => {
+		seedWithMetadata(idFor(5), { purposeContext: "transitional_customer" });
 		const page = await listWorkItemsPage(db, {
 			orgId: ORG,
 			customerVisiblePreFilter: true,
