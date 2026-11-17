@@ -1297,6 +1297,76 @@ describe("native request-private bootstrap", () => {
 			).toEqual([]);
 		},
 	);
+	it("can expose a minimized connection-info bootstrap without changing get_info defaults", async () => {
+		listByApp.mockResolvedValue({ skills: [] });
+		const c = cached();
+		c.tools = [];
+		c.metadata = {
+			mcpConfig: {
+				codeMode: false,
+				authMode: "authenticated",
+				capabilities: {},
+				enforcePolicies: false,
+				bootstrapInfo: {
+					toolId: "get_connection_info",
+					title: "Tedix connection details",
+					description:
+						"Shows the organizations and views available through this connection.",
+					responseMode: "connection",
+					views: [
+						{ id: "deck", label: "Deck", tool: "show_deck" },
+						{ id: "feed", label: "Feed", tool: "show_feed" },
+					],
+				},
+			},
+		} as unknown as CachedAppData["metadata"];
+		const server = await buildMcpServer(
+			c,
+			{
+				authType: "oauth",
+				organizationId: "fictional-org",
+				userId: "reviewer",
+				scopes: [],
+			},
+			createEnv(),
+			createExecutionContext(),
+		);
+		const client = await connectLegacyClient(server);
+		const listed = await client.request("tools/list", {});
+		const tools = (listed.result as { tools: Array<Record<string, unknown>> })
+			.tools;
+		expect(tools).toContainEqual(
+			expect.objectContaining({
+				name: "get_connection_info",
+				title: "Tedix connection details",
+			}),
+		);
+		expect(tools.some((tool) => tool.name === "get_info")).toBe(false);
+
+		const response = await client.request("tools/call", {
+			name: "get_connection_info",
+			arguments: {},
+		});
+		expect(response).toMatchObject({
+			result: {
+				structuredContent: {
+					organizations: [{ id: "fictional-org", label: c.app.name }],
+					views: [
+						{ id: "deck", label: "Deck", tool: "show_deck" },
+						{ id: "feed", label: "Feed", tool: "show_feed" },
+					],
+				},
+			},
+		});
+		const info = (
+			response.result as { structuredContent: Record<string, unknown> }
+		).structuredContent;
+		expect(Object.keys(info).sort()).toEqual([
+			"organizations",
+			"serverVersion",
+			"views",
+		]);
+	});
 	it("refuses absent, duplicate, invalid, wrong-org, missing scopes and forceCodeMode without lending authority", () => {
 		const c = cached();
 		const agent = buildServerContext(

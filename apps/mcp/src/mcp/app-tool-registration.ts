@@ -7,7 +7,7 @@ import { registerDetailResource } from "./detail-resource-registration";
 const log = createMcpLogger("mcp.tool_registration");
 
 /** Bootstrap tool IDs */
-const BOOTSTRAP_TOOL_IDS = new Set(["get_info"]);
+const BOOTSTRAP_TOOL_IDS = new Set(["get_info", "get_connection_info"]);
 
 /**
  * Register all app-specific tools from D1 app_tools table.

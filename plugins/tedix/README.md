@@ -81,21 +81,19 @@ submission package. Never check the app ID or generated bundle into source.
 Signing in, refreshing tools, uploading a package, and publishing are separate
 steps; a source change does not update an installed package automatically.
 
-Portable `mcp.json` uses the Agent Plugins `streamable-http` schema. The
-host-native `.mcp.json` declares the same remote server with type `http` and
-the URL `https://connect.mcp.tedix.dev/mcp`, and nothing else. The OpenAI settings
-in `mcp.json` request regular permissions without `platform:admin`. Platform
-administration requires an eligible account and explicit opt-in through
-`tedix login --scope-profile platform-admin`. Neither file holds credentials;
-browser consent and server enforcement determine access.
+The public OpenAI artifact packages `directory/mcp.json`, which uses the Agent
+Plugins `streamable-http` schema, points to the typed directory surface, and
+requests only content read plus Work read/write scopes. Local and non-OpenAI
+hosts keep the root `mcp.json` and host-native `.mcp.json` Connect definitions.
+They continue to use `https://connect.mcp.tedix.dev/mcp` and their existing
+grants. No manifest holds credentials; browser consent and server enforcement
+determine access.
 
-`tedix-connect` is the packaged onboarding skill. Connect lists one tool, `code`.
-First use calls `codemode.__runtime()` to verify the current account and
-selected organization, then performs one bounded read through Code Mode.
+`tedix-connect` is the packaged onboarding skill. Connect keeps Code Mode for
+Claude, Codex, Devin, OpenCode and local packages. The public OpenAI directory
+artifact instead exposes its reviewed operations as separate typed tools.
 Ordinary remote workflows need no CLI. Account identity, organization selection
-and capability authorization are separate facts. Code Mode is the action and
-composition surface; Decisions, Activity and skills are Code Mode callables found with
-`discover.search`.
+and capability authorization remain separate facts on both surfaces.
 
 Run the scenarios in `validation.json` on a fresh installed chat. Record the
 host, package hash, actual account/org, returned receipts and pass/fail per case.

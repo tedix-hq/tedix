@@ -1,0 +1,22 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+	"mcpServers": {
+		"tedix": {
+			"type": "streamable-http",
+			"url": "https://directory.mcp.tedix.dev/mcp",
+			"extensions": {
+				"com.openai": {
+					"auth": {
+						"type": "oauth",
+						"baseScopes": [],
+						"defaultScopes": [
+							"mcp:content.read",
+							"mcp:work.read",
+							"mcp:work.write"
+						]
+					}
+				}
+			}
+		}
+	}
+}

@@ -23,23 +23,23 @@ tool name as proof that the task's call is authorized.
    Never request, print, copy, or store a token, cookie, or password. For access
    changes, use the host's connection management and fresh consent; do not invent
    a Tedix management URL or claim a reauthorization changed every tool.
-   After connection, call `codemode.__runtime()` through the `code` tool to
-   verify the account (`actor.userId`) and the selected organization. The
-   opaque ID identifies the current credential's owner; it does not grant a
-   capability. Connect lists only `code`; everything else is a Code Mode
-   callable. Never infer the actual account from a stale host nickname or
+   After connection, inspect the tools the host actually provides. On the
+   directory surface, call `get_profile` and `get_connection_info`; then make
+   one bounded read with an explicit tool such as `list_work_items`. On Connect,
+   call `codemode.__runtime()` through `code`, then discover and call the exact
+   read-only operation. Never infer the account from a stale host nickname or
    another connection.
-3. Discover a tool for the user's actual task through `discover.search()` (or
-   `discover.list_namespaces()` when the domain is unknown). Request
-   `includeParameters: true` for the exact callable, then make one bounded
-   read-only call with that namespace. A successful discovery alone proves
-   less than a successful authorized call.
+3. Use explicit directory tools directly when present. Otherwise discover the
+   task's exact Connect callable through `discover.search()` (or
+   `discover.list_namespaces()` when the domain is unknown), requesting
+   `includeParameters: true` only when needed. A tool listing or successful
+   discovery proves less than a successful authorized call.
 4. Report the selected workspace, credential _kind_, relevant scopes, the
    callable tested, and what its result proves. Keep credential values out of
    the answer. For Work execution, continue with `tedix-resume-work` and the
    separate external-agent identity required there. In an MCP-only host (a
    desktop or web chat app without CLI hooks), open the session once at the
-   first Tedix call, not only for Work: discover
+   first Code Mode call, not only for Work: discover
    `start_external_agent_session_for_host`, use the actual host/model tuple,
    and pass its returned `session.id` as `agentSessionId` on every later Code
    Mode call. Never invent one. This owner-asserted session grants no
@@ -80,8 +80,8 @@ For first use, explain what is ready in one short reply: connected account,
 selected organization, and the bounded read that worked. Offer the next action
 for the user's task (find Work, ask a tedi, or save an Output) subject to actual
 permissions. If no task is supplied, start with one read of existing Work rather
-than creating a Workspace or dispatching a worker. Use Code Mode for action
-discovery and execution; no additional everyday action tools are required.
+than creating a Workspace or dispatching a worker. Use the directory's explicit
+tools when available and Code Mode on Connect.
 
 A read-only grant is a useful completed setup, not a failed installation.
 Explain which requested action needs additional access only if the user asks

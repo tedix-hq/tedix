@@ -11,3 +11,20 @@ export const getInfoOutputSchema = z.looseObject({
 	toolCount: z.number().describe("Tools registered for this connection."),
 	capabilities: z.unknown().describe("Capabilities the app declares."),
 });
+
+export const connectionInfoOutputSchema = z.strictObject({
+	serverVersion: z.string().describe("Version this MCP server reports."),
+	organizations: z.array(
+		z.strictObject({
+			id: z.string().describe("Organization ID accepted by directory tools."),
+			label: z.string().describe("Organization label shown to the user."),
+		}),
+	),
+	views: z.array(
+		z.strictObject({
+			id: z.string(),
+			label: z.string(),
+			tool: z.string(),
+		}),
+	),
+});

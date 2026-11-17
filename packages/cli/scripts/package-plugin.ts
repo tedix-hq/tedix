@@ -285,14 +285,13 @@ export function packageFiles(
 		join(root, "review/release-notes.md"),
 		"utf8",
 	).trim();
-	const paths = ["mcp.json", ...skillPaths(root), ...assets];
+	const paths = [...skillPaths(root), ...assets];
 	if (host === "chatgpt-dev") {
 		// Reuse the installed app's OAuth grant; never create a second connector.
 		manifest.name = pluginName;
 		extension.apps = "./.app.json";
 		// Review cases belong to a declared MCP server, not a registered app reference.
 		delete extension.review;
-		paths.splice(0, 1);
 		files.set(".app.json", json({ apps: { [manifest.name]: { id: appId } } }));
 		const compatibility = hostManifest(root, "codex");
 		compatibility.name = pluginName;
@@ -301,7 +300,11 @@ export function packageFiles(
 		delete compatibility.extensions["com.openai"].review;
 		compatibility.apps = extension.apps;
 		files.set(".codex-plugin/plugin.json", json(compatibility));
-	}
+	} else
+		files.set(
+			"mcp.json",
+			json(readJson(root, local ? "mcp.json" : "directory/mcp.json")),
+		);
 	if (local) {
 		extension.publication.release_notes =
 			extension.publication.release_notes.replace(

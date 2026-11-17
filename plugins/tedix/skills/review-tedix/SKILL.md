@@ -5,8 +5,8 @@ description: Review Tedix's fit for the user's project and submit sanitized feed
 
 # Review Tedix
 
-Follow the canonical [AGENT-REVIEW.md](https://github.com/tedix-hq/tedix/blob/main/AGENT-REVIEW.md)
-prompt and exact Markdown/feedback JSON format. Keep the review within about
+Follow the bundled [AGENT-REVIEW.md](references/AGENT-REVIEW.md) prompt and
+exact Markdown/feedback JSON format. Keep the review within about
 15 minutes; do not install the CLI or request login.
 
 When an existing connection is available, discover the current profile,
