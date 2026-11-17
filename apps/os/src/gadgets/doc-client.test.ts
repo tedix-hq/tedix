@@ -325,6 +325,7 @@ describe("portable rich Doc client", () => {
 			"Note",
 			"Collapsible section",
 			"Divider",
+			"Keyboard shortcuts Ctrl+/",
 			"Export as Markdown",
 			"Export as Word",
 			"Export as PDF",
@@ -669,7 +670,7 @@ describe("portable rich Doc client", () => {
 		submit();
 		expect(editor.isActive("link")).toBe(false);
 	});
-	it("restores a tab draft after an authorized read, keeps it over a newer save to the same words and offers theirs", async () => {
+	it("restores a tab draft after an authorized read and quietly keeps it over a newer save to the same words", async () => {
 		const test = fixture(),
 			first = await test.mount();
 		fakeClock();
@@ -687,19 +688,12 @@ describe("portable rich Doc client", () => {
 		expect(second.root.textContent).toContain("Restored your unsaved changes");
 		await second.mounted.save();
 		expect(second.editor.getText()).toContain("My draft");
-		expect(second.root.textContent).toContain("Your version was kept");
 		expect(second.root.textContent).not.toContain("Keep mine");
-		expect(second.root.textContent).not.toMatch(/revision/i);
-		await second.mounted.save();
-		expect(second.mounted.dirty).toBe(false);
-		click(second.root, "Use theirs");
-		await vi.waitFor(() =>
-			expect(second.editor.getText()).toBe("Newer saved version"),
-		);
+		expect(second.root.textContent).not.toContain("Use theirs");
 		await second.mounted.save();
 		expect(second.mounted.dirty).toBe(false);
 		expect(test.persisted().richText!.content[0]!.content![0]!.text).toBe(
-			"Newer saved version",
+			"My draft Original",
 		);
 		expect(test.retained()).toBeNull();
 	});
@@ -882,7 +876,7 @@ describe("portable rich Doc client", () => {
 			);
 		expect(merged.attrs).toMatchObject({ textAlign: "right", indent: 2 });
 	});
-	it("keeps the person's words where both changed them, the rest from both, and can bring theirs back", async () => {
+	it("keeps the person's words where both changed them and the rest from both, without asking", async () => {
 		const test = fixture(),
 			{ root, editor } = await test.mount();
 		const text = (value: string) => ({
@@ -905,29 +899,24 @@ describe("portable rich Doc client", () => {
 				"Our launch is on Friday and the owner is Bob.",
 			),
 		);
-		expect(root.textContent).toContain("the same words");
-		click(root, "Use theirs");
-		await vi.waitFor(() =>
-			expect(editor.getText()).toBe(
-				"Our launch is on Sunday and the owner is Bob.",
-			),
-		);
+		expect(root.textContent).not.toContain("Use theirs");
+		expect(root.textContent).not.toContain("Keep mine");
 	});
-	it("keeps saving through a clash on the same paragraph and lets the person take theirs", async () => {
+	it("keeps saving through a clash on the same paragraph, with the person's words", async () => {
 		const test = fixture(),
 			{ root, editor, mounted } = await test.mount();
 		editor.commands.insertContentAt(1, "Mine ");
 		test.external("Theirs");
 		await vi.waitFor(() =>
-			expect(root.textContent).toContain("Your version was kept"),
+			expect(test.calls).toHaveBeenCalledWith(
+				"outputs.readRevision",
+				expect.anything(),
+			),
 		);
-		expect(root.textContent).not.toMatch(/revision/i);
-		expect(editor.getText()).toContain("Mine Original");
 		await mounted.save();
 		expect(saves(test)).toBe(1);
-		click(root, "Use theirs");
-		await vi.waitFor(() => expect(editor.getText()).toBe("Theirs"));
-		await mounted.save();
+		expect(editor.getText()).toContain("Mine Original");
+		expect(statusText(root)).not.toContain("Use theirs");
 		expect(mounted.dirty).toBe(false);
 	});
 	it("lets someone invited to edit through a link write, without the picture and file exports their page lacks", async () => {
@@ -1240,16 +1229,17 @@ describe("portable rich Doc client", () => {
 		it("colors and highlights the selected text from the palette", async () => {
 			const { root, editor } = await fixture().mount();
 			editor.commands.selectAll();
-			click(root, "Text color and highlight");
+			click(root, "Color");
 			expect(root.querySelector(".doc-colors")!.hasAttribute("hidden")).toBe(
 				false,
 			);
-			click(root, "Text: Red");
+			click(root, "Text Red");
 			editor.commands.selectAll();
-			click(root, "Text color and highlight");
-			click(root, "Highlight: Yellow");
+			click(root, "Color");
+			click(root, "Highlight Yellow");
 			const json = JSON.stringify(editor.getJSON());
-			expect(json).toContain('"color":"#c0262d"');
+			expect(json).toContain('"color":"#d44c47"');
+			expect(json).toContain('"color":"#fbefc4"');
 			expect(json).toContain('"type":"highlight"');
 			expect(root.querySelector(".doc-colors")!.hasAttribute("hidden")).toBe(
 				true,
@@ -1296,7 +1286,10 @@ describe("portable rich Doc client", () => {
 			press(editor.view.dom, { key: "/", metaKey: true });
 			const sheet = root.querySelector<HTMLElement>(".doc-keys")!;
 			expect(sheet.hidden).toBe(false);
-			expect(sheet.textContent).toContain("Move a block up or down");
+			expect(sheet.textContent).toContain(
+				"Type / on an empty line for every block type.",
+			);
+			expect(sheet.textContent).toContain("Move up · down");
 			press(editor.view.dom, { key: "Escape" });
 			expect(sheet.hidden).toBe(true);
 		});
@@ -1304,10 +1297,13 @@ describe("portable rich Doc client", () => {
 	describe("insert list on /", () => {
 		const options = (root: HTMLElement) =>
 			[
-				...root.querySelectorAll('.doc-slash:not([hidden]) [role="option"]'),
+				...root.querySelectorAll(
+					'.doc-slash:not([hidden]) [role="option"] .doc-mi',
+				),
 			].map((node) => node.textContent);
 		const picked = (root: HTMLElement) =>
-			root.querySelector('.doc-slash [aria-selected="true"]')?.textContent;
+			root.querySelector('.doc-slash [aria-selected="true"] .doc-mi')
+				?.textContent;
 		/** Start an empty line at the end of the document and type on it. */
 		const emptyLine = (editor: Editor, text = "") => {
 			editor
@@ -1317,10 +1313,11 @@ describe("portable rich Doc client", () => {
 				.run();
 			if (text) editor.commands.insertContent(text);
 		};
-		it("opens on an empty line, filters as you type and inserts with the keyboard", async () => {
+		it("opens on /, filters by label then keywords and inserts with the keyboard", async () => {
 			const { root, editor } = await fixture().mount();
 			emptyLine(editor, "/");
 			expect(options(root)).toEqual([
+				"Text",
 				"Heading 1",
 				"Heading 2",
 				"Heading 3",
@@ -1329,20 +1326,19 @@ describe("portable rich Doc client", () => {
 				"To-do list",
 				"Quote",
 				"Code block",
-				"Note",
-				"Table",
-				"Image",
 				"Divider",
-				"Collapsible section",
+				"Image",
+				"Table",
 			]);
-			expect(picked(root)).toBe("Heading 1");
+			expect(picked(root)).toBe("Text");
 			press(editor.view.dom, { key: "ArrowDown" });
-			expect(picked(root)).toBe("Heading 2");
+			expect(picked(root)).toBe("Heading 1");
 			press(editor.view.dom, { key: "ArrowUp" });
 			press(editor.view.dom, { key: "ArrowUp" });
-			expect(picked(root)).toBe("Collapsible section");
+			expect(picked(root)).toBe("Table");
 			editor.commands.insertContent("to");
-			expect(options(root)).toEqual(["To-do list", "Collapsible section"]);
+			// Label first, then anything in the label or its keywords.
+			expect(options(root)).toEqual(["To-do list", "Divider", "Image"]);
 			expect(picked(root)).toBe("To-do list");
 			const enter = new KeyboardEvent("keydown", {
 				key: "Enter",
@@ -1356,22 +1352,27 @@ describe("portable rich Doc client", () => {
 			expect(json).toContain('"type":"taskList"');
 			expect(json).not.toContain("/to");
 		});
-		it("inserts each kind of block in place of the typed text", async () => {
+		it("inserts each kind of block in place of the typed text, and opens after a space", async () => {
 			const { root, editor } = await fixture().mount();
 			for (const [typed, type] of [
-				["/h2", "heading"],
+				["/heading 2", "heading"],
 				["/numbered", "orderedList"],
 				["/table", "table"],
 				["/divider", "horizontalRule"],
-				["/collapsible", "details"],
 			] as const) {
 				emptyLine(editor, typed);
-				expect(options(root)).toHaveLength(1);
+				expect(options(root)[0]).toBeDefined();
 				press(editor.view.dom, { key: "Enter" });
 				const json = JSON.stringify(editor.getJSON());
 				expect(json).toContain(`"type":"${type}"`);
 				expect(json).not.toContain(typed);
 			}
+			emptyLine(editor, "Notes /quo");
+			expect(options(root)).toEqual(["Quote"]);
+			emptyLine(editor, "/zzz");
+			expect(root.querySelector(".doc-slash")!.textContent).toBe(
+				"No matching blocks",
+			);
 		});
 		it("stays closed after Escape, in the middle of a line and when nothing matches", async () => {
 			const { root, editor } = await fixture().mount();

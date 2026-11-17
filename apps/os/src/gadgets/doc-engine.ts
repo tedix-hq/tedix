@@ -94,6 +94,8 @@ export interface LandedRange {
 	words: boolean;
 	/** A point where words or blocks were taken out, shown as a brief mark. */
 	removed?: "text" | "block";
+	/** The text of removed blocks, which fades where it stood. */
+	gone?: string;
 }
 
 /**
@@ -162,7 +164,16 @@ export function landedRanges(before: DocNode, after: DocNode): LandedRange[] {
 			if (hunk.remove > hunk.insert.length) {
 				const at = starts[hunk.at + shift + hunk.insert.length];
 				const point = at ?? after.content.size;
-				ranges.push({ from: point, to: point, words: false, removed: "block" });
+				const gone: string[] = [];
+				for (let index = hunk.insert.length; index < hunk.remove; index++)
+					gone.push(before.child(hunk.at + index).textContent);
+				ranges.push({
+					from: point,
+					to: point,
+					words: false,
+					removed: "block",
+					gone: gone.join("\n"),
+				});
 			}
 			shift += hunk.insert.length - hunk.remove;
 		}
@@ -188,7 +199,7 @@ const Landed = Extension.create({
 						if (!ranges) return shown.map(tr.mapping, tr.doc);
 						return DecorationSet.create(
 							tr.doc,
-							ranges.map(({ from, to, words, removed }, index) => {
+							ranges.map(({ from, to, words, removed, gone: text }, index) => {
 								const delay = `animation-delay:${landedDelay(index, ranges.length)}ms`;
 								if (removed)
 									return Decoration.widget(
@@ -201,6 +212,7 @@ const Landed = Extension.create({
 													: "doc-removed-block";
 											gone.setAttribute("aria-hidden", "true");
 											gone.style.cssText = delay;
+											if (removed === "block") gone.textContent = text ?? "";
 											return gone;
 										},
 										{ side: -1, ignoreSelection: true },

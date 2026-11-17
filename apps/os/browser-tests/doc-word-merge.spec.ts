@@ -12,9 +12,6 @@ try {
 	const b = await tabs.open();
 	const question = (tab: typeof a) =>
 		tab.frame.locator(".doc-status").getByText("Keep mine");
-	// After a clash the editor keeps the person's words and says so.
-	const kept = (tab: typeof a) =>
-		tab.frame.locator(".doc-status").getByText(/Your version was kept/);
 	/** Select one word of the document, as a double-click on it would. */
 	const select = (editor: Locator, word: string) =>
 		editor.evaluate((element, wanted) => {
@@ -127,13 +124,10 @@ try {
 	await a.page.waitForTimeout(600);
 	await replace(b, "Friday", "Sunday");
 	await replace(b, "Bob", "Cy");
-	await kept(a).waitFor({ timeout: 15_000 });
-	assert.equal(await kept(b).count(), 0, "only the later writer is told");
+	// A's words win where both wrote, quietly: nobody is asked or told.
+	await shows(a, "The launch is on Tuesday and the lead is Cy.");
 	assert.equal(await question(a).count(), 0, "A was not asked");
-	assert.match(
-		(await a.frame.locator(".doc-status").textContent())!,
-		/same words/,
-	);
+	assert.equal(await question(b).count(), 0, "B was not asked");
 	release();
 	await shows(a, "The launch is on Tuesday and the lead is Cy.");
 	await shows(b, "The launch is on Tuesday and the lead is Cy.");
