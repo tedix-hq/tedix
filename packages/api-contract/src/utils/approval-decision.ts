@@ -14,21 +14,43 @@ export interface ApprovalDecision {
 
 /** The note the MCP gateway appends to every parked tool call, old and new wording. */
 const RETRY_PHRASE = /Nothing has run yet;|After deciding in Tedix OS,/i;
-const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
-const WHITESPACE = /\s/;
 
 // The parsers below replace regexes with nested quantifiers that backtrack
 // quadratically on crafted descriptions; each keeps the regex's exact result.
 
+function isLineTerminator(code: number): boolean {
+	return code === 10 || code === 13 || code === 0x2028 || code === 0x2029;
+}
+
 function lastLineTerminator(text: string): number {
 	for (let i = text.length - 1; i >= 0; i--) {
-		if (LINE_TERMINATOR.test(text.charAt(i))) return i;
+		if (isLineTerminator(text.charCodeAt(i))) return i;
 	}
 	return -1;
 }
 
 function isSpace(text: string, index: number): boolean {
-	return WHITESPACE.test(text.charAt(index));
+	const code = text.charCodeAt(index);
+	return (
+		(code >= 9 && code <= 13) ||
+		code === 32 ||
+		code === 0xa0 ||
+		code === 0x1680 ||
+		(code >= 0x2000 && code <= 0x200a) ||
+		code === 0x2028 ||
+		code === 0x2029 ||
+		code === 0x202f ||
+		code === 0x205f ||
+		code === 0x3000 ||
+		code === 0xfeff
+	);
+}
+
+function firstLineTerminator(text: string): number {
+	for (let i = 0; i < text.length; i++) {
+		if (isLineTerminator(text.charCodeAt(i))) return i;
+	}
+	return -1;
 }
 
 /**
@@ -76,7 +98,7 @@ export function parseSkillRunDescription(
 	description: string,
 ): { name: string; detail: string | null } | null {
 	if (!description.startsWith(SKILL_PREFIX)) return null;
-	const lineEnd = description.search(LINE_TERMINATOR);
+	const lineEnd = firstLineTerminator(description);
 	const line = lineEnd < 0 ? description : description.slice(0, lineEnd);
 	const first = SKILL_PREFIX.length + 1;
 	const notes: number[] = [];
@@ -88,18 +110,25 @@ export function parseSkillRunDescription(
 		notes.push(at);
 	}
 	let next = 0;
-	for (let dot = first; dot < line.length; dot++) {
-		if (line.charAt(dot) !== ".") continue;
-		const name = line.slice(SKILL_PREFIX.length, dot);
+	for (
+		let dot = line.indexOf(".", first);
+		dot >= 0;
+		dot = line.indexOf(".", dot + 1)
+	) {
 		if (line.startsWith(". In ", dot)) {
 			// "In " plus at least one character before the closing period.
 			while (next < notes.length && (notes[next] ?? 0) < dot + 6) next++;
 			const end = notes[next];
 			if (end !== undefined) {
-				return { name, detail: line.slice(dot + 2, end + 1) };
+				return {
+					name: line.slice(SKILL_PREFIX.length, dot),
+					detail: line.slice(dot + 2, end + 1),
+				};
 			}
 		}
-		if (line.startsWith(SKILL_NOTE, dot)) return { name, detail: null };
+		if (line.startsWith(SKILL_NOTE, dot)) {
+			return { name: line.slice(SKILL_PREFIX.length, dot), detail: null };
+		}
 	}
 	return null;
 }
