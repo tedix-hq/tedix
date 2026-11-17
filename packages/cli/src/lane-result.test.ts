@@ -8,6 +8,7 @@ import {
 	laneWaitTerminal,
 	parseLaneResult,
 	verifyExistingLaneResult,
+	verifyRepositoryLaneResult,
 	type ExistingLaneResult,
 	type LaneWait,
 } from "./lane-result";
@@ -139,6 +140,30 @@ describe("structured lane results", () => {
 				`TEDIX_LANE_RESULT ${JSON.stringify({ ...base, outcome: "incomplete" })}`,
 			),
 		).toThrow();
+	});
+	it("accepts only bounded repository proof on successful outcomes", () => {
+		const { interactionId, requestVersion, orgId, userId, ...base } = wait;
+		const repositoryProof = {
+			repository: "example/operations",
+			commitSha: "a".repeat(40),
+			runId: 123,
+			workflowName: "Deploy tests",
+		};
+		expect(
+			parseLaneResult(
+				`TEDIX_LANE_RESULT ${JSON.stringify({ ...base, outcome: "completed", repositoryProof })}`,
+			),
+		).toMatchObject({ repositoryProof });
+		for (const bad of [
+			{ ...repositoryProof, repository: "other" },
+			{ ...repositoryProof, commitSha: "abc123" },
+			{ ...repositoryProof, extra: true },
+		])
+			expect(() =>
+				parseLaneResult(
+					`TEDIX_LANE_RESULT ${JSON.stringify({ ...base, outcome: "completed", repositoryProof: bad })}`,
+				),
+			).toThrow();
 	});
 	it("ignores prose and accepts exactly one strict, bounded result", () => {
 		expect(parseLaneResult("Still waiting on you")).toBeUndefined();
@@ -351,5 +376,104 @@ describe("verified preexisting CI outcomes", () => {
 		expect(() =>
 			verifyExistingLaneResult("/fictional", existing, f.run),
 		).toThrow(LaneOutcomeReadError);
+	});
+});
+
+function repositoryFixture() {
+	const proof = {
+		id: 123,
+		workflow_id: 456,
+		run_attempt: 1,
+		name: "Deploy tests",
+		status: "completed",
+		conclusion: "success",
+		head_branch: "main",
+		head_sha: "c".repeat(40),
+	};
+	const latest = { workflow_runs: [{ ...proof }] };
+	const commands: string[][] = [];
+	return {
+		proof,
+		latest,
+		commands,
+		compareStatus: "ahead",
+		run(executable: string, args: string[]) {
+			commands.push([executable, ...args]);
+			if (executable === "git") return "git@github.com:example/product.git";
+			const path = args[1]!;
+			if (path.includes("/actions/runs/")) return JSON.stringify(proof);
+			if (path.includes("/actions/workflows/")) return JSON.stringify(latest);
+			if (path.includes("/git/ref/heads/main"))
+				return JSON.stringify({ object: { sha: "d".repeat(40) } });
+			if (path.includes("/compare/"))
+				return JSON.stringify({ status: this.compareStatus });
+			throw new Error(`Unexpected command: ${path}`);
+		},
+	};
+}
+
+describe("target repository results", () => {
+	const result = {
+		...existing,
+		outcome: "completed" as const,
+		repositoryProof: {
+			repository: "example/operations",
+			commitSha: "b".repeat(40),
+			runId: 123,
+			workflowName: "Deploy tests",
+		},
+	};
+	it("verifies an allowed repository's main ancestry and latest green CI", () => {
+		const f = repositoryFixture();
+		expect(
+			verifyRepositoryLaneResult("/fictional", result, f.run.bind(f)),
+		).toEqual({
+			mode: "repository_commit",
+			repository: "example/operations",
+			commitSha: "b".repeat(40),
+			runId: 123,
+			runAttempt: 1,
+			runCommitSha: "c".repeat(40),
+			evidenceUri: "https://github.com/example/operations/actions/runs/123",
+		});
+		expect(
+			f.commands.filter((command) => command[2]?.includes("/compare/")),
+		).toHaveLength(2);
+	});
+	it("rejects repositories outside the checkout owner and non-ancestral commits", () => {
+		const f = repositoryFixture();
+		expect(() =>
+			verifyRepositoryLaneResult(
+				"/fictional",
+				{
+					...result,
+					repositoryProof: {
+						...result.repositoryProof,
+						repository: "other/operations",
+					},
+				},
+				f.run.bind(f),
+			),
+		).toThrow("allowed GitHub owner");
+		f.compareStatus = "diverged";
+		expect(() =>
+			verifyRepositoryLaneResult("/fictional", result, f.run.bind(f)),
+		).toThrow("not on target main");
+	});
+	it("rejects stale or unsuccessful target CI", () => {
+		for (const change of [
+			(f: ReturnType<typeof repositoryFixture>) => {
+				f.proof.conclusion = "failure";
+			},
+			(f: ReturnType<typeof repositoryFixture>) => {
+				f.latest.workflow_runs[0]!.id = 999;
+			},
+		]) {
+			const f = repositoryFixture();
+			change(f);
+			expect(() =>
+				verifyRepositoryLaneResult("/fictional", result, f.run.bind(f)),
+			).toThrow("latest successful main workflow run");
+		}
 	});
 });

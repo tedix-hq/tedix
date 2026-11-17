@@ -23,6 +23,7 @@ import {
 	laneWaitResponse,
 	laneWaitTerminal,
 	verifyExistingLaneResult,
+	verifyRepositoryLaneResult,
 	type LaneResult,
 	type LaneWait,
 	type LaneDeferral,
@@ -895,6 +896,7 @@ interface Receipt {
 	waitCheckAt?: number;
 	waitReleasedAt?: number;
 	existingProof?: ReturnType<typeof verifyExistingLaneResult>;
+	repositoryProof?: ReturnType<typeof verifyRepositoryLaneResult>;
 	/** The run changed nothing; `commits` are earlier ones verified on origin/main. */
 	existingCommitsProven?: boolean;
 	expectsCode?: boolean;
@@ -1216,7 +1218,7 @@ export function laneLandingBrief(repo: string): string {
 		if (isRecord(scripts) && typeof scripts.push === "string")
 			push = `run \`${existsSync(join(repo, "bun.lock")) ? "bun" : "npm"} run push\`, which runs the pre-push checks and puts your commits on main`;
 	} catch {}
-	return `To land a change in this repository: run the type-check and the focused tests of what you changed, then ${push}. Do not run a whole workspace's or the whole repository's test suite locally unless this task asks for it. If the push is refused, do not wait and do not keep retrying: copy its one-sentence reason into a comment on this Work and end the run. If your commits are not on origin/main, end with outcome=incomplete and that sentence as remaining. If the change is on main and only a later check is open, end with outcome=landed_unverified. If the work was already on origin/main before you started, change nothing and end with outcome=landed_unverified and existingCommits naming those commits.\n`;
+	return `To land a change in this repository: run the type-check and the focused tests of what you changed, then ${push}. Do not run a whole workspace's or the whole repository's test suite locally unless this task asks for it. If the push is refused, do not wait and do not keep retrying: copy its one-sentence reason into a comment on this Work and end the run. If your commits are not on origin/main, end with outcome=incomplete and that sentence as remaining. If the change is on main and only a later check is open, end with outcome=landed_unverified. If the work was already on origin/main before you started, change nothing and end with outcome=landed_unverified and existingCommits naming those commits. If the accepted result instead lands in another repository under the same GitHub owner, add repositoryProof with repository, commitSha, runId and workflowName; settlement verifies target-main ancestry and its latest successful CI run.\n`;
 }
 
 export function retainedLaneWorktree(
@@ -2048,6 +2050,7 @@ interface DispatcherDeps {
 	existingCommits: typeof existingLaneCommits;
 	unpushedCommits: typeof unpushedLaneCommits;
 	verifyExisting: typeof verifyExistingLaneResult;
+	verifyRepository: typeof verifyRepositoryLaneResult;
 	localBranch: typeof localBranchProof;
 	cleanup: (
 		source: string,
@@ -2111,6 +2114,7 @@ const defaultDeps: DispatcherDeps = {
 	existingCommits: existingLaneCommits,
 	unpushedCommits: unpushedLaneCommits,
 	verifyExisting: verifyExistingLaneResult,
+	verifyRepository: verifyRepositoryLaneResult,
 	localBranch: localBranchProof,
 	recall: prefixLaneBrief,
 };
@@ -5288,17 +5292,35 @@ export class LaneDispatcher {
 				if (
 					receipt.laneResult?.outcome === "already_satisfied" ||
 					receipt.laneResult?.outcome === "waiting_on_user" ||
-					receipt.laneResult?.outcome === "deferred"
+					receipt.laneResult?.outcome === "deferred" ||
+					(receipt.laneResult !== undefined &&
+						"repositoryProof" in receipt.laneResult &&
+						receipt.laneResult.repositoryProof !== undefined)
 				) {
-					await this.checkResultFence(receipt);
+					if (
+						receipt.laneResult.outcome === "already_satisfied" ||
+						receipt.laneResult.outcome === "waiting_on_user" ||
+						receipt.laneResult.outcome === "deferred"
+					)
+						await this.checkResultFence(receipt);
 					if (receipt.laneResult.outcome === "already_satisfied") {
 						receipt.existingProof = this.deps.verifyExisting(
 							receipt.repo!,
 							receipt.laneResult,
 						);
 						receipt.note = `Verified preexisting outcome: ${receipt.existingProof.evidenceUri}. Root cause: ${receipt.existingProof.rootCause}`;
-					}
-					receipt.commits = [];
+						receipt.commits = [];
+					} else if (
+						"repositoryProof" in receipt.laneResult &&
+						receipt.laneResult.repositoryProof
+					) {
+						receipt.repositoryProof = this.deps.verifyRepository(
+							receipt.repo!,
+							receipt.laneResult,
+						);
+						receipt.commits = [receipt.repositoryProof.commitSha];
+						receipt.note = `Verified ${receipt.repositoryProof.commitSha.slice(0, 12)} on ${receipt.repositoryProof.repository} with green CI: ${receipt.repositoryProof.evidenceUri}. ${receipt.note}`;
+					} else receipt.commits = [];
 				} else {
 					receipt.commits = await this.deps.landedCommits(
 						receipt.repo!,
@@ -5463,6 +5485,9 @@ export class LaneDispatcher {
 								: {}),
 							...(receipt.existingProof
 								? { settlement: receipt.existingProof }
+								: {}),
+							...(receipt.repositoryProof
+								? { settlement: receipt.repositoryProof }
 								: {}),
 							...(receipt.existingCommitsProven
 								? {
