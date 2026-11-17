@@ -598,7 +598,7 @@ describe("Portable Sheet grid", () => {
 			expect(input.value).toBe("=A$1");
 		});
 	});
-	it("marks a tab someone else changed while you were on another one", async () => {
+	it("marks a tab an agent changed while you were on another one, for a moment", async () => {
 		const app = await editor();
 		const tab = (id: string) => q(`[role=tab][data-sheet="${id}"]`);
 		const main = (tab("archive").previousElementSibling as HTMLElement).dataset
@@ -609,33 +609,62 @@ describe("Portable Sheet grid", () => {
 		);
 		// Busy on the Archive tab, so the view stays there.
 		window.dispatchEvent(new KeyboardEvent("keydown"));
-		app.changeExternal(7);
+		app.changeExternal(7, "tedi");
 		await vi.waitFor(() =>
 			expect(tab(main).hasAttribute("data-touched")).toBe(true),
 		);
-		expect(tab(main).title).toContain("changed by someone else");
-		tab(main).click();
-		await vi.waitFor(() =>
-			expect(tab(main).getAttribute("aria-selected")).toBe("true"),
+		// The mark lets go by itself.
+		await vi.waitFor(
+			() => expect(tab(main).hasAttribute("data-touched")).toBe(false),
+			{ timeout: 2500 },
 		);
-		expect(tab(main).hasAttribute("data-touched")).toBe(false);
 	});
-	it("finds values across the sheet and jumps to each match", async () => {
+	it("leaves tabs a person changed unmarked", async () => {
+		const app = await editor();
+		const tab = (id: string) => q(`[role=tab][data-sheet="${id}"]`);
+		tab("archive").click();
+		window.dispatchEvent(new KeyboardEvent("keydown"));
+		app.changeExternal(7);
+		await vi.waitFor(() => expect(app.revision()).toBeGreaterThan(1));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(document.querySelector("[role=tab][data-touched]")).toBeNull();
+	});
+	it("finds what cells show on this sheet, and formulas on all sheets when asked", async () => {
 		await editor();
 		key("f", { metaKey: true });
 		const input = q<HTMLInputElement>("#find-value");
 		expect(q(".find").hidden).toBe(false);
-		input.value = "sum";
-		input.dispatchEvent(new Event("input"));
-		expect(q("#find-count").textContent).toBe("2 found");
-		key("Enter", {}, input);
-		// The tab in view comes first.
-		expect(q("#find-count").textContent).toBe("1 of 2");
+		expect(input.placeholder).toBe("Find in sheet");
+		const type = (value: string) => {
+			input.value = value;
+			input.dispatchEvent(new Event("input"));
+		};
+		// C1 shows 3; typing goes straight to it.
+		type("3");
+		expect(q("#find-count").textContent).toBe("1 of 1");
 		expect(cell("C1").classList.contains("active")).toBe(true);
-		key("Enter", {}, input);
-		expect(q("#find-count").textContent).toBe("2 of 2");
+		expect(cell("C1").classList.contains("find-current")).toBe(true);
+		// Formula text is searched only with the option.
+		type("sum");
+		expect(q("#find-count").textContent).toBe("No results");
+		const choose = (label: string) => {
+			click("#find-options");
+			[
+				...document.querySelectorAll<HTMLButtonElement>(
+					"[role=menuitemcheckbox]",
+				),
+			]
+				.find((node) => node.textContent!.endsWith(label))!
+				.click();
+		};
+		choose("Also search formulas");
+		expect(q("#find-count").textContent).toBe("1 of 1");
+		choose("All sheets");
+		expect(input.placeholder).toBe("Find in all sheets");
+		expect(q("#find-count").textContent).toMatch(/of 2$/);
 		key("Escape", {}, input);
 		expect(q(".find").hidden).toBe(true);
+		expect(document.querySelector("td.find-hit")).toBeNull();
 	});
 	it("fills down by dragging the corner square", async () => {
 		const app = await editor();
@@ -717,15 +746,10 @@ describe("Portable Sheet grid", () => {
 		expect(display("C1")).toBe("10");
 		app.changeExternal(4);
 		await app.settle();
-		expect(q("#updates").textContent).toContain("Your version was kept");
-		expect(q("#updates").textContent).not.toMatch(/revision/i);
+		// The unsaved edit is the later one: it wins, and nobody is asked.
+		expect(q("#updates").textContent).toBe("");
 		expect(display("C1")).toBe("10");
 		expect(q<HTMLInputElement>("#formula").disabled).toBe(false);
-		choose("theirs");
-		await app.settle();
-		await vi.advanceTimersByTimeAsync(10);
-		expect(display("C1")).toBe("6");
-		expect(q("#updates").textContent).toBe("");
 		vi.useRealTimers();
 	});
 	describe("changes someone else makes while the sheet is open", () => {
@@ -804,12 +828,33 @@ describe("Portable Sheet grid", () => {
 		edit("A1", "8");
 		await vi.waitFor(() => expect(display("C1")).toBe("10"));
 		app.changeExternal(4);
-		await vi.waitFor(() =>
-			expect(q("#updates").textContent).toContain("Your version was kept"),
-		);
 		await vi.waitFor(() => expect(app.revision()).toBe(3));
+		expect(q("#updates").textContent).toBe("");
 		expect(display("C1")).toBe("10");
 		expect(app.saved().rows[0]![0]).toBe(8);
+	});
+	it("says so when someone else's save replaces a cell you saved a moment ago", async () => {
+		const app = await editor();
+		edit("A1", "8");
+		await saved();
+		expect(app.saved().rows[0]![0]).toBe(8);
+		app.changeExternal(5);
+		await vi.waitFor(() =>
+			expect(q(".status").textContent).toContain(
+				"A1 was also edited elsewhere just now, and that edit replaced yours",
+			),
+		);
+		expect(display("A1")).toContain("5");
+	});
+	it("undo puts back the cells you changed even after someone else changed them, on the tab in view", async () => {
+		const app = await editor();
+		edit("A1", "8");
+		await saved();
+		app.changeExternal(5);
+		await vi.waitFor(() => expect(display("A1")).toContain("5"));
+		q<HTMLButtonElement>("#undo").click();
+		await saved();
+		expect(app.saved().rows[0]![0]).toBe(1);
 	});
 	it("keeps undo working after someone else's save, without undoing their change", async () => {
 		const app = await editor();

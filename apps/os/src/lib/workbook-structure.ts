@@ -275,7 +275,7 @@ export function resizeColumn(
 		...sheet,
 		columns: sheet.columns.map((item, i) =>
 			i === column
-				? { ...item, width: Math.round(Math.max(48, Math.min(600, width))) }
+				? { ...item, width: Math.round(Math.max(36, Math.min(640, width))) }
 				: item,
 		),
 	}));
