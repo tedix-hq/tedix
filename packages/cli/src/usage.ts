@@ -148,6 +148,14 @@ Global options may appear before or after the command. Keep discovery limits
 and returned values narrow; once the namespace and schema are known, call the
 target directly. Destructive approval is call-local and never persists for a
 later command.
+
+Namespace names depend on the target. On a Connect workspace, a call without
+an organization runs for every selected organization and names namespaces
+<organization>_unified_<app> (acme_unified_tedix.get_work_item_readiness). A
+call for one organization (--organization, TEDIX_ORGANIZATION, or an
+external-agent identity, which belongs to one organization) uses that
+organization's own names (work.get_work_item_readiness). Discover and call
+with the same target and identity; a name from one is undefined in the other.
 `;
 }
 

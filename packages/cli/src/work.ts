@@ -278,6 +278,9 @@ project and inherits its goal (--objective). For example:
 An explicit --project must match the parent. Parent access is checked in the selected organization.
 Inherited objectives override --class and --expires defaults.
 A Work Item joins an epic afterwards with case-attach, not at creation.
+Without --owner, the person who creates the Work answers for it; for an agent
+session that is the person it acts for or who registered it. Name someone else
+with --owner <user|tedi|team|system>:<id>.
 
 Accept states the outcome in plain language: --done-when writes the whole contract.
 

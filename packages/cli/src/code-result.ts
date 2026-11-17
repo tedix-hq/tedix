@@ -329,10 +329,39 @@ const UNKNOWN_CAPABILITY_PATTERNS = [
 	/\b[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)? is not a function\b/i,
 ];
 
+const ORGANIZATION_QUALIFIED_NAMESPACE = /^[a-z0-9_]+_unified(?:_[a-z0-9_]+)?$/;
+
+/**
+ * Connect names a namespace differently depending on the target. A call for
+ * one organization runs on that organization's gateway, whose names carry no
+ * organization prefix (`work`); a call for every selected organization uses
+ * `<organization>_unified_<app>`. A name copied from one kind of call is
+ * undefined in the other, which reads as a namespace that comes and goes.
+ */
+function namespaceTargetNote(
+	message: string,
+	target: { organization?: string; everyOrganization?: boolean },
+): string {
+	const missing = /\b([A-Za-z_$][\w$]*) is not defined\b/.exec(message)?.[1];
+	if (!missing) return "";
+	const qualified = ORGANIZATION_QUALIFIED_NAMESPACE.test(missing);
+	if (target.organization && qualified)
+		return `\n\n"${missing}" is a name from a call without an organization target. This call ran for one organization (${target.organization}: from --organization, TEDIX_ORGANIZATION, or an external-agent identity), where namespaces have no organization prefix, for example work.update_work_item_specification.`;
+	if (target.everyOrganization && !target.organization && !qualified)
+		return `\n\nThis call ran for every selected organization, where namespaces are named <organization>_unified_<app>, for example acme_unified_tedix. Add --organization <id-or-slug> to use one organization's own names such as "${missing}".`;
+	return "";
+}
+
 /** Add a gateway-native recovery path for likely namespace/tool mistakes. */
 export function codeDiscoveryErrorMessage(
 	message: string,
-	target: { workspace?: string; organization?: string; url?: string } = {},
+	target: {
+		workspace?: string;
+		organization?: string;
+		url?: string;
+		/** A Connect call with no organization target. */
+		everyOrganization?: boolean;
+	} = {},
 ): string {
 	if (
 		(message.includes("discover.search") &&
@@ -351,7 +380,7 @@ export function codeDiscoveryErrorMessage(
 	]
 		.filter(Boolean)
 		.join(" ");
-	return `${message}\n\nGateway capability not found. Discover the exact callable, then use it verbatim:\n  tedix${flags ? ` ${flags}` : ""} code 'async () => await discover.search({ query: "namespace or tool name", limit: 3, includeParameters: true })'`;
+	return `${message}${namespaceTargetNote(message, target)}\n\nGateway capability not found. Discover the exact callable, then use it verbatim:\n  tedix${flags ? ` ${flags}` : ""} code 'async () => await discover.search({ query: "namespace or tool name", limit: 3, includeParameters: true })'`;
 }
 
 /**

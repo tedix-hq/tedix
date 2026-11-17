@@ -7002,6 +7002,7 @@
 						}
 					},
 					"accountableOwnerType": {
+						"description": "Who answers for the Work. Omit both owner fields and a person who creates Work answers for it; for an external agent, the person it acts for or who registered it. Work a tedi proposes names nobody.",
 						"type": "string",
 						"enum": ["user", "tedi", "team", "system"]
 					},
@@ -8565,6 +8566,7 @@
 						}
 					},
 					"accountableOwnerType": {
+						"description": "Who answers for the Work. Omit both owner fields and a person who creates Work answers for it; for an external agent, the person it acts for or who registered it. Work a tedi proposes names nobody.",
 						"type": "string",
 						"enum": ["user", "tedi", "team", "system"]
 					},
