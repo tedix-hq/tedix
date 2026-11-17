@@ -333,15 +333,87 @@ export async function listCatalogApps(
 		!healthStatus &&
 		!region &&
 		!tag;
+	const nameIndex = hideShadowedVariants
+		? sql`${appCatalog} INDEXED BY app_catalog_explore_name_idx`
+		: sql`${appCatalog} INDEXED BY app_catalog_public_browse_name_idx`;
+
+	// A public page filtered by category or health status. Left to itself
+	// SQLite reads every discoverable app for the count and again for the page
+	// (18,560 rows each on 17 Nov 2026, whatever the category). The filter's own
+	// index reads only the apps of that category or status.
+	const filterIndex =
+		includeAll || includeUnreleased || normalizedSearch
+			? null
+			: category && catalogCategoryFilterValues(category).length > 0
+				? sql`${appCatalog} INDEXED BY app_catalog_category_idx`
+				: healthStatus
+					? sql`${appCatalog} INDEXED BY app_catalog_health_status_idx`
+					: null;
+	if (filterIndex) {
+		const [counted] = await db
+			.select({
+				total: sql<number>`count(*)`.as("total"),
+				browseTotal: sql<number | null>`(SELECT ${
+					hideShadowedVariants
+						? appCatalogBrowseTotals.exploreTotal
+						: appCatalogBrowseTotals.total
+				} FROM ${appCatalogBrowseTotals} WHERE ${appCatalogBrowseTotals.id} = 'public')`.as(
+					"browseTotal",
+				),
+			})
+			.from(filterIndex)
+			.where(whereClause);
+		const total = Number(counted?.total ?? 0);
+		// Nothing on this page: the page read would return no rows.
+		if (offset >= total) return { apps: [], total };
+
+		// A page by name of a category alone can also walk the public name
+		// index and keep the apps of the category until the page is full. That
+		// reads about (offset + limit) × catalog size ÷ category size apps, so
+		// it only pays for a category much larger than the page; the factor of
+		// 4 allows for a category whose names are not spread evenly. Otherwise
+		// the category's own apps are read and sorted.
+		const byNameOfCategoryAlone =
+			effectiveSortBy === "name" &&
+			Boolean(category) &&
+			!connectorType &&
+			!developerType &&
+			!source &&
+			hasInteractive === undefined &&
+			hasWrites === undefined &&
+			!healthStatus &&
+			!region &&
+			!tag;
+		const browseTotal = counted?.browseTotal ?? null;
+		const walkNames =
+			byNameOfCategoryAlone &&
+			browseTotal !== null &&
+			4 * (offset + limit) * browseTotal <= total * total;
+		// Both ways read the same page: apps with one name keep table order.
+		const tableOrder = sql`${appCatalog}."rowid"`;
+		const apps = await db
+			.select(prefixedColumns(appCatalog, "catalog"))
+			.from(walkNames ? nameIndex : filterIndex)
+			.where(whereClause)
+			.orderBy(
+				...(effectiveSortBy === "name"
+					? effectiveSortDir === "desc"
+						? [desc(appCatalog.name), desc(tableOrder)]
+						: [asc(appCatalog.name), asc(tableOrder)]
+					: orderBy),
+			)
+			.limit(limit)
+			.offset(offset);
+		return { apps, total };
+	}
+
 	const total = unfilteredPublicBrowse
 		? await getPublicBrowseTotal(db, hideShadowedVariants)
 		: await db.$count(appCatalog, whereClause);
 
 	const browseTable =
 		unfilteredPublicBrowse && effectiveSortBy === "name"
-			? hideShadowedVariants
-				? sql`${appCatalog} INDEXED BY app_catalog_explore_name_idx`
-				: sql`${appCatalog} INDEXED BY app_catalog_public_browse_name_idx`
+			? nameIndex
 			: appCatalog;
 	const apps = await db
 		.select(prefixedColumns(appCatalog, "catalog"))
