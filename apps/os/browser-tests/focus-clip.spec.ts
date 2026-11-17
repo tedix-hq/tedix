@@ -280,6 +280,17 @@ function readiness({
 		!!main.textContent?.trim() &&
 		blocked.length === 0 &&
 		(phase !== "animations" || animations.length === 0);
+	// A timed-out wait only shows the state after the timeout. Keep each state
+	// change seen while polling so a transient blocker shows up in the failure.
+	const win = window as typeof window & {
+		__readinessTrail?: { at: number; signature: string }[];
+	};
+	const signature = `${phase} ready=${ready} main=${!!main && visible(main)} text=${!!main?.textContent?.trim()} blocked=${blocked.map((element) => element.tagName + (element.getAttribute("data-slot") ?? "")).join(",")} animations=${animations.length}`;
+	const trail = (win.__readinessTrail ??= []);
+	if (trail.at(-1)?.signature !== signature) {
+		trail.push({ at: Math.round(performance.now()), signature });
+		if (trail.length > 30) trail.shift();
+	}
 	return diagnostic
 		? {
 				phase,
@@ -309,7 +320,7 @@ async function settle(page: Page) {
 			);
 		} catch (cause) {
 			throw new Error(
-				`Readiness failed at ${page.url()}: ${JSON.stringify(await page.evaluate(readiness, { phase, diagnostic: true }))}`,
+				`Readiness failed at ${page.url()}: ${JSON.stringify(await page.evaluate(readiness, { phase, diagnostic: true }))} trail=${JSON.stringify(await page.evaluate(() => (window as typeof window & { __readinessTrail?: unknown }).__readinessTrail ?? []).catch(() => "unavailable"))} now=${await page.evaluate(() => Math.round(performance.now())).catch(() => "unavailable")}`,
 				{ cause },
 			);
 		}
