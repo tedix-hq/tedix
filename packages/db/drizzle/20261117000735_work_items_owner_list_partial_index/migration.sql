@@ -1,0 +1,1 @@
+CREATE INDEX `idx_work_items_owner_list` ON `work_items` (`org_id`,`accountable_owner_id`,`disposition`,`created_at`,`id`) WHERE "work_items"."accountable_owner_id" IS NOT NULL;
