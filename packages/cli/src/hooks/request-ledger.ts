@@ -30,7 +30,7 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { isScheduledLedgerPrompt } from "@tedix/context-core/request-ledger";
-import { humanText, scrub } from "../learn-import";
+import { humanText, scrub, typedRemainder } from "../learn-import";
 import { asciiJson, harnessOf } from "./agent-status";
 import { bindingFor, redact, repositoryName } from "./decision-capture";
 import { referencedCommitEvidence } from "./referenced-commits";
@@ -47,6 +47,10 @@ import {
 } from "./hook-io";
 
 const TEXT_LIMIT = 8000;
+/** Most of a prompt kept when only code, tags or a log were found in it. */
+const FILTERED_LIMIT = 2000;
+export const FILTERED_MARK =
+	"[filtered: this message was only code, tags or a pasted log; shortened, it may still hold a request]";
 const ACTIVITY_LIMIT = 4000;
 const LINE_LIMIT = 240;
 /** Events one upload carries; the server accepts up to 20. */
@@ -88,7 +92,17 @@ export function ledgerText(
 		)
 			return undefined;
 		const text = humanText(event.prompt);
-		return text ? bounded(text, TEXT_LIMIT, "head") || undefined : undefined;
+		if (text) return bounded(text, TEXT_LIMIT, "head") || undefined;
+		const rest = typedRemainder(event.prompt);
+		if (!rest) return undefined;
+		// An ask sits above or below a paste, so both ends are kept.
+		const full = bounded(rest, rest.length, "head");
+		const half = FILTERED_LIMIT / 2;
+		return `${FILTERED_MARK}\n${
+			full.length > FILTERED_LIMIT
+				? `${full.slice(0, half)}\n…\n${full.slice(-half)}`
+				: full
+		}`;
 	}
 	const message = event.last_assistant_message;
 	if (
