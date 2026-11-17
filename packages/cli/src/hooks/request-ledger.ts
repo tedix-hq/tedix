@@ -10,7 +10,10 @@
  * returns; the observer and reflector run on Tedix in the background and
  * write the private ledger that `prompt-context` reads back. The hook never
  * waits on any analysis. An event is written to a local outbox first and
- * removed once uploaded, so a failed upload is retried by the next hook.
+ * removed once uploaded, so a failed upload is retried by the next hook or
+ * the next session start. An event the server keeps rejecting is moved to
+ * the outbox's `rejected/` folder; `outbox.log` there records every event
+ * set aside or trimmed.
  * The event shape follows claude-mem's async capture hooks (Apache-2.0,
  * github.com/thedotmack/claude-mem); no code is copied.
  *
@@ -21,10 +24,14 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+	appendFileSync,
+	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -58,6 +65,19 @@ const UPLOAD_BATCH = 20;
 /** Outbox entries kept per profile; the oldest go first beyond this. */
 const OUTBOX_LIMIT = 500;
 const UPLOAD_TIMEOUT_MS = 20_000;
+/**
+ * Characters of one event's text. The upload schema sets no maximum; the
+ * server stores the text in one D1 row of at most 2,000,000 bytes, and a
+ * character takes up to three bytes.
+ */
+const UPLOAD_TEXT_LIMIT = 500_000;
+/** Passes in which the server took other events but not this one, before it is set aside. */
+const REJECTION_LIMIT = 3;
+/** One-by-one uploads tried before a pass with no success stops. */
+const OFFLINE_PROBES = 3;
+/** Set-aside events kept for inspection. */
+const REJECTED_LIMIT = 100;
+const LOG_LIMIT = 262_144;
 
 export type LedgerMode = "prompt" | "turn";
 
@@ -365,14 +385,56 @@ export function readTurnTranscript(transcript: unknown): {
 	};
 }
 
-function outboxDir(env: NodeJS.ProcessEnv, key: string): string {
+/** Redacted event text cut in the middle, keeping the turn's start and its closing asks. */
+function uploadText(text: string): string {
+	const full = bounded(text, text.length, "head");
+	if (full.length <= UPLOAD_TEXT_LIMIT) return full;
+	const half = UPLOAD_TEXT_LIMIT / 2 - 2;
+	return `${full.slice(0, half)}\n…\n${full.slice(-half)}`;
+}
+
+/** The outbox of one profile and organization; undefined when `create` is off and nothing was queued. */
+export function outboxDir(
+	env: NodeJS.ProcessEnv,
+	binding: JsonObject,
+	create = true,
+): string | undefined {
 	const path = join(
 		env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
 		"session-events",
-		key,
+		`${binding.workspace}--${String(binding.organization ?? "default").replace(/[^A-Za-z0-9_-]/g, "")}`,
 	);
-	mkdirSync(path, { recursive: true, mode: 0o700 });
-	return path;
+	if (create) mkdirSync(path, { recursive: true, mode: 0o700 });
+	return create || existsSync(path) ? path : undefined;
+}
+
+/** One line in the outbox's own `outbox.log`: what was trimmed or set aside. */
+function outboxLog(dir: string, message: string): void {
+	try {
+		const path = join(dir, "outbox.log");
+		if (existsSync(path) && statSync(path).size > LOG_LIMIT)
+			renameSync(path, `${path}.1`);
+		appendFileSync(path, `${isoSeconds(new Date(), true)} ${message}\n`, {
+			mode: 0o600,
+		});
+	} catch {
+		// Logging is best effort.
+	}
+}
+
+function queued(dir: string): string[] {
+	return readdirSync(dir)
+		.filter((file) => file.endsWith(".json"))
+		.sort();
+}
+
+/** Delete the oldest files beyond `limit` and log how many went. */
+function trim(dir: string, limit: number, log: string, what: string): void {
+	const files = queued(dir);
+	const excess = files.slice(0, Math.max(0, files.length - limit));
+	for (const file of excess) rmSync(join(dir, file), { force: true });
+	if (excess.length)
+		outboxLog(log, `trimmed ${excess.length} oldest ${what} beyond ${limit}`);
 }
 
 /** Write one event to the outbox; file names sort by write time. */
@@ -384,39 +446,79 @@ export function enqueue(dir: string, event: SessionEvent): void {
 		mode: 0o600,
 		flag: "wx",
 	});
-	const files = readdirSync(dir)
-		.filter((file) => file.endsWith(".json"))
-		.sort();
-	for (const file of files.slice(0, Math.max(0, files.length - OUTBOX_LIMIT)))
-		rmSync(join(dir, file), { force: true });
+	trim(dir, OUTBOX_LIMIT, dir, "unsent events");
 }
 
-/** Upload the oldest outbox events once; uploaded ones are removed. */
+/** Move an event out of the upload queue into `rejected/`, with the reason logged. */
+function setAside(dir: string, file: string, reason: string): void {
+	const aside = join(dir, "rejected");
+	mkdirSync(aside, { recursive: true, mode: 0o700 });
+	renameSync(join(dir, file), join(aside, file));
+	outboxLog(dir, `set aside ${file}: ${reason}`);
+	trim(aside, REJECTED_LIMIT, dir, "set-aside events");
+}
+
+/**
+ * Upload the oldest outbox events once; uploaded ones are removed. When the
+ * batch fails and `isolate` is on, events go one by one, so an event the
+ * server keeps rejecting is counted and then set aside instead of holding
+ * back every newer one.
+ */
 export async function flush(
 	deps: Pick<HookDeps, "read">,
 	command: string[],
 	dir: string,
+	{ timeoutMs = UPLOAD_TIMEOUT_MS, isolate = true } = {},
 ): Promise<number> {
-	const files = readdirSync(dir)
-		.filter((file) => file.endsWith(".json"))
-		.sort()
-		.slice(0, UPLOAD_BATCH);
 	const events: Array<[string, SessionEvent]> = [];
-	for (const file of files) {
+	for (const file of queued(dir).slice(0, UPLOAD_BATCH)) {
 		try {
 			events.push([file, JSON.parse(readFileSync(join(dir, file), "utf8"))]);
 		} catch {
-			rmSync(join(dir, file), { force: true });
+			setAside(dir, file, "unreadable");
 		}
 	}
 	if (!events.length) return 0;
-	await deps.read(
-		[...command, "code"],
-		UPLOAD_TIMEOUT_MS,
-		`async () => await work.record_agent_session_events(${asciiJson({ events: events.map(([, event]) => event) })})`,
-	);
-	for (const [file] of events) rmSync(join(dir, file), { force: true });
-	return events.length;
+	const upload = async (batch: Array<[string, SessionEvent]>) => {
+		await deps.read(
+			[...command, "code"],
+			timeoutMs,
+			`async () => await work.record_agent_session_events(${asciiJson({ events: batch.map(([, event]) => event) })})`,
+		);
+		for (const [file] of batch) rmSync(join(dir, file), { force: true });
+	};
+	try {
+		await upload(events);
+		return events.length;
+	} catch (error) {
+		if (!isolate || events.length === 1) throw error;
+	}
+	const failed: Array<[string, string]> = [];
+	let uploaded = 0;
+	for (const event of events) {
+		try {
+			await upload([event]);
+			uploaded++;
+		} catch (error) {
+			failed.push([event[0], line(String((error as Error)?.message ?? error))]);
+			// Nothing gets through: offline or signed out, not a bad event.
+			if (!uploaded && failed.length === OFFLINE_PROBES) break;
+		}
+	}
+	// A failure counts against an event only when the server took another one
+	// in the same pass.
+	if (uploaded)
+		for (const [file, reason] of failed) {
+			const count = Number(/\.r(\d+)\.json$/.exec(file)?.[1] ?? 0) + 1;
+			if (count >= REJECTION_LIMIT)
+				setAside(dir, file, `rejected ${count} times: ${reason}`);
+			else
+				renameSync(
+					join(dir, file),
+					join(dir, file.replace(/(\.r\d+)?\.json$/, `.r${count}.json`)),
+				);
+		}
+	return uploaded;
 }
 
 export async function runRequestLedger(
@@ -466,16 +568,13 @@ export async function runRequestLedger(
 					: "";
 			const source = text + commitEvidence;
 			const activity = turn?.activity ?? "";
-			const outbox = outboxDir(
-				deps.env,
-				`${optedIn.workspace}--${String(optedIn.organization ?? "default").replace(/[^A-Za-z0-9_-]/g, "")}`,
-			);
+			const outbox = outboxDir(deps.env, optedIn)!;
 			enqueue(outbox, {
 				kind: mode,
 				harness: harnessOf(event, hostEnv),
 				sessionKey: session!,
 				sourceAt,
-				text: bounded(source, source.length, "head"),
+				text: uploadText(source),
 				...(activity ? { activity } : {}),
 				...(optedIn.contextSource === "default"
 					? {}

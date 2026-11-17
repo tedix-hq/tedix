@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileGatewayCooldown } from "../gateway-cooldown";
@@ -740,6 +746,41 @@ describe("SessionStart request ledger", () => {
 			);
 		});
 	}
+	test("uploads events an earlier chat left in the outbox", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-start-outbox-"));
+		const outbox = join(config, "session-events", "tedix--default");
+		mkdirSync(outbox, { recursive: true });
+		writeFileSync(
+			join(outbox, "000-left-behind.json"),
+			JSON.stringify({ kind: "prompt", text: "Fix the login page" }),
+		);
+		try {
+			const { calls } = await run(
+				[
+					{
+						status: "bound",
+						workspace: "tedix",
+						org: "org_tedix",
+						mcpUrl: AUTH.mcpUrl,
+						decisionCapture: true,
+						root: process.cwd(),
+					},
+					AUTH,
+					{ accepted: 1, duplicates: 0 },
+					{ requests: { data: [] } },
+				],
+				{ TEDIX_CONFIG_DIR: config },
+				{
+					source: "startup",
+					session_id: "77777777-7777-4777-8777-777777777777",
+				},
+			);
+			expect(calls[2]).toEqual(["-w", "tedix", "code"]);
+			expect(readdirSync(outbox)).toEqual([]);
+		} finally {
+			rmSync(config, { recursive: true, force: true });
+		}
+	});
 	test("does not read the ledger without decision-capture opt-in", async () => {
 		const { calls } = await run(
 			[
