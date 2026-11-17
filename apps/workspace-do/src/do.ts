@@ -64,7 +64,7 @@ import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
 import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-notice";
 import { BINDING_NAMES, type BindingName } from "./declarations";
-import { SqlEventLedger } from "./event-ledger";
+import { boundedEventInput, SqlEventLedger } from "./event-ledger";
 import { migrateMovedChat } from "./moved-chat";
 import { SqlActivityRecords } from "./activity-records";
 import type {
@@ -2237,7 +2237,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			label,
 			kind,
 			tool: `${binding}.${method}`,
-			...(kind === "write" ? { input: args[0] } : {}),
+			...(kind === "write" ? { input: boundedEventInput(args[0]) } : {}),
 		});
 		try {
 			const value = await (fn as (...a: unknown[]) => Promise<unknown>)(
@@ -2295,7 +2295,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					title: label,
 					reason: error.decision.reason,
 					policy: error.decision.gate,
-					input: args[0],
+					input: boundedEventInput(args[0]),
 					...(target ? { target: { id: target.id, title: target.title } } : {}),
 				});
 			}
