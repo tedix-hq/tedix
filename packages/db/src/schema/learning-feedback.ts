@@ -29,6 +29,22 @@ import {
 import { organizations } from "./organizations";
 import { tedis } from "./tedis";
 
+/**
+ * Decision history: an event on a surface the decision model learns from that
+ * is not a Feed impression. `personalDecisionHistory` and
+ * `sharedDecisionHistory` are the WHERE of the two decision-history indexes
+ * below and of the read that uses them, word for word, because SQLite offers a
+ * partial index only to a query that states the index's condition. Changing
+ * the surfaces needs a migration that rebuilds both indexes.
+ */
+const decisionHistoryEvent = sql`surface IN ('decision_capture', 'agent_session_import', 'activity_feed', 'focus_feed', 'decision_deck', 'decision_deck_action', 'work_outcome', 'outbound_outcome', 'work_fix', 'decision_learning', 'decision_edit_preference', 'card_context') AND (surface <> 'focus_feed' OR event_kind <> 'delivered')`;
+/**
+ * The unary plus keeps the scope kind away from the general scope index, which
+ * would otherwise walk every event of the person, impressions included.
+ */
+export const personalDecisionHistory = sql`+scope_kind = 'personal' AND ${decisionHistoryEvent}`;
+export const sharedDecisionHistory = sql`scope_kind <> 'personal' AND ${decisionHistoryEvent}`;
+
 export const learningInteractionEvents = sqliteTable(
 	"learning_interaction_events",
 	{
@@ -144,6 +160,18 @@ export const learningInteractionEvents = sqliteTable(
 		index("idx_learning_event_pending_filing")
 			.on(table.organizationId, table.issueKey, table.occurredAt)
 			.where(sql`json_extract(metadata, '$.pending') = 1`),
+		// The decision model reads a tenant's newest decision history: one
+		// person's own events and everything that is not personal. On the
+		// tenant time index that walked every event, most of them another
+		// person's, a Feed impression or on a surface the model ignores. An
+		// event is in at most one of these two, and no other read states
+		// their WHERE.
+		index("idx_learning_event_decision_history_personal")
+			.on(table.organizationId, table.scopeId, table.occurredAt)
+			.where(personalDecisionHistory),
+		index("idx_learning_event_decision_history_shared")
+			.on(table.organizationId, table.occurredAt)
+			.where(sharedDecisionHistory),
 	],
 );
 

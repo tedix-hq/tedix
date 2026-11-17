@@ -1528,6 +1528,10 @@
 		{
 			"name": "20261117025123_memory_facts_source_hash_index/migration.sql",
 			"sha256": "cc2ef5d9962e8b610850ac0ae000badefa0af87dfcad86fb06c7815c1b652220"
+		},
+		{
+			"name": "20261117040312_learning_decision_history_indexes/migration.sql",
+			"sha256": "b92f7822a4c110983b53e59399434c7527175de568ed29f3d1f80a04cd15e374"
 		}
 	]
 }
