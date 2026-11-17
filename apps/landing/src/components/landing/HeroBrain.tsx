@@ -1,7 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "../../lib/utils";
+
+/** Follows the site theme (the `dark` class set by the theme toggle), not only the OS setting. */
+function useDarkTheme() {
+	const [dark, setDark] = useState(
+		() =>
+			typeof document !== "undefined" &&
+			document.documentElement.classList.contains("dark"),
+	);
+	useEffect(() => {
+		const root = document.documentElement;
+		const observer = new MutationObserver(() =>
+			setDark(root.classList.contains("dark")),
+		);
+		observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+		return () => observer.disconnect();
+	}, []);
+	return dark;
+}
 
 /* ── Binary Rain Column ─────────────────────────────── */
 function BinaryColumn({
@@ -139,6 +157,7 @@ export function HeroBrain({
 }) {
 	const [loaded, setLoaded] = useState(false);
 	const isMobile = variant === "mobile";
+	const image = useDarkTheme() ? "hero-brain" : "hero-brain-light";
 
 	const columns = useMemo(
 		() =>
@@ -241,32 +260,18 @@ export function HeroBrain({
 					style={{ animation: "brainPulse 4s ease-in-out infinite" }}
 				/>
 
-				<picture>
-					<source
-						media="(prefers-color-scheme: dark)"
-						type="image/avif"
-						srcSet="/images/hero-brain-480.avif 480w, /images/hero-brain-750.avif 752w, /images/hero-brain-1200.avif 1200w"
-					/>
-					<source
-						media="(prefers-color-scheme: dark)"
-						type="image/webp"
-						srcSet="/images/hero-brain-480.webp 480w, /images/hero-brain-750.webp 750w, /images/hero-brain-1200.webp 1200w"
-					/>
-					<source
-						media="(prefers-color-scheme: dark)"
-						srcSet="/images/hero-brain-480.jpg 480w, /images/hero-brain-750.jpg 750w, /images/hero-brain.jpg 1200w"
-					/>
+				<picture key={image}>
 					<source
 						type="image/avif"
-						srcSet="/images/hero-brain-light-480.avif 480w, /images/hero-brain-light-750.avif 752w, /images/hero-brain-light-1200.avif 1200w"
+						srcSet={`/images/${image}-480.avif 480w, /images/${image}-750.avif 752w, /images/${image}-1200.avif 1200w`}
 					/>
 					<source
 						type="image/webp"
-						srcSet="/images/hero-brain-light-480.webp 480w, /images/hero-brain-light-750.webp 750w, /images/hero-brain-light-1200.webp 1200w"
+						srcSet={`/images/${image}-480.webp 480w, /images/${image}-750.webp 750w, /images/${image}-1200.webp 1200w`}
 					/>
 					<img
-						src="/images/hero-brain-light.jpg"
-						srcSet="/images/hero-brain-light-480.jpg 480w, /images/hero-brain-light-750.jpg 750w, /images/hero-brain-light.jpg 1200w"
+						src={`/images/${image}.jpg`}
+						srcSet={`/images/${image}-480.jpg 480w, /images/${image}-750.jpg 750w, /images/${image}.jpg 1200w`}
 						sizes="(max-width: 1023px) min(118vw, 560px), (max-width: 1360px) 70vw, 900px"
 						alt="Human mind merging with artificial intelligence — neural pathways and digital data streams flowing from a human brain profile"
 						width={750}
