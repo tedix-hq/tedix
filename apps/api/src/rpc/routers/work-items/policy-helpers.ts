@@ -155,9 +155,8 @@ export async function canCompleteOwnSucceededAttempt(
 			latest.executorId === actor.id &&
 			latest.executorSessionId === actor.sessionId &&
 			latest.outcome === "succeeded" &&
-			(latest.metadata?.dispatchVersion === undefined ||
-				(latest.metadata.dispatchVersion === item.version &&
-					declaredCompletion)) &&
+			latest.metadata?.dispatchVersion === item.version &&
+			declaredCompletion &&
 			(item.workKind !== "coding" ||
 				(typeof commitSha === "string" && /^[a-f\d]{40}$/i.test(commitSha))),
 		) &&

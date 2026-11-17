@@ -45,6 +45,7 @@ import {
 	renameSync,
 	statfsSync,
 	statSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -3293,10 +3294,11 @@ export class LaneDispatcher {
 	/**
 	 * The startup and interval sweep: every settled receipt, every orphaned
 	 * run directory and every checkout a retry left behind is revisited, the
-	 * retained total is trimmed to the configured cap, and the archive is
-	 * trimmed to its newest folders. It runs as one maintenance task so cleanup
-	 * stays sequential; each candidate keeps the retry backoff the per-pass
-	 * cleanup uses. Receipt JSON files are not touched.
+	 * retained total is trimmed to the configured cap, the archive is trimmed to
+	 * its newest folders, and inactive receipts superseded by a newer Work
+	 * revision are removed. It runs as one maintenance task so cleanup stays
+	 * sequential; each candidate keeps the retry backoff the per-pass cleanup
+	 * uses.
 	 */
 	private async sweepRuns(retained: Receipt[]) {
 		const runs = join(this.directory, "runs");
@@ -3334,6 +3336,47 @@ export class LaneDispatcher {
 		}
 		await this.enforceCheckoutCap(retained);
 		await this.trimArchive();
+		this.pruneOldReceipts(retained);
+	}
+	private pruneOldReceipts(retained: Receipt[]) {
+		const latestVersions = new Map<string, number>();
+		for (const row of retained)
+			latestVersions.set(
+				row.itemId,
+				Math.max(latestVersions.get(row.itemId) ?? 0, row.version),
+			);
+		let pruned = 0;
+		for (const row of retained) {
+			if (
+				row.version >= (latestVersions.get(row.itemId) ?? row.version) ||
+				!hasSettledOutcome(row) ||
+				this.running.has(row.itemId) ||
+				this.preparing.has(row.itemId) ||
+				(!!row.pid && alive(row.pid)) ||
+				row.pendingCommitProof !== undefined ||
+				row.pendingObservation !== undefined ||
+				row.completionPending === true ||
+				existsSync(
+					join(this.directory, "runs", `${row.itemId}-${row.version}`),
+				) ||
+				(!!row.repo && existsSync(row.repo))
+			)
+				continue;
+			const name = `${row.itemId}-${row.version}.json`;
+			try {
+				unlinkSync(join(this.directory, name));
+				this.receipts.delete(name);
+				pruned++;
+			} catch (error) {
+				this.log("receipt-prune-deferred", row.itemId, String(error));
+			}
+		}
+		if (pruned)
+			this.log(
+				"receipts-pruned",
+				undefined,
+				`${pruned} receipts for superseded Work revisions deleted`,
+			);
 	}
 	/**
 	 * A run directory's size. Measuring one reads every file of a checkout
@@ -3735,7 +3778,7 @@ export class LaneDispatcher {
 			retries: inRetryWindow ? (previous?.retries ?? 0) : 0,
 			retryDeadlineAt,
 			failureCommented: previous?.failureCommented,
-			admissionFailure: previous?.admissionFailure ?? previous?.note,
+			admissionFailure: previous?.admissionFailure,
 			runFailureSignature: previous?.runFailureSignature,
 			admissionState: previous?.admissionState ?? "not_sent",
 			identicalFailures: previous?.identicalFailures ?? 0,
@@ -5875,11 +5918,6 @@ export class LaneDispatcher {
 			// The Attempt is absent from the complete ledger or already ended
 			// under another session: the retained claim can never be fenced, so
 			// release the revision for fresh admission like an elapsed lease.
-			if (receipt.outcome === "succeeded" && !receipt.runFailureCounted)
-				receipt.retries = Math.max(
-					0,
-					(receipt.retries ?? 0) - (receipt.settlementRetries ?? 0),
-				);
 			receipt.outcome = attempt?.outcome ?? "expired";
 			receipt.phase = "deferred";
 			await this.recordUnpushedCommits(receipt);
@@ -5905,12 +5943,6 @@ export class LaneDispatcher {
 				attempt.expiresAt &&
 				Date.parse(attempt.expiresAt) <= Date.now())
 		) {
-			// Older successful receipts mixed delivery attempts into execution retries.
-			if (receipt.outcome === "succeeded" && !receipt.runFailureCounted)
-				receipt.retries = Math.max(
-					0,
-					(receipt.retries ?? 0) - (receipt.settlementRetries ?? 0),
-				);
 			receipt.outcome = "expired";
 			receipt.phase = "deferred";
 			await this.recordUnpushedCommits(receipt);
@@ -5993,25 +6025,6 @@ export class LaneDispatcher {
 	/** Work items still in flight, for the stop message. */
 	inFlight(): string[] {
 		return [...this.running.keys(), ...this.maintenance.keys()];
-	}
-}
-
-export function mergeDispatcherReceipts(directory: string, sources: string[]) {
-	for (const source of sources) {
-		if (!existsSync(source) || source === directory) continue;
-		for (const name of readdirSync(source)) {
-			if (!/^[0-9a-f-]{36}-\d+\.json$/.test(name)) continue;
-			const path = join(source, name),
-				destination = join(directory, name);
-			if (existsSync(destination)) {
-				if (readFileSync(path, "utf8") !== readFileSync(destination, "utf8"))
-					throw new Error(
-						`Conflicting dispatcher receipt ${name}; inspect before switching executors`,
-					);
-				continue;
-			}
-			renameSync(path, destination);
-		}
 	}
 }
 
@@ -6099,21 +6112,6 @@ export async function runLaneServe(
 		}
 		writeDispatcherHealthSource(directory, options);
 		dispatcher = new LaneDispatcher(options, directory);
-		// Only a runner that takes over the per-executor lanes adopts their receipts.
-		if (options.executor === "any-local" && !scoped)
-			mergeDispatcherReceipts(
-				directory,
-				localExecutors.map((executor) =>
-					join(
-						directory,
-						"..",
-						createHash("sha256")
-							.update(`${org}:${executor}`)
-							.digest("hex")
-							.slice(0, 16),
-					),
-				),
-			);
 		do {
 			try {
 				await dispatcher.tick();

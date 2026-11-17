@@ -375,10 +375,6 @@ export async function workHeartbeat(
  * claims, evidence kinds, review requirements — stopped being consulted by any
  * gate. Keeping a flag that wrote unread fields and silently overrode
  * `--done-when` only offered a way to get acceptance wrong.
- *
- * See `decisions/minimal-gates-over-pre-proof.md`. Stored legacy
- * contracts still PARSE on read so live rows keep deserializing; nothing
- * writes one.
  */
 export function buildAcceptanceContract(
 	doneWhen: string | undefined,

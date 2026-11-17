@@ -33,14 +33,13 @@ test("recorded results and holds do not consume the runnable queue", () => {
 	}
 });
 
-test("a new specification can run, while an older server remains unknown", () => {
+test("a new specification can run after an older revision finishes", () => {
 	expect(
 		workQueueState({
 			...item,
 			latestAttempt: { outcome: "succeeded", workItemVersion: 2 },
 		}),
 	).toBe("queued");
-	expect(workQueueState({ ...item, latestAttempt: undefined })).toBe("unknown");
 	expect(
 		workQueueState({
 			...item,

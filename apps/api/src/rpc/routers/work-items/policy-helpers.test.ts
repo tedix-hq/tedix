@@ -16,6 +16,7 @@ import {
 const AGENT = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
 const SHA = "a".repeat(40);
+const DONE = "The accepted result is verified.";
 const context = { db: {} } as unknown as BaseContext;
 
 function item(overrides: Partial<WorkItem> = {}): WorkItem {
@@ -24,8 +25,10 @@ function item(overrides: Partial<WorkItem> = {}): WorkItem {
 		orgId: "44444444-4444-4444-8444-444444444444",
 		disposition: "accepted",
 		workKind: "coding",
+		version: 1,
 		title: "Fence the provider registration cache",
 		description: "Keep stale loads from refilling scopes.",
+		acceptanceContract: { version: 1, doneLooksLike: DONE },
 		...overrides,
 	} as WorkItem;
 }
@@ -36,7 +39,17 @@ function attempt(overrides: Record<string, unknown> = {}) {
 		executorId: AGENT,
 		executorSessionId: SESSION,
 		outcome: "succeeded",
-		metadata: { settlement: { mode: "commit", commitSha: SHA } },
+		metadata: {
+			dispatchVersion: 1,
+			laneResult: {
+				outcome: "completed",
+				workItemId: "33333333-3333-4333-8333-333333333333",
+				workVersion: 1,
+				contractVersion: 1,
+				outcomeText: DONE,
+			},
+			settlement: { mode: "commit", commitSha: SHA },
+		},
 		...overrides,
 	};
 }
@@ -82,7 +95,7 @@ describe("canCompleteOwnSucceededAttempt", () => {
 		["a tedi attempt", { executorType: "tedi" }],
 		[
 			"an earlier Work revision",
-			{ metadata: { dispatchVersion: 1, settlement: { commitSha: SHA } } },
+			{ metadata: { dispatchVersion: 2, settlement: { commitSha: SHA } } },
 		],
 	])("refuses %s", async (_label, overrides) => {
 		attempts.list.mockResolvedValue({
@@ -154,15 +167,20 @@ describe("canCompleteOwnSucceededAttempt", () => {
 	});
 
 	it.each(["research", "operations", "document"] as const)(
-		"allows its own succeeded %s without inventing a code commit",
+		"requires a versioned declaration for its own succeeded %s without requiring a code commit",
 		async (workKind) => {
 			attempts.list.mockResolvedValue({
 				data: [attempt({ metadata: {} })],
 				nextCursor: null,
 			});
+			await expect(allowed(item({ workKind }))).resolves.toBe(false);
+			attempts.list.mockResolvedValue({
+				data: [attempt()],
+				nextCursor: null,
+			});
 			await expect(allowed(item({ workKind }))).resolves.toBe(true);
 			attempts.list.mockResolvedValue({
-				data: [attempt({ metadata: {}, executorSessionId: "other" })],
+				data: [attempt({ executorSessionId: "other" })],
 				nextCursor: null,
 			});
 			await expect(allowed(item({ workKind }))).resolves.toBe(false);
@@ -173,25 +191,35 @@ describe("canCompleteOwnSucceededAttempt", () => {
 	);
 
 	it("uses the accepted verification outcome instead of credential incident history", async () => {
-		attempts.list.mockResolvedValue({
-			data: [attempt({ metadata: {} })],
-			nextCursor: null,
+		const work = item({
+			workKind: "operations",
+			title: "Verify gateway session audit deployment",
+			description:
+				"Earlier incident: access tokens expired. Preserve existing grants and user consent. No new user sign-in needed for the token proof already collected.",
+			acceptanceContract: {
+				version: 1,
+				doneLooksLike:
+					"Observe managed delivery without changing release gates: verify the live API revision and audit results, and record evidence.",
+			},
 		});
-		await expect(
-			allowed(
-				item({
-					workKind: "operations",
-					title: "Verify gateway session audit deployment",
-					description:
-						"Earlier incident: access tokens expired. Preserve existing grants and user consent. No new user sign-in needed for the token proof already collected.",
-					acceptanceContract: {
-						version: 1,
-						doneLooksLike:
-							"Observe managed delivery without changing release gates: verify the live API revision and audit results, and record evidence.",
+		attempts.list.mockResolvedValue({
+			data: [
+				attempt({
+					metadata: {
+						dispatchVersion: work.version,
+						laneResult: {
+							outcome: "completed",
+							workItemId: work.id,
+							workVersion: work.version,
+							contractVersion: work.acceptanceContract!.version,
+							outcomeText: work.acceptanceContract!.doneLooksLike,
+						},
 					},
 				}),
-			),
-		).resolves.toBe(true);
+			],
+			nextCursor: null,
+		});
+		await expect(allowed(work)).resolves.toBe(true);
 	});
 
 	it.each([
@@ -203,7 +231,7 @@ describe("canCompleteOwnSucceededAttempt", () => {
 		"retains attempt fences for non-coding verification: %j",
 		async (overrides) => {
 			attempts.list.mockResolvedValue({
-				data: [attempt({ metadata: {}, ...overrides })],
+				data: [attempt(overrides)],
 				nextCursor: null,
 			});
 			await expect(allowed(item({ workKind: "operations" }))).resolves.toBe(
@@ -260,7 +288,7 @@ describe("canCompleteOwnSucceededAttempt", () => {
 
 	it("does not turn a research prohibition into a reserved action", async () => {
 		attempts.list.mockResolvedValue({
-			data: [attempt({ metadata: {} })],
+			data: [attempt()],
 			nextCursor: null,
 		});
 		await expect(

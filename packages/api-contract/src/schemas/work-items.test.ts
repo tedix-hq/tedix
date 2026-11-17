@@ -17,9 +17,12 @@ import {
 	WorkAttemptRepositoryRequestSchema,
 	WorkAttemptRepositorySchema,
 	WorkAttemptRepositoryLifecycleSchema,
+	WorkItemAcceptanceContractSchema,
 	ResolvedWorkEvidenceSchema,
 	WorkEvidencePreviewSchema,
 } from "./work-items";
+
+import { WorkItemListRowSchema } from "../contracts/work-items";
 
 describe("Work activity polling input", () => {
 	it("rejects mixed pagination modes and invalid forward checkpoints", () => {
@@ -40,6 +43,27 @@ describe("Work activity polling input", () => {
 				},
 			}).success,
 		).toBe(false);
+	});
+});
+
+describe("current Work contracts", () => {
+	it("rejects retired acceptance fields", () => {
+		expect(
+			WorkItemAcceptanceContractSchema.safeParse({
+				version: 1,
+				doneLooksLike: "The accepted result is complete.",
+				evidenceKinds: ["commit"],
+			}).success,
+		).toBe(false);
+	});
+
+	it("requires the latest Attempt summary on list rows", () => {
+		expect(
+			WorkItemListRowSchema.shape.latestAttempt.safeParse(undefined).success,
+		).toBe(false);
+		expect(
+			WorkItemListRowSchema.shape.latestAttempt.safeParse(null).success,
+		).toBe(true);
 	});
 });
 
