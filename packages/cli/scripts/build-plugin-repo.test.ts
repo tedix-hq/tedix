@@ -20,16 +20,15 @@ const text = (value: string | Uint8Array | undefined) =>
 describe("public plugin repository", () => {
 	const files = pluginRepoFiles();
 
-	test("OpenAI default consent requests only directory scopes", () => {
+	// Devin and the OpenCode adapter read this file, so it stays on Connect; the
+	// directory scopes belong to the OpenAI ZIP (see package-plugin.test.ts).
+	test("root mcp.json keeps Connect and excludes platform administration", () => {
 		const mcp = JSON.parse(text(files.get("mcp.json")));
 		expect(mcp.mcpServers.tedix.url).toBe("https://connect.mcp.tedix.dev/mcp");
 		const auth = mcp.mcpServers.tedix.extensions["com.openai"].auth;
-		expect(auth.baseScopes).toEqual([]);
-		expect(auth.defaultScopes).toEqual([
-			"mcp:content.read",
-			"mcp:work.read",
-			"mcp:work.write",
-		]);
+		expect(auth.baseScopes).not.toContain("platform:admin");
+		expect(auth.defaultScopes).not.toContain("platform:admin");
+		expect(auth.defaultScopes).toContain("mcp:catalog.read");
 	});
 
 	test("ships one plugin for every host and no hooks", () => {
