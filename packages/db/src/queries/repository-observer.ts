@@ -6,9 +6,10 @@ import { projects } from "../schema/projects";
 import {
 	deferredRepositoryWake,
 	openRepositoryObservation,
-	workItems,
-	workItemComments,
+	wokenRepositoryObservation,
 	workAttempts,
+	workItemComments,
+	workItems,
 } from "../schema/work-items";
 
 /** Observation state lives on canonical Work, with one deterministic item per commit/incident. */
@@ -332,7 +333,13 @@ export async function claimRepositoryObserverWake(
 	const capacity =
 		p.limit === null
 			? sql`1 = 1`
-			: sql`(SELECT count(*) FROM work_items active WHERE active.org_id = ${p.orgId} AND active.project_id = ${p.projectId} AND active.id <> ${p.id} AND json_extract(active.metadata, '$.repositoryObserver') = 1 AND json_extract(active.metadata, '$.observerWokenAt') >= ${since} AND json_extract(active.metadata, '$.report') IS NULL AND (active.disposition IN ('proposed','accepted') OR (active.disposition = 'cancelled' AND json_extract(active.metadata, '$.settleReason') = 'advisory push observation'))) < ${p.limit}`;
+			: // The slot holders are the project's woken, unreported observations
+				// whose wake is recent. The count states the condition of
+				// idx_work_items_woken_repository_observation word for word and
+				// so reads those few rows, not every Work Item of the project
+				// (about 3,200 rows per call in production, 10 to 17 Nov 2026).
+				// A recent wake is a wake, so the condition changes no count.
+				sql`(SELECT count(*) FROM work_items active WHERE active.org_id = ${p.orgId} AND active.project_id = ${p.projectId} AND active.id <> ${p.id} AND ${wokenRepositoryObservation} AND json_extract(active.metadata, '$.observerWokenAt') >= ${since}) < ${p.limit}`;
 	const rows = await db
 		.update(workItems)
 		.set({

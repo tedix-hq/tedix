@@ -226,6 +226,15 @@ export const openRepositoryObservation = sql`json_extract(metadata, '$.repositor
  */
 export const deferredRepositoryWake = sql`json_extract(metadata, '$.repositoryObserver') = 1 AND json_extract(metadata, '$.observerWakeDeferredAt') IS NOT NULL AND json_extract(metadata, '$.observerWokenAt') IS NULL AND json_extract(metadata, '$.report') IS NULL`;
 
+/**
+ * A repository observation that holds one of its project's wake slots while
+ * its wake is recent: woken, not reported, and open or settled as an advisory
+ * push. The WHERE of `idx_work_items_woken_repository_observation` and of the
+ * slot count that uses it, word for word, for the same reason. How recent the
+ * wake is cannot be part of an index; the count tests it on these few rows.
+ */
+export const wokenRepositoryObservation = sql`json_extract(metadata, '$.repositoryObserver') = 1 AND json_extract(metadata, '$.observerWokenAt') IS NOT NULL AND json_extract(metadata, '$.report') IS NULL AND (disposition IN ('proposed','accepted') OR (disposition = 'cancelled' AND json_extract(metadata, '$.settleReason') = 'advisory push observation'))`;
+
 export const workItems = sqliteTable(
 	"work_items",
 	{
@@ -395,6 +404,12 @@ export const workItems = sqliteTable(
 		index("idx_work_items_deferred_repository_wake")
 			.on(table.createdAt, table.id)
 			.where(deferredRepositoryWake),
+		// Taking a wake slot counts the project's woken, unreported
+		// observations. Without this the count read every Work Item of the
+		// project. No other read states its WHERE.
+		index("idx_work_items_woken_repository_observation")
+			.on(table.orgId, table.projectId, table.id)
+			.where(wokenRepositoryObservation),
 		index("idx_work_items_objective").on(table.objectiveId),
 		index("idx_work_items_org_objective").on(table.orgId, table.objectiveId),
 		index("idx_work_items_org_class").on(table.orgId, table.workClass),
