@@ -26,8 +26,10 @@ import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { chunkForBoundParams } from "../utils/batch";
 import {
+	AGENT_SESSION_EVENT_STATUS_VALUES,
 	type AgentSessionEventKind,
 	type AgentSessionEventRow,
+	type AgentSessionEventStatus,
 	agentSessionEvents,
 	type AgentSessionRequestKind,
 	type AgentSessionRequestRow,
@@ -998,20 +1000,54 @@ export async function listRecentAgentSessionTurns(
 	return rows.reverse();
 }
 
-/** Recover each row's original scope without borrowing a later prompt's goals. */
+/**
+ * Recover each row's original scope without borrowing a later prompt's goals.
+ *
+ * The prompt is the session's newest one at or before the request, the highest
+ * `source_key` breaking a tie. Asked in one statement ("newest first by time
+ * and key"), SQLite walked the owner's events of every session backwards from
+ * the request and sorted them: 74k rows per call on 9 Nov 2026. The time is
+ * found first, once per event status, because the per-session index
+ * (`idx_agent_session_events_session_order`) holds the status before the
+ * time; each seek stops at the first prompt it meets. The body is then read at
+ * exactly that time. The index is named because, left to choose, SQLite takes
+ * an owner-wide index on an unanalysed database.
+ */
 export async function getAgentSessionRequestPrompts(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner & { ids: readonly string[] },
 ): Promise<Array<{ id: string; message: string | null }>> {
 	const result: Array<{ id: string; message: string | null }> = [];
+	const earlier = alias(agentSessionEvents, "request_prompt_time_event");
+	const newestPromptAt = (status: AgentSessionEventStatus) =>
+		sql`coalesce((${db
+			.select({ sourceAt: sql<string>`${earlier.sourceAt}` })
+			.from(
+				sql`${agentSessionEvents} "request_prompt_time_event" INDEXED BY idx_agent_session_events_session_order`,
+			)
+			.where(
+				and(
+					eq(earlier.organizationId, agentSessionRequests.organizationId),
+					eq(earlier.userId, agentSessionRequests.userId),
+					eq(earlier.harness, agentSessionRequests.harness),
+					eq(earlier.sessionKey, agentSessionRequests.sessionKey),
+					eq(earlier.status, status),
+					eq(earlier.kind, "prompt"),
+					sql`${earlier.sourceAt} <= ${agentSessionRequests.sourceAt}`,
+				),
+			)
+			.orderBy(desc(earlier.sourceAt))
+			.limit(1)}), '')`;
 	for (const ids of chunkForBoundParams([...new Set(params.ids)], 50)) {
 		result.push(
 			...(await db
 				.select({
-					id: agentSessionRequests.id,
+					id: sql<string>`${agentSessionRequests.id}`.as("request_id"),
 					message: sql<string | null>`(${db
-						.select({ body: agentSessionEvents.body })
-						.from(agentSessionEvents)
+						.select({ body: sql<string>`${agentSessionEvents.body}` })
+						.from(
+							sql`${agentSessionEvents} INDEXED BY idx_agent_session_events_session_order`,
+						)
 						.where(
 							and(
 								eq(
@@ -1024,17 +1060,25 @@ export async function getAgentSessionRequestPrompts(
 									agentSessionEvents.sessionKey,
 									agentSessionRequests.sessionKey,
 								),
+								inArray(agentSessionEvents.status, [
+									...AGENT_SESSION_EVENT_STATUS_VALUES,
+								]),
 								eq(agentSessionEvents.kind, "prompt"),
-								sql`${agentSessionEvents.sourceAt} <= ${agentSessionRequests.sourceAt}`,
+								// An empty string matches no event: `source_at` is never empty.
+								sql`${agentSessionEvents.sourceAt} = max(${sql.join(
+									AGENT_SESSION_EVENT_STATUS_VALUES.map(newestPromptAt),
+									sql`, `,
+								)})`,
 							),
 						)
-						.orderBy(
-							desc(agentSessionEvents.sourceAt),
-							desc(agentSessionEvents.sourceKey),
-						)
+						.orderBy(desc(agentSessionEvents.sourceKey))
 						.limit(1)})`.as("message"),
 				})
-				.from(agentSessionRequests)
+				// By id: with enough ids SQLite otherwise reads every request of
+				// the owner through an owner index.
+				.from(
+					sql`${agentSessionRequests} INDEXED BY sqlite_autoindex_agent_session_requests_1`,
+				)
 				.where(
 					and(
 						eq(agentSessionRequests.organizationId, params.organizationId),
