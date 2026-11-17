@@ -1,0 +1,2 @@
+CREATE INDEX `idx_approval_requests_pending_expiry` ON `tedi_approval_requests` (`expires_at`) WHERE status = 'pending';--> statement-breakpoint
+CREATE INDEX `idx_approval_requests_open_tool_run` ON `tedi_approval_requests` (json_extract(payload, '$.execution.status'),`expires_at`) WHERE status = 'approved' AND action_type = 'mcp.tool_call' AND json_extract(payload, '$.execution.status') IN ('queued', 'running', 'failed') AND json_extract(payload, '$.execution.dismissedAt') IS NULL;

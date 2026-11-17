@@ -32,6 +32,9 @@ import {
 	type ApprovalStatus,
 	type TediApprovalRequest,
 	type TediProvisionalOutcome,
+	openOwnerToolRun,
+	ownerToolRunStatus,
+	pendingApproval,
 	tediApprovalRequests,
 	tediProvisionalOutcomes,
 } from "../schema/approvals";
@@ -782,7 +785,9 @@ export async function expireStaleApprovals(
 		})
 		.where(
 			and(
-				eq(tediApprovalRequests.status, "pending"),
+				// States idx_approval_requests_pending_expiry's condition, so the
+				// sweep reads the requests it closes instead of the whole table.
+				pendingApproval,
 				lt(tediApprovalRequests.expiresAt, now),
 				options.organizationId
 					? eq(tediApprovalRequests.orgId, options.organizationId)
@@ -1116,8 +1121,11 @@ export async function requeueStaleContinuableOwnerToolApprovals(
 		})
 		.where(
 			and(
-				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
-				eq(tediApprovalRequests.status, "approved"),
+				// Approved, a tool call, not dismissed: stated as
+				// idx_approval_requests_open_tool_run's own condition, then
+				// narrowed to the two run states this sweep can re-queue.
+				openOwnerToolRun,
+				sql`${ownerToolRunStatus} IN ('running', 'failed')`,
 				gt(tediApprovalRequests.expiresAt, input.now),
 				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.target.transport') = 'rpc'`,
@@ -1135,7 +1143,6 @@ export async function requeueStaleContinuableOwnerToolApprovals(
 						AND (instr(json_extract(${tediApprovalRequests.payload}, '$.execution.error'), 'SERVICE_UNAVAILABLE') > 0
 							OR instr(json_extract(${tediApprovalRequests.payload}, '$.execution.error'), 'timed out') > 0))
 				)`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1271,13 +1278,15 @@ export async function listDueOwnerToolApprovals(
 		.from(tediApprovalRequests)
 		.where(
 			and(
-				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
-				eq(tediApprovalRequests.status, "approved"),
+				// Approved, a tool call, not dismissed: stated as
+				// idx_approval_requests_open_tool_run's own condition, then
+				// narrowed to the two run states that can be due.
+				openOwnerToolRun,
+				sql`${ownerToolRunStatus} IN ('queued', 'running')`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
 				sql`(json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'queued' OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running' AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${new Date(Date.parse(now) - STALE_OWNER_TOOL_RUN_MS).toISOString()}))`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt') <= ${now}`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
 			),
 		)
 		.orderBy(
