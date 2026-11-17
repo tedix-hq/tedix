@@ -458,6 +458,7 @@ const ENGLISH_COPY = {
 		accepting: "Accepting…",
 		acceptError: "Could not accept this task. Please try again.",
 		ready: ATTENTION_COPY.readyToPickUp,
+		inProgress: "In progress · an Attempt is running now. No action needed",
 		waitingNextStep: "Waiting for the next step",
 		needsApproval: "Accepted · waiting for approval before it can run",
 		openApprovals: "Open approvals",

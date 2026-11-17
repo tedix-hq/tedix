@@ -587,7 +587,10 @@ export function WorkItemStatusSummary({
 	principalNames,
 	readiness,
 	acceptAction,
+	attemptState,
 }: {
+	/** Runtime state of the newest Attempt, when one is known. */
+	attemptState?: string | null;
 	disposition: WorkItem["disposition"];
 	accountableOwnerType?: string | null;
 	accountableOwnerId: string | null;
@@ -632,6 +635,11 @@ export function WorkItemStatusSummary({
 					</Text>
 					<Link href="/work/approvals">{OS_COPY.work.openApprovals}</Link>
 				</div>
+			) : disposition === "accepted" &&
+			  (attemptState === "running" || attemptState === "retrying") ? (
+				<Text as="p" tone="secondary">
+					{OS_COPY.work.inProgress}
+				</Text>
 			) : disposition === "accepted" ? (
 				<Text as="p" tone="secondary">
 					{readiness?.ready ? OS_COPY.work.ready : OS_COPY.work.waitingNextStep}
@@ -1522,6 +1530,12 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 				principalNames={principalNames}
 				readiness={readiness.data}
 				acceptAction={<WorkItemAcceptance item={item} />}
+				attemptState={
+					attempts.data?.data.find(
+						(a) =>
+							a.runtimeState === "running" || a.runtimeState === "retrying",
+					)?.runtimeState
+				}
 			/>
 			{item.disposition === "completed" ? (
 				<WorkRecordedOutcome

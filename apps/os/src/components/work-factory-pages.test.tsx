@@ -596,6 +596,26 @@ describe("Work item status summary", () => {
 	});
 });
 
+describe("Work item running status", () => {
+	it("explains progress while an Attempt is running", () => {
+		const html = renderToStaticMarkup(
+			<WorkItemStatusSummary
+				disposition="accepted"
+				accountableOwnerId="owner-1"
+				attemptState="running"
+				readiness={{
+					state: "dependencies_blocked",
+					ready: false,
+					reasons: [],
+				}}
+			/>,
+		);
+		expect(html).toContain("Accepted");
+		expect(html).toContain("In progress");
+		expect(html).not.toContain("Waiting for the next step");
+	});
+});
+
 describe("Work item read-only ledgers", () => {
 	it("shows generic preview request failures without leaking raw errors", () => {
 		const html = renderToStaticMarkup(
