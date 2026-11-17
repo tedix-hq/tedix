@@ -48,6 +48,7 @@ import type {
 	GetWorkItemResult,
 	ListWorkItemAttemptsResult,
 } from "@tedix/api-contract/schemas/work-items";
+import { TEDI_TASK_PURPOSE_CONTEXT } from "@tedix/api-contract/schemas/work-purpose-context";
 import { DescopeAccessKeyExchange } from "@tedix/auth/access-key-exchange";
 
 // ── Public types (shared across implementations) ─────────────────────────────
@@ -1006,7 +1007,7 @@ export class HttpPlatformClient implements PlatformClient {
 				...params.metadata,
 				...(params.objectiveId
 					? { purposeContext: "objective" }
-					: { purposeContext: "transitional_task_intent_exception" }),
+					: { purposeContext: TEDI_TASK_PURPOSE_CONTEXT }),
 			},
 		});
 	}

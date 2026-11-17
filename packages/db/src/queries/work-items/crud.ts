@@ -11,6 +11,7 @@ import {
 	LANE_READY_EXECUTORS,
 	type LaneDispatchPlan,
 } from "@tedix/api-contract/schemas/work-items";
+import { INTERNAL_WORK_PURPOSE_CONTEXTS } from "@tedix/api-contract/schemas/work-purpose-context";
 import {
 	and,
 	asc,
@@ -23,6 +24,7 @@ import {
 	lte,
 	lt,
 	ne,
+	notInArray,
 	or,
 	sql,
 } from "drizzle-orm";
@@ -366,7 +368,7 @@ export interface ListWorkItemsPageOptions {
 	titleContains?: string;
 	/**
 	 * Exclude records with metadata.agentSession or a metadata.purposeContext
-	 * beginning with `transitional_` before pagination. This coarse prefilter
+	 * in `INTERNAL_WORK_PURPOSE_CONTEXTS` before pagination. This coarse prefilter
 	 * is not authorization or a complete customer-visibility decision.
 	 */
 	customerVisiblePreFilter?: boolean;
@@ -475,10 +477,17 @@ export async function listWorkItemsPage(
 		titleContains
 			? sql`instr(lower(${workItems.title}), ${titleContains}) > 0`
 			: undefined,
-		// `_` is a LIKE wildcard, so `transitional_` must be escaped or it also
-		// matches `transitionalX`.
 		options.customerVisiblePreFilter
-			? sql`json_extract(${workItems.metadata}, '$.agentSession') IS NULL AND (json_extract(${workItems.metadata}, '$.purposeContext') IS NULL OR json_extract(${workItems.metadata}, '$.purposeContext') NOT LIKE 'transitional\\_%' ESCAPE '\\')`
+			? and(
+					sql`json_extract(${workItems.metadata}, '$.agentSession') IS NULL`,
+					or(
+						sql`json_extract(${workItems.metadata}, '$.purposeContext') IS NULL`,
+						notInArray(
+							sql`json_extract(${workItems.metadata}, '$.purposeContext')`,
+							[...INTERNAL_WORK_PURPOSE_CONTEXTS],
+						),
+					),
+				)
 			: undefined,
 		options.mattersThrough
 			? or(

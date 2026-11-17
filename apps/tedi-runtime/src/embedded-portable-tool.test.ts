@@ -140,11 +140,33 @@ const workRows = {
 			title: "Private agent execution",
 			metadata: { customerVisible: false, secret: "never-return" },
 		},
+		{
+			id: "home-delegation-purpose",
+			title: "Internal Home request",
+			metadata: { purposeContext: "transitional_home_exception" },
+		},
+		{
+			id: "tedi-task-purpose",
+			title: "Internal tedi task",
+			metadata: { purposeContext: "transitional_task_intent_exception" },
+		},
 	],
 };
 const projected = projectEmbeddedCustomerWorkResult({
 	content: [{ type: "text", text: JSON.stringify(workRows) }],
 });
+assert.deepEqual(
+	projectEmbeddedCustomerWorkResult({
+		data: [
+			{
+				id: "prefix-lookalike",
+				title: "Customer work",
+				metadata: { purposeContext: "transitional_customer" },
+			},
+		],
+	}).data.map((item) => item.id),
+	["prefix-lookalike"],
+);
 assert.deepEqual(
 	projected.data.map((item) => item.id),
 	["customer-work"],

@@ -8,6 +8,7 @@
 
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
 import { DelegationFyiSchema } from "@tedix/api-contract/schemas/work-items";
+import { HOME_DELEGATION_PURPOSE_CONTEXT } from "@tedix/api-contract/schemas/work-purpose-context";
 import {
 	recordDelegationFyi,
 	readDelegationFyi,
@@ -465,7 +466,7 @@ export async function createDelegationWorkItem(
 			...(projectId ? {} : NEEDS_PROJECT_METADATA),
 			purposeContext: input.objectiveId
 				? "objective"
-				: "transitional_home_exception",
+				: HOME_DELEGATION_PURPOSE_CONTEXT,
 			executionRequirement: input.executionRequirement,
 			requiredProofKind: requiredProofKindForExecution(
 				input.executionRequirement,

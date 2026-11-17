@@ -23,6 +23,7 @@ import {
 import { addWorkItemCommentIfAbsent } from "@tedix/db/queries/work-items/comments";
 import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { HOME_DELEGATION_PURPOSE_CONTEXT } from "@tedix/api-contract/schemas/work-purpose-context";
 import type { BaseContext } from "../../orpc";
 import {
 	HOME_DELEGATION_AUTHORITY,
@@ -128,7 +129,7 @@ export async function requestHomeDelegationAgentReview(
 				...(projectId ? {} : NEEDS_PROJECT_METADATA),
 				purposeContext: input.objectiveId
 					? "objective"
-					: "transitional_home_exception",
+					: HOME_DELEGATION_PURPOSE_CONTEXT,
 				executionRequirement:
 					input.executionRequirement as unknown as JsonValue,
 				requiredProofKind: requiredProofKindForExecution(
