@@ -75,6 +75,7 @@ const NATIVE_THEME_LOCKED_FILES = [
 ] as const;
 export const MARKETING_LOCKED_FILES = [
 	"src/lib/authored-discovery.ts",
+	"src/lib/phosphor-per-icon-imports.ts",
 	"src/lib/platform-branding.ts",
 	...NATIVE_THEME_LOCKED_FILES,
 ] as const;

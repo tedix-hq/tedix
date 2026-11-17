@@ -12,6 +12,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { workerLoaderDurableObjects as durableObjects } from "./src/lib/worker-loader-durable-objects.mjs";
+import { phosphorPerIconImports } from "./src/lib/phosphor-per-icon-imports.ts";
 import { editorActionsMetadata } from "./src/plugins/tedix-editor-actions/metadata.ts";
 
 const siteBuilderAuthBridgeEntrypoint = fileURLToPath(
@@ -383,7 +384,10 @@ export default defineConfig({
 		},
 	],
 	vite: {
-		plugins: [tailwindcss()],
+		plugins: [phosphorPerIconImports(), tailwindcss()],
+		optimizeDeps: {
+			exclude: ["@phosphor-icons/react"],
+		},
 		resolve: {
 			dedupe: ["react", "react-dom"],
 		},
