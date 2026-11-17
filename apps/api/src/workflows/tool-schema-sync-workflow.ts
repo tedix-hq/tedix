@@ -248,10 +248,21 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 				async () => {
 					const { snapshotOrganizationGatewayToolContracts } =
 						await import("../services/gateway-tool-contract-snapshot");
-					return snapshotOrganizationGatewayToolContracts(
-						db,
-						this.env.R2_BUCKET,
-					);
+					try {
+						return await snapshotOrganizationGatewayToolContracts(
+							db,
+							this.env.R2_BUCKET,
+						);
+					} catch (error) {
+						// The engine records only name and message, so a query error's
+						// provider cause would be lost. Append its fixed-phrase class.
+						const { safeErrorClassification } =
+							await import("../lib/safe-log-metadata");
+						const { causeChain } = safeErrorClassification(error);
+						if (error instanceof Error && causeChain)
+							error.message += `\ncause: ${JSON.stringify(causeChain)}`;
+						throw error;
+					}
 				},
 			);
 		}

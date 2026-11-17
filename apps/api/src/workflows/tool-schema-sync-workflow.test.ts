@@ -501,6 +501,23 @@ describe("ToolSchemaSyncWorkflow cache purge", () => {
 		expect(mocks.snapshot).toHaveBeenCalledTimes(1);
 	});
 
+	it("names the provider cause when the gateway snapshot query fails", async () => {
+		mocks.snapshot.mockRejectedValue(
+			Object.assign(new Error("Failed query: select from apps\nparams: acme"), {
+				name: "DrizzleQueryError",
+				cause: new Error("D1_ERROR: no such column: apps.extra: SQLITE_ERROR"),
+			}),
+		);
+		const failure = await workflow()
+			.run({ payload: { mode: "projection" } } as never, engine().step as never)
+			.catch((error: Error) => error);
+
+		expect(failure).toMatchObject({ name: "DrizzleQueryError" });
+		expect((failure as Error).message).toContain(
+			'cause: [{"messageClass":["D1_ERROR","no such column"]}]',
+		);
+	});
+
 	it("does not purge a preview run", async () => {
 		const env = { MCP_SERVICE: mcpService() };
 		const { step } = engine();
