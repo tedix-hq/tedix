@@ -5099,13 +5099,14 @@ export class LaneDispatcher {
 			original.id !== receipt.attemptId &&
 			original.outcome !== "failed" &&
 			original.outcome !== "expired" &&
-			original.outcome !== "succeeded"
+			original.outcome !== "succeeded" &&
+			original.outcome !== "cancelled"
 		)
 			return this.rejectCommitCustody(
 				receipt,
 				session,
 				commitSha,
-				"the original Attempt is still running",
+				"the original Attempt has not reached a terminal outcome",
 			);
 		receipt.recoveredCommits = [
 			...(receipt.recoveredCommits ?? []).filter(

@@ -7554,6 +7554,7 @@ describe("structured dispatcher outcomes", () => {
 		"laterSessionAttempt",
 		"originalVersion",
 		"originalSucceeded",
+		"originalCancelled",
 		"interactiveOriginal",
 		"work",
 		"version",
@@ -7637,6 +7638,7 @@ describe("structured dispatcher outcomes", () => {
 			// dispatch metadata all vouch for the commit they landed.
 			if (state === "originalVersion") original.metadata.dispatchVersion = 1;
 			if (state === "originalSucceeded") original.outcome = "succeeded";
+			if (state === "originalCancelled") original.outcome = "cancelled";
 			if (state === "interactiveOriginal") {
 				original.outcome = "succeeded";
 				(original as { metadata?: unknown }).metadata = undefined;
@@ -7671,6 +7673,7 @@ describe("structured dispatcher outcomes", () => {
 					"laterSessionAttempt",
 					"originalVersion",
 					"originalSucceeded",
+					"originalCancelled",
 					"interactiveOriginal",
 					"originalWork",
 					"originalAdmission",
@@ -7687,6 +7690,7 @@ describe("structured dispatcher outcomes", () => {
 				"laterSessionAttempt",
 				"originalVersion",
 				"originalSucceeded",
+				"originalCancelled",
 				"interactiveOriginal",
 			].includes(state);
 			if (vouched) {
@@ -7715,10 +7719,14 @@ describe("structured dispatcher outcomes", () => {
 				).toHaveLength(1);
 			} else {
 				expect(settled.some((e) => e.args.includes("succeeded"))).toBe(false);
-				if (settled.length === 1)
-					expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
-						'"event":"custody-rejected"',
-					);
+				if (settled.length === 1) {
+					const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
+					expect(log).toContain('"event":"custody-rejected"');
+					if (state === "peer")
+						expect(log).toContain(
+							"the original Attempt has not reached a terminal outcome",
+						);
+				}
 			}
 			expect(f.releases).toHaveLength(1);
 			expect(JSON.stringify(original)).not.toContain(sha);
