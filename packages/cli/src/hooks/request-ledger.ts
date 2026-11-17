@@ -440,37 +440,41 @@ export async function runRequestLedger(
 		if (!text) return;
 		// Child reads inherit this process's environment, as in decision capture.
 		for (const key of AGENT_IDENTITY_ENV) delete deps.env[key];
-		const binding = await bindingFor(deps, session!);
-		if (!binding || !PROFILE.test(String(binding.workspace))) return;
-		const now = (deps.now ?? (() => new Date()))();
-		const sourceAt = isoSeconds(now, true);
-		const commitEvidence =
-			mode === "turn"
-				? referencedCommitEvidence(binding.root, text, sourceAt)
-				: "";
-		const source = text + commitEvidence;
-		const activity = turn?.activity ?? "";
-		const dir = outboxDir(
-			deps.env,
-			`${binding.workspace}--${String(binding.organization ?? "default").replace(/[^A-Za-z0-9_-]/g, "")}`,
-		);
-		enqueue(dir, {
-			kind: mode,
-			harness: harnessOf(event, hostEnv),
-			sessionKey: session!,
-			sourceAt,
-			text: bounded(source, source.length, "head"),
-			...(activity ? { activity } : {}),
-			...(binding.contextSource === "default"
-				? {}
-				: {
-						repository: repositoryName(binding.origin, binding.root).slice(
-							0,
-							200,
-						),
-					}),
+		let dir: string | undefined;
+		// Queued once the local opt-in is known, before any live check can fail.
+		const binding = await bindingFor(deps, session!, (optedIn) => {
+			if (!PROFILE.test(String(optedIn.workspace))) return;
+			const now = (deps.now ?? (() => new Date()))();
+			const sourceAt = isoSeconds(now, true);
+			const commitEvidence =
+				mode === "turn"
+					? referencedCommitEvidence(optedIn.root, text, sourceAt)
+					: "";
+			const source = text + commitEvidence;
+			const activity = turn?.activity ?? "";
+			const outbox = outboxDir(
+				deps.env,
+				`${optedIn.workspace}--${String(optedIn.organization ?? "default").replace(/[^A-Za-z0-9_-]/g, "")}`,
+			);
+			enqueue(outbox, {
+				kind: mode,
+				harness: harnessOf(event, hostEnv),
+				sessionKey: session!,
+				sourceAt,
+				text: bounded(source, source.length, "head"),
+				...(activity ? { activity } : {}),
+				...(optedIn.contextSource === "default"
+					? {}
+					: {
+							repository: repositoryName(optedIn.origin, optedIn.root).slice(
+								0,
+								200,
+							),
+						}),
+			});
+			dir = outbox;
 		});
-		await flush(deps, binding.command, dir);
+		if (binding && dir) await flush(deps, binding.command, dir);
 	} catch {
 		// Upload is best effort; a queued event goes with the next hook.
 	}

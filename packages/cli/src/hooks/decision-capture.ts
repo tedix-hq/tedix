@@ -224,7 +224,7 @@ export interface Binding extends JsonObject {
 export async function bindingFor(
 	deps: HookDeps,
 	session: string,
-	onOptedIn?: () => void,
+	onOptedIn?: (optedIn: JsonObject) => void,
 ): Promise<Binding | undefined> {
 	const binding = await deps.read(
 		[
@@ -242,7 +242,7 @@ export async function bindingFor(
 	if (binding.status !== "bound" || binding.decisionCapture !== true)
 		return undefined;
 	// The same local opt-in `captureOwnsStop` reads, before any check that may fail.
-	onOptedIn?.();
+	onOptedIn?.(binding);
 	if (binding.contextSessionId && binding.contextSessionId !== session)
 		throw new Error("resolved chat mismatch");
 	if (
