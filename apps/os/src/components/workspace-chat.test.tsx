@@ -576,6 +576,35 @@ describe("WorkspaceChat", () => {
 		},
 	);
 
+	it("retries a failed turn by sending its own message again", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed([
+				started,
+				{
+					seq: 2,
+					at,
+					conversationId: "c1",
+					type: "turn.finished",
+					turnId: "t1",
+					status: "error",
+					error: "boom",
+					durationMs: 1000,
+				},
+			]),
+		);
+		const retry = [...host.querySelectorAll("button")].find(
+			(button) => button.textContent === "Retry",
+		);
+		expect(retry).toBeDefined();
+		act(() => retry?.click());
+		expect(fake.calls).toContainEqual([
+			"sendTurn",
+			expect.objectContaining({ text: "How many challenges are open?" }),
+		]);
+	});
+
 	it("does not offer Continue after a turn that finished", () => {
 		const fake = fakeClient("c1");
 		mount(fake);
