@@ -1,0 +1,7 @@
+{
+	"hook_event_name": "Stop",
+	"stop_hook_active": false,
+	"last_assistant_message": "pong",
+	"session_id": "early-rondeletia",
+	"prompt_id": "fcfe6fb8-a51f-44d7-8331-ccebddcc4fe0"
+}
