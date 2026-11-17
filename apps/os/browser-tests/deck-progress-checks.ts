@@ -232,6 +232,10 @@ async function assertNoOverflow(page: Page, state: string) {
 		`${state}: no horizontal overflow`,
 	);
 }
+// The dev server compiles lazy Deck modules on first use, and on a busy runner
+// that stalls rendering for many seconds. These waits cover that cold start;
+// the assertions check what the Deck shows, not how fast it appears.
+const PAGE_TIMEOUT_MS = 60_000;
 const screenshots = process.env.DECK_PROGRESS_SCREENSHOTS;
 const selectedWidth = Number(process.env.DECK_PROGRESS_WIDTH ?? 0);
 const selectedTheme = process.env.DECK_PROGRESS_THEME;
@@ -251,7 +255,7 @@ try {
 				colorScheme,
 			});
 			const page = await context.newPage();
-			page.setDefaultTimeout(15000);
+			page.setDefaultTimeout(PAGE_TIMEOUT_MS);
 			await fixture(page);
 			await page.goto(`${origin}/work?view=deck`);
 			await page
@@ -388,6 +392,7 @@ try {
 				colorScheme,
 			});
 			const loadingPage = await loading.newPage();
+			loadingPage.setDefaultTimeout(PAGE_TIMEOUT_MS);
 			// Prefetch can finish before the lazy Deck mounts on a slow runner.
 			// Keep the inbox pending until its loading state has been checked.
 			const inbox = Promise.withResolvers<void>();
@@ -433,6 +438,7 @@ try {
 		}
 	if (!selectedWidth || (selectedWidth === 1280 && selectedTheme === "dark")) {
 		const page = await browser.newPage();
+		page.setDefaultTimeout(PAGE_TIMEOUT_MS);
 		await fixture(page, { failure: true });
 		await page.goto(`${origin}/work?view=deck`);
 		const first = page.getByRole("region", {
