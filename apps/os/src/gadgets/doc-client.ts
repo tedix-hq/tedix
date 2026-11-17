@@ -69,25 +69,25 @@ const SAVE_IDLE_MS = 220,
 	SAVE_RETRY_MAX_MS = 10_000,
 	SAVE_QUIET_RETRIES = 8;
 
-/** Text colors and highlights the palette offers; "" clears. */
-const TEXT_COLORS: [string, string][] = [
-	["Default", ""],
-	["Gray", "#6b7280"],
-	["Red", "#c0262d"],
-	["Orange", "#c2410c"],
-	["Green", "#15803d"],
-	["Blue", "#1d4ed8"],
-	["Purple", "#7e22ce"],
+/**
+ * The palette: each color's text and highlight shade; Default clears.
+ * Highlight's Default is "No highlight".
+ */
+const PALETTE: [name: string, text: string, highlight: string][] = [
+	["Default", "", ""],
+	["Gray", "#787774", "#ebebe9"],
+	["Brown", "#9f6b53", "#f1e5df"],
+	["Orange", "#d9730d", "#fbe4cf"],
+	["Yellow", "#b7891c", "#fbefc4"],
+	["Green", "#448361", "#ddede3"],
+	["Blue", "#337ea9", "#dbeaf5"],
+	["Purple", "#9065b0", "#ebe3f3"],
+	["Pink", "#c14c8a", "#f6dfeb"],
+	["Red", "#d44c47", "#fadedc"],
 ];
-const HIGHLIGHTS: [string, string][] = [
-	["None", ""],
-	["Yellow", "#fef08a"],
-	["Green", "#bbf7d0"],
-	["Blue", "#bfdbfe"],
-	["Pink", "#fbcfe8"],
-	["Orange", "#fed7aa"],
-];
-const css = `:root{--ease:cubic-bezier(.2,.8,.2,1);--fg:var(--tedix-fg,CanvasText);--bg:var(--tedix-bg,Canvas);--pri:var(--tedix-primary,Highlight);--mut:var(--tedix-muted-fg,GrayText);--hov:color-mix(in srgb,var(--fg) 5.5%,var(--bg));--act:color-mix(in srgb,var(--fg) 8.5%,var(--bg));--line:color-mix(in srgb,var(--fg) 8%,transparent);--edge:color-mix(in srgb,var(--fg) 15%,transparent);--card:var(--tedix-surface,var(--bg));font:14px var(--tedix-font,system-ui,sans-serif);color:var(--fg);scrollbar-width:thin;scrollbar-color:var(--edge) transparent}*{box-sizing:border-box}body{margin:0;padding:0!important;background:var(--bg)}button,input,select{font:inherit;color:inherit}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--pri);outline-offset:1px}.doc-toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:6px 26px 6px 10px;background:var(--bg);border-bottom:1px solid transparent;transition:border-color .12s}.doc-toolbar[data-scrolled]{border-color:var(--line)}.doc-toolbar>*{flex:none}.doc-table{display:contents}.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-status button{height:29px;min-width:29px;display:inline-grid;place-items:center;padding:0 6px;border:0;border-radius:6px;background:none;cursor:pointer;transition:background .12s var(--ease),transform .12s var(--ease)}:is(button,select):hover:not(:disabled){background:var(--hov)}button:active:not(:disabled){background:var(--act);transform:scale(.94)}:is(button,select):disabled{opacity:.38;cursor:default}button[aria-pressed=true]{background:var(--act);color:var(--pri)}.doc-sep{flex:none;width:1px;height:16px;margin:0 5px;background:var(--edge)}.doc-readonly{padding:0 8px;font-size:12px;color:var(--mut)}.doc-toolbar .doc-more{margin-left:auto;position:sticky;right:0;background:var(--bg)}.doc-page{max-width:calc(700px + 2*clamp(20px,5.5vw,52px));margin:0 auto;padding:22px clamp(20px,5.5vw,52px) min(40vh,300px)}.doc-skel{animation:doc-fade .3s .25s both}.doc-skel i{display:block;height:12px;margin-bottom:15px;border-radius:6px;background:var(--act)}.doc-skel i:first-child{width:45%;height:26px;margin-bottom:24px}.doc-skel i:last-child{width:60%}@keyframes doc-fade{from{opacity:0}}@keyframes doc-in{from{opacity:0;transform:scale(.96)}}.doc-status,.doc-link,.doc-menu{position:fixed;background:var(--card);border:1px solid var(--edge);box-shadow:0 6px 22px #0002;animation:doc-in .16s var(--ease)}.doc-status{top:48px;right:12px;z-index:4;max-width:min(380px,calc(100% - 24px));display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 11px;border-radius:14px;font-size:12px;line-height:1.45;color:var(--mut)}.doc-status:empty{display:none}.doc-save{position:fixed;top:18px;right:12px;z-index:4;width:7px;height:7px;border-radius:50%;background:var(--mut)}.doc-save[data-s="1"]{background:#1a7f37}.doc-save[data-s="2"]{background:#c0262d}.doc-status[data-error=true]{color:var(--tedix-danger,#c0262d)}.doc-status button{height:24px;color:var(--fg);background:var(--hov)}.doc-link,.doc-menu{z-index:5;padding:5px;border-radius:10px;transform-origin:0 0}.doc-link{display:flex;gap:4px}.doc-link input{width:min(250px,60vw);height:29px;padding:0 8px;border:0;border-radius:6px;background:var(--hov)}.doc-link button{height:29px;padding:0 10px;border:0;border-radius:6px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);cursor:pointer}.doc-menu{display:grid;min-width:180px}.doc-menu button{justify-content:start;padding:0 9px}.doc-menu div{display:flex;gap:2px}.doc-slash{max-height:min(320px,60vh);overflow-y:auto}.doc-handle{position:absolute;z-index:2;width:22px;height:26px;padding:0;border:0;border-radius:5px;background:none;color:var(--mut);font-size:12px;letter-spacing:-2px;cursor:grab;opacity:.7}.doc-handle:hover{background:var(--hov);opacity:1}.doc-drop{position:absolute;z-index:2;height:2px;border-radius:1px;background:var(--pri);pointer-events:none}.doc-block-menu p{margin:4px 9px 2px;font-size:11px;color:var(--mut)}.doc-colors p,.doc-keys p{margin:4px 6px 2px;font-size:11px;color:var(--mut)}.doc-colors div{display:flex;gap:4px;padding:2px 4px 6px}.doc-menu .doc-swatch{width:22px;min-width:22px;height:22px;padding:0;border:1px solid var(--edge);border-radius:50%;background:var(--swatch)}.doc-paint{font-weight:700;text-decoration:underline 2px;text-underline-offset:3px}.doc-keys{min-width:min(420px,calc(100vw - 24px))}.doc-keys dl{display:grid;grid-template-columns:1fr auto;gap:6px 16px;margin:4px 8px 8px;font-size:13px}.doc-keys dd{margin:0;color:var(--mut);text-align:right}.doc-slash button[aria-selected=true]{background:var(--act)}.doc-menu hr{width:100%;height:0;border:0;border-top:1px solid var(--line);margin:4px 0}.tiptap{outline:0;font-size:16px;line-height:1.62;min-height:50vh;caret-color:var(--pri);overflow-wrap:anywhere}.tiptap>:first-child{margin-top:0}.tiptap p{margin:0 0 .8em}.tiptap h1{font-size:1.875em;line-height:1.22;font-weight:680;letter-spacing:-.024em;margin:1.3em 0 .4em}.tiptap h2{font-size:1.4em;line-height:1.3;font-weight:640;letter-spacing:-.016em;margin:1.3em 0 .35em}.tiptap h3{font-size:1.15em;line-height:1.4;font-weight:620;margin:1.2em 0 .3em}.tiptap .doc-title{font-size:2.3em;font-weight:700}.tiptap [data-hint]:before{content:attr(data-hint);float:left;height:0;pointer-events:none;color:var(--mut);opacity:.65}.tiptap blockquote{margin:0 0 .8em;padding-left:14px;border-left:2px solid var(--edge);color:color-mix(in srgb,var(--fg) 72%,transparent)}.tiptap pre{font:13px/1.55 var(--tedix-font-mono,ui-monospace,monospace);background:var(--hov);margin:0 0 1em;padding:12px 14px;border-radius:8px;white-space:pre-wrap}.tiptap code{font-family:var(--tedix-font-mono,ui-monospace,monospace);font-size:.9em}.tiptap :not(pre)>code{background:var(--act);padding:.1em .3em;border-radius:4px}.tiptap hr{border:0;border-top:1px solid var(--edge);margin:1.6em 0}.tiptap ul,.tiptap ol{margin:0 0 .8em;padding-left:1.5em}.tiptap li p{margin:0 0 .2em}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-checked]{display:flex;gap:9px}.tiptap li[data-checked]>div{flex:1}.tiptap li[data-checked=true]>div{color:var(--mut)}.tiptap input[type=checkbox]{appearance:none;display:grid;place-content:center;width:16px;height:16px;margin:5px 0 0;border:1.5px solid color-mix(in srgb,var(--fg) 34%,transparent);border-radius:4.5px;cursor:pointer;transition:background .12s}.tiptap input:checked{background:var(--pri);border-color:var(--pri)}.tiptap input:checked:after{content:"";width:8px;height:4px;margin-top:-2px;border:solid var(--tedix-on-primary,HighlightText);border-width:0 0 2px 2px;transform:rotate(-45deg)}.tiptap table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;margin:0 0 1em;border:1px solid var(--edge);border-radius:8px;overflow:hidden}.tiptap th,.tiptap td{border:solid var(--line);border-width:0 1px 1px 0;min-width:60px;padding:7px 10px;position:relative;vertical-align:top;text-align:left}.tiptap :is(th,td):last-child{border-right:0}.tiptap tr:last-child>*{border-bottom:0}.tiptap th{background:color-mix(in srgb,var(--fg) 3.5%,transparent);font-weight:600}.tiptap :is(th,td) p{margin:0}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--pri) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:0;top:0;bottom:0;width:3px;background:var(--pri)}.tiptap img{max-width:100%;height:auto;border-radius:6px}.tiptap .ProseMirror-selectednode{outline:2px solid var(--pri)}.tiptap aside,.tiptap [data-type=details]{margin:0 0 1em;padding:11px 14px;border-radius:8px;background:var(--hov)}.tiptap [data-type=details]{display:flex;gap:6px}.tiptap [data-type=details]>button{flex:none;width:22px;height:26px;border:0;border-radius:5px;background:none;cursor:pointer}.tiptap [data-type=details]>button:before{content:"▸"}.tiptap .is-open>button:before{content:"▾"}.tiptap [data-type=details]>div{flex:1;min-width:0}.tiptap summary{list-style:none;font-weight:600}.tiptap :is(aside,[data-type=detailsContent])>:last-child{margin-bottom:0}.tiptap a{color:var(--pri);text-decoration:underline}@keyframes doc-land{0%,25%{background:color-mix(in srgb,var(--pri) 24%,transparent)}to{background:transparent}}@keyframes doc-arrive{0%{opacity:0}12%{opacity:1}}.doc-landed,.doc-landed-words{border-radius:3px;animation:doc-land 2.4s var(--ease) both}.doc-landed{animation-name:doc-land,doc-arrive}@keyframes doc-gone{0%,55%{opacity:1}to{opacity:0}}.doc-removed{display:inline-block;width:2px;height:1.1em;margin:0 1px;vertical-align:text-bottom;border-radius:1px;background:var(--tedix-danger,#c0262d);animation:doc-gone 2.4s var(--ease) both;pointer-events:none}.doc-removed-block{display:block;height:2px;margin:-1px 0;border-radius:1px;background:var(--tedix-danger,#c0262d);animation:doc-gone 2.4s var(--ease) both;pointer-events:none}@media(prefers-reduced-motion:reduce){.doc-landed,.doc-landed-words{animation:none;background:color-mix(in srgb,var(--pri) 14%,transparent)}}@media(pointer:coarse){.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-link input,.doc-link button{height:44px;min-width:44px}.doc-save{top:25px}.doc-status{top:62px}}`;
+/** What ⌘⇧H highlights with. */
+const DEFAULT_HIGHLIGHT = "#fbefc4";
+const css = `:root{--ease:cubic-bezier(.2,.8,.2,1);--fg:var(--tedix-fg,CanvasText);--bg:var(--tedix-bg,Canvas);--pri:var(--tedix-primary,Highlight);--mut:var(--tedix-muted-fg,GrayText);--hov:color-mix(in srgb,var(--fg) 5.5%,var(--bg));--act:color-mix(in srgb,var(--fg) 8.5%,var(--bg));--line:color-mix(in srgb,var(--fg) 8%,transparent);--edge:color-mix(in srgb,var(--fg) 15%,transparent);--card:var(--tedix-surface,var(--bg));font:14px var(--tedix-font,system-ui,sans-serif);color:var(--fg);scrollbar-width:thin;scrollbar-color:var(--edge) transparent}*{box-sizing:border-box}body{margin:0;padding:0!important;background:var(--bg)}button,input,select{font:inherit;color:inherit}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--pri);outline-offset:1px}.doc-toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:6px 26px 6px 10px;background:var(--bg);border-bottom:1px solid transparent;transition:border-color .12s}.doc-toolbar[data-scrolled]{border-color:var(--line)}.doc-toolbar>*{flex:none}.doc-table{display:contents}.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-status button{height:29px;min-width:29px;display:inline-grid;place-items:center;padding:0 6px;border:0;border-radius:6px;background:none;cursor:pointer;transition:background .12s var(--ease),transform .12s var(--ease)}:is(button,select):hover:not(:disabled){background:var(--hov)}button:active:not(:disabled){background:var(--act);transform:scale(.94)}:is(button,select):disabled{opacity:.38;cursor:default}button[aria-pressed=true]{background:var(--act);color:var(--pri)}.doc-sep{flex:none;width:1px;height:16px;margin:0 5px;background:var(--edge)}.doc-readonly{padding:0 8px;font-size:12px;color:var(--mut)}.doc-toolbar .doc-more{margin-left:auto;position:sticky;right:0;background:var(--bg)}.doc-page{max-width:calc(700px + 2*clamp(20px,5.5vw,52px));margin:0 auto;padding:22px clamp(20px,5.5vw,52px) min(40vh,300px)}.doc-skel{animation:doc-fade .3s .25s both}.doc-skel i{display:block;height:12px;margin-bottom:15px;border-radius:6px;background:var(--act)}.doc-skel i:first-child{width:45%;height:26px;margin-bottom:24px}.doc-skel i:last-child{width:60%}@keyframes doc-fade{from{opacity:0}}@keyframes doc-in{from{opacity:0;transform:scale(.96)}}.doc-status,.doc-link,.doc-menu{position:fixed;background:var(--card);border:1px solid var(--edge);box-shadow:0 6px 22px #0002;animation:doc-in .16s var(--ease)}.doc-status{top:48px;right:12px;z-index:4;max-width:min(380px,calc(100% - 24px));display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 11px;border-radius:14px;font-size:12px;line-height:1.45;color:var(--mut)}.doc-status:empty{display:none}.doc-save{position:fixed;top:18px;right:12px;z-index:4;width:7px;height:7px;border-radius:50%;background:var(--mut)}.doc-save[data-s="1"]{background:#1a7f37}.doc-save[data-s="2"]{background:#c0262d}.doc-status[data-error=true]{color:var(--tedix-danger,#c0262d)}.doc-status button{height:24px;color:var(--fg);background:var(--hov)}.doc-link,.doc-menu{z-index:5;padding:5px;border-radius:10px;transform-origin:0 0}.doc-link{display:flex;gap:4px}.doc-link input{width:min(250px,60vw);height:29px;padding:0 8px;border:0;border-radius:6px;background:var(--hov)}.doc-link button{height:29px;padding:0 10px;border:0;border-radius:6px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);cursor:pointer}.doc-menu{display:grid;min-width:180px}.doc-menu button{justify-content:start;padding:0 9px}.doc-menu div{display:flex;gap:2px}.doc-slash{width:272px;max-height:min(320px,60vh);overflow-y:auto}.doc-slash button{display:flex;gap:10px;align-items:center;height:auto!important;padding:5px 8px!important}.doc-tile{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:7px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line);color:color-mix(in srgb,var(--fg) 72%,transparent);font-size:12px;font-weight:600}.doc-mi{flex:1}.doc-md{font:11.5px var(--tedix-font-mono,ui-monospace,monospace);color:var(--mut)}.doc-mempty{padding:10px;color:var(--mut)}.doc-handle{position:absolute;z-index:2;width:22px;height:26px;padding:0;border:0;border-radius:5px;background:none;color:var(--mut);font-size:12px;letter-spacing:-2px;cursor:grab;opacity:.7}.doc-handle:hover{background:var(--hov);opacity:1}.doc-drop{position:absolute;z-index:2;height:2px;border-radius:1px;background:var(--pri);pointer-events:none}.doc-block-menu p{margin:4px 9px 2px;font-size:11px;color:var(--mut)}.doc-colors{width:248px;padding:4px 8px 10px}.doc-colors p{margin:0;padding:7px 2px 5px;font-size:11.5px;font-weight:550;color:var(--mut)}.doc-swatches{display:grid!important;grid-template-columns:repeat(5,1fr);gap:6px;padding:0 2px}.doc-menu .doc-swatch{aspect-ratio:1;width:auto;height:auto!important;min-width:0;padding:0;border:0;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:620;font-size:14px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line);transition:transform .12s var(--ease),box-shadow .12s var(--ease)}.doc-menu .doc-swatch:hover{transform:scale(1.07)}.doc-menu .doc-swatch.on{box-shadow:inset 0 0 0 1px var(--line),0 0 0 2px var(--card),0 0 0 3.5px var(--pri)}.doc-menu .doc-swatch.none{background:linear-gradient(135deg,transparent calc(50% - .75px),var(--mut) calc(50% - .75px),var(--mut) calc(50% + .75px),transparent calc(50% + .75px)),var(--bg)}.doc-paint{position:relative;display:grid;place-items:center;width:22px;height:22px}.doc-paint svg{position:relative}.doc-paint-fill{position:absolute;inset:2px 1px;border-radius:5px;background:var(--paint-fill,transparent)}.doc-paint-bar{position:absolute;left:4px;right:4px;bottom:1px;height:2.5px;border-radius:2px;background:var(--paint-text,transparent)}.doc-keys{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(12,12,16,.28);backdrop-filter:blur(3px)}.doc-sheet{width:min(620px,100%);max-height:min(78vh,680px);overflow-y:auto;padding:22px 24px 18px;background:var(--card);border-radius:14px;box-shadow:0 12px 40px #0003}.doc-sheet h2{margin:0 0 4px;font-size:15px;font-weight:620}.doc-sheet .doc-sub{margin:0 0 16px;color:var(--mut);font-size:12.5px}.doc-sheet-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 32px}@media(max-width:580px){.doc-sheet-cols{grid-template-columns:1fr}}.doc-sheet h3{margin:14px 0 4px;font-size:11.5px;font-weight:550;color:var(--mut)}.doc-krow{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;border-bottom:1px solid var(--line);font-size:13px;line-height:20px}.doc-krow:last-child{border-bottom:0}.doc-chips{display:flex;gap:4px;flex:none}.doc-chip{display:inline-flex;align-items:center;justify-content:center;height:22px;min-width:22px;padding:0 6px;border-radius:6px;background:var(--hov);box-shadow:inset 0 -1px 0 var(--edge);font-size:12px}.doc-chip.md{font:11.5px var(--tedix-font-mono,ui-monospace,monospace)}.doc-slash button[aria-selected=true]{background:var(--act)}.doc-menu hr{width:100%;height:0;border:0;border-top:1px solid var(--line);margin:4px 0}.tiptap{outline:0;font-size:16px;line-height:1.62;min-height:50vh;caret-color:var(--pri);overflow-wrap:anywhere}.tiptap>:first-child{margin-top:0}.tiptap p{margin:0 0 .8em}.tiptap h1{font-size:1.875em;line-height:1.22;font-weight:680;letter-spacing:-.024em;margin:1.3em 0 .4em}.tiptap h2{font-size:1.4em;line-height:1.3;font-weight:640;letter-spacing:-.016em;margin:1.3em 0 .35em}.tiptap h3{font-size:1.15em;line-height:1.4;font-weight:620;margin:1.2em 0 .3em}.tiptap .doc-title{font-size:2.3em;font-weight:700}.tiptap [data-hint]:before{content:attr(data-hint);float:left;height:0;pointer-events:none;color:var(--mut);opacity:.65}.tiptap blockquote{margin:0 0 .8em;padding-left:14px;border-left:2px solid var(--edge);color:color-mix(in srgb,var(--fg) 72%,transparent)}.tiptap pre{font:13px/1.55 var(--tedix-font-mono,ui-monospace,monospace);background:var(--hov);margin:0 0 1em;padding:12px 14px;border-radius:8px;white-space:pre-wrap}.tiptap code{font-family:var(--tedix-font-mono,ui-monospace,monospace);font-size:.9em}.tiptap :not(pre)>code{background:var(--act);padding:.1em .3em;border-radius:4px}.tiptap hr{border:0;border-top:1px solid var(--edge);margin:1.6em 0}.tiptap ul,.tiptap ol{margin:0 0 .8em;padding-left:1.5em}.tiptap li p{margin:0 0 .2em}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-checked]{display:flex;gap:9px}.tiptap li[data-checked]>div{flex:1}.tiptap li[data-checked=true]>div{color:var(--mut)}.tiptap input[type=checkbox]{appearance:none;display:grid;place-content:center;width:16px;height:16px;margin:5px 0 0;border:1.5px solid color-mix(in srgb,var(--fg) 34%,transparent);border-radius:4.5px;cursor:pointer;transition:background .12s}.tiptap input:checked{background:var(--pri);border-color:var(--pri)}.tiptap input:checked:after{content:"";width:8px;height:4px;margin-top:-2px;border:solid var(--tedix-on-primary,HighlightText);border-width:0 0 2px 2px;transform:rotate(-45deg)}.tiptap table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;margin:0 0 1em;border:1px solid var(--edge);border-radius:8px;overflow:hidden}.tiptap th,.tiptap td{border:solid var(--line);border-width:0 1px 1px 0;min-width:60px;padding:7px 10px;position:relative;vertical-align:top;text-align:left}.tiptap :is(th,td):last-child{border-right:0}.tiptap tr:last-child>*{border-bottom:0}.tiptap th{background:color-mix(in srgb,var(--fg) 3.5%,transparent);font-weight:600}.tiptap :is(th,td) p{margin:0}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--pri) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:0;top:0;bottom:0;width:3px;background:var(--pri)}.tiptap img{max-width:100%;height:auto;border-radius:6px}.tiptap .ProseMirror-selectednode{outline:2px solid var(--pri)}.tiptap aside,.tiptap [data-type=details]{margin:0 0 1em;padding:11px 14px;border-radius:8px;background:var(--hov)}.tiptap [data-type=details]{display:flex;gap:6px}.tiptap [data-type=details]>button{flex:none;width:22px;height:26px;border:0;border-radius:5px;background:none;cursor:pointer}.tiptap [data-type=details]>button:before{content:"▸"}.tiptap .is-open>button:before{content:"▾"}.tiptap [data-type=details]>div{flex:1;min-width:0}.tiptap summary{list-style:none;font-weight:600}.tiptap :is(aside,[data-type=detailsContent])>:last-child{margin-bottom:0}.tiptap a{color:var(--pri);text-decoration:underline}@keyframes doc-mark{0%{background:transparent}10%,50%{background:color-mix(in srgb,var(--pri) 17%,transparent)}to{background:transparent}}@keyframes doc-wash{0%{background:transparent}20%{background:color-mix(in srgb,var(--pri) 6.5%,transparent)}to{background:transparent}}@keyframes doc-rise{from{transform:translateY(5px)}}.doc-landed-words{border-radius:3px;animation:doc-mark 1.9s var(--ease) both}.doc-landed{border-radius:7px;animation:doc-wash 1.3s var(--ease) both,doc-rise .28s var(--ease) both}@keyframes doc-tick{0%{opacity:0}15%{opacity:1}to{opacity:0}}@keyframes doc-ghost{0%{opacity:.85;filter:none;max-height:6em}to{opacity:0;filter:blur(1.5px);max-height:0}}.doc-removed{display:inline-block;width:2px;height:1.1em;margin:0 1px;vertical-align:text-bottom;border-radius:1px;background:color-mix(in srgb,var(--pri) 70%,transparent);animation:doc-tick 1.1s var(--ease) both;pointer-events:none}.doc-removed-block{display:block;overflow:hidden;white-space:pre-wrap;color:var(--mut);animation:doc-ghost .22s ease-out both;pointer-events:none}@media(prefers-reduced-motion:reduce){.doc-landed,.doc-landed-words{animation:none;background:color-mix(in srgb,var(--pri) 14%,transparent)}}@media(pointer:coarse){.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-link input,.doc-link button{height:44px;min-width:44px}.doc-save{top:25px}.doc-status{top:62px}}`;
 
 export async function mountDocClient(
 	root: HTMLElement,
@@ -97,7 +97,7 @@ export async function mountDocClient(
 	style.textContent = css;
 	document.head.append(style);
 	root.innerHTML =
-		'<main aria-label="Doc gadget"><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><i class="doc-save" role="img" hidden></i><div class="doc-status" role="status" aria-live="polite"></div><form class="doc-link" hidden><input type="text" aria-label="Link URL" placeholder="Paste or type a link"><button type="submit">Apply</button></form><div class="doc-menu" role="menu" aria-label="More" hidden></div><div class="doc-menu doc-slash" role="listbox" aria-label="Insert" hidden></div><div class="doc-menu doc-block-menu" role="menu" aria-label="Block" hidden></div><button type="button" class="doc-handle" aria-label="Drag to move, or click for block actions" title="Drag to move · Click for options" hidden>⋮⋮</button><i class="doc-drop" hidden></i><div class="doc-menu doc-colors" role="dialog" aria-label="Text color and highlight" hidden></div><div class="doc-menu doc-keys" role="dialog" aria-label="Keyboard shortcuts" hidden></div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden><section class="doc-page" aria-label="Document page"><div class="doc-skel"><i></i><i></i><i></i><i></i><i></i></div></section></main>';
+		'<main aria-label="Doc gadget"><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><i class="doc-save" role="img" hidden></i><div class="doc-status" role="status" aria-live="polite"></div><form class="doc-link" hidden><input type="text" aria-label="Link URL" placeholder="Paste or type a link"><button type="submit">Apply</button></form><div class="doc-menu" role="menu" aria-label="More" hidden></div><div class="doc-menu doc-slash" role="listbox" aria-label="Insert" hidden></div><div class="doc-menu doc-block-menu" role="menu" aria-label="Block" hidden></div><button type="button" class="doc-handle" aria-label="Drag to move, or click for block actions" title="Drag to move · Click for options" hidden>⋮⋮</button><i class="doc-drop" hidden></i><div class="doc-menu doc-colors" role="dialog" aria-label="Text color and highlight" hidden></div><div class="doc-keys" hidden></div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden><section class="doc-page" aria-label="Document page"><div class="doc-skel"><i></i><i></i><i></i><i></i><i></i></div></section></main>';
 	const get = <T extends HTMLElement>(selector: string) =>
 		root.querySelector<T>(selector)!;
 	const saveDot = get(".doc-save"),
@@ -134,8 +134,6 @@ export async function mountDocClient(
 	let loaded: Saved | undefined,
 		draft: DocumentContent | undefined,
 		editor: Editor | undefined,
-		// A newer saved copy that overlaps the draft, waiting for a choice.
-		theirs: Saved | undefined,
 		waiting: Promise<void> | undefined,
 		tail: Promise<unknown> = Promise.resolve();
 	let basis = 0,
@@ -158,11 +156,8 @@ export async function mountDocClient(
 		}),
 		input = watchForInput(window);
 	let offering = false;
-	/**
-	 * After a clash on the same words, the version that was kept and the one
-	 * with their words there, for "Use theirs" while it is offered.
-	 */
-	let clash: { kept: DocumentContent; theirs: DocumentContent } | undefined;
+	// The Color button shows the text color and highlight under the caret.
+	let paintButton: HTMLButtonElement | undefined;
 	const buttons: {
 		node: HTMLButtonElement;
 		active?: () => boolean;
@@ -181,8 +176,6 @@ export async function mountDocClient(
 		clearTimeout(statusTimer);
 		mark();
 		offering = false;
-		// Any other message replaces the "Use theirs" offer.
-		clash = undefined;
 		status.textContent = text;
 		status.dataset.error = String(error);
 		for (const [label, run] of actions) {
@@ -195,7 +188,7 @@ export async function mountDocClient(
 		// A pending choice comes back once a passing note has been read.
 		if (text && !actions.length)
 			statusTimer = setTimeout(
-				() => (theirs ? ask() : landed.undoable ? offerUndo() : say()),
+				() => (landed.undoable ? offerUndo() : say()),
 				brief ? 1300 : 7000,
 			);
 	}
@@ -271,6 +264,16 @@ export async function mountDocClient(
 			if (on) blockStyle.value = currentDocumentStyle(editor!);
 		}
 		if (tableTools) tableTools.hidden = !on || !editor!.isActive("table");
+		if (paintButton && editor) {
+			const text = editor.getAttributes("textStyle").color as
+				| string
+				| undefined;
+			const highlight = editor.getAttributes("highlight").color as
+				| string
+				| undefined;
+			paintButton.style.setProperty("--paint-text", text ?? "transparent");
+			paintButton.style.setProperty("--paint-fill", highlight ?? "transparent");
+		}
 	}
 	const controls = () => {
 		frame ||= requestAnimationFrame(paint);
@@ -394,7 +397,7 @@ export async function mountDocClient(
 	}
 	function schedule() {
 		clearTimeout(saveTimer);
-		if (theirs || destroyed) return;
+		if (destroyed) return;
 		saveTimer = setTimeout(
 			() => void save(false),
 			Math.max(0, Math.min(SAVE_IDLE_MS, since + SAVE_MAX_MS - Date.now())),
@@ -443,7 +446,7 @@ export async function mountDocClient(
 			} catch {
 				// Nothing is laid out yet, so there is nowhere to scroll to.
 			}
-		if (agent && editable && !theirs) offerUndo();
+		if (agent && editable) offerUndo();
 	}
 	function offerUndo() {
 		say("An agent changed this document.", false, [
@@ -472,51 +475,6 @@ export async function mountDocClient(
 		);
 		say("Agent change undone.", false, [], true);
 	}
-	/**
-	 * Only when the version unsaved changes started from is gone can nothing
-	 * be combined; then the person chooses which whole version stays.
-	 */
-	function ask() {
-		clearTimeout(saveTimer);
-		say(
-			"Your unsaved changes on this device started from a version that is no longer stored, so they cannot be combined with the newer saved version. Which whole version should stay?",
-			false,
-			[
-				["Keep mine", () => void sync("mine")],
-				["Use theirs", () => void sync("theirs")],
-			],
-		);
-	}
-	/** Say that a clash kept the person's words, and offer theirs for a while. */
-	function offerTheirs(offered: NonNullable<typeof clash>) {
-		say(
-			"Someone else changed the same words. Your version was kept and saved.",
-			false,
-			[["Use theirs", useTheirs]],
-		);
-		clash = offered;
-		statusTimer = setTimeout(() => say(), LANDED_UNDO_MS);
-	}
-	/**
-	 * Put their words back where the clash was, keeping everything the person
-	 * wrote since: their version is merged into the current one.
-	 */
-	function useTheirs() {
-		const offered = clash;
-		clash = undefined;
-		if (!offered || !editor?.isEditable) return say();
-		const result = mergeOutputContent(
-			normalized(offered.kept),
-			snapshot(),
-			normalized(offered.theirs),
-			{ prefer: "theirs", documentBlocks: blocksFromRichText },
-		);
-		if (!result.ok) return say();
-		const before = editor.state.doc;
-		show(check(result.content as DocumentContent), true);
-		if (!before.eq(editor.state.doc)) changed();
-		say("Their words are back.", false, [], true);
-	}
 	/** A document as this editor writes it, so comparisons see real changes only. */
 	function normalized(value: DocumentContent): DocumentContent {
 		return value.richText
@@ -538,7 +496,6 @@ export async function mountDocClient(
 	) {
 		const saved = latest.revision.content;
 		let content = saved;
-		let clashed: typeof clash;
 		if (dirty) {
 			const mine = snapshot();
 			const base =
@@ -548,43 +505,24 @@ export async function mountDocClient(
 					prefer: side,
 					documentBlocks: blocksFromRichText,
 				});
-			let result = !base
-				? prefer
-					? { ok: true as const, content: prefer === "mine" ? mine : saved }
-					: { ok: false as const }
-				: merge(prefer);
-			if (!result.ok && !base) {
-				theirs = latest;
-				return ask();
-			}
+			// Where both changed the same words, the person's words stay, without
+			// a question; with nothing older to compare against, their whole
+			// unsaved version stays.
+			const result = !base
+				? { ok: true as const, content: prefer === "theirs" ? saved : mine }
+				: merge(prefer ?? "mine");
 			if (!result.ok) {
-				// Both changed the same words: the person's stay and keep saving,
-				// and their words can be brought back from the note.
-				const kept = merge("mine"),
-					other = merge("theirs");
-				if (!kept.ok || !other.ok) {
-					theirs = latest;
-					return ask();
-				}
-				clashed = {
-					kept: kept.content as DocumentContent,
-					theirs: other.content as DocumentContent,
-				};
-				result = kept;
-			}
-			content = result.content as DocumentContent;
+				content = mine;
+			} else content = result.content as DocumentContent;
 		}
 		const next = check(content);
 		dirty &&= !next.eq(check(saved));
-		if (theirs) say();
-		theirs = undefined;
 		const before = editor!.state.doc;
 		loaded = latest;
 		basis = latest.revision.revision;
 		draft = content;
 		show(next);
 		land(before, editor!.state.doc, savedByAgent(latest.revision));
-		if (clashed && dirty) offerTheirs(clashed);
 		if (dirty) {
 			since = Date.now();
 			schedule();
@@ -627,13 +565,14 @@ export async function mountDocClient(
 	async function refresh(prefer?: OutputMergePreference): Promise<boolean> {
 		if (!loaded || !editor || !available || destroyed) return false;
 		try {
-			let latest = parse(await outputSync.latest(read));
+			const latest = parse(await outputSync.latest(read));
 			if (destroyed) return false;
-			if (latest.revision.revision <= loaded.revision.revision) {
-				if (theirs) latest = theirs;
-				// A draft restored from an older copy still has to be settled.
-				else if (!dirty || basis === loaded.revision.revision) return false;
-			}
+			// A draft restored from an older copy still has to be settled.
+			if (
+				latest.revision.revision <= loaded.revision.revision &&
+				(!dirty || basis === loaded.revision.revision)
+			)
+				return false;
 			const older =
 				dirty && basis !== loaded.revision.revision
 					? await olderCopy(basis)
@@ -660,7 +599,6 @@ export async function mountDocClient(
 			const value = outputSync.remember(parse(await read()));
 			if (destroyed) return;
 			loaded = value;
-			theirs = undefined;
 			const savedContent = value.revision.content;
 			if (
 				savedContent.file &&
@@ -731,15 +669,7 @@ export async function mountDocClient(
 	}
 	async function write(asked: boolean, again = true): Promise<void> {
 		clearTimeout(saveTimer);
-		if (
-			!loaded ||
-			!editor ||
-			!dirty ||
-			!editable ||
-			!available ||
-			theirs ||
-			destroyed
-		)
+		if (!loaded || !editor || !dirty || !editable || !available || destroyed)
 			return;
 		const sent = editor.state.doc,
 			content = snapshot();
@@ -770,10 +700,9 @@ export async function mountDocClient(
 				since = Date.now();
 				schedule();
 			} else clearDraft();
-			// An offer to undo an agent's change, or to use their words after a
-			// clash, stays up through a save.
+			// An offer to undo an agent's change stays up through a quiet save.
 			const note = asked || failed || slow ? "Saved" : "";
-			if (!theirs && !clash && (note || !offering)) say(note, false, [], true);
+			if (note || !offering) say(note, false, [], true);
 			failed = false;
 			tries = 0;
 			// A link typed just now can only be fetched once it is saved.
@@ -783,7 +712,7 @@ export async function mountDocClient(
 			since = Date.now();
 			// A save refused because someone else saved first: bring theirs in.
 			if (await refresh().catch(() => false)) {
-				if (again && dirty && !theirs) await write(asked, false);
+				if (again && dirty) await write(asked, false);
 				return;
 			}
 			// A refusal that would repeat has no "Try again"; the next change does.
@@ -932,89 +861,195 @@ export async function mountDocClient(
 			.toggleList(name, name === "taskList" ? "taskItem" : "listItem")
 			.run();
 	/**
-	 * What "/" on an empty line offers, with the extra words each answers to.
+	 * What "/" offers: each block kind with its tile, the Markdown that also
+	 * makes it, and the extra words it answers to.
 	 */
-	const inserts: [label: string, words: string, add: () => unknown][] = [
-		["Heading 1", "h1 title", () => applyDocumentStyle(editor!, "1")],
-		["Heading 2", "h2", () => applyDocumentStyle(editor!, "2")],
-		["Heading 3", "h3", () => applyDocumentStyle(editor!, "3")],
-		["Bulleted list", "ul", () => addList("bulletList")],
-		["Numbered list", "ol ordered", () => addList("orderedList")],
-		["To-do list", "todo task check", () => addList("taskList")],
-		[
-			"Quote",
-			"blockquote citation",
-			() => applyDocumentStyle(editor!, "quote"),
-		],
-		["Code block", "pre snippet", () => applyDocumentStyle(editor!, "code")],
-		["Note", "callout aside info", addNote],
-		["Table", "grid", addTable],
+	const inserts: {
+		label: string;
+		tile: string;
+		hint?: string;
+		words: string;
+		add: () => unknown;
+	}[] = [
+		{
+			label: "Text",
+			tile: "T",
+			words: "paragraph plain normal",
+			add: () => applyDocumentStyle(editor!, "paragraph"),
+		},
+		{
+			label: "Heading 1",
+			tile: "H1",
+			hint: "#",
+			words: "title heading large",
+			add: () => applyDocumentStyle(editor!, "1"),
+		},
+		{
+			label: "Heading 2",
+			tile: "H2",
+			hint: "##",
+			words: "heading subtitle medium",
+			add: () => applyDocumentStyle(editor!, "2"),
+		},
+		{
+			label: "Heading 3",
+			tile: "H3",
+			hint: "###",
+			words: "heading small subheading",
+			add: () => applyDocumentStyle(editor!, "3"),
+		},
+		{
+			label: "Bulleted list",
+			tile: "•",
+			hint: "-",
+			words: "bullet unordered list",
+			add: () => addList("bulletList"),
+		},
+		{
+			label: "Numbered list",
+			tile: "1.",
+			hint: "1.",
+			words: "number ordered list",
+			add: () => addList("orderedList"),
+		},
+		{
+			label: "To-do list",
+			tile: "☐",
+			hint: "[]",
+			words: "todo checkbox task checklist",
+			add: () => addList("taskList"),
+		},
+		{
+			label: "Quote",
+			tile: "❝",
+			hint: ">",
+			words: "blockquote citation",
+			add: () => applyDocumentStyle(editor!, "quote"),
+		},
+		{
+			label: "Code block",
+			tile: "{ }",
+			hint: "```",
+			words: "pre snippet monospace",
+			add: () => applyDocumentStyle(editor!, "code"),
+		},
+		{
+			label: "Divider",
+			tile: "—",
+			hint: "---",
+			words: "hr line rule separator",
+			add: () => run().setHorizontalRule().run(),
+		},
 		...(visitor
 			? []
-			: ([
-					["Image", "picture photo", () => imageInput.click()],
-				] as typeof inserts)),
-		["Divider", "line rule hr", () => run().setHorizontalRule().run()],
-		["Collapsible section", "toggle details", addSection],
+			: [
+					{
+						label: "Image",
+						tile: "▣",
+						words: "picture photo upload media",
+						add: () => imageInput.click(),
+					},
+				]),
+		{
+			label: "Table",
+			tile: "▦",
+			hint: "| |",
+			words: "grid rows columns cells spreadsheet",
+			add: addTable,
+		},
 	];
-	// The line the insert list is open on, the line it was dismissed on, the
-	// highlighted choice and the filter it was made under.
+	/** Label starts first, then a word of the label, then anywhere in label and words. */
+	function slashMatches(query: string) {
+		const q = query.toLowerCase().trim();
+		if (!q) return inserts;
+		return inserts
+			.map((item) => {
+				const label = item.label.toLowerCase();
+				const score = label.startsWith(q)
+					? 0
+					: label.split(" ").some((word) => word.startsWith(q))
+						? 1
+						: `${label} ${item.words}`.includes(q)
+							? 2
+							: -1;
+				return { item, score };
+			})
+			.filter((entry) => entry.score >= 0)
+			.sort((a, b) => a.score - b.score)
+			.map((entry) => entry.item);
+	}
+	// Where the "/" that opened the list is, where it was dismissed, the
+	// highlighted choice, the filter it was made under, and the matches.
 	let slashLine = -1,
 		slashOff = -1,
 		slashPick = 0,
-		slashQuery = "";
-	/** Open, filter or close the insert list to match the line the caret is on. */
+		slashQuery = "",
+		slashFound: typeof inserts = [];
+	/** Open, filter or close the insert list to match the text before the caret. */
 	function slashSync() {
 		if (!editor) return;
 		const { $from, empty } = editor.state.selection,
 			line = $from.parent;
-		const typed =
+		const inTable = (() => {
+			for (let depth = $from.depth; depth > 0; depth--)
+				if (/^table(Cell|Header)$/.test($from.node(depth).type.name))
+					return true;
+			return false;
+		})();
+		// "/" at the start of a line or after a space, outside code and tables.
+		const head =
 			empty &&
 			editor.isEditable &&
-			line.type.name === "paragraph" &&
-			$from.parentOffset === line.content.size
-				? /^\/([a-z0-9 -]{0,20})$/i.exec(line.textContent)?.[1]
-				: undefined;
-		const at = typed === undefined ? -1 : $from.start();
+			line.isTextblock &&
+			line.type.name !== "codeBlock" &&
+			!inTable
+				? line.textBetween(0, $from.parentOffset, undefined, "\ufffc")
+				: "";
+		const typed = /(^|\s)\/([^\n]*)$/.exec(head);
+		const query = typed?.[2] ?? "";
+		const valid = !!typed && query.length <= 24 && !/^\s|\s\s/.test(query);
+		const at = valid ? $from.pos - query.length - 1 : -1;
 		if (slashOff !== at) slashOff = -1;
-		const query = typed?.toLowerCase().trim() ?? "";
-		const found =
-			at < 0 || slashOff === at
-				? []
-				: inserts.filter(
-						([label, words]) =>
-							label.toLowerCase().startsWith(query) ||
-							`${label} ${words}`
-								.toLowerCase()
-								.split(" ")
-								.some((word) => word.startsWith(query)),
-					);
-		if (!found.length) {
+		const found = at < 0 || slashOff === at ? [] : slashMatches(query);
+		if (at < 0 || slashOff === at || (!found.length && query.length > 4)) {
 			slashLine = -1;
+			slashFound = [];
 			slash.hidden = true;
 			return;
 		}
 		if (slashLine !== at || slashQuery !== query) slashPick = 0;
 		slashLine = at;
 		slashQuery = query;
-		slashPick = Math.min(slashPick, found.length - 1);
+		slashFound = found;
+		slashPick = Math.min(slashPick, Math.max(0, found.length - 1));
 		slash.replaceChildren(
-			...found.map(([label, , add], index) => {
-				const node = document.createElement("button");
-				node.type = "button";
-				node.textContent = label;
-				node.setAttribute("role", "option");
-				node.setAttribute("aria-selected", String(index === slashPick));
-				node.onmousedown = (event) => event.preventDefault();
-				node.onclick = () => {
-					// The typed "/" and filter make way for what was chosen.
-					const { $from } = editor!.state.selection;
-					slash.hidden = true;
-					run().deleteRange({ from: $from.start(), to: $from.end() }).run();
-					add();
-				};
-				return node;
-			}),
+			...(found.length
+				? found.map((item, index) => {
+						const node = document.createElement("button");
+						node.type = "button";
+						node.setAttribute("role", "option");
+						node.setAttribute("aria-selected", String(index === slashPick));
+						node.innerHTML =
+							'<span class="doc-tile"></span><span class="doc-mi"></span><span class="doc-md"></span>';
+						node.children[0]!.textContent = item.tile;
+						node.children[1]!.textContent = item.label;
+						node.children[2]!.textContent = item.hint ?? "";
+						node.onmousedown = (event) => event.preventDefault();
+						node.onmousemove = () => {
+							if (slashPick === index) return;
+							slashPick = index;
+							for (const [at, option] of [...slash.children].entries())
+								option.setAttribute("aria-selected", String(at === index));
+						};
+						node.onclick = () => chooseSlash(item);
+						return node;
+					})
+				: [
+						Object.assign(document.createElement("div"), {
+							className: "doc-mempty",
+							textContent: "No matching blocks",
+						}),
+					]),
 		);
 		let left = 16,
 			top = 52;
@@ -1027,6 +1062,16 @@ export async function mountDocClient(
 		}
 		place(slash, left, top);
 		slash.children[slashPick]?.scrollIntoView?.({ block: "nearest" });
+	}
+	/** The typed "/" and filter make way for what was chosen. */
+	function chooseSlash(item: (typeof inserts)[number]) {
+		if (!editor || slashLine < 0) return;
+		const from = slashLine,
+			to = editor.state.selection.from;
+		slash.hidden = true;
+		slashLine = -1;
+		run().deleteRange({ from, to }).run();
+		item.add();
 	}
 	async function exportAs(format: string, name: string) {
 		if (!loaded || !available) return;
@@ -1126,7 +1171,7 @@ export async function mountDocClient(
 			["bold", "Bold" + keys("B"), "bold"],
 			["italic", "Italic" + keys("I"), "italic"],
 			["underline", "Underline" + keys("U"), "underline"],
-			["strike", "Strikethrough" + keys("S", true), "strike"],
+			["strike", "Strikethrough" + keys("X", true), "strike"],
 			["code", "Code" + keys("E"), "code"],
 		] as const)
 			button(
@@ -1146,47 +1191,65 @@ export async function mountDocClient(
 			place(colors, box.left, box.bottom + 4);
 			colors.querySelector("button")?.focus();
 		});
-		paint.innerHTML = '<span class="doc-paint" aria-hidden="true">A</span>';
-		paint.title = "Text color and highlight";
-		paint.setAttribute("aria-label", "Text color and highlight");
+		paint.innerHTML =
+			'<span class="doc-paint" aria-hidden="true"><i class="doc-paint-fill"></i><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 16.5 12 4l5.5 12.5"/><path d="M8.6 12h6.8"/></svg><i class="doc-paint-bar"></i></span>';
+		paint.title = "Color";
+		paint.setAttribute("aria-label", "Color");
 		paint.setAttribute("aria-haspopup", "dialog");
-		for (const [title, swatches, apply] of [
-			[
-				"Text",
-				TEXT_COLORS,
-				(color: string) =>
-					color ? run().setColor(color).run() : run().unsetColor().run(),
-			],
-			[
-				"Highlight" + keys("H", true),
-				HIGHLIGHTS,
-				(color: string) =>
-					color
-						? run().setHighlight({ color }).run()
-						: run().unsetHighlight().run(),
-			],
-		] as const) {
+		paintButton = paint;
+		const current = () => ({
+			text: String(
+				editor?.getAttributes("textStyle").color ?? "",
+			).toLowerCase(),
+			highlight: String(
+				editor?.getAttributes("highlight").color ?? "",
+			).toLowerCase(),
+		});
+		for (const kind of ["Text", "Highlight"] as const) {
 			const heading = document.createElement("p");
-			heading.textContent = title;
-			const row = document.createElement("div");
-			row.setAttribute("role", "group");
-			row.setAttribute("aria-label", title);
-			for (const [name, color] of swatches) {
+			heading.textContent = kind;
+			const grid = document.createElement("div");
+			grid.className = "doc-swatches";
+			grid.setAttribute("role", "group");
+			grid.setAttribute("aria-label", kind);
+			for (const [name, text, highlight] of PALETTE) {
+				const color = kind === "Text" ? text : highlight;
 				const swatch = document.createElement("button");
 				swatch.type = "button";
 				swatch.className = "doc-swatch";
-				swatch.title = name;
-				swatch.setAttribute("aria-label", `${title.split(" ")[0]}: ${name}`);
-				swatch.style.setProperty("--swatch", color || "transparent");
+				swatch.dataset.color = color;
+				swatch.dataset.kind = kind;
+				if (kind === "Text") {
+					swatch.textContent = "A";
+					swatch.style.color = color || "var(--fg)";
+				} else if (color) swatch.style.background = color;
+				else swatch.classList.add("none");
+				swatch.title = kind === "Highlight" && !color ? "No highlight" : name;
+				swatch.setAttribute("aria-label", `${kind} ${name}`);
 				swatch.onmousedown = (event) => event.preventDefault();
 				swatch.onclick = () => {
-					apply(color);
+					if (kind === "Text")
+						color ? run().setColor(color).run() : run().unsetColor().run();
+					else
+						color
+							? run().setHighlight({ color }).run()
+							: run().unsetHighlight().run();
 					closePopups(true);
 				};
-				row.append(swatch);
+				grid.append(swatch);
 			}
-			colors.append(heading, row);
+			colors.append(heading, grid);
 		}
+		// The open palette rings the colors in use.
+		paint.addEventListener("click", () => {
+			const { text, highlight } = current();
+			for (const swatch of colors.querySelectorAll<HTMLElement>(".doc-swatch"))
+				swatch.classList.toggle(
+					"on",
+					(swatch.dataset.kind === "Text" ? text : highlight) ===
+						swatch.dataset.color,
+				);
+		});
 		divider();
 		for (const [name, label, icon] of [
 			["bulletList", "Bulleted list" + keys("8", true), "bullets"],
@@ -1253,6 +1316,11 @@ export async function mountDocClient(
 		button(menu, "Note", undefined, addNote);
 		button(menu, "Collapsible section", undefined, addSection);
 		button(menu, "Divider", undefined, () => run().setHorizontalRule().run());
+		divider(menu);
+		button(menu, "Keyboard shortcuts" + keys("/"), undefined, () => {
+			closePopups();
+			showShortcuts();
+		});
 		divider(menu);
 	} else {
 		const note = document.createElement("span");
@@ -1500,56 +1568,157 @@ export async function mountDocClient(
 		place(blockMenu, box.left, box.bottom + 4);
 		blockMenu.querySelector("button")?.focus();
 	}
-	/** The keyboard shortcuts this editor answers to, in the middle of the page. */
+	/** The keyboard shortcuts sheet: every key, and the Markdown that types blocks. */
 	function showShortcuts() {
-		const rows: [string, string][] = [
-			["Bold, italic, underline", `${keys("B")} ${keys("I")} ${keys("U")}`],
-			["Strikethrough", keys("S", true)],
-			["Inline code", keys("E")],
-			["Highlight", keys("H", true)],
-			["Link", keys("K")],
-			[
-				"Bulleted, numbered, to-do list",
-				`${keys("8", true)} ${keys("7", true)} ${keys("9", true)}`,
-			],
-			["Insert a block", "/ on an empty line"],
-			["Move a block up or down", "Alt+Shift+↑ ↓, or drag its handle"],
-			["Duplicate the block", keys("D")],
-			["Undo, redo", `${keys("Z")} ${keys("Z", true)}`],
-			["Save now", keys("S")],
-			["Show these shortcuts", keys("/")],
-		];
-		const list = document.createElement("dl");
-		for (const [what, combo] of rows) {
-			const term = document.createElement("dt");
-			term.textContent = what;
-			const detail = document.createElement("dd");
-			detail.textContent = combo.trim();
-			list.append(term, detail);
-		}
-		const heading = document.createElement("p");
-		heading.textContent = "Keyboard shortcuts";
-		shortcuts.replaceChildren(heading, list);
-		shortcuts.hidden = false;
-		place(
-			shortcuts,
-			Math.max(12, (innerWidth - shortcuts.offsetWidth) / 2),
-			Math.max(56, (innerHeight - shortcuts.offsetHeight) / 3),
+		const chip = (text: string, md = false) => {
+			const node = document.createElement("span");
+			node.className = md ? "doc-chip md" : "doc-chip";
+			node.textContent = text;
+			return node;
+		};
+		const combo = (...parts: string[]) =>
+			mac
+				? parts
+						.map(
+							(part) =>
+								({ mod: "⌘", shift: "⇧", alt: "⌥" })[part as "mod"] ?? part,
+						)
+						.join("")
+				: parts
+						.map(
+							(part) =>
+								({ mod: "Ctrl", shift: "Shift", alt: "Alt" })[part as "mod"] ??
+								part,
+						)
+						.join("+");
+		const row = (label: string, ...combos: string[]) => {
+			const line = document.createElement("div");
+			line.className = "doc-krow";
+			const name = document.createElement("span");
+			name.textContent = label;
+			const chips = document.createElement("span");
+			chips.className = "doc-chips";
+			chips.append(...combos.map((text) => chip(text)));
+			line.append(name, chips);
+			return line;
+		};
+		const md = (label: string, ...tokens: string[]) => {
+			const line = row(label);
+			line.lastElementChild!.append(...tokens.map((text) => chip(text, true)));
+			return line;
+		};
+		const heading = (text: string) => {
+			const node = document.createElement("h3");
+			node.textContent = text;
+			return node;
+		};
+		const column = (...children: HTMLElement[]) => {
+			const node = document.createElement("div");
+			node.append(...children);
+			return node;
+		};
+		const title = document.createElement("h2");
+		title.textContent = "Keyboard shortcuts";
+		const sub = document.createElement("p");
+		sub.className = "doc-sub";
+		sub.textContent =
+			"Type / on an empty line for every block type. Drag a block by its handle to rearrange.";
+		const columns = document.createElement("div");
+		columns.className = "doc-sheet-cols";
+		columns.append(
+			column(
+				heading("Formatting"),
+				row("Bold", combo("mod", "B")),
+				row("Italic", combo("mod", "I")),
+				row("Underline", combo("mod", "U")),
+				row("Strikethrough", combo("mod", "shift", "X")),
+				row("Inline code", combo("mod", "E")),
+				row("Highlight", combo("mod", "shift", "H")),
+				row("Link", combo("mod", "K")),
+				row("Clear formatting", combo("mod", "\\")),
+				heading("Blocks"),
+				row("Text", combo("mod", "alt", "0")),
+				row(
+					"Heading 1 · 2 · 3",
+					combo("mod", "alt", "1"),
+					combo("mod", "alt", "2"),
+					combo("mod", "alt", "3"),
+				),
+				row("Bulleted list", combo("mod", "shift", "8")),
+				row("Numbered list", combo("mod", "shift", "7")),
+				row("To-do list", combo("mod", "shift", "9")),
+				row("Check · uncheck", combo("mod", "↵")),
+				row("Indent · outdent", combo("Tab"), combo("shift", "Tab")),
+				heading("Arrange"),
+				row("Select block", combo("Esc")),
+				row("Extend selection", combo("shift", "↑"), combo("shift", "↓")),
+				row(
+					"Move up · down",
+					combo("alt", "shift", "↑"),
+					combo("alt", "shift", "↓"),
+				),
+				row("Duplicate", combo("mod", "D")),
+				row("Delete selected", mac ? "⌫" : "Del"),
+			),
+			column(
+				heading("Markdown, as you type"),
+				md("Heading 1 · 2 · 3", "#", "##", "###"),
+				md("Bulleted list", "-"),
+				md("Numbered list", "1."),
+				md("To-do list", "[]", "- [ ]"),
+				md("Quote", ">"),
+				md("Code block", "```"),
+				md("Divider", "---"),
+				md("Bold · italic", "**text**", "*text*"),
+				md("Code · strike", "`code`", "~~text~~"),
+				md("Arrows · em dash", "->", "--"),
+				md("Table, then ↵", "| a | b |"),
+				heading("Tables"),
+				row("Next · previous cell", combo("Tab"), combo("shift", "Tab")),
+				row("Cell below · new row", combo("↵")),
+				row("Line break in a cell", combo("shift", "↵")),
+				heading("General"),
+				md("Commands", "/"),
+				row("Save now", combo("mod", "S")),
+				row(
+					"Undo · redo",
+					combo("mod", "Z"),
+					mac ? combo("mod", "shift", "Z") : combo("mod", "Y"),
+				),
+				row("This sheet", combo("mod", "/")),
+			),
 		);
+		const card = document.createElement("div");
+		card.className = "doc-sheet";
+		card.setAttribute("role", "dialog");
+		card.setAttribute("aria-label", "Keyboard shortcuts");
+		card.append(title, sub, columns);
+		shortcuts.replaceChildren(card);
+		shortcuts.hidden = false;
 	}
+	shortcuts.addEventListener("mousedown", (event) => {
+		if (event.target === shortcuts) closePopups(true);
+	});
 	const keydown = (event: KeyboardEvent) => {
 		const key = event.key.toLowerCase(),
 			mod = event.metaKey || event.ctrlKey;
 		if (!slash.hidden && /^(arrow(up|down)|enter|tab|escape)$/.test(key)) {
-			const choices = slash.children.length;
+			const choices = slashFound.length;
 			if (key === "escape") {
 				slashOff = slashLine;
 				slash.hidden = true;
 			} else if (key.startsWith("arrow")) {
-				slashPick =
-					(slashPick + (key === "arrowdown" ? 1 : choices - 1)) % choices;
+				if (choices)
+					slashPick =
+						(slashPick + (key === "arrowdown" ? 1 : choices - 1)) % choices;
 				slashSync();
-			} else (slash.children[slashPick] as HTMLElement).click();
+			} else if (slashFound[slashPick]) chooseSlash(slashFound[slashPick]!);
+			else {
+				// Nothing to choose: the list closes and the key does its usual job.
+				slashOff = slashLine;
+				slash.hidden = true;
+				return;
+			}
 			// The editor must not also move the caret or break the line.
 			event.stopPropagation();
 		} else if (mod && key === "z" && !event.shiftKey && offering) {
@@ -1568,6 +1737,37 @@ export async function mountDocClient(
 			closePopups();
 			if (open) showShortcuts();
 		} else if (mod && key === "k") openLink();
+		else if (editor?.isEditable && mod && event.shiftKey && key === "x")
+			run().toggleStrike().run();
+		else if (editor?.isEditable && mod && event.shiftKey && key === "h")
+			editor.isActive("highlight")
+				? run().unsetHighlight().run()
+				: run().setHighlight({ color: DEFAULT_HIGHLIGHT }).run();
+		else if (editor?.isEditable && mod && key === "\\")
+			run().unsetAllMarks().run();
+		else if (
+			editor?.isEditable &&
+			mod &&
+			event.altKey &&
+			/^Digit[0-3]$/.test(event.code)
+		)
+			applyDocumentStyle(
+				editor,
+				event.code === "Digit0"
+					? "paragraph"
+					: (event.code.slice(5) as "1" | "2" | "3"),
+			);
+		else if (
+			editor?.isEditable &&
+			mod &&
+			key === "enter" &&
+			editor.isActive("taskItem")
+		)
+			run()
+				.updateAttributes("taskItem", {
+					checked: !editor.getAttributes("taskItem").checked,
+				})
+				.run();
 		else if (mod && key === "d" && editor?.isEditable && !event.shiftKey)
 			duplicateDocumentBlock(editor, editor.state.selection.$from.index(0));
 		else if (
@@ -1579,6 +1779,8 @@ export async function mountDocClient(
 			moveDocumentBlock(editor, key === "arrowup" ? -1 : 1);
 		else return;
 		event.preventDefault();
+		// Handled here: the editor's own binding for the same keys must not run too.
+		event.stopPropagation();
 	};
 	const pointerdown = (event: Event) => {
 		const target = event.target as Node;

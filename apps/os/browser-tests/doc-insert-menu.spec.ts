@@ -8,8 +8,10 @@ const tabs = await startDocTabs();
 try {
 	const { page, frame, editor } = await tabs.open();
 	const list = frame.locator(".doc-slash");
-	const options = () => list.locator('[role="option"]').allTextContents();
-	const picked = () => list.locator('[aria-selected="true"]').textContent();
+	const options = () =>
+		list.locator('[role="option"] .doc-mi').allTextContents();
+	const picked = () =>
+		list.locator('[aria-selected="true"] .doc-mi').textContent();
 
 	await editor.click();
 	await page.keyboard.press("ControlOrMeta+End");
@@ -17,6 +19,7 @@ try {
 	await page.keyboard.type("/");
 	await list.waitFor();
 	assert.deepEqual(await options(), [
+		"Text",
 		"Heading 1",
 		"Heading 2",
 		"Heading 3",
@@ -25,11 +28,9 @@ try {
 		"To-do list",
 		"Quote",
 		"Code block",
-		"Note",
-		"Table",
-		"Image",
 		"Divider",
-		"Collapsible section",
+		"Image",
+		"Table",
 	]);
 	// The list sits under the line that was typed on, inside the page.
 	const box = (await list.boundingBox())!;
@@ -39,9 +40,9 @@ try {
 
 	await page.keyboard.press("ArrowDown");
 	await page.keyboard.press("ArrowDown");
-	assert.equal(await picked(), "Heading 3");
-	await page.keyboard.press("ArrowUp");
 	assert.equal(await picked(), "Heading 2");
+	await page.keyboard.press("ArrowUp");
+	assert.equal(await picked(), "Heading 1");
 
 	await page.keyboard.press("Escape");
 	await list.waitFor({ state: "hidden" });
@@ -72,7 +73,7 @@ try {
 	await editor.locator("> p").last().click();
 	await page.keyboard.type("/to");
 	await list.waitFor();
-	assert.deepEqual(await options(), ["To-do list", "Collapsible section"]);
+	assert.deepEqual(await options(), ["To-do list", "Divider", "Image"]);
 	await list.getByText("To-do list").click();
 	await editor.locator('ul[data-type="taskList"]').waitFor();
 	await page.keyboard.type("Call Ada");
