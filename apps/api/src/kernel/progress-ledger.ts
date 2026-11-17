@@ -251,7 +251,12 @@ function heldHomeDelegationExpiry(
 	if (!held) return null;
 	const key = delegationRequestKey(held.workOrder);
 	const newer = input.runs.find((other) => {
-		if (other.id === run.id || !isNewerRun(other, run)) return false;
+		if (
+			other.id === run.id ||
+			other.conversationId !== run.conversationId ||
+			!isNewerRun(other, run)
+		)
+			return false;
 		const otherHeld = heldHomeDelegation(other);
 		return (
 			otherHeld !== null && delegationRequestKey(otherHeld.workOrder) === key
