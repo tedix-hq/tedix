@@ -27,7 +27,6 @@ import {
 	provisionLaneWorktree,
 	landedLaneCommits,
 	existingLaneCommits,
-	mergeDispatcherReceipts,
 	retainedLaneWorktree,
 	dispatchSkip,
 	laneDelegationRequest,
@@ -2470,79 +2469,71 @@ describe("dispatcher admission", () => {
 		).toHaveLength(1);
 	});
 
-	it.each(["lost-admission", "expired-settlement"])(
-		"fresh admission follows retained %s without reviving its expired lease",
-		async (state) => {
-			const { dispatcher, restart, items, control, events, releases, dir } =
-				fixture();
-			items.splice(1);
-			let now = Date.now();
-			const clock = spyOn(Date, "now").mockImplementation(() => now);
-			try {
-				const session = "codex:33333333-3333-4333-8333-000000000099";
-				const path = join(dir, `${item().id}-2.json`);
-				writeFileSync(
-					path,
-					JSON.stringify({
-						itemId: item().id,
-						version: 2,
-						phase: state === "lost-admission" ? "preparing" : "failed",
-						admissionState: state === "lost-admission" ? "unknown" : "admitted",
-						attemptId: state === "lost-admission" ? undefined : "old-attempt",
-						session,
-						executorKey: "local-acme",
-						outcome: state === "lost-admission" ? undefined : "succeeded",
-						retries: state === "lost-admission" ? 0 : 5,
-						settlementRetries: state === "lost-admission" ? undefined : 5,
-						retryAt: 0,
-						retryDeadlineAt: now + 30 * 60_000,
-						note: "Retained result",
-						telemetry: { finalMessage: "Retained result" },
-					}),
-				);
-				control.history.data = [
-					{
-						id: "old-attempt",
-						externalSessionKey: session,
-						outcome: null,
-						expiresAt: new Date(now - 1).toISOString(),
-						metadata: { dispatchVersion: 2 },
-					},
-				];
-				await dispatcher.tick();
-				const saved = JSON.parse(readFileSync(path, "utf8"));
-				expect(saved).toMatchObject({
-					phase: "deferred",
-					outcome: "expired",
-					attemptId: "old-attempt",
-					retries: 1,
-				});
-				expect(
-					events.filter((e) => e.verb === "start" || e.verb === "settle"),
-				).toHaveLength(0);
-				if (state === "expired-settlement")
-					expect(saved.settlementRetries).toBe(5);
-				now = saved.retryAt + 1;
-				const resumed = restart();
-				await resumed.tick();
-				await until(() => releases.length === 1);
-				releases[0]!();
-				await resumed.drain();
-				expect(
-					events.filter((e) => e.verb === "start" && e.input),
-				).toHaveLength(1);
-				expect(JSON.parse(readFileSync(path, "utf8")).attemptId).not.toBe(
-					"old-attempt",
-				);
-				expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
-					outcome: "succeeded",
-					completionPending: false,
-				});
-			} finally {
-				clock.mockRestore();
-			}
-		},
-	);
+	it("fresh admission follows a retained lost admission without reviving its expired lease", async () => {
+		const { dispatcher, restart, items, control, events, releases, dir } =
+			fixture();
+		items.splice(1);
+		let now = Date.now();
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		try {
+			const session = "codex:33333333-3333-4333-8333-000000000099";
+			const path = join(dir, `${item().id}-2.json`);
+			writeFileSync(
+				path,
+				JSON.stringify({
+					itemId: item().id,
+					version: 2,
+					phase: "preparing",
+					admissionState: "unknown",
+					session,
+					executorKey: "local-acme",
+					retries: 0,
+					retryAt: 0,
+					retryDeadlineAt: now + 30 * 60_000,
+					note: "Retained result",
+					telemetry: { finalMessage: "Retained result" },
+				}),
+			);
+			control.history.data = [
+				{
+					id: "old-attempt",
+					externalSessionKey: session,
+					outcome: null,
+					expiresAt: new Date(now - 1).toISOString(),
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			await dispatcher.tick();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved).toMatchObject({
+				phase: "deferred",
+				outcome: "expired",
+				attemptId: "old-attempt",
+				retries: 1,
+			});
+			expect(
+				events.filter((e) => e.verb === "start" || e.verb === "settle"),
+			).toHaveLength(0);
+			now = saved.retryAt + 1;
+			const resumed = restart();
+			await resumed.tick();
+			await until(() => releases.length === 1);
+			releases[0]!();
+			await resumed.drain();
+			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+				1,
+			);
+			expect(JSON.parse(readFileSync(path, "utf8")).attemptId).not.toBe(
+				"old-attempt",
+			);
+			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+				outcome: "succeeded",
+				completionPending: false,
+			});
+		} finally {
+			clock.mockRestore();
+		}
+	});
 
 	it("re-admits a lease-expired Attempt with a retained result on the same Work revision", async () => {
 		const {
@@ -4686,39 +4677,6 @@ describe("dispatcher admission", () => {
 			);
 		},
 	);
-	it("recovers a legacy failed no-Attempt receipt after purpose repair and preserves completed receipts", async () => {
-		const { dispatcher, dir, items, control, releases, events } = fixture();
-		items.splice(1);
-		const path = join(dir, `${item().id}-2.json`);
-		writeFileSync(
-			path,
-			JSON.stringify({
-				itemId: item().id,
-				version: 2,
-				phase: "failed",
-				note: "Tedix CLI read failed (exit 2)",
-			}),
-		);
-		control.readiness = {
-			ready: false,
-			reasons: [{ detail: "purpose_blocked: Missing objective" }],
-		};
-		await dispatcher.tick();
-		await dispatcher.drain();
-		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(0);
-		expect(readFileSync(path, "utf8")).toContain("purpose_blocked");
-		control.readiness = { ready: true, reasons: [] };
-		const saved = JSON.parse(readFileSync(path, "utf8"));
-		saved.retryAt = 0;
-		writeFileSync(path, JSON.stringify(saved));
-		await dispatcher.tick();
-		await until(() => releases.length === 1);
-		releases[0]!();
-		await dispatcher.drain();
-		await dispatcher.tick();
-		await dispatcher.drain();
-		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
-	});
 	it.each([true, false])(
 		"rechecks expired admission holds with current readiness=%s",
 		async (ready) => {
@@ -5722,33 +5680,6 @@ it("any-local accepts either native executor but never human or tedi Work", () =
 		expect(
 			dispatchSkip({ ...item(), metadata: { executor } }, [], "any-local"),
 		).toContain("not assigned");
-});
-
-it("any-local retains sibling process, settlement and worktree receipts on migration", () => {
-	const root = mkdtempSync(join(tmpdir(), "lane-migration-"));
-	dirs.push(root);
-	const target = join(root, "any"),
-		source = join(root, "claude");
-	mkdirSync(target);
-	mkdirSync(source);
-	const name = `${item().id}-2.json`;
-	const receipt = {
-		itemId: item().id,
-		version: 2,
-		pid: process.pid,
-		phase: "settling",
-		repo: "/retained/repo",
-		session: "claude-code:fictional",
-		pendingObservation: { source: "wrapper" },
-	};
-	writeFileSync(join(source, name), JSON.stringify(receipt));
-	mergeDispatcherReceipts(target, [source]);
-	expect(JSON.parse(readFileSync(join(target, name), "utf8"))).toEqual(receipt);
-	mergeDispatcherReceipts(target, [source]);
-	writeFileSync(join(source, name), JSON.stringify({ ...receipt, version: 3 }));
-	expect(() => mergeDispatcherReceipts(target, [source])).toThrow(
-		"Conflicting",
-	);
 });
 
 it("any-local shares two slots across native Claude and Codex Attempts", async () => {
@@ -6813,7 +6744,7 @@ it("keeps even an empty pending-proof marker fenced from retry and cleanup", asy
 	expect(existsSync(repo)).toBe(true);
 });
 
-it("sweeps every settled run in one pass and keeps each receipt", async () => {
+it("sweeps every settled run and keeps each Work item's latest receipt", async () => {
 	const { dispatcher, dir, items, control } = fixture();
 	items.splice(0);
 	const rows = [item(1), item(2)].map((work) => {
@@ -6841,6 +6772,56 @@ it("sweeps every settled run in one pass and keeps each receipt", async () => {
 		expect(JSON.parse(readFileSync(row.path, "utf8")).phase).toBe("settled");
 	}
 	expect(readdirSync(join(dir, "archive"))).toHaveLength(2);
+});
+
+it("deletes only unprotected settled receipts from older Work revisions", async () => {
+	const { dispatcher, dir, items } = fixture();
+	items.splice(0);
+	const protectedRows = [
+		{ pendingCommitProof: "" },
+		{ pendingObservation: {} },
+		{ completionPending: true },
+	];
+	for (let n = 0; n <= protectedRows.length; n++) {
+		const work = item(n + 1);
+		for (const version of [1, 2])
+			writeFileSync(
+				join(dir, `${work.id}-${version}.json`),
+				JSON.stringify({
+					itemId: work.id,
+					version,
+					phase: "settled",
+					outcome: "succeeded",
+					...(version === 1 ? protectedRows[n - 1] : undefined),
+				}),
+			);
+	}
+	const runProtected = item(5);
+	for (const version of [1, 2])
+		writeFileSync(
+			join(dir, `${runProtected.id}-${version}.json`),
+			JSON.stringify({
+				itemId: runProtected.id,
+				version,
+				phase: "settled",
+				outcome: "succeeded",
+			}),
+		);
+	mkdirSync(join(dir, "runs", `${runProtected.id}-1`, "repo"), {
+		recursive: true,
+	});
+
+	await dispatcher.tick();
+	await dispatcher.drain();
+
+	expect(existsSync(join(dir, `${item(1).id}-1.json`))).toBe(false);
+	for (let n = 2; n <= 5; n++)
+		expect(existsSync(join(dir, `${item(n).id}-1.json`))).toBe(true);
+	for (let n = 1; n <= 5; n++)
+		expect(existsSync(join(dir, `${item(n).id}-2.json`))).toBe(true);
+	expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+		'"event":"receipts-pruned"',
+	);
 });
 
 it.each(["settled", "deferred"])(

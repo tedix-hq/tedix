@@ -3,7 +3,6 @@ export function workQueueState(item, now = Date.now()) {
 		const expiry = item.activeAttempt.expiresAt;
 		return expiry && Date.parse(expiry) <= now ? "waiting" : "running";
 	}
-	if (item.latestAttempt === undefined) return "unknown";
 	const latest = item.latestAttempt;
 	const sameRevision =
 		latest &&

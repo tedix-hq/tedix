@@ -2341,8 +2341,6 @@ describe("accept states the outcome in plain language", () => {
 		).toEqual({ version: 1, doneLooksLike: "The ship lane deploys apps/os" });
 	});
 
-	// The pre-proof shape still PARSES forever so the live rows deserialize;
-	// the CLI simply stops authoring one.
 	test("writes no claims, evidence kinds, or review requirement", () => {
 		const contract = buildAcceptanceContract("Done");
 		expect(contract).not.toHaveProperty("claims");

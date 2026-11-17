@@ -138,15 +138,12 @@ const JsonRecordSchema = z.record(z.string(), z.unknown());
  * `getById` return a Work Item as it is stored, and holding is a property of
  * the moment, not of the record.
  *
- * `null` means nobody holds it. The field is absent only from a caller reading
- * an older server.
+ * `null` means there is no canonical Attempt.
  */
 export const WorkItemListRowSchema = WorkItemSchema.extend({
-	latestAttempt: WorkAttemptSummarySchema.nullable()
-		.optional()
-		.describe(
-			"Latest canonical Attempt summary. Null means no Attempt; absent means the server does not report it. A succeeded Attempt is not Work completion.",
-		),
+	latestAttempt: WorkAttemptSummarySchema.nullable().describe(
+		"Latest canonical Attempt summary. Null means no Attempt. A succeeded Attempt is not Work completion.",
+	),
 	activeAttempt: z
 		.object({
 			attemptId: z.string(),
