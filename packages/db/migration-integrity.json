@@ -1564,6 +1564,10 @@
 		{
 			"name": "20261117151111_os-workspace-events/migration.sql",
 			"sha256": "d0e3e943b89cdf74f1e1d67d204c15b00bd191c63081db607a20a76104c8b59b"
+		},
+		{
+			"name": "20261117152149_work_items_woken_repository_observation_index/migration.sql",
+			"sha256": "56329e21d48deaf91bb07635f0d0e33a34a8be7baf99ef2ed38c9d1f533eecdb"
 		}
 	]
 }
