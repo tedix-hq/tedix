@@ -32,12 +32,17 @@ function repoOnlyFiles(root: string, prefix = ""): string[] {
 }
 export function pluginRepoFiles(): Map<string, string | Uint8Array> {
 	const portable = packageFiles();
+	const opencode = packageFiles({ host: "opencode" });
 	const files = new Map<string, string | Uint8Array>([
 		...packageFiles({ host: "claude" }),
 		...packageFiles({ host: "devin" }),
-		...packageFiles({ host: "opencode" }),
+		...opencode,
 		...portable,
 	]);
+	// Devin and the OpenCode adapter read the root mcp.json, so this repository
+	// keeps the Connect definition; only the OpenAI directory ZIP uses
+	// directory/mcp.json.
+	files.set("mcp.json", opencode.get("mcp.json") as Uint8Array);
 	const canonical = JSON.parse(
 		new TextDecoder().decode(portable.get("plugin.json")),
 	);
