@@ -16,35 +16,41 @@ const server = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/api", async (original) => {
 	const actual = await original<typeof import("@/lib/api")>();
+	const userSettings = {
+		getPreferences: async () => {
+			const row = server.rows.get(server.signedIn);
+			return row
+				? { ...row, source: "stored", updatedAt: null }
+				: {
+						preferences: DEFAULT_OS_USER_PREFERENCES,
+						source: "default",
+						revision: 0,
+						updatedAt: null,
+					};
+		},
+		updatePreferences: async (input: {
+			preferences: object;
+			expectedRevision: number;
+		}) => {
+			const current = server.rows.get(server.signedIn)?.revision ?? 0;
+			if (current !== input.expectedRevision)
+				throw Object.assign(new Error("conflict"), { code: "CONFLICT" });
+			const row = { preferences: input.preferences, revision: current + 1 };
+			server.rows.set(server.signedIn, row);
+			return { ...row, source: "stored", updatedAt: null };
+		},
+	};
+	// The real client is a proxy, so spreading it copies nothing. Answer the
+	// preference calls here and leave every other route to the real client:
+	// the composer builds query options for routes these tests never call.
 	return {
 		...actual,
-		osApi: {
-			...actual.osApi,
-			userSettings: {
-				getPreferences: async () => {
-					const row = server.rows.get(server.signedIn);
-					return row
-						? { ...row, source: "stored", updatedAt: null }
-						: {
-								preferences: DEFAULT_OS_USER_PREFERENCES,
-								source: "default",
-								revision: 0,
-								updatedAt: null,
-							};
-				},
-				updatePreferences: async (input: {
-					preferences: object;
-					expectedRevision: number;
-				}) => {
-					const current = server.rows.get(server.signedIn)?.revision ?? 0;
-					if (current !== input.expectedRevision)
-						throw Object.assign(new Error("conflict"), { code: "CONFLICT" });
-					const row = { preferences: input.preferences, revision: current + 1 };
-					server.rows.set(server.signedIn, row);
-					return { ...row, source: "stored", updatedAt: null };
-				},
-			},
-		},
+		osApi: new Proxy(actual.osApi, {
+			get: (target, key, receiver) =>
+				key === "userSettings"
+					? userSettings
+					: Reflect.get(target, key, receiver),
+		}),
 	};
 });
 import { WorkspaceChat } from "./workspace-chat";
