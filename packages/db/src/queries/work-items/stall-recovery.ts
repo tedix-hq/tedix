@@ -44,19 +44,67 @@ export interface ContinuityScope {
 }
 
 /**
- * Materialize the bounded scope page and its Work once. Correlated history
- * scans per scope saturated D1 when Attention polling repeated this inventory.
- * CROSS JOIN keeps the page outside indexed history lookups; SQLite must not
- * scan runtime history to build an automatic index. Joins retain tenant scope.
+ * How much one inventory statement may read. A statement that walked a whole
+ * page of 100 scopes and all their Work read about 127,000 rows and held the
+ * main database for about 1.5 s (query insights, 15 to 16 Nov 2026). Each
+ * statement now covers at most this many scopes and this many Work Items, so
+ * the first read of a scope takes WORK_ITEMS / SCOPES of its Work Items.
+ * Agent sessions, gadget executions and tedi tasks are still read whole per
+ * scope, with the first slice: they have no per-statement limit yet.
+ */
+export const CONTINUITY_SCOPES_PER_STATEMENT = 10;
+export const CONTINUITY_WORK_ITEMS_PER_STATEMENT = 2_000;
+
+/** One statement's rows: the public scope plus where its Work slice ended. */
+type ContinuityScopeSlice = ContinuityScope & { workEnd: number | null };
+
+interface ContinuitySliceParams {
+	after: string;
+	orgId: string | undefined;
+	environment: string;
+	scopeLimit: number;
+	/** Read only this scope, to continue its Work past `workAfter`. */
+	only?: string;
+	/** Work Items are read in rowid order; null starts from the first. */
+	workAfter: number | null;
+	workLimit: number;
+}
+
+/**
+ * Materialize a bounded scope page and a bounded slice of its Work once.
+ * Correlated history scans per scope saturated D1 when Attention polling
+ * repeated this inventory. CROSS JOIN keeps the page outside indexed history
+ * lookups; SQLite must not scan runtime history to build an automatic index.
+ * Joins retain tenant scope.
+ *
+ * `workEnd` is the rowid of the last Work Item this statement may read for the
+ * scope, or NULL when the slice reaches the scope's end. The two Work indexes
+ * are named because both end in the rowid, which lets SQLite walk one scope's
+ * Work in rowid order and stop at the limit; any other index would read the
+ * whole scope for every slice.
  */
 // Raw: needs AS MATERIALIZED CTEs and CROSS JOIN join-order pinning, which Drizzle cannot emit.
-export async function listContinuityScopes(
+function readContinuityScopeSlice(
 	db: DbQueryClient,
-	after = "",
-	orgId?: string,
-	environment = "production",
-): Promise<ContinuityScope[]> {
-	return db.all<ContinuityScope>(sql`
+	{
+		after,
+		orgId,
+		environment,
+		scopeLimit,
+		only,
+		workAfter,
+		workLimit,
+	}: ContinuitySliceParams,
+): Promise<ContinuityScopeSlice[]> {
+	const onlyProject = only?.startsWith("project:") ? only.slice(8) : undefined;
+	const onlyObjective = only?.startsWith("objective:")
+		? only.slice(10)
+		: undefined;
+	const pastWorkAfter = (column: string) =>
+		workAfter === null
+			? sql``
+			: sql`AND ${sql.identifier(column)}.rowid > ${workAfter}`;
+	return db.all<ContinuityScopeSlice>(sql`
  WITH project_page AS MATERIALIZED (
  SELECT 'project:' || p.id AS key, p.id, p.org_id AS orgId, 'project' AS kind, p.name,
  CASE WHEN json_type(p.metadata, '$.continuity') = 'object' THEN json_extract(p.metadata, '$.continuity') END AS policy, p.created_at AS createdAt,
@@ -65,8 +113,9 @@ export async function listContinuityScopes(
  WHERE p.status = 'active'
  AND p.id > ${after.startsWith("project:") ? after.slice(8) : ""}
  ${after && !after.startsWith("project:") && after > "project:" ? sql`AND p.id < ${""}` : sql``}
+ ${only === undefined ? sql`` : onlyProject === undefined ? sql`AND p.id < ${""}` : sql`AND p.id = ${onlyProject}`}
  ${orgId !== undefined ? sql`AND p.org_id = ${orgId}` : sql``}
- ORDER BY p.id LIMIT ${CONTINUITY_SCOPE_BATCH_SIZE}
+ ORDER BY p.id LIMIT ${scopeLimit}
  ), objective_page AS MATERIALIZED (
  SELECT 'objective:' || o.id, o.id, o.org_id, 'objective', o.title,
  CASE WHEN json_type(o.gate_config, '$.continuity') = 'object' THEN json_extract(o.gate_config, '$.continuity') END, o.created_at,
@@ -74,19 +123,32 @@ export async function listContinuityScopes(
  FROM tedi_objectives o WHERE o.status = 'active'
  AND o.id > ${after.startsWith("objective:") ? after.slice(10) : ""}
  ${after && !after.startsWith("objective:") && after > "objective:" ? sql`AND o.id < ${""}` : sql``}
+ ${only === undefined ? sql`` : onlyObjective === undefined ? sql`AND o.id < ${""}` : sql`AND o.id = ${onlyObjective}`}
  ${orgId !== undefined ? sql`AND o.org_id = ${orgId}` : sql``}
  AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.org_id = o.org_id AND p.objective_id = o.id AND p.status = 'active')
- ORDER BY o.id LIMIT ${CONTINUITY_SCOPE_BATCH_SIZE}
+ ORDER BY o.id LIMIT ${scopeLimit}
  ), scopes AS (
  SELECT * FROM project_page UNION ALL SELECT * FROM objective_page
+ ), scope_page AS MATERIALIZED (
+ SELECT * FROM scopes ORDER BY key LIMIT ${scopeLimit}
  ), page AS MATERIALIZED (
- SELECT * FROM scopes ORDER BY key LIMIT ${CONTINUITY_SCOPE_BATCH_SIZE}
+ SELECT s.*, CASE s.kind
+ WHEN 'project' THEN (SELECT x.rowid FROM work_items x INDEXED BY idx_work_items_project
+ WHERE x.project_id = s.id ${pastWorkAfter("x")} ORDER BY x.rowid LIMIT 1 OFFSET ${workLimit - 1})
+ ELSE (SELECT x.rowid FROM work_items x INDEXED BY idx_work_items_org_objective
+ WHERE x.org_id = s.orgId AND x.objective_id = s.id ${pastWorkAfter("x")} ORDER BY x.rowid LIMIT 1 OFFSET ${workLimit - 1})
+ END AS workEnd
+ FROM scope_page s
  ), scope_work AS MATERIALIZED (
  SELECT s.key, w.id AS workItemId, w.org_id AS orgId, w.disposition
- FROM page s CROSS JOIN work_items w ON w.org_id = s.orgId AND w.project_id = s.id WHERE s.kind = 'project'
+ FROM page s CROSS JOIN work_items w INDEXED BY idx_work_items_project
+ ON w.project_id = s.id ${pastWorkAfter("w")} AND w.rowid <= coalesce(s.workEnd, 9223372036854775807) AND w.org_id = s.orgId
+ WHERE s.kind = 'project'
  UNION ALL
  SELECT s.key, w.id, w.org_id, w.disposition
- FROM page s CROSS JOIN work_items w ON w.org_id = s.orgId AND w.objective_id = s.id WHERE s.kind = 'objective'
+ FROM page s CROSS JOIN work_items w INDEXED BY idx_work_items_org_objective
+ ON w.org_id = s.orgId AND w.objective_id = s.id ${pastWorkAfter("w")} AND w.rowid <= coalesce(s.workEnd, 9223372036854775807)
+ WHERE s.kind = 'objective'
  ), work_counts AS (
  SELECT key, sum(disposition IN ('proposed','accepted')) AS pendingCount FROM scope_work GROUP BY key
  ), attempt_activity AS MATERIALIZED (
@@ -96,12 +158,16 @@ export async function listContinuityScopes(
  ), activity AS (
  SELECT key, activity FROM attempt_activity
  UNION ALL
- SELECT s.key, max(julianday(l.last_event_at)) FROM page s CROSS JOIN work_agent_sessions l
- ON l.organization_id = s.orgId AND l.project_id = s.id WHERE s.kind = 'project' GROUP BY s.key
- UNION ALL
  SELECT w.key, max(julianday(CASE WHEN r.status IN ('completed','failed','canceled') THEN coalesce(r.completed_at, r.started_at) ELSE coalesce(r.last_reconciled_at, r.started_at) END))
  FROM scope_work w CROSS JOIN skill_runs r ON r.work_item_id = w.workItemId AND r.organization_id = w.orgId
  WHERE r.runtime_environment = ${environment} GROUP BY w.key
+ ${
+		// History that does not hang off Work Items is read with the first slice only.
+		workAfter !== null
+			? sql``
+			: sql`UNION ALL
+ SELECT s.key, max(julianday(l.last_event_at)) FROM page s CROSS JOIN work_agent_sessions l
+ ON l.organization_id = s.orgId AND l.project_id = s.id WHERE s.kind = 'project' GROUP BY s.key
  UNION ALL
  SELECT s.key, max(julianday(coalesce(g.completed_at, g.created_at)))
  FROM page s CROSS JOIN os_workspace_projects p ON p.organization_id = s.orgId AND p.project_id = s.id AND p.status = 'active'
@@ -109,14 +175,15 @@ export async function listContinuityScopes(
  WHERE s.kind = 'project' AND g.runtime_environment = ${environment} GROUP BY s.key
  UNION ALL
  SELECT s.key, max(julianday(coalesce(k.updated_at, k.created_at)))
- FROM page s CROSS JOIN tedi_tasks k ON k.org_id = s.orgId AND k.objective_id = s.objectiveId GROUP BY s.key
+ FROM page s CROSS JOIN tedi_tasks k ON k.org_id = s.orgId AND k.objective_id = s.objectiveId GROUP BY s.key`
+ }
  ), latest_activity AS (
  SELECT key, max(activity) AS activity FROM activity GROUP BY key
  )
  SELECT s.key, s.id, s.orgId, s.kind, s.name, s.policy, strftime('%Y-%m-%dT%H:%M:%fZ', s.createdAt) AS createdAt,
  coalesce(t.id, c.id) AS tediId, coalesce(t.slug, c.slug) AS slug, (t.id IS NOT NULL) AS hasOwner,
  strftime('%Y-%m-%dT%H:%M:%fZ', max(julianday(s.createdAt), coalesce(l.activity, julianday(s.createdAt)))) AS lastActivityAt,
- coalesce(w.pendingCount, 0) AS pendingCount, coalesce(a.failedCount, 0) AS failedCount
+ coalesce(w.pendingCount, 0) AS pendingCount, coalesce(a.failedCount, 0) AS failedCount, s.workEnd
  FROM page s LEFT JOIN tedis t ON t.id = s.owner AND t.organization_id = s.orgId AND t.status = 'active'
  LEFT JOIN tedis c ON c.id = json_extract(s.policy, '$.coordinatorTediId') AND c.organization_id = s.orgId AND c.status = 'active'
  LEFT JOIN latest_activity l ON l.key = s.key
@@ -124,6 +191,69 @@ export async function listContinuityScopes(
  LEFT JOIN attempt_activity a ON a.key = s.key
  ORDER BY s.key
  `);
+}
+
+/**
+ * One page of up to CONTINUITY_SCOPE_BATCH_SIZE scopes after `after`, in key
+ * order, with each scope's counts and latest activity over all of its history.
+ *
+ * The page is read in several short statements instead of one long one: a few
+ * scopes at a time, and a scope with more Work than one statement may read is
+ * continued in rowid order until its last Work Item. Every Work Item is read
+ * exactly once, counts add up and the latest activity is the latest of the
+ * slices (the timestamps share one fixed-width format, so the later text is
+ * the later time). The result is what the single statement returned; only the
+ * statements are no longer one snapshot, as two pages never were.
+ */
+export async function listContinuityScopes(
+	db: DbQueryClient,
+	after = "",
+	orgId?: string,
+	environment = "production",
+): Promise<ContinuityScope[]> {
+	const scopes: ContinuityScope[] = [];
+	let cursor = after;
+	while (scopes.length < CONTINUITY_SCOPE_BATCH_SIZE) {
+		const scopeLimit = Math.min(
+			CONTINUITY_SCOPES_PER_STATEMENT,
+			CONTINUITY_SCOPE_BATCH_SIZE - scopes.length,
+		);
+		const slices = await readContinuityScopeSlice(db, {
+			after: cursor,
+			orgId,
+			environment,
+			scopeLimit,
+			workAfter: null,
+			workLimit: Math.floor(
+				CONTINUITY_WORK_ITEMS_PER_STATEMENT / CONTINUITY_SCOPES_PER_STATEMENT,
+			),
+		});
+		for (const { workEnd, ...scope } of slices) {
+			let workAfter = workEnd;
+			while (workAfter !== null) {
+				const [more] = await readContinuityScopeSlice(db, {
+					after: "",
+					orgId,
+					environment,
+					scopeLimit: 1,
+					only: scope.key,
+					workAfter,
+					workLimit: CONTINUITY_WORK_ITEMS_PER_STATEMENT,
+				});
+				// The scope stopped being active between statements; keep what was read.
+				if (!more) break;
+				scope.pendingCount += more.pendingCount;
+				scope.failedCount += more.failedCount;
+				if (more.lastActivityAt > scope.lastActivityAt)
+					scope.lastActivityAt = more.lastActivityAt;
+				workAfter = more.workEnd;
+			}
+			scopes.push(scope);
+		}
+		if (slices.length < scopeLimit) break;
+		cursor = slices.at(-1)!.key;
+	}
+	return scopes;
 }
 
 /** Environment-specific progress survives isolate recycling and cron receipt retention. */
