@@ -9,14 +9,16 @@ import {
 } from "./stall-recovery";
 
 const sqlite = createMigratedSqlite();
-let query = "";
+let queries: string[] = [];
 const db = createDbClient(
 	createD1Facade(sqlite, {
 		onPrepare(sql) {
-			query = sql;
+			queries.push(sql);
 		},
 	}),
 );
+/** The statement that reads the history outside Work, apart from the Work statement. */
+const isHistory = (sql: string) => sql.includes("os_gadget_executions");
 beforeAll(() => {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(`INSERT INTO tedis(id,organization_id,name,slug,status) VALUES ('owner','fictional-orchard','Owner','owner','active');
@@ -55,14 +57,24 @@ describe("migrated stall recovery", () => {
 	])(
 		"seeks source and history indexes for org %s after %s",
 		async (org, after) => {
-			await listContinuityScopes(db, after, org);
-			const plan = sqlite
-				.prepare(`EXPLAIN QUERY PLAN ${query}`)
-				.all(...Array(query.match(/\?/g)?.length ?? 0).fill("")) as {
-				detail: string;
-			}[];
-			const details = plan.map((p) => p.detail).join("\n");
-			expect(details).not.toMatch(/SCAN (?:p|o|r|g|k|t|c)\b/);
+			// The history statement has one text; a page with no scopes runs none.
+			await listContinuityScopes(db);
+			const history = queries.find(isHistory)!;
+			queries = [];
+			const scopes = await listContinuityScopes(db, after, org);
+			expect(queries.filter(isHistory)).toHaveLength(scopes.length ? 1 : 0);
+			const details = [...new Set([...queries, history])]
+				.flatMap(
+					(query) =>
+						sqlite
+							.prepare(`EXPLAIN QUERY PLAN ${query}`)
+							.all(...Array(query.match(/\?/g)?.length ?? 0).fill("")) as {
+							detail: string;
+						}[],
+				)
+				.map((p) => p.detail)
+				.join("\n");
+			expect(details).not.toMatch(/SCAN (?:p|o|r|g|k|t|c|l)\b/);
 			expect(details).toContain(
 				"idx_projects_" + (org ? "org_status_id" : "status_id"),
 			);
