@@ -358,6 +358,21 @@ describe("planRunReconciliation — held Home delegations", () => {
 		);
 	});
 
+	it("keeps an identical request held in a different conversation", () => {
+		expect(
+			planWithTtl(
+				[
+					held({ id: "older", createdAgoMs: 2 * HOUR }),
+					{
+						...held({ id: "newer", createdAgoMs: HOUR }),
+						conversationId: "home:cli:thread:other",
+					},
+				],
+				24,
+			),
+		).toEqual([]);
+	});
+
 	it("treats context tokens and whitespace as the same request", () => {
 		const actions = planWithTtl(
 			[
