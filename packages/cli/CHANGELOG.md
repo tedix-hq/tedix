@@ -3,6 +3,27 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.22.0 — 2026-11-17
+
+### Minor Changes
+
+- c1aac9d: Add a read-only capture check that compares recent local host chats, the retry outbox, and stored session events.
+- fdc0f0e: Lane results can cite a commit and successful CI run in another repository under the dispatcher's GitHub owner. The dispatcher verifies the commit's target-main ancestry and latest successful workflow run before settling the Work.
+- 617663e: A runner no longer fails and repeats a run that found its task already done. A result can name the earlier commits on main in `existingCommits`; the runner checks them and records the run as succeeded. A passing network or server fault while a Devin result is saved is retried and no longer starts the session again.
+- 747f8a0: The supervisor reports its own heartbeat every 20 seconds, so Work > Map shows it as down within a minute when it stops or its sign-in fails.
+
+### Patch Changes
+
+- 44e9c15: `tedix code` explains a namespace that is undefined because the call ran for a different target: a call for one organization uses that organization's own names (`work.*`), a Connect call without an organization uses `<organization>_unified_<app>`. `tedix code --help` states the rule, and `tedix work --help` says who answers for Work created without `--owner`.
+- ba4b53f: With decision capture enabled, a message typed wholly inside a code block or a tag pair, or a short request under a long pasted log, is no longer dropped: a shortened, redacted copy marked as filtered is uploaded so the request can still be recorded.
+- 0b74881: Prune inactive runner receipts after a newer revision of the same Work item supersedes them.
+- e4a2bc0: Background runners can recover a landed commit from its admitted cancelled Attempt while still rejecting a live peer's commit.
+- 7677eaa: `tedix work settle` accepts `--outcome rejected` for a run that finished and declared the accepted outcome incomplete. The server never reruns a rejected Attempt on the same Work revision, while crashes (`failed`, `expired`) still retry within the lane policy's `maxAttempts`. The local dispatcher no longer holds Work on its own count of failed Attempts.
+- 8f33a8c: With decision capture enabled, a typed message or agent turn is saved to the local session-events outbox before the sign-in check, so a slow or failed check no longer loses it; the next hook uploads it.
+- 8696aa5: The local session-events outbox no longer stalls or loses events silently. When an upload fails, events are retried one by one; an event the server rejects three times while taking others moves to the outbox's `rejected/` folder instead of blocking newer events. Session start now uploads events an earlier chat left behind. Very long turn text is cut to 500,000 characters, keeping its start and end. `outbox.log` in the outbox folder records every event set aside or trimmed.
+- b961f78: Lane dispatchers and the Lead supervisor briefly retry process identity capture after spawning, so Linux runs remain recoverable when `/proc` has not exposed the child's command line yet.
+- 55189ec: Work tools gain two owner/admin undo operations: `restore_work_filing` puts a Work Item's project, objective, class and exception expiry back exactly (nulls included), and `detach_work_case_item` removes an epic attachment without touching the Work.
+
 ## 0.21.21 — 2026-11-16
 
 ### Patch Changes
