@@ -124,6 +124,7 @@ import {
 } from "./resolution";
 import {
 	isRetryableUpstreamError,
+	unexpectedGatewayErrorResponse,
 	upstreamUnavailableResponse,
 } from "./upstream";
 import { handleFavicon, handleServerCard, handleWellKnown } from "./well-known";
@@ -2128,7 +2129,16 @@ async function fetchWithCorrelation(
 	const traceId = requestTraceId(request.headers);
 	// The MCP handler owns SEP-414 body metadata; don't override it with a generated header.
 	const response = await correlatedErrorResponse(
-		await worker.fetch(request, env, ctx),
+		await worker.fetch(request, env, ctx).catch((error: unknown) => {
+			// An exception leaving the Worker is Cloudflare error 1101: an HTML
+			// page with no cause. Log the cause and answer as retryable instead.
+			log.error("MCP request threw an unhandled exception", {
+				event: "router.unhandled_exception",
+				outcome: "unavailable",
+				error,
+			});
+			return unexpectedGatewayErrorResponse();
+		}),
 		traceId,
 		false,
 	);

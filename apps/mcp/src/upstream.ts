@@ -189,10 +189,29 @@ export async function withUpstreamRetry<T>(
  * MCP clients treat it as retryable rather than permanently broken.
  */
 export function upstreamUnavailableResponse(): Response {
+	return retryableResponse(
+		"Upstream unavailable",
+		"The API is temporarily unavailable. Please retry shortly.",
+	);
+}
+
+/**
+ * The same retryable `503` for an exception no route handled. Its own error
+ * code keeps clients from resending automatically: unlike a pre-dispatch
+ * refusal, a tool may already have run.
+ */
+export function unexpectedGatewayErrorResponse(): Response {
+	return retryableResponse(
+		"gateway_unexpected_error",
+		"The gateway hit an unexpected error. Please retry shortly.",
+	);
+}
+
+function retryableResponse(error: string, message: string): Response {
 	return new Response(
 		JSON.stringify({
-			error: "Upstream unavailable",
-			message: "The API is temporarily unavailable. Please retry shortly.",
+			error,
+			message,
 			retryAfter: UPSTREAM_RETRY_AFTER_SECONDS,
 		}),
 		{
