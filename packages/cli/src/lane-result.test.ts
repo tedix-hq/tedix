@@ -329,7 +329,24 @@ describe("verified preexisting CI outcomes", () => {
 		});
 		expect(
 			f.commands.filter((args) => args.includes("--is-ancestor")),
-		).toHaveLength(3);
+		).toHaveLength(5);
+	});
+	it("accepts a commit-suffixed run name when a later successful run of the workflow contains it", () => {
+		const f = proofFixture();
+		f.proof.name = `${existing.workflowName} @ ${f.proof.head_sha}`;
+		f.latest.workflow_runs[0] = {
+			...f.proof,
+			id: 999,
+			name: `Deploy gate @ ${"d".repeat(40)}`,
+			head_sha: "d".repeat(40),
+		};
+		expect(
+			verifyExistingLaneResult("/fictional", existing, f.run),
+		).toMatchObject({ runId: 123, runCommitSha: "c".repeat(40) });
+		f.latest.workflow_runs[0]!.conclusion = "failure";
+		expect(() =>
+			verifyExistingLaneResult("/fictional", existing, f.run),
+		).toThrow();
 	});
 	it("rejects mismatched contracts, failed/stale/pending runs and unlanded fixes", () => {
 		for (const change of [
@@ -346,7 +363,7 @@ describe("verified preexisting CI outcomes", () => {
 				f.proof.head_branch = "feature";
 			},
 			(f: ReturnType<typeof proofFixture>) => {
-				f.latest.workflow_runs[0]!.id = 999;
+				f.proof.name = `${existing.workflowName} @ ${"e".repeat(40)}`;
 			},
 			(f: ReturnType<typeof proofFixture>) => {
 				f.latest.workflow_runs[0]!.run_attempt = 2;
