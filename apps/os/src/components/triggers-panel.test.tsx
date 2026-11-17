@@ -325,6 +325,25 @@ describe("TriggerRow", () => {
 		expect(html).toContain("Run now");
 	});
 
+	it("lets the text wrap above full-width actions on phones instead of sharing one line", () => {
+		const html = renderToStaticMarkup(
+			<TriggerRow schedule={baseSchedule} definition={dynamicDefinition} />,
+		);
+		const classOf = (id: string) =>
+			html
+				.match(new RegExp(`<span[^>]*data-testid="${id}"[^>]*>`))?.[0]
+				.match(/class="([^"]*)"/)?.[1];
+		const text = [null, classOf("trigger-row-text")];
+		const actions = [null, classOf("trigger-row-actions")];
+		// Text has a wrap basis (not flex-1 / basis 0) so actions wrap below it.
+		expect(text?.[1]).toContain("flex-[1_1_14rem]");
+		expect(text?.[1]).not.toMatch(/(^| )flex-1( |$)/);
+		// Actions take their own full-width line on phones, inline from sm up.
+		expect(actions?.[1]).toContain("w-full");
+		expect(actions?.[1]).toContain("sm:w-auto");
+		expect(actions?.[1]).not.toMatch(/(^| )shrink-0( |$)/);
+	});
+
 	it("renders a read-only Off chip for disabled schedules — no fake pause verb", () => {
 		const html = renderToStaticMarkup(
 			<TriggerRow schedule={{ ...baseSchedule, enabled: false }} />,

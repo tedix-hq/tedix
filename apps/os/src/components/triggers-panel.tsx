@@ -239,7 +239,10 @@ export function TriggerRow({
 			<IconFrame aria-hidden>
 				<Alarm size={18} />
 			</IconFrame>
-			<span className="grid min-w-0 flex-1 gap-1">
+			<span
+				data-testid="trigger-row-text"
+				className="grid min-w-0 flex-[1_1_14rem] gap-1"
+			>
 				<span className="flex flex-wrap items-center gap-1.5">
 					<SkillChip tone={schedule.enabled ? "active" : "neutral"}>
 						{schedule.enabled ? "On" : "Off"}
@@ -256,7 +259,7 @@ export function TriggerRow({
 					as="strong"
 					role="body"
 					weight="medium"
-					className="truncate tracking-[-0.2px]"
+					className="break-words tracking-[-0.2px] sm:truncate"
 				>
 					{triggerTitle(schedule, definition)}
 				</Text>
@@ -295,7 +298,10 @@ export function TriggerRow({
 					) : null}
 				</Text>
 			</span>
-			<span className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2 self-center">
+			<span
+				data-testid="trigger-row-actions"
+				className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:shrink-0 sm:justify-end sm:self-center"
+			>
 				<Button
 					size="sm"
 					variant="outline"
