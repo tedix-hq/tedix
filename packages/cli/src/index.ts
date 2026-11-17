@@ -147,6 +147,14 @@ function improveCliErrorMessage(message: string): string {
 	return message;
 }
 
+export function formatCliError(argv: string[], message: string): string {
+	const separator = argv.indexOf("--");
+	const flags = separator < 0 ? argv : argv.slice(0, separator);
+	return flags.includes("--json") || flags.includes("--json=true")
+		? JSON.stringify({ error: message })
+		: message;
+}
+
 async function main() {
 	let commandIndex = 2;
 	while (
@@ -229,17 +237,10 @@ async function main() {
 if (import.meta.main) {
 	// Parsing can fail before options exist; literal arguments cannot choose output.
 	const argv = process.argv.slice(2);
-	const separator = argv.indexOf("--");
-	const flags = separator < 0 ? argv : argv.slice(0, separator);
-	const jsonMode = flags.includes("--json") || flags.includes("--json=true");
 	main().catch(async (error) => {
 		const { errorText } = await import("./format");
 		const message = improveCliErrorMessage(errorText(error));
-		if (jsonMode) {
-			console.error(JSON.stringify({ error: message }));
-		} else {
-			console.error(message);
-		}
+		console.error(formatCliError(argv, message));
 		process.exit(1);
 	});
 }
