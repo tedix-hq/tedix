@@ -12,6 +12,7 @@ import {
 	max,
 	ne,
 	or,
+	type SQL,
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
@@ -26,6 +27,8 @@ import {
 	learningFeedbackMeasurements,
 	learningImprovementProposals,
 	learningInteractionEvents,
+	personalDecisionHistory,
+	sharedDecisionHistory,
 } from "../schema/learning-feedback";
 
 type LearningChangeKind = LearningFeedbackAttributionRow["changeKind"];
@@ -264,6 +267,52 @@ export async function listLearningInteractions(
 		.orderBy(desc(learningInteractionEvents.occurredAt))
 		.limit(input.limit);
 	return rows;
+}
+
+/**
+ * The newest decision history a person's decision model may learn from: every
+ * event that is not personal plus, when a person is given, that person's own
+ * personal events; decision-learning surfaces only, Feed impressions left out,
+ * newest first.
+ *
+ * Each half walks its own partial index in time order and stops at `limit`;
+ * it states that index's WHERE word for word, which is what lets SQLite use it.
+ */
+export async function listDecisionLearningHistory(
+	db: DbQueryClient,
+	input: {
+		organizationId: string;
+		personalScopeId: string | null;
+		limit: number;
+	},
+): Promise<LearningInteractionEventRow[]> {
+	const newest = (history: SQL | undefined) =>
+		db
+			.select()
+			.from(learningInteractionEvents)
+			.where(
+				and(
+					eq(learningInteractionEvents.organizationId, input.organizationId),
+					history,
+				),
+			)
+			.orderBy(desc(learningInteractionEvents.occurredAt))
+			.limit(input.limit);
+	const shared = newest(sharedDecisionHistory);
+	if (!input.personalScopeId) return shared;
+	const sharedHistory = shared.as("shared_history");
+	const personalHistory = newest(
+		and(
+			eq(learningInteractionEvents.scopeId, input.personalScopeId),
+			personalDecisionHistory,
+		),
+	).as("personal_history");
+	return db
+		.select()
+		.from(sharedHistory)
+		.unionAll(db.select().from(personalHistory))
+		.orderBy(desc(sharedHistory.occurredAt))
+		.limit(input.limit);
 }
 
 /**

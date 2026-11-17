@@ -5,7 +5,10 @@ import {
 } from "@tedix/db/queries/work-items/card-style-rules";
 import type { DbClient } from "@tedix/db/client";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
-import { listLearningInteractions } from "@tedix/db/queries/learning-feedback";
+import {
+	listDecisionLearningHistory,
+	listLearningInteractions,
+} from "@tedix/db/queries/learning-feedback";
 import { listApprovedAgentLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
 import {
 	learnDecisions,
@@ -41,24 +44,9 @@ export async function readDecisionLearning(
 			now,
 		});
 	const [events, facts] = await Promise.all([
-		listLearningInteractions(db, {
+		listDecisionLearningHistory(db, {
 			organizationId,
 			personalScopeId: personId,
-			surfaces: [
-				"decision_capture",
-				"agent_session_import",
-				"activity_feed",
-				"focus_feed",
-				"decision_deck",
-				"decision_deck_action",
-				"work_outcome",
-				"outbound_outcome",
-				"work_fix",
-				"decision_learning",
-				"decision_edit_preference",
-				"card_context",
-			],
-			excludeFeedImpressions: true,
 			limit: config.historyLimit,
 		}),
 		listApprovedAgentLessons(
