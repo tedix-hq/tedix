@@ -121,10 +121,12 @@ async function run(
 		binding = BINDING,
 		env = {},
 		fail = false,
+		authFail = false,
 	}: {
 		binding?: JsonObject;
 		env?: Record<string, string>;
 		fail?: boolean;
+		authFail?: boolean;
 	} = {},
 ) {
 	const uploads: JsonObject[][] = [];
@@ -136,7 +138,10 @@ async function run(
 		write: () => {},
 		read: async (args, _timeout, input) => {
 			if (args.includes("context")) return binding;
-			if (args.includes("auth")) return AUTH;
+			if (args.includes("auth")) {
+				if (authFail) throw new Error("auth status timed out");
+				return AUTH;
+			}
 			if (args.at(-1) === "code" && input) {
 				if (fail) throw new Error("offline");
 				const prefix = "async () => await work.record_agent_session_events(";
@@ -191,6 +196,21 @@ describe("session event upload", () => {
 			last_assistant_message: "Pushed 4f2a9c1e; the login page works.",
 		});
 		expect(batch!.map((event) => event.kind)).toEqual(["prompt", "turn"]);
+		expect(outbox()).toEqual([]);
+	});
+
+	test("keeps a prompt whose auth read failed and sends it with the next hook", async () => {
+		expect(
+			await run("prompt", { prompt: "Fix the login page" }, { authFail: true }),
+		).toEqual([]);
+		expect(outbox()).toHaveLength(1);
+		const [batch] = await run("turn", {
+			last_assistant_message: "The login page works.",
+		});
+		expect(batch!.map((event) => [event.kind, event.text])).toEqual([
+			["prompt", "Fix the login page"],
+			["turn", "The login page works."],
+		]);
 		expect(outbox()).toEqual([]);
 	});
 
@@ -258,6 +278,7 @@ describe("session event upload", () => {
 				{ binding: { ...BINDING, decisionCapture: false } },
 			),
 		).toEqual([]);
+		expect(readdirSync(config)).toEqual([]);
 	});
 
 	test("unattended runs and host injections are skipped", async () => {
@@ -268,6 +289,7 @@ describe("session event upload", () => {
 				{ env: { CLAUDE_CODE_SESSION_ATTENDED: "0" } },
 			),
 		).toEqual([]);
+		expect(readdirSync(config)).toEqual([]);
 		expect(
 			ledgerText("prompt", {
 				prompt: "<task-notification>x</task-notification>",
