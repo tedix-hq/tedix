@@ -1877,6 +1877,40 @@ describe("failed events without a client flag", () => {
 		return db;
 	};
 
+	it("logs a payload-free reason for each failed attempt", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const db = fixture();
+			await acceptAgentSessionEvents(
+				db,
+				prompt("Check the example import", T0),
+			);
+			const id = (await db.select().from(agentSessionEvents))[0]!.id;
+			const pass = (model: LedgerProcessingModel) =>
+				processAgentSessionEvents(db, model, SCOPE, { now: () => T0 });
+			await pass(scripted(null).model);
+			const throwing = scripted(null).model;
+			await pass(
+				Object.assign(async () => {
+					throw new Error("D1_ERROR: near Check the example import");
+				}, throwing),
+			);
+			expect(warn.mock.calls.map(([line]) => line)).toEqual([
+				{
+					event: "agent_session_events.attempt_failed",
+					eventId: id,
+					kind: "prompt",
+					harness: SCOPE.harness,
+					bodyBytes: 24,
+					reason: "model_unavailable",
+				},
+				expect.objectContaining({ eventId: id, reason: "Error:D1_ERROR" }),
+			]);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
 	it("processes a failed event an hour later once the model recovers", async () => {
 		const db = await failed();
 		const pass = (now: string) =>
