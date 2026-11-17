@@ -21,6 +21,7 @@ import {
 	opensThinkingImplicitly,
 	splitInlineThinking,
 } from "./inline-thinking";
+import { claude55RequestCapabilities } from "./model-capabilities";
 import type { LanguageModel } from "ai";
 import {
 	callWorkersAi,
@@ -71,6 +72,7 @@ interface WorkersAiTool {
 		name: string;
 		description?: string;
 		parameters: unknown;
+		strict?: boolean;
 	};
 }
 type WorkersAiToolChoice =
@@ -174,7 +176,10 @@ function toWorkersAiMessages(
 }
 
 /** Map LanguageModelV2 function tools → OpenAI-style Workers AI tools. */
-function toWorkersAiTools(tools: CallOptions["tools"]): {
+function toWorkersAiTools(
+	tools: CallOptions["tools"],
+	strict: boolean,
+): {
 	tools?: WorkersAiTool[];
 	warnings: CallWarning[];
 } {
@@ -192,6 +197,7 @@ function toWorkersAiTools(tools: CallOptions["tools"]): {
 				name: t.name,
 				description: t.description,
 				parameters: t.inputSchema,
+				...(strict ? { strict: true } : {}),
 			},
 		});
 	}
@@ -258,8 +264,18 @@ async function generateOnce(
 	usage: Usage;
 	warnings: CallWarning[];
 }> {
-	const { tools, warnings } = toWorkersAiTools(options.tools);
-	const toolChoice = toWorkersAiToolChoice(options.toolChoice);
+	const capabilities = claude55RequestCapabilities(modelId);
+	const { tools, warnings } = toWorkersAiTools(
+		options.tools,
+		capabilities?.strictTools === true,
+	);
+	const toolChoice = toWorkersAiToolChoice(
+		capabilities?.rewriteForcedToolChoice &&
+			(options.toolChoice?.type === "required" ||
+				options.toolChoice?.type === "tool")
+			? { type: "auto" }
+			: options.toolChoice,
+	);
 	const messages = toWorkersAiMessages(options.prompt);
 	if (
 		options.responseFormat?.type === "json" &&
@@ -290,7 +306,7 @@ async function generateOnce(
 		...(options.maxOutputTokens !== undefined
 			? { max_tokens: options.maxOutputTokens }
 			: {}),
-		...(options.temperature !== undefined
+		...(!capabilities?.dropSampling && options.temperature !== undefined
 			? { temperature: options.temperature }
 			: {}),
 		...(options.abortSignal ? { signal: options.abortSignal } : {}),

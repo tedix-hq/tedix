@@ -10,6 +10,7 @@
 		"./jev": "./src/jev.ts",
 		"./transport": "./src/transport.ts",
 		"./model": "./src/model.ts",
+		"./model-capabilities": "./src/model-capabilities.ts",
 		"./model-select": "./src/model-select.ts",
 		"./model-fallback": "./src/model-fallback.ts",
 		"./breaker": "./src/breaker.ts"

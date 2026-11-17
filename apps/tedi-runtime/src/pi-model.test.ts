@@ -906,6 +906,75 @@ test("tool argument surrogates cannot poison later dispatches, including prepare
 	}
 	assert.equal(args.nested[0], "\uD800");
 });
+test("concurrent Claude 5.5 dispatches normalize persisted histories per model", async () => {
+	const captured = new Map<
+		string,
+		import("@ai-sdk/provider").LanguageModelV2CallOptions
+	>();
+	const makeSdk = (modelId: string): LanguageModelV2 => ({
+		...v2([{ ...finish, finishReason: "stop" }]),
+		provider: "anthropic",
+		modelId,
+		doStream: async (call) => {
+			captured.set(modelId, call);
+			return v2([{ ...finish, finishReason: "stop" }]).doStream(call);
+		},
+	});
+	const persistedPrompt: import("@ai-sdk/provider").LanguageModelV2Prompt = [
+		{ role: "system", content: "current instructions" },
+		{ role: "user", content: [{ type: "text", text: "step one" }] },
+		{
+			role: "assistant",
+			content: [
+				{ type: "reasoning", text: "model-bound thinking" },
+				{ type: "text", text: "step one complete" },
+			],
+		},
+		{ role: "user", content: [{ type: "text", text: "step two" }] },
+	];
+	const run = (modelId: string) =>
+		createTedixPiProvider({
+			catalog: () => [model],
+			resolveModel: () => makeSdk(modelId),
+			prepare: async () => ({
+				prompt: persistedPrompt,
+				callOptions: {
+					temperature: 0.2,
+					topP: 0.9,
+					topK: 20,
+					toolChoice: { type: "required" },
+					providerOptions: {
+						anthropic: {
+							thinking: { type: "enabled", budget_tokens: 1024 },
+							budget_tokens: 1024,
+						},
+					},
+				},
+			}),
+		})
+			.streamSimple(model, context)
+			.result();
+	await Promise.all([run("claude-opus-5-5"), run("claude-haiku-5-5")]);
+	const opus = captured.get("claude-opus-5-5")!;
+	assert.equal(opus.toolChoice?.type, "auto");
+	assert.equal(opus.providerOptions?.anthropic?.thinking, undefined);
+	assert.equal(opus.temperature, 0.2);
+	const haiku = captured.get("claude-haiku-5-5")!;
+	assert.equal(haiku.temperature, undefined);
+	assert.equal(haiku.topP, undefined);
+	assert.equal(haiku.topK, undefined);
+	assert.equal(haiku.providerOptions?.anthropic?.budget_tokens, undefined);
+	assert.equal(
+		(haiku.providerOptions?.anthropic?.thinking as Record<string, unknown>)
+			?.budget_tokens,
+		undefined,
+	);
+	for (const call of captured.values())
+		assert.equal(
+			JSON.stringify(call.prompt).includes("model-bound thinking"),
+			false,
+		);
+});
 
 for (const entry of cases) {
 	await entry.run();

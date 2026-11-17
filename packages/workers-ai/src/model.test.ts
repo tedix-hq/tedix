@@ -14,6 +14,7 @@ type CallOptions = Parameters<LanguageModelV2["doGenerate"]>[0];
 async function bindingInputs(
 	options: Partial<CallOptions> & Pick<CallOptions, "prompt">,
 	attribution?: Record<string, string>,
+	modelId = "@cf/openai/gpt-oss-120b",
 ): Promise<Record<string, unknown>> {
 	const run = vi.fn(async () => ({ response: "ok" }));
 	const client: WorkersAiClient = {
@@ -24,7 +25,7 @@ async function bindingInputs(
 		},
 		authorize: async (input) => ({ attribution: input.attribution }),
 	};
-	const model = workersAiModel(client, "@cf/openai/gpt-oss-120b", attribution);
+	const model = workersAiModel(client, modelId, attribution);
 	await model.doGenerate(options as CallOptions);
 	return run.mock.calls[0]?.[1] as Record<string, unknown>;
 }
@@ -179,6 +180,39 @@ describe("tool_choice guard", () => {
 			type: "function",
 			function: { name: "list_skills" },
 		});
+	});
+
+	it("rewrites Claude 5.5 forced tools to auto with strict schemas", async () => {
+		const inputs = await bindingInputs(
+			{
+				prompt: HELLO,
+				tools: [TOOL],
+				toolChoice: { type: "tool", toolName: "list_skills" },
+			},
+			undefined,
+			"@cf/anthropic/claude-sonnet-5-5",
+		);
+		expect(inputs.tool_choice).toBe("auto");
+		expect(inputs.tools).toEqual([
+			{
+				type: "function",
+				function: {
+					name: "list_skills",
+					description: "list them",
+					parameters: { type: "object", properties: {} },
+					strict: true,
+				},
+			},
+		]);
+	});
+
+	it("drops unsupported Claude 5.5 Haiku sampling", async () => {
+		const inputs = await bindingInputs(
+			{ prompt: HELLO, temperature: 0.2 },
+			undefined,
+			"@cf/anthropic/claude-haiku-5-5",
+		);
+		expect(inputs).not.toHaveProperty("temperature");
 	});
 });
 

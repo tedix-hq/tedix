@@ -1,6 +1,7 @@
 import { estimateInferenceTokens } from "./inference-guardrails";
 import { repairToolCallInput } from "./repair-tool-call";
 import { repairJsonUnicode } from "@tedix/chat-transport/repair-json-unicode";
+import { claude55RequestCapabilities } from "@tedix/workers-ai/model-capabilities";
 import type {
 	LanguageModelV2,
 	LanguageModelV3,
@@ -40,6 +41,71 @@ import {
 } from "@earendil-works/pi-ai/utils/transcript";
 
 export type TedixSdkModel = LanguageModelV2 | LanguageModelV3 | LanguageModelV4;
+
+function requestCapabilities(model: TedixSdkModel) {
+	return claude55RequestCapabilities(
+		model.provider === "cloudflare-auto"
+			? "cloudflare/auto"
+			: `${model.provider}/${model.modelId}`,
+	);
+}
+
+function normalizeClaude55Call(
+	model: TedixSdkModel,
+	call: LanguageModelV2CallOptions,
+): LanguageModelV2CallOptions {
+	const capabilities = requestCapabilities(model);
+	if (!capabilities) return call;
+	const providerOptions = structuredClone(call.providerOptions ?? {});
+	const anthropic = providerOptions.anthropic;
+	if (anthropic && typeof anthropic === "object" && !Array.isArray(anthropic)) {
+		if (capabilities.dropThinking) delete anthropic.thinking;
+		if (capabilities.dropManualThinkingBudget) {
+			delete anthropic.budgetTokens;
+			delete anthropic.budget_tokens;
+			const thinking = anthropic.thinking;
+			if (
+				thinking &&
+				typeof thinking === "object" &&
+				!Array.isArray(thinking)
+			) {
+				const settings = thinking as Record<string, unknown>;
+				delete settings.budgetTokens;
+				delete settings.budget_tokens;
+			}
+		}
+	}
+	const cloudflare = providerOptions.cloudflareAutoRouter;
+	if (
+		capabilities.dropThinking &&
+		cloudflare &&
+		typeof cloudflare === "object" &&
+		!Array.isArray(cloudflare)
+	)
+		delete cloudflare.reasoningEffort;
+	const prompt: LanguageModelV2Prompt = [];
+	for (const message of call.prompt) {
+		if (message.role !== "assistant") {
+			prompt.push(message);
+			continue;
+		}
+		const content = message.content.filter((part) => part.type !== "reasoning");
+		if (content.length > 0) prompt.push({ ...message, content });
+	}
+	return {
+		...call,
+		...(capabilities.dropSampling
+			? { temperature: undefined, topP: undefined, topK: undefined }
+			: {}),
+		providerOptions,
+		toolChoice:
+			capabilities.rewriteForcedToolChoice &&
+			(call.toolChoice?.type === "required" || call.toolChoice?.type === "tool")
+				? { type: "auto" }
+				: call.toolChoice,
+		prompt,
+	};
+}
 export type TedixPiDispatch<R> = {
 	model?: TedixSdkModel;
 	prompt?: LanguageModelV2Prompt;
@@ -490,7 +556,7 @@ export function createTedixPiProvider<R>(
 						? `call_${crypto.randomUUID()}`
 						: null;
 				const translated = piToSdkPrompt(context.messages);
-				const call: LanguageModelV2CallOptions = {
+				let call: LanguageModelV2CallOptions = {
 					prompt: prepared.prompt ?? translated.prompt,
 					tools: translated.tools,
 					maxOutputTokens: options.maxTokens,
@@ -514,6 +580,7 @@ export function createTedixPiProvider<R>(
 							}
 						: message,
 				);
+				call = normalizeClaude55Call(actual, call);
 				options.signal?.throwIfAborted();
 				sdkAbort.signal.throwIfAborted();
 				await config.beforeDispatch?.(call, receipt);
@@ -521,6 +588,7 @@ export function createTedixPiProvider<R>(
 				sdkAbort.signal.throwIfAborted();
 				dispatched = true;
 				armIdle();
+				const strictTools = requestCapabilities(actual)?.strictTools === true;
 				const pendingResponse = (async () =>
 					actual.specificationVersion === "v4"
 						? await actual.doStream({
@@ -531,7 +599,7 @@ export function createTedixPiProvider<R>(
 										throw new Error(
 											"Provider-defined tools require a governed adapter",
 										);
-									return tool;
+									return { ...tool, ...(strictTools ? { strict: true } : {}) };
 								}),
 							})
 						: actual.specificationVersion === "v3"
@@ -543,7 +611,10 @@ export function createTedixPiProvider<R>(
 											throw new Error(
 												"Provider-defined tools require a governed adapter",
 											);
-										return tool;
+										return {
+											...tool,
+											...(strictTools ? { strict: true } : {}),
+										};
 									}),
 								})
 							: await actual.doStream(call))();
