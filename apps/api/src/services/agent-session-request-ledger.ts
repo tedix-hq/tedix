@@ -1005,6 +1005,17 @@ export async function acceptAgentSessionEvents(
 	};
 }
 
+/** Error class and code only: a message can quote the event body. */
+function failureReason(error: unknown): string {
+	if (!(error instanceof Error)) return "unknown_error";
+	const code =
+		(error as { code?: unknown }).code ??
+		/^[A-Z][A-Z0-9_]{2,39}(?=:)/.exec(error.message)?.[0];
+	return typeof code === "string" || typeof code === "number"
+		? `${error.name}:${String(code).slice(0, 40)}`
+		: error.name;
+}
+
 /** Maximum events per background pass. */
 export const EVENTS_PER_PASS = 4;
 
@@ -1047,6 +1058,7 @@ export async function processAgentSessionEvents(
 			sessionKey: event.sessionKey,
 		};
 		let ok = false;
+		let reason = "model_unavailable";
 		try {
 			const result =
 				event.kind === "prompt"
@@ -1069,9 +1081,21 @@ export async function processAgentSessionEvents(
 			ok = result.status !== "unavailable";
 			if (ok)
 				await options.onRecorded?.({ ...scope, sourceAt: event.sourceAt });
-		} catch {
+		} catch (error) {
 			ok = false;
+			reason = failureReason(error);
 		}
+		if (!ok)
+			writeInferenceDiagnostic(() =>
+				console.warn({
+					event: "agent_session_events.attempt_failed",
+					eventId: event.id,
+					kind: event.kind,
+					harness: event.harness,
+					bodyBytes: new TextEncoder().encode(event.body).length,
+					reason,
+				}),
+			);
 		await settleAgentSessionEvent(db, {
 			...owner,
 			id: event.id,
