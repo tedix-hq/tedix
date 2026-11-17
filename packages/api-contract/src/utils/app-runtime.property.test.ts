@@ -1,3 +1,4 @@
+import { strict as assert } from "node:assert";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	APP_RUNTIME_OPERATIONS,
@@ -108,7 +109,9 @@ describe("app runtime permission matrix, exhaustively", () => {
 				input.grants[0]!.operations.includes(input.operation);
 			const expected =
 				roleAllows && (!GRANT_GATED.has(input.operation) || granted);
-			expect(decision.allowed, JSON.stringify(input)).toBe(expected);
+			if (decision.allowed !== expected) {
+				assert.equal(decision.allowed, expected, JSON.stringify(input));
+			}
 		}
 	});
 
