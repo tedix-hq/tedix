@@ -560,9 +560,10 @@ describe("Portable Sheet grid", () => {
 			key("Enter", {}, input);
 			// Enter picked the function; the cell is still being written.
 			expect(q(".cell-edit")).toBe(input);
-			expect(input.value).toBe("=SUM(");
-			expect(help().textContent).toContain("SUM(number1");
-			expect(help().querySelector("b")!.textContent).toBe("number1");
+			expect(input.value).toBe("=SUM()");
+			expect(input.selectionStart).toBe(5);
+			expect(help().textContent).toContain("SUM(value1, [value2, …])");
+			expect(help().querySelector(".current")!.textContent).toBe("value1");
 		});
 		it("adds clicked and dragged cells to the formula, then saves it", async () => {
 			const app = await editor();
@@ -577,6 +578,7 @@ describe("Portable Sheet grid", () => {
 			cell("B1").dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
 			expect(input.value).toBe("=SUM(A1:B1");
 			expect(cell("B1").classList.contains("picking")).toBe(true);
+			expect(cell("A1").classList.contains("ref-range")).toBe(true);
 			document.dispatchEvent(new MouseEvent("mouseup"));
 			expect(cell("B1").classList.contains("picking")).toBe(false);
 			typeIn(input, input.value + ")");
@@ -586,16 +588,35 @@ describe("Portable Sheet grid", () => {
 				"=SUM(A1:B1)",
 			);
 		});
-		it("switches a reference's $ form with F4", async () => {
+		it("locks a reference with Cmd or Ctrl+Shift+L, and lists the common functions on =", async () => {
 			await editor();
 			select("D1");
 			key("=");
 			const input = q<HTMLInputElement>(".cell-edit");
+			typeIn(input, "=");
+			expect(
+				[...help().querySelectorAll("[role=option] span")].map(
+					(n) => n.textContent,
+				),
+			).toEqual(["SUM", "AVERAGE", "IF", "COUNTIF", "VLOOKUP", "HYPERLINK"]);
 			typeIn(input, "=A1");
-			key("F4", {}, input);
+			key("l", { metaKey: true, shiftKey: true }, input);
 			expect(input.value).toBe("=$A$1");
-			key("F4", {}, input);
+			key("l", { metaKey: true, shiftKey: true }, input);
 			expect(input.value).toBe("=A$1");
+		});
+		it("inserts a function from the Insert function menu", async () => {
+			await editor();
+			select("D1");
+			click("#fx");
+			const search = q<HTMLInputElement>(".fn-menu input");
+			expect(q(".fn-menu .fn-group.open .fn-head span").textContent).toBe(
+				"Math",
+			);
+			search.value = "vlook";
+			search.dispatchEvent(new Event("input"));
+			key("Enter", {}, search);
+			expect(q<HTMLInputElement>(".cell-edit").value).toBe("=VLOOKUP()");
 		});
 	});
 	it("marks a tab an agent changed while you were on another one, for a moment", async () => {
@@ -680,7 +701,7 @@ describe("Portable Sheet grid", () => {
 		grip.dispatchEvent(
 			new PointerEvent("pointermove", { bubbles: true, pointerId: 1 }),
 		);
-		expect(target.classList.contains("fill-target")).toBe(true);
+		expect(target.classList.contains("fill-preview")).toBe(true);
 		grip.dispatchEvent(
 			new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }),
 		);

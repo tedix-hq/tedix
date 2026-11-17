@@ -9,8 +9,10 @@ import {
 	deleteColumns,
 	deleteRows,
 	deleteSheet,
+	dragFill,
 	duplicateSheet,
 	fillRange,
+	fillSeries,
 	freezePanes,
 	frozenCellStyle,
 	HEADER_HEIGHT,
@@ -391,5 +393,47 @@ describe("fill", () => {
 			"right",
 		);
 		expect(right.sheets[0]!.rows[1]![1]?.input).toBe("2");
+	});
+});
+
+describe("drag-fill", () => {
+	const inputs = (workbook: OsWorkbook, column: number) =>
+		workbook.sheets[0]!.rows.map((row) => row[column]?.input ?? "");
+	it("continues number trends and counted text, and copies anything else", () => {
+		const at = (values: string[], k: number) => fillSeries(values)?.(k);
+		expect(at(["1", "2"], 2)).toBe("3");
+		expect(at(["1", "3", "4"], 3)).toBe("5.66666666667");
+		expect(at(["Item 1"], 1)).toBe("Item 2");
+		expect(at(["Q01", "Q02"], 3)).toBe("Q04");
+		expect(at(["1", "2"], -1)).toBe("0");
+		expect(fillSeries(["5"])).toBeUndefined();
+		expect(fillSeries(["$5", "$6"])).toBeUndefined();
+		expect(fillSeries(["=A1"])).toBeUndefined();
+		expect(at(["Item 1"], -2)).toBeNull();
+	});
+	it("fills down, up and right from a block, repeating it or continuing its series", () => {
+		const source = { rowStart: 1, rowEnd: 2, columnStart: 1, columnEnd: 1 };
+		const down = dragFill(book(), "data", source, { ...source, rowEnd: 4 });
+		// 2, 1 is a trend: 0, -1 follow.
+		expect(inputs(down, 1)).toEqual(["Value", "2", "1", "0", "-1"]);
+		const words = book([["Label"], ["b"], ["a"], [""], [""]]);
+		const repeated = dragFill(
+			words,
+			"data",
+			{ rowStart: 1, rowEnd: 2, columnStart: 0, columnEnd: 0 },
+			{ rowStart: 1, rowEnd: 4, columnStart: 0, columnEnd: 0 },
+		);
+		expect(inputs(repeated, 0)).toEqual(["Label", "b", "a", "b", "a"]);
+		const up = dragFill(
+			book([
+				["", ""],
+				["", ""],
+				["Item 3", ""],
+			]),
+			"data",
+			{ rowStart: 2, rowEnd: 2, columnStart: 0, columnEnd: 0 },
+			{ rowStart: 0, rowEnd: 2, columnStart: 0, columnEnd: 0 },
+		);
+		expect(inputs(up, 0)).toEqual(["Item 1", "Item 2", "Item 3"]);
 	});
 });

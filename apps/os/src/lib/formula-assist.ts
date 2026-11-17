@@ -5,135 +5,227 @@
  * editor and the formula bar.
  */
 
-/** Arguments (optional ones in brackets) and a one-line description. */
-export const FUNCTION_HELP: Record<string, { args: string[]; about: string }> =
-	{
-		SUM: { args: ["number1", "[number2]", "…"], about: "Adds numbers" },
-		AVERAGE: {
-			args: ["number1", "[number2]", "…"],
-			about: "Average of numbers",
-		},
-		COUNT: { args: ["value1", "[value2]", "…"], about: "Counts numbers" },
-		COUNTA: {
-			args: ["value1", "[value2]", "…"],
-			about: "Counts non-empty cells",
-		},
-		MAX: { args: ["number1", "[number2]", "…"], about: "Largest number" },
-		MIN: { args: ["number1", "[number2]", "…"], about: "Smallest number" },
-		PRODUCT: {
-			args: ["number1", "[number2]", "…"],
-			about: "Multiplies numbers",
-		},
-		ROUND: {
-			args: ["number", "digits"],
-			about: "Rounds to a number of digits",
-		},
-		ABS: { args: ["number"], about: "Absolute value" },
-		SQRT: { args: ["number"], about: "Square root" },
-		MOD: { args: ["number", "divisor"], about: "Remainder after division" },
-		POWER: { args: ["number", "power"], about: "Number raised to a power" },
-		MEDIAN: { args: ["number1", "[number2]", "…"], about: "Middle value" },
-		STDEV: {
-			args: ["number1", "[number2]", "…"],
-			about: "Standard deviation of a sample",
-		},
-		VAR: { args: ["number1", "[number2]", "…"], about: "Variance of a sample" },
-		COUNTIF: {
-			args: ["range", "criterion"],
-			about: "Counts cells that meet a condition",
-		},
-		COUNTIFS: {
-			args: ["range1", "criterion1", "[range2, criterion2]", "…"],
-			about: "Counts cells that meet every condition",
-		},
-		SUMIF: {
-			args: ["range", "criterion", "[sum_range]"],
-			about: "Adds cells that meet a condition",
-		},
-		SUMIFS: {
-			args: ["sum_range", "range1", "criterion1", "[range2, criterion2]", "…"],
-			about: "Adds cells that meet every condition",
-		},
-		RANK: {
-			args: ["number", "range", "[descending]"],
-			about: "Position of a number in a list",
-		},
-		LARGE: { args: ["range", "k"], about: "k-th largest value" },
-		IF: {
-			args: ["condition", "value_if_true", "[value_if_false]"],
-			about: "Chooses a value by a condition",
-		},
-		IFS: {
-			args: ["condition1", "value1", "[condition2, value2]", "…"],
-			about: "First value whose condition holds",
-		},
-		IFERROR: {
-			args: ["value", "value_if_error"],
-			about: "A fallback when a value is an error",
-		},
-		AND: {
-			args: ["condition1", "[condition2]", "…"],
-			about: "True when every condition holds",
-		},
-		OR: {
-			args: ["condition1", "[condition2]", "…"],
-			about: "True when any condition holds",
-		},
-		NOT: { args: ["condition"], about: "Reverses true and false" },
-		SWITCH: {
-			args: ["value", "case1", "result1", "[default]"],
-			about: "Result for the first matching case",
-		},
-		CONCAT: { args: ["text1", "[text2]", "…"], about: "Joins text" },
-		CONCATENATE: { args: ["text1", "[text2]", "…"], about: "Joins text" },
-		LEFT: { args: ["text", "[count]"], about: "Characters from the start" },
-		RIGHT: { args: ["text", "[count]"], about: "Characters from the end" },
-		MID: {
-			args: ["text", "start", "count"],
-			about: "Characters from the middle",
-		},
-		LEN: { args: ["text"], about: "Number of characters" },
-		UPPER: { args: ["text"], about: "Capital letters" },
-		LOWER: { args: ["text"], about: "Small letters" },
-		TRIM: { args: ["text"], about: "Removes extra spaces" },
-		SUBSTITUTE: {
-			args: ["text", "old_text", "new_text", "[instance]"],
-			about: "Replaces text",
-		},
-		TEXT: { args: ["value", "format"], about: "A number as formatted text" },
-		VLOOKUP: {
-			args: ["search_key", "range", "column", "[is_sorted]"],
-			about: "Finds a row by its first column",
-		},
-		HLOOKUP: {
-			args: ["search_key", "range", "row", "[is_sorted]"],
-			about: "Finds a column by its first row",
-		},
-		INDEX: {
-			args: ["range", "row", "[column]"],
-			about: "The value at a position",
-		},
-		MATCH: {
-			args: ["search_key", "range", "[match_type]"],
-			about: "Position of a value in a range",
-		},
-		CHOOSE: {
-			args: ["index", "value1", "[value2]", "…"],
-			about: "Value at a position in a list",
-		},
-		LOOKUP: {
-			args: ["search_key", "search_range", "[result_range]"],
-			about: "Finds a value in a range",
-		},
-		TODAY: { args: [], about: "Today's date" },
-		NOW: { args: [], about: "The current date and time" },
-		DATE: { args: ["year", "month", "day"], about: "A date from its parts" },
-		YEAR: { args: ["date"], about: "Year of a date" },
-		MONTH: { args: ["date"], about: "Month of a date" },
-		DAY: { args: ["date"], about: "Day of a date" },
-		WEEKDAY: { args: ["date", "[type]"], about: "Day of the week as a number" },
-		EDATE: { args: ["start_date", "months"], about: "Date some months away" },
-	};
+/** Each function's signature, as shown while writing it, and what it does. */
+export const FUNCTION_HELP: Record<
+	string,
+	{ signature: string; about: string }
+> = {
+	SUM: {
+		signature: "SUM(value1, [value2, …])",
+		about: "Adds numbers or ranges.",
+	},
+	AVERAGE: {
+		signature: "AVERAGE(value1, [value2, …])",
+		about: "Returns the arithmetic mean.",
+	},
+	COUNT: {
+		signature: "COUNT(value1, [value2, …])",
+		about: "Counts numeric values.",
+	},
+	COUNTA: {
+		signature: "COUNTA(value1, [value2, …])",
+		about: "Counts non-empty values.",
+	},
+	COUNTIF: {
+		signature: "COUNTIF(range, criterion)",
+		about: "Counts cells matching a condition.",
+	},
+	COUNTIFS: {
+		signature: "COUNTIFS(range1, criterion1, …)",
+		about: "Counts rows matching multiple conditions.",
+	},
+	SUMIF: {
+		signature: "SUMIF(range, criterion, [sum_range])",
+		about: "Sums values matching a condition.",
+	},
+	SUMIFS: {
+		signature: "SUMIFS(sum_range, range1, criterion1, …)",
+		about: "Sums values matching multiple conditions.",
+	},
+	MIN: {
+		signature: "MIN(value1, [value2, …])",
+		about: "Returns the smallest number.",
+	},
+	MAX: {
+		signature: "MAX(value1, [value2, …])",
+		about: "Returns the largest number.",
+	},
+	MEDIAN: {
+		signature: "MEDIAN(value1, [value2, …])",
+		about: "Returns the median value.",
+	},
+	ROUND: {
+		signature: "ROUND(value, places)",
+		about: "Rounds a number to a specified precision.",
+	},
+	IF: {
+		signature: "IF(condition, value_if_true, [value_if_false])",
+		about: "Returns values based on a condition.",
+	},
+	IFS: {
+		signature: "IFS(condition1, value1, [condition2, value2, …])",
+		about: "Tests multiple conditions in order.",
+	},
+	IFERROR: {
+		signature: "IFERROR(value, fallback)",
+		about: "Returns a fallback when a value is an error.",
+	},
+	AND: {
+		signature: "AND(condition1, [condition2, …])",
+		about: "Returns TRUE when every condition is true.",
+	},
+	OR: {
+		signature: "OR(condition1, [condition2, …])",
+		about: "Returns TRUE when any condition is true.",
+	},
+	NOT: { signature: "NOT(condition)", about: "Reverses a logical value." },
+	CONCAT: {
+		signature: "CONCAT(value1, [value2, …])",
+		about: "Joins text values.",
+	},
+	LEFT: {
+		signature: "LEFT(text, [characters])",
+		about: "Returns characters from the beginning of text.",
+	},
+	RIGHT: {
+		signature: "RIGHT(text, [characters])",
+		about: "Returns characters from the end of text.",
+	},
+	MID: {
+		signature: "MID(text, start, length)",
+		about: "Returns characters from the middle of text.",
+	},
+	LEN: { signature: "LEN(text)", about: "Returns the number of characters." },
+	TEXT: {
+		signature: "TEXT(value, format)",
+		about: "Formats a number as text.",
+	},
+	HYPERLINK: {
+		signature: "HYPERLINK(url, [link_label])",
+		about: "Creates a clickable HTTP or HTTPS link.",
+	},
+	VLOOKUP: {
+		signature: "VLOOKUP(search_key, range, column, [approximate])",
+		about: "Looks down the first column of a range.",
+	},
+	HLOOKUP: {
+		signature: "HLOOKUP(search_key, range, row, [approximate])",
+		about: "Looks across the first row of a range.",
+	},
+	INDEX: {
+		signature: "INDEX(reference, row, [column])",
+		about: "Returns a value at a row and column.",
+	},
+	MATCH: {
+		signature: "MATCH(search_key, range, [search_type])",
+		about: "Returns the position of a matching value.",
+	},
+	LOOKUP: {
+		signature: "LOOKUP(search_key, search_range, [result_range])",
+		about: "Finds a value in a sorted range.",
+	},
+	TODAY: { signature: "TODAY()", about: "Returns the current date." },
+	NOW: { signature: "NOW()", about: "Returns the current date and time." },
+	DATE: {
+		signature: "DATE(year, month, day)",
+		about: "Builds a date from year, month, and day.",
+	},
+	YEAR: { signature: "YEAR(date)", about: "Returns the year of a date." },
+	MONTH: { signature: "MONTH(date)", about: "Returns the month of a date." },
+	DAY: { signature: "DAY(date)", about: "Returns the day of the month." },
+	PRODUCT: {
+		signature: "PRODUCT(value1, [value2, …])",
+		about: "Multiplies numbers or ranges.",
+	},
+	ABS: { signature: "ABS(value)", about: "Returns the absolute value." },
+	SQRT: {
+		signature: "SQRT(value)",
+		about: "Returns the positive square root.",
+	},
+	MOD: {
+		signature: "MOD(dividend, divisor)",
+		about: "Returns the remainder after division.",
+	},
+	POWER: {
+		signature: "POWER(base, exponent)",
+		about: "Raises a number to a power.",
+	},
+	STDEV: {
+		signature: "STDEV(value1, [value2, …])",
+		about: "Estimates sample standard deviation.",
+	},
+	VAR: {
+		signature: "VAR(value1, [value2, …])",
+		about: "Estimates sample variance.",
+	},
+	RANK: {
+		signature: "RANK(value, range, [ascending])",
+		about: "Returns a value’s rank in a range.",
+	},
+	LARGE: {
+		signature: "LARGE(range, rank)",
+		about: "Returns the nth largest value.",
+	},
+	SWITCH: {
+		signature: "SWITCH(expression, case1, value1, [default])",
+		about: "Matches an expression to cases.",
+	},
+	UPPER: { signature: "UPPER(text)", about: "Converts text to uppercase." },
+	LOWER: { signature: "LOWER(text)", about: "Converts text to lowercase." },
+	TRIM: {
+		signature: "TRIM(text)",
+		about: "Removes repeated and surrounding spaces.",
+	},
+	SUBSTITUTE: {
+		signature: "SUBSTITUTE(text, old_text, new_text, [instance])",
+		about: "Replaces matching text.",
+	},
+	CHOOSE: {
+		signature: "CHOOSE(index, choice1, [choice2, …])",
+		about: "Returns a choice by numeric index.",
+	},
+	WEEKDAY: {
+		signature: "WEEKDAY(date, [type])",
+		about: "Returns the weekday number.",
+	},
+	EDATE: {
+		signature: "EDATE(start_date, months)",
+		about: "Moves a date by a number of months.",
+	},
+};
+
+/** What a bare "=" suggests. */
+export const DEFAULT_SUGGESTIONS = [
+	"SUM",
+	"AVERAGE",
+	"IF",
+	"COUNTIF",
+	"VLOOKUP",
+	"HYPERLINK",
+];
+/** Most suggestions shown at once. */
+const MAX_SUGGESTIONS = 7;
+
+/** A signature's arguments, an optional group such as "[value2, …]" counting as one. */
+export function signatureArguments(signature: string): string[] {
+	const inner = signature.slice(
+		signature.indexOf("(") + 1,
+		signature.lastIndexOf(")"),
+	);
+	const args: string[] = [];
+	let depth = 0,
+		current = "";
+	for (const char of inner) {
+		if (char === "[") depth++;
+		if (char === "]") depth--;
+		if (char === "," && depth === 0) {
+			args.push(current.trim());
+			current = "";
+		} else current += char;
+	}
+	if (current.trim()) args.push(current.trim());
+	return args;
+}
 
 /** Characters after which a cell reference or a function can start. */
 const OPENS = new Set([
@@ -166,6 +258,9 @@ export function functionSuggestions(
 	caret: number,
 ): { start: number; names: string[] } | null {
 	if (!text.startsWith("=") || inString(text, caret)) return null;
+	// A bare "=" offers the most used functions.
+	if (text === "=" && caret === 1)
+		return { start: 1, names: DEFAULT_SUGGESTIONS };
 	const word = /[A-Za-z][A-Za-z0-9.]*$/.exec(text.slice(0, caret));
 	if (!word) return null;
 	const start = caret - word[0].length;
@@ -178,7 +273,7 @@ export function functionSuggestions(
 		name.startsWith(typed),
 	);
 	return names.length && !(names.length === 1 && names[0] === typed)
-		? { start, names: names.slice(0, 8) }
+		? { start, names: names.slice(0, MAX_SUGGESTIONS) }
 		: null;
 }
 

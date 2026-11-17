@@ -52,10 +52,13 @@ Type or press F2 to edit a cell; the formula bar edits its source. Tab and
 Enter move within a selected range. Copy/paste supports quoted multiline
 TSV, formula-relative copies and cell formats. Undo and redo preserve the
 workbook draft. The toolbar provides number/text formats, fills, alignment,
-sorting and filling; drag the selection's corner square to fill. While
-writing a formula, matching functions and the current function's arguments
-show below it, clicking or dragging over cells adds their reference, and F4
-switches between A1, $A$1, A$1 and $A1. Ctrl/⌘ F finds what cells show on this sheet, or on all sheets and in
+sorting and filling; drag the selection's corner square up, down, left or
+right to fill: numbers continue their trend and "Item 1" counts on. While
+writing a formula, matching functions (the common ones on a bare =) and the
+current function's arguments show below it, ƒx lists every function,
+clicking or dragging over cells adds their reference with the ranges in use
+outlined, and Ctrl/⌘ Shift L or $ locks a reference (A1 → $A$1 → A$1 → $A1).
+Ctrl/⌘ F finds what cells show on this sheet, or on all sheets and in
 formulas from its options.
 More actions and the right-click menus on cells, headings and tabs cover
 row/column operations, sizing, frozen panes and filters: Create a filter
