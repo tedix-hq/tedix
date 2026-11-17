@@ -355,6 +355,11 @@ export function WorkspaceChat({
 						? null
 						: () => void send(CONTINUE_TEXT)
 				}
+				onRetry={
+					running || state.pendingSend || approval
+						? null
+						: (text, attachments) => void send(text, attachments)
+				}
 			/>
 			{connection.phase === "unavailable" ? (
 				<div
@@ -520,6 +525,7 @@ function Thread({
 	onLoadEarlier,
 	onDecide,
 	onContinue,
+	onRetry,
 }: {
 	workspaceId: string;
 	conversationId: string | null;
@@ -532,6 +538,8 @@ function Thread({
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
 	/** Resumes after the last turn; `null` while another turn is busy. */
 	onContinue: (() => void) | null;
+	/** Sends a failed or stopped turn's own message again; `null` while busy. */
+	onRetry: RetryTurn | null;
 }) {
 	const scroller = useRef<HTMLDivElement | null>(null);
 	const stick = useRef(true);
@@ -589,6 +597,12 @@ function Thread({
 							? onContinue
 							: null
 					}
+					onRetry={
+						index === turns.length - 1 &&
+						(turn.status === "cancelled" || turn.status === "error")
+							? onRetry
+							: null
+					}
 					turn={turn}
 				/>
 			))}
@@ -602,6 +616,11 @@ function Thread({
 	);
 }
 
+type RetryTurn = (
+	text: string,
+	attachments?: Array<{ outputId: string }>,
+) => void;
+
 /** What Continue sends after a stopped or interrupted turn. */
 const CONTINUE_TEXT =
 	"Continue where you stopped. Check what already happened before repeating any change.";
@@ -612,6 +631,7 @@ function TurnView({
 	modelLabel,
 	onDecide,
 	onContinue,
+	onRetry,
 }: {
 	workspaceId: string;
 	turn: ChatTurn;
@@ -619,6 +639,7 @@ function TurnView({
 	modelLabel: string | undefined;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
 	onContinue: (() => void) | null;
+	onRetry: RetryTurn | null;
 }) {
 	const running = turn.status === "running";
 	const startedAt = Date.parse(turn.startedAt);
@@ -702,11 +723,29 @@ function TurnView({
 						Stopped.
 					</Text>
 				) : null}
-				{onContinue ? (
-					<div>
-						<Button onClick={onContinue} size="xs" variant="outline">
-							Continue
-						</Button>
+				{onContinue || (onRetry && turn.text) ? (
+					<div className="flex gap-2">
+						{onContinue ? (
+							<Button onClick={onContinue} size="xs" variant="outline">
+								Continue
+							</Button>
+						) : null}
+						{onRetry && turn.text ? (
+							<Button
+								onClick={() =>
+									onRetry(
+										turn.text,
+										turn.attachments?.map((file) => ({
+											outputId: file.outputId,
+										})),
+									)
+								}
+								size="xs"
+								variant="ghost"
+							>
+								Retry
+							</Button>
+						) : null}
 					</div>
 				) : null}
 				{waiting || running || turn.status === "waiting" ? (
