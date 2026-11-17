@@ -113,7 +113,10 @@ describe("real local D1 prefix snapshots", () => {
 		cpSync(seedRoot, extendedSeedRoot, { recursive: true });
 		dbRoot = path.join(extendedSeedRoot, "db");
 		cacheDirectory = path.join(extendedSeedRoot, "cache");
-		migration(names[1]!, "CREATE TABLE child (id INTEGER PRIMARY KEY);");
+		migration(
+			names[1]!,
+			"CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id));",
+		);
 		manifest();
 		expect(await check()).toEqual({ cachedCount: 1, appliedCount: 1 });
 	});
@@ -134,14 +137,11 @@ describe("real local D1 prefix snapshots", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("restores a verified prefix, applies only new migrations, and inspects a complete hit", async () => {
-		migration(
-			names[1]!,
-			"CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id));",
-		);
-		manifest();
-		expect(await check()).toEqual({ cachedCount: 1, appliedCount: 1 });
+	it("inspects a complete hit of the restored and extended prefix without Wrangler", async () => {
+		cpSync(extendedSeedRoot, root, { recursive: true });
+		const run = vi.spyOn(wranglerCommand, "runWrangler");
 		expect(await check()).toEqual({ cachedCount: 2, appliedCount: 0 });
+		expect(run).not.toHaveBeenCalled();
 	});
 
 	it("rejects a broken new migration without publishing its snapshot", async () => {
