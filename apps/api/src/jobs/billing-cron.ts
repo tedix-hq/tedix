@@ -173,7 +173,6 @@ export async function runBillingAndGatewayCostTick(
 				db,
 				env,
 				{
-					reservationCount30d: reservations.count30d,
 					maxReservationAt: reservations.maxCreatedAt,
 					maxGatewaySnapshotAt: ledger.maxSnapshotAt,
 				},

@@ -13,7 +13,7 @@ export const BILLING_METERING_DARK_CONDITION_KEY =
 export const BILLING_METERING_MAX_LAG_MS = 30 * 60 * 1000;
 
 export interface BillingMeteringFreshnessSnapshot {
-	reservationCount30d: number;
+	/** Newest reservation of the last 30 days; null when there is none. */
 	maxReservationAt: string | null;
 	maxGatewaySnapshotAt: string | null;
 }
@@ -27,9 +27,7 @@ export function classifyBillingMeteringFreshness(
 	snapshot: BillingMeteringFreshnessSnapshot,
 	nowMs: number,
 ): BillingMeteringFreshnessProbe {
-	if (snapshot.reservationCount30d === 0 || !snapshot.maxReservationAt) {
-		return { status: "indeterminate" };
-	}
+	if (!snapshot.maxReservationAt) return { status: "indeterminate" };
 	const reservationMs = Date.parse(snapshot.maxReservationAt);
 	if (!Number.isFinite(reservationMs)) return { status: "indeterminate" };
 	const gatewayMs = snapshot.maxGatewaySnapshotAt
