@@ -39,7 +39,7 @@ describe("Auto Router structured output contract", () => {
 			const fetchMock = vi.fn(async (_url, init: RequestInit) => {
 				const body = JSON.parse(init.body as string);
 				if (mode === "stream") {
-					// A streamed schema rides a forced tool call: the compat endpoint
+					// A streamed schema rides a strict auto-selected tool: the compat endpoint
 					// buffers json_schema streams but streams tool arguments.
 					expect(body.response_format).toBeUndefined();
 					expect(body.tools).toEqual([
@@ -49,13 +49,11 @@ describe("Auto Router structured output contract", () => {
 								name: "home_route",
 								description: "Complete routing decision",
 								parameters: schema.jsonSchema,
+								strict: true,
 							},
 						},
 					]);
-					expect(body.tool_choice).toEqual({
-						type: "function",
-						function: { name: "home_route" },
-					});
+					expect(body.tool_choice).toBe("auto");
 					const frames = [
 						{
 							choices: [
@@ -427,6 +425,7 @@ describe("Auto Router lossless request and result handling", () => {
 						],
 					},
 				],
+				temperature: 0.3,
 				providerOptions: { cloudflareAutoRouter: { reasoningEffort: "high" } },
 			};
 			const result = await model.doGenerate(call as never);
@@ -449,7 +448,8 @@ describe("Auto Router lossless request and result handling", () => {
 				role: "tool",
 				tool_call_id: "call1",
 			});
-			expect(sent.reasoning_effort).toBe("high");
+			expect(sent.reasoning_effort).toBeUndefined();
+			expect(sent.temperature).toBeUndefined();
 			expect(result.finishReason).toBe("length");
 			const streamed = await model.doStream(call as never);
 			const reader = streamed.stream.getReader();

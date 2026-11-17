@@ -19,6 +19,7 @@ import {
 	opensThinkingImplicitly,
 	splitInlineThinking,
 } from "./inline-thinking";
+import { claude55RequestCapabilities } from "./model-capabilities";
 import { authorizedProviderDispatch, type WorkersAiClient } from "./transport";
 
 export { CLOUDFLARE_AUTO_MODEL_REF };
@@ -181,6 +182,7 @@ function autoRouterTools(tools: CallOptions["tools"]): unknown[] | undefined {
 							name: tool.name,
 							description: tool.description,
 							parameters: tool.inputSchema,
+							strict: true,
 						},
 					},
 				]
@@ -191,18 +193,22 @@ function autoRouterTools(tools: CallOptions["tools"]): unknown[] | undefined {
 
 function autoRouterToolChoice(choice: CallOptions["toolChoice"]): unknown {
 	if (!choice) return undefined;
-	return choice.type === "tool"
-		? { type: "function", function: { name: choice.toolName } }
-		: choice.type;
+	if (choice.type === "required" || choice.type === "tool") return "auto";
+	return choice.type;
 }
 
 interface StructuredOutputTool {
 	type: "function";
-	function: { name: string; description?: string; parameters: unknown };
+	function: {
+		name: string;
+		description?: string;
+		parameters: unknown;
+		strict: true;
+	};
 }
 
 /**
- * A schema'd JSON stream (`streamObject`) becomes one forced tool whose
+ * A schema'd JSON stream (`streamObject`) becomes one strict tool whose
  * parameters are the schema. Only streams qualify: a non-streaming request
  * keeps `response_format: json_schema`, and a schemaless `json_object` request
  * has no parameters to force.
@@ -219,6 +225,7 @@ function streamedStructuredTool(
 			name: format.name ?? "response",
 			...(format.description ? { description: format.description } : {}),
 			parameters: format.schema,
+			strict: true,
 		},
 	};
 }
@@ -311,6 +318,7 @@ export function cloudflareAutoRouterModel(
 	}
 
 	const dispatch = async (call: CallOptions, stream = false) => {
+		const capabilities = claude55RequestCapabilities(CLOUDFLARE_AUTO_MODEL_REF);
 		const requestSignal = call.abortSignal;
 		requestSignal?.throwIfAborted();
 		const body: Record<string, unknown> = {
@@ -323,17 +331,15 @@ export function cloudflareAutoRouterModel(
 		if (toolChoice !== undefined) body.tool_choice = toolChoice;
 		if (call.maxOutputTokens !== undefined)
 			body.max_completion_tokens = call.maxOutputTokens;
-		if (call.temperature !== undefined) body.temperature = call.temperature;
+		if (!capabilities?.dropSampling && call.temperature !== undefined)
+			body.temperature = call.temperature;
 		const structuredTool = stream ? streamedStructuredTool(call) : null;
 		if (structuredTool) {
-			// Streamed structured output rides a forced tool call: the compat
+			// Streamed structured output rides a strict auto-selected tool: the compat
 			// endpoint buffers `response_format: json_schema` streams (zero content
 			// deltas) but streams tool arguments incrementally.
 			body.tools = [structuredTool];
-			body.tool_choice = {
-				type: "function",
-				function: { name: structuredTool.function.name },
-			};
+			body.tool_choice = "auto";
 		} else if (call.responseFormat?.type === "json") {
 			const format = call.responseFormat;
 			body.response_format = format.schema
@@ -354,7 +360,8 @@ export function cloudflareAutoRouterModel(
 		}
 		const reasoningEffort =
 			call.providerOptions?.cloudflareAutoRouter?.reasoningEffort;
-		if (reasoningEffort !== undefined) body.reasoning_effort = reasoningEffort;
+		if (!capabilities?.dropThinking && reasoningEffort !== undefined)
+			body.reasoning_effort = reasoningEffort;
 		if (stream) {
 			body.stream = true;
 			body.stream_options = { include_usage: true };
