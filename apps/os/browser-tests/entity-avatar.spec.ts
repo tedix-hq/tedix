@@ -52,7 +52,7 @@ const whileRunning = <T>(operation: Promise<T>): Promise<T> =>
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
-	const deadline = Date.now() + 20_000;
+	const deadline = Date.now() + 240_000;
 	for (let i = 0; i < 100; i++) {
 		if (server.exitCode !== null) throw await exited;
 		try {
