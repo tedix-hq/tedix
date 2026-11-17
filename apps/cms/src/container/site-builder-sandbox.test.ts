@@ -148,3 +148,32 @@ it("serializes concurrent authoring initialization in the owning container and c
 	expect(prepare).toHaveBeenCalledTimes(2);
 	prepare.mockRestore();
 });
+
+it("paginates theme files before statting or returning the sandbox listing", async () => {
+	const sandbox = fixture().create();
+	const stat = vi.fn(async () => ({ size: 12n }));
+	Object.defineProperties(sandbox, {
+		ensureContainer: { value: vi.fn(async () => undefined) },
+		files: {
+			value: {
+				readDirectory: vi.fn(async () =>
+					Array.from({ length: 500 }, (_, index) => ({
+						name: `file-${String(index).padStart(3, "0")}.txt`,
+						type: "file",
+					})),
+				),
+				stat,
+			},
+		},
+	});
+
+	const page = await sandbox.listThemeFiles("/workspace/src", {
+		cursor: 100,
+		limit: 10,
+	});
+
+	expect(page.entries).toHaveLength(10);
+	expect(page.entries[0]?.relativePath).toBe("file-100.txt");
+	expect(page.nextCursor).toBe(110);
+	expect(stat).toHaveBeenCalledTimes(10);
+});

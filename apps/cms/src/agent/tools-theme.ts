@@ -16,6 +16,9 @@ import {
 	type SiteBuilderToolContext,
 } from "./tools-shared";
 
+const DEFAULT_THEME_FILE_PAGE_SIZE = 100;
+const MAX_THEME_FILE_PAGE_SIZE = 200;
+
 export function registerThemeTools(
 	server: McpServer,
 	ctx: SiteBuilderToolContext,
@@ -194,10 +197,20 @@ export function registerThemeTools(
 		{
 			title: "List Theme Files",
 			description:
-				"List all theme files with their editable/locked status. " +
+				"List one bounded page of theme files with their editable/locked status. Pass nextCursor as cursor to continue. " +
 				"LOCKED files cannot be modified — they contain auth, content layer, and Worker config. " +
 				"EDITABLE files can be modified to customize the theme. Call theme_workspace_status before editing a committed site to detect stale or draft workspace contents.",
-			inputSchema: schema(z.object({})),
+			inputSchema: schema(
+				z.object({
+					cursor: z.number().int().nonnegative().optional(),
+					limit: z
+						.number()
+						.int()
+						.min(1)
+						.max(MAX_THEME_FILE_PAGE_SIZE)
+						.optional(),
+				}),
+			),
 			outputSchema: schema(
 				z
 					.object({
@@ -208,34 +221,35 @@ export function registerThemeTools(
 								status: z.enum(["locked", "editable", "unknown"]),
 							}),
 						),
+						nextCursor: z.number().int().nonnegative().nullable(),
 					})
 					.passthrough(),
 			),
 			annotations: { readOnlyHint: true },
 		},
-		async () => {
+		async (args: { cursor?: number; limit?: number }) => {
+			const cursor = args.cursor ?? 0;
+			const limit = args.limit ?? DEFAULT_THEME_FILE_PAGE_SIZE;
 			const result = await withSandboxTimeout(
 				ctx,
 				"theme_list_files",
-				ctx.sandbox.listFiles(`${WORKSPACE}/src`, { recursive: true }),
+				ctx.sandbox.listThemeFiles(`${WORKSPACE}/src`, { cursor, limit }),
 			);
-			const annotated = result
-				.filter((f) => f.type === "file")
-				.map((f) => {
-					const path = f.relativePath.startsWith("src/")
-						? f.relativePath
-						: `src/${f.relativePath}`;
-					return {
-						path,
-						size: f.size,
-						status: isPathLocked(path, ctx.templateSlug)
-							? "locked"
-							: isPathEditable(path, ctx.templateSlug)
-								? "editable"
-								: "unknown",
-					};
-				});
-			const output = { files: annotated };
+			const annotated = result.entries.map((f) => {
+				const path = f.relativePath.startsWith("src/")
+					? f.relativePath
+					: `src/${f.relativePath}`;
+				return {
+					path,
+					size: f.size,
+					status: isPathLocked(path, ctx.templateSlug)
+						? "locked"
+						: isPathEditable(path, ctx.templateSlug)
+							? "editable"
+							: "unknown",
+				};
+			});
+			const output = { files: annotated, nextCursor: result.nextCursor };
 
 			return {
 				content: [
