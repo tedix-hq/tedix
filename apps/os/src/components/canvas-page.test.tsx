@@ -2742,6 +2742,22 @@ describe("Canvas Cloudflare-reference composition", () => {
 		);
 	});
 
+	it("slides the phone pane that appears and stills it for reduced motion", () => {
+		const styles = readFileSync("src/components/canvas-page.css", "utf8");
+		expect(styles).toMatch(
+			/\[data-mobile-pane="chat"\]\s*\.canvas-chat-pane\s*\{[^}]*animation:\s*canvas-pane-enter-from-start/,
+		);
+		expect(styles).toMatch(
+			/\.canvas-stage\s*\{[^}]*animation:\s*canvas-pane-enter-from-end/,
+		);
+		expect(styles).toMatch(
+			/@media \(prefers-reduced-motion: reduce\) \{[^@]*?\.canvas-stage\s*\{\s*animation:\s*none;/,
+		);
+		expect(styles).toMatch(
+			/:root\[data-motion="reduced"\][\s\S]*?\.canvas-stage\s*\{\s*animation:\s*none;/,
+		);
+	});
+
 	it("keeps a 44px hit target on the workspace chrome through the tablet widths", () => {
 		const styles = readFileSync("src/components/canvas-page.css", "utf8");
 		const tablet = styles.match(
