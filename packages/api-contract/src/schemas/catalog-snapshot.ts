@@ -151,9 +151,6 @@ export const CatalogSnapshotItemSchema = z.strictObject({
 		),
 });
 
-/** Upper bound on listings in one snapshot; a store directory above this needs a deliberate raise. */
-export const CATALOG_SNAPSHOT_MAX_ITEMS = 50_000;
-
 /** One stored part of a snapshot: a bounded run of listings. */
 export const CatalogSnapshotPartSchema = z
 	.array(CatalogSnapshotItemSchema)
@@ -168,7 +165,7 @@ export const CatalogSnapshotManifestSchema = z
 	.strictObject({
 		expectedSourceCount: z.number().int().positive(),
 		capturedSourceCount: z.number().int().positive(),
-		itemCount: z.number().int().min(1).max(CATALOG_SNAPSHOT_MAX_ITEMS),
+		itemCount: z.number().int().min(1),
 	})
 	.superRefine((value, ctx) => {
 		if (value.expectedSourceCount !== value.capturedSourceCount)

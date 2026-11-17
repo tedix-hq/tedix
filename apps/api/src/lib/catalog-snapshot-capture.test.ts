@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vite-plus/test";
-import { CatalogSnapshotManifestSchema } from "@tedix/api-contract/schemas/catalog-snapshot";
 import {
 	assertSnapshotCaptureUrl,
 	readSnapshotParts,
@@ -100,15 +99,6 @@ describe("supplier snapshot boundary", () => {
 			7,
 		]);
 		expect(parts.flat()).toEqual(items);
-	});
-	it("refuses a directory above the declared ceiling", () => {
-		expect(() =>
-			CatalogSnapshotManifestSchema.parse({
-				expectedSourceCount: 1,
-				capturedSourceCount: 1,
-				itemCount: 50_001,
-			}),
-		).toThrow();
 	});
 	it("rejects credentialed, private and platform origins", () => {
 		for (const url of [

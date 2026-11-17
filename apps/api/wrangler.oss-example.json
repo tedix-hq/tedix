@@ -5,7 +5,7 @@
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	"limits": {
 		"cpu_ms": 300000,
-		"subrequests": 100000
+		"subrequests": 10000000
 	},
 	"observability": {
 		"enabled": true,
