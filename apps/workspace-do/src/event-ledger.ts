@@ -184,3 +184,24 @@ export class SqlEventLedger {
 		);
 	}
 }
+
+/** The most characters of a write payload an event keeps inline. */
+export const EVENT_INPUT_CHARS = 2_000;
+
+/**
+ * A write payload for an event. The full arguments live in the approvals
+ * table, so a large payload is replaced by its size and top-level keys
+ * instead of being stored again in every event that mentions it.
+ */
+export function boundedEventInput(input: unknown): unknown {
+	if (input === undefined) return undefined;
+	const text = JSON.stringify(input) ?? "";
+	if (text.length <= EVENT_INPUT_CHARS) return input;
+	return {
+		truncated: true,
+		chars: text.length,
+		...(input && typeof input === "object" && !Array.isArray(input)
+			? { keys: Object.keys(input).slice(0, 20) }
+			: {}),
+	};
+}
