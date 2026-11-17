@@ -23,6 +23,11 @@ import {
 import { hasWorkspaceOutputAuthority } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import { getTediById } from "@tedix/db/queries/tedis";
 import {
+	getSkillEntryBySlug,
+	isSkillReadableByTedi,
+} from "@tedix/db/queries/cognitive/skill-crud";
+import { parseSkillReferences } from "@tedix/api-contract/utils/skill-reference";
+import {
 	removeSharedWorkspaceOutputIndex,
 	retireWorkspaceOutputIndex,
 } from "@tedix/db/queries/workspace-feed/read";
@@ -85,7 +90,7 @@ import {
 	createWorkspaceModel,
 	type ModelPort,
 } from "./model";
-import { buildSystemPrompt } from "./prompt";
+import { buildSystemPrompt, type ReferencedSkill } from "./prompt";
 import type { WorkspaceStorage } from "./runtime";
 import { createLoaderSandbox, validateWorkspaceAppSource } from "./sandbox";
 import {
@@ -2422,6 +2427,39 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		});
 	}
 
+	/**
+	 * Skills the person picked in the composer (`/skill <slug>`). Only
+	 * organization-level, non-private skills that are in use (active, proven or
+	 * crystallized) load, the same reach the Home composer offers. A slug that
+	 * does not resolve is skipped; the model still sees the typed line.
+	 */
+	async #referencedSkills(scope: WorkspaceScope, text: string) {
+		const slugs = parseSkillReferences(text).slice(0, 3);
+		if (slugs.length === 0) return [];
+		const db = createDbClient(this.env.DB);
+		const rows = await Promise.all(
+			slugs.map((slug) =>
+				getSkillEntryBySlug(db, scope.organizationId, slug).catch(
+					() => undefined,
+				),
+			),
+		);
+		const skills: ReferencedSkill[] = [];
+		for (const row of rows) {
+			if (!row || !isSkillReadableByTedi(row)) continue;
+			if (
+				!["active", "proven", "crystallized"].includes(row.lifecycleState ?? "")
+			)
+				continue;
+			skills.push({
+				slug: row.slug ?? "",
+				title: row.title,
+				content: row.content,
+			});
+		}
+		return skills;
+	}
+
 	async #plan(
 		scope: WorkspaceScope,
 		turnId: string,
@@ -2439,9 +2477,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				if (this.#workspaceRead === workspaceRead) this.#workspaceRead = null;
 			},
 		);
-		const [workspace, guest] = await Promise.all([
+		const [workspace, guest, referencedSkills] = await Promise.all([
 			workspaceRead,
 			input.tediId ? this.#guestProfile(scope, input.tediId, input.text) : null,
+			input.actorKind === "user"
+				? this.#referencedSkills(scope, input.text)
+				: [],
 		]);
 		const history = this.#history(conversationId, 200);
 		const systemPrompt = buildSystemPrompt({
@@ -2453,6 +2494,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			nowIso: new Date().toISOString(),
 			priorSummary:
 				this.#store.get<string>(`compaction:${conversationId}`) ?? null,
+			referencedSkills,
 		});
 		const actorKind: ActorKind = input.tediId ? "tedi" : input.actorKind;
 		return {

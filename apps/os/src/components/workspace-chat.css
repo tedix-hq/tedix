@@ -328,6 +328,7 @@
 /* One card holds the files, the message and its controls. The card draws the
    border and the focus ring; the field inside has none of its own. */
 .workspace-chat-composer-card {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: 4px;

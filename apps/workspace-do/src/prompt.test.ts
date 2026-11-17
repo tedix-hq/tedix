@@ -54,4 +54,21 @@ describe("prompt", () => {
 		expect(describeBinding("nope")).toBeNull();
 		expect(renderEnvDeclarations()).toContain("interface Work");
 	});
+
+	test("a referenced skill body is part of the dynamic suffix, not the static prefix", () => {
+		const input = {
+			workspaceName: "Programme workspace",
+			nowIso: "2026-11-07T17:00:00.000Z",
+			referencedSkills: [
+				{
+					slug: "weekly-report",
+					title: "Weekly report",
+					content: "Step 1: do it",
+				},
+			],
+		};
+		expect(dynamicPromptSuffix(input)).toContain('slug="weekly-report"');
+		expect(dynamicPromptSuffix(input)).toContain("Step 1: do it");
+		expect(staticPromptPrefix()).not.toContain("Step 1: do it");
+	});
 });

@@ -38,6 +38,8 @@ import {
 	osQuery,
 	osQueryKeys,
 	canvasOutputsQueryOptions,
+	SKILL_CATALOG_LIMIT,
+	skillCatalogQueryOptions,
 } from "@/lib/os-query-options";
 
 (
@@ -229,6 +231,61 @@ function mount(
 }
 
 describe("WorkspaceChat", () => {
+	it("offers organization skills for a slash and sends the picked reference", async () => {
+		queryClient.setQueryData<unknown>(
+			skillCatalogQueryOptions(SKILL_CATALOG_LIMIT).queryKey,
+			{
+				entries: [
+					{
+						id: "s1",
+						slug: "weekly-report",
+						title: "Weekly report",
+						summary: "Write the weekly report",
+						description: "",
+						visibility: "organization",
+						tediId: null,
+						lifecycleState: "active",
+					},
+				],
+			},
+		);
+		const fake = fakeClient("c1");
+		mount(fake);
+		const textarea = host.querySelector("textarea")!;
+		const type = async (value: string) =>
+			act(async () => {
+				Object.getOwnPropertyDescriptor(
+					HTMLTextAreaElement.prototype,
+					"value",
+				)!.set!.call(textarea, value);
+				textarea.dispatchEvent(new Event("input", { bubbles: true }));
+			});
+		await type("/week");
+		const picker = host.querySelector('[data-slot="skill-picker"]');
+		expect(picker?.textContent).toContain("Weekly report");
+		await act(async () =>
+			[...picker!.querySelectorAll("[role=option]")]
+				.find((option) => option.textContent?.includes("Weekly report"))
+				?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+		);
+		expect(
+			host.querySelector('[data-slot="skill-pills"]')?.textContent,
+		).toContain("Weekly report");
+		await type(`${textarea.value}Summarize last week`);
+		await act(async () =>
+			host
+				.querySelector("form")
+				?.dispatchEvent(
+					new Event("submit", { bubbles: true, cancelable: true }),
+				),
+		);
+		const sent = (fake.calls as unknown[][]).find(
+			(call) => call[0] === "sendTurn",
+		)?.[1] as { text: string };
+		expect(sent.text).toContain("/skill weekly-report");
+		expect(sent.text).toContain("Summarize last week");
+	});
+
 	it.each([false, true])(
 		"sends selected native files from the composer (list=%s)",
 		async (listOpen) => {
