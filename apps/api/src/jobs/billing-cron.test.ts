@@ -20,7 +20,6 @@ vi.mock("@tedix/db/queries/billing/credits", () => ({
 vi.mock("@tedix/db/queries/billing/reservations", () => ({
 	expireBillingReservations: mocks.reservations,
 	getBillingReservationFreshness: async () => ({
-		count30d: 0,
 		maxCreatedAt: null,
 	}),
 }));

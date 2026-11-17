@@ -1548,6 +1548,10 @@
 		{
 			"name": "20261117122638_approval_sweep_indexes/migration.sql",
 			"sha256": "f356729ded8b01618ec2cd2873232dce5a4106b26724522c2d540ff75158781a"
+		},
+		{
+			"name": "20261117130503_billing_reservation_newest_index/migration.sql",
+			"sha256": "63206ce315e5ab0ed7ae5ef826ddd70c9e6f1e6e8d11bacacc019d8c376f395d"
 		}
 	]
 }

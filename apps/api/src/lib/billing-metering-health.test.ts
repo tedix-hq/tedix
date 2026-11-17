@@ -11,7 +11,6 @@ describe("billing metering freshness", () => {
 		expect(
 			classifyBillingMeteringFreshness(
 				{
-					reservationCount30d: 4,
 					maxReservationAt: "2026-08-20T03:20:00.000Z",
 					maxGatewaySnapshotAt: "2026-08-20T03:00:00.000Z",
 				},
@@ -24,7 +23,6 @@ describe("billing metering freshness", () => {
 		expect(
 			classifyBillingMeteringFreshness(
 				{
-					reservationCount30d: 1,
 					maxReservationAt: new Date(
 						NOW - BILLING_METERING_MAX_LAG_MS + 1,
 					).toISOString(),
@@ -39,7 +37,6 @@ describe("billing metering freshness", () => {
 		expect(
 			classifyBillingMeteringFreshness(
 				{
-					reservationCount30d: 1,
 					maxReservationAt: "2026-08-20T03:20:00.000Z",
 					maxGatewaySnapshotAt: "2026-08-20T03:20:01.000Z",
 				},
@@ -52,7 +49,6 @@ describe("billing metering freshness", () => {
 		expect(
 			classifyBillingMeteringFreshness(
 				{
-					reservationCount30d: 0,
 					maxReservationAt: null,
 					maxGatewaySnapshotAt: null,
 				},

@@ -406,6 +406,20 @@ export const BILLING_USAGE_SOURCES = [
 ] as const;
 export type BillingUsageSource = (typeof BILLING_USAGE_SOURCES)[number];
 
+/**
+ * True for every reservation: `created_at` is text and never null, and no text
+ * sorts before the empty string. It is the WHERE of
+ * idx_billing_reservation_newest and of the one read that uses it, word for
+ * word. SQLite offers a partial index only to a query that states the index's
+ * condition, so this keeps an index on the creation time alone away from
+ * every other read of reservations, which all name an organization or a tedi.
+ *
+ * The unary plus stops SQLite from taking this as the start of the range it
+ * walks. The read's own cutoff is then the only bound, so when no reservation
+ * is recent enough the walk ends at once instead of crossing the whole index.
+ */
+export const anyBillingReservation = sql`+created_at >= ''`;
+
 /** Pre-inference admission reservation. */
 export const billingUsageReservations = sqliteTable(
 	"billing_usage_reservations",
@@ -480,6 +494,11 @@ export const billingUsageReservations = sqliteTable(
 			table.createdAt,
 		),
 		index("idx_billing_reservation_trace").on(table.traceId),
+		// The metering check asks for the newest reservation of all
+		// organizations; without this it walked the whole table.
+		index("idx_billing_reservation_newest")
+			.on(table.createdAt)
+			.where(anyBillingReservation),
 		// Run spending reads charges by run; without this each read walked every
 		// reservation of the organization.
 		index("idx_billing_reservation_org_run").on(

@@ -31,6 +31,7 @@ import {
 	type BillingReservationStatus,
 	type BillingUsageReservation,
 	type BillingUsageSource,
+	anyBillingReservation,
 	billingUsageReservations,
 	billingPlanVersions,
 	billingAccounts,
@@ -343,7 +344,6 @@ export type BillingReservationDecision =
 export interface BillingReservationFreshness {
 	/** Newest admitted inference reservation in the last 30 days. */
 	maxCreatedAt: string | null;
-	count30d: number;
 }
 
 /**
@@ -351,6 +351,9 @@ export interface BillingReservationFreshness {
  * are written before provider inference, so they are the durable proof that
  * the Gateway ledger should subsequently advance. Rejected admission creates
  * no row and therefore cannot produce a false metering-dark signal.
+ *
+ * Reads one row: the last entry of idx_billing_reservation_newest. The check
+ * needs the newest reservation and whether there is one at all, not how many.
  */
 export async function getBillingReservationFreshness(
 	db: DbClient,
@@ -358,18 +361,17 @@ export async function getBillingReservationFreshness(
 ): Promise<BillingReservationFreshness> {
 	const iso30d = new Date(nowMs - 30 * 24 * 60 * 60 * 1000).toISOString();
 	const rows = await db
-		.select({
-			maxCreatedAt: sql<
-				string | null
-			>`MAX(${billingUsageReservations.createdAt})`,
-			count30d: sql<number>`COUNT(*)`,
-		})
+		.select({ maxCreatedAt: billingUsageReservations.createdAt })
 		.from(billingUsageReservations)
-		.where(sql`${billingUsageReservations.createdAt} >= ${iso30d}`);
-	return {
-		maxCreatedAt: rows[0]?.maxCreatedAt ?? null,
-		count30d: Number(rows[0]?.count30d ?? 0),
-	};
+		.where(
+			and(
+				anyBillingReservation,
+				sql`${billingUsageReservations.createdAt} >= ${iso30d}`,
+			),
+		)
+		.orderBy(desc(billingUsageReservations.createdAt))
+		.limit(1);
+	return { maxCreatedAt: rows[0]?.maxCreatedAt ?? null };
 }
 
 export interface BillingReservationPreflightInput {

@@ -1,0 +1,1 @@
+CREATE INDEX `idx_billing_reservation_newest` ON `billing_usage_reservations` (`created_at`) WHERE +created_at >= '';
