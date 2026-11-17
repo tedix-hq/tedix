@@ -49,8 +49,8 @@ export type HistoryEntry = {
 	href: { label: string; to: string } | null;
 	/** An approved call the platform failed to run; an owner may try it once more. */
 	retry?: { approvalId: string };
-	/** A failed or cut-off approved call an owner may clear from the list. */
-	dismiss?: { approvalId: string };
+	/** A queued, failed or cut-off approved call an owner may clear from the list. */
+	dismiss?: { approvalId: string; label?: "Stop" };
 	needsAttention?: boolean;
 };
 
@@ -120,10 +120,13 @@ export function approvalHistoryEntries(
 		// Retry only where the server accepts it; the rest can be dismissed.
 		const retry =
 			open && nextStep === "retry" ? { approvalId: approval.id } : undefined;
-		const dismiss =
-			open && DISMISSIBLE.has(nextStep)
-				? { approvalId: approval.id }
-				: undefined;
+		const dismiss = open
+			? executionRecord?.status === "queued"
+				? { approvalId: approval.id, label: "Stop" as const }
+				: DISMISSIBLE.has(nextStep)
+					? { approvalId: approval.id }
+					: undefined
+			: undefined;
 		const how = execution
 			? execution
 			: automatic
@@ -467,7 +470,11 @@ function HistoryRow({
 							size="sm"
 							variant="ghost"
 						>
-							{dismiss.isPending ? "Dismissing…" : "Dismiss"}
+							{dismiss.isPending
+								? entry.dismiss.label === "Stop"
+									? "Stopping…"
+									: "Dismissing…"
+								: (entry.dismiss.label ?? "Dismiss")}
 						</Button>
 					) : null}
 					{failure ? (

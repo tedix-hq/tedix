@@ -920,8 +920,9 @@ export interface OwnerToolApprovalExecution {
 
 /**
  * Clear an approved call's unfinished or failed run from the waiting list.
- * Only a run nothing is working on can be dismissed: a failed run, or one
- * cut off longer than `staleBefore` ago. A queued or live run keeps going.
+ * Only a run nothing is working on can be dismissed: a queued continuation,
+ * a failed run, or one cut off longer than `staleBefore` ago. A live run keeps
+ * going until it finishes or queues its next continuation.
  * Dismissed runs are never retried, by a person or by the queue.
  */
 export async function dismissOwnerToolApprovalExecution(
@@ -947,7 +948,7 @@ export async function dismissOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
 				sql`(
-					json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'
+					json_extract(${tediApprovalRequests.payload}, '$.execution.status') IN ('queued', 'failed')
 					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'
 						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
 				)`,
