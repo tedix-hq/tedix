@@ -584,6 +584,7 @@ try {
 				exact: true,
 			});
 			await answer.waitFor();
+			await page.locator(".fd-work-toolbar-slot .fd-app-toolbar").waitFor();
 			await settleAnimations(page);
 			const layout = await page.evaluate(() => {
 				const card = document.querySelector(".fd-card")!;
