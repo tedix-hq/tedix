@@ -105,6 +105,26 @@ export function laneProcessIdentity(
 		return;
 	}
 }
+
+/** Wait briefly for a newly spawned process to expose its post-exec argv. */
+export async function waitForLaneProcessIdentity(
+	pid: number,
+	session: string,
+	cwd?: string,
+	options: { attempts?: number; delayMs?: number } = {},
+): Promise<string | undefined> {
+	const attempts = options.attempts ?? 30;
+	const delayMs = options.delayMs ?? 100;
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		const identity = laneProcessIdentity(pid, session, cwd);
+		if (identity) return identity;
+		if (attempt + 1 < attempts)
+			await new Promise<void>((resolve) => {
+				setTimeout(resolve, delayMs).unref();
+			});
+	}
+}
+
 export function reapLaneProcess(
 	pid: number,
 	session: string,
