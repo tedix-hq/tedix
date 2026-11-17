@@ -210,6 +210,21 @@ export const WORK_ITEM_PROJECTION_STATUS_VALUES = [
 export type WorkItemProjectionStatus =
 	(typeof WORK_ITEM_PROJECTION_STATUS_VALUES)[number];
 
+/**
+ * A repository observation that is still open. This is the WHERE of
+ * `idx_work_items_open_repository_observation` and of the maintenance sweeps
+ * that use it, word for word, because SQLite offers a partial index only to a
+ * query that states the index's condition. Changing it needs a migration that
+ * rebuilds the index.
+ */
+export const openRepositoryObservation = sql`json_extract(metadata, '$.repositoryObserver') = 1 AND disposition NOT IN ('completed', 'cancelled')`;
+/**
+ * A repository observation waiting for a wake slot: deferred, never woken and
+ * not reported. The WHERE of `idx_work_items_deferred_repository_wake` and of
+ * the read that uses it, word for word, for the same reason.
+ */
+export const deferredRepositoryWake = sql`json_extract(metadata, '$.repositoryObserver') = 1 AND json_extract(metadata, '$.observerWakeDeferredAt') IS NOT NULL AND json_extract(metadata, '$.observerWokenAt') IS NULL AND json_extract(metadata, '$.report') IS NULL`;
+
 export const workItems = sqliteTable(
 	"work_items",
 	{
@@ -368,6 +383,17 @@ export const workItems = sqliteTable(
 				table.id,
 			)
 			.where(sql`${table.accountableOwnerId} IS NOT NULL`),
+		// The repository observer's maintenance tick looks across every
+		// organization for open observations (overdue red incidents, aged
+		// pushes) and for pushes waiting for a wake slot. Almost every
+		// observation is a settled commit watch, so without these two the tick
+		// walked the whole table three times. No other read states their WHERE.
+		index("idx_work_items_open_repository_observation")
+			.on(table.createdAt, table.id)
+			.where(openRepositoryObservation),
+		index("idx_work_items_deferred_repository_wake")
+			.on(table.createdAt, table.id)
+			.where(deferredRepositoryWake),
 		index("idx_work_items_objective").on(table.objectiveId),
 		index("idx_work_items_org_objective").on(table.orgId, table.objectiveId),
 		index("idx_work_items_org_class").on(table.orgId, table.workClass),

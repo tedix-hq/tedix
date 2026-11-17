@@ -1,0 +1,2 @@
+CREATE INDEX `idx_work_items_open_repository_observation` ON `work_items` (`created_at`,`id`) WHERE json_extract(metadata, '$.repositoryObserver') = 1 AND disposition NOT IN ('completed', 'cancelled');--> statement-breakpoint
+CREATE INDEX `idx_work_items_deferred_repository_wake` ON `work_items` (`created_at`,`id`) WHERE json_extract(metadata, '$.repositoryObserver') = 1 AND json_extract(metadata, '$.observerWakeDeferredAt') IS NOT NULL AND json_extract(metadata, '$.observerWokenAt') IS NULL AND json_extract(metadata, '$.report') IS NULL;

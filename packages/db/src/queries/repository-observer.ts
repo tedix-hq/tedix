@@ -1,9 +1,11 @@
-import { and, asc, desc, eq, gte, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../query-client";
 import type { RepositoryObserverConfig } from "@tedix/api-contract/schemas/repository-observer";
 import { projects } from "../schema/projects";
 import {
+	deferredRepositoryWake,
+	openRepositoryObservation,
 	workItems,
 	workItemComments,
 	workAttempts,
@@ -213,7 +215,14 @@ export async function claimRepositoryRepair(
 	return existing?.metadata?.repairKey === recipeKey;
 }
 
-/** Claim a small retryable page before doing any external orchestration. */
+/**
+ * Claim a small retryable page before doing any external orchestration.
+ *
+ * Runs on every maintenance tick across all organizations, so it reads only
+ * open observations, through their partial index. The unary plus keeps the
+ * deadline away from the general deadline index, which holds every Work Item
+ * whose deadline has passed.
+ */
 export async function overdueRepositoryObservations(
 	db: DbQueryClient,
 	now: string,
@@ -223,10 +232,9 @@ export async function overdueRepositoryObservations(
 		.from(workItems)
 		.where(
 			and(
-				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
+				openRepositoryObservation,
 				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'ship_red'`,
-				sql`${workItems.disposition} NOT IN ('completed','cancelled')`,
-				sql`${workItems.deadline} <= ${now}`,
+				sql`+${workItems.deadline} <= ${now}`,
 				sql`coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 1) = 1`,
 				sql`json_extract(${workItems.metadata}, '$.observerEscalatedAt') IS NULL`,
 				sql`coalesce(json_extract(${workItems.metadata}, '$.observerRetryAt'), '') <= ${now}`,
@@ -375,34 +383,79 @@ export async function deferRepositoryObserverWake(
 }
 
 /**
+ * How far back the recent half of the deferred read seeks. Settled advisory
+ * pushes stay pending for 24 hours; the extra two days cover a creation time
+ * written with any UTC offset, so the seek never drops a row the 24-hour check
+ * would keep. It relies on creation times starting with an ISO date, which
+ * every writer of Work Items produces.
+ */
+const DEFERRED_PUSH_SEEK_DAYS = 3;
+
+/**
  * Deferred push observations still worth a turn, newest first: on a
  * fast-forward branch the newest push carries the freshest state, and pushes
  * that never get a slot stop receiving advisory reviews after 24 hours.
+ *
+ * Runs on every maintenance tick across all organizations. Both halves use a
+ * partial index and state its WHERE word for word: recent observations of any
+ * disposition through the deferred-wake index, and older ones, which are
+ * pending only while still open, through the open-observation index.
  */
 export async function deferredRepositoryPushObservations(
 	db: DbQueryClient,
 	limit = 20,
 ) {
-	return db
-		.select({
-			id: workItems.id,
-			orgId: workItems.orgId,
-			projectId: workItems.projectId,
-			metadata: workItems.metadata,
-		})
-		.from(workItems)
-		.where(
-			and(
-				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
-				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
-				sql`json_extract(${workItems.metadata}, '$.observerWakeDeferredAt') IS NOT NULL`,
-				sql`json_extract(${workItems.metadata}, '$.observerWokenAt') IS NULL`,
-				sql`json_extract(${workItems.metadata}, '$.report') IS NULL`,
-				pendingObservation(),
-			),
-		)
-		.orderBy(desc(workItems.createdAt), desc(workItems.id))
+	const recentFrom = new Date(
+		Date.now() - DEFERRED_PUSH_SEEK_DAYS * 24 * 60 * 60_000,
+	)
+		.toISOString()
+		.slice(0, 10);
+	const newest = (half: SQL | undefined) =>
+		db
+			.select({
+				id: workItems.id,
+				orgId: workItems.orgId,
+				projectId: workItems.projectId,
+				metadata: workItems.metadata,
+				createdAt: workItems.createdAt,
+			})
+			.from(workItems)
+			.where(
+				and(
+					half,
+					sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
+					pendingObservation(),
+				),
+			)
+			.orderBy(desc(workItems.createdAt), desc(workItems.id))
+			.limit(limit);
+	const recent = newest(
+		and(deferredRepositoryWake, gte(workItems.createdAt, recentFrom)),
+	).as("recent_deferred");
+	// The same deferred check, written with a unary plus so this half cannot
+	// be planned onto the deferred-wake index, which also holds every settled
+	// push that never got a slot.
+	const olderOpen = newest(
+		and(
+			openRepositoryObservation,
+			lt(workItems.createdAt, recentFrom),
+			sql`+json_extract(${workItems.metadata}, '$.observerWakeDeferredAt') IS NOT NULL`,
+			sql`json_extract(${workItems.metadata}, '$.observerWokenAt') IS NULL`,
+			sql`json_extract(${workItems.metadata}, '$.report') IS NULL`,
+		),
+	).as("older_open_deferred");
+	const rows = await db
+		.select()
+		.from(recent)
+		.unionAll(db.select().from(olderOpen))
+		.orderBy(desc(recent.createdAt), desc(recent.id))
 		.limit(limit);
+	return rows.map(({ id, orgId, projectId, metadata }) => ({
+		id,
+		orgId,
+		projectId,
+		metadata,
+	}));
 }
 
 /** Dedicated human-authorized route; generic project metadata edits preserve this key atomically. */
@@ -532,6 +585,9 @@ export async function settleAgedRepositoryPushObservations(
 		.from(workItems)
 		.where(
 			and(
+				// Implied by the settleable check; stated so SQLite may use the
+				// open-observation index instead of walking every Work Item.
+				openRepositoryObservation,
 				settleableObservation(now),
 				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
 				sql`NOT (${unappliedLesson()})`,
