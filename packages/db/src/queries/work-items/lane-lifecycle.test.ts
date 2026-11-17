@@ -102,6 +102,20 @@ describe("server lane lifecycle", () => {
 			"accepted",
 		);
 	});
+	it("reads the retry budget from the lane policy instead of a fixed two", async () => {
+		const { db, sqlite } = await fixture();
+		sqlite.exec(
+			"UPDATE work_items SET metadata=json_object('laneExecution',json_object('maxAttempts',3))",
+		);
+		await sweepElapsedWorkAttempts(db, { now: expiry });
+		expect(await notifyStoppedLanes(db, expiry)).toBe(1);
+		const [notice] = await db.select().from(workInteractions);
+		expect(notice?.metadata.laneLifecycle).toMatchObject({
+			state: "failed",
+			recovery: { action: "automatic_retry_once", maxAttempts: 3 },
+		});
+		expect(notice?.prompt).toContain("2 automatic retries are allowed");
+	});
 	it("keeps repair machine-owned even with human accountability and blocks after the bounded retry", async () => {
 		const { db, sqlite } = await fixture();
 		sqlite.exec(
@@ -146,7 +160,7 @@ describe("server lane lifecycle", () => {
 		expect(LaneDispatchPlanSchema.parse(dispatch)).toEqual({
 			state: "held",
 			reason:
-				"Run 2 of this task stopped before it finished (its time ran out). Only a first run is retried automatically. Check the last run, then edit the task to have an agent start it again.",
+				"Run 2 of this task stopped before it finished (its time ran out). The task's retry budget of 2 runs is spent. Check the last run, then edit the task to have an agent start it again.",
 		});
 	});
 	it("does not notify a recovered heartbeat and can detect its next lapse", async () => {

@@ -496,6 +496,43 @@ describe("shared lane admission on migrated D1", () => {
 		expect((await f.admit("one", "-granted")).decision).toBe("admitted");
 	});
 
+	it.each([
+		{ stamped: 1, admitted: false },
+		{ stamped: 0, admitted: true },
+	])(
+		"a rejected verdict stamped for revision $stamped blocks a rerun only on that revision",
+		async ({ stamped, admitted }) => {
+			const f = fixture();
+			f.seed("one", "maker", { maxAttempts: 2 });
+			const settle = async (
+				attemptId: string,
+				outcome: "failed" | "rejected",
+				dispatchVersion: number,
+			) =>
+				settleWorkItemAttempt(f.db, {
+					orgId: "org",
+					workItemId: "one",
+					attemptId,
+					executor: { type: "tedi", id: "tedi" },
+					outcome,
+					metadata: { dispatchVersion },
+					settledAt: "2026-08-20T01:00:10.000Z",
+				});
+			// A crash spends budget but leaves a retry.
+			await settle((await f.start("one")).attempt.id, "failed", 1);
+			const verdictRun = await f.start("one", "-second");
+			await settle(verdictRun.attempt.id, "rejected", stamped);
+			expect(
+				f.sqlite
+					.prepare("SELECT outcome,runtime_state FROM work_attempts WHERE id=?")
+					.get(verdictRun.attempt.id),
+			).toEqual({ outcome: "rejected", runtime_state: "failed" });
+			const next = await f.admit("one", "-next");
+			if (admitted) expect(next.decision).toBe("admitted");
+			else expect(next.rejectionReason).toMatch(/verdict stands/);
+		},
+	);
+
 	it("expiry releases the original reservation exactly once", async () => {
 		const f = fixture();
 		f.seed("one");

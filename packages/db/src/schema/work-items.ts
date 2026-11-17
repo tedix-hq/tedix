@@ -171,6 +171,7 @@ export type WorkAttemptRuntimeState =
 export const WORK_ATTEMPT_OUTCOME_VALUES = [
 	"succeeded",
 	"failed",
+	"rejected",
 	"cancelled",
 	"expired",
 ] as const;

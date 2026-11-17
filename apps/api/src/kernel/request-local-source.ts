@@ -177,7 +177,7 @@ export async function reconcileLocalKernelRequest(
 		return {
 			attemptId: latest?.id ?? "unavailable",
 			outcome:
-				latest?.outcome === "expired"
+				latest?.outcome === "expired" || latest?.outcome === "rejected"
 					? ("failed" as const)
 					: (latest?.outcome ?? null),
 		};

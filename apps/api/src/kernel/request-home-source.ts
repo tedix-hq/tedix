@@ -224,7 +224,7 @@ export async function reconcileHomeKernelRequest(
 					return {
 						attemptId: latest?.id ?? "unavailable",
 						outcome:
-							latest?.outcome === "expired"
+							latest?.outcome === "expired" || latest?.outcome === "rejected"
 								? "failed"
 								: (latest?.outcome ?? null),
 					};

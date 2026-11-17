@@ -479,7 +479,9 @@ export async function reconcileWorkAttemptKernelRequest(
 						readExecution: async () => ({
 							attemptId: attempt.id,
 							outcome:
-								attempt.outcome === "expired" ? "failed" : attempt.outcome,
+								attempt.outcome === "expired" || attempt.outcome === "rejected"
+									? "failed"
+									: attempt.outcome,
 						}),
 						deliverReport: (current) =>
 							recordVerifiedDelivery(context, current, attempt.id, workItemId),

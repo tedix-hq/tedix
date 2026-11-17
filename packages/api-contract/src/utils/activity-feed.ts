@@ -396,6 +396,8 @@ function resultOutcome(
 			/^\s*failed:\s*partial_result\b/i.test(a.summary ?? "")
 			? "partial"
 			: "failed";
+	// A rejected verdict reads as a failed run to the person following the feed.
+	if (a.outcome === "rejected") return "failed";
 	return a.outcome ?? undefined;
 }
 

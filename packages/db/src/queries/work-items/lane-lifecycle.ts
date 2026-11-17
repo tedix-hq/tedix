@@ -123,6 +123,11 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 			targetType: targetType.as("repair_target_type"),
 			targetId: targetId.as("repair_target_id"),
 			attemptNumber: workAttempts.attemptNumber,
+			maxAttempts: sql<
+				number | null
+			>`json_extract(${workItems.metadata}, '$.laneExecution.maxAttempts')`.as(
+				"lane_max_attempts",
+			),
 		})
 		.from(workEvents)
 		.innerJoin(
@@ -145,10 +150,12 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 	let notified = 0;
 	for (const row of rows) {
 		const nextMover = { type: row.targetType, id: row.targetId };
-		const retryAvailable = row.attemptNumber === 1;
+		// The lane policy owns the budget; Work without one keeps one retry.
+		const maxAttempts = row.maxAttempts ?? 2;
+		const retryAvailable = row.attemptNumber < maxAttempts;
 		const nextMoverLabel = `${nextMover.type} ${nextMover.id}`;
 		const prompt = retryAvailable
-			? `Heartbeat stopped. Tedix recorded ${row.eventType} for /work/items/${row.workItemId}. The named next mover is ${nextMoverLabel}. One automatic retry is allowed; if it also stops, the item is blocked and needs the recovery action below.`
+			? `Heartbeat stopped. Tedix recorded ${row.eventType} for /work/items/${row.workItemId}. The named next mover is ${nextMoverLabel}. ${maxAttempts - row.attemptNumber === 1 ? "One automatic retry is allowed" : `${maxAttempts - row.attemptNumber} automatic retries are allowed`}; if it also stops, the item is blocked and needs the recovery action below.`
 			: `The bounded retry for /work/items/${row.workItemId} also stopped (${row.eventType}). The item is blocked. The named next mover is ${nextMoverLabel}; inspect the latest Attempt and start one new governed Attempt after fixing the worker or scheduler.`;
 		const laneLifecycle = {
 			eventId: row.id,
@@ -162,12 +169,12 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 				? {
 						action: "automatic_retry_once",
 						attemptNumber: row.attemptNumber,
-						maxAttempts: 2,
+						maxAttempts,
 					}
 				: {
 						action: "inspect_latest_attempt_and_start_governed_attempt",
 						attemptNumber: row.attemptNumber,
-						maxAttempts: 2,
+						maxAttempts,
 					},
 		};
 		const created = await db
@@ -244,7 +251,7 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 		// 2026 it had parked 110 of the 199 accepted tasks assigned to runners.
 		const hold: LaneDispatchPlan = {
 			state: "held",
-			reason: `Run ${row.attemptNumber} of this task stopped before it finished (${row.eventType === "lane.stale" ? "no heartbeat" : "its time ran out"}). Only a first run is retried automatically. Check the last run, then edit the task to have an agent start it again.`,
+			reason: `Run ${row.attemptNumber} of this task stopped before it finished (${row.eventType === "lane.stale" ? "no heartbeat" : "its time ran out"}). The task's retry budget of ${maxAttempts} ${maxAttempts === 1 ? "run" : "runs"} is spent. Check the last run, then edit the task to have an agent start it again.`,
 		};
 		if (created.length > 0 && !retryAvailable)
 			await db

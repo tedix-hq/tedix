@@ -52,7 +52,7 @@ export function ActivityFeedSources({
 				projectId,
 				limit: pageSize,
 				cursor,
-				outcomes: ["succeeded", "failed", "expired", "cancelled"],
+				outcomes: ["succeeded", "failed", "rejected", "expired", "cancelled"],
 			}),
 			initialPageParam: undefined as Cursor,
 			getNextPageParam: (page) => page.nextCursor ?? undefined,
