@@ -46,7 +46,8 @@ const THEME_PROPERTIES = [
 export const OS_ORGANIZATION_THEME_CACHE_KEY = "tedix-os-organization-theme";
 
 /* Bumped when the compiled shape changes so a stale entry is simply ignored. */
-const CACHE_VERSION = 4;
+export const OS_ORGANIZATION_THEME_CACHE_VERSION = 4;
+const CACHE_VERSION = OS_ORGANIZATION_THEME_CACHE_VERSION;
 
 let activeTheme: OrganizationOsTheme | null = null;
 
