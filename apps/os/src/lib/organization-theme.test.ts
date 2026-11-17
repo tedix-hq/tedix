@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { DEFAULT_ORGANIZATION_OS_THEME } from "@tedix/api-contract/schemas/os-theme";
 import {
 	applyOrganizationTheme,
+	OS_ORGANIZATION_THEME_CACHE_VERSION,
 	organizationThemeVariables,
 	setOrganizationTheme,
 } from "./organization-theme";
@@ -242,5 +245,16 @@ describe("organization theme projection", () => {
 		expect(
 			document.documentElement.style.getPropertyValue("--background"),
 		).toBe("");
+	});
+});
+
+describe("pre-paint theme script", () => {
+	const html = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
+
+	it("reads the same cache version and shape the app writes", () => {
+		expect(html).toContain(
+			`cached.version === ${OS_ORGANIZATION_THEME_CACHE_VERSION}`,
+		);
+		expect(html).toContain("cached[m].variables");
 	});
 });
