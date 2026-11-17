@@ -63,21 +63,27 @@ export async function runLaneStates() {
 				await history.evaluate((button) => button === document.activeElement),
 				true,
 			);
-			for (const summary of await section
-				.getByRole("button", { name: "History and details", exact: true })
-				.all())
-				await summary.click();
 			for (const state of ["Slots in use", "Idle", "Unknown · stale"])
 				assert.equal(
 					await section.locator(`[data-lane-state="${state}"]`).count(),
 					1,
 				);
-			const skip = section.getByText(
+			const skipDetails = section.locator(
+				'[data-lane-state="Idle"] [data-lane-details]',
+			);
+			const skip = skipDetails.getByText(
 				"Most reported problem (30 min): Approval required · 2 observations",
 				{
 					exact: true,
 				},
 			);
+			const skipHistory = skipDetails.getByRole("button", {
+				name: "History and details",
+				exact: true,
+			});
+			assert.equal(await skipDetails.count(), 1);
+			await skipHistory.click();
+			assert.equal(await skipHistory.getAttribute("aria-expanded"), "true");
 			await skip.waitFor();
 			assert.match(await section.innerText(), /Waiting for approval/);
 			assert.match(
