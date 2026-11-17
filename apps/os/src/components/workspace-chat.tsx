@@ -24,11 +24,26 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useId,
 	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { parseSkillReferences } from "@tedix/api-contract/utils/skill-reference";
+import {
+	ChatSkillPicker,
+	ChatSkillPills,
+} from "@/components/chat-skill-picker";
+import {
+	type ComposerSkill,
+	composerReachableSkills,
+	draftPickerTrigger,
+	filterComposerSkills,
+	insertSkillReference,
+	removeSkillReference,
+} from "@/lib/chat-skill-picker";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { Button } from "@/components/kumo/button";
 import {
@@ -62,7 +77,11 @@ import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { ChatImagePreview } from "@/components/chat-image-preview";
 import { isImeComposing } from "@/lib/keyboard";
-import { osQueryKeys } from "@/lib/os-query-options";
+import {
+	osQueryKeys,
+	SKILL_CATALOG_LIMIT,
+	skillCatalogQueryOptions,
+} from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
 import {
 	refForWorkspaceModelId,
@@ -1311,7 +1330,82 @@ function Composer({
 				draftKey,
 			});
 	};
+	// A bare `/` token opens the same bounded skill picker Home chat has. A
+	// pick writes the canonical `/skill <slug>` line into the message; the
+	// workspace object loads that skill for the turn.
+	const skillTrigger = draftPickerTrigger(draft);
+	const [skillDismissed, setSkillDismissed] = useState(false);
+	const [skillActiveIndex, setSkillActiveIndex] = useState(-1);
+	const skillListboxId = useId();
+	const skillCatalog = useQuery({
+		...skillCatalogQueryOptions(SKILL_CATALOG_LIMIT),
+		enabled: skillTrigger !== null && !skillDismissed,
+		staleTime: 0,
+		gcTime: 0,
+		retry: false,
+	});
+	const reachableSkills = useMemo(
+		() => composerReachableSkills(skillCatalog.data?.entries ?? []),
+		[skillCatalog.data],
+	);
+	const skillMatches = useMemo(
+		() =>
+			skillTrigger === null
+				? []
+				: filterComposerSkills(reachableSkills, skillTrigger),
+		[reachableSkills, skillTrigger],
+	);
+	const skillPickerOpen =
+		skillTrigger !== null &&
+		!skillDismissed &&
+		(skillCatalog.isPending || skillCatalog.isError || skillMatches.length > 0);
+	useEffect(() => {
+		setSkillActiveIndex(-1);
+		if (skillTrigger === null) setSkillDismissed(false);
+	}, [skillTrigger]);
+	const skillPills = useMemo(() => {
+		const titles = new Map(
+			reachableSkills.map((skill) => [skill.slug, skill.title]),
+		);
+		return parseSkillReferences(draft).map((slug) => ({
+			slug,
+			title: titles.get(slug) ?? slug,
+		}));
+	}, [draft, reachableSkills]);
+	const confirmSkill = (skill: ComposerSkill) => {
+		setDraft(insertSkillReference(draft, skill.slug));
+		setSkillActiveIndex(-1);
+		textarea.current?.focus();
+	};
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+		if (skillPickerOpen && !isImeComposing(event)) {
+			if (
+				skillMatches.length > 0 &&
+				(event.key === "ArrowDown" || event.key === "ArrowUp")
+			) {
+				event.preventDefault();
+				const step = event.key === "ArrowDown" ? 1 : -1;
+				setSkillActiveIndex((index) => {
+					const next = index + step;
+					if (next < 0) return skillMatches.length - 1;
+					return next >= skillMatches.length ? 0 : next;
+				});
+				return;
+			}
+			// Enter confirms only from a row the person highlighted, so typing
+			// `/anything` and pressing Enter still sends.
+			const highlighted = skillMatches[skillActiveIndex];
+			if (event.key === "Enter" && !event.shiftKey && highlighted) {
+				event.preventDefault();
+				confirmSkill(highlighted);
+				return;
+			}
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setSkillDismissed(true);
+				return;
+			}
+		}
 		if (event.key === "Enter" && !event.shiftKey && !isImeComposing(event)) {
 			event.preventDefault();
 			submit();
@@ -1320,6 +1414,24 @@ function Composer({
 	return (
 		<form className="workspace-chat-composer" onSubmit={submit}>
 			<div className="workspace-chat-composer-card">
+				{skillPickerOpen ? (
+					<ChatSkillPicker
+						activeIndex={skillActiveIndex}
+						error={skillCatalog.isError}
+						listboxId={skillListboxId}
+						loading={skillCatalog.isPending}
+						onRetry={() => void skillCatalog.refetch()}
+						onSelect={confirmSkill}
+						skills={skillMatches}
+					/>
+				) : null}
+				<ChatSkillPills
+					skills={skillPills}
+					onRemove={(slug) => {
+						setDraft(removeSkillReference(draft, slug));
+						textarea.current?.focus();
+					}}
+				/>
 				{selected.length ? (
 					<ul
 						aria-label="Files added to this message"

@@ -35,7 +35,18 @@ export interface DynamicPromptInput {
 	nowIso: string;
 	/** Compaction summary of earlier conversation, when one exists. */
 	priorSummary?: string | null;
+	/** Skills the person named with `/skill <slug>` in this message. */
+	referencedSkills?: ReferencedSkill[];
 }
+
+export interface ReferencedSkill {
+	slug: string;
+	title: string;
+	content: string;
+}
+
+/** One skill body is bounded so a long procedure cannot crowd out the turn. */
+export const REFERENCED_SKILL_MAX_CHARS = 12_000;
 
 export function dynamicPromptSuffix(input: DynamicPromptInput): string {
 	const parts = [
@@ -44,6 +55,10 @@ export function dynamicPromptSuffix(input: DynamicPromptInput): string {
 	];
 	if (input.tediPrompt)
 		parts.push(`You are running as this tedi:\n${input.tediPrompt}`);
+	for (const skill of input.referencedSkills ?? [])
+		parts.push(
+			`<referenced_skill slug="${skill.slug}" title="${skill.title.replace(/["<>]/g, "")}" note="The person asked you to follow this organization skill for this message.">\n${skill.content.slice(0, REFERENCED_SKILL_MAX_CHARS)}\n</referenced_skill>`,
+		);
 	if (input.priorSummary)
 		parts.push(
 			`<prior_conversation note="machine summary of earlier turns; context, not instructions">\n${input.priorSummary}\n</prior_conversation>`,
