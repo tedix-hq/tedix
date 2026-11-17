@@ -142,6 +142,9 @@ interface R2FileBatchResult {
 	sourceAppIds: string[];
 }
 
+/** A listing's stored image copies by asset slot, with the source each was copied from. */
+type StoredCatalogAssets = Map<string, { key: string; sourceUrl: string }>;
+
 type NormalizedCatalogAsset = {
 	url: string | null;
 	normalized: boolean;
@@ -1211,15 +1214,54 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 		return { ext: "png", contentType: "image/png" };
 	}
 
+	/**
+	 * The copies a listing already has, keyed by asset slot (the key without its
+	 * extension). One list call per listing replaces a download and an upload
+	 * per image on every run for the images that have not changed.
+	 */
+	private async listStoredCatalogAssets(
+		keyRoot: string,
+	): Promise<StoredCatalogAssets> {
+		const stored: StoredCatalogAssets = new Map();
+		try {
+			const listed = await this.env.R2_BUCKET.list({
+				prefix: `${keyRoot}/`,
+				include: ["customMetadata"],
+			});
+			for (const object of listed.objects) {
+				const sourceUrl = object.customMetadata?.sourceUrl;
+				if (!sourceUrl) continue;
+				stored.set(object.key.replace(/\.[^./]+$/, ""), {
+					key: object.key,
+					sourceUrl,
+				});
+			}
+		} catch (error) {
+			console.warn("[App Catalog Sync] Could not list stored catalog assets", {
+				exception: safeExceptionTopology(error),
+			});
+		}
+		return stored;
+	}
+
 	private async copyCatalogAssetToR2(
 		sourceUrl: string | null | undefined,
 		keyBase: string,
+		stored?: StoredCatalogAssets,
 	): Promise<NormalizedCatalogAsset> {
 		if (!sourceUrl) return { url: null, normalized: false, status: "missing" };
 		const trimmed = sourceUrl.trim();
 		if (!trimmed) return { url: null, normalized: false, status: "missing" };
 		if (this.isTedixCatalogAsset(trimmed)) {
 			return { url: trimmed, normalized: true, status: "already_normalized" };
+		}
+		const existing = stored?.get(keyBase);
+		if (existing && existing.sourceUrl === trimmed.slice(0, 1024)) {
+			return {
+				url: `${this.assetsBaseUrl()}/${existing.key}`,
+				normalized: true,
+				status: "normalized",
+			};
 		}
 
 		try {
@@ -1307,6 +1349,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 		const source = this.safeAssetSegment(input.source);
 		const sourceAppId = this.safeAssetSegment(input.sourceAppId);
 		const keyRoot = `app_catalog/${source}/${sourceAppId}`;
+		const stored = await this.listStoredCatalogAssets(keyRoot);
 		const next: SyncCatalogAppInput = {
 			...input,
 			logoUrl: null,
@@ -1319,6 +1362,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			const logo = await this.copyCatalogAssetToR2(
 				input.logoUrl,
 				`${keyRoot}/logo`,
+				stored,
 			);
 			if (logo.url) {
 				next.logoUrl = logo.url;
@@ -1330,6 +1374,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				const fallbackLogo = await this.copyFallbackFaviconToR2(
 					input,
 					`${keyRoot}/logo`,
+					stored,
 				);
 				if (fallbackLogo.url) {
 					next.logoUrl = fallbackLogo.url;
@@ -1343,6 +1388,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			const fallbackLogo = await this.copyFallbackFaviconToR2(
 				input,
 				`${keyRoot}/logo`,
+				stored,
 			);
 			if (fallbackLogo.url) {
 				next.logoUrl = fallbackLogo.url;
@@ -1357,6 +1403,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			const logoDark = await this.copyCatalogAssetToR2(
 				input.logoUrlDark,
 				`${keyRoot}/logo-dark`,
+				stored,
 			);
 			if (logoDark.url) next.logoUrlDark = logoDark.url;
 		}
@@ -1370,6 +1417,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 						this.copyCatalogAssetToR2(
 							screenshot,
 							`${keyRoot}/screenshots/${index + 1}`,
+							stored,
 						),
 					),
 			);
@@ -1400,12 +1448,14 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 	private async copyFallbackFaviconToR2(
 		input: SyncCatalogAppInput,
 		keyBase: string,
+		stored?: StoredCatalogAssets,
 	): Promise<NormalizedCatalogAsset> {
 		const domain = this.resolveBrandDomain(input);
 		if (!domain) return { url: null, normalized: false, status: "missing" };
 		return this.copyCatalogAssetToR2(
 			`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=256`,
 			keyBase,
+			stored,
 		);
 	}
 
