@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 
 /* ── Binary Rain Column ─────────────────────────────── */
 function BinaryColumn({
@@ -241,50 +241,56 @@ export function HeroBrain({
 					style={{ animation: "brainPulse 4s ease-in-out infinite" }}
 				/>
 
-				{/* Light mode image */}
-				<img
-					src="/images/hero-brain-light.jpg"
-					alt="Human mind merging with artificial intelligence — neural pathways and digital data streams flowing from a human brain profile"
-					width={750}
-					height={500}
-					className={cn(
-						"relative h-auto w-full drop-shadow-[0_0_40px_rgba(139,92,246,0.15)] transition-opacity duration-1000 dark:hidden",
-						loaded ? "opacity-100" : "opacity-0",
-					)}
-					style={{
-						maskImage: isMobile
-							? "linear-gradient(to right, transparent 0%, black 12%, black 90%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 10%, black 88%, transparent 100%)"
-							: "linear-gradient(to right, transparent 0%, black 22%, black 88%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 12%, black 82%, transparent 100%)",
-						maskComposite: "intersect",
-						WebkitMaskImage: isMobile
-							? "linear-gradient(to right, transparent 0%, black 12%, black 90%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 10%, black 88%, transparent 100%)"
-							: "linear-gradient(to right, transparent 0%, black 22%, black 88%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 12%, black 82%, transparent 100%)",
-						WebkitMaskComposite: "source-in",
-					}}
-					onLoad={() => setLoaded(true)}
-				/>
-				{/* Dark mode image */}
-				<img
-					src="/images/hero-brain.jpg"
-					alt="Human mind merging with artificial intelligence — neural pathways and digital data streams flowing from a human brain profile"
-					width={750}
-					height={500}
-					className={cn(
-						"relative h-auto w-full drop-shadow-[0_0_60px_rgba(139,92,246,0.35)] transition-opacity duration-1000 hidden dark:block",
-						loaded ? "opacity-100" : "opacity-0",
-					)}
-					style={{
-						maskImage: isMobile
-							? "linear-gradient(to right, transparent 0%, black 12%, black 86%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 10%, black 86%, transparent 100%)"
-							: "linear-gradient(to right, transparent 0%, black 20%, black 72%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 12%, black 80%, transparent 100%)",
-						maskComposite: "intersect",
-						WebkitMaskImage: isMobile
-							? "linear-gradient(to right, transparent 0%, black 12%, black 86%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 10%, black 86%, transparent 100%)"
-							: "linear-gradient(to right, transparent 0%, black 20%, black 72%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 12%, black 80%, transparent 100%)",
-						WebkitMaskComposite: "source-in",
-					}}
-					onLoad={() => setLoaded(true)}
-				/>
+				<picture>
+					<source
+						media="(prefers-color-scheme: dark)"
+						type="image/avif"
+						srcSet="/images/hero-brain-480.avif 480w, /images/hero-brain-750.avif 752w, /images/hero-brain-1200.avif 1200w"
+					/>
+					<source
+						media="(prefers-color-scheme: dark)"
+						type="image/webp"
+						srcSet="/images/hero-brain-480.webp 480w, /images/hero-brain-750.webp 750w, /images/hero-brain-1200.webp 1200w"
+					/>
+					<source
+						media="(prefers-color-scheme: dark)"
+						srcSet="/images/hero-brain-480.jpg 480w, /images/hero-brain-750.jpg 750w, /images/hero-brain.jpg 1200w"
+					/>
+					<source
+						type="image/avif"
+						srcSet="/images/hero-brain-light-480.avif 480w, /images/hero-brain-light-750.avif 752w, /images/hero-brain-light-1200.avif 1200w"
+					/>
+					<source
+						type="image/webp"
+						srcSet="/images/hero-brain-light-480.webp 480w, /images/hero-brain-light-750.webp 750w, /images/hero-brain-light-1200.webp 1200w"
+					/>
+					<img
+						src="/images/hero-brain-light.jpg"
+						srcSet="/images/hero-brain-light-480.jpg 480w, /images/hero-brain-light-750.jpg 750w, /images/hero-brain-light.jpg 1200w"
+						sizes="(max-width: 1023px) min(118vw, 560px), (max-width: 1360px) 70vw, 900px"
+						alt="Human mind merging with artificial intelligence — neural pathways and digital data streams flowing from a human brain profile"
+						width={750}
+						height={500}
+						loading="eager"
+						fetchPriority="high"
+						decoding="async"
+						className={cn(
+							"relative h-auto w-full drop-shadow-[0_0_40px_rgba(139,92,246,0.15)] transition-opacity duration-1000 dark:drop-shadow-[0_0_60px_rgba(139,92,246,0.35)]",
+							loaded ? "opacity-100" : "opacity-0",
+						)}
+						style={{
+							maskImage: isMobile
+								? "linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 10%, black 87%, transparent 100%)"
+								: "linear-gradient(to right, transparent 0%, black 21%, black 80%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 12%, black 81%, transparent 100%)",
+							maskComposite: "intersect",
+							WebkitMaskImage: isMobile
+								? "linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 10%, black 87%, transparent 100%)"
+								: "linear-gradient(to right, transparent 0%, black 21%, black 80%, transparent 100%), linear-gradient(to bottom, transparent 0%, black 12%, black 81%, transparent 100%)",
+							WebkitMaskComposite: "source-in",
+						}}
+						onLoad={() => setLoaded(true)}
+					/>
+				</picture>
 			</div>
 
 			{/* ── Capability Nodes — at the origin of the neural lines (center area, not over text) ── */}
