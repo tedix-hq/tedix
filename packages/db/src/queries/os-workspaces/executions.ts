@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { announceOsWorkspaceChange } from "../os-workspace-events";
 import {
 	type NewOsGadgetExecutionRow,
 	type OsGadgetExecutionRow,
@@ -74,6 +75,7 @@ export async function createOsGadgetExecution(
 	if (!row) {
 		throw new Error("OS gadget execution insert returned no row");
 	}
+	await announceOsWorkspaceChange(db, row.workspaceId, "runs");
 	return row;
 }
 
@@ -103,6 +105,7 @@ export async function settleOsAppCallExecution(
 			),
 		)
 		.returning();
+	if (row) await announceOsWorkspaceChange(db, row.workspaceId, "runs");
 	return row;
 }
 
@@ -213,6 +216,7 @@ export async function claimApprovedOsGadgetExecution(
 			),
 		)
 		.returning();
+	if (row) await announceOsWorkspaceChange(db, row.workspaceId, "runs");
 	return row;
 }
 
@@ -247,6 +251,7 @@ export async function recordOsGadgetDispatch(
 			),
 		)
 		.returning();
+	if (row) await announceOsWorkspaceChange(db, row.workspaceId, "runs");
 	return row;
 }
 
@@ -271,6 +276,7 @@ export async function settleAwaitingApprovalOsGadgetExecution(
 			),
 		)
 		.returning();
+	if (row) await announceOsWorkspaceChange(db, row.workspaceId, "runs");
 	return row;
 }
 
@@ -296,6 +302,7 @@ export async function failClaimedOsGadgetExecution(
 			),
 		)
 		.returning();
+	if (row) await announceOsWorkspaceChange(db, row.workspaceId, "runs");
 	return row;
 }
 
@@ -315,7 +322,7 @@ export async function settleOsGadgetExecutionFromRun(
 		params.status === "completed" ||
 		params.status === "failed" ||
 		params.status === "canceled";
-	return db
+	const rows = await db
 		.update(osGadgetExecutions)
 		.set({
 			status: params.status,
@@ -340,4 +347,8 @@ export async function settleOsGadgetExecutionFromRun(
 			),
 		)
 		.returning();
+	for (const workspaceId of new Set(rows.map((row) => row.workspaceId))) {
+		await announceOsWorkspaceChange(db, workspaceId, "runs");
+	}
+	return rows;
 }

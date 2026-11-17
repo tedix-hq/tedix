@@ -557,6 +557,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osCollaborators/copyLink": "mcp:apps.write",
 	"osCollaborators/createLink": "mcp:apps.write",
 	"osCollaborators/dismissShared": "mcp:apps.write",
+	"osCollaborators/events": "mcp:apps.read",
 	"osCollaborators/list": "mcp:apps.read",
 	"osCollaborators/listShared": "mcp:apps.read",
 	"osCollaborators/open": "mcp:apps.read",

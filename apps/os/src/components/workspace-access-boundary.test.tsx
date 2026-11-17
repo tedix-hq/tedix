@@ -1,18 +1,41 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect, useId, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 
 import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import { osQuery } from "@/lib/os-query-options";
 const mocks = vi.hoisted(() => ({
 	access: vi.fn(),
+	events: vi.fn(),
 	dispose: vi.fn(),
 	retired: vi.fn(),
 }));
-vi.mock("@/lib/api", () => ({
-	osApi: { osCollaborators: { access: mocks.access } },
-}));
+vi.mock("@/lib/api", () => {
+	// Only the two collaborator reads are real here. Every other API path is a
+	// callable stub so workspace-wide query keys (invalidated on each event)
+	// can still be built.
+	const overrides: Record<string, unknown> = {
+		"osCollaborators.access": mocks.access,
+		"osCollaborators.events": mocks.events,
+	};
+	const stub = (path: string[]): unknown =>
+		new Proxy(() => Promise.resolve({}), {
+			get(_target, key) {
+				if (typeof key === "symbol" || key === "then") return undefined;
+				const next = [...path, key];
+				return overrides[next.join(".")] ?? stub(next);
+			},
+		});
+	return { osApi: stub([]) };
+});
 vi.mock("@/lib/capability-lifecycle", () => ({
 	disposeOsCapabilities: mocks.dispose,
 }));
@@ -23,10 +46,20 @@ import {
 	WorkspaceAccessBoundary,
 	WORKSPACE_ACCESS_CHECK_MS,
 } from "./workspace-access-boundary";
+import { WORKSPACE_STREAM_FALLBACK_MS } from "@/lib/workspace-event-stream";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
+
+beforeEach(() => {
+	// Unless a test opens the stream, the server events are unreachable and the
+	// boundary keeps its fast access check.
+	mocks.events.mockRejectedValue({
+		code: "INTERNAL_SERVER_ERROR",
+		status: 503,
+	});
+});
 
 afterEach(() => {
 	vi.useRealTimers();
@@ -107,6 +140,61 @@ describe("open workspace permission changes", () => {
 			expect(container.textContent).toContain("unsynced first|unsynced second");
 			expect(editor?.getAttribute("data-paused")).toBe("false");
 			expect(container.querySelector('[role="status"]')).toBeNull();
+		} finally {
+			act(() => root.unmount());
+			client.clear();
+		}
+	});
+
+	it("checks access on a slow fallback while the event stream is open and rechecks at once on an access event", async () => {
+		vi.useFakeTimers();
+		mocks.access.mockResolvedValue({ role: "build" });
+		let wake: (value: { cursor: number; kinds: string[] }) => void = () => {};
+		mocks.events.mockImplementation((input: { after?: number }) =>
+			input.after === undefined
+				? Promise.resolve({ cursor: 0, kinds: [] })
+				: new Promise((resolve) => {
+						wake = resolve;
+					}),
+		);
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const container = document.createElement("div"),
+			root = createRoot(container);
+		try {
+			await act(async () => {
+				root.render(
+					<QueryClientProvider client={client}>
+						<WorkspaceAccessBoundary workspaceId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa">
+							<div>Editor</div>
+						</WorkspaceAccessBoundary>
+					</QueryClientProvider>,
+				);
+				await vi.advanceTimersByTimeAsync(1);
+			});
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(1);
+			});
+			expect(container.textContent).toContain("Editor");
+			const initial = mocks.access.mock.calls.length;
+			// The old 3s cadence no longer runs.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(WORKSPACE_ACCESS_CHECK_MS * 5);
+			});
+			expect(mocks.access).toHaveBeenCalledTimes(initial);
+			// An access event refetches immediately.
+			await act(async () => {
+				wake({ cursor: 1, kinds: ["access"] });
+				await vi.advanceTimersByTimeAsync(1);
+			});
+			expect(mocks.access.mock.calls.length).toBeGreaterThan(initial);
+			// The slow fallback still runs.
+			const afterEvent = mocks.access.mock.calls.length;
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(WORKSPACE_STREAM_FALLBACK_MS + 1);
+			});
+			expect(mocks.access.mock.calls.length).toBeGreaterThan(afterEvent);
 		} finally {
 			act(() => root.unmount());
 			client.clear();

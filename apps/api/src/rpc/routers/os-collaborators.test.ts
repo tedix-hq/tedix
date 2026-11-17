@@ -19,6 +19,7 @@ import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
 	osWorkspaceAccessEdges,
 	osWorkspaceCollaborators,
+	osWorkspaceEvents,
 	osWorkspaceShareKeys,
 	osWorkspaceShareLinks,
 } from "@tedix/db/schema/os-collaborators";
@@ -79,6 +80,7 @@ function createEnv() {
 			osWorkspaceAccessEdges,
 			osWorkspaceShareLinks,
 			osWorkspaceShareKeys,
+			osWorkspaceEvents,
 			workspaceFeedLedger,
 			workspaceFeedCursors,
 			workspaceActivity,
@@ -427,6 +429,43 @@ describe("workspace collaborators", () => {
 				role: "use",
 			}),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+
+	it("streams access changes to members and refuses people without access", async () => {
+		const { env, workspaceId } = await seed();
+		const baseline = await as(env, ROBIN).events({ workspaceId });
+		expect(baseline.kinds).toEqual([]);
+		// Nothing new: the held request answers empty with the same cursor.
+		expect(
+			await as(env, ROBIN).events({
+				workspaceId,
+				after: baseline.cursor,
+				waitMs: 0,
+			}),
+		).toEqual({ cursor: baseline.cursor, kinds: [] });
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		const afterAdd = await as(env, KAI).events({
+			workspaceId,
+			after: baseline.cursor,
+			waitMs: 0,
+		});
+		expect(afterAdd.kinds).toEqual(["access"]);
+		expect(afterAdd.cursor).toBeGreaterThan(baseline.cursor);
+		// Losing access ends the stream: the next read is refused.
+		await as(env, ROBIN).remove({
+			workspaceId,
+			target: { kind: "user", userId: KAI },
+		});
+		await expect(
+			as(env, KAI).events({ workspaceId, after: afterAdd.cursor, waitMs: 0 }),
+		).rejects.toMatchObject(DENIED);
+		await expect(
+			as(env, STRANGER).events({ workspaceId }),
+		).rejects.toMatchObject(DENIED);
 	});
 
 	it("gives an unrelated user a generic FORBIDDEN with no workspace metadata", async () => {

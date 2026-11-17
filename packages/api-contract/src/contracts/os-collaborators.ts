@@ -9,6 +9,7 @@ import {
 	OsCollaboratorSchema,
 	OsCollaboratorTargetSchema,
 	OsSharedWorkspaceSchema,
+	OsWorkspaceEventKindSchema,
 	OsWorkspaceCapabilitySchema,
 } from "../schemas/os-collaborators";
 
@@ -47,6 +48,34 @@ export const osCollaboratorsContract = oc
 			})
 			.input(z.object({ workspaceId }).strict())
 			.output(z.object({ role: OsCollaboratorRoleSchema })),
+		events: oc
+			.route({
+				method: "GET",
+				path: "/workspaces/{workspaceId}/events",
+				summary: "Wait for workspace changes",
+				description:
+					"Long poll for change hints in one workspace: access, proposals, runs and drafts. Without `after` it returns the current cursor at once. With `after` it holds up to `waitMs` and returns as soon as something newer exists. A hint names what changed, never its content; read the canonical API for that. Losing access returns FORBIDDEN, like every workspace read.",
+			})
+			.input(
+				z
+					.object({
+						workspaceId,
+						after: z.coerce
+							.number()
+							.int()
+							.nonnegative()
+							.optional()
+							.describe("Cursor from the previous response"),
+						waitMs: z.coerce.number().int().min(0).max(25_000).optional(),
+					})
+					.strict(),
+			)
+			.output(
+				z.object({
+					cursor: z.number().int().nonnegative(),
+					kinds: z.array(OsWorkspaceEventKindSchema),
+				}),
+			),
 		open: oc
 			.route({
 				method: "POST",

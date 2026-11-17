@@ -4,6 +4,10 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import {
+	useWorkspaceEventStreamOpen,
+	workspacePollMs,
+} from "@/lib/workspace-event-stream";
 import { AppDraftEditor } from "@/components/app-draft-editor";
 import { AppSharedDraftEditor } from "@/components/app-shared-draft-editor";
 import { AppRuntimeSandbox } from "@/components/app-runtime-panel";
@@ -31,7 +35,10 @@ import {
 } from "@/lib/os-query-options";
 
 const DRAFT_LIST_LIMIT = 20;
-/** Drafts arrive from chat and agents while the panel is open. */
+/**
+ * Drafts arrive from chat and agents while the panel is open. The workspace
+ * event stream announces them; this poll is the fast path only until it opens.
+ */
 const DRAFT_POLL_MS = 15_000;
 
 /** Open and approved drafts of one runtime app, in the order the API lists them. */
@@ -40,6 +47,7 @@ export function useAppDrafts(
 	gadgetId: string,
 	enabled: boolean,
 ): AppDraft[] {
+	const streamOpen = useWorkspaceEventStreamOpen();
 	const proposals = useQuery({
 		...collaborationProposalsQueryOptions({
 			workspaceId,
@@ -49,7 +57,9 @@ export function useAppDrafts(
 			limit: DRAFT_LIST_LIMIT,
 		}),
 		enabled,
-		refetchInterval: enabled ? DRAFT_POLL_MS : false,
+		refetchInterval: enabled
+			? workspacePollMs(streamOpen, DRAFT_POLL_MS)
+			: false,
 	});
 	return useMemo(
 		() => appDraftsFrom(proposals.data?.items ?? []),

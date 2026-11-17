@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-submissions";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { canvasOutputsQueryOptions } from "./os-query-options";
+import { canvasOutputsQueryOptions, osQuery } from "./os-query-options";
 import {
 	createWorkspaceReconnectReconciler,
 	publishLiveWorkspaceEvent,
@@ -74,10 +74,20 @@ describe("live workspace projection", () => {
 				event({ workspaceId: WORKSPACE_ID, outputId: OUTPUT_ID }),
 			),
 		).toBe(true);
-		expect(invalidations).toHaveBeenCalledTimes(5);
-		expect(
-			invalidations.mock.calls.map(([filter]) => filter?.queryKey),
-		).toContainEqual(canvasOutputsQueryOptions(WORKSPACE_ID).queryKey);
+		expect(invalidations).toHaveBeenCalledTimes(9);
+		const keys = invalidations.mock.calls.map(([filter]) => filter?.queryKey);
+		expect(keys).toContainEqual(
+			canvasOutputsQueryOptions(WORKSPACE_ID).queryKey,
+		);
+		// Access, proposals/drafts and runs of this workspace, whatever their filters.
+		const input = { workspaceId: WORKSPACE_ID };
+		for (const key of [
+			osQuery.osCollaborators.access.key({ type: "query", input }),
+			osQuery.osWorkspaces.collaboration.list.key({ type: "query", input }),
+			osQuery.osWorkspaces.executions.list.key({ type: "query", input }),
+		]) {
+			expect(keys).toContainEqual(key);
+		}
 		expect(
 			reconcileLiveWorkspaceEvent(
 				queryClient,
@@ -98,6 +108,6 @@ describe("live workspace projection", () => {
 		expect(invalidations).not.toHaveBeenCalled();
 		reconcile("reconnecting");
 		reconcile("open");
-		expect(invalidations).toHaveBeenCalledTimes(5);
+		expect(invalidations).toHaveBeenCalledTimes(9);
 	});
 });
