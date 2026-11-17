@@ -1240,7 +1240,7 @@ export const OsWorkbookCellSchema = z.object({
 export const OsWorkbookColumnSchema = z.object({
 	id: z.string().min(1).max(80),
 	label: z.string().min(1).max(200),
-	width: z.number().int().min(48).max(600).default(120),
+	width: z.number().int().min(36).max(640).default(120),
 });
 
 export const OsWorkbookSheetSchema = z.object({

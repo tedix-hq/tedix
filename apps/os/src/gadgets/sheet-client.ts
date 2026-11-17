@@ -61,7 +61,6 @@ import {
 	LANDED_UNDO_MS,
 } from "../lib/landed-changes";
 import {
-	OS_EDITOR_UNDO_STEPS,
 	OS_SHEET_MAX_COLUMNS,
 	OS_SHEET_MAX_ROWS,
 } from "@tedix/api-contract/utils/os-output-limits";
@@ -165,9 +164,10 @@ const css = [
 	`.resize{position:absolute;right:-1px;top:0;width:7px;height:100%;cursor:col-resize;z-index:1}.resize:hover,.resize.on{background:color-mix(in srgb,var(--primary) 55%,transparent)}`,
 	// Notices and prompts float over the grid instead of pushing it down.
 	`.overlay{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:20;display:flex;flex-direction:column;gap:6px;align-items:center;width:max-content;max-width:calc(100% - 24px);pointer-events:none}.overlay>*{pointer-events:auto}`,
-	`[role=tab][data-touched]::after{content:"";display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:var(--primary);vertical-align:middle}`,
+	`[role=tab]{position:relative}[role=tab][data-touched]::after{content:"";position:absolute;top:5px;right:5px;width:5px;height:5px;border-radius:50%;background:var(--primary);animation:tab-touch 1.6s var(--ease) both}@keyframes tab-touch{0%{opacity:0;transform:scale(.4)}15%{opacity:1;transform:none}70%{opacity:1}to{opacity:0}}`,
 	`.filter-btn{position:absolute;right:2px;top:50%;transform:translateY(-50%);z-index:3;width:18px;height:18px;padding:0;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--muted);font-size:10px;line-height:1;cursor:pointer}.filter-btn[data-active]{background:var(--primary);color:var(--bg);border-color:var(--primary)}tr[hidden]{display:none}.filter-menu{min-width:220px}.filter-sorts,.filter-actions{display:flex;gap:6px;padding:4px}.filter-values{max-height:240px;overflow:auto;padding:4px;border-block:1px solid var(--line)}.filter-values label{display:flex;gap:8px;align-items:center;padding:2px 4px}.filter-values span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.filter-values small{color:var(--muted)}`,
 	`.formula-help{position:fixed;z-index:30;max-width:min(360px,calc(100vw - 16px));padding:4px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.formula-help button{display:flex;gap:8px;width:100%;padding:4px 8px;border:0;border-radius:5px;background:none;color:var(--fg);text-align:left;cursor:pointer}.formula-help button[aria-selected=true]{background:var(--tint,color-mix(in srgb,var(--fg) 8%,transparent))}.formula-help small{color:var(--muted)}.formula-help .sig{padding:4px 8px}.formula-help .sig b{color:var(--primary)}td.picking{box-shadow:inset 0 0 0 2px var(--primary);background-image:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--primary) 12%,transparent) 4px 8px)}`,
+	`td.find-hit{background-image:linear-gradient(color-mix(in srgb,#f0bf2c 30%,transparent),color-mix(in srgb,#f0bf2c 30%,transparent))}td.find-current{background-image:linear-gradient(color-mix(in srgb,#f0bf2c 55%,transparent),color-mix(in srgb,#f0bf2c 55%,transparent))}#find-count[data-bad]{color:var(--danger,#c0262d)}#find-options[data-on]{color:var(--primary)}`,
 	`.find{display:flex;gap:6px;align-items:center;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.find input{width:min(240px,50vw)}#find-count{min-width:60px;color:var(--muted);font-variant-numeric:tabular-nums}.fill-grip{position:absolute;right:0;bottom:0;z-index:4;width:7px;height:7px;background:var(--primary);border:1px solid var(--bg);cursor:crosshair;touch-action:none}td.fill-target{box-shadow:inset 0 0 0 1px var(--primary)}`,
 	`#updates,.command{display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:100%;padding:6px 8px 6px 12px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent);animation:drop .14s var(--ease)}#updates:empty{display:none}`,
 	`#updates button,.command button{height:26px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);cursor:pointer;transition:background-color .12s var(--ease),transform .12s var(--ease)}#updates button:hover,.command button:hover{background:var(--hover)}#updates button:active,.command button:active{transform:scale(.97)}`,
@@ -185,6 +185,18 @@ const css = [
 	`.menu.keys{padding:10px 12px;font-size:12px;line-height:1.5}.keys h2{margin:0 0 6px;font-size:12px;font-weight:600}.keys dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0}.keys dt{color:var(--muted-fg);white-space:nowrap}.keys dd{margin:0}`,
 	`@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}`,
 ].join("");
+
+/** Narrowest and widest a column can be fitted to its contents. */
+const FIT_MIN = 36;
+const FIT_MAX = 640;
+/** How long an agent's change marks a tab out of view. */
+const TOUCH_MS = 1500;
+/** Undo steps kept per editor. */
+const UNDO_DEPTH = 200;
+/** How long this tab remembers cells it saved, to say when someone replaces them. */
+const RACE_WINDOW_MS = 3000;
+/** A save touching more cells than this (a paste) is not followed cell by cell. */
+const RACE_NOTICE_CELLS = 100;
 
 const SHORTCUTS: [string, string][] = [
 	["Arrows", "Move; hold Shift to select a range"],
@@ -245,7 +257,7 @@ export async function mountSheetClient(
 	root.innerHTML = `<h1 class="sr">Sheet</h1>
 <div class="bar"><div class="toolbar" role="toolbar" aria-label="Sheet tools"><span class="group" data-priority="1">${iconButton('id="undo"', "Undo (Ctrl/⌘ Z)", "undo")}${iconButton('id="redo"', "Redo (Ctrl/⌘ Shift Z)", "redo")}</span><span class="group" data-priority="1">${formatButtons}</span><span class="group" data-priority="3"><input id="font-size" title="Font size" aria-label="Font size" type="number" min="6" max="96" value="13">${colorButton("text-color", "Text color", "textColor", "#202020")}${colorButton("fill-color", "Fill color", "fillColor", "#ffffff")}</span><span class="group" data-priority="4"><span class="hidden-field" inert><select id="align" aria-label="Alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></span>${iconButton('data-align="left"', "Align left", "alignLeft")}${iconButton('data-align="center"', "Align center", "alignCenter")}${iconButton('data-align="right"', "Align right", "alignRight")}${iconButton('data-format="wrap"', "Wrap text", "wrap")}</span><span class="group" data-priority="2"><select id="number-format" title="Number format" aria-label="Number format"><option value="automatic">Automatic</option><option value="number">Number</option><option value="integer">Integer</option><option value="currency">Currency</option><option value="percent">Percent</option><option value="scientific">Scientific</option><option value="date">Date</option><option value="time">Time</option><option value="datetime">Date & time</option><option value="text">Text</option></select><span class="hidden-field" inert><input id="decimals" aria-label="Decimal places" type="number" min="0" max="15" value="2"></span><button type="button" id="dec-less" class="icon text" title="Fewer decimals" aria-label="Fewer decimals">.0</button><button type="button" id="dec-more" class="icon text" title="More decimals" aria-label="More decimals">.00</button></span><span class="group" data-priority="5">${sheetButton('id="sum"', "Sum the selection", "sum")}${iconButton('id="fill-down"', "Fill down (Ctrl/⌘ D)", "fillDown")}${iconButton('id="fill-right"', "Fill right (Ctrl/⌘ R)", "fillRight")}${iconButton('id="sort-asc"', "Sort A to Z", "sortUp")}${iconButton('id="sort-desc"', "Sort Z to A", "sortDown")}</span><span class="group" data-priority="6">${iconButton('id="add-row"', "Add row", "addRow")}${iconButton('id="add-column"', "Add column", "addColumn")}${iconButton('id="clear-format"', "Clear formatting", "eraser")}${iconButton('id="clear"', "Clear cells", "clear")}</span><span class="group" data-priority="1">${sheetButton('id="more" aria-haspopup="menu"', "More actions", "more")}</span></div><div class="bar-end"><div class="status" role="status" aria-live="polite" data-state="idle"><i class="dot" aria-hidden="true"></i><span></span></div>${sheetButton('id="help" aria-haspopup="dialog"', "Keyboard shortcuts", "help")}${iconButton('id="download" aria-haspopup="menu"', "Download", "download")}</div></div>
 <div class="formula"><input id="range" aria-label="Cell or range" value="A1"><label for="formula">fx</label><input id="formula" aria-label="Formula bar" autocomplete="off" spellcheck="false"></div>
-<div class="stage"><div class="grid" tabindex="0" aria-label="Spreadsheet keyboard navigation"><table role="grid" aria-label="Sheet cells" aria-multiselectable="true"><colgroup></colgroup><thead></thead><tbody></tbody></table></div><div class="overlay"><div class="find" role="search" hidden><input id="find-value" type="search" placeholder="Find in this sheet" aria-label="Find in sheet" autocomplete="off"><span id="find-count" role="status" aria-live="polite"></span><button type="button" id="find-previous" aria-label="Previous match">↑</button><button type="button" id="find-next" aria-label="Next match">↓</button><button type="button" id="find-close" aria-label="Close find">✕</button></div><div id="updates" role="status" aria-live="polite"></div><div class="command" hidden><label id="command-label" for="command-value"></label><input id="command-value"><button type="button" id="command-apply" class="primary">Apply</button><button type="button" id="command-cancel">Cancel</button></div></div></div>
+<div class="stage"><div class="grid" tabindex="0" aria-label="Spreadsheet keyboard navigation"><table role="grid" aria-label="Sheet cells" aria-multiselectable="true"><colgroup></colgroup><thead></thead><tbody></tbody></table></div><div class="overlay"><div class="find" role="search" hidden><input id="find-value" type="search" placeholder="Find in sheet" aria-label="Find in sheet" autocomplete="off"><span id="find-count" role="status" aria-live="polite"></span><button type="button" id="find-previous" aria-label="Previous match" title="Previous match (⇧↵)">↑</button><button type="button" id="find-next" aria-label="Next match" title="Next match (↵)">↓</button><button type="button" id="find-options" aria-label="Search options" title="Search options" aria-haspopup="menu">…</button><button type="button" id="find-close" aria-label="Close" title="Close (Esc)">✕</button></div><div id="updates" role="status" aria-live="polite"></div><div class="command" hidden><label id="command-label" for="command-value"></label><input id="command-value"><button type="button" id="command-apply" class="primary">Apply</button><button type="button" id="command-cancel">Cancel</button></div></div></div>
 <div class="strip">${iconButton('id="add-sheet"', "Add sheet", "plus")}<div id="tab-buttons" role="tablist" aria-label="Sheets"></div><span class="hidden-field"><label>Sheet <select id="tabs" aria-label="Active sheet"></select></label></span><div class="stats"></div></div>`;
 	const q = <T extends HTMLElement = HTMLElement>(selector: string) =>
 		root.querySelector<T>(selector)!;
@@ -312,15 +324,24 @@ export async function mountSheetClient(
 	 * arrived when it was taken, so stepping back replays those changes on top
 	 * and never reverts someone else's work.
 	 */
-	type Step = { content: Content; seen: number };
+	/**
+	 * An undo or redo step: the cells an edit changed, as they were, so
+	 * stepping back writes exactly those cells and nothing someone else did.
+	 * An edit that changed the sheet's shape keeps the whole earlier copy.
+	 */
+	type CellRecord = {
+		sheet: string;
+		row: number;
+		column: number;
+		cell: OsWorkbookSheet["rows"][number][number] | undefined;
+	};
+	type Step = { content?: Content; seen: number; cells?: CellRecord[] };
 	const undo: Step[] = [],
 		redo: Step[] = [];
 	// Others' changes since the oldest step, in order: the sheet before and after.
 	let arrived: Array<{ before: Content; after: Content }> = [],
 		arrivedFrom = 0;
-	// After a clash on the same cells: the sheet as kept, and with their cells.
-	let clash: { kept: Content; theirs: Content } | undefined,
-		clashTimer: ReturnType<typeof setTimeout> | undefined;
+
 	let retainedConflict: RetainedDraft | undefined,
 		// Looking at changes from an earlier visit that were never saved.
 		reviewing = false;
@@ -635,7 +656,6 @@ export async function mountSheetClient(
 		saveError = "";
 		undo.length = redo.length = 0;
 		arrived = [];
-		clash = undefined;
 		resetGrid();
 		tabs.replaceChildren();
 		tabButtons.replaceChildren();
@@ -674,10 +694,14 @@ export async function mountSheetClient(
 		if (!editable()) return;
 		commitCell();
 		commitFormula();
-		undo.push(step());
-		if (undo.length > OS_EDITOR_UNDO_STEPS) undo.shift();
-		redo.length = 0;
+		const before = step();
 		change();
+		before.cells = changedCells(before.content!, draft!);
+		// A cell step needs only its cells, not the whole earlier copy.
+		if (before.cells) delete before.content;
+		undo.push(before);
+		if (undo.length > UNDO_DEPTH) undo.shift();
+		redo.length = 0;
 		mark();
 		syncGrid();
 		scheduleCalculation();
@@ -810,6 +834,7 @@ export async function mountSheetClient(
 	};
 	// Tabs someone else changed while this person was on another one.
 	const touched = new Set<string>();
+	let touchTimer: ReturnType<typeof setTimeout> | undefined;
 	const fillGrip = document.createElement("span");
 	fillGrip.className = "fill-grip";
 	fillGrip.setAttribute("aria-hidden", "true");
@@ -875,31 +900,65 @@ export async function mountSheetClient(
 			? { ...start, rowEnd: Math.max(start.rowEnd, to.row) }
 			: { ...start, columnEnd: Math.max(start.columnEnd, to.column) };
 	}
-	/** Size a column to its widest value, as drawn. */
+	/**
+	 * Fit columns to what their cells show, each in its own font: the column
+	 * double-clicked, or every selected whole column when it is one of them.
+	 * The heading does not count; a filter heading leaves room for its button.
+	 */
 	function fitColumn(col: number) {
 		if (!editable() || !draft) return;
-		const s = sheet();
+		const s = sheet(),
+			b = bounds(),
+			whole = b.rowStart === 0 && b.rowEnd >= dimensions().rows - 1;
+		const columns =
+			whole && col >= b.columnStart && col <= b.columnEnd
+				? Array.from(
+						{ length: b.columnEnd - b.columnStart + 1 },
+						(_, i) => b.columnStart + i,
+					)
+				: [col];
 		let probe: CanvasRenderingContext2D | null = null;
 		try {
 			probe = document.createElement("canvas").getContext("2d");
 		} catch {
 			// No canvas: estimate from the number of characters.
 		}
-		if (probe) probe.font = getComputedStyle(grid).font || "13px sans-serif";
-		const measure = (text: string) =>
-			probe ? probe.measureText(text).width : text.length * 7;
-		let widest = measure(s.columns[col]?.label ?? columnLabel(col));
-		for (const row of s.rows) {
-			const cell = row?.[col];
-			if (!cell) continue;
-			const text = String(cell.value ?? cell.input ?? "");
-			widest = Math.max(widest, measure(text) * (cell.format?.bold ? 1.08 : 1));
-		}
-		const size = Math.round(Math.max(48, Math.min(600, widest + 18)));
-		if (size === columnWidth(s, col)) return;
+		const family = getComputedStyle(grid).fontFamily || "sans-serif";
+		const measure = (text: string, font: string, size: number) => {
+			if (!probe) return text.length * size * 0.55;
+			probe.font = `${font} ${size}px ${family}`;
+			return probe.measureText(text).width;
+		};
+		const sizes = columns.map((column) => {
+			let widest = 0;
+			for (const [row, line] of s.rows.entries()) {
+				const cell = line?.[column];
+				if (!cell) continue;
+				const shown = formatWorkbookNumber(cell, draft!.workbook);
+				if (!shown) continue;
+				const f = cell.format;
+				const weight = f?.bold ? 700 : isErrorValue(cell.value) ? 550 : 400;
+				const font = `${f?.italic ? "italic " : ""}${weight}`;
+				const lines = f?.wrap ? shown.split("\n") : [shown];
+				for (const text of lines)
+					widest = Math.max(widest, measure(text, font, f?.fontSize ?? 13));
+			}
+			if (!widest) return { column, width: COLUMN };
+			const room = s.filter && s.filter.headerRow < s.rows.length ? 22 : 0;
+			const width = Math.ceil(
+				Math.max(FIT_MIN, Math.min(FIT_MAX, widest + 10 + 8 + room)),
+			);
+			return { column, width };
+		});
+		if (sizes.every(({ column, width }) => width === columnWidth(s, column)))
+			return;
 		workbook((w) => {
-			ensure(0, col);
-			return resizeColumn(w, sheet().id, col, size);
+			ensure(0, Math.max(...columns));
+			return sizes.reduce(
+				(next, { column, width }) =>
+					resizeColumn(next, sheet().id, column, width),
+				w,
+			);
 		});
 	}
 	const cellAt = (row: number, column: number) => {
@@ -1068,12 +1127,11 @@ export async function mountSheetClient(
 				th.style.left = columnLeft(s, col) + "px";
 				th.style.zIndex = "7";
 			}
-			th.title = "Select column; double-click to rename";
+			th.title = "Select column";
 			th.onclick = (event) => {
 				selectColumn(col, event.shiftKey);
 				grid.focus();
 			};
-			th.ondblclick = () => renameColumn(col);
 			const handle = document.createElement("span");
 			handle.className = "resize";
 			handle.setAttribute("aria-label", "Resize column " + letter);
@@ -1089,7 +1147,7 @@ export async function mountSheetClient(
 				const x = event.clientX,
 					width = columnWidth(s, col),
 					size = (to: PointerEvent) =>
-						Math.round(Math.max(48, Math.min(600, width + to.clientX - x)));
+						Math.round(Math.max(36, Math.min(640, width + to.clientX - x)));
 				handle.setPointerCapture?.(event.pointerId);
 				handle.classList.add("on");
 				// The column follows the pointer; the sheet changes once, on release.
@@ -1195,6 +1253,8 @@ export async function mountSheetClient(
 			}
 			td.classList.toggle("wrap", !!f?.wrap);
 			td.classList.toggle("error", isErrorValue(cell?.value));
+			td.classList.toggle("find-hit", findHits.has(row + ":" + col));
+			td.classList.toggle("find-current", findCurrent === row + ":" + col);
 			if (here || td.classList.contains("landed"))
 				td.classList.toggle("landed", !!here?.has(row + ":" + col));
 			// The filter header carries a button per column for its filter menu.
@@ -1375,9 +1435,6 @@ export async function mountSheetClient(
 		)) {
 			const changed = touched.has(button.dataset.sheet!);
 			button.toggleAttribute("data-touched", changed);
-			button.title = changed
-				? `${button.textContent} (changed by someone else)`
-				: (button.textContent ?? "");
 		}
 	}
 	function renderTabs() {
@@ -1896,7 +1953,7 @@ export async function mountSheetClient(
 	}
 	/** A step's sheet with every change from others since it was taken. */
 	function replay(entry: Step): Content {
-		let content = entry.content;
+		let content = entry.content!;
 		for (const change of arrived.slice(Math.max(0, entry.seen - arrivedFrom))) {
 			const result = mergeOutputContent(change.before, content, change.after, {
 				prefer: "theirs",
@@ -1905,13 +1962,87 @@ export async function mountSheetClient(
 		}
 		return content;
 	}
+	/**
+	 * The cells that differ between two copies of the workbook when only cell
+	 * contents changed; undefined when the shape did (tabs, sizes, rows added).
+	 */
+	function changedCells(
+		before: Content,
+		after: Content,
+	): CellRecord[] | undefined {
+		const a = before.workbook!.sheets,
+			b = after.workbook!.sheets;
+		if (a.length !== b.length) return undefined;
+		const records: CellRecord[] = [];
+		for (let index = 0; index < b.length; index++) {
+			const old = a[index]!,
+				now = b[index]!;
+			const { rows: oldRows, ...oldShape } = old,
+				{ rows: newRows, ...newShape } = now;
+			if (JSON.stringify(oldShape) !== JSON.stringify(newShape))
+				return undefined;
+			const height = Math.max(oldRows.length, newRows.length);
+			for (let row = 0; row < height; row++) {
+				const was = oldRows[row],
+					is = newRows[row];
+				if (
+					was === is ||
+					JSON.stringify(was ?? null) === JSON.stringify(is ?? null)
+				)
+					continue;
+				const width = Math.max(was?.length ?? 0, is?.length ?? 0);
+				for (let column = 0; column < width; column++)
+					if (
+						JSON.stringify(was?.[column] ?? null) !==
+						JSON.stringify(is?.[column] ?? null)
+					)
+						records.push({
+							sheet: now.id,
+							row,
+							column,
+							cell: structuredClone(was?.[column] ?? undefined),
+						});
+			}
+		}
+		return records;
+	}
+	/** Write recorded cells back, returning what they held, for the opposite step. */
+	function writeCells(records: CellRecord[]): CellRecord[] {
+		return records.map(({ sheet: id, row, column, cell }) => {
+			const target = draft!.workbook!.sheets.find((item) => item.id === id);
+			const current = target?.rows[row]?.[column];
+			if (target) {
+				while (target.rows.length <= row) target.rows.push([]);
+				const line = target.rows[row]!;
+				while (line.length <= column) line.push(null);
+				line[column] = cell ? structuredClone(cell) : null;
+			}
+			return {
+				sheet: id,
+				row,
+				column,
+				cell: structuredClone(current ?? undefined),
+			};
+		});
+	}
 	function history(from: Step[], to: Step[]) {
 		if (!editable()) return;
 		commitCell();
 		commitFormula();
 		if (!from.length) return;
-		to.push(step());
-		draft = replay(from.pop()!);
+		const entry = from.pop()!;
+		if (entry.cells) {
+			// Only the recorded cells change, even if someone edited them since;
+			// the tab in view stays.
+			const opposite = writeCells(entry.cells);
+			to.push({ seen: arrivedFrom + arrived.length, cells: opposite });
+		} else {
+			to.push(step());
+			const active = draft!.workbook!.activeSheetId;
+			draft = replay(entry);
+			if (draft.workbook!.sheets.some((item) => item.id === active))
+				draft.workbook!.activeSheetId = active;
+		}
 		mark();
 		syncGrid();
 		scheduleCalculation();
@@ -2180,7 +2311,7 @@ export async function mountSheetClient(
 				command(
 					action === "row-height"
 						? "Row height (20–600)"
-						: "Column width (48–600)",
+						: "Column width (36–640)",
 					String(
 						action === "row-height"
 							? rowHeight(s, b.rowStart)
@@ -2709,39 +2840,127 @@ export async function mountSheetClient(
 		ArrowLeft: { row: 0, column: -1 },
 		ArrowRight: { row: 0, column: 1 },
 	};
-	// ---- Find: searches the sheet's data, not just the rows drawn ----
+	// ---- Find: searches what cells show and hold, on this sheet or all ----
 	const findBar = q(".find"),
 		findInput = q<HTMLInputElement>("#find-value"),
-		findCount = q("#find-count");
+		findCount = q("#find-count"),
+		findOptions = q<HTMLButtonElement>("#find-options");
+	const findState = {
+		matchCase: false,
+		wholeCell: false,
+		formulas: false,
+		allSheets: false,
+	};
 	let matches: Array<{ sheet: string; row: number; column: number }> = [],
-		matchAt = -1;
+		matchAt = -1,
+		filteredMatches = 0;
+	// Cells on the sheet in view that match, and the current one, for their tint.
+	let findHits = new Set<string>(),
+		findCurrent = "";
+	function findTest() {
+		const query = findState.matchCase
+			? findInput.value
+			: findInput.value.toLocaleLowerCase();
+		return (text: string) => {
+			const value = findState.matchCase ? text : text.toLocaleLowerCase();
+			return findState.wholeCell ? value === query : value.includes(query);
+		};
+	}
+	/** Every match in reading order: sheet order, then rows, then columns. */
 	function search() {
-		const query = findInput.value.trim().toLowerCase();
+		const query = findInput.value;
 		matches = [];
+		filteredMatches = 0;
 		if (query && draft?.workbook) {
-			// The tab in view first, then the others in order.
-			const sheets = [...draft.workbook.sheets].sort(
-				(a, b) => Number(b.id === sheet().id) - Number(a.id === sheet().id),
-			);
-			for (const item of sheets)
-				item.rows.forEach((row, rowIndex) =>
-					row?.forEach((cell, column) => {
-						const text = `${cell?.value ?? ""}\u0000${cell?.input ?? ""}`;
-						if (cell && text.toLowerCase().includes(query))
-							matches.push({ sheet: item.id, row: rowIndex, column });
+			const test = findTest();
+			const sheets = findState.allSheets
+				? draft.workbook.sheets
+				: draft.workbook.sheets.filter((item) => item.id === sheet().id);
+			for (const item of sheets) {
+				const hidden = item.id === sheet().id ? hiddenRows : filteredRows(item);
+				item.rows.forEach((line, row) =>
+					line?.forEach((cell, column) => {
+						if (!cell) return;
+						const input = cell.input ?? "";
+						const shown = formatWorkbookNumber(cell, draft!.workbook);
+						const formula = input.startsWith("=");
+						const hit =
+							test(shown) ||
+							(!formula && test(input)) ||
+							(formula && findState.formulas && test(input));
+						if (!hit) return;
+						if (hidden.has(row)) filteredMatches++;
+						else matches.push({ sheet: item.id, row, column });
 					}),
 				);
+			}
 		}
+		// Typing goes to the first match at or after the active cell.
+		const here = selection.focus;
+		const next = matches.findIndex(
+			(match) =>
+				(match.sheet === sheet().id &&
+					(match.row > here.row ||
+						(match.row === here.row && match.column >= here.column))) ||
+				(findState.allSheets &&
+					draft!.workbook!.sheets.findIndex((item) => item.id === match.sheet) >
+						draft!.workbook!.sheets.findIndex(
+							(item) => item.id === sheet().id,
+						)),
+		);
 		matchAt = -1;
-		findCount.textContent = query
-			? matches.length
-				? `${matches.length} found`
-				: "No matches"
-			: "";
+		if (matches.length) showMatch(0, next < 0 ? 0 : next);
+		else countFind();
+		paintFind();
 	}
-	function showMatch(by: 1 | -1) {
-		if (!matches.length) return;
-		matchAt = (matchAt + by + matches.length) % matches.length;
+	function countFind() {
+		const query = findInput.value;
+		findCount.removeAttribute("data-bad");
+		findCount.title =
+			filteredMatches === 0
+				? ""
+				: matches.length
+					? `${filteredMatches} more in rows a filter hides`
+					: `${filteredMatches} ${filteredMatches === 1 ? "match is" : "matches are"} in rows a filter hides`;
+		if (!query) findCount.textContent = "";
+		else if (!matches.length) {
+			findCount.textContent = filteredMatches ? "Filtered out" : "No results";
+			findCount.setAttribute("data-bad", "");
+		} else
+			findCount.textContent =
+				matchAt >= 0
+					? `${matchAt + 1} of ${matches.length}`
+					: `${matches.length} found`;
+	}
+	/** Tint the matches on the sheet in view; the current one more strongly. */
+	function paintFind() {
+		findHits = new Set(
+			findBar.hidden
+				? []
+				: matches
+						.filter((match) => match.sheet === sheet().id)
+						.map((match) => `${match.row}:${match.column}`),
+		);
+		const current = matches[matchAt];
+		findCurrent =
+			!findBar.hidden && current && current.sheet === sheet().id
+				? `${current.row}:${current.column}`
+				: "";
+		for (const [row, tr] of rowEls)
+			for (const [col, slot] of slots) {
+				const td = tr.children[slot];
+				if (!td) continue;
+				const key = `${row}:${col}`;
+				td.classList.toggle("find-hit", findHits.has(key));
+				td.classList.toggle("find-current", findCurrent === key);
+			}
+	}
+	function showMatch(by: number, at?: number) {
+		if (!matches.length) return countFind();
+		matchAt =
+			at ??
+			(Math.max(matchAt, by < 0 ? 0 : -1) + by + matches.length) %
+				matches.length;
 		const match = matches[matchAt]!;
 		if (match.sheet !== sheet().id) switchTab(match.sheet);
 		tabBounds = undefined;
@@ -2753,23 +2972,82 @@ export async function mountSheetClient(
 		if (match.row >= d.rows || match.column >= d.columns) syncGrid();
 		else selectionChanged();
 		reveal();
-		findCount.textContent = `${matchAt + 1} of ${matches.length}`;
+		countFind();
+		paintFind();
 	}
 	function openFind() {
 		findBar.hidden = false;
 		findInput.select();
 		findInput.focus();
-		search();
+		if (findInput.value) search();
 	}
 	function closeFind() {
 		findBar.hidden = true;
 		matches = [];
+		paintFind();
 		grid.focus();
 	}
+	function syncFindOptions() {
+		findOptions.toggleAttribute(
+			"data-on",
+			findState.matchCase ||
+				findState.wholeCell ||
+				findState.formulas ||
+				findState.allSheets,
+		);
+		findInput.placeholder = findState.allSheets
+			? "Find in all sheets"
+			: "Find in sheet";
+	}
+	findOptions.onclick = () =>
+		popover(findOptions, "Search options", "menu", (panel, close) => {
+			const option = (label: string, on: boolean, run: () => void) => {
+				const button = document.createElement("button");
+				button.type = "button";
+				button.setAttribute("role", "menuitemcheckbox");
+				button.setAttribute("aria-checked", String(on));
+				button.textContent = `${on ? "✓ " : ""}${label}`;
+				button.onclick = () => {
+					close();
+					run();
+					syncFindOptions();
+					search();
+					findInput.focus();
+				};
+				panel.append(button);
+			};
+			option(
+				"Match case",
+				findState.matchCase,
+				() => (findState.matchCase = !findState.matchCase),
+			);
+			option(
+				"Match entire cell",
+				findState.wholeCell,
+				() => (findState.wholeCell = !findState.wholeCell),
+			);
+			option(
+				"Also search formulas",
+				findState.formulas,
+				() => (findState.formulas = !findState.formulas),
+			);
+			panel.append(document.createElement("hr"));
+			option(
+				"This sheet",
+				!findState.allSheets,
+				() => (findState.allSheets = false),
+			);
+			option(
+				"All sheets",
+				findState.allSheets,
+				() => (findState.allSheets = true),
+			);
+		});
 	findInput.oninput = search;
 	findInput.onkeydown = (event) => {
 		event.stopPropagation();
-		if (event.key === "Enter") {
+		const mod = event.ctrlKey || event.metaKey;
+		if (event.key === "Enter" || (mod && event.key.toLowerCase() === "g")) {
 			event.preventDefault();
 			showMatch(event.shiftKey ? -1 : 1);
 		} else if (event.key === "Escape") {
@@ -2787,6 +3065,11 @@ export async function mountSheetClient(
 		if (mod && key === "f") {
 			event.preventDefault();
 			openFind();
+			return;
+		}
+		if (mod && key === "g" && !findBar.hidden) {
+			event.preventDefault();
+			showMatch(event.shiftKey ? -1 : 1);
 			return;
 		}
 		if (mod && ["s", "z", "y", "a", "b", "i", "u", "d", "r"].includes(key)) {
@@ -3062,7 +3345,7 @@ export async function mountSheetClient(
 	 * Light up the cells that differ from `before` on screen. Someone who is
 	 * only watching is taken to the first of them, on its tab.
 	 */
-	function light(before: Content) {
+	function light(before: Content, agent = false) {
 		const old = new Map(
 			before.workbook?.sheets.map((item) => [item.id, item.rows]),
 		);
@@ -3093,9 +3376,16 @@ export async function mountSheetClient(
 		}
 		if (!first) return;
 		lit = found;
-		// Tabs changed out of view keep a mark until the person opens them.
-		for (const id of found.keys()) if (id !== sheet().id) touched.add(id);
-		markTabs();
+		// An agent's change to a tab out of view marks it for a moment.
+		if (agent) {
+			for (const id of found.keys()) if (id !== sheet().id) touched.add(id);
+			markTabs();
+			clearTimeout(touchTimer);
+			touchTimer = setTimeout(() => {
+				touched.clear();
+				if (!destroyed && draft) markTabs();
+			}, TOUCH_MS);
+		}
 		clearTimeout(litTimer);
 		litTimer = setTimeout(() => {
 			lit = new Map();
@@ -3114,7 +3404,7 @@ export async function mountSheetClient(
 	/** Someone else's save replaced `before` on screen: show it, and offer undo for an agent's. */
 	function land(before: Content, agent: boolean) {
 		landed.add(before, structuredClone(draft!), agent);
-		light(before);
+		light(before, agent);
 		offering = agent && canEdit;
 		clearTimeout(offerTimer);
 		if (offering)
@@ -3169,12 +3459,7 @@ export async function mountSheetClient(
 			);
 			return;
 		}
-		if (clash)
-			banner(
-				"Someone else changed the same cells. Your version was kept and saved.",
-				[["Use theirs", "theirs", () => void useTheirs()]],
-			);
-		else if (offering && landed.undoable)
+		if (offering && landed.undoable)
 			banner("An agent changed this sheet.", [
 				["Undo agent change", "undo", undoLanded],
 			]);
@@ -3194,34 +3479,61 @@ export async function mountSheetClient(
 			if (current > choice) void mergeLatest();
 		} else void refresh();
 	}
-	/** Offer the other person's cells for a while after a clash kept the person's. */
-	function offerTheirs(offered: NonNullable<typeof clash>) {
-		clash = offered;
-		clearTimeout(clashTimer);
-		clashTimer = setTimeout(() => {
-			clash = undefined;
-			external();
-		}, LANDED_UNDO_MS);
-	}
 	/**
-	 * Put their cells back where the clash was, keeping everything the person
-	 * changed since: their version is merged into the current sheet.
+	 * Cells this tab saved a moment ago, so a later save by someone else that
+	 * replaces them is said out loud instead of changing them unseen.
 	 */
-	async function useTheirs() {
-		const offered = clash;
-		clash = undefined;
-		clearTimeout(clashTimer);
-		if (!offered || !draft || !editable()) return external();
-		const result = mergeOutputContent(offered.kept, draft, offered.theirs, {
-			prefer: "theirs",
-		});
-		if (!result.ok) return external();
-		const next = await evaluate(result.content as Content);
-		if (destroyed) return;
-		edit(() => {
-			draft = next;
-		});
-		external();
+	const recentSaves = new Map<string, { input: string; at: number }>();
+	function rememberSaved(before: Content | undefined, after: Content) {
+		const now = Date.now();
+		for (const [key, entry] of recentSaves)
+			if (now - entry.at > RACE_WINDOW_MS) recentSaves.delete(key);
+		const changed: Array<[string, string]> = [];
+		for (const item of after.workbook?.sheets ?? []) {
+			const old = before?.workbook?.sheets.find((row) => row.id === item.id);
+			item.rows.forEach((line, row) =>
+				line.forEach((cell, column) => {
+					const input = cell?.input ?? "";
+					if ((old?.rows[row]?.[column]?.input ?? "") !== input)
+						changed.push([`${item.id}!${row}:${column}`, input]);
+				}),
+			);
+			if (changed.length > RACE_NOTICE_CELLS) return;
+		}
+		for (const [key, input] of changed)
+			recentSaves.set(key, { input, at: now });
+	}
+	/** Say so when someone else's save just replaced cells this tab saved. */
+	function noticeReplaced(incoming: Content, agent: boolean) {
+		if (agent || !recentSaves.size) return;
+		const now = Date.now();
+		const replaced: Array<{
+			sheet: OsWorkbookSheet;
+			row: number;
+			column: number;
+		}> = [];
+		for (const item of incoming.workbook?.sheets ?? [])
+			item.rows.forEach((line, row) =>
+				line.forEach((cell, column) => {
+					const key = `${item.id}!${row}:${column}`,
+						saved = recentSaves.get(key);
+					if (!saved || now - saved.at > RACE_WINDOW_MS) return;
+					recentSaves.delete(key);
+					if ((cell?.input ?? "") !== saved.input)
+						replaced.push({ sheet: item, row, column });
+				}),
+			);
+		if (!replaced.length) return;
+		const first = replaced[0]!,
+			ref = cellLabel({ row: first.row, column: first.column }),
+			name = first.sheet.id === sheet().id ? ref : `${first.sheet.name}!${ref}`;
+		note(
+			replaced.length === 1
+				? `${name} was also edited elsewhere just now, and that edit replaced yours`
+				: `${replaced.length} cells you just edited were also edited elsewhere, and those edits replaced yours`,
+			true,
+			2200,
+		);
 	}
 	/** Show someone else's save in place when nothing here is unsaved. */
 	async function refresh() {
@@ -3249,6 +3561,7 @@ export async function mountSheetClient(
 			basis = latest.revision.revision;
 			adopt(content);
 			arrive(before!, draft!);
+			noticeReplaced(content, savedByAgent(latest.revision));
 			q("h1").textContent = latest.output.title;
 			land(before, savedByAgent(latest.revision));
 			syncGrid();
@@ -3307,26 +3620,14 @@ export async function mountSheetClient(
 				return true;
 			};
 			if (stale()) return;
-			let result = mergeOutputContent(base, draft, theirs, { prefer });
-			let clashed: typeof clash;
+			// Where both changed one cell, this unsaved edit is the later one and
+			// wins, without a question.
+			const result = mergeOutputContent(base, draft, theirs, {
+				prefer: prefer ?? "mine",
+			});
 			if (!result.ok) {
-				// Both changed the same cells: the person's stay and keep saving,
-				// and their cells can be brought back from the note.
-				const kept = mergeOutputContent(base, draft, theirs, {
-						prefer: "mine",
-					}),
-					other = mergeOutputContent(base, draft, theirs, {
-						prefer: "theirs",
-					});
-				if (!kept.ok || !other.ok) {
-					choice = latest.revision.revision;
-					return;
-				}
-				clashed = {
-					kept: kept.content as Content,
-					theirs: other.content as Content,
-				};
-				result = kept;
+				choice = latest.revision.revision;
+				return;
 			}
 			const merged = await evaluate(result.content as Content);
 			if (destroyed || stale()) return;
@@ -3337,7 +3638,7 @@ export async function mountSheetClient(
 			adopt(merged);
 			generation++;
 			arrive(before!, draft!);
-			if (clashed) offerTheirs(clashed);
+			noticeReplaced(theirs, savedByAgent(latest.revision));
 			land(before, savedByAgent(latest.revision));
 			syncGrid();
 			showLanded();
@@ -3457,7 +3758,6 @@ export async function mountSheetClient(
 			saveDeadline = retryDelay = retryAt = 0;
 			undo.length = redo.length = 0;
 			arrived = [];
-			clash = undefined;
 			q("h1").textContent = result.output.title;
 			busy = false;
 			controls();
@@ -3573,7 +3873,9 @@ export async function mountSheetClient(
 		const version = generation;
 		try {
 			const content = await evaluate(structuredClone(draft!));
+			const sentFrom = loaded?.revision.content;
 			const result = parse(await sync.save(content, basis, readSheet, flash));
+			rememberSaved(sentFrom, content);
 			if (destroyed) {
 				// The editor closed mid-save: leave the next visit a clean start, or
 				// exactly what was still unsaved, on top of what was just saved.

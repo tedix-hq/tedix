@@ -148,7 +148,7 @@ describe("workbook structure", () => {
 		);
 		expect(
 			resizeColumn(book(), "data", 0, 1).sheets[0]!.columns[0]!.width,
-		).toBe(48);
+		).toBe(36);
 	});
 	it.each(["ascending", "descending"] as const)(
 		"sorts just the selection %s, preserving header and keeping empty rows last",
