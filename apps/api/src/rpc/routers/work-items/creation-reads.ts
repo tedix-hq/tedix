@@ -61,6 +61,7 @@ import { initialLaneDispatch } from "../../../services/lane-dispatch-plan";
 import { requireOrgId } from "../../org-scope";
 import { ErrorCodes, createError } from "../../orpc";
 import {
+	assertOwnerSetLaneExecution,
 	assertWorkItemAccess,
 	authOs,
 	ownerHeldRiskLevel,
@@ -96,6 +97,7 @@ export const createProcedure = authOs.create.handler(
 				await import("../../../services/factory-card-envelope");
 			input = await prepareFactoryCard(context, orgId, input);
 		}
+		await assertOwnerSetLaneExecution(context, orgId, input.metadata);
 		let attemptedCreate = false;
 		try {
 			const project = input.projectId

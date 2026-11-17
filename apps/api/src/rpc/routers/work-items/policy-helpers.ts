@@ -3,6 +3,7 @@ import { implement } from "@orpc/server";
 import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
 import { ExternalAgentWorkManagementGrantSchema } from "@tedix/api-contract/schemas/external-agent-identity";
 import { getExternalAgentPrincipal } from "@tedix/db/queries/external-agent-identity/principals";
+import { LaneExecutionPolicySchema } from "@tedix/api-contract/schemas/lane-execution";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
 import type { WorkItem } from "@tedix/db/schema/work-items";
 import {
@@ -63,6 +64,38 @@ export async function requireOwnerAdminWorkItemAuthor(
 		);
 	}
 	return membership.userId;
+}
+
+/**
+ * `metadata.laneExecution` sets a Work Item's attempt, delegation and budget
+ * limits, which admission trusts. Only a directly signed-in owner or admin may
+ * supply it, and only as a valid policy; an agent acting through an owner's
+ * session is refused too.
+ */
+export async function assertOwnerSetLaneExecution(
+	context: BaseContext,
+	orgId: string,
+	metadata: Record<string, unknown> | null | undefined,
+): Promise<void> {
+	if (metadata?.laneExecution === undefined) return;
+	const action = "Setting a Work Item's lane execution policy";
+	if (
+		context.authType !== "user" ||
+		context.tediId ||
+		context.externalAgentPrincipalId ||
+		context.externalAgentSessionId ||
+		context.ownerHostSessionId
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			`${action} requires a signed-in organization owner or admin, not an agent session`,
+		);
+	await requireOwnerAdminWorkItemAuthor(context, orgId, action);
+	if (!LaneExecutionPolicySchema.safeParse(metadata.laneExecution).success)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"metadata.laneExecution is not a valid lane execution policy",
+		);
 }
 
 /** Human-reserved classes whose Work only the owner may complete. */
