@@ -1944,6 +1944,11 @@ export async function landedLaneCommits(
 			timeout: 10_000,
 		}).status === 0;
 	const landed: string[] = [];
+	const historical: Array<{
+		sha: string;
+		session: string;
+		committedAt: number;
+	}> = [];
 	for (const sha of candidates) {
 		if (!isAncestor(sha, "refs/remotes/origin/main")) continue;
 		if (!isAncestor(sha, base)) {
@@ -1968,9 +1973,20 @@ export async function landedLaneCommits(
 			continue;
 		const session = sessions[0]!.slice("Agent-Session:".length).trim();
 		const committedAt = Date.parse(committed!);
-		if (session && (await recovery.verifySession(session, sha, committedAt)))
-			landed.push(sha);
+		if (session) historical.push({ sha, session, committedAt });
 	}
+	if (!recovery) return landed;
+	// Finish reading the checkout before yielding to a remote custody check. A
+	// timed-out caller may remove the checkout while that check is in flight.
+	for (const candidate of historical)
+		if (
+			await recovery.verifySession(
+				candidate.session,
+				candidate.sha,
+				candidate.committedAt,
+			)
+		)
+			landed.push(candidate.sha);
 	return landed;
 }
 

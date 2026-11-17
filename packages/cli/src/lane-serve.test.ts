@@ -6411,21 +6411,63 @@ it("recovers cited same-Work history only with original session custody on origi
 			return value === session;
 		},
 	};
+	const fetched = { fetch: () => {}, sleep: async () => {} };
 	const message = [sameWork, unrelated, missing, duplicate, unlanded].join(" ");
-	expect(await landedLaneCommits(repo, base, message)).toEqual([]);
+	expect(await landedLaneCommits(repo, base, sameWork, fetched)).toEqual([]);
 	expect(
-		await landedLaneCommits(repo, base, message, undefined, recovery),
+		await landedLaneCommits(repo, base, message, fetched, recovery),
 	).toEqual([sameWork]);
 	expect(verified).toEqual([session]);
-	expect(await landedLaneCommits(repo, base, "", undefined, recovery)).toEqual(
+	git(["reset", "--hard", base]);
+	expect(await landedLaneCommits(repo, base, "", fetched, recovery)).toEqual(
 		[],
 	);
 	expect(
-		await landedLaneCommits(repo, base, sameWork, undefined, {
+		await landedLaneCommits(repo, base, sameWork, fetched, {
 			...recovery,
 			verifySession: async () => false,
 		}),
 	).toEqual([]);
+});
+
+it("finishes repository reads before awaiting recovered commit custody", async () => {
+	const { repo, git } = gitFixture(true);
+	const session = "codex:original-session";
+	const commits = [1, 2].map(() => {
+		git([
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"--allow-empty",
+			"-m",
+			`Fix\n\nWork-Item: ${item().id}\nAgent-Session: ${session}`,
+		]);
+		return git(["rev-parse", "HEAD"]);
+	});
+	git(["push", "origin", "main"]);
+	const base = git(["rev-parse", "HEAD"]);
+	let removed = false;
+	expect(
+		await landedLaneCommits(
+			repo,
+			base,
+			commits.join(" "),
+			{
+				fetch: () => {},
+				sleep: async () => {},
+			},
+			{
+				workItemId: item().id,
+				verifySession: async () => {
+					if (!removed) {
+						removed = true;
+						rmSync(repo, { recursive: true });
+					}
+					return true;
+				},
+			},
+		),
+	).toEqual(commits);
 });
 
 it("normalizes only volatile diagnostics while preserving error identity", () => {
