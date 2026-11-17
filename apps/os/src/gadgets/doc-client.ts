@@ -9,13 +9,21 @@ import {
 	currentDocumentStyle,
 	type Editor,
 } from "./doc-engine";
+import { TextSelection } from "@tiptap/pm/state";
 import {
-	deleteDocumentBlock,
-	documentBlockStart,
-	duplicateDocumentBlock,
-	focusDocumentBlock,
-	moveDocumentBlockTo,
-} from "@/lib/document-formatting";
+	blockSelection,
+	blockSelectionKey,
+	blockSelectionPlugin,
+	blocks,
+	clearBlockSelection,
+	deleteUnit,
+	duplicateUnit,
+	moveUnit,
+	setBlockSelection,
+	unitAt,
+	type Unit,
+} from "./doc-blocks";
+import { duplicateDocumentBlock } from "@/lib/document-formatting";
 import type {
 	OsOutputContent,
 	OsRichTextDocument,
@@ -87,7 +95,7 @@ const PALETTE: [name: string, text: string, highlight: string][] = [
 ];
 /** What ⌘⇧H highlights with. */
 const DEFAULT_HIGHLIGHT = "#fbefc4";
-const css = `:root{--ease:cubic-bezier(.2,.8,.2,1);--fg:var(--tedix-fg,CanvasText);--bg:var(--tedix-bg,Canvas);--pri:var(--tedix-primary,Highlight);--mut:var(--tedix-muted-fg,GrayText);--hov:color-mix(in srgb,var(--fg) 5.5%,var(--bg));--act:color-mix(in srgb,var(--fg) 8.5%,var(--bg));--line:color-mix(in srgb,var(--fg) 8%,transparent);--edge:color-mix(in srgb,var(--fg) 15%,transparent);--card:var(--tedix-surface,var(--bg));font:14px var(--tedix-font,system-ui,sans-serif);color:var(--fg);scrollbar-width:thin;scrollbar-color:var(--edge) transparent}*{box-sizing:border-box}body{margin:0;padding:0!important;background:var(--bg)}button,input,select{font:inherit;color:inherit}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--pri);outline-offset:1px}.doc-toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:6px 26px 6px 10px;background:var(--bg);border-bottom:1px solid transparent;transition:border-color .12s}.doc-toolbar[data-scrolled]{border-color:var(--line)}.doc-toolbar>*{flex:none}.doc-table{display:contents}.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-status button{height:29px;min-width:29px;display:inline-grid;place-items:center;padding:0 6px;border:0;border-radius:6px;background:none;cursor:pointer;transition:background .12s var(--ease),transform .12s var(--ease)}:is(button,select):hover:not(:disabled){background:var(--hov)}button:active:not(:disabled){background:var(--act);transform:scale(.94)}:is(button,select):disabled{opacity:.38;cursor:default}button[aria-pressed=true]{background:var(--act);color:var(--pri)}.doc-sep{flex:none;width:1px;height:16px;margin:0 5px;background:var(--edge)}.doc-readonly{padding:0 8px;font-size:12px;color:var(--mut)}.doc-toolbar .doc-more{margin-left:auto;position:sticky;right:0;background:var(--bg)}.doc-page{max-width:calc(700px + 2*clamp(20px,5.5vw,52px));margin:0 auto;padding:22px clamp(20px,5.5vw,52px) min(40vh,300px)}.doc-skel{animation:doc-fade .3s .25s both}.doc-skel i{display:block;height:12px;margin-bottom:15px;border-radius:6px;background:var(--act)}.doc-skel i:first-child{width:45%;height:26px;margin-bottom:24px}.doc-skel i:last-child{width:60%}@keyframes doc-fade{from{opacity:0}}@keyframes doc-in{from{opacity:0;transform:scale(.96)}}.doc-status,.doc-link,.doc-menu{position:fixed;background:var(--card);border:1px solid var(--edge);box-shadow:0 6px 22px #0002;animation:doc-in .16s var(--ease)}.doc-status{top:48px;right:12px;z-index:4;max-width:min(380px,calc(100% - 24px));display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 11px;border-radius:14px;font-size:12px;line-height:1.45;color:var(--mut)}.doc-status:empty{display:none}.doc-save{position:fixed;top:18px;right:12px;z-index:4;width:7px;height:7px;border-radius:50%;background:var(--mut)}.doc-save[data-s="1"]{background:#1a7f37}.doc-save[data-s="2"]{background:#c0262d}.doc-status[data-error=true]{color:var(--tedix-danger,#c0262d)}.doc-status button{height:24px;color:var(--fg);background:var(--hov)}.doc-link,.doc-menu{z-index:5;padding:5px;border-radius:10px;transform-origin:0 0}.doc-link{display:flex;gap:4px}.doc-link input{width:min(250px,60vw);height:29px;padding:0 8px;border:0;border-radius:6px;background:var(--hov)}.doc-link button{height:29px;padding:0 10px;border:0;border-radius:6px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);cursor:pointer}.doc-menu{display:grid;min-width:180px}.doc-menu button{justify-content:start;padding:0 9px}.doc-menu div{display:flex;gap:2px}.doc-slash{width:272px;max-height:min(320px,60vh);overflow-y:auto}.doc-slash button{display:flex;gap:10px;align-items:center;height:auto!important;padding:5px 8px!important}.doc-tile{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:7px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line);color:color-mix(in srgb,var(--fg) 72%,transparent);font-size:12px;font-weight:600}.doc-mi{flex:1}.doc-md{font:11.5px var(--tedix-font-mono,ui-monospace,monospace);color:var(--mut)}.doc-mempty{padding:10px;color:var(--mut)}.doc-handle{position:absolute;z-index:2;width:22px;height:26px;padding:0;border:0;border-radius:5px;background:none;color:var(--mut);font-size:12px;letter-spacing:-2px;cursor:grab;opacity:.7}.doc-handle:hover{background:var(--hov);opacity:1}.doc-drop{position:absolute;z-index:2;height:2px;border-radius:1px;background:var(--pri);pointer-events:none}.doc-block-menu p{margin:4px 9px 2px;font-size:11px;color:var(--mut)}.doc-colors{width:248px;padding:4px 8px 10px}.doc-colors p{margin:0;padding:7px 2px 5px;font-size:11.5px;font-weight:550;color:var(--mut)}.doc-swatches{display:grid!important;grid-template-columns:repeat(5,1fr);gap:6px;padding:0 2px}.doc-menu .doc-swatch{aspect-ratio:1;width:auto;height:auto!important;min-width:0;padding:0;border:0;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:620;font-size:14px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line);transition:transform .12s var(--ease),box-shadow .12s var(--ease)}.doc-menu .doc-swatch:hover{transform:scale(1.07)}.doc-menu .doc-swatch.on{box-shadow:inset 0 0 0 1px var(--line),0 0 0 2px var(--card),0 0 0 3.5px var(--pri)}.doc-menu .doc-swatch.none{background:linear-gradient(135deg,transparent calc(50% - .75px),var(--mut) calc(50% - .75px),var(--mut) calc(50% + .75px),transparent calc(50% + .75px)),var(--bg)}.doc-paint{position:relative;display:grid;place-items:center;width:22px;height:22px}.doc-paint svg{position:relative}.doc-paint-fill{position:absolute;inset:2px 1px;border-radius:5px;background:var(--paint-fill,transparent)}.doc-paint-bar{position:absolute;left:4px;right:4px;bottom:1px;height:2.5px;border-radius:2px;background:var(--paint-text,transparent)}.doc-keys{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(12,12,16,.28);backdrop-filter:blur(3px)}.doc-sheet{width:min(620px,100%);max-height:min(78vh,680px);overflow-y:auto;padding:22px 24px 18px;background:var(--card);border-radius:14px;box-shadow:0 12px 40px #0003}.doc-sheet h2{margin:0 0 4px;font-size:15px;font-weight:620}.doc-sheet .doc-sub{margin:0 0 16px;color:var(--mut);font-size:12.5px}.doc-sheet-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 32px}@media(max-width:580px){.doc-sheet-cols{grid-template-columns:1fr}}.doc-sheet h3{margin:14px 0 4px;font-size:11.5px;font-weight:550;color:var(--mut)}.doc-krow{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;border-bottom:1px solid var(--line);font-size:13px;line-height:20px}.doc-krow:last-child{border-bottom:0}.doc-chips{display:flex;gap:4px;flex:none}.doc-chip{display:inline-flex;align-items:center;justify-content:center;height:22px;min-width:22px;padding:0 6px;border-radius:6px;background:var(--hov);box-shadow:inset 0 -1px 0 var(--edge);font-size:12px}.doc-chip.md{font:11.5px var(--tedix-font-mono,ui-monospace,monospace)}.doc-slash button[aria-selected=true]{background:var(--act)}.doc-menu hr{width:100%;height:0;border:0;border-top:1px solid var(--line);margin:4px 0}.tiptap{outline:0;font-size:16px;line-height:1.62;min-height:50vh;caret-color:var(--pri);overflow-wrap:anywhere}.tiptap>:first-child{margin-top:0}.tiptap p{margin:0 0 .8em}.tiptap h1{font-size:1.875em;line-height:1.22;font-weight:680;letter-spacing:-.024em;margin:1.3em 0 .4em}.tiptap h2{font-size:1.4em;line-height:1.3;font-weight:640;letter-spacing:-.016em;margin:1.3em 0 .35em}.tiptap h3{font-size:1.15em;line-height:1.4;font-weight:620;margin:1.2em 0 .3em}.tiptap .doc-title{font-size:2.3em;font-weight:700}.tiptap [data-hint]:before{content:attr(data-hint);float:left;height:0;pointer-events:none;color:var(--mut);opacity:.65}.tiptap blockquote{margin:0 0 .8em;padding-left:14px;border-left:2px solid var(--edge);color:color-mix(in srgb,var(--fg) 72%,transparent)}.tiptap pre{font:13px/1.55 var(--tedix-font-mono,ui-monospace,monospace);background:var(--hov);margin:0 0 1em;padding:12px 14px;border-radius:8px;white-space:pre-wrap}.tiptap code{font-family:var(--tedix-font-mono,ui-monospace,monospace);font-size:.9em}.tiptap :not(pre)>code{background:var(--act);padding:.1em .3em;border-radius:4px}.tiptap hr{border:0;border-top:1px solid var(--edge);margin:1.6em 0}.tiptap ul,.tiptap ol{margin:0 0 .8em;padding-left:1.5em}.tiptap li p{margin:0 0 .2em}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-checked]{display:flex;gap:9px}.tiptap li[data-checked]>div{flex:1}.tiptap li[data-checked=true]>div{color:var(--mut)}.tiptap input[type=checkbox]{appearance:none;display:grid;place-content:center;width:16px;height:16px;margin:5px 0 0;border:1.5px solid color-mix(in srgb,var(--fg) 34%,transparent);border-radius:4.5px;cursor:pointer;transition:background .12s}.tiptap input:checked{background:var(--pri);border-color:var(--pri)}.tiptap input:checked:after{content:"";width:8px;height:4px;margin-top:-2px;border:solid var(--tedix-on-primary,HighlightText);border-width:0 0 2px 2px;transform:rotate(-45deg)}.tiptap table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;margin:0 0 1em;border:1px solid var(--edge);border-radius:8px;overflow:hidden}.tiptap th,.tiptap td{border:solid var(--line);border-width:0 1px 1px 0;min-width:60px;padding:7px 10px;position:relative;vertical-align:top;text-align:left}.tiptap :is(th,td):last-child{border-right:0}.tiptap tr:last-child>*{border-bottom:0}.tiptap th{background:color-mix(in srgb,var(--fg) 3.5%,transparent);font-weight:600}.tiptap :is(th,td) p{margin:0}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--pri) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:0;top:0;bottom:0;width:3px;background:var(--pri)}.tiptap img{max-width:100%;height:auto;border-radius:6px}.tiptap .ProseMirror-selectednode{outline:2px solid var(--pri)}.tiptap aside,.tiptap [data-type=details]{margin:0 0 1em;padding:11px 14px;border-radius:8px;background:var(--hov)}.tiptap [data-type=details]{display:flex;gap:6px}.tiptap [data-type=details]>button{flex:none;width:22px;height:26px;border:0;border-radius:5px;background:none;cursor:pointer}.tiptap [data-type=details]>button:before{content:"▸"}.tiptap .is-open>button:before{content:"▾"}.tiptap [data-type=details]>div{flex:1;min-width:0}.tiptap summary{list-style:none;font-weight:600}.tiptap :is(aside,[data-type=detailsContent])>:last-child{margin-bottom:0}.tiptap a{color:var(--pri);text-decoration:underline}@keyframes doc-mark{0%{background:transparent}10%,50%{background:color-mix(in srgb,var(--pri) 17%,transparent)}to{background:transparent}}@keyframes doc-wash{0%{background:transparent}20%{background:color-mix(in srgb,var(--pri) 6.5%,transparent)}to{background:transparent}}@keyframes doc-rise{from{transform:translateY(5px)}}.doc-landed-words{border-radius:3px;animation:doc-mark 1.9s var(--ease) both}.doc-landed{border-radius:7px;animation:doc-wash 1.3s var(--ease) both,doc-rise .28s var(--ease) both}@keyframes doc-tick{0%{opacity:0}15%{opacity:1}to{opacity:0}}@keyframes doc-ghost{0%{opacity:.85;filter:none;max-height:6em}to{opacity:0;filter:blur(1.5px);max-height:0}}.doc-removed{display:inline-block;width:2px;height:1.1em;margin:0 1px;vertical-align:text-bottom;border-radius:1px;background:color-mix(in srgb,var(--pri) 70%,transparent);animation:doc-tick 1.1s var(--ease) both;pointer-events:none}.doc-removed-block{display:block;overflow:hidden;white-space:pre-wrap;color:var(--mut);animation:doc-ghost .22s ease-out both;pointer-events:none}@media(prefers-reduced-motion:reduce){.doc-landed,.doc-landed-words{animation:none;background:color-mix(in srgb,var(--pri) 14%,transparent)}}@media(pointer:coarse){.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-link input,.doc-link button{height:44px;min-width:44px}.doc-save{top:25px}.doc-status{top:62px}}`;
+const css = `:root{--ease:cubic-bezier(.2,.8,.2,1);--fg:var(--tedix-fg,CanvasText);--bg:var(--tedix-bg,Canvas);--pri:var(--tedix-primary,Highlight);--mut:var(--tedix-muted-fg,GrayText);--hov:color-mix(in srgb,var(--fg) 5.5%,var(--bg));--act:color-mix(in srgb,var(--fg) 8.5%,var(--bg));--line:color-mix(in srgb,var(--fg) 8%,transparent);--edge:color-mix(in srgb,var(--fg) 15%,transparent);--card:var(--tedix-surface,var(--bg));font:14px var(--tedix-font,system-ui,sans-serif);color:var(--fg);scrollbar-width:thin;scrollbar-color:var(--edge) transparent}*{box-sizing:border-box}body{margin:0;padding:0!important;background:var(--bg)}button,input,select{font:inherit;color:inherit}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--pri);outline-offset:1px}.doc-toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:6px 26px 6px 10px;background:var(--bg);border-bottom:1px solid transparent;transition:border-color .12s}.doc-toolbar[data-scrolled]{border-color:var(--line)}.doc-toolbar>*{flex:none}.doc-table{display:contents}.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-status button{height:29px;min-width:29px;display:inline-grid;place-items:center;padding:0 6px;border:0;border-radius:6px;background:none;cursor:pointer;transition:background .12s var(--ease),transform .12s var(--ease)}:is(button,select):hover:not(:disabled){background:var(--hov)}button:active:not(:disabled){background:var(--act);transform:scale(.94)}:is(button,select):disabled{opacity:.38;cursor:default}button[aria-pressed=true]{background:var(--act);color:var(--pri)}.doc-sep{flex:none;width:1px;height:16px;margin:0 5px;background:var(--edge)}.doc-readonly{padding:0 8px;font-size:12px;color:var(--mut)}.doc-toolbar .doc-more{margin-left:auto;position:sticky;right:0;background:var(--bg)}.doc-page{max-width:calc(700px + 2*clamp(20px,5.5vw,52px));margin:0 auto;padding:22px clamp(20px,5.5vw,52px) min(40vh,300px)}.doc-skel{animation:doc-fade .3s .25s both}.doc-skel i{display:block;height:12px;margin-bottom:15px;border-radius:6px;background:var(--act)}.doc-skel i:first-child{width:45%;height:26px;margin-bottom:24px}.doc-skel i:last-child{width:60%}@keyframes doc-fade{from{opacity:0}}@keyframes doc-in{from{opacity:0;transform:scale(.96)}}.doc-status,.doc-link,.doc-menu{position:fixed;background:var(--card);border:1px solid var(--edge);box-shadow:0 6px 22px #0002;animation:doc-in .16s var(--ease)}.doc-status{top:48px;right:12px;z-index:4;max-width:min(380px,calc(100% - 24px));display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 11px;border-radius:14px;font-size:12px;line-height:1.45;color:var(--mut)}.doc-status:empty{display:none}.doc-save{position:fixed;top:18px;right:12px;z-index:4;width:7px;height:7px;border-radius:50%;background:var(--mut)}.doc-save[data-s="1"]{background:#1a7f37}.doc-save[data-s="2"]{background:#c0262d}.doc-status[data-error=true]{color:var(--tedix-danger,#c0262d)}.doc-status button{height:24px;color:var(--fg);background:var(--hov)}.doc-link,.doc-menu{z-index:5;padding:5px;border-radius:10px;transform-origin:0 0}.doc-link{display:flex;gap:4px}.doc-link input{width:min(250px,60vw);height:29px;padding:0 8px;border:0;border-radius:6px;background:var(--hov)}.doc-link button{height:29px;padding:0 10px;border:0;border-radius:6px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);cursor:pointer}.doc-menu{display:grid;min-width:180px}.doc-menu button{justify-content:start;padding:0 9px}.doc-menu div{display:flex;gap:2px}.doc-slash{width:272px;max-height:min(320px,60vh);overflow-y:auto}.doc-slash button{display:flex;gap:10px;align-items:center;height:auto!important;padding:5px 8px!important}.doc-tile{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:7px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line);color:color-mix(in srgb,var(--fg) 72%,transparent);font-size:12px;font-weight:600}.doc-mi{flex:1}.doc-md{font:11.5px var(--tedix-font-mono,ui-monospace,monospace);color:var(--mut)}.doc-mempty{padding:10px;color:var(--mut)}.doc-table-grid{display:grid!important;grid-template-columns:repeat(8,16px);gap:3px;padding:6px;outline:0}.doc-table-grid i{width:16px;height:16px;border-radius:3px;box-shadow:inset 0 0 0 1px var(--edge);cursor:pointer}.doc-table-grid i.on{background:color-mix(in srgb,var(--pri) 22%,transparent);box-shadow:inset 0 0 0 1px var(--pri)}.doc-table-picker p{margin:2px 6px;font-size:12px;color:var(--mut);text-align:center}.doc-table-picker .doc-table-title{font-weight:550;text-align:left}.doc-table-pill{position:absolute;z-index:2;display:grid;place-items:center;padding:0;border:1px solid var(--edge);border-radius:6px;background:var(--card);color:var(--mut);font-size:11px;line-height:1;cursor:pointer}.doc-table-pill.col{width:24px;height:12px}.doc-table-pill.row{width:12px;height:24px}.doc-table-pill:hover{color:var(--fg);border-color:var(--pri)}.doc-table-add{position:absolute;z-index:1;display:grid;place-items:center;padding:0;border:0;border-radius:4px;background:var(--hov);color:var(--mut);opacity:0;transition:opacity .12s;cursor:pointer}.doc-table-add.row{height:14px}.doc-table-add.col{width:14px}.doc-table-add:hover{opacity:1;color:var(--fg)}.doc-table-menu .doc-danger{color:#c0262d}.doc-gutter{position:absolute;z-index:2;display:flex;gap:1px;opacity:0;transition:opacity .14s}.doc-gutter.on{opacity:1}.doc-gutter button{display:grid;place-items:center;width:22px;height:24px;padding:0;border:0;border-radius:5px;background:none;color:color-mix(in srgb,var(--fg) 35%,transparent);cursor:pointer}.doc-gutter .doc-handle{width:18px;cursor:grab}.doc-gutter button:hover{background:var(--hov);color:var(--fg)}.doc-grip-hover{background:color-mix(in srgb,var(--pri) 6%,transparent);border-radius:6px}.doc-drop{position:absolute;z-index:2;height:2px;border-radius:1px;background:var(--pri);pointer-events:none}.doc-drop:before{content:"";position:absolute;left:-8px;top:-3px;width:8px;height:8px;border-radius:50%;box-sizing:border-box;border:2px solid var(--pri);background:var(--bg)}.doc-ghost{position:fixed;z-index:6;max-height:240px;overflow:hidden;padding:4px 10px;border-radius:10px;background:var(--card);box-shadow:0 10px 30px #0003;opacity:.96;pointer-events:none;-webkit-mask-image:linear-gradient(#000 80%,transparent);mask-image:linear-gradient(#000 80%,transparent)}.doc-ghost>*{margin:0!important}.doc-ghost-count{position:absolute;top:6px;right:8px;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);font-size:11px;line-height:20px;text-align:center}.doc-dragging{opacity:.28;transition:opacity .16s}.doc-block-selected{background:color-mix(in srgb,var(--pri) 12%,transparent);border-radius:6px}.doc-block-menu{width:252px}.doc-block-menu p{margin:4px 9px 2px;font-size:11px;color:var(--mut)}.doc-turn{display:grid!important;grid-template-columns:repeat(5,1fr);gap:4px;padding:4px}.doc-turn button{height:36px!important;justify-content:center!important;font-size:12px;font-weight:600;box-shadow:inset 0 0 0 1px var(--line)}.doc-turn button[aria-current=true]{color:var(--pri);box-shadow:inset 0 0 0 1.5px var(--pri)}.doc-block-menu button:not(.doc-turn button){display:flex!important;justify-content:space-between!important;gap:12px}.doc-block-menu kbd{font:inherit;font-size:11.5px;color:var(--mut)}.doc-block-menu .doc-danger:hover{background:color-mix(in srgb,#c0262d 12%,transparent);color:#c0262d}.doc-colors{width:248px;padding:4px 8px 10px}.doc-colors p{margin:0;padding:7px 2px 5px;font-size:11.5px;font-weight:550;color:var(--mut)}.doc-swatches{display:grid!important;grid-template-columns:repeat(5,1fr);gap:6px;padding:0 2px}.doc-menu .doc-swatch{aspect-ratio:1;width:auto;height:auto!important;min-width:0;padding:0;border:0;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:620;font-size:14px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line);transition:transform .12s var(--ease),box-shadow .12s var(--ease)}.doc-menu .doc-swatch:hover{transform:scale(1.07)}.doc-menu .doc-swatch.on{box-shadow:inset 0 0 0 1px var(--line),0 0 0 2px var(--card),0 0 0 3.5px var(--pri)}.doc-menu .doc-swatch.none{background:linear-gradient(135deg,transparent calc(50% - .75px),var(--mut) calc(50% - .75px),var(--mut) calc(50% + .75px),transparent calc(50% + .75px)),var(--bg)}.doc-paint{position:relative;display:grid;place-items:center;width:22px;height:22px}.doc-paint svg{position:relative}.doc-paint-fill{position:absolute;inset:2px 1px;border-radius:5px;background:var(--paint-fill,transparent)}.doc-paint-bar{position:absolute;left:4px;right:4px;bottom:1px;height:2.5px;border-radius:2px;background:var(--paint-text,transparent)}.doc-keys{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(12,12,16,.28);backdrop-filter:blur(3px)}.doc-sheet{width:min(620px,100%);max-height:min(78vh,680px);overflow-y:auto;padding:22px 24px 18px;background:var(--card);border-radius:14px;box-shadow:0 12px 40px #0003}.doc-sheet h2{margin:0 0 4px;font-size:15px;font-weight:620}.doc-sheet .doc-sub{margin:0 0 16px;color:var(--mut);font-size:12.5px}.doc-sheet-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 32px}@media(max-width:580px){.doc-sheet-cols{grid-template-columns:1fr}}.doc-sheet h3{margin:14px 0 4px;font-size:11.5px;font-weight:550;color:var(--mut)}.doc-krow{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;border-bottom:1px solid var(--line);font-size:13px;line-height:20px}.doc-krow:last-child{border-bottom:0}.doc-chips{display:flex;gap:4px;flex:none}.doc-chip{display:inline-flex;align-items:center;justify-content:center;height:22px;min-width:22px;padding:0 6px;border-radius:6px;background:var(--hov);box-shadow:inset 0 -1px 0 var(--edge);font-size:12px}.doc-chip.md{font:11.5px var(--tedix-font-mono,ui-monospace,monospace)}.doc-slash button[aria-selected=true]{background:var(--act)}.doc-menu hr{width:100%;height:0;border:0;border-top:1px solid var(--line);margin:4px 0}.tiptap{outline:0;font-size:16px;line-height:1.62;min-height:50vh;caret-color:var(--pri);overflow-wrap:anywhere}.tiptap>:first-child{margin-top:0}.tiptap p{margin:0 0 .8em}.tiptap h1{font-size:1.875em;line-height:1.22;font-weight:680;letter-spacing:-.024em;margin:1.3em 0 .4em}.tiptap h2{font-size:1.4em;line-height:1.3;font-weight:640;letter-spacing:-.016em;margin:1.3em 0 .35em}.tiptap h3{font-size:1.15em;line-height:1.4;font-weight:620;margin:1.2em 0 .3em}.tiptap .doc-title{font-size:2.3em;font-weight:700}.tiptap [data-hint]:before{content:attr(data-hint);float:left;height:0;pointer-events:none;color:var(--mut);opacity:.65}.tiptap blockquote{margin:0 0 .8em;padding-left:14px;border-left:2px solid var(--edge);color:color-mix(in srgb,var(--fg) 72%,transparent)}.tiptap pre{font:13px/1.55 var(--tedix-font-mono,ui-monospace,monospace);background:var(--hov);margin:0 0 1em;padding:12px 14px;border-radius:8px;white-space:pre-wrap}.tiptap code{font-family:var(--tedix-font-mono,ui-monospace,monospace);font-size:.9em}.tiptap :not(pre)>code{background:var(--act);padding:.1em .3em;border-radius:4px}.tiptap hr{border:0;border-top:1px solid var(--edge);margin:1.6em 0}.tiptap ul,.tiptap ol{margin:0 0 .8em;padding-left:1.5em}.tiptap li p{margin:0 0 .2em}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-checked]{display:flex;gap:9px}.tiptap li[data-checked]>div{flex:1}.tiptap li[data-checked=true]>div{color:var(--mut)}.tiptap input[type=checkbox]{appearance:none;display:grid;place-content:center;width:16px;height:16px;margin:5px 0 0;border:1.5px solid color-mix(in srgb,var(--fg) 34%,transparent);border-radius:4.5px;cursor:pointer;transition:background .12s}.tiptap input:checked{background:var(--pri);border-color:var(--pri)}.tiptap input:checked:after{content:"";width:8px;height:4px;margin-top:-2px;border:solid var(--tedix-on-primary,HighlightText);border-width:0 0 2px 2px;transform:rotate(-45deg)}.tiptap table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;margin:0 0 1em;border:1px solid var(--edge);border-radius:8px;overflow:hidden}.tiptap th,.tiptap td{border:solid var(--line);border-width:0 1px 1px 0;min-width:60px;padding:7px 10px;position:relative;vertical-align:top;text-align:left}.tiptap :is(th,td):last-child{border-right:0}.tiptap tr:last-child>*{border-bottom:0}.tiptap th{background:color-mix(in srgb,var(--fg) 3.5%,transparent);font-weight:600}.tiptap :is(th,td) p{margin:0}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--pri) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:0;top:0;bottom:0;width:3px;background:var(--pri)}.tiptap img{max-width:100%;height:auto;border-radius:6px}.tiptap .ProseMirror-selectednode{outline:2px solid var(--pri)}.tiptap aside,.tiptap [data-type=details]{margin:0 0 1em;padding:11px 14px;border-radius:8px;background:var(--hov)}.tiptap [data-type=details]{display:flex;gap:6px}.tiptap [data-type=details]>button{flex:none;width:22px;height:26px;border:0;border-radius:5px;background:none;cursor:pointer}.tiptap [data-type=details]>button:before{content:"▸"}.tiptap .is-open>button:before{content:"▾"}.tiptap [data-type=details]>div{flex:1;min-width:0}.tiptap summary{list-style:none;font-weight:600}.tiptap :is(aside,[data-type=detailsContent])>:last-child{margin-bottom:0}.tiptap a{color:var(--pri);text-decoration:underline}@keyframes doc-mark{0%{background:transparent}10%,50%{background:color-mix(in srgb,var(--pri) 17%,transparent)}to{background:transparent}}@keyframes doc-wash{0%{background:transparent}20%{background:color-mix(in srgb,var(--pri) 6.5%,transparent)}to{background:transparent}}@keyframes doc-rise{from{transform:translateY(5px)}}.doc-landed-words{border-radius:3px;animation:doc-mark 1.9s var(--ease) both}.doc-landed{border-radius:7px;animation:doc-wash 1.3s var(--ease) both,doc-rise .28s var(--ease) both}@keyframes doc-tick{0%{opacity:0}15%{opacity:1}to{opacity:0}}@keyframes doc-ghost{0%{opacity:.85;filter:none;max-height:6em}to{opacity:0;filter:blur(1.5px);max-height:0}}.doc-removed{display:inline-block;width:2px;height:1.1em;margin:0 1px;vertical-align:text-bottom;border-radius:1px;background:color-mix(in srgb,var(--pri) 70%,transparent);animation:doc-tick 1.1s var(--ease) both;pointer-events:none}.doc-removed-block{display:block;overflow:hidden;white-space:pre-wrap;color:var(--mut);animation:doc-ghost .22s ease-out both;pointer-events:none}@media(prefers-reduced-motion:reduce){.doc-landed,.doc-landed-words{animation:none;background:color-mix(in srgb,var(--pri) 14%,transparent)}}@media(pointer:coarse){.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-link input,.doc-link button{height:44px;min-width:44px}.doc-save{top:25px}.doc-status{top:62px}}`;
 
 export async function mountDocClient(
 	root: HTMLElement,
@@ -97,7 +105,7 @@ export async function mountDocClient(
 	style.textContent = css;
 	document.head.append(style);
 	root.innerHTML =
-		'<main aria-label="Doc gadget"><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><i class="doc-save" role="img" hidden></i><div class="doc-status" role="status" aria-live="polite"></div><form class="doc-link" hidden><input type="text" aria-label="Link URL" placeholder="Paste or type a link"><button type="submit">Apply</button></form><div class="doc-menu" role="menu" aria-label="More" hidden></div><div class="doc-menu doc-slash" role="listbox" aria-label="Insert" hidden></div><div class="doc-menu doc-block-menu" role="menu" aria-label="Block" hidden></div><button type="button" class="doc-handle" aria-label="Drag to move, or click for block actions" title="Drag to move · Click for options" hidden>⋮⋮</button><i class="doc-drop" hidden></i><div class="doc-menu doc-colors" role="dialog" aria-label="Text color and highlight" hidden></div><div class="doc-keys" hidden></div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden><section class="doc-page" aria-label="Document page"><div class="doc-skel"><i></i><i></i><i></i><i></i><i></i></div></section></main>';
+		'<main aria-label="Doc gadget"><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><i class="doc-save" role="img" hidden></i><div class="doc-status" role="status" aria-live="polite"></div><form class="doc-link" hidden><input type="text" aria-label="Link URL" placeholder="Paste or type a link"><button type="submit">Apply</button></form><div class="doc-menu" role="menu" aria-label="More" hidden></div><div class="doc-menu doc-slash" role="listbox" aria-label="Insert" hidden></div><div class="doc-menu doc-block-menu" role="menu" aria-label="Block" hidden></div><div class="doc-gutter" hidden><button type="button" class="doc-add" aria-label="Add below" title="Add below · ⌥-click to add above"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button><button type="button" class="doc-handle" aria-label="Drag to move, or click for block options" title="Drag to move · Click for options"><svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><circle cx="2.5" cy="3.5" r="1.3"/><circle cx="7.5" cy="3.5" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="12.5" r="1.3"/><circle cx="7.5" cy="12.5" r="1.3"/></svg></button></div><i class="doc-drop" hidden></i><div class="doc-ghost" hidden></div><div class="doc-menu doc-table-picker" role="dialog" aria-label="Insert table" hidden></div><div class="doc-menu doc-table-menu" role="menu" aria-label="Table" hidden></div><button type="button" class="doc-table-pill col" title="Column" aria-label="Column" hidden>⋯</button><button type="button" class="doc-table-pill row" title="Row" aria-label="Row" hidden>⋮</button><button type="button" class="doc-table-add row" title="Add row" aria-label="Add row" hidden>+</button><button type="button" class="doc-table-add col" title="Add column" aria-label="Add column" hidden>+</button><div class="doc-menu doc-colors" role="dialog" aria-label="Text color and highlight" hidden></div><div class="doc-keys" hidden></div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden><section class="doc-page" aria-label="Document page"><div class="doc-skel"><i></i><i></i><i></i><i></i><i></i></div></section></main>';
 	const get = <T extends HTMLElement>(selector: string) =>
 		root.querySelector<T>(selector)!;
 	const saveDot = get(".doc-save"),
@@ -109,6 +117,17 @@ export async function mountDocClient(
 		colors = get(".doc-colors"),
 		blockMenu = get(".doc-block-menu"),
 		handle = get<HTMLButtonElement>(".doc-handle"),
+		addButton = get<HTMLButtonElement>(".doc-add"),
+		gutter = get(".doc-gutter"),
+		ghost = get(".doc-ghost"),
+		tablePicker = get(".doc-table-picker"),
+		tableMenu = get(".doc-table-menu"),
+		tablePills = [
+			get<HTMLButtonElement>(".doc-table-pill.col"),
+			get<HTMLButtonElement>(".doc-table-pill.row"),
+			get<HTMLButtonElement>(".doc-table-add.row"),
+			get<HTMLButtonElement>(".doc-table-add.col"),
+		],
 		drop = get(".doc-drop"),
 		shortcuts = get(".doc-keys"),
 		linkForm = get<HTMLFormElement>(".doc-link"),
@@ -163,8 +182,7 @@ export async function mountDocClient(
 		active?: () => boolean;
 		can?: () => boolean;
 	}[] = [];
-	let blockStyle: HTMLSelectElement | undefined,
-		tableTools: HTMLElement | undefined;
+	let blockStyle: HTMLSelectElement | undefined;
 
 	/** Show a short status. Plain notes fade; anything with a choice stays. */
 	function say(
@@ -263,7 +281,6 @@ export async function mountDocClient(
 			blockStyle.disabled = !on;
 			if (on) blockStyle.value = currentDocumentStyle(editor!);
 		}
-		if (tableTools) tableTools.hidden = !on || !editor!.isActive("table");
 		if (paintButton && editor) {
 			const text = editor.getAttributes("textStyle").color as
 				| string
@@ -640,6 +657,7 @@ export async function mountDocClient(
 							})
 						).dataUrl,
 				});
+				editor.registerPlugin(blockSelectionPlugin());
 				editor.on("transaction", () => {
 					controls();
 					slashSync();
@@ -812,6 +830,8 @@ export async function mountDocClient(
 			editor?.commands.focus();
 		linkForm.hidden =
 			blockMenu.hidden =
+			tablePicker.hidden =
+			tableMenu.hidden =
 			menu.hidden =
 			slash.hidden =
 			colors.hidden =
@@ -1268,34 +1288,9 @@ export async function mountDocClient(
 			editor!.isActive("link"),
 		);
 		if (!visitor) button(toolbar, "Image", "image", () => imageInput.click());
-		button(toolbar, "Table", "table", addTable);
-		const table = (tableTools = document.createElement("span"));
-		table.className = "doc-table";
-		table.hidden = true;
-		toolbar.append(table);
-		divider(table);
-		button(table, "Add row above", "up", () => run().addRowBefore().run());
-		button(table, "Add row below", "addRow", () => run().addRowAfter().run());
-		button(table, "Add column to the left", "back", () =>
-			run().addColumnBefore().run(),
+		const tableButton = button(toolbar, "Table", "table", () =>
+			openTablePicker(tableButton),
 		);
-		button(table, "Add column to the right", "addColumn", () =>
-			run().addColumnAfter().run(),
-		);
-		button(table, "Delete row", undefined, () => run().deleteRow().run());
-		button(table, "Delete column", undefined, () => run().deleteColumn().run());
-		button(
-			table,
-			"Header row",
-			undefined,
-			() => run().toggleHeaderRow().run(),
-			() =>
-				!!editor &&
-				editor.isActive("table") &&
-				editor.state.selection.$from.node(-2)?.firstChild?.type.name ===
-					"tableHeader",
-		);
-		button(table, "Delete table", "trash", () => run().deleteTable().run());
 		const row = document.createElement("div");
 		row.setAttribute("role", "group");
 		menu.append(row);
@@ -1430,9 +1425,182 @@ export async function mountDocClient(
 			event.returnValue = "";
 		}
 	};
-	// ---- Block handle: drag a block to move it, click for its actions ----
-	/** The top-level block at a height on screen, with its element. */
-	function blockAt(clientY: number) {
+	// ---- Tables: a size picker, and pills on the column and row under the pointer ----
+	/** "Insert table": an 8 × 8 grid; pointer or arrow keys choose the size. */
+	function openTablePicker(anchor: HTMLElement) {
+		if (!editor) return;
+		closePopups();
+		let columns = 3,
+			rows = 3;
+		const label = document.createElement("p");
+		const grid = document.createElement("div");
+		grid.className = "doc-table-grid";
+		grid.tabIndex = 0;
+		const cells: HTMLElement[] = [];
+		const paintGrid = () => {
+			label.textContent = `${columns} × ${rows}`;
+			cells.forEach((cell, index) =>
+				cell.classList.toggle(
+					"on",
+					index % 8 < columns && Math.floor(index / 8) < rows,
+				),
+			);
+		};
+		const insert = () => {
+			closePopups(true);
+			run().insertTable({ rows, cols: columns, withHeaderRow: true }).run();
+		};
+		for (let index = 0; index < 64; index++) {
+			const cell = document.createElement("i");
+			cell.onmouseenter = () => {
+				columns = (index % 8) + 1;
+				rows = Math.floor(index / 8) + 1;
+				paintGrid();
+			};
+			cell.onclick = insert;
+			cells.push(cell);
+		}
+		grid.append(...cells);
+		grid.onkeydown = (event) => {
+			const moves: Record<string, [number, number]> = {
+				ArrowRight: [1, 0],
+				ArrowLeft: [-1, 0],
+				ArrowDown: [0, 1],
+				ArrowUp: [0, -1],
+			};
+			const move = moves[event.key];
+			if (move) {
+				event.preventDefault();
+				event.stopPropagation();
+				columns = Math.max(1, Math.min(8, columns + move[0]));
+				rows = Math.max(1, Math.min(8, rows + move[1]));
+				paintGrid();
+			} else if (event.key === "Enter") {
+				event.preventDefault();
+				event.stopPropagation();
+				insert();
+			}
+		};
+		const title = document.createElement("p");
+		title.className = "doc-table-title";
+		title.textContent = "Insert table";
+		tablePicker.replaceChildren(title, grid, label);
+		paintGrid();
+		const box = anchor.getBoundingClientRect();
+		place(tablePicker, box.left, box.bottom + 4);
+		grid.focus();
+	}
+	let tableCell: HTMLElement | undefined;
+	/** The cell's position in the document, to put the caret in it. */
+	const cellPos = (cell: HTMLElement) => editor!.view.posAtDOM(cell, 0);
+	page.addEventListener("mousemove", (event) => {
+		if (!editor?.isEditable || drag) return;
+		const target = event.target as HTMLElement;
+		if (target.closest?.(".doc-table-pill,.doc-table-add")) return;
+		const cell = target.closest?.<HTMLElement>(".tiptap td, .tiptap th");
+		const table = cell?.closest("table") as HTMLTableElement | null;
+		if (!cell || !table) {
+			if (!target.closest?.(".tiptap table"))
+				for (const node of tablePills) node.hidden = true;
+			return;
+		}
+		tableCell = cell;
+		const tableBox = table.getBoundingClientRect(),
+			cellBox = cell.getBoundingClientRect();
+		const [columnPill, rowPill, addRow, addColumn] = tablePills;
+		Object.assign(columnPill!.style, {
+			left: `${cellBox.left + scrollX + cellBox.width / 2 - 12}px`,
+			top: `${tableBox.top + scrollY - 6}px`,
+		});
+		Object.assign(rowPill!.style, {
+			left: `${tableBox.left + scrollX - 6}px`,
+			top: `${cellBox.top + scrollY + cellBox.height / 2 - 12}px`,
+		});
+		Object.assign(addRow!.style, {
+			left: `${tableBox.left + scrollX}px`,
+			top: `${tableBox.bottom + scrollY + 2}px`,
+			width: `${tableBox.width}px`,
+		});
+		Object.assign(addColumn!.style, {
+			left: `${tableBox.right + scrollX + 2}px`,
+			top: `${tableBox.top + scrollY}px`,
+			height: `${tableBox.height}px`,
+		});
+		for (const node of tablePills) node.hidden = false;
+	});
+	/** A pill's menu: insert or delete the column or row under the pointer. */
+	function openTableMenu(kind: "column" | "row", anchor: HTMLElement) {
+		if (!editor || !tableCell) return;
+		const cell = tableCell,
+			row = cell.parentElement as HTMLTableRowElement,
+			header = row.rowIndex === 0 && cell.tagName === "TH";
+		editor.chain().focus().setTextSelection(cellPos(cell)).run();
+		const item = (label: string, run: () => unknown, danger = false) => {
+			const node = document.createElement("button");
+			node.type = "button";
+			node.setAttribute("role", "menuitem");
+			node.textContent = label;
+			if (danger) node.className = "doc-danger";
+			node.onmousedown = (event) => event.preventDefault();
+			node.onclick = () => {
+				run();
+				closePopups(true);
+			};
+			return node;
+		};
+		const chain = () => editor!.chain().focus().setTextSelection(cellPos(cell));
+		const items =
+			kind === "column"
+				? [
+						item("Insert left", () => chain().addColumnBefore().run()),
+						item("Insert right", () => chain().addColumnAfter().run()),
+						document.createElement("hr"),
+						item("Delete column", () => chain().deleteColumn().run(), true),
+					]
+				: [
+						...(header
+							? []
+							: [item("Insert above", () => chain().addRowBefore().run())]),
+						item("Insert below", () => chain().addRowAfter().run()),
+						...(row.rowIndex === 0
+							? [
+									item(`${header ? "✓ " : ""}Header row`, () =>
+										chain().toggleHeaderRow().run(),
+									),
+								]
+							: []),
+						document.createElement("hr"),
+						item(
+							header ? "Delete header row" : "Delete row",
+							() => chain().deleteRow().run(),
+							true,
+						),
+					];
+		closePopups();
+		tableMenu.replaceChildren(...items);
+		const box = anchor.getBoundingClientRect();
+		place(tableMenu, box.left, box.bottom + 4);
+	}
+	const [columnPill, rowPill, addRowBar, addColumnBar] = tablePills;
+	for (const node of tablePills)
+		node.onmousedown = (event) => event.preventDefault();
+	columnPill!.onclick = () => openTableMenu("column", columnPill!);
+	rowPill!.onclick = () => openTableMenu("row", rowPill!);
+	/** Put the caret in the table's last cell, so a row or column is added at the end. */
+	const toLastCell = () => {
+		const table = tableCell?.closest("table");
+		const cells = table?.querySelectorAll<HTMLElement>("td, th");
+		const last = cells?.[cells.length - 1];
+		return last
+			? editor!.chain().focus().setTextSelection(cellPos(last))
+			: undefined;
+	};
+	addRowBar!.onclick = () => toLastCell()?.addRowAfter().run();
+	addColumnBar!.onclick = () => toLastCell()?.addColumnAfter().run();
+
+	// ---- Block handles: "+" adds a block, the grip drags or opens the menu ----
+	/** The block (a top-level block or list item) at a height on screen, with its element. */
+	function unitAtY(clientY: number) {
 		if (!editor) return undefined;
 		const box = editor.view.dom.getBoundingClientRect();
 		const found = editor.view.posAtCoords({
@@ -1440,134 +1608,441 @@ export async function mountDocClient(
 			top: Math.max(box.top + 1, Math.min(box.bottom - 1, clientY)),
 		});
 		if (!found) return undefined;
-		const index = editor.state.doc.resolve(found.pos).index(0);
-		if (index >= editor.state.doc.childCount) return undefined;
-		const dom = editor.view.nodeDOM(documentBlockStart(editor, index));
-		return dom instanceof HTMLElement ? { index, dom } : undefined;
+		const unit = unitAt(
+			editor,
+			found.inside >= 0 ? found.inside + 1 : found.pos,
+		);
+		const dom = unit && editor.view.nodeDOM(unit.pos);
+		return unit && dom instanceof HTMLElement ? { unit, dom } : undefined;
 	}
-	let handleIndex = -1;
-	/** Where an element sits on the page, for placing the handle and drop line. */
-	const within = (element: HTMLElement) => {
-		const box = element.getBoundingClientRect();
-		return {
-			top: box.top + scrollY,
-			bottom: box.bottom + scrollY,
-			left: box.left + scrollX,
-		};
-	};
+	let hovered: { unit: Unit; dom: HTMLElement } | undefined;
+	/** Put the "+" and grip beside a block, centred on its first line. */
+	function showHandles(target: { unit: Unit; dom: HTMLElement }) {
+		hovered = target;
+		const content = editor!.view.dom.getBoundingClientRect(),
+			box = target.dom.getBoundingClientRect();
+		const line = parseFloat(getComputedStyle(target.dom).lineHeight) || 24;
+		gutter.hidden = false;
+		gutter.style.top = `${box.top + scrollY + Math.max(0, (Math.min(line, box.height) - 24) / 2)}px`;
+		gutter.style.left = `${Math.max(2, content.left + scrollX - 12 - 41)}px`;
+		// No room for "+" in a narrow window.
+		addButton.hidden = content.left < 60;
+		requestAnimationFrame(() => gutter.classList.add("on"));
+	}
+	function hideHandles() {
+		gutter.classList.remove("on");
+		gutter.hidden = true;
+		hovered = undefined;
+	}
 	page.addEventListener("mousemove", (event) => {
-		if (!editor?.isEditable || dragFrom >= 0 || !blockMenu.hidden) return;
-		if (event.target === handle) return;
-		const block = blockAt(event.clientY);
-		if (!block) return;
-		handleIndex = block.index;
-		const at = within(block.dom);
-		handle.hidden = false;
-		handle.style.top = `${at.top}px`;
-		handle.style.left = `${Math.max(0, at.left - 26)}px`;
+		if (!editor?.isEditable || drag || !blockMenu.hidden || sweep) return;
+		if (gutter.contains(event.target as Node)) return;
+		const target = unitAtY(event.clientY);
+		if (target) showHandles(target);
 	});
 	page.addEventListener("mouseleave", (event) => {
-		if (dragFrom < 0 && event.relatedTarget !== handle && blockMenu.hidden)
-			handle.hidden = true;
+		if (
+			!drag &&
+			!gutter.contains(event.relatedTarget as Node) &&
+			blockMenu.hidden
+		)
+			hideHandles();
 	});
-	let dragFrom = -1,
-		dragTo = -1,
-		dragMoved = false;
+	// Typing hides the handles until the mouse moves again.
+	page.addEventListener("keydown", () => {
+		if (!drag) hideHandles();
+	});
+	handle.addEventListener("mouseenter", () =>
+		hovered?.dom.classList.add("doc-grip-hover"),
+	);
+	handle.addEventListener("mouseleave", () =>
+		hovered?.dom.classList.remove("doc-grip-hover"),
+	);
+	addButton.onmousedown = (event) => event.preventDefault();
+	addButton.onclick = (event) => {
+		if (!editor || !hovered) return;
+		// A new empty line below (or above with Alt), then the / menu on it.
+		const { unit } = hovered;
+		const at = event.altKey ? unit.pos : unit.pos + unit.node.nodeSize;
+		const type =
+			unit.depth > 1 ? unit.node.type : editor.schema.nodes.paragraph!;
+		const created =
+			unit.depth > 1
+				? type.createAndFill()!
+				: editor.schema.nodes.paragraph!.create();
+		const tr = editor.state.tr.insert(at, created);
+		tr.setSelection(TextSelection.near(tr.doc.resolve(at + 1)));
+		editor.view.dispatch(tr);
+		editor.commands.focus();
+		editor.commands.insertContent("/");
+		hideHandles();
+	};
+	let drag:
+		| {
+				units: Unit[];
+				moved: boolean;
+				y: number;
+				x: number;
+				to: number;
+				from: { left: number; top: number };
+				dims: HTMLElement[];
+		  }
+		| undefined;
 	handle.onmousedown = (event) => event.preventDefault();
 	handle.onpointerdown = (event) => {
-		if (!editor?.isEditable || handleIndex < 0 || event.button !== 0) return;
+		if (!editor?.isEditable || !hovered || event.button !== 0) return;
 		event.preventDefault();
-		dragFrom = handleIndex;
-		dragTo = -1;
-		dragMoved = false;
-		const y = event.clientY;
+		// Dragging from a block selection moves the selected blocks together.
+		const range = blockSelection(editor);
+		const index = editor.state.doc.resolve(hovered.unit.pos).index(0);
+		const units =
+			range &&
+			hovered.unit.depth === 1 &&
+			index >= range.from &&
+			index <= range.to
+				? Array.from({ length: range.to - range.from + 1 }, (_, i) =>
+						unitAt(editor!, blocks.blockStart(editor!, range.from + i) + 1)!,
+					)
+				: [hovered.unit];
+		const box = hovered.dom.getBoundingClientRect();
+		drag = {
+			units,
+			moved: false,
+			y: event.clientY,
+			x: event.clientX,
+			to: -1,
+			from: { left: box.left, top: box.top },
+			dims: [],
+		};
 		handle.setPointerCapture?.(event.pointerId);
-		handle.onpointermove = (move) => {
-			if (!dragMoved && Math.abs(move.clientY - y) < 4) return;
-			dragMoved = true;
-			const block = blockAt(move.clientY);
-			if (!block) return;
-			const box = block.dom.getBoundingClientRect();
-			const after = move.clientY > box.top + box.height / 2;
-			dragTo = block.index + (after ? 1 : 0);
-			const at = within(block.dom);
-			const lane = editor!.view.dom.getBoundingClientRect();
-			drop.hidden = false;
-			drop.style.left = `${lane.left + scrollX}px`;
-			drop.style.width = `${lane.width}px`;
-			drop.style.top = `${(after ? at.bottom : at.top) - 1}px`;
-		};
-		handle.onpointerup = handle.onpointercancel = (end) => {
-			handle.onpointermove = handle.onpointerup = handle.onpointercancel = null;
-			drop.hidden = true;
-			const from = dragFrom;
-			dragFrom = -1;
-			if (end.type !== "pointerup" || !editor) return;
-			if (dragMoved && dragTo >= 0) {
-				moveDocumentBlockTo(editor, from, dragTo);
-				handle.hidden = true;
-			} else openBlockMenu(from);
-		};
+		handle.onpointermove = (move) => moveDrag(move);
+		handle.onpointerup = handle.onpointercancel = (end) =>
+			endDrag(end.type === "pointerup");
 	};
-	// Keyboard users reach the same menu from the handle.
-	handle.onkeydown = (event) => {
-		if (event.key === "Enter" || event.key === " ") {
+	/** Follow the pointer with a card of the block, and show where it would land. */
+	function moveDrag(move: PointerEvent) {
+		if (!drag || !editor) return;
+		if (!drag.moved && Math.abs(move.clientY - drag.y) < 4) return;
+		if (!drag.moved) {
+			drag.moved = true;
+			const first = editor.view.nodeDOM(drag.units[0]!.pos) as HTMLElement;
+			ghost.replaceChildren(first.cloneNode(true));
+			if (drag.units.length > 1) {
+				const badge = document.createElement("span");
+				badge.className = "doc-ghost-count";
+				badge.textContent = String(drag.units.length);
+				ghost.append(badge);
+			}
+			ghost.style.width = `${first.getBoundingClientRect().width}px`;
+			ghost.hidden = false;
+			for (const unit of drag.units) {
+				const dom = editor.view.nodeDOM(unit.pos);
+				if (dom instanceof HTMLElement) {
+					dom.classList.add("doc-dragging");
+					drag.dims.push(dom);
+				}
+			}
+			hideHandles();
+		}
+		// The card rides the pointer, with a little sideways give.
+		ghost.style.left = `${drag.from.left + (move.clientX - drag.x) * 0.1}px`;
+		ghost.style.top = `${drag.from.top + move.clientY - drag.y}px`;
+		// Near the window's top or bottom, the page scrolls along.
+		if (move.clientY < 64) scrollBy(0, -12);
+		else if (move.clientY > innerHeight - 64) scrollBy(0, 12);
+		const target = unitAtY(move.clientY);
+		const lead = drag.units[0]!;
+		const leadIndex = editor.state.doc.resolve(lead.pos).index(lead.depth - 1);
+		if (!target || target.unit.depth !== lead.depth)
+			return (drop.hidden = true);
+		const box = target.dom.getBoundingClientRect();
+		const after = move.clientY > box.top + box.height / 2;
+		const index = editor.state.doc
+			.resolve(target.unit.pos)
+			.index(target.unit.depth - 1);
+		const sameParent =
+			editor.state.doc.resolve(target.unit.pos).start() ===
+			editor.state.doc.resolve(lead.pos).start();
+		drag.to = sameParent ? index + (after ? 1 : 0) : -1;
+		// No line where dropping would change nothing.
+		const size = drag.units.length;
+		if (drag.to < 0 || (drag.to >= leadIndex && drag.to <= leadIndex + size))
+			return (drop.hidden = true);
+		const lane = target.dom.getBoundingClientRect();
+		drop.hidden = false;
+		drop.style.left = `${lane.left + scrollX}px`;
+		drop.style.width = `${lane.width}px`;
+		drop.style.top = `${(after ? box.bottom : box.top) + scrollY - 1}px`;
+	}
+	/** Drop the dragged blocks, or open the menu when the grip was only clicked. */
+	function endDrag(dropped: boolean) {
+		if (!drag || !editor) return;
+		const { units, moved, to, dims } = drag;
+		handle.onpointermove = handle.onpointerup = handle.onpointercancel = null;
+		drag = undefined;
+		ghost.hidden = true;
+		ghost.replaceChildren();
+		drop.hidden = true;
+		for (const dom of dims) dom.classList.remove("doc-dragging");
+		if (!moved) {
+			const lead = units[0]!;
+			if (lead.depth === 1) {
+				const index = editor.state.doc.resolve(lead.pos).index(0);
+				if (!blockSelection(editor))
+					setBlockSelection(editor, { anchor: index, head: index });
+			}
+			return openBlockMenu(lead);
+		}
+		if (!dropped || to < 0) return;
+		if (units.length === 1) moveUnit(editor, units[0]!, to);
+		else {
+			// Several selected blocks move as one, one step at a time.
+			const range = blockSelection(editor)!;
+			const steps = to > range.to ? to - range.to - 1 : to - range.from;
+			for (let step = 0; step < Math.abs(steps); step++)
+				blocks.moveSelected(editor, steps < 0 ? -1 : 1);
+		}
+		editor.commands.focus();
+	}
+	// Esc cancels a drag.
+	document.addEventListener("keydown", (event) => {
+		if (event.key === "Escape" && drag) {
 			event.preventDefault();
-			if (handleIndex >= 0) openBlockMenu(handleIndex);
+			drag.moved && (drag.to = -1);
+			endDrag(false);
+		}
+	});
+	// Keyboard users reach the same menu from the grip.
+	handle.onkeydown = (event) => {
+		if ((event.key === "Enter" || event.key === " ") && hovered) {
+			event.preventDefault();
+			openBlockMenu(hovered.unit);
 		}
 	};
-	/** The actions for one block: change its kind, duplicate or delete it. */
-	function openBlockMenu(index: number) {
+	/** The kinds a block can turn into, as tiles. */
+	const TURN_INTO: [string, string, () => unknown][] = [
+		["Text", "T", () => applyDocumentStyle(editor!, "paragraph")],
+		["Heading 1", "H1", () => applyDocumentStyle(editor!, "1")],
+		["Heading 2", "H2", () => applyDocumentStyle(editor!, "2")],
+		["Heading 3", "H3", () => applyDocumentStyle(editor!, "3")],
+		["Bulleted list", "•", () => addList("bulletList")],
+		["Numbered list", "1.", () => addList("orderedList")],
+		["To-do list", "☐", () => addList("taskList")],
+		["Quote", "❝", () => applyDocumentStyle(editor!, "quote")],
+		["Code block", "{ }", () => applyDocumentStyle(editor!, "code")],
+	];
+	/** The actions for a block, or for the selected blocks. */
+	function openBlockMenu(unit: Unit) {
 		if (!editor) return;
 		closePopups();
-		const items: [string, () => unknown][] = [
-			["Text", () => applyDocumentStyle(editor!, "paragraph")],
-			["Heading 1", () => applyDocumentStyle(editor!, "1")],
-			["Heading 2", () => applyDocumentStyle(editor!, "2")],
-			["Heading 3", () => applyDocumentStyle(editor!, "3")],
-			["Quote", () => applyDocumentStyle(editor!, "quote")],
-			["Code block", () => applyDocumentStyle(editor!, "code")],
-			["Bulleted list", () => addList("bulletList")],
-			["Numbered list", () => addList("orderedList")],
-			["To-do list", () => addList("taskList")],
-		];
-		const label = document.createElement("p");
-		label.textContent = "Turn into";
-		blockMenu.replaceChildren(label);
-		for (const [name, apply] of items) {
+		const range = blockSelection(editor);
+		const count = range ? range.to - range.from + 1 : 1;
+		const several = count > 1;
+		const header = document.createElement("p");
+		header.textContent = several ? `Turn ${count} blocks into` : "Turn into";
+		const grid = document.createElement("div");
+		grid.className = "doc-turn";
+		const current = currentDocumentStyle(editor);
+		for (const [name, tile, apply] of TURN_INTO) {
 			const item = document.createElement("button");
 			item.type = "button";
 			item.setAttribute("role", "menuitem");
-			item.textContent = name;
+			item.title = name;
+			item.setAttribute("aria-label", name);
+			item.textContent = tile;
+			if (
+				!several &&
+				name ===
+					(
+						{
+							paragraph: "Text",
+							"1": "Heading 1",
+							"2": "Heading 2",
+							"3": "Heading 3",
+							quote: "Quote",
+							code: "Code block",
+						} as Record<string, string>
+					)[current]
+			)
+				item.setAttribute("aria-current", "true");
 			item.onmousedown = (event) => event.preventDefault();
 			item.onclick = () => {
-				focusDocumentBlock(editor!, index);
+				const first = range ? blocks.blockStart(editor!, range.from) : unit.pos;
+				const last = range
+					? blocks.blockStart(editor!, range.to + 1) - 1
+					: unit.pos + unit.node.nodeSize - 1;
+				setBlockSelection(editor!, null);
+				editor!
+					.chain()
+					.focus()
+					.setTextSelection({
+						from: first + 1,
+						to: Math.max(first + 1, last - 1),
+					})
+					.run();
 				apply();
 				closePopups();
 			};
-			blockMenu.append(item);
+			grid.append(item);
 		}
-		blockMenu.append(document.createElement("hr"));
-		for (const [name, run] of [
-			["Duplicate" + keys("D"), () => duplicateDocumentBlock(editor!, index)],
-			["Delete", () => deleteDocumentBlock(editor!, index)],
-		] as const) {
+		const action = (
+			label: string,
+			keysLabel: string,
+			run: () => unknown,
+			danger = false,
+		) => {
 			const item = document.createElement("button");
 			item.type = "button";
 			item.setAttribute("role", "menuitem");
-			item.textContent = name.trim();
+			item.className = danger ? "doc-danger" : "";
+			item.innerHTML = "<span></span><kbd></kbd>";
+			item.children[0]!.textContent = label;
+			item.children[1]!.textContent = keysLabel;
 			item.onmousedown = (event) => event.preventDefault();
 			item.onclick = () => {
 				run();
 				closePopups();
-				handle.hidden = true;
+				hideHandles();
 			};
-			blockMenu.append(item);
+			return item;
+		};
+		const mod = mac ? "⌘" : "Ctrl+",
+			alt = mac ? "⌥⇧" : "Alt+Shift+";
+		const items: HTMLElement[] = [
+			action("Duplicate", `${mod}D`, () =>
+				several
+					? blocks.duplicateSelected(editor!)
+					: duplicateUnit(editor!, unit),
+			),
+			action("Move up", `${alt}↑`, () =>
+				several || unit.depth === 1
+					? (blockSelection(editor!) ||
+							setBlockSelection(editor!, {
+								anchor: editor!.state.doc.resolve(unit.pos).index(0),
+								head: editor!.state.doc.resolve(unit.pos).index(0),
+							}),
+						blocks.moveSelected(editor!, -1))
+					: moveUnit(
+							editor!,
+							unit,
+							editor!.state.doc.resolve(unit.pos).index() - 1,
+						),
+			),
+			action("Move down", `${alt}↓`, () =>
+				several || unit.depth === 1
+					? (blockSelection(editor!) ||
+							setBlockSelection(editor!, {
+								anchor: editor!.state.doc.resolve(unit.pos).index(0),
+								head: editor!.state.doc.resolve(unit.pos).index(0),
+							}),
+						blocks.moveSelected(editor!, 1))
+					: moveUnit(
+							editor!,
+							unit,
+							editor!.state.doc.resolve(unit.pos).index() + 2,
+						),
+			),
+			action("Copy", `${mod}C`, () => {
+				const from = range ? blocks.blockStart(editor!, range.from) : unit.pos;
+				const to = range
+					? blocks.blockStart(editor!, range.to + 1)
+					: unit.pos + unit.node.nodeSize;
+				void navigator.clipboard?.writeText(
+					editor!.state.doc.textBetween(from, to, "\n\n"),
+				);
+			}),
+		];
+		// A table also offers its header row and even widths.
+		const table =
+			!several && unit.node.type.name === "table" ? unit.node : undefined;
+		if (table) {
+			const header = table.firstChild?.firstChild?.type.name === "tableHeader";
+			items.push(
+				action(`${header ? "✓ " : ""}Header row`, "", () => {
+					editor!
+						.chain()
+						.focus()
+						.setTextSelection(unit.pos + 4)
+						.toggleHeaderRow()
+						.run();
+				}),
+			);
+			let widths = false;
+			table.descendants((node) => {
+				if (
+					Array.isArray(node.attrs.colwidth) &&
+					node.attrs.colwidth.some(Boolean)
+				)
+					widths = true;
+			});
+			if (widths)
+				items.push(
+					action("Even column widths", "", () => {
+						const tr = editor!.state.tr;
+						table.descendants((node, offset) => {
+							if (node.attrs.colwidth)
+								tr.setNodeMarkup(unit.pos + 1 + offset, undefined, {
+									...node.attrs,
+									colwidth: null,
+								});
+						});
+						editor!.view.dispatch(tr);
+					}),
+				);
 		}
+		blockMenu.replaceChildren(
+			header,
+			grid,
+			document.createElement("hr"),
+			...items,
+			document.createElement("hr"),
+			action(
+				several ? `Delete ${count} blocks` : "Delete",
+				mac ? "⌫" : "Del",
+				() =>
+					several ? blocks.deleteSelected(editor!) : deleteUnit(editor!, unit),
+				true,
+			),
+		);
 		const box = handle.getBoundingClientRect();
 		place(blockMenu, box.left, box.bottom + 4);
 		blockMenu.querySelector("button")?.focus();
 	}
+	// ---- Block selection: Esc, Shift+arrows, or a sweep in the margin ----
+	let sweep: { y: number } | undefined;
+	page.addEventListener("pointerdown", (event) => {
+		if (!editor?.isEditable || event.button !== 0) return;
+		const content = editor.view.dom.getBoundingClientRect();
+		// A press beside the text, not on it, starts a sweep over whole blocks.
+		if (
+			event.clientX >= content.left ||
+			gutter.contains(event.target as Node)
+		) {
+			if (editor.view.dom.contains(event.target as Node))
+				clearBlockSelection(editor);
+			return;
+		}
+		event.preventDefault();
+		sweep = { y: event.clientY };
+		const select = (y: number) => {
+			const a = unitAtY(sweep!.y),
+				b = unitAtY(y);
+			if (!a || !b) return;
+			setBlockSelection(editor!, {
+				anchor: editor!.state.doc.resolve(a.unit.pos).index(0),
+				head: editor!.state.doc.resolve(b.unit.pos).index(0),
+			});
+		};
+		select(event.clientY);
+		const move = (next: PointerEvent) => select(next.clientY);
+		const up = () => {
+			sweep = undefined;
+			removeEventListener("pointermove", move);
+			removeEventListener("pointerup", up);
+		};
+		addEventListener("pointermove", move);
+		addEventListener("pointerup", up);
+	});
 	/** The keyboard shortcuts sheet: every key, and the Markdown that types blocks. */
 	function showShortcuts() {
 		const chip = (text: string, md = false) => {
@@ -1702,6 +2177,24 @@ export async function mountDocClient(
 	const keydown = (event: KeyboardEvent) => {
 		const key = event.key.toLowerCase(),
 			mod = event.metaKey || event.ctrlKey;
+		// Whole blocks: Esc selects them, then arrows, Backspace, Cmd+D and Enter.
+		const popupOpen =
+			!slash.hidden ||
+			!menu.hidden ||
+			!linkForm.hidden ||
+			!blockMenu.hidden ||
+			!colors.hidden ||
+			!shortcuts.hidden;
+		if (
+			editor?.isEditable &&
+			!popupOpen &&
+			editor.view.dom.contains(event.target as Node) &&
+			blockSelectionKey(editor, event)
+		) {
+			event.preventDefault();
+			event.stopPropagation();
+			return;
+		}
 		if (!slash.hidden && /^(arrow(up|down)|enter|tab|escape)$/.test(key)) {
 			const choices = slashFound.length;
 			if (key === "escape") {

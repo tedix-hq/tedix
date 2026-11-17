@@ -334,14 +334,17 @@ describe("portable rich Doc client", () => {
 		]);
 		press(menu, { key: "Escape" });
 		expect(menu.hidden).toBe(true);
-		const tableTools = find(root, "Add row below")!.parentElement!;
-		expect(tableTools.hidden).toBe(true);
+		// Table opens the size picker; Enter inserts the 3 × 3 it starts on.
+		expect(find(root, "Add row below")).toBeUndefined();
 		click(root, "Table");
+		const picker = root.querySelector<HTMLElement>(".doc-table-picker")!;
+		expect(picker.hidden).toBe(false);
+		expect(picker.textContent).toContain("3 × 3");
+		press(picker.querySelector(".doc-table-grid")!, { key: "Enter" });
 		expect(
 			editor.getJSON().content?.some((node) => node.type === "table"),
 		).toBe(true);
 		await frame();
-		expect(tableTools.hidden).toBe(false);
 		click(root, "Bold");
 		await frame();
 		expect(find(root, "Bold")!.getAttribute("aria-pressed")).toBe("true");
@@ -541,6 +544,7 @@ describe("portable rich Doc client", () => {
 				editor.commands.setTextSelection(offset + 1);
 		});
 		click(root, "Table");
+		press(root.querySelector(".doc-table-grid")!, { key: "Enter" });
 		expect(root.querySelectorAll(".tiptap th")).toHaveLength(3);
 		editor
 			.chain()
@@ -1245,7 +1249,7 @@ describe("portable rich Doc client", () => {
 				true,
 			);
 		});
-		it("adds and removes table rows and columns and toggles the header row", async () => {
+		it("adds and removes table rows and columns from the pills on the cell under the pointer", async () => {
 			const { root, editor } = await fixture().mount();
 			editor
 				.chain()
@@ -1261,16 +1265,46 @@ describe("portable rich Doc client", () => {
 				table().content!.length,
 				table().content![0]!.content!.length,
 			];
-			click(root, "Add row above");
-			click(root, "Add column to the left");
+			const hover = (selector: string) =>
+				root
+					.querySelectorAll<HTMLElement>(selector)
+					[root.querySelectorAll(selector).length - 1]!.dispatchEvent(
+						new MouseEvent("mousemove", { bubbles: true }),
+					);
+			const choose = (pill: string, label: string) => {
+				root.querySelector<HTMLButtonElement>(pill)!.click();
+				[...root.querySelectorAll<HTMLButtonElement>(".doc-table-menu button")]
+					.find((node) => node.textContent === label)!
+					.click();
+			};
+			hover(".tiptap td");
+			expect(
+				root.querySelector<HTMLElement>(".doc-table-pill.col")!.hidden,
+			).toBe(false);
+			choose(".doc-table-pill.row", "Insert above");
+			hover(".tiptap td");
+			choose(".doc-table-pill.col", "Insert left");
 			expect(shape()).toEqual([3, 3]);
-			click(root, "Delete row");
-			click(root, "Delete column");
+			hover(".tiptap td");
+			choose(".doc-table-pill.row", "Delete row");
+			hover(".tiptap td");
+			choose(".doc-table-pill.col", "Delete column");
 			expect(shape()).toEqual([2, 2]);
-			const first = () => table().content![0]!.content![0]!.type;
-			const before = first();
-			click(root, "Header row");
-			expect(first()).not.toBe(before);
+			// The "+" bars add a row or column at the end.
+			hover(".tiptap td");
+			root.querySelector<HTMLButtonElement>(".doc-table-add.row")!.click();
+			expect(shape()).toEqual([3, 2]);
+			// The header row's menu offers the header toggle.
+			hover(".tiptap th");
+			root.querySelector<HTMLButtonElement>(".doc-table-pill.row")!.click();
+			const labels = [
+				...root.querySelectorAll<HTMLButtonElement>(".doc-table-menu button"),
+			].map((node) => node.textContent);
+			expect(labels).toEqual([
+				"Insert below",
+				"✓ Header row",
+				"Delete header row",
+			]);
 		});
 		it("duplicates the block the caret is in with Cmd or Ctrl+D", async () => {
 			const { editor } = await fixture().mount();

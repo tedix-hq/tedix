@@ -45,8 +45,28 @@ try {
 	await handle.click();
 	await menu.getByRole("menuitem", { name: /^Duplicate/ }).click();
 	assert.equal(await editor.locator("> h2", { hasText: "Third" }).count(), 2);
+	// "+" adds a line below and opens the insert menu on it (a narrow pane
+	// has no room for "+" in the margin, so it only shows when there is).
+	await editor.locator("> p").last().hover();
+	if (await frame.locator(".doc-add").isVisible()) {
+		await frame.locator(".doc-add").click();
+		await frame.locator(".doc-slash").waitFor();
+		await page.keyboard.press("Escape");
+		await page.keyboard.press("Backspace");
+		await page.keyboard.press("Backspace");
+	}
+
+	// Esc selects the block; Shift+arrow extends; Backspace deletes both.
+	const count = await editor.locator("> *").count();
+	await editor.locator("> p").last().click();
+	await page.keyboard.press("Escape");
+	await frame.locator(".doc-block-selected").first().waitFor();
+	await page.keyboard.press("Shift+ArrowUp");
+	assert.equal(await frame.locator(".doc-block-selected").count(), 2);
+	await page.keyboard.press("Backspace");
+	assert.equal(await editor.locator("> *").count(), count - 2);
 	console.log(
-		"Doc block handle passed: drag to move, turn into a heading, duplicate",
+		"Doc block handle passed: drag, turn into, duplicate, +, block selection",
 	);
 } finally {
 	await tabs.stop();
