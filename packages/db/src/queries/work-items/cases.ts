@@ -17,6 +17,8 @@ import {
 	requireWorkCase,
 	requireWorkItem,
 } from "./factory-validation";
+import { lifecycleEventInsert } from "./crud";
+import type { WorkActor } from "./factory-state";
 
 export interface CreateWorkCaseParams {
 	id: string;
@@ -309,6 +311,64 @@ export async function linkWorkItemToCase(
 		requireWorkItem(db, p.orgId, p.workItemId),
 	]);
 	return (await db.insert(workCaseItems).values(p).returning())[0]!;
+}
+/**
+ * Undo for `linkWorkItemToCase`. Removes only the membership link; the Work
+ * Item, its evidence and history stay. The removed link (rationale and
+ * discovery time) is kept in an appended `work.case_detached` event, so the
+ * link can be re-attached as it was.
+ */
+export async function detachWorkItemFromCase(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		caseId: string;
+		workItemId: string;
+		actor: WorkActor;
+		now: string;
+	},
+) {
+	const [, item] = await Promise.all([
+		requireWorkCase(db, p.orgId, p.caseId),
+		requireWorkItem(db, p.orgId, p.workItemId),
+	]);
+	const link = (
+		await db
+			.select()
+			.from(workCaseItems)
+			.where(
+				and(
+					eq(workCaseItems.orgId, p.orgId),
+					eq(workCaseItems.caseId, p.caseId),
+					eq(workCaseItems.workItemId, p.workItemId),
+				),
+			)
+			.limit(1)
+	)[0];
+	if (!link)
+		throw new WorkControlError(
+			"NOT_FOUND",
+			`Work Item ${p.workItemId} is not attached to epic ${p.caseId}`,
+		);
+	await db.batch([
+		lifecycleEventInsert(db, {
+			orgId: p.orgId,
+			workItemId: p.workItemId,
+			disposition: item.disposition,
+			expectedVersion: item.version,
+			eventType: "work.case_detached",
+			actor: p.actor,
+			occurredAt: p.now,
+			payload: {
+				caseId: p.caseId,
+				linkId: link.id,
+				rationale: link.rationale,
+				discoveredAt: link.discoveredAt,
+			},
+		}),
+		db.delete(workCaseItems).where(eq(workCaseItems.id, link.id)),
+	]);
+	return link;
 }
 export async function listWorkCaseItems(
 	db: DbQueryClient,

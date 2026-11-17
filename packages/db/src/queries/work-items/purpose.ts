@@ -70,6 +70,30 @@ export async function assertValidWorkItemProject(
 	return { key: project.key, objectiveId: project.objectiveId };
 }
 
+/** Throws unless the objective exists in this organization. */
+export async function requireOrgObjective(
+	db: DbClient,
+	params: { orgId: string; objectiveId: string },
+): Promise<void> {
+	const row = (
+		await db
+			.select({ orgId: tediObjectives.orgId })
+			.from(tediObjectives)
+			.where(eq(tediObjectives.id, params.objectiveId))
+			.limit(1)
+	)[0];
+	if (!row)
+		throw new WorkItemPurposeError(
+			"objective_not_found",
+			"Objective not found",
+		);
+	if (row.orgId !== params.orgId)
+		throw new WorkItemPurposeError(
+			"objective_wrong_org",
+			"Objective belongs to a different organization",
+		);
+}
+
 /** Maximum lifetime of a non-objective operational exception. */
 export const WORK_ITEM_PURPOSE_EXCEPTION_MAX_MS = 30 * 24 * 60 * 60 * 1000;
 

@@ -584,6 +584,22 @@ export const workItemsContract = oc
 			)
 			.output(WorkCaseItemSchema),
 
+		detachCaseWorkItem: oc
+			.route({
+				method: "DELETE",
+				path: "/cases/{caseId}/work-items/{workItemId}",
+				summary: "Detach Work Item from epic",
+				description:
+					"Owner/admin undo of attachCaseWorkItem. Removes only the membership link; the Work Item and its history stay, and the removed link is recorded in a work.case_detached event.",
+			})
+			.input(
+				z.strictObject({
+					caseId: z.uuid(),
+					workItemId: z.uuid(),
+				}),
+			)
+			.output(WorkCaseItemSchema),
+
 		addCaseDependency: oc
 			.route({
 				method: "POST",
@@ -702,6 +718,26 @@ export const workItemsContract = oc
 			})
 			.input(ListWorkRecoveryProjectionInputSchema)
 			.output(ListWorkRecoveryProjectionResultSchema),
+
+		restoreFiling: oc
+			.route({
+				method: "POST",
+				path: "/{id}/restore-filing",
+				summary: "Restore Work filing",
+				description:
+					"Owner/admin undo of a filing change. Writes the exact project, objective, class and exception expiry given, nulls included, behind an exact-version fence. Refused on closed Work and while an Attempt is live. Appends a work.filing_restored event holding both sides.",
+			})
+			.input(
+				z.strictObject({
+					id: z.uuid(),
+					expectedWorkItemVersion: z.number().int().positive(),
+					projectId: z.uuid().nullable(),
+					objectiveId: z.uuid().nullable(),
+					workClass: WorkItemClassSchema.nullable(),
+					purposeExceptionExpiresAt: z.iso.datetime().nullable(),
+				}),
+			)
+			.output(WorkItemSchema),
 
 		updateSpecification: oc
 			.route({

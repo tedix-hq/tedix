@@ -1435,3 +1435,86 @@ export async function updateWorkItemSpecification(
 		);
 	return normalizeWorkItemRow(item);
 }
+
+/** The filing fields an undo restores exactly, including explicit nulls. */
+export interface WorkItemFiling {
+	projectId: string | null;
+	objectiveId: string | null;
+	workClass: WorkItemClass | null;
+	purposeExceptionExpiresAt: string | null;
+}
+
+/**
+ * Undo for filing changes (project move, purpose repair). Writes the supplied
+ * values verbatim, nulls included, behind the exact-version fence. Refuses
+ * terminal Work and Work with a live Attempt, so an admitted Attempt never
+ * sees its purpose change underneath it. Rotates the admission specification
+ * revision and appends a `work.filing_restored` event holding both sides.
+ * The caller validates that the project and objective belong to the org.
+ */
+export async function restoreWorkItemFiling(
+	db: DbQueryClient,
+	params: {
+		orgId: string;
+		workItemId: string;
+		actor: WorkActor;
+		expectedWorkItemVersion: number;
+		filing: WorkItemFiling;
+		updatedAt?: string;
+	},
+): Promise<WorkItem> {
+	const updatedAt = params.updatedAt ?? new Date().toISOString();
+	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	const specificationUpdateId = crypto.randomUUID();
+	const pick = (item: WorkItemFiling) => ({
+		projectId: item.projectId,
+		objectiveId: item.objectiveId,
+		workClass: item.workClass,
+		purposeExceptionExpiresAt: item.purposeExceptionExpiresAt,
+	});
+	const update = db
+		.update(workItems)
+		.set({
+			metadata: { ...prior.metadata, specificationUpdateId },
+			...params.filing,
+			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+			updatedAt,
+			version: sql`${workItems.version} + 1`,
+		})
+		.where(
+			and(
+				eq(workItems.orgId, params.orgId),
+				eq(workItems.id, params.workItemId),
+				eq(workItems.version, params.expectedWorkItemVersion),
+				ne(workItems.disposition, "completed"),
+				ne(workItems.disposition, "cancelled"),
+				sql`NOT EXISTS (
+					SELECT 1 FROM ${workAttempts}
+					WHERE ${workAttempts.orgId} = ${params.orgId}
+					AND ${workAttempts.workItemId} = ${params.workItemId}
+					AND ${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')
+					AND (${workAttempts.expiresAt} IS NULL OR ${workAttempts.expiresAt} > ${updatedAt})
+				)`,
+			),
+		)
+		.returning();
+	const event = lifecycleEventInsert(db, {
+		orgId: params.orgId,
+		workItemId: params.workItemId,
+		disposition: prior.disposition,
+		expectedVersion: params.expectedWorkItemVersion + 1,
+		specificationUpdateId,
+		eventType: "work.filing_restored",
+		actor: params.actor,
+		occurredAt: updatedAt,
+		payload: { from: pick(prior), to: pick(params.filing) },
+	});
+	const [rows] = await db.batch([update, event]);
+	const item = rows[0];
+	if (!item)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Filing can be restored only on open Work with no live Attempt, at the expected version",
+		);
+	return normalizeWorkItemRow(item);
+}

@@ -1,6 +1,7 @@
 import {
 	addWorkCaseDependency,
 	createWorkCase,
+	detachWorkItemFromCase,
 	getWorkCase,
 	linkWorkItemToCase,
 	listWorkCaseDependencies,
@@ -17,6 +18,7 @@ import { requireOrgId } from "../../org-scope";
 import { AUTHZ, withAuthorization } from "../../orpc";
 import {
 	authOs,
+	requireOwnerAdminWorkItemAuthor,
 	rethrowWorkControlError,
 	verifiedWorkFactoryMutator,
 } from "./policy-helpers";
@@ -204,6 +206,29 @@ export const attachCaseWorkItemProcedure =
 					workItemId: input.workItemId,
 					rationale: input.rationale,
 					discoveredAt: new Date().toISOString(),
+				}),
+			);
+		} catch (error) {
+			rethrowCaseError(error);
+		}
+	});
+
+export const detachCaseWorkItemProcedure =
+	caseWriteOs.detachCaseWorkItem.handler(async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const userId = await requireOwnerAdminWorkItemAuthor(
+			context,
+			orgId,
+			"Detaching Work from an epic",
+		);
+		try {
+			return caseItemOutput(
+				await detachWorkItemFromCase(context.db, {
+					orgId,
+					caseId: input.caseId,
+					workItemId: input.workItemId,
+					actor: { type: "user", id: userId },
+					now: new Date().toISOString(),
 				}),
 			);
 		} catch (error) {
