@@ -196,7 +196,7 @@ client.setQueryData(
 	osQuery.workItems.listAttemptProjection.infiniteOptions({
 		input: () => ({
 			...input,
-			outcomes: ["succeeded", "failed", "expired", "cancelled"],
+			outcomes: ["succeeded", "failed", "rejected", "expired", "cancelled"],
 		}),
 		...options,
 	}).queryKey,
@@ -300,7 +300,7 @@ if (params.has("stalled")) {
 		osQuery.workItems.listAttemptProjection.infiniteOptions({
 			input: () => ({
 				...input,
-				outcomes: ["succeeded", "failed", "expired", "cancelled"],
+				outcomes: ["succeeded", "failed", "rejected", "expired", "cancelled"],
 			}),
 			...options,
 		}).queryKey,

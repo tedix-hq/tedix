@@ -249,13 +249,13 @@ it.each([
 				projectId: scope,
 				limit: 2,
 				cursor: undefined,
-				outcomes: ["succeeded", "failed", "expired", "cancelled"],
+				outcomes: ["succeeded", "failed", "rejected", "expired", "cancelled"],
 			},
 			{
 				projectId: scope,
 				limit: 2,
 				cursor: resultCursor,
-				outcomes: ["succeeded", "failed", "expired", "cancelled"],
+				outcomes: ["succeeded", "failed", "rejected", "expired", "cancelled"],
 			},
 		]);
 		// A new request while both sources are busy must not cancel or duplicate either read.
