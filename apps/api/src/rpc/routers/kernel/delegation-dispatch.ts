@@ -1402,7 +1402,10 @@ export function decideDelegationDispatch(input: {
 	workOrderContent?: string;
 	route: KernelRouteDecision;
 	card: TediCapabilityCard | null;
-	speaker: { approvalAuthority?: boolean } | null;
+	speaker: {
+		approvalAuthority?: boolean;
+		policyDelegationAuthority?: boolean;
+	} | null;
 	executionRequirement?: ExecutionRequirement;
 	capabilityPlan?: DelegationCapabilityPlan;
 	/**
@@ -1567,7 +1570,10 @@ function computeDispatchVerdict(input: {
 	workOrderContent?: string;
 	route: KernelRouteDecision;
 	card: TediCapabilityCard | null;
-	speaker: { approvalAuthority?: boolean } | null;
+	speaker: {
+		approvalAuthority?: boolean;
+		policyDelegationAuthority?: boolean;
+	} | null;
 	executionRequirement?: ExecutionRequirement;
 	gating?: {
 		session?: DispatchPolicyLayer | null;
@@ -1800,8 +1806,12 @@ function computeDispatchVerdict(input: {
 		};
 	}
 
-	// Organization autonomy never grants a member dispatch authority.
-	if (!speaker?.approvalAuthority) {
+	// Members need owner/admin authority. An admitted external agent may rely on
+	// an existing standing-policy allow, but never creates that allow itself.
+	if (
+		!speaker?.approvalAuthority &&
+		!(speaker?.policyDelegationAuthority && handoffApproved)
+	) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",
