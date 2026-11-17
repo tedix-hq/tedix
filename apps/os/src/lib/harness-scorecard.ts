@@ -80,7 +80,8 @@ export function aggregateHarnessScorecard(
 		const row = runner(name);
 		row.started++;
 		if (attempt.outcome === "succeeded") row.succeeded++;
-		if (attempt.outcome === "failed") row.failed++;
+		if (attempt.outcome === "failed" || attempt.outcome === "rejected")
+			row.failed++;
 		if (
 			attempt.outcome === "expired" ||
 			(attempt.outcome === null &&

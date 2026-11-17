@@ -3206,7 +3206,7 @@ describe("dispatcher admission", () => {
 			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
 		);
 		const settle = f.events.find((event) => event.verb === "settle")!;
-		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("rejected");
 		expect(settle.args[settle.args.indexOf("--note") + 1]).toStartWith(
 			`Result:\nUnlanded: 1 commit is not on origin/main (${sha}), kept in ${receipt.repo}. Reason: ${reason}.\n`,
 		);
@@ -3320,7 +3320,7 @@ describe("dispatcher admission", () => {
 		f.releases[0]!();
 		await f.dispatcher.drain();
 		const settle = f.events.find((event) => event.verb === "settle")!;
-		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("rejected");
 		expect(settle.args).toContain("a".repeat(40));
 		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
 	});
@@ -3521,7 +3521,7 @@ describe("dispatcher admission", () => {
 			});
 			expect(settle.args).toContain(commitSha);
 			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
-				outcome === "completed" ? "succeeded" : "failed",
+				outcome === "completed" ? "succeeded" : "rejected",
 			);
 			expect(
 				f.events.filter(
@@ -3802,17 +3802,15 @@ describe("dispatcher admission", () => {
 	});
 
 	it.each(["research", "coding"] as const)(
-		"reruns a %s lane after an incomplete verdict only when it keeps code",
+		"leaves a %s lane's rejected verdict to the server instead of holding it locally",
 		async (workKind) => {
-			const { dispatcher, dir, items, events, control, releases } = fixture();
+			const { dispatcher, items, events, control, releases } = fixture();
 			items.splice(1);
 			items[0]!.workKind = workKind;
-			// The first run finished and declared the outcome incomplete: a
-			// verdict on the unchanged revision, not a crash.
 			control.history.data = [
 				{
 					id: "verdict-attempt",
-					outcome: "failed",
+					outcome: "rejected",
 					metadata: {
 						dispatchVersion: 2,
 						laneResult: { outcome: "incomplete", remaining: "Gap found" },
@@ -3820,103 +3818,15 @@ describe("dispatcher admission", () => {
 				},
 			];
 			await dispatcher.tick();
-			const starts = () => events.filter((e) => e.verb === "start" && e.input);
-			if (workKind === "research") {
-				await dispatcher.drain();
-				const saved = JSON.parse(
-					readFileSync(join(dir, `${item().id}-2.json`), "utf8"),
-				);
-				expect(saved.held).toBe(true);
-				expect(saved.note).toContain(
-					"Attempt verdict-attempt reported the accepted outcome incomplete",
-				);
-				expect(starts()).toHaveLength(0);
-				expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
-				return;
-			}
-			// A coding lane resumes its retained change, so one rerun can progress.
+			// Admission is the server's call, so the dispatcher still asks.
 			await until(() => releases.length === 1);
 			releases[0]!();
 			await dispatcher.drain();
-			expect(starts()).toHaveLength(1);
+			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+				1,
+			);
 		},
 	);
-	it("keeps a held run's unpushed commits named and hands them to the next revision", async () => {
-		const { restart, deps, dir, items, events, control, releases } = fixture();
-		items.splice(1);
-		items[0]!.workKind = "research";
-		const path = join(dir, `${item().id}-2.json`);
-		const repo = join(dir, "runs", `${item().id}-2`, "repo");
-		deps.evictedWork = (_source, destination) =>
-			destination === repo ? "refs/lane-evicted/run/repo" : undefined;
-		const dispatcher = restart();
-		mkdirSync(repo, { recursive: true });
-		const sha = "c".repeat(40);
-		// The run committed its change, could not push it and reported the
-		// outcome incomplete.
-		writeFileSync(
-			path,
-			JSON.stringify({
-				itemId: item().id,
-				version: 2,
-				phase: "deferred",
-				outcome: "failed",
-				admissionState: "admitted",
-				attemptId: "verdict-attempt",
-				repo,
-				baseCommit: "b".repeat(40),
-				unpushedCommits: [sha],
-				unpushedReason: "The push was refused: a pre-push check timed out.",
-			}),
-		);
-		control.history.data = [
-			{
-				id: "verdict-attempt",
-				outcome: "failed",
-				metadata: {
-					dispatchVersion: 2,
-					laneResult: { outcome: "incomplete", remaining: "Not pushed" },
-				},
-			},
-		];
-		await dispatcher.tick();
-		await dispatcher.drain();
-		const held = JSON.parse(readFileSync(path, "utf8"));
-		expect(held.held).toBe(true);
-		expect(held.attemptId).toBeUndefined();
-		expect(held).toMatchObject({
-			repo,
-			unpushedCommits: [sha],
-			unpushedReason: "The push was refused: a pre-push check timed out.",
-			retainedAttemptId: "verdict-attempt",
-		});
-		expect(held.note).toContain(
-			`Finished commits that are not on origin/main stay in ${repo}: ${sha}. Why they were not pushed: The push was refused: a pre-push check timed out. The next run`,
-		);
-		expect(events.find((e) => e.verb === "comment")?.args.join(" ")).toContain(
-			sha,
-		);
-		expect(
-			retainedLaneWorktree(dir, item().id, [
-				{ id: "verdict-attempt", outcome: "failed" },
-			])?.repo,
-		).toBe(repo);
-
-		// The checkout is evicted to free disk, then the owner revises the
-		// task: the next run is told which ref saved the work.
-		rmSync(repo, { recursive: true });
-		items[0]!.version = 3;
-		await dispatcher.tick();
-		await until(() => releases.length === 1);
-		expect(
-			readFileSync(join(dir, "runs", `${item().id}-3`, "brief.txt"), "utf8"),
-		).toContain(
-			"Its commits and uncommitted files are saved in this repository as Git ref refs/lane-evicted/run/repo;",
-		);
-		releases[0]!();
-		await dispatcher.drain();
-	});
-
 	it("holds matching failures despite changing request diagnostics", async () => {
 		const { dispatcher, dir, items, events, control } = fixture();
 		items.splice(1);
@@ -4443,7 +4353,9 @@ describe("dispatcher admission", () => {
 			expect(settlement!.args[settlement!.args.indexOf("--outcome") + 1]).toBe(
 				["installed", "git", "restart"].includes(scenario)
 					? "succeeded"
-					: "failed",
+					: scenario === "incompleteResult"
+						? "rejected"
+						: "failed",
 			);
 		}
 		if (scenario === "installed") {
@@ -7557,7 +7469,11 @@ describe("structured dispatcher outcomes", () => {
 		}
 		expect(settled).toHaveLength(1);
 		expect(settled[0]!.args[settled[0]!.args.indexOf("--outcome") + 1]).toBe(
-			state === "proven" ? "succeeded" : "failed",
+			state === "proven"
+				? "succeeded"
+				: state === "incomplete"
+					? "rejected"
+					: "failed",
 		);
 		expect(settled[0]!.args).not.toContain("--commit");
 		const metadata = settled[0]!.input?.metadata as Record<string, unknown>;
@@ -8480,98 +8396,6 @@ it("publishes only canonical completed Work, never a cancelled succeeded receipt
 	).toEqual({ id: item(1).id, completedAt: at });
 });
 
-it("holds exhausted canonical execution failures across windows and restarts while other Work completes", async () => {
-	const f = fixture({ max: 1 });
-	f.items.splice(1);
-	f.control.history.data = ["failed", "expired", "failed"].map(
-		(outcome, n) => ({
-			id: `failure-${n}`,
-			outcome,
-			summary: `Different agent wording ${n}`,
-			metadata: { dispatchVersion: 2 },
-		}),
-	);
-	await f.dispatcher.tick();
-	const path = join(f.dir, `${item().id}-2.json`);
-	await until(
-		() =>
-			f.releases.length > 0 ||
-			(existsSync(path) &&
-				JSON.parse(readFileSync(path, "utf8")).phase === "deferred"),
-	);
-	for (const release of f.releases) release();
-	await f.dispatcher.drain();
-	expect(f.releases).toHaveLength(0);
-	const saved = JSON.parse(readFileSync(path, "utf8"));
-	expect(saved.held).toBe(true);
-	expect(saved.attemptId).toBeUndefined();
-	// Passing a retry deadline must not buy more model calls.
-	saved.retryAt = 0;
-	saved.retryDeadlineAt = 0;
-	writeFileSync(path, JSON.stringify(saved));
-	// The hold is recorded on the Work and the owner asked once; a restart
-	// finds both done and repeats neither.
-	for (let pass = 0; pass < 3; pass++) await f.restart().tick();
-	expect(f.releases).toHaveLength(0);
-	expect(f.events.filter((e) => e.verb === "comment")).toHaveLength(1);
-	const holds = f.events.filter((e) => e.verb === "dispatch-hold");
-	expect(holds).toHaveLength(1);
-	expect(holds[0]!.input).toEqual({
-		expectedWorkItemVersion: 2,
-		laneDispatch: {
-			state: "held",
-			reason: "Three runs failed or expired on this version of the task.",
-			note: saved.note,
-		},
-	});
-	const requests = f.events.filter((e) => e.verb === "interaction-create");
-	expect(requests).toHaveLength(1);
-	expect(requests[0]!.input).toMatchObject({
-		workItemId: item().id,
-		kind: "input",
-		subject: 'What should happen with "Summarize the guide"?',
-		requestedFrom: { type: "user", id: "fictional-owner" },
-		metadata: {
-			source: "lane-dispatch-blocker",
-			laneBlocker: {
-				kind: "execution_hold",
-				executor: "codex",
-				workVersion: 3,
-			},
-		},
-	});
-	expect(requests[0]!.input!.prompt).toContain(
-		"Three runs failed or expired on this version of the task.",
-	);
-	expect(f.items[0]).toMatchObject({
-		version: 3,
-		metadata: { laneDispatch: { state: "held" } },
-	});
-	const next = { ...item(2), version: 3 };
-	f.items.push(next);
-	const restarted = f.restart();
-	await restarted.tick();
-	await until(() => f.releases.length === 1);
-	f.releases[0]!();
-	await restarted.drain();
-	expect(
-		JSON.parse(readFileSync(join(f.dir, `${next.id}-3.json`), "utf8")),
-	).toMatchObject({
-		outcome: "succeeded",
-		completionPending: false,
-	});
-	// A revised brief has its own budget and still needs a fresh admission;
-	// the server makes held Work ready again when its specification is edited.
-	f.items.splice(1);
-	f.items[0]!.version = 4;
-	f.items[0]!.metadata = { executor: "codex" };
-	await restarted.tick();
-	await until(() => f.releases.length === 2);
-	f.releases[1]!();
-	await restarted.drain();
-	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(2);
-});
-
 it("asks again after a lost request reply without holding the Work twice, and drops a hold the Work outgrew", async () => {
 	const f = fixture({ max: 1 });
 	f.items.splice(2);
@@ -8617,97 +8441,6 @@ it("asks again after a lost request reply without holding the Work twice, and dr
 		workItemId: item(1).id,
 		metadata: { laneBlocker: { workVersion: 3 } },
 	});
-	expect(f.releases).toHaveLength(0);
-});
-
-it("does not count Attempts that ended before the agent turn toward the execution hold", async () => {
-	const f = fixture({ max: 1 });
-	f.items.splice(1);
-	// Two dispatcher-fault settlements and a crash: none of the three ran
-	// an agent turn, so the revision must not hold for a human edit.
-	f.control.history.data = [
-		{
-			id: "fault-1",
-			outcome: "failed",
-			metadata: { dispatchVersion: 2, agentTurnStarted: false },
-		},
-		{
-			id: "fault-2",
-			outcome: "failed",
-			metadata: { dispatchVersion: 2, agentTurnStarted: false },
-		},
-		{
-			id: "fault-3",
-			outcome: "expired",
-			metadata: { dispatchVersion: 2, agentTurnStarted: false },
-		},
-	];
-	await f.dispatcher.tick();
-	await until(() => f.releases.length === 1);
-	f.releases[0]!();
-	await f.dispatcher.drain();
-	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
-	const saved = JSON.parse(
-		readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
-	);
-	expect(saved.held).not.toBe(true);
-	expect(saved.outcome).toBe("succeeded");
-});
-
-it("skips expired Attempts whose lease never renewed when counting the execution hold", async () => {
-	const f = fixture({ max: 1 });
-	f.items.splice(1);
-	// The dispatcher admitted each Attempt then died before any heartbeat —
-	// a crash like the missing-checkout incidents — so the lease stayed at
-	// its initial value. Only the attempt whose run actually renewed counts.
-	const at = "2026-11-10T00:00:00.000Z";
-	f.control.history.data = [
-		{
-			id: "crash-1",
-			outcome: "expired",
-			startedAt: at,
-			heartbeatAt: at,
-			metadata: { dispatchVersion: 2 },
-		},
-		{
-			id: "crash-2",
-			outcome: "expired",
-			startedAt: at,
-			heartbeatAt: at,
-			metadata: { dispatchVersion: 2 },
-		},
-		{
-			id: "ran",
-			outcome: "expired",
-			startedAt: at,
-			heartbeatAt: "2026-11-10T00:05:00.000Z",
-			metadata: { dispatchVersion: 2 },
-		},
-	];
-	await f.dispatcher.tick();
-	await until(() => f.releases.length === 1);
-	f.releases[0]!();
-	await f.dispatcher.drain();
-	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
-});
-
-it("holds after three expired Attempts whose leases renewed", async () => {
-	const f = fixture({ max: 1 });
-	f.items.splice(1);
-	const at = "2026-11-10T00:00:00.000Z";
-	f.control.history.data = [0, 1, 2].map((n) => ({
-		id: `expired-${n}`,
-		outcome: "expired",
-		startedAt: at,
-		heartbeatAt: "2026-11-10T00:05:00.000Z",
-		metadata: { dispatchVersion: 2 },
-	}));
-	await f.dispatcher.tick();
-	await f.dispatcher.drain();
-	const saved = JSON.parse(
-		readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
-	);
-	expect(saved.held).toBe(true);
 	expect(f.releases).toHaveLength(0);
 });
 

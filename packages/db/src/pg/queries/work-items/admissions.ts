@@ -535,7 +535,27 @@ async function evaluate(
 			return reject("Lane executor or its pricing is unavailable");
 		// A cancelled Attempt (a deferred or waiting run, or a revision during
 		// preparation) did not execute the brief, so it spends no budget. Each
-		// owner grant restores exactly one Attempt it names.
+		// owner grant restores exactly one Attempt it names. A rejected Attempt is
+		// a verifier's verdict, not a crash: it never reruns on the same Work
+		// revision and a repaired revision starts without it counted.
+		const verdict = (
+			await db
+				.select({ id: workAttempts.id })
+				.from(workAttempts)
+				.where(
+					and(
+						eq(workAttempts.orgId, p.orgId),
+						eq(workAttempts.workItemId, p.workItemId),
+						eq(workAttempts.outcome, "rejected"),
+						sql`(${workAttempts.metadata} #>> '{dispatchVersion}')::integer = ${item.version}`,
+					),
+				)
+				.limit(1)
+		)[0];
+		if (verdict)
+			return reject(
+				"Lane verdict stands for this Work revision; revise the Work before retrying",
+			);
 		const used = await db
 			.select({ id: workAttempts.id })
 			.from(workAttempts)
@@ -543,7 +563,7 @@ async function evaluate(
 				and(
 					eq(workAttempts.orgId, p.orgId),
 					eq(workAttempts.workItemId, p.workItemId),
-					sql`(${workAttempts.outcome} IS NULL OR ${workAttempts.outcome}<>'cancelled')`,
+					sql`(${workAttempts.outcome} IS NULL OR ${workAttempts.outcome} NOT IN ('cancelled','rejected'))`,
 				),
 			);
 		const granted = await db

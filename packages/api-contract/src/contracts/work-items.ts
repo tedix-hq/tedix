@@ -1330,7 +1330,13 @@ export const workItemsContract = oc
 				z.object({
 					id: z.uuid(),
 					attemptId: z.uuid(),
-					outcome: z.enum(["succeeded", "failed", "cancelled", "expired"]),
+					outcome: z.enum([
+						"succeeded",
+						"failed",
+						"rejected",
+						"cancelled",
+						"expired",
+					]),
 					needsUser: z
 						.string()
 						.trim()

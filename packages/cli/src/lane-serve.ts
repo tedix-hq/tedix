@@ -1171,14 +1171,6 @@ function retainedCheckout(
 	};
 }
 
-/** Names the commits a held run left unpushed, for the person who reads the hold. */
-function unpushedHoldNote(receipt: Receipt): string {
-	const commits = receipt.unpushedCommits ?? [];
-	return receipt.repo && commits.length
-		? ` Finished commits that are not on origin/main stay in ${receipt.repo}: ${commits.slice(0, 5).join(", ")}${commits.length > 5 ? ` and ${commits.length - 5} more` : ""}.${receipt.unpushedReason ? ` Why they were not pushed: ${receipt.unpushedReason}` : ""} The next run of this task is handed that checkout, or the Git ref that saved it if the checkout was removed to free disk.`
-		: "";
-}
-
 /**
  * Records why a finished run left commits off origin/main, in the run's own
  * words, and returns the line its settlement note starts with. Commits the
@@ -1801,28 +1793,6 @@ export function laneCommitTrailers(itemId: string, session: string): string {
 export function awaitsOwnerApproval(error: unknown): boolean {
 	return (error instanceof Error ? error.message : String(error)).includes(
 		BOOTSTRAP_AWAITING_APPROVAL,
-	);
-}
-
-/**
- * An Attempt that ended before the agent turn started is a dispatcher
- * fault — a missing checkout, a prepare error, or a crash before the lane
- * child spawned — not an agent verdict on the Work. A live dispatcher
- * records `agentTurnStarted: false` at settlement. When the dispatcher
- * itself died, the Attempt expires with its lease never renewed
- * (`heartbeatAt` still `startedAt`): no heartbeat ever confirmed a run.
- */
-export function attemptFailedBeforeAgentTurn(attempt: {
-	outcome: string | null;
-	startedAt?: string;
-	heartbeatAt?: string;
-	metadata?: Record<string, unknown> | null;
-}): boolean {
-	if (attempt.metadata?.agentTurnStarted === false) return true;
-	return (
-		attempt.outcome === "expired" &&
-		typeof attempt.startedAt === "string" &&
-		attempt.startedAt === attempt.heartbeatAt
 	);
 }
 
@@ -3827,6 +3797,7 @@ export class LaneDispatcher {
 					attempt.metadata?.dispatchVersion === item.version &&
 					attempt.outcome !== "failed" &&
 					attempt.outcome !== "expired" &&
+					attempt.outcome !== "rejected" &&
 					!cancelledWithoutVerdict(attempt, previous),
 			);
 			if (result) {
@@ -3847,56 +3818,8 @@ export class LaneDispatcher {
 				throw new Error(
 					"Canonical history has a live Attempt; admission remains held",
 				);
-			// Use settled Attempt history rather than agent prose or a local retry
-			// window. A restart, reroute or elapsed delay cannot repair the same brief.
-			// A lease that elapsed with the Attempt's result retained is an
-			// interruption, not a failed execution: fresh admission resumes the
-			// retained work on this same revision, so it does not count toward
-			// the execution hold.
-			const failedExecutions = history.data.filter(
-				(attempt) =>
-					attempt.metadata?.dispatchVersion === item.version &&
-					!attemptFailedBeforeAgentTurn(attempt) &&
-					(attempt.outcome === "failed" ||
-						(attempt.outcome === "expired" &&
-							attempt.id !== interrupted?.attemptId)),
-			).length;
-			// A run that finished and declared the outcome incomplete is a verdict,
-			// not a crash. For work without a retained code change (a review or
-			// verification), rerunning the same brief only repeats that verdict
-			// and spends the Attempt a repaired revision needs.
-			const verdict =
-				item.workKind === "coding"
-					? undefined
-					: history.data.find(
-							(attempt) =>
-								attempt.metadata?.dispatchVersion === item.version &&
-								attempt.outcome === "failed" &&
-								isRecord(attempt.metadata?.laneResult) &&
-								attempt.metadata.laneResult.outcome === "incomplete",
-						);
-			if (failedExecutions >= 3 || verdict) {
-				receipt.held = true;
-				// This is an execution hold, not a timed admission rejection.
-				delete receipt.admissionFailure;
-				receipt.note =
-					(verdict
-						? `Automatic execution held after Attempt ${verdict.id} reported the accepted outcome incomplete on Work revision ${item.version}. Rerunning the same brief repeats that result; route the repair, then revise the Work before retrying.`
-						: `Automatic execution held after ${failedExecutions} failed or expired Attempts on Work revision ${item.version}. Resolve the blocker and revise the Work brief before retrying; elapsed time alone does not release this hold.`) +
-					unpushedHoldNote(receipt);
-				this.save(path, receipt);
-				this.log("execution-held", item.id, receipt.note);
-				if (!receipt.failureCommented) {
-					receipt.failureCommented = true;
-					this.save(path, receipt);
-					try {
-						await this.call(["work", "comment", item.id, receipt.note]);
-					} catch (error) {
-						this.log("failure-comment-unconfirmed", item.id, String(error));
-					}
-				}
-				return;
-			}
+			// Retry eligibility is the server's call: admission refuses a revision a
+			// verifier rejected and one whose crash budget is spent.
 			// `skill show` returns a bounded summary; the full SKILL.md comes
 			// from `--file`, so read the state first and the content second.
 			const skill = await this.call<
@@ -5468,7 +5391,12 @@ export class LaneDispatcher {
 					"settle",
 					receipt.itemId,
 					"--outcome",
-					receipt.outcome!,
+					// A finished run that declared the outcome incomplete is a verdict,
+					// not a crash: the server never reruns it on the same revision.
+					receipt.outcome === "failed" &&
+					receipt.laneResult?.outcome === "incomplete"
+						? "rejected"
+						: receipt.outcome!,
 					"--note",
 					`Result:\n${unlanded}${receipt.note!}`,
 					// `--commit` records a commit this run shipped; earlier commits

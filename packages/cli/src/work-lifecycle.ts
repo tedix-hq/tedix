@@ -481,10 +481,12 @@ export async function workSettle(
 	const outcome = ctx.work.outcome?.trim();
 	if (
 		!outcome ||
-		!["succeeded", "failed", "cancelled", "expired"].includes(outcome)
+		!["succeeded", "failed", "rejected", "cancelled", "expired"].includes(
+			outcome,
+		)
 	) {
 		throw new Error(
-			"work settle requires --outcome succeeded|failed|cancelled|expired",
+			"work settle requires --outcome succeeded|failed|rejected|cancelled|expired",
 		);
 	}
 	const attemptId = cachedAttemptId(ctx, id);

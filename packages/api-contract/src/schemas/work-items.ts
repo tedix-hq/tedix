@@ -302,6 +302,7 @@ export const WorkAttemptStatusSchema = z.enum([
 export const WorkAttemptOutcomeSchema = z.enum([
 	"succeeded",
 	"failed",
+	"rejected",
 	"cancelled",
 	"expired",
 ]);
@@ -1068,7 +1069,7 @@ export const ListWorkAttemptProjectionInputSchema =
 		outcomes: z
 			.array(WorkAttemptOutcomeSchema)
 			.min(1)
-			.max(4)
+			.max(5)
 			.optional()
 			.describe(
 				"Optional settled-outcome filter; omission includes settled and active attempts.",

@@ -1082,7 +1082,7 @@ export async function settleWorkItemAttempt(
 		}
 	}
 	const failureReason =
-		params.outcome === "failed"
+		params.outcome === "failed" || params.outcome === "rejected"
 			? workAttemptFailureReason(params.summary, params.metadata)
 			: undefined;
 	const summary = failureReason
@@ -1107,7 +1107,11 @@ export async function settleWorkItemAttempt(
 			at: settledAt,
 		});
 		const runtimeState: WorkAttemptRuntimeState =
-			params.outcome === "succeeded" ? "finished" : params.outcome;
+			params.outcome === "succeeded"
+				? "finished"
+				: params.outcome === "rejected"
+					? "failed"
+					: params.outcome;
 		const work = params.needsUser
 			? await getScopedWorkItem(db, params.orgId, params.workItemId)
 			: null;
@@ -1215,7 +1219,9 @@ export async function settleWorkItemAttempt(
 				...budgetSettlementValues({
 					committedMicros: params.costMicros,
 					fullOnUnknown:
-						params.outcome === "succeeded" || params.outcome === "failed",
+						params.outcome === "succeeded" ||
+						params.outcome === "failed" ||
+						params.outcome === "rejected",
 				}),
 				settledAt,
 				version: sql`${workBudgetReservations.version} + 1`,
