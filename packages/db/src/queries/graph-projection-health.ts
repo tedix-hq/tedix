@@ -28,6 +28,7 @@ import {
 import {
 	memoryDomains,
 	memoryEdges,
+	memoryFactOrgCounts,
 	memoryFacts,
 	tediExpertise,
 } from "../schema/memory-graph";
@@ -90,10 +91,13 @@ export async function getGraphProjectionCanonicalManagedCounts(
 		entities,
 		resolutions,
 	] = await Promise.all([
+		// Database triggers keep this total equal to the organization's facts
+		// on every insert and delete, so one row replaces a count over all of
+		// them (about 69,000 rows per call on 17 Nov 2026).
 		db
-			.select({ value: count() })
-			.from(memoryFacts)
-			.where(eq(memoryFacts.organizationId, orgId)),
+			.select({ value: memoryFactOrgCounts.total })
+			.from(memoryFactOrgCounts)
+			.where(eq(memoryFactOrgCounts.organizationId, orgId)),
 		db
 			.select({ value: count() })
 			.from(memoryEdges)

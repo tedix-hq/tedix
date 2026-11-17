@@ -1556,6 +1556,10 @@
 		{
 			"name": "20261117140846_stall_inventory_latest_activity_indexes/migration.sql",
 			"sha256": "efa75c32684efb0daf2ad253ab3df9e63fe781cc65ab6718d9d1d2ad47924b08"
+		},
+		{
+			"name": "20261117143707_maintained_work_and_fact_org_totals/migration.sql",
+			"sha256": "c1fd18e270a267e787fcbe698dfd64c97a7aeafb8478e3584e5b07c87485e89c"
 		}
 	]
 }

@@ -1,7 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
+import { workItems } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
+import { maintainedTotalsDdl } from "../../test/schema-ddl";
 import { listWorkItemsPage } from "./crud";
 
 const ORG = "org-1";
@@ -87,6 +89,8 @@ const WINDOW = 1_000;
 beforeEach(() => {
 	sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
+	// The unfiltered total is read from the trigger-maintained row.
+	sqlite.exec(maintainedTotalsDdl(workItems));
 	db = createDbQueryClient(createD1Facade(sqlite));
 });
 
