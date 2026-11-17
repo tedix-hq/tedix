@@ -25,4 +25,6 @@ export const tenantStoreMigrations: Record<string, string> = {
 		"CREATE INDEX `idx_memory_facts_org_lifecycle` ON `memory_facts` (`organization_id`,COALESCE(updated_at, created_at),`id`) WHERE valid_to IS NOT NULL OR archived_at IS NOT NULL;",
 	"20261115091306_output_revision_agent_turn":
 		"ALTER TABLE `os_output_revisions` ADD `agent_turn_id` text;",
+	"20261117032424_memory_facts_source_hash_index":
+		"CREATE INDEX `idx_memory_facts_org_source_hash` ON `memory_facts` (`organization_id`,`source_hash`) WHERE source_hash IS NOT NULL;",
 };

@@ -246,6 +246,14 @@ export const memoryFacts = sqliteTable(
 			table.organizationId,
 			table.topicKey,
 		),
+		// Content-hash dedup before every learned fact (findFactBySourceHash).
+		// Without it the lookup walked the organization's live facts: 30k rows
+		// and about 0.3 s per call on 16 Nov 2026. Partial on purpose: SQLite may
+		// use it only when a query names the hash, so no other read of this
+		// table can be planned onto it.
+		index("idx_memory_facts_org_source_hash")
+			.on(table.organizationId, table.sourceHash)
+			.where(sql`source_hash IS NOT NULL`),
 		index("idx_memory_facts_scope").on(table.organizationId, table.memoryScope),
 		index("idx_memory_facts_flywheel_created").on(
 			table.organizationId,

@@ -1,0 +1,1 @@
+CREATE INDEX `idx_memory_facts_org_source_hash` ON `memory_facts` (`organization_id`,`source_hash`) WHERE source_hash IS NOT NULL;
