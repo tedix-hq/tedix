@@ -120,6 +120,17 @@ async function installTransportFixtures(src: string) {
 					},
 				];
 			if (source.includes("organizations.list_all_mine")) return [];
+			if (source.includes("work.list_agent_session_events"))
+				return {
+					data: [],
+					nextCursor: null,
+					coverage: {
+						from: "2026-11-10T00:00:00.000Z",
+						through: "2026-11-17T00:00:00.000Z",
+						days: [],
+						missingDates: [],
+					},
+				};
 			if (source.includes("flow.status"))
 				return { status: "completed", result: { fixture: true } };
 			if (source.includes("skills.list_skills_by_org")) return { entries: [] };
@@ -213,6 +224,7 @@ const examples: Record<string, string[]> = {
 	feed: [],
 	hooks: ["session-start"],
 	learn: ["import-sessions", "--dry-run"],
+	capture: ["check"],
 	chat: ["Fixture question", "--no-poll", "--no-repo-context"],
 	auth: ["status"],
 	agent: ["status"],

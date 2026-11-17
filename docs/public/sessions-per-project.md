@@ -111,8 +111,19 @@ Before upload or storage in the local retry outbox, the CLI removes known
 credential patterns and applies the decision-capture redaction rules. Redaction
 is best effort: ordinary prose can contain private information. A failed upload
 stays in a private local outbox for a later hook to retry. No capture occurs for
-unattended runs. Disabling capture prevents new uploads, including pending
-outbox retries, until capture is enabled again.
+unattended runs. This includes `claude -p`, Claude Agent SDK runs, `codex exec`,
+Codex side threads, dispatcher lanes and headless Devin runs. Devin cloud
+sessions never run the local plugin hooks. ChatGPT Work, Claude chat and Cowork
+with only an MCP connector also have no local capture hooks. These session types
+are skipped by design; `tedix learn import-sessions` is a separate learning
+import and does not fill the request ledger. Disabling capture prevents new
+uploads, including pending outbox retries, until capture is enabled again.
+
+Run `tedix capture check` for a read-only comparison of recent local Claude
+Code, Codex, OpenCode and Devin transcript counts with the selected
+organization's stored events and the local retry outbox. The result names each
+chat as captured, pending, skipped by design with its reason, or missing. It does
+not activate hooks or retry uploads.
 
 Uploaded message text, derived request text, session summaries and proposed
 recovery lessons are private to you in the selected organization. Other members,

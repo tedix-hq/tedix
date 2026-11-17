@@ -8,7 +8,14 @@ import {
 import { decodeJwtPayload } from "./jwt-payload";
 
 import { runWhoCommand } from "./who";
+import {
+	discoverLocalChats,
+	readPendingEvents,
+	reconcileCapture,
+	renderCaptureCheck,
+} from "./capture-check";
 import { readFileSync } from "node:fs";
+import { ListAgentSessionEventsResultSchema } from "@tedix/api-contract/schemas/agent-session-requests";
 import { LOCAL_TEDIX_MCP_URL, parseOptions } from "./options";
 import { type AvailableWorkspace, listAvailableWorkspaces } from "./account";
 import { selectWorkspaceInBrowser } from "./browser-workspace-selection";
@@ -988,6 +995,61 @@ export async function main() {
 		});
 		const ops = buildOps(client, options, color);
 		const ctx = buildContext(client, ops, options, color);
+		if (command === "capture") {
+			const [verb, rawDays, ...extra] = options.positionals ?? [];
+			if (verb !== "check" || extra.length)
+				throw new Error(topLevelHelp("capture"));
+			const days = rawDays === undefined ? 7 : Number(rawDays);
+			if (!Number.isInteger(days) || days < 1 || days > 31)
+				throw new Error("Capture check days must be an integer from 1 to 31.");
+			const limit = options.limit ?? 10;
+			if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+				throw new Error(
+					"Capture check --limit must be an integer from 1 to 100.",
+				);
+			const through = new Date();
+			const since = new Date(through.getTime() - days * 86_400_000);
+			const local = discoverLocalChats(process.env, since, limit);
+			const captureClient = client;
+			const stored = [];
+			let cursor: unknown;
+			do {
+				const input = {
+					since: since.toISOString(),
+					until: through.toISOString(),
+					limit: 100,
+					...(cursor ? { cursor } : {}),
+				};
+				const normalized = await resolveCodeResult(
+					(pageSource) => captureClient.runCode(pageSource),
+					await captureClient.runCode(
+						`async () => await work.list_agent_session_events(${JSON.stringify(input)})`,
+					),
+				);
+				if (normalized.failures)
+					throw new Error(innerFailureMessage(normalized.failures));
+				const page = ListAgentSessionEventsResultSchema.parse(
+					codeOutputValue(normalized, false),
+				);
+				stored.push(...page.data);
+				cursor = page.nextCursor ?? undefined;
+			} while (cursor);
+			const pending = readPendingEvents(process.env, {
+				workspace: workspaceName,
+				...(options.organization ? { organization: options.organization } : {}),
+			});
+			console.log(
+				renderCaptureCheck(
+					{
+						since: since.toISOString(),
+						through: through.toISOString(),
+						chats: reconcileCapture(local, stored, pending),
+					},
+					options.json,
+				),
+			);
+			return;
+		}
 		if (command === "status") {
 			// Compact operator dashboard for the current conversation: in-flight
 			// runs, pending approvals, recent delegations — one read instead of
