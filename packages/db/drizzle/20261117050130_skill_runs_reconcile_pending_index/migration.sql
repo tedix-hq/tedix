@@ -1,0 +1,1 @@
+CREATE INDEX `idx_skill_runs_reconcile_pending` ON `skill_runs` (`runtime_environment`,coalesce(last_reconciled_at, started_at),`started_at`) WHERE workflow_retired_at IS NULL AND (status IN ('queued', 'running', 'paused') OR restart_requested_at IS NOT NULL OR (status = 'failed' AND (error LIKE 'WORKFLOW_ADMISSION_CREATE_FAILED:%' OR error LIKE 'WORKFLOW_ADMISSION_PENDING:%')));

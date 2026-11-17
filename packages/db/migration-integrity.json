@@ -1536,6 +1536,10 @@
 		{
 			"name": "20261117044111_work_items_repository_observer_sweep_indexes/migration.sql",
 			"sha256": "afba09d0de1b89deda5a98586829d3132e474c28fea6571cc1b65783cddb3cb4"
+		},
+		{
+			"name": "20261117050130_skill_runs_reconcile_pending_index/migration.sql",
+			"sha256": "055c7742515a5d3f5b713cc659b77ac566b8fc41b07b72a45ef91102f48c6484"
 		}
 	]
 }

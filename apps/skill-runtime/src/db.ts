@@ -12,6 +12,7 @@ import { createDbClient } from "@tedix/db/client";
 import {
 	createPinnedSkillRun,
 	getPinnedSkillWorkflowSource,
+	listSkillRunsAwaitingReconcile,
 	type CreatePinnedSkillRunParams,
 } from "@tedix/db/queries/skill-runs";
 import { reconcileSkillWorkflowDispatchRationale } from "@tedix/db/queries/rationale-records";
@@ -762,56 +763,27 @@ export async function listNonTerminalRuns(
 		startedAt: string | null;
 	}>
 > {
-	const res = await db
-		.prepare(
-			`SELECT id, skill_id, tedi_id, workflow_instance_id, organization_id,
-			        params, status, error,
-			        execution_epoch, restart_requested_at, restart_command_id,
-			        started_at
-			   FROM skill_runs
-			  WHERE runtime_environment = ?1
-			    AND workflow_retired_at IS NULL
-			    AND COALESCE(error, '') <> 'REVOKED'
-			    AND COALESCE(error, '') NOT GLOB 'REVOKED:*'
-			    AND (status IN ('queued','running','paused')
-			         OR restart_requested_at IS NOT NULL
-			         OR (status = 'failed'
-			             AND (error LIKE 'WORKFLOW_ADMISSION_CREATE_FAILED:%'
-			                  OR error LIKE 'WORKFLOW_ADMISSION_PENDING:%')))
-			  ORDER BY COALESCE(last_reconciled_at, started_at) ASC, started_at ASC
-			  LIMIT ?2`,
-		)
-		.bind(runtimeEnvironment, limit)
-		.all<{
-			id: string;
-			skill_id: string;
-			tedi_id: string;
-			workflow_instance_id: string;
-			organization_id: string;
-			params: string | null;
-			status: string;
-			error: string | null;
-			execution_epoch: number;
-			restart_requested_at: string | null;
-			restart_command_id: string | null;
-			started_at: string | null;
-		}>();
-	return (res.results ?? []).map((r) => ({
+	const rows = await listSkillRunsAwaitingReconcile(
+		createDbClient(db),
+		runtimeEnvironment,
+		limit,
+	);
+	return rows.map((r) => ({
 		runId: r.id,
-		skillId: r.skill_id,
-		tediId: r.tedi_id,
-		workflowInstanceId: r.workflow_instance_id,
-		organizationId: r.organization_id,
-		params: r.params ? JSON.parse(r.params) : {},
+		skillId: r.skillId,
+		tediId: r.tediId,
+		workflowInstanceId: r.workflowInstanceId,
+		organizationId: r.organizationId,
+		params: r.params ?? {},
 		status: r.status,
 		admissionRecovery:
 			r.status === "failed" &&
 			(r.error?.startsWith("WORKFLOW_ADMISSION_CREATE_FAILED:") === true ||
 				r.error?.startsWith("WORKFLOW_ADMISSION_PENDING:") === true),
-		executionEpoch: r.execution_epoch,
-		restartRequestedAt: r.restart_requested_at ?? null,
-		restartCommandId: r.restart_command_id ?? null,
-		startedAt: r.started_at ?? null,
+		executionEpoch: r.executionEpoch,
+		restartRequestedAt: r.restartRequestedAt ?? null,
+		restartCommandId: r.restartCommandId ?? null,
+		startedAt: r.startedAt ?? null,
 	}));
 }
 
