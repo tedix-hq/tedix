@@ -98,6 +98,40 @@ describe("production D1 migration orchestration", () => {
 		expect(f.run).toHaveBeenCalledTimes(1);
 	});
 
+	// On 16 Nov 2026 five surfaces of one deploy ran this procedure together
+	// and PRAGMA optimize ran four times in 45 s on a busy database. The
+	// deploy now runs it for one surface at a time (the ops release lock), so
+	// every run after the first finds nothing pending. These are the two
+	// halves of "at most once per deploy, and only after a migration".
+	it("runs PRAGMA optimize exactly once after applying a migration", () => {
+		const f = upgrade();
+		applyProductionMigrations({ run: f.run, publish: () => {} });
+		const optimizes = f.run.mock.calls.filter(([args]) =>
+			args.includes("PRAGMA optimize"),
+		);
+		expect(optimizes).toHaveLength(1);
+		expect(f.events).toEqual(["migration", "optimize"]);
+	});
+
+	it("runs no PRAGMA optimize, apply or recovery point when nothing is pending", () => {
+		const f = upgrade();
+		// The first surface of the deploy migrates...
+		applyProductionMigrations({ run: f.run, publish: () => {} });
+		f.run.mockClear();
+		f.events.length = 0;
+		// ...and every later surface of the same deploy finds the ledger current.
+		for (let surface = 0; surface < 4; surface++)
+			applyProductionMigrations({ run: f.run, publish: () => {} });
+		expect(f.events).toEqual([]);
+		expect(f.run).toHaveBeenCalledTimes(4);
+		for (const [args] of f.run.mock.calls) {
+			expect(args).toContain(
+				"SELECT name FROM tedix_drizzle_migrations ORDER BY id",
+			);
+			expect(args).not.toContain("PRAGMA optimize");
+		}
+	});
+
 	it.each([1, null, "0"])(
 		"refuses populated or unverifiable tool class upgrades (%s) before mutation",
 		(hasTools) => {
