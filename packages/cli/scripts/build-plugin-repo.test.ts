@@ -22,6 +22,7 @@ describe("public plugin repository", () => {
 
 	test("OpenAI default consent requests only directory scopes", () => {
 		const mcp = JSON.parse(text(files.get("mcp.json")));
+		expect(mcp.mcpServers.tedix.url).toBe("https://connect.mcp.tedix.dev/mcp");
 		const auth = mcp.mcpServers.tedix.extensions["com.openai"].auth;
 		expect(auth.baseScopes).toEqual([]);
 		expect(auth.defaultScopes).toEqual([
