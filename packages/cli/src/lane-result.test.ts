@@ -275,124 +275,301 @@ const existing: ExistingLaneResult = {
 	workVersion: 2,
 	contractVersion: 1,
 	outcomeText:
-		"Full suite hourly is green again on a commit at or after abcdef1",
+		"The failing tests are fixed or the proven culprit is reverted, and the full test suite is green on main again.",
 	outcome: "already_satisfied",
+	ciApprovalId: responseId,
 	commitSha: "b".repeat(40),
 	runId: 123,
-	workflowName: "Full suite hourly",
-	minimumCommit: "abcdef1",
+	workflowName: "Deploy gate (push) and full test run (every 8 hours)",
+	minimumCommit: "a".repeat(40),
 	rootCause: "Fixture parity mismatch",
 };
 function proofFixture() {
+	const at = "2026-11-01T12:00:00.000Z";
 	const proof = {
 		id: 123,
 		workflow_id: 456,
+		run_number: 100,
 		run_attempt: 1,
-		name: existing.workflowName,
+		name: `Full test run @ ${"c".repeat(40)}`,
 		status: "completed",
 		conclusion: "success",
 		head_branch: "main",
 		head_sha: "c".repeat(40),
+		event: "workflow_dispatch",
+		path: ".github/workflows/full-suite-hourly.yml",
 	};
+	const workflow = { id: 456, name: existing.workflowName, path: proof.path };
+	const criteria = {
+		contractVersion: 1,
+		outcomeText: existing.outcomeText,
+		repository: "example/project",
+		workflowId: 456,
+		workflowName: workflow.name,
+		workflowPath: workflow.path,
+		runId: 123,
+		runAttempt: 1,
+		runName: proof.name,
+		runCommitSha: proof.head_sha,
+		minimumCommit: existing.minimumCommit,
+		event: "workflow_dispatch",
+		requiredJobs: ["Workspace CLI", "Workspace OS"],
+	};
+	const proposal = {
+		id: responseId,
+		orgId: wait.orgId,
+		workItemId: existing.workItemId,
+		workItemVersion: 2,
+		action: "admission",
+		authorityKey: "ci:recovery",
+		proposal: { ciRecovery: criteria },
+		approverType: "tedi",
+		approverId: "reviewer",
+		requestRationale: "Verify exact full-suite recovery",
+		requestedByType: "external_agent",
+		requestedById: "executor",
+		requestedBySessionId: null,
+		status: "approved",
+		requestedAt: at,
+		expiresAt: "2026-12-01T12:00:00.000Z",
+		resolvedAt: at,
+		version: 2,
+	};
+	const decision = {
+		id: wait.interactionId,
+		proposalId: responseId,
+		resolvedProposalVersion: 2,
+		decision: "approved",
+		deciderType: "tedi",
+		deciderId: "reviewer",
+		rationale: "Full suite required",
+		decidedAt: at,
+	};
+	const row = { proposal, decision, effectiveStatus: "approved" };
+	const authorization = {
+		orgId: wait.orgId,
+		response: { data: [row], hasMore: false, nextCursor: null, observedAt: at },
+	};
+	const pages = [
+		{
+			total_count: 2,
+			jobs: criteria.requiredJobs.map((name) => ({
+				name,
+				status: "completed",
+				conclusion: "success",
+			})),
+		},
+	];
 	const latest = { workflow_runs: [{ ...proof }] };
 	const commands: string[][] = [];
 	let failure = "";
+	const run = (executable: string, args: string[]) => {
+		commands.push([executable, ...args]);
+		if (args.includes(failure)) throw new Error("unavailable");
+		if (executable === "gh") {
+			if (args.includes("--paginate")) return JSON.stringify(pages);
+			if (args[1]!.includes("/runs?"))
+				return JSON.stringify(
+					args[1]!.includes("event=schedule") ? { workflow_runs: [] } : latest,
+				);
+			return JSON.stringify(
+				args[1]!.includes("/workflows/") ? workflow : proof,
+			);
+		}
+		if (args[0] === "remote") return "https://github.com/example/project.git";
+		return "";
+	};
 	return {
 		proof,
 		latest,
+		workflow,
+		criteria,
+		proposal,
+		decision,
+		row,
+		authorization,
+		pages,
 		commands,
 		fail: (value: string) => {
 			failure = value;
 		},
-		run: (executable: string, args: string[]) => {
-			commands.push([executable, ...args]);
-			if (args.includes(failure)) throw new Error("unavailable");
-			if (executable === "gh")
-				return JSON.stringify(
-					args[1]!.includes("/workflows/") ? latest : proof,
-				);
-			if (args[0] === "remote") return "https://github.com/example/project.git";
-			return "";
-		},
+		run,
+		verify: (result = existing) =>
+			verifyExistingLaneResult("/fictional", result, run, authorization),
 	};
 }
 describe("verified preexisting CI outcomes", () => {
-	it("records existing evidence without manufacturing an authored commit", () => {
+	it("admits the unchanged generic incident outcome using exact approved CI identity", () => {
 		const f = proofFixture();
 		expect(
-			verifyExistingLaneResult("/fictional", existing, f.run),
-		).toMatchObject({
+			parseLaneResult(`TEDIX_LANE_RESULT ${JSON.stringify(existing)}`),
+		).toEqual(existing);
+		expect(f.verify()).toMatchObject({
 			mode: "verified_existing",
 			commitSha: existing.commitSha,
 			runId: 123,
+			ciApprovalId: responseId,
 			evidenceUri: "https://github.com/example/project/actions/runs/123",
 		});
 		expect(
 			f.commands.filter((args) => args.includes("--is-ancestor")),
-		).toHaveLength(5);
-	});
-	it("accepts a commit-suffixed run name when a later successful run of the workflow contains it", () => {
-		const f = proofFixture();
-		f.proof.name = `${existing.workflowName} @ ${f.proof.head_sha}`;
-		f.latest.workflow_runs[0] = {
-			...f.proof,
-			id: 999,
-			name: `Deploy gate @ ${"d".repeat(40)}`,
-			head_sha: "d".repeat(40),
-		};
+		).toHaveLength(3);
+		// Latest full runs are selected by event, excluding newer push gates.
 		expect(
-			verifyExistingLaneResult("/fictional", existing, f.run),
-		).toMatchObject({ runId: 123, runCommitSha: "c".repeat(40) });
-		f.latest.workflow_runs[0]!.conclusion = "failure";
-		expect(() =>
-			verifyExistingLaneResult("/fictional", existing, f.run),
-		).toThrow();
-	});
-	it("rejects mismatched contracts, failed/stale/pending runs and unlanded fixes", () => {
-		for (const change of [
-			(f: ReturnType<typeof proofFixture>) => {
-				f.proof.name = "Other workflow";
-			},
-			(f: ReturnType<typeof proofFixture>) => {
-				f.proof.conclusion = "failure";
-			},
-			(f: ReturnType<typeof proofFixture>) => {
-				f.proof.status = "in_progress";
-			},
-			(f: ReturnType<typeof proofFixture>) => {
-				f.proof.head_branch = "feature";
-			},
-			(f: ReturnType<typeof proofFixture>) => {
-				f.proof.name = `${existing.workflowName} @ ${"e".repeat(40)}`;
-			},
-			(f: ReturnType<typeof proofFixture>) => {
-				f.latest.workflow_runs[0]!.run_attempt = 2;
-			},
-			(f: ReturnType<typeof proofFixture>) => {
-				f.latest.workflow_runs[0]!.status = "in_progress";
-			},
-			(f: ReturnType<typeof proofFixture>) => {
-				f.fail("--is-ancestor");
-			},
-		]) {
-			const f = proofFixture();
-			change(f);
-			expect(() =>
-				verifyExistingLaneResult("/fictional", existing, f.run),
-			).toThrow();
-		}
-		const f = proofFixture();
-		expect(() =>
-			verifyExistingLaneResult(
-				"/fictional",
-				{ ...existing, minimumCommit: "fffffff" },
-				f.run,
+			f.commands
+				.filter((args) => args.some((arg) => arg.includes("/runs?")))
+				.map((args) => args.at(-1)),
+		).toEqual([
+			"repos/example/project/actions/workflows/456/runs?branch=main&event=schedule&per_page=1",
+			"repos/example/project/actions/workflows/456/runs?branch=main&event=workflow_dispatch&per_page=1",
+		]);
+		expect(
+			f.commands.some((args) =>
+				args.some((arg) => arg.includes("/attempts/1/jobs")),
 			),
-		).toThrow();
-		f.fail("api");
+		).toBe(true);
+	});
+	it("reads all pages of the authorized attempt's jobs", () => {
+		const f = proofFixture();
+		const last = f.pages[0]!.jobs.pop()!;
+		f.pages.push({ total_count: 2, jobs: [last] });
+		expect(f.verify().runId).toBe(123);
+	});
+	it.each([
+		"newerFullRun",
+		"latestAttempt",
+		"runName",
+		"workflowName",
+		"workflowId",
+		"attempt",
+		"sha",
+		"failed",
+		"pending",
+		"branch",
+		"pushGate",
+		"missingJob",
+		"skippedJob",
+		"failedJob",
+		"truncatedJobs",
+		"ancestry",
+		"workVersion",
+		"org",
+		"proposalId",
+		"authority",
+		"pendingApproval",
+		"rejected",
+		"receiptVersion",
+		"decider",
+		"contractVersion",
+		"outcomeText",
+		"minimum",
+		"repository",
+	])("rejects invalid immutable proof: %s", (mode) => {
+		const f = proofFixture();
+		switch (mode) {
+			case "newerFullRun":
+				f.latest.workflow_runs[0]!.id++;
+				f.latest.workflow_runs[0]!.run_number++;
+				f.latest.workflow_runs[0]!.conclusion = "failure";
+				break;
+			case "latestAttempt":
+				f.latest.workflow_runs[0]!.run_attempt++;
+				break;
+			case "runName":
+				f.proof.name = f.workflow.name;
+				break;
+			case "workflowName":
+				f.workflow.name = f.proof.name;
+				break;
+			case "workflowId":
+				f.proof.workflow_id++;
+				break;
+			case "attempt":
+				f.proof.run_attempt++;
+				break;
+			case "sha":
+				f.proof.head_sha = "d".repeat(40);
+				break;
+			case "failed":
+				f.proof.conclusion = "failure";
+				break;
+			case "pending":
+				f.proof.status = "in_progress";
+				break;
+			case "branch":
+				f.proof.head_branch = "feature";
+				break;
+			case "pushGate":
+				f.proof.event = "push";
+				f.proof.name = "Deploy gate @ " + f.proof.head_sha;
+				break;
+			case "missingJob":
+				f.pages[0]!.jobs.pop();
+				f.pages[0]!.total_count--;
+				break;
+			case "skippedJob":
+				f.pages[0]!.jobs[0]!.conclusion = "skipped";
+				break;
+			case "failedJob":
+				f.pages[0]!.jobs[0]!.conclusion = "failure";
+				break;
+			case "truncatedJobs":
+				f.pages[0]!.total_count++;
+				break;
+			case "ancestry":
+				f.fail("--is-ancestor");
+				break;
+			case "workVersion":
+				f.proposal.workItemVersion++;
+				break;
+			case "org":
+				f.authorization.orgId = wait.interactionId;
+				break;
+			case "proposalId":
+				f.proposal.id = wait.interactionId;
+				break;
+			case "authority":
+				f.proposal.authorityKey = "risk:high";
+				break;
+			case "pendingApproval":
+				f.row.effectiveStatus = "pending";
+				break;
+			case "rejected":
+				f.decision.decision = "rejected";
+				break;
+			case "receiptVersion":
+				f.decision.resolvedProposalVersion++;
+				break;
+			case "decider":
+				f.decision.deciderId = "someone-else";
+				break;
+			case "contractVersion":
+				f.criteria.contractVersion++;
+				break;
+			case "outcomeText":
+				f.criteria.outcomeText = "Rewritten outcome";
+				break;
+			case "minimum":
+				f.criteria.minimumCommit = "d".repeat(40);
+				break;
+			case "repository":
+				f.criteria.repository = "example/other";
+				break;
+		}
+		expect(() => f.verify()).toThrow();
+	});
+	it("retains unavailable approval or provider reads", () => {
+		const f = proofFixture();
+		const legacy = { ...existing, ciApprovalId: undefined };
+		expect(
+			parseLaneResult(`TEDIX_LANE_RESULT ${JSON.stringify(legacy)}`),
+		).toMatchObject({ outcome: "already_satisfied" });
+		expect(() => f.verify(legacy)).toThrow();
 		expect(() =>
 			verifyExistingLaneResult("/fictional", existing, f.run),
 		).toThrow(LaneOutcomeReadError);
+		f.fail("api");
+		expect(() => f.verify()).toThrow(LaneOutcomeReadError);
 	});
 });
 

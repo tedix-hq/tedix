@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { execFileSync } from "node:child_process";
 import { GetWorkInteractionResultSchema } from "@tedix/api-contract/schemas/work-interactions";
+import { ListWorkApprovalInboxResultSchema } from "@tedix/api-contract/schemas/work-approvals";
 import { safeParseServerResponse } from "./server-response";
 
 const fence = {
@@ -77,6 +78,8 @@ export const LaneResultSchema = z.discriminatedUnion("outcome", [
 	z.strictObject({
 		...fence,
 		outcome: z.literal("already_satisfied"),
+		// Retain older receipts so one missing approval cannot stop the whole dispatcher.
+		ciApprovalId: z.uuid().optional(),
 		commitSha: z.string().regex(/^[a-f0-9]{40}$/),
 		runId: z.number().int().positive(),
 		workflowName: z.string().min(1).max(300),
@@ -188,27 +191,95 @@ const command = (repo: string, executable: string, args: string[]) =>
 		maxBuffer: 1024 * 1024,
 	}).trim();
 
-/** Only the explicit CI recovery mode can cite preexisting repository history. */
+/** The approval ledger pins criteria separately from the accepted outcome text. */
+const CiRecoveryCriteriaSchema = z.strictObject({
+	contractVersion: z.number().int().positive(),
+	outcomeText: z.string().min(1).max(2000),
+	repository: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
+	workflowId: z.number().int().positive(),
+	workflowName: z.string().min(1).max(300),
+	workflowPath: z.string().regex(/^\.github\/workflows\/[\w.-]+\.ya?ml$/),
+	runId: z.number().int().positive(),
+	runAttempt: z.number().int().positive(),
+	runName: z.string().min(1).max(300),
+	runCommitSha: z.string().regex(/^[a-f0-9]{40}$/),
+	minimumCommit: z.string().regex(/^[a-f0-9]{40}$/),
+	// Push gates cannot stand in for scheduled or explicitly requested full runs.
+	event: z.enum(["schedule", "workflow_dispatch"]),
+	requiredJobs: z.array(z.string().min(1).max(300)).min(1).max(500),
+});
+
 export function verifyExistingLaneResult(
 	repo: string,
 	result: ExistingLaneResult,
 	run = (executable: string, args: string[]) => command(repo, executable, args),
+	authorization?: { orgId: string; response: unknown },
 ) {
+	const approval = safeParseServerResponse(
+		ListWorkApprovalInboxResultSchema.extend({
+			data: z.array(
+				ListWorkApprovalInboxResultSchema.shape.data.element.pick({
+					proposal: true,
+					effectiveStatus: true,
+					decision: true,
+				}),
+			),
+		}),
+		authorization?.response,
+	);
+	if (!approval.success)
+		throw new LaneOutcomeReadError(
+			"CI recovery approval receipt is unavailable",
+		);
+	const rows = approval.data;
+	const row = rows.data[0];
 	if (
-		!result.outcomeText
-			.toLowerCase()
-			.includes(result.workflowName.toLowerCase()) ||
-		!new RegExp(`\\b${result.minimumCommit}\\b`).test(result.outcomeText)
+		rows.hasMore ||
+		rows.nextCursor !== null ||
+		rows.data.length !== 1 ||
+		!row ||
+		row.proposal.id !== result.ciApprovalId ||
+		row.proposal.orgId !== authorization?.orgId ||
+		row.proposal.workItemId !== result.workItemId ||
+		row.proposal.workItemVersion !== result.workVersion ||
+		row.proposal.action !== "admission" ||
+		row.proposal.authorityKey !== "ci:recovery" ||
+		row.effectiveStatus !== "approved" ||
+		row.proposal.status !== "approved" ||
+		row.decision?.decision !== "approved" ||
+		row.decision.proposalId !== row.proposal.id ||
+		row.decision.resolvedProposalVersion !== row.proposal.version ||
+		row.decision.deciderType !== row.proposal.approverType ||
+		row.decision.deciderId !== row.proposal.approverId
 	)
 		throw new Error(
-			"Existing CI proof does not name the accepted workflow and minimum commit",
+			"CI recovery requires the exact approved Work revision receipt",
 		);
-	const remote = run("git", ["remote", "get-url", "origin"]);
-	const repository = githubRepository(remote);
-	if (!repository)
-		throw new Error("Existing CI proof requires the checkout's GitHub origin");
-	let proof: z.infer<typeof ciRunSchema>;
-	let latest: z.infer<typeof ciRunSchema>;
+	const criteria = CiRecoveryCriteriaSchema.parse(
+		row.proposal.proposal.ciRecovery,
+	);
+	if (
+		criteria.contractVersion !== result.contractVersion ||
+		criteria.outcomeText !== result.outcomeText ||
+		criteria.runId !== result.runId ||
+		criteria.workflowName !== result.workflowName ||
+		criteria.minimumCommit !== result.minimumCommit
+	)
+		throw new Error("CI recovery declaration differs from approved criteria");
+	const repository = githubRepository(
+		run("git", ["remote", "get-url", "origin"]),
+	);
+	if (repository !== criteria.repository)
+		throw new Error("CI recovery approval does not match the checkout origin");
+	let proof;
+	let workflow;
+	let jobs;
+	let latestFullRuns;
+	const fullRunSchema = ciRunSchema.extend({
+		event: z.string(),
+		path: z.string(),
+		run_number: z.number().int().positive(),
+	});
 	try {
 		run("git", [
 			"fetch",
@@ -216,49 +287,113 @@ export function verifyExistingLaneResult(
 			"origin",
 			"refs/heads/main:refs/remotes/origin/main",
 		]);
-		proof = ciRunSchema.parse(
+		proof = fullRunSchema.parse(
 			JSON.parse(
 				run("gh", ["api", `repos/${repository}/actions/runs/${result.runId}`]),
 			),
 		);
-		latest = z
-			.object({ workflow_runs: z.array(ciRunSchema).length(1) })
+		workflow = z
+			.object({ id: z.number(), name: z.string(), path: z.string() })
 			.parse(
 				JSON.parse(
 					run("gh", [
 						"api",
-						`repos/${repository}/actions/workflows/${proof.workflow_id}/runs?branch=main&per_page=1`,
+						`repos/${repository}/actions/workflows/${criteria.workflowId}`,
 					]),
 				),
-			).workflow_runs[0]!;
+			);
+		latestFullRuns = ["schedule", "workflow_dispatch"].flatMap(
+			(event) =>
+				z
+					.object({ workflow_runs: z.array(fullRunSchema).max(1) })
+					.parse(
+						JSON.parse(
+							run("gh", [
+								"api",
+								`repos/${repository}/actions/workflows/${criteria.workflowId}/runs?branch=main&event=${event}&per_page=1`,
+							]),
+						),
+					).workflow_runs,
+		);
+		// Read this attempt only; a successful job from an earlier attempt is not proof.
+		jobs = z
+			.object({
+				total_count: z.number().int().nonnegative(),
+				jobs: z.array(
+					z.object({
+						name: z.string(),
+						status: z.string(),
+						conclusion: z.string().nullable(),
+					}),
+				),
+			})
+			.parse(
+				JSON.parse(
+					run("gh", [
+						"api",
+						"--paginate",
+						"--slurp",
+						`repos/${repository}/actions/runs/${result.runId}/attempts/${criteria.runAttempt}/jobs?per_page=100`,
+					]),
+				).reduce(
+					(
+						all: { total_count: number; jobs: unknown[] },
+						page: { total_count: number; jobs: unknown[] },
+					) => ({
+						total_count: page.total_count,
+						jobs: [...all.jobs, ...page.jobs],
+					}),
+					{ total_count: 0, jobs: [] },
+				),
+			);
 	} catch (error) {
 		throw new LaneOutcomeReadError(String(error));
 	}
 	const sha = proof.head_sha;
 	if (
-		proof.id !== result.runId ||
-		// Run names may carry the commit ("Full test run @ <sha>").
-		(proof.name !== result.workflowName &&
-			proof.name !== `${result.workflowName} @ ${sha}`) ||
+		!latestFullRuns.some(
+			(latest) =>
+				latest.id === proof.id &&
+				latest.run_attempt === proof.run_attempt &&
+				latest.head_sha === sha &&
+				latest.status === "completed" &&
+				latest.conclusion === "success",
+		) ||
+		latestFullRuns.some(
+			(latest) =>
+				latest.run_number > proof.run_number ||
+				(latest.run_number === proof.run_number && latest.id !== proof.id),
+		) ||
+		proof.id !== criteria.runId ||
+		proof.workflow_id !== criteria.workflowId ||
+		proof.run_attempt !== criteria.runAttempt ||
+		proof.name !== criteria.runName ||
+		proof.event !== criteria.event ||
+		proof.path !== criteria.workflowPath ||
+		workflow.id !== criteria.workflowId ||
+		workflow.name !== criteria.workflowName ||
+		workflow.path !== criteria.workflowPath ||
+		sha !== criteria.runCommitSha ||
 		proof.status !== "completed" ||
 		proof.conclusion !== "success" ||
 		proof.head_branch !== "main" ||
-		latest.status !== "completed" ||
-		latest.conclusion !== "success" ||
-		(latest.id === proof.id &&
-			(latest.run_attempt !== proof.run_attempt || latest.head_sha !== sha))
+		jobs.total_count !== jobs.jobs.length ||
+		criteria.requiredJobs.some((name) => {
+			const matches = jobs.jobs.filter((job) => job.name === name);
+			return (
+				matches.length !== 1 ||
+				matches[0]!.status !== "completed" ||
+				matches[0]!.conclusion !== "success"
+			);
+		})
 	)
 		throw new Error(
-			"Existing CI outcome is not the latest successful main workflow run",
+			"CI recovery does not match the approved successful full-run identity and jobs",
 		);
 	for (const [ancestor, descendant] of [
 		[result.commitSha, sha],
-		[result.minimumCommit, sha],
+		[criteria.minimumCommit, sha],
 		[sha, "refs/remotes/origin/main"],
-		// A newer successful run of the same workflow file (for example the push
-		// Deploy gate after a dispatched full run) must contain the proven run.
-		[sha, latest.head_sha],
-		[latest.head_sha, "refs/remotes/origin/main"],
 	]) {
 		try {
 			run("git", ["merge-base", "--is-ancestor", ancestor!, descendant!]);
@@ -276,6 +411,7 @@ export function verifyExistingLaneResult(
 		runCommitSha: sha,
 		evidenceUri: `https://github.com/${repository}/actions/runs/${result.runId}`,
 		rootCause: result.rootCause,
+		ciApprovalId: result.ciApprovalId,
 	};
 }
 
