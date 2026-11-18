@@ -269,6 +269,18 @@ interface TurnRow {
 	finished_at: string | null;
 }
 
+/** What one decision did to one waiting request. */
+export interface ApprovalResult {
+	applied: boolean;
+	/** The turn that continues the conversation with the result. */
+	turnId?: string;
+	/**
+	 * Someone else decided this request first. This decision changed nothing;
+	 * `applied` says what the first one did.
+	 */
+	alreadyDecided?: true;
+}
+
 interface ApprovalRow {
 	approval_id: string;
 	turn_id: string;
@@ -453,6 +465,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #ledger: SqlAccountabilityAdapter;
 	readonly #activityRecords: SqlActivityRecords;
 	readonly #compliance: SqlComplianceAdapter;
+	/**
+	 * Decisions still being applied, each resolving when it lands, so a second
+	 * decision on the same request can wait and report what the first did.
+	 */
+	readonly #deciding = new Map<string, Promise<void>>();
 	#outputSerial: Promise<void> = Promise.resolve();
 	/** File publishes to the workspace feed, one at a time and apart from writes. */
 	#publishSerial: Promise<void> = Promise.resolve();
@@ -1631,7 +1648,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			by: string;
 			note?: string;
 		},
-	): Promise<{ applied: boolean; turnId?: string }> {
+	): Promise<ApprovalResult> {
 		return (
 			await this.decideApprovals(scope, {
 				approvalIds: [input.approvalId],
@@ -1656,9 +1673,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			by: string;
 			note?: string;
 		},
-	): Promise<Array<{ applied: boolean; turnId?: string }>> {
+	): Promise<ApprovalResult[]> {
 		this.bindScope(scope);
-		const results: Array<{ applied: boolean; turnId?: string }> = [];
+		const results: ApprovalResult[] = [];
 		const settled: Array<{ approvalId: string; applied: boolean }> = [];
 		const summaries: string[] = [];
 		const rows = input.approvalIds.map((approvalId) => {
@@ -1674,16 +1691,27 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		let next: ApprovalRow | undefined;
 		for (const approval of rows) {
 			const approvalId = approval.approval_id;
-			if (approval.status !== "pending") {
-				results.push(
-					this.#store.get<{ applied: boolean; turnId?: string }>(
-						`approval-result:${approvalId}`,
-					) ?? { applied: approval.status === "applied" },
+			// The rows above were read before the first change was applied, and
+			// applying one lets other calls in. So each request is taken here,
+			// just before it is applied, and only if it is still waiting.
+			const outcome = await this.#settleApproval(scope, approval, input);
+			if (!outcome) {
+				// Someone else decided it, or is still applying it: wait for that
+				// to land and report what it was.
+				await this.#deciding.get(approvalId);
+				const [current] = this.#store.exec<{ status: string }>(
+					"SELECT status FROM approvals WHERE approval_id = ?",
+					approvalId,
 				);
+				results.push({
+					...(this.#store.get<{ applied: boolean; turnId?: string }>(
+						`approval-result:${approvalId}`,
+					) ?? { applied: current?.status === "applied" }),
+					alreadyDecided: true,
+				});
 				continue;
 			}
 			next ??= approval;
-			const outcome = await this.#settleApproval(scope, approval, input);
 			settled.push({ approvalId, applied: outcome.applied });
 			summaries.push(outcome.summary);
 			results.push({ applied: outcome.applied });
@@ -2106,7 +2134,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.ctx.waitUntil(this.#pushSerial);
 	}
 
-	/** Record one decision and, on approve, run the held call. */
+	/**
+	 * Record one decision and, on approve, run the held call.
+	 *
+	 * The request is taken first: its row is read again and marked decided
+	 * with nothing awaited in between, so no other call can run between the
+	 * check and the mark. Running the held call takes time and other calls are
+	 * handled meanwhile; one of them deciding the same request finds it taken
+	 * and gets `null`, so a change is never applied twice.
+	 */
 	async #settleApproval(
 		scope: WorkspaceScope,
 		approval: ApprovalRow,
@@ -2121,10 +2157,47 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		applied: boolean;
 		summary: string;
 		outcome?: { ok: true; value: unknown } | { ok: false; error: string };
-	}> {
+	} | null> {
 		const approvalId = approval.approval_id;
+		const [current] = this.#store.exec<{ status: ApprovalRow["status"] }>(
+			"SELECT status FROM approvals WHERE approval_id = ?",
+			approvalId,
+		);
+		if (current?.status !== "pending") return null;
 		const now = new Date().toISOString();
 		const state = input.decision === "approve" ? "approved" : "denied";
+		let landed = () => {};
+		this.#deciding.set(
+			approvalId,
+			new Promise<void>((resolve) => {
+				landed = resolve;
+			}),
+		);
+		try {
+			return await this.#applyDecision(scope, approval, input, state, now);
+		} finally {
+			this.#deciding.delete(approvalId);
+			landed();
+		}
+	}
+
+	async #applyDecision(
+		scope: WorkspaceScope,
+		approval: ApprovalRow,
+		input: {
+			decision: "approve" | "deny";
+			by: string;
+			note?: string;
+			automatic?: boolean;
+		},
+		state: "approved" | "denied",
+		now: string,
+	): Promise<{
+		applied: boolean;
+		summary: string;
+		outcome?: { ok: true; value: unknown } | { ok: false; error: string };
+	}> {
+		const approvalId = approval.approval_id;
 		this.#compliance.recordApproval(approvalId, state, input.by, {
 			resource: approval.resource,
 			operation: approval.method,
@@ -3515,7 +3588,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						by: turn.actor.id,
 						automatic: true,
 					});
-					const outcome = settled.outcome ?? {
+					const outcome = settled?.outcome ?? {
 						ok: false as const,
 						error: "The change could not be applied",
 					};
@@ -4117,7 +4190,7 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 			by: string;
 			note?: string;
 		},
-	): Promise<{ applied: boolean; turnId?: string }>;
+	): Promise<ApprovalResult>;
 	decideApprovals(
 		scope: WorkspaceScope,
 		input: {
@@ -4126,7 +4199,7 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 			by: string;
 			note?: string;
 		},
-	): Promise<Array<{ applied: boolean; turnId?: string }>>;
+	): Promise<ApprovalResult[]>;
 	describe(scope: WorkspaceScope): Promise<{
 		organizationId: string;
 		workspaceId: string;

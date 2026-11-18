@@ -624,7 +624,7 @@ describe("staged output migration", () => {
 					decision: "approve",
 					by: "u1",
 				}),
-			).toEqual({ applied: false });
+			).toEqual({ applied: false, alreadyDecided: true });
 			expect(
 				await ws.readEvents(scope, { conversationId: turn.conversationId }),
 			).toEqual(events);
@@ -1885,7 +1885,7 @@ describe("WorkspaceDO", () => {
 				decision: "approve",
 				by: "u1",
 			}),
-		).toEqual(decided);
+		).toEqual({ ...decided, alreadyDecided: true });
 		expect(
 			await ws.readEvents(own, { conversationId, after: requested.seq }),
 		).toEqual(after);
@@ -1953,14 +1953,111 @@ describe("WorkspaceDO", () => {
 		expect(started[0]?.type === "turn.started" && started[0].displayText).toBe(
 			"Approved 3 requested actions.",
 		);
-		// Deciding again returns the recorded results and starts nothing.
+		// Deciding again changes nothing: each is reported as already decided,
+		// with what the first decision did, and no new answer starts.
 		expect(
 			await ws.decideApprovals(scope, {
 				approvalIds: ids,
 				decision: "approve",
 				by: "u1",
 			}),
-		).toEqual(results);
+		).toEqual(results.map((result) => ({ ...result, alreadyDecided: true })));
+		expect(
+			(await ws.readEvents(scope, { conversationId, after: last })).filter(
+				(event) => event.type === "turn.started",
+			),
+		).toHaveLength(1);
+	});
+
+	test("two people approving the same requests at once apply each change once", async () => {
+		const ws = workspace();
+		const CREATE_THEN_TRIM = `export default async (env) => {
+			const docs = [];
+			for (const title of ["Budget", "Forecast", "Plan"])
+				docs.push(await env.outputs.create({ title, content: { kind: "document", blocks: [{ type: "paragraph", text: "Keep" }, { type: "paragraph", text: "Remove" }] } }));
+			return Promise.allSettled(docs.map((doc) => env.documents.edit({ outputId: doc.id, expectedRevision: doc.revision, ops: [{ op: "delete", index: 1 }] })));
+		}`;
+		await ws.scriptModel(scope, [
+			{ code: CREATE_THEN_TRIM },
+			{ text: "Waiting." },
+		]);
+		const { turnId, conversationId } = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Create three documents and trim each",
+		});
+		await ws.awaitTurn(scope, turnId, 20_000);
+		const events = await ws.readEvents(scope, { conversationId, after: 0 });
+		const ids = events.flatMap((event) =>
+			event.type === "approval.requested" && !event.automatic
+				? [event.approvalId]
+				: [],
+		);
+		expect(ids).toHaveLength(3);
+		const last = events.at(-1)!.seq;
+
+		await ws.scriptModel(scope, [{ text: "All three are trimmed." }]);
+		// The second person's batch overlaps the first and arrives while the
+		// first is still applying its changes.
+		const [first, second] = await Promise.all([
+			ws.decideApprovals(scope, {
+				approvalIds: ids,
+				decision: "approve",
+				by: "u1",
+			}),
+			ws.decideApprovals(scope, {
+				approvalIds: [ids[1]!, ids[2]!, ids[0]!],
+				decision: "approve",
+				by: "u2",
+			}),
+		]);
+		const turnIds = new Set(
+			[...first, ...second].flatMap((result) =>
+				result.turnId ? [result.turnId] : [],
+			),
+		);
+		for (const id of turnIds) await ws.awaitTurn(scope, id, 20_000);
+		const after = await ws.readEvents(scope, { conversationId, after: last });
+		const executed = after.flatMap((event) =>
+			event.type === "approval.executed" ? [event] : [],
+		);
+		expect(executed.map((event) => event.approvalId).sort()).toEqual(
+			[...ids].sort(),
+		);
+		expect(executed.map((event) => event.status)).toEqual([
+			"applied",
+			"applied",
+			"applied",
+		]);
+		expect(executed.map((event) => event.output?.revision)).toEqual([2, 2, 2]);
+		expect(
+			after.filter((event) => event.type === "approval.decided"),
+		).toHaveLength(3);
+		// Every change is reported applied to both people; each was decided
+		// by exactly one of them.
+		expect([...first, ...second].map((result) => result.applied)).toEqual(
+			Array.from({ length: 6 }, () => true),
+		);
+		for (const [index, result] of first.entries()) {
+			const other = second[(index + 2) % 3]!;
+			expect([result.alreadyDecided, other.alreadyDecided].sort()).toEqual([
+				true,
+				undefined,
+			]);
+		}
+		// A denial sent after the approval landed is refused and changes nothing.
+		expect(
+			await ws.decideApproval(scope, {
+				approvalId: ids[0]!,
+				decision: "deny",
+				by: "u2",
+			}),
+		).toMatchObject({ applied: true, alreadyDecided: true });
+		expect(
+			(await ws.readEvents(scope, { conversationId, after: last })).filter(
+				(event) => event.type === "approval.decided",
+			),
+		).toHaveLength(3);
 	});
 
 	test("a view shown from sandbox code lands in the answer's events", async () => {
@@ -2198,7 +2295,7 @@ describe("WorkspaceDO", () => {
 				decision: "approve",
 				by: "u1",
 			}),
-		).toEqual({ applied: false });
+		).toEqual({ applied: false, alreadyDecided: true });
 		expect(
 			await ws.readEvents(scope, { conversationId: started.conversationId }),
 		).toEqual(events);

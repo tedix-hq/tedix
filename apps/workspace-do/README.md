@@ -46,6 +46,10 @@ its code runs beside the data.
    while the chat goes on. The next turn's prompt lists the proposals still
    waiting. A decision made while a turn works is answered by one turn after
    it finishes (or, after a Stop, with the person's next message).
+   Each decision takes its request before applying it. A second decision on
+   the same request, from another person, another tab or a retry, changes
+   nothing: it waits for the first to land and is answered `alreadyDecided`
+   with what the first one did, so a change is never applied twice.
    Creating or editing a doc, sheet or deck does not wait
    (`src/auto-approval.ts`). The write is applied in the same turn and the
    model gets the saved file, or the error, as the call's result. It is
