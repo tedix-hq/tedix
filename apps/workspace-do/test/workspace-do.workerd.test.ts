@@ -5662,6 +5662,15 @@ test("requires EU placement and routes initialization through that namespace", a
 		"requires EU jurisdiction",
 	);
 	expect(calls).toHaveLength(2);
+	const local = new InternalEntrypoint(createExecutionContext(), {
+		...runtimeEnv,
+		DO_JURISDICTION: "",
+		ENVIRONMENT: "development",
+		WORKSPACE: {
+			getByName: () => ({ outputQuery: async () => "object" }),
+		},
+	} as unknown as WorkspaceEnv);
+	expect(await local.outputQuery(scope, { op: "initialize" })).toBe("object");
 });
 
 describe("workspace index ownership", () => {
