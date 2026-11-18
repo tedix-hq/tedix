@@ -1,0 +1,1 @@
+CREATE INDEX `idx_work_attempt_org_item_started` ON `work_attempts` (`org_id`,`work_item_id`,started_at DESC,id DESC);

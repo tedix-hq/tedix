@@ -1596,6 +1596,10 @@
 		{
 			"name": "20261118152346_catalog-category-total-index/migration.sql",
 			"sha256": "8b472dfc3f4f0c1b9b88d89d4c9a10ca4ad4f7fcd7dc1a85d569be12a28ed67f"
+		},
+		{
+			"name": "20261118152757_work-attempt-latest-index/migration.sql",
+			"sha256": "fe6fcf2ba48d0345885898450fd86d259f086e718b2011db01a615ced25cfae8"
 		}
 	]
 }

@@ -676,6 +676,12 @@ export const workAttempts = sqliteTable(
 		),
 		index("idx_work_attempt_expiry").on(table.runtimeState, table.expiresAt),
 		index("idx_work_attempt_org_started").on(table.orgId, table.startedAt),
+		index("idx_work_attempt_org_item_started").on(
+			table.orgId,
+			table.workItemId,
+			sql`started_at DESC`,
+			sql`id DESC`,
+		),
 		// Live-Attempt lists filter by runtime state; through org_started they
 		// walked every Attempt the organization ever made.
 		index("idx_work_attempt_org_state_started").on(

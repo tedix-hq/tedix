@@ -1357,6 +1357,27 @@ export async function listLatestWorkAttemptSummaries(
 	>();
 	const ids = [...new Set(params.workItemIds)];
 	for (let offset = 0; offset < ids.length; offset += 50) {
+		// Start from the requested IDs so the outer read cannot scan Attempt history.
+		const requested = db
+			.select({ workItemId: sql<string>`column1`.as("work_item_id") })
+			.from(
+				sql`(VALUES ${sql.join(
+					ids.slice(offset, offset + 50).map((id) => sql`(${id})`),
+					sql`, `,
+				)})`,
+			)
+			.as("requested");
+		const latestId = db
+			.select({ id: workAttempts.id })
+			.from(workAttempts)
+			.where(
+				and(
+					eq(workAttempts.orgId, params.orgId),
+					eq(workAttempts.workItemId, requested.workItemId),
+				),
+			)
+			.orderBy(desc(workAttempts.startedAt), desc(workAttempts.id))
+			.limit(1);
 		const rows = await db
 			.select({
 				workItemId: workAttempts.workItemId,
@@ -1370,14 +1391,10 @@ export async function listLatestWorkAttemptSummaries(
 			})
 			.from(workAttempts)
 			.where(
-				and(
-					eq(workAttempts.orgId, params.orgId),
-					// bound-params: at most 50 Work ids plus the organization.
-					inArray(workAttempts.workItemId, ids.slice(offset, offset + 50)),
-					sql`${workAttempts.id} = (SELECT latest.id FROM work_attempts latest
-				WHERE latest.org_id = ${workAttempts.orgId}
-				AND latest.work_item_id = ${workAttempts.workItemId}
-				ORDER BY latest.started_at DESC, latest.id DESC LIMIT 1)`,
+				// bound-params: VALUES is chunked to 50 IDs; org and LIMIT add two binds.
+				inArray(
+					workAttempts.id,
+					db.select({ id: sql<string>`(${latestId})` }).from(requested),
 				),
 			);
 		for (const { workItemId, ...row } of rows)
