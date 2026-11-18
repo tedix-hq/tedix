@@ -1,0 +1,41 @@
+---
+import { Image, PortableText, type BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asItems } from "./value-utils";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_link_directory" }>>;
+const { value } = Astro.props;
+const Heading = value.page_heading ? "h1" : "h2";
+---
+
+<section class="mk-directory" id={value.anchor ?? undefined}>
+	{value.eyebrow && <p class="mk-directory__eyebrow">{value.eyebrow}</p>}
+	<Heading>{value.heading}</Heading>
+	{value.body && <div class="mk-directory__body"><PortableText value={value.body} /></div>}
+	<div class="mk-directory__cards">
+		{asItems(value.items).map((item) => (
+			<a class="mk-directory__card" href={item.href}>
+				{item.image && <Image image={item.image} />}
+				{item.label && <p class="mk-directory__label">{item.label}</p>}
+				<h3>{item.title}</h3>
+				{item.description && <p>{item.description}</p>}
+				{item.link_label && <span>{item.link_label}</span>}
+			</a>
+		))}
+	</div>
+</section>
+
+<style>
+	.mk-directory { max-width: 1152px; margin: 48px auto; padding: 0 24px; scroll-margin-top: 7rem; }
+	.mk-directory__eyebrow { color: var(--color-brand-500); font-weight: 600; text-transform: uppercase; letter-spacing: .18em; }
+	.mk-directory h1, .mk-directory h2, .mk-directory h3 { font-family: var(--font-display); color: var(--color-text); }
+	.mk-directory h1 { font-size: clamp(2.25rem, 5vw, 4rem); }
+	.mk-directory h2 { font-size: 1.875rem; }
+	.mk-directory__body, .mk-directory__card p { color: var(--color-text-secondary); line-height: 1.65; }
+	.mk-directory__cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 24px; }
+	.mk-directory__card { min-width: 0; padding: 24px; border: 1px solid var(--color-border); border-radius: 24px; background: var(--color-surface); }
+	.mk-directory__card :global(img) { width: 100%; height: 180px; object-fit: cover; border-radius: 12px; }
+	.mk-directory__label { font-size: .8rem; font-weight: 600; }
+	.mk-directory a { color: var(--color-brand-600); overflow-wrap: anywhere; }
+	@media (max-width: 640px) { .mk-directory__cards { grid-template-columns: 1fr; } }
+</style>

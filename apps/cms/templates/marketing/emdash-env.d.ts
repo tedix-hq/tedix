@@ -8,54 +8,8 @@ import type {
 	ContentBylineCredit,
 	TaxonomyTerm,
 	PortableTextBlock,
+	ReferencePage,
 } from "emdash";
-
-export interface Post {
-	id: string;
-	slug: string | null;
-	status: string;
-	title: string;
-	featured_image?: {
-		id: string;
-		src?: string;
-		alt?: string;
-		width?: number;
-		height?: number;
-		filename?: string;
-		mimeType?: string;
-		blurhash?: string;
-		dominantColor?: string;
-		focalX?: number;
-		focalY?: number;
-		provider?: string;
-		previewUrl?: string;
-		meta?: Record<string, unknown>;
-		darkVariant?: {
-			id: string;
-			src?: string;
-			alt?: string;
-			width?: number;
-			height?: number;
-			filename?: string;
-			mimeType?: string;
-			blurhash?: string;
-			dominantColor?: string;
-			focalX?: number;
-			focalY?: number;
-			provider?: string;
-			previewUrl?: string;
-			meta?: Record<string, unknown>;
-		};
-	};
-	content?: PortableTextBlock[];
-	excerpt?: string;
-	createdAt: Date;
-	updatedAt: Date;
-	publishedAt: Date | null;
-	byline?: BylineSummary | null;
-	bylines?: ContentBylineCredit[];
-	terms?: Record<string, TaxonomyTerm[]>;
-}
 
 export interface PageContentMarketingProseV1Block {
 	_type: "marketing_prose";
@@ -93,6 +47,7 @@ export interface PageContentMarketingHeroV2Block {
 		id: string;
 		src?: string;
 		alt?: string;
+		caption?: string;
 		width?: number;
 		height?: number;
 		filename?: string;
@@ -108,6 +63,7 @@ export interface PageContentMarketingHeroV2Block {
 			id: string;
 			src?: string;
 			alt?: string;
+			caption?: string;
 			width?: number;
 			height?: number;
 			filename?: string;
@@ -148,6 +104,7 @@ export interface PageContentMarketingLogoStripV2Block {
 					id: string;
 					src?: string;
 					alt?: string;
+					caption?: string;
 					width?: number;
 					height?: number;
 					filename?: string;
@@ -163,6 +120,7 @@ export interface PageContentMarketingLogoStripV2Block {
 						id: string;
 						src?: string;
 						alt?: string;
+						caption?: string;
 						width?: number;
 						height?: number;
 						filename?: string;
@@ -232,6 +190,7 @@ export interface PageContentMarketingCtaV2Block {
 		id: string;
 		src?: string;
 		alt?: string;
+		caption?: string;
 		width?: number;
 		height?: number;
 		filename?: string;
@@ -247,6 +206,7 @@ export interface PageContentMarketingCtaV2Block {
 			id: string;
 			src?: string;
 			alt?: string;
+			caption?: string;
 			width?: number;
 			height?: number;
 			filename?: string;
@@ -288,6 +248,7 @@ export interface PageContentMarketingTextWithImageV2Block {
 		id: string;
 		src?: string;
 		alt?: string;
+		caption?: string;
 		width?: number;
 		height?: number;
 		filename?: string;
@@ -303,6 +264,7 @@ export interface PageContentMarketingTextWithImageV2Block {
 			id: string;
 			src?: string;
 			alt?: string;
+			caption?: string;
 			width?: number;
 			height?: number;
 			filename?: string;
@@ -356,6 +318,7 @@ export interface PageContentMarketingTestimonialsV2Block {
 					id: string;
 					src?: string;
 					alt?: string;
+					caption?: string;
 					width?: number;
 					height?: number;
 					filename?: string;
@@ -371,6 +334,7 @@ export interface PageContentMarketingTestimonialsV2Block {
 						id: string;
 						src?: string;
 						alt?: string;
+						caption?: string;
 						width?: number;
 						height?: number;
 						filename?: string;
@@ -424,6 +388,161 @@ export interface PageContentMarketingFaqV1Block {
 
 export type PageContentMarketingFaqBlock = PageContentMarketingFaqV1Block;
 
+export interface PageContentMarketingLinkDirectoryV1Block {
+	_type: "marketing_link_directory";
+	_version: 1;
+	_key: string;
+	anchor?: string | null;
+	eyebrow?: string | null;
+	heading: string;
+	page_heading?: boolean | null;
+	body?: PortableTextBlock[] | null;
+	items?:
+		| {
+				title: string;
+				href: string;
+				description?: string | null;
+				label?: string | null;
+				link_label?: string | null;
+				image?: {
+					id: string;
+					src?: string;
+					alt?: string;
+					caption?: string;
+					width?: number;
+					height?: number;
+					filename?: string;
+					mimeType?: string;
+					blurhash?: string;
+					dominantColor?: string;
+					focalX?: number;
+					focalY?: number;
+					provider?: string;
+					previewUrl?: string;
+					meta?: Record<string, unknown>;
+					darkVariant?: {
+						id: string;
+						src?: string;
+						alt?: string;
+						caption?: string;
+						width?: number;
+						height?: number;
+						filename?: string;
+						mimeType?: string;
+						blurhash?: string;
+						dominantColor?: string;
+						focalX?: number;
+						focalY?: number;
+						provider?: string;
+						previewUrl?: string;
+						meta?: Record<string, unknown>;
+					};
+				} | null;
+		  }[]
+		| null;
+}
+
+export type PageContentMarketingLinkDirectoryBlock =
+	PageContentMarketingLinkDirectoryV1Block;
+
+export interface PageContentMarketingFounderProfileV1Block {
+	_type: "marketing_founder_profile";
+	_version: 1;
+	_key: string;
+	eyebrow?: string | null;
+	name: string;
+	role?: string | null;
+	image?: {
+		id: string;
+		src?: string;
+		alt?: string;
+		caption?: string;
+		width?: number;
+		height?: number;
+		filename?: string;
+		mimeType?: string;
+		blurhash?: string;
+		dominantColor?: string;
+		focalX?: number;
+		focalY?: number;
+		provider?: string;
+		previewUrl?: string;
+		meta?: Record<string, unknown>;
+		darkVariant?: {
+			id: string;
+			src?: string;
+			alt?: string;
+			caption?: string;
+			width?: number;
+			height?: number;
+			filename?: string;
+			mimeType?: string;
+			blurhash?: string;
+			dominantColor?: string;
+			focalX?: number;
+			focalY?: number;
+			provider?: string;
+			previewUrl?: string;
+			meta?: Record<string, unknown>;
+		};
+	} | null;
+	body?: PortableTextBlock[] | null;
+	links?: { label: string; href: string }[] | null;
+}
+
+export type PageContentMarketingFounderProfileBlock =
+	PageContentMarketingFounderProfileV1Block;
+
+export interface PageContentMarketingResearchSectionV1Block {
+	_type: "marketing_research_section";
+	_version: 1;
+	_key: string;
+	anchor?: string | null;
+	eyebrow?: string | null;
+	heading: string;
+	page_heading?: boolean | null;
+	body?: PortableTextBlock[] | null;
+	image?: {
+		id: string;
+		src?: string;
+		alt?: string;
+		caption?: string;
+		width?: number;
+		height?: number;
+		filename?: string;
+		mimeType?: string;
+		blurhash?: string;
+		dominantColor?: string;
+		focalX?: number;
+		focalY?: number;
+		provider?: string;
+		previewUrl?: string;
+		meta?: Record<string, unknown>;
+		darkVariant?: {
+			id: string;
+			src?: string;
+			alt?: string;
+			caption?: string;
+			width?: number;
+			height?: number;
+			filename?: string;
+			mimeType?: string;
+			blurhash?: string;
+			dominantColor?: string;
+			focalX?: number;
+			focalY?: number;
+			provider?: string;
+			previewUrl?: string;
+			meta?: Record<string, unknown>;
+		};
+	} | null;
+	caption?: string | null;
+	links?: { label: string; href: string }[] | null;
+}
+
+export type PageContentMarketingResearchSectionBlock =
+	PageContentMarketingResearchSectionV1Block;
+
 export type PageContentBlock =
 	| PageContentMarketingProseBlock
 	| PageContentMarketingHeroBlock
@@ -434,7 +553,10 @@ export type PageContentBlock =
 	| PageContentMarketingTextWithImageBlock
 	| PageContentMarketingTestimonialsBlock
 	| PageContentMarketingPricingBlock
-	| PageContentMarketingFaqBlock;
+	| PageContentMarketingFaqBlock
+	| PageContentMarketingLinkDirectoryBlock
+	| PageContentMarketingFounderProfileBlock
+	| PageContentMarketingResearchSectionBlock;
 
 export interface Page {
 	id: string;
@@ -451,9 +573,65 @@ export interface Page {
 	terms?: Record<string, TaxonomyTerm[]>;
 }
 
+export interface Post {
+	id: string;
+	slug: string | null;
+	status: string;
+	title: string;
+	featured_image?: {
+		id: string;
+		src?: string;
+		alt?: string;
+		caption?: string;
+		width?: number;
+		height?: number;
+		filename?: string;
+		mimeType?: string;
+		blurhash?: string;
+		dominantColor?: string;
+		focalX?: number;
+		focalY?: number;
+		provider?: string;
+		previewUrl?: string;
+		meta?: Record<string, unknown>;
+		darkVariant?: {
+			id: string;
+			src?: string;
+			alt?: string;
+			caption?: string;
+			width?: number;
+			height?: number;
+			filename?: string;
+			mimeType?: string;
+			blurhash?: string;
+			dominantColor?: string;
+			focalX?: number;
+			focalY?: number;
+			provider?: string;
+			previewUrl?: string;
+			meta?: Record<string, unknown>;
+		};
+	};
+	content?: PortableTextBlock[];
+	excerpt?: string;
+	createdAt: Date;
+	updatedAt: Date;
+	publishedAt: Date | null;
+	byline?: BylineSummary | null;
+	bylines?: ContentBylineCredit[];
+	terms?: Record<string, TaxonomyTerm[]>;
+}
+
+export interface PostReferences {
+	related_posts: ReferencePage<Post>;
+}
+
 declare module "emdash" {
 	interface EmDashCollections {
-		posts: Post;
 		pages: Page;
+		posts: Post;
+	}
+	interface EmDashCollectionReferences {
+		posts: PostReferences;
 	}
 }
