@@ -6,7 +6,7 @@
  * so it is unit-testable; write-shaped procedures mutate an in-memory store
  * that `resetLocalFixtures()` restores. The wire envelope mirrors the oRPC v2
  * RPC serializer the SPA client uses: success bodies are `{"json": <output>}`,
- * error bodies are `{"json": {defined, inferable, code, message, data?}}` on a
+ * error bodies are `{"json": {defined, code, message, data?}}` on a
  * >=400 status, and input envelopes may carry a `meta` array whose
  * `"undefined"` entries must be re-applied (the client serializes explicit
  * `undefined` property values as `null` + meta marker).
@@ -266,7 +266,6 @@ const errorEnvelope = (error: RpcError): { status: number; body: unknown } => ({
 	body: {
 		json: {
 			defined: true,
-			inferable: true,
 			code: error.code,
 			message: error.message,
 			...(error.data !== undefined ? { data: error.data } : {}),

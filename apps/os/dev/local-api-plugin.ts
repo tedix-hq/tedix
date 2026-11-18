@@ -158,7 +158,6 @@ async function serveLocalApi(
 			sendJson(res, 400, {
 				json: {
 					defined: false,
-					inferable: false,
 					code: "BAD_REQUEST",
 					message: "Malformed RPC request envelope",
 				},
@@ -175,7 +174,6 @@ async function serveLocalApi(
 		sendJson(res, 404, {
 			json: {
 				defined: false,
-				inferable: false,
 				code: "NOT_FOUND",
 				message: `No local fixture handler for ${url.split("?")[0]}`,
 			},
@@ -228,7 +226,6 @@ export function localApiPlugin(): Plugin {
 						sendJson(res, 500, {
 							json: {
 								defined: false,
-								inferable: false,
 								code: "INTERNAL_SERVER_ERROR",
 								message: "Local fixture middleware failed",
 							},

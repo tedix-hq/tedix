@@ -10,16 +10,15 @@ import {
  * Structural fake of the oRPC v2 client `ORPCError`. `@orpc/client` is not a
  * declared dependency of apps/os, so the real class is not importable here. The fake mirrors what the
  * client materializes from the wire envelope — an `Error` subclass carrying
- * `code`/`defined`/`inferable`/`data` — which itself mirrors both the OS
+ * `code`/`defined`/`data` — which itself mirrors both the OS
  * worker's proxy refusal (`refuseApi` in `apps/os/src/worker.ts`:
- * `{"json":{"defined":true,"inferable":true,"code":"UNAUTHORIZED","message":…}}`,
+ * `{"json":{"defined":true,"code":"UNAUTHORIZED","message":…}}`,
  * verified there against a live 401 from api.tedix.dev) and `createError` in
  * `apps/api/src/rpc/orpc.ts`. oRPC v2's `ORPCError` carries no `status` field.
  */
 class FakeOrpcError extends Error {
 	readonly name = "ORPCError" as const;
 	readonly defined = true;
-	readonly inferable = true;
 	readonly data = undefined;
 	constructor(
 		readonly code: string,

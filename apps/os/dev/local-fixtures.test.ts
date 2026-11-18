@@ -2012,7 +2012,6 @@ describe("optimistic-concurrency conflicts", () => {
 			result.body as {
 				json: {
 					defined: boolean;
-					inferable: boolean;
 					code: string;
 					message: string;
 					data: { expectedRevision: number; currentRevision: number | null };
@@ -2020,7 +2019,6 @@ describe("optimistic-concurrency conflicts", () => {
 			}
 		).json;
 		expect(error.defined).toBe(true);
-		expect(error.inferable).toBe(true);
 		expect(error.code).toBe("CONFLICT");
 		expect(error.message).toMatch(/conflict/i);
 		expect(error.data.currentRevision).toBe(currentRevision);
