@@ -14,8 +14,7 @@ import type {
  *   - Daily logs (`workspace/daily/YYYY-MM-DD.md`)  →  Cloudflare Artifacts
  *     per-tedi repo (`tedix-prod` namespace, repo name = tediId). Committed
  *     via `isomorphic-git` from `artifacts-git.ts` so isolate writes land in
- *     the same git history a container counterpart's `artifacts` daemon
- *     would push to. Legacy R2 daily-log entries from P6.2 are left in place
+ *     one git history per tedi. Older R2 daily-log entries are left in place
  *     (not migrated, not deleted).
  */
 

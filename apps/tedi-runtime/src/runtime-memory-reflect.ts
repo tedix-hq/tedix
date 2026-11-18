@@ -372,12 +372,6 @@ export async function runBridgeTurnInner(
 				recordTurnSummaryArtifact({
 					signal: stageSignal,
 					platform: platformFor(stageSignal),
-					bucket:
-						this.env.TEDI_STORAGE &&
-						this.admittedEffectPort(
-							this.env.TEDI_STORAGE,
-							`${payload.runId}:memory`,
-						),
 					tediId: this.state.tediId,
 					conversationId: buildTediConversationId({
 						tediRef: this.state.slug || this.state.tediId,

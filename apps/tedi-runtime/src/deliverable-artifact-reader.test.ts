@@ -114,7 +114,6 @@ const sharedPlatform = {
 
 const writtenInRunA = await recordDeliverableArtifact({
 	platform: sharedPlatform,
-	bucket: sharedBucket,
 	tediId,
 	runId: "run-a",
 	name: "acme-commercial-briefing.md",

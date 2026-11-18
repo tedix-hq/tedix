@@ -470,7 +470,6 @@ export const runtimeRepository = {
 		}
 		return recordDeliverableArtifact({
 			platform: turnCtx.platform,
-			bucket: this.env.TEDI_STORAGE,
 			tediId,
 			conversationId: turnCtx.conversationId,
 			runId: turnCtx.runId,
