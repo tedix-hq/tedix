@@ -167,7 +167,7 @@ export function renderRichTextNode(node: OsRichTextNode): string {
 			return `<h${level}${title}${alignment}>${children}</h${level}>`;
 		}
 		case "table":
-			return `<table style="border-collapse:collapse;width:100%"><tbody>${children}</tbody></table>`;
+			return `<table><tbody>${children}</tbody></table>`;
 		case "tableRow":
 			return `<tr>${children}</tr>`;
 		case "tableHeader":
@@ -184,10 +184,10 @@ export function renderRichTextNode(node: OsRichTextNode): string {
 				1,
 				Math.min(1000, Number(node.attrs?.rowspan) || 1),
 			);
-			return `<${tag} colspan="${colspan}" rowspan="${rowspan}" style="border:1px solid #888;padding:8px;vertical-align:top;${width >= 40 && width <= 2000 ? `width:${width}px;` : ""}${tag === "th" ? "background:#eee;" : ""}">${children}</${tag}>`;
+			return `<${tag} colspan="${colspan}" rowspan="${rowspan}" ${width >= 40 && width <= 2000 ? ` style="width:${width}px"` : ""}>${children}</${tag}>`;
 		}
 		case "callout":
-			return `<aside style="border-left:4px solid #888;padding:12px">${children}</aside>`;
+			return `<aside>${children}</aside>`;
 		case "details":
 			return `<details open>${children}</details>`;
 		case "detailsSummary":
@@ -409,6 +409,37 @@ const PRESENTATION_CSS = `
 	section.slide h2 { font-size: 44px; }
 `;
 
+// Mirrors the editor's .tiptap rules in apps/os/src/gadgets/doc-client.ts with
+// the editor's theme variables resolved to fixed light-mode colors.
+const DOCUMENT_CSS = `
+	article { line-height: 1.62; overflow-wrap: anywhere; }
+	article > :first-child { margin-top: 0; }
+	article p { margin: 0 0 .8em; }
+	article h1 { font-size: 1.875em; line-height: 1.22; font-weight: 680; letter-spacing: -.024em; margin: 1.3em 0 .4em; }
+	article h2 { font-size: 1.4em; line-height: 1.3; font-weight: 640; letter-spacing: -.016em; margin: 1.3em 0 .35em; }
+	article h3 { font-size: 1.15em; line-height: 1.4; font-weight: 620; margin: 1.2em 0 .3em; }
+	article h4 { font-size: 1em; line-height: 1.4; font-weight: 620; margin: 1.2em 0 .3em; }
+	article h1.doc-title { font-size: 2.3em; font-weight: 700; }
+	article blockquote { margin: 0 0 .8em; padding: 0 0 0 14px; border-left: 2px solid rgba(26,26,26,.15); color: rgba(26,26,26,.72); }
+	article pre { font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(26,26,26,.055); border: 0; margin: 0 0 1em; padding: 12px 14px; border-radius: 8px; white-space: pre-wrap; }
+	article code { font-size: .9em; }
+	article :not(pre) > code { background: rgba(26,26,26,.085); padding: .1em .3em; border-radius: 4px; }
+	article hr { border: 0; border-top: 1px solid rgba(26,26,26,.15); margin: 1.6em 0; }
+	article ul, article ol { margin: 0 0 .8em; padding-left: 1.5em; }
+	article li p { margin: 0 0 .2em; }
+	article ul[data-type=taskList], article ul.task-list { list-style: none; padding-left: 0; }
+	article table { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; font-size: inherit; margin: 0 0 1em; border: 1px solid rgba(26,26,26,.15); border-radius: 8px; overflow: hidden; }
+	article th, article td { border: solid rgba(26,26,26,.08); border-width: 0 1px 1px 0; min-width: 60px; padding: 7px 10px; vertical-align: top; text-align: left; }
+	article :is(th, td):last-child { border-right: 0; }
+	article tr:last-child > * { border-bottom: 0; }
+	article th { background: rgba(26,26,26,.035); font-weight: 600; }
+	article :is(th, td) p { margin: 0; }
+	article aside, article details { margin: 0 0 1em; padding: 11px 14px; border-radius: 8px; background: rgba(26,26,26,.055); border: 0; }
+	article summary { font-weight: 600; }
+	article :is(aside, details > div) > :last-child { margin-bottom: 0; }
+	article img { border-radius: 6px; }
+`;
+
 function documentAppearanceCss(content: OsOutputContent): string {
 	if (content.kind !== "document") return "";
 	const typeface = content.appearance?.typeface ?? "sans";
@@ -426,7 +457,7 @@ function documentAppearanceCss(content: OsOutputContent): string {
 		],
 	}[typeface];
 	const width = content.appearance?.wide ? 980 : 700;
-	return `body{font-family:${family};font-size:${size}px;line-height:${lineHeight}}article,header.export-header{max-width:${width}px;margin-left:auto;margin-right:auto}`;
+	return `${DOCUMENT_CSS}body{font-family:${family};font-size:${size}px;line-height:${lineHeight}}article{line-height:${lineHeight}}article,header.export-header{max-width:${width}px;margin-left:auto;margin-right:auto}`;
 }
 
 // Keep this in step with the viewer's slide-fonts.ts system-family exclusions.
@@ -571,7 +602,7 @@ ${fontStylesheet}
 	<style>${INLINE_CSS}${isPresentation ? PRESENTATION_CSS : ""}${documentAppearanceCss(revision.content)}</style>
 </head>
 <body>
-${isPresentation ? "" : `<header class="export-header"><h1>${title}</h1><p class="meta">${meta}</p></header>`}
+${isPresentation || revision.content.kind === "document" ? "" : `<header class="export-header"><h1>${title}</h1><p class="meta">${meta}</p></header>`}
 ${body}
 </body>
 </html>`;
