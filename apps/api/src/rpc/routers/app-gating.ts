@@ -19,7 +19,7 @@ import {
 	getEligibilityBadge,
 	getRuntimeTools,
 } from "../../lib/app-gating";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import { AUTHZ, withAuthorization, type BaseContext, withAuth } from "../orpc";
 
 const gatingOs = implement(appGatingContract).$context<BaseContext>();
@@ -42,24 +42,27 @@ function getDescopeGatingEnv(context: BaseContext) {
 // PROCEDURES
 // =============================================================================
 
-const eligibility = readOs.eligibility.handler(async ({ input, context }) => {
-	const orgId = requireOrgId(context);
-	const result = await checkAppEligibilityById(
-		context.env.DB,
-		input.appId,
-		orgId,
-		getDescopeGatingEnv(context),
-		context.user?.sub,
-	);
-	return {
-		...result,
-		badge: getEligibilityBadge(result),
-	};
-});
+const eligibility = readOs.eligibility
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const orgId = context.organizationId;
+		const result = await checkAppEligibilityById(
+			context.env.DB,
+			input.appId,
+			orgId,
+			getDescopeGatingEnv(context),
+			context.user?.sub,
+		);
+		return {
+			...result,
+			badge: getEligibilityBadge(result),
+		};
+	});
 
-const installedEligibility = readOs.installedEligibility.handler(
-	async ({ context }) => {
-		const orgId = requireOrgId(context);
+const installedEligibility = readOs.installedEligibility
+	.use(withOrg)
+	.handler(async ({ context }) => {
+		const orgId = context.organizationId;
 		const results = await checkInstalledAppsEligibility(
 			context.env.DB,
 			orgId,
@@ -70,12 +73,12 @@ const installedEligibility = readOs.installedEligibility.handler(
 			...r,
 			badge: getEligibilityBadge(r.result),
 		}));
-	},
-);
+	});
 
-const runtimeToolsProc = readOs.runtimeTools.handler(
-	async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+const runtimeToolsProc = readOs.runtimeTools
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const orgId = context.organizationId;
 
 		// Resolve identity only through the caller's organization boundary.
 		const tedi = await getTediByIdForOrganization(
@@ -95,23 +98,24 @@ const runtimeToolsProc = readOs.runtimeTools.handler(
 			},
 			tedi?.descopeUserId ?? undefined,
 		);
-	},
-);
+	});
 
-const installCheck = readOs.installCheck.handler(async ({ input, context }) => {
-	const orgId = requireOrgId(context);
-	const result = await checkInstallEligibility(
-		context.env.DB,
-		input.appId,
-		orgId,
-		getDescopeGatingEnv(context),
-		context.user?.sub,
-	);
-	return {
-		...result,
-		badge: getEligibilityBadge(result),
-	};
-});
+const installCheck = readOs.installCheck
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const orgId = context.organizationId;
+		const result = await checkInstallEligibility(
+			context.env.DB,
+			input.appId,
+			orgId,
+			getDescopeGatingEnv(context),
+			context.user?.sub,
+		);
+		return {
+			...result,
+			badge: getEligibilityBadge(result),
+		};
+	});
 
 // =============================================================================
 // ROUTER EXPORT

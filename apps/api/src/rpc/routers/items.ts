@@ -22,7 +22,7 @@ import {
 } from "@tedix/db/queries/items";
 import type { NewItem } from "@tedix/db/schema/items";
 import { requireAppForOrg } from "../app-scope";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -57,11 +57,12 @@ const authedItemsOs = itemsOs.use(withAuth);
  */
 export const listItems = authedItemsOs.list
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, limit, offset } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 		const items = await getItemsByApp(db, appId, { limit, offset });
 		const total = await getItemCount(db, appId);
@@ -82,11 +83,12 @@ export const listItems = authedItemsOs.list
  */
 export const getItem = authedItemsOs.get
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, itemId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		const item = await getItemById(db, itemId);
@@ -109,11 +111,12 @@ export const getItem = authedItemsOs.get
  */
 export const searchItemsProcedure = authedItemsOs.search
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, q, limit } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 		const items = await searchItems(db, appId, q, { limit });
 
@@ -134,11 +137,12 @@ export const searchItemsProcedure = authedItemsOs.search
  */
 export const createItemsProcedure = authedItemsOs.create
 	.use(AUTHZ.appsWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, items } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		// Transform API format (camelCase) to database format
@@ -167,11 +171,12 @@ export const createItemsProcedure = authedItemsOs.create
  */
 export const deleteAllItemsProcedure = authedItemsOs.deleteAll
 	.use(AUTHZ.appsWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 		const count = await deleteItemsByApp(db, appId);
 
@@ -186,11 +191,12 @@ export const deleteAllItemsProcedure = authedItemsOs.deleteAll
  */
 export const deleteItemProcedure = authedItemsOs.delete
 	.use(AUTHZ.appsWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, itemId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		const item = await getItemById(db, itemId);
@@ -233,6 +239,7 @@ export const deleteItemProcedure = authedItemsOs.delete
  */
 export const importItemsProcedure = authedItemsOs.import
 	.use(AUTHZ.appsWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db, env } = context;
 		const {
@@ -246,7 +253,7 @@ export const importItemsProcedure = authedItemsOs.import
 			dryRun,
 		} = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		// Start import workflow with all parameters

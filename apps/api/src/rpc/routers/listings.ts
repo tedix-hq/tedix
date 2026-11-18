@@ -28,7 +28,7 @@ import {
 import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
 import { getEnabledAdapters } from "@tedix/db/queries/adapters";
 import { AdapterRegistry } from "../../adapters/registry";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -74,6 +74,7 @@ const listingsOs = implement(listingsContract)
  */
 export const searchListings = listingsOs.search
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db, env } = context;
 		const {
@@ -91,7 +92,7 @@ export const searchListings = listingsOs.search
 			adapterScope,
 			resultStrategy,
 		} = input;
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const app = await getAppByIdForOrganization(db, appId, orgId);
 		if (!app) {
@@ -349,10 +350,11 @@ export const searchListings = listingsOs.search
  */
 export const getAdapters = listingsOs.adapters
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId } = input;
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const app = await getAppByIdForOrganization(db, appId, orgId);
 		if (!app) {

@@ -47,7 +47,7 @@ import {
 	type SeoResearchResult,
 } from "../../integrations/dataforseo/research";
 import { requireAppForOrg } from "../app-scope";
-import { requireOrgId } from "../org-scope";
+import { type OrgContext, withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -751,8 +751,9 @@ function mapDataForSeoError(error: unknown): never {
 
 export const researchKeywords = authedOs.researchKeywords
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(context.db, orgId, input.appId);
 		try {
 			const { result, billing } = await runSeoResearch(
@@ -776,8 +777,9 @@ export const researchKeywords = authedOs.researchKeywords
 
 export const getSerpResults = authedOs.getSerpResults
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(context.db, orgId, input.appId);
 		try {
 			const { result, billing } = await runSeoResearch(
@@ -802,8 +804,9 @@ export const getSerpResults = authedOs.getSerpResults
 
 export const getDomainOverview = authedOs.getDomainOverview
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(context.db, orgId, input.appId);
 		const domain = normalizeDomain(input.domain);
 		try {
@@ -833,8 +836,9 @@ export const getDomainOverview = authedOs.getDomainOverview
 
 export const getBacklinksOverview = authedOs.getBacklinksOverview
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(context.db, orgId, input.appId);
 		const target = normalizeBacklinksTarget(input.target);
 		try {
@@ -860,6 +864,7 @@ export const getBacklinksOverview = authedOs.getBacklinksOverview
 
 export const querySearchAnalytics = authedOs.querySearchAnalytics
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(
 		async ({
 			input,
@@ -874,9 +879,9 @@ export const querySearchAnalytics = authedOs.querySearchAnalytics
 				rowLimit?: number;
 				startRow?: number;
 			};
-			context: BaseContext;
+			context: OrgContext;
 		}) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const app = await requireAppForOrg(context.db, orgId, input.appId);
 			const metadata = getAppMetadata(app);
 			const siteUrl = resolveSiteUrl(app, metadata, input.siteUrl);
@@ -913,15 +918,16 @@ export const querySearchAnalytics = authedOs.querySearchAnalytics
 
 export const getIndexingStatus = authedOs.getIndexingStatus
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(
 		async ({
 			input,
 			context,
 		}: {
 			input: { appId: string; urlInspect: string; siteUrl?: string };
-			context: BaseContext;
+			context: OrgContext;
 		}) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const app = await requireAppForOrg(context.db, orgId, input.appId);
 			const metadata = getAppMetadata(app);
 			const siteUrl = resolveSiteUrl(app, metadata, input.siteUrl);
@@ -962,15 +968,16 @@ export const getIndexingStatus = authedOs.getIndexingStatus
 
 export const listSitemaps = authedOs.listSitemaps
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(
 		async ({
 			input,
 			context,
 		}: {
 			input: { appId: string; siteUrl?: string };
-			context: BaseContext;
+			context: OrgContext;
 		}) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const app = await requireAppForOrg(context.db, orgId, input.appId);
 			const metadata = getAppMetadata(app);
 			const siteUrl = resolveSiteUrl(app, metadata, input.siteUrl);
@@ -1010,15 +1017,16 @@ export const listSitemaps = authedOs.listSitemaps
 
 export const submitSitemap = authedOs.submitSitemap
 	.use(AUTHZ.appsWrite)
+	.use(withOrg)
 	.handler(
 		async ({
 			input,
 			context,
 		}: {
 			input: { appId: string; siteUrl?: string; sitemapUrl?: string };
-			context: BaseContext;
+			context: OrgContext;
 		}) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const app = await requireAppForOrg(context.db, orgId, input.appId);
 			const metadata = getAppMetadata(app);
 			const siteUrl = resolveSiteUrl(app, metadata, input.siteUrl);
@@ -1052,81 +1060,9 @@ export const submitSitemap = authedOs.submitSitemap
 		},
 	);
 
-export const verifyGoogle = authedOs.verifyGoogle.use(AUTHZ.appsWrite).handler(
-	async ({
-		input,
-		context,
-	}: {
-		input: {
-			appId: string;
-			siteUrl?: string;
-			verificationMethod?: GoogleVerificationMethod;
-			siteType?: GoogleVerificationSiteType;
-		};
-		context: BaseContext;
-	}) => {
-		const orgId = requireOrgId(context);
-		const app = await requireAppForOrg(context.db, orgId, input.appId);
-		const metadata = getAppMetadata(app);
-		const resolvedSiteUrl = resolveSiteUrl(app, metadata, input.siteUrl);
-		const method = inferVerificationMethod(
-			resolvedSiteUrl,
-			input.verificationMethod,
-		);
-		const site = resolveVerificationSite(
-			resolvedSiteUrl,
-			method,
-			input.siteType,
-		);
-		const accessToken = await getGscAccessToken(context, orgId);
-
-		// First, try the actual claim — POST to siteVerification/webResource
-		// with the chosen verification method. This is the real ownership
-		// grant. Idempotent — calling again on an already-owned property
-		// returns 200.
-		const claim = await claimSiteVerification(site, method, accessToken);
-		if (claim.ok) {
-			return {
-				verified: true,
-				method,
-				siteType: site.type,
-				siteUrl: site.gscSiteUrl,
-			};
-		}
-
-		// Fall back to a sites.get probe — covers the case where ownership
-		// was granted out-of-band (e.g. someone added the SA email as Owner
-		// in the GSC UI, no claim POST needed).
-		const url = `${WMT_BASE}/sites/${encodeURIComponent(site.gscSiteUrl)}`;
-		let verified = false;
-		try {
-			const result = (await gscFetch(url, accessToken)) as {
-				permissionLevel?: string;
-				siteUrl?: string;
-			} | null;
-			const perm = result?.permissionLevel ?? "";
-			verified = perm === "siteOwner" || perm === "siteFullUser";
-		} catch {
-			verified = false;
-		}
-
-		return {
-			verified,
-			method,
-			siteType: site.type,
-			siteUrl: site.gscSiteUrl,
-		};
-	},
-);
-
-/**
- * Request a verification token from Google for the given siteUrl and persist
- * it to `app.metadata.seoConfig.googleVerifications[siteUrl]`. The caller is
- * responsible for ensuring the meta tag is rendered on the public site
- * before invoking `verifyGoogle` to claim ownership.
- */
-export const registerGoogleProperty = authedOs.registerGoogleProperty
+export const verifyGoogle = authedOs.verifyGoogle
 	.use(AUTHZ.appsWrite)
+	.use(withOrg)
 	.handler(
 		async ({
 			input,
@@ -1138,9 +1074,85 @@ export const registerGoogleProperty = authedOs.registerGoogleProperty
 				verificationMethod?: GoogleVerificationMethod;
 				siteType?: GoogleVerificationSiteType;
 			};
-			context: BaseContext;
+			context: OrgContext;
 		}) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
+			const app = await requireAppForOrg(context.db, orgId, input.appId);
+			const metadata = getAppMetadata(app);
+			const resolvedSiteUrl = resolveSiteUrl(app, metadata, input.siteUrl);
+			const method = inferVerificationMethod(
+				resolvedSiteUrl,
+				input.verificationMethod,
+			);
+			const site = resolveVerificationSite(
+				resolvedSiteUrl,
+				method,
+				input.siteType,
+			);
+			const accessToken = await getGscAccessToken(context, orgId);
+
+			// First, try the actual claim — POST to siteVerification/webResource
+			// with the chosen verification method. This is the real ownership
+			// grant. Idempotent — calling again on an already-owned property
+			// returns 200.
+			const claim = await claimSiteVerification(site, method, accessToken);
+			if (claim.ok) {
+				return {
+					verified: true,
+					method,
+					siteType: site.type,
+					siteUrl: site.gscSiteUrl,
+				};
+			}
+
+			// Fall back to a sites.get probe — covers the case where ownership
+			// was granted out-of-band (e.g. someone added the SA email as Owner
+			// in the GSC UI, no claim POST needed).
+			const url = `${WMT_BASE}/sites/${encodeURIComponent(site.gscSiteUrl)}`;
+			let verified = false;
+			try {
+				const result = (await gscFetch(url, accessToken)) as {
+					permissionLevel?: string;
+					siteUrl?: string;
+				} | null;
+				const perm = result?.permissionLevel ?? "";
+				verified = perm === "siteOwner" || perm === "siteFullUser";
+			} catch {
+				verified = false;
+			}
+
+			return {
+				verified,
+				method,
+				siteType: site.type,
+				siteUrl: site.gscSiteUrl,
+			};
+		},
+	);
+
+/**
+ * Request a verification token from Google for the given siteUrl and persist
+ * it to `app.metadata.seoConfig.googleVerifications[siteUrl]`. The caller is
+ * responsible for ensuring the meta tag is rendered on the public site
+ * before invoking `verifyGoogle` to claim ownership.
+ */
+export const registerGoogleProperty = authedOs.registerGoogleProperty
+	.use(AUTHZ.appsWrite)
+	.use(withOrg)
+	.handler(
+		async ({
+			input,
+			context,
+		}: {
+			input: {
+				appId: string;
+				siteUrl?: string;
+				verificationMethod?: GoogleVerificationMethod;
+				siteType?: GoogleVerificationSiteType;
+			};
+			context: OrgContext;
+		}) => {
+			const orgId = context.organizationId;
 			const app = await requireAppForOrg(context.db, orgId, input.appId);
 			const metadata = getAppMetadata(app);
 			const resolvedSiteUrl = resolveSiteUrl(app, metadata, input.siteUrl);
@@ -1223,15 +1235,16 @@ export const registerGoogleProperty = authedOs.registerGoogleProperty
 
 export const getStatus = authedOs.getStatus
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(
 		async ({
 			input,
 			context,
 		}: {
 			input: { appId: string };
-			context: BaseContext;
+			context: OrgContext;
 		}) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const app = await requireAppForOrg(context.db, orgId, input.appId);
 			const metadata = getAppMetadata(app);
 			const seoConfig = metadata.seoConfig ?? {};
@@ -1347,65 +1360,68 @@ export const getStatus = authedOs.getStatus
 		},
 	);
 
-export const configure = authedOs.configure.use(AUTHZ.appsWrite).handler(
-	async ({
-		input,
-		context,
-	}: {
-		input: {
-			appId: string;
-			googleVerification?: string | null;
-			indexNowKey?: string | null;
-			gscPropertyUrl?: string | null;
-		};
-		context: BaseContext;
-	}) => {
-		const orgId = requireOrgId(context);
-		const app = await requireAppForOrg(context.db, orgId, input.appId);
-		const existing = getAppMetadata(app);
-		const prevSeo = existing.seoConfig ?? {};
+export const configure = authedOs.configure
+	.use(AUTHZ.appsWrite)
+	.use(withOrg)
+	.handler(
+		async ({
+			input,
+			context,
+		}: {
+			input: {
+				appId: string;
+				googleVerification?: string | null;
+				indexNowKey?: string | null;
+				gscPropertyUrl?: string | null;
+			};
+			context: OrgContext;
+		}) => {
+			const orgId = context.organizationId;
+			const app = await requireAppForOrg(context.db, orgId, input.appId);
+			const existing = getAppMetadata(app);
+			const prevSeo = existing.seoConfig ?? {};
 
-		const next = {
-			...prevSeo,
-			googleVerification:
-				input.googleVerification === undefined
-					? prevSeo.googleVerification
-					: (input.googleVerification ?? undefined),
-			indexNowKey:
-				input.indexNowKey === undefined
-					? prevSeo.indexNowKey
-					: (input.indexNowKey ?? undefined),
-			gscPropertyUrl:
-				input.gscPropertyUrl === undefined
-					? prevSeo.gscPropertyUrl
-					: (input.gscPropertyUrl ?? undefined),
-		};
+			const next = {
+				...prevSeo,
+				googleVerification:
+					input.googleVerification === undefined
+						? prevSeo.googleVerification
+						: (input.googleVerification ?? undefined),
+				indexNowKey:
+					input.indexNowKey === undefined
+						? prevSeo.indexNowKey
+						: (input.indexNowKey ?? undefined),
+				gscPropertyUrl:
+					input.gscPropertyUrl === undefined
+						? prevSeo.gscPropertyUrl
+						: (input.gscPropertyUrl ?? undefined),
+			};
 
-		const updatedMetadata: AppMetadata = {
-			...existing,
-			seoConfig: next,
-		};
+			const updatedMetadata: AppMetadata = {
+				...existing,
+				seoConfig: next,
+			};
 
-		const updated = await updateApp(context.db, input.appId, {
-			metadata: updatedMetadata,
-		});
-		if (!updated) {
-			throw createError(
-				ErrorCodes.INTERNAL_SERVER_ERROR,
-				"Failed to update app seoConfig",
-			);
-		}
+			const updated = await updateApp(context.db, input.appId, {
+				metadata: updatedMetadata,
+			});
+			if (!updated) {
+				throw createError(
+					ErrorCodes.INTERNAL_SERVER_ERROR,
+					"Failed to update app seoConfig",
+				);
+			}
 
-		return {
-			success: true as const,
-			seoConfig: {
-				googleVerification: next.googleVerification ?? null,
-				indexNowKey: next.indexNowKey ?? null,
-				gscPropertyUrl: next.gscPropertyUrl ?? null,
-			},
-		};
-	},
-);
+			return {
+				success: true as const,
+				seoConfig: {
+					googleVerification: next.googleVerification ?? null,
+					indexNowKey: next.indexNowKey ?? null,
+					gscPropertyUrl: next.gscPropertyUrl ?? null,
+				},
+			};
+		},
+	);
 
 // =============================================================================
 // ROUTER
@@ -1424,15 +1440,16 @@ export const configure = authedOs.configure.use(AUTHZ.appsWrite).handler(
  */
 export const deleteGoogleProperty = authedOs.deleteGoogleProperty
 	.use(AUTHZ.appsWrite)
+	.use(withOrg)
 	.handler(
 		async ({
 			input,
 			context,
 		}: {
 			input: { appId: string; siteUrl?: string; releaseVerification?: boolean };
-			context: BaseContext;
+			context: OrgContext;
 		}) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const app = await requireAppForOrg(context.db, orgId, input.appId);
 			const metadata = getAppMetadata(app);
 			const siteUrl = resolveSiteUrl(app, metadata, input.siteUrl);
