@@ -495,6 +495,70 @@ const CMS_PROXY_TOOL_SPECS: readonly ProxyToolSpec[] = [
 		annotations: { readOnlyHint: true },
 	},
 	{
+		name: "list_sections",
+		kind: "proxy",
+		title: "List Native Sections",
+		description:
+			"List reusable Emdash compositions with native search, source filters and pagination.",
+		input: CMS_PROXY_TOOL_SCHEMAS.list_sections.input,
+		output: CMS_PROXY_TOOL_SCHEMAS.list_sections.output,
+		annotations: { readOnlyHint: true },
+	},
+	{
+		name: "get_section",
+		kind: "proxy",
+		title: "Get Native Section",
+		description: "Read a reusable Emdash composition by slug.",
+		input: CMS_PROXY_TOOL_SCHEMAS.get_section.input,
+		output: CMS_PROXY_TOOL_SCHEMAS.get_section.output,
+		annotations: { readOnlyHint: true },
+	},
+	{
+		name: "create_section",
+		kind: "proxy",
+		title: "Create Native Section",
+		description:
+			"Save a reusable composition in the native Emdash section library. This does not publish a page.",
+		input: CMS_PROXY_TOOL_SCHEMAS.create_section.input,
+		output: CMS_PROXY_TOOL_SCHEMAS.create_section.output,
+		annotations: { destructiveHint: true },
+	},
+	{
+		name: "update_section",
+		kind: "proxy",
+		title: "Update Native Section",
+		description:
+			"Update a reusable section. Existing page copies remain independent; publish page changes separately.",
+		input: CMS_PROXY_TOOL_SCHEMAS.update_section.input,
+		output: CMS_PROXY_TOOL_SCHEMAS.update_section.output,
+		annotations: { destructiveHint: true },
+	},
+	{
+		name: "delete_section",
+		kind: "proxy",
+		title: "Delete Native Section",
+		description:
+			"Remove a saved section from the library through native Emdash authorization.",
+		input: CMS_PROXY_TOOL_SCHEMAS.delete_section.input,
+		annotations: { destructiveHint: true },
+	},
+	{
+		name: "set_content_blocks",
+		kind: "proxy",
+		title: "Set Native Content Blocks",
+		description:
+			"Save an ordered native blocks field as a draft with revision conflict detection. Preserve existing _key, _type and _version values; omit _key for new blocks. Native schemas validate fields and retained versions. Publish separately with content_publish.",
+		input: CMS_PROXY_TOOL_SCHEMAS.set_content_blocks.input,
+		annotations: { destructiveHint: true },
+		execute: (ctx, args) =>
+			callCmsRest(ctx, "content_update", {
+				collection: args.collection,
+				id: args.id,
+				_rev: args._rev,
+				data: { [String(args.field)]: args.blocks },
+			}),
+	},
+	{
 		name: "schema_list_collections",
 		kind: "proxy",
 		title: "List Collections",

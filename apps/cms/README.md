@@ -39,6 +39,12 @@ scales to N tenants without manual console configuration per customer.
 Exposed via `buildSiteBuilderMcpServer` (`src/agent/tools.ts`), grouped by area:
 
 - **Service keys** — provision a CMS service key for an org.
+- **Native compositions** — `list_sections`, `get_section`, `create_section`,
+  `update_section`, and `delete_section` manage the Emdash section library.
+  `set_content_blocks` saves one ordered blocks field with the entry's `_rev`.
+  Preserve existing block keys and versions; omit keys for new blocks. Page
+  changes remain drafts until `content_publish`; changing a library section
+  does not change copies already inserted in pages.
 - **Theme files** — list/read/write/delete theme files, batch-write multiple
   files. Marketing themes can supply `src/components/public-files/llms.txt`
   for an authored discovery overview. An absent or blank file keeps the native
