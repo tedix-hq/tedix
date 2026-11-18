@@ -325,8 +325,6 @@ export async function getGraphProjectionCanonicalSample(
 			),
 		)
 		.orderBy(
-			// Preserve the `(organization_id, updated_at)` index path. The
-			// created-at fallback only orders legacy rows whose updated_at is null.
 			desc(memoryFacts.updatedAt),
 			desc(memoryFacts.createdAt),
 			desc(memoryFacts.id),

@@ -6,6 +6,7 @@ import {
 	type GraphProjectionManagedCountAttempt,
 	clearGraphProjectionManagedCountAttempt,
 	getGraphProjectionCanonicalManagedCounts,
+	getGraphProjectionCanonicalSample,
 	getGraphProjectionManagedCountAttempt,
 	recordGraphProjectionManagedCountAttempt,
 } from "./graph-projection-health";
@@ -137,6 +138,65 @@ describe("exact projection inventory", () => {
 			expect(
 				await getGraphProjectionManagedCountAttempt(db, "org-other"),
 			).toBeNull();
+		}
+	});
+});
+
+describe("current fact sample", () => {
+	it("uses the covering partial index without sorting and preserves null and tied timestamps", async () => {
+		const { sqlite, db, plans } = fixture();
+		const insert = sqlite.prepare(`INSERT INTO memory_facts
+			(id, organization_id, content, fact_type, updated_at, created_at, archived_at, valid_to)
+			VALUES (?, ?, 'fact', 'technical', ?, ?, ?, ?)`);
+		for (let i = 0; i < 1000; i++)
+			insert.run(
+				`old-${i}`,
+				"org-example",
+				"2026-01-01",
+				"2026-01-01",
+				null,
+				null,
+			);
+		insert.run("a", "org-example", "2026-11-18", "2026-11-17", null, null);
+		insert.run("b", "org-example", "2026-11-18", "2026-11-17", null, null);
+		insert.run("c", "org-example", "2026-11-18", "2026-11-18", null, null);
+		insert.run("legacy", "org-example", null, "2026-11-19", null, null);
+		insert.run(
+			"archived",
+			"org-example",
+			"2026-11-20",
+			"2026-11-20",
+			"2026-11-21",
+			null,
+		);
+		insert.run(
+			"ended",
+			"org-example",
+			"2026-11-20",
+			"2026-11-20",
+			null,
+			"2026-11-21",
+		);
+		insert.run("foreign", "org-other", "2026-11-20", "2026-11-20", null, null);
+		expect(
+			(await getGraphProjectionCanonicalSample(db, "org-example", 3)).map(
+				(row) => row.id,
+			),
+		).toEqual(["c", "b", "a"]);
+		const rows = await getGraphProjectionCanonicalSample(
+			db,
+			"org-example",
+			2000,
+		);
+		expect(rows).toHaveLength(100);
+		sqlite.exec("DELETE FROM memory_facts WHERE id LIKE 'old-%'");
+		expect(
+			(await getGraphProjectionCanonicalSample(db, "org-example", 10)).at(-1),
+		).toEqual({ id: "legacy", canonicalUpdatedAt: "2026-11-19" });
+		for (const plan of plans.values()) {
+			expect(plan).toContain("idx_memory_facts_org_current_sample");
+			expect(plan).not.toContain("TEMP B-TREE");
+			expect(plan).not.toContain("SCAN");
 		}
 	});
 });

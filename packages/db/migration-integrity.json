@@ -1584,6 +1584,10 @@
 		{
 			"name": "20261118114506_decision_exposure_list_order/migration.sql",
 			"sha256": "9efed822f8ae0c71ac941fd82b994e4e8d1d5ad51e4be2ebd7d7cc34961c9788"
+		},
+		{
+			"name": "20261118150954_memory-current-sample-index/migration.sql",
+			"sha256": "c8e1ee061b92e365326e72baa1459c915ff03f0180725c629e2d5a64a4ecdc9d"
 		}
 	]
 }
