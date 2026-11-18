@@ -34,7 +34,7 @@ import type {
 } from "@tedix/db/schema/plugins";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { nanoid } from "../../utils/id";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	withAuthorization,
@@ -129,8 +129,9 @@ const get = authedOs.get
 
 const install = authedOs.install
 	.use(AUTHZ.adaptersWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const plugin = await getPluginById(context.db, input.pluginId);
 		if (plugin?.status !== "published") {
@@ -180,8 +181,9 @@ const install = authedOs.install
 
 const uninstall = authedOs.uninstall
 	.use(AUTHZ.adaptersWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const existing = await getPluginInstall(context.db, input.installId, orgId);
 		if (!existing) {
@@ -194,8 +196,9 @@ const uninstall = authedOs.uninstall
 
 const configure = authedOs.configure
 	.use(AUTHZ.adaptersWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const existing = await getPluginInstall(context.db, input.installId, orgId);
 		if (!existing) {
@@ -219,8 +222,9 @@ const configure = authedOs.configure
 
 const activate = authedOs.activate
 	.use(AUTHZ.adaptersWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const existing = await getPluginInstall(context.db, input.installId, orgId);
 		if (!existing) {
@@ -248,8 +252,9 @@ const activate = authedOs.activate
 
 const deactivate = authedOs.deactivate
 	.use(AUTHZ.adaptersWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const existing = await getPluginInstall(context.db, input.installId, orgId);
 		if (!existing || existing.tediId !== input.tediId) {
@@ -274,8 +279,9 @@ const deactivate = authedOs.deactivate
 
 const emitEvent = authedOs.events.emit
 	.use(AUTHZ.adaptersWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const id = nanoid();
 		const now = new Date().toISOString();
@@ -305,8 +311,9 @@ const emitEvent = authedOs.events.emit
 
 const listEventsHandler = authedOs.events.list
 	.use(withAuthorization("integrations:manage", "adapters:read"))
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const { limit = 20, offset = 0 } = input;
 
 		const { data, total } = await listPluginEvents(context.db, {

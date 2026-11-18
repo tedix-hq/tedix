@@ -13,7 +13,7 @@ import {
 } from "@tedix/db/queries/cognitive/knowledge-entries";
 import { getOrCreateDomain } from "@tedix/db/queries/memory-graph/domains";
 import { AUTHZ, withAuthorization } from "../orpc";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import { authedKnowledge } from "./cognitive-shared";
 
 // =============================================================================
@@ -22,8 +22,9 @@ import { authedKnowledge } from "./cognitive-shared";
 
 export const knowledgeSynthesize = authedKnowledge.synthesize
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const domain = await getOrCreateDomain(
 			context.db,
 			{ organizationId: orgId },
@@ -51,8 +52,9 @@ export const knowledgeSynthesize = authedKnowledge.synthesize
 
 export const knowledgeOpine = authedKnowledge.opine
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const domain = await getOrCreateDomain(
 			context.db,
 			{ organizationId: orgId },
@@ -80,8 +82,9 @@ export const knowledgeOpine = authedKnowledge.opine
 
 export const knowledgeList = authedKnowledge.list
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		// Text search takes priority
 		if (input.query) {
@@ -138,8 +141,9 @@ export const knowledgeList = authedKnowledge.list
 
 export const knowledgeGet = authedKnowledge.get
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const entry = await getKnowledgeEntry(context.db, input.id, orgId);
 		return { entry: entry ?? null };
 	});

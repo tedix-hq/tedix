@@ -46,7 +46,7 @@ import {
 import { CLOUDFLARE_CREDENTIAL_CONDITION_KEY } from "../../lib/cloudflare-credential-health";
 import { resolveAiGatewayAdmissionPolicy } from "../../services/ai-gateway-admission-policy";
 import { buildModelCatalogProjection } from "../../services/model-catalog-projection";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import { AUTHZ, type BaseContext, withAuth } from "../orpc";
 
 const os = implement(osComputeContract).$context<BaseContext>();
@@ -232,8 +232,9 @@ export function fallbackDetail(
 const posture = os.posture
 	.use(withAuth)
 	.use(AUTHZ.osRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
+		const organizationId = context.organizationId;
 		const now = new Date();
 		const nowMs = now.getTime();
 		const days = WINDOW_DAYS[input.window];

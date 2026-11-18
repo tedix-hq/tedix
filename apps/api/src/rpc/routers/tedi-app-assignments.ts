@@ -52,7 +52,7 @@ import {
 	toTediMcpAccessHealth,
 } from "../../services/tedi-mcp-access";
 import { auditActor, emitAuditEvent } from "../audit-helpers";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -383,8 +383,9 @@ async function runMcpAccessBatch(params: {
  */
 const listByApp = authedOs.listByApp
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const app = await getAppById(context.db, input.appId);
 		if (!app || app.organizationId !== orgId) {
@@ -431,8 +432,9 @@ const listByApp = authedOs.listByApp
  */
 const listByTedi = authedOs.listByTedi
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const { current } = await loadCurrentAssignmentsForTedi(
 			context,
 			orgId,
@@ -456,8 +458,9 @@ const listByTedi = authedOs.listByTedi
  */
 const listFgaRelationsByApp = authedOs.listFgaRelationsByApp
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const app = await getAppById(context.db, input.appId);
 		if (!app || app.organizationId !== orgId) {
@@ -519,8 +522,9 @@ const listFgaRelationsByApp = authedOs.listFgaRelationsByApp
  */
 const listFgaRelationsByTedi = authedOs.listFgaRelationsByTedi
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const tedi = await getTediById(context.db, input.tediId);
 		if (!tedi || tedi.organizationId !== orgId) {
@@ -576,8 +580,9 @@ const listFgaRelationsByTedi = authedOs.listFgaRelationsByTedi
  */
 const previewManagedByTedi = authedOs.previewManagedByTedi
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const preview = await loadManagedPreviewForTedi(
 			context,
 			orgId,
@@ -599,8 +604,9 @@ const previewManagedByTedi = authedOs.previewManagedByTedi
  */
 const reconcileManagedByTedi = authedOs.reconcileManagedByTedi
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const preview = await loadManagedPreviewForTedi(
 			context,
 			orgId,
@@ -713,8 +719,9 @@ const reconcileManagedByTedi = authedOs.reconcileManagedByTedi
  */
 const createAssignmentProcedure = authedOs.create
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const app = await getAppById(context.db, input.appId);
 		if (!app || app.organizationId !== orgId) {
@@ -805,8 +812,9 @@ const createAssignmentProcedure = authedOs.create
  */
 const validateMcpAccessProcedure = authedOs.validateMcpAccess
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		if (!input.appId && !input.appSlug) {
 			throw createError(
@@ -861,8 +869,9 @@ const validateMcpAccessProcedure = authedOs.validateMcpAccess
  */
 const validateMcpAccessBatchProcedure = authedOs.validateMcpAccessBatch
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		return runMcpAccessBatch({
 			context,
 			orgId,
@@ -876,8 +885,9 @@ const validateMcpAccessBatchProcedure = authedOs.validateMcpAccessBatch
  */
 const repairMcpAccessBatchProcedure = authedOs.repairMcpAccessBatch
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		return runMcpAccessBatch({
 			context,
 			orgId,
@@ -891,8 +901,9 @@ const repairMcpAccessBatchProcedure = authedOs.repairMcpAccessBatch
  */
 const mcpAccessHealthProcedure = authedOs.mcpAccessHealth
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const result = await runMcpAccessBatch({
 			context,
 			orgId,
@@ -911,8 +922,9 @@ const mcpAccessHealthProcedure = authedOs.mcpAccessHealth
  */
 const runMcpAccessHealthWorkflowProcedure = authedOs.runMcpAccessHealthWorkflow
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const workflow = context.env.TEDI_MCP_ACCESS_HEALTH_WORKFLOW;
 		if (!workflow) {
 			throw createError(
@@ -945,8 +957,9 @@ const runMcpAccessHealthWorkflowProcedure = authedOs.runMcpAccessHealthWorkflow
  */
 const deleteAssignmentProcedure = authedOs.delete
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const parts = input.assignmentId.split(":");
 		if (parts[0] !== "fga" || parts.length !== 3) {
@@ -1002,8 +1015,9 @@ const deleteAssignmentProcedure = authedOs.delete
  */
 const updateRoleProcedure = authedOs.updateRole
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const parts = input.assignmentId.split(":");
 		if (parts[0] !== "fga" || parts.length !== 3) {

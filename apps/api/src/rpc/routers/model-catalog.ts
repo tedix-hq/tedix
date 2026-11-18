@@ -3,7 +3,7 @@ import { modelCatalogContract } from "@tedix/api-contract/contracts/model-catalo
 import { getTediById } from "@tedix/db/queries/tedis";
 import { isPlatformAdmin } from "@tedix/auth/types";
 import { buildModelCatalogProjection } from "../../services/model-catalog-projection";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -31,8 +31,9 @@ const os = implement(modelCatalogContract).$context<BaseContext>();
 const list = os.list
 	.use(withAuth)
 	.use(AUTHZ.osRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const callerOrgId = requireOrgId(context);
+		const callerOrgId = context.organizationId;
 		let tedi = null;
 		let organizationId = callerOrgId;
 		if (input.tediId) {
