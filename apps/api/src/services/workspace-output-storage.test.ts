@@ -96,7 +96,7 @@ async function fixture(moved = true) {
 			bound: typeof scope,
 			query: OutputQuery<K>,
 		) => {
-			if (query.op === "authority")
+			if (query.op === "authority" || query.op === "claim")
 				return (
 					(await hasWorkspaceOutputAuthority(tenant, bound, core))
 						? "object"
@@ -172,7 +172,7 @@ describe("workspace output storage authority", () => {
 						_bound: typeof scope,
 						query: OutputQuery<K>,
 					) => {
-						if (query.op !== "authority")
+						if (query.op !== "authority" && query.op !== "claim")
 							throw new Error("Browser addressed staged storage");
 						return "shared" as OutputQueryResult<K>;
 					},
@@ -293,7 +293,9 @@ describe("workspace output storage authority", () => {
 				?.title,
 		).toBe("Shared edit");
 		expect(
-			query.mock.calls.every(([, query]) => query.op === "authority"),
+			query.mock.calls.every(
+				([, query]) => query.op === "authority" || query.op === "claim",
+			),
 		).toBe(true);
 		expect(await executeOutputQuery(tenant, scope, { op: "list" })).toEqual([]);
 	});

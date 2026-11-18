@@ -49,8 +49,8 @@ export function WorkspaceChatResources({
 				<PopoverDescription>
 					Pick up to 5 documents, sheets or slides from this workspace for the
 					assistant to read. A file you upload is saved to the workspace and
-					added to this message; pictures show a preview, but the assistant
-					cannot read uploaded files yet.
+					added to this message. The assistant can read spreadsheets, CSV, Word
+					and PowerPoint files; for other files it sees only the name.
 				</PopoverDescription>
 				{outputs.isError ? (
 					<Text role="caption" tone="error">

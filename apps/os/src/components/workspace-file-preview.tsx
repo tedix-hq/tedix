@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { formatBytes } from "@/components/run-detail-sections";
 import { useQuery } from "@tanstack/react-query";
 import { osQuery } from "@/lib/os-query-options";
 import { buttonVariants } from "@/components/kumo/button";
@@ -144,7 +145,7 @@ export function WorkspaceFilePreview({
 					tone="secondary"
 					className="min-w-0 wrap-anywhere"
 				>
-					{file.filename} · {(file.size / 1024 / 1024).toFixed(1)} MiB
+					{file.filename} · {formatBytes(file.size)}
 				</Text>
 				<Link
 					variant="plain"

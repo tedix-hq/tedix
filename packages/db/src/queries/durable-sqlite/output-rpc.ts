@@ -13,6 +13,8 @@ export type OutputTransferResult =
 
 export interface OutputQueryInputs {
 	authority: unknown;
+	/** Like authority, but a workspace with no files anywhere becomes owned by its object. */
+	claim: unknown;
 	snapshot: { outputId: string };
 	import: { snapshot: OutputTransferSnapshot };
 	list: { options?: outputs.ListOsOutputsOptions };
@@ -40,6 +42,7 @@ export interface OutputQueryInputs {
 
 export interface OutputQueryResults {
 	authority: "object" | "shared";
+	claim: "object" | "shared";
 	snapshot: Awaited<ReturnType<typeof outputs.snapshotOutput>>;
 	import: Awaited<ReturnType<typeof outputs.importOutput>>;
 	list: Awaited<ReturnType<typeof outputs.listOsOutputs>>;
@@ -112,6 +115,7 @@ async function execute(
 	});
 	switch (query.op) {
 		case "authority":
+		case "claim":
 			throw new Error("Workspace authority requires the shared inventory");
 		case "snapshot":
 			if (!(await owned(query.outputId))) return undefined;
