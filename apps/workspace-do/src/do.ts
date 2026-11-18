@@ -1,3 +1,8 @@
+import type {
+	OsWorkspaceChangeRecordsQuery,
+	OsWorkspaceChangeRecordsExport,
+} from "@tedix/api-contract/schemas/os-workspace-change-records";
+import type { ChangeRecordQuery } from "./adapters";
 /**
  * One object per workspace. It owns the workspace's rows (TenantStore), its
  * conversations, the event ledger and the change record, and it runs the
@@ -1688,10 +1693,34 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return this.#turnOutcome(this.#turn(turnId) ?? row);
 	}
 
+	async exportChangeRecords(
+		scope: WorkspaceScope,
+		query: OsWorkspaceChangeRecordsQuery,
+	): Promise<OsWorkspaceChangeRecordsExport> {
+		const limit = Math.min(Math.max(query.limit, 1), 200);
+		// Both queries execute synchronously before yielding, so the count and page agree.
+		const pending = this.readChangeRecords(scope, {
+			...query,
+			limit: limit + 1,
+		});
+		const count = this.#ledger.countRange(query.from, query.until);
+		const records = await pending;
+		const page = records.slice(0, limit);
+		return {
+			workspaceId: scope.workspaceId,
+			from: query.from,
+			until: query.until,
+			exportedAt: new Date().toISOString(),
+			count,
+			records: page.map((record) => ({ ...record })),
+			nextAfterSequence: records.length > limit ? page.at(-1)!.sequence : null,
+		};
+	}
+
 	/** The accountability ledger: one record per binding call. */
 	readChangeRecords(
 		scope: WorkspaceScope,
-		query: { afterSequence?: number; limit?: number; resource?: string } = {},
+		query: ChangeRecordQuery = {},
 	): Promise<ChangeRecord[]> {
 		this.bindScope(scope);
 		return this.#ledger.list(query);
@@ -4404,9 +4433,13 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 		text?: string;
 		error?: string;
 	}>;
+	exportChangeRecords(
+		scope: WorkspaceScope,
+		query: OsWorkspaceChangeRecordsQuery,
+	): Promise<OsWorkspaceChangeRecordsExport>;
 	readChangeRecords(
 		scope: WorkspaceScope,
-		query?: { afterSequence?: number; limit?: number; resource?: string },
+		query?: ChangeRecordQuery,
 	): Promise<ChangeRecord[]>;
 	readMessages(
 		scope: WorkspaceScope,

@@ -247,6 +247,7 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/workspaces/decideBlueprintUpgrade":
 		"decide_os_blueprint_upgrade",
 	"osWorkspaces/workspaces/activity": "list_os_workspace_activity",
+	"osWorkspaces/workspaces/changeRecords": "list_os_workspace_change_records",
 	"osWorkspaces/outputs/list": "list_os_outputs",
 	"osWorkspaces/outputs/library": "list_os_output_library",
 	"osWorkspaces/outputs/create": "create_os_output",
@@ -387,6 +388,7 @@ export const OS_KIND_OVERRIDES: Record<
 	// revisions are append-only and dropped gadgets are archived.
 	"osWorkspaces/workspaces/decideBlueprintUpgrade": "write",
 	"osWorkspaces/workspaces/activity": "read",
+	"osWorkspaces/workspaces/changeRecords": "read",
 	"osWorkspaces/outputs/list": "read",
 	"osWorkspaces/outputs/library": "read",
 	"osWorkspaces/outputs/create": "write",

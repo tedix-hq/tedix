@@ -1,3 +1,7 @@
+import {
+	OsWorkspaceChangeRecordsInputSchema,
+	OsWorkspaceChangeRecordsExportSchema,
+} from "../schemas/os-workspace-change-records";
 import { OS_SHEET_MAX_COLUMNS } from "../utils/os-output-limits";
 import { OsOutputContentPatchSchema } from "../schemas/os-output-patch";
 import "@orpc/openapi/extensions/route";
@@ -354,6 +358,16 @@ export const osWorkspacesContract = oc
 	.errors(baseErrors)
 	.router({
 		workspaces: oc.router({
+			changeRecords: oc
+				.route({
+					method: "GET",
+					path: "/workspaces/{workspaceId}/change-records",
+					summary: "List and count workspace change records",
+					description:
+						"Read the binding-call ledger for a time range and return a JSON export page plus the full range count. Follow nextAfterSequence with the same range to export remaining records. Requires active membership and workspace read access.",
+				})
+				.input(OsWorkspaceChangeRecordsInputSchema)
+				.output(OsWorkspaceChangeRecordsExportSchema),
 			list: oc
 				.route({
 					method: "GET",
