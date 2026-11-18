@@ -34,7 +34,7 @@ vi.mock("@tedix/db/queries/cms-restore-fences", async (original) => {
 		enterCmsRestorePermit: vi.fn(queries.enterCmsRestorePermit),
 	};
 });
-import worker, { loadBundleModules } from "./index";
+import worker from "./index";
 
 const platformD1 = (env as unknown as { PLATFORM_DB: D1Database }).PLATFORM_DB;
 const db = createDbQueryClient(platformD1);
@@ -135,7 +135,6 @@ async function fixture(beforeBorrow?: () => Promise<void>) {
 			return coordinator.runWithRestorePermit(...args);
 		},
 	);
-	const put = vi.fn().mockResolvedValue(undefined);
 	const runtimeEnv = {
 		PLATFORM_DB: platformD1,
 		DB_DO: {
@@ -144,18 +143,6 @@ async function fixture(beforeBorrow?: () => Promise<void>) {
 		},
 		MARKETING_DOMAINS: "marketing.example",
 		MARKETING_SITE_SLUG: identity.slug,
-		TENANT_BUNDLES: {
-			get: async (key: string) =>
-				key.endsWith("__tedix_packed_bundle.json")
-					? new Response(
-							JSON.stringify({
-								mainModule: "entry.mjs",
-								modules: { "entry.mjs": { js: "export default 1" } },
-							}),
-						)
-					: null,
-			put,
-		},
 	};
 	const tasks: Promise<unknown>[] = [];
 	const request = async () => {
@@ -179,7 +166,7 @@ async function fixture(beforeBorrow?: () => Promise<void>) {
 				.bind(siteId)
 				.all()
 		).results;
-	return { identity, runtimeEnv, put, borrow, request, rows };
+	return { identity, runtimeEnv, borrow, request, rows };
 }
 
 async function close(
@@ -202,39 +189,6 @@ async function close(
 }
 
 describe("remaining CMS shared permit paths", () => {
-	test("bundle writes run once per load and keep one shared reservation", async () => {
-		const { identity, runtimeEnv, put, borrow, rows } = await fixture();
-		let reservation: unknown;
-		for (const prefix of ["tenant/v1/", "tenant/v2/"]) {
-			put.mockClear();
-			await loadBundleModules(runtimeEnv as never, prefix, {
-				restoreIdentity: identity,
-			});
-			expect(put).toHaveBeenCalledOnce();
-			expect(await rows()).toHaveLength(1);
-			if (reservation) expect(await rows()).toEqual(reservation);
-			reservation = await rows();
-		}
-		expect(borrow).toHaveBeenCalledTimes(2);
-		expect(enterCmsRestorePermit).toHaveBeenCalledOnce();
-	});
-
-	test.each(["restore", "pause"] as const)(
-		"%s skips the bundle write but still returns the loaded bundle",
-		async (reason) => {
-			const { identity, runtimeEnv, put } = await fixture();
-			await close(identity, reason);
-			const loaded = await loadBundleModules(
-				runtimeEnv as never,
-				"tenant/v1/",
-				{ restoreIdentity: identity },
-			);
-			expect(loaded.mainModule).toBe("entry.mjs");
-			expect(put).not.toHaveBeenCalled();
-			expect(enterCmsRestorePermit).toHaveBeenCalledOnce();
-		},
-	);
-
 	test("contact POST runs once per request with no exact nested permit", async () => {
 		const { request, borrow, rows } = await fixture();
 		expect((await request()).status).toBe(202);
