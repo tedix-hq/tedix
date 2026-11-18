@@ -2441,7 +2441,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				conversationId: event.conversationId,
 				action: {
 					resource: "conversation",
-					operation: event.type,
+					// A change the workspace's own rule approves is not waiting for
+					// anyone, so it must not read as a request to the people here.
+					operation:
+						event.type === "approval.requested" &&
+						event.rule &&
+						readAutoApprovalRules(this.#store).some(
+							(rule) => rule.kind === event.rule?.kind,
+						)
+							? "approval.automatic"
+							: event.type,
 					outcome:
 						(event.type === "turn.finished" && event.status !== "done") ||
 						(event.type === "step.finished" && event.status === "error") ||

@@ -4473,6 +4473,19 @@ describe("chat goes on while changes wait for approval", () => {
 			expect(
 				events.filter((event) => event.type === "turn.started"),
 			).toHaveLength(1);
+			// Nobody is asked, so the activity feed must not record a request:
+			// that is what tells people "needs your approval".
+			const asked = (
+				await testEnv.DB.prepare(
+					"SELECT summary FROM workspace_feed_ledger WHERE workspace_id = ? AND entity_id = ? AND change_record_id LIKE 'workspace-event:%' ORDER BY seq",
+				)
+					.bind(waitingScope.workspaceId, turn.turnId)
+					.all<{ summary: string }>()
+			).results
+				.map((row) => JSON.parse(row.summary).action.operation as string)
+				.filter((operation) => operation.startsWith("approval."));
+			expect(asked).toContain("approval.automatic");
+			expect(asked).not.toContain("approval.requested");
 			const creates = (
 				await ws.readChangeRecords(waitingScope, { resource: "output" })
 			).filter((record) => record.operation === "create");
