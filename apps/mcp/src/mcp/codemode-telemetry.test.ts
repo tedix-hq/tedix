@@ -976,9 +976,13 @@ describe("Code Mode tail telemetry", () => {
 			};
 			const first = await handler({ code }, { mcpReq: { _meta: meta } });
 			if (version === "2025-11-25") {
-				expect(elicitInput).toHaveBeenCalledTimes(1);
+				// No round-trip channel on this version: the destructive tool is
+				// denied, and only the read the program makes afterwards runs.
+				expect(elicitInput).not.toHaveBeenCalled();
 				expect(first._meta?.["tedix/inputRequired"]).toBeUndefined();
-				expect(executeToolMock).toHaveBeenCalledTimes(2);
+				expect(
+					executeToolMock.mock.calls.map(([, called]) => called.toolId),
+				).toEqual(["test__allowed"]);
 				return;
 			}
 			expect(elicitInput).not.toHaveBeenCalled();

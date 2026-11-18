@@ -979,7 +979,21 @@ describe("SQLite and Postgres core query parity", () => {
 			};
 			await sqliteDb.insert(sqliteOrganizations).values(nullable);
 			await pgDb.insert(pgOrganizations).values(nullable);
-			await parity((db) => orgQueries.listOrganizations(db));
+			// Neither database promises an order among equal creation times, so
+			// compare the creation-time order and settle each tie by id.
+			await parity(async (db) => {
+				const rows = await orgQueries.listOrganizations(db);
+				const firstSeen = new Map<string | null, number>();
+				rows.forEach((row, index) => {
+					if (!firstSeen.has(row.createdAt))
+						firstSeen.set(row.createdAt, index);
+				});
+				return rows.toSorted(
+					(a, b) =>
+						firstSeen.get(a.createdAt)! - firstSeen.get(b.createdAt)! ||
+						(a.id < b.id ? -1 : 1),
+				);
+			});
 			const nullableMember = {
 				...member,
 				id: `${orgId}-null-member`,
