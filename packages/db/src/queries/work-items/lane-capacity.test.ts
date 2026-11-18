@@ -33,8 +33,8 @@ function fixture() {
 		createD1Facade(sqlite, { maxBoundParams: 100 }),
 	);
 	const insertWork =
-		sqlite.prepare(`INSERT INTO work_items(id,org_id,title,disposition,work_class,purpose_exception_expires_at,admission_spec_revision,metadata,created_at)
-		VALUES(?,'org',?,'accepted','hygiene','2026-09-01T00:00:00.000Z','revision',?,'2026-08-20T00:00:00.000Z')`);
+		sqlite.prepare(`INSERT INTO work_items(id,org_id,title,disposition,work_class,purpose_exception_expires_at,admission_spec_revision,metadata,delegation_depth,max_attempts,created_at)
+		VALUES(?,'org',?,'accepted','hygiene','2026-09-01T00:00:00.000Z','revision',?,?,?,'2026-08-20T00:00:00.000Z')`);
 	const insertRequirement = sqlite.prepare(
 		`INSERT INTO work_resource_requirements(org_id,work_item_id,resource_key,quantity,created_at,updated_at) VALUES('org',?,?,1,?,?)`,
 	);
@@ -69,7 +69,14 @@ function fixture() {
 			],
 			...change,
 		};
-		insertWork.run(id, id, JSON.stringify({ laneExecution: policy }));
+		const { delegationDepth, maxAttempts, ...persistedPolicy } = policy;
+		insertWork.run(
+			id,
+			id,
+			JSON.stringify({ laneExecution: persistedPolicy }),
+			delegationDepth,
+			maxAttempts,
+		);
 		for (const resource of [
 			"lanes",
 			"executor",
@@ -110,8 +117,26 @@ function fixture() {
 	}
 	function setPolicy(id: string, policy: LaneExecutionPolicy | undefined) {
 		sqlite
-			.prepare("UPDATE work_items SET metadata=? WHERE id=?")
-			.run(JSON.stringify(policy ? { laneExecution: policy } : {}), id);
+			.prepare(
+				"UPDATE work_items SET metadata=?,delegation_depth=?,max_attempts=? WHERE id=?",
+			)
+			.run(
+				JSON.stringify(
+					policy
+						? {
+								laneExecution: Object.fromEntries(
+									Object.entries(policy).filter(
+										([key]) =>
+											key !== "delegationDepth" && key !== "maxAttempts",
+									),
+								),
+							}
+						: {},
+				),
+				policy?.delegationDepth ?? null,
+				policy?.maxAttempts ?? null,
+				id,
+			);
 	}
 	function preview(
 		id: string,
@@ -580,9 +605,7 @@ describe("shared lane admission on migrated D1", () => {
 			});
 			policy.maxAttempts = 1;
 		}
-		f.sqlite
-			.prepare("UPDATE work_items SET metadata=? WHERE id='one'")
-			.run(JSON.stringify({ laneExecution: policy }));
+		f.setPolicy("one", policy);
 		expect((await f.admit("one", "-retry")).decision).toBe("rejected");
 		expect(
 			f.sqlite

@@ -77,7 +77,7 @@ export async function decisionSourcesReview(
 		const work = await getWorkItemById(db, lane.workItemId, orgId);
 		return work?.disposition === "accepted" &&
 			work.version === lane.workVersion &&
-			String(work.metadata?.executor ?? "") === lane.executor
+			String(work.executorId ?? "") === lane.executor
 			? current
 			: changed;
 	}

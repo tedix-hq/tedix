@@ -1572,6 +1572,10 @@
 		{
 			"name": "20261118032404_drop_retired_work_tables/migration.sql",
 			"sha256": "d379ccb19ca86d674e5860266de6619ef6f4605c1f675da1c578a24dbd6d76c5"
+		},
+		{
+			"name": "20261118053954_work_item_execution_contract/migration.sql",
+			"sha256": "2e8ec5a298991bd2106d2e798a74c086d5caba7d99345dbb297803eb31e78769"
 		}
 	]
 }

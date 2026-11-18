@@ -39,7 +39,9 @@ CREATE TABLE work_items (
  disposition TEXT NOT NULL DEFAULT 'proposed', work_kind TEXT NOT NULL DEFAULT 'other', risk_level TEXT NOT NULL DEFAULT 'medium', acceptance_contract TEXT,
  required_capabilities TEXT NOT NULL DEFAULT '[]', required_authorities TEXT NOT NULL DEFAULT '[]', resource_scopes TEXT NOT NULL DEFAULT '[]', budget_limit_micros INTEGER,
  priority TEXT NOT NULL DEFAULT 'medium', accountable_owner_type TEXT, accountable_owner_id TEXT, steward_type TEXT, steward_id TEXT, reviewer_type TEXT, reviewer_id TEXT, reviewer_lease_expires_at TEXT,
- objective_id TEXT, work_class TEXT, purpose_exception_expires_at TEXT, project_id TEXT, parent_work_item_id TEXT, source_session_key TEXT, source_intent_id TEXT,
+ objective_id TEXT, work_class TEXT, purpose_exception_expires_at TEXT, project_id TEXT, parent_work_item_id TEXT,
+ executor_type TEXT, executor_id TEXT, dispatch_state TEXT, delegation_depth INTEGER, max_attempts INTEGER, root_work_item_id TEXT, root_goal TEXT, budget_share_micros INTEGER,
+ source_session_key TEXT, source_intent_id TEXT,
  due_date TEXT, deadline TEXT, start_at TEXT, duration_days INTEGER, provenance TEXT DEFAULT '{}', metadata TEXT DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT, accepted_at TEXT,
  completed_at TEXT, cancelled_at TEXT, admission_spec_revision TEXT NOT NULL DEFAULT (lower(hex(randomblob(16)))), version INTEGER NOT NULL DEFAULT 1, UNIQUE (org_id, id));
 CREATE UNIQUE INDEX uniq_work_items_org_source_intent ON work_items(org_id, source_intent_id);
@@ -1340,9 +1342,10 @@ describe("Work Item router collaboration ledgers", () => {
 			requestDelegation: true,
 		});
 		const current = await client().getById({ id: created.id });
-		expect(current.workItem.metadata).toMatchObject({
-			executor: "codex",
-			laneDispatch: { state: "ready" },
+		expect(current.workItem).toMatchObject({
+			executorType: "external_agent",
+			executorId: "codex",
+			dispatchState: "ready",
 		});
 		expect(
 			current.comments.some((c) =>
@@ -1619,6 +1622,37 @@ describe("Work activity forward polling", () => {
 	});
 });
 
+it("persists the full executor reference even when IDs collide", async () => {
+	const created = await client("owner").create({
+		...fileable(),
+		title: "Human review with a colliding ID",
+		executorReference: { type: "human", id: "codex" },
+	});
+	expect(created).toMatchObject({
+		executorType: "human",
+		executorId: "codex",
+		dispatchState: "ready",
+	});
+	const updated = await client("owner").updateSpecification({
+		id: created.id,
+		expectedWorkItemVersion: created.version,
+		executorReference: { type: "organization", id: "fictional-studio" },
+		delegationDepth: 1,
+		maxAttempts: 4,
+		rootGoal: "Publish the fictional guide",
+		budgetShareMicros: 250_000,
+	});
+	expect(updated).toMatchObject({
+		executorType: "organization",
+		executorId: "fictional-studio",
+		dispatchState: "held",
+		delegationDepth: 1,
+		maxAttempts: 4,
+		rootGoal: "Publish the fictional guide",
+		budgetShareMicros: 250_000,
+	});
+});
+
 it("accepts an executor set and forwards it to the paged SQL filter", async () => {
 	for (const [index, executor] of [
 		"human",
@@ -1629,15 +1663,22 @@ it("accepts an executor set and forwards it to the paged SQL filter", async () =
 		const id = `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`;
 		seed({ id, disposition: "accepted" });
 		sqlite
-			.prepare("UPDATE work_items SET metadata=? WHERE id=?")
-			.run(JSON.stringify({ executor }), id);
+			.prepare("UPDATE work_items SET executor_type=?,executor_id=? WHERE id=?")
+			.run(executor === "human" ? "human" : "external_agent", executor, id);
 	}
+	const collidingHuman = "bbbbbbbb-bbbb-4bbb-8bbb-000000000000";
+	seed({ id: collidingHuman, disposition: "accepted" });
+	sqlite
+		.prepare(
+			"UPDATE work_items SET executor_type='human',executor_id='codex' WHERE id=?",
+		)
+		.run(collidingHuman);
 	const page = await client("owner").list({
 		executor: ["codex", "claude-code", "devin"],
 		limit: 2,
 	});
 	expect(page.pagination).toMatchObject({ total: 3, hasMore: true });
-	expect(page.data.map((row) => row.metadata.executor)).toEqual([
+	expect(page.data.map((row) => row.executorId)).toEqual([
 		"devin",
 		"claude-code",
 	]);

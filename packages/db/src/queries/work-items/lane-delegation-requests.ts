@@ -18,7 +18,7 @@ const askMoved = sql`NOT EXISTS (SELECT 1 FROM ${workItems}
 	AND ${workItems.id}=${workInteractions.workItemId}
 	AND ${workItems.disposition}='accepted'
 	AND ${workItems.version}=json_extract(${workInteractions.metadata},'$.laneBlocker.workVersion')
-	AND coalesce(json_extract(${workItems.metadata},'$.executor'),'')=coalesce(json_extract(${workInteractions.metadata},'$.laneBlocker.executor'),''))`;
+	AND coalesce(${workItems.executorId},'')=coalesce(json_extract(${workInteractions.metadata},'$.laneBlocker.executor'),''))`;
 
 /** The owner already posted this version's delegation, for example by hand. */
 const delegated = sql`EXISTS (SELECT 1 FROM ${workItemComments}

@@ -63,7 +63,11 @@ function fixture(role: string, change: Partial<BaseContext> = {}) {
 	return { sqlite, context };
 }
 
-function create(context: BaseContext, laneExecution: unknown = policy) {
+function create(
+	context: BaseContext,
+	laneExecution: unknown = policy,
+	controls: { delegationDepth?: number; maxAttempts?: number } = {},
+) {
 	return createProcedure["~orpc"].handler!({
 		context,
 		input: CreateWorkItemInputSchema.parse({
@@ -73,7 +77,8 @@ function create(context: BaseContext, laneExecution: unknown = policy) {
 			purposeExceptionExpiresAt: new Date(
 				Date.now() + 86_400_000,
 			).toISOString(),
-			metadata: { laneExecution },
+			...(laneExecution === undefined ? {} : { metadata: { laneExecution } }),
+			...controls,
 		}),
 		path: [],
 		procedure: createProcedure,
@@ -122,7 +127,25 @@ it.each(["owner", "admin"])(
 	async (role) => {
 		const { context } = fixture(role);
 		await expect(create(context)).resolves.toMatchObject({
-			metadata: { laneExecution: policy },
+			metadata: {
+				laneExecution: expect.not.objectContaining({
+					delegationDepth: expect.anything(),
+					maxAttempts: expect.anything(),
+				}),
+			},
+			delegationDepth: policy.delegationDepth,
+			maxAttempts: policy.maxAttempts,
 		});
+	},
+);
+
+it.each(["delegationDepth", "maxAttempts"] as const)(
+	"refuses first-class %s from a non-owner",
+	async (field) => {
+		const { sqlite, context } = fixture("member");
+		await expect(
+			create(context, undefined, { [field]: field === "maxAttempts" ? 2 : 0 }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(count(sqlite)).toEqual({ count: 0 });
 	},
 );

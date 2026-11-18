@@ -19,6 +19,7 @@ export async function resolveWorkItemSteward(
 		| "stewardType"
 		| "stewardId"
 		| "metadata"
+		| "executorType"
 	>,
 ): Promise<{ stewardType?: "tedi"; stewardId?: string }> {
 	if (
@@ -26,7 +27,7 @@ export async function resolveWorkItemSteward(
 		params.accountableOwnerId ||
 		params.stewardType ||
 		params.stewardId ||
-		params.metadata?.executor === "human"
+		params.executorType === "human"
 	)
 		return {};
 	const [organization] = await db

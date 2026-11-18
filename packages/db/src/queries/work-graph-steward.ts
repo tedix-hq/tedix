@@ -411,6 +411,11 @@ export async function findExpiredAttempts(
 
 	const findings: WorkGraphExpiredAttemptFinding[] = [];
 	for (const attempt of scoped) {
+		if (
+			attempt.executorType !== "tedi" &&
+			attempt.executorType !== "external_agent"
+		)
+			continue;
 		if (attempt.expiresAt && attempt.expiresAt < params.now) {
 			findings.push({
 				workItemId: attempt.workItemId,

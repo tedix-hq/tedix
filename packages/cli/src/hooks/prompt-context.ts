@@ -460,7 +460,7 @@ export function gatewayCode(
   const query = {projectId:t.nextWork.projectId,disposition:'accepted',limit:50};
   const [r, board] = await Promise.all([work.list_work_items(query),work.list_work_item_cli_rows({...query,view:'board'})]);
   const idle = new Set(board.data.filter(w => w.projectId === t.nextWork.projectId && w.disposition === 'accepted' && w.activeAttempt === null).map(w => w.id));
-  const candidates = r.data.filter(w => idle.has(w.id) && w.disposition === 'accepted' && w.projectId === t.nextWork.projectId && w.id !== t.nextWork.selected && (!w.metadata?.executor || w.metadata.executor === t.nextWork.harness));
+   const candidates = r.data.filter(w => idle.has(w.id) && w.disposition === 'accepted' && w.projectId === t.nextWork.projectId && w.id !== t.nextWork.selected && ((w.executorType == null && w.executorId == null) || (w.executorType === 'external_agent' && w.executorId === t.nextWork.harness)));
   return {data:candidates.slice(0,3).map(w => ({id:w.id,title:w.title.slice(0,160),projectId:w.projectId,organizationId:w.orgId}))};
  });
  if (t.delegations) pending.delegations =Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));

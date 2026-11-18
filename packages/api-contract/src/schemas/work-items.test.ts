@@ -18,6 +18,8 @@ import {
 	WorkAttemptRepositorySchema,
 	WorkAttemptRepositoryLifecycleSchema,
 	WorkItemAcceptanceContractSchema,
+	WorkAttemptSchema,
+	WorkExecutorReferenceSchema,
 	ResolvedWorkEvidenceSchema,
 	WorkEvidencePreviewSchema,
 } from "./work-items";
@@ -443,6 +445,33 @@ describe("Work item patch defaults", () => {
 			requiredAuthorities: [],
 			priority: "medium",
 		});
+	});
+
+	it("accepts one executor reference shape and bounded contract controls", () => {
+		expect(WorkAttemptSchema.shape.executorType).toBe(
+			WorkExecutorReferenceSchema.shape.type,
+		);
+		const parsed = CreateWorkItemInputSchema.parse({
+			title: "Delegate the fictional review",
+			executorReference: { type: "organization", id: "fictional-studio" },
+			delegationDepth: 2,
+			maxAttempts: 4,
+			rootWorkItemId: "11111111-1111-4111-8111-111111111111",
+			rootGoal: "Publish the reviewed fictional guide",
+			budgetShareMicros: 250_000,
+		});
+		expect(parsed).toMatchObject({
+			executorReference: { type: "organization", id: "fictional-studio" },
+			delegationDepth: 2,
+			maxAttempts: 4,
+			budgetShareMicros: 250_000,
+		});
+		expect(
+			CreateWorkItemInputSchema.safeParse({
+				title: "Invalid share",
+				budgetShareMicros: 1_000_001,
+			}).success,
+		).toBe(false);
 	});
 });
 

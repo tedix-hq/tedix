@@ -21,7 +21,7 @@ type Work = NonNullable<Awaited<ReturnType<typeof getWorkItemById>>>;
 
 /** Why a Yes must not pick an agent for this Work, or null when it may. */
 export function yesAssignBlocker(work: Work): string | null {
-	const executor = work.metadata?.executor;
+	const executor = work.executorId;
 	if (typeof executor === "string" && executor)
 		return `it already has an executor (${executor})`;
 	if (work.riskLevel === "high" || work.riskLevel === "critical")

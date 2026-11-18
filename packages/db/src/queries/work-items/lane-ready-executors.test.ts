@@ -32,6 +32,7 @@ it.each([...LANE_READY_EXECUTORS])(
 			actor: { type: "user", id: "owner" },
 			executor,
 		});
-		expect(updated.metadata?.laneDispatch).toEqual({ state: "ready" });
+		expect(updated.dispatchState).toBe("ready");
+		expect(updated.executorId).toBe(executor);
 	},
 );

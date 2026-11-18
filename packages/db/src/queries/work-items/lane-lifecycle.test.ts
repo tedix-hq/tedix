@@ -106,9 +106,7 @@ describe("server lane lifecycle", () => {
 	});
 	it("reads the retry budget from the lane policy instead of a fixed two", async () => {
 		const { db, sqlite } = await fixture();
-		sqlite.exec(
-			"UPDATE work_items SET metadata=json_object('laneExecution',json_object('maxAttempts',3))",
-		);
+		sqlite.exec("UPDATE work_items SET max_attempts=3");
 		await sweepElapsedWorkAttempts(db, { now: expiry });
 		expect(await notifyStoppedLanes(db, expiry)).toBe(1);
 		const [notice] = await db.select().from(workInteractions);

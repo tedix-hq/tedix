@@ -39,7 +39,8 @@ export async function reassignIdleWork(
 		input.minimumIdleMinutes < 1 ||
 		age < input.minimumIdleMinutes * 60_000 ||
 		item.version !== input.expectedVersion ||
-		item.metadata?.executor !== input.fromExecutor ||
+		item.executorType !== "external_agent" ||
+		item.executorId !== input.fromExecutor ||
 		item.disposition !== "accepted" ||
 		!item.projectId ||
 		!item.acceptanceContract ||
@@ -51,8 +52,7 @@ export async function reassignIdleWork(
 		item.metadata?.executorRequirement ||
 		/\b(codex|claude(?:[- ]code)?|opencode|devin)\b/i.test(text) ||
 		humanReservedActionClasses(text).length ||
-		!item.metadata?.laneDispatch ||
-		(item.metadata.laneDispatch as { state?: string }).state !== "ready"
+		item.dispatchState !== "ready"
 	)
 		throw new WorkFactoryError(
 			"NOT_READY",
@@ -61,7 +61,6 @@ export async function reassignIdleWork(
 	const receiptId = crypto.randomUUID();
 	const metadata = {
 		...item.metadata,
-		executor: input.executor,
 		idleReassignment: {
 			id: receiptId,
 			from: input.fromExecutor,
@@ -75,7 +74,8 @@ export async function reassignIdleWork(
 		eq(workItems.orgId, input.orgId),
 		eq(workItems.id, item.id),
 		eq(workItems.version, input.expectedVersion),
-		eq(workItems.metadata, item.metadata),
+		eq(workItems.executorType, "external_agent"),
+		eq(workItems.executorId, input.fromExecutor),
 		eq(workItems.disposition, "accepted"),
 		sql`(${workItems.startAt} IS NULL OR ${workItems.startAt} <= ${now})`,
 		// Unresolved leases and retained user/deferred/success results stay with their runner.
@@ -91,6 +91,8 @@ export async function reassignIdleWork(
 			.update(workItems)
 			.set({
 				metadata,
+				executorType: "external_agent",
+				executorId: input.executor,
 				updatedAt: now,
 				// Fence stale preparations without resetting revision-based failure holds.
 				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,

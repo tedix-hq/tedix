@@ -55,7 +55,9 @@ Key principles:
 
 ### Bounded Work delegation
 
-Work admission checks `metadata.laneExecution` against the actual parent chain.
+Work admission checks the lane policy in `metadata.laneExecution` together with
+the Work Item's `delegation_depth` and `max_attempts` columns against the actual
+parent chain.
 The first Work with a lane policy starts at depth zero, even under an ordinary
 epic. Its descendants must keep a valid policy, the same maker pool, all shared
 resource and budget references, and limits at least as strict as their parent.

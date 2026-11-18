@@ -210,7 +210,10 @@ async function loadLanePolicy(
 	db: DbQueryClient,
 	item: Eligibility["item"],
 ): Promise<{ policy?: LaneExecutionPolicy; rejection?: string }> {
-	type Node = Pick<Eligibility["item"], "id" | "parentWorkItemId" | "metadata">;
+	type Node = Pick<
+		Eligibility["item"],
+		"id" | "parentWorkItemId" | "metadata" | "delegationDepth" | "maxAttempts"
+	>;
 	const nodes: Node[] = [item];
 	const seen = new Set([item.id]);
 	let parentId = item.parentWorkItemId;
@@ -226,6 +229,8 @@ async function loadLanePolicy(
 					id: workItems.id,
 					parentWorkItemId: workItems.parentWorkItemId,
 					metadata: workItems.metadata,
+					delegationDepth: workItems.delegationDepth,
+					maxAttempts: workItems.maxAttempts,
 				})
 				.from(workItems)
 				.where(and(eq(workItems.orgId, item.orgId), eq(workItems.id, parentId)))
@@ -247,9 +252,11 @@ async function loadLanePolicy(
 				};
 			continue;
 		}
-		const parsed = LaneExecutionPolicySchema.safeParse(
-			node.metadata.laneExecution,
-		);
+		const parsed = LaneExecutionPolicySchema.safeParse({
+			...(node.metadata.laneExecution as object),
+			delegationDepth: node.delegationDepth,
+			maxAttempts: node.maxAttempts,
+		});
 		if (!parsed.success) return { rejection: "Invalid lane execution policy" };
 		const policy = parsed.data;
 		depth++;

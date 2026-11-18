@@ -234,8 +234,8 @@ function dispatchable(db: DbQueryClient, orgId: SQLWrapper): SQL | undefined {
 	return and(
 		eq(w.orgId, orgId),
 		eq(w.disposition, "accepted"),
-		sql`json_extract(${w.metadata}, '$.executor') IS NOT NULL`,
-		sql`json_extract(${w.metadata}, '$.laneDispatch.state') = 'ready'`,
+		isNotNull(w.executorId),
+		eq(w.dispatchState, "ready"),
 		// Work waiting for its start date is not waiting for a runner.
 		sql`(${w.startAt} IS NULL OR ${w.startAt} <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
 		notExists(

@@ -5770,6 +5770,18 @@ it("any-local accepts either native executor but never human or tedi Work", () =
 		expect(
 			dispatchSkip({ ...item(), metadata: { executor } }, [], "any-local"),
 		).toContain("not assigned");
+	expect(
+		dispatchSkip(
+			{
+				...item(),
+				executorType: "human",
+				executorId: "codex",
+				metadata: {},
+			},
+			[],
+			"any-local",
+		),
+	).toContain("not assigned");
 });
 
 it("any-local shares two slots across native Claude and Codex Attempts", async () => {

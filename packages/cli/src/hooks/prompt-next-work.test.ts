@@ -23,14 +23,19 @@ const binding = {
 
 test("board priorities exclude other harnesses, projects, selected and running Work", async () => {
 	const rows = [
-		{ id: id(1), metadata: { executor: "claude-code" } },
+		{
+			id: id(1),
+			executorType: "external_agent",
+			executorId: "claude-code",
+		},
 		{ id: id(2), metadata: {} },
-		{ id: id(3), metadata: { executor: "human" } },
-		{ id: id(4), metadata: { executor: "codex" } },
+		{ id: id(3), executorType: "human", executorId: "claude-code" },
+		{ id: id(4), executorType: "external_agent", executorId: "codex" },
 		{ id: id(5), projectId: id(9) },
 		{ id: id(6) },
 		{ id: id(7) },
-		{ id: id(8) },
+		{ id: id(8), executorType: "human" },
+		{ id: id(9) },
 	].map((row) => ({
 		title: "Fictional\npriority",
 		orgId: organizationId,
@@ -66,7 +71,7 @@ test("board priorities exclude other harnesses, projects, selected and running W
 	expect(data.nextWork.data.map((row: { id: string }) => row.id)).toEqual([
 		id(1),
 		id(7),
-		id(8),
+		id(9),
 	]);
 	const lines = render(binding, data, now)
 		.split("\n")

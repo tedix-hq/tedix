@@ -18,7 +18,7 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 	sqlite.exec(schemaDdl(workItems, workEvents, workAttempts, workItemComments));
 	sqlite
 		.prepare(
-			"INSERT INTO work_items(id,org_id,title,description,created_at,metadata,project_id,accountable_owner_type,accountable_owner_id) VALUES(?,?,?,?,?,?,'project','user','fictional-owner')",
+			"INSERT INTO work_items(id,org_id,title,description,created_at,metadata,project_id,accountable_owner_type,accountable_owner_id,executor_type,executor_id) VALUES(?,?,?,?,?,?,'project','user','fictional-owner','external_agent','claude-code')",
 		)
 		.run(
 			"work",
@@ -26,7 +26,7 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 			"Fictional guide",
 			"Bounded brief",
 			"2026-10-18T00:00:00.000Z",
-			JSON.stringify({ executor: "claude-code", retained: true }),
+			JSON.stringify({ retained: true }),
 		);
 	const db = createDbQueryClient(createD1Facade(sqlite));
 	const base = {
@@ -39,11 +39,10 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 		acceptanceContract: { version: 1, doneLooksLike: "A summary is recorded" },
 	});
 	expect(accepted.metadata).toEqual({
-		executor: "claude-code",
 		retained: true,
-		laneDispatch: { state: "ready" },
 		laneDispatchReceiptId: expect.any(String),
 	});
+	expect(accepted.dispatchState).toBe("ready");
 	expect(accepted.description).toBe("Bounded brief");
 	expect(sqlite.prepare("SELECT body FROM work_item_comments").all()).toEqual([
 		{ body: expect.stringMatching(/^Dispatched to claude-code at /) },
@@ -53,7 +52,8 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 		executor: "codex",
 		expectedWorkItemVersion: accepted.version,
 	});
-	expect(changed.metadata?.executor).toBe("codex");
+	expect(changed.executorId).toBe("codex");
+	expect(changed.executorType).toBe("external_agent");
 	await expect(
 		updateWorkItemSpecification(db, {
 			...base,
@@ -76,11 +76,9 @@ it("a runner's hold stays until the Work is revised, and the revision makes it r
 	sqlite.exec(schemaDdl(workItems, workEvents, workAttempts, workItemComments));
 	sqlite
 		.prepare(
-			"INSERT INTO work_items(id,org_id,title,disposition,created_at,metadata,project_id,accountable_owner_type,accountable_owner_id) VALUES('work','org-acme','Fictional guide','accepted','2026-10-18T00:00:00.000Z',?,'project','user','fictional-owner')",
+			"INSERT INTO work_items(id,org_id,title,disposition,created_at,metadata,project_id,accountable_owner_type,accountable_owner_id,executor_type,executor_id,dispatch_state) VALUES('work','org-acme','Fictional guide','accepted','2026-10-18T00:00:00.000Z',?,'project','user','fictional-owner','external_agent','codex','ready')",
 		)
-		.run(
-			JSON.stringify({ executor: "codex", laneDispatch: { state: "ready" } }),
-		);
+		.run(JSON.stringify({}));
 	const db = createDbQueryClient(createD1Facade(sqlite));
 	const base = {
 		orgId: "org-acme",
@@ -96,7 +94,11 @@ it("a runner's hold stays until the Work is revised, and the revision makes it r
 		...base,
 		laneDispatch: hold,
 	});
-	expect(held.metadata?.laneDispatch).toEqual(hold);
+	expect(held.dispatchState).toBe("held");
+	expect(held.metadata?.laneDispatch).toEqual({
+		reason: hold.reason,
+		note: hold.note,
+	});
 	expect(held.version).toBe(2);
 	// Recording the hold is bookkeeping: no dispatch receipt, same admission revision.
 	expect(
@@ -106,7 +108,7 @@ it("a runner's hold stays until the Work is revised, and the revision makes it r
 		...base,
 		description: "A repaired brief",
 	});
-	expect(revised.metadata?.laneDispatch).toEqual({ state: "ready" });
+	expect(revised.dispatchState).toBe("ready");
 	expect(revised.admissionSpecRevision).not.toBe(held.admissionSpecRevision);
 	expect(sqlite.prepare("SELECT body FROM work_item_comments").all()).toEqual([
 		{ body: expect.stringMatching(/^Dispatched to codex at /) },
@@ -120,7 +122,7 @@ it("a runner's hold stays until the Work is revised, and the revision makes it r
 		...base,
 		title: "Fictional guide, second edition",
 	});
-	expect(edited.metadata?.laneDispatch).toEqual({ state: "held" });
+	expect(edited.dispatchState).toBe("held");
 	sqlite.close();
 });
 

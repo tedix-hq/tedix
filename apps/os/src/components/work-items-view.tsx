@@ -63,7 +63,10 @@ type WorkItemRow = Pick<
 	| "deadline"
 	| "metadata"
 	| "createdAt"
->;
+> & {
+	executorType?: WorkItem["executorType"];
+	executorId?: WorkItem["executorId"];
+};
 
 const PRIORITY_LABELS: Record<WorkItem["priority"], string> = {
 	critical: "Critical",
@@ -88,7 +91,12 @@ export function sortWorkItems<T extends WorkItemRow>(items: readonly T[]): T[] {
 }
 
 function executorLabel(item: WorkItemRow): string {
-	const executor = WorkExecutorSchema.safeParse(item.metadata?.executor);
+	if (item.executorType === "human") return "Human";
+	if (item.executorType === "tedi") return "Tedi";
+	if (item.executorType === "team") return `Team · ${item.executorId}`;
+	if (item.executorType === "organization")
+		return `Organization · ${item.executorId}`;
+	const executor = WorkExecutorSchema.safeParse(item.executorId);
 	return executor.success ? WORK_EXECUTOR_LABELS[executor.data] : "Not set";
 }
 

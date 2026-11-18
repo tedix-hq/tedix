@@ -4,10 +4,14 @@ import {
 } from "./delegated-closeout";
 import {
 	ListWorkCliProjectionResultSchema,
+	type LaneDispatchPlan,
 	WorkCliBoardRowSchema,
 	WorkCliResolveRowSchema,
 	WorkCheckpointProjectionSchema,
 	WorkCaseSchema,
+	WorkExecutorSchema,
+	isLaneReadyExecutorReference,
+	workExecutorReference,
 } from "@tedix/api-contract/schemas/work-items";
 import { withAuthorization } from "../../orpc";
 import {
@@ -57,7 +61,6 @@ import {
 	replayFactoryCycle,
 } from "../../../services/factory-cycle";
 import { resolveWorkEvidenceRow } from "../../../services/work-evidence-resolution";
-import { initialLaneDispatch } from "../../../services/lane-dispatch-plan";
 import { requireOrgId } from "../../org-scope";
 import { ErrorCodes, createError } from "../../orpc";
 import {
@@ -91,13 +94,19 @@ function rethrowWorkItemContextError(error: unknown): never {
 export const createProcedure = authOs.create.handler(
 	async ({ input, context }) => {
 		const orgId = requireOrgId(context);
+		const callerInput = input;
 		input = await prepareFactoryCycle(context.db, orgId, input);
 		if (input.factoryCard) {
 			const { prepareFactoryCard } =
 				await import("../../../services/factory-card-envelope");
 			input = await prepareFactoryCard(context, orgId, input);
 		}
-		await assertOwnerSetLaneExecution(context, orgId, input.metadata);
+		await assertOwnerSetLaneExecution(
+			context,
+			orgId,
+			callerInput.metadata,
+			callerInput,
+		);
 		let attemptedCreate = false;
 		try {
 			const project = input.projectId
@@ -121,9 +130,49 @@ export const createProcedure = authOs.create.handler(
 			const existing = await replayFactoryCycle(context.db, orgId, input);
 			if (existing) return existing;
 			attemptedCreate = true;
-			const executor = input.executor ?? input.metadata?.executor;
+			const legacyExecutor = WorkExecutorSchema.safeParse(
+				input.executor ?? input.metadata?.executor,
+			);
+			const legacyReference = legacyExecutor.success
+				? workExecutorReference(legacyExecutor.data)
+				: undefined;
+			if (
+				input.executorReference &&
+				legacyReference &&
+				(input.executorReference.type !== legacyReference.type ||
+					input.executorReference.id !== legacyReference.id)
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"executor and executorReference must name the same executor",
+				);
+			const executorReference = input.executorReference ?? legacyReference;
+			const executor = executorReference?.id;
+			const laneExecution = input.metadata?.laneExecution as
+				| { delegationDepth?: number; maxAttempts?: number }
+				| undefined;
+			const factoryCycle = input.metadata?.factoryCycle as
+				| { maxAttempts?: number }
+				| undefined;
+			const metadata = { ...input.metadata };
+			delete metadata.executor;
+			delete metadata.laneDispatch;
+			if (laneExecution) {
+				const {
+					delegationDepth: _depth,
+					maxAttempts: _attempts,
+					...policy
+				} = laneExecution;
+				metadata.laneExecution = policy;
+			}
+			if (factoryCycle) {
+				const { maxAttempts: _attempts, ...cycle } = factoryCycle;
+				metadata.factoryCycle = cycle;
+			}
 			const laneProject =
-				["codex", "claude-code"].includes(String(executor)) && input.projectId
+				executorReference?.type === "external_agent" &&
+				["codex", "claude-code"].includes(String(executor)) &&
+				input.projectId
 					? await getProjectByIdForOrganization(
 							context.db,
 							orgId,
@@ -134,7 +183,10 @@ export const createProcedure = authOs.create.handler(
 				!input.stewardType && !input.stewardId
 					? laneProject?.leadTediId
 					: undefined;
-			const laneDispatch = initialLaneDispatch(executor);
+			const laneDispatch: LaneDispatchPlan | undefined =
+				isLaneReadyExecutorReference(executorReference)
+					? { state: "ready" as const }
+					: undefined;
 			const createdBy = await workItemCreationActor(context, orgId);
 			const owner =
 				input.accountableOwnerType || input.accountableOwnerId
@@ -161,6 +213,18 @@ export const createProcedure = authOs.create.handler(
 					purpose.purposeExceptionExpiresAt ?? undefined,
 				projectId: input.projectId,
 				parentWorkItemId: input.parentWorkItemId,
+				executorType: executorReference?.type,
+				executorId: executor === undefined ? undefined : String(executor),
+				dispatchState: laneDispatch?.state,
+				delegationDepth:
+					input.delegationDepth ?? laneExecution?.delegationDepth,
+				maxAttempts:
+					input.maxAttempts ??
+					laneExecution?.maxAttempts ??
+					factoryCycle?.maxAttempts,
+				rootWorkItemId: input.rootWorkItemId,
+				rootGoal: input.rootGoal,
+				budgetShareMicros: input.budgetShareMicros,
 				sourceSessionKey: input.sourceSessionKey,
 				sourceIntentId: input.sourceIntentId,
 				dueDate: input.dueDate,
@@ -172,9 +236,22 @@ export const createProcedure = authOs.create.handler(
 						? undefined
 						: toJsonRecord(input.provenance),
 				metadata: toJsonRecord({
-					...input.metadata,
-					...(input.executor ? { executor: input.executor } : {}),
-					...(laneDispatch ? { laneDispatch } : {}),
+					...metadata,
+					...(laneDispatch?.score === undefined &&
+					!laneDispatch?.reason &&
+					!laneDispatch?.note
+						? {}
+						: {
+								laneDispatch: {
+									...(laneDispatch.score === undefined
+										? {}
+										: { score: laneDispatch.score }),
+									...(laneDispatch.reason
+										? { reason: laneDispatch.reason }
+										: {}),
+									...(laneDispatch.note ? { note: laneDispatch.note } : {}),
+								},
+							}),
 				}),
 				createdAt: new Date().toISOString(),
 			});

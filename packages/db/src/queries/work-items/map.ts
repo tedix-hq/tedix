@@ -70,12 +70,8 @@ export async function readWorkMapSnapshot(
 				stewardId: workItems.stewardId,
 				createdAt: workItems.createdAt,
 				acceptedAt: workItems.acceptedAt,
-				executor: sql<
-					string | null
-				>`json_extract(${workItems.metadata}, '$.executor')`.as("executor"),
-				laneState: sql<
-					string | null
-				>`json_extract(${workItems.metadata}, '$.laneDispatch.state')`.as(
+				executor: workItems.executorId,
+				laneState: sql<string | null>`${workItems.dispatchState}`.as(
 					"lane_state",
 				),
 				lastEventAt: sql<string | null>`(${db

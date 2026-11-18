@@ -158,7 +158,41 @@ export type DispatchItem = Pick<
 	| "metadata"
 	| "accountableOwnerType"
 	| "accountableOwnerId"
-> & { activeAttempt?: unknown; riskLevel?: WorkItem["riskLevel"] };
+> & {
+	activeAttempt?: unknown;
+	riskLevel?: WorkItem["riskLevel"];
+	executorId?: WorkItem["executorId"];
+	executorType?: WorkItem["executorType"];
+	dispatchState?: WorkItem["dispatchState"];
+};
+
+function dispatchPlan(item: DispatchItem) {
+	const legacy = (item.metadata?.laneDispatch as
+		| { state?: WorkItem["dispatchState"] }
+		| undefined) ?? { state: undefined };
+	return LaneDispatchPlanSchema.safeParse({
+		...legacy,
+		state: item.dispatchState ?? legacy.state,
+	});
+}
+
+function assignedExecutor(item: {
+	executorId?: string | null;
+	executorType?: WorkItem["executorType"];
+	metadata?: WorkItem["metadata"];
+}) {
+	return item.executorId ?? item.metadata?.executor;
+}
+
+function isLocalAssignment(
+	item: Parameters<typeof assignedExecutor>[0],
+	executor: string,
+) {
+	return (
+		assignedExecutor(item) === executor &&
+		(item.executorType === undefined || item.executorType === "external_agent")
+	);
+}
 
 function leaseMayBeLive(attempt: unknown): boolean {
 	const expiry =
@@ -178,14 +212,18 @@ export function dispatchSkip(
 	if (
 		executor === "any-local"
 			? ![...localExecutors, "any-local"].includes(
-					String(item.metadata?.executor),
-				)
-			: item.metadata?.executor !== executor
+					String(assignedExecutor(item)),
+				) ||
+				item.executorType === "human" ||
+				item.executorType === "tedi" ||
+				item.executorType === "team" ||
+				item.executorType === "organization"
+			: !isLocalAssignment(item, executor)
 	)
 		return `Work is not assigned to ${executor}`;
 	if (!item.projectId) return "Work has no project";
 	if (coordinated) {
-		const plan = LaneDispatchPlanSchema.safeParse(item.metadata?.laneDispatch);
+		const plan = dispatchPlan(item);
 		if (!plan.success || plan.data.state !== "ready")
 			return "Work has no ready coordinator selection";
 	}
@@ -210,12 +248,12 @@ export function dispatchSkip(
 			comment.authorType === "user" &&
 			comment.authorId === item.accountableOwnerId &&
 			new RegExp(
-				`^Delegation: ${item.metadata?.executor} work-version=${item.version}\\s+\\S.{9,}`,
+				`^Delegation: ${assignedExecutor(item)} work-version=${item.version}\\s+\\S.{9,}`,
 				"im",
 			).test(comment.body),
 	);
 	if (!delegated)
-		return `${kind}; needs an owner comment: Delegation: ${item.metadata?.executor} work-version=${item.version} <bounded delegation note>`;
+		return `${kind}; needs an owner comment: Delegation: ${assignedExecutor(item)} work-version=${item.version} <bounded delegation note>`;
 }
 
 const AGENT_NAMES: Record<string, string> = {
@@ -274,7 +312,7 @@ export function laneDelegationRequest(
 	  }
 	| undefined {
 	if (!reason.startsWith("Possible human-reserved action")) return;
-	const executor = String(item.metadata?.executor ?? "");
+	const executor = String(assignedExecutor(item) ?? "");
 	const agent = AGENT_NAMES[executor] ?? executor;
 	const copy = lanePermissionCopy(
 		`${item.title}\n${item.description ?? ""}`,
@@ -414,7 +452,7 @@ export function laneHoldRequest(
 			? item.accountableOwnerId
 			: operatorUserId;
 	if (!target) return;
-	const executor = String(item.metadata?.executor ?? "");
+	const executor = String(assignedExecutor(item) ?? "");
 	const agent = AGENT_NAMES[executor] ?? executor;
 	const title = shortTitle(item.title, 120);
 	return {
@@ -452,17 +490,18 @@ export function proposedAcceptance(
 	item: Pick<
 		DispatchItem,
 		"disposition" | "description" | "metadata" | "accountableOwnerId"
-	>,
+	> &
+		Pick<DispatchItem, "executorId" | "executorType">,
 	executor: ServeOptions["executor"],
 ): string | undefined {
 	if (item.disposition !== "proposed") return;
 	// Tedix refuses to accept work nobody answers for; leave it in triage.
 	if (!item.accountableOwnerId) return;
-	const assigned = String(item.metadata?.executor ?? "");
+	const assigned = String(assignedExecutor(item) ?? "");
 	if (
 		executor === "any-local"
 			? !localExecutors.includes(assigned as LocalExecutor)
-			: assigned !== executor
+			: !isLocalAssignment(item, executor)
 	)
 		return;
 	const match = /^## Done when\s*\n([\s\S]*?)(?=\n## |$)/m.exec(
@@ -2746,7 +2785,7 @@ export class LaneDispatcher {
 						this.delegated.add(heldKey);
 					}
 				}
-				if (!reason && item.metadata?.executor === "devin") {
+				if (!reason && assignedExecutor(item) === "devin") {
 					const status = this.deps.devinAvailability();
 					if (!status.available) reason = status.reason;
 				}
@@ -3808,7 +3847,7 @@ export class LaneDispatcher {
 		const metadata = item.metadata ?? {};
 		return routeLocalWork(
 			{
-				executor: String(metadata.executor),
+				executor: String(assignedExecutor(item)),
 				tags: Array.isArray(metadata.tags)
 					? metadata.tags.filter(
 							(tag): tag is string => typeof tag === "string",
@@ -4609,9 +4648,7 @@ export class LaneDispatcher {
 			]);
 			if (workItem?.id !== receipt.itemId)
 				throw new Error("Hold could not read its Work");
-			const plan = LaneDispatchPlanSchema.safeParse(
-				workItem.metadata?.laneDispatch,
-			).data;
+			const plan = dispatchPlan(workItem).data;
 			const held = plan?.state === "held" && plan.reason !== undefined;
 			// A finished or revised Work has nothing left to hold or ask about.
 			if (
