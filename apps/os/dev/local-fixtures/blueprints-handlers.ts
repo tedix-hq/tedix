@@ -52,6 +52,9 @@ export const blueprintHandlers: Record<string, (input: never) => unknown> = {
 					name: blueprint.name,
 					description: blueprint.description,
 					gadgetCount: revision?.definition.gadgets.length ?? 0,
+					previewApps: (revision?.definition.gadgets ?? [])
+						.slice(0, 6)
+						.map((gadget) => ({ name: gadget.name })),
 					organizationName: "Tedix local",
 					publishedAt: revision?.publishedAt ?? null,
 					featured: state.featuredBlueprintIds.includes(blueprint.id),
@@ -76,6 +79,7 @@ export const blueprintHandlers: Record<string, (input: never) => unknown> = {
 				name: page.name,
 				description: page.description,
 				gadgetCount: page.apps.length,
+				previewApps: page.apps.slice(0, 6),
 				organizationName: page.organizationName,
 				publishedAt: page.publishedAt,
 				featured: input.featured,

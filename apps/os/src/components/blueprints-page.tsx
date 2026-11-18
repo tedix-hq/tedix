@@ -1322,6 +1322,52 @@ export function GalleryEmpty() {
 	);
 }
 
+/**
+ * A small picture of the workspace this template makes: its name as the
+ * window title and one tile per app it adds, in the order the template lists
+ * them. Drawn from the listing itself, so it never shows a stale capture.
+ */
+export function GalleryPreview({ item }: { item: OsBlueprintGalleryItem }) {
+	const more = item.gadgetCount - item.previewApps.length;
+	return (
+		<div
+			className="blueprint-gallery-preview"
+			role="group"
+			aria-label={`Preview of a workspace made from ${item.name}`}
+		>
+			<span className="blueprint-gallery-preview-mark" aria-hidden="true">
+				<BlueprintIcon size={16} />
+			</span>
+			<div className="blueprint-gallery-preview-window">
+				<span className="blueprint-gallery-preview-title">{item.name}</span>
+				{item.previewApps.length > 0 ? (
+					<ul className="blueprint-gallery-preview-grid">
+						{item.previewApps.map((app, index) => (
+							// Index key: a template may not repeat an app name, but the
+							// preview must not break on one that does.
+							<li key={`${index}-${app.name}`} title={app.name}>
+								<span aria-hidden="true">
+									{app.name.trim().charAt(0).toUpperCase()}
+								</span>
+								<span>{app.name}</span>
+							</li>
+						))}
+						{more > 0 ? (
+							<li className="blueprint-gallery-preview-more">
+								+{formatCount(more)} more
+							</li>
+						) : null}
+					</ul>
+				) : (
+					<span className="blueprint-gallery-preview-empty">
+						Starts empty. Add apps after you create it.
+					</span>
+				)}
+			</div>
+		</div>
+	);
+}
+
 export function GalleryCard({
 	item,
 	children,
@@ -1332,21 +1378,7 @@ export function GalleryCard({
 	useOsFormattingPreferences();
 	return (
 		<Surface as="li" className="blueprint-gallery-card overflow-hidden">
-			<div className="blueprint-gallery-preview" aria-hidden="true">
-				<span className="blueprint-gallery-preview-mark">
-					<BlueprintIcon size={16} />
-				</span>
-				<div className="blueprint-gallery-preview-window">
-					<span className="blueprint-gallery-preview-title" />
-					<span className="blueprint-gallery-preview-line" />
-					<span className="blueprint-gallery-preview-line" />
-					<div className="blueprint-gallery-preview-grid">
-						<span />
-						<span />
-						<span />
-					</div>
-				</div>
-			</div>
+			<GalleryPreview item={item} />
 			<div className="flex items-start gap-3 px-3 pt-3">
 				<IconFrame aria-hidden size="sm">
 					<BlueprintIcon size={16} />
