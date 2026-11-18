@@ -1806,6 +1806,9 @@ export async function runKernelTurnWork(
 					},
 				}
 			: {}),
+		...(!observeOnly && !modelUnavailable && kernelResult?.route?.modelRef
+			? { modelRef: kernelResult.route.modelRef }
+			: {}),
 		kernelRoute: observeOnly ? null : (kernelResult?.route ?? null),
 		...(observeOnly
 			? {

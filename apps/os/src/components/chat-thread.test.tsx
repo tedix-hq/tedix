@@ -2228,7 +2228,10 @@ function mountThread(props: Partial<ComponentProps<typeof ChatThread>> = {}) {
 			</QueryClientProvider>,
 		);
 	});
-	const rerender = () => {
+	const rerender = (
+		nextProps: Partial<ComponentProps<typeof ChatThread>> = {},
+	) => {
+		props = { ...props, ...nextProps };
 		act(() => {
 			root.render(
 				<QueryClientProvider client={client}>
@@ -3347,6 +3350,102 @@ describe("<ChatThread> chosen model", () => {
 		await act(async () => item.click());
 		await flush();
 	}
+
+	it("reopens on the answering model after history loads, preserving a pick here and resetting it on conversation switch", async () => {
+		twoModels();
+		let resolveHistory!: (value: ReturnType<typeof runSetPayload>) => void;
+		kernelRuntimeApi.readRunSet.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveHistory = resolve;
+			}),
+		);
+		const thread = mountThread();
+		await flush();
+		await act(async () =>
+			resolveHistory(
+				runSetPayload({
+					runs: [
+						{
+							id: RUN_ID,
+							organizationId: ORG_ID,
+							conversationId: CONVERSATION_ID,
+							status: "completed",
+							createdAt: "2026-11-18T12:00:00Z",
+							metadata: { modelRef: TEXT_ONLY_REF },
+						},
+					],
+				}),
+			),
+		);
+		await flush();
+		expect(modelButton(thread.container).textContent).toBe(
+			`Label for ${TEXT_ONLY_REF}`,
+		);
+		await choose(thread.container, VISION_REF);
+		await act(async () => {
+			await thread.client.invalidateQueries();
+		});
+		await flush();
+		expect(modelButton(thread.container).textContent).toBe(
+			`Label for ${VISION_REF}`,
+		);
+		// Another chat has its own answering model; the explicit pick belongs to the first.
+		kernelRuntimeApi.readRunSet.mockResolvedValue(
+			runSetPayload({
+				conversationId: "home:other",
+				runs: [
+					{
+						id: "other-run",
+						organizationId: ORG_ID,
+						conversationId: "home:other",
+						status: "completed",
+						createdAt: "2026-11-18T13:00:00Z",
+						metadata: { modelRef: TEXT_ONLY_REF },
+					},
+				],
+			}),
+		);
+		thread.rerender({ conversationId: "home:other" });
+		await flush();
+		expect(modelButton(thread.container).textContent).toBe(
+			`Label for ${TEXT_ONLY_REF}`,
+		);
+		thread.rerender({ conversationId: null });
+		await flush();
+		expect(modelButton(thread.container).textContent).toBe(
+			`Label for ${VISION_REF}`,
+		);
+	});
+
+	it("uses the remembered model when the last answering model is withdrawn", async () => {
+		twoModels();
+		preferenceServer.rows.set("ana", {
+			preferences: {
+				...DEFAULT_OS_USER_PREFERENCES,
+				conversationModelRef: TEXT_ONLY_REF,
+			},
+			revision: 1,
+		});
+		kernelRuntimeApi.readRunSet.mockResolvedValue(
+			runSetPayload({
+				runs: [
+					{
+						id: RUN_ID,
+						organizationId: ORG_ID,
+						conversationId: CONVERSATION_ID,
+						status: "completed",
+						createdAt: "2026-11-18T12:00:00Z",
+						metadata: { modelRef: "azure-openai/withdrawn" },
+					},
+				],
+			}),
+		);
+		const { container } = mountThread();
+		await flush();
+		expect(modelButton(container).textContent).toBe(
+			`Label for ${TEXT_ONLY_REF}`,
+		);
+	});
 
 	it("follows the person to another browser and is not shown to the next person on this one", async () => {
 		twoModels();

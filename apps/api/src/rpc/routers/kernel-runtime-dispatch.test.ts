@@ -533,6 +533,7 @@ describe("kernel DO integration (enqueueMessage kernel path)", () => {
 		const inlineKernel = vi.fn(async () => ({
 			assistantContent: "INLINE FALLBACK",
 			route: {
+				modelRef: "azure-openai/answering-model",
 				routeKind: "answer_directly" as const,
 				rationale: "Direct answer.",
 				risk: "low" as const,
@@ -561,6 +562,7 @@ describe("kernel DO integration (enqueueMessage kernel path)", () => {
 			| Record<string, unknown>
 			| undefined;
 		expect(inlineRunMetadata).toBeDefined();
+		expect(inlineRunMetadata?.modelRef).toBe("azure-openai/answering-model");
 		expect(inlineRunMetadata?.kernelRoute).toMatchObject({
 			routeKind: "answer_directly",
 		});
