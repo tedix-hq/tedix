@@ -228,6 +228,40 @@ describe("Web Push delivery", () => {
 		await deliverWebPush(context, { ...event, kind: "approval.requested" });
 		expect(fetch).toHaveBeenCalledTimes(1);
 	});
+	it("keeps a timed mute quiet until its time, lets approvals through, and sends again afterwards", async () => {
+		const preferences = (until: string) =>
+			mocks.configs.mockImplementation(async (_db, _scope, prefix) =>
+				prefix === "preferences"
+					? [
+							{
+								key: "preferences",
+								value: {
+									mutedProjectIds: [],
+									mutedWorkspaceIds: [WORKSPACE_ID],
+									mutedWorkspaceUntil: { [WORKSPACE_ID]: until },
+								},
+							},
+						]
+					: [
+							{
+								key: "subscription:one",
+								value: {
+									endpoint: "https://web.push.apple.com/device",
+									keys: { p256dh: "B".repeat(87), auth: "A".repeat(22) },
+								},
+							},
+						],
+			);
+		preferences(new Date(Date.now() + 60 * 60_000).toISOString());
+		await deliverWebPush(context, event);
+		expect(fetch).not.toHaveBeenCalled();
+		await deliverWebPush(context, { ...event, kind: "approval.requested" });
+		expect(fetch).toHaveBeenCalledTimes(1);
+		// The time has passed: the saved mute no longer holds anything back.
+		preferences(new Date(Date.now() - 1_000).toISOString());
+		await deliverWebPush(context, event);
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
 	it("does not send to a revoked member, inaccessible conversation, or stale arbitrary endpoint", async () => {
 		mocks.member.mockResolvedValueOnce({
 			status: "removed",

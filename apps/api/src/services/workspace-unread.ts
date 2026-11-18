@@ -90,6 +90,17 @@ export function unreadFromFeed(
 	return { chat, files: [...files.values()] };
 }
 
+/**
+ * What still counts as unread in a workspace the person muted: only requests
+ * for a decision. Everything else is counted again once the mute ends.
+ */
+export function unreadWhileMuted(unread: WorkspaceUnread): WorkspaceUnread {
+	return {
+		chat: unread.chat.filter((item) => item.kind === "needs_decision"),
+		files: [],
+	};
+}
+
 export type WorkspaceReadTarget =
 	| { type: "chat"; conversationId?: string }
 	| { type: "file"; outputId: string }

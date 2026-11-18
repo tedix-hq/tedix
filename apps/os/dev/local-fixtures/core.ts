@@ -262,6 +262,7 @@ export type LocalState = {
 	skillRuns: SkillRunRow[];
 	pushMutedProjectIds: string[];
 	pushMutedWorkspaceIds: string[];
+	pushMutedWorkspaceUntil: Record<string, string>;
 	/** null until the operator saves; mirrors "no `user_configs` row". */
 	userPreferences: {
 		value: OsUserPreferences;

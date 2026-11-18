@@ -13,6 +13,7 @@ import {
 	workspaceFeedLedger,
 	workspaceOutputIndex,
 } from "@tedix/db/schema/workspace-feed";
+import { savePushConfig } from "@tedix/db/queries/web-push";
 import { saveWorkspaceReadMarker } from "@tedix/db/queries/workspace-unread";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -149,6 +150,68 @@ async function workspaces(db: ReturnType<typeof setup>["db"]) {
 }
 
 describe("workspace unread API", () => {
+	it("counts only requests for a decision while a workspace is muted, and everything again once the mute ends", async () => {
+		const { client, db, event } = setup();
+		await workspaces(db);
+		await client().markRead({ workspaceId: WS, target: { type: "visit" } });
+		await event(WS, { kind: "run", actorId: "person-b" });
+		await event(WS, { kind: "output", actorId: "person-b", entityId: FILE });
+		const everything = {
+			total: 2,
+			workspaces: [{ workspaceId: WS, chat: 1, files: 1, total: 2 }],
+		};
+		expect(await client().summary({})).toEqual(everything);
+
+		const mute = (until?: string) =>
+			savePushConfig(
+				db,
+				{ organizationId: "org-a", userId: "person-a" },
+				"preferences",
+				{
+					mutedProjectIds: [],
+					mutedWorkspaceIds: [WS],
+					...(until ? { mutedWorkspaceUntil: { [WS]: until } } : {}),
+				},
+			);
+		await mute(new Date(Date.now() + 60 * 60_000).toISOString());
+		expect(await client().summary({})).toEqual({ total: 0, workspaces: [] });
+		expect(await client().list({})).toEqual({ total: 0, groups: [] });
+		// Someone else's mute changes nothing for this person's colleague.
+		await client("person-c").markRead({
+			workspaceId: WS,
+			target: { type: "visit" },
+		});
+
+		await event(WS, {
+			kind: "run",
+			actorId: "tedi-1",
+			actorKind: "tedi",
+			operation: "approval.requested",
+		});
+		expect(await client().summary({})).toEqual({
+			total: 1,
+			workspaces: [{ workspaceId: WS, chat: 1, files: 0, total: 1 }],
+		});
+		expect((await client().list({})).groups[0]?.items).toMatchObject([
+			{ kind: "needs_decision" },
+		]);
+		expect(await client("person-c").summary({})).toMatchObject({ total: 1 });
+		// The workspace itself still shows what is unread inside it.
+		expect(await client().workspace({ workspaceId: WS })).toMatchObject({
+			chat: 2,
+			files: 1,
+		});
+
+		// Past its time the mute is over without anything having run.
+		await mute(new Date(Date.now() - 1_000).toISOString());
+		expect(await client().summary({})).toEqual({
+			total: 3,
+			workspaces: [{ workspaceId: WS, chat: 2, files: 1, total: 3 }],
+		});
+		// A mute with no end holds until the person turns it off.
+		await mute();
+		expect(await client().summary({})).toMatchObject({ total: 1 });
+	});
 	it("shows what others did after the first visit and clears it as the person looks", async () => {
 		const { client, db, event } = setup();
 		await workspaces(db);

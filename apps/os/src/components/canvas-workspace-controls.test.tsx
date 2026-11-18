@@ -275,7 +275,7 @@ describe("CanvasWorkspaceControls", () => {
 		expect(button(rendered.container, "Remove")).toBeDefined();
 	});
 
-	it("toggles the workspace's push mute through saved preferences", async () => {
+	it("asks how long to mute the workspace for and saves the choice", async () => {
 		webPushApi.setPreferences.mockResolvedValue({
 			mutedProjectIds: ["project-1"],
 			mutedWorkspaceIds: [WORKSPACE.id],
@@ -292,10 +292,55 @@ describe("CanvasWorkspaceControls", () => {
 		const mute = button(rendered.container, "Mute");
 		expect(mute.disabled).toBe(false);
 		act(() => mute.click());
+		expect(webPushApi.setPreferences).not.toHaveBeenCalled();
+		expect(rendered.container.textContent).toContain(
+			"Approval requests still reach you.",
+		);
+		for (const label of [
+			"3 hours",
+			"Until tomorrow morning",
+			"3 days",
+			"Until I turn it back on",
+		])
+			expect(button(rendered.container, label)).toBeDefined();
+		const before = Date.now();
+		act(() => button(rendered.container, "1 hour").click());
+		await flush();
+		const saved = webPushApi.setPreferences.mock.calls[0]?.[0];
+		expect(saved).toMatchObject({
+			mutedProjectIds: ["project-1"],
+			mutedWorkspaceIds: [WORKSPACE.id],
+		});
+		const until = Date.parse(saved.mutedWorkspaceUntil[WORKSPACE.id]);
+		expect(until).toBeGreaterThanOrEqual(before + 60 * 60_000);
+		expect(until).toBeLessThan(before + 61 * 60_000);
+	});
+
+	it("unmutes a timed mute in one click and clears its end time", async () => {
+		const until = new Date();
+		until.setHours(23, 59, 0, 0);
+		webPushApi.getStatus.mockResolvedValue({
+			enabled: true,
+			publicKey: "B".repeat(87),
+			preferences: {
+				mutedProjectIds: ["project-1"],
+				mutedWorkspaceIds: [WORKSPACE.id],
+				mutedWorkspaceUntil: { [WORKSPACE.id]: until.toISOString() },
+			},
+		});
+		webPushApi.setPreferences.mockResolvedValue({
+			mutedProjectIds: ["project-1"],
+			mutedWorkspaceIds: [],
+		});
+		const rendered = renderControls(WORKSPACE);
+		await flush();
+		const unmute = button(rendered.container, "Unmute");
+		act(() => unmute.click());
 		await flush();
 		expect(webPushApi.setPreferences).toHaveBeenCalledWith({
 			mutedProjectIds: ["project-1"],
-			mutedWorkspaceIds: [WORKSPACE.id],
+			mutedWorkspaceIds: [],
+			mutedWorkspaceUntil: {},
 		});
 	});
 	it("explains in plain words what archiving hides and keeps", async () => {

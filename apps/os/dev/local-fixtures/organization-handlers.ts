@@ -217,6 +217,7 @@ export const organizationHandlers: Record<string, (input: never) => unknown> = {
 		preferences: {
 			mutedProjectIds: state.pushMutedProjectIds,
 			mutedWorkspaceIds: state.pushMutedWorkspaceIds,
+			mutedWorkspaceUntil: state.pushMutedWorkspaceUntil,
 		},
 	}),
 	"webPush/subscribe": () => ({ enabled: false }),
@@ -225,13 +226,17 @@ export const organizationHandlers: Record<string, (input: never) => unknown> = {
 	"webPush/setPreferences": (input: {
 		mutedProjectIds: string[];
 		mutedWorkspaceIds?: string[];
+		mutedWorkspaceUntil?: Record<string, string>;
 	}) => {
 		state.pushMutedProjectIds = input.mutedProjectIds;
 		if (input.mutedWorkspaceIds !== undefined)
 			state.pushMutedWorkspaceIds = input.mutedWorkspaceIds;
+		if (input.mutedWorkspaceUntil !== undefined)
+			state.pushMutedWorkspaceUntil = input.mutedWorkspaceUntil;
 		return {
 			mutedProjectIds: state.pushMutedProjectIds,
 			mutedWorkspaceIds: state.pushMutedWorkspaceIds,
+			mutedWorkspaceUntil: state.pushMutedWorkspaceUntil,
 		};
 	},
 	// --- per-user OS settings ---

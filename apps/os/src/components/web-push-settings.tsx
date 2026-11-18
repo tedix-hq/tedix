@@ -86,6 +86,7 @@ export function WebPushSettings() {
 		mutationFn: (input: {
 			mutedProjectIds: string[];
 			mutedWorkspaceIds?: string[];
+			mutedWorkspaceUntil?: Record<string, string>;
 		}) => osApi.webPush.setPreferences(input),
 		onSuccess: () =>
 			cache.invalidateQueries({ queryKey: osQuery.webPush.getStatus.key() }),
@@ -173,6 +174,13 @@ export function WebPushSettings() {
 									mutedWorkspaceIds: checked
 										? [...new Set([...ids, workspace.id])]
 										: ids.filter((id) => id !== workspace.id),
+									// The switch mutes with no end; a timed mute set from
+									// the workspace's own menu ends with it.
+									mutedWorkspaceUntil: Object.fromEntries(
+										Object.entries(
+											status.data?.preferences.mutedWorkspaceUntil ?? {},
+										).filter(([id]) => id !== workspace.id),
+									),
 								});
 							}}
 						/>

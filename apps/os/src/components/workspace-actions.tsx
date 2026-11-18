@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
+import { activeWorkspaceMutes } from "@tedix/api-contract/schemas/web-push";
 import { useEffect, useRef } from "react";
 import * as z from "zod";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -20,8 +21,14 @@ import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { Text } from "@/components/kumo/text";
 import { WorkspaceEffectList } from "@/components/workspace-delete-dialog";
 import { WorkspaceIconField } from "@/components/workspace-icon-field";
+import { useWorkspaceMuteState } from "@/components/workspace-muted-icon";
 import { osApi } from "@/lib/api";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
+import {
+	WORKSPACE_MUTE_CHOICES,
+	workspaceMuteLabel,
+	workspaceMuteUntil,
+} from "@/lib/workspace-mute";
 import { OS_COPY } from "@/shared/os-copy";
 
 /*
@@ -186,40 +193,102 @@ export function WorkspaceFormDialog({
 }
 
 /**
- * Whether the person muted notifications for a workspace, and the switch for
- * it. Approvals still arrive while a workspace is muted.
+ * Whether the person muted a workspace, until when, and the ways to change
+ * it. A muted workspace sends no notifications and shows no unread count;
+ * approval requests still arrive.
  */
 export function useWorkspaceMute(workspaceId: string | undefined) {
 	const queryClient = useQueryClient();
-	const push = useQuery({
-		...osQuery.webPush.getStatus.queryOptions({ input: {} }),
-		enabled: !!workspaceId,
-	});
-	const muted =
-		(!!workspaceId &&
-			push.data?.preferences.mutedWorkspaceIds?.includes(workspaceId)) ||
-		false;
+	const { muted, until, preferences } = useWorkspaceMuteState(workspaceId);
 	const save = useMutation({
-		mutationFn: (mutedWorkspaceIds: string[]) =>
-			osApi.webPush.setPreferences({
-				mutedProjectIds: push.data?.preferences.mutedProjectIds ?? [],
-				mutedWorkspaceIds,
-			}),
+		mutationFn: (next: { muted: boolean; until: string | null }) => {
+			const active = activeWorkspaceMutes(preferences ?? {}, Date.now());
+			const mutedWorkspaceUntil = { ...active.mutedWorkspaceUntil };
+			delete mutedWorkspaceUntil[workspaceId!];
+			if (next.muted && next.until)
+				mutedWorkspaceUntil[workspaceId!] = next.until;
+			return osApi.webPush.setPreferences({
+				mutedProjectIds: preferences?.mutedProjectIds ?? [],
+				mutedWorkspaceIds: next.muted
+					? [...new Set([...active.mutedWorkspaceIds, workspaceId!])]
+					: active.mutedWorkspaceIds.filter((id) => id !== workspaceId),
+				mutedWorkspaceUntil,
+			});
+		},
 		onSuccess: () =>
-			queryClient.invalidateQueries({
-				queryKey: osQuery.webPush.getStatus.key(),
-			}),
+			Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: osQuery.webPush.getStatus.key(),
+				}),
+				// Unread counts leave out a muted workspace.
+				queryClient.invalidateQueries({
+					queryKey: osQuery.workspaceUnread.key(),
+				}),
+			]),
 	});
-	const toggle = () => {
-		if (!workspaceId || !push.data) return;
-		const ids = push.data.preferences.mutedWorkspaceIds ?? [];
-		save.mutate(
-			muted
-				? ids.filter((id) => id !== workspaceId)
-				: [...new Set([...ids, workspaceId])],
-		);
+	const ready = !!workspaceId && !!preferences;
+	return {
+		muted,
+		until,
+		/** "Muted until 14:30", or "Muted" when it has no end. */
+		label: workspaceMuteLabel(until, new Date()),
+		disabled: !ready || save.isPending,
+		/** Mute until an ISO time; null mutes until the person unmutes. */
+		mute: (end: string | null) => {
+			if (ready) save.mutate({ muted: true, until: end });
+		},
+		unmute: () => {
+			if (ready) save.mutate({ muted: false, until: null });
+		},
 	};
-	return { muted, disabled: !push.data || save.isPending, toggle };
+}
+
+/** Asks how long to mute a workspace for. */
+export function WorkspaceMuteDialog({
+	workspaceName,
+	open,
+	onOpenChange,
+	onChoose,
+}: {
+	workspaceName: string;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	/** The end of the mute as an ISO time; null for no end. */
+	onChoose: (until: string | null) => void;
+}) {
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Mute {workspaceName}</DialogTitle>
+					<DialogDescription>
+						You get no notifications and no unread count from this workspace
+						while it is muted. Approval requests still reach you.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="grid gap-1" role="group" aria-label="Mute for">
+					{WORKSPACE_MUTE_CHOICES.map((choice) => (
+						<Button
+							key={choice.id}
+							className="justify-start"
+							variant="ghost"
+							onClick={() => {
+								onChoose(workspaceMuteUntil(choice.id, new Date()));
+								onOpenChange(false);
+							}}
+						>
+							{choice.label}
+						</Button>
+					))}
+				</div>
+				<DialogFooter>
+					<Button variant="outline" onClick={() => onOpenChange(false)}>
+						Cancel
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
 }
 
 /** Asks before archiving a workspace and says what stops and what is kept. */

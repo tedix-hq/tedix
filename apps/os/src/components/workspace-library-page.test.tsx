@@ -190,6 +190,16 @@ async function chooseAction(
 	await flush();
 }
 
+/** Pick how long to mute for in the dialog the "Mute…" action opens. */
+async function chooseMute(label: string) {
+	const choice = [
+		...document.querySelectorAll<HTMLElement>('[role="dialog"] button'),
+	].find((node) => node.textContent?.trim() === label);
+	expect(choice, label).toBeDefined();
+	await act(async () => choice!.click());
+	await flush();
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	unread.summary.mockResolvedValue({ total: 0, workspaces: [] });
@@ -828,7 +838,7 @@ describe("Workspace row actions in the list", () => {
 			).toEqual([
 				"Rename",
 				"Pin",
-				"Mute",
+				"Mute…",
 				"Mark as read",
 				"Share",
 				"Information",
@@ -862,10 +872,13 @@ describe("Workspace row actions in the list", () => {
 			target: { type: "all" },
 		});
 
-		await chooseAction(container, "Support Desk", "Mute", "right-click");
+		expect(container.querySelector("[data-workspace-muted]")).toBeNull();
+		await chooseAction(container, "Support Desk", "Mute…", "right-click");
+		await chooseMute("Until I turn it back on");
 		expect(webPush.setPreferences).toHaveBeenCalledWith({
 			mutedProjectIds: [],
 			mutedWorkspaceIds: [SECOND_WORKSPACE_ID],
+			mutedWorkspaceUntil: {},
 		});
 
 		await chooseAction(container, "Support Desk", "Pin");
@@ -874,6 +887,25 @@ describe("Workspace row actions in the list", () => {
 			favorite: true,
 		});
 		expect(container.textContent).toContain("Favorite saved.");
+		act(() => root.unmount());
+	});
+
+	it("marks a muted workspace's row with a small muted icon", async () => {
+		webPush.getStatus.mockResolvedValue({
+			enabled: true,
+			publicKey: "B".repeat(87),
+			preferences: {
+				mutedProjectIds: [],
+				mutedWorkspaceIds: [SECOND_WORKSPACE_ID],
+			},
+		});
+		const { container, root } = await renderPage();
+		const icons = container.querySelectorAll("[data-workspace-muted]");
+		expect(icons).toHaveLength(1);
+		expect(icons[0]?.getAttribute("aria-label")).toBe("Muted");
+		expect(
+			icons[0]?.closest("[data-workspace-row-menu]")?.textContent,
+		).toContain("Support Desk");
 		act(() => root.unmount());
 	});
 

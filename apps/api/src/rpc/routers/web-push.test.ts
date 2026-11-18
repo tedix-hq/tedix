@@ -6,7 +6,7 @@ import { userConfigs } from "@tedix/db/schema/user-configs";
 import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { userContext, apiKeyContext } from "../test-context";
 import {
 	PUSH_DEVICE_CAP,
@@ -91,16 +91,22 @@ describe("personal Web Push API", () => {
 				mutedProjectIds: [],
 				mutedWorkspaceIds: [workspaceId],
 			}),
-		).toEqual({ mutedProjectIds: [], mutedWorkspaceIds: [workspaceId] });
+		).toEqual({
+			mutedProjectIds: [],
+			mutedWorkspaceIds: [workspaceId],
+			mutedWorkspaceUntil: {},
+		});
 		// A stale client that only knows project mutes keeps the saved workspace
 		// mutes instead of wiping them.
 		expect(await client().setPreferences({ mutedProjectIds: [] })).toEqual({
 			mutedProjectIds: [],
 			mutedWorkspaceIds: [workspaceId],
+			mutedWorkspaceUntil: {},
 		});
 		expect((await client().getStatus({})).preferences).toEqual({
 			mutedProjectIds: [],
 			mutedWorkspaceIds: [workspaceId],
+			mutedWorkspaceUntil: {},
 		});
 		await expect(
 			client().setPreferences({
@@ -115,6 +121,65 @@ describe("personal Web Push API", () => {
 				mutedWorkspaceIds: [workspaceId],
 			}),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+	it("mutes a workspace until a time and unmutes it by itself once the time has passed", async () => {
+		const { client, db } = setup();
+		const timed = "00000000-0000-4000-8000-000000000011";
+		const open = "00000000-0000-4000-8000-000000000012";
+		await db.insert(osWorkspaces).values(
+			[timed, open].map((id) => ({
+				id,
+				organizationId: "org-a",
+				name: `Ops ${id}`,
+				createdByKind: "user",
+				createdById: "person-a",
+			})),
+		);
+		vi.useFakeTimers({ now: new Date("2026-11-18T10:00:00.000Z") });
+		try {
+			const until = "2026-11-18T11:00:00.000Z";
+			const saved = {
+				mutedProjectIds: [],
+				mutedWorkspaceIds: [timed, open],
+				mutedWorkspaceUntil: { [timed]: until },
+			};
+			expect(await client().setPreferences(saved)).toEqual(saved);
+			// A write that names no times keeps the saved ones.
+			expect(
+				await client().setPreferences({
+					mutedProjectIds: [],
+					mutedWorkspaceIds: [timed, open],
+				}),
+			).toEqual(saved);
+			expect((await client().getStatus({})).preferences).toEqual(saved);
+
+			// Nothing runs at 11:00; the next read simply compares the time.
+			vi.setSystemTime(new Date("2026-11-18T11:00:01.000Z"));
+			const after = {
+				mutedProjectIds: [],
+				mutedWorkspaceIds: [open],
+				mutedWorkspaceUntil: {},
+			};
+			expect((await client().getStatus({})).preferences).toEqual(after);
+			// A later write does not bring the ended mute back.
+			expect(await client().setPreferences({ mutedProjectIds: [] })).toEqual(
+				after,
+			);
+			// A time that has already passed mutes nothing.
+			expect(
+				await client().setPreferences({
+					mutedProjectIds: [],
+					mutedWorkspaceIds: [timed],
+					mutedWorkspaceUntil: { [timed]: until },
+				}),
+			).toEqual({
+				mutedProjectIds: [],
+				mutedWorkspaceIds: [],
+				mutedWorkspaceUntil: {},
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 	it("does not persist a subscription while push is disabled", async () => {
 		const { client, db } = setup();
