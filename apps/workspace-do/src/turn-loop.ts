@@ -65,7 +65,12 @@ export interface TurnResult {
 		  })
 		| null;
 	model: string;
-	stopReason: "answered" | "approval_required" | "step_ceiling" | "aborted";
+	stopReason: "answered" | "step_ceiling" | "aborted";
+	/**
+	 * Writes that came back "Approval required". The turn does not stop at
+	 * them: the person decides on the card while the agent goes on.
+	 */
+	approvalsRequested: number;
 	/** New compaction summary when the loop compacted before answering. */
 	compaction?: { summary: string; droppedMessages: number };
 }
@@ -269,6 +274,7 @@ export async function runTurn(
 	let steps = 0;
 	let finalText = "";
 	let stopReason: TurnResult["stopReason"] = "answered";
+	let approvalsRequested = 0;
 
 	while (steps < MAX_STEPS) {
 		if (ports.signal?.aborted) {
@@ -314,7 +320,6 @@ export async function runTurn(
 			finalText = text;
 			break;
 		}
-		let approvalRequired = false;
 		for (const call of calls) {
 			if (ports.signal?.aborted) {
 				await keep(
@@ -351,8 +356,10 @@ export async function runTurn(
 			});
 			const started = now();
 			const run = await ports.runCode(code);
+			// A held write does not end the turn: the model reads the hold in
+			// the tool result and goes on with work that does not depend on it.
 			const refused = run.error?.startsWith("Approval required");
-			if (refused) approvalRequired = true;
+			if (refused) approvalsRequested += 1;
 			ports.emit({
 				type: refused ? "approval_required" : "code_finished",
 				data: {
@@ -365,11 +372,6 @@ export async function runTurn(
 			});
 			await keep(toolResult(call, renderRun(run), !run.ok, now()));
 		}
-		if (approvalRequired) {
-			stopReason = "approval_required";
-			finalText = text;
-			break;
-		}
 	}
 	if (steps >= MAX_STEPS && stopReason === "answered" && !finalText) {
 		stopReason = "step_ceiling";
@@ -381,6 +383,7 @@ export async function runTurn(
 		usage,
 		model,
 		stopReason,
+		approvalsRequested,
 		compaction,
 	};
 }

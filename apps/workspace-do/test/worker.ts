@@ -163,6 +163,14 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 		return [{ id: "faux", label: "Scripted test model" }];
 	}
 
+	#systemPrompts: string[] = [];
+
+	/** The system prompt of every model call so far, oldest first. */
+	readSystemPrompts(scope: WorkspaceScope): string[] {
+		this.bindScope(scope);
+		return this.#systemPrompts;
+	}
+
 	protected override modelFor(
 		_scope: WorkspaceScope,
 		_turnId: string,
@@ -171,7 +179,14 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 	): ModelPort {
 		if (modelId !== undefined && modelId !== "faux")
 			throw new Error("Model request was not propagated");
-		return scriptedModel(this.#script, modelId);
+		const model = scriptedModel(this.#script, modelId);
+		return {
+			...model,
+			stream: (context, options) => {
+				this.#systemPrompts.push(context.systemPrompt ?? "");
+				return model.stream(context, options);
+			},
+		};
 	}
 }
 

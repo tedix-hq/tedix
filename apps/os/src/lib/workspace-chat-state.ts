@@ -9,6 +9,8 @@
 
 import type {
 	ApprovalDecision,
+	AutoApprovalKind,
+	AutoApprovalRule,
 	ConversationSummary,
 	StepKind,
 	TurnStatus,
@@ -40,9 +42,13 @@ export type ChatApproval = {
 	input?: unknown;
 	requestedAt: string;
 	target?: { id: string; title: string };
+	/** The "Always approve" rule that could cover this kind of change. */
+	rule?: { kind: AutoApprovalKind; label: string };
 	decision: ApprovalDecision | null;
 	decidedBy?: string;
 	decidedAt?: string;
+	/** Approved by a workspace "Always approve" rule, not by hand. */
+	automatic?: boolean;
 	execution?: {
 		status: "applied" | "failed";
 		error?: string;
@@ -117,8 +123,15 @@ export type WorkspaceChatState = {
 	seen: Set<number>;
 	approvalDecisions: Record<
 		string,
-		{ decision: ApprovalDecision; decidedBy: string; decidedAt: string }
+		{
+			decision: ApprovalDecision;
+			decidedBy: string;
+			decidedAt: string;
+			automatic?: boolean;
+		}
 	>;
+	/** This workspace's "Always approve" rules, as the object last said. */
+	autoApprovals: AutoApprovalRule[];
 	approvalExecutions: Record<string, NonNullable<ChatApproval["execution"]>>;
 	/** The whole workspace's usage; `null` until a reply reports any. */
 	usage: UsageTotals | null;
@@ -145,6 +158,7 @@ export function initialWorkspaceChatState(
 		seen: new Set(),
 		approvalDecisions: {},
 		approvalExecutions: {},
+		autoApprovals: [],
 		usage: null,
 		usageCursor: null,
 	};
@@ -491,6 +505,7 @@ export function applyWorkspaceChatEvent(
 									input: event.input,
 									requestedAt: event.at,
 									target: event.target,
+									...(event.rule ? { rule: event.rule } : {}),
 									decision: null,
 									...approvalDecisions[event.approvalId],
 									execution: approvalExecutions[event.approvalId],
@@ -506,6 +521,7 @@ export function applyWorkspaceChatEvent(
 					decision: event.decision,
 					decidedBy: event.by,
 					decidedAt: event.at,
+					...(event.automatic ? { automatic: true } : {}),
 				},
 			};
 			turns = turns.map((turn) => ({
@@ -517,6 +533,7 @@ export function applyWorkspaceChatEvent(
 								decision: event.decision,
 								decidedBy: event.by,
 								decidedAt: event.at,
+								...(event.automatic ? { automatic: true } : {}),
 							}
 						: approval,
 				),
@@ -690,6 +707,15 @@ export function activeTurn(state: WorkspaceChatState): ChatTurn | null {
 		if (turn.status === "running") return turn;
 	}
 	return null;
+}
+
+/** Every proposal of the open conversation still waiting for a decision, oldest first. */
+export function waitingForDecision(state: WorkspaceChatState): ChatApproval[] {
+	return state.turns.flatMap((turn) =>
+		turn.approvals.filter(
+			(approval) => approval.decision === null && !approval.execution,
+		),
+	);
 }
 
 /** The approval the object is waiting on, if any. */

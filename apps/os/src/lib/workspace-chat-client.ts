@@ -19,6 +19,7 @@
 import { nextBackoffDelayMs } from "./conversation-stream";
 import {
 	type ApprovalDecision,
+	type AutoApprovalKind,
 	isLedgerEvent,
 	parseWorkspaceChatServerMessage,
 	type WorkspaceChatClientMessage,
@@ -105,6 +106,8 @@ export type WorkspaceChatClient = {
 	decideApproval(approvalId: string, decision: ApprovalDecision): void;
 	/** Decide several approvals of one reply together; one answer continues. */
 	decideApprovals(approvalIds: string[], decision: ApprovalDecision): void;
+	/** Turn one of the workspace's "Always approve" rules on or off. */
+	setAutoApproval(kind: AutoApprovalKind, enabled: boolean): void;
 	cancelTurn(turnId: string): void;
 	loadEarlier(): void;
 	/** Drop the socket now; the ladder reconnects. Used by the drop test. */
@@ -415,6 +418,7 @@ export function createWorkspaceChatClient(
 						message.cursor,
 					),
 					models: message.models ?? [],
+					autoApprovals: message.autoApprovals ?? [],
 				};
 				if (state.lastError?.code === "not_connected")
 					state = { ...state, lastError: null };
@@ -422,6 +426,10 @@ export function createWorkspaceChatClient(
 				for (const queued of outbox.values()) send(queued);
 				return;
 			}
+			case "auto_approvals":
+				state = { ...state, autoApprovals: message.rules };
+				publish();
+				return;
 			case "caught_up":
 				if (message.conversationId !== conversationId) return;
 				replayCursor = null;
@@ -501,6 +509,7 @@ export function createWorkspaceChatClient(
 					cursor: state.cursor,
 					conversations: state.conversations,
 					models: state.models,
+					autoApprovals: state.autoApprovals,
 				};
 				replayCursor = null;
 				send({ type: "subscribe", conversationId: null, cursor: state.cursor });
@@ -544,6 +553,9 @@ export function createWorkspaceChatClient(
 		decideApprovals(approvalIds, decision) {
 			if (approvalIds.length === 0) return;
 			send({ type: "decide_approvals", approvalIds, decision });
+		},
+		setAutoApproval(kind, enabled) {
+			send({ type: "set_auto_approval", kind, enabled });
 		},
 		cancelTurn(turnId) {
 			send({ type: "cancel_turn", turnId });
