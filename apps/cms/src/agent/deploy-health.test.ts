@@ -1,5 +1,6 @@
+import { safeDeployDetails } from "./deploy-status-safety";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { probeCmsDeploy } from "./deploy-health";
+import { probeCmsDeploy, classifyProbeError } from "./deploy-health";
 
 const html =
 	'<html><head><link href="/_astro/app.hash.css"></head><body><img src="/_image?href=%2Fmedia%2Fhero.png&amp;w=100"></body></html>';
@@ -227,5 +228,31 @@ describe("candidate deploy health", () => {
 				"X-Tedix-Public-Host": "public.test",
 			});
 		}
+	});
+});
+
+describe("probe failure classification", () => {
+	it("names the failing request kind without exposing error text", () => {
+		expect(
+			classifyProbeError(
+				new TypeError("Fetch API cannot load: redirect mode is error"),
+				false,
+			),
+		).toBe("redirect");
+		expect(
+			classifyProbeError(new TypeError("Network connection lost."), false),
+		).toBe("connection");
+		expect(classifyProbeError(new Error("anything"), true)).toBe("timeout");
+		expect(classifyProbeError("odd", false)).toBe("other");
+	});
+	it("keeps probe target and error kind in safe status details, drops free text", () => {
+		expect(
+			safeDeployDetails({
+				probeTarget: "image",
+				probeError: "redirect",
+				probeMessage: "secret text",
+			}),
+		).toEqual({ probeTarget: "image", probeError: "redirect" });
+		expect(safeDeployDetails({ probeTarget: "elsewhere" })).toBeUndefined();
 	});
 });

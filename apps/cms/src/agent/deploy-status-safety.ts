@@ -1,3 +1,4 @@
+import { PROBE_ERROR_KINDS, PROBE_TARGETS } from "./deploy-health";
 import { DEPLOY_FAILURE_CODES } from "./deploy-failure";
 
 const NUMERIC_DETAIL_KEYS = new Set([
@@ -40,6 +41,10 @@ export function safeDeployDetails(
 		} else if (
 			typeof value === "string" &&
 			((key === "blockType" && /^[a-zA-Z0-9_-]{1,128}$/.test(value)) ||
+				(key === "probeTarget" &&
+					(PROBE_TARGETS as readonly string[]).includes(value)) ||
+				(key === "probeError" &&
+					(PROBE_ERROR_KINDS as readonly string[]).includes(value)) ||
 				(key === "code" &&
 					(DEPLOY_FAILURE_CODES as readonly string[]).includes(value)) ||
 				(key === "phase" &&

@@ -18,14 +18,18 @@ export async function probeCmsDeploy(candidate: Candidate): Promise<{
 	probeUrl: string;
 	code?: DeployFailureCode;
 	retryable: boolean;
+	probeTarget?: ProbeTarget;
+	probeError?: ProbeErrorKind;
 }> {
 	let probeUrl = candidate.url;
+	let target: ProbeTarget = "html";
 	let status = 502;
 	const base = new URL(candidate.url.replace(/\/$/, "") + "/");
 	const publicBase = new URL(
 		(candidate.publicUrl ?? candidate.url).replace(/\/$/, "") + "/",
 	);
 	const read = async (url: URL, type: "html" | "asset" | "image") => {
+		target = type;
 		url.searchParams.set("_tedix_deploy", candidate.jobId);
 		url.searchParams.set("_tedix_version", String(candidate.version));
 		url.searchParams.set("_tedix_etag", candidate.etag);
@@ -95,6 +99,7 @@ export async function probeCmsDeploy(candidate: Candidate): Promise<{
 	};
 	try {
 		// Negotiate on the installation endpoint before dispatching into a tenant.
+		target = "runtime-health";
 		probeUrl = candidate.runtimeHealthUrl;
 		candidate.signal.throwIfAborted();
 		const health = await (candidate.fetcher ?? fetch)(probeUrl, {
@@ -195,8 +200,16 @@ export async function probeCmsDeploy(candidate: Candidate): Promise<{
 			retryable: false,
 		};
 	} catch (error) {
+		let probeError: ProbeErrorKind | undefined;
 		if (!(error instanceof CmsDeployFailure)) {
 			status = candidate.signal.aborted ? 504 : 502;
+			probeError = classifyProbeError(error, candidate.signal.aborted);
+			// Full text stays in Worker logs; status details carry only enums.
+			console.error("CMS deploy probe request failed", {
+				target,
+				probeUrl,
+				error: error instanceof Error ? error.message : String(error),
+			});
 		}
 		return {
 			response: new Response(null, { status: status === 200 ? 502 : status }),
@@ -204,6 +217,35 @@ export async function probeCmsDeploy(candidate: Candidate): Promise<{
 			code:
 				error instanceof CmsDeployFailure ? error.code : "PROBE_NETWORK_FAILED",
 			retryable: error instanceof CmsDeployFailure ? error.retryable : true,
+			probeTarget: target,
+			...(probeError ? { probeError } : {}),
 		};
 	}
+}
+
+export const PROBE_TARGETS = [
+	"html",
+	"asset",
+	"image",
+	"runtime-health",
+] as const;
+export type ProbeTarget = (typeof PROBE_TARGETS)[number];
+export const PROBE_ERROR_KINDS = [
+	"redirect",
+	"timeout",
+	"connection",
+	"other",
+] as const;
+export type ProbeErrorKind = (typeof PROBE_ERROR_KINDS)[number];
+
+export function classifyProbeError(
+	error: unknown,
+	aborted: boolean,
+): ProbeErrorKind {
+	if (aborted) return "timeout";
+	const message = error instanceof Error ? error.message : String(error);
+	if (/redirect/i.test(message)) return "redirect";
+	if (/network|connect|socket|fetch failed|dns|refused|reset/i.test(message))
+		return "connection";
+	return "other";
 }

@@ -1113,6 +1113,8 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 							retryable: probe.retryable,
 							rollback: "not_available",
 							correlationId: jobId,
+							...(probe.probeTarget ? { probeTarget: probe.probeTarget } : {}),
+							...(probe.probeError ? { probeError: probe.probeError } : {}),
 						};
 
 					if (res.status !== 200) {
