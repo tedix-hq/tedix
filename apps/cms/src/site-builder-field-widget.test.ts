@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import {
+	createElement,
+	renderToStaticMarkup,
+} from "./test-utils/template-react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	fields,

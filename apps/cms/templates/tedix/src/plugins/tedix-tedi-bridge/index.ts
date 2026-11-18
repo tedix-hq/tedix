@@ -2,12 +2,8 @@
  * tedix-tedi-bridge — bridges Emdash publish events into the org's
  * Tedix platform brain via memory_learn.
  *
- * Single file because templates run in the trusted host isolate
- * and don't need the descriptor / sandbox-entry split (no marketplace,
- * no capability sandboxing).
- *
  * Hook:
- *   content:afterPublish → POST {platformApiUrl}/rpc/memory/learn
+ *   content:afterPublish queues memory sync; the native scheduler delivers it.
  *
  * Configuration is read from Emdash settings (set via the agent's
  * cms_*.settings_update path:
@@ -28,6 +24,14 @@ import type {
 	SandboxedPlugin,
 } from "emdash/plugin";
 import { callPlatformRpc } from "../../lib/platform-rpc";
+import {
+	DELIVERY_TASK,
+	deliveryRoutes,
+	ensureDeliverySchedule,
+	enqueueDelivery,
+	publication,
+	processDeliveries,
+} from "../../lib/publish-delivery";
 
 const DEFAULT_API_URL = "https://api.tedix.dev";
 const DEFAULT_DOMAIN = "content-published";
@@ -135,78 +139,83 @@ function collectionList(value: unknown): string[] {
 }
 
 export default {
+	routes: deliveryRoutes,
 	hooks: {
-		"content:afterPublish": {
+		cron: {
+			timeout: 60_000,
 			handler: async (event, ctx) => {
+				if (event.name !== DELIVERY_TASK) return;
 				const disabled = await readSetting(ctx, "tedi.bridgeDisabled");
 				if (disabled === true || disabled === "true") return;
-
-				const collections = collectionList(
-					await readSetting(ctx, "tedi.collections"),
-				);
-				if (!collections.includes(event.collection)) return;
-
-				const apiKey = await readSetting(ctx, "tedi.platformApiKey");
-				if (!apiKey || typeof apiKey !== "string") {
-					ctx.log?.warn?.(
-						"[tedi-bridge] tedi.platformApiKey not set — skipping memory_learn",
+				await processDeliveries(ctx, async (job) => {
+					const apiKey = await readSetting(ctx, "tedi.platformApiKey");
+					if (typeof apiKey !== "string" || !apiKey || !ctx.http)
+						throw new Error("Bridge not configured");
+					const apiUrl = String(
+						(await readSetting(ctx, "tedi.platformApiUrl")) ?? DEFAULT_API_URL,
 					);
-					return;
-				}
-
-				const apiUrl = (
-					(await readSetting(ctx, "tedi.platformApiUrl")) ?? DEFAULT_API_URL
-				)
-					.toString()
-					.replace(/\/+$/, "");
-				const domain =
-					(await readSetting(ctx, "tedi.domain")) ?? DEFAULT_DOMAIN;
-				const tediId = await readSetting(ctx, "tedi.id");
-				if (!ctx.http) {
-					ctx.log?.warn?.("[tedi-bridge] HTTP capability unavailable");
-					return;
-				}
-				const platformFetch = ctx.http.fetch.bind(ctx.http);
-
-				const entry = publishedEntry(event);
-				const taxonomies = await readTaxonomyContext(event, ctx);
-				const text = buildFactText(entry, taxonomies);
-				const slug = entry.slug ?? entry.id;
-
-				const input = {
-					content: text,
-					domain,
-					factType: "episode",
-					confidence: 0.95,
-					priority: "active",
-					source: `cms://${event.collection}/${slug}`,
-					sourceUrl: `cms://${event.collection}/${slug}`,
-					metadata: {
-						collection: event.collection,
-						postId: entry.id,
-						slug,
-						locale: entry.locale ?? null,
-						taxonomies,
-						trigger: "content:afterPublish",
-					},
-					...(tediId ? { tediId } : {}),
-				};
-
-				try {
 					await callPlatformRpc(
 						apiUrl,
 						["memory", "learn"],
-						input,
+						job.payload,
 						apiKey,
-						platformFetch,
+						(url, init) =>
+							ctx.http!.fetch(url, {
+								...init,
+								signal: AbortSignal.timeout(8_000),
+							}),
 					);
-					ctx.log?.info?.(
-						`[tedi-bridge] memory_learn ok for ${event.collection}/${slug}${tediId ? ` (tedi=${tediId})` : ""}`,
+					return { receipt: { acknowledged: true } };
+				});
+			},
+		},
+		"content:afterPublish": {
+			handler: async (event, ctx) => {
+				try {
+					const disabled = await readSetting(ctx, "tedi.bridgeDisabled");
+					if (disabled === true || disabled === "true") return;
+
+					const collections = collectionList(
+						await readSetting(ctx, "tedi.collections"),
 					);
-				} catch (err) {
-					ctx.log?.warn?.(
-						`[tedi-bridge] memory_learn failed: ${err instanceof Error ? err.message : String(err)}`,
+					if (!collections.includes(event.collection)) return;
+
+					const entry = publishedEntry(event);
+					const taxonomies = await readTaxonomyContext(event, ctx);
+					const text = buildFactText(entry, taxonomies);
+					const domain =
+						(await readSetting(ctx, "tedi.domain")) ?? DEFAULT_DOMAIN;
+					const tediId = await readSetting(ctx, "tedi.id");
+					const slug = entry.slug ?? entry.id;
+
+					const input = {
+						content: text,
+						domain,
+						factType: "episode",
+						confidence: 0.95,
+						priority: "active",
+						source: `cms://${event.collection}/${slug}`,
+						sourceUrl: `cms://${event.collection}/${slug}`,
+						metadata: {
+							collection: event.collection,
+							postId: entry.id,
+							slug,
+							locale: entry.locale ?? null,
+							taxonomies,
+							trigger: "content:afterPublish",
+						},
+						...(tediId ? { tediId } : {}),
+					};
+
+					await ensureDeliverySchedule(ctx);
+					await enqueueDelivery(
+						ctx,
+						publication(event, ctx),
+						`memory:${String(tediId ?? "organization")}`,
+						input,
 					);
+				} catch {
+					ctx.log?.warn?.("[tedi-bridge] delivery enqueue failed");
 				}
 			},
 			errorPolicy: "continue",

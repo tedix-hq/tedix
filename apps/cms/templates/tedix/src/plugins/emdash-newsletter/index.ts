@@ -1,16 +1,13 @@
 /**
  * emdash-newsletter — double-opt-in newsletter plugin.
  *
- * Single file because templates run in the trusted host isolate and don't
- * need the descriptor / sandbox-entry split.
- *
- * Routes (all public) — emdash plugin routes use plain slugs as keys:
+ * Subscription routes (public) — emdash plugin routes use plain slugs as keys:
  *   POST /_emdash/api/plugins/emdash-newsletter/subscribe   — { email, source? }
  *   GET  /_emdash/api/plugins/emdash-newsletter/confirm?token=TOKEN
  *   GET  /_emdash/api/plugins/emdash-newsletter/unsubscribe?token=TOKEN
  *
  * Hook:
- *   content:afterPublish → fan out digest to active subscribers.
+ *   content:afterPublish queues a digest; the native scheduler expands and sends it.
  *
  * Outbound email goes via the platform endpoint
  *   POST {PLATFORM_API_URL}/rpc/tediEmail/sendEmail
@@ -33,9 +30,20 @@ import type {
 	SandboxedPlugin,
 } from "emdash/plugin";
 import { callPlatformRpc } from "../../lib/platform-rpc";
+import {
+	DELIVERY_TASK,
+	deliveryRoutes,
+	ensureDeliverySchedule,
+	enqueueDelivery,
+	publication,
+	processDeliveries,
+	type DeliveryJob,
+	type DeliveryResult,
+} from "../../lib/publish-delivery";
 
 type NewsletterContext = PluginContext<{
 	subscribers: { indexes: string[] };
+	deliveries: { indexes: string[] };
 }>;
 type Subscriber = Record<string, unknown> & {
 	email?: string;
@@ -66,7 +74,6 @@ const workerEnv = (cfEnv ?? {}) as unknown as Record<
 const DEFAULT_API_URL = "https://api.tedix.dev";
 const DEFAULT_COLLECTIONS = ["posts"];
 const DEFAULT_PAGE_SIZE = 25;
-const HARD_MAX = 5_000;
 
 // ── tokens / validation ──────────────────────────────────────────────
 
@@ -271,14 +278,15 @@ async function sendPlatformEmail(
 		ctx.log?.warn?.("[newsletter] HTTP capability unavailable");
 		return { ok: false, error: "HTTP capability unavailable" };
 	}
-	const platformFetch = ctx.http.fetch.bind(ctx.http);
+	const platformFetch = (url: string, init?: RequestInit) =>
+		ctx.http!.fetch(url, { ...init, signal: AbortSignal.timeout(8_000) });
 	try {
 		const out = await callPlatformRpc<{
 			ok?: boolean;
 			messageId?: string;
 			provider?: string;
 		}>(apiUrl, ["tediEmail", "sendEmail"], input, apiKey, platformFetch);
-		if (out.ok === false) return { ok: false, error: "send failed" };
+		if (out.ok !== true) return { ok: false, error: "send failed" };
 		return { ok: true, messageId: out.messageId, provider: out.provider };
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -309,10 +317,81 @@ function clampInt(v: unknown, min: number, max: number, dflt: number): number {
 	return Math.min(max, Math.max(min, n));
 }
 
+/** A fan-out job checkpoints one subscriber page; child keys make page replay safe. */
+async function deliverNewsletter(
+	ctx: NewsletterContext,
+	job: DeliveryJob,
+): Promise<DeliveryResult> {
+	if (job.payload.kind === "fanout") {
+		const pageSize = clampInt(
+			await readSetting(ctx, "newsletter.digestPageSize"),
+			1,
+			25,
+			DEFAULT_PAGE_SIZE,
+		);
+		const cursor =
+			typeof job.payload.cursor === "string" ? job.payload.cursor : undefined;
+		const page = await ctx.storage.subscribers.query({
+			where: { status: "active" },
+			limit: pageSize,
+			cursor,
+		});
+		for (const item of page.items) {
+			const sub = item.data as Subscriber;
+			if (!sub.email || !sub.unsubscribeToken) continue;
+			const to = sub.email.trim().toLowerCase();
+			const unsubscribeUrl = ctx.url(
+				`/_emdash/api/plugins/emdash-newsletter/unsubscribe?token=${sub.unsubscribeToken}`,
+			);
+			const tpl = renderDigest(
+				job.payload.brand as Brand,
+				String(job.payload.title),
+				String(job.payload.excerpt),
+				String(job.payload.postUrl),
+				unsubscribeUrl,
+			);
+			await enqueueDelivery(ctx, job, to, {
+				kind: "email",
+				subscriberId: item.id,
+				to,
+				...tpl,
+			});
+		}
+		if (page.hasMore) {
+			if (!page.cursor || page.cursor === cursor)
+				throw new Error("Subscriber cursor did not advance");
+			return { continuation: { ...job.payload, cursor: page.cursor } };
+		}
+		return { receipt: { expanded: true } };
+	}
+	const sub = (await ctx.storage.subscribers.get(
+		String(job.payload.subscriberId),
+	)) as Subscriber | null;
+	if (
+		!sub ||
+		sub.status !== "active" ||
+		sub.email?.trim().toLowerCase() !== job.recipient
+	)
+		return {
+			skipped: true,
+			receipt: { reason: "Subscriber no longer active" },
+		};
+	const result = await sendPlatformEmail(ctx, job.payload as EmailArgs);
+	if (!result.ok) throw new Error("Newsletter delivery failed");
+	return {
+		receipt: {
+			acknowledged: true,
+			...(result.messageId ? { messageId: result.messageId } : {}),
+			...(result.provider ? { provider: result.provider } : {}),
+		},
+	};
+}
+
 // ── plugin definition ────────────────────────────────────────────────
 
 export default {
 	routes: {
+		...deliveryRoutes,
 		// POST /_emdash/api/plugins/emdash-newsletter/subscribe
 		subscribe: {
 			public: true,
@@ -446,6 +525,16 @@ export default {
 		},
 	},
 	hooks: {
+		cron: {
+			timeout: 60_000,
+			handler: async (event, pluginCtx) => {
+				if (event.name !== DELIVERY_TASK) return;
+				const ctx = pluginCtx as NewsletterContext;
+				const disabled = await readSetting(ctx, "newsletter.disabled");
+				if (disabled === true || disabled === "true") return;
+				await processDeliveries(ctx, (job) => deliverNewsletter(ctx, job));
+			},
+		},
 		"content:afterPublish": {
 			errorPolicy: "continue",
 			handler: async (
@@ -453,78 +542,42 @@ export default {
 				pluginCtx: PluginContext,
 			) => {
 				const ctx = pluginCtx as NewsletterContext;
-				const disabled = await readSetting(ctx, "newsletter.disabled");
-				if (disabled === true || disabled === "true") return;
+				try {
+					const disabled = await readSetting(ctx, "newsletter.disabled");
+					if (disabled === true || disabled === "true") return;
 
-				const collections = collectionList(
-					await readSetting(ctx, "newsletter.digestCollections"),
-				);
-				if (!collections.includes(event.collection)) return;
+					const collections = collectionList(
+						await readSetting(ctx, "newsletter.digestCollections"),
+					);
+					if (!collections.includes(event.collection)) return;
 
-				// Emdash passes the published content item as `event.content`.
-				const entry = event.content as {
-					id: string;
-					slug?: string | null;
-					data?: Record<string, unknown>;
-				};
-				const data = entry.data ?? {};
-				const title = pickStr(data, "title") ?? entry.slug ?? entry.id;
-				const excerpt =
-					pickStr(data, "excerpt") ??
-					pickStr(data, "description") ??
-					pickStr(data, "summary") ??
-					"";
-				const slug = entry.slug ?? entry.id;
-				const brand = brandFromEnv(ctx);
-				const postUrl = await contentUrl(ctx, event.collection, slug);
+					// Emdash passes the published content item as `event.content`.
+					const entry = event.content as {
+						id: string;
+						slug?: string | null;
+						data?: Record<string, unknown>;
+					};
+					const data = entry.data ?? {};
+					const title = pickStr(data, "title") ?? entry.slug ?? entry.id;
+					const excerpt =
+						pickStr(data, "excerpt") ??
+						pickStr(data, "description") ??
+						pickStr(data, "summary") ??
+						"";
+					const slug = entry.slug ?? entry.id;
+					const brand = brandFromEnv(ctx);
+					const postUrl = await contentUrl(ctx, event.collection, slug);
 
-				const pageSize = clampInt(
-					await readSetting(ctx, "newsletter.digestPageSize"),
-					1,
-					200,
-					DEFAULT_PAGE_SIZE,
-				);
-				const subscribers = ctx.storage.subscribers;
-				let cursor: string | undefined;
-				let sent = 0;
-				let seen = 0;
-				let failed = 0;
-				while (seen < HARD_MAX) {
-					const page = await subscribers.query({
-						where: { status: "active" },
-						limit: pageSize,
-						cursor,
-					});
-					if (page.items.length === 0) break;
-					for (const it of page.items) {
-						seen++;
-						const sub = it.data as Subscriber;
-						if (!sub?.email) continue;
-						const unsubscribeUrl = ctx.url(
-							`/_emdash/api/plugins/emdash-newsletter/unsubscribe?token=${sub.unsubscribeToken}`,
-						);
-						const tpl = renderDigest(
-							brand,
-							title,
-							excerpt,
-							postUrl,
-							unsubscribeUrl,
-						);
-						const r = await sendPlatformEmail(ctx, {
-							to: sub.email,
-							subject: tpl.subject,
-							text: tpl.text,
-							html: tpl.html,
-						});
-						if (r.ok) sent++;
-						else failed++;
-					}
-					if (!page.hasMore || !page.cursor) break;
-					cursor = page.cursor;
+					await ensureDeliverySchedule(ctx);
+					await enqueueDelivery(
+						ctx,
+						publication(event, ctx),
+						"newsletter:fanout",
+						{ kind: "fanout", brand, title, excerpt, postUrl },
+					);
+				} catch {
+					ctx.log?.warn?.("[newsletter] delivery enqueue failed");
 				}
-				ctx.log?.info?.(
-					`[newsletter] digest fan-out: ${sent} sent, ${failed} failed across ${seen} subscribers`,
-				);
 			},
 		},
 	},

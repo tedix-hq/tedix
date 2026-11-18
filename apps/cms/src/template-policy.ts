@@ -58,6 +58,7 @@ export const LOCKED_FILES = [
 	"src/lib/tedix-home-fields.json",
 	"src/lib/tedix-home-copy-keys.json",
 	"src/lib/platform-rpc.ts",
+	"src/lib/publish-delivery.ts",
 	"src/lib/site-url.ts",
 	"src/lib/content-url.ts",
 	"src/lib/post-markdown.ts",
