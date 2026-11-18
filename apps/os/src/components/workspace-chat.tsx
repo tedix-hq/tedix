@@ -1033,11 +1033,14 @@ function Activity({
 	const [open, setOpen] = useState(false);
 	const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
 	const expanded = open || live;
-	const failed = steps.some(
-		(step) =>
-			held(step)?.execution?.status === "failed" ||
-			(!held(step) && !refused(step) && step.status === "error"),
-	);
+	const errored = (step: ChatStep) =>
+		!held(step) && !refused(step) && step.status === "error";
+	// A step that went wrong and was followed by one that worked is a retry,
+	// not a failed reply: only an unrecovered last step or a failed change is.
+	const failed =
+		steps.some((step) => held(step)?.execution?.status === "failed") ||
+		(steps.length > 0 && errored(steps.at(-1)!));
+	const retried = failed ? 0 : steps.filter(errored).length;
 	const approval = approvals.at(-1);
 	const summary = live
 		? (steps.findLast((step) => step.status === "running")?.label ?? "Working")
@@ -1066,6 +1069,10 @@ function Activity({
 				) : approval ? (
 					<Text as="span" role="caption" tone="secondary">
 						{approvalStatus(approval)}
+					</Text>
+				) : retried > 0 ? (
+					<Text as="span" role="caption" tone="secondary">
+						{retried} retried
 					</Text>
 				) : null}
 			</Button>
