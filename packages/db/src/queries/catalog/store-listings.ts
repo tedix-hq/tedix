@@ -5,12 +5,14 @@
 
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
+	appCatalog,
 	appCatalogStoreListings,
 	type CatalogStoreListing,
 	type NewCatalogStoreListing,
 	type Source,
 } from "../../schema/catalog";
 import type { Database } from "./tool-source-policy";
+import { batchNonEmpty, chunkForBoundParams } from "../../utils/batch";
 
 // =============================================================================
 // STORE LISTINGS OPERATIONS
@@ -134,4 +136,54 @@ export async function listCatalogStoreListingsByAppIds(
 		);
 	}
 	return rows;
+}
+
+/**
+ * Record that these listings were seen in a store again without rewriting
+ * them. Stale-listing cleanup reads `lastSyncedAt`, so an unchanged listing
+ * still has to be marked on every import. `updatedAt` stays as it is: nothing
+ * about the listing changed.
+ */
+export async function markCatalogListingsSeen(
+	db: Database,
+	listings: { source: Source; sourceAppId: string }[],
+	seenAt: string,
+): Promise<void> {
+	const bySource = new Map<Source, string[]>();
+	for (const listing of listings) {
+		const ids = bySource.get(listing.source) ?? [];
+		ids.push(listing.sourceAppId);
+		bySource.set(listing.source, ids);
+	}
+	const statements = [];
+	for (const [source, ids] of bySource) {
+		// D1 allows 100 bound parameters per statement; the ids appear once.
+		for (const chunk of chunkForBoundParams(ids, 80)) {
+			const seen = and(
+				eq(appCatalogStoreListings.source, source),
+				inArray(appCatalogStoreListings.sourceAppId, chunk),
+			);
+			statements.push(
+				db
+					.update(appCatalogStoreListings)
+					.set({ lastSyncedAt: seenAt })
+					.where(seen),
+				db
+					.update(appCatalog)
+					.set({ lastSyncedAt: seenAt })
+					.where(
+						// bound-params: a subquery, whose only list is the 80-id chunk above
+						inArray(
+							appCatalog.id,
+							db
+								.select({ id: appCatalogStoreListings.catalogAppId })
+								.from(appCatalogStoreListings)
+								.where(seen),
+						),
+					),
+			);
+		}
+	}
+	for (const group of chunkForBoundParams(statements, 20))
+		await db.batch(batchNonEmpty(group));
 }

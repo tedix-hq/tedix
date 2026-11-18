@@ -3,7 +3,18 @@
  * Split from catalog.ts (mechanical move; bodies unchanged).
  */
 
-import { and, asc, desc, eq, gt, inArray, not, or, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	gt,
+	gte,
+	inArray,
+	not,
+	or,
+	sql,
+} from "drizzle-orm";
 import { appCatalog } from "../../schema/catalog";
 import { chunkForBoundParams } from "../../utils/batch";
 import { getAffectedRows } from "../../utils/d1-result";
@@ -233,7 +244,12 @@ export async function getCatalogSnapshotStats(
  */
 export async function listEnabledCatalogAppsForVectorSync(
 	db: Database,
-	options: { limit: number; afterId?: string },
+	options: {
+		limit: number;
+		afterId?: string;
+		/** Only apps written at or after this `datetime('now')` style time. */
+		updatedSince?: string;
+	},
 ) {
 	return db
 		.select({
@@ -257,12 +273,13 @@ export async function listEnabledCatalogAppsForVectorSync(
 		})
 		.from(appCatalog)
 		.where(
-			options.afterId
-				? and(
-						eq(appCatalog.status, "ENABLED"),
-						gt(appCatalog.id, options.afterId),
-					)
-				: eq(appCatalog.status, "ENABLED"),
+			and(
+				eq(appCatalog.status, "ENABLED"),
+				options.afterId ? gt(appCatalog.id, options.afterId) : undefined,
+				options.updatedSince
+					? gte(appCatalog.updatedAt, options.updatedSince)
+					: undefined,
+			),
 		)
 		.orderBy(asc(appCatalog.id))
 		.limit(options.limit);
