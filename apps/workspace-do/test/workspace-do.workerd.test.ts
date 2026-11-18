@@ -2072,6 +2072,267 @@ describe("WorkspaceDO", () => {
 		).toHaveLength(3);
 	});
 
+	test("a chat sees and decides a request another conversation raised", async () => {
+		const ws = workspace();
+		const TRIM = (title: string) => `export default async (env) => {
+			const doc = await env.outputs.create({ title: "${title}", content: { kind: "document", blocks: [{ type: "paragraph", text: "Keep" }, { type: "paragraph", text: "Remove" }] } });
+			return Promise.allSettled([env.documents.edit({ outputId: doc.id, expectedRevision: doc.revision, ops: [{ op: "delete", index: 1 }] })]);
+		}`;
+		const ask = async (title: string) => {
+			await ws.scriptModel(scope, [
+				{ code: TRIM(title) },
+				{ text: "Waiting." },
+			]);
+			const started = await ws.sendTurn(scope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: `Create ${title} and trim it`,
+			});
+			await ws.awaitTurn(scope, started.turnId, 20_000);
+			const requested = (
+				await ws.readEvents(scope, {
+					conversationId: started.conversationId,
+					after: 0,
+				})
+			).find(
+				(event) => event.type === "approval.requested" && !event.automatic,
+			);
+			if (requested?.type !== "approval.requested")
+				throw new Error("The removal did not wait");
+			return { conversationId: started.conversationId, requested };
+		};
+		const here = await ask("Roadmap");
+
+		// A chat that follows the first conversation.
+		const socket = (
+			await ws.fetch(
+				new Request("https://workspace.test/subscribe", {
+					headers: {
+						Upgrade: "websocket",
+						"X-Workspace-Org": scope.organizationId,
+						"X-Workspace-Id": scope.workspaceId,
+						"X-Workspace-Actor-Id": "u1",
+					},
+				}),
+			)
+		).webSocket;
+		if (!socket) throw new Error("No socket");
+		const frames: Record<string, unknown>[] = [];
+		socket.addEventListener("message", (event) => {
+			frames.push(JSON.parse(String(event.data)) as Record<string, unknown>);
+		});
+		socket.accept();
+		const got = (frame: Record<string, unknown>) =>
+			vi.waitFor(
+				() => expect(frames).toContainEqual(expect.objectContaining(frame)),
+				{ timeout: 20_000 },
+			);
+		try {
+			socket.send(
+				JSON.stringify({
+					type: "subscribe",
+					conversationId: here.conversationId,
+					cursor: null,
+				}),
+			);
+			await got({ type: "caught_up" });
+			const waitingNow = () =>
+				(
+					frames.findLast((frame) => frame.type === "hello") as {
+						waiting: Array<{ approvalId: string; conversationId: string }>;
+					}
+				).waiting.filter((item) =>
+					[here.conversationId, elsewhere?.conversationId].includes(
+						item.conversationId,
+					),
+				);
+			let elsewhere: Awaited<ReturnType<typeof ask>> | undefined;
+			expect(waitingNow()).toMatchObject([
+				{
+					approvalId: here.requested.approvalId,
+					conversationId: here.conversationId,
+					title: here.requested.title,
+					target: here.requested.target,
+					at: here.requested.at,
+				},
+			]);
+
+			// Another conversation raises a request; the open chat is told.
+			elsewhere = await ask("Launch notes");
+			expect(elsewhere.conversationId).not.toBe(here.conversationId);
+			await got({
+				type: "approval.requested",
+				approvalId: elsewhere.requested.approvalId,
+				conversationId: elsewhere.conversationId,
+			});
+			// Nothing else of the other conversation reaches this chat.
+			expect(
+				frames.filter(
+					(frame) =>
+						frame.conversationId === elsewhere!.conversationId &&
+						!String(frame.type).startsWith("approval."),
+				),
+			).toEqual([]);
+
+			// The open chat approves both, the other conversation's first.
+			await ws.scriptModel(scope, [
+				{ text: "Launch notes are trimmed." },
+				{ text: "Roadmap is trimmed." },
+			]);
+			socket.send(
+				JSON.stringify({
+					type: "decide_approvals",
+					runId: "run-1",
+					approvalIds: [
+						elsewhere.requested.approvalId,
+						here.requested.approvalId,
+					],
+					decision: "approve",
+				}),
+			);
+			await got({
+				type: "approvals.decided",
+				runId: "run-1",
+				decision: "approve",
+				total: 2,
+				done: 2,
+				alreadyDecided: 0,
+			});
+			await got({
+				type: "approval.decided",
+				approvalId: elsewhere.requested.approvalId,
+				decision: "approve",
+			});
+			for (const asked of [elsewhere, here]) {
+				const after = await ws.readEvents(scope, {
+					conversationId: asked.conversationId,
+					after: asked.requested.seq,
+				});
+				expect(
+					after.find((event) => event.type === "approval.executed"),
+				).toMatchObject({
+					approvalId: asked.requested.approvalId,
+					status: "applied",
+				});
+				// Each conversation continues with its own answer.
+				const continued = after.filter(
+					(event) => event.type === "turn.started",
+				);
+				expect(continued).toHaveLength(1);
+				expect(
+					continued[0]?.type === "turn.started" && continued[0].displayText,
+				).toBe("Approved the requested action.");
+				if (continued[0]?.type === "turn.started")
+					await ws.awaitTurn(scope, continued[0].turnId, 20_000);
+			}
+			// A chat that connects now is owed nothing from either conversation.
+			frames.length = 0;
+			socket.send(
+				JSON.stringify({
+					type: "subscribe",
+					conversationId: here.conversationId,
+					cursor: null,
+				}),
+			);
+			await got({ type: "caught_up" });
+			expect(waitingNow()).toEqual([]);
+
+			// Deciding one of them again is answered as already decided.
+			socket.send(
+				JSON.stringify({
+					type: "decide_approval",
+					runId: "run-2",
+					approvalId: elsewhere.requested.approvalId,
+					decision: "deny",
+				}),
+			);
+			await got({
+				type: "approvals.decided",
+				runId: "run-2",
+				decision: "deny",
+				total: 1,
+				done: 0,
+				alreadyDecided: 1,
+				stopped: {
+					approvalId: elsewhere.requested.approvalId,
+					reason: "decided_otherwise",
+				},
+			});
+		} finally {
+			socket.close(1000, "test complete");
+		}
+	});
+
+	test("approving several stops at the first change that fails and leaves the rest waiting", async () => {
+		const ws = workspace();
+		// Two removals from one document both expect its first revision, so the
+		// second cannot apply after the first; a third document waits behind.
+		const PROPOSE = `export default async (env) => {
+			const blocks = ["Keep", "Remove", "Also remove"].map((text) => ({ type: "paragraph", text }));
+			const a = await env.outputs.create({ title: "Stops A", content: { kind: "document", blocks } });
+			const b = await env.outputs.create({ title: "Stops B", content: { kind: "document", blocks } });
+			return Promise.allSettled([
+				env.documents.edit({ outputId: a.id, expectedRevision: a.revision, ops: [{ op: "delete", index: 2 }] }),
+				env.documents.edit({ outputId: a.id, expectedRevision: a.revision, ops: [{ op: "delete", index: 1 }] }),
+				env.documents.edit({ outputId: b.id, expectedRevision: b.revision, ops: [{ op: "delete", index: 1 }] }),
+			]);
+		}`;
+		await ws.scriptModel(scope, [{ code: PROPOSE }, { text: "Waiting." }]);
+		const { turnId, conversationId } = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Create two documents and trim them",
+		});
+		await ws.awaitTurn(scope, turnId, 20_000);
+		const events = await ws.readEvents(scope, { conversationId, after: 0 });
+		const ids = events.flatMap((event) =>
+			event.type === "approval.requested" && !event.automatic
+				? [event.approvalId]
+				: [],
+		);
+		expect(ids).toHaveLength(3);
+		const last = events.at(-1)!.seq;
+
+		await ws.scriptModel(scope, [{ text: "One was trimmed." }]);
+		const results = await ws.decideApprovals(scope, {
+			approvalIds: ids,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(results).toMatchObject([
+			{ applied: true },
+			{ applied: false, stopped: { reason: "failed" } },
+			{ applied: false, left: true },
+		]);
+		expect(results[1]?.stopped?.error).toBeTruthy();
+		expect(results[0]?.turnId).toBeTruthy();
+		await ws.awaitTurn(scope, results[0]!.turnId!, 20_000);
+		const after = await ws.readEvents(scope, { conversationId, after: last });
+		expect(
+			after.flatMap((event) =>
+				event.type === "approval.executed"
+					? [[event.approvalId, event.status]]
+					: [],
+			),
+		).toEqual([
+			[ids[0], "applied"],
+			[ids[1], "failed"],
+		]);
+		// The third was never decided: it can still be approved on its own.
+		expect(
+			after.filter((event) => event.type === "approval.decided"),
+		).toHaveLength(2);
+		await ws.scriptModel(scope, [{ text: "The other is trimmed too." }]);
+		const third = await ws.decideApproval(scope, {
+			approvalId: ids[2]!,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(third).toMatchObject({ applied: true });
+		expect(third.alreadyDecided).toBeUndefined();
+		await ws.awaitTurn(scope, third.turnId!, 20_000);
+	});
+
 	test("a view shown from sandbox code lands in the answer's events", async () => {
 		await seedCore();
 		const ws = workspace();

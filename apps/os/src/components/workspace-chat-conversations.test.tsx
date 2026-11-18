@@ -467,6 +467,7 @@ describe("WorkspaceChat conversation management", () => {
 			},
 			sendTurn: () => "client-turn",
 			decideApproval() {},
+			dismissApprovalNotice() {},
 			decideApprovals() {},
 			cancelTurn() {},
 			changeConversation: (change) => changes.push(change),

@@ -119,13 +119,21 @@ again to be read past its start.
   `X-Workspace-Org`, `X-Workspace-Id`, `X-Workspace-Actor-Id` and a path
   ending in `/subscribe`. Frames follow `src/wire.ts`: the client sends
   `subscribe`, `send_turn`, `decide_approval`, `decide_approvals` (several
-  approvals of one reply, continued by one turn), `cancel_turn`, `rename_conversation`,
+  approvals from any conversation, decided one at a time in the order given;
+  the run stops at the first change that fails to apply or that someone
+  decided the other way, and each conversation continues with one turn; the
+  deciding socket gets `approvals.decided` with how far it got),
+  `cancel_turn`, `rename_conversation`,
   `archive_conversation` (`archived: false` restores; `hello` lists archived
   conversations in `archived`), `delete_conversation` (refused while a reply
   is working; every socket gets `conversation.deleted`), `ping`; the
   object answers with ledger events (`turn.started`, `assistant.delta`,
   `step.started`/`step.finished`, `approval.requested`, `turn.finished`, …)
   that each carry a `seq` cursor, plus `hello`, `turn.accepted` and `error`.
+  `hello` lists every request in the workspace still waiting for a person
+  (`waiting`), and a waiting request and its decision are sent to every open
+  chat, also one that follows another conversation, so each chat can show
+  and decide all of them.
 - MCP: the gateway forwards `POST /mcp/workspaces/{workspaceId}` here with the
   caller's principal; tools are `send_turn`, `read_turn`, `read_events`,
   `read_change_records`, `describe_binding`. Forwarded requests carry

@@ -171,6 +171,17 @@ export class SqlEventLedger {
 		return { events: rows.map(rowToEvent), more: taken < sizes.length };
 	}
 
+	/** One turn's events of one type, oldest first. */
+	ofTurn(turnId: string, type: WireEventBody["type"]): WireEvent[] {
+		return this.storage
+			.exec<EventRow>(
+				"SELECT * FROM events WHERE turn_id = ? AND type = ? ORDER BY seq ASC",
+				turnId,
+				type,
+			)
+			.map(rowToEvent);
+	}
+
 	latestSeq(): number {
 		const [row] = this.storage.exec<{ seq: number | null }>(
 			"SELECT MAX(seq) AS seq FROM events",

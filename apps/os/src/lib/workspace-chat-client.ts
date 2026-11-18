@@ -27,6 +27,8 @@ import {
 	workspaceChatSocketUrl,
 } from "./workspace-chat-protocol";
 import {
+	type ApprovalNotice,
+	type ApprovalRun,
 	applyWorkspaceChatEvent,
 	applyWorkspaceChatEvents,
 	initialWorkspaceChatState,
@@ -35,6 +37,7 @@ import {
 	removeConversation,
 	setConversations,
 	setHasEarlier,
+	setWaitingApprovals,
 	setWorkspaceUsage,
 	type WorkspaceChatState,
 } from "./workspace-chat-state";
@@ -104,8 +107,14 @@ export type WorkspaceChatClient = {
 		attachments?: Array<{ outputId: string }>;
 	}): string;
 	decideApproval(approvalId: string, decision: ApprovalDecision): void;
-	/** Decide several approvals of one reply together; one answer continues. */
+	/**
+	 * Decide several approvals one after another, in the order given. The
+	 * object stops at the first that fails; the snapshot's `approvalRun` shows
+	 * the run while it works and `approvalNotice` says where it stopped.
+	 */
 	decideApprovals(approvalIds: string[], decision: ApprovalDecision): void;
+	/** The person has read what the last decision reported. */
+	dismissApprovalNotice(): void;
 	cancelTurn(turnId: string): void;
 	/** Rename, archive, restore or delete a conversation of this workspace. */
 	changeConversation(change: ConversationChange): void;
@@ -183,6 +192,8 @@ export function createWorkspaceChatClient(
 		Extract<WorkspaceChatClientMessage, { type: "send_turn" }>
 	>();
 	let draftEvents: WorkspaceChatLedgerEvent[] = [];
+	/** Decisions sent and not answered yet, by run id. */
+	const runs = new Map<string, ApprovalRun>();
 	const completedSteps = new Map<
 		string,
 		Extract<WorkspaceChatLedgerEvent, { type: "step.finished" }>
@@ -221,6 +232,53 @@ export function createWorkspaceChatClient(
 		return true;
 	}
 
+	/** Send a decision and remember what it was for until the object answers. */
+	function decide(approvalIds: string[], decision: ApprovalDecision): void {
+		const run: ApprovalRun = {
+			runId: newId(),
+			decision,
+			requests: approvalIds.flatMap(
+				(id) => state.waiting.find((item) => item.approvalId === id) ?? [],
+			),
+		};
+		const [only] = approvalIds;
+		const sent =
+			approvalIds.length === 1 && only
+				? send({
+						type: "decide_approval",
+						approvalId: only,
+						decision,
+						runId: run.runId,
+					})
+				: send({
+						type: "decide_approvals",
+						approvalIds,
+						decision,
+						runId: run.runId,
+					});
+		if (!sent) return;
+		runs.set(run.runId, run);
+		if (approvalIds.length > 1) {
+			state = { ...state, approvalRun: run, approvalNotice: null };
+			publish();
+		}
+	}
+
+	/** The socket is gone; no answer will come for what was being decided. */
+	function abandonRuns(): void {
+		runs.clear();
+		if (!state.approvalRun) return;
+		state = {
+			...state,
+			approvalNotice: {
+				kind: "disconnected",
+				decision: state.approvalRun.decision,
+			},
+			approvalRun: null,
+		};
+		publish();
+	}
+
 	function clearTimers(): void {
 		for (const handle of [helloTimer, livenessTimer, pongTimer]) {
 			if (handle !== null) clearTimeoutFn(handle);
@@ -248,6 +306,7 @@ export function createWorkspaceChatClient(
 		const current = socket;
 		socket = null;
 		clearTimers();
+		abandonRuns();
 		if (current) {
 			current.onopen =
 				current.onmessage =
@@ -333,6 +392,7 @@ export function createWorkspaceChatClient(
 			if (socket !== candidate) return;
 			socket = null;
 			clearTimers();
+			abandonRuns();
 			if (!sawOpen && connection.phase !== "open") {
 				// Failed before the handshake: ask the Worker whether this origin
 				// has an object lane at all before climbing the ladder.
@@ -422,13 +482,16 @@ export function createWorkspaceChatClient(
 					send({ type: "subscribe", conversationId, cursor: null });
 				}
 				state = {
-					...setWorkspaceUsage(
-						setConversations(state, [
-							...message.conversations,
-							...(message.archived ?? []),
-						]),
-						message.usage,
-						message.cursor,
+					...setWaitingApprovals(
+						setWorkspaceUsage(
+							setConversations(state, [
+								...message.conversations,
+								...(message.archived ?? []),
+							]),
+							message.usage,
+							message.cursor,
+						),
+						message.waiting,
 					),
 					models: message.models ?? [],
 				};
@@ -486,6 +549,39 @@ export function createWorkspaceChatClient(
 				publish();
 				return;
 			}
+			case "approvals.decided": {
+				const run = message.runId ? runs.get(message.runId) : undefined;
+				if (message.runId) runs.delete(message.runId);
+				const request = message.stopped
+					? (run?.requests.find(
+							(item) => item.approvalId === message.stopped?.approvalId,
+						) ?? null)
+					: (run?.requests[0] ?? null);
+				const notice: ApprovalNotice | null = message.stopped
+					? {
+							kind: "stopped",
+							decision: message.decision,
+							total: message.total,
+							done: message.done,
+							request,
+							reason: message.stopped.reason,
+							...(message.stopped.error
+								? { error: message.stopped.error }
+								: {}),
+						}
+					: message.total === 1 && message.alreadyDecided === 1
+						? { kind: "already_decided", request }
+						: null;
+				const ownRun = state.approvalRun?.runId === message.runId;
+				if (!ownRun && !notice) return;
+				state = {
+					...state,
+					...(ownRun ? { approvalRun: null } : {}),
+					...(notice ? { approvalNotice: notice } : {}),
+				};
+				publish();
+				return;
+			}
 			case "pong":
 				return;
 			case "error":
@@ -502,6 +598,13 @@ export function createWorkspaceChatClient(
 					message: message.message,
 					clientTurnId: message.clientTurnId,
 				});
+				// An error that is not about a message may be the run's: the
+				// object answers a run it could not carry out with an error, so
+				// the tray must not keep showing one that will never finish.
+				if (!message.clientTurnId && state.approvalRun) {
+					runs.delete(state.approvalRun.runId);
+					state = { ...state, approvalRun: null };
+				}
 				publish();
 				return;
 		}
@@ -563,11 +666,16 @@ export function createWorkspaceChatClient(
 			return clientTurnId;
 		},
 		decideApproval(approvalId, decision) {
-			send({ type: "decide_approval", approvalId, decision });
+			decide([approvalId], decision);
 		},
 		decideApprovals(approvalIds, decision) {
 			if (approvalIds.length === 0) return;
-			send({ type: "decide_approvals", approvalIds, decision });
+			decide(approvalIds, decision);
+		},
+		dismissApprovalNotice() {
+			if (!state.approvalNotice) return;
+			state = { ...state, approvalNotice: null };
+			publish();
 		},
 		cancelTurn(turnId) {
 			send({ type: "cancel_turn", turnId });

@@ -61,6 +61,7 @@ function fakeClient(conversationId: string) {
 			return `sent-${sends}`;
 		},
 		decideApproval() {},
+		dismissApprovalNotice() {},
 		decideApprovals() {},
 		cancelTurn(turnId) {
 			calls.push(["cancelTurn", turnId]);

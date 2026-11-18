@@ -137,6 +137,7 @@ import { priceTurn } from "./pricing";
 import {
 	type ClientFrame,
 	type ConversationSummary,
+	type WaitingApproval,
 	stepLabel,
 	type TurnUsage,
 	type UsageTotals,
@@ -270,6 +271,9 @@ interface TurnRow {
 	finished_at: string | null;
 }
 
+/** The most waiting requests one hello carries. */
+const WAITING_APPROVALS_LIMIT = 200;
+
 /** What one decision did to one waiting request. */
 export interface ApprovalResult {
 	applied: boolean;
@@ -280,6 +284,13 @@ export interface ApprovalResult {
 	 * `applied` says what the first one did.
 	 */
 	alreadyDecided?: true;
+	/**
+	 * The run stopped at this request and left the ones after it waiting:
+	 * its change failed to apply, or someone decided it the other way.
+	 */
+	stopped?: { reason: "failed" | "decided_otherwise"; error?: string };
+	/** An earlier request stopped the run before this one; it still waits. */
+	left?: true;
 }
 
 interface ApprovalRow {
@@ -1661,10 +1672,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	/**
-	 * Decide several held writes of one conversation together, in the order
-	 * given. Each lands on its own, then one turn continues the conversation
-	 * with every result, so approving three proposals starts one answer, not
-	 * three that run side by side.
+	 * Decide several held writes together, one at a time in the order given;
+	 * they may come from different conversations. The run stops at the first
+	 * change that fails to apply, or at a request someone decided the other
+	 * way, and leaves the rest waiting: a later change may build on the one
+	 * that did not land. Each conversation then continues with one turn that
+	 * carries every result, so approving three proposals starts one answer,
+	 * not three that run side by side.
 	 */
 	async decideApprovals(
 		scope: WorkspaceScope,
@@ -1677,8 +1691,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	): Promise<ApprovalResult[]> {
 		this.bindScope(scope);
 		const results: ApprovalResult[] = [];
-		const settled: Array<{ approvalId: string; applied: boolean }> = [];
-		const summaries: string[] = [];
+		const approve = input.decision === "approve";
 		const rows = input.approvalIds.map((approvalId) => {
 			const [approval] = this.#store.exec<ApprovalRow>(
 				"SELECT * FROM approvals WHERE approval_id = ?",
@@ -1687,10 +1700,21 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			if (!approval) throw new Error("Unknown approval");
 			return approval;
 		});
-		if (rows.some((row) => row.conversation_id !== rows[0]?.conversation_id))
-			throw new Error("Approvals decided together share one conversation");
-		let next: ApprovalRow | undefined;
-		for (const approval of rows) {
+		/** What this run decided, by conversation, in the order it happened. */
+		const decided = new Map<
+			string,
+			{
+				first: ApprovalRow;
+				settled: Array<{ index: number; approvalId: string; applied: boolean }>;
+				summaries: string[];
+			}
+		>();
+		let stopped = false;
+		for (const [index, approval] of rows.entries()) {
+			if (stopped) {
+				results.push({ applied: false, left: true });
+				continue;
+			}
 			const approvalId = approval.approval_id;
 			// The rows above were read before the first change was applied, and
 			// applying one lets other calls in. So each request is taken here,
@@ -1700,60 +1724,91 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				// Someone else decided it, or is still applying it: wait for that
 				// to land and report what it was.
 				await this.#deciding.get(approvalId);
-				const [current] = this.#store.exec<{ status: string }>(
+				const [current] = this.#store.exec<{ status: ApprovalRow["status"] }>(
 					"SELECT status FROM approvals WHERE approval_id = ?",
 					approvalId,
 				);
+				const otherwise = approve
+					? current?.status === "denied"
+					: current?.status !== "denied";
+				stopped = otherwise;
 				results.push({
 					...(this.#store.get<{ applied: boolean; turnId?: string }>(
 						`approval-result:${approvalId}`,
 					) ?? { applied: current?.status === "applied" }),
 					alreadyDecided: true,
+					...(otherwise
+						? { stopped: { reason: "decided_otherwise" as const } }
+						: {}),
 				});
 				continue;
 			}
-			next ??= approval;
-			settled.push({ approvalId, applied: outcome.applied });
-			summaries.push(outcome.summary);
-			results.push({ applied: outcome.applied });
+			const conversation = decided.get(approval.conversation_id) ?? {
+				first: approval,
+				settled: [],
+				summaries: [],
+			};
+			decided.set(approval.conversation_id, conversation);
+			conversation.settled.push({
+				index,
+				approvalId,
+				applied: outcome.applied,
+			});
+			conversation.summaries.push(outcome.summary);
+			const failed = approve && !outcome.applied;
+			stopped = failed;
+			results.push({
+				applied: outcome.applied,
+				...(failed
+					? {
+							stopped: {
+								reason: "failed" as const,
+								...(outcome.outcome && !outcome.outcome.ok
+									? { error: outcome.outcome.error }
+									: {}),
+							},
+						}
+					: {}),
+			});
 		}
-		if (!next) return results;
-		const approve = input.decision === "approve";
-		const note: DecisionNote = {
-			by: input.by,
-			tediId: next.tedi_id,
-			text: summaries.join("\n"),
-			displayText:
-				settled.length > 1
-					? approve
-						? `Approved ${settled.length} requested actions.`
-						: `Denied ${settled.length} requested actions.`
-					: approve
-						? "Approved the requested action."
-						: "Denied the requested action.",
-		};
-		// The person kept chatting and a turn is still working: it would race
-		// a second answer. The results wait for that turn to finish.
-		if (this.#runningTurnIn(next.conversation_id)) {
-			this.#queueDecisionNote(next.conversation_id, note);
-			return results;
-		}
-		const { turnId } = await this.sendTurn(
-			scope,
-			{
-				conversationId: next.conversation_id,
-				actorId: note.by,
-				actorKind: "user",
-				text: note.text,
-				...(note.tediId ? { tediId: note.tediId } : {}),
-			},
-			note.displayText,
-		);
-		for (const item of settled) {
-			const result = { applied: item.applied, turnId };
-			this.#store.put(`approval-result:${item.approvalId}`, result);
-			const index = input.approvalIds.indexOf(item.approvalId);
-			results[index] = result;
+		for (const [conversationId, { first, settled, summaries }] of decided) {
+			const note: DecisionNote = {
+				by: input.by,
+				tediId: first.tedi_id,
+				text: summaries.join("\n"),
+				displayText:
+					settled.length > 1
+						? approve
+							? `Approved ${settled.length} requested actions.`
+							: `Denied ${settled.length} requested actions.`
+						: approve
+							? "Approved the requested action."
+							: "Denied the requested action.",
+			};
+			// The person kept chatting and a turn is still working: it would race
+			// a second answer. The results wait for that turn to finish.
+			if (this.#runningTurnIn(conversationId)) {
+				this.#queueDecisionNote(conversationId, note);
+				continue;
+			}
+			const { turnId } = await this.sendTurn(
+				scope,
+				{
+					conversationId,
+					actorId: note.by,
+					actorKind: "user",
+					text: note.text,
+					...(note.tediId ? { tediId: note.tediId } : {}),
+				},
+				note.displayText,
+			);
+			for (const item of settled) {
+				this.#store.put(`approval-result:${item.approvalId}`, {
+					applied: item.applied,
+					turnId,
+				});
+				results[item.index] = { ...results[item.index]!, turnId };
+			}
 		}
 		return results;
 	}
@@ -2537,20 +2592,40 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					return;
 				}
 				case "decide_approval":
-					await this.decideApproval(scope, {
-						approvalId: frame.approvalId,
+				case "decide_approvals": {
+					const approvalIds =
+						frame.type === "decide_approval"
+							? [frame.approvalId]
+							: frame.approvalIds;
+					const results = await this.decideApprovals(scope, {
+						approvalIds,
 						decision: frame.decision,
 						by: attachment.actorId,
-						...(frame.note ? { note: frame.note } : {}),
+						...(frame.type === "decide_approval" && frame.note
+							? { note: frame.note }
+							: {}),
 					});
-					return;
-				case "decide_approvals":
-					await this.decideApprovals(scope, {
-						approvalIds: frame.approvalIds,
+					// Tell the person who decided how far it got: what their own
+					// decision changed, and where and why it stopped.
+					const at = results.findIndex((result) => result.stopped);
+					const stop = results[at]?.stopped;
+					this.#control(ws, {
+						type: "approvals.decided",
+						...(frame.runId ? { runId: frame.runId } : {}),
 						decision: frame.decision,
-						by: attachment.actorId,
+						total: results.length,
+						done: results.filter(
+							(result) =>
+								!result.alreadyDecided && !result.left && !result.stopped,
+						).length,
+						alreadyDecided: results.filter((result) => result.alreadyDecided)
+							.length,
+						...(stop
+							? { stopped: { approvalId: approvalIds[at]!, ...stop } }
+							: {}),
 					});
 					return;
+				}
 				case "cancel_turn":
 					await this.cancelTurn(scope, frame.turnId);
 					return;
@@ -3212,6 +3287,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			serverTime: new Date().toISOString(),
 			conversations: this.#listConversations(usage),
 			archived: this.#listConversations(usage, true),
+			waiting: this.#waitingApprovals(),
 			models: this.configuredModels(),
 			...(workspaceUsage ? { usage: workspaceUsage } : {}),
 		});
@@ -3271,9 +3347,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				this.#closeDenied(ws, "push");
 				continue;
 			}
+			// A request that waits for a person, and its decision, reach every
+			// open chat: the workspace owes the answer, whichever chat asked.
 			if (
 				attachment?.conversationId &&
-				attachment.conversationId !== event.conversationId
+				attachment.conversationId !== event.conversationId &&
+				!(
+					(event.type === "approval.requested" ||
+						event.type === "approval.decided") &&
+					!event.automatic
+				)
 			)
 				continue;
 			try {
@@ -3767,6 +3850,34 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			});
 		}
 		return skills;
+	}
+
+	/**
+	 * Every request in the workspace still waiting for a person, oldest first,
+	 * as each was announced. A chat shows them all, whichever conversation
+	 * asked.
+	 */
+	#waitingApprovals(): WaitingApproval[] {
+		const rows = this.#store.exec<ApprovalRow>(
+			`SELECT * FROM approvals WHERE status = 'pending' ORDER BY rowid ASC LIMIT ${WAITING_APPROVALS_LIMIT}`,
+		);
+		const announced = new Map<string, WaitingApproval>();
+		for (const turnId of new Set(rows.map((row) => row.turn_id)))
+			for (const event of this.#events.ofTurn(turnId, "approval.requested"))
+				if (event.type === "approval.requested")
+					announced.set(event.approvalId, {
+						approvalId: event.approvalId,
+						conversationId: event.conversationId,
+						turnId: event.turnId,
+						stepId: event.stepId,
+						title: event.title,
+						reason: event.reason,
+						at: event.at,
+						...(event.policy ? { policy: event.policy } : {}),
+						...(event.input === undefined ? {} : { input: event.input }),
+						...(event.target ? { target: event.target } : {}),
+					});
+		return rows.flatMap((row) => announced.get(row.approval_id) ?? []);
 	}
 
 	/**
