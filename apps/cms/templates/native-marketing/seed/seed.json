@@ -15,20 +15,13 @@
 			"slug": "marketing_hero",
 			"label": "Hero",
 			"description": "A prominent page introduction with optional calls to action and media",
+			"icon": "sparkle",
 			"category": "Marketing",
 			"currentVersion": 1,
 			"versions": [
 				{
 					"version": 1,
 					"fields": [
-						{
-							"slug": "anchor_id",
-							"label": "Anchor ID",
-							"type": "string",
-							"validation": {
-								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
-							}
-						},
 						{
 							"slug": "headline",
 							"label": "Headline",
@@ -42,12 +35,12 @@
 						},
 						{
 							"slug": "primary_cta_label",
-							"label": "Primary CTA label",
+							"label": "Primary button text",
 							"type": "string"
 						},
 						{
 							"slug": "primary_cta_url",
-							"label": "Primary CTA URL",
+							"label": "Primary button link (starts with /, https://, mailto:, tel: or #)",
 							"type": "string",
 							"validation": {
 								"pattern": "^(?:$|(?:https?://|mailto:|tel:|/(?!/)|#).+)$"
@@ -55,12 +48,12 @@
 						},
 						{
 							"slug": "secondary_cta_label",
-							"label": "Secondary CTA label",
+							"label": "Secondary button text",
 							"type": "string"
 						},
 						{
 							"slug": "secondary_cta_url",
-							"label": "Secondary CTA URL",
+							"label": "Secondary button link (starts with /, https://, mailto:, tel: or #)",
 							"type": "string",
 							"validation": {
 								"pattern": "^(?:$|(?:https?://|mailto:|tel:|/(?!/)|#).+)$"
@@ -72,10 +65,36 @@
 							"type": "image"
 						},
 						{
+							"slug": "image_caption",
+							"label": "Image caption (shown on the photo)",
+							"type": "string"
+						},
+						{
+							"slug": "eyebrow",
+							"label": "Announcement (shown above the headline)",
+							"type": "string"
+						},
+						{
+							"slug": "eyebrow_url",
+							"label": "Announcement link (starts with /, https://, mailto:, tel: or #)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|/(?!/|\\\\).*|(?:https?://|mailto:|tel:|#).+)$"
+							}
+						},
+						{
 							"slug": "centered",
 							"label": "Center the layout",
 							"type": "boolean",
 							"defaultValue": false
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
+							}
 						}
 					]
 				}
@@ -85,20 +104,13 @@
 			"slug": "marketing_features",
 			"label": "Features",
 			"description": "A grid of product or service features",
+			"icon": "squares-four",
 			"category": "Marketing",
 			"currentVersion": 1,
 			"versions": [
 				{
 					"version": 1,
 					"fields": [
-						{
-							"slug": "anchor_id",
-							"label": "Anchor ID",
-							"type": "string",
-							"validation": {
-								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
-							}
-						},
 						{
 							"slug": "headline",
 							"label": "Headline",
@@ -107,8 +119,13 @@
 						},
 						{
 							"slug": "subheadline",
-							"label": "Subheadline",
+							"label": "Second sentence (shown muted after the headline)",
 							"type": "text"
+						},
+						{
+							"slug": "eyebrow",
+							"label": "Label above headline",
+							"type": "string"
 						},
 						{
 							"slug": "features",
@@ -136,7 +153,16 @@
 											"check",
 											"lock",
 											"clock",
-											"cloud"
+											"cloud",
+											"building",
+											"leaf",
+											"gauge",
+											"thermometer",
+											"plug",
+											"bell",
+											"file",
+											"sun",
+											"trend"
 										]
 									},
 									{
@@ -147,11 +173,19 @@
 									},
 									{
 										"slug": "description",
-										"label": "Description",
+										"label": "Description (leave a blank line between paragraphs)",
 										"type": "text",
 										"required": true
 									}
 								]
+							}
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
 							}
 						}
 					]
@@ -161,7 +195,8 @@
 		{
 			"slug": "marketing_testimonials",
 			"label": "Testimonials",
-			"description": "Customer quotes and attribution",
+			"description": "Customer quotes and attribution. The first quote is shown large",
+			"icon": "quotes",
 			"category": "Marketing",
 			"currentVersion": 1,
 			"versions": [
@@ -169,16 +204,8 @@
 					"version": 1,
 					"fields": [
 						{
-							"slug": "anchor_id",
-							"label": "Anchor ID",
-							"type": "string",
-							"validation": {
-								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
-							}
-						},
-						{
 							"slug": "headline",
-							"label": "Headline",
+							"label": "Section label (small text above the quotes)",
 							"type": "string"
 						},
 						{
@@ -192,7 +219,7 @@
 								"subFields": [
 									{
 										"slug": "quote",
-										"label": "Quote",
+										"label": "Quote (leave a blank line between paragraphs)",
 										"type": "text",
 										"required": true
 									},
@@ -214,10 +241,18 @@
 									},
 									{
 										"slug": "avatar",
-										"label": "Avatar",
+										"label": "Avatar (initials show when empty)",
 										"type": "image"
 									}
 								]
+							}
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
 							}
 						}
 					]
@@ -228,20 +263,13 @@
 			"slug": "marketing_pricing",
 			"label": "Pricing",
 			"description": "A comparison of up to three pricing plans",
+			"icon": "tag",
 			"category": "Marketing",
 			"currentVersion": 1,
 			"versions": [
 				{
 					"version": 1,
 					"fields": [
-						{
-							"slug": "anchor_id",
-							"label": "Anchor ID",
-							"type": "string",
-							"validation": {
-								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
-							}
-						},
 						{
 							"slug": "headline",
 							"label": "Headline",
@@ -275,23 +303,23 @@
 									},
 									{
 										"slug": "description",
-										"label": "Description",
+										"label": "Description (leave a blank line between paragraphs)",
 										"type": "text"
 									},
 									{
 										"slug": "features",
-										"label": "Features, one per line",
+										"label": "Features (one per line)",
 										"type": "text"
 									},
 									{
 										"slug": "cta_label",
-										"label": "CTA label",
+										"label": "Button text",
 										"type": "string",
 										"required": true
 									},
 									{
 										"slug": "cta_url",
-										"label": "CTA URL",
+										"label": "Button link (starts with /, https://, mailto:, tel: or #)",
 										"type": "string",
 										"required": true
 									},
@@ -299,8 +327,21 @@
 										"slug": "highlighted",
 										"label": "Highlight this plan",
 										"type": "boolean"
+									},
+									{
+										"slug": "badge",
+										"label": "Badge text, for example Most popular",
+										"type": "string"
 									}
 								]
+							}
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
 							}
 						}
 					]
@@ -311,6 +352,7 @@
 			"slug": "marketing_faq",
 			"label": "FAQ",
 			"description": "A list of frequently asked questions",
+			"icon": "question",
 			"category": "Marketing",
 			"currentVersion": 1,
 			"versions": [
@@ -318,17 +360,14 @@
 					"version": 1,
 					"fields": [
 						{
-							"slug": "anchor_id",
-							"label": "Anchor ID",
-							"type": "string",
-							"validation": {
-								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
-							}
-						},
-						{
 							"slug": "headline",
 							"label": "Headline",
 							"type": "string"
+						},
+						{
+							"slug": "subheadline",
+							"label": "Subheadline",
+							"type": "text"
 						},
 						{
 							"slug": "items",
@@ -347,11 +386,386 @@
 									},
 									{
 										"slug": "answer",
-										"label": "Answer",
+										"label": "Answer (leave a blank line between paragraphs)",
 										"type": "text",
 										"required": true
 									}
 								]
+							}
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_logos",
+			"label": "Logo wall",
+			"description": "A scrolling row of customer or partner logos. Names without a logo show as text",
+			"icon": "buildings",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Section label (small text above the logos)",
+							"type": "string"
+						},
+						{
+							"slug": "logos",
+							"label": "Logos",
+							"type": "repeater",
+							"required": true,
+							"validation": {
+								"minItems": 1,
+								"maxItems": 24,
+								"subFields": [
+									{
+										"slug": "name",
+										"label": "Company name",
+										"type": "string",
+										"required": true
+									},
+									{
+										"slug": "logo",
+										"label": "Logo",
+										"type": "image"
+									}
+								]
+							}
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_split",
+			"label": "Text and image",
+			"description": "A headline, copy and checklist beside a photo",
+			"icon": "square-half",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string",
+							"required": true
+						},
+						{
+							"slug": "eyebrow",
+							"label": "Label above headline",
+							"type": "string"
+						},
+						{
+							"slug": "body",
+							"label": "Body (leave a blank line between paragraphs)",
+							"type": "text"
+						},
+						{
+							"slug": "points",
+							"label": "Checklist (one item per line)",
+							"type": "text"
+						},
+						{
+							"slug": "cta_label",
+							"label": "Link text",
+							"type": "string"
+						},
+						{
+							"slug": "cta_url",
+							"label": "Link (starts with /, https://, mailto:, tel: or #)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|/(?!/|\\\\).*|(?:https?://|mailto:|tel:|#).+)$"
+							}
+						},
+						{
+							"slug": "image",
+							"label": "Image",
+							"type": "image"
+						},
+						{
+							"slug": "image_caption",
+							"label": "Image caption (shown on the photo)",
+							"type": "string"
+						},
+						{
+							"slug": "image_first",
+							"label": "Show the image first",
+							"type": "boolean",
+							"defaultValue": false
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_stats",
+			"label": "Stats",
+			"description": "Headline numbers on a dark panel",
+			"icon": "chart-bar",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string"
+						},
+						{
+							"slug": "subheadline",
+							"label": "Second sentence (shown muted after the headline)",
+							"type": "text"
+						},
+						{
+							"slug": "stats",
+							"label": "Stats",
+							"type": "repeater",
+							"required": true,
+							"validation": {
+								"minItems": 1,
+								"maxItems": 6,
+								"subFields": [
+									{
+										"slug": "value",
+										"label": "Value",
+										"type": "string",
+										"required": true
+									},
+									{
+										"slug": "label",
+										"label": "Label",
+										"type": "string",
+										"required": true
+									}
+								]
+							}
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_cta",
+			"label": "Call to action",
+			"description": "A closing call to action over a photo or dark panel",
+			"icon": "cursor-click",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string",
+							"required": true
+						},
+						{
+							"slug": "body",
+							"label": "Body (leave a blank line between paragraphs)",
+							"type": "text"
+						},
+						{
+							"slug": "primary_cta_label",
+							"label": "Primary button text",
+							"type": "string"
+						},
+						{
+							"slug": "primary_cta_url",
+							"label": "Primary button link (starts with /, https://, mailto:, tel: or #)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|/(?!/|\\\\).*|(?:https?://|mailto:|tel:|#).+)$"
+							}
+						},
+						{
+							"slug": "secondary_cta_label",
+							"label": "Secondary button text",
+							"type": "string"
+						},
+						{
+							"slug": "secondary_cta_url",
+							"label": "Secondary button link (starts with /, https://, mailto:, tel: or #)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|/(?!/|\\\\).*|(?:https?://|mailto:|tel:|#).+)$"
+							}
+						},
+						{
+							"slug": "image",
+							"label": "Background image",
+							"type": "image"
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_contact",
+			"label": "Contact options",
+			"description": "Cards that point readers to the right email address, phone number or page",
+			"icon": "address-book",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string"
+						},
+						{
+							"slug": "eyebrow",
+							"label": "Label above headline",
+							"type": "string"
+						},
+						{
+							"slug": "subheadline",
+							"label": "Subheadline",
+							"type": "text"
+						},
+						{
+							"slug": "options",
+							"label": "Contact options",
+							"type": "repeater",
+							"required": true,
+							"validation": {
+								"minItems": 1,
+								"maxItems": 6,
+								"subFields": [
+									{
+										"slug": "icon",
+										"label": "Icon",
+										"type": "select",
+										"required": true,
+										"options": [
+											"email",
+											"support",
+											"sales",
+											"phone",
+											"chat",
+											"location"
+										]
+									},
+									{
+										"slug": "title",
+										"label": "Title",
+										"type": "string",
+										"required": true
+									},
+									{
+										"slug": "description",
+										"label": "Description (leave a blank line between paragraphs)",
+										"type": "text"
+									},
+									{
+										"slug": "link_label",
+										"label": "Link text",
+										"type": "string",
+										"required": true
+									},
+									{
+										"slug": "link_url",
+										"label": "Link (starts with /, https://, mailto:, tel: or #)",
+										"type": "url",
+										"required": true
+									}
+								]
+							}
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_text",
+			"label": "Text",
+			"description": "Long-form text with headings, lists and links, for pages like About or Privacy",
+			"icon": "article",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string"
+						},
+						{
+							"slug": "body",
+							"label": "Body",
+							"type": "portableText",
+							"required": true
+						},
+						{
+							"slug": "anchor_id",
+							"label": "Section ID (lowercase, for links like /#pricing)",
+							"type": "string",
+							"validation": {
+								"pattern": "^(?:$|[a-z][a-z0-9_-]*)$"
 							}
 						}
 					]
@@ -364,7 +778,8 @@
 			"slug": "pages",
 			"label": "Pages",
 			"labelSingular": "Page",
-			"supports": ["drafts", "revisions", "seo"],
+			"urlPattern": "/{slug}",
+			"supports": ["drafts", "revisions", "preview", "seo"],
 			"fields": [
 				{
 					"slug": "title",
@@ -382,7 +797,13 @@
 							"marketing_features",
 							"marketing_testimonials",
 							"marketing_pricing",
-							"marketing_faq"
+							"marketing_faq",
+							"marketing_logos",
+							"marketing_split",
+							"marketing_stats",
+							"marketing_cta",
+							"marketing_contact",
+							"marketing_text"
 						],
 						"maxItems": 20
 					}
@@ -590,6 +1011,20 @@
 							"headline": "Example contact page",
 							"subheadline": "Sample template content. Replace it with your own reviewed copy before publishing.",
 							"centered": true
+						},
+						{
+							"_type": "marketing_contact",
+							"_version": 1,
+							"_key": "contact-options",
+							"options": [
+								{
+									"icon": "email",
+									"title": "Example contact",
+									"description": "Replace this example with your contact details.",
+									"link_label": "hello@example.com",
+									"link_url": "mailto:hello@example.com"
+								}
+							]
 						}
 					]
 				}
