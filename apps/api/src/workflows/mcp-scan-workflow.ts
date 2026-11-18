@@ -572,7 +572,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				dueNow: scanBacklog.dueNow,
 			});
 			const result = {
-				success: true,
+				success: totalErrors === 0,
 				appsChecked: totalChecked,
 				healthy: totalHealthy,
 				unhealthy: totalUnhealthy,
@@ -586,10 +586,11 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 			};
 			await step.do("record workflow completion", async () => {
 				await completeWorkflowRunRecord(db, ledgerId, {
-					status: "completed",
-					totalCount: totalChecked,
-					successCount: totalChecked - totalErrors,
+					status: totalErrors > 0 ? "failed" : "completed",
+					totalCount: totalChecked + totalErrors,
+					successCount: totalChecked,
 					errorCount: totalErrors,
+					error: totalErrors > 0 ? allErrors.slice(0, 20).join("\n") : null,
 					output: toJsonRecord({
 						summary: `${totalChecked} app(s) scanned: ${totalHealthy} healthy/degraded, ${totalUnhealthy} unhealthy, ${totalBlocked} blocked, ${totalErrors} error(s).`,
 						healthy: totalHealthy,
@@ -853,9 +854,10 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 		);
 
 		let synced = 0;
+		const errors: string[] = [];
 		for (const baseApp of baseApps) {
 			if (!catalogBaseAppAutoSyncEnabled(baseApp.metadata)) continue;
-			await syncCatalogToolsToApp(db, {
+			const sync = await syncCatalogToolsToApp(db, {
 				catalogAppId: app.id,
 				appId: baseApp.id,
 				mcpServerUrl,
@@ -867,8 +869,12 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				appId: baseApp.id,
 				appName: baseApp.name,
 			});
+			errors.push(...sync.errors.map((error) => `${baseApp.name}: ${error}`));
 			synced++;
 		}
+
+		// Create reviews for valid changes before surfacing partial sync failures.
+		if (errors.length > 0) throw new Error(errors.join("; "));
 
 		if (synced > 0) {
 			await resolveDriftReport(db, app.id);

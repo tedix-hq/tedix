@@ -15,6 +15,8 @@ import type {
 } from "@tedix/api-contract/schemas/tools";
 import {
 	deriveToolWriteCapability,
+	TEDIX_TOOL_POLICY_META_KEY,
+	ToolPolicyMetadataSchema,
 	withoutToolClassDeclaration,
 } from "@tedix/api-contract/schemas/tools";
 import { eq } from "drizzle-orm";
@@ -149,6 +151,7 @@ export async function syncCatalogToolsToApp(
 	mcpServerUrl: string;
 	dryRun: boolean;
 	results: SyncCatalogToolsToAppResultItem[];
+	errors: string[];
 	summary: string;
 }> {
 	const {
@@ -234,6 +237,7 @@ export async function syncCatalogToolsToApp(
 			mcpServerUrl,
 			dryRun,
 			results: [],
+			errors: [],
 			summary: "No active catalog tools found",
 		};
 	}
@@ -245,6 +249,7 @@ export async function syncCatalogToolsToApp(
 
 	const catalogToolNames = new Set(catalogTools.map((t) => t.toolName));
 	const results: SyncCatalogToolsToAppResultItem[] = [];
+	const errors: string[] = [];
 	const now = new Date().toISOString();
 	const reviewBatchId = crypto.randomUUID();
 
@@ -309,6 +314,16 @@ export async function syncCatalogToolsToApp(
 			existing && declaredToolClass(existing)
 				? existing.meta
 				: withoutToolClassDeclaration(ct.meta ?? null);
+		const policy = meta?.[TEDIX_TOOL_POLICY_META_KEY];
+		if (policy !== undefined) {
+			const parsed = ToolPolicyMetadataSchema.safeParse(policy);
+			if (!parsed.success) {
+				const reason = `Tool ${ct.toolName} has invalid policy: ${parsed.error.message}`;
+				results.push({ toolName: ct.toolName, action: "skipped", reason });
+				errors.push(reason);
+				continue;
+			}
+		}
 		const schemaSourceRef = catalogMcpToolSourceRef(catalogAppId, ct.toolName);
 		const schemaSourceHash = await catalogMcpToolSourceHash({
 			toolName: ct.toolName,
@@ -823,6 +838,7 @@ export async function syncCatalogToolsToApp(
 		mcpServerUrl,
 		dryRun,
 		results,
+		errors,
 		summary,
 	};
 }
