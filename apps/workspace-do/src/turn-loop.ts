@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { obj, str } from "@earendil-works/pi-schema";
 import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
+import { callFailureText } from "./call-failure";
 import { describeBinding } from "./declarations";
 import type { ModelPort } from "./model";
 import type { TurnUsage } from "./wire";
@@ -352,7 +353,7 @@ export async function runTurn(
 				continue;
 			}
 			if (call.name === DESCRIBE_BINDING_TOOL) {
-				const name = String(call.arguments.name ?? "");
+				const name = String(call.arguments?.name ?? "");
 				const declaration = describeBinding(name);
 				const result = toolResult(
 					call,
@@ -373,7 +374,18 @@ export async function runTurn(
 				await keep(result);
 				continue;
 			}
-			const code = String(call.arguments.code ?? "");
+			const code: unknown = call.arguments?.code;
+			if (typeof code !== "string" || !code.trim()) {
+				await keep(
+					toolResult(
+						call,
+						`Not run: ${RUN_CODE_TOOL} needs \`code\`, a string holding an ES module that exports default async (env) => …`,
+						true,
+						now(),
+					),
+				);
+				continue;
+			}
 			ports.emit({
 				type: "code_started",
 				data: {
@@ -384,7 +396,16 @@ export async function runTurn(
 				},
 			});
 			const started = now();
-			const run = await ports.runCode(code);
+			// A run that throws instead of answering fails this call only; the
+			// model reads why and the turn goes on.
+			const run = await ports
+				.runCode(code)
+				.catch((error: unknown): SandboxRunResult => ({
+					ok: false,
+					logs: [],
+					error: callFailureText(error),
+					durationMs: now() - started,
+				}));
 			// A held write does not end the turn: the model reads the hold in
 			// the tool result and goes on with work that does not depend on it.
 			const refused = run.error?.startsWith("Approval required");

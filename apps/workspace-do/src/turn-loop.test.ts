@@ -13,6 +13,7 @@ import type { Context, Usage } from "@earendil-works/pi-ai";
 import type { ModelPort } from "./model";
 import { RUN_CODE_TOOL } from "./prompt";
 import type { SandboxRunResult } from "./runtime";
+import { sandboxTimeoutError } from "./sandbox";
 import {
 	closeOpenToolCalls,
 	runTurn,
@@ -624,5 +625,188 @@ describe("turn progress", () => {
 			toolCallId: "call-b",
 			isError: true,
 		});
+	});
+});
+
+describe("a failed call ends that call, not the turn", () => {
+	test("every kind of failed call is saved as an error the model reads, and the turn answers", async () => {
+		const core = createFauxCore({ tokensPerSecond: 0 });
+		core.setResponses([
+			fauxAssistantMessage(
+				[
+					fauxToolCall(RUN_CODE_TOOL, { code: "throws an Error" }),
+					fauxToolCall(RUN_CODE_TOOL, { code: "throws a value" }),
+					fauxToolCall(RUN_CODE_TOOL, { code: "reports a failure" }),
+					fauxToolCall(RUN_CODE_TOOL, { code: "times out" }),
+					fauxToolCall(RUN_CODE_TOOL, {}),
+					fauxToolCall(RUN_CODE_TOOL, { code: 42 }),
+					fauxToolCall("delete_everything", { sure: true }),
+					fauxToolCall("describe_binding", { name: "nothing" }),
+					fauxToolCall(RUN_CODE_TOOL, { code: "works" }),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(fauxText("Eight calls failed; the last one ran.")),
+		]);
+		const ran: string[] = [];
+		const saved: TurnProgress[] = [];
+		const finished: Array<Record<string, unknown> | undefined> = [];
+		const result = await runTurn(
+			{
+				model: fauxModel(core),
+				runCode: async (code): Promise<SandboxRunResult> => {
+					ran.push(code);
+					if (code === "throws an Error") throw new Error("loader is down");
+					if (code === "throws a value") throw { reason: "quota" };
+					if (code === "reports a failure")
+						return {
+							ok: false,
+							logs: ["read the file"],
+							error: "Revise failed: revision_conflict",
+							durationMs: 1,
+						};
+					if (code === "times out")
+						return {
+							ok: false,
+							logs: [],
+							error: sandboxTimeoutError(60_000),
+							durationMs: 60_000,
+						};
+					return { ok: true, result: "saved", logs: [], durationMs: 1 };
+				},
+				emit: (event) => {
+					if (event.type === "code_finished") finished.push(event.data);
+				},
+				save: (progress) => {
+					saved.push(progress);
+				},
+				summarize: async () => ({ summary: "", usage: null }),
+			},
+			{ turnId: "t", systemPrompt: "sys", history: [], userText: "Try all" },
+		);
+		expect(result).toMatchObject({
+			stopReason: "answered",
+			text: "Eight calls failed; the last one ran.",
+			steps: 2,
+			approvalsRequested: 0,
+		});
+		// Arguments without code never reach the sandbox; a failure does not
+		// skip the calls after it.
+		expect(ran).toEqual([
+			"throws an Error",
+			"throws a value",
+			"reports a failure",
+			"times out",
+			"works",
+		]);
+		const results = saved
+			.flatMap((progress) => progress.messages)
+			.filter((message) => message.role === "toolResult");
+		expect(results.map((message) => message.isError)).toEqual([
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			false,
+		]);
+		const texts = results.map((message) => JSON.stringify(message.content));
+		expect(texts[0]).toContain("error: loader is down");
+		expect(texts[1]).toContain('The call threw {\\"reason\\":\\"quota\\"}');
+		expect(texts[2]).toContain("read the file");
+		expect(texts[2]).toContain("error: Revise failed: revision_conflict");
+		expect(texts[3]).toContain("did not finish within 60 s");
+		expect(texts[3]).toContain("Read the current state before you repeat");
+		expect(texts[4]).toContain("Not run: run_code needs `code`");
+		expect(texts[5]).toContain("Not run: run_code needs `code`");
+		expect(texts[6]).toContain("Unknown tool delete_everything");
+		expect(texts[7]).toContain('No binding named \\"nothing\\"');
+		expect(texts[8]).toContain("saved");
+		// The chat shows each run that started as a finished step, failed or not.
+		expect(finished.map((data) => data?.ok)).toEqual([
+			false,
+			false,
+			false,
+			false,
+			true,
+		]);
+		// The model's next request carries all nine results.
+		expect(result.appended.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			...results.map(() => "toolResult"),
+			"assistant",
+		]);
+	});
+
+	test("a model failure still ends the turn after failed calls were saved", async () => {
+		const core = createFauxCore({ tokensPerSecond: 0 });
+		core.setResponses([
+			fauxAssistantMessage(fauxToolCall(RUN_CODE_TOOL, { code: "bad" }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage([], {
+				stopReason: "error",
+				errorMessage: "provider down",
+			}),
+		]);
+		const saved: TurnProgress[] = [];
+		await expect(
+			runTurn(
+				{
+					model: fauxModel(core),
+					runCode: async () => {
+						throw "sandbox unavailable";
+					},
+					emit: () => {},
+					save: (progress) => {
+						saved.push(progress);
+					},
+					summarize: async () => ({ summary: "", usage: null }),
+				},
+				{ turnId: "t", systemPrompt: "sys", history: [], userText: "Go" },
+			),
+		).rejects.toThrow("provider down");
+		const messages = saved.flatMap((progress) => progress.messages);
+		expect(messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"toolResult",
+		]);
+		expect(messages[2]).toMatchObject({ isError: true });
+		expect(JSON.stringify(messages[2])).toContain("error: sandbox unavailable");
+	});
+
+	test("a result that cannot be saved ends the turn", async () => {
+		const core = createFauxCore({ tokensPerSecond: 0 });
+		core.setResponses([
+			fauxAssistantMessage(fauxToolCall(RUN_CODE_TOOL, { code: "ok" }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage(fauxText("not reached")),
+		]);
+		await expect(
+			runTurn(
+				{
+					model: fauxModel(core),
+					runCode: async () => ({
+						ok: true,
+						result: 1,
+						logs: [],
+						durationMs: 0,
+					}),
+					emit: () => {},
+					save: (progress) => {
+						if (progress.messages[0]?.role === "toolResult")
+							throw new Error("storage is unavailable");
+					},
+					summarize: async () => ({ summary: "", usage: null }),
+				},
+				{ turnId: "t", systemPrompt: "sys", history: [], userText: "Go" },
+			),
+		).rejects.toThrow("storage is unavailable");
 	});
 });
