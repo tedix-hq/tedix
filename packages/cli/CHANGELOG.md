@@ -3,6 +3,18 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.22.1 — 2026-11-18
+
+### Patch Changes
+
+- A runner no longer marks a task done when its commit never reached main: it checks each commit against `origin/main` before it settles or recovers a result.
+- A task that is already satisfied on main can be closed with an existing CI run named "<workflow> @ <sha>", or a newer successful run of the same workflow that contains it. A deploy gate does not count as test proof.
+- When a task that is not about CI is already done on main, the runner now says how to report it (`landed_unverified` with `existingCommits`) instead of leaving the result pending.
+- Assigned Work is routed by both the kind of executor and its ID, so a person, tedi, team or organization is never mistaken for a local agent with the same ID.
+- When a runner pauses new Work to restart onto an updated CLI, it says so, and names the processes and Attempts that hold the restart back. Run folders it cannot remove no longer stop it taking Work while slots and disk space are free.
+- When the run-folder limit cannot be met, each retained folder is listed with its own reason.
+- A runner keeps a run folder as soon as the system reports a process working in it, without waiting for a full process scan, and waits for pending process checks before it shuts down.
+
 ## 0.22.0 — 2026-11-17
 
 ### Minor Changes
