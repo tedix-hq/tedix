@@ -13,6 +13,11 @@ import {
 	OfficeEditorUpgrade,
 	officeEditorUpgrade,
 } from "./office-editor-upgrade";
+import {
+	DOC_BLUEPRINT_VERSION,
+	SHEET_BLUEPRINT_VERSION,
+	SLIDES_BLUEPRINT_VERSION,
+} from "@tedix/api-contract/assets/office-editor-versions";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import { osQueryKeys } from "@/lib/os-query-options";
 import {
@@ -132,23 +137,39 @@ describe("automatic office editor upgrade", () => {
 		});
 		expect(
 			officeEditorUpgrade(manifest(["readDocument", "replaceDocument"])),
-		).toMatchObject({ kind: "document", version: 1, currentVersion: 34 });
+		).toMatchObject({
+			kind: "document",
+			version: 1,
+			currentVersion: DOC_BLUEPRINT_VERSION,
+		});
 		expect(
 			officeEditorUpgrade(manifest(["readSheet", "replaceSheet"])),
-		).toMatchObject({ kind: "sheet", version: 1, currentVersion: 30 });
+		).toMatchObject({
+			kind: "sheet",
+			version: 1,
+			currentVersion: SHEET_BLUEPRINT_VERSION,
+		});
 		expect(
 			officeEditorUpgrade(
 				manifest(["readPresentation", "replacePresentation"]),
 			),
-		).toMatchObject({ kind: "presentation", version: 1, currentVersion: 28 });
+		).toMatchObject({
+			kind: "presentation",
+			version: 1,
+			currentVersion: SLIDES_BLUEPRINT_VERSION,
+		});
 		expect(
 			officeEditorUpgrade(
-				manifest(["readDocument", "replaceDocument"], { blueprintVersion: 34 }),
+				manifest(["readDocument", "replaceDocument"], {
+					blueprintVersion: DOC_BLUEPRINT_VERSION,
+				}),
 			),
 		).toBeNull();
 		expect(
 			officeEditorUpgrade(
-				manifest(["readSheet", "replaceSheet"], { blueprintVersion: 30 }),
+				manifest(["readSheet", "replaceSheet"], {
+					blueprintVersion: SHEET_BLUEPRINT_VERSION,
+				}),
 			),
 		).toBeNull();
 		expect(officeEditorUpgrade(manifest(["customOperation"]))).toBeNull();
