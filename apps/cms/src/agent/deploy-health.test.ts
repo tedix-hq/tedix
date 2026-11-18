@@ -30,7 +30,7 @@ function healthy() {
 		const url = new URL(String(input));
 		return url.pathname === "/"
 			? response()
-			: url.pathname.startsWith("/_astro/")
+			: url.pathname.includes("/_astro/")
 				? response("body{}", "text/css")
 				: response(new Uint8Array([1, 2, 3]), "image/webp");
 	});
@@ -131,5 +131,36 @@ describe("candidate deploy health", () => {
 		expect(await probeCmsDeploy(candidate)).toMatchObject({
 			code: "PROBE_IMAGE_INVALID",
 		});
+	});
+	it("pins a shadow tenant while preserving canonical host and dependency paths", async () => {
+		const fetcher = healthy();
+		const dispatch = vi.fn((url: string, init: RequestInit) =>
+			fetcher(url, init),
+		);
+		fetcher.mockResolvedValueOnce(
+			response(
+				'<html><link href="https://public.test/blog/_astro/app.hash.css"><img src="https://public.test/blog/_image?href=%2Fblog%2F_emdash%2Fapi%2Fmedia%2Ffile%2Fhero.png&amp;w=64"></html>',
+			),
+		);
+		expect(
+			(
+				await probeCmsDeploy({
+					...candidate,
+					url: "https://shadow.cms.test/blog",
+					publicUrl: "https://public.test/blog",
+					fetcher: dispatch,
+				})
+			).response.status,
+		).toBe(200);
+		expect(fetcher).toHaveBeenCalledTimes(3);
+		expect(dispatch).toHaveBeenCalledTimes(3);
+		for (const [input, init] of fetcher.mock.calls) {
+			const url = new URL(String(input));
+			expect(url.origin).toBe("https://shadow.cms.test");
+			expect(url.pathname).toMatch(/^\/blog\//);
+			expect(init?.headers).toMatchObject({
+				"X-Tedix-Public-Host": "public.test",
+			});
+		}
 	});
 });
