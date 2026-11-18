@@ -184,17 +184,24 @@ export default defineConfig({
 			plugins: [
 				...(privacyBannerEnabled ? [emprivacyPlugin()] : []),
 				embedsPlugin(),
+				{
+					id: "tedix-page-search",
+					version: "0.1.0",
+					format: "standard",
+					entrypoint: sharedLockedSource(
+						"src/plugins/tedix-page-search/index.ts",
+					),
+					capabilities: ["content:write"],
+					settingsSchema: {
+						collections: {
+							type: "string",
+							label: "Native block search collections",
+							default: "pages",
+						},
+					},
+				},
 				...(cmsDatabaseName === "tedix-landing"
 					? [
-							{
-								id: "tedix-page-search",
-								version: "0.1.0",
-								format: "standard",
-								entrypoint: sharedLockedSource(
-									"src/plugins/tedix-page-search/index.ts",
-								),
-								capabilities: ["content:write"],
-							},
 							{
 								id: "tedix-homepage-policy",
 								version: "0.1.0",

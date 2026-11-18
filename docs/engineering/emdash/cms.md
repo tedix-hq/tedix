@@ -91,6 +91,40 @@ and needs its own check. Before a portable import, require
 `site_transfer_capabilities` to report `portableDomain.empty: true` and advance
 the same import operation until its receipt reports `verification: "verified"`.
 
+## Native block search
+
+The marketing starter registers `tedix-page-search` for every tenant. Its
+`collections` plugin setting is a comma-separated list (default `pages`, empty
+means disabled). For each configured collection, every native `blocks` field
+contributes to the derived, searchable `search_text` field. The projector reads
+the stored block version's schema, including repeater subfields, rich text spans
+and image descriptions. Unknown block versions stop the save rather than
+silently leaving stale text. Editors change blocks, not the generated field.
+
+New marketing sites provision the field in their seed. Existing sites need a
+backfill after adopting the updated template bundle; updating the starter alone
+does not change a live schema. As a site administrator, POST
+`/_emdash/api/plugins/tedix-page-search/backfill` with
+`{ "collection": "pages" }`. Repeat with the returned `nextCursor` as `cursor`
+until it is null. Each call processes at most 50 published entries across all
+locales. It writes only the derived live column with a revision precondition,
+leaving pending drafts and publication state intact. A conflict stops the batch;
+restart it from the beginning to recompute against current content. The last
+batch enables or rebuilds native full-text search, preserving existing weights
+and tokenizer settings.
+
+Read `/_emdash/api/plugins/ai-search/config` first and retain its selected
+collections. POST `/_emdash/api/plugins/ai-search/reindex` with the union of
+those collections and the backfilled collections; the native reindex route also
+saves this selection. Poll that route with GET until `done: true`, and check
+`errors: 0`. This uses the native durable AI Search
+reindex job and includes the derived text in uploaded documents. After the next
+Ship and tenant bundle adoption, verify both searches with a distinctive phrase
+that appears only inside a published feature, pricing, FAQ or prose block.
+Confirm draft-only text is absent, edit and republish the phrase, and verify the
+old phrase disappears. A source test or a successful backfill response does not
+prove provider indexing or public search acceptance.
+
 ## What proves a capability is active
 
 The starter, the active bundle, and the public route are separate states.

@@ -934,6 +934,13 @@
 						],
 						"maxItems": 30
 					}
+				},
+				{
+					"slug": "search_text",
+					"label": "Generated search text",
+					"type": "text",
+					"searchable": true,
+					"widget": "derived-search-text"
 				}
 			]
 		}
