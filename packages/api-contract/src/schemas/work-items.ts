@@ -1489,6 +1489,13 @@ export const WorkItemSchema = z.object({
 	completedAt: z.string().nullable(),
 	cancelledAt: z.string().nullable(),
 	version: z.number().int().positive(),
+	// Read-only indexed copies of metadata fields (generated columns). Full-row
+	// reads include them; declare them so strict output checks accept the row.
+	repositoryObserver: z.number().int().nullable().optional(),
+	report: z.string().nullable().optional(),
+	observerWokenAt: z.string().nullable().optional(),
+	metadataExecutor: z.string().nullable().optional(),
+	metadataSource: z.string().nullable().optional(),
 });
 export type WorkItem = z.infer<typeof WorkItemSchema>;
 
