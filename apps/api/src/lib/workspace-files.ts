@@ -256,7 +256,13 @@ export async function readWorkspaceFileContent(
 	});
 	const format = officeFileFormat(file.filename, file.mimeType);
 	const pdf = !format && file.mimeType === "application/pdf";
-	const plain = !format && !pdf && isTextFile(file.filename, file.mimeType);
+	const plain =
+		!format &&
+		!pdf &&
+		(isTextFile(file.filename, file.mimeType) ||
+			(!file.filename.includes(".") &&
+				(!file.mimeType ||
+					file.mimeType.toLowerCase() === "application/octet-stream")));
 	if (!format && !pdf && !plain) return none("unsupported");
 	if (
 		file.size >
