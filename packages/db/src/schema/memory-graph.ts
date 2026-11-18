@@ -287,6 +287,10 @@ export const memoryFacts = sqliteTable(
 		index("idx_memory_facts_expertise_live")
 			.on(table.organizationId, table.tediId, table.domainId, table.confidence)
 			.where(sql`archived_at IS NULL`),
+		// Cover the bounded current-fact sample, including all ordering ties.
+		index("idx_memory_facts_org_current_sample")
+			.on(table.organizationId, table.updatedAt, table.createdAt, table.id)
+			.where(sql`archived_at IS NULL AND valid_to IS NULL`),
 		// Projection lifecycle sample: the newest ended or archived facts of one
 		// organization, in order, without reading its current facts (109k rows
 		// per check for the largest organization on 2026-11-12).
