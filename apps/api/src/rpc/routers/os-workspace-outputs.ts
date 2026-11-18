@@ -756,8 +756,9 @@ const outputsRevise = authorOs.outputs.revise.handler(
 				expectedRevision = base.revision;
 			}
 		}
+		const revisionId = crypto.randomUUID();
 		const result = await createOsOutputRevision(db, {
-			id: crypto.randomUUID(),
+			id: revisionId,
 			organizationId: output.organizationId,
 			outputId: output.id,
 			expectedWorkspaceId: input.expectedWorkspaceId,
@@ -789,6 +790,12 @@ const outputsRevise = authorOs.outputs.revise.handler(
 			outputId: output.id,
 		});
 		return {
+			// The store keeps the current revision when the body equals it, and
+			// answers with that revision instead of the one asked for here.
+			status:
+				result.revision.id === revisionId
+					? ("saved" as const)
+					: ("unchanged" as const),
 			output: mapOsOutputRow(advanced ?? output),
 			revision: mapOsOutputRevisionRow(result.revision),
 		};
