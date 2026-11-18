@@ -121,7 +121,7 @@ export function CanvasOutputView({
 				</div>
 			</div>
 			{editable && (
-				<Alert className="mx-4">
+				<Alert className="mx-4 w-auto">
 					<AlertTitle>To make changes, open it in its editor</AlertTitle>
 					<AlertDescription>
 						The editor is an app in this workspace. The file and its version
