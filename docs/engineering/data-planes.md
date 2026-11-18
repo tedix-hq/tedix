@@ -42,7 +42,7 @@ Row counts: `—` pending an authorized live read. Produce them with
 `bun scripts/db/d1-size-report.ts` (without `--sizes-only`) from an ops host
 holding the installation's D1 ids; this lane has no Cloudflare credentials.
 
-Totals: 188 core · 125 workspace · 5 logs · 318 tables.
+Totals: 189 core · 125 workspace · 5 logs · 319 tables.
 
 ## Plane: logs
 
@@ -891,6 +891,12 @@ Totals: 188 core · 125 workspace · 5 logs · 318 tables.
 | `provider_probe_receipts`               | organization | —     | R: provider-probe-receipts.ts<br>W: provider-probe-receipts.ts | —    |       |
 | `provider_probe_results`                | organization | —     | R: provider-probe-receipts.ts<br>W: provider-probe-receipts.ts | —    |       |
 
+### `release-locks.ts`
+
+| table           | scope key | split | query modules (R read / W write) | rows | flags                                    |
+| --------------- | --------- | ----- | -------------------------------- | ---- | ---------------------------------------- |
+| `release_locks` | none      | —     | —                                | —    | ops-owned release mutex; no query module |
+
 ### `role-templates.ts`
 
 | table            | scope key    | split | query modules (R read / W write)             | rows | flags |
@@ -1080,7 +1086,9 @@ per function during the port.
 
 ## Open items
 
-- **App-owned tables:** `mcp_tasks` and `skill_run_admission_dedup` have no
+- **Owned outside query modules:** `release_locks` (private ops release
+  script; never drop it, since ops takes it before migrations run),
+  `mcp_tasks` and `skill_run_admission_dedup` (app direct-D1 owners) have no
   query module by design.
 - **Live row counts:** pending the authorized `d1-size-report` pull noted
   above; this lane holds no installation credentials or real D1 ids.
