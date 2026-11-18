@@ -109,6 +109,31 @@ beforeEach(() => {
 });
 
 describe("Web Push delivery", () => {
+	it.each([300, 301, 302, 303, 304, 307, 308, 399])(
+		"reports HTTP %i without following push redirects or deleting the subscription",
+		async (status) => {
+			vi.mocked(fetch).mockResolvedValueOnce(
+				new Response(null, {
+					status,
+					headers: { location: "https://elsewhere.example/push" },
+				}),
+			);
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			try {
+				await deliverWebPush(context, event);
+				expect(fetch).toHaveBeenCalledTimes(1);
+				expect(fetch).toHaveBeenCalledWith(
+					"https://web.push.apple.com/device",
+					expect.objectContaining({ redirect: "manual" }),
+				);
+				expect(warn).toHaveBeenCalledWith("web_push_rejected", { status });
+				expect(mocks.remove).not.toHaveBeenCalled();
+			} finally {
+				warn.mockRestore();
+			}
+		},
+	);
+
 	it("keeps approvals enabled under project mute and suppresses all kinds for visible conversations", () => {
 		expect(shouldPush({ ...base, kind: "approval" })).toBe(true);
 		for (const kind of ["approval", "needs_input", "finished"] as const)
@@ -173,7 +198,7 @@ describe("Web Push delivery", () => {
 		expect(JSON.stringify(message)).not.toContain("private conversation");
 		expect(fetch).toHaveBeenCalledWith(
 			"https://web.push.apple.com/device",
-			expect.objectContaining({ redirect: "error" }),
+			expect.objectContaining({ redirect: "manual" }),
 		);
 	});
 	it("suppresses sends into a muted workspace while approvals still deliver", async () => {

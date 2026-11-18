@@ -398,7 +398,7 @@ export async function observerCompletion(
 			method: "POST",
 			signal: opts.signal,
 			headers,
-			...(metadata.restricted ? { redirect: "error" as const } : {}),
+			...(metadata.restricted ? { redirect: "manual" as const } : {}),
 			body,
 		},
 	);

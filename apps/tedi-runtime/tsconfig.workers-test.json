@@ -13,6 +13,7 @@
 		"test/**/*.ts",
 		"vitest.workers.config.ts",
 		"vitest.app-runtime.config.ts",
+		"vitest.redirect.config.ts",
 		"worker-configuration.d.ts",
 		"src/agent-memory.env.d.ts",
 		"src/platform-hosts.env.d.ts"

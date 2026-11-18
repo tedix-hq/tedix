@@ -1,14 +1,15 @@
 /**
  * The workspace's test suite, whole or a named subset.
  *
- * `bun scripts/run-tests.ts` runs everything `test:run` has always run, in the
- * same four lanes and order (standalone scripts run with cores minus one workers):
+ * `bun scripts/run-tests.ts` runs these lanes in order
+ * (standalone scripts run with cores minus one workers):
  *
  * 1. every `src/*.test.ts` as its own `bun run` process — they are node:assert
  *    scripts, not bun:test suites, and each wants a fresh module registry;
  * 2. the bun:test suites under `src/brain/`;
  * 3. the email ingress tests under vitest;
- * 4. the provider submission test under the workers config.
+ * 4. the provider submission test under the workers config;
+ * 5. the isolated fetch redirect compatibility tests under workerd.
  *
  * `bun scripts/run-tests.ts <file>...` runs only the named files, each in its
  * lane. The pre-push gate passes the files whose import graph reaches the
@@ -37,6 +38,8 @@ const PROVIDER_TESTS = [
 	"test/pi-runtime/submissions.workerd.test.ts",
 	"test/session-repo-cost.workerd.test.ts",
 ];
+
+const REDIRECT_TESTS = ["test/app-runtime/redirect/redirect.workerd.test.ts"];
 
 function scriptTests(): string[] {
 	return readdirSync(join(workspace, "src"))
@@ -83,9 +86,16 @@ if (import.meta.main) {
 	const brain = inLane(brainTests());
 	const email = inLane(EMAIL_TESTS);
 	const provider = inLane(PROVIDER_TESTS);
+	const redirect = inLane(REDIRECT_TESTS);
 
 	if (subset) {
-		const covered = new Set([...scripts, ...brain, ...email, ...provider]);
+		const covered = new Set([
+			...scripts,
+			...brain,
+			...email,
+			...provider,
+			...redirect,
+		]);
 		for (const file of requested) {
 			if (!covered.has(file)) {
 				console.log(`SKIP ${file} (not part of test:run)`);
@@ -107,6 +117,15 @@ if (import.meta.main) {
 			...provider,
 		]);
 	}
+	if (redirect.length)
+		run([
+			vp,
+			"test",
+			"run",
+			"--config",
+			"vitest.redirect.config.ts",
+			...redirect,
+		]);
 }
 
 export async function runScriptTests(

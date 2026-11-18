@@ -73,15 +73,15 @@ const member = {
 	expiresAt: "2099-01-01T00:00:00.000Z",
 	execution,
 };
-function send() {
-	return kernelGatewayFetch(env, { organizationId: "org_lark" })!(
-		"https://lark-eu.openai.azure.com/openai/v1/responses",
-		{
-			method: "POST",
-			body: JSON.stringify({ model: "text-model", input: "fictional prompt" }),
-			headers: { "api-key": "sdk-placeholder" },
-		},
-	);
+function send(requestInput = false) {
+	const url = "https://lark-eu.openai.azure.com/openai/v1/responses";
+	const init = {
+		method: "POST",
+		body: JSON.stringify({ model: "text-model", input: "fictional prompt" }),
+		headers: { "api-key": "sdk-placeholder" },
+	};
+	const fetcher = kernelGatewayFetch(env, { organizationId: "org_lark" })!;
+	return requestInput ? fetcher(new Request(url, init)) : fetcher(url, init);
 }
 beforeEach(() => {
 	vi.resetAllMocks();
@@ -103,6 +103,28 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 describe("EU restriction at the actual kernel provider transport", () => {
+	it.each([false, true])(
+		"rejects every 3xx with its status (Request input: %s)",
+		async (requestInput) => {
+			for (let status = 300; status < 400; status++) {
+				const before = mocks.sent.mock.calls.length;
+				mocks.sent.mockResolvedValueOnce(
+					new Response(null, {
+						status,
+						headers: { location: "https://elsewhere.example/model" },
+					}),
+				);
+				await expect(send(requestInput)).rejects.toThrow(`HTTP ${status}`);
+				expect(mocks.sent).toHaveBeenCalledTimes(before + 1);
+				const [input, init] = mocks.sent.mock.calls[before]!;
+				const request = new Request(input, init);
+				expect(request.redirect).toBe("manual");
+				expect(request.headers.get("api-key")).toBe("fictional-regional-key");
+				expect(request.url).toContain("/azure-openai/lark-eu/");
+			}
+		},
+	);
+
 	it("sends only the exact EU endpoint and tenant key; keeps credentials out of persisted evidence", async () => {
 		await send();
 		expect(mocks.sent).toHaveBeenCalledOnce();
@@ -112,7 +134,7 @@ describe("EU restriction at the actual kernel provider transport", () => {
 		);
 		expect(init.headers.get("api-key")).toBe("fictional-regional-key");
 		expect(init.headers.get("cf-aig-collect-log")).toBe("false");
-		expect(init.redirect).toBe("error");
+		expect(init.redirect).toBe("manual");
 		expect(JSON.stringify(mocks.persisted)).not.toContain(
 			"fictional-regional-key",
 		);

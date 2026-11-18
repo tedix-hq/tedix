@@ -270,16 +270,21 @@ export function kernelGatewayFetch(
 			? regionalAzureGatewayUrl(rewritten, regionalExecution)
 			: rewritten;
 		if (applyKernelProviderCredential(reservedContext, headers))
-			init = { ...init, redirect: "error" };
+			init = { ...init, redirect: "manual" };
 		// Unrestricted requests keep Gateway BYOK; regional requests use the organization key.
-		if (typeof input === "string" || input instanceof URL) {
-			return send(providerUrl, {
-				...init,
-				headers,
-				body,
-			});
+		const response = await send(
+			typeof input === "string" || input instanceof URL
+				? providerUrl
+				: new Request(providerUrl, input),
+			{ ...init, headers, body },
+		);
+		if (regionalExecution && response.status >= 300 && response.status < 400) {
+			await response.body?.cancel();
+			throw new Error(
+				`Azure OpenAI redirect rejected (HTTP ${response.status})`,
+			);
 		}
-		return send(new Request(providerUrl, input), { ...init, headers, body });
+		return response;
 	};
 }
 

@@ -216,22 +216,27 @@ function gatewayFetch(
 			? regionalAzureGatewayUrl(rewritten, reservedMetadata.execution)
 			: rewritten;
 		reservedMetadata.applyProviderCredential(headers);
-		if (reservedMetadata.restricted) init = { ...init, redirect: "error" };
+		if (reservedMetadata.restricted) init = { ...init, redirect: "manual" };
 		signal.throwIfAborted();
 		// Unrestricted requests keep Gateway BYOK; regional requests use the organization key.
-		if (typeof input === "string" || input instanceof URL) {
-			assertAiRequestSize(body, env.TEDI_MAX_AI_REQUEST_BYTES);
-			return send(providerUrl, {
-				...init,
-				headers,
-				body,
-				signal,
-			});
+		assertAiRequestSize(body, env.TEDI_MAX_AI_REQUEST_BYTES);
+		const response = await send(
+			typeof input === "string" || input instanceof URL
+				? providerUrl
+				: new Request(providerUrl, input),
+			{ ...init, headers, body, signal },
+		);
+		if (
+			reservedMetadata.restricted &&
+			response.status >= 300 &&
+			response.status < 400
+		) {
+			await response.body?.cancel();
+			throw new Error(
+				`Azure OpenAI redirect rejected (HTTP ${response.status})`,
+			);
 		}
-		const request = new Request(providerUrl, input);
-		const bodyText = typeof body === "string" ? body : null;
-		assertAiRequestSize(bodyText, env.TEDI_MAX_AI_REQUEST_BYTES);
-		return send(request, { ...init, body, headers, signal });
+		return response;
 	};
 }
 
