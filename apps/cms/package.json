@@ -18,7 +18,8 @@
 		"deploy:production": "bun run snapshot:check && bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
 		"test": "bun run test:run",
 		"test:run": "bun run templates:install && vp test run",
-		"test:ci": "bun run test:run",
+		"test:render": "bun run templates:install && bun run --cwd templates/native-marketing vp test run --config ../../astro-render.config.mjs",
+		"test:ci": "bun run test:run && bun run test:render",
 		"test:watch": "vp test",
 		"type-check": "bun run snapshot:check && bun run templates:install && bun run types && tsc --noEmit"
 	},

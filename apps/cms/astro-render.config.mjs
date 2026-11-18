@@ -1,9 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { getViteConfig } from "./templates/marketing/node_modules/astro/dist/config/entrypoint.js";
 import react from "./templates/marketing/node_modules/@astrojs/react/dist/index.js";
+import icon from "./templates/native-marketing/node_modules/astro-iconset/dist/index.js";
 
 const template = fileURLToPath(
-	new URL("./templates/marketing/", import.meta.url),
+	new URL("./templates/native-marketing/", import.meta.url),
 );
 const formEmbed = fileURLToPath(
 	new URL(
@@ -40,7 +41,24 @@ export default getViteConfig(
 	{
 		root: template,
 		configFile: false,
-		integrations: [react()],
+		integrations: [
+			react(),
+			icon({
+				include: {
+					ph: [
+						"arrow-right",
+						"lightning",
+						"code",
+						"users-three",
+						"pause",
+						"play",
+						"check",
+						"plus",
+						"envelope",
+					],
+				},
+			}),
+		],
 		image: { service: { entrypoint: "astro/assets/services/noop" } },
 	},
 );
