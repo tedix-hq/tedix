@@ -16,6 +16,23 @@ describe("CMS deploy status safety", () => {
 		expect(safeDeployDetails({ reason: "private" })).toBeUndefined();
 	});
 
+	it("reports unsupported block identity with bounded structured fields", () => {
+		expect(
+			safeDeployDetails({
+				code: "THEME_BLOCK_UNSUPPORTED",
+				blockType: "marketing_hero",
+				blockVersion: 3,
+			}),
+		).toEqual({
+			code: "THEME_BLOCK_UNSUPPORTED",
+			blockType: "marketing_hero",
+			blockVersion: 3,
+		});
+		expect(
+			safeDeployDetails({ blockType: "private=token", blockVersion: Infinity }),
+		).toBeUndefined();
+	});
+
 	it("uses a fixed failure message instead of an exception", () => {
 		expect(safeDeployMessage("failed", "token leaked by build")).toBe(
 			"Deploy failed; inspect server logs",

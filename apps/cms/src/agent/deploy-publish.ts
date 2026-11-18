@@ -1,3 +1,5 @@
+import { themeReleaseSchema, type ThemeRelease } from "./theme-release";
+import { checkLiveThemeCompatibility } from "./theme-content-compatibility";
 import { CmsDeployFailure } from "./deploy-failure";
 import {
 	type TenantBundleSourceRevision,
@@ -72,6 +74,7 @@ export async function publishStagedCmsBundle(
 			mainModule: string;
 			files: string[];
 			sourceRevision: TenantBundleSourceRevision;
+			release: ThemeRelease;
 		};
 
 		const files: Record<string, Uint8Array> = {};
@@ -150,6 +153,30 @@ export async function publishStagedCmsBundle(
 					result.status === "rejected",
 			);
 			if (failure) throw failure.reason;
+		}
+
+		const parsedRelease = themeReleaseSchema.safeParse(manifest.release);
+		if (!parsedRelease.success)
+			throw new CmsDeployFailure(
+				"THEME_RELEASE_INVALID",
+				"Staged theme release manifest is missing or invalid",
+			);
+		// A new site has no active renderer or published content to inspect yet.
+		if (expectedActiveVersion !== null) {
+			await checkLiveThemeCompatibility(env, orgSlug, parsedRelease.data);
+		}
+		const releaseKey = `${orgSlug}/v${nextBundleVersion}/theme-release.json`;
+		const releaseBody = JSON.stringify({
+			...parsedRelease.data,
+			sourceRevision: manifest.sourceRevision,
+		});
+		await env.BUNDLES_BUCKET.put(releaseKey, releaseBody);
+		const storedRelease = await env.BUNDLES_BUCKET.get(releaseKey);
+		if (!storedRelease || (await storedRelease.text()) !== releaseBody) {
+			throw new CmsDeployFailure(
+				"THEME_RELEASE_INVALID",
+				"Theme release manifest readback failed",
+			);
 		}
 
 		const result = await uploadTenantBundle(

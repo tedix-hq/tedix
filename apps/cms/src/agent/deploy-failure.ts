@@ -1,5 +1,8 @@
 export const DEPLOY_FAILURE_CODES = [
 	"DEPLOY_STEP_FAILED",
+	"THEME_RELEASE_INVALID",
+	"THEME_BLOCK_UNSUPPORTED",
+	"THEME_CONTENT_UNAVAILABLE",
 	"STATIC_MANIFEST_MISSING",
 	"STATIC_ASSET_MISSING",
 	"STATIC_ASSET_MISMATCH",
@@ -27,6 +30,7 @@ export class CmsDeployFailure extends Error {
 		public readonly code: DeployFailureCode,
 		message: string,
 		public readonly retryable = false,
+		public readonly block?: { blockType: string; blockVersion: number },
 	) {
 		super(message);
 	}

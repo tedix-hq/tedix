@@ -1,3 +1,4 @@
+import { themeReleaseSchema } from "./theme-release";
 import type { McpServer } from "@tedix/mcp-shared/server";
 import * as z from "zod";
 import {
@@ -597,7 +598,7 @@ export function registerDeployTools(
 		{
 			title: "List Theme Versions",
 			description:
-				"List all deployed theme versions with active status, source identity, timestamps, and summaries. " +
+				"List all deployed theme versions with active status, source identity, release inputs, supported block versions, timestamps, and summaries. " +
 				"Use a version number with theme_rollback to restore a previous theme.",
 			inputSchema: schema(z.object({})),
 			outputSchema: schema(
@@ -609,6 +610,7 @@ export function registerDeployTools(
 								active: z.boolean(),
 								deployedAt: z.string().nullable(),
 								promptSummary: z.string().nullable(),
+								release: themeReleaseSchema.nullable().optional(),
 								sourceRevision: z
 									.discriminatedUnion("kind", [
 										z.object({

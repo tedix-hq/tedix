@@ -92,6 +92,7 @@ export const THEME_SOURCE_MANIFEST_PATH = "src/theme-source.json";
 export const THEME_SOURCE_VERSION = 2;
 
 export const EDITABLE_FILES = [
+	"src/theme-release.json",
 	THEME_SOURCE_MANIFEST_PATH,
 	"src/styles/theme.css",
 	"src/components/PostCard.astro",

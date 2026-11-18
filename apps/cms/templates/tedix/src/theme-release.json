@@ -1,0 +1,15 @@
+{
+	"upstreamStarterRevision": "39021b5de59db3a57943739eccf85d4c6c268cd3",
+	"supportedBlocks": {
+		"marketing_prose": [1],
+		"marketing_hero": [1, 2],
+		"marketing_logo_strip": [1, 2],
+		"marketing_features": [1],
+		"marketing_stats": [1],
+		"marketing_cta": [1],
+		"marketing_text_with_image": [1, 2],
+		"marketing_testimonials": [1, 2],
+		"marketing_pricing": [1],
+		"marketing_faq": [1]
+	}
+}

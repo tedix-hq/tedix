@@ -59,7 +59,8 @@ vi.mock("./deploy-attempt-workspace", () => ({
 	clearDeployAttemptBuildOutput: vi.fn(async () => undefined),
 	removeDeployAttemptWorkspace: vi.fn(async () => undefined),
 }));
-vi.mock("./template-sync", () => ({
+vi.mock("./template-sync", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./template-sync")>()),
 	resyncTemplate: vi.fn(async () => ({ copied: [], skipped: [] })),
 }));
 vi.mock("./source-provenance", () => ({
@@ -569,7 +570,7 @@ describe("DeployWorkflow exact-site lifecycle", () => {
 	});
 
 	it("budgets a full pinned rebuild when snapshot output has disappeared", async () => {
-		const { workflow, event } = workflowFixture("site-original");
+		const { workflow, event, put } = workflowFixture("site-original");
 		vi.mocked(runCmsSandboxBuildToCompletion).mockClear();
 		vi.mocked(runCmsSandboxBuildToCompletion).mockResolvedValueOnce({
 			jobId: "native-build",
@@ -585,9 +586,14 @@ describe("DeployWorkflow exact-site lifecycle", () => {
 		});
 		const sandbox = {
 			pathExists: vi.fn(async () => false),
-			readFile: vi.fn(async () => ({
+			readFile: vi.fn(async (path: string) => ({
 				success: true,
-				content: 'i18n: { defaultLocale: "en", fallback: {} }',
+				content: path.endsWith("src/theme-release.json")
+					? JSON.stringify({
+							upstreamStarterRevision: "a".repeat(40),
+							supportedBlocks: {},
+						})
+					: 'i18n: { defaultLocale: "en", fallback: {} }',
 			})),
 			writeFile: vi.fn(async () => undefined),
 			exec: vi.fn(async (argv: string[]) => ({
@@ -626,6 +632,17 @@ describe("DeployWorkflow exact-site lifecycle", () => {
 		await expect(workflow.run(event as never, step as never)).rejects.toThrow(
 			"stop after snapshot",
 		);
+		const staged = put.mock.calls.find(([key]) =>
+			key.endsWith("/manifest.json"),
+		);
+		expect(JSON.parse(String(staged?.[1]))).toMatchObject({
+			release: {
+				upstreamStarterRevision: "a".repeat(40),
+				lockedTemplateSnapshotHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+				dependencyLockHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+				supportedBlocks: {},
+			},
+		});
 		expect(sandbox.pathExists).toHaveBeenCalledWith(
 			"/attempt/dist/server/entry.mjs",
 		);

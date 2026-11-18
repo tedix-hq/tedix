@@ -1,3 +1,4 @@
+import { themeReleaseSchema, type ThemeRelease } from "./theme-release";
 import type { CmsSandbox } from "../sandbox";
 import {
 	activateTenantBundleVersion,
@@ -61,6 +62,7 @@ export async function listVersions(
 		active: boolean;
 		deployedAt: string | null;
 		promptSummary: string | null;
+		release: ThemeRelease | null;
 		sourceRevision:
 			| import("@tedix/provisioning/cms").TenantBundleSourceRevision
 			| null;
@@ -70,11 +72,19 @@ export async function listVersions(
 		{ bundlesBucket, platformDb },
 		orgSlug,
 	);
-	return versions.map((v) => ({
-		version: v.version,
-		active: v.isActive,
-		deployedAt: v.deployedAt,
-		promptSummary: v.summary,
-		sourceRevision: v.sourceRevision,
-	}));
+	return Promise.all(
+		versions.map(async (v) => {
+			const object = await bundlesBucket.get(
+				`${orgSlug}/v${v.version}/theme-release.json`,
+			);
+			return {
+				version: v.version,
+				active: v.isActive,
+				deployedAt: v.deployedAt,
+				promptSummary: v.summary,
+				sourceRevision: v.sourceRevision,
+				release: object ? themeReleaseSchema.parse(await object.json()) : null,
+			};
+		}),
+	);
 }

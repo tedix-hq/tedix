@@ -1,3 +1,4 @@
+import { identifyThemeRelease } from "./theme-release";
 import { probeCmsDeploy } from "./deploy-health";
 import { cmsPlatformHosts } from "../platform-hosts";
 import { CmsDeployFailure, type DeployRollback } from "./deploy-failure";
@@ -356,6 +357,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 				} catch (error) {
 					failureDetails ??= {
 						phase: name,
+						...(error instanceof CmsDeployFailure ? error.block : undefined),
 						code:
 							error instanceof CmsDeployFailure
 								? error.code
@@ -790,6 +792,11 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 						workspace: attemptWorkspace,
 						stagingAttemptId: attempt.stagingAttemptId,
 						sourceDigest: editableSource.digest,
+						release: await identifyThemeRelease(
+							sandbox,
+							templateSlug,
+							attemptWorkspace,
+						),
 					};
 				} catch (error) {
 					if (error instanceof CmsUnknownProcessOutcomeError) throw error;
@@ -905,6 +912,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 					}
 
 					const manifest = {
+						release: currentBuild.release,
 						mainModule: MAIN_MODULE,
 						files: filePaths,
 						sourceRevision: sourceRevision ?? {
