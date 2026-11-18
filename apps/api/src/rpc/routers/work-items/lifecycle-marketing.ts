@@ -23,7 +23,7 @@ export const addCommentProcedure = authOs.addComment.handler(
 			);
 			if (
 				input.requestDelegation === true &&
-				!workItem.metadata?.executor &&
+				!workItem.executorId &&
 				/\bdelegat(?:ed|ion)\b/i.test(input.body)
 			) {
 				const assignment =
@@ -52,7 +52,14 @@ export const addCommentProcedure = authOs.addComment.handler(
 						workItemId: workItem.id,
 						actor,
 						expectedWorkItemVersion: workItem.version,
-						executor: assignment.executor,
+						...(assignment.tediId
+							? {
+									executorReference: {
+										type: "tedi" as const,
+										id: assignment.tediId,
+									},
+								}
+							: { executor: assignment.executor }),
 						...(assignment.tediId
 							? {
 									accountableOwnerType: "tedi" as const,

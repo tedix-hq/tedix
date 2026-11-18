@@ -85,6 +85,7 @@ async function assertWorkAttemptPolicy(
 				budget: specification.budget,
 			},
 			attemptCount: attempts.data.length,
+			maxAttempts: current.maxAttempts ?? 0,
 			execution: {
 				workKind: current.workKind,
 				riskLevel: current.riskLevel,

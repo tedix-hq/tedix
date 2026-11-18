@@ -58,7 +58,7 @@ export async function listWorkItems(
 						? isNull(workItems.parentWorkItemId)
 						: eq(workItems.parentWorkItemId, options.parentWorkItemId),
 				options.executor
-					? sql`${workItems.metadata} ->> 'executor' = ${options.executor}`
+					? eq(workItems.executorId, options.executor)
 					: undefined,
 			),
 		)

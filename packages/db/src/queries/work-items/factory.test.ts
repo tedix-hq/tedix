@@ -40,7 +40,7 @@ CREATE TABLE work_items (
  disposition TEXT NOT NULL DEFAULT 'proposed', work_kind TEXT NOT NULL DEFAULT 'other', risk_level TEXT NOT NULL DEFAULT 'medium', acceptance_contract TEXT,
  required_capabilities TEXT NOT NULL DEFAULT '[]', required_authorities TEXT NOT NULL DEFAULT '[]', admission_spec_revision TEXT NOT NULL DEFAULT 'test-revision',
  priority TEXT NOT NULL DEFAULT 'medium', accountable_owner_type TEXT, accountable_owner_id TEXT, steward_type TEXT, steward_id TEXT, reviewer_type TEXT, reviewer_id TEXT, reviewer_lease_expires_at TEXT,
- objective_id TEXT, work_class TEXT, purpose_exception_expires_at TEXT, project_id TEXT, parent_work_item_id TEXT, source_session_key TEXT, source_intent_id TEXT, due_date TEXT, deadline TEXT, start_at TEXT, duration_days INTEGER,
+ objective_id TEXT, work_class TEXT, purpose_exception_expires_at TEXT, project_id TEXT, parent_work_item_id TEXT, executor_type TEXT, executor_id TEXT, dispatch_state TEXT, delegation_depth INTEGER, max_attempts INTEGER, root_work_item_id TEXT, root_goal TEXT, budget_share_micros INTEGER, source_session_key TEXT, source_intent_id TEXT, due_date TEXT, deadline TEXT, start_at TEXT, duration_days INTEGER,
  provenance TEXT DEFAULT '{}', metadata TEXT DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT, accepted_at TEXT, completed_at TEXT, cancelled_at TEXT, version INTEGER NOT NULL DEFAULT 1, UNIQUE (org_id, id)
 );
 CREATE TABLE work_item_relations (
@@ -271,8 +271,10 @@ describe("artifact-neutral work factory", () => {
 		const { sqlite, db } = fixture();
 		seed(sqlite, "factory");
 		sqlite
-			.prepare("UPDATE work_items SET metadata=? WHERE id='factory'")
-			.run(JSON.stringify({ factoryCycle: { maxAttempts: 2 } }));
+			.prepare(
+				"UPDATE work_items SET metadata=?,max_attempts=2 WHERE id='factory'",
+			)
+			.run(JSON.stringify({ factoryCycle: {} }));
 		const start = (key: string, at: string) =>
 			startWorkItemAttempt(db, {
 				orgId: "org",
@@ -328,8 +330,10 @@ describe("artifact-neutral work factory", () => {
 		const { sqlite, db } = fixture();
 		seed(sqlite, "factory");
 		sqlite
-			.prepare("UPDATE work_items SET metadata=? WHERE id='factory'")
-			.run(JSON.stringify({ factoryCycle: { maxAttempts: 1 } }));
+			.prepare(
+				"UPDATE work_items SET metadata=?,max_attempts=1 WHERE id='factory'",
+			)
+			.run(JSON.stringify({ factoryCycle: {} }));
 		const first = await startWorkItemAttempt(db, {
 			orgId: "org",
 			workItemId: "factory",
@@ -366,12 +370,14 @@ describe("artifact-neutral work factory", () => {
 	});
 
 	it("fails closed on malformed factory retry limits", async () => {
-		for (const maxAttempts of [0, 6, "2", null]) {
+		for (const maxAttempts of [0, 6, null]) {
 			const { sqlite, db } = fixture();
 			seed(sqlite, "factory");
 			sqlite
-				.prepare("UPDATE work_items SET metadata=? WHERE id='factory'")
-				.run(JSON.stringify({ factoryCycle: { maxAttempts } }));
+				.prepare(
+					"UPDATE work_items SET metadata=?,max_attempts=? WHERE id='factory'",
+				)
+				.run(JSON.stringify({ factoryCycle: {} }), maxAttempts);
 			await expect(
 				startWorkItemAttempt(db, {
 					orgId: "org",

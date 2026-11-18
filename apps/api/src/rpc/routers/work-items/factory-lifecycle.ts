@@ -21,6 +21,7 @@ import {
 	ListWorkAttemptCliProjectionResultSchema,
 	ListWorkEvidenceCliProjectionResultSchema,
 	ListWorkEventCliProjectionResultSchema,
+	workExecutorReference,
 } from "@tedix/api-contract/schemas/work-items";
 import {
 	getAuthoritativeWorkItemAttempt,
@@ -91,6 +92,7 @@ import {
 } from "../work-items-principal";
 import {
 	assertWorkItemAccess,
+	assertOwnerSetLaneExecution,
 	authOs,
 	requireOwnerAdminWorkItemAuthor,
 	workItemAcceptanceActor,
@@ -342,6 +344,12 @@ export const updateSpecificationProcedure =
 		const { workItemSpecificationActor } =
 			await import("./specification-policy");
 		const actor = await workItemSpecificationActor(context, workItem, input);
+		await assertOwnerSetLaneExecution(
+			context,
+			workItem.orgId,
+			undefined,
+			input,
+		);
 		if (
 			input.expectedWorkItemVersion !== undefined &&
 			input.expectedWorkItemVersion !== workItem.version
@@ -356,7 +364,7 @@ export const updateSpecificationProcedure =
 				actor.type === "tedi" ||
 				("canAssignExecutor" in actor && actor.canAssignExecutor)
 					? undefined
-					: input.executor,
+					: (input.executor ?? input.executorReference),
 				"canMoveProject" in actor && actor.canMoveProject
 					? undefined
 					: input.projectId,
@@ -369,6 +377,11 @@ export const updateSpecificationProcedure =
 				input.accountableOwnerId,
 				input.stewardType,
 				input.stewardId,
+				input.delegationDepth,
+				input.maxAttempts,
+				input.rootWorkItemId,
+				input.rootGoal,
+				input.budgetShareMicros,
 			].some((value) => value !== undefined)
 		) {
 			throw createError(
@@ -469,9 +482,25 @@ export const updateSpecificationProcedure =
 					workItem,
 					input.projectId,
 				);
+			const legacyExecutorReference = input.executor
+				? workExecutorReference(input.executor)
+				: undefined;
+			if (
+				input.executorReference &&
+				legacyExecutorReference &&
+				(input.executorReference.type !== legacyExecutorReference.type ||
+					input.executorReference.id !== legacyExecutorReference.id)
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"executor and executorReference must name the same executor",
+				);
+			const executorReference =
+				input.executorReference ?? legacyExecutorReference;
 			const laneProject =
 				actor.type === "user" &&
-				["codex", "claude-code"].includes(input.executor ?? "") &&
+				executorReference?.type === "external_agent" &&
+				["codex", "claude-code"].includes(executorReference.id) &&
 				workItem.projectId
 					? await getProjectByIdForOrganization(
 							context.db,
@@ -490,6 +519,7 @@ export const updateSpecificationProcedure =
 				workItemId: workItem.id,
 				actor,
 				executor: input.executor,
+				executorReference,
 				laneDispatch: input.laneDispatch ?? initialLaneDispatch(input.executor),
 				projectId: input.projectId,
 				title: input.title,
@@ -511,6 +541,11 @@ export const updateSpecificationProcedure =
 				deadline: input.deadline,
 				startAt: input.startAt,
 				durationDays: input.durationDays,
+				delegationDepth: input.delegationDepth,
+				maxAttempts: input.maxAttempts,
+				rootWorkItemId: input.rootWorkItemId,
+				rootGoal: input.rootGoal,
+				budgetShareMicros: input.budgetShareMicros,
 				updatedAt: new Date().toISOString(),
 			});
 		} catch (error) {

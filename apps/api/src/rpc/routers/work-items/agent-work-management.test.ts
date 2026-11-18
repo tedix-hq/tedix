@@ -347,7 +347,8 @@ describe("owner-granted external-agent Work management", () => {
 		});
 		expect(await getWorkItemById(db, id)).toMatchObject({
 			description: "Failure confirmed",
-			metadata: { executor: "codex" },
+			executorType: "external_agent",
+			executorId: "codex",
 		});
 		expect(
 			await workItemStewardActor(context, item, "cancellation"),

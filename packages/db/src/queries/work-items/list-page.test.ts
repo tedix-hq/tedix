@@ -21,7 +21,9 @@ CREATE TABLE work_items (
  accountable_owner_type TEXT, accountable_owner_id TEXT, steward_type TEXT, steward_id TEXT,
  reviewer_type TEXT, reviewer_id TEXT, reviewer_lease_expires_at TEXT,
  objective_id TEXT, work_class TEXT, purpose_exception_expires_at TEXT, project_id TEXT,
- parent_work_item_id TEXT, source_session_key TEXT, source_intent_id TEXT,
+ parent_work_item_id TEXT, executor_type TEXT, executor_id TEXT, dispatch_state TEXT,
+ delegation_depth INTEGER, max_attempts INTEGER, root_work_item_id TEXT, root_goal TEXT, budget_share_micros INTEGER,
+ source_session_key TEXT, source_intent_id TEXT,
  due_date TEXT, deadline TEXT, start_at TEXT, duration_days INTEGER, provenance TEXT DEFAULT '{}', metadata TEXT DEFAULT '{}',
  created_at TEXT NOT NULL, updated_at TEXT, accepted_at TEXT, completed_at TEXT,
  cancelled_at TEXT, version INTEGER NOT NULL DEFAULT 1);
@@ -429,7 +431,9 @@ it("filters the executor before pagination and keeps organization scope", async 
 	for (let n = 0; n < 30; n++)
 		insert({ id: idFor(n), disposition: "accepted", projectId: PROJECT });
 	sqlite
-		.prepare("UPDATE work_items SET metadata = ? WHERE id = ?")
+		.prepare(
+			"UPDATE work_items SET metadata = ?, executor_type = 'external_agent', executor_id = 'codex' WHERE id = ?",
+		)
 		.run(JSON.stringify({ executor: "codex", retained: true }), idFor(0));
 	insert({
 		id: idFor(100),
@@ -438,7 +442,9 @@ it("filters the executor before pagination and keeps organization scope", async 
 		projectId: PROJECT,
 	});
 	sqlite
-		.prepare("UPDATE work_items SET metadata = ? WHERE id = ?")
+		.prepare(
+			"UPDATE work_items SET metadata = ?, executor_type = 'external_agent', executor_id = 'codex' WHERE id = ?",
+		)
 		.run(JSON.stringify({ executor: "codex" }), idFor(100));
 	const page = await listWorkItemsPage(db, {
 		orgId: ORG,
@@ -469,10 +475,22 @@ it("pages server-selected lanes and keeps held or malformed plans out of dispatc
 			}),
 			idFor(n),
 		);
+		sqlite
+			.prepare(
+				"UPDATE work_items SET executor_type = 'external_agent', executor_id = 'codex', dispatch_state = ? WHERE id = ?",
+			)
+			.run(
+				plans[n]?.state === "ready" || plans[n]?.state === "held"
+					? plans[n]!.state
+					: null,
+				idFor(n),
+			);
 	}
 	insert({ id: idFor(100), orgId: OTHER_ORG });
 	sqlite
-		.prepare("UPDATE work_items SET metadata = ? WHERE id = ?")
+		.prepare(
+			"UPDATE work_items SET metadata = ?, executor_type = 'external_agent', executor_id = 'codex', dispatch_state = 'ready' WHERE id = ?",
+		)
 		.run(
 			JSON.stringify({ executor: "codex", laneDispatch: { state: "ready" } }),
 			idFor(100),
@@ -509,12 +527,23 @@ it("filters an executor set before pagination and count, preserving org scope", 
 	].entries()) {
 		insert({ id: idFor(n) });
 		sqlite
-			.prepare("UPDATE work_items SET metadata=? WHERE id=?")
-			.run(JSON.stringify({ executor }), idFor(n));
+			.prepare(
+				"UPDATE work_items SET metadata=?, executor_type=?, executor_id=? WHERE id=?",
+			)
+			.run(
+				JSON.stringify({ executor }),
+				executor === "human" || executor === "tedi"
+					? executor
+					: "external_agent",
+				executor,
+				idFor(n),
+			);
 	}
 	insert({ id: idFor(99), orgId: OTHER_ORG });
 	sqlite
-		.prepare("UPDATE work_items SET metadata=? WHERE id=?")
+		.prepare(
+			"UPDATE work_items SET metadata=?, executor_type='external_agent', executor_id='codex' WHERE id=?",
+		)
 		.run(JSON.stringify({ executor: "codex" }), idFor(99));
 	const first = await listWorkItemsPage(db, {
 		orgId: ORG,
@@ -531,6 +560,27 @@ it("filters an executor set before pagination and count, preserving org scope", 
 	});
 	expect(second.total).toBe(3);
 	expect(second.data.map((row) => row.id)).toEqual([idFor(0)]);
+});
+
+it("filters legacy human and tedi categories by executor type", async () => {
+	insert({ id: idFor(1) });
+	insert({ id: idFor(2) });
+	sqlite
+		.prepare("UPDATE work_items SET executor_type=?,executor_id=? WHERE id=?")
+		.run("human", "person-1", idFor(1));
+	sqlite
+		.prepare("UPDATE work_items SET executor_type=?,executor_id=? WHERE id=?")
+		.run("tedi", "worker-1", idFor(2));
+	expect(
+		(await listWorkItemsPage(db, { orgId: ORG, executor: "human" })).data.map(
+			(row) => row.id,
+		),
+	).toEqual([idFor(1)]);
+	expect(
+		(await listWorkItemsPage(db, { orgId: ORG, executor: "tedi" })).data.map(
+			(row) => row.id,
+		),
+	).toEqual([idFor(2)]);
 });
 
 it.each([{ executor: [] }, { executor: Array(11).fill("codex") }])(

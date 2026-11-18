@@ -13,6 +13,7 @@ import {
 	DelegationAutonomyFeedbackInputSchema,
 	DelegationAutonomyFeedbackResultSchema,
 	WorkExecutorSchema,
+	WorkExecutorReferenceSchema,
 	ListWorkCliProjectionInputSchema,
 	ListWorkCliProjectionResultSchema,
 	WorkCheckpointProjectionSchema,
@@ -766,7 +767,25 @@ export const workItemsContract = oc
 					executor: WorkExecutorSchema.optional().describe(
 						"codex or claude-code on accepted Work queues a fresh session that a connected Mac starts and that claims its own Attempt. Owners, admins and the Work's tedi steward may set it.",
 					),
+					executorReference: WorkExecutorReferenceSchema.optional(),
 					laneDispatch: LaneDispatchPlanSchema.optional(),
+					delegationDepth: z
+						.number()
+						.int()
+						.min(0)
+						.max(10)
+						.nullable()
+						.optional(),
+					maxAttempts: z.number().int().min(1).max(20).nullable().optional(),
+					rootWorkItemId: z.uuid().nullable().optional(),
+					rootGoal: z.string().trim().min(1).max(10_000).nullable().optional(),
+					budgetShareMicros: z
+						.number()
+						.int()
+						.min(0)
+						.max(1_000_000)
+						.nullable()
+						.optional(),
 					projectId: z
 						.uuid()
 						.optional()

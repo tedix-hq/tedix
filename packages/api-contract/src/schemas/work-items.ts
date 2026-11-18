@@ -705,11 +705,19 @@ export type WorkAttemptRepositoryReadResult = z.infer<
 	typeof WorkAttemptRepositoryReadResultSchema
 >;
 
+export const WorkExecutorReferenceSchema = z
+	.object({
+		type: z.enum(["human", "tedi", "external_agent", "team", "organization"]),
+		id: z.string().trim().min(1).max(300),
+	})
+	.strict();
+export type WorkExecutorReference = z.infer<typeof WorkExecutorReferenceSchema>;
+
 export const WorkAttemptSchema = z.object({
 	id: z.uuid(),
 	orgId: z.uuid(),
 	workItemId: z.uuid(),
-	executorType: z.enum(["tedi", "external_agent"]),
+	executorType: WorkExecutorReferenceSchema.shape.type,
 	executorId: z.string().min(1).max(300),
 	executorSessionId: z.string().max(300).nullable(),
 	externalSessionKey: z
@@ -1434,6 +1442,14 @@ export const WorkItemSchema = z.object({
 	purposeExceptionExpiresAt: z.iso.datetime().nullable(),
 	projectId: z.uuid().nullable(),
 	parentWorkItemId: z.uuid().nullable(),
+	executorType: WorkExecutorReferenceSchema.shape.type.nullable(),
+	executorId: z.string().min(1).max(300).nullable(),
+	dispatchState: z.enum(["held", "ready"]).nullable(),
+	delegationDepth: z.number().int().min(0).max(10).nullable(),
+	maxAttempts: z.number().int().min(1).max(20).nullable(),
+	rootWorkItemId: z.uuid().nullable(),
+	rootGoal: z.string().max(10_000).nullable(),
+	budgetShareMicros: z.number().int().min(0).max(1_000_000).nullable(),
 	sourceSessionKey: z.string().nullable(),
 	sourceIntentId: z.string().nullable(),
 	accountableOwnerType: WorkItemOwnerTypeSchema.nullable(),
@@ -1884,6 +1900,29 @@ export const LANE_READY_EXECUTORS = [
 	"human",
 ] as const satisfies readonly WorkExecutor[];
 
+export function workExecutorReference(executor: string): WorkExecutorReference {
+	return {
+		type:
+			executor === "human"
+				? "human"
+				: executor === "tedi"
+					? "tedi"
+					: "external_agent",
+		id: executor,
+	};
+}
+
+export function isLaneReadyExecutorReference(
+	executor: WorkExecutorReference | undefined,
+): boolean {
+	if (!executor) return false;
+	if (executor.type === "human" || executor.type === "tedi") return true;
+	return (
+		executor.type === "external_agent" &&
+		(LANE_READY_EXECUTORS as readonly string[]).includes(executor.id)
+	);
+}
+
 export const LaneDispatchPlanSchema = z
 	.object({
 		state: z.enum(["held", "ready"]),
@@ -1909,6 +1948,12 @@ export type LaneDispatchPlan = z.infer<typeof LaneDispatchPlanSchema>;
 export const CreateWorkItemInputSchema = z
 	.object({
 		executor: WorkExecutorSchema.optional(),
+		executorReference: WorkExecutorReferenceSchema.optional(),
+		delegationDepth: z.number().int().min(0).max(10).optional(),
+		maxAttempts: z.number().int().min(1).max(20).optional(),
+		rootWorkItemId: z.uuid().optional(),
+		rootGoal: z.string().trim().min(1).max(10_000).optional(),
+		budgetShareMicros: z.number().int().min(0).max(1_000_000).optional(),
 		factoryCycle: z
 			.object({
 				workspaceId: z.uuid(),

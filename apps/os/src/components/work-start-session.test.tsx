@@ -70,6 +70,7 @@ async function render({
 	active = false,
 	disposition = "accepted",
 	executor = "claude-code",
+	executorType,
 	readiness = ready,
 	attemptStatus = "success",
 }: {
@@ -77,6 +78,7 @@ async function render({
 	active?: boolean;
 	disposition?: string;
 	executor?: string;
+	executorType?: WorkItem["executorType"];
 	readiness?: WorkItemReadiness;
 	attemptStatus?: "success" | "pending" | "error";
 } = {}) {
@@ -130,6 +132,11 @@ async function render({
 		description: "Ship the example change.",
 		accountableOwnerType: "user",
 		accountableOwnerId: owner ? "owner" : "another-user",
+		executorType:
+			executorType ??
+			(["human", "tedi"].includes(executor) ? executor : "external_agent"),
+		executorId: executor,
+		dispatchState: "ready",
 		metadata: { executor, laneDispatch: { state: "ready" } },
 	} as unknown as WorkItem;
 	const container = document.createElement("div");
@@ -160,6 +167,16 @@ async function open(container: HTMLElement) {
 }
 
 describe("Start session", () => {
+	it("does not treat a human whose ID matches a local host as a local executor", async () => {
+		const container = await render({
+			owner: false,
+			executor: "codex",
+			executorType: "human",
+			attemptStatus: "pending",
+		});
+		expect(container.textContent).not.toContain("Checking session status");
+	});
+
 	it.each(["human", "tedi"])(
 		"keeps non-owner %s Work free of disabled session status",
 		async (executor) => {

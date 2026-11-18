@@ -76,8 +76,19 @@ export async function assertOwnerSetLaneExecution(
 	context: BaseContext,
 	orgId: string,
 	metadata: Record<string, unknown> | null | undefined,
+	controls?: {
+		delegationDepth?: number | null;
+		maxAttempts?: number | null;
+		budgetShareMicros?: number | null;
+	},
 ): Promise<void> {
-	if (metadata?.laneExecution === undefined) return;
+	if (
+		metadata?.laneExecution === undefined &&
+		controls?.delegationDepth === undefined &&
+		controls?.maxAttempts === undefined &&
+		controls?.budgetShareMicros === undefined
+	)
+		return;
 	const action = "Setting a Work Item's lane execution policy";
 	if (
 		context.authType !== "user" ||
@@ -91,7 +102,10 @@ export async function assertOwnerSetLaneExecution(
 			`${action} requires a signed-in organization owner or admin, not an agent session`,
 		);
 	await requireOwnerAdminWorkItemAuthor(context, orgId, action);
-	if (!LaneExecutionPolicySchema.safeParse(metadata.laneExecution).success)
+	if (
+		metadata?.laneExecution !== undefined &&
+		!LaneExecutionPolicySchema.safeParse(metadata.laneExecution).success
+	)
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
 			"metadata.laneExecution is not a valid lane execution policy",

@@ -71,17 +71,9 @@ it.each([
 			);
 			sqlite
 				.prepare(
-					"INSERT INTO work_items(id,org_id,title,disposition,risk_level,work_class,purpose_exception_expires_at,admission_spec_revision,created_at,metadata) VALUES(?,?,?,'accepted','high','maintenance','2099-01-01T00:00:00.000Z','reviewed','2026-10-20T00:00:00.000Z',?)",
+					"INSERT INTO work_items(id,org_id,title,disposition,risk_level,work_class,purpose_exception_expires_at,admission_spec_revision,created_at,metadata,executor_type,executor_id,dispatch_state) VALUES(?,?,?,'accepted','high','maintenance','2099-01-01T00:00:00.000Z','reviewed','2026-10-20T00:00:00.000Z',?,'external_agent','codex','held')",
 				)
-				.run(
-					ITEM,
-					ORG,
-					"Fictional change",
-					JSON.stringify({
-						executor: "codex",
-						laneDispatch: { state: "held" },
-					}),
-				);
+				.run(ITEM, ORG, "Fictional change", JSON.stringify({}));
 			sqlite
 				.prepare(
 					"INSERT INTO work_approval_proposals(id,org_id,work_item_id,work_item_version,authority_key,action,proposal,requester_type,requester_id,approver_type,approver_id,status,rationale,expires_at,created_at) VALUES('proposal',?,?,1,'risk:high','admission','{}','user','fictional-requester','user','fictional-approver','approved','Reviewed scope','2099-01-01T00:00:00.000Z','2026-10-20T00:00:00.000Z')",
@@ -119,8 +111,8 @@ it.each([
 			const updated = await update();
 			expect(updated.version).toBe(2);
 			expect(updated.disposition).toBe("accepted");
-			expect(updated.metadata?.laneDispatch).toEqual({ state: "ready" });
-			expect(updated.metadata?.executor).toBe(change.executor ?? "codex");
+			expect(updated.dispatchState).toBe("ready");
+			expect(updated.executorId).toBe(change.executor ?? "codex");
 			expect(
 				sqlite
 					.prepare(

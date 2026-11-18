@@ -207,7 +207,7 @@ async function dispatchEffect(
 			if (
 				work.disposition !== "accepted" ||
 				work.version !== effect.workVersion ||
-				work.metadata?.executor !== effect.executor
+				work.executorId !== effect.executor
 			)
 				throw createError(
 					ErrorCodes.CONFLICT,
@@ -282,7 +282,7 @@ async function dispatchEffect(
 									: {
 											// A changed agent queues the task for it; the same
 											// agent only needs the runner's hold lifted.
-											...(effect.executor === work.metadata?.executor
+											...(effect.executor === work.executorId
 												? {}
 												: { executor: effect.executor }),
 											laneDispatch: { state: "ready" as const },

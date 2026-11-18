@@ -185,7 +185,7 @@ export async function listOrgWorkAttempts(
 /** A runner's hold: a held dispatch state that carries its reason. */
 const dispatchHoldReason = sql<
 	string | null
->`CASE WHEN json_extract(${workItems.metadata}, '$.laneDispatch.state') = 'held' THEN json_extract(${workItems.metadata}, '$.laneDispatch.reason') END`;
+>`CASE WHEN ${workItems.dispatchState} = 'held' THEN json_extract(${workItems.metadata}, '$.laneDispatch.reason') END`;
 
 function recoveryPredicate(
 	signal: WorkRecoverySignal | undefined,

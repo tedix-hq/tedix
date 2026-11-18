@@ -120,7 +120,7 @@ export async function listRoutableWork(
 			and(
 				eq(workItems.orgId, input.orgId),
 				eq(workItems.disposition, "accepted"),
-				sql`json_extract(${workItems.metadata}, '$.executor') IS NULL`,
+				isNull(workItems.executorId),
 				ne(workItems.workKind, "coding"),
 				sql`trim(coalesce(json_extract(${workItems.acceptanceContract}, '$.doneLooksLike'), '')) <> ''`,
 				or(isNull(workItems.startAt), lte(workItems.startAt, input.now)),

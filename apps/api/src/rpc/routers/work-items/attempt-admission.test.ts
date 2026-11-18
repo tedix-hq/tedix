@@ -59,6 +59,7 @@ async function fixture() {
 	const item = {
 		...params.workItem,
 		...cycle.execution,
+		maxAttempts: preset.factory!.limits.maxAttemptsPerCycle,
 		metadata: proposal.metadata,
 		acceptanceContract: cycle.acceptanceContract,
 	} as Item;

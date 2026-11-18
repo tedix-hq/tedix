@@ -127,7 +127,7 @@ describe("assignAgentOnYes", () => {
 
 	it.each([
 		[
-			{ metadata: { executor: "claude-code" } },
+			{ executorType: "external_agent", executorId: "claude-code" },
 			"already has an executor (claude-code)",
 		],
 		[{ riskLevel: "high" }, "high-risk"],

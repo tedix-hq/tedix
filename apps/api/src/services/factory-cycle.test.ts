@@ -75,6 +75,7 @@ describe("Factory Blueprint v0", () => {
 		expect(
 			readFactoryCycle(proposal.metadata!)?.admissionSpecification.resources,
 		).toEqual([{ resourceKey: `factory:${workspaceId}`, quantity: 1 }]);
+		expect(proposal.maxAttempts).toBe(factory.limits.maxAttemptsPerCycle);
 	});
 	it("no-work remains a reviewed negative finding", async () => {
 		const cycle = readFactoryCycle((await compile("no_work")).metadata!)!;
@@ -99,6 +100,31 @@ describe("Factory Blueprint v0", () => {
 			"different inputs",
 		);
 	});
+	it("includes first-class execution controls in the replay digest", async () => {
+		const original = readFactoryCycle((await compile()).metadata!)!.inputDigest;
+		const variants = [
+			{ executorReference: { type: "tedi" as const, id: "worker" } },
+			{ delegationDepth: 1 },
+			{ rootWorkItemId: revisionId },
+			{ rootGoal: "Ship the verified result" },
+			{ budgetShareMicros: 250_000 },
+		];
+		for (const variant of variants) {
+			const proposal = await compileFactoryCycle({
+				request: { ...request(), ...variant },
+				factory,
+				definitionDigest: "definition-a",
+			});
+			expect(readFactoryCycle(proposal.metadata!)!.inputDigest).not.toBe(
+				original,
+			);
+		}
+	});
+	it("reads retry limits left by the rolling-upgrade migration", async () => {
+		const metadata = structuredClone((await compile()).metadata!);
+		(metadata.factoryCycle as Record<string, unknown>).maxAttempts = 3;
+		expect(readFactoryCycle(metadata)?.maxAttempts).toBe(3);
+	});
 	it("second instance has an independent source intent and resource", async () => {
 		const a = await compile();
 		const b = await compile("deliverable", revisionId);
@@ -115,6 +141,7 @@ describe("Factory Blueprint v0", () => {
 			execution: cycle.execution,
 			specification: cycle.admissionSpecification,
 			attemptCount: 1,
+			maxAttempts: 2,
 		};
 		expect(() => requireFactoryAdmission(admission)).not.toThrow();
 		expect(() =>

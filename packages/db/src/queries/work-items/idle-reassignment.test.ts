@@ -20,7 +20,7 @@ function fixture() {
 	);
 	sqlite
 		.prepare(
-			"INSERT INTO work_items(id,org_id,title,description,created_at,disposition,version,project_id,acceptance_contract,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)",
+			"INSERT INTO work_items(id,org_id,title,description,created_at,disposition,version,project_id,acceptance_contract,metadata,executor_type,executor_id,dispatch_state) VALUES(?,?,?,?,?,?,?,?,?,?,'external_agent','codex','ready')",
 		)
 		.run(
 			"work",
@@ -32,7 +32,7 @@ function fixture() {
 			3,
 			"project",
 			JSON.stringify({ version: 1, doneLooksLike: "Sizing corrected" }),
-			JSON.stringify({ executor: "codex", laneDispatch: { state: "ready" } }),
+			JSON.stringify({}),
 		);
 	const db = createDbQueryClient(createD1Facade(sqlite));
 	const input = {
@@ -75,7 +75,7 @@ it("reassigns at the threshold with one visible reason while preserving revision
 		const result = await reassignIdleWork(db, input);
 		expect(result.version).toBe(3);
 		expect(result.admissionSpecRevision).not.toBe("legacy");
-		expect(result.metadata?.executor).toBe("opencode");
+		expect(result.executorId).toBe("opencode");
 		expect(sqlite.prepare("SELECT body FROM work_item_comments").all()).toEqual(
 			[
 				{
@@ -107,6 +107,7 @@ it.each([
 	"threshold",
 	"version",
 	"executor",
+	"executor type",
 	"three failures",
 	"live attempt",
 	"human wait",
@@ -128,6 +129,8 @@ it.each([
 			input.unavailableSince = "2026-11-07T21:46:00.000Z";
 		if (reason === "version") input.expectedVersion = 2;
 		if (reason === "executor") input.fromExecutor = "devin";
+		if (reason === "executor type")
+			sqlite.exec("UPDATE work_items SET executor_type='human'");
 		if (reason === "wrong org") input.orgId = "other-org";
 		if (reason === "three failures") {
 			attempt(1);
@@ -159,20 +162,15 @@ it.each([
 		if (reason === "reserved")
 			sqlite.exec("UPDATE work_items SET description='Complete OAuth consent'");
 		if (reason === "held coordinator")
-			sqlite.exec(
-				`UPDATE work_items SET metadata=json_set(metadata,'$.laneDispatch.state','held')`,
-			);
+			sqlite.exec("UPDATE work_items SET dispatch_state='held'");
 		if (reason === "future")
 			sqlite.exec("UPDATE work_items SET start_at='2026-11-08T00:00:00.000Z'");
 		if (reason === "unaccepted")
 			sqlite.exec("UPDATE work_items SET disposition='proposed'");
 		await expect(reassignIdleWork(db, input)).rejects.toThrow();
 		expect(
-			sqlite
-				.prepare(
-					"SELECT json_extract(metadata,'$.executor') AS executor FROM work_items",
-				)
-				.get()?.executor,
+			sqlite.prepare("SELECT executor_id AS executor FROM work_items").get()
+				?.executor,
 		).toBe("codex");
 		expect(
 			sqlite.prepare("SELECT count(*) AS n FROM work_item_comments").get()?.n,

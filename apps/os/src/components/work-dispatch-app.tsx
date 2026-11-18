@@ -80,9 +80,15 @@ const isSessionHost = (value: unknown): value is SessionHost =>
 export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 	const client = useQueryClient();
 	const viewer = useQuery(userProfileQueryOptions());
-	const parsed = WorkExecutorSchema.safeParse(item.metadata?.executor);
+	const parsed = WorkExecutorSchema.safeParse(
+		item.executorType === "external_agent"
+			? item.executorId
+			: (item.executorType ?? item.executorId),
+	);
 	const executor = parsed.success ? parsed.data : "human";
-	const localExecutor = !["human", "tedi"].includes(executor);
+	const localExecutor = item.executorType
+		? item.executorType === "external_agent"
+		: !["human", "tedi"].includes(executor);
 	const editable =
 		item.accountableOwnerType === "user" &&
 		viewer.data?.id === item.accountableOwnerId &&
@@ -106,10 +112,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 		item.disposition === "accepted" &&
 		attempts.isSuccess &&
 		!latest &&
-		item.metadata?.laneDispatch &&
-		typeof item.metadata.laneDispatch === "object" &&
-		"state" in item.metadata.laneDispatch &&
-		item.metadata.laneDispatch.state === "ready";
+		item.dispatchState === "ready";
 	const readiness = useQuery({
 		...workItemReadinessQueryOptions(item.id),
 		enabled: starting || Boolean(queued),

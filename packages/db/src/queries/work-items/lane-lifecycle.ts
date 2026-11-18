@@ -175,11 +175,7 @@ export async function notifyStoppedLanes(
 			targetType: targetType.as("repair_target_type"),
 			targetId: targetId.as("repair_target_id"),
 			attemptNumber: workAttempts.attemptNumber,
-			maxAttempts: sql<
-				number | null
-			>`json_extract(${workItems.metadata}, '$.laneExecution.maxAttempts')`.as(
-				"lane_max_attempts",
-			),
+			maxAttempts: workItems.maxAttempts,
 		})
 		.from(workEvents)
 		.innerJoin(

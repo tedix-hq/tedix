@@ -27,10 +27,10 @@ export const FactoryCycleRecordSchema = z
 		cycleKey: z.string(),
 		templateKey: z.string(),
 		outcome: z.enum(["deliverable", "no_work"]),
+		maxAttempts: z.number().int().min(1).max(5).optional(),
 		sourceRefs: z.array(
 			z.object({ uri: z.string(), revision: z.string() }).strict(),
 		),
-		maxAttempts: z.number().int().positive(),
 		execution: z
 			.object({
 				workKind: WorkItemKindSchema,
@@ -94,6 +94,12 @@ export async function compileFactoryCycle(input: {
 		summary: request.description ?? null,
 		binding: {
 			parentWorkItemId: request.parentWorkItemId,
+			executor: request.executor,
+			executorReference: request.executorReference,
+			delegationDepth: request.delegationDepth,
+			rootWorkItemId: request.rootWorkItemId,
+			rootGoal: request.rootGoal,
+			budgetShareMicros: request.budgetShareMicros,
 			accountableOwnerType: request.accountableOwnerType,
 			accountableOwnerId: request.accountableOwnerId,
 			stewardType: request.stewardType,
@@ -101,6 +107,10 @@ export async function compileFactoryCycle(input: {
 			priority: request.priority,
 			dueDate: request.dueDate,
 			deadline: request.deadline,
+			startAt: request.startAt,
+			durationDays: request.durationDays,
+			workClass: request.workClass,
+			purposeExceptionExpiresAt: request.purposeExceptionExpiresAt,
 			metadata: request.metadata,
 			provenance: request.provenance,
 		},
@@ -116,7 +126,6 @@ export async function compileFactoryCycle(input: {
 		templateKey: template.key,
 		outcome: template.outcome,
 		sourceRefs,
-		maxAttempts: factory.limits.maxAttemptsPerCycle,
 		execution: {
 			workKind: template.workKind,
 			riskLevel: template.riskLevel,
@@ -142,6 +151,7 @@ export async function compileFactoryCycle(input: {
 		riskLevel: template.riskLevel,
 		requiredCapabilities: template.requiredCapabilities,
 		requiredAuthorities: template.requiredAuthorities,
+		maxAttempts: factory.limits.maxAttemptsPerCycle,
 		sourceIntentId,
 		metadata: { ...request.metadata, factoryCycle: record },
 	};
@@ -257,6 +267,7 @@ export function requireFactoryAdmission(input: {
 	metadata: Record<string, unknown> | null;
 	specification: z.infer<typeof WorkAdmissionSpecificationSchema>;
 	attemptCount: number;
+	maxAttempts: number;
 	execution?: z.infer<typeof FactoryCycleRecordSchema>["execution"];
 }) {
 	const cycle = readFactoryCycle(input.metadata);
@@ -267,7 +278,7 @@ export function requireFactoryAdmission(input: {
 			"Factory execution specification must match the pinned template",
 		);
 	}
-	if (input.attemptCount >= cycle.maxAttempts) {
+	if (input.attemptCount >= input.maxAttempts) {
 		throw createError(
 			ErrorCodes.CONFLICT,
 			"Factory retry budget exhausted; diagnose and propose a new bounded cycle",

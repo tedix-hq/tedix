@@ -189,13 +189,25 @@ export const WORK_EVIDENCE_DISPOSITION_VALUES = [
 export type WorkEvidenceDisposition =
 	(typeof WORK_EVIDENCE_DISPOSITION_VALUES)[number];
 
-/** Credential-derived actor authorized by one fenced Work Item attempt. */
+/** A principal that may be assigned Work or recorded as its actual executor. */
+export const WORK_EXECUTOR_TYPE_VALUES = [
+	"human",
+	"tedi",
+	"external_agent",
+	"team",
+	"organization",
+] as const;
+export type WorkExecutorType = (typeof WORK_EXECUTOR_TYPE_VALUES)[number];
 export const WORK_ITEM_EXECUTOR_TYPE_VALUES = [
 	"tedi",
 	"external_agent",
 ] as const;
 export type WorkItemExecutorType =
 	(typeof WORK_ITEM_EXECUTOR_TYPE_VALUES)[number];
+
+export const WORK_ITEM_DISPATCH_STATE_VALUES = ["held", "ready"] as const;
+export type WorkItemDispatchState =
+	(typeof WORK_ITEM_DISPATCH_STATE_VALUES)[number];
 
 export const WORK_ITEM_PROJECTION_DIRECTION_VALUES = [
 	"source",
@@ -279,6 +291,17 @@ export const workItems = pgTable(
 		 * containment, and cycle checks).
 		 */
 		parentWorkItemId: text("parent_work_item_id"),
+		executorType: text("executor_type", { enum: WORK_EXECUTOR_TYPE_VALUES }),
+		executorId: text("executor_id"),
+		dispatchState: text("dispatch_state", {
+			enum: WORK_ITEM_DISPATCH_STATE_VALUES,
+		}),
+		delegationDepth: integer("delegation_depth"),
+		maxAttempts: integer("max_attempts"),
+		rootWorkItemId: text("root_work_item_id"),
+		rootGoal: text("root_goal"),
+		/** Millionths of the parent contract's budget reserved for this Work. */
+		budgetShareMicros: integer("budget_share_micros"),
 		sourceSessionKey: text("source_session_key"),
 		sourceIntentId: text("source_intent_id"),
 		dueDate: text("due_date"),
@@ -308,7 +331,8 @@ export const workItems = pgTable(
 		index("idx_work_items_lane_executor").on(
 			table.orgId,
 			table.disposition,
-			sql`(${table.metadata} #>> '{executor}')`,
+			table.executorType,
+			table.executorId,
 			table.createdAt,
 			table.id,
 		),
@@ -317,11 +341,12 @@ export const workItems = pgTable(
 			.on(
 				table.orgId,
 				table.disposition,
-				sql`(${table.metadata} #>> '{executor}')`,
+				table.executorType,
+				table.executorId,
 				table.createdAt,
 				table.id,
 			)
-			.where(sql`(${table.metadata} #>> '{laneDispatch,state}') = 'ready'`),
+			.where(sql`${table.dispatchState} = 'ready'`),
 		index("idx_work_items_org_kind_risk").on(
 			table.orgId,
 			table.workKind,
@@ -491,7 +516,7 @@ export const workAttempts = pgTable(
 			.notNull()
 			.references(() => organizations.id, { onDelete: "cascade" }),
 		executorType: text("executor_type", {
-			enum: WORK_ITEM_EXECUTOR_TYPE_VALUES,
+			enum: WORK_EXECUTOR_TYPE_VALUES,
 		}).notNull(),
 		executorId: text("executor_id").notNull(),
 		executorSessionId: text("executor_session_id"),

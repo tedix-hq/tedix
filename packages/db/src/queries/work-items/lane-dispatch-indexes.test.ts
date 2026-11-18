@@ -8,6 +8,7 @@ import { deriveWorkItemReadiness } from "./readiness";
 
 const migration = "20261022073425_work_items_lane_dispatch_indexes";
 const backfill = "20261115163121_lane_ready_requires_state";
+const executionContract = "20261118053954_work_item_execution_contract";
 
 // Build the chain-prefix template at collection, not inside a timed test on a
 // shared machine.
@@ -31,8 +32,18 @@ describe("lane dispatch indexes", () => {
 				WHEN i=3 THEN '{"executor":"codex","laneDispatch":null}'
 				ELSE '{"executor":"codex","laneDispatch":{"state":"held"}}' END,
 				'2026-10-22T00:00:00Z','revision-1' FROM n;
+			INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision)
+			VALUES('bad','org-2','Malformed','accepted','{"executor":{"kind":"codex"},"laneDispatch":{"state":"later"},"laneExecution":{"delegationDepth":"deep","maxAttempts":99},"budgetShareMicros":"all"}','2026-10-22T00:00:00Z','revision-1');
+			INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision)
+			VALUES('invalid-root','org-2','Invalid roots','accepted',json_object('rootWorkItemId','11111111-1111-4111-8111-111111-11111','rootGoal',printf('%10001s','x')),'2026-10-22T00:00:00Z','revision-1');
+			INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision)
+			VALUES('empty-executor','org-2','Empty executor','accepted',json_object('executor',''),'2026-10-22T00:00:00Z','revision-1');
+			INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision)
+			VALUES('oversized-executor','org-2','Oversized executor','accepted',json_object('executor',printf('%301s','x')),'2026-10-22T00:00:00Z','revision-1');
+			INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision)
+			VALUES('legacy-factory','org-2','Legacy factory','accepted','{"factoryCycle":{"maxAttempts":3}}','2026-10-22T00:00:00Z','revision-1');
 		`);
-		for (const name of [migration, backfill])
+		for (const name of [migration, backfill, executionContract])
 			sqlite.exec(
 				readFileSync(
 					new URL(`../../../drizzle/${name}/migration.sql`, import.meta.url),
@@ -67,12 +78,12 @@ describe("lane dispatch indexes", () => {
 				.map((row) => row.detail)
 				.join("\n");
 			expect(plan, query).toContain(
-				"idx_work_items_lane_ready (org_id=? AND disposition=? AND <expr>=?)",
+				"idx_work_items_lane_ready (org_id=? AND disposition=?",
 			);
 			expect(plan).not.toMatch(/SCAN work_items/);
 		}
 		sqlite.exec(
-			`UPDATE work_items SET metadata='{"executor":"codex","laneDispatch":{"state":"ready"}}' WHERE id='00004'`,
+			`UPDATE work_items SET executor_type='external_agent', executor_id='codex', dispatch_state='ready' WHERE id='00004'`,
 		);
 		const updated = await listWorkItemsPage(db, {
 			orgId: "org-1",
@@ -85,6 +96,57 @@ describe("lane dispatch indexes", () => {
 			"00003",
 			"00004",
 		]);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT executor_type,executor_id,dispatch_state,json_extract(metadata,'$.executor') AS legacy_executor,json_extract(metadata,'$.laneDispatch.state') AS legacy_state FROM work_items WHERE id='00001'",
+				)
+				.get(),
+		).toEqual({
+			executor_type: "external_agent",
+			executor_id: "codex",
+			dispatch_state: "ready",
+			legacy_executor: "codex",
+			legacy_state: "ready",
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT executor_type,executor_id,dispatch_state,delegation_depth,max_attempts,budget_share_micros,json_extract(metadata,'$.executor') AS legacy_executor FROM work_items WHERE id='bad'",
+				)
+				.get(),
+		).toEqual({
+			executor_type: null,
+			executor_id: null,
+			dispatch_state: null,
+			delegation_depth: null,
+			max_attempts: null,
+			budget_share_micros: null,
+			legacy_executor: '{"kind":"codex"}',
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT root_work_item_id,root_goal FROM work_items WHERE id='invalid-root'",
+				)
+				.get(),
+		).toEqual({ root_work_item_id: null, root_goal: null });
+		for (const id of ["empty-executor", "oversized-executor"]) {
+			expect(
+				sqlite
+					.prepare(
+						"SELECT executor_type,executor_id FROM work_items WHERE id=?",
+					)
+					.get(id),
+			).toEqual({ executor_type: null, executor_id: null });
+		}
+		expect(
+			sqlite
+				.prepare(
+					"SELECT max_attempts,json_extract(metadata,'$.factoryCycle.maxAttempts') AS legacy_max_attempts FROM work_items WHERE id='legacy-factory'",
+				)
+				.get(),
+		).toEqual({ max_attempts: 3, legacy_max_attempts: 3 });
 	});
 });
 
@@ -92,9 +154,9 @@ describe("dispatch order and readiness", () => {
 	it("lists ready Work by priority, due date, then oldest and ignores plan-less Work", async () => {
 		const sqlite = createMigratedSqlite({ foreignKeys: false });
 		const row = sqlite.prepare(
-			"INSERT INTO work_items(id,org_id,title,disposition,metadata,priority,due_date,created_at,admission_spec_revision) VALUES(?,?,?,?,?,?,?,?,'r')",
+			"INSERT INTO work_items(id,org_id,title,disposition,dispatch_state,priority,due_date,created_at,admission_spec_revision,executor_type,executor_id) VALUES(?,?,?,?,?,?,?,?,'r','external_agent','codex')",
 		);
-		const ready = '{"executor":"codex","laneDispatch":{"state":"ready"}}';
+		const ready = "ready";
 		row.run(
 			"a-old-medium",
 			"o",
@@ -150,7 +212,7 @@ describe("dispatch order and readiness", () => {
 			"o",
 			"t",
 			"accepted",
-			'{"executor":"codex"}',
+			null,
 			"critical",
 			null,
 			"2025-01-01",
@@ -173,7 +235,7 @@ describe("dispatch order and readiness", () => {
 	it("keeps Work off the ready list until its start date and says so in readiness", async () => {
 		const sqlite = createMigratedSqlite({ foreignKeys: false });
 		const row = sqlite.prepare(
-			`INSERT INTO work_items(id,org_id,title,disposition,metadata,start_at,created_at,admission_spec_revision,work_class,purpose_exception_expires_at) VALUES(?,'o','t','accepted','{"executor":"codex","laneDispatch":{"state":"ready"}}',?,'2026-01-01','r','maintenance','2026-11-30T00:00:00.000Z')`,
+			`INSERT INTO work_items(id,org_id,title,disposition,executor_type,executor_id,dispatch_state,start_at,created_at,admission_spec_revision,work_class,purpose_exception_expires_at) VALUES(?,'o','t','accepted','external_agent','codex','ready',?,'2026-01-01','r','maintenance','2026-11-30T00:00:00.000Z')`,
 		);
 		row.run("undated", null);
 		row.run("started", "2026-11-01T00:00:00.000Z");

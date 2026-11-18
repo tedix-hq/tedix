@@ -8,8 +8,10 @@ import {
 	CARD_SECRET_MESSAGE,
 } from "@tedix/api-contract/utils/card-secrets";
 import {
-	LANE_READY_EXECUTORS,
 	type LaneDispatchPlan,
+	type WorkExecutorReference,
+	isLaneReadyExecutorReference,
+	workExecutorReference,
 } from "@tedix/api-contract/schemas/work-items";
 import { INTERNAL_WORK_PURPOSE_CONTEXTS } from "@tedix/api-contract/schemas/work-purpose-context";
 import {
@@ -76,6 +78,14 @@ export interface CreateWorkItemParams {
 	purposeExceptionExpiresAt?: string;
 	projectId?: string;
 	parentWorkItemId?: string;
+	executorType?: "human" | "tedi" | "external_agent" | "team" | "organization";
+	executorId?: string;
+	dispatchState?: "held" | "ready";
+	delegationDepth?: number;
+	maxAttempts?: number;
+	rootWorkItemId?: string;
+	rootGoal?: string;
+	budgetShareMicros?: number;
 	sourceSessionKey?: string;
 	sourceIntentId?: string;
 	dueDate?: string;
@@ -427,11 +437,20 @@ export async function listWorkItemsPage(
 			? ne(workItems.disposition, options.excludeDisposition)
 			: undefined,
 		executors
-			? // bound-params: executor filter is limited to 10 values above.
-				inArray(sql`(${workItems.metadata} #>> '{executor}')`, executors)
+			? or(
+					...executors.map((executor) => {
+						const reference = workExecutorReference(executor);
+						if (executor === "human" || executor === "tedi")
+							return eq(workItems.executorType, reference.type);
+						return and(
+							eq(workItems.executorType, reference.type),
+							eq(workItems.executorId, reference.id),
+						);
+					}),
+				)
 			: undefined,
 		options.dispatchReadyOnly
-			? sql`(${workItems.metadata} #>> '{laneDispatch,state}') = 'ready'`
+			? sql`${workItems.dispatchState} = 'ready'`
 			: undefined,
 		options.dispatchReadyOnly
 			? or(isNull(workItems.startAt), lte(workItems.startAt, dispatchNow))
@@ -762,9 +781,11 @@ export async function acceptWorkItem(
 			"ACCEPTANCE_REQUIRED",
 			"An acceptance contract must state what done looks like",
 		);
-	const executor = prior.metadata?.executor;
-	const dispatch = ["codex", "claude-code", "tedi", "human"].includes(
-		String(executor),
+	const executor = prior.executorId;
+	const dispatch = isLaneReadyExecutorReference(
+		prior.executorType && executor
+			? { type: prior.executorType, id: executor }
+			: undefined,
 	);
 	const receiptId = crypto.randomUUID();
 	const parent =
@@ -781,12 +802,12 @@ export async function acceptWorkItem(
 			.update(workItems)
 			.set({
 				disposition: "accepted",
+				dispatchState: dispatch ? "ready" : undefined,
 				...(purposeExceptionExpiresAt ? { purposeExceptionExpiresAt } : {}),
 				...(dispatch
 					? {
 							metadata: {
 								...prior.metadata,
-								laneDispatch: { state: "ready" as const },
 								laneDispatchReceiptId: receiptId,
 							},
 						}
@@ -1163,6 +1184,11 @@ const APPROVED_SPECIFICATION_FIELDS = [
 	"deadline",
 	"startAt",
 	"durationDays",
+	"delegationDepth",
+	"maxAttempts",
+	"rootWorkItemId",
+	"rootGoal",
+	"budgetShareMicros",
 ] as const;
 
 /**
@@ -1173,12 +1199,20 @@ function isPlanningOnlyUpdate(
 	prior: WorkItem,
 	params: Partial<
 		Record<(typeof APPROVED_SPECIFICATION_FIELDS)[number], unknown>
-	> & { executor?: string; laneDispatch?: LaneDispatchPlan },
+	> & {
+		executor?: string;
+		executorReference?: WorkExecutorReference;
+		laneDispatch?: LaneDispatchPlan;
+	},
 ): boolean {
+	const executorReference =
+		params.executorReference ??
+		(params.executor ? workExecutorReference(params.executor) : undefined);
 	return (
-		params.laneDispatch !== undefined &&
-		(params.executor === undefined ||
-			params.executor === prior.metadata?.executor) &&
+		(params.laneDispatch !== undefined || executorReference !== undefined) &&
+		(executorReference === undefined ||
+			(executorReference.id === prior.executorId &&
+				executorReference.type === prior.executorType)) &&
 		APPROVED_SPECIFICATION_FIELDS.every(
 			(field) =>
 				params[field] === undefined ||
@@ -1194,6 +1228,7 @@ export async function updateWorkItemSpecification(
 		workItemId: string;
 		actor: WorkActor;
 		executor?: string;
+		executorReference?: WorkExecutorReference;
 		laneDispatch?: LaneDispatchPlan;
 		/** Validated by the caller. */
 		projectId?: string;
@@ -1216,16 +1251,27 @@ export async function updateWorkItemSpecification(
 		deadline?: string | null;
 		startAt?: string | null;
 		durationDays?: number | null;
+		delegationDepth?: number | null;
+		maxAttempts?: number | null;
+		rootWorkItemId?: string | null;
+		rootGoal?: string | null;
+		budgetShareMicros?: number | null;
 		updatedAt?: string;
 	},
 ): Promise<WorkItem> {
 	const updatedAt = params.updatedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	const requestedExecutor =
+		params.executorReference ??
+		(params.executor ? workExecutorReference(params.executor) : undefined);
 	const laneDispatch =
 		params.laneDispatch ??
-		(params.executor !== undefined &&
-		(LANE_READY_EXECUTORS as readonly string[]).includes(params.executor)
-			? { state: "ready" as const }
+		(requestedExecutor
+			? {
+					state: isLaneReadyExecutorReference(requestedExecutor)
+						? ("ready" as const)
+						: ("held" as const),
+				}
 			: undefined);
 	const dispatch =
 		prior.disposition === "accepted" && laneDispatch?.state === "ready";
@@ -1245,13 +1291,34 @@ export async function updateWorkItemSpecification(
 						: {
 								...prior.metadata,
 								...(dispatch ? { laneDispatchReceiptId: receiptId } : {}),
-								...(params.executor === undefined
-									? {}
-									: { executor: params.executor }),
 								...(laneDispatch === undefined
 									? {}
-									: { laneDispatch: laneDispatch }),
+									: laneDispatch.reason ||
+										  laneDispatch.note ||
+										  laneDispatch.score
+										? {
+												laneDispatch: {
+													...(laneDispatch.score === undefined
+														? {}
+														: { score: laneDispatch.score }),
+													...(laneDispatch.reason
+														? { reason: laneDispatch.reason }
+														: {}),
+													...(laneDispatch.note
+														? { note: laneDispatch.note }
+														: {}),
+												},
+											}
+										: { laneDispatch: null }),
 							},
+				executorType: requestedExecutor?.type,
+				executorId: requestedExecutor?.id,
+				dispatchState: laneDispatch?.state,
+				delegationDepth: params.delegationDepth,
+				maxAttempts: params.maxAttempts,
+				rootWorkItemId: params.rootWorkItemId,
+				rootGoal: params.rootGoal,
+				budgetShareMicros: params.budgetShareMicros,
 				projectId: projectMove?.to,
 				title: params.title,
 				description: params.description,
@@ -1321,7 +1388,7 @@ export async function updateWorkItemSpecification(
 						dispatchReceiptInsert(
 							tx,
 							prior,
-							String(params.executor ?? prior.metadata?.executor),
+							String(requestedExecutor?.id ?? prior.executorId),
 							updatedAt,
 							receiptId,
 						),
