@@ -292,6 +292,63 @@ describe("workspace activity sentences", () => {
 		).toEqual(["Scout changed Launch plan"]);
 	});
 
+	it("credits the person who renamed or archived a file, not the store's unsigned note", () => {
+		const me = { kind: "user", id: "user-me" } as const;
+		const store = { kind: "service", id: "workspace_object" } as const;
+		for (const order of ["person first", "store first"] as const) {
+			const rename = [
+				item({
+					actor: me,
+					title: "Launch plan v2",
+					summary: "Updated Launch plan v2",
+					revision: 1,
+					...file("plan", "rev-1"),
+				}),
+				item({
+					kind: "run",
+					actor: store,
+					action: action("outputs", "update_metadata", "applied", "rev-1"),
+					...file("plan", "rev-1"),
+				}),
+			];
+			const archive = [
+				item({
+					actor: me,
+					title: "Launch plan v2",
+					summary: "Archived Launch plan v2",
+					revision: 1,
+					...file("plan", "rev-1"),
+				}),
+				item({
+					kind: "run",
+					actor: store,
+					action: action("outputs", "archive", "applied", "rev-1"),
+					...file("plan", "rev-1"),
+				}),
+			];
+			const arrange = (pair: WorkspaceActivityItem[]) =>
+				order === "person first" ? pair : [...pair].reverse();
+			expect(
+				sentences([
+					...arrange(archive),
+					...arrange(rename),
+					item({
+						actor: me,
+						title: "Launch plan",
+						revision: 1,
+						occurredAt: "2026-11-08T09:00:00Z",
+						...file("plan", "rev-1"),
+					}),
+				]),
+				order,
+			).toEqual([
+				"You archived Launch plan v2",
+				"You renamed Launch plan v2",
+				"You created Launch plan",
+			]);
+		}
+	});
+
 	it("leaves out other workspaces, unverified files and chat steps", () => {
 		const luz = { kind: "user", id: "user-luz" } as const;
 		expect(
