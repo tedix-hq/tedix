@@ -176,6 +176,29 @@ export async function listWorkspaceFeedPositions(
 	return positions;
 }
 
+/**
+ * Workspaces whose feed took a new row after `appliedAfter`, most recent
+ * first. Reads the position table, which holds one small row per workspace,
+ * never the feed itself.
+ */
+export async function listWorkspaceFeedsMovedSince(
+	db: DbQueryClient,
+	params: { appliedAfter: string; limit: number },
+): Promise<
+	Array<{ organizationId: string; workspaceId: string; lastSeq: number }>
+> {
+	return db
+		.select({
+			organizationId: workspaceFeedCursors.organizationId,
+			workspaceId: workspaceFeedCursors.workspaceId,
+			lastSeq: workspaceFeedCursors.lastSeq,
+		})
+		.from(workspaceFeedCursors)
+		.where(gt(workspaceFeedCursors.appliedAt, params.appliedAfter))
+		.orderBy(desc(workspaceFeedCursors.appliedAt))
+		.limit(Math.min(Math.max(params.limit, 1), 100));
+}
+
 export interface WorkspaceUnreadFeedRow {
 	seq: number;
 	kind: "output" | "run";

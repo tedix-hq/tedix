@@ -172,6 +172,13 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			await trackPlatformCronPath(env, event, "approval-expiry", () =>
 				expireOverdueApprovals(env),
 			);
+			// A change the workspace agent holds for a person: the people who
+			// can decide it get a push, since nothing else tells the API.
+			const { pushWaitingWorkspaceApprovalsTick } =
+				await import("./workspace-approval-push");
+			await trackPlatformCronPath(env, event, "workspace-approval-push", () =>
+				pushWaitingWorkspaceApprovalsTick(env, event.scheduledTime),
+			);
 		}
 
 		if (cron === "*/2 * * * *") {
