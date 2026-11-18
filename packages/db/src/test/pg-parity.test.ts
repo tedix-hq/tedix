@@ -51,7 +51,6 @@ import {
 	workBudgetReservations as d1WorkBudgetReservations,
 	workCaseItems as d1WorkCaseItems,
 	workCases as d1WorkCases,
-	workMilestones as d1WorkMilestones,
 	workResourcePools as d1WorkResourcePools,
 	workResourceRequirements as d1WorkResourceRequirements,
 	workResourceReservations as d1WorkResourceReservations,
@@ -81,7 +80,6 @@ import {
 	workBudgetReservations as pgWorkBudgetReservations,
 	workCaseItems as pgWorkCaseItems,
 	workCases as pgWorkCases,
-	workMilestones as pgWorkMilestones,
 	workResourcePools as pgWorkResourcePools,
 	workResourceRequirements as pgWorkResourceRequirements,
 	workResourceReservations as pgWorkResourceReservations,
@@ -147,7 +145,6 @@ const planes: Plane[] = [
 					d1WorkApprovalDecisions,
 					d1WorkCases,
 					d1WorkCaseItems,
-					d1WorkMilestones,
 				) + SEED,
 			);
 			return {
@@ -202,7 +199,6 @@ const planes: Plane[] = [
 					pgWorkApprovalDecisions,
 					pgWorkCases,
 					pgWorkCaseItems,
-					pgWorkMilestones,
 				) + SEED,
 			);
 			return {

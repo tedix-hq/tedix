@@ -42,23 +42,6 @@ export const WORK_CASE_STAGE_VALUES = [
 ] as const;
 export type WorkCaseStage = (typeof WORK_CASE_STAGE_VALUES)[number];
 
-export const WORK_MILESTONE_STATUS_VALUES = [
-	"proposed",
-	"planned",
-	"active",
-	"done",
-	"cancelled",
-] as const;
-export type WorkMilestoneStatus = (typeof WORK_MILESTONE_STATUS_VALUES)[number];
-
-export const WORK_SPRINT_STATUS_VALUES = [
-	"planned",
-	"active",
-	"completed",
-	"cancelled",
-] as const;
-export type WorkSprintStatus = (typeof WORK_SPRINT_STATUS_VALUES)[number];
-
 export const WORK_HEALTH_STATUS_VALUES = [
 	"on_track",
 	"at_risk",
@@ -243,170 +226,6 @@ export const workCaseItems = sqliteTable(
 			foreignColumns: [workItems.orgId, workItems.id],
 		}).onDelete("cascade"),
 		index("idx_work_case_items_work").on(table.orgId, table.workItemId),
-	],
-);
-
-export const workMilestones = sqliteTable(
-	"work_milestones",
-	{
-		id: text("id").primaryKey(),
-		orgId: text("org_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		projectId: text("project_id").notNull(),
-		title: text("title").notNull(),
-		description: text("description"),
-		status: text("status", { enum: WORK_MILESTONE_STATUS_VALUES })
-			.notNull()
-			.default("proposed"),
-		accountableOwnerType: text("accountable_owner_type", {
-			enum: ["user", "tedi", "system"] as const,
-		}).notNull(),
-		accountableOwnerId: text("accountable_owner_id").notNull(),
-		sortOrder: integer("sort_order").notNull().default(0),
-		targetAt: text("target_at"),
-		proofRef: text("proof_ref"),
-		metadata: text("metadata", { mode: "json" })
-			.$type<Record<string, JsonValue>>()
-			.notNull()
-			.default({}),
-		createdAt: text("created_at").notNull(),
-		updatedAt: text("updated_at"),
-		doneAt: text("done_at"),
-		cancelledAt: text("cancelled_at"),
-		version: integer("version").notNull().default(1),
-	},
-	(table) => [
-		uniqueIndex("uniq_work_milestones_org_id").on(table.orgId, table.id),
-		foreignKey({
-			name: "fk_work_milestone_project",
-			columns: [table.orgId, table.projectId],
-			foreignColumns: [projects.orgId, projects.id],
-		}).onDelete("cascade"),
-		index("idx_work_milestones_project_status").on(
-			table.orgId,
-			table.projectId,
-			table.status,
-		),
-	],
-);
-
-export const workMilestoneDependencies = sqliteTable(
-	"work_milestone_dependencies",
-	{
-		id: text("id").primaryKey(),
-		orgId: text("org_id").notNull(),
-		prerequisiteMilestoneId: text("prerequisite_milestone_id").notNull(),
-		dependentMilestoneId: text("dependent_milestone_id").notNull(),
-		createdAt: text("created_at").notNull(),
-	},
-	(table) => [
-		foreignKey({
-			name: "fk_work_milestone_dependency_from",
-			columns: [table.orgId, table.prerequisiteMilestoneId],
-			foreignColumns: [workMilestones.orgId, workMilestones.id],
-		}).onDelete("cascade"),
-		foreignKey({
-			name: "fk_work_milestone_dependency_to",
-			columns: [table.orgId, table.dependentMilestoneId],
-			foreignColumns: [workMilestones.orgId, workMilestones.id],
-		}).onDelete("cascade"),
-		uniqueIndex("uniq_work_milestone_dependency").on(
-			table.orgId,
-			table.prerequisiteMilestoneId,
-			table.dependentMilestoneId,
-		),
-		index("idx_work_milestone_dependency_to").on(
-			table.orgId,
-			table.dependentMilestoneId,
-		),
-		check(
-			"chk_work_milestone_dependency_not_self",
-			sql`${table.prerequisiteMilestoneId} <> ${table.dependentMilestoneId}`,
-		),
-	],
-);
-
-export const workMilestoneItems = sqliteTable(
-	"work_milestone_items",
-	{
-		orgId: text("org_id").notNull(),
-		milestoneId: text("milestone_id").notNull(),
-		workItemId: text("work_item_id").notNull(),
-		createdAt: text("created_at").notNull(),
-	},
-	(table) => [
-		primaryKey({ columns: [table.orgId, table.milestoneId, table.workItemId] }),
-		foreignKey({
-			name: "fk_work_milestone_item_milestone",
-			columns: [table.orgId, table.milestoneId],
-			foreignColumns: [workMilestones.orgId, workMilestones.id],
-		}).onDelete("cascade"),
-		foreignKey({
-			name: "fk_work_milestone_item_work",
-			columns: [table.orgId, table.workItemId],
-			foreignColumns: [workItems.orgId, workItems.id],
-		}).onDelete("cascade"),
-		index("idx_work_milestone_items_work").on(table.orgId, table.workItemId),
-	],
-);
-
-export const workSprints = sqliteTable(
-	"work_sprints",
-	{
-		id: text("id").primaryKey(),
-		orgId: text("org_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		projectId: text("project_id").notNull(),
-		name: text("name").notNull(),
-		goal: text("goal"),
-		status: text("status", { enum: WORK_SPRINT_STATUS_VALUES })
-			.notNull()
-			.default("planned"),
-		startAt: text("start_at").notNull(),
-		endAt: text("end_at").notNull(),
-		createdAt: text("created_at").notNull(),
-		updatedAt: text("updated_at"),
-		version: integer("version").notNull().default(1),
-	},
-	(table) => [
-		uniqueIndex("uniq_work_sprints_org_id").on(table.orgId, table.id),
-		foreignKey({
-			name: "fk_work_sprint_project",
-			columns: [table.orgId, table.projectId],
-			foreignColumns: [projects.orgId, projects.id],
-		}).onDelete("cascade"),
-		index("idx_work_sprints_project_start").on(
-			table.orgId,
-			table.projectId,
-			table.startAt,
-		),
-		check("chk_work_sprint_dates", sql`${table.endAt} >= ${table.startAt}`),
-	],
-);
-
-export const workSprintItems = sqliteTable(
-	"work_sprint_items",
-	{
-		orgId: text("org_id").notNull(),
-		sprintId: text("sprint_id").notNull(),
-		workItemId: text("work_item_id").notNull(),
-		createdAt: text("created_at").notNull(),
-	},
-	(table) => [
-		primaryKey({ columns: [table.orgId, table.sprintId, table.workItemId] }),
-		foreignKey({
-			name: "fk_work_sprint_item_sprint",
-			columns: [table.orgId, table.sprintId],
-			foreignColumns: [workSprints.orgId, workSprints.id],
-		}).onDelete("cascade"),
-		foreignKey({
-			name: "fk_work_sprint_item_work",
-			columns: [table.orgId, table.workItemId],
-			foreignColumns: [workItems.orgId, workItems.id],
-		}).onDelete("cascade"),
-		index("idx_work_sprint_items_work").on(table.orgId, table.workItemId),
 	],
 );
 
@@ -1189,11 +1008,6 @@ export type WorkCase = typeof workCases.$inferSelect;
 export type NewWorkCase = typeof workCases.$inferInsert;
 export type WorkCaseDependency = typeof workCaseDependencies.$inferSelect;
 export type WorkCaseItem = typeof workCaseItems.$inferSelect;
-export type WorkMilestone = typeof workMilestones.$inferSelect;
-export type NewWorkMilestone = typeof workMilestones.$inferInsert;
-export type WorkMilestoneDependency =
-	typeof workMilestoneDependencies.$inferSelect;
-export type WorkMilestoneItem = typeof workMilestoneItems.$inferSelect;
 export type WorkProjectHealthJudgment =
 	typeof workProjectHealthJudgments.$inferSelect;
 export type WorkApprovalProposal = typeof workApprovalProposals.$inferSelect;
