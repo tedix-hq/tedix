@@ -1,5 +1,7 @@
 /** Canonical billing credits queries. */
 
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
@@ -15,9 +17,17 @@ import { effectiveAllowOverageSql } from "./overage";
 import { monetaryPeriodSpendSql } from "./monetary-inference";
 
 export async function expireBillingCredits(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	now: string,
 ): Promise<number> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/credits")
+			).expireBillingCredits(db.db, now);
+		db = db.db;
+	}
+
 	const grants = await db
 		.select()
 		.from(billingCreditEntries)
@@ -111,10 +121,18 @@ export interface BillingBalanceSnapshot {
 }
 
 export async function getBillingBalanceSnapshot(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	organizationId: string,
 	now: string,
 ): Promise<BillingBalanceSnapshot | null> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/credits")
+			).getBillingBalanceSnapshot(db.db, organizationId, now);
+		db = db.db;
+	}
+
 	// Writers persist UTC ISO milliseconds. datetime() previously truncated both
 	// sides to seconds; start the text range at the next whole second to retain
 	// that cutoff, including for offset or fractional-second caller timestamps.
@@ -228,7 +246,7 @@ export async function getBillingBalanceSnapshot(
 }
 
 export async function grantBillingCredit(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		id: string;
 		organizationId: string;
@@ -242,6 +260,14 @@ export async function grantBillingCredit(
 		createdAt: string;
 	},
 ): Promise<BillingCreditEntry> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/credits")
+			).grantBillingCredit(db.db, input);
+		db = db.db;
+	}
+
 	if (!Number.isSafeInteger(input.amountMicros) || input.amountMicros <= 0) {
 		throw new Error(
 			"Billing credit grants require positive integer USD micros",

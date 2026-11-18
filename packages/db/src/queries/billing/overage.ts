@@ -7,6 +7,8 @@
  * metering) needs no opt-in because nothing is sold.
  */
 
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -43,7 +45,7 @@ export function effectiveAllowOverage(
 }
 
 export async function setBillingOverageSettings(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		organizationId: string;
 		enabled: boolean;
@@ -51,6 +53,14 @@ export async function setBillingOverageSettings(
 		now: string;
 	},
 ): Promise<boolean> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/overage")
+			).setBillingOverageSettings(db.db, input);
+		db = db.db;
+	}
+
 	const rows = await db
 		.update(billingAccounts)
 		.set({

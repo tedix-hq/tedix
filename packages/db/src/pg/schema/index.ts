@@ -16,3 +16,4 @@ export {
 	policyPacks,
 	workspaceTemplateSets,
 } from "./control-plane";
+export * from "./provider-model-rates";

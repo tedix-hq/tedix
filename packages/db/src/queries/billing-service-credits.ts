@@ -7,6 +7,8 @@
  * with Drizzle transactions.
  */
 
+import type { CoreStoreBinding } from "./postgres/core-store";
+import type { PgQueryClient } from "../pg/query-client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, exists, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -190,11 +192,19 @@ function normalizeSnapshot(
 }
 
 export async function getBillingServiceCreditSnapshot(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	organizationId: string,
 	serviceKey: BillingServiceKey,
 	now: string,
 ): Promise<BillingServiceCreditSnapshot | null> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../pg/queries/billing-service-credits")
+			).getBillingServiceCreditSnapshot(db.db, organizationId, serviceKey, now);
+		db = db.db;
+	}
+
 	const planGrant = alias(billingServiceCreditEntries, "plan_grant");
 	const rows = (await db
 		.select({
@@ -304,7 +314,7 @@ function planGrantIdempotencyKey(input: {
  * Atomically grants the plan-period allowance (once) and reserves credits.
  */
 export async function reserveBillingServiceCredits(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		id: string;
 		organizationId: string;
@@ -317,6 +327,14 @@ export async function reserveBillingServiceCredits(
 		now: string;
 	},
 ): Promise<BillingServiceCreditReservationDecision> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../pg/queries/billing-service-credits")
+			).reserveBillingServiceCredits(db.db, input);
+		db = db.db;
+	}
+
 	const [existing] = await db
 		.select()
 		.from(billingServiceCreditReservations)
@@ -627,7 +645,7 @@ export async function reserveBillingServiceCredits(
 }
 
 export async function releaseBillingServiceCreditReservation(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		reservationId: string;
 		organizationId: string;
@@ -635,6 +653,14 @@ export async function releaseBillingServiceCreditReservation(
 		now: string;
 	},
 ): Promise<BillingServiceCreditReservation | null> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../pg/queries/billing-service-credits")
+			).releaseBillingServiceCreditReservation(db.db, input);
+		db = db.db;
+	}
+
 	const [row] = await db
 		.update(billingServiceCreditReservations)
 		.set({
@@ -682,9 +708,17 @@ export interface SettleBillingServiceCreditUsageInput {
  * releases them when the provider failed.
  */
 export async function settleBillingServiceCreditUsage(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: SettleBillingServiceCreditUsageInput,
 ): Promise<BillingServiceCreditReservation> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../pg/queries/billing-service-credits")
+			).settleBillingServiceCreditUsage(db.db, input);
+		db = db.db;
+	}
+
 	if (
 		!Number.isSafeInteger(input.providerCostMicros) ||
 		input.providerCostMicros < 0
@@ -844,7 +878,7 @@ export async function settleBillingServiceCreditUsage(
 }
 
 export async function grantBillingServiceCredits(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		id: string;
 		organizationId: string;
@@ -859,6 +893,14 @@ export async function grantBillingServiceCredits(
 		createdAt: string;
 	},
 ): Promise<BillingServiceCreditEntry> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../pg/queries/billing-service-credits")
+			).grantBillingServiceCredits(db.db, input);
+		db = db.db;
+	}
+
 	if (!Number.isSafeInteger(input.amountCredits) || input.amountCredits <= 0) {
 		throw new Error("Service credit grants require positive integer credits");
 	}
@@ -901,7 +943,7 @@ export async function grantBillingServiceCredits(
 }
 
 export async function setBillingServiceCreditControls(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		organizationId: string;
 		serviceKey: BillingServiceKey;
@@ -914,6 +956,14 @@ export async function setBillingServiceCreditControls(
 		now: string;
 	},
 ): Promise<BillingServiceCreditControl> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../pg/queries/billing-service-credits")
+			).setBillingServiceCreditControls(db.db, input);
+		db = db.db;
+	}
+
 	for (const value of [
 		input.monthlyCreditLimit,
 		input.perTediMonthlyLimit,

@@ -1,5 +1,7 @@
 /** Canonical D1-owned daily inference-capacity pack catalog. */
 
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import { and, desc, eq, inArray, lte } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -8,9 +10,17 @@ import {
 } from "../../schema/billing";
 
 export async function listActiveInferenceCapacityPacks(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: { stripeEnvironment: "test" | "live"; now: string },
 ): Promise<BillingInferenceCapacityPackVersion[]> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/capacity-packs")
+			).listActiveInferenceCapacityPacks(db.db, input);
+		db = db.db;
+	}
+
 	return db
 		.select()
 		.from(billingInferenceCapacityPackVersions)
@@ -31,13 +41,21 @@ export async function listActiveInferenceCapacityPacks(
 }
 
 export async function getActiveInferenceCapacityPackByKey(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		packKey: string;
 		stripeEnvironment: "test" | "live";
 		now: string;
 	},
 ): Promise<BillingInferenceCapacityPackVersion | null> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/capacity-packs")
+			).getActiveInferenceCapacityPackByKey(db.db, input);
+		db = db.db;
+	}
+
 	const [pack] = await db
 		.select()
 		.from(billingInferenceCapacityPackVersions)
@@ -58,9 +76,17 @@ export async function getActiveInferenceCapacityPackByKey(
 }
 
 export async function getInferenceCapacityPackVersionById(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: { id: string; stripeEnvironment: "test" | "live" },
 ): Promise<BillingInferenceCapacityPackVersion | null> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/capacity-packs")
+			).getInferenceCapacityPackVersionById(db.db, input);
+		db = db.db;
+	}
+
 	const [pack] = await db
 		.select()
 		.from(billingInferenceCapacityPackVersions)

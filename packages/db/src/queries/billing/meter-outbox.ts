@@ -1,5 +1,7 @@
 /** Canonical billing meter-outbox queries. */
 
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { chunkForBoundParams } from "../../utils/batch";
@@ -9,7 +11,7 @@ import {
 } from "../../schema/billing";
 
 export async function claimStripeMeterOutbox(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		stripeEnvironment?: "test" | "live";
 		now: string;
@@ -17,6 +19,14 @@ export async function claimStripeMeterOutbox(
 		limit: number;
 	},
 ): Promise<StripeMeterOutboxRow[]> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/meter-outbox")
+			).claimStripeMeterOutbox(db.db, input);
+		db = db.db;
+	}
+
 	const candidates = await db
 		.select({ id: stripeMeterOutbox.id })
 		.from(stripeMeterOutbox)
@@ -76,13 +86,21 @@ export async function claimStripeMeterOutbox(
 }
 
 export async function markStripeMeterOutboxSent(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		id: string;
 		stripeEventId: string;
 		now: string;
 	},
 ): Promise<void> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/meter-outbox")
+			).markStripeMeterOutboxSent(db.db, input);
+		db = db.db;
+	}
+
 	await db
 		.update(stripeMeterOutbox)
 		.set({
@@ -110,7 +128,7 @@ export async function markStripeMeterOutboxSent(
 export const STRIPE_METER_OUTBOX_MAX_ATTEMPTS = 20;
 
 export async function markStripeMeterOutboxFailed(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		id: string;
 		error: string;
@@ -119,6 +137,14 @@ export async function markStripeMeterOutboxFailed(
 		maxAttempts?: number;
 	},
 ): Promise<void> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/meter-outbox")
+			).markStripeMeterOutboxFailed(db.db, input);
+		db = db.db;
+	}
+
 	const maxAttempts = input.maxAttempts ?? STRIPE_METER_OUTBOX_MAX_ATTEMPTS;
 	await db
 		.update(stripeMeterOutbox)

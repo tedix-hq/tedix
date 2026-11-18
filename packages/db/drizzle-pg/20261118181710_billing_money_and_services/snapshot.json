@@ -1,0 +1,6246 @@
+{
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "cc269068-7773-4a18-b15a-0bfc10797520",
+	"prevIds": ["1da5ffd2-6fd8-4eab-998f-c4736d44bc6d"],
+	"footprints": [
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "billing_capacity_allocations"],
+			"writes": [
+				"s|tbl|public.billing_capacity_allocations",
+				"n|tbl|public.billing_capacity_allocations",
+				"e|tbl|public.billing_capacity_allocations",
+				"n|rel|public.billing_capacity_allocations",
+				"n|type|public.billing_capacity_allocations",
+				"n|rel|public.billing_capacity_allocations_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": [
+				"table",
+				"public",
+				"billing_inference_capacity_pack_versions"
+			],
+			"writes": [
+				"s|tbl|public.billing_inference_capacity_pack_versions",
+				"n|tbl|public.billing_inference_capacity_pack_versions",
+				"e|tbl|public.billing_inference_capacity_pack_versions",
+				"n|rel|public.billing_inference_capacity_pack_versions",
+				"n|type|public.billing_inference_capacity_pack_versions",
+				"n|rel|public.billing_inference_capacity_pack_versions_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "billing_plan_service_allowances"],
+			"writes": [
+				"s|tbl|public.billing_plan_service_allowances",
+				"n|tbl|public.billing_plan_service_allowances",
+				"e|tbl|public.billing_plan_service_allowances",
+				"n|rel|public.billing_plan_service_allowances",
+				"n|type|public.billing_plan_service_allowances",
+				"n|rel|public.billing_plan_service_allowances_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "billing_provider_usage"],
+			"writes": [
+				"s|tbl|public.billing_provider_usage",
+				"n|tbl|public.billing_provider_usage",
+				"e|tbl|public.billing_provider_usage",
+				"n|rel|public.billing_provider_usage",
+				"n|type|public.billing_provider_usage",
+				"n|rel|public.billing_provider_usage_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "billing_service_credit_controls"],
+			"writes": [
+				"s|tbl|public.billing_service_credit_controls",
+				"n|tbl|public.billing_service_credit_controls",
+				"e|tbl|public.billing_service_credit_controls",
+				"n|rel|public.billing_service_credit_controls",
+				"n|type|public.billing_service_credit_controls"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "billing_service_credit_entries"],
+			"writes": [
+				"s|tbl|public.billing_service_credit_entries",
+				"n|tbl|public.billing_service_credit_entries",
+				"e|tbl|public.billing_service_credit_entries",
+				"n|rel|public.billing_service_credit_entries",
+				"n|type|public.billing_service_credit_entries",
+				"n|rel|public.billing_service_credit_entries_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": [
+				"table",
+				"public",
+				"billing_service_credit_reservations"
+			],
+			"writes": [
+				"s|tbl|public.billing_service_credit_reservations",
+				"n|tbl|public.billing_service_credit_reservations",
+				"e|tbl|public.billing_service_credit_reservations",
+				"n|rel|public.billing_service_credit_reservations",
+				"n|type|public.billing_service_credit_reservations",
+				"n|rel|public.billing_service_credit_reservations_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "billing_service_rate_cards"],
+			"writes": [
+				"s|tbl|public.billing_service_rate_cards",
+				"n|tbl|public.billing_service_rate_cards",
+				"e|tbl|public.billing_service_rate_cards",
+				"n|rel|public.billing_service_rate_cards",
+				"n|type|public.billing_service_rate_cards",
+				"n|rel|public.billing_service_rate_cards_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "billing_usage_charges"],
+			"writes": [
+				"s|tbl|public.billing_usage_charges",
+				"n|tbl|public.billing_usage_charges",
+				"e|tbl|public.billing_usage_charges",
+				"n|rel|public.billing_usage_charges",
+				"n|type|public.billing_usage_charges",
+				"n|rel|public.billing_usage_charges_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "billing_usage_periods"],
+			"writes": [
+				"s|tbl|public.billing_usage_periods",
+				"n|tbl|public.billing_usage_periods",
+				"e|tbl|public.billing_usage_periods",
+				"n|rel|public.billing_usage_periods",
+				"n|type|public.billing_usage_periods",
+				"n|rel|public.billing_usage_periods_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "stripe_meter_outbox"],
+			"writes": [
+				"s|tbl|public.stripe_meter_outbox",
+				"n|tbl|public.stripe_meter_outbox",
+				"e|tbl|public.stripe_meter_outbox",
+				"n|rel|public.stripe_meter_outbox",
+				"n|type|public.stripe_meter_outbox",
+				"n|rel|public.stripe_meter_outbox_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "stripe_webhook_events"],
+			"writes": [
+				"s|tbl|public.stripe_webhook_events",
+				"n|tbl|public.stripe_webhook_events",
+				"e|tbl|public.stripe_webhook_events",
+				"n|rel|public.stripe_webhook_events",
+				"n|type|public.stripe_webhook_events",
+				"n|rel|public.stripe_webhook_events_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "provider_model_rate_versions"],
+			"writes": [
+				"s|tbl|public.provider_model_rate_versions",
+				"n|tbl|public.provider_model_rate_versions",
+				"e|tbl|public.provider_model_rate_versions",
+				"n|rel|public.provider_model_rate_versions",
+				"n|type|public.provider_model_rate_versions",
+				"n|rel|public.provider_model_rate_versions_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "alter_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"billing_plan_versions",
+				"overage_unit_tokens"
+			],
+			"writes": [
+				"s|colprop|public.billing_plan_versions.overage_unit_tokens.type",
+				"s|colprop|public.billing_plan_versions.overage_unit_tokens.default"
+			],
+			"reads": [
+				"n|tbl|public.billing_plan_versions",
+				"n|sch|public",
+				"n|col|public.billing_plan_versions.overage_unit_tokens"
+			],
+			"sqlHash": "e3db5987988f57e5"
+		},
+		{
+			"statementType": "alter_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"billing_plan_versions",
+				"default_daily_token_limit"
+			],
+			"writes": [
+				"s|colprop|public.billing_plan_versions.default_daily_token_limit.type",
+				"s|colprop|public.billing_plan_versions.default_daily_token_limit.default"
+			],
+			"reads": [
+				"n|tbl|public.billing_plan_versions",
+				"n|sch|public",
+				"n|col|public.billing_plan_versions.default_daily_token_limit"
+			],
+			"sqlHash": "51b88579f9266968"
+		},
+		{
+			"statementType": "alter_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"billing_usage_reservations",
+				"estimated_input_tokens"
+			],
+			"writes": [
+				"s|colprop|public.billing_usage_reservations.estimated_input_tokens.type",
+				"s|colprop|public.billing_usage_reservations.estimated_input_tokens.default"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_reservations",
+				"n|sch|public",
+				"n|col|public.billing_usage_reservations.estimated_input_tokens"
+			],
+			"sqlHash": "bea06b0c3267ac6b"
+		},
+		{
+			"statementType": "alter_column",
+			"statementTarget": [
+				"column",
+				"public",
+				"billing_usage_reservations",
+				"estimated_output_tokens"
+			],
+			"writes": [
+				"s|colprop|public.billing_usage_reservations.estimated_output_tokens.type",
+				"s|colprop|public.billing_usage_reservations.estimated_output_tokens.default"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_reservations",
+				"n|sch|public",
+				"n|col|public.billing_usage_reservations.estimated_output_tokens"
+			],
+			"sqlHash": "09cc6d4757764aba"
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_capacity_allocations",
+				"uniq_billing_capacity_allocation_idempotency"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_capacity_allocation_idempotency",
+				"n|idx|public.uniq_billing_capacity_allocation_idempotency",
+				"e|idx|public.uniq_billing_capacity_allocation_idempotency",
+				"n|rel|public.uniq_billing_capacity_allocation_idempotency"
+			],
+			"reads": [
+				"n|tbl|public.billing_capacity_allocations",
+				"n|sch|public",
+				"n|col|public.billing_capacity_allocations.idempotency_key"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_capacity_allocations",
+				"idx_billing_capacity_allocation_active"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_capacity_allocation_active",
+				"n|idx|public.idx_billing_capacity_allocation_active",
+				"e|idx|public.idx_billing_capacity_allocation_active",
+				"n|rel|public.idx_billing_capacity_allocation_active"
+			],
+			"reads": [
+				"n|tbl|public.billing_capacity_allocations",
+				"n|sch|public",
+				"n|col|public.billing_capacity_allocations.organization_id",
+				"n|col|public.billing_capacity_allocations.stripe_environment",
+				"n|col|public.billing_capacity_allocations.budget_day",
+				"n|col|public.billing_capacity_allocations.expires_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_inference_capacity_pack_versions",
+				"uniq_inference_capacity_pack_version"
+			],
+			"writes": [
+				"s|idx|public.uniq_inference_capacity_pack_version",
+				"n|idx|public.uniq_inference_capacity_pack_version",
+				"e|idx|public.uniq_inference_capacity_pack_version",
+				"n|rel|public.uniq_inference_capacity_pack_version"
+			],
+			"reads": [
+				"n|tbl|public.billing_inference_capacity_pack_versions",
+				"n|sch|public",
+				"n|col|public.billing_inference_capacity_pack_versions.pack_key",
+				"n|col|public.billing_inference_capacity_pack_versions.version",
+				"n|col|public.billing_inference_capacity_pack_versions.stripe_environment"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_inference_capacity_pack_versions",
+				"uniq_inference_capacity_pack_lookup"
+			],
+			"writes": [
+				"s|idx|public.uniq_inference_capacity_pack_lookup",
+				"n|idx|public.uniq_inference_capacity_pack_lookup",
+				"e|idx|public.uniq_inference_capacity_pack_lookup",
+				"n|rel|public.uniq_inference_capacity_pack_lookup"
+			],
+			"reads": [
+				"n|tbl|public.billing_inference_capacity_pack_versions",
+				"n|sch|public",
+				"n|col|public.billing_inference_capacity_pack_versions.stripe_environment",
+				"n|col|public.billing_inference_capacity_pack_versions.stripe_lookup_key"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_inference_capacity_pack_versions",
+				"idx_inference_capacity_pack_active"
+			],
+			"writes": [
+				"s|idx|public.idx_inference_capacity_pack_active",
+				"n|idx|public.idx_inference_capacity_pack_active",
+				"e|idx|public.idx_inference_capacity_pack_active",
+				"n|rel|public.idx_inference_capacity_pack_active"
+			],
+			"reads": [
+				"n|tbl|public.billing_inference_capacity_pack_versions",
+				"n|sch|public",
+				"n|col|public.billing_inference_capacity_pack_versions.stripe_environment",
+				"n|col|public.billing_inference_capacity_pack_versions.status",
+				"n|col|public.billing_inference_capacity_pack_versions.effective_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_plan_service_allowances",
+				"uniq_billing_plan_service_allowance"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_plan_service_allowance",
+				"n|idx|public.uniq_billing_plan_service_allowance",
+				"e|idx|public.uniq_billing_plan_service_allowance",
+				"n|rel|public.uniq_billing_plan_service_allowance"
+			],
+			"reads": [
+				"n|tbl|public.billing_plan_service_allowances",
+				"n|sch|public",
+				"n|col|public.billing_plan_service_allowances.plan_version_id",
+				"n|col|public.billing_plan_service_allowances.service_key"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_provider_usage",
+				"uniq_billing_provider_usage_gateway_log"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_provider_usage_gateway_log",
+				"n|idx|public.uniq_billing_provider_usage_gateway_log",
+				"e|idx|public.uniq_billing_provider_usage_gateway_log",
+				"n|rel|public.uniq_billing_provider_usage_gateway_log"
+			],
+			"reads": [
+				"n|tbl|public.billing_provider_usage",
+				"n|sch|public",
+				"n|col|public.billing_provider_usage.gateway_log_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_provider_usage",
+				"uniq_billing_provider_usage_provider_id"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_provider_usage_provider_id",
+				"n|idx|public.uniq_billing_provider_usage_provider_id",
+				"e|idx|public.uniq_billing_provider_usage_provider_id",
+				"n|rel|public.uniq_billing_provider_usage_provider_id"
+			],
+			"reads": [
+				"n|tbl|public.billing_provider_usage",
+				"n|sch|public",
+				"n|col|public.billing_provider_usage.provider_usage_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_provider_usage",
+				"idx_billing_provider_usage_org_occurred"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_provider_usage_org_occurred",
+				"n|idx|public.idx_billing_provider_usage_org_occurred",
+				"e|idx|public.idx_billing_provider_usage_org_occurred",
+				"n|rel|public.idx_billing_provider_usage_org_occurred"
+			],
+			"reads": [
+				"n|tbl|public.billing_provider_usage",
+				"n|sch|public",
+				"n|col|public.billing_provider_usage.organization_id",
+				"n|col|public.billing_provider_usage.occurred_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_provider_usage",
+				"idx_billing_provider_usage_kind_occurred"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_provider_usage_kind_occurred",
+				"n|idx|public.idx_billing_provider_usage_kind_occurred",
+				"e|idx|public.idx_billing_provider_usage_kind_occurred",
+				"n|rel|public.idx_billing_provider_usage_kind_occurred"
+			],
+			"reads": [
+				"n|tbl|public.billing_provider_usage",
+				"n|sch|public",
+				"n|col|public.billing_provider_usage.usage_kind",
+				"n|col|public.billing_provider_usage.occurred_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_service_credit_controls",
+				"uniq_billing_service_credit_control"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_service_credit_control",
+				"n|idx|public.uniq_billing_service_credit_control",
+				"e|idx|public.uniq_billing_service_credit_control",
+				"n|rel|public.uniq_billing_service_credit_control"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_controls",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_controls.organization_id",
+				"n|col|public.billing_service_credit_controls.service_key"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_service_credit_entries",
+				"uniq_billing_service_credit_idempotency"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_service_credit_idempotency",
+				"n|idx|public.uniq_billing_service_credit_idempotency",
+				"e|idx|public.uniq_billing_service_credit_idempotency",
+				"n|rel|public.uniq_billing_service_credit_idempotency"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_entries",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_entries.idempotency_key"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_service_credit_entries",
+				"idx_billing_service_credit_org_service_created"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_service_credit_org_service_created",
+				"n|idx|public.idx_billing_service_credit_org_service_created",
+				"e|idx|public.idx_billing_service_credit_org_service_created",
+				"n|rel|public.idx_billing_service_credit_org_service_created"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_entries",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_entries.organization_id",
+				"n|col|public.billing_service_credit_entries.service_key",
+				"n|col|public.billing_service_credit_entries.created_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_service_credit_entries",
+				"idx_billing_service_credit_expiry"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_service_credit_expiry",
+				"n|idx|public.idx_billing_service_credit_expiry",
+				"e|idx|public.idx_billing_service_credit_expiry",
+				"n|rel|public.idx_billing_service_credit_expiry"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_entries",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_entries.organization_id",
+				"n|col|public.billing_service_credit_entries.service_key",
+				"n|col|public.billing_service_credit_entries.expires_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_service_credit_reservations",
+				"uniq_billing_service_reservation_idempotency"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_service_reservation_idempotency",
+				"n|idx|public.uniq_billing_service_reservation_idempotency",
+				"e|idx|public.uniq_billing_service_reservation_idempotency",
+				"n|rel|public.uniq_billing_service_reservation_idempotency"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_reservations",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_reservations.idempotency_key"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_service_credit_reservations",
+				"uniq_billing_service_reservation_provider_usage"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_service_reservation_provider_usage",
+				"n|idx|public.uniq_billing_service_reservation_provider_usage",
+				"e|idx|public.uniq_billing_service_reservation_provider_usage",
+				"n|rel|public.uniq_billing_service_reservation_provider_usage"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_reservations",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_reservations.provider_usage_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_service_credit_reservations",
+				"idx_billing_service_reservation_org_status"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_service_reservation_org_status",
+				"n|idx|public.idx_billing_service_reservation_org_status",
+				"e|idx|public.idx_billing_service_reservation_org_status",
+				"n|rel|public.idx_billing_service_reservation_org_status"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_reservations",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_reservations.organization_id",
+				"n|col|public.billing_service_credit_reservations.service_key",
+				"n|col|public.billing_service_credit_reservations.status",
+				"n|col|public.billing_service_credit_reservations.expires_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_service_credit_reservations",
+				"idx_billing_service_reservation_tedi_period"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_service_reservation_tedi_period",
+				"n|idx|public.idx_billing_service_reservation_tedi_period",
+				"e|idx|public.idx_billing_service_reservation_tedi_period",
+				"n|rel|public.idx_billing_service_reservation_tedi_period"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_reservations",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_reservations.tedi_id",
+				"n|col|public.billing_service_credit_reservations.service_key",
+				"n|col|public.billing_service_credit_reservations.period_start"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_service_rate_cards",
+				"uniq_billing_service_rate_card_version"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_service_rate_card_version",
+				"n|idx|public.uniq_billing_service_rate_card_version",
+				"e|idx|public.uniq_billing_service_rate_card_version",
+				"n|rel|public.uniq_billing_service_rate_card_version"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_rate_cards",
+				"n|sch|public",
+				"n|col|public.billing_service_rate_cards.service_key",
+				"n|col|public.billing_service_rate_cards.operation_key",
+				"n|col|public.billing_service_rate_cards.version"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_service_rate_cards",
+				"idx_billing_service_rate_card_active"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_service_rate_card_active",
+				"n|idx|public.idx_billing_service_rate_card_active",
+				"e|idx|public.idx_billing_service_rate_card_active",
+				"n|rel|public.idx_billing_service_rate_card_active"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_rate_cards",
+				"n|sch|public",
+				"n|col|public.billing_service_rate_cards.service_key",
+				"n|col|public.billing_service_rate_cards.operation_key",
+				"n|col|public.billing_service_rate_cards.status",
+				"n|col|public.billing_service_rate_cards.effective_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_usage_charges",
+				"uniq_billing_charge_gateway_log"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_charge_gateway_log",
+				"n|idx|public.uniq_billing_charge_gateway_log",
+				"e|idx|public.uniq_billing_charge_gateway_log",
+				"n|rel|public.uniq_billing_charge_gateway_log"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_charges",
+				"n|sch|public",
+				"n|col|public.billing_usage_charges.gateway_log_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_usage_charges",
+				"uniq_billing_charge_provider_usage"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_charge_provider_usage",
+				"n|idx|public.uniq_billing_charge_provider_usage",
+				"e|idx|public.uniq_billing_charge_provider_usage",
+				"n|rel|public.uniq_billing_charge_provider_usage"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_charges",
+				"n|sch|public",
+				"n|col|public.billing_usage_charges.provider_usage_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_usage_charges",
+				"idx_billing_charge_org_occurred"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_charge_org_occurred",
+				"n|idx|public.idx_billing_charge_org_occurred",
+				"e|idx|public.idx_billing_charge_org_occurred",
+				"n|rel|public.idx_billing_charge_org_occurred"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_charges",
+				"n|sch|public",
+				"n|col|public.billing_usage_charges.organization_id",
+				"n|col|public.billing_usage_charges.occurred_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_usage_charges",
+				"idx_billing_charge_monetary_eur"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_charge_monetary_eur",
+				"n|idx|public.idx_billing_charge_monetary_eur",
+				"e|idx|public.idx_billing_charge_monetary_eur",
+				"n|rel|public.idx_billing_charge_monetary_eur"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_charges",
+				"n|sch|public",
+				"n|col|public.billing_usage_charges.organization_id",
+				"n|col|public.billing_usage_charges.occurred_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_usage_charges",
+				"idx_billing_charge_reservation"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_charge_reservation",
+				"n|idx|public.idx_billing_charge_reservation",
+				"e|idx|public.idx_billing_charge_reservation",
+				"n|rel|public.idx_billing_charge_reservation"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_charges",
+				"n|sch|public",
+				"n|col|public.billing_usage_charges.reservation_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_usage_charges",
+				"idx_billing_charge_metering"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_charge_metering",
+				"n|idx|public.idx_billing_charge_metering",
+				"e|idx|public.idx_billing_charge_metering",
+				"n|rel|public.idx_billing_charge_metering"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_charges",
+				"n|sch|public",
+				"n|col|public.billing_usage_charges.metering_ready",
+				"n|col|public.billing_usage_charges.usage_quality",
+				"n|col|public.billing_usage_charges.occurred_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_usage_periods",
+				"uniq_billing_usage_period"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_usage_period",
+				"n|idx|public.uniq_billing_usage_period",
+				"e|idx|public.uniq_billing_usage_period",
+				"n|rel|public.uniq_billing_usage_period"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_periods",
+				"n|sch|public",
+				"n|col|public.billing_usage_periods.organization_id",
+				"n|col|public.billing_usage_periods.period_start",
+				"n|col|public.billing_usage_periods.period_end"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_usage_periods",
+				"idx_billing_usage_period_end"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_usage_period_end",
+				"n|idx|public.idx_billing_usage_period_end",
+				"e|idx|public.idx_billing_usage_period_end",
+				"n|rel|public.idx_billing_usage_period_end"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_periods",
+				"n|sch|public",
+				"n|col|public.billing_usage_periods.period_end"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"stripe_meter_outbox",
+				"uniq_stripe_meter_outbox_idempotency"
+			],
+			"writes": [
+				"s|idx|public.uniq_stripe_meter_outbox_idempotency",
+				"n|idx|public.uniq_stripe_meter_outbox_idempotency",
+				"e|idx|public.uniq_stripe_meter_outbox_idempotency",
+				"n|rel|public.uniq_stripe_meter_outbox_idempotency"
+			],
+			"reads": [
+				"n|tbl|public.stripe_meter_outbox",
+				"n|sch|public",
+				"n|col|public.stripe_meter_outbox.idempotency_key"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"stripe_meter_outbox",
+				"uniq_stripe_meter_outbox_charge"
+			],
+			"writes": [
+				"s|idx|public.uniq_stripe_meter_outbox_charge",
+				"n|idx|public.uniq_stripe_meter_outbox_charge",
+				"e|idx|public.uniq_stripe_meter_outbox_charge",
+				"n|rel|public.uniq_stripe_meter_outbox_charge"
+			],
+			"reads": [
+				"n|tbl|public.stripe_meter_outbox",
+				"n|sch|public",
+				"n|col|public.stripe_meter_outbox.usage_charge_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"stripe_meter_outbox",
+				"idx_stripe_meter_outbox_retry"
+			],
+			"writes": [
+				"s|idx|public.idx_stripe_meter_outbox_retry",
+				"n|idx|public.idx_stripe_meter_outbox_retry",
+				"e|idx|public.idx_stripe_meter_outbox_retry",
+				"n|rel|public.idx_stripe_meter_outbox_retry"
+			],
+			"reads": [
+				"n|tbl|public.stripe_meter_outbox",
+				"n|sch|public",
+				"n|col|public.stripe_meter_outbox.stripe_environment",
+				"n|col|public.stripe_meter_outbox.status",
+				"n|col|public.stripe_meter_outbox.next_attempt_at",
+				"n|col|public.stripe_meter_outbox.lease_expires_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"stripe_webhook_events",
+				"idx_stripe_webhook_entity_created"
+			],
+			"writes": [
+				"s|idx|public.idx_stripe_webhook_entity_created",
+				"n|idx|public.idx_stripe_webhook_entity_created",
+				"e|idx|public.idx_stripe_webhook_entity_created",
+				"n|rel|public.idx_stripe_webhook_entity_created"
+			],
+			"reads": [
+				"n|tbl|public.stripe_webhook_events",
+				"n|sch|public",
+				"n|col|public.stripe_webhook_events.entity_key",
+				"n|col|public.stripe_webhook_events.event_created_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"stripe_webhook_events",
+				"idx_stripe_webhook_status_lease"
+			],
+			"writes": [
+				"s|idx|public.idx_stripe_webhook_status_lease",
+				"n|idx|public.idx_stripe_webhook_status_lease",
+				"e|idx|public.idx_stripe_webhook_status_lease",
+				"n|rel|public.idx_stripe_webhook_status_lease"
+			],
+			"reads": [
+				"n|tbl|public.stripe_webhook_events",
+				"n|sch|public",
+				"n|col|public.stripe_webhook_events.status",
+				"n|col|public.stripe_webhook_events.lease_expires_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"provider_model_rate_versions",
+				"idx_provider_model_rate_lookup"
+			],
+			"writes": [
+				"s|idx|public.idx_provider_model_rate_lookup",
+				"n|idx|public.idx_provider_model_rate_lookup",
+				"e|idx|public.idx_provider_model_rate_lookup",
+				"n|rel|public.idx_provider_model_rate_lookup"
+			],
+			"reads": [
+				"n|tbl|public.provider_model_rate_versions",
+				"n|sch|public",
+				"n|col|public.provider_model_rate_versions.provider",
+				"n|col|public.provider_model_rate_versions.model_id",
+				"n|col|public.provider_model_rate_versions.deployment_scope",
+				"n|col|public.provider_model_rate_versions.effective_from"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"provider_model_rate_versions",
+				"uniq_provider_model_rate_correction"
+			],
+			"writes": [
+				"s|idx|public.uniq_provider_model_rate_correction",
+				"n|idx|public.uniq_provider_model_rate_correction",
+				"e|idx|public.uniq_provider_model_rate_correction",
+				"n|rel|public.uniq_provider_model_rate_correction"
+			],
+			"reads": [
+				"n|tbl|public.provider_model_rate_versions",
+				"n|sch|public",
+				"n|col|public.provider_model_rate_versions.supersedes_rate_version_id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "billing_capacity_allocations"],
+			"writes": [
+				"s|fk|public.billing_capacity_allocations.billing_capacity_allocations_N5kePr036EKP_fkey",
+				"n|fk|public.billing_capacity_allocations.billing_capacity_allocations_N5kePr036EKP_fkey",
+				"e|fk|public.billing_capacity_allocations.billing_capacity_allocations_N5kePr036EKP_fkey",
+				"n|con|public.billing_capacity_allocations.billing_capacity_allocations_N5kePr036EKP_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_capacity_allocations",
+				"n|sch|public",
+				"n|tbl|public.organizations",
+				"n|sch|public",
+				"n|col|public.billing_capacity_allocations.organization_id",
+				"n|col|public.organizations.id",
+				"e|uniqueness|public.organizations.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "billing_capacity_allocations"],
+			"writes": [
+				"s|fk|public.billing_capacity_allocations.billing_capacity_allocations_YQSz7vgtOs3C_fkey",
+				"n|fk|public.billing_capacity_allocations.billing_capacity_allocations_YQSz7vgtOs3C_fkey",
+				"e|fk|public.billing_capacity_allocations.billing_capacity_allocations_YQSz7vgtOs3C_fkey",
+				"n|con|public.billing_capacity_allocations.billing_capacity_allocations_YQSz7vgtOs3C_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_capacity_allocations",
+				"n|sch|public",
+				"n|tbl|public.billing_inference_capacity_pack_versions",
+				"n|sch|public",
+				"n|col|public.billing_capacity_allocations.pack_version_id",
+				"n|col|public.billing_inference_capacity_pack_versions.id",
+				"e|uniqueness|public.billing_inference_capacity_pack_versions.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "billing_plan_service_allowances"],
+			"writes": [
+				"s|fk|public.billing_plan_service_allowances.billing_plan_service_allowances_uXBC5wBVfnBQ_fkey",
+				"n|fk|public.billing_plan_service_allowances.billing_plan_service_allowances_uXBC5wBVfnBQ_fkey",
+				"e|fk|public.billing_plan_service_allowances.billing_plan_service_allowances_uXBC5wBVfnBQ_fkey",
+				"n|con|public.billing_plan_service_allowances.billing_plan_service_allowances_uXBC5wBVfnBQ_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_plan_service_allowances",
+				"n|sch|public",
+				"n|tbl|public.billing_plan_versions",
+				"n|sch|public",
+				"n|col|public.billing_plan_service_allowances.plan_version_id",
+				"n|col|public.billing_plan_versions.id",
+				"e|uniqueness|public.billing_plan_versions.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "billing_service_credit_controls"],
+			"writes": [
+				"s|fk|public.billing_service_credit_controls.billing_service_credit_controls_KHMnfZjd1j2b_fkey",
+				"n|fk|public.billing_service_credit_controls.billing_service_credit_controls_KHMnfZjd1j2b_fkey",
+				"e|fk|public.billing_service_credit_controls.billing_service_credit_controls_KHMnfZjd1j2b_fkey",
+				"n|con|public.billing_service_credit_controls.billing_service_credit_controls_KHMnfZjd1j2b_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_controls",
+				"n|sch|public",
+				"n|tbl|public.organizations",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_controls.organization_id",
+				"n|col|public.organizations.id",
+				"e|uniqueness|public.organizations.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "billing_service_credit_entries"],
+			"writes": [
+				"s|fk|public.billing_service_credit_entries.billing_service_credit_entries_d9My7QhRPaQd_fkey",
+				"n|fk|public.billing_service_credit_entries.billing_service_credit_entries_d9My7QhRPaQd_fkey",
+				"e|fk|public.billing_service_credit_entries.billing_service_credit_entries_d9My7QhRPaQd_fkey",
+				"n|con|public.billing_service_credit_entries.billing_service_credit_entries_d9My7QhRPaQd_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_entries",
+				"n|sch|public",
+				"n|tbl|public.organizations",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_entries.organization_id",
+				"n|col|public.organizations.id",
+				"e|uniqueness|public.organizations.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": [
+				"table",
+				"public",
+				"billing_service_credit_reservations"
+			],
+			"writes": [
+				"s|fk|public.billing_service_credit_reservations.billing_service_credit_reservations_OpjBVL4KeXZ2_fkey",
+				"n|fk|public.billing_service_credit_reservations.billing_service_credit_reservations_OpjBVL4KeXZ2_fkey",
+				"e|fk|public.billing_service_credit_reservations.billing_service_credit_reservations_OpjBVL4KeXZ2_fkey",
+				"n|con|public.billing_service_credit_reservations.billing_service_credit_reservations_OpjBVL4KeXZ2_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_reservations",
+				"n|sch|public",
+				"n|tbl|public.organizations",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_reservations.organization_id",
+				"n|col|public.organizations.id",
+				"e|uniqueness|public.organizations.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": [
+				"table",
+				"public",
+				"billing_service_credit_reservations"
+			],
+			"writes": [
+				"s|fk|public.billing_service_credit_reservations.billing_service_credit_reservations_WWdnPuZxr2Vc_fkey",
+				"n|fk|public.billing_service_credit_reservations.billing_service_credit_reservations_WWdnPuZxr2Vc_fkey",
+				"e|fk|public.billing_service_credit_reservations.billing_service_credit_reservations_WWdnPuZxr2Vc_fkey",
+				"n|con|public.billing_service_credit_reservations.billing_service_credit_reservations_WWdnPuZxr2Vc_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_reservations",
+				"n|sch|public",
+				"n|tbl|public.billing_plan_versions",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_reservations.plan_version_id",
+				"n|col|public.billing_plan_versions.id",
+				"e|uniqueness|public.billing_plan_versions.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": [
+				"table",
+				"public",
+				"billing_service_credit_reservations"
+			],
+			"writes": [
+				"s|fk|public.billing_service_credit_reservations.billing_service_credit_reservations_1J16uazKux3y_fkey",
+				"n|fk|public.billing_service_credit_reservations.billing_service_credit_reservations_1J16uazKux3y_fkey",
+				"e|fk|public.billing_service_credit_reservations.billing_service_credit_reservations_1J16uazKux3y_fkey",
+				"n|con|public.billing_service_credit_reservations.billing_service_credit_reservations_1J16uazKux3y_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_service_credit_reservations",
+				"n|sch|public",
+				"n|tbl|public.billing_service_rate_cards",
+				"n|sch|public",
+				"n|col|public.billing_service_credit_reservations.rate_card_id",
+				"n|col|public.billing_service_rate_cards.id",
+				"e|uniqueness|public.billing_service_rate_cards.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "billing_usage_charges"],
+			"writes": [
+				"s|fk|public.billing_usage_charges.billing_usage_charges_organization_id_organizations_id_fkey",
+				"n|fk|public.billing_usage_charges.billing_usage_charges_organization_id_organizations_id_fkey",
+				"e|fk|public.billing_usage_charges.billing_usage_charges_organization_id_organizations_id_fkey",
+				"n|con|public.billing_usage_charges.billing_usage_charges_organization_id_organizations_id_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_charges",
+				"n|sch|public",
+				"n|tbl|public.organizations",
+				"n|sch|public",
+				"n|col|public.billing_usage_charges.organization_id",
+				"n|col|public.organizations.id",
+				"e|uniqueness|public.organizations.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "billing_usage_charges"],
+			"writes": [
+				"s|fk|public.billing_usage_charges.billing_usage_charges_8s0iptD8FAiM_fkey",
+				"n|fk|public.billing_usage_charges.billing_usage_charges_8s0iptD8FAiM_fkey",
+				"e|fk|public.billing_usage_charges.billing_usage_charges_8s0iptD8FAiM_fkey",
+				"n|con|public.billing_usage_charges.billing_usage_charges_8s0iptD8FAiM_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_charges",
+				"n|sch|public",
+				"n|tbl|public.billing_usage_reservations",
+				"n|sch|public",
+				"n|col|public.billing_usage_charges.reservation_id",
+				"n|col|public.billing_usage_reservations.id",
+				"e|uniqueness|public.billing_usage_reservations.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "billing_usage_charges"],
+			"writes": [
+				"s|fk|public.billing_usage_charges.billing_usage_charges_cFWBKDzZ1Emu_fkey",
+				"n|fk|public.billing_usage_charges.billing_usage_charges_cFWBKDzZ1Emu_fkey",
+				"e|fk|public.billing_usage_charges.billing_usage_charges_cFWBKDzZ1Emu_fkey",
+				"n|con|public.billing_usage_charges.billing_usage_charges_cFWBKDzZ1Emu_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_charges",
+				"n|sch|public",
+				"n|tbl|public.billing_usage_periods",
+				"n|sch|public",
+				"n|col|public.billing_usage_charges.usage_period_id",
+				"n|col|public.billing_usage_periods.id",
+				"e|uniqueness|public.billing_usage_periods.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "billing_usage_periods"],
+			"writes": [
+				"s|fk|public.billing_usage_periods.billing_usage_periods_organization_id_organizations_id_fkey",
+				"n|fk|public.billing_usage_periods.billing_usage_periods_organization_id_organizations_id_fkey",
+				"e|fk|public.billing_usage_periods.billing_usage_periods_organization_id_organizations_id_fkey",
+				"n|con|public.billing_usage_periods.billing_usage_periods_organization_id_organizations_id_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_periods",
+				"n|sch|public",
+				"n|tbl|public.organizations",
+				"n|sch|public",
+				"n|col|public.billing_usage_periods.organization_id",
+				"n|col|public.organizations.id",
+				"e|uniqueness|public.organizations.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "billing_usage_periods"],
+			"writes": [
+				"s|fk|public.billing_usage_periods.billing_usage_periods_0IQCiT3At0RX_fkey",
+				"n|fk|public.billing_usage_periods.billing_usage_periods_0IQCiT3At0RX_fkey",
+				"e|fk|public.billing_usage_periods.billing_usage_periods_0IQCiT3At0RX_fkey",
+				"n|con|public.billing_usage_periods.billing_usage_periods_0IQCiT3At0RX_fkey"
+			],
+			"reads": [
+				"n|tbl|public.billing_usage_periods",
+				"n|sch|public",
+				"n|tbl|public.billing_plan_versions",
+				"n|sch|public",
+				"n|col|public.billing_usage_periods.plan_version_id",
+				"n|col|public.billing_plan_versions.id",
+				"e|uniqueness|public.billing_plan_versions.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "stripe_meter_outbox"],
+			"writes": [
+				"s|fk|public.stripe_meter_outbox.stripe_meter_outbox_organization_id_organizations_id_fkey",
+				"n|fk|public.stripe_meter_outbox.stripe_meter_outbox_organization_id_organizations_id_fkey",
+				"e|fk|public.stripe_meter_outbox.stripe_meter_outbox_organization_id_organizations_id_fkey",
+				"n|con|public.stripe_meter_outbox.stripe_meter_outbox_organization_id_organizations_id_fkey"
+			],
+			"reads": [
+				"n|tbl|public.stripe_meter_outbox",
+				"n|sch|public",
+				"n|tbl|public.organizations",
+				"n|sch|public",
+				"n|col|public.stripe_meter_outbox.organization_id",
+				"n|col|public.organizations.id",
+				"e|uniqueness|public.organizations.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "stripe_meter_outbox"],
+			"writes": [
+				"s|fk|public.stripe_meter_outbox.stripe_meter_outbox_abM2v6p4NdQG_fkey",
+				"n|fk|public.stripe_meter_outbox.stripe_meter_outbox_abM2v6p4NdQG_fkey",
+				"e|fk|public.stripe_meter_outbox.stripe_meter_outbox_abM2v6p4NdQG_fkey",
+				"n|con|public.stripe_meter_outbox.stripe_meter_outbox_abM2v6p4NdQG_fkey"
+			],
+			"reads": [
+				"n|tbl|public.stripe_meter_outbox",
+				"n|sch|public",
+				"n|tbl|public.billing_usage_charges",
+				"n|sch|public",
+				"n|col|public.stripe_meter_outbox.usage_charge_id",
+				"n|col|public.billing_usage_charges.id",
+				"e|uniqueness|public.billing_usage_charges.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "provider_model_rate_versions"],
+			"writes": [
+				"s|fk|public.provider_model_rate_versions.provider_model_rate_versions_kJJxR17OwTjV_fkey",
+				"n|fk|public.provider_model_rate_versions.provider_model_rate_versions_kJJxR17OwTjV_fkey",
+				"e|fk|public.provider_model_rate_versions.provider_model_rate_versions_kJJxR17OwTjV_fkey",
+				"n|con|public.provider_model_rate_versions.provider_model_rate_versions_kJJxR17OwTjV_fkey"
+			],
+			"reads": [
+				"n|tbl|public.provider_model_rate_versions",
+				"n|sch|public",
+				"n|tbl|public.provider_model_rate_versions",
+				"n|sch|public",
+				"n|col|public.provider_model_rate_versions.supersedes_rate_version_id",
+				"n|col|public.provider_model_rate_versions.id",
+				"e|uniqueness|public.provider_model_rate_versions.id"
+			]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "billing_capacity_allocations",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "billing_inference_capacity_pack_versions",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "billing_plan_service_allowances",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "billing_provider_usage",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "billing_service_credit_controls",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "billing_service_credit_entries",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "billing_service_credit_reservations",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "billing_service_rate_cards",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "billing_usage_charges",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "billing_usage_periods",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "stripe_meter_outbox",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "stripe_webhook_events",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "provider_model_rate_versions",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "pack_version_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "budget_day",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "token_amount",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "spend_amount_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "source_type",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "source_ref",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "idempotency_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "stripe_environment",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "expires_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "metadata",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'{}'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "pack_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "version",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "status",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'draft'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "name",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "currency",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'usd'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "price_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "token_amount",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "spend_amount_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "stripe_environment",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "stripe_lookup_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "metadata",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'{}'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "effective_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_plan_service_allowances",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_plan_service_allowances",
+				"name": "plan_version_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_plan_service_allowances",
+				"name": "service_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_plan_service_allowances",
+				"name": "included_credits",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_plan_service_allowances",
+				"name": "per_tedi_monthly_limit",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_plan_service_allowances",
+				"name": "monthly_provider_cost_limit_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_plan_service_allowances",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "tedi_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "reservation_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "gateway_log_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "provider_usage_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "provider",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "model",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "usage_kind",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "unit",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "quantity",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "provider_cost_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "provider_cost_quality",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'estimated'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "customer_metering_ready",
+				"type": "boolean",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "false",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "occurred_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "metadata",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'{}'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "service_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "enabled",
+				"type": "boolean",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "true",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "monthly_credit_limit",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "per_tedi_monthly_limit",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "monthly_provider_cost_limit_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "updated_by",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "metadata",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'{}'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "updated_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "service_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "kind",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "amount_credits",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "source_type",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "source_ref",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "reservation_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "idempotency_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "expires_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "description",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "metadata",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'{}'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "plan_version_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "rate_card_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "tedi_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "service_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "operation_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "status",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'reserved'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "credits_reserved",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "customer_value_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "provider_cost_ceiling_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "actual_provider_cost_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "provider_usage_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "period_start",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "period_end",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "idempotency_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "rejection_code",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "expires_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "settled_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "released_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "metadata",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'{}'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "updated_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "service_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "operation_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "version",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "status",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'draft'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "provider",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "provider_endpoint",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "credit_cost",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "customer_value_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "provider_cost_ceiling_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "effective_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "metadata",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'{}'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "tedi_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "reservation_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "usage_period_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "gateway_log_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "provider_usage_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "provider",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "model",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "source",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "input_tokens",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "output_tokens",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "included_tokens_applied",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "metered_overage_tokens",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "provider_cost_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "customer_charge_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "credit_applied_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "usage_quality",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'gateway_reported'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "provider_cost_quality",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'estimated'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "metering_ready",
+				"type": "boolean",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "false",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "provider_reconciled_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "rate_card_version",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "occurred_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "metadata",
+				"type": "jsonb",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'{}'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "plan_version_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "period_start",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "period_end",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "included_tokens",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "used_input_tokens",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "used_output_tokens",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "metered_overage_tokens",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "provider_cost_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "customer_charge_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "credit_applied_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "settlement_version",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "last_settlement_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "updated_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "organization_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "usage_charge_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "stripe_customer_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "stripe_environment",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'live'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "event_name",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "quantity",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "idempotency_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "status",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'pending'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "attempt_count",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "next_attempt_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "lease_expires_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "stripe_event_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "last_error",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "sent_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "updated_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "event_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "event_type",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "entity_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "event_created_at",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "status",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "'processing'",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "attempt_count",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "1",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "lease_expires_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "outcome",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "last_error",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "processed_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "updated_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "CURRENT_TIMESTAMP",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "provider",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "model_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "deployment_scope",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "input_token_min",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": "0",
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "input_token_max",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "effective_from",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "input_microusd_per_million",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "output_microusd_per_million",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "cache_read_microusd_per_million",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "cache_write_microusd_per_million",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "currency",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "evidence_uri",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "evidence_digest",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "verified_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "published_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "published_by",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "change_reason",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "supersedes_rate_version_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "uniq_billing_capacity_allocation_idempotency",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "idempotency_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "idx_billing_capacity_allocation_active",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "stripe_environment",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "budget_day",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "expires_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "uniq_inference_capacity_pack_version",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "pack_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "version",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "stripe_environment",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "uniq_inference_capacity_pack_lookup",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "stripe_environment",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "stripe_lookup_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "idx_inference_capacity_pack_active",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "stripe_environment",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "status",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "effective_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_plan_service_allowances",
+				"name": "uniq_billing_plan_service_allowance",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "plan_version_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "service_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "uniq_billing_provider_usage_gateway_log",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "gateway_log_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": "\"gateway_log_id\" IS NOT NULL",
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "uniq_billing_provider_usage_provider_id",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "provider_usage_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": "\"provider_usage_id\" IS NOT NULL",
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "idx_billing_provider_usage_org_occurred",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "occurred_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "idx_billing_provider_usage_kind_occurred",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "usage_kind",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "occurred_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "uniq_billing_service_credit_control",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "service_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "uniq_billing_service_credit_idempotency",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "idempotency_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "idx_billing_service_credit_org_service_created",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "service_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "created_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "idx_billing_service_credit_expiry",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "service_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "expires_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "uniq_billing_service_reservation_idempotency",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "idempotency_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "uniq_billing_service_reservation_provider_usage",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "provider_usage_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": "\"provider_usage_id\" IS NOT NULL",
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "idx_billing_service_reservation_org_status",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "service_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "status",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "expires_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "idx_billing_service_reservation_tedi_period",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "tedi_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "service_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "period_start",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "uniq_billing_service_rate_card_version",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "service_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "operation_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "version",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "idx_billing_service_rate_card_active",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "service_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "operation_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "status",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "effective_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "uniq_billing_charge_gateway_log",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "gateway_log_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": "\"gateway_log_id\" IS NOT NULL",
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "uniq_billing_charge_provider_usage",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "provider_usage_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": "\"provider_usage_id\" IS NOT NULL",
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "idx_billing_charge_org_occurred",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "occurred_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "idx_billing_charge_monetary_eur",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "occurred_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": "metadata #> '{monetaryQuote,schemaVersion}' IN ('1'::jsonb, 'true'::jsonb) AND metadata #>> '{monetaryQuote,rateSnapshot,customerCurrency}' = 'EUR'",
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "idx_billing_charge_reservation",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "reservation_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "idx_billing_charge_metering",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "metering_ready",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "usage_quality",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "occurred_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "uniq_billing_usage_period",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "period_start",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "period_end",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "idx_billing_usage_period_end",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "period_end",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "uniq_stripe_meter_outbox_idempotency",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "idempotency_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "uniq_stripe_meter_outbox_charge",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "usage_charge_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "idx_stripe_meter_outbox_retry",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "stripe_environment",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "status",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "next_attempt_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "lease_expires_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "idx_stripe_webhook_entity_created",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "entity_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "event_created_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "idx_stripe_webhook_status_lease",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "status",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "lease_expires_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "idx_provider_model_rate_lookup",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "provider",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "model_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "deployment_scope",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "effective_from",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "uniq_provider_model_rate_correction",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "supersedes_rate_version_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "billing_capacity_allocations_N5kePr036EKP_fkey",
+				"nameExplicit": false,
+				"columns": ["organization_id"],
+				"schemaTo": "public",
+				"tableTo": "organizations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "billing_capacity_allocations_YQSz7vgtOs3C_fkey",
+				"nameExplicit": false,
+				"columns": ["pack_version_id"],
+				"schemaTo": "public",
+				"tableTo": "billing_inference_capacity_pack_versions",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "NO ACTION",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_plan_service_allowances",
+				"name": "billing_plan_service_allowances_uXBC5wBVfnBQ_fkey",
+				"nameExplicit": false,
+				"columns": ["plan_version_id"],
+				"schemaTo": "public",
+				"tableTo": "billing_plan_versions",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "NO ACTION",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_controls",
+				"name": "billing_service_credit_controls_KHMnfZjd1j2b_fkey",
+				"nameExplicit": false,
+				"columns": ["organization_id"],
+				"schemaTo": "public",
+				"tableTo": "organizations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "billing_service_credit_entries_d9My7QhRPaQd_fkey",
+				"nameExplicit": false,
+				"columns": ["organization_id"],
+				"schemaTo": "public",
+				"tableTo": "organizations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "billing_service_credit_reservations_OpjBVL4KeXZ2_fkey",
+				"nameExplicit": false,
+				"columns": ["organization_id"],
+				"schemaTo": "public",
+				"tableTo": "organizations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "billing_service_credit_reservations_WWdnPuZxr2Vc_fkey",
+				"nameExplicit": false,
+				"columns": ["plan_version_id"],
+				"schemaTo": "public",
+				"tableTo": "billing_plan_versions",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "NO ACTION",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "billing_service_credit_reservations_1J16uazKux3y_fkey",
+				"nameExplicit": false,
+				"columns": ["rate_card_id"],
+				"schemaTo": "public",
+				"tableTo": "billing_service_rate_cards",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "NO ACTION",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "billing_usage_charges_organization_id_organizations_id_fkey",
+				"nameExplicit": false,
+				"columns": ["organization_id"],
+				"schemaTo": "public",
+				"tableTo": "organizations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "billing_usage_charges_8s0iptD8FAiM_fkey",
+				"nameExplicit": false,
+				"columns": ["reservation_id"],
+				"schemaTo": "public",
+				"tableTo": "billing_usage_reservations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "SET NULL",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "billing_usage_charges_cFWBKDzZ1Emu_fkey",
+				"nameExplicit": false,
+				"columns": ["usage_period_id"],
+				"schemaTo": "public",
+				"tableTo": "billing_usage_periods",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "billing_usage_periods_organization_id_organizations_id_fkey",
+				"nameExplicit": false,
+				"columns": ["organization_id"],
+				"schemaTo": "public",
+				"tableTo": "organizations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "billing_usage_periods_0IQCiT3At0RX_fkey",
+				"nameExplicit": false,
+				"columns": ["plan_version_id"],
+				"schemaTo": "public",
+				"tableTo": "billing_plan_versions",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "NO ACTION",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "stripe_meter_outbox_organization_id_organizations_id_fkey",
+				"nameExplicit": false,
+				"columns": ["organization_id"],
+				"schemaTo": "public",
+				"tableTo": "organizations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "stripe_meter_outbox_abM2v6p4NdQG_fkey",
+				"nameExplicit": false,
+				"columns": ["usage_charge_id"],
+				"schemaTo": "public",
+				"tableTo": "billing_usage_charges",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "provider_model_rate_versions_kJJxR17OwTjV_fkey",
+				"nameExplicit": false,
+				"columns": ["supersedes_rate_version_id"],
+				"schemaTo": "public",
+				"tableTo": "provider_model_rate_versions",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "RESTRICT",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "billing_capacity_allocations_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "billing_inference_capacity_pack_versions_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_plan_service_allowances",
+				"name": "billing_plan_service_allowances_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_provider_usage",
+				"name": "billing_provider_usage_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "billing_service_credit_entries_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_reservations",
+				"name": "billing_service_credit_reservations_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_rate_cards",
+				"name": "billing_service_rate_cards_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_charges",
+				"name": "billing_usage_charges_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_usage_periods",
+				"name": "billing_usage_periods_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_meter_outbox",
+				"name": "stripe_meter_outbox_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "stripe_webhook_events",
+				"name": "stripe_webhook_events_pkey",
+				"columns": ["event_id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "provider_model_rate_versions_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "chk_billing_capacity_allocation_direction",
+				"value": "(\"token_amount\" > 0 OR \"spend_amount_micros\" > 0) OR (\"token_amount\" < 0 OR \"spend_amount_micros\" < 0)",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_capacity_allocations",
+				"name": "chk_billing_capacity_allocation_same_direction",
+				"value": "(\"token_amount\" >= 0 AND \"spend_amount_micros\" >= 0) OR (\"token_amount\" <= 0 AND \"spend_amount_micros\" <= 0)",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_inference_capacity_pack_versions",
+				"name": "chk_inference_capacity_pack_positive",
+				"value": "\"price_micros\" > 0 AND \"token_amount\" > 0 AND \"spend_amount_micros\" > 0",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "chk_service_credit_nonzero",
+				"value": "\"amount_credits\" <> 0",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_service_credit_entries",
+				"name": "chk_service_credit_direction",
+				"value": "(\"kind\" IN ('grant','refund') AND \"amount_credits\" > 0) OR (\"kind\" = 'debit' AND \"amount_credits\" < 0) OR \"kind\" = 'adjustment'",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "chk_provider_model_rate_scope",
+				"value": "length(trim(\"deployment_scope\", E'\\t\\n\\r ')) > 0",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "chk_provider_model_rate_interval",
+				"value": "(\"effective_from\"::timestamptz) IS NOT NULL",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "chk_provider_model_rate_currency",
+				"value": "\"currency\" = 'USD'",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "provider_model_rate_versions",
+				"name": "chk_provider_model_rate_amounts",
+				"value": "\"input_microusd_per_million\" BETWEEN 0 AND 9007199254740991 AND \"output_microusd_per_million\" BETWEEN 0 AND 9007199254740991 AND \"cache_read_microusd_per_million\" BETWEEN 0 AND 9007199254740991 AND \"cache_write_microusd_per_million\" BETWEEN 0 AND 9007199254740991",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "alter",
+			"key": "columns\u0000[\"public\",\"billing_plan_versions\",\"overage_unit_tokens\"]",
+			"set": {
+				"type": "bigint"
+			}
+		},
+		{
+			"op": "alter",
+			"key": "columns\u0000[\"public\",\"billing_plan_versions\",\"default_daily_token_limit\"]",
+			"set": {
+				"type": "bigint"
+			}
+		},
+		{
+			"op": "alter",
+			"key": "columns\u0000[\"public\",\"billing_usage_reservations\",\"estimated_input_tokens\"]",
+			"set": {
+				"type": "bigint"
+			}
+		},
+		{
+			"op": "alter",
+			"key": "columns\u0000[\"public\",\"billing_usage_reservations\",\"estimated_output_tokens\"]",
+			"set": {
+				"type": "bigint"
+			}
+		}
+	]
+}
