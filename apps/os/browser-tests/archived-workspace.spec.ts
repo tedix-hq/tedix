@@ -144,7 +144,8 @@ try {
 
 		await page.getByRole("button", { name: "Restore workspace" }).click();
 		await page.waitForURL(new RegExp(`/workspace/${WORKSPACE_ID}`));
-		await page.locator(".canvas-route-shell").waitFor();
+		// The loading shell and the workspace's own can overlap for a moment.
+		await page.locator(".canvas-route-shell:not([aria-busy])").waitFor();
 		await notice.waitFor({ state: "detached" });
 		assert.equal(state.restores, 1, `${label}: one restore`);
 		assert.equal(

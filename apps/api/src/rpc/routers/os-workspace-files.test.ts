@@ -248,8 +248,20 @@ describe("workspace file uploads", () => {
 			resourceId: ticket.resourceId,
 			parts: receipts,
 		});
+		// A file uploaded here is Tedix's own: no connected account behind it.
 		expect(listWorkspaceResourceSummaries(f.tenant, scope)).toEqual([
-			{ id: resource.id, name: resource.name, kind: "file", status: "active" },
+			{
+				id: resource.id,
+				name: resource.name,
+				kind: "file",
+				status: "active",
+				slot: null,
+				providerId: "tedix",
+				connectionScope: "tenant",
+				connectionInstanceId: null,
+				personalOwnerUserId: null,
+				providerAccess: null,
+			},
 		]);
 		const client = createRouterClient(osWorkspaceResourceProcedures, {
 			context: f.context(),
