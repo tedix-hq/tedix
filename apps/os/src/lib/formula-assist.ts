@@ -12,185 +12,191 @@ export const FUNCTION_HELP: Record<
 > = {
 	SUM: {
 		signature: "SUM(value1, [value2, …])",
-		about: "Adds numbers or ranges.",
+		about: "Adds the supplied numbers and ranges together.",
 	},
 	AVERAGE: {
 		signature: "AVERAGE(value1, [value2, …])",
-		about: "Returns the arithmetic mean.",
+		about: "Finds the arithmetic mean of the supplied values.",
 	},
 	COUNT: {
 		signature: "COUNT(value1, [value2, …])",
-		about: "Counts numeric values.",
+		about: "Tells you how many supplied values are numbers.",
 	},
 	COUNTA: {
 		signature: "COUNTA(value1, [value2, …])",
-		about: "Counts non-empty values.",
+		about: "Tells you how many supplied values are not empty.",
 	},
 	COUNTIF: {
 		signature: "COUNTIF(range, criterion)",
-		about: "Counts cells matching a condition.",
+		about: "Counts cells that meet one condition.",
 	},
 	COUNTIFS: {
 		signature: "COUNTIFS(range1, criterion1, …)",
-		about: "Counts rows matching multiple conditions.",
+		about: "Counts rows that meet several conditions.",
 	},
 	SUMIF: {
 		signature: "SUMIF(range, criterion, [sum_range])",
-		about: "Sums values matching a condition.",
+		about: "Adds values whose cells meet one condition.",
 	},
 	SUMIFS: {
 		signature: "SUMIFS(sum_range, range1, criterion1, …)",
-		about: "Sums values matching multiple conditions.",
+		about: "Adds values whose rows meet several conditions.",
 	},
 	MIN: {
 		signature: "MIN(value1, [value2, …])",
-		about: "Returns the smallest number.",
+		about: "Finds the smallest supplied number.",
 	},
 	MAX: {
 		signature: "MAX(value1, [value2, …])",
-		about: "Returns the largest number.",
+		about: "Finds the largest supplied number.",
 	},
 	MEDIAN: {
 		signature: "MEDIAN(value1, [value2, …])",
-		about: "Returns the median value.",
+		about: "Finds the middle value in the supplied numbers.",
 	},
 	ROUND: {
 		signature: "ROUND(value, places)",
-		about: "Rounds a number to a specified precision.",
+		about: "Rounds a number to the chosen number of places.",
 	},
 	IF: {
 		signature: "IF(condition, value_if_true, [value_if_false])",
-		about: "Returns values based on a condition.",
+		about: "Chooses a value according to one condition.",
 	},
 	IFS: {
 		signature: "IFS(condition1, value1, [condition2, value2, …])",
-		about: "Tests multiple conditions in order.",
+		about: "Checks several conditions from first to last.",
 	},
 	IFERROR: {
 		signature: "IFERROR(value, fallback)",
-		about: "Returns a fallback when a value is an error.",
+		about: "Uses a fallback when the first value has an error.",
 	},
 	AND: {
 		signature: "AND(condition1, [condition2, …])",
-		about: "Returns TRUE when every condition is true.",
+		about: "Gives TRUE only when every condition is true.",
 	},
 	OR: {
 		signature: "OR(condition1, [condition2, …])",
-		about: "Returns TRUE when any condition is true.",
+		about: "Gives TRUE when at least one condition is true.",
 	},
-	NOT: { signature: "NOT(condition)", about: "Reverses a logical value." },
+	NOT: {
+		signature: "NOT(condition)",
+		about: "Flips TRUE to FALSE, or FALSE to TRUE.",
+	},
 	CONCAT: {
 		signature: "CONCAT(value1, [value2, …])",
-		about: "Joins text values.",
+		about: "Combines the supplied text into one value.",
 	},
 	LEFT: {
 		signature: "LEFT(text, [characters])",
-		about: "Returns characters from the beginning of text.",
+		about: "Takes characters from the start of some text.",
 	},
 	RIGHT: {
 		signature: "RIGHT(text, [characters])",
-		about: "Returns characters from the end of text.",
+		about: "Takes characters from the end of some text.",
 	},
 	MID: {
 		signature: "MID(text, start, length)",
-		about: "Returns characters from the middle of text.",
+		about: "Takes characters from inside some text.",
 	},
-	LEN: { signature: "LEN(text)", about: "Returns the number of characters." },
+	LEN: { signature: "LEN(text)", about: "Counts the characters in some text." },
 	TEXT: {
 		signature: "TEXT(value, format)",
-		about: "Formats a number as text.",
+		about: "Shows a number as text in the chosen format.",
 	},
 	HYPERLINK: {
 		signature: "HYPERLINK(url, [link_label])",
-		about: "Creates a clickable HTTP or HTTPS link.",
+		about: "Makes an HTTP or HTTPS address clickable.",
 	},
 	VLOOKUP: {
 		signature: "VLOOKUP(search_key, range, column, [approximate])",
-		about: "Looks down the first column of a range.",
+		about: "Searches down a range's first column.",
 	},
 	HLOOKUP: {
 		signature: "HLOOKUP(search_key, range, row, [approximate])",
-		about: "Looks across the first row of a range.",
+		about: "Searches across a range's first row.",
 	},
 	INDEX: {
 		signature: "INDEX(reference, row, [column])",
-		about: "Returns a value at a row and column.",
+		about: "Gets the value at a chosen row and column.",
 	},
 	MATCH: {
 		signature: "MATCH(search_key, range, [search_type])",
-		about: "Returns the position of a matching value.",
+		about: "Finds where a matching value sits in a range.",
 	},
 	LOOKUP: {
 		signature: "LOOKUP(search_key, search_range, [result_range])",
-		about: "Finds a value in a sorted range.",
+		about: "Looks for a value in a range that is already sorted.",
 	},
-	TODAY: { signature: "TODAY()", about: "Returns the current date." },
-	NOW: { signature: "NOW()", about: "Returns the current date and time." },
+	TODAY: { signature: "TODAY()", about: "Uses today's date." },
+	NOW: { signature: "NOW()", about: "Uses the current date and time." },
 	DATE: {
 		signature: "DATE(year, month, day)",
-		about: "Builds a date from year, month, and day.",
+		about: "Makes a date from a year, month, and day.",
 	},
-	YEAR: { signature: "YEAR(date)", about: "Returns the year of a date." },
-	MONTH: { signature: "MONTH(date)", about: "Returns the month of a date." },
-	DAY: { signature: "DAY(date)", about: "Returns the day of the month." },
+	YEAR: { signature: "YEAR(date)", about: "Takes the year from a date." },
+	MONTH: { signature: "MONTH(date)", about: "Takes the month from a date." },
+	DAY: {
+		signature: "DAY(date)",
+		about: "Takes the day of the month from a date.",
+	},
 	PRODUCT: {
 		signature: "PRODUCT(value1, [value2, …])",
-		about: "Multiplies numbers or ranges.",
+		about: "Multiplies the supplied numbers and ranges together.",
 	},
-	ABS: { signature: "ABS(value)", about: "Returns the absolute value." },
+	ABS: { signature: "ABS(value)", about: "Removes the sign from a number." },
 	SQRT: {
 		signature: "SQRT(value)",
-		about: "Returns the positive square root.",
+		about: "Finds a number's positive square root.",
 	},
 	MOD: {
 		signature: "MOD(dividend, divisor)",
-		about: "Returns the remainder after division.",
+		about: "Finds what remains after division.",
 	},
 	POWER: {
 		signature: "POWER(base, exponent)",
-		about: "Raises a number to a power.",
+		about: "Raises the base number to the chosen power.",
 	},
 	STDEV: {
 		signature: "STDEV(value1, [value2, …])",
-		about: "Estimates sample standard deviation.",
+		about: "Estimates standard deviation for a sample.",
 	},
 	VAR: {
 		signature: "VAR(value1, [value2, …])",
-		about: "Estimates sample variance.",
+		about: "Estimates variance for a sample.",
 	},
 	RANK: {
 		signature: "RANK(value, range, [ascending])",
-		about: "Returns a value’s rank in a range.",
+		about: "Shows where a value ranks within a range.",
 	},
 	LARGE: {
 		signature: "LARGE(range, rank)",
-		about: "Returns the nth largest value.",
+		about: "Gets the value at a chosen rank from largest to smallest.",
 	},
 	SWITCH: {
 		signature: "SWITCH(expression, case1, value1, [default])",
-		about: "Matches an expression to cases.",
+		about: "Chooses the case that matches an expression.",
 	},
-	UPPER: { signature: "UPPER(text)", about: "Converts text to uppercase." },
-	LOWER: { signature: "LOWER(text)", about: "Converts text to lowercase." },
+	UPPER: { signature: "UPPER(text)", about: "Makes every letter uppercase." },
+	LOWER: { signature: "LOWER(text)", about: "Makes every letter lowercase." },
 	TRIM: {
 		signature: "TRIM(text)",
-		about: "Removes repeated and surrounding spaces.",
+		about: "Clears extra spaces around and within text.",
 	},
 	SUBSTITUTE: {
 		signature: "SUBSTITUTE(text, old_text, new_text, [instance])",
-		about: "Replaces matching text.",
+		about: "Swaps matching text for new text.",
 	},
 	CHOOSE: {
 		signature: "CHOOSE(index, choice1, [choice2, …])",
-		about: "Returns a choice by numeric index.",
+		about: "Picks a choice by its number in the list.",
 	},
 	WEEKDAY: {
 		signature: "WEEKDAY(date, [type])",
-		about: "Returns the weekday number.",
+		about: "Gives the weekday number for a date.",
 	},
 	EDATE: {
 		signature: "EDATE(start_date, months)",
-		about: "Moves a date by a number of months.",
+		about: "Shifts a date by the chosen number of months.",
 	},
 };
 

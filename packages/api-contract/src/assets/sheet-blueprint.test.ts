@@ -138,7 +138,7 @@ describe("Sheet blueprint", () => {
 		]);
 		expect(definition.gadgets[0]!.manifest.config).toEqual({
 			version: 1,
-			settings: { slot: "budget", blueprintVersion: 30 },
+			settings: { slot: "budget", blueprintVersion: 31 },
 		});
 		const operations = definition.gadgets[0]!.manifest.operations!;
 		expect(

@@ -1321,9 +1321,9 @@ describe("portable rich Doc client", () => {
 			const sheet = root.querySelector<HTMLElement>(".doc-keys")!;
 			expect(sheet.hidden).toBe(false);
 			expect(sheet.textContent).toContain(
-				"Type / on an empty line for every block type.",
+				"Press / on a blank line to choose a block.",
 			);
-			expect(sheet.textContent).toContain("Move up · down");
+			expect(sheet.textContent).toContain("Shift blocks up · down");
 			press(editor.view.dom, { key: "Escape" });
 			expect(sheet.hidden).toBe(true);
 		});
@@ -1405,7 +1405,7 @@ describe("portable rich Doc client", () => {
 			expect(options(root)).toEqual(["Quote"]);
 			emptyLine(editor, "/zzz");
 			expect(root.querySelector(".doc-slash")!.textContent).toBe(
-				"No matching blocks",
+				"No blocks found",
 			);
 		});
 		it("stays closed after Escape, in the middle of a line and when nothing matches", async () => {

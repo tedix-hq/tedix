@@ -80,7 +80,7 @@ const SAVE_IDLE_MS = 220,
 
 /**
  * The palette: each color's text and highlight shade; Default clears.
- * Highlight's Default is "No highlight".
+ * Highlight's Default clears the current highlight.
  */
 const PALETTE: [name: string, text: string, highlight: string][] = [
 	["Default", "", ""],
@@ -118,7 +118,7 @@ export async function mountDocClient(
 	style.textContent = css + featureCss;
 	document.head.append(style);
 	root.innerHTML =
-		'<main aria-label="Doc gadget"><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><i class="doc-save" role="img" hidden></i><div class="doc-status" role="status" aria-live="polite"></div><form class="doc-link" hidden><input type="text" aria-label="Link URL" placeholder="Paste or type a link"><button type="submit">Apply</button></form><div class="doc-menu" role="menu" aria-label="More" hidden></div><div class="doc-menu doc-slash" role="listbox" aria-label="Insert" hidden></div><div class="doc-menu doc-block-menu" role="menu" aria-label="Block" hidden></div><div class="doc-gutter" hidden><button type="button" class="doc-add" aria-label="Add below" title="Add below · ⌥-click to add above"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button><button type="button" class="doc-handle" aria-label="Drag to move, or click for block options" title="Drag to move · Click for options"><svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><circle cx="2.5" cy="3.5" r="1.3"/><circle cx="7.5" cy="3.5" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="12.5" r="1.3"/><circle cx="7.5" cy="12.5" r="1.3"/></svg></button></div><i class="doc-drop" hidden></i><div class="doc-ghost" hidden></div><div class="doc-menu doc-table-picker" role="dialog" aria-label="Insert table" hidden></div><div class="doc-menu doc-table-menu" role="menu" aria-label="Table" hidden></div><button type="button" class="doc-table-pill col" title="Column" aria-label="Column" hidden>⋯</button><button type="button" class="doc-table-pill row" title="Row" aria-label="Row" hidden>⋮</button><button type="button" class="doc-table-add row" title="Add row" aria-label="Add row" hidden>+</button><button type="button" class="doc-table-add col" title="Add column" aria-label="Add column" hidden>+</button><div class="doc-menu doc-colors" role="dialog" aria-label="Text color and highlight" hidden></div><div class="doc-keys" hidden></div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden><section class="doc-page" aria-label="Document page"><div class="doc-skel"><i></i><i></i><i></i><i></i><i></i></div></section></main>';
+		'<main aria-label="Doc gadget"><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><i class="doc-save" role="img" hidden></i><div class="doc-status" role="status" aria-live="polite"></div><form class="doc-link" hidden><input type="text" aria-label="Link URL" placeholder="Paste or type a link"><button type="submit">Apply</button></form><div class="doc-menu" role="menu" aria-label="More" hidden></div><div class="doc-menu doc-slash" role="listbox" aria-label="Insert" hidden></div><div class="doc-menu doc-block-menu" role="menu" aria-label="Block" hidden></div><div class="doc-gutter" hidden><button type="button" class="doc-add" aria-label="Add below" title="Add a block below · ⌥-click adds one above"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button><button type="button" class="doc-handle" aria-label="Drag to move, or click for block options" title="Drag to move · Click for options"><svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><circle cx="2.5" cy="3.5" r="1.3"/><circle cx="7.5" cy="3.5" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="12.5" r="1.3"/><circle cx="7.5" cy="12.5" r="1.3"/></svg></button></div><i class="doc-drop" hidden></i><div class="doc-ghost" hidden></div><div class="doc-menu doc-table-picker" role="dialog" aria-label="Insert table" hidden></div><div class="doc-menu doc-table-menu" role="menu" aria-label="Table" hidden></div><button type="button" class="doc-table-pill col" title="Column" aria-label="Column" hidden>⋯</button><button type="button" class="doc-table-pill row" title="Row" aria-label="Row" hidden>⋮</button><button type="button" class="doc-table-add row" title="Add row" aria-label="Add row" hidden>+</button><button type="button" class="doc-table-add col" title="Add column" aria-label="Add column" hidden>+</button><div class="doc-menu doc-colors" role="dialog" aria-label="Text color and highlight" hidden></div><div class="doc-keys" hidden></div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden><section class="doc-page" aria-label="Document page"><div class="doc-skel"><i></i><i></i><i></i><i></i><i></i></div></section></main>';
 	const main = root.querySelector("main")!;
 	const appearanceMenu = document.createElement("div");
 	appearanceMenu.className = "doc-menu doc-appearance";
@@ -1205,7 +1205,7 @@ export async function mountDocClient(
 				: [
 						Object.assign(document.createElement("div"), {
 							className: "doc-mempty",
-							textContent: "No matching blocks",
+							textContent: "No blocks found",
 						}),
 					]),
 		);
@@ -1382,7 +1382,8 @@ export async function mountDocClient(
 					swatch.style.color = color || "var(--fg)";
 				} else if (color) swatch.style.background = color;
 				else swatch.classList.add("none");
-				swatch.title = kind === "Highlight" && !color ? "No highlight" : name;
+				swatch.title =
+					kind === "Highlight" && !color ? "Clear highlight" : name;
 				swatch.setAttribute("aria-label", `${kind} ${name}`);
 				swatch.onmousedown = (event) => event.preventDefault();
 				swatch.onclick = () => {
@@ -2292,12 +2293,12 @@ export async function mountDocClient(
 		const sub = document.createElement("p");
 		sub.className = "doc-sub";
 		sub.textContent =
-			"Type / on an empty line for every block type. Drag a block by its handle to rearrange.";
+			"Press / on a blank line to choose a block. Use its handle to move it.";
 		const columns = document.createElement("div");
 		columns.className = "doc-sheet-cols";
 		columns.append(
 			column(
-				heading("Formatting"),
+				heading("Text style"),
 				row("Bold", combo("mod", "B")),
 				row("Italic", combo("mod", "I")),
 				row("Underline", combo("mod", "U")),
@@ -2306,7 +2307,7 @@ export async function mountDocClient(
 				row("Highlight", combo("mod", "shift", "H")),
 				row("Link", combo("mod", "K")),
 				row("Clear formatting", combo("mod", "\\")),
-				heading("Blocks"),
+				heading("Block types"),
 				row("Text", combo("mod", "alt", "0")),
 				row(
 					"Heading 1 · 2 · 3",
@@ -2317,21 +2318,21 @@ export async function mountDocClient(
 				row("Bulleted list", combo("mod", "shift", "8")),
 				row("Numbered list", combo("mod", "shift", "7")),
 				row("To-do list", combo("mod", "shift", "9")),
-				row("Check · uncheck", combo("mod", "↵")),
-				row("Indent · outdent", combo("Tab"), combo("shift", "Tab")),
-				heading("Arrange"),
-				row("Select block", combo("Esc")),
-				row("Extend selection", combo("shift", "↑"), combo("shift", "↓")),
+				row("Toggle a to-do", combo("mod", "↵")),
+				row("Change list level", combo("Tab"), combo("shift", "Tab")),
+				heading("Move blocks"),
+				row("Choose current block", combo("Esc")),
+				row("Choose more blocks", combo("shift", "↑"), combo("shift", "↓")),
 				row(
-					"Move up · down",
+					"Shift blocks up · down",
 					combo("alt", "shift", "↑"),
 					combo("alt", "shift", "↓"),
 				),
 				row("Duplicate", combo("mod", "D")),
-				row("Delete selected", mac ? "⌫" : "Del"),
+				row("Remove chosen blocks", mac ? "⌫" : "Del"),
 			),
 			column(
-				heading("Markdown, as you type"),
+				heading("Short text patterns"),
 				md("Heading 1 · 2 · 3", "#", "##", "###"),
 				md("Bulleted list", "-"),
 				md("Numbered list", "1."),
@@ -2341,21 +2342,21 @@ export async function mountDocClient(
 				md("Divider", "---"),
 				md("Bold · italic", "**text**", "*text*"),
 				md("Code · strike", "`code`", "~~text~~"),
-				md("Arrows · em dash", "->", "--"),
-				md("Table, then ↵", "| a | b |"),
-				heading("Tables"),
-				row("Next · previous cell", combo("Tab"), combo("shift", "Tab")),
-				row("Cell below · new row", combo("↵")),
-				row("Line break in a cell", combo("shift", "↵")),
-				heading("General"),
-				md("Commands", "/"),
+				md("Make arrows · long dash", "->", "--"),
+				md("Start table, then ↵", "| a | b |"),
+				heading("Work with tables"),
+				row("Go to next · prior cell", combo("Tab"), combo("shift", "Tab")),
+				row("Go down · add row", combo("↵")),
+				row("Add line inside cell", combo("shift", "↵")),
+				heading("Other"),
+				md("Open block menu", "/"),
 				row("Save now", combo("mod", "S")),
 				row(
 					"Undo · redo",
 					combo("mod", "Z"),
 					mac ? combo("mod", "shift", "Z") : combo("mod", "Y"),
 				),
-				row("This sheet", combo("mod", "/")),
+				row("Show these shortcuts", combo("mod", "/")),
 			),
 		);
 		const card = document.createElement("div");

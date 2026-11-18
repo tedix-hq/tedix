@@ -265,7 +265,7 @@ export async function mountSheetClient(
 	) =>
 		`<label class="icon" title="${label}">${glyph(name)}<i class="swatch" aria-hidden="true"></i><input id="${id}" aria-label="${label}" type="color" value="${value}"></label>`;
 	root.innerHTML = `<h1 class="sr">Sheet</h1>
-<div class="bar"><div class="toolbar" role="toolbar" aria-label="Sheet tools"><span class="group" data-priority="1">${iconButton('id="undo"', "Undo (Ctrl/⌘ Z)", "undo")}${iconButton('id="redo"', "Redo (Ctrl/⌘ Shift Z)", "redo")}</span><span class="group" data-priority="1">${formatButtons}</span><span class="group" data-priority="3"><input id="font-size" title="Font size" aria-label="Font size" type="number" min="6" max="96" value="13">${colorButton("text-color", "Text color", "textColor", "#202020")}${colorButton("fill-color", "Fill color", "fillColor", "#ffffff")}</span><span class="group" data-priority="4"><span class="hidden-field" inert><select id="align" aria-label="Alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></span>${iconButton('data-align="left"', "Align left", "alignLeft")}${iconButton('data-align="center"', "Align center", "alignCenter")}${iconButton('data-align="right"', "Align right", "alignRight")}${iconButton('data-format="wrap"', "Wrap text", "wrap")}</span><span class="group" data-priority="2"><select id="number-format" title="Number format" aria-label="Number format"><option value="automatic">Automatic</option><option value="number">Number</option><option value="integer">Integer</option><option value="currency">Currency</option><option value="percent">Percent</option><option value="scientific">Scientific</option><option value="date">Date</option><option value="time">Time</option><option value="datetime">Date & time</option><option value="text">Text</option></select><span class="hidden-field" inert><input id="decimals" aria-label="Decimal places" type="number" min="0" max="15" value="2"></span><button type="button" id="dec-less" class="icon text" title="Fewer decimals" aria-label="Fewer decimals">.0</button><button type="button" id="dec-more" class="icon text" title="More decimals" aria-label="More decimals">.00</button></span><span class="group" data-priority="5">${sheetButton('id="sum"', "Sum the selection", "sum")}<button type="button" id="fx" class="icon text" title="Insert function" aria-label="Insert function" aria-haspopup="dialog">ƒx</button><button type="button" id="lock-ref" class="icon text" title="Lock reference ($A$1 → A$1 → $A1 → A1) (Ctrl/⌘ Shift L)" aria-label="Lock reference">$</button>${iconButton('id="fill-down"', "Fill down (Ctrl/⌘ D)", "fillDown")}${iconButton('id="fill-right"', "Fill right (Ctrl/⌘ R)", "fillRight")}${iconButton('id="sort-asc"', "Sort A to Z", "sortUp")}${iconButton('id="sort-desc"', "Sort Z to A", "sortDown")}<button type="button" id="filter-toggle" class="icon text" title="Filter" aria-label="Filter" aria-pressed="false">Filter</button></span><span class="group" data-priority="6">${iconButton('id="add-row"', "Add row", "addRow")}${iconButton('id="add-column"', "Add column", "addColumn")}${iconButton('id="clear-format"', "Clear formatting", "eraser")}${iconButton('id="clear"', "Clear cells", "clear")}</span><span class="group" data-priority="1">${sheetButton('id="more" aria-haspopup="menu"', "More actions", "more")}</span></div><div class="bar-end"><div class="status" role="status" aria-live="polite" data-state="idle"><i class="dot" aria-hidden="true"></i><span></span></div>${sheetButton('id="help" aria-haspopup="dialog"', "Keyboard shortcuts", "help")}${iconButton('id="download" aria-haspopup="menu"', "Download", "download")}</div></div>
+<div class="bar"><div class="toolbar" role="toolbar" aria-label="Sheet tools"><span class="group" data-priority="1">${iconButton('id="undo"', "Undo (Ctrl/⌘ Z)", "undo")}${iconButton('id="redo"', "Redo (Ctrl/⌘ Shift Z)", "redo")}</span><span class="group" data-priority="1">${formatButtons}</span><span class="group" data-priority="3"><input id="font-size" title="Font size" aria-label="Font size" type="number" min="6" max="96" value="13">${colorButton("text-color", "Text color", "textColor", "#202020")}${colorButton("fill-color", "Fill color", "fillColor", "#ffffff")}</span><span class="group" data-priority="4"><span class="hidden-field" inert><select id="align" aria-label="Alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></span>${iconButton('data-align="left"', "Align left", "alignLeft")}${iconButton('data-align="center"', "Align center", "alignCenter")}${iconButton('data-align="right"', "Align right", "alignRight")}${iconButton('data-format="wrap"', "Wrap text", "wrap")}</span><span class="group" data-priority="2"><select id="number-format" title="Number format" aria-label="Number format"><option value="automatic">Automatic</option><option value="number">Number</option><option value="integer">Integer</option><option value="currency">Currency</option><option value="percent">Percent</option><option value="scientific">Scientific</option><option value="date">Date</option><option value="time">Time</option><option value="datetime">Date & time</option><option value="text">Text</option></select><span class="hidden-field" inert><input id="decimals" aria-label="Decimal places" type="number" min="0" max="15" value="2"></span><button type="button" id="dec-less" class="icon text" title="Fewer decimals" aria-label="Fewer decimals">.0</button><button type="button" id="dec-more" class="icon text" title="More decimals" aria-label="More decimals">.00</button></span><span class="group" data-priority="5">${sheetButton('id="sum"', "Sum the selection", "sum")}<button type="button" id="fx" class="icon text" title="Insert function" aria-label="Insert function" aria-haspopup="dialog">ƒx</button><button type="button" id="lock-ref" class="icon text" title="Change locked parts ($A$1 → A$1 → $A1 → A1) (Ctrl/⌘ Shift L)" aria-label="Lock reference">$</button>${iconButton('id="fill-down"', "Fill down (Ctrl/⌘ D)", "fillDown")}${iconButton('id="fill-right"', "Fill right (Ctrl/⌘ R)", "fillRight")}${iconButton('id="sort-asc"', "Sort A to Z", "sortUp")}${iconButton('id="sort-desc"', "Sort Z to A", "sortDown")}<button type="button" id="filter-toggle" class="icon text" title="Filter" aria-label="Filter" aria-pressed="false">Filter</button></span><span class="group" data-priority="6">${iconButton('id="add-row"', "Add row", "addRow")}${iconButton('id="add-column"', "Add column", "addColumn")}${iconButton('id="clear-format"', "Clear formatting", "eraser")}${iconButton('id="clear"', "Clear cells", "clear")}</span><span class="group" data-priority="1">${sheetButton('id="more" aria-haspopup="menu"', "More actions", "more")}</span></div><div class="bar-end"><div class="status" role="status" aria-live="polite" data-state="idle"><i class="dot" aria-hidden="true"></i><span></span></div>${sheetButton('id="help" aria-haspopup="dialog"', "Keyboard shortcuts", "help")}${iconButton('id="download" aria-haspopup="menu"', "Download", "download")}</div></div>
 <div class="formula"><input id="range" aria-label="Cell or range" value="A1"><label for="formula">fx</label><input id="formula" aria-label="Formula bar" autocomplete="off" spellcheck="false"></div>
 <div class="stage"><div class="grid" tabindex="0" aria-label="Spreadsheet keyboard navigation"><table role="grid" aria-label="Sheet cells" aria-multiselectable="true"><colgroup></colgroup><thead></thead><tbody></tbody></table></div><div class="overlay"><div class="find" role="search" hidden><input id="find-value" type="search" placeholder="Find in sheet" aria-label="Find in sheet" autocomplete="off"><span id="find-count" role="status" aria-live="polite"></span><button type="button" id="find-previous" aria-label="Previous match" title="Previous match (⇧↵)">↑</button><button type="button" id="find-next" aria-label="Next match" title="Next match (↵)">↓</button><button type="button" id="find-options" aria-label="Search options" title="Search options" aria-haspopup="menu">…</button><button type="button" id="find-close" aria-label="Close" title="Close (Esc)">✕</button></div><div id="updates" role="status" aria-live="polite"></div><div class="command" hidden><label id="command-label" for="command-value"></label><input id="command-value"><button type="button" id="command-apply" class="primary">Apply</button><button type="button" id="command-cancel">Cancel</button></div></div></div>
 <div class="strip">${iconButton('id="add-sheet"', "Add sheet", "plus")}<div id="tab-buttons" role="tablist" aria-label="Sheets"></div><span class="hidden-field"><label>Sheet <select id="tabs" aria-label="Active sheet"></select></label></span><div class="stats"></div></div>`;
@@ -1740,10 +1740,10 @@ export async function mountSheetClient(
 	/** Cycle the $ form of the reference at the caret: A1 → $A$1 → A$1 → $A1 → A1. */
 	function lockReference(input?: HTMLInputElement) {
 		if (!input || !input.value.startsWith("="))
-			return note("No cell reference selected");
+			return note("Choose a cell reference first");
 		const caret = input.selectionStart ?? input.value.length;
 		const next = cycleReference(input.value, caret);
-		if (!next) return note("Place the caret in a cell reference");
+		if (!next) return note("Put the caret inside a cell reference");
 		typeInto(input, next.text, next.caret);
 		input.focus();
 	}
@@ -1825,7 +1825,7 @@ export async function mountSheetClient(
 			);
 			const empty = document.createElement("div");
 			empty.className = "fn-empty";
-			empty.textContent = "No matching functions";
+			empty.textContent = "No functions found";
 			empty.hidden = true;
 			panel.append(empty);
 			search.oninput = () => {
@@ -2311,7 +2311,8 @@ export async function mountSheetClient(
 		if (!editable() || !draft) return;
 		if (sheet().filter) return setFilter(undefined);
 		const found = detectFilterRange(sheet(), bounds(), selection.focus);
-		if (!found) return note("Select data with a header row", true);
+		if (!found)
+			return note("Choose a range that includes column headings", true);
 		setFilter(found);
 	}
 	/** One column's filter: sort, and choose which values show. */
@@ -2368,7 +2369,7 @@ export async function mountSheetClient(
 				if (!choices.length) {
 					const empty = document.createElement("div");
 					empty.className = "filter-empty";
-					empty.textContent = "No values below this row";
+					empty.textContent = "There are no values under this heading";
 					list.append(empty);
 				}
 				for (const { token, label } of choices) {
@@ -2454,7 +2455,7 @@ export async function mountSheetClient(
 						chosen.length > MAX_FILTER_CHOICES
 					) {
 						note(
-							`Select at most ${MAX_FILTER_CHOICES} values, or deselect fewer values instead`,
+							`Choose no more than ${MAX_FILTER_CHOICES} values, or clear enough choices to stay under the limit`,
 							true,
 						);
 						return;
@@ -3194,11 +3195,13 @@ export async function mountSheetClient(
 			filteredMatches === 0
 				? ""
 				: matches.length
-					? `${filteredMatches} more in rows a filter hides`
-					: `${filteredMatches} ${filteredMatches === 1 ? "match is" : "matches are"} in rows a filter hides`;
+					? `${filteredMatches} more ${filteredMatches === 1 ? "match is" : "matches are"} in rows hidden by a filter`
+					: `${filteredMatches} ${filteredMatches === 1 ? "result is" : "results are"} in rows hidden by a filter`;
 		if (!query) findCount.textContent = "";
 		else if (!matches.length) {
-			findCount.textContent = filteredMatches ? "Filtered out" : "No results";
+			findCount.textContent = filteredMatches
+				? "Hidden by filter"
+				: "Nothing found";
 			findCount.setAttribute("data-bad", "");
 		} else
 			findCount.textContent =
@@ -3811,8 +3814,8 @@ export async function mountSheetClient(
 			name = first.sheet.id === sheet().id ? ref : `${first.sheet.name}!${ref}`;
 		note(
 			replaced.length === 1
-				? `${name} was also edited elsewhere just now, and that edit replaced yours`
-				: `${replaced.length} cells you just edited were also edited elsewhere, and those edits replaced yours`,
+				? `${name} changed elsewhere after your edit, so the other value is shown`
+				: `${replaced.length} cells changed elsewhere after your edits, so the other values are shown`,
 			true,
 			2200,
 		);

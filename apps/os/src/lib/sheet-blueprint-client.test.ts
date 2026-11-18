@@ -681,7 +681,7 @@ describe("Portable Sheet grid", () => {
 		expect(cell("C1").classList.contains("find-current")).toBe(true);
 		// Formula text is searched only with the option.
 		type("sum");
-		expect(q("#find-count").textContent).toBe("No results");
+		expect(q("#find-count").textContent).toBe("Nothing found");
 		const choose = (label: string) => {
 			click("#find-options");
 			[
@@ -876,7 +876,7 @@ describe("Portable Sheet grid", () => {
 		app.changeExternal(5);
 		await vi.waitFor(() =>
 			expect(q(".status").textContent).toContain(
-				"A1 was also edited elsewhere just now, and that edit replaced yours",
+				"A1 changed elsewhere after your edit, so the other value is shown",
 			),
 		);
 		expect(display("A1")).toContain("5");
