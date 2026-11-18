@@ -508,7 +508,7 @@ describe("WorkspaceChat", () => {
 		expect(trigger).not.toBeNull();
 		await act(async () => trigger?.click());
 		expect(document.body.textContent).toContain(
-			"cannot read uploaded files yet",
+			"The assistant can read spreadsheets, CSV,",
 		);
 		const browseButton = [...document.querySelectorAll("button")].find(
 			(button) => button.textContent === "Browse all files",

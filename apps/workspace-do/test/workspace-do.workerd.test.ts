@@ -403,6 +403,52 @@ const READ_ONLY_CODE = `export default async (env) => {
 }`;
 
 describe("staged output migration", () => {
+	test("a new workspace with no files anywhere is claimed by its object on its first file", async () => {
+		await seedCore();
+		const scope: WorkspaceScope = {
+			organizationId: "org_test",
+			workspaceId: crypto.randomUUID(),
+		};
+		await seedWorkspaceRows([scope]);
+		const ws = workspace(scope);
+		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("shared");
+		expect(await ws.outputQuery(scope, { op: "claim" })).toBe("object");
+		await evictDurableObject(ws);
+		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");
+		expect((await ws.describe(scope)).outputAuthority).toBe("object");
+	});
+
+	test("a claim never takes over a workspace with files in the shared database or a staged import", async () => {
+		await seedCore();
+		const shared: WorkspaceScope = {
+			organizationId: "org_test",
+			workspaceId: crypto.randomUUID(),
+		};
+		await seedWorkspaceRows([shared]);
+		await testEnv.DB.prepare(
+			"INSERT INTO os_outputs (id, organization_id, workspace_id, kind, title, status, current_revision_id, created_by_kind, created_by_id, created_at, updated_at) VALUES (?, ?, ?, 'document', 'Shared plan', 'active', NULL, 'user', 'u1', ?, ?)",
+		)
+			.bind(
+				crypto.randomUUID(),
+				shared.organizationId,
+				shared.workspaceId,
+				"2026-11-18T10:00:00.000Z",
+				"2026-11-18T10:00:00.000Z",
+			)
+			.run();
+		expect(await workspace(shared).outputQuery(shared, { op: "claim" })).toBe(
+			"shared",
+		);
+		const staged: WorkspaceScope = {
+			organizationId: "org_test",
+			workspaceId: crypto.randomUUID(),
+		};
+		await seedWorkspaceRows([staged]);
+		const ws = workspace(staged);
+		await seedOutputs(ws, staged, false);
+		expect(await ws.outputQuery(staged, { op: "claim" })).toBe("shared");
+	});
+
 	test("directory-only and full staging refuse agent output reads and approved writes until activation", async () => {
 		await seedCore();
 		const scope: WorkspaceScope = {

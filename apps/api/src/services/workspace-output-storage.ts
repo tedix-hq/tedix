@@ -230,7 +230,7 @@ export async function createOsOutput(
 		!runtime() ||
 		(await runtime()!.outputQuery(
 			{ organizationId: scope.organizationId, workspaceId: output.workspaceId },
-			{ op: "authority" },
+			{ op: "claim" },
 		)) !== "object"
 	)
 		return d1Outputs.createOsOutput(...args);

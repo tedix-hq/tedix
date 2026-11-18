@@ -21,6 +21,7 @@ import {
 	type OutputTransferResult,
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import { hasWorkspaceOutputAuthority } from "@tedix/db/queries/durable-sqlite/os-outputs";
+import { hasSharedWorkspaceOutputs } from "@tedix/db/queries/os-workspaces/outputs";
 import { getTediById } from "@tedix/db/queries/tedis";
 import {
 	getSkillEntryBySlug,
@@ -624,6 +625,24 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			return (
 				(await this.#ownsOutputs(scope)) ? "object" : "shared"
 			) as OutputQueryResult<K>;
+		if (operation.op === "claim") {
+			// A workspace that has never been imported and has no files in the
+			// shared database has nothing to move: its first file starts here.
+			const authority = this.#store.get("output-authority");
+			if (
+				authority !== "object" &&
+				authority !== "shared" &&
+				this.#importGeneration() === 0 &&
+				!(await hasSharedWorkspaceOutputs(
+					createDbQueryClient(this.env.DB),
+					scope,
+				))
+			)
+				this.#store.put("output-authority", "object");
+			return (
+				(await this.#ownsOutputs(scope)) ? "object" : "shared"
+			) as OutputQueryResult<K>;
+		}
 		if (operation.op === "thin" && !(await this.#ownsOutputs(scope)))
 			throw new Error("Workspace does not own these outputs");
 		if (operation.op === "snapshot" || operation.op === "import")
