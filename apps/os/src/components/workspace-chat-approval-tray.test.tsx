@@ -124,4 +124,18 @@ describe("ApprovalTray", () => {
 		expect(button("Accept editing an app draft")?.textContent).toBe("Accept");
 		expect(button("Reject editing an app draft")?.textContent).toBe("Reject");
 	});
+
+	it("names the site of a web page and shows its full address", async () => {
+		const url = "https://www.example.com/pricing/teams?plan=annual";
+		const { onDecide } = await render([
+			proposal("a1", "Reading a web page", undefined, url),
+		]);
+		const row = host.querySelector(".workspace-chat-tray-item");
+		expect(row?.textContent).toContain("Read example.com");
+		expect(row?.textContent).toContain(url);
+		expect(row?.textContent).not.toContain("Reading a web page");
+		await act(async () => button("Approve reading example.com")?.click());
+		expect(onDecide).toHaveBeenCalledWith("a1", "approve");
+		expect(button("Deny reading example.com")?.disabled).toBe(true);
+	});
 });

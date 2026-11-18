@@ -66,7 +66,7 @@ import { SqlAccountabilityAdapter, SqlComplianceAdapter } from "./adapters";
 import { buildWorkspaceBindings } from "./bindings";
 import type { WorkspaceSnapshot } from "./data-port";
 import { MAX_VIEWS_PER_TURN } from "./views";
-import { createWebPort, type FetchFn } from "./web";
+import { createWebPort, type FetchFn, webApprovalTitle } from "./web";
 import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
 import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-notice";
@@ -2602,7 +2602,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					turnId: turn.turnId,
 					stepId,
 					approvalId,
-					title: label,
+					// A web page card names the site; the full address is its input.
+					title:
+						(binding === "web" && method === "fetch"
+							? webApprovalTitle(args[0])
+							: null) ?? label,
 					reason: error.decision.reason,
 					policy: error.decision.gate,
 					input: boundedEventInput(args[0]),
@@ -2825,14 +2829,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			rows.map(async (row) => {
 				const request = (JSON.parse(row.args) as unknown[])[0] as
 					| { title?: unknown; outputId?: unknown }
+					| string
 					| undefined;
 				const target =
-					typeof request?.title === "string"
-						? request.title
-						: typeof request?.outputId === "string"
-							? ((await data.getOutput(request.outputId).catch(() => null))
-									?.title ?? null)
-							: null;
+					typeof request === "string"
+						? // A web page waiting to be read: its address.
+							request.slice(0, 300)
+						: typeof request?.title === "string"
+							? request.title
+							: typeof request?.outputId === "string"
+								? ((await data.getOutput(request.outputId).catch(() => null))
+										?.title ?? null)
+								: null;
 				return { action: stepLabel(row.binding, row.method).label, target };
 			}),
 		);

@@ -1649,7 +1649,7 @@ describe("WorkspaceDO", () => {
 		);
 		if (requested?.type !== "approval.requested")
 			throw new Error("no approval card");
-		expect(requested.title).toBe("Reading a web page");
+		expect(requested.title).toBe("Read example.com");
 		expect(requested.input).toBe("https://example.com/prices");
 		expect(await ws.webFetchCount(scope)).toBe(0);
 
