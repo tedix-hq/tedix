@@ -536,6 +536,17 @@ export const appCatalogBrowseTotals = sqliteTable("app_catalog_browse_totals", {
 	exploreTotal: integer("explore_total").notNull(),
 });
 
+export const appCatalogCategoryTotals = sqliteTable(
+	"app_catalog_category_totals",
+	{
+		category: text("category").primaryKey(),
+		total: integer("total").notNull(),
+	},
+	(table) => [
+		index("app_catalog_category_total_idx").on(table.total, table.category),
+	],
+);
+
 // ============================================
 // Store Listings Table (Per-Store Metadata)
 // ============================================

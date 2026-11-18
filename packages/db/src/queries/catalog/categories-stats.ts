@@ -4,8 +4,12 @@
  */
 
 import { mergeCatalogCategoryCounts } from "@tedix/api-contract/utils/catalog-categories";
-import { and, count, desc, eq, or } from "drizzle-orm";
-import { appCatalog, appCatalogStoreListings } from "../../schema/catalog";
+import { and, count, desc, eq, gt, or } from "drizzle-orm";
+import {
+	appCatalog,
+	appCatalogCategoryTotals,
+	appCatalogStoreListings,
+} from "../../schema/catalog";
 import type { Database } from "./tool-source-policy";
 
 /** The exact cohort exposed by unauthenticated catalog list endpoints. */
@@ -32,13 +36,12 @@ export async function getCatalogCategories(
 ): Promise<{ name: string; label: string; count: number }[]> {
 	const result = await db
 		.select({
-			name: appCatalog.category,
-			count: count(),
+			name: appCatalogCategoryTotals.category,
+			count: appCatalogCategoryTotals.total,
 		})
-		.from(appCatalog)
-		.where(publicCatalogCondition)
-		.groupBy(appCatalog.category)
-		.orderBy(desc(count()));
+		.from(appCatalogCategoryTotals)
+		.where(gt(appCatalogCategoryTotals.total, 0))
+		.orderBy(desc(appCatalogCategoryTotals.total));
 
 	return mergeCatalogCategoryCounts(result);
 }
