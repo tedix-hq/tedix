@@ -211,6 +211,12 @@ export const OsBlueprintGalleryItemSchema = z.object({
 		.int()
 		.nonnegative()
 		.describe("App count declared by the published revision's definition"),
+	previewApps: z
+		.array(z.object({ name: z.string() }).strict())
+		.max(6)
+		.describe(
+			"The first apps the blueprint installs, in declared order, for the card preview; the same names its landing page lists",
+		),
 	organizationName: z
 		.string()
 		.describe("Display name of the organization that published the blueprint"),

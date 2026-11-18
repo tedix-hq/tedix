@@ -62,6 +62,26 @@ try {
 							.getByRole("button", { name: "Explore", exact: true })
 							.click();
 						const card = page.locator(".blueprint-gallery-card").first();
+						// The card previews what the template makes: the workspace
+						// name and the apps it adds, each readable inside the preview.
+						const preview = card.getByRole("group", {
+							name: "Preview of a workspace made from Revenue Ops Starter",
+						});
+						await preview.waitFor();
+						const previewApp = preview.getByRole("listitem");
+						assert.deepEqual(await previewApp.allInnerTexts(), [
+							"R\nRevenue Dashboard",
+						]);
+						const previewBox = await preview.boundingBox();
+						const appBox = await previewApp.first().boundingBox();
+						assert.ok(previewBox && appBox);
+						assert.ok(
+							appBox.x >= previewBox.x &&
+								appBox.x + appBox.width <= previewBox.x + previewBox.width &&
+								appBox.y >= previewBox.y &&
+								appBox.y + appBox.height <= previewBox.y + previewBox.height,
+							"preview app tile leaves the preview",
+						);
 						await card.getByRole("textbox").fill("Weekly reports");
 						const create = card.getByRole("button", {
 							name: "Create workspace",

@@ -1162,6 +1162,7 @@ describe("blueprint gallery", () => {
 			name: "Sales Pod",
 			description: "Shared sales pod",
 			gadgetCount: 1,
+			previewApps: [{ name: "CRM" }],
 			organizationName: "Second Org",
 			publishedAt: expect.any(String),
 			featured: false,

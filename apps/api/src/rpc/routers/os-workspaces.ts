@@ -27,6 +27,7 @@ import {
 import type { WorkItemExecutionPreflight } from "@tedix/api-contract/schemas/work-items";
 import { createApprovalRequest } from "@tedix/db/queries/approvals";
 import {
+	CATALOG_PREVIEW_APP_LIMIT,
 	createOsBlueprint,
 	createOsBlueprintRevision,
 	getCatalogOsBlueprint,
@@ -1671,6 +1672,7 @@ const blueprintsGallery = readOs.blueprints.gallery.handler(
 				name: listing.blueprint.name,
 				description: listing.blueprint.description,
 				gadgetCount: listing.gadgetCount,
+				previewApps: listing.previewAppNames.map((name) => ({ name })),
 				organizationName: listing.organizationName,
 				publishedAt: listing.publishedAt,
 				featured: listing.blueprint.featuredAt !== null,
@@ -1717,6 +1719,7 @@ const blueprintsSetFeatured = authed
 				name: page.name,
 				description: page.description,
 				gadgetCount: page.apps.length,
+				previewApps: page.apps.slice(0, CATALOG_PREVIEW_APP_LIMIT),
 				organizationName: page.organizationName,
 				publishedAt: page.publishedAt,
 				featured: page.featured,

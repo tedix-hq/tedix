@@ -63,9 +63,14 @@ export interface CatalogOsBlueprintListing {
 	organizationName: string;
 	/** Gadget count declared by the current published revision's definition. */
 	gadgetCount: number;
+	/** Names of the first few declared gadgets, in declared order, for the card preview. */
+	previewAppNames: string[];
 	/** `published_at` of the current revision; null when the stamp is missing. */
 	publishedAt: string | null;
 }
+
+/** How many app names a gallery card's preview shows. */
+export const CATALOG_PREVIEW_APP_LIMIT = 6;
 
 export interface CatalogOsBlueprintSource {
 	blueprint: OsBlueprintRow;
@@ -374,7 +379,7 @@ export async function listCatalogOsBlueprints(
 	db: DbQueryClient,
 	options: { limit?: number } = {},
 ): Promise<CatalogOsBlueprintListing[]> {
-	return db
+	const rows = await db
 		.select({
 			blueprint: prefixedColumns(osBlueprints, "blueprint"),
 			organizationName: sql<string>`${organizations.name}`.as(
@@ -384,6 +389,15 @@ export async function listCatalogOsBlueprints(
 				sql<number>`coalesce(json_array_length(${osBlueprintRevisions.definition}, '$.gadgets'), 0)`.as(
 					"gadget_count",
 				),
+			previewAppNames: sql<string>`(
+				select coalesce(json_group_array(preview.name), '[]')
+				from (
+					select json_extract(gadget.value, '$.name') as name
+					from json_each(${osBlueprintRevisions.definition}, '$.gadgets') as gadget
+					order by gadget.key
+					limit ${CATALOG_PREVIEW_APP_LIMIT}
+				) as preview
+			)`.as("preview_app_names"),
 			publishedAt: sql<string | null>`${osBlueprintRevisions.publishedAt}`.as(
 				"revision_published_at",
 			),
@@ -402,6 +416,12 @@ export async function listCatalogOsBlueprints(
 		)
 		.orderBy(desc(osBlueprints.updatedAt), asc(osBlueprints.id))
 		.limit(Math.min(Math.max(options.limit ?? 50, 1), 200));
+	return rows.map((row) => ({
+		...row,
+		previewAppNames: (JSON.parse(row.previewAppNames) as unknown[]).filter(
+			(name): name is string => typeof name === "string",
+		),
+	}));
 }
 
 /**

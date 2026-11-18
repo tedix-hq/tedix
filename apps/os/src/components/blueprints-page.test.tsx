@@ -187,6 +187,7 @@ function galleryItemFixture(
 		name: "Sales Pod",
 		description: "Shared sales pod",
 		gadgetCount: 2,
+		previewApps: [{ name: "CRM" }, { name: "Pipeline" }],
 		organizationName: "Second Org",
 		publishedAt: "2026-08-13T09:00:00.000Z",
 		featured: false,
@@ -586,6 +587,39 @@ describe("GalleryCard", () => {
 		expect(html).toContain("Share link");
 		expect(html).toContain(`/blueprint/${OTHER_BLUEPRINT_ID}`);
 		expect(html).not.toContain("Featured");
+	});
+
+	it("previews the workspace the template makes: its name and its apps", () => {
+		const html = renderToStaticMarkup(
+			<GalleryCard item={galleryItemFixture()} />,
+		);
+		expect(html).toContain(
+			'aria-label="Preview of a workspace made from Sales Pod"',
+		);
+		expect(html).toContain(
+			'<span class="blueprint-gallery-preview-title">Sales Pod</span>',
+		);
+		expect(html).toContain('<li title="CRM">');
+		expect(html).toContain('<li title="Pipeline">');
+		expect(html).not.toContain("more</li>");
+		expect(html).not.toContain("Starts empty");
+	});
+
+	it("counts the apps the preview has no room for", () => {
+		const html = renderToStaticMarkup(
+			<GalleryCard item={galleryItemFixture({ gadgetCount: 9 })} />,
+		);
+		expect(html).toContain("+7 more");
+	});
+
+	it("says a template with no apps starts empty", () => {
+		const html = renderToStaticMarkup(
+			<GalleryCard
+				item={galleryItemFixture({ gadgetCount: 0, previewApps: [] })}
+			/>,
+		);
+		expect(html).toContain("Starts empty. Add apps after you create it.");
+		expect(html).not.toContain("blueprint-gallery-preview-grid");
 	});
 
 	it("omits the missing description and publish time without breaking", () => {

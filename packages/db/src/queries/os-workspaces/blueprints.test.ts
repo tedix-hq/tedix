@@ -7,6 +7,7 @@ import { schemaDdl } from "../../test/schema-ddl";
 import {
 	createOsBlueprint,
 	createOsBlueprintRevision,
+	CATALOG_PREVIEW_APP_LIMIT,
 	deleteOsBlueprint,
 	getCatalogOsBlueprint,
 	getOsBlueprint,
@@ -302,10 +303,66 @@ describe("os blueprint gallery", () => {
 			blueprint: { id: "bp-1", name: "Support Desk", visibility: "catalog" },
 			organizationName: "First Org",
 			gadgetCount: 2,
+			previewAppNames: ["CRM", "Pipeline"],
 			publishedAt: expect.any(String),
 		});
 		// The limit is bounded, not trusted.
 		expect(await listCatalogOsBlueprints(db, { limit: 1 })).toHaveLength(1);
+	});
+
+	it("names only the first apps, in declared order, for the card preview", async () => {
+		const db = fixture();
+		const names = [
+			"Inbox",
+			"Board",
+			"Notes",
+			"Reports",
+			"Plan",
+			"Files",
+			"Log",
+		];
+		await createOsBlueprint(db, { ...blueprint, visibility: "catalog" });
+		await createOsBlueprintRevision(db, {
+			...revisionParams("rev-1"),
+			definition: JSON.stringify({
+				gadgets: names.map((name) => ({ name })),
+				layout: null,
+				skills: [],
+			}),
+		});
+		await publishOsBlueprintRevision(db, {
+			organizationId: "org-1",
+			blueprintId: "bp-1",
+			revisionId: "rev-1",
+		});
+		// A template with no apps lists none instead of failing the whole page.
+		await createOsBlueprint(db, {
+			...blueprint,
+			id: "bp-2",
+			name: "Empty Pod",
+			visibility: "catalog",
+		});
+		await createOsBlueprintRevision(db, {
+			...revisionParams("rev-2"),
+			blueprintId: "bp-2",
+			definition: '{"gadgets":[],"layout":null,"skills":[]}',
+		});
+		await publishOsBlueprintRevision(db, {
+			organizationId: "org-1",
+			blueprintId: "bp-2",
+			revisionId: "rev-2",
+		});
+
+		const listed = await listCatalogOsBlueprints(db);
+		const byId = new Map(listed.map((row) => [row.blueprint.id, row]));
+		expect(byId.get("bp-1")).toMatchObject({
+			gadgetCount: 7,
+			previewAppNames: names.slice(0, CATALOG_PREVIEW_APP_LIMIT),
+		});
+		expect(byId.get("bp-2")).toMatchObject({
+			gadgetCount: 0,
+			previewAppNames: [],
+		});
 	});
 
 	it("resolves a catalog blueprint across orgs and hides private ones identically to missing ids", async () => {
