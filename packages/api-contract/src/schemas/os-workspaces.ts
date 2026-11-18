@@ -1797,7 +1797,17 @@ export const OsOutputContentSchema = z.discriminatedUnion("kind", [
 			"Shared document typeface and measure; omitted for the default sans, 700px presentation",
 		),
 		file: z
-			.object({ workspaceId: z.uuid(), resourceId: z.uuid() })
+			.object({
+				workspaceId: z.uuid(),
+				resourceId: z.uuid(),
+				extract: z
+					.array(OsDocumentBlockSchema)
+					.max(2_000)
+					.optional()
+					.describe(
+						"Readable text of an uploaded spreadsheet, Word document or slide deck, kept to its start; omitted for other files and earlier uploads",
+					),
+			})
 			.optional()
 			.describe(
 				"Workspace file to preview; access is checked independently on every read",

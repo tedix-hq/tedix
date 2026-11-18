@@ -5,6 +5,7 @@ import { confirmOsWorkspaceFile } from "../../services/os-workspace-outputs";
 import { attachOutputEditor } from "../../services/os-output-editor";
 import { getOsOutput } from "../../services/workspace-output-storage";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
+import type { OsDocumentBlock } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -25,6 +26,7 @@ import {
 	workspaceFileKey,
 	workspaceFileSignature,
 	workspaceFileMimeMatches,
+	workspaceFileExtractBlocks,
 	type WorkspaceFileManifest,
 } from "../../lib/workspace-files";
 
@@ -110,7 +112,11 @@ export const requestFileUpload = author.resources.requestFileUpload.handler(
 	},
 );
 
-/** The document Output and first revision a confirmed file may publish. */
+/**
+ * The document Output and first revision a confirmed file may publish. The
+ * file's readable text rides on its reference, so agents and readers see the
+ * contents while the document stays a read-only preview of the file.
+ */
 function fileDocumentRows(
 	creator: {
 		organizationId: string;
@@ -121,6 +127,7 @@ function fileDocumentRows(
 	workspaceId: string,
 	resourceId: string,
 	title: string,
+	extract: OsDocumentBlock[] = [],
 ) {
 	return {
 		output: {
@@ -141,7 +148,11 @@ function fileDocumentRows(
 			content: JSON.stringify({
 				kind: "document",
 				blocks: [],
-				file: { workspaceId, resourceId },
+				file: {
+					workspaceId,
+					resourceId,
+					...(extract.length ? { extract } : {}),
+				},
 			}),
 			note: "Uploaded workspace file",
 			// Uploaded bytes have no connected-source dependencies; file reads check workspace access.
@@ -178,6 +189,11 @@ async function ensureWorkspaceFileDocument(
 				workspaceId,
 				resourceId,
 				manifest.filename,
+				await workspaceFileExtractBlocks(
+					context.env,
+					workspaceFileKey(manifest.organizationId, workspaceId, resourceId),
+					manifest,
+				),
 			),
 		);
 	}
@@ -324,6 +340,7 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 						workspace.id,
 						input.resourceId,
 						manifest.filename,
+						await workspaceFileExtractBlocks(context.env, key, manifest),
 					)
 				: {}),
 		});

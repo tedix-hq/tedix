@@ -42,6 +42,7 @@ import {
 	WORKSPACE_FILE_PART_BYTES,
 	WorkspaceFileMetadataSchema,
 } from "@tedix/api-contract/schemas/workspace-files";
+import { buildXlsx } from "../../lib/ooxml/xlsx";
 
 const W = "10000000-0000-4000-8000-000000000001";
 // Exercise the real authorization middleware with an already-authenticated fictional caller.
@@ -773,5 +774,91 @@ describe("workspace file content validation", () => {
 				}).filename,
 			).toBe(expected);
 		}
+	});
+});
+
+describe("workspace file readable text", () => {
+	it("stores a spreadsheet's cells on its document and validates its type", async () => {
+		const f = fixture();
+		const bytes = await buildXlsx({
+			kind: "sheet",
+			columns: ["Item", "Count", "Price"],
+			rows: [
+				["Paper", 2, 3.5],
+				["Ink", 1, 10],
+			],
+		});
+		const mime =
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+		const { ticket, receipts } = await f.upload(
+			bytes.length,
+			mime,
+			bytes,
+			"Supplies.xlsx",
+		);
+		const result = await f.confirm({
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+			parts: receipts,
+			document: true,
+		});
+		expect(result.resource.metadata?.mimeType).toBe(mime);
+		const output = await createRouterClient(osOutputProcedures.get, {
+			context: f.context(),
+		})({ outputId: result.outputId! });
+		const content = output.currentRevision.content;
+		if (content.kind !== "document") throw new Error("expected a document");
+		expect(content.file?.resourceId).toBe(ticket.resourceId);
+		// The document stays a read-only preview; the text rides on the file.
+		expect(content.blocks).toEqual([]);
+		const table = content.file?.extract?.find(
+			(block) => block.type === "table",
+		);
+		expect(table).toMatchObject({
+			type: "table",
+			headers: ["Row", "A", "B", "C"],
+			rows: [
+				["1", "Item", "Count", "Price"],
+				["2", "Paper", "2", "3.5"],
+				["3", "Ink", "1", "10"],
+			],
+		});
+		// Still served as a download, never rendered by the browser.
+		const file = await f.get({ workspaceId: W, resourceId: ticket.resourceId });
+		const response = await serveWorkspaceFile(
+			new Request(new URL(file.url.replace(/^\/api/, ""), f.env.API_URL)),
+			f.env,
+			{
+				organizationId: "fictional-a",
+				workspaceId: W,
+				resourceId: ticket.resourceId,
+			},
+		);
+		expect(response.headers.get("Content-Disposition")).toMatch(/^attachment/);
+	});
+
+	it("keeps an unreadable office file as a plain upload", async () => {
+		const f = fixture();
+		const bytes = ascii("PK\u0003\u0004 not really a workbook");
+		const { ticket, receipts } = await f.upload(
+			bytes.length,
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			bytes,
+			"broken.xlsx",
+		);
+		const result = await f.confirm({
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+			parts: receipts,
+			document: true,
+		});
+		const output = await createRouterClient(osOutputProcedures.get, {
+			context: f.context(),
+		})({ outputId: result.outputId! });
+		expect(output.currentRevision.content).toEqual({
+			kind: "document",
+			blocks: [],
+			file: { workspaceId: W, resourceId: ticket.resourceId },
+		});
 	});
 });
