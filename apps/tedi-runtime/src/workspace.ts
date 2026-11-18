@@ -8,9 +8,9 @@ import type {
  *
  * Two backends:
  *   - SOUL.md / IDENTITY.md / USER.md / AGENTS.md / TOOLS.md / MEMORY.md
- *     →  Cloudflare Artifacts first,
- *     then R2 fallback (`tedix-tedi-production` / <tediId>/...). Reads use a
- *     short-lived read token and never create a repo as a side effect.
+ *     →  Cloudflare Artifacts per-tedi repo. Reads use a short-lived read
+ *     token and never create a repo as a side effect; missing files are
+ *     provisioned from the tedi's generated defaults by the caller.
  *   - Daily logs (`workspace/daily/YYYY-MM-DD.md`)  →  Cloudflare Artifacts
  *     per-tedi repo (`tedix-prod` namespace, repo name = tediId). Committed
  *     via `isomorphic-git` from `artifacts-git.ts` so isolate writes land in
@@ -48,7 +48,7 @@ export interface WorkspaceFile {
 	text: string;
 }
 
-type IdentityFileSource = "artifacts" | "r2" | "missing";
+type IdentityFileSource = "artifacts" | "missing";
 
 export interface IdentityFileReadDiagnostic {
 	path: string;
@@ -58,11 +58,6 @@ export interface IdentityFileReadDiagnostic {
 	artifact: {
 		attempted: boolean;
 		repoFound?: boolean;
-		fileFound?: boolean;
-		error?: string;
-	};
-	r2: {
-		attempted: boolean;
 		fileFound?: boolean;
 		error?: string;
 	};
@@ -83,12 +78,10 @@ export interface IdentityReadDiagnostics {
 	files: IdentityFileReadDiagnostic[];
 	provisionedFiles: string[];
 	missingFiles: string[];
-	usedR2Fallback: boolean;
 	lastReadError?: string;
 }
 
 export interface ReadIdentityFilesOptions {
-	bucket: R2Bucket;
 	tediId: string;
 	files?: string[];
 	artifacts?: Artifacts;
@@ -114,7 +107,6 @@ export async function readIdentityFilesWithDiagnostics(
 	diagnostics: IdentityReadDiagnostics;
 }> {
 	const {
-		bucket,
 		tediId,
 		artifacts,
 		artifactsAccountId,
@@ -139,7 +131,6 @@ export async function readIdentityFilesWithDiagnostics(
 		files: [],
 		provisionedFiles: [],
 		missingFiles: [],
-		usedR2Fallback: false,
 	};
 	const getFileDiag = (path: string): IdentityFileReadDiagnostic => {
 		let diag = fileDiagnostics.get(path);
@@ -150,7 +141,6 @@ export async function readIdentityFilesWithDiagnostics(
 				key: null,
 				chars: 0,
 				artifact: { attempted: false },
-				r2: { attempted: false },
 			};
 			fileDiagnostics.set(path, diag);
 		}
@@ -244,34 +234,6 @@ export async function readIdentityFilesWithDiagnostics(
 					{ exception: exceptionTopology(err) },
 				);
 			}
-		} else if (diag.source === "artifacts") {
-			continue;
-		}
-
-		const key = `${tediId}/${file}`;
-		try {
-			diag.r2.attempted = true;
-			const obj = await bucket.get(key);
-			if (!obj) {
-				diag.r2.fileFound = false;
-				continue;
-			}
-			const text = await obj.text();
-			diag.r2.fileFound = true;
-			if (text && text.trim().length > 0) {
-				diag.source = "r2";
-				diag.key = key;
-				diag.chars = text.length;
-				diagnostics.usedR2Fallback = true;
-				out.push({ key, text });
-			}
-		} catch (err) {
-			const message = errorMessage(err);
-			diag.r2 = { attempted: true, error: message };
-			diagnostics.lastReadError = message;
-			console.warn(`[isolate.workspace] R2 read failed for ${key}:`, {
-				error: errorMessage(err),
-			});
 		}
 	}
 	diagnostics.files = files.map((file) => getFileDiag(file));

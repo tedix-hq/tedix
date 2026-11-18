@@ -21,7 +21,7 @@ export interface EvaluationAdmission extends EvaluationRequest {
 }
 
 export interface EvaluationAbsenceProof {
-	version: 1;
+	version: 2;
 	tediId: string;
 	path: "AGENTS.md";
 	artifacts: {
@@ -31,7 +31,6 @@ export interface EvaluationAbsenceProof {
 		attempted: true;
 		fileFound: false;
 	};
-	r2: { attempted: true; fileFound: false };
 }
 
 export const EVALUATION_SYSTEM =
@@ -164,7 +163,6 @@ export async function readEvaluationInstructions(
 	tediId: string,
 ) {
 	const identity = await readIdentityFilesWithDiagnostics({
-		bucket: env.TEDI_STORAGE,
 		tediId,
 		files: ["AGENTS.md"],
 		artifacts: env.ARTIFACTS,
@@ -205,16 +203,13 @@ export async function evaluationInstructionsFromIdentity(
 			source.artifact.attempted !== true ||
 			source.artifact.repoFound !== true ||
 			source.artifact.fileFound !== false ||
-			source.artifact.error ||
-			source.r2.attempted !== true ||
-			source.r2.fileFound !== false ||
-			source.r2.error
+			source.artifact.error
 		)
 			throw new Error(
 				"Effective evaluation organization instructions are unavailable",
 			);
 		backendProof = {
-			version: 1,
+			version: 2,
 			tediId,
 			path: "AGENTS.md",
 			artifacts: {
@@ -224,7 +219,6 @@ export async function evaluationInstructionsFromIdentity(
 				attempted: true,
 				fileFound: false,
 			},
-			r2: { attempted: true, fileFound: false },
 		};
 	}
 	return {
