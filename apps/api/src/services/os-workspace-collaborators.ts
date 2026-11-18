@@ -20,6 +20,7 @@ import {
 } from "@tedix/api-contract/schemas/os-collaborators";
 import {
 	addOsWorkspaceShareKey,
+	createOrReuseOsWorkspaceDefaultShareLink,
 	createOsWorkspaceShareLink,
 	dismissOsSharedWorkspace,
 	findTedixPersonByEmail,
@@ -622,6 +623,11 @@ export async function listSharedWorkspaces(context: BaseContext) {
 	return { items };
 }
 
+/**
+ * A link without a label is the caller's default link at that role: asking
+ * again returns the same link with a new key, so one person does not pile up
+ * links in a workspace. A label makes a separate link each time.
+ */
 export async function createWorkspaceShareLink(
 	context: BaseContext,
 	input: { workspaceId: string; role: OsCollaboratorRole; label?: string },
@@ -634,16 +640,19 @@ export async function createWorkspaceShareLink(
 	requireGrantable(access, input.role);
 	const key = generateWorkspaceShareKey();
 	const database = db(context);
-	const link = await createOsWorkspaceShareLink(database, {
+	const label = input.label?.trim() || null;
+	const values = {
 		organizationId: access.workspace.organizationId,
 		workspaceId: access.workspace.id,
 		id: crypto.randomUUID(),
 		creatorUserId: access.callerId,
 		role: input.role,
-		label: input.label?.trim() || null,
 		keyHash: await hashWorkspaceShareKey(key),
 		now: new Date().toISOString(),
-	});
+	};
+	const link = label
+		? await createOsWorkspaceShareLink(database, { ...values, label })
+		: await createOrReuseOsWorkspaceDefaultShareLink(database, values);
 	const [creator] = await listTedixPeople(database, [access.callerId]);
 	return {
 		key,

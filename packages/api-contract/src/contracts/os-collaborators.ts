@@ -193,14 +193,19 @@ export const osCollaboratorsContract = oc
 				path: "/workspaces/{workspaceId}/links",
 				summary: "Create a share link",
 				description:
-					"Returns the link and its first key. The key is shown once; only its hash is stored.",
+					"Returns the link and a key for it. The key is shown once; only its hash is stored. Without a label this is your default link for the workspace at that role: calling again returns the same link with a new key. With a label it makes a separate link each time.",
 			})
 			.input(
 				z
 					.object({
 						workspaceId,
 						role: OsCollaboratorRoleSchema,
-						label: z.string().trim().max(120).optional(),
+						label: z
+							.string()
+							.trim()
+							.max(120)
+							.optional()
+							.describe("Leave out for your default link"),
 					})
 					.strict(),
 			)

@@ -622,6 +622,93 @@ describe("workspace collaborators", () => {
 		expect((await as(env, ROBIN).list({ workspaceId })).links).toEqual([]);
 	});
 
+	it("gives each person one default link per role and re-uses it on every copy", async () => {
+		const { env, sqlite, workspaceId } = await seed();
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		const robin = as(env, ROBIN);
+		// Twice in a row and twice at once: one link, a new key each time.
+		const first = await robin.createLink({ workspaceId, role: "use" });
+		const second = await robin.createLink({ workspaceId, role: "use" });
+		const [third, fourth] = await Promise.all([
+			robin.createLink({ workspaceId, role: "use" }),
+			robin.createLink({ workspaceId, role: "use" }),
+		]);
+		const copies = [first, second, third, fourth];
+		expect(new Set(copies.map((copy) => copy.link.id))).toEqual(
+			new Set([first.link.id]),
+		);
+		expect(new Set(copies.map((copy) => copy.key)).size).toBe(4);
+		expect(second.link).toEqual(first.link);
+		expect(
+			sqlite
+				.prepare("SELECT key_hash FROM os_workspace_share_keys")
+				.all()
+				.map((row) => (row as { key_hash: string }).key_hash),
+		).toEqual(expect.not.arrayContaining(copies.map((copy) => copy.key)));
+		// Every key opens the workspace through the same link.
+		for (const [person, copy] of [
+			[ZOE, first],
+			[LEE, fourth],
+		] as const)
+			expect(
+				(await as(env, person).open({ workspaceId, shareKey: copy.key })).role,
+			).toBe("use");
+		expect(
+			sqlite
+				.prepare(
+					"SELECT DISTINCT link_id FROM os_workspace_access_edges WHERE kind = 'link'",
+				)
+				.all(),
+		).toEqual([{ link_id: first.link.id }]);
+
+		// A label, another role and another person each get their own link.
+		const named = await robin.createLink({
+			workspaceId,
+			role: "use",
+			label: "Reviewers",
+		});
+		const namedAgain = await robin.createLink({
+			workspaceId,
+			role: "use",
+			label: "Reviewers",
+		});
+		const build = await robin.createLink({ workspaceId, role: "build" });
+		const kai = await as(env, KAI).createLink({ workspaceId, role: "use" });
+		expect(
+			new Set(
+				[first, named, namedAgain, build, kai].map((made) => made.link.id),
+			).size,
+		).toBe(5);
+		expect(
+			(await as(env, KAI).createLink({ workspaceId, role: "use" })).link.id,
+		).toBe(kai.link.id);
+		expect((await robin.list({ workspaceId })).links).toHaveLength(5);
+
+		// Turning the default link off ends its keys; the next copy is a new link.
+		await robin.remove({
+			workspaceId,
+			target: { kind: "link", linkId: first.link.id },
+		});
+		await expect(
+			as(env, STRANGER).open({ workspaceId, shareKey: second.key }),
+		).rejects.toMatchObject(DENIED);
+		const fresh = await robin.createLink({ workspaceId, role: "use" });
+		expect(fresh.link.id).not.toBe(first.link.id);
+		expect(
+			(await as(env, STRANGER).open({ workspaceId, shareKey: fresh.key })).role,
+		).toBe("use");
+
+		// Someone who can only use the workspace cannot make a build link.
+		await robin.add({ workspaceId, email: "kai@example.test", role: "use" });
+		await expect(
+			as(env, KAI).createLink({ workspaceId, role: "build" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
 	it("caps link joiners at the link creator's role", async () => {
 		const { env, workspaceId } = await seed();
 		await as(env, ROBIN).add({
