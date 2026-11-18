@@ -322,7 +322,7 @@ export async function upsertCatalogApp(
 	return itemKey;
 }
 
-/** Upload with bounded pacing; retry only provider throttling, using stable item keys. */
+/** Retry only provider throttling, using stable item keys. */
 export async function bulkUpsertCatalogApps(
 	client: CatalogAiSearchInstance,
 	apps: CatalogAppVectorInput[],
@@ -332,9 +332,6 @@ export async function bulkUpsertCatalogApps(
 	let upserted = 0;
 	let failed = 0;
 	for (const app of apps) {
-		// Avoid bursts across both pages and callers. Provider limits are shared;
-		// pacing alone cannot prevent throttling from other account activity.
-		await new Promise((resolve) => setTimeout(resolve, 250));
 		for (let attempt = 0; ; attempt++) {
 			try {
 				await client.items.upload(
