@@ -1,0 +1,1 @@
+CREATE INDEX `app_catalog_category_total_idx` ON `app_catalog_category_totals` (`total`,`category`);

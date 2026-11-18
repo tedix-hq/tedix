@@ -1588,6 +1588,14 @@
 		{
 			"name": "20261118150954_memory-current-sample-index/migration.sql",
 			"sha256": "c8e1ee061b92e365326e72baa1459c915ff03f0180725c629e2d5a64a4ecdc9d"
+		},
+		{
+			"name": "20261118151634_catalog-category-totals/migration.sql",
+			"sha256": "7e422354f8c2295bc98d5a25be9929835d7c6973e47e9d2ebd2c1f5c1894a1a5"
+		},
+		{
+			"name": "20261118152346_catalog-category-total-index/migration.sql",
+			"sha256": "8b472dfc3f4f0c1b9b88d89d4c9a10ca4ad4f7fcd7dc1a85d569be12a28ed67f"
 		}
 	]
 }
