@@ -1,19 +1,20 @@
 import { implement } from "@orpc/server";
 import { workFleetContract } from "@tedix/api-contract/contracts/work-fleet";
 import { getWorkFleetProjection } from "@tedix/db/queries/work-items/fleet";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import { AUTHZ, type BaseContext, withAuth } from "../orpc";
 
 const workFleetOs = implement(workFleetContract).$context<BaseContext>();
 const authOs = workFleetOs.use(withAuth).use(AUTHZ.messagingRead);
 
-const getControlTowerProcedure = authOs.getControlTower.handler(
-	async ({ context }) =>
+const getControlTowerProcedure = authOs.getControlTower
+	.use(withOrg)
+	.handler(async ({ context }) =>
 		getWorkFleetProjection(context.db, {
-			orgId: requireOrgId(context),
+			orgId: context.organizationId,
 			now: new Date().toISOString(),
 		}),
-);
+	);
 
 export const workFleetContractRouter = workFleetOs.router({
 	getControlTower: getControlTowerProcedure,

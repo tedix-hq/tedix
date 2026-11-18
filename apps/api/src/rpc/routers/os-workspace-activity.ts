@@ -18,7 +18,7 @@ import {
 	type WorkspaceActivityCursor,
 } from "@tedix/db/queries/workspace-feed/read";
 import type { WorkspaceActivityRow } from "@tedix/db/schema/workspace-feed";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import { AUTHZ, type BaseContext, withAuth } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
 import { resolveOsWorkspaceViewer } from "../../services/os-workspace-visibility";
@@ -154,9 +154,10 @@ async function visibleWorkspaceActivity(
 	return item;
 }
 
-const activity = readOs.workspaces.activity.handler(
-	async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
+const activity = readOs.workspaces.activity
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const organizationId = context.organizationId;
 		const viewer = await resolveOsWorkspaceViewer(context);
 		// Bound database scans and downstream source authorization independently.
 		// Records the viewer may not see are skipped, so keep reading small batches
@@ -198,7 +199,6 @@ const activity = readOs.workspaces.activity.handler(
 			coverage: "recorded_only" as const,
 			next: more && last ? encodeCursor(last) : null,
 		};
-	},
-);
+	});
 
 export const osWorkspaceActivityProcedures = { activity };

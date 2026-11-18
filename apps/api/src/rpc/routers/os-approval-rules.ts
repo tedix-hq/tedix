@@ -24,7 +24,7 @@ import {
 } from "@tedix/db/queries/os-approval-rules";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import type { OsApprovalRuleRow } from "@tedix/db/schema/os-approval-rules";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -78,9 +78,10 @@ function mapRule(row: OsApprovalRuleRow): OsApprovalRule {
 	};
 }
 
-const createProcedure = manageRules.create.handler(
-	async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
+const createProcedure = manageRules.create
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const organizationId = context.organizationId;
 		const db = queryDb(context);
 		// Repeated clicks reuse only the exact standing scope.
 		const existing = await findEnabledOsApprovalRuleByScope(
@@ -105,18 +106,20 @@ const createProcedure = manageRules.create.handler(
 			createdAt: new Date().toISOString(),
 		});
 		return { rule: mapRule(row) };
-	},
-);
+	});
 
-const listProcedure = readRules.list.handler(async ({ context }) => {
-	const organizationId = requireOrgId(context);
-	const rows = await listOsApprovalRules(queryDb(context), organizationId);
-	return { items: rows.map(mapRule) };
-});
+const listProcedure = readRules.list
+	.use(withOrg)
+	.handler(async ({ context }) => {
+		const organizationId = context.organizationId;
+		const rows = await listOsApprovalRules(queryDb(context), organizationId);
+		return { items: rows.map(mapRule) };
+	});
 
-const setEnabledProcedure = manageRules.setEnabled.handler(
-	async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
+const setEnabledProcedure = manageRules.setEnabled
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const organizationId = context.organizationId;
 		const row = await setOsApprovalRuleEnabled(
 			queryDb(context),
 			{ organizationId, ruleId: input.ruleId },
@@ -126,12 +129,12 @@ const setEnabledProcedure = manageRules.setEnabled.handler(
 			throw createError(ErrorCodes.NOT_FOUND, "Approval rule not found");
 		}
 		return { rule: mapRule(row) };
-	},
-);
+	});
 
-const deleteProcedure = adminRules.delete.handler(
-	async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
+const deleteProcedure = adminRules.delete
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const organizationId = context.organizationId;
 		const row = await getOsApprovalRule(queryDb(context), {
 			organizationId,
 			ruleId: input.ruleId,
@@ -151,67 +154,68 @@ const deleteProcedure = adminRules.delete.handler(
 		if (!removed)
 			throw createError(ErrorCodes.NOT_FOUND, "Approval rule not found");
 		return { deleted: true as const };
-	},
-);
-
-const applyProcedure = manageRules.apply.handler(async ({ context }) => {
-	const organizationId = requireOrgId(context);
-
-	const pending = await listApprovalRequests(context.db, {
-		orgId: organizationId,
-		status: "pending",
-		limit: APPLY_SWEEP_LIMIT,
 	});
-	if (pending.data.length === 0) {
-		return { resolved: 0, ruleMatches: [] };
-	}
 
-	const rules = await findEnabledOsApprovalRulesByKind(
-		queryDb(context),
-		organizationId,
-		pending.data.map((approval) => approval.actionType),
-	);
-	if (rules.length === 0) {
-		return { resolved: 0, ruleMatches: [] };
-	}
+const applyProcedure = manageRules.apply
+	.use(withOrg)
+	.handler(async ({ context }) => {
+		const organizationId = context.organizationId;
 
-	// The canonical resolution procedure. Imported dynamically so the
-	// approvalRules namespace does not eagerly evaluate the tedi-approvals →
-	// kernel-runtime graph on requests that never sweep.
-	const { tediApprovalsContractRouter } = await import("./tedi-approvals");
-
-	const ruleMatches: OsApprovalRuleMatch[] = [];
-	for (const approval of pending.data) {
-		const rule = matchingApprovalRule(approval, rules);
-		if (!rule) continue;
-		try {
-			// The SAME resolution path a human resolve uses — pending→resolved CAS,
-			// audit event, Home tool-write settlement, learning signal — never a
-			// parallel write. Its middleware runs against this caller's context,
-			// which the `manageRules` guard above already proved sufficient.
-			await call(
-				tediApprovalsContractRouter.resolve,
-				{
-					id: approval.id,
-					status: "approved",
-					resolution: rule.approvalReason,
-				},
-				{ context },
-			);
-		} catch (error) {
-			// Idempotency: an approval that resolved or expired between the listing
-			// and this call fails the canonical path's pending/TTL checks as
-			// BAD_REQUEST — skip it cleanly instead of failing the sweep.
-			if (error instanceof ORPCError && error.code === "BAD_REQUEST") {
-				continue;
-			}
-			throw error;
+		const pending = await listApprovalRequests(context.db, {
+			orgId: organizationId,
+			status: "pending",
+			limit: APPLY_SWEEP_LIMIT,
+		});
+		if (pending.data.length === 0) {
+			return { resolved: 0, ruleMatches: [] };
 		}
-		ruleMatches.push({ approvalId: approval.id, ruleId: rule.id });
-	}
 
-	return { resolved: ruleMatches.length, ruleMatches };
-});
+		const rules = await findEnabledOsApprovalRulesByKind(
+			queryDb(context),
+			organizationId,
+			pending.data.map((approval) => approval.actionType),
+		);
+		if (rules.length === 0) {
+			return { resolved: 0, ruleMatches: [] };
+		}
+
+		// The canonical resolution procedure. Imported dynamically so the
+		// approvalRules namespace does not eagerly evaluate the tedi-approvals →
+		// kernel-runtime graph on requests that never sweep.
+		const { tediApprovalsContractRouter } = await import("./tedi-approvals");
+
+		const ruleMatches: OsApprovalRuleMatch[] = [];
+		for (const approval of pending.data) {
+			const rule = matchingApprovalRule(approval, rules);
+			if (!rule) continue;
+			try {
+				// The SAME resolution path a human resolve uses — pending→resolved CAS,
+				// audit event, Home tool-write settlement, learning signal — never a
+				// parallel write. Its middleware runs against this caller's context,
+				// which the `manageRules` guard above already proved sufficient.
+				await call(
+					tediApprovalsContractRouter.resolve,
+					{
+						id: approval.id,
+						status: "approved",
+						resolution: rule.approvalReason,
+					},
+					{ context },
+				);
+			} catch (error) {
+				// Idempotency: an approval that resolved or expired between the listing
+				// and this call fails the canonical path's pending/TTL checks as
+				// BAD_REQUEST — skip it cleanly instead of failing the sweep.
+				if (error instanceof ORPCError && error.code === "BAD_REQUEST") {
+					continue;
+				}
+				throw error;
+			}
+			ruleMatches.push({ approvalId: approval.id, ruleId: rule.id });
+		}
+
+		return { resolved: ruleMatches.length, ruleMatches };
+	});
 
 export const osApprovalRulesContractRouter = rulesOs.router({
 	create: createProcedure,

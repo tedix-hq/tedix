@@ -39,7 +39,7 @@ import {
 import { getTediById } from "@tedix/db/queries/tedis";
 import { invalidateFact } from "@tedix/db/queries/memory-graph/fact-lifecycle";
 import { isMemorySearchFactEligible } from "../../../services/memory-search-filter";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import {
 	authed,
 	degradedGraphMeta,
@@ -112,8 +112,9 @@ export // ======================================================================
 
 const promote = authed.promote
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const fact = await getFactById(
 			context.db,
 			{ organizationId: orgId },
@@ -302,8 +303,9 @@ export // ======================================================================
 
 const review = authed.review
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const fact = await getFactById(
 			context.db,
 			{ organizationId: orgId },
@@ -356,8 +358,9 @@ export // ======================================================================
 
 const reindex = authed.reindex
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const startedAt = Date.now();
 		let domainId: string | undefined;
 		if (input.domain)
@@ -394,8 +397,9 @@ export // ======================================================================
 
 const gapsDetect = authed.gaps.detect
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const domain = await getOrCreateDomain(
 			context.db,
 			{ organizationId: orgId },
@@ -411,7 +415,7 @@ const gapsDetect = authed.gaps.detect
 
 		// Get sub-domains (children of this domain)
 		const allDomains = await listDomains(context.db, {
-			organizationId: requireOrgId(context),
+			organizationId: context.organizationId,
 		});
 		const subDomains = allDomains.filter((d) => d.parentId === domain.id);
 		const gapsFound = [];
@@ -486,8 +490,9 @@ const gapsDetect = authed.gaps.detect
 
 export const gapsList = authed.gaps.list
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		let domainId: string | undefined;
 		if (input.domain) {
 			const d = await getOrCreateDomain(
@@ -514,10 +519,11 @@ export const gapsList = authed.gaps.list
 
 export const gapsResolve = authed.gaps.resolve
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		await resolveGap(
 			context.db,
-			{ organizationId: requireOrgId(context) },
+			{ organizationId: context.organizationId },
 			input.gapId,
 			input.resolvedByFactId,
 		);
@@ -528,8 +534,9 @@ export const gapsResolve = authed.gaps.resolve
 
 export const gapsReport = authed.gaps.report
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		return getGapStats(context.db, { organizationId: orgId });
 	});
 
@@ -543,15 +550,17 @@ export // ======================================================================
 
 const health = authed.health
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		return getMemoryHealthExtended(context.db, { organizationId: orgId });
 	});
 
 export const healthFindings = authed.healthFindings
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const result = await getMemoryHealthFindings(context.db, {
 			organizationId: orgId,
 		});
@@ -572,8 +581,9 @@ export // ======================================================================
 
 const link = authed.link
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		if (input.mode === "auto") {
 			let domainId: string | undefined;
 			if (input.domain) {
@@ -663,8 +673,9 @@ export // ======================================================================
 
 const synthesize = authed.synthesize
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const domain = await getOrCreateDomain(
 			context.db,
 			{ organizationId: orgId },
@@ -775,8 +786,9 @@ export // ======================================================================
 
 const opine = authed.opine
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		// An authenticated tedi principal is its own visibility scope: when the
 		// caller omits tediId, derive it from the tedi JWT so the tedi still
 		// sees its own private facts. Everyone else gets the least-privileged
@@ -908,10 +920,11 @@ export // ======================================================================
 
 const feedback = authed.feedback
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const updated = await recordFactUsage(
 			context.db,
-			{ organizationId: requireOrgId(context) },
+			{ organizationId: context.organizationId },
 			input.factIds,
 			input.signal,
 		);
@@ -926,8 +939,9 @@ const feedback = authed.feedback
 
 export const graphVisualization = authed.graph.visualization
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const { graphClient, meta } = await getGraphReadState(
 			context,
 			input.view === "knowledge_map" && !input.centerFactId
@@ -1084,8 +1098,9 @@ export const graphVisualization = authed.graph.visualization
 
 export const graphSimilar = authed.graph.similar
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const { graphClient, meta } = await getGraphReadState(context, {
 			requiresGds: true,
 		});
@@ -1123,8 +1138,9 @@ export const graphSimilar = authed.graph.similar
 
 export const graphPath = authed.graph.path
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const { graphClient, meta } = await getGraphReadState(context);
 		if (meta.degraded || !graphClient)
 			return {

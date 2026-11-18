@@ -74,7 +74,7 @@ import {
 	resolveTediRuntimeBackend,
 } from "../cognitive-runtime/events-policy";
 import { isMemorySearchFactEligible } from "../../../services/memory-search-filter";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
 	authed,
@@ -128,8 +128,9 @@ export // ======================================================================
 
 const search = authed.search
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const {
 			query: rawQuery,
 			topicKey: rawTopicKey,
@@ -426,8 +427,9 @@ export // ======================================================================
 
 const audit = authed.audit
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const tediId = input.tediId ?? context.tediId;
 		if (!tediId) {
 			throw createError(
@@ -476,8 +478,9 @@ export // ======================================================================
 
 const learn = authed.learn
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const now = new Date().toISOString();
 
 		// Provenance: when this learn comes from a skill workflow (skill-runtime
@@ -1008,8 +1011,9 @@ export // ======================================================================
 
 const reflect = authed.reflect
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		if (input.scope === "domain" && !input.domain?.trim()) {
 			throw createError(
@@ -1173,8 +1177,9 @@ export // ======================================================================
 
 const listDomainsProcedure = authed.listDomains
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const domains = await listDomains(context.db, { organizationId: orgId });
 		return {
 			domains,
@@ -1189,10 +1194,13 @@ export // ======================================================================
 // STATS
 // =============================================================================
 
-const stats = authed.stats.use(AUTHZ.tedisRead).handler(async ({ context }) => {
-	const orgId = requireOrgId(context);
-	return getMemoryGraphStats(context.db, { organizationId: orgId });
-});
+const stats = authed.stats
+	.use(AUTHZ.tedisRead)
+	.use(withOrg)
+	.handler(async ({ context }) => {
+		const orgId = context.organizationId;
+		return getMemoryGraphStats(context.db, { organizationId: orgId });
+	});
 
 // =============================================================================
 // ASSEMBLE CONTEXT
@@ -1207,8 +1215,9 @@ const stats = authed.stats.use(AUTHZ.tedisRead).handler(async ({ context }) => {
 
 export const assemble = authed.assemble
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		return assembleContext(context.db, {
 			query: input.query,
 			orgId,
@@ -1230,8 +1239,9 @@ export // ======================================================================
 
 const expertise = authed.expertise
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		let tediId = input.tediId ?? context.tediId;
 
 		// Auto-resolve: if no tediId from input or context, find the org's first tedi

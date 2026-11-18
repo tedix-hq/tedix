@@ -37,7 +37,7 @@ import { getKnowledgeMarketReport } from "@tedix/db/queries/knowledge-market";
 import { getReferenceClassEstimate } from "@tedix/db/queries/reference-class";
 import { getStrategyMapValidation } from "@tedix/db/queries/strategy-map";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import { AUTHZ, type BaseContext, withAuth } from "../orpc";
 import { requireTediAccess, type TediAccessPolicy } from "../tedi-access";
 import { getOrphanRunHealth } from "./cognitive-runtime/recovery-artifacts";
@@ -115,8 +115,9 @@ const pulseProcedure = authOs.pulse
 
 const factLifecycleProcedure = authOs.factLifecycle
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const db = context.db;
 
 		const tierRows = await getFactTierDistribution(db, orgId, input.tediId);
@@ -204,8 +205,9 @@ const cronsProcedure = authOs.crons
 
 const orphanRunHealthProcedure = authOs.getOrphanRunHealth
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) =>
-		getOrphanRunHealth(context.db, requireOrgId(context), {
+		getOrphanRunHealth(context.db, context.organizationId, {
 			sampleLimit: input.sampleLimit,
 		}),
 	);
@@ -291,8 +293,9 @@ const validateStrategyMapProcedure = authOs.validateStrategyMap
 
 const getKnowledgeMarketReportProcedure = authOs.getKnowledgeMarketReport
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		return getKnowledgeMarketReport(
 			context.db,
 			{ orgId },

@@ -11,7 +11,7 @@ import {
 import { resolveBillingSettlementMode } from "../../lib/billing-settlement-mode";
 import { resolveAiGatewayAdmissionPolicy } from "../../services/ai-gateway-admission-policy";
 import { authorizeRuntimeInference } from "../../services/runtime-entitlement-admission";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import { AUTHZ, type BaseContext, withAuth, withServiceAuth } from "../orpc";
 
 const os = implement(runtimeEntitlementsContract).$context<BaseContext>();
@@ -19,8 +19,9 @@ const os = implement(runtimeEntitlementsContract).$context<BaseContext>();
 const get = os.get
 	.use(withAuth)
 	.use(AUTHZ.osRead)
+	.use(withOrg)
 	.handler(async ({ context }) => {
-		const organizationId = requireOrgId(context);
+		const organizationId = context.organizationId;
 		const entitlement = await getRuntimeEntitlement(context.db, organizationId);
 		const policySources = await getEffectiveInferencePolicies(
 			context.db,
@@ -51,10 +52,11 @@ const get = os.get
 const getEffective = os.getEffective
 	.use(withAuth)
 	.use(AUTHZ.billingRead)
+	.use(withOrg)
 	.handler(async ({ context }) => {
 		const entitlement = await getRuntimeEntitlement(
 			context.db,
-			requireOrgId(context),
+			context.organizationId,
 		);
 		if (!entitlement) {
 			throw baseErrorConstructors.NOT_FOUND({
