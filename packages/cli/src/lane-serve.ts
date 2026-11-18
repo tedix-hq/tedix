@@ -1993,6 +1993,30 @@ export async function landedLaneCommits(
 	return landed;
 }
 
+export function mainLaneCommits(repo: string, commits: string[]): string[] {
+	if (!commits.length) return [];
+	try {
+		gitOutput(repo, [
+			"fetch",
+			"--no-tags",
+			"origin",
+			"refs/heads/main:refs/remotes/origin/main",
+		]);
+		return commits.filter(
+			(sha) =>
+				!gitOutput(repo, [
+					"rev-list",
+					"--max-count=1",
+					`${sha}^{commit}`,
+					"--not",
+					"refs/remotes/origin/main",
+				]),
+		);
+	} catch (error) {
+		throw new LaneCommitFetchError(String(error));
+	}
+}
+
 /**
  * Checks a result that says it changed nothing because earlier commits
  * already meet the outcome. Returns why the claim is not proven, or nothing
@@ -2071,6 +2095,7 @@ interface DispatcherDeps {
 	/** The Git ref that saved an evicted checkout's work, when one exists. */
 	evictedWork: (source: string, destination: string) => string | undefined;
 	landedCommits: typeof landedLaneCommits;
+	mainCommits: typeof mainLaneCommits;
 	existingCommits: typeof existingLaneCommits;
 	unpushedCommits: typeof unpushedLaneCommits;
 	verifyExisting: typeof verifyExistingLaneResult;
@@ -2136,6 +2161,7 @@ const defaultDeps: DispatcherDeps = {
 	baseCommit: (repo) => gitOutput(repo, ["rev-parse", "HEAD"]),
 	evictedWork: evictedLaneWork,
 	landedCommits: landedLaneCommits,
+	mainCommits: mainLaneCommits,
 	existingCommits: existingLaneCommits,
 	unpushedCommits: unpushedLaneCommits,
 	verifyExisting: verifyExistingLaneResult,
@@ -5398,6 +5424,12 @@ export class LaneDispatcher {
 										this.checkCommitCustody(receipt, session, sha, at),
 								}
 							: undefined,
+					);
+					// Recheck reachability at settlement before recovery can call a
+					// collected commit landed or use it to complete the Work.
+					receipt.commits = await this.deps.mainCommits(
+						receipt.repo!,
+						receipt.commits,
 					);
 					if (receipt.outcome === "succeeded" && !receipt.laneResult)
 						await this.recoverUndeclaredResult(receipt);

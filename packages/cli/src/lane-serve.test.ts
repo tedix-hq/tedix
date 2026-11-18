@@ -26,6 +26,7 @@ import {
 	laneLandingBrief,
 	provisionLaneWorktree,
 	landedLaneCommits,
+	mainLaneCommits,
 	existingLaneCommits,
 	retainedLaneWorktree,
 	dispatchSkip,
@@ -243,6 +244,7 @@ function fixture({
 			if (control.proofError) throw control.proofError;
 			return control.commits;
 		},
+		mainCommits: (_repo, commits) => commits,
 		existingCommits: async (_repo, cited) => {
 			if (control.proofError) throw control.proofError;
 			control.existingChecks.push(cited);
@@ -3059,6 +3061,59 @@ describe("dispatcher admission", () => {
 				},
 			});
 			expect(f.events.some((event) => event.verb === "complete")).toBe(true);
+		},
+	);
+	it.each([false, true])(
+		"does not complete a push-refused run from an unlanded commit (declared=%s)",
+		async (declared) => {
+			const { repo, git } = gitFixture(true);
+			git([
+				"-c",
+				"commit.gpgsign=false",
+				"commit",
+				"--allow-empty",
+				"-m",
+				"Unpushed fix",
+			]);
+			const sha = git(["rev-parse", "HEAD"]);
+			const f = fixture();
+			f.items.splice(1);
+			f.items[0]!.workKind = "coding";
+			f.control.commits = [sha];
+			f.control.unpushedCommits = [sha];
+			f.control.declareCompleted = declared;
+			f.control.finalMessage =
+				"Push refused: this change conflicts with origin/main";
+			f.deps.mainCommits = (_repo, commits) => mainLaneCommits(repo, commits);
+			const dispatcher = f.restart();
+			await dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			const saved = JSON.parse(
+				readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+			);
+			f.control.history.data = [
+				{
+					id: saved.attemptId,
+					externalSessionKey: saved.session,
+					outcome: null,
+					expiresAt: new Date(Date.now() + 300000).toISOString(),
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			f.releases[0]!();
+			await dispatcher.drain();
+			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+			expect(settle.args).not.toContain("--commit");
+			expect(settle.args[settle.args.indexOf("--note") + 1]).not.toContain(
+				"1 landed commit",
+			);
+			expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+			const receipt = JSON.parse(
+				readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+			);
+			expect(receipt.commits).toEqual([]);
+			expect(receipt.unpushedCommits).toEqual([sha]);
 		},
 	);
 	it("logs, and does not stop, an expired orphan whose identity was never recorded", async () => {
@@ -6205,6 +6260,26 @@ it("extracts and deduplicates final-message and local commits, accepting only or
 		await landedLaneCommits(repo, landed, `Rebased onto ${landed}`),
 	).toEqual([]);
 	await expect(landedLaneCommits(repo, "f".repeat(40), "")).rejects.toThrow();
+});
+
+it("rechecks collected commit reachability and retains unknown proof on Git failure", () => {
+	const { root, repo, git } = gitFixture(true);
+	const landed = git(["rev-parse", "HEAD"]);
+	git([
+		"-c",
+		"commit.gpgsign=false",
+		"commit",
+		"--allow-empty",
+		"-m",
+		"Unpushed",
+	]);
+	const unpushed = git(["rev-parse", "HEAD"]);
+	expect(mainLaneCommits(repo, [landed, unpushed])).toEqual([landed]);
+	expect(() => mainLaneCommits(repo, ["f".repeat(40)])).toThrow(
+		LaneCommitFetchError,
+	);
+	git(["remote", "set-url", "origin", join(root, "unavailable.git")]);
+	expect(() => mainLaneCommits(repo, [landed])).toThrow(LaneCommitFetchError);
 });
 
 it("accepts cited existing commits only when each is on origin/main and the checkout holds no change of its own", async () => {
