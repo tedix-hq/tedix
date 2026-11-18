@@ -44,7 +44,6 @@ export function TedixByosLoginScreen({
 	const { advance, error, pending } = useByosAdvance({
 		context,
 		errorMessage: IDENTITY_JOURNEY_COPY.errors.signInAdvance,
-		logLabel: "Tedix BYOS login advance failed",
 		next,
 	});
 	const form = useForm({

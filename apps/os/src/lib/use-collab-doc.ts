@@ -22,6 +22,7 @@
  */
 
 import type { WorkspaceOutputRevisionNotice } from "@tedix/api-contract/utils/workspace-room";
+import { reportOsIssue } from "@/lib/error-reporting/install";
 import { publishOutputRevisionNotice } from "@/lib/output-revision-notices";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -660,7 +661,7 @@ class CollabSession implements OtEditSession {
 		try {
 			socket = new WebSocket(this.url);
 		} catch (error) {
-			console.error("Collaboration socket could not be opened", error);
+			reportOsIssue("collab.socket-open", error, { severity: "warning" });
 			this.handlers.onStatus("disconnected");
 			this.#scheduleReconnect();
 			return;
@@ -760,7 +761,7 @@ class CollabSession implements OtEditSession {
 				onFatalError: (error) => {
 					// The client cannot recover; only a new one can. Dropping the socket
 					// is what produces one, on the reconnect ladder's own schedule.
-					console.error("Collaboration session failed", error);
+					reportOsIssue("collab.session", error);
 					this.#teardownSocket();
 					this.#scheduleReconnect();
 				},

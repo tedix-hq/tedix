@@ -147,11 +147,7 @@ export function WidgetAppFrame(props: WidgetAppFrameProps) {
 			iframe.removeEventListener("error", fail);
 			iframe.remove();
 			if (iframeRef.current === iframe) iframeRef.current = null;
-			void bridge
-				.close()
-				.catch((error: unknown) =>
-					console.error("Widget bridge close failed:", error),
-				);
+			void bridge.close().catch(() => {});
 		};
 	}, [createBridge, sandbox, props.html, changeMode, resizeFrame]);
 	useEffect(resizeFrame, [displayMode, props.layout, resizeFrame]);

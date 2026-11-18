@@ -51,12 +51,11 @@ export function OsRoutePending({
 	useEffect(() => {
 		if (!stalled) return;
 		// The wedge this bounds produced ZERO output — nothing rejected, so no
-		// boundary and no report ever fired. This single line is what turns the
+		// boundary and no report ever fired. This report turns the
 		// next occurrence into a diagnosis instead of a mystery.
 		const error = new Error(
 			`OS route load still pending after ${stallAfterMs}ms at ${window.location.pathname}`,
 		);
-		console.error("Tedix OS route load stalled", error);
 		reportOsIssue("os.route-pending-stall", error, {
 			handled: true,
 			captureMechanism: "explicit",
@@ -189,15 +188,14 @@ export function clearOsChunkReloadGuard(win: {
  * The router hands every boundary the raw thrown value, not an `Error`
  * (`ErrorComponentProps.error` is `unknown` since router-core 1.171.28), so
  * this reads the props off the router contract rather than a local shape.
- * Everything downstream — stale-chunk detection, the reporter, and the console
- * line — already accepts an arbitrary caught value.
+ * Everything downstream — stale-chunk detection and the reporter — already
+ * accepts an arbitrary caught value.
  */
 export function OsRouteError({ error, reset }: ErrorComponentProps) {
 	const router = useRouter();
 	const queryErrorResetBoundary = useQueryErrorResetBoundary();
 
 	useEffect(() => {
-		console.error("Tedix OS route failed", error);
 		// A tab open across a deploy fails its next lazy import against retired
 		// asset URLs; Retry cannot fix that, only a reload onto the new manifest.
 		if (reloadOnceForStaleChunk(window, error)) return;

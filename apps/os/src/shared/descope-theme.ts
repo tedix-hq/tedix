@@ -20,9 +20,7 @@ export const DESCOPE_STYLE_ID = __DESCOPE_STYLE_ID__ || undefined;
 const descopeLogger: ILogger = Object.freeze({
 	info: () => {},
 	warn: () => {},
-	error: (title, description, state) => {
-		console.error("[Descope]", title, description, state);
-	},
+	error: () => {},
 });
 
 const DESCOPE_STYLE_PROPS: Readonly<{

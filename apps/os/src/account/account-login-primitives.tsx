@@ -81,7 +81,6 @@ export function CredentialPostLoginScreen({
 		useIdentityOrganizationContinuation({
 			continueJourney,
 			errorMessage,
-			logLabel: "Tedix Identity organization continuation failed",
 			prepareOrganization,
 		});
 	return (
