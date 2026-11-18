@@ -181,6 +181,7 @@ async function ensureLicensedPrice(input: {
 			product: input.productId,
 			currency: planCurrency,
 			unit_amount: input.unitAmount,
+			tax_behavior: "exclusive",
 			recurring: { interval: input.interval, usage_type: "licensed" },
 			lookup_key: lookupKey,
 			nickname: `${catalogConfig.priceLabel} ${input.planKey} ${input.interval}`,
@@ -228,6 +229,7 @@ async function ensureInferenceCapacityPrice(input: {
 			product: input.productId,
 			currency: planCurrency,
 			unit_amount: input.unitAmount,
+			tax_behavior: "exclusive",
 			lookup_key: input.lookupKey,
 			nickname: `${catalogConfig.priceLabel} inference capacity ${input.packKey}`,
 			metadata: {
@@ -270,6 +272,7 @@ async function ensureOveragePrice(
 				currency: planCurrency,
 				billing_scheme: "per_unit",
 				unit_amount: overageUnitAmount,
+				tax_behavior: "exclusive",
 				recurring: {
 					interval: "month",
 					meter: meterId,

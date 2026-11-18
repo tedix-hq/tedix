@@ -47,7 +47,8 @@ matching `TEDIX_STRIPE_MODE`) needs an active EUR price for each key:
 The reconciler requires an operator-owned JSON catalog: run
 `apps/api/scripts/billing/reconcile-stripe.ts --catalog /private/billing.json`
 to audit, adding `--apply` only when you intend to create or reconcile provider
-resources. `STRIPE_BILLING_CATALOG_FILE` can supply the path instead. Missing or
+resources. Prices it creates exclude tax, so Stripe Tax adds VAT on top where it
+applies. `STRIPE_BILLING_CATALOG_FILE` can supply the path instead. Missing or
 invalid configuration fails before provider access; no commercial catalog is
 bundled. Keep managed prices and product names in private operations or export
 them from your billing configuration. The strict schema lives in
