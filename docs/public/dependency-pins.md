@@ -35,6 +35,13 @@ read those fields for the complete package list and current versions.
 | `wrangler`, `agents`               | exact                                                       | Deploy and runtime behaviour at the edge.                                                                                                                                                                                                                                                    | [cloudflare/workers-sdk](https://github.com/cloudflare/workers-sdk), [cloudflare/agents](https://github.com/cloudflare/agents) |
 | `emdash`, `@emdash-cms/cloudflare` | exact, matching release line                                | CMS runtime compatibility and version-specific local patches. Update the starter manifests, embedded snapshot, patches, and lockfiles together.                                                                                                                                              | [emdash-cms/emdash](https://github.com/emdash-cms/emdash)                                                                      |
 
+The current `@earendil-works/pi-ai` release pins its provider clients exactly:
+`@anthropic-ai/sdk` 0.129.0, `@google/genai` 2.21.0, `openai` 7.19.0, and
+`@aws-sdk/client-bedrock-runtime` 3.1127.0. Keep those upstream dependencies
+with Pi rather than overriding them across untested provider API changes.
+Upgrade them through a compatible Pi release. Tedix's AI SDK providers are
+updated independently.
+
 ## Overrides
 
 Security overrides pin `dompurify` to 3.4.17, `body-parser` to 2.4.0 and
@@ -49,7 +56,7 @@ Review these pins against upstream security releases when upgrading callers.
 | Override         | Why                                                                                                                                                                                                                                           | Upstream                                            |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | `zod`            | Forces one zod copy. The AI SDK and `@orpc/zod` check schemas by identity, and several transitive packages still request zod 3; without the override the lockfile resolves several zod versions and schemas fail at runtime.                  | [colinhacks/zod](https://github.com/colinhacks/zod) |
-| `chat`           | Uses the catalog version for transitive requests as well as direct dependencies. The lockfile resolves `chat` and its Telegram/shared adapters to 4.44.0, satisfying the `agents` peer range. Review upgrades with `agents` and the adapters. | [vercel/chat](https://github.com/vercel/chat)       |
+| `chat`           | Uses the catalog version for transitive requests as well as direct dependencies. The lockfile resolves `chat` and its Telegram/shared adapters to 4.45.0, satisfying the `agents` peer range. Review upgrades with `agents` and the adapters. | [vercel/chat](https://github.com/vercel/chat)       |
 | `vite`, `vitest` | Apply the catalog versions above to transitive requests too, including `vite-plus`'s own.                                                                                                                                                     | —                                                   |
 
 ## Patches

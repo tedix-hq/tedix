@@ -27,7 +27,7 @@
 	"dependencies": {
 		"@ai-sdk/azure": "catalog:",
 		"@ai-sdk/provider": "catalog:",
-		"@chat-adapter/telegram": "4.44.0",
+		"@chat-adapter/telegram": "4.45.0",
 		"@cloudflare/codemode": "catalog:",
 		"@cloudflare/computer": "catalog:",
 		"@earendil-works/chord": "catalog:",

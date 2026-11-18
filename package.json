@@ -139,9 +139,9 @@
 	},
 	"packageManager": "bun@1.4.4",
 	"catalog": {
-		"chat": "4.44.0",
+		"chat": "4.45.0",
 		"fast-xml-parser": "^5.12.0",
-		"@ai-sdk/azure": "^4.0.122",
+		"@ai-sdk/azure": "^4.0.129",
 		"@cloudflare/ai-chat": "^0.12.2",
 		"@cloudflare/puppeteer": "2.0.0",
 		"@cloudflare/sandbox": "1.0.3",
@@ -150,7 +150,7 @@
 		"@cloudflare/workers-types": "^5.20261110.1",
 		"@json-render/core": "^0.22.0",
 		"@json-render/shadcn": "^0.22.0",
-		"@modelcontextprotocol/ext-apps": "^2.0.4",
+		"@modelcontextprotocol/ext-apps": "^2.1.0",
 		"@orpc/client": "2.0.0-beta.50",
 		"@orpc/contract": "2.0.0-beta.50",
 		"@orpc/openapi": "2.0.0-beta.50",
@@ -187,8 +187,8 @@
 		"@earendil-works/pi-durable": "1.5.2",
 		"@earendil-works/pi-schema": "1.5.2",
 		"@cloudflare/computer": "0.10.0",
-		"ai": "7.0.169",
-		"@ai-sdk/provider": "^4.0.37"
+		"ai": "7.0.176",
+		"@ai-sdk/provider": "^4.0.39"
 	},
 	"patchedDependencies": {
 		"emdash@1.5.0": "patches/emdash@1.5.0.patch",
