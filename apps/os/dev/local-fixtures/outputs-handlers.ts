@@ -292,7 +292,7 @@ export const outputHandlers: Record<string, (input: never) => unknown> = {
 		state.outputRevisions.push(revision);
 		output.currentRevisionId = revision.id;
 		output.updatedAt = revision.createdAt;
-		return { output, revision };
+		return { status: "saved" as const, output, revision };
 	},
 	"osWorkspaces/outputs/patch": (input: {
 		outputId: string;
