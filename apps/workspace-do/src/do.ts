@@ -24,9 +24,11 @@ import {
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import {
 	purgeWorkspaceDocuments,
+	adoptWorkspaceDirectory,
 	initializeWorkspaceDirectory,
 	hasWorkspaceOutputAuthority,
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
+import { listAllOsWorkspaceResourceRows } from "@tedix/db/queries/os-workspaces/resources";
 import {
 	getOsWorkspace,
 	hasSharedWorkspaceOutputs,
@@ -750,6 +752,24 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return this.#ownsOutputs(scope);
 	}
 
+	/**
+	 * Once per store, before its first resource request: copy the workspace
+	 * row and its resources from the shared database, which held the only
+	 * copy until resources moved here. Without the workspace row every
+	 * resource write in this store is refused.
+	 */
+	async #adoptDirectory(scope: WorkspaceScope): Promise<void> {
+		if (this.#store.get("directory-adopted")) return;
+		const core = createDbQueryClient(this.env.DB);
+		const workspace = await getOsWorkspace(core, scope);
+		if (!workspace) throw new Error("Workspace directory is missing");
+		const resources = await listAllOsWorkspaceResourceRows(core, scope);
+		this.ctx.storage.transactionSync(() => {
+			adoptWorkspaceDirectory(this.db as TenantStoreDb, workspace, resources);
+			this.#store.put("directory-adopted", true);
+		});
+	}
+
 	async outputQuery<K extends OutputQuery["op"]>(
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,
@@ -779,6 +799,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				this.ctx.storage.transactionSync(() => {
 					initializeWorkspaceDirectory(this.db as TenantStoreDb, workspace);
 					this.#store.put("output-authority", "object");
+					this.#store.put("directory-adopted", true);
 				});
 				return "object" as OutputQueryResult<K>;
 			});
@@ -818,6 +839,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			return this.#serializeOutput(async () => {
 				if (!(await this.#ownsOutputs(scope)))
 					throw new Error("Workspace does not own these resources");
+				await this.#adoptDirectory(scope);
 				return executeOutputQuery(this.db as TenantStoreDb, scope, query);
 			});
 		if (operation.op === "thin" && !(await this.#ownsOutputs(scope)))

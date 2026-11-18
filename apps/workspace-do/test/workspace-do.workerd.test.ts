@@ -423,6 +423,56 @@ describe("staged output migration", () => {
 		expect((await ws.describe(scope)).outputAuthority).toBe("object");
 	});
 
+	test("a claimed workspace takes its workspace row and earlier resources before its first resource write", async () => {
+		await seedCore();
+		const scope: WorkspaceScope = {
+			organizationId: "org_test",
+			workspaceId: crypto.randomUUID(),
+		};
+		await seedWorkspaceRows([scope]);
+		// Linked while resources were still written to the shared database only.
+		await testEnv.DB.prepare(
+			"INSERT INTO os_workspace_resources (id, organization_id, workspace_id, provider_id, connection_scope, required_scopes, resource_type, provider_resource_id, name, metadata, status, created_by_kind, created_by_id, created_at, updated_at) VALUES ('earlier', ?, ?, 'example', 'tenant', '[]', 'document', 'doc-1', 'Earlier', '{}', 'active', 'user', 'u1', ?, ?)",
+		)
+			.bind(
+				scope.organizationId,
+				scope.workspaceId,
+				"2026-11-14T10:00:00.000Z",
+				"2026-11-14T10:00:00.000Z",
+			)
+			.run();
+		const ws = workspace(scope);
+		expect(await ws.outputQuery(scope, { op: "claim" })).toBe("object");
+		expect(
+			await ws.outputQuery(scope, {
+				op: "resources",
+				query: {
+					operation: "get",
+					params: { ...scope, resourceId: "earlier" },
+				},
+			}),
+		).toMatchObject({ id: "earlier", name: "Earlier" });
+		expect(
+			await ws.outputQuery(scope, {
+				op: "resources",
+				query: {
+					operation: "create",
+					params: {
+						...scope,
+						id: "later",
+						providerId: "example",
+						connectionScope: "tenant",
+						resourceType: "document",
+						providerResourceId: "doc-2",
+						name: "Later",
+						createdByKind: "user",
+						createdById: "u1",
+					},
+				},
+			}),
+		).toMatchObject({ id: "later" });
+	});
+
 	test("the agent can read files in a new workspace before any file exists", async () => {
 		await seedCore();
 		const scope: WorkspaceScope = {
