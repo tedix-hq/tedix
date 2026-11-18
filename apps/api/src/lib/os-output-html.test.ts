@@ -201,7 +201,9 @@ describe("renderOsOutputHtml", () => {
 			'<pre><code data-language="ts">const a = 1 &lt; 2;</code></pre>',
 		);
 		expect(html).toContain("<blockquote><p>Measure twice.</p></blockquote>");
-		expect(html).toContain("document — revision 3");
+		expect(html).not.toContain("revision 3");
+		expect(html).not.toContain('<header class="export-header">');
+		expect(html).toMatch(/<body>\s*<article>/);
 	});
 
 	it("renders a sheet as a rectangular table with typed cells", () => {
