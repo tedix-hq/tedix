@@ -21,7 +21,6 @@ import {
 import type {
 	OsGadget,
 	OsGadgetManifest,
-	OsOutput,
 	OsOutputKind,
 	OsWorkspace,
 } from "@tedix/api-contract/schemas/os-workspaces";
@@ -381,21 +380,17 @@ export function nextCanvasDocAfterClose(
 }
 
 /**
- * Choose the useful first view for a populated Workspace when its URL carries
- * no explicit user choice. An app is the workspace's front door for people,
- * so the first listed app opens before any file; without an app, the most
- * recently active Output opens. Explicit URL workpiece and pane state always
- * wins.
+ * The app a populated Workspace opens on when its URL carries no explicit
+ * choice: only an app whose manifest sets `navigation.workspaceDefault`.
+ * Without one the Workspace opens on its Overview, which shows every app,
+ * skill and file; a recently edited file or an editor app is not a front door.
  */
 export function primaryCanvasDoc(
-	outputs: readonly Pick<OsOutput, "id">[],
 	gadgets: readonly Pick<OsGadget, "id">[],
 	preferredAppId?: string,
 ): CanvasDocSelection | null {
-	const gadget = gadgets.find((app) => app.id === preferredAppId) ?? gadgets[0];
-	if (gadget) return { type: "gadget", id: gadget.id };
-	const output = outputs[0];
-	return output ? { type: "output", id: output.id } : null;
+	const gadget = gadgets.find((app) => app.id === preferredAppId);
+	return gadget ? { type: "gadget", id: gadget.id } : null;
 }
 
 /**
@@ -941,7 +936,7 @@ export function CanvasPage({
 	});
 	const appNavigation = useQueries({
 		queries:
-			(gadgets.data?.items.length ?? 0) > 1
+			(gadgets.data?.items.length ?? 0) > 0
 				? gadgets.data!.items.map((app) => ({
 						...canvasGadgetDetailQueryOptions(workspaceId ?? "", app.id),
 						enabled:
@@ -1263,8 +1258,8 @@ export function CanvasPage({
 	// a populated project blank. This deliberately follows the URL reconciliation
 	// effect above so its local selection is not cleared in the same commit.
 	// Keep every explicit URL pane intact, but once both bounded lists resolve,
-	// open the first app, else the newest durable Output. The ref prevents
-	// reopening an item a user deliberately closed.
+	// open the app marked as the workspace default, else the Overview. The ref
+	// prevents reopening an item a user deliberately closed.
 	useEffect(() => {
 		if (
 			requestedDoc ||
@@ -1286,14 +1281,16 @@ export function CanvasPage({
 			);
 			if (remembered === "chat" || remembered === "resources") return;
 		}
-		const primary = primaryCanvasDoc(
-			outputs.data.items,
-			gadgets.data.items,
-			preferredAppId,
-		);
-		if (!primary) return;
-
+		// An empty workspace keeps its chat-first layout until something arrives.
+		if (!gadgets.data.items.length && !outputs.data.items.length) return;
+		const primary = primaryCanvasDoc(gadgets.data.items, preferredAppId);
 		primaryWorkpieceWorkspaceRef.current = workspaceId;
+		if (!primary) {
+			setMobilePane("resources");
+			setResourceRailOpen(true);
+			writeCanvasSearch({ pane: "resources" }, true);
+			return;
+		}
 		selectionRequestRef.current += 1;
 		noteUnaskedSelection(canvasDocKey(primary));
 		setSelectedDoc(primary);

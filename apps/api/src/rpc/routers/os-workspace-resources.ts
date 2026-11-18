@@ -280,6 +280,7 @@ const list = readOs.resources.list.handler(async ({ input, context }) => {
 		workspaceId: workspace.id,
 		status: input.status,
 		limit: input.limit + 1,
+		hideInactiveOutputs: true,
 	});
 	return {
 		items: await Promise.all(
