@@ -2228,7 +2228,7 @@ export class LaneDispatcher {
 	> = {};
 	private queue = serialCalls();
 	private stopping = false;
-	private admissionsHeld = false;
+	private admissionsHeld: string | undefined;
 	private proposalsSweptAt = 0;
 	private ticking = false;
 	private delegationRequests = new Map<string, string>();
@@ -2307,8 +2307,8 @@ export class LaneDispatcher {
 	 * CLI. Unlike `stop`, Work already in preparation still launches and runs to
 	 * its own end, so no Attempt is cancelled.
 	 */
-	holdAdmissions() {
-		this.admissionsHeld = true;
+	holdAdmissions(version?: string) {
+		this.admissionsHeld = `Waiting to restart onto ${version ? `Tedix CLI ${version}` : "an updated Tedix CLI"}`;
 	}
 	/**
 	 * True when a restart would interrupt nothing: no Work in preparation or
@@ -2628,6 +2628,25 @@ export class LaneDispatcher {
 			if (!(error instanceof LaneReceiptReadError)) throw error;
 			this.log("skipped-or-failed", undefined, error.message);
 			return;
+		}
+		if (this.admissionsHeld) {
+			this.log(
+				"admissions-held",
+				undefined,
+				`${this.admissionsHeld}; new Work is paused while draining: ${this.running.size} running, ${this.preparing.size} preparing, ${this.maintenance.size} maintenance tasks`,
+			);
+			for (const row of retained) {
+				if (
+					!hasSettledOutcome(row) &&
+					((row.pid && alive(row.pid)) ||
+						["admitted", "running"].includes(row.phase))
+				)
+					this.log(
+						"restart-held",
+						row.itemId,
+						`Work revision ${row.version}, phase ${row.phase}, Attempt ${row.attemptId ?? "unknown"}, session ${row.session ?? "unknown"}, PID ${row.pid ?? "unknown"}: retained process or unsettled Attempt prevents restart; PID liveness alone does not verify the agent identity`,
+					);
+			}
 		}
 		for (const row of retained) {
 			if (hasSettledOutcome(row)) continue;
@@ -6292,7 +6311,7 @@ export async function runLaneServe(
 						`Dispatcher found Tedix CLI ${newer} installed while running ${CLI_VERSION}; it takes no new Work and restarts once none is in progress\n`,
 					);
 				updating = true;
-				dispatcher.holdAdmissions();
+				dispatcher.holdAdmissions(newer);
 				if (dispatcher.quiet()) {
 					process.stderr.write(
 						`Dispatcher restarting onto Tedix CLI ${newer}; no Work in progress\n`,

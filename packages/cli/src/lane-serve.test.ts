@@ -4950,6 +4950,42 @@ describe("dispatcher admission", () => {
 		expect(settle).toHaveLength(1);
 		expect(settle[0]!.args).toContain("cancelled");
 	});
+	it("explains an idle opencode update drain blocked by an expired receipt with a live PID", async () => {
+		const f = fixture({ executor: "opencode", max: 10 });
+		f.items.splice(1);
+		Object.assign(f.items[0]!, { priority: "high" });
+		writeFileSync(
+			join(f.dir, `${item(99).id}-2.json`),
+			JSON.stringify({
+				itemId: item(99).id,
+				version: 2,
+				phase: "deferred",
+				outcome: "expired",
+				admissionState: "admitted",
+				attemptId: "historical-attempt",
+				session: "opencode:historical-session",
+				pid: process.pid,
+			}),
+		);
+		f.dispatcher.holdAdmissions("0.23.0");
+		expect(f.dispatcher.quiet()).toBe(false);
+		await f.dispatcher.tick();
+		await f.dispatcher.drain();
+		expect(f.events.some((event) => event.verb === "dispatch-list")).toBe(
+			false,
+		);
+		expect(f.releases).toHaveLength(0);
+		const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
+		expect(log).toContain('"event":"admissions-held"');
+		expect(log).toContain("Waiting to restart onto Tedix CLI 0.23.0");
+		expect(log).toContain("0 running, 0 preparing");
+		expect(log).toContain('"event":"restart-held"');
+		expect(log).toContain(`PID ${process.pid}`);
+		expect(log).toContain("phase deferred, Attempt historical-attempt");
+		expect(log).toContain(
+			"PID liveness alone does not verify the agent identity",
+		);
+	});
 	it("holding admissions for an update launches Work already admitted, cancels nothing and admits nothing new", async () => {
 		const f = fixture({ max: 1 });
 		const recall = f.deps.recall!;
@@ -7086,6 +7122,42 @@ it("evicts the oldest removable run checkouts until the retained cap holds", asy
 	const log = readFileSync(join(dir, "dispatcher.log"), "utf8");
 	expect(log).toContain('"event":"checkout-cap"');
 	expect(log).toContain('"event":"checkout-evicted"');
+});
+
+it("admits ready high-priority opencode Work in one pass despite a refused checkout cap", async () => {
+	const f = fixture({ executor: "opencode", max: 10, capBytes: 1 });
+	const ready = { ...f.items[0]!, priority: "high" as const };
+	f.items.splice(0);
+	const repo = join(f.dir, "runs", `${item(99).id}-2`, "repo");
+	mkdirSync(repo, { recursive: true });
+	writeFileSync(
+		join(f.dir, `${item(99).id}-2.json`),
+		JSON.stringify({
+			itemId: item(99).id,
+			version: 2,
+			phase: "settled",
+			outcome: "failed",
+			repo,
+		}),
+	);
+	f.control.runSize = 42 * 1024 ** 3;
+	f.control.cleanupResult = false;
+	await f.dispatcher.tick();
+	await f.dispatcher.drain();
+	expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+		'"event":"checkout-cap-held"',
+	);
+	f.items.push(ready);
+	await f.dispatcher.tick();
+	await until(() => f.releases.length === 1);
+	expect(
+		f.events.filter(
+			(event) => event.verb === "start" && event.args[4] === "work",
+		),
+	).toHaveLength(1);
+	expect(existsSync(repo)).toBe(true);
+	f.releases[0]!();
+	await f.dispatcher.drain();
 });
 
 it("removes stale recovery folders and says when the cap cannot be met", async () => {
