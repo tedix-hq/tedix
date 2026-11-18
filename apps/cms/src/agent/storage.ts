@@ -454,6 +454,36 @@ export async function getCmsDefaultLocale(
 	return row?.defaultLocale ?? null;
 }
 
+/** A durable site reservation survives activation until the Workflow is terminal. */
+export async function getCmsDeployAdmission(
+	db: D1Database,
+	site: ExactCmsActiveSite,
+): Promise<string | null> {
+	const row = await db
+		.prepare(
+			"SELECT json_extract(config, '$.deployAdmission') AS jobId FROM cms_sites WHERE id = ? AND slug = ? AND restore_epoch = ? AND status = 'active'",
+		)
+		.bind(site.siteId, site.slug, site.restoreEpoch)
+		.first<{ jobId: string | null }>();
+	if (!row) throw new Error("CMS deploy site changed during admission");
+	return row.jobId;
+}
+
+export async function reserveCmsDeployAdmission(
+	db: D1Database,
+	site: ExactCmsActiveSite,
+	previous: string | null,
+	jobId: string,
+): Promise<boolean> {
+	const row = await db
+		.prepare(
+			"UPDATE cms_sites SET config = json_set(COALESCE(config, '{}'), '$.deployAdmission', ?) WHERE id = ? AND slug = ? AND restore_epoch = ? AND status = 'active' AND json_extract(config, '$.deployAdmission') IS ? RETURNING id AS siteId",
+		)
+		.bind(jobId, site.siteId, site.slug, site.restoreEpoch, previous)
+		.first<{ siteId: string }>();
+	return Boolean(row);
+}
+
 export interface CmsBundleDeployGeneration {
 	activeVersion: number | null;
 	nextVersion: number;

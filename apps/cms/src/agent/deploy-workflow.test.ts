@@ -833,7 +833,29 @@ i18n: {
 });
 
 describe("deployment health activation fence", () => {
+	let probeVersion = 2;
+	function healthyProbe(input: RequestInfo | URL = "https://acme.test/") {
+		const path = new URL(String(input)).pathname;
+		const type = path.includes("/_astro/")
+			? "text/css"
+			: path.endsWith("/_image")
+				? "image/png"
+				: "text/html";
+		const body =
+			type === "text/html"
+				? '<html><link href="/_astro/app.css"><img src="/_image?href=%2Fmedia%2Fhero.png&amp;w=100"></html>'
+				: "asset";
+		return new Response(body, {
+			headers: {
+				"content-type": type,
+				"X-Tedix-Bundle-Version": String(probeVersion),
+				"X-Tedix-Bundle-Etag": "published",
+				"X-Tedix-Image-Transform": "images",
+			},
+		});
+	}
 	function healthFixture(firstPublication = false) {
+		probeVersion = firstPublication ? 1 : 2;
 		const fixture = workflowFixture("site-original");
 		if (firstPublication)
 			fixture.event.payload.expectedActiveVersion = null as any;
@@ -875,7 +897,11 @@ describe("deployment health activation fence", () => {
 						}
 					}
 					if (name === "publish-bundle")
-						return { version: firstPublication ? 1 : 2, etag: "published" };
+						return {
+							version: firstPublication ? 1 : 2,
+							etag: "published",
+							staticFilenames: ["app.css"],
+						};
 					if (name === "snapshot-theme")
 						return { fileCount: 1, staticCount: 0 };
 					return {
@@ -900,14 +926,12 @@ describe("deployment health activation fence", () => {
 			});
 		const fetcher = vi
 			.spyOn(globalThis, "fetch")
-			.mockImplementation(
-				async () =>
-					new Promise<Response>((resolve) =>
-						setTimeout(
-							() => resolve(new Response(null, { status: 200 })),
-							64000,
+			.mockImplementation(async (input) =>
+				new URL(String(input)).pathname !== "/"
+					? healthyProbe(input)
+					: new Promise<Response>((resolve) =>
+							setTimeout(() => resolve(healthyProbe()), 64000),
 						),
-					),
 			);
 		try {
 			const result = expect(
@@ -916,7 +940,7 @@ describe("deployment health activation fence", () => {
 			await vi.advanceTimersByTimeAsync(64000);
 			await result;
 			expect(timeout).toHaveBeenCalledWith(90000);
-			expect(fetcher).toHaveBeenCalledTimes(1);
+			expect(fetcher).toHaveBeenCalledTimes(3);
 		} finally {
 			timeout.mockRestore();
 			fetcher.mockRestore();
@@ -930,12 +954,12 @@ describe("deployment health activation fence", () => {
 			const fetcher = vi
 				.spyOn(globalThis, "fetch")
 				.mockResolvedValueOnce(new Response(null, { status }))
-				.mockResolvedValueOnce(new Response(null, { status: 200 }));
+				.mockImplementation(async (input) => healthyProbe(input));
 			try {
 				await expect(
 					workflow.run(event as never, step as never),
 				).resolves.toMatchObject({ version: 1 });
-				expect(fetcher).toHaveBeenCalledTimes(2);
+				expect(fetcher).toHaveBeenCalledTimes(4);
 			} finally {
 				fetcher.mockRestore();
 			}
@@ -1007,12 +1031,12 @@ describe("deployment health activation fence", () => {
 		const fetcher = vi
 			.spyOn(globalThis, "fetch")
 			.mockResolvedValueOnce(new Response(null, { status: 503 }))
-			.mockResolvedValueOnce(new Response(null, { status: 200 }));
+			.mockImplementation(async (input) => healthyProbe(input));
 		try {
 			await expect(workflow.run(event as never, step as never)).rejects.toThrow(
 				"rollback skipped",
 			);
-			expect(fetcher).toHaveBeenCalledTimes(2);
+			expect(fetcher).toHaveBeenCalledTimes(4);
 		} finally {
 			fetcher.mockRestore();
 		}
@@ -1023,13 +1047,13 @@ describe("deployment health activation fence", () => {
 		const timeout = vi.spyOn(AbortSignal, "timeout");
 		const fetcher = vi
 			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(new Response(null, { status: 200 }));
+			.mockImplementation(async (input) => healthyProbe(input));
 		try {
 			await expect(
 				workflow.run(event as never, step as never),
 			).resolves.toMatchObject({ version: 2, etag: "published" });
 			expect(timeout).toHaveBeenCalledWith(50_000);
-			expect(fetcher).toHaveBeenCalledTimes(1);
+			expect(fetcher).toHaveBeenCalledTimes(3);
 			expect(fetcher.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
 		} finally {
 			timeout.mockRestore();
@@ -1047,15 +1071,15 @@ describe("deployment health activation fence", () => {
 				return controller.signal;
 			});
 		vi.mocked(rollbackCmsTenantBundle).mockClear();
-		const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(
-			async () =>
-				new Promise<Response>((resolve) => {
-					setTimeout(
-						() => resolve(new Response(null, { status: 200 })),
-						45_000,
-					);
-				}),
-		);
+		const fetcher = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input) =>
+				new URL(String(input)).pathname !== "/"
+					? healthyProbe(input)
+					: new Promise<Response>((resolve) => {
+							setTimeout(() => resolve(healthyProbe()), 45_000);
+						}),
+			);
 		try {
 			const run = workflow.run(event as never, step as never);
 			const result = expect(run).resolves.toMatchObject({
@@ -1071,7 +1095,7 @@ describe("deployment health activation fence", () => {
 			await vi.advanceTimersByTimeAsync(1);
 			await result;
 			expect(timeout).toHaveBeenCalledWith(50_000);
-			expect(fetcher).toHaveBeenCalledTimes(1);
+			expect(fetcher).toHaveBeenCalledTimes(3);
 			expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
 			expect(rollbackCmsTenantBundle).not.toHaveBeenCalled();
 		} finally {
@@ -1103,10 +1127,7 @@ describe("deployment health activation fence", () => {
 								{ once: true },
 							);
 						} else {
-							setTimeout(
-								() => resolve(new Response(null, { status: 200 })),
-								50_001,
-							);
+							setTimeout(() => resolve(healthyProbe()), 50_001);
 						}
 					}),
 			);
@@ -1148,7 +1169,7 @@ describe("deployment health activation fence", () => {
 		vi.mocked(rollbackCmsTenantBundle).mockClear();
 		const fetcher = vi
 			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(new Response(null, { status: 200 }));
+			.mockImplementation(async (input) => healthyProbe(input));
 		try {
 			await expect(workflow.run(event as never, step as never)).rejects.toThrow(
 				"rollback skipped",
@@ -1178,7 +1199,7 @@ describe("deployment health activation fence", () => {
 					controller.abort();
 					if (mode === "abort rejection")
 						throw new DOMException("aborted", "AbortError");
-					return new Response(null, { status: 200 });
+					return healthyProbe();
 				});
 			try {
 				await expect(
@@ -1199,6 +1220,39 @@ describe("deployment health activation fence", () => {
 				).toBe(false);
 			} finally {
 				timeout.mockRestore();
+				fetcher.mockRestore();
+			}
+		},
+	);
+	it.each([
+		{ result: { rolledBack: true }, rollback: "succeeded" },
+		{ result: { rolledBack: false }, rollback: "conflict" },
+		{
+			result: { rolledBack: false, error: "provider unavailable" },
+			rollback: "failed",
+		},
+	])(
+		"persists structured health failure with rollback $rollback",
+		async ({ result, rollback }) => {
+			const { workflow, event, step, put } = healthFixture();
+			vi.mocked(rollbackCmsTenantBundle).mockResolvedValueOnce(result);
+			const fetcher = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response(null, { status: 500 }));
+			try {
+				await expect(
+					workflow.run(event as never, step as never),
+				).rejects.toThrow("Health check failed");
+				const final = JSON.parse(String(put.mock.calls.at(-1)?.[1]));
+				expect(final.details).toMatchObject({
+					phase: "health-check",
+					code: "PROBE_HTTP_FAILED",
+					retryable: false,
+					rollback,
+					correlationId: event.instanceId,
+				});
+				expect(final.details.rollbackError).toBeUndefined();
+			} finally {
 				fetcher.mockRestore();
 			}
 		},

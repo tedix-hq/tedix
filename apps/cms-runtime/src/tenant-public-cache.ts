@@ -28,7 +28,9 @@ export function publicAssetCacheEligible(request: Request): boolean {
 			"if-unmodified-since",
 			"x-tedix-cms-internal-auth",
 		].some((name) => request.headers.has(name)) &&
-		!["_preview", "_edit"].some((name) => url.searchParams.has(name))
+		!["_preview", "_edit", "_tedix_deploy"].some((name) =>
+			url.searchParams.has(name),
+		)
 	);
 }
 

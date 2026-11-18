@@ -150,6 +150,7 @@ export async function imageTransformResponse(
 				"Content-Type": response.headers.get("Content-Type") ?? outputMime,
 				"Cache-Control": MUTABLE_MEDIA_CACHE_CONTROL,
 				"X-Content-Type-Options": "nosniff",
+				"X-Tedix-Image-Transform": "images",
 			},
 		});
 	} catch (error) {

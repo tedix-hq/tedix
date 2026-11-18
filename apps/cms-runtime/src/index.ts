@@ -1,3 +1,4 @@
+import { isCmsDeployProbe, serveCmsDeployProbe } from "./deploy-probe";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	publicAssetCacheEligible,
@@ -1782,6 +1783,8 @@ async function fetchCmsSite(
 		tenantUrl,
 	);
 	if (imageTransform) return imageTransform;
+	if (isCmsDeployProbe(request) && tenantUrl.pathname === IMAGE_ENDPOINT_ROUTE)
+		return new Response("Native image transform unavailable", { status: 502 });
 
 	const bundle =
 		knownBundle === undefined
@@ -2184,7 +2187,7 @@ export default {
 			// tenant content and cache bodies still require the restore permit.
 			const [site, bundle] = await Promise.all([
 				alias ?? getCmsSiteBySlug(db, slug),
-				pageCacheEligible(request, url.pathname)
+				pageCacheEligible(request, url.pathname) || isCmsDeployProbe(request)
 					? lookupActiveBundle(env, slug)
 					: undefined,
 			]);
@@ -2225,7 +2228,14 @@ export default {
 						request.method !== "POST" ||
 						!isMarketingContactPath(url.pathname)
 					)
-						return run();
+						return isCmsDeployProbe(request)
+							? serveCmsDeployProbe(
+									request,
+									bundle,
+									() => lookupActiveBundle(env, slug),
+									run,
+								)
+							: run();
 					return withSharedCmsRestorePermit(env, identity, run);
 				},
 				undefined,

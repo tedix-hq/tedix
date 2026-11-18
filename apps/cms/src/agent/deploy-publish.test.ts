@@ -47,6 +47,9 @@ describe("publishStagedCmsBundle restore fence", () => {
 			}),
 		};
 		const bundles = {
+			get: vi.fn(async () => ({
+				arrayBuffer: async () => new TextEncoder().encode("asset").buffer,
+			})),
 			put: vi.fn(async (_key: string, _body: ArrayBuffer) => ({})),
 		};
 		const record = vi.fn(async () => {});
@@ -127,7 +130,8 @@ describe("publishStagedCmsBundle restore fence", () => {
 		const publishing = publishStagedCmsBundle(input);
 		await vi.waitFor(() => expect(uploadTenantBundle).toHaveBeenCalledOnce());
 		expect(released).toBe(false);
-		expect(bundles.put).not.toHaveBeenCalled();
+		expect(bundles.put).toHaveBeenCalledOnce();
+		expect(bundles.get).toHaveBeenCalledOnce();
 		finishUpload();
 		await publishing;
 		expect(bundles.put).toHaveBeenCalledWith(
@@ -160,7 +164,7 @@ describe("publishStagedCmsBundle restore fence", () => {
 		await expect(publishStagedCmsBundle(input)).rejects.toThrow(
 			"R2 unavailable",
 		);
-		expect(uploadTenantBundle).toHaveBeenCalledOnce();
+		expect(uploadTenantBundle).not.toHaveBeenCalled();
 		expect(record).not.toHaveBeenCalled();
 		expect(events).toEqual(["released"]);
 	});
@@ -201,5 +205,37 @@ describe("publishStagedCmsBundle restore fence", () => {
 		await outcome;
 		expect(released).toBe(true);
 		expect(record).not.toHaveBeenCalled();
+	});
+	it.each([
+		"missing-stage",
+		"missing-published",
+		"corrupt",
+		"missing-manifest",
+	])("prevents activation for %s", async (fault) => {
+		const { input, staging, bundles } = fixture();
+		vi.mocked(withExactCmsSiteRestorePermit).mockImplementationOnce(
+			async (_db, _site, operation) => operation(),
+		);
+		const original = staging.get.getMockImplementation()!;
+		if (fault === "missing-stage" || fault === "missing-manifest")
+			staging.get.mockImplementation(async (key) =>
+				key.endsWith(
+					fault === "missing-stage"
+						? "/static/asset.woff2"
+						: "/static-manifest.json",
+				)
+					? null
+					: original(key),
+			);
+		if (fault === "missing-published")
+			bundles.get.mockResolvedValueOnce(null as never);
+		if (fault === "corrupt")
+			bundles.get.mockResolvedValueOnce({
+				arrayBuffer: async () => new TextEncoder().encode("wrong").buffer,
+			});
+		await expect(publishStagedCmsBundle(input)).rejects.toThrow(
+			/missing|mismatch/,
+		);
+		expect(uploadTenantBundle).not.toHaveBeenCalled();
 	});
 });

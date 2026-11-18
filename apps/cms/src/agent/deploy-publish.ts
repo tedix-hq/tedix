@@ -1,3 +1,4 @@
+import { CmsDeployFailure } from "./deploy-failure";
 import {
 	type TenantBundleSourceRevision,
 	uploadTenantBundle,
@@ -42,7 +43,7 @@ interface PublishStagedCmsBundleInput {
 	) => Promise<void>;
 }
 
-/** The publish permit spans reservation, activation, static writes, and receipt. */
+/** The publish permit spans verified static writes, activation, and receipt. */
 export async function publishStagedCmsBundle(
 	input: PublishStagedCmsBundleInput,
 ) {
@@ -82,6 +83,75 @@ export async function publishStagedCmsBundle(
 			files[path] = new Uint8Array(await obj.arrayBuffer());
 		}
 
+		// Upload content-hashed static assets (fonts, CSS, JS chunks) to
+		// BUNDLES_BUCKET under static/{orgSlug}/{filename}. These are never
+		// versioned — content hashes guarantee uniqueness and immutability.
+		const staticManifestObj = await env.SITE_BUILDER_STORAGE.get(
+			`${stagingPrefix(orgSlug, stagingAttemptId)}/static-manifest.json`,
+		);
+		if (!staticManifestObj)
+			throw new CmsDeployFailure(
+				"STATIC_MANIFEST_MISSING",
+				"Static staging manifest missing",
+			);
+		const { filenames: staticFilenames } = (await staticManifestObj.json()) as {
+			filenames: string[];
+		};
+		if (
+			!Array.isArray(staticFilenames) ||
+			staticFilenames.some(
+				(name) =>
+					typeof name !== "string" ||
+					!name ||
+					name.includes("/") ||
+					name === "." ||
+					name === "..",
+			)
+		)
+			throw new Error("Invalid static staging manifest");
+
+		for (let i = 0; i < staticFilenames.length; i += 10) {
+			const writes = await Promise.allSettled(
+				staticFilenames.slice(i, i + 10).map(async (filename) => {
+					const obj = await env.SITE_BUILDER_STORAGE.get(
+						stagingStaticKey(orgSlug, stagingAttemptId, filename),
+					);
+					if (!obj)
+						throw new CmsDeployFailure(
+							"STATIC_ASSET_MISSING",
+							`Staged static asset missing: ${filename}`,
+						);
+					const body = await obj.arrayBuffer();
+					const key = staticAssetKey(orgSlug, filename);
+					await env.BUNDLES_BUCKET.put(key, body);
+					const stored = await env.BUNDLES_BUCKET.get(key);
+					if (!stored)
+						throw new CmsDeployFailure(
+							"STATIC_ASSET_MISSING",
+							`Published static asset missing: ${filename}`,
+							true,
+						);
+					const actual = new Uint8Array(await stored.arrayBuffer());
+					const expected = new Uint8Array(body);
+					if (
+						actual.length !== expected.length ||
+						actual.some((byte, index) => byte !== expected[index])
+					) {
+						throw new CmsDeployFailure(
+							"STATIC_ASSET_MISMATCH",
+							`Published static asset mismatch: ${filename}`,
+							true,
+						);
+					}
+				}),
+			);
+			const failure = writes.find(
+				(result): result is PromiseRejectedResult =>
+					result.status === "rejected",
+			);
+			if (failure) throw failure.reason;
+		}
+
 		const result = await uploadTenantBundle(
 			{ bundlesBucket: env.BUNDLES_BUCKET, platformDb: env.DB },
 			{
@@ -96,39 +166,6 @@ export async function publishStagedCmsBundle(
 			},
 		);
 
-		// Upload content-hashed static assets (fonts, CSS, JS chunks) to
-		// BUNDLES_BUCKET under static/{orgSlug}/{filename}. These are never
-		// versioned — content hashes guarantee uniqueness and immutability.
-		const staticManifestObj = await env.SITE_BUILDER_STORAGE.get(
-			`${stagingPrefix(orgSlug, stagingAttemptId)}/static-manifest.json`,
-		);
-		const staticFilenames: string[] = staticManifestObj
-			? ((await staticManifestObj.json()) as { filenames: string[] }).filenames
-			: [];
-
-		for (let i = 0; i < staticFilenames.length; i += 10) {
-			const writes = await Promise.allSettled(
-				staticFilenames.slice(i, i + 10).map(async (filename) => {
-					const obj = await env.SITE_BUILDER_STORAGE.get(
-						stagingStaticKey(orgSlug, stagingAttemptId, filename),
-					);
-					if (!obj) {
-						console.warn(
-							`[deploy-workflow] staged static asset missing at publish: ${filename}`,
-						);
-						return;
-					}
-					const body = await obj.arrayBuffer();
-					await env.BUNDLES_BUCKET.put(staticAssetKey(orgSlug, filename), body);
-				}),
-			);
-			const failure = writes.find(
-				(result): result is PromiseRejectedResult =>
-					result.status === "rejected",
-			);
-			if (failure) throw failure.reason;
-		}
-
 		await record("publish-bundle", "complete", "Bundle published", {
 			version: result.version,
 			staticCount: staticFilenames.length,
@@ -140,6 +177,7 @@ export async function publishStagedCmsBundle(
 			version: result.version,
 			etag: result.etag,
 			staticCount: staticFilenames.length,
+			staticFilenames,
 			sourceRevision: result.sourceRevision,
 			humanAuthority: result.humanAuthority,
 		};

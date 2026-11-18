@@ -24,4 +24,29 @@ describe("CMS deploy status safety", () => {
 			"Building Astro bundle",
 		);
 	});
+	it("persists only structured failure enums and bounded log correlation", () => {
+		const failure = {
+			phase: "health-check",
+			code: "PROBE_IMAGE_INVALID",
+			retryable: false,
+			rollback: "succeeded",
+			correlationId: "cms-test-job",
+			rollbackError: "private provider detail",
+		};
+		expect(safeDeployDetails(failure)).toEqual({
+			phase: failure.phase,
+			code: failure.code,
+			retryable: false,
+			rollback: "succeeded",
+			correlationId: failure.correlationId,
+		});
+		expect(
+			safeDeployDetails({
+				phase: "secret",
+				code: "secret",
+				rollback: "secret",
+				correlationId: "token=secret",
+			}),
+		).toBeUndefined();
+	});
 });

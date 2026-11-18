@@ -2,7 +2,11 @@ import {
 	getActiveCmsSiteForPermit,
 	withExactCmsSiteRestorePermit,
 } from "./cms-restore-permit";
-import { getCmsBundleDeployGeneration } from "./storage";
+import {
+	getCmsBundleDeployGeneration,
+	getCmsDeployAdmission,
+	reserveCmsDeployAdmission,
+} from "./storage";
 
 /** Mirrors the platform `InstanceStatus` union; keep it in step with workerd. */
 interface CmsDeployWorkflowStatus {
@@ -86,12 +90,7 @@ export function cmsDeployWorkflowInstanceId(
 	return `cms-${siteId}-e${restoreEpoch}-v${nextBundleVersion}${sourceCommit ? `-s${sourceCommit}` : ""}`;
 }
 
-/**
- * Admit one deploy per tenant bundle generation. Concurrent callers resolve
- * the same next version and therefore the same Workflow instance id. The
- * loser of Workflow.create's provider-side uniqueness race reuses the winning
- * receipt instead of starting a second workflow against the shared sandbox.
- */
+/** Reserve a site before creating a Workflow; only terminal receipts free it. */
 export async function startCmsDeployWorkflow(input: {
 	workflow: CmsDeployWorkflowBinding;
 	db: D1Database;
@@ -101,6 +100,8 @@ export async function startCmsDeployWorkflow(input: {
 }): Promise<{ jobId: string; reused: boolean }> {
 	const site = await getActiveCmsSiteForPermit(input.db, input.orgSlug);
 	return withExactCmsSiteRestorePermit(input.db, site, async () => {
+		const previous = await getCmsDeployAdmission(input.db, site);
+
 		const generation = await getCmsBundleDeployGeneration(
 			input.db,
 			input.orgSlug,
@@ -110,13 +111,45 @@ export async function startCmsDeployWorkflow(input: {
 				`CMS theme deploy for ${input.orgSlug} requires sourceCommit because an Artifacts-backed bundle exists. Commit the complete editable theme to its cms-theme-${input.orgSlug} Artifacts repository, then retry theme_deploy with the full 40-character sourceCommit.`,
 			);
 		}
+		const previousJobId = previous?.split(":", 1)[0];
+		let nextVersion = generation.nextVersion;
+		if (
+			previousJobId?.startsWith(`cms-${site.siteId}-e${site.restoreEpoch}-`)
+		) {
+			const previousVersion = Number(previousJobId.match(/-v([0-9]+)/)?.[1]);
+			const sameSource = input.sourceCommit
+				? previousJobId.endsWith(`-s${input.sourceCommit}`)
+				: !/-s[a-f0-9]{40}$/.test(previousJobId);
+			let status: CmsDeployWorkflowStatus;
+			let recoverCreation = false;
+			try {
+				status = await (await input.workflow.get(previousJobId)).status();
+			} catch (error) {
+				// Recover only the exact reserved generation before any bundle write.
+				if (!sameSource || previousVersion < generation.nextVersion)
+					throw error;
+				status = { status: "unknown" };
+				recoverCreation = true;
+				nextVersion = previousVersion;
+			}
+			if (["complete", "errored", "terminated"].includes(status.status)) {
+				// Never restart an old instance: its terminal status could race a
+				// second caller before restart becomes visible at the provider.
+				nextVersion = Math.max(nextVersion, previousVersion + 1);
+			} else if (!recoverCreation) {
+				if (!sameSource)
+					throw new Error(`CMS deploy already in progress: ${previousJobId}`);
+				return { jobId: previousJobId, reused: true };
+			}
+		}
 		const jobId = cmsDeployWorkflowInstanceId(
 			site.siteId,
 			input.orgSlug,
-			generation.nextVersion,
+			nextVersion,
 			site.restoreEpoch,
 			input.sourceCommit,
 		);
+
 		const params: CmsDeployWorkflowParams = {
 			siteId: site.siteId,
 			restoreEpoch: site.restoreEpoch,
@@ -124,19 +157,26 @@ export async function startCmsDeployWorkflow(input: {
 			summary: input.summary,
 			sourceCommit: input.sourceCommit,
 			...(input.sourceCommit ? { sourceSandbox: "isolated" as const } : {}),
-			nextBundleVersion: generation.nextVersion,
+			nextBundleVersion: nextVersion,
 			expectedActiveVersion: generation.activeVersion,
 		};
+		const reservation = `${jobId}:${crypto.randomUUID()}`;
+		if (
+			!(await reserveCmsDeployAdmission(input.db, site, previous, reservation))
+		) {
+			const winner = await getCmsDeployAdmission(input.db, site);
+			if (winner?.split(":", 1)[0] !== jobId)
+				throw new Error(`CMS deploy already in progress: ${winner}`);
+			// The winner may still be creating the provider instance. Creating the
+			// identical ID below coalesces safely without releasing its reservation.
+		}
 		try {
 			const instance = await input.workflow.create({ id: jobId, params });
 			return { jobId: instance.id, reused: false };
 		} catch (createError) {
 			try {
 				const existing = await input.workflow.get(jobId);
-				const status = await existing.status();
-				if (status.status === "errored" || status.status === "terminated") {
-					await existing.restart();
-				}
+				await existing.status();
 				return { jobId: existing.id, reused: true };
 			} catch {
 				throw createError;

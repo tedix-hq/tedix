@@ -1,3 +1,5 @@
+import { probeCmsDeploy } from "./deploy-health";
+import { CmsDeployFailure, type DeployRollback } from "./deploy-failure";
 import { normalizeCmsTemplateSlug } from "../template-policy";
 /**
  * DeployWorkflow — durable, retryable theme deploy via Cloudflare Workflows.
@@ -213,9 +215,12 @@ async function recordDeployPhase(
 	const timestamp = new Date().toISOString();
 	const priorObj = await storage.get(deployStatusKey(event.jobId));
 	let history: DeployPhaseEvent[] = [];
+	let priorFailure: Record<string, unknown> | undefined;
 	if (priorObj) {
 		try {
 			const prior = (await priorObj.json()) as Partial<DeployStatusSnapshot>;
+			if (prior.status === "failed" && event.phase === "failed")
+				priorFailure = safeDeployDetails(prior.details);
 			if (Array.isArray(prior.history)) {
 				history = prior.history.map((previous) => ({
 					...previous,
@@ -233,7 +238,7 @@ async function recordDeployPhase(
 		status: event.status,
 		message: safeDeployMessage(event.status, event.message),
 		timestamp,
-		details: safeDeployDetails(event.details),
+		details: safeDeployDetails({ ...event.details, ...priorFailure }),
 	};
 	history.push(entry);
 
@@ -334,41 +339,87 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 				operation,
 				options,
 			);
+		let failureDetails: Record<string, unknown> | undefined;
+		let currentPhase = "preflight";
 		const guardedStep = <T extends Rpc.Serializable<T>>(
 			name: string,
 			config: WorkflowStepConfig,
 			operation: () => Promise<T>,
 			permitOptions?: { retainPermitOnUnknownProcessOutcome: true },
-		) =>
-			step.do(name, config, async () => {
+		) => {
+			currentPhase = name;
+			return step.do(name, config, async () => {
+				failureDetails = undefined;
 				try {
 					return await withSitePermit(operation, permitOptions);
 				} catch (error) {
+					failureDetails ??= {
+						phase: name,
+						code:
+							error instanceof CmsDeployFailure
+								? error.code
+								: "DEPLOY_STEP_FAILED",
+						retryable:
+							error instanceof CmsDeployFailure
+								? error.retryable
+								: !(
+										error instanceof NonRetryableError ||
+										error instanceof CmsUnknownProcessOutcomeError
+									),
+						rollback: "not_required",
+						correlationId: jobId,
+					};
+					console.error("cms.deploy.failed", {
+						jobId,
+						...failureDetails,
+						error,
+					});
+					await record(
+						name,
+						"failed",
+						"Deploy step failed",
+						failureDetails,
+					).catch(() => undefined);
 					// The permit helper must see the original type so it can retain
 					// the fence. The Workflow engine must then stop retrying this
 					// step, because the native process may still be running.
+					if (error instanceof CmsDeployFailure && !error.retryable)
+						throw new NonRetryableError(error.message);
 					if (error instanceof CmsUnknownProcessOutcomeError) {
 						throw new NonRetryableError(error.message);
 					}
 					throw error;
 				}
 			});
+		};
 		const record = (
 			phase: string,
 			status: DeployPhaseState,
 			message?: string,
 			details?: Record<string, unknown>,
-		) =>
-			withSitePermit(() =>
+		) => {
+			if (status === "failed" && phase === "health-check") {
+				const rollback: DeployRollback = details?.rollbackError
+					? "failed"
+					: details?.rollbackConflict
+						? "conflict"
+						: details?.rolledBackTo
+							? "succeeded"
+							: "not_available";
+				failureDetails = { ...failureDetails, rollback };
+			}
+			return withSitePermit(() =>
 				recordDeployPhase(env.SITE_BUILDER_STORAGE, {
 					jobId,
 					orgSlug,
 					phase,
 					status,
 					message,
-					details,
+					details:
+						status === "failed" ? { ...details, ...failureDetails } : details,
 				}),
 			);
+		};
 
 		await record("queued", "queued", "Deploy workflow queued", {
 			summary,
@@ -1007,8 +1058,8 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 
 			// ------------------------------------------------------------------
 			// Step 4 — health check + auto-rollback
-			// Probes native Emdash /robots.txt on the live bundle to confirm the
-			// route, settings DB access, and public URL plumbing render correctly.
+			// Probes real HTML, its declared CSS/JS, and an image transform.
+			// Runtime attestations bind uncached responses to this candidate.
 			// An unhealthy existing-site upgrade is rolled back immediately:
 			// flip is_active back to the previous version so the live site recovers
 			// without human intervention.
@@ -1026,24 +1077,30 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 						}
 					: { retries: { limit: 0, delay: "1 second" }, timeout: "60 seconds" },
 				async () => {
-					const probeUrl = `${url}/robots.txt`;
-					// Cold Worker Loader activation may exceed 30 seconds. Leave the
-					// remaining step budget for exact activation checks and CAS rollback.
 					const signal = AbortSignal.timeout(
 						firstPublication ? 90_000 : 50_000,
 					);
-					let res: Response;
-					try {
-						res = await fetch(probeUrl, { redirect: "follow", signal });
-					} catch (error) {
-						if (!signal.aborted) {
-							if (firstPublication) throw new NonRetryableError(String(error));
-							throw error;
-						}
-						res = new Response(null, { status: 504 });
-					}
-					// Even a late successful response cannot certify another activation.
-					if (signal.aborted) res = new Response(null, { status: 504 });
+					const publicRoute = await getCmsPublicBuildRoute(env.DB, orgSlug);
+					const probe = await probeCmsDeploy({
+						url: publicRoute
+							? `${publicRoute.publicSiteUrl.replace(/\/$/, "")}${publicRoute.publicPathPrefix ?? ""}`
+							: url,
+						version: published.version,
+						etag: published.etag,
+						staticFilenames: published.staticFilenames,
+						jobId,
+						signal,
+					});
+					const { response: res, probeUrl } = probe;
+					if (probe.code)
+						failureDetails = {
+							phase: "health-check",
+							code: probe.code,
+							retryable: probe.retryable,
+							rollback: "not_available",
+							correlationId: jobId,
+						};
+
 					if (res.status !== 200) {
 						// Native first-start migration contention may return 503; the
 						// bounded probe deadline becomes 504. Throw only these transient
@@ -1083,7 +1140,10 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 									failedVersion: published.version,
 									previousVersion: prevVersion,
 								},
-							);
+							).catch((error: unknown) => ({
+								rolledBack: false,
+								error: errorMessage(error),
+							}));
 							if (!rollback.rolledBack) {
 								await record(
 									"health-check",
@@ -1143,11 +1203,18 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 						active[0]?.version !== published.version ||
 						active[0]?.etag !== published.etag
 					) {
+						failureDetails = {
+							phase: "health-check",
+							code: "ACTIVATION_CHANGED",
+							retryable: false,
+							rollback: "conflict",
+							correlationId: jobId,
+						};
 						await record(
 							"health-check",
 							"failed",
 							"Bundle activation changed during health check",
-							{ status: 409 },
+							{ status: 409, rollbackConflict: true },
 						);
 						return { ok: false, status: 409, probeUrl, rollbackConflict: true };
 					}
@@ -1210,7 +1277,21 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 			// A deprovision reservation can close the site between stages. Its
 			// denied permit also denies the failure receipt; preserve the original
 			// failure without writing an unguarded status under a reused slug.
-			await record("failed", "failed", message).catch(() => undefined);
+			failureDetails ??= {
+				phase: currentPhase,
+				code: "DEPLOY_STEP_FAILED",
+				retryable: !(err instanceof NonRetryableError),
+				rollback: "not_required",
+				correlationId: jobId,
+			};
+			console.error("cms.deploy.failed", {
+				jobId,
+				...failureDetails,
+				error: err,
+			});
+			await record("failed", "failed", message, failureDetails).catch(
+				() => undefined,
+			);
 			throw err;
 		}
 	}
