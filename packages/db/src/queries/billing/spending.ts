@@ -1,3 +1,5 @@
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -11,9 +13,17 @@ import { chunkForBoundParams } from "../../utils/batch";
  * Same receipt filter as the spending list: monetary EUR quotes only.
  */
 export async function sumRunInferenceCharges(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: { organizationId: string; runIds: readonly string[] },
 ): Promise<{ chargedMicros: number; chargeCount: number }> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/spending")
+			).sumRunInferenceCharges(db.db, input);
+		db = db.db;
+	}
+
 	let chargedMicros = 0;
 	let chargeCount = 0;
 	// One bound parameter for the organization plus the run ids per statement.
@@ -55,9 +65,17 @@ export async function sumRunInferenceCharges(
  * one. Same receipt filter as `sumRunInferenceCharges`.
  */
 export async function sumRunInferenceChargesByRun(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: { organizationId: string; runIds: readonly string[] },
 ): Promise<Map<string, { chargedMicros: number; chargeCount: number }>> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/spending")
+			).sumRunInferenceChargesByRun(db.db, input);
+		db = db.db;
+	}
+
 	const byRun = new Map<
 		string,
 		{ chargedMicros: number; chargeCount: number }
@@ -102,9 +120,17 @@ export async function sumRunInferenceChargesByRun(
 
 /** Settled monetary receipts only; neither provider estimates nor Output allocation. */
 export async function listMonetaryInferenceSpending(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: { organizationId: string; from: string; to: string; limit: number },
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/spending")
+			).listMonetaryInferenceSpending(db.db, input);
+		db = db.db;
+	}
+
 	const rows = await db
 		.select({
 			id: billingUsageCharges.id,

@@ -28,41 +28,12 @@ import {
 import { getBillingEntitlement } from "./plans";
 import { getBillingBalanceSnapshot } from "./credits";
 
-const now = "2026-10-11T12:00:00.000Z";
-const rate = {
-	schemaVersion: 1,
-	id: "fictional-price-1",
-	version: 1,
-	provider: "fictional",
-	model: "fictional-model",
-	deploymentScope: "fictional-scope",
-	currency: "USD",
-	customerCurrency: "EUR",
-	// Parity keeps the fixture's amounts readable; conversion is tested below.
-	fx: {
-		microUsdPerEur: 1_000_000,
-		source: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
-		asOf: "2026-10-09",
-	},
-	funding: "managed",
-	effectiveFrom: "2026-10-01T00:00:00.000Z",
-	effectiveUntil: null,
-	sourceReceipt: "fictional-receipt",
-	creditValueMicros: 10_000,
-	inputConvention: "inclusive",
-	providerRates: {
-		uncachedInput: 1_000_000,
-		cacheRead: 100_000,
-		cacheWrite: 2_000_000,
-		output: 5_000_000,
-	},
-	customerRates: {
-		uncachedInput: 1_000_000,
-		cacheRead: 100_000,
-		cacheWrite: 2_000_000,
-		output: 5_000_000,
-	},
-};
+import {
+	monetaryNow as now,
+	monetaryRate as rate,
+	monetaryReservation as reservation,
+	monetaryUsage as usage,
+} from "../../test/billing-fixtures";
 function setup(balance = 10_000) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
@@ -99,44 +70,6 @@ function setup(balance = 10_000) {
 		.prepare("UPDATE billing_plan_versions SET metadata=? WHERE id='plan'")
 		.run(JSON.stringify({ monetaryInference: config }));
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
-}
-function reservation(id: string) {
-	return {
-		id,
-		organizationId: "org",
-		source: "kernel" as const,
-		provider: "fictional",
-		model: "fictional-model",
-		deploymentScope: "fictional-scope",
-		estimatedInputTokens: 1_000,
-		estimatedOutputTokens: 100,
-		idempotencyKey: `key:${id}`,
-		expiresAt: "2026-10-11T12:10:00.000Z",
-		now,
-		runId: "fictional-run",
-		aiGatewayLimits: { organizationDailyTokenLimit: 1, tediDailyTokenLimit: 1 },
-	};
-}
-function usage(reservationId: string, id = "charge") {
-	return {
-		id,
-		reservationId,
-		organizationId: "org",
-		gatewayLogId: `gateway:${id}`,
-		provider: "fictional",
-		model: "fictional-model",
-		source: "kernel" as const,
-		inputTokens: 1_000,
-		outputTokens: 50,
-		providerCostMicros: 1_170,
-		usageQuality: "provider_reported" as const,
-		providerCostQuality: "estimated" as const,
-		meteringReady: true,
-		rateCardVersion: "fictional-price-1",
-		occurredAt: now,
-		now,
-		metadata: { cacheReadTokens: 200, cacheWriteTokens: 100 },
-	};
 }
 describe("opt-in monetary inference", () => {
 	it("converts USD provider prices to EUR credit prices, rounding up once", () => {

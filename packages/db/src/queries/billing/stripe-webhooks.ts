@@ -1,5 +1,7 @@
 /** Canonical billing stripe-webhooks queries. */
 
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import { and, eq, gt, lte, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -8,7 +10,7 @@ import {
 } from "../../schema/billing";
 
 export async function claimStripeWebhookEvent(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		eventId: string;
 		eventType: string;
@@ -18,6 +20,14 @@ export async function claimStripeWebhookEvent(
 		leaseExpiresAt: string;
 	},
 ): Promise<{ claimed: boolean; event: StripeWebhookEvent }> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/stripe-webhooks")
+			).claimStripeWebhookEvent(db.db, input);
+		db = db.db;
+	}
+
 	const [claimed] = await db
 		.insert(stripeWebhookEvents)
 		.values({
@@ -60,13 +70,21 @@ export async function claimStripeWebhookEvent(
 }
 
 export async function hasNewerProcessedStripeWebhookEvent(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		entityKey: string;
 		eventCreatedAt: number;
 		eventId: string;
 	},
 ): Promise<boolean> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/stripe-webhooks")
+			).hasNewerProcessedStripeWebhookEvent(db.db, input);
+		db = db.db;
+	}
+
 	const [newer] = await db
 		.select({ eventId: stripeWebhookEvents.eventId })
 		.from(stripeWebhookEvents)
@@ -83,13 +101,21 @@ export async function hasNewerProcessedStripeWebhookEvent(
 }
 
 export async function markStripeWebhookEventProcessed(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		eventId: string;
 		outcome: string;
 		now: string;
 	},
 ): Promise<void> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/stripe-webhooks")
+			).markStripeWebhookEventProcessed(db.db, input);
+		db = db.db;
+	}
+
 	await db
 		.update(stripeWebhookEvents)
 		.set({
@@ -109,13 +135,21 @@ export async function markStripeWebhookEventProcessed(
 }
 
 export async function markStripeWebhookEventFailed(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		eventId: string;
 		error: string;
 		now: string;
 	},
 ): Promise<void> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/stripe-webhooks")
+			).markStripeWebhookEventFailed(db.db, input);
+		db = db.db;
+	}
+
 	await db
 		.update(stripeWebhookEvents)
 		.set({

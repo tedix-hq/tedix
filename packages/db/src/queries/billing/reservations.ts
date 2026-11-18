@@ -1,3 +1,5 @@
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import {
 	buildProviderExecutionInsertStatement,
 	providerExecutionGuardPredicate,
@@ -57,7 +59,7 @@ import {
 const ACTIVE_BILLING_STATUSES: BillingAccountStatus[] = ["trial", "active"];
 
 export async function listBillingUsageReservations(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	params: {
 		organizationId: string;
 		status?: BillingReservationStatus;
@@ -65,6 +67,14 @@ export async function listBillingUsageReservations(
 		limit?: number;
 	},
 ): Promise<BillingUsageReservation[]> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing-reservations")
+			).listBillingUsageReservations(db.db, params);
+		db = db.db;
+	}
+
 	return db
 		.select()
 		.from(billingUsageReservations)
@@ -356,9 +366,17 @@ export interface BillingReservationFreshness {
  * needs the newest reservation and whether there is one at all, not how many.
  */
 export async function getBillingReservationFreshness(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	nowMs: number,
 ): Promise<BillingReservationFreshness> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing-reservations")
+			).getBillingReservationFreshness(db.db, nowMs);
+		db = db.db;
+	}
+
 	const iso30d = new Date(nowMs - 30 * 24 * 60 * 60 * 1000).toISOString();
 	const rows = await db
 		.select({ maxCreatedAt: billingUsageReservations.createdAt })
@@ -432,7 +450,7 @@ export function buildBillingReservationPreflightStatements(
 
 /** Atomically checks current capacity and reserves one provider inference. */
 export async function reserveBillingUsage(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		execution?: NewProviderExecutionAttemptRow;
 		executionGuard?: ProviderExecutionAdmissionGuard;
@@ -461,6 +479,14 @@ export async function reserveBillingUsage(
 		};
 	},
 ): Promise<BillingReservationDecision> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing-reservations")
+			).reserveBillingUsage(db.db, input);
+		db = db.db;
+	}
+
 	if (
 		input.execution &&
 		(input.execution.billingReservationId !== input.id ||
@@ -1126,7 +1152,7 @@ export function billingBlockingReason(input: {
 }
 
 export async function releaseBillingReservation(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		reservationId: string;
 		organizationId: string;
@@ -1134,6 +1160,14 @@ export async function releaseBillingReservation(
 		now: string;
 	},
 ): Promise<BillingUsageReservation | null> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing-reservations")
+			).releaseBillingReservation(db.db, input);
+		db = db.db;
+	}
+
 	const [row] = await db
 		.update(billingUsageReservations)
 		.set({
@@ -1154,9 +1188,17 @@ export async function releaseBillingReservation(
 }
 
 export async function expireBillingReservations(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	now: string,
 ): Promise<number> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing-reservations")
+			).expireBillingReservations(db.db, now);
+		db = db.db;
+	}
+
 	const rows = await db
 		.update(billingUsageReservations)
 		.set({ status: "expired", updatedAt: now })

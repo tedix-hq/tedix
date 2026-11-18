@@ -1,3 +1,5 @@
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import {
 	MonetaryInferenceConfigSchema,
 	type MonetaryInferenceConfig,
@@ -46,10 +48,18 @@ export function eurMicrosFromUsd(usdMicros: number, microUsdPerEur: number) {
 }
 
 export async function verifyMonetaryQuoteReceipt(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	quote: ReturnType<typeof estimateMonetaryInference>,
 	deploymentScope?: string,
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/monetary-inference")
+			).verifyMonetaryQuoteReceipt(db.db, quote, deploymentScope);
+		db = db.db;
+	}
+
 	const snapshot =
 		quote.rateSnapshot as MonetaryInferenceConfig["rates"][number];
 	const [receipt] = await db
@@ -262,13 +272,21 @@ export function monetaryCreditOverview(
 
 /** Never enables cash overage or changes a token plan's financial contract. */
 export async function setMonetaryCreditBudget(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		organizationId: string;
 		monthlyCapMicros: number | null;
 		now: string;
 	},
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/monetary-inference")
+			).setMonetaryCreditBudget(db.db, input);
+		db = db.db;
+	}
+
 	return db
 		.update(billingAccounts)
 		.set({ hardSpendLimitMicros: input.monthlyCapMicros, updatedAt: input.now })
@@ -283,7 +301,7 @@ export async function setMonetaryCreditBudget(
 
 /** Dispatch readiness only: paid calls still require their own exact execution scope. */
 export async function preflightMonetaryInference(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	plan: BillingPlanVersion,
 	snapshot: BillingBalanceSnapshot,
 	input: {
@@ -294,6 +312,14 @@ export async function preflightMonetaryInference(
 		now: string;
 	},
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/monetary-inference")
+			).preflightMonetaryInference(db.db, plan, snapshot, input);
+		db = db.db;
+	}
+
 	const config = monetaryInferenceConfig(plan);
 	if (!config) return null;
 	if (!["active", "trial"].includes(snapshot.status))

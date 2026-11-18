@@ -1,5 +1,7 @@
 /** Canonical billing settlement queries. */
 
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, eq, exists, gt, isNotNull, or, sql } from "drizzle-orm";
 import {
@@ -59,7 +61,7 @@ async function findExistingBillingUsageCharge(
 }
 
 export async function settleBillingUsage(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		stripeEnvironment?: "test" | "live";
 		id: string;
@@ -83,6 +85,14 @@ export async function settleBillingUsage(
 		now: string;
 	},
 ): Promise<BillingUsageCharge> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/settlement")
+			).settleBillingUsage(db.db, input);
+		db = db.db;
+	}
+
 	const totalTokens = input.inputTokens + input.outputTokens;
 	if (
 		!Number.isSafeInteger(input.inputTokens) ||

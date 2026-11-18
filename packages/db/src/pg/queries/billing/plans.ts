@@ -1,0 +1,521 @@
+/** Canonical billing plans queries. */
+
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { and, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import type { PgQueryClient } from "../../query-client";
+import { buildIncludedCreditPeriodGrant } from "./credit-periods";
+import {
+	type BillingAccount,
+	type BillingAccountStatus,
+	type BillingPlanVersion,
+	billingAccounts,
+	billingPlanVersions,
+	billingUsageReservations,
+} from "../../schema/billing";
+
+export interface BillingEntitlement {
+	account: BillingAccount;
+	plan: BillingPlanVersion;
+}
+
+export async function getActiveBillingPlanByKey(
+	db: PgQueryClient,
+	planKey: BillingPlanVersion["planKey"],
+	now: string,
+): Promise<BillingPlanVersion | null> {
+	const [plan] = await db
+		.select()
+		.from(billingPlanVersions)
+		.where(
+			and(
+				eq(billingPlanVersions.planKey, planKey),
+				eq(billingPlanVersions.status, "active"),
+				lte(billingPlanVersions.effectiveAt, now),
+			),
+		)
+		.orderBy(desc(billingPlanVersions.version))
+		.limit(1);
+	return plan ?? null;
+}
+
+export async function getBillingEntitlement(
+	db: PgQueryClient,
+	organizationId: string,
+): Promise<BillingEntitlement | null> {
+	const [row] = await db
+		.select({ account: billingAccounts, plan: billingPlanVersions })
+		.from(billingAccounts)
+		.innerJoin(
+			billingPlanVersions,
+			eq(billingAccounts.planVersionId, billingPlanVersions.id),
+		)
+		.where(eq(billingAccounts.organizationId, organizationId))
+		.limit(1);
+	return row ?? null;
+}
+
+export async function getBillingEntitlementByStripeCustomerId(
+	db: PgQueryClient,
+	stripeCustomerId: string,
+	stripeEnvironment: "test" | "live",
+): Promise<BillingEntitlement | null> {
+	const [row] = await db
+		.select({ account: billingAccounts, plan: billingPlanVersions })
+		.from(billingAccounts)
+		.innerJoin(
+			billingPlanVersions,
+			eq(billingAccounts.planVersionId, billingPlanVersions.id),
+		)
+		.where(
+			and(
+				eq(billingAccounts.stripeCustomerId, stripeCustomerId),
+				eq(billingAccounts.stripeEnvironment, stripeEnvironment),
+			),
+		)
+		.limit(1);
+	return row ?? null;
+}
+
+/**
+ * Persist the customer created by a one-time Stripe Checkout without changing
+ * subscription mode or plan. A concurrent or cross-environment provider
+ * identity wins; this helper never overwrites it.
+ */
+export async function linkBillingAccountStripeCustomerIfUnbound(
+	db: PgQueryClient,
+	input: {
+		organizationId: string;
+		stripeCustomerId: string;
+		stripeEnvironment: "test" | "live";
+		now: string;
+	},
+): Promise<boolean> {
+	const [account] = await db
+		.update(billingAccounts)
+		.set({
+			stripeCustomerId: input.stripeCustomerId,
+			stripeEnvironment: input.stripeEnvironment,
+			updatedAt: input.now,
+		})
+		.where(
+			and(
+				eq(billingAccounts.organizationId, input.organizationId),
+				or(
+					isNull(billingAccounts.stripeEnvironment),
+					eq(billingAccounts.stripeEnvironment, input.stripeEnvironment),
+				),
+				or(
+					isNull(billingAccounts.stripeCustomerId),
+					eq(billingAccounts.stripeCustomerId, input.stripeCustomerId),
+				),
+			),
+		)
+		.returning({ organizationId: billingAccounts.organizationId });
+	return Boolean(account);
+}
+
+/**
+ * Build an unexecuted upsert. Callers reading existing provisioning state must
+ * lock the account first and execute this statement in the same transaction.
+ */
+export function buildProvisionBillingAccountStatement(
+	db: PgQueryClient,
+	input: {
+		organizationId: string;
+		planVersionId: string;
+		status: BillingAccountStatus;
+		billingMode: BillingAccount["billingMode"];
+		stripeEnvironment?: "test" | "live" | null;
+		stripeCustomerId?: string | null;
+		stripeSubscriptionId?: string | null;
+		stripeCancelAtPeriodEnd?: boolean | null;
+		periodStart: string;
+		periodEnd: string;
+		now: string;
+		metadata?: Record<string, JsonValue>;
+	},
+) {
+	// Preserve a concurrently activated private tariff at the upsert boundary,
+	// rather than trusting a read that may precede activation.
+	const keepPrivatePlan = sql`EXISTS (SELECT 1 FROM billing_plan_versions current_plan
+  JOIN billing_plan_versions projected_plan ON projected_plan.id = ${input.planVersionId}
+  WHERE current_plan.id = billing_accounts.plan_version_id AND current_plan.plan_key = projected_plan.plan_key
+  AND jsonb_typeof(current_plan.metadata -> 'monetaryInference') = 'object')`;
+	// Apply RFC 7396 in path order: parents become objects before nested keys
+	// are merged, and null removes keys rather than storing JSON null.
+	const mergedMetadata = sql`(
+		WITH RECURSIVE patch_nodes(path, value) AS (
+			SELECT ARRAY[]::text[], ${JSON.stringify(input.metadata ?? {})}::jsonb
+			UNION ALL
+			SELECT parent.path || child.key, child.value
+			FROM patch_nodes parent
+			CROSS JOIN LATERAL jsonb_each(
+				CASE WHEN jsonb_typeof(parent.value) = 'object' THEN parent.value ELSE '{}'::jsonb END
+			) child
+		), ordered AS (
+			SELECT path, value, row_number() OVER (ORDER BY cardinality(path), path) AS step
+			FROM patch_nodes
+		), merged(step, value) AS (
+			SELECT 0::bigint, billing_accounts.metadata
+			UNION ALL
+			SELECT patch.step, CASE
+				WHEN cardinality(patch.path) = 0 THEN
+					CASE WHEN jsonb_typeof(merged.value) = 'object' THEN merged.value ELSE '{}'::jsonb END
+				WHEN patch.value = 'null'::jsonb THEN merged.value #- patch.path
+				WHEN jsonb_typeof(patch.value) = 'object' THEN
+					jsonb_set(merged.value, patch.path,
+						CASE WHEN jsonb_typeof(merged.value #> patch.path) = 'object'
+							THEN merged.value #> patch.path ELSE '{}'::jsonb END)
+				ELSE jsonb_set(merged.value, patch.path, patch.value)
+			END
+			FROM merged JOIN ordered patch ON patch.step = merged.step + 1
+		)
+		SELECT value FROM merged ORDER BY step DESC LIMIT 1
+	)`;
+	return db
+		.insert(billingAccounts)
+		.values({
+			organizationId: input.organizationId,
+			planVersionId: input.planVersionId,
+			status: input.status,
+			billingMode: input.billingMode,
+			stripeEnvironment: input.stripeEnvironment ?? null,
+			stripeCustomerId: input.stripeCustomerId ?? null,
+			stripeSubscriptionId: input.stripeSubscriptionId ?? null,
+			stripeCancelAtPeriodEnd: input.stripeCancelAtPeriodEnd ?? null,
+			periodStart: input.periodStart,
+			periodEnd: input.periodEnd,
+			metadata: input.metadata ?? {},
+			createdAt: input.now,
+			updatedAt: input.now,
+		})
+		.onConflictDoUpdate({
+			target: billingAccounts.organizationId,
+			set: {
+				planVersionId: sql`CASE WHEN ${keepPrivatePlan} THEN billing_accounts.plan_version_id ELSE ${input.planVersionId} END`,
+				status: input.status,
+				billingMode: input.billingMode,
+				stripeEnvironment: input.stripeEnvironment ?? null,
+				...(input.stripeCustomerId !== undefined && {
+					stripeCustomerId: input.stripeCustomerId,
+				}),
+				...(input.stripeSubscriptionId !== undefined && {
+					stripeSubscriptionId: input.stripeSubscriptionId,
+				}),
+				...(input.stripeCancelAtPeriodEnd !== undefined && {
+					stripeCancelAtPeriodEnd: input.stripeCancelAtPeriodEnd,
+				}),
+				periodStart: input.periodStart,
+				periodEnd: input.periodEnd,
+				entitlementVersion: sql`${billingAccounts.entitlementVersion} + 1`,
+				metadata: sql`CASE WHEN ${keepPrivatePlan} THEN ${mergedMetadata} ELSE ${JSON.stringify(input.metadata ?? {})}::jsonb END`,
+				updatedAt: input.now,
+			},
+		})
+		.returning();
+}
+
+/** Resolve the active plan for `planKey` or throw with the key that missed. */
+export async function requireActiveBillingPlan(
+	db: PgQueryClient,
+	planKey: BillingPlanVersion["planKey"],
+	now: string,
+): Promise<BillingPlanVersion> {
+	const plan = await getActiveBillingPlanByKey(db, planKey, now);
+	if (!plan) {
+		throw new Error(`Active billing plan not found: ${planKey}`);
+	}
+	return plan;
+}
+
+export async function provisionBillingAccount(
+	db: PgQueryClient,
+	input: {
+		organizationId: string;
+		planKey: BillingPlanVersion["planKey"];
+		status: BillingAccountStatus;
+		billingMode: BillingAccount["billingMode"];
+		stripeEnvironment?: "test" | "live" | null;
+		stripeCustomerId?: string | null;
+		stripeSubscriptionId?: string | null;
+		stripeCancelAtPeriodEnd?: boolean | null;
+		periodStart: string;
+		periodEnd: string;
+		now: string;
+		metadata?: Record<string, JsonValue>;
+	},
+): Promise<BillingAccount> {
+	return db.transaction(async (db) => {
+		await db
+			.select({ organizationId: billingAccounts.organizationId })
+			.from(billingAccounts)
+			.where(eq(billingAccounts.organizationId, input.organizationId))
+			.for("update");
+		const current = await getBillingEntitlement(db, input.organizationId);
+		// A private opt-in tariff remains pinned while Stripe renews the same product.
+		// A product change/cancellation resolves the catalog normally.
+		const preserveCreditPlan = Boolean(
+			current?.plan.metadata.monetaryInference &&
+			current.plan.planKey === input.planKey,
+		);
+		const plan = preserveCreditPlan
+			? current!.plan
+			: await requireActiveBillingPlan(db, input.planKey, input.now);
+		const [account] = await buildProvisionBillingAccountStatement(db, {
+			...input,
+			metadata: preserveCreditPlan
+				? { ...current!.account.metadata, ...input.metadata }
+				: input.metadata,
+			planVersionId: plan.id,
+		});
+		if (!account) throw new Error("Failed to provision billing account");
+		return account;
+	});
+}
+
+/**
+ * Put a billing account back on a correct period window.
+ *
+ * `rollBillingPeriods` is already monthly — it advances `periodEnd` by one
+ * `setUTCMonth` whenever a window has closed. What it cannot do is reach an
+ * account whose window is WRONG rather than expired: an account provisioned
+ * with a year-long window has one monthly allowance covering a year, and the
+ * roll would not touch it until that window closes. Nothing in the product
+ * could correct that, which is why an operator's only options were a credit
+ * grant or waiting out the window.
+ *
+ * Deliberately narrow: it moves the window and nothing else. It does not
+ * change the plan, the status, the mode, or any balance. Concurrency is fenced
+ * on `entitlementVersion` like every other entitlement write, and the version
+ * bump makes downstream caches re-read.
+ *
+ * IT RESETS ALLOWANCE ACCOUNTING, DELIBERATELY. Reservations are matched on the
+ * PAIR (`period_start`, `period_end`), so moving either end detaches the usage
+ * already metered against the old window and the included allowance reads as
+ * untouched again. That is the intended effect — the reason to correct a window
+ * is usually that an allowance was stretched across the wrong span, and
+ * re-homing the usage would leave the account over allowance and still blocked.
+ * It is recorded rather than implied: the orphaned totals go into
+ * `lastPeriodCorrection` so the reset is reconstructable afterwards.
+ *
+ * `periodStart` may still not move EARLIER than the current one. Re-opening a
+ * span that has already closed would pull in usage from periods before it.
+ */
+export async function correctBillingAccountPeriod(
+	db: PgQueryClient,
+	input: {
+		organizationId: string;
+		periodStart: string;
+		periodEnd: string;
+		now: string;
+		/** Why, for the audit trail. Required: a silent period rewrite is a bug. */
+		reason: string;
+	},
+): Promise<BillingAccount> {
+	if (!input.reason.trim())
+		throw new Error("A billing period correction must record a reason");
+	if (Date.parse(input.periodEnd) <= Date.parse(input.periodStart))
+		throw new Error("Billing period must end after it starts");
+	return db.transaction(async (db) => {
+		const [account] = await db
+			.select()
+			.from(billingAccounts)
+			.where(eq(billingAccounts.organizationId, input.organizationId))
+			.for("update");
+		if (!account) throw new Error("No billing account for organization");
+		// What the reset is about to detach, captured before it is detached.
+		const [orphaned] = await db
+			.select({
+				tokens: sql<number>`COALESCE(SUM(${billingUsageReservations.estimatedInputTokens} + ${billingUsageReservations.estimatedOutputTokens}), 0)`,
+				chargeMicros: sql<number>`COALESCE(SUM(${billingUsageReservations.estimatedChargeMicros}), 0)`,
+			})
+			.from(billingUsageReservations)
+			.where(
+				and(
+					eq(billingUsageReservations.organizationId, input.organizationId),
+					inArray(billingUsageReservations.status, ["reserved", "settled"]),
+					eq(billingUsageReservations.periodStart, account.periodStart),
+					eq(billingUsageReservations.periodEnd, account.periodEnd),
+				),
+			);
+		if (Date.parse(input.periodStart) < Date.parse(account.periodStart))
+			throw new Error(
+				"A correction may not move periodStart earlier: usage already metered against this window would lose its period",
+			);
+		const [updated] = await db
+			.update(billingAccounts)
+			.set({
+				periodStart: input.periodStart,
+				periodEnd: input.periodEnd,
+				entitlementVersion: account.entitlementVersion + 1,
+				metadata: {
+					...account.metadata,
+					lastPeriodCorrection: {
+						at: input.now,
+						reason: input.reason,
+						from: { start: account.periodStart, end: account.periodEnd },
+						to: { start: input.periodStart, end: input.periodEnd },
+						// The allowance usage this correction detached. Charges are
+						// untouched — only the allowance window moved.
+						allowanceReset: {
+							orphanedTokens: Number(orphaned?.tokens ?? 0),
+							orphanedChargeMicros: Number(orphaned?.chargeMicros ?? 0),
+						},
+					},
+				},
+				updatedAt: input.now,
+			})
+			.where(
+				and(
+					eq(billingAccounts.organizationId, input.organizationId),
+					eq(billingAccounts.entitlementVersion, account.entitlementVersion),
+				),
+			)
+			.returning();
+		if (!updated)
+			throw new Error("Billing account changed while correcting its period");
+		return updated;
+	});
+}
+
+export async function rollBillingPeriods(
+	db: PgQueryClient,
+	now: string,
+): Promise<{ renewed: number; suspendedTrials: number }> {
+	const expired = await db
+		.select({ organizationId: billingAccounts.organizationId })
+		.from(billingAccounts)
+		.where(
+			and(
+				inArray(billingAccounts.status, ["trial", "active"]),
+				lte(billingAccounts.periodEnd, now),
+			),
+		)
+		.limit(500);
+	let renewed = 0;
+	let suspendedTrials = 0;
+	for (const candidate of expired) {
+		const result = await db.transaction(async (db) => {
+			const [account] = await db
+				.select()
+				.from(billingAccounts)
+				.where(eq(billingAccounts.organizationId, candidate.organizationId))
+				.for("update");
+			if (
+				!account ||
+				!["trial", "active"].includes(account.status) ||
+				account.periodEnd > now
+			)
+				return null;
+			if (account.status === "trial") {
+				await db
+					.update(billingAccounts)
+					.set({
+						status: "suspended",
+						entitlementVersion: account.entitlementVersion + 1,
+						updatedAt: now,
+					})
+					.where(
+						and(
+							eq(billingAccounts.organizationId, account.organizationId),
+							eq(
+								billingAccounts.entitlementVersion,
+								account.entitlementVersion,
+							),
+						),
+					);
+				return "suspended";
+			}
+			const nextStart = account.periodEnd;
+			const nextEndDate = new Date(nextStart);
+			nextEndDate.setUTCMonth(nextEndDate.getUTCMonth() + 1);
+			const entitlement = await getBillingEntitlement(
+				db,
+				account.organizationId,
+			);
+			// Stripe grants only on a paid invoice. Internal accounts renew their funded
+			// allowance atomically; purchased balances are never reset or expired.
+			const coverage = account.metadata.paidCreditCoverage as
+				| { subscriptionId?: string; periodStart?: string; periodEnd?: string }
+				| undefined;
+			const coveredStripePeriod =
+				account.billingMode === "stripe" &&
+				coverage?.subscriptionId === account.stripeSubscriptionId &&
+				typeof coverage.periodStart === "string" &&
+				typeof coverage.periodEnd === "string" &&
+				coverage.periodStart <= nextStart &&
+				coverage.periodEnd >= nextEndDate.toISOString();
+			await db
+				.update(billingAccounts)
+				.set({
+					periodStart: nextStart,
+					periodEnd: nextEndDate.toISOString(),
+					entitlementVersion: account.entitlementVersion + 1,
+					updatedAt: now,
+				})
+				.where(
+					and(
+						eq(billingAccounts.organizationId, account.organizationId),
+						eq(billingAccounts.entitlementVersion, account.entitlementVersion),
+					),
+				);
+			if (
+				(account.billingMode === "internal" || coveredStripePeriod) &&
+				entitlement?.plan.metadata.monetaryInference &&
+				entitlement.plan.includedMonthlyCreditMicros > 0
+			) {
+				await buildIncludedCreditPeriodGrant(db, {
+					organizationId: account.organizationId,
+					planVersionId: entitlement.plan.id,
+					periodStart: nextStart,
+					periodEnd: nextEndDate.toISOString(),
+					amountMicros: entitlement.plan.includedMonthlyCreditMicros,
+					now,
+				});
+			}
+			return "renewed";
+		});
+		if (result === "suspended") suspendedTrials++;
+		else if (result === "renewed") renewed++;
+	}
+	return { renewed, suspendedTrials };
+}
+
+/** Upgrade only the unmodified starter trial created by automatic onboarding. */
+export async function activateProviderCustomerBilling(
+	db: PgQueryClient,
+	input: {
+		organizationId: string;
+		entitlementVersion: number;
+		planVersionId: string;
+		metadata: Record<string, JsonValue>;
+		now: string;
+	},
+): Promise<void> {
+	await db.transaction(async (db) => {
+		await db
+			.select({ organizationId: billingAccounts.organizationId })
+			.from(billingAccounts)
+			.where(eq(billingAccounts.organizationId, input.organizationId))
+			.for("update");
+		await db
+			.update(billingAccounts)
+			.set({
+				planVersionId: input.planVersionId,
+				status: "active",
+				billingMode: "internal",
+				entitlementVersion: input.entitlementVersion + 1,
+				metadata: input.metadata,
+				updatedAt: input.now,
+			})
+			.where(
+				and(
+					eq(billingAccounts.organizationId, input.organizationId),
+					eq(billingAccounts.entitlementVersion, input.entitlementVersion),
+					eq(billingAccounts.status, "trial"),
+					eq(billingAccounts.billingMode, "trial"),
+					isNull(billingAccounts.stripeSubscriptionId),
+				),
+			);
+	});
+}

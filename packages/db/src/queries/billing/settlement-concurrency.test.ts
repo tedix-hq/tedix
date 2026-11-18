@@ -66,25 +66,7 @@ function setup() {
 		db: createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 })),
 	};
 }
-function usage(i: number, settler: number) {
-	return {
-		id: `charge:${i}:${settler}`,
-		organizationId: "org",
-		reservationId: `reservation:${i}`,
-		gatewayLogId: `gateway:${i}`,
-		provider: "fictional",
-		model: "fictional",
-		source: "kernel" as const,
-		inputTokens: 1000,
-		outputTokens: 100,
-		providerCostMicros: 7,
-		usageQuality: "provider_reported" as const,
-		providerCostQuality: "estimated" as const,
-		meteringReady: true,
-		occurredAt: now,
-		now,
-	};
-}
+import { settlementUsage as usage } from "../../test/billing-fixtures";
 
 describe("billing settlement concurrency", () => {
 	it("cannot replay a rolled-back settlement after cleanup releases its reservation", async () => {

@@ -1,4 +1,7 @@
 /** Account-scoped credit pricing activation. Never publishes a catalog default. */
+
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import type {
 	ConfigureCreditBillingInput,
 	RepriceCreditBillingInput,
@@ -32,11 +35,19 @@ function planCloneSelection(clone: Record<string, unknown>) {
 }
 
 export async function configureCreditBilling(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: ConfigureCreditBillingInput,
 	actor: string,
 	now: string,
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/credit-activation")
+			).configureCreditBilling(db.db, input, actor, now);
+		db = db.db;
+	}
+
 	const entitlement = await getBillingEntitlement(db, input.organizationId);
 	if (!entitlement) throw new Error("Billing account not found");
 	const { account, plan } = entitlement;
@@ -182,11 +193,19 @@ export async function configureCreditBilling(
  * unchanged; reservations already admitted keep their pinned quotes.
  */
 export async function repriceCreditBilling(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	input: RepriceCreditBillingInput,
 	actor: string,
 	now: string,
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/credit-activation")
+			).repriceCreditBilling(db.db, input, actor, now);
+		db = db.db;
+	}
+
 	const entitlement = await getBillingEntitlement(db, input.organizationId);
 	if (!entitlement) throw new Error("Billing account not found");
 	const { account, plan } = entitlement;
@@ -292,7 +311,7 @@ export async function repriceCreditBilling(
 
 /** Paid service coverage is never inferred from an active subscription status. */
 export async function recordPaidCreditCoverage(
-	db: DbClient,
+	db: DbClient | CoreStoreBinding<PgQueryClient>,
 	organizationId: string,
 	coverage: {
 		subscriptionId: string;
@@ -302,6 +321,14 @@ export async function recordPaidCreditCoverage(
 	},
 	now: string,
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/credit-activation")
+			).recordPaidCreditCoverage(db.db, organizationId, coverage, now);
+		db = db.db;
+	}
+
 	const entitlement = await getBillingEntitlement(db, organizationId);
 	if (
 		!entitlement?.plan.metadata.monetaryInference ||

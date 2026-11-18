@@ -1,4 +1,7 @@
 /** Immutable provider-rate publication and event-time lookup. */
+
+import type { CoreStoreBinding } from "../postgres/core-store";
+import type { PgQueryClient } from "../../pg/query-client";
 import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 import { createDbQueryClient, type DbQueryClient } from "../../query-client";
 import {
@@ -15,9 +18,17 @@ export interface PublishProviderModelRateParams extends NewProviderModelRateVers
 
 /** One conditional insert is the publication fence; no read-then-write race. */
 export async function publishProviderModelRate(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	input: PublishProviderModelRateParams,
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/provider-model-rates")
+			).publishProviderModelRate(db.db, input);
+		db = db.db;
+	}
+
 	if (!input.deploymentScope.trim()) return null;
 	const from = new Date(input.effectiveFrom).toISOString();
 	const published = new Date(input.publishedAt).toISOString();
@@ -69,7 +80,7 @@ export async function publishProviderModelRate(
 }
 
 export async function listProviderModelRates(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		provider?: string;
 		modelId?: string;
@@ -77,6 +88,14 @@ export async function listProviderModelRates(
 		limit?: number;
 	} = {},
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/provider-model-rates")
+			).listProviderModelRates(db.db, input);
+		db = db.db;
+	}
+
 	return db
 		.select()
 		.from(providerModelRateVersions)
@@ -99,7 +118,7 @@ export async function listProviderModelRates(
 
 /** At most two candidates are enough to prove ambiguous resolution. */
 export async function findProviderModelRates(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		provider: string;
 		modelId: string;
@@ -108,6 +127,14 @@ export async function findProviderModelRates(
 		inputTokens?: number;
 	},
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/provider-model-rates")
+			).findProviderModelRates(db.db, input);
+		db = db.db;
+	}
+
 	if (!input.deploymentScope.trim()) return [];
 	const inputTokens = input.inputTokens ?? 0;
 	if (!Number.isSafeInteger(inputTokens) || inputTokens < 0) return [];
@@ -138,7 +165,7 @@ export async function findProviderModelRates(
  * fabricated zero.
  */
 export async function resolveDirectProviderUsagePrice(
-	db: DbQueryClient | D1Database,
+	db: DbQueryClient | D1Database | CoreStoreBinding<PgQueryClient>,
 	identity: {
 		provider: string;
 		modelId: string;
@@ -151,6 +178,14 @@ export async function resolveDirectProviderUsagePrice(
 	rateVersionId: string | null;
 	reason: string | null;
 }> {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/provider-model-rates")
+			).resolveDirectProviderUsagePrice(db.db, identity, usage);
+		db = db.db;
+	}
+
 	if (
 		[
 			usage.inputTokens,
@@ -190,13 +225,21 @@ export async function resolveDirectProviderUsagePrice(
 
 /** Current list-price estimates use published rows without rewriting historical usage. */
 export async function listEffectiveProviderModelRates(
-	db: DbQueryClient,
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
 	input: {
 		provider: string;
 		deploymentScope: string;
 		occurredAt: string;
 	},
 ) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return (
+				await import("../../pg/queries/billing/provider-model-rates")
+			).listEffectiveProviderModelRates(db.db, input);
+		db = db.db;
+	}
+
 	return db
 		.select()
 		.from(providerModelRateVersions)
