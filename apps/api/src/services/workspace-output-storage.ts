@@ -221,6 +221,20 @@ export async function listOsOutputRevisions(
 		: d1Outputs.listOsOutputRevisions(...args);
 }
 
+/**
+ * Whether the workspace keeps its files in its own store, claiming a brand-new
+ * workspace (no import, no shared files) for its store on the way.
+ */
+export async function claimWorkspaceOutputs(scope: {
+	organizationId: string;
+	workspaceId: string;
+}): Promise<boolean> {
+	return (
+		!!runtime() &&
+		(await runtime()!.outputQuery(scope, { op: "claim" })) === "object"
+	);
+}
+
 export async function createOsOutput(
 	...args: Parameters<typeof d1Outputs.createOsOutput>
 ) {
