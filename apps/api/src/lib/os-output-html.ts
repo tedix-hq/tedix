@@ -613,7 +613,16 @@ export function renderOsOutputHtml(
 	 * prints has no system font. A saved HTML file must open on its own, so
 	 * it names the font without fetching it.
 	 */
-	options: { loadBodyFont?: boolean } = {},
+	options: {
+		loadBodyFont?: boolean;
+		/**
+		 * An export is the file's own content and nothing else, so it can be
+		 * sent on as it is. An internal copy can ask for the title, revision
+		 * number and save time above a document or sheet. A deck never carries
+		 * it: its pages are the slides.
+		 */
+		revisionHeader?: boolean;
+	} = {},
 ): string {
 	const title = escapeHtml(output.title);
 	const body = renderBody(revision.content, organization);
@@ -640,7 +649,7 @@ ${fontStylesheet}
 	<style>${INLINE_CSS}${isPresentation ? PRESENTATION_CSS : ""}${documentAppearanceCss(revision.content)}</style>
 </head>
 <body>
-${isPresentation || revision.content.kind === "document" ? "" : `<header class="export-header"><h1>${title}</h1><p class="meta">${meta}</p></header>`}
+${options.revisionHeader === true && (revision.content.kind === "document" || revision.content.kind === "sheet") ? `<header class="export-header"><h1>${title}</h1><p class="meta">${meta}</p></header>` : ""}
 ${body}
 </body>
 </html>`;

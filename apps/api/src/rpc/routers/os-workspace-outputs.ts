@@ -1142,6 +1142,7 @@ async function renderExportBytes(
 	format: "pdf" | "png",
 	organization: PresentationAppearance,
 	readAsset: OsExportAssetReader,
+	revisionHeader: boolean,
 ): Promise<Uint8Array> {
 	if (!context.env.BROWSER) {
 		throw createError(
@@ -1157,7 +1158,7 @@ async function renderExportBytes(
 			content,
 		},
 		organization,
-		{ loadBodyFont: true },
+		{ loadBodyFont: true, revisionHeader },
 	);
 	const response = await runBrowserQuickAction(
 		context.env.BROWSER,
@@ -1245,6 +1246,19 @@ const outputsExport = authorOs.outputs.export.handler(
 				throw createError(ErrorCodes.BAD_REQUEST, "Sheet not found");
 			}
 		}
+		const revisionHeader = input.revisionHeader === true;
+		if (
+			revisionHeader &&
+			((output.kind !== "document" && output.kind !== "sheet") ||
+				(input.format !== "pdf" &&
+					input.format !== "png" &&
+					input.format !== "html"))
+		) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"revisionHeader is valid only for pdf, png and html exports of documents and sheets",
+			);
+		}
 		let organization: PresentationAppearance = {};
 		if (output.kind === "presentation") {
 			const [profile, appearance] = await Promise.all([
@@ -1283,6 +1297,7 @@ const outputsExport = authorOs.outputs.export.handler(
 				input.format,
 				organization,
 				readAsset,
+				revisionHeader,
 			);
 		} else if (input.format === "csv" && revision.content.kind === "sheet") {
 			const { buildOsSheetCsv } = await import("../../lib/os-output-csv");
@@ -1300,10 +1315,12 @@ const outputsExport = authorOs.outputs.export.handler(
 			bytes = new TextEncoder().encode(
 				input.format === "markdown"
 					? renderOsDocumentMarkdown(content)
-					: renderOsOutputHtml(mapOsOutputRow(output), {
-							...revision,
-							content,
-						}),
+					: renderOsOutputHtml(
+							mapOsOutputRow(output),
+							{ ...revision, content },
+							{},
+							{ revisionHeader },
+						),
 			);
 		} else if (
 			input.format === "html" &&
@@ -1349,7 +1366,10 @@ const outputsExport = authorOs.outputs.export.handler(
 		}
 		const tabSuffix =
 			selectedSheetIndex !== undefined ? `-tab-${selectedSheetIndex + 1}` : "";
-		const file = `rev-${revision.revision}${tabSuffix}.${extension}`;
+		// A copy with the header is a different file from the plain export of
+		// the same revision, so neither replaces the other.
+		const headerSuffix = revisionHeader ? "-header" : "";
+		const file = `rev-${revision.revision}${tabSuffix}${headerSuffix}.${extension}`;
 		const key = `os-exports/${output.organizationId}/${output.id}/${file}`;
 		await context.env.R2_BUCKET.put(key, bytes, {
 			httpMetadata: { contentType },

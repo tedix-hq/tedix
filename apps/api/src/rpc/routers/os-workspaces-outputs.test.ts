@@ -2160,6 +2160,67 @@ describe("output export", () => {
 		]);
 	});
 
+	it("prints the title and revision above a PDF only when asked", async () => {
+		const { env, calls } = exportEnv({
+			pdfBytes: new Uint8Array([37, 80, 68, 70]),
+		});
+		const client = createRouterClient(osWorkspacesContractRouter, {
+			context: userContext({ env, organizationId: "org-1" }),
+		});
+		const workspaceId = await homeWorkspaceId(env);
+		const { output } = await client.outputs.create({
+			workspaceId,
+			kind: "sheet",
+			title: "Pipeline",
+			content: { kind: "sheet", columns: ["Deal"], rows: [["Acme"]] },
+		});
+		const plain = await client.outputs.export({
+			outputId: output.id,
+			format: "pdf",
+		});
+		expect(plain.key).toBe(`os-exports/org-1/${output.id}/rev-1.pdf`);
+		expect(String(calls[0]?.payload.html)).not.toContain(
+			'<header class="export-header">',
+		);
+		const internal = await client.outputs.export({
+			outputId: output.id,
+			format: "pdf",
+			revisionHeader: true,
+		});
+		expect(internal.key).toBe(`os-exports/org-1/${output.id}/rev-1-header.pdf`);
+		expect(internal.url).toBe(
+			`https://api.tedix.test/os-exports/${output.id}/rev-1-header.pdf`,
+		);
+		expect(String(calls[1]?.payload.html)).toContain(
+			'<header class="export-header"><h1>Pipeline</h1><p class="meta">sheet — revision 1 — ',
+		);
+		// The header belongs to a printed page of a document or sheet only.
+		await expect(
+			client.outputs.export({
+				outputId: output.id,
+				format: "xlsx",
+				revisionHeader: true,
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		const { output: deck } = await client.outputs.create({
+			workspaceId,
+			kind: "presentation",
+			title: "Deck",
+			content: {
+				kind: "presentation",
+				slides: [{ title: "One", bullets: [] }],
+			},
+		});
+		await expect(
+			client.outputs.export({
+				outputId: deck.id,
+				format: "pdf",
+				revisionHeader: true,
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(calls).toHaveLength(2);
+	});
+
 	it("prints presentation pages with backgrounds and CSS sizing", async () => {
 		const { env, calls } = exportEnv({});
 		const client = createRouterClient(osWorkspacesContractRouter, {

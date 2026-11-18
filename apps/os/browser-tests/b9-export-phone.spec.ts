@@ -188,6 +188,7 @@ try {
 					"Document (.docx)",
 					"Markdown (.md)",
 					"HTML (.html)",
+					"PDF with title and revision",
 				]);
 				await until(
 					() => menu.evaluate((el) => el.contains(document.activeElement)),

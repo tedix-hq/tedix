@@ -143,6 +143,19 @@ describe("authenticated output exports", () => {
 			'attachment; filename="rev-2-tab-3.csv"',
 		);
 	});
+	it("serves the copy that carries the title and revision", async () => {
+		const response = await worker.fetch(
+			new Request("http://api/os-exports/output-1/rev-2-header.pdf", {
+				headers: { Authorization: "Bearer tedix-local-demo" },
+			}),
+			env as unknown as CloudflareEnv,
+			{} as ExecutionContext,
+		);
+		expect(response.status).toBe(200);
+		expect(mocks.object).toHaveBeenCalledWith(
+			"os-exports/local-org/output-1/rev-2-header.pdf",
+		);
+	});
 	it("denies retained export bytes after source access is revoked", async () => {
 		mocks.authorize.mockResolvedValue(false);
 		expect((await request()).status).toBe(403);

@@ -217,6 +217,70 @@ describe("renderOsOutputHtml", () => {
 		expect(html).toMatch(/<body>\s*<article>/);
 	});
 
+	it("exports only the content unless the title and revision are asked for", () => {
+		const document = {
+			...revisionMeta,
+			content: {
+				kind: "document" as const,
+				blocks: [{ type: "paragraph" as const, text: "Dear customer," }],
+			},
+		};
+		const sheet = {
+			...revisionMeta,
+			content: { kind: "sheet" as const, columns: ["Deal"], rows: [["Acme"]] },
+		};
+		const banner = "revision 3 — 2026-08-13T00:00:00.000Z";
+		for (const [output, revision] of [
+			[{ kind: "document", title: "Offer letter" }, document],
+			[{ kind: "sheet", title: "Pipeline" }, sheet],
+		] as const) {
+			const plain = renderOsOutputHtml(output, revision);
+			expect(plain).not.toContain('<header class="export-header">');
+			expect(plain).not.toContain(banner);
+			const internal = renderOsOutputHtml(
+				output,
+				revision,
+				{},
+				{ revisionHeader: true },
+			);
+			expect(internal).toContain(
+				`<header class="export-header"><h1>${output.title}</h1><p class="meta">${output.kind} — ${banner}</p></header>`,
+			);
+		}
+		// A document's own page footer prints either way.
+		const withFooter = {
+			...document,
+			content: {
+				...document.content,
+				appearance: { footer: "Example GmbH" },
+			},
+		};
+		for (const revisionHeader of [false, true])
+			expect(
+				renderOsOutputHtml(
+					{ kind: "document", title: "Offer letter" },
+					withFooter,
+					{},
+					{ revisionHeader },
+				),
+			).toContain('@bottom-center{content:"Example GmbH"');
+		// A deck's pages are its slides, so it never gets the header.
+		expect(
+			renderOsOutputHtml(
+				{ kind: "presentation", title: "Deck" },
+				{
+					...revisionMeta,
+					content: {
+						kind: "presentation",
+						slides: [{ title: "One", bullets: [] }],
+					},
+				},
+				{},
+				{ revisionHeader: true },
+			),
+		).not.toContain('<header class="export-header">');
+	});
+
 	it("renders a sheet as a rectangular table with typed cells", () => {
 		const html = renderOsOutputHtml(
 			{ kind: "sheet", title: "Pipeline" },
