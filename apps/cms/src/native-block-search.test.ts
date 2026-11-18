@@ -710,6 +710,10 @@ describe("automatic native search cron", () => {
 		]);
 		await pageSearch.hooks["page:metadata"].handler({} as never, ctx);
 		expect(tasks.has("backfill-search")).toBe(true);
+		// Further renders in the same interval skip the schema read.
+		const reads = mocks.listBlockTypes.mock.calls.length;
+		await pageSearch.hooks["page:metadata"].handler({} as never, ctx);
+		expect(mocks.listBlockTypes.mock.calls.length).toBe(reads);
 		expect(progress()).toMatchObject({ collectionIndex: 0, done: false });
 		settings.mockResolvedValue("services");
 		await armSearchBackfill(ctx);

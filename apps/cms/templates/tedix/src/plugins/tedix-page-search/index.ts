@@ -363,6 +363,9 @@ export async function runSearchBackfill(ctx: PluginContext): Promise<void> {
 	}
 }
 
+const RENDER_RECONCILE_MS = 10 * 60_000;
+let lastRenderReconcile = Number.NEGATIVE_INFINITY;
+
 async function reconcileSearch(ctx: PluginContext): Promise<void> {
 	try {
 		await armSearchBackfill(ctx);
@@ -386,7 +389,13 @@ export default {
 		"page:metadata": {
 			errorPolicy: "continue",
 			handler: async (_event, ctx) => {
-				await reconcileSearch(ctx);
+				// Public renders only notice a new bundle or schema; check at most
+				// once per isolate per interval instead of on every page view.
+				const now = Date.now();
+				if (now - lastRenderReconcile >= RENDER_RECONCILE_MS) {
+					lastRenderReconcile = now;
+					await reconcileSearch(ctx);
+				}
 				return null;
 			},
 		},
