@@ -101,6 +101,7 @@
 		"import-cycle-policy.test.ts",
 		"lib/machine-load.ts",
 		"lib/machine-load.test.ts",
+		"lib/local-workers-ai-model.ts",
 		"lib/remote-d1.ts",
 		"lib/remote-d1.test.ts",
 		"local-demo-pack-seed.ts",

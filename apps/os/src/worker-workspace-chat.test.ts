@@ -112,9 +112,13 @@ describe("workspace chat organization routing", () => {
 	);
 
 	it("addresses the local demo organization on a loopback local run", async () => {
-		const { env, objectRequests } = chatEnv("owner");
-		env.TEDIX_LOCAL_DEMO_ENABLED = "true";
-		env.DESCOPE_PROJECT_ID = LOCAL_DEMO_PROJECT_ID;
+		const chat = chatEnv("owner");
+		const env: OsRouterEnv = {
+			...chat.env,
+			TEDIX_LOCAL_DEMO_ENABLED: "true",
+			DESCOPE_PROJECT_ID: LOCAL_DEMO_PROJECT_ID,
+		};
+		const { objectRequests } = chat;
 		const request = new Request(
 			`http://localhost:3042/workspace/${workspaceId}/chat`,
 			{ headers: { Upgrade: "websocket" } },

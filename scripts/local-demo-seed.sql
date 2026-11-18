@@ -145,7 +145,7 @@ INSERT OR IGNORE INTO os_outputs (
 );
 
 INSERT OR IGNORE INTO os_output_revisions (
-	id, organization_id, output_id, revision, content, note,
+	id, organization_id, output_id, revision, content, access_envelope, note,
 	created_by_kind, created_by_id, created_at
 ) VALUES (
 	'00000000-0000-4000-8000-000000000009',
@@ -153,6 +153,7 @@ INSERT OR IGNORE INTO os_output_revisions (
 	'00000000-0000-4000-8000-000000000008',
 	1,
 	'{"kind":"document","blocks":[{"type":"paragraph","text":"Shared local draft"}]}',
+	'{"version":1,"sources":[]}',
 	'Credential-free collaboration seed',
 	'user',
 	'local-demo-owner',
