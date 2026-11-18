@@ -4421,6 +4421,102 @@ test("recovers intermediate file revisions when output notifications coalesce", 
 	).toBe(2);
 });
 
+test("clears a save's search text when the save stores no revision, and keeps it for a publish still owed", async () => {
+	await seedCore();
+	const ws = workspace();
+	const id = "excerpt-file";
+	const now = new Date().toISOString();
+	const envelope = JSON.stringify({ version: 1, sources: [] });
+	const author = { createdByKind: "user" as const, createdById: "u1" };
+	const text = (revisionId: string) =>
+		runInDurableObject(ws, (_instance, state) =>
+			state.storage.kv.get<string>(`output-excerpt:${revisionId}`),
+		);
+	const body = (words: string) =>
+		storeOutputBody(
+			testEnv.R2_BUCKET,
+			scope.organizationId,
+			JSON.stringify({
+				kind: "document",
+				blocks: [{ type: "paragraph", text: words }],
+			}),
+		);
+	const create = (organizationId: string, revisionId: string) =>
+		body("first").then((stored) =>
+			ws.outputQuery(scope, {
+				op: "create",
+				excerpt: "first words",
+				output: {
+					id,
+					...scope,
+					organizationId,
+					kind: "document",
+					title: "Excerpt file",
+					currentRevisionId: revisionId,
+					...author,
+					createdAt: now,
+					updatedAt: now,
+				},
+				revision: {
+					id: revisionId,
+					organizationId,
+					outputId: id,
+					revision: 1,
+					content: "",
+					...stored,
+					accessEnvelope: envelope,
+					...author,
+					createdAt: now,
+				},
+			}),
+		);
+	const revise = async (
+		revisionId: string,
+		expectedRevision: number,
+		words: string,
+	) =>
+		ws.outputQuery(scope, {
+			op: "revise",
+			excerpt: words,
+			params: {
+				id: revisionId,
+				organizationId: scope.organizationId,
+				outputId: id,
+				expectedRevision,
+				...(await body(words)),
+				accessEnvelope: envelope,
+				...author,
+			},
+		});
+
+	// A create that is refused throws before anything is stored.
+	await expect(create("another-org", "excerpt-refused")).rejects.toThrow();
+	expect(await text("excerpt-refused")).toBeUndefined();
+
+	await create(scope.organizationId, "excerpt-r1");
+	expect(await text("excerpt-r1")).toBeUndefined();
+
+	// A save from a stale copy is answered, not thrown, and stores nothing.
+	expect(await revise("excerpt-stale", 7, "stale words")).toMatchObject({
+		ok: false,
+		reason: "revision_conflict",
+	});
+	expect(await text("excerpt-stale")).toBeUndefined();
+
+	// A stored revision whose publish failed still needs its text.
+	await ws.failNextProjection(scope);
+	expect((await revise("excerpt-r2", 1, "second words")).ok).toBe(true);
+	expect(await text("excerpt-r2")).toBe("second words");
+	await ws.retryProjections(scope);
+	expect(await text("excerpt-r2")).toBeUndefined();
+	expect(
+		await getWorkspaceOutputIndexCurrent(createDbQueryClient(testEnv.DB), {
+			organizationId: scope.organizationId,
+			outputId: id,
+		}),
+	).toMatchObject({ revisionId: "excerpt-r2", searchText: "second words" });
+});
+
 test.each(["before", "after"] as const)(
 	"repairs sanitized conversation activity after a %s publication failure",
 	async (when) => {

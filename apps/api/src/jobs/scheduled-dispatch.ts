@@ -42,8 +42,7 @@ async function trackPlatformCronPath(
  *   of each quarter hour: retire expired, finished-Work and duplicate cards),
  *   due skill schedules, always-on keepalive, orphan-run sweep, work-attempt
  *   lease sweep, kernel request reconcile, interaction review dispatch, work
- *   approval redrive, MCP event webhook delivery, inline output revision
- *   body offload to R2 (bounded rowid window per tick), Work
+ *   approval redrive, MCP event webhook delivery, Work
  *   routing (every ten minutes: accepted non-coding Work to its steward tedi).
  * - Every 15 minutes → AI Gateway cost-ledger tick, workstation lease reaper,
  *   reply-draft career ladder,
