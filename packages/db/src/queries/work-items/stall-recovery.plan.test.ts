@@ -249,6 +249,7 @@ function fixture(productionLikeStatistics: boolean) {
 				('work_items','idx_work_items_org_created','50000 500 1'),
 				('work_attempts','uniq_work_attempt_number','80000 800 2 1'),
 				('work_attempts','idx_work_attempt_org_started','80000 800 1'),
+				('work_attempts','idx_work_attempt_org_item_started','80000 800 2 1 1'),
 				('skill_runs','idx_skill_runs_org_work_environment','11000 110 3 3'),
 				('skill_runs','idx_skill_runs_org_status','11000 110 30'),
 				('projects','idx_projects_status_id','300 150 1'),
