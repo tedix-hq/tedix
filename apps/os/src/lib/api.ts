@@ -3,6 +3,7 @@ import {
 	getApiClient,
 	createLink,
 	createORPCClient,
+	D1BookmarkSession,
 	type RouterContractClient,
 } from "@tedix/api-client/client";
 import type { ApiContract } from "@tedix/api-contract/contracts/api";
@@ -70,9 +71,13 @@ const osProductHeaders = withWebMcpInvocationHeader(
 	withBearerToken(() => ""),
 );
 
+// All timeout-specific clients participate in the same read-your-writes chain.
+const osBookmarkSession = new D1BookmarkSession();
+
 export const osApi: RouterContractClient<ApiContract> =
 	getApiClient<ApiContract>(OS_API_URL, {
 		credentials: "include",
+		bookmarkSession: osBookmarkSession,
 		timeoutMs: OS_API_REQUEST_TIMEOUT_MS,
 		getHeaders: osProductHeaders,
 	});
@@ -85,6 +90,7 @@ export const osAppRuntimeCall = createORPCClient<
 	createLink({
 		url: `${OS_API_URL}/rpc`,
 		credentials: "include",
+		bookmarkSession: osBookmarkSession,
 		timeoutMs: OS_API_REQUEST_TIMEOUT_MS,
 		getHeaders: osProductHeaders,
 	}),
@@ -94,6 +100,7 @@ export const osAppRuntimeCall = createORPCClient<
 export const osDirectReadApi: RouterContractClient<ApiContract> =
 	getApiClient<ApiContract>(OS_API_URL, {
 		credentials: "include",
+		bookmarkSession: osBookmarkSession,
 		timeoutMs: OS_DIRECT_READ_TIMEOUT_MS,
 		getHeaders: osProductHeaders,
 	});
@@ -101,6 +108,7 @@ export const osDirectReadApi: RouterContractClient<ApiContract> =
 export const osSiteDeprovisionApi: RouterContractClient<ApiContract> =
 	getApiClient<ApiContract>(OS_API_URL, {
 		credentials: "include",
+		bookmarkSession: osBookmarkSession,
 		timeoutMs: OS_SITE_DEPROVISION_TIMEOUT_MS,
 		getHeaders: osProductHeaders,
 	});
@@ -108,6 +116,7 @@ export const osSiteDeprovisionApi: RouterContractClient<ApiContract> =
 export const osChatMutationApi: RouterContractClient<ApiContract> =
 	getApiClient<ApiContract>(OS_API_URL, {
 		credentials: "include",
+		bookmarkSession: osBookmarkSession,
 		timeoutMs: OS_CHAT_MUTATION_TIMEOUT_MS,
 		getHeaders: osProductHeaders,
 	});
@@ -115,6 +124,7 @@ export const osChatMutationApi: RouterContractClient<ApiContract> =
 export const osChatReadApi: RouterContractClient<ApiContract> =
 	getApiClient<ApiContract>(OS_API_URL, {
 		credentials: "include",
+		bookmarkSession: osBookmarkSession,
 		timeoutMs: OS_CHAT_READ_TIMEOUT_MS,
 		getHeaders: osProductHeaders,
 	});
@@ -138,6 +148,7 @@ export function getAuthenticatedOsApi(
 	token: string,
 ): RouterContractClient<ApiContract> {
 	return getApiClient<ApiContract>(__API_URL__, {
+		bookmarkSession: osBookmarkSession,
 		timeoutMs: OS_API_REQUEST_TIMEOUT_MS,
 		getHeaders: withBearerToken(() => token),
 	});
@@ -151,6 +162,7 @@ export function prepareFirstOsOrganization(sessionJwt?: string) {
 	if (!sessionJwt) return osApi.organizations.getMyOrganization({});
 	const bootstrapApi = getApiClient<ApiContract>(OS_API_URL, {
 		credentials: "include",
+		bookmarkSession: osBookmarkSession,
 		timeoutMs: OS_API_REQUEST_TIMEOUT_MS,
 		getHeaders: withBearerToken(() => sessionJwt),
 	});
