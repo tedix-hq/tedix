@@ -128,7 +128,7 @@ export async function resolveAttachments(
 		attachments,
 		context:
 			"\n\nSelected workspace files:\n" +
-			"Files without inline content can be read on demand with env.outputs.get(outputId) through run_code. This reads the current revision; check revisionId against the attached reference. An uploaded spreadsheet, Word, PowerPoint or PDF file comes with its text as fileText: sheets are tables with spreadsheet column letters and row numbers. A long file shows only its first lines, and fileTextNote says which lines and how to read the rest in parts with env.outputs.readFileText; a fileTextNote without fileText says why the file has no text here. Other uploaded document and video bodies contain resource references, not file bytes.\n" +
+			"Files without inline content can be read on demand with env.outputs.get(outputId) through run_code. This reads the current revision; check revisionId against the attached reference. An uploaded text, Markdown, JSON, code, spreadsheet, Word, PowerPoint or PDF file comes with its text as fileText: sheets are tables with spreadsheet column letters and row numbers. A long file shows only its first lines, and fileTextNote says which lines and how to read the rest in parts with env.outputs.readFileText; a fileTextNote without fileText says why the file has no text here. Other uploaded document and video bodies contain resource references, not file bytes.\n" +
 			wrapUntrustedInput(contents.join("\n"), "workspace_files"),
 	};
 }

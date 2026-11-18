@@ -163,9 +163,9 @@ export function fileTextUnavailable(stored: WorkspaceFileText | null): string {
 		case "no_text":
 			return "This PDF has no readable text. It is probably a scan or made of images, and text in images cannot be read here.";
 		case "unsupported":
-			return "This kind of file has no text to read here. Spreadsheets (CSV, XLSX), Word (DOCX), PowerPoint (PPTX) and PDF files can be read.";
+			return "This file has no text to read here. Plain text, Markdown, JSON, code and config files, spreadsheets (CSV, XLSX), Word (DOCX), PowerPoint (PPTX) and PDF files can be read; images, video and other files that are not text cannot.";
 		case "too_large":
-			return "This file is too large to read as text here. The limits are 10 MB for spreadsheets, Word and PowerPoint files and 2 MB for PDF files.";
+			return "This file is too large to read as text here. The limits are 10 MB for text files, spreadsheets, Word and PowerPoint files and 2 MB for PDF files.";
 		case "not_allowed":
 			return "This PDF's text cannot be read here: the organization's data location rules do not allow the conversion.";
 		case "failed":

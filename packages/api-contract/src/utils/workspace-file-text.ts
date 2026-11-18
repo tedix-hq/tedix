@@ -60,6 +60,60 @@ export function boundedFileText(lines: Iterable<string>, incomplete = false) {
 	return kept.join("\n");
 }
 
+const TEXT_EXTENSIONS = new Set(
+	(
+		"txt text log md markdown mdx rst adoc tex json jsonl ndjson json5 yaml yml toml xml " +
+		"ini cfg conf env properties html htm css scss less js mjs cjs jsx ts mts cts tsx " +
+		"vue svelte astro py rb php go rs java kt swift c h cc cpp hpp cs m scala lua pl r " +
+		"dart ex exs erl hs clj sh bash zsh fish ps1 bat sql graphql gql proto tf diff patch " +
+		"srt vtt"
+	).split(" "),
+);
+
+/** A declared type that names text: text/*, or JSON, XML, YAML, Markdown or script source. */
+export function isTextMimeType(mimeType: string) {
+	const mime = mimeType.toLowerCase();
+	if (mime.startsWith("image/")) return false;
+	return (
+		mime.startsWith("text/") ||
+		/\b(json|javascript|typescript|xml|yaml|toml|markdown)\b/.test(mime)
+	);
+}
+
+/**
+ * Whether a file is expected to hold plain text, by its name and then its
+ * declared type. Browsers give many code and config files no type or a wrong
+ * one, so the name comes first. The bytes still decide: see `decodeTextFile`.
+ */
+export function isTextFile(filename: string, mimeType?: string) {
+	const extension = /\.([a-z0-9]+)$/i.exec(filename)?.[1]?.toLowerCase();
+	return (
+		(extension !== undefined && TEXT_EXTENSIONS.has(extension)) ||
+		(mimeType !== undefined && isTextMimeType(mimeType))
+	);
+}
+
+/**
+ * The text of a file's bytes, or null when they are not text: a zero byte or
+ * anything that is not valid UTF-8. Nothing is guessed or replaced, so binary
+ * content is never shown as garbled text. A leading byte order mark is dropped.
+ */
+export function decodeTextFile(bytes: Uint8Array): string | null {
+	if (bytes.includes(0)) return null;
+	try {
+		return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+			bytes,
+		);
+	} catch {
+		return null;
+	}
+}
+
+/** A text file's lines, kept up to the same length as any other file's text. */
+export function plainFileText(text: string) {
+	return boundedFileText(text.split(/\r\n|\r|\n/));
+}
+
 function tableLine(cells: string[]) {
 	return `| ${cells.map((cell) => cell.replace(/\s*\n\s*/g, " ").replaceAll("|", "\\|")).join(" | ")} |`;
 }

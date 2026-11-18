@@ -170,10 +170,20 @@ describe("the agent's file reads", () => {
 	const texts: Record<string, WorkspaceFileText> = {
 		long: { status: "text", text: long.join("\n") },
 		scan: { status: "no_text", text: "" },
+		notes: {
+			status: "text",
+			text: Array.from(
+				{ length: 2_000 },
+				(_, index) => `- Step ${index + 1} of the runbook`,
+			).join("\n"),
+		},
+		binary: { status: "unsupported", text: "" },
 	};
 	const outputs: OutputDetail[] = [
 		fileOutput("long"),
 		fileOutput("scan"),
+		{ ...fileOutput("notes"), title: "Runbook.md" },
+		{ ...fileOutput("binary"), title: "photo.txt" },
 		fileOutput("old"),
 		{
 			...fileOutput("native"),
@@ -249,6 +259,35 @@ describe("the agent's file reads", () => {
 					record.decision.riskTier === "read" && record.outcome === "applied",
 			),
 		).toBe(true);
+	});
+
+	test("a 2,000-line Markdown file is read to its last line", async () => {
+		const { outputs: files } = bindings();
+		let part = await files.readFileText({ outputId: "notes" });
+		expect(part).toMatchObject({ readable: true, title: "Runbook.md" });
+		expect(part.totalLines).toBe(2_000);
+		const seen = String(part.text).split("\n");
+		while (part.nextStartLine !== null) {
+			part = await files.readFileText({
+				outputId: "notes",
+				startLine: part.nextStartLine,
+			});
+			seen.push(...String(part.text).split("\n"));
+		}
+		expect(seen).toHaveLength(2_000);
+		expect(seen.at(-1)).toBe("- Step 2000 of the runbook");
+		expect(
+			(await files.searchFileText({ outputId: "notes", query: "step 2000 " }))
+				.matches,
+		).toEqual([{ line: 2_000, text: "- Step 2000 of the runbook" }]);
+	});
+
+	test("a binary file named as text says it has no text", async () => {
+		const { outputs: files } = bindings();
+		const read = await files.readFileText({ outputId: "binary" });
+		expect(read).toMatchObject({ readable: false, title: "photo.txt" });
+		expect(String(read.reason)).toContain("This file has no text to read here");
+		expect(String(read.reason)).toContain("Markdown");
 	});
 
 	test("a read never waits for approval, even where writes do", async () => {

@@ -7,10 +7,15 @@ import { Link } from "@/components/kumo/link";
 import { LoadError } from "@/components/kumo/alert";
 import { Text } from "@/components/kumo/text";
 import { officeFileFormat } from "@tedix/api-contract/utils/office-file-read";
+import { isTextFile } from "@tedix/api-contract/utils/workspace-file-text";
 import {
 	OFFICE_PREVIEW_MAX_BYTES,
 	OfficeFilePreview,
 } from "@/components/office-file-preview";
+import {
+	TEXT_PREVIEW_MAX_BYTES,
+	TextFilePreview,
+} from "@/components/text-file-preview";
 
 const VIDEO_MIME_TYPES = ["video/mp4", "video/webm"];
 export const IMAGE_MIME_TYPES = [
@@ -132,6 +137,14 @@ export function WorkspaceFilePreview({
 					url={src}
 					filename={file.filename}
 					format={officeFormat}
+				/>
+			) : file.size <= TEXT_PREVIEW_MAX_BYTES &&
+			  !officeFileFormat(file.filename, file.mimeType) &&
+			  isTextFile(file.filename, file.mimeType) ? (
+				<TextFilePreview
+					workspaceId={workspaceId}
+					resourceId={resourceId}
+					url={src}
 				/>
 			) : (
 				<Text as="p" role="body">

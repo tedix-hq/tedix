@@ -238,3 +238,52 @@ describe("media playback identity", () => {
 		expect(state.refetch).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe("text file preview", () => {
+	const textFile = (filename: string, size = 40) => ({
+		filename,
+		mimeType: "application/octet-stream",
+		size,
+		url: `/media/${filename}?sig=1`,
+	});
+	function serve(bytes: Uint8Array<ArrayBuffer>) {
+		const fetched = vi.fn(async () => new Response(bytes));
+		vi.stubGlobal("fetch", fetched);
+		return fetched;
+	}
+	afterEach(() => vi.unstubAllGlobals());
+
+	it("shows a small text file as read-only text", async () => {
+		const fetched = serve(
+			new TextEncoder().encode("# Notes\n\n<script>alert(1)</script>\n"),
+		);
+		await show(textFile("Notes.md"));
+		await act(async () => {});
+		const shown = host?.querySelector("pre[data-text-preview]");
+		expect(shown?.textContent).toBe("# Notes\n\n<script>alert(1)</script>\n");
+		expect(host?.querySelector("script")).toBeNull();
+		expect(host?.querySelector("textarea, [contenteditable]")).toBeNull();
+		expect(fetched).toHaveBeenCalledWith("/media/Notes.md?sig=1");
+		expect(host?.querySelector("a[download]")?.textContent).toBe(
+			"Download file",
+		);
+	});
+
+	it("does not show a binary file named as text", async () => {
+		serve(new Uint8Array([137, 80, 78, 71, 0, 0, 0, 13]));
+		await show(textFile("photo.txt"));
+		await act(async () => {});
+		expect(host?.querySelector("pre")).toBeNull();
+		expect(host?.textContent).toContain(
+			"This file is not readable text. Download it to open it.",
+		);
+	});
+
+	it("leaves a large text file as a download", async () => {
+		const fetched = serve(new Uint8Array(1));
+		await show(textFile("server.log", 512 * 1024 + 1));
+		await act(async () => {});
+		expect(fetched).not.toHaveBeenCalled();
+		expect(host?.textContent).toContain("Download this file to open it.");
+	});
+});
