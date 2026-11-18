@@ -457,6 +457,77 @@ export async function createOsWorkspaceShareLink(
 	return link;
 }
 
+/**
+ * Mint a key for a person's default link: their active link without a label
+ * at this role. The first call makes the link; later calls return the same
+ * one, the oldest when earlier data left several. One batch, so two calls at
+ * once cannot leave the person with two.
+ */
+export async function createOrReuseOsWorkspaceDefaultShareLink(
+	db: DbQueryClient,
+	params: OsWorkspaceGraphScopeParams & {
+		id: string;
+		creatorUserId: string;
+		role: OsCollaboratorRole;
+		keyHash: string;
+		now: string;
+	},
+): Promise<OsWorkspaceShareLinkRow> {
+	const isDefault = and(
+		eq(osWorkspaceShareLinks.organizationId, params.organizationId),
+		eq(osWorkspaceShareLinks.workspaceId, params.workspaceId),
+		eq(osWorkspaceShareLinks.creatorUserId, params.creatorUserId),
+		eq(osWorkspaceShareLinks.role, params.role),
+		isNull(osWorkspaceShareLinks.label),
+		isNull(osWorkspaceShareLinks.revokedAt),
+	);
+	const oldest = [
+		asc(osWorkspaceShareLinks.createdAt),
+		asc(osWorkspaceShareLinks.id),
+	] as const;
+	const results = await db.batch([
+		db.insert(osWorkspaceShareLinks).values({
+			id: params.id,
+			organizationId: params.organizationId,
+			workspaceId: params.workspaceId,
+			creatorUserId: params.creatorUserId,
+			role: params.role,
+			label: null,
+			createdAt: params.now,
+		}),
+		// The new row goes again when the person already had a default link.
+		db
+			.delete(osWorkspaceShareLinks)
+			.where(
+				and(
+					eq(osWorkspaceShareLinks.id, params.id),
+					sql`exists (select 1 from ${osWorkspaceShareLinks} as earlier where earlier.organization_id = ${params.organizationId} and earlier.workspace_id = ${params.workspaceId} and earlier.creator_user_id = ${params.creatorUserId} and earlier.role = ${params.role} and earlier.label is null and earlier.revoked_at is null and earlier.id <> ${params.id})`,
+				),
+			),
+		db.insert(osWorkspaceShareKeys).select(
+			db
+				.select({
+					keyHash: sql<string>`${params.keyHash}`.as("key_hash"),
+					linkId: osWorkspaceShareLinks.id,
+					createdAt: sql<string>`${params.now}`.as("created_at"),
+				})
+				.from(osWorkspaceShareLinks)
+				.where(isDefault)
+				.orderBy(...oldest)
+				.limit(1),
+		),
+		db
+			.select()
+			.from(osWorkspaceShareLinks)
+			.where(isDefault)
+			.orderBy(...oldest)
+			.limit(1),
+	]);
+	const link = results[3][0];
+	if (!link) throw new Error("Default share link was not stored");
+	return link;
+}
+
 /** Change an active link's label or role; undefined when missing or revoked. */
 export async function updateOsWorkspaceShareLink(
 	db: DbQueryClient,

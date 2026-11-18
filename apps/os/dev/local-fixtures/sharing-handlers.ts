@@ -100,6 +100,15 @@ export const sharingHandlers: Record<string, (input: never) => unknown> = {
 		label?: string;
 	}) => {
 		findWorkspace(input.workspaceId);
+		const links = localCollaboratorLinks.get(input.workspaceId) ?? [];
+		// An unnamed link is the person's own: asking again returns the same one.
+		const own = input.label
+			? undefined
+			: links.find(
+					(candidate) =>
+						candidate.label === null && candidate.role === input.role,
+				);
+		if (own) return { link: own, key: localShareKey() };
 		const link = {
 			id: crypto.randomUUID(),
 			role: input.role,
@@ -109,10 +118,7 @@ export const sharingHandlers: Record<string, (input: never) => unknown> = {
 			canRevoke: true,
 			canEdit: true,
 		};
-		localCollaboratorLinks.set(input.workspaceId, [
-			link,
-			...(localCollaboratorLinks.get(input.workspaceId) ?? []),
-		]);
+		localCollaboratorLinks.set(input.workspaceId, [link, ...links]);
 		return { link, key: localShareKey() };
 	},
 	"osCollaborators/setRole": (input: {

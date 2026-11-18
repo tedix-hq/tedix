@@ -234,6 +234,9 @@ export type WorkspaceShareItem = {
 
 type Scope = "workspace" | "item";
 
+/** Marks the Copy link button beside General access as the one just used. */
+const OWN_LINK = "own";
+
 /**
  * What General access can be set to. Workspace links need a Tedix sign-in
  * and join people at a role; the public link needs no account and shows the
@@ -687,7 +690,7 @@ function WorkspaceAccess(props: {
 	const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
 	const linkCopy = useLinkCopy();
 	const [invited, setInvited] = useState<InviteResult | null>(null);
-	/** A sign-in link chosen in General access, waiting for its optional name. */
+	/** The role of a named link being set up; null while that form is closed. */
 	const [stagedRole, setStagedRole] = useState<OsCollaboratorRole | null>(null);
 	const [linkName, setLinkName] = useState("");
 	const [highlighted, setHighlighted] = useState<ReadonlySet<string>>(
@@ -776,6 +779,8 @@ function WorkspaceAccess(props: {
 			}
 		},
 	});
+	// Without a name this is the person's own link for the workspace: the
+	// server hands back the same link every time, so nobody piles up links.
 	const createLink = useMutation({
 		mutationFn: async (input: { role: OsCollaboratorRole; label: string }) => {
 			// A sign-in link replaces the no-sign-in one; invited people keep theirs.
@@ -829,6 +834,18 @@ function WorkspaceAccess(props: {
 		},
 		onSuccess: async ({ linkId, url }) => {
 			setCopiedLinkId(linkId);
+			// When the browser refuses, the address is shown to copy by hand.
+			if (!(await linkCopy.copy(url))) setFreshUrl(url);
+		},
+	});
+	const copyOwnLink = useMutation({
+		mutationFn: (role: OsCollaboratorRole) =>
+			osApi.osCollaborators.createLink({ workspaceId, role }),
+		onSuccess: async ({ link, key }) => {
+			setCopiedLinkId(OWN_LINK);
+			highlight([link.id]);
+			void refresh();
+			const url = workspaceShareUrl(origin, workspaceId, key);
 			// When the browser refuses, the address is shown to copy by hand.
 			if (!(await linkCopy.copy(url))) setFreshUrl(url);
 		},
@@ -976,12 +993,12 @@ function WorkspaceAccess(props: {
 			publicToggle.mutate(true);
 			return;
 		}
-		// A sign-in link is made once it has had the chance to get a name.
-		createLink.reset();
 		setFreshUrl(null);
-		setStagedRole(choice === "link:build" ? "build" : "use");
+		createLink.mutate({
+			role: choice === "link:build" ? "build" : "use",
+			label: "",
+		});
 	};
-	const shownAccess: AccessChoice = stagedRole ? `link:${stagedRole}` : access;
 	const roleOptions: OsCollaboratorRole[] = canGrantBuild
 		? ["use", "build"]
 		: ["use"];
@@ -1238,7 +1255,7 @@ function WorkspaceAccess(props: {
 				<SectionHeading
 					learnMore={{
 						label: "About links",
-						text: "A link with sign-in adds people at that role once they open it. The no-sign-in link shows the documents, sheets, slides and apps, read-only, never how they are built. Copy link makes a fresh address for the same link.",
+						text: "A link with sign-in adds people at that role once they open it. The no-sign-in link shows the documents, sheets, slides and apps, read-only, never how they are built. Copy link gives you your own link for this workspace every time, with a fresh address; addresses you copied before keep working. A named link is a separate one for a group you may want to turn off on its own.",
 					}}
 				>
 					General access
@@ -1252,7 +1269,7 @@ function WorkspaceAccess(props: {
 						<Lock size={16} className="shrink-0 text-kumo-subtle" />
 					)}
 					<Select
-						value={shownAccess}
+						value={access}
 						onValueChange={(value) => chooseAccess(value as AccessChoice)}
 					>
 						<SelectTrigger
@@ -1260,7 +1277,7 @@ function WorkspaceAccess(props: {
 							className="min-w-0 flex-1"
 							disabled={busy || !data || !canManage}
 						>
-							<SelectValue>{accessLabel[shownAccess]}</SelectValue>
+							<SelectValue>{accessLabel[access]}</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="restricted">
@@ -1280,12 +1297,12 @@ function WorkspaceAccess(props: {
 						<Button
 							variant="secondary"
 							size="sm"
-							loading={copyLink.isPending}
-							disabled={copyLink.isPending}
-							onClick={() => copyLink.mutate(newestLink.id)}
+							loading={copyOwnLink.isPending}
+							disabled={copyOwnLink.isPending}
+							onClick={() => copyOwnLink.mutate(newestLink.role)}
 						>
 							<LinkSimple size={14} />{" "}
-							{copiedLinkId === newestLink.id && linkCopy.state === "copied"
+							{copiedLinkId === OWN_LINK && linkCopy.state === "copied"
 								? "Copied"
 								: "Copy link"}
 						</Button>
@@ -1312,24 +1329,39 @@ function WorkspaceAccess(props: {
 							createLink.mutate({ role: stagedRole, label: linkName });
 						}}
 					>
-						<label className="grid gap-1.5">
-							<Text as="span" role="label" tone="strong" className="m-0">
-								Name this link (optional)
-							</Text>
+						<Text as="span" role="label" tone="strong" className="m-0">
+							Name this link
+						</Text>
+						<div className="flex flex-col gap-2 sm:flex-row">
 							<Input
-								aria-label="Name this link (optional)"
+								aria-label="Name this link"
 								autoFocus
 								maxLength={120}
 								placeholder="For example: Reviewers"
 								value={linkName}
 								onChange={(event) => setLinkName(event.target.value)}
+								className="min-w-0 flex-1"
 							/>
-						</label>
+							{roleOptions.length > 1 ? (
+								<RoleSelect
+									ariaLabel="Role for people with this link"
+									value={stagedRole}
+									options={roleOptions}
+									onChange={setStagedRole}
+								/>
+							) : null}
+						</div>
 						<Text role="label" tone="secondary" className="m-0">
-							A name helps you tell your links apart later.
+							A named link is separate from your own link, so you can turn it
+							off later without affecting anyone else.
 						</Text>
 						<div className="flex flex-wrap gap-2">
-							<Button type="submit" size="sm" loading={createLink.isPending}>
+							<Button
+								type="submit"
+								size="sm"
+								loading={createLink.isPending}
+								disabled={!linkName.trim()}
+							>
 								<LinkSimple size={14} /> Create link
 							</Button>
 							<Button
@@ -1346,6 +1378,22 @@ function WorkspaceAccess(props: {
 							</Button>
 						</div>
 					</form>
+				) : data && canManage ? (
+					<div>
+						<Button
+							size="sm"
+							variant="ghost"
+							disabled={busy}
+							data-add-named-link
+							onClick={() => {
+								createLink.reset();
+								setFreshUrl(null);
+								setStagedRole(newestLink?.role ?? "use");
+							}}
+						>
+							<LinkSimple size={14} /> New named link
+						</Button>
+					</div>
 				) : null}
 				<LinkCopyStatus state={linkCopy.state} showCopied />
 				{freshUrl ? (
@@ -1386,7 +1434,10 @@ function WorkspaceAccess(props: {
 									<LinkSimple size={14} className="shrink-0 text-kumo-subtle" />
 									<span className="grid min-w-0 flex-1">
 										<Text as="span" role="body" className="truncate">
-											{link.label ?? "Link with sign-in"}
+											{link.label ??
+												(link.createdBy.userId === you?.userId
+													? "Your link"
+													: "Link with sign-in")}
 										</Text>
 										<Text
 											as="span"
@@ -1468,7 +1519,11 @@ function WorkspaceAccess(props: {
 						))}
 					</ul>
 				) : null}
-				{createLink.isError || publicToggle.isError ? (
+				{copyOwnLink.isError ? (
+					<Text role="label" tone="error" className="m-0" aria-live="polite">
+						{errorText(copyOwnLink.error, "Couldn't get the link. Try again.")}
+					</Text>
+				) : createLink.isError || publicToggle.isError ? (
 					<Text role="label" tone="error" className="m-0" aria-live="polite">
 						{errorText(
 							createLink.error ?? publicToggle.error,

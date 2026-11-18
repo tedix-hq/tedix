@@ -554,11 +554,7 @@ try {
 				await page
 					.getByRole("option", { name: "Anyone with the link can build" })
 					.click();
-				// A sign-in link can be named before it is made.
-				const newLink = dialog.locator("[data-new-link]");
-				await newLink.getByLabel("Name this link (optional)").fill("Partners");
-				await assertFits(page, width, `name link ${width} ${theme}`);
-				await newLink.getByRole("button", { name: "Create link" }).click();
+				// Choosing a role gives the person their own link at once, unnamed.
 				const fresh = dialog.locator("[data-fresh-link]");
 				await fresh.waitFor();
 				const text = await fresh.textContent();
@@ -570,6 +566,18 @@ try {
 				assert.deepEqual(calls.createLink?.[0], {
 					workspaceId: WORKSPACE_ID,
 					role: "build",
+				});
+				// A link for one group gets a name and is made separately.
+				await dialog.getByRole("button", { name: "New named link" }).click();
+				const newLink = dialog.locator("[data-new-link]");
+				await newLink.getByLabel("Name this link").fill("Partners");
+				await assertFits(page, width, `name link ${width} ${theme}`);
+				await newLink.getByRole("button", { name: "Create link" }).click();
+				await newLink.waitFor({ state: "detached" });
+				await fresh.waitFor();
+				assert.deepEqual(calls.createLink?.[1], {
+					workspaceId: WORKSPACE_ID,
+					role: "use",
 					label: "Partners",
 				});
 				assert.equal(await page.getByRole("dialog").count(), 1);

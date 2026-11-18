@@ -74,6 +74,7 @@ import {
 const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const OUTPUT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const LINK_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const OWN_LINK_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 const kai = {
 	userId: "member-kai",
@@ -703,7 +704,18 @@ describe("WorkspaceShareDialog", () => {
 	});
 
 	it("says Copied for about two seconds after copying a workspace link", async () => {
-		collaborators.copyLink.mockResolvedValue({ key: "FreshKey" });
+		collaborators.createLink.mockResolvedValue({
+			key: "FreshKey",
+			link: {
+				id: OWN_LINK_ID,
+				role: "use",
+				label: null,
+				createdBy: { userId: "member-kai", email: null, name: "Kai" },
+				createdAt: "2020-03-05T10:00:00.000Z",
+				canRevoke: true,
+				canEdit: false,
+			},
+		});
 		const container = renderDialog();
 		await flush();
 		await act(async () => button(container, "Copy link").click());
@@ -711,16 +723,93 @@ describe("WorkspaceShareDialog", () => {
 		expect(writeText).toHaveBeenCalledWith(
 			`${window.location.origin}/shared/workspace/${WORKSPACE_ID}#share=FreshKey`,
 		);
+		// Copy link asks for the person's own link, never a new named one, and
+		// never someone else's.
+		expect(collaborators.createLink).toHaveBeenCalledWith({
+			workspaceId: WORKSPACE_ID,
+			role: "use",
+		});
+		expect(collaborators.copyLink).not.toHaveBeenCalled();
 		expect(button(container, "Copied")).toBeTruthy();
 		const status = container.querySelector("[data-link-copy-status]");
 		expect(status?.getAttribute("aria-live")).toBe("polite");
 		expect(status?.textContent).toBe("Link copied");
 		await act(async () => new Promise((resolve) => setTimeout(resolve, 2100)));
-		expect(button(container, "Copy link")).toBeTruthy();
+		await act(async () => button(container, "Copy link").click());
+		await flush();
+		expect(collaborators.createLink.mock.calls).toEqual([
+			[{ workspaceId: WORKSPACE_ID, role: "use" }],
+			[{ workspaceId: WORKSPACE_ID, role: "use" }],
+		]);
+	});
+
+	it("calls an unnamed link of yours Your link and asks for a name before making another", async () => {
+		collaborators.list.mockResolvedValue({
+			role: "build",
+			isOwner: false,
+			ownerName: "Robin Fictional",
+			collaborators: [kai],
+			links: [
+				{
+					id: OWN_LINK_ID,
+					role: "use",
+					label: null,
+					createdBy: { userId: "member-kai", email: null, name: "Kai" },
+					createdAt: "2020-03-05T10:00:00.000Z",
+					canRevoke: true,
+					canEdit: false,
+				},
+			],
+		});
+		collaborators.createLink.mockResolvedValue({
+			key: "FreshKey",
+			link: {
+				id: OWN_LINK_ID,
+				role: "use",
+				label: null,
+				createdBy: { userId: "member-kai", email: null, name: "Kai" },
+				createdAt: "2020-03-05T10:00:00.000Z",
+				canRevoke: true,
+				canEdit: false,
+			},
+		});
+		const container = renderDialog();
+		await flush();
+		expect(
+			container.querySelector(`[data-share-link="${OWN_LINK_ID}"]`)
+				?.textContent,
+		).toContain("Your link");
+		await act(async () => button(container, "New named link").click());
+		const form = container.querySelector("[data-new-link]") as HTMLElement;
+		expect(button(form, "Create link").disabled).toBe(true);
+		act(() =>
+			setValue(
+				form.querySelector('input[aria-label="Name this link"]')!,
+				"Partners",
+			),
+		);
+		await act(async () => button(form, "Create link").click());
+		await flush();
+		expect(collaborators.createLink).toHaveBeenCalledWith({
+			workspaceId: WORKSPACE_ID,
+			role: "use",
+			label: "Partners",
+		});
 	});
 
 	it("shows the address to copy by hand when the browser refuses", async () => {
-		collaborators.copyLink.mockResolvedValue({ key: "FreshKey" });
+		collaborators.createLink.mockResolvedValue({
+			key: "FreshKey",
+			link: {
+				id: OWN_LINK_ID,
+				role: "use",
+				label: null,
+				createdBy: { userId: "member-kai", email: null, name: "Kai" },
+				createdAt: "2020-03-05T10:00:00.000Z",
+				canRevoke: true,
+				canEdit: false,
+			},
+		});
 		writeText.mockRejectedValue(new Error("denied"));
 		const container = renderDialog();
 		await flush();
