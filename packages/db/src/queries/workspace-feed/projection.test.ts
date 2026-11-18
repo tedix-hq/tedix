@@ -393,3 +393,54 @@ it("shows one activity line when the same save is published twice", async () => 
 	).toEqual([1, 3]);
 	expect(await getWorkspaceFeedCursor(db, WS)).toBe(3);
 });
+
+it("shows a rename, move or archive as one described line", async () => {
+	const db = await fixture();
+	const created = { changeRecordId: "rev-1", at: "2026-11-07T10:00:01.000Z" };
+	const renamed = { changeRecordId: "rev-1", at: "2026-11-07T10:05:00.000Z" };
+	const archived = { changeRecordId: "rev-1", at: "2026-11-07T10:09:00.000Z" };
+	await applyWorkspaceChangeEvents(db, [
+		event(1, { ...created, summary: { title: "Notes" } }),
+		// The store's plain record first, then the API's described one.
+		event(2, { ...renamed, summary: { title: "Plan" } }),
+		event(3, {
+			...renamed,
+			summary: { title: "Plan", description: "Updated Plan" },
+		}),
+		// The described record first, then the store's plain one.
+		event(4, {
+			...archived,
+			summary: { title: "Plan", description: "Archived Plan" },
+		}),
+		event(5, { ...archived, summary: { title: "Plan" } }),
+	]);
+	expect(
+		(await db.select().from(workspaceActivity))
+			.sort((a, b) => a.seq - b.seq)
+			.map((row) => [row.seq, row.summary]),
+	).toEqual([
+		[1, null],
+		[3, "Updated Plan"],
+		[4, "Archived Plan"],
+	]);
+	expect(await getWorkspaceFeedCursor(db, WS)).toBe(5);
+});
+
+it("keeps a rename made only in the workspace store", async () => {
+	const db = await fixture();
+	await applyWorkspaceChangeEvents(db, [
+		event(1, {
+			changeRecordId: "rev-1",
+			at: "2026-11-07T10:00:01.000Z",
+			summary: { title: "Notes" },
+		}),
+		event(2, {
+			changeRecordId: "rev-1",
+			at: "2026-11-07T10:05:00.000Z",
+			summary: { title: "Plan" },
+		}),
+	]);
+	expect(
+		(await db.select().from(workspaceActivity)).map((row) => row.seq).sort(),
+	).toEqual([1, 2]);
+});

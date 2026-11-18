@@ -574,9 +574,11 @@ async function publishOutputMetadataChange(
 		{ limit: 1 },
 	);
 	if (!current) return;
+	// The file's own change time: the workspace store publishes the same change
+	// at that moment, and the activity list shows the two as one line.
 	await publishWorkspaceChangeSafely(
 		{ db, queue: context.env.AUTOMATION_EVENTS },
-		outputMetadataChange(row, current, resolveCreator(context)),
+		outputMetadataChange(row, current, resolveCreator(context), row.updatedAt),
 	);
 }
 
