@@ -9,6 +9,7 @@ import {
 	autoDelistStaleCatalogAppsWithStats,
 	listEnabledCatalogAppsForVectorSync,
 } from "./scheduled-maintenance";
+import { markCatalogListingsSeen } from "./store-listings";
 
 function realDb() {
 	const sqlite = new DatabaseSync(":memory:");
@@ -39,6 +40,116 @@ describe("listEnabledCatalogAppsForVectorSync", () => {
 			afterId: first.at(-1)?.id,
 		});
 		expect(next.map((app) => app.id)).toEqual(["c"]);
+	});
+
+	it("returns only apps written since a given time when asked", async () => {
+		const { db, sqlite } = realDb();
+		const insert = sqlite.prepare(
+			"INSERT INTO app_catalog (id, slug, name, connector_type, status, last_synced_at, updated_at) VALUES (?, ?, ?, 'MCP', 'ENABLED', '2000-01-01T00:00:00.000Z', ?)",
+		);
+		insert.run("old", "old", "Old", "2026-11-17 02:00:00");
+		insert.run("new", "new", "New", "2026-11-18 02:10:00");
+
+		const changed = await listEnabledCatalogAppsForVectorSync(db, {
+			limit: 10,
+			updatedSince: "2026-11-18 02:00:00",
+		});
+		expect(changed.map((app) => app.id)).toEqual(["new"]);
+		const all = await listEnabledCatalogAppsForVectorSync(db, { limit: 10 });
+		expect(all.map((app) => app.id)).toEqual(["new", "old"]);
+	});
+});
+
+describe("markCatalogListingsSeen", () => {
+	it("marks the named listings and their apps as seen without touching updatedAt", async () => {
+		const { db, sqlite } = realDb();
+		const app = sqlite.prepare(
+			"INSERT INTO app_catalog (id, slug, name, connector_type, status, last_synced_at, updated_at) VALUES (?, ?, ?, 'MCP', 'ENABLED', '2000-01-01T00:00:00.000Z', '2026-11-01 00:00:00')",
+		);
+		app.run("seen-app", "seen-app", "Seen");
+		app.run("other-app", "other-app", "Other");
+		await db.insert(appCatalogStoreListings).values([
+			{
+				id: "l1",
+				catalogAppId: "seen-app",
+				lastSyncedAt: "2000-01-01T00:00:00.000Z",
+				source: "chatgpt",
+				sourceAppId: "one",
+			},
+			{
+				id: "l2",
+				catalogAppId: "other-app",
+				lastSyncedAt: "2000-01-01T00:00:00.000Z",
+				source: "chatgpt",
+				sourceAppId: "two",
+			},
+			// Same store id in another store: must not be marked.
+			{
+				id: "l3",
+				catalogAppId: "other-app",
+				lastSyncedAt: "2000-01-01T00:00:00.000Z",
+				source: "claude",
+				sourceAppId: "one",
+			},
+		]);
+
+		const seenAt = "2026-11-18T02:00:00.000Z";
+		await markCatalogListingsSeen(
+			db,
+			[{ source: "chatgpt", sourceAppId: "one" }],
+			seenAt,
+		);
+
+		const listings = sqlite
+			.prepare(
+				"SELECT id, last_synced_at AS seen FROM app_catalog_store_listings ORDER BY id",
+			)
+			.all();
+		expect(listings).toEqual([
+			{ id: "l1", seen: seenAt },
+			{ id: "l2", seen: "2000-01-01T00:00:00.000Z" },
+			{ id: "l3", seen: "2000-01-01T00:00:00.000Z" },
+		]);
+		const apps = sqlite
+			.prepare(
+				"SELECT id, last_synced_at AS seen, updated_at AS updated FROM app_catalog ORDER BY id",
+			)
+			.all();
+		expect(apps).toEqual([
+			{
+				id: "other-app",
+				seen: "2000-01-01T00:00:00.000Z",
+				updated: "2026-11-01 00:00:00",
+			},
+			{ id: "seen-app", seen: seenAt, updated: "2026-11-01 00:00:00" },
+		]);
+	});
+
+	it("handles more listings than one statement can bind", async () => {
+		const { db, sqlite } = realDb();
+		sqlite
+			.prepare(
+				"INSERT INTO app_catalog (id, slug, name, connector_type, status, last_synced_at) VALUES ('app', 'app', 'App', 'MCP', 'ENABLED', '2000-01-01T00:00:00.000Z')",
+			)
+			.run();
+		const ids = Array.from({ length: 205 }, (_, index) => `id-${index}`);
+		const listing = sqlite.prepare(
+			"INSERT INTO app_catalog_store_listings (id, catalog_app_id, source, source_app_id, last_synced_at) VALUES (?, 'app', 'claude', ?, '2000-01-01T00:00:00.000Z')",
+		);
+		for (const sourceAppId of ids) listing.run(sourceAppId, sourceAppId);
+
+		await markCatalogListingsSeen(
+			db,
+			ids.map((sourceAppId) => ({ source: "claude" as const, sourceAppId })),
+			"2026-11-18T02:00:00.000Z",
+		);
+
+		const stale = sqlite
+			.prepare(
+				"SELECT COUNT(*) AS n FROM app_catalog_store_listings WHERE last_synced_at < '2026-01-01'",
+			)
+			.get();
+		expect(stale).toEqual({ n: 0 });
 	});
 });
 

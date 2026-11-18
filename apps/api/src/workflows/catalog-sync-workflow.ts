@@ -6,6 +6,20 @@ import {
 } from "@tedix/api-contract/schemas/catalog-snapshot";
 import { captureCatalogSnapshot } from "../lib/catalog-snapshot-capture";
 import {
+	SEEN_PART_SIZE,
+	feedFingerprintsKey,
+	fingerprintListing,
+	listingKey,
+	packFingerprints,
+	pendingFingerprintsKey,
+	seenPartCount,
+	seenPartKey,
+	usableFingerprints,
+	type ListingFingerprints,
+	type SeenListing,
+} from "./catalog-snapshot-fingerprints";
+import {
+	SNAPSHOT_PART_SIZE,
 	locateSnapshotBatch,
 	snapshotBatchCount,
 	snapshotPartCount,
@@ -48,10 +62,14 @@ import {
 	getCatalogSnapshotStats,
 	listEnabledCatalogAppsForVectorSync,
 } from "@tedix/db/queries/catalog/scheduled-maintenance";
-import { getCatalogStoreListingBySourceId } from "@tedix/db/queries/catalog/store-listings";
+import {
+	getCatalogStoreListingBySourceId,
+	markCatalogListingsSeen,
+} from "@tedix/db/queries/catalog/store-listings";
 import { refreshCatalogShadowedVariants } from "@tedix/db/queries/catalog/vendor-variants";
 import {
 	disableOrphanedCatalogApps,
+	getRecentAppCatalogSyncLogs,
 	markStaleFeedStoreListingsAsRemoved,
 	SNAPSHOT_FEED_MARKER,
 	markStoreListingsAsRemoved,
@@ -196,6 +214,8 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 		let totalFailed = 0;
 		const filesProcessed: string[] = [];
 		const sourcesProcessed: Source[] = [];
+		// Set by a snapshot import: search then refreshes only what it wrote.
+		let changedSince: string | undefined;
 		const allErrors: string[] = [];
 		const sourceAppIds: Map<Source, string[]> = new Map();
 
@@ -401,23 +421,76 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 						"Snapshot capture needs a source page, an expression and a browser",
 					);
 				const browser = this.env.BROWSER;
+				const feed = event.payload.snapshotFeed ?? "snapshot";
+				const owner = event.payload.snapshotOwner ?? "";
+				// Removal reconciliation needs every listing id of a source, so a
+				// run that reconciles removals writes every listing.
+				const skipUnchanged = removalSources.length === 0;
 				// Reading a large directory out of the page takes longer than a
-				// caller waits for one request, so the capture runs here. It stores
-				// the listings as part files and writes a small manifest last; each
-				// batch step then reads only its own part.
-				const itemCount = await step.do(
+				// caller waits for one request, so the capture runs here. It
+				// compares each listing with the fingerprint from the last finished
+				// import, stores only the changed listings as part files and the
+				// unchanged ones as a list to mark as seen, and writes a small
+				// manifest last.
+				const captured = await step.do(
 					"capture-snapshot",
 					{ retries: { limit: 2, delay: "30 seconds" }, timeout: "15 minutes" },
 					async () => {
+						// A little before the first write, in the database's own format.
+						const startedAt = new Date(Date.now() - 5 * 60_000)
+							.toISOString()
+							.slice(0, 19)
+							.replace("T", " ");
 						const stored = await this.env.R2_BUCKET.get(snapshotKey);
-						let archived: { inputHash?: unknown; manifest?: unknown };
+						let archived: {
+							inputHash?: unknown;
+							manifest?: unknown;
+							changedCount?: unknown;
+							sources?: unknown;
+							startedAt?: unknown;
+						};
 						if (stored) archived = await stored.json();
 						else {
+							const previousObject = skipUnchanged
+								? await this.env.R2_BUCKET.get(feedFingerprintsKey(owner, feed))
+								: null;
+							const previous = previousObject
+								? usableFingerprints(await previousObject.json(), provenanceKey)
+								: skipUnchanged
+									? await this.fingerprintsOfLastImport(db, owner, feed)
+									: {};
+							const fingerprints: ListingFingerprints = {};
+							const sources = new Set<string>();
+							const changed: CatalogSnapshotItem[] = [];
+							const seen: SeenListing[] = [];
+							let changedParts = 0;
+							let seenParts = 0;
+							let changedCount = 0;
+							const flush = async (final: boolean) => {
+								while (
+									changed.length >= SNAPSHOT_PART_SIZE ||
+									(final && changed.length > 0)
+								)
+									await this.env.R2_BUCKET.put(
+										snapshotPartKey(snapshotKey, changedParts++),
+										JSON.stringify(changed.splice(0, SNAPSHOT_PART_SIZE)),
+										{ httpMetadata: { contentType: "application/json" } },
+									);
+								while (
+									seen.length >= SEEN_PART_SIZE ||
+									(final && seen.length > 0)
+								)
+									await this.env.R2_BUCKET.put(
+										seenPartKey(snapshotKey, seenParts++),
+										JSON.stringify(seen.splice(0, SEEN_PART_SIZE)),
+										{ httpMetadata: { contentType: "application/json" } },
+									);
+							};
 							const manifest = await captureCatalogSnapshot(
 								browser,
 								captureUrl,
 								captureExpression,
-								async (part, items) => {
+								async (_part, items) => {
 									for (const item of items) {
 										const provenance = item.rawData?.[provenanceKey];
 										if (
@@ -428,17 +501,32 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 											throw new NonRetryableError(
 												"Every listing must carry the declared feed provenance object",
 											);
+										const key = listingKey(item);
+										const fingerprint = await fingerprintListing(item);
+										fingerprints[key] = fingerprint;
+										sources.add(item.source);
+										if (previous[key] === fingerprint)
+											seen.push([item.source, item.sourceAppId]);
+										else {
+											changed.push(item);
+											changedCount++;
+										}
 									}
-									await this.env.R2_BUCKET.put(
-										snapshotPartKey(snapshotKey, part),
-										JSON.stringify(items),
-										{ httpMetadata: { contentType: "application/json" } },
-									);
+									await flush(false);
 								},
+							);
+							await flush(true);
+							await this.env.R2_BUCKET.put(
+								pendingFingerprintsKey(snapshotKey),
+								packFingerprints(provenanceKey, fingerprints),
+								{ httpMetadata: { contentType: "application/json" } },
 							);
 							archived = {
 								inputHash: event.payload.snapshotInputHash,
 								manifest,
+								changedCount,
+								sources: [...sources],
+								startedAt,
 							};
 							await this.env.R2_BUCKET.put(
 								snapshotKey,
@@ -448,12 +536,36 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 						}
 						if (archived.inputHash !== event.payload.snapshotInputHash)
 							throw new NonRetryableError("Snapshot input identity mismatch");
-						return CatalogSnapshotManifestSchema.parse(archived.manifest)
-							.itemCount;
+						const { itemCount } = CatalogSnapshotManifestSchema.parse(
+							archived.manifest,
+						);
+						const changedCount = archived.changedCount;
+						if (
+							typeof changedCount !== "number" ||
+							!Number.isSafeInteger(changedCount) ||
+							changedCount < 0 ||
+							changedCount > itemCount ||
+							!Array.isArray(archived.sources) ||
+							typeof archived.startedAt !== "string"
+						)
+							throw new NonRetryableError("Snapshot manifest is incomplete");
+						return {
+							itemCount,
+							changedCount,
+							sources: archived.sources as Source[],
+							startedAt: archived.startedAt,
+						};
 					},
 				);
-				totalAppsDiscovered = itemCount;
-				for (let index = 0; index < snapshotBatchCount(itemCount); index++) {
+				totalAppsDiscovered = captured.itemCount;
+				changedSince = captured.startedAt;
+				for (const source of captured.sources)
+					if (!sourcesProcessed.includes(source)) sourcesProcessed.push(source);
+				for (
+					let index = 0;
+					index < snapshotBatchCount(captured.changedCount);
+					index++
+				) {
 					const result = await step.do(
 						`sync-snapshot-batch-${index}`,
 						{
@@ -501,8 +613,6 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 					totalInserted += result.inserted;
 					totalUpdated += result.updated;
 					for (const item of result.listings) {
-						if (!sourcesProcessed.includes(item.source))
-							sourcesProcessed.push(item.source);
 						if (removalSources.includes(item.source)) {
 							const ids = sourceAppIds.get(item.source) ?? [];
 							ids.push(item.sourceAppId);
@@ -510,6 +620,46 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 						}
 					}
 				}
+				// Unchanged listings are not rewritten, but stale-listing cleanup
+				// must still see that the store lists them.
+				const unchangedCount = captured.itemCount - captured.changedCount;
+				for (let part = 0; part < seenPartCount(unchangedCount); part++) {
+					await step.do(
+						`mark-unchanged-seen-${part}`,
+						{
+							retries: { limit: 2, delay: "10 seconds" },
+							timeout: "2 minutes",
+						},
+						async () => {
+							const seen = (await this.readR2Json(
+								seenPartKey(snapshotKey, part),
+							)) as unknown as [Source, string][];
+							await markCatalogListingsSeen(
+								db,
+								seen.map(([source, sourceAppId]) => ({ source, sourceAppId })),
+								new Date().toISOString(),
+							);
+						},
+					);
+				}
+				// Every listing is now written or marked, so the next import may
+				// compare against this run.
+				await step.do(
+					"keep-fingerprints",
+					{ retries: { limit: 2, delay: "10 seconds" }, timeout: "1 minute" },
+					async () => {
+						const pending = await this.env.R2_BUCKET.get(
+							pendingFingerprintsKey(snapshotKey),
+						);
+						if (!pending)
+							throw new NonRetryableError("Snapshot fingerprints are missing");
+						await this.env.R2_BUCKET.put(
+							feedFingerprintsKey(owner, feed),
+							await pending.text(),
+							{ httpMetadata: { contentType: "application/json" } },
+						);
+					},
+				);
 				filesProcessed.push(snapshotKey);
 			} else if (syncType === "upload") {
 				// Upload mode: process data from request body in one step
@@ -702,6 +852,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				db,
 				step,
 				changelog.after.enabledCount,
+				changedSince,
 			);
 			const success = !searchOnly || search.complete;
 			// Step 6: Finalize sync log with changelog
@@ -816,6 +967,8 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 		db: ReturnType<typeof createDbClient>,
 		step: WorkflowStep,
 		enabledCount: number,
+		/** Refresh only apps written since this time; all enabled apps when absent. */
+		updatedSince?: string,
 	) {
 		let vectorReady = false;
 		let vectorSynced = 0;
@@ -883,6 +1036,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 							const apps = await listEnabledCatalogAppsForVectorSync(db, {
 								limit: CATALOG_VECTOR_PAGE_SIZE,
 								afterId,
+								updatedSince,
 							});
 							const vectorApps: CatalogAppVectorInput[] = apps.map((app) => ({
 								id: app.id,
@@ -1487,6 +1641,48 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			} catch {}
 		}
 		return null;
+	}
+
+	/**
+	 * One-time start for a feed that has no fingerprints yet: take them from the
+	 * listings its last finished import stored, all of which that import wrote.
+	 * Without this the first run would write every listing once more. Remove
+	 * once every live feed has a fingerprints file.
+	 */
+	private async fingerprintsOfLastImport(
+		db: ReturnType<typeof createDbClient>,
+		owner: string,
+		feed: string,
+	): Promise<ListingFingerprints> {
+		const fingerprints: ListingFingerprints = {};
+		try {
+			const last = (await getRecentAppCatalogSyncLogs(db, 50)).find(
+				(log) =>
+					log.status === "completed" &&
+					log.details?.source === feed &&
+					log.details?.snapshotOwner === owner &&
+					typeof log.details?.snapshotKey === "string",
+			);
+			const lastKey = last?.details?.snapshotKey;
+			if (typeof lastKey !== "string") return {};
+			const { itemCount } = CatalogSnapshotManifestSchema.parse(
+				(await this.readR2Json(lastKey)).manifest,
+			);
+			for (let part = 0; part < snapshotPartCount(itemCount); part++) {
+				const stored = await this.env.R2_BUCKET.get(
+					snapshotPartKey(lastKey, part),
+				);
+				if (!stored) return {};
+				for (const item of await stored.json<CatalogSnapshotItem[]>())
+					fingerprints[listingKey(item)] = await fingerprintListing(item);
+			}
+			return fingerprints;
+		} catch (error) {
+			console.warn("[App Catalog Sync] No fingerprints from the last import", {
+				exception: safeExceptionTopology(error),
+			});
+			return {};
+		}
 	}
 
 	private async readR2Json(filePath: string): Promise<Record<string, unknown>> {
