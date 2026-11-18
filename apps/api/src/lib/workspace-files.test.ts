@@ -6,7 +6,12 @@ import {
 	it,
 	vi,
 } from "vite-plus/test";
+import { DataResidencyError } from "../services/data-residency";
 import {
+	WORKSPACE_FILE_PDF_MAX_BYTES,
+	pdfFileText,
+	readWorkspaceFileContent,
+	storeWorkspaceFileText,
 	verifyWorkspaceFileSignature,
 	workspaceFileSignature,
 } from "./workspace-files";
@@ -250,4 +255,114 @@ describe("workspace file signed capabilities", () => {
 			expect(await verify(url, "read", requested)).toBe(false);
 		},
 	);
+});
+
+describe("the whole text of an uploaded file", () => {
+	const converted = (pages: string[]) =>
+		`# report.pdf\n## Metadata\n- Title=Report\n\n## Contents\n${pages
+			.map((text, index) => `### Page ${index + 1}\n${text}\n`)
+			.join("")}`;
+	const stored = (bytes: Uint8Array) =>
+		({
+			SKILL_ARTIFACTS: {
+				get: async () => ({
+					size: bytes.length,
+					arrayBuffer: async () => bytes.buffer,
+				}),
+			},
+		}) as unknown as Pick<CloudflareEnv, "SKILL_ARTIFACTS">;
+	const pdf = (size = 9) => ({
+		filename: "report.pdf",
+		mimeType: "application/pdf",
+		size,
+	});
+
+	it("writes a PDF as pages of lines and drops the converter's heading", () => {
+		expect(
+			pdfFileText(converted(["First page.\nMore.", "", "Last page."]), "r.pdf"),
+		).toBe(
+			"## Page 1\n\nFirst page.\nMore.\n\n## Page 2\n\n(This page has no readable text.)\n\n## Page 3\n\nLast page.",
+		);
+	});
+
+	it("reports a scanned PDF as having no text instead of an empty file", async () => {
+		expect(pdfFileText(converted(["", "  "]), "scan.pdf")).toBeNull();
+		const read = await readWorkspaceFileContent(
+			stored(new Uint8Array(9)),
+			"key",
+			pdf(),
+			async () => converted(["", ""]),
+		);
+		expect(read).toEqual({ blocks: [], text: { status: "no_text", text: "" } });
+	});
+
+	it("reads a PDF through the converter and says why when it cannot", async () => {
+		const env = stored(new Uint8Array(9));
+		const names: string[] = [];
+		expect(
+			await readWorkspaceFileContent(env, "key", pdf(), async (bytes, name) => {
+				names.push(`${name}:${bytes.length}`);
+				return converted(["The fee is 40 EUR."]);
+			}),
+		).toEqual({
+			blocks: [],
+			text: { status: "text", text: "## Page 1\n\nThe fee is 40 EUR." },
+		});
+		expect(names).toEqual(["report.pdf:9"]);
+		const status = async (
+			file: { filename: string; mimeType: string; size: number },
+			convert?: () => Promise<string>,
+		) =>
+			(await readWorkspaceFileContent(env, "key", file, convert)).text.status;
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		expect(
+			await status(pdf(), async () => {
+				throw new Error("converter down");
+			}),
+		).toBe("failed");
+		expect(await status(pdf())).toBe("failed");
+		expect(
+			await status(pdf(), async () => {
+				throw new DataResidencyError("EU_PROVIDER_ROUTE_REQUIRED", "blocked");
+			}),
+		).toBe("not_allowed");
+		expect(
+			await status(pdf(WORKSPACE_FILE_PDF_MAX_BYTES + 1), async () => ""),
+		).toBe("too_large");
+		expect(
+			await status({ filename: "clip.mp4", mimeType: "video/mp4", size: 9 }),
+		).toBe("unsupported");
+	});
+
+	it("keeps the text where the workspace reads it and never fails the upload", async () => {
+		const puts: Array<[string, string]> = [];
+		const file = {
+			organizationId: "fictional-org",
+			workspaceId: "w1",
+			resourceId: "r1",
+		};
+		await storeWorkspaceFileText(
+			{
+				R2_BUCKET: {
+					put: async (key: string, value: string) => puts.push([key, value]),
+				},
+			} as unknown as Pick<CloudflareEnv, "R2_BUCKET">,
+			file,
+			{ status: "text", text: "hello" },
+		);
+		expect(puts).toEqual([
+			[
+				"workspace-file-text/v1/fictional-org/w1/r1.json",
+				'{"status":"text","text":"hello"}',
+			],
+		]);
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		await expect(
+			storeWorkspaceFileText(
+				{} as unknown as Pick<CloudflareEnv, "R2_BUCKET">,
+				file,
+				{ status: "failed", text: "" },
+			),
+		).resolves.toBeUndefined();
+	});
 });

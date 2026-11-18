@@ -5,6 +5,7 @@
  */
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
+import type { WorkspaceFileText } from "@tedix/api-contract/utils/workspace-file-text";
 
 export interface OutputSummary {
 	id: string;
@@ -105,6 +106,14 @@ export interface WorkspaceDataPort {
 		status?: OutputSummary["status"];
 	}): Promise<OutputSummary[]>;
 	getOutput(outputId: string): Promise<OutputDetail | null>;
+	/**
+	 * The whole text kept beside an uploaded file of this workspace; null when
+	 * none was kept. Callers first check that the file's document is readable.
+	 */
+	readFileText(file: {
+		workspaceId: string;
+		resourceId: string;
+	}): Promise<WorkspaceFileText | null>;
 	createOutput(input: {
 		title: string;
 		content: OsOutputContent;

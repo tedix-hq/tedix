@@ -58,6 +58,13 @@ import {
 	listWorkspaceActivity,
 } from "@tedix/db/queries/workspace-feed/read";
 import { storeOutputBody, TenantDataPort } from "../src/data-port-tenant";
+import {
+	FILE_TEXT_INLINE_CHARS,
+	FILE_TEXT_PART_CHARS,
+	encodedLength,
+	readTextPart,
+} from "../src/file-text";
+import { workspaceFileTextKey } from "@tedix/api-contract/utils/workspace-file-text";
 import { EVENT_PAGE_CHARS } from "../src/event-ledger";
 import {
 	getOsAppEditDraft,
@@ -2836,6 +2843,127 @@ describe("WorkspaceDO", () => {
 			expect(await ws.readTurn(attachmentScope, turnId)).toBeNull();
 		},
 	);
+
+	test("the agent answers from the end of a long attached file by reading on in parts", async () => {
+		await seedCore();
+		const fileScope = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([fileScope]);
+		const ws = workspace(fileScope);
+		await seedOutputs(ws, fileScope);
+		const outputId = crypto.randomUUID();
+		const revisionId = crypto.randomUUID();
+		const resourceId = crypto.randomUUID();
+		const lines = Array.from(
+			{ length: 1_900 },
+			(_, index) => `Clause ${index + 1}: nothing of note in this clause.`,
+		);
+		lines.push('Clause 1901: the "renewal date" is 14 March 2031.');
+		await testEnv.R2_BUCKET.put(
+			workspaceFileTextKey(
+				fileScope.organizationId,
+				fileScope.workspaceId,
+				resourceId,
+			),
+			JSON.stringify({ status: "text", text: lines.join("\n") }),
+		);
+		const body = await storeOutputBody(
+			testEnv.R2_BUCKET,
+			fileScope.organizationId,
+			JSON.stringify({
+				kind: "document",
+				blocks: [],
+				file: { workspaceId: fileScope.workspaceId, resourceId },
+			}),
+		);
+		await ws.outputQuery(fileScope, {
+			op: "create",
+			output: {
+				id: outputId,
+				organizationId: fileScope.organizationId,
+				workspaceId: fileScope.workspaceId,
+				title: "Contract.pdf",
+				kind: "document",
+				currentRevisionId: revisionId,
+				createdByKind: "user",
+				createdById: "u1",
+			},
+			revision: {
+				id: revisionId,
+				organizationId: fileScope.organizationId,
+				outputId,
+				revision: 1,
+				content: "",
+				...body,
+				createdByKind: "user",
+				createdById: "u1",
+				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+			},
+		});
+		// The message carries the first lines; each read continues where the last one stopped.
+		const attached = readTextPart(lines, {}, FILE_TEXT_INLINE_CHARS);
+		const first = readTextPart(
+			lines,
+			{ startLine: attached.nextStartLine },
+			FILE_TEXT_PART_CHARS,
+			encodedLength,
+		);
+		const second = readTextPart(
+			lines,
+			{ startLine: first.nextStartLine },
+			FILE_TEXT_PART_CHARS,
+			encodedLength,
+		);
+		expect(first.nextStartLine).not.toBeNull();
+		expect(second.nextStartLine).toBeNull();
+		const read = (startLine: number | null) =>
+			`export default async env => env.outputs.readFileText({ outputId: ${JSON.stringify(outputId)}, startLine: ${startLine} })`;
+		await ws.scriptModel(fileScope, [
+			{ code: read(attached.nextStartLine) },
+			{ code: read(first.nextStartLine) },
+			{ text: "The renewal date is 14 March 2031." },
+		]);
+		const turn = await ws.sendTurn(fileScope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "What is the renewal date in this contract?",
+			attachments: [{ outputId }],
+		});
+		expect((await ws.awaitTurn(fileScope, turn.turnId, 20_000)).status).toBe(
+			"finished",
+		);
+		const messages = await ws.readMessages(fileScope, turn.conversationId);
+		const user = JSON.stringify(
+			messages.filter((message) => message.role === "user"),
+		);
+		expect(user).toContain("Clause 1: nothing of note");
+		expect(user).toContain(
+			`These are lines 1 to ${attached.endLine} of 1901; the rest is not shown here.`,
+		);
+		expect(user).toContain(`from startLine ${attached.nextStartLine}`);
+		expect(user).not.toContain("14 March 2031");
+		const results = messages
+			.filter((message) => message.role === "toolResult")
+			.map((message) =>
+				message.content
+					.filter((part) => part.type === "text")
+					.map((part) => part.text)
+					.join("\n"),
+			);
+		expect(results).toHaveLength(2);
+		expect(results[0]).toContain(`"nextStartLine": ${first.nextStartLine}`);
+		expect(results[0]).toContain(`Clause ${first.endLine}: nothing of note`);
+		expect(results[0]).not.toContain("14 March 2031");
+		expect(results[1]).toContain('the \\"renewal date\\" is 14 March 2031.');
+		expect(results[1]).toContain('"nextStartLine": null');
+		// Each part arrives whole: nothing was cut by the tool result limit.
+		for (const result of results) expect(result).not.toContain("[truncated");
+		const events = await ws.readEvents(fileScope, {
+			conversationId: turn.conversationId,
+		});
+		expect(
+			events.filter((event) => event.type === "approval.requested"),
+		).toEqual([]);
+	});
 
 	test("already copied history converts on wake and survives removal of the copied rows", async () => {
 		const movedScope = {

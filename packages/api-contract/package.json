@@ -11,6 +11,7 @@
 		"./utils/sheet-csv": "./src/utils/sheet-csv.ts",
 		"./utils/office-file-read": "./src/utils/office-file-read.ts",
 		"./utils/office-file-blocks": "./src/utils/office-file-blocks.ts",
+		"./utils/workspace-file-text": "./src/utils/workspace-file-text.ts",
 		"./utils/os-screens-prompt": "./src/utils/os-screens-prompt.ts",
 		"./assets/slides-blueprint": "./src/assets/slides-blueprint.ts",
 		"./utils/presentation-patch": "./src/utils/presentation-patch.ts",

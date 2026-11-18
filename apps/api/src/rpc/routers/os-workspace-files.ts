@@ -4,6 +4,7 @@ import { WORKSPACE_FILE_PART_BYTES } from "@tedix/api-contract/schemas/workspace
 import { confirmOsWorkspaceFile } from "../../services/os-workspace-outputs";
 import { attachOutputEditor } from "../../services/os-output-editor";
 import { getOsOutput } from "../../services/workspace-output-storage";
+import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import type { OsDocumentBlock } from "@tedix/api-contract/schemas/os-workspaces";
 import {
@@ -26,7 +27,9 @@ import {
 	workspaceFileKey,
 	workspaceFileSignature,
 	workspaceFileMimeMatches,
-	workspaceFileExtractBlocks,
+	readWorkspaceFileContent,
+	storeWorkspaceFileText,
+	type PdfToMarkdown,
 	type WorkspaceFileManifest,
 } from "../../lib/workspace-files";
 
@@ -36,6 +39,46 @@ const os = implement(osWorkspacesContract)
 	.use(osAudit(OS_WORKSPACES_AUDIT));
 const author = os.use(AUTHZ.osAuthor);
 const read = os.use(AUTHZ.osRead);
+/** PDF text through the model converter, only where the organization's data rules allow it. */
+function pdfConverter(
+	context: BaseContext,
+	organizationId: string,
+): PdfToMarkdown | undefined {
+	const ai = context.env.AI;
+	if (!ai) return undefined;
+	return async (bytes, name) => {
+		await requireUnrestrictedModelEgress(
+			context.db,
+			organizationId,
+			"PDF text reading",
+			context.env.DB,
+		);
+		const converted = await ai.toMarkdown({
+			name,
+			blob: new Blob([bytes], { type: "application/pdf" }),
+		});
+		if (converted.format === "error")
+			throw new Error("PDF text conversion failed");
+		return converted.data;
+	};
+}
+
+/** Read an uploaded file, keep its whole text for the agent, and return the start for its document. */
+async function readAndKeepFileText(
+	context: BaseContext,
+	file: { organizationId: string; workspaceId: string; resourceId: string },
+	manifest: WorkspaceFileManifest,
+) {
+	const content = await readWorkspaceFileContent(
+		context.env,
+		workspaceFileKey(file.organizationId, file.workspaceId, file.resourceId),
+		manifest,
+		pdfConverter(context, file.organizationId),
+	);
+	await storeWorkspaceFileText(context.env, file, content.text);
+	return content.blocks;
+}
+
 function missing(): never {
 	throw createError(ErrorCodes.NOT_FOUND, "Workspace file not found");
 }
@@ -189,9 +232,13 @@ async function ensureWorkspaceFileDocument(
 				workspaceId,
 				resourceId,
 				manifest.filename,
-				await workspaceFileExtractBlocks(
-					context.env,
-					workspaceFileKey(manifest.organizationId, workspaceId, resourceId),
+				await readAndKeepFileText(
+					context,
+					{
+						organizationId: manifest.organizationId,
+						workspaceId,
+						resourceId,
+					},
 					manifest,
 				),
 			),
@@ -340,7 +387,15 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 						workspace.id,
 						input.resourceId,
 						manifest.filename,
-						await workspaceFileExtractBlocks(context.env, key, manifest),
+						await readAndKeepFileText(
+							context,
+							{
+								organizationId,
+								workspaceId: workspace.id,
+								resourceId: input.resourceId,
+							},
+							manifest,
+						),
 					)
 				: {}),
 		});

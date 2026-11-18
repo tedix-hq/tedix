@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { resolveAttachments } from "./attachments";
+import type { WorkspaceFileText } from "@tedix/api-contract/utils/workspace-file-text";
 import type { OutputDetail, WorkspaceDataPort } from "./data-port";
+import { FILE_TEXT_INLINE_CHARS } from "./file-text";
 
 test("inline budget counts UTF-8 bytes across files and deduplicates references", async () => {
 	const outputs: OutputDetail[] = ["first", "second", "large"].map((id) => ({
@@ -52,8 +54,11 @@ test("inline budget counts UTF-8 bytes across files and deduplicates references"
 	expect(context).not.toContain("x".repeat(100));
 });
 
-test("an uploaded spreadsheet reaches the agent as its cell text, within the file budget", async () => {
-	const file = (id: string, rows: string[][]): OutputDetail => ({
+function fileOutput(
+	id: string,
+	file: { resourceId: string; extract?: unknown[] },
+): OutputDetail {
+	return {
 		id,
 		title: `${id}.xlsx`,
 		kind: "document",
@@ -65,63 +70,107 @@ test("an uploaded spreadsheet reaches the agent as its cell text, within the fil
 			kind: "document",
 			file: {
 				workspaceId: "10000000-0000-4000-8000-000000000001",
-				resourceId: "10000000-0000-4000-8000-000000000002",
-				extract: [
-					{ type: "heading", level: 2, text: "Budget" },
-					{ type: "table", headers: ["Row", "A", "B", "C"], rows },
-				],
+				...file,
 			},
 			blocks: [],
 		},
-	});
-	const outputs = [
-		file("budget", [
-			["1", "Item", "Count", "Price"],
-			["2", "Paper", "2", "3.5"],
-			["3", "Ink", "1", "10"],
-		]),
-		file("huge", [["1", "y".repeat(60_000), "", ""]]),
-		{
-			...file("pdf", []),
-			content: {
-				kind: "document" as const,
-				file: {
-					workspaceId: "10000000-0000-4000-8000-000000000001",
-					resourceId: "10000000-0000-4000-8000-000000000003",
-				},
-				blocks: [],
-			},
-		},
-	];
+	} as OutputDetail;
+}
+
+function attach(
+	outputs: OutputDetail[],
+	texts: Record<string, WorkspaceFileText>,
+) {
 	const data = {
 		listOutputs: async () => outputs,
 		getOutput: async (id: string) =>
 			outputs.find((output) => output.id === id) ?? null,
+		readFileText: async (file: { resourceId: string }) =>
+			texts[file.resourceId] ?? null,
 	} as WorkspaceDataPort;
-	const { context } = await resolveAttachments(data, [
-		{ outputId: "budget" },
-		{ outputId: "huge" },
-		{ outputId: "pdf" },
-	]);
-	const entries = context
-		.split("\n")
-		.filter((line) => line.startsWith("{"))
-		.map((line) => JSON.parse(line));
-	expect(entries[0].fileText).toBe(
-		"## Budget\n\n| Row | A | B | C |\n| 1 | Item | Count | Price |\n| 2 | Paper | 2 | 3.5 |\n| 3 | Ink | 1 | 10 |",
+	return resolveAttachments(
+		data,
+		outputs.map((output) => ({ outputId: output.id })),
+	).then(({ context }) => ({
+		context,
+		entries: context
+			.split("\n")
+			.filter((line) => line.startsWith("{"))
+			.map((line) => JSON.parse(line)),
+	}));
+}
+
+test("a short uploaded file reaches the agent whole; a long one as its first lines with the way to read on", async () => {
+	const budget =
+		"## Budget\n\n| Row | A | B | C |\n| 1 | Item | Count | Price |\n| 2 | Paper | 2 | 3.5 |";
+	const rows = Array.from(
+		{ length: 4_000 },
+		(_, index) => `| ${index + 1} | ledger entry | ${index * 3} |`,
 	);
+	rows.push("| 4001 | closing balance | 918273 |");
+	const { context, entries } = await attach(
+		[
+			fileOutput("budget", { resourceId: "r-budget" }),
+			fileOutput("ledger", { resourceId: "r-ledger" }),
+			fileOutput("notes", { resourceId: "r-notes" }),
+		],
+		{
+			"r-budget": { status: "text", text: budget },
+			"r-ledger": { status: "text", text: rows.join("\n") },
+			"r-notes": { status: "text", text: "n\n".repeat(900) },
+		},
+	);
+	expect(entries[0].fileText).toBe(budget);
+	expect(entries[0].fileTextNote).toBeUndefined();
 	expect(entries[0].content).toBeUndefined();
-	expect(entries[1].fileText).toContain(
-		'[Cut short to fit this message. Read the rest with env.outputs.get("huge").]',
+	// The long file fills what is left of the shared budget with whole lines.
+	const shown = entries[1].fileText.split("\n");
+	expect(shown).toEqual(rows.slice(0, shown.length));
+	expect(budget.length + entries[1].fileText.length).toBeLessThanOrEqual(
+		FILE_TEXT_INLINE_CHARS,
 	);
 	expect(
-		entries[0].fileText.length + entries[1].fileText.indexOf("\n\n[Cut short"),
-	).toBe(50_000);
-	expect(entries[2]).toEqual({
-		outputId: "pdf",
-		title: "pdf.xlsx",
+		budget.length + entries[1].fileText.length + rows[shown.length]!.length,
+	).toBeGreaterThanOrEqual(FILE_TEXT_INLINE_CHARS);
+	expect(context).not.toContain("closing balance");
+	expect(entries[1].fileTextNote).toBe(
+		`These are lines 1 to ${shown.length} of 4001; the rest is not shown here. Read on with env.outputs.readFileText({ outputId: "ledger", startLine }), from startLine ${shown.length + 1}, or find lines with env.outputs.searchFileText.`,
+	);
+	// With the budget used up, a further file is named with its length only.
+	expect(entries[2].fileText).toBeUndefined();
+	expect(entries[2].fileTextNote).toContain(
+		"This file has 900 lines of text that are not shown here.",
+	);
+	expect(context).toContain("env.outputs.readFileText");
+});
+
+test("a file without text says why, and an earlier upload keeps the start it was stored with", async () => {
+	const { entries } = await attach(
+		[
+			fileOutput("scan", { resourceId: "r-scan" }),
+			fileOutput("video", { resourceId: "r-video" }),
+			fileOutput("earlier", {
+				resourceId: "r-earlier",
+				extract: [{ type: "paragraph", text: "Opening paragraph." }],
+			}),
+			fileOutput("plain", { resourceId: "r-plain" }),
+		],
+		{
+			"r-scan": { status: "no_text", text: "" },
+			"r-video": { status: "unsupported", text: "" },
+		},
+	);
+	expect(entries[0].fileText).toBeUndefined();
+	expect(entries[0].fileTextNote).toContain("This PDF has no readable text");
+	expect(entries[1].fileTextNote).toContain("has no text to read here");
+	expect(entries[2].fileText).toBe("Opening paragraph.");
+	expect(entries[2].fileTextNote).toContain(
+		"This may be only the start of the file.",
+	);
+	expect(entries[3]).toEqual({
+		outputId: "plain",
+		title: "plain.xlsx",
 		revision: 1,
-		revisionId: "rev-pdf",
+		revisionId: "rev-plain",
 	});
-	expect(context).toContain("column letters and row numbers");
 });

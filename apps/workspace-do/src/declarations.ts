@@ -78,6 +78,22 @@ interface Outputs {
   list(options?: { kind?: OutputKind; status?: "active" | "archived" }): Promise<OutputSummary[]>;
   /** One output with its current body. Read-only. */
   get(outputId: string): Promise<OutputDetail | null>;
+  /**
+   * Read the text of an uploaded spreadsheet, Word, PowerPoint or PDF file in parts. Read-only.
+   * Returns whole lines from startLine (default 1): at most lineCount lines and about 28,000 characters a call.
+   * Continue with startLine: nextStartLine until it is null. A sheet row is one line that starts with its row number;
+   * a PDF has a "## Page N" line before each page. readable: false comes with the reason, for example a scanned PDF.
+   */
+  readFileText(input: { outputId: string; startLine?: number; lineCount?: number }): Promise<
+    | { readable: true; outputId: string; title: string; text: string; startLine: number; endLine: number; totalLines: number; nextStartLine: number | null; note?: string }
+    | { readable: false; outputId: string; title: string; reason: string }>;
+  /**
+   * Find the lines of an uploaded file that contain some text, ignoring case, so you can read just that part. Read-only.
+   * At most 100 matching lines a call, each shown as up to 240 characters around the match; when nextStartLine is set, search again from it.
+   */
+  searchFileText(input: { outputId: string; query: string; startLine?: number }): Promise<
+    | { readable: true; outputId: string; title: string; totalLines: number; matches: Array<{ line: number; text: string }>; nextStartLine: number | null }
+    | { readable: false; outputId: string; title: string; reason: string }>;
   /** Create a new output. Writes revision 1 at once; recorded, and the person can undo it. */
   create(input: { title: string; content: OutputContent }): Promise<OutputDetail>;
   /** Replace the body. expectedRevision must equal the current revision. Applied at once and recorded; the person can undo it. */
