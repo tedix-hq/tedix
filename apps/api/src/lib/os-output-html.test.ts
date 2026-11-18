@@ -508,6 +508,83 @@ describe("renderOsOutputHtml", () => {
 		expect(html).not.toContain("href=");
 		expect(html).not.toContain("@import");
 		expect(html).not.toContain("url(");
+		expect(html).toContain("font-family:Inter, ui-sans-serif");
+	});
+
+	it("prints a document's page footer on every page after the first", () => {
+		const html = renderOsOutputHtml(
+			{ kind: "document", title: "t" },
+			{
+				...revisionMeta,
+				content: {
+					kind: "document",
+					appearance: {
+						typeface: "sans",
+						wide: false,
+						footer: 'Tedix GbR | Berlin "</style>',
+					},
+					blocks: [{ type: "paragraph", text: "body" }],
+				},
+			},
+		);
+		expect(html).toContain(
+			'@page{@bottom-center{content:"Tedix GbR | Berlin \\22 \\3c /style\\3e "',
+		);
+		expect(html).toContain("@page:first{@bottom-center{content:none}}");
+		expect(html.match(/<\/style>/g)).toHaveLength(1);
+	});
+
+	it("keeps a blank paragraph as a line of space", () => {
+		const html = renderOsOutputHtml(
+			{ kind: "document", title: "t" },
+			{
+				...revisionMeta,
+				content: {
+					kind: "document",
+					blocks: [],
+					richText: {
+						type: "doc",
+						content: [
+							{ type: "paragraph", content: [{ type: "text", text: " " }] },
+							{ type: "paragraph" },
+						],
+					},
+				},
+			},
+		);
+		expect(html).toContain("<article><p><br></p><p><br></p></article>");
+	});
+
+	it("loads the body font only for a page that will be printed", () => {
+		const print = renderOsOutputHtml(
+			{ kind: "document", title: "t" },
+			{
+				...revisionMeta,
+				content: {
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "body" }],
+				},
+			},
+			{},
+			{ loadBodyFont: true },
+		);
+		expect(print).toContain(
+			"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700",
+		);
+		const serif = renderOsOutputHtml(
+			{ kind: "document", title: "t" },
+			{
+				...revisionMeta,
+				content: {
+					kind: "document",
+					appearance: { typeface: "serif", wide: false },
+					blocks: [{ type: "paragraph", text: "body" }],
+				},
+			},
+			{},
+			{ loadBodyFont: true },
+		);
+		expect(serif).not.toContain("fonts.googleapis.com");
 	});
 });
 

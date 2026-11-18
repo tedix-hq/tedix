@@ -1516,11 +1516,13 @@ export async function mountDocClient(
 		wide: boolean,
 	) => {
 		if (!draft || !editable) return;
-		const { appearance: _old, ...rest } = draft;
+		const { appearance: old, ...rest } = draft;
+		// The page footer has no control here; a typeface change must keep it.
+		const footer = old?.footer ? { footer: old.footer } : {};
 		draft =
-			typeface === "sans" && !wide
+			typeface === "sans" && !wide && !old?.footer
 				? rest
-				: { ...rest, appearance: { typeface, wide } };
+				: { ...rest, appearance: { typeface, wide, ...footer } };
 		showAppearance();
 		changed();
 	};
