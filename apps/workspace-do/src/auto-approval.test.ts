@@ -29,6 +29,7 @@ describe("always approve rules", () => {
 	test("Work, app drafts, unknown methods, destructive calls and removals never are", () => {
 		expect(autoApprovalKindFor("work", "create", [{}])).toBeNull();
 		expect(autoApprovalKindFor("apps", "editFile", [{}])).toBeNull();
+		expect(autoApprovalKindFor("apps", "create", [{}])).toBeNull();
 		expect(autoApprovalKindFor("outputs", "delete", [{}])).toBeNull();
 		expect(autoApprovalKindFor("outputs", "share", [{}])).toBeNull();
 		expect(

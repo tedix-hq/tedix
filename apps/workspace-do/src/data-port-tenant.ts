@@ -13,6 +13,9 @@ import {
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
 import {
+	createOsGadget,
+	createOsGadgetRevision,
+	deleteOsGadget,
 	listOsGadgets,
 	getOsGadget,
 	getOsGadgetRevision,
@@ -22,8 +25,14 @@ import {
 	OsAppDraftContentSchema,
 	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { AppRuntimeFilesSchema } from "@tedix/api-contract/schemas/os-app-runtime";
-import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
+import {
+	APP_RUNTIME_ENTRY,
+	AppRuntimeFilesSchema,
+} from "@tedix/api-contract/schemas/os-app-runtime";
+import {
+	appRuntimeCodeLength,
+	isAppRuntimeManifest,
+} from "@tedix/api-contract/utils/app-runtime";
 import { z } from "zod";
 import {
 	getOsAppEditDraft,
@@ -59,6 +68,8 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type {
 	AppCode,
+	CreateAppInput,
+	CreatedApp,
 	EditAppFilesInput,
 	OutputDetail,
 	OutputSummary,
@@ -143,6 +154,32 @@ export interface TenantDataPortDeps {
 	notifyOutputRevision: (
 		notice: WorkspaceOutputRevisionNotice,
 	) => Promise<void>;
+}
+
+const APP_NAME_TAKEN = "An app with this name already exists in this workspace";
+
+/** The same name and description limits the API applies to a new app. */
+const CreateAppInputSchema = z
+	.object({
+		name: z.string().trim().min(1).max(120),
+		description: z.string().max(2000).optional(),
+		files: AppRuntimeFilesSchema,
+	})
+	.strict();
+
+function readableInputError(error: unknown): never {
+	if (error instanceof z.ZodError)
+		throw new Error(
+			error.issues
+				.map((issue) =>
+					issue.path.length
+						? `${issue.path.join(".")}: ${issue.message}`
+						: issue.message,
+				)
+				.join("; ")
+				.slice(0, 2000),
+		);
+	throw error;
 }
 
 export class TenantDataPort implements WorkspaceDataPort {
@@ -494,6 +531,95 @@ export class TenantDataPort implements WorkspaceDataPort {
 			files: OsAppDraftContentSchema.parse(JSON.parse(proposal.content)).files,
 			proposalId: proposal.id,
 			sequence: proposal.sequence,
+		};
+	}
+
+	private async checkedNewApp(input: CreateAppInput) {
+		let parsed: z.infer<typeof CreateAppInputSchema>;
+		try {
+			parsed = CreateAppInputSchema.parse(input);
+		} catch (error) {
+			readableInputError(error);
+		}
+		// A name is taken by an archived app too.
+		const existing = await listOsGadgets(
+			this.deps.core,
+			this.deps.organizationId,
+			{ workspaceId: this.deps.workspaceId, limit: 500 },
+		);
+		if (existing.some((app) => app.name === parsed.name))
+			throw new Error(APP_NAME_TAKEN);
+		await this.deps.validateAppSource(parsed.files);
+		return parsed;
+	}
+
+	async checkNewApp(input: CreateAppInput): Promise<void> {
+		await this.checkedNewApp(input);
+	}
+
+	async createApp(
+		input: CreateAppInput & { actorId: string },
+	): Promise<CreatedApp> {
+		const { actorId, ...request } = input;
+		if (typeof actorId !== "string" || !actorId)
+			throw new Error("A new app needs the actor who creates it");
+		const parsed = await this.checkedNewApp(request);
+		const id = crypto.randomUUID();
+		const revisionId = crypto.randomUUID();
+		const now = new Date().toISOString();
+		const scope = { organizationId: this.deps.organizationId, gadgetId: id };
+		try {
+			await createOsGadget(this.deps.core, {
+				id,
+				organizationId: this.deps.organizationId,
+				workspaceId: this.deps.workspaceId,
+				name: parsed.name,
+				description: parsed.description ?? null,
+				status: "active",
+				currentRevisionId: null,
+				createdByKind: this.deps.actorKind,
+				createdById: actorId,
+				createdAt: now,
+				updatedAt: now,
+			});
+		} catch (error) {
+			for (let cause = error; cause instanceof Error; cause = cause.cause)
+				if (/unique constraint/i.test(cause.message))
+					throw new Error(APP_NAME_TAKEN);
+			throw error;
+		}
+		// The app and its first revision belong together: an app whose code
+		// could not be saved is removed again.
+		const saved = await createOsGadgetRevision(this.deps.core, {
+			id: revisionId,
+			organizationId: this.deps.organizationId,
+			gadgetId: id,
+			// No resource grants: a new app reads and writes only its own storage.
+			manifest: JSON.stringify({
+				entry: APP_RUNTIME_ENTRY,
+				capabilities: [],
+				config: { version: 1 },
+			}),
+			createdByKind: this.deps.actorKind,
+			createdById: actorId,
+			expectedRevision: 0,
+			code: {
+				files: JSON.stringify(parsed.files),
+				codeLength: appRuntimeCodeLength(parsed.files),
+			},
+		}).catch(async (error: unknown) => {
+			await deleteOsGadget(this.deps.core, scope).catch(() => false);
+			throw error;
+		});
+		if (!saved.ok) {
+			await deleteOsGadget(this.deps.core, scope).catch(() => false);
+			throw new Error("The new app's first revision could not be saved");
+		}
+		return {
+			id,
+			name: parsed.name,
+			revision: saved.revision.revision,
+			revisionId,
 		};
 	}
 

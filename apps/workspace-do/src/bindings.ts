@@ -25,6 +25,7 @@ import { buildPresentationBinding } from "./presentation-bindings";
 import { buildView, type ShownView } from "./views";
 import { approvalDomain, checkWebUrl, type WebPort } from "./web";
 import type {
+	CreateAppInput,
 	CreateWorkInput,
 	OutputDetail,
 	OutputSummary,
@@ -137,8 +138,27 @@ export function buildWorkspaceBindings(
 		): UndoPlan | undefined =>
 			before ? { kind: "rollback_revision", toRevision: before } : undefined,
 	};
+	// Saving a new app always holds for the person's approval. The check
+	// below runs first, so a card is only ever shown for an app that loads.
+	const appCreateGate = wrapBinding(
+		{
+			create: (input: CreateAppInput) =>
+				data.createApp({ ...input, actorId: deps.actor.id }),
+		},
+		{
+			...common,
+			resource: "app",
+			methods: {
+				create: { riskTier: "bounded_write", blastRadius: "single_resource" },
+			},
+		},
+	);
 	const apps = {
 		list: () => data.listApps(),
+		create: async (input: CreateAppInput) => {
+			await data.checkNewApp(input);
+			return appCreateGate.create(input);
+		},
 		getCode: (input: { appId: string; revisionId?: string }) =>
 			data.getAppCode(input),
 		readFile: async (input: { appId: string; path: string }) => {
@@ -322,6 +342,12 @@ export function buildWorkspaceBindings(
 				getCode: { riskTier: "read", blastRadius: "none" },
 				readFile: { riskTier: "read", blastRadius: "none" },
 				grep: { riskTier: "read", blastRadius: "none" },
+				// The name and source check; the save itself is the gate above.
+				create: {
+					resource: "app_check",
+					riskTier: "read",
+					blastRadius: "none",
+				},
 				// Proposals cannot advance the app revision. The person reviews all files once.
 				editFile: {
 					resource: "app_draft",

@@ -15,6 +15,9 @@ export function approvalTarget(approval: ChatApproval): string | null {
 	if (input && typeof input === "object" && !Array.isArray(input)) {
 		const title = (input as Record<string, unknown>).title;
 		if (typeof title === "string" && title.trim()) return title;
+		// A new app is named, not titled.
+		const name = (input as Record<string, unknown>).name;
+		if (typeof name === "string" && name.trim()) return name;
 	}
 	return null;
 }

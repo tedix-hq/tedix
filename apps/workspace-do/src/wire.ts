@@ -148,6 +148,8 @@ export type WireEventBody =
 			error?: string;
 			/** The file the write saved; revision 1 means it created the file. */
 			output?: { outputId: string; revision: number };
+			/** The app the write created. */
+			app?: { appId: string; name: string };
 	  }
 	| {
 			/** A live view for the turn's answer, rendered in the widget frame. */
@@ -326,6 +328,7 @@ export function stepLabel(
 			getCode: "Reading app source",
 			readFile: "Reading an app file",
 			grep: "Searching app files",
+			create: "Creating a new app",
 			editFile: "Editing an app draft",
 			writeFile: "Writing an app draft file",
 		},

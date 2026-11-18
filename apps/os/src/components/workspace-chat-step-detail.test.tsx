@@ -112,6 +112,7 @@ afterEach(() => {
 function mount(
 	fake: ReturnType<typeof fakeWorkspaceChatClient>,
 	openOutput?: (outputId: string) => void,
+	openEditor?: (appId: string) => void,
 ) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -120,7 +121,10 @@ function mount(
 		root.render(
 			<QueryClientProvider client={queryClient}>
 				<ChatOutputLinkContext.Provider
-					value={openOutput ? { openOutput } : {}}
+					value={{
+						...(openOutput ? { openOutput } : {}),
+						...(openEditor ? { openEditor } : {}),
+					}}
 				>
 					<WorkspaceChat
 						conversationId="c1"
@@ -294,6 +298,67 @@ describe("what the agent did", () => {
 			),
 		);
 		expect(button("Open Meeting notes")).toBeUndefined();
+	});
+
+	it("names a new app on its card and opens it once it was created", async () => {
+		const openEditor = vi.fn();
+		const fake = fakeWorkspaceChatClient("c1");
+		mount(fake, undefined, openEditor);
+		act(() =>
+			fake.feed(
+				turn({
+					...base,
+					seq: 2,
+					type: "approval.requested",
+					stepId: "write",
+					approvalId: "a2",
+					title: "Creating a new app",
+					reason: "approval_pending",
+					input: {
+						name: "Visit counter",
+						description: "Counts visits.",
+						files: {
+							"server.js": "120 characters",
+							"client.js": "90 characters",
+						},
+					},
+				}),
+			),
+		);
+		const card = host.querySelector('[data-testid="workspace-chat-approval"]');
+		expect(card?.textContent).toContain("Creating a new app");
+		expect(card?.textContent).toContain("Visit counter");
+		expect(card?.textContent).toContain("Counts visits.");
+		expect(card?.textContent).toContain("Files: server.js, client.js");
+		// A new app always asks: the card offers no "Always approve".
+		expect(card?.textContent).not.toContain("Always approve");
+		expect(button("Approve creating Visit counter")).toBeDefined();
+		expect(button("Open Visit counter")).toBeUndefined();
+		act(() =>
+			fake.feed([
+				{
+					at,
+					conversationId: "c1",
+					seq: 3,
+					type: "approval.decided",
+					approvalId: "a2",
+					decision: "approve",
+					by: "u1",
+				},
+				{
+					at,
+					conversationId: "c1",
+					seq: 4,
+					type: "approval.executed",
+					approvalId: "a2",
+					status: "applied",
+					app: { appId: "app-1", name: "Visit counter" },
+				},
+			]),
+		);
+		expect(button("Open Visit counter")?.textContent).toBe("Open");
+		await click(button("Open Visit counter"));
+		expect(openEditor).toHaveBeenCalledExactlyOnceWith("app-1");
 	});
 
 	it("marks the turn before which earlier messages were summarised", () => {

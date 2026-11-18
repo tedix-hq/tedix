@@ -98,6 +98,12 @@ interface Apps {
   /** Stage a new file or replace a file in full. Prefer editFile for small changes. Does not publish. */
   writeFile(input: {appId:string; path:string; expectedRevisionId:string; proposalId?:string; expectedSequence?:number; content:string}): Promise<AppCode>;
   list(): Promise<Array<{ id: string; name: string; description: string | null; status: string; updatedAt: string }>>;
+  /**
+   * Create a new app with its first revision. Always needs the person's approval; the name and files are checked first.
+   * files must hold "server.js" and "client.js"; "README.md" and more lowercase one-segment .js, .json or .txt files are optional.
+   * The name must be new in this workspace. The app starts with no access to workspace files.
+   */
+  create(input: { name: string; description?: string; files: Record<string, string> }): Promise<{ id: string; name: string; revision: number; revisionId: string }>;
 }`.trim(),
 	resources: `
 /** Connected resources (files, folders, external objects) of this workspace. Read-only. */

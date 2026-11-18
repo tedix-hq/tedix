@@ -128,6 +128,7 @@ import {
 import {
 	ApprovalTray,
 	approvalSubject,
+	approvalTarget,
 } from "@/components/workspace-chat-approval-tray";
 import { AlwaysApproveButton } from "@/components/workspace-chat-always-approve";
 import {
@@ -136,6 +137,7 @@ import {
 } from "@/lib/workspace-chat-web-approval";
 import {
 	OpenChangedFile,
+	OpenCreatedApp,
 	ReplyCopy,
 	StepDetail,
 	stepHasDetail,
@@ -1264,6 +1266,16 @@ function approvalPreview(input: Record<string, unknown> | null): string {
 			.filter(Boolean)
 			.join("\n")
 			.slice(0, 2_000);
+	// A new app: what it is for, then the files it starts with.
+	const files = objectValue(input.files);
+	if (files)
+		return [
+			typeof input.description === "string" ? input.description : "",
+			`Files: ${Object.keys(files).join(", ")}`,
+		]
+			.filter(Boolean)
+			.join("\n\n")
+			.slice(0, 2_000);
 	if (typeof input.description === "string")
 		return input.description.slice(0, 2_000);
 	return "";
@@ -1295,9 +1307,7 @@ function ApprovalCard({
 	const sent = own ?? (approving ? "approve" : null);
 	const decided = approval.decision ?? sent;
 	const input = objectValue(approval.input);
-	const target =
-		approval.target?.title ??
-		(typeof input?.title === "string" ? input.title : null);
+	const target = approvalTarget(approval);
 	const appEdit = appEditRequestFrom(approval.input);
 	const preview = appEdit ? "" : approvalPreview(input);
 	const status = approvalStatus(approval);
@@ -1418,6 +1428,15 @@ function ApprovalCard({
 					<OpenChangedFile
 						outputId={approval.execution.output.outputId}
 						title={target}
+					/>
+				</div>
+			) : null}
+			{approval.execution?.status === "applied" && approval.execution.app ? (
+				<div className="workspace-chat-approval-actions">
+					<OpenCreatedApp
+						workspaceId={workspaceId}
+						appId={approval.execution.app.appId}
+						name={approval.execution.app.name}
 					/>
 				</div>
 			) : null}

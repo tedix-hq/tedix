@@ -1464,13 +1464,12 @@ export function CanvasPage({
 		}
 	};
 	const chatViewOnly = useWorkspaceViewOnly(workspaceId);
+	// The chat opens an app it created the same way the stage opens an editor.
 	const chatOutputLinks = {
 		openOutput: (outputId: string) => void openChatOutput(outputId, true),
-	};
-	const stageOutputLinks = {
-		...chatOutputLinks,
 		openEditor: (gadgetId: string) => void selectGadget(gadgetId),
 	};
+	const stageOutputLinks = chatOutputLinks;
 
 	const showCanvasResources = () => {
 		setTransitionEnabled(true);

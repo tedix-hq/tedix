@@ -97,6 +97,38 @@ export function OpenChangedFile({
 	);
 }
 
+/**
+ * Opens the app an approved change created. Inside a workspace it opens in
+ * the workspace's own pane; elsewhere it goes to the app in its workspace.
+ */
+export function OpenCreatedApp({
+	workspaceId,
+	appId,
+	name,
+}: {
+	workspaceId: string;
+	appId: string;
+	name: string;
+}) {
+	const { openEditor } = useContext(ChatOutputLinkContext);
+	return (
+		<Button
+			aria-label={`Open ${name}`}
+			onClick={() => {
+				if (openEditor) openEditor(appId);
+				else
+					window.location.assign(
+						`/workspace/${encodeURIComponent(workspaceId)}?workpiece=gadget:${encodeURIComponent(appId)}&pane=workpiece`,
+					);
+			}}
+			size="sm"
+			variant="outline"
+		>
+			Open
+		</Button>
+	);
+}
+
 /** Marks the turn before which earlier messages were summarised. */
 export function SummarisedMarker() {
 	return (

@@ -26,6 +26,17 @@ describe("prompt", () => {
 		}
 	});
 
+	test("building an app is a labeled write the agent is told how to make", () => {
+		expect(stepLabel("apps", "create")).toEqual({
+			label: "Creating a new app",
+			kind: "write",
+		});
+		expect(describeBinding("apps")).toContain("create(input: { name: string");
+		expect(STATIC_RULES).toContain("env.apps.create({ name, files })");
+		expect(STATIC_RULES).toContain("server.js");
+		expect(STATIC_RULES).toContain("client.js");
+	});
+
 	test("static prefix is identical across turns and carries every binding", () => {
 		const a = staticPromptPrefix();
 		const b = staticPromptPrefix();

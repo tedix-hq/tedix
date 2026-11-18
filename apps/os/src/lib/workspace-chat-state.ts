@@ -56,6 +56,8 @@ export type ChatApproval = {
 		error?: string;
 		/** The file the write saved; revision 1 means it created the file. */
 		output?: { outputId: string; revision: number };
+		/** The app the write created. */
+		app?: { appId: string; name: string };
 	};
 };
 
@@ -658,6 +660,7 @@ export function applyWorkspaceChatEvent(
 				status: event.status,
 				error: event.error,
 				...(event.output ? { output: event.output } : {}),
+				...(event.app ? { app: event.app } : {}),
 			};
 			approvalExecutions = {
 				...approvalExecutions,
