@@ -110,15 +110,20 @@ Start every `client.js` with [the UI kit](assets/ui-kit.js), pasted unchanged
 building blocks, so the app looks like Tedix OS and needs no other component
 library:
 
-| Helper                                                                          | Gives you                                                                 |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `ui.el(tag, {class, text, attrs, on}, ...children)`                             | Any element; text is never parsed as HTML                                 |
-| `ui.button(label, onClick, {variant, disabled})`                                | A 44 px button; `variant` is `primary` or `quiet`                         |
-| `ui.tabs({id, label, items, value, onChange})`                                  | A tab row with arrow, Home and End keys; the panel takes id `${id}-panel` |
-| `ui.table({caption, columns, rows, pageSize, page, onPage, labels, empty})`     | A scrollable table with an optional pager                                 |
-| `ui.select({label, options, value, onChange})`                                  | A labelled select                                                         |
-| `ui.confirm({label, question, confirmLabel, cancelLabel, onConfirm, onCancel})` | An in-app confirmation (native `confirm()` is blocked)                    |
-| `ui.status(text)`, `ui.alert(text)`                                             | Announced progress and errors                                             |
+| Helper                                                                          | Gives you                                                                     |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `ui.el(tag, {class, text, attrs, on}, ...children)`                             | Any element; text is never parsed as HTML                                     |
+| `ui.button(label, onClick, {variant, disabled, class})`                         | A 44 px button; `variant` is `primary` or `quiet`; `class` adds your own      |
+| `ui.tabs({id, label, items, value, onChange})`                                  | A tab row with arrow, Home and End keys; the panel takes id `${id}-panel`     |
+| `ui.table({caption, columns, rows, pageSize, page, onPage, labels, empty})`     | A scrollable table with an optional pager                                     |
+| `ui.select({label, options, value, onChange})`                                  | A labelled select                                                             |
+| `ui.confirm({label, question, confirmLabel, cancelLabel, onConfirm, onCancel})` | An in-app confirmation (native `confirm()` is blocked)                        |
+| `ui.status(text)`, `ui.alert(text)`                                             | Announced progress and errors                                                 |
+| `ui.chips({label, items, value, onChange})`                                     | On/off filter chips; the chosen one is pressed                                |
+| `ui.tag(text, tone)`                                                            | A small label; `tone` is `success`, `warning`, `danger`, `accent` or `strong` |
+| `ui.card({title}, ...children)`                                                 | A bordered panel with an optional heading                                     |
+| `ui.tile({value, label, onClick})`                                              | A key figure; with `onClick` the whole tile is one button                     |
+| `ui.bars({label, entries, onPick})`                                             | Horizontal bars from `[[name, count], ...]`; `onPick` makes rows buttons      |
 
 The kit adds no words of its own: pass every label from `config.settings`.
 Its classes start with `tx-` and its colours with `--tx-`; reuse them in the

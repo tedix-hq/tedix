@@ -17,6 +17,11 @@ function loadKit() {
 		confirm: (options: object) => HTMLElement;
 		select: (options: object) => HTMLElement;
 		table: (options: object) => HTMLElement;
+		chips: (options: object) => HTMLElement;
+		tag: (text: string, tone?: string) => HTMLElement;
+		card: (options?: object, ...children: unknown[]) => HTMLElement;
+		tile: (options: object) => HTMLElement;
+		bars: (options: object) => HTMLElement;
 	};
 }
 
@@ -169,6 +174,83 @@ describe("app UI kit", () => {
 		expect(
 			ui.table({ ...options, pageSize: undefined }).querySelector("nav"),
 		).toBeNull();
+	});
+
+	it("adds the app's own classes to a button", () => {
+		const ui = loadKit();
+		expect(
+			ui.button("Go", vi.fn(), { variant: "quiet", class: "chip big" })
+				.className,
+		).toBe("tx-button tx-quiet chip big");
+	});
+
+	it("presses exactly one filter chip and reports the choice", () => {
+		const ui = loadKit();
+		const onChange = vi.fn();
+		const group = ui.chips({
+			label: "Filter",
+			items: [
+				["all", "All"],
+				["open", "Open"],
+			],
+			value: "open",
+			onChange,
+		});
+		const chips = [...group.querySelectorAll("button")];
+		expect(group.getAttribute("role")).toBe("group");
+		expect(group.getAttribute("aria-label")).toBe("Filter");
+		expect(chips.map((c) => c.getAttribute("aria-pressed"))).toEqual([
+			"false",
+			"true",
+		]);
+		chips[0]?.click();
+		expect(onChange).toHaveBeenCalledWith("all");
+	});
+
+	it("tones tags and builds cards with an optional heading", () => {
+		const ui = loadKit();
+		expect(ui.tag("Done", "success").className).toBe("tx-tag tx-success");
+		expect(ui.tag("Note").className).toBe("tx-tag");
+		const card = ui.card({ title: "Work" }, ui.el("p", { text: "x" }));
+		expect(card.querySelector("h2")?.textContent).toBe("Work");
+		expect(card.className).toBe("tx-card");
+		expect(ui.card({}, "y").querySelector("h2")).toBeNull();
+	});
+
+	it("makes a whole tile one labelled button only when it acts", () => {
+		const ui = loadKit();
+		const onClick = vi.fn();
+		const tile = ui.tile({ value: 6, label: "Open work", onClick });
+		expect(tile.tagName).toBe("BUTTON");
+		expect(tile.getAttribute("aria-label")).toBe("Open work: 6");
+		tile.click();
+		expect(onClick).toHaveBeenCalled();
+		expect(ui.tile({ value: 3, label: "People" }).tagName).toBe("DIV");
+	});
+
+	it("scales bars to the largest count and makes rows pickable", () => {
+		const ui = loadKit();
+		const onPick = vi.fn();
+		const box = ui.bars({
+			label: "By status",
+			entries: [
+				["Open", 4],
+				["Done", 2],
+			],
+			onPick,
+		});
+		const rows = [...box.querySelectorAll(".tx-bar")] as HTMLElement[];
+		expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual([
+			"Open: 4",
+			"Done: 2",
+		]);
+		expect(
+			rows.map((r) => (r.querySelector(".tx-fill") as HTMLElement).style.width),
+		).toEqual(["100%", "50%"]);
+		rows[1]?.click();
+		expect(onPick).toHaveBeenCalledWith("Done");
+		const still = ui.bars({ label: "Plain", entries: [["A", 0]] });
+		expect(still.querySelector(".tx-bar")?.tagName).toBe("DIV");
 	});
 
 	it("announces status and errors", () => {

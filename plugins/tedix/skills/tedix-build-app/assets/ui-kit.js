@@ -27,6 +27,26 @@ body{background:var(--tx-bg);color:var(--tx-fg)}
 .tx-table th{background:var(--tx-quiet);font-weight:600}
 .tx-table .tx-end{text-align:end}
 .tx-pager{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;color:var(--tx-muted)}
+.tx-button[aria-pressed=true]{background:var(--tx-accent);color:var(--tx-on-accent);border-color:var(--tx-accent)}
+.tx-chips .tx-button{border-radius:999px;padding:6px 14px}
+.tx-tag{display:inline-block;font-size:.8rem;line-height:1.4;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--tx-fg) 8%,var(--tx-surface));color:var(--tx-fg);overflow-wrap:anywhere}
+.tx-tag.tx-success{background:color-mix(in srgb,var(--tx-success) 22%,var(--tx-surface))}
+.tx-tag.tx-warning{background:color-mix(in srgb,var(--tx-warning) 22%,var(--tx-surface))}
+.tx-tag.tx-danger{background:color-mix(in srgb,var(--tx-danger) 16%,var(--tx-surface));color:var(--tx-danger)}
+.tx-tag.tx-accent{background:color-mix(in srgb,var(--tx-accent) 16%,var(--tx-surface))}
+.tx-tag.tx-strong{background:var(--tx-accent);color:var(--tx-on-accent)}
+.tx-card,.tx-tile{background:var(--tx-surface);border:1px solid var(--tx-line);border-radius:calc(var(--tx-radius) * 1.2);padding:16px;color:var(--tx-fg)}
+.tx-card>h2{font-size:1.1rem;margin:0 0 8px}
+.tx-tile{display:block;width:100%;min-height:44px;text-align:start;font:inherit}
+button.tx-tile{cursor:pointer}
+.tx-value{display:block;font-size:1.9rem;font-weight:650;line-height:1.1;font-variant-numeric:tabular-nums}
+.tx-bars{display:grid;gap:4px}
+.tx-bar{display:grid;grid-template-columns:minmax(90px,38%) 1fr 4ch;gap:8px;align-items:center;font-size:.9rem;min-height:32px;width:100%;padding:0;border:0;background:none;color:inherit;font-family:inherit;text-align:start}
+button.tx-bar{min-height:44px;cursor:pointer}
+.tx-track{background:color-mix(in srgb,var(--tx-fg) 8%,var(--tx-surface));border-radius:4px;height:12px}
+.tx-fill{background:var(--tx-accent);height:12px;border-radius:4px;min-width:3px}
+.tx-n{text-align:end;font-variant-numeric:tabular-nums}
+:is(button.tx-tile,button.tx-bar):focus-visible{outline:3px solid var(--tx-accent);outline-offset:3px}
 `;
 	document.head.append(style);
 
@@ -46,14 +66,16 @@ body{background:var(--tx-bg);color:var(--tx-fg)}
 		return node;
 	}
 
-	/** A 44px button; variant "primary" or "quiet". */
+	/** A 44px button; variant "primary" or "quiet"; class adds the app's own classes. */
 	function button(
 		label,
 		onClick,
-		{ variant = "", disabled = false, attrs = {} } = {},
+		{ variant = "", disabled = false, attrs = {}, class: extra = "" } = {},
 	) {
 		return el("button", {
-			class: `tx-button${variant ? ` tx-${variant}` : ""}`,
+			class: ["tx-button", variant && `tx-${variant}`, extra]
+				.filter(Boolean)
+				.join(" "),
 			text: label,
 			attrs: { type: "button", disabled, ...attrs },
 			on: { click: onClick },
@@ -235,5 +257,103 @@ body{background:var(--tx-bg);color:var(--tx-fg)}
 		return wrap;
 	}
 
-	return { el, button, status, alert, tabs, confirm, select, table };
+	/** On/off filter chips; one is pressed. items: [[value, label], ...]. */
+	function chips({ label, items, value, onChange, disabled = false }) {
+		return el(
+			"div",
+			{
+				class: "tx-row tx-chips",
+				attrs: { role: "group", "aria-label": label },
+			},
+			items.map(([v, text]) =>
+				button(text, () => onChange(v), {
+					disabled,
+					attrs: { "aria-pressed": String(v === value) },
+				}),
+			),
+		);
+	}
+
+	/** A small label; tone is success, warning, danger, accent or strong. */
+	const tag = (text, tone = "") =>
+		el("span", { class: `tx-tag${tone ? ` tx-${tone}` : ""}`, text });
+
+	/** A bordered panel with an optional heading. */
+	const card = ({ title, class: extra = "" } = {}, ...children) =>
+		el(
+			"section",
+			{ class: `tx-card ${extra}`.trim() },
+			title ? el("h2", { text: title }) : null,
+			...children,
+		);
+
+	/** A key figure; with onClick the whole tile is one button. */
+	function tile({ value, label, onClick }) {
+		const parts = [
+			el("span", { class: "tx-value", text: value }),
+			el("span", { class: "tx-muted", text: label }),
+		];
+		return onClick
+			? el(
+					"button",
+					{
+						class: "tx-tile",
+						attrs: { type: "button", "aria-label": `${label}: ${value}` },
+						on: { click: onClick },
+					},
+					parts,
+				)
+			: el("div", { class: "tx-tile" }, parts);
+	}
+
+	/** Horizontal bars. entries: [[name, count], ...]; onPick(name) makes rows buttons. */
+	function bars({ label, entries, onPick }) {
+		const max = Math.max(1, ...entries.map(([, n]) => n));
+		return el(
+			"div",
+			{ class: "tx-bars", attrs: { role: "group", "aria-label": label } },
+			entries.map(([name, n]) => {
+				const fill = el("span", { class: "tx-fill" });
+				fill.style.width = `${(n / max) * 100}%`;
+				return el(
+					onPick ? "button" : "div",
+					{
+						class: "tx-bar",
+						attrs: {
+							type: onPick ? "button" : null,
+							"aria-label": `${name}: ${n}`,
+						},
+						on: onPick ? { click: () => onPick(name) } : {},
+					},
+					el("span", { text: name }),
+					el(
+						"span",
+						{ class: "tx-track", attrs: { "aria-hidden": "true" } },
+						fill,
+					),
+					el("span", {
+						class: "tx-n",
+						text: n,
+						attrs: { "aria-hidden": "true" },
+					}),
+				);
+			}),
+		);
+	}
+
+	return {
+		el,
+		button,
+		status,
+		alert,
+		tabs,
+		confirm,
+		select,
+		table,
+		chips,
+		tag,
+		card,
+		tile,
+		bars,
+	};
 })();
