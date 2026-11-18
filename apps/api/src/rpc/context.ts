@@ -88,6 +88,8 @@ export interface BaseContext {
 	env: CloudflareEnv;
 	/** Database client (created lazily) */
 	db: ReturnType<typeof createDbClient>;
+	/** Set from matched contract metadata before the first database access. */
+	dbReadOnly?: boolean;
 	/**
 	 * The D1 bookmark for this request's session, or null before any query ran.
 	 * Echo it on the response in `x-d1-bookmark` so a caller can chain sequential
@@ -256,26 +258,31 @@ export function createContext(
 	env: CloudflareEnv,
 	waitUntil?: (promise: Promise<unknown>) => void,
 ): BaseContext {
-	// Resume the caller's bookmark when present; otherwise only the listed hot
-	// read paths use first-unconstrained. All other paths use first-primary.
-	// Replication state is an operator setting on the database: when disabled,
-	// both constraints read the primary; when enabled, the allowlist may read
-	// stale replica state. Grant verification retries negative answers in a new
-	// first-primary session. Writes always execute on the primary, and each
-	// session guarantees read-your-own-writes and monotonic reads.
-	// Callers can extend consistency across requests by echoing dbBookmark() in
-	// x-d1-bookmark on their next call.
-	const session = createDbSession(
-		env.DB,
-		request.headers.get(D1_BOOKMARK_HEADER),
-		d1SessionConstraintFor(request),
-	);
-	configureLogStore(session.db, env);
-	return {
+	// Wait for the matched procedure's metadata before choosing the first query
+	// target. Non-HTTP callers retain the conservative path-based default.
+	let session: DbSession | undefined;
+	const getSession = () => {
+		if (!session) {
+			session = createDbSession(
+				env.DB,
+				request.headers.get(D1_BOOKMARK_HEADER),
+				context.dbReadOnly
+					? "first-unconstrained"
+					: d1SessionConstraintFor(request),
+			);
+			configureLogStore(session.db, env);
+		}
+		return session;
+	};
+	const context: BaseContext = {
 		env,
-		db: session.db,
-		dbBookmark: session.getBookmark,
-		dbMetrics: session.metrics,
+		get db() {
+			return getSession().db;
+		},
+		dbBookmark: () => session?.getBookmark() ?? null,
+		get dbMetrics() {
+			return session?.metrics;
+		},
 		serverTiming: [],
 		headers: request.headers,
 		serviceBindingPrincipal: getServiceBindingPrincipal(request),
@@ -283,4 +290,5 @@ export function createContext(
 		rateLimiter: env.API_RATE_LIMITER,
 		waitUntil,
 	};
+	return context;
 }

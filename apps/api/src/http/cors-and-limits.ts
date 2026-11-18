@@ -111,6 +111,7 @@ export function registerCorsAndLimits(app: Hono<{ Bindings: CloudflareEnv }>) {
 	const corsMiddleware = cors({
 		origin: (requestOrigin, c) => resolveCorsOrigin(requestOrigin, c.env),
 		credentials: true,
+		exposeHeaders: ["x-d1-bookmark", "Server-Timing"],
 	});
 	app.use("*", async (c, next) => {
 		// The untrusted-content origin never gets credentialed CORS — granting it

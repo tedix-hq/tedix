@@ -8,6 +8,7 @@ import {
 import { D1_BOOKMARK_HEADER } from "@tedix/db/client";
 import type { Hono } from "hono";
 import { enrichInputValidationError } from "../rpc/input-validation-error";
+import { withD1ReadRouting } from "../rpc/d1-read-routing";
 import { isPublicProcedure } from "../rpc/openapi-filter";
 import { type BaseContext, createContext, logProcedureCall } from "../rpc/orpc";
 import { apiRouter } from "../rpc/routers/index";
@@ -22,7 +23,8 @@ const handlerPlugins = [
 // Client interceptors wrap input validation, so they can enrich field errors
 // while preserving data.issues for structured consumers.
 const clientInterceptors = [
-	// Outermost so logging also covers validation and permission rejections.
+	withD1ReadRouting,
+	// Wrap validation so logging also covers permission and input rejections.
 	(options: {
 		context: BaseContext;
 		path: readonly string[];
@@ -66,9 +68,11 @@ function withResponseMetadata(
 			? [`db;desc="queries=${metrics.queries} rows=${metrics.rowsRead}"`]
 			: []),
 	];
-	if (!bookmark && timing.length === 0) return response;
 	const headers = new Headers(response.headers);
-	if (bookmark) headers.set(D1_BOOKMARK_HEADER, bookmark);
+	headers.set(
+		D1_BOOKMARK_HEADER,
+		bookmark ?? context.headers?.get(D1_BOOKMARK_HEADER) ?? "",
+	);
 	if (timing.length) headers.append("Server-Timing", timing.join(", "));
 	return new Response(response.body, {
 		status: response.status,
@@ -167,7 +171,7 @@ export function registerRpcRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		});
 
 		if (!matched) {
-			return c.notFound();
+			return withResponseMetadata(await c.notFound(), context);
 		}
 
 		if (response && response.status >= 400) {
@@ -230,13 +234,16 @@ export function registerRpcRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		});
 
 		if (!matched) {
-			return c.json(
-				{
-					error: "Not Found",
-					message: `No matching endpoint for ${c.req.method} ${c.req.path}`,
-					docs: "/docs",
-				},
-				404,
+			return withResponseMetadata(
+				c.json(
+					{
+						error: "Not Found",
+						message: `No matching endpoint for ${c.req.method} ${c.req.path}`,
+						docs: "/docs",
+					},
+					404,
+				),
+				context,
 			);
 		}
 
