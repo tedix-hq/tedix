@@ -100,11 +100,6 @@ export const MAX_PROCESS_TAIL_BYTES = 256_000;
 // inspectable through artifact:// instead of merely pointing at private R2.
 export const MAX_REVIEWER_OPENABLE_LOG_BYTES = 200_000;
 
-// Must match the TEDI_STORAGE binding's real bucket (cloudflare.config.ts): the
-// artifact-serve streamer resolves r2://<bucket>/ refs by name. Older rows
-// carry the legacy "tedi-storage" ref, which artifact-serve aliases.
-export const WORKSTATION_PROCESS_ARTIFACT_BUCKET_REF = "tedix-tedi-production";
-
 export const WORKSTATION_PATHS = new Set([
 	"/api/admin/workstation/repository/inspect",
 	"/api/admin/workstation/wake",

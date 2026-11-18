@@ -349,6 +349,7 @@ function nativeFixture(
 	app.route("/workstation", workstation);
 	const env = {
 		TEDI_STORAGE: storage,
+		BACKUP_BUCKET_NAME: "fictional-workstation-bucket",
 		ENVIRONMENT: "production",
 	} as unknown as AppEnv["Bindings"];
 	const request = async (
@@ -2901,7 +2902,7 @@ it.each([
 
 it("keeps canonical workstation source refs separate from generated artifact aliases", () => {
 	const source =
-		"r2://tedix-tedi-production/orgs/org/tedis/tedi/workstations/general/processes/job/terminal/stdout.log";
+		"r2://fictional-workstation-bucket/orgs/org/tedis/tedi/workstations/general/processes/job/terminal/stdout.log";
 	expect(
 		workstationSourceArtifactRefs([
 			source,
@@ -3136,3 +3137,20 @@ describe("preparation egress identity", () => {
 		);
 	});
 });
+
+it.each(["fictional-first-bucket", "fictional-second-bucket"])(
+	"writes terminal artifact refs using configured bucket %s",
+	async (bucketName) => {
+		const f = nativeFixture();
+		f.env.BACKUP_BUCKET_NAME = bucketName;
+		f.add("configured-bucket-job");
+		f.finish();
+		const result = await f.request("process/status", {
+			processId: "configured-bucket-job",
+		});
+		expect(result.body.ok).toBe(true);
+		const refs = workstationSourceArtifactRefs(result.body.job.artifactRefs);
+		expect(refs).toHaveLength(3);
+		for (const ref of refs) expect(ref).toMatch(`r2://${bucketName}/`);
+	},
+);

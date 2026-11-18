@@ -15,7 +15,6 @@ import {
 import { r2PrefixForTedi, uniqueStrings } from "./shared";
 import {
 	ACTIVE_WORKSTATION_PROFILE_ID,
-	WORKSTATION_PROCESS_ARTIFACT_BUCKET_REF,
 	MAX_REVIEWER_OPENABLE_LOG_BYTES,
 } from "./constants";
 import {
@@ -37,8 +36,7 @@ export function workstationProcessArtifactRefs(
 	const evidenceKey = `${baseKey}/evidence.json`;
 	const stdoutKey = `${baseKey}/stdout.log`;
 	const stderrKey = `${baseKey}/stderr.log`;
-	const refForKey = (key: string) =>
-		`r2://${WORKSTATION_PROCESS_ARTIFACT_BUCKET_REF}/${key}`;
+	const refForKey = (key: string) => `r2://${c.env.BACKUP_BUCKET_NAME}/${key}`;
 	return {
 		evidence: { key: evidenceKey, ref: refForKey(evidenceKey) },
 		stdout: { key: stdoutKey, ref: refForKey(stdoutKey) },

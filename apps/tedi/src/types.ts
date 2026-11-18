@@ -23,6 +23,7 @@ export interface TediEnv {
 	// Storage
 	TEDI_STORAGE: R2Bucket;
 	BACKUP_BUCKET: R2Bucket;
+	BACKUP_BUCKET_NAME: string;
 	DB: D1Database;
 	ARTIFACTS?: Artifacts;
 
