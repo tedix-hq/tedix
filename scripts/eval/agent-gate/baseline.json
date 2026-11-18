@@ -1,0 +1,42 @@
+{
+	"caseHash": "bff6d9dd93d12bf3623dfcecc976671b7d82a7e9e6a607a2f014a97211710515",
+	"repeats": 3,
+	"cases": {
+		"numbered-release-0": {
+			"trials": 3,
+			"passes": 3
+		},
+		"numbered-release-1": {
+			"trials": 3,
+			"passes": 3
+		},
+		"numbered-release-10": {
+			"trials": 3,
+			"passes": 3
+		},
+		"numbered-release-19": {
+			"trials": 3,
+			"passes": 3
+		},
+		"numbered-release-29": {
+			"trials": 3,
+			"passes": 3
+		},
+		"short-database-name": {
+			"trials": 3,
+			"passes": 3
+		},
+		"database-over-branch": {
+			"trials": 3,
+			"passes": 3
+		},
+		"short-prompt-work-title": {
+			"trials": 3,
+			"passes": 3
+		},
+		"utf8-budget": {
+			"trials": 3,
+			"passes": 3
+		}
+	}
+}
