@@ -39,6 +39,62 @@ function appScripts(): Array<[string, Record<string, string>]> {
 }
 
 describe("local Wrangler config", () => {
+	test("supplies an isolated app-session signing key without production secrets", async () => {
+		const { mintWorkspaceAppSession, verifyWorkspaceAppSession } =
+			await import("../packages/auth/src/workspace-app-session");
+		const directory = mkdtempSync(join(tmpdir(), "tedix-local-app-session-"));
+		const path = join(directory, "wrangler.jsonc");
+		writeFileSync(
+			path,
+			JSON.stringify({
+				name: "public-installation-api",
+				vars: { SECRETS_MASTER_KEY: "deployment-key-must-not-survive" },
+				secrets: { required: ["SECRETS_MASTER_KEY"] },
+			}),
+		);
+		const config = createLocalWranglerConfig(path);
+		const vars = config.vars as Record<string, string>;
+		const key = vars.SECRETS_MASTER_KEY!;
+		expect(Buffer.from(key, "base64").byteLength).toBe(32);
+		expect(key).not.toBe("deployment-key-must-not-survive");
+		expect(config.secrets).toBeUndefined();
+		expect(
+			(createLocalWranglerConfig(path).vars as Record<string, string>)
+				.SECRETS_MASTER_KEY,
+		).toBe(key);
+		const otherDirectory = mkdtempSync(
+			join(tmpdir(), "tedix-local-app-session-"),
+		);
+		const otherPath = join(otherDirectory, "wrangler.jsonc");
+		writeFileSync(otherPath, readFileSync(path));
+		expect(
+			(createLocalWranglerConfig(otherPath).vars as Record<string, string>)
+				.SECRETS_MASTER_KEY,
+		).not.toBe(key);
+		const { encryptSecret, decryptSecret } =
+			await import("../packages/db/src/utils/secrets-encryption");
+		const encrypted = await encryptSecret(key, "org-example", "local-value");
+		expect(await decryptSecret(key, "org-example", encrypted)).toBe(
+			"local-value",
+		);
+		const claims = {
+			organizationId: "org-example",
+			workspaceId: "11111111-1111-4111-8111-111111111111",
+			gadgetId: "22222222-2222-4222-8222-222222222222",
+			revisionId: "33333333-3333-4333-8333-333333333333",
+			revision: 1,
+			principal: { kind: "user", id: "local-owner" },
+			role: "build" as const,
+			grants: [],
+		};
+		await expect(mintWorkspaceAppSession("", claims)).rejects.toThrow(
+			"App session signing unavailable",
+		);
+		const session = await mintWorkspaceAppSession(key, claims);
+		expect(await verifyWorkspaceAppSession(key, session.token)).toMatchObject(
+			claims,
+		);
+	});
 	test("pins browser build and Worker Descope identity in the spawned local lane", () => {
 		const keys = [
 			"DESCOPE_PROJECT_ID",
