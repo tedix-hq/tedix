@@ -1,6 +1,6 @@
 /**
- * Workspace identity reads prefer per-tedi Artifacts text state, while keeping
- * R2 as migration fallback for files that are not in the repo yet.
+ * Workspace identity reads come only from the per-tedi Artifacts repo; files
+ * that are missing there are reported so the caller can provision defaults.
  * Run: `bun run src/workspace.test.ts`.
  */
 import assert from "node:assert/strict";
@@ -9,23 +9,8 @@ import {
 	selectIdentityWorkspaceFiles,
 } from "./workspace";
 
-function bucketWith(values: Record<string, string>): R2Bucket {
-	return {
-		get: async (key: string) => {
-			const value = values[key];
-			return value
-				? ({ text: async () => value } as unknown as R2ObjectBody)
-				: null;
-		},
-	} as unknown as R2Bucket;
-}
-
 {
 	const result = await readIdentityFilesWithDiagnostics({
-		bucket: bucketWith({
-			"tedi-1/SOUL.md": "r2 soul",
-			"tedi-1/IDENTITY.md": "r2 identity",
-		}),
 		tediId: "tedi-1",
 		files: ["SOUL.md", "IDENTITY.md"],
 		artifactsReader: async (path) => (path === "SOUL.md" ? "git soul" : null),
@@ -33,46 +18,34 @@ function bucketWith(values: Record<string, string>): R2Bucket {
 
 	assert.deepEqual(
 		result.files.map((file) => [file.key, file.text]),
-		[
-			["SOUL.md", "git soul"],
-			["tedi-1/IDENTITY.md", "r2 identity"],
-		],
-		"Artifacts wins per file, R2 fills missing files",
+		[["SOUL.md", "git soul"]],
+		"only the Artifacts repo supplies instruction files",
 	);
 	assert.equal(result.diagnostics.artifacts.repoFound, true);
-	assert.equal(result.diagnostics.usedR2Fallback, true);
-	assert.deepEqual(result.diagnostics.provisionedFiles, [
-		"SOUL.md",
-		"IDENTITY.md",
-	]);
-	assert.deepEqual(result.diagnostics.missingFiles, []);
+	assert.deepEqual(result.diagnostics.provisionedFiles, ["SOUL.md"]);
+	assert.deepEqual(result.diagnostics.missingFiles, ["IDENTITY.md"]);
 	assert.deepEqual(
 		result.diagnostics.files.map((file) => [
 			file.path,
 			file.source,
 			file.artifact.attempted,
-			file.r2.attempted,
 		]),
 		[
-			["SOUL.md", "artifacts", true, false],
-			["IDENTITY.md", "r2", true, true],
+			["SOUL.md", "artifacts", true],
+			["IDENTITY.md", "missing", true],
 		],
-		"diagnostics capture per-file source and fallback path",
+		"diagnostics report each file as found in Artifacts or missing",
 	);
 }
 
 {
-	const { files } = await readIdentityFilesWithDiagnostics({
-		bucket: bucketWith({ "tedi-1/SOUL.md": "r2 soul" }),
+	const { files, diagnostics } = await readIdentityFilesWithDiagnostics({
 		tediId: "tedi-1",
 		files: ["SOUL.md"],
 		artifactsReader: async () => "   ",
 	});
-	assert.deepEqual(
-		files.map((file) => [file.key, file.text]),
-		[["tedi-1/SOUL.md", "r2 soul"]],
-		"empty Artifacts content falls back to R2",
-	);
+	assert.deepEqual(files, [], "blank Artifacts content counts as missing");
+	assert.deepEqual(diagnostics.missingFiles, ["SOUL.md"]);
 }
 
 assert.deepEqual(

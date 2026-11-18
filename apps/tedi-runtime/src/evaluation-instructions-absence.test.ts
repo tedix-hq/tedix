@@ -32,12 +32,10 @@ const healthy = (): Identity => ({
 				key: null,
 				chars: 0,
 				artifact: { attempted: true, repoFound: true, fileFound: false },
-				r2: { attempted: true, fileFound: false },
 			},
 		],
 		provisionedFiles: [],
 		missingFiles: ["AGENTS.md"],
-		usedR2Fallback: false,
 	},
 });
 const observed = await evaluationInstructionsFromIdentity(
@@ -49,7 +47,7 @@ assert.equal(observed.presence, "absent");
 assert.equal(observed.content, "");
 assert.equal(observed.sha256, await sha256Hex(""));
 const proof = {
-	version: 1,
+	version: 2,
 	tediId: "tedi-1",
 	path: "AGENTS.md",
 	artifacts: {
@@ -59,7 +57,6 @@ const proof = {
 		attempted: true,
 		fileFound: false,
 	},
-	r2: { attempted: true, fileFound: false },
 };
 assert.deepEqual(observed.backendProof, proof);
 assert.equal(
@@ -103,18 +100,6 @@ for (const mutate of [
 	},
 	(x: Identity) => {
 		x.diagnostics.files[0]!.artifact.error = "denied";
-	},
-	(x: Identity) => {
-		x.diagnostics.files[0]!.r2.attempted = false;
-	},
-	(x: Identity) => {
-		x.diagnostics.files[0]!.r2.fileFound = undefined;
-	},
-	(x: Identity) => {
-		x.diagnostics.files[0]!.r2.fileFound = true;
-	},
-	(x: Identity) => {
-		x.diagnostics.files[0]!.r2.error = "unavailable";
 	},
 	(x: Identity) => {
 		x.diagnostics.tediId = "other";

@@ -123,6 +123,7 @@ import {
 	composeSystemPrompt,
 	readIdentityFilesWithDiagnostics,
 } from "./workspace";
+import { provisionMissingIdentityFiles } from "./identity-provisioning";
 type ActiveTurnBinding = NonNullable<AgentTediDO["activeTurnBinding"]>;
 /**
  * Backstop on a GOVERNED step ceiling — not a default turn budget. A chat turn
@@ -616,14 +617,23 @@ export const runtimeParentTurns = {
 			);
 		}
 		const identity = await readIdentityFilesWithDiagnostics({
-			bucket: this.env.TEDI_STORAGE,
 			tediId,
 			artifacts: this.env.ARTIFACTS,
 			artifactsAccountId: this.env.CF_ACCOUNT_ID,
 			artifactsNamespace: TEDIX_ARTIFACTS_NAMESPACE_PRODUCTION,
 		});
 
-		const files = identity.files;
+		const files = [
+			...identity.files,
+			...(orgId
+				? await provisionMissingIdentityFiles(this.env, {
+						tediId,
+						organizationId: orgId,
+						slug: resolvedSlug,
+						diagnostics: identity.diagnostics,
+					})
+				: []),
+		];
 		if (tediId !== cachedTediId || orgId !== cachedOrgId) {
 			this.platformClient = null;
 			this.mcpRuntime = null;

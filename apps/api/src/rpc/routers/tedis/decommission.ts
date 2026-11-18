@@ -156,7 +156,6 @@ function purgeResidualManualSteps(
 					`${tediId}/tedi_shell_workspace/*  (shell/think workspace spillover)`,
 					`${tediId}/harness/runs/*  (redacted trace bundles)`,
 					`${tediId}/artifacts/turn_summary/*  (turn-summary artifacts)`,
-					`${tediId}/SOUL.md, ${tediId}/IDENTITY.md, ${tediId}/USER.md, ${tediId}/AGENTS.md, ${tediId}/TOOLS.md, ${tediId}/memory/*  (R2 identity fallback)`,
 				].join("; ") +
 				`. Browser captures are the one exception and use a \`tedis/\` prefix: delete tedis/${tediId}/browser-* AND, for any org that ran this tedi, orgs/<orgId>/tedis/${tediId}/browser-* (browser-captures / browser-sessions / browser-actions).`,
 			reason:

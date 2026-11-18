@@ -273,8 +273,8 @@ describe("orchestrateTediDecommission — hard-purge orchestration", () => {
 		expect(r2?.step).toContain(`${tediId}/tedi_shell_workspace/`);
 		expect(r2?.step).toContain(`${tediId}/harness/runs/`);
 		expect(r2?.step).toContain(`${tediId}/artifacts/turn_summary/`);
-		expect(r2?.step).toContain(`${tediId}/SOUL.md`);
-		expect(r2?.step).toContain(`${tediId}/memory/`);
+		expect(r2?.step).not.toContain(`${tediId}/SOUL.md`);
+		expect(r2?.step).not.toContain(`${tediId}/memory/`);
 		// Browser captures are the documented exception (still `tedis/`/`orgs/`).
 		expect(r2?.step).toContain(`tedis/${tediId}/browser-`);
 		expect(r2?.step).toContain(`orgs/<orgId>/tedis/${tediId}/browser-`);
