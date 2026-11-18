@@ -502,6 +502,12 @@ describe("app runtime host", () => {
 			readOutput: vi.fn(base.readOutput),
 		};
 		const args = { slot: "opportunities", outputId };
+		// With nothing kept there is nothing to restore, so the file is not read.
+		expect(await handleAppRuntimeCall(host, "app.draft.read", args)).toEqual({
+			ok: true,
+			value: null,
+		});
+		expect(host.readOutput).not.toHaveBeenCalled();
 		await handleAppRuntimeCall(host, "app.draft.write", {
 			...args,
 			revision: 1,
