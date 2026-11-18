@@ -63,6 +63,23 @@ export function agentConversations(
 }
 
 /**
+ * How many runs agents started in the chat wait for a person's decision.
+ * `open` is the conversation on screen, whose count this tab knows before the
+ * list does.
+ */
+export function agentRunsNeedingYou(
+	conversations: readonly ConversationSummary[],
+	open?: { id: string | null; pendingApprovals: number },
+): number {
+	return agentConversations(conversations).filter(
+		(run) =>
+			(run.id === open?.id
+				? open.pendingApprovals
+				: (run.pendingApprovals ?? 0)) > 0,
+	).length;
+}
+
+/**
  * A skill run counts for the agent when no person started it: the schedule
  * did, or an agent or app, or the starter was never recorded. A run someone
  * started by hand, or a test, is theirs.

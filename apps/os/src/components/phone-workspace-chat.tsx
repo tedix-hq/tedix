@@ -9,11 +9,14 @@ export function PhoneWorkspaceChat({
 	conversationId,
 	onConversationChange,
 	onOpenWorkspace,
+	onOpenAgents,
 }: {
 	workspaceId: string;
 	conversationId: string | null;
 	onConversationChange: (conversationId: string | null) => void;
 	onOpenWorkspace: () => void;
+	/** Opens the workspace's Agents view, which lists the runs agents started. */
+	onOpenAgents: () => void;
 }) {
 	const [listOpen, setListOpen] = useState(false);
 	const viewOnly = useWorkspaceViewOnly(workspaceId);
@@ -39,6 +42,7 @@ export function PhoneWorkspaceChat({
 					setListOpen(false);
 					onConversationChange(next);
 				}}
+				onOpenAgents={onOpenAgents}
 				onOpenList={() => setListOpen(true)}
 				onSelectConversation={(next) => {
 					setListOpen(false);

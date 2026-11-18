@@ -2108,6 +2108,7 @@ export function CanvasPage({
 									onSendMessageReady={registerWidgetFollowUp}
 									onActivity={reportChatActivity}
 									onConversations={setChatConversations}
+									onOpenAgents={() => showPane("agents")}
 									unreadByConversation={unreadByConversation}
 									chatNotifications={chatNotifications}
 									viewOnly={chatViewOnly}
