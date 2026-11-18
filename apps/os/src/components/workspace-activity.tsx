@@ -372,10 +372,13 @@ export function workspaceActivityEntries(
 		}
 		const named = (entry: (typeof drafts)[number]) =>
 			entry.item.actor.kind !== "service";
-		// The agent's own record says who really made the change.
-		const keep = byWorkspaceAgent(draft.item)
+		// The agent's own record says who really made the change. The store's
+		// unsigned note of a rename or archive does not: a person's line wins.
+		const agentRecord = (entry: (typeof drafts)[number]) =>
+			byWorkspaceAgent(entry.item) && named(entry);
+		const keep = agentRecord(draft)
 			? draft
-			: byWorkspaceAgent(other.item) || named(other) || !named(draft)
+			: agentRecord(other) || named(other) || !named(draft)
 				? other
 				: draft;
 		// "restored" and "renamed" say more than "changed the details of".
