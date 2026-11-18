@@ -1608,6 +1608,10 @@
 		{
 			"name": "20261118171241_generated_json_columns/migration.sql",
 			"sha256": "406f44b4a1e6ec64a1100ee96e404244704771d0c0d2042db85e31636f9f3129"
+		},
+		{
+			"name": "20261118175115_backfill-skill-run-retirement/migration.sql",
+			"sha256": "bed71ed46f980834cf44fdc5d6b9f24c95ec9c4bea0491bea7af8b5d55b0e877"
 		}
 	]
 }
