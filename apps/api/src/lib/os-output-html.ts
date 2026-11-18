@@ -459,7 +459,12 @@ function documentAppearanceCss(content: OsOutputContent): string {
 		],
 	}[typeface];
 	const width = content.appearance?.wide ? 980 : 700;
-	return `${DOCUMENT_CSS}body{font-family:${family};font-size:${size}px;line-height:${lineHeight}}article{line-height:${lineHeight}}article,header.export-header{max-width:${width}px;margin-left:auto;margin-right:auto}`;
+	// On paper the screen size is too large and the column too narrow: print
+	// at five sixths (16px becomes 10pt), across the page, inside its margins.
+	const printSize = Math.round((Number(size) * 500) / 6) / 100;
+	const printLineHeight = Math.round((Number(lineHeight) - 0.2) * 100) / 100;
+	const print = `@page{margin:2cm}@media print{body{padding:0;font-size:${printSize}px;line-height:${printLineHeight}}article{line-height:${printLineHeight}}article,header.export-header{max-width:none}article th,article td{padding:5px 9px}}`;
+	return `${DOCUMENT_CSS}body{font-family:${family};font-size:${size}px;line-height:${lineHeight}}article{line-height:${lineHeight}}article,header.export-header{max-width:${width}px;margin-left:auto;margin-right:auto}${print}`;
 }
 
 // Keep this in step with the viewer's slide-fonts.ts system-family exclusions.
