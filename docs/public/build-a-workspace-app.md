@@ -1214,15 +1214,8 @@ work in its projects, and the earliest known unresolved deadline. This is
 reported activity, not human online presence. Counts and deadlines describe
 loaded records; unread sources stay visibly unavailable.
 
-| Old collection URL                                                     | Destination                                       |
-| ---------------------------------------------------------------------- | ------------------------------------------------- |
-| `/work/attention`                                                      | `/work?view=feed&filter=attention` — Needs action |
-| `/work/needs-you`                                                      | `/work?view=deck`                                 |
-| `/work/queue`                                                          | `/work?view=feed&filter=queue` — In progress      |
-| `/work/queue?disposition=completed`, `/work/attempts`, `/work/history` | `/work?view=feed&filter=history` — Done           |
-| `/work/recovery`, `/work/stalled`                                      | `/work?view=feed&filter=stalled`                  |
-| `/work/portfolio`                                                      | `/work?app=portfolio` — Goals and Projects        |
-| `/work/agents`, `/work/office`, `/work/outbound`                       | The matching installed app                        |
+Use `/work?view=feed` for Activity and `/work?view=deck` for Decisions.
+Links to other Work apps select the installed app for that role.
 
 Work item, project, request, run and receipt links remain direct. Office keeps
 the personal request ledger and Support section. The existing Attention app

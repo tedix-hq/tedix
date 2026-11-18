@@ -315,11 +315,7 @@ export interface VerifiedWorkItemCommentAuthor {
 	metadata: Record<string, unknown> | undefined;
 }
 
-/**
- * Derive comment authorship exclusively from authenticated context. Callers
- * may retain legacy author fields in the wire schema, but those fields never
- * decide the persisted identity.
- */
+/** Derive persisted comment authorship exclusively from authenticated context. */
 export async function verifiedWorkItemCommentAuthor(
 	context: BaseContext,
 	orgId: string,

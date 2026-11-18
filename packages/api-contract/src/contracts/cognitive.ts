@@ -2448,15 +2448,7 @@ export const skillsContract = base.route({ tags: ["skills"] }).router({
 	validate: oc
 		.route({ method: "POST", path: "/skills/validate", tags: ["cognitive"] })
 		.input(
-			z.object({
-				// Mode A: validate an existing stored skill (legacy)
-				id: z.string().optional(),
-				// Alias for id — the sibling skill-workflow tools all take
-				// `skillId`, and an unknown key here was silently dropped, so
-				// validate({skillId}) validated an empty draft instead.
-				skillId: z.string().optional(),
-				slug: z.string().optional(),
-				// Mode B: validate a draft input (same shape as record, all optional so callers can validate partial drafts)
+			z.strictObject({
 				title: z.string().optional(),
 				description: z.string().optional(),
 				content: z.string().optional(),

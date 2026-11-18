@@ -1971,16 +1971,10 @@
 		{
 			"name": "validate_skill",
 			"remoteName": "validate_skill",
-			"description": "Validate an existing or draft skill without mutating stored skills.",
+			"description": "Validate a draft skill without writing it.",
 			"inputSchema": {
 				"type": "object",
 				"properties": {
-					"id": {
-						"type": "string"
-					},
-					"slug": {
-						"type": "string"
-					},
 					"title": {
 						"type": "string"
 					},
@@ -11310,16 +11304,10 @@
 		{
 			"name": "validate_skill",
 			"remoteName": "validate_skill",
-			"description": "Validate an existing or draft skill without mutating stored skills.",
+			"description": "Validate a draft skill without writing it.",
 			"inputSchema": {
 				"type": "object",
 				"properties": {
-					"id": {
-						"type": "string"
-					},
-					"slug": {
-						"type": "string"
-					},
 					"title": {
 						"type": "string"
 					},
