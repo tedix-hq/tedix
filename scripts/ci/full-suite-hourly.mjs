@@ -327,7 +327,30 @@ export function scriptsConsumers(root, workspaceDirs, files) {
 	return consumers;
 }
 
+// The Postgres copy is not in service, so its suite runs only when a push
+// changes it, or when someone starts a run by hand.
+const POSTGRES_FILE =
+	/^packages\/db\/(?:src\/pg\/|src\/queries\/postgres\/|drizzle-pg\/|drizzle\.pg\.config\.ts$|vitest\.postgres\.config\.ts$|src\/test\/(?:postgres\.ts|pg-[^/]+)$)|\.postgres\.test\.ts$/;
+const POSTGRES_SCRIPT = "test:postgres";
+
 export function suiteSelection(root, { eventName, files }) {
+	const plan = selectSuite(root, { eventName, files });
+	const owed =
+		eventName === "workflow_dispatch" ||
+		(eventName === "push" &&
+			(files === null || files.some((file) => POSTGRES_FILE.test(file))));
+	if (owed) return plan;
+	return {
+		...plan,
+		matrix: {
+			include: plan.matrix.include.filter(
+				(job) => job.testScript !== POSTGRES_SCRIPT,
+			),
+		},
+	};
+}
+
+function selectSuite(root, { eventName, files }) {
 	const matrix = workspaceMatrix(root);
 	const full = () => ({ matrix, repository: true, scope: "full" });
 	if (eventName !== "push" || files === null) return full();
