@@ -411,46 +411,6 @@ describe("CmsDeprovisionWorkflow", () => {
 		expect(mocks.removeClaim).toHaveBeenCalledOnce();
 	});
 
-	it("finds an older provider hostname when a pending claim was already routed", async () => {
-		const claim = {
-			id: "claim-legacy",
-			organizationId,
-			siteId,
-			hostname: "blog.example.com",
-			providerHostnameId: null,
-			status: "pending",
-		};
-		mocks.getSite.mockResolvedValue({
-			id: siteId,
-			slug: "acme",
-			authoringAppId: null,
-			customDomain: claim.hostname,
-		});
-		mocks.listClaims.mockResolvedValue([claim]);
-		mocks.beginRemovingClaim.mockResolvedValue({
-			...claim,
-			status: "removing_legacy",
-		});
-		mocks.findHostname.mockResolvedValue({
-			id: "provider-legacy",
-			hostname: claim.hostname,
-		});
-		const { workflow, event, step } = harness(
-			Response.json(completeProviderResult),
-		);
-		await workflow.run(event as never, step as never);
-		expect(mocks.findHostname).toHaveBeenCalledWith(
-			expect.anything(),
-			claim.hostname,
-		);
-		expect(mocks.deleteHostname).toHaveBeenCalledWith(
-			expect.anything(),
-			"provider-legacy",
-			claim.hostname,
-		);
-		expect(mocks.findHostname).toHaveBeenCalledOnce();
-	});
-
 	it("keeps the failed receipt and site if hostname deletion fails", async () => {
 		mocks.getSite.mockResolvedValue({
 			id: siteId,
@@ -458,9 +418,18 @@ describe("CmsDeprovisionWorkflow", () => {
 			authoringAppId: null,
 			customDomain: "blog.example.com",
 		});
-		mocks.findHostname.mockResolvedValue({
-			id: "legacy-provider",
+		const claim = {
+			id: "claim-active",
+			organizationId,
+			siteId,
 			hostname: "blog.example.com",
+			providerHostnameId: "provider-active",
+			status: "active",
+		};
+		mocks.listClaims.mockResolvedValue([claim]);
+		mocks.beginRemovingClaim.mockResolvedValue({
+			...claim,
+			status: "removing",
 		});
 		mocks.deleteHostname.mockRejectedValue(
 			new Error("Cloudflare denied deletion"),
@@ -473,44 +442,33 @@ describe("CmsDeprovisionWorkflow", () => {
 		);
 		expect(mocks.deleteHostname).toHaveBeenCalledWith(
 			expect.anything(),
-			"legacy-provider",
+			"provider-active",
 			"blog.example.com",
 		);
 		expect(fetch).not.toHaveBeenCalled();
 		expect(mocks.completeOperation).not.toHaveBeenCalled();
 	});
 
-	it("removes a legacy site hostname with provider exact lookup", async () => {
+	it("stops before deleting resources when an external domain has no claim", async () => {
 		mocks.getSite.mockResolvedValue({
 			id: siteId,
 			slug: "acme",
 			authoringAppId: null,
 			customDomain: "blog.example.com",
 		});
-		mocks.findHostname.mockResolvedValue({
-			id: "legacy-provider",
-			hostname: "blog.example.com",
-		});
-		const { workflow, event, step } = harness(
+		const { workflow, event, step, fetch } = harness(
 			Response.json(completeProviderResult),
 		);
-		await expect(
-			workflow.run(event as never, step as never),
-		).resolves.toMatchObject({
-			deleted: expect.arrayContaining(["hostname", "site"]),
-		});
-		expect(mocks.findHostname).toHaveBeenCalledWith(
-			expect.anything(),
-			"blog.example.com",
+		await expect(workflow.run(event as never, step as never)).rejects.toThrow(
+			"CMS custom domain has no domain claim",
 		);
-		expect(mocks.deleteHostname).toHaveBeenCalledWith(
-			expect.anything(),
-			"legacy-provider",
-			"blog.example.com",
-		);
+		expect(mocks.findHostname).not.toHaveBeenCalled();
+		expect(mocks.deleteHostname).not.toHaveBeenCalled();
+		expect(fetch).not.toHaveBeenCalled();
+		expect(mocks.completeOperation).not.toHaveBeenCalled();
 	});
 
-	it.each(["blog.tedix.dev", "blog.tedix.tech"])(
+	it.each(["tedix.dev", "tedix.tech", "blog.tedix.dev", "blog.tedix.tech"])(
 		"keeps the platform route for %s while removing the CMS site",
 		async (customDomain) => {
 			mocks.getSite.mockResolvedValue({

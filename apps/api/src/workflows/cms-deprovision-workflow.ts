@@ -172,6 +172,12 @@ export class CmsDeprovisionWorkflow extends WorkflowEntrypoint<
 						siteId,
 					});
 					const hostnameEnv = this.env as unknown as CmsCustomHostnameEnv;
+					if (
+						site.customDomain &&
+						!isPlatformHostname(site.customDomain) &&
+						!claims.some((claim) => claim.hostname === site.customDomain)
+					)
+						throw new Error("CMS custom domain has no domain claim");
 					for (const claim of claims) {
 						const key = { id: claim.id, organizationId, siteId };
 						const removing = await beginRemovingCmsDomainClaim(db, key);
@@ -182,15 +188,9 @@ export class CmsDeprovisionWorkflow extends WorkflowEntrypoint<
 									: "CMS domain claim changed during deprovision",
 							);
 						let providerId = removing.providerHostnameId;
-						if (
-							!providerId &&
-							(removing.status === "removing_provisioning" ||
-								removing.status === "removing_legacy")
-						) {
-							// These states prove the provider may hold a hostname whose
-							// ID was never recorded: creation started before the lease
-							// went stale, or the hostname was already routed by this
-							// site. An ordinary pending claim has neither provenance.
+						if (!providerId && removing.status === "removing_provisioning") {
+							// A stale provisioning lease may have created a hostname
+							// before its provider ID was recorded.
 							const provider = await findCmsCustomHostname(
 								hostnameEnv,
 								removing.hostname,
@@ -208,29 +208,7 @@ export class CmsDeprovisionWorkflow extends WorkflowEntrypoint<
 						if (!(await removeCmsDomainClaim(db, key)))
 							throw new Error("CMS domain claim was not removed");
 					}
-					if (
-						site.customDomain &&
-						!claims.some((claim) => claim.hostname === site.customDomain) &&
-						!isPlatformHostname(site.customDomain)
-					) {
-						// Pre-claim external sites may have a SaaS hostname. Tedix-owned
-						// hosts use platform DNS/routes and cannot have SaaS records.
-						const legacy = await findCmsCustomHostname(
-							hostnameEnv,
-							site.customDomain,
-						);
-						if (legacy)
-							await deleteCmsCustomHostname(
-								hostnameEnv,
-								legacy.id,
-								site.customDomain,
-							);
-					}
-					const removed =
-						claims.length > 0 ||
-						(site.customDomain && !isPlatformHostname(site.customDomain))
-							? ["hostname"]
-							: [];
+					const removed = claims.length > 0 ? ["hostname"] : [];
 					await updateCmsDeprovisionOperation(db, {
 						siteId,
 						organizationId,

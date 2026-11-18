@@ -33,7 +33,7 @@ export interface ReserveCmsDomainClaimParams extends CmsDomainClaimKey {
 	expiresAt: string;
 }
 
-/** Atomic reservation; a legacy active cms_sites hostname blocks a new claim. */
+/** Atomic reservation; a hostname routed by another site blocks a new claim. */
 export async function reserveCmsDomainClaim(
 	db: DbQueryClient,
 	input: ReserveCmsDomainClaimParams,
@@ -161,43 +161,6 @@ export async function listCmsDomainClaimsForSite(
 		);
 }
 
-/** Active sites routed by a custom domain that no domain claim covers yet. */
-export async function listUnclaimedCmsCustomDomains(
-	db: DbQueryClient,
-	limit = 50,
-): Promise<
-	Array<{ siteId: string; organizationId: string; hostname: string }>
-> {
-	const rows = await db
-		.select({
-			siteId: cmsSites.id,
-			organizationId: cmsSites.organizationId,
-			hostname: cmsSites.customDomain,
-		})
-		.from(cmsSites)
-		.where(
-			and(
-				eq(cmsSites.status, "active"),
-				isNotNull(cmsSites.customDomain),
-				notExists(
-					db
-						.select({ id: cmsDomainClaims.id })
-						.from(cmsDomainClaims)
-						.where(
-							and(
-								eq(cmsDomainClaims.siteId, cmsSites.id),
-								eq(cmsDomainClaims.hostname, cmsSites.customDomain),
-							),
-						),
-				),
-			),
-		)
-		.limit(limit);
-	return rows.flatMap((row) =>
-		row.hostname ? [{ ...row, hostname: row.hostname }] : [],
-	);
-}
-
 /** Reserve one provider mutation; removal waits for this lease to finish. */
 export async function beginCmsDomainProvisioning(
 	db: DbQueryClient,
@@ -268,51 +231,6 @@ export async function finishCmsDomainProvisioning(
 				or(
 					isNull(cmsDomainClaims.providerHostnameId),
 					eq(cmsDomainClaims.providerHostnameId, input.providerHostnameId),
-				),
-			),
-		)
-		.returning();
-	return claim ?? null;
-}
-
-/** Attach an already-routed legacy hostname without changing the public route. */
-export async function adoptLegacyCmsDomainClaim(
-	db: DbQueryClient,
-	input: CmsDomainClaimKey & { providerHostnameId: string },
-): Promise<CmsDomainClaimRow | null> {
-	if (!input.providerHostnameId.trim()) return null;
-	const now = new Date().toISOString();
-	const [claim] = await db
-		.update(cmsDomainClaims)
-		.set({
-			status: "active",
-			providerHostnameId: input.providerHostnameId,
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(cmsDomainClaims.id, input.id),
-				eq(cmsDomainClaims.organizationId, input.organizationId),
-				eq(cmsDomainClaims.siteId, input.siteId),
-				eq(cmsDomainClaims.status, "pending"),
-				eq(cmsDomainClaims.kind, "primary"),
-				gt(cmsDomainClaims.expiresAt, now),
-				or(
-					isNull(cmsDomainClaims.providerHostnameId),
-					eq(cmsDomainClaims.providerHostnameId, input.providerHostnameId),
-				),
-				exists(
-					db
-						.select({ id: cmsSites.id })
-						.from(cmsSites)
-						.where(
-							and(
-								eq(cmsSites.id, input.siteId),
-								eq(cmsSites.organizationId, input.organizationId),
-								eq(cmsSites.status, "active"),
-								eq(cmsSites.customDomain, cmsDomainClaims.hostname),
-							),
-						),
 				),
 			),
 		)
@@ -461,11 +379,7 @@ export async function beginRemovingCmsDomainClaim(
 ): Promise<CmsDomainClaimRow | null> {
 	const claim = await getCmsDomainClaimForSite(db, input);
 	if (!claim) return null;
-	if (
-		claim.status === "removing" ||
-		claim.status === "removing_provisioning" ||
-		claim.status === "removing_legacy"
-	)
+	if (claim.status === "removing" || claim.status === "removing_provisioning")
 		return claim;
 	const timestamp = now.toISOString();
 	const staleBefore = new Date(
@@ -473,26 +387,10 @@ export async function beginRemovingCmsDomainClaim(
 	).toISOString();
 	if (claim.status === "provisioning" && claim.updatedAt > staleBefore)
 		return null;
-	const legacyRoute = exists(
-		db
-			.select({ id: cmsSites.id })
-			.from(cmsSites)
-			.where(
-				and(
-					eq(cmsSites.id, input.siteId),
-					eq(cmsSites.organizationId, input.organizationId),
-					eq(cmsSites.customDomain, claim.hostname),
-				),
-			),
-	);
 	const removingStatus =
 		claim.status === "provisioning" && !claim.providerHostnameId
 			? "removing_provisioning"
-			: claim.status === "pending" && !claim.providerHostnameId
-				? sql<
-						"removing_legacy" | "removing"
-					>`CASE WHEN ${legacyRoute} THEN 'removing_legacy' ELSE 'removing' END`
-				: "removing";
+			: "removing";
 	const [claimRows] = await db.batch([
 		db
 			.update(cmsDomainClaims)
@@ -533,7 +431,6 @@ export async function beginRemovingCmsDomainClaim(
 									or(
 										eq(cmsDomainClaims.status, "removing"),
 										eq(cmsDomainClaims.status, "removing_provisioning"),
-										eq(cmsDomainClaims.status, "removing_legacy"),
 									),
 								),
 							),
@@ -596,7 +493,6 @@ export async function removeCmsDomainClaim(
 				or(
 					eq(cmsDomainClaims.status, "removing"),
 					eq(cmsDomainClaims.status, "removing_provisioning"),
-					eq(cmsDomainClaims.status, "removing_legacy"),
 				),
 			),
 		)
