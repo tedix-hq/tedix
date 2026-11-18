@@ -31,6 +31,7 @@ import {
 import {
 	useWorkspaceMute,
 	WorkspaceArchiveDialog,
+	WorkspaceMuteDialog,
 	WorkspaceFormDialog,
 } from "@/components/workspace-actions";
 import { WorkspaceInfoDialog } from "@/components/workspace-info-dialog";
@@ -49,7 +50,7 @@ export interface WorkspaceRowPin {
 	onToggle: () => void;
 }
 
-type OpenDialog = "rename" | "share" | "archive" | "info" | null;
+type OpenDialog = "rename" | "share" | "archive" | "info" | "mute" | null;
 
 /**
  * Wraps a workspace row with its actions, so a workspace can be managed
@@ -95,10 +96,20 @@ export function WorkspaceRowMenu({
 				{pin.pinned ? <PushPinSlash size={14} /> : <PushPin size={14} />}
 				{pin.pinned ? "Unpin" : "Pin"}
 			</Item>
-			<Item disabled={mute.disabled} onClick={mute.toggle}>
-				{mute.muted ? <Bell size={14} /> : <BellSlash size={14} />}
-				{mute.muted ? "Unmute" : "Mute"}
-			</Item>
+			{mute.muted ? (
+				<>
+					<Item disabled>
+						<BellSlash size={14} /> {mute.label}
+					</Item>
+					<Item disabled={mute.disabled} onClick={mute.unmute}>
+						<Bell size={14} /> Unmute
+					</Item>
+				</>
+			) : (
+				<Item disabled={mute.disabled} onClick={() => setDialog("mute")}>
+					<BellSlash size={14} /> Mute…
+				</Item>
+			)}
 			<Item
 				disabled={unread === 0 || markRead.isPending}
 				onClick={() =>
@@ -167,6 +178,14 @@ export function WorkspaceRowMenu({
 					workspace={workspace}
 					onOpenChange={close}
 					onSaved={() => undefined}
+				/>
+			) : null}
+			{dialog === "mute" ? (
+				<WorkspaceMuteDialog
+					workspaceName={workspace.name}
+					open
+					onOpenChange={close}
+					onChoose={mute.mute}
 				/>
 			) : null}
 			{dialog === "share" ? (

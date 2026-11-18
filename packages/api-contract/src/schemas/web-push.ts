@@ -36,7 +36,58 @@ export const WebPushPreferencesSchema = z.object({
 	// Optional so stored rows and stale clients without the field parse, and an
 	// omitted write keeps the muted workspaces already saved.
 	mutedWorkspaceIds: z.array(z.string().uuid()).max(100).optional(),
+	// When a muted workspace turns itself back on, by workspace id. A muted
+	// workspace with no entry here stays muted until the person unmutes it.
+	mutedWorkspaceUntil: z
+		.record(z.string().uuid(), z.iso.datetime())
+		.refine((value) => Object.keys(value).length <= 100)
+		.optional(),
 });
+export type WebPushPreferences = z.infer<typeof WebPushPreferencesSchema>;
+
+type WorkspaceMutes = Pick<
+	WebPushPreferences,
+	"mutedWorkspaceIds" | "mutedWorkspaceUntil"
+>;
+
+/**
+ * The workspaces that are muted at `now`. A timed mute ends by itself: its
+ * time is compared here on every read, so nothing has to run when it passes.
+ */
+export function activeWorkspaceMutes(
+	preferences: WorkspaceMutes,
+	now: number,
+): {
+	mutedWorkspaceIds: string[];
+	mutedWorkspaceUntil: Record<string, string>;
+} {
+	const until = preferences.mutedWorkspaceUntil ?? {};
+	const mutedWorkspaceUntil: Record<string, string> = {};
+	const mutedWorkspaceIds = (preferences.mutedWorkspaceIds ?? []).filter(
+		(id) => {
+			const end = until[id];
+			if (end === undefined) return true;
+			if (!(Date.parse(end) > now)) return false;
+			mutedWorkspaceUntil[id] = end;
+			return true;
+		},
+	);
+	return { mutedWorkspaceIds, mutedWorkspaceUntil };
+}
+
+/** Whether one workspace is muted at `now`, and until when (null: until unmuted). */
+export function workspaceMuteState(
+	preferences: WorkspaceMutes | undefined,
+	workspaceId: string | undefined,
+	now: number,
+): { muted: boolean; until: string | null } {
+	if (!preferences || !workspaceId) return { muted: false, until: null };
+	const active = activeWorkspaceMutes(preferences, now);
+	return {
+		muted: active.mutedWorkspaceIds.includes(workspaceId),
+		until: active.mutedWorkspaceUntil[workspaceId] ?? null,
+	};
+}
 export type WebPushKind = "approval" | "needs_input" | "finished";
 
 export function webPushTemplate(kind: WebPushKind) {

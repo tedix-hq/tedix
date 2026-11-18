@@ -1,5 +1,6 @@
 import { buildPushPayload } from "@block65/webcrypto-web-push";
 import {
+	activeWorkspaceMutes,
 	WebPushPreferencesSchema,
 	WebPushSubscriptionSchema,
 	webPushTemplate,
@@ -183,7 +184,7 @@ async function deliverToMember(
 				: [],
 			workspaceId: conversation.workspaceId ?? null,
 			mutedWorkspaceIds: preferences.success
-				? (preferences.data.mutedWorkspaceIds ?? [])
+				? activeWorkspaceMutes(preferences.data, Date.now()).mutedWorkspaceIds
 				: [],
 		})
 	)

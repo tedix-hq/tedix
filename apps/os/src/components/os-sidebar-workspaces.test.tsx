@@ -154,6 +154,16 @@ async function chooseAction(
 	await flush();
 }
 
+/** Pick how long to mute for in the dialog the "Mute…" action opens. */
+async function chooseMute(label: string) {
+	const choice = [
+		...document.querySelectorAll<HTMLElement>('[role="dialog"] button'),
+	].find((node) => node.textContent?.trim() === label);
+	expect(choice, label).toBeDefined();
+	await act(async () => choice!.click());
+	await flush();
+}
+
 function menuLabels() {
 	return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
 		(node) => node.textContent?.trim(),
@@ -418,7 +428,7 @@ describe("OsSidebarWorkspaces", () => {
 		expect(menuLabels()).toEqual([
 			"Rename",
 			"Unpin",
-			"Mute",
+			"Mute…",
 			"Mark as read",
 			"Share",
 			"Information",
@@ -441,11 +451,32 @@ describe("OsSidebarWorkspaces", () => {
 			target: { type: "all" },
 		});
 
-		await chooseAction(container, "Mute");
-		expect(webPush.setPreferences).toHaveBeenCalledWith({
+		// Not muted: no muted icon on the row.
+		expect(container.querySelector("[data-workspace-muted]")).toBeNull();
+		await chooseAction(container, "Mute…");
+		expect(
+			[...document.querySelectorAll<HTMLElement>('[role="dialog"] button')].map(
+				(node) => node.textContent?.trim(),
+			),
+		).toEqual(
+			expect.arrayContaining([
+				"1 hour",
+				"3 hours",
+				"Until tomorrow morning",
+				"3 days",
+				"Until I turn it back on",
+			]),
+		);
+		const before = Date.now();
+		await chooseMute("3 hours");
+		const saved = webPush.setPreferences.mock.calls[0]?.[0];
+		expect(saved).toMatchObject({
 			mutedProjectIds: [],
 			mutedWorkspaceIds: [WORKSPACE_ID],
 		});
+		const until = Date.parse(saved.mutedWorkspaceUntil[WORKSPACE_ID]);
+		expect(until).toBeGreaterThanOrEqual(before + 3 * 60 * 60_000);
+		expect(until).toBeLessThan(before + 3 * 60 * 60_000 + 60_000);
 
 		await chooseAction(container, "Unpin");
 		expect(api.workspacePreferences.setFavorite.mock.calls[0]?.[0]).toEqual({
@@ -477,16 +508,76 @@ describe("OsSidebarWorkspaces", () => {
 		act(() => recent?.click());
 		await flush();
 
+		// The row carries the muted icon, and the menu says the mute has no end.
+		expect(
+			container
+				.querySelector("[data-workspace-muted]")
+				?.getAttribute("aria-label"),
+		).toBe("Muted");
 		await chooseAction(container, "Unmute");
+		expect(menuLabels()).not.toContain("Mute…");
 		expect(webPush.setPreferences).toHaveBeenCalledWith({
 			mutedProjectIds: [],
 			mutedWorkspaceIds: [],
+			mutedWorkspaceUntil: {},
 		});
 		await chooseAction(container, "Pin");
 		expect(api.workspacePreferences.setFavorite.mock.calls[0]?.[0]).toEqual({
 			workspaceId: WORKSPACE_ID,
 			favorite: true,
 		});
+	});
+
+	it("says until when a workspace is muted, and treats a mute whose time has passed as over", async () => {
+		const until = new Date();
+		until.setHours(23, 59, 0, 0);
+		webPush.getStatus.mockResolvedValue({
+			enabled: true,
+			publicKey: "B".repeat(87),
+			preferences: {
+				mutedProjectIds: [],
+				mutedWorkspaceIds: [WORKSPACE_ID],
+				mutedWorkspaceUntil: { [WORKSPACE_ID]: until.toISOString() },
+			},
+		});
+		const container = await renderSidebar();
+		expect(
+			container
+				.querySelector("[data-workspace-muted]")
+				?.getAttribute("aria-label"),
+		).toBe("Muted until 23:59");
+		await act(async () => {
+			container
+				.querySelector<HTMLElement>('[aria-label="Actions for Revenue Ops"]')!
+				.click();
+		});
+		expect(menuLabels()).toEqual(
+			expect.arrayContaining(["Muted until 23:59", "Unmute"]),
+		);
+		expect(menuLabels()).not.toContain("Mute…");
+	});
+
+	it("shows no muted icon once the mute's time has passed", async () => {
+		webPush.getStatus.mockResolvedValue({
+			enabled: true,
+			publicKey: "B".repeat(87),
+			preferences: {
+				mutedProjectIds: [],
+				mutedWorkspaceIds: [WORKSPACE_ID],
+				mutedWorkspaceUntil: {
+					[WORKSPACE_ID]: new Date(Date.now() - 1_000).toISOString(),
+				},
+			},
+		});
+		const container = await renderSidebar();
+		expect(container.querySelector("[data-workspace-muted]")).toBeNull();
+		await act(async () => {
+			container
+				.querySelector<HTMLElement>('[aria-label="Actions for Revenue Ops"]')!
+				.click();
+		});
+		expect(menuLabels()).toContain("Mute…");
+		expect(menuLabels()).not.toContain("Unmute");
 	});
 
 	it("renames a workspace from its row", async () => {

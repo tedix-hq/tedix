@@ -239,6 +239,32 @@ describe("workspace chat push", () => {
 		expect(sent).toHaveLength(1);
 	});
 
+	it("stays quiet during a timed mute and notifies again once it has ended", async () => {
+		const { db, post, notify } = await setup();
+		const mute = (until: string) =>
+			savePushConfig(
+				db,
+				{ organizationId: "org-a", userId: "ben" },
+				"preferences",
+				{
+					mutedProjectIds: [],
+					mutedWorkspaceIds: [WS],
+					mutedWorkspaceUntil: { [WS]: until },
+				},
+			);
+		await post("ben");
+		await mute(new Date(Date.now() + 60 * 60_000).toISOString());
+		await post("ada");
+		expect(await notify("ada")).toEqual({ status: "none", notified: 0 });
+		expect(sent).toEqual([]);
+		await mute(new Date(Date.now() - 1_000).toISOString());
+		await post("ada");
+		expect(await notify("ada")).toEqual({ status: "sent", notified: 1 });
+		expect(sent.map((entry) => entry.endpoint)).toEqual([
+			"https://fcm.googleapis.com/ben",
+		]);
+	});
+
 	it("does nothing when push is not set up for this installation", async () => {
 		const { post, notify } = await setup();
 		await post("ben");

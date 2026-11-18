@@ -1001,6 +1001,7 @@ export const seedState = (): LocalState => ({
 	],
 	pushMutedProjectIds: [],
 	pushMutedWorkspaceIds: [],
+	pushMutedWorkspaceUntil: {},
 	userPreferences: null,
 	gadgetCode: {},
 });

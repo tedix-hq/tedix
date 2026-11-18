@@ -1,3 +1,4 @@
+import { WorkspaceMutedIcon } from "@/components/workspace-muted-icon";
 import { WorkspaceUnreadBadge } from "@/components/workspace-unread-badge";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
 import { WorkspaceListRow } from "./workspace-list-row";
@@ -703,6 +704,7 @@ function WorkspaceIdentity({
 					>
 						{workspace.name}
 					</Text>
+					<WorkspaceMutedIcon workspaceId={workspace.id} />
 					<WorkspaceUnreadBadge
 						workspaceId={workspace.id}
 						name={workspace.name}

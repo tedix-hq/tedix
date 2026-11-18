@@ -10,7 +10,10 @@
  */
 
 import { WorkspaceChangeSummarySchema } from "@tedix/api-contract/schemas/workspace-feed";
-import { WebPushPreferencesSchema } from "@tedix/api-contract/schemas/web-push";
+import {
+	WebPushPreferencesSchema,
+	workspaceMuteState,
+} from "@tedix/api-contract/schemas/web-push";
 import {
 	getMemberByCanonicalUserId,
 	getMemberByUserId,
@@ -143,7 +146,7 @@ export async function notifyWorkspaceChat(
 		);
 		if (
 			preferences.success &&
-			preferences.data.mutedWorkspaceIds?.includes(workspace.id)
+			workspaceMuteState(preferences.data, workspace.id, Date.now()).muted
 		)
 			continue;
 		if (

@@ -2,7 +2,10 @@ import { osAudit } from "../os-audit";
 import { WEB_PUSH_AUDIT } from "../settings-audit";
 import { implement } from "@orpc/server";
 import { webPushContract } from "@tedix/api-contract/contracts/web-push";
-import { WebPushPreferencesSchema } from "@tedix/api-contract/schemas/web-push";
+import {
+	activeWorkspaceMutes,
+	WebPushPreferencesSchema,
+} from "@tedix/api-contract/schemas/web-push";
 import {
 	deletePushConfig,
 	deletePushConfigs,
@@ -54,7 +57,13 @@ export const webPushRouter = webPushOs.router({
 		return {
 			enabled: !!keys,
 			publicKey: keys?.publicKey ?? null,
-			preferences: parsed.success ? parsed.data : { mutedProjectIds: [] },
+			// A timed mute that has passed is already gone from what is returned.
+			preferences: parsed.success
+				? {
+						mutedProjectIds: parsed.data.mutedProjectIds,
+						...activeWorkspaceMutes(parsed.data, Date.now()),
+					}
+				: { mutedProjectIds: [] },
 		};
 	}),
 	subscribe: os.subscribe.handler(async ({ context, input }) => {
@@ -114,11 +123,23 @@ export const webPushRouter = webPushOs.router({
 		const current = WebPushPreferencesSchema.safeParse(
 			(await listPushConfigs(context.db, scope, "preferences"))[0]?.value,
 		);
+		const now = Date.now();
+		const saved = activeWorkspaceMutes(
+			current.success ? current.data : {},
+			now,
+		);
+		// Each list the request leaves out keeps what is saved. Times that have
+		// passed, and times for workspaces no longer muted, are dropped.
 		const preferences = {
 			mutedProjectIds: input.mutedProjectIds,
-			mutedWorkspaceIds:
-				input.mutedWorkspaceIds ??
-				(current.success ? (current.data.mutedWorkspaceIds ?? []) : []),
+			...activeWorkspaceMutes(
+				{
+					mutedWorkspaceIds: input.mutedWorkspaceIds ?? saved.mutedWorkspaceIds,
+					mutedWorkspaceUntil:
+						input.mutedWorkspaceUntil ?? saved.mutedWorkspaceUntil,
+				},
+				now,
+			),
 		};
 		await savePushConfig(context.db, scope, "preferences", preferences);
 		return preferences;

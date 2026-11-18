@@ -21,6 +21,7 @@ import {
 import {
 	useWorkspaceMute,
 	WorkspaceArchiveDialog,
+	WorkspaceMuteDialog,
 	WorkspaceFormDialog,
 } from "@/components/workspace-actions";
 import { WorkspaceBlueprintDialog } from "@/components/workspace-blueprint-dialog";
@@ -64,11 +65,8 @@ export function CanvasWorkspaceControls({
 	const blueprintUpdate = useBlueprintUpdate(workspace);
 	const leave = useWorkspaceLeave(workspace, onArchived);
 
-	const {
-		muted: pushMuted,
-		disabled: pushMuteDisabled,
-		toggle: togglePushMute,
-	} = useWorkspaceMute(workspace?.id);
+	const [muteOpen, setMuteOpen] = useState(false);
+	const mute = useWorkspaceMute(workspace?.id);
 
 	return (
 		<>
@@ -112,18 +110,18 @@ export function CanvasWorkspaceControls({
 									<PencilSimple size={14} /> Edit
 								</Button>
 								<Button
-									disabled={pushMuteDisabled}
+									disabled={mute.disabled}
 									size="sm"
 									title={
-										pushMuted
-											? "Notifications muted — approvals still arrive"
+										mute.muted
+											? `${mute.label}. Approval requests still reach you.`
 											: "Mute notifications"
 									}
 									variant="ghost"
-									onClick={togglePushMute}
+									onClick={mute.muted ? mute.unmute : () => setMuteOpen(true)}
 								>
-									{pushMuted ? <BellSlash size={14} /> : <Bell size={14} />}
-									{pushMuted ? "Unmute" : "Mute"}
+									{mute.muted ? <BellSlash size={14} /> : <Bell size={14} />}
+									{mute.muted ? "Unmute" : "Mute"}
 								</Button>
 								<Button
 									size="sm"
@@ -164,13 +162,26 @@ export function CanvasWorkspaceControls({
 								<DropdownMenuItem onClick={() => setEditOpen(true)}>
 									<PencilSimple size={14} /> Edit workspace
 								</DropdownMenuItem>
-								<DropdownMenuItem
-									disabled={pushMuteDisabled}
-									onClick={togglePushMute}
-								>
-									{pushMuted ? <Bell size={14} /> : <BellSlash size={14} />}
-									{pushMuted ? "Unmute notifications" : "Mute notifications"}
-								</DropdownMenuItem>
+								{mute.muted ? (
+									<>
+										<DropdownMenuItem disabled>
+											<BellSlash size={14} /> {mute.label}
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											disabled={mute.disabled}
+											onClick={mute.unmute}
+										>
+											<Bell size={14} /> Unmute
+										</DropdownMenuItem>
+									</>
+								) : (
+									<DropdownMenuItem
+										disabled={mute.disabled}
+										onClick={() => setMuteOpen(true)}
+									>
+										<BellSlash size={14} /> Mute notifications…
+									</DropdownMenuItem>
+								)}
 								<DropdownMenuSeparator />
 								<DropdownMenuItem
 									variant="destructive"
@@ -206,6 +217,14 @@ export function CanvasWorkspaceControls({
 						<WorkspaceBlueprintDialog
 							workspace={workspace}
 							onOpenChange={setBlueprintOpen}
+						/>
+					) : null}
+					{muteOpen ? (
+						<WorkspaceMuteDialog
+							workspaceName={workspace.name}
+							open
+							onOpenChange={setMuteOpen}
+							onChoose={mute.mute}
 						/>
 					) : null}
 					{shareOpen ? (

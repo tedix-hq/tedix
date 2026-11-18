@@ -4,6 +4,11 @@ import type {
 	WorkspaceUnreadItem,
 	WorkspaceUnreadState,
 } from "@tedix/api-contract/schemas/workspace-unread";
+import {
+	activeWorkspaceMutes,
+	WebPushPreferencesSchema,
+} from "@tedix/api-contract/schemas/web-push";
+import { listPushConfigs } from "@tedix/db/queries/web-push";
 import { getWorkspaceOutputIndexCurrent } from "@tedix/db/queries/workspace-feed/read";
 import {
 	getWorkspaceReadMarker,
@@ -23,6 +28,7 @@ import { notifyWorkspaceChat } from "../../services/workspace-chat-push";
 import {
 	advanceReadMarker,
 	unreadFromFeed,
+	unreadWhileMuted,
 	type WorkspaceUnread,
 } from "../../services/workspace-unread";
 import {
@@ -120,21 +126,33 @@ async function unreadByWorkspace(context: BaseContext) {
 		.sort((a, b) => (positions.get(b[0]) ?? 0) - (positions.get(a[0]) ?? 0))
 		.slice(0, SUMMARY_WORKSPACE_LIMIT);
 	if (moved.length === 0) return [];
-	const results = await listWorkspaceUnreadFeeds(
-		db,
-		moved.map(([workspaceId, marker]) => ({
-			organizationId: scope.organizationId,
-			workspaceId,
-			afterSeq: marker.floor,
-			readerIds,
-		})),
+	const [results, [saved]] = await Promise.all([
+		listWorkspaceUnreadFeeds(
+			db,
+			moved.map(([workspaceId, marker]) => ({
+				organizationId: scope.organizationId,
+				workspaceId,
+				afterSeq: marker.floor,
+				readerIds,
+			})),
+		),
+		listPushConfigs(db, scope, "preferences"),
+	]);
+	const preferences = WebPushPreferencesSchema.safeParse(saved?.value);
+	// Read markers do not move while a workspace is muted, so what arrived in
+	// the meantime is counted again as soon as the mute ends.
+	const muted = new Set(
+		preferences.success
+			? activeWorkspaceMutes(preferences.data, Date.now()).mutedWorkspaceIds
+			: [],
 	);
 	const unread: Array<{
 		workspace: OsWorkspaceRow;
 		unread: WorkspaceUnread;
 	}> = [];
 	for (const [index, [workspaceId, marker]] of moved.entries()) {
-		const found = unreadFromFeed(results[index] ?? [], marker);
+		const all = unreadFromFeed(results[index] ?? [], marker);
+		const found = muted.has(workspaceId) ? unreadWhileMuted(all) : all;
 		if (found.chat.length + found.files.length === 0) continue;
 		// Access is checked now, not when the marker was written: a workspace
 		// made private or archived since then drops out.

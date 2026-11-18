@@ -3,6 +3,7 @@ import {
 	WorkspaceRowMenu,
 	type WorkspaceRowPin,
 } from "@/components/workspace-row-menu";
+import { WorkspaceMutedIcon } from "@/components/workspace-muted-icon";
 import { WorkspaceUnreadBadge } from "@/components/workspace-unread-badge";
 import {
 	ClockCounterClockwise,
@@ -116,6 +117,7 @@ function SidebarWorkspaceRow({
 					<span className="min-w-0 flex-1 truncate">
 						{entry.workspace.name}
 					</span>
+					<WorkspaceMutedIcon workspaceId={entry.workspace.id} />
 					<WorkspaceUnreadBadge
 						workspaceId={entry.workspace.id}
 						name={entry.workspace.name}
