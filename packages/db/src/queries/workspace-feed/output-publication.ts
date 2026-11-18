@@ -18,7 +18,12 @@ export async function publishOutputProjection(
 	db: DbQueryClient,
 	output: OsOutputRow,
 	revision: Omit<OsOutputRevisionRow, "content">,
-	options: { historical?: boolean; continuesBurst?: boolean } = {},
+	options: {
+		historical?: boolean;
+		continuesBurst?: boolean;
+		/** Searchable text of the saved body, when the writer knows it. */
+		excerpt?: string;
+	} = {},
 ): Promise<void> {
 	if (!output.workspaceId) return;
 	if (!options.historical && output.currentRevisionId !== revision.id) return;
@@ -69,6 +74,7 @@ export async function publishOutputProjection(
 			contentSha256: revision.contentSha256,
 			contentBytes: revision.contentBytes,
 			bodyR2Key: revision.bodyR2Key,
+			...(options.excerpt ? { excerpt: options.excerpt } : {}),
 		},
 	});
 	let cursor = await getWorkspaceFeedCursor(db, output.workspaceId);

@@ -3,6 +3,8 @@
  * Move every workspace's data out of the shared database into its own
  * workspace object, and prove the copy. See README.md for the runbook link.
  *
+ *   bun scripts/migrate-workspaces/cli.ts export-object --scope org/ws (--objects <dir> | --remote <url>) --out <new capture dir> [--page-size 100] [--delay-ms 2000]
+ *   bun scripts/migrate-workspaces/cli.ts compare --before <capture dir> --after <capture dir> [--scope org/ws] [--report report.json]
  *   bun scripts/migrate-workspaces/cli.ts export    --snapshot main.sql --logs logs-1.sql ... [--assignments assignments.json] --bundles <dir|r2://bucket/prefix> [--scope org/ws,...]
  *   bun scripts/migrate-workspaces/cli.ts import    --bundles <dir|r2://...> (--objects <dir> | --remote <url> --snapshot main.sql --logs ...) [--scope org/ws,...] [--merge-object-owned org/ws,... [--plan-only]]
  *   bun scripts/migrate-workspaces/cli.ts reconcile --bundles <dir|r2://...> (--objects <dir> | --remote <url>) [--snapshot main.sql --logs ...] [--scope org/ws,...] [--approved decisions.json [--merge-object-owned org/ws,...]] [--report report.json]
@@ -18,6 +20,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { capture, type CaptureConfig } from "./capture";
+import { compareCaptures, exportObject } from "./object-capture";
 import { proposeAssignments } from "./assignments";
 import { openBundleStore, R2BundleStore } from "./bundle";
 import { exportAll } from "./export";
@@ -180,6 +183,7 @@ export async function tedixAdminHeaders(
 export async function openStores(
 	flags: ParsedArgs["flags"],
 	env: NodeJS.ProcessEnv,
+	readOnly = false,
 ): Promise<WorkspaceStoreFactory> {
 	const remote = text(flags, "remote");
 	if (remote) {
@@ -196,7 +200,7 @@ export async function openStores(
 		if (!token) throw new Error("Set MIGRATE_WORKSPACES_TOKEN for --remote");
 		return remoteStoreFactory(remote, token);
 	}
-	return localStoreFactory(required(flags, "objects"));
+	return localStoreFactory(required(flags, "objects"), { readOnly });
 }
 
 export async function main(
@@ -207,6 +211,41 @@ export async function main(
 	const { command, flags } = parseArgs(argv);
 	const reportPath = text(flags, "report");
 	switch (command) {
+		case "export-object": {
+			const scope = Scope.parse(required(flags, "scope"));
+			if (scope.keys.size !== 1)
+				throw new Error("export-object requires exactly one workspace");
+			const [organizationId, workspaceId] = [...scope.keys][0]!.split("/");
+			const manifest = await exportObject(
+				await openStores(flags, env, true),
+				{ organizationId: organizationId!, workspaceId: workspaceId! },
+				required(flags, "out"),
+				{
+					pageSize: Number(text(flags, "page-size") ?? 100),
+					delayMs: Number(text(flags, "delay-ms") ?? 2000),
+				},
+			);
+			out(JSON.stringify(manifest, null, 2));
+			return 0;
+		}
+		case "compare": {
+			const scope = readScope(flags);
+			if (scope && scope.keys.size !== 1)
+				throw new Error("compare requires exactly one workspace");
+			const key = scope && [...scope.keys][0];
+			const [organizationId, workspaceId] = key?.split("/") ?? [];
+			const report = compareCaptures(
+				required(flags, "before"),
+				required(flags, "after"),
+				key
+					? { organizationId: organizationId!, workspaceId: workspaceId! }
+					: undefined,
+			);
+			out(JSON.stringify(report, null, 2));
+			if (reportPath)
+				writeFileSync(reportPath, JSON.stringify(report, null, 2));
+			return report.ok ? 0 : 1;
+		}
 		case "capture": {
 			const config = JSON.parse(
 				readFileSync(required(flags, "config"), "utf8"),
@@ -435,7 +474,7 @@ export async function main(
 		}
 		default:
 			out(
-				"usage: cli.ts capture|export|import|delta|reconcile|activate|rehearse|schema-check|assignments [flags]; see the file header",
+				"usage: cli.ts capture|export-object|compare|export|import|delta|reconcile|activate|rehearse|schema-check|assignments [flags]; see README.md",
 			);
 			return 2;
 	}

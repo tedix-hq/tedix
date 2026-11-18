@@ -24,7 +24,7 @@ vi.mock("@tedix/db/queries/organization-members", () => ({
 vi.mock("./conversation-access", () => ({
 	resolveKernelConversationAccess: mocks.access,
 }));
-vi.mock("@tedix/db/queries/os-workspaces/outputs", () => ({
+vi.mock("../services/workspace-output-storage", () => ({
 	getOsOutput: mocks.output,
 }));
 vi.mock("@tedix/db/queries/os-workspaces/workspaces", async (original) => ({

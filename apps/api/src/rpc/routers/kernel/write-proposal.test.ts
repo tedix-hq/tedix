@@ -58,8 +58,10 @@ vi.mock("./open-work-requests", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./open-work-requests")>()),
 	readOpenWorkRequests: mocks.readOpenWorkRequests,
 }));
-vi.mock("@tedix/db/queries/os-workspaces/outputs", () => ({
+vi.mock("../../../services/workspace-output-storage", () => ({
 	getOsOutput: mocks.getOsOutput,
+}));
+vi.mock("../../../services/os-workspace-outputs", () => ({
 	getOsOutputRevision: mocks.getOsOutputRevision,
 }));
 vi.mock("./jev-action-selection", () => ({

@@ -8,13 +8,15 @@ import {
 	osOutputRevisions,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
-import { listOsOutputRevisions } from "@tedix/db/queries/os-workspaces/outputs";
+import { listOsOutputRevisions } from "./workspace-output-storage";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
 	createOsOutput,
 	createOsOutputRevision,
 	getOsOutputRevision,
 } from "./os-workspace-outputs";
+
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
 
 const notices = vi.hoisted(() => ({ notifyOutputRevision: vi.fn() }));
 vi.mock("@tedix/workspace-feed/output-revision-notice", () => notices);
@@ -26,14 +28,16 @@ function fixture() {
 	);
 	sqlite.exec(schemaDdl(osWorkspaces, osOutputs, osOutputRevisions));
 	const db = createDbQueryClient(createD1Facade(sqlite));
+	const object = workspaceOutputFixture(sqlite);
 	const objects = new Map<string, ArrayBuffer>();
 	const revisionCountsAtWrite: number[] = [];
 	const storage = {
 		async put(key: string, value: ArrayBuffer) {
 			revisionCountsAtWrite.push(
 				Number(
-					sqlite.prepare("SELECT count(*) AS n FROM os_output_revisions").get()
-						?.n,
+					object.objectSql
+						.prepare("SELECT count(*) AS n FROM os_output_revisions")
+						.get()?.n,
 				),
 			);
 			objects.set(key, value);
@@ -52,6 +56,7 @@ function fixture() {
 	const output = {
 		...accountability,
 		id: "out-1",
+		workspaceId: "ws-1",
 		kind: "document" as const,
 		title: "Example",
 		status: "active" as const,
@@ -68,6 +73,7 @@ function fixture() {
 	};
 	return {
 		sqlite,
+		objectSql: object.objectSql,
 		db,
 		objects,
 		storage,
@@ -78,7 +84,7 @@ function fixture() {
 }
 
 describe("output body persistence", () => {
-	it("writes R2 before create/append, keeps inline bytes, hydrates R2 and lists only metadata", async () => {
+	it("writes R2 before object create/append, hydrates exact bytes and lists only metadata", async () => {
 		const f = fixture();
 		try {
 			const first = await createOsOutput(f.db, f.output, f.revision, f.storage);
@@ -110,7 +116,7 @@ describe("output body persistence", () => {
 			});
 			expect(metadata).toHaveLength(2);
 			expect(metadata.every((row) => !("content" in row))).toBe(true);
-			f.sqlite
+			f.objectSql
 				.prepare(
 					"UPDATE os_output_revisions SET content = '' WHERE id = 'rev-2'",
 				)
@@ -201,8 +207,9 @@ describe("output body persistence", () => {
 			);
 			expect(conflict).toEqual({ ok: false, reason: "revision_conflict" });
 			expect(
-				f.sqlite.prepare("SELECT count(*) AS n FROM os_output_revisions").get()
-					?.n,
+				f.objectSql
+					.prepare("SELECT count(*) AS n FROM os_output_revisions")
+					.get()?.n,
 			).toBe(1);
 			expect(f.objects.size).toBe(2);
 		} finally {
@@ -223,7 +230,7 @@ describe("output body persistence", () => {
 				createOsOutput(f.db, f.output, f.revision, failed),
 			).rejects.toThrow("R2 unavailable");
 			expect(
-				f.sqlite.prepare("SELECT count(*) AS n FROM os_outputs").get()?.n,
+				f.objectSql.prepare("SELECT count(*) AS n FROM os_outputs").get()?.n,
 			).toBe(0);
 			await createOsOutput(f.db, f.output, f.revision, f.storage);
 			await expect(
@@ -234,12 +241,13 @@ describe("output body persistence", () => {
 				),
 			).rejects.toThrow("R2 unavailable");
 			expect(
-				f.sqlite.prepare("SELECT current_revision_id FROM os_outputs").get()
+				f.objectSql.prepare("SELECT current_revision_id FROM os_outputs").get()
 					?.current_revision_id,
 			).toBe("rev-1");
 			expect(
-				f.sqlite.prepare("SELECT count(*) AS n FROM os_output_revisions").get()
-					?.n,
+				f.objectSql
+					.prepare("SELECT count(*) AS n FROM os_output_revisions")
+					.get()?.n,
 			).toBe(1);
 		} finally {
 			f.sqlite.close();

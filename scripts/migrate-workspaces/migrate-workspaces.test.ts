@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { getMigratedSqliteTemplate } from "../../packages/db/src/test/migrated-sqlite-template";
 import { LocalBundleStore } from "./bundle";
 import { main, openStores, parseArgs } from "./cli";
+import { compareCaptures, exportObject } from "./object-capture";
 import { checkAssignments, exportAll } from "./export";
 import { importAll, proveSnapshot } from "./import";
 import { applyDeltaAll } from "./delta";
@@ -22,7 +29,7 @@ import {
 	type WireRow,
 } from "./rows";
 import { Scope } from "./scope";
-import { SNAPSHOT_MAX_AGE_MS } from "./snapshot-proof";
+import { snapshotManifest, SNAPSHOT_MAX_AGE_MS } from "./snapshot-proof";
 import { Snapshot } from "./source";
 import { remoteStoreFactory } from "./target";
 import {
@@ -1680,6 +1687,115 @@ test("frozen delta repairs changed/deleted rows, preserves untracked rows and re
 			applyDeltaAll(baseline, final, stores, options),
 		).rejects.toThrow("no longer equals its baseline");
 		expect(writes).toBe(2);
+	} finally {
+		snapshot.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("import then object capture compares equal; changed, missing and added rows are reported", async () => {
+	const snapshot = fixtureSnapshot({ unassignedOutput: true });
+	const dir = mkdtempSync(join(tmpdir(), "mw-object-roundtrip-"));
+	const ref = { organizationId: ORG, workspaceId: WS_A };
+	try {
+		const before = join(dir, "before");
+		mkdirSync(before);
+		writeFileSync(join(before, "main.sqlite"), snapshot.main.serialize());
+		writeFileSync(join(before, "logs-0.sqlite"), snapshot.logs[0]!.serialize());
+		const manifest = {
+			kind: "paced-workspace-capture",
+			version: 1,
+			main: "main.sqlite",
+			logs: ["logs-0.sqlite"],
+			endedAt: snapshot.takenAt.toISOString(),
+			assignments,
+			proof: snapshotManifest(snapshot),
+		};
+		writeFileSync(join(before, "manifest.json"), JSON.stringify(manifest));
+		const bundles = new LocalBundleStore(join(dir, "bundles"));
+		await exportAll(snapshot, bundles, assignments);
+		const objects = join(dir, "objects");
+		const stores = localStoreFactory(objects, {
+			fallbackDdl: (table) =>
+				String(
+					snapshot.main
+						.prepare("SELECT sql FROM sqlite_master WHERE name = ?")
+						.get(table)?.sql ?? "",
+				) || null,
+		});
+		await importAll(bundles, stores);
+		const readonly = await openStores({ objects }, {}, true);
+		const objectPath = join(objects, ORG, `${WS_A}.sqlite`);
+		const original = readFileSync(objectPath);
+		const after = join(dir, "after");
+		await exportObject(readonly, ref, after, {
+			pageSize: 1,
+			sleep: async () => {},
+		});
+		expect(readFileSync(objectPath)).toEqual(original);
+		const equal = compareCaptures(before, after);
+		expect(equal.differenceCount).toBe(0);
+		expect(equal.ok).toBe(true);
+		for (const table of equal.tables) expect(table.before).toEqual(table.after);
+		const assigned = join(dir, "assigned");
+		await exportObject(
+			readonly,
+			{ organizationId: ORG, workspaceId: WS_B },
+			assigned,
+			{ sleep: async () => {} },
+		);
+		expect(compareCaptures(before, assigned).differenceCount).toBe(0);
+		expect(() => compareCaptures(before, assigned, ref)).toThrow(
+			"different workspace",
+		);
+		expect(() => compareCaptures(before, before)).toThrow(
+			"requires one --scope",
+		);
+		expect(compareCaptures(before, before, ref).ok).toBe(true);
+		expect(
+			await main(
+				["compare", "--before", before, "--after", after],
+				{},
+				() => {},
+			),
+		).toBe(0);
+		const db = new DatabaseSync(objectPath);
+		db.exec("UPDATE os_outputs SET title = 'Changed' WHERE id = 'out-a1'");
+		db.exec("DELETE FROM os_output_revisions WHERE id = 'rev-a1-1'");
+		db.exec(
+			"INSERT INTO kernel_runtime_events (id, organization_id, conversation_id, kind, created_at) VALUES ('ev-added', 'org-fixture', 'conv-a', 'message', '2026-11-07')",
+		);
+		db.close();
+		const changed = join(dir, "changed");
+		await exportObject(readonly, ref, changed, { sleep: async () => {} });
+		const report = compareCaptures(before, changed);
+		expect(report.differenceCount).toBe(3);
+		expect(
+			report.tables.find((t) => t.table === "os_outputs")?.differences,
+		).toEqual([{ key: 's"out-a1"', kind: "changed" }]);
+		expect(
+			report.tables.find((t) => t.table === "os_output_revisions")
+				?.differences[0]?.kind,
+		).toBe("removed");
+		expect(
+			report.tables.find((t) => t.table === "kernel_runtime_events")
+				?.differences[0]?.kind,
+		).toBe("added");
+		expect(
+			await main(
+				["compare", "--before", before, "--after", changed],
+				{},
+				() => {},
+			),
+		).toBe(1);
+		writeFileSync(join(after, "main.sqlite"), Buffer.from("damaged"));
+		expect(() => compareCaptures(before, after)).toThrow("checksum");
+		const shared = new DatabaseSync(join(before, "main.sqlite"));
+		shared.exec("UPDATE os_outputs SET title = 'Tampered' WHERE id = 'out-a1'");
+		shared.close();
+		expect(() => compareCaptures(before, changed)).toThrow(
+			"shared capture checksum",
+		);
 	} finally {
 		snapshot.close();
 		rmSync(dir, { recursive: true, force: true });

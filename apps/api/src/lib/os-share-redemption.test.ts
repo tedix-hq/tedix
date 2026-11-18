@@ -1,3 +1,4 @@
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
 import {
 	requestOsShareEmailCode,
 	verifyOsShareEmailCode,
@@ -26,7 +27,7 @@ import {
 import {
 	createOsOutput,
 	createOsOutputRevision,
-} from "@tedix/db/queries/os-workspaces/outputs";
+} from "../services/os-workspace-outputs";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { osWorkspaceCollaborators } from "@tedix/db/schema/os-collaborators";
 import {
@@ -88,6 +89,7 @@ function fixture() {
 	sqlite.exec(
 		"INSERT INTO organization_members (id, organization_id, descope_user_id, email, name, role, status, kind) VALUES ('m-1', 'org-1', 'user-1', 'maya@example.test', 'Maya Chen', 'admin', 'active', 'human');",
 	);
+	workspaceOutputFixture(sqlite);
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
@@ -134,11 +136,10 @@ async function seedOutput(
 ) {
 	await createOsOutput(
 		db,
-		{ organizationId: "org-1" },
 		{
 			...accountability,
 			id: "out-1",
-			workspaceId: null,
+			workspaceId: "output-workspace",
 			kind: "document",
 			title: "Launch brief",
 			status: "active",

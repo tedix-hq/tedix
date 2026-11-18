@@ -1,3 +1,4 @@
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
 import { organizations } from "@tedix/db/schema/organizations";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { eq } from "drizzle-orm";
@@ -6,7 +7,10 @@ import {
 	createOsShareLink,
 	revokeOsShareLink,
 } from "@tedix/db/queries/os-shares";
-import { createOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
+import {
+	createOsOutput,
+	createOsOutputRevision,
+} from "../services/os-workspace-outputs";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	type NewOsShareLinkRow,
@@ -121,6 +125,7 @@ async function fixture() {
 		`INSERT INTO organizations (id, name, slug, descope_tenant_id) VALUES ('${ORG}', 'Example', 'example', 'tenant-1');`,
 	);
 	const db = createDbQueryClient(createD1Facade(sqlite));
+	workspaceOutputFixture(sqlite);
 	await db.insert(osWorkspaces).values({
 		...accountability,
 		id: WORKSPACE,
@@ -148,7 +153,6 @@ async function fixture() {
 		await storeFile(r2, resourceId, title);
 		await createOsOutput(
 			db,
-			{ organizationId: ORG },
 			{
 				...accountability,
 				id: outputId,
@@ -315,20 +319,23 @@ describe("share-scoped file endpoint", () => {
 
 	it("refuses a document whose file lives in another workspace", async () => {
 		const f = await fixture();
-		await f.db
-			.update(osOutputRevisions)
-			.set({
-				content: JSON.stringify({
-					kind: "document",
-					file: {
-						workspaceId: "44444444-4444-4444-8444-444444444444",
-						resourceId: VIDEO,
-					},
-					blocks: [],
-				}),
-			})
-			.where(eq(osOutputRevisions.id, "out-video-rev"));
 		const { sessionToken } = await shareOutput(f);
+		await createOsOutputRevision(f.db, {
+			id: "foreign-file-rev",
+			organizationId: ORG,
+			outputId: "out-video",
+			createdByKind: "user",
+			createdById: "user-1",
+			expectedRevision: 1,
+			content: JSON.stringify({
+				kind: "document",
+				file: {
+					workspaceId: "44444444-4444-4444-8444-444444444444",
+					resourceId: VIDEO,
+				},
+				blocks: [],
+			}),
+		});
 		expect((await fileUrl(f, sessionToken)).status).toBe(404);
 	});
 });

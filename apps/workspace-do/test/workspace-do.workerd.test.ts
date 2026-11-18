@@ -5,7 +5,13 @@ import {
 	osWorkspaceAccessEdges,
 	osWorkspaceShareLinks,
 } from "@tedix/db/schema/os-collaborators";
-import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { InternalEntrypoint } from "../src/index";
+import {
+	createExecutionContext,
+	env,
+	evictDurableObject,
+	runInDurableObject,
+} from "cloudflare:test";
 import { getTableColumns, getTableName } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, test, vi } from "vite-plus/test";
@@ -47,7 +53,6 @@ import { workEvidence } from "@tedix/db/schema/work-items";
 import { workEvents, workItems } from "@tedix/db/schema/work-items";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { createDbQueryClient } from "@tedix/db/query-client";
-import { createOsOutput as createCoreOutput } from "@tedix/db/queries/os-workspaces/outputs";
 import {
 	getWorkspaceOutputIndexCurrent,
 	listWorkspaceActivity,
@@ -817,12 +822,11 @@ describe("WorkspaceDO", () => {
 			createdById: "u1",
 			createdAt: now,
 		};
-		await createCoreOutput(
-			createDbQueryClient(testEnv.DB),
-			scope,
-			output,
-			revision,
-		);
+		const core = createDbQueryClient(testEnv.DB);
+		await core.batch([
+			core.insert(osOutputs).values(output),
+			core.insert(osOutputRevisions).values(revision),
+		]);
 		await ws.importRows(scope, {
 			batchId: "browser-workspace-owner",
 			table: "os_workspaces",
@@ -3612,6 +3616,8 @@ test("moves object-owned outputs with every revision, resumes lost replies, and 
 	await seedWorkspaceRows([source, target]);
 	const from = workspace(source),
 		to = workspace(target);
+	await from.outputQuery(source, { op: "initialize" });
+	await to.outputQuery(target, { op: "initialize" });
 	const outputId = crypto.randomUUID(),
 		revisionId = crypto.randomUUID();
 	const body = await storeOutputBody(
@@ -3695,6 +3701,14 @@ test("moves object-owned outputs with every revision, resumes lost replies, and 
 		workspaceId: target.workspaceId,
 		currentRevisionId: revision2,
 	});
+	const destinationActivity = await listWorkspaceActivity(
+		createDbQueryClient(testEnv.DB),
+		{ organizationId: target.organizationId, viewer: { userIds: ["u1"] } },
+		{ workspaceId: target.workspaceId, kinds: ["output"] },
+	);
+	expect(destinationActivity.some((row) => row.entityId === outputId)).toBe(
+		true,
+	);
 	for (const id of [revisionId, revision2]) {
 		expect(
 			await to.outputQuery(target, { op: "revision", revisionId: id }),
@@ -3736,6 +3750,18 @@ test("moves object-owned outputs with every revision, resumes lost replies, and 
 	expect(
 		await from.transferOutput(source, "missing", target.workspaceId),
 	).toEqual({ ok: false, reason: "not_found" });
+	await to.failTransferReply(target);
+	let retryError: unknown;
+	try {
+		await from.transferOutput(source, outputId, target.workspaceId);
+	} catch (error) {
+		retryError = error;
+	}
+	expect(retryError).toBeInstanceOf(Error);
+	expect((retryError as Error).message).toBe("Injected lost transfer reply");
+	expect(
+		await from.transferOutput(source, outputId, target.workspaceId),
+	).toMatchObject({ ok: true, output: { title: "Back home" } });
 });
 
 test("groups workspace-store auto-saves while indexing every revision and recovering projections", async () => {
@@ -5202,4 +5228,620 @@ describe("managing conversations", () => {
 			viewer.close();
 		}
 	});
+});
+describe("document transfer primitive", () => {
+	async function fixture() {
+		await seedCore();
+		const source = { ...scope, workspaceId: crypto.randomUUID() };
+		const target = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([source, target]);
+		const from = workspace(source),
+			to = workspace(target);
+		await seedOutputs(to, target);
+		const outputId = crypto.randomUUID();
+		const body = await storeOutputBody(
+			testEnv.R2_BUCKET,
+			source.organizationId,
+			'{"kind":"document","blocks":[]}',
+		);
+		await from.outputQuery(source, {
+			op: "create",
+			output: {
+				id: outputId,
+				...source,
+				title: "Transfer",
+				kind: "document",
+				currentRevisionId: `${outputId}-1`,
+				createdByKind: "user",
+				createdById: "u1",
+			},
+			revision: {
+				id: `${outputId}-1`,
+				organizationId: source.organizationId,
+				outputId,
+				revision: 1,
+				content: "",
+				...body,
+				createdByKind: "user",
+				createdById: "u1",
+			},
+		});
+		const nextBody = await storeOutputBody(
+			testEnv.R2_BUCKET,
+			source.organizationId,
+			'{"kind":"document","blocks":[{"type":"paragraph","text":"Second revision"}]}',
+		);
+		const revised = await from.outputQuery(source, {
+			op: "revise",
+			params: {
+				id: `${outputId}-2`,
+				organizationId: source.organizationId,
+				outputId,
+				expectedRevision: 1,
+				...nextBody,
+				createdByKind: "user",
+				createdById: "u1",
+			},
+		});
+		expect(revised).toMatchObject({
+			ok: true,
+			revision: { id: `${outputId}-2`, revision: 2 },
+		});
+		const transfer = {
+			transferId: crypto.randomUUID(),
+			outputId,
+			sourceWorkspaceId: source.workspaceId,
+			targetWorkspaceId: target.workspaceId,
+		};
+		return { source, target, from, to, transfer, body };
+	}
+
+	test("retries each step across eviction and keeps the destination readable before source removal", async () => {
+		const { source, target, from, to, transfer, body } = await fixture();
+		const payload = await from.prepareDocumentTransfer(source, transfer);
+		await evictDurableObject(from);
+		expect(await from.prepareDocumentTransfer(source, transfer)).toEqual(
+			payload,
+		);
+		await to.importDocumentTransfer(target, payload);
+		const receipt = await runInDurableObject(to, async (_instance, state) =>
+			state.storage.kv.get<Record<string, unknown>>(
+				`document-transfer-import:${transfer.transferId}`,
+			),
+		);
+		expect(Object.keys(receipt!).sort()).toEqual([
+			"payloadSha256",
+			"snapshot",
+			"transfer",
+		]);
+		expect(JSON.stringify(receipt).length).toBeLessThan(
+			JSON.stringify(payload).length,
+		);
+		const conflicting = structuredClone(payload);
+		conflicting.batches[0]!.rows[0]!.title = "Tampered batch";
+		await expect(() =>
+			to.importDocumentTransfer(target, conflicting),
+		).rejects.toThrow("conflicts with its receipt");
+		expect(
+			await from.prepareDocumentTransfer(source, {
+				targetWorkspaceId: transfer.targetWorkspaceId,
+				sourceWorkspaceId: transfer.sourceWorkspaceId,
+				outputId: transfer.outputId,
+				transferId: transfer.transferId,
+			}),
+		).toEqual(payload);
+		await evictDurableObject(to);
+		await to.importDocumentTransfer(target, payload);
+		expect(await to.confirmDocumentTransfer(target, transfer)).toEqual(
+			payload.snapshot,
+		);
+		await expect(() =>
+			from.removeDocumentTransfer(source, transfer),
+		).rejects.toThrow("index is not repointed");
+		const { repointDocumentTransferIndex } =
+			await import("@tedix/db/queries/workspace-feed/document-transfer");
+		const core = createDbQueryClient(testEnv.DB);
+		await repointDocumentTransferIndex(core, source.organizationId, payload);
+		await repointDocumentTransferIndex(core, source.organizationId, payload);
+		await from.prepareDocumentTransfer(source, transfer);
+		await to.confirmDocumentTransfer(target, transfer);
+		await evictDurableObject(from);
+		await evictDurableObject(to);
+		expect(
+			await from.outputQuery(source, {
+				op: "get",
+				outputId: transfer.outputId,
+			}),
+		).toBeDefined();
+		expect(
+			await to.outputQuery(target, { op: "get", outputId: transfer.outputId }),
+		).toMatchObject({
+			workspaceId: target.workspaceId,
+			currentRevisionId: `${transfer.outputId}-2`,
+		});
+		expect(payload.snapshot.revisions).toHaveLength(2);
+		for (const revision of payload.snapshot.revisions) {
+			expect(
+				await to.outputQuery(target, {
+					op: "revision",
+					revisionId: revision.id,
+				}),
+			).toMatchObject({ bodyR2Key: revision.bodyR2Key });
+		}
+		await expect(() =>
+			from.outputQuery(source, {
+				op: "update",
+				outputId: transfer.outputId,
+				patch: { title: "Blocked" },
+			}),
+		).rejects.toThrow("transfer in progress");
+		await expect(() =>
+			to.outputQuery(target, { op: "delete", outputId: transfer.outputId }),
+		).rejects.toThrow("transfer in progress");
+		await expect(() =>
+			from.outputQuery(source, {
+				op: "rebody",
+				revisionId: `${transfer.outputId}-1`,
+				previousSha256: body.contentSha256,
+				bodyR2Key: "other-body",
+				contentSha256: "a".repeat(64),
+				contentBytes: 10,
+			}),
+		).rejects.toThrow("transfer in progress");
+		await from.removeDocumentTransfer(source, transfer);
+		await from.removeDocumentTransfer(source, transfer);
+		expect(
+			await from.outputQuery(source, {
+				op: "get",
+				outputId: transfer.outputId,
+			}),
+		).toBeUndefined();
+		expect(
+			await from.outputQuery(source, {
+				op: "history",
+				outputId: transfer.outputId,
+			}),
+		).toEqual([]);
+		expect(
+			(await from.prepareDocumentTransfer(source, transfer)).completed,
+		).toBe(true);
+		expect(
+			(await from.prepareDocumentTransfer(source, transfer)).batches,
+		).toEqual([]);
+		await to.outputQuery(target, {
+			op: "update",
+			outputId: transfer.outputId,
+			patch: { title: "After move" },
+		});
+		const back = {
+			...transfer,
+			transferId: crypto.randomUUID(),
+			sourceWorkspaceId: target.workspaceId,
+			targetWorkspaceId: source.workspaceId,
+		};
+		const returning = await to.prepareDocumentTransfer(target, back);
+		await from.importDocumentTransfer(source, returning);
+		await repointDocumentTransferIndex(core, source.organizationId, returning);
+		await to.removeDocumentTransfer(target, back);
+		// A delayed removal retry must not delete the document that has returned.
+		await from.removeDocumentTransfer(source, transfer);
+		expect(
+			await from.outputQuery(source, {
+				op: "get",
+				outputId: transfer.outputId,
+			}),
+		).toMatchObject({ title: "After move" });
+	});
+
+	test("destination conflict rolls back imports and leaves source and index intact", async () => {
+		const { source, target, from, to, transfer, body } = await fixture();
+		await to.outputQuery(target, {
+			op: "create",
+			output: {
+				id: transfer.outputId,
+				...target,
+				kind: "document",
+				title: "Conflicting",
+				currentRevisionId: "conflicting-revision",
+				createdByKind: "user",
+				createdById: "u1",
+			},
+			revision: {
+				id: "conflicting-revision",
+				organizationId: target.organizationId,
+				outputId: transfer.outputId,
+				revision: 1,
+				content: "",
+				...body,
+				createdByKind: "user",
+				createdById: "u1",
+			},
+		});
+		const before = await testEnv.DB.prepare(
+			"SELECT * FROM workspace_output_index WHERE output_id = ?",
+		)
+			.bind(transfer.outputId)
+			.all();
+		const payload = await from.prepareDocumentTransfer(source, transfer);
+		await expect(() =>
+			to.importDocumentTransfer(target, payload),
+		).rejects.toThrow();
+		await expect(() =>
+			to.confirmDocumentTransfer(target, transfer),
+		).rejects.toThrow("not confirmed");
+		await expect(() =>
+			from.removeDocumentTransfer(source, transfer),
+		).rejects.toThrow("not confirmed");
+		expect(
+			await from.outputQuery(source, {
+				op: "get",
+				outputId: transfer.outputId,
+			}),
+		).toBeDefined();
+		expect(
+			(
+				await testEnv.DB.prepare(
+					"SELECT * FROM workspace_output_index WHERE output_id = ?",
+				)
+					.bind(transfer.outputId)
+					.all()
+			).results,
+		).toEqual(before.results);
+	});
+
+	test("refuses staged source and destination objects", async () => {
+		const { source, from, transfer } = await fixture();
+		const staged = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([staged]);
+		const ws = workspace(staged);
+		await ws.importRows(staged, {
+			batchId: "stage-transfer",
+			table: "os_workspaces",
+			rows: [
+				{
+					id: staged.workspaceId,
+					organization_id: staged.organizationId,
+					name: "Staged",
+					created_by_kind: "user",
+					created_by_id: "u1",
+					created_at: "now",
+					updated_at: "now",
+				},
+			],
+		});
+		const payload = await from.prepareDocumentTransfer(source, {
+			...transfer,
+			targetWorkspaceId: staged.workspaceId,
+		});
+		await expect(() =>
+			ws.importDocumentTransfer(staged, payload),
+		).rejects.toThrow("requires activated");
+		await expect(() =>
+			ws.prepareDocumentTransfer(staged, {
+				...transfer,
+				sourceWorkspaceId: staged.workspaceId,
+			}),
+		).rejects.toThrow("requires activated");
+		expect(
+			await from.outputQuery(source, {
+				op: "get",
+				outputId: transfer.outputId,
+			}),
+		).toBeDefined();
+	});
+});
+
+describe("empty document owners", () => {
+	test("initializes once, survives eviction, and refuses staged imports", async () => {
+		await seedCore();
+		const empty = { ...scope, workspaceId: "empty-owner" };
+		await createDbQueryClient(testEnv.DB).insert(osWorkspaces).values({
+			id: empty.workspaceId,
+			organizationId: empty.organizationId,
+			name: "Empty owner",
+			createdByKind: "user",
+			createdById: "u1",
+		});
+		const ws = workspace(empty);
+		expect(await ws.outputQuery(empty, { op: "initialize" })).toBe("object");
+		await evictDurableObject(ws);
+		expect(await ws.outputQuery(empty, { op: "initialize" })).toBe("object");
+		expect(await ws.outputQuery(empty, { op: "authority" })).toBe("object");
+		expect(await ws.outputQuery(empty, { op: "list" })).toEqual([]);
+		expect((await ws.describe(empty)).importGeneration).toBe(0);
+		const staged = { ...scope, workspaceId: "staged-empty-owner" };
+		const stagedWs = workspace(staged);
+		await stagedWs.importRows(staged, {
+			batchId: "stage-empty",
+			table: "os_workspaces",
+			rows: [
+				{
+					id: staged.workspaceId,
+					organization_id: staged.organizationId,
+					name: "Staged",
+					created_by_kind: "user",
+					created_by_id: "u1",
+					created_at: "now",
+					updated_at: "now",
+					status: "active",
+				},
+			],
+		});
+		await expect(() =>
+			stagedWs.outputQuery(staged, { op: "initialize" }),
+		).rejects.toThrow("requires migration activation");
+		expect(await stagedWs.outputQuery(staged, { op: "authority" })).toBe(
+			"shared",
+		);
+		expect((await stagedWs.describe(staged)).importGeneration).toBe(1);
+	});
+});
+
+test("keeps a document placement plan through eviction and a changed candidate list", async () => {
+	await seedCore();
+	const empty = { ...scope, workspaceId: "placement-owner" };
+	await createDbQueryClient(testEnv.DB).insert(osWorkspaces).values({
+		id: empty.workspaceId,
+		organizationId: empty.organizationId,
+		name: "Placement owner",
+		createdByKind: "user",
+		createdById: "u1",
+	});
+	const ws = workspace(empty);
+	await ws.outputQuery(empty, { op: "initialize" });
+	const documents = [
+		{
+			transferId: "save:doc",
+			outputId: "doc",
+			sourceWorkspaceId: scope.workspaceId,
+			targetWorkspaceId: empty.workspaceId,
+		},
+	];
+	expect(
+		await ws.outputQuery(empty, {
+			op: "placementPlan",
+			planId: "save",
+			documents,
+		}),
+	).toEqual(documents);
+	await evictDurableObject(ws);
+	expect(
+		await ws.outputQuery(empty, {
+			op: "placementPlan",
+			planId: "save",
+			documents: [],
+		}),
+	).toEqual(documents);
+	const next = {
+		...documents[0]!,
+		outputId: "second",
+		transferId: "save:second",
+	};
+	expect(
+		await ws.outputQuery(empty, {
+			op: "placementPlan",
+			planId: "save",
+			documents: [
+				{ ...documents[0]!, sourceWorkspaceId: "changed-candidate" },
+				next,
+			],
+		}),
+	).toEqual([...documents, next]);
+});
+
+test("requires EU placement and routes initialization through that namespace", async () => {
+	const calls: string[] = [];
+	const runtimeEnv = {
+		DO_JURISDICTION: "eu",
+		WORKSPACE: {
+			jurisdiction(value: string) {
+				calls.push(value);
+				return {
+					getByName(name: string) {
+						calls.push(name);
+						return {
+							async outputQuery(bound: WorkspaceScope, query: { op: string }) {
+								expect(bound).toEqual(scope);
+								expect(query.op).toBe("initialize");
+								return "object";
+							},
+						};
+					},
+				};
+			},
+		},
+	} as unknown as WorkspaceEnv;
+	const service = new InternalEntrypoint(createExecutionContext(), runtimeEnv);
+	expect(await service.outputQuery(scope, { op: "initialize" })).toBe("object");
+	expect(calls).toEqual(["eu", `${scope.organizationId}:${scope.workspaceId}`]);
+	const unconfigured = new InternalEntrypoint(createExecutionContext(), {
+		...runtimeEnv,
+		DO_JURISDICTION: "",
+	});
+	expect(() => unconfigured.outputQuery(scope, { op: "initialize" })).toThrow(
+		"requires EU jurisdiction",
+	);
+	expect(calls).toHaveLength(2);
+});
+
+describe("workspace index ownership", () => {
+	test("staged projection refresh leaves every index row intact", async () => {
+		await seedCore();
+		const staged = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([staged]);
+		const ws = workspace(staged);
+		await seedOutputs(ws, staged, false);
+		// Each object has local IDs; isolate the core projection from earlier fixtures.
+		await testEnv.DB.prepare(
+			"DELETE FROM workspace_output_index WHERE organization_id = ? AND output_id IN ('out-doc', 'out-sheet')",
+		)
+			.bind(staged.organizationId)
+			.run();
+		expect(await ws.outputQuery(staged, { op: "authority" })).toBe("shared");
+		expect((await ws.describe(staged)).importGeneration).toBeGreaterThan(0);
+		const core = createDbQueryClient(testEnv.DB);
+		const { publishOutputProjection } =
+			await import("@tedix/db/queries/workspace-feed/output-publication");
+		for (const outputId of ["out-doc", "out-sheet"]) {
+			const output = (await ws.outputQuery(staged, { op: "get", outputId }))!;
+			const revision = (await ws.outputQuery(staged, {
+				op: "revision",
+				revisionId: output.currentRevisionId!,
+			}))!;
+			await publishOutputProjection(core, output, revision);
+		}
+		const before = await testEnv.DB.prepare(
+			"SELECT * FROM workspace_output_index WHERE workspace_id = ? ORDER BY id",
+		)
+			.bind(staged.workspaceId)
+			.all();
+		expect(before.results).toHaveLength(2);
+		await ws.refreshOutputProjection(staged, "out-doc");
+		await ws.refreshOutputProjection(staged, "missing");
+		const after = await testEnv.DB.prepare(
+			"SELECT * FROM workspace_output_index WHERE workspace_id = ? ORDER BY id",
+		)
+			.bind(staged.workspaceId)
+			.all();
+		expect(after.results).toEqual(before.results);
+	});
+
+	test("an initialized empty owner writes and projects its first document", async () => {
+		await seedCore();
+		const fresh = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([fresh]);
+		const ws = workspace(fresh);
+		expect(await ws.outputQuery(fresh, { op: "authority" })).toBe("shared");
+		await ws.outputQuery(fresh, { op: "initialize" });
+		const outputId = crypto.randomUUID(),
+			revisionId = crypto.randomUUID();
+		const body = await storeOutputBody(
+			testEnv.R2_BUCKET,
+			fresh.organizationId,
+			'{"kind":"document","blocks":[]}',
+		);
+		await ws.outputQuery(fresh, {
+			op: "create",
+			output: {
+				id: outputId,
+				organizationId: fresh.organizationId,
+				workspaceId: fresh.workspaceId,
+				kind: "document",
+				title: "First",
+				currentRevisionId: revisionId,
+				createdByKind: "user",
+				createdById: "u1",
+			},
+			revision: {
+				id: revisionId,
+				organizationId: fresh.organizationId,
+				outputId,
+				revision: 1,
+				content: "",
+				...body,
+				createdByKind: "user",
+				createdById: "u1",
+			},
+		});
+		await ws.refreshOutputProjection(fresh, outputId);
+		expect(
+			await getWorkspaceOutputIndexCurrent(createDbQueryClient(testEnv.DB), {
+				organizationId: fresh.organizationId,
+				outputId,
+			}),
+		).toMatchObject({
+			workspaceId: fresh.workspaceId,
+			revisionId,
+			title: "First",
+		});
+	});
+});
+
+test("purges object documents, revisions and resources in one retryable RPC", async () => {
+	await seedCore();
+	const purgeScope = {
+		organizationId: "org_test",
+		workspaceId: crypto.randomUUID(),
+	};
+	await seedWorkspaceRows([purgeScope]);
+	const ws = workspace(purgeScope);
+	await ws.importRows(purgeScope, {
+		batchId: "purge-directory",
+		table: "os_workspaces",
+		rows: [
+			{
+				id: purgeScope.workspaceId,
+				organization_id: purgeScope.organizationId,
+				name: "Purge",
+				status: "archived",
+				visibility: "private",
+				owner_user_id: "u1",
+				created_by_kind: "user",
+				created_by_id: "u1",
+				created_at: "2026-11-13T00:00:00Z",
+				updated_at: "2026-11-13T00:00:00Z",
+			},
+		],
+	});
+	await seedOutputs(ws, purgeScope);
+	await ws.outputQuery(purgeScope, {
+		op: "resources",
+		query: {
+			operation: "create",
+			params: {
+				...purgeScope,
+				id: "purge-resource",
+				providerId: "example",
+				connectionScope: "tenant",
+				resourceType: "document",
+				providerResourceId: "example",
+				name: "Example",
+				createdByKind: "user",
+				createdById: "u1",
+			},
+		},
+	});
+	await runInDurableObject(ws, async (_instance, state) => {
+		state.storage.sql.exec(
+			"CREATE TRIGGER fail_resource_delete BEFORE DELETE ON os_workspace_resources BEGIN SELECT RAISE(ABORT, 'purge blocked'); END",
+		);
+	});
+	const failure = await runInDurableObject(ws, async (instance) => {
+		try {
+			await (instance as unknown as WorkspaceRpc).outputQuery(purgeScope, {
+				op: "purge",
+			});
+			return null;
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
+		}
+	});
+	expect(failure).toContain('delete from "os_workspace_resources"');
+	expect(await ws.outputQuery(purgeScope, { op: "list" })).toHaveLength(2);
+	expect(
+		await ws.outputQuery(purgeScope, { op: "history", outputId: "out-doc" }),
+	).toHaveLength(1);
+	await runInDurableObject(ws, async (_instance, state) => {
+		state.storage.sql.exec("DROP TRIGGER fail_resource_delete");
+	});
+	await ws.outputQuery(purgeScope, { op: "purge" });
+	await ws.outputQuery(purgeScope, { op: "purge" });
+	expect(await ws.outputQuery(purgeScope, { op: "authority" })).toBe("object");
+	expect(await ws.outputQuery(purgeScope, { op: "list" })).toEqual([]);
+	expect(
+		await ws.outputQuery(purgeScope, { op: "history", outputId: "out-doc" }),
+	).toEqual([]);
+	expect(
+		await ws.outputQuery(purgeScope, {
+			op: "resources",
+			query: {
+				operation: "get",
+				params: { ...purgeScope, resourceId: "purge-resource" },
+			},
+		}),
+	).toBeUndefined();
+	await evictDurableObject(ws);
+	expect(await ws.outputQuery(purgeScope, { op: "authority" })).toBe("object");
+	await ws.outputQuery(purgeScope, { op: "purge" });
+	expect(await ws.outputQuery(purgeScope, { op: "list" })).toEqual([]);
 });

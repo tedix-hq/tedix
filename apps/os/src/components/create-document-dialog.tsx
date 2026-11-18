@@ -125,13 +125,14 @@ export function CreateDocumentDialog({
 	const queryClient = useQueryClient();
 	const [title, setTitle] = useState("");
 	const [templateId, setTemplateId] = useState<DocumentTemplateId>("blank");
-	const [selectedWorkspace, setSelectedWorkspace] = useState(
-		workspaceId ?? "none",
-	);
+	const [pickedWorkspace, setPickedWorkspace] = useState<string>();
 	const workspaces = useQuery({
 		...activeWorkspacesQueryOptions(),
 		enabled: !workspaceId,
 	});
+	// Every file lives in a workspace; default to the first one listed.
+	const selectedWorkspace =
+		workspaceId ?? pickedWorkspace ?? workspaces.data?.items[0]?.id;
 	const template = documentTemplates.find(
 		(candidate) => candidate.id === templateId,
 	)!;
@@ -162,6 +163,7 @@ export function CreateDocumentDialog({
 		},
 	});
 	const createDocument = () => {
+		if (!selectedWorkspace) return;
 		const cleanTitle =
 			title.trim() ||
 			(kind !== "document" || templateId === "blank"
@@ -170,9 +172,7 @@ export function CreateDocumentDialog({
 		create.mutate({
 			kind,
 			title: cleanTitle,
-			...(selectedWorkspace === "none"
-				? {}
-				: { workspaceId: selectedWorkspace }),
+			workspaceId: selectedWorkspace,
 			content:
 				kind === "sheet"
 					? { kind: "sheet", columns: ["A", "B", "C"], rows: [] }
@@ -257,21 +257,18 @@ export function CreateDocumentDialog({
 							<Select
 								value={selectedWorkspace}
 								onValueChange={(value) => {
-									if (value) setSelectedWorkspace(value);
+									if (value) setPickedWorkspace(value);
 								}}
 								disabled={create.isPending || workspaces.isPending}
 							>
 								<SelectTrigger id="new-document-workspace">
 									<SelectValue>
-										{selectedWorkspace === "none"
-											? "No workspace"
-											: workspaces.data?.items.find(
-													(item) => item.id === selectedWorkspace,
-												)?.name}
+										{workspaces.data?.items.find(
+											(item) => item.id === selectedWorkspace,
+										)?.name ?? "Choose a workspace"}
 									</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value="none">No workspace</SelectItem>
 									{workspaces.data?.items.map((item) => (
 										<SelectItem key={item.id} value={item.id}>
 											{item.name}
@@ -285,7 +282,7 @@ export function CreateDocumentDialog({
 									error={workspaces.error}
 									onRetry={() => void workspaces.refetch()}
 									retrying={workspaces.isFetching}
-									help="You can create a document without a workspace."
+									help="Every file belongs to a workspace. Try again to load them."
 								/>
 							)}
 						</div>
@@ -305,7 +302,11 @@ export function CreateDocumentDialog({
 						>
 							Cancel
 						</Button>
-						<Button type="submit" loading={create.isPending}>
+						<Button
+							type="submit"
+							loading={create.isPending}
+							disabled={!selectedWorkspace}
+						>
 							Create {label}
 						</Button>
 					</DialogFooter>

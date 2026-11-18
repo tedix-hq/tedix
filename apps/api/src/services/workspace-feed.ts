@@ -17,9 +17,6 @@ import {
 	type WorkspaceChangeSummary,
 	organizationFeedScope,
 } from "@tedix/api-contract/schemas/workspace-feed";
-import { env } from "cloudflare:workers";
-import type { WorkspaceOutputRuntime } from "@tedix/db/queries/durable-sqlite/output-rpc";
-import { removeSharedWorkspaceOutputIndex } from "@tedix/db/queries/workspace-feed/read";
 import { appendWorkspaceFeedLedger } from "@tedix/db/queries/workspace-feed/ledger";
 import {
 	createDbQueryClient,
@@ -143,25 +140,6 @@ export function outputMetadataChange(
 	};
 }
 
-/**
- * Whether this workspace's files live in the shared database rather than in
- * the workspace's own store. The same test `publishWorkspaceChange` applies.
- */
-export async function workspaceOutputsInSharedStore(
-	input: Pick<WorkspaceChangeInput, "organizationId" | "workspaceId">,
-): Promise<boolean> {
-	const store = (
-		env as unknown as { WORKSPACE_RUNTIME?: WorkspaceOutputRuntime }
-	).WORKSPACE_RUNTIME;
-	return (
-		!store ||
-		(await store.outputQuery(
-			{ organizationId: input.organizationId, workspaceId: input.workspaceId },
-			{ op: "authority" },
-		)) === "shared"
-	);
-}
-
 export interface WorkspaceFeedPublisher {
 	/** The client the write used, so ledger and projection land in the same database. */
 	db: DbQueryClient;
@@ -185,20 +163,6 @@ export async function publishWorkspaceChange(
 ): Promise<WorkspaceChangeEvent> {
 	const event = await appendWorkspaceFeedLedger(publisher.db, input);
 	await createWorkspaceFeedConsumer({ db: publisher.db }).applyEvents([event]);
-	if (input.kind === "output") {
-		const store = (
-			env as unknown as { WORKSPACE_RUNTIME?: WorkspaceOutputRuntime }
-		).WORKSPACE_RUNTIME;
-		const scope = {
-			organizationId: input.organizationId,
-			workspaceId: input.workspaceId,
-		};
-		if (
-			!store ||
-			(await store.outputQuery(scope, { op: "authority" })) === "shared"
-		)
-			await removeSharedWorkspaceOutputIndex(publisher.db, scope);
-	}
 	if (publisher.queue) {
 		await publisher.queue.send(toWorkspaceChangeMessage(event), {
 			contentType: "json",

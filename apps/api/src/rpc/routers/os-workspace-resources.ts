@@ -19,16 +19,16 @@ import {
 	isWorkspaceLinkResource,
 	isWorkspaceSkillResource,
 } from "@tedix/api-contract/schemas/os-workspace-schedules";
+import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import {
 	createOsWorkspaceResource,
 	findOsWorkspaceTenantResource,
 	getOsWorkspaceResource,
-	listOsWorkspaceResources,
 	removeOsWorkspaceResource,
 	rebindOsWorkspaceResource,
 	renameOsWorkspaceResource,
 	restoreOsWorkspaceResource,
-} from "@tedix/db/queries/os-workspaces/resources";
+} from "../../services/workspace-resource-storage";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
 import { requireOrgId } from "../org-scope";

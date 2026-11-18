@@ -17,6 +17,14 @@
  * Only the symbols actually referenced by code-under-test need to be present.
  */
 
+import { onTestFinished } from "vite-plus/test";
+
+export function waitUntil(work: Promise<unknown>) {
+	onTestFinished(async () => {
+		await work;
+	});
+}
+
 export const enteredSpans: Array<{
 	name: string;
 	attributes: Record<string, string>;

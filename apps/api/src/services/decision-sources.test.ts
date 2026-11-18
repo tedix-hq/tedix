@@ -7,7 +7,7 @@ import {
 	tediEmailThreads,
 	tediEmailMessages,
 } from "@tedix/db/schema/tedi-email";
-import { osOutputs } from "@tedix/db/schema/os-workspaces";
+import { workspaceOutputIndex } from "@tedix/db/schema/workspace-feed";
 import { expect, it } from "vite-plus/test";
 import { decisionSourcesCurrent } from "@tedix/db/queries/work-items/decision-sources";
 import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
@@ -27,7 +27,7 @@ function fixture() {
 			workItemComments,
 			tediEmailThreads,
 			tediEmailMessages,
-			osOutputs,
+			workspaceOutputIndex,
 		),
 	);
 	const db = createDbClient(createD1Facade(sqlite));
@@ -334,24 +334,24 @@ it("withholds revised, archived and cross-organization outputs", async () => {
 	try {
 		sqlite
 			.prepare(
-				"INSERT INTO os_outputs (id,organization_id,kind,title,current_revision_id,created_by_kind,created_by_id,created_at,updated_at) VALUES (?,?,'document','Resource state',?,'user','owner',?,?)",
+				"INSERT INTO workspace_output_index (id,output_id,organization_id,workspace_id,revision,is_current,status,output_kind,title,revision_id,output_created_by_kind,output_created_by_id,revision_created_by_kind,revision_created_by_id,output_created_at,revision_created_at,updated_at) VALUES (?,?,?,'workspace',1,1,'active','document','Resource state',?,'user','owner','user','owner',?,?,?)",
 			)
-			.run(id, orgId, revisionId, at, at);
+			.run(id, id, orgId, revisionId, at, at, at);
 		const sources = [{ kind: "output", id, revisionId }];
 		expect(await check(sources)).toBe(true);
 		sqlite
-			.prepare("UPDATE os_outputs SET current_revision_id=? WHERE id=?")
+			.prepare("UPDATE workspace_output_index SET revision_id=? WHERE id=?")
 			.run(id, id);
 		expect(await check(sources)).toBe(false);
 		sqlite
 			.prepare(
-				"UPDATE os_outputs SET current_revision_id=?,status='archived' WHERE id=?",
+				"UPDATE workspace_output_index SET revision_id=?,status='archived' WHERE id=?",
 			)
 			.run(revisionId, id);
 		expect(await check(sources)).toBe(false);
 		sqlite
 			.prepare(
-				"UPDATE os_outputs SET status='active',organization_id='other-org' WHERE id=?",
+				"UPDATE workspace_output_index SET status='active',organization_id='other-org' WHERE id=?",
 			)
 			.run(id);
 		expect(await check(sources)).toBe(false);

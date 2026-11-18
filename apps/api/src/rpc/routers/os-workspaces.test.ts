@@ -291,7 +291,7 @@ describe("workspaces", () => {
 
 	// Apps go by the D1 foreign-key cascade, which the DB query test covers;
 	// this harness runs SQLite with foreign keys off.
-	it("permanently deletes a workspace but keeps its documents", async () => {
+	it("permanently deletes a workspace with its documents", async () => {
 		const { workspace } = await c.org1.workspaces.create({ name: "Test" });
 		const { output } = await c.org1.outputs.create({
 			workspaceId: workspace.id,
@@ -304,9 +304,9 @@ describe("workspaces", () => {
 		await expect(
 			c.org1.workspaces.delete({ workspaceId: workspace.id }),
 		).resolves.toEqual({ deleted: true });
-		expect(
-			(await c.org1.outputs.get({ outputId: output.id })).output,
-		).toMatchObject({ id: output.id, title: "Kept notes" });
+		await expect(
+			c.org1.outputs.get({ outputId: output.id }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 
 	it.each(["active", "paused"] as const)(
@@ -360,8 +360,9 @@ describe("workspaces", () => {
 			});
 			await c.org1.workspaces.archive({ workspaceId: workspace.id });
 			await c.org1.workspaces.delete({ workspaceId: workspace.id });
-			const retained = await c.org1.outputs.get({ outputId: output.id });
-			expect(retained.output.workspaceId).not.toBe(workspace.id);
+			await expect(
+				c.org1.outputs.get({ outputId: output.id }),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
 			const otherContext = userContext({ env: c.env, organizationId: "org-1" });
 			otherContext.user = { ...otherContext.user!, sub: "other-member" };
 			otherContext.userRole = userRole;

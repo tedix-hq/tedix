@@ -1,23 +1,8 @@
-/**
- * Tenant-store variant of `../os-workspaces/outputs.ts`.
- *
- * Same tables, same row shapes, same visibility and lineage semantics; the
- * differences are exactly the ones the storage plane imposes:
- *
- * - Atomic multi-statement writes use `db.transaction()` (`transactionSync`
- *   on the DO), which D1 cannot do, instead of `db.batch()`. Transaction
- *   callbacks are synchronous: statements resolve through `.all()`/`.run()`,
- *   not `await`, so nothing suspends past the commit.
- * - Bodies stay in R2. Revision writes require `bodyR2Key` plus the caller's
- *   `contentSha256`/`contentBytes` — this plane never holds body bytes, so
- *   `content` is persisted as the empty string, matching how R2-offloaded
- *   rows already look on the platform plane.
- * - No log-store reads: a workspace store is one SQLite file, not a
- *   partitioned ledger.
- */
+/** Workspace-owned documents with R2 bodies and atomic SQLite writes. */
 
 import { and, desc, eq, getColumns, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import type { CommitCollaborationOutputParams } from "../os-workspaces/collaboration";
 import {
 	type NewOsOutputRevisionRow,
 	type NewOsOutputRow,
@@ -27,19 +12,28 @@ import {
 	osOutputRevisions,
 	osOutputs,
 	osWorkspaces,
+	osWorkspaceResources,
 } from "../../schema/os-workspaces";
 import { prefixedColumns } from "../../utils/select";
 import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envelope";
 import {
 	type OsWorkspaceViewer,
 	osWorkspaceChildVisibleToPredicate,
+	hasSharedWorkspaceOutputs,
 } from "../os-workspaces/workspaces";
-import { hasSharedWorkspaceOutputs } from "../os-workspaces/outputs";
 import {
 	OUTPUT_THINNING_MAX_LIMIT,
 	OUTPUT_THINNING_WINDOW_SECONDS,
 } from "../os-workspaces/output-revision-thinning";
 import type { TenantStoreDb } from "./tenant-store";
+
+/** The directory row and authority marker commit together in WorkspaceDO. */
+export function initializeWorkspaceDirectory(
+	db: TenantStoreDb,
+	workspace: OsWorkspaceRow,
+) {
+	db.insert(osWorkspaces).values(workspace).onConflictDoNothing().run();
+}
 
 /** Pre-protocol ownership only. WorkspaceDO must consult durable staging state first.
  * Older imports owned their workspace; transfer destinations may have only output rows.
@@ -770,4 +764,135 @@ export async function thinOsOutputRevisions(
 	).map((row) => row.id);
 	// The owner may have committed a prior delete whose reply or index cleanup was lost.
 	return [...removed, ...params.revisionIds.filter((id) => !existing.has(id))];
+}
+
+/** Object revision and pointer commit together; the proposal UUID is the replay key. */
+export function mergeOsOutputProposal(
+	db: TenantStoreDb,
+	scope: { organizationId: string; workspaceId: string },
+	params: CommitCollaborationOutputParams,
+):
+	| { ok: true; revision: OsOutputRevisionRow }
+	| { ok: false; reason: "revision_conflict" } {
+	const { proposal, revision } = params;
+	if (
+		proposal.organizationId !== scope.organizationId ||
+		proposal.workspaceId !== scope.workspaceId ||
+		proposal.documentType !== "output" ||
+		revision.id !== proposal.id ||
+		revision.organizationId !== scope.organizationId ||
+		revision.outputId !== proposal.documentId ||
+		revision.revision !== proposal.baseRevision + 1
+	)
+		throw new Error("Collaboration output scope mismatch");
+	if (
+		!revision.bodyR2Key ||
+		!revision.contentSha256 ||
+		revision.contentBytes === null
+	)
+		throw new Error("Collaboration output revision body must be stored in R2");
+	return db.transaction((tx) => {
+		const output = tx
+			.select()
+			.from(osOutputs)
+			.where(
+				and(
+					eq(osOutputs.id, proposal.documentId),
+					eq(osOutputs.organizationId, scope.organizationId),
+					eq(osOutputs.workspaceId, scope.workspaceId),
+				),
+			)
+			.get();
+		if (!output)
+			return { ok: false as const, reason: "revision_conflict" as const };
+		const previous = tx
+			.select()
+			.from(osOutputRevisions)
+			.where(eq(osOutputRevisions.id, proposal.id))
+			.get();
+		if (previous) {
+			if (
+				previous.organizationId !== scope.organizationId ||
+				previous.outputId !== output.id ||
+				previous.revision !== revision.revision ||
+				previous.contentSha256 !== revision.contentSha256
+			)
+				return { ok: false as const, reason: "revision_conflict" as const };
+			return { ok: true as const, revision: previous };
+		}
+		const base = tx
+			.select()
+			.from(osOutputRevisions)
+			.where(
+				and(
+					eq(osOutputRevisions.id, proposal.baseRevisionId),
+					eq(osOutputRevisions.organizationId, scope.organizationId),
+					eq(osOutputRevisions.outputId, output.id),
+					eq(osOutputRevisions.revision, proposal.baseRevision),
+				),
+			)
+			.get();
+		if (!base || output.currentRevisionId !== base.id)
+			return { ok: false as const, reason: "revision_conflict" as const };
+		const [written] = tx
+			.insert(osOutputRevisions)
+			.values({
+				...revision,
+				content: "",
+				accessEnvelope: mergeOsOutputAccessEnvelopes(
+					base.accessEnvelope,
+					revision.accessEnvelope,
+				),
+			})
+			.returning()
+			.all();
+		if (!written)
+			throw new Error("Collaboration revision insert returned no row");
+		tx.update(osOutputs)
+			.set({ currentRevisionId: written.id, updatedAt: written.createdAt })
+			.where(eq(osOutputs.id, output.id))
+			.run();
+		return { ok: true as const, revision: written };
+	});
+}
+
+/** Runs synchronously inside the object's serialized purge transaction. */
+export function purgeWorkspaceDocuments(
+	db: TenantStoreDb,
+	scope: { organizationId: string; workspaceId: string },
+): void {
+	const documents = db
+		.select({ id: osOutputs.id })
+		.from(osOutputs)
+		.where(
+			and(
+				eq(osOutputs.organizationId, scope.organizationId),
+				eq(osOutputs.workspaceId, scope.workspaceId),
+			),
+		);
+	db.delete(osOutputRevisions)
+		.where(
+			and(
+				eq(osOutputRevisions.organizationId, scope.organizationId),
+				// bound-params: documents is a SQL subquery, not a bound ID list.
+				inArray(osOutputRevisions.outputId, documents),
+			),
+		)
+		.run();
+	db.delete(osWorkspaceResources)
+		.where(
+			and(
+				eq(osWorkspaceResources.organizationId, scope.organizationId),
+				eq(osWorkspaceResources.workspaceId, scope.workspaceId),
+			),
+		)
+		.run();
+	db.delete(osOutputs)
+		.where(
+			and(
+				eq(osOutputs.organizationId, scope.organizationId),
+				eq(osOutputs.workspaceId, scope.workspaceId),
+			),
+		)
+		.run();
 }

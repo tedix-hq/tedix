@@ -4,7 +4,7 @@ import { createDbQueryClient } from "@tedix/db/query-client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { organizations } from "@tedix/db/schema/organizations";
-import { osOutputs } from "@tedix/db/schema/os-workspaces";
+import { workspaceOutputIndex } from "@tedix/db/schema/workspace-feed";
 import { decisionEdges } from "@tedix/db/schema/decision-graph";
 import {
 	workItems,
@@ -34,7 +34,7 @@ function fixture() {
 	sqlite.exec(
 		schemaDdl(
 			organizations,
-			osOutputs,
+			workspaceOutputIndex,
 			decisionEdges,
 			workItems,
 			workItemComments,
@@ -223,13 +223,24 @@ async function seed(f: ReturnType<typeof fixture>) {
 		submittedById: "reviewer",
 		submittedAt: TIME,
 	});
-	await f.db.insert(osOutputs).values({
-		id: "output-a",
+	await f.db.insert(workspaceOutputIndex).values({
+		id: "output-a:1",
+		outputId: "output-a",
 		organizationId: ORG,
-		kind: "document",
+		workspaceId: "workspace-a",
+		revision: 1,
+		revisionId: "revision-a",
+		isCurrent: 1,
+		outputKind: "document",
 		title: "Audit evidence",
-		createdByKind: "user",
-		createdById: "person-river",
+		status: "active",
+		outputCreatedByKind: "user",
+		outputCreatedById: "person-river",
+		outputCreatedAt: TIME,
+		revisionCreatedByKind: "user",
+		revisionCreatedById: "person-river",
+		revisionCreatedAt: TIME,
+		updatedAt: TIME,
 	});
 	await f.db.insert(workEvidence).values({
 		id: "evidence-output",

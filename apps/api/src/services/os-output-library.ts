@@ -1,6 +1,3 @@
-import { env } from "cloudflare:workers";
-import type { WorkspaceOutputRuntime } from "@tedix/db/queries/durable-sqlite/output-rpc";
-import { listOsOutputLibraryRows } from "@tedix/db/queries/os-workspaces/outputs";
 import {
 	documentBlockText,
 	withDerivedDocumentBlocks,
@@ -19,7 +16,7 @@ import {
 	OsDerivedAccessEnvelopeSchema,
 	OsOutputContentSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import type { OsOutputRevisionMetadataRow } from "@tedix/db/queries/os-workspaces/outputs";
+import type { OsOutputRevisionMetadataRow } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import {
 	listWorkspaceOutputLibrary,
 	type WorkspaceOutputLibraryRow,
@@ -186,7 +183,7 @@ export function outputLibraryRowsFromIndex(row: WorkspaceOutputLibraryRow): {
 	};
 }
 
-/** Library metadata comes from the owner of each workspace's outputs. */
+/** Library cards come only from the workspace output index. */
 export async function buildOsOutputLibrary(
 	db: DbQueryClient,
 	params: {
@@ -214,56 +211,10 @@ export async function buildOsOutputLibrary(
 			limit: params.limit + 1,
 		},
 	);
-	const shared = await listOsOutputLibraryRows(
-		db,
-		{ organizationId: params.organizationId, workspaceId: params.workspaceId },
-		params.viewer,
-		{
-			kind: params.kind,
-			status: params.status,
-			search: params.search,
-			limit: params.limit + 1,
-		},
-	);
-	const projected = indexed.map((row) => ({
+	const rows = indexed.map((row) => ({
 		...outputLibraryRowsFromIndex(row),
 		workspace: row.workspace,
 	}));
-	const store = (
-		env as unknown as { WORKSPACE_RUNTIME?: WorkspaceOutputRuntime }
-	).WORKSPACE_RUNTIME;
-	const owners = new Map<string, boolean>();
-	if (store)
-		await Promise.all(
-			[
-				...new Set(
-					[...shared, ...projected]
-						.map((row) => row.output.workspaceId)
-						.filter((id): id is string => Boolean(id)),
-				),
-			].map(async (workspaceId) => {
-				owners.set(
-					workspaceId,
-					(await store.outputQuery(
-						{ organizationId: params.organizationId, workspaceId },
-						{ op: "authority" },
-					)) === "object",
-				);
-			}),
-		);
-	const rowsById = new Map<string, (typeof projected)[number]>(
-		shared
-			.filter((row) => !owners.get(row.output.workspaceId ?? ""))
-			.map((row) => [row.output.id, row]),
-	);
-	for (const row of projected)
-		if (!store || owners.get(row.output.workspaceId ?? ""))
-			rowsById.set(row.output.id, row);
-	const rows = [...rowsById.values()].sort(
-		(a, b) =>
-			b.output.updatedAt.localeCompare(a.output.updatedAt) ||
-			b.output.id.localeCompare(a.output.id),
-	);
 	return {
 		items: await Promise.all(
 			rows.slice(0, params.limit).map(async (row) => {

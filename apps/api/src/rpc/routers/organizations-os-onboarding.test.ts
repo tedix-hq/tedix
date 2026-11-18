@@ -21,6 +21,12 @@ const mocks = vi.hoisted(() => ({
 	deleteApp: vi.fn(),
 	deleteMcpServerRegistration: vi.fn(),
 	loadAllDescopeMcpServers: vi.fn(),
+	deleteOrganizationWorkspaceDocuments: vi.fn(),
+}));
+
+vi.mock("../../services/workspace-document-delete", () => ({
+	deleteOrganizationWorkspaceDocuments:
+		mocks.deleteOrganizationWorkspaceDocuments,
 }));
 
 vi.mock("../../services/default-work-apps", () => ({
@@ -331,6 +337,24 @@ describe("organizations.completeOsOnboarding", () => {
 		mocks.loadAllDescopeMcpServers.mockResolvedValue([]);
 		await expect(client.delete(input)).resolves.toEqual({ success: true });
 		expect(mocks.deleteApp).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not retire or delete the tenant until workspace cleanup succeeds", async () => {
+		const { organizationsContractRouter } = await import("./organizations");
+		const context = userContext();
+		context.user!.roles = ["platform-admin"];
+		context.env.DESCOPE_PROJECT_ID = "P3fictional";
+		context.env.DESCOPE_MANAGEMENT_KEY = "fictional-key";
+		const client = createRouterClient(organizationsContractRouter, { context });
+		mocks.deleteOrganizationWorkspaceDocuments.mockRejectedValueOnce(
+			new Error("workspace unavailable"),
+		);
+		const input = { organizationId: ORGANIZATION_ID, force: true };
+		await expect(client.delete(input)).rejects.toThrow("workspace unavailable");
+		expect(mocks.retireOrganization).not.toHaveBeenCalled();
+		expect(mocks.deleteTenant).not.toHaveBeenCalled();
+		await expect(client.delete(input)).resolves.toEqual({ success: true });
+		expect(mocks.deleteOrganizationWorkspaceDocuments).toHaveBeenCalledTimes(2);
 		expect(mocks.retireOrganization).toHaveBeenCalledOnce();
 	});
 

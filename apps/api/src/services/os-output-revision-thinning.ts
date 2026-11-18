@@ -14,6 +14,7 @@ import {
 	isTransientD1ReadError,
 } from "@tedix/db/utils/d1-retry";
 import type { OutputBodyBucket } from "./os-output-revision-body-store";
+import { workspaceOwnsDocuments } from "./workspace-document-owner";
 
 /**
  * Thins editor auto-save revisions out of file history.
@@ -26,8 +27,8 @@ import type { OutputBodyBucket } from "./os-output-revision-body-store";
  * (`listOutputThinningCandidates`).
  *
  * Stored bodies are not deleted here. They are shared by content inside an
- * organization, and the nightly body sweep (`runOutputRevisionBodyGc`)
- * already removes a body once no revision references it and it is a day old.
+ * organization. Body collection stays paused until a complete inventory
+ * includes every workspace object's historical revisions.
  * Stored images belong to the file and are not touched.
  *
  * It never starts on its own, because a deleted revision cannot be brought
@@ -251,12 +252,12 @@ export async function runOutputRevisionThinningTick(input: {
 								workspaceId: candidate.workspaceId,
 							}
 						: null;
-					const authority =
+					const objectOwned =
 						input.runtime && scope
-							? await input.runtime.outputQuery(scope, { op: "authority" })
-							: "shared";
+							? await workspaceOwnsDocuments(scope, input.runtime)
+							: false;
 					if (phase === "shared") {
-						if (authority === "object") {
+						if (objectOwned) {
 							// Migration copies may still exist in core; only the owner may thin them.
 							for (const row of group) pending.delete(row.rowid);
 							continue;
@@ -271,7 +272,7 @@ export async function runOutputRevisionThinningTick(input: {
 					} else {
 						if (!input.runtime)
 							throw new Error("Workspace output store unavailable");
-						if (!scope || authority !== "object") {
+						if (!scope || !objectOwned) {
 							for (const row of group) pending.delete(row.rowid);
 							continue;
 						}

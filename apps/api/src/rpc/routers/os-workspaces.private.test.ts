@@ -1,3 +1,5 @@
+import { workspaceDocumentRuntime } from "../../services/workspace-document-owner";
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 import { eq } from "drizzle-orm";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { publishWorkspaceAction } from "@tedix/db/queries/workspace-feed/action-publication";
@@ -110,6 +112,7 @@ function createEnv(): CloudflareEnv {
 		       ('m-ada','org-1','member-ada','ada@example.test','admin','active'),
 		       ('m-gone','org-1','member-gone','gone@example.test','member','deactivated');
 	`);
+	workspaceOutputFixture(sqlite, { coreSchemaExists: true });
 	return {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",
@@ -1149,19 +1152,24 @@ it("keeps a fictional member's private Inbox and Social sources out of every oth
 
 it("filters recorded workspace activity on the server and preserves safe action provenance", async () => {
 	const env = createEnv();
+	const runtime = workspaceDocumentRuntime();
 	const { workspace: privateWorkspace, team, teamOutput } = await seed(env);
 	const db = createDbQueryClient(env.DB);
-	// Shared-storage writes deliberately leave no object index. Model the object
-	// publisher explicitly so this test exercises artifact provenance filtering.
+	const scope = { organizationId: "org-1", workspaceId: team.id };
+	const output = await runtime.outputQuery(scope, {
+		op: "get",
+		outputId: teamOutput.id,
+	});
+	const revision = await runtime.outputQuery(scope, {
+		op: "revision",
+		revisionId: teamOutput.currentRevisionId!,
+	});
+	// Start the explicit publication with an empty ledger and projection.
+	await db.delete(workspaceOutputIndex);
+	await db.delete(workspaceFeedCursors);
+	await db.delete(workspaceFeedLedger);
+	await db.delete(workspaceActivity);
 	expect(await db.select().from(workspaceOutputIndex)).toEqual([]);
-	const [output] = await db
-		.select()
-		.from(osOutputs)
-		.where(eq(osOutputs.id, teamOutput.id));
-	const [revision] = await db
-		.select()
-		.from(osOutputRevisions)
-		.where(eq(osOutputRevisions.id, teamOutput.currentRevisionId!));
 	await publishOutputProjection(db, output!, revision!);
 	const publish = (workspaceId: string, id: string, revisionId?: string) =>
 		publishWorkspaceAction(db, {

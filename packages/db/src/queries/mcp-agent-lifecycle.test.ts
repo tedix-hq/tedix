@@ -12,13 +12,13 @@ function fixture() {
 	CREATE TABLE external_agent_sessions (id TEXT, organization_id TEXT, principal_id TEXT, external_session_key TEXT, status TEXT);
 	CREATE TABLE external_agent_principals (id TEXT, organization_id TEXT, status TEXT);
 	CREATE TABLE os_workspace_projects (organization_id TEXT, workspace_id TEXT, project_id TEXT, status TEXT);
-	CREATE TABLE os_outputs (id TEXT, organization_id TEXT, workspace_id TEXT, status TEXT);
+	CREATE TABLE workspace_output_index (output_id TEXT, organization_id TEXT, workspace_id TEXT, status TEXT, is_current INTEGER);
 	INSERT INTO external_agent_principals VALUES ('agent','org','active');
 	INSERT INTO external_agent_sessions VALUES ('session','org','agent','codex:own','active');
 	INSERT INTO work_items VALUES ('work','org','project','accepted');
 	INSERT INTO work_attempts VALUES ('attempt','org','work','external_agent','agent','session','codex:own','running','2099-01-01T00:00:00.000Z');
 	INSERT INTO os_workspace_projects VALUES ('org','workspace','project','active');
-	INSERT INTO os_outputs VALUES ('output','org','workspace','active');
+	INSERT INTO workspace_output_index VALUES ('output','org','workspace','active',1),('historical','org','workspace','active',0),('archived','org','workspace','archived',1),('foreign','other','workspace','active',1);
 	`);
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }
@@ -148,3 +148,18 @@ it("limits Outputs to a workspace linked to a project held by this session", asy
 	).toBe(false);
 	sqlite.close();
 });
+
+it.each(["historical", "archived", "foreign", "missing"])(
+	"refuses revision authority for %s output",
+	async (outputId) => {
+		const { db, sqlite } = fixture();
+		expect(
+			await resolveAgentLifecycleAuthorization(db, {
+				...identity,
+				endpoint: "osWorkspaces/outputs/revise",
+				args: { outputId },
+			}),
+		).toBe(false);
+		sqlite.close();
+	},
+);

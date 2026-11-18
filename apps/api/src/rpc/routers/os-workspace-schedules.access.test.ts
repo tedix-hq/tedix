@@ -1,3 +1,6 @@
+import { confirmWorkspaceFileResource } from "../../services/workspace-resource-storage";
+import type { NewOsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 /**
  * The access level chosen on an attached personal account (none, read,
  * organise) and "run now" for a Workspace's linked skill: owner-only grants
@@ -19,6 +22,7 @@ import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
 	osWorkspaceResources,
 	osWorkspaces,
+	osOutputs,
 } from "@tedix/db/schema/os-workspaces";
 import { personalResourceDelegations } from "@tedix/db/schema/personal-resource-delegations";
 import { tedis } from "@tedix/db/schema/tedis";
@@ -112,6 +116,7 @@ function createEnv(): CloudflareEnv {
 			tedis,
 			connectionInstances,
 			osWorkspaces,
+			osOutputs,
 			osWorkspaceResources,
 			personalResourceDelegations,
 			apps,
@@ -130,6 +135,7 @@ function createEnv(): CloudflareEnv {
 		VALUES ('m-robin','org-1','member-robin','robin@example.test','member','active'),
 		       ('m-kai','org-1','member-kai','kai@example.test','member','active');
 	`);
+	workspaceOutputFixture(sqlite);
 	return {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",
@@ -242,7 +248,7 @@ async function seed(env: CloudflareEnv) {
 		...values,
 	});
 	const mailbox = crypto.randomUUID();
-	await db.insert(osWorkspaceResources).values([
+	for (const resource of [
 		row(crypto.randomUUID(), {
 			providerId: "tedix",
 			resourceType: "skill",
@@ -264,7 +270,8 @@ async function seed(env: CloudflareEnv) {
 			providerResourceId: "robin@example.test",
 			name: "Gmail: robin@example.test",
 		}),
-	] as never);
+	] as NewOsWorkspaceResourceRow[])
+		await confirmWorkspaceFileResource(db, resource);
 	return { workspaceId: workspace.id, mailbox };
 }
 

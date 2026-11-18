@@ -9,14 +9,19 @@ it("counts the person's project receipts without deriving attention from the int
 	sqlite.exec(`
 	CREATE TABLE work_items(id TEXT, org_id TEXT, project_id TEXT);
 	CREATE TABLE work_interactions(id TEXT, org_id TEXT, work_item_id TEXT, project_id TEXT, target_type TEXT, target_id TEXT, status TEXT, expires_at TEXT, due_at TEXT, metadata TEXT, kind TEXT, resolved_at TEXT, created_at TEXT);
-	CREATE TABLE os_outputs(id TEXT, organization_id TEXT, workspace_id TEXT, title TEXT, updated_at TEXT, kind TEXT, status TEXT);
+	CREATE TABLE workspace_output_index(output_id TEXT, organization_id TEXT, workspace_id TEXT, title TEXT, updated_at TEXT, output_kind TEXT, status TEXT, is_current INTEGER DEFAULT 1);
 	CREATE TABLE os_workspace_projects(organization_id TEXT, workspace_id TEXT, project_id TEXT, status TEXT);
 	CREATE TABLE os_workspaces(id TEXT, organization_id TEXT, visibility TEXT, status TEXT);
 	CREATE TABLE work_approval_proposals(id TEXT, org_id TEXT, work_item_id TEXT, approver_type TEXT, approver_id TEXT, status TEXT, expires_at TEXT, resolved_at TEXT, created_at TEXT);
 	INSERT INTO work_items VALUES ('work','org-one','project');
 	INSERT INTO os_workspaces VALUES ('shared','org-one','org','active'),('private','org-one','private','active');
 	INSERT INTO os_workspace_projects VALUES ('org-one','shared','project','active'),('org-one','private','project','active');
-	INSERT INTO os_outputs VALUES ('doc','org-one','shared','Plan','2026-10-18 08:00:00','document','active'),('today','org-one','shared','Today','2026-10-18T09:00:00.000Z','document','active'),('secret','org-one','private','Private','2026-10-18T08:00:00.000Z','document','active');
+	INSERT INTO workspace_output_index(output_id,organization_id,workspace_id,title,updated_at,output_kind,status) VALUES ('doc','org-one','shared','Plan','2026-10-18 08:00:00','document','active'),('today','org-one','shared','Today','2026-10-18T09:00:00.000Z','document','active'),('secret','org-one','private','Private','2026-10-18T08:00:00.000Z','document','active');
+	INSERT INTO workspace_output_index VALUES
+	('doc','org-one','shared','Old plan','2026-10-18T10:00:00.000Z','document','active',0),
+	('foreign','org-two','shared','Foreign','2026-10-18T10:00:00.000Z','document','active',1),
+	('archived','org-one','shared','Archived','2026-10-18T10:00:00.000Z','document','archived',1),
+	('sheet','org-one','shared','Sheet','2026-10-18T10:00:00.000Z','sheet','active',1);
 	`);
 	const insert = sqlite.prepare(
 		"INSERT INTO work_interactions VALUES (?,?,?,?,'user',?,?,NULL,NULL,?,'question',?,?)",

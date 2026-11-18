@@ -1,3 +1,5 @@
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
+import { createOsOutput } from "../services/os-workspace-outputs";
 import { DatabaseSync } from "node:sqlite";
 import type { KernelRequestPolicy } from "@tedix/api-contract/schemas/kernel-request";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -19,7 +21,7 @@ import {
 	workItemComments,
 } from "@tedix/db/schema/work-items";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
-import { osOutputs, osWorkspaces } from "@tedix/db/schema/os-workspaces";
+import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import {
 	getHomeKernelRequest,
 	listDueKernelRequestOrganizations,
@@ -68,10 +70,10 @@ async function fixture(revisionId = "revision-one", responseOnly = false) {
 			workAttempts,
 			workItemComments,
 			organizationMembers,
-			osOutputs,
 			osWorkspaces,
 		),
 	);
+	workspaceOutputFixture(sqlite);
 	const db = createDbClient(createD1Facade(sqlite));
 	const context = {
 		db,
@@ -97,19 +99,32 @@ async function fixture(revisionId = "revision-one", responseOnly = false) {
 		createdAt: now,
 		updatedAt: now,
 	});
-	await db.insert(osOutputs).values({
-		id: "output-one",
-		organizationId: "org-example",
-		workspaceId: "workspace-one",
-		kind: "document",
-		title: "Example document",
-		status: "active",
-		currentRevisionId: revisionId,
-		createdByKind: "user",
-		createdById: "user-ada",
-		createdAt: now,
-		updatedAt: now,
-	});
+	await createOsOutput(
+		db,
+		{
+			id: "output-one",
+			organizationId: "org-example",
+			workspaceId: "workspace-one",
+			kind: "document",
+			title: "Example document",
+			status: "active",
+			currentRevisionId: revisionId,
+			createdByKind: "user",
+			createdById: "user-ada",
+			createdAt: now,
+			updatedAt: now,
+		},
+		{
+			id: revisionId,
+			organizationId: "org-example",
+			outputId: "output-one",
+			revision: 1,
+			content: JSON.stringify({ kind: "document", blocks: [] }),
+			createdByKind: "user",
+			createdById: "user-ada",
+			createdAt: now,
+		},
+	);
 	await captureHomeKernelRequest(context, {
 		organizationId: "org-example",
 		runId: "run-one",

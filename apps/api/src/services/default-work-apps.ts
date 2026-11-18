@@ -1,3 +1,4 @@
+import { initializeWorkspaceDocumentOwner } from "./workspace-document-owner";
 import { ORPCError } from "@orpc/server";
 import {
 	OsBlueprintDefinitionSchema,
@@ -26,7 +27,10 @@ export async function installDefaultWorkApps(
 	const workspaceId = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
 	const scope = { organizationId, workspaceId };
 	const existing = await getOsWorkspace(db, scope);
-	if (existing) return { workspaceId: existing.id };
+	if (existing) {
+		await initializeWorkspaceDocumentOwner(existing);
+		return { workspaceId: existing.id };
+	}
 
 	const installed = await listOsWorkApps(
 		db,
@@ -42,8 +46,11 @@ export async function installDefaultWorkApps(
 			return manifest.navigation?.work;
 		}),
 	);
-	if (roles.has("feed") && roles.has("deck"))
-		return { workspaceId: installed[0]!.gadget.workspaceId };
+	if (roles.has("feed") && roles.has("deck")) {
+		const id = installed[0]!.gadget.workspaceId;
+		await initializeWorkspaceDocumentOwner({ organizationId, id });
+		return { workspaceId: id };
+	}
 
 	const configured = await getWorkOnboarding(db).catch((cause: unknown) => {
 		throw new ORPCError("SERVICE_UNAVAILABLE", {
@@ -136,7 +143,9 @@ export async function installDefaultWorkApps(
 	} catch (error) {
 		// Only adopt a winner at our exact tenant-scoped identity. Other failed
 		// batches must remain failures so onboarding can be retried truthfully.
-		if (!(await getOsWorkspace(db, scope))) throw error;
+		const winner = await getOsWorkspace(db, scope);
+		if (!winner) throw error;
+		await initializeWorkspaceDocumentOwner(winner);
 	}
 	return { workspaceId };
 }

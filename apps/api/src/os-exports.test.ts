@@ -24,8 +24,11 @@ vi.mock("@tedix/db/queries/organizations", () => ({
 vi.mock("@tedix/db/queries/organization-members", () => ({
 	getMemberByUserId: mocks.member,
 }));
-vi.mock("@tedix/db/queries/os-workspaces/outputs", () => ({
+vi.mock("./services/workspace-output-storage", () => ({
 	getOsOutput: mocks.output,
+}));
+
+vi.mock("./services/os-workspace-outputs", () => ({
 	getOsOutputRevisionByNumber: mocks.revision,
 }));
 

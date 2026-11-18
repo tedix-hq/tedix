@@ -665,10 +665,10 @@ describe("WorkspaceLibraryPage", () => {
 		const text = dialog.textContent ?? "";
 		expect(text).toContain("Deleted for good");
 		expect(text).toContain("Its apps, with every saved version");
-		expect(text).toContain("Kept");
 		expect(text).toContain(
-			"Documents, sheets and slides. Find them in Documents.",
+			"Its documents, sheets and slides, with every saved version",
 		);
+		expect(text).toContain("Kept");
 		expect(text).toContain("1 share link is still on");
 		const confirm = action("Turn off links and delete");
 		expect(confirm.disabled).toBe(true);
@@ -692,23 +692,6 @@ describe("WorkspaceLibraryPage", () => {
 			api.workspaces.delete.mock.invocationCallOrder[0] ?? 0,
 		);
 		expect(container.textContent).toContain("Work was deleted permanently.");
-		act(() => root.unmount());
-	});
-
-	it("explains that deleting a private workspace keeps its outputs private", async () => {
-		api.collaboration.list.mockResolvedValue({ items: [], truncated: false });
-		const { dialog, root } = await openDelete(
-			workspace({
-				id: SECOND_WORKSPACE_ID,
-				name: "Private",
-				status: "archived",
-				visibility: "private",
-			}),
-		);
-		expect(dialog.textContent).toContain(
-			"They move to a new Saved documents workspace and stay private to the owner.",
-		);
-		expect(dialog.textContent).not.toContain("anyone in your organization");
 		act(() => root.unmount());
 	});
 

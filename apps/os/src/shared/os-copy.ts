@@ -416,11 +416,9 @@ const ENGLISH_COPY = {
 		deleteRemoves: [
 			"The workspace, its member list and its invite links",
 			"Its apps, with every saved version",
+			"Its documents, sheets and slides, with every saved version",
 			"Its uploaded files and its links to connected accounts, skills and Work projects",
 		],
-		deleteKeepsOutputs: "Documents, sheets and slides. Find them in Documents.",
-		deleteKeepsPrivateOutputs:
-			"Documents, sheets and slides. They move to a new Saved documents workspace and stay private to the owner.",
 		deleteKeeps: [
 			"Chats. They stay in your chat history.",
 			"The skills, schedules and Work projects themselves",

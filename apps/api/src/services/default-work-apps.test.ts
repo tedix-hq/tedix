@@ -1,3 +1,5 @@
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
+import { createOsOutput } from "./workspace-output-storage";
 import blueprint from "../../../os/dev/demo-pack/work-blueprint.json";
 import { policyPacks } from "@tedix/db/schema/control-plane";
 import { DatabaseSync } from "node:sqlite";
@@ -14,6 +16,8 @@ import {
 import { getOsBlueprintRevision } from "@tedix/db/queries/os-workspaces/blueprints";
 import {
 	osWorkspaces,
+	osOutputs,
+	osOutputRevisions,
 	osGadgets,
 	osGadgetRevisions,
 	osBlueprints,
@@ -37,6 +41,8 @@ function fixture() {
 		schemaDdl(
 			policyPacks,
 			osWorkspaces,
+			osOutputs,
+			osOutputRevisions,
 			osGadgets,
 			osGadgetRevisions,
 			osBlueprints,
@@ -50,11 +56,49 @@ function fixture() {
 		.run(
 			JSON.stringify({ workOnboarding: { version: 1, definition: blueprint } }),
 		);
+	workspaceOutputFixture(sqlite, { uninitialized: true });
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 const owner = { kind: "user" as const, id: "pine-owner" };
 
 describe("default Work blueprint installation", () => {
+	it("allows the first document in the default Work workspace", async () => {
+		const { db, sqlite } = fixture();
+		const { workspaceId } = await installDefaultWorkApps(
+			db,
+			"pine-studio",
+			owner,
+		);
+		const scope = { organizationId: "pine-studio", workspaceId };
+		const saved = await createOsOutput(
+			db,
+			scope,
+			{
+				...scope,
+				id: "first",
+				kind: "document",
+				title: "First",
+				currentRevisionId: "rev-first",
+				createdByKind: "user",
+				createdById: owner.id,
+			},
+			{
+				id: "rev-first",
+				organizationId: scope.organizationId,
+				outputId: "first",
+				revision: 1,
+				content: "",
+				bodyR2Key: "body",
+				contentSha256: "abc",
+				contentBytes: 0,
+				createdByKind: "user",
+				createdById: owner.id,
+			},
+		);
+		expect(saved.output.workspaceId).toBe(workspaceId);
+		sqlite.close();
+	});
+
 	it("installs pinned tenant-owned Feed and Deck with product navigation; retry and concurrent calls converge", async () => {
 		const { db, sqlite } = fixture();
 		try {

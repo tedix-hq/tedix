@@ -259,7 +259,7 @@ const apply = authed
 			if (error instanceof Error && /unique constraint/i.test(error.message))
 				throw createError(
 					ErrorCodes.CONFLICT,
-					"Workspace name or scheduled skill is already in use; nothing was written",
+					"Workspace name or scheduled skill is already in use; shared provisioning was not committed",
 				);
 			throw error;
 		}

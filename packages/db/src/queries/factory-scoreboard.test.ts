@@ -12,8 +12,7 @@ CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, ski
 CREATE TABLE os_blueprints (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL);
 CREATE TABLE os_workspaces (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, source_blueprint_id TEXT);
 CREATE TABLE os_gadget_executions (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, workspace_id TEXT NOT NULL, run_id TEXT, created_at TEXT NOT NULL);
-CREATE TABLE os_outputs (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, title TEXT NOT NULL);
-CREATE TABLE os_output_revisions (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, output_id TEXT NOT NULL, skill_run_id TEXT, created_at TEXT NOT NULL);
+CREATE TABLE workspace_output_index (revision_id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, output_id TEXT NOT NULL, skill_run_id TEXT, revision_created_at TEXT NOT NULL, title TEXT, is_current INTEGER);
 CREATE TABLE work_items (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, disposition TEXT NOT NULL, completed_at TEXT);
 `;
 
@@ -49,12 +48,13 @@ describe("listFactoryScoreboard", () => {
 				('r-4', '${ORG}', 'skill-gadget', 'tedi-nova', 'completed', '2026-10-13 11:00:00', NULL),
 				('r-x', 'org-2', 'skill-other', 'tedi-x', 'completed', '2026-10-13 11:00:00', NULL);
 			INSERT INTO os_gadget_executions VALUES ('ge-1', '${ORG}', 'ws-crm', 'r-4', '2026-10-13 11:00:00');
-			INSERT INTO os_outputs VALUES ('out-1', '${ORG}', 'Weekly brief'), ('out-2', '${ORG}', 'Lead sheet'), ('out-old', '${ORG}', 'Old brief');
-			INSERT INTO os_output_revisions VALUES
-				('rev-1', '${ORG}', 'out-1', 'r-1', '2026-10-13 07:05:00'),
-				('rev-2', '${ORG}', 'out-1', 'r-1', '2026-10-13 07:06:00'),
-				('rev-old', '${ORG}', 'out-old', 'r-old', '2026-10-01 07:05:00'),
-				('rev-3', '${ORG}', 'out-2', 'r-4', '2026-10-13 11:05:00');
+			INSERT INTO workspace_output_index VALUES
+				('rev-1', '${ORG}', 'out-1', 'r-1', '2026-10-13 07:05:00','Old brief',0),
+				('rev-2', '${ORG}', 'out-1', 'r-1', '2026-10-13 07:06:00','Weekly brief',1),
+				('rev-old', '${ORG}', 'out-old', 'r-old', '2026-10-01 07:05:00','Old brief',1),
+				('rev-3', '${ORG}', 'out-2', 'r-4', '2026-10-13 11:05:00','Old lead title',0),
+				('rev-4', '${ORG}', 'out-2', NULL, '2026-10-14 11:05:00','Lead sheet',1),
+				('foreign', 'org-other', 'out-other', 'r-4', '2026-10-14 11:06:00','Foreign',1);
 			INSERT INTO work_items VALUES ('wi-done', '${ORG}', 'Ship digest', 'completed', '2026-10-13T08:00:00.000Z');
 		`);
 		const db = createDbClient(createD1Facade(sqlite));

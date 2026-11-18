@@ -2,11 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { skillEntries } from "../../schema/cognitive";
-import {
-	osOutputRevisions,
-	osOutputs,
-	osWorkspaceProjects,
-} from "../../schema/os-workspaces";
+import { osWorkspaceProjects } from "../../schema/os-workspaces";
+import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { projects } from "../../schema/projects";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
@@ -24,8 +21,7 @@ function fixture() {
 			projects,
 			skillEntries,
 			osWorkspaceProjects,
-			osOutputs,
-			osOutputRevisions,
+			workspaceOutputIndex,
 		),
 	);
 	const skill = sqlite.prepare(
@@ -80,23 +76,28 @@ function fixture() {
 			"INSERT INTO os_workspace_projects (id, organization_id, workspace_id, project_id, status, created_by_kind, created_by_id, created_at, updated_at) VALUES (?, 'org-1', 'ws-1', ?, ?, 'user', 'u-1', '2026-10-01', '2026-10-01')",
 		)
 		.run("link-1", "p-linked", "active");
-	sqlite
-		.prepare(
-			"INSERT INTO os_outputs (id, organization_id, workspace_id, kind, title, status, created_by_kind, created_by_id, created_at, updated_at) VALUES (?, 'org-1', ?, 'sheet', ?, 'active', 'user', 'u-1', '2026-10-01', '2026-10-01')",
-		)
-		.run("out-1", "ws-1", "Cards");
 	const revision = sqlite.prepare(
-		"INSERT INTO os_output_revisions (id, organization_id, output_id, revision, content, created_by_kind, created_by_id, created_at, skill_run_id, skill_id) VALUES (?, 'org-1', 'out-1', ?, '{}', 'tedi', 't-1', '2026-10-01', ?, ?)",
+		"INSERT INTO workspace_output_index (id, organization_id, workspace_id, output_id, revision, revision_id, is_current, output_kind, title, status, output_created_by_kind, output_created_by_id, output_created_at, revision_created_by_kind, revision_created_by_id, revision_created_at, updated_at, skill_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'sheet', 'Cards', 'active', 'user', 'u-1', '2026-10-01', 'tedi', 't-1', '2026-10-01', '2026-10-01', ?)",
 	);
-	revision.run("rev-1", 1, "run-1", "skill-writer");
-	revision.run("rev-2", 2, "run-2", "skill-writer");
-	revision.run("rev-3", 3, "run-3", "skill-lane");
-	revision.run("rev-4", 4, null, null);
+	const index = (
+		id: string,
+		skillId: string | null,
+		org = "org-1",
+		ws = "ws-1",
+		current = 0,
+	) => revision.run(id, org, ws, id, 1, `${id}-r1`, current, skillId);
+	index("rev-1", "skill-writer");
+	index("rev-2", "skill-writer");
+	index("rev-3", "skill-lane");
+	index("rev-4", null, "org-1", "ws-1", 1);
+	index("foreign-output", "skill-other-org", "org-2");
+	index("foreign-skill", "skill-other-org");
+	index("other-workspace", "skill-unrelated", "org-1", "ws-2");
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
 describe("listOsWorkspaceSkillLinkCandidates", () => {
-	it("finds factory lanes bound or linked to the Workspace and the skills that wrote its Outputs, once each", async () => {
+	it("finds factory skills and historical indexed writers without shared document tables", async () => {
 		const db = fixture();
 		const candidates = await listOsWorkspaceSkillLinkCandidates(db, {
 			organizationId: "org-1",

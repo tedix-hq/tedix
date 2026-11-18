@@ -5,7 +5,8 @@ import {
 	externalAgentSessions,
 } from "../schema/external-agent-identity";
 import { workAttempts, workItems } from "../schema/work-items";
-import { osOutputs, osWorkspaceProjects } from "../schema/os-workspaces";
+import { osWorkspaceProjects } from "../schema/os-workspaces";
+import { workspaceOutputIndex } from "../schema/workspace-feed";
 
 /** Admission covers only the holder's bounded lifecycle and project artifacts. */
 export async function resolveAgentLifecycleAuthorization(
@@ -45,13 +46,14 @@ export async function resolveAgentLifecycleAuthorization(
 	if (reviseOutput) {
 		if (typeof args.outputId !== "string") return false;
 		const [output] = await db
-			.select({ workspaceId: osOutputs.workspaceId })
-			.from(osOutputs)
+			.select({ workspaceId: workspaceOutputIndex.workspaceId })
+			.from(workspaceOutputIndex)
 			.where(
 				and(
-					eq(osOutputs.organizationId, params.organizationId),
-					eq(osOutputs.id, args.outputId),
-					eq(osOutputs.status, "active"),
+					eq(workspaceOutputIndex.organizationId, params.organizationId),
+					eq(workspaceOutputIndex.outputId, args.outputId),
+					eq(workspaceOutputIndex.status, "active"),
+					eq(workspaceOutputIndex.isCurrent, 1),
 				),
 			)
 			.limit(1);

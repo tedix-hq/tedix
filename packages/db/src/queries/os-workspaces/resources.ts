@@ -1,12 +1,12 @@
 import { and, asc, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import type { TenantStoreDb } from "../durable-sqlite/tenant-store";
 import { skillEntries } from "../../schema/cognitive";
 import { projects } from "../../schema/projects";
+import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import {
 	type NewOsWorkspaceResourceRow,
 	type OsWorkspaceResourceRow,
-	osOutputRevisions,
-	osOutputs,
 	osWorkspaceProjects,
 	osWorkspaceResources,
 	osWorkspaceSkillDraftGrants,
@@ -161,7 +161,7 @@ export interface OsWorkspaceResourceIdentity extends OsWorkspaceResourceScope {
 }
 
 export async function createOsWorkspaceResource(
-	db: DbQueryClient,
+	db: DbQueryClient | TenantStoreDb,
 	resource: NewOsWorkspaceResourceRow,
 ): Promise<OsWorkspaceResourceRow> {
 	const [row] = await db
@@ -173,7 +173,7 @@ export async function createOsWorkspaceResource(
 }
 
 export async function getOsWorkspaceResource(
-	db: DbQueryClient,
+	db: DbQueryClient | TenantStoreDb,
 	params: OsWorkspaceResourceIdentity,
 ): Promise<OsWorkspaceResourceRow | undefined> {
 	const [row] = await db
@@ -195,21 +195,25 @@ export async function getOsWorkspaceResource(
  * An uploaded file and its document Output share one id, so archiving the
  * file from the Files list archives only the Output; restoring it brings the
  * reference back. A file uploaded without a document Output stays listed.
+ * Files live in their workspace's own store; the feed's index carries each
+ * file's current status here.
  */
 const referencesInactiveOutput = sql`(
 	${osWorkspaceResources.providerId} = 'tedix'
 	and (
 		(${osWorkspaceResources.resourceType} = 'file' and exists (
-			select 1 from ${osOutputs}
-			where ${osOutputs.organizationId} = ${osWorkspaceResources.organizationId}
-			and ${osOutputs.id} = ${osWorkspaceResources.providerResourceId}
-			and ${osOutputs.status} <> 'active'
+			select 1 from ${workspaceOutputIndex}
+			where ${workspaceOutputIndex.organizationId} = ${osWorkspaceResources.organizationId}
+			and ${workspaceOutputIndex.outputId} = ${osWorkspaceResources.providerResourceId}
+			and ${workspaceOutputIndex.isCurrent} = 1
+			and ${workspaceOutputIndex.status} <> 'active'
 		))
 		or (${osWorkspaceResources.resourceType} = 'output' and not exists (
-			select 1 from ${osOutputs}
-			where ${osOutputs.organizationId} = ${osWorkspaceResources.organizationId}
-			and ${osOutputs.id} = ${osWorkspaceResources.providerResourceId}
-			and ${osOutputs.status} = 'active'
+			select 1 from ${workspaceOutputIndex}
+			where ${workspaceOutputIndex.organizationId} = ${osWorkspaceResources.organizationId}
+			and ${workspaceOutputIndex.outputId} = ${osWorkspaceResources.providerResourceId}
+			and ${workspaceOutputIndex.isCurrent} = 1
+			and ${workspaceOutputIndex.status} = 'active'
 		))
 	)
 )`;
@@ -302,7 +306,7 @@ export async function listOsWorkspaceLinkedTediIds(
 }
 
 export async function updateOsWorkspaceResourceMetadata(
-	db: DbQueryClient,
+	db: DbQueryClient | TenantStoreDb,
 	params: OsWorkspaceResourceIdentity & {
 		metadata: string;
 		expectedUpdatedAt: string;
@@ -325,7 +329,7 @@ export async function updateOsWorkspaceResourceMetadata(
 }
 
 export async function renameOsWorkspaceResource(
-	db: DbQueryClient,
+	db: DbQueryClient | TenantStoreDb,
 	params: OsWorkspaceResourceIdentity & {
 		name?: string;
 		slot?: string | null;
@@ -355,7 +359,7 @@ export async function renameOsWorkspaceResource(
 
 /** Change only the credential requirement for one active, exact provider object. */
 export async function rebindOsWorkspaceResource(
-	db: DbQueryClient,
+	db: DbQueryClient | TenantStoreDb,
 	params: OsWorkspaceResourceIdentity & {
 		connectionScope: OsWorkspaceResourceRow["connectionScope"];
 		personalOwnerUserId?: string | null;
@@ -392,7 +396,7 @@ export async function rebindOsWorkspaceResource(
 }
 
 export async function removeOsWorkspaceResource(
-	db: DbQueryClient,
+	db: DbQueryClient | TenantStoreDb,
 	params: OsWorkspaceResourceIdentity & {
 		expectedUpdatedAt: string;
 		now: string;
@@ -416,7 +420,7 @@ export async function removeOsWorkspaceResource(
 
 /** The organization-scoped reference to one provider object in a Workspace, in any status. */
 export async function findOsWorkspaceTenantResource(
-	db: DbQueryClient,
+	db: DbQueryClient | TenantStoreDb,
 	params: OsWorkspaceResourceScope & {
 		providerId: string;
 		resourceType: string;
@@ -448,7 +452,7 @@ export async function findOsWorkspaceTenantResource(
  * another reference fails the update as a unique constraint error.
  */
 export async function restoreOsWorkspaceResource(
-	db: DbQueryClient,
+	db: DbQueryClient | TenantStoreDb,
 	params: OsWorkspaceResourceIdentity & {
 		now: string;
 		replace?: Pick<
@@ -538,25 +542,18 @@ export async function listOsWorkspaceSkillLinkCandidates(
 		.limit(50);
 	const writerRows = await db
 		.selectDistinct({ skillId: skillEntries.id, title: skillEntries.title })
-		.from(osOutputs)
-		.innerJoin(
-			osOutputRevisions,
-			and(
-				eq(osOutputRevisions.outputId, osOutputs.id),
-				eq(osOutputRevisions.organizationId, osOutputs.organizationId),
-			),
-		)
+		.from(workspaceOutputIndex)
 		.innerJoin(
 			skillEntries,
 			and(
-				eq(skillEntries.id, osOutputRevisions.skillId),
-				eq(skillEntries.organizationId, osOutputs.organizationId),
+				eq(skillEntries.id, workspaceOutputIndex.skillId),
+				eq(skillEntries.organizationId, workspaceOutputIndex.organizationId),
 			),
 		)
 		.where(
 			and(
-				eq(osOutputs.organizationId, params.organizationId),
-				eq(osOutputs.workspaceId, params.workspaceId),
+				eq(workspaceOutputIndex.organizationId, params.organizationId),
+				eq(workspaceOutputIndex.workspaceId, params.workspaceId),
 			),
 		)
 		.orderBy(asc(skillEntries.title))
@@ -574,4 +571,28 @@ export async function listOsWorkspaceSkillLinkCandidates(
 		}
 	}
 	return candidates;
+}
+
+/** List screens and cross-workspace lookups retain a projection of the object row. */
+export async function projectOsWorkspaceResource(
+	db: DbQueryClient,
+	row: OsWorkspaceResourceRow,
+) {
+	await db
+		.insert(osWorkspaceResources)
+		.values(row)
+		.onConflictDoUpdate({ target: osWorkspaceResources.id, set: row });
+}
+
+/** A confirmed upload or replayed Blueprint retains the original resource row. */
+export async function ensureOsWorkspaceResource(
+	db: DbQueryClient | TenantStoreDb,
+	resource: NewOsWorkspaceResourceRow,
+) {
+	await db.insert(osWorkspaceResources).values(resource).onConflictDoNothing();
+	return getOsWorkspaceResource(db, {
+		organizationId: resource.organizationId,
+		workspaceId: resource.workspaceId,
+		resourceId: resource.id,
+	});
 }

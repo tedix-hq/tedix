@@ -7,6 +7,7 @@
  * new workspace per chat. A turn with no single member behind it uses the
  * organization's "General" workspace, also created once and reused.
  */
+import { createInitializedWorkspace } from "./workspace-document-owner";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import {
@@ -72,39 +73,42 @@ export async function ensureDefaultOsWorkspace(
 		createdById: string;
 	},
 ): Promise<OsWorkspaceRow | null> {
-	const now = new Date().toISOString();
-	const base = {
-		organizationId: input.organizationId,
-		description: DEFAULT_OS_WORKSPACE_DESCRIPTION,
-		status: "active" as const,
-		createdByKind: input.createdByKind,
-		createdById: input.createdById,
-		createdAt: now,
-		updatedAt: now,
-	};
-	const ownerUserId = input.ownerUserId;
-	if (ownerUserId) {
-		const personal = await getPersonalOsWorkspace(db, {
+	return createInitializedWorkspace(async () => {
+		const now = new Date().toISOString();
+		const base = {
 			organizationId: input.organizationId,
-			ownerUserId,
-		});
-		if (personal) return personal;
+			description: DEFAULT_OS_WORKSPACE_DESCRIPTION,
+			status: "active" as const,
+			createdByKind: input.createdByKind,
+			createdById: input.createdById,
+			createdAt: now,
+			updatedAt: now,
+		};
+		const ownerUserId = input.ownerUserId;
+		if (ownerUserId) {
+			const personal = await getPersonalOsWorkspace(db, {
+				organizationId: input.organizationId,
+				ownerUserId,
+			});
+			if (personal) return personal;
+			return createOrReuseByName(
+				db,
+				{ ...base, visibility: "private", ownerUserId },
+				[PERSONAL_OS_WORKSPACE_NAME, personalNameFallback(ownerUserId)],
+				(existing) =>
+					existing.status === "active" &&
+					existing.visibility === "private" &&
+					existing.ownerUserId === ownerUserId,
+			);
+		}
 		return createOrReuseByName(
 			db,
-			{ ...base, visibility: "private", ownerUserId },
-			[PERSONAL_OS_WORKSPACE_NAME, personalNameFallback(ownerUserId)],
+			base,
+			[DEFAULT_OS_WORKSPACE_NAME],
 			(existing) =>
-				existing.status === "active" &&
-				existing.visibility === "private" &&
-				existing.ownerUserId === ownerUserId,
+				existing.status === "active" && existing.visibility === "org",
 		);
-	}
-	return createOrReuseByName(
-		db,
-		base,
-		[DEFAULT_OS_WORKSPACE_NAME],
-		(existing) => existing.status === "active" && existing.visibility === "org",
-	);
+	});
 }
 
 const CREATE_OUTPUT_TOOL_RE = /^os(?:\.|__)create_os_output$/;

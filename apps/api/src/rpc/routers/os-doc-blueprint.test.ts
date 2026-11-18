@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "@tedix/db/query-client";
 import { eq } from "drizzle-orm";
 import { osOutputRevisions } from "@tedix/db/schema/os-workspaces";
 import { clients } from "./__tests__/os-workspaces-env";
@@ -101,7 +100,7 @@ describe("Doc blueprint installation", () => {
 				outputId: sheet.output.id,
 			}),
 		).rejects.toThrow();
-		await createDbQueryClient(c.env.DB)
+		await c.outputDb
 			.update(osOutputRevisions)
 			.set({ accessEnvelope: null })
 			.where(eq(osOutputRevisions.id, made.revision.id));

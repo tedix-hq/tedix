@@ -32,7 +32,7 @@ import {
 	findOsWorkspaceTenantResource,
 	restoreOsWorkspaceResource,
 	updateOsWorkspaceResourceMetadata,
-} from "@tedix/db/queries/os-workspaces/resources";
+} from "../../services/workspace-resource-storage";
 import {
 	findOsWorkspaceForKernelRun,
 	getOsWorkspace,

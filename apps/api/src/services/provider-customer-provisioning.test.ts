@@ -1,3 +1,15 @@
+import { DatabaseSync } from "node:sqlite";
+import { env } from "cloudflare:workers";
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
+import { createDbQueryClient } from "@tedix/db/query-client";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import {
+	osWorkspaces,
+	osOutputs,
+	osOutputRevisions,
+} from "@tedix/db/schema/os-workspaces";
+import { createOsOutput } from "./workspace-output-storage";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../rpc/orpc";
 
@@ -42,10 +54,16 @@ vi.mock("@tedix/db/queries/billing/plans", () => ({
 	activateProviderCustomerBilling: mocks.activate,
 	requireActiveBillingPlan: mocks.plan,
 }));
-vi.mock("@tedix/db/queries/os-workspaces/workspaces", () => ({
-	getOsWorkspace: mocks.workspace,
-	createOsWorkspace: mocks.createWorkspace,
-}));
+vi.mock(
+	"@tedix/db/queries/os-workspaces/workspaces",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("@tedix/db/queries/os-workspaces/workspaces")
+		>()),
+		getOsWorkspace: mocks.workspace,
+		createOsWorkspace: mocks.createWorkspace,
+	}),
+);
 vi.mock("@tedix/db/queries/tedis", () => ({ getTediBySlug: mocks.tedi }));
 
 import {
@@ -67,6 +85,9 @@ const active = {
 };
 beforeEach(async () => {
 	vi.resetAllMocks();
+	Object.assign(env, {
+		WORKSPACE_RUNTIME: { outputQuery: vi.fn().mockResolvedValue("object") },
+	});
 	const key = await providerCustomerKey("provider", "app", "8042");
 	mocks.org.mockResolvedValue({
 		id: "customer",
@@ -85,6 +106,56 @@ beforeEach(async () => {
 	});
 });
 describe("automatic provider customer setup", () => {
+	it("initializes a provider workspace before its first document write", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(
+			"CREATE TABLE organizations(id TEXT PRIMARY KEY); INSERT INTO organizations VALUES ('customer');",
+		);
+		sqlite.exec(schemaDdl(osWorkspaces, osOutputs, osOutputRevisions));
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		workspaceOutputFixture(sqlite, { uninitialized: true });
+		const real = await vi.importActual<
+			typeof import("@tedix/db/queries/os-workspaces/workspaces")
+		>("@tedix/db/queries/os-workspaces/workspaces");
+		mocks.workspace.mockImplementation(real.getOsWorkspace);
+		mocks.createWorkspace.mockImplementation(real.createOsWorkspace);
+		const result = await ensureProviderCustomer(
+			{ ...context, db } as BaseContext,
+			input,
+		);
+		const scope = {
+			organizationId: "customer",
+			workspaceId: result.primaryWorkspaceId,
+		};
+		const saved = await createOsOutput(
+			db,
+			scope,
+			{
+				...scope,
+				id: "first",
+				kind: "document",
+				title: "First",
+				currentRevisionId: "rev-first",
+				createdByKind: "service",
+				createdById: "provider",
+			},
+			{
+				id: "rev-first",
+				organizationId: "customer",
+				outputId: "first",
+				revision: 1,
+				content: "",
+				bodyR2Key: "body",
+				contentSha256: "abc",
+				contentBytes: 0,
+				createdByKind: "service",
+				createdById: "provider",
+			},
+		);
+		expect(saved.output.id).toBe("first");
+		sqlite.close();
+	});
+
 	it("scopes stable resource keys to provider and host tenant", async () => {
 		expect(await providerCustomerKey("provider", "app", "8042")).not.toBe(
 			await providerCustomerKey("other", "app", "8042"),

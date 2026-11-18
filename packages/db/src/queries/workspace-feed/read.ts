@@ -5,7 +5,7 @@
 
 import { and, desc, eq, exists, inArray, like, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { osOutputs, osWorkspaces } from "../../schema/os-workspaces";
+import { osWorkspaces } from "../../schema/os-workspaces";
 import {
 	type WorkspaceActivityRow,
 	type WorkspaceChangeKind,
@@ -214,18 +214,7 @@ export async function getWorkspaceOutputLocation(
 			desc(workspaceOutputIndex.revision),
 		)
 		.limit(1);
-	if (index) return index;
-	const [row] = await db
-		.select({ workspaceId: osOutputs.workspaceId })
-		.from(osOutputs)
-		.where(
-			and(
-				eq(osOutputs.organizationId, params.organizationId),
-				eq(osOutputs.id, params.outputId),
-			),
-		)
-		.limit(1);
-	return row;
+	return index;
 }
 
 export async function getWorkspaceOutputIndexCurrent(
@@ -261,21 +250,6 @@ export async function getWorkspaceOutputIndexRevision(
 		)
 		.limit(1);
 	return row;
-}
-
-/** Shared workspaces have no object-owned output projections. */
-export async function removeSharedWorkspaceOutputIndex(
-	db: DbQueryClient,
-	scope: { organizationId: string; workspaceId: string },
-): Promise<void> {
-	await db
-		.delete(workspaceOutputIndex)
-		.where(
-			and(
-				eq(workspaceOutputIndex.organizationId, scope.organizationId),
-				eq(workspaceOutputIndex.workspaceId, scope.workspaceId),
-			),
-		);
 }
 
 export async function retireWorkspaceOutputIndex(

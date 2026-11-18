@@ -346,17 +346,13 @@ const outputsCreate = authorOs.outputs.create.handler(
 				`Content body is ${content.kind} but the output is declared ${input.kind}`,
 			);
 		}
-		const workspace = input.workspaceId
-			? await requireWorkspace(context, input.workspaceId)
-			: undefined;
-		if (!workspace && context.externalAgentPrincipalId) {
-			// Coding agents left Outputs in no workspace and had to recreate them
-			// to regroup; they must say where an Output belongs.
+		// Every file is kept by its workspace, so it must say which one.
+		if (!input.workspaceId)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"workspaceId is required when an agent creates an output",
+				"workspaceId is required: every output belongs to a workspace",
 			);
-		}
+		const workspace = await requireWorkspace(context, input.workspaceId);
 		lap("workspace");
 		const creator = resolveCreator(context);
 		const accessEnvelope = await resolveAccessEnvelope(context);
@@ -375,7 +371,7 @@ const outputsCreate = authorOs.outputs.create.handler(
 			{
 				...accountability,
 				id: outputId,
-				workspaceId: input.workspaceId ?? null,
+				workspaceId: input.workspaceId,
 				kind: input.kind,
 				title: input.title,
 				status: "active",

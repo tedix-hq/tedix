@@ -9,10 +9,10 @@ import { workEvents, workItems } from "../schema/work-items";
 import {
 	osWorkspaces,
 	osWorkspaceProjects,
-	osOutputs,
 	osGadgets,
 	osWorkspaceResources,
 } from "../schema/os-workspaces";
+import { workspaceOutputIndex } from "../schema/workspace-feed";
 import { projects } from "../schema/projects";
 import {
 	recordAgentSessionRequests,
@@ -40,7 +40,7 @@ async function fixture() {
 		workEvents,
 		osWorkspaces,
 		osWorkspaceProjects,
-		osOutputs,
+		workspaceOutputIndex,
 		osGadgets,
 		osWorkspaceResources,
 	])
@@ -210,3 +210,47 @@ it("lists empty auto-created containers only after 14 days and preserves populat
 		await emptyAutoCreatedWorkspaces(db, owner, "2026-10-24T10:00:00.000Z"),
 	).toEqual([]);
 });
+
+it.each([
+	[1, "active"],
+	[1, "archived"],
+	[0, "active"],
+] as const)(
+	"preserves containers with indexed output current=%s status=%s",
+	async (isCurrent, status) => {
+		const { db, project } = await fixture();
+		const workspaceId = await ensureFilingWorkspace(db, owner, project, now);
+		const output = {
+			id: "output:1",
+			organizationId: "other-org",
+			workspaceId,
+			outputId: "output",
+			revision: 1,
+			revisionId: "revision",
+			isCurrent,
+			status,
+			outputKind: "document" as const,
+			title: "Plan",
+			outputCreatedByKind: "user" as const,
+			outputCreatedById: "ada",
+			outputCreatedAt: now,
+			revisionCreatedByKind: "user" as const,
+			revisionCreatedById: "ada",
+			revisionCreatedAt: now,
+			updatedAt: now,
+		};
+		await db.insert(workspaceOutputIndex).values(output);
+		expect(
+			await emptyAutoCreatedWorkspaces(db, owner, "2026-10-24T10:00:00.000Z"),
+		).toEqual([{ id: workspaceId, name: project.name }]);
+		await db.insert(workspaceOutputIndex).values({
+			...output,
+			id: "own:1",
+			outputId: "own",
+			organizationId: owner.organizationId,
+		});
+		expect(
+			await emptyAutoCreatedWorkspaces(db, owner, "2026-10-24T10:00:00.000Z"),
+		).toEqual([]);
+	},
+);

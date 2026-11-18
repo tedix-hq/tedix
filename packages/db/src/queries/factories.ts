@@ -30,7 +30,8 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { skillEntries, skillRuns, skillSchedules } from "../schema/cognitive";
-import { osOutputRevisions, osWorkspaces } from "../schema/os-workspaces";
+import { osWorkspaces } from "../schema/os-workspaces";
+import { workspaceOutputIndex } from "../schema/workspace-feed";
 import { projects } from "../schema/projects";
 import { tedis } from "../schema/tedis";
 import { workItemComments, workItems } from "../schema/work-items";
@@ -761,20 +762,20 @@ export async function listFactoryHealth(
 			.limit(FACTORY_DELIVERY_ROW_CAP),
 		db
 			.select({
-				runId: sql<string>`${osOutputRevisions.skillRunId}`.as(
+				runId: sql<string>`${workspaceOutputIndex.skillRunId}`.as(
 					"revision_run_id",
 				),
 				count: sql<number>`count(*)`.as("revision_count"),
 			})
-			.from(osOutputRevisions)
+			.from(workspaceOutputIndex)
 			.where(
 				and(
-					eq(osOutputRevisions.organizationId, orgId),
-					isNotNull(osOutputRevisions.skillRunId),
-					onOrAfter(osOutputRevisions.createdAt, lookback),
+					eq(workspaceOutputIndex.organizationId, orgId),
+					isNotNull(workspaceOutputIndex.skillRunId),
+					onOrAfter(workspaceOutputIndex.revisionCreatedAt, lookback),
 				),
 			)
-			.groupBy(osOutputRevisions.skillRunId),
+			.groupBy(workspaceOutputIndex.skillRunId),
 	]);
 
 	const tediNames = new Map(tediRows.map((row) => [row.id, row.label]));

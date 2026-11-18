@@ -1,3 +1,5 @@
+import { and, eq } from "drizzle-orm";
+import { getOsWorkspace } from "./workspaces";
 import { recordWorkRelationEdges } from "../decision-graph-writers";
 import {
 	buildBlueprintProvisioningStatements,
@@ -30,8 +32,8 @@ import {
 	osGadgets,
 	osWorkspaces,
 	osWorkspaceResources,
-	osOutputs,
-	osOutputRevisions,
+	type osOutputs,
+	type osOutputRevisions,
 } from "../../schema/os-workspaces";
 
 /**
@@ -83,6 +85,41 @@ const GADGETS_PER_STATEMENT = 6;
 const REVISIONS_PER_STATEMENT = 8;
 const RESOURCES_PER_STATEMENT = 5;
 
+/** Retain a retryable directory without publishing a successful apply receipt. */
+export async function prepareOsBlueprintWorkspace(
+	db: DbQueryClient,
+	input: NewOsWorkspaceRow,
+) {
+	await db
+		.insert(osWorkspaces)
+		.values(input)
+		.onConflictDoNothing({ target: osWorkspaces.id });
+	const existing = await getOsWorkspace(db, {
+		organizationId: input.organizationId,
+		workspaceId: input.id,
+	});
+	if (existing) {
+		for (const key of [
+			"name",
+			"createdByKind",
+			"createdById",
+			"sourceBlueprintId",
+			"sourceBlueprintRevisionId",
+			"sourceBlueprintRevisionNumber",
+			"visibility",
+			"ownerUserId",
+		] as const) {
+			const expected = input[key] ?? (key === "visibility" ? "org" : null);
+			if (existing[key] !== expected)
+				throw new Error(
+					"Blueprint workspace destination conflicts with its preparation",
+				);
+		}
+		return existing;
+	}
+	throw new Error("Blueprint workspace directory is missing");
+}
+
 /**
  * Materialize a blueprint revision as a workspace with its gadgets and their
  * first revisions — optionally together with the blueprint copy a gallery
@@ -95,12 +132,18 @@ const RESOURCES_PER_STATEMENT = 5;
  * (D1 has no `BEGIN`; `batch` IS the transaction primitive), so a lost
  * unique-name race on EITHER the blueprint name or the workspace name fails the
  * batch and leaves nothing behind — no orphan blueprint, no partial gadgets.
- * The caller maps the violation to CONFLICT.
+ * The caller maps the violation to CONFLICT. A prepared directory is retained
+ * across failed object writes; provisioning and its receipt still commit together.
  */
 export async function instantiateOsBlueprint(
 	db: DbQueryClient,
 	params: InstantiateOsBlueprintParams,
+	preparedWorkspace?: OsWorkspaceRow,
 ): Promise<InstantiateOsBlueprintResult> {
+	if (params.outputs?.length || params.outputRevisions?.length)
+		throw new Error(
+			"Blueprint document writes require the workspace object service",
+		);
 	const gadgetChunks = chunkForBoundParams(
 		params.gadgets,
 		GADGETS_PER_STATEMENT,
@@ -126,7 +169,17 @@ export async function instantiateOsBlueprint(
 					db.insert(osBlueprintRevisions).values(copy.revision).returning(),
 				]
 			: []),
-		db.insert(osWorkspaces).values(params.workspace).returning(),
+		preparedWorkspace
+			? db
+					.select()
+					.from(osWorkspaces)
+					.where(
+						and(
+							eq(osWorkspaces.id, params.workspace.id),
+							eq(osWorkspaces.organizationId, params.workspace.organizationId),
+						),
+					)
+			: db.insert(osWorkspaces).values(params.workspace).returning(),
 		...resourceChunks.map((rows) =>
 			db.insert(osWorkspaceResources).values(rows).returning(),
 		),
@@ -140,10 +193,6 @@ export async function instantiateOsBlueprint(
 			buildEnsureOsGadgetCodeBlobStatement(db, blob),
 		),
 		...code.map((row) => db.insert(osGadgetCode).values(row.code)),
-		...(params.outputs ?? []).map((row) => db.insert(osOutputs).values(row)),
-		...(params.outputRevisions ?? []).map((row) =>
-			db.insert(osOutputRevisions).values(row),
-		),
 		...(params.provisioning
 			? buildBlueprintProvisioningStatements(db, params.provisioning)
 			: []),

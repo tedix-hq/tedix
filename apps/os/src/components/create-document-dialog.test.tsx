@@ -328,12 +328,8 @@ describe("document creation", () => {
 		expect(document.querySelector("form")).not.toBeNull();
 		expect(onCreated).not.toHaveBeenCalled();
 	});
-	it("allows an organization document when workspace discovery fails", async () => {
+	it("creates nothing until a workspace is known", async () => {
 		api.list.mockRejectedValue(new Error("Offline"));
-		api.create.mockResolvedValue({
-			output: { id: "new-output", workspaceId: null },
-			revision: {},
-		});
 		renderButton();
 		click("New");
 		await flush();
@@ -344,7 +340,7 @@ describe("document creation", () => {
 		);
 		submit();
 		await flush();
-		expect(api.create.mock.calls[0]?.[0]).not.toHaveProperty("workspaceId");
+		expect(api.create).not.toHaveBeenCalled();
 	});
 	it("seeds editable canonical content for every template without asserting a close", () => {
 		for (const template of documentTemplates) {

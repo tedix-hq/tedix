@@ -62,6 +62,7 @@ import {
 	assertOsWorkspaceVisible,
 } from "./os-workspace-visibility";
 import { deleteOsOutput, getOsOutput } from "./workspace-output-storage";
+import { deleteObjectWorkspaceDocuments } from "./workspace-document-delete";
 
 /**
  * Estimated database and storage calls one purge call may make. D1 allows
@@ -324,6 +325,7 @@ async function purgeWorkspaces(run: PurgeRun, tally: KindTally) {
 				tally.pass(workspace.id);
 				if (run.dryRun) return;
 				try {
+					await deleteObjectWorkspaceDocuments(db(context), scope);
 					if (
 						await deleteOsWorkspace(db(context), {
 							...scope,
@@ -356,7 +358,7 @@ async function purgeWorkspaces(run: PurgeRun, tally: KindTally) {
 			const chunk: typeof page = [];
 			for (const workspace of page.slice(i, i + WORKSPACE_CONCURRENCY)) {
 				const isPrivate = workspace.visibility === "private";
-				if (!run.budget.take((isPrivate ? 2 : 0) + (run.dryRun ? 1 : 3))) {
+				if (!run.budget.take((isPrivate ? 2 : 0) + (run.dryRun ? 1 : 6))) {
 					stopped = true;
 					break;
 				}

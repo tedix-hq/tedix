@@ -1,3 +1,4 @@
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 /**
  * Workspace collaborators end to end over D1: direct adds, share links, the
  * live permission graph, lazy revocation, and the role-scoped capability.
@@ -106,6 +107,7 @@ function createEnv() {
 		       ('m-lee','org-2','member-lee','lee@example.test','Lee','member','active'),
 		       ('m-sam','org-2','member-sam','sam@example.test','Sam','member','active');
 	`);
+	workspaceOutputFixture(sqlite, { coreSchemaExists: true });
 	const env = {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",

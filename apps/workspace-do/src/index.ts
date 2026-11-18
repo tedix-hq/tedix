@@ -7,6 +7,8 @@ import type { TenantStoreImportRow } from "@tedix/db/tenant-store/store";
  */
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type {
+	DocumentTransfer,
+	DocumentTransferPackage,
 	OutputOperation,
 	OutputQuery,
 	OutputQueryResult,
@@ -33,6 +35,21 @@ function stubFor(env: WorkspaceEnv, scope: WorkspaceScope): WorkspaceRpc {
 }
 
 export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
+	prepareDocumentTransfer(scope: WorkspaceScope, transfer: DocumentTransfer) {
+		return stubFor(this.env, scope).prepareDocumentTransfer(scope, transfer);
+	}
+	importDocumentTransfer(
+		scope: WorkspaceScope,
+		payload: DocumentTransferPackage,
+	) {
+		return stubFor(this.env, scope).importDocumentTransfer(scope, payload);
+	}
+	confirmDocumentTransfer(scope: WorkspaceScope, transfer: DocumentTransfer) {
+		return stubFor(this.env, scope).confirmDocumentTransfer(scope, transfer);
+	}
+	removeDocumentTransfer(scope: WorkspaceScope, transfer: DocumentTransfer) {
+		return stubFor(this.env, scope).removeDocumentTransfer(scope, transfer);
+	}
 	transferOutput(
 		scope: WorkspaceScope,
 		outputId: string,
@@ -56,6 +73,13 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,
 	): Promise<OutputQueryResult<K>> {
+		if (
+			query.op === "initialize" &&
+			readDurableObjectJurisdiction(this.env) !== "eu"
+		)
+			throw new Error(
+				"Empty workspace initialization requires EU jurisdiction",
+			);
 		return (
 			stubFor(this.env, scope) as WorkspaceRpc & WorkspaceOutputRuntime
 		).outputQuery(scope, query);

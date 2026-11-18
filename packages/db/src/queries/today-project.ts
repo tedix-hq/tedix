@@ -1,15 +1,12 @@
 import { and, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
-import {
-	osOutputs,
-	osWorkspaceProjects,
-	osWorkspaces,
-} from "../schema/os-workspaces";
+import { osWorkspaceProjects, osWorkspaces } from "../schema/os-workspaces";
 import {
 	workApprovalProposals,
 	workInteractions,
 } from "../schema/work-factory";
+import { workspaceOutputIndex } from "../schema/workspace-feed";
 import { workItems } from "../schema/work-items";
 
 export async function getTodayProjectTotals(
@@ -49,13 +46,13 @@ export async function getTodayProjectTotals(
 				),
 			),
 	);
-	const o = alias(osOutputs, "o");
+	const o = alias(workspaceOutputIndex, "o");
 	const l = alias(osWorkspaceProjects, "l");
 	const s = alias(osWorkspaces, "s");
 	const documents = db.$with("documents").as(
 		db
 			.selectDistinct({
-				id: sql<string>`${o.id}`.as("id"),
+				id: sql<string>`${o.outputId}`.as("id"),
 				title: sql<string>`${o.title}`.as("title"),
 				updatedAt:
 					sql<string>`strftime('%Y-%m-%dT%H:%M:%fZ',${o.updatedAt})`.as(
@@ -79,11 +76,12 @@ export async function getTodayProjectTotals(
 					eq(o.organizationId, p.orgId),
 					eq(l.projectId, p.projectId),
 					eq(l.status, "active"),
-					ne(o.id, p.excludeOutputId),
+					ne(o.outputId, p.excludeOutputId),
 					eq(s.visibility, "org"),
 					eq(s.status, "active"),
-					eq(o.kind, "document"),
+					eq(o.outputKind, "document"),
 					eq(o.status, "active"),
+					eq(o.isCurrent, 1),
 				),
 			),
 	);

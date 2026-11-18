@@ -1,3 +1,8 @@
+import {
+	findWorkspaceOutputResource,
+	installWorkspaceApp,
+	linkWorkspaceOutputEditor,
+} from "./workspace-resource-storage";
 import { AppRuntimeConfigSchema } from "@tedix/api-contract/schemas/os-app-runtime";
 import { buildDocBlueprint } from "@tedix/api-contract/assets/doc-blueprint";
 import { buildSheetBlueprint } from "@tedix/api-contract/assets/sheet-blueprint";
@@ -15,10 +20,7 @@ import {
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
 	findWorkspaceOutputEditor,
-	findWorkspaceOutputResource,
-	installWorkspaceApp,
 	publishWorkspaceAppTemplate,
-	linkWorkspaceOutputEditor,
 } from "@tedix/db/queries/os-workspaces/install-app";
 import { findOsBlueprintIdByName } from "@tedix/db/queries/os-workspaces/blueprints";
 import type {

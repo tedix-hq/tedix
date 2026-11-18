@@ -1,3 +1,4 @@
+import { createInitializedWorkspace } from "./workspace-document-owner";
 import { createRouterClient, ORPCError } from "@orpc/server";
 import {
 	activateProviderCustomerBilling,
@@ -148,31 +149,34 @@ async function ensureCustomerResources(
 		});
 	}
 	const workspaceId = `${key.slice(0, 8)}-${key.slice(8, 12)}-4${key.slice(13, 16)}-8${key.slice(17, 20)}-${key.slice(20)}`;
-	let workspace = await getOsWorkspace(context.db, {
-		organizationId: organization.id,
-		workspaceId,
-	});
-	if (!workspace) {
-		try {
-			workspace = await createOsWorkspace(context.db, {
-				id: workspaceId,
-				organizationId: organization.id,
-				name: input.customer.name,
-				createdByKind: "service",
-				createdById: input.providerOrganizationId,
-			});
-		} catch (error) {
-			workspace = await getOsWorkspace(context.db, {
-				organizationId: organization.id,
-				workspaceId,
-			});
-			if (!workspace) throw error;
-		}
-	}
-	if (workspace.status !== "active")
-		throw new ORPCError("CONFLICT", {
-			message: "Customer workspace is archived",
+	const workspace = await createInitializedWorkspace(async () => {
+		let workspace = await getOsWorkspace(context.db, {
+			organizationId: organization.id,
+			workspaceId,
 		});
+		if (!workspace) {
+			try {
+				workspace = await createOsWorkspace(context.db, {
+					id: workspaceId,
+					organizationId: organization.id,
+					name: input.customer.name,
+					createdByKind: "service",
+					createdById: input.providerOrganizationId,
+				});
+			} catch (error) {
+				workspace = await getOsWorkspace(context.db, {
+					organizationId: organization.id,
+					workspaceId,
+				});
+				if (!workspace) throw error;
+			}
+		}
+		if (workspace.status !== "active")
+			throw new ORPCError("CONFLICT", {
+				message: "Customer workspace is archived",
+			});
+		return workspace;
+	});
 	let tedi = await getTediBySlug(context.db, organization.id, slug);
 	if (!tedi) {
 		try {

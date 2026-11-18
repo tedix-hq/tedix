@@ -1,4 +1,6 @@
 /** Organization offboarding lifecycle: cancel, delete and syncFromDescope. */
+import { deleteOrganizationWorkspaceDocuments } from "../../services/workspace-document-delete";
+import { createDbQueryClient } from "@tedix/db/query-client";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { assertDescopeOk } from "@tedix/auth/descope";
 import { loadAllDescopeMcpServers } from "@tedix/auth/aih-client";
@@ -247,6 +249,11 @@ export const deleteOrganizationContract = authedOrganizationsOs.delete
 			});
 			return { success: true as const };
 		}
+
+		await deleteOrganizationWorkspaceDocuments(
+			createDbQueryClient(context.env.DB),
+			organizationId,
+		);
 
 		// Keep retirement retryable until the linked tenant is deleted.
 		if (org.descopeTenantId) {

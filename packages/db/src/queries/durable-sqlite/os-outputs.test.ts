@@ -2,7 +2,6 @@ import { DatabaseSync } from "node:sqlite";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
-import * as platform from "../os-workspaces/outputs";
 import {
 	osOutputRevisions,
 	osOutputs,
@@ -52,34 +51,6 @@ function tenantDb(): { sqlite: DatabaseSync; db: TenantStoreDb } {
 	};
 }
 
-async function seedPlatform(db: ReturnType<typeof platformDb>["db"]) {
-	return platform.createOsOutput(
-		db,
-		{ organizationId: "org-1", workspaceId: "ws-1" },
-		{
-			...accountability,
-			id: "out-1",
-			workspaceId: "ws-1",
-			kind: "document",
-			title: "Launch brief",
-			status: "active",
-			currentRevisionId: "rev-1",
-			updatedAt: accountability.createdAt,
-		},
-		{
-			...accountability,
-			id: "rev-1",
-			outputId: "out-1",
-			revision: 1,
-			content: BODY,
-			contentSha256: await sha256Hex(BODY),
-			contentBytes: BODY.length,
-			bodyR2Key: "org-1/outputs/out-1/rev-1",
-			note: null,
-		},
-	);
-}
-
 async function seedTenant(db: TenantStoreDb) {
 	return tenant.createOsOutput(
 		db,
@@ -107,7 +78,7 @@ async function seedTenant(db: TenantStoreDb) {
 	);
 }
 
-describe("os outputs plane parity", () => {
+describe("workspace object outputs", () => {
 	it("replays an exact transfer snapshot and rolls back a partial revision import", async () => {
 		const source = tenantDb(),
 			target = tenantDb();
@@ -153,95 +124,76 @@ describe("os outputs plane parity", () => {
 			target.sqlite.close();
 		}
 	});
-	it("creates output + revision 1 identically; tenant stores no inline body", async () => {
-		const p = platformDb();
+	it("creates output and an R2-backed first revision", async () => {
 		const t = tenantDb();
-		const createdP = await seedPlatform(p.db);
-		const createdT = await seedTenant(t.db);
-		expect(createdT.output).toEqual(createdP.output);
-		expect({ ...createdT.revision, content: BODY }).toEqual(createdP.revision);
-		expect(createdT.revision).toMatchObject({
+		const created = await seedTenant(t.db);
+		expect(created.output).toEqual({
+			...accountability,
+			id: "out-1",
+			currentRevisionId: "rev-1",
+			workspaceId: "ws-1",
+			kind: "document",
+			title: "Launch brief",
+			status: "active",
+			updatedAt: accountability.createdAt,
+		});
+		expect(created.revision).toEqual({
+			...accountability,
+			id: "rev-1",
+			outputId: "out-1",
+			revision: 1,
 			content: "",
 			bodyR2Key: "org-1/outputs/out-1/rev-1",
+			contentSha256: await sha256Hex(BODY),
+			contentBytes: BODY.length,
+			note: null,
+			skillRunId: null,
+			skillId: null,
+			agentTurnId: null,
+			accessEnvelope: null,
 		});
+		t.sqlite.close();
 	});
 
-	it("appends revisions max+1 with CAS and advances the pointer on both planes", async () => {
-		const p = platformDb();
+	it("appends max+1, advances the pointer and rejects stale CAS", async () => {
 		const t = tenantDb();
-		await seedPlatform(p.db);
-		await seedTenant(t.db);
-		const sha = await sha256Hex(BODY_V2);
-		const [secondP, secondT] = await Promise.all([
-			platform.createOsOutputRevision(p.db, {
-				id: "rev-2",
-				organizationId: "org-1",
-				outputId: "out-1",
-				content: BODY_V2,
-				contentSha256: sha,
-				contentBytes: BODY_V2.length,
-				bodyR2Key: "org-1/outputs/out-1/rev-2",
-				note: "second draft",
-				createdByKind: "tedi",
-				createdById: "tedi-1",
-				expectedRevision: 1,
-			}),
-			tenant.createOsOutputRevision(t.db, {
-				id: "rev-2",
-				organizationId: "org-1",
-				outputId: "out-1",
-				bodyR2Key: "org-1/outputs/out-1/rev-2",
-				contentSha256: sha,
-				contentBytes: BODY_V2.length,
-				note: "second draft",
-				createdByKind: "tedi",
-				createdById: "tedi-1",
-				expectedRevision: 1,
-			}),
-		]);
-		expect(secondT).toMatchObject({ ok: true });
-		expect(secondP).toMatchObject({ ok: true });
-		if (secondT.ok && secondP.ok) {
-			// createdAt is stamped at write time and legitimately differs across planes.
-			expect({
-				...secondT.revision,
-				content: BODY_V2,
-				createdAt: secondP.revision.createdAt,
-			}).toEqual(secondP.revision);
-			expect(secondT.revision.revision).toBe(2);
-		}
+		const first = await seedTenant(t.db);
+		const params = {
+			id: "rev-2",
+			organizationId: "org-1",
+			outputId: "out-1",
+			bodyR2Key: "org-1/outputs/out-1/rev-2",
+			contentSha256: await sha256Hex(BODY_V2),
+			contentBytes: BODY_V2.length,
+			note: "second draft",
+			createdByKind: "tedi" as const,
+			createdById: "tedi-1",
+			expectedRevision: 1,
+		};
+		expect(await tenant.createOsOutputRevision(t.db, params)).toEqual({
+			ok: true,
+			revision: {
+				...first.revision,
+				id: params.id,
+				revision: 2,
+				content: "",
+				bodyR2Key: params.bodyR2Key,
+				contentSha256: params.contentSha256,
+				contentBytes: params.contentBytes,
+				note: params.note,
+				createdAt: expect.any(String),
+			},
+		});
 		expect(
 			await tenant.getOsOutput(t.db, {
 				organizationId: "org-1",
 				outputId: "out-1",
 			}),
 		).toMatchObject({ currentRevisionId: "rev-2" });
-
-		// Stale CAS conflicts identically.
-		const [staleP, staleT] = await Promise.all([
-			platform.createOsOutputRevision(p.db, {
-				id: "rev-3",
-				organizationId: "org-1",
-				outputId: "out-1",
-				content: "{}",
-				createdByKind: "tedi",
-				createdById: "tedi-1",
-				expectedRevision: 1,
-			}),
-			tenant.createOsOutputRevision(t.db, {
-				id: "rev-3",
-				organizationId: "org-1",
-				outputId: "out-1",
-				bodyR2Key: "org-1/outputs/out-1/rev-3",
-				contentSha256: sha,
-				contentBytes: BODY_V2.length,
-				createdByKind: "tedi",
-				createdById: "tedi-1",
-				expectedRevision: 1,
-			}),
-		]);
-		expect(staleT).toEqual(staleP);
-		expect(staleT).toEqual({ ok: false, reason: "revision_conflict" });
+		expect(
+			await tenant.createOsOutputRevision(t.db, { ...params, id: "rev-3" }),
+		).toEqual({ ok: false, reason: "revision_conflict" });
+		t.sqlite.close();
 	});
 
 	it("dedupes a byte-identical save on the digest alone", async () => {
@@ -269,30 +221,21 @@ describe("os outputs plane parity", () => {
 		).toEqual({ count: 1 });
 	});
 
-	it("scopes reads to the organization and lists library rows identically", async () => {
-		const p = platformDb();
+	it("scopes reads to the organization and lists metadata-only library rows", async () => {
 		const t = tenantDb();
-		for (const db of [p.db, t.db as unknown as typeof p.db]) {
-			await (db === p.db ? seedPlatform : seedTenant)(db as never);
-		}
+		const created = await seedTenant(t.db);
 		const anyone = { userIds: [] };
-		const [libP, libT] = await Promise.all([
-			platform.listOsOutputLibraryRows(
-				p.db,
-				{ organizationId: "org-1" },
-				anyone,
-			),
-			tenant.listOsOutputLibraryRows(t.db, "org-1", anyone),
-		]);
-		expect(libT).toHaveLength(1);
-		expect(libP).toHaveLength(1);
-		expect(libT[0]!.output).toEqual(libP[0]!.output);
-		expect(libT[0]!.revision).toEqual(libP[0]!.revision);
-		expect(libT[0]!.revision).not.toHaveProperty("content");
+		const library = await tenant.listOsOutputLibraryRows(t.db, "org-1", anyone);
+		expect(library).toHaveLength(1);
+		expect(library[0]!.output).toEqual(created.output);
+		const { content: _content, ...metadata } = created.revision;
+		expect(library[0]!.revision).toEqual(metadata);
+		expect(library[0]!.revision).not.toHaveProperty("content");
 		expect(await tenant.listOsOutputs(t.db, "org-2", anyone)).toHaveLength(0);
 		expect(
 			await tenant.listOsOutputs(t.db, "org-1", anyone, { kind: "sheet" }),
 		).toHaveLength(0);
+		t.sqlite.close();
 	});
 
 	it("hides outputs of a private workspace from everyone but its owner", async () => {
@@ -472,4 +415,44 @@ describe("os outputs plane parity", () => {
 		// A replay finds the body already moved.
 		expect(await rebody(scope, "rev-1", previousSha256)).toBe(false);
 	});
+});
+
+it("recognizes an idempotently initialized empty directory as document owner", async () => {
+	const local = tenantDb();
+	const core = platformDb();
+	const row = {
+		id: "ws-empty",
+		organizationId: "org-1",
+		name: "Empty",
+		status: "active" as const,
+		createdByKind: "user" as const,
+		createdById: "owner",
+		createdAt: "now",
+		updatedAt: "now",
+		visibility: "private" as const,
+		ownerUserId: "owner",
+		description: null,
+		sourceBlueprintId: null,
+		sourceBlueprintRevisionId: null,
+		sourceBlueprintRevisionNumber: null,
+		instantiationPreflight: null,
+		previousBlueprintRevisionId: null,
+		previousBlueprintRevisionNumber: null,
+		previousInstantiationPreflight: null,
+		blueprintDecision: null,
+		iconUrl: null,
+	};
+	tenant.initializeWorkspaceDirectory(local.db, row);
+	tenant.initializeWorkspaceDirectory(local.db, row);
+	expect(
+		await tenant.hasWorkspaceOutputAuthority(
+			local.db,
+			{ organizationId: row.organizationId, workspaceId: row.id },
+			core.db,
+		),
+	).toBe(true);
+	expect(local.db.select().from(osWorkspaces).all()).toHaveLength(1);
+	expect(local.db.select().from(osOutputs).all()).toEqual([]);
+	local.sqlite.close();
+	core.sqlite.close();
 });

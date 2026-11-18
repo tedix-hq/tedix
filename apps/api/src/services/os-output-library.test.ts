@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
 	list: vi.fn(),
-	shared: vi.fn(async () => []),
+	outputQuery: vi.fn(() => {
+		throw new Error("Library must not query workspace objects");
+	}),
 }));
-vi.mock("@tedix/db/queries/os-workspaces/outputs", () => ({
-	listOsOutputLibraryRows: mocks.shared,
+vi.mock("cloudflare:workers", () => ({
+	env: { WORKSPACE_RUNTIME: { outputQuery: mocks.outputQuery } },
 }));
 vi.mock("@tedix/db/queries/workspace-feed/read", () => ({
 	listWorkspaceOutputLibrary: mocks.list,
@@ -69,6 +71,65 @@ describe("buildOsOutputLibrary", () => {
 			{},
 			{ organizationId: "org-1", viewer: { userIds: [] } },
 			expect.objectContaining({ limit: 21 }),
+		);
+	});
+
+	it("keeps indexed workspace cards without querying authority or shared outputs", async () => {
+		mocks.list.mockResolvedValue([indexRow({ workspaceId: "ws-1" })]);
+		const result = await buildOsOutputLibrary({} as never, {
+			organizationId: "org-1",
+			viewer: { userIds: [] },
+			creator: { kind: "user", id: "u-1" },
+			limit: 20,
+			canReadRevision: async () => true,
+		});
+		expect(result.items.map((item) => item.output.workspaceId)).toEqual([
+			"ws-1",
+		]);
+		expect(mocks.outputQuery).not.toHaveBeenCalled();
+	});
+
+	it("returns an empty library when the index is empty", async () => {
+		mocks.list.mockResolvedValue([]);
+		expect(
+			await buildOsOutputLibrary({} as never, {
+				organizationId: "org-1",
+				viewer: { userIds: [] },
+				creator: { kind: "user", id: "u-1" },
+				limit: 20,
+				canReadRevision: async () => true,
+			}),
+		).toEqual({ items: [], truncated: false });
+	});
+
+	it("preserves index order and truncates to the requested limit", async () => {
+		mocks.list.mockResolvedValue([
+			indexRow({ outputId: "out-2", updatedAt: "2026-11-05" }),
+			indexRow(),
+		]);
+		const result = await buildOsOutputLibrary({} as never, {
+			organizationId: "org-1",
+			viewer: { userIds: [] },
+			creator: { kind: "user", id: "u-1" },
+			workspaceId: "ws-1",
+			kind: "document",
+			status: "active",
+			search: "Protected",
+			limit: 1,
+			canReadRevision: async () => true,
+		});
+		expect(result.items.map((item) => item.output.id)).toEqual(["out-2"]);
+		expect(result.truncated).toBe(true);
+		expect(mocks.list).toHaveBeenLastCalledWith(
+			{},
+			{ organizationId: "org-1", viewer: { userIds: [] } },
+			{
+				workspaceId: "ws-1",
+				kind: "document",
+				status: "active",
+				search: "Protected",
+				limit: 2,
+			},
 		);
 	});
 

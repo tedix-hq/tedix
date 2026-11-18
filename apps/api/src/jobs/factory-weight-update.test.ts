@@ -1,19 +1,19 @@
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
+import {
+	createOsOutput,
+	createOsOutputRevision,
+	getActiveSheetByTitle,
+} from "../services/os-workspace-outputs";
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import { listFactoryWeightProposals } from "@tedix/db/queries/factory-weights";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { organizations } from "@tedix/db/schema/organizations";
-import {
-	osGadgetRevisions,
-	osGadgets,
-	osOutputRevisions,
-	osOutputs,
-} from "@tedix/db/schema/os-workspaces";
+import { osGadgetRevisions, osGadgets } from "@tedix/db/schema/os-workspaces";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { desc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
-import { hydrateOutputRevision } from "../services/os-output-revision-body-store";
 import { updateFactoryWeights } from "./factory-weight-update";
 
 const ORG = "org-weights";
@@ -72,11 +72,10 @@ async function fixture(input: {
 			organizations,
 			osGadgets,
 			osGadgetRevisions,
-			osOutputs,
-			osOutputRevisions,
 			learningInteractionEvents,
 		),
 	);
+	workspaceOutputFixture(sqlite);
 	const db = createDbClient(createD1Facade(sqlite));
 	await db.insert(organizations).values({
 		id: ORG,
@@ -102,29 +101,32 @@ async function fixture(input: {
 		createdByKind: "user",
 		createdById: "owner",
 	});
-	await db.insert(osOutputs).values({
-		id: RULES,
-		organizationId: ORG,
-		workspaceId: WORKSPACE,
-		kind: "sheet",
-		title: "Forum rules",
-		currentRevisionId: "rules-rev-1",
-		createdByKind: "tedi",
-		createdById: "factory",
-	});
-	await db.insert(osOutputRevisions).values({
-		id: "rules-rev-1",
-		organizationId: ORG,
-		outputId: RULES,
-		revision: 1,
-		content: JSON.stringify({
+	await createOsOutput(
+		db,
+		{
+			id: RULES,
+			organizationId: ORG,
+			workspaceId: WORKSPACE,
 			kind: "sheet",
-			columns: ["Rule", "Text", "Status"],
-			rows: [["R1", "Skip threads older than a week", "accepted"]],
-		}),
-		createdByKind: "tedi",
-		createdById: "factory",
-	});
+			title: "Forum rules",
+			currentRevisionId: "rules-rev-1",
+			createdByKind: "tedi",
+			createdById: "factory",
+		},
+		{
+			id: "rules-rev-1",
+			organizationId: ORG,
+			outputId: RULES,
+			revision: 1,
+			content: JSON.stringify({
+				kind: "sheet",
+				columns: ["Rule", "Text", "Status"],
+				rows: [["R1", "Skip threads older than a week", "accepted"]],
+			}),
+			createdByKind: "tedi",
+			createdById: "factory",
+		},
+	);
 	for (let i = 0; i < input.verdicts; i += 1) {
 		const useful = i % 2 === 0;
 		await db.insert(learningInteractionEvents).values({
@@ -167,17 +169,14 @@ async function currentManifest(db: DbClient) {
 }
 
 async function rulesContent(db: DbClient) {
-	const [row] = await db
-		.select()
-		.from(osOutputRevisions)
-		.where(eq(osOutputRevisions.outputId, RULES))
-		.orderBy(desc(osOutputRevisions.revision))
-		.limit(1);
-	// Bodies live in R2; the row keeps a pointer and an empty inline body.
-	const { content } = await hydrateOutputRevision(row!);
+	const row = await getActiveSheetByTitle(db, {
+		organizationId: ORG,
+		workspaceId: WORKSPACE,
+		title: "Forum rules",
+	});
 	return {
-		revision: row!.revision,
-		content: JSON.parse(content) as {
+		revision: row!.revision.revision,
+		content: JSON.parse(row!.revision.content) as {
 			columns: string[];
 			rows: (string | null)[][];
 		},
@@ -191,19 +190,15 @@ async function decideRule(db: DbClient, status: "accepted" | "rejected") {
 		row[2] === "proposed" ? [row[0]!, row[1]!, status] : row,
 	);
 	const id = `rules-rev-${current.revision + 1}`;
-	await db.insert(osOutputRevisions).values({
+	await createOsOutputRevision(db, {
 		id,
 		organizationId: ORG,
 		outputId: RULES,
-		revision: current.revision + 1,
-		content: JSON.stringify({ ...current.content, rows }),
+		content: JSON.stringify({ kind: "sheet", ...current.content, rows }),
 		createdByKind: "user",
 		createdById: "reviewer-a",
+		expectedRevision: current.revision,
 	});
-	await db
-		.update(osOutputs)
-		.set({ currentRevisionId: id })
-		.where(eq(osOutputs.id, RULES));
 }
 
 const weightsOf = (m: { manifest: ReturnType<typeof manifest> }) =>

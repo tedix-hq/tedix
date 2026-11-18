@@ -1,3 +1,4 @@
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 /**
  * Share-links router: tenant binding, shown-once token contract, revocation,
  * and creator accountability — end to end against the real D1 facade, with
@@ -65,6 +66,7 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		"INSERT INTO organizations (id, name, slug, descope_tenant_id) VALUES ('org-1', 'First Org', 'first', 'tenant-1'), ('org-2', 'Second Org', 'second', 'tenant-2');",
 	);
+	workspaceOutputFixture(sqlite);
 	return {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",
@@ -98,8 +100,19 @@ function harness() {
 	};
 }
 
+// Every document is stored by a workspace; one per harness holds the seeds.
+const seedWorkspaces = new WeakMap<object, Promise<string>>();
+
 async function seedOutput(h: ReturnType<typeof harness>): Promise<string> {
+	let home = seedWorkspaces.get(h);
+	if (!home) {
+		home = h.outputs.workspaces
+			.create({ name: "Shared documents" })
+			.then(({ workspace }) => workspace.id);
+		seedWorkspaces.set(h, home);
+	}
 	const { output } = await h.outputs.outputs.create({
+		workspaceId: await home,
 		kind: "document",
 		title: "Launch brief",
 		content: { kind: "document", blocks: [] },
@@ -204,10 +217,8 @@ describe("shares.create", () => {
 
 	it("waits for review when the Home run that saved the version read sensitive data", async () => {
 		const db = createDbQueryClient(h.env.DB);
-		const [output] = await db
-			.select({ currentRevisionId: osOutputs.currentRevisionId })
-			.from(osOutputs)
-			.where(eq(osOutputs.id, outputId));
+		// The workspace stores the document; read its current version from there.
+		const { output } = await h.outputs.outputs.get({ outputId });
 		await db.insert(kernelRuntimeRuns).values({
 			id: "home-author",
 			organizationId: "org-1",

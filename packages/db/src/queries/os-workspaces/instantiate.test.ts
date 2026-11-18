@@ -13,7 +13,10 @@ import {
 } from "../../schema/os-workspaces";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
-import { instantiateOsBlueprint } from "./instantiate";
+import {
+	instantiateOsBlueprint,
+	prepareOsBlueprintWorkspace,
+} from "./instantiate";
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
@@ -119,6 +122,24 @@ function blueprintCopy(name = "Imported Pod") {
 }
 
 describe("os blueprint instantiation", () => {
+	it("reuses only its matching prepared directory before committing the remaining rows", async () => {
+		const { db } = fixture();
+		const input = params(2);
+		const workspace = await prepareOsBlueprintWorkspace(db, input.workspace);
+		expect(await prepareOsBlueprintWorkspace(db, input.workspace)).toEqual(
+			workspace,
+		);
+		await expect(
+			prepareOsBlueprintWorkspace(db, {
+				...input.workspace,
+				sourceBlueprintRevisionId: "another-revision",
+			}),
+		).rejects.toThrow("conflicts with its preparation");
+		const result = await instantiateOsBlueprint(db, input, workspace);
+		expect(result.workspace).toEqual(workspace);
+		expect(result.gadgets).toHaveLength(2);
+		expect(await db.select().from(osWorkspaces)).toHaveLength(1);
+	});
 	it("materializes workspace, gadgets, and revision-1 rows atomically with provenance", async () => {
 		const { db } = fixture();
 		// 15 gadgets forces multiple chunked statements inside the batch.
@@ -143,7 +164,7 @@ describe("os blueprint instantiation", () => {
 		});
 	});
 
-	it("rolls outputs, slots, apps and the gallery copy back on an output revision failure", async () => {
+	it("rejects document rows before writing slots, apps or the gallery copy", async () => {
 		const { db, sqlite } = fixture();
 		const base = params(1);
 		const creator = {
@@ -191,7 +212,7 @@ describe("os blueprint instantiation", () => {
 					},
 				],
 			}),
-		).rejects.toThrow(/foreign key/i);
+		).rejects.toThrow("workspace object service");
 		for (const table of [
 			"os_workspaces",
 			"os_blueprints",
@@ -206,6 +227,39 @@ describe("os blueprint instantiation", () => {
 				sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n,
 			).toBe(0);
 		}
+	});
+
+	it("rejects provisioning documents before the shared batch", async () => {
+		const { db, sqlite } = fixture();
+		await expect(
+			instantiateOsBlueprint(db, {
+				...params(0),
+				provisioning: {
+					projects: [],
+					epics: [],
+					items: [],
+					relations: [],
+					epicItems: [],
+					projectLinks: [],
+					schedules: [],
+					outputs: [
+						{
+							id: "doc-1",
+							organizationId: "org-1",
+							workspaceId: "ws-1",
+							kind: "document",
+							title: "Notes",
+							createdByKind: "user",
+							createdById: "u-1",
+						},
+					],
+					outputRevisions: [],
+				},
+			}),
+		).rejects.toThrow("workspace object service");
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM os_workspaces").get()?.n,
+		).toBe(0);
 	});
 
 	it("supports a gadgetless blueprint", async () => {

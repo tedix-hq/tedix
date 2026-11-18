@@ -6,8 +6,8 @@ import { workItems, workItemRelations } from "../../schema/work-items";
 import { workCaseItems, workCases } from "../../schema/work-factory";
 import { skillSchedules } from "../../schema/cognitive";
 import {
-	osOutputs,
-	osOutputRevisions,
+	type osOutputs,
+	type osOutputRevisions,
 	osWorkspaceProjects,
 	osWorkspaceResources,
 } from "../../schema/os-workspaces";
@@ -29,6 +29,10 @@ export function buildBlueprintProvisioningStatements(
 	db: DbQueryClient,
 	rows: BlueprintProvisioningRows,
 ): BatchItem<"sqlite">[] {
+	if (rows.outputs.length || rows.outputRevisions.length)
+		throw new Error(
+			"Blueprint document writes require the workspace object service",
+		);
 	return [
 		...rows.projects.map((row) => db.insert(projects).values(row)),
 		...rows.projectLinks.map((row) =>
@@ -38,10 +42,6 @@ export function buildBlueprintProvisioningStatements(
 		...rows.items.map((row) => db.insert(workItems).values(row)),
 		...rows.relations.map((row) => db.insert(workItemRelations).values(row)),
 		...rows.epicItems.map((row) => db.insert(workCaseItems).values(row)),
-		...rows.outputs.map((row) => db.insert(osOutputs).values(row)),
-		...rows.outputRevisions.map((row) =>
-			db.insert(osOutputRevisions).values(row),
-		),
 		...rows.schedules.map((row) => db.insert(skillSchedules).values(row)),
 	];
 }

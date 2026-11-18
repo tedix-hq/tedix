@@ -18,7 +18,7 @@ CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, ski
 CREATE TABLE projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, key TEXT NOT NULL, name TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'active', lead_tedi_id TEXT, owner_user_id TEXT, objective_id TEXT, target_date TEXT, metadata TEXT, created_at TEXT NOT NULL, updated_at TEXT, archived_at TEXT);
 CREATE TABLE work_items (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, project_id TEXT, source_intent_id TEXT, created_at TEXT NOT NULL);
 CREATE TABLE work_item_comments (id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, created_at TEXT NOT NULL);
-CREATE TABLE os_output_revisions (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, skill_run_id TEXT, created_at TEXT NOT NULL);
+CREATE TABLE workspace_output_index (revision_id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, skill_run_id TEXT, revision_created_at TEXT NOT NULL, is_current INTEGER);
 `;
 
 const ORG = "org-1";
@@ -78,7 +78,7 @@ function seed() {
 			('c-docs-score', 'wi-docs-health', '${ORG}', '2026-10-15T06:24:00.000Z'),
 			('c-radar-score', 'wi-radar-health', '${ORG}', '2026-10-15T05:49:00.000Z'),
 			('c-other', 'wi-other', '${ORG}', '2026-10-15T05:46:00.000Z');
-		INSERT INTO os_output_revisions VALUES ('rev-1', '${ORG}', 'r-docs-0', '2026-10-14 06:20:00');
+		INSERT INTO workspace_output_index VALUES ('rev-1', '${ORG}', 'r-docs-0', '2026-10-14 06:20:00',0),('rev-2', '${ORG}', 'r-docs-0', '2026-10-14 06:21:00',1),('foreign', 'org-other', 'r-docs-0', '2026-10-14 06:22:00',1),('old', '${ORG}', 'r-docs-0', '2026-09-01 06:22:00',0);
 	`);
 	sqlite.exec("ALTER TABLE skill_runs ADD COLUMN result TEXT");
 	return createDbClient(createD1Facade(sqlite));
@@ -162,7 +162,7 @@ describe("listFactoryHealth", () => {
 			scorecards: 1,
 			outputRevisions: 0,
 		});
-		expect(docs.runs[1]!.outputs.outputRevisions).toBe(1);
+		expect(docs.runs[1]!.outputs.outputRevisions).toBe(2);
 
 		// A scorecard alone is not delivery.
 		expect(bySlug.get("radar")).toMatchObject({

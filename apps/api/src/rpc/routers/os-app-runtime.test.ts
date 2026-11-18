@@ -1,3 +1,8 @@
+import { workspaceOutputIndex } from "@tedix/db/schema/workspace-feed";
+import { env as workerEnv } from "cloudflare:workers";
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
+import { createOsOutput } from "../../services/os-workspace-outputs";
+import { storeOutputRevisionBody } from "../../services/os-output-revision-body-store";
 import { DatabaseSync } from "node:sqlite";
 import { proposeOsAppFileEdits } from "@tedix/db/queries/os-workspaces/collaboration";
 import { OsAppDraftContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
@@ -72,6 +77,14 @@ const previewId = "44444444-4444-4444-8444-444444444444";
 const key = "fictional-api-app-key";
 const scope = { workspaceId, gadgetId };
 
+const outputStores = new WeakMap<
+	object,
+	ReturnType<typeof workspaceOutputFixture>
+>();
+function outputDb(db: object) {
+	return outputStores.get(db)!.tenant;
+}
+
 async function fixture(manifestOverrides: Record<string, unknown> = {}) {
 	const sqlite = new DatabaseSync(":memory:");
 	onTestFinished(() => sqlite.close());
@@ -106,6 +119,7 @@ async function fixture(manifestOverrides: Record<string, unknown> = {}) {
 	);
 	const facade = createD1Facade(sqlite);
 	const db = createDbClient(facade);
+	outputStores.set(db, workspaceOutputFixture(sqlite));
 	await db
 		.insert(organizations)
 		.values({ id: "org-1", name: "Fictional Org", slug: "fictional" });
@@ -598,29 +612,32 @@ describe("workspace app runtime API admission", () => {
 		});
 		const outputId = "55555555-5555-4555-8555-555555555555";
 		const outputRevisionId = "66666666-6666-4666-8666-666666666666";
-		await db.insert(osOutputs).values({
-			id: outputId,
-			organizationId: "org-1",
-			workspaceId,
-			kind: "document",
-			title: "Granted document",
-			currentRevisionId: outputRevisionId,
-			createdByKind: "user",
-			createdById: "user-1",
-		});
-		await db.insert(osOutputRevisions).values({
-			id: outputRevisionId,
-			organizationId: "org-1",
-			outputId,
-			revision: 1,
-			content: JSON.stringify({
+		await createOsOutput(
+			db,
+			{
+				id: outputId,
+				organizationId: "org-1",
+				workspaceId,
 				kind: "document",
-				blocks: [{ type: "paragraph", text: "Granted content" }],
-			}),
-			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
-			createdByKind: "user",
-			createdById: "user-1",
-		});
+				title: "Granted document",
+				currentRevisionId: outputRevisionId,
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+			{
+				id: outputRevisionId,
+				organizationId: "org-1",
+				outputId,
+				revision: 1,
+				content: JSON.stringify({
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "Granted content" }],
+				}),
+				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+		);
 		await db.insert(osWorkspaceResources).values({
 			id: crypto.randomUUID(),
 			organizationId: "org-1",
@@ -967,7 +984,7 @@ describe("workspace app runtime API under attack", () => {
 			await seedOutput(f.db);
 			const outside = await collaborator(f);
 			const { session } = await outside.client(scope);
-			await f.db
+			await outputDb(f.db)
 				.update(osOutputRevisions)
 				.set({ accessEnvelope })
 				.where(eq(osOutputRevisions.id, outputRevisionId));
@@ -988,10 +1005,14 @@ describe("workspace app runtime API under attack", () => {
 		await expect(
 			outside.readOutput({ ...scope, session, slot: "sheet" }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
-		await f.db
+		await outputDb(f.db)
 			.update(osOutputs)
 			.set({ workspaceId })
 			.where(eq(osOutputs.id, outputId));
+		await f.db
+			.update(workspaceOutputIndex)
+			.set({ workspaceId })
+			.where(eq(workspaceOutputIndex.outputId, outputId));
 		await f.db.update(osWorkspaceAccessEdges).set({ role: "use" });
 		await expect(
 			outside.readOutput({ ...scope, session, slot: "sheet" }),
@@ -1056,26 +1077,29 @@ describe("workspace app runtime API under attack", () => {
 		db: Fixture["db"],
 		outputWorkspaceId = workspaceId,
 	) {
-		await db.insert(osOutputs).values({
-			id: outputId,
-			organizationId: "org-1",
-			workspaceId: outputWorkspaceId,
-			kind: "document",
-			title: "Granted document",
-			currentRevisionId: outputRevisionId,
-			createdByKind: "user",
-			createdById: "user-1",
-		});
-		await db.insert(osOutputRevisions).values({
-			id: outputRevisionId,
-			organizationId: "org-1",
-			outputId,
-			revision: 1,
-			content: JSON.stringify(document),
-			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
-			createdByKind: "user",
-			createdById: "user-1",
-		});
+		await createOsOutput(
+			db,
+			{
+				id: outputId,
+				organizationId: "org-1",
+				workspaceId: outputWorkspaceId,
+				kind: "document",
+				title: "Granted document",
+				currentRevisionId: outputRevisionId,
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+			{
+				id: outputRevisionId,
+				organizationId: "org-1",
+				outputId,
+				revision: 1,
+				content: JSON.stringify(document),
+				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+		);
 		await db.insert(osWorkspaceResources).values({
 			id: crypto.randomUUID(),
 			organizationId: "org-1",
@@ -1159,7 +1183,7 @@ describe("workspace app runtime API under attack", () => {
 		await expect(internal.capability(write(session, 2))).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
-		const revisions = await f.db
+		const revisions = await outputDb(f.db)
 			.select()
 			.from(osOutputRevisions)
 			.where(eq(osOutputRevisions.outputId, outputId));
@@ -1220,13 +1244,17 @@ describe("workspace app runtime API under attack", () => {
 			.where(eq(osGadgetRevisions.id, revisionId));
 		await seedOutput(f.db);
 		const quote = { type: "quote", text: "Written by another editor" };
-		await f.db
+		await outputDb(f.db)
 			.update(osOutputRevisions)
 			.set({
-				content: JSON.stringify({
-					...document,
-					blocks: [...document.blocks, quote],
-				}),
+				...(await storeOutputRevisionBody(
+					workerEnv.R2_BUCKET,
+					"org-1",
+					JSON.stringify({
+						...document,
+						blocks: [...document.blocks, quote],
+					}),
+				)),
 			})
 			.where(eq(osOutputRevisions.id, outputRevisionId));
 		const { session } = await f.client.open(scope);
@@ -1250,7 +1278,7 @@ describe("workspace app runtime API under attack", () => {
 		expect(await internal.capability(patch(1))).toMatchObject({
 			revision: { revision: 2 },
 		});
-		const latest = await f.db
+		const latest = await outputDb(f.db)
 			.select()
 			.from(osOutputRevisions)
 			.where(eq(osOutputRevisions.revision, 2));
