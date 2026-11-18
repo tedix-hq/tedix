@@ -442,12 +442,18 @@ const DOCUMENT_CSS = `
 	article h1, article h2, article h3, article h4 { break-after: avoid; }
 `;
 
+/**
+ * The editor shows each reader's own system font, and the server that prints
+ * the page has none, so a sans document names a font the export can load.
+ */
+const EXPORT_SANS_FONT = "Inter";
+
 function documentAppearanceCss(content: OsOutputContent): string {
 	if (content.kind !== "document") return "";
 	const typeface = content.appearance?.typeface ?? "sans";
 	const [family, size, lineHeight] = {
 		sans: [
-			'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
+			`${EXPORT_SANS_FONT}, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`,
 			16,
 			1.65,
 		],
@@ -506,7 +512,7 @@ const SYSTEM_FONTS = new Set([
 	"comfortaa variable",
 ]);
 
-function collectExportFonts(content: OsOutputContent) {
+function collectExportFonts(content: OsOutputContent, bodyFont: boolean) {
 	const fonts = new Map<string, { family: string; weights: Set<number> }>();
 	const add = (stack: string | undefined, weight: number) => {
 		for (const part of stack?.split(",") ?? []) {
@@ -557,6 +563,9 @@ function collectExportFonts(content: OsOutputContent) {
 			}
 		}
 	} else if (content.kind === "document") {
+		// The body font comes first so it keeps its slot inside the family cap.
+		if (bodyFont && (content.appearance?.typeface ?? "sans") === "sans")
+			for (const weight of [400, 600, 700]) add(EXPORT_SANS_FONT, weight);
 		const visit = (node: OsRichTextNode) => {
 			for (const mark of node.marks ?? []) {
 				if (
@@ -586,10 +595,19 @@ export function renderOsOutputHtml(
 	output: Pick<OsOutput, "kind" | "title">,
 	revision: Pick<OsOutputRevision, "revision" | "content" | "createdAt">,
 	organization: PresentationAppearance = {},
+	/**
+	 * Printing loads the body font from the web, because the server that
+	 * prints has no system font. A saved HTML file must open on its own, so
+	 * it names the font without fetching it.
+	 */
+	options: { loadBodyFont?: boolean } = {},
 ): string {
 	const title = escapeHtml(output.title);
 	const body = renderBody(revision.content, organization);
-	const fontStylesheet = collectExportFonts(revision.content)
+	const fontStylesheet = collectExportFonts(
+		revision.content,
+		options.loadBodyFont === true,
+	)
 		.map(({ family, weights }) => {
 			const name = family.replaceAll(" ", "+");
 			const base = `https://fonts.googleapis.com/css2?family=${name}`;

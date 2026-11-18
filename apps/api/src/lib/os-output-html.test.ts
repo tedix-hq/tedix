@@ -508,6 +508,39 @@ describe("renderOsOutputHtml", () => {
 		expect(html).not.toContain("href=");
 		expect(html).not.toContain("@import");
 		expect(html).not.toContain("url(");
+		expect(html).toContain("font-family:Inter, ui-sans-serif");
+	});
+
+	it("loads the body font only for a page that will be printed", () => {
+		const print = renderOsOutputHtml(
+			{ kind: "document", title: "t" },
+			{
+				...revisionMeta,
+				content: {
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "body" }],
+				},
+			},
+			{},
+			{ loadBodyFont: true },
+		);
+		expect(print).toContain(
+			"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700",
+		);
+		const serif = renderOsOutputHtml(
+			{ kind: "document", title: "t" },
+			{
+				...revisionMeta,
+				content: {
+					kind: "document",
+					appearance: { typeface: "serif", wide: false },
+					blocks: [{ type: "paragraph", text: "body" }],
+				},
+			},
+			{},
+			{ loadBodyFont: true },
+		);
+		expect(serif).not.toContain("fonts.googleapis.com");
 	});
 });
 
