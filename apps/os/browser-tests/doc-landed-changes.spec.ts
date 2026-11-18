@@ -113,10 +113,11 @@ try {
 	await viewer.page.waitForTimeout(1_500);
 	await tabs.writeAsAgent(splice(start + 59, 1, para("Line 60, again")));
 	await offer.click();
+	// The note is up for about a second: look for it first.
+	await viewer.frame.getByText("Agent change undone.").waitFor();
 	await viewer.editor
 		.getByText("Line 60, again")
 		.waitFor({ state: "detached" });
-	await viewer.frame.getByText("Agent change undone.").waitFor();
 
 	// 4. The lights go out by themselves.
 	await viewer.page.waitForTimeout(3_000);
