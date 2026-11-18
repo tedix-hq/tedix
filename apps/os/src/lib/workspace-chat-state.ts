@@ -31,6 +31,8 @@ export type ChatStep = {
 	summary?: string;
 	durationMs?: number;
 	error?: string;
+	/** The start of what the step returned, as text. */
+	result?: string;
 };
 
 export type ChatApproval = {
@@ -89,6 +91,8 @@ export type ChatTurn = {
 	approvals: ChatApproval[];
 	/** Live views the agent put in its answer, in the order shown. */
 	views?: ChatView[];
+	/** Before this turn, earlier messages were summarised to fit the model. */
+	summarizedEarlier?: boolean;
 	status: "running" | TurnStatus;
 	approvalUrl?: string;
 	error?: string;
@@ -466,6 +470,7 @@ export function applyWorkspaceChatEvent(
 										summary: event.summary,
 										durationMs: event.durationMs,
 										error: event.error,
+										result: event.result,
 									}
 								: step,
 						)
@@ -481,10 +486,17 @@ export function applyWorkspaceChatEvent(
 								summary: event.summary,
 								durationMs: event.durationMs,
 								error: event.error,
+								result: event.result,
 							},
 						];
 				return { ...turn, steps };
 			});
+			break;
+		case "conversation.summarized":
+			turns = place(event.turnId)((turn) => ({
+				...turn,
+				summarizedEarlier: true,
+			}));
 			break;
 		case "approval.requested":
 			turns = place(event.turnId)((turn) =>

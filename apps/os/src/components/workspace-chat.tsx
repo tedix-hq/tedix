@@ -120,6 +120,13 @@ import {
 	approvalSubject,
 } from "@/components/workspace-chat-approval-tray";
 import { AlwaysApproveButton } from "@/components/workspace-chat-always-approve";
+import {
+	OpenChangedFile,
+	ReplyCopy,
+	StepDetail,
+	stepHasDetail,
+	SummarisedMarker,
+} from "@/components/workspace-chat-step-detail";
 import { publishWorkspaceAutoApprovals } from "@/lib/workspace-auto-approvals";
 
 const WidgetFrame = lazy(async () => ({
@@ -704,6 +711,7 @@ function Thread({
 					}
 					onDecide={onDecide}
 					onApproveAll={onApproveAll}
+					latest={index === turns.length - 1}
 					onContinue={
 						index === turns.length - 1 &&
 						(turn.status === "cancelled" || turn.status === "error")
@@ -745,6 +753,7 @@ function TurnView({
 	workspaceId,
 	turn,
 	modelLabel,
+	latest,
 	onDecide,
 	onApproveAll,
 	onContinue,
@@ -754,6 +763,8 @@ function TurnView({
 	turn: ChatTurn;
 	/** The catalog name of the model that answered, else its id. */
 	modelLabel: string | undefined;
+	/** The newest turn of the thread. */
+	latest: boolean;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
 	onApproveAll: ApproveAll;
 	onContinue: (() => void) | null;
@@ -768,10 +779,11 @@ function TurnView({
 		running && !waiting && turn.reply === "" && turn.steps.length === 0;
 	return (
 		<article
-			className="workspace-chat-turn"
+			className="workspace-chat-turn group/message"
 			data-status={turn.status}
 			data-testid="workspace-chat-turn"
 		>
+			{turn.summarizedEarlier ? <SummarisedMarker /> : null}
 			{turn.text ? <UserBubble text={turn.text} /> : null}
 			{turn.attachments?.length ? (
 				<ul aria-label="Message files" className="m-0 grid list-none gap-1 p-0">
@@ -825,6 +837,9 @@ function TurnView({
 					>
 						<ChatMarkdown content={turn.reply} />
 					</div>
+				) : null}
+				{turn.reply && turn.replyDone ? (
+					<ReplyCopy text={turn.reply} latest={latest} />
 				) : null}
 				{turn.views?.map((view) => (
 					<div
@@ -1009,6 +1024,7 @@ function Activity({
 		(refused(step) ? approvals.at(-1) : undefined);
 	const live = steps.some((step) => step.status === "running");
 	const [open, setOpen] = useState(false);
+	const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
 	const expanded = open || live;
 	const failed = steps.some(
 		(step) =>
@@ -1056,47 +1072,72 @@ function Activity({
 							: refused(step)
 								? "Waiting for approval"
 								: null;
+						const detailed = stepHasDetail(step);
+						const detailOpen = detailed && shown.has(step.stepId);
 						return (
-							<li
-								className="workspace-chat-step"
-								data-status={approvalLabel ?? step.status}
-								data-testid="workspace-chat-step"
-								key={step.stepId}
-							>
-								<Icon aria-hidden />
-								<span className="truncate">{step.label}</span>
-								{approvalLabel ? (
-									<Text
-										as="span"
-										role="caption"
-										tone={
-											approval?.execution?.status === "failed"
-												? "error"
-												: "secondary"
-										}
-									>
-										{approvalLabel}
-									</Text>
-								) : null}
-								{!approvalLabel && step.status === "ok" && step.summary ? (
-									<Text as="span" role="caption" tone="secondary">
-										{step.summary}
-									</Text>
-								) : null}
-								{!approvalLabel && step.status === "error" ? (
-									<Text as="span" role="caption" tone="error">
-										{step.error ?? "failed"}
-									</Text>
-								) : null}
-								{!approvalLabel && step.status === "running" ? (
-									<span
-										className="workspace-chat-step-pulse"
-										aria-label="running"
-									/>
-								) : approval?.execution?.status === "applied" ||
-								  (!approval && step.status === "ok") ? (
-									<CheckCircle aria-hidden className="workspace-chat-step-ok" />
-								) : null}
+							<li key={step.stepId}>
+								<div
+									className="workspace-chat-step"
+									data-status={approvalLabel ?? step.status}
+									data-testid="workspace-chat-step"
+								>
+									<Icon aria-hidden />
+									{detailed ? (
+										<button
+											aria-expanded={detailOpen}
+											className="workspace-chat-step-toggle truncate"
+											onClick={() =>
+												setShown((previous) => {
+													const next = new Set(previous);
+													if (!next.delete(step.stepId)) next.add(step.stepId);
+													return next;
+												})
+											}
+											title={detailOpen ? "Hide what ran" : "Show what ran"}
+											type="button"
+										>
+											{step.label}
+										</button>
+									) : (
+										<span className="truncate">{step.label}</span>
+									)}
+									{approvalLabel ? (
+										<Text
+											as="span"
+											role="caption"
+											tone={
+												approval?.execution?.status === "failed"
+													? "error"
+													: "secondary"
+											}
+										>
+											{approvalLabel}
+										</Text>
+									) : null}
+									{!approvalLabel && step.status === "ok" && step.summary ? (
+										<Text as="span" role="caption" tone="secondary">
+											{step.summary}
+										</Text>
+									) : null}
+									{!approvalLabel && step.status === "error" ? (
+										<Text as="span" role="caption" tone="error">
+											{step.error ?? "failed"}
+										</Text>
+									) : null}
+									{!approvalLabel && step.status === "running" ? (
+										<span
+											className="workspace-chat-step-pulse"
+											aria-label="running"
+										/>
+									) : approval?.execution?.status === "applied" ||
+									  (!approval && step.status === "ok") ? (
+										<CheckCircle
+											aria-hidden
+											className="workspace-chat-step-ok"
+										/>
+									) : null}
+								</div>
+								{detailOpen ? <StepDetail step={step} /> : null}
 							</li>
 						);
 					})}
@@ -1330,6 +1371,16 @@ function ApprovalCard({
 					) : null}
 				</CollapsibleDefaultContent>
 			</Collapsible>
+			{approval.execution?.status === "applied" &&
+			approval.execution.output &&
+			!appEdit ? (
+				<div className="workspace-chat-approval-actions">
+					<OpenChangedFile
+						outputId={approval.execution.output.outputId}
+						title={target}
+					/>
+				</div>
+			) : null}
 			{!approval.decision && !approval.execution ? (
 				<div className="workspace-chat-approval-actions">
 					<Button

@@ -709,6 +709,22 @@ describe("WorkspaceDO", () => {
 					(event) => event.type === "step.finished" && event.status === "ok",
 				),
 		).toBe(true);
+		// Each step carries what ran and the start of what came back.
+		const codeStep = steps[0];
+		if (codeStep?.type !== "step.started") throw new Error("no code step");
+		expect(codeStep.input).toEqual({ code: READ_ONLY_CODE });
+		const results = events.flatMap((event) =>
+			event.type === "step.finished" ? [event] : [],
+		);
+		expect(
+			results.find((event) => event.stepId === codeStep.stepId)?.result,
+		).toContain("return value:");
+		expect(results.every((event) => typeof event.result === "string")).toBe(
+			true,
+		);
+		expect(results.every((event) => (event.result?.length ?? 0) < 4_100)).toBe(
+			true,
+		);
 		const finished = events.at(-1);
 		expect(finished?.type === "turn.finished" && finished.status).toBe("done");
 		// The sandbox returned the real numbers, not the scripted text.

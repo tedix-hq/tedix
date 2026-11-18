@@ -249,6 +249,16 @@ export function boundedEventInput(input: unknown): unknown {
 	};
 }
 
+/** The most characters of a step's code or result an event keeps. */
+export const EVENT_TEXT_CHARS = 4_000;
+
+/** Code or a result for an event: the start of it, and how much was left out. */
+export function boundedEventText(text: string, max = EVENT_TEXT_CHARS): string {
+	return text.length <= max
+		? text
+		: `${text.slice(0, max)}\n… ${text.length - max} more characters not shown`;
+}
+
 /** Adds conversation totals together; `undefined` when there is nothing to add. */
 export function sumUsageTotals(
 	totals: Iterable<UsageTotals>,

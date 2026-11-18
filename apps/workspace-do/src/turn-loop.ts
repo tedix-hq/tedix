@@ -22,6 +22,8 @@ import type { SandboxRunResult, WorkspaceEventInput } from "./runtime";
 export const MAX_STEPS = 24;
 export const MAX_TOOL_RESULT_CHARS = 32 * 1024;
 export const COMPACTION_TRIGGER_RATIO = 0.85;
+/** The most characters of a step's code or result that go to the chat. */
+export const STEP_DETAIL_CHARS = 4_000;
 
 export interface TurnPorts {
 	model: ModelPort;
@@ -107,6 +109,12 @@ export function estimateTokens(messages: Message[], systemPrompt = ""): number {
 function clip(text: string): string {
 	return text.length > MAX_TOOL_RESULT_CHARS
 		? `${text.slice(0, MAX_TOOL_RESULT_CHARS)}\n…[truncated ${text.length - MAX_TOOL_RESULT_CHARS} chars]`
+		: text;
+}
+
+function detail(text: string): string {
+	return text.length > STEP_DETAIL_CHARS
+		? `${text.slice(0, STEP_DETAIL_CHARS)}\n… ${text.length - STEP_DETAIL_CHARS} more characters not shown`
 		: text;
 }
 
@@ -352,7 +360,12 @@ export async function runTurn(
 			const code = String(call.arguments.code ?? "");
 			ports.emit({
 				type: "code_started",
-				data: { step: steps, toolCallId: call.id, chars: code.length },
+				data: {
+					step: steps,
+					toolCallId: call.id,
+					chars: code.length,
+					code: detail(code),
+				},
 			});
 			const started = now();
 			const run = await ports.runCode(code);
@@ -360,6 +373,7 @@ export async function runTurn(
 			// the tool result and goes on with work that does not depend on it.
 			const refused = run.error?.startsWith("Approval required");
 			if (refused) approvalsRequested += 1;
+			const rendered = renderRun(run);
 			ports.emit({
 				type: refused ? "approval_required" : "code_finished",
 				data: {
@@ -368,9 +382,10 @@ export async function runTurn(
 					ok: run.ok,
 					durationMs: now() - started,
 					...(run.error ? { error: run.error } : {}),
+					result: detail(rendered),
 				},
 			});
-			await keep(toolResult(call, renderRun(run), !run.ok, now()));
+			await keep(toolResult(call, rendered, !run.ok, now()));
 		}
 	}
 	if (steps >= MAX_STEPS && stopReason === "answered" && !finalText) {

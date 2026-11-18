@@ -73,6 +73,8 @@ import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-noti
 import { BINDING_NAMES, type BindingName } from "./declarations";
 import {
 	boundedEventInput,
+	boundedEventText,
+	EVENT_INPUT_CHARS,
 	SqlEventLedger,
 	sumUsageTotals,
 } from "./event-ledger";
@@ -2516,23 +2518,24 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			label,
 			kind,
 			tool: `${binding}.${method}`,
-			...(kind === "write" ? { input: boundedEventInput(args[0]) } : {}),
+			...(args[0] === undefined ? {} : { input: boundedEventInput(args[0]) }),
 		});
 		try {
 			const value = await (fn as (...a: unknown[]) => Promise<unknown>)(
 				...args,
 			);
+			const json = value === undefined ? "null" : JSON.stringify(value);
 			this.#events.append(turn.conversationId, {
 				type: "step.finished",
 				turnId: turn.turnId,
 				stepId,
 				status: "ok",
 				durationMs: Date.now() - started,
+				...(value === undefined
+					? {}
+					: { result: boundedEventText(json, EVENT_INPUT_CHARS) }),
 			});
-			return {
-				ok: true,
-				value: value === undefined ? null : JSON.parse(JSON.stringify(value)),
-			};
+			return { ok: true, value: JSON.parse(json) };
 		} catch (error: unknown) {
 			let message = error instanceof Error ? error.message : String(error);
 			if (
@@ -2679,6 +2682,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					label: "Running code against the workspace",
 					kind: "code",
 					tool: "run_code",
+					...(typeof data.code === "string"
+						? { input: { code: boundedEventText(data.code) } }
+						: {}),
 				};
 				break;
 			case "code_finished":
@@ -2690,6 +2696,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					status: data.ok ? "ok" : "error",
 					durationMs: Number(data.durationMs ?? 0),
 					...(data.error ? { error: String(data.error) } : {}),
+					...(typeof data.result === "string"
+						? { result: boundedEventText(data.result) }
+						: {}),
 				};
 				break;
 			case "compacting":
@@ -2709,6 +2718,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					status: "ok",
 					durationMs: 0,
 				};
+				// The thread marks where earlier messages stopped being sent whole.
+				this.#events.append(conversationId, {
+					type: "conversation.summarized",
+					turnId,
+				});
 				break;
 			default:
 				body = null;

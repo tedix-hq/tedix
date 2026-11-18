@@ -195,6 +195,66 @@
 	color: var(--color-kumo-subtle, inherit);
 }
 
+.workspace-chat-step-toggle {
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: none;
+	font: inherit;
+	color: inherit;
+	text-align: left;
+	text-decoration: underline dotted;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+
+.workspace-chat-step-toggle:focus-visible {
+	outline: 2px solid var(--color-kumo-brand, var(--primary));
+	outline-offset: 1px;
+}
+
+.workspace-chat-step-detail {
+	display: grid;
+	min-width: 0;
+	gap: 4px;
+	margin: 4px 0 6px 22px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	background: var(--color-kumo-tint, rgb(0 0 0 / 0.05));
+}
+
+.workspace-chat-step-detail pre {
+	max-height: 220px;
+	margin: 0;
+	overflow: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-size: var(--text-tedix-caption);
+}
+
+.workspace-chat-reply-copy {
+	display: flex;
+	min-height: 28px;
+	align-items: center;
+}
+
+.workspace-chat-summarised {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	color: var(--color-kumo-subtle, inherit);
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+}
+
+.workspace-chat-summarised::before,
+.workspace-chat-summarised::after {
+	flex: 1;
+	height: 1px;
+	background: var(--color-kumo-line, currentcolor);
+	content: "";
+}
+
 .workspace-chat-step[data-status="running"] {
 	color: var(--color-kumo-default, inherit);
 }
