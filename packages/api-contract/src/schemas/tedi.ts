@@ -613,7 +613,7 @@ export const TediBackupHandleSummarySchema = z.object({
 	createdAt: z.string().nullable().optional(),
 	createdAtValid: z.boolean().optional(),
 	restorable: z.boolean().optional(),
-	format: z.enum(["missing", "unified", "legacy-split", "unknown"]).optional(),
+	format: z.enum(["missing", "unified", "unknown"]).optional(),
 	issues: z.array(z.string()).optional(),
 	primaryIssue: z.string().nullable().optional(),
 });
@@ -710,43 +710,7 @@ export type TediBackupAuditResponse = z.infer<
 	typeof TediBackupAuditResponseSchema
 >;
 
-export const TediStorageStatusSchema = z.object({
-	configured: z.boolean(),
-	bucketName: z.string().nullable().optional(),
-	prefix: z.string().optional(),
-	lastSync: z.string().nullable(),
-	backupHandles: TediBackupHandleSummarySchema.optional(),
-	message: z.string(),
-	missing: z.array(z.string()).optional(),
-});
-
-export const TediStorageFileEntrySchema = z.object({
-	path: z.string(),
-	type: z.enum(["file", "dir"]),
-});
-
-export const TediStorageFilesSchema = z.object({
-	path: z.string(),
-	entries: z.array(TediStorageFileEntrySchema),
-});
-
-export const TediStorageFileSchema = z.object({
-	path: z.string(),
-	content: z.string(),
-	sizeBytes: z.number().nullable(),
-	truncated: z.boolean(),
-});
 export type RuntimeChannelStatus = z.infer<typeof RuntimeChannelStatusSchema>;
-
-export const TediWriteStorageFileInputSchema = z.object({
-	path: z.string().min(1, "Path is required"),
-	content: z.string().max(1_048_576, "Content too large (max 1MB)"),
-});
-
-export const TediWriteStorageFileResultSchema = z.object({
-	success: z.boolean(),
-	path: z.string(),
-});
 
 export const TediRuntimeSnapshotSchema = z.object({
 	id: z.uuid(),
@@ -1036,54 +1000,9 @@ export const TediWakeResponseSchema = z.object({
 	processId: z.string().nullable(),
 	waitMs: z.number(),
 	attempts: z.number().optional(),
-	recoveredBySandboxReset: z.boolean().optional(),
 	message: z.string().optional(),
 });
 export type TediWakeResponse = z.infer<typeof TediWakeResponseSchema>;
-
-export const TediResetSandboxResponseSchema = z.object({
-	success: z.boolean(),
-	message: z.string(),
-	audit: z
-		.object({
-			tediId: z.string(),
-			triggeredBy: z.string(),
-			triggeredAt: z.string(),
-			reason: z.string().nullable(),
-		})
-		.optional(),
-});
-export type TediResetSandboxResponse = z.infer<
-	typeof TediResetSandboxResponseSchema
->;
-
-export const TediSyncStorageResponseSchema = z.object({
-	success: z.boolean(),
-	lastSync: z.string().nullable(),
-	backupHandles: z
-		.object({
-			runtimeId: z.string().nullable().optional(),
-			runtimeDir: z.string().nullable().optional(),
-			runtimePresent: z.boolean().optional(),
-			workspaceId: z.string().nullable().optional(),
-			workspaceDir: z.string().nullable().optional(),
-			workspacePresent: z.boolean().optional(),
-			createdAt: z.string().nullable().optional(),
-			createdAtValid: z.boolean().optional(),
-			restorable: z.boolean().optional(),
-			format: z
-				.enum(["missing", "unified", "legacy-split", "unknown"])
-				.optional(),
-			issues: z.array(z.string()).optional(),
-			primaryIssue: z.string().nullable().optional(),
-		})
-		.optional(),
-	error: z.string().optional(),
-	details: z.string().optional(),
-});
-export type TediSyncStorageResponse = z.infer<
-	typeof TediSyncStorageResponseSchema
->;
 
 export const TediCronSyncResponseSchema = z.object({
 	success: z.boolean(),
@@ -1110,41 +1029,6 @@ export const TediDeviceListSchema = z.object({
 	paired: z.array(TediDeviceSchema),
 });
 export type TediDeviceList = z.infer<typeof TediDeviceListSchema>;
-
-export const TediChannelStatusResponseSchema = z.object({
-	channels: z.array(RuntimeChannelStatusSchema),
-	observedAt: z.string(),
-});
-export type TediChannelStatusResponse = z.infer<
-	typeof TediChannelStatusResponseSchema
->;
-
-export const TediPairingRequestSchema = z.object({
-	code: z.string(),
-	senderId: z.string().optional(),
-	senderName: z.string().optional(),
-	createdAt: z.string().optional(),
-});
-export type TediPairingRequest = z.infer<typeof TediPairingRequestSchema>;
-
-export const TediPairingRequestListSchema = z.object({
-	channel: z.string(),
-	pending: z.array(TediPairingRequestSchema),
-	count: z.number(),
-});
-export type TediPairingRequestList = z.infer<
-	typeof TediPairingRequestListSchema
->;
-
-export const TediPairingApproveResponseSchema = z.object({
-	success: z.boolean(),
-	channel: z.string(),
-	code: z.string(),
-	message: z.string(),
-});
-export type TediPairingApproveResponse = z.infer<
-	typeof TediPairingApproveResponseSchema
->;
 
 export const TediChannelGroupConfigSchema = z.object({
 	groupPolicy: z.enum(["open", "allowlist", "disabled"]).optional(),
@@ -1290,20 +1174,6 @@ export const TediSessionsBulkDeleteResponseSchema = z.object({
 export type TediSessionsBulkDeleteResponse = z.infer<
 	typeof TediSessionsBulkDeleteResponseSchema
 >;
-
-export const TediPeerSchema = z.object({
-	id: z.string(),
-	name: z.string(),
-	slug: z.string(),
-	status: z.string(),
-	description: z.string().optional(),
-});
-export type TediPeer = z.infer<typeof TediPeerSchema>;
-
-export const TediPeerListSchema = z.object({
-	peers: z.array(TediPeerSchema),
-});
-export type TediPeerList = z.infer<typeof TediPeerListSchema>;
 
 export const TediRotateAccessKeyResponseSchema = z.object({
 	success: z.boolean(),

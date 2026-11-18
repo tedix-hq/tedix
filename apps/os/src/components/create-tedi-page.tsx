@@ -58,7 +58,6 @@ import {
 	modelCatalogQueryOptions,
 	osQuery,
 	osQueryKeys,
-	tediPairingRequestsQueryOptions,
 } from "@/lib/os-query-options";
 import { initialModelRef, modelsForNewSelection } from "@/lib/model-selection";
 import {
@@ -237,8 +236,6 @@ export function CreateTediPage({
 	const [validationResults, setValidationResults] = useState<ValidationState>(
 		{},
 	);
-	const [telegramHandoff, setTelegramHandoff] =
-		useState<TelegramPairingHandoff | null>(null);
 
 	const parsedTelegramAllowlist = useMemo(
 		() => parseIdentifierList(state.telegramGroupAllowFrom),
@@ -304,35 +301,6 @@ export function CreateTediPage({
 		},
 		onSuccess: (data, variables) => {
 			setValidationResults((prev) => ({ ...prev, [variables.channel]: data }));
-		},
-	});
-
-	const pairingQuery = useQuery({
-		...tediPairingRequestsQueryOptions(telegramHandoff?.tediId ?? ""),
-		enabled: Boolean(telegramHandoff?.tediId),
-		refetchInterval: 5000,
-		staleTime: 2000,
-	});
-
-	const approvePairingMutation = useMutation({
-		mutationFn: async (code: string) => {
-			if (!telegramHandoff) throw new Error("No Telegram handoff is active");
-			return osApi.tedis.approvePairing({
-				tediId: telegramHandoff.tediId,
-				channel: "telegram",
-				code,
-			});
-		},
-		onSuccess: (data) => {
-			toast.success(data.message || "Pairing approved");
-			pairingQuery.refetch();
-		},
-		onError: (mutationError) => {
-			toast.error(
-				mutationError instanceof Error
-					? mutationError.message
-					: "Failed to approve pairing",
-			);
 		},
 	});
 
@@ -410,22 +378,6 @@ export function CreateTediPage({
 				toast.warning(`Tedi launched, but ${postLaunchIssues.join("; ")}.`);
 			}
 
-			if (
-				state.channel === "telegram" &&
-				state.telegramDmPolicy === "pairing"
-			) {
-				const botUsername = validationResults.telegram?.botUsername;
-				setTelegramHandoff({ tediId, botUsername });
-				if (postLaunchIssues.length === 0) {
-					toast.success(
-						botUsername
-							? `Tedi launched. Send a Telegram message to @${botUsername} to create your first pairing request.`
-							: "Tedi launched. Send your Telegram bot a message to create your first pairing request.",
-					);
-				}
-				return;
-			}
-
 			if (postLaunchIssues.length === 0) {
 				if (state.channel === "telegram") {
 					toast.success(
@@ -469,177 +421,6 @@ export function CreateTediPage({
 				: undefined,
 		});
 	};
-
-	if (telegramHandoff) {
-		const pending = pairingQuery.data?.pending ?? [];
-		return (
-			<Page width="md">
-				<PageHeader>
-					<PageHeading>
-						<PageTitle>Connect Telegram</PageTitle>
-						<PageDescription>
-							Your tedi is live. Finish onboarding by approving the first
-							Telegram pairing request.
-						</PageDescription>
-					</PageHeading>
-				</PageHeader>
-
-				<div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-					<Card>
-						<CardHeader>
-							<CardTitle>Telegram Pairing</CardTitle>
-						</CardHeader>
-						<CardContent className="space-y-4">
-							<Surface className="p-4">
-								<Text role="body" weight="medium">
-									Step 1
-								</Text>
-								<Text role="body" tone="secondary" className="mt-1">
-									Open Telegram and send a message to{" "}
-									<Text as="span" weight="medium" className="text-kumo-default">
-										{telegramHandoff.botUsername
-											? `@${telegramHandoff.botUsername}`
-											: "your bot"}
-									</Text>
-									to generate a pairing request.
-								</Text>
-							</Surface>
-
-							<div className="flex items-center justify-between">
-								<div>
-									<Text role="body" weight="medium">
-										Pending requests
-									</Text>
-									<Text role="label" tone="secondary">
-										We poll every few seconds while you stay on this screen.
-									</Text>
-								</div>
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => pairingQuery.refetch()}
-									disabled={pairingQuery.isFetching}
-									icon={
-										pairingQuery.isFetching ? (
-											<Loader aria-label="Refreshing" size={16} />
-										) : (
-											<ArrowsClockwise className="h-4 w-4" />
-										)
-									}
-								>
-									Refresh
-								</Button>
-							</div>
-
-							{pairingQuery.isLoading ? (
-								<div className="flex items-center gap-2 text-kumo-subtle type-tedix-body">
-									<Loader aria-label="Checking" size={16} />
-									Checking for pairing requests…
-								</div>
-							) : pairingQuery.isError ? (
-								<Surface className="border-kumo-danger p-4" role="alert">
-									<Text
-										role="body"
-										weight="medium"
-										className="text-kumo-danger"
-									>
-										Pairing requests could not be loaded.
-									</Text>
-									<Text role="label" tone="secondary" className="mt-1">
-										The request status is unknown. Refresh to try again.
-									</Text>
-								</Surface>
-							) : pending.length === 0 ? (
-								<Surface className="border-dashed p-4 text-kumo-subtle type-tedix-body">
-									No pairing requests yet. Send the bot a DM, then refresh if
-									needed.
-								</Surface>
-							) : (
-								<div className="space-y-3">
-									{pending.map((request) => (
-										<Surface
-											key={request.code}
-											className="flex items-center justify-between p-3"
-										>
-											<div className="min-w-0">
-												<div className="flex items-center gap-2">
-													<Text
-														as="code"
-														role="label"
-														tone="mono"
-														weight="semibold"
-													>
-														{request.code}
-													</Text>
-													{request.senderName ? (
-														<Text
-															as="span"
-															role="label"
-															tone="secondary"
-															className="truncate"
-														>
-															{request.senderName}
-														</Text>
-													) : null}
-												</div>
-												{request.senderId ? (
-													<Text role="label" tone="secondary" className="mt-1">
-														Telegram ID: {request.senderId}
-													</Text>
-												) : null}
-											</div>
-											<Button
-												size="sm"
-												onClick={() =>
-													approvePairingMutation.mutate(request.code)
-												}
-												disabled={approvePairingMutation.isPending}
-											>
-												Approve
-											</Button>
-										</Surface>
-									))}
-								</div>
-							)}
-						</CardContent>
-					</Card>
-
-					<Card>
-						<CardHeader>
-							<CardTitle>What happens next</CardTitle>
-						</CardHeader>
-						<CardContent className="space-y-3 text-sm">
-							<div className="flex items-start gap-2">
-								<ChatCircle className="mt-0.5 h-4 w-4 text-kumo-brand" />
-								<Text tone="secondary">
-									Once approved, that Telegram user can DM the tedi immediately.
-								</Text>
-							</div>
-							<div className="flex items-start gap-2">
-								<CheckCircle className="mt-0.5 h-4 w-4 text-kumo-success" />
-								<Text tone="secondary">
-									You can finish the rest of channel tuning later in Settings →
-									Channels.
-								</Text>
-							</div>
-							<Button
-								variant="outline"
-								className="w-full"
-								onClick={() =>
-									navigate({
-										to: "/team/$tediId",
-										params: { tediId: telegramHandoff.tediId },
-									})
-								}
-							>
-								Open Tedi
-							</Button>
-						</CardContent>
-					</Card>
-				</div>
-			</Page>
-		);
-	}
 
 	function ChannelTestButton({
 		channel,

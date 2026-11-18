@@ -19,7 +19,6 @@ function makeDeps(
 ) {
 	return {
 		decommission: vi.fn(async () => true),
-		isIsolateBody: true,
 		stopSchedules: vi.fn(async () => ({
 			attempted: true,
 			ok: true,
@@ -152,22 +151,6 @@ describe("orchestrateTediDecommission — decommission path (no purge)", () => {
 				deps,
 			}),
 		).rejects.toThrow(/Failed to decommission tedi/);
-	});
-
-	test("skips (does not fail) schedule stop for a container/legacy body", async () => {
-		const deps = makeDeps({ isIsolateBody: false });
-		const result = await orchestrateTediDecommission({
-			tediId: "tedi-1",
-			slug: "echo",
-			input: { stopSchedules: true },
-			deps,
-		});
-		expect(deps.stopSchedules).not.toHaveBeenCalled();
-		expect(result.schedulesStopped).toMatchObject({
-			attempted: false,
-			ok: true,
-		});
-		expect(result.schedulesStopped.detail).toMatch(/container\/legacy/);
 	});
 
 	test("honors stopSchedules=false (not requested)", async () => {

@@ -3,11 +3,7 @@
  */
 
 import type { WorkstationEgressPolicy } from "@tedix/api-contract/schemas/workstation";
-import type {
-	PolicyPackDefinition,
-	RuntimeProfileConfig,
-	WorkspaceTemplateSetDefinition,
-} from "@tedix/db/schema/control-plane";
+import type { RuntimeProfileConfig } from "@tedix/db/schema/control-plane";
 import type { WorkstationGenerationControl } from "./runtime/workstation-generation";
 import type {
 	WorkstationRuntimeBody,
@@ -88,13 +84,6 @@ export interface TediConfig {
 	slug: string;
 	displayName: string;
 	environment?: string;
-	/**
-	 * Optional per-tedi bucket name override.
-	 *
-	 * If unset, the Tedi Worker uses the environment default bucket and isolates by prefix.
-	 */
-	r2BucketName?: string | null;
-
 	// Organization that owns this tedi (for JWT org ownership checks)
 	organizationId: string | null;
 	/**
@@ -129,43 +118,8 @@ export interface TediConfig {
 	descopeBaseUrl?: string;
 	descopeMcpResourceId?: string | null;
 
-	// Workstation sleep policy (e.g., '10m', '1h', 'never')
-	sleepAfter?: string;
-
-	/**
-	 * Explicit always-on flag from runtime profile's `runtimePolicy.alwaysOn`.
-	 * - `true`  → force keepAlive regardless of channel adapters (use for daily co-worker tedis)
-	 * - `false` → respect env default sleepAfter even when bot tokens are present
-	 *             (use for on-demand tedis the operator summons via `wake_tedi`)
-	 * - `undefined` → fall back to the Telegram-token heuristic in apps/tedi/src/index.ts
-	 */
-	alwaysOn?: boolean;
-
-	/**
-	 * Instance tier for sandbox sizing.
-	 *
-	 * NOTE: Workstation tier support requires runtime Worker configuration with
-	 * different instance types. At runtime we can't dynamically change the
-	 * instance_type; this field is informational.
-	 */
-	instanceTier?:
-		| "micro"
-		| "small"
-		| "standard"
-		| "large"
-		| "xlarge"
-		| "xxlarge";
-
-	// Control-plane config (always present — system defaults assigned on creation, null only if referenced record deleted)
+	// Control-plane config (null only if the referenced record was deleted)
 	runtimeProfileConfig?: RuntimeProfileConfig | null;
-	policyPackDefinition?: PolicyPackDefinition | null;
-	workspaceTemplateSetDefinition?: WorkspaceTemplateSetDefinition | null;
-
-	// Pre-rendered markdown of top platform brain facts for runtime prompts.
-	platformKnowledge?: string;
-
-	// Pre-rendered markdown of high-success muscle memory entries.
-	muscleMemory?: string;
 
 	// Repository config for coding agent workloads.
 	// worktreePath is optional and body-specific. Tedix Sandbox workstations

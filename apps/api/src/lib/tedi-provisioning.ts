@@ -83,11 +83,9 @@ export async function autoProvisionFirstTedi(
 		displayName: tediName,
 		// The org's first tedi is the Agent runtime: the lightweight Cloudflare
 		// Agents Worker + Durable Object with native Pi facets (see docs/engineering/tedi/agent-runtime.md).
-		// It is immediately ready — there is no container boot to wait on — so it
-		// provisions straight to "active". OS/process capability, if ever needed, is
-		// added later via an additive Sandbox workstation lease, not a body swap
-		// (cognitive state is body-neutral). The legacy runtime runtime body
-		// stayed "provisioning" until its gateway was up; that body is deprecating.
+		// It is immediately ready, so it provisions straight to "active". OS/process
+		// capability, if ever needed, is added later via an additive Sandbox
+		// workstation lease, not a body swap (cognitive state is body-neutral).
 		status: "active",
 		scope: "organization",
 		ownerUserId: ownerUserId ?? null,

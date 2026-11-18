@@ -14,10 +14,7 @@ import { Switch } from "@/components/kumo/switch";
 import { toast } from "@/components/kumo/toast";
 import { osApi } from "@/lib/api";
 import { errorMessage } from "@/lib/orpc-error";
-import {
-	osQueryKeys,
-	tediPairingRequestsQueryOptions,
-} from "@/lib/os-query-options";
+import { osQueryKeys } from "@/lib/os-query-options";
 
 type ManagedChannel = "telegram";
 type DmPolicy = "allowlist" | "disabled" | "open" | "pairing";
@@ -379,10 +376,6 @@ export function useTediSettingsChannels(
 	invalidateTedi: () => Promise<unknown>,
 ) {
 	const queryClient = useQueryClient();
-	const pairingRequests = useQuery({
-		...tediPairingRequestsQueryOptions(tediId),
-		refetchInterval: 30_000,
-	});
 	const channelValues = useMemo(
 		() => liveChannelValues(tedi.data?.channels),
 		[tedi.data?.channels],
@@ -483,25 +476,9 @@ export function useTediSettingsChannels(
 			toast.error(errorMessage(error, "Credential validation failed")),
 	});
 
-	const approvePairing = useMutation({
-		mutationFn: (code: string) =>
-			osApi.tedis.approvePairing({ tediId, channel: "telegram", code }),
-		onSuccess: async (result) => {
-			await Promise.all([
-				pairingRequests.refetch(),
-				queryClient.invalidateQueries({ queryKey: osQueryKeys.tedis() }),
-			]);
-			toast.success(result.message || "Telegram pairing approved");
-		},
-		onError: (error) =>
-			toast.error(errorMessage(error, "Failed to approve Telegram pairing")),
-	});
-
 	return {
 		channelValues,
-		pairingRequests,
 		saveChannels,
 		testChannelToken,
-		approvePairing,
 	};
 }

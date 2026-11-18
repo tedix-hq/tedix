@@ -6,14 +6,8 @@ const mocks = vi.hoisted(() => ({
 	decryptTediSecret: vi.fn(),
 	getAllTediSecrets: vi.fn(),
 	getOrganizationById: vi.fn(),
-	getPolicyPackById: vi.fn(),
 	getRuntimeProfileById: vi.fn(),
-	getSystemDefaultPolicyPack: vi.fn(),
 	getSystemDefaultRuntimeProfile: vi.fn(),
-	getSystemDefaultWorkspaceTemplateSet: vi.fn(),
-	getTopPlatformFacts: vi.fn(),
-	getWorkspaceTemplateSetById: vi.fn(),
-	listMuscleMemory: vi.fn(),
 	lookupTediByHostname: vi.fn(),
 }));
 
@@ -21,22 +15,9 @@ vi.mock("@tedix/db/client", () => ({
 	createDbClient: mocks.createDbClient,
 }));
 
-vi.mock("@tedix/db/queries/cognitive/muscle-memory", () => ({
-	listMuscleMemory: mocks.listMuscleMemory,
-}));
-
 vi.mock("@tedix/db/queries/control-plane/definitions", () => ({
-	getPolicyPackById: mocks.getPolicyPackById,
 	getRuntimeProfileById: mocks.getRuntimeProfileById,
-	getSystemDefaultPolicyPack: mocks.getSystemDefaultPolicyPack,
 	getSystemDefaultRuntimeProfile: mocks.getSystemDefaultRuntimeProfile,
-	getSystemDefaultWorkspaceTemplateSet:
-		mocks.getSystemDefaultWorkspaceTemplateSet,
-	getWorkspaceTemplateSetById: mocks.getWorkspaceTemplateSetById,
-}));
-
-vi.mock("@tedix/db/queries/memory-graph/platform-facts", () => ({
-	getTopPlatformFacts: mocks.getTopPlatformFacts,
 }));
 
 vi.mock("@tedix/db/queries/organizations", () => ({
@@ -80,74 +61,10 @@ describe("resolveTedi", () => {
 		mocks.createDbClient.mockReturnValue("db");
 		mocks.getAllTediSecrets.mockResolvedValue([]);
 		mocks.getRuntimeProfileById.mockResolvedValue(null);
-		mocks.getPolicyPackById.mockResolvedValue(null);
-		mocks.getWorkspaceTemplateSetById.mockResolvedValue(null);
 		// A tedi with null control-plane FKs resolves the published system
 		// defaults instead of a compiled-in id.
 		mocks.getSystemDefaultRuntimeProfile.mockResolvedValue(null);
-		mocks.getSystemDefaultPolicyPack.mockResolvedValue(null);
-		mocks.getSystemDefaultWorkspaceTemplateSet.mockResolvedValue(null);
 		mocks.getOrganizationById.mockResolvedValue(null);
-		mocks.getTopPlatformFacts.mockResolvedValue([]);
-		mocks.listMuscleMemory.mockResolvedValue([]);
-	});
-
-	it("injects queried platform knowledge with the application formatter", async () => {
-		mocks.lookupTediByHostname.mockResolvedValue(
-			buildTedi({ status: "active" }),
-		);
-		mocks.getTopPlatformFacts.mockResolvedValue([
-			{
-				fact: {
-					content: "Keep tenant boundaries",
-					priority: "core",
-					confidence: 0.955,
-				},
-				domainName: "security",
-			},
-			{
-				fact: {
-					content: "Ask when uncertain",
-					priority: "active",
-					confidence: null,
-				},
-				domainName: null,
-			},
-			{
-				fact: {
-					content: "Use scoped credentials",
-					priority: "active",
-					confidence: 0.8,
-				},
-				domainName: "security",
-			},
-		]);
-		const config = await resolveTedi(
-			{} as D1Database,
-			"cto.tedi.tedix.dev",
-			"production",
-			undefined,
-			undefined,
-			undefined,
-			{},
-		);
-		expect(config?.platformKnowledge).toBe(
-			[
-				"# Platform Knowledge",
-				"",
-				"> 3 facts from the Tedix brain layer. Core facts are marked with a star.",
-				"",
-				"## security",
-				"",
-				"- Keep tenant boundaries (96%) *",
-				"- Use scoped credentials (80%)",
-				"",
-				"## general",
-				"",
-				"- Ask when uncertain",
-				"",
-			].join("\n"),
-		);
 	});
 
 	it("rechecks status before serving a cached config", async () => {
@@ -194,9 +111,7 @@ describe("resolveTedi", () => {
 				.mockResolvedValueOnce(first)
 				.mockResolvedValueOnce(first)
 				.mockResolvedValueOnce(second);
-			mocks.getPolicyPackById.mockResolvedValue({ definition: {} });
 			mocks.getRuntimeProfileById.mockResolvedValue({ config: {} });
-			mocks.getWorkspaceTemplateSetById.mockResolvedValue({ definition: {} });
 			const resolve = () =>
 				resolveTedi(
 					{} as D1Database,
@@ -268,13 +183,7 @@ describe("resolveTedi", () => {
 			cause: new Error("org-1 private query detail"),
 		});
 		mocks.getSystemDefaultRuntimeProfile.mockRejectedValueOnce(privateError);
-		mocks.getSystemDefaultPolicyPack.mockRejectedValueOnce(privateError);
-		mocks.getSystemDefaultWorkspaceTemplateSet.mockRejectedValueOnce(
-			privateError,
-		);
 		mocks.getOrganizationById.mockRejectedValueOnce(privateError);
-		mocks.getTopPlatformFacts.mockRejectedValueOnce(privateError);
-		mocks.listMuscleMemory.mockRejectedValueOnce(privateError);
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
 			const config = await resolveTedi(
@@ -293,11 +202,7 @@ describe("resolveTedi", () => {
 			expect(diagnostics.map((entry) => entry.event).sort()).toEqual(
 				[
 					"resolve.runtime_profile_load_failed",
-					"resolve.policy_pack_load_failed",
-					"resolve.workspace_template_set_load_failed",
 					"resolve.organization_load_failed",
-					"resolve.platform_knowledge_load_failed",
-					"resolve.muscle_memory_load_failed",
 				].sort(),
 			);
 			for (const diagnostic of diagnostics) {
@@ -412,8 +317,8 @@ function buildTedi(overrides: Partial<Tedi> = {}): Tedi {
 		bodyGenerationTokenExpiresAt: null,
 		bodyGenerationTokenHash: null,
 		policyPackId: null,
-		quietHours: null,
 		r2BucketName: null,
+		quietHours: null,
 		repoConfig: null,
 		retiredAt: null,
 		retiredSlug: null,

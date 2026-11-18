@@ -318,7 +318,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 	"TediSettingsPage action error toast; widget settings error state": [
 		"tedis/addCustomDomain",
 		"tedis/approveDevice",
-		"tedis/approvePairing",
 		"tedis/create",
 		"tedis/createEmbeddedSession",
 		"tedis/delete",
@@ -327,7 +326,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"tedis/inspectRuntimeRecovery",
 		"tedis/listCustomDomains",
 		"tedis/listDevices",
-		"tedis/listPairingRequests",
 		"tedis/listPortableWebMcpConfigurations",
 		"tedis/listWidgetAccessConfigurations",
 		"tedis/listWidgetContacts",
@@ -335,7 +333,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"tedis/publishPortableWebMcpProfile",
 		"tedis/removeCustomDomain",
 		"tedis/repair",
-		"tedis/resetSandbox",
 		"tedis/revokeDevice",
 		"tedis/syncConfig",
 		"tedis/testChannelToken",

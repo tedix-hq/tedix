@@ -58,19 +58,14 @@ import {
 	TediBackupAuditResponseSchema,
 	TediChannelConfigSchema,
 	TediChannelConfigUpdateResponseSchema,
-	TediChannelStatusResponseSchema,
 	TediCronSyncResponseSchema,
 	TediDeviceListSchema,
 	TediIdParamSchema,
 	TediIngestProjectionResponseSchema,
 	TediInitiateConnectionResponseSchema,
 	TediModelPolicyResponseSchema,
-	TediPairingApproveResponseSchema,
-	TediPairingRequestListSchema,
-	TediPeerListSchema,
 	TediProcessLogsSchema,
 	TediRepairResponseSchema,
-	TediResetSandboxResponseSchema,
 	TediRotateAccessKeyResponseSchema,
 	TediRuntimeProjectionResponseSchema,
 	TediRuntimeStatusSchema,
@@ -87,15 +82,9 @@ import {
 	TediSessionStatePatchSchema,
 	TediSessionStateSchema,
 	TediSessionsBulkDeleteResponseSchema,
-	TediStorageFileSchema,
-	TediStorageFilesSchema,
-	TediStorageStatusSchema,
 	TediSuccessMessageSchema,
 	TediSyncConfigResponseSchema,
-	TediSyncStorageResponseSchema,
 	TediWakeResponseSchema,
-	TediWriteStorageFileInputSchema,
-	TediWriteStorageFileResultSchema,
 	UpdateTediGovernanceInputSchema,
 	UpdateTediGovernanceResponseSchema,
 	UpdateTediInputSchema,
@@ -633,57 +622,10 @@ export const tedisContract = oc
 			})
 			.input(
 				TediIdParamSchema.extend({
-					allowSandboxReset: z
-						.boolean()
-						.optional()
-						.describe(
-							"Operator recovery path: if normal wake fails with a Sandbox transport/startup error, destroy the sandbox and retry from backup.",
-						),
-					forceSandboxReset: z
-						.boolean()
-						.optional()
-						.describe(
-							"Allow the recovery reset even when no healthy backup exists. This can permanently destroy workstation sandbox state.",
-						),
 					reason: z.string().optional(),
 				}),
 			)
 			.output(TediWakeResponseSchema),
-
-		restart: oc
-			.route({
-				method: "POST",
-				path: "/{tediId}/restart",
-				summary: "Restart tedi runtime",
-			})
-			.input(TediIdParamSchema)
-			.output(TediSuccessMessageSchema),
-
-		resetSandbox: oc
-			.route({
-				method: "POST",
-				path: "/{tediId}/reset-sandbox",
-				summary: "Destroy and recreate the tedi sandbox",
-				description:
-					"Nuclear option: destroys the entire Sandbox Durable Object, forcing a fresh sandbox on the next request. Use when the gateway is stuck due to stale lockfiles or orphaned processes that restart cannot fix. Pre-flight backup check blocks the reset if no healthy backup exists — use force=true to bypass.",
-			})
-			.input(
-				TediIdParamSchema.extend({
-					reason: z.string().optional(),
-					force: z.boolean().optional(),
-				}),
-			)
-			.output(TediResetSandboxResponseSchema),
-
-		syncStorage: oc
-			.route({
-				method: "POST",
-				path: "/{tediId}/sync",
-				tags: ["internal"],
-				summary: "Trigger R2 sync",
-			})
-			.input(TediIdParamSchema)
-			.output(TediSyncStorageResponseSchema),
 
 		triggerCronSync: oc
 			.route({
@@ -706,72 +648,6 @@ export const tedisContract = oc
 			)
 			.output(TediCronSyncResponseSchema),
 
-		getStorageStatus: oc
-			.route({
-				method: "GET",
-				path: "/{tediId}/storage",
-				summary: "Get storage status",
-				description:
-					"Returns storage mount configuration and last sync marker from the tedi runtime.",
-			})
-			.input(TediIdParamSchema)
-			.output(TediStorageStatusSchema),
-
-		listStorageFiles: oc
-			.route({
-				method: "GET",
-				path: "/{tediId}/storage/files",
-				summary: "List storage files",
-				description:
-					"Lists files in the mounted runtime storage namespace (read-only).",
-			})
-			.input(
-				TediIdParamSchema.extend({
-					path: z.string().optional(),
-					recursive: z.boolean().optional(),
-				}),
-			)
-			.output(TediStorageFilesSchema),
-
-		getStorageFile: oc
-			.route({
-				method: "GET",
-				path: "/{tediId}/storage/file",
-				summary: "Read a storage file",
-				description:
-					"Reads a small text file from the mounted R2 namespace (read-only).",
-			})
-			.input(
-				TediIdParamSchema.extend({
-					path: z.string(),
-				}),
-			)
-			.output(TediStorageFileSchema),
-
-		writeStorageFile: oc
-			.route({
-				method: "POST",
-				path: "/{tediId}/storage/file",
-				summary: "Write a storage file",
-				description: "Writes a text file to the mounted R2 namespace.",
-			})
-			.input(TediIdParamSchema.extend(TediWriteStorageFileInputSchema.shape))
-			.output(TediWriteStorageFileResultSchema),
-
-		deleteStorageFile: oc
-			.route({
-				method: "DELETE",
-				path: "/{tediId}/storage/file",
-				summary: "Delete a storage file",
-				description: "Deletes a file from the mounted R2 namespace.",
-			})
-			.input(
-				TediIdParamSchema.extend({
-					path: z.string(),
-				}),
-			)
-			.output(z.object({ success: z.boolean() })),
-
 		// =====================================================================
 		// DEVICE MANAGEMENT
 		// =====================================================================
@@ -793,15 +669,6 @@ export const tedisContract = oc
 			})
 			.input(TediIdParamSchema.extend({ deviceId: z.string() }))
 			.output(TediSuccessMessageSchema),
-
-		getChannelStatus: oc
-			.route({
-				method: "GET",
-				path: "/{tediId}/channels/status",
-				summary: "Get runtime channel connectivity status",
-			})
-			.input(TediIdParamSchema)
-			.output(TediChannelStatusResponseSchema),
 
 		testChannelToken: oc
 			.route({
@@ -839,37 +706,6 @@ export const tedisContract = oc
 			})
 			.input(TediIdParamSchema.extend({ deviceId: z.string() }))
 			.output(SuccessResponseSchema),
-
-		// =====================================================================
-		// PAIRING MANAGEMENT
-		// =====================================================================
-
-		listPairingRequests: oc
-			.route({
-				method: "GET",
-				path: "/{tediId}/pairing/{channel}",
-				summary: "List pending pairing requests for a channel",
-			})
-			.input(
-				TediIdParamSchema.extend({
-					channel: z.enum(["telegram", "signal"]),
-				}),
-			)
-			.output(TediPairingRequestListSchema),
-
-		approvePairing: oc
-			.route({
-				method: "POST",
-				path: "/{tediId}/pairing/approve",
-				summary: "Approve a pending pairing request",
-			})
-			.input(
-				TediIdParamSchema.extend({
-					channel: z.enum(["telegram", "signal", "voice"]),
-					code: z.string().min(1),
-				}),
-			)
-			.output(TediPairingApproveResponseSchema),
 
 		// =====================================================================
 		// CHANNEL CONFIGURATION
@@ -1931,19 +1767,6 @@ export const tedisContract = oc
 				}),
 			)
 			.output(ProviderInstallationSchema),
-
-		// =====================================================================
-		// PEER COMMUNICATION
-		// =====================================================================
-
-		listPeers: oc
-			.route({
-				method: "GET",
-				path: "/{tediId}/peers",
-				summary: "List peer tedis in the same organization",
-			})
-			.input(TediIdParamSchema)
-			.output(TediPeerListSchema),
 
 		rotateAccessKey: oc
 			.route({

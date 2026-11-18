@@ -9,23 +9,13 @@
  */
 
 import { createDbClient, type DbClient } from "@tedix/db/client";
-import { listMuscleMemory } from "@tedix/db/queries/cognitive/muscle-memory";
 import {
-	getPolicyPackById,
 	getRuntimeProfileById,
-	getSystemDefaultPolicyPack,
 	getSystemDefaultRuntimeProfile,
-	getSystemDefaultWorkspaceTemplateSet,
-	getWorkspaceTemplateSetById,
 } from "@tedix/db/queries/control-plane/definitions";
-import { getTopPlatformFacts } from "@tedix/db/queries/memory-graph/platform-facts";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getAllTediSecrets } from "@tedix/db/queries/tedi-secrets";
-import {
-	type PolicyPackDefinition,
-	type RuntimeProfileConfig,
-	type WorkspaceTemplateSetDefinition,
-} from "@tedix/db/schema/control-plane";
+import { type RuntimeProfileConfig } from "@tedix/db/schema/control-plane";
 import type { Tedi } from "@tedix/db/schema/tedis";
 import { decryptTediSecret } from "@tedix/db/utils/secrets-encryption";
 import { lookupTediByHostname } from "@tedix/db/utils/tedi-routing";
@@ -37,7 +27,6 @@ import {
 	buildRuntimeBaseUrl,
 	getPlatformDomain,
 } from "./platform";
-import { formatPlatformFactsAsMarkdown } from "./platform-knowledge-markdown";
 import type { TediConfig } from "./types";
 import { TtlCache } from "./utils/cache";
 
@@ -337,8 +326,6 @@ async function tediToConfig(
 	} = {},
 	controlPlane?: {
 		runtimeProfileConfig?: RuntimeProfileConfig | null;
-		policyPackDefinition?: PolicyPackDefinition | null;
-		workspaceTemplateSetDefinition?: WorkspaceTemplateSetDefinition | null;
 	},
 ): Promise<TediConfig> {
 	// Also extract channel tokens from the channels JSON column as fallbacks
@@ -367,9 +354,7 @@ async function tediToConfig(
 		? buildMcpBaseUrl(platformDomain)
 		: undefined;
 
-	// Runtime sleep policy from runtime profile JSON. Path:
-	// runtime_profiles.config.runtimePolicy.alwaysOn (boolean, optional).
-	// Undefined falls through to the channel-token heuristic in index.ts.
+	// Runtime policy from runtime profile JSON (runtime_profiles.config.runtimePolicy).
 	const runtimePolicy =
 		controlPlane?.runtimeProfileConfig &&
 		typeof controlPlane.runtimeProfileConfig === "object" &&
@@ -382,10 +367,6 @@ async function tediToConfig(
 					}
 				).runtimePolicy ?? null)
 			: null;
-	const alwaysOn =
-		runtimePolicy && typeof runtimePolicy.alwaysOn === "boolean"
-			? runtimePolicy.alwaysOn
-			: undefined;
 
 	// Per-workstation egress allow/deny lists, config-driven from
 	// runtime_profiles.config.runtimePolicy.workstationEgress. Applied to the
@@ -399,7 +380,6 @@ async function tediToConfig(
 		id: tedi.id,
 		slug: tedi.slug,
 		displayName: tedi.displayName || tedi.name,
-		r2BucketName: tedi.r2BucketName ?? null,
 		organizationId: tedi.organizationId || null,
 		organizationDescopeTenantId: null,
 		ownerUserId: tedi.ownerUserId ?? null,
@@ -412,11 +392,7 @@ async function tediToConfig(
 		descopeBaseUrl: configOptions.descopeBaseUrl,
 		descopeMcpResourceId: tedi.descopeMcpResourceId ?? null,
 		secrets,
-		alwaysOn,
 		runtimeProfileConfig: controlPlane?.runtimeProfileConfig ?? null,
-		policyPackDefinition: controlPlane?.policyPackDefinition ?? null,
-		workspaceTemplateSetDefinition:
-			controlPlane?.workspaceTemplateSetDefinition ?? null,
 		repoConfig: parseRepoConfig(tedi.repoConfig),
 		runtimeKind: tedi.runtimeKind ?? "agent",
 		isolateAgentId: tedi.isolateAgentId ?? null,
@@ -486,36 +462,12 @@ export async function resolveTedi(
 	// no-op on older rows. The fallback reads the head revision of the
 	// `system-default` slug rather than a compiled-in id, so publishing a new
 	// revision moves it.
-	const [
-		runtimeProfile,
-		policyPack,
-		workspaceTemplateSet,
-		organization,
-		topPlatformFacts,
-		muscleMemoryEntries,
-	] = await Promise.all([
+	const [runtimeProfile, organization] = await Promise.all([
 		(tedi.runtimeProfileId
 			? getRuntimeProfileById(db, tedi.runtimeProfileId)
 			: getSystemDefaultRuntimeProfile(db)
 		).catch((err) => {
 			warnOptionalResolutionFailure("resolve.runtime_profile_load_failed", err);
-			return null;
-		}),
-		(tedi.policyPackId
-			? getPolicyPackById(db, tedi.policyPackId)
-			: getSystemDefaultPolicyPack(db)
-		).catch((err) => {
-			warnOptionalResolutionFailure("resolve.policy_pack_load_failed", err);
-			return null;
-		}),
-		(tedi.workspaceTemplateSetId
-			? getWorkspaceTemplateSetById(db, tedi.workspaceTemplateSetId)
-			: getSystemDefaultWorkspaceTemplateSet(db)
-		).catch((err) => {
-			warnOptionalResolutionFailure(
-				"resolve.workspace_template_set_load_failed",
-				err,
-			);
 			return null;
 		}),
 		tedi.organizationId
@@ -527,39 +479,10 @@ export async function resolveTedi(
 					return null;
 				})
 			: Promise.resolve(null),
-		tedi.organizationId
-			? getTopPlatformFacts(
-					db,
-					{ organizationId: tedi.organizationId },
-					{
-						tediId: tedi.id,
-						limit: 30,
-					},
-				).catch((err) => {
-					warnOptionalResolutionFailure(
-						"resolve.platform_knowledge_load_failed",
-						err,
-					);
-					return [];
-				})
-			: Promise.resolve([]),
-		tedi.organizationId
-			? listMuscleMemory(db, tedi.organizationId, tedi.id, {
-					limit: 30,
-				}).catch((err) => {
-					warnOptionalResolutionFailure(
-						"resolve.muscle_memory_load_failed",
-						err,
-					);
-					return [];
-				})
-			: Promise.resolve([]),
 	]);
 
 	const controlPlane = {
 		runtimeProfileConfig: runtimeProfile?.config ?? null,
-		policyPackDefinition: policyPack?.definition ?? null,
-		workspaceTemplateSetDefinition: workspaceTemplateSet?.templates ?? null,
 	};
 
 	const config = await tediToConfig(
@@ -578,102 +501,17 @@ export async function resolveTedi(
 
 	config.organizationDescopeTenantId = organization?.descopeTenantId ?? null;
 
-	if (topPlatformFacts.length > 0) {
-		config.platformKnowledge =
-			formatPlatformFactsAsMarkdown(topPlatformFacts) ?? undefined;
-	}
-
-	// listMuscleMemory applies the evidence gate. Executable entries need the
-	// additional governance invariant that their runtime provider allowlist is
-	// explicit; legacy null-allowlist rows remain visible administratively but
-	// are never injected into a tedi's active procedural memory.
-	const activeMuscle = muscleMemoryEntries.filter(
-		(entry) =>
-			!entry.codeModule ||
-			(Array.isArray(entry.allowedNamespaces) &&
-				entry.allowedNamespaces.length > 0),
-	);
-	if (activeMuscle.length > 0) {
-		config.muscleMemory = formatMuscleMemoryAsMarkdown(activeMuscle);
-	}
-
-	// Refuse to cache configs with broken control-plane fetches. A null
-	// policyPackDefinition when policyPackId is set indicates a transient
-	// fetch failure (not absence of a configured pack) — caching would lock
-	// in the broken config for 5 minutes and silently disable cron bootstrap,
-	// directive injection, and other policy-driven behavior.
-	const hasBrokenPolicyPack =
-		tedi.policyPackId && controlPlane.policyPackDefinition === null;
-	const hasBrokenRuntimeProfile =
-		tedi.runtimeProfileId && controlPlane.runtimeProfileConfig === null;
-	const hasBrokenWorkspaceTemplates =
-		tedi.workspaceTemplateSetId &&
-		controlPlane.workspaceTemplateSetDefinition === null;
-	if (
-		hasBrokenPolicyPack ||
-		hasBrokenRuntimeProfile ||
-		hasBrokenWorkspaceTemplates
-	) {
+	// Refuse to cache a config whose runtime profile failed to load. A null
+	// config when runtimeProfileId is set indicates a transient fetch failure
+	// (not absence of a configured profile); caching would lock in the broken
+	// config for 5 minutes and drop the workstation egress policy.
+	if (tedi.runtimeProfileId && controlPlane.runtimeProfileConfig === null) {
 		console.warn(
-			`[resolve] skipping cache for ${tedi.id} (${hostname}) — control-plane fetch returned null:`,
-			{
-				policyPackBroken: !!hasBrokenPolicyPack,
-				runtimeProfileBroken: !!hasBrokenRuntimeProfile,
-				workspaceTemplatesBroken: !!hasBrokenWorkspaceTemplates,
-			},
+			`[resolve] skipping cache for ${tedi.id} (${hostname}) — runtime profile fetch returned null`,
 		);
 		return config;
 	}
 
 	resolveCache.set(hostname, { config, revision });
 	return config;
-}
-
-/**
- * Format muscle memory entries as markdown for runtime prompt hydration.
- */
-function formatMuscleMemoryAsMarkdown(
-	entries: Array<{
-		name: string;
-		kind: string;
-		description: string | null;
-		usageCount: number;
-		successCount: number;
-		failureCount: number;
-		origin: string;
-		sourceSkillId: string | null;
-		lastUsedAt: string | null;
-	}>,
-): string {
-	const lines = [
-		"# Muscle Memory — Instant Recall Patterns",
-		"",
-		"> These are your crystallized action patterns — proven procedures with high success rates.",
-		"> Use them directly without looking up the full skill. Track usage with `track_muscle_usage`.",
-		"",
-	];
-	for (const entry of entries) {
-		const successRate =
-			entry.usageCount > 0
-				? Math.round(
-						(entry.successCount / (entry.successCount + entry.failureCount)) *
-							100,
-					)
-				: 0;
-		lines.push(`## ${entry.name} (${entry.kind})`);
-		if (entry.description) {
-			lines.push(entry.description);
-		}
-		lines.push(
-			`- **Usage:** ${entry.usageCount} times, ${successRate}% success`,
-		);
-		lines.push(
-			`- **Origin:** ${entry.origin}${entry.sourceSkillId ? ` (skill: ${entry.sourceSkillId})` : ""}`,
-		);
-		if (entry.lastUsedAt) {
-			lines.push(`- **Last used:** ${entry.lastUsedAt}`);
-		}
-		lines.push("");
-	}
-	return lines.join("\n");
 }

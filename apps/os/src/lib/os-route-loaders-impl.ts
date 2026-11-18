@@ -80,7 +80,6 @@ import {
 	skillSpecificSchedulesQueryOptions,
 	SKILL_SCHEDULES_LIMIT,
 	tediOperationsSummariesQueryOptions,
-	tediPairingRequestsQueryOptions,
 	tediAppAssignmentsQueryOptions,
 	tediDetailQueryOptions,
 	tediDevicesQueryOptions,
@@ -464,7 +463,6 @@ export async function prefetchTediSettingsRoute(
 		queryClient.ensureQueryData(tediDevicesQueryOptions(tediId)),
 		queryClient.ensureQueryData(tediDomainsQueryOptions(tediId)),
 		queryClient.ensureQueryData(tediAppAssignmentsQueryOptions(tediId)),
-		queryClient.ensureQueryData(tediPairingRequestsQueryOptions(tediId)),
 		queryClient.ensureQueryData(appListQueryOptions(100)),
 	];
 	const permissions: readonly string[] = context?.authority.permissions ?? [];

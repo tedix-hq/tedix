@@ -9,10 +9,10 @@ import type {
 import type { HostDelegation } from "@tedix/api-contract/schemas/host-delegation";
 import type { TediSendMessageResponse } from "@tedix/api-contract/schemas/tedi";
 /**
- * Tedis Router - runtime messaging and peer discovery.
+ * Tedis Router - runtime messaging.
  */
 
-import { injectAgentMessage, listTediPeers } from "@tedix/provisioning";
+import { injectAgentMessage } from "@tedix/provisioning";
 import {
 	type EmbeddedSessionSurface,
 	type SignedPortableRoute,
@@ -43,41 +43,6 @@ import {
 	withServiceAuth,
 } from "./helpers";
 
-// =============================================================================
-// PEER COMMUNICATION
-// =============================================================================
-
-export const listPeersProcedure = authedTedisOs.listPeers
-	.use(AUTHZ.tedisAppsRead)
-	.handler(async ({ input, context }) => {
-		const tedi = await requireTediAccess(context, input.tediId);
-		const provConfig = getProvisioningConfig(tedi, context.env);
-		if (!provConfig) {
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				"Tedi runtime route is not configured",
-			);
-		}
-
-		try {
-			return await listTediPeers(provConfig);
-		} catch (error) {
-			throw createError(
-				ErrorCodes.SERVICE_UNAVAILABLE,
-				sanitizeProvisioningError(error),
-			);
-		}
-	});
-
-// =============================================================================
-// MESSAGING
-// =============================================================================
-
-/**
- * Map the runtime inject receipt onto the `sendMessage` contract. A durable
- * turn that has not settled answers `assistant: null, pending: true`; the
- * contract has no null, so a pending turn omits `assistant` and says `pending`.
- */
 export function toSendMessageResponse(
 	result: Awaited<ReturnType<typeof injectAgentMessage>>,
 ): TediSendMessageResponse {

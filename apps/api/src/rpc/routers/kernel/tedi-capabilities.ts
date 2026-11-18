@@ -197,22 +197,16 @@ const SKILLS_CAP = 12;
 // ============================================================================
 
 /**
- * Map a tedi's runtime tier + deployment status into a single coarse
- * availability token the planner can reason about.
+ * Map a tedi's runtime state + status into a single coarse availability token
+ * the planner can reason about.
  *
- *   archived runtimeState                 → "archived"
- *   LEGACY container sleeping/unreachable → "sleeping"
- *   active runtimeState + healthy          → "running"
- *   everything else (standby, etc.)        → "standby"
- *
- * `runtime_status` is a legacy-only signal; availability derives from
- * runtimeState/status for all Agent-runtime tedis.
+ *   archived runtimeState           → "archived"
+ *   active runtimeState             → "running"
+ *   everything else (standby, etc.) → "standby"
  */
 export function deriveAvailability(tedi: {
 	runtimeState?: string | null;
 	status?: string | null;
-	runtimeStatus?: string | null;
-	runtimeKind?: string | null;
 }): string {
 	if (tedi.runtimeState === "archived" || tedi.status === "error") {
 		return "archived";
@@ -254,7 +248,6 @@ export function hasWorkstationCapability(tedi: {
 }
 
 export function deriveEmbodiedCapability(tedi: {
-	runtimeKind?: string | null;
 	repoConfig?: { repoUrl?: string | null } | null;
 	hasWorkstationLease?: boolean;
 }): boolean {
@@ -551,7 +544,6 @@ function buildCard(
 		skills: [],
 		runtimeKind: tedi.runtimeKind ?? "agent",
 		embodied: deriveEmbodiedCapability({
-			runtimeKind: tedi.runtimeKind,
 			repoConfig: tedi.repoConfig,
 			hasWorkstationLease: workstationCapableTediIds.has(tedi.id),
 		}),
