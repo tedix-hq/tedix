@@ -754,13 +754,16 @@ describe("WorkspaceLibraryPage", () => {
 });
 
 describe("Workspace row actions in the list", () => {
-	it("lists pinned workspaces first, then the most recently opened", async () => {
+	it("lists pinned workspaces first, then the most recently used, and says when", async () => {
+		const daysAgo = (days: number) =>
+			new Date(Date.now() - days * 86_400_000 - 60_000).toISOString();
 		api.workspaces.list.mockResolvedValue({
 			items: [
-				workspace({ id: "never", name: "Alpha" }),
-				workspace({ id: "older", name: "Beta" }),
-				workspace({ id: "newer", name: "Zulu" }),
-				workspace({ id: "pinned", name: "Yankee" }),
+				workspace({ id: "older", name: "Alpha", updatedAt: daysAgo(40) }),
+				// Never opened by this person: its last change counts.
+				workspace({ id: "changed", name: "Beta", updatedAt: daysAgo(3) }),
+				workspace({ id: "newer", name: "Zulu", updatedAt: daysAgo(40) }),
+				workspace({ id: "pinned", name: "Yankee", updatedAt: daysAgo(20) }),
 			],
 			truncated: false,
 		});
@@ -769,32 +772,44 @@ describe("Workspace row actions in the list", () => {
 				{
 					workspaceId: "older",
 					favorite: false,
-					lastOpenedAt: "2026-08-01T12:00:00.000Z",
-					updatedAt: "2026-08-01T12:00:00.000Z",
+					lastOpenedAt: daysAgo(10),
+					updatedAt: daysAgo(10),
 				},
 				{
 					workspaceId: "newer",
 					favorite: false,
-					lastOpenedAt: "2026-08-17T12:00:00.000Z",
-					updatedAt: "2026-08-17T12:00:00.000Z",
+					lastOpenedAt: daysAgo(1),
+					updatedAt: daysAgo(1),
 				},
 				{
 					workspaceId: "pinned",
 					favorite: true,
 					lastOpenedAt: null,
-					updatedAt: "2026-08-17T12:00:00.000Z",
+					updatedAt: daysAgo(1),
 				},
 			],
 		});
 		const { container, root } = await renderPage();
+		const rows = [
+			...container.querySelectorAll('ul[aria-label="Workspaces"] > li'),
+		];
+		expect(rows.map((row) => row.querySelector("strong")?.textContent)).toEqual(
+			["Yankee", "Zulu", "Beta", "Alpha"],
+		);
+		// Every row says when it was last used; hovering gives the full date.
 		expect(
-			[...container.querySelectorAll('ul[aria-label="Workspaces"] strong')].map(
-				(row) => row.textContent,
+			rows.map(
+				(row) => row.querySelector('[title^="Last "]')?.textContent ?? null,
 			),
-		).toEqual(["Yankee", "Zulu", "Beta", "Alpha"]);
-		// Each opened workspace says when; hovering gives the full date and time.
-		const opened = container.querySelector('[title^="Last opened "]');
-		expect(opened?.textContent).toContain("Aug 17");
+		).toEqual(["20 days ago", "yesterday", "3 days ago", "10 days ago"]);
+		expect(
+			rows.map((row) =>
+				row
+					.querySelector('[title^="Last "]')
+					?.getAttribute("title")
+					?.slice(0, 12),
+			),
+		).toEqual(["Last changed", "Last opened ", "Last changed", "Last opened "]);
 		act(() => root.unmount());
 	});
 

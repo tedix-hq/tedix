@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
 import {
+	formatWorkspaceLastUsed,
 	groupWorkspaceLibrary,
 	workspaceDescriptionForDisplay,
 } from "./workspace-library";
@@ -64,6 +65,36 @@ describe("groupWorkspaceLibrary", () => {
 			" ALPHA ",
 		);
 		expect(ids(groups.all)).toEqual(["never-a", "described"]);
+	});
+});
+
+describe("last used", () => {
+	it("orders a never-opened workspace by when it last changed", () => {
+		const groups = groupWorkspaceLibrary(
+			[
+				workspace("opened", "Alpha"),
+				{ ...workspace("changed", "Bravo"), updatedAt: "2026-08-10T09:00:00Z" },
+				{ ...workspace("stale", "Charlie"), updatedAt: "2026-07-01T09:00:00Z" },
+			],
+			[preference("opened", false, "2026-08-01T09:00:00.000Z")],
+			"",
+		);
+		expect(groups.all.map((entry) => entry.workspace.id)).toEqual([
+			"changed",
+			"opened",
+			"stale",
+		]);
+	});
+
+	it("reads as a short time ago, then as a date", () => {
+		const now = new Date("2026-11-18T12:00:00.000Z");
+		const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
+		const day = 86_400_000;
+		expect(formatWorkspaceLastUsed(ago(3 * 3_600_000), now)).toBe("3h ago");
+		expect(formatWorkspaceLastUsed(ago(day + 1), now)).toBe("yesterday");
+		expect(formatWorkspaceLastUsed(ago(10 * day), now)).toBe("10 days ago");
+		expect(formatWorkspaceLastUsed(ago(30 * day), now)).toBe("30 days ago");
+		expect(formatWorkspaceLastUsed(ago(45 * day), now)).toBe("Oct 4");
 	});
 });
 
