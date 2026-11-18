@@ -293,8 +293,8 @@ export function workspaceLinkAppRevisionId(
 
 type WorkspaceScope = { organizationId: string; workspaceId: string };
 
-/** The current revision of an Output, when it is active in the workspace and carries no connected data. */
-export async function shareableOutputRevision(
+/** The current revision of an Output active in the workspace, with the sources it was made from; null sources means they cannot be verified. */
+async function currentOutputSources(
 	db: DbQueryClient,
 	scope: WorkspaceScope,
 	outputId: string,
@@ -314,16 +314,28 @@ export async function shareableOutputRevision(
 		organizationId: scope.organizationId,
 		revisionId: output.currentRevisionId,
 	});
-	if (!revision?.accessEnvelope) return null;
-	let envelope: unknown;
+	if (!revision) return null;
+	let envelope: unknown = null;
 	try {
-		envelope = JSON.parse(revision.accessEnvelope);
-	} catch {
-		return null;
-	}
+		envelope = JSON.parse(revision.accessEnvelope ?? "null");
+	} catch {}
 	const parsed = OsDerivedAccessEnvelopeSchema.safeParse(envelope);
-	if (!parsed.success || parsed.data.sources.length > 0) return null;
-	return { output, revision };
+	return {
+		output,
+		revision,
+		sources: parsed.success ? parsed.data.sources : null,
+	};
+}
+
+/** The current revision of an Output, when it is active in the workspace and carries no connected data. */
+export async function shareableOutputRevision(
+	db: DbQueryClient,
+	scope: WorkspaceScope,
+	outputId: string,
+) {
+	const current = await currentOutputSources(db, scope, outputId);
+	if (current?.sources?.length !== 0) return null;
+	return { output: current.output, revision: current.revision };
 }
 
 function activeWorkspaceResources(db: DbQueryClient, scope: WorkspaceScope) {
@@ -416,7 +428,8 @@ async function appRunsForGuests(
 /**
  * The documents, sheets and slides of a workspace a link may show: active
  * Outputs that hold no data from connected accounts. `hiddenCount` counts the
- * rest, so the page and the Share dialog can say something is left out.
+ * rest, so the page and the Share dialog can say something is left out, and
+ * `hiddenSources` lists what each of those was made from.
  */
 async function workspaceShareableFiles(
 	db: DbQueryClient,
@@ -429,41 +442,94 @@ async function workspaceShareableFiles(
 		{ status: "active", limit: 200 },
 	);
 	const checked = await Promise.all(
-		outputs.map((output) => shareableOutputRevision(db, scope, output.id)),
+		outputs.map((output) => currentOutputSources(db, scope, output.id)),
 	);
-	const files = checked.flatMap((shared) =>
-		shared
+	const files = checked.flatMap((current) =>
+		current?.sources?.length === 0
 			? [
 					{
-						id: shared.output.id,
-						title: shared.output.title,
-						kind: shared.output.kind,
-						updatedAt: shared.output.updatedAt,
+						id: current.output.id,
+						title: current.output.title,
+						kind: current.output.kind,
+						updatedAt: current.output.updatedAt,
 					},
 				]
 			: [],
 	);
-	return { files, hiddenCount: outputs.length - files.length };
+	return {
+		files,
+		hiddenCount: outputs.length - files.length,
+		hiddenSources: checked.flatMap((current) =>
+			current?.sources?.length ? [current.sources] : [],
+		),
+	};
 }
 
+/** One connected account or item the workspace's files and apps draw on. */
+export type WorkspaceConnectedSource = {
+	id: string;
+	name: string | null;
+	providerId: string;
+	personal: boolean;
+	files: number;
+	apps: number;
+};
+
 /**
- * What an "Anyone with the link" workspace link leaves out, for the Share
- * dialog: files holding data from connected accounts, and apps that need a
- * signed-in person to open.
+ * What the Share dialog says before a workspace is shared. `guestLimits` is
+ * what an "Anyone with the link" link leaves out: files holding data from
+ * connected accounts, and apps that need a signed-in person to open.
+ * `connectedData` is the connected data those files were made from and the
+ * apps may reach, so the person sharing knows what is involved.
  */
-export async function workspaceGuestLimits(
+export async function workspaceShareSummary(
 	db: DbQueryClient,
 	scope: WorkspaceScope,
-): Promise<{ hiddenFiles: number; appsNeedingSignIn: number }> {
-	const [{ hiddenCount }, gadgets, resources] = await Promise.all([
-		workspaceShareableFiles(db, scope),
-		listOsGadgets(db, scope.organizationId, {
-			workspaceId: scope.workspaceId,
-			status: "active",
-			limit: 200,
-		}),
-		activeWorkspaceResources(db, scope),
-	]);
+): Promise<{
+	guestLimits: { hiddenFiles: number; appsNeedingSignIn: number };
+	connectedData: WorkspaceConnectedSource[];
+}> {
+	const [{ hiddenCount, hiddenSources }, gadgets, resources] =
+		await Promise.all([
+			workspaceShareableFiles(db, scope),
+			listOsGadgets(db, scope.organizationId, {
+				workspaceId: scope.workspaceId,
+				status: "active",
+				limit: 200,
+			}),
+			activeWorkspaceResources(db, scope),
+		]);
+	const connected = new Map<string, WorkspaceConnectedSource>();
+	const count = (
+		source: { id: string; providerId: string; personal: boolean },
+		kind: "files" | "apps",
+	) => {
+		// Tedix's own files and skills are not a connected account.
+		if (source.providerId === "tedix") return;
+		const entry = connected.get(source.id) ?? {
+			...source,
+			name: resources.find((row) => row.id === source.id)?.name ?? null,
+			files: 0,
+			apps: 0,
+		};
+		entry[kind] += 1;
+		connected.set(source.id, entry);
+	};
+	for (const sources of hiddenSources) {
+		// A file counts once per source, however many times it read it.
+		const once = new Map(
+			sources.map((source) => [source.workspaceResourceId, source]),
+		);
+		for (const [id, source] of once)
+			count(
+				{
+					id,
+					providerId: source.providerId,
+					personal: source.connectionScope === "user",
+				},
+				"files",
+			);
+	}
 	const runs = await Promise.all(
 		gadgets.map(async (gadget) => {
 			const revision = gadget.currentRevisionId
@@ -472,14 +538,35 @@ export async function workspaceGuestLimits(
 						revisionId: gadget.currentRevisionId,
 					})
 				: null;
-			return revision
-				? appRunsForGuests(db, scope, parseJson(revision.manifest), resources)
-				: false;
+			if (!revision) return false;
+			const manifest = parseJson(revision.manifest);
+			const parsed = OsGadgetManifestSchema.safeParse(manifest);
+			const slots = new Set(
+				parsed.success
+					? (parsed.data.resourceGrants ?? []).map((grant) => grant.slot)
+					: [],
+			);
+			for (const row of resources)
+				if (row.slot && slots.has(row.slot))
+					count(
+						{
+							id: row.id,
+							providerId: row.providerId,
+							personal: row.connectionScope === "user",
+						},
+						"apps",
+					);
+			return appRunsForGuests(db, scope, manifest, resources);
 		}),
 	);
 	return {
-		hiddenFiles: hiddenCount,
-		appsNeedingSignIn: runs.filter((runs) => !runs).length,
+		guestLimits: {
+			hiddenFiles: hiddenCount,
+			appsNeedingSignIn: runs.filter((runs) => !runs).length,
+		},
+		connectedData: [...connected.values()].sort((a, b) =>
+			(a.name ?? a.providerId).localeCompare(b.name ?? b.providerId),
+		),
 	};
 }
 

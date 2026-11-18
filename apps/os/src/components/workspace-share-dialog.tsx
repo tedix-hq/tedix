@@ -5,6 +5,7 @@ import {
 	LinkSimple,
 	Lock,
 	PencilSimple,
+	Plugs,
 	Prohibit,
 	UsersThree,
 } from "@phosphor-icons/react";
@@ -98,6 +99,7 @@ import {
 	workspacePresenceQueryOptions,
 } from "@/lib/os-query-options";
 import { relativeTime } from "@/lib/time";
+import { sourceLabel } from "@/lib/workspace-sources";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
 export const ROLE_LABEL: Record<OsCollaboratorRole, string> = {
@@ -251,6 +253,76 @@ export function restrictedAccessLabel(
 	return visibility === "org"
 		? `Everyone in ${organization}, and people invited`
 		: "Only people invited";
+}
+
+type ConnectedSource = {
+	id: string;
+	name: string | null;
+	providerId: string;
+	personal: boolean;
+	files: number;
+	apps: number;
+};
+
+/** The muted line under a connected source: whose account, and what uses it. */
+export function connectedSourceDetail(source: ConnectedSource): string {
+	const uses = [
+		source.files > 0
+			? `${source.files} ${source.files === 1 ? "file" : "files"}`
+			: null,
+		source.apps > 0
+			? `${source.apps} ${source.apps === 1 ? "app" : "apps"}`
+			: null,
+	].filter(Boolean);
+	return [
+		sourceLabel(source.providerId),
+		source.personal
+			? "one person's own account"
+			: "shared organization account",
+		uses.length > 0 ? `used by ${uses.join(" and ")}` : null,
+	]
+		.filter(Boolean)
+		.join(" · ");
+}
+
+/**
+ * The connected data this workspace's files and apps draw on, shown before
+ * anyone is invited so the person sharing knows what comes with it.
+ */
+function ConnectedData(props: { sources: readonly ConnectedSource[] }) {
+	if (props.sources.length === 0) return null;
+	return (
+		<section
+			className="grid gap-1 border-kumo-line border-t pt-4"
+			aria-label="Connected data in this workspace"
+			data-connected-data
+		>
+			<SectionHeading
+				learnMore={{
+					label: "About connected data",
+					text: "Tedix checks this each time someone opens a file. A file made from a shared organization account opens for people in your organization while that account stays connected. A file made from one person's own account opens for that person only.",
+				}}
+			>
+				Connected data in this workspace
+			</SectionHeading>
+			<Text role="label" tone="secondary" className="m-0">
+				Files and apps here draw on these. People in your organization you
+				invite can see files made from a shared organization account. Files made
+				from one person's own account open for that person only.
+			</Text>
+			<ul className="m-0 grid list-none p-0">
+				{props.sources.map((source) => (
+					<PersonRow
+						key={source.id}
+						name={source.name ?? "A source no longer in this workspace"}
+						detail={connectedSourceDetail(source)}
+						icon={<Plugs size={12} />}
+						trailing={null}
+					/>
+				))}
+			</ul>
+		</section>
+	);
 }
 
 /** A short "Learn more" beside a heading, instead of a paragraph under it. */
@@ -1131,6 +1203,8 @@ function WorkspaceAccess(props: {
 					</Text>
 				) : null}
 			</section>
+
+			<ConnectedData sources={publicShares.data?.connectedData ?? []} />
 
 			{pending ? (
 				<RemovalConfirm

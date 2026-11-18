@@ -54,7 +54,7 @@ import {
 	linkWorkspaceId,
 	osShareUrl,
 	stoppedByPrivateWorkspace,
-	workspaceGuestLimits,
+	workspaceShareSummary,
 } from "../../lib/os-share-redemption";
 import { requireOrgId } from "../org-scope";
 import {
@@ -573,10 +573,10 @@ const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 	if (input.resourceType === "workspace") {
 		return {
 			items,
-			guestLimits: await workspaceGuestLimits(db, {
+			...(await workspaceShareSummary(db, {
 				organizationId: resource.organizationId,
 				workspaceId: resource.id,
-			}),
+			})),
 		};
 	}
 	if (

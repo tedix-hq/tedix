@@ -338,6 +338,7 @@ describe("shares.list guest notes", () => {
 			appsNeedingSignIn: 1,
 		});
 		expect(space.guestRefusal).toBeUndefined();
+		expect(space.connectedData).toEqual([]);
 		// Server and dialog agree: a signed-out visitor gets the same 404.
 		const { token } = await h.org1.shares.create({
 			resourceType: "gadget",

@@ -626,6 +626,30 @@ export const osSharesContract = oc
 							.describe(
 								"For a workspace: what an Anyone-with-the-link link leaves out. Files holding data from connected accounts are not shown, and apps that need sign-in are listed but do not open. Absent for other resources.",
 							),
+						connectedData: z
+							.array(
+								z.object({
+									id: z.string(),
+									name: z
+										.string()
+										.nullable()
+										.describe(
+											"Null once the source was removed from the workspace",
+										),
+									providerId: z.string(),
+									personal: z
+										.boolean()
+										.describe(
+											"True for one person's own account, false for an account the organization shares",
+										),
+									files: z.number().int().nonnegative(),
+									apps: z.number().int().nonnegative(),
+								}),
+							)
+							.optional()
+							.describe(
+								"For a workspace: the connected accounts and items its current files were made from and its apps may reach. Absent for other resources.",
+							),
 					}),
 				),
 			update: oc
