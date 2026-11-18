@@ -8,11 +8,7 @@ import {
 	type CmsProxyContext,
 } from "./cms-proxy-runtime";
 import { CmsDeployFailure } from "./deploy-failure";
-import {
-	collectBlockVersions,
-	requireSupportedBlocks,
-	type ThemeRelease,
-} from "./theme-release";
+import { requireSupportedBlocks, type ThemeRelease } from "./theme-release";
 
 const collectionsSchema = z.object({
 	items: z.array(z.object({ slug: z.string().min(1) })),
@@ -27,40 +23,6 @@ export async function checkLiveThemeCompatibility(
 	env: AppBindings,
 	orgSlug: string,
 	release: ThemeRelease,
-): Promise<void> {
-	await visitPublishedContent(env, orgSlug, (data) =>
-		requireSupportedBlocks(data, release),
-	);
-}
-
-/**
- * Template defaults plus every block version the site already publishes.
- * Used once for themes created before release manifests: what is published
- * renders today, so it is supported by definition.
- */
-export async function withPublishedBlocks(
-	env: AppBindings,
-	orgSlug: string,
-	defaults: ThemeRelease["supportedBlocks"],
-	maxPages = Infinity,
-): Promise<ThemeRelease["supportedBlocks"]> {
-	const blocks: Record<string, number[]> = Object.fromEntries(
-		Object.entries(defaults).map(([type, versions]) => [type, [...versions]]),
-	);
-	await visitPublishedContent(
-		env,
-		orgSlug,
-		(data) => collectBlockVersions(data, blocks),
-		maxPages,
-	);
-	return blocks;
-}
-
-async function visitPublishedContent(
-	env: AppBindings,
-	orgSlug: string,
-	visit: (data: Record<string, unknown>) => void,
-	maxPages = Infinity,
 ): Promise<void> {
 	const ctx: CmsProxyContext = {
 		orgSlug,
@@ -88,13 +50,10 @@ async function visitPublishedContent(
 		const collections = collectionsSchema.parse(
 			await read("/schema/collections"),
 		);
-		let pages = 0;
 		for (const { slug } of collections.items) {
 			let cursor: string | undefined;
 			const seen = new Set<string>();
 			do {
-				if (++pages > maxPages)
-					throw new Error("Native content page limit exceeded");
 				const query = new URLSearchParams({
 					status: "published",
 					limit: "100",
@@ -103,7 +62,8 @@ async function visitPublishedContent(
 				const page = pageSchema.parse(
 					await read(`/content/${encodeURIComponent(slug)}?${query}`),
 				);
-				for (const item of page.items) visit(item.data);
+				for (const item of page.items)
+					requireSupportedBlocks(item.data, release);
 				cursor = page.nextCursor;
 				if (cursor && seen.has(cursor))
 					throw new Error("Repeated native content cursor");

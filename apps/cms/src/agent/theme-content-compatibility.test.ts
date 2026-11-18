@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import {
-	checkLiveThemeCompatibility,
-	withPublishedBlocks,
-} from "./theme-content-compatibility";
+import { checkLiveThemeCompatibility } from "./theme-content-compatibility";
 import type { AppBindings } from "../types";
 import type { ThemeRelease } from "./theme-release";
 
@@ -40,13 +37,6 @@ function fixture(lastBlock = { _type: "hero", _version: 1 }) {
 	return { env, urls, fetch };
 }
 describe("published native content compatibility", () => {
-	it("fails the migration's page budget before returning a partial declaration", async () => {
-		const { env, fetch } = fixture();
-		await expect(
-			withPublishedBlocks(env, "site-a", { hero: [1] }, 1),
-		).rejects.toMatchObject({ code: "THEME_CONTENT_UNAVAILABLE" });
-		expect(fetch).toHaveBeenCalledTimes(2);
-	});
 	it("checks every collection and page without filtering locales", async () => {
 		const { env, urls } = fixture();
 		await checkLiveThemeCompatibility(env, "site-a", release);
