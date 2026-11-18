@@ -31,6 +31,44 @@ describe("describeValidationIssues", () => {
 		).toBe("content: Required; conversationId: Expected string");
 	});
 
+	it("names the field inside a union when one alternative takes the value's type", () => {
+		const wrongType = {
+			code: "invalid_type",
+			message: "Invalid input: expected string, received object",
+			path: [],
+		};
+		const nested = {
+			code: "invalid_type",
+			message: "Invalid input: expected object, received string",
+			path: ["richText"],
+		};
+		expect(
+			describeValidationIssues([
+				{
+					code: "invalid_union",
+					message: "Invalid input",
+					path: ["content"],
+					errors: [[nested], [wrongType]],
+				},
+			]),
+		).toBe("content.richText: Invalid input: expected object, received string");
+		// No alternative, or more than one, takes the type: the union's own line stays.
+		for (const errors of [
+			[[wrongType], [wrongType]],
+			[[nested], [nested]],
+		])
+			expect(
+				describeValidationIssues([
+					{
+						code: "invalid_union",
+						message: "Invalid input",
+						path: ["content"],
+						errors,
+					},
+				]),
+			).toBe("content: Invalid input");
+	});
+
 	it("labels an empty path as (root) and missing message as invalid", () => {
 		expect(describeValidationIssues([{ message: "", path: [] }])).toBe(
 			"(root): invalid",

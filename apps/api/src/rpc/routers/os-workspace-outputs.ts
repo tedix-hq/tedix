@@ -318,11 +318,24 @@ function emptyOutputContent(kind: OsOutputKind): OsOutputContent {
 
 function normalizeOutputBody(input: OsOutputContent | string): OsOutputContent {
 	const parsed = OsOutputContentSchema.safeParse(normalizeOsOutputInput(input));
-	if (!parsed.success)
+	if (!parsed.success) {
+		const issue = parsed.error.issues[0];
+		const field = ["content", ...(issue?.path ?? [])].join(".");
+		// Blocks are rebuilt from rich text or Markdown, so a block the caller
+		// never sent can be the one that does not fit. Name what they did send.
+		const source =
+			typeof input === "string"
+				? "content (Markdown)"
+				: input.kind === "document" && input.richText
+					? "content.richText"
+					: null;
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			`Document content exceeds the output schema: ${parsed.error.issues[0]?.message ?? "invalid"}`,
+			source && issue?.path[0] === "blocks"
+				? `${source} cannot be saved: the block built from it at ${field} is not valid (${issue.message}).`
+				: `${field} is not valid: ${issue?.message ?? "it does not match the file format"}.`,
 		);
+	}
 	return parsed.data;
 }
 
