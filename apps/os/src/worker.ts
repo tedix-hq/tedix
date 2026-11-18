@@ -38,6 +38,7 @@ import {
 import {
 	isLocalDemoProject,
 	isLoopbackUrl,
+	LOCAL_DEMO_ORGANIZATION_ID,
 	LOCAL_DEMO_TOKEN,
 } from "@tedix/auth/local-demo";
 import {
@@ -1774,7 +1775,10 @@ async function handleWorkspaceChatUpgrade(
 	if (!upstream || !env.API_SERVICE) {
 		return refuse(503, "Workspace chat is unavailable on this origin.");
 	}
-	if (!organizationId && !localDemo) {
+	// A loopback local run has no host to name the organization; its one
+	// organization is the local demo's.
+	if (!organizationId && localDemo) organizationId = LOCAL_DEMO_ORGANIZATION_ID;
+	if (!organizationId) {
 		return refuse(503, "Workspace organization is unavailable.");
 	}
 	const apiHeaders: Record<string, string> = {};
