@@ -38,7 +38,16 @@ async function setup(status: "active" | "invited" | "deactivated" = "active") {
 			oidcSessions,
 		),
 	);
-	const db = createDbClient(createD1Facade(sqlite));
+	const statements: string[] = [];
+	const db = createDbClient(
+		createD1Facade({
+			prepare(query) {
+				statements.push(query);
+				return sqlite.prepare(query);
+			},
+			exec: (query) => sqlite.exec(query),
+		}),
+	);
 	await db.insert(organizations).values({
 		id: ORG,
 		name: "Acme",
@@ -78,9 +87,64 @@ async function setup(status: "active" | "invited" | "deactivated" = "active") {
 		headers: new Headers(),
 		url: new URL("https://api/rpc/userProfile/getMine"),
 	} as BaseContext;
-	return { db, context, sqlite };
+	return { db, context, sqlite, statements };
 }
 describe("OIDC Tedix sessions", () => {
+	it("resolves session, configuration and membership in one statement with timing", async () => {
+		const { context, statements } = await setup();
+		statements.length = 0;
+		const result = await resolveOidcUser(context, "secret");
+		expect(statements).toHaveLength(1);
+		expect(result.session.organizationId).toBe(ORG);
+		expect(result.member.userId).toBe(USER);
+		expect(result.member.email).toBe("alice@example.test");
+		expect(result.member.role).toBe("member");
+		expect(result.scopes).toEqual(["apps:read"]);
+		expect(context.serverTiming).toEqual([
+			expect.stringMatching(/^auth-identity;dur=\d+\.\d$/),
+		]);
+	});
+
+	it("observes role, permission and membership changes on the next call", async () => {
+		const { context, sqlite } = await setup();
+		await resolveOidcUser(context, "secret");
+		sqlite.exec(
+			`UPDATE organization_members SET role='admin', custom_permissions='["apps:read"]'`,
+		);
+		const changed = await resolveOidcUser(context, "secret");
+		expect(changed.member.role).toBe("admin");
+		expect(changed.member.permissions).toEqual(["apps:read"]);
+		sqlite.exec("UPDATE organization_members SET status='deactivated'");
+		await expect(resolveOidcUser(context, "secret")).rejects.toThrow(
+			"active membership",
+		);
+	});
+
+	it.each([
+		"UPDATE oidc_sessions SET expires_at=0",
+		"UPDATE oidc_sessions SET kind='login'",
+		"UPDATE principal_identities SET status='revoked'",
+		"UPDATE principal_identities SET issuer='https://other.example.test'",
+		`UPDATE principal_identities SET organization_id='${ORG}'`,
+		'UPDATE organizations SET metadata=\'{"retiredAt":"2026-11-18"}\'',
+	])("refuses changed session authority: %s", async (mutation) => {
+		const { context, sqlite } = await setup();
+		await resolveOidcUser(context, "secret");
+		sqlite.exec(mutation);
+		await expect(resolveOidcUser(context, "secret")).rejects.toThrow();
+	});
+
+	it("does not use another organization's membership for the session", async () => {
+		const { context, db, sqlite } = await setup();
+		await db
+			.insert(organizations)
+			.values({ id: "other", name: "Other", slug: "other" });
+		sqlite.exec("UPDATE organization_members SET organization_id='other'");
+		await expect(resolveOidcUser(context, "secret")).rejects.toThrow(
+			"active membership",
+		);
+	});
+
 	it("authenticates the normal RPC profile path and enforces mapped API scopes", async () => {
 		const { context, sqlite } = await setup();
 		context.headers.set("Cookie", "__Host-tedix-oidc=secret");
