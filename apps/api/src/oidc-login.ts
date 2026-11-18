@@ -15,7 +15,7 @@ import {
 	consumeOidcLogin,
 	deleteOidcSession,
 	getOidcOrganization,
-	getOidcSession,
+	resolveOidcSessionContext,
 	insertOidcRecord,
 	resolveOidcMember,
 } from "@tedix/db/queries/oidc-sessions";
@@ -39,27 +39,27 @@ export async function resolveOidcUser(
 	context: BaseContext,
 	credential: string,
 ) {
-	const session = await getOidcSession(
+	const identityStartedAt = performance.now();
+	const identity = await resolveOidcSessionContext(
 		context.db,
 		await oidcDigest(credential),
 		now(),
 	);
-	if (!session?.subject) throw new Error("OIDC session unavailable");
-	const { config, digest } = await organization(
-		context,
-		session.organizationId,
+	(context.serverTiming ??= []).push(
+		`auth-identity;dur=${(performance.now() - identityStartedAt).toFixed(1)}`,
 	);
-	if (digest !== session.configDigest)
+	if (!identity?.session.subject) throw new Error("OIDC session unavailable");
+	const { session, member, metadata } = identity;
+	if (!metadata?.identityProvider) throw new Error("OIDC is not configured");
+	const config = readOidcConfig(
+		metadata.identityProvider,
+		context.env.ENVIRONMENT === "development",
+	);
+	if ((await oidcDigest(JSON.stringify(config))) !== session.configDigest)
 		throw new Error("OIDC configuration changed");
 	const target = context.headers.get("X-Tedix-Tenant-Id");
 	if (target && target !== session.organizationId)
 		throw new Error("OIDC tenant mismatch");
-	const member = await resolveOidcMember(
-		context.db,
-		session.organizationId,
-		config.issuer,
-		session.subject,
-	);
 	if (!member) throw new Error("OIDC active membership required");
 	return {
 		member,

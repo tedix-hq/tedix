@@ -8,6 +8,84 @@ import { organizations } from "../schema/organizations";
 import { principalIdentities } from "../schema/principal-identities";
 import { organizationMembers } from "../schema/organization-members";
 import { users } from "../schema/users";
+import { prefixedColumns } from "../utils/select";
+
+/** Resolve live session, configuration, and membership in one database round trip. */
+export async function resolveOidcSessionContext(
+	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
+	id: string,
+	now: number,
+) {
+	if ("plane" in db) {
+		if (db.plane === "postgres")
+			return pg.resolveOidcSessionContext(db.db, id, now);
+		db = db.db;
+	}
+
+	const [row] = await db
+		.select({
+			session: prefixedColumns(oidcSessions, "oidc_session"),
+			metadata: organizations.metadata,
+			member: {
+				userId: sql<string | null>`${organizationMembers.userId}`.as(
+					"oidc_member_user_id",
+				),
+				email: users.email,
+				name: users.name,
+				role: organizationMembers.role,
+				permissions: organizationMembers.customPermissions,
+			},
+		})
+		.from(oidcSessions)
+		.innerJoin(organizations, eq(organizations.id, oidcSessions.organizationId))
+		.leftJoin(
+			principalIdentities,
+			and(
+				eq(principalIdentities.provider, "oidc"),
+				eq(
+					principalIdentities.issuer,
+					sql<string>`json_extract(${organizations.metadata}, '$.identityProvider.issuer')`,
+				),
+				eq(principalIdentities.subject, oidcSessions.subject),
+				eq(principalIdentities.principalType, "user"),
+				eq(principalIdentities.status, "active"),
+				isNull(principalIdentities.organizationId),
+			),
+		)
+		.leftJoin(users, eq(users.id, principalIdentities.principalId))
+		.leftJoin(
+			organizationMembers,
+			and(
+				eq(organizationMembers.userId, users.id),
+				eq(organizationMembers.organizationId, oidcSessions.organizationId),
+				eq(organizationMembers.status, "active"),
+			),
+		)
+		.where(
+			and(
+				eq(oidcSessions.id, id),
+				eq(oidcSessions.kind, "session"),
+				gt(oidcSessions.expiresAt, now),
+				sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
+			),
+		)
+		.limit(1);
+	if (!row) return undefined;
+	const member = row.member;
+	return {
+		session: row.session,
+		metadata: row.metadata,
+		member:
+			member?.userId && member.email && member.role
+				? {
+						...member,
+						userId: member.userId,
+						email: member.email,
+						role: member.role,
+					}
+				: undefined,
+	};
+}
 
 export async function insertOidcRecord(
 	db: DbQueryClient | CoreStoreBinding<PgQueryClient>,
