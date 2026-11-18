@@ -38,7 +38,7 @@ function fixture({ approve = true, expiresAt = LATER } = {}) {
 	}
 	sqlite
 		.prepare(
-			"INSERT INTO work_items(id,org_id,title,disposition,risk_level,work_class,purpose_exception_expires_at,admission_spec_revision,created_at,accepted_at,metadata) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+			"INSERT INTO work_items(id,org_id,title,disposition,risk_level,work_class,purpose_exception_expires_at,admission_spec_revision,created_at,accepted_at,executor_type,executor_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
 		)
 		.run(
 			ITEM,
@@ -51,7 +51,8 @@ function fixture({ approve = true, expiresAt = LATER } = {}) {
 			"rev-approved",
 			"2026-10-20T00:00:00.000Z",
 			"2026-10-20T00:00:00.000Z",
-			JSON.stringify({ executor: "codex" }),
+			"external_agent",
+			"codex",
 		);
 	sqlite
 		.prepare(

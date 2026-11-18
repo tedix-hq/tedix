@@ -59,33 +59,12 @@ function fixture(answered = false) {
 	const work = sqlite.prepare(
 		"INSERT INTO work_items (id,org_id,title,disposition,version,metadata,created_at) VALUES (?,'org',?,?,?,?,?)",
 	);
-	work.run(
-		"work",
-		"Fictional task",
-		"accepted",
-		3,
-		'{"executor":"codex"}',
-		NOW,
-	);
-	work.run(
-		"done",
-		"Finished task",
-		"completed",
-		2,
-		'{"executor":"codex"}',
-		NOW,
-	);
-	work.run("other", "Other task", "accepted", 1, '{"executor":"codex"}', NOW);
-	work.run(
-		"handed",
-		"Hand-delegated task",
-		"accepted",
-		1,
-		'{"executor":"codex"}',
-		NOW,
-	);
+	work.run("work", "Fictional task", "accepted", 3, "{}", NOW);
+	work.run("done", "Finished task", "completed", 2, "{}", NOW);
+	work.run("other", "Other task", "accepted", 1, "{}", NOW);
+	work.run("handed", "Hand-delegated task", "accepted", 1, "{}", NOW);
 	sqlite.exec(
-		"UPDATE work_items SET accountable_owner_type='user', accountable_owner_id='owner'",
+		"UPDATE work_items SET accountable_owner_type='user', accountable_owner_id='owner', executor_type='external_agent', executor_id='codex'",
 	);
 	sqlite
 		.prepare(

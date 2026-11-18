@@ -279,7 +279,7 @@ export async function listCommitmentChanges(
 				'approval', p.id, p.status, p.resolved_at
 			FROM resolved_work_approvals p JOIN work_approval_decisions d ON d.proposal_id = p.id
 			JOIN tedis t ON t.organization_id = p.org_id AND t.status = 'active' AND p.requester_type = 'tedi' AND p.requester_id = t.id
-			JOIN work_items w ON w.id = p.work_item_id AND w.org_id = p.org_id
+			JOIN work_items w INDEXED BY uniq_work_items_org_id ON w.id = p.work_item_id AND w.org_id = p.org_id
 			WHERE p.resolved_at > ${after} AND p.resolved_at <= ${through} AND p.status IN ('approved', 'rejected')
 				AND w.disposition NOT IN ('completed', 'cancelled') AND NOT (d.decider_type = 'tedi' AND d.decider_id = t.id)
 			UNION ALL

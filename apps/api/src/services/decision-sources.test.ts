@@ -420,7 +420,7 @@ it("keeps a runner's permission card while its task version is unchanged", async
 	try {
 		sqlite
 			.prepare(
-				"INSERT INTO work_items(id,org_id,title,disposition,version,metadata,created_at) VALUES (?,?,'Fictional app','accepted',6,'{\"executor\":\"claude-code\"}',?)",
+				"INSERT INTO work_items(id,org_id,title,disposition,version,executor_type,executor_id,created_at) VALUES (?,?,'Fictional app','accepted',6,'external_agent','claude-code',?)",
 			)
 			.run(id, orgId, at);
 		// The runner's own notes do not change what Allow grants.

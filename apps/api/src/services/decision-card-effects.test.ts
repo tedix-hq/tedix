@@ -232,7 +232,7 @@ describe("decision card effects", () => {
 	const laneTask = (f: Awaited<ReturnType<typeof fixture>>, owner = "person") =>
 		f.sqlite
 			.prepare(
-				`update work_items set disposition='accepted', version=3, metadata='{"executor":"codex"}', accountable_owner_type='user', accountable_owner_id=? where id=?`,
+				`update work_items set disposition='accepted', version=3, executor_type='external_agent', executor_id='codex', accountable_owner_type='user', accountable_owner_id=? where id=?`,
 			)
 			.run(owner, work);
 	it("posts the owner's delegation for the current version with the edited scope", async () => {
@@ -587,7 +587,7 @@ describe("a runner's hold request", () => {
 		const f = await fixture();
 		f.sqlite
 			.prepare(
-				`update work_items set disposition='accepted', version=4, metadata='{"executor":"claude-code","laneDispatch":{"state":"held","reason":"Three runs failed or expired on this version of the task."}}', accountable_owner_type=?, accountable_owner_id=? where id=?`,
+				`update work_items set disposition='accepted', version=4, executor_type='external_agent', executor_id='claude-code', dispatch_state='held', metadata='{"laneDispatch":{"reason":"Three runs failed or expired on this version of the task."}}', accountable_owner_type=?, accountable_owner_id=? where id=?`,
 			)
 			.run(
 				kind === "accountable_owner" ? null : "user",
@@ -621,12 +621,14 @@ describe("a runner's hold request", () => {
 		const task = () =>
 			f.sqlite
 				.prepare(
-					"select disposition, version, metadata, accountable_owner_id from work_items where id=?",
+					"select disposition, version, metadata, executor_id, dispatch_state, accountable_owner_id from work_items where id=?",
 				)
 				.get(work) as {
 				disposition: string;
 				version: number;
 				metadata: string;
+				executor_id: string | null;
+				dispatch_state: string | null;
 				accountable_owner_id: string | null;
 			};
 		// The answer is saved after the task changed, as the router does.
@@ -699,9 +701,9 @@ describe("a runner's hold request", () => {
 		});
 		const task = f.task();
 		expect(task.version).toBe(5);
-		expect(JSON.parse(task.metadata)).toMatchObject({
-			executor: "claude-code",
-			laneDispatch: { state: "ready" },
+		expect(task).toMatchObject({
+			executor_id: "claude-code",
+			dispatch_state: "ready",
 		});
 		const saved = await f.save(result);
 		expect(saved.resolvesRequest).toBe(true);
@@ -711,9 +713,9 @@ describe("a runner's hold request", () => {
 	it("Give it to another agent reassigns the task and queues it", async () => {
 		const f = await hold("execution_hold");
 		await executeDecisionCardEffect(f.context, f.answer("hand-over"));
-		expect(JSON.parse(f.task().metadata)).toMatchObject({
-			executor: "codex",
-			laneDispatch: { state: "ready" },
+		expect(f.task()).toMatchObject({
+			executor_id: "codex",
+			dispatch_state: "ready",
 		});
 		f.sqlite.close();
 	});

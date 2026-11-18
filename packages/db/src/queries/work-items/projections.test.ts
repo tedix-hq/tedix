@@ -11,7 +11,8 @@ CREATE TABLE work_items (
  acceptance_contract TEXT, required_capabilities TEXT NOT NULL DEFAULT '[]',
  required_authorities TEXT NOT NULL DEFAULT '[]', admission_spec_revision TEXT NOT NULL DEFAULT 'test-revision',
  priority TEXT NOT NULL, accountable_owner_type TEXT,
- accountable_owner_id TEXT, project_id TEXT, created_at TEXT NOT NULL, updated_at TEXT,
+ accountable_owner_id TEXT, project_id TEXT, executor_type TEXT, executor_id TEXT,
+ dispatch_state TEXT, created_at TEXT NOT NULL, updated_at TEXT,
  metadata TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE work_attempts (
@@ -189,17 +190,19 @@ describe("org-wide Work factory projections", () => {
 		seedItem(sqlite, { id: "runner-held", createdAt: "2026-08-20T12:00:00Z" });
 		seedItem(sqlite, { id: "unplanned", createdAt: "2026-08-20T11:00:00Z" });
 		seedItem(sqlite, { id: "ready", createdAt: "2026-08-20T10:00:00Z" });
-		const plan = sqlite.prepare("UPDATE work_items SET metadata=? WHERE id=?");
+		const plan = sqlite.prepare(
+			"UPDATE work_items SET dispatch_state=?, metadata=? WHERE id=?",
+		);
 		plan.run(
-			JSON.stringify({
-				laneDispatch: { state: "held", reason: "Three runs failed." },
-			}),
+			"held",
+			JSON.stringify({ laneDispatch: { reason: "Three runs failed." } }),
 			"runner-held",
 		);
 		// A coordinator's hold has no reason: the Work only waits its turn.
-		plan.run(JSON.stringify({ laneDispatch: { state: "held" } }), "unplanned");
+		plan.run("held", "{}", "unplanned");
 		plan.run(
-			JSON.stringify({ laneDispatch: { state: "ready", reason: "stale" } }),
+			"ready",
+			JSON.stringify({ laneDispatch: { reason: "stale" } }),
 			"ready",
 		);
 

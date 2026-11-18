@@ -27,14 +27,16 @@ function seed() {
 		INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,role,status) VALUES('m1','busy','owner','owner','owner@example.com','owner','active');
 	`);
 	const item = sqlite.prepare(
-		"INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision) VALUES(?,?,?,?,?,?,'revision-1')",
+		"INSERT INTO work_items(id,org_id,title,disposition,executor_type,executor_id,dispatch_state,created_at,admission_spec_revision) VALUES(?,?,?,?,?,?,?,?,'revision-1')",
 	);
 	item.run(
 		"ready",
 		"busy",
 		"Ready",
 		"accepted",
-		'{"executor":"codex","laneDispatch":{"state":"ready"}}',
+		"external_agent",
+		"codex",
+		"ready",
 		T0,
 	);
 	item.run(
@@ -42,7 +44,9 @@ function seed() {
 		"busy",
 		"Ready too",
 		"accepted",
-		'{"executor":"codex","laneDispatch":{"state":"ready"}}',
+		"external_agent",
+		"codex",
+		"ready",
 		T1,
 	);
 	item.run(
@@ -50,16 +54,20 @@ function seed() {
 		"busy",
 		"Blocked",
 		"accepted",
-		'{"executor":"codex","laneDispatch":{"state":"blocked"}}',
+		"external_agent",
+		"codex",
+		null,
 		T0,
 	);
-	item.run("noexec", "busy", "No executor", "accepted", "{}", T0);
+	item.run("noexec", "busy", "No executor", "accepted", null, null, null, T0);
 	item.run(
 		"proposed",
 		"busy",
 		"Proposed",
 		"proposed",
-		'{"executor":"codex"}',
+		"external_agent",
+		"codex",
+		null,
 		T0,
 	);
 	item.run(
@@ -67,7 +75,9 @@ function seed() {
 		"busy",
 		"Running",
 		"accepted",
-		'{"executor":"codex"}',
+		"external_agent",
+		"codex",
+		null,
 		T0,
 	);
 	sqlite
@@ -237,8 +247,8 @@ describe("dispatcher health queries", () => {
 		sqlite.exec(`
 			INSERT INTO organizations(id,name,slug) VALUES('plain','Plain','plain');
 			INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,role,status) VALUES('m2','plain','owner','owner','owner@example.com','owner','active');
-			INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision)
-				VALUES('plain-ready','plain','Ready','accepted','{"executor":"codex"}','${T0}','revision-1');
+			INSERT INTO work_items(id,org_id,title,disposition,executor_type,executor_id,created_at,admission_spec_revision)
+				VALUES('plain-ready','plain','Ready','accepted','external_agent','codex','${T0}','revision-1');
 		`);
 		const db = createDbQueryClient(createD1Facade(sqlite));
 		expect((await listDispatcherHealthOrgs(db)).map((r) => r.orgId)).toEqual([
@@ -263,9 +273,8 @@ describe("dispatcher health queries", () => {
 		const sqlite = seed();
 		sqlite.exec(`
 			WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<22000)
-			INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision)
-			SELECT 'held-'||i,'busy','Held','accepted',
-				'{"executor":"codex","laneDispatch":{"state":"held"}}',
+			INSERT INTO work_items(id,org_id,title,disposition,executor_type,executor_id,dispatch_state,created_at,admission_spec_revision)
+			SELECT 'held-'||i,'busy','Held','accepted','external_agent','codex','held',
 				'2026-10-20T00:00:00Z','revision-1' FROM n;
 			ANALYZE work_items;
 		`);

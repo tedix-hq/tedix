@@ -595,9 +595,9 @@ describe("Work interaction canonical actor projections", () => {
 			const { owner, sqlite } = fixture();
 			sqlite
 				.prepare(
-					"UPDATE work_items SET disposition='accepted', version=1, metadata=? WHERE id=?",
+					"UPDATE work_items SET disposition='accepted', version=1, executor_type='external_agent', executor_id=? WHERE id=?",
 				)
-				.run(JSON.stringify({ executor }), WORK_ITEM_ID);
+				.run(executor, WORK_ITEM_ID);
 			const metadata = {
 				source: "lane-dispatch-blocker",
 				decisionClass: "lane-delegation",

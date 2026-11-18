@@ -28,15 +28,9 @@ describe("readWorkMapSnapshot", () => {
 			T0,
 		);
 		item.run("c1", "org", "Seam", "completed", "epic", "p1", "{}", T0);
-		item.run(
-			"c2",
-			"org",
-			"Speed test",
-			"accepted",
-			"epic",
-			"p1",
-			'{"executor":"codex","laneDispatch":{"state":"held"}}',
-			T1,
+		item.run("c2", "org", "Speed test", "accepted", "epic", "p1", "{}", T1);
+		sqlite.exec(
+			"UPDATE work_items SET executor_type='external_agent', executor_id='codex', dispatch_state='held' WHERE id='c2'",
 		);
 		item.run("c3", "org", "Dropped", "cancelled", "epic", "p1", "{}", T0);
 		item.run("x", "other", "Other org", "accepted", null, null, "{}", T0);
