@@ -17,6 +17,11 @@ try {
 		await page.route("**/api/**", async (route) => {
 			const pathname = new URL(route.request().url()).pathname;
 			if (pathname === "/api/rpc/webPush/getStatus") return route.fallback();
+			// The workspace menu asks whether this person may leave.
+			if (pathname === "/api/rpc/osCollaborators/access")
+				return route.fulfill({
+					json: { json: { role: "owner", leave: "owner" } },
+				});
 			if (pathname !== "/api/rpc/osWorkspaces/blueprints/saveWorkspace")
 				throw new Error(`Unexpected API request: ${route.request().url()}`);
 			const raw = route.request().postDataJSON();
@@ -102,6 +107,11 @@ try {
 		await page.route("**/api/**", async (route) => {
 			const pathname = new URL(route.request().url()).pathname;
 			if (pathname === "/api/rpc/webPush/getStatus") return route.fallback();
+			// The workspace menu asks whether this person may leave.
+			if (pathname === "/api/rpc/osCollaborators/access")
+				return route.fulfill({
+					json: { json: { role: "owner", leave: "owner" } },
+				});
 			if (pathname === "/api/rpc/osWorkspaces/blueprints/get")
 				return route.fulfill({
 					json: {
