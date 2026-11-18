@@ -170,11 +170,17 @@ Steps, in order:
 
 1. Create the logs database in the EU jurisdiction:
    `wrangler d1 create <logs-database-name> --jurisdiction=eu`.
-2. Apply the logs schema from `packages/db/logs-db/migrations` (append-only,
-   ledger table `tedix_logs_migrations`; `packages/db/logs-db/wrangler.jsonc`
-   is the example config):
-   `wrangler d1 migrations apply <logs-database-name> --remote -c <overlay config>`.
-   Do not apply the main migration chain to the logs database.
+2. Bind it (step 4); the release applies the logs schema. The logs schema
+   is its own append-only chain in `packages/db/logs-db/migrations`, recorded in
+   each database's `tedix_logs_migrations` ledger
+   (`packages/db/logs-db/wrangler.jsonc` is the example config). The operator's
+   release pipeline (Ship) applies pending logs migrations to `LOGS_DB` and every
+   `LOGS_DB_<n>`, one database at a time, in its serialized migration step before
+   any Worker deploys. A commit under that directory is a migration commit, and
+   every api release checks the logs ledgers, so a newly bound database is
+   migrated before the api deploys against it. It refuses a ledger that does
+   not match the files, and a database that has tables but no ledger. Never
+   apply logs migrations or the main migration chain to a logs database by hand.
 3. Apply the main-database migration `shared_workflow_sources` through the
    normal release.
 4. Add the `LOGS_DB` binding to the api overlay and release. From that deploy
@@ -194,10 +200,10 @@ Numbered bindings are read-only in application code; only `LOGS_DB` receives
 new telemetry and retention copies. Before enabling a backlog that could take
 the writer past 6 GB:
 
-1. Create the next EU logs database and apply **all** logs migrations, including
-   `0010_tedi_call_costs.sql`, with the private overlay's logs migration ledger.
-   Apply the same migrations to every historical database that merged readers
-   can visit. Never apply the main migration chain to logs.
+1. Create the next EU logs database. The release applies **all** logs
+   migrations to it and keeps every historical database that merged readers can
+   visit current (see Operations, step 2). A new database with no tables takes
+   the whole chain. Never apply the main migration chain to logs.
 2. Keep existing `log_partition.from_ts` bounds broad enough for historical
    backfill, not merely the day the partition was created. An empty directory
    is conservative and reads all dates. A new active partition must also cover
