@@ -63,6 +63,12 @@ function fakeData(): WorkspaceDataPort {
 		editAppFiles: async () => {
 			throw new Error("unused");
 		},
+		checkNewApp: async () => {
+			throw new Error("unused");
+		},
+		createApp: async () => {
+			throw new Error("unused");
+		},
 		listResources: async () => [],
 		listWork: async () => work,
 		createWork: async (input) => ({
@@ -227,6 +233,69 @@ describe("workspace bindings", () => {
 		expect(
 			await allowed.work.create({ title: "Make the Work tab live" }),
 		).toMatchObject({ id: "new", disposition: "proposed", updatedAt: "u1" });
+	});
+
+	test("creating an app checks its files first, then always holds for approval", async () => {
+		const files = { "server.js": "export class App {}", "client.js": "" };
+		const make = (ask: boolean) => {
+			const adapters = createInMemoryAdapters(
+				ask ? { policies: { app: { disposition: "ask" } } } : {},
+			);
+			const data = fakeData();
+			const calls: string[] = [];
+			data.checkNewApp = async (input) => {
+				calls.push("check");
+				if (!("server.js" in input.files))
+					throw new Error("server.js is required");
+			};
+			data.createApp = async (input) => {
+				calls.push("create");
+				return {
+					id: "app-1",
+					name: input.name,
+					revision: 1,
+					revisionId: input.actorId,
+				};
+			};
+			const env = buildWorkspaceBindings({
+				data,
+				...adapters,
+				actor: { id: "u1", kind: "user", organizationId: "o" },
+				source: { surface: "workspace_object", traceId: "t" },
+			});
+			return {
+				adapters,
+				calls,
+				apps: env.apps as { create(input: unknown): Promise<unknown> },
+			};
+		};
+		const broken = make(true);
+		await expect(
+			broken.apps.create({ name: "Tally", files: { "client.js": "" } }),
+		).rejects.toThrow("server.js is required");
+		// A failed check asks nobody: no hold is recorded.
+		expect(
+			await broken.adapters.accountability.list({ resource: "app" }),
+		).toEqual([]);
+
+		const held = make(true);
+		await expect(held.apps.create({ name: "Tally", files })).rejects.toThrow(
+			"Approval required",
+		);
+		expect(held.calls).toEqual(["check"]);
+		const [hold] = await held.adapters.accountability.list({ resource: "app" });
+		expect(hold?.operation).toBe("create");
+		expect(hold?.outcome).toBe("needs_approval");
+		expect(hold?.decision.riskTier).toBe("bounded_write");
+
+		const allowed = make(false);
+		expect(await allowed.apps.create({ name: "Tally", files })).toEqual({
+			id: "app-1",
+			name: "Tally",
+			revision: 1,
+			revisionId: "u1",
+		});
+		expect(allowed.calls).toEqual(["check", "create"]);
 	});
 
 	test("a write records before/after revisions and an undo plan", async () => {

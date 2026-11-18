@@ -47,6 +47,21 @@ export interface EditAppFilesInput {
 	edits: Array<{ path: string; before?: string; after: string }>;
 }
 
+export interface CreateAppInput {
+	name: string;
+	description?: string;
+	/** `server.js` and `client.js` are required; see the app file rules. */
+	files: Record<string, string>;
+}
+
+/** A new app with its first saved revision. */
+export interface CreatedApp {
+	id: string;
+	name: string;
+	revision: number;
+	revisionId: string;
+}
+
 export interface ResourceSummary {
 	id: string;
 	name: string;
@@ -107,6 +122,10 @@ export interface WorkspaceDataPort {
 	editAppFiles(
 		input: EditAppFilesInput & { actorId: string },
 	): Promise<AppCode>;
+	/** Checks a new app's name and files without saving anything. */
+	checkNewApp(input: CreateAppInput): Promise<void>;
+	/** Creates an app in this workspace with revision 1. It has no grants. */
+	createApp(input: CreateAppInput & { actorId: string }): Promise<CreatedApp>;
 	listResources(): Promise<ResourceSummary[]>;
 	listWork(options?: {
 		disposition?: string;

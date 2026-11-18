@@ -23,6 +23,12 @@ its code runs beside the data.
    saves one revision on acceptance, or discards the draft on rejection.
    Restoring a previous revision preserves history; a moved base requires
    rebasing before acceptance.
+   `env.apps.create({ name, files })` makes a new app. Its name and files
+   are checked first (the same source check an app edit gets), so a card is
+   shown only for an app that loads. The save always holds for the person's
+   approval; no "Always approve" rule covers it. Once approved the app has
+   revision 1 and no resource grants, and `approval.executed` names it so
+   the card can open it.
    Each call has a change record; canonical writes include revision and undo
    information. `env.views.show` changes no data: it puts a live view
    (a `view.shown` event) under the answer, which the chat renders in the

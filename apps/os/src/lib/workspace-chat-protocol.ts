@@ -271,6 +271,8 @@ export type WorkspaceChatLedgerEvent =
 			error?: string;
 			/** The file the write saved; revision 1 means it created the file. */
 			output?: { outputId: string; revision: number };
+			/** The app the write created. */
+			app?: { appId: string; name: string };
 	  })
 	| (Stamped & {
 			/** A live view for the answer, rendered in the sandboxed widget frame. */

@@ -1408,6 +1408,207 @@ describe("WorkspaceDO", () => {
 		).rejects.toThrow("not found in this workspace");
 	});
 
+	test("the agent creates a new app only after its files pass the check and the person approves", async () => {
+		await seedCore();
+		await testEnv.DB.batch(
+			[osGadgetRevisions, osGadgetCode, osGadgetCodeBlobs].map((table) =>
+				testEnv.DB.prepare(ddl(table)),
+			),
+		);
+		await testEnv.DB.prepare(
+			"CREATE UNIQUE INDEX IF NOT EXISTS test_app_blob_key ON os_gadget_code_blobs (organization_id, sha256)",
+		).run();
+		await testEnv.DB.prepare(
+			"CREATE UNIQUE INDEX IF NOT EXISTS test_app_name ON os_gadgets (workspace_id, name)",
+		).run();
+		const db = createDbQueryClient(testEnv.DB);
+		const ws = workspace();
+		const appRows = async () =>
+			(
+				await testEnv.DB.prepare(
+					"SELECT id, name, current_revision_id, created_by_kind, created_by_id FROM os_gadgets WHERE workspace_id = ? ORDER BY name",
+				)
+					.bind(scope.workspaceId)
+					.all<{
+						id: string;
+						name: string;
+						current_revision_id: string | null;
+						created_by_kind: string;
+						created_by_id: string;
+					}>()
+			).results;
+		const files = {
+			"server.js":
+				"export class App { count() { const n = (this.ctx.storage.kv.get('n') ?? 0) + 1; this.ctx.storage.kv.put('n', n); return n; } }",
+			"client.js":
+				"const root = document.getElementById('app'); root.textContent = String(await tedix.call('app.call', { method: 'count', args: [] }));",
+			"README.md": "Counts how often it was opened.",
+		};
+		const ask = async (input: unknown) => {
+			await ws.scriptModel(scope, [
+				{
+					code: `export default async env => env.apps.create(${JSON.stringify(input)})`,
+				},
+				{ text: "Done" },
+			]);
+			const started = await ws.sendTurn(scope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Build me an app",
+			});
+			await ws.awaitTurn(scope, started.turnId, 20000);
+			return {
+				...started,
+				events: await ws.readEvents(scope, {
+					conversationId: started.conversationId,
+					after: 0,
+				}),
+			};
+		};
+
+		// Source that does not load is refused before anyone is asked.
+		const broken = await ask({
+			name: "Broken",
+			files: { ...files, "server.js": "export const App = 1;" },
+		});
+		expect(
+			broken.events.filter((event) => event.type === "approval.requested"),
+		).toHaveLength(0);
+		expect(
+			broken.events.some(
+				(event) => event.type === "step.finished" && event.status === "error",
+			),
+		).toBe(true);
+		const missing = await ask({
+			name: "Missing",
+			files: { "client.js": "" },
+		});
+		expect(
+			missing.events.filter((event) => event.type === "approval.requested"),
+		).toHaveLength(0);
+		expect(
+			JSON.stringify(await ws.readMessages(scope, missing.conversationId)),
+		).toContain("server.js is required");
+		expect(await appRows()).toEqual([]);
+		const createRecords = async () =>
+			(await ws.readChangeRecords(scope, { resource: "app" })).filter(
+				(record) => record.operation === "create",
+			);
+		expect(await createRecords()).toEqual([]);
+
+		// Valid source waits on a card; nothing is saved until it is approved.
+		const held = await ask({ name: "Visit counter", files });
+		const requested = held.events.find(
+			(event) => event.type === "approval.requested",
+		);
+		if (requested?.type !== "approval.requested")
+			throw new Error("Creating an app did not ask for approval");
+		expect(requested.title).toBe("Creating a new app");
+		expect(requested.input).toEqual({
+			name: "Visit counter",
+			files: {
+				"server.js": `${files["server.js"].length} characters`,
+				"client.js": `${files["client.js"].length} characters`,
+				"README.md": `${files["README.md"].length} characters`,
+			},
+		});
+		expect(requested.rule).toBeUndefined();
+		expect(await appRows()).toEqual([]);
+
+		// An "Always approve" rule for files does not cover a new app.
+		await ws.setAutoApproval(scope, { kind: "files", enabled: true, by: "u1" });
+		const second = await ask({ name: "Second counter", files }).finally(() =>
+			ws.setAutoApproval(scope, { kind: "files", enabled: false, by: "u1" }),
+		);
+		const secondRequest = second.events.find(
+			(event) => event.type === "approval.requested",
+		);
+		if (secondRequest?.type !== "approval.requested")
+			throw new Error("A workspace rule approved a new app");
+		expect(
+			second.events.some((event) => event.type === "approval.executed"),
+		).toBe(false);
+		expect(await appRows()).toEqual([]);
+		await ws.scriptModel(scope, [{ text: "Understood." }]);
+		const denied = await ws.decideApproval(scope, {
+			approvalId: secondRequest.approvalId,
+			decision: "deny",
+			by: "u1",
+		});
+		expect(denied.applied).toBe(false);
+		if (denied.turnId) await ws.awaitTurn(scope, denied.turnId, 20000);
+		expect(await appRows()).toEqual([]);
+
+		await ws.scriptModel(scope, [{ text: "Your app is ready." }]);
+		const applied = await ws.decideApproval(scope, {
+			approvalId: requested.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(applied.applied).toBe(true);
+		if (applied.turnId) await ws.awaitTurn(scope, applied.turnId, 20000);
+		const [row] = await appRows();
+		expect(row).toMatchObject({
+			name: "Visit counter",
+			created_by_kind: "user",
+			created_by_id: "u1",
+		});
+		const executed = (
+			await ws.readEvents(scope, {
+				conversationId: held.conversationId,
+				after: 0,
+			})
+		).find((event) => event.type === "approval.executed");
+		expect(executed).toMatchObject({
+			status: "applied",
+			app: { appId: row!.id, name: "Visit counter" },
+		});
+		expect(executed).not.toHaveProperty("output");
+
+		// The saved app is a runnable revision 1 with its files and no grants.
+		const data = new TenantDataPort({
+			...scope,
+			tenant: {} as TenantStoreDb,
+			core: db,
+			bucket: testEnv.R2_BUCKET,
+			actorKind: "user",
+			validateAppSource: (source, date) =>
+				validateWorkspaceAppSource(testEnv.LOADER, source, date),
+			assertWorkspaceAuthority: async () => {},
+			commitOutput: async () => {
+				throw new Error("unused");
+			},
+			notifyOutputRevision: async () => {},
+		});
+		const code = await data.getAppCode({ appId: row!.id });
+		expect(code.revision).toBe(1);
+		expect(code.revisionId).toBe(row!.current_revision_id);
+		expect(code.files).toEqual(files);
+		expect(code.manifest).toMatchObject({
+			entry: "tedix:runtime/v1",
+			capabilities: [],
+		});
+		expect(code.manifest.resourceGrants).toBeUndefined();
+		expect((await data.listApps()).map((app) => app.name)).toEqual([
+			"Visit counter",
+		]);
+		expect((await createRecords()).map((record) => record.outcome)).toEqual([
+			"needs_approval",
+			"needs_approval",
+			"applied",
+		]);
+
+		// A name in use is refused by the check, again without a card.
+		const taken = await ask({ name: "Visit counter", files });
+		expect(
+			taken.events.filter((event) => event.type === "approval.requested"),
+		).toHaveLength(0);
+		expect(
+			JSON.stringify(await ws.readMessages(scope, taken.conversationId)),
+		).toContain("already exists in this workspace");
+		expect(await appRows()).toHaveLength(1);
+	});
+
 	test("typed Doc edits use the canonical document and cannot run before approval", async () => {
 		await seedCore();
 		const ws = workspace();

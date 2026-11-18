@@ -329,6 +329,41 @@ function changedOutput(
 	return { outputId: id, revision };
 }
 
+/** The app an approved `env.apps.create` saved, read from its result. */
+function createdApp(value: unknown): { appId: string; name: string } | null {
+	if (!value || typeof value !== "object") return null;
+	const { id, name } = value as Record<string, unknown>;
+	if (typeof id !== "string" || typeof name !== "string") return null;
+	return { appId: id, name: name.slice(0, 120) };
+}
+
+/**
+ * What the card for a new app shows: its name, what it is for and the size
+ * of each file. The source itself stays with the held call, so the card
+ * never loses the name to a large file.
+ */
+function newAppCardInput(request: unknown): unknown {
+	if (!request || typeof request !== "object") return request;
+	const { name, description, files } = request as Record<string, unknown>;
+	return {
+		...(typeof name === "string" ? { name: name.slice(0, 120) } : {}),
+		...(typeof description === "string"
+			? { description: description.slice(0, 2_000) }
+			: {}),
+		files:
+			files && typeof files === "object" && !Array.isArray(files)
+				? Object.fromEntries(
+						Object.entries(files)
+							.slice(0, 50)
+							.map(([path, text]) => [
+								path.slice(0, 80),
+								`${typeof text === "string" ? text.length : 0} characters`,
+							]),
+					)
+				: {},
+	};
+}
+
 /** Thin `WorkspaceStorage` over the object's synchronous SQLite and KV. */
 function sqlStorage(storage: DurableObjectStorage): WorkspaceStorage {
 	return {
@@ -1819,13 +1854,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				status,
 				approvalId,
 			);
-			const output = outcome.ok ? changedOutput(outcome.value) : null;
+			const createsApp =
+				approval.binding === "apps" && approval.method === "create";
+			const output =
+				outcome.ok && !createsApp ? changedOutput(outcome.value) : null;
+			const app = outcome.ok && createsApp ? createdApp(outcome.value) : null;
 			this.#events.append(approval.conversation_id, {
 				type: "approval.executed",
 				approvalId,
 				status,
 				...(!outcome.ok ? { error: outcome.error } : {}),
 				...(output ? { output } : {}),
+				...(app ? { app } : {}),
 			});
 			summary = outcome.ok
 				? `Approved by ${input.by}; ${approval.binding}.${approval.method} applied: ${JSON.stringify(outcome.value).slice(0, 2_000)}`
@@ -3089,7 +3129,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 							: null) ?? label,
 					reason: error.decision.reason,
 					policy: error.decision.gate,
-					input: boundedEventInput(args[0]),
+					input: boundedEventInput(
+						binding === "apps" && method === "create"
+							? newAppCardInput(args[0])
+							: args[0],
+					),
 					...(target ? { target: { id: target.id, title: target.title } } : {}),
 					...(ruleKind
 						? { rule: { kind: ruleKind, label: autoApprovalLabel(ruleKind) } }
@@ -3308,7 +3352,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return Promise.all(
 			rows.map(async (row) => {
 				const request = (JSON.parse(row.args) as unknown[])[0] as
-					| { title?: unknown; outputId?: unknown }
+					| { title?: unknown; name?: unknown; outputId?: unknown }
 					| string
 					| undefined;
 				const target =
@@ -3317,10 +3361,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 							request.slice(0, 300)
 						: typeof request?.title === "string"
 							? request.title
-							: typeof request?.outputId === "string"
-								? ((await data.getOutput(request.outputId).catch(() => null))
-										?.title ?? null)
-								: null;
+							: row.binding === "apps" && typeof request?.name === "string"
+								? request.name.slice(0, 120)
+								: typeof request?.outputId === "string"
+									? ((await data.getOutput(request.outputId).catch(() => null))
+											?.title ?? null)
+									: null;
 				return { action: stepLabel(row.binding, row.method).label, target };
 			}),
 		);
