@@ -4,6 +4,9 @@ import type {
 } from "emdash/plugin";
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { deliveryFixture } from "./test-utils/publish-delivery";
+import { DELIVERY_TASK } from "../templates/tedix/src/lib/publish-delivery";
+
 import newsletter from "../templates/tedix/src/plugins/emdash-newsletter/index";
 import tediBridge from "../templates/tedix/src/plugins/tedix-tedi-bridge/index";
 
@@ -23,7 +26,9 @@ describe("tedix-tedi-bridge publish hook", () => {
 			["settings:tedi.domain", "release-notes"],
 			["settings:tedi.collections", "posts, updates"],
 		]);
+		const fixture = deliveryFixture();
 		const ctx = {
+			...fixture.ctx,
 			http: {
 				fetch: async (input: string, init?: RequestInit) => {
 					requests.push({ input, init });
@@ -47,6 +52,7 @@ describe("tedix-tedi-bridge publish hook", () => {
 			collection: "updates",
 			content: {
 				id: "post-1",
+				liveRevisionId: "revision-1",
 				slug: "july-release",
 				locale: "de",
 				data: { title: "July release", excerpt: "Strong growth." },
@@ -54,6 +60,11 @@ describe("tedix-tedi-bridge publish hook", () => {
 		} as unknown as ContentPublishStateChangeEvent;
 
 		await tediBridge.hooks["content:afterPublish"].handler(event, ctx);
+		expect(requests).toHaveLength(0);
+		await tediBridge.hooks.cron.handler(
+			{ name: DELIVERY_TASK, scheduledAt: new Date().toISOString() },
+			ctx,
+		);
 
 		expect(termCalls).toEqual([["updates", "post-1", { locale: "de" }]]);
 		expect(requests).toHaveLength(1);
@@ -80,10 +91,14 @@ describe("emdash-newsletter digest hook", () => {
 			["settings:newsletter.platformApiUrl", "https://platform.example"],
 		]);
 		const bodies: Array<{ json: Record<string, unknown> }> = [];
+		const fixture = deliveryFixture();
 		const ctx = {
+			...fixture.ctx,
 			kv: { get: async (key: string) => settings.get(key) },
 			storage: {
+				deliveries: fixture.deliveries,
 				subscribers: {
+					get: async () => ({ email: "reader@example.com", status: "active" }),
 					query: async () => ({
 						items: [
 							{
@@ -109,12 +124,18 @@ describe("emdash-newsletter digest hook", () => {
 			collection: "posts",
 			content: {
 				id: "post-1",
+				liveRevisionId: "revision-1",
 				slug: "launch-day",
 				data: { title: "Launch day", excerpt: "We shipped." },
 			},
 		} as unknown as ContentPublishStateChangeEvent;
 
 		await newsletter.hooks["content:afterPublish"].handler(event, ctx);
+		expect(bodies).toHaveLength(0);
+		const tick = { name: DELIVERY_TASK, scheduledAt: new Date().toISOString() };
+		await newsletter.hooks.cron.handler(tick, ctx);
+		expect(bodies).toHaveLength(0);
+		await newsletter.hooks.cron.handler(tick, ctx);
 
 		expect(bodies).toHaveLength(1);
 		expect(bodies[0]?.json).toMatchObject({
@@ -125,5 +146,130 @@ describe("emdash-newsletter digest hook", () => {
 		expect(String(bodies[0]?.json.text)).toContain(
 			"Read more: https://acme.example/blog/launch-day",
 		);
+	});
+});
+
+describe("newsletter durable fan-out", () => {
+	it("checkpoints subscriber pages, retries one failed recipient and honors unsubscribe before retry", async () => {
+		vi.useFakeTimers();
+		try {
+			const fixture = deliveryFixture();
+			const subscribers = new Map([
+				[
+					"s1",
+					{
+						email: "one@example.com",
+						status: "active",
+						unsubscribeToken: "u1",
+					},
+				],
+				[
+					"s2",
+					{
+						email: "two@example.com",
+						status: "active",
+						unsubscribeToken: "u2",
+					},
+				],
+			]);
+			const query = vi.fn(async (options: { cursor?: string }) => ({
+				items: options.cursor
+					? [{ id: "s2", data: subscribers.get("s2") }]
+					: [{ id: "s1", data: subscribers.get("s1") }],
+				hasMore: !options.cursor,
+				cursor: options.cursor ? undefined : "page2",
+			}));
+			const sends: string[] = [];
+			const ctx = {
+				...fixture.ctx,
+				kv: {
+					get: async (key: string) =>
+						key === "settings:newsletter.platformApiKey"
+							? "sk_test"
+							: undefined,
+				},
+				storage: {
+					deliveries: fixture.deliveries,
+					subscribers: {
+						query,
+						get: async (id: string) => subscribers.get(id),
+					},
+				},
+				http: {
+					fetch: async (_url: string, init?: RequestInit) => {
+						const input = JSON.parse(String(init?.body)).json;
+						const recipient = input.to[0].email;
+						sends.push(recipient);
+						if (recipient === "two@example.com")
+							return Response.json({ json: { ok: false } });
+						return Response.json({ json: { ok: true, messageId: "email-1" } });
+					},
+				},
+				url: (path: string) => `https://acme.example${path}`,
+				log: { warn: vi.fn() },
+			} as unknown as PluginContext;
+			const event = {
+				collection: "posts",
+				content: {
+					id: "post-1",
+					liveRevisionId: "live-1",
+					data: { title: "Publication" },
+				},
+			};
+			const tick = {
+				name: DELIVERY_TASK,
+				scheduledAt: new Date().toISOString(),
+			};
+			await newsletter.hooks["content:afterPublish"].handler(event, ctx);
+			await newsletter.hooks["content:afterPublish"].handler(event, ctx);
+			expect(fixture.rows.size).toBe(1);
+			expect(query).not.toHaveBeenCalled();
+			await newsletter.hooks.cron.handler(tick, ctx);
+			expect(query).toHaveBeenCalledTimes(1);
+			expect(sends).toEqual([]);
+			await newsletter.hooks.cron.handler(tick, ctx);
+			expect(query.mock.calls[1]?.[0].cursor).toBe("page2");
+			await newsletter.hooks.cron.handler(tick, ctx);
+			expect(sends).toEqual(["one@example.com", "two@example.com"]);
+			const failed = [...fixture.rows.values()].find(
+				(row) => row.value.recipient === "two@example.com",
+			);
+			expect(failed?.value).toMatchObject({ status: "failed", attempts: 1 });
+			subscribers.get("s2")!.status = "unsubscribed";
+			vi.advanceTimersByTime(60_000);
+			await newsletter.hooks.cron.handler(tick, ctx);
+			expect(sends).toEqual(["one@example.com", "two@example.com"]);
+			expect(
+				[...fixture.rows.values()].find(
+					(row) => row.value.recipient === "two@example.com",
+				)?.value.status,
+			).toBe("skipped");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("keeps publication successful when durable enqueue is unavailable", async () => {
+		const fixture = deliveryFixture();
+		fixture.deliveries.compareAndSet.mockRejectedValue(
+			new Error("storage unavailable"),
+		);
+		const warn = vi.fn();
+		const ctx = {
+			...fixture.ctx,
+			kv: { get: async () => undefined },
+			log: { warn },
+			url: (path: string) => `https://acme.example${path}`,
+		} as unknown as PluginContext;
+		const event = {
+			collection: "posts",
+			content: { id: "post-1", liveRevisionId: "live-1" },
+		};
+		await expect(
+			newsletter.hooks["content:afterPublish"].handler(event, ctx),
+		).resolves.toBeUndefined();
+		await expect(
+			tediBridge.hooks["content:afterPublish"].handler(event, ctx),
+		).resolves.toBeUndefined();
+		expect(warn).toHaveBeenCalledTimes(2);
 	});
 });

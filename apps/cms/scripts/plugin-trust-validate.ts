@@ -87,7 +87,7 @@ const LOCKED_PLUGIN_CONTRACTS: readonly PluginContract[] = [
 			network: { request: {} },
 			taxonomies: { read: {} },
 		},
-		storage: [],
+		storage: ["deliveries"],
 		settings: [
 			"tedi.platformApiUrl",
 			"tedi.platformApiKey",
@@ -105,7 +105,7 @@ const LOCKED_PLUGIN_CONTRACTS: readonly PluginContract[] = [
 			content: { read: {} },
 			network: { request: {} },
 		},
-		storage: ["subscribers"],
+		storage: ["deliveries", "subscribers"],
 		settings: [
 			"newsletter.platformApiUrl",
 			"newsletter.platformApiKey",

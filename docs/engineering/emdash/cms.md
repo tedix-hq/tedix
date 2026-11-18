@@ -268,6 +268,38 @@ Capture does not freeze tenant edits, and owner manifests stay
 4. `publish-bundle` writes and activates the bundle; `health-check` rolls back
    on failure; `cleanup-staging` runs after both settle.
 
+## Publish deliveries
+
+The newsletter and tedi bridge persist publish jobs in their own native plugin
+`deliveries` storage. Keys include the site URL, collection, entry, locale,
+`liveRevisionId`, and recipient. Replaying a hook cannot replace an existing
+receipt. Publication remains independent of provider delivery.
+
+The existing Emdash scheduler runs `publish-deliveries` every minute. Each run
+claims up to five due jobs with storage revision checks and a two-minute lease.
+Newsletter expansion checkpoints up to 25 active subscribers per page without
+an audience cap. Email jobs recheck subscription status before sending. Failed
+jobs retry with exponential backoff (one minute to one hour), stop after eight
+attempts, and remain available for an administrator to retry. Kill switches
+pause queued jobs. Credentials are read at delivery time, never stored in jobs.
+
+Each plugin exposes `GET deliveries/status` (optional `status` and `cursor` query
+parameters) and `POST deliveries/retry` (`{ id }`) beneath
+`/_emdash/api/plugins/<plugin-id>/`. Both require `plugins:manage`; status returns
+counts and a bounded page of receipts without message bodies or provider errors.
+The existing Site Builder code/deployments admin page displays pending and failed
+counts and lets administrators retry failed jobs. For plain webhooks, install
+the upstream [Webhook Notifier](https://plugins.emdashcms.com/plugins/@plugins.emdashcms.com/webhook-notifier)
+instead of adding another webhook delivery implementation.
+
+Receipts mean the platform accepted the request, not that a message reached an
+inbox. Delivery is at least once: a crash after provider acceptance but before
+saving its receipt can send a duplicate. Enqueue failures are logged separately;
+these after-publish hooks cannot atomically commit with Emdash's publication.
+After the next Ship and tenant template resync/deploy, verify repeated publication,
+a failing recipient followed by recovery, an interrupted run, admin authorization,
+and unchanged public content availability on a disposable site.
+
 ## SEO ownership
 
 Native Emdash owns per-entry SEO, `EmDashHead` metadata, `/robots.txt`,

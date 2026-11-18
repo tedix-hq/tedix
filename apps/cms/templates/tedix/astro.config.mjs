@@ -220,6 +220,7 @@ export default defineConfig({
 						"taxonomies:read",
 						"network:request:unrestricted",
 					],
+					storage: { deliveries: { indexes: ["status", "due"] } },
 					settingsSchema: {
 						"tedi.platformApiUrl": {
 							type: "url",
@@ -269,6 +270,7 @@ export default defineConfig({
 					).href,
 					capabilities: ["content:read", "network:request:unrestricted"],
 					storage: {
+						deliveries: { indexes: ["status", "due"] },
 						subscribers: {
 							indexes: ["status", "confirmToken", "unsubscribeToken"],
 							uniqueIndexes: ["email"],
