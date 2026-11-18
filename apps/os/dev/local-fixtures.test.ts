@@ -538,6 +538,11 @@ const CALLS = {
 		workspaceId: IDS.workspaceRevenue,
 		target: { type: "visit" },
 	},
+	"workspaceUnread/setChatNotifications": {
+		workspaceId: IDS.workspaceRevenue,
+		conversationId: "fixture-chat",
+		on: true,
+	},
 	"workspaceUnread/markAllRead": {},
 	"workspaceUnread/notifyChat": {
 		workspaceId: IDS.workspaceRevenue,

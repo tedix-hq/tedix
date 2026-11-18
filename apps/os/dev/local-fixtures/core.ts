@@ -42,6 +42,7 @@ export function emptyUnreadState(workspaceId: string) {
 		files: 0,
 		total: 0,
 		fileIds: [],
+		notifyingConversationIds: [],
 		conversations: [],
 	};
 }

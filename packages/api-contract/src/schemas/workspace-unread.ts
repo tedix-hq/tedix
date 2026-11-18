@@ -3,7 +3,9 @@ import * as z from "zod";
 /**
  * What is new for one person in the workspaces they have opened: chat
  * messages, agent results and file changes that someone else made since the
- * person last looked.
+ * person last looked. Chat counts only in the conversations the person took
+ * part in or turned notifications on for; a request for a decision counts in
+ * every conversation.
  */
 
 export const WorkspaceUnreadKindSchema = z.enum([
@@ -65,6 +67,12 @@ export const WorkspaceUnreadStateSchema = WorkspaceUnreadCountsSchema.extend({
 			count: z.number().int().positive(),
 		}),
 	),
+	/**
+	 * Ids of the conversations the person gets notifications for: the ones
+	 * they took part in or turned on, minus the ones they turned off. A
+	 * request for a decision notifies in every conversation.
+	 */
+	notifyingConversationIds: z.array(z.string()),
 });
 export type WorkspaceUnreadState = z.infer<typeof WorkspaceUnreadStateSchema>;
 
@@ -93,4 +101,11 @@ export const WorkspaceMarkReadInputSchema = z.object({
 		/** The person opened the workspace: starts their marker on a first visit, changes nothing after. */
 		z.object({ type: z.literal("visit") }),
 	]),
+});
+
+export const WorkspaceChatNotificationsInputSchema = z.object({
+	workspaceId: z.string().uuid(),
+	conversationId: z.string().min(1).max(200),
+	/** True to get notifications for this conversation, false to stop them. */
+	on: z.boolean(),
 });

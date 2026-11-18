@@ -161,6 +161,7 @@ describe("Unread page", () => {
 			files: 0,
 			total: 0,
 			fileIds: [],
+			notifyingConversationIds: [],
 			conversations: [],
 		});
 		const host = await render();

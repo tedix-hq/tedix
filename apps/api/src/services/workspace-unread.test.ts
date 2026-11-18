@@ -1,6 +1,17 @@
 import type { WorkspaceUnreadFeedRow } from "@tedix/db/queries/workspace-unread";
 import { describe, expect, it } from "vite-plus/test";
-import { advanceReadMarker, unreadFromFeed } from "./workspace-unread";
+import {
+	advanceReadMarker,
+	chatsTakenPartIn,
+	unreadFromFeed,
+	type WorkspaceChatFollows,
+} from "./workspace-unread";
+
+/** The reader took part in both chats these tests use. */
+const TOOK_PART: WorkspaceChatFollows = new Map([
+	["chat-1", "joined"],
+	["chat-2", "joined"],
+]);
 
 function run(
 	seq: number,
@@ -54,6 +65,7 @@ describe("unreadFromFeed", () => {
 				run(4, "turn.started", { actorKind: "tedi" }),
 			],
 			{ floor: 0, chat: 0, chats: {}, files: {} },
+			TOOK_PART,
 		);
 		expect(unread.chat.map((item) => [item.kind, item.byAgent])).toEqual([
 			["needs_decision", true],
@@ -75,14 +87,17 @@ describe("unreadFromFeed", () => {
 			file(5, "a"),
 		];
 		expect(
-			unreadFromFeed(rows, { floor: 4, chat: 7, chats: {}, files: { a: 6 } }),
+			unreadFromFeed(
+				rows,
+				{ floor: 4, chat: 7, chats: {}, files: { a: 6 } },
+				TOOK_PART,
+			),
 		).toMatchObject({ chat: [], files: [{ outputId: "b", id: "8" }] });
-		const all = unreadFromFeed(rows, {
-			floor: 4,
-			chat: 4,
-			chats: {},
-			files: {},
-		});
+		const all = unreadFromFeed(
+			rows,
+			{ floor: 4, chat: 4, chats: {}, files: {} },
+			TOOK_PART,
+		);
 		expect(all.chat).toHaveLength(1);
 		// One entry per file, at its newest change.
 		expect(all.files.map((item) => [item.outputId, item.id])).toEqual([
@@ -110,8 +125,80 @@ describe("unreadFromFeed", () => {
 					},
 				],
 				{ floor: 0, chat: 0, chats: {}, files: {} },
+				TOOK_PART,
 			),
 		).toEqual({ chat: [], files: [] });
+	});
+
+	const elsewhere = (seq: number, operation: string, outcome?: string) => ({
+		...run(seq, operation, { actorKind: "tedi", outcome }),
+		runSummary: run(seq, operation, { outcome }).runSummary!.replace(
+			"chat-1",
+			"chat-9",
+		),
+	});
+	const marker = { floor: 0, chat: 0, chats: {}, files: {} };
+
+	it("leaves out a chat the reader never took part in, except a request for a decision", () => {
+		const rows = [
+			elsewhere(4, "approval.requested"),
+			elsewhere(3, "turn.finished"),
+			{ ...elsewhere(2, "turn.started"), actorKind: "user" as const },
+			file(1, "a"),
+		];
+		const unread = unreadFromFeed(rows, marker, TOOK_PART);
+		expect(unread.chat.map((item) => [item.kind, item.conversationId])).toEqual(
+			[["needs_decision", "chat-9"]],
+		);
+		// Files are not chat: a changed file is unread either way.
+		expect(unread.files).toHaveLength(1);
+		// An automatic change asks nobody, so it stays out.
+		expect(
+			unreadFromFeed([elsewhere(5, "approval.automatic")], marker, TOOK_PART)
+				.chat,
+		).toEqual([]);
+	});
+
+	it("counts a chat once the reader posted, was mentioned or turned it on, and never one they turned off", () => {
+		const rows = [
+			elsewhere(4, "approval.requested"),
+			elsewhere(3, "turn.finished"),
+			{ ...elsewhere(2, "turn.started"), actorKind: "user" as const },
+		];
+		const kinds = (state?: "joined" | "on" | "off") =>
+			unreadFromFeed(
+				rows,
+				marker,
+				new Map(state ? [["chat-9", state]] : []),
+			).chat.map((item) => item.kind);
+		expect(kinds()).toEqual(["needs_decision"]);
+		expect(kinds("joined")).toEqual([
+			"needs_decision",
+			"agent_reply",
+			"message",
+		]);
+		expect(kinds("on")).toEqual(["needs_decision", "agent_reply", "message"]);
+		// Turned off: only the request for a decision is left.
+		expect(kinds("off")).toEqual(["needs_decision"]);
+	});
+});
+
+describe("chatsTakenPartIn", () => {
+	it("names the chats a person posted or decided in, and nothing an agent or a file row did", () => {
+		const other = (seq: number, operation: string, chat: string) => ({
+			...run(seq, operation),
+			runSummary: run(seq, operation).runSummary!.replace("chat-1", chat),
+		});
+		expect(
+			chatsTakenPartIn([
+				run(6, "turn.started"),
+				other(5, "approval.decided", "chat-2"),
+				other(4, "message.queued", "chat-3"),
+				{ ...other(3, "turn.finished", "chat-4"), actorKind: "tedi" },
+				file(2, "a"),
+				{ ...run(1, "turn.started"), runSummary: "{" },
+			]).sort(),
+		).toEqual(["chat-1", "chat-2", "chat-3"]);
 	});
 });
 
@@ -142,6 +229,7 @@ describe("advanceReadMarker", () => {
 			unreadFromFeed(
 				[run(7, "turn.started"), other, run(4, "turn.started")],
 				marker,
+				TOOK_PART,
 			).chat.map((item) => item.id),
 		).toEqual(["7", "5"]);
 	});

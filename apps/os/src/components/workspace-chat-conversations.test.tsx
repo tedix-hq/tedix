@@ -274,6 +274,33 @@ describe("ConversationList", () => {
 		expect(changes).toEqual([]);
 	});
 
+	it("turns notifications for one conversation on and off from the menu", () => {
+		const chosen: Array<[string, boolean]> = [];
+		mount(
+			[conversation("a", localIso(18, 9)), conversation("b", localIso(18, 8))],
+			{
+				notifications: {
+					on: new Set(["a"]),
+					set: (id, on) => chosen.push([id, on]),
+				},
+			},
+		);
+		act(() => button("Actions for Conversation a").click());
+		act(() => menuItem("Turn off notifications").click());
+		act(() => button("Actions for Conversation b").click());
+		act(() => menuItem("Turn on notifications").click());
+		expect(chosen).toEqual([
+			["a", false],
+			["b", true],
+		]);
+	});
+
+	it("offers no notification choice until it is known", () => {
+		mount([conversation("a", localIso(18, 9))]);
+		act(() => button("Actions for Conversation a").click());
+		expect(document.body.textContent).not.toContain("notifications");
+	});
+
 	it("archives from the menu and restores from the Archived view", () => {
 		const { changes } = mount([
 			conversation("a", localIso(18, 9)),

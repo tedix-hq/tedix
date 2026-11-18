@@ -66,6 +66,7 @@ function setup() {
 			actorKind?: "user" | "tedi";
 			entityId?: string;
 			operation?: string;
+			conversationId?: string;
 		},
 	) => {
 		seq += 1;
@@ -87,7 +88,7 @@ function setup() {
 			summary: JSON.stringify(
 				row.kind === "run"
 					? {
-							conversationId: "chat-1",
+							conversationId: row.conversationId ?? "chat-1",
 							action: {
 								resource: "conversation",
 								operation: row.operation ?? "turn.started",
@@ -120,7 +121,14 @@ function setup() {
 				set: { lastSeq: seq },
 			});
 	};
-	return { client, db, event };
+	/** The person takes part in chat-1, so what others do there reaches them. */
+	const follow = (userId = "person-a") =>
+		client(userId).setChatNotifications({
+			workspaceId: WS,
+			conversationId: "chat-1",
+			on: true,
+		});
+	return { client, db, event, follow };
 }
 
 async function workspaces(db: ReturnType<typeof setup>["db"]) {
@@ -151,9 +159,10 @@ async function workspaces(db: ReturnType<typeof setup>["db"]) {
 
 describe("workspace unread API", () => {
 	it("counts only requests for a decision while a workspace is muted, and everything again once the mute ends", async () => {
-		const { client, db, event } = setup();
+		const { client, db, event, follow } = setup();
 		await workspaces(db);
 		await client().markRead({ workspaceId: WS, target: { type: "visit" } });
+		await follow();
 		await event(WS, { kind: "run", actorId: "person-b" });
 		await event(WS, { kind: "output", actorId: "person-b", entityId: FILE });
 		const everything = {
@@ -213,8 +222,9 @@ describe("workspace unread API", () => {
 		expect(await client().summary({})).toMatchObject({ total: 1 });
 	});
 	it("shows what others did after the first visit and clears it as the person looks", async () => {
-		const { client, db, event } = setup();
+		const { client, db, event, follow } = setup();
 		await workspaces(db);
+		await follow();
 		await event(WS, { kind: "run", actorId: "person-b" });
 		// Nothing is unread before the first visit, and the visit starts the marker.
 		expect(await client().summary({})).toEqual({ total: 0, workspaces: [] });
@@ -242,6 +252,7 @@ describe("workspace unread API", () => {
 			total: 3,
 			fileIds: [FILE],
 			conversations: [{ conversationId: "chat-1", count: 2 }],
+			notifyingConversationIds: ["chat-1"],
 		});
 		// The other person sees only what they did not do themselves.
 		expect(await client("person-b").summary({})).toEqual({
@@ -275,8 +286,9 @@ describe("workspace unread API", () => {
 	});
 
 	it("lists unread newest first by workspace and names only files the person may open", async () => {
-		const { client, db, event } = setup();
+		const { client, db, event, follow } = setup();
 		await workspaces(db);
+		await follow();
 		await client().markRead({ workspaceId: WS, target: { type: "all" } });
 		await event(WS, { kind: "output", actorId: "person-b", entityId: FILE });
 		await event(WS, { kind: "run", actorId: "person-b" });
@@ -317,6 +329,136 @@ describe("workspace unread API", () => {
 					],
 				},
 			],
+		});
+	});
+
+	it("starts chat notifications when a person first takes part, and always for a request for a decision", async () => {
+		const { client, db, event } = setup();
+		await workspaces(db);
+		await client().markRead({ workspaceId: WS, target: { type: "visit" } });
+		const agent = (operation: string, conversationId = "chat-1") =>
+			event(WS, {
+				kind: "run",
+				actorId: "tedi-1",
+				actorKind: "tedi",
+				operation,
+				conversationId,
+			});
+		// Someone else's chat: their message and the agent's reply are theirs.
+		await event(WS, { kind: "run", actorId: "person-b" });
+		await agent("turn.finished");
+		expect(await client().summary({})).toEqual({ total: 0, workspaces: [] });
+		expect(await client().list({})).toEqual({ total: 0, groups: [] });
+		expect(await client().workspace({ workspaceId: WS })).toMatchObject({
+			chat: 0,
+			conversations: [],
+			notifyingConversationIds: [],
+		});
+		// The agent asks for a decision: that reaches everyone in the workspace.
+		await agent("approval.requested");
+		expect(await client().summary({})).toMatchObject({ total: 1 });
+		expect((await client().list({})).groups[0]?.items).toMatchObject([
+			{ kind: "needs_decision", conversationId: "chat-1" },
+		]);
+		// A change that applied on its own asks nobody.
+		await agent("approval.automatic");
+		expect(await client().summary({})).toMatchObject({ total: 1 });
+
+		// The person posts there. Opening the workspace again picks that up,
+		// and what was already waiting in the chat counts too.
+		await event(WS, { kind: "run", actorId: "person-a" });
+		expect(
+			await client().markRead({ workspaceId: WS, target: { type: "visit" } }),
+		).toMatchObject({
+			chat: 3,
+			notifyingConversationIds: ["chat-1"],
+		});
+		await agent("turn.finished");
+		expect(await client().summary({})).toMatchObject({ total: 4 });
+		// Another chat in the same workspace stays quiet.
+		await agent("turn.finished", "chat-2");
+		expect(await client().summary({})).toMatchObject({ total: 4 });
+	});
+
+	it("keeps a person's own choice for one chat, whatever they do there later", async () => {
+		const { client, db, event, follow } = setup();
+		await workspaces(db);
+		await client().markRead({ workspaceId: WS, target: { type: "visit" } });
+		const reply = () =>
+			event(WS, {
+				kind: "run",
+				actorId: "tedi-1",
+				actorKind: "tedi",
+				operation: "turn.finished",
+			});
+		// Turned on without ever posting.
+		expect(await follow()).toMatchObject({
+			notifyingConversationIds: ["chat-1"],
+		});
+		await reply();
+		expect(await client().summary({})).toMatchObject({ total: 1 });
+		// Turned off: the count goes, and posting there does not bring it back.
+		expect(
+			await client().setChatNotifications({
+				workspaceId: WS,
+				conversationId: "chat-1",
+				on: false,
+			}),
+		).toMatchObject({ chat: 0, notifyingConversationIds: [] });
+		await event(WS, { kind: "run", actorId: "person-a" });
+		await client().markRead({ workspaceId: WS, target: { type: "visit" } });
+		await reply();
+		expect(await client().summary({})).toEqual({ total: 0, workspaces: [] });
+		// A request for a decision still gets through.
+		await event(WS, {
+			kind: "run",
+			actorId: "tedi-1",
+			actorKind: "tedi",
+			operation: "approval.requested",
+		});
+		expect(await client().summary({})).toMatchObject({ total: 1 });
+		// The choice is the person's own.
+		expect(
+			await client("person-c").workspace({ workspaceId: WS }),
+		).toMatchObject({ notifyingConversationIds: [] });
+		await expect(
+			client().setChatNotifications({
+				workspaceId: PRIVATE,
+				conversationId: "chat-1",
+				on: true,
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+
+	it("keeps notifying in chats a person posted in before, the first time a workspace is looked at", async () => {
+		const { client, db, event } = setup();
+		await workspaces(db);
+		// Posts from before any chat was recorded for this person.
+		await event(WS, { kind: "run", actorId: "person-a" });
+		await event(WS, {
+			kind: "run",
+			actorId: "person-b",
+			conversationId: "chat-2",
+		});
+		await saveWorkspaceReadMarker(
+			db,
+			{ organizationId: "org-a", userId: "person-a" },
+			WS,
+			{ floor: 2, chat: 2, chats: {}, files: {} },
+		);
+		await event(WS, { kind: "run", actorId: "person-b" });
+		await event(WS, {
+			kind: "run",
+			actorId: "person-b",
+			conversationId: "chat-2",
+		});
+		expect(await client().summary({})).toEqual({
+			total: 1,
+			workspaces: [{ workspaceId: WS, chat: 1, files: 0, total: 1 }],
+		});
+		expect(await client().workspace({ workspaceId: WS })).toMatchObject({
+			conversations: [{ conversationId: "chat-1", count: 1 }],
+			notifyingConversationIds: ["chat-1"],
 		});
 	});
 

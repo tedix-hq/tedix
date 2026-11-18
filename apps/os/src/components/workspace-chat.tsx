@@ -144,6 +144,7 @@ import {
 } from "@/components/workspace-chat-step-detail";
 import {
 	ConversationList,
+	type ConversationNotifications,
 	ConversationTitle,
 } from "@/components/workspace-chat-conversations";
 import { VIEW_ONLY_CHAT_REASON } from "@/lib/workspace-view-only";
@@ -168,6 +169,8 @@ export type WorkspaceChatProps = {
 	autoFocusComposer?: boolean;
 	/** Unread chat rows per conversation id, for the badges in the list. */
 	unreadByConversation?: ReadonlyMap<string, number>;
+	/** Which conversations notify the person, and how to change one. */
+	chatNotifications?: ConversationNotifications;
 	/** Something happened in the open conversation: a turn started, finished or asked for a decision. */
 	onActivity?: () => void;
 	/** The person can view this workspace but not chat in it. */
@@ -187,6 +190,7 @@ export function WorkspaceChat({
 	onBrowseResources,
 	autoFocusComposer = false,
 	unreadByConversation,
+	chatNotifications,
 	onActivity,
 	viewOnly = false,
 	createClient,
@@ -393,6 +397,7 @@ export function WorkspaceChat({
 					onChange={changeConversation}
 					onSelect={onSelectConversation}
 					unread={unreadByConversation}
+					notifications={chatNotifications}
 				/>
 				{viewOnlyNote}
 				<Composer

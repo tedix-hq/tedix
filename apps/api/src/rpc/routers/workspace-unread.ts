@@ -11,6 +11,11 @@ import {
 import { listPushConfigs } from "@tedix/db/queries/web-push";
 import { getWorkspaceOutputIndexCurrent } from "@tedix/db/queries/workspace-feed/read";
 import {
+	joinWorkspaceChats,
+	listWorkspaceChatFollowSyncs,
+	setWorkspaceChatFollow,
+} from "@tedix/db/queries/workspace-chat-follow";
+import {
 	getWorkspaceReadMarker,
 	listWorkspaceFeedPositions,
 	listWorkspaceReadMarkers,
@@ -24,11 +29,17 @@ import {
 	authorizeDerivedOutputSources,
 	parseDerivedAccessEnvelope,
 } from "../../services/os-derived-resource-access";
+import {
+	chatFollowsByWorkspace,
+	recordChatsTakenPartIn,
+} from "../../services/workspace-chat-follow";
 import { notifyWorkspaceChat } from "../../services/workspace-chat-push";
 import {
 	advanceReadMarker,
+	chatNotificationsOn,
 	unreadFromFeed,
 	unreadWhileMuted,
+	type WorkspaceChatFollows,
 	type WorkspaceUnread,
 } from "../../services/workspace-unread";
 import {
@@ -82,6 +93,7 @@ function counts(workspaceId: string, unread: WorkspaceUnread) {
 function state(
 	workspaceId: string,
 	unread: WorkspaceUnread,
+	follows: WorkspaceChatFollows,
 ): WorkspaceUnreadState {
 	const conversations = new Map<string, number>();
 	for (const item of unread.chat) {
@@ -95,6 +107,9 @@ function state(
 			conversationId,
 			count,
 		})),
+		notifyingConversationIds: [...follows.keys()].filter((id) =>
+			chatNotificationsOn(follows, id),
+		),
 	};
 }
 
@@ -126,7 +141,7 @@ async function unreadByWorkspace(context: BaseContext) {
 		.sort((a, b) => (positions.get(b[0]) ?? 0) - (positions.get(a[0]) ?? 0))
 		.slice(0, SUMMARY_WORKSPACE_LIMIT);
 	if (moved.length === 0) return [];
-	const [results, [saved]] = await Promise.all([
+	const [results, [saved], follows] = await Promise.all([
 		listWorkspaceUnreadFeeds(
 			db,
 			moved.map(([workspaceId, marker]) => ({
@@ -137,6 +152,11 @@ async function unreadByWorkspace(context: BaseContext) {
 			})),
 		),
 		listPushConfigs(db, scope, "preferences"),
+		chatFollowsByWorkspace(
+			db,
+			{ scope, readerIds },
+			moved.map(([workspaceId]) => workspaceId),
+		),
 	]);
 	const preferences = WebPushPreferencesSchema.safeParse(saved?.value);
 	// Read markers do not move while a workspace is muted, so what arrived in
@@ -151,7 +171,11 @@ async function unreadByWorkspace(context: BaseContext) {
 		unread: WorkspaceUnread;
 	}> = [];
 	for (const [index, [workspaceId, marker]] of moved.entries()) {
-		const all = unreadFromFeed(results[index] ?? [], marker);
+		const all = unreadFromFeed(
+			results[index] ?? [],
+			marker,
+			follows.get(workspaceId) ?? new Map(),
+		);
 		const found = muted.has(workspaceId) ? unreadWhileMuted(all) : all;
 		if (found.chat.length + found.files.length === 0) continue;
 		// Access is checked now, not when the marker was written: a workspace
@@ -163,21 +187,32 @@ async function unreadByWorkspace(context: BaseContext) {
 	return unread;
 }
 
-async function workspaceUnread(
+/** One workspace's unread counts and the chats the person is notified about. */
+async function workspaceState(
 	context: BaseContext,
 	workspaceId: string,
 	marker: WorkspaceReadMarker | null,
-): Promise<WorkspaceUnread> {
-	if (!marker) return { chat: [], files: [] };
+): Promise<WorkspaceUnreadState> {
 	const { scope, readerIds } = reader(context);
-	return unreadFromFeed(
-		await listWorkspaceUnreadFeed(queryDb(context), {
-			organizationId: scope.organizationId,
+	const db = queryDb(context);
+	const follows =
+		(await chatFollowsByWorkspace(db, { scope, readerIds }, [workspaceId])).get(
 			workspaceId,
-			afterSeq: marker.floor,
-			readerIds,
-		}),
-		marker,
+		) ?? new Map();
+	if (!marker) return state(workspaceId, { chat: [], files: [] }, follows);
+	return state(
+		workspaceId,
+		unreadFromFeed(
+			await listWorkspaceUnreadFeed(db, {
+				organizationId: scope.organizationId,
+				workspaceId,
+				afterSeq: marker.floor,
+				readerIds,
+			}),
+			marker,
+			follows,
+		),
+		follows,
 	);
 }
 
@@ -229,10 +264,7 @@ export const workspaceUnreadRouter = os.router({
 			scope,
 			input.workspaceId,
 		);
-		return state(
-			input.workspaceId,
-			await workspaceUnread(context, input.workspaceId, marker),
-		);
+		return workspaceState(context, input.workspaceId, marker);
 	}),
 	list: os.list.handler(async ({ context }) => {
 		let fileBudget = LIST_FILE_LIMIT;
@@ -264,7 +296,7 @@ export const workspaceUnreadRouter = os.router({
 		};
 	}),
 	markRead: os.markRead.handler(async ({ context, input }) => {
-		const { scope } = reader(context);
+		const { scope, readerIds } = reader(context);
 		await requireWorkspace(context, input.workspaceId);
 		const db = queryDb(context);
 		const [current, positions] = await Promise.all([
@@ -278,14 +310,51 @@ export const workspaceUnreadRouter = os.router({
 		);
 		if (marker !== current)
 			await saveWorkspaceReadMarker(db, scope, input.workspaceId, marker);
-		return state(
-			input.workspaceId,
-			await workspaceUnread(context, input.workspaceId, marker),
-		);
+		// Opening the workspace picks up the chats the person posted in since
+		// the last time, so those notify them from here on.
+		if (input.target.type === "visit") {
+			const synced = await listWorkspaceChatFollowSyncs(db, scope, [
+				input.workspaceId,
+			]);
+			await recordChatsTakenPartIn(
+				db,
+				{ scope, readerIds },
+				input.workspaceId,
+				{
+					position: positions.get(input.workspaceId) ?? 0,
+					syncedSeq: synced.get(input.workspaceId) ?? null,
+				},
+			);
+		}
+		return workspaceState(context, input.workspaceId, marker);
 	}),
+	setChatNotifications: os.setChatNotifications.handler(
+		async ({ context, input }) => {
+			const { scope } = reader(context);
+			await requireWorkspace(context, input.workspaceId);
+			const db = queryDb(context);
+			await setWorkspaceChatFollow(
+				db,
+				scope,
+				input.workspaceId,
+				input.conversationId,
+				input.on ? "on" : "off",
+			);
+			return workspaceState(
+				context,
+				input.workspaceId,
+				await getWorkspaceReadMarker(db, scope, input.workspaceId),
+			);
+		},
+	),
 	notifyChat: os.notifyChat.handler(async ({ context, input }) => {
 		const { scope, readerIds } = reader(context);
 		const workspace = await requireWorkspace(context, input.workspaceId);
+		// Posting is taking part: replies in this chat notify the poster from
+		// now on, unless they chose otherwise for it.
+		await joinWorkspaceChats(queryDb(context), scope, workspace.id, [
+			input.conversationId,
+		]);
 		return notifyWorkspaceChat(context, queryDb(context), {
 			caller: scope,
 			callerIds: readerIds,

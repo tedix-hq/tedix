@@ -1,8 +1,10 @@
 /**
- * Push for workspace chat: when a person posts, tell the people who are
- * mentioned or who took part in that conversation and do not have the
- * workspace open. A person is never notified about their own post, a muted
- * workspace stays quiet, and the message never carries chat content.
+ * Push for workspace chat: when a person posts, tell the people who get
+ * notifications for that conversation and do not have the workspace open:
+ * those who took part in it, were mentioned in it or turned it on. Someone
+ * who turned the conversation off is not told, even when mentioned. A person
+ * is never notified about their own post, a muted workspace stays quiet, and
+ * the message never carries chat content.
  *
  * The poster's browser asks for this after sending, but nothing it says is
  * trusted beyond who is mentioned: the post is looked up in the workspace
@@ -24,6 +26,10 @@ import {
 	listPushConfigs,
 	savePushConfig,
 } from "@tedix/db/queries/web-push";
+import {
+	joinWorkspaceChats,
+	listWorkspaceChatFollowers,
+} from "@tedix/db/queries/workspace-chat-follow";
 import {
 	listWorkspaceFeedPositions,
 	listWorkspaceUnreadFeed,
@@ -74,8 +80,8 @@ export async function notifyWorkspaceChat(
 		mentionedUserIds: readonly string[];
 	},
 ): Promise<{ status: "sent" | "pending" | "none"; notified: number }> {
+	// Without push keys nothing is sent, but a mention still counts as taking part.
 	const keys = webPushKeys(context.env);
-	if (!keys) return { status: "none", notified: 0 };
 	const { caller, workspace } = input;
 	const organizationId = caller.organizationId;
 	const notifiedKey = `sent:${workspace.id}`;
@@ -106,7 +112,18 @@ export async function notifyWorkspaceChat(
 		afterSeq: Math.max(0, post.seq - PARTICIPANT_WINDOW),
 		readerIds: input.callerIds,
 	});
+	const followers = new Map(
+		(
+			await listWorkspaceChatFollowers(db, {
+				organizationId,
+				workspaceId: workspace.id,
+				conversationId: input.conversationId,
+			})
+		).map((follower) => [follower.userId, follower.state]),
+	);
 	const candidates = new Set<string>(mentioned);
+	for (const [userId, state] of followers)
+		if (state !== "off") candidates.add(userId);
 	for (const row of others)
 		if (postedIn(row) === input.conversationId) candidates.add(row.actorId);
 
@@ -141,6 +158,14 @@ export async function notifyWorkspaceChat(
 		)
 			continue;
 		const scope = { organizationId, userId: member.userId };
+		const follow = followers.get(member.userId);
+		if (follow === "off") continue;
+		const wasMentioned =
+			mentioned.has(member.descopeUserId) || mentioned.has(member.userId);
+		// Being mentioned is taking part: later replies notify them too.
+		if (wasMentioned && !follow)
+			await joinWorkspaceChats(db, scope, workspace.id, [input.conversationId]);
+		if (!keys) continue;
 		const preferences = WebPushPreferencesSchema.safeParse(
 			(await listPushConfigs(db, scope, "preferences"))[0]?.value,
 		);
@@ -158,13 +183,13 @@ export async function notifyWorkspaceChat(
 			)
 		)
 			continue;
-		const wasMentioned =
-			mentioned.has(member.descopeUserId) || mentioned.has(member.userId);
 		await sendPushToDevices(context, scope, keys, {
 			title: workspace.name,
 			body: wasMentioned
 				? `${sender} mentioned you in the chat.`
-				: `${sender} replied in a chat you took part in.`,
+				: follow === "on"
+					? `${sender} replied in a chat you get notifications for.`
+					: `${sender} replied in a chat you took part in.`,
 			url: `/workspace/${workspace.id}?conversation=${encodeURIComponent(input.conversationId)}&pane=chat`,
 			conversationId: workspacePushVisibilityKey(workspace.id),
 			tag: `chat:${workspace.id}:${post.seq}`,

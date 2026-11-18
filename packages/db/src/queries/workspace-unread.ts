@@ -203,6 +203,8 @@ function buildWorkspaceUnreadFeedStatement(
 		readerIds: readonly string[];
 		/** Return only the reader's own rows instead of everyone else's. */
 		own?: boolean;
+		/** Leave file rows out. */
+		runsOnly?: boolean;
 		limit?: number;
 	},
 ) {
@@ -239,8 +241,10 @@ function buildWorkspaceUnreadFeedStatement(
 				eq(workspaceActivity.workspaceId, params.workspaceId),
 				gt(workspaceActivity.seq, params.afterSeq),
 				eq(workspaceActivity.organizationId, params.organizationId),
-				// bound-params: the two feed kinds that can be unread
-				inArray(workspaceActivity.kind, ["output", "run"]),
+				params.runsOnly
+					? eq(workspaceActivity.kind, "run")
+					: // bound-params: the two feed kinds that can be unread
+						inArray(workspaceActivity.kind, ["output", "run"]),
 				params.own
 					? // bound-params: at most four ids of one person
 						inArray(workspaceActivity.actorId, readerIds)
