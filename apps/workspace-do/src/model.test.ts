@@ -494,3 +494,49 @@ test("the workspace chat offers the published catalog in its order and names", (
 	]);
 	expect(catalogWorkspaceModels(env, [])).toEqual([]);
 });
+
+test.each([true, false])(
+	"Azure chat requests carry the governed AI Gateway price (rate published=%s)",
+	async (published) => {
+		const { DatabaseSync } = await import("node:sqlite");
+		const { createD1Facade } = await import("@tedix/db/test/d1-facade");
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(`CREATE TABLE provider_model_rate_versions (
+			id TEXT PRIMARY KEY, provider TEXT NOT NULL, model_id TEXT NOT NULL,
+			deployment_scope TEXT NOT NULL, input_token_min INTEGER NOT NULL,
+			input_token_max INTEGER, effective_from TEXT NOT NULL,
+			input_microusd_per_million INTEGER NOT NULL, output_microusd_per_million INTEGER NOT NULL,
+			cache_read_microusd_per_million INTEGER NOT NULL, cache_write_microusd_per_million INTEGER NOT NULL,
+			currency TEXT NOT NULL, evidence_uri TEXT NOT NULL, evidence_digest TEXT NOT NULL,
+			verified_at TEXT NOT NULL, published_at TEXT NOT NULL, published_by TEXT NOT NULL,
+			change_reason TEXT NOT NULL, supersedes_rate_version_id TEXT)`);
+		const deployment = published ? "priced-deployment" : "unpriced-deployment";
+		if (published)
+			sqlite.exec(`INSERT INTO provider_model_rate_versions VALUES ('rate-1', 'azure-openai',
+				'priced-deployment', '["azure-openai","fixture-account","fixture-gateway","https://fixture-resource.openai.azure.com","priced-deployment"]',
+				0, 272001, '2026-01-01T00:00:00.000Z', 1000000, 5000000, 50000, 1250000, 'USD',
+				'https://example.com/evidence', '${"a".repeat(64)}', '2026-01-01T00:00:00.000Z',
+				'2026-01-01T00:00:00.000Z', 'fixture', 'fixture', NULL)`);
+		const requests: Request[] = [];
+		spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			requests.push(new Request(input as RequestInfo, init));
+			return Response.json({ error: { message: "stop" } }, { status: 400 });
+		});
+		const model = createAzureGatewayModel(
+			{
+				...configuredEnv,
+				AZURE_CHAT_DEPLOYMENT: deployment,
+				DB: createD1Facade(sqlite) as unknown as D1Database,
+			},
+			{ workspaceId: "w", turnId: "t", actorId: "a" },
+		);
+		await model
+			.stream({ messages: [{ role: "user", content: "Hi", timestamp: 0 }] })
+			.result();
+		expect(requests[0]!.headers.get("cf-aig-custom-cost")).toBe(
+			published
+				? '{"per_token_in":0.000001,"per_token_out":0.000005,"per_cache_read_token":0.00000005,"per_cache_write_token":0.00000125}'
+				: null,
+		);
+	},
+);

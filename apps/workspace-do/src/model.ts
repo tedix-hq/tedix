@@ -11,9 +11,12 @@ import type {
 import { streamSimple } from "@earendil-works/pi-ai/api/azure-openai-responses";
 import { streamSimple as streamCompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import {
+	aiGatewayCustomCost,
 	resolveAiGatewayTransport,
 	type AiGatewayTransportEnv,
 } from "@tedix/workers-ai/gateway-transport";
+import { findProviderModelRates } from "@tedix/db/queries/billing/provider-model-rates";
+import { createDbQueryClient } from "@tedix/db/query-client";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import {
 	type ModelCatalogEntry,
@@ -79,12 +82,73 @@ export function azureGatewayConfigured(env: AzureGatewayEnv): boolean {
 	);
 }
 
+/** The rate-table identity for a workspace model, matching `providerDeploymentScope`. */
+export function turnPricingIdentity(
+	env: AzureGatewayEnv,
+	modelId: string,
+): { provider: string; modelId: string; deploymentScope: string } | null {
+	const account = configured(env.AI_GATEWAY_ACCOUNT_ID);
+	if (!account) return null;
+	if (modelId.startsWith("@cf/"))
+		return {
+			provider: "workers-ai",
+			modelId,
+			deploymentScope: JSON.stringify(["workers-ai", account]),
+		};
+	const resource = configured(env.AZURE_OPENAI_RESOURCE);
+	const deployment = configured(env.AZURE_CHAT_DEPLOYMENT);
+	const gateway = configured(env.AI_GATEWAY_LLM_ID);
+	if (!resource || !deployment || !gateway) return null;
+	return {
+		provider: "azure-openai",
+		modelId: deployment,
+		deploymentScope: JSON.stringify([
+			"azure-openai",
+			account,
+			gateway,
+			`https://${resource.toLowerCase()}.openai.azure.com`,
+			deployment,
+		]),
+	};
+}
+
+const RATE_CACHE_MS = 5 * 60_000;
+const customCostCache = new Map<string, { at: number; value: string | null }>();
+
+/**
+ * AI Gateway prices Azure from Cloudflare's public list unless the request
+ * carries our governed rate. Chat context stays under the short-context band
+ * (128k window), so the zero-token band is the rate every turn pays.
+ */
+async function governedCustomCost(
+	db: D1Database | undefined,
+	identity: ReturnType<typeof turnPricingIdentity>,
+): Promise<string | null> {
+	if (!db || !identity) return null;
+	const cached = customCostCache.get(identity.deploymentScope);
+	if (cached && Date.now() - cached.at < RATE_CACHE_MS) return cached.value;
+	let value: string | null = null;
+	try {
+		const rows = await findProviderModelRates(createDbQueryClient(db), {
+			...identity,
+			occurredAt: new Date().toISOString(),
+			inputTokens: 0,
+		});
+		value = rows.length === 1 ? aiGatewayCustomCost(rows[0]!) : null;
+	} catch {
+		value = null;
+	}
+	customCostCache.set(identity.deploymentScope, { at: Date.now(), value });
+	return value;
+}
+
 export interface WorkspaceModelChoice {
 	id: string;
 	label: string;
 }
 
-export type WorkspaceModelEnv = AzureGatewayEnv & AiGatewayTransportEnv;
+export type WorkspaceModelEnv = AzureGatewayEnv &
+	AiGatewayTransportEnv & { DB?: D1Database };
 
 function workersAiTransport(env: WorkspaceModelEnv) {
 	const gateway = configured(env.AI_GATEWAY_LLM_ID);
@@ -181,7 +245,7 @@ export interface GatewayMetadata {
 }
 
 export function createAzureGatewayModel(
-	env: AzureGatewayEnv,
+	env: AzureGatewayEnv & { DB?: D1Database },
 	metadata: GatewayMetadata,
 ): ModelPort {
 	const resource = configured(env.AZURE_OPENAI_RESOURCE);
@@ -252,7 +316,7 @@ export function createAzureGatewayModel(
 					)
 						responseMetadata.usageReported = true;
 				},
-				fetch: (input, init) => {
+				fetch: async (input, init) => {
 					const request = new Request(input, init);
 					const url = new URL(request.url);
 					// This endpoint uses the GA v1 path, not a dated preview version.
@@ -260,6 +324,11 @@ export function createAzureGatewayModel(
 					// Provider credentials override the Gateway's stored BYOK key.
 					request.headers.delete("api-key");
 					request.headers.delete("authorization");
+					const customCost = await governedCustomCost(
+						env.DB,
+						turnPricingIdentity(env, `azure-openai/${deployment}`),
+					);
+					if (customCost) request.headers.set("cf-aig-custom-cost", customCost);
 					return fetch(new Request(url, request));
 				},
 				signal: options?.signal,
