@@ -335,13 +335,13 @@ describe("delegationFromRun / DelegationWorkCard", () => {
 		delegatedTediId: TEDI_ID,
 		childRunId: CHILD_RUN_ID,
 		createdAt: "2026-08-13T10:00:00.000Z",
-		progress: { current: 40, total: 100, label: "synthesizing…" },
+		progress: { current: 40, total: 100, label: "wrapping up…" },
 	} as const;
 
 	it("projects a delegated run and returns null for plain kernel turns", () => {
 		const work = delegationFromRun(run);
 		expect(work?.childRunId).toBe(CHILD_RUN_ID);
-		expect(work?.activityLabel).toBe("Writing the answer");
+		expect(work?.activityLabel).toBe("Wrapping up");
 		expect(
 			delegationFromRun({
 				...run,
@@ -365,7 +365,7 @@ describe("delegationFromRun / DelegationWorkCard", () => {
 		);
 		expect(html).toContain('data-run-status="failed"');
 		expect(html).toContain("The worker stopped before finishing.");
-		expect(html).not.toContain("synthesizing");
+		expect(html).not.toContain("rapping up");
 	});
 
 	it("says a technical failure plainly and keeps the raw error one hover away", () => {
@@ -422,7 +422,7 @@ describe("delegationFromRun / DelegationWorkCard", () => {
 		expect(html).toContain(
 			`href="/work/executions/${RUN_ID}?branch=${CHILD_RUN_ID}"`,
 		);
-		expect(html).toContain("Writing the answer");
+		expect(html).toContain("Wrapping up");
 		expect(html).toContain("CTO</strong> is working on this");
 		expect(html).toContain('role="status"');
 		expect(html).toContain('aria-label="CTO is working"');
