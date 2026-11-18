@@ -14,12 +14,22 @@ import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
  * epoch, bundle and current database revision explicitly.
  *
  * A page is stored only when the tenant declares a public policy or, for
- * marketing-template HTML without any policy, under the marketing default.
+ * canonical-template HTML without any policy, under the public page default.
  * Database writes rotate the revision before acknowledging publication;
  * in-flight renders can only fill their old revision's key.
  */
 export const MARKETING_PAGE_CACHE_CONTROL =
-	"public, max-age=60, stale-while-revalidate=86400";
+	"public, s-maxage=300, stale-while-revalidate=86400";
+
+const PUBLIC_TEMPLATES = new Set([
+	"marketing",
+	"native-marketing",
+	"tedix",
+	"blog",
+	"portfolio",
+	"starter",
+]);
+export const PAGE_CACHE_REASON_HEADER = "X-Tedix-Page-Cache-Reason";
 
 const CACHED_AT_HEADER = "X-Tedix-Page-Cached-At";
 const FRESH_FOR_HEADER = "X-Tedix-Page-Fresh-For";
@@ -146,13 +156,20 @@ export function pageCachePolicy(
 	templateSlug: string,
 ): PageCachePolicy | null {
 	if (response.status !== 200) return null;
-	if (!(response.headers.get("content-type") ?? "").startsWith("text/html"))
+	if (
+		!["text/html", "text/plain"].some((type) =>
+			(response.headers.get("content-type") ?? "").startsWith(type),
+		)
+	)
 		return null;
 	if (response.headers.has("set-cookie")) return null;
 	if ((response.headers.get("vary") ?? "").includes("*")) return null;
 	const declared =
 		response.headers.get("cache-control") ??
-		(templateSlug === "marketing" ? MARKETING_PAGE_CACHE_CONTROL : null);
+		(PUBLIC_TEMPLATES.has(templateSlug) &&
+		(response.headers.get("content-type") ?? "").startsWith("text/html")
+			? MARKETING_PAGE_CACHE_CONTROL
+			: null);
 	if (!declared) return null;
 	const directives = declared
 		.toLowerCase()
@@ -211,6 +228,7 @@ export function pageCacheHit(
 	headers.delete("Cache-Control");
 	headers.delete("cf-cache-status");
 	headers.set(PAGE_CACHE_STATUS_HEADER, fresh ? "HIT" : "STALE");
+	headers.set(PAGE_CACHE_REASON_HEADER, fresh ? "fresh" : "stale-refresh");
 	return {
 		response: new Response(cached.body, { status: 200, headers }),
 		fresh,
@@ -235,6 +253,10 @@ export async function cachedTenantPage(args: {
 		const policy = pageCachePolicy(rendered, args.templateSlug);
 		const headers = new Headers(rendered.headers);
 		headers.set(PAGE_CACHE_STATUS_HEADER, policy ? "MISS" : "BYPASS");
+		headers.set(
+			PAGE_CACHE_REASON_HEADER,
+			policy ? "not-in-cache" : "response-not-shareable",
+		);
 		if (!policy || !rendered.body)
 			return {
 				response: new Response(rendered.body, {

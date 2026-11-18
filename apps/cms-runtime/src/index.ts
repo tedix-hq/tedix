@@ -1809,78 +1809,91 @@ async function fetchCmsSite(
 				slug,
 			}));
 		if (restoreEpoch === null) return cmsRestoreFenceResponse();
-		const internalAuthToken = await deriveTenantInternalAuthToken(
-			env.CMS_INTERNAL_AUTH_TOKEN,
-			slug,
-			bundle.version,
-			restoreEpoch,
-		);
-		const humanAuthKey =
-			org.humanAssertionBundleEtag === bundle.etag
-				? await deriveTenantHumanAuthKey({
-						sharedToken: env.CMS_INTERNAL_AUTH_TOKEN,
-						siteId: org.siteId,
-						slug,
-						bundleEtag: bundle.etag,
-					})
-				: undefined;
-		const tenantEntrypointArgs = {
-			invocation: "fetch" as const,
-			accountId,
-			r2Token,
-			bundle,
-			internalAuthToken,
-			humanAuthKey,
-			org,
-			slug,
-			restoreEpoch,
-			spans,
-		};
-		// Publication must also discard EmDash's isolate-lifetime settings cache.
 		const publicPageEligible = pageCacheEligible(request, tenantUrl.pathname);
-		const baseLoaderKey = `${tenantRuntimeCacheKey(slug, bundle, org, env, publicPageEligible ? pageRevision : undefined)}@restore:${restoreEpoch}`;
-		const fetchTenant = (tenantFetchRequest: Request) =>
-			fetchWithTenantLoaderRecovery(
-				tenantFetchRequest,
-				baseLoaderKey,
-				tenantLoaderRecovery,
-				(loaderKey) =>
-					getTenantEntrypoint(env, ctx, tenantEntrypointArgs, loaderKey),
-				() => {
-					console.warn("[cms-runtime] tenant loader clone version retry", {
-						tenant: slug,
-					});
-				},
-			);
-
-		// Authenticate the Studio internal-auth header here, in the parent that
-		// owns the shared secret, and hand the isolate only its own derived
-		// value. See ./tenant-internal-auth.
-		let tenantRequest = rewriteTenantInternalAuthHeader(normalizedRequest, {
-			sharedToken: env.CMS_INTERNAL_AUTH_TOKEN,
-			tenantToken: internalAuthToken,
-		});
-		tenantRequest = await forwardCmsHumanAssertion({
-			original: normalizedPublicRequest,
-			tenantRequest,
-			sharedToken: env.CMS_INTERNAL_AUTH_TOKEN,
-			key: humanAuthKey,
-			expected: {
-				siteId: org.siteId,
+		let tenantRequest = normalizedRequest;
+		const prepareTenant = async () => {
+			const internalAuthToken = await deriveTenantInternalAuthToken(
+				env.CMS_INTERNAL_AUTH_TOKEN,
 				slug,
-				bundleEtag: bundle.etag,
-				tenantId: org.descopeTenantId,
-			},
-		});
-		const protectedTenantRequest = await protectLeadFormIp(tenantRequest, {
-			originalRequest: request,
-			secret: env.LEAD_FORM_IP_HASH_HMAC_KEY,
-			slug,
-		});
-		if (protectedTenantRequest instanceof Response) {
-			return protectedTenantRequest;
-		}
-		tenantRequest = protectedTenantRequest;
+				bundle.version,
+				restoreEpoch,
+			);
+			const humanAuthKey =
+				org.humanAssertionBundleEtag === bundle.etag
+					? await deriveTenantHumanAuthKey({
+							sharedToken: env.CMS_INTERNAL_AUTH_TOKEN,
+							siteId: org.siteId,
+							slug,
+							bundleEtag: bundle.etag,
+						})
+					: undefined;
+			const tenantEntrypointArgs = {
+				invocation: "fetch" as const,
+				accountId,
+				r2Token,
+				bundle,
+				internalAuthToken,
+				humanAuthKey,
+				org,
+				slug,
+				restoreEpoch,
+				spans,
+			};
+			// Publication must also discard EmDash's isolate-lifetime settings cache.
+			const baseLoaderKey = `${tenantRuntimeCacheKey(slug, bundle, org, env, publicPageEligible ? pageRevision : undefined)}@restore:${restoreEpoch}`;
+			const fetchTenant = (tenantFetchRequest: Request) =>
+				fetchWithTenantLoaderRecovery(
+					tenantFetchRequest,
+					baseLoaderKey,
+					tenantLoaderRecovery,
+					(loaderKey) =>
+						getTenantEntrypoint(env, ctx, tenantEntrypointArgs, loaderKey),
+					() => {
+						console.warn("[cms-runtime] tenant loader clone version retry", {
+							tenant: slug,
+						});
+					},
+				);
+
+			// Authenticate the Studio internal-auth header here, in the parent that
+			// owns the shared secret, and hand the isolate only its own derived
+			// value. See ./tenant-internal-auth.
+			tenantRequest = rewriteTenantInternalAuthHeader(normalizedRequest, {
+				sharedToken: env.CMS_INTERNAL_AUTH_TOKEN,
+				tenantToken: internalAuthToken,
+			});
+			tenantRequest = await forwardCmsHumanAssertion({
+				original: normalizedPublicRequest,
+				tenantRequest,
+				sharedToken: env.CMS_INTERNAL_AUTH_TOKEN,
+				key: humanAuthKey,
+				expected: {
+					siteId: org.siteId,
+					slug,
+					bundleEtag: bundle.etag,
+					tenantId: org.descopeTenantId,
+				},
+			});
+			const protectedTenantRequest = await protectLeadFormIp(tenantRequest, {
+				originalRequest: request,
+				secret: env.LEAD_FORM_IP_HASH_HMAC_KEY,
+				slug,
+			});
+			if (protectedTenantRequest instanceof Response) {
+				return protectedTenantRequest;
+			}
+			tenantRequest = protectedTenantRequest;
+
+			return fetchTenant;
+		};
+		let prepared: Awaited<ReturnType<typeof prepareTenant>> | undefined;
+		const renderTenant = async (anonymous = false): Promise<Response> => {
+			prepared ??= await prepareTenant();
+			if (prepared instanceof Response) return prepared;
+			return prepared(
+				anonymous ? anonymousPageRequest(tenantRequest) : tenantRequest,
+			);
+		};
 
 		let loaderResponse: Response;
 		try {
@@ -1903,15 +1916,25 @@ async function fetchCmsSite(
 							key: pageKey,
 							templateSlug: org.templateSlug,
 							waitUntil: (promise) => ctx.waitUntil(promise),
-							render: () => fetchTenant(anonymousPageRequest(tenantRequest)),
+							render: () => renderTenant(true),
 						})
-					: fetchTenant(tenantRequest),
+					: renderTenant(),
 			);
+			if (!publicPageEligible) {
+				loaderResponse = new Response(loaderResponse.body, loaderResponse);
+				loaderResponse.headers.set("X-Tedix-Page-Cache", "BYPASS");
+				loaderResponse.headers.set(
+					"X-Tedix-Page-Cache-Reason",
+					"request-not-eligible",
+				);
+			}
 			if (isSoftNotFound(loaderResponse, tenantRequest)) {
 				loaderResponse = await span(spans, "loader.notFoundFetch", () =>
-					fetchTenant(
-						new Request(new URL("/404", tenantRequest.url), tenantRequest),
-					),
+					prepared && !(prepared instanceof Response)
+						? prepared(
+								new Request(new URL("/404", tenantRequest.url), tenantRequest),
+							)
+						: renderTenant(),
 				);
 			}
 		} catch (loaderErr) {

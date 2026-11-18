@@ -180,10 +180,21 @@ describe("tenant page cache eligibility and policy", () => {
 			),
 		).toEqual({ freshSeconds: 300, staleSeconds: 86400 });
 		expect(pageCachePolicy(html("x"), "marketing")).toEqual({
-			freshSeconds: 60,
+			freshSeconds: 300,
 			staleSeconds: 86400,
 		});
-		expect(pageCachePolicy(html("x"), "tedix")).toBeNull();
+		for (const template of [
+			"tedix",
+			"native-marketing",
+			"blog",
+			"portfolio",
+			"starter",
+		])
+			expect(pageCachePolicy(html("x"), template)).toEqual({
+				freshSeconds: 300,
+				staleSeconds: 86400,
+			});
+		expect(pageCachePolicy(html("x"), "unknown")).toBeNull();
 		expect(
 			pageCachePolicy(
 				html("x", { "Cache-Control": "public, max-age=30" }),
@@ -228,6 +239,28 @@ describe("tenant page cache eligibility and policy", () => {
 describe("cachedTenantPage", () => {
 	const key = new Request("https://acme.example/_tedix/page-cache/acme/k");
 
+	it("caches declared llms text and exposes the decision reason", async () => {
+		const cache = new MemoryCache();
+		const render = vi.fn(
+			async () =>
+				new Response("overview", {
+					headers: {
+						"Content-Type": "text/plain",
+						"Cache-Control": "public, s-maxage=3600",
+					},
+				}),
+		);
+		const miss = await serve(cache, key, render, 0, "tedix");
+		expect(miss.response.headers.get("X-Tedix-Page-Cache-Reason")).toBe(
+			"not-in-cache",
+		);
+		await miss.response.text();
+		const hit = await serve(cache, key, render, 1000, "tedix");
+		expect(hit.response.headers.get("X-Tedix-Page-Cache-Reason")).toBe("fresh");
+		expect(await hit.response.text()).toBe("overview");
+		expect(render).toHaveBeenCalledTimes(1);
+	});
+
 	it("renders a miss, then serves a fresh hit without rendering", async () => {
 		const cache = new MemoryCache();
 		let renders = 0;
@@ -251,12 +284,12 @@ describe("cachedTenantPage", () => {
 		const render = async () => html(`v${++renders}`);
 		await (await serve(cache, key, render, 0)).response.text();
 
-		const stale = await serve(cache, key, render, 61_000);
+		const stale = await serve(cache, key, render, 301_000);
 		expect(stale.response.headers.get(PAGE_CACHE_STATUS_HEADER)).toBe("STALE");
 		expect(await stale.response.text()).toBe("v1");
 		expect(renders).toBe(2);
 
-		const refreshed = await serve(cache, key, render, 62_000);
+		const refreshed = await serve(cache, key, render, 302_000);
 		expect(refreshed.response.headers.get(PAGE_CACHE_STATUS_HEADER)).toBe(
 			"HIT",
 		);
@@ -321,7 +354,7 @@ function startRefresh(
 	cache: MemoryCache,
 	key: Request,
 	render: () => Promise<Response>,
-	now = 61_000,
+	now = 301_000,
 ) {
 	const background: Promise<unknown>[] = [];
 	const response = cachedTenantPage({
@@ -366,7 +399,7 @@ describe("request-owned stale refresh reservations", () => {
 		rendered.resolve(html("fresh"));
 		await first.finish();
 		expect(
-			await (await serve(cache, key, render, 62_000)).response.text(),
+			await (await serve(cache, key, render, 302_000)).response.text(),
 		).toBe("fresh");
 	});
 
@@ -430,11 +463,11 @@ describe("request-owned stale refresh reservations", () => {
 			expect.any(Error),
 		);
 		await (
-			await serve(cache, key, async () => html("recovered"), 62_000)
+			await serve(cache, key, async () => html("recovered"), 302_000)
 		).response.text();
 		expect(
 			await (
-				await serve(cache, key, async () => html("unexpected"), 63_000)
+				await serve(cache, key, async () => html("unexpected"), 303_000)
 			).response.text(),
 		).toBe("recovered");
 	});
@@ -449,7 +482,7 @@ describe("request-owned stale refresh reservations", () => {
 			cache,
 			key,
 			() => secondRender.promise,
-			121_001,
+			361_001,
 		);
 		await (await second.response).text();
 		expect(second.background).toHaveLength(1);
@@ -459,7 +492,7 @@ describe("request-owned stale refresh reservations", () => {
 			cache,
 			key,
 			async () => html("unexpected"),
-			121_002,
+			361_002,
 		);
 		await (await third.response).text();
 		expect(third.background).toHaveLength(0);
