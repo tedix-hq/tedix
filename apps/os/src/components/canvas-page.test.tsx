@@ -968,26 +968,13 @@ describe("canvasDocKey", () => {
 });
 
 describe("Canvas workbench state", () => {
-	it("opens the workspace's app first, then the newest durable output", () => {
-		expect(primaryCanvasDoc([outputFixture()], [gadgetFixture()])).toEqual({
-			type: "gadget",
-			id: GADGET_ID,
-		});
-		expect(primaryCanvasDoc([outputFixture()], [])).toEqual({
-			type: "output",
-			id: OUTPUT_ID,
-		});
-		expect(primaryCanvasDoc([], [])).toBeNull();
-	});
-
-	it("opens the owner's chosen app when several are available", () => {
+	it("opens only the app its owner marked as the workspace default", () => {
 		expect(
-			primaryCanvasDoc([], [{ id: "first" }, { id: "chosen" }], "chosen"),
+			primaryCanvasDoc([{ id: "first" }, { id: "chosen" }], "chosen"),
 		).toEqual({ type: "gadget", id: "chosen" });
-		expect(primaryCanvasDoc([], [{ id: "first" }], "unavailable")).toEqual({
-			type: "gadget",
-			id: "first",
-		});
+		expect(primaryCanvasDoc([{ id: "first" }])).toBeNull();
+		expect(primaryCanvasDoc([{ id: "first" }], "unavailable")).toBeNull();
+		expect(primaryCanvasDoc([])).toBeNull();
 	});
 
 	it("keeps app views visible and shows other menu views when opened", () => {
@@ -1995,7 +1982,7 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).not.toContain("Workspace conversations");
 	});
 
-	it("opens a populated workspace on its primary workpiece", async () => {
+	it("opens a populated workspace on its Overview when no app is the default", async () => {
 		mockLists();
 		const container = renderPage();
 		await flush();
@@ -2026,35 +2013,47 @@ describe("CanvasPage listing", () => {
 		expect(osWorkspacesApi.workspacePreferences.touch).toHaveBeenCalledWith({
 			workspaceId: WORKSPACE_ID,
 		});
-		expect(
-			container.querySelector('[aria-label="All workspaces"]'),
-		).not.toBeNull();
+		expect(osWorkspacesApi.gadgets.get).toHaveBeenCalled();
 		expect(container.textContent).toContain("Ops room");
-		expect(container.textContent).toContain("Report gadget");
-		expect(container.textContent).toContain("Weekly report");
-		expect(
-			container.querySelector('[data-output-kind="document"]'),
-		).not.toBeNull();
-		expect(container.querySelector(".canvas-resource-library")).toBeNull();
-		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
-		expect(container.querySelector('[role="tab"]')?.textContent).toContain(
-			"Report gadget",
-		);
-		expect(container.querySelector(".canvas-chat-resizer")).not.toBeNull();
-		const stage = container.querySelector(".canvas-stage");
-		expect(stage?.tagName).toBe("SECTION");
-		expect(stage?.getAttribute("aria-label")).toBe("Workspace workpiece");
-		expect(container.querySelector(".canvas-surface main")).toBeNull();
-		expect(
-			container
-				.querySelector(".canvas-surface")
-				?.getAttribute("data-mobile-pane"),
-		).toBe("workpiece");
+		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(0);
 		expect(
 			container
 				.querySelector(".canvas-surface")
 				?.getAttribute("data-resource-rail-open"),
-		).toBe("false");
+		).toBe("true");
+		expect(routing.navigate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				search: expect.objectContaining({ pane: "resources" }),
+				replace: true,
+			}),
+		);
+		expect(routing.navigate).not.toHaveBeenCalledWith(
+			expect.objectContaining({
+				search: expect.objectContaining({ pane: "workpiece" }),
+			}),
+		);
+	});
+
+	it("opens the app its manifest marks as the workspace default", async () => {
+		mockLists();
+		osWorkspacesApi.gadgets.get.mockResolvedValue({
+			gadget: gadgetFixture(),
+			currentRevision: gadgetRevisionFixture({
+				manifest: {
+					capabilities: [],
+					entry: "tedix:runtime/v1",
+					navigation: { workspaceDefault: true },
+				},
+			}),
+		});
+		const container = renderPage();
+		await flush();
+		await flush();
+
+		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
+		expect(container.querySelector('[role="tab"]')?.textContent).toContain(
+			"Report gadget",
+		);
 		expect(routing.navigate).toHaveBeenCalledWith(
 			expect.objectContaining({
 				search: expect.objectContaining({
@@ -2071,7 +2070,11 @@ describe("CanvasPage listing", () => {
 		osWorkspacesApi.gadgets.get.mockResolvedValue({
 			gadget: gadgetFixture(),
 			currentRevision: gadgetRevisionFixture({
-				manifest: { capabilities: [], entry: `/outputs/${OUTPUT_ID}` },
+				manifest: {
+					capabilities: [],
+					entry: `/outputs/${OUTPUT_ID}`,
+					navigation: { workspaceDefault: true },
+				},
 			}),
 		});
 		renderPage();

@@ -190,11 +190,37 @@ export async function getOsWorkspaceResource(
 	return row;
 }
 
+/**
+ * True for a Tedix file or output reference whose Output is archived or gone.
+ * An uploaded file and its document Output share one id, so archiving the
+ * file from the Files list archives only the Output; restoring it brings the
+ * reference back. A file uploaded without a document Output stays listed.
+ */
+const referencesInactiveOutput = sql`(
+	${osWorkspaceResources.providerId} = 'tedix'
+	and (
+		(${osWorkspaceResources.resourceType} = 'file' and exists (
+			select 1 from ${osOutputs}
+			where ${osOutputs.organizationId} = ${osWorkspaceResources.organizationId}
+			and ${osOutputs.id} = ${osWorkspaceResources.providerResourceId}
+			and ${osOutputs.status} <> 'active'
+		))
+		or (${osWorkspaceResources.resourceType} = 'output' and not exists (
+			select 1 from ${osOutputs}
+			where ${osOutputs.organizationId} = ${osWorkspaceResources.organizationId}
+			and ${osOutputs.id} = ${osWorkspaceResources.providerResourceId}
+			and ${osOutputs.status} = 'active'
+		))
+	)
+)`;
+
 export async function listOsWorkspaceResources(
 	db: DbQueryClient,
 	params: OsWorkspaceResourceScope & {
 		status?: OsWorkspaceResourceRow["status"];
 		limit?: number;
+		/** Leave out Tedix file and output references whose Output is archived or gone. */
+		hideInactiveOutputs?: boolean;
 	},
 ): Promise<OsWorkspaceResourceRow[]> {
 	const conditions = [
@@ -203,6 +229,9 @@ export async function listOsWorkspaceResources(
 	];
 	if (params.status) {
 		conditions.push(eq(osWorkspaceResources.status, params.status));
+	}
+	if (params.hideInactiveOutputs) {
+		conditions.push(sql`not ${referencesInactiveOutput}`);
 	}
 	return db
 		.select()

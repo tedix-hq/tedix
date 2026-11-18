@@ -591,7 +591,10 @@ export function OutputsPage() {
 	});
 	const outputs = kind === "archived" ? archivedOutputs : activeOutputs;
 	const invalidate = () =>
-		queryClient.invalidateQueries({ queryKey: osQueryKeys.outputs() });
+		Promise.all([
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.outputs() }),
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.resources() }),
+		]);
 	const rename = useMutation({
 		...osQuery.osWorkspaces.outputs.rename.mutationOptions(),
 		onSuccess: ({ output }) => {

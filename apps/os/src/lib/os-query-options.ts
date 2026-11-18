@@ -1650,6 +1650,8 @@ export const osQueryKeys = {
 	members: () => osQuery.members.listMembers.key({ type: "query" }),
 	modelCatalog: () => osQuery.modelCatalog.key({ type: "query" }),
 	outputs: () => osQuery.osWorkspaces.outputs.key({ type: "query" }),
+	/** Connected sources: an uploaded file leaves them when its Output is archived. */
+	resources: () => osQuery.osWorkspaces.resources.key({ type: "query" }),
 	/** Roster, detail, status, channel pairing, and operations projections. */
 	tedis: () => osQuery.tedis.key({ type: "query" }),
 	tediSecrets: () => osQuery.tediSecrets.key({ type: "query" }),

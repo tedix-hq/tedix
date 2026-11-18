@@ -2,7 +2,11 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { skillEntries } from "../../schema/cognitive";
-import { osWorkspaceResources, osWorkspaces } from "../../schema/os-workspaces";
+import {
+	osOutputs,
+	osWorkspaceResources,
+	osWorkspaces,
+} from "../../schema/os-workspaces";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
@@ -26,7 +30,7 @@ function fixture() {
 		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL);
 		INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
 	`);
-	sqlite.exec(schemaDdl(osWorkspaces, osWorkspaceResources));
+	sqlite.exec(schemaDdl(osWorkspaces, osWorkspaceResources, osOutputs));
 	// schemaDdl deliberately omits expression indexes; exercise the production identity index on real SQLite.
 	sqlite.exec(
 		"CREATE UNIQUE INDEX os_workspace_resources_provider_object_unique ON os_workspace_resources(workspace_id,provider_id,connection_scope,coalesce(personal_owner_user_id, ''),coalesce(connection_instance_id, ''),resource_type,provider_resource_id)",
@@ -378,6 +382,64 @@ describe("OS Workspace resources", () => {
 			removedAt: null,
 			name: "Product repository",
 		});
+	});
+
+	it("hides Tedix file and output references whose Output is archived or gone, on request", async () => {
+		const { db, resource } = await seed();
+		const output = (id: string, status: "active" | "archived") =>
+			db.insert(osOutputs).values({
+				id,
+				organizationId: "org-1",
+				workspaceId: "ws-1",
+				kind: "document",
+				title: id,
+				status,
+				createdByKind: "user",
+				createdById: "u-1",
+			});
+		await output("file-archived", "archived");
+		await output("file-active", "active");
+		await output("output-archived", "archived");
+		await output("output-active", "active");
+		const tedix = (id: string, resourceType: "file" | "output") =>
+			createOsWorkspaceResource(db, {
+				...resource,
+				id,
+				providerId: "tedix",
+				requiredScopes: "[]",
+				resourceType,
+				providerResourceId: id,
+				name: id,
+				metadata: "{}",
+			});
+		for (const id of ["file-archived", "file-active", "file-without-document"])
+			await tedix(id, "file");
+		for (const id of ["output-archived", "output-active", "output-gone"])
+			await tedix(id, "output");
+		const scope = { organizationId: "org-1", workspaceId: "ws-1" };
+
+		const visible = await listOsWorkspaceResources(db, {
+			...scope,
+			status: "active",
+			hideInactiveOutputs: true,
+		});
+		expect(visible.map((row) => row.id).sort()).toEqual([
+			"file-active",
+			"file-without-document",
+			"output-active",
+			"resource-1",
+		]);
+		expect(
+			await listOsWorkspaceResources(db, { ...scope, status: "active" }),
+		).toHaveLength(7);
+
+		await db.update(osOutputs).set({ status: "active" });
+		expect(
+			await listOsWorkspaceResources(db, {
+				...scope,
+				hideInactiveOutputs: true,
+			}),
+		).toHaveLength(6);
 	});
 
 	it("lists the workspaces an active skill link points at", async () => {

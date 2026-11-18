@@ -83,6 +83,7 @@ function useWorkspaceItemActions(workspaceId: string, item: WorkspaceMenuItem) {
 		Promise.all([
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.outputs() }),
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.gadgets() }),
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.resources() }),
 		]);
 	const rename = useMutation<void, Error, string, () => void>({
 		mutationFn: async (name) => {
