@@ -11,6 +11,9 @@ import TextWithImage from "./blocks/TextWithImage.astro";
 import Testimonials from "./blocks/Testimonials.astro";
 import Pricing from "./blocks/Pricing.astro";
 import FAQ from "./blocks/FAQ.astro";
+import LinkDirectory from "./blocks/LinkDirectory.astro";
+import FounderProfile from "./blocks/FounderProfile.astro";
+import ResearchSection from "./blocks/ResearchSection.astro";
 
 interface Props {
 	value?: PageContentBlock[] | null;
@@ -28,6 +31,9 @@ const components = defineBlockComponents<PageContentBlock>({
 	marketing_testimonials: Testimonials,
 	marketing_pricing: Pricing,
 	marketing_faq: FAQ,
+	marketing_link_directory: LinkDirectory,
+	marketing_founder_profile: FounderProfile,
+	marketing_research_section: ResearchSection,
 });
 ---
 

@@ -1,0 +1,35 @@
+---
+import { Image, PortableText, type BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asItems } from "./value-utils";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_research_section" }>>;
+const { value } = Astro.props;
+const Heading = value.page_heading ? "h1" : "h2";
+---
+
+<section class="mk-research" id={value.anchor ?? undefined}>
+	{value.eyebrow && <p class="mk-research__eyebrow">{value.eyebrow}</p>}
+	<Heading>{value.heading}</Heading>
+	{value.body && <div class="mk-research__body"><PortableText value={value.body} /></div>}
+	{value.image && <figure><Image image={value.image} />{value.caption && <figcaption>{value.caption}</figcaption>}</figure>}
+	{asItems(value.links).length > 0 && (
+		<ul class="mk-research__links">
+			{asItems(value.links).map((link) => <li><a href={link.href}>{link.label}</a></li>)}
+		</ul>
+	)}
+</section>
+
+<style>
+	.mk-research { max-width: 960px; margin: 64px auto; padding: 0 24px; scroll-margin-top: 7rem; }
+	.mk-research__eyebrow { color: var(--color-brand-500); font-weight: 600; text-transform: uppercase; letter-spacing: .18em; }
+	.mk-research h1, .mk-research h2 { font-family: var(--font-display); color: var(--color-text); line-height: 1.15; }
+	.mk-research h1 { font-size: clamp(2.25rem, 5vw, 4rem); }
+	.mk-research h2 { font-size: clamp(1.6rem, 3vw, 2.5rem); }
+	.mk-research__body, .mk-research figcaption { color: var(--color-text-secondary); line-height: 1.75; }
+	.mk-research figure { margin: 32px 0; }
+	.mk-research :global(img) { max-width: 100%; height: auto; border-radius: 24px; }
+	.mk-research figcaption { margin-top: 12px; font-size: .875rem; }
+	.mk-research__links { display: flex; flex-wrap: wrap; gap: 24px; padding: 0; list-style: none; }
+	.mk-research a { color: var(--color-brand-600); overflow-wrap: anywhere; }
+</style>

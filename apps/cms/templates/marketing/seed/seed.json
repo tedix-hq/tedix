@@ -632,6 +632,219 @@
 					]
 				}
 			]
+		},
+		{
+			"slug": "marketing_link_directory",
+			"label": "Link directory",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "anchor",
+							"label": "Section anchor",
+							"type": "string"
+						},
+						{
+							"slug": "eyebrow",
+							"label": "Eyebrow",
+							"type": "string"
+						},
+						{
+							"slug": "heading",
+							"label": "Heading",
+							"type": "string",
+							"required": true
+						},
+						{
+							"slug": "page_heading",
+							"label": "Use page heading",
+							"type": "boolean"
+						},
+						{
+							"slug": "body",
+							"label": "Body",
+							"type": "portableText"
+						},
+						{
+							"slug": "items",
+							"label": "Links and cards",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "title",
+										"label": "Title",
+										"type": "string",
+										"required": true
+									},
+									{
+										"slug": "href",
+										"label": "URL",
+										"type": "url",
+										"required": true
+									},
+									{
+										"slug": "description",
+										"label": "Description",
+										"type": "text"
+									},
+									{
+										"slug": "label",
+										"label": "Badge",
+										"type": "string"
+									},
+									{
+										"slug": "link_label",
+										"label": "Link label",
+										"type": "string"
+									},
+									{
+										"slug": "image",
+										"label": "Image",
+										"type": "image"
+									}
+								],
+								"maxItems": 100
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_founder_profile",
+			"label": "Founder profile",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "eyebrow",
+							"label": "Eyebrow",
+							"type": "string"
+						},
+						{
+							"slug": "name",
+							"label": "Name",
+							"type": "string",
+							"required": true
+						},
+						{
+							"slug": "role",
+							"label": "Role",
+							"type": "string"
+						},
+						{
+							"slug": "image",
+							"label": "Portrait",
+							"type": "image"
+						},
+						{
+							"slug": "body",
+							"label": "Biography",
+							"type": "portableText"
+						},
+						{
+							"slug": "links",
+							"label": "Links",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "label",
+										"label": "Label",
+										"type": "string",
+										"required": true
+									},
+									{
+										"slug": "href",
+										"label": "URL",
+										"type": "url",
+										"required": true
+									}
+								],
+								"maxItems": 30
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_research_section",
+			"label": "Research section",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "anchor",
+							"label": "Section anchor",
+							"type": "string"
+						},
+						{
+							"slug": "eyebrow",
+							"label": "Eyebrow",
+							"type": "string"
+						},
+						{
+							"slug": "heading",
+							"label": "Heading",
+							"type": "string",
+							"required": true
+						},
+						{
+							"slug": "page_heading",
+							"label": "Use page heading",
+							"type": "boolean"
+						},
+						{
+							"slug": "body",
+							"label": "Body",
+							"type": "portableText"
+						},
+						{
+							"slug": "image",
+							"label": "Image",
+							"type": "image"
+						},
+						{
+							"slug": "caption",
+							"label": "Caption",
+							"type": "string"
+						},
+						{
+							"slug": "links",
+							"label": "Links",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "label",
+										"label": "Label",
+										"type": "string",
+										"required": true
+									},
+									{
+										"slug": "href",
+										"label": "URL",
+										"type": "url",
+										"required": true
+									}
+								],
+								"maxItems": 30
+							}
+						}
+					]
+				}
+			]
 		}
 	],
 	"collections": [
@@ -714,7 +927,10 @@
 							"marketing_text_with_image",
 							"marketing_testimonials",
 							"marketing_pricing",
-							"marketing_faq"
+							"marketing_faq",
+							"marketing_link_directory",
+							"marketing_founder_profile",
+							"marketing_research_section"
 						],
 						"maxItems": 30
 					}
@@ -922,5 +1138,157 @@
 				}
 			}
 		]
-	}
+	},
+	"sections": [
+		{
+			"slug": "link-directory",
+			"title": "Link directory",
+			"description": "An introduction and ordered resource cards.",
+			"keywords": ["resources", "links"],
+			"content": [
+				{
+					"_type": "marketing_link_directory",
+					"_version": 1,
+					"_key": "resources",
+					"heading": "Resources",
+					"page_heading": true,
+					"body": [
+						{
+							"_type": "block",
+							"_key": "intro",
+							"style": "normal",
+							"markDefs": [],
+							"children": [
+								{
+									"_type": "span",
+									"_key": "intro-text",
+									"text": "Explore our work and the people behind it.",
+									"marks": []
+								}
+							]
+						}
+					],
+					"items": [
+						{
+							"title": "Project overview",
+							"href": "/overview",
+							"description": "Start with the project overview.",
+							"link_label": "Read overview"
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "founder-profile",
+			"title": "Founder profile",
+			"description": "A portrait, biography and links followed by selected work.",
+			"keywords": ["founder", "profile"],
+			"content": [
+				{
+					"_type": "marketing_founder_profile",
+					"_version": 1,
+					"_key": "profile",
+					"eyebrow": "Founder profile",
+					"name": "Alex Morgan",
+					"role": "Founder",
+					"body": [
+						{
+							"_type": "block",
+							"_key": "bio",
+							"style": "normal",
+							"markDefs": [],
+							"children": [
+								{
+									"_type": "span",
+									"_key": "bio-text",
+									"text": "Building useful tools with a small team.",
+									"marks": []
+								}
+							]
+						}
+					],
+					"links": [
+						{
+							"label": "Website",
+							"href": "https://example.com"
+						}
+					]
+				},
+				{
+					"_type": "marketing_link_directory",
+					"_version": 1,
+					"_key": "evidence",
+					"heading": "Selected work",
+					"items": [
+						{
+							"title": "Research notes",
+							"href": "/research",
+							"description": "Read the latest research."
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "research-page",
+			"title": "Research page",
+			"description": "A research introduction, findings and references.",
+			"keywords": ["research", "evidence"],
+			"content": [
+				{
+					"_type": "marketing_research_section",
+					"_version": 1,
+					"_key": "intro",
+					"heading": "Research",
+					"page_heading": true,
+					"body": [
+						{
+							"_type": "block",
+							"_key": "summary",
+							"style": "normal",
+							"markDefs": [],
+							"children": [
+								{
+									"_type": "span",
+									"_key": "summary-text",
+									"text": "Our research questions and findings.",
+									"marks": []
+								}
+							]
+						}
+					]
+				},
+				{
+					"_type": "marketing_research_section",
+					"_version": 1,
+					"_key": "findings",
+					"anchor": "findings",
+					"heading": "Findings",
+					"body": [
+						{
+							"_type": "block",
+							"_key": "findings-body",
+							"style": "normal",
+							"markDefs": [],
+							"children": [
+								{
+									"_type": "span",
+									"_key": "findings-body-text",
+									"text": "Describe the evidence and its limitations.",
+									"marks": []
+								}
+							]
+						}
+					],
+					"links": [
+						{
+							"label": "Reference",
+							"href": "https://example.com/research"
+						}
+					]
+				}
+			]
+		}
+	]
 }

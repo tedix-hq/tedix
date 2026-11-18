@@ -1,0 +1,30 @@
+---
+import { Image, PortableText, type BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asItems } from "./value-utils";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_founder_profile" }>>;
+const { value } = Astro.props;
+---
+
+<section class="mk-profile">
+	{value.image && <div class="mk-profile__portrait"><Image image={value.image} /></div>}
+	{value.eyebrow && <p class="mk-profile__eyebrow">{value.eyebrow}</p>}
+	<h1>{value.name}</h1>
+	{value.role && <p class="mk-profile__role">{value.role}</p>}
+	{value.body && <div class="mk-profile__body"><PortableText value={value.body} /></div>}
+	<div class="mk-profile__links">
+		{asItems(value.links).map((link) => <a href={link.href}>{link.label}</a>)}
+	</div>
+</section>
+
+<style>
+	.mk-profile { max-width: 768px; margin: 64px auto 48px; padding: 0 24px; text-align: center; }
+	.mk-profile__portrait :global(img) { display: block; width: 112px; height: 112px; margin: 0 auto; object-fit: cover; border-radius: 32px; }
+	.mk-profile__eyebrow { margin-top: 28px; color: var(--color-brand-500); font-weight: 600; text-transform: uppercase; letter-spacing: .18em; }
+	.mk-profile h1 { font-family: var(--font-display); color: var(--color-text); font-size: 2.25rem; letter-spacing: -.025em; }
+	.mk-profile__role { font-weight: 600; }
+	.mk-profile__body, .mk-profile__role { color: var(--color-text-secondary); line-height: 1.65; }
+	.mk-profile__links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+	.mk-profile__links a { flex: 1 1 160px; padding: 16px 20px; border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-surface); color: var(--color-brand-600); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+</style>
