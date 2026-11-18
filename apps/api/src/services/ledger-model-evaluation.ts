@@ -77,23 +77,18 @@ export async function evaluateLedgerModel(
 			latencyMs: Date.now() - startedAt,
 		});
 	try {
-		const pending = fetchLedgerGatewayCompletion(scoped, {
+		const response = await fetchLedgerGatewayCompletion(scoped, {
+			organizationId,
+			source: "ledger-qualification",
+			billingSource: "evaluation",
 			model: model.modelId,
 			system: fixture.system,
 			prompt: fixture.prompt,
-			metadata: {
-				surface: "ledger-qualification",
-				orgId: organizationId,
-				evaluationId: input.evaluationId,
-				modelRef: input.modelRef,
-				case: `${input.surface}:${input.caseId}:${input.promptVariant}`,
-			},
 		});
-		if (!pending) {
+		if (!response) {
 			base.error = "Managed evaluation transport unavailable";
 			return result("unavailable");
 		}
-		const response = await pending;
 		base.providerRequestId =
 			(
 				response.headers.get("x-request-id") ??

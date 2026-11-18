@@ -27,6 +27,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { decodeAiGatewayAttribution } from "@tedix/api-contract/schemas/ai-gateway-attribution";
 import {
 	acceptAgentSessionEvents,
 	type LedgerModel,
@@ -43,6 +44,30 @@ import {
 	REQUEST_STATUS_REFLECTOR_SYSTEM_PROMPT,
 	SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
 } from "@tedix/context-core/request-ledger";
+
+const billing = vi.hoisted(() => {
+	let next = 0;
+	return {
+		reserve: vi.fn(
+			async (
+				_env: { AI_GATEWAY_ACCOUNT_ID?: string },
+				input: {
+					context: Record<string, unknown>;
+					source: string;
+					execution: {
+						provider: string;
+						requestModel: string;
+						deployment: string | null;
+					};
+				},
+			) => ({ ...input.context, executionId: `execution-${++next}` }),
+		),
+	};
+});
+vi.mock("../rpc/routers/kernel/billing-reservation", () => ({
+	reserveKernelBilling: billing.reserve,
+	kernelRegionalExecution: () => undefined,
+}));
 
 const SCOPE = {
 	organizationId: "org-example",
@@ -1285,6 +1310,7 @@ it("never closes an ask from an unproposed agent approval claim", async () => {
 });
 
 it("uses the Gateway for reflection, intake and filing while keeping the observer small", async () => {
+	billing.reserve.mockClear();
 	const run = vi.fn().mockResolvedValue({ response: '{"requests":[]}' });
 	const fetch = vi.fn().mockResolvedValue(
 		Response.json({
@@ -1300,6 +1326,7 @@ it("uses the Gateway for reflection, intake and filing while keeping the observe
 	const model = workersAiLedgerModel(
 		{
 			AI: { run, fetch } as unknown as Ai,
+			AI_GATEWAY_ACCOUNT_ID: "example-account",
 			AI_GATEWAY_LLM_ID: "example-gateway",
 			AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
 			AZURE_OPENAI_RESOURCE: "example-resource",
@@ -1397,16 +1424,37 @@ it("uses the Gateway for reflection, intake and filing while keeping the observe
 		model("system", "portfolio", "agent-session-project-routing"),
 	).rejects.toThrow("Request filing model exceeded its 24-second deadline");
 	expect(run).toHaveBeenCalledTimes(1);
+	expect(billing.reserve).toHaveBeenCalledTimes(fetch.mock.calls.length);
+	for (const [env, admission] of billing.reserve.mock.calls) {
+		expect(env.AI_GATEWAY_ACCOUNT_ID).toBe("example-account");
+		expect(admission).toMatchObject({
+			source: "system",
+			context: { organizationId: SCOPE.organizationId },
+			execution: {
+				provider: "azure-openai",
+				gatewayAccountId: "example-account",
+				gatewayId: "example-gateway",
+				transportKind: "gateway-binding",
+				apiKind: "azure-responses",
+				providerResource: "example-resource",
+			},
+		});
+		expect(admission.execution.deployment).toBe(
+			admission.execution.requestModel,
+		);
+	}
 	for (const [, request] of fetch.mock.calls) {
 		const metadata = JSON.parse(request.headers["cf-aig-metadata"]);
-		expect(Object.keys(metadata).sort()).toEqual(["orgId", "surface"]);
 		expect(metadata.orgId).toBe(SCOPE.organizationId);
 		expect([
 			"agent-session-request-reflector",
 			"agent-session-request-intake",
 			"agent-session-project-routing",
 			"agent-session-lesson-reflector",
-		]).toContain(metadata.surface);
+		]).toContain(metadata.source);
+		expect(
+			decodeAiGatewayAttribution(metadata.attribution)?.executionId,
+		).toMatch(/^execution-\d+$/);
 	}
 });
 
@@ -2735,6 +2783,7 @@ it("retains the qualified intake model and exact certified system prompt", async
 	const model = workersAiLedgerModel(
 		{
 			AI: { run, fetch } as unknown as Ai,
+			AI_GATEWAY_ACCOUNT_ID: "example-account",
 			AI_GATEWAY_LLM_ID: "example-gateway",
 			AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
 			AZURE_OPENAI_RESOURCE: "example-resource",
@@ -2781,8 +2830,8 @@ it("retains the qualified intake model and exact certified system prompt", async
 		expect(run).not.toHaveBeenCalled();
 		expect(
 			JSON.parse(fetch.mock.calls[0]![1].headers["cf-aig-metadata"]),
-		).toEqual({
-			surface: "agent-session-request-intake",
+		).toMatchObject({
+			source: "agent-session-request-intake",
 			orgId: SCOPE.organizationId,
 		});
 	} finally {
@@ -2800,6 +2849,7 @@ it("does not fall back or retry when qualified intake inference fails", async ()
 	const model = workersAiLedgerModel(
 		{
 			AI: { run, fetch } as unknown as Ai,
+			AI_GATEWAY_ACCOUNT_ID: "example-account",
 			AI_GATEWAY_LLM_ID: "example-gateway",
 			AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
 			AZURE_OPENAI_RESOURCE: "example-resource",
@@ -2847,7 +2897,7 @@ it("uses the qualified status prompt in real ledger orchestration and keeps repl
 	);
 	const run = vi.fn();
 	const fetch = vi.fn().mockImplementation(async (_url, request) => {
-		const surface = JSON.parse(request.headers["cf-aig-metadata"]).surface;
+		const surface = JSON.parse(request.headers["cf-aig-metadata"]).source;
 		const text =
 			surface === "agent-session-request-intake"
 				? '{"new":[]}'
@@ -2862,6 +2912,7 @@ it("uses the qualified status prompt in real ledger orchestration and keeps repl
 	const model = workersAiLedgerModel(
 		{
 			AI: { run, fetch } as unknown as Ai,
+			AI_GATEWAY_ACCOUNT_ID: "example-account",
 			AI_GATEWAY_LLM_ID: "example-gateway",
 			AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
 			AZURE_OPENAI_RESOURCE: "example-resource",
@@ -2904,7 +2955,7 @@ it("uses the qualified status prompt in real ledger orchestration and keeps repl
 		signal: request.signal,
 	}));
 	const status = calls.find(
-		(call) => call.metadata.surface === "agent-session-request-reflector",
+		(call) => call.metadata.source === "agent-session-request-reflector",
 	)!;
 	expect(status).toBeDefined();
 	expect(`azure-openai/${status.body.model}`).toBe(certificate.status.modelRef);
@@ -2932,19 +2983,19 @@ it("uses the qualified status prompt in real ledger orchestration and keeps repl
 		"agent-session-lesson-reflector",
 		"agent-session-project-routing",
 	]) {
-		const call = calls.find((call) => call.metadata.surface === surface)!;
+		const call = calls.find((call) => call.metadata.source === surface)!;
 		expect(call).toBeDefined();
 		expect(call.body.model).toBe("gpt-6-astra");
 	}
 	expect(
 		calls.find(
 			(call) =>
-				call.metadata.surface === "agent-session-request-reply-reflector",
+				call.metadata.source === "agent-session-request-reply-reflector",
 		)!.body.instructions,
 	).toBe(REQUEST_REPLY_REFLECTOR_SYSTEM_PROMPT);
 	expect(
 		calls.find(
-			(call) => call.metadata.surface === "agent-session-lesson-reflector",
+			(call) => call.metadata.source === "agent-session-lesson-reflector",
 		)!.body.instructions,
 	).toBe(SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT);
 	for (const call of calls)
@@ -2967,6 +3018,7 @@ it.each([
 		const model = workersAiLedgerModel(
 			{
 				AI: { run, fetch } as unknown as Ai,
+				AI_GATEWAY_ACCOUNT_ID: "example-account",
 				AI_GATEWAY_LLM_ID: "example-gateway",
 				AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
 				AZURE_OPENAI_RESOURCE: "example-resource",

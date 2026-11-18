@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
 	catalog: vi.fn(),
 	policy: vi.fn(),
 	fetch: vi.fn(),
+	reserve: vi.fn(),
+}));
+vi.mock("./kernel/billing-reservation", () => ({
+	reserveKernelBilling: mocks.reserve,
+	kernelRegionalExecution: () => undefined,
 }));
 vi.mock("@tedix/db/queries/model-catalog", () => ({
 	getModelCatalogConfig: mocks.catalog,
@@ -20,7 +25,9 @@ vi.mock("@tedix/db/queries/data-residency", () => ({
 vi.mock("@tedix/workers-ai/gateway-transport", async (original) => ({
 	...(await original<typeof import("@tedix/workers-ai/gateway-transport")>()),
 	resolveAiGatewayTransport: () => ({
-		providerRoot: "https://gateway.invalid/azure-openai",
+		kind: "https",
+		providerRoot:
+			"https://gateway.ai.cloudflare.com/v1/example-account/example-gateway/azure-openai",
 		authorization: "fictional-managed-token",
 		fetch: mocks.fetch,
 	}),
@@ -38,7 +45,11 @@ function client(overrides: Partial<BaseContext> = {}) {
 		context: {
 			authType: "user",
 			db: {},
-			env: { AZURE_OPENAI_RESOURCE: "fictional-resource" },
+			env: {
+				AI_GATEWAY_ACCOUNT_ID: "example-account",
+				AI_GATEWAY_LLM_ID: "example-gateway",
+				AZURE_OPENAI_RESOURCE: "fictional-resource",
+			},
 			headers: new Headers(),
 			organizationId: "org-example",
 			user: {
@@ -57,6 +68,10 @@ beforeEach(() => {
 		modelCatalogConfig([modelCatalogEntry(input.modelRef)]),
 	);
 	mocks.policy.mockResolvedValue(null);
+	mocks.reserve.mockImplementation(async (_env, admission) => ({
+		...admission.context,
+		executionId: "execution-example",
+	}));
 	mocks.fetch.mockResolvedValue(
 		Response.json(
 			{
@@ -99,19 +114,38 @@ describe("managed fixed-corpus ledger qualification", () => {
 		expect(mocks.fetch).toHaveBeenCalledTimes(1);
 		const [url, request] = mocks.fetch.mock.calls[0]!;
 		expect(url).toBe(
-			"https://gateway.invalid/azure-openai/fictional-resource/openai/v1/responses",
+			"https://gateway.ai.cloudflare.com/v1/example-account/example-gateway/azure-openai/fictional-resource/openai/v1/responses",
 		);
 		expect(JSON.parse(request.body)).toMatchObject({
 			model: "gpt-6.1-sol",
 			max_output_tokens: 6000,
 			reasoning: { effort: "low" },
 		});
-		expect(JSON.parse(request.headers["cf-aig-metadata"])).toEqual({
-			surface: "ledger-qualification",
+		expect(mocks.reserve).toHaveBeenCalledTimes(1);
+		expect(mocks.reserve.mock.calls[0]![1]).toMatchObject({
+			source: "evaluation",
+			context: {
+				organizationId: "org-example",
+				source: "ledger-qualification",
+			},
+			execution: {
+				provider: "azure-openai",
+				requestModel: "gpt-6.1-sol",
+				deployment: "gpt-6.1-sol",
+				gatewayAccountId: "example-account",
+				gatewayId: "example-gateway",
+				transportKind: "gateway-https",
+				apiKind: "azure-responses",
+				providerResource: "fictional-resource",
+			},
+		});
+		const metadata = JSON.parse(request.headers["cf-aig-metadata"]);
+		expect(metadata).toMatchObject({
+			source: "ledger-qualification",
 			orgId: "org-example",
-			evaluationId: input.evaluationId,
-			modelRef: input.modelRef,
-			case: "status:trim-tabs:production",
+		});
+		expect(JSON.parse(metadata.attribution)).toMatchObject({
+			e: "execution-example",
 		});
 		expect(request.signal).toBeInstanceOf(AbortSignal);
 		expect(JSON.stringify(result)).not.toContain("fictional-managed-token");
@@ -186,6 +220,13 @@ describe("managed fixed-corpus ledger qualification", () => {
 		expect(failed.status).toBe("transport_error");
 		expect(JSON.stringify(failed)).not.toContain("private-credential");
 		expect(mocks.fetch).toHaveBeenCalledTimes(2);
+	});
+	it("sends nothing when execution admission is denied", async () => {
+		mocks.reserve.mockRejectedValue(new Error("fictional billing denial"));
+		expect(await client().evaluateLedgerModel(input)).toMatchObject({
+			status: "transport_error",
+		});
+		expect(mocks.fetch).not.toHaveBeenCalled();
 	});
 	it("denies a machine credential without platform-admin scope", async () => {
 		await expect(

@@ -69,8 +69,10 @@ import type {
 	AgentSessionRequestRow,
 } from "@tedix/db/schema/agent-session-requests";
 import type { WorkAgentSessionHarness } from "@tedix/db/schema/work-agent-sessions";
-import { type AiGatewayTransportEnv } from "@tedix/workers-ai/gateway-transport";
-import { fetchLedgerGatewayCompletion } from "./ledger-gateway-completion";
+import {
+	fetchLedgerGatewayCompletion,
+	type LedgerGatewayEnv,
+} from "./ledger-gateway-completion";
 import { type DistillEnv, runDistillModel } from "./lesson-distiller";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 
@@ -96,10 +98,7 @@ function recordSkippedInference(
 	);
 }
 
-type LedgerEnv = DistillEnv &
-	AiGatewayTransportEnv & {
-		AZURE_OPENAI_RESOURCE?: string;
-	};
+type LedgerEnv = DistillEnv & LedgerGatewayEnv;
 
 async function reflectWithGateway(
 	env: LedgerEnv,
@@ -111,7 +110,10 @@ async function reflectWithGateway(
 	await assertModelEgressAllowed(env);
 	const filing = surface === "agent-session-project-routing";
 	try {
-		const pending = fetchLedgerGatewayCompletion(env, {
+		const response = await fetchLedgerGatewayCompletion(env, {
+			organizationId,
+			source: surface,
+			billingSource: "system",
 			model:
 				surface === "agent-session-request-intake" ||
 				surface === "agent-session-request-reflector"
@@ -119,13 +121,11 @@ async function reflectWithGateway(
 					: LEDGER_REFLECTOR_MODEL,
 			system,
 			prompt,
-			metadata: { surface, orgId: organizationId },
 		});
-		if (!pending) {
+		if (!response) {
 			if (filing) throw new Error("Request filing model transport unavailable");
 			return null;
 		}
-		const response = await pending;
 		if (!response.ok) {
 			if (filing)
 				throw new Error(`Request filing model HTTP ${response.status}`);
