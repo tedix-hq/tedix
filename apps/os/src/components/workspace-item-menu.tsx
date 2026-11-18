@@ -29,6 +29,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import { Input } from "@/components/kumo/input";
+import { useOutputFileActions } from "@/components/output-file-actions";
 import { osApi } from "@/lib/api";
 import {
 	canvasGadgetsQueryOptions,
@@ -123,7 +124,8 @@ function useWorkspaceItemActions(workspaceId: string, item: WorkspaceMenuItem) {
 
 /**
  * Wraps a Files row with its actions: a "…" button, the same menu on
- * right-click, renaming in place and archiving after a confirmation.
+ * right-click, renaming in place and archiving after a confirmation. A file
+ * also gets its version history, a copy, and a move to another workspace.
  */
 export function WorkspaceItemMenu({
 	workspaceId,
@@ -140,6 +142,10 @@ export function WorkspaceItemMenu({
 	children: ReactElement;
 }) {
 	const { rename, archive } = useWorkspaceItemActions(workspaceId, item);
+	const file = useOutputFileActions(
+		{ outputId: item.outputId ?? "", title: item.title, workspaceId },
+		{ onMoved: onArchived },
+	);
 	const [renaming, setRenaming] = useState(false);
 	const [draft, setDraft] = useState(item.title);
 	const [confirming, setConfirming] = useState(false);
@@ -184,6 +190,12 @@ export function WorkspaceItemMenu({
 			<Item onClick={startRename}>
 				<PencilSimple size={14} /> Rename
 			</Item>
+			{item.outputId &&
+				file.entries.map((entry) => (
+					<Item key={entry.key} onClick={entry.onSelect}>
+						{entry.icon} {entry.label}
+					</Item>
+				))}
 			<Separator />
 			<Item variant="danger" onClick={() => setConfirming(true)}>
 				<Archive size={14} /> Archive
@@ -253,6 +265,7 @@ export function WorkspaceItemMenu({
 					The name could not be saved. Try again.
 				</p>
 			)}
+			{item.outputId && file.dialogs}
 			<ConfirmDialog
 				open={confirming}
 				onOpenChange={setConfirming}

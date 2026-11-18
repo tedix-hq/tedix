@@ -550,6 +550,17 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			previousWorkspaceId: output.previousWorkspaceId ?? null,
 		}),
 	},
+	"outputs.duplicate": {
+		action: "os.output.duplicated",
+		resourceType: "os_output",
+		resourceId: ({ output }) => nestedId(output, "output"),
+		metadata: ({ input, output }) => ({
+			sourceOutputId: input.outputId,
+			workspaceId: fields(output.output).workspaceId,
+			kind: fields(output.output).kind,
+			title: fields(output.output).title,
+		}),
+	},
 	"outputs.revise": {
 		action: "os.output.revised",
 		resourceType: "os_output",

@@ -1511,6 +1511,15 @@ export const osWorkspacesContract = oc
 									.describe(
 										"Present when someone invited by email saved this version through a share link: the email they confirmed and, when they are also a member of the organization, their name. Absent for every other version, and when the link has since been deleted.",
 									),
+								author: z
+									.strictObject({
+										name: z.string(),
+										self: z.boolean(),
+									})
+									.optional()
+									.describe(
+										"Present when a signed-in person saved this version and is still known: their name, or their email when they have set no name, and whether they are the caller. Absent for versions an agent or an automation saved.",
+									),
 							}),
 						),
 						nextBeforeRevision: z.number().int().positive().nullable(),
@@ -1591,6 +1600,26 @@ export const osWorkspacesContract = oc
 							.describe(
 								"Workspace the output was grouped under before the move",
 							),
+					}),
+				),
+			duplicate: oc
+				.route({
+					method: "POST",
+					summary: "Duplicate a Tedix OS output",
+					description:
+						'Creates a new output in the same workspace from the current revision of an existing one. The copy starts at revision 1 with its own id and its own copies of the stored images; the original and its history are unchanged. The copy keeps the source-access requirements of the revision it was made from. Without a title the copy is named after the original with " copy" added.',
+				})
+				.input(
+					outputIdInput.extend({
+						title: nameSchema
+							.optional()
+							.describe('Title of the copy; defaults to "<title> copy"'),
+					}),
+				)
+				.output(
+					z.object({
+						output: OsOutputSchema,
+						revision: OsOutputRevisionSchema,
 					}),
 				),
 			revise: oc

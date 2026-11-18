@@ -853,6 +853,195 @@ describe("outputs", () => {
 			}),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
+	it("duplicates a file into the same workspace from its current version", async () => {
+		const { workspace } = await c.org1.workspaces.create({ name: "Drafts" });
+		const created = await c.org1.outputs.create({
+			workspaceId: workspace.id,
+			kind: "document",
+			title: "Launch brief",
+			content: "First draft",
+		});
+		const revised = await c.org1.outputs.revise({
+			outputId: created.output.id,
+			content: "Second draft",
+			expectedRevisionId: created.revision.id,
+		});
+		const copy = await c.org1.outputs.duplicate({
+			outputId: created.output.id,
+		});
+		expect(copy.output).toMatchObject({
+			title: "Launch brief copy",
+			workspaceId: workspace.id,
+			kind: "document",
+			status: "active",
+		});
+		expect(copy.output.id).not.toBe(created.output.id);
+		expect(copy.revision).toMatchObject({
+			revision: 1,
+			note: "Copy of “Launch brief”",
+			content: revised.revision.content,
+		});
+		// The original keeps its id, its current version and its history.
+		const original = await c.org1.outputs.get({ outputId: created.output.id });
+		expect(original.output.title).toBe("Launch brief");
+		expect(original.currentRevision.id).toBe(revised.revision.id);
+		const history = await c.org1.outputs.history({ outputId: copy.output.id });
+		expect(history.revisions.map((item) => item.revision)).toEqual([1]);
+		const named = await c.org1.outputs.duplicate({
+			outputId: created.output.id,
+			title: "Launch brief for sales",
+		});
+		expect(named.output.title).toBe("Launch brief for sales");
+		const long = await c.org1.outputs.create({
+			kind: "document",
+			title: "x".repeat(120),
+		});
+		const longCopy = await c.org1.outputs.duplicate({
+			outputId: long.output.id,
+		});
+		expect(longCopy.output.title).toBe(`${"x".repeat(115)} copy`);
+		expect(longCopy.output.workspaceId).toBeNull();
+		const audit = await createDbClient(c.env.DB)
+			.select()
+			.from(auditEvents)
+			.where(eq(auditEvents.action, "os.output.duplicated"));
+		expect(audit.map((event) => event.resourceId)).toEqual([
+			copy.output.id,
+			named.output.id,
+			longCopy.output.id,
+		]);
+		await expect(
+			c.org2.outputs.duplicate({ outputId: created.output.id }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+
+	it("keeps a copy behind the source access of the version it was made from", async () => {
+		const runId = "7c1e2d3c-4b5a-4697-8899-aabbccddeeff";
+		const accessEnvelope = {
+			version: 1 as const,
+			sources: [
+				{
+					workspaceResourceId: "00000000-0000-4000-8000-000000000001",
+					workspaceId: "00000000-0000-4000-8000-000000000002",
+					providerId: "github",
+					resourceType: "repository",
+					providerResourceId: "example/repository",
+					connectionScope: "tenant" as const,
+					requiredScopes: ["repo:read"],
+					operations: ["read"],
+				},
+			],
+		};
+		await createOsGadgetExecution(createDbQueryClient(c.env.DB), {
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			workspaceId: "00000000-0000-4000-8000-000000000002",
+			gadgetId: crypto.randomUUID(),
+			status: "running",
+			grantedCapabilities: "[]",
+			policyDecision: '{"allowed":true,"reasons":[]}',
+			runId,
+			resourceAccessEnvelope: JSON.stringify(accessEnvelope),
+			createdByKind: "tedi",
+			createdById: "tedi-1",
+		});
+		const derived = await skillRunProducer(runId).outputs.create({
+			kind: "document",
+			title: "Derived brief",
+		});
+		const copy = await c.org1.outputs.duplicate({
+			outputId: derived.output.id,
+		});
+		expect(copy.revision.accessEnvelope).toEqual(accessEnvelope);
+		// Someone who may not read the sources cannot copy the file either.
+		mocks.authorizeDerivedOutputSources.mockResolvedValue(false);
+		await expect(
+			c.org1.outputs.duplicate({ outputId: derived.output.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("lets a view-only person read versions but not restore, duplicate or move", async () => {
+		const { workspace: from } = await c.org1.workspaces.create({
+			name: "Drafts",
+		});
+		const { workspace: to } = await c.org1.workspaces.create({
+			name: "Launch",
+		});
+		const created = await c.org1.outputs.create({
+			workspaceId: from.id,
+			kind: "document",
+			title: "Launch brief",
+			content: "First draft",
+		});
+		await c.org1.outputs.revise({
+			outputId: created.output.id,
+			content: "Second draft",
+			expectedRevisionId: created.revision.id,
+		});
+		const base = userContext({
+			env: c.env,
+			organizationId: "org-1",
+			sub: "reader-1",
+		});
+		const reader = createRouterClient(osWorkspacesContractRouter, {
+			context: {
+				...base,
+				user: { ...base.user!, permissions: ["os:read"] },
+			},
+		});
+		const history = await reader.outputs.history({
+			outputId: created.output.id,
+		});
+		expect(history.revisions.map((item) => item.revision)).toEqual([2, 1]);
+		// Each version names the member who saved it; "self" marks the caller.
+		expect(history.revisions.map((item) => item.author)).toEqual([
+			{ name: "Member", self: false },
+			{ name: "Member", self: false },
+		]);
+		expect(
+			(
+				await c.org1.outputs.history({ outputId: created.output.id })
+			).revisions.map((item) => item.author?.self),
+		).toEqual([true, true]);
+		const first = await reader.outputs.history({
+			outputId: created.output.id,
+			revision: 1,
+		});
+		const content = first.revisions[0]!.content!;
+		await expect(
+			reader.outputs.revise({ outputId: created.output.id, content }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			reader.outputs.duplicate({ outputId: created.output.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			reader.outputs.move({ outputId: created.output.id, workspaceId: to.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		// Nothing changed: still two versions, one file, in the first workspace.
+		const after = await c.org1.outputs.get({ outputId: created.output.id });
+		expect(after.currentRevision.revision).toBe(2);
+		expect(after.output.workspaceId).toBe(from.id);
+		expect(
+			(await c.org1.outputs.list({ workspaceId: from.id })).items,
+		).toHaveLength(1);
+		// Restoring is an ordinary new version for someone who may edit.
+		const restored = await c.org1.outputs.revise({
+			outputId: created.output.id,
+			content,
+			expectedRevisionId: after.currentRevision.id,
+			note: "Restored version 1",
+		});
+		expect(restored.revision).toMatchObject({
+			revision: 3,
+			content: created.revision.content,
+		});
+		expect(
+			(
+				await c.org1.outputs.history({ outputId: created.output.id })
+			).revisions.map((item) => item.revision),
+		).toEqual([3, 2, 1]);
+	});
+
 	it("requires external agents to name the output's workspace", async () => {
 		await expect(
 			c.machineAgent.outputs.create({ kind: "document", title: "Loose" }),
@@ -2451,6 +2640,21 @@ describe("output linked images", () => {
 	});
 
 	const EMBEDDED = `data:image/png;base64,${"QUJD".repeat(800)}`;
+
+	it("gives a copy its own stored images", async () => {
+		const target = await deck([{ type: "image", src: EMBEDDED }]);
+		const copy = await c.org1.outputs.duplicate({ outputId: target.outputId });
+		const reference = (
+			copy.revision.content as {
+				deck: { slides: Array<{ elements: Array<{ src: string }> }> };
+			}
+		).deck.slides[0]!.elements[0]!.src;
+		expect(reference).toMatch(/^tedix-asset:[a-f0-9]{64}$/);
+		expect(JSON.stringify(copy.revision.content)).not.toContain("base64");
+		await expect(
+			c.org1.outputs.image({ outputId: copy.output.id, url: reference }),
+		).resolves.toEqual({ dataUrl: EMBEDDED });
+	});
 
 	it("stores an embedded image with the file and reads it back by reference", async () => {
 		const target = await deck([{ type: "image", src: EMBEDDED }]);
