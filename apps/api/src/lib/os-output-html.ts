@@ -409,6 +409,26 @@ const PRESENTATION_CSS = `
 	section.slide h2 { font-size: 44px; }
 `;
 
+function documentAppearanceCss(content: OsOutputContent): string {
+	if (content.kind !== "document") return "";
+	const typeface = content.appearance?.typeface ?? "sans";
+	const [family, size, lineHeight] = {
+		sans: [
+			'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
+			16,
+			1.65,
+		],
+		serif: ['ui-serif, Georgia, Cambria, "Times New Roman", serif', 18, 1.6],
+		mono: [
+			"ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+			14.5,
+			1.7,
+		],
+	}[typeface];
+	const width = content.appearance?.wide ? 980 : 700;
+	return `body{font-family:${family};font-size:${size}px;line-height:${lineHeight}}article,header.export-header{max-width:${width}px;margin-left:auto;margin-right:auto}`;
+}
+
 // Keep this in step with the viewer's slide-fonts.ts system-family exclusions.
 const SYSTEM_FONTS = new Set([
 	"serif",
@@ -548,7 +568,7 @@ export function renderOsOutputHtml(
 <meta charset="utf-8">
 <title>${title}</title>
 ${fontStylesheet}
-<style>${INLINE_CSS}${isPresentation ? PRESENTATION_CSS : ""}</style>
+	<style>${INLINE_CSS}${isPresentation ? PRESENTATION_CSS : ""}${documentAppearanceCss(revision.content)}</style>
 </head>
 <body>
 ${isPresentation ? "" : `<header class="export-header"><h1>${title}</h1><p class="meta">${meta}</p></header>`}

@@ -1168,6 +1168,13 @@ export const OsRichTextDocumentSchema = z.object({
 	content: z.array(OsRichTextNodeSchema).max(10_000).default([]),
 });
 
+export const OsDocumentAppearanceSchema = z
+	.object({
+		typeface: z.enum(["sans", "serif", "mono"]).default("sans"),
+		wide: z.boolean().default(false),
+	})
+	.strict();
+
 export const OsWorkbookCellFormatSchema = z.object({
 	fontSize: z
 		.number()
@@ -1786,6 +1793,9 @@ export const OsPresentationSlideSchema = z.object({
 export const OsOutputContentSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("document"),
+		appearance: OsDocumentAppearanceSchema.optional().describe(
+			"Shared document typeface and measure; omitted for the default sans, 700px presentation",
+		),
 		file: z
 			.object({ workspaceId: z.uuid(), resourceId: z.uuid() })
 			.optional()
