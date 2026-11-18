@@ -102,6 +102,7 @@ describe("bulkUpsertCatalogApps", () => {
 	it("recovers throttled uploads without replaying accepted items", async () => {
 		vi.useFakeTimers();
 		try {
+			const startedAt = Date.now();
 			const client = clientWithSearch(vi.fn());
 			vi.mocked(client.info).mockResolvedValue({ custom_metadata: [] });
 			const accepted = { id: "item", key: "item", status: "queued" };
@@ -115,6 +116,7 @@ describe("bulkUpsertCatalogApps", () => {
 			]);
 			await vi.runAllTimersAsync();
 			expect(await pending).toEqual({ upserted: 2, failed: 0 });
+			expect(Date.now() - startedAt).toBe(2000);
 			expect(
 				vi.mocked(client.items.upload).mock.calls.map((call) => call[0]),
 			).toEqual([
@@ -147,6 +149,7 @@ describe("bulkUpsertCatalogApps", () => {
 	it("ends a persistently throttled page after bounded retries", async () => {
 		vi.useFakeTimers();
 		try {
+			const startedAt = Date.now();
 			const client = clientWithSearch(vi.fn());
 			vi.mocked(client.info).mockResolvedValue({ custom_metadata: [] });
 			vi.mocked(client.items.upload).mockRejectedValue(
@@ -160,6 +163,7 @@ describe("bulkUpsertCatalogApps", () => {
 			await vi.runAllTimersAsync();
 			await pending;
 			expect(client.items.upload).toHaveBeenCalledTimes(4);
+			expect(Date.now() - startedAt).toBe(14000);
 		} finally {
 			vi.useRealTimers();
 		}
