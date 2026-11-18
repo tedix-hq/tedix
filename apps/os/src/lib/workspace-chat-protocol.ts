@@ -89,6 +89,18 @@ export type ConversationSummary = {
 	lastTurnAt: string | null;
 	/** A turn in this conversation is still working. */
 	running?: boolean;
+	/** Absent until a reply in this conversation reports usage. */
+	usage?: UsageTotals;
+};
+
+/** What finished replies have used so far, summed from their `assistant.done` usage. */
+export type UsageTotals = {
+	inputTokens: number;
+	outputTokens: number;
+	/** Sum of the priced replies, in US dollars; absent when none has a price. */
+	costUsd?: number;
+	/** Replies with usage but no price, so `costUsd` covers only part of it. */
+	unpricedReplies?: number;
 };
 
 export type TurnUsage = {
@@ -216,6 +228,8 @@ export type WorkspaceChatControlMessage =
 			serverTime: string;
 			conversations: ConversationSummary[];
 			models?: Array<{ id: string; label: string }>;
+			/** The whole workspace, archived conversations included, up to `cursor`. */
+			usage?: UsageTotals;
 	  }
 	| { type: "caught_up"; conversationId: string | null }
 	| {

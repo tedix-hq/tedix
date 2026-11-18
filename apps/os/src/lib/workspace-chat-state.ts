@@ -13,6 +13,7 @@ import type {
 	StepKind,
 	TurnStatus,
 	TurnUsage,
+	UsageTotals,
 	WorkspaceChatLedgerEvent,
 } from "./workspace-chat-protocol";
 
@@ -114,6 +115,13 @@ export type WorkspaceChatState = {
 		{ decision: ApprovalDecision; decidedBy: string; decidedAt: string }
 	>;
 	approvalExecutions: Record<string, NonNullable<ChatApproval["execution"]>>;
+	/** The whole workspace's usage; `null` until a reply reports any. */
+	usage: UsageTotals | null;
+	/**
+	 * The seq the usage totals already include. Only a later reply adds to
+	 * them, so replay and history pages never count a reply twice.
+	 */
+	usageCursor: number | null;
 };
 
 export function initialWorkspaceChatState(
@@ -132,6 +140,8 @@ export function initialWorkspaceChatState(
 		seen: new Set(),
 		approvalDecisions: {},
 		approvalExecutions: {},
+		usage: null,
+		usageCursor: null,
 	};
 }
 
@@ -205,6 +215,18 @@ export function applyWorkspaceChatEvent(
 	event: WorkspaceChatLedgerEvent,
 ): WorkspaceChatState {
 	if (state.seen.has(event.seq)) return state;
+	if (
+		event.type === "assistant.done" &&
+		event.usage &&
+		state.usageCursor !== null &&
+		event.seq > state.usageCursor
+	)
+		state = addReplyToUsage(
+			state,
+			event.conversationId,
+			event.usage,
+			event.seq,
+		);
 	if (event.type === "turn.started") {
 		const previous = state.conversations.find(
 			(row) => row.id === event.conversationId,
@@ -227,6 +249,7 @@ export function applyWorkspaceChatEvent(
 				previous?.running === true ||
 				state.cursor === null ||
 				event.seq > state.cursor,
+			...(previous?.usage ? { usage: previous.usage } : {}),
 		};
 		state = {
 			...state,
@@ -251,6 +274,7 @@ export function applyWorkspaceChatEvent(
 			updatedAt: event.at,
 			lastTurnAt: previous?.lastTurnAt ?? null,
 			...(previous?.running ? { running: true } : {}),
+			...(previous?.usage ? { usage: previous.usage } : {}),
 		};
 		return {
 			...state,
@@ -581,6 +605,67 @@ export function setConversations(
 	return { ...state, conversations };
 }
 
+/** Totals from the object's hello: everything up to and including `cursor`. */
+export function setWorkspaceUsage(
+	state: WorkspaceChatState,
+	usage: UsageTotals | undefined,
+	cursor: number,
+): WorkspaceChatState {
+	return { ...state, usage: usage ?? null, usageCursor: cursor };
+}
+
+/** Adds one finished reply to a running total; old zero receipts add nothing. */
+export function addUsage(
+	totals: UsageTotals | undefined | null,
+	usage: TurnUsage,
+): UsageTotals | null {
+	const cost =
+		usage.costUsd !== undefined && Number.isFinite(usage.costUsd)
+			? usage.costUsd
+			: undefined;
+	if (cost === undefined && usage.inputTokens + usage.outputTokens === 0)
+		return totals ?? null;
+	const costUsd =
+		cost === undefined ? totals?.costUsd : (totals?.costUsd ?? 0) + cost;
+	const unpricedReplies =
+		(totals?.unpricedReplies ?? 0) + (cost === undefined ? 1 : 0);
+	return {
+		inputTokens: (totals?.inputTokens ?? 0) + usage.inputTokens,
+		outputTokens: (totals?.outputTokens ?? 0) + usage.outputTokens,
+		...(costUsd === undefined ? {} : { costUsd }),
+		...(unpricedReplies > 0 ? { unpricedReplies } : {}),
+	};
+}
+
+function addReplyToUsage(
+	state: WorkspaceChatState,
+	conversationId: string,
+	usage: TurnUsage,
+	seq: number,
+): WorkspaceChatState {
+	return {
+		...state,
+		usageCursor: seq,
+		usage: addUsage(state.usage, usage),
+		conversations: state.conversations.map((row) => {
+			if (row.id !== conversationId) return row;
+			const next = addUsage(row.usage, usage);
+			return next ? { ...row, usage: next } : row;
+		}),
+	};
+}
+
+/** Usage of the conversation in view, if any reply in it reported some. */
+export function conversationUsage(
+	state: Pick<WorkspaceChatState, "conversations" | "conversationId">,
+): UsageTotals | null {
+	if (state.conversationId === null) return null;
+	return (
+		state.conversations.find((row) => row.id === state.conversationId)?.usage ??
+		null
+	);
+}
+
 export function setHasEarlier(
 	state: WorkspaceChatState,
 	hasEarlier: boolean,
@@ -619,6 +704,54 @@ export function formatTurnCost(usage: TurnUsage | undefined): string | null {
 	return usage.costUsd > 0 && usage.costUsd < 0.0001
 		? "Cost <$0.0001"
 		: `Cost $${usage.costUsd.toFixed(4)}`;
+}
+
+function formatUsd(cost: number, digits: number): string {
+	if (cost >= 1) return `$${cost.toFixed(2)}`;
+	const floor = 10 ** -digits;
+	if (cost > 0 && cost < floor) return `<$${floor.toFixed(digits)}`;
+	return `$${cost.toFixed(digits)}`;
+}
+
+/**
+ * The cost part of a running total, or nothing when no reply has a price.
+ * A trailing "+" says some replies have no price, so the total is higher.
+ */
+function formatTotalCost(totals: UsageTotals, digits: number): string | null {
+	if (totals.costUsd === undefined || !Number.isFinite(totals.costUsd))
+		return null;
+	return `${formatUsd(totals.costUsd, digits)}${totals.unpricedReplies ? "+" : ""}`;
+}
+
+/** Why a total carries a "+", for its tooltip. */
+export function usageTotalsNote(totals: UsageTotals): string | null {
+	return totals.costUsd !== undefined && totals.unpricedReplies
+		? "Some replies have no price, so the cost shown covers only the priced ones."
+		: null;
+}
+
+/** "24,399 tokens · $0.047" for a conversation; tokens only when unpriced. */
+export function formatConversationUsage(
+	totals: UsageTotals | null,
+): string | null {
+	if (!totals) return null;
+	const tokens = totals.inputTokens + totals.outputTokens;
+	const cost = formatTotalCost(totals, 3);
+	if (tokens === 0 && cost === null) return null;
+	return [`${tokens.toLocaleString()} tokens`, cost]
+		.filter(Boolean)
+		.join(" · ");
+}
+
+/** The workspace's spend so far ("$0.09"), or its tokens when unpriced. */
+export function formatWorkspaceUsage(
+	totals: UsageTotals | null,
+): string | null {
+	if (!totals) return null;
+	const cost = formatTotalCost(totals, 2);
+	if (cost) return cost;
+	const tokens = totals.inputTokens + totals.outputTokens;
+	return tokens > 0 ? `${tokens.toLocaleString()} tokens` : null;
 }
 
 /** What is known about a finished turn. Missing parts are left out. */

@@ -681,7 +681,15 @@ describe("WorkspaceDO", () => {
 			expect(record.outcome).toBe("applied");
 			expect(record.source.surface).toBe("workspace_object");
 		}
-		expect((await ws.listConversations(scope))[0]?.id).toBe(conversationId);
+		const [listed] = await ws.listConversations(scope);
+		expect(listed?.id).toBe(conversationId);
+		// The conversation carries what its finished reply used.
+		expect(listed?.usage).toMatchObject({
+			inputTokens:
+				done?.type === "assistant.done" ? done.usage?.inputTokens : -1,
+			outputTokens:
+				done?.type === "assistant.done" ? done.usage?.outputTokens : -1,
+		});
 		// Loop overhead without a real model: well inside the 30 s budget.
 		expect(elapsed).toBeLessThan(10_000);
 	});

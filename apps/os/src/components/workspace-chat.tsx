@@ -100,10 +100,14 @@ import {
 	type ChatApproval,
 	type ChatStep,
 	type ChatTurn,
+	conversationUsage,
 	type WorkspaceChatState,
 	elapsedLabel,
+	formatConversationUsage,
+	formatWorkspaceUsage,
 	pendingApproval,
 	turnDetails,
+	usageTotalsNote,
 } from "@/lib/workspace-chat-state";
 
 const WidgetFrame = lazy(async () => ({
@@ -353,6 +357,7 @@ export function WorkspaceChat({
 				<Text as="strong" role="label" className="truncate">
 					{title ?? (conversationId ? "Conversation" : "New conversation")}
 				</Text>
+				<WorkspaceSpend state={state} />
 				<ConnectionChip client={client} connection={connection} />
 			</div>
 			<Thread
@@ -421,8 +426,46 @@ export function WorkspaceChat({
 				onStop={
 					running && client ? () => client.cancelTurn(running.turnId) : null
 				}
+				footer={<ConversationSpend state={state} />}
 			/>
 		</div>
+	);
+}
+
+/** What this conversation has used so far; nothing until a reply reports it. */
+function ConversationSpend({ state }: { state: WorkspaceChatState }) {
+	const totals = conversationUsage(state);
+	const label = formatConversationUsage(totals);
+	if (!totals || !label) return null;
+	return (
+		<p
+			className="workspace-chat-spend"
+			data-testid="workspace-chat-conversation-spend"
+			title={usageTotalsNote(totals) ?? "Used by this conversation so far"}
+		>
+			{label}
+		</p>
+	);
+}
+
+/** The workspace's running total, beside the conversation title. */
+function WorkspaceSpend({ state }: { state: WorkspaceChatState }) {
+	const label = formatWorkspaceUsage(state.usage);
+	if (!state.usage || !label) return null;
+	const note = usageTotalsNote(state.usage);
+	return (
+		<span
+			className="workspace-chat-workspace-spend"
+			data-testid="workspace-chat-workspace-spend"
+			title={
+				note
+					? `Used in this workspace so far. ${note}`
+					: "Used in this workspace so far"
+			}
+		>
+			<span className="sr-only">Used in this workspace so far: </span>
+			{label}
+		</span>
 	);
 }
 
@@ -1244,7 +1287,10 @@ function Composer({
 	busy,
 	onStop,
 	modelControl,
+	footer,
 }: {
+	/** A quiet line under the composer card. */
+	footer?: ReactNode;
 	workspaceId: string;
 	onBrowseResources?: () => void;
 	onSend: (
@@ -1520,6 +1566,7 @@ function Composer({
 					)}
 				</div>
 			</div>
+			{footer}
 		</form>
 	);
 }

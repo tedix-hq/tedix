@@ -34,6 +34,7 @@ import {
 	markSendFailed,
 	setConversations,
 	setHasEarlier,
+	setWorkspaceUsage,
 	type WorkspaceChatState,
 } from "./workspace-chat-state";
 
@@ -406,7 +407,11 @@ export function createWorkspaceChatClient(
 					send({ type: "subscribe", conversationId, cursor: null });
 				}
 				state = {
-					...setConversations(state, message.conversations),
+					...setWorkspaceUsage(
+						setConversations(state, message.conversations),
+						message.usage,
+						message.cursor,
+					),
 					models: message.models ?? [],
 				};
 				if (state.lastError?.code === "not_connected")
