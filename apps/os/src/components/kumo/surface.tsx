@@ -1,5 +1,5 @@
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
-import { type ComponentProps, type ElementType, createElement } from "react";
+import type { ComponentProps } from "react";
 import { cn } from "../../lib/utils";
 
 /**
@@ -21,8 +21,7 @@ import { cn } from "../../lib/utils";
  * that component is `@deprecated` and is itself only a compatibility wrapper
  * that forwards to `LayerCard` (its `as` prop is separately deprecated in
  * favour of `render`). This adapter therefore targets `LayerCard` directly —
- * the same non-deprecated primitive `card.tsx` uses — and keeps the polymorphic
- * `as`/`render` surface the deprecated wrapper offered.
+ * the same non-deprecated primitive `card.tsx` uses.
  *
  * When to use it
  * --------------
@@ -92,16 +91,9 @@ type SurfaceProps = ComponentProps<typeof LayerCard> & {
 	 * another surface (8px). Defaults to `"well"`.
 	 */
 	tier?: SurfaceTier;
-	/**
-	 * Element override, kept for parity with the deprecated Kumo `Surface`.
-	 * Prefer Base UI's `render` when you need to compose with a component
-	 * rather than swap the tag.
-	 */
-	as?: ElementType;
 };
 
 function Surface({
-	as,
 	className,
 	render,
 	tier = "well",
@@ -113,7 +105,7 @@ function Surface({
 			data-slot="surface"
 			data-tier={tier}
 			data-variant={variant}
-			render={render ?? (as ? createElement(as) : undefined)}
+			render={render}
 			className={cn(
 				"min-w-0 border border-kumo-line bg-kumo-base shadow-none! ring-0",
 				tier === "panel" ? "rounded-xl" : "rounded-lg",

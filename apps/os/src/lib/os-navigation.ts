@@ -424,14 +424,6 @@ export const OS_PAGES: readonly OsPage[] = [
 		titleKey: "skill",
 	},
 	{
-		// Former gateway list; the route redirects to Apps (the surface above).
-		id: "gateways-redirect",
-		path: "/gateways",
-		get label() {
-			return OS_COPY.navigation.gateways;
-		},
-	},
-	{
 		id: "app",
 		path: "/apps/$appId",
 		label: "App",
@@ -530,14 +522,6 @@ export const OS_PAGES: readonly OsPage[] = [
 		breadcrumb: "parent",
 	},
 	{
-		// Former Schedule tab; the route redirects to Settings (above).
-		id: "skill-schedule-redirect",
-		path: "/skills/$skillId/schedule",
-		label: "Settings",
-		parentId: "skill",
-		breadcrumb: "parent",
-	},
-	{
 		id: "skill-source",
 		path: "/skills/$skillId/source",
 		label: "Source",
@@ -576,13 +560,6 @@ export const OS_PAGES: readonly OsPage[] = [
 		id: "work-cases",
 		path: "/work/cases",
 		label: "Epics",
-		parentId: "work",
-		breadcrumb: "parent",
-	},
-	{
-		id: "work-graph",
-		path: "/work/graph",
-		label: "Graph",
 		parentId: "work",
 		breadcrumb: "parent",
 	},

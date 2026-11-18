@@ -456,7 +456,7 @@ function CreateBlueprintForm({
 
 	return (
 		<Surface
-			as="form"
+			render={<form />}
 			className="grid gap-3 p-4"
 			onSubmit={(event) => {
 				event.preventDefault();
@@ -571,7 +571,11 @@ function DefinitionEditor({
 					draft.gadgets.length > 0 && (
 						<ul className="m-0 grid list-none gap-3 p-0">
 							{draft.gadgets.map((gadget, index) => (
-								<Surface as="li" key={gadget.id} className="grid gap-2 p-3">
+								<Surface
+									render={<li />}
+									key={gadget.id}
+									className="grid gap-2 p-3"
+								>
 									<div className="flex items-center justify-between gap-2">
 										<Text as="span" role="label" tone="secondary">
 											App {index + 1}
@@ -1377,7 +1381,7 @@ export function GalleryCard({
 }) {
 	useOsFormattingPreferences();
 	return (
-		<Surface as="li" className="blueprint-gallery-card overflow-hidden">
+		<Surface render={<li />} className="blueprint-gallery-card overflow-hidden">
 			<GalleryPreview item={item} />
 			<div className="flex items-start gap-3 px-3 pt-3">
 				<IconFrame aria-hidden size="sm">
@@ -1664,7 +1668,7 @@ function BlueprintImportForm({
 
 	return (
 		<Surface
-			as="form"
+			render={<form />}
 			className="grid gap-3 p-4"
 			onSubmit={(event) => {
 				event.preventDefault();

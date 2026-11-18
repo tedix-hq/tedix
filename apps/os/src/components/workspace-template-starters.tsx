@@ -90,7 +90,7 @@ export function WorkspaceTemplateStarters({
 			<ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3">
 				{starters.map((item) => (
 					<Surface
-						as="li"
+						render={<li />}
 						key={item.id}
 						tier="panel"
 						className="flex min-w-0 flex-col gap-3 p-3"

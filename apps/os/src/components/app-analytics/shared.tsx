@@ -115,19 +115,11 @@ export function CallerTypesCard({ callerTypes }: { callerTypes: string[] }) {
 						</div>
 					) : (
 						<Text as="p" role="body" weight="medium" className="m-0">
-							{display.hiddenCount > 0
-								? "Only legacy caller IDs"
-								: "No caller auth types"}
+							No caller auth types
 						</Text>
 					)}
 					<div className="flex flex-wrap items-center gap-1.5 text-kumo-subtle text-xs">
 						<span>Caller auth types</span>
-						{display.hiddenCount > 0 && (
-							<Badge variant="outline" className="font-normal">
-								{display.hiddenCount} legacy id
-								{display.hiddenCount === 1 ? "" : "s"} hidden
-							</Badge>
-						)}
 					</div>
 				</div>
 			</CardContent>

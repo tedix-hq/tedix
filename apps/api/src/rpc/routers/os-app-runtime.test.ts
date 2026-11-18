@@ -2274,7 +2274,7 @@ describe("MCP app editing", () => {
 			createdById: "agent-1",
 			status: "open",
 		});
-		expect(new URL(previewUrl).searchParams.get("view")).toBe("drafts");
+		expect(new URL(previewUrl).searchParams.get("view")).toBe("edit");
 		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
 		const { session } = await f.agent.draft({
 			...scope,
@@ -2680,7 +2680,7 @@ describe("app edits from a delegated tedi", () => {
 			sourceId: "home:os:fix-app",
 			documentId: gadgetId,
 		});
-		expect(previewUrl).toContain("view=drafts");
+		expect(previewUrl).toContain("view=edit");
 		const [revision] = await f.db
 			.select()
 			.from(osGadgets)

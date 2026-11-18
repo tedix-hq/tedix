@@ -894,7 +894,7 @@ describe("WorkspaceChat", () => {
 			'[data-testid="workspace-chat-unavailable"]',
 		);
 		expect(notice?.textContent).toContain(
-			"Workspace chat is being upgraded. Home chat still works.",
+			"Workspace chat is unavailable on this origin. Home chat still works.",
 		);
 		expect(host.querySelector("textarea")?.disabled).toBe(true);
 		expect(host.querySelector(".workspace-chat-thinking")).toBeNull();
@@ -1287,7 +1287,7 @@ describe("WorkspaceChat", () => {
 					turnId: "t1",
 					messageId: "m1",
 					text: "Twelve.",
-					usage: { inputTokens: 2000, outputTokens: 500, costCents: 2 },
+					usage: { inputTokens: 2000, outputTokens: 500 },
 					model: "mock",
 				},
 				{

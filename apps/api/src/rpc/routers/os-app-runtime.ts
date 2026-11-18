@@ -524,7 +524,7 @@ export function createOsAppRuntimeRouter() {
 			context.env.OS_URL,
 		);
 		previewUrl.searchParams.set("workpiece", `gadget:${scope.gadgetId}`);
-		previewUrl.searchParams.set("view", "drafts");
+		previewUrl.searchParams.set("view", "edit");
 		return {
 			proposal: mapCollaborationProposal(proposal),
 			previewUrl: previewUrl.toString(),

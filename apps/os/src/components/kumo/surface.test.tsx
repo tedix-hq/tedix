@@ -24,9 +24,6 @@ describe("Kumo Surface adapter", () => {
 		expect(raised).toContain('data-variant="raised"');
 
 		expect(
-			renderToStaticMarkup(<Surface as="section">Section</Surface>),
-		).toMatch(/^<section/);
-		expect(
 			renderToStaticMarkup(<Surface render={<aside />}>Aside</Surface>),
 		).toMatch(/^<aside/);
 	});

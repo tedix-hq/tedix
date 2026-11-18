@@ -557,7 +557,7 @@ function CatalogDiagnostics() {
 				) : null}
 			</SectionHeader>
 			<Surface
-				as="dl"
+				render={<dl />}
 				className="grid grid-cols-2 overflow-hidden sm:grid-cols-4"
 			>
 				{[

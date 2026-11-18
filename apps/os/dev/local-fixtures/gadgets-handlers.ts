@@ -511,7 +511,7 @@ export const gadgetHandlers: Record<string, (input: never) => unknown> = {
 		state.collaborationProposals.push(proposal);
 		return {
 			proposal,
-			previewUrl: `/workspaces/${gadget.workspaceId}?workpiece=gadget%3A${gadget.id}&view=drafts`,
+			previewUrl: `/workspaces/${gadget.workspaceId}?workpiece=gadget%3A${gadget.id}&view=edit`,
 		};
 	},
 	"osAppRuntime/revisions": (input: {

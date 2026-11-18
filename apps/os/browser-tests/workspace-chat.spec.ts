@@ -92,7 +92,6 @@ try {
 											outputTokens: 20,
 											cachedInputTokens: 40,
 											partial: true,
-											costCents: 2,
 										},
 									},
 									{

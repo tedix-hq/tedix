@@ -76,31 +76,18 @@ export const UUID_LIKE =
 
 export function getCallerTypeDisplay(callerTypes: string[]): {
 	visible: Array<{ value: string; label: string }>;
-	hiddenCount: number;
 } {
 	const visible = new Map<string, string>();
-	let hiddenCount = 0;
 
-	for (const rawType of callerTypes) {
-		const trimmed = rawType.trim();
-		if (!trimmed) continue;
-
-		const normalized =
-			trimmed === "api_key" || trimmed === "apikey" ? "apiKey" : trimmed;
-		const label = CALLER_TYPE_LABELS[normalized];
+	for (const callerType of callerTypes) {
+		const label = CALLER_TYPE_LABELS[callerType];
 		if (label) {
-			visible.set(normalized, label);
-			continue;
-		}
-
-		if (UUID_LIKE.test(trimmed) || trimmed.length > 24) {
-			hiddenCount += 1;
+			visible.set(callerType, label);
 		}
 	}
 
 	return {
 		visible: Array.from(visible, ([value, label]) => ({ value, label })),
-		hiddenCount,
 	};
 }
 

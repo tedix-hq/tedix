@@ -22,7 +22,6 @@ const expectedPaths = [
 	"/work/runs/$runId",
 	"/work/executions/$runId",
 	"/work",
-	"/work/graph",
 	"/work/items/$workItemId",
 	"/work/projects/$projectId",
 	"/work/approvals",
