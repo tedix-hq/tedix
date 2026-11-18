@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	AUTHZ,
@@ -501,9 +502,9 @@ export const graphSync = authed.graph.sync
 						if (pageCheckpoint.phase === "decision_predecessors") {
 							const schema = await readGraphProjectionSchemaState(env);
 							if (!schema.complete) {
-								throw new Error(
-									"Graph projection predecessor index is not online",
-								);
+								throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+									message: "Graph projection predecessor index is not online",
+								});
 							}
 						}
 						const renewed = await renewGraphProjectionLease(
@@ -513,9 +514,10 @@ export const graphSync = authed.graph.sync
 							5 * 60 * 1000,
 						);
 						if (!renewed) {
-							throw new Error(
-								"Graph projection repair lease was lost before page mutation",
-							);
+							throw baseErrorConstructors.CONFLICT({
+								message:
+									"Graph projection repair lease was lost before page mutation",
+							});
 						}
 					},
 					sweepRepair: async (epoch) => {
@@ -541,9 +543,10 @@ export const graphSync = authed.graph.sync
 									5 * 60 * 1000,
 								);
 								if (!renewed) {
-									throw new Error(
-										"Graph projection repair lease was lost during cleanup",
-									);
+									throw baseErrorConstructors.CONFLICT({
+										message:
+											"Graph projection repair lease was lost during cleanup",
+									});
 								}
 							},
 						});
@@ -556,9 +559,10 @@ export const graphSync = authed.graph.sync
 							5 * 60 * 1000,
 						);
 						if (!renewed) {
-							throw new Error(
-								"Graph projection repair lease was lost before checkpoint",
-							);
+							throw baseErrorConstructors.CONFLICT({
+								message:
+									"Graph projection repair lease was lost before checkpoint",
+							});
 						}
 						await setGraphProjectionReadiness(context.db, {
 							organizationId: orgId,

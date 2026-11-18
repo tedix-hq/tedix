@@ -1,6 +1,7 @@
 import { CMS_TEMPLATE_SLUGS } from "../schemas/cms-template";
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 
 import {
@@ -178,7 +179,7 @@ const SiteDeprovisionStatusSchema = z.object({
 	errors: z.array(z.string()),
 });
 
-export const sitesContract = oc.router({
+export const sitesContract = oc.errors(baseErrors).router({
 	proposeCmsEditorDraft: oc
 		.route({
 			method: "POST",

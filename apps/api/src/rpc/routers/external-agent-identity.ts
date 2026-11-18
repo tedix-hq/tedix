@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement, ORPCError } from "@orpc/server";
 import { externalAgentIdentityContract } from "@tedix/api-contract/contracts/external-agent-identity";
@@ -1923,7 +1924,9 @@ async function issueMcpCredentialForOrganization(
 			);
 			const clientId = registered?.clientId ?? registered?.client_id;
 			if (!clientId)
-				throw new Error("Reusable AIH MCP client is missing its client id");
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: "Reusable AIH MCP client is missing its client id",
+				});
 			const token = await exchangeAihClientCredentials(
 				{ DESCOPE_PROJECT_ID: aihEnv.DESCOPE_PROJECT_ID },
 				mcpServerUrl,

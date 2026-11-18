@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import {
 	AppIdParamSchema,
@@ -110,7 +111,9 @@ export type VectorVertical = z.infer<typeof VectorVerticalSchema>;
  *
  * All endpoints are org-scoped via JWT context and app-scoped via path parameter
  */
-export const itemsContract = oc.route({ tags: ["items"] }).router({
+const base = oc.errors(baseErrors);
+
+export const itemsContract = base.route({ tags: ["items"] }).router({
 	/**
 	 * GET /apps/{appId}/items - List items for an app with pagination
 	 */

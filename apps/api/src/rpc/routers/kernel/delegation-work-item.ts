@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Kernel — delegation Work Item lifecycle. Creates/claims/heartbeats/disposes
  * the Work Item mirroring a delegated child run, detects stale dispatch rows,
@@ -1455,9 +1456,10 @@ export async function disposeDelegationWorkItem(
 			) ?? 0;
 		// Completion cannot be inferred from evidence belonging to another executor or run.
 		if (outcome === "succeeded" && !delegationAttempt) {
-			throw new Error(
-				"Delegation settlement requires the exact active, previously succeeded, or lease-expired attempt fence",
-			);
+			throw baseErrorConstructors.CONFLICT({
+				message:
+					"Delegation settlement requires the exact active, previously succeeded, or lease-expired attempt fence",
+			});
 		}
 
 		if (attempt) {
@@ -1531,9 +1533,10 @@ export async function disposeDelegationWorkItem(
 				workItemDisposition = "completed";
 				result.workItemDisposition = "completed";
 			} else {
-				throw new Error(
-					"Home delegation settled but the Work Item is not completable",
-				);
+				throw baseErrorConstructors.CONFLICT({
+					message:
+						"Home delegation settled but the Work Item is not completable",
+				});
 			}
 		}
 		if (outcome === "cancelled" && !canonicalWorkItemReuse) {
@@ -2024,9 +2027,10 @@ export async function disposeTerminalDirectDelegationWorkItem(
 	// An unavailable task result is not an ordinary answer without a declaration.
 	// Retry reconciliation rather than manufacturing success from runtime termination.
 	if (input.run.status === "completed" && result.readAvailable === false) {
-		throw new Error(
-			"Delegated task outcome is unavailable; retry the authoritative child result read",
-		);
+		throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+			message:
+				"Delegated task outcome is unavailable; retry the authoritative child result read",
+		});
 	}
 
 	const proof = extractDelegationProofRefs({

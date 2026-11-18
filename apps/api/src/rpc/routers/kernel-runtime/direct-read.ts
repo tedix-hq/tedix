@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Explicit operator MCP reads.
  *
@@ -448,7 +449,9 @@ export function unwrapDirectReadToolResult(
 	toolName: string,
 ): unknown {
 	if (result.isError === true) {
-		throw new Error(boundedText(result.content ?? result));
+		throw baseErrorConstructors.BAD_GATEWAY({
+			message: boundedText(result.content ?? result),
+		});
 	}
 	return unwrapCallToolResult(result, toolName);
 }

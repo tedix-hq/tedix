@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * MCP Health Check Router
  *
@@ -274,16 +275,18 @@ async function runProtocolChecks(
 			// The pinned connect already required a 2026-07-28 `resultType:
 			// "complete"` discover result that advertises the revision.
 			if (!discovered || typeof discovered !== "object") {
-				throw new Error("server/discover result was not retained");
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: "server/discover result was not retained",
+				});
 			}
 			const result = discovered as Record<string, unknown>;
 			const supportedVersions = Array.isArray(result.supportedVersions)
 				? result.supportedVersions
 				: [];
 			if (!supportedVersions.includes(MCP_MODERN_PROTOCOL_VERSION)) {
-				throw new Error(
-					`server/discover does not advertise ${MCP_MODERN_PROTOCOL_VERSION}`,
-				);
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: `server/discover does not advertise ${MCP_MODERN_PROTOCOL_VERSION}`,
+				});
 			}
 			discoveredCapabilities =
 				result.capabilities && typeof result.capabilities === "object"
@@ -317,12 +320,15 @@ async function runProtocolChecks(
 			const advertised = extensions[MCP_TASKS_EXTENSION] !== undefined;
 
 			if (expectation === "present" && !advertised) {
-				throw new Error("server/discover does not advertise MCP Tasks");
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: "server/discover does not advertise MCP Tasks",
+				});
 			}
 			if (expectation === "absent" && advertised) {
-				throw new Error(
-					"server/discover advertises MCP Tasks on a surface this probe expected to have no mounted Tasks handlers",
-				);
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message:
+						"server/discover advertises MCP Tasks on a surface this probe expected to have no mounted Tasks handlers",
+				});
 			}
 			return advertised
 				? "MCP Tasks extension advertised"
@@ -333,12 +339,18 @@ async function runProtocolChecks(
 	results.push(
 		await runCheck("list-tools", async () => {
 			const data = await rpc("tools/list");
-			if (data.error) throw new Error(data.error.message);
+			if (data.error)
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: data.error.message,
+				});
 			const res = data.result as { tools?: McpTool[] };
 			tools = res?.tools ?? [];
-			if (tools.length === 0) throw new Error("No tools found");
+			if (tools.length === 0)
+				throw baseErrorConstructors.BAD_GATEWAY({ message: "No tools found" });
 			if (!hasCacheHint(data.result)) {
-				throw new Error("tools/list result is missing ttlMs/cacheScope");
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: "tools/list result is missing ttlMs/cacheScope",
+				});
 			}
 			return {
 				detail: `${tools.length} tools available`,
@@ -354,7 +366,9 @@ async function runProtocolChecks(
 				const data = await rpc("resources/list");
 				if (data.error) return "resources not supported (OK for some servers)";
 				if (!hasCacheHint(data.result)) {
-					throw new Error("resources/list result is missing ttlMs/cacheScope");
+					throw baseErrorConstructors.BAD_GATEWAY({
+						message: "resources/list result is missing ttlMs/cacheScope",
+					});
 				}
 				const res = data.result as { resources?: McpResource[] };
 				return `${res?.resources?.length ?? 0} resources`;
@@ -374,9 +388,9 @@ async function runProtocolChecks(
 				}
 			}
 			if (invalid.length > 0) {
-				throw new Error(
-					`${invalid.length} tools have invalid schemas: ${invalid.slice(0, 5).join(", ")}`,
-				);
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: `${invalid.length} tools have invalid schemas: ${invalid.slice(0, 5).join(", ")}`,
+				});
 			}
 			return `all ${tools.length} tool schemas valid`;
 		}),
@@ -390,7 +404,9 @@ async function runProtocolChecks(
 				const missing =
 					options.expectedTools?.filter((e) => !toolNames.includes(e)) ?? [];
 				if (missing.length > 0) {
-					throw new Error(`Missing tools: ${missing.join(", ")}`);
+					throw baseErrorConstructors.BAD_GATEWAY({
+						message: `Missing tools: ${missing.join(", ")}`,
+					});
 				}
 				return `all ${options.expectedTools?.length ?? 0} expected tools present`;
 			}),
@@ -400,11 +416,15 @@ async function runProtocolChecks(
 	results.push(
 		await runCheck("list-resource-templates", async () => {
 			const data = await rpc("resources/templates/list");
-			if (data.error) throw new Error(data.error.message);
+			if (data.error)
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: data.error.message,
+				});
 			if (!hasCacheHint(data.result)) {
-				throw new Error(
-					"resources/templates/list result is missing ttlMs/cacheScope",
-				);
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message:
+						"resources/templates/list result is missing ttlMs/cacheScope",
+				});
 			}
 			const res = data.result as {
 				resourceTemplates?: McpResourceTemplate[];
@@ -425,13 +445,20 @@ async function runProtocolChecks(
 		results.push(
 			await runCheck("read-resource", async () => {
 				const data = await rpc("resources/read", { uri: resourceUri });
-				if (data.error) throw new Error(data.error.message);
+				if (data.error)
+					throw baseErrorConstructors.BAD_GATEWAY({
+						message: data.error.message,
+					});
 				if (!hasCacheHint(data.result)) {
-					throw new Error("resources/read result is missing ttlMs/cacheScope");
+					throw baseErrorConstructors.BAD_GATEWAY({
+						message: "resources/read result is missing ttlMs/cacheScope",
+					});
 				}
 				const res = data.result as { contents?: unknown[] };
 				if (!Array.isArray(res.contents) || res.contents.length === 0) {
-					throw new Error("resources/read returned no contents");
+					throw baseErrorConstructors.BAD_GATEWAY({
+						message: "resources/read returned no contents",
+					});
 				}
 				return `read ${resourceUri}`;
 			}),
@@ -447,9 +474,9 @@ async function runProtocolChecks(
 				uri: missingResourceUri,
 			});
 			if (data.error?.code !== -32602) {
-				throw new Error(
-					`expected -32602 for missing resource, got ${data.error?.code ?? "success"}`,
-				);
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: `expected -32602 for missing resource, got ${data.error?.code ?? "success"}`,
+				});
 			}
 			return {
 				detail: "missing resources fail with JSON-RPC InvalidParams",

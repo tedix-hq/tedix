@@ -7,6 +7,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { JsonValueSchema } from "../schemas/common";
 import {
@@ -114,6 +115,7 @@ const EmailThreadSummarySchema = EmailThreadSchema.extend({
 });
 
 export const tediEmailContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["internal", "tedi-email"], prefix: "/tediEmail" })
 	.router({
 		/**

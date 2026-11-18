@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /** Original targets remain separate from the generated dispatch Work's ownership. */
 export async function resolveDelegationWorkContext(
 	source: string,
@@ -21,16 +22,17 @@ export async function resolveDelegationWorkContext(
 		),
 	];
 	if (references.length > 8)
-		throw new Error(
-			"Delegation preflight failed: at most eight original Work targets can be hydrated",
-		);
+		throw baseErrorConstructors.BAD_REQUEST({
+			message:
+				"Delegation preflight failed: at most eight original Work targets can be hydrated",
+		});
 	return Promise.all(
 		references.map(async (prefix) => {
 			const candidates = await resolve(prefix);
 			if (candidates.length !== 1)
-				throw new Error(
-					`Delegation preflight failed: original Work ${prefix} ${candidates.length ? `is ambiguous; candidates: ${candidates.map((item) => item.id).join(", ")}` : "was not found in this organization"}. Never invent a UUID`,
-				);
+				throw baseErrorConstructors.BAD_REQUEST({
+					message: `Delegation preflight failed: original Work ${prefix} ${candidates.length ? `is ambiguous; candidates: ${candidates.map((item) => item.id).join(", ")}` : "was not found in this organization"}. Never invent a UUID`,
+				});
 			return candidates[0]!;
 		}),
 	);

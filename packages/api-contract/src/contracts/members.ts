@@ -7,6 +7,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import {
 	MemberIdParamSchema,
@@ -28,6 +29,7 @@ import {
  * Team administration requires admin/owner access; human seat owners may suspend their agents.
  */
 export const membersContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["members"], prefix: "/organizations" })
 	.router({
 		suspendAgentSeat: oc

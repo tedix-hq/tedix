@@ -7,6 +7,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { SuccessResponseSchema } from "../schemas/common";
 import {
@@ -34,6 +35,7 @@ import {
 } from "../schemas/tedi-app-assignments";
 
 export const tediAppAssignmentsContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["tedi-app-assignments"], prefix: "/tedi-app-assignments" })
 	.router({
 		/**

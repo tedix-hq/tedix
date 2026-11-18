@@ -1,4 +1,5 @@
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import {
 	ConfigureCreditBillingInputSchema,
 	ConfigureCreditBillingResponseSchema,
@@ -7,6 +8,7 @@ import {
 } from "../schemas/credit-billing-activation";
 export const creditBillingActivationContract = {
 	configureCreditBilling: oc
+		.errors(baseErrors)
 		.route({
 			method: "POST",
 			path: "/configure-credit-billing",
@@ -17,6 +19,7 @@ export const creditBillingActivationContract = {
 		.input(ConfigureCreditBillingInputSchema)
 		.output(ConfigureCreditBillingResponseSchema),
 	repriceCreditBilling: oc
+		.errors(baseErrors)
 		.route({
 			method: "POST",
 			path: "/reprice-credit-billing",

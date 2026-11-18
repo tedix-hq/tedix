@@ -1,6 +1,7 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
 import { DataResidencyError } from "../../services/data-residency";
-import { implement, ORPCError } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { runtimeEntitlementsContract } from "@tedix/api-contract/contracts/runtime-entitlements";
 import { getEffectiveInferencePolicies } from "@tedix/db/queries/billing/inference-policies";
 import {
@@ -56,7 +57,7 @@ const getEffective = os.getEffective
 			requireOrgId(context),
 		);
 		if (!entitlement) {
-			throw new ORPCError("NOT_FOUND", {
+			throw baseErrorConstructors.NOT_FOUND({
 				message: "Runtime entitlement is not configured",
 			});
 		}

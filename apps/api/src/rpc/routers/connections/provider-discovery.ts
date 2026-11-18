@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 import { type ConnectionProviderTemplate } from "@tedix/api-contract/schemas/connection-provider-templates";
 import {
@@ -409,7 +410,9 @@ export async function fetchAuditJsonFromCandidates(
 			clearTimeout(timeout);
 		}
 	}
-	throw new Error(`Unable to fetch ${label}: ${errors.join("; ")}`);
+	throw baseErrorConstructors.BAD_GATEWAY({
+		message: `Unable to fetch ${label}: ${errors.join("; ")}`,
+	});
 }
 
 export function optionalUrl(value: unknown): string | null {
@@ -448,9 +451,9 @@ export async function discoverOutboundAppMetadataForAudit(
 		);
 		const authorizationServer = optionalIssuerUrl(authorizationServers[0]);
 		if (!authorizationServer) {
-			throw new Error(
-				`${protectedResource.url} is missing authorization_servers[0]`,
-			);
+			throw baseErrorConstructors.BAD_GATEWAY({
+				message: `${protectedResource.url} is missing authorization_servers[0]`,
+			});
 		}
 		const authorizationMetadata = await fetchAuditJsonFromCandidates(
 			auditAuthorizationServerMetadataCandidates(authorizationServer),

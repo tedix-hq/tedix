@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Code Mode transport helpers for Home's approved-write path.
  *
@@ -126,7 +127,9 @@ export function codeModeDescribeParams(
 	callable: string,
 ): Record<string, unknown> {
 	if (!CALLABLE_RE.test(callable))
-		throw new Error(`Invalid Code Mode callable: ${callable}`);
+		throw baseErrorConstructors.BAD_REQUEST({
+			message: `Invalid Code Mode callable: ${callable}`,
+		});
 	return {
 		name: CODE_MODE_TOOL_NAME,
 		arguments: {
@@ -145,7 +148,9 @@ export function codeModeCanonicalDescribeParams(
 	name: string,
 ): Record<string, unknown> {
 	if (!CALLABLE_RE.test(name) && !/^[A-Za-z_]\w*$/.test(name))
-		throw new Error(`Invalid Code Mode tool name: ${name}`);
+		throw baseErrorConstructors.BAD_REQUEST({
+			message: `Invalid Code Mode tool name: ${name}`,
+		});
 	// A literal describe lets the gateway load only this namespace. Wrapping it
 	// in a variable/projection forces full aggregate discovery at cold ingress.
 	if (name.includes("."))
@@ -177,7 +182,9 @@ export function codeModeReplayLookupParams(
 	toolName: string,
 ): Record<string, unknown> {
 	if (!/^[A-Za-z_][\w-]*$/.test(toolName))
-		throw new Error(`Invalid Code Mode tool name: ${toolName}`);
+		throw baseErrorConstructors.BAD_REQUEST({
+			message: `Invalid Code Mode tool name: ${toolName}`,
+		});
 	const projectedName = toolName.replace(/-/g, "_");
 	const search = `const page = await discover.search(${JSON.stringify({ query: projectedName, limit: 25, includeMetadata: true })}); `;
 	const hits = `const hits = (Array.isArray(page) ? page : page.results ?? []).filter((hit) => hit.tool === ${JSON.stringify(projectedName)} && typeof hit.callable === "string").slice(0, 8); `;
@@ -336,7 +343,9 @@ export function codeModeExecutionParams(
 	args: Record<string, unknown>,
 ): Record<string, unknown> {
 	if (!CALLABLE_RE.test(callable)) {
-		throw new Error(`Invalid Code Mode callable: ${callable}`);
+		throw baseErrorConstructors.BAD_REQUEST({
+			message: `Invalid Code Mode callable: ${callable}`,
+		});
 	}
 	return {
 		name: CODE_MODE_TOOL_NAME,

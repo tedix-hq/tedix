@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { implement } from "@orpc/server";
 import { directoryContract } from "@tedix/api-contract/contracts/directory";
 import type { JWTPayload } from "@tedix/auth/types";
@@ -71,7 +72,9 @@ type SurfaceRecord = {
 function osHandoffUrl(org: OrgCore, platformDomain: string): string {
 	const origin = buildSurfaceUrl("os", org.slug, { platformDomain });
 	if (!origin || !org.descopeTenantId) {
-		throw new Error("os handoff requires a provisioned organization");
+		throw baseErrorConstructors.CONFLICT({
+			message: "os handoff requires a provisioned organization",
+		});
 	}
 	const handoff = new URL("/auth/session-broker/start", origin);
 	handoff.searchParams.set("tenant_id", org.descopeTenantId);

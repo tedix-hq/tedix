@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Kernel — autonomous delegation dispatch (the supervised auto-spawn slice).
  *
@@ -130,9 +131,10 @@ export function buildAutoDelegationDispatcher(deps: {
 }): AutoDelegationDispatcher {
 	return async (input) => {
 		if (deps.recordFyi && input.workOrder.autonomyClass && !input.workItemId)
-			throw new Error(
-				"Automatic delegation requires a canonical Work Item for its FYI",
-			);
+			throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+				message:
+					"Automatic delegation requires a canonical Work Item for its FYI",
+			});
 		const clientRequestId = `${input.homeRunId}:auto:${input.delegatedTediId}`;
 		// Deterministic child-run id — also the idempotency key, so a re-fired
 		// turn dedups to the same child (matches the forced delegateToTediId path).

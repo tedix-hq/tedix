@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Start an accepted Work proposal according to its kind: delegate the new
  * Work to a tedi through Home, plan a factory for the member to switch on, or
@@ -219,7 +220,9 @@ async function run(
 	if (start.kind === "delegate") {
 		const tedi = await proposalTedi(context, orgId, start.tedi);
 		if (!tedi)
-			throw new Error("this organization has no tedi to hand the work to");
+			throw baseErrorConstructors.CONFLICT({
+				message: "this organization has no tedi to hand the work to",
+			});
 		// A delegated attempt needs accepted Work; the member just accepted it.
 		const current = await getWorkItemById(context.db, workItem.id, orgId);
 		// The member who said yes answers for the work when the proposal named

@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import {
 	buildSurfaceUrl,
 	platformDomainForEnvironment,
@@ -27,7 +28,9 @@ export function tenantConnectionHandoffUrl(input: {
 		),
 	});
 	if (!origin) {
-		throw new Error("Tenant connection handoff requires an organization slug");
+		throw baseErrorConstructors.CONFLICT({
+			message: "Tenant connection handoff requires an organization slug",
+		});
 	}
 	const url = new URL(
 		input.personal ? "/account/connections" : "/admin/connections",

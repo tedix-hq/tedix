@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { installDocument, installOutputEditor } from "./os-editor-blueprints";
 import { validateAppSource } from "../../services/os-app-validation";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
@@ -10,7 +11,7 @@ import {
 	personalDelegationSource,
 	validatePersonalRunSources,
 } from "../../services/personal-resource-delegation-authority";
-import { ORPCError, implement } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import {
 	type OsBlueprintDefinition,
@@ -602,7 +603,8 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 			}
 			if (resource.connectionScope === "user") {
 				try {
-					if (typeof executable === "string") throw new Error(executable);
+					if (typeof executable === "string")
+						throw baseErrorConstructors.BAD_REQUEST({ message: executable });
 					const rows = await Promise.all(
 						input.resourceDelegationIds.map((id) =>
 							getPersonalResourceDelegation(context.db, {
@@ -625,9 +627,10 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 							(operation) => !matching[0]!.operations.includes(operation),
 						)
 					)
-						throw new Error(
-							"Select exactly one valid personal resource consent covering this app grant",
-						);
+						throw baseErrorConstructors.BAD_REQUEST({
+							message:
+								"Select exactly one valid personal resource consent covering this app grant",
+						});
 					const source = {
 						...personalDelegationSource(matching[0]),
 						operations: grant.operations,
@@ -1369,7 +1372,7 @@ function requireInstantiablePreflight(preflight: OsBlueprintPreflight): void {
 		...preflight.blockingReasons,
 		...preflight.configurationReasons,
 	];
-	throw new ORPCError("UNPROCESSABLE_CONTENT", {
+	throw baseErrorConstructors.UNPROCESSABLE_CONTENT({
 		message: `Blueprint dependencies did not resolve in this organization: ${reasons.join("; ")}`,
 		data: { preflight },
 	});

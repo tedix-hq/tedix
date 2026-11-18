@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { failRunningAppCatalogSyncLog } from "@tedix/db/queries/catalog/sync-logs";
 import { catalogSyncTerminalFailure } from "../../../lib/catalog-sync-recovery";
@@ -779,7 +780,9 @@ export const triggerSyncCatalog = fleetCatalogOs.triggerSync
 		try {
 			const workflow = env.CATALOG_SYNC_WORKFLOW;
 			if (!workflow)
-				throw new Error("CATALOG_SYNC_WORKFLOW binding not available");
+				throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+					message: "CATALOG_SYNC_WORKFLOW binding not available",
+				});
 			const instance = await workflow.create({
 				params: {
 					syncType,

@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import {
 	AppIdParamSchema,
@@ -68,6 +69,7 @@ export const jobsContract = {
 	 * GET /apps/{appId}/jobs/{jobId}
 	 */
 	getJob: oc
+		.errors(baseErrors)
 		.route({
 			method: "GET",
 			path: "/apps/{appId}/jobs/{jobId}",
@@ -84,6 +86,7 @@ export const jobsContract = {
 	 * GET /apps/{appId}/jobs
 	 */
 	listJobs: oc
+		.errors(baseErrors)
 		.route({
 			method: "GET",
 			path: "/apps/{appId}/jobs",

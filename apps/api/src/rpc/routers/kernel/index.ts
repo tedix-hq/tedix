@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import {
 	StewardCloseoutTargetsSchema,
 	type StewardCloseoutTargets,
@@ -1321,9 +1322,10 @@ export async function runKernel(args: {
 				owner?.status !== "active" ||
 				!["owner", "admin"].includes(owner.role)
 			)
-				throw new Error(
-					"Steward closeout requires the original active owner request",
-				);
+				throw baseErrorConstructors.FORBIDDEN({
+					message:
+						"Steward closeout requires the original active owner request",
+				});
 			for (const target of stewardCloseoutTargets) {
 				const item = await getWorkItemById(db, target.id, organizationId);
 				if (
@@ -1334,9 +1336,10 @@ export async function runKernel(args: {
 					item.stewardId !== route.targetTediId ||
 					item.id === workItemId
 				)
-					throw new Error(
-						"Steward closeout target is changed, unavailable or outside the selected tedi's stewardship",
-					);
+					throw baseErrorConstructors.CONFLICT({
+						message:
+							"Steward closeout target is changed, unavailable or outside the selected tedi's stewardship",
+					});
 			}
 		}
 		const workOrder = buildDelegationWorkOrder({

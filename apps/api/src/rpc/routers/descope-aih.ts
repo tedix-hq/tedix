@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Descope AIH Management Router
  * Wraps Descope Management API for MCP Server + Client CRUD.
@@ -479,7 +480,9 @@ export const exchangeClientCredentialsProcedure =
 			const server = await loadDescopeMcpServer(aihEnv, input.mcpServerId);
 			const resource = server.audienceWhitelist?.[0];
 			if (!resource) {
-				throw new Error("AIH MCP server is missing its Resource audience");
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: "AIH MCP server is missing its Resource audience",
+				});
 			}
 			const result = await exchangeAihClientCredentials(
 				{ DESCOPE_PROJECT_ID: aihEnv.DESCOPE_PROJECT_ID },

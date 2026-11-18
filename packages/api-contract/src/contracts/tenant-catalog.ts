@@ -1,6 +1,7 @@
 import "@orpc/openapi/extensions/route";
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import {
 	InstallTenantMcpAppInputSchema,
@@ -15,6 +16,7 @@ import {
 
 /** Tenant-owned catalog utilities that do not exercise fleet curation. */
 export const tenantCatalogContract = oc
+	.errors(baseErrors)
 	// Preserve the stable public REST paths while moving RPC ownership to a
 	// structurally tenant-product namespace.
 	.route({ tags: ["tenant-catalog"], prefix: "/catalog" })

@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { createDbClient } from "@tedix/db/client";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import type { ModelCatalogConfig } from "@tedix/api-contract/schemas/model-catalog-config";
@@ -213,9 +214,10 @@ export function kernelGatewayFetch(
 			url.pathname !== "/openai/v1/responses" ||
 			url.search
 		) {
-			throw new Error(
-				"Refusing Azure request that cannot be routed through AI Gateway",
-			);
+			throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+				message:
+					"Refusing Azure request that cannot be routed through AI Gateway",
+			});
 		}
 		const body =
 			typeof input === "string" || input instanceof URL
@@ -230,7 +232,9 @@ export function kernelGatewayFetch(
 			typeof payload.model !== "string" ||
 			!payload.model.trim()
 		) {
-			throw new Error("Responses request is missing its deployment");
+			throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+				message: "Responses request is missing its deployment",
+			});
 		}
 		const model = payload.model;
 		const gatewayUrl = `${prefix}${resource}/openai/v1/responses`;
@@ -317,7 +321,9 @@ function observeKernelModel(
 	attempts: SelectedKernelModel["attempts"],
 ): LanguageModel {
 	if (typeof model === "string")
-		throw new Error("Kernel requires a concrete model");
+		throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+			message: "Kernel requires a concrete model",
+		});
 	return new Proxy(model, {
 		get(target, key, receiver) {
 			const value = Reflect.get(target, key, receiver);
@@ -412,7 +418,10 @@ export function kernelModel(
 			undefined,
 			catalog,
 		);
-		if (!route) throw new Error("Kernel model became unavailable");
+		if (!route)
+			throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+				message: "Kernel model became unavailable",
+			});
 		route.retryModel = async () => {
 			const policy = await hooks.load();
 			if (policy.maxTransitions < 1) return null;
@@ -478,7 +487,10 @@ function selectKernelModel(
 	const operationContext = gatewayContext;
 	const forOperation = () => {
 		const operation = kernelModel(env, override, operationContext, catalog);
-		if (!operation) throw new Error("Kernel model became unavailable");
+		if (!operation)
+			throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+				message: "Kernel model became unavailable",
+			});
 		return operation;
 	};
 	const attempts: SelectedKernelModel["attempts"] = executionAttempts ?? [];

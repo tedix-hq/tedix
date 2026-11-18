@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { decideAutoApproval } from "@tedix/api-contract/utils/approval-policy";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
@@ -42,7 +43,7 @@ import {
 	readDecisionLearning,
 	readDraftPreferences,
 } from "../../services/decision-learning";
-import { ORPCError, implement } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { agentTurnTriageContract } from "@tedix/api-contract/contracts/agent-turn-triage";
 import {
 	AGENT_REPLY_STEER_TURN_TYPE,
@@ -203,7 +204,7 @@ async function readPolicyStateFor(
 	}
 	const parsed = AgentTurnTriagePolicySchema.safeParse(row.value);
 	if (!parsed.success)
-		throw new ORPCError("SERVICE_UNAVAILABLE", {
+		throw baseErrorConstructors.SERVICE_UNAVAILABLE({
 			message: "Stored triage policy is invalid",
 		});
 	return {
@@ -624,7 +625,7 @@ const updatePolicy = writeOs.updatePolicy.handler(
 			expectedRevision: input.expectedRevision,
 		});
 		if (!result.ok) {
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message:
 					"Triage policy revision compare-and-swap lost against a concurrent write",
 				data: {

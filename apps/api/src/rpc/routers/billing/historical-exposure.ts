@@ -1,5 +1,5 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /** Human facts and explicit finite permission records. No provider, allocation, activation or settlement calls. */
-import { ORPCError } from "@orpc/server";
 import {
 	FiniteExecutionAuthorizationSchema,
 	FiniteExecutionRevocationInputSchema,
@@ -40,7 +40,7 @@ export async function requireHistoricalHuman(context: BaseContext) {
 		user.entityType === "tedi" ||
 		user.tediId
 	)
-		throw new ORPCError("FORBIDDEN", {
+		throw baseErrorConstructors.FORBIDDEN({
 			message: "Human organization billing authority required",
 		});
 	const organizationId = requireOrgId(context);
@@ -61,7 +61,7 @@ export async function requireHistoricalHuman(context: BaseContext) {
 			"billing:manage",
 		)
 	)
-		throw new ORPCError("FORBIDDEN", {
+		throw baseErrorConstructors.FORBIDDEN({
 			message: "Active human owner/admin billing membership required",
 		});
 	return { organizationId, subject: user.sub, userId: context.userId };
@@ -77,7 +77,7 @@ async function canonicalRoot(
 		organizationId,
 	);
 	if (!tedi || !tedi.isolateAgentId || tedi.organizationId !== organizationId)
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Canonical historical custody unavailable",
 		});
 	return tedi;
@@ -115,7 +115,7 @@ export async function recordHistoricalFreshDecisionHandler(
 		HistoricalExposureSchema.safeParse(row.payload),
 	);
 	if (parsed.some((value) => !value.success))
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Canonical historical custody changed",
 		});
 	const exposures = parsed.map((value) => value.data!);
@@ -128,7 +128,7 @@ export async function recordHistoricalFreshDecisionHandler(
 				exposures[index]!.rootObjectId !== input.objectId,
 		)
 	)
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Canonical historical custody changed",
 		});
 	const normalized = {
@@ -149,14 +149,14 @@ export async function recordHistoricalFreshDecisionHandler(
 	);
 	if (prior) {
 		if (prior.requestHash !== requestHash)
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message: "Historical decision idempotency conflict",
 			});
 		return HistoricalFreshDecisionSchema.parse(prior.payload);
 	}
 	const funding = await getHistoricalFunding(context.db, a.organizationId);
 	if (!funding)
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Existing funding identity unavailable",
 		});
 	const { account, plan } = funding;
@@ -166,7 +166,7 @@ export async function recordHistoricalFreshDecisionHandler(
 			? resolveStripeEnvironment(context.env)
 			: account.stripeEnvironment;
 	if (!["active", "trial"].includes(account.status))
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Existing funding identity unavailable",
 		});
 	const actual = {
@@ -182,7 +182,9 @@ export async function recordHistoricalFreshDecisionHandler(
 		stripeEnvironment: env,
 	};
 	if (JSON.stringify(actual) !== JSON.stringify(input.funding))
-		throw new ORPCError("CONFLICT", { message: "Funding identity changed" });
+		throw baseErrorConstructors.CONFLICT({
+			message: "Funding identity changed",
+		});
 	const event = HistoricalFreshDecisionSchema.parse({
 		id: crypto.randomUUID(),
 		organizationId: a.organizationId,
@@ -204,7 +206,7 @@ export async function recordHistoricalFreshDecisionHandler(
 		set,
 	);
 	if (!row)
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Historical decision exposure, period or revision conflict",
 		});
 	return HistoricalFreshDecisionSchema.parse(row.payload);
@@ -246,7 +248,7 @@ export async function revokeHistoricalFreshDecisionHandler(
 		set,
 	);
 	if (!row)
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Historical revocation revision conflict",
 		});
 	return HistoricalFreshDecisionSchema.parse(row.payload);
@@ -267,7 +269,7 @@ export async function revokeHistoricalFreshExecutionHandler(
 	);
 	const grant = FiniteExecutionAuthorizationSchema.safeParse(original?.payload);
 	if (!grant.success || grant.data.input.freshRootName !== tedi.isolateAgentId)
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Finite authorization custody unavailable",
 		});
 	const event = FiniteExecutionRevocationSchema.parse({
@@ -293,12 +295,12 @@ export async function revokeHistoricalFreshExecutionHandler(
 	});
 	const current = await canonicalRoot(context, input.tediId, a.organizationId);
 	if (current.isolateAgentId !== event.freshRootName)
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Fresh canonical custody changed",
 		});
 	const row = await recordFiniteExecutionRevocation(context.db, event);
 	if (!row)
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Finite revocation membership or revision changed",
 		});
 	return FiniteExecutionRevocationSchema.parse(row.payload);

@@ -8,6 +8,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { JsonValueSchema } from "../schemas/common";
 import {
@@ -401,7 +402,9 @@ const MemoryGraphAuditOutputSchema = z.object({
 	nextOffset: z.number().nullable(),
 });
 
-export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
+const base = oc.errors(baseErrors).route({ tags: ["memory-graph"] });
+
+export const memoryGraphContract = base.router({
 	browse: oc.input(MemoryBrowseInputSchema).output(MemoryBrowseOutputSchema),
 	listObservations: oc
 		.input(
@@ -541,7 +544,11 @@ export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
 
 	// ---- Reflect (trigger consolidation) ----
 	reflect: oc
-		.route({ method: "POST", path: "/memory/reflect", tags: ["memory-graph"] })
+		.route({
+			method: "POST",
+			path: "/memory/reflect",
+			tags: ["memory-graph"],
+		})
 		.input(
 			z.object({
 				tediId: z.string().optional(),
@@ -573,7 +580,11 @@ export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
 
 	// ---- Assemble context ----
 	assemble: oc
-		.route({ method: "POST", path: "/memory/assemble", tags: ["memory-graph"] })
+		.route({
+			method: "POST",
+			path: "/memory/assemble",
+			tags: ["memory-graph"],
+		})
 		.input(
 			z.object({
 				query: z
@@ -656,7 +667,11 @@ export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
 
 	// ---- Promote ----
 	promote: oc
-		.route({ method: "POST", path: "/memory/promote", tags: ["memory-graph"] })
+		.route({
+			method: "POST",
+			path: "/memory/promote",
+			tags: ["memory-graph"],
+		})
 		.input(
 			z.object({
 				factId: z.string().describe("Fact to promote"),
@@ -687,7 +702,11 @@ export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
 
 	// ---- Reindex (admin: rebuild vector index from D1) ----
 	reindex: oc
-		.route({ method: "POST", path: "/memory/reindex", tags: ["memory-graph"] })
+		.route({
+			method: "POST",
+			path: "/memory/reindex",
+			tags: ["memory-graph"],
+		})
 		.input(
 			z.object({
 				domain: z
@@ -878,7 +897,11 @@ export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
 
 	// ---- Feedback (retrieval→usage correlation) ----
 	feedback: oc
-		.route({ method: "POST", path: "/memory/feedback", tags: ["memory-graph"] })
+		.route({
+			method: "POST",
+			path: "/memory/feedback",
+			tags: ["memory-graph"],
+		})
 		.input(
 			z.object({
 				factIds: z

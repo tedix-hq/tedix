@@ -1,7 +1,8 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { osAudit } from "../os-audit";
 import { ORGANIZATION_SETTINGS_AUDIT } from "../settings-audit";
 import { createDbClient } from "@tedix/db/client";
-import { implement, ORPCError } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { organizationsContract } from "@tedix/api-contract/contracts/organizations";
 import {
 	getOrganizationResidencyPolicy,
@@ -45,7 +46,7 @@ export const setDataResidency = os.setDataResidency
 	.handler(async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		if (context.authType !== "user" || !context.user?.sub)
-			throw new ORPCError("FORBIDDEN", {
+			throw baseErrorConstructors.FORBIDDEN({
 				message:
 					"An organization owner or administrator must change data residency",
 			});
@@ -64,7 +65,7 @@ export const setDataResidency = os.setDataResidency
 			member?.status !== "active" ||
 			!["owner", "admin"].includes(member.role)
 		)
-			throw new ORPCError("FORBIDDEN", {
+			throw baseErrorConstructors.FORBIDDEN({
 				message:
 					"An active organization owner or administrator must change data residency",
 			});
@@ -80,7 +81,7 @@ export const setDataResidency = os.setDataResidency
 				error instanceof Error &&
 				error.message === "Residency policy revision conflict"
 			)
-				throw new ORPCError("CONFLICT", {
+				throw baseErrorConstructors.CONFLICT({
 					message: "Data residency changed. Reload the setting and retry.",
 				});
 			throw error;
@@ -97,7 +98,7 @@ export const publishResidencyProviderVersion =
 		.handler(({ context, input }) => {
 			const actorId = context.userId ?? context.user?.sub ?? context.apiKey?.id;
 			if (!actorId)
-				throw new ORPCError("FORBIDDEN", {
+				throw baseErrorConstructors.FORBIDDEN({
 					message:
 						"An attributable platform principal must publish residency provider evidence",
 				});

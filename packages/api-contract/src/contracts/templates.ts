@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { AppCapabilitiesSchema, VerticalSchema } from "../schemas/app";
 import {
@@ -212,6 +213,7 @@ export type ApplyTemplateResponse = z.infer<typeof ApplyTemplateResponseSchema>;
  *     description: App template management
  */
 export const templatesContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["templates"], prefix: "/templates" })
 	.router({
 		/**

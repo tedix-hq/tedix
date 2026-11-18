@@ -11,6 +11,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import {
 	CognitiveVisibilitySchema,
@@ -486,7 +487,9 @@ const SkillWorkflowImprovementValidationSchema = z.object({
 });
 
 // ---- Knowledge Entries ----
-export const knowledgeContract = oc.route({ tags: ["knowledge"] }).router({
+const base = oc.errors(baseErrors);
+
+export const knowledgeContract = base.route({ tags: ["knowledge"] }).router({
 	synthesize: oc
 		.route({
 			method: "POST",
@@ -543,7 +546,7 @@ export const knowledgeContract = oc.route({ tags: ["knowledge"] }).router({
 });
 
 // ---- Skill Entries ----
-export const skillsContract = oc.route({ tags: ["skills"] }).router({
+export const skillsContract = base.route({ tags: ["skills"] }).router({
 	listWorkspaceDraftProposals: oc
 		.route({
 			method: "POST",
@@ -904,7 +907,11 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 		.output(SkillMoveToTediResultSchema),
 
 	listByOrg: oc
-		.route({ method: "GET", path: "/skills/list-by-org", tags: ["cognitive"] })
+		.route({
+			method: "GET",
+			path: "/skills/list-by-org",
+			tags: ["cognitive"],
+		})
 		.input(
 			z
 				.object({
@@ -967,7 +974,11 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 		),
 
 	listByApp: oc
-		.route({ method: "GET", path: "/skills/list-by-app", tags: ["cognitive"] })
+		.route({
+			method: "GET",
+			path: "/skills/list-by-app",
+			tags: ["cognitive"],
+		})
 		.input(
 			z
 				.object({
@@ -1225,7 +1236,11 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 		),
 
 	getForMcp: oc
-		.route({ method: "GET", path: "/skills/get-for-mcp", tags: ["cognitive"] })
+		.route({
+			method: "GET",
+			path: "/skills/get-for-mcp",
+			tags: ["cognitive"],
+		})
 		.input(
 			z.object({
 				id: z.string().optional(),
@@ -2462,7 +2477,7 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 });
 
 // ---- Muscle Memory ----
-export const muscleContract = oc.route({ tags: ["muscle"] }).router({
+export const muscleContract = base.route({ tags: ["muscle"] }).router({
 	list: oc
 		.route({ method: "GET", path: "/muscle/list", tags: ["cognitive"] })
 		.input(
@@ -2504,7 +2519,11 @@ export const muscleContract = oc.route({ tags: ["muscle"] }).router({
 		.output(z.object({ entry: MuscleMemorySchema })),
 
 	crystallize: oc
-		.route({ method: "POST", path: "/muscle/crystallize", tags: ["cognitive"] })
+		.route({
+			method: "POST",
+			path: "/muscle/crystallize",
+			tags: ["cognitive"],
+		})
 		.input(
 			z.object({
 				tediId: z.string().optional(),

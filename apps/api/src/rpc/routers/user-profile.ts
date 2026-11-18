@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Account-wide human profile. D1 is the editable profile authority; Descope
  * remains the authority for login identifiers, credentials, MFA and sessions.
@@ -5,7 +6,7 @@
  * machine credential can substitute another user.
  */
 
-import { ORPCError, implement } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { userProfileContract } from "@tedix/api-contract/contracts/user-profile";
 import { getUserById, updateUserProfile } from "@tedix/db/queries/users";
 import {
@@ -122,7 +123,7 @@ const updateMine = authed.updateMine
 		});
 		if (!updated) {
 			const current = await getUserById(context.db, userId);
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message:
 					"Profile revision compare-and-swap lost against another update",
 				data: {
@@ -189,7 +190,7 @@ const confirmAvatarUpload = authed.confirmAvatarUpload
 		if (!updated) {
 			await deleteCfImage(context.env, input.imageId).catch(() => {});
 			const latest = await getUserById(context.db, userId);
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message: "Profile changed after the avatar upload was requested",
 				data: {
 					expectedRevision,
@@ -228,7 +229,7 @@ const deleteAvatar = authed.deleteAvatar
 		});
 		if (!updated) {
 			const latest = await getUserById(context.db, userId);
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message: "Profile changed before the avatar could be deleted",
 				data: {
 					expectedRevision: input.expectedRevision,

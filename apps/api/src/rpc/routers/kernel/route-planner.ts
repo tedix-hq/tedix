@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { OS_SCREENS_PROMPT } from "@tedix/api-contract/utils/os-screens-prompt";
 import { OPERATOR_RECORD_TOOLS } from "@tedix/api-contract/schemas/operator-records";
 import { ZodError } from "zod";
@@ -1041,7 +1042,10 @@ async function planKernelRouteUnguarded(
 		} catch (error) {
 			if (abortSignal?.aborted) return null;
 			if (hedged.idleTimedOut())
-				throw new Error("[kernel] route stream idle timeout", { cause: error });
+				throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+					message: "[kernel] route stream idle timeout",
+					cause: error,
+				});
 			if (error instanceof EmptyRouteStreamError) throw error.cause;
 			throw error;
 		}
@@ -1602,7 +1606,10 @@ async function streamHomeAnswer(
 			idle.reset();
 			signal.throwIfAborted();
 			if (part.type === "error") throw part.error;
-			if (part.type === "abort") throw new Error("Home answer stream aborted");
+			if (part.type === "abort")
+				throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+					message: "Home answer stream aborted",
+				});
 			if (part.type !== "text-delta") continue;
 			answer += part.text;
 			try {

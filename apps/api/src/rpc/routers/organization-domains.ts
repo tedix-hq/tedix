@@ -1,6 +1,7 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { osAudit } from "../os-audit";
 import { ORGANIZATION_SETTINGS_AUDIT } from "../settings-audit";
-import { implement, ORPCError } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { organizationsContract } from "@tedix/api-contract/contracts/organizations";
 import { createDbClient } from "@tedix/db/client";
 import {
@@ -42,7 +43,7 @@ function primaryDb(context: BaseContext) {
 async function owner(context: BaseContext) {
 	const organizationId = requireOrgId(context);
 	if (context.authType !== "user" || !context.user?.sub)
-		throw new ORPCError("FORBIDDEN", {
+		throw baseErrorConstructors.FORBIDDEN({
 			message: "An organization owner or administrator is required",
 		});
 	const member = context.userId
@@ -57,7 +58,7 @@ async function owner(context: BaseContext) {
 				context.user.sub,
 			);
 	if (member?.status !== "active" || !["owner", "admin"].includes(member.role))
-		throw new ORPCError("FORBIDDEN", {
+		throw baseErrorConstructors.FORBIDDEN({
 			message: "An active organization owner or administrator is required",
 		});
 	return organizationId;
@@ -68,7 +69,7 @@ function providerEnv(context: BaseContext) {
 			context.env as OrganizationCustomHostnameEnv,
 		);
 	} catch {
-		throw new ORPCError("BAD_GATEWAY", {
+		throw baseErrorConstructors.BAD_GATEWAY({
 			message:
 				"Organization custom domains are not configured for this installation",
 		});
@@ -121,7 +122,7 @@ function assertProvider(claim: Claim, provider: CmsCustomHostname) {
 		(claim.providerHostnameId !== null &&
 			provider.id !== claim.providerHostnameId)
 	)
-		throw new ORPCError("CONFLICT", {
+		throw baseErrorConstructors.CONFLICT({
 			message: "Provider hostname belongs to another claim",
 		});
 }
@@ -158,7 +159,7 @@ export const beginCustomDomain = authed.beginCustomDomain
 		try {
 			hostname = assertCustomHostname(input.hostname.trim());
 		} catch {
-			throw new ORPCError("BAD_REQUEST", {
+			throw baseErrorConstructors.BAD_REQUEST({
 				message: "Enter a hostname such as share.example.com",
 			});
 		}
@@ -170,7 +171,7 @@ export const beginCustomDomain = authed.beginCustomDomain
 			expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString(),
 		});
 		if (!claim)
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message:
 					"Remove the existing domain first, or choose an available hostname. OS must be enabled for this organization.",
 			});
@@ -189,7 +190,7 @@ export const verifyCustomDomain = authed.verifyCustomDomain
 			"provisioning",
 		);
 		if (!claim)
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message: "Domain claim is missing, expired or busy. Reload Settings.",
 			});
 		let providerId = claim.providerHostnameId;
@@ -204,7 +205,7 @@ export const verifyCustomDomain = authed.verifyCustomDomain
 					organizationDomainVerificationName(claim.hostname),
 				))
 			)
-				throw new ORPCError("BAD_REQUEST", {
+				throw baseErrorConstructors.BAD_REQUEST({
 					message:
 						"TXT ownership record was not found. Check the record and try again.",
 				});
@@ -212,7 +213,7 @@ export const verifyCustomDomain = authed.verifyCustomDomain
 				? await getCmsCustomHostname(env, providerId)
 				: await findCmsCustomHostname(env, claim.hostname);
 			if (providerId && !provider)
-				throw new ORPCError("CONFLICT", {
+				throw baseErrorConstructors.CONFLICT({
 					message:
 						"Provider hostname is missing. Remove this domain and add it again.",
 				});
@@ -248,7 +249,7 @@ export const verifyCustomDomain = authed.verifyCustomDomain
 			providerHostnameId: providerId,
 		});
 		if (!saved)
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message: "Domain changed during verification. Reload Settings.",
 			});
 		return status(saved, provider);
@@ -265,7 +266,7 @@ export const removeCustomDomain = authed.removeCustomDomain
 			"removing",
 		);
 		if (!claim)
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message:
 					"Domain claim is missing or verification is running. Reload Settings.",
 			});
@@ -279,7 +280,7 @@ export const removeCustomDomain = authed.removeCustomDomain
 			await deleteCmsCustomHostname(env, provider.id, claim.hostname);
 		}
 		if (!(await deleteOrganizationDomain(db, organizationId, claim.id)))
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message: "Domain changed during removal",
 			});
 		return { success: true };

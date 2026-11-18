@@ -25,6 +25,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { JsonValueSchema } from "../schemas/common";
 import {
@@ -92,6 +93,7 @@ export type ContentNativeMediaType = z.infer<
  * ```
  */
 export const contentContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["content"], prefix: "/content" })
 	.router({
 		/**

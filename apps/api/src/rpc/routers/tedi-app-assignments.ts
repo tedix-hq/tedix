@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * oRPC Tedi App Assignments Router (V2 — FGA-backed)
  *
@@ -1067,7 +1068,9 @@ const updateRoleProcedure = authedOs.updateRole
 					app.id,
 				);
 				if (!applied[targetRole] || applied[oldRole]) {
-					throw new Error("App FGA role change did not reach the target state");
+					throw baseErrorConstructors.BAD_GATEWAY({
+						message: "App FGA role change did not reach the target state",
+					});
 				}
 			} catch {
 				// Provider failures can arrive after the effect was applied. Restore

@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { modelInputModality } from "@tedix/api-contract/schemas/data-residency";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 import { createDbClient } from "@tedix/db/client";
@@ -119,10 +120,14 @@ export async function reserveKernelBilling(
 			? { organizationId: input.context }
 			: (input.context ?? {});
 	if (!context.organizationId) {
-		throw new Error("Kernel paid inference requires organization attribution");
+		throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+			message: "Kernel paid inference requires organization attribution",
+		});
 	}
 	if (!env.DB) {
-		throw new Error("Kernel paid inference requires the canonical D1 binding");
+		throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+			message: "Kernel paid inference requires the canonical D1 binding",
+		});
 	}
 	const tokens = input.tokenEstimates ?? estimate(input.body);
 	if (
@@ -130,7 +135,9 @@ export async function reserveKernelBilling(
 			(value) => !Number.isSafeInteger(value) || value < 1 || value > 2_000_000,
 		)
 	) {
-		throw new Error("Invalid kernel inference token estimates");
+		throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+			message: "Invalid kernel inference token estimates",
+		});
 	}
 	const idempotencyKey = `kernel-inference:${crypto.randomUUID()}`;
 	const settlementMode = resolveBillingSettlementMode(env);
@@ -162,16 +169,18 @@ export async function reserveKernelBilling(
 		// in apps/tedi-runtime/src/billing-reservation-client.ts. Any other shape
 		// is treated as a retryable transport failure and re-runs admission on
 		// every retry.
-		throw new Error(
-			`${BILLING_POLICY_DENIED_MESSAGE}${decision.code}${decision.message ? ` — ${decision.message}` : ""}`,
-		);
+		throw baseErrorConstructors.FORBIDDEN({
+			message: `${BILLING_POLICY_DENIED_MESSAGE}${decision.code}${decision.message ? ` — ${decision.message}` : ""}`,
+		});
 	}
 	AuthorizeRuntimeInferenceResponseSchema.parse(decision);
 	if (
 		decision.settlementMode !== settlementMode ||
 		Date.parse(decision.sendBefore) <= Date.now()
 	) {
-		throw new Error("Invalid or expired kernel execution admission");
+		throw baseErrorConstructors.CONFLICT({
+			message: "Invalid or expired kernel execution admission",
+		});
 	}
 	context.executionAttempts?.push({
 		identity: decision.providerExecution ?? input.execution,

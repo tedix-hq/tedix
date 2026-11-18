@@ -8,6 +8,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 
 const CheckResultSchema = z.object({
@@ -19,6 +20,7 @@ const CheckResultSchema = z.object({
 });
 
 export const mcpHealthContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["mcp-health", "internal"] })
 	.router({
 		/**

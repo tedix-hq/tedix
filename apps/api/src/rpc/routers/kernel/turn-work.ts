@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { StewardCloseoutTargetsSchema } from "@tedix/api-contract/schemas/work-items";
 import { UuidParamSchema } from "@tedix/api-contract/schemas/common";
 import { runtimeInferenceDenialMessage } from "@tedix/api-contract/schemas/runtime-entitlements";
@@ -1422,12 +1423,16 @@ export async function runKernelTurnWork(
 							id: typeof value === "string" ? value.trim() : value,
 						});
 						if (!parsed.success)
-							throw new Error("Selected Work Item must be a valid Work ID");
+							throw baseErrorConstructors.BAD_REQUEST({
+								message: "Selected Work Item must be a valid Work ID",
+							});
 						return parsed.data.id;
 					});
 				const selectedWorkItemId = selectedWorkIds[0];
 				if (selectedWorkIds.some((id) => id !== selectedWorkItemId))
-					throw new Error("Home run contains conflicting selected Work Items");
+					throw baseErrorConstructors.CONFLICT({
+						message: "Home run contains conflicting selected Work Items",
+					});
 				const predictedChildRunId = deps.predictAutoDelegationChildRunId({
 					homeRunId: runId,
 					delegatedTediId: autoDelegation.workOrder.targetTediId,
@@ -1446,9 +1451,9 @@ export async function runKernelTurnWork(
 					...(selectedWorkItemId ? { workItemId: selectedWorkItemId } : {}),
 				});
 				if (selectedWorkItemId && admittedWorkItemId !== selectedWorkItemId)
-					throw new Error(
-						"Selected Work Item was not admitted for this delegation",
-					);
+					throw baseErrorConstructors.FORBIDDEN({
+						message: "Selected Work Item was not admitted for this delegation",
+					});
 				autoDelegationWorkItemId = admittedWorkItemId;
 			}
 			autoDispatch = await deps.dispatchAutoDelegation({

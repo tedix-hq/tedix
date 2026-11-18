@@ -1,4 +1,5 @@
-import { implement, ORPCError } from "@orpc/server";
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
+import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import { BlueprintApplyReceiptSchema } from "@tedix/api-contract/schemas/blueprint-provisioning";
 import { parseStoredOsBlueprintDefinition } from "@tedix/api-contract/schemas/os-workspaces";
@@ -46,7 +47,9 @@ async function scheduleBindings(
 	for (const definition of plan.definition.provisioning?.schedules ?? []) {
 		if (!definition.skillId) continue;
 		if (seen.has(definition.skillId))
-			throw new Error("A skill may have only one schedule");
+			throw baseErrorConstructors.BAD_REQUEST({
+				message: "A skill may have only one schedule",
+			});
 		seen.add(definition.skillId);
 		const skill = await getSkillEntry(
 			context.db,
@@ -59,9 +62,9 @@ async function scheduleBindings(
 			!skill.tediId ||
 			!skill.files?.["scripts/workflow.ts"]
 		)
-			throw new Error(
-				`Schedule ${definition.key} requires an active executable skill owned by this organization`,
-			);
+			throw baseErrorConstructors.BAD_REQUEST({
+				message: `Schedule ${definition.key} requires an active executable skill owned by this organization`,
+			});
 		if (
 			!(await getTediByIdForOrganization(
 				context.db,
@@ -69,7 +72,9 @@ async function scheduleBindings(
 				organizationId,
 			))
 		)
-			throw new Error("Scheduled skill owner is unavailable");
+			throw baseErrorConstructors.CONFLICT({
+				message: "Scheduled skill owner is unavailable",
+			});
 		const { schedule, issues } = validateSkillSchedulePolicy(
 			skill.content ?? "",
 		);
@@ -80,9 +85,9 @@ async function scheduleBindings(
 			schedule.enabled !== definition.enabled ||
 			canonicalJson(schedule.params) !== canonicalJson(definition.params)
 		)
-			throw new Error(
-				`Schedule ${definition.key} must match its governed skill manifest`,
-			);
+			throw baseErrorConstructors.BAD_REQUEST({
+				message: `Schedule ${definition.key} must match its governed skill manifest`,
+			});
 		const existing = await getSkillSchedule(
 			context.db,
 			skill.id,
@@ -94,9 +99,9 @@ async function scheduleBindings(
 				existing.enabled !== definition.enabled ||
 				canonicalJson(existing.params) !== canonicalJson(definition.params))
 		)
-			throw new Error(
-				`Schedule ${definition.key} conflicts with an existing schedule`,
-			);
+			throw baseErrorConstructors.CONFLICT({
+				message: `Schedule ${definition.key} conflicts with an existing schedule`,
+			});
 		result.push({ definition, skill, existing });
 	}
 	return result;
@@ -190,7 +195,7 @@ const apply = authed
 				"Blueprint plan changed since preview; preview again before applying",
 			);
 		if (!preflight.instantiateAllowed)
-			throw new ORPCError("UNPROCESSABLE_CONTENT", {
+			throw baseErrorConstructors.UNPROCESSABLE_CONTENT({
 				message: "Blueprint dependencies did not resolve",
 				data: { preflight },
 			});

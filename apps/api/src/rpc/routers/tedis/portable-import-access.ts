@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { CreateTediInputSchema } from "@tedix/api-contract/schemas/tedi";
 import type { PortableTediImportBeginInputSchema } from "@tedix/api-contract/schemas/portable-tedi";
@@ -61,7 +62,10 @@ export async function beginPortableTediImport(
 		});
 		remote = repo.remote;
 		gitToken = repo.token.split("?expires=")[0] ?? "";
-		if (!gitToken) throw new Error("Empty Artifacts write token");
+		if (!gitToken)
+			throw baseErrorConstructors.BAD_GATEWAY({
+				message: "Empty Artifacts write token",
+			});
 	} catch (error) {
 		console.error("Portable import Artifacts repo creation failed", {
 			tediId,

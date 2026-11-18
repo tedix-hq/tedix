@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { PaginationMetaSchema, SuccessResponseSchema } from "../schemas/common";
 import {
@@ -25,39 +26,44 @@ import {
 // EVENTS SUB-ROUTER
 // =============================================================================
 
-const pluginEventsContract = oc.route({ prefix: "/events" }).router({
-	emit: oc
-		.route({
-			method: "POST",
-			path: "" as `/${string}`,
-			summary: "Emit plugin event",
-			description:
-				"Emit an event for plugin processing (queued in D1, CF Queues later)",
-		})
-		.input(EmitPluginEventInputSchema)
-		.output(PluginEventSchema),
+const pluginEventsContract = oc
+	.errors(baseErrors)
+	.route({ prefix: "/events" })
+	.router({
+		emit: oc
+			.route({
+				method: "POST",
+				path: "" as `/${string}`,
+				summary: "Emit plugin event",
+				description:
+					"Emit an event for plugin processing (queued in D1, CF Queues later)",
+			})
+			.input(EmitPluginEventInputSchema)
+			.output(PluginEventSchema),
 
-	list: oc
-		.route({
-			method: "GET",
-			path: "" as `/${string}`,
-			summary: "List plugin events",
-			description: "Query plugin event history with filters",
-		})
-		.input(ListPluginEventsInputSchema)
-		.output(
-			z.object({
-				data: z.array(PluginEventSchema),
-				pagination: PaginationMetaSchema,
-			}),
-		),
-});
+		list: oc
+			.route({
+				method: "GET",
+				path: "" as `/${string}`,
+				summary: "List plugin events",
+				description: "Query plugin event history with filters",
+			})
+			.input(ListPluginEventsInputSchema)
+			.output(
+				z.object({
+					data: z.array(PluginEventSchema),
+					pagination: PaginationMetaSchema,
+				}),
+			),
+	});
 
 // =============================================================================
 // PLUGINS CONTRACT
 // =============================================================================
 
-export const pluginsContract = oc
+const base = oc.errors(baseErrors);
+
+export const pluginsContract = base
 	.route({ tags: ["plugins"], prefix: "/plugins" })
 	.router({
 		/** Browse available plugins (marketplace) */

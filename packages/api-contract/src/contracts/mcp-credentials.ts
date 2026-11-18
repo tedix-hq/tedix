@@ -8,6 +8,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import {
 	ListServersInputSchema,
 	ListServersOutputSchema,
@@ -16,6 +17,7 @@ import {
 } from "../schemas/mcp-credentials";
 
 export const mcpCredentialsContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["internal", "mcp-credentials"], prefix: "/mcpCredentials" })
 	.router({
 		/**

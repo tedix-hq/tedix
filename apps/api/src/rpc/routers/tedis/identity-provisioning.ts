@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { registerDescopeMcpResource } from "@tedix/auth/aih-client";
 import {
 	computeManagedAssignmentsForTedi,
@@ -130,7 +131,9 @@ export async function registerTediAihMcpServer(
 	},
 ): Promise<string> {
 	if (!tedi.slug) {
-		throw new Error("Cannot register a per-tedi AIH MCP server without a slug");
+		throw baseErrorConstructors.CONFLICT({
+			message: "Cannot register a per-tedi AIH MCP server without a slug",
+		});
 	}
 
 	const platformDomain = getPlatformDomain(context.env);

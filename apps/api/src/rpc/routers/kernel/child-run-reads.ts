@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { requireOrgId } from "../../org-scope";
 /**
  * Kernel — delegated child-run evidence and combined readers.
@@ -433,9 +434,10 @@ export async function readChildRunResultAndLiveness(
 				}),
 			);
 			if (latestFinalAssistantContent(finalRows) === null) {
-				throw new Error(
-					"Latest final assistant result is unavailable in the bounded child ledger read",
-				);
+				throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+					message:
+						"Latest final assistant result is unavailable in the bounded child ledger read",
+				});
 			}
 			const seen = new Set(eventRows.map((row) => row.id));
 			eventRows = [

@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { artifactContributionCustody } from "./artifact-contribution-custody";
@@ -861,7 +862,9 @@ export const recordArtifactRoute = authed.recordArtifact
 		} else if (claimedProducerHeader && execution) {
 			try {
 				if (typeof execution.resourceAccessEnvelope !== "string") {
-					throw new Error("missing execution access envelope");
+					throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+						message: "missing execution access envelope",
+					});
 				}
 				const parsed = OsDerivedAccessEnvelopeSchema.safeParse(
 					JSON.parse(execution.resourceAccessEnvelope),
@@ -956,18 +959,22 @@ export const recordArtifactRoute = authed.recordArtifact
 			key: string,
 			expected: { sha256: string; sizeBytes: number; contentType: string },
 		): Promise<void> => {
-			if (!bucket) throw new Error("Artifact storage is not configured");
+			if (!bucket)
+				throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+					message: "Artifact storage is not configured",
+				});
 			const head = await bucket.head(key);
 			if (!head || head.size !== expected.sizeBytes) {
-				throw new Error(
-					"Stored artifact body does not match its immutable claim",
-				);
+				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+					message: "Stored artifact body does not match its immutable claim",
+				});
 			}
 			const storedType = head.httpMetadata?.contentType;
 			if (storedType !== expected.contentType) {
-				throw new Error(
-					"Stored artifact content type does not match its immutable claim",
-				);
+				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+					message:
+						"Stored artifact content type does not match its immutable claim",
+				});
 			}
 			const stored = await bucket.get(key);
 			if (
@@ -975,9 +982,9 @@ export const recordArtifactRoute = authed.recordArtifact
 				(await bodySha256(new Uint8Array(await stored.arrayBuffer()))) !==
 					expected.sha256
 			) {
-				throw new Error(
-					"Stored artifact body does not match its immutable claim",
-				);
+				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+					message: "Stored artifact body does not match its immutable claim",
+				});
 			}
 		};
 		// Bundle mode: a multi-file deliverable (interactive dashboard / static

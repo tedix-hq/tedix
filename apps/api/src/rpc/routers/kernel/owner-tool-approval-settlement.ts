@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Owner tool approval settlement.
  *
@@ -456,7 +457,9 @@ async function runOwnerToolCall(
 				execution: record,
 			});
 			if (!recorded)
-				throw new Error("Approval execution outcome could not be recorded");
+				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+					message: "Approval execution outcome could not be recorded",
+				});
 			record = recorded;
 		}
 		const runNumber = (priorContinuation?.runs ?? 0) + 1;
@@ -654,7 +657,9 @@ async function runOwnerToolCall(
 				execution: { status: "queued", startedAt, nextAttemptAt, ...attempt },
 			});
 			if (!queued)
-				throw new Error("Approval queue position could not be recorded");
+				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+					message: "Approval queue position could not be recorded",
+				});
 			return "queued";
 		}
 		return fail(result.error.slice(0, 500), result.retryable === true);
