@@ -58,6 +58,7 @@ import { osApi } from "@/lib/api";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import {
 	osQueryKeys,
+	skillCatalogQueryOptions,
 	skillDetailQueryOptions,
 	skillRunsQueryOptions,
 	skillRunStatusQueryOptions,
@@ -67,6 +68,7 @@ import {
 	WORKFLOW_DEFINITIONS_LIMIT,
 } from "@/lib/os-query-options";
 import { skillDraftReason } from "@/lib/skill-draft-reason";
+import { skillFolderPaths } from "@/lib/skill-folders";
 import { skillStatus } from "@/lib/skill-status";
 import { absoluteTime } from "@/lib/time";
 import { useTediNames } from "@/lib/use-tedi-names";
@@ -111,6 +113,17 @@ export function SkillDetailLayout() {
 	const [testRun, setTestRun] = useState(false);
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
 	const [folderDraft, setFolderDraft] = useState("");
+	// The folders other skills already use, offered when moving this one.
+	const folderCatalog = useQuery({
+		...skillCatalogQueryOptions({
+			limit: 500,
+			offset: 0,
+			excludeArchived: true,
+			excludeImprovements: true,
+		}),
+		enabled: folderDialogOpen,
+	});
+	const folders = skillFolderPaths(folderCatalog.data?.entries ?? []);
 	const canRun = useCanManageTedis();
 	const context = useOsOperationalContext();
 	const role = context.data?.authority.role;
@@ -483,13 +496,45 @@ export function SkillDetailLayout() {
 							moveSkill.mutate(folderDraft.trim() || null);
 						}}
 					>
+						{folders.length ? (
+							<fieldset className="grid gap-1.5">
+								<legend className="mb-1.5 text-sm font-medium">
+									Your folders
+								</legend>
+								<div className="flex flex-wrap gap-1.5">
+									{[null, ...folders].map((folder) => {
+										const selected = (folderDraft.trim() || null) === folder;
+										return (
+											<Button
+												key={folder ?? "root"}
+												type="button"
+												size="sm"
+												variant={selected ? "default" : "outline"}
+												aria-pressed={selected}
+												onClick={() => setFolderDraft(folder ?? "")}
+											>
+												{folder === null ? (
+													"No folder"
+												) : (
+													<>
+														<FolderOpen size={14} /> {folder}
+													</>
+												)}
+											</Button>
+										);
+									})}
+								</div>
+							</fieldset>
+						) : null}
 						<div className="grid gap-1.5">
-							<Label htmlFor="skill-folder-path">Folder path</Label>
+							<Label htmlFor="skill-folder-path">
+								{folders.length ? "Or type a new folder" : "Folder path"}
+							</Label>
 							<Input
 								id="skill-folder-path"
 								value={folderDraft}
 								onChange={(event) => setFolderDraft(event.target.value)}
-								placeholder="operations/reports"
+								placeholder="for example reddit/reports"
 								pattern="[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)*"
 								maxLength={255}
 							/>
