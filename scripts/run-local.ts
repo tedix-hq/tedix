@@ -356,12 +356,13 @@ export function waitForLocalDemo(timeoutMs = READY_TIMEOUT_MS): Promise<void> {
  * open `v3/ratelimit`) while it boots. When several runtimes create or recover
  * the same SQLite write-ahead log at once, the loser fails fatally with
  * SQLITE_BUSY_RECOVERY. The API owns the shared D1 state, so it boots alone;
- * the MCP gateway and Tedix OS start only once the API is healthy, when those
- * databases are already open and need no recovery.
+ * the MCP gateway, Tedix OS and workspace storage start only once the API is
+ * healthy, when those databases are already open and need no recovery.
+ * Workspace storage holds each workspace's files; without it file lists fail.
  */
 export const LOCAL_STACK_STAGES = [
 	["@tedix/api"],
-	["@tedix/mcp", "@tedix/os"],
+	["@tedix/mcp", "@tedix/os", "@tedix/workspace-do"],
 ] as const;
 
 export function localStackStageCommand(packages: readonly string[]): string[] {
