@@ -598,6 +598,15 @@ describe("earned delegation D1 settlement", () => {
 		});
 
 		sqlite
+			.prepare(
+				"UPDATE work_attempts SET executor_id = ? WHERE id = 'checkout-external'",
+			)
+			.run(TEDI);
+		await expect(
+			recordCompetencyObservation(db, observationInput),
+		).rejects.toMatchObject({ reason: "ineligible" });
+
+		sqlite
 			.prepare("DELETE FROM work_attempts WHERE id = 'checkout-external'")
 			.run();
 		sqlite
