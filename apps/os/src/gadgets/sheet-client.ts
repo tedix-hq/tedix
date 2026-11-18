@@ -4184,7 +4184,29 @@ export async function mountSheetClient(
 				paintWindow();
 				syncChrome();
 				syncRetainedDraft();
-			} else void retainDraft();
+			} else {
+				// Changes made while saving stay on top of what the server kept. Its
+				// answer can hold other people's saves that it merged in; without
+				// them here, the next save would put the older cells back.
+				const theirs = await evaluate(result.revision.content);
+				if (!destroyed && draft) {
+					const merged = mergeOutputContent(content, draft, theirs, {
+						prefer: "mine",
+					});
+					if (merged.ok) {
+						const before = draft;
+						adopt(merged.content as Content);
+						generation++;
+						arrive(before, draft);
+						noticeReplaced(theirs, savedByAgent(result.revision));
+						land(before, savedByAgent(result.revision));
+						scheduleCalculation();
+						syncGrid();
+						showLanded();
+					}
+				}
+				void retainDraft();
+			}
 		} catch (error) {
 			if (destroyed || !(await verifyAccess())) return;
 			if (pendingRevision > basis) saveOutcome = "conflict";
