@@ -97,10 +97,10 @@ Repeated requests for the same source reuse the running job; a different source
 waits. A retry after a terminal job gets a new generation. Publication uploads
 and reads back every declared static asset before activating the server bundle.
 Health checks fetch the candidate tenant’s HTML page with its configured public
-host, one of its declared CSS/JS assets, and one of its image transforms with
-caches bypassed. The runtime service binding is used when available. Each response must name
-the candidate bundle, including before a public-host cutover. A site without
-these page dependencies fails health checking.
+host, one of its declared CSS/JS assets, and its first image transform, if the
+page has one, with caches bypassed. The runtime service binding is used when available. Each response must name
+the candidate bundle, including before a public-host cutover. A page without a
+declared CSS/JS asset fails health checking.
 Failed status details include `phase`, `code`, `retryable`, `rollback`, and a
 `correlationId` matching the job ID in server logs; provider error text stays out
 of public status.
