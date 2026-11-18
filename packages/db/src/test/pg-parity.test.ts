@@ -280,6 +280,8 @@ for (const plane of planes) {
 					stewardType: "tedi",
 					stewardId: IDS.tediId,
 					metadata: { laneExecution: policy },
+					delegationDepth: policy.delegationDepth,
+					maxAttempts: policy.maxAttempts,
 					createdAt: NOW,
 				});
 				await m.crud.createWorkItem(db, {
@@ -294,6 +296,12 @@ for (const plane of planes) {
 					stewardType: "tedi",
 					stewardId: IDS.tediId,
 					parentWorkItemId: parent.id,
+					...(mode === "omitted"
+						? {}
+						: {
+								delegationDepth: mode === "reset_depth" ? 0 : 1,
+								maxAttempts: policy.maxAttempts,
+							}),
 					metadata:
 						mode === "omitted"
 							? {}

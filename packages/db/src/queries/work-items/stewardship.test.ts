@@ -69,7 +69,7 @@ describe("organization Work stewardship on creation", () => {
 		for (const input of [
 			{ accountableOwnerType: "user" as const, accountableOwnerId: "person" },
 			{ accountableOwnerType: "tedi" as const, accountableOwnerId: lead },
-			{ metadata: { executor: "human" } },
+			{ executorType: "human" as const, executorId: "human" },
 		])
 			expect((await create(input)).stewardId).toBeNull();
 		expect(

@@ -98,9 +98,13 @@ it("stores executor selection without losing other metadata and rejects another 
 	expect(updated.metadata).toEqual({
 		retained: true,
 		specificationUpdateId: expect.any(String),
-		executor: "codex",
-		laneDispatch: { state: "ready" },
+		laneDispatch: null,
 		laneDispatchReceiptId: expect.any(String),
+	});
+	expect(updated).toMatchObject({
+		executorType: "external_agent",
+		executorId: "codex",
+		dispatchState: "ready",
 	});
 	expect(updated.version).toBe(2);
 	await expect(
@@ -181,9 +185,10 @@ it("fences dispatch plans against live Attempts and preserves calendar and metad
 		executor: "codex",
 		retained: true,
 		specificationUpdateId: expect.any(String),
-		laneDispatch: { state: "ready", score: 42 },
+		laneDispatch: { score: 42 },
 		laneDispatchReceiptId: expect.any(String),
 	});
+	expect(updated.dispatchState).toBe("ready");
 	expect(updated.startAt).toBe("2026-10-20");
 	await expect(
 		updateWorkItemSpecification(db, { ...input, orgId: "org-other" }),

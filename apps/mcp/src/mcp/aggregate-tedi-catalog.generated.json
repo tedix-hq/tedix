@@ -6875,6 +6875,53 @@
 							"any-local"
 						]
 					},
+					"executorReference": {
+						"type": "object",
+						"properties": {
+							"type": {
+								"type": "string",
+								"enum": [
+									"human",
+									"tedi",
+									"external_agent",
+									"team",
+									"organization"
+								]
+							},
+							"id": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 300
+							}
+						},
+						"required": ["type", "id"],
+						"additionalProperties": false
+					},
+					"delegationDepth": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 10
+					},
+					"maxAttempts": {
+						"type": "integer",
+						"minimum": 1,
+						"maximum": 20
+					},
+					"rootWorkItemId": {
+						"type": "string",
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					},
+					"rootGoal": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 10000
+					},
+					"budgetShareMicros": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 1000000
+					},
 					"factoryCycle": {
 						"description": "Derive proposed Work from an installed, pinned factory Blueprint. Same workspace/cycle key replays one Work Item; changed inputs conflict. Never grants execution authority.",
 						"type": "object",
@@ -8439,6 +8486,53 @@
 							"any-local"
 						]
 					},
+					"executorReference": {
+						"type": "object",
+						"properties": {
+							"type": {
+								"type": "string",
+								"enum": [
+									"human",
+									"tedi",
+									"external_agent",
+									"team",
+									"organization"
+								]
+							},
+							"id": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 300
+							}
+						},
+						"required": ["type", "id"],
+						"additionalProperties": false
+					},
+					"delegationDepth": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 10
+					},
+					"maxAttempts": {
+						"type": "integer",
+						"minimum": 1,
+						"maximum": 20
+					},
+					"rootWorkItemId": {
+						"type": "string",
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					},
+					"rootGoal": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 10000
+					},
+					"budgetShareMicros": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 1000000
+					},
 					"factoryCycle": {
 						"description": "Derive proposed Work from an installed, pinned factory Blueprint. Same workspace/cycle key replays one Work Item; changed inputs conflict. Never grants execution authority.",
 						"type": "object",
@@ -8776,6 +8870,28 @@
 							"any-local"
 						]
 					},
+					"executorReference": {
+						"type": "object",
+						"properties": {
+							"type": {
+								"type": "string",
+								"enum": [
+									"human",
+									"tedi",
+									"external_agent",
+									"team",
+									"organization"
+								]
+							},
+							"id": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 300
+							}
+						},
+						"required": ["type", "id"],
+						"additionalProperties": false
+					},
 					"laneDispatch": {
 						"type": "object",
 						"properties": {
@@ -8800,6 +8916,66 @@
 						},
 						"required": ["state"],
 						"additionalProperties": false
+					},
+					"delegationDepth": {
+						"anyOf": [
+							{
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 10
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"maxAttempts": {
+						"anyOf": [
+							{
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 20
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"rootWorkItemId": {
+						"anyOf": [
+							{
+								"type": "string",
+								"format": "uuid",
+								"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"rootGoal": {
+						"anyOf": [
+							{
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 10000
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"budgetShareMicros": {
+						"anyOf": [
+							{
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 1000000
+							},
+							{
+								"type": "null"
+							}
+						]
 					},
 					"projectId": {
 						"description": "Owner/admin move to another project in this organization. Objective Work takes the new project's objective.",

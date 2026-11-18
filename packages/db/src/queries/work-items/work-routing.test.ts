@@ -68,7 +68,10 @@ function seed() {
 	add("b-lead", { kind: "document", project: PROJECT });
 	add("c-steward", { kind: "document", steward: CMO });
 	add("coding", { kind: "coding" });
-	add("executor", { metadata: '{"executor":"codex"}' });
+	add("executor");
+	sqlite.exec(
+		"UPDATE work_items SET executor_type='external_agent', executor_id='codex' WHERE id='executor'",
+	);
 	add("nodone", { contract: null });
 	add("later", { startAt: "2026-10-28T08:00:00.000Z" });
 	add("proposed", { disposition: "proposed" });
