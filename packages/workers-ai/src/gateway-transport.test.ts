@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	AI_GATEWAY_BINDING_AUTH,
+	aiGatewayCustomCost,
 	applyAiGatewayCustomCost,
 	callCloudflareAutoRouter as sendCapturedAuto,
 	openCloudflareAutoRouterResponse as openCapturedAuto,
@@ -29,6 +30,25 @@ describe("applyAiGatewayCustomCost", () => {
 			per_token_out: 1e-5,
 			per_cache_read_token: 1.25e-7,
 			per_cache_write_token: 0,
+		});
+	});
+
+	it("sends only the cache-write premium because the gateway adds writes on top of input", () => {
+		// gpt-6.1-terra short context: $1 input, $5 output, $0.05 read, $1.25 write.
+		expect(
+			JSON.parse(
+				aiGatewayCustomCost({
+					inputMicrousdPerMillion: 1_000_000,
+					outputMicrousdPerMillion: 5_000_000,
+					cacheReadMicrousdPerMillion: 50_000,
+					cacheWriteMicrousdPerMillion: 1_250_000,
+				}),
+			),
+		).toEqual({
+			per_token_in: 0.000001,
+			per_token_out: 0.000005,
+			per_cache_read_token: 0.00000005,
+			per_cache_write_token: 0.00000025,
 		});
 	});
 

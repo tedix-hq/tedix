@@ -535,7 +535,7 @@ test.each([true, false])(
 			.result();
 		expect(requests[0]!.headers.get("cf-aig-custom-cost")).toBe(
 			published
-				? '{"per_token_in":0.000001,"per_token_out":0.000005,"per_cache_read_token":0.00000005,"per_cache_write_token":0.00000125}'
+				? '{"per_token_in":0.000001,"per_token_out":0.000005,"per_cache_read_token":0.00000005,"per_cache_write_token":0.00000025}'
 				: null,
 		);
 	},

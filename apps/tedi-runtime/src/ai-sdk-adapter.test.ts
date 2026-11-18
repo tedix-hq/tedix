@@ -1563,7 +1563,7 @@ for (const providerRate of [
 				per_token_in: 0.00000125,
 				per_token_out: 0.00001,
 				per_cache_read_token: 0.000000125,
-				per_cache_write_token: 0.00000125,
+				per_cache_write_token: 0,
 			});
 		else assert.equal(customCost, null);
 	} finally {
