@@ -1580,6 +1580,10 @@
 		{
 			"name": "20261118083839_restore_release_locks/migration.sql",
 			"sha256": "24d5224d8e13e23ad641b56192649b0f2306ee04fdb18c0e84cfd4ddfbf134a2"
+		},
+		{
+			"name": "20261118114506_decision_exposure_list_order/migration.sql",
+			"sha256": "9efed822f8ae0c71ac941fd82b994e4e8d1d5ad51e4be2ebd7d7cc34961c9788"
 		}
 	]
 }

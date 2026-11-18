@@ -169,6 +169,9 @@ export async function listDecisionInstrumentation(
 	},
 ) {
 	const scope = and(
+		// This tautology offers the ordered index only to the list, preserving
+		// receipt lookups through the narrower tenant/person/card index.
+		sql`+${decisionExposures.occurredAt} >= ''`,
 		eq(decisionExposures.organizationId, p.organizationId),
 		eq(decisionExposures.actorId, p.actorId),
 		gt(decisionExposures.expiresAt, p.now),

@@ -402,6 +402,9 @@ export const decisionExposures = sqliteTable(
 			t.cardId,
 		),
 		index("idx_decision_exposure_expiry").on(t.expiresAt),
+		index("idx_decision_exposure_org_actor_time")
+			.on(t.organizationId, t.actorId, sql`${t.occurredAt} DESC`, t.id)
+			.where(sql`+${t.occurredAt} >= ''`),
 	],
 );
 
