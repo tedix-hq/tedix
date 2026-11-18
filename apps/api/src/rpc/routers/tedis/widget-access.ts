@@ -15,7 +15,7 @@ import {
 	updateProviderWidgetAccess,
 	resolveActiveProviderInstallationForOutcome,
 } from "@tedix/db/queries/provider-installations";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import {
 	AUTHZ,
 	authedTedisOs,
@@ -47,10 +47,11 @@ function configuration(row: ProviderInstallation) {
 export const listWidgetAccessConfigurations =
 	authedTedisOs.listWidgetAccessConfigurations
 		.use(AUTHZ.appsRead)
+		.use(withOrg)
 		.handler(async ({ context }) => {
 			const rows = await listProviderWidgetInstallations(
 				context.db,
-				requireOrgId(context),
+				context.organizationId,
 			);
 			return {
 				data: await Promise.all(
@@ -78,9 +79,10 @@ export const listWidgetAccessConfigurations =
 export const updateWidgetAccessConfiguration =
 	authedTedisOs.updateWidgetAccessConfiguration
 		.use(withAuthorization("settings:manage", "apps:write"))
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
 			const installation = await getProviderInstallationById(context.db, {
-				organizationId: requireOrgId(context),
+				organizationId: context.organizationId,
 				installationId: input.installationId,
 			});
 			if (!installation)
@@ -114,7 +116,7 @@ export const updateWidgetAccessConfiguration =
 			}
 			const row = await updateProviderWidgetAccess(context.db, {
 				...input,
-				organizationId: requireOrgId(context),
+				organizationId: context.organizationId,
 				updatedBy: context.user?.sub ?? context.apiKey?.id ?? "service",
 			});
 			if (row === "conflict")
@@ -132,9 +134,10 @@ export const updateWidgetAccessConfiguration =
 		});
 export const previewWidgetAccess = authedTedisOs.previewWidgetAccess
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const row = await getProviderInstallationById(context.db, {
-			organizationId: requireOrgId(context),
+			organizationId: context.organizationId,
 			installationId: input.installationId,
 		});
 		if (!row)

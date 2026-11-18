@@ -16,7 +16,7 @@ import {
 } from "@tedix/db/queries/jobs";
 import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
 import type { JobStatus } from "@tedix/db/schema/jobs";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -41,10 +41,11 @@ const authedJobsOs = jobsOs.use(withAuth);
  */
 export const getJobContract = authedJobsOs.getJob
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, jobId } = input;
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const app = await getAppByIdForOrganization(db, appId, orgId);
 		if (!app) {
@@ -69,10 +70,11 @@ export const getJobContract = authedJobsOs.getJob
  */
 export const listJobsContract = authedJobsOs.listJobs
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, status, limit, offset } = input;
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const app = await getAppByIdForOrganization(db, appId, orgId);
 		if (!app) {

@@ -25,6 +25,8 @@ import { isPlatformPrincipal } from "@tedix/auth/types";
 import type { BaseContext } from "./orpc";
 import { base, createError, ErrorCodes } from "./orpc";
 
+export type OrgContext = BaseContext & { organizationId: string };
+
 /**
  * Resolve the caller's organization scope, or reject.
  *

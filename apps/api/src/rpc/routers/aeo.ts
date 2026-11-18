@@ -35,7 +35,7 @@ import {
 	scoreAeoQuery,
 	summarizeAeoResults,
 } from "../../services/aeo-citation-scoring";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -55,8 +55,8 @@ const DEFAULT_MODEL_ID = "@cf/openai/gpt-oss-120b";
 
 export const scanHostname = authedOs.scanHostname
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		requireOrgId(context);
 		try {
 			return await scanAgentReadiness(input.url, input.profile);
 		} catch (error) {
@@ -92,11 +92,11 @@ async function queryModel(
 
 export const measureCitationRate = authedOs.measureCitationRate
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		// Org attribution only (no org-scoped resource is read/written) — this
 		// still proves the caller is a real tenant, matching every other
 		// research procedure in this app.
-		requireOrgId(context);
 
 		const queries =
 			input.queries && input.queries.length > 0
@@ -110,7 +110,7 @@ export const measureCitationRate = authedOs.measureCitationRate
 			let responseText: string;
 			try {
 				responseText = await queryModel(
-					organizationModelEnv(context.env, context.db, requireOrgId(context)),
+					organizationModelEnv(context.env, context.db, context.organizationId),
 					modelId,
 					query,
 				);

@@ -60,7 +60,7 @@ import {
 import type { App, McpConfig } from "@tedix/db/schema/apps";
 import { normalizeAppMetadata } from "./app-metadata";
 import { requireAppForOrgOrNotFound } from "../app-scope";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -368,11 +368,12 @@ async function persistMcpConfig(
 
 export const registerProcedure = authedMcpServerOs.register
 	.use(AUTHZ.appsWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db, env } = context;
 		const { appId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const app = await requireAppForOrgOrNotFound(db, orgId, appId);
 		const metadata = getAppMetadataJson(app);
 		const mcpConfig = metadata?.mcpConfig;
@@ -493,9 +494,10 @@ export const registerProcedure = authedMcpServerOs.register
 
 export const adoptResourceProcedure = authedMcpServerOs.adoptResource
 	.use(AUTHZ.platformAdmin)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db, env } = context;
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const app = await requireAppForOrgOrNotFound(db, orgId, input.appId);
 		const metadata = getAppMetadataJson(app);
 		const mcpConfig = metadata?.mcpConfig;
@@ -565,11 +567,12 @@ export const adoptResourceProcedure = authedMcpServerOs.adoptResource
 
 export const syncScopesProcedure = authedMcpServerOs.syncScopes
 	.use(AUTHZ.appsWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db, env } = context;
 		const { appId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const app = await requireAppForOrgOrNotFound(db, orgId, appId);
 		const metadata = getAppMetadataJson(app);
 		const mcpConfig = metadata?.mcpConfig;
@@ -686,11 +689,12 @@ export const syncScopesProcedure = authedMcpServerOs.syncScopes
 
 export const getStatusProcedure = authedMcpServerOs.getStatus
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const app = await requireAppForOrgOrNotFound(db, orgId, appId);
 		const metadata = getAppMetadataJson(app);
 		const mcpConfig = metadata?.mcpConfig;
@@ -820,11 +824,12 @@ function readMcpConfig(app: App): Record<string, unknown> | undefined {
 
 export const previewToolScopesProcedure = authedMcpServerOs.previewToolScopes
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const app = await requireAppForOrgOrNotFound(db, orgId, appId);
 
 		const preview = collectPreviewToolsForApp(

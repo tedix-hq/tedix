@@ -26,7 +26,7 @@ import { isPlatformPrincipal } from "@tedix/auth/types";
 import type { AdapterConfig } from "@tedix/db/schema/adapters";
 import { validateAdapterConfig } from "../../services/mcp-config-validation";
 import { requireAppForOrg } from "../app-scope";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -86,12 +86,13 @@ function normalizeAdapterType(adapterType: string): AdapterType {
  * List all adapters for an app
  * GET /apps/{appId}/adapters
  */
-export const listAppAdapters = readAppAdaptersOs.list.handler(
-	async ({ input, context }) => {
+export const listAppAdapters = readAppAdaptersOs.list
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, limit = 20, offset = 0 } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		const allAdapters = await getAdaptersByAppId(db, appId);
@@ -120,19 +121,19 @@ export const listAppAdapters = readAppAdaptersOs.list.handler(
 				hasMore: offset + limit < total,
 			},
 		};
-	},
-);
+	});
 
 /**
  * Get adapter by ID
  * GET /apps/{appId}/adapters/{adapterId}
  */
-export const getAppAdapter = readAppAdaptersOs.get.handler(
-	async ({ input, context }) => {
+export const getAppAdapter = readAppAdaptersOs.get
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, adapterId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		const adapter = await getAdapterById(db, adapterId);
@@ -164,15 +165,15 @@ export const getAppAdapter = readAppAdaptersOs.get.handler(
 			createdAt: normalized.createdAt,
 			updatedAt: normalized.updatedAt,
 		};
-	},
-);
+	});
 
 /**
  * Create a new adapter
  * POST /apps/{appId}/adapters
  */
-export const createAppAdapter = manageAppAdaptersOs.create.handler(
-	async ({ input, context }) => {
+export const createAppAdapter = manageAppAdaptersOs.create
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const {
 			appId,
@@ -186,7 +187,7 @@ export const createAppAdapter = manageAppAdaptersOs.create.handler(
 			priority,
 		} = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		console.log(`[Create] Creating adapter: ${name} for app ${appId}`);
@@ -230,8 +231,7 @@ export const createAppAdapter = manageAppAdaptersOs.create.handler(
 			createdAt: normalized.createdAt,
 			updatedAt: normalized.updatedAt,
 		};
-	},
-);
+	});
 
 /**
  * A `service-binding` adapter calls the Tedix gateway as a trusted internal
@@ -261,8 +261,9 @@ export function assertAdapterGatewayOrganization(
  * Update an existing adapter
  * PATCH /apps/{appId}/adapters/{adapterId}
  */
-export const updateAppAdapter = manageAppAdaptersOs.update.handler(
-	async ({ input, context }) => {
+export const updateAppAdapter = manageAppAdaptersOs.update
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const {
 			appId,
@@ -277,7 +278,7 @@ export const updateAppAdapter = manageAppAdaptersOs.update.handler(
 			priority,
 		} = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		const existingAdapter = await getAdapterById(db, adapterId);
@@ -364,19 +365,19 @@ export const updateAppAdapter = manageAppAdaptersOs.update.handler(
 			createdAt: normalized.createdAt,
 			updatedAt: normalized.updatedAt,
 		};
-	},
-);
+	});
 
 /**
  * Delete an adapter
  * DELETE /apps/{appId}/adapters/{adapterId}
  */
-export const deleteAppAdapter = manageAppAdaptersOs.delete.handler(
-	async ({ input, context }) => {
+export const deleteAppAdapter = manageAppAdaptersOs.delete
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, adapterId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		const adapter = await getAdapterById(db, adapterId);
@@ -401,19 +402,19 @@ export const deleteAppAdapter = manageAppAdaptersOs.delete.handler(
 			success: true as const,
 			message: `Adapter "${adapter.name}" deleted successfully`,
 		};
-	},
-);
+	});
 
 /**
  * Enable an adapter
  * POST /apps/{appId}/adapters/{adapterId}/enable
  */
-export const enableAppAdapter = manageAppAdaptersOs.enable.handler(
-	async ({ input, context }) => {
+export const enableAppAdapter = manageAppAdaptersOs.enable
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, adapterId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		const adapter = await getAdapterById(db, adapterId);
@@ -478,19 +479,19 @@ export const enableAppAdapter = manageAppAdaptersOs.enable.handler(
 			createdAt: normalized.createdAt,
 			updatedAt: normalized.updatedAt,
 		};
-	},
-);
+	});
 
 /**
  * Disable an adapter
  * POST /apps/{appId}/adapters/{adapterId}/disable
  */
-export const disableAppAdapter = manageAppAdaptersOs.disable.handler(
-	async ({ input, context }) => {
+export const disableAppAdapter = manageAppAdaptersOs.disable
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, adapterId } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		const adapter = await getAdapterById(db, adapterId);
@@ -535,19 +536,19 @@ export const disableAppAdapter = manageAppAdaptersOs.disable.handler(
 			createdAt: normalized.createdAt,
 			updatedAt: normalized.updatedAt,
 		};
-	},
-);
+	});
 
 /**
  * Set adapter priority
  * POST /apps/{appId}/adapters/{adapterId}/priority
  */
-export const setAppAdapterPriority = manageAppAdaptersOs.setPriority.handler(
-	async ({ input, context }) => {
+export const setAppAdapterPriority = manageAppAdaptersOs.setPriority
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, adapterId, priority } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		const adapter = await getAdapterById(db, adapterId);
@@ -594,15 +595,15 @@ export const setAppAdapterPriority = manageAppAdaptersOs.setPriority.handler(
 			createdAt: normalized.createdAt,
 			updatedAt: normalized.updatedAt,
 		};
-	},
-);
+	});
 
-export const preflightAppAdapterConfig = manageAppAdaptersOs.preflight.handler(
-	async ({ input, context }) => {
+export const preflightAppAdapterConfig = manageAppAdaptersOs.preflight
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
 		const { db } = context;
 		const { appId, adapterType, config, operation } = input;
 
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await requireAppForOrg(db, orgId, appId);
 
 		const validation = validateAdapterConfig(adapterType, config);
@@ -626,8 +627,7 @@ export const preflightAppAdapterConfig = manageAppAdaptersOs.preflight.handler(
 				requiredBindings: requiredBindingsValidation.missing,
 			},
 		};
-	},
-);
+	});
 
 // =============================================================================
 // CONTRACT-BASED ROUTER
