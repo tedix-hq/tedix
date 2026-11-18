@@ -206,7 +206,7 @@ describe("renderOsOutputHtml", () => {
 		// Paper gets a smaller size across the page; the screen keeps its own.
 		expect(html).toContain("font-size:16px;line-height:1.65");
 		expect(html).toContain(
-			"@page{margin:2cm}@media print{body{padding:0;font-size:13.33px;line-height:1.45}",
+			"@page{size:A4;margin:2cm}@media print{body{padding:0;font-size:13.33px;line-height:1.45}",
 		);
 		// A callout stays on one page and a heading stays with its text.
 		expect(html).toContain(
