@@ -910,7 +910,7 @@ function WorkspaceAccess(props: {
 				<SectionHeading
 					learnMore={{
 						label: "About invites",
-						text: "They sign in with their own Tedix account and use their own AI model and connected accounts, never yours. Tedix doesn't email them; send them the link.",
+						text: "They sign in with their own Tedix account and use their own AI model and connected accounts, never yours. Tedix tells them in the browser if they turned notifications on, and the workspace shows as new under their Shared with you list. No email is sent, so you may still want to send them the link.",
 					}}
 				>
 					Add people
@@ -1005,7 +1005,7 @@ function WorkspaceAccess(props: {
 					{invited?.added.length ? (
 						<div data-invited-link>
 							<FreshLink
-								title={`Added ${nameList(invited.added.map(personLabel))}. Send them this link to open it`}
+								title={`Added ${nameList(invited.added.map(personLabel))}. Tedix tells them; you can also send this link`}
 								url={workspaceAddress(origin, workspaceId)}
 							/>
 						</div>

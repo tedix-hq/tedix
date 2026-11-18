@@ -125,6 +125,43 @@ export async function findTedixPersonByEmail(
 	return row;
 }
 
+export interface TedixPersonMembershipResult {
+	organizationId: string;
+	/** The person's Tedix user id in that organization. */
+	userId: string;
+}
+
+/**
+ * The organizations a person is an active member of, with their Tedix user
+ * id in each. Per-person settings such as registered devices are kept under
+ * that pair.
+ */
+export async function listTedixPersonMemberships(
+	db: DbQueryClient,
+	descopeUserId: string,
+): Promise<TedixPersonMembershipResult[]> {
+	const rows = await db
+		.select({
+			organizationId: organizationMembers.organizationId,
+			userId: organizationMembers.userId,
+		})
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.descopeUserId, descopeUserId),
+				eq(organizationMembers.status, "active"),
+				eq(organizationMembers.kind, "human"),
+				isNotNull(organizationMembers.userId),
+			),
+		)
+		.limit(20);
+	return rows.flatMap((row) =>
+		row.userId
+			? [{ organizationId: row.organizationId, userId: row.userId }]
+			: [],
+	);
+}
+
 /** Display names for people, read from any membership they hold. */
 export async function listTedixPeople(
 	db: DbQueryClient,
@@ -528,9 +565,41 @@ export async function recordOsWorkspaceCollaboratorOpen(
 }
 
 /**
- * Workspaces shared with a person that they have opened and not dismissed.
- * Access is not rechecked here; an entry whose access was revoked stays until
- * dismissed, and opening it reports access denied.
+ * Put a workspace on a person's list as soon as it is shared with them by
+ * name, before they first open it. Call it only after their access was
+ * granted: it stores the workspace's name for them.
+ */
+export async function recordOsWorkspaceShareNotice(
+	db: DbQueryClient,
+	params: OsWorkspaceGraphScopeParams & {
+		userId: string;
+		title: string;
+		ownerName: string | null;
+	},
+): Promise<void> {
+	await db
+		.update(osWorkspaceCollaborators)
+		.set({
+			cachedTitle: params.title,
+			cachedOwnerName: params.ownerName,
+			dismissedAt: null,
+		})
+		.where(
+			and(
+				eq(osWorkspaceCollaborators.organizationId, params.organizationId),
+				eq(osWorkspaceCollaborators.workspaceId, params.workspaceId),
+				eq(osWorkspaceCollaborators.userId, params.userId),
+			),
+		);
+}
+
+/**
+ * Workspaces shared with a person that they have not dismissed: the ones they
+ * opened, and the ones they were told about and have not opened yet (no
+ * `firstOpenedAt`), newest first. Access is not rechecked here; the caller
+ * rechecks it for entries that were never opened. An opened entry whose
+ * access was revoked stays until dismissed, and opening it reports access
+ * denied.
  */
 export async function listOsSharedWorkspacesForUser(
 	db: DbQueryClient,
@@ -542,11 +611,18 @@ export async function listOsSharedWorkspacesForUser(
 		.where(
 			and(
 				eq(osWorkspaceCollaborators.userId, params.userId),
-				isNotNull(osWorkspaceCollaborators.firstOpenedAt),
+				or(
+					isNotNull(osWorkspaceCollaborators.firstOpenedAt),
+					isNotNull(osWorkspaceCollaborators.cachedTitle),
+				),
 				isNull(osWorkspaceCollaborators.dismissedAt),
 			),
 		)
-		.orderBy(desc(osWorkspaceCollaborators.lastOpenedAt))
+		.orderBy(
+			desc(
+				sql`coalesce(${osWorkspaceCollaborators.lastOpenedAt}, ${osWorkspaceCollaborators.createdAt})`,
+			),
+		)
 		.limit(params.limit);
 }
 

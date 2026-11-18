@@ -118,6 +118,7 @@ beforeEach(() => {
 				title: "Launch plan",
 				ownerName: "Robin Fictional",
 				firstOpenedAt: "2020-03-04T10:00:00.000Z",
+				isNew: false,
 				lastOpenedAt: "2020-03-04T10:00:00.000Z",
 			},
 		],

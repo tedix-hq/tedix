@@ -418,7 +418,7 @@ try {
 				const invited = dialog.locator("[data-invited-link]");
 				await invited
 					.getByText(
-						"Added lee@example.test and sam@example.test. Send them this link to open it",
+						"Added lee@example.test and sam@example.test. Tedix tells them; you can also send this link",
 					)
 					.waitFor();
 				assert.equal(
