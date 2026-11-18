@@ -61,12 +61,10 @@ type WorkItemRow = Pick<
 	| "accountableOwnerId"
 	| "dueDate"
 	| "deadline"
-	| "metadata"
+	| "executorType"
+	| "executorId"
 	| "createdAt"
-> & {
-	executorType?: WorkItem["executorType"];
-	executorId?: WorkItem["executorId"];
-};
+>;
 
 const PRIORITY_LABELS: Record<WorkItem["priority"], string> = {
 	critical: "Critical",
