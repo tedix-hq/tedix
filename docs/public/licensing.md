@@ -21,6 +21,9 @@ under **Apache-2.0** or **MIT**. Each workspace declares its license in the
 `license` field of its `package.json`; the license texts live in the root
 `LICENSE` and `LICENSES/`.
 
+See the [Tedix permissive package inventory](./permissive-packages.md) for the
+dated package list, first commits and app imports.
+
 > This page explains the current repository model; it is not legal advice. The
 > license text and package metadata for the version you use control.
 
