@@ -98,6 +98,7 @@ import {
 } from "@/lib/use-chat-model-preference";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
 import type { createWorkspaceChatClient } from "@/lib/workspace-chat-client";
+import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 import type {
 	ConversationChange,
 	WorkspaceChatClient,
@@ -175,6 +176,11 @@ export type WorkspaceChatProps = {
 	onActivity?: () => void;
 	/** The person can view this workspace but not chat in it. */
 	viewOnly?: boolean;
+	/**
+	 * The host shows runs agents started in its own Agents view: it is handed
+	 * every conversation, and the list here keeps only the ones people started.
+	 */
+	onConversations?: (conversations: readonly ConversationSummary[]) => void;
 	/** Test seam. */
 	createClient?: typeof createWorkspaceChatClient;
 };
@@ -193,6 +199,7 @@ export function WorkspaceChat({
 	chatNotifications,
 	onActivity,
 	viewOnly = false,
+	onConversations,
 	createClient,
 }: WorkspaceChatProps) {
 	const queryClient = useQueryClient();
@@ -207,6 +214,9 @@ export function WorkspaceChat({
 		onOutputChanged,
 	);
 	const { state, connection, catchingUp } = snapshot;
+	useEffect(() => {
+		onConversations?.(state.conversations);
+	}, [onConversations, state.conversations]);
 	const modelPreference = useChatModelPreference();
 	const [pickedModel, setPickedModel] = useState<{
 		conversationId: string | null;
@@ -392,6 +402,7 @@ export function WorkspaceChat({
 			>
 				<ConversationList
 					conversations={state.conversations}
+					hideAgentRuns={onConversations !== undefined}
 					activeId={conversationId}
 					activeRunning={running !== null}
 					activePendingApprovals={waiting.length}

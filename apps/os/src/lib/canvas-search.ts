@@ -9,7 +9,12 @@ export type CanvasWorkpieceSelection =
 	| CanvasDocSelection
 	| { type: "repository"; id: string; attemptId: string };
 
-export type CanvasMobilePane = "resources" | "work" | "chat" | "workpiece";
+export type CanvasMobilePane =
+	| "resources"
+	| "work"
+	| "agents"
+	| "chat"
+	| "workpiece";
 
 /**
  * The open item's views: the item itself, Edit (an app's code and the drafts
@@ -38,6 +43,7 @@ export type CanvasSearch = {
 const CANVAS_MOBILE_PANES = new Set<CanvasMobilePane>([
 	"resources",
 	"work",
+	"agents",
 	"chat",
 	"workpiece",
 ]);

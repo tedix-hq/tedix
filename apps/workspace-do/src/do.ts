@@ -1567,6 +1567,29 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		usage: Map<string, UsageTotals>,
 		archived = false,
 	): ConversationSummary[] {
+		// Who sent each conversation's first message, read in one pass. With
+		// MIN() SQLite takes the other columns from that same earliest turn.
+		const starters = new Map(
+			this.#store
+				.exec<{
+					conversation_id: string;
+					actor_kind: string;
+					actor_id: string;
+				}>(
+					"SELECT conversation_id, actor_kind, actor_id, MIN(started_at) AS first_at FROM turns GROUP BY conversation_id",
+				)
+				.filter((turn) => turn.actor_kind !== "user")
+				.map((turn) => [
+					turn.conversation_id,
+					{
+						kind:
+							turn.actor_kind === "tedi"
+								? ("tedi" as const)
+								: ("agent" as const),
+						id: turn.actor_id,
+					},
+				]),
+		);
 		return this.#store
 			.exec<{
 				id: string;
@@ -1590,6 +1613,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					: {}),
 				...(row.archived_at ? { archivedAt: row.archived_at } : {}),
 				...(usage.has(row.id) ? { usage: usage.get(row.id) } : {}),
+				...(starters.has(row.id) ? { startedBy: starters.get(row.id) } : {}),
 			}));
 	}
 
