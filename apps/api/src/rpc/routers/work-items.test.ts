@@ -474,6 +474,9 @@ describe("Work Item router canonical specification reads and writes", () => {
 			[updated, WorkItemSchema],
 			[listed.data[0], WorkItemListRowSchema],
 		] as const) {
+			for (const field of generated) {
+				expect(schema.shape).not.toHaveProperty(field);
+			}
 			expect(Object.keys(item ?? {})).not.toEqual(
 				expect.arrayContaining([expect.stringMatching(generated.join("|"))]),
 			);
