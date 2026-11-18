@@ -11,6 +11,8 @@ import { apps } from "./apps";
 import { organizations } from "./organizations";
 
 export interface CmsSiteConfig {
+	/** Workflow receipt holding exclusive deploy admission until terminal. */
+	deployAdmission?: string;
 	pageCacheRevision?: string;
 	branding?: Record<string, JsonValue>;
 	socialLinks?: Record<string, JsonValue>;

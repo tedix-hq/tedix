@@ -53,7 +53,7 @@ function fixture(slug = "acme") {
 	return { sqlite, db: createD1Facade(sqlite), insertSite };
 }
 
-function workflow() {
+function workflow(state: "errored" | "running" | "complete" = "errored") {
 	const instances = new Map<string, { id: string; params: unknown }>();
 	const restart = vi.fn(async () => undefined);
 	const create = vi.fn(async (options: { id: string; params: unknown }) => {
@@ -70,7 +70,7 @@ function workflow() {
 			return {
 				id,
 				async status() {
-					return { status: "errored" as const };
+					return { status: state };
 				},
 				restart,
 			};
@@ -193,7 +193,7 @@ describe("CMS deploy workflow admission", () => {
 		).toThrow("source commit");
 	});
 
-	it("coalesces concurrent requests and restarts only the exact site's retained workflow", async () => {
+	it("coalesces concurrent requests into the exact site generation", async () => {
 		const { sqlite, db } = fixture();
 		try {
 			sqlite.exec(
@@ -220,7 +220,7 @@ describe("CMS deploy workflow admission", () => {
 			expect(first.jobId).toBe(`cms-${SITE_ONE}-e0-v8-s${sourceCommit}`);
 			expect(second.jobId).toBe(first.jobId);
 			expect([first.reused, second.reused].sort()).toEqual([false, true]);
-			expect(flow.restart).toHaveBeenCalledOnce();
+			expect(flow.restart).not.toHaveBeenCalled();
 			expect(flow.instances.get(first.jobId)?.params).toMatchObject({
 				siteId: SITE_ONE,
 				restoreEpoch: 0,
@@ -270,6 +270,141 @@ describe("CMS deploy workflow admission", () => {
 				startCmsDeployWorkflow({ workflow: flow, db, orgSlug: "acme" }),
 			).rejects.toThrow("permit denied");
 			expect(flow.create).not.toHaveBeenCalled();
+		} finally {
+			sqlite.close();
+		}
+	});
+	it("admits only one of two concurrent source commits", async () => {
+		const { sqlite, db } = fixture();
+		try {
+			const flow = workflow("running");
+			const results = await Promise.allSettled(
+				["a", "b"].map((letter) =>
+					startCmsDeployWorkflow({
+						workflow: flow,
+						db,
+						orgSlug: "acme",
+						sourceCommit: letter.repeat(40),
+					}),
+				),
+			);
+			expect(
+				results.filter((result) => result.status === "fulfilled"),
+			).toHaveLength(1);
+			const rejected = results.find(
+				(result) => result.status === "rejected",
+			) as PromiseRejectedResult;
+			expect(rejected.reason.message).toContain("already in progress");
+			expect(flow.instances.size).toBe(1);
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("retains site admission through health checking after bundle activation", async () => {
+		const { sqlite, db } = fixture();
+		try {
+			const flow = workflow("running");
+			const sourceCommit = "a".repeat(40);
+			const first = await startCmsDeployWorkflow({
+				workflow: flow,
+				db,
+				orgSlug: "acme",
+				sourceCommit,
+			});
+			sqlite.exec(
+				"INSERT INTO tenant_bundles VALUES ('acme', 1, 1, 'artifacts-commit:abc')",
+			);
+			expect(
+				await startCmsDeployWorkflow({
+					workflow: flow,
+					db,
+					orgSlug: "acme",
+					sourceCommit,
+				}),
+			).toEqual({ jobId: first.jobId, reused: true });
+			await expect(
+				startCmsDeployWorkflow({
+					workflow: flow,
+					db,
+					orgSlug: "acme",
+					sourceCommit: "b".repeat(40),
+				}),
+			).rejects.toThrow("already in progress");
+			expect(flow.create).toHaveBeenCalledOnce();
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("admits the next generation only after a terminal workflow", async () => {
+		const { sqlite, db } = fixture();
+		try {
+			const flow = workflow("complete");
+			const first = await startCmsDeployWorkflow({
+				workflow: flow,
+				db,
+				orgSlug: "acme",
+			});
+			sqlite.exec("INSERT INTO tenant_bundles VALUES ('acme', 1, 1, NULL)");
+			const second = await startCmsDeployWorkflow({
+				workflow: flow,
+				db,
+				orgSlug: "acme",
+			});
+			expect(second.jobId).not.toBe(first.jobId);
+			expect(second.jobId).toContain("-v2");
+		} finally {
+			sqlite.close();
+		}
+	});
+	it("recovers a crash between reserving the site and creating its workflow", async () => {
+		const { sqlite, db } = fixture();
+		try {
+			const flow = workflow("running");
+			flow.create.mockRejectedValueOnce(new Error("provider unavailable"));
+			await expect(
+				startCmsDeployWorkflow({ workflow: flow, db, orgSlug: "acme" }),
+			).rejects.toThrow("provider unavailable");
+			const retry = await startCmsDeployWorkflow({
+				workflow: flow,
+				db,
+				orgSlug: "acme",
+			});
+			expect(retry.jobId).toBe(`cms-${SITE_ONE}-e0-v1`);
+			expect(flow.instances.size).toBe(1);
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("reserves a fresh generation when retrying a failed deploy", async () => {
+		const { sqlite, db } = fixture();
+		try {
+			const flow = workflow("errored");
+			await startCmsDeployWorkflow({
+				workflow: flow,
+				db,
+				orgSlug: "acme",
+				sourceCommit: "a".repeat(40),
+			});
+			const results = await Promise.allSettled(
+				["a", "b"].map((letter) =>
+					startCmsDeployWorkflow({
+						workflow: flow,
+						db,
+						orgSlug: "acme",
+						sourceCommit: letter.repeat(40),
+					}),
+				),
+			);
+			expect(
+				results.filter((result) => result.status === "fulfilled"),
+			).toHaveLength(1);
+			expect(flow.instances.size).toBe(2);
+			expect([...flow.instances.keys()].some((id) => id.includes("-v2"))).toBe(
+				true,
+			);
 		} finally {
 			sqlite.close();
 		}
