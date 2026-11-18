@@ -8,6 +8,7 @@ import { useEffect, useRef } from "react";
 import type { WorkspaceUnreadState } from "@tedix/api-contract/schemas/workspace-unread";
 import { osQuery } from "@/lib/os-query-options";
 import { subscribeOutputRevisionNotices } from "@/lib/output-revision-notices";
+import { showConversationOnScreen } from "@/lib/workspace-toasts";
 
 /**
  * What is new for the signed-in person: chat messages, agent results and file
@@ -164,6 +165,11 @@ export function useWorkspaceUnread(
 
 	const conversationId = options.viewing?.conversationId ?? null;
 	const outputId = options.viewing?.outputId ?? null;
+	// A conversation on screen needs no notice elsewhere in the app.
+	useEffect(() => {
+		if (!enabled || !conversationId) return;
+		return showConversationOnScreen({ workspaceId, conversationId });
+	}, [conversationId, enabled, workspaceId]);
 	// The first visit starts the person's marker; nothing older is ever unread.
 	const started = useRef<string | null>(null);
 	useEffect(() => {

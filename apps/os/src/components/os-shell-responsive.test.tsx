@@ -59,6 +59,9 @@ vi.mock("@/components/os-command-palette", () => ({
 vi.mock("@/components/approval-notifications", () => ({
 	ApprovalNotifications: () => null,
 }));
+vi.mock("@/components/workspace-toasts", () => ({
+	WorkspaceToasts: () => null,
+}));
 vi.mock("@/components/os-workspace-switcher", () => ({
 	OsWorkspaceSwitcher: ({ children }: { children?: ReactNode }) => (
 		<button
