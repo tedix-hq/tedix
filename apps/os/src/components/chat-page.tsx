@@ -25,9 +25,11 @@ import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import type { ChatSearch } from "@/lib/canvas-search";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
-
-/** Workspace names are capped at 120 characters by the contract. */
-const WORKSPACE_NAME_MAX_CHARS = 120;
+import {
+	holdWorkspaceFirstMessage,
+	WORKSPACE_NAME_MAX_CHARS,
+	workspaceNameFromQuestion,
+} from "@/lib/workspace-first-message";
 
 /**
  * "Save as workspace" for a chat that has none: the conversation and the
@@ -104,7 +106,8 @@ function SaveAsWorkspaceButton({ conversationId }: { conversationId: string }) {
  * new conversation, not on whichever thread happened to be most recent. A
  * new chat is a plain Home conversation: it creates no workspace. Outputs it
  * makes go to the default workspace until "Save as workspace" gives the chat
- * its own.
+ * its own. "New workspace" in a fresh composer instead creates a workspace
+ * named after the question and opens it, where the question is sent first.
  */
 export function ChatPage() {
 	const queryClient = useQueryClient();
@@ -124,6 +127,18 @@ export function ChatPage() {
 	const [detailsOpen, setDetailsOpen] = useState(false);
 	const selectionGeneration = useRef(0);
 	const generation = selectionGeneration.current;
+	const startWorkspace = async (question: string) => {
+		const { workspace } = await osApi.osWorkspaces.workspaces.create({
+			name: workspaceNameFromQuestion(question),
+		});
+		void queryClient.invalidateQueries({ queryKey: osQueryKeys.workspaces() });
+		holdWorkspaceFirstMessage(workspace.id, question);
+		await navigate({
+			to: "/workspace/$workspaceId",
+			params: { workspaceId: workspace.id },
+			search: { pane: "chat" },
+		});
+	};
 	const conversationLookup = useQuery({
 		...osQuery.kernelRuntime.listConversations.queryOptions({
 			input: {
@@ -234,6 +249,7 @@ export function ChatPage() {
 								) : null
 							}
 							recoverPendingSend={newConversationKey === 0}
+							onStartWorkspace={startWorkspace}
 							conversationId={activeConversationId}
 							workspaceId={activeConversation?.workspaceId ?? undefined}
 							onConversationCreated={(conversationId, workspaceId) => {

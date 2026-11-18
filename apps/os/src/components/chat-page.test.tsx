@@ -22,6 +22,7 @@ const chatHarness = vi.hoisted(() => ({
 	prepareNewConversation: null as
 		| null
 		| ((content: string) => Promise<{ workspaceId: string }>),
+	onStartWorkspace: null as null | ((question: string) => Promise<void>),
 }));
 
 const apiHarness = vi.hoisted(() => ({
@@ -102,6 +103,7 @@ vi.mock("@/components/chat-thread", () => ({
 		recoverPendingSend,
 		workspaceId,
 		detailsActions,
+		onStartWorkspace,
 	}: {
 		recoverPendingSend?: boolean;
 		workspaceId?: string;
@@ -118,7 +120,9 @@ vi.mock("@/components/chat-thread", () => ({
 		prepareNewConversation?: (
 			content: string,
 		) => Promise<{ workspaceId: string }>;
+		onStartWorkspace?: (question: string) => Promise<void>;
 	}) => {
+		chatHarness.onStartWorkspace = onStartWorkspace ?? null;
 		chatHarness.onConversationCreated = onConversationCreated ?? null;
 		chatHarness.onConversationPrepared = onConversationPrepared ?? null;
 		chatHarness.prepareNewConversation = prepareNewConversation ?? null;
@@ -168,6 +172,7 @@ vi.mock("@/lib/os-query-options", () => ({
 }));
 
 import { ChatPage } from "./chat-page";
+import { takeWorkspaceFirstMessage } from "@/lib/workspace-first-message";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -201,6 +206,8 @@ afterEach(async () => {
 	chatHarness.onConversationCreated = null;
 	chatHarness.onConversationPrepared = null;
 	chatHarness.prepareNewConversation = null;
+	chatHarness.onStartWorkspace = null;
+	window.sessionStorage.clear();
 	apiHarness.createWorkspace.mockReset();
 	apiHarness.createFromConversation.mockReset();
 	apiHarness.conversations = [];
@@ -544,5 +551,38 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 			search: { conversation: CONVERSATION_ID },
 			replace: true,
 		});
+	});
+
+	it("starts a workspace named after the question and sends the question there first", async () => {
+		apiHarness.createWorkspace.mockResolvedValue({
+			workspace: { id: WORKSPACE_ID },
+		});
+		routing.navigate.mockResolvedValue(undefined);
+		await mountPage();
+		const question =
+			"How should we plan the spring offsite in Lisbon next year?";
+		await act(async () => chatHarness.onStartWorkspace?.(question));
+		expect(apiHarness.createWorkspace).toHaveBeenCalledWith({
+			name: "How should we plan the spring",
+		});
+		expect(routing.navigate).toHaveBeenLastCalledWith({
+			to: "/workspace/$workspaceId",
+			params: { workspaceId: WORKSPACE_ID },
+			search: { pane: "chat" },
+		});
+		// The workspace chat takes it once, for its first new conversation.
+		expect(takeWorkspaceFirstMessage(WORKSPACE_ID, "home:os:other")).toBeNull();
+		expect(takeWorkspaceFirstMessage(WORKSPACE_ID, null)).toBe(question);
+		expect(takeWorkspaceFirstMessage(WORKSPACE_ID, null)).toBeNull();
+	});
+
+	it("stays on the page and holds nothing when the workspace cannot be created", async () => {
+		apiHarness.createWorkspace.mockRejectedValue(new Error("Not allowed"));
+		await mountPage();
+		await expect(
+			chatHarness.onStartWorkspace?.("Plan the offsite"),
+		).rejects.toThrow("Not allowed");
+		expect(routing.navigate).not.toHaveBeenCalled();
+		expect(takeWorkspaceFirstMessage(WORKSPACE_ID, null)).toBeNull();
 	});
 });
