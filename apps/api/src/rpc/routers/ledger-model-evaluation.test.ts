@@ -167,7 +167,7 @@ describe("managed fixed-corpus ledger qualification", () => {
 			per_token_in: 0.00000175,
 			per_token_out: 0.000014,
 			per_cache_read_token: 0.000000175,
-			per_cache_write_token: 0.00000175,
+			per_cache_write_token: 0,
 		});
 	});
 	it.each([

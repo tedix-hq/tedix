@@ -527,12 +527,21 @@ function usdPerToken(microusdPerMillion: number): string {
 }
 
 /**
- * `cf-aig-custom-cost` value for one governed rate. Without it AI Gateway
- * estimates cost from Cloudflare's public price list, which misprices Azure.
- * https://developers.cloudflare.com/ai-gateway/configuration/custom-costs/
+ * `cf-aig-custom-cost` value for one governed Azure rate. Without it AI
+ * Gateway estimates cost from Cloudflare's public price list, which misprices
+ * Azure. https://developers.cloudflare.com/ai-gateway/configuration/custom-costs/
+ *
+ * Azure counts cache-write tokens inside its input total, but AI Gateway
+ * charges them again on top of input (observed 18 Nov 2026; cache reads are
+ * subtracted correctly). Sending only the cache-write premium over the input
+ * price makes the gateway total equal the governed cost.
  */
 export function aiGatewayCustomCost(rate: AiGatewayTokenRates): string {
-	return `{"per_token_in":${usdPerToken(rate.inputMicrousdPerMillion)},"per_token_out":${usdPerToken(rate.outputMicrousdPerMillion)},"per_cache_read_token":${usdPerToken(rate.cacheReadMicrousdPerMillion)},"per_cache_write_token":${usdPerToken(rate.cacheWriteMicrousdPerMillion)}}`;
+	const cacheWritePremium = Math.max(
+		0,
+		rate.cacheWriteMicrousdPerMillion - rate.inputMicrousdPerMillion,
+	);
+	return `{"per_token_in":${usdPerToken(rate.inputMicrousdPerMillion)},"per_token_out":${usdPerToken(rate.outputMicrousdPerMillion)},"per_cache_read_token":${usdPerToken(rate.cacheReadMicrousdPerMillion)},"per_cache_write_token":${usdPerToken(cacheWritePremium)}}`;
 }
 
 /** Price the request at the admitted rate; without one, send no override. */

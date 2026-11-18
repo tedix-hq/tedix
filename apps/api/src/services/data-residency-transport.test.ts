@@ -139,7 +139,7 @@ describe("AI Gateway custom cost on the kernel Azure transport", () => {
 			per_token_in: 0.000002,
 			per_token_out: 0.000008,
 			per_cache_read_token: 0.0000005,
-			per_cache_write_token: 0.000002,
+			per_cache_write_token: 0,
 		});
 	});
 
