@@ -43,6 +43,7 @@ import {
 	withSharedCmsRestorePermit,
 } from "./tenant-restore-fence";
 import { runScheduledTenantWithPermit } from "./scheduled-restore-permits";
+import { retainTenantBundles } from "./bundle-retention";
 import { r2RestHeaders } from "./r2-rest";
 import type {
 	CollectionDeletionGuardInput,
@@ -2264,6 +2265,12 @@ export default {
 					counters.skipped += 1;
 					continue;
 				}
+
+				await retainTenantBundles(env, createDbQueryClient(env.PLATFORM_DB), {
+					siteId: org.siteId,
+					slug,
+					restoreEpoch,
+				});
 
 				const tenantEntrypoint = getTenantEntrypoint(env, ctx, {
 					invocation: "scheduled",
