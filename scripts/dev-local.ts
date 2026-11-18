@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { parse, type ParseError } from "jsonc-parser";
@@ -321,6 +322,26 @@ export function createLocalWranglerConfig(configPath: string): JsonObject {
 	alignLocalServiceIdentities(config);
 	// Service identities have been normalized to the local Worker names.
 	const isApi = config.name === LOCAL_API_WORKER_NAME;
+	if (isApi) {
+		const vars: JsonObject = isObject(config.vars) ? config.vars : {};
+		config.vars = vars;
+		// Keep the local key across restarts: it also encrypts stored secrets.
+		// Never inherit a deployment's key.
+		const keyPath = join(dirname(configPath), ".wrangler/local-master-key");
+		mkdirSync(dirname(keyPath), { recursive: true });
+		try {
+			writeFileSync(keyPath, randomBytes(32).toString("base64"), {
+				flag: "wx",
+				mode: 0o600,
+			});
+		} catch (error) {
+			if (
+				!(error instanceof Error && "code" in error && error.code === "EEXIST")
+			)
+				throw error;
+		}
+		vars.SECRETS_MASTER_KEY = readFileSync(keyPath, "utf8").trim();
+	}
 	if (localInferenceBackend && isApi) {
 		const vars: JsonObject = isObject(config.vars) ? config.vars : {};
 		config.vars = vars;

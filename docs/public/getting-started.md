@@ -70,6 +70,12 @@ TEDIX_LOCAL_API_PORT=8890 TEDIX_LOCAL_OS_PORT=3042 TEDIX_LOCAL_MCP_PORT=3043 bun
 
 Stop each stack with `Ctrl+C` in its terminal.
 
+The local API generates its own key for app sessions and stored secrets, saved
+in `apps/api/.wrangler/local-master-key` for reuse after a restart. Keep that file
+with your local data; deleting it invalidates sessions and stored secrets.
+The launcher does not start the app server runtime; app methods that need it
+remain unavailable locally. Opening an app session does not run those methods.
+
 The [Tedix CLI](./cli.md) wraps this launcher: `tedix setup` runs it in a
 checkout, or clones the source release matching your CLI version when one is
 published, and `tedix dev` restarts the saved installation later.
