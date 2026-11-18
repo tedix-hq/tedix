@@ -316,6 +316,8 @@ export function kernelServesWorkersAiLane(
 }
 
 export interface SelectedKernelModel {
+	/** Catalog identity, including an availability fallback selected for this operation. */
+	modelRef?: string;
 	model: LanguageModel;
 	pricingIdentity: ProviderExecutionIdentity | null;
 	attempts: NonNullable<KernelGatewayContext["executionAttempts"]>;
@@ -462,14 +464,11 @@ export function kernelModel(
 		wrapLanguageModel({ model: selected.model, middleware: [] }),
 		{
 			primaryRef,
-			...kernelFallbackHooks(
-				env.DB,
-				{
-					organizationId: gatewayContext.organizationId,
-					runId: gatewayContext.runId,
-				},
-				catalog,
-			),
+			load: hooks.load,
+			record: async (step) => {
+				await hooks.record(step);
+				selected.modelRef = step.to;
+			},
 			resolve: (modelRef) => {
 				const candidate = selectKernelModel(
 					env,
@@ -537,6 +536,7 @@ function selectKernelModel(
 				catalog,
 			);
 			return {
+				modelRef: registered.ref,
 				model: observeKernelModel(
 					workersAiModel(
 						kernelWorkersAiClient(workersAiEnv, gatewayContext),
@@ -580,6 +580,7 @@ function selectKernelModel(
 				},
 			);
 			return {
+				modelRef: registered.ref,
 				model: observeKernelModel(model as LanguageModel, attempts),
 				forOperation,
 				pricingIdentity: {
@@ -648,6 +649,7 @@ function selectKernelModel(
 			transportKind: transport.kind,
 		});
 	return {
+		modelRef: registered.ref,
 		model: observeKernelModel(
 			wrapLanguageModel({
 				model: azure.responses(deployment),

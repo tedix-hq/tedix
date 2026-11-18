@@ -18,12 +18,16 @@ import {
 } from "./route-schema";
 import { getRouterVersion } from "./router-version";
 
-function selected(model: LanguageModel): SelectedKernelModel {
+function selected(
+	model: LanguageModel,
+	modelRef = "azure-openai/primary",
+): SelectedKernelModel {
 	return {
 		model,
+		modelRef,
 		pricingIdentity: null,
 		attempts: [],
-		forOperation: () => selected(model),
+		forOperation: () => selected(model, modelRef),
 	};
 }
 function planKernelRoute(
@@ -2134,7 +2138,9 @@ describe("configured route fallback", () => {
 					});
 				},
 			});
-			const retryModel = vi.fn(async () => selected(good));
+			const retryModel = vi.fn(async () =>
+				selected(good, "azure-openai/recovered"),
+			);
 			const attempts = vi.fn();
 			const result = await runPlanKernelRoute({
 				model: {
@@ -2146,6 +2152,7 @@ describe("configured route fallback", () => {
 				onRouteAttempts: attempts,
 			});
 			expect(result?.answer).toBe("Recovered.");
+			expect(result?.modelRef).toBe("azure-openai/recovered");
 			expect(retryModel).toHaveBeenCalledOnce();
 			expect(primary.doGenerateCalls).toHaveLength(1);
 			expect(good.doGenerateCalls).toHaveLength(1);
@@ -2182,7 +2189,7 @@ describe("configured route fallback", () => {
 				...selected(primary),
 				forOperation: () => ({
 					...selected(primary),
-					retryModel: async () => selected(fallback),
+					retryModel: async () => selected(fallback, "azure-openai/recovered"),
 				}),
 			},
 			context: EMPTY_CONTEXT,
@@ -2190,6 +2197,7 @@ describe("configured route fallback", () => {
 		});
 		expect(result?.answer).toBeTruthy();
 		expect(fallback.doStreamCalls).toHaveLength(1);
+		expect(result?.modelRef).toBe("azure-openai/recovered");
 		expect(primary.doStreamCalls).toHaveLength(0);
 	});
 	it("does not select a fallback on a billing denial", async () => {
@@ -2423,6 +2431,7 @@ describe("Auto Router Home answer", () => {
 			onAnswerDelta: (text) => deltas.push(text),
 		});
 		expect(result?.answer).toBe("Recovered.");
+		expect(result?.modelRef).toBe("azure-openai/primary");
 		expect(model.doGenerateCalls).toHaveLength(0);
 		expect(model.doStreamCalls).toHaveLength(2);
 		expect(model.doStreamCalls[1]?.responseFormat).toEqual(

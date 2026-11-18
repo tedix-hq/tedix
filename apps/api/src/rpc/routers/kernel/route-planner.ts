@@ -367,6 +367,7 @@ export interface KernelRouteUsage {
  * evidence the turn body threads into the kernel `bodyExecutionResult`.
  */
 export type PlanKernelRouteResult = StampedKernelRouteDecision & {
+	modelRef?: string;
 	usage: KernelRouteUsage;
 	/** Provider request captured at the call site, retained only for the redacted trace writer. */
 	traceInput: KernelRouteTraceInput;
@@ -974,6 +975,7 @@ async function planKernelRouteWithRecovery(
 				}
 			}
 		}
+		guarded.modelRef ??= routeModel?.modelRef;
 		return guarded;
 	} catch (error) {
 		if (args.abortSignal?.aborted) return null;
@@ -1659,6 +1661,7 @@ async function streamHomeAnswer(
 				),
 		};
 		decision.answer = answer;
+		decision.modelRef = model.modelRef;
 	} finally {
 		idle.clear();
 	}

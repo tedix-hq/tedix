@@ -1,3 +1,4 @@
+import { homeChatModelRef } from "@/lib/home-chat-model";
 import "./canvas-page.css";
 import { usePushConversation } from "@/lib/use-push-conversation";
 import {
@@ -124,7 +125,7 @@ import {
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
 } from "@/lib/os-query-options";
-import { initialModelRef, modelsForNewSelection } from "@/lib/model-selection";
+import { modelsForNewSelection } from "@/lib/model-selection";
 import { useChatModelPreference } from "@/lib/use-chat-model-preference";
 import { assistantLinkedOutputIds } from "@/lib/output-navigation";
 import { parseSkillReferences } from "@tedix/api-contract/utils/skill-reference";
@@ -462,76 +463,6 @@ export function ChatThread({
 		...readOnlyToolCatalogQueryOptions(organizationId),
 		enabled: directReadOpen,
 	});
-	const [selectedModelRef, setSelectedModelRef] = useState<string | null>(null);
-	const modelCatalog = useQuery({
-		...modelCatalogQueryOptions(),
-		staleTime: 60_000,
-	});
-	const resolvableModels = useMemo(
-		() => modelCatalog.data?.models.filter((model) => model.allowed) ?? [],
-		[modelCatalog.data],
-	);
-	const selectableModels = useMemo(
-		() => modelsForNewSelection(resolvableModels),
-		[resolvableModels],
-	);
-	const modelPreference = useChatModelPreference();
-	useEffect(() => {
-		if (
-			selectedModelRef ||
-			resolvableModels.length === 0 ||
-			!modelPreference.settled
-		)
-			return;
-		// The person's stored choice while it is still allowed; otherwise the
-		// organization's routed default.
-		const stored = resolvableModels.find(
-			(model) => model.ref === modelPreference.modelRef,
-		)?.ref;
-		setSelectedModelRef(
-			initialModelRef(
-				resolvableModels,
-				stored ?? modelCatalog.data?.routing.modelRef,
-			),
-		);
-	}, [
-		resolvableModels,
-		modelCatalog.data,
-		selectedModelRef,
-		modelPreference.settled,
-		modelPreference.modelRef,
-	]);
-	const selectedModelLabel =
-		resolvableModels.find((model) => model.ref === selectedModelRef)?.label ??
-		selectedModelRef ??
-		"The selected model";
-	// Image capability gate. A MIME type says what the file is; it says nothing
-	// about whether the model can read it, and the two were conflated here.
-	//
-	// `selectionPending` covers both halves of "not resolved YET": the query is
-	// in flight, or it has landed with allowed models and the effect above has
-	// not yet committed the pick. Everything else with a null ref is a resolved
-	// nothing — an empty allow-list or a failed catalog — and says so.
-	const modelSelectionPending =
-		modelCatalog.isPending ||
-		(selectedModelRef === null && resolvableModels.length > 0);
-	const imageRefusal = localWorkersAi
-		? "The local inference model is configured by the launcher. Its image support is not verified here; send text instead."
-		: composerImageRefusal({
-				models: resolvableModels,
-				selectedRef: selectedModelRef,
-				modelLabel: selectedModelLabel,
-				selectionPending: modelSelectionPending,
-			});
-	// An image already attached when the operator switches to a model that
-	// refuses it: the pick-time filter cannot have caught this one, so the send
-	// is blocked with the same named reason rather than wedging the turn.
-	const blockedByAttachedImage =
-		imageRefusal !== null &&
-		attachments.some((attachment) => attachment.type === "image");
-	const composerAttachmentError = blockedByAttachedImage
-		? imageRefusal
-		: attachmentError;
 
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -561,6 +492,7 @@ export function ChatThread({
 		newConversationIdRef.current =
 			conversationId === null ? newHomeConversationId() : null;
 		sendTargetRef.current = conversationId ?? newConversationIdRef.current;
+		setPickedModel(null);
 		setSelectedTediId(null);
 		cacheRef.current = new Map();
 		knownOutputIdsRef.current = null;
@@ -636,6 +568,68 @@ export function ChatThread({
 		realtimeDegraded,
 		realtimeSurface.status === "open",
 	);
+	const [pickedModel, setPickedModel] = useState<{
+		conversationId: string | null;
+		ref: string;
+	} | null>(null);
+	const modelCatalog = useQuery({
+		...modelCatalogQueryOptions(),
+		staleTime: 60_000,
+	});
+	const resolvableModels = useMemo(
+		() => modelCatalog.data?.models.filter((model) => model.allowed) ?? [],
+		[modelCatalog.data],
+	);
+	const selectableModels = useMemo(
+		() => modelsForNewSelection(resolvableModels),
+		[resolvableModels],
+	);
+	const modelPreference = useChatModelPreference();
+	const selectedModelRef =
+		modelPreference.settled && (conversationId === null || runSet)
+			? homeChatModelRef({
+					models: resolvableModels,
+					conversationId,
+					runs: runSet?.runs ?? [],
+					pickedHere:
+						pickedModel?.conversationId === conversationId
+							? pickedModel.ref
+							: null,
+					remembered: modelPreference.modelRef,
+					routedDefault: modelCatalog.data?.routing.modelRef,
+				})
+			: null;
+	const selectedModelLabel =
+		resolvableModels.find((model) => model.ref === selectedModelRef)?.label ??
+		selectedModelRef ??
+		"The selected model";
+	// Image capability gate. A MIME type says what the file is; it says nothing
+	// about whether the model can read it, and the two were conflated here.
+	//
+	// `selectionPending` covers both halves of "not resolved YET": the query is
+	// in flight, or the conversation history or preference has not settled.
+	// Everything else with a null ref is a resolved nothing — an empty allow-list or a failed catalog — and says so.
+	const modelSelectionPending =
+		modelCatalog.isPending ||
+		(selectedModelRef === null && resolvableModels.length > 0);
+	const imageRefusal = localWorkersAi
+		? "The local inference model is configured by the launcher. Its image support is not verified here; send text instead."
+		: composerImageRefusal({
+				models: resolvableModels,
+				selectedRef: selectedModelRef,
+				modelLabel: selectedModelLabel,
+				selectionPending: modelSelectionPending,
+			});
+	// An image already attached when the operator switches to a model that
+	// refuses it: the pick-time filter cannot have caught this one, so the send
+	// is blocked with the same named reason rather than wedging the turn.
+	const blockedByAttachedImage =
+		imageRefusal !== null &&
+		attachments.some((attachment) => attachment.type === "image");
+	const composerAttachmentError = blockedByAttachedImage
+		? imageRefusal
+		: attachmentError;
+
 	const pendingRun = controllableRun(runSet, pendingRunId);
 	const steeringRunId =
 		pendingRun &&
@@ -2856,7 +2850,7 @@ export function ChatThread({
 									choices={selectableModels}
 									selectedRef={selectedModelRef}
 									onSelect={(ref) => {
-										setSelectedModelRef(ref);
+										setPickedModel({ conversationId, ref });
 										modelPreference.save(ref);
 										// The refusal is re-derived from the new selection;
 										// the stale one must not outlive it.

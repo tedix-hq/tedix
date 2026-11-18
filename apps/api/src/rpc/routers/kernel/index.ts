@@ -160,7 +160,7 @@ import { renderWriteDeclined } from "./write-proposal";
 
 export interface KernelResult {
 	assistantContent: string;
-	route: KernelRouteDecision;
+	route: KernelRouteDecision & { modelRef?: string };
 	/** Trusted org-scoped routing hint; the member catalog must still authorize it. */
 	workWriteGateway?: string | null;
 	/**
