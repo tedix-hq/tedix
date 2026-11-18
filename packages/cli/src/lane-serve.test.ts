@@ -2202,6 +2202,56 @@ describe("dispatcher admission", () => {
 			}
 		},
 	);
+	it("frees the slot of an ended Attempt whose pid now belongs to another process", async () => {
+		const child = spawn(
+			process.execPath,
+			["-e", "setTimeout(() => {}, 30000)"],
+			{
+				detached: true,
+				stdio: "ignore",
+			},
+		);
+		await once(child, "spawn");
+		const { restart, deps, dir, releases } = fixture({ max: 1 });
+		const history = [
+			{
+				id: "ended-attempt",
+				externalSessionKey: "codex:ended",
+				outcome: "failed",
+				expiresAt: new Date(Date.now() - 60000).toISOString(),
+			},
+		];
+		const cli = deps.cli!;
+		deps.cli = async (args, ...rest) => {
+			const response = await cli(args, ...rest);
+			return args[5] === "dispatch-attempts" && args[6] === item(1).id
+				? ({ data: history, nextCursor: null } as never)
+				: (response as never);
+		};
+		const dispatcher = restart();
+		writeFileSync(
+			join(dir, `${item(1).id}-2.json`),
+			JSON.stringify({
+				itemId: item(1).id,
+				version: 2,
+				phase: "running",
+				pid: child.pid,
+				processIdentity: "a-different-process",
+				session: "codex:ended",
+				attemptId: "ended-attempt",
+			}),
+		);
+		try {
+			await dispatcher.tick();
+			await until(() => releases.length === 1);
+			for (const release of releases) release();
+			await dispatcher.drain();
+		} finally {
+			const exited = once(child, "exit");
+			process.kill(-child.pid!, "SIGTERM");
+			await exited;
+		}
+	});
 	it("runs at most N, claims the native child before launch and persists settlement", async () => {
 		const { dispatcher, events, releases, dir } = fixture();
 		await dispatcher.tick();

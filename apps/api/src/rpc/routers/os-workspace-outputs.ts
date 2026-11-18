@@ -1155,7 +1155,6 @@ async function renderExportBytes(
 			content,
 		},
 		organization,
-		{ loadBodyFont: true },
 	);
 	const response = await runBrowserQuickAction(
 		context.env.BROWSER,
