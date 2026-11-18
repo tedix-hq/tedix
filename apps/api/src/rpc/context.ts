@@ -125,6 +125,14 @@ export interface BaseContext {
 		subject: string;
 		status: string | null;
 		role: string;
+		id?: string;
+		userId?: string | null;
+		/** The persisted provider subject can differ from the authenticated subject. */
+		descopeUserId?: string;
+		kind?: "human" | "external_agent" | "browser_agent";
+		customPermissions?:
+			| import("@tedix/api-contract/schemas/user-settings").OrganizationPermission[]
+			| null;
 	};
 	/** User role within the organization */
 	userRole?: string;

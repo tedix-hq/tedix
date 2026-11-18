@@ -287,6 +287,11 @@ describe("directory.resolveWorkspace", () => {
 		context.organizationMembership = {
 			organizationId: ORG_A,
 			subject: "user-1",
+			descopeUserId: "user-1",
+			id: "member-1",
+			userId: "canonical-1",
+			kind: "human",
+			customPermissions: null,
 			status: "active",
 			role: "owner",
 		};

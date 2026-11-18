@@ -591,10 +591,8 @@ async function authenticateForwardedMcpUserJwt(
 	context.organizationId = forwardedContext.organizationId;
 	if (member) {
 		context.organizationMembership = {
-			organizationId: targetOrg.id,
+			...member,
 			subject: userSubject,
-			status: member.status,
-			role: member.role,
 		};
 	}
 	if (forwardedContext.userRole) {
@@ -1930,6 +1928,11 @@ async function authenticateUserJwt(
 							subject: payload.sub,
 							status: "active",
 							role: identity.memberRole,
+							id: identity.memberId ?? undefined,
+							userId: identity.memberUserId,
+							descopeUserId: identity.memberDescopeUserId ?? undefined,
+							kind: identity.memberKind ?? undefined,
+							customPermissions: identity.memberPermissionOverrides,
 						};
 					}
 					context.userMembershipKind = identity.memberIsActive
@@ -1984,10 +1987,8 @@ async function authenticateUserJwt(
 				}
 				if (member) {
 					context.organizationMembership = {
-						organizationId: personalOrg.id,
+						...member,
 						subject: payload.sub,
-						status: member.status,
-						role: member.role,
 					};
 				}
 				if (member?.role) {

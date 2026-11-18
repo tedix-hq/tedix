@@ -7,10 +7,7 @@
 import { resolveAuthorizedExternalAgentMcpSession } from "@tedix/db/queries/external-agent-identity/mcp-credentials";
 import { resolveOwnerHostSession } from "@tedix/db/queries/external-agent-identity/owner-host-sessions";
 import { getExternalAgentPrincipalByCredential } from "@tedix/db/queries/external-agent-identity/principals";
-import {
-	getMemberByCanonicalUserId,
-	getMemberByUserId,
-} from "@tedix/db/queries/organization-members";
+import { getRequestOrganizationMembership } from "../org-membership";
 import { getTediById } from "@tedix/db/queries/tedis";
 import { type BaseContext, createError, ErrorCodes } from "../orpc";
 import { browserAgentMetadata } from "../browser-agent-seat";
@@ -199,10 +196,12 @@ export async function verifiedActiveUserMembership(
 			ErrorCodes.FORBIDDEN,
 			`Work mutation requires an authenticated ${requirement} user principal`,
 		);
-	const membership = context.userId
-		? ((await getMemberByCanonicalUserId(context.db, orgId, context.userId)) ??
-			(await getMemberByUserId(context.db, orgId, subject)))
-		: await getMemberByUserId(context.db, orgId, subject);
+	const membership = await getRequestOrganizationMembership(
+		context,
+		orgId,
+		subject,
+		{ canonicalUserId: context.userId },
+	);
 	if (membership?.status !== "active" || !membership.userId)
 		throw createError(
 			ErrorCodes.FORBIDDEN,

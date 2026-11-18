@@ -10,7 +10,7 @@ import {
 	setTediConsoleGrant,
 } from "@tedix/db/queries/tedi-console";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
-import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getRequestOrganizationMembership } from "../org-membership";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { listOsOutputs } from "../../services/workspace-output-storage";
 import { extractBearerToken } from "@tedix/worker-kit/request-auth";
@@ -40,8 +40,8 @@ async function requireHumanAdmin(context: BaseContext) {
 			ErrorCodes.FORBIDDEN,
 			"A human organization administrator must grant console access",
 		);
-	const member = await getMemberByUserId(
-		context.db,
+	const member = await getRequestOrganizationMembership(
+		context,
 		organizationId,
 		context.user.sub,
 	);

@@ -40,7 +40,7 @@ import {
 	listWorkCommentEvents,
 } from "@tedix/db/queries/work-items/comments";
 import { requireOrgId } from "../org-scope";
-import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getRequestOrganizationMembership } from "../org-membership";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -207,8 +207,8 @@ const pollWorkInteractionRequestsProcedure =
 	workReadOs.pollWorkInteractionRequests.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context, "MCP events");
 		const recipient = input.laneRequestsOnly
-			? await getMemberByUserId(
-					context.db,
+			? await getRequestOrganizationMembership(
+					context,
 					orgId,
 					context.descopeUserId ?? context.user?.sub ?? "",
 				)
