@@ -8,7 +8,11 @@ import {
 	type CmsProxyContext,
 } from "./cms-proxy-runtime";
 import { CmsDeployFailure } from "./deploy-failure";
-import { requireSupportedBlocks, type ThemeRelease } from "./theme-release";
+import {
+	collectBlockVersions,
+	requireSupportedBlocks,
+	type ThemeRelease,
+} from "./theme-release";
 
 const collectionsSchema = z.object({
 	items: z.array(z.object({ slug: z.string().min(1) })),
@@ -23,6 +27,35 @@ export async function checkLiveThemeCompatibility(
 	env: AppBindings,
 	orgSlug: string,
 	release: ThemeRelease,
+): Promise<void> {
+	await visitPublishedContent(env, orgSlug, (data) =>
+		requireSupportedBlocks(data, release),
+	);
+}
+
+/**
+ * Template defaults plus every block version the site already publishes.
+ * Used once for themes created before release manifests: what is published
+ * renders today, so it is supported by definition.
+ */
+export async function withPublishedBlocks(
+	env: AppBindings,
+	orgSlug: string,
+	defaults: ThemeRelease["supportedBlocks"],
+): Promise<ThemeRelease["supportedBlocks"]> {
+	const blocks: Record<string, number[]> = Object.fromEntries(
+		Object.entries(defaults).map(([type, versions]) => [type, [...versions]]),
+	);
+	await visitPublishedContent(env, orgSlug, (data) =>
+		collectBlockVersions(data, blocks),
+	);
+	return blocks;
+}
+
+async function visitPublishedContent(
+	env: AppBindings,
+	orgSlug: string,
+	visit: (data: Record<string, unknown>) => void,
 ): Promise<void> {
 	const ctx: CmsProxyContext = {
 		orgSlug,
@@ -62,8 +95,7 @@ export async function checkLiveThemeCompatibility(
 				const page = pageSchema.parse(
 					await read(`/content/${encodeURIComponent(slug)}?${query}`),
 				);
-				for (const item of page.items)
-					requireSupportedBlocks(item.data, release);
+				for (const item of page.items) visit(item.data);
 				cursor = page.nextCursor;
 				if (cursor && seen.has(cursor))
 					throw new Error("Repeated native content cursor");

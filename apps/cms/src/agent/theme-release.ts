@@ -16,6 +16,12 @@ export const themeReleaseSchema = declarationSchema.extend({
 	templateSlug: z.string().min(1),
 	lockedTemplateSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
 	dependencyLockHash: z.string().regex(/^[a-f0-9]{64}$/),
+	/**
+	 * Set when the theme has no src/theme-release.json (themes created before
+	 * release manifests). Publishing then carries the site's stored release
+	 * forward, or creates it once from template defaults plus published blocks.
+	 */
+	generated: z.literal(true).optional(),
 });
 export type ThemeRelease = z.infer<typeof themeReleaseSchema>;
 
@@ -24,20 +30,23 @@ export async function identifyThemeRelease(
 	templateSlug: string,
 	workspace: string,
 ): Promise<ThemeRelease> {
-	let declaration: z.infer<typeof declarationSchema>;
+	const { snapshot, paths } = snapshotForTemplate(templateSlug);
+	let raw: string | undefined;
 	try {
-		declaration = declarationSchema.parse(
-			JSON.parse(
-				(await sandbox.readFile(`${workspace}/src/theme-release.json`)).content,
-			),
-		);
+		raw = (await sandbox.readFile(`${workspace}/src/theme-release.json`))
+			.content;
 	} catch {
+		raw = undefined;
+	}
+	const fallback = snapshot["src/theme-release.json"];
+	const declared = declarationSchema.safeParse(safeJson(raw ?? fallback ?? ""));
+	if (!declared.success) {
 		throw new CmsDeployFailure(
 			"THEME_RELEASE_INVALID",
 			"Add src/theme-release.json with the upstream starter commit and supported block versions before deploying",
 		);
 	}
-	const { snapshot, paths } = snapshotForTemplate(templateSlug);
+	const declaration = declared.data;
 	const locked: string[] = [];
 	for (const path of paths
 		.filter((path) => isPathLocked(path, templateSlug))
@@ -52,7 +61,40 @@ export async function identifyThemeRelease(
 		dependencyLockHash: await sha256Hex(
 			(await sandbox.readFile(`${workspace}/bun.lock`)).content,
 		),
+		...(raw === undefined ? { generated: true as const } : {}),
 	};
+}
+
+function safeJson(text: string): unknown {
+	try {
+		return JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+}
+
+/** Adds every native versioned block in `value` to `blocks`. */
+export function collectBlockVersions(
+	value: unknown,
+	blocks: Record<string, number[]>,
+): void {
+	if (Array.isArray(value)) {
+		for (const item of value) collectBlockVersions(item, blocks);
+	} else if (value && typeof value === "object") {
+		const record = value as Record<string, unknown>;
+		if (
+			typeof record._type === "string" &&
+			typeof record._version === "number"
+		) {
+			const versions = (blocks[record._type] ??= []);
+			if (!versions.includes(record._version)) {
+				versions.push(record._version);
+				versions.sort((a, b) => a - b);
+			}
+		}
+		for (const child of Object.values(record))
+			collectBlockVersions(child, blocks);
+	}
 }
 
 /** Native versioned blocks are distinct from Portable Text's unversioned nodes. */
