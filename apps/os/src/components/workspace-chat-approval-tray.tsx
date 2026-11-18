@@ -87,7 +87,11 @@ export function ApprovalTray({
 		if (notice) setSent(new Map());
 	}
 	const alert = notice ? (
-		<div className="workspace-chat-tray-notice" role="alert">
+		<div
+			className="workspace-chat-tray-notice"
+			data-focus-ring="inset"
+			role="alert"
+		>
 			<Text as="span" role="caption" tone="error">
 				{approvalNoticeText(notice)}
 			</Text>
