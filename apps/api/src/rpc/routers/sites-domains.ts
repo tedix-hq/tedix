@@ -36,6 +36,7 @@ import {
 	findCmsCustomHostname,
 	getCmsCustomHostname,
 	isCmsCustomHostnameReady,
+	isPlatformHostname,
 	verifyCmsDnsChallenge,
 	verifyCmsDnsTarget,
 	verifyCmsDnsZoneApex,
@@ -43,17 +44,13 @@ import {
 } from "../../services/cms-custom-hostnames";
 import { authedSitesOs, requireCmsSite } from "./sites-shared";
 
-function isPlatformDomain(hostname: string | null): boolean {
-	return hostname !== null && /(?:^|\.)tedix\.(?:dev|tech)\.?$/i.test(hostname);
-}
-
 async function requireCmsDomainSite(
 	context: BaseContext,
 	siteId: string,
 	requireEntitlement = true,
 ) {
 	const site = await requireCmsSite(context, siteId);
-	if (isPlatformDomain(site.customDomain))
+	if (site.customDomain !== null && isPlatformHostname(site.customDomain))
 		throw createError(
 			ErrorCodes.CONFLICT,
 			"Platform domains use platform routing and do not need a domain claim",
@@ -305,7 +302,11 @@ export const getCmsDomainProcedure = authedSitesOs.getCmsDomain
 	.use(withAuthorization("settings:manage", "mcp:content.read"))
 	.handler(async ({ input, context }) => {
 		const routedSite = await requireCmsSite(context, input.siteId);
-		if (isPlatformDomain(routedSite.customDomain)) return null;
+		if (
+			routedSite.customDomain !== null &&
+			isPlatformHostname(routedSite.customDomain)
+		)
+			return null;
 		const site = await requireCmsDomainSite(context, input.siteId, false);
 		const claims = await listCmsDomainClaimsForSite(context.db, {
 			organizationId: requireOrgId(context),

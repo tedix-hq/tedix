@@ -33,6 +33,7 @@ import { mergeAppMetadataPatch } from "../rpc/routers/app-metadata";
 import {
 	deleteCmsCustomHostname,
 	findCmsCustomHostname,
+	isPlatformHostname,
 	type CmsCustomHostnameEnv,
 } from "../services/cms-custom-hostnames";
 
@@ -73,13 +74,6 @@ function removedProviderResources(result: CmsCleanupResult): string[] {
 		removed.push("theme");
 	if (result.deletedSandbox === true) removed.push("sandbox");
 	return removed;
-}
-
-function isPlatformHostname(hostname: string): boolean {
-	const normalized = hostname.toLowerCase().replace(/\.$/, "");
-	return ["tedix.dev", "tedix.tech"].some(
-		(domain) => normalized === domain || normalized.endsWith(`.${domain}`),
-	);
 }
 
 export class CmsDeprovisionWorkflow extends WorkflowEntrypoint<
