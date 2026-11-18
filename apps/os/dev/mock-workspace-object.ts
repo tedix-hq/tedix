@@ -384,6 +384,23 @@ function handle(socket: Socket, raw: string | Buffer): void {
 			else pending.end();
 			return;
 		}
+		case "decide_approvals": {
+			for (const approvalId of message.approvalIds) {
+				const pending = ws.pendingApprovals.get(approvalId);
+				if (!pending) continue;
+				emit(ws, {
+					type: "approval.decided",
+					conversationId: pending.conversationId,
+					turnId: pending.turnId,
+					approvalId,
+					decision: message.decision,
+					by: "person:local",
+				});
+				if (message.decision === "approve") pending.resume();
+				else pending.end();
+			}
+			return;
+		}
 		case "cancel_turn":
 			ws.cancelled.add(message.turnId);
 			return;

@@ -1457,6 +1457,60 @@ describe("WorkspaceDO", () => {
 		).toEqual(after);
 	});
 
+	test("approving a reply's proposals together applies each and continues once", async () => {
+		const ws = workspace();
+		const CREATE_THREE = `export default async (env) => Promise.allSettled(["Budget", "Forecast", "Plan"].map((title) => env.outputs.create({ title, content: { kind: "document", blocks: [] } })))`;
+		await ws.scriptModel(scope, [{ code: CREATE_THREE }, { text: "Waiting." }]);
+		const { turnId, conversationId } = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Create three documents",
+		});
+		await ws.awaitTurn(scope, turnId, 20_000);
+		const events = await ws.readEvents(scope, { conversationId, after: 0 });
+		const requested = events.flatMap((event) =>
+			event.type === "approval.requested" ? [event] : [],
+		);
+		expect(requested).toHaveLength(3);
+		const last = events.at(-1)!.seq;
+
+		await ws.scriptModel(scope, [{ text: "All three are ready." }]);
+		const ids = requested.map((event) => event.approvalId);
+		const results = await ws.decideApprovals(scope, {
+			approvalIds: ids,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(results.map((result) => result.applied)).toEqual([true, true, true]);
+		const continued = new Set(results.map((result) => result.turnId));
+		expect(continued.size).toBe(1);
+		const [next] = [...continued];
+		await ws.awaitTurn(scope, next!, 20_000);
+		const after = await ws.readEvents(scope, { conversationId, after: last });
+		const executed = after.flatMap((event) =>
+			event.type === "approval.executed" ? [event] : [],
+		);
+		expect(executed.map((event) => event.approvalId)).toEqual(ids);
+		for (const event of executed) {
+			expect(event.status).toBe("applied");
+			expect(event.output?.revision).toBe(1);
+			expect(typeof event.output?.outputId).toBe("string");
+		}
+		const started = after.filter((event) => event.type === "turn.started");
+		expect(started).toHaveLength(1);
+		expect(started[0]?.type === "turn.started" && started[0].displayText).toBe(
+			"Approved 3 requested actions.",
+		);
+		// Deciding again returns the recorded results and starts nothing.
+		expect(
+			await ws.decideApprovals(scope, {
+				approvalIds: ids,
+				decision: "approve",
+				by: "u1",
+			}),
+		).toEqual(results);
+	});
+
 	test("a view shown from sandbox code lands in the answer's events", async () => {
 		await seedCore();
 		const ws = workspace();

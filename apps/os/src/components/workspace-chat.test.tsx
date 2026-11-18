@@ -72,6 +72,9 @@ function fakeClient(conversationId: string | null) {
 		decideApproval(approvalId, decision) {
 			calls.push(["decideApproval", approvalId, decision]);
 		},
+		decideApprovals(approvalIds, decision) {
+			calls.push(["decideApprovals", approvalIds, decision]);
+		},
 		cancelTurn(turnId) {
 			calls.push(["cancelTurn", turnId]);
 		},
@@ -1383,5 +1386,149 @@ describe("WorkspaceChat", () => {
 		mount(fake);
 		act(() => fake.feed([started]));
 		expect(notifyChatPosted).not.toHaveBeenCalled();
+	});
+	describe("a reply with several proposals", () => {
+		const proposal = (
+			seq: number,
+			approvalId: string,
+			title: string,
+			target: string,
+		): WorkspaceChatLedgerEvent => ({
+			seq,
+			at,
+			conversationId: "c1",
+			type: "approval.requested",
+			turnId: "t1",
+			stepId: `s-${approvalId}`,
+			approvalId,
+			title,
+			reason: "Policy requires a person.",
+			input: { title: target },
+		});
+		const three = [
+			started,
+			proposal(2, "a1", "Creating a new output", "Budget"),
+			proposal(3, "a2", "Creating a new output", "Forecast"),
+			proposal(4, "a3", "Creating a new output", "Board deck"),
+		];
+		const buttons = () => [...host.querySelectorAll("button")];
+		const named = (name: string) =>
+			buttons().find((button) => button.getAttribute("aria-label") === name);
+
+		it("names each Approve and Deny button after its item", () => {
+			const fake = fakeClient("c1");
+			mount(fake);
+			act(() => fake.feed(three));
+			expect(named("Approve creating Budget")?.textContent).toBe("Approve");
+			expect(named("Deny creating Budget")?.textContent).toBe("Deny");
+			expect(named("Approve creating Board deck")).toBeDefined();
+			act(() => named("Deny creating Forecast")?.click());
+			expect(fake.calls).toContainEqual(["decideApproval", "a2", "deny"]);
+		});
+
+		it("approves every waiting proposal of the reply with one button", () => {
+			const fake = fakeClient("c1");
+			mount(fake);
+			act(() => fake.feed(three));
+			const all = buttons().find(
+				(button) => button.textContent === "Approve all (3)",
+			);
+			expect(all).toBeDefined();
+			act(() => all?.click());
+			expect(fake.calls).toContainEqual([
+				"decideApprovals",
+				["a1", "a2", "a3"],
+				"approve",
+			]);
+			expect(all?.disabled).toBe(true);
+			expect(named("Approve creating Budget")?.disabled).toBe(true);
+			expect(named("Deny creating Forecast")?.disabled).toBe(true);
+		});
+
+		it("counts only proposals still waiting and hides the button for one", () => {
+			const fake = fakeClient("c1");
+			mount(fake);
+			act(() =>
+				fake.feed([
+					...three,
+					{
+						seq: 5,
+						at,
+						conversationId: "c1",
+						type: "approval.decided",
+						approvalId: "a1",
+						decision: "deny",
+						by: "person:aaron",
+					},
+				]),
+			);
+			expect(
+				buttons().some((button) => button.textContent === "Approve all (2)"),
+			).toBe(true);
+			act(() =>
+				fake.feed([
+					{
+						seq: 6,
+						at,
+						conversationId: "c1",
+						type: "approval.decided",
+						approvalId: "a2",
+						decision: "approve",
+						by: "person:aaron",
+					},
+				]),
+			);
+			expect(
+				buttons().some((button) =>
+					button.textContent?.startsWith("Approve all"),
+				),
+			).toBe(false);
+		});
+
+		it("offers one undo after the reply's changes are applied", () => {
+			const fake = fakeClient("c1");
+			mount(fake);
+			const applied = (
+				seq: number,
+				approvalId: string,
+				outputId: string,
+			): WorkspaceChatLedgerEvent[] => [
+				{
+					seq,
+					at,
+					conversationId: "c1",
+					type: "approval.decided",
+					approvalId,
+					decision: "approve",
+					by: "person:aaron",
+				},
+				{
+					seq: seq + 1,
+					at,
+					conversationId: "c1",
+					type: "approval.executed",
+					approvalId,
+					status: "applied",
+					output: { outputId, revision: 1 },
+				},
+			];
+			act(() =>
+				fake.feed([
+					...three.slice(0, 3),
+					...applied(10, "a1", "o1"),
+					...applied(12, "a2", "o2"),
+				]),
+			);
+			expect(
+				buttons().some(
+					(button) => button.textContent === "Undo all from this reply",
+				),
+			).toBe(true);
+			expect(
+				buttons().some((button) =>
+					button.textContent?.startsWith("Approve all"),
+				),
+			).toBe(false);
+		});
 	});
 });

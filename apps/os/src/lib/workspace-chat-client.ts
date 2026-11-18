@@ -103,6 +103,8 @@ export type WorkspaceChatClient = {
 		attachments?: Array<{ outputId: string }>;
 	}): string;
 	decideApproval(approvalId: string, decision: ApprovalDecision): void;
+	/** Decide several approvals of one reply together; one answer continues. */
+	decideApprovals(approvalIds: string[], decision: ApprovalDecision): void;
 	cancelTurn(turnId: string): void;
 	loadEarlier(): void;
 	/** Drop the socket now; the ladder reconnects. Used by the drop test. */
@@ -538,6 +540,10 @@ export function createWorkspaceChatClient(
 		},
 		decideApproval(approvalId, decision) {
 			send({ type: "decide_approval", approvalId, decision });
+		},
+		decideApprovals(approvalIds, decision) {
+			if (approvalIds.length === 0) return;
+			send({ type: "decide_approvals", approvalIds, decision });
 		},
 		cancelTurn(turnId) {
 			send({ type: "cancel_turn", turnId });

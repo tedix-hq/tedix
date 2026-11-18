@@ -72,6 +72,12 @@ export type WorkspaceChatClientMessage =
 			decision: ApprovalDecision;
 			note?: string;
 	  }
+	| {
+			/** Decide several approvals of one conversation; one turn continues. */
+			type: "decide_approvals";
+			approvalIds: string[];
+			decision: ApprovalDecision;
+	  }
 	| { type: "cancel_turn"; turnId: string }
 	| {
 			type: "read_ledger";
@@ -195,6 +201,8 @@ export type WorkspaceChatLedgerEvent =
 			approvalId: string;
 			status: "applied" | "failed";
 			error?: string;
+			/** The file the write saved; revision 1 means it created the file. */
+			output?: { outputId: string; revision: number };
 	  })
 	| (Stamped & {
 			/** A live view for the answer, rendered in the sandboxed widget frame. */
