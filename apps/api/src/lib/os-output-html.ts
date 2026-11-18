@@ -438,6 +438,8 @@ const DOCUMENT_CSS = `
 	article summary { font-weight: 600; }
 	article :is(aside, details > div) > :last-child { margin-bottom: 0; }
 	article img { border-radius: 6px; }
+	article aside, article details { break-inside: avoid; }
+	article h1, article h2, article h3, article h4 { break-after: avoid; }
 `;
 
 function documentAppearanceCss(content: OsOutputContent): string {
