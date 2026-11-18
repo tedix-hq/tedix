@@ -440,6 +440,7 @@ const DOCUMENT_CSS = `
 	article :is(aside, details > div) > :last-child { margin-bottom: 0; }
 	article img { border-radius: 6px; }
 	article aside, article details { break-inside: avoid; }
+	article tr:first-child { break-after: avoid; }
 	article h1, article h2, article h3, article h4 { break-after: avoid; }
 `;
 
