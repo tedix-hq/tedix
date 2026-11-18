@@ -199,7 +199,8 @@ export function renderRichTextNode(node: OsRichTextNode): string {
 		case "taskItem":
 			return `<li>${node.attrs?.checked === true ? "☑" : "☐"} ${children}</li>`;
 		case "paragraph":
-			return `<p${alignment}>${children}</p>`;
+			// A paragraph left blank is a line of space in the editor.
+			return `<p${alignment}>${children.trim() ? children : "<br>"}</p>`;
 		case "bulletList":
 			return `<ul>${children}</ul>`;
 		case "orderedList": {
@@ -442,12 +443,26 @@ const DOCUMENT_CSS = `
 	article h1, article h2, article h3, article h4 { break-after: avoid; }
 `;
 
+/** Text as the inside of a double-quoted CSS string. */
+function cssString(value: string): string {
+	return value.replace(
+		/[^A-Za-z0-9 .,;:|·()@/+\-–—äöüÄÖÜßáéíóúñÁÉÍÓÚÑ]/gu,
+		(character) => `\\${character.codePointAt(0)?.toString(16)} `,
+	);
+}
+
+/**
+ * The editor shows each reader's own system font, and the server that prints
+ * the page has none, so a sans document names a font the export can load.
+ */
+const EXPORT_SANS_FONT = "Inter";
+
 function documentAppearanceCss(content: OsOutputContent): string {
 	if (content.kind !== "document") return "";
 	const typeface = content.appearance?.typeface ?? "sans";
 	const [family, size, lineHeight] = {
 		sans: [
-			'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
+			`${EXPORT_SANS_FONT}, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`,
 			16,
 			1.65,
 		],
@@ -463,7 +478,10 @@ function documentAppearanceCss(content: OsOutputContent): string {
 	// at five sixths (16px becomes 10pt), across the page, inside its margins.
 	const printSize = Math.round((Number(size) * 500) / 6) / 100;
 	const printLineHeight = Math.round((Number(lineHeight) - 0.2) * 100) / 100;
-	const print = `@page{size:A4;margin:2cm}@media print{body{padding:0;font-size:${printSize}px;line-height:${printLineHeight}}article{line-height:${printLineHeight}}article,header.export-header{max-width:none}article th,article td{padding:5px 9px}}`;
+	const footer = content.appearance?.footer
+		? `@page{@bottom-center{content:"${cssString(content.appearance.footer)}";font:8pt ${family};color:#787774}}@page:first{@bottom-center{content:none}}`
+		: "";
+	const print = `@page{size:A4;margin:2cm}${footer}@media print{body{padding:0;font-size:${printSize}px;line-height:${printLineHeight}}article{line-height:${printLineHeight}}article,header.export-header{max-width:none}article th,article td{padding:5px 9px}}`;
 	return `${DOCUMENT_CSS}body{font-family:${family};font-size:${size}px;line-height:${lineHeight}}article{line-height:${lineHeight}}article,header.export-header{max-width:${width}px;margin-left:auto;margin-right:auto}${print}`;
 }
 
@@ -506,7 +524,7 @@ const SYSTEM_FONTS = new Set([
 	"comfortaa variable",
 ]);
 
-function collectExportFonts(content: OsOutputContent) {
+function collectExportFonts(content: OsOutputContent, bodyFont: boolean) {
 	const fonts = new Map<string, { family: string; weights: Set<number> }>();
 	const add = (stack: string | undefined, weight: number) => {
 		for (const part of stack?.split(",") ?? []) {
@@ -557,6 +575,9 @@ function collectExportFonts(content: OsOutputContent) {
 			}
 		}
 	} else if (content.kind === "document") {
+		// The body font comes first so it keeps its slot inside the family cap.
+		if (bodyFont && (content.appearance?.typeface ?? "sans") === "sans")
+			for (const weight of [400, 600, 700]) add(EXPORT_SANS_FONT, weight);
 		const visit = (node: OsRichTextNode) => {
 			for (const mark of node.marks ?? []) {
 				if (
@@ -586,10 +607,19 @@ export function renderOsOutputHtml(
 	output: Pick<OsOutput, "kind" | "title">,
 	revision: Pick<OsOutputRevision, "revision" | "content" | "createdAt">,
 	organization: PresentationAppearance = {},
+	/**
+	 * Printing loads the body font from the web, because the server that
+	 * prints has no system font. A saved HTML file must open on its own, so
+	 * it names the font without fetching it.
+	 */
+	options: { loadBodyFont?: boolean } = {},
 ): string {
 	const title = escapeHtml(output.title);
 	const body = renderBody(revision.content, organization);
-	const fontStylesheet = collectExportFonts(revision.content)
+	const fontStylesheet = collectExportFonts(
+		revision.content,
+		options.loadBodyFont === true,
+	)
 		.map(({ family, weights }) => {
 			const name = family.replaceAll(" ", "+");
 			const base = `https://fonts.googleapis.com/css2?family=${name}`;

@@ -1172,6 +1172,16 @@ export const OsDocumentAppearanceSchema = z
 	.object({
 		typeface: z.enum(["sans", "serif", "mono"]).default("sans"),
 		wide: z.boolean().default(false),
+		footer: z
+			.string()
+			.trim()
+			.min(1)
+			.max(200)
+			.regex(/^[^\n\r]*$/, "The page footer is one line")
+			.optional()
+			.describe(
+				"One line printed small at the bottom of every page after the first in a PDF export; omitted for no page footer",
+			),
 	})
 	.strict();
 
