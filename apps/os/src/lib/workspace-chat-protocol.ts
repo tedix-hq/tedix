@@ -50,18 +50,6 @@ export type ApprovalDecision = "approve" | "deny";
 export type StepKind = "read" | "write" | "code" | "tool" | "think";
 export type TurnStatus = "done" | "error" | "cancelled" | "waiting";
 
-/** A kind of change a workspace can "Always approve". */
-export type AutoApprovalKind = "files";
-
-/** One "Always approve" rule, stored in the workspace. */
-export type AutoApprovalRule = {
-	kind: AutoApprovalKind;
-	/** What it approves, e.g. "creating and editing docs, sheets and slides in this workspace". */
-	label: string;
-	enabledBy: string;
-	enabledAt: string;
-};
-
 export type WorkspaceChatClientMessage =
 	| {
 			type: "subscribe";
@@ -89,12 +77,6 @@ export type WorkspaceChatClientMessage =
 			type: "decide_approvals";
 			approvalIds: string[];
 			decision: ApprovalDecision;
-	  }
-	| {
-			/** Turn one "Always approve" rule of this workspace on or off. */
-			type: "set_auto_approval";
-			kind: AutoApprovalKind;
-			enabled: boolean;
 	  }
 	| { type: "cancel_turn"; turnId: string }
 	| { type: "rename_conversation"; conversationId: string; title: string }
@@ -250,8 +232,8 @@ export type WorkspaceChatLedgerEvent =
 			policy?: string;
 			input?: unknown;
 			target?: { id: string; title: string };
-			/** The "Always approve" rule that could cover this kind of change. */
-			rule?: { kind: AutoApprovalKind; label: string };
+			/** The change applies at once; it is not waiting for anyone. */
+			automatic?: true;
 	  })
 	| (Stamped & {
 			type: "approval.decided";
@@ -259,7 +241,7 @@ export type WorkspaceChatLedgerEvent =
 			approvalId: string;
 			decision: ApprovalDecision;
 			by: string;
-			/** Approved by a workspace "Always approve" rule, not by hand. */
+			/** The change applied at once; nobody decided it by hand. */
 			automatic?: true;
 	  })
 	| (Stamped & {
@@ -308,13 +290,6 @@ export type WorkspaceChatControlMessage =
 			models?: Array<{ id: string; label: string }>;
 			/** The whole workspace, archived conversations included, up to `cursor`. */
 			usage?: UsageTotals;
-			/** This workspace's "Always approve" rules. */
-			autoApprovals?: AutoApprovalRule[];
-	  }
-	| {
-			/** The workspace's "Always approve" rules changed. */
-			type: "auto_approvals";
-			rules: AutoApprovalRule[];
 	  }
 	| {
 			/** A conversation and everything in it is gone; every open chat gets it. */
@@ -374,7 +349,6 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 
 const CONTROL_TYPES = new Set<WorkspaceChatControlMessage["type"]>([
 	"hello",
-	"auto_approvals",
 	"conversation.deleted",
 	"caught_up",
 	"replay.more",

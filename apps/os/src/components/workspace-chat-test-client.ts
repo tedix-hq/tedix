@@ -35,9 +35,6 @@ export function fakeWorkspaceChatClient(conversationId: string | null) {
 		decideApprovals(approvalIds, decision) {
 			calls.push(["decideApprovals", approvalIds, decision]);
 		},
-		setAutoApproval(kind, enabled) {
-			calls.push(["setAutoApproval", kind, enabled]);
-		},
 		cancelTurn(turnId) {
 			calls.push(["cancelTurn", turnId]);
 		},

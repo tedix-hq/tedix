@@ -12,7 +12,6 @@ import { createPortal } from "react-dom";
 import { ActivityAutoApproval } from "@/components/activity-auto-approval";
 import { ActivityHistory } from "@/components/activity-history";
 import { WorkspaceActivity } from "@/components/workspace-activity";
-import { WorkspaceAutoApprovalRules } from "@/components/workspace-auto-approval-rules";
 import { UnreadBadge } from "@/components/unread-badge";
 import { UnreadList } from "@/components/unread-list";
 import { useUnreadTotal } from "@/lib/workspace-unread";
@@ -272,7 +271,25 @@ export function ActivityPanel({
 					) : null}
 					{tab === "workspace" && workspaceId ? (
 						<>
-							<WorkspaceAutoApprovalRules workspaceId={workspaceId} />
+							<section
+								aria-labelledby="workspace-applies-without-asking-title"
+								className="grid min-w-0 gap-2 border-b border-kumo-hairline px-4 py-3"
+								data-testid="workspace-applies-without-asking"
+							>
+								<Text
+									as="h3"
+									id="workspace-applies-without-asking-title"
+									role="label"
+								>
+									What applies without asking
+								</Text>
+								<Text as="p" className="m-0" role="caption" tone="secondary">
+									New files and edits the agent makes to docs, sheets and slides
+									here apply at once. Undo them from the reply or from the
+									file's version history. Removing content, deleting, sharing
+									and anything outside this workspace always wait for you.
+								</Text>
+							</section>
 							<WorkspaceActivity workspaceId={workspaceId} />
 						</>
 					) : tab === "unread" ? (

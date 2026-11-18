@@ -17,7 +17,6 @@ import {
 	type FormEvent,
 	type KeyboardEvent,
 	type ReactNode,
-	createContext,
 	lazy,
 	Suspense,
 	useCallback,
@@ -103,7 +102,6 @@ import type {
 	WorkspaceChatClient,
 	WorkspaceChatConnection,
 } from "@/lib/workspace-chat-client";
-import type { AutoApprovalKind } from "@/lib/workspace-chat-protocol";
 import {
 	activeTurn,
 	type ChatApproval,
@@ -130,7 +128,6 @@ import {
 	approvalSubject,
 	approvalTarget,
 } from "@/components/workspace-chat-approval-tray";
-import { AlwaysApproveButton } from "@/components/workspace-chat-always-approve";
 import { receiveWorkspaceChatDrafts } from "@/lib/workspace-chat-draft-handoff";
 import {
 	approvalTitle,
@@ -148,7 +145,6 @@ import {
 	ConversationList,
 	ConversationTitle,
 } from "@/components/workspace-chat-conversations";
-import { publishWorkspaceAutoApprovals } from "@/lib/workspace-auto-approvals";
 import { VIEW_ONLY_CHAT_REASON } from "@/lib/workspace-view-only";
 
 const WidgetFrame = lazy(async () => ({
@@ -254,26 +250,6 @@ export function WorkspaceChat({
 	// workspace chat is an independent write; no agent step blocks on one.
 	const waiting = waitingForDecision(state);
 	const connected = connection.phase === "open";
-	const setRule = useMemo(
-		() =>
-			client && connected
-				? (kind: AutoApprovalKind, enabled: boolean) =>
-						client.setAutoApproval(kind, enabled)
-				: null,
-		[client, connected],
-	);
-	const rules = state.autoApprovals;
-	useEffect(() => {
-		publishWorkspaceAutoApprovals({ workspaceId, rules, setRule });
-		return () => publishWorkspaceAutoApprovals(null);
-	}, [workspaceId, rules, setRule]);
-	const autoApproval = useMemo(
-		() => ({
-			enabled: new Set(rules.map((rule) => rule.kind)),
-			enable: setRule ? (kind: AutoApprovalKind) => setRule(kind, true) : null,
-		}),
-		[rules, setRule],
-	);
 	useEffect(() => {
 		const edits = state.turns.flatMap((turn) =>
 			turn.approvals.flatMap((item) => {
@@ -476,37 +452,35 @@ export function WorkspaceChat({
 				<WorkspaceSpend state={state} />
 				<ConnectionChip client={client} connection={connection} />
 			</div>
-			<AutoApprovalContext.Provider value={autoApproval}>
-				<Thread
-					workspaceId={workspaceId}
-					conversationId={conversationId}
-					turns={state.turns}
-					models={state.models}
-					queued={state.queued}
-					pendingSend={state.pendingSend}
-					catchingUp={
-						catchingUp && state.turns.length === 0 && conversationId !== null
-					}
-					hasEarlier={state.hasEarlier}
-					onLoadEarlier={() => client?.loadEarlier()}
-					onDecide={(approvalId, decision) =>
-						client?.decideApproval(approvalId, decision)
-					}
-					onApproveAll={(approvalIds) =>
-						client?.decideApprovals(approvalIds, "approve")
-					}
-					onContinue={
-						viewOnly || running || state.pendingSend
-							? null
-							: () => void send(CONTINUE_TEXT)
-					}
-					onRetry={
-						viewOnly || running || state.pendingSend
-							? null
-							: (text, attachments) => void send(text, attachments)
-					}
-				/>
-			</AutoApprovalContext.Provider>
+			<Thread
+				workspaceId={workspaceId}
+				conversationId={conversationId}
+				turns={state.turns}
+				models={state.models}
+				queued={state.queued}
+				pendingSend={state.pendingSend}
+				catchingUp={
+					catchingUp && state.turns.length === 0 && conversationId !== null
+				}
+				hasEarlier={state.hasEarlier}
+				onLoadEarlier={() => client?.loadEarlier()}
+				onDecide={(approvalId, decision) =>
+					client?.decideApproval(approvalId, decision)
+				}
+				onApproveAll={(approvalIds) =>
+					client?.decideApprovals(approvalIds, "approve")
+				}
+				onContinue={
+					viewOnly || running || state.pendingSend
+						? null
+						: () => void send(CONTINUE_TEXT)
+				}
+				onRetry={
+					viewOnly || running || state.pendingSend
+						? null
+						: (text, attachments) => void send(text, attachments)
+				}
+			/>
 			{connection.phase === "unavailable" ? (
 				<div
 					className="workspace-chat-unavailable"
@@ -1022,10 +996,10 @@ const STEP_ICON = {
 } as const;
 
 function approvalStatus(approval: ChatApproval) {
-	if (approval.execution?.status === "applied")
-		return approval.automatic ? "Approved automatically" : "Applied";
+	if (approval.execution?.status === "applied") return "Applied";
 	if (approval.execution?.status === "failed") return "Failed";
 	if (approval.decision === "deny") return "Denied";
+	if (approval.automatic) return "Applying…";
 	if (approval.decision === "approve") return "Approved";
 	return "Waiting for approval";
 }
@@ -1287,15 +1261,6 @@ function approvalPreview(input: Record<string, unknown> | null): string {
 	return "";
 }
 
-/**
- * The workspace's "Always approve" rules, for the cards: which kinds are on,
- * and how to turn one on. `enable` is null while the chat is not connected.
- */
-const AutoApprovalContext = createContext<{
-	enabled: ReadonlySet<AutoApprovalKind>;
-	enable: ((kind: AutoApprovalKind) => void) | null;
-}>({ enabled: new Set(), enable: null });
-
 /** The decision and the action's recorded result remain separate. */
 function ApprovalCard({
 	approval,
@@ -1320,10 +1285,6 @@ function ApprovalCard({
 	const failed = approval.execution?.status === "failed";
 	const subject = approvalSubject(approval);
 	const page = webPageRequest(approval);
-	const autoApproval = useContext(AutoApprovalContext);
-	const rule = approval.rule;
-	const canAlwaysApprove =
-		rule !== undefined && !appEdit && !autoApproval.enabled.has(rule.kind);
 	return (
 		<div
 			className="workspace-chat-approval"
@@ -1477,17 +1438,6 @@ function ApprovalCard({
 								? "Accept"
 								: "Approve"}
 					</Button>
-					{canAlwaysApprove && rule ? (
-						<AlwaysApproveButton
-							rule={rule}
-							disabled={decided !== null || !autoApproval.enable}
-							onConfirm={(kind) => {
-								autoApproval.enable?.(kind);
-								setSent("approve");
-								onDecide(approval.approvalId, "approve");
-							}}
-						/>
-					) : null}
 				</div>
 			) : null}
 		</div>
