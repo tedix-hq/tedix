@@ -40,10 +40,7 @@ it("keeps record links and current Work URLs direct", () => {
 			legacyWorkRedirect(new URL(path, "https://cedar.os.example.test")),
 		).toBeNull();
 });
-it("validates shareable filters and retains old completed links", () => {
-	expect(workHomeSearch({ disposition: "completed" })).toEqual({
-		filter: "history",
-	});
+it("validates shareable filters", () => {
 	expect(
 		workHomeSearch({ view: "deck", filter: "stalled", app: "portfolio" }),
 	).toEqual({ view: "deck", filter: "stalled", app: "portfolio" });

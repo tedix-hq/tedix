@@ -597,7 +597,7 @@ export function MemoryExplorer({ tediId }: { tediId: string }) {
 						<ul className="m-0 grid list-none gap-1 p-0">
 							{records.map((record) => (
 								<Surface
-									as="li"
+									render={<li />}
 									key={record.id}
 									className="grid min-w-0 gap-1 overflow-hidden border-kumo-hairline px-3 py-2.5"
 								>

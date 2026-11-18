@@ -347,21 +347,15 @@ export function delegationSteps(
 	return folded;
 }
 
-/** Older runtime rows carry these lowercase labels; newer ones say it plainly. */
 const RUNTIME_LABELS: Record<string, string> = {
 	thinking: "Getting ready",
-	"loading context": "Getting ready",
-	"reading the task": "Reading the request",
-	synthesizing: "Writing the answer",
-	responding: "Writing the answer",
 	"wrapping up": "Wrapping up",
 	delegating: "Asking a helper",
-	"writing artifact": "Saving a file",
 };
 
 /**
  * The runtime's progress label as a sentence: "calling <tool_id>" names the
- * tool in plain words, legacy lowercase labels are mapped, anything else is
+ * tool in plain words, known runtime labels are mapped, anything else is
  * sentence-cased without its trailing ellipsis.
  */
 export function plainRuntimeLabel(

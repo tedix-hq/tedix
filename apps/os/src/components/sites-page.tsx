@@ -1276,7 +1276,7 @@ export function SitesPage() {
 							<ul aria-label="Owned sites" className="grid gap-3 md:hidden">
 								{filteredSites.map((site) => (
 									<Surface
-										as="li"
+										render={<li />}
 										key={site.id}
 										tier="panel"
 										className="grid min-w-0 gap-3 p-4"

@@ -82,7 +82,7 @@ const turn: WorkspaceChatLedgerEvent[] = [
 		turnId: "t1",
 		messageId: "m1",
 		text: "Twelve are open.",
-		usage: { inputTokens: 1000, outputTokens: 20, costCents: 2 },
+		usage: { inputTokens: 1000, outputTokens: 20 },
 		model: "mock",
 	},
 	{
@@ -111,7 +111,7 @@ describe("applyWorkspaceChatEvent", () => {
 		expect(row?.reply).toBe("Twelve are open.");
 		expect(row?.replyDone).toBe(true);
 		expect(row?.status).toBe("done");
-		expect(row?.usage?.costCents).toBe(2);
+		expect(row?.usage).toEqual({ inputTokens: 1000, outputTokens: 20 });
 		expect(state.cursor).toBe(7);
 		expect(state.lastEventAt).toBe(Date.parse(at(4)));
 		expect(activeTurn(state)).toBeNull();
@@ -419,9 +419,9 @@ describe("labels", () => {
 	it("formats elapsed time and usage plainly", () => {
 		expect(elapsedLabel(4_200)).toBe("4s");
 		expect(elapsedLabel(125_000)).toBe("2m 05s");
-		expect(
-			formatUsage({ inputTokens: 2000, outputTokens: 500, costCents: 2 }),
-		).toBe("2,000 input · 500 output tokens");
+		expect(formatUsage({ inputTokens: 2000, outputTokens: 500 })).toBe(
+			"2,000 input · 500 output tokens",
+		);
 	});
 
 	it("leaves out what a finished turn did not record", () => {
@@ -498,7 +498,6 @@ it("model and cumulative usage converge when progress arrives after completion",
 			outputTokens: 4,
 			cachedInputTokens: 10,
 			partial: true,
-			costCents: 100,
 		}),
 	).toBe("20 input · 4 output tokens · 10 cached input · partial usage");
 });

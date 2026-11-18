@@ -302,7 +302,7 @@ async function runTurn(
 				turnId,
 				messageId,
 				text,
-				usage: { inputTokens: 1_200, outputTokens: 12, costCents: 1 },
+				usage: { inputTokens: 1_200, outputTokens: 12 },
 				model: "mock",
 			});
 			return void finish("done");
@@ -333,7 +333,6 @@ async function runTurn(
 			inputTokens: 2_480,
 			outputTokens: 96,
 			cachedInputTokens: 1_900,
-			costCents: 2,
 		},
 		model: "mock",
 	});

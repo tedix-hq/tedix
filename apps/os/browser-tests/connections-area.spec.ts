@@ -6,7 +6,7 @@ import { startFixtureServer } from "./fixture-server";
 /**
  * The connections area is three tabs (Apps, Accounts, Skills). Apps holds the
  * apps in use and the catalog; Accounts holds the organization's and your own
- * accounts. The gateway is a line on Apps, and its old URL redirects there.
+ * accounts. The gateway is a line on Apps.
  */
 const evidence =
 	process.env.TEDIX_SCREENSHOT_DIR ??
@@ -23,9 +23,6 @@ try {
 				colorScheme: theme,
 				reducedMotion: "reduce",
 			});
-			await page.goto(`${server.origin}/gateways`);
-			await page.waitForURL((url) => url.pathname === "/apps");
-
 			for (const [path, tab, view] of [
 				["/apps", "Apps", "In use"],
 				["/explore/apps", "Apps", "Browse and add"],

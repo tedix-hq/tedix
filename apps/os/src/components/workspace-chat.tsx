@@ -514,7 +514,7 @@ export function WorkspaceChat({
 					role="status"
 				>
 					<Text role="body">
-						Workspace chat is being upgraded. Home chat still works.
+						Workspace chat is unavailable on this origin. Home chat still works.
 					</Text>
 					<Button onClick={() => client?.retry()} size="sm" variant="outline">
 						Retry
@@ -551,7 +551,7 @@ export function WorkspaceChat({
 					viewOnly
 						? VIEW_ONLY_CHAT_REASON
 						: connection.phase === "unavailable"
-							? "Workspace chat is being upgraded. Use Home chat for now."
+							? "Workspace chat is unavailable on this origin. Use Home chat for now."
 							: null
 				}
 				autoFocus={autoFocusComposer}

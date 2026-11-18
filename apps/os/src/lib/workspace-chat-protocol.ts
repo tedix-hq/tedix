@@ -143,8 +143,6 @@ export type TurnUsage = {
 	inputTokens: number;
 	outputTokens: number;
 	cachedInputTokens?: number;
-	/** Legacy amounts have no trustworthy currency or attribution. Never display. */
-	costCents?: number;
 	partial?: boolean;
 	/** Governed-rate price of the finished turn, in US dollars. */
 	costUsd?: number;

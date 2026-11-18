@@ -1547,7 +1547,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 				/>
 			) : null}
 			<Surface
-				as="section"
+				render={<section />}
 				tier="panel"
 				aria-label={OS_COPY.work.atAGlance}
 				className="grid gap-3 p-4"

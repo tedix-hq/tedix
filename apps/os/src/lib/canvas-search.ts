@@ -14,7 +14,7 @@ export type CanvasMobilePane = "resources" | "work" | "chat" | "workpiece";
 /**
  * The open item's views: the item itself, Edit (an app's code and the drafts
  * waiting on it), History (an app's runs), and two views reached from the
- * workspace menu rather than a tab. Older links name the views this replaced.
+ * workspace menu rather than a tab.
  */
 export type CanvasWorkpieceMode =
 	| "workpiece"
@@ -50,21 +50,11 @@ const CANVAS_WORKPIECE_MODES = new Set<CanvasWorkpieceMode>([
 	"activity",
 ]);
 
-/** Where the views that no longer have a tab of their own now live. */
-const LEGACY_CANVAS_WORKPIECE_MODES: Record<string, CanvasWorkpieceMode> = {
-	source: "edit",
-	drafts: "edit",
-	runs: "history",
-};
-
 export function canvasWorkpieceModeFromSearch(
 	value: unknown,
 ): CanvasWorkpieceMode | undefined {
 	if (typeof value !== "string") return undefined;
-	return (
-		enumSearchParam(value, CANVAS_WORKPIECE_MODES) ??
-		LEGACY_CANVAS_WORKPIECE_MODES[value]
-	);
+	return enumSearchParam(value, CANVAS_WORKPIECE_MODES);
 }
 
 /** Stable workpiece URL identity; repository selections retain the exact Work and Attempt. */

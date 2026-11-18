@@ -89,7 +89,7 @@ const summary: AppSummary = {
 	successRate: 97,
 	avgDurationMs: 180,
 	uniqueUsers: 7,
-	uniqueCallerTypes: ["oauth", "api_key"],
+	uniqueCallerTypes: ["oauth", "apiKey"],
 };
 
 const emptySummary: AppSummary = {

@@ -130,11 +130,11 @@ describe("Canvas URL search", () => {
 		).toBe(false);
 	});
 
-	it("sends links to the old Code, Drafts and Runs views to their new place", () => {
-		expect(validateWorkspaceSearch({ view: "source" }).view).toBe("edit");
-		expect(validateWorkspaceSearch({ view: "drafts" }).view).toBe("edit");
-		expect(validateWorkspaceSearch({ view: "runs" }).view).toBe("history");
+	it("accepts only current workspace views", () => {
+		expect(validateWorkspaceSearch({ view: "edit" }).view).toBe("edit");
+		expect(validateWorkspaceSearch({ view: "history" }).view).toBe("history");
 		expect(validateWorkspaceSearch({ view: "activity" }).view).toBe("activity");
+		expect(validateWorkspaceSearch({ view: "drafts" }).view).toBeUndefined();
 		expect(validateWorkspaceSearch({ view: "nonsense" }).view).toBeUndefined();
 	});
 });

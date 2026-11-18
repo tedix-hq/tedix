@@ -31,7 +31,6 @@ import { Route as SessionTenantBlueprintsRouteImport } from './routes/_session/_
 import { Route as SessionTenantBrainRouteImport } from './routes/_session/_tenant/brain'
 import { Route as SessionTenantChatRouteImport } from './routes/_session/_tenant/chat'
 import { Route as SessionTenantComputeRouteImport } from './routes/_session/_tenant/compute'
-import { Route as SessionTenantGatewaysRouteImport } from './routes/_session/_tenant/gateways'
 import { Route as SessionTenantInstallRouteImport } from './routes/_session/_tenant/install'
 import { Route as SessionTenantOutputsRouteImport } from './routes/_session/_tenant/outputs'
 import { Route as SessionTenantSitesRouteImport } from './routes/_session/_tenant/sites'
@@ -68,7 +67,6 @@ import { Route as SessionTenantWorkAdmissionRouteImport } from './routes/_sessio
 import { Route as SessionTenantWorkApprovalsRouteImport } from './routes/_session/_tenant/work.approvals'
 import { Route as SessionTenantWorkCapacityRouteImport } from './routes/_session/_tenant/work.capacity'
 import { Route as SessionTenantWorkCasesRouteImport } from './routes/_session/_tenant/work.cases'
-import { Route as SessionTenantWorkGraphRouteImport } from './routes/_session/_tenant/work.graph'
 import { Route as SessionTenantWorkInteractionsRouteImport } from './routes/_session/_tenant/work.interactions'
 import { Route as SessionChromeFreeSharedWorkspaceWorkspaceIdRouteImport } from './routes/_session/_chrome-free/shared_.workspace.$workspaceId'
 import { Route as SessionTenantAppsAppIdIndexRouteImport } from './routes/_session/_tenant/apps_.$appId.index'
@@ -79,7 +77,6 @@ import { Route as SessionTenantAppsAppIdToolsRouteImport } from './routes/_sessi
 import { Route as SessionTenantExploreAppsSlugRouteImport } from './routes/_session/_tenant/explore.apps_.$slug'
 import { Route as SessionTenantSkillsSkillIdIndexRouteImport } from './routes/_session/_tenant/skills.$skillId.index'
 import { Route as SessionTenantSkillsSkillIdRunsRouteImport } from './routes/_session/_tenant/skills.$skillId.runs'
-import { Route as SessionTenantSkillsSkillIdScheduleRouteImport } from './routes/_session/_tenant/skills.$skillId.schedule'
 import { Route as SessionTenantSkillsSkillIdSettingsRouteImport } from './routes/_session/_tenant/skills.$skillId.settings'
 import { Route as SessionTenantSkillsSkillIdSourceRouteImport } from './routes/_session/_tenant/skills.$skillId.source'
 import { Route as SessionTenantSkillsSkillIdVersionsRouteImport } from './routes/_session/_tenant/skills.$skillId.versions'
@@ -200,11 +197,6 @@ const SessionTenantChatRoute = SessionTenantChatRouteImport.update({
 const SessionTenantComputeRoute = SessionTenantComputeRouteImport.update({
   id: '/compute',
   path: '/compute',
-  getParentRoute: () => SessionTenantRoute,
-} as any)
-const SessionTenantGatewaysRoute = SessionTenantGatewaysRouteImport.update({
-  id: '/gateways',
-  path: '/gateways',
   getParentRoute: () => SessionTenantRoute,
 } as any)
 const SessionTenantInstallRoute = SessionTenantInstallRouteImport.update({
@@ -406,11 +398,6 @@ const SessionTenantWorkCasesRoute = SessionTenantWorkCasesRouteImport.update({
   path: '/cases',
   getParentRoute: () => SessionTenantWorkRoute,
 } as any)
-const SessionTenantWorkGraphRoute = SessionTenantWorkGraphRouteImport.update({
-  id: '/graph',
-  path: '/graph',
-  getParentRoute: () => SessionTenantWorkRoute,
-} as any)
 const SessionTenantWorkInteractionsRoute =
   SessionTenantWorkInteractionsRouteImport.update({
     id: '/interactions',
@@ -469,12 +456,6 @@ const SessionTenantSkillsSkillIdRunsRoute =
   SessionTenantSkillsSkillIdRunsRouteImport.update({
     id: '/runs',
     path: '/runs',
-    getParentRoute: () => SessionTenantSkillsSkillIdRoute,
-  } as any)
-const SessionTenantSkillsSkillIdScheduleRoute =
-  SessionTenantSkillsSkillIdScheduleRouteImport.update({
-    id: '/schedule',
-    path: '/schedule',
     getParentRoute: () => SessionTenantSkillsSkillIdRoute,
   } as any)
 const SessionTenantSkillsSkillIdSettingsRoute =
@@ -592,7 +573,6 @@ export interface FileRoutesByFullPath {
   '/brain': typeof SessionTenantBrainRoute
   '/chat': typeof SessionTenantChatRoute
   '/compute': typeof SessionTenantComputeRoute
-  '/gateways': typeof SessionTenantGatewaysRoute
   '/install': typeof SessionTenantInstallRoute
   '/outputs': typeof SessionTenantOutputsRoute
   '/sites': typeof SessionTenantSitesRoute
@@ -626,7 +606,6 @@ export interface FileRoutesByFullPath {
   '/work/approvals': typeof SessionTenantWorkApprovalsRoute
   '/work/capacity': typeof SessionTenantWorkCapacityRoute
   '/work/cases': typeof SessionTenantWorkCasesRouteWithChildren
-  '/work/graph': typeof SessionTenantWorkGraphRoute
   '/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
   '/admin/': typeof SessionTenantAdminIndexRoute
   '/skills/': typeof SessionTenantSkillsIndexRoute
@@ -638,7 +617,6 @@ export interface FileRoutesByFullPath {
   '/apps/$appId/tools': typeof SessionTenantAppsAppIdToolsRoute
   '/explore/apps/$slug': typeof SessionTenantExploreAppsSlugRoute
   '/skills/$skillId/runs': typeof SessionTenantSkillsSkillIdRunsRoute
-  '/skills/$skillId/schedule': typeof SessionTenantSkillsSkillIdScheduleRoute
   '/skills/$skillId/settings': typeof SessionTenantSkillsSkillIdSettingsRoute
   '/skills/$skillId/source': typeof SessionTenantSkillsSkillIdSourceRoute
   '/skills/$skillId/versions': typeof SessionTenantSkillsSkillIdVersionsRoute
@@ -675,7 +653,6 @@ export interface FileRoutesByTo {
   '/brain': typeof SessionTenantBrainRoute
   '/chat': typeof SessionTenantChatRoute
   '/compute': typeof SessionTenantComputeRoute
-  '/gateways': typeof SessionTenantGatewaysRoute
   '/install': typeof SessionTenantInstallRoute
   '/outputs': typeof SessionTenantOutputsRoute
   '/sites': typeof SessionTenantSitesRoute
@@ -704,7 +681,6 @@ export interface FileRoutesByTo {
   '/work/approvals': typeof SessionTenantWorkApprovalsRoute
   '/work/capacity': typeof SessionTenantWorkCapacityRoute
   '/work/cases': typeof SessionTenantWorkCasesRouteWithChildren
-  '/work/graph': typeof SessionTenantWorkGraphRoute
   '/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
   '/admin': typeof SessionTenantAdminIndexRoute
   '/skills': typeof SessionTenantSkillsIndexRoute
@@ -716,7 +692,6 @@ export interface FileRoutesByTo {
   '/apps/$appId/tools': typeof SessionTenantAppsAppIdToolsRoute
   '/explore/apps/$slug': typeof SessionTenantExploreAppsSlugRoute
   '/skills/$skillId/runs': typeof SessionTenantSkillsSkillIdRunsRoute
-  '/skills/$skillId/schedule': typeof SessionTenantSkillsSkillIdScheduleRoute
   '/skills/$skillId/settings': typeof SessionTenantSkillsSkillIdSettingsRoute
   '/skills/$skillId/source': typeof SessionTenantSkillsSkillIdSourceRoute
   '/skills/$skillId/versions': typeof SessionTenantSkillsSkillIdVersionsRoute
@@ -759,7 +734,6 @@ export interface FileRoutesById {
   '/_session/_tenant/brain': typeof SessionTenantBrainRoute
   '/_session/_tenant/chat': typeof SessionTenantChatRoute
   '/_session/_tenant/compute': typeof SessionTenantComputeRoute
-  '/_session/_tenant/gateways': typeof SessionTenantGatewaysRoute
   '/_session/_tenant/install': typeof SessionTenantInstallRoute
   '/_session/_tenant/outputs': typeof SessionTenantOutputsRoute
   '/_session/_tenant/sites': typeof SessionTenantSitesRoute
@@ -794,7 +768,6 @@ export interface FileRoutesById {
   '/_session/_tenant/work/approvals': typeof SessionTenantWorkApprovalsRoute
   '/_session/_tenant/work/capacity': typeof SessionTenantWorkCapacityRoute
   '/_session/_tenant/work/cases': typeof SessionTenantWorkCasesRouteWithChildren
-  '/_session/_tenant/work/graph': typeof SessionTenantWorkGraphRoute
   '/_session/_tenant/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
   '/_session/_tenant/admin/': typeof SessionTenantAdminIndexRoute
   '/_session/_tenant/skills/': typeof SessionTenantSkillsIndexRoute
@@ -806,7 +779,6 @@ export interface FileRoutesById {
   '/_session/_tenant/apps_/$appId/tools': typeof SessionTenantAppsAppIdToolsRoute
   '/_session/_tenant/explore/apps_/$slug': typeof SessionTenantExploreAppsSlugRoute
   '/_session/_tenant/skills/$skillId/runs': typeof SessionTenantSkillsSkillIdRunsRoute
-  '/_session/_tenant/skills/$skillId/schedule': typeof SessionTenantSkillsSkillIdScheduleRoute
   '/_session/_tenant/skills/$skillId/settings': typeof SessionTenantSkillsSkillIdSettingsRoute
   '/_session/_tenant/skills/$skillId/source': typeof SessionTenantSkillsSkillIdSourceRoute
   '/_session/_tenant/skills/$skillId/versions': typeof SessionTenantSkillsSkillIdVersionsRoute
@@ -846,7 +818,6 @@ export interface FileRouteTypes {
     | '/brain'
     | '/chat'
     | '/compute'
-    | '/gateways'
     | '/install'
     | '/outputs'
     | '/sites'
@@ -880,7 +851,6 @@ export interface FileRouteTypes {
     | '/work/approvals'
     | '/work/capacity'
     | '/work/cases'
-    | '/work/graph'
     | '/work/interactions'
     | '/admin/'
     | '/skills/'
@@ -892,7 +862,6 @@ export interface FileRouteTypes {
     | '/apps/$appId/tools'
     | '/explore/apps/$slug'
     | '/skills/$skillId/runs'
-    | '/skills/$skillId/schedule'
     | '/skills/$skillId/settings'
     | '/skills/$skillId/source'
     | '/skills/$skillId/versions'
@@ -929,7 +898,6 @@ export interface FileRouteTypes {
     | '/brain'
     | '/chat'
     | '/compute'
-    | '/gateways'
     | '/install'
     | '/outputs'
     | '/sites'
@@ -958,7 +926,6 @@ export interface FileRouteTypes {
     | '/work/approvals'
     | '/work/capacity'
     | '/work/cases'
-    | '/work/graph'
     | '/work/interactions'
     | '/admin'
     | '/skills'
@@ -970,7 +937,6 @@ export interface FileRouteTypes {
     | '/apps/$appId/tools'
     | '/explore/apps/$slug'
     | '/skills/$skillId/runs'
-    | '/skills/$skillId/schedule'
     | '/skills/$skillId/settings'
     | '/skills/$skillId/source'
     | '/skills/$skillId/versions'
@@ -1012,7 +978,6 @@ export interface FileRouteTypes {
     | '/_session/_tenant/brain'
     | '/_session/_tenant/chat'
     | '/_session/_tenant/compute'
-    | '/_session/_tenant/gateways'
     | '/_session/_tenant/install'
     | '/_session/_tenant/outputs'
     | '/_session/_tenant/sites'
@@ -1047,7 +1012,6 @@ export interface FileRouteTypes {
     | '/_session/_tenant/work/approvals'
     | '/_session/_tenant/work/capacity'
     | '/_session/_tenant/work/cases'
-    | '/_session/_tenant/work/graph'
     | '/_session/_tenant/work/interactions'
     | '/_session/_tenant/admin/'
     | '/_session/_tenant/skills/'
@@ -1059,7 +1023,6 @@ export interface FileRouteTypes {
     | '/_session/_tenant/apps_/$appId/tools'
     | '/_session/_tenant/explore/apps_/$slug'
     | '/_session/_tenant/skills/$skillId/runs'
-    | '/_session/_tenant/skills/$skillId/schedule'
     | '/_session/_tenant/skills/$skillId/settings'
     | '/_session/_tenant/skills/$skillId/source'
     | '/_session/_tenant/skills/$skillId/versions'
@@ -1243,13 +1206,6 @@ declare module '@tanstack/react-router' {
       path: '/compute'
       fullPath: '/compute'
       preLoaderRoute: typeof SessionTenantComputeRouteImport
-      parentRoute: typeof SessionTenantRoute
-    }
-    '/_session/_tenant/gateways': {
-      id: '/_session/_tenant/gateways'
-      path: '/gateways'
-      fullPath: '/gateways'
-      preLoaderRoute: typeof SessionTenantGatewaysRouteImport
       parentRoute: typeof SessionTenantRoute
     }
     '/_session/_tenant/install': {
@@ -1504,13 +1460,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantWorkCasesRouteImport
       parentRoute: typeof SessionTenantWorkRoute
     }
-    '/_session/_tenant/work/graph': {
-      id: '/_session/_tenant/work/graph'
-      path: '/graph'
-      fullPath: '/work/graph'
-      preLoaderRoute: typeof SessionTenantWorkGraphRouteImport
-      parentRoute: typeof SessionTenantWorkRoute
-    }
     '/_session/_tenant/work/interactions': {
       id: '/_session/_tenant/work/interactions'
       path: '/interactions'
@@ -1579,13 +1528,6 @@ declare module '@tanstack/react-router' {
       path: '/runs'
       fullPath: '/skills/$skillId/runs'
       preLoaderRoute: typeof SessionTenantSkillsSkillIdRunsRouteImport
-      parentRoute: typeof SessionTenantSkillsSkillIdRoute
-    }
-    '/_session/_tenant/skills/$skillId/schedule': {
-      id: '/_session/_tenant/skills/$skillId/schedule'
-      path: '/schedule'
-      fullPath: '/skills/$skillId/schedule'
-      preLoaderRoute: typeof SessionTenantSkillsSkillIdScheduleRouteImport
       parentRoute: typeof SessionTenantSkillsSkillIdRoute
     }
     '/_session/_tenant/skills/$skillId/settings': {
@@ -1771,7 +1713,6 @@ const SessionTenantAdminRouteWithChildren =
 
 interface SessionTenantSkillsSkillIdRouteChildren {
   SessionTenantSkillsSkillIdRunsRoute: typeof SessionTenantSkillsSkillIdRunsRoute
-  SessionTenantSkillsSkillIdScheduleRoute: typeof SessionTenantSkillsSkillIdScheduleRoute
   SessionTenantSkillsSkillIdSettingsRoute: typeof SessionTenantSkillsSkillIdSettingsRoute
   SessionTenantSkillsSkillIdSourceRoute: typeof SessionTenantSkillsSkillIdSourceRoute
   SessionTenantSkillsSkillIdVersionsRoute: typeof SessionTenantSkillsSkillIdVersionsRoute
@@ -1781,8 +1722,6 @@ interface SessionTenantSkillsSkillIdRouteChildren {
 const SessionTenantSkillsSkillIdRouteChildren: SessionTenantSkillsSkillIdRouteChildren =
   {
     SessionTenantSkillsSkillIdRunsRoute: SessionTenantSkillsSkillIdRunsRoute,
-    SessionTenantSkillsSkillIdScheduleRoute:
-      SessionTenantSkillsSkillIdScheduleRoute,
     SessionTenantSkillsSkillIdSettingsRoute:
       SessionTenantSkillsSkillIdSettingsRoute,
     SessionTenantSkillsSkillIdSourceRoute:
@@ -1844,7 +1783,6 @@ interface SessionTenantWorkRouteChildren {
   SessionTenantWorkApprovalsRoute: typeof SessionTenantWorkApprovalsRoute
   SessionTenantWorkCapacityRoute: typeof SessionTenantWorkCapacityRoute
   SessionTenantWorkCasesRoute: typeof SessionTenantWorkCasesRouteWithChildren
-  SessionTenantWorkGraphRoute: typeof SessionTenantWorkGraphRoute
   SessionTenantWorkInteractionsRoute: typeof SessionTenantWorkInteractionsRouteWithChildren
   SessionTenantWorkIndexRoute: typeof SessionTenantWorkIndexRoute
   SessionTenantWorkExecutionsRunIdRoute: typeof SessionTenantWorkExecutionsRunIdRoute
@@ -1858,7 +1796,6 @@ const SessionTenantWorkRouteChildren: SessionTenantWorkRouteChildren = {
   SessionTenantWorkApprovalsRoute: SessionTenantWorkApprovalsRoute,
   SessionTenantWorkCapacityRoute: SessionTenantWorkCapacityRoute,
   SessionTenantWorkCasesRoute: SessionTenantWorkCasesRouteWithChildren,
-  SessionTenantWorkGraphRoute: SessionTenantWorkGraphRoute,
   SessionTenantWorkInteractionsRoute:
     SessionTenantWorkInteractionsRouteWithChildren,
   SessionTenantWorkIndexRoute: SessionTenantWorkIndexRoute,
@@ -1930,7 +1867,6 @@ interface SessionTenantRouteChildren {
   SessionTenantBrainRoute: typeof SessionTenantBrainRoute
   SessionTenantChatRoute: typeof SessionTenantChatRoute
   SessionTenantComputeRoute: typeof SessionTenantComputeRoute
-  SessionTenantGatewaysRoute: typeof SessionTenantGatewaysRoute
   SessionTenantInstallRoute: typeof SessionTenantInstallRoute
   SessionTenantOutputsRoute: typeof SessionTenantOutputsRoute
   SessionTenantSitesRoute: typeof SessionTenantSitesRoute
@@ -1959,7 +1895,6 @@ const SessionTenantRouteChildren: SessionTenantRouteChildren = {
   SessionTenantBrainRoute: SessionTenantBrainRoute,
   SessionTenantChatRoute: SessionTenantChatRoute,
   SessionTenantComputeRoute: SessionTenantComputeRoute,
-  SessionTenantGatewaysRoute: SessionTenantGatewaysRoute,
   SessionTenantInstallRoute: SessionTenantInstallRoute,
   SessionTenantOutputsRoute: SessionTenantOutputsRoute,
   SessionTenantSitesRoute: SessionTenantSitesRoute,

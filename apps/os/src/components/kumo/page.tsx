@@ -170,7 +170,6 @@ function PageToolbar({
 
 	return (
 		<Surface
-			as="div"
 			tier="well"
 			data-slot="page-toolbar"
 			data-appearance="bounded"

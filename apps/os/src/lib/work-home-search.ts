@@ -77,7 +77,6 @@ export type WorkHomeSearch = {
 export function workHomeSearch(
 	search: Record<string, unknown>,
 ): WorkHomeSearch {
-	const filter = search.disposition === "completed" ? "history" : search.filter;
 	return {
 		...(cardSourceSearch(search.source)
 			? { source: cardSourceSearch(search.source) }
@@ -103,9 +102,9 @@ export function workHomeSearch(
 		...(WorkExecutorSchema.safeParse(search.executor).success
 			? { executor: search.executor as WorkExecutor }
 			: {}),
-		...(typeof filter === "string" &&
-		WORK_FEED_FILTERS.includes(filter as WorkFeedFilter)
-			? { filter: filter as WorkFeedFilter }
+		...(typeof search.filter === "string" &&
+		WORK_FEED_FILTERS.includes(search.filter as WorkFeedFilter)
+			? { filter: search.filter as WorkFeedFilter }
 			: {}),
 		...(typeof search.app === "string" &&
 		(Object.hasOwn(WORK_APP_ENTRIES, search.app) || appId.test(search.app))

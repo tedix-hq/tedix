@@ -119,7 +119,7 @@ function WorkspaceScheduleRow({
 	const titleId = `workspace-schedule-${schedule.resourceId}`;
 	return (
 		<Surface
-			as="article"
+			render={<article />}
 			tier="panel"
 			aria-labelledby={titleId}
 			className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 p-4 sm:flex sm:p-6"

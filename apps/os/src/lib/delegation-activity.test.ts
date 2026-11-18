@@ -51,7 +51,6 @@ describe("plainToolName", () => {
 describe("plainRuntimeLabel", () => {
 	it("turns runtime labels into sentences", () => {
 		expect(plainRuntimeLabel("thinking…")).toBe("Getting ready");
-		expect(plainRuntimeLabel("synthesizing…")).toBe("Writing the answer");
 		expect(plainRuntimeLabel("Writing the answer")).toBe("Writing the answer");
 		expect(plainRuntimeLabel("calling reddit__search_posts")).toBe(
 			"Searching Reddit posts",

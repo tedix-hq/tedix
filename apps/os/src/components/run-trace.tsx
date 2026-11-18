@@ -377,9 +377,7 @@ export function RunReconciliationPanel({
 					{reconciliationLabel(run)}
 				</Badge>
 				<Text as="span" role="label" tone="secondary" className="tabular-nums">
-					{run.runtimeEnvironment
-						? `${run.runtimeEnvironment} binding`
-						: "binding namespace unrecorded (legacy row)"}
+					{run.runtimeEnvironment} binding
 					{" · instance "}
 					{run.workflowInstanceId}
 				</Text>
