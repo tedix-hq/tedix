@@ -30,11 +30,45 @@ export type FetchFunction = (
 	init?: Parameters<typeof fetch>[1],
 ) => ReturnType<typeof fetch>;
 
+/** One consistency chain, shared only by clients for the same database. */
+export class D1BookmarkSession {
+	private bookmark: string | undefined;
+	private version = 0;
+
+	wrap(fetchImpl: FetchFunction): FetchFunction {
+		return async (input, init) => {
+			const headers = new Headers(
+				init?.headers ?? (input instanceof Request ? input.headers : undefined),
+			);
+			const before = this.bookmark;
+			const version = this.version;
+			if (before) {
+				const explicit = headers.get("x-d1-bookmark");
+				headers.set(
+					"x-d1-bookmark",
+					explicit && explicit !== before ? "first-primary" : before,
+				);
+			}
+			const response = await fetchImpl(input, { ...init, headers });
+			const bookmark = response.headers.get("x-d1-bookmark");
+			if (bookmark) {
+				// Concurrent branches have opaque bookmarks we cannot order. Rejoin
+				// on the primary so a late read cannot overwrite a write's progress.
+				this.bookmark = this.version === version ? bookmark : "first-primary";
+				this.version++;
+			}
+			return response;
+		};
+	}
+}
+
 // =============================================================================
 // TYPES
 // =============================================================================
 
 export interface LinkOptions {
+	/** Share across clients that must read each other's writes. Defaults to one per link. */
+	bookmarkSession?: D1BookmarkSession;
 	/**
 	 * Base URL for the API (e.g., "https://api.tedix.dev/rpc")
 	 */
@@ -147,9 +181,12 @@ export function createLink(options: LinkOptions) {
 				} as RequestInit);
 			}
 		: (options.fetch ?? globalThis.fetch.bind(globalThis));
+	const sessionFetch = (
+		options.bookmarkSession ?? new D1BookmarkSession()
+	).wrap(credentialFetch);
 	const customFetch = timeoutMs
-		? withRequestTimeout(credentialFetch, timeoutMs)
-		: credentialFetch;
+		? withRequestTimeout(sessionFetch, timeoutMs)
+		: sessionFetch;
 
 	// oRPC v2 splits the link target: `origin` carries the host and `url` is a
 	// path-only `StandardUrl` (`/${string}`). Callers still pass one absolute URL,
@@ -180,6 +217,8 @@ export function createLink(options: LinkOptions) {
 // =============================================================================
 
 export interface ClientOptions {
+	/** Share the database consistency chain with other clients. */
+	bookmarkSession?: D1BookmarkSession;
 	/**
 	 * Static headers to include in all requests.
 	 */
@@ -235,6 +274,7 @@ export function getApiClient<T extends RouterContract>(
 ): RouterContractClient<T> {
 	const link = createLink({
 		url: `${apiUrl}/rpc`,
+		bookmarkSession: options?.bookmarkSession,
 		headers: options?.headers,
 		getHeaders: options?.getHeaders,
 		credentials: options?.credentials,
