@@ -1,5 +1,4 @@
 import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
-import type { LaneDispatchPlan } from "@tedix/api-contract/schemas/work-items";
 import type { DbQueryClient } from "../../query-client";
 import { workAttempts, workEvents, workItems } from "../../schema/work-items";
 import { workInteractions } from "../../schema/work-factory";
@@ -297,14 +296,14 @@ export async function notifyStoppedLanes(
 		// stuck and its next edit makes it ready again. This used to write a
 		// `blocked` state that no list showed and no edit released; by 16 Nov
 		// 2026 it had parked 110 of the 199 accepted tasks assigned to runners.
-		const hold: LaneDispatchPlan = {
-			state: "held",
+		const hold = {
 			reason: `Run ${row.attemptNumber} of this task stopped before it finished (${row.eventType === "lane.stale" ? "no heartbeat" : "its time ran out"}). The task's retry budget of ${maxAttempts} ${maxAttempts === 1 ? "run" : "runs"} is spent. Check the last run, then edit the task to have an agent start it again.`,
 		};
 		if (created.length > 0 && !retryAvailable)
 			await db
 				.update(workItems)
 				.set({
+					dispatchState: "held",
 					metadata: sql`json_set(${workItems.metadata}, '$.laneDispatch', json(${JSON.stringify(hold)}), '$.laneLifecycle', json(${JSON.stringify(laneLifecycle)}))`,
 				})
 				.where(
