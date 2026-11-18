@@ -23,6 +23,19 @@ import { subscribeOutputRevisionNotices } from "@/lib/output-revision-notices";
 import { usePresentationAppearance } from "@/lib/presentation-appearance";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import {
+	AppRuntimeErrorBar,
+	appErrorsMessage,
+} from "@/components/app-runtime-errors";
+import {
+	addAppRuntimeError,
+	EMPTY_APP_RUNTIME_ERROR_LOG,
+	type AppRuntimeError,
+} from "@/lib/app-runtime-protocol";
+import {
+	offerWorkspaceChatDraft,
+	useWorkspaceChatDraftHost,
+} from "@/lib/workspace-chat-draft-handoff";
+import {
 	OfficeEditorUpgrade,
 	officeEditorUpgrade,
 } from "@/components/office-editor-upgrade";
@@ -494,6 +507,15 @@ export function AppRuntimeSandbox({
 		],
 	);
 	const html = useMemo(() => buildAppRuntimeDocument(files), [files]);
+	// What the running app reported. New files are a new page: start over.
+	const [errors, setErrors] = useState(EMPTY_APP_RUNTIME_ERROR_LOG);
+	useEffect(() => setErrors(EMPTY_APP_RUNTIME_ERROR_LOG), [html]);
+	const onAppError = useCallback(
+		(error: AppRuntimeError) =>
+			setErrors((log) => addAppRuntimeError(log, error)),
+		[],
+	);
+	const chatTakesDrafts = useWorkspaceChatDraftHost(workspaceId);
 	const docResourceAvailable = boundOutputs.some(
 		(row) => row.slot === context.settings.slot,
 	);
@@ -647,6 +669,26 @@ export function AppRuntimeSandbox({
 						revisionId={revisionId}
 					/>
 				)}
+			{/* The Doc, Sheet and Slides editors are not apps the agent fixes. */}
+			{!officeEditor && (
+				<AppRuntimeErrorBar
+					log={errors}
+					onDismiss={() => setErrors(EMPTY_APP_RUNTIME_ERROR_LOG)}
+					onSend={
+						chatTakesDrafts
+							? () => {
+									if (
+										offerWorkspaceChatDraft(
+											workspaceId,
+											appErrorsMessage(gadget.name, errors),
+										)
+									)
+										setErrors(EMPTY_APP_RUNTIME_ERROR_LOG);
+								}
+							: undefined
+					}
+				/>
+			)}
 			<AppRuntimeFrame
 				key={
 					officeEditor
@@ -659,6 +701,7 @@ export function AppRuntimeSandbox({
 				layout={layout}
 				translation={translation}
 				outputRevisions={outputRevisions}
+				onError={officeEditor ? undefined : onAppError}
 			/>
 		</>
 	);

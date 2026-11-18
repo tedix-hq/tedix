@@ -131,6 +131,7 @@ import {
 	approvalTarget,
 } from "@/components/workspace-chat-approval-tray";
 import { AlwaysApproveButton } from "@/components/workspace-chat-always-approve";
+import { receiveWorkspaceChatDrafts } from "@/lib/workspace-chat-draft-handoff";
 import {
 	approvalTitle,
 	webPageRequest,
@@ -1609,6 +1610,20 @@ function Composer({
 	useEffect(() => {
 		if (autoFocus) textarea.current?.focus();
 	}, [autoFocus]);
+	// Text another pane hands over (an app's errors) goes after what is
+	// typed. It is not sent: the person reads it, changes it and sends it.
+	useEffect(
+		() =>
+			receiveWorkspaceChatDrafts(workspaceId, (text) => {
+				setDraftText((current) => {
+					const value = current.trim() ? `${current}\n\n${text}` : text;
+					writeDraft(draftKey, value);
+					return value;
+				});
+				textarea.current?.focus();
+			}),
+		[workspaceId, draftKey],
+	);
 	const submit = (event?: FormEvent) => {
 		event?.preventDefault();
 		if (disabledReason || submitted || uploads.busy || !draft.trim()) return;

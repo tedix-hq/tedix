@@ -141,6 +141,7 @@ import { outputIdFromHref } from "@/lib/output-navigation";
 import { useLiveWorkspace } from "@/lib/use-live-workspace";
 import { useWorkspacePresence } from "@/lib/workspace-presence";
 import { useWorkspaceViewOnly } from "@/lib/workspace-view-only";
+import { hostWorkspaceChatDrafts } from "@/lib/workspace-chat-draft-handoff";
 import { useWorkspaceUnread } from "@/lib/workspace-unread";
 import { usePushConversation } from "@/lib/use-push-conversation";
 import { UnreadFilesContext } from "@/components/unread-badge";
@@ -1464,6 +1465,18 @@ export function CanvasPage({
 		}
 	};
 	const chatViewOnly = useWorkspaceViewOnly(workspaceId);
+	// Another pane handing text to the chat (an app's errors) shows the chat
+	// with its message box, without changing the saved choice. Someone who
+	// can only view the workspace has no message box to hand it to.
+	useEffect(() => {
+		if (workspaceId === null || chatViewOnly) return;
+		return hostWorkspaceChatDrafts(workspaceId, () => {
+			setFocusMode(false);
+			setChatCollapsed(false);
+			setConversationListOpen(false);
+			setMobilePane("chat");
+		});
+	}, [workspaceId, chatViewOnly]);
 	// The chat opens an app it created the same way the stage opens an editor.
 	const chatOutputLinks = {
 		openOutput: (outputId: string) => void openChatOutput(outputId, true),

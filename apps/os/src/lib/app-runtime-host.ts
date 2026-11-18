@@ -38,6 +38,9 @@ import {
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	APP_RUNTIME_CALL_METHOD,
+	APP_RUNTIME_ERROR_METHOD,
+	APP_RUNTIME_MAX_ERROR_BYTES,
+	APP_RUNTIME_MAX_ERROR_REPORTS,
 	APP_RUNTIME_LANGUAGE_METHOD,
 	APP_RUNTIME_TRANSLATE_TEXT_METHOD,
 	APP_RUNTIME_TRANSLATION_METHOD,
@@ -893,9 +896,29 @@ export const APP_RUNTIME_TRANSLATION_SCRIPT = `(function(){
  * `tedix.call(method, args)` into a JSON-RPC message for the host, then the
  * app's `client.js` as an inline module. The proxy adds the CSP; the app has
  * no network and no origin of its own.
+ *
+ * The page also tells the host about its failures: uncaught errors,
+ * unhandled promise rejections and `console.error`, each cut to size and
+ * only so many per loaded page. The browser counts lines from the top of
+ * this document; the page reads its own line once and the builder knows how
+ * far below `client.js` starts, so an error names the line of `client.js`.
  */
 export function buildAppRuntimeDocument(files: AppRuntimeFiles): string {
 	const client = files[APP_RUNTIME_CLIENT_MODULE] ?? "";
+	const before = appRuntimeDocumentStart();
+	const marker = before.indexOf(CLIENT_LINE_MARKER);
+	const linesToClient = before.slice(marker).split("\n").length - 1;
+	return `${before.replace(CLIENT_LINE_MARKER, String(linesToClient))}${escapeScript(client)}
+</script>
+</body>
+</html>`;
+}
+
+/** Replaced by the number of lines from its own line to the first of `client.js`. */
+const CLIENT_LINE_MARKER = "__TEDIX_LINES_TO_CLIENT__";
+
+/** Everything in the app document that comes before `client.js`. */
+function appRuntimeDocumentStart(): string {
 	return `<!doctype html>
 <html lang="en">
 <head>
@@ -940,14 +963,37 @@ ${APP_RUNTIME_THEME_PLACEHOLDER}
 		present:function(active){window.parent.postMessage({jsonrpc:"2.0",method:"tedix/present",params:{active:active===true}},"*");}
 	};
 	new ResizeObserver(function(){window.tedix.resize(document.documentElement.scrollHeight);}).observe(document.body);
+	var clientLine=0;
+	try{var here=/:(\\d+):\\d+\\)?\\s*$/m.exec(new Error().stack||"");if(here)clientLine=Number(here[1])+${CLIENT_LINE_MARKER};}catch(e){}
+	var reports=0;
+	function describe(value){
+		try{
+			if(value instanceof Error)return String(value);
+			if(typeof value==="string")return value;
+			var json=JSON.stringify(value);
+			return typeof json==="string"?json:String(value);
+		}catch(e){try{return String(value);}catch(e2){return "Unknown error";}}
+	}
+	function report(kind,message,line){
+		if(reports>=${APP_RUNTIME_MAX_ERROR_REPORTS})return;
+		reports++;
+		try{window.parent.postMessage({jsonrpc:"2.0",method:${JSON.stringify(APP_RUNTIME_ERROR_METHOD)},params:{kind:kind,message:String(message).slice(0,${APP_RUNTIME_MAX_ERROR_BYTES}),line:line}},"*");}catch(e){}
+	}
+	window.addEventListener("error",function(event){
+		var line=clientLine>0&&typeof event.lineno==="number"&&event.lineno>=clientLine?event.lineno-clientLine+1:undefined;
+		report("error",event.error?describe(event.error):(event.message||"Script error"),line);
+	});
+	window.addEventListener("unhandledrejection",function(event){report("rejection",describe(event.reason));});
+	var consoleError=console.error;
+	console.error=function(){
+		consoleError.apply(console,arguments);
+		report("console",Array.prototype.map.call(arguments,describe).join(" "));
+	};
 })();
 ${APP_RUNTIME_TRANSLATION_SCRIPT}
 </script>
 <script type="module">
-${escapeScript(client)}
-</script>
-</body>
-</html>`;
+`;
 }
 
 /**

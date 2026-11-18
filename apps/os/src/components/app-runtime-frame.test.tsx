@@ -156,6 +156,63 @@ describe("runtime app frame", () => {
 		await act(async () => root.unmount());
 		node.remove();
 	});
+	it("passes on the errors its own app reports, cut to size, and nobody else's", async () => {
+		vi.spyOn(HTMLIFrameElement.prototype, "src", "set").mockImplementation(
+			() => {},
+		);
+		const onError = vi.fn();
+		const node = document.createElement("div");
+		document.body.append(node);
+		const root = createRoot(node);
+		await act(async () => {
+			root.render(
+				<AppRuntimeFrame
+					html="<p>app</p>"
+					title="Fictional app"
+					onCall={async () => ({ ok: true, value: null }) as never}
+					onError={onError}
+				/>,
+			);
+		});
+		const frame = node.querySelector("iframe")!;
+		const send = (
+			params: unknown,
+			source: MessageEventSource | null = frame.contentWindow,
+			origin = window.location.origin,
+		) =>
+			act(async () => {
+				window.dispatchEvent(
+					new MessageEvent("message", {
+						source,
+						origin,
+						data: { jsonrpc: "2.0", method: "tedix/error", params },
+					}),
+				);
+			});
+		await send({ kind: "error", message: "TypeError: x", line: 3 });
+		expect(onError).toHaveBeenCalledExactlyOnceWith({
+			kind: "error",
+			message: "TypeError: x",
+			line: 3,
+		});
+		// Another window, another origin or a made-up shape reaches nobody.
+		await send({ kind: "error", message: "Forged" }, window);
+		await send(
+			{ kind: "error", message: "Forged" },
+			frame.contentWindow,
+			"https://untrusted.example",
+		);
+		await send({ kind: "notice", message: "Not an error" });
+		await send({ kind: "error" });
+		expect(onError).toHaveBeenCalledTimes(1);
+		await send({ kind: "console", message: "x".repeat(10_000) });
+		expect(
+			new TextEncoder().encode(onError.mock.calls[1]![0].message).length,
+		).toBeLessThanOrEqual(2048);
+		await act(async () => root.unmount());
+		node.remove();
+	});
+
 	it("fills the page while the app presents and ends the show on Back", async () => {
 		vi.spyOn(HTMLIFrameElement.prototype, "src", "set").mockImplementation(
 			() => {},

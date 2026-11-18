@@ -175,6 +175,39 @@ try {
 	console.log(
 		"Runtime app sandbox rating round trip passed at 375px and 1280px",
 	);
+	{
+		// A failing app tells the host: uncaught error (with its client.js
+		// line), unhandled rejection and console.error.
+		const page = await browser.newPage({
+			viewport: { width: 1280, height: 812 },
+		});
+		await routeSandboxProxy(page);
+		await page.goto(`${server.origin}/browser-tests/app-runtime.html?errors`);
+		const bar = page.locator("[data-app-runtime-errors]");
+		await bar.filter({ hasText: "This app reported 3 errors." }).waitFor();
+		const reported = JSON.parse(
+			(await page.locator("[data-app-errors]").textContent()) ?? "[]",
+		) as Array<{ kind: string; message: string; line?: number }>;
+		assert.deepEqual(
+			reported.toSorted((a, b) => a.kind.localeCompare(b.kind)),
+			[
+				{ kind: "console", message: 'Could not load {"sheet":"cards"}' },
+				{ kind: "error", message: "TypeError: rows is undefined", line: 5 },
+				{ kind: "rejection", message: "Error: not_permitted" },
+			],
+		);
+		// No chat on this page, so there is nothing to send them to.
+		assert.equal(
+			await page.getByRole("button", { name: "Send to the agent" }).count(),
+			0,
+		);
+		await page
+			.getByRole("button", { name: "Dismiss the app's errors" })
+			.click();
+		assert.equal(await bar.count(), 0);
+		await page.close();
+		console.log("Runtime app errors reach the host with their client.js line");
+	}
 } finally {
 	await browser.close();
 	await server.stop();

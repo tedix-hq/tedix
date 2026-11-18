@@ -1104,6 +1104,14 @@ Direct API calls may return `BAD_REQUEST`, `FORBIDDEN`, `NOT_FOUND` or
 failed loads and writes visibly, retain user input and offer a manual retry.
 A failed load must not look like a successfully empty sheet.
 
+When an app's page fails while someone uses it, Tedix OS shows a small bar
+above it: "This app reported 3 errors." It counts uncaught errors, unhandled
+promise rejections and `console.error` calls, so use `console.error` for
+failures worth fixing, not for routine messages. In a workspace, **Send to
+the agent** puts the last 20 errors into the chat's message box, each cut to
+2 KB and with its line in `client.js` when the browser reports one. Nothing
+is sent until the person sends it; they can add what they were doing first.
+
 ### Draft and review flow
 
 For a requested new installation, create the gadget record and its initial
