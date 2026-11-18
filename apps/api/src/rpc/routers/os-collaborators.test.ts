@@ -346,7 +346,10 @@ describe("workspace collaborators", () => {
 		expect(await read()).toEqual({
 			roles: { [ROBIN]: "build", [KAI]: null, [ZOE]: "use", [STRANGER]: null },
 		});
-		expect(await as(env, ZOE).access({ workspaceId })).toEqual({ role: "use" });
+		expect(await as(env, ZOE).access({ workspaceId })).toEqual({
+			role: "use",
+			leave: "allowed",
+		});
 		await expect(as(env, KAI).access({ workspaceId })).rejects.toMatchObject(
 			DENIED,
 		);
@@ -981,6 +984,207 @@ describe("workspace collaborators", () => {
 		);
 		await as(env, KAI).setRole({ workspaceId, userId: ZOE, role: "use" });
 		expect((await as(env, ZOE).access({ workspaceId })).role).toBe("use");
+	});
+});
+
+describe("leaving a workspace", () => {
+	it("lets an invited person leave: their access ends and it drops off their list", async () => {
+		const { env, sqlite, workspaceId } = await seed();
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "use",
+		});
+		await as(env, ZOE).open({ workspaceId });
+		// Someone who can only use the workspace may still leave it.
+		expect(await as(env, ZOE).access({ workspaceId })).toEqual({
+			role: "use",
+			leave: "allowed",
+		});
+		expect(await as(env, ZOE).leave({ workspaceId })).toEqual({ left: true });
+		await expect(as(env, ZOE).open({ workspaceId })).rejects.toMatchObject(
+			DENIED,
+		);
+		expect((await as(env, ZOE).listShared({})).items).toEqual([]);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM os_workspace_access_edges WHERE target_user_id = ?",
+				)
+				.get(ZOE),
+		).toMatchObject({ n: 0 });
+		expect((await as(env, ROBIN).list({ workspaceId })).collaborators).toEqual(
+			[],
+		);
+		// Leaving twice is refused like any other call from outside.
+		await expect(as(env, ZOE).leave({ workspaceId })).rejects.toMatchObject(
+			DENIED,
+		);
+	});
+
+	it("takes the access a leaver gave to others with them, and says so first", async () => {
+		const { env, workspaceId } = await seed();
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		await as(env, KAI).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "use",
+		});
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "lee@example.test",
+			role: "use",
+		});
+		const preview = await as(env, KAI).previewRemove({
+			workspaceId,
+			target: { kind: "user", userId: KAI },
+		});
+		expect(
+			preview.affected.map((person) => [person.userId, person.newRole]),
+		).toEqual([
+			[KAI, null],
+			[ZOE, null],
+		]);
+		// The same removal call, aimed at yourself, is leaving.
+		await as(env, KAI).remove({
+			workspaceId,
+			target: { kind: "user", userId: KAI },
+		});
+		await expect(as(env, KAI).open({ workspaceId })).rejects.toMatchObject(
+			DENIED,
+		);
+		await expect(as(env, ZOE).open({ workspaceId })).rejects.toMatchObject(
+			DENIED,
+		);
+		// Someone the owner invited is untouched.
+		expect((await as(env, LEE).open({ workspaceId })).role).toBe("use");
+	});
+
+	it("refuses the owner", async () => {
+		const { env, workspaceId } = await seed();
+		expect((await as(env, ROBIN).access({ workspaceId })).leave).toBe("owner");
+		await expect(as(env, ROBIN).leave({ workspaceId })).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: "You own this workspace, so you can't leave it",
+		});
+		await expect(
+			as(env, ROBIN).remove({
+				workspaceId,
+				target: { kind: "user", userId: ROBIN },
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect((await as(env, ROBIN).open({ workspaceId })).isOwner).toBe(true);
+	});
+
+	it("refuses someone whose access comes from the whole organization", async () => {
+		const { env } = createEnv();
+		const { workspace } = await workspacesAs(env, ROBIN).workspaces.create({
+			name: "Team space",
+			visibility: "org",
+		});
+		const workspaceId = workspace.id;
+		expect((await as(env, KAI).access({ workspaceId })).leave).toBe(
+			"organization",
+		);
+		await expect(as(env, KAI).leave({ workspaceId })).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message:
+				"Everyone in the organization has access to this workspace, so you can't leave it",
+		});
+		expect((await as(env, KAI).open({ workspaceId })).role).toBe("build");
+		// A guest from another organization, invited by name, can leave it.
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "use",
+		});
+		expect((await as(env, ZOE).access({ workspaceId })).leave).toBe("allowed");
+		await as(env, ZOE).leave({ workspaceId });
+		await expect(as(env, ZOE).open({ workspaceId })).rejects.toMatchObject(
+			DENIED,
+		);
+	});
+
+	it("refuses someone who joined through a share link until the link is off", async () => {
+		const { env, workspaceId } = await seed();
+		const { link, key } = await as(env, ROBIN).createLink({
+			workspaceId,
+			role: "use",
+		});
+		await as(env, ZOE).open({ workspaceId, shareKey: key });
+		// Invited by name as well: the link would still let her straight back in.
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "use",
+		});
+		expect((await as(env, ZOE).access({ workspaceId })).leave).toBe("link");
+		await expect(as(env, ZOE).leave({ workspaceId })).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message:
+				"You have access through a share link, so leaving wouldn't remove it. Ask the owner to turn the link off",
+		});
+		expect((await as(env, ZOE).open({ workspaceId })).role).toBe("use");
+		expect((await as(env, ZOE).listShared({})).items).toHaveLength(1);
+
+		await as(env, ROBIN).remove({
+			workspaceId,
+			target: { kind: "link", linkId: link.id },
+		});
+		expect((await as(env, ZOE).access({ workspaceId })).leave).toBe("allowed");
+		await as(env, ZOE).leave({ workspaceId });
+		await expect(as(env, ZOE).open({ workspaceId })).rejects.toMatchObject(
+			DENIED,
+		);
+	});
+
+	it("never lets leaving remove anyone else", async () => {
+		const { env, workspaceId } = await seed();
+		for (const email of ["zoe@example.test", "lee@example.test"])
+			await as(env, ROBIN).add({ workspaceId, email, role: "use" });
+		// A use collaborator cannot remove another person.
+		await expect(
+			as(env, ZOE).remove({
+				workspaceId,
+				target: { kind: "user", userId: LEE },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			as(env, ZOE).previewRemove({
+				workspaceId,
+				target: { kind: "user", userId: LEE },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		// A build collaborator cannot remove someone they did not add.
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		await expect(
+			as(env, KAI).remove({
+				workspaceId,
+				target: { kind: "user", userId: LEE },
+			}),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: "You can only remove people you added",
+		});
+		// Someone with no access learns nothing and removes nothing.
+		await expect(
+			as(env, STRANGER).leave({ workspaceId }),
+		).rejects.toMatchObject(DENIED);
+		await expect(
+			as(env, STRANGER).remove({
+				workspaceId,
+				target: { kind: "user", userId: LEE },
+			}),
+		).rejects.toMatchObject(DENIED);
+		expect((await as(env, LEE).open({ workspaceId })).role).toBe("use");
 	});
 });
 

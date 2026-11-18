@@ -21,7 +21,7 @@ import {
 export const sharingHandlers: Record<string, (input: never) => unknown> = {
 	"osCollaborators/access": (input: { workspaceId: string }) => {
 		findWorkspace(input.workspaceId);
-		return { role: "build" };
+		return { role: "build", leave: "owner" };
 	},
 	// Nothing changes behind a local fixture; hold like the server's long poll so
 	// the client's stream stays open without spinning.
@@ -199,6 +199,12 @@ export const sharingHandlers: Record<string, (input: never) => unknown> = {
 			},
 			apps: [],
 		};
+	},
+	// Every local workspace is your own, so the app never offers to leave one;
+	// this only answers the call in the server's shape.
+	"osCollaborators/leave": (input: { workspaceId: string }) => {
+		findWorkspace(input.workspaceId);
+		return { left: true };
 	},
 	"osCollaborators/listShared": () => ({ items: [] }),
 	"osCollaborators/dismissShared": () => ({ dismissed: true }),

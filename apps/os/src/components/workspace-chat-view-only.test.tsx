@@ -167,7 +167,7 @@ describe("useWorkspaceViewOnly", () => {
 			osQuery.osCollaborators.access.queryOptions({
 				input: { workspaceId: WORKSPACE },
 			}).queryKey,
-			{ role: value },
+			{ role: value, leave: "allowed" as const },
 		);
 	const read = (workspaceId: string | null) => {
 		act(() =>

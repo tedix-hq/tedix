@@ -1,6 +1,9 @@
-import { UsersThree, X } from "@phosphor-icons/react";
+import { SignOut, UsersThree, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { OsSharedWorkspace } from "@tedix/api-contract/schemas/os-collaborators";
+import { useState } from "react";
 import { Button } from "@/components/kumo/button";
+import { LeaveWorkspaceDialog } from "@/components/workspace-leave";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
@@ -12,8 +15,9 @@ import { relativeTime } from "@/lib/time";
 
 /**
  * Workspaces other people shared with you, listed after you first open one.
- * Dismissing hides an entry; it never changes access. An entry whose access
- * was revoked stays until dismissed and opens to an access-denied page.
+ * Dismissing hides an entry; it never changes access. Leaving gives the
+ * access up, after a confirm. An entry whose access was revoked stays until
+ * dismissed and opens to an access-denied page.
  */
 export function SharedWorkspacesList() {
 	const shared = useQuery(sharedWorkspacesQueryOptions());
@@ -24,50 +28,71 @@ export function SharedWorkspacesList() {
 		onSuccess: () =>
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.collaborators() }),
 	});
+	const [leaving, setLeaving] = useState<OsSharedWorkspace | null>(null);
 	const items = shared.data?.items ?? [];
 	if (items.length === 0) return null;
 	return (
-		<section className="grid gap-2" aria-label="Shared with you">
-			<Text as="h2" role="section" className="m-0">
-				Shared with you
-			</Text>
-			<ul className="m-0 grid list-none divide-y divide-kumo-line p-0">
-				{items.map((item) => (
-					<li
-						key={item.workspaceId}
-						className="flex min-h-11 items-center gap-3 py-1"
-					>
-						<UsersThree size={16} className="shrink-0 text-kumo-subtle" />
-						<span className="grid min-w-0 flex-1">
-							<Link
-								href={`/shared/workspace/${item.workspaceId}`}
-								className="truncate"
-							>
-								{item.title}
-							</Link>
-							<Text
-								as="span"
-								role="label"
-								tone="secondary"
-								className="truncate"
-							>
-								{item.ownerName ? `${item.ownerName} · ` : ""}opened{" "}
-								{relativeTime(item.lastOpenedAt)}
-							</Text>
-						</span>
-						<Button
-							size="icon-sm"
-							variant="ghost"
-							aria-label={`Hide ${item.title}`}
-							title="Hide from this list"
-							disabled={dismiss.isPending}
-							onClick={() => dismiss.mutate(item.workspaceId)}
+		<>
+			<section className="grid gap-2" aria-label="Shared with you">
+				<Text as="h2" role="section" className="m-0">
+					Shared with you
+				</Text>
+				<ul className="m-0 grid list-none divide-y divide-kumo-line p-0">
+					{items.map((item) => (
+						<li
+							key={item.workspaceId}
+							className="flex min-h-11 items-center gap-3 py-1"
 						>
-							<X size={14} />
-						</Button>
-					</li>
-				))}
-			</ul>
-		</section>
+							<UsersThree size={16} className="shrink-0 text-kumo-subtle" />
+							<span className="grid min-w-0 flex-1">
+								<Link
+									href={`/shared/workspace/${item.workspaceId}`}
+									className="truncate"
+								>
+									{item.title}
+								</Link>
+								<Text
+									as="span"
+									role="label"
+									tone="secondary"
+									className="truncate"
+								>
+									{item.ownerName ? `${item.ownerName} · ` : ""}opened{" "}
+									{relativeTime(item.lastOpenedAt)}
+								</Text>
+							</span>
+							<Button
+								size="icon-sm"
+								variant="ghost"
+								aria-label={`Hide ${item.title}`}
+								title="Hide from this list"
+								disabled={dismiss.isPending}
+								onClick={() => dismiss.mutate(item.workspaceId)}
+							>
+								<X size={14} />
+							</Button>
+							<Button
+								size="icon-sm"
+								variant="ghost"
+								aria-label={`Leave ${item.title}`}
+								title="Leave workspace"
+								onClick={() => setLeaving(item)}
+							>
+								<SignOut size={14} />
+							</Button>
+						</li>
+					))}
+				</ul>
+			</section>
+			{leaving ? (
+				<LeaveWorkspaceDialog
+					workspaceId={leaving.workspaceId}
+					workspaceName={leaving.title}
+					onOpenChange={(open) => {
+						if (!open) setLeaving(null);
+					}}
+				/>
+			) : null}
+		</>
 	);
 }

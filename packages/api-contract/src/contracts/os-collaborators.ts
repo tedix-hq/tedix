@@ -12,6 +12,7 @@ import {
 	OsSharedWorkspaceSchema,
 	OsWorkspaceEventKindSchema,
 	OsWorkspaceCapabilitySchema,
+	OsWorkspaceLeaveStatusSchema,
 } from "../schemas/os-collaborators";
 
 /**
@@ -46,9 +47,16 @@ export const osCollaboratorsContract = oc
 				method: "GET",
 				path: "/workspaces/{workspaceId}/access",
 				summary: "Check your current workspace role",
+				description:
+					"Also says whether you can leave the workspace and, if not, why.",
 			})
 			.input(z.object({ workspaceId }).strict())
-			.output(z.object({ role: OsCollaboratorRoleSchema })),
+			.output(
+				z.object({
+					role: OsCollaboratorRoleSchema,
+					leave: OsWorkspaceLeaveStatusSchema,
+				}),
+			),
 		events: oc
 			.route({
 				method: "GET",
@@ -265,7 +273,7 @@ export const osCollaboratorsContract = oc
 				path: "/workspaces/{workspaceId}/removals",
 				summary: "Remove a person or revoke a share link",
 				description:
-					"The owner removes every grant to a person; anyone else removes only their own. Revoking a link flags it. keepUserIds re-adds listed dependents from you at their previous role.",
+					"The owner removes every grant to a person; anyone else removes only their own, or themselves. Revoking a link flags it. keepUserIds re-adds listed dependents from you at their previous role.",
 			})
 			.input(
 				z
@@ -280,6 +288,16 @@ export const osCollaboratorsContract = oc
 					.strict(),
 			)
 			.output(z.object({ affected: z.array(OsAffectedCollaboratorSchema) })),
+		leave: oc
+			.route({
+				method: "POST",
+				path: "/workspaces/{workspaceId}/leave",
+				summary: "Leave a workspace shared with you",
+				description:
+					"Removes your own access and takes the workspace off your shared list. People you added lose the access you gave them. The owner cannot leave, and neither can someone whose access comes from the whole organization or from a share link that is still on.",
+			})
+			.input(z.object({ workspaceId }).strict())
+			.output(z.object({ left: z.literal(true) })),
 		listShared: oc
 			.route({
 				method: "GET",

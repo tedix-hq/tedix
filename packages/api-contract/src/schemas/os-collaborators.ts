@@ -177,6 +177,23 @@ export const OsInviteSuggestionSchema = z.object({
 });
 export type OsInviteSuggestion = z.infer<typeof OsInviteSuggestionSchema>;
 
+/**
+ * Whether the caller can leave a workspace, and if not, why. Only access that
+ * was given to the person by name can be left.
+ * - `owner`: they own the workspace.
+ * - `organization`: the workspace is open to everyone in its organization.
+ * - `link`: they joined through a share link that is still on.
+ */
+export const OsWorkspaceLeaveStatusSchema = z.enum([
+	"allowed",
+	"owner",
+	"organization",
+	"link",
+]);
+export type OsWorkspaceLeaveStatus = z.infer<
+	typeof OsWorkspaceLeaveStatusSchema
+>;
+
 /** The removal target: one person, or one link. */
 export const OsCollaboratorTargetSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("user"), userId: z.string().min(1).max(200) }),
