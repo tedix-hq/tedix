@@ -814,7 +814,7 @@ export const startAttemptProcedure = factoryOs.startAttempt.handler(
 			if (!input.repository) return started;
 			const repository = await provisionWorkAttemptRepository({
 				artifacts: context.env.ARTIFACTS,
-				enabled: context.env.WORK_ATTEMPT_ARTIFACTS_ENABLED === "true",
+				enabled: true,
 				request: input.repository,
 				workItemId: workItem.id,
 				workItemVersion: workItem.version,
