@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { schemaDdl } from "../../test/schema-ddl";
+import { workAttempts } from "../../schema/work-items";
 import {
 	buildWorkAttemptSettlementMetadata,
 	listLatestWorkAttemptSummaries,
@@ -446,5 +448,71 @@ describe("server-reserved candidate publication CAS", () => {
 				workItemId: IDS.workItemId,
 			}),
 		).toEqual({ repositoryCandidatePublication: f.record, note: "kept" });
+	});
+});
+
+describe("latest Attempt seek plan", () => {
+	it("seeks one latest id per requested Work and fetches only those primary keys across chunks", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec("PRAGMA foreign_keys = OFF");
+		sqlite.exec(schemaDdl({ expressionIndexes: true }, workAttempts));
+		const insert = sqlite.prepare(`INSERT INTO work_attempts
+			(id, admission_id, work_item_id, org_id, executor_type, executor_id, runtime_state,
+			attempt_number, started_at, heartbeat_at, metadata, finished_at, outcome)
+			VALUES (?, ?, ?, ?, 'tedi', 'worker', 'finished', ?, ?, '2026-11-18', ?, '2026-11-18', 'succeeded')`);
+		const ids = Array.from({ length: 55 }, (_, i) => `work-${i}`);
+		for (const orgId of ["org", "other"])
+			for (const workId of ids)
+				for (let i = 0; i < 100; i++) {
+					const id = `${orgId}-${workId}-${String(i).padStart(3, "0")}`;
+					insert.run(
+						id,
+						id,
+						workId,
+						orgId,
+						i + 1,
+						i < 98 ? "2026-11-17" : "2026-11-18",
+						JSON.stringify({ dispatchVersion: i }),
+					);
+				}
+		sqlite.exec("ANALYZE");
+		const queries: string[] = [];
+		const db = createDbQueryClient(
+			createD1Facade({
+				prepare(query) {
+					queries.push(query);
+					return sqlite.prepare(query);
+				},
+				exec(query) {
+					sqlite.exec(query);
+				},
+			}),
+		);
+		const result = await listLatestWorkAttemptSummaries(db, {
+			orgId: "org",
+			workItemIds: [...ids, ids[0]!, "absent"],
+		});
+		expect(result.size).toBe(55);
+		for (const id of ids) {
+			expect(result.get(id)?.attemptId).toBe(`org-${id}-099`);
+			expect(result.get(id)?.workItemVersion).toBe(99);
+		}
+		expect(queries).toHaveLength(2);
+		for (const query of queries) {
+			const plan = sqlite
+				.prepare(`EXPLAIN QUERY PLAN ${query}`)
+				.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+				.map((row) => String(row.detail))
+				.join(" | ");
+			expect(plan).toContain(
+				"SEARCH work_attempts USING INDEX sqlite_autoindex_work_attempts_1 (id=?)",
+			);
+			expect(plan).toContain(
+				"SEARCH work_attempts USING COVERING INDEX idx_work_attempt_org_item_started (org_id=? AND work_item_id=?)",
+			);
+			expect(plan).not.toContain("SCAN work_attempts");
+			expect(plan).not.toContain("TEMP B-TREE");
+		}
+		sqlite.close();
 	});
 });
