@@ -46,7 +46,7 @@ import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { recordWorkDecisionContinuation } from "@tedix/db/queries/work-items/comments";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
-import type { tediApprovalRequests } from "@tedix/db/schema/approvals";
+import type { TediApprovalRequest } from "@tedix/db/schema/approvals";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { canonicalDigest } from "../../../lib/blueprint-digest";
 import { organizationGatewaySlug } from "../../../lib/organization-mcp-gateway";
@@ -373,7 +373,7 @@ function hasVerifiedRequesterGrant(
 async function runOwnerToolCall(
 	context: BaseContext,
 	input: {
-		approval: typeof tediApprovalRequests.$inferSelect;
+		approval: TediApprovalRequest;
 		payload: OwnerToolCallPayload;
 		startedAt: string;
 		retry?: { retriedBy: string; attempt: number };
@@ -681,7 +681,7 @@ async function runOwnerToolCall(
 export async function settleOwnerToolCallApproval(
 	context: BaseContext,
 	input: {
-		approval: typeof tediApprovalRequests.$inferSelect;
+		approval: TediApprovalRequest;
 		status: "approved" | "rejected" | "cancelled";
 	},
 ): Promise<OwnerToolRunOutcome | "unknown" | "not_applicable"> {
@@ -744,7 +744,7 @@ export type OwnerToolRetryRefusal =
 export async function retryOwnerToolCallExecution(
 	context: BaseContext,
 	input: {
-		approval: typeof tediApprovalRequests.$inferSelect;
+		approval: TediApprovalRequest;
 		retriedBy: string;
 	},
 ): Promise<{ run: Promise<OwnerToolRunOutcome> } | OwnerToolRetryRefusal> {

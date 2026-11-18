@@ -79,7 +79,7 @@ export async function getRepositoryObservation(
 					and(
 						eq(workItems.orgId, orgId),
 						eq(workItems.id, id),
-						sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
+						sql`${workItems.repositoryObserver} = 1`,
 					),
 				)
 				.limit(1)
@@ -98,8 +98,8 @@ export async function pendingRepositoryObservations(
 			and(
 				eq(workItems.orgId, orgId),
 				eq(workItems.projectId, projectId),
-				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
-				sql`json_extract(${workItems.metadata}, '$.report') IS NULL`,
+				sql`${workItems.repositoryObserver} = 1`,
+				sql`${workItems.report} IS NULL`,
 				pendingObservation(),
 			),
 		)
@@ -122,7 +122,7 @@ export async function reportRepositoryObservation(
 	const predicate = and(
 		eq(workItems.orgId, input.orgId),
 		eq(workItems.id, input.id),
-		sql`json_extract(${workItems.metadata}, '$.report') IS NULL`,
+		sql`${workItems.report} IS NULL`,
 	);
 	return db.batch([
 		db
@@ -207,7 +207,7 @@ export async function claimRepositoryRepair(
 				eq(workItems.orgId, orgId),
 				eq(workItems.id, id),
 				sql`json_extract(${workItems.metadata}, '$.repairLessonId') IS NULL`,
-				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
+				sql`${workItems.repositoryObserver} = 1`,
 			),
 		)
 		.returning({ id: workItems.id });
@@ -335,11 +335,11 @@ export async function claimRepositoryObserverWake(
 			? sql`1 = 1`
 			: // The slot holders are the project's woken, unreported observations
 				// whose wake is recent. The count states the condition of
-				// idx_work_items_woken_repository_observation word for word and
+				// idx_work_items_woken_repository_observation_columns word for word and
 				// so reads those few rows, not every Work Item of the project
 				// (about 3,200 rows per call in production, 10 to 17 Nov 2026).
 				// A recent wake is a wake, so the condition changes no count.
-				sql`(SELECT count(*) FROM work_items active WHERE active.org_id = ${p.orgId} AND active.project_id = ${p.projectId} AND active.id <> ${p.id} AND ${wokenRepositoryObservation} AND json_extract(active.metadata, '$.observerWokenAt') >= ${since}) < ${p.limit}`;
+				sql`(SELECT count(*) FROM work_items active WHERE active.org_id = ${p.orgId} AND active.project_id = ${p.projectId} AND active.id <> ${p.id} AND ${wokenRepositoryObservation} AND active.observer_woken_at >= ${since}) < ${p.limit}`;
 	const rows = await db
 		.update(workItems)
 		.set({
@@ -349,8 +349,8 @@ export async function claimRepositoryObserverWake(
 			and(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.id, p.id),
-				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
-				sql`(json_extract(${workItems.metadata}, '$.observerWokenAt') >= ${since} OR ${capacity})`,
+				sql`${workItems.repositoryObserver} = 1`,
+				sql`(${workItems.observerWokenAt} >= ${since} OR ${capacity})`,
 			),
 		)
 		.returning({ id: workItems.id });
@@ -384,7 +384,7 @@ export async function deferRepositoryObserverWake(
 			and(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.id, p.id),
-				sql`json_extract(${workItems.metadata}, '$.observerWokenAt') IS NULL`,
+				sql`${workItems.observerWokenAt} IS NULL`,
 			),
 		);
 }
@@ -447,8 +447,8 @@ export async function deferredRepositoryPushObservations(
 			openRepositoryObservation,
 			lt(workItems.createdAt, recentFrom),
 			sql`+json_extract(${workItems.metadata}, '$.observerWakeDeferredAt') IS NOT NULL`,
-			sql`json_extract(${workItems.metadata}, '$.observerWokenAt') IS NULL`,
-			sql`json_extract(${workItems.metadata}, '$.report') IS NULL`,
+			sql`${workItems.observerWokenAt} IS NULL`,
+			sql`${workItems.report} IS NULL`,
 		),
 	).as("older_open_deferred");
 	const rows = await db
@@ -497,7 +497,7 @@ function pendingObservation() {
 
 function settleableObservation(now: string) {
 	return and(
-		sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
+		sql`${workItems.repositoryObserver} = 1`,
 		sql`${workItems.disposition} IN ('proposed','accepted')`,
 		sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${workItems.orgId} AND active_attempt.work_item_id = ${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${now}))`,
 	);
@@ -556,7 +556,7 @@ export async function settleRecoveredRepositoryCiObservations(
 	const scope = and(
 		eq(workItems.orgId, p.orgId),
 		eq(workItems.projectId, p.projectId),
-		sql`json_extract(${workItems.metadata}, '$.repositoryObserver')=1`,
+		sql`${workItems.repositoryObserver}=1`,
 		sql`json_extract(${workItems.metadata}, '$.event.kind')='ci_red'`,
 		sql`json_extract(${workItems.metadata}, '$.event.repository')=${p.repository}`,
 		sql`json_extract(${workItems.metadata}, '$.event.branch')=${p.branch}`,
@@ -600,7 +600,7 @@ export async function settleAgedRepositoryPushObservations(
 				sql`NOT (${unappliedLesson()})`,
 				sql`julianday(${workItems.createdAt}) < julianday(${cutoff})`,
 				sql`coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 0) = 0`,
-				sql`NOT EXISTS (SELECT 1 FROM work_items red WHERE red.org_id = ${workItems.orgId} AND red.project_id = ${workItems.projectId} AND json_extract(red.metadata, '$.repositoryObserver') = 1 AND red.disposition IN ('proposed','accepted') AND json_extract(red.metadata, '$.event.kind') IN ('ship_red','ci_red') AND json_extract(red.metadata, '$.event.repository') = json_extract(${workItems.metadata}, '$.event.repository') AND json_extract(red.metadata, '$.event.branch') = json_extract(${workItems.metadata}, '$.event.branch') AND json_extract(red.metadata, '$.event.sha') = json_extract(${workItems.metadata}, '$.event.sha'))`,
+				sql`NOT EXISTS (SELECT 1 FROM work_items red WHERE red.org_id = ${workItems.orgId} AND red.project_id = ${workItems.projectId} AND red.repository_observer = 1 AND red.disposition IN ('proposed','accepted') AND json_extract(red.metadata, '$.event.kind') IN ('ship_red','ci_red') AND json_extract(red.metadata, '$.event.repository') = json_extract(${workItems.metadata}, '$.event.repository') AND json_extract(red.metadata, '$.event.branch') = json_extract(${workItems.metadata}, '$.event.branch') AND json_extract(red.metadata, '$.event.sha') = json_extract(${workItems.metadata}, '$.event.sha'))`,
 			),
 		)
 		.orderBy(workItems.createdAt, workItems.id)
@@ -653,7 +653,7 @@ export async function findRepositoryPushObservations(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.projectId, p.projectId),
 				gte(workItems.createdAt, p.since),
-				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
+				sql`${workItems.repositoryObserver} = 1`,
 				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
 				sql`(json_extract(${workItems.metadata}, '$.event.sha') IN (${list}) OR EXISTS (SELECT 1 FROM json_each(${workItems.metadata}, '$.event.commitShas') c WHERE c.value IN (${list})))`,
 			),

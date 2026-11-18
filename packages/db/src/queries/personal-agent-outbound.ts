@@ -233,7 +233,7 @@ export function listPersonalAgentOutcomeSources(
 				eq(i.workItemId, w.id),
 				eq(i.targetType, "user"),
 				eq(i.targetId, cfg.userId),
-				sql`json_extract(${i.metadata},'$.source')='personal-agent-inbound'`,
+				sql`${i.source}='personal-agent-inbound'`,
 			),
 		)
 		.innerJoin(
@@ -651,7 +651,7 @@ export async function getPersonalAgentValue(
 		eq(i.workItemId, cohort.id),
 		eq(i.targetType, "user"),
 		eq(i.targetId, e.representedUserId),
-		sql`json_extract(${i.metadata},'$.source')='personal-agent-inbound'`,
+		sql`${i.source}='personal-agent-inbound'`,
 		sql`json_extract(${i.metadata},'$.decisionDeck') IS NOT NULL`,
 		lt(i.createdAt, end),
 	);

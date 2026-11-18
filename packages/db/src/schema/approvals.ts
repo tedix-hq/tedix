@@ -55,12 +55,12 @@ export type ApprovalActionType = (typeof APPROVAL_ACTION_TYPE_VALUES)[number];
  */
 export const pendingApproval = sql`status = 'pending'`;
 /** The run state of an approved tool call, as the sweeps and their index spell it. */
-export const ownerToolRunStatus = sql`json_extract(payload, '$.execution.status')`;
+export const ownerToolRunStatus = sql`execution_status`;
 /**
  * `openOwnerToolRun`: an approved tool call whose run is waiting, running or
  * failed and that nobody dismissed. The queue sweeps read only these.
  */
-export const openOwnerToolRun = sql`status = 'approved' AND action_type = 'mcp.tool_call' AND ${ownerToolRunStatus} IN ('queued', 'running', 'failed') AND json_extract(payload, '$.execution.dismissedAt') IS NULL`;
+export const openOwnerToolRun = sql`status = 'approved' AND action_type = 'mcp.tool_call' AND ${ownerToolRunStatus} IN ('queued', 'running', 'failed') AND execution_dismissed_at IS NULL`;
 
 export const tediApprovalRequests = sqliteTable(
 	"tedi_approval_requests",
@@ -86,6 +86,19 @@ export const tediApprovalRequests = sqliteTable(
 			.$type<Record<string, JsonValue>>()
 			.notNull(),
 
+		executionStatus: text("execution_status").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("payload") THEN json_extract("payload", '$.execution.status') END`,
+			{ mode: "virtual" },
+		),
+		executionDismissedAt: text("execution_dismissed_at").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("payload") THEN json_extract("payload", '$.execution.dismissedAt') END`,
+			{ mode: "virtual" },
+		),
+		consumedAt: text("consumed_at").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("payload") THEN json_extract("payload", '$.consumedAt') END`,
+			{ mode: "virtual" },
+		),
+
 		/** Current status: pending, approved, rejected, expired */
 		status: text("status", { enum: APPROVAL_STATUS_VALUES })
 			.notNull()
@@ -110,6 +123,19 @@ export const tediApprovalRequests = sqliteTable(
 		workflowId: text("workflow_id"),
 	},
 	(table) => [
+		index("idx_approval_requests_execution_attention").on(
+			table.orgId,
+			table.status,
+			table.actionType,
+			table.executionDismissedAt,
+			table.executionStatus,
+			table.expiresAt,
+		),
+		index("idx_approval_requests_unconsumed").on(
+			table.consumedAt,
+			table.executionStatus,
+			table.expiresAt,
+		),
 		index("idx_approval_requests_resolved").on(table.resolvedAt),
 		index("idx_approval_requests_status").on(table.orgId, table.status),
 		index("idx_approval_requests_tedi_status").on(table.tediId, table.status),
@@ -119,13 +145,16 @@ export const tediApprovalRequests = sqliteTable(
 			.on(table.expiresAt)
 			.where(pendingApproval),
 		// The tool-call queue sweeps seek one run state, then the window.
-		index("idx_approval_requests_open_tool_run")
+		index("idx_approval_requests_open_execution")
 			.on(ownerToolRunStatus, table.expiresAt)
 			.where(openOwnerToolRun),
 	],
 );
 
-export type TediApprovalRequest = typeof tediApprovalRequests.$inferSelect;
+export type TediApprovalRequest = Omit<
+	typeof tediApprovalRequests.$inferSelect,
+	"executionStatus" | "executionDismissedAt" | "consumedAt"
+>;
 export type NewTediApprovalRequest = typeof tediApprovalRequests.$inferInsert;
 
 /**

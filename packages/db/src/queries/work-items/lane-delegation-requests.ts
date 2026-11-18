@@ -6,7 +6,7 @@ import { workItemComments, workItems } from "../../schema/work-items";
 /** Metadata source of the request a lane raises when Work needs an owner's permission. */
 export const LANE_DELEGATION_SOURCE = "lane-dispatch-blocker";
 
-const laneRequest = sql`json_extract(${workInteractions.metadata},'$.source')=${LANE_DELEGATION_SOURCE}`;
+const laneRequest = sql`${workInteractions.source}=${LANE_DELEGATION_SOURCE}`;
 
 /**
  * The ask is gone when its Work finished, its Work version moved on, or the
@@ -34,7 +34,7 @@ const duplicate = sql`EXISTS (SELECT 1 FROM work_interactions older
 	WHERE older.org_id=${workInteractions.orgId}
 	AND older.work_item_id=${workInteractions.workItemId}
 	AND older.status IN ('open','resolved')
-	AND json_extract(older.metadata,'$.source')=${LANE_DELEGATION_SOURCE}
+	AND older.source=${LANE_DELEGATION_SOURCE}
 	AND json_extract(older.metadata,'$.laneBlocker.workVersion') IS json_extract(${workInteractions.metadata},'$.laneBlocker.workVersion')
 	AND older.target_type IS ${workInteractions.targetType}
 	AND older.target_id IS ${workInteractions.targetId}

@@ -96,7 +96,13 @@ CREATE TABLE work_items (
  required_capabilities TEXT NOT NULL DEFAULT '[]', required_authorities TEXT NOT NULL DEFAULT '[]', admission_spec_revision TEXT NOT NULL DEFAULT 'test-revision',
  priority TEXT NOT NULL DEFAULT 'medium', accountable_owner_type TEXT, accountable_owner_id TEXT, steward_type TEXT, steward_id TEXT, reviewer_type TEXT, reviewer_id TEXT,
  objective_id TEXT, work_class TEXT, purpose_exception_expires_at TEXT, project_id TEXT, parent_work_item_id TEXT, source_session_key TEXT, source_intent_id TEXT, due_date TEXT, deadline TEXT, start_at TEXT, duration_days INTEGER,
- provenance TEXT DEFAULT '{}', metadata TEXT DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT, accepted_at TEXT, completed_at TEXT, cancelled_at TEXT, version INTEGER NOT NULL DEFAULT 1, UNIQUE (org_id, id)
+ provenance TEXT DEFAULT '{}',
+ repository_observer INTEGER GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.repositoryObserver') END) VIRTUAL,
+ report TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.report') END) VIRTUAL,
+ observer_woken_at TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.observerWokenAt') END) VIRTUAL,
+ metadata_executor TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.executor') END) VIRTUAL,
+ metadata_source TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.source') END) VIRTUAL,
+ metadata TEXT DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT, accepted_at TEXT, completed_at TEXT, cancelled_at TEXT, version INTEGER NOT NULL DEFAULT 1, UNIQUE (org_id, id)
 );
 CREATE TABLE work_attempts (id TEXT PRIMARY KEY, admission_id TEXT, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, executor_type TEXT NOT NULL, executor_id TEXT NOT NULL, executor_session_id TEXT, external_session_key TEXT, run_id TEXT, runtime_state TEXT NOT NULL DEFAULT 'running', outcome TEXT, attempt_number INTEGER NOT NULL DEFAULT 1, started_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL, expires_at TEXT, finished_at TEXT, summary TEXT, version INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}');
 

@@ -12,8 +12,8 @@ import {
 	settleAgedRepositoryPushObservations,
 } from "./repository-observer";
 
-const OPEN = "idx_work_items_open_repository_observation";
-const DEFERRED = "idx_work_items_deferred_repository_wake";
+const OPEN = "idx_work_items_open_repository_observation_columns";
+const DEFERRED = "idx_work_items_deferred_repository_wake_columns";
 const ORG = "org-example";
 const OTHER_ORG = "org-other";
 const PROJECT = "project-example";

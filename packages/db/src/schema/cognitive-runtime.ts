@@ -395,6 +395,14 @@ export const kernelRuntimeRuns = sqliteTable(
 		metadata: text("metadata", { mode: "json" }).$type<
 			Record<string, JsonValue>
 		>(),
+		workItemId: text("work_item_id").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.workItemId') END`,
+			{ mode: "virtual" },
+		),
+		targetTediId: text("target_tedi_id").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.homeDelegation.workOrder.targetTediId') END`,
+			{ mode: "virtual" },
+		),
 		startedAt: text("started_at"),
 		completedAt: text("completed_at"),
 		createdAt: text("created_at")
@@ -415,6 +423,17 @@ export const kernelRuntimeRuns = sqliteTable(
 		}).$type<SensitiveDataLatch>(),
 	},
 	(table) => [
+		index("idx_kernel_runtime_runs_work_item").on(
+			table.organizationId,
+			table.workItemId,
+			table.updatedAt,
+		),
+		index("idx_kernel_runtime_runs_target_tedi").on(
+			table.organizationId,
+			table.status,
+			table.targetTediId,
+			table.updatedAt,
+		),
 		index("idx_kernel_runtime_runs_conversation_updated").on(
 			table.organizationId,
 			table.conversationId,

@@ -24,7 +24,13 @@ CREATE TABLE work_items (
  parent_work_item_id TEXT, executor_type TEXT, executor_id TEXT, dispatch_state TEXT,
  delegation_depth INTEGER, max_attempts INTEGER, root_work_item_id TEXT, root_goal TEXT, budget_share_micros INTEGER,
  source_session_key TEXT, source_intent_id TEXT,
- due_date TEXT, deadline TEXT, start_at TEXT, duration_days INTEGER, provenance TEXT DEFAULT '{}', metadata TEXT DEFAULT '{}',
+ due_date TEXT, deadline TEXT, start_at TEXT, duration_days INTEGER, provenance TEXT DEFAULT '{}',
+ repository_observer INTEGER GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.repositoryObserver') END) VIRTUAL,
+ report TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.report') END) VIRTUAL,
+ observer_woken_at TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.observerWokenAt') END) VIRTUAL,
+ metadata_executor TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.executor') END) VIRTUAL,
+ metadata_source TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.source') END) VIRTUAL,
+ metadata TEXT DEFAULT '{}',
  created_at TEXT NOT NULL, updated_at TEXT, accepted_at TEXT, completed_at TEXT,
  cancelled_at TEXT, version INTEGER NOT NULL DEFAULT 1);
 `;

@@ -28,7 +28,7 @@ import { getTedisByOrganization } from "@tedix/db/queries/tedis";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { getExternalAgentPrincipal } from "@tedix/db/queries/external-agent-identity/principals";
 import { roleImpliesPermission } from "@tedix/auth/rbac";
-import type { tediApprovalRequests } from "@tedix/db/schema/approvals";
+import type { TediApprovalRequest } from "@tedix/db/schema/approvals";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { canonicalDigest } from "../../../lib/blueprint-digest";
 import { retainKernelToolResult } from "../../../services/kernel-tool-result-retention";
@@ -556,7 +556,7 @@ export async function initiatingAgentMayStillAct(
 export async function settleHomeToolWriteApproval(
 	context: BaseContext,
 	input: {
-		approval: typeof tediApprovalRequests.$inferSelect;
+		approval: TediApprovalRequest;
 		status: "approved" | "rejected" | "cancelled";
 		onSettledMessage?: (event: KernelRuntimeEvent) => void;
 		onSettledTerminal?: (event: KernelRuntimeEvent) => void;

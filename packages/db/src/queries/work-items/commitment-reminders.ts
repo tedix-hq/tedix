@@ -10,7 +10,7 @@ import { workEvents, workItems } from "../../schema/work-items";
 import { tedis } from "../../schema/tedis";
 import { chunkForBoundParams } from "../../utils/batch";
 
-const isReminder = sql`json_extract(${workInteractions.metadata}, '$.source') = ${COMMITMENT_REMINDER_SOURCE}`;
+const isReminder = sql`${workInteractions.source} = ${COMMITMENT_REMINDER_SOURCE}`;
 
 /** Preserve the request and its history while returning engineering status asks to a tedi. */
 export async function routeEngineeringCommitmentReminders(
