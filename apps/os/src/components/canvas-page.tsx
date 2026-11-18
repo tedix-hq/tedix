@@ -2170,6 +2170,12 @@ export function CanvasPage({
 									onSelectGadget={(gadgetId) => void selectGadget(gadgetId)}
 									onSelectOutput={selectOutput}
 									onAddSource={() => setAddSourceOpen(true)}
+									onFileGone={(ids) => {
+										// Close every tab that was showing the file.
+										for (const doc of openedDocsRef.current)
+											if (ids.includes(doc.id))
+												closeCanvasDoc(canvasDocKey(doc));
+									}}
 								/>
 							) : canvasView === "work" && workspaceId ? (
 								<section

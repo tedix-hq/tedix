@@ -51,6 +51,7 @@ import { WorkspaceSchedules } from "@/components/workspace-schedules";
 import { WorkspaceSourceCards } from "@/components/workspace-source-cards";
 import type { WorkspaceSource } from "@/lib/workspace-sources";
 import { workspaceOutputEditors } from "@/lib/workspace-output-editors";
+import { WorkspaceFileCardMenu } from "@/components/workspace-file-card-menu";
 import { WorkspaceFileUpload } from "./workspace-file-upload";
 
 /**
@@ -92,18 +93,38 @@ function DocButton({
 	onSelect,
 	children,
 	item,
+	menu,
 }: {
 	selected: boolean;
 	onSelect: () => void;
 	children: ReactNode;
 	item: OsOutputLibraryItem;
+	/** The file's "…" menu, beside Open. */
+	menu: ReactNode;
 }) {
+	const label = `Open ${item.output.title}`;
+	const disabled = item.preview.kind === "unavailable";
 	return (
 		<ResourceCard
-			label={`Open ${item.output.title}`}
+			label={label}
 			selected={selected}
-			disabled={item.preview.kind === "unavailable"}
-			onOpen={onSelect}
+			disabled={disabled}
+			// Open covers the whole card; only the "…" button sits above it.
+			actions={
+				<div className="output-card-actions workspace-app-footer flex items-center justify-between gap-1">
+					<Button
+						disabled={disabled}
+						variant="ghost"
+						size="sm"
+						aria-label={label}
+						onClick={onSelect}
+						className="output-card-open static after:absolute after:inset-px after:content-['']"
+					>
+						Open
+					</Button>
+					{menu}
+				</div>
+			}
 			preview={
 				<div data-workspace-output-preview className="h-full">
 					<OutputPreview preview={item.preview} />
@@ -128,6 +149,7 @@ export function CanvasResourceRail({
 	onSelectGadget,
 	onSelectOutput,
 	onAddSource,
+	onFileGone,
 }: {
 	workspaces: ResourceListQuery<{ id: string }>;
 	workspaceId: string | null;
@@ -139,6 +161,8 @@ export function CanvasResourceRail({
 	onSelectOutput: (outputId: string) => void;
 	/** Opens the workspace's Connections view without opening a document. */
 	onAddSource?: () => void;
+	/** A file was archived or moved away; `ids` are the file and its editor app. */
+	onFileGone?: (ids: string[]) => void;
 }) {
 	const [query, setQuery] = useState("");
 	const [showHistory, setShowHistory] = useState(false);
@@ -164,6 +188,26 @@ export function CanvasResourceRail({
 			: undefined;
 		if (gadgetId) onSelectGadget(gadgetId);
 		else onSelectOutput(outputId);
+	};
+	// Archived files keep Open only; they are restored from the Files library.
+	const fileMenu = (item: OsOutputLibraryItem) => {
+		const outputId = item.output.id;
+		if (!workspaceId || item.output.status !== "active") return null;
+		const editorId = pairedOutputs.has(outputId)
+			? editors.get(outputId)
+			: undefined;
+		return (
+			<WorkspaceFileCardMenu
+				workspaceId={workspaceId}
+				outputId={outputId}
+				title={item.output.title}
+				kindLabel="File"
+				onOpen={() => openFile(outputId)}
+				onGone={() =>
+					onFileGone?.(editorId ? [outputId, editorId] : [outputId])
+				}
+			/>
+		);
 	};
 	const fileSelected = (outputId: string) =>
 		selectedDoc?.type === "output"
@@ -392,6 +436,7 @@ export function CanvasResourceRail({
 													item={item}
 													selected={fileSelected(item.output.id)}
 													onSelect={() => openFile(item.output.id)}
+													menu={fileMenu(item)}
 												>
 													<span className="min-w-0 flex-1 truncate">
 														{item.output.title}
@@ -418,6 +463,7 @@ export function CanvasResourceRail({
 												item={latestCandidate}
 												selected={fileSelected(latestCandidate.output.id)}
 												onSelect={() => openFile(latestCandidate.output.id)}
+												menu={fileMenu(latestCandidate)}
 											>
 												<span className="min-w-0 flex-1 truncate">
 													{latestCandidate.output.title}
@@ -443,6 +489,7 @@ export function CanvasResourceRail({
 														item={item}
 														selected={fileSelected(item.output.id)}
 														onSelect={() => openFile(item.output.id)}
+														menu={fileMenu(item)}
 													>
 														<span className="min-w-0 flex-1 truncate">
 															{item.output.title}
@@ -485,6 +532,7 @@ export function CanvasResourceRail({
 													item={item}
 													selected={fileSelected(item.output.id)}
 													onSelect={() => openFile(item.output.id)}
+													menu={fileMenu(item)}
 												>
 													<span className="min-w-0 flex-1 truncate">
 														{item.output.title}
