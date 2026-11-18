@@ -1887,12 +1887,14 @@ async function fetchCmsSite(
 			return fetchTenant;
 		};
 		let prepared: Awaited<ReturnType<typeof prepareTenant>> | undefined;
-		const renderTenant = async (anonymous = false): Promise<Response> => {
+		// Every tenant dispatch goes through here, so the isolate only ever sees
+		// the request after internal-auth and lead-IP de-scoping.
+		const renderTenant = async (
+			select: (protectedRequest: Request) => Request = (r) => r,
+		): Promise<Response> => {
 			prepared ??= await prepareTenant();
 			if (prepared instanceof Response) return prepared;
-			return prepared(
-				anonymous ? anonymousPageRequest(tenantRequest) : tenantRequest,
-			);
+			return prepared(select(tenantRequest));
 		};
 
 		let loaderResponse: Response;
@@ -1916,7 +1918,7 @@ async function fetchCmsSite(
 							key: pageKey,
 							templateSlug: org.templateSlug,
 							waitUntil: (promise) => ctx.waitUntil(promise),
-							render: () => renderTenant(true),
+							render: () => renderTenant(anonymousPageRequest),
 						})
 					: renderTenant(),
 			);
@@ -1930,11 +1932,13 @@ async function fetchCmsSite(
 			}
 			if (isSoftNotFound(loaderResponse, tenantRequest)) {
 				loaderResponse = await span(spans, "loader.notFoundFetch", () =>
-					prepared && !(prepared instanceof Response)
-						? prepared(
-								new Request(new URL("/404", tenantRequest.url), tenantRequest),
-							)
-						: renderTenant(),
+					renderTenant(
+						(protectedRequest) =>
+							new Request(
+								new URL("/404", protectedRequest.url),
+								protectedRequest,
+							),
+					),
 				);
 			}
 		} catch (loaderErr) {
