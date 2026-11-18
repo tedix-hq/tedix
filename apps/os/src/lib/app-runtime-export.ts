@@ -6,6 +6,7 @@ export async function exportAppRuntimeOutput(input: {
 	format: OsOutputExportFormat;
 	expectedRevision: number;
 	sheetId?: string;
+	revisionHeader?: boolean;
 }) {
 	const { osApi, OS_API_URL } = await import("./api");
 	const { workspaceId, ...request } = input;

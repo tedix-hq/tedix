@@ -2946,6 +2946,12 @@ export async function mountSheetClient(
 							action: "xlsx",
 							run: () => void download("xlsx"),
 						},
+						{ label: "PDF", action: "pdf", run: () => void download("pdf") },
+						{
+							label: "PDF with title and revision",
+							action: "pdf-revision",
+							run: () => void download("pdf", true),
+						},
 					]),
 		]);
 	function gridMenu(target: Element | null, at: { x: number; y: number }) {
@@ -4253,7 +4259,10 @@ export async function mountSheetClient(
 		// A conflict merges the newer version in, then saves again.
 		external();
 	}
-	async function download(kind: "csv" | "xlsx") {
+	async function download(
+		kind: "csv" | "xlsx" | "pdf",
+		revisionHeader = false,
+	) {
 		if (!loaded || !available || busy) return;
 		try {
 			// Download what is on screen, not the version from a moment ago.
@@ -4277,7 +4286,8 @@ export async function mountSheetClient(
 			} else
 				await bridge.call("app.exportOutput", {
 					slot,
-					format: "xlsx",
+					format: kind,
+					...(revisionHeader ? { revisionHeader: true } : {}),
 					expectedRevision: loaded.revision.revision,
 				});
 			if (dirty) note("Downloaded the last saved version.");

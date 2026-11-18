@@ -329,6 +329,7 @@ describe("portable rich Doc client", () => {
 			"Export as Markdown",
 			"Export as Word",
 			"Export as PDF",
+			"Export as PDF with title and revision",
 			"Export as HTML",
 			"Export as PNG",
 		]);
@@ -1019,15 +1020,17 @@ describe("portable rich Doc client", () => {
 		const test = fixture(),
 			{ root, editor, mounted } = await test.mount();
 		editor.commands.insertContentAt(1, "Late edit ");
-		for (const [format, label] of [
+		for (const [format, label, revisionHeader] of [
 			["docx", "Word"],
 			["pdf", "PDF"],
+			["pdf", "PDF with title and revision", true],
 		] as const) {
 			click(root, `Export as ${label}`);
 			await vi.waitFor(() =>
 				expect(test.calls).toHaveBeenCalledWith("app.exportOutput", {
 					slot: "document",
 					format,
+					...(revisionHeader ? { revisionHeader: true } : {}),
 					expectedRevision: 5,
 				}),
 			);

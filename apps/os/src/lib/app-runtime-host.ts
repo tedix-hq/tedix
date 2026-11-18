@@ -143,6 +143,7 @@ export interface AppRuntimeHostDeps {
 		format: OsOutputExportFormat;
 		expectedRevision: number;
 		sheetId?: string;
+		revisionHeader?: boolean;
 	}) => Promise<{
 		filename: string;
 		revision: number;
@@ -465,6 +466,8 @@ export async function handleAppRuntimeCall(
 				!isRecord(args) ||
 				typeof args.slot !== "string" ||
 				!format.success ||
+				(args.revisionHeader !== undefined &&
+					typeof args.revisionHeader !== "boolean") ||
 				!Number.isInteger(args.expectedRevision) ||
 				Number(args.expectedRevision) < 1 ||
 				(args.sheetId !== undefined &&
@@ -493,6 +496,7 @@ export async function handleAppRuntimeCall(
 					workspaceId: context.workspaceId,
 					outputId,
 					format: format.data,
+					...(args.revisionHeader === true ? { revisionHeader: true } : {}),
 					expectedRevision: Number(args.expectedRevision),
 					...(typeof args.sheetId === "string"
 						? { sheetId: args.sheetId }
