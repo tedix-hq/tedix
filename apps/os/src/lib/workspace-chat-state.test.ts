@@ -2,15 +2,22 @@ import { describe, expect, it } from "vite-plus/test";
 import type { WorkspaceChatLedgerEvent } from "./workspace-chat-protocol";
 import {
 	activeTurn,
+	addUsage,
 	applyWorkspaceChatEvent,
 	applyWorkspaceChatEvents,
+	conversationUsage,
 	elapsedLabel,
+	formatConversationUsage,
 	formatTurnCost,
 	formatUsage,
+	formatWorkspaceUsage,
 	initialWorkspaceChatState,
 	markPendingSend,
 	pendingApproval,
+	setConversations,
+	setWorkspaceUsage,
 	turnDetails,
+	usageTotalsNote,
 } from "./workspace-chat-state";
 
 const at = (seconds: number) =>
@@ -531,4 +538,140 @@ it("keeps final receipts authoritative when facet progress gets a later ledger s
 	expect(formatUsage({ inputTokens: 0, outputTokens: 0, partial: false })).toBe(
 		"0 input · 0 output tokens",
 	);
+});
+
+describe("usage totals", () => {
+	const reply = (
+		seq: number,
+		conversationId: string,
+		usage: Extract<
+			WorkspaceChatLedgerEvent,
+			{ type: "assistant.done" }
+		>["usage"],
+	): WorkspaceChatLedgerEvent => ({
+		seq,
+		at: at(seq),
+		conversationId,
+		type: "assistant.done",
+		turnId: `t${seq}`,
+		messageId: `m${seq}`,
+		text: "Done.",
+		usage,
+	});
+
+	it("adds only replies after the hello, once each, to the conversation and the workspace", () => {
+		let state = setWorkspaceUsage(
+			setConversations(initialWorkspaceChatState("c1"), [
+				{
+					id: "c1",
+					title: "Open challenges",
+					updatedAt: at(0),
+					lastTurnAt: at(0),
+					usage: { inputTokens: 10_000, outputTokens: 2_000, costUsd: 0.02 },
+				},
+			]),
+			{ inputTokens: 30_000, outputTokens: 5_000, costUsd: 0.06 },
+			10,
+		);
+		// Replayed history up to the hello cursor is already in the totals.
+		state = applyWorkspaceChatEvent(
+			state,
+			reply(9, "c1", { inputTokens: 999, outputTokens: 1, costUsd: 1 }),
+		);
+		expect(conversationUsage(state)?.inputTokens).toBe(10_000);
+
+		const live = reply(11, "c1", {
+			inputTokens: 10_000,
+			outputTokens: 2_399,
+			costUsd: 0.027,
+		});
+		state = applyWorkspaceChatEvent(state, live);
+		state = applyWorkspaceChatEvents(state, [live]);
+		expect(formatConversationUsage(conversationUsage(state))).toBe(
+			"24,399 tokens · $0.047",
+		);
+		expect(formatWorkspaceUsage(state.usage)).toBe("$0.09");
+
+		// A reply in another conversation counts toward the workspace only.
+		state = applyWorkspaceChatEvent(
+			state,
+			reply(12, "c2", { inputTokens: 100, outputTokens: 0, costUsd: 0.001 }),
+		);
+		expect(conversationUsage(state)?.inputTokens).toBe(20_000);
+		expect(state.usage?.inputTokens).toBe(40_100);
+	});
+
+	it("waits for the hello before counting anything", () => {
+		const state = applyWorkspaceChatEvent(
+			initialWorkspaceChatState("c1"),
+			reply(3, "c1", { inputTokens: 5, outputTokens: 5, costUsd: 0.01 }),
+		);
+		expect(state.usage).toBeNull();
+	});
+
+	it("keeps a conversation's usage when its title changes or a turn starts", () => {
+		const usage = { inputTokens: 5, outputTokens: 5 };
+		let state = setConversations(initialWorkspaceChatState("c1"), [
+			{ id: "c1", title: null, updatedAt: at(0), lastTurnAt: null, usage },
+		]);
+		state = applyWorkspaceChatEvents(state, [
+			{
+				seq: 1,
+				at: at(1),
+				conversationId: "c1",
+				type: "conversation.updated",
+				title: "Named",
+			},
+			{
+				seq: 2,
+				at: at(2),
+				conversationId: "c1",
+				type: "turn.started",
+				turnId: "t2",
+				text: "Again",
+				authorId: "p",
+				authorKind: "person",
+			},
+		]);
+		expect(conversationUsage(state)).toEqual(usage);
+	});
+
+	it("shows tokens only when no reply has a price, and marks a partial price", () => {
+		const unpriced = addUsage(null, {
+			inputTokens: 1_200,
+			outputTokens: 34,
+			costUnavailable: "no price for this model",
+		});
+		expect(unpriced).toEqual({
+			inputTokens: 1_200,
+			outputTokens: 34,
+			unpricedReplies: 1,
+		});
+		expect(formatConversationUsage(unpriced)).toBe("1,234 tokens");
+		expect(formatWorkspaceUsage(unpriced)).toBe("1,234 tokens");
+		expect(usageTotalsNote(unpriced!)).toBeNull();
+
+		const mixed = addUsage(unpriced, {
+			inputTokens: 100,
+			outputTokens: 0,
+			costUsd: 0.00002,
+		});
+		expect(formatConversationUsage(mixed)).toBe("1,334 tokens · <$0.001+");
+		expect(formatWorkspaceUsage(mixed)).toBe("<$0.01+");
+		expect(usageTotalsNote(mixed!)).toMatch(/no price/);
+		expect(
+			formatWorkspaceUsage({
+				inputTokens: 1,
+				outputTokens: 1,
+				costUsd: 12.345,
+			}),
+		).toBe("$12.35");
+	});
+
+	it("ignores old zero receipts and hides when nothing was used", () => {
+		expect(addUsage(null, { inputTokens: 0, outputTokens: 0 })).toBeNull();
+		expect(formatConversationUsage(null)).toBeNull();
+		expect(formatWorkspaceUsage(null)).toBeNull();
+		expect(conversationUsage(initialWorkspaceChatState(null))).toBeNull();
+	});
 });

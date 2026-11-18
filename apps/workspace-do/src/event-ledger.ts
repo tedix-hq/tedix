@@ -4,7 +4,7 @@
  * replays from any sequence number, per conversation or object-wide.
  */
 import type { WorkspaceStorage } from "./runtime";
-import type { WireEvent, WireEventBody } from "./wire";
+import type { UsageTotals, WireEvent, WireEventBody } from "./wire";
 
 export const EVENT_LEDGER_SCHEMA = `
 CREATE TABLE IF NOT EXISTS events (
@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_conversation ON events(conversation_id, seq);
 CREATE INDEX IF NOT EXISTS events_turn_at ON events(turn_id, at);
+CREATE INDEX IF NOT EXISTS events_reply_usage ON events(conversation_id) WHERE type = 'assistant.done';
 `;
 
 /** Retain this many events; older rows are trimmed when the object is idle. */
@@ -177,6 +178,48 @@ export class SqlEventLedger {
 		return row?.seq ?? 0;
 	}
 
+	/**
+	 * Usage of every finished reply still in the ledger, per conversation.
+	 * Replies older than `EVENT_RETENTION` events are no longer counted.
+	 */
+	usageByConversation(): Map<string, UsageTotals> {
+		const rows = this.storage.exec<{
+			conversation_id: string;
+			input_tokens: number;
+			output_tokens: number;
+			cost_usd: number | null;
+			unpriced: number;
+		}>(
+			`SELECT conversation_id,
+				SUM(input) AS input_tokens,
+				SUM(output) AS output_tokens,
+				SUM(cost) AS cost_usd,
+				SUM(cost IS NULL) AS unpriced
+			FROM (
+				SELECT conversation_id,
+					coalesce(json_extract(body, '$.usage.inputTokens'), 0) AS input,
+					coalesce(json_extract(body, '$.usage.outputTokens'), 0) AS output,
+					json_extract(body, '$.usage.costUsd') AS cost
+				FROM events
+				WHERE type = 'assistant.done' AND json_type(body, '$.usage') = 'object'
+			)
+			-- Older runtimes wrote zero usage when the provider reported none.
+			WHERE input + output > 0 OR cost IS NOT NULL
+			GROUP BY conversation_id`,
+		);
+		return new Map(
+			rows.map((row) => [
+				row.conversation_id,
+				{
+					inputTokens: row.input_tokens,
+					outputTokens: row.output_tokens,
+					...(row.cost_usd === null ? {} : { costUsd: row.cost_usd }),
+					...(row.unpriced > 0 ? { unpricedReplies: row.unpriced } : {}),
+				},
+			]),
+		);
+	}
+
 	trim(): void {
 		this.storage.run(
 			"DELETE FROM events WHERE seq <= (SELECT MAX(seq) FROM events) - ?",
@@ -204,4 +247,26 @@ export function boundedEventInput(input: unknown): unknown {
 			? { keys: Object.keys(input).slice(0, 20) }
 			: {}),
 	};
+}
+
+/** Adds conversation totals together; `undefined` when there is nothing to add. */
+export function sumUsageTotals(
+	totals: Iterable<UsageTotals>,
+): UsageTotals | undefined {
+	let sum: UsageTotals | undefined;
+	for (const item of totals) {
+		const costUsd =
+			item.costUsd === undefined
+				? sum?.costUsd
+				: (sum?.costUsd ?? 0) + item.costUsd;
+		const unpricedReplies =
+			(sum?.unpricedReplies ?? 0) + (item.unpricedReplies ?? 0);
+		sum = {
+			inputTokens: (sum?.inputTokens ?? 0) + item.inputTokens,
+			outputTokens: (sum?.outputTokens ?? 0) + item.outputTokens,
+			...(costUsd === undefined ? {} : { costUsd }),
+			...(unpricedReplies > 0 ? { unpricedReplies } : {}),
+		};
+	}
+	return sum;
 }

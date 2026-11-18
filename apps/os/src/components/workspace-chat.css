@@ -325,6 +325,22 @@
 	padding: 8px 16px 16px;
 }
 
+/* What the conversation and the workspace have used so far. */
+.workspace-chat-spend {
+	margin: 6px 4px 0;
+	color: var(--color-kumo-subtle, inherit);
+	font-size: var(--text-tedix-caption);
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+
+.workspace-chat-workspace-spend {
+	flex: none;
+	color: var(--color-kumo-subtle, inherit);
+	font-size: var(--text-tedix-caption);
+	font-variant-numeric: tabular-nums;
+}
+
 /* One card holds the files, the message and its controls. The card draws the
    border and the focus ring; the field inside has none of its own. */
 .workspace-chat-composer-card {

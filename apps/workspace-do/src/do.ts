@@ -69,7 +69,11 @@ import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
 import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-notice";
 import { BINDING_NAMES, type BindingName } from "./declarations";
-import { boundedEventInput, SqlEventLedger } from "./event-ledger";
+import {
+	boundedEventInput,
+	SqlEventLedger,
+	sumUsageTotals,
+} from "./event-ledger";
 import { migrateMovedChat } from "./moved-chat";
 import { SqlActivityRecords } from "./activity-records";
 import type {
@@ -105,6 +109,7 @@ import {
 	type ConversationSummary,
 	stepLabel,
 	type TurnUsage,
+	type UsageTotals,
 	type WireControlFrame,
 	type WireEvent,
 	type WireEventBody,
@@ -964,6 +969,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	listConversations(scope: WorkspaceScope): ConversationSummary[] {
 		this.bindScope(scope);
+		return this.#listConversations(this.#events.usageByConversation());
+	}
+
+	#listConversations(usage: Map<string, UsageTotals>): ConversationSummary[] {
 		return this.#store
 			.exec<{
 				id: string;
@@ -980,6 +989,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				updatedAt: row.updated_at,
 				lastTurnAt: row.last_turn_at,
 				...(row.running ? { running: true } : {}),
+				...(usage.has(row.id) ? { usage: usage.get(row.id) } : {}),
 			}));
 	}
 
@@ -1977,12 +1987,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const current = ws.deserializeAttachment() as Record<string, unknown>;
 		ws.serializeAttachment({ ...current, scope, conversationId });
 		const latest = this.#events.latestSeq();
+		const usage = this.#events.usageByConversation();
+		const workspaceUsage = sumUsageTotals(usage.values());
 		this.#control(ws, {
 			type: "hello",
 			cursor: latest,
 			serverTime: new Date().toISOString(),
-			conversations: this.listConversations(scope),
+			conversations: this.#listConversations(usage),
 			models: this.configuredModels(),
+			...(workspaceUsage ? { usage: workspaceUsage } : {}),
 		});
 		const page =
 			cursor !== null
