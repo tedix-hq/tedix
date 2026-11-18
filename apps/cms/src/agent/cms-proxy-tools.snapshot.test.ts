@@ -32,6 +32,6 @@ it("preserves the ordered CMS proxy tool contracts", () => {
 		internalAuthToken: undefined,
 		environment: "production",
 	});
-	expect(tools).toHaveLength(130);
+	expect(tools).toHaveLength(136);
 	expect(tools).toEqual(expected);
 });

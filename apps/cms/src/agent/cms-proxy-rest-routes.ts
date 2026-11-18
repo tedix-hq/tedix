@@ -2,6 +2,9 @@ import {
 	calendarQuery,
 	createCollectionBody,
 	updateCollectionBody,
+	createSectionBody,
+	updateSectionBody,
+	sectionsListQuery,
 } from "emdash/api/schemas";
 import { BYLINE_REST_ROUTES } from "./cms-proxy-bylines";
 
@@ -270,6 +273,36 @@ export const REST_ROUTES: Record<string, RestRoute> = {
 		path: (a) =>
 			`/content/${a.collection}/${a.id}/terms/${encodeURIComponent(String(a.taxonomy))}`,
 		body: (a) => ({ termIds: a.termIds }),
+	},
+	list_sections: {
+		method: "GET",
+		path: () => "/sections",
+		query: (args) => {
+			const parsed = sectionsListQuery.parse(args);
+			return Object.fromEntries(
+				Object.entries(parsed)
+					.filter(([, value]) => value !== undefined)
+					.map(([key, value]) => [key, String(value)]),
+			);
+		},
+	},
+	get_section: {
+		method: "GET",
+		path: (a) => `/sections/${encodeURIComponent(String(a.slug))}`,
+	},
+	create_section: {
+		method: "POST",
+		path: () => "/sections",
+		body: (a) => createSectionBody.parse(a),
+	},
+	update_section: {
+		method: "PUT",
+		path: (a) => `/sections/${encodeURIComponent(String(a.slug))}`,
+		body: (a) => updateSectionBody.parse(a.changes),
+	},
+	delete_section: {
+		method: "DELETE",
+		path: (a) => `/sections/${encodeURIComponent(String(a.slug))}`,
 	},
 	// Collection, field, and versioned block schema
 	schema_list_collections: { method: "GET", path: () => "/schema/collections" },

@@ -9,6 +9,11 @@ import {
 	createFieldBody,
 	updateFieldBody,
 	searchEnableBody,
+	createSectionBody,
+	updateSectionBody,
+	sectionsListQuery,
+	sectionSchema,
+	sectionListResponseSchema,
 } from "emdash/api/schemas";
 import * as z from "zod";
 
@@ -1161,6 +1166,62 @@ export const CMS_PROXY_TOOL_SCHEMAS = {
 				data: z.record(z.string(), z.unknown()).optional(),
 			})
 			.catchall(z.unknown()),
+	},
+	list_sections: {
+		input: z.fromJSONSchema(sectionsListQuery.toJSONSchema()),
+		output: z.object({
+			success: z.literal(true),
+			data: z.fromJSONSchema(sectionListResponseSchema.toJSONSchema()),
+		}),
+	},
+	get_section: {
+		input: z.object({ slug: z.string().min(1) }),
+		output: GetResponseSchema(
+			z.fromJSONSchema(sectionSchema.toJSONSchema()),
+			false,
+		),
+	},
+	create_section: {
+		input: z.fromJSONSchema(createSectionBody.toJSONSchema()),
+		output: GetResponseSchema(
+			z.fromJSONSchema(sectionSchema.toJSONSchema()),
+			false,
+		),
+	},
+	update_section: {
+		input: z.object({
+			slug: z.string().min(1).describe("Current section slug"),
+			changes: z.fromJSONSchema(updateSectionBody.toJSONSchema()),
+		}),
+		output: GetResponseSchema(
+			z.fromJSONSchema(sectionSchema.toJSONSchema()),
+			false,
+		),
+	},
+	delete_section: {
+		input: z.object({ slug: z.string().min(1) }),
+	},
+	set_content_blocks: {
+		input: z.object({
+			collection: blockSlug,
+			id: z.string().min(1),
+			field: blockSlug.describe("Native blocks field slug"),
+			_rev: z
+				.string()
+				.min(1)
+				.describe("Revision token returned by content_get"),
+			blocks: z
+				.array(
+					z
+						.object({
+							_type: blockSlug,
+							_version: z.number().int().positive(),
+							_key: z.string().min(1).optional(),
+						})
+						.catchall(z.unknown()),
+				)
+				.max(1000),
+		}),
 	},
 	schema_list_collections: {
 		input: z.object({}),
