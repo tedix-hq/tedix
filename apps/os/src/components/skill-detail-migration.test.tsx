@@ -188,6 +188,55 @@ describe("native skill ownership", () => {
 		},
 	);
 
+	it("offers the folders other skills already use when moving a skill", async () => {
+		const { host, click } = await mount(<SkillDetailLayout />, (client) => {
+			client.setQueryData(q.skillDetailQueryOptions("skill-1").queryKey, skill);
+			client.setQueryData(
+				q.skillCatalogQueryOptions({
+					limit: 500,
+					offset: 0,
+					excludeArchived: true,
+					excludeImprovements: true,
+				}).queryKey,
+				{
+					entries: [
+						{ ...skill.entry, id: "a", folderPath: "reddit/reports" },
+						{ ...skill.entry, id: "b", folderPath: "operations" },
+						{ ...skill.entry, id: "c", folderPath: null },
+					],
+					total: 3,
+				} as never,
+			);
+		});
+		expect(host.textContent).toContain("Move");
+		await click("Move");
+		const folderButtons = [
+			...document.body.querySelectorAll<HTMLButtonElement>("fieldset button"),
+		];
+		expect(folderButtons.map((button) => button.textContent?.trim())).toEqual([
+			"No folder",
+			"operations",
+			"reddit",
+			"reddit/reports",
+		]);
+		expect(
+			folderButtons
+				.find((button) => button.textContent?.trim() === "operations")
+				?.getAttribute("aria-pressed"),
+		).toBe("true");
+		await click("reddit/reports");
+		expect(
+			(document.getElementById("skill-folder-path") as HTMLInputElement).value,
+		).toBe("reddit/reports");
+		await click("Move skill");
+		expect(calls.filter((call) => call.path === "skills.move")).toEqual([
+			{
+				path: "skills.move",
+				input: { id: "skill-1", folderPath: "reddit/reports" },
+			},
+		]);
+	});
+
 	it("hides reactivation for an active skill", async () => {
 		authority.role = "owner";
 		const { host } = await mount(<SkillDetailLayout />, (client) =>
