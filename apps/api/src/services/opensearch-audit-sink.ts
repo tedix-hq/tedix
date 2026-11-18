@@ -230,7 +230,7 @@ export async function deliverOpenSearchAuditEvents(
 							: {}),
 					},
 					body: JSON.stringify(event),
-					redirect: "error",
+					redirect: "manual",
 				},
 			);
 		} catch {

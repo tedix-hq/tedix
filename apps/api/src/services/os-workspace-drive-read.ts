@@ -112,7 +112,7 @@ async function driveClient(
 			(deps.fetchImpl ?? fetch)(url.href, {
 				headers: { Authorization: `Bearer ${token}`, ...headers },
 				signal: AbortSignal.timeout(timeoutMs),
-				redirect: "error",
+				redirect: "manual",
 			}),
 			timeoutMs,
 		);

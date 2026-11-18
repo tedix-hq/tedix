@@ -234,7 +234,7 @@ export async function sendPushToDevices(
 			);
 			const response = await fetch(parsed.data.endpoint, {
 				...request,
-				redirect: "error",
+				redirect: "manual",
 				signal: AbortSignal.timeout(10_000),
 			});
 			if (response.status === 404 || response.status === 410)

@@ -30,7 +30,7 @@ function testEndpoint() {
 			if (!available) return new Response(null, { status: 503 });
 			const url = new URL(input.toString());
 			expect(init?.method).toBe("PUT");
-			expect(init?.redirect).toBe("error");
+			expect(init?.redirect).toBe("manual");
 			expect(url.pathname).toMatch(/^\/tedix-audit-test\/_create\//);
 			const id = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
 			if (documents.has(id)) return new Response(null, { status: 409 });
@@ -98,6 +98,34 @@ async function event(
 }
 
 describe("OpenSearch audit sink", () => {
+	it.each([300, 301, 302, 303, 304, 307, 308, 399])(
+		"reports HTTP %i without advancing the checkpoint or following audit redirects",
+		async (status) => {
+			let calls = 0;
+			const result = await deliverOpenSearchAuditEvents(
+				config,
+				[await event(1, null)],
+				initialCheckpoint,
+				{
+					fetch: async (_url, init) => {
+						calls++;
+						expect(init?.redirect).toBe("manual");
+						return new Response(null, {
+							status,
+							headers: { location: "https://elsewhere.example/audit" },
+						});
+					},
+				},
+			);
+			expect(calls).toBe(1);
+			expect(result).toMatchObject({
+				status: "retry",
+				errorCode: `http_${status}`,
+				checkpoint: { sequence: 0, digest: null, consecutiveFailures: 1 },
+			});
+		},
+	);
+
 	it("is disabled unless explicitly enabled", async () => {
 		const endpoint = testEndpoint();
 		const result = await deliverOpenSearchAuditEvents(

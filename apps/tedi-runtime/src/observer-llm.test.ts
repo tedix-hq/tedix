@@ -378,3 +378,72 @@ console.log("PASS: selected adapter private wire authority");
 	}
 }
 console.log("PASS: unset observer model uses the Azure env default deployment");
+
+// Regional credentials must never be forwarded to a redirect target.
+{
+	const savedFetch = globalThis.fetch;
+	let status = 200,
+		sends = 0;
+	const env = {
+		AZURE_OPENAI_RESOURCE: "fixture",
+		AZURE_OPENAI_API_VERSION: "test",
+		AZURE_OBSERVER_DEPLOYMENT: "gpt-5.6-terra",
+		AI_GATEWAY_ACCOUNT_ID: "account",
+		AI_GATEWAY_LLM_ID: "gateway",
+		CF_AI_GATEWAY_TOKEN: "token",
+		SECRETS_MASTER_KEY: "fixture-signing-secret",
+		TEDIX_BILLING_SETTLEMENT_MODE: "disabled",
+		API_SERVICE: {
+			fetch: async () => {
+				const response = (await wireGuardAdmission().json()) as {
+					json: Record<string, unknown>;
+				};
+				response.json.providerApiKey = "fictional-regional-key";
+				response.json.providerExecution = {
+					provider: "azure-openai",
+					requestModel: "gpt-5.6-terra",
+					deployment: "gpt-5.6-terra",
+					providerResource: "fixture-eu",
+					providerOrigin: "https://fixture-eu.openai.azure.com",
+					gatewayAccountId: "account",
+					gatewayId: "gateway",
+					transportKind: "gateway-https",
+					apiKind: "azure-chat",
+				};
+				return Response.json(response);
+			},
+		},
+	};
+	globalThis.fetch = async (input, init) => {
+		sends++;
+		const request = new Request(input, init);
+		assert.equal(request.redirect, "manual");
+		assert.equal(request.headers.get("api-key"), "fictional-regional-key");
+		assert.ok(request.url.includes("fixture-eu"));
+		return status === 200
+			? Response.json({ choices: [{ message: { content: "ok" } }] })
+			: new Response(null, {
+					status,
+					headers: { location: "https://elsewhere.example/model" },
+				});
+	};
+	try {
+		const invoke = () =>
+			observerCompletion({
+				env: env as never,
+				modelRef: "azure-openai/gpt-5.6-terra",
+				metadata: { orgId: "org", tediId: "fixture-tedi" },
+				messages: [{ role: "user", content: "json" }],
+				beforeDispatch: privateCapturedGuard(() => {}),
+			});
+		assert.equal(await invoke(), "ok");
+		for (status = 300; status < 400; status++) {
+			const before = sends;
+			await assert.rejects(invoke(), new RegExp(String(status)));
+			assert.equal(sends, before + 1);
+		}
+	} finally {
+		globalThis.fetch = savedFetch;
+	}
+}
+console.log("PASS regional manual redirects reject every 3xx with status");

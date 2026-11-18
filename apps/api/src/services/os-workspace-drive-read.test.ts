@@ -50,7 +50,7 @@ function provider(
 	let reads = 0;
 	return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
 		expect(init?.headers).toMatchObject({ Authorization: "Bearer test-token" });
-		expect(init?.redirect).toBe("error");
+		expect(init?.redirect).toBe("manual");
 		const u = new URL(String(url));
 		expect(u.origin).toBe("https://www.googleapis.com");
 		if (u.pathname.endsWith("/export")) return new Response(content);
@@ -91,6 +91,28 @@ function deps(fetchImpl = provider()) {
 }
 
 describe("workspace Drive ranges and folders", () => {
+	it.each([300, 301, 302, 303, 304, 307, 308, 399])(
+		"rejects HTTP %i without following Drive redirects",
+		async (status) => {
+			const fetchImpl = vi.fn(
+				async (_url: RequestInfo | URL, init?: RequestInit) => {
+					expect(init?.redirect).toBe("manual");
+					return new Response(null, {
+						status,
+						headers: { location: "https://elsewhere.example/file" },
+					});
+				},
+			);
+			await expect(
+				readWorkspaceDriveFile(context, input, deps(fetchImpl)),
+			).rejects.toMatchObject({
+				code: "BAD_GATEWAY",
+				message: `Google Drive read failed (HTTP ${status})`,
+			});
+			expect(fetchImpl).toHaveBeenCalledTimes(1);
+		},
+	);
+
 	it("lists only the attached folder with bounded provider pagination", async () => {
 		const fetchImpl = provider();
 		const result = await listWorkspaceDriveFiles(

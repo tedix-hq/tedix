@@ -1442,3 +1442,71 @@ for (const route of ["https", "binding"] as const) {
 console.log(
 	"PASS actual SDK HTTPS/binding logical retry nonrenewal and reversed concurrent receipt isolation",
 );
+
+// Regional credentials must never be forwarded to a redirect target.
+{
+	const savedFetch = globalThis.fetch;
+	let status = 300,
+		sends = 0;
+	const env = {
+		AZURE_OPENAI_RESOURCE: "fixture",
+		AZURE_OPENAI_API_VERSION: "test",
+		AZURE_OBSERVER_DEPLOYMENT: "gpt-5.6-terra",
+		AI_GATEWAY_ACCOUNT_ID: "account",
+		AI_GATEWAY_LLM_ID: "gateway",
+		CF_AI_GATEWAY_TOKEN: "token",
+		SECRETS_MASTER_KEY: "fixture-signing-secret",
+		TEDIX_BILLING_SETTLEMENT_MODE: "disabled",
+		API_SERVICE: {
+			fetch: async () => {
+				const response = (await wireGuardAdmission().json()) as {
+					json: Record<string, unknown>;
+				};
+				response.json.providerApiKey = "fictional-regional-key";
+				response.json.providerExecution = {
+					provider: "azure-openai",
+					requestModel: "gpt-5.6-terra",
+					deployment: "gpt-5.6-terra",
+					providerResource: "fixture-eu",
+					providerOrigin: "https://fixture-eu.openai.azure.com",
+					gatewayAccountId: "account",
+					gatewayId: "gateway",
+					transportKind: "gateway-https",
+					apiKind: "azure-responses",
+				};
+				return Response.json(response);
+			},
+		},
+	};
+	globalThis.fetch = async (input, init) => {
+		sends++;
+		const request = new Request(input, init);
+		assert.equal(request.redirect, "manual");
+		assert.equal(request.headers.get("api-key"), "fictional-regional-key");
+		assert.ok(request.url.includes("fixture-eu"));
+		return new Response(null, {
+			status,
+			headers: { location: "https://elsewhere.example/model" },
+		});
+	};
+	try {
+		const { azureModel } = await import("./ai-sdk-adapter");
+		const model = azureModel(
+			env as never,
+			{ orgId: "org", tediId: "fixture-tedi" },
+			undefined,
+			privateCapturedGuard(() => {}),
+		).responses("gpt-5.6-terra");
+		for (status = 300; status < 400; status++) {
+			const before = sends;
+			await assert.rejects(
+				generateText({ model, prompt: "hello", maxRetries: 0 }),
+				new RegExp(`HTTP ${status}`),
+			);
+			assert.equal(sends, before + 1);
+		}
+	} finally {
+		globalThis.fetch = savedFetch;
+	}
+}
+console.log("PASS regional manual redirects reject every 3xx with status");
