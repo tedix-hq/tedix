@@ -2,7 +2,6 @@ import { isPlatformPrincipal } from "@tedix/auth/types";
 import {
 	activateCmsDomainClaim,
 	activateCmsWwwAliasClaim,
-	adoptLegacyCmsDomainClaim,
 	beginCmsDomainProvisioning,
 	beginRemovingCmsDomainClaim,
 	beginRemovingReplacedCmsDomainClaim,
@@ -44,12 +43,21 @@ import {
 } from "../../services/cms-custom-hostnames";
 import { authedSitesOs, requireCmsSite } from "./sites-shared";
 
+function isPlatformDomain(hostname: string | null): boolean {
+	return hostname !== null && /(?:^|\.)tedix\.(?:dev|tech)\.?$/i.test(hostname);
+}
+
 async function requireCmsDomainSite(
 	context: BaseContext,
 	siteId: string,
 	requireEntitlement = true,
 ) {
 	const site = await requireCmsSite(context, siteId);
+	if (isPlatformDomain(site.customDomain))
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Platform domains use platform routing and do not need a domain claim",
+		);
 	if (site.status !== "active")
 		throw createError(
 			ErrorCodes.CONFLICT,
@@ -127,8 +135,7 @@ async function cmsDomainStatus(
 		claimId: claim.id,
 		hostname: claim.hostname,
 		status:
-			claim.status === "removing_provisioning" ||
-			claim.status === "removing_legacy"
+			claim.status === "removing_provisioning"
 				? ("removing" as const)
 				: claim.status,
 		txtName: cmsDomainVerificationName(claim.hostname),
@@ -262,19 +269,6 @@ export const beginCmsDomainProcedure = authedSitesOs.beginCmsDomain
 					ErrorCodes.CONFLICT,
 					"Finish or remove the pending domain claim first",
 				);
-			if (site.customDomain === hostname && pending.status === "pending") {
-				const provider = await findCmsCustomHostname(context.env, hostname);
-				if (provider && isCmsCustomHostnameReady(provider)) {
-					const adopted = await adoptLegacyCmsDomainClaim(context.db, {
-						id: pending.id,
-						organizationId: requireOrgId(context),
-						siteId: site.id,
-						providerHostnameId: provider.id,
-					});
-					if (adopted)
-						return cmsDomainStatus(context, site.slug, adopted, provider);
-				}
-			}
 			return cmsDomainStatus(context, site.slug, pending);
 		}
 		const active = claims.find(
@@ -304,25 +298,14 @@ export const beginCmsDomainProcedure = authedSitesOs.beginCmsDomain
 				ErrorCodes.CONFLICT,
 				"Hostname is already claimed or unavailable",
 			);
-		if (site.customDomain === hostname) {
-			const provider = await findCmsCustomHostname(context.env, hostname);
-			if (provider && isCmsCustomHostnameReady(provider)) {
-				const adopted = await adoptLegacyCmsDomainClaim(context.db, {
-					id: claim.id,
-					organizationId: requireOrgId(context),
-					siteId: site.id,
-					providerHostnameId: provider.id,
-				});
-				if (adopted)
-					return cmsDomainStatus(context, site.slug, adopted, provider);
-			}
-		}
 		return cmsDomainStatus(context, site.slug, claim);
 	});
 
 export const getCmsDomainProcedure = authedSitesOs.getCmsDomain
 	.use(withAuthorization("settings:manage", "mcp:content.read"))
 	.handler(async ({ input, context }) => {
+		const routedSite = await requireCmsSite(context, input.siteId);
+		if (isPlatformDomain(routedSite.customDomain)) return null;
 		const site = await requireCmsDomainSite(context, input.siteId, false);
 		const claims = await listCmsDomainClaimsForSite(context.db, {
 			organizationId: requireOrgId(context),
@@ -340,9 +323,7 @@ export const getCmsDomainProcedure = authedSitesOs.getCmsDomain
 			relevant.find((item) => item.status === "active") ??
 			relevant.find(
 				(item) =>
-					item.status === "removing" ||
-					item.status === "removing_provisioning" ||
-					item.status === "removing_legacy",
+					item.status === "removing" || item.status === "removing_provisioning",
 			);
 		return claim ? cmsDomainStatus(context, site.slug, claim) : null;
 	});
@@ -497,10 +478,7 @@ async function removeCmsDomainWithProvider(
 			claim.providerHostnameId,
 			claim.hostname,
 		);
-	else if (
-		claim.status === "removing_provisioning" ||
-		claim.status === "removing_legacy"
-	) {
+	else if (claim.status === "removing_provisioning") {
 		const provider = await findCmsCustomHostname(context.env, claim.hostname);
 		if (provider)
 			await deleteCmsCustomHostname(context.env, provider.id, claim.hostname);

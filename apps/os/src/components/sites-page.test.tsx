@@ -381,23 +381,24 @@ describe("SitesPage owned-site actions", () => {
 		expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
 	});
 
-	it("lets an owner manage a legacy active domain after a plan downgrade", () => {
-		customDomainEntitlement.enabled = false;
-		const host = renderPage();
-		const manage = [
-			...host.querySelectorAll<HTMLButtonElement>('[data-testid="menu-item"]'),
-		].find((button) => button.textContent === "Manage site");
-		if (!manage) throw new Error("Manage site action missing");
-		act(() => manage.click());
-		expect(host.textContent).toContain("Existing domain: blog.acme.example");
-		expect(host.querySelector('input[id^="cms-domain-"]')).toBeNull();
-		const action = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
-			(button) => button.textContent?.trim() === "Manage existing domain",
-		);
-		if (!action) throw new Error("Legacy domain action missing");
-		act(() => action.click());
-		expect(lifecycleMutation.mutate).toHaveBeenCalledWith("blog.acme.example");
-	});
+	it.each(["tedix.dev", "www.tedix.dev", "tedix.tech", "blog.tedix.tech"])(
+		"keeps %s outside the custom-domain claim controls",
+		(customDomain) => {
+			siteCustomDomain.current = customDomain;
+			const host = renderPage();
+			const manage = [
+				...host.querySelectorAll<HTMLButtonElement>(
+					'[data-testid="menu-item"]',
+				),
+			].find((button) => button.textContent === "Manage site");
+			if (!manage) throw new Error("Manage site action missing");
+			act(() => manage.click());
+			expect(host.textContent).toContain(customDomain);
+			expect(host.querySelector('input[id^="cms-domain-"]')).toBeNull();
+			expect(host.textContent).not.toContain("Manage existing domain");
+			expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
+		},
+	);
 
 	it("explains an in-flight domain provisioning attempt and offers retry", () => {
 		domainClaim.current = {

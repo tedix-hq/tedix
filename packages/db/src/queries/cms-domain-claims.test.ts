@@ -5,13 +5,11 @@ import { createD1Facade } from "../test/d1-facade";
 import {
 	activateCmsDomainClaim,
 	activateCmsWwwAliasClaim,
-	adoptLegacyCmsDomainClaim,
 	beginCmsDomainProvisioning,
 	beginRemovingCmsDomainClaim,
 	beginRemovingReplacedCmsDomainClaim,
 	finishCmsDomainProvisioning,
 	getCmsDomainClaimForSite,
-	listUnclaimedCmsCustomDomains,
 	removeCmsDomainClaim,
 	reserveCmsDomainClaim,
 } from "./cms-domain-claims";
@@ -35,7 +33,7 @@ function fixture() {
 			ON cms_domain_claims(site_id) WHERE status = 'pending';
 		INSERT INTO cms_sites VALUES
 			('site-a', 'org-a', 'alpha', 'active', NULL, 'https://alpha.cms.tedix.dev', '2026-01-01'),
-			('site-b', 'org-b', 'beta', 'active', 'legacy.example.com', 'https://legacy.example.com', '2026-01-01');
+			('site-b', 'org-b', 'beta', 'active', 'existing.example.com', 'https://existing.example.com', '2026-01-01');
 	`);
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
@@ -44,22 +42,6 @@ const key = { id: "claim-a", organizationId: "org-a", siteId: "site-a" };
 const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
 describe("CMS domain claims on D1", () => {
-	it("lists routed custom domains until a claim covers them", async () => {
-		const { db } = fixture();
-		const legacy = {
-			siteId: "site-b",
-			organizationId: "org-b",
-			hostname: "legacy.example.com",
-		};
-		expect(await listUnclaimedCmsCustomDomains(db)).toEqual([legacy]);
-		await reserveCmsDomainClaim(db, {
-			id: "claim-b",
-			...legacy,
-			verificationToken: "proof",
-			expiresAt,
-		});
-		expect(await listUnclaimedCmsCustomDomains(db)).toEqual([]);
-	});
 	it("reserves a www alias only behind this site's active verified primary", async () => {
 		const { db, sqlite } = fixture();
 		const aliasKey = { ...key, id: "alias-a" };
@@ -219,142 +201,33 @@ describe("CMS domain claims on D1", () => {
 		).toBeNull();
 	});
 
-	it("rejects a legacy active hostname atomically", async () => {
+	it("rejects a hostname routed by another site atomically", async () => {
 		const { db } = fixture();
 		expect(
 			await reserveCmsDomainClaim(db, {
 				...key,
-				hostname: "legacy.example.com",
+				hostname: "existing.example.com",
 				verificationToken: "proof",
 				expiresAt,
 			}),
 		).toBeNull();
 	});
 
-	it("lets the owner of a legacy site verify its existing hostname", async () => {
+	it("lets a site reserve its own hostname for verification", async () => {
 		const { db } = fixture();
 		const claim = await reserveCmsDomainClaim(db, {
-			id: "claim-legacy",
+			id: "claim-existing",
 			organizationId: "org-b",
 			siteId: "site-b",
-			hostname: "legacy.example.com",
+			hostname: "existing.example.com",
 			verificationToken: "new-proof",
 			expiresAt,
 		});
 		expect(claim).toMatchObject({
 			siteId: "site-b",
-			hostname: "legacy.example.com",
+			hostname: "existing.example.com",
 			status: "pending",
 		});
-	});
-
-	it("adopts only a matching active legacy route without changing it", async () => {
-		const { db, sqlite } = fixture();
-		const legacyKey = {
-			id: "claim-legacy",
-			organizationId: "org-b",
-			siteId: "site-b",
-		};
-		await reserveCmsDomainClaim(db, {
-			...legacyKey,
-			hostname: "legacy.example.com",
-			verificationToken: "new-proof",
-			expiresAt,
-		});
-		expect(
-			await adoptLegacyCmsDomainClaim(db, {
-				...legacyKey,
-				providerHostnameId: "provider-legacy",
-			}),
-		).toMatchObject({
-			status: "active",
-			providerHostnameId: "provider-legacy",
-		});
-		expect(
-			sqlite
-				.prepare(
-					"SELECT custom_domain, canonical_url FROM cms_sites WHERE id='site-b'",
-				)
-				.get(),
-		).toEqual({
-			custom_domain: "legacy.example.com",
-			canonical_url: "https://legacy.example.com",
-		});
-		expect(
-			await adoptLegacyCmsDomainClaim(db, {
-				...legacyKey,
-				providerHostnameId: "other-provider",
-			}),
-		).toBeNull();
-	});
-
-	it("does not adopt a legacy claim after route, owner, or site status changes", async () => {
-		const { db, sqlite } = fixture();
-		const legacyKey = {
-			id: "claim-legacy",
-			organizationId: "org-b",
-			siteId: "site-b",
-		};
-		await reserveCmsDomainClaim(db, {
-			...legacyKey,
-			hostname: "legacy.example.com",
-			verificationToken: "new-proof",
-			expiresAt,
-		});
-		expect(
-			await adoptLegacyCmsDomainClaim(db, {
-				...legacyKey,
-				organizationId: "org-a",
-				providerHostnameId: "provider-legacy",
-			}),
-		).toBeNull();
-		expect(
-			await adoptLegacyCmsDomainClaim(db, {
-				...legacyKey,
-				providerHostnameId: "",
-			}),
-		).toBeNull();
-		sqlite.exec("UPDATE cms_sites SET status='paused' WHERE id='site-b'");
-		expect(
-			await adoptLegacyCmsDomainClaim(db, {
-				...legacyKey,
-				providerHostnameId: "provider-legacy",
-			}),
-		).toBeNull();
-		sqlite.exec(
-			"UPDATE cms_sites SET status='active', custom_domain='different.example.com' WHERE id='site-b'",
-		);
-		expect(
-			await adoptLegacyCmsDomainClaim(db, {
-				...legacyKey,
-				providerHostnameId: "provider-legacy",
-			}),
-		).toBeNull();
-	});
-
-	it("marks an unbound legacy route for exact provider cleanup before deletion", async () => {
-		const { db, sqlite } = fixture();
-		const legacyKey = {
-			id: "claim-legacy",
-			organizationId: "org-b",
-			siteId: "site-b",
-		};
-		await reserveCmsDomainClaim(db, {
-			...legacyKey,
-			hostname: "legacy.example.com",
-			verificationToken: "new-proof",
-			expiresAt,
-		});
-		expect(await beginRemovingCmsDomainClaim(db, legacyKey)).toMatchObject({
-			status: "removing_legacy",
-			providerHostnameId: null,
-		});
-		expect(
-			sqlite
-				.prepare("SELECT custom_domain FROM cms_sites WHERE id='site-b'")
-				.get(),
-		).toEqual({ custom_domain: null });
-		expect(await removeCmsDomainClaim(db, legacyKey)).toBe(true);
 	});
 
 	it("does not reserve a claim after the site is paused", async () => {

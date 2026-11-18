@@ -364,11 +364,9 @@ function DomainClaimPanel({
 function CmsDomainManager({
 	siteId,
 	canConnect,
-	legacyCustomDomain,
 }: {
 	siteId: string;
 	canConnect: boolean;
-	legacyCustomDomain: string | null;
 }) {
 	const queryClient = useQueryClient();
 	const [hostname, setHostname] = useState("");
@@ -388,8 +386,6 @@ function CmsDomainManager({
 	const redirect = useQuery({ ...redirectOptions, enabled: activePrimary });
 	const redirectClaim = redirect.data;
 	const showRedirect = activePrimary && (claim?.isZoneApex || !!redirectClaim);
-	const hasLegacyDomain =
-		domain.isSuccess && claim === null && Boolean(legacyCustomDomain);
 	const refreshDomain = () => {
 		void queryClient.invalidateQueries({ queryKey: domainOptions.queryKey });
 		void queryClient.invalidateQueries({ queryKey: redirectOptions.queryKey });
@@ -398,13 +394,11 @@ function CmsDomainManager({
 	const begin = useMutation({
 		mutationFn: (nextHostname: string) =>
 			osApi.sites.beginCmsDomain({ siteId, hostname: nextHostname }),
-		onSuccess: (result) => {
+		onSuccess: () => {
 			setHostname("");
 			refreshDomain();
 			toast.success(
-				result.status === "active"
-					? "Existing domain is ready to manage."
-					: "Domain claim created. Add the DNS records below, then verify.",
+				"Domain claim created. Add the DNS records below, then verify.",
 			);
 		},
 		onError: (error) =>
@@ -543,29 +537,12 @@ function CmsDomainManager({
 							</div>
 						) : null}
 					</div>
-				) : hasLegacyDomain ? (
-					<Alert>
-						<AlertTitle>Existing domain: {legacyCustomDomain}</AlertTitle>
-						<AlertDescription>
-							Bring this domain into the managed flow to inspect its claim, then
-							remove or replace it. Your current site remains available.
-						</AlertDescription>
-						<Button
-							size="sm"
-							disabled={begin.isPending}
-							onClick={() => {
-								if (legacyCustomDomain) begin.mutate(legacyCustomDomain);
-							}}
-						>
-							{begin.isPending ? "Preparing…" : "Manage existing domain"}
-						</Button>
-					</Alert>
 				) : domain.isSuccess ? (
 					<Text as="p" role="body" tone="secondary">
 						No custom domain is connected.
 					</Text>
 				) : null}
-				{canConnect && domain.isSuccess && !hasLegacyDomain ? (
+				{canConnect && domain.isSuccess ? (
 					<form
 						className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
 						onSubmit={(event) => {
@@ -1597,11 +1574,13 @@ export function SitesPage() {
 					) : (
 						<>
 							{canCreateCmsSite &&
-							sites.data?.cmsCustomDomainsEnabled !== undefined ? (
+							sites.data?.cmsCustomDomainsEnabled !== undefined &&
+							!/(?:^|\.)tedix\.(?:dev|tech)\.?$/i.test(
+								selectedSite.customDomain ?? "",
+							) ? (
 								<CmsDomainManager
 									siteId={selectedSite.id}
 									canConnect={sites.data?.cmsCustomDomainsEnabled === true}
-									legacyCustomDomain={selectedSite.customDomain}
 								/>
 							) : null}
 							{deprovisionPlan.isPending ? <ListSkeleton /> : null}

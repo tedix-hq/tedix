@@ -41,7 +41,6 @@ const mocks = vi.hoisted(() => ({
 	listCmsDomainClaimsForSite: vi.fn(),
 	beginCmsDomainProvisioning: vi.fn(),
 	finishCmsDomainProvisioning: vi.fn(),
-	adoptLegacyCmsDomainClaim: vi.fn(),
 	activateCmsDomainClaim: vi.fn(),
 	activateCmsWwwAliasClaim: vi.fn(),
 	beginRemovingCmsDomainClaim: vi.fn(),
@@ -75,7 +74,6 @@ vi.mock("@tedix/db/queries/cms-domain-claims", () => ({
 	listCmsDomainClaimsForSite: mocks.listCmsDomainClaimsForSite,
 	beginCmsDomainProvisioning: mocks.beginCmsDomainProvisioning,
 	finishCmsDomainProvisioning: mocks.finishCmsDomainProvisioning,
-	adoptLegacyCmsDomainClaim: mocks.adoptLegacyCmsDomainClaim,
 	activateCmsDomainClaim: mocks.activateCmsDomainClaim,
 	activateCmsWwwAliasClaim: mocks.activateCmsWwwAliasClaim,
 	beginRemovingCmsDomainClaim: mocks.beginRemovingCmsDomainClaim,
@@ -1226,11 +1224,6 @@ describe("tenant CMS domain claims", () => {
 			...claim,
 			providerHostnameId: provider.id,
 		});
-		mocks.adoptLegacyCmsDomainClaim.mockResolvedValue({
-			...claim,
-			providerHostnameId: provider.id,
-			status: "active",
-		});
 		mocks.activateCmsDomainClaim.mockResolvedValue({
 			...claim,
 			providerHostnameId: provider.id,
@@ -1577,49 +1570,47 @@ describe("tenant CMS domain claims", () => {
 		expect(mocks.deleteCmsCustomHostname).not.toHaveBeenCalled();
 	});
 
-	it("adopts a ready legacy hostname already routed by the site", async () => {
-		mocks.getCmsSiteByIdForOrganization.mockResolvedValue({
-			...cmsSite,
-			customDomain: hostname,
-			canonicalUrl: `https://${hostname}`,
-		});
-		mocks.findCmsCustomHostname.mockResolvedValue(provider);
-		await expect(
-			client().beginCmsDomain({ siteId: cmsSite.id, hostname }),
-		).resolves.toMatchObject({ claimId, status: "active" });
-		expect(mocks.adoptLegacyCmsDomainClaim).toHaveBeenCalledWith(
-			expect.anything(),
-			{
-				id: claimId,
-				organizationId: organization.id,
-				siteId: cmsSite.id,
-				providerHostnameId: provider.id,
-			},
-		);
-		expect(mocks.verifyCmsDnsChallenge).not.toHaveBeenCalled();
-		expect(mocks.createCmsCustomHostname).not.toHaveBeenCalled();
-	});
+	it.each([false, true])(
+		"requires verification even when the hostname is already routed (pending=%s)",
+		async (pending) => {
+			mocks.getCmsSiteByIdForOrganization.mockResolvedValue({
+				...cmsSite,
+				customDomain: hostname,
+			});
+			mocks.listCmsDomainClaimsForSite.mockResolvedValue(
+				pending ? [claim] : [],
+			);
+			mocks.findCmsCustomHostname.mockResolvedValue(provider);
+			await expect(
+				client().beginCmsDomain({ siteId: cmsSite.id, hostname }),
+			).resolves.toMatchObject({ claimId, status: "pending" });
+			expect(mocks.findCmsCustomHostname).not.toHaveBeenCalled();
+			expect(mocks.activateCmsDomainClaim).not.toHaveBeenCalled();
+		},
+	);
 
-	it("removes a routed legacy hostname with no stored provider ID", async () => {
-		mocks.getCmsDomainClaimForSite.mockResolvedValue(claim);
-		mocks.beginRemovingCmsDomainClaim.mockResolvedValue({
-			...claim,
-			status: "removing_legacy",
-		});
-		mocks.findCmsCustomHostname.mockResolvedValue(provider);
-		await expect(
-			client().removeCmsDomain({ siteId: cmsSite.id, claimId }),
-		).resolves.toEqual({ removed: true });
-		expect(mocks.findCmsCustomHostname).toHaveBeenCalledWith(
-			expect.anything(),
-			hostname,
-		);
-		expect(mocks.deleteCmsCustomHostname).toHaveBeenCalledWith(
-			expect.anything(),
-			provider.id,
-			hostname,
-		);
-	});
+	it.each(["tedix.dev", "www.tedix.dev", "tedix.tech", "blog.tedix.tech"])(
+		"keeps %s on platform routing without a claim or provider configuration",
+		async (customDomain) => {
+			mocks.getCmsSiteByIdForOrganization.mockResolvedValue({
+				...cmsSite,
+				customDomain,
+			});
+			await expect(
+				client(false, {} as CloudflareEnv).getCmsDomain({ siteId: cmsSite.id }),
+			).resolves.toBeNull();
+			await expect(
+				client().beginCmsDomain({ siteId: cmsSite.id, hostname }),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+			await expect(
+				client().removeCmsDomain({ siteId: cmsSite.id, claimId }),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+			expect(mocks.listCmsDomainClaimsForSite).not.toHaveBeenCalled();
+			expect(mocks.reserveCmsDomainClaim).not.toHaveBeenCalled();
+			expect(mocks.findCmsCustomHostname).not.toHaveBeenCalled();
+			expect(mocks.deleteCmsCustomHostname).not.toHaveBeenCalled();
+		},
+	);
 
 	it("does not delete an unbound provider hostname for a pending claim", async () => {
 		mocks.beginRemovingCmsDomainClaim.mockResolvedValue({

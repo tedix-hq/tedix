@@ -27,7 +27,6 @@ export const cmsDomainClaims = sqliteTable(
 				"active",
 				"removing",
 				"removing_provisioning",
-				"removing_legacy",
 			],
 		})
 			.notNull()
