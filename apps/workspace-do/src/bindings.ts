@@ -62,7 +62,22 @@ export interface BindingDeps {
 	showView?: (view: ShownView) => void;
 	/** Web page reads for the running conversation; absent outside a chat turn. */
 	web?: WebPort;
+	/** Shows a "Connect" card in the running turn's answer; absent outside a chat turn. */
+	requestConnection?: (request: ConnectionRequest) => void;
 }
+
+/** What the chat needs to show a "Connect" card. It names no person. */
+export interface ConnectionRequest {
+	resourceId: string;
+	resourceName: string;
+	providerId: string;
+	service: string;
+	connectionScope: "personal" | "organization";
+	reason?: string;
+}
+
+/** The longest reason shown on a "Connect" card. */
+export const CONNECTION_REASON_MAX_CHARS = 240;
 
 function revisionRef(output: OutputSummary | OutputDetail | null | undefined) {
 	return output?.revisionId ? { revisionId: output.revisionId } : undefined;
@@ -283,7 +298,56 @@ export function buildWorkspaceBindings(
 				actorId: deps.actor.id,
 			}),
 	};
-	const resources = { list: () => data.listResources() };
+	const resources = {
+		list: () => data.listResources(),
+		// Changes nothing: it only puts a card in the chat. A request that
+		// cannot lead anywhere shows no card and says what to do instead.
+		requestConnection: async (input: {
+			resourceId?: unknown;
+			reason?: unknown;
+		}) => {
+			if (typeof input?.resourceId !== "string" || !input.resourceId)
+				throw new Error("Name the source by its resourceId");
+			const resource = (await data.listResources()).find(
+				(item) => item.id === input.resourceId,
+			);
+			if (!resource)
+				throw new Error(
+					"No connected source has that id. List them with env.resources.list().",
+				);
+			if (resource.connectedForYou === null)
+				return {
+					requested: false as const,
+					message: `${resource.name} needs no account, so there is nothing to connect.`,
+				};
+			if (resource.connectedForYou)
+				return {
+					requested: false as const,
+					message: `The ${resource.service} account for ${resource.name} is already connected.`,
+				};
+			if (!deps.requestConnection)
+				throw new Error("A connection can be asked for only in a chat turn");
+			const reason =
+				typeof input.reason === "string"
+					? input.reason.trim().slice(0, CONNECTION_REASON_MAX_CHARS)
+					: "";
+			deps.requestConnection({
+				resourceId: resource.id,
+				resourceName: resource.name,
+				providerId: resource.providerId,
+				service: resource.service,
+				connectionScope: resource.connectionScope,
+				...(reason ? { reason } : {}),
+			});
+			return {
+				requested: true as const,
+				message:
+					resource.connectionScope === "personal"
+						? `The chat now shows a "Connect ${resource.service}" card. Say in one sentence that the person can connect their own ${resource.service} account there. Do not ask again in this answer.`
+						: `The chat now shows a "Connect ${resource.service}" card. Say in one sentence that an organization admin connects the shared ${resource.service} account there. Do not ask again in this answer.`,
+			};
+		},
+	};
 	const work = {
 		list: (options?: { disposition?: string; limit?: number }) =>
 			data.listWork(options),
@@ -424,7 +488,10 @@ export function buildWorkspaceBindings(
 		resources: wrapBinding(resources, {
 			...common,
 			resource: "resource",
-			methods: { list: { riskTier: "read", blastRadius: "none" } },
+			methods: {
+				list: { riskTier: "read", blastRadius: "none" },
+				requestConnection: { riskTier: "read", blastRadius: "none" },
+			},
 		}),
 		web: wrapBinding(web, {
 			...common,

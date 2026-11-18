@@ -163,6 +163,29 @@ function needsApproval(text: string): string | null {
 	return null;
 }
 
+/** A source the sample agent asks the person to connect, by what they typed. */
+function missingAccount(text: string) {
+	const lower = text.toLowerCase();
+	if (lower.includes("calendar"))
+		return {
+			resourceId: "sample-team-calendar",
+			resourceName: "Team calendar",
+			providerId: "example-calendar",
+			service: "Example Calendar",
+			connectionScope: "personal" as const,
+			reason: "To check the dates of the open challenges.",
+		};
+	if (lower.includes("crm"))
+		return {
+			resourceId: "sample-partner-crm",
+			resourceName: "Partner accounts",
+			providerId: "example-crm",
+			service: "Example CRM",
+			connectionScope: "organization" as const,
+		};
+	return null;
+}
+
 function reply(text: string): string {
 	return [
 		`Here is what I found for "${text.trim()}".`,
@@ -316,6 +339,15 @@ async function runTurn(
 			return void finish("done");
 		}
 	}
+	const missing = missingAccount(text);
+	if (missing)
+		emit(ws, {
+			type: "connection.requested",
+			conversationId,
+			turnId,
+			requestId: `${turnId}:${missing.resourceId}`,
+			...missing,
+		});
 	const messageId = `${turnId}-m1`;
 	const full = reply(text);
 	let sent = "";

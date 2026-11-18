@@ -118,6 +118,53 @@ describe("applyWorkspaceChatEvent", () => {
 		expect(activeTurn(state)).toBeNull();
 	});
 
+	it("keeps one Connect request per source a turn asked for, in order", () => {
+		const ask = (
+			seq: number,
+			resourceId: string,
+			reason?: string,
+		): WorkspaceChatLedgerEvent => ({
+			seq,
+			at: at(3),
+			conversationId: "c1",
+			type: "connection.requested",
+			turnId: "t1",
+			requestId: `t1:${resourceId}`,
+			resourceId,
+			resourceName: `Source ${resourceId}`,
+			providerId: "drive",
+			service: "Example Drive",
+			connectionScope: resourceId === "shared" ? "organization" : "personal",
+			...(reason ? { reason } : {}),
+		});
+		const state = applyWorkspaceChatEvents(initialWorkspaceChatState("c1"), [
+			...turn,
+			ask(8, "own", "To read the planning folder."),
+			ask(9, "shared"),
+			ask(10, "own"),
+		]);
+		expect(state.turns[0]?.connectionRequests).toEqual([
+			{
+				requestId: "t1:own",
+				resourceId: "own",
+				resourceName: "Source own",
+				providerId: "drive",
+				service: "Example Drive",
+				connectionScope: "personal",
+				reason: "To read the planning folder.",
+			},
+			{
+				requestId: "t1:shared",
+				resourceId: "shared",
+				resourceName: "Source shared",
+				providerId: "drive",
+				service: "Example Drive",
+				connectionScope: "organization",
+			},
+		]);
+		expect(state.cursor).toBe(10);
+	});
+
 	it("keeps the views a turn showed, once each, in order", () => {
 		const view = (seq: number, viewId: string): WorkspaceChatLedgerEvent => ({
 			seq,

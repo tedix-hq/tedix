@@ -160,6 +160,23 @@ export type WireEventBody =
 			toolResult: Record<string, unknown>;
 	  }
 	| {
+			/**
+			 * The agent asked for an account a connected source needs. The chat
+			 * shows a "Connect" card; nothing changed and nothing waits on it.
+			 */
+			type: "connection.requested";
+			turnId: string;
+			requestId: string;
+			resourceId: string;
+			resourceName: string;
+			providerId: string;
+			/** The service's display name. */
+			service: string;
+			/** Whose account is missing: the person's own, or the organization's. */
+			connectionScope: "personal" | "organization";
+			reason?: string;
+	  }
+	| {
 			type: "turn.finished";
 			turnId: string;
 			status: "done" | "error" | "cancelled" | "waiting";
@@ -373,7 +390,10 @@ export function stepLabel(
 			editFile: "Editing an app draft",
 			writeFile: "Writing an app draft file",
 		},
-		resources: { list: "Listing resources" },
+		resources: {
+			list: "Listing connected sources",
+			requestConnection: "Asking for a connected account",
+		},
 		views: { show: "Showing a view" },
 		web: { fetch: "Reading a web page" },
 		work: {

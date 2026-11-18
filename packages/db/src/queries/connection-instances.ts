@@ -3,7 +3,7 @@ import {
 	type ConnectionAllowedResources,
 } from "@tedix/api-contract/schemas/connections";
 import { organizations } from "../schema/organizations";
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { connectionInstances } from "../schema/connection-instances";
 
@@ -30,6 +30,59 @@ export async function listConnectionInstances(
 		.where(ownerPredicate(owner))
 		.orderBy(asc(connectionInstances.createdAt), asc(connectionInstances.id))
 		.limit(100);
+}
+
+/**
+ * The accounts of these providers that hold a grant: the organization's and,
+ * when a person is named, that person's own. Returns no owner and no grant id.
+ */
+export async function listConnectedAccounts(
+	db: DbQueryClient,
+	params: { organizationId: string; userId?: string; providerIds: string[] },
+) {
+	const providerIds = [...new Set(params.providerIds)];
+	const accounts: Array<{
+		id: string;
+		providerId: string;
+		scope: "tenant" | "user";
+	}> = [];
+	// D1 binds at most 100 values a statement.
+	for (let start = 0; start < providerIds.length; start += 50) {
+		const rows = await db
+			.select({
+				id: connectionInstances.id,
+				providerId: connectionInstances.providerId,
+				organizationId: connectionInstances.organizationId,
+				tokenIds: connectionInstances.tokenIds,
+				tokenSub: connectionInstances.tokenSub,
+			})
+			.from(connectionInstances)
+			.where(
+				and(
+					inArray(
+						connectionInstances.providerId,
+						providerIds.slice(start, start + 50),
+					),
+					or(
+						eq(connectionInstances.organizationId, params.organizationId),
+						params.userId
+							? and(
+									eq(connectionInstances.ownerUserId, params.userId),
+									isNull(connectionInstances.organizationId),
+								)
+							: undefined,
+					),
+				),
+			);
+		for (const row of rows)
+			if (row.tokenIds.length > 0 && row.tokenSub)
+				accounts.push({
+					id: row.id,
+					providerId: row.providerId,
+					scope: row.organizationId ? "tenant" : "user",
+				});
+	}
+	return accounts;
 }
 
 export async function getConnectionInstance(

@@ -32,6 +32,8 @@ import {
 	getOsWorkspaceSummary,
 	parseOsWorkspaceSummaryPayload,
 } from "@tedix/db/queries/os-workspaces/summaries";
+import { connectionInstances } from "@tedix/db/schema/connection-instances";
+import { connectionProviders } from "@tedix/db/schema/connection-providers";
 import { tedis } from "@tedix/db/schema/tedis";
 import { organizations } from "@tedix/db/schema/organizations";
 import {
@@ -2379,6 +2381,128 @@ describe("WorkspaceDO", () => {
 			resourceUri: "ui://widgets/mcp-app/tedix-unified/r/open-work-1.html",
 			toolResult: { rows: [{ title: "A", disposition: "accepted" }] },
 		});
+	});
+
+	test("asking for a missing account puts one Connect event in the conversation and changes nothing", async () => {
+		await seedCore();
+		const sources: WorkspaceScope = {
+			organizationId: "org_test",
+			workspaceId: crypto.randomUUID(),
+		};
+		await seedWorkspaceRows([sources]);
+		await testEnv.DB.batch([
+			testEnv.DB.prepare(ddl(connectionInstances)),
+			testEnv.DB.prepare(ddl(connectionProviders)),
+		]);
+		const now = "2026-11-18T10:00:00.000Z";
+		await testEnv.DB.batch([
+			testEnv.DB.prepare(
+				"INSERT OR REPLACE INTO connection_providers (id, name, description, icon, category, type, recommended_scope, supported_scopes, required_scopes) VALUES ('drive', 'Example Drive', '', '', 'storage', 'oauth', 'user', '[]', '[]')",
+			),
+			// A colleague's account and the organization's; u1 has none.
+			testEnv.DB.prepare(
+				`INSERT OR REPLACE INTO connection_instances (id, owner_user_id, organization_id, provider_id, label, token_ids, token_sub, created_at, updated_at) VALUES ('colleague-drive', 'u2', NULL, 'drive', 'Drive', '["grant"]', 'subject', ?1, ?1), ('org-mail', 'u2', ?2, 'mail', 'Mail', '["grant"]', 'subject', ?1, ?1)`,
+			).bind(now, sources.organizationId),
+			...(
+				[
+					["personal", "drive", "user", "u2", "colleague-drive"],
+					["shared", "mail", "tenant", null, "org-mail"],
+					["file", "tedix", "tenant", null, null],
+				] as const
+			).map(([id, providerId, connectionScope, owner, account]) =>
+				testEnv.DB.prepare(
+					"INSERT INTO os_workspace_resources (id, organization_id, workspace_id, provider_id, connection_scope, personal_owner_user_id, connection_instance_id, required_scopes, resource_type, provider_resource_id, name, metadata, status, created_by_kind, created_by_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 'folder', ?, ?, '{}', 'active', 'user', 'u2', ?, ?)",
+				).bind(
+					`${sources.workspaceId}-${id}`,
+					sources.organizationId,
+					sources.workspaceId,
+					providerId,
+					connectionScope,
+					owner,
+					account,
+					id,
+					`Team ${id}`,
+					now,
+					now,
+				),
+			),
+		]);
+		const ws = workspace(sources);
+		expect(await ws.outputQuery(sources, { op: "claim" })).toBe("object");
+		const id = (name: string) => `${sources.workspaceId}-${name}`;
+		// The object takes the workspace's earlier sources on its first source read.
+		await ws.outputQuery(sources, {
+			op: "resources",
+			query: {
+				operation: "get",
+				params: { ...sources, resourceId: id("file") },
+			},
+		});
+		const ASK = `export default async (env) => {
+			const listed = await env.resources.list();
+			const ask = (resourceId, reason) => env.resources.requestConnection({ resourceId, reason });
+			return {
+				listed: listed.map((row) => [row.name, row.connectionScope, row.connectedForYou]),
+				personal: await ask(${JSON.stringify(id("personal"))}, "  To read the planning folder.  "),
+				again: await ask(${JSON.stringify(id("personal"))}),
+				shared: await ask(${JSON.stringify(id("shared"))}),
+				file: await ask(${JSON.stringify(id("file"))}),
+				unknown: await ask("missing").catch((error) => error.message),
+			};
+		}`;
+		await ws.scriptModel(sources, [{ code: ASK }, { text: "Connect it." }]);
+		const { turnId, conversationId } = await ws.sendTurn(sources, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "What is in the planning folder?",
+		});
+		expect(await ws.awaitTurn(sources, turnId, 20_000)).toMatchObject({
+			status: "finished",
+			text: "Connect it.",
+		});
+		const events = await ws.readEvents(sources, { conversationId });
+		// The code step's result is text: a label, then what the code returned.
+		const returned =
+			events.flatMap((event) =>
+				event.type === "step.finished" && event.result?.includes('"listed"')
+					? [event.result]
+					: [],
+			)[0] ?? "";
+		const result = JSON.parse(
+			returned.slice(returned.indexOf("{"), returned.lastIndexOf("}") + 1),
+		) as Record<string, { requested?: boolean; message?: string }>;
+		expect(result).toMatchObject({
+			listed: [
+				["Team file", "organization", null],
+				["Team personal", "personal", false],
+				["Team shared", "organization", true],
+			],
+			personal: { requested: true },
+			again: { requested: true },
+			shared: { requested: false },
+			file: { requested: false },
+			unknown: expect.stringContaining("No connected source has that id"),
+		});
+		const asked = events.filter(
+			(event) => event.type === "connection.requested",
+		);
+		// The repeat reuses the request id, so the chat shows one card.
+		expect(new Set(asked.map((event) => event.requestId)).size).toBe(1);
+		expect(asked[0]).toMatchObject({
+			turnId,
+			requestId: `${turnId}:${id("personal")}`,
+			resourceId: id("personal"),
+			resourceName: "Team personal",
+			providerId: "drive",
+			service: "Example Drive",
+			connectionScope: "personal",
+			reason: "To read the planning folder.",
+		});
+		expect(JSON.stringify(asked)).not.toContain("u2");
+		// A read: nothing waited for a person and no approval was recorded.
+		expect(
+			events.filter((event) => event.type.startsWith("approval.")),
+		).toEqual([]);
 	});
 
 	test("reading a web page asks once per domain and returns the page as text", async () => {

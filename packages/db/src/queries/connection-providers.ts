@@ -11,7 +11,7 @@ import type {
 	ConnectionProviderCategory,
 	ConnectionProviderTemplate,
 } from "@tedix/api-contract/schemas/connection-provider-templates";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { ConnectionProviderRow } from "../schema/connection-providers";
 import type { DbQueryClient } from "../query-client";
@@ -87,6 +87,24 @@ export async function listConnectionProvidersByType(
 		.where(eq(connectionProviders.type, type))
 		.orderBy(asc(connectionProviders.sortOrder), asc(connectionProviders.id));
 	return rows.map(toConnectionProviderTemplate);
+}
+
+/** The display name of each of these providers, keyed by provider id. */
+export async function listConnectionProviderNames(
+	db: DbQueryClient,
+	providerIds: string[],
+): Promise<Map<string, string>> {
+	const ids = [...new Set(providerIds)];
+	const names = new Map<string, string>();
+	// D1 binds at most 100 values a statement.
+	for (let start = 0; start < ids.length; start += 50) {
+		const rows = await db
+			.select({ id: connectionProviders.id, name: connectionProviders.name })
+			.from(connectionProviders)
+			.where(inArray(connectionProviders.id, ids.slice(start, start + 50)));
+		for (const row of rows) names.set(row.id, row.name);
+	}
+	return names;
 }
 
 /** Single-lookup convenience wrapper for call sites doing 1-2 lookups, not a loop. */

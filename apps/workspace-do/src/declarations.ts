@@ -142,9 +142,34 @@ interface Apps {
   create(input: { name: string; description?: string; files: Record<string, string> }): Promise<{ id: string; name: string; revision: number; revisionId: string }>;
 }`.trim(),
 	resources: `
-/** Connected resources (files, folders, external objects) of this workspace. Read-only. */
+/**
+ * Connected sources (files, folders, calendars, external objects) of this workspace. Read-only:
+ * you can see what is connected, but you cannot read from or write to a connected source yet.
+ */
+interface ConnectedSource {
+  id: string; name: string; kind: string; status: string;
+  /** The name apps use for this source; null when it has none. */
+  slot: string | null;
+  providerId: string;
+  /** The service's name, for example "Google Drive". */
+  service: string;
+  /** "personal": each person reads it through their own account. "organization": one account shared by the organization. */
+  connectionScope: "personal" | "organization";
+  connectionInstanceId: string | null;
+  /** What the source grants at the service; null when not recorded. */
+  providerAccess: { canRead: boolean; canWrite: boolean } | null;
+  /** Whether the person you act for has the account this source needs. null: the source needs no account. */
+  connectedForYou: boolean | null;
+}
 interface Resources {
-  list(): Promise<Array<{ id: string; name: string; kind: string; status: string }>>;
+  /** Every active source, by name. Never needs approval. */
+  list(): Promise<ConnectedSource[]>;
+  /**
+   * Show the person a "Connect <service>" card for a source whose connectedForYou is false. Never needs approval; changes nothing.
+   * reason: one short sentence on what the account is needed for, shown on the card.
+   * requested: false means no card was shown; message says why.
+   */
+  requestConnection(input: { resourceId: string; reason?: string }): Promise<{ requested: boolean; message: string }>;
 }`.trim(),
 	work: `
 /** Work items of the projects this workspace is linked to. */

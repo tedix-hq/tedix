@@ -9,6 +9,7 @@ import {
 	clearConnectionGrants,
 	createConnectionInstance,
 	getConnectionInstance,
+	listConnectedAccounts,
 	listConnectionInstances,
 	recordConnectionGrant,
 	renameConnectionInstance,
@@ -249,5 +250,50 @@ it("stores repository limits and revocation only for the exact organization and 
 				"github",
 			)
 		)?.allowedResources,
+	).toEqual([]);
+});
+
+it("lists only accounts that hold a grant, for the organization and the named person", async () => {
+	const db = fixture();
+	const rows = [
+		["org-drive", "org-a", "alice", "drive", true],
+		["org-mail", "org-a", "alice", "mail", false],
+		["other-org", "org-b", "alice", "drive", true],
+		["alice-drive", undefined, "alice", "drive", true],
+		["alice-mail", undefined, "alice", "mail", false],
+		["bob-drive", undefined, "bob", "drive", true],
+		["alice-notes", undefined, "alice", "notes", true],
+	] as const;
+	for (const [id, organizationId, ownerUserId, providerId, granted] of rows) {
+		await createConnectionInstance(db, {
+			id,
+			ownerUserId,
+			providerId,
+			label: id,
+			...(organizationId ? { organizationId } : {}),
+		});
+		if (granted)
+			await recordConnectionGrant(db, {
+				owner: organizationId ? { organizationId } : { userId: ownerUserId },
+				id,
+				providerId,
+				tokenId: `grant-${id}`,
+				tokenSub: `subject-${id}`,
+			});
+	}
+	const scope = { organizationId: "org-a", providerIds: ["drive", "mail"] };
+	const byId = (accounts: Awaited<ReturnType<typeof listConnectedAccounts>>) =>
+		accounts.toSorted((a, b) => a.id.localeCompare(b.id));
+	expect(
+		byId(await listConnectedAccounts(db, { ...scope, userId: "alice" })),
+	).toEqual([
+		{ id: "alice-drive", providerId: "drive", scope: "user" },
+		{ id: "org-drive", providerId: "drive", scope: "tenant" },
+	]);
+	expect(await listConnectedAccounts(db, scope)).toEqual([
+		{ id: "org-drive", providerId: "drive", scope: "tenant" },
+	]);
+	expect(
+		await listConnectedAccounts(db, { ...scope, providerIds: [] }),
 	).toEqual([]);
 });

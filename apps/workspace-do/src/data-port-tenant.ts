@@ -40,6 +40,8 @@ import {
 } from "@tedix/db/queries/os-workspaces/collaboration";
 import { listOsWorkspaceProjects } from "@tedix/db/queries/os-workspaces/projects";
 import { listWorkspaceResourceSummaries } from "@tedix/db/queries/durable-sqlite/workspace-resources";
+import { listConnectedAccounts } from "@tedix/db/queries/connection-instances";
+import { listConnectionProviderNames } from "@tedix/db/queries/connection-providers";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
 import {
@@ -73,6 +75,7 @@ import type {
 	EditAppFilesInput,
 	OutputDetail,
 	OutputSummary,
+	ResourceSummary,
 	CreateWorkInput,
 	WorkItemSummary,
 	WorkspaceDataPort,
@@ -142,6 +145,11 @@ export interface TenantDataPortDeps {
 	core: DbQueryClient;
 	bucket: OutputBodyBucket;
 	actorKind: "user" | "tedi" | "external_agent" | "service";
+	/**
+	 * The person the turn acts for, when a person started it. Decides which
+	 * personal accounts count as connected; never written anywhere.
+	 */
+	actingUserId?: string | null;
 	conversationId?: string;
 	/**
 	 * The agent turn writing through this port. Its saves stay attributed to
@@ -645,9 +653,56 @@ export class TenantDataPort implements WorkspaceDataPort {
 		};
 	}
 
-	async listResources() {
+	async listResources(): Promise<ResourceSummary[]> {
 		await this.deps.assertWorkspaceAuthority();
-		return listWorkspaceResourceSummaries(this.deps.tenant, this.scope);
+		const rows = await listWorkspaceResourceSummaries(
+			this.deps.tenant,
+			this.scope,
+		);
+		// Workspace files and the like need no account and no lookup.
+		const providerIds = rows
+			.filter((row) => row.connectionInstanceId)
+			.map((row) => row.providerId);
+		const person = this.deps.actingUserId ?? undefined;
+		const [accounts, names] = providerIds.length
+			? await Promise.all([
+					listConnectedAccounts(this.deps.core, {
+						organizationId: this.deps.organizationId,
+						...(person ? { userId: person } : {}),
+						providerIds,
+					}),
+					listConnectionProviderNames(this.deps.core, providerIds),
+				])
+			: [[], new Map<string, string>()];
+		// The same rule a workspace app's read follows: an organization source
+		// uses its one shared account; a personal source uses the reader's own
+		// account, never its owner's on someone else's behalf.
+		const connected = (row: (typeof rows)[number]) => {
+			if (!row.connectionInstanceId) return null;
+			const scope = row.connectionScope;
+			const ofProvider = accounts.filter(
+				(account) =>
+					account.scope === scope && account.providerId === row.providerId,
+			);
+			if (scope === "user" && !person) return false;
+			return scope === "user" && row.personalOwnerUserId !== person
+				? ofProvider.length > 0
+				: ofProvider.some((account) => account.id === row.connectionInstanceId);
+		};
+		return rows.map((row) => ({
+			id: row.id,
+			name: row.name,
+			kind: row.kind,
+			status: row.status,
+			slot: row.slot,
+			providerId: row.providerId,
+			service: names.get(row.providerId) ?? row.providerId,
+			connectionScope:
+				row.connectionScope === "user" ? "personal" : "organization",
+			connectionInstanceId: row.connectionInstanceId,
+			providerAccess: row.providerAccess ?? null,
+			connectedForYou: connected(row),
+		}));
 	}
 
 	async listWork(options?: { disposition?: string; limit?: number }) {

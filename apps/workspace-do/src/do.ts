@@ -3544,12 +3544,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		actorKind: ActorKind,
 		turn?: { conversationId: string; turnId: string },
 	) {
+		// The person who started the turn, also when a guest tedi answers it.
+		const started = turn ? this.#turn(turn.turnId) : undefined;
 		return new TenantDataPort({
 			...scope,
 			tenant: this.db as TenantStoreDb,
 			core: createDbQueryClient(this.env.DB),
 			bucket: this.env.R2_BUCKET,
 			actorKind,
+			actingUserId: started?.actor_kind === "user" ? started.actor_id : null,
 			conversationId: turn?.conversationId,
 			agentTurnId: turn?.turnId,
 			validateAppSource: (files, date) =>
@@ -3622,6 +3625,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					...view,
 				});
 			},
+			// One id per source and turn, so a repeated ask shows one card.
+			requestConnection: (request) =>
+				void this.#events.append(turn.conversationId, {
+					type: "connection.requested",
+					turnId: turn.turnId,
+					requestId: `${turn.turnId}:${request.resourceId}`,
+					...request,
+				}),
 		});
 	}
 
@@ -4770,5 +4781,8 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	show(...args: unknown[]) {
 		return this.#call("show", args);
+	}
+	requestConnection(...args: unknown[]) {
+		return this.#call("requestConnection", args);
 	}
 }

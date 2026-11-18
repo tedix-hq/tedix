@@ -3,7 +3,14 @@ import { describe, expect, test } from "vite-plus/test";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { createTenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
-import type { DbQueryClient } from "@tedix/db/query-client";
+import {
+	createDbQueryClient,
+	type DbQueryClient,
+} from "@tedix/db/query-client";
+import { connectionInstances } from "@tedix/db/schema/connection-instances";
+import { connectionProviders } from "@tedix/db/schema/connection-providers";
+import { getTableColumns, getTableName } from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { TenantDataPort } from "../src/data-port-tenant";
 import type { WorkspaceEnv } from "../src/env";
 
@@ -16,6 +23,15 @@ const unused = () => {
 };
 const core = new Proxy({} as DbQueryClient, { get: unused });
 const bucket = { get: unused, put: unused };
+
+function ddl(table: SQLiteTable): string {
+	const columns = Object.values(getTableColumns(table)).map((column) => {
+		const parts = [`"${column.name}"`, column.getSQLType()];
+		if (column.primary) parts.push("PRIMARY KEY");
+		return parts.join(" ");
+	});
+	return `CREATE TABLE IF NOT EXISTS "${getTableName(table)}" (${columns.join(", ")})`;
+}
 
 function port(tenant: TenantStoreDb, activated: boolean) {
 	return new TenantDataPort({
@@ -107,11 +123,182 @@ describe("workspace agent data storage", () => {
 					status,
 				);
 			const data = port(createTenantStoreDb(state.storage), true);
+			// These need no account, so the shared database is never read.
+			const native = {
+				kind: "file",
+				status: "active",
+				slot: null,
+				providerId: "fixture",
+				service: "fixture",
+				connectionScope: "organization",
+				connectionInstanceId: null,
+				providerAccess: null,
+				connectedForYou: null,
+			};
 			expect(await data.listResources()).toEqual([
-				{ id: "first", name: "First", kind: "file", status: "active" },
-				{ id: "a", name: "Same", kind: "file", status: "active" },
-				{ id: "z", name: "Same", kind: "file", status: "active" },
+				{ id: "first", name: "First", ...native },
+				{ id: "a", name: "Same", ...native },
+				{ id: "z", name: "Same", ...native },
 			]);
+		});
+	});
+
+	test("a source says how it is connected and whether the acting person has its account, and names no owner", async () => {
+		const bindings = env as unknown as WorkspaceEnv;
+		const sources = {
+			organizationId: "org_port_sources",
+			workspaceId: "workspace_port_sources",
+		};
+		for (const table of [connectionInstances, connectionProviders])
+			await bindings.DB.prepare(ddl(table)).run();
+		await bindings.DB.prepare(
+			"INSERT OR REPLACE INTO connection_providers (id, name, description, icon, category, type, recommended_scope, supported_scopes, required_scopes) VALUES ('drive', 'Example Drive', '', '', 'storage', 'oauth', 'user', '[]', '[]')",
+		).run();
+		// [id, organization, owner, provider, holds a grant]
+		for (const [id, organizationId, owner, providerId, granted] of [
+			["ana-drive", null, "ana", "drive", true],
+			["ana-second-drive", null, "ana", "drive", false],
+			["ben-drive", null, "ben", "drive", true],
+			["ben-mail", null, "ben", "mail", true],
+			["org-drive", sources.organizationId, "ben", "drive", true],
+			["org-mail", sources.organizationId, "ben", "mail", false],
+			["other-org-mail", "org_port_other", "ben", "mail", true],
+		] as const)
+			await bindings.DB.prepare(
+				"INSERT OR REPLACE INTO connection_instances (id, owner_user_id, organization_id, provider_id, label, token_ids, token_sub, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, '2026-11-18', '2026-11-18')",
+			)
+				.bind(
+					id,
+					owner,
+					organizationId,
+					providerId,
+					id,
+					granted ? '["grant"]' : "[]",
+					granted ? "subject" : null,
+				)
+				.run();
+		const ws = tenantStoreStub(bindings.WORKSPACE, bindings, sources);
+		await runInDurableObject(ws, async (_instance, state) => {
+			state.storage.sql.exec(
+				"INSERT INTO os_workspaces (id, organization_id, name, created_by_kind, created_by_id) VALUES (?, ?, 'Sources', 'user', 'fixture')",
+				sources.workspaceId,
+				sources.organizationId,
+			);
+			// [id, slot, provider, scope, owner, account, access]
+			for (const [id, slot, providerId, scope, owner, account, access] of [
+				[
+					"1-own",
+					"notes",
+					"drive",
+					"user",
+					"ana",
+					"ana-drive",
+					'{"canRead":true,"canWrite":false}',
+				],
+				[
+					"2-own-unconnected",
+					null,
+					"drive",
+					"user",
+					"ana",
+					"ana-second-drive",
+					null,
+				],
+				["3-colleague-drive", null, "drive", "user", "ben", "ben-drive", null],
+				["4-colleague-mail", null, "mail", "user", "ben", "ben-mail", null],
+				["5-shared", null, "drive", "tenant", null, "org-drive", null],
+				[
+					"6-shared-unconnected",
+					null,
+					"mail",
+					"tenant",
+					null,
+					"org-mail",
+					null,
+				],
+				["7-file", null, "tedix", "tenant", null, null, null],
+			] as const)
+				state.storage.sql.exec(
+					"INSERT INTO os_workspace_resources (id, organization_id, workspace_id, slot, provider_id, connection_scope, personal_owner_user_id, connection_instance_id, provider_access, resource_type, provider_resource_id, name, status, created_by_kind, created_by_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'folder', ?, ?, 'active', 'user', 'fixture')",
+					id,
+					sources.organizationId,
+					sources.workspaceId,
+					slot,
+					providerId,
+					scope,
+					owner,
+					account,
+					access,
+					id,
+					id,
+				);
+			const list = (actingUserId: string | null) =>
+				new TenantDataPort({
+					...sources,
+					tenant: createTenantStoreDb(state.storage),
+					core: createDbQueryClient(bindings.DB),
+					bucket,
+					actorKind: actingUserId ? "user" : "external_agent",
+					actingUserId,
+					validateAppSource: unused,
+					assertWorkspaceAuthority: async () => {},
+					commitOutput: unused,
+					notifyOutputRevision: unused,
+				}).listResources();
+			const forAna = await list("ana");
+			expect(forAna[0]).toEqual({
+				id: "1-own",
+				name: "1-own",
+				kind: "folder",
+				status: "active",
+				slot: "notes",
+				providerId: "drive",
+				service: "Example Drive",
+				connectionScope: "personal",
+				connectionInstanceId: "ana-drive",
+				providerAccess: { canRead: true, canWrite: false },
+				connectedForYou: true,
+			});
+			const connected = (rows: typeof forAna) =>
+				Object.fromEntries(rows.map((row) => [row.id, row.connectedForYou]));
+			expect(connected(forAna)).toEqual({
+				"1-own": true,
+				// Her other account of the same service does not stand in for it.
+				"2-own-unconnected": false,
+				// A colleague's source reads through her own account of that service.
+				"3-colleague-drive": true,
+				"4-colleague-mail": false,
+				"5-shared": true,
+				"6-shared-unconnected": false,
+				"7-file": null,
+			});
+			expect(
+				forAna.map((row) => [row.id, row.connectionScope, row.service]),
+			).toEqual([
+				["1-own", "personal", "Example Drive"],
+				["2-own-unconnected", "personal", "Example Drive"],
+				["3-colleague-drive", "personal", "Example Drive"],
+				["4-colleague-mail", "personal", "mail"],
+				["5-shared", "organization", "Example Drive"],
+				["6-shared-unconnected", "organization", "mail"],
+				["7-file", "organization", "tedix"],
+			]);
+			// With no person acting, only the organization's accounts count.
+			expect(connected(await list(null))).toEqual({
+				"1-own": false,
+				"2-own-unconnected": false,
+				"3-colleague-drive": false,
+				"4-colleague-mail": false,
+				"5-shared": true,
+				"6-shared-unconnected": false,
+				"7-file": null,
+			});
+			const shown = JSON.stringify([forAna, await list("ben")]);
+			expect(shown).not.toContain("personalOwnerUserId");
+			expect(shown).not.toContain('"ana"');
+			expect(shown).not.toContain('"ben"');
+			expect(shown).not.toContain("grant");
+			expect(shown).not.toContain("subject");
 		});
 	});
 

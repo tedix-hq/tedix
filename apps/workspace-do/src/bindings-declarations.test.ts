@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createInMemoryAdapters } from "@tedix/agent-governance/in-memory";
-import { buildWorkspaceBindings } from "./bindings";
-import type { WorkspaceDataPort } from "./data-port";
+import {
+	buildWorkspaceBindings,
+	CONNECTION_REASON_MAX_CHARS,
+	type ConnectionRequest,
+} from "./bindings";
+import type { ResourceSummary, WorkspaceDataPort } from "./data-port";
 
 function fakeData(): WorkspaceDataPort {
 	const work = [
@@ -84,6 +88,104 @@ function fakeData(): WorkspaceDataPort {
 }
 
 describe("workspace bindings", () => {
+	test("asking for an account shows a card only for a source the person has not connected, and never waits for approval", async () => {
+		const source = (
+			id: string,
+			connectedForYou: boolean | null,
+			connectionScope: ResourceSummary["connectionScope"] = "personal",
+		): ResourceSummary => ({
+			id,
+			name: `Source ${id}`,
+			kind: "folder",
+			status: "active",
+			slot: null,
+			providerId: "drive",
+			service: "Example Drive",
+			connectionScope,
+			connectionInstanceId: connectedForYou === null ? null : `account-${id}`,
+			providerAccess: null,
+			connectedForYou,
+		});
+		const data = fakeData();
+		data.listResources = async () => [
+			source("missing", false),
+			source("shared", false, "organization"),
+			source("connected", true),
+			source("file", null),
+		];
+		const adapters = createInMemoryAdapters();
+		const asked: ConnectionRequest[] = [];
+		const build = (inChat: boolean) =>
+			buildWorkspaceBindings({
+				data,
+				...adapters,
+				actor: { id: "person", kind: "user", organizationId: "o" },
+				source: { surface: "workspace_object", traceId: "t" },
+				...(inChat
+					? { requestConnection: (request) => void asked.push(request) }
+					: {}),
+			}).resources as {
+				requestConnection(input: {
+					resourceId?: string;
+					reason?: string;
+				}): Promise<{ requested: boolean; message: string }>;
+			};
+		const resources = build(true);
+		expect(
+			await resources.requestConnection({
+				resourceId: "missing",
+				reason: ` ${"r".repeat(CONNECTION_REASON_MAX_CHARS + 20)} `,
+			}),
+		).toMatchObject({ requested: true });
+		expect(
+			await resources.requestConnection({ resourceId: "shared" }),
+		).toMatchObject({
+			requested: true,
+			message: expect.stringContaining("organization admin"),
+		});
+		for (const resourceId of ["connected", "file"])
+			expect(await resources.requestConnection({ resourceId })).toMatchObject({
+				requested: false,
+			});
+		expect(asked).toEqual([
+			{
+				resourceId: "missing",
+				resourceName: "Source missing",
+				providerId: "drive",
+				service: "Example Drive",
+				connectionScope: "personal",
+				reason: "r".repeat(CONNECTION_REASON_MAX_CHARS),
+			},
+			{
+				resourceId: "shared",
+				resourceName: "Source shared",
+				providerId: "drive",
+				service: "Example Drive",
+				connectionScope: "organization",
+			},
+		]);
+		await expect(
+			resources.requestConnection({ resourceId: "unknown" }),
+		).rejects.toThrow("No connected source has that id");
+		await expect(resources.requestConnection({})).rejects.toThrow(
+			"Name the source by its resourceId",
+		);
+		await expect(
+			build(false).requestConnection({ resourceId: "missing" }),
+		).rejects.toThrow("only in a chat turn");
+		const records = await adapters.accountability.list({});
+		// Recorded as reads that were allowed; none waited for a person.
+		expect(records.length).toBeGreaterThan(0);
+		expect(
+			records.every(
+				(record) =>
+					record.operation === "requestConnection" &&
+					record.decision.riskTier === "read" &&
+					record.decision.verdict === "allow",
+			),
+		).toBe(true);
+	});
+
 	test("document writes share canonical CAS, revisions and approval policy", async () => {
 		const data = fakeData();
 		let current = {

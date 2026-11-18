@@ -34,6 +34,15 @@ its code runs beside the data.
    information. `env.views.show` changes no data: it puts a live view
    (a `view.shown` event) under the answer, which the chat renders in the
    same sandboxed widget frame tedi chat uses.
+   `env.resources.list()` shows each connected source with its slot, service,
+   whether it reads through each person's own account or one the organization
+   shares, the access it grants, and whether the person the turn acts for has
+   that account connected. It names no owner and holds no credential. The
+   agent cannot read from or write to a connected source yet.
+   `env.resources.requestConnection({ resourceId, reason })` is a read that
+   changes nothing: for a source the person has not connected it records a
+   `connection.requested` event, which the chat shows as a "Connect" card
+   linking to the person's own accounts or the organization's connections.
    `env.web.fetch(url)` reads a public https page from this object, not the
    sandbox (`src/web.ts`): private, local and internal addresses are refused,
    also after a redirect; size and time are bounded and HTML comes back as

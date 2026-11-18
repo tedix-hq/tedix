@@ -74,6 +74,7 @@ import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { ReplyApprovalActions } from "@/components/workspace-chat-reply-actions";
+import { ConnectionRequestCard } from "@/components/workspace-chat-connect-card";
 import { ChatImagePreview } from "@/components/chat-image-preview";
 import {
 	CHAT_FILE_LIMIT,
@@ -869,6 +870,9 @@ function TurnView({
 				{turn.reply && turn.replyDone ? (
 					<ReplyCopy text={turn.reply} latest={latest} />
 				) : null}
+				{turn.connectionRequests?.map((request) => (
+					<ConnectionRequestCard request={request} key={request.requestId} />
+				))}
 				{turn.views?.map((view) => (
 					<div
 						className="workspace-chat-view"
