@@ -60,7 +60,20 @@ async function adoptUnclaimedCmsCustomDomains(
 	let domainsAdopted = 0;
 	let domainsUnclaimed = 0;
 	for (const site of await listUnclaimedCmsCustomDomains(db)) {
-		const provider = await findCmsCustomHostname(env, site.hostname);
+		// A platform-owned domain is not a customer custom hostname; one site's
+		// lookup failure must not stop maintenance for every other site.
+		const provider = await findCmsCustomHostname(env, site.hostname).catch(
+			(error: unknown) => {
+				console.warn(
+					JSON.stringify({
+						event: "cms.domain_claim_adoption_skipped",
+						siteId: site.siteId,
+						error: error instanceof Error ? error.message : String(error),
+					}),
+				);
+				return null;
+			},
+		);
 		const claim =
 			provider && isCmsCustomHostnameReady(provider)
 				? await reserveCmsDomainClaim(db, {
