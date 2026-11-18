@@ -2,6 +2,9 @@
 
 Copy `server.js`, `client.js` and this README into the app revision's `files`.
 Pass `manifest.json` separately as `manifest`, not as a source file.
+`client.js` starts with the Tedix UI kit (`ui`), pasted unchanged from the
+skill's `assets/ui-kit.js`; the review app below it uses `ui.tabs`,
+`ui.button`, `ui.confirm`, `ui.status` and `ui.alert`.
 
 Bind the `cards` workspace resource slot to a Tedix sheet Output in the same
 workspace (`providerId: tedix`, `resourceType: output`, `providerResourceId`:

@@ -101,9 +101,29 @@ Give each a system-colour fallback, such as `var(--tedix-surface, Canvas)` or
 `var(--tedix-primary, AccentColor)`. Do not hard-code colours, a palette or
 `color-scheme`; tint with `color-mix()` over these variables when you need a
 shade. Animate with CSS transitions or animations only: the frame stops them
-when reduced motion is on, which it cannot do for JavaScript timers. The
-review starter shows the pattern: it maps its few local names to these
-variables once.
+when reduced motion is on, which it cannot do for JavaScript timers.
+
+### UI kit
+
+Start every `client.js` with [the UI kit](assets/ui-kit.js), pasted unchanged
+(browser code cannot import it). It defines `ui` with accessible, themed
+building blocks, so the app looks like Tedix OS and needs no other component
+library:
+
+| Helper                                                                          | Gives you                                                                 |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `ui.el(tag, {class, text, attrs, on}, ...children)`                             | Any element; text is never parsed as HTML                                 |
+| `ui.button(label, onClick, {variant, disabled})`                                | A 44 px button; `variant` is `primary` or `quiet`                         |
+| `ui.tabs({id, label, items, value, onChange})`                                  | A tab row with arrow, Home and End keys; the panel takes id `${id}-panel` |
+| `ui.table({caption, columns, rows, pageSize, page, onPage, labels, empty})`     | A scrollable table with an optional pager                                 |
+| `ui.select({label, options, value, onChange})`                                  | A labelled select                                                         |
+| `ui.confirm({label, question, confirmLabel, cancelLabel, onConfirm, onCancel})` | An in-app confirmation (native `confirm()` is blocked)                    |
+| `ui.status(text)`, `ui.alert(text)`                                             | Announced progress and errors                                             |
+
+The kit adds no words of its own: pass every label from `config.settings`.
+Its classes start with `tx-` and its colours with `--tx-`; reuse them in the
+app's own small `<style>` instead of new colours. The review starter shows
+the kit in use. Add a helper to the kit here, not by editing a copy in one app.
 
 ## Roles and grants
 
