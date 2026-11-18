@@ -39,7 +39,6 @@ import {
 	recordHomeDelegationDispatchFailure,
 } from "../kernel/run-store";
 import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
-import type { KernelDO } from "../../../kernel/kernel-do";
 import { recordDetachedKernelFailure } from "../kernel/detached-turn-failure";
 import {
 	type KernelTurnWorkResult,
@@ -511,18 +510,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				})
 			: null;
 		const autoApprovedAttach = dispatchPolicy?.autoDispatch === true;
-		// A policy auto-approved workstation attachment is
-		// dispatched immediately only when the workstation auto-dispatch switch
-		// is armed. The switch gates workstation delivery, not Kernel→tedi
-		// delegate_tedi auto-dispatch.
-		const workstationAutoDispatchEnabled =
-			(
-				context.env as {
-					WORKSTATION_AUTO_DISPATCH_ENABLED?: string;
-				}
-			).WORKSTATION_AUTO_DISPATCH_ENABLED === "true";
-		const workstationDispatchNow =
-			autoApprovedAttach && workstationAutoDispatchEnabled;
+		const workstationDispatchNow = autoApprovedAttach;
 		const workstationIdentity =
 			workstationAttach && delegateTarget
 				? workstationDispatchIdentity({
@@ -997,7 +985,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		}
 
 		// ── Certified workstation adapter dispatch for the policy
-		// auto-approved attachment (workstation switch on + low-risk classification).
+		// auto-approved attachment (low-risk classification).
 		// Mirrors the isolate delegate-dispatch pattern below: background via
 		// waitUntil when available (the receipt stays fast and a disconnecting
 		// caller cannot cancel delivery), else await. Failure is recorded by
@@ -1063,11 +1051,11 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// `runKernelTurnWork` (kernel/turn-work.ts) and run in ONE of two
 		// mutually exclusive execution contexts per turn:
 		//
-		//   1. KernelDO (preferred when the KERNEL binding exists):
+		//   1. KernelDO:
 		//      the org-scoped Durable Object runs the turn in ITS OWN execution
 		//      context, so a caller that disconnects mid-kernel cannot cancel
 		//      the route decision or lose the turn — no waitUntil grace limit.
-		//   2. Inline (legacy / DO-error fallback): the promise is BOTH awaited
+		//   2. Inline (owner certification / DO-error fallback): the promise is BOTH awaited
 		//      (fast callers still get the synchronous answer) and registered
 		//      with `waitUntil` so a disconnecting caller doesn't cancel it.
 		//
@@ -1112,11 +1100,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				governancePolicy,
 				sessionWriteAllowlist,
 			};
-			const kernel = (
-				context.env as {
-					KERNEL?: DurableObjectNamespace<KernelDO>;
-				}
-			).KERNEL;
 			// The DO deliberately has no signed-in request context. Keep owner
 			// certification on this request rather than recreating a human there.
 			const ownerCertification =
@@ -1125,11 +1108,11 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				!context.tediId &&
 				!context.externalAgentPrincipalId &&
 				parseSkillCertificationRequest(turnContent) !== null;
-			if (kernel && !ownerCertification) {
+			if (!ownerCertification) {
 				let doTurn: Promise<KernelTurnWorkResult> | null = null;
 				try {
 					const stub = durableObjectStubByName(
-						kernel,
+						context.env.KERNEL,
 						context.env,
 						organizationId,
 					);

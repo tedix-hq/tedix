@@ -134,10 +134,6 @@ export interface WriteProposalEnv extends JevActionEnv {
 	MCP_URL?: string;
 	/** Accepted by apps/mcp as the internal service-binding principal. */
 	PLATFORM_SERVICE_TOKEN?: string;
-	/**
-	 * Gate for org-scoped service-binding catalog calls. Default off.
-	 */
-	KERNEL_EXECUTE?: string;
 }
 
 /**
@@ -170,11 +166,6 @@ async function readEarlierRequests(
 	} catch {
 		return [];
 	}
-}
-
-/** Whether write-proposal planning is enabled. */
-export function kernelWriteEnabled(env: WriteProposalEnv): boolean {
-	return env.KERNEL_EXECUTE === "true";
 }
 
 /** The concrete, validated write call a human is asked to approve. */
@@ -408,7 +399,6 @@ export type KernelWriteProposalStage =
 /** Why a write proposal was declined (persisted on the run for diagnosis). */
 export interface KernelWriteProposalDeclined {
 	stage:
-		| "disabled"
 		| "missing_inputs"
 		| "no_provider"
 		| "no_write_tools"
@@ -490,7 +480,6 @@ export function renderWriteDeclined(
 			return `${declined.preview}\nPreview only. No factory was created or activated; no approval was requested.`;
 		case "canonical_unavailable":
 			return "Home couldn't confirm the Work-creation tool for this workspace. No Work item was created. Retry, or ask the workspace owner to check the connection.";
-		case "disabled":
 		case "no_provider":
 		case "no_write_tools":
 			return `I can't update ${app} from this chat yet. Ask me to delegate this to a tedi with access.`;
@@ -522,8 +511,8 @@ export function renderWriteDeclined(
 
 /**
  * Plan the concrete write call for a `propose_tool_write` route. Returns the
- * validated proposal (not executed), or `null` at any fail-soft gate: flag
- * off, no model, no provider, no write-capable tools, no/invalid Jev selection or generated arguments.
+ * validated proposal (not executed), or `null` at any fail-soft gate: no model,
+ * no provider, no write-capable tools, no/invalid Jev selection or generated arguments.
  * Every null path reports why through `onDecline` so the turn can persist the
  * reason (run metadata `kernelWriteProposalDeclined`) — fail-soft must never
  * mean fail-silent.
@@ -573,7 +562,6 @@ export async function planKernelWriteProposal(args: {
 	if (args.route.routeKind !== "propose_tool_write") return null;
 	const workpieceRename: DirectWriteIntent | null = args.directRename ?? null;
 	const route = correctWriteRoute(args.route, content ?? "", workpieceRename);
-	if (!kernelWriteEnabled(env)) return decline({ stage: "disabled" });
 	const appSlug = route.toolIntent?.appSlug?.trim();
 	if (!appSlug || !model || !content?.trim()) {
 		return decline({

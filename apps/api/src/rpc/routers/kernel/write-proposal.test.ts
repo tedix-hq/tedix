@@ -27,7 +27,6 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { KernelRouteDecision } from "./route-schema";
 import {
 	clearWriteCatalogCacheForTests,
-	kernelWriteEnabled,
 	planKernelWriteProposal,
 	renderWriteDeclined,
 	type WriteProposalEnv,
@@ -36,7 +35,7 @@ import {
 /**
  * Approved-write proposal planner tests (v1). Stubs `MCP_SERVICE.fetch` to
  * simulate an authorized provider and `MockLanguageModelV3` for the write
- * pass, so the planner's own logic — gate, provider resolution, WRITE-only
+ * pass, so the planner's own logic — provider resolution, WRITE-only
  * catalog filtering, pick validation, and fail-soft — is validated
  * deterministically (mirrors execute.test.ts's stub patterns without
  * touching it).
@@ -252,7 +251,6 @@ function baseEnv(
 		MCP_SERVICE: service,
 		MCP_URL: "https://mcp.tedix.dev",
 		PLATFORM_SERVICE_TOKEN: "svc-token",
-		KERNEL_EXECUTE: "true",
 		...overrides,
 	};
 }
@@ -271,14 +269,6 @@ beforeEach(() => {
 		async (_db: unknown, slug: string) =>
 			slug === "globex-tedix" ? { slug } : null,
 	);
-});
-
-describe("kernelWriteEnabled", () => {
-	it("is true only when KERNEL_EXECUTE === 'true'", () => {
-		expect(kernelWriteEnabled({ KERNEL_EXECUTE: "true" })).toBe(true);
-		expect(kernelWriteEnabled({ KERNEL_EXECUTE: "false" })).toBe(false);
-		expect(kernelWriteEnabled({})).toBe(false);
-	});
 });
 
 describe("isWriteCapable", () => {
@@ -2097,18 +2087,26 @@ describe("planKernelWriteProposal — validation (model never trusted)", () => {
 });
 
 describe("planKernelWriteProposal — fail-soft gates", () => {
-	it("returns null when the gate flag is off (and makes no MCP calls)", async () => {
+	it("plans a validated write without an enable flag", async () => {
 		const service = mcpService(globexProvider);
 		const proposal = await planKernelWriteProposal({
 			db: DB,
-			env: baseEnv(service, { KERNEL_EXECUTE: undefined }),
+			env: baseEnv(service),
 			organizationId: "org-1",
 			route: writeRoute(),
 			content: "create an invoice",
-			model: objectModel({}),
+			model: objectModel({
+				toolName: "globex__create_invoice",
+				args: { amount: 100, customerName: "Example Customer" },
+				reasoning: null,
+			}),
 		});
-		expect(proposal).toBeNull();
-		expect(service.calls).toHaveLength(0);
+		expect(proposal).toMatchObject({
+			appSlug: "globex-tedix",
+			toolName: "globex__create_invoice",
+			args: { amount: 100, customerName: "Example Customer" },
+		});
+		expect(service.calls.length).toBeGreaterThan(0);
 	});
 
 	it("returns null without a model — writes have NO heuristic fallback", async () => {
@@ -2230,22 +2228,11 @@ describe("planKernelWriteProposal — fail-soft gates", () => {
 });
 
 describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail-silent)", () => {
-	it("reports the stage at each gate: disabled, missing model, NONE pick, validation", async () => {
+	it("reports the stage at each gate: missing model, NONE pick, validation", async () => {
 		const service = mcpService(globexProvider);
 		const declines: Array<{ stage: string; detail?: string }> = [];
 		const onDecline = (d: { stage: string; detail?: string }) =>
 			declines.push(d);
-
-		await planKernelWriteProposal({
-			db: DB,
-			env: baseEnv(service, { KERNEL_EXECUTE: undefined }),
-			organizationId: "org-1",
-			route: writeRoute(),
-			content: "create an invoice",
-			model: objectModel({}),
-			onDecline,
-		});
-		expect(declines.at(-1)?.stage).toBe("disabled");
 
 		await planKernelWriteProposal({
 			db: DB,

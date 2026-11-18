@@ -53,7 +53,7 @@ export function workstationAttachWorkOrder(input: {
 		...(input.workItemId ? { workItemId: input.workItemId } : {}),
 		...(verifyCommand ? { verifyCommand } : {}),
 		status: "requires_approval",
-		authorityMode: "shadow",
+		authorityMode: "enforce",
 		targetTediId: input.delegateToTediId,
 		objective: "Fulfill the Home operator request in Source request.",
 		outputContract:

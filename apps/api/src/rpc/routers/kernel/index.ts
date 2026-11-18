@@ -101,7 +101,7 @@ import {
 import {
 	type DispatchPolicyLayer,
 	approvalHeldDelegationIntent,
-	resolveEarnedDelegationEnforcement,
+	isEarnedDelegationActivityAllowed,
 } from "./dispatch-policy";
 import { factoryChatReader } from "./factory-chat-tools";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
@@ -1289,27 +1289,12 @@ export async function runKernel(args: {
 		const executionRequirement = deriveExecutionRequirement(content, route);
 		const executionEnvironment =
 			(env as unknown as { ENVIRONMENT?: string }).ENVIRONMENT ?? "development";
-		const earnedDelegationGlobalMode =
-			(
-				env as unknown as {
-					EARNED_DELEGATION_ENFORCEMENT?: "shadow" | "enforce";
-				}
-			).EARNED_DELEGATION_ENFORCEMENT === "enforce"
-				? "enforce"
-				: "shadow";
-		const earnedDelegationEnforcement = resolveEarnedDelegationEnforcement({
-			globalMode: earnedDelegationGlobalMode,
+		const earnedDelegationActivityAllowed = isEarnedDelegationActivityAllowed({
 			policy: orgPolicy?.earnedDelegation,
 			activityId: route.targetActivityId,
 			tediId: route.targetTediId,
 			environment: executionEnvironment,
 		});
-		const earnedDelegationActivityAllowed =
-			route.targetActivityId !== null &&
-			(orgPolicy?.earnedDelegation?.activityIds.includes(
-				route.targetActivityId,
-			) ??
-				false);
 		const stewardCloseoutTargets =
 			args.stewardCloseoutTargets === undefined
 				? undefined
@@ -1352,7 +1337,6 @@ export async function runKernel(args: {
 				.map((message) => `${message.role}: ${message.content}`),
 			executionRequirement,
 			executionEnvironment,
-			authorityMode: earnedDelegationEnforcement,
 		});
 		workOrder.autonomyPolicyPack = orgPolicy?.autonomy?.policyPack;
 		delegation = {
@@ -1376,7 +1360,6 @@ export async function runKernel(args: {
 					org: orgPolicy,
 				},
 				operatorHeldForApproval: approvalHeldDelegationIntent(inputContent),
-				earnedDelegationEnforcement,
 				earnedDelegationActivityAllowed,
 				executionEnvironment,
 				targetCapacity: card

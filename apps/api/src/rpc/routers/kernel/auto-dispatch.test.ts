@@ -21,7 +21,7 @@ const WORK_ORDER: DelegationWorkOrder = {
 	objective: "Review the roadmap.",
 	outputContract: "Top 3 priorities.",
 	status: "draft",
-	authorityMode: "shadow",
+	authorityMode: "enforce",
 	toolGuidance: ['Use your "mcp:apps" scope group.'],
 	boundaries: ["Do not exceed your assigned scopes."],
 	executionRequirement: {

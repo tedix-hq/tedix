@@ -134,7 +134,6 @@ describe("task-scoped earned delegation", () => {
 			card,
 			userContent: "List the latest invoices",
 			executionEnvironment: "production",
-			authorityMode: "enforce",
 		});
 		expect(route.toolIntent).toBeNull();
 		expect(workOrder.authorityMode).toBe("enforce");
@@ -167,17 +166,20 @@ describe("task-scoped earned delegation", () => {
 		).toBe(false);
 	});
 
-	it("preserves existing dispatch in explicit shadow mode while exposing the miss", () => {
+	it("requires approval without a matching grant even without an enforcement flag", () => {
 		const decision = decideDelegationDispatch({
 			route: makeRoute(),
 			card: makeCard({ delegationEntrustments: [] }),
 			speaker: { approvalAuthority: true },
-			earnedDelegationEnforcement: "shadow",
 		});
-		expect(decision.mode).toBe("auto");
-		expect(decision.earnedDelegationShadow).toBe(true);
-		// The miss is recorded, never smuggled into the text an operator reads.
-		expect(decision.reason).not.toContain("earned-delegation-shadow");
+		expect(decision).toMatchObject({
+			mode: "needs_approval",
+			canAutoDispatch: false,
+			approvalRoute: "agent",
+		});
+		expect(decision.reason).toContain(
+			"lacks a matching production entrustment",
+		);
 	});
 	it("matches a URL capability ceiling against the exact expiring grant", () => {
 		const route = makeRoute({ plannedToolIds: [] });
@@ -190,7 +192,6 @@ describe("task-scoped earned delegation", () => {
 				route,
 				card,
 				userContent: "TLDR https://example.com/article",
-				authorityMode: "enforce",
 				executionEnvironment: "production",
 			});
 		expect(build().authorityEnvelope?.allowedToolIds).toEqual(
@@ -271,6 +272,18 @@ function makeCard(
 		mcpCapabilityProfile: "finance",
 		...overrides,
 	};
+}
+
+function withGrantedTools(
+	card: TediCapabilityCard,
+	toolIds: string[],
+	riskLevel = "medium",
+): TediCapabilityCard {
+	const grant = card.delegationEntrustments[0]!;
+	grant.activityToolIds = [...toolIds];
+	grant.scope.toolIds = [...toolIds];
+	grant.riskLevel = riskLevel;
+	return card;
 }
 
 describe("buildDelegationWorkOrder", () => {
@@ -572,7 +585,13 @@ ${source}
 		expect(
 			decideDelegationDispatch({
 				route,
-				card: makeCard({ embodied: false }),
+				card: withGrantedTools(makeCard({ embodied: false }), [
+					"open_computer",
+					"close_computer",
+					"exec",
+					"read_execution",
+					"cancel_execution",
+				]),
 				executionRequirement: requirement,
 				speaker: { approvalAuthority: true },
 			}),
@@ -1299,7 +1318,11 @@ describe("decideDelegationDispatch", () => {
 	it("still holds a high-risk route when its autonomous target is in standby", () => {
 		const d = decideDelegationDispatch({
 			route: makeRoute({ risk: "high" }),
-			card: makeCard({ availability: "standby", requiresApproval: false }),
+			card: withGrantedTools(
+				makeCard({ availability: "standby", requiresApproval: false }),
+				[],
+				"high",
+			),
 			speaker: AUTHORIZED_SPEAKER,
 		});
 		expect(d).toMatchObject({ mode: "needs_approval", canAutoDispatch: false });
@@ -1636,7 +1659,7 @@ describe("decideDelegationDispatch", () => {
 	it("needs approval when the route is high-risk even if otherwise authorized", () => {
 		const d = decideDelegationDispatch({
 			route: makeRoute({ risk: "high" }),
-			card: makeCard(),
+			card: withGrantedTools(makeCard(), [], "high"),
 			speaker: AUTHORIZED_SPEAKER,
 		});
 		expect(d).toMatchObject({ mode: "needs_approval", canAutoDispatch: false });
@@ -2461,7 +2484,6 @@ describe("decideDelegationDispatch approvalRoute", () => {
 			route: makeRoute({ risk: "low" }),
 			card: makeCard({ delegationEntrustments: [] }),
 			speaker: AUTHORIZED,
-			earnedDelegationEnforcement: "enforce",
 		});
 		expect(missingGrant).toMatchObject({
 			mode: "needs_approval",
@@ -2471,7 +2493,6 @@ describe("decideDelegationDispatch approvalRoute", () => {
 			route: makeRoute({ risk: "low" }),
 			card: makeCard(),
 			speaker: AUTHORIZED,
-			earnedDelegationEnforcement: "enforce",
 			earnedDelegationActivityAllowed: false,
 		});
 		expect(outsideAllowlist).toMatchObject({
@@ -2485,7 +2506,6 @@ describe("decideDelegationDispatch approvalRoute", () => {
 			route: makeRoute({ risk: "low" }),
 			card: makeCard({ delegationEntrustments: [] }),
 			speaker: { approvalAuthority: false },
-			earnedDelegationEnforcement: "enforce",
 		});
 		expect(d).toMatchObject({ mode: "needs_approval", approvalRoute: "human" });
 	});
@@ -2517,7 +2537,10 @@ describe("platform-default delegation autonomy (no organization policy)", () => 
 			effortClass: "multi_hop_read",
 			plannedToolIds: ["browser_markdown", "browser_read_result"],
 		}),
-		card: makeCard({ availability: "stopped", requiresApproval: true }),
+		card: withGrantedTools(
+			makeCard({ availability: "stopped", requiresApproval: true }),
+			["browser_markdown", "browser_read_result"],
+		),
 		speaker: { approvalAuthority: true },
 		workOrderContent:
 			"Independent review: score the five candidate threads against the scorecard and reply here.",
@@ -2603,14 +2626,17 @@ describe("organization critical-only delegation autonomy", () => {
 				effortClass: "embodied",
 				plannedToolIds: ["open_computer", "exec", "files"],
 			}),
-			card: makeCard({
-				requiresApproval: false,
-				embodied: true,
-				availability: "standby",
-				hasRepository: true,
-				hasWarmWorkstationLease: false,
-				environmentReady: false,
-			}),
+			card: withGrantedTools(
+				makeCard({
+					requiresApproval: false,
+					embodied: true,
+					availability: "standby",
+					hasRepository: true,
+					hasWarmWorkstationLease: false,
+					environmentReady: false,
+				}),
+				["open_computer", "exec", "files"],
+			),
 			workOrderContent:
 				"Coding trial (low risk refactor): implement the brief in the repository via your workstation, push through the normal guarded path, report the commit SHA.",
 		});
@@ -2629,12 +2655,15 @@ describe("organization critical-only delegation autonomy", () => {
 				effortClass: "embodied",
 				plannedToolIds: ["mcp__tedix-unified__code"],
 			}),
-			card: makeCard({
-				requiresApproval: false,
-				embodied: true,
-				availability: "standby",
-				hasWarmWorkstationLease: false,
-			}),
+			card: withGrantedTools(
+				makeCard({
+					requiresApproval: false,
+					embodied: true,
+					availability: "standby",
+					hasWarmWorkstationLease: false,
+				}),
+				["mcp__tedix-unified__code"],
+			),
 			workOrderContent:
 				"Please retry the delegation to the CFO for this invoice draft. Example Customer GmbH, EUR 8,000 net, single invoice 100% now, order no. Buy-20116 on it, 7-day payment terms, VAT rate to verify against the accounting app. Draft only: do not finalize, send or book, nothing goes to the customer.",
 		});
