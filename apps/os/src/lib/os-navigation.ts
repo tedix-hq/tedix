@@ -290,6 +290,13 @@ export const OS_PAGES: readonly OsPage[] = [
 		palette: true,
 		settings: true,
 	},
+	{
+		id: "unread",
+		path: "/unread",
+		label: "Unread",
+		palette: true,
+		description: "New chat messages and changed files in your workspaces.",
+	},
 	{ id: "account", path: "/account", label: "Account", breadcrumb: "section" },
 	{
 		id: "account-settings",

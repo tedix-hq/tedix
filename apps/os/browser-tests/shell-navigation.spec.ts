@@ -185,6 +185,30 @@ await runShellSpec(
 		console.log(
 			"PASS: resource titles, linked list ancestors, billing/workspace trails, truncation tooltip, phone last-two crumbs and client navigation; desktop/390 × light/dark",
 		);
+		{
+			// Unread has its own sidebar item and page; the sample data has
+			// nothing unread, so the page says so.
+			const page = await newPage({ viewport: { width: 1280, height: 900 } });
+			await page.goto(`${origin}/team`);
+			await rail(page)
+				.getByRole("link", { name: "Unread", exact: true })
+				.click();
+			await page.waitForURL((url) => url.pathname === "/unread");
+			await page
+				.getByRole("heading", { name: "Unread", exact: true, level: 1 })
+				.waitFor();
+			await page.getByText("All caught up", { exact: true }).waitFor();
+			assert.equal(
+				await rail(page)
+					.locator('a[href="/unread"]')
+					.getAttribute("data-active"),
+				"true",
+			);
+			await page.close();
+			console.log(
+				"PASS: the sidebar opens the Unread page and its empty state",
+			);
+		}
 		for (const theme of ["light", "dark"] as const) {
 			for (const width of [1280, 390]) {
 				const page = await newPage({
@@ -210,6 +234,7 @@ await runShellSpec(
 					"Chat",
 					"Workspaces",
 					"Documents",
+					"Unread",
 					"Team",
 					"Skills",
 					"Connections",

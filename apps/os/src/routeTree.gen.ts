@@ -37,6 +37,7 @@ import { Route as SessionTenantOutputsRouteImport } from './routes/_session/_ten
 import { Route as SessionTenantSitesRouteImport } from './routes/_session/_tenant/sites'
 import { Route as SessionTenantSkillsRouteImport } from './routes/_session/_tenant/skills'
 import { Route as SessionTenantTeamRouteImport } from './routes/_session/_tenant/team'
+import { Route as SessionTenantUnreadRouteImport } from './routes/_session/_tenant/unread'
 import { Route as SessionTenantWidgetRouteImport } from './routes/_session/_tenant/widget'
 import { Route as SessionTenantWorkRouteImport } from './routes/_session/_tenant/work'
 import { Route as SessionTenantWorkspacesRouteImport } from './routes/_session/_tenant/workspaces'
@@ -229,6 +230,11 @@ const SessionTenantSkillsRoute = SessionTenantSkillsRouteImport.update({
 const SessionTenantTeamRoute = SessionTenantTeamRouteImport.update({
   id: '/team',
   path: '/team',
+  getParentRoute: () => SessionTenantRoute,
+} as any)
+const SessionTenantUnreadRoute = SessionTenantUnreadRouteImport.update({
+  id: '/unread',
+  path: '/unread',
   getParentRoute: () => SessionTenantRoute,
 } as any)
 const SessionTenantWidgetRoute = SessionTenantWidgetRouteImport.update({
@@ -592,6 +598,7 @@ export interface FileRoutesByFullPath {
   '/sites': typeof SessionTenantSitesRoute
   '/skills': typeof SessionTenantSkillsRouteWithChildren
   '/team': typeof SessionTenantTeamRoute
+  '/unread': typeof SessionTenantUnreadRoute
   '/widget': typeof SessionTenantWidgetRoute
   '/work': typeof SessionTenantWorkRouteWithChildren
   '/workspaces': typeof SessionTenantWorkspacesRoute
@@ -673,6 +680,7 @@ export interface FileRoutesByTo {
   '/outputs': typeof SessionTenantOutputsRoute
   '/sites': typeof SessionTenantSitesRoute
   '/team': typeof SessionTenantTeamRoute
+  '/unread': typeof SessionTenantUnreadRoute
   '/widget': typeof SessionTenantWidgetRoute
   '/workspaces': typeof SessionTenantWorkspacesRoute
   '/account/authorizations': typeof SessionAccountAuthorizationsRoute
@@ -757,6 +765,7 @@ export interface FileRoutesById {
   '/_session/_tenant/sites': typeof SessionTenantSitesRoute
   '/_session/_tenant/skills': typeof SessionTenantSkillsRouteWithChildren
   '/_session/_tenant/team': typeof SessionTenantTeamRoute
+  '/_session/_tenant/unread': typeof SessionTenantUnreadRoute
   '/_session/_tenant/widget': typeof SessionTenantWidgetRoute
   '/_session/_tenant/work': typeof SessionTenantWorkRouteWithChildren
   '/_session/_tenant/workspaces': typeof SessionTenantWorkspacesRoute
@@ -843,6 +852,7 @@ export interface FileRouteTypes {
     | '/sites'
     | '/skills'
     | '/team'
+    | '/unread'
     | '/widget'
     | '/work'
     | '/workspaces'
@@ -924,6 +934,7 @@ export interface FileRouteTypes {
     | '/outputs'
     | '/sites'
     | '/team'
+    | '/unread'
     | '/widget'
     | '/workspaces'
     | '/account/authorizations'
@@ -1007,6 +1018,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant/sites'
     | '/_session/_tenant/skills'
     | '/_session/_tenant/team'
+    | '/_session/_tenant/unread'
     | '/_session/_tenant/widget'
     | '/_session/_tenant/work'
     | '/_session/_tenant/workspaces'
@@ -1273,6 +1285,13 @@ declare module '@tanstack/react-router' {
       path: '/team'
       fullPath: '/team'
       preLoaderRoute: typeof SessionTenantTeamRouteImport
+      parentRoute: typeof SessionTenantRoute
+    }
+    '/_session/_tenant/unread': {
+      id: '/_session/_tenant/unread'
+      path: '/unread'
+      fullPath: '/unread'
+      preLoaderRoute: typeof SessionTenantUnreadRouteImport
       parentRoute: typeof SessionTenantRoute
     }
     '/_session/_tenant/widget': {
@@ -1917,6 +1936,7 @@ interface SessionTenantRouteChildren {
   SessionTenantSitesRoute: typeof SessionTenantSitesRoute
   SessionTenantSkillsRoute: typeof SessionTenantSkillsRouteWithChildren
   SessionTenantTeamRoute: typeof SessionTenantTeamRoute
+  SessionTenantUnreadRoute: typeof SessionTenantUnreadRoute
   SessionTenantWidgetRoute: typeof SessionTenantWidgetRoute
   SessionTenantWorkRoute: typeof SessionTenantWorkRouteWithChildren
   SessionTenantWorkspacesRoute: typeof SessionTenantWorkspacesRoute
@@ -1945,6 +1965,7 @@ const SessionTenantRouteChildren: SessionTenantRouteChildren = {
   SessionTenantSitesRoute: SessionTenantSitesRoute,
   SessionTenantSkillsRoute: SessionTenantSkillsRouteWithChildren,
   SessionTenantTeamRoute: SessionTenantTeamRoute,
+  SessionTenantUnreadRoute: SessionTenantUnreadRoute,
   SessionTenantWidgetRoute: SessionTenantWidgetRoute,
   SessionTenantWorkRoute: SessionTenantWorkRouteWithChildren,
   SessionTenantWorkspacesRoute: SessionTenantWorkspacesRoute,
