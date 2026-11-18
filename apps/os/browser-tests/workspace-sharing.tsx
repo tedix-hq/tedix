@@ -32,6 +32,7 @@ createRoot(document.getElementById("root")!).render(
 				<WorkspaceShareDialog
 					workspaceId={WORKSPACE_ID}
 					workspaceName="Reddit research"
+					visibility={params.get("visibility") === "org" ? "org" : undefined}
 					open
 					onOpenChange={() => undefined}
 				/>

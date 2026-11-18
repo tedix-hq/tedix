@@ -90,6 +90,7 @@ import { osApi } from "@/lib/api";
 import {
 	canvasGadgetDetailQueryOptions,
 	osQueryKeys,
+	operationalContextQueryOptions,
 	osSharesQueryOptions,
 	outputDetailQueryOptions,
 	shareInviteesQueryOptions,
@@ -237,6 +238,20 @@ type Scope = "workspace" | "item";
  * apps only.
  */
 type AccessChoice = "restricted" | "link:use" | "link:build" | "public";
+
+/**
+ * What General access says while no link is on. Everyone in the organization
+ * already builds in an organization workspace, so "only people invited"
+ * would contradict the list of people above it.
+ */
+export function restrictedAccessLabel(
+	visibility: "org" | "private" | undefined,
+	organization: string,
+): string {
+	return visibility === "org"
+		? `Everyone in ${organization}, and people invited`
+		: "Only people invited";
+}
 
 /** A short "Learn more" beside a heading, instead of a paragraph under it. */
 function LearnMore(props: { label: string; children: string }) {
@@ -847,6 +862,12 @@ function WorkspaceAccess(props: {
 	const links = data?.links ?? [];
 	const newestLink = links[0] ?? null;
 	const isPrivate = props.visibility === "private";
+	// Only an organization workspace names the organization.
+	const organization =
+		useQuery({
+			...operationalContextQueryOptions(),
+			enabled: props.visibility === "org",
+		}).data?.organization.name ?? "your organization";
 	const access: AccessChoice =
 		activePublic.length > 0
 			? "public"
@@ -854,7 +875,7 @@ function WorkspaceAccess(props: {
 				? `link:${newestLink.role}`
 				: "restricted";
 	const accessLabel: Record<AccessChoice, string> = {
-		restricted: "Only people invited",
+		restricted: restrictedAccessLabel(props.visibility, organization),
 		"link:use": "Anyone with the link can use",
 		"link:build": "Anyone with the link can build",
 		public: "Anyone with the link can view, no sign-in",
@@ -1024,7 +1045,9 @@ function WorkspaceAccess(props: {
 						}
 						trailing={<Badge variant="secondary">Owner</Badge>}
 					/>
-					{props.visibility === "org" ? <EveryoneRow /> : null}
+					{props.visibility === "org" ? (
+						<EveryoneRow organization={organization} />
+					) : null}
 					{data?.collaborators.map((person) => (
 						<PersonRow
 							key={person.userId}
@@ -1147,10 +1170,12 @@ function WorkspaceAccess(props: {
 					General access
 				</SectionHeading>
 				<div className="flex flex-wrap items-center gap-2">
-					{access === "restricted" ? (
-						<Lock size={16} className="shrink-0 text-kumo-subtle" />
-					) : (
+					{access !== "restricted" ? (
 						<Globe size={16} className="shrink-0 text-kumo-subtle" />
+					) : props.visibility === "org" ? (
+						<UsersThree size={16} className="shrink-0 text-kumo-subtle" />
+					) : (
+						<Lock size={16} className="shrink-0 text-kumo-subtle" />
 					)}
 					<Select
 						value={shownAccess}
@@ -1192,6 +1217,18 @@ function WorkspaceAccess(props: {
 						</Button>
 					) : null}
 				</div>
+				{props.visibility === "org" ? (
+					<Text
+						as="p"
+						role="label"
+						tone="secondary"
+						className="m-0"
+						data-organization-access
+					>
+						Everyone in {organization} can build here without a link. Links and
+						invites are for people outside {organization}.
+					</Text>
+				) : null}
 				{stagedRole ? (
 					<form
 						className="grid gap-2 rounded-md border border-kumo-line p-3"
@@ -1509,12 +1546,10 @@ function PersonRow(props: {
 }
 
 /** An organization workspace is open to every member, at build level. */
-function EveryoneRow() {
-	const context = useOsOperationalContext();
-	const organization = context.data?.organization.name ?? "your organization";
+function EveryoneRow(props: { organization: string }) {
 	return (
 		<PersonRow
-			name={`Everyone in ${organization}`}
+			name={`Everyone in ${props.organization}`}
 			icon={<UsersThree size={12} />}
 			trailing={
 				<Text as="span" role="label" tone="secondary">
