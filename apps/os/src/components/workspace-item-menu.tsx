@@ -37,7 +37,7 @@ import {
 	osQueryKeys,
 } from "@/lib/os-query-options";
 
-const MAX_NAME = 120;
+export const MAX_WORKSPACE_ITEM_NAME = 120;
 
 /** What the menu acts on: a file, or an app that is not a file's editor. */
 export interface WorkspaceMenuItem {
@@ -53,7 +53,10 @@ export interface WorkspaceMenuItem {
  * Rename and archive for one workspace file or app. Both show at once in the
  * Files list and the tab strip and are put back if the server refuses.
  */
-function useWorkspaceItemActions(workspaceId: string, item: WorkspaceMenuItem) {
+export function useWorkspaceItemActions(
+	workspaceId: string,
+	item: WorkspaceMenuItem,
+) {
 	const queryClient = useQueryClient();
 	const outputsKey = canvasOutputsQueryOptions(workspaceId).queryKey;
 	const gadgetsKey = canvasGadgetsQueryOptions(workspaceId).queryKey;
@@ -177,7 +180,7 @@ export function WorkspaceItemMenu({
 			cancelled.current = false;
 			return;
 		}
-		const next = draft.trim().slice(0, MAX_NAME);
+		const next = draft.trim().slice(0, MAX_WORKSPACE_ITEM_NAME);
 		if (next && next !== item.title) rename.mutate(next);
 	};
 	const actions = (
@@ -217,7 +220,7 @@ export function WorkspaceItemMenu({
 							className="workspace-outputs-rename"
 							size="sm"
 							value={draft}
-							maxLength={MAX_NAME}
+							maxLength={MAX_WORKSPACE_ITEM_NAME}
 							onChange={(event) => setDraft(event.target.value)}
 							onBlur={commit}
 							onKeyDown={(event) => {
