@@ -2,12 +2,15 @@ import { readFileSync } from "node:fs";
 import type { PluginContext } from "emdash/plugin";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import pageSearch, {
+	armSearchBackfill,
 	backfillSearch,
+	runSearchBackfill,
 	projectPageSearchText,
 	searchCollections,
 } from "../templates/tedix/src/plugins/tedix-page-search/index";
 
 const mocks = vi.hoisted(() => ({
+	aiRoute: vi.fn(),
 	getCollectionWithFields: vi.fn(),
 	createField: vi.fn(),
 	updateField: vi.fn(),
@@ -48,6 +51,13 @@ vi.mock("emdash", () => ({
 vi.mock("../templates/tedix/node_modules/emdash/dist/runtime.mjs", () => ({
 	getDb: async () => ({}),
 }));
+vi.mock(
+	"../templates/tedix/node_modules/emdash/dist/astro/middleware.mjs",
+	() => ({
+		withEmDashRuntime: async (run: (runtime: unknown) => Promise<void>) =>
+			run({ handlePluginApiRoute: mocks.aiRoute }),
+	}),
+);
 const schemas = JSON.parse(
 	readFileSync(
 		new URL("../templates/marketing/seed/seed.json", import.meta.url),
@@ -55,7 +65,52 @@ const schemas = JSON.parse(
 	),
 ).blockTypes as Parameters<typeof projectPageSearchText>[1];
 const settings = vi.fn();
-const ctx = { settings: { get: settings } } as unknown as PluginContext;
+const stateKey = "state:backfill-search";
+const stateStore = new Map<string, { value: unknown; revision: string }>();
+let revision = 0;
+const tasks = new Set<string>();
+const kv = {
+	getVersioned: vi.fn(async (key: string) =>
+		structuredClone(stateStore.get(key) ?? null),
+	),
+	compareAndSet: vi.fn(
+		async (key: string, expected: string | null, value: unknown) => {
+			if ((stateStore.get(key)?.revision ?? null) !== expected)
+				return { applied: false };
+			stateStore.set(key, {
+				value: structuredClone(value),
+				revision: String(++revision),
+			});
+			return { applied: true, revision: String(revision) };
+		},
+	),
+};
+const cron = {
+	schedule: vi.fn(async (name: string) => {
+		tasks.add(name);
+	}),
+	cancel: vi.fn(async (name: string) => {
+		tasks.delete(name);
+	}),
+	list: vi.fn(async () => [...tasks].map((name) => ({ name }))),
+};
+const log = { error: vi.fn() };
+const ctx = {
+	settings: { get: settings },
+	kv,
+	cron,
+	log,
+} as unknown as PluginContext;
+const tick = () =>
+	pageSearch.hooks.cron.handler(
+		{
+			name: "backfill-search",
+			scheduledAt: "2026-01-01T00:00:00Z",
+		},
+		ctx,
+	);
+const progress = () => stateStore.get(stateKey)?.value;
+
 const save = (
 	event: Parameters<
 		(typeof pageSearch.hooks)["content:beforeSave"]["handler"]
@@ -71,6 +126,41 @@ const block = (copy: string) => [
 ];
 beforeEach(() => {
 	vi.resetAllMocks();
+	stateStore.clear();
+	tasks.clear();
+	kv.getVersioned.mockImplementation(async (key) =>
+		structuredClone(stateStore.get(key) ?? null),
+	);
+	kv.compareAndSet.mockImplementation(async (key, expected, value) => {
+		if ((stateStore.get(key)?.revision ?? null) !== expected)
+			return { applied: false };
+		stateStore.set(key, {
+			value: structuredClone(value),
+			revision: String(++revision),
+		});
+		return { applied: true, revision: String(revision) };
+	});
+	cron.schedule.mockImplementation(async (name) => {
+		tasks.add(name);
+	});
+	cron.cancel.mockImplementation(async (name) => {
+		tasks.delete(name);
+	});
+	cron.list.mockImplementation(async () =>
+		[...tasks].map((name) => ({ name })),
+	);
+	mocks.aiRoute.mockImplementation(
+		async (_plugin, method, path, request: Request) => {
+			if (path === "/config")
+				return { success: true, data: { collections: ["posts"] } };
+			if (method === "GET") return { success: true, data: null };
+			const input = (await request.clone().json()) as { collections: string[] };
+			return {
+				success: true,
+				data: { jobId: "new-job", done: false, collections: input.collections },
+			};
+		},
+	);
 	settings.mockResolvedValue(undefined);
 	mocks.getCollectionWithFields.mockResolvedValue(collection);
 	mocks.listBlockTypes.mockResolvedValue(schemas);
@@ -361,21 +451,6 @@ describe("schema-based native block search", () => {
 });
 
 describe("native search provisioning and published backfill", () => {
-	it("requires POST before any provisioning or content writes", async () => {
-		const route = {
-			input: { collection: "pages" },
-			request: {
-				url: "https://example.com/backfill",
-				method: "GET",
-				headers: {},
-			},
-			requestMeta: { ip: null, userAgent: null, referer: null, geo: null },
-		};
-		const response = await pageSearch.routes.backfill.handler(route, ctx);
-		expect(response).toBeInstanceOf(Response);
-		expect((response as Response).status).toBe(405);
-		expect(mocks.getCollectionWithFields).not.toHaveBeenCalled();
-	});
 	it("ships the searchable field and registers projection outside the tenant policy", () => {
 		const seed = JSON.parse(
 			readFileSync(
@@ -499,6 +574,189 @@ describe("native search provisioning and published backfill", () => {
 			"derived text",
 		);
 		expect(mocks.update).not.toHaveBeenCalled();
-		expect(pageSearch.routes.backfill.permission).toBe("settings:manage");
+	});
+});
+
+describe("automatic native search cron", () => {
+	it("arms on install and activation without postponing the task or exposing a route", async () => {
+		const event = { pluginId: "tedix-page-search", version: "0.1.0" };
+		await pageSearch.hooks["plugin:install"].handler(event, ctx);
+		await pageSearch.hooks["plugin:activate"].handler(event, ctx);
+		expect(cron.schedule).toHaveBeenCalledExactlyOnceWith("backfill-search", {
+			schedule: "* * * * *",
+		});
+		expect(pageSearch).not.toHaveProperty("routes");
+		expect(progress()).toMatchObject({
+			collections: ["pages"],
+			collectionIndex: 0,
+			done: false,
+		});
+	});
+
+	it("checkpoints a batch of 50, resumes its cursor, rebuilds and self-cancels after requesting the union", async () => {
+		mocks.findMany.mockResolvedValueOnce({
+			items: Array.from({ length: 50 }, (_, index) => ({
+				id: String(index),
+				data: { content: block(`Published ${index}`) },
+				version: 1,
+				updatedAt: "before",
+			})),
+			nextCursor: "second-page",
+		});
+		await tick();
+		expect(mocks.update).toHaveBeenCalledTimes(50);
+		expect(progress()).toMatchObject({ cursor: "second-page", done: false });
+		expect(mocks.rebuildIndex).not.toHaveBeenCalled();
+		expect(mocks.aiRoute).not.toHaveBeenCalled();
+		expect(cron.cancel).not.toHaveBeenCalled();
+		await tick();
+		expect(mocks.findMany).toHaveBeenLastCalledWith(
+			"pages",
+			expect.objectContaining({
+				cursor: "second-page",
+				limit: 50,
+				where: { status: "published" },
+			}),
+		);
+		expect(mocks.rebuildIndex).toHaveBeenCalledTimes(1);
+		const post = mocks.aiRoute.mock.calls.find((args) => args[1] === "POST");
+		expect(post?.slice(0, 3)).toEqual(["ai-search", "POST", "/reindex"]);
+		expect(await (post?.[3] as Request).clone().json()).toEqual({
+			collections: ["posts", "pages"],
+			onlyMissing: false,
+		});
+		expect(progress()).toMatchObject({ done: true });
+		expect(cron.cancel).toHaveBeenCalledWith("backfill-search");
+		await armSearchBackfill(ctx);
+		expect(tasks.size).toBe(0);
+		expect(cron.schedule).toHaveBeenCalledTimes(1);
+	});
+
+	it("retains the successful cursor on conflict and reads fresh revisions on the next tick", async () => {
+		mocks.findMany.mockResolvedValueOnce({
+			items: [],
+			nextCursor: "checkpoint",
+		});
+		await tick();
+		const saved = structuredClone(progress());
+		mocks.findMany.mockResolvedValueOnce({
+			items: [
+				{
+					id: "raced",
+					data: { content: block("Before") },
+					version: 1,
+					updatedAt: "before",
+				},
+			],
+			nextCursor: null,
+		});
+		mocks.update.mockRejectedValueOnce(new Error("revision conflict"));
+		await tick();
+		expect(progress()).toEqual(saved);
+		expect(log.error).toHaveBeenCalled();
+		expect(mocks.rebuildIndex).not.toHaveBeenCalled();
+		expect(cron.cancel).not.toHaveBeenCalled();
+		mocks.findMany.mockResolvedValueOnce({
+			items: [
+				{
+					id: "raced",
+					data: { content: block("After") },
+					version: 2,
+					updatedAt: "after",
+					draftRevisionId: "pending",
+				},
+			],
+			nextCursor: null,
+		});
+		await tick();
+		expect(mocks.update).toHaveBeenLastCalledWith(
+			"pages",
+			"raced",
+			{ data: { search_text: "After" } },
+			{ version: 2, updatedAt: "after" },
+		);
+		expect(
+			mocks.findMany.mock.calls
+				.slice(1)
+				.every((args) => args[1].cursor === "checkpoint"),
+		).toBe(true);
+		expect(mocks.revision).not.toHaveBeenCalled();
+		expect(progress()).toMatchObject({ done: true });
+	});
+
+	it("walks all configured collections before starting AI reindex", async () => {
+		settings.mockResolvedValue("services,pages");
+		mocks.getCollectionWithFields.mockImplementation(async (slug) => ({
+			...collection,
+			slug,
+		}));
+		await tick();
+		expect(progress()).toMatchObject({ collectionIndex: 1, done: false });
+		expect(mocks.aiRoute).not.toHaveBeenCalled();
+		await tick();
+		expect(mocks.findMany.mock.calls.map((args) => args[0])).toEqual([
+			"pages",
+			"services",
+		]);
+		expect(progress()).toMatchObject({ done: true });
+	});
+
+	it("re-arms completed sites on schema versions and changed settings, including bundle adoption", async () => {
+		await tick();
+		expect(tasks.size).toBe(0);
+		mocks.listBlockTypes.mockResolvedValue([
+			...schemas,
+			{ slug: "new", versions: [{ version: 1, fields: [] }] },
+		]);
+		await pageSearch.hooks["page:metadata"].handler({} as never, ctx);
+		expect(tasks.has("backfill-search")).toBe(true);
+		expect(progress()).toMatchObject({ collectionIndex: 0, done: false });
+		settings.mockResolvedValue("services");
+		await armSearchBackfill(ctx);
+		expect(progress()).toMatchObject({
+			collections: ["services"],
+			collectionIndex: 0,
+		});
+	});
+
+	it("keeps retrying when native AI reindex is busy or unavailable", async () => {
+		mocks.aiRoute.mockResolvedValueOnce({
+			success: true,
+			data: { jobId: "running", done: false },
+		});
+		await tick();
+		expect(cron.cancel).not.toHaveBeenCalled();
+		expect(mocks.aiRoute).toHaveBeenCalledTimes(1);
+		mocks.aiRoute.mockResolvedValueOnce({ success: false });
+		await tick();
+		expect(cron.cancel).not.toHaveBeenCalled();
+		await tick();
+		expect(progress()).toMatchObject({ done: true });
+		expect(mocks.findMany).toHaveBeenCalledTimes(1);
+		expect(mocks.rebuildIndex).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not overwrite progress after the configuration changed during a batch", async () => {
+		await armSearchBackfill(ctx);
+		mocks.findMany.mockImplementationOnce(async () => {
+			settings.mockResolvedValue("services");
+			await armSearchBackfill(ctx);
+			return { items: [], nextCursor: "obsolete" };
+		});
+		await runSearchBackfill(ctx);
+		expect(progress()).toMatchObject({
+			collections: ["services"],
+			collectionIndex: 0,
+		});
+		expect(progress()).not.toHaveProperty("cursor");
+		expect(cron.cancel).not.toHaveBeenCalled();
+	});
+
+	it("cancels a disabled empty selection without changing the AI selection", async () => {
+		settings.mockResolvedValue("");
+		await tick();
+		expect(mocks.findMany).not.toHaveBeenCalled();
+		expect(mocks.aiRoute).not.toHaveBeenCalled();
+		expect(cron.cancel).toHaveBeenCalledWith("backfill-search");
 	});
 });

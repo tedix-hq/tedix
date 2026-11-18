@@ -101,29 +101,31 @@ the stored block version's schema, including repeater subfields, rich text spans
 and image descriptions. Unknown block versions stop the save rather than
 silently leaving stale text. Editors change blocks, not the generated field.
 
-New marketing sites provision the field in their seed. Existing sites need a
-backfill after adopting the updated template bundle; updating the starter alone
-does not change a live schema. As a site administrator, POST
-`/_emdash/api/plugins/tedix-page-search/backfill` with
-`{ "collection": "pages" }`. Repeat with the returned `nextCursor` as `cursor`
-until it is null. Each call processes at most 50 published entries across all
-locales. It writes only the derived live column with a revision precondition,
-leaving pending drafts and publication state intact. A conflict stops the batch;
-restart it from the beginning to recompute against current content. The last
-batch enables or rebuilds native full-text search, preserving existing weights
-and tokenizer settings.
+New marketing sites provision the field in their seed. On install or activation,
+`tedix-page-search` schedules a native plugin cron task automatically. Public
+page renders also reconcile the job so existing installed sites adopt it on
+bundle upgrade, and changed collection settings or block schemas re-arm it.
+There is no manual backfill route.
 
-Read `/_emdash/api/plugins/ai-search/config` first and retain its selected
-collections. POST `/_emdash/api/plugins/ai-search/reindex` with the union of
-those collections and the backfilled collections; the native reindex route also
-saves this selection. Poll that route with GET until `done: true`, and check
-`errors: 0`. This uses the native durable AI Search
-reindex job and includes the derived text in uploaded documents. After the next
-Ship and tenant bundle adoption, verify both searches with a distinctive phrase
-that appears only inside a published feature, pricing, FAQ or prose block.
-Confirm draft-only text is absent, edit and republish the phrase, and verify the
-old phrase disappears. A source test or a successful backfill response does not
-prove provider indexing or public search acceptance.
+Each tick processes at most 50 published entries across all locales and stores
+its collection and cursor in plugin KV. Missing `search_text` fields are
+provisioned automatically. Updates use revision preconditions and leave drafts
+and publication state intact. A conflict retains the last successful cursor;
+the next tick recomputes that batch from current content. The last batch of
+each collection enables or rebuilds native full-text search with its existing
+weights and tokenizer.
+
+After all collections finish, the task requests a fresh native AI Search
+reindex for the union of its saved selection and the backfilled collections.
+An existing running reindex finishes first; failures keep the backfill task
+scheduled. Once the new durable AI reindex is accepted, the backfill task
+cancels itself. AI Search owns the remaining upload and provider indexing.
+
+After Ship and tenant bundle adoption, verify both searches with a distinctive
+phrase that appears only inside a published feature, pricing, FAQ or prose
+block. Confirm draft-only text is absent, edit and republish the phrase, and
+verify the old phrase disappears. A source test or an accepted reindex job does
+not prove provider indexing or public search acceptance.
 
 ## What proves a capability is active
 
