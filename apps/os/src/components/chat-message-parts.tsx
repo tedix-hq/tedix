@@ -1,5 +1,9 @@
 /** Presentational chat pieces: message bubble, widgets, banners, indicators and starter prompts. */
-import { CHAT_STARTERS } from "@/components/chat-composer-options";
+import {
+	chatStarterSet,
+	readChatStarterSet,
+	rememberNextChatStarterSet,
+} from "@/components/chat-composer-options";
 import { BrowserAgentSeatSchema } from "@tedix/api-contract/schemas/browser-agent-seat";
 import { isLocalWorkersAi } from "@/lib/local-inference";
 import {
@@ -12,7 +16,7 @@ import type {
 	HomeMessage,
 	HomeRun,
 } from "@tedix/api-contract/schemas/kernel-runtime";
-import { Fragment } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
 	Alert,
 	AlertAction,
@@ -370,36 +374,55 @@ export function JumpToLatestControl({
 	);
 }
 
+/**
+ * Three starter suggestions for an empty chat. Each new chat shows the next
+ * three, and "More ideas" moves on without leaving the page.
+ */
 export function ChatStarterPrompts({
 	onChoose,
 }: {
 	onChoose: (prompt: string) => void;
 }) {
+	const [set, setSet] = useState(readChatStarterSet);
+	useEffect(() => rememberNextChatStarterSet(set), [set]);
 	return (
-		<div
-			data-focus-ring="inset"
-			className="chat-starter-prompts mt-6 grid w-full !max-w-none gap-2 text-wrap"
-		>
-			{CHAT_STARTERS.map((starter) => (
-				<Button
-					key={starter.title}
-					type="button"
-					size="sm"
-					variant="outline"
-					multiline
-					className="w-full justify-start gap-3 px-3 py-2 text-left font-normal!"
-					onClick={() => onChoose(starter.prompt)}
-				>
-					<starter.icon size={18} aria-hidden="true" className="shrink-0" />
-					<span className="min-w-0">
-						<span className="block truncate font-medium">{starter.title}</span>
-						<span className="block truncate text-xs text-kumo-subtle">
-							{starter.detail}
+		<>
+			<div
+				data-focus-ring="inset"
+				className="chat-starter-prompts mt-6 grid w-full !max-w-none gap-2 text-wrap"
+			>
+				{chatStarterSet(set).map((starter) => (
+					<Button
+						key={starter.title}
+						type="button"
+						size="sm"
+						variant="outline"
+						multiline
+						className="w-full justify-start gap-3 px-3 py-2 text-left font-normal!"
+						onClick={() => onChoose(starter.prompt)}
+					>
+						<starter.icon size={18} aria-hidden="true" className="shrink-0" />
+						<span className="min-w-0">
+							<span className="block truncate font-medium">
+								{starter.title}
+							</span>
+							<span className="block truncate text-xs text-kumo-subtle">
+								{starter.detail}
+							</span>
 						</span>
-					</span>
-				</Button>
-			))}
-		</div>
+					</Button>
+				))}
+			</div>
+			<Button
+				type="button"
+				size="sm"
+				variant="ghost"
+				className="mt-1 text-kumo-subtle"
+				onClick={() => setSet((current) => current + 1)}
+			>
+				More ideas
+			</Button>
+		</>
 	);
 }
 

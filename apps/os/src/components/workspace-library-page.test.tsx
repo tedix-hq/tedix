@@ -26,7 +26,11 @@ const api = vi.hoisted(() => ({
 		list: vi.fn(),
 		setFavorite: vi.fn(),
 	},
-	blueprints: { list: vi.fn() },
+	blueprints: {
+		list: vi.fn(),
+		gallery: vi.fn(),
+		instantiateFromGallery: vi.fn(),
+	},
 }));
 const navigate = vi.hoisted(() => vi.fn());
 
@@ -202,6 +206,7 @@ async function chooseMute(label: string) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	api.blueprints.gallery.mockResolvedValue({ items: [] });
 	unread.summary.mockResolvedValue({ total: 0, workspaces: [] });
 	unread.markRead.mockImplementation(
 		async ({ workspaceId }: { workspaceId: string }) => ({
@@ -556,6 +561,137 @@ describe("WorkspaceLibraryPage", () => {
 		if (!browse) throw new Error("blueprint entry missing");
 		click(browse);
 		expect(navigate).toHaveBeenCalledWith({ to: "/blueprints" });
+		act(() => root.unmount());
+	});
+
+	it("offers template cards in the empty list and opens the new workspace in one step", async () => {
+		const template = (id: string, name: string, featured: boolean) => ({
+			id,
+			name,
+			description: `${name} description`,
+			gadgetCount: 2,
+			organizationName: "Example Org",
+			publishedAt: null,
+			featured,
+		});
+		api.workspaces.list.mockResolvedValue({ items: [], truncated: false });
+		api.blueprints.gallery.mockResolvedValue({
+			items: [
+				template("t-1", "Meeting notes", false),
+				template("t-2", "Revenue Ops Starter", true),
+				template("t-3", "Hiring", false),
+				template("t-4", "Fourth template", false),
+			],
+		});
+		api.blueprints.instantiateFromGallery.mockResolvedValue({
+			workspace: workspace({ name: "Revenue Ops Starter" }),
+			gadgets: [],
+		});
+		const { container, root } = await renderPage();
+		expect(container.textContent).toContain("No workspaces yet");
+		expect(container.textContent).toContain("Start from a template");
+		const cards = [...container.querySelectorAll("section li")];
+		expect(
+			cards.map((card) => card.querySelector("strong")?.textContent),
+		).toEqual(["Revenue Ops Starter", "Meeting notes", "Hiring"]);
+		expect(cards[0]!.textContent).toContain("2 apps · by Example Org");
+
+		const start = container.querySelector(
+			'[aria-label="Start a workspace from Revenue Ops Starter"]',
+		);
+		if (!start) throw new Error("template start button missing");
+		click(start);
+		await flush();
+		expect(api.blueprints.instantiateFromGallery.mock.calls[0]![0]).toEqual({
+			blueprintId: "t-2",
+			workspaceName: "Revenue Ops Starter",
+		});
+		expect(navigate).toHaveBeenCalledWith({
+			to: "/workspace/$workspaceId",
+			params: { workspaceId: WORKSPACE_ID },
+		});
+		act(() => root.unmount());
+	});
+
+	it("says why a template could not start and links to its setup", async () => {
+		api.workspaces.list.mockResolvedValue({ items: [], truncated: false });
+		api.blueprints.gallery.mockResolvedValue({
+			items: [
+				{
+					id: "t-1",
+					name: "Meeting notes",
+					description: null,
+					gadgetCount: 1,
+					organizationName: "Example Org",
+					publishedAt: null,
+					featured: false,
+				},
+			],
+		});
+		api.blueprints.instantiateFromGallery.mockRejectedValue(
+			new Error("A connection needs setup first"),
+		);
+		const { container, root } = await renderPage();
+		expect(container.textContent).toContain("1 app · by Example Org");
+		click(
+			container.querySelector(
+				'[aria-label="Start a workspace from Meeting notes"]',
+			)!,
+		);
+		await flush();
+		expect(container.textContent).toContain("Couldn't create the workspace");
+		expect(container.textContent).toContain("A connection needs setup first");
+		expect(
+			container.querySelector('a[href="/blueprints?view=explore&install=t-1"]')
+				?.textContent,
+		).toBe("Check this template's setup");
+		expect(navigate).not.toHaveBeenCalled();
+		act(() => root.unmount());
+	});
+
+	it("offers another name when the template's name is taken", async () => {
+		api.workspaces.list.mockResolvedValue({ items: [], truncated: false });
+		api.blueprints.gallery.mockResolvedValue({
+			items: [
+				{
+					id: "t-1",
+					name: "Meeting notes",
+					description: null,
+					gadgetCount: 1,
+					organizationName: "Example Org",
+					publishedAt: null,
+					featured: false,
+				},
+			],
+		});
+		api.blueprints.instantiateFromGallery.mockRejectedValue(
+			Object.assign(new Error("Conflict"), { code: "CONFLICT" }),
+		);
+		const { container, root } = await renderPage();
+		click(
+			container.querySelector(
+				'[aria-label="Start a workspace from Meeting notes"]',
+			)!,
+		);
+		await flush();
+		expect(container.textContent).toContain(
+			"A workspace named “Meeting notes” already exists.",
+		);
+		expect(
+			container.querySelector('a[href="/blueprints?view=explore&install=t-1"]')
+				?.textContent,
+		).toBe("Pick another name");
+		act(() => root.unmount());
+	});
+
+	it("keeps template cards out of a list that has workspaces", async () => {
+		api.workspaces.list.mockResolvedValue({
+			items: [workspace()],
+			truncated: false,
+		});
+		const { container, root } = await renderPage();
+		expect(container.textContent).not.toContain("Start from a template");
+		expect(api.blueprints.gallery).not.toHaveBeenCalled();
 		act(() => root.unmount());
 	});
 

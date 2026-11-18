@@ -441,15 +441,38 @@ describe("JumpToLatestControl", () => {
 });
 
 describe("ChatStarterPrompts", () => {
-	it("shows an icon, a short title and one line of context, and sends the full prompt", async () => {
-		const onChoose = vi.fn();
+	async function mountStarters(onChoose = vi.fn()) {
 		const host = document.createElement("div");
 		document.body.append(host);
 		const root = createRoot(host);
 		await act(async () =>
 			root.render(<ChatStarterPrompts onChoose={onChoose} />),
 		);
-		const starters = [...host.querySelectorAll<HTMLButtonElement>("button")];
+		return {
+			starters: () => [
+				...host.querySelectorAll<HTMLButtonElement>(
+					".chat-starter-prompts button",
+				),
+			],
+			moreIdeas: () =>
+				[...host.querySelectorAll("button")].find(
+					(button) => button.textContent === "More ideas",
+				)!,
+			unmount: async () => {
+				await act(async () => root.unmount());
+				host.remove();
+			},
+		};
+	}
+	const titles = (starters: HTMLButtonElement[]) =>
+		starters.map((starter) => starter.querySelector("span.block")?.textContent);
+
+	beforeEach(() => window.sessionStorage.clear());
+
+	it("shows an icon, a short title and one line of context, and sends the full prompt", async () => {
+		const onChoose = vi.fn();
+		const view = await mountStarters(onChoose);
+		const starters = view.starters();
 		expect(starters.map((starter) => starter.textContent)).toEqual([
 			"Write a docA weekly update with three short sections.",
 			"Track tasks in a sheetOpen tasks with owners and due dates.",
@@ -462,8 +485,39 @@ describe("ChatStarterPrompts", () => {
 		expect(onChoose).toHaveBeenCalledExactlyOnceWith(
 			"Make a sheet that tracks open tasks, owners and due dates.",
 		);
-		await act(async () => root.unmount());
-		host.remove();
+		await view.unmount();
+	});
+
+	it("shows three other suggestions after More ideas and returns to the first three", async () => {
+		const view = await mountStarters();
+		const first = titles(view.starters());
+		await act(async () => view.moreIdeas().click());
+		const second = titles(view.starters());
+		expect(second).toEqual([
+			"Draft meeting notes",
+			"Plan a project",
+			"What is waiting on me",
+		]);
+		await act(async () => view.moreIdeas().click());
+		const third = titles(view.starters());
+		expect(new Set([...first, ...second, ...third]).size).toBe(9);
+		await act(async () => view.moreIdeas().click());
+		expect(titles(view.starters())).toEqual(first);
+		await view.unmount();
+	});
+
+	it("starts the next new chat on the next three suggestions", async () => {
+		const first = await mountStarters();
+		const shown = titles(first.starters());
+		await first.unmount();
+		const next = await mountStarters();
+		expect(titles(next.starters())).toEqual([
+			"Draft meeting notes",
+			"Plan a project",
+			"What is waiting on me",
+		]);
+		expect(titles(next.starters())).not.toEqual(shown);
+		await next.unmount();
 	});
 });
 

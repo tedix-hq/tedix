@@ -88,13 +88,55 @@ export const CHAT_CREATE_OPTIONS = {
 	},
 } as const;
 
-const STARTER_ICONS = [FileText, Table, ClockCounterClockwise] as const;
+const STARTER_ICONS = {
+	doc: FileText,
+	sheet: Table,
+	deck: PresentationChart,
+	recap: ClockCounterClockwise,
+	question: Sparkle,
+} as const;
 
 /** Empty-chat starters: an icon, a short title and one line of context. */
-export const CHAT_STARTERS = OS_COPY.chatStarterPrompts.map((starter, i) => ({
+export const CHAT_STARTERS = OS_COPY.chatStarterPrompts.map((starter) => ({
 	...starter,
-	icon: STARTER_ICONS[i] ?? Sparkle,
+	icon: STARTER_ICONS[starter.kind],
 }));
+
+export const CHAT_STARTERS_PER_SET = 3;
+const CHAT_STARTER_SETS = Math.ceil(
+	CHAT_STARTERS.length / CHAT_STARTERS_PER_SET,
+);
+const CHAT_STARTER_SET_KEY = "tedix-os-chat-starter-set";
+
+/** The three starters of one set; sets wrap around. */
+export function chatStarterSet(set: number) {
+	const start = (set % CHAT_STARTER_SETS) * CHAT_STARTERS_PER_SET;
+	return CHAT_STARTERS.slice(start, start + CHAT_STARTERS_PER_SET);
+}
+
+/** The set this browser tab shows next; a new tab starts at the first set. */
+export function readChatStarterSet(): number {
+	try {
+		const stored = Number(window.sessionStorage.getItem(CHAT_STARTER_SET_KEY));
+		return Number.isInteger(stored) && stored > 0
+			? stored % CHAT_STARTER_SETS
+			: 0;
+	} catch {
+		return 0;
+	}
+}
+
+/** Remember which set comes after the one on screen. */
+export function rememberNextChatStarterSet(shown: number): void {
+	try {
+		window.sessionStorage.setItem(
+			CHAT_STARTER_SET_KEY,
+			String((shown + 1) % CHAT_STARTER_SETS),
+		);
+	} catch {
+		// Storage can be blocked; the first set still shows.
+	}
+}
 
 /** A new conversation invites a question or a hand-off; an open thread, a follow-up. */
 export function chatComposerPlaceholder(hasMessages: boolean): string {

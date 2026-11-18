@@ -105,6 +105,35 @@ try {
 			await composer(page).inputValue(),
 			"Create a doc titled Weekly update with three short sections.",
 		);
+		// "More ideas" swaps in three other suggestions, each still on one line.
+		const titles = () =>
+			starters.locator("span.block.font-medium").allInnerTexts();
+		const firstTitles = await titles();
+		await page.getByRole("button", { name: "More ideas", exact: true }).click();
+		const nextTitles = await titles();
+		assert.equal(nextTitles.length, 3);
+		assert(
+			nextTitles.every((title) => !firstTitles.includes(title)),
+			`More ideas shows other suggestions at ${width}px`,
+		);
+		for (const line of await starters.locator("span.block").all()) {
+			assert(
+				await line.evaluate(
+					(el) =>
+						el.scrollWidth <= el.clientWidth &&
+						el.getClientRects().length === 1,
+				),
+				`${await line.innerText()} fits on one line at ${width}px`,
+			);
+		}
+		// The next new chat opens on suggestions the person has not seen yet.
+		await page.reload();
+		await composer(page).waitFor();
+		const seen = [...firstTitles, ...nextTitles];
+		assert(
+			(await titles()).every((title) => !seen.includes(title)),
+			`a new chat rotates the suggestions at ${width}px`,
+		);
 
 		await page.goto(`${origin}${thread}`);
 		await page.getByText("Two of the four flagged", { exact: false }).waitFor();

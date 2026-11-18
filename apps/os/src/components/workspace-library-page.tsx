@@ -47,6 +47,7 @@ import { ListSkeleton } from "@/components/list-skeleton";
 import { SharedWorkspacesList } from "@/components/shared-workspaces-list";
 import { WorkspaceDeleteDialog } from "@/components/workspace-delete-dialog";
 import { WorkspaceRowMenu } from "@/components/workspace-row-menu";
+import { WorkspaceTemplateStarters } from "@/components/workspace-template-starters";
 import {
 	activeWorkspacesQueryOptions,
 	archivedWorkspacesQueryOptions,
@@ -417,28 +418,40 @@ export function WorkspaceLibraryPage() {
 			workspaces.isSuccess &&
 			workspaces.data.items.length === 0 &&
 			!normalizedSearch ? (
-				<Empty
-					appearance="quiet"
-					icon={<SquaresFour size={20} />}
-					title={
-						workspaces.data.truncated
-							? "No workspaces in this loaded page"
-							: "No workspaces yet"
-					}
-					description={
-						workspaces.data.truncated
-							? "More workspaces may exist beyond this page."
-							: "Create a workspace or start from a template."
-					}
-				>
-					<Button
-						onClick={() => void navigate({ to: "/blueprints" })}
-						size="sm"
-						variant="outline"
+				<>
+					<Empty
+						appearance="quiet"
+						icon={<SquaresFour size={20} />}
+						title={
+							workspaces.data.truncated
+								? "No workspaces in this loaded page"
+								: "No workspaces yet"
+						}
+						description={
+							workspaces.data.truncated
+								? "More workspaces may exist beyond this page."
+								: "Create a workspace or start from a template."
+						}
 					>
-						Browse templates
-					</Button>
-				</Empty>
+						<Button
+							onClick={() => void navigate({ to: "/blueprints" })}
+							size="sm"
+							variant="outline"
+						>
+							Browse templates
+						</Button>
+					</Empty>
+					{workspaces.data.truncated ? null : (
+						<WorkspaceTemplateStarters
+							onCreated={(workspaceId) =>
+								void navigate({
+									to: "/workspace/$workspaceId",
+									params: { workspaceId },
+								})
+							}
+						/>
+					)}
+				</>
 			) : null}
 		</Page>
 	);
