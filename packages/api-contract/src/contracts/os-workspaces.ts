@@ -1587,7 +1587,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/move",
 					summary: "Move a Tedix OS output to another workspace",
 					description:
-						"Regroups an existing output under another workspace in the same organization. The output keeps its id, every revision and its creator; only its workspace changes. The caller must be able to see the target workspace (NOT_FOUND otherwise). Moving to the workspace it is already in changes nothing.",
+						"Regroups an existing output under another workspace in the same organization. The output keeps its id, every revision and its creator; only its workspace changes. The caller must be able to see the target workspace (NOT_FOUND otherwise). Moving to the workspace it is already in changes nothing. A refusal names its cause: NOT_FOUND when the target workspace or the file is not there, CONFLICT only when another move of this same file is still in progress, SERVICE_UNAVAILABLE when a workspace's file storage is not ready or the move did not finish.",
 				})
 				.input(
 					outputIdInput.extend({
