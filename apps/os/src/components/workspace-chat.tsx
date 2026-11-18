@@ -132,6 +132,7 @@ import {
 	SummarisedMarker,
 } from "@/components/workspace-chat-step-detail";
 import { publishWorkspaceAutoApprovals } from "@/lib/workspace-auto-approvals";
+import { VIEW_ONLY_CHAT_REASON } from "@/lib/workspace-view-only";
 
 const WidgetFrame = lazy(async () => ({
 	default: (await import("@/components/widget-frame")).WidgetFrame,
@@ -155,6 +156,8 @@ export type WorkspaceChatProps = {
 	unreadByConversation?: ReadonlyMap<string, number>;
 	/** Something happened in the open conversation: a turn started, finished or asked for a decision. */
 	onActivity?: () => void;
+	/** The person can view this workspace but not chat in it. */
+	viewOnly?: boolean;
 	/** Test seam. */
 	createClient?: typeof createWorkspaceChatClient;
 };
@@ -171,6 +174,7 @@ export function WorkspaceChat({
 	autoFocusComposer = false,
 	unreadByConversation,
 	onActivity,
+	viewOnly = false,
 	createClient,
 }: WorkspaceChatProps) {
 	const queryClient = useQueryClient();
@@ -330,7 +334,7 @@ export function WorkspaceChat({
 	const send = useCallback(
 		(text: string, attachments?: Array<{ outputId: string }>) => {
 			const trimmed = text.trim();
-			if (!trimmed || !client) return;
+			if (!trimmed || !client || viewOnly) return;
 			notePost(trimmed);
 			return client.sendTurn({
 				text: trimmed,
@@ -338,8 +342,17 @@ export function WorkspaceChat({
 				...(attachments?.length ? { attachments } : {}),
 			});
 		},
-		[client, modelId, notePost],
+		[client, modelId, notePost, viewOnly],
 	);
+	const viewOnlyNote = viewOnly ? (
+		<p
+			className="workspace-chat-view-only"
+			data-testid="workspace-chat-view-only"
+			role="status"
+		>
+			{VIEW_ONLY_CHAT_REASON}
+		</p>
+	) : null;
 	useEffect(() => {
 		if (!client || !onSendMessageReady) return;
 		onSendMessageReady(send);
@@ -361,6 +374,7 @@ export function WorkspaceChat({
 					onSelect={onSelectConversation}
 					unread={unreadByConversation}
 				/>
+				{viewOnlyNote}
 				<Composer
 					key="composer"
 					client={client}
@@ -369,6 +383,7 @@ export function WorkspaceChat({
 					workspaceId={workspaceId}
 					onBrowseResources={onBrowseResources}
 					onSend={(text, attachments) => {
+						if (viewOnly) return undefined;
 						onSelectConversation(null);
 						notePost(text);
 						return client?.sendTurn({
@@ -378,7 +393,7 @@ export function WorkspaceChat({
 							...(attachments?.length ? { attachments } : {}),
 						});
 					}}
-					disabledReason={null}
+					disabledReason={viewOnly ? VIEW_ONLY_CHAT_REASON : null}
 					autoFocus={autoFocusComposer}
 					busy={false}
 					onStop={null}
@@ -427,10 +442,12 @@ export function WorkspaceChat({
 						client?.decideApprovals(approvalIds, "approve")
 					}
 					onContinue={
-						running || state.pendingSend ? null : () => void send(CONTINUE_TEXT)
+						viewOnly || running || state.pendingSend
+							? null
+							: () => void send(CONTINUE_TEXT)
 					}
 					onRetry={
-						running || state.pendingSend
+						viewOnly || running || state.pendingSend
 							? null
 							: (text, attachments) => void send(text, attachments)
 					}
@@ -449,7 +466,7 @@ export function WorkspaceChat({
 						Retry
 					</Button>
 				</div>
-			) : state.lastError ? (
+			) : state.lastError && !viewOnly ? (
 				<div className="workspace-chat-error" role="alert">
 					<WarningCircle aria-hidden />
 					<Text role="caption" tone="error">
@@ -467,6 +484,7 @@ export function WorkspaceChat({
 					client?.decideApprovals(approvalIds, "approve")
 				}
 			/>
+			{viewOnlyNote}
 			<Composer
 				key="composer"
 				client={client}
@@ -476,9 +494,11 @@ export function WorkspaceChat({
 				onBrowseResources={onBrowseResources}
 				onSend={send}
 				disabledReason={
-					connection.phase === "unavailable"
-						? "Workspace chat is being upgraded. Use Home chat for now."
-						: null
+					viewOnly
+						? VIEW_ONLY_CHAT_REASON
+						: connection.phase === "unavailable"
+							? "Workspace chat is being upgraded. Use Home chat for now."
+							: null
 				}
 				autoFocus={autoFocusComposer}
 				busy={running !== null || state.pendingSend !== null}

@@ -140,6 +140,7 @@ import {
 import { outputIdFromHref } from "@/lib/output-navigation";
 import { useLiveWorkspace } from "@/lib/use-live-workspace";
 import { useWorkspacePresence } from "@/lib/workspace-presence";
+import { useWorkspaceViewOnly } from "@/lib/workspace-view-only";
 import { useWorkspaceUnread } from "@/lib/workspace-unread";
 import { usePushConversation } from "@/lib/use-push-conversation";
 import { UnreadFilesContext } from "@/components/unread-badge";
@@ -1462,6 +1463,7 @@ export function CanvasPage({
 			void navigate({ to: "/outputs/$outputId", params: { outputId } });
 		}
 	};
+	const chatViewOnly = useWorkspaceViewOnly(workspaceId);
 	const chatOutputLinks = {
 		openOutput: (outputId: string) => void openChatOutput(outputId, true),
 	};
@@ -2047,6 +2049,7 @@ export function CanvasPage({
 									onSendMessageReady={registerWidgetFollowUp}
 									onActivity={reportChatActivity}
 									unreadByConversation={unreadByConversation}
+									viewOnly={chatViewOnly}
 									workspaceId={workspaceId}
 								/>
 							)}
