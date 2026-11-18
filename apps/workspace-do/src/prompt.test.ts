@@ -37,6 +37,28 @@ describe("prompt", () => {
 		expect(STATIC_RULES).toContain("client.js");
 	});
 
+	test("the agent is told what it can see of a connected source and that it cannot use one yet", () => {
+		expect(stepLabel("resources", "requestConnection")).toEqual({
+			label: "Asking for a connected account",
+			kind: "read",
+		});
+		const declared = describeBinding("resources") ?? "";
+		for (const field of [
+			"slot",
+			"providerId",
+			"service",
+			"connectionScope",
+			"connectionInstanceId",
+			"providerAccess",
+			"connectedForYou",
+		])
+			expect(declared).toContain(`${field}:`);
+		expect(declared).toContain("requestConnection(input: { resourceId");
+		expect(declared).not.toContain("personalOwnerUserId");
+		expect(STATIC_RULES).toContain("env.resources.requestConnection");
+		expect(STATIC_RULES).toContain("you cannot read from it or write to it");
+	});
+
 	test("static prefix is identical across turns and carries every binding", () => {
 		const a = staticPromptPrefix();
 		const b = staticPromptPrefix();

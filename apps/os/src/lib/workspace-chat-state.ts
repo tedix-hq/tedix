@@ -66,6 +66,17 @@ export type ChatView = {
 	toolResult: Record<string, unknown>;
 };
 
+/** An account the agent asked the person to connect for a workspace source. */
+export type ChatConnectionRequest = {
+	requestId: string;
+	resourceId: string;
+	resourceName: string;
+	providerId: string;
+	service: string;
+	connectionScope: "personal" | "organization";
+	reason?: string;
+};
+
 /** A message sent while a turn was working. */
 export type ChatQueuedMessage = {
 	messageId: string;
@@ -104,6 +115,8 @@ export type ChatTurn = {
 	added?: ChatQueuedMessage[];
 	/** Live views the agent put in its answer, in the order shown. */
 	views?: ChatView[];
+	/** Accounts the agent asked for in this turn, one per source. */
+	connectionRequests?: ChatConnectionRequest[];
 	/** Before this turn, earlier messages were summarised to fit the model. */
 	summarizedEarlier?: boolean;
 	status: "running" | TurnStatus;
@@ -562,6 +575,29 @@ export function applyWorkspaceChatEvent(
 									resourceUri: event.resourceUri,
 									title: event.title,
 									toolResult: event.toolResult,
+								},
+							],
+						},
+			);
+			break;
+		case "connection.requested":
+			turns = place(event.turnId)((turn) =>
+				turn.connectionRequests?.some(
+					(request) => request.requestId === event.requestId,
+				)
+					? turn
+					: {
+							...turn,
+							connectionRequests: [
+								...(turn.connectionRequests ?? []),
+								{
+									requestId: event.requestId,
+									resourceId: event.resourceId,
+									resourceName: event.resourceName,
+									providerId: event.providerId,
+									service: event.service,
+									connectionScope: event.connectionScope,
+									...(event.reason ? { reason: event.reason } : {}),
 								},
 							],
 						},

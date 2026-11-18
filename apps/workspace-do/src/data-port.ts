@@ -63,11 +63,30 @@ export interface CreatedApp {
 	revisionId: string;
 }
 
+/**
+ * One connected source as the agent sees it. It names no person and holds no
+ * credential: whose account a personal source uses is never shown.
+ */
 export interface ResourceSummary {
 	id: string;
 	name: string;
 	kind: string;
 	status: string;
+	/** The name apps use for this source; null when it has none. */
+	slot: string | null;
+	providerId: string;
+	/** The service's display name, or its id when it has no entry. */
+	service: string;
+	/** Whose account reads it: each person's own, or one the organization shares. */
+	connectionScope: "personal" | "organization";
+	connectionInstanceId: string | null;
+	/** What the source grants at the service; null when not recorded. */
+	providerAccess: { canRead: boolean; canWrite: boolean } | null;
+	/**
+	 * Whether the person the turn acts for has the account this source needs.
+	 * null for a source that needs no account.
+	 */
+	connectedForYou: boolean | null;
 }
 
 export interface WorkItemSummary {

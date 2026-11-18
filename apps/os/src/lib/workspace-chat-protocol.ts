@@ -293,6 +293,23 @@ export type WorkspaceChatLedgerEvent =
 			toolResult: Record<string, unknown>;
 	  })
 	| (Stamped & {
+			/**
+			 * The agent asked for an account a connected source needs. Shown as a
+			 * "Connect" card; nothing changed and nothing waits on it.
+			 */
+			type: "connection.requested";
+			turnId: string;
+			requestId: string;
+			resourceId: string;
+			resourceName: string;
+			providerId: string;
+			/** The service's display name. */
+			service: string;
+			/** Whose account is missing: the person's own, or the organization's. */
+			connectionScope: "personal" | "organization";
+			reason?: string;
+	  })
+	| (Stamped & {
 			type: "turn.finished";
 			turnId: string;
 			status: TurnStatus;
@@ -397,6 +414,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"approval.decided",
 	"approval.executed",
 	"view.shown",
+	"connection.requested",
 	"turn.finished",
 	"conversation.updated",
 ]);

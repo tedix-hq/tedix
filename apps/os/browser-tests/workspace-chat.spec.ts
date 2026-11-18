@@ -353,6 +353,49 @@ return focusClipAudit();
 					.getByRole("button", { name: "Dismiss", exact: true })
 					.click();
 				assert.equal(await tray.getByRole("alert").count(), 0);
+				// The agent asks for an account: one card with one link, inside the page.
+				push({
+					type: "connection.requested",
+					seq: 40,
+					at: new Date().toISOString(),
+					conversationId: "c1",
+					turnId: sent.at(-1)?.clientTurnId,
+					requestId: "connect-1",
+					resourceId: "calendar",
+					resourceName: "Team calendar with a long descriptive name",
+					providerId: "example-calendar",
+					service: "Example Calendar",
+					connectionScope: "personal",
+					reason: "To check the dates of the open challenges.",
+				});
+				const connect = page.getByTestId("workspace-chat-connect");
+				await connect.getByText("Connect Example Calendar").waitFor();
+				await connect
+					.getByText("To check the dates of the open challenges.")
+					.waitFor();
+				const connectLink = connect.getByTestId("workspace-chat-connect-link");
+				assert.equal(
+					await connectLink.getAttribute("href"),
+					"/account/connections?connect=example-calendar",
+				);
+				await connectLink.scrollIntoViewIfNeeded();
+				await page.keyboard.press("Shift");
+				assert.deepEqual(
+					await page.evaluate(`(() => {
+${describeControl}
+${controlSelector}
+${focusClipAudit}
+return focusClipAudit();
+})()`),
+					[],
+					`${width} ${theme}: the Connect card's focus ring fits`,
+				);
+				assert(
+					await page.evaluate(
+						() => document.documentElement.scrollWidth <= innerWidth,
+					),
+					`${width} ${theme}: horizontal overflow with a Connect card`,
+				);
 			} finally {
 				await page.close();
 			}
