@@ -28,6 +28,26 @@ vi.mock("@orpc/server/fetch", () => ({
 
 afterEach(() => vi.restoreAllMocks());
 
+it.each([404, 409])(
+	"returns the session bookmark on a %s response",
+	async (status) => {
+		handleRpc.mockResolvedValueOnce({
+			matched: status !== 404,
+			response: new Response("error", { status }),
+		});
+		const app = new Hono<{ Bindings: CloudflareEnv }>();
+		registerRpcRoutes(app);
+		const response = await app.request(
+			"https://api.example/rpc/missing",
+			{ method: "POST" },
+			{ ENVIRONMENT: "production" } as CloudflareEnv,
+			{ waitUntil() {} } as unknown as ExecutionContext,
+		);
+		expect(response.status).toBe(status);
+		expect(response.headers.get("x-d1-bookmark")).toBe("request-bookmark");
+	},
+);
+
 it("adds the RPC total without buffering the body or losing response metadata", async () => {
 	let controller!: ReadableStreamDefaultController<Uint8Array>;
 	const body = new ReadableStream<Uint8Array>({
