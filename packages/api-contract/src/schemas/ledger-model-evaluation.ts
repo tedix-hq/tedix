@@ -8,6 +8,7 @@ export const EvaluateLedgerModelInputSchema = z.strictObject({
 		"azure-openai/gpt-6-astra",
 		"azure-openai/gpt-6.1-sol",
 		"azure-openai/gpt-6-luna",
+		"azure-openai/gpt-6.1-terra",
 	]),
 	evaluationId: z.uuid(),
 });
