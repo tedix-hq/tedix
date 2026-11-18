@@ -2898,18 +2898,20 @@ describe("WorkspaceDO", () => {
 			await seedWorkspaceRows([own]);
 			const ws = workspace(own);
 			await seedOutputs(ws, own);
-			await ws.limitCodeRuns(own, 2_000);
+			// Wide margins on purpose: on a slow machine the second run must
+			// still finish well inside the limit.
+			await ws.limitCodeRuns(own, 4_000);
 			const create = (title: string) =>
 				`env.outputs.create({ title: "${title}", content: { kind: "document", blocks: [] } })`;
-			// The first run is given up at 2 s and writes at 3 s, while the turn
+			// The first run is given up at 4 s and writes at 6 s, while the turn
 			// is still running its second piece of code.
 			const LATE = `export default async (env) => {
-				await new Promise((resolve) => setTimeout(resolve, 3000));
+				await new Promise((resolve) => setTimeout(resolve, 6000));
 				await ${create("written too late")};
 			}`;
 			const NEXT = `export default async (env) => {
 				const made = await ${create("written in time")};
-				await new Promise((resolve) => setTimeout(resolve, 1700));
+				await new Promise((resolve) => setTimeout(resolve, 2500));
 				return made.title;
 			}`;
 			await ws.scriptModel(own, [
@@ -2923,7 +2925,7 @@ describe("WorkspaceDO", () => {
 				text: "Write two files",
 				isolate,
 			});
-			expect(await ws.awaitTurn(own, turnId, 20_000)).toMatchObject({
+			expect(await ws.awaitTurn(own, turnId, 30_000)).toMatchObject({
 				status: "finished",
 			});
 			const events = await ws.readEvents(own, { conversationId, after: 0 });
@@ -2931,7 +2933,7 @@ describe("WorkspaceDO", () => {
 				events.flatMap((event) =>
 					event.type === "step.finished" && event.error ? [event.error] : [],
 				),
-			).toEqual([sandboxTimeoutError(2_000)]);
+			).toEqual([sandboxTimeoutError(4_000)]);
 			// Only the run the turn was waiting for reached the workspace.
 			const written = events.flatMap((event) =>
 				event.type === "step.started" && event.tool === "outputs.create"
