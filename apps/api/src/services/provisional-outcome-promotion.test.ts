@@ -22,6 +22,9 @@ function setup() {
 		CREATE TABLE tedi_approval_requests (
 			id TEXT PRIMARY KEY, tedi_id TEXT NOT NULL, org_id TEXT NOT NULL,
 			action_type TEXT NOT NULL, description TEXT NOT NULL, payload TEXT NOT NULL,
+			execution_status TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(payload) THEN json_extract(payload, '$.execution.status') END) VIRTUAL,
+			execution_dismissed_at TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(payload) THEN json_extract(payload, '$.execution.dismissedAt') END) VIRTUAL,
+			consumed_at TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(payload) THEN json_extract(payload, '$.consumedAt') END) VIRTUAL,
 			status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL,
 			expires_at TEXT NOT NULL, resolved_at TEXT, resolved_by TEXT,
 			resolution TEXT, workflow_id TEXT

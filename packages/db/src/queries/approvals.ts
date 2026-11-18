@@ -152,8 +152,8 @@ export async function listApprovalRequests(
 		conditions.push(
 			eq(tediApprovalRequests.status, "approved"),
 			eq(tediApprovalRequests.actionType, "mcp.tool_call"),
-			sql`json_extract(${tediApprovalRequests.payload}, '$.execution.status') IN ('queued', 'running', 'failed')`,
-			sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
+			sql`${tediApprovalRequests.executionStatus} IN ('queued', 'running', 'failed')`,
+			sql`${tediApprovalRequests.executionDismissedAt} IS NULL`,
 			// A passed window can never run again; History keeps the row.
 			gt(tediApprovalRequests.expiresAt, new Date().toISOString()),
 		);
@@ -891,7 +891,7 @@ export async function consumeOwnerToolApproval(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`CASE WHEN json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed' THEN json_set(${tediApprovalRequests.payload}, '$.consumedAt', ${input.now}, '$.execution.retryable', json('false')) ELSE json_set(${tediApprovalRequests.payload}, '$.consumedAt', ${input.now}) END`,
+			payload: sql`CASE WHEN ${tediApprovalRequests.executionStatus} = 'failed' THEN json_set(${tediApprovalRequests.payload}, '$.consumedAt', ${input.now}, '$.execution.retryable', json('false')) ELSE json_set(${tediApprovalRequests.payload}, '$.consumedAt', ${input.now}) END`,
 		})
 		.where(
 			and(
@@ -901,7 +901,7 @@ export async function consumeOwnerToolApproval(
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
 				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') = ${input.fingerprint}`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+				sql`${tediApprovalRequests.consumedAt} IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -960,10 +960,10 @@ export async function dismissOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.orgId, input.organizationId),
 				eq(tediApprovalRequests.status, "approved"),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
+				sql`${tediApprovalRequests.executionDismissedAt} IS NULL`,
 				sql`(
-					json_extract(${tediApprovalRequests.payload}, '$.execution.status') IN ('queued', 'failed')
-					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'
+					${tediApprovalRequests.executionStatus} IN ('queued', 'failed')
+					OR (${tediApprovalRequests.executionStatus} = 'running'
 						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
 				)`,
 			),
@@ -1012,14 +1012,14 @@ export async function reclaimOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
 				sql`(
-					json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'
-					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'queued'
+					${tediApprovalRequests.executionStatus} = 'failed'
+					OR (${tediApprovalRequests.executionStatus} = 'queued'
 						AND json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt') <= ${input.now})
-					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'
+					OR (${tediApprovalRequests.executionStatus} = 'running'
 						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
 				)`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
+				sql`${tediApprovalRequests.consumedAt} IS NULL`,
+				sql`${tediApprovalRequests.executionDismissedAt} IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1054,7 +1054,7 @@ export async function claimOwnerToolApprovalExecution(
 				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') IS NOT NULL`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.execution') IS NULL`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+				sql`${tediApprovalRequests.consumedAt} IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1090,7 +1090,7 @@ export async function queueOwnerToolApprovalExecution(
 				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') IS NOT NULL`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.execution') IS NULL`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+				sql`${tediApprovalRequests.consumedAt} IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1126,12 +1126,12 @@ export async function requeueStaleContinuableOwnerToolApprovals(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.execution', json(${JSON.stringify(execution)}), '$.transientRetries', coalesce(json_extract(${tediApprovalRequests.payload}, '$.transientRetries'), 0) + (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'))`,
+			payload: sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.execution', json(${JSON.stringify(execution)}), '$.transientRetries', coalesce(json_extract(${tediApprovalRequests.payload}, '$.transientRetries'), 0) + (${tediApprovalRequests.executionStatus} = 'failed'))`,
 		})
 		.where(
 			and(
 				// Approved, a tool call, not dismissed: stated as
-				// idx_approval_requests_open_tool_run's own condition, then
+				// idx_approval_requests_open_execution's own condition, then
 				// narrowed to the two run states this sweep can re-queue.
 				openOwnerToolRun,
 				sql`${ownerToolRunStatus} IN ('running', 'failed')`,
@@ -1145,9 +1145,9 @@ export async function requeueStaleContinuableOwnerToolApprovals(
 				),
 				sql`json_extract(${tediApprovalRequests.payload}, '$.args.dryRun') = 0`,
 				sql`(
-					(json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'
+					(${tediApprovalRequests.executionStatus} = 'running'
 						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
-					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'
+					OR (${tediApprovalRequests.executionStatus} = 'failed'
 						AND coalesce(json_extract(${tediApprovalRequests.payload}, '$.transientRetries'), 0) < ${input.maxTransientRetries ?? 30}
 						AND (instr(json_extract(${tediApprovalRequests.payload}, '$.execution.error'), 'SERVICE_UNAVAILABLE') > 0
 							OR instr(json_extract(${tediApprovalRequests.payload}, '$.execution.error'), 'timed out') > 0))
@@ -1191,10 +1191,10 @@ export async function continueOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.status, "approved"),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'`,
+				sql`${tediApprovalRequests.executionStatus} = 'running'`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') = ${input.startedAt}`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NOT NULL`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
+				sql`${tediApprovalRequests.consumedAt} IS NOT NULL`,
+				sql`${tediApprovalRequests.executionDismissedAt} IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -1213,7 +1213,7 @@ export async function recordOwnerToolApprovalExecution(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(CASE WHEN json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NOT NULL THEN json_set(${JSON.stringify(input.execution)}, '$.retryable', json('false')) ELSE ${JSON.stringify(input.execution)} END))`,
+			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(CASE WHEN ${tediApprovalRequests.consumedAt} IS NOT NULL THEN json_set(${JSON.stringify(input.execution)}, '$.retryable', json('false')) ELSE ${JSON.stringify(input.execution)} END))`,
 		})
 		.where(
 			and(
@@ -1288,14 +1288,14 @@ export async function listDueOwnerToolApprovals(
 		.where(
 			and(
 				// Approved, a tool call, not dismissed: stated as
-				// idx_approval_requests_open_tool_run's own condition, then
+				// idx_approval_requests_open_execution's own condition, then
 				// narrowed to the two run states that can be due.
 				openOwnerToolRun,
 				sql`${ownerToolRunStatus} IN ('queued', 'running')`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
-				sql`(json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'queued' OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running' AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${new Date(Date.parse(now) - STALE_OWNER_TOOL_RUN_MS).toISOString()}))`,
+				sql`(${tediApprovalRequests.executionStatus} = 'queued' OR (${tediApprovalRequests.executionStatus} = 'running' AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${new Date(Date.parse(now) - STALE_OWNER_TOOL_RUN_MS).toISOString()}))`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt') <= ${now}`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+				sql`${tediApprovalRequests.consumedAt} IS NULL`,
 			),
 		)
 		.orderBy(

@@ -14,7 +14,7 @@ import {
 import { countPendingApprovalsByTedi } from "./governance-overview";
 
 const PENDING = "idx_approval_requests_pending_expiry";
-const RUNS = "idx_approval_requests_open_tool_run";
+const RUNS = "idx_approval_requests_open_execution";
 const ORG = "org-example";
 const OTHER_ORG = "org-other";
 const ENDPOINT = "example.purge";
@@ -380,10 +380,8 @@ describe.each<{ statistics: Statistics }>([
 		).toBe(8);
 		expect(changed(before, snapshot(sqlite))).toEqual([...expected].sort());
 		expect(plans).toHaveLength(1);
-		expect(plans[0]).toMatch(
-			new RegExp(
-				`^SEARCH tedi_approval_requests USING INDEX (${PENDING} \\(expires_at<\\?\\)|idx_approval_requests_status \\(org_id=\\? AND status=\\?\\))$`,
-			),
+		expect(plans[0]).toBe(
+			"SEARCH tedi_approval_requests USING INDEX idx_approval_requests_execution_attention (org_id=? AND status=?)",
 		);
 		expect(
 			sqlite
@@ -429,7 +427,7 @@ describe.each<{ statistics: Statistics }>([
 			expect(rows.map((row) => row.id)).toEqual(legacy(limit));
 			expect(plans).toHaveLength(1);
 			expect(plans[0]).toContain(
-				`SEARCH tedi_approval_requests USING INDEX ${RUNS} (<expr>=?)`,
+				"SEARCH tedi_approval_requests USING INDEX idx_approval_requests_unconsumed (consumed_at=? AND execution_status=?)",
 			);
 			expectNoTableWalk(plans);
 		}
@@ -471,7 +469,7 @@ describe.each<{ statistics: Statistics }>([
 			).toBe(expected.length);
 			expect(changed(before, snapshot(sqlite))).toEqual(expected);
 			expect(plans).toEqual([
-				`SEARCH tedi_approval_requests USING INDEX ${RUNS} (<expr>=? AND expires_at>?)`,
+				`SEARCH tedi_approval_requests USING INDEX ${RUNS} (execution_status=? AND expires_at>?)`,
 			]);
 			// Two stale runs and six transient failures, then nothing.
 			expect(expected).toEqual(

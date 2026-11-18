@@ -313,7 +313,7 @@ export async function getDeadlineDecision(
 						eq(workInteractions.workItemId, input.workItemId),
 						eq(workInteractions.targetType, "user"),
 						eq(workInteractions.targetId, input.userId),
-						sql`json_extract(${workInteractions.metadata}, '$.source') = 'deadline-decisions'`,
+						sql`${workInteractions.source} = 'deadline-decisions'`,
 						sql`json_extract(${workInteractions.metadata}, '$.deadlineKey') = ${input.deadlineKey}`,
 					),
 				)

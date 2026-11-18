@@ -378,13 +378,18 @@ interface RepositoryCiAlertParams {
 }
 
 function repositoryCiScope(
-	w: { orgId: SQLWrapper; projectId: SQLWrapper; metadata: SQLWrapper },
+	w: {
+		orgId: SQLWrapper;
+		projectId: SQLWrapper;
+		metadata: SQLWrapper;
+		repositoryObserver: SQLWrapper;
+	},
 	p: RepositoryCiAlertParams,
 ) {
 	return and(
 		eq(w.orgId, p.orgId),
 		eq(w.projectId, p.projectId),
-		sql`json_extract(${w.metadata}, '$.repositoryObserver')=1`,
+		sql`${w.repositoryObserver}=1`,
 		sql`json_extract(${w.metadata}, '$.event.kind')='ci_red'`,
 		sql`json_extract(${w.metadata}, '$.event.repository')=${p.repository}`,
 		sql`json_extract(${w.metadata}, '$.event.branch')=${p.branch}`,
@@ -517,7 +522,7 @@ export async function refreshRepositoryCiAlerts(
 					and(
 						eq(workItems.orgId, p.orgId),
 						eq(workItems.projectId, p.projectId),
-						sql`json_extract(${workItems.metadata}, '$.repositoryObserver')=1`,
+						sql`${workItems.repositoryObserver}=1`,
 						sql`json_extract(${workItems.metadata}, '$.event.kind')='ci_red'`,
 						sql`json_extract(${workItems.metadata}, '$.event.repository')=${p.repository}`,
 						sql`json_extract(${workItems.metadata}, '$.event.branch')=${p.branch}`,
@@ -563,7 +568,7 @@ function clearingCondition() {
 		AND (
 			(${kind}='blocker_resolved' AND cleared_work.disposition='completed')
 			OR (${kind}='ci_green'
-				AND json_extract(cleared_work.metadata, '$.repositoryObserver')=1
+				AND cleared_work.repository_observer=1
 				AND json_extract(cleared_work.metadata, '$.event.kind')='ci_red'
 				AND json_type(cleared_work.metadata, '$.ciRecoveredAt')='text')
 		))`;
@@ -1437,9 +1442,9 @@ function supportDraftCandidateSource() {
 		sql`json_type(${workInteractions.metadata}, '$.supportTicketId') = 'text'`,
 		sql`json_type(${workInteractions.metadata}, '$.supportVersion') = 'integer'`,
 		or(
-			sql`json_extract(${workInteractions.metadata}, '$.source') = 'support-draft'`,
+			sql`${workInteractions.source} = 'support-draft'`,
 			and(
-				sql`json_extract(${workInteractions.metadata}, '$.source') = 'night-source-adapter'`,
+				sql`${workInteractions.source} = 'night-source-adapter'`,
 				sql`json_extract(${workInteractions.metadata}, '$.originalSource') = 'support-work-draft'`,
 				sql`json_extract(${workInteractions.metadata}, '$.sourceKey') = 'support-draft:' || json_extract(${workInteractions.metadata}, '$.supportTicketId') || ':' || json_extract(${workInteractions.metadata}, '$.supportVersion')`,
 				sql`json_extract(${workInteractions.metadata}, '$.decisionDeck.classId') = 'support.reply'`,
@@ -1474,12 +1479,7 @@ export async function supersedeSupportDraftInteractions(
 	const [latest] = await db
 		.select({ id: workInteractions.id, metadata: workInteractions.metadata })
 		.from(workInteractions)
-		.where(
-			and(
-				sameSource,
-				sql`json_extract(${workInteractions.metadata}, '$.source') = 'support-draft'`,
-			),
-		)
+		.where(and(sameSource, sql`${workInteractions.source} = 'support-draft'`))
 		.orderBy(
 			desc(sql`json_extract(${workInteractions.metadata}, '$.supportVersion')`),
 			desc(workInteractions.id),
@@ -1519,7 +1519,7 @@ export async function sweepSupersededSupportDraftInteractions(
 				eq(newer.orgId, p.orgId),
 				eq(newer.targetType, "user"),
 				eq(newer.targetId, p.targetId),
-				sql`json_extract(${newer.metadata}, '$.source') = 'support-draft'`,
+				sql`${newer.source} = 'support-draft'`,
 				sql`json_type(${newer.metadata}, '$.supportVersion') = 'integer'`,
 				sql`json_extract(${newer.metadata}, '$.supportTicketId') = json_extract(${workInteractions.metadata}, '$.supportTicketId')`,
 				sql`json_extract(${newer.metadata}, '$.supportVersion') > json_extract(${workInteractions.metadata}, '$.supportVersion')`,
@@ -1746,7 +1746,7 @@ export async function sweepObsoleteWorkInteractions(
 	const unanswered = sql`NOT EXISTS (SELECT 1 FROM ${workInteractionResponses} WHERE ${workInteractionResponses.orgId}=${workInteractions.orgId} AND ${workInteractionResponses.interactionId}=${workInteractions.id})`;
 	const passedExpiry = sql`(${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.now})`;
 	const staleCoordination = sql`(${workInteractions.kind}='coordination' AND ${workInteractions.targetType}='user' AND ${workInteractions.expiresAt} IS NULL AND julianday(coalesce(json_extract(${workInteractions.metadata},'$.notification.refreshedAt'), json_extract(${workInteractions.metadata},'$.refreshedAt'), ${workInteractions.createdAt})) <= julianday(${p.now}) - ${interactionTtlHoursSql()} / 24.0)`;
-	const staleAsk = sql`(${workInteractions.kind} IN ('question','input','handoff') AND ${workInteractions.targetType}='user' AND json_extract(${workInteractions.metadata},'$.source') IS NOT 'lane-dispatch-blocker' AND ${workInteractions.expiresAt} IS NULL AND julianday(${workInteractions.createdAt}) <= julianday(${p.now}) - ${interactionTtlHoursSql(true)} / 24.0)`;
+	const staleAsk = sql`(${workInteractions.kind} IN ('question','input','handoff') AND ${workInteractions.targetType}='user' AND ${workInteractions.source} IS NOT 'lane-dispatch-blocker' AND ${workInteractions.expiresAt} IS NULL AND julianday(${workInteractions.createdAt}) <= julianday(${p.now}) - ${interactionTtlHoursSql(true)} / 24.0)`;
 	const terminalWork = sql`(${workInteractions.kind} IN ('question','input','handoff') AND EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${workInteractions.orgId} AND ${workItems.id}=${workInteractions.workItemId} AND ${workItems.disposition} IN ('completed','cancelled')))`;
 	const triageUnavailable = sql`(json_extract(${workInteractions.metadata},'$.schema')='tedix.decision-capture.v1' AND json_extract(${workInteractions.metadata},'$.triage.status') IS NOT 'ok')`;
 	const legacyProposal = sql`(json_extract(${workInteractions.metadata},'$.schema')='tedix.work-proposal.v1' AND ${workInteractions.expiresAt} IS NULL AND julianday(${workInteractions.createdAt})<=julianday(${p.now})-14)`;

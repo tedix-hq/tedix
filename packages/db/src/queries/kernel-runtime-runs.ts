@@ -613,8 +613,13 @@ export interface StaleDelegationResolutionTakeover {
 export function staleDelegationResolutionTakeoverGuard(
 	takeover: StaleDelegationResolutionTakeover,
 ) {
-	const claim = (field: string) =>
-		sql`json_extract(${kernelRuntimeRuns.metadata}, ${`$.homeDelegationResolutionClaim.${field}`})`;
+	const claim = {
+		phase: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase')`,
+		claimId: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.claimId')`,
+		claimedAt: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.claimedAt')`,
+		approvalEventId: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalEventId')`,
+		approvalResolvedAt: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalResolvedAt')`,
+	};
 	const receipt = (extra: SQL) =>
 		new QueryBuilder()
 			.select({ id: kernelRuntimeEvents.id })
@@ -633,9 +638,9 @@ export function staleDelegationResolutionTakeoverGuard(
 	const base = and(
 		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null`,
 		eq(kernelRuntimeRuns.status, "requires_approval"),
-		sql`${claim("phase")} = 'resolving'`,
-		sql`${claim("claimId")} = ${takeover.claimId}`,
-		sql`${claim("claimedAt")} <= ${takeover.staleBefore}`,
+		sql`${claim.phase} = 'resolving'`,
+		sql`${claim.claimId} = ${takeover.claimId}`,
+		sql`${claim.claimedAt} <= ${takeover.staleBefore}`,
 	)!;
 	const recorded = takeover.recorded;
 	if (!recorded)
@@ -643,14 +648,14 @@ export function staleDelegationResolutionTakeoverGuard(
 			base,
 			notExists(
 				receipt(
-					sql`(${kernelRuntimeEvents.id} = ${claim("approvalEventId")} or ${kernelRuntimeEvents.createdAt} >= ${claim("claimedAt")})`,
+					sql`(${kernelRuntimeEvents.id} = ${claim.approvalEventId} or ${kernelRuntimeEvents.createdAt} >= ${claim.claimedAt})`,
 				),
 			),
 		)!;
 	return and(
 		base,
-		sql`${claim("approvalEventId")} = ${recorded.approvalEventId}`,
-		sql`${claim("approvalResolvedAt")} = ${recorded.approvalResolvedAt}`,
+		sql`${claim.approvalEventId} = ${recorded.approvalEventId}`,
+		sql`${claim.approvalResolvedAt} = ${recorded.approvalResolvedAt}`,
 		exists(
 			receipt(
 				and(
@@ -832,11 +837,11 @@ export async function readLatestRunAwaitingDelegationApproval(
 				ne(kernelRuntimeRuns.id, input.excludeRunId),
 				isNull(kernelRuntimeRuns.childRunId),
 				input.targetTediId
-					? sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId') = ${input.targetTediId}`
+					? sql`${kernelRuntimeRuns.targetTediId} = ${input.targetTediId}`
 					: undefined,
 				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.decision.mode') = 'needs_approval'`,
 				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object'`,
-				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId') = 'text' AND length(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId')) > 0`,
+				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId') = 'text' AND length(${kernelRuntimeRuns.targetTediId}) > 0`,
 				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.resolutionStatus') IS NULL`,
 			),
 		)
@@ -1050,7 +1055,7 @@ export async function claimApprovedHomeDelegationResume(
 				eq(kernelRuntimeEvents.createdAt, input.approvalResolvedAt),
 				sql`json_extract(${kernelRuntimeEvents.payload}, '$.status') = 'approved'`,
 				sql`json_type(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder') = 'object'`,
-				sql`json_extract(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder.targetTediId') = json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId')`,
+				sql`json_extract(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder.targetTediId') = ${kernelRuntimeRuns.targetTediId}`,
 				sql`(json_extract(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder.workItemId') is null or json_extract(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder.workItemId') = ${input.workItemId})`,
 			),
 		);
@@ -1078,8 +1083,8 @@ export async function claimApprovedHomeDelegationResume(
 				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim') is null or (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase') = 'admission_failed' and ${homeDelegationResolutionReceiptExists(db)} and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalEventId') = ${input.approvalEventId} and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalResolvedAt') = ${input.approvalResolvedAt} and (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.workItemId') = ${input.workItemId}) and (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.scopeDigest') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.scopeDigest') = ${input.scopeDigest})))`,
 				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object'`,
 				sql`coalesce(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.resolutionStatus'), '') <> 'rejected'`,
-				sql`coalesce(json_extract(${kernelRuntimeRuns.metadata}, '$.workItemId'), json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId'), json_extract(${kernelRuntimeRuns.metadata}, '$.redriveInput.runtimeMetadata.workItemId'), json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.workItemId')) = ${input.workItemId}`,
-				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.workItemId') = ${input.workItemId})`,
+				sql`coalesce(${kernelRuntimeRuns.workItemId}, json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId'), json_extract(${kernelRuntimeRuns.metadata}, '$.redriveInput.runtimeMetadata.workItemId'), json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.workItemId')) = ${input.workItemId}`,
+				sql`(${kernelRuntimeRuns.workItemId} is null or ${kernelRuntimeRuns.workItemId} = ${input.workItemId})`,
 				sql`(json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId') is null or json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId') = ${input.workItemId})`,
 				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.redriveInput.runtimeMetadata.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.redriveInput.runtimeMetadata.workItemId') = ${input.workItemId})`,
 				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.workItemId') = ${input.workItemId})`,
@@ -1329,7 +1334,7 @@ export async function beginApprovedHomeDelegationResumeDispatch(
 				isNull(kernelRuntimeRuns.delegatedTediId),
 				isNull(kernelRuntimeRuns.childConversationId),
 				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase') = 'claimed'`,
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId') = ${input.targetTediId}`,
+				sql`${kernelRuntimeRuns.targetTediId} = ${input.targetTediId}`,
 			),
 		)
 		.returning({ id: kernelRuntimeRuns.id });

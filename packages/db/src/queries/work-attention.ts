@@ -140,9 +140,7 @@ export async function readAttentionSources(
 				projectId: workItems.projectId,
 				createdAt: workItems.createdAt,
 				deadline: workItems.deadline,
-				observer: sql<
-					number | null
-				>`json_extract(${workItems.metadata}, '$.repositoryObserver')`.as(
+				observer: sql<number | null>`${workItems.repositoryObserver}`.as(
 					"observer",
 				),
 				diagnosis: sql<
@@ -160,7 +158,7 @@ export async function readAttentionSources(
 				),
 			)
 			.orderBy(
-				sql`CASE WHEN json_extract(${workItems.metadata}, '$.repositoryObserver') = 1 AND ${workItems.deadline} IS NOT NULL AND coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 1) = 1 THEN ${workItems.deadline} ELSE '9999' END`,
+				sql`CASE WHEN ${workItems.repositoryObserver} = 1 AND ${workItems.deadline} IS NOT NULL AND coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 1) = 1 THEN ${workItems.deadline} ELSE '9999' END`,
 				desc(workItems.createdAt),
 			)
 			.limit(101),

@@ -405,6 +405,10 @@ export const workInteractions = sqliteTable(
 		cancelledAt: text("cancelled_at"),
 		expiredAt: text("expired_at"),
 		version: integer("version").notNull().default(1),
+		source: text("source").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.source') END`,
+			{ mode: "virtual" },
+		),
 		metadata: text("metadata", { mode: "json" })
 			.$type<Record<string, JsonValue>>()
 			.notNull()
@@ -427,6 +431,12 @@ export const workInteractions = sqliteTable(
 			columns: [table.orgId, table.projectId],
 			foreignColumns: [projects.orgId, projects.id],
 		}).onDelete("cascade"),
+		index("idx_work_interactions_source_status_org").on(
+			table.source,
+			table.status,
+			table.orgId,
+			table.createdAt,
+		),
 		index("idx_work_interactions_due").on(table.dueAt),
 		index("idx_work_interactions_target_status").on(
 			table.orgId,

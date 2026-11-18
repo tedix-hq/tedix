@@ -12,7 +12,7 @@ import {
 	releaseRepositoryObserverWake,
 } from "./repository-observer";
 
-const WOKEN = "idx_work_items_woken_repository_observation";
+const WOKEN = "idx_work_items_woken_repository_observation_columns";
 const ORG = "org-example";
 const OTHER_ORG = "org-other";
 const PROJECT = "project-example";
@@ -157,8 +157,8 @@ function fixture(statistics: Statistics, withIndex = true) {
 				('work_items','idx_work_items_org_project_disposition','50000 500 400 60'),
 				('work_items','idx_work_items_org_disposition','50000 500 70'),
 				('work_items','idx_work_items_org_created','50000 500 1'),
-				('work_items','idx_work_items_open_repository_observation','40 1 1'),
-				('work_items','idx_work_items_deferred_repository_wake','300 1 1');
+				('work_items','idx_work_items_open_repository_observation_columns','40 1 1'),
+				('work_items','idx_work_items_deferred_repository_wake_columns','300 1 1');
 			ANALYZE sqlite_schema;`);
 	if (statistics === "analysed before the index")
 		sqlite.exec(
@@ -322,7 +322,7 @@ describe.each<{ statistics: Statistics }>([
 			"SEARCH work_items USING INDEX uniq_work_items_org_id (org_id=? AND id=?)",
 		]);
 		expect(plan.filter((line) => / active /.test(line))).toEqual([
-			`SEARCH active USING INDEX ${WOKEN} (org_id=? AND project_id=?)`,
+			"SEARCH active USING INDEX idx_work_items_observer_report_woken (org_id=? AND project_id=? AND repository_observer=? AND report=? AND observer_woken_at>?)",
 		]);
 		expect(plan.join("\n")).not.toMatch(/SCAN /);
 		// A red incident's claim has no count at all.
@@ -346,7 +346,7 @@ describe.each<{ statistics: Statistics }>([
 			(
 				sqlite
 					.prepare(
-						`SELECT count(*) AS n FROM work_items INDEXED BY ${WOKEN} WHERE json_extract(metadata, '$.repositoryObserver') = 1 AND json_extract(metadata, '$.observerWokenAt') IS NOT NULL AND json_extract(metadata, '$.report') IS NULL AND (disposition IN ('proposed','accepted') OR (disposition = 'cancelled' AND json_extract(metadata, '$.settleReason') = '${ADVISORY}'))`,
+						`SELECT count(*) AS n FROM work_items INDEXED BY ${WOKEN} WHERE repository_observer = 1 AND observer_woken_at IS NOT NULL AND report IS NULL AND (disposition IN ('proposed','accepted') OR (disposition = 'cancelled' AND json_extract(metadata, '$.settleReason') = '${ADVISORY}'))`,
 					)
 					.get() as { n: number }
 			).n,
@@ -382,7 +382,7 @@ describe.each<{ statistics: Statistics }>([
 		// disposition qualifies, even in narrower words: it means these rows.
 		expect(
 			explain(
-				`SELECT id FROM work_items INDEXED BY ${WOKEN} WHERE org_id = ? AND project_id = ? AND json_extract(metadata, '$.repositoryObserver') = 1 AND json_extract(metadata, '$.observerWokenAt') >= ? AND json_extract(metadata, '$.report') IS NULL AND disposition IN ('proposed','accepted')`,
+				`SELECT id FROM work_items INDEXED BY ${WOKEN} WHERE org_id = ? AND project_id = ? AND repository_observer = 1 AND observer_woken_at >= ? AND report IS NULL AND disposition IN ('proposed','accepted')`,
 			),
 		).toEqual([
 			`SEARCH work_items USING INDEX ${WOKEN} (org_id=? AND project_id=?)`,

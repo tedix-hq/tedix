@@ -1604,6 +1604,10 @@
 		{
 			"name": "20261118161145_cms-restore-permit-kind-required/migration.sql",
 			"sha256": "6eb5c8477cdc4611ae2d408dde6c4f30386f1bde3e8786776206dae4d8d2eedd"
+		},
+		{
+			"name": "20261118171241_generated_json_columns/migration.sql",
+			"sha256": "406f44b4a1e6ec64a1100ee96e404244704771d0c0d2042db85e31636f9f3129"
 		}
 	]
 }

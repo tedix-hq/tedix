@@ -225,27 +225,27 @@ export type WorkItemProjectionStatus =
 
 /**
  * A repository observation that is still open. This is the WHERE of
- * `idx_work_items_open_repository_observation` and of the maintenance sweeps
+ * `idx_work_items_open_repository_observation_columns` and of the maintenance sweeps
  * that use it, word for word, because SQLite offers a partial index only to a
  * query that states the index's condition. Changing it needs a migration that
  * rebuilds the index.
  */
-export const openRepositoryObservation = sql`json_extract(metadata, '$.repositoryObserver') = 1 AND disposition NOT IN ('completed', 'cancelled')`;
+export const openRepositoryObservation = sql`repository_observer = 1 AND disposition NOT IN ('completed', 'cancelled')`;
 /**
  * A repository observation waiting for a wake slot: deferred, never woken and
- * not reported. The WHERE of `idx_work_items_deferred_repository_wake` and of
+ * not reported. The WHERE of `idx_work_items_deferred_repository_wake_columns` and of
  * the read that uses it, word for word, for the same reason.
  */
-export const deferredRepositoryWake = sql`json_extract(metadata, '$.repositoryObserver') = 1 AND json_extract(metadata, '$.observerWakeDeferredAt') IS NOT NULL AND json_extract(metadata, '$.observerWokenAt') IS NULL AND json_extract(metadata, '$.report') IS NULL`;
+export const deferredRepositoryWake = sql`repository_observer = 1 AND json_extract(metadata, '$.observerWakeDeferredAt') IS NOT NULL AND observer_woken_at IS NULL AND report IS NULL`;
 
 /**
  * A repository observation that holds one of its project's wake slots while
  * its wake is recent: woken, not reported, and open or settled as an advisory
- * push. The WHERE of `idx_work_items_woken_repository_observation` and of the
+ * push. The WHERE of `idx_work_items_woken_repository_observation_columns` and of the
  * slot count that uses it, word for word, for the same reason. How recent the
  * wake is cannot be part of an index; the count tests it on these few rows.
  */
-export const wokenRepositoryObservation = sql`json_extract(metadata, '$.repositoryObserver') = 1 AND json_extract(metadata, '$.observerWokenAt') IS NOT NULL AND json_extract(metadata, '$.report') IS NULL AND (disposition IN ('proposed','accepted') OR (disposition = 'cancelled' AND json_extract(metadata, '$.settleReason') = 'advisory push observation'))`;
+export const wokenRepositoryObservation = sql`repository_observer = 1 AND observer_woken_at IS NOT NULL AND report IS NULL AND (disposition IN ('proposed','accepted') OR (disposition = 'cancelled' AND json_extract(metadata, '$.settleReason') = 'advisory push observation'))`;
 
 export const workItems = sqliteTable(
 	"work_items",
@@ -332,6 +332,26 @@ export const workItems = sqliteTable(
 		provenance: text("provenance", { mode: "json" })
 			.$type<Record<string, JsonValue>>()
 			.default({}),
+		repositoryObserver: integer("repository_observer").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.repositoryObserver') END`,
+			{ mode: "virtual" },
+		),
+		report: text("report").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.report') END`,
+			{ mode: "virtual" },
+		),
+		observerWokenAt: text("observer_woken_at").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.observerWokenAt') END`,
+			{ mode: "virtual" },
+		),
+		metadataExecutor: text("metadata_executor").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.executor') END`,
+			{ mode: "virtual" },
+		),
+		metadataSource: text("metadata_source").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.source') END`,
+			{ mode: "virtual" },
+		),
 		metadata: text("metadata", { mode: "json" })
 			.$type<Record<string, JsonValue>>()
 			.default({}),
@@ -347,6 +367,23 @@ export const workItems = sqliteTable(
 		// Supersedes the bare `idx_work_items_org` (a strict prefix of this and of
 		// several other org-leading indexes). The board list orders by created_at
 		// DESC; org_id alone meant a temp B-tree over every item in the org.
+		index("idx_work_items_metadata_executor").on(
+			table.orgId,
+			table.metadataExecutor,
+			table.createdAt,
+		),
+		index("idx_work_items_metadata_source").on(
+			table.orgId,
+			table.metadataSource,
+			table.createdAt,
+		),
+		index("idx_work_items_observer_report_woken").on(
+			table.orgId,
+			table.projectId,
+			table.repositoryObserver,
+			table.report,
+			table.observerWokenAt,
+		),
 		index("idx_work_items_deadline").on(table.deadline),
 		index("idx_work_items_due_date").on(table.dueDate),
 		index("idx_work_items_org_created").on(table.orgId, table.createdAt),
@@ -421,16 +458,16 @@ export const workItems = sqliteTable(
 		// pushes) and for pushes waiting for a wake slot. Almost every
 		// observation is a settled commit watch, so without these two the tick
 		// walked the whole table three times. No other read states their WHERE.
-		index("idx_work_items_open_repository_observation")
+		index("idx_work_items_open_repository_observation_columns")
 			.on(table.createdAt, table.id)
 			.where(openRepositoryObservation),
-		index("idx_work_items_deferred_repository_wake")
+		index("idx_work_items_deferred_repository_wake_columns")
 			.on(table.createdAt, table.id)
 			.where(deferredRepositoryWake),
 		// Taking a wake slot counts the project's woken, unreported
 		// observations. Without this the count read every Work Item of the
 		// project. No other read states its WHERE.
-		index("idx_work_items_woken_repository_observation")
+		index("idx_work_items_woken_repository_observation_columns")
 			.on(table.orgId, table.projectId, table.id)
 			.where(wokenRepositoryObservation),
 		index("idx_work_items_objective").on(table.objectiveId),
@@ -484,7 +521,12 @@ END;`,
 
 export type WorkItem = Omit<
 	typeof workItems.$inferSelect,
-	"reviewerLeaseExpiresAt"
+	| "reviewerLeaseExpiresAt"
+	| "repositoryObserver"
+	| "report"
+	| "observerWokenAt"
+	| "metadataExecutor"
+	| "metadataSource"
 >;
 export type NewWorkItem = Omit<
 	typeof workItems.$inferInsert,
