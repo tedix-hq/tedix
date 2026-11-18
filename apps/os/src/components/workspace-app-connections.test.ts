@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
-import { appConnectionRows } from "./workspace-app-connections";
+import {
+	appConnectionRows,
+	connectionRenameName,
+} from "./workspace-app-connections";
 
 vi.mock("@/lib/api", () => ({ osApi: {}, osChatMutationApi: {} }));
 
@@ -75,5 +78,19 @@ describe("appConnectionRows", () => {
 		).toBe("not_attached");
 		expect(appConnectionRows({ entry: "x", capabilities: [] }, [])).toEqual([]);
 		expect(appConnectionRows(null, [resource()])).toEqual([]);
+	});
+});
+
+describe("connectionRenameName", () => {
+	it("saves a trimmed new name", () => {
+		expect(connectionRenameName("Orders 2026", "  Orders 2027 ")).toBe(
+			"Orders 2027",
+		);
+	});
+
+	it("has nothing to save for an empty, unchanged or too long name", () => {
+		expect(connectionRenameName("Orders 2026", "   ")).toBeNull();
+		expect(connectionRenameName("Orders 2026", "Orders 2026 ")).toBeNull();
+		expect(connectionRenameName("Orders 2026", "x".repeat(121))).toBeNull();
 	});
 });
