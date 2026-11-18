@@ -672,6 +672,44 @@ describe("WorkspaceChat", () => {
 		]);
 	});
 
+	it("calls a step the agent recovered from a retry, and only an unrecovered last step a failure", () => {
+		const step = (seq: number, stepId: string, status: "ok" | "error") =>
+			[
+				{
+					type: "step.started" as const,
+					seq,
+					at,
+					conversationId: "c1",
+					turnId: "t1",
+					stepId,
+					kind: "read" as const,
+					label: "Reading a sheet",
+				},
+				{
+					type: "step.finished" as const,
+					seq: seq + 1,
+					at,
+					conversationId: "c1",
+					turnId: "t1",
+					stepId,
+					status,
+					durationMs: 1,
+					...(status === "error" ? { error: "Sheet not found" } : {}),
+				},
+			] as const;
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed([started, ...step(2, "a", "error"), ...step(4, "b", "ok")]),
+		);
+		const summary = () =>
+			host.querySelector(".workspace-chat-activity-summary")?.textContent ?? "";
+		expect(summary()).toContain("1 retried");
+		expect(summary()).not.toContain("Failed");
+		act(() => fake.feed([...step(6, "c", "error")]));
+		expect(summary()).toContain("Failed");
+	});
+
 	it("does not offer Continue after a turn that finished", () => {
 		const fake = fakeClient("c1");
 		mount(fake);
