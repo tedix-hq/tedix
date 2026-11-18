@@ -98,15 +98,21 @@ describe("candidate deploy health", () => {
 			"text/html",
 			"PROBE_ASSET_MISSING",
 		],
-		[
-			'<html><link href="/_astro/app.hash.css"></html>',
-			"text/html",
-			"PROBE_IMAGE_MISSING",
-		],
 	])("rejects an incomplete page: %s", async (body, type, code) => {
 		const fetcher = healthy();
 		fetcher.mockResolvedValueOnce(response(body, type));
 		expect(await probeCmsDeploy(candidate)).toMatchObject({ code });
+	});
+	it("accepts a page without image transforms", async () => {
+		const fetcher = healthy();
+		fetcher.mockResolvedValueOnce(
+			response('<html><link href="/_astro/app.hash.css"></html>', "text/html"),
+		);
+		const result = await probeCmsDeploy(candidate);
+		expect(result).not.toHaveProperty("code");
+		expect(
+			fetcher.mock.calls.some(([input]) => String(input).includes("/_image?")),
+		).toBe(false);
 	});
 	it("does not accept an HTML fallback for CSS", async () => {
 		vi.spyOn(globalThis, "fetch").mockImplementation(async () => response());

@@ -144,17 +144,11 @@ export async function probeCmsDeploy(candidate: Candidate): Promise<{
 			);
 		}
 		await read(asset, "asset");
+		// Pages without transformed images (only plain media files) are valid.
 		const image = references.find(
 			(url) => url.pathname.endsWith("/_image") && url.searchParams.has("href"),
 		);
-		if (!image) {
-			status = 502;
-			throw new CmsDeployFailure(
-				"PROBE_IMAGE_MISSING",
-				"Page has no image transform dependency",
-			);
-		}
-		await read(image, "image");
+		if (image) await read(image, "image");
 		if (candidate.signal.aborted)
 			throw new Error("Health probe deadline exceeded");
 		return {
