@@ -57,9 +57,10 @@ import {
 import { absoluteTime } from "@/lib/time";
 import { useSetWorkspaceFavorite } from "@/lib/workspace-favorite";
 import {
-	formatWorkspaceLastOpened,
+	formatWorkspaceLastUsed,
 	groupWorkspaceLibrary,
 	workspaceDescriptionForDisplay,
+	workspaceLastUsedAt,
 } from "@/lib/workspace-library";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
@@ -265,11 +266,15 @@ export function WorkspaceLibraryPage() {
 								className="-mx-2 gap-0.5 divide-y-0"
 							>
 								{displayedWorkspaces.map(({ workspace, preference }) => {
-									const lastOpened = formatWorkspaceLastOpened(
-										preference?.lastOpenedAt ?? null,
-									);
-									const lastOpenedTitle = preference?.lastOpenedAt
-										? `Last opened ${absoluteTime(preference.lastOpenedAt)}`
+									const lastUsedAt = workspaceLastUsedAt({
+										workspace,
+										preference,
+									});
+									const lastOpened = lastUsedAt
+										? formatWorkspaceLastUsed(lastUsedAt)
+										: null;
+									const lastOpenedTitle = lastUsedAt
+										? `${preference?.lastOpenedAt ? "Last opened" : "Last changed"} ${absoluteTime(lastUsedAt)}`
 										: undefined;
 									const togglePin = () => {
 										if (!favoritesKnown || favoriteInFlight.current) return;
@@ -651,7 +656,7 @@ function LastOpened({
 			className={cn("flex shrink-0 items-center gap-1 tabular-nums", className)}
 		>
 			<Clock size={12} aria-hidden="true" />
-			{value.replace("Opened ", "")}
+			{value}
 		</Text>
 	);
 }

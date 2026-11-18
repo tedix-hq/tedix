@@ -3,6 +3,8 @@ import type {
 	OsWorkspacePreference,
 } from "@tedix/api-contract/schemas/os-workspaces";
 
+import { relativeTime } from "@/lib/time";
+
 export type WorkspaceLibraryEntry = {
 	workspace: OsWorkspace;
 	preference: OsWorkspacePreference | null;
@@ -35,15 +37,12 @@ export function groupWorkspaceLibrary(
 			workspace,
 			preference: preferenceById.get(workspace.id) ?? null,
 		}))
-		// Pinned first, then the most recently opened; a workspace the person
-		// never opened comes after those, by name.
+		// Pinned first, then the most recently used, then by name.
 		.sort(
 			(left, right) =>
 				Number(right.preference?.favorite ?? false) -
 					Number(left.preference?.favorite ?? false) ||
-				(right.preference?.lastOpenedAt ?? "").localeCompare(
-					left.preference?.lastOpenedAt ?? "",
-				) ||
+				lastUsedMs(right) - lastUsedMs(left) ||
 				left.workspace.name.localeCompare(right.workspace.name),
 		);
 	return {
@@ -59,16 +58,35 @@ export function groupWorkspaceLibrary(
 	};
 }
 
-export function formatWorkspaceLastOpened(value: string | null): string | null {
-	if (!value) return null;
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return null;
-	return `Opened ${new Intl.DateTimeFormat("en", {
-		month: "short",
-		day: "numeric",
-		year:
-			date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
-	}).format(date)}`;
+/**
+ * When a workspace was last used: when this person last opened it, or, for one
+ * they never opened, when it last changed.
+ */
+export function workspaceLastUsedAt(
+	entry: WorkspaceLibraryEntry,
+): string | null {
+	return entry.preference?.lastOpenedAt ?? entry.workspace.updatedAt ?? null;
+}
+
+function lastUsedMs(entry: WorkspaceLibraryEntry): number {
+	const at = Date.parse(workspaceLastUsedAt(entry) ?? "");
+	return Number.isNaN(at) ? 0 : at;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * A short "how long ago" for a workspace row: "3h ago" within a day, then
+ * "yesterday" and "10 days ago", and the date once it is over a month old.
+ */
+export function formatWorkspaceLastUsed(
+	value: string,
+	now: Date = new Date(),
+): string {
+	const days = Math.floor((now.getTime() - Date.parse(value)) / DAY_MS);
+	if (days === 1) return "yesterday";
+	if (days > 1 && days <= 30) return `${days} days ago`;
+	return relativeTime(value, now);
 }
 
 // A UUID, or a long token mixing letters and digits, such as a user id from
