@@ -68,11 +68,6 @@ describe("recent provider pricing evidence", () => {
 			success: false,
 			dataQuality: "quarantined_failed",
 		});
-		await insert({
-			costReason: null,
-			costBasis: "legacy_estimate",
-			estimatedCostUsd: 0,
-		});
 		await insert({ costReason: "new-arbitrary-reason" });
 		for (const amount of [0, 1.23])
 			await insert({
@@ -102,10 +97,10 @@ describe("recent provider pricing evidence", () => {
 		const before = sqlite.prepare("SELECT total_changes() AS n").get();
 		const health = await getRecentProviderPricingHealth(db, window);
 		expect(health).toMatchObject({
-			affectedRows: 5,
-			affectedTokens: 60,
-			unattributedRows: 4,
-			unreservedRows: 4,
+			affectedRows: 4,
+			affectedTokens: 48,
+			unattributedRows: 3,
+			unreservedRows: 3,
 			missingRateRows: 1,
 			omittedGroupCount: 0,
 			firstObservedAt: window.sinceInclusive,
@@ -113,7 +108,6 @@ describe("recent provider pricing evidence", () => {
 		});
 		expect(health.groups.map((g) => g.reason).sort()).toEqual([
 			"invalid_usage",
-			"legacy_unspecified_no_pricing",
 			"missing_rate",
 			"unknown_reason",
 			"unverified_execution",

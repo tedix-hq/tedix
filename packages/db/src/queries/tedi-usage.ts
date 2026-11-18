@@ -831,7 +831,7 @@ export async function getOrgCallCostProvenanceGroups(
 	organizationId: string,
 	fromIso: string,
 ): Promise<OrgCallCostProvenanceGroup[]> {
-	const hasCost = sql<number>`CASE WHEN ${tediCallCosts.estimatedCostUsd} IS NOT NULL AND ${tediCallCosts.estimatedCostUsd} >= 0 AND ${tediCallCosts.costBasis} != 'unknown' AND NOT (${tediCallCosts.costBasis} = 'legacy_estimate' AND ${tediCallCosts.dataQuality} = 'quarantined_no_pricing') THEN 1 ELSE 0 END`;
+	const hasCost = sql<number>`CASE WHEN ${tediCallCosts.estimatedCostUsd} IS NOT NULL AND ${tediCallCosts.estimatedCostUsd} >= 0 AND ${tediCallCosts.costBasis} != 'unknown' THEN 1 ELSE 0 END`;
 	const hasTokens = sql<number>`CASE WHEN ${tediCallCosts.totalTokens} > 0 THEN 1 ELSE 0 END`;
 	const rows = await db
 		.select({

@@ -262,7 +262,7 @@ export function billingSettlementHealthConditions(
 		unsettledReservedSuccessCount: number;
 		oldestUnsettledAt: string | null;
 		latestSettledAt: string | null;
-		nonLegacyQuarantined24h: number;
+		quarantined24h: number;
 	},
 	nowMs: number,
 ): HealthCondition[] {
@@ -280,17 +280,13 @@ export function billingSettlementHealthConditions(
 			});
 		}
 	}
-	if (health.nonLegacyQuarantined24h > 0) {
+	if (health.quarantined24h > 0) {
 		conditions.push({
 			key: "billing-settlement-quarantine",
 			severity: "P2",
 			bucketRank:
-				health.nonLegacyQuarantined24h >= 100
-					? 3
-					: health.nonLegacyQuarantined24h >= 10
-						? 2
-						: 1,
-			detail: `${health.nonLegacyQuarantined24h} current billing usage row${health.nonLegacyQuarantined24h === 1 ? "" : "s"} quarantined in 24h`,
+				health.quarantined24h >= 100 ? 3 : health.quarantined24h >= 10 ? 2 : 1,
+			detail: `${health.quarantined24h} current billing usage row${health.quarantined24h === 1 ? "" : "s"} quarantined in 24h`,
 		});
 	}
 	return conditions;

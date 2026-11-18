@@ -188,7 +188,7 @@ describe("billingSettlementHealthConditions", () => {
 				unsettledReservedSuccessCount: 49,
 				oldestUnsettledAt: "2026-07-27T05:00:00.000Z",
 				latestSettledAt: null,
-				nonLegacyQuarantined24h: 0,
+				quarantined24h: 0,
 			},
 			Date.parse(NOW),
 		);
@@ -209,7 +209,7 @@ describe("billingSettlementHealthConditions", () => {
 				unsettledReservedSuccessCount: 2,
 				oldestUnsettledAt: "2026-07-27T07:30:00.000Z",
 				latestSettledAt: "2026-07-27T07:15:00.000Z",
-				nonLegacyQuarantined24h: 12,
+				quarantined24h: 12,
 			},
 			Date.parse(NOW),
 		);
