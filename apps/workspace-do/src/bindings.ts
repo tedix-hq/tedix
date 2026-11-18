@@ -23,6 +23,7 @@ import type { BindingName } from "./declarations";
 import { buildSheetBinding } from "./sheet-binding";
 import { buildPresentationBinding } from "./presentation-bindings";
 import { buildView, type ShownView } from "./views";
+import { approvalDomain, checkWebUrl, type WebPort } from "./web";
 import type {
 	CreateWorkInput,
 	OutputDetail,
@@ -47,6 +48,8 @@ export interface BindingDeps {
 	onRecorded?: (record: ChangeRecord) => void;
 	/** Puts a view in the running turn's answer; throws past the turn's limit. */
 	showView?: (view: ShownView) => void;
+	/** Web page reads for the running conversation; absent outside a chat turn. */
+	web?: WebPort;
 }
 
 function revisionRef(output: OutputSummary | OutputDetail | null | undefined) {
@@ -221,6 +224,38 @@ export function buildWorkspaceBindings(
 			data.createWork({ ...input, actorId: deps.actor.id }),
 	};
 
+	// The first page from a domain in a conversation holds for approval. The
+	// gate's arguments name only the conversation and domain, so one approval
+	// covers that domain for the rest of the conversation.
+	const webGate = wrapBinding(
+		{
+			fetch: (grant: { conversationId: string; domain: string }) => {
+				deps.web?.allowDomain(grant.domain);
+				return { domain: grant.domain, allowed: true as const };
+			},
+		},
+		{
+			...common,
+			resource: "web_domain",
+			methods: {
+				fetch: {
+					riskTier: "external_side_effect",
+					blastRadius: "external_system",
+				},
+			},
+		},
+	);
+	const web = {
+		fetch: async (url: unknown) => {
+			const port = deps.web;
+			if (!port) throw new Error("Web pages can be read only in a chat turn");
+			const domain = approvalDomain(checkWebUrl(url));
+			if (!port.isDomainAllowed(domain))
+				await webGate.fetch({ conversationId: port.conversationId, domain });
+			return port.fetchPage(url as string);
+		},
+	};
+
 	const views = {
 		show: (input: unknown) => {
 			if (!deps.showView) throw new Error("Views need a running chat turn");
@@ -304,6 +339,11 @@ export function buildWorkspaceBindings(
 			...common,
 			resource: "resource",
 			methods: { list: { riskTier: "read", blastRadius: "none" } },
+		}),
+		web: wrapBinding(web, {
+			...common,
+			resource: "web",
+			methods: { fetch: { riskTier: "read", blastRadius: "none" } },
 		}),
 		work: wrapBinding(work, {
 			...common,

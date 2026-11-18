@@ -91,6 +91,7 @@ type Stub = DurableObjectStub &
 		): Promise<void>;
 		retryProjections(scope: WorkspaceScope): Promise<void>;
 		scriptModel(scope: WorkspaceScope, steps: ScriptStep[]): Promise<void>;
+		webFetchCount(scope: WorkspaceScope): Promise<number>;
 		importRows(
 			scope: WorkspaceScope,
 			batch: {
@@ -1538,6 +1539,75 @@ describe("WorkspaceDO", () => {
 			resourceUri: "ui://widgets/mcp-app/tedix-unified/r/open-work-1.html",
 			toolResult: { rows: [{ title: "A", disposition: "accepted" }] },
 		});
+	});
+
+	test("reading a web page asks once per domain and returns the page as text", async () => {
+		const ws = workspace();
+		const READ = `export default async (env) => {
+			const page = await env.web.fetch("https://example.com/prices");
+			return { title: page.title, text: page.text };
+		}`;
+		await ws.scriptModel(scope, [{ code: READ }, { text: "unreachable" }]);
+		const { turnId, conversationId } = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "What does the team plan cost on example.com/prices?",
+		});
+		expect(await ws.awaitTurn(scope, turnId, 20_000)).toMatchObject({
+			status: "finished",
+		});
+		const events = await ws.readEvents(scope, { conversationId, after: 0 });
+		const requested = events.find(
+			(event) => event.type === "approval.requested",
+		);
+		if (requested?.type !== "approval.requested")
+			throw new Error("no approval card");
+		expect(requested.title).toBe("Reading a web page");
+		expect(requested.input).toBe("https://example.com/prices");
+		expect(await ws.webFetchCount(scope)).toBe(0);
+
+		await ws.scriptModel(scope, [{ text: "The team plan costs 12 euros." }]);
+		const decided = await ws.decideApproval(scope, {
+			approvalId: requested.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(decided.applied).toBe(true);
+		await ws.awaitTurn(scope, decided.turnId!, 20_000);
+		const continuation = (
+			await ws.readEvents(scope, { conversationId, after: requested.seq })
+		).find(
+			(event) =>
+				event.type === "turn.started" && event.turnId === decided.turnId,
+		);
+		expect(
+			continuation?.type === "turn.started" && continuation.text,
+		).toContain("Team plan costs 12 euros a month.");
+		expect(await ws.webFetchCount(scope)).toBe(1);
+
+		// The same domain later in the conversation needs no new approval.
+		await ws.scriptModel(scope, [
+			{ code: READ },
+			{ text: "Still 12 euros a month." },
+		]);
+		const again = await ws.sendTurn(scope, {
+			conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "Check it again",
+		});
+		expect(await ws.awaitTurn(scope, again.turnId, 20_000)).toMatchObject({
+			status: "finished",
+			text: "Still 12 euros a month.",
+		});
+		const later = await ws.readEvents(scope, {
+			conversationId,
+			after: requested.seq,
+		});
+		expect(
+			later.filter((event) => event.type === "approval.requested"),
+		).toHaveLength(0);
+		expect(await ws.webFetchCount(scope)).toBe(2);
 	});
 
 	test("asking to file a Work Item shows a card and files it only after approval", async () => {

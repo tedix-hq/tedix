@@ -136,6 +136,29 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 
 	protected override async refreshModelCatalog(): Promise<void> {}
 
+	/** Fixed public pages instead of the network; counts what was fetched. */
+	protected override webFetch() {
+		return async (url: string) => {
+			const count = ((await this.ctx.storage.get<number>("test:webFetches")) ??
+				0) as number;
+			await this.ctx.storage.put("test:webFetches", count + 1);
+			if (url === "https://example.com/prices")
+				return new Response(
+					"<html><head><title>Prices</title></head><body><h1>Plans</h1><p>Team plan costs 12 euros a month.</p></body></html>",
+					{ headers: { "content-type": "text/html" } },
+				);
+			return new Response("Not found", {
+				status: 404,
+				headers: { "content-type": "text/plain" },
+			});
+		};
+	}
+
+	async webFetchCount(scope: WorkspaceScope): Promise<number> {
+		this.bindScope(scope);
+		return (await this.ctx.storage.get<number>("test:webFetches")) ?? 0;
+	}
+
 	protected override configuredModels() {
 		return [{ id: "faux", label: "Scripted test model" }];
 	}

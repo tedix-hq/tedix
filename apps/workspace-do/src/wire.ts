@@ -247,6 +247,7 @@ export function stepLabel(
 		},
 		resources: { list: "Listing resources" },
 		views: { show: "Showing a view" },
+		web: { fetch: "Reading a web page" },
 		work: {
 			list: "Reading Work items",
 			listOpen: "Reading open Work items",
