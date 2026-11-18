@@ -24,8 +24,10 @@ import {
 } from "@tedix/context-core/harness-version";
 import {
 	getTediRuntimeChannels,
+	getTediRuntimeEncryptedSecret,
 	getTediRuntimeGovernance,
 } from "@tedix/db/queries/tedi-runtime-bootstrap";
+import { decryptTediSecret } from "@tedix/db/utils/secrets-encryption";
 import { DEFAULT_SESSION_KEY } from "@tedix/tedi-session/session-harness";
 import { parseModelRef } from "@tedix/api-contract/schemas/model-catalog";
 import { TEDIX_ARTIFACTS_NAMESPACE_PRODUCTION } from "./artifacts-contract";
@@ -438,8 +440,8 @@ export const runtimeParentTurns = {
 	},
 	/**
 	 * Read this tedi's per-tedi Telegram channel config from the body-neutral
-	 * `tedis.channels` JSON column. Returns the `telegram` sub-config, or `null`
-	 * when there is none (so the caller persists "loaded, none" and falls back to
+	 * `tedis.channels` JSON column. Returns the `telegram` sub-config with its
+	 * bot token read from `tedi_secrets`, or `null` when there is none (so the caller persists "loaded, none" and falls back to
 	 * the Worker-wide env token). Fail-soft: a read/parse error returns null.
 	 */
 	async loadTelegramChannel(
@@ -455,7 +457,23 @@ export const runtimeParentTurns = {
 				typeof channels === "string" ? JSON.parse(channels) : channels;
 			const telegram = (parsed as { telegram?: TelegramChannelLike } | null)
 				?.telegram;
-			return telegram ?? null;
+			if (!telegram) return null;
+			if (telegram.botToken) return telegram;
+			// The API stores the token encrypted in `tedi_secrets` and strips it
+			// from the channels column. A missing secret leaves the config
+			// tokenless, so selection falls back to the Worker-wide token.
+			const encrypted = await getTediRuntimeEncryptedSecret(
+				this.env.DB,
+				key,
+				"TELEGRAM_BOT_TOKEN",
+			);
+			if (!encrypted || !this.env.SECRETS_MASTER_KEY) return telegram;
+			const botToken = await decryptTediSecret(
+				this.env.SECRETS_MASTER_KEY,
+				key,
+				encrypted,
+			);
+			return { ...telegram, botToken };
 		} catch (err) {
 			console.warn(`[isolate.telegram] failed to load channels for ${tediId}`, {
 				exception: exceptionTopology(err),
