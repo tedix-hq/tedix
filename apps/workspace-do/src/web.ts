@@ -74,6 +74,15 @@ export function approvalDomain(url: URL): string {
 		.replace(/^www\./, "");
 }
 
+/** The approval card's heading for a page: "Read example.com". */
+export function webApprovalTitle(url: unknown): string | null {
+	try {
+		return `Read ${approvalDomain(checkWebUrl(url))}`;
+	} catch {
+		return null;
+	}
+}
+
 /** Fetch one public page and return it as readable text. */
 export async function fetchReadablePage(
 	raw: string,

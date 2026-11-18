@@ -121,6 +121,10 @@ import {
 } from "@/components/workspace-chat-approval-tray";
 import { AlwaysApproveButton } from "@/components/workspace-chat-always-approve";
 import {
+	approvalTitle,
+	webPageRequest,
+} from "@/lib/workspace-chat-web-approval";
+import {
 	OpenChangedFile,
 	ReplyCopy,
 	StepDetail,
@@ -1277,6 +1281,7 @@ function ApprovalCard({
 	const status = approvalStatus(approval);
 	const failed = approval.execution?.status === "failed";
 	const subject = approvalSubject(approval);
+	const page = webPageRequest(approval);
 	const autoApproval = useContext(AutoApprovalContext);
 	const rule = approval.rule;
 	const canAlwaysApprove =
@@ -1291,9 +1296,18 @@ function ApprovalCard({
 			<div className="workspace-chat-approval-head">
 				<ShieldCheck aria-hidden />
 				<Text as="strong" role="label">
-					{approval.title}
+					{approvalTitle(approval)}
 				</Text>
 			</div>
+			{page ? (
+				<Text
+					role="body"
+					className="workspace-chat-approval-url"
+					data-testid="workspace-chat-approval-url"
+				>
+					{page.url}
+				</Text>
+			) : null}
 			{target ? (
 				<Text
 					as="strong"
@@ -1307,12 +1321,16 @@ function ApprovalCard({
 				{failed
 					? "The workspace could not apply this action. See Technical details for the recorded error."
 					: approval.execution?.status === "applied"
-						? "The workspace applied this change."
+						? page
+							? "The agent read this page."
+							: "The workspace applied this change."
 						: approval.decision === "deny"
 							? "The action was denied."
 							: approval.decision === "approve"
 								? "Your approval was recorded. The action's result has not been recorded."
-								: "Review the proposed change, then approve or deny it."}
+								: page
+									? `The agent wants to read this page. If you approve, it can read pages on ${page.site} for the rest of this conversation.`
+									: "Review the proposed change, then approve or deny it."}
 			</Text>
 			{appEdit ? (
 				<div className="workspace-chat-approval-preview">

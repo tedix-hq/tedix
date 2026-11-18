@@ -3,6 +3,10 @@ import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { appEditRequestFrom } from "@/lib/app-edit-approval";
 import type { ChatApproval } from "@/lib/workspace-chat-state";
+import {
+	approvalTitle,
+	webPageRequest,
+} from "@/lib/workspace-chat-web-approval";
 
 /** The item a proposal is for, when it names one. */
 export function approvalTarget(approval: ChatApproval): string | null {
@@ -20,6 +24,8 @@ export function approvalTarget(approval: ChatApproval): string | null {
  * "changing Plan", "editing an app draft".
  */
 export function approvalSubject(approval: ChatApproval): string {
+	const page = webPageRequest(approval);
+	if (page) return `reading ${page.site}`;
 	const target = approvalTarget(approval);
 	const title = approval.title.trim();
 	if (!target) return title.charAt(0).toLowerCase() + title.slice(1);
@@ -81,6 +87,7 @@ export function ApprovalTray({
 				{approvals.map((approval) => {
 					const subject = approvalSubject(approval);
 					const target = approvalTarget(approval);
+					const page = webPageRequest(approval);
 					const decision = sent.get(approval.approvalId);
 					// An app draft is accepted or rejected as a whole, as on its card.
 					const draft = appEditRequestFrom(approval.input) !== null;
@@ -94,9 +101,19 @@ export function ApprovalTray({
 								title="Show the proposal in the conversation"
 							>
 								<Text as="span" role="body" className="truncate">
-									{approval.title}
+									{approvalTitle(approval)}
 									{target ? `: ${target}` : ""}
 								</Text>
+								{page ? (
+									<Text
+										as="span"
+										role="caption"
+										tone="secondary"
+										className="workspace-chat-tray-url"
+									>
+										{page.url}
+									</Text>
+								) : null}
 							</a>
 							<Button
 								aria-label={`${no} ${subject}`}

@@ -7,6 +7,7 @@ import type { WorkspaceDataPort } from "./data-port";
 import type { WorkspaceStorage } from "./runtime";
 import {
 	approvalDomain,
+	webApprovalTitle,
 	checkWebUrl,
 	createWebPort,
 	fetchReadablePage,
@@ -82,6 +83,17 @@ describe("web address checks", () => {
 			"docs.example.com",
 		);
 	});
+});
+
+test("the approval card for a page is headed by its site", () => {
+	expect(webApprovalTitle("https://www.Example.com/prices?plan=team")).toBe(
+		"Read example.com",
+	);
+	expect(webApprovalTitle("https://docs.example.com/")).toBe(
+		"Read docs.example.com",
+	);
+	expect(webApprovalTitle("http://example.com/")).toBeNull();
+	expect(webApprovalTitle(42)).toBeNull();
 });
 
 describe("fetchReadablePage", () => {

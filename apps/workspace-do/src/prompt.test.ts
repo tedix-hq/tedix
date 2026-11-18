@@ -8,6 +8,7 @@ import {
 import {
 	buildSystemPrompt,
 	dynamicPromptSuffix,
+	STATIC_RULES,
 	staticPromptPrefix,
 } from "./prompt";
 
@@ -98,4 +99,13 @@ describe("prompt", () => {
 			}),
 		).not.toContain("waiting_for_approval");
 	});
+});
+
+test("the agent reads a web page by calling it, not by asking in the chat first", () => {
+	expect(STATIC_RULES).toContain("call `env.web.fetch(url)`");
+	expect(STATIC_RULES).toContain(
+		"never ask in the chat first whether you may read a page",
+	);
+	expect(STATIC_RULES).toContain("approval card that names the site");
+	expect(STATIC_RULES).not.toContain("then stop");
 });
