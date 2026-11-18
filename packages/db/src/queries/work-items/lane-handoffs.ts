@@ -3,7 +3,10 @@ import type { DbQueryClient } from "../../query-client";
 import { agentSessionRequests } from "../../schema/agent-session-requests";
 import { externalAgentPrincipals } from "../../schema/external-agent-identity";
 import { workAgentSessions } from "../../schema/work-agent-sessions";
-import { workInteractions } from "../../schema/work-factory";
+import {
+	workInteractions,
+	workInteractionStoredColumns,
+} from "../../schema/work-factory";
 import {
 	workAttempts,
 	type WorkAttempt,
@@ -108,7 +111,7 @@ export async function prepareLaneHandoff(
 		throw new WorkControlError("NOT_ELIGIBLE", "Supply a bounded next click");
 	const key = nextClick.replace(/\s+/g, " ").toLowerCase();
 	const [equivalent] = await db
-		.select()
+		.select(workInteractionStoredColumns)
 		.from(workInteractions)
 		.where(
 			and(
@@ -325,7 +328,11 @@ export async function nudgeLaneHandoffs(db: DbQueryClient, now: string) {
 		sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${now})`,
 		sql`NOT EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND w.disposition IN ('completed','cancelled'))`,
 	);
-	const rows = await db.select().from(workInteractions).where(due).limit(50);
+	const rows = await db
+		.select(workInteractionStoredColumns)
+		.from(workInteractions)
+		.where(due)
+		.limit(50);
 	let count = 0;
 	for (const row of rows) {
 		const hash = new Uint8Array(

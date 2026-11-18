@@ -7,7 +7,11 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { type WorkItem, workItems } from "../../schema/work-items";
+import {
+	type WorkItem,
+	workItems,
+	workItemStoredColumns,
+} from "../../schema/work-items";
 import { cancelWorkItem, lifecycleEventInsert } from "./crud";
 import {
 	getScopedWorkItem,
@@ -140,7 +144,7 @@ export async function snoozeProposedWorkItem(
 				eq(workItems.disposition, "proposed"),
 			),
 		)
-		.returning();
+		.returning(workItemStoredColumns);
 	const event = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -185,7 +189,7 @@ export async function listTriageQueue(
 		inTriageQueue(params.now),
 	);
 	const rows = await db
-		.select()
+		.select(workItemStoredColumns)
 		.from(workItems)
 		.where(where)
 		.orderBy(

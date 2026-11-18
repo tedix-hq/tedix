@@ -6,6 +6,7 @@ import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decis
 import {
 	workInteractionCardPresentations,
 	workInteractions,
+	workInteractionStoredColumns,
 } from "../../schema/work-factory";
 
 function displayCopy(presentation: DecisionCardPresentation) {
@@ -138,7 +139,7 @@ export async function listMissingCardSummaries(db: DbQueryClient, now: string) {
 		.limit(1);
 	const previous = checkpoint?.through ?? null;
 	const rows = await db
-		.select()
+		.select(workInteractionStoredColumns)
 		.from(workInteractions)
 		.where(
 			and(

@@ -6,7 +6,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { sql } from "drizzle-orm";
+import { getColumns, sql } from "drizzle-orm";
 import {
 	check,
 	foreignKey,
@@ -518,6 +518,20 @@ BEGIN
   ON CONFLICT(org_id) DO UPDATE SET total = total + 1;
 END;`,
 ] as const;
+
+/**
+ * The columns a Work Item row is read and returned with. Generated columns exist for
+ * WHERE, ORDER BY and indexes only: select and `returning()` through this, never
+ * the whole table, so they do not reach a caller or an API response.
+ */
+export const {
+	repositoryObserver: _repositoryObserver,
+	report: _report,
+	observerWokenAt: _observerWokenAt,
+	metadataExecutor: _metadataExecutor,
+	metadataSource: _metadataSource,
+	...workItemStoredColumns
+} = getColumns(workItems);
 
 export type WorkItem = Omit<
 	typeof workItems.$inferSelect,

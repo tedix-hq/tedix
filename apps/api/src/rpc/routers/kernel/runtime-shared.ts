@@ -6,13 +6,13 @@
  * router imports this module; a value import back would create a cycle).
  */
 
+import type { KernelRuntimeRun } from "@tedix/db/schema/cognitive-runtime";
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
 import type { HomeChildRunEvidence } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	buildRuntimeRunId,
 	sanitizeRuntimeTurnKey,
 } from "@tedix/api-contract/utils/runtime-identity";
-import type { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
 import { type BaseContext, createError, ErrorCodes } from "../../orpc";
 import { hasDelegatedOutput } from "./delegated-stop";
 
@@ -383,9 +383,7 @@ export function childRunStatusKey(tediId: string, runId: string): string {
 	return `${tediId}:${runId}`;
 }
 
-export function delegatedChildSteerRunId(
-	row: typeof kernelRuntimeRuns.$inferSelect,
-): string | null {
+export function delegatedChildSteerRunId(row: KernelRuntimeRun): string | null {
 	const metadata = nonNullRecord(row.metadata);
 	const delegatedChildSteer = nonNullRecord(metadata?.delegatedChildSteer);
 	return stringFromPayload(delegatedChildSteer?.childInjectRunId) ?? null;

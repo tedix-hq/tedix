@@ -1,10 +1,11 @@
-import { and, desc, eq, getColumns, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { DeckCurationState } from "@tedix/api-contract/schemas/deck-curation";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { DbQueryClient } from "../../query-client";
 import {
 	workInteractionCardRevisions as revisions,
 	workInteractions,
+	workInteractionStoredColumns,
 	workInteractionResponses,
 	workInteractionCardPresentations,
 } from "../../schema/work-factory";
@@ -375,7 +376,7 @@ export async function listHandledInternalDecisionCards(
 	>`coalesce(${workInteractions.projectId}, (SELECT ${workItems.projectId} FROM ${workItems} WHERE ${workItems.orgId}=${workInteractions.orgId} AND ${workItems.id}=${workInteractions.workItemId}))`;
 	return db
 		.select({
-			...getColumns(workInteractions),
+			...workInteractionStoredColumns,
 			projectId: project.as("project_id"),
 		})
 		.from(workInteractions)

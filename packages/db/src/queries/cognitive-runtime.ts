@@ -1,3 +1,5 @@
+import type { TediApprovalRequest } from "../schema/approvals";
+import type { KernelRuntimeRun } from "../schema/cognitive-runtime";
 import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
 import {
 	and,
@@ -18,10 +20,14 @@ import {
 import { type AnySQLiteColumn, alias } from "drizzle-orm/sqlite-core";
 import { getLogStores, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
-import { tediApprovalRequests } from "../schema/approvals";
+import {
+	tediApprovalRequests,
+	approvalRequestStoredColumns,
+} from "../schema/approvals";
 import {
 	chatDispatchIdempotency,
 	kernelRuntimeRuns,
+	kernelRuntimeRunStoredColumns,
 	kernelWakeQueue,
 	tediArtifacts,
 	tediRuntimeEvents,
@@ -59,8 +65,8 @@ export class TediArtifactOwnershipConflictError extends Error {
 		this.name = "TediArtifactOwnershipConflictError";
 	}
 }
-export type TediApprovalRequestRow = typeof tediApprovalRequests.$inferSelect;
-export type KernelRuntimeRunRow = typeof kernelRuntimeRuns.$inferSelect;
+export type TediApprovalRequestRow = TediApprovalRequest;
+export type KernelRuntimeRunRow = KernelRuntimeRun;
 
 export type TediObservabilityRuntimeRow = Pick<
 	TediRuntimeEventRow,
@@ -565,7 +571,7 @@ export async function listTediApprovalRequests(
 	},
 ): Promise<TediApprovalRequestRow[]> {
 	return db
-		.select()
+		.select(approvalRequestStoredColumns)
 		.from(tediApprovalRequests)
 		.where(
 			and(
@@ -586,7 +592,7 @@ export async function findDirectKernelParentRun(
 	input: { organizationId: string; childRunId: string },
 ): Promise<KernelRuntimeRunRow | null> {
 	const rows = await db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -603,7 +609,7 @@ export async function listRecentKernelRunsForOrganization(
 	input: { organizationId: string; limit: number },
 ): Promise<KernelRuntimeRunRow[]> {
 	return db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(eq(kernelRuntimeRuns.organizationId, input.organizationId))
 		.orderBy(desc(kernelRuntimeRuns.updatedAt))

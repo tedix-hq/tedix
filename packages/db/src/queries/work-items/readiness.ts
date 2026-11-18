@@ -9,6 +9,7 @@ import {
 	workAttempts,
 	workItemRelations,
 	workItems,
+	workItemStoredColumns,
 } from "../../schema/work-items";
 import {
 	workApprovalDecisions,
@@ -484,7 +485,7 @@ export async function listWorkItemReadinessProjection(
 	const observedAt = params.observedAt ?? new Date().toISOString();
 	const limit = Math.min(Math.max(1, Math.trunc(params.limit ?? 25)), 50);
 	const rows = await db
-		.select()
+		.select(workItemStoredColumns)
 		.from(workItems)
 		.where(
 			and(

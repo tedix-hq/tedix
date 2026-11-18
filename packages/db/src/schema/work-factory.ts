@@ -17,7 +17,7 @@ import type { AgentRequestExecution } from "@tedix/api-contract/schemas/agent-re
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkProposal } from "@tedix/api-contract/schemas/work-interactions";
-import { sql } from "drizzle-orm";
+import { getColumns, sql } from "drizzle-orm";
 import {
 	check,
 	foreignKey,
@@ -1022,7 +1022,18 @@ export type WorkProjectHealthJudgment =
 	typeof workProjectHealthJudgments.$inferSelect;
 export type WorkApprovalProposal = typeof workApprovalProposals.$inferSelect;
 export type WorkApprovalDecision = typeof workApprovalDecisions.$inferSelect;
-export type WorkInteraction = typeof workInteractions.$inferSelect;
+/**
+ * The columns a Work interaction row is read and returned with. Generated columns exist for
+ * WHERE, ORDER BY and indexes only: select and `returning()` through this, never
+ * the whole table, so they do not reach a caller or an API response.
+ */
+export const { source: _source, ...workInteractionStoredColumns } =
+	getColumns(workInteractions);
+
+export type WorkInteraction = Omit<
+	typeof workInteractions.$inferSelect,
+	"source"
+>;
 export type WorkInteractionResponse =
 	typeof workInteractionResponses.$inferSelect;
 export type WorkInteractionReplyDraft =

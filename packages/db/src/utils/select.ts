@@ -31,7 +31,7 @@ type PrefixedSelection<TTable extends SQLiteTable> = {
 };
 
 /**
- * Every column of `table`, aliased `<prefix>_<key>` so it cannot collide with a
+ * Every stored column of `table`, aliased `<prefix>_<key>` so it cannot collide with a
  * column of the same name on another table in the same select.
  *
  * `mapWith(column)` is load-bearing and must not be dropped: a bare
@@ -56,6 +56,9 @@ export function prefixedColumns<TTable extends SQLiteTable>(
 	for (const [key, column] of Object.entries(
 		getColumns(table) as Record<string, Column>,
 	)) {
+		// Generated columns serve WHERE, ORDER BY and indexes; they never leave
+		// the query layer, so a joined row carries only what the table stores.
+		if (column.generated) continue;
 		selection[key] = sql`${column}`
 			.mapWith(column)
 			.as(`${prefix}_${key}`) as unknown as SQL<unknown>;

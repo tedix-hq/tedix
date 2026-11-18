@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	workInteractions,
+	workInteractionStoredColumns,
 	type WorkInteraction,
 } from "../../schema/work-factory";
 import { requireWorkItem } from "./factory-validation";
@@ -28,7 +29,7 @@ export async function flushWorkInteractionDigests(
 		Math.floor(Date.parse(now) / 14_400_000) * 14_400_000,
 	).toISOString();
 	const rows = await db
-		.select()
+		.select(workInteractionStoredColumns)
 		.from(workInteractions)
 		.where(
 			and(

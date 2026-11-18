@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	workItems,
+	workItemStoredColumns,
 	workAttempts,
 	workItemComments,
 } from "../../schema/work-items";
@@ -98,7 +99,7 @@ export async function reassignIdleWork(
 				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
 			})
 			.where(fence)
-			.returning(),
+			.returning(workItemStoredColumns),
 		db.insert(workItemComments).select(
 			db
 				.select({

@@ -2,7 +2,10 @@ import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { isFactsChangedReview } from "@tedix/api-contract/utils/deck-action-boundary";
 import type { DbQueryClient } from "../../query-client";
 import { auditEvents } from "../../schema/audit-events";
-import { workInteractions } from "../../schema/work-factory";
+import {
+	workInteractions,
+	workInteractionStoredColumns,
+} from "../../schema/work-factory";
 
 /** Also follows the original card's Work link for project-filed legacy reviews. */
 export async function retireDecisionReviews(
@@ -50,7 +53,7 @@ export async function retireDecisionReviews(
 	let after: string | undefined;
 	while (true) {
 		const rows = await db
-			.select()
+			.select(workInteractionStoredColumns)
 			.from(workInteractions)
 			.where(and(scope, after ? gt(workInteractions.id, after) : undefined))
 			.orderBy(asc(workInteractions.id))

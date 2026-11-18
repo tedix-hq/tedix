@@ -53,6 +53,7 @@ import {
 	workItemProjections,
 	workItemRelations,
 	workItems,
+	workItemStoredColumns,
 } from "../../schema/work-items";
 import { normalizeWorkItemRow } from "./normalization";
 import { planningApprovalVersion } from "./planning-approval";
@@ -203,7 +204,7 @@ export async function createWorkItem(
 			provenance: params.provenance ?? {},
 			metadata: params.metadata ?? {},
 		})
-		.returning();
+		.returning(workItemStoredColumns);
 	const rows = createdBy
 		? (
 				await db.batch([
@@ -235,7 +236,7 @@ export async function getWorkItemById(
 	const row =
 		(
 			await db
-				.select()
+				.select(workItemStoredColumns)
 				.from(workItems)
 				.where(
 					and(
@@ -256,7 +257,7 @@ export async function getWorkItemBySourceIntentId(
 	const row =
 		(
 			await db
-				.select()
+				.select(workItemStoredColumns)
 				.from(workItems)
 				.where(
 					and(
@@ -283,7 +284,7 @@ export async function listWorkItems(
 	options: ListWorkItemsOptions,
 ): Promise<WorkItem[]> {
 	const rows = await db
-		.select()
+		.select(workItemStoredColumns)
 		.from(workItems)
 		.where(
 			and(
@@ -538,7 +539,7 @@ export async function listWorkItemsPage(
 			]
 		: [desc(workItems.createdAt), desc(workItems.id)];
 	const rows = await db
-		.select()
+		.select(workItemStoredColumns)
 		.from(workItems)
 		.where(where)
 		.orderBy(...listOrder)
@@ -874,7 +875,7 @@ export async function acceptWorkItem(
 				params.allowMissingProject ? undefined : isNotNull(workItems.projectId),
 			),
 		)
-		.returning();
+		.returning(workItemStoredColumns);
 	const acceptEvent = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -1056,7 +1057,7 @@ export async function completeWorkItem(
 				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${completedAt}))`,
 			),
 		)
-		.returning();
+		.returning(workItemStoredColumns);
 	const completeEvent = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -1174,7 +1175,7 @@ export async function cancelWorkItem(
 					: undefined,
 			),
 		)
-		.returning();
+		.returning(workItemStoredColumns);
 	const cancelEvent = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -1468,7 +1469,7 @@ export async function updateWorkItemSpecification(
 				ne(workItems.disposition, "cancelled"),
 			),
 		)
-		.returning();
+		.returning(workItemStoredColumns);
 	const updateEvent = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,
@@ -1577,7 +1578,7 @@ export async function restoreWorkItemFiling(
 				)`,
 			),
 		)
-		.returning();
+		.returning(workItemStoredColumns);
 	const event = lifecycleEventInsert(db, {
 		orgId: params.orgId,
 		workItemId: params.workItemId,

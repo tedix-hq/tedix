@@ -36,6 +36,7 @@ import {
 	ownerToolRunStatus,
 	pendingApproval,
 	tediApprovalRequests,
+	approvalRequestStoredColumns,
 	tediProvisionalOutcomes,
 } from "../schema/approvals";
 import { tedis } from "../schema/tedis";
@@ -179,7 +180,7 @@ export async function listApprovalRequests(
 	const whereClause = and(...conditions);
 
 	const data = await db
-		.select()
+		.select(approvalRequestStoredColumns)
 		.from(tediApprovalRequests)
 		.where(whereClause)
 		.orderBy(desc(tediApprovalRequests.createdAt))
@@ -200,7 +201,7 @@ export async function getApprovalRequestById(
 	orgId?: string,
 ): Promise<TediApprovalRequest | undefined> {
 	const results = await db
-		.select()
+		.select(approvalRequestStoredColumns)
 		.from(tediApprovalRequests)
 		.where(
 			and(
@@ -320,7 +321,7 @@ export function buildCreateApprovalRequestStatement(
 			expiresAt: data.expiresAt,
 			workflowId: data.workflowId ?? null,
 		})
-		.returning();
+		.returning(approvalRequestStoredColumns);
 }
 
 /** One immutable payment rejection may create only one human review request. */
@@ -343,7 +344,7 @@ export async function ensurePaymentBudgetOverrideRequest(
 			workflowId: data.workflowId ?? null,
 		})
 		.onConflictDoNothing({ target: tediApprovalRequests.id })
-		.returning();
+		.returning(approvalRequestStoredColumns);
 	if (created) {
 		await recordApprovalCardCreation(db, created);
 		return { request: created, created: true };
@@ -391,7 +392,7 @@ export async function ensureProvisionalPromotionApprovalRequest(
 			workflowId: data.workflowId,
 		})
 		.onConflictDoNothing({ target: tediApprovalRequests.id })
-		.returning();
+		.returning(approvalRequestStoredColumns);
 	if (rows[0]) {
 		await recordApprovalCardCreation(db, rows[0]);
 		return { request: rows[0], created: true };
@@ -523,7 +524,7 @@ export async function resolveApprovalRequest(
 				: {}),
 		})
 		.where(and(...conditions))
-		.returning();
+		.returning(approvalRequestStoredColumns);
 	const resolved = results[0];
 	if (
 		resolved &&
@@ -567,7 +568,7 @@ export async function supersedeToolReviewApprovals(
 				sql`not exists (select 1 from ${appTools} where ${appTools.appId} = ${input.appId} and ${appTools.reviewState} = 'pending')`,
 			),
 		)
-		.returning();
+		.returning(approvalRequestStoredColumns);
 }
 
 /** Snapshot, re-batch and replace the app's queue in one D1 transaction. */
@@ -649,7 +650,7 @@ export async function reconcileToolReviewApproval(
 						),
 					),
 			)
-			.returning(),
+			.returning(approvalRequestStoredColumns),
 	]);
 	if (created[0]) await recordApprovalCardCreation(db, created[0]);
 	return created;
@@ -734,7 +735,7 @@ export async function resolveToolCatalogApprovalRequest(
 				)`,
 			),
 		)
-		.returning();
+		.returning(approvalRequestStoredColumns);
 	const [resolvedRows] = await db.batch([
 		resolutionStatement,
 		db
@@ -837,7 +838,7 @@ export async function admitKernelAutoWrite(
 				resolution: input.resolution,
 				workflowId: input.approval.workflowId ?? null,
 			})
-			.returning(),
+			.returning(approvalRequestStoredColumns),
 		db
 			.update(kernelRuntimeRuns)
 			.set({ metadata: input.metadata, updatedAt: input.resolvedAt })
@@ -1283,7 +1284,7 @@ export async function listDueOwnerToolApprovals(
 	limit = 100,
 ) {
 	return db
-		.select()
+		.select(approvalRequestStoredColumns)
 		.from(tediApprovalRequests)
 		.where(
 			and(

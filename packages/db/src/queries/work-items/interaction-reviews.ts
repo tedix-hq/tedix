@@ -6,6 +6,7 @@ import { tediRuntimeEvents } from "../../schema/cognitive-runtime";
 import { workAttempts } from "../../schema/work-items";
 import {
 	workInteractions,
+	workInteractionStoredColumns,
 	workInteractionResponses,
 	type WorkInteraction,
 } from "../../schema/work-factory";
@@ -200,7 +201,7 @@ export async function reviewWorkInteraction(
 				eq(workInteractions.version, p.expectedVersion),
 			),
 		)
-		.returning();
+		.returning(workInteractionStoredColumns);
 	const [rows] = await db.batch([
 		mutation,
 		...(p.action === "close" &&
@@ -241,7 +242,7 @@ export async function listDueWorkInteractionReviews(
 	now: string,
 ) {
 	return db
-		.select()
+		.select(workInteractionStoredColumns)
 		.from(workInteractions)
 		.where(
 			and(
@@ -305,7 +306,7 @@ export async function getDeadlineDecision(
 	return (
 		(
 			await db
-				.select()
+				.select(workInteractionStoredColumns)
 				.from(workInteractions)
 				.where(
 					and(

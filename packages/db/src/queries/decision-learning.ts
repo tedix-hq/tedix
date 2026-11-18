@@ -1,3 +1,6 @@
+import type { WorkInteraction } from "../schema/work-factory";
+import type { TediApprovalRequest } from "../schema/approvals";
+import type { WorkItem } from "../schema/work-items";
 import { and, asc, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
 import {
 	decisionExposures,
@@ -6,12 +9,16 @@ import {
 } from "../schema/learning-feedback";
 import {
 	workInteractions,
+	workInteractionStoredColumns,
 	workInteractionResponses,
 	workApprovalProposals,
 	workApprovalDecisions,
 } from "../schema/work-factory";
-import { workItems } from "../schema/work-items";
-import { tediApprovalRequests } from "../schema/approvals";
+import { workItems, workItemStoredColumns } from "../schema/work-items";
+import {
+	tediApprovalRequests,
+	approvalRequestStoredColumns,
+} from "../schema/approvals";
 import { memoryFacts } from "../schema/memory-graph";
 import {
 	DecisionLearningConfigSchema,
@@ -60,14 +67,14 @@ export async function listDecisionInstrumentationSources(
 		mayReadApprovals: boolean;
 	},
 ) {
-	const interactions: (typeof workInteractions.$inferSelect)[] = [];
+	const interactions: WorkInteraction[] = [];
 	const proposals: (typeof workApprovalProposals.$inferSelect)[] = [];
-	const approvals: (typeof tediApprovalRequests.$inferSelect)[] = [];
+	const approvals: TediApprovalRequest[] = [];
 	for (let offset = 0; offset < p.cardIds.length; offset += 50) {
 		const ids = p.cardIds.slice(offset, offset + 50);
 		interactions.push(
 			...(await db
-				.select()
+				.select(workInteractionStoredColumns)
 				.from(workInteractions)
 				.where(
 					and(
@@ -99,7 +106,7 @@ export async function listDecisionInstrumentationSources(
 		if (p.mayReadApprovals)
 			approvals.push(
 				...(await db
-					.select()
+					.select(approvalRequestStoredColumns)
 					.from(tediApprovalRequests)
 					.where(
 						and(
@@ -114,7 +121,7 @@ export async function listDecisionInstrumentationSources(
 					)),
 			);
 	}
-	const items: (typeof workItems.$inferSelect)[] = [];
+	const items: WorkItem[] = [];
 	for (const ids of chunkForBoundParams(
 		[
 			...new Set([
@@ -126,7 +133,7 @@ export async function listDecisionInstrumentationSources(
 	)) {
 		items.push(
 			...(await db
-				.select()
+				.select(workItemStoredColumns)
 				.from(workItems)
 				.where(
 					and(

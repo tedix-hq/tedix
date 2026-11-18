@@ -3,6 +3,7 @@ import type { DbClient } from "../client";
 import {
 	type KernelRuntimeRun,
 	kernelRuntimeRuns,
+	kernelRuntimeRunStoredColumns,
 	kernelWakeQueue,
 } from "../schema/cognitive-runtime";
 
@@ -87,7 +88,7 @@ export async function listKernelRunsByStatus(
 	},
 ) {
 	return db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -105,7 +106,7 @@ export async function getKernelRunForRecovery(
 	input: { id: string; organizationId: string },
 ) {
 	const [row] = await db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
