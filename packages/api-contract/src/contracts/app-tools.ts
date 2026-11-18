@@ -7,6 +7,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { AppToolSchema } from "../schemas/app";
 import {
@@ -263,6 +264,7 @@ export const ToolPreflightResponseSchema = z.object({
  * All endpoints are org-scoped via JWT context
  */
 export const appToolsContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["app-tools"], prefix: "/apps/{appId}/tools" })
 	.router({
 		/**

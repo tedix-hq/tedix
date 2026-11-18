@@ -12,6 +12,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import {
 	ImportCatalogSnapshotInputSchema,
 	ImportCatalogSnapshotOutputSchema,
@@ -90,6 +91,7 @@ import {
  * - POST /catalog/scan - Trigger scan workflow
  */
 export const catalogContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["catalog"], prefix: "/catalog" })
 	.router({
 		importSnapshot: oc

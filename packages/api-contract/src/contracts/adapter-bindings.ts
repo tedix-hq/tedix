@@ -9,6 +9,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { SecretScopeSchema } from "../schemas/adapter-bindings";
 
@@ -64,6 +65,7 @@ export const BindingValidationResultSchema = z.object({
 // =============================================================================
 
 export const adapterBindingsContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["adapter-bindings"] })
 	.router({
 		/**

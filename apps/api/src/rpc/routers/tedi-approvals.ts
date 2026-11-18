@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import {
 	approvalPayloadForViewer,
 	canReadApprovalResult,
@@ -1060,7 +1061,10 @@ const resolveReviewManifestProcedure = authedOs.resolveReviewManifest
 			(decision) => decision.decision === "veto",
 		)) {
 			const resolvedBy = principalByApprovalId.get(decision.approvalRequestId);
-			if (!resolvedBy) throw new Error("Missing validated approval principal");
+			if (!resolvedBy)
+				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+					message: "Missing validated approval principal",
+				});
 			const row = await getApprovalRequestById(
 				context.db,
 				decision.approvalRequestId,
@@ -1140,7 +1144,9 @@ const resolveReviewManifestProcedure = authedOs.resolveReviewManifest
 					if (dependent?.status === "pending") {
 						const cascadeResolvedBy = principalByApprovalId.get(dependent.id);
 						if (!cascadeResolvedBy)
-							throw new Error("Missing validated cascade principal");
+							throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+								message: "Missing validated cascade principal",
+							});
 						const cancelled = await resolveApprovalRequest(
 							context.db,
 							dependent.id,
@@ -1221,7 +1227,10 @@ const resolveReviewManifestProcedure = authedOs.resolveReviewManifest
 			);
 			if (!decision) continue;
 			const resolvedBy = principalByApprovalId.get(action.approval.id);
-			if (!resolvedBy) throw new Error("Missing validated approval principal");
+			if (!resolvedBy)
+				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+					message: "Missing validated approval principal",
+				});
 			if (
 				action.dependencies.some((dependency) => dependency.kind === "hard")
 			) {

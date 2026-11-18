@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { AUTHZ, ErrorCodes, createError, withAuthorization } from "../../orpc";
 import {
 	getCatalogAppById,
@@ -242,7 +243,9 @@ export const installFromCatalogProcedure = fleetCatalogOs.installFromCatalog
 			connectionScopes,
 		} = input;
 		if (!context.organizationId) {
-			throw new Error("Organization context required to install a catalog app");
+			throw baseErrorConstructors.FORBIDDEN({
+				message: "Organization context required to install a catalog app",
+			});
 		}
 		const catalogApp = await getCatalogAppById(db, catalogAppId);
 		if (!catalogApp) {
@@ -281,7 +284,9 @@ export const installFromCatalogProcedure = fleetCatalogOs.installFromCatalog
 				? await getAppById(db, installed.proxyApp.id)
 				: null;
 			if (!proxyApp) {
-				throw new Error("Failed to create app from catalog entry");
+				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+					message: "Failed to create app from catalog entry",
+				});
 			}
 			console.log(
 				`[Catalog] ${installed.summary} (catalog ${installed.catalogApp.id})`,
@@ -305,7 +310,9 @@ export const installFromCatalogProcedure = fleetCatalogOs.installFromCatalog
 		});
 		const app = result.app;
 		if (!app) {
-			throw new Error("Failed to create app from catalog entry");
+			throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+				message: "Failed to create app from catalog entry",
+			});
 		}
 		console.log(
 			`[Catalog] Installed proxy app ${app.id} (${app.slug}) from catalog ${result.catalogAppId} via base app ${result.sourceAppSlug} (${result.sourceAppId})`,

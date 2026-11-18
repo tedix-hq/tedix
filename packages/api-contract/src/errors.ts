@@ -15,6 +15,7 @@
  * ```
  */
 
+import { createORPCErrorConstructorMap } from "@orpc/contract";
 import * as z from "zod";
 
 /**
@@ -63,7 +64,22 @@ export const baseErrors = {
 			})
 			.optional(),
 	},
+	CONFLICT: {
+		message: "Resource state changed",
+	},
+	UNPROCESSABLE_CONTENT: {
+		message: "Request cannot be processed",
+	},
+	BAD_GATEWAY: {
+		message: "Upstream service failed",
+	},
+	SERVICE_UNAVAILABLE: {
+		message: "Service unavailable",
+	},
 	INTERNAL_SERVER_ERROR: {
 		message: "Internal server error",
 	},
 } as const;
+
+/** Contract error constructors for shared guards and router helpers. */
+export const baseErrorConstructors = createORPCErrorConstructorMap(baseErrors);

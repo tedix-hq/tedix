@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import {
 	CLOUDFLARE_AUTO_MODEL_REF,
@@ -52,6 +53,7 @@ const EvalResultSchema = z.object({
 // =============================================================================
 
 export const mcpEvalContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["mcp-eval", "internal"] })
 	.router({
 		run: oc

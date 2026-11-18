@@ -170,11 +170,10 @@ export function createError(
  * example a lifecycle rule the page explains. Server callers keep reading
  * `error.cause`. Pass only details that are safe to show the caller.
  */
-export function createErrorWithData<TData extends Record<string, unknown>>(
-	code: ErrorCode,
-	message: string,
-	data: TData,
-): ORPCError<ErrorCode, TData> {
+export function createErrorWithData<
+	TData extends Record<string, unknown>,
+	TCode extends ErrorCode,
+>(code: TCode, message: string, data: TData): ORPCError<TCode, TData> {
 	return new ORPCError(code, { message, cause: data, data });
 }
 

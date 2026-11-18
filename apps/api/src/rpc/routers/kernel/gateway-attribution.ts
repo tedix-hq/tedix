@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import type { ProviderTokenUsage } from "@tedix/db/utils/model-pricing";
 import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
@@ -151,9 +152,9 @@ export function kernelGatewayMetadata(
 		attribution: encodeAiGatewayAttribution(attribution),
 	};
 	if (Object.keys(metadata).length > MAX_AI_GATEWAY_METADATA_ENTRIES) {
-		throw new Error(
-			`Kernel AI Gateway metadata exceeds ${MAX_AI_GATEWAY_METADATA_ENTRIES} entries`,
-		);
+		throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+			message: `Kernel AI Gateway metadata exceeds ${MAX_AI_GATEWAY_METADATA_ENTRIES} entries`,
+		});
 	}
 	return metadata;
 }

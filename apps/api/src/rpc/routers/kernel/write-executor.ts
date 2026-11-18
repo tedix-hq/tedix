@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { verifyAction } from "@tedix/api-contract/utils/action-receipt";
 
 /**
@@ -344,7 +345,10 @@ async function listUpstreamTools(
 	actingUserId?: string,
 ): Promise<BoundedMcpList<McpTool>> {
 	const service = env.MCP_SERVICE;
-	if (!service) throw new Error("MCP service binding is not configured");
+	if (!service)
+		throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+			message: "MCP service binding is not configured",
+		});
 	let cache = catalogs.get(service);
 	if (!cache) {
 		cache = new Map();
@@ -372,7 +376,9 @@ async function listUpstreamTools(
 			actingUserId,
 		)) as CatalogPage | null;
 		if (!page)
-			throw new Error("Provider tool catalog could not be listed (transport)");
+			throw baseErrorConstructors.BAD_GATEWAY({
+				message: "Provider tool catalog could not be listed (transport)",
+			});
 		return page;
 	};
 	const first = await readPage();
@@ -391,7 +397,9 @@ async function listUpstreamTools(
 			version !== undefined &&
 			page._meta?.["com.tedix/catalogVersion"] !== version
 		)
-			throw new Error("Provider tool catalog changed during pagination");
+			throw baseErrorConstructors.CONFLICT({
+				message: "Provider tool catalog changed during pagination",
+			});
 		return { items: page.tools, nextCursor: page.nextCursor };
 	});
 	if (!catalog.truncated && typeof version === "string" && version.length > 0) {
@@ -785,7 +793,10 @@ export async function executeApprovedKernelWrite(args: {
 					error: `Edited field "${disallowed.field}" is not editable under the live tool policy`,
 				};
 			try {
-				if (!tool.inputSchema) throw new Error("missing schema");
+				if (!tool.inputSchema)
+					throw baseErrorConstructors.BAD_GATEWAY({
+						message: "missing schema",
+					});
 				const schema = { type: "object", ...tool.inputSchema };
 				const checked = z
 					.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0])
@@ -910,7 +921,9 @@ export async function executeApprovedKernelWrite(args: {
 						listed.items.find((candidate) => candidate.name === readName)
 							?.annotations?.readOnlyHint !== true
 					)
-						throw new Error("Read-back tool is not verified read-only");
+						throw baseErrorConstructors.FORBIDDEN({
+							message: "Read-back tool is not verified read-only",
+						});
 					const readResult = (await mcpCall(
 						env,
 						host,
@@ -922,7 +935,9 @@ export async function executeApprovedKernelWrite(args: {
 						payload.initiatedByUserId ?? undefined,
 					)) as ToolCallResult | null;
 					if (!readResult || readResult.isError)
-						throw new Error("Read-back unavailable");
+						throw baseErrorConstructors.BAD_GATEWAY({
+							message: "Read-back unavailable",
+						});
 					return transport === "codemode"
 						? codeModeResultData(readResult)
 						: unwrapCallToolResult(readResult, readName);

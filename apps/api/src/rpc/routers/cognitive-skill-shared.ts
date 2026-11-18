@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /** Shared skill-entry mechanics for the cognitive router slices. */
 
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
@@ -306,7 +307,9 @@ export async function syncSkillScheduleProjection(
 		return;
 	}
 	if (!entry.tediId) {
-		throw new Error("scheduled skill lost its owning tedi identity");
+		throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+			message: "scheduled skill lost its owning tedi identity",
+		});
 	}
 	const nextFireAt =
 		existing?.cron === schedule.cron &&

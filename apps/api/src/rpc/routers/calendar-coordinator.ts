@@ -3,7 +3,13 @@ import { calendarCoordinatorContract } from "@tedix/api-contract/contracts/calen
 import { CalendarConfigurationSchema } from "@tedix/api-contract/schemas/calendar-coordinator";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import * as ledger from "@tedix/db/queries/calendar-coordinator";
-import { AUTHZ, type BaseContext, withAuth } from "../orpc";
+import {
+	AUTHZ,
+	type BaseContext,
+	createError,
+	ErrorCodes,
+	withAuth,
+} from "../orpc";
 import { requireOrgId } from "../org-scope";
 import { requireWorkspace } from "./os-workspaces-shared";
 const authed = implement(calendarCoordinatorContract)
@@ -75,7 +81,10 @@ export const calendarCoordinatorContractRouter = {
 		for (const route of configuration.calendars) {
 			const calendars = await adapters.get(route.key)!.listCalendars();
 			if (!calendars.find((c) => c.id === route.calendarId)?.canRead)
-				throw new Error("Selected calendar cannot be read");
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Selected calendar cannot be read",
+				);
 		}
 		const db = createDbQueryClient(context.env.DB);
 		if (input.id) {
@@ -84,13 +93,15 @@ export const calendarCoordinatorContractRouter = {
 				prior.configuration.ownerUserId !== ownerUserId ||
 				prior.configuration.workspaceId !== input.workspaceId
 			)
-				throw new Error(
+				throw createError(
+					ErrorCodes.FORBIDDEN,
 					"Calendar configuration owner or workspace cannot change",
 				);
 			const scope = { organizationId, configurationId: input.id };
 			const pending = await ledger.listCalendarCoordinatorMutations(db, scope);
 			if (pending.some((m) => m.state === "intent" || m.state === "uncertain"))
-				throw new Error(
+				throw createError(
+					ErrorCodes.CONFLICT,
 					"Recover uncertain provider writes before editing the configuration",
 				);
 			const routeIdentity = (
@@ -118,7 +129,8 @@ export const calendarCoordinatorContractRouter = {
 					routeIdentity(configuration.calendars) &&
 				(await ledger.listCalendarCoordinatorMirrors(db, scope)).length
 			)
-				throw new Error(
+				throw createError(
+					ErrorCodes.CONFLICT,
 					"Compensate owned blockers before rebinding calendar accounts or removing routes",
 				);
 			if (
@@ -129,7 +141,8 @@ export const calendarCoordinatorContractRouter = {
 					{ mode: "preview", configuration: JSON.stringify(configuration) },
 				))
 			)
-				throw new Error(
+				throw createError(
+					ErrorCodes.CONFLICT,
 					"Calendar configuration revision changed or reconcile is running",
 				);
 			const { disableCalendarMonitoring } =
@@ -164,11 +177,16 @@ export const calendarCoordinatorContractRouter = {
 			requireOrgId(context),
 			input.id,
 		);
-		if (
-			configuration.ownerUserId !== calendarOwnerUser(context) ||
-			configuration.revision !== input.expectedRevision
-		)
-			throw new Error("Owner and exact configuration revision required");
+		if (configuration.ownerUserId !== calendarOwnerUser(context))
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Owner and exact configuration revision required",
+			);
+		if (configuration.revision !== input.expectedRevision)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Owner and exact configuration revision required",
+			);
 		const adapters = await resolveCalendarRoutes(context, configuration, true);
 		for (const route of configuration.calendars) {
 			const a = adapters.get(route.key)!;
@@ -176,11 +194,13 @@ export const calendarCoordinatorContractRouter = {
 				(c) => c.id === route.calendarId,
 			);
 			if (!info?.canWrite)
-				throw new Error(
+				throw createError(
+					ErrorCodes.FORBIDDEN,
 					"Every selected calendar requires verified write permission",
 				);
 			if (input.actions.some((k) => k !== "create") && !a.conditionalWrites)
-				throw new Error(
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
 					"Microsoft conditional update/delete support has not been verified",
 				);
 		}
@@ -207,7 +227,10 @@ export const calendarCoordinatorContractRouter = {
 			))
 		) {
 			await disableCalendarMonitoring(context, next);
-			throw new Error("Calendar configuration changed or reconcile is running");
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Calendar configuration changed or reconcile is running",
+			);
 		}
 		await disableCalendarMonitoring(context, configuration);
 		await queueCalendarInitialReconcile(context, next);
@@ -224,7 +247,7 @@ export const calendarCoordinatorContractRouter = {
 			input.id,
 		);
 		if (configuration.ownerUserId !== calendarOwnerUser(context))
-			throw new Error("Configuration owner required");
+			throw createError(ErrorCodes.FORBIDDEN, "Configuration owner required");
 		const next = {
 			...configuration,
 			mode: "preview" as const,
@@ -242,7 +265,10 @@ export const calendarCoordinatorContractRouter = {
 				JSON.stringify(next),
 			))
 		)
-			throw new Error("Calendar configuration revision changed");
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Calendar configuration revision changed",
+			);
 		await disableCalendarMonitoring(context, next);
 		return next;
 	}),
@@ -255,7 +281,10 @@ export const calendarCoordinatorContractRouter = {
 			input.id,
 		);
 		if (configuration.revision !== input.expectedRevision)
-			throw new Error("Calendar configuration revision changed");
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Calendar configuration revision changed",
+			);
 		return previewCalendarConfig(context, configuration, row.ownershipSeed);
 	}),
 	apply: run.apply.handler(async ({ context, input }) => {
@@ -272,7 +301,10 @@ export const calendarCoordinatorContractRouter = {
 			input.id,
 		);
 		if (configuration.revision !== input.expectedRevision)
-			throw new Error("Calendar configuration revision changed");
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Calendar configuration revision changed",
+			);
 		const row = await ledger.getCalendarCoordinatorPlan(
 			db,
 			{
@@ -281,7 +313,8 @@ export const calendarCoordinatorContractRouter = {
 			},
 			input.planId,
 		);
-		if (!row) throw new Error("Calendar preview not found");
+		if (!row)
+			throw createError(ErrorCodes.NOT_FOUND, "Calendar preview not found");
 		const plan = JSON.parse(
 			row.plan,
 		) as import("../../services/calendar-coordinator/types").Plan;
@@ -318,11 +351,16 @@ export const calendarCoordinatorContractRouter = {
 				requireOrgId(context),
 				input.id,
 			);
-			if (
-				configuration.ownerUserId !== calendarOwnerUser(context) ||
-				configuration.revision !== input.expectedRevision
-			)
-				throw new Error("Owner and exact configuration revision required");
+			if (configuration.ownerUserId !== calendarOwnerUser(context))
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Owner and exact configuration revision required",
+				);
+			if (configuration.revision !== input.expectedRevision)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Owner and exact configuration revision required",
+				);
 			const scope = {
 				organizationId: configuration.organizationId,
 				configurationId: configuration.id,
@@ -332,7 +370,11 @@ export const calendarCoordinatorContractRouter = {
 				scope,
 				input.planId,
 			);
-			if (!original) throw new Error("Original calendar plan not found");
+			if (!original)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Original calendar plan not found",
+				);
 			const mutations = (
 				await ledger.listCalendarCoordinatorMutations(db, scope)
 			).map((r) => JSON.parse(r.mutation));
@@ -370,11 +412,16 @@ export const calendarCoordinatorContractRouter = {
 			requireOrgId(context),
 			input.id,
 		);
-		if (
-			configuration.ownerUserId !== calendarOwnerUser(context) ||
-			configuration.revision !== input.expectedRevision
-		)
-			throw new Error("Owner and exact configuration revision required");
+		if (configuration.ownerUserId !== calendarOwnerUser(context))
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Owner and exact configuration revision required",
+			);
+		if (configuration.revision !== input.expectedRevision)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Owner and exact configuration revision required",
+			);
 		const row = await ledger.getCalendarCoordinatorPlan(
 			db,
 			{
@@ -383,11 +430,15 @@ export const calendarCoordinatorContractRouter = {
 			},
 			input.planId,
 		);
-		if (!row) throw new Error("Compensation preview not found");
+		if (!row)
+			throw createError(ErrorCodes.NOT_FOUND, "Compensation preview not found");
 		const plan = JSON.parse(row.plan);
 		const adapters = await resolveCalendarRoutes(context, configuration, true);
 		if (plan.purpose !== "compensate")
-			throw new Error("Compensation requires its reviewed immutable preview");
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Compensation requires its reviewed immutable preview",
+			);
 		await disableCalendarMonitoring(context, configuration);
 		const lease = await createCalendarApplyStore(context, configuration, plan);
 		try {
@@ -436,7 +487,10 @@ export const calendarCoordinatorContractRouter = {
 			input.id,
 		);
 		if (configuration.revision !== input.expectedRevision)
-			throw new Error("Calendar configuration revision changed");
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Calendar configuration revision changed",
+			);
 		const row = await ledger.getCalendarCoordinatorPlan(
 			db,
 			{
@@ -445,7 +499,8 @@ export const calendarCoordinatorContractRouter = {
 			},
 			input.planId,
 		);
-		if (!row) throw new Error("Recovery plan not found");
+		if (!row)
+			throw createError(ErrorCodes.NOT_FOUND, "Recovery plan not found");
 		const plan = JSON.parse(row.plan);
 		const lease = await createCalendarApplyStore(context, configuration, plan);
 		try {

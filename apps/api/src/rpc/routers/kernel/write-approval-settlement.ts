@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import type { KernelRuntimeEvent } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	renderActionReceipt,
@@ -1031,7 +1032,9 @@ export async function executeDirectKernelWrite(
 	terminalEvent: KernelRuntimeEvent | null;
 }> {
 	if (!input.decision.autoResolve)
-		throw new Error("Direct write was not auto-approved");
+		throw baseErrorConstructors.FORBIDDEN({
+			message: "Direct write was not auto-approved",
+		});
 	const resolvedAt = nowIso();
 	const metadata = {
 		...input.metadata,
@@ -1066,7 +1069,10 @@ export async function executeDirectKernelWrite(
 		resolvedAt,
 		resolution: input.decision.reason.slice(0, 200),
 	});
-	if (!admitted) throw new Error("Direct write run is no longer executable");
+	if (!admitted)
+		throw baseErrorConstructors.CONFLICT({
+			message: "Direct write run is no longer executable",
+		});
 	let assistantEvent: KernelRuntimeEvent | null = null;
 	let terminalEvent: KernelRuntimeEvent | null = null;
 	const outcome = await settleHomeToolWriteApproval(
@@ -1092,9 +1098,9 @@ export async function executeDirectKernelWrite(
 		{ ...metadata, kernelWriteAdmissionMs: Date.now() - admissionStartedAt },
 	);
 	if (outcome !== "succeeded" && outcome !== "failed")
-		throw new Error(
-			"Direct write settlement is unknown; execution must not retry",
-		);
+		throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+			message: "Direct write settlement is unknown; execution must not retry",
+		});
 	return {
 		executed: true,
 		finalStatus:

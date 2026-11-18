@@ -1,4 +1,5 @@
-import { implement, ORPCError } from "@orpc/server";
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
+import { implement } from "@orpc/server";
 import { repositoryObserverContract } from "@tedix/api-contract/contracts/repository-observer";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
@@ -22,7 +23,7 @@ export const repositoryObserverContractRouter = {
 		.handler(async ({ context, input }) => {
 			const org = requireOrgId(context);
 			if (context.authType !== "user")
-				throw new ORPCError("FORBIDDEN", {
+				throw baseErrorConstructors.FORBIDDEN({
 					message:
 						"A human administrator configures observer standing authority",
 				});
@@ -37,7 +38,7 @@ export const repositoryObserverContractRouter = {
 				org,
 			);
 			if (!project?.objectiveId || !tedi || tedi.status !== "active")
-				throw new ORPCError("BAD_REQUEST", {
+				throw baseErrorConstructors.BAD_REQUEST({
 					message: "Active owner and purpose-linked project required",
 				});
 			if (
@@ -49,7 +50,7 @@ export const repositoryObserverContractRouter = {
 					new Date().toISOString(),
 				))
 			)
-				throw new ORPCError("NOT_FOUND");
+				throw baseErrorConstructors.NOT_FOUND({ message: "Not Found" });
 			return { projectId: project.id };
 		}),
 	observe: write.observe.handler(({ context, input }) =>
@@ -91,7 +92,7 @@ export const repositoryObserverContractRouter = {
 			new Set(input.lessons.map((l) => l.lessonId)).size !== matched.length ||
 			input.lessons.some((l) => !matched.some((m) => m.id === l.lessonId))
 		)
-			throw new ORPCError("BAD_REQUEST", {
+			throw baseErrorConstructors.BAD_REQUEST({
 				message: "Report each snapshotted lesson exactly once",
 			});
 		const workItemId = String(row.metadata?.targetWorkItemId ?? row.id);

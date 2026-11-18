@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Kernel runtime — agent review of held Home delegations over the Work
  * approval plane (owner directive: agent-in-the-loop, not human-in-the-loop).
@@ -163,9 +164,9 @@ export async function requestHomeDelegationAgentReview(
 		});
 	}
 	if (item.disposition !== "accepted") {
-		throw new Error(
-			`Held delegation Work Item ${item.id} is ${item.disposition}, not accepted`,
-		);
+		throw baseErrorConstructors.CONFLICT({
+			message: `Held delegation Work Item ${item.id} is ${item.disposition}, not accepted`,
+		});
 	}
 	const proposal = await proposeWorkApproval(context.db, {
 		id: crypto.randomUUID(),

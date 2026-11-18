@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { approverEditedPayload } from "../../../services/approval-edits";
@@ -239,9 +240,10 @@ export function buildKernelTurnWorkDeps(
 			recordFyi: async (input, result) => {
 				if (!input.workOrder.autonomyClass) return;
 				if (!input.workItemId)
-					throw new Error(
-						"Automatic delegation requires a canonical Work Item for its FYI",
-					);
+					throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+						message:
+							"Automatic delegation requires a canonical Work Item for its FYI",
+					});
 				await recordDelegationFyi(context.db, {
 					orgId: input.organizationId,
 					workItemId: input.workItemId,

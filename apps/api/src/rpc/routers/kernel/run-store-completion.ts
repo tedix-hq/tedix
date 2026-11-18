@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { kernelSpanContext } from "./gateway-attribution";
 import type { TediRuntimeEventKind } from "@tedix/api-contract/schemas/cognitive-runtime";
 import type { HomeRun } from "@tedix/api-contract/schemas/kernel-runtime";
@@ -249,7 +250,10 @@ export async function recordHomeDelegationCompletionMessage(
 			input.row.organizationId,
 			input.row.id,
 		);
-		if (!request) throw new Error("Durable request ownership unavailable");
+		if (!request)
+			throw baseErrorConstructors.CONFLICT({
+				message: "Durable request ownership unavailable",
+			});
 		const { readKernelRequestPolicy, reconcileHomeKernelRequest } =
 			await import("../../../kernel/request-home-source");
 		const policy = await readKernelRequestPolicy(

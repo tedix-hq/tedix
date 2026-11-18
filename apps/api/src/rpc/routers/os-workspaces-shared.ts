@@ -1,4 +1,4 @@
-import { ORPCError } from "@orpc/server";
+import type { ORPCError } from "@orpc/server";
 import type { OsBlueprintWithVisibility } from "@tedix/api-contract/contracts/os-workspaces";
 import {
 	type OsBlueprintPreflight,
@@ -66,7 +66,12 @@ import {
 	assertOsWorkspaceVisible,
 } from "../../services/os-workspace-visibility";
 import { requireOrgId } from "../org-scope";
-import { type BaseContext, createError, ErrorCodes } from "../orpc";
+import {
+	type BaseContext,
+	createError,
+	createErrorWithData,
+	ErrorCodes,
+} from "../orpc";
 
 /**
  * The accountable principal recorded on `created_by_kind` / `created_by_id`.
@@ -238,10 +243,11 @@ export function revisionConflict(
 	"CONFLICT",
 	{ expectedRevision: number; currentRevision: number | null }
 > {
-	return new ORPCError("CONFLICT", {
-		message: `${subject === "Gadget" ? "App" : subject} revision compare-and-swap lost against a concurrent revision write`,
-		data: { expectedRevision, currentRevision },
-	});
+	return createErrorWithData(
+		ErrorCodes.CONFLICT,
+		`${subject === "Gadget" ? "App" : subject} revision compare-and-swap lost against a concurrent revision write`,
+		{ expectedRevision, currentRevision },
+	);
 }
 
 /**

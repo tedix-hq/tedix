@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import {
 	monetaryInferenceConfig,
 	monetaryCreditOverview,
@@ -14,7 +15,7 @@ import { listMonetaryInferenceSpending } from "@tedix/db/queries/billing/spendin
 
 /// <reference path="../../../worker-configuration.d.ts" />
 
-import { implement, ORPCError } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { checkoutBusinessTermsParams } from "../../lib/checkout-business-terms";
 import { billingContract } from "@tedix/api-contract/contracts/billing";
 import { assignInternalPlan } from "@tedix/db/queries/billing/internal-plan";
@@ -131,7 +132,7 @@ async function inferenceCapacityCheckoutIdempotencyKey(input: {
 
 function requireManagedSettlement(context: BaseContext): void {
 	if (resolveBillingSettlementMode(context.env) !== "managed") {
-		throw new ORPCError("FORBIDDEN", {
+		throw baseErrorConstructors.FORBIDDEN({
 			message: "Managed billing settlement is not enabled",
 		});
 	}
@@ -148,7 +149,7 @@ async function requireStripePriceByLookupKey(
 	});
 	const price = prices.data[0];
 	if (!price) {
-		throw new ORPCError("INTERNAL_SERVER_ERROR", {
+		throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
 			message: `Stripe has no active price with lookup key ${lookupKey}`,
 		});
 	}
@@ -170,13 +171,13 @@ async function requireStripePriceByLookupKey(
  */
 export function requirePlatformBillingAuthority(context: BaseContext): string {
 	if (context.authType === "tedi") {
-		throw new ORPCError("FORBIDDEN", {
+		throw baseErrorConstructors.FORBIDDEN({
 			message:
 				"Platform billing authority is never held by a tedi principal; capacity and credit stay owner-held",
 		});
 	}
 	if (!isPlatformPrincipal(context)) {
-		throw new ORPCError("FORBIDDEN", {
+		throw baseErrorConstructors.FORBIDDEN({
 			message: "Platform billing authority is required",
 		});
 	}
@@ -195,7 +196,7 @@ function requireOrganizationBillingAuthority(context: BaseContext): string {
 		context.userRole !== "owner" &&
 		context.userRole !== "admin"
 	) {
-		throw new ORPCError("FORBIDDEN", {
+		throw baseErrorConstructors.FORBIDDEN({
 			message: "Organization owner or admin authority is required",
 		});
 	}
@@ -221,7 +222,7 @@ const createCheckoutContract = os.createCheckout
 		requireOrganizationBillingAuthority(context);
 		const { env, organizationId } = context;
 		if (!organizationId) {
-			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
 		}
 
 		const stripeEnvironment = resolveStripeEnvironment(env);
@@ -229,7 +230,7 @@ const createCheckoutContract = os.createCheckout
 		const stripe = await getStripe(stripeConfig.secretKey);
 		const entitlement = await getBillingEntitlement(context.db, organizationId);
 		if (!entitlement) {
-			throw new ORPCError("NOT_FOUND", {
+			throw baseErrorConstructors.NOT_FOUND({
 				message: "Billing account not found",
 			});
 		}
@@ -240,7 +241,7 @@ const createCheckoutContract = os.createCheckout
 			new Date().toISOString(),
 		);
 		if (!plan) {
-			throw new ORPCError("BAD_REQUEST", {
+			throw baseErrorConstructors.BAD_REQUEST({
 				message: `Invalid tier: ${input.tier}`,
 			});
 		}
@@ -250,7 +251,7 @@ const createCheckoutContract = os.createCheckout
 			entitlement.account.stripeSubscriptionId &&
 			["active", "trial", "past_due"].includes(entitlement.account.status)
 		) {
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message:
 					"An existing Stripe subscription is already linked. Use the billing portal to manage it.",
 			});
@@ -336,7 +337,7 @@ const createCheckoutContract = os.createCheckout
 		);
 
 		if (!session.url) {
-			throw new ORPCError("INTERNAL_SERVER_ERROR", {
+			throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
 				message: "Failed to create checkout session",
 			});
 		}
@@ -358,7 +359,9 @@ const createInferenceCapacityCheckoutContract =
 			requireOrganizationBillingAuthority(context);
 			const { env, organizationId } = context;
 			if (!organizationId) {
-				throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+				throw baseErrorConstructors.FORBIDDEN({
+					message: "No organization",
+				});
 			}
 			const stripeEnvironment = resolveStripeEnvironment(env);
 			const now = new Date();
@@ -368,7 +371,7 @@ const createInferenceCapacityCheckoutContract =
 				now: now.toISOString(),
 			});
 			if (!pack) {
-				throw new ORPCError("NOT_FOUND", {
+				throw baseErrorConstructors.NOT_FOUND({
 					message: "Inference capacity pack is not available",
 				});
 			}
@@ -380,7 +383,7 @@ const createInferenceCapacityCheckoutContract =
 				!entitlement ||
 				!["trial", "active"].includes(entitlement.account.status)
 			) {
-				throw new ORPCError("FORBIDDEN", {
+				throw baseErrorConstructors.FORBIDDEN({
 					message:
 						"An active billing entitlement is required for a capacity top-up",
 				});
@@ -402,7 +405,7 @@ const createInferenceCapacityCheckoutContract =
 							: null,
 				})
 			) {
-				throw new ORPCError("BAD_REQUEST", {
+				throw baseErrorConstructors.BAD_REQUEST({
 					message:
 						"This account uses monthly metering; a daily capacity pack is unnecessary",
 				});
@@ -410,7 +413,7 @@ const createInferenceCapacityCheckoutContract =
 			const stripeConfig = getStripeEnvironmentConfig(env, stripeEnvironment);
 			const stripe = await getStripe(stripeConfig.secretKey);
 			if (!pack.stripeLookupKey) {
-				throw new ORPCError("INTERNAL_SERVER_ERROR", {
+				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
 					message: `Inference capacity pack ${pack.packKey} has no Stripe lookup key`,
 				});
 			}
@@ -472,7 +475,7 @@ const createInferenceCapacityCheckoutContract =
 				{ idempotencyKey },
 			);
 			if (!session.url) {
-				throw new ORPCError("INTERNAL_SERVER_ERROR", {
+				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
 					message: "Failed to create inference capacity checkout session",
 				});
 			}
@@ -496,7 +499,7 @@ const createPortalContract = os.createPortal
 		requireOrganizationBillingAuthority(context);
 		const { env, organizationId } = context;
 		if (!organizationId) {
-			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
 		}
 
 		const stripeEnvironment = resolveStripeEnvironment(env);
@@ -506,7 +509,7 @@ const createPortalContract = os.createPortal
 			!entitlement?.account.stripeCustomerId ||
 			entitlement.account.stripeEnvironment !== stripeEnvironment
 		) {
-			throw new ORPCError("BAD_REQUEST", {
+			throw baseErrorConstructors.BAD_REQUEST({
 				message: "No active subscription. Subscribe first.",
 			});
 		}
@@ -530,7 +533,9 @@ const listProviderCapacitySponsorshipsContract =
 		.use(withAuthorization("billing:read", "billing:read"))
 		.handler(async ({ context }) => {
 			if (!context.organizationId) {
-				throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+				throw baseErrorConstructors.FORBIDDEN({
+					message: "No organization",
+				});
 			}
 			const now = new Date().toISOString();
 			const sponsorships = await listProviderCapacitySponsorships(
@@ -591,7 +596,7 @@ const setProviderCapacitySponsorshipContract = os.setProviderCapacitySponsorship
 	.use(withAuthorization("billing:manage", "billing:write"))
 	.handler(async ({ context, input }) => {
 		if (!context.organizationId) {
-			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
 		}
 		requireOrganizationBillingAuthority(context);
 		const sponsorship = await setProviderCapacitySponsorship(context.db, {
@@ -600,7 +605,7 @@ const setProviderCapacitySponsorshipContract = os.setProviderCapacitySponsorship
 			policy: input.policy,
 		});
 		if (!sponsorship) {
-			throw new ORPCError("NOT_FOUND", {
+			throw baseErrorConstructors.NOT_FOUND({
 				message: "Provider installation not found",
 			});
 		}
@@ -646,7 +651,7 @@ async function readBillingOverageSettings(
 		getBillingBalanceSnapshot(context.db, organizationId, now),
 	]);
 	if (!entitlement || !snapshot) {
-		throw new ORPCError("NOT_FOUND", {
+		throw baseErrorConstructors.NOT_FOUND({
 			message: "Billing account is not configured",
 		});
 	}
@@ -659,7 +664,7 @@ const getOverageSettingsContract = os.getOverageSettings
 	.handler(async ({ context }) => {
 		const { organizationId } = context;
 		if (!organizationId) {
-			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
 		}
 		return readBillingOverageSettings(context, organizationId);
 	});
@@ -670,7 +675,7 @@ const setOverageSettingsContract = os.setOverageSettings
 	.handler(async ({ context, input }) => {
 		const { organizationId } = context;
 		if (!organizationId) {
-			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
 		}
 		requireOrganizationBillingAuthority(context);
 		const updated = await setBillingOverageSettings(context.db, {
@@ -680,7 +685,7 @@ const setOverageSettingsContract = os.setOverageSettings
 			now: new Date().toISOString(),
 		});
 		if (!updated) {
-			throw new ORPCError("NOT_FOUND", {
+			throw baseErrorConstructors.NOT_FOUND({
 				message: "Billing account is not configured",
 			});
 		}
@@ -695,7 +700,7 @@ const setCreditBudgetContract = os.setCreditBudget
 		requireOrganizationBillingAuthority(context);
 		const organizationId = context.organizationId;
 		if (!organizationId)
-			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
 		const now = new Date().toISOString();
 		const updated = await setMonetaryCreditBudget(context.db, {
 			organizationId,
@@ -703,7 +708,7 @@ const setCreditBudgetContract = os.setCreditBudget
 			now,
 		});
 		if (!updated.length)
-			throw new ORPCError("BAD_REQUEST", {
+			throw baseErrorConstructors.BAD_REQUEST({
 				message: "Credit budgets require an active monetary credit plan",
 			});
 		const [entitlement, snapshot] = await Promise.all([
@@ -711,7 +716,7 @@ const setCreditBudgetContract = os.setCreditBudget
 			getBillingBalanceSnapshot(context.db, organizationId, now),
 		]);
 		if (!entitlement || !snapshot)
-			throw new ORPCError("NOT_FOUND", {
+			throw baseErrorConstructors.NOT_FOUND({
 				message: "Billing account is not configured",
 			});
 		return monetaryCreditOverview(entitlement.plan, snapshot, null)!;
@@ -725,7 +730,7 @@ const getOverviewContract = os.getOverview
 		requireManagedSettlement(context);
 		const { env, organizationId } = context;
 		if (!organizationId) {
-			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
 		}
 		const now = new Date().toISOString();
 		const stripeEnvironment = resolveStripeEnvironment(env);
@@ -746,7 +751,7 @@ const getOverviewContract = os.getOverview
 				}),
 			]);
 		if (!entitlement || !snapshot || !policy) {
-			throw new ORPCError("NOT_FOUND", {
+			throw baseErrorConstructors.NOT_FOUND({
 				message: "Billing account is not configured",
 			});
 		}
@@ -1054,7 +1059,7 @@ const assignInternalPlanContract = os.assignInternalPlan
 				now,
 			);
 		} catch (error) {
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message:
 					error instanceof Error
 						? error.message
@@ -1079,7 +1084,7 @@ const assignInternalPlanContract = os.assignInternalPlan
 			!features ||
 			entitlement.account.billingMode !== "internal"
 		) {
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message:
 					"Internal plan assignment was superseded; read current entitlement",
 			});
@@ -1123,7 +1128,7 @@ const grantCreditContract = os.grantCredit
 			now,
 		);
 		if (!snapshot) {
-			throw new ORPCError("NOT_FOUND", {
+			throw baseErrorConstructors.NOT_FOUND({
 				message: "Billing account is not configured",
 			});
 		}
@@ -1147,7 +1152,7 @@ const restoreDailyCapacityContract = os.restoreDailyCapacity
 	.handler(async ({ context }) => {
 		const { organizationId } = context;
 		if (!organizationId) {
-			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
 		}
 		const actor = requireOrganizationBillingAuthority(context);
 		const now = new Date().toISOString();
@@ -1288,7 +1293,7 @@ const grantServiceCreditsContract = os.grantServiceCredits
 			now,
 		);
 		if (!snapshot) {
-			throw new ORPCError("NOT_FOUND", {
+			throw baseErrorConstructors.NOT_FOUND({
 				message: "Service credit entitlement is not configured",
 			});
 		}
@@ -1309,7 +1314,7 @@ const setServiceCreditControlsContract = os.setServiceCreditControls
 	.handler(async ({ context, input }) => {
 		const { organizationId } = context;
 		if (!organizationId) {
-			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
 		}
 		const actor = requireOrganizationBillingAuthority(context);
 		const now = new Date().toISOString();
@@ -1330,7 +1335,7 @@ const setServiceCreditControlsContract = os.setServiceCreditControls
 			now,
 		);
 		if (!snapshot) {
-			throw new ORPCError("NOT_FOUND", {
+			throw baseErrorConstructors.NOT_FOUND({
 				message: "Service credit entitlement is not configured",
 			});
 		}
@@ -1417,7 +1422,7 @@ const publishProviderModelRateContract = os.publishProviderModelRate
 			},
 		);
 		if (!row)
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message:
 					"Rate publication conflicts with an existing version, correction leaf, or publication/verification time",
 			});
@@ -1487,7 +1492,9 @@ export const billingContractRouter = os.router({
 		.use(AUTHZ.billingRead)
 		.handler(async ({ context, input }) => {
 			if (!context.organizationId)
-				throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+				throw baseErrorConstructors.FORBIDDEN({
+					message: "No organization",
+				});
 			const to = new Date().toISOString();
 			const from = new Date(Date.parse(to) - 30 * 86_400_000).toISOString();
 			return {

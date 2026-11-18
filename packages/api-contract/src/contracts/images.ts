@@ -8,6 +8,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 
 // =============================================================================
@@ -120,7 +121,9 @@ export const ImageBackfillOutputSchema = z.object({
 // CONTRACT
 // =============================================================================
 
-export const imagesContract = oc.route({ prefix: "/images" }).router({
+const base = oc.errors(baseErrors);
+
+export const imagesContract = base.route({ prefix: "/images" }).router({
 	upload: oc
 		.route({
 			method: "POST",

@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import {
 	AdapterTypeSchema,
@@ -138,6 +139,7 @@ export const AdapterPreflightResponseSchema = z.object({
  * All endpoints are org-scoped via JWT context and app-scoped via appId
  */
 export const appAdaptersContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["app-adapters"], prefix: "/apps/{appId}/adapters" })
 	.router({
 		/**

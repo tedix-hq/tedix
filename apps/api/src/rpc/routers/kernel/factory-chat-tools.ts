@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import * as z from "zod";
 import { requestFirstPartyMcp } from "../../../lib/first-party-mcp";
@@ -59,7 +60,9 @@ export function factoryChatReader(
 	};
 	const runOnce = async (code: string): Promise<unknown> => {
 		if (!env.MCP_SERVICE || !env.MCP_URL)
-			throw new Error("Factory health service is unavailable");
+			throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+				message: "Factory health service is unavailable",
+			});
 		const result = await requestFirstPartyMcp(
 			{
 				url: `${env.MCP_URL}/mcp`,
@@ -79,7 +82,10 @@ export function factoryChatReader(
 			"tools/call",
 			{ name: "code", arguments: { code } },
 		);
-		if (result.isError) throw new Error("Factory health could not be read");
+		if (result.isError)
+			throw baseErrorConstructors.BAD_GATEWAY({
+				message: "Factory health could not be read",
+			});
 		return codeModeResultData(result);
 	};
 	return {

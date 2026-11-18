@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Per-user OS settings: the one durable preference write the OS surface owns,
  * plus the read-only operational context it renders around it.
@@ -19,7 +20,7 @@
  *    the exact predicates the request guards run.
  */
 
-import { ORPCError, implement } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { userSettingsContract } from "@tedix/api-contract/contracts/user-settings";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { McpGranularCapabilityScopeName } from "@tedix/api-contract/schemas/mcp-capability-scopes";
@@ -261,7 +262,7 @@ const updatePreferences = os.updatePreferences
 			expectedRevision: input.expectedRevision,
 		});
 		if (!result.ok) {
-			throw new ORPCError("CONFLICT", {
+			throw baseErrorConstructors.CONFLICT({
 				message:
 					"Preference revision compare-and-swap lost against a concurrent write",
 				data: {

@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import {
 	AnalyticsMetricsSchema,
@@ -62,6 +63,7 @@ export const SkillRetrievalUtilityInputSchema = z.object({
  * ```
  */
 export const analyticsContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["analytics"], prefix: "/analytics" })
 	.router({
 		/**

@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Kernel — certified workstation adapter dispatch.
  *
@@ -108,7 +109,9 @@ function sanitizeWorkstationRunKeySegment(value: string): string {
 		.replace(/\s+/g, "_")
 		.trim();
 	if (!cleaned) {
-		throw new Error("Workstation child run id requires a stable home run id");
+		throw baseErrorConstructors.BAD_REQUEST({
+			message: "Workstation child run id requires a stable home run id",
+		});
 	}
 	return cleaned;
 }

@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { getDescopeManagement } from "../../lib/descope-management";
 /**
  * oRPC SEO Router
@@ -16,7 +17,7 @@ import { getDescopeManagement } from "../../lib/descope-management";
  *   Tedix service-credit reservation. Tenant BYOK is an operator fallback.
  */
 
-import { implement, ORPCError } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { seoContract } from "@tedix/api-contract/contracts/seo";
 import { fetchTenantConnectionToken } from "@tedix/auth/connections";
 import { DESCOPE_DEFAULT_BASE_URL } from "@tedix/auth/types";
@@ -701,7 +702,8 @@ function normalizeDomain(value: string): string {
 		const url = new URL(
 			value.includes("://") ? value : `https://${value.trim()}`,
 		);
-		if (!url.hostname || url.username || url.password) throw new Error();
+		if (!url.hostname || url.username || url.password)
+			throw baseErrorConstructors.BAD_REQUEST({ message: "" });
 		return url.hostname.toLowerCase().replace(/\.$/, "");
 	} catch {
 		throw createError(
@@ -716,7 +718,8 @@ function normalizeBacklinksTarget(value: string): string {
 	if (!trimmed.includes("://")) return normalizeDomain(trimmed);
 	try {
 		const url = new URL(trimmed);
-		if (!["http:", "https:"].includes(url.protocol)) throw new Error();
+		if (!["http:", "https:"].includes(url.protocol))
+			throw baseErrorConstructors.BAD_REQUEST({ message: "" });
 		url.hash = "";
 		return url.toString();
 	} catch {
@@ -729,7 +732,7 @@ function normalizeBacklinksTarget(value: string): string {
 
 function mapDataForSeoError(error: unknown): never {
 	if (error instanceof DataForSeoError) {
-		throw new ORPCError(ErrorCodes.BAD_GATEWAY, {
+		throw baseErrorConstructors.BAD_GATEWAY({
 			message: error.message,
 			data: {
 				provider: "dataforseo",

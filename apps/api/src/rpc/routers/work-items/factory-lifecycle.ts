@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { grantLaneAttempt } from "@tedix/db/queries/work-items/lane-attempt-grants";
 import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
 import {
@@ -54,7 +55,6 @@ import {
 	WorkAdmissionSpecificationError,
 	type WorkAdmissionRejectionCode,
 } from "@tedix/db/queries/work-items/admissions";
-import { ORPCError } from "@orpc/server";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
 import { initialLaneDispatch } from "../../../services/lane-dispatch-plan";
 import {
@@ -135,14 +135,14 @@ const factoryOs = authOs.use(
  */
 function rethrowAdmissionError(error: unknown): never {
 	if (error instanceof WorkAdmissionSpecificationError) {
-		throw new ORPCError(ErrorCodes.UNPROCESSABLE_CONTENT, {
+		throw baseErrorConstructors.UNPROCESSABLE_CONTENT({
 			message: error.message,
 			data: { missingResourceKeys: error.missingResourceKeys },
 			cause: error,
 		});
 	}
 	if (error instanceof WorkAdmissionError) {
-		throw new ORPCError(ErrorCodes.CONFLICT, {
+		throw baseErrorConstructors.CONFLICT({
 			message: error.message,
 			data: {
 				rejectionCode: error.rejectionCode,

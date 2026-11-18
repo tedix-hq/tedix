@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import type {
 	HomeRunTrace,
 	HomeRunTraceBranch,
@@ -48,7 +49,9 @@ function homeRunAuditTimeBounds(
 		[...starts, ...ends].some((time) => !Number.isFinite(time)) ||
 		starts.some((start, index) => start > ends[index]!)
 	) {
-		throw new Error("Home run references require valid audit time bounds");
+		throw baseErrorConstructors.BAD_REQUEST({
+			message: "Home run references require valid audit time bounds",
+		});
 	}
 	// Include writes just before creation or just after completion/clock skew.
 	const marginMs = 60_000;

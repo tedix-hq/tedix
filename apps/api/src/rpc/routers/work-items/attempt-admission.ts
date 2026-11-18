@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import {
 	evaluateAndRecordWorkAdmission,
 	previewWorkAdmission,
@@ -12,7 +13,6 @@ import {
 } from "../../../services/factory-cycle";
 import type { BaseContext } from "../../orpc";
 import { createError, ErrorCodes } from "../../orpc";
-import { ORPCError } from "@orpc/server";
 
 export const WORK_ATTEMPT_ADMISSION_TTL_MS = 5 * 60_000;
 
@@ -145,7 +145,7 @@ export async function admitWorkAttempt(
 	if (admission.decision !== "admitted") {
 		const reason =
 			admission.rejectionReason ?? "Work Item is not eligible for admission";
-		throw new ORPCError(ErrorCodes.CONFLICT, {
+		throw baseErrorConstructors.CONFLICT({
 			message: reason,
 			data: admission.rejectionCode
 				? { rejectionCode: admission.rejectionCode, reason }

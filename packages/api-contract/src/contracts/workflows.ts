@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { SkillLifecycleStateSchema } from "../schemas/cognitive";
 import { JsonValueSchema } from "../schemas/common";
@@ -482,6 +483,7 @@ const WorkflowRunsOutputSchema = z.object({
  * - GET /workflows/{workflowId}/status - Get workflow status
  */
 export const workflowsContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["workflows", "internal"] })
 	.router({
 		/**

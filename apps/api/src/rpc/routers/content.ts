@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { fetchContentSource } from "../../lib/content-source-fetch";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
@@ -99,9 +100,9 @@ async function parseSitemapXml(sitemapUrl: string): Promise<SitemapUrl[]> {
 	});
 
 	if (!response.ok) {
-		throw new Error(
-			`Failed to fetch sitemap: ${response.status} ${response.statusText}`,
-		);
+		throw baseErrorConstructors.BAD_GATEWAY({
+			message: `Failed to fetch sitemap: ${response.status} ${response.statusText}`,
+		});
 	}
 
 	const xmlText = await response.text();

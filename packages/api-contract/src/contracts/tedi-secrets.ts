@@ -7,6 +7,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { TediIdParamSchema } from "../schemas/tedi";
 import {
@@ -18,6 +19,7 @@ import {
 } from "./secrets";
 
 export const tediSecretsContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["tedi-secrets"], prefix: "/tedis/{tediId}/secrets" })
 	.router({
 		list: oc

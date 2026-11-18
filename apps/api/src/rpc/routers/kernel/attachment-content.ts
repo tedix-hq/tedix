@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { Buffer } from "node:buffer";
 import type { ModelMessage } from "ai";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
@@ -43,7 +44,10 @@ export async function hydrateHomeHistory(
 			}
 			try {
 				const resolved = (await resolve?.([attachment]))?.[0];
-				if (!resolved) throw new Error("Attachment resolver unavailable");
+				if (!resolved)
+					throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+						message: "Attachment resolver unavailable",
+					});
 				if ((resolved.size ?? 0) > remainingBytes) {
 					omitted("history byte limit reached");
 					continue;

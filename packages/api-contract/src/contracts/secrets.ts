@@ -9,6 +9,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import {
 	AppIdParamSchema,
@@ -128,6 +129,7 @@ export const organizationSecretsContract = {
 	 * GET /organizations/{organizationId}/secrets - List all secrets for an organization
 	 */
 	list: oc
+		.errors(baseErrors)
 		.route({
 			method: "GET",
 			path: "/organizations/{organizationId}/secrets",
@@ -143,6 +145,7 @@ export const organizationSecretsContract = {
 	 * GET /organizations/{organizationId}/secrets/{secretId} - Get a secret by ID (with decrypted value)
 	 */
 	get: oc
+		.errors(baseErrors)
 		.route({
 			method: "GET",
 			path: "/organizations/{organizationId}/secrets/{secretId}",
@@ -157,6 +160,7 @@ export const organizationSecretsContract = {
 	 * PUT /organizations/{organizationId}/secrets - Create or update a secret
 	 */
 	set: oc
+		.errors(baseErrors)
 		.route({
 			method: "PUT",
 			path: "/organizations/{organizationId}/secrets",
@@ -176,6 +180,7 @@ export const organizationSecretsContract = {
 	 * DELETE /organizations/{organizationId}/secrets/{secretId} - Delete a secret
 	 */
 	delete: oc
+		.errors(baseErrors)
 		.route({
 			method: "DELETE",
 			path: "/organizations/{organizationId}/secrets/{secretId}",
@@ -194,6 +199,7 @@ export const organizationSecretsContract = {
 	 * a non-reversible fingerprint per key in its rotation window.
 	 */
 	masterKeyFingerprints: oc
+		.errors(baseErrors)
 		.route({
 			method: "GET",
 			path: "/secrets/master-key-fingerprints",
@@ -221,6 +227,7 @@ export const appSecretsContract = {
 	 * GET /apps/{appId}/secrets - List all secrets for an app
 	 */
 	list: oc
+		.errors(baseErrors)
 		.route({
 			method: "GET",
 			path: "/apps/{appId}/secrets",
@@ -235,6 +242,7 @@ export const appSecretsContract = {
 	 * GET /apps/{appId}/secrets/{secretId} - Get a secret by ID (with decrypted value)
 	 */
 	get: oc
+		.errors(baseErrors)
 		.route({
 			method: "GET",
 			path: "/apps/{appId}/secrets/{secretId}",
@@ -249,6 +257,7 @@ export const appSecretsContract = {
 	 * PUT /apps/{appId}/secrets - Create or update a secret
 	 */
 	set: oc
+		.errors(baseErrors)
 		.route({
 			method: "PUT",
 			path: "/apps/{appId}/secrets",
@@ -268,6 +277,7 @@ export const appSecretsContract = {
 	 * DELETE /apps/{appId}/secrets/{secretId} - Delete a secret
 	 */
 	delete: oc
+		.errors(baseErrors)
 		.route({
 			method: "DELETE",
 			path: "/apps/{appId}/secrets/{secretId}",

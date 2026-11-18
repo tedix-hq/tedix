@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Browser oRPC Router
  * Stateless Cloudflare Browser Run quick-action endpoints.
@@ -278,7 +279,9 @@ export const extractMarkdown = authed.extractMarkdown
 				},
 			);
 			if (!page)
-				throw new Error("Browser Run returned an empty Markdown document");
+				throw baseErrorConstructors.BAD_GATEWAY({
+					message: "Browser Run returned an empty Markdown document",
+				});
 			const response = truncateForResponse(
 				page.markdown,
 				input.maxResponseChars,

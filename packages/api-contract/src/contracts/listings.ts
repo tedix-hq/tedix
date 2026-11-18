@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 import { AppIdParamSchema, PaginationMetaSchema } from "../schemas/common";
 import { LayoutItemSchema } from "../schemas/layout";
@@ -94,7 +95,9 @@ const SortOptionInfoSchema = z.object({
  * - GET /apps/{appId}/listings/adapters - List configured adapters for an app
  * - GET /listings/markets - List supported markets
  */
-export const listingsContract = oc.route({ tags: ["listings"] }).router({
+const base = oc.errors(baseErrors);
+
+export const listingsContract = base.route({ tags: ["listings"] }).router({
 	/**
 	 * GET /apps/{appId}/listings/search - Search listings via app's configured adapter
 	 */

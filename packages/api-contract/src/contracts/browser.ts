@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import {
 	BrowserCapturePageInputSchema,
 	BrowserCapturePageOutputSchema,
@@ -23,6 +24,7 @@ import {
 } from "../schemas/browser";
 
 export const browserContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["browser"], prefix: "/browser" })
 	.router({
 		capturePage: oc

@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 /**
  * Kernel — durable Home conversation index (`kernel_conversations`).
  *
@@ -222,7 +223,9 @@ export function parseKernelConversationCursor(
 	if (!cursor) return null;
 	const separatorAt = cursor.indexOf(CURSOR_SEPARATOR);
 	if (separatorAt <= 0 || separatorAt === cursor.length - 1) {
-		throw new Error("Invalid conversation cursor");
+		throw baseErrorConstructors.BAD_REQUEST({
+			message: "Invalid conversation cursor",
+		});
 	}
 	return {
 		lastMessageAt: cursor.slice(0, separatorAt),

@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { getDescopeManagement } from "../../lib/descope-management";
 
 export type TedixMemberRole = "owner" | "admin" | "member" | "viewer";
@@ -150,7 +151,10 @@ export async function ensurePersonalDescopeTenantMembership(
 		);
 	}
 	const loginId = loadedUser.data?.loginIds?.[0] ?? input.fallbackLoginId;
-	if (!loginId) throw new Error("Personal Descope user has no login ID");
+	if (!loginId)
+		throw baseErrorConstructors.BAD_GATEWAY({
+			message: "Personal Descope user has no login ID",
+		});
 
 	const requiredOwnerRoles = descopeTenantRolesForMemberRole("owner");
 	const alreadyProvisioned =

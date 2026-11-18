@@ -7,6 +7,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { baseErrors } from "../errors";
 import * as z from "zod";
 
 export const ToolSchemaSyncTargetSchema = z
@@ -176,6 +177,7 @@ export type ToolSchemaSyncCheckResult = z.infer<
 >;
 
 export const toolSchemaSyncContract = oc
+	.errors(baseErrors)
 	.route({ tags: ["tool-schema-sync", "internal"] })
 	.router({
 		preview: oc

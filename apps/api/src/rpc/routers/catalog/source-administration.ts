@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { purgeMcpAggregateCache } from "../../../lib/mcp-subscriptions";
 import { ensurePendingToolReviewApprovals } from "../../../services/tool-review-approvals";
 import {
@@ -642,9 +643,9 @@ export const createFromEndpointCatalog = fleetCatalogOs.createFromEndpoint
 			!connectionResult.requiresAuth &&
 			!connectionResult.serverInfo;
 		if (isUnreachable) {
-			throw new Error(
-				`Failed to connect to MCP server at ${mcpEndpointUrl}: ${connectionResult.error || "Unknown error"}`,
-			);
+			throw baseErrorConstructors.BAD_GATEWAY({
+				message: `Failed to connect to MCP server at ${mcpEndpointUrl}: ${connectionResult.error || "Unknown error"}`,
+			});
 		}
 		const serverInfo = connectionResult.serverInfo;
 		const serverName = name || serverInfo?.name || "Unknown MCP Server";
@@ -682,7 +683,9 @@ export const createFromEndpointCatalog = fleetCatalogOs.createFromEndpoint
 			}),
 		});
 		if (!syncResult) {
-			throw new Error("Failed to create catalog entry");
+			throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+				message: "Failed to create catalog entry",
+			});
 		}
 		const catalogApp = syncResult.app;
 

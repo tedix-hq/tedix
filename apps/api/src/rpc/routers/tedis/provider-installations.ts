@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { providerWidgetTediSelection } from "@tedix/api-contract/schemas/embedded-widget-access";
 import { resolveEmbeddedTediSelection } from "../../../services/embedded-tedi-selection";
@@ -11,7 +12,6 @@ import {
 	readEmbeddedWidgetAccess,
 } from "@tedix/api-contract/schemas/embedded-widget-access";
 import { getApiKeyById } from "@tedix/db/queries/api-keys";
-import { ORPCError } from "@orpc/server";
 import type { PortableWebMcpProfile } from "@tedix/api-contract/schemas/portable-webmcp";
 import { getPortableWebMcpToolAdmissions } from "@tedix/db/queries/app-gating";
 import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
@@ -81,18 +81,18 @@ function sponsoredCapacityPolicy(
 	if (
 		!integers.every((item) => Number.isSafeInteger(item) && Number(item) >= 0)
 	)
-		throw new Error(
-			"Provider installation sponsored-capacity policy is invalid",
-		);
+		throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+			message: "Provider installation sponsored-capacity policy is invalid",
+		});
 	if (
 		Number(budgetRevision) < 1 ||
 		Number(maxTransfersPerBudgetDay) < 1 ||
 		(Number(policy.transferTokens) === 0 &&
 			Number(policy.transferSpendMicros) === 0)
 	)
-		throw new Error(
-			"Provider installation sponsored-capacity transfer is empty",
-		);
+		throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+			message: "Provider installation sponsored-capacity transfer is empty",
+		});
 	return {
 		budgetRevision: Number(budgetRevision),
 		maxTransfersPerBudgetDay: Number(maxTransfersPerBudgetDay),
@@ -155,7 +155,9 @@ async function replenishSponsoredCapacity(
 		),
 	]);
 	if (!sponsorPolicies)
-		throw new Error("Provider billing account is unavailable");
+		throw baseErrorConstructors.SERVICE_UNAVAILABLE({
+			message: "Provider billing account is unavailable",
+		});
 	const remainingTokens = overview.allocatedTokens - overview.usedTokens;
 	const remainingSpendMicros =
 		overview.allocatedSpendMicros - overview.usedSpendMicros;
@@ -189,7 +191,9 @@ async function replenishSponsoredCapacity(
 			refreshed.allocatedSpendMicros - refreshed.usedSpendMicros > 0
 		)
 			return;
-		throw new Error("Provider-sponsored inference allowance is exhausted");
+		throw baseErrorConstructors.TOO_MANY_REQUESTS({
+			message: "Provider-sponsored inference allowance is exhausted",
+		});
 	}
 	try {
 		await transferSponsoredCapacity(context.db, {
@@ -364,13 +368,13 @@ export const createEmbeddedProviderSessionProcedure =
 			});
 		}
 		if (!workspace || workspace.status !== "active") {
-			throw new ORPCError(ErrorCodes.SERVICE_UNAVAILABLE, {
+			throw baseErrorConstructors.SERVICE_UNAVAILABLE({
 				message: "Embedded Tedi installation workspace is unavailable",
 				data: { reason: "workspace_unavailable", retryable: true },
 			});
 		}
 		if (!tedi || tedi.status !== "active" || tedi.retiredAt) {
-			throw new ORPCError(ErrorCodes.SERVICE_UNAVAILABLE, {
+			throw baseErrorConstructors.SERVICE_UNAVAILABLE({
 				message: "Embedded Tedi installation worker is unavailable",
 				data: { reason: "worker_unavailable", retryable: true },
 			});
@@ -382,7 +386,7 @@ export const createEmbeddedProviderSessionProcedure =
 				installationId: installation.id,
 				exception: safeExceptionTopology(error),
 			});
-			throw new ORPCError(ErrorCodes.SERVICE_UNAVAILABLE, {
+			throw baseErrorConstructors.SERVICE_UNAVAILABLE({
 				message: "Provider-sponsored inference capacity is unavailable",
 				data: { reason: "capacity_unavailable", retryable: true },
 			});

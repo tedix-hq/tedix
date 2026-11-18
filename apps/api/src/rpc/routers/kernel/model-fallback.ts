@@ -1,3 +1,4 @@
+import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import {
 	validateCatalogFallback,
 	type ModelCatalogConfig,
@@ -27,7 +28,9 @@ export function kernelFallbackHooks(
 				organizationId: scope.organizationId,
 			});
 			if (!run || run.status !== "running")
-				throw new Error("Model fallback run is unavailable");
+				throw baseErrorConstructors.CONFLICT({
+					message: "Model fallback run is unavailable",
+				});
 			await insertKernelRuntimeEventIfAbsent(client, {
 				id: crypto.randomUUID(),
 				organizationId: run.organizationId,
