@@ -441,9 +441,9 @@
 	flex-direction: column;
 	gap: 4px;
 	max-height: 9.5rem;
-	/* Room for a focus ring inside the scrolling box, which would clip it. */
-	margin: -3px;
-	padding: 3px;
+	/* A scrolling box clips what leaves it: room for a 2px focus ring set 2px out. */
+	margin: -4px;
+	padding: 4px;
 	overflow-y: auto;
 	list-style: none;
 }
