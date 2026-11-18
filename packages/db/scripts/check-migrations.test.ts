@@ -14,7 +14,6 @@ import { readMigrationManifest } from "./check-live-migration-ledger";
 import {
 	APPLIED_BASELINE,
 	assertMigrationOrder,
-	assertNoLegacyMigrationFiles,
 	assertSnapshotPerMigration,
 	checkMigrations,
 	inspectMigration,
@@ -248,15 +247,6 @@ describe("reconstructed behavioral-evaluation snapshots", () => {
 });
 
 describe("D1 migration safety review", () => {
-	it("rejects the retired flat Wrangler projection", () => {
-		expect(() =>
-			assertNoLegacyMigrationFiles([
-				"0029_20260802180112_soft_scalphunter.sql",
-			]),
-		).toThrow(/Legacy flat D1 migration projection is forbidden/);
-		expect(() => assertNoLegacyMigrationFiles([])).not.toThrow();
-	});
-
 	it("accepts additive migrations without an override", () => {
 		expect(
 			inspectMigration(

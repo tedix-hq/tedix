@@ -4,7 +4,7 @@ import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/deci
 import type { DeckCard } from "@tedix/api-contract/schemas/attention";
 import { AttentionOfferedChoicesSchema } from "@tedix/api-contract/schemas/attention";
 import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
-import { parseJsonField, toJsonRecord } from "@tedix/db/utils/json";
+import { toJsonRecord } from "@tedix/db/utils/json";
 import { currentDeckCuration } from "@tedix/api-contract/utils/deck-curator";
 import { laneHoldFace } from "@tedix/api-contract/utils/lane-hold-decision";
 import { workApprovalDecision } from "@tedix/api-contract/utils/work-approval-decision";
@@ -272,9 +272,15 @@ export async function prepareDeckCardFace(
 			request.id,
 			curation.revision,
 		);
-		const corrected = DecisionCardPresentationSchema.safeParse(
-			parseJsonField<{ faceAfter?: unknown }>(revision?.summary)?.faceAfter,
-		).data;
+		let faceAfter: unknown;
+		try {
+			faceAfter = revision?.summary
+				? (JSON.parse(revision.summary) as { faceAfter?: unknown }).faceAfter
+				: undefined;
+		} catch {
+			faceAfter = undefined;
+		}
+		const corrected = DecisionCardPresentationSchema.safeParse(faceAfter).data;
 		// An explicit recipient correction takes precedence over generated writing preferences.
 		if (
 			revision?.actorType === "user" &&

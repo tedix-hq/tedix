@@ -37,7 +37,7 @@ describe("advisory memory quality", () => {
 				memoryQuality: { verdict: "supported" },
 			}),
 		).toEqual({
-			evidence: "The user's original request",
+			evidence: "",
 			metadata: { producer: "afterTurn" },
 		});
 	});

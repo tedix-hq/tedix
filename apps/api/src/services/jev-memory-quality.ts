@@ -44,14 +44,12 @@ export function extractMemoryQualityEvidence(
 		: "";
 	if (!metadata) return { evidence: bundled, metadata: null };
 	const {
-		// Runtimes that predate the bundle send only the user turn here.
-		sourceEvidence: legacyUserTurn,
+		sourceEvidence: _sourceEvidence,
 		memoryQuality: _untrustedVerdict,
 		...persistent
 	} = metadata;
 	return {
-		evidence:
-			bundled || (typeof legacyUserTurn === "string" ? legacyUserTurn : ""),
+		evidence: bundled,
 		metadata: persistent,
 	};
 }

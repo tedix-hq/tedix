@@ -31,7 +31,7 @@ import {
 	type TemplateTool,
 } from "../schema/templates";
 import { appTools, serializeAdapterScope } from "../schema/tools";
-import { parseJsonField, toJsonRecord } from "../utils/json";
+import { toJsonRecord } from "../utils/json";
 
 // ============================================================================
 // Read Operations
@@ -569,10 +569,11 @@ function replacePlaceholders(
 			.replace(/\{siteSearchInstructions\}/g, siteSearchInstructions);
 	}
 
-	return (
-		parseJsonField<Record<string, unknown>>(replaced) ??
-		(config as Record<string, unknown>)
-	);
+	try {
+		return JSON.parse(replaced) as Record<string, unknown>;
+	} catch {
+		return config as Record<string, unknown>;
+	}
 }
 
 /**

@@ -9,7 +9,6 @@ const DB_ROOT = path.resolve(
 	"..",
 );
 const MIGRATIONS_DIR = path.join(DB_ROOT, "drizzle");
-const LEGACY_MIGRATIONS_DIR = path.join(DB_ROOT, "migrations");
 
 const destructivePatterns = [
 	{ label: "DROP TABLE", pattern: /\bDROP\s+TABLE\b/i },
@@ -355,21 +354,6 @@ export function assertSnapshotPerMigration(
 	}
 }
 
-export function assertNoLegacyMigrationFiles(files: string[]): void {
-	const sqlFiles = files.filter((name) => name.endsWith(".sql")).sort();
-	if (sqlFiles.length > 0) {
-		throw new Error(
-			`Legacy flat D1 migration projection is forbidden; remove: ${sqlFiles.join(", ")}`,
-		);
-	}
-}
-
-function checkLegacyMigrationDirectory(): void {
-	assertNoLegacyMigrationFiles(
-		existsSync(LEGACY_MIGRATIONS_DIR) ? readdirSync(LEGACY_MIGRATIONS_DIR) : [],
-	);
-}
-
 export function checkMigrations(
 	directory = MIGRATIONS_DIR,
 	options: { appliedBaseline?: string | null; manifestPath?: string } = {},
@@ -378,7 +362,6 @@ export function checkMigrations(
 		options.appliedBaseline === undefined
 			? APPLIED_BASELINE
 			: options.appliedBaseline;
-	if (directory === MIGRATIONS_DIR) checkLegacyMigrationDirectory();
 	const files = readdirSync(directory, { withFileTypes: true })
 		.filter((entry) => entry.isDirectory())
 		.map((entry) => `${entry.name}/migration.sql`)

@@ -14,7 +14,6 @@ import {
 	rotateApiKey as rotateApiKeyDb,
 } from "@tedix/db/queries/api-keys";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
-import { parseJsonField } from "@tedix/db/utils/json";
 import { AUTHZ, type BaseContext, createError, ErrorCodes } from "../orpc";
 import { requireStepUp } from "../step-up";
 import {
@@ -66,21 +65,9 @@ export const listApiKeysContract = authedOrganizationsOs.listApiKeys
 		] as const;
 		type ValidScope = (typeof validScopes)[number];
 
-		// Helper to filter scopes to only valid values
-		// Handles both parsed arrays and JSON strings (D1 sometimes returns text)
 		const filterScopes = (scopes: unknown): ValidScope[] | null => {
-			let parsed: unknown[] | null = null;
-
-			if (Array.isArray(scopes)) {
-				parsed = scopes;
-			} else if (typeof scopes === "string") {
-				const result = parseJsonField<unknown[]>(scopes);
-				if (Array.isArray(result)) parsed = result;
-				else return null;
-			}
-
-			if (!parsed) return null;
-			const filtered = parsed.filter((s): s is ValidScope =>
+			if (!Array.isArray(scopes)) return null;
+			const filtered = scopes.filter((s): s is ValidScope =>
 				validScopes.includes(s as ValidScope),
 			);
 			return filtered.length > 0 ? filtered : null;
@@ -114,28 +101,14 @@ export const listApiKeysContract = authedOrganizationsOs.listApiKeys
 			return null;
 		};
 
-		// Helper to parse array from JSON string or return array directly
 		const toStringArrayOrNull = (v: unknown): string[] | null => {
 			if (Array.isArray(v)) return v.filter((x) => typeof x === "string");
-			if (typeof v === "string") {
-				const result = parseJsonField<unknown[]>(v);
-				if (Array.isArray(result))
-					return result.filter((x) => typeof x === "string");
-				return null;
-			}
 			return null;
 		};
 
-		// Helper to parse object from JSON string or return object directly
 		const toRecordOrNull = (v: unknown): Record<string, unknown> | null => {
 			if (v && typeof v === "object" && !Array.isArray(v))
 				return v as Record<string, unknown>;
-			if (typeof v === "string") {
-				const result = parseJsonField<Record<string, unknown>>(v);
-				if (result && typeof result === "object" && !Array.isArray(result))
-					return result;
-				return null;
-			}
 			return null;
 		};
 
