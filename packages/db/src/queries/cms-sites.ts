@@ -3,6 +3,7 @@ import {
 	count,
 	eq,
 	exists,
+	gt,
 	inArray,
 	isNotNull,
 	isNull,
@@ -134,6 +135,19 @@ export async function getCmsSiteByActiveWwwAlias(
 		)
 		.limit(1);
 	return site ?? null;
+}
+
+/** Cross-tenant page for the fleet-owned theme release migration. */
+export async function listActiveCmsSitesForThemeReleaseMigration(
+	db: DbQueryClient,
+	afterId: string,
+) {
+	return db
+		.select({ id: cmsSites.id, slug: cmsSites.slug })
+		.from(cmsSites)
+		.where(and(eq(cmsSites.status, "active"), gt(cmsSites.id, afterId)))
+		.orderBy(cmsSites.id)
+		.limit(10);
 }
 
 export async function listCmsSitesByOrganization(
