@@ -1,6 +1,7 @@
 import { expect, it } from "vite-plus/test";
 import type { McpServer } from "@tedix/mcp-shared/server";
 import * as z from "zod";
+import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import { registerCmsProxyTools } from "./cms-proxy-tools";
 import expected from "./__snapshots__/cms-proxy-tools.json";
 
@@ -59,9 +60,13 @@ it("declares Tedix risk policy on the native section write tools", () => {
 		expect(meta.get(name)).toEqual({
 			"com.tedix/policy": {
 				riskTier: "high_impact_write",
-				blastRadius: "single_resource",
+				blastRadius: "tenant",
 			},
 		});
+		// The gateway catalog sync rejects a policy this parser drops.
+		expect(
+			parseToolPolicyMetadata(meta.get(name) as Record<string, unknown>),
+		).not.toBeNull();
 	}
 	expect(meta.get("list_sections")).toBeNull();
 	expect(meta.get("get_section")).toBeNull();

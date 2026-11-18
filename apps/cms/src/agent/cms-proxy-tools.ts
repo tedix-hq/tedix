@@ -137,10 +137,9 @@ type ProxyToolSpec = {
 		idempotentHint?: boolean;
 	};
 	/** Declared Tedix operational risk; new write tools must state it for the gateway catalog. */
-	policy?: {
-		riskTier: "bounded_write" | "high_impact_write";
-		blastRadius: "single_resource" | "tenant";
-	};
+	policy?:
+		| { riskTier: "bounded_write"; blastRadius: "single_resource" | "tenant" }
+		| { riskTier: "high_impact_write"; blastRadius: "tenant" };
 	kind:
 		| "proxy"
 		| "operatorRest"
@@ -528,7 +527,7 @@ const CMS_PROXY_TOOL_SPECS: readonly ProxyToolSpec[] = [
 		input: CMS_PROXY_TOOL_SCHEMAS.create_section.input,
 		output: CMS_PROXY_TOOL_SCHEMAS.create_section.output,
 		annotations: { destructiveHint: true },
-		policy: { riskTier: "high_impact_write", blastRadius: "single_resource" },
+		policy: { riskTier: "high_impact_write", blastRadius: "tenant" },
 	},
 	{
 		name: "update_section",
@@ -539,7 +538,7 @@ const CMS_PROXY_TOOL_SPECS: readonly ProxyToolSpec[] = [
 		input: CMS_PROXY_TOOL_SCHEMAS.update_section.input,
 		output: CMS_PROXY_TOOL_SCHEMAS.update_section.output,
 		annotations: { destructiveHint: true },
-		policy: { riskTier: "high_impact_write", blastRadius: "single_resource" },
+		policy: { riskTier: "high_impact_write", blastRadius: "tenant" },
 	},
 	{
 		name: "delete_section",
@@ -549,7 +548,7 @@ const CMS_PROXY_TOOL_SPECS: readonly ProxyToolSpec[] = [
 			"Remove a saved section from the library through native Emdash authorization.",
 		input: CMS_PROXY_TOOL_SCHEMAS.delete_section.input,
 		annotations: { destructiveHint: true },
-		policy: { riskTier: "high_impact_write", blastRadius: "single_resource" },
+		policy: { riskTier: "high_impact_write", blastRadius: "tenant" },
 	},
 	{
 		name: "set_content_blocks",
@@ -559,7 +558,7 @@ const CMS_PROXY_TOOL_SPECS: readonly ProxyToolSpec[] = [
 			"Save an ordered native blocks field as a draft with revision conflict detection. Preserve existing _key, _type and _version values; omit _key for new blocks. Native schemas validate fields and retained versions. Publish separately with content_publish.",
 		input: CMS_PROXY_TOOL_SCHEMAS.set_content_blocks.input,
 		annotations: { destructiveHint: true },
-		policy: { riskTier: "high_impact_write", blastRadius: "single_resource" },
+		policy: { riskTier: "high_impact_write", blastRadius: "tenant" },
 		execute: (ctx, args) =>
 			callCmsRest(ctx, "content_update", {
 				collection: args.collection,
