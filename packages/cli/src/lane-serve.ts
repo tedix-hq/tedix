@@ -2234,6 +2234,8 @@ export class LaneDispatcher {
 	private delegationRequests = new Map<string, string>();
 	/** When a still-waiting item or orphan may next cost a per-item read. */
 	private recheckAfter = new Map<string, number>();
+	/** Ended Attempts whose recorded pid is now a different process. */
+	private foreignOrphans = new Set<string>();
 	/** Work revisions whose owner delegation comment was already read. */
 	private delegated = new Set<string>();
 	private unavailable = new Map<LocalExecutor, UnavailableRunner>();
@@ -2715,6 +2717,10 @@ export class LaneDispatcher {
 					} else {
 						// Never stop a process we cannot prove is this run's, but say so:
 						// a silent skip leaves an expired run alive with no trace.
+						if (row.processIdentity) {
+							if (this.foreignOrphans.size > 2048) this.foreignOrphans.clear();
+							this.foreignOrphans.add(orphanKey);
+						}
 						this.log(
 							"orphan-unverified",
 							row.itemId,
@@ -2731,6 +2737,8 @@ export class LaneDispatcher {
 				!hasSettledOutcome(row) &&
 				row.pid &&
 				alive(row.pid) &&
+				// An ended Attempt whose pid now belongs to another process holds no slot.
+				!this.foreignOrphans.has(`orphan:${row.itemId}:${row.attemptId}`) &&
 				!this.running.has(row.itemId),
 		).length;
 		while (
