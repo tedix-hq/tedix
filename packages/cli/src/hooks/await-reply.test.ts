@@ -119,6 +119,25 @@ const interaction = (overrides: JsonObject = {}, response?: JsonObject) => ({
 	...overrides,
 });
 
+const ledgerPage = (body?: string) => ({
+	data: body
+		? [
+				{
+					responseId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+					requestId: REQUEST,
+					subject: "Fixture question",
+					body,
+					respondedAt: "2026-10-09T10:00:00.000Z",
+					sessionId: SESSION,
+					host: "claude-code",
+					workItemId: null,
+					projectId: PROJECT,
+				},
+			]
+		: [],
+	observedAt: "2026-10-09T10:00:00.000Z",
+});
+
 async function run(
 	details: Array<unknown | Error>,
 	{
@@ -132,7 +151,7 @@ async function run(
 		env?: Record<string, string>;
 		onSleep?: (count: number) => void;
 		reads?: unknown[];
-		/** Ledger pages, one per poll; absent: an older server without it. */
+		/** Ledger pages, one per poll; absent: a current server with no pending answers. */
 		undelivered?: unknown[];
 	} = {},
 ): Promise<{
@@ -149,6 +168,15 @@ async function run(
 	const acks: JsonObject[] = [];
 	const drafted: Array<[string, JsonObject]> = [];
 	const queue = [...reads];
+	const expectsDraft = details.length > 0 && undelivered === undefined;
+	const queueDraft = () => {
+		if (expectsDraft && peek(state()))
+			writeFileSync(
+				draftStatusPath(state()),
+				JSON.stringify({ requestId: REQUEST, status: "queued" }),
+			);
+	};
+	queueDraft();
 	const result = await runAwaitReply(
 		{
 			env: { TEDIX_CONFIG_DIR: config, ...env },
@@ -160,7 +188,8 @@ async function run(
 			read: async (args, _timeout, input) => {
 				const tool = workToolCall(args);
 				if (tool?.name === "list_undelivered_work_interaction_responses") {
-					const page = undelivered?.shift();
+					const page =
+						undelivered === undefined ? ledgerPage() : undelivered.shift();
 					if (!page) throw new Error("Unknown native tool");
 					return structuredClone(page) as JsonObject;
 				}
@@ -192,6 +221,7 @@ async function run(
 				sleeps.push(ms);
 				now += ms;
 				onSleep?.(sleeps.length);
+				queueDraft();
 			},
 			questionWaitMs: 5000,
 		},
@@ -301,24 +331,13 @@ describe("tedix hooks await-reply", () => {
 	});
 
 	test("the user's own OS answer wakes the session once", async () => {
-		const { result, sleeps } = await run(
-			[
-				interaction(),
-				interaction(
-					{},
-					{
-						body: "Ship it after the docs.",
-						respondedByType: "user",
-						respondedById: USER,
-						metadata: { source: "os-inbox" },
-					},
-				),
-			],
-			{ onSleep: (count) => count === 1 && open() },
-		);
+		const { result, sleeps } = await run([], {
+			onSleep: (count) => count === 1 && open(),
+			undelivered: [ledgerPage(), ledgerPage("Ship it after the docs.")],
+		});
 		expect(result.code).toBe(2);
 		expect(result.message).toBe(
-			'The user replied in Tedix OS: "Ship it after the docs."\nThis is the user\'s own answer (not a tedi draft). Act on it as their reply.',
+			`The user replied in Tedix OS: "Ship it after the docs."\nThis is the user's own answer (not a tedi draft) to your question "Fixture question". Act on it as their reply.`,
 		);
 		// Waited for the question, then 5s and 10s polls.
 		expect(sleeps.slice(-2)).toEqual([5000, 10000]);
@@ -504,6 +523,19 @@ describe("tedix hooks await-reply", () => {
 		}
 	});
 
+	test("an unavailable delivery ledger never falls back to an individual question", async () => {
+		const { result, detailReads, acks } = await run(
+			[interaction({}, { body: "Must not bypass the ledger" })],
+			{
+				onSleep: (count) => count === 1 && open(),
+				undelivered: [],
+			},
+		);
+		expect(result).toEqual({ code: 0 });
+		expect(detailReads).toBe(0);
+		expect(acks).toEqual([]);
+	});
+
 	test("an unpublished detail tool stops polling silently", async () => {
 		const { result, detailReads } = await run(
 			Array.from({ length: 10 }, () => new Error("Unknown tool")),
@@ -558,16 +590,8 @@ describe("tedix hooks await-reply", () => {
 	});
 
 	test("an OS answer also clears the prompt hook's question", async () => {
-		const answered = interaction(
-			{},
-			{
-				body: "Done in OS",
-				respondedByType: "user",
-				respondedById: USER,
-				metadata: { source: "os-inbox" },
-			},
-		);
-		const { result } = await run([answered], {
+		const { result } = await run([], {
+			undelivered: [ledgerPage("Done in OS")],
 			onSleep: (count) => {
 				if (count !== 1) return;
 				open();

@@ -880,7 +880,7 @@ export async function main() {
 	// organization, because a new account has none, and this is the only command
 	// with something true to say before one exists. It calls no gateway: the
 	// answer comes from the git history already on the caller's disk.
-	if (command === "who" || command === "neighbours") {
+	if (command === "who") {
 		const hours = Number(options.whoHours);
 		process.exitCode = await runWhoCommand({
 			paths: (options.whoPaths ?? "")

@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import {
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -431,4 +437,32 @@ describe("external-agent concurrent storage", () => {
 				readExternalAgentProfile(`peer-${n}`, { configDir })?.principalId,
 			).toBe("principal");
 	});
+});
+
+test("never reads a credential from the retired main-store map", () => {
+	const configDir = mkdtempSync(join(tmpdir(), "tedix-retired-cache-"));
+	dirs.push(configDir);
+	const options = { configDir };
+	const profile = concurrentProfile();
+	const session = concurrentSession("one");
+	writeExternalAgentProfile("connect", profile, options);
+	writeExternalAgentSession("connect", profile, session, options);
+	writeExternalAgentCredential(
+		"connect",
+		profile,
+		session,
+		"cached-token",
+		Date.now() + 60_000,
+		options,
+	);
+	const cachePath = join(configDir, "external-agent-credentials.json");
+	const cache = JSON.parse(readFileSync(cachePath, "utf8"));
+	const storePath = join(configDir, "external-agents.json");
+	const store = JSON.parse(readFileSync(storePath, "utf8"));
+	store.credentials = { connect: Object.values(cache.connect)[0] };
+	writeFileSync(storePath, JSON.stringify(store));
+	rmSync(cachePath);
+	expect(
+		readExternalAgentCredential("connect", profile, session, options),
+	).toBeUndefined();
 });

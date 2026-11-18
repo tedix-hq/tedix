@@ -90,9 +90,8 @@ the exact unsupported requirement when a compatible CLI workflow is needed.
   the MCP connection or a compatible CLI workflow.
   These suggestions use a 30-second cache; unavailable or expired reads are
   omitted. A suggestion still needs fresh admission before execution. Local
-  session receipts contain only hashes; clear/compact resets delivery. Updated
-  plugin hooks opt into a 10 KB allowance for initial context; older hook
-  definitions retain 6.4 KB. A source trimmed to fit is retried on the next turn.
+  session receipts contain only hashes; clear/compact resets delivery. Plugin
+  hooks use a 10 KB allowance for initial context. A source trimmed to fit is retried on the next turn.
   Lessons retry once after 150 ms, with a 3-second retry deadline. Unavailable
   sources are omitted; the organization id is cached for ten minutes
   (`src/hooks/context-cache.ts`); `TEDIX_HOOK_TRACE=1` prints step timings.

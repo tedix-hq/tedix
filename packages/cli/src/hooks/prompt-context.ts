@@ -24,8 +24,7 @@
  *
  * With decision capture enabled, while the chat has a question on file, it
  * hands the session every answer the user gave in Tedix OS to its questions
- * and not yet delivered, and records them delivered (older servers: the open
- * question by ID only). This is how Codex, which has no background rewake,
+ * and not yet delivered, and records them delivered. This is how Codex, which has no background rewake,
  * receives OS answers. Tedi-drafted replies never reach the session from here; they are
  * reviewed and accepted only in Tedix OS.
  *
@@ -46,11 +45,9 @@ import {
 	undeliveredAnswers,
 } from "./answer-delivery";
 import {
-	answeredElsewhere,
 	type Binding,
 	captureStatePath,
 	claim,
-	interactionDetail,
 	peek,
 	questionPath,
 	repositoryName,
@@ -81,15 +78,8 @@ import {
 const TEXT_LIMIT = 3200;
 const COMMENT_LIMIT = 400;
 const LESSON_BYTES = 2800;
-/**
- * Legacy whole-message budget in UTF-8 bytes, below old hosts' 6500 limit.
- * Updated hook definitions opt into EXPANDED_HOOK_BYTES with matching host
- * headroom. Over budget, render trims lessons beyond TOP_LESSONS first, then
- * document tails; a trimmed source is not marked delivered.
- */
-export const HOOK_BYTES = 6400;
-/** Only newer hook definitions opt into this larger first-delivery allowance. */
-export const EXPANDED_HOOK_BYTES = 10000;
+/** Whole-message UTF-8 budget, below the plugin host limit of 10100 bytes. */
+export const HOOK_BYTES = 10000;
 type DeliveredSources = Partial<Record<keyof ContextDelivery, boolean>>;
 /**
  * Lessons kept before document text is shortened. The gateway ranks standing
@@ -243,16 +233,6 @@ async function captureContext(
 				claim(questionPath(state));
 			return [answersMessage(fresh, ANSWERS_IN_CONTEXT)];
 		}
-		const detail = await interactionDetail(deps, binding, requestId, ANSWER_MS);
-		if (!detail || detail.state === "open") return [];
-		// Settled: this prompt consumes the question either way.
-		if (peek(questionPath(state))?.requestId === requestId)
-			claim(questionPath(state));
-		const resolution = detail.resolution;
-		if (answeredElsewhere(detail, binding.user, session))
-			return [
-				`The user replied in Tedix OS to Interaction ${requestId}: ${JSON.stringify(resolution!.body)}${resolution!.complete ? "" : " (truncated; read the full answer before relying on omitted detail)"}`,
-			];
 		return [];
 	} catch {
 		return [];
@@ -841,11 +821,7 @@ function compose(
 
 export async function runPromptContext(deps: HookDeps): Promise<void> {
 	const { env, read } = deps;
-	// Old installed plugins still cap model-visible context at 6500 bytes.
-	const budget =
-		env.TEDIX_HOOK_CONTEXT_BYTES === String(EXPANDED_HOOK_BYTES)
-			? EXPANDED_HOOK_BYTES
-			: HOOK_BYTES;
+	const budget = HOOK_BYTES;
 	const send = (message: string) =>
 		deps.write(
 			JSON.stringify({

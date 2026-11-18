@@ -76,11 +76,6 @@ interface Store {
 	version: 1;
 	repositories: Binding[];
 	preferences?: PreferenceSelection[];
-	/**
-	 * Legacy "Team lessons" document selections. Lessons now come from the
-	 * organization's approved brain facts; an old entry is kept but ignored.
-	 */
-	lessons?: unknown;
 	/** Explicit per-organization opt-in for recording turn ends and replies. */
 	decisionCapture?: CaptureOptIn[];
 	/**

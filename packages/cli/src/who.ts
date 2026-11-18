@@ -11,7 +11,7 @@ import {
 
 /**
  * `tedix who` reports agent attribution from local git history using the
- * shared `work:neighbours` detection logic, without requiring Work-board data.
+ * shared file coordination detection logic, without requiring Work-board data.
  */
 
 export interface WhoOptions {

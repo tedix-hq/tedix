@@ -30,25 +30,12 @@ export const CLI_GATE = `v=$(tedix --version 2>/dev/null); [ "$(printf '%s\\n' $
 const HOOK_NAME =
 	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|await-draft|situational-recall|status)$/;
 
-// Source manifests may still use GNU version sort; packages need POSIX options.
-function portableHookCommand(command: string): string {
-	return command.replace(
-		" | sort -V | ",
-		" | sort -t. -k1,1n -k2,2n -k3,3n | ",
-	);
-}
-
 /** The hook a guarded command runs; only session-start carries the CLI gate. */
 export function hookName(command: string): string | undefined {
 	if (!command.startsWith(HOOK_GUARD)) return undefined;
-	let rest = portableHookCommand(command).slice(HOOK_GUARD.length);
+	let rest = command.slice(HOOK_GUARD.length);
 	const gated = rest.startsWith(CLI_GATE);
 	if (gated) rest = rest.slice(CLI_GATE.length);
-	if (
-		!gated &&
-		rest === "TEDIX_HOOK_CONTEXT_BYTES=10000 tedix hooks prompt-context"
-	)
-		return "prompt-context";
 	const name = HOOK_NAME.exec(rest)?.[1];
 	return name && gated === (name === "session-start") ? name : undefined;
 }
@@ -188,7 +175,6 @@ function localHooks(root: string, host: Host): any {
 	for (const definitions of Object.values<any[]>(hooks.hooks))
 		for (const definition of definitions)
 			for (const handler of definition.hooks) {
-				handler.command = portableHookCommand(handler.command);
 				if (!hookName(handler.command))
 					throw new Error(
 						"Unsupported hook command; review the host adapter before packaging",

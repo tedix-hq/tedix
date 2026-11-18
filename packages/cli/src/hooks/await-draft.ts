@@ -7,7 +7,7 @@
  * `capture-stop` opens for this turn and, when the server auto-delivers a tedi
  * draft for it (`latestDraft.delivery: "auto"`), prints that continuation with
  * the framed draft. It returns at once when no draft was queued, when the
- * draft is for review in Tedix OS, or when delivery is absent (older servers).
+ * draft is for review in Tedix OS.
  *
  * Like `await-reply`, it records the delivery locally by ID and reports it to
  * the server once per draft, which answers the question in the tedi's name

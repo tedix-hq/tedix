@@ -131,7 +131,7 @@ export async function claimHookAnswers(
 
 /**
  * The user's undelivered answers (for one session when given), oldest first,
- * or undefined when they cannot be read (offline, signed out, older server).
+ * or undefined when they cannot be read (offline or signed out).
  * `failed` receives why, when a caller logs failures.
  */
 export async function undeliveredAnswers(
