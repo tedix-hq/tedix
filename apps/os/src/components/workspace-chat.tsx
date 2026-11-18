@@ -93,13 +93,11 @@ import {
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
 import type { createWorkspaceChatClient } from "@/lib/workspace-chat-client";
 import type {
+	ConversationChange,
 	WorkspaceChatClient,
 	WorkspaceChatConnection,
 } from "@/lib/workspace-chat-client";
-import type {
-	AutoApprovalKind,
-	ConversationSummary,
-} from "@/lib/workspace-chat-protocol";
+import type { AutoApprovalKind } from "@/lib/workspace-chat-protocol";
 import {
 	activeTurn,
 	type ChatApproval,
@@ -137,6 +135,10 @@ import {
 	stepHasDetail,
 	SummarisedMarker,
 } from "@/components/workspace-chat-step-detail";
+import {
+	ConversationList,
+	ConversationTitle,
+} from "@/components/workspace-chat-conversations";
 import { publishWorkspaceAutoApprovals } from "@/lib/workspace-auto-approvals";
 import { VIEW_ONLY_CHAT_REASON } from "@/lib/workspace-view-only";
 
@@ -369,6 +371,22 @@ export function WorkspaceChat({
 		state.conversations.find(
 			(conversation) => conversation.id === conversationId,
 		)?.title ?? null;
+	const changeConversation = useMemo(
+		() =>
+			client && connected
+				? (change: ConversationChange) => client.changeConversation(change)
+				: null,
+		[client, connected],
+	);
+	// The open conversation was deleted, here or by someone else.
+	const deleted = state.lastError?.code === "conversation_deleted";
+	const leftDeleted = useRef<WorkspaceChatClient | null>(null);
+	useEffect(() => {
+		if (!deleted || leftDeleted.current === client) return;
+		leftDeleted.current = client;
+		onSelectConversation(null);
+		onOpenList();
+	}, [deleted, client, onSelectConversation, onOpenList]);
 
 	if (listOpen) {
 		return (
@@ -377,6 +395,8 @@ export function WorkspaceChat({
 					conversations={state.conversations}
 					activeId={conversationId}
 					activeRunning={running !== null}
+					activePendingApprovals={waiting.length}
+					onChange={changeConversation}
 					onSelect={onSelectConversation}
 					unread={unreadByConversation}
 				/>
@@ -423,9 +443,21 @@ export function WorkspaceChat({
 					count={unreadElsewhere}
 					label="unread in other conversations"
 				/>
-				<Text as="strong" role="label" className="truncate">
-					{title ?? (conversationId ? "Conversation" : "New conversation")}
-				</Text>
+				<ConversationTitle
+					key={conversationId ?? "new"}
+					fallback={conversationId ? "Conversation" : "New conversation"}
+					onRename={
+						conversationId && changeConversation
+							? (next) =>
+									changeConversation({
+										type: "rename_conversation",
+										conversationId,
+										title: next,
+									})
+							: null
+					}
+					title={title}
+				/>
 				<WorkspaceSpend state={state} />
 				<ConnectionChip client={client} connection={connection} />
 			</div>
@@ -552,67 +584,6 @@ function WorkspaceSpend({ state }: { state: WorkspaceChatState }) {
 			<span className="sr-only">Used in this workspace so far: </span>
 			{label}
 		</span>
-	);
-}
-
-function ConversationList({
-	conversations,
-	activeId,
-	activeRunning,
-	onSelect,
-	unread,
-}: {
-	conversations: ConversationSummary[];
-	activeId: string | null;
-	/** The open conversation's own turn is working, as this tab sees it. */
-	activeRunning: boolean;
-	onSelect: (conversationId: string | null) => void;
-	unread?: ReadonlyMap<string, number>;
-}) {
-	return (
-		<div className="workspace-chat-list">
-			<Button onClick={() => onSelect(null)} size="sm" variant="secondary">
-				New conversation
-			</Button>
-			{conversations.length === 0 ? (
-				<Text role="body" tone="secondary">
-					No conversations in this workspace yet.
-				</Text>
-			) : (
-				<ul>
-					{conversations.map((conversation) => (
-						<li key={conversation.id}>
-							<button
-								aria-current={conversation.id === activeId ? "true" : undefined}
-								className="workspace-chat-list-row"
-								onClick={() => onSelect(conversation.id)}
-								type="button"
-							>
-								<Text as="span" role="body" className="truncate">
-									{conversation.title ?? "Untitled conversation"}
-								</Text>
-								{(conversation.id === activeId && activeRunning) ||
-								conversation.running ? (
-									<span
-										className="workspace-chat-list-working"
-										role="img"
-										aria-label="Working"
-										title="Working"
-									/>
-								) : null}
-								<UnreadBadge
-									count={unread?.get(conversation.id) ?? 0}
-									label="unread"
-								/>
-								<Text as="span" role="caption" tone="secondary">
-									{relativeTime(conversation.updatedAt)}
-								</Text>
-							</button>
-						</li>
-					))}
-				</ul>
-			)}
-		</div>
 	);
 }
 
@@ -1816,14 +1787,4 @@ function writeDraft(key: string, text: string) {
 	} catch {
 		// Storage can be unavailable; the draft still lives on this page.
 	}
-}
-
-function relativeTime(iso: string): string {
-	const ms = Date.now() - Date.parse(iso);
-	if (!Number.isFinite(ms) || ms < 60_000) return "just now";
-	const minutes = Math.floor(ms / 60_000);
-	if (minutes < 60) return `${minutes} min ago`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours} h ago`;
-	return `${Math.floor(hours / 24)} d ago`;
 }

@@ -33,6 +33,7 @@ import {
 	initialWorkspaceChatState,
 	markPendingSend,
 	markSendFailed,
+	removeConversation,
 	setConversations,
 	setHasEarlier,
 	setWorkspaceUsage,
@@ -109,11 +110,23 @@ export type WorkspaceChatClient = {
 	/** Turn one of the workspace's "Always approve" rules on or off. */
 	setAutoApproval(kind: AutoApprovalKind, enabled: boolean): void;
 	cancelTurn(turnId: string): void;
+	/** Rename, archive, restore or delete a conversation of this workspace. */
+	changeConversation(change: ConversationChange): void;
 	loadEarlier(): void;
 	/** Drop the socket now; the ladder reconnects. Used by the drop test. */
 	forceDrop(): void;
 	close(): void;
 };
+
+export type ConversationChange = Extract<
+	WorkspaceChatClientMessage,
+	{
+		type:
+			| "rename_conversation"
+			| "archive_conversation"
+			| "delete_conversation";
+	}
+>;
 
 const OPEN = 1;
 
@@ -413,7 +426,10 @@ export function createWorkspaceChatClient(
 				}
 				state = {
 					...setWorkspaceUsage(
-						setConversations(state, message.conversations),
+						setConversations(state, [
+							...message.conversations,
+							...(message.archived ?? []),
+						]),
 						message.usage,
 						message.cursor,
 					),
@@ -428,6 +444,14 @@ export function createWorkspaceChatClient(
 			}
 			case "auto_approvals":
 				state = { ...state, autoApprovals: message.rules };
+				publish();
+				return;
+			case "conversation.deleted":
+				state = setWorkspaceUsage(
+					removeConversation(state, message.conversationId),
+					message.usage,
+					message.cursor,
+				);
 				publish();
 				return;
 			case "caught_up":
@@ -559,6 +583,9 @@ export function createWorkspaceChatClient(
 		},
 		cancelTurn(turnId) {
 			send({ type: "cancel_turn", turnId });
+		},
+		changeConversation(change) {
+			send(change);
 		},
 		loadEarlier() {
 			if (!conversationId) return;

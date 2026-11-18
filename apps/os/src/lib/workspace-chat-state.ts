@@ -295,6 +295,10 @@ export function applyWorkspaceChatEvent(
 				previous?.running === true ||
 				state.cursor === null ||
 				event.seq > state.cursor,
+			...(previous?.pendingApprovals
+				? { pendingApprovals: previous.pendingApprovals }
+				: {}),
+			...(previous?.archivedAt ? { archivedAt: previous.archivedAt } : {}),
 			...(previous?.usage ? { usage: previous.usage } : {}),
 		};
 		state = {
@@ -313,13 +317,19 @@ export function applyWorkspaceChatEvent(
 		);
 		if (previous && previous.updatedAt > event.at)
 			return withCursor(state, event);
-		const conversation = {
+		const archivedAt =
+			event.archivedAt === undefined ? previous?.archivedAt : event.archivedAt;
+		const conversation: ConversationSummary = {
 			id: event.conversationId,
 			title:
 				event.title === undefined ? (previous?.title ?? null) : event.title,
 			updatedAt: event.at,
 			lastTurnAt: previous?.lastTurnAt ?? null,
 			...(previous?.running ? { running: true } : {}),
+			...(previous?.pendingApprovals
+				? { pendingApprovals: previous.pendingApprovals }
+				: {}),
+			...(archivedAt ? { archivedAt } : {}),
 			...(previous?.usage ? { usage: previous.usage } : {}),
 		};
 		return {
@@ -344,6 +354,30 @@ export function applyWorkspaceChatEvent(
 					row === finished ? { ...row, running: false } : row,
 				),
 			};
+	}
+	// The object's hello counted the waiting changes up to `usageCursor`;
+	// only a later event moves a count, so a replay never counts one twice.
+	if (
+		(event.type === "approval.requested" ||
+			event.type === "approval.decided") &&
+		state.usageCursor !== null &&
+		event.seq > state.usageCursor
+	) {
+		const change = event.type === "approval.requested" ? 1 : -1;
+		state = {
+			...state,
+			conversations: state.conversations.map((row) =>
+				row.id === event.conversationId
+					? {
+							...row,
+							pendingApprovals: Math.max(
+								0,
+								(row.pendingApprovals ?? 0) + change,
+							),
+						}
+					: row,
+			),
+		};
 	}
 	if (event.conversationId !== state.conversationId)
 		return withCursor(state, event);
@@ -744,6 +778,32 @@ export function setConversations(
 	conversations: ConversationSummary[],
 ): WorkspaceChatState {
 	return { ...state, conversations };
+}
+
+/**
+ * A conversation was deleted. A chat that had it open keeps nothing of it and
+ * says so; `conversation_deleted` tells the pane to go back to the list.
+ */
+export function removeConversation(
+	state: WorkspaceChatState,
+	conversationId: string,
+): WorkspaceChatState {
+	const conversations = state.conversations.filter(
+		(row) => row.id !== conversationId,
+	);
+	if (state.conversationId !== conversationId)
+		return { ...state, conversations };
+	return {
+		...state,
+		conversations,
+		turns: [],
+		hasEarlier: false,
+		pendingSend: null,
+		lastError: {
+			code: "conversation_deleted",
+			message: "This conversation was deleted.",
+		},
+	};
 }
 
 /** Totals from the object's hello: everything up to and including `cursor`. */

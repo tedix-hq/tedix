@@ -97,6 +97,14 @@ export type WorkspaceChatClientMessage =
 			enabled: boolean;
 	  }
 	| { type: "cancel_turn"; turnId: string }
+	| { type: "rename_conversation"; conversationId: string; title: string }
+	| {
+			/** `archived: false` puts the conversation back in the list. */
+			type: "archive_conversation";
+			conversationId: string;
+			archived: boolean;
+	  }
+	| { type: "delete_conversation"; conversationId: string }
 	| {
 			type: "read_ledger";
 			conversationId: string;
@@ -113,6 +121,10 @@ export type ConversationSummary = {
 	lastTurnAt: string | null;
 	/** A turn in this conversation is still working. */
 	running?: boolean;
+	/** How many changes in this conversation wait for a decision. */
+	pendingApprovals?: number;
+	/** Set while the conversation is archived. */
+	archivedAt?: string;
 	/** Absent until a reply in this conversation reports usage. */
 	usage?: UsageTotals;
 };
@@ -291,6 +303,8 @@ export type WorkspaceChatControlMessage =
 			cursor: number;
 			serverTime: string;
 			conversations: ConversationSummary[];
+			/** Archived conversations, each with `archivedAt`; not in `conversations`. */
+			archived?: ConversationSummary[];
 			models?: Array<{ id: string; label: string }>;
 			/** The whole workspace, archived conversations included, up to `cursor`. */
 			usage?: UsageTotals;
@@ -301,6 +315,15 @@ export type WorkspaceChatControlMessage =
 			/** The workspace's "Always approve" rules changed. */
 			type: "auto_approvals";
 			rules: AutoApprovalRule[];
+	  }
+	| {
+			/** A conversation and everything in it is gone; every open chat gets it. */
+			type: "conversation.deleted";
+			conversationId: string;
+			/** The ledger position `usage` is counted up to. */
+			cursor: number;
+			/** The workspace's usage without the deleted conversation. */
+			usage?: UsageTotals;
 	  }
 	| { type: "caught_up"; conversationId: string | null }
 	| {
@@ -352,6 +375,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 const CONTROL_TYPES = new Set<WorkspaceChatControlMessage["type"]>([
 	"hello",
 	"auto_approvals",
+	"conversation.deleted",
 	"caught_up",
 	"replay.more",
 	"turn.accepted",

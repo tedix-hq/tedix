@@ -42,6 +42,7 @@ function harness() {
 			decideApprovals() {},
 			setAutoApproval() {},
 			cancelTurn() {},
+			changeConversation() {},
 			loadEarlier() {},
 			forceDrop() {},
 			retry() {},

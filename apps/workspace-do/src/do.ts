@@ -66,7 +66,12 @@ import { SqlAccountabilityAdapter, SqlComplianceAdapter } from "./adapters";
 import { buildWorkspaceBindings } from "./bindings";
 import type { WorkspaceSnapshot } from "./data-port";
 import { MAX_VIEWS_PER_TURN } from "./views";
-import { createWebPort, type FetchFn, webApprovalTitle } from "./web";
+import {
+	createWebPort,
+	type FetchFn,
+	WEB_SCHEMA,
+	webApprovalTitle,
+} from "./web";
 import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
 import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-notice";
@@ -145,6 +150,9 @@ const FRAME_TYPES = new Set([
 	"decide_approvals",
 	"set_auto_approval",
 	"cancel_turn",
+	"rename_conversation",
+	"archive_conversation",
+	"delete_conversation",
 	"read_ledger",
 	"ping",
 ]);
@@ -1138,16 +1146,22 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return this.#listConversations(this.#events.usageByConversation());
 	}
 
-	#listConversations(usage: Map<string, UsageTotals>): ConversationSummary[] {
+	/** The newest 200 conversations of the list, or of the archive. */
+	#listConversations(
+		usage: Map<string, UsageTotals>,
+		archived = false,
+	): ConversationSummary[] {
 		return this.#store
 			.exec<{
 				id: string;
 				title: string | null;
 				updated_at: string;
 				last_turn_at: string | null;
+				archived_at: string | null;
 				running: number;
+				pending_approvals: number;
 			}>(
-				"SELECT c.id, c.title, c.updated_at, c.last_turn_at, EXISTS (SELECT 1 FROM turns t WHERE t.conversation_id = c.id AND t.status = 'running') AS running FROM conversations c WHERE c.archived_at IS NULL ORDER BY c.updated_at DESC LIMIT 200",
+				`SELECT c.id, c.title, c.updated_at, c.last_turn_at, c.archived_at, EXISTS (SELECT 1 FROM turns t WHERE t.conversation_id = c.id AND t.status = 'running') AS running, (SELECT COUNT(*) FROM approvals a WHERE a.conversation_id = c.id AND a.status = 'pending') AS pending_approvals FROM conversations c WHERE c.archived_at IS ${archived ? "NOT NULL" : "NULL"} ORDER BY c.updated_at DESC LIMIT 200`,
 			)
 			.map((row) => ({
 				id: row.id,
@@ -1155,6 +1169,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				updatedAt: row.updated_at,
 				lastTurnAt: row.last_turn_at,
 				...(row.running ? { running: true } : {}),
+				...(row.pending_approvals
+					? { pendingApprovals: row.pending_approvals }
+					: {}),
+				...(row.archived_at ? { archivedAt: row.archived_at } : {}),
 				...(usage.has(row.id) ? { usage: usage.get(row.id) } : {}),
 			}));
 	}
@@ -1563,6 +1581,176 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return rules;
 	}
 
+	#conversationRow(conversationId: string) {
+		const [row] = this.#store.exec<{ archived_at: string | null }>(
+			"SELECT archived_at FROM conversations WHERE id = ?",
+			String(conversationId),
+		);
+		if (!row) throw new Error("Unknown conversation");
+		return row;
+	}
+
+	/**
+	 * A rename or an archive is a ledger event, and the ledger sends an event
+	 * only to the chats that follow its conversation. This sends it to the
+	 * chats that follow another one, so every open list changes.
+	 */
+	#announceConversation(event: WireEvent) {
+		const frame = JSON.stringify(event);
+		this.#pushSerial = this.#pushSerial.then(async () => {
+			for (const ws of this.ctx.getWebSockets()) {
+				const attachment = ws.deserializeAttachment() as
+					| (WorkspaceSession & { conversationId?: string | null })
+					| null;
+				if (
+					!attachment?.conversationId ||
+					attachment.conversationId === event.conversationId ||
+					!(await workspaceSessionAllowed(this.env.DB, attachment))
+				)
+					continue;
+				try {
+					ws.send(frame);
+				} catch {
+					/* a closed socket is dropped by the runtime */
+				}
+			}
+		});
+		this.ctx.waitUntil(this.#pushSerial);
+	}
+
+	/** Give a conversation a new name. Every open chat hears it. */
+	renameConversation(
+		scope: WorkspaceScope,
+		input: { conversationId: string; title: string },
+	): void {
+		this.bindScope(scope);
+		const title = String(input.title ?? "")
+			.replace(/\s+/g, " ")
+			.trim()
+			.slice(0, 80);
+		if (!title) throw new Error("A conversation needs a name");
+		this.#conversationRow(input.conversationId);
+		// `updated_at` moves too, so a chat that replays an older name keeps this one.
+		this.#store.run(
+			"UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
+			title,
+			new Date().toISOString(),
+			input.conversationId,
+		);
+		this.#announceConversation(
+			this.#events.append(input.conversationId, {
+				type: "conversation.updated",
+				conversationId: input.conversationId,
+				title,
+			}),
+		);
+	}
+
+	/**
+	 * Archive a conversation, or put it back. An archived conversation keeps
+	 * everything; it only leaves the list. Every open chat hears it.
+	 */
+	archiveConversation(
+		scope: WorkspaceScope,
+		input: { conversationId: string; archived: boolean },
+	): void {
+		this.bindScope(scope);
+		const row = this.#conversationRow(input.conversationId);
+		if (input.archived === (row.archived_at !== null)) return;
+		const now = new Date().toISOString();
+		const archivedAt = input.archived ? now : null;
+		this.#store.run(
+			"UPDATE conversations SET archived_at = ?, updated_at = ? WHERE id = ?",
+			archivedAt,
+			now,
+			input.conversationId,
+		);
+		this.#announceConversation(
+			this.#events.append(input.conversationId, {
+				type: "conversation.updated",
+				conversationId: input.conversationId,
+				archivedAt,
+			}),
+		);
+	}
+
+	/**
+	 * Delete a conversation with its messages, replies and waiting changes.
+	 * This cannot be undone. Files the conversation saved stay in the
+	 * workspace. A conversation that is still working is refused, so no reply
+	 * writes into a conversation that is gone.
+	 */
+	deleteConversation(scope: WorkspaceScope, conversationId: string): void {
+		this.bindScope(scope);
+		this.#conversationRow(conversationId);
+		if (this.#runningTurnIn(conversationId))
+			throw new Error("Stop the reply before you delete this conversation");
+		this.ctx.storage.transactionSync(() => {
+			// The web grants table exists only once a turn has used the web.
+			this.#store.run(WEB_SCHEMA);
+			for (const approval of this.#store.exec<{ approval_id: string }>(
+				"SELECT approval_id FROM approvals WHERE conversation_id = ?",
+				conversationId,
+			))
+				this.#store.delete(`approval-result:${approval.approval_id}`);
+			// A conversation moved in from before the workspace kept its own chat.
+			for (const moved of this.#store.exec<{ id: string }>(
+				"SELECT id FROM kernel_runtime_events WHERE conversation_id = ?",
+				conversationId,
+			))
+				this.#store.delete(`moved-chat-event:${moved.id}`);
+			for (const table of [
+				"approvals",
+				"queued_messages",
+				"messages",
+				"events",
+				"turns",
+				"web_domain_grants",
+				"kernel_tool_results",
+				"kernel_runtime_events",
+				"kernel_runtime_runs",
+				"kernel_conversations",
+			])
+				this.#store.run(
+					`DELETE FROM ${table} WHERE conversation_id = ?`,
+					conversationId,
+				);
+			this.#store.run("DELETE FROM conversations WHERE id = ?", conversationId);
+			this.#store.delete(`decision-notes:${conversationId}`);
+			this.#store.delete(`compaction:${conversationId}`);
+		});
+		workspaceLog.info("Workspace conversation deleted", {
+			event: "workspace.conversation_deleted",
+			...this.#diagnostics(),
+		});
+		const usage = sumUsageTotals(this.#events.usageByConversation().values());
+		const frame = JSON.stringify({
+			type: "conversation.deleted",
+			conversationId,
+			cursor: this.#events.latestSeq(),
+			...(usage ? { usage } : {}),
+		} satisfies WireControlFrame);
+		// After the events already on their way, so no chat sees the
+		// conversation come back.
+		this.#pushSerial = this.#pushSerial.then(async () => {
+			for (const ws of this.ctx.getWebSockets()) {
+				if (
+					!(await workspaceSessionAllowed(
+						this.env.DB,
+						ws.deserializeAttachment(),
+					))
+				)
+					continue;
+				try {
+					ws.send(frame);
+				} catch {
+					/* a closed socket is dropped by the runtime */
+				}
+			}
+		});
+		this.ctx.waitUntil(this.#pushSerial);
+	}
+
 	/** Record one decision and, on approve, run the held call. */
 	async #settleApproval(
 		scope: WorkspaceScope,
@@ -1937,6 +2125,21 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					return;
 				case "cancel_turn":
 					await this.cancelTurn(scope, frame.turnId);
+					return;
+				case "rename_conversation":
+					this.renameConversation(scope, {
+						conversationId: frame.conversationId,
+						title: frame.title,
+					});
+					return;
+				case "archive_conversation":
+					this.archiveConversation(scope, {
+						conversationId: frame.conversationId,
+						archived: frame.archived === true,
+					});
+					return;
+				case "delete_conversation":
+					this.deleteConversation(scope, frame.conversationId);
 					return;
 				case "read_ledger": {
 					this.bindScope(scope);
@@ -2522,6 +2725,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			cursor: latest,
 			serverTime: new Date().toISOString(),
 			conversations: this.#listConversations(usage),
+			archived: this.#listConversations(usage, true),
 			models: this.configuredModels(),
 			...(workspaceUsage ? { usage: workspaceUsage } : {}),
 			autoApprovals: readAutoApprovalRules(this.#store),
