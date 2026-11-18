@@ -423,9 +423,6 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				const browser = this.env.BROWSER;
 				const feed = event.payload.snapshotFeed ?? "snapshot";
 				const owner = event.payload.snapshotOwner ?? "";
-				// Removal reconciliation needs every listing id of a source, so a
-				// run that reconciles removals writes every listing.
-				const skipUnchanged = removalSources.length === 0;
 				// Reading a large directory out of the page takes longer than a
 				// caller waits for one request, so the capture runs here. It
 				// compares each listing with the fingerprint from the last finished
@@ -451,14 +448,12 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 						};
 						if (stored) archived = await stored.json();
 						else {
-							const previousObject = skipUnchanged
-								? await this.env.R2_BUCKET.get(feedFingerprintsKey(owner, feed))
-								: null;
+							const previousObject = await this.env.R2_BUCKET.get(
+								feedFingerprintsKey(owner, feed),
+							);
 							const previous = previousObject
 								? usableFingerprints(await previousObject.json(), provenanceKey)
-								: skipUnchanged
-									? await this.fingerprintsOfLastImport(db, owner, feed)
-									: {};
+								: await this.fingerprintsOfLastImport(db, owner, feed);
 							const fingerprints: ListingFingerprints = {};
 							const sources = new Set<string>();
 							const changed: CatalogSnapshotItem[] = [];
@@ -624,7 +619,9 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				// must still see that the store lists them.
 				const unchangedCount = captured.itemCount - captured.changedCount;
 				for (let part = 0; part < seenPartCount(unchangedCount); part++) {
-					await step.do(
+					// Removal reconciliation needs every listing id the store still
+					// shows, unchanged ones included.
+					const stillListed = await step.do(
 						`mark-unchanged-seen-${part}`,
 						{
 							retries: { limit: 2, delay: "10 seconds" },
@@ -639,8 +636,14 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 								seen.map(([source, sourceAppId]) => ({ source, sourceAppId })),
 								new Date().toISOString(),
 							);
+							return seen.filter(([source]) => removalSources.includes(source));
 						},
 					);
+					for (const [source, sourceAppId] of stillListed) {
+						const ids = sourceAppIds.get(source) ?? [];
+						ids.push(sourceAppId);
+						sourceAppIds.set(source, ids);
+					}
 				}
 				// Every listing is now written or marked, so the next import may
 				// compare against this run.
