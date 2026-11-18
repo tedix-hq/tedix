@@ -31,9 +31,7 @@ export const cmsRestorePermits = sqliteTable(
 		siteId: text("site_id").notNull(),
 		slug: text("slug").notNull(),
 		restoreEpoch: integer("restore_epoch").notNull().default(0),
-		kind: text("kind", { enum: ["legacy", "outer", "nested", "scheduled"] })
-			.notNull()
-			.default("legacy"),
+		kind: text("kind", { enum: ["outer", "nested", "scheduled"] }).notNull(),
 		enteredAt: text("entered_at")
 			.notNull()
 			.default(sql`(CURRENT_TIMESTAMP)`),

@@ -56,7 +56,7 @@ function fixture() {
 			site_id TEXT NOT NULL,
 			slug TEXT NOT NULL,
 			restore_epoch INTEGER NOT NULL DEFAULT 0,
-			kind TEXT NOT NULL DEFAULT 'legacy',
+			kind TEXT NOT NULL,
 			entered_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 		);
 		CREATE INDEX cms_restore_permits_site_slug_idx
@@ -313,8 +313,8 @@ describe("CMS restore fence", () => {
 		).toMatchObject({ capture_id: capture.captureId });
 	});
 
-	it("reconciles only stale outer permits after nested and legacy work drains", async () => {
-		const { db, sqlite } = fixture();
+	it("reconciles only stale outer permits after nested work drains", async () => {
+		const { db } = fixture();
 		expect(await enterCmsRestorePermit(db, { ...one, permitId: "outer" })).toBe(
 			true,
 		);
@@ -325,8 +325,6 @@ describe("CMS restore fence", () => {
 				kind: "nested",
 			}),
 		).toBe(true);
-		sqlite.exec(`INSERT INTO cms_restore_permits (id, site_id, slug)
-			VALUES ('legacy', 'site-1', 'old-slug')`);
 		expect(await closeCmsRestoreFence(db, closed)).toBe(true);
 		expect(await reconcileCmsRestoreOuterPermits(db, closed)).toBe(0);
 		expect(
@@ -336,8 +334,6 @@ describe("CMS restore fence", () => {
 				kind: "nested",
 			}),
 		).toBe(true);
-		expect(await reconcileCmsRestoreOuterPermits(db, closed)).toBe(0);
-		sqlite.exec("DELETE FROM cms_restore_permits WHERE id = 'legacy'");
 		expect(await reconcileCmsRestoreOuterPermits(db, closed)).toBe(1);
 		expect(await countCmsRestorePermitsForSite(db, one.siteId)).toBe(0);
 		expect(await reconcileCmsRestoreOuterPermits(db, closed)).toBe(0);
@@ -658,8 +654,8 @@ describe("CMS restore fence", () => {
 	it("does not release while an old-slug permit still belongs to the immutable site", async () => {
 		const { db, sqlite } = fixture();
 		expect(await closeCmsRestoreFence(db, closed)).toBe(true);
-		sqlite.exec(`INSERT INTO cms_restore_permits (id, site_id, slug)
-			VALUES ('old-slug-permit', 'site-1', 'before-rename')`);
+		sqlite.exec(`INSERT INTO cms_restore_permits (id, site_id, slug, kind)
+			VALUES ('old-slug-permit', 'site-1', 'before-rename', 'outer')`);
 		expect(await countCmsRestorePermitsForSite(db, one.siteId)).toBe(1);
 		expect(await releaseCmsRestoreFence(db, closed)).toBe(false);
 		sqlite.exec("DELETE FROM cms_restore_permits WHERE id = 'old-slug-permit'");

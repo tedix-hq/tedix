@@ -228,7 +228,6 @@ describe("CMS deploy workflow admission", () => {
 				nextBundleVersion: 8,
 				expectedActiveVersion: 7,
 				sourceCommit,
-				sourceSandbox: "isolated",
 			});
 		} finally {
 			sqlite.close();

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	digestEditableThemeSource,
-	migrateThemePresentationSource,
 	materializeEditableThemeSource,
 	requirePinnedEditableThemeSource,
 } from "./source-provenance";
@@ -319,52 +318,5 @@ describe("editable CMS source from an Artifacts commit", () => {
 		expect(sandbox.fs.get("/workspace/src/pages/index.astro")).toBe(
 			"<OtherBuild />",
 		);
-	});
-});
-
-describe("explicit presentation ownership migration", () => {
-	const platformSource = {
-		"src/layouts/Base.astro": "<ExactPreviousPlatform />",
-	};
-	const previousLockedPaths = ["src/layouts/Base.astro", "src/middleware.ts"];
-	it("adopts exact old platform bytes while preserving independent draft and active files", () => {
-		for (const content of ["<Published />", "<UnpublishedChanges />"]) {
-			const source = {
-				"src/pages/index.astro": content,
-				"src/layouts/Base.astro": "<StaleCopy />",
-			};
-			const result = migrateThemePresentationSource({
-				templateSlug: "tedix",
-				source,
-				platformSource,
-				previousLockedPaths,
-			});
-			expect(result.files["src/pages/index.astro"]).toBe(content);
-			expect(result.files["src/layouts/Base.astro"]).toBe(
-				"<ExactPreviousPlatform />",
-			);
-			expect(result.adoptedPaths).toEqual(["src/layouts/Base.astro"]);
-			expect(source["src/layouts/Base.astro"]).toBe("<StaleCopy />");
-		}
-	});
-	it("refuses missing exact bytes rather than using current starter defaults", () => {
-		expect(() =>
-			migrateThemePresentationSource({
-				templateSlug: "tedix",
-				source: {},
-				platformSource: {},
-				previousLockedPaths,
-			}),
-		).toThrow("Exact previous platform source missing");
-	});
-	it("refuses to rerun adoption over intentional deletions", () => {
-		expect(() =>
-			migrateThemePresentationSource({
-				templateSlug: "tedix",
-				source: { "src/theme-source.json": '{"version":2}' },
-				platformSource,
-				previousLockedPaths,
-			}),
-		).toThrow("do not fill missing files");
 	});
 });
