@@ -407,7 +407,7 @@ describe("WorkspaceShareDialog", () => {
 		expect(emailField(container).value).toBe("bob@x.test, nope");
 		const card = container.querySelector("[data-invited-link]");
 		expect(card?.textContent).toContain(
-			"Added Lee Fictional and ana@x.test. Send them this link to open it",
+			"Added Lee Fictional and ana@x.test. Tedix tells them; you can also send this link",
 		);
 		expect(card?.querySelector("[data-share-url]")?.textContent).toBe(
 			`${window.location.origin}/shared/workspace/${WORKSPACE_ID}`,

@@ -2,7 +2,6 @@ import { implement } from "@orpc/server";
 import { osCollaboratorsContract } from "@tedix/api-contract/contracts/os-collaborators";
 import {
 	dismissOsSharedWorkspace,
-	listOsSharedWorkspacesForUser,
 	searchOrganizationPeople,
 } from "@tedix/db/queries/os-collaborators";
 import {
@@ -16,6 +15,7 @@ import {
 	createWorkspaceShareLink,
 	getWorkspacePresenceIdentity,
 	leaveWorkspace,
+	listSharedWorkspaces,
 	listWorkspaceSharing,
 	openWorkspaceAsCollaborator,
 	previewWorkspaceRemoval,
@@ -286,22 +286,7 @@ const listShared = collaborator.listShared
 			"apps:read",
 		),
 	)
-	.handler(async ({ context }) => {
-		const userId = requireCollaboratorIdentity(context);
-		const rows = await listOsSharedWorkspacesForUser(
-			createDbQueryClient(context.env.DB),
-			{ userId, limit: 100 },
-		);
-		return {
-			items: rows.map((row) => ({
-				workspaceId: row.workspaceId,
-				title: row.cachedTitle ?? "Shared workspace",
-				ownerName: row.cachedOwnerName,
-				firstOpenedAt: row.firstOpenedAt ?? row.createdAt,
-				lastOpenedAt: row.lastOpenedAt ?? row.createdAt,
-			})),
-		};
-	});
+	.handler(({ context }) => listSharedWorkspaces(context));
 
 const dismissShared = collaborator.dismissShared
 	.use(

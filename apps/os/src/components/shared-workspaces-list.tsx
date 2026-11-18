@@ -2,6 +2,7 @@ import { SignOut, UsersThree, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsSharedWorkspace } from "@tedix/api-contract/schemas/os-collaborators";
 import { useState } from "react";
+import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { LeaveWorkspaceDialog } from "@/components/workspace-leave";
 import { Link } from "@/components/kumo/link";
@@ -14,8 +15,9 @@ import {
 import { relativeTime } from "@/lib/time";
 
 /**
- * Workspaces other people shared with you, listed after you first open one.
- * Dismissing hides an entry; it never changes access. Leaving gives the
+ * Workspaces other people shared with you. One you were added to by name is
+ * listed straight away and marked "New" until you open it; one you joined
+ * through a link is listed once you open it. Dismissing hides an entry; it never changes access. Leaving gives the
  * access up, after a confirm. An entry whose access was revoked stays until
  * dismissed and opens to an access-denied page.
  */
@@ -45,20 +47,29 @@ export function SharedWorkspacesList() {
 						>
 							<UsersThree size={16} className="shrink-0 text-kumo-subtle" />
 							<span className="grid min-w-0 flex-1">
-								<Link
-									href={`/shared/workspace/${item.workspaceId}`}
-									className="truncate"
-								>
-									{item.title}
-								</Link>
+								<span className="flex min-w-0 items-center gap-2">
+									<Link
+										href={`/shared/workspace/${item.workspaceId}`}
+										className="truncate"
+									>
+										{item.title}
+									</Link>
+									{item.isNew ? (
+										<Badge variant="info" data-shared-new="">
+											New
+										</Badge>
+									) : null}
+								</span>
 								<Text
 									as="span"
 									role="label"
 									tone="secondary"
 									className="truncate"
 								>
-									{item.ownerName ? `${item.ownerName} · ` : ""}opened{" "}
-									{relativeTime(item.lastOpenedAt)}
+									{item.ownerName ? `${item.ownerName} · ` : ""}
+									{item.isNew
+										? `shared ${relativeTime(item.lastOpenedAt)}, not opened yet`
+										: `opened ${relativeTime(item.lastOpenedAt)}`}
 								</Text>
 							</span>
 							<Button

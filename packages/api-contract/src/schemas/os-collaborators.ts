@@ -166,6 +166,8 @@ export const OsSharedWorkspaceSchema = z.object({
 	ownerName: z.string().nullable(),
 	firstOpenedAt: z.string(),
 	lastOpenedAt: z.string(),
+	/** Shared with the person by name and not opened by them yet. */
+	isNew: z.boolean(),
 });
 export type OsSharedWorkspace = z.infer<typeof OsSharedWorkspaceSchema>;
 

@@ -26,11 +26,13 @@ import {
 	getActiveOsWorkspaceShareLinkByKeyHash,
 	getOsWorkspaceForCollaboration,
 	grantOsWorkspaceAccess,
+	listOsSharedWorkspacesForUser,
 	listOsWorkspaceOrganizationMemberRoles,
 	listTedixPeople,
 	type OsWorkspaceEdgeInput,
 	type OsWorkspacePermissionRows,
 	recordOsWorkspaceCollaboratorOpen,
+	recordOsWorkspaceShareNotice,
 	revokeOsWorkspaceShareLink,
 	severOsWorkspaceUserAccess,
 	type TedixPersonResult,
@@ -49,6 +51,7 @@ import {
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
 import { cutWorkspaceAppSessions } from "./os-app-session-revocation";
+import { notifyWorkspaceShared } from "./workspace-share-push";
 import {
 	computeEffectiveRoles,
 	diffRoles,
@@ -521,6 +524,16 @@ export async function addWorkspaceCollaborator(
 		access.callerId,
 	);
 	const [sharer] = await listTedixPeople(database, [access.callerId]);
+	// Tell the person only when this call is what gave them access: not when
+	// it changed the role of someone who already had it, and not when the
+	// stored grant gives them no role after all.
+	if (!access.roles.has(person.userId) && after.roles.has(person.userId))
+		await tellPersonAboutShare(context, database, {
+			workspace: access.workspace,
+			inviteeUserId: person.userId,
+			sharerUserId: access.callerId,
+			sharerName: sharer?.name ?? sharer?.email ?? null,
+		});
 	return {
 		userId: person.userId,
 		email: person.email,
@@ -531,6 +544,82 @@ export async function addWorkspaceCollaborator(
 		canChangeRole: access.canAdminister,
 		lastOpenedAt: null,
 	};
+}
+
+/**
+ * After a person was given access by name: list the workspace as new under
+ * their "Shared with you" and send a browser push to their devices. Telling
+ * them is best effort; the access they were given stands if it fails.
+ */
+async function tellPersonAboutShare(
+	context: BaseContext,
+	database: DbQueryClient,
+	input: {
+		workspace: OsWorkspaceRow;
+		inviteeUserId: string;
+		sharerUserId: string;
+		sharerName: string | null;
+	},
+): Promise<void> {
+	try {
+		await recordOsWorkspaceShareNotice(database, {
+			organizationId: input.workspace.organizationId,
+			workspaceId: input.workspace.id,
+			userId: input.inviteeUserId,
+			title: input.workspace.name,
+			ownerName: await ownerName(database, input.workspace),
+		});
+		await notifyWorkspaceShared(context, database, input);
+	} catch (error) {
+		console.warn("os_workspace_share_notice_failed", {
+			workspaceId: input.workspace.id,
+			exception: safeExceptionTopology(error),
+		});
+	}
+}
+
+/** Most never-opened entries one list read rechecks access for. */
+const NEW_SHARED_WORKSPACE_LIMIT = 10;
+
+/**
+ * The caller's "Shared with you" list. A workspace they were told about and
+ * have not opened is listed as new only while they still have access, so a
+ * share that was taken back before they looked leaves no name behind.
+ */
+export async function listSharedWorkspaces(context: BaseContext) {
+	const userId = requireCollaboratorIdentity(context);
+	const database = db(context);
+	const rows = await listOsSharedWorkspacesForUser(database, {
+		userId,
+		limit: 100,
+	});
+	const items = [];
+	let checks = NEW_SHARED_WORKSPACE_LIMIT;
+	for (const row of rows) {
+		const isNew = !row.firstOpenedAt;
+		if (isNew) {
+			if (checks <= 0) continue;
+			checks -= 1;
+			const workspace = await getOsWorkspaceForCollaboration(database, {
+				workspaceId: row.workspaceId,
+			});
+			if (
+				!workspace ||
+				workspace.status !== "active" ||
+				!(await loadWorkspaceAccess(database, workspace, userId)).role
+			)
+				continue;
+		}
+		items.push({
+			workspaceId: row.workspaceId,
+			title: row.cachedTitle ?? "Shared workspace",
+			ownerName: row.cachedOwnerName,
+			firstOpenedAt: row.firstOpenedAt ?? row.createdAt,
+			lastOpenedAt: row.lastOpenedAt ?? row.createdAt,
+			isNew,
+		});
+	}
+	return { items };
 }
 
 export async function createWorkspaceShareLink(

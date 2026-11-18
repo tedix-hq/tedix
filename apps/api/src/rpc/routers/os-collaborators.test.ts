@@ -42,12 +42,20 @@ import {
 	workspaceOutputIndex,
 	workspaceWorkLinks,
 } from "@tedix/db/schema/workspace-feed";
+import { savePushConfig } from "@tedix/db/queries/web-push";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it, onTestFinished } from "vite-plus/test";
+import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { osCollaboratorsContractRouter } from "./os-collaborators";
 import { osWorkspacesContractRouter } from "./os-workspaces";
+
+vi.mock("@block65/webcrypto-web-push", () => ({
+	buildPushPayload: vi.fn(async (message: { data: string }) => ({
+		method: "POST",
+		body: message.data,
+	})),
+}));
 
 const ROBIN = "member-robin"; // owner, org-1
 const KAI = "member-kai"; // org-1
@@ -803,17 +811,27 @@ describe("workspace collaborators", () => {
 		]);
 	});
 
-	it("lists a shared workspace after first open, until dismissed", async () => {
+	it("lists a shared workspace as new once the person is added, until dismissed", async () => {
 		const { env, workspaceId } = await seed();
 		await as(env, ROBIN).add({
 			workspaceId,
 			email: "zoe@example.test",
 			role: "use",
 		});
-		expect((await as(env, ZOE).listShared({})).items).toEqual([]);
+		const listed = {
+			workspaceId,
+			title: "Reddit research",
+			ownerName: "Robin",
+		};
+		expect((await as(env, ZOE).listShared({})).items).toMatchObject([
+			{ ...listed, isNew: true },
+		]);
+		// It is on nobody else's list: not the sharer's, not a stranger's.
+		expect((await as(env, ROBIN).listShared({})).items).toEqual([]);
+		expect((await as(env, STRANGER).listShared({})).items).toEqual([]);
 		await as(env, ZOE).open({ workspaceId });
 		expect((await as(env, ZOE).listShared({})).items).toMatchObject([
-			{ workspaceId, title: "Reddit research", ownerName: "Robin" },
+			{ ...listed, isNew: false },
 		]);
 		await as(env, ZOE).dismissShared({ workspaceId });
 		expect((await as(env, ZOE).listShared({})).items).toEqual([]);
@@ -984,6 +1002,167 @@ describe("workspace collaborators", () => {
 		);
 		await as(env, KAI).setRole({ workspaceId, userId: ZOE, role: "use" });
 		expect((await as(env, ZOE).access({ workspaceId })).role).toBe("use");
+	});
+});
+
+describe("telling a person that a workspace was shared with them", () => {
+	/** Turn push on, give everyone a device, and collect what is sent. */
+	async function seedWithDevices() {
+		const seeded = await seed();
+		const env = {
+			...seeded.env,
+			VAPID_PUBLIC_KEY: "public",
+			VAPID_PRIVATE_KEY: "private",
+			VAPID_SUBJECT: "mailto:push@example.test",
+		} as CloudflareEnv;
+		const db = context(env, ROBIN).db;
+		for (const [sub, organizationId] of [
+			[ROBIN, "org-1"],
+			[KAI, "org-1"],
+			[ZOE, "org-2"],
+			[LEE, "org-2"],
+			[STRANGER, "org-2"],
+		] as const) {
+			const userId = `user-${sub}`;
+			seeded.sqlite
+				.prepare(
+					"UPDATE organization_members SET user_id = ? WHERE descope_user_id = ?",
+				)
+				.run(userId, sub);
+			await savePushConfig(
+				db,
+				{ organizationId, userId },
+				"subscription:device",
+				{
+					endpoint: `https://fcm.googleapis.com/${sub}`,
+					expirationTime: null,
+					keys: { p256dh: "B".repeat(87), auth: "A".repeat(22) },
+				},
+			);
+		}
+		const sent: Array<{ endpoint: string; payload: Record<string, string> }> =
+			[];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (endpoint: string, init: { body: string }) => {
+				sent.push({ endpoint, payload: JSON.parse(init.body) });
+				return new Response(null, { status: 201 });
+			}),
+		);
+		onTestFinished(() => vi.unstubAllGlobals());
+		return { ...seeded, env, sent };
+	}
+
+	it("sends one push to the invited person and to nobody else", async () => {
+		const { env, workspaceId, sent } = await seedWithDevices();
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "use",
+		});
+		expect(sent).toEqual([
+			{
+				endpoint: `https://fcm.googleapis.com/${ZOE}`,
+				payload: {
+					title: "Robin shared Reddit research with you",
+					body: "Open it in Tedix under Workspaces, Shared with you.",
+					url: `/shared/workspace/${workspaceId}`,
+					conversationId: `workspace:${workspaceId}`,
+					tag: `share:${workspaceId}`,
+				},
+			},
+		]);
+		// Changing the role of someone who already has access is not news.
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "build",
+		});
+		expect(sent).toHaveLength(1);
+	});
+
+	it("tells nobody when the person was not added", async () => {
+		const { env, workspaceId, sent } = await seedWithDevices();
+		// Nobody with that email.
+		await expect(
+			as(env, ROBIN).add({
+				workspaceId,
+				email: "nobody@example.test",
+				role: "use",
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		// A stranger cannot hand out access, so Lee never hears the name.
+		await expect(
+			as(env, STRANGER).add({
+				workspaceId,
+				email: "lee@example.test",
+				role: "use",
+			}),
+		).rejects.toMatchObject(DENIED);
+		// Someone who may only use the workspace cannot give more than that.
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "use",
+		});
+		sent.length = 0;
+		await expect(
+			as(env, KAI).add({
+				workspaceId,
+				email: "lee@example.test",
+				role: "build",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		// The owner adding themselves is refused too.
+		await expect(
+			as(env, ROBIN).add({
+				workspaceId,
+				email: "robin@example.test",
+				role: "use",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(sent).toEqual([]);
+		expect((await as(env, LEE).listShared({})).items).toEqual([]);
+	});
+
+	it("keeps the access when the push cannot be delivered or push is off", async () => {
+		const { env, workspaceId, sent } = await seedWithDevices();
+		vi.mocked(fetch).mockRejectedValueOnce(new Error("offline"));
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		onTestFinished(() => warn.mockRestore());
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "use",
+		});
+		expect(sent).toEqual([]);
+		expect((await as(env, ZOE).open({ workspaceId })).role).toBe("use");
+		// With no push keys installed nothing is sent, and the list still says New.
+		const off = { ...env, VAPID_PRIVATE_KEY: undefined } as CloudflareEnv;
+		await as(off, ROBIN).add({
+			workspaceId,
+			email: "lee@example.test",
+			role: "use",
+		});
+		expect(sent).toEqual([]);
+		expect((await as(off, LEE).listShared({})).items).toMatchObject([
+			{ workspaceId, isNew: true },
+		]);
+	});
+
+	it("takes a never-opened workspace off the list when the access is taken back", async () => {
+		const { env, workspaceId } = await seedWithDevices();
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "use",
+		});
+		expect((await as(env, ZOE).listShared({})).items).toHaveLength(1);
+		await as(env, ROBIN).remove({
+			workspaceId,
+			target: { kind: "user", userId: ZOE },
+		});
+		expect((await as(env, ZOE).listShared({})).items).toEqual([]);
 	});
 });
 
