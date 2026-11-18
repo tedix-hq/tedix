@@ -12,16 +12,30 @@ import {
 } from "vite-plus/test";
 
 const api = vi.hoisted(() => ({
-	workspaces: { list: vi.fn() },
-	workspacePreferences: { list: vi.fn() },
+	workspaces: {
+		list: vi.fn(),
+		update: vi.fn(),
+		archive: vi.fn(),
+		activity: vi.fn(),
+	},
+	workspacePreferences: { list: vi.fn(), setFavorite: vi.fn() },
+	outputs: { list: vi.fn() },
 }));
+const unread = vi.hoisted(() => ({ summary: vi.fn(), markRead: vi.fn() }));
+const webPush = vi.hoisted(() => ({
+	getStatus: vi.fn(),
+	setPreferences: vi.fn(),
+}));
+const collaborators = vi.hoisted(() => ({ list: vi.fn() }));
 const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		osWorkspaces: api,
+		osCollaborators: collaborators,
+		webPush,
 		workspaceUnread: {
-			summary: vi.fn(async () => ({ total: 0, workspaces: [] })),
+			summary: unread.summary,
 			list: vi.fn(async () => ({ total: 0, groups: [] })),
 			workspace: vi.fn(async ({ workspaceId }: { workspaceId: string }) => ({
 				workspaceId,
@@ -31,17 +45,16 @@ vi.mock("@/lib/api", () => ({
 				fileIds: [],
 				conversations: [],
 			})),
-			markRead: vi.fn(async ({ workspaceId }: { workspaceId: string }) => ({
-				workspaceId,
-				chat: 0,
-				files: 0,
-				total: 0,
-				fileIds: [],
-				conversations: [],
-			})),
+			markRead: unread.markRead,
 			markAllRead: vi.fn(async () => ({ ok: true })),
 		},
 	},
+}));
+// Another change owns the share dialog; these tests only prove it opens.
+vi.mock("@/components/workspace-share-dialog", () => ({
+	WorkspaceShareDialog: ({ workspaceName }: { workspaceName: string }) => (
+		<div role="dialog">Share {workspaceName}</div>
+	),
 }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
@@ -115,8 +128,69 @@ function elementWithText(container: Element, selector: string, text: string) {
 	);
 }
 
+/** Open a row's menu, from its "⋯" button or by right-click, and pick an entry. */
+async function chooseAction(
+	container: Element,
+	label: string,
+	how: "button" | "right-click" = "button",
+) {
+	await act(async () => {
+		if (how === "button")
+			container
+				.querySelector<HTMLElement>('[aria-label="Actions for Revenue Ops"]')!
+				.click();
+		else
+			container
+				.querySelector<HTMLElement>("[data-workspace-row-menu]")!
+				.dispatchEvent(
+					new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+				);
+	});
+	const entry = [
+		...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+	].find((node) => node.textContent?.trim() === label);
+	expect(entry, label).toBeDefined();
+	await act(async () => entry!.click());
+	await flush();
+}
+
+function menuLabels() {
+	return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
+		(node) => node.textContent?.trim(),
+	);
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
+	unread.summary.mockResolvedValue({ total: 0, workspaces: [] });
+	unread.markRead.mockImplementation(
+		async ({ workspaceId }: { workspaceId: string }) => ({
+			workspaceId,
+			chat: 0,
+			files: 0,
+			total: 0,
+			fileIds: [],
+			conversations: [],
+		}),
+	);
+	webPush.getStatus.mockResolvedValue({
+		enabled: true,
+		publicKey: "B".repeat(87),
+		preferences: { mutedProjectIds: [], mutedWorkspaceIds: [] },
+	});
+	webPush.setPreferences.mockResolvedValue({
+		mutedProjectIds: [],
+		mutedWorkspaceIds: [WORKSPACE_ID],
+	});
+	api.workspacePreferences.setFavorite.mockImplementation(
+		async (input: { workspaceId: string; favorite: boolean }) => ({
+			preference: {
+				...input,
+				lastOpenedAt: null,
+				updatedAt: "2026-10-21T12:00:00.000Z",
+			},
+		}),
+	);
 	api.workspaces.list.mockResolvedValue({
 		items: [workspace()],
 		truncated: false,
@@ -275,7 +349,9 @@ describe("OsSidebarWorkspaces", () => {
 		await flush();
 		expect(recent?.getAttribute("aria-expanded")).toBe("true");
 		expect(
-			container.querySelector('[data-sidebar="menu-sub-button"]')?.textContent,
+			container.querySelector(
+				'[data-sidebar="menu-sub"] [data-sidebar="menu-button"]',
+			)?.textContent,
 		).toContain("Revenue Ops");
 	});
 
@@ -294,5 +370,195 @@ describe("OsSidebarWorkspaces", () => {
 		);
 		expect(row?.textContent?.trim()).toBe("RO");
 		expect(row?.getAttribute("aria-label")).toBe("Open Revenue Ops");
+	});
+
+	it("counts what is new on a pinned row", async () => {
+		unread.summary.mockResolvedValue({
+			total: 3,
+			workspaces: [{ workspaceId: WORKSPACE_ID, chat: 2, files: 1, total: 3 }],
+		});
+		const container = await renderSidebar();
+		const pinned = container.querySelector<HTMLElement>(
+			'[data-sidebar="menu-button"]',
+		);
+		expect(
+			pinned?.querySelector('[aria-label="3 unread in Revenue Ops"]')
+				?.textContent,
+		).toBe("3");
+	});
+
+	it("marks a workspace with something new by a dot on the narrow sidebar", async () => {
+		unread.summary.mockResolvedValue({
+			total: 3,
+			workspaces: [{ workspaceId: WORKSPACE_ID, chat: 2, files: 1, total: 3 }],
+		});
+		const container = await renderSidebar({ collapsed: true });
+		const row = container.querySelector<HTMLElement>(
+			'[data-sidebar="menu-button"]',
+		);
+		expect(
+			row?.querySelector('[role="img"][aria-label="3 unread in Revenue Ops"]'),
+		).not.toBeNull();
+		// The dot adds no text: the row is still only the workspace's mark.
+		expect(row?.textContent?.trim()).toBe("RO");
+	});
+
+	it("shows no dot on the narrow sidebar when nothing is new", async () => {
+		const container = await renderSidebar({ collapsed: true });
+		expect(container.querySelector('[role="img"]')).toBeNull();
+	});
+
+	it("offers every workspace action from the row's menu", async () => {
+		const container = await renderSidebar();
+		await act(async () => {
+			container
+				.querySelector<HTMLElement>('[aria-label="Actions for Revenue Ops"]')!
+				.click();
+		});
+		expect(menuLabels()).toEqual([
+			"Rename",
+			"Unpin",
+			"Mute",
+			"Mark as read",
+			"Share",
+			"Information",
+			"Archive",
+		]);
+		// Opening the menu is not opening the workspace.
+		expect(navigate).not.toHaveBeenCalled();
+	});
+
+	it("unpins, mutes and marks a workspace read without opening it", async () => {
+		unread.summary.mockResolvedValue({
+			total: 3,
+			workspaces: [{ workspaceId: WORKSPACE_ID, chat: 2, files: 1, total: 3 }],
+		});
+		const container = await renderSidebar();
+
+		await chooseAction(container, "Mark as read");
+		expect(unread.markRead.mock.calls[0]?.[0]).toEqual({
+			workspaceId: WORKSPACE_ID,
+			target: { type: "all" },
+		});
+
+		await chooseAction(container, "Mute");
+		expect(webPush.setPreferences).toHaveBeenCalledWith({
+			mutedProjectIds: [],
+			mutedWorkspaceIds: [WORKSPACE_ID],
+		});
+
+		await chooseAction(container, "Unpin");
+		expect(api.workspacePreferences.setFavorite.mock.calls[0]?.[0]).toEqual({
+			workspaceId: WORKSPACE_ID,
+			favorite: false,
+		});
+		expect(navigate).not.toHaveBeenCalled();
+	});
+
+	it("offers Unmute for a muted workspace and Pin for a recent one", async () => {
+		webPush.getStatus.mockResolvedValue({
+			enabled: true,
+			publicKey: "B".repeat(87),
+			preferences: { mutedProjectIds: [], mutedWorkspaceIds: [WORKSPACE_ID] },
+		});
+		api.workspacePreferences.list.mockResolvedValue({
+			items: [
+				{
+					workspaceId: WORKSPACE_ID,
+					favorite: false,
+					lastOpenedAt: "2026-08-17T12:00:00.000Z",
+				},
+			],
+		});
+		const container = await renderSidebar();
+		const recent = [...container.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Recent workspaces"),
+		);
+		act(() => recent?.click());
+		await flush();
+
+		await chooseAction(container, "Unmute");
+		expect(webPush.setPreferences).toHaveBeenCalledWith({
+			mutedProjectIds: [],
+			mutedWorkspaceIds: [],
+		});
+		await chooseAction(container, "Pin");
+		expect(api.workspacePreferences.setFavorite.mock.calls[0]?.[0]).toEqual({
+			workspaceId: WORKSPACE_ID,
+			favorite: true,
+		});
+	});
+
+	it("renames a workspace from its row", async () => {
+		api.workspaces.update.mockResolvedValue({
+			workspace: { ...workspace(), name: "Revenue" },
+		});
+		const container = await renderSidebar();
+		await chooseAction(container, "Rename");
+		const name = document.querySelector<HTMLInputElement>(
+			'[role="dialog"] input',
+		)!;
+		expect(name.value).toBe("Revenue Ops");
+		act(() => {
+			Object.getOwnPropertyDescriptor(
+				HTMLInputElement.prototype,
+				"value",
+			)!.set!.call(name, "Revenue");
+			name.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		const save = [...document.querySelectorAll("button")].find(
+			(button) => button.textContent === "Save changes",
+		);
+		await act(async () => save!.click());
+		await flush();
+		expect(api.workspaces.update).toHaveBeenCalledWith({
+			workspaceId: WORKSPACE_ID,
+			name: "Revenue",
+			description: "Weekly revenue reporting",
+		});
+	});
+
+	it("opens sharing and the workspace's information from its row", async () => {
+		collaborators.list.mockResolvedValue({
+			role: "owner",
+			isOwner: true,
+			ownerName: "Ada Lovelace",
+			collaborators: [],
+			links: [],
+		});
+		api.outputs.list.mockResolvedValue({ items: [], truncated: false });
+		api.workspaces.activity.mockResolvedValue({
+			items: [],
+			coverage: "recorded_only",
+			next: null,
+		});
+		const container = await renderSidebar();
+		await chooseAction(container, "Share");
+		expect(document.body.textContent).toContain("Share Revenue Ops");
+		await chooseAction(container, "Information");
+		expect(document.body.textContent).toContain("About Revenue Ops");
+		expect(document.body.textContent).toContain("Ada Lovelace");
+	});
+
+	it("archives a workspace from a right-click on the narrow sidebar, after asking", async () => {
+		api.workspaces.archive.mockResolvedValue({
+			workspace: { ...workspace(), status: "archived" },
+		});
+		const container = await renderSidebar({ collapsed: true });
+		// The narrow sidebar has no room for a "⋯" button.
+		expect(
+			container.querySelector('[aria-label="Actions for Revenue Ops"]'),
+		).toBeNull();
+		await chooseAction(container, "Archive", "right-click");
+		expect(api.workspaces.archive).not.toHaveBeenCalled();
+		expect(document.body.textContent).toContain("Nothing is deleted");
+		const confirm = [...document.querySelectorAll("button")].find(
+			(button) => button.textContent === "Archive workspace",
+		);
+		await act(async () => confirm!.click());
+		await flush();
+		expect(api.workspaces.archive).toHaveBeenCalledWith({
+			workspaceId: WORKSPACE_ID,
+		});
 	});
 });
