@@ -414,8 +414,10 @@ export const homeConversationChargesQueryOptions = (conversationId: string) =>
 		input: { conversationId },
 	});
 
-export const pendingHomeDelegationsQueryOptions = () =>
-	osQuery.kernelRuntime.listPendingHomeDelegations.queryOptions({ input: {} });
+export const pendingHomeDelegationsQueryOptions = (workspaceId?: string) =>
+	osQuery.kernelRuntime.listPendingHomeDelegations.queryOptions({
+		input: workspaceId ? { workspaceId } : {},
+	});
 
 /** Active context-only capability references for one exact Home conversation. */
 export const conversationCapabilitiesQueryOptions = (conversationId: string) =>
@@ -612,14 +614,24 @@ export const computePostureQueryOptions = (
 	window: NonNullable<ClientInput<typeof osApi.osCompute.posture>["window"]>,
 ) => osQuery.osCompute.posture.queryOptions({ input: { window } });
 
-export const pendingApprovalsQueryOptions = () =>
+export const pendingApprovalsQueryOptions = (workspaceId?: string) =>
 	osQuery.tediApprovals.list.queryOptions({
-		input: { status: "pending", decidableOnly: true, limit: 100 },
+		input: {
+			status: "pending",
+			decidableOnly: true,
+			limit: 100,
+			...(workspaceId ? { workspaceId } : {}),
+		},
 	});
 
-/** The latest approval requests in every state, for Activity history. */
-export const approvalHistoryQueryOptions = () =>
-	osQuery.tediApprovals.list.queryOptions({ input: { limit: 50 } });
+/**
+ * The latest approval requests in every state, for Activity history; with a
+ * workspace, only the requests made in it.
+ */
+export const approvalHistoryQueryOptions = (workspaceId?: string) =>
+	osQuery.tediApprovals.list.queryOptions({
+		input: { limit: 50, ...(workspaceId ? { workspaceId } : {}) },
+	});
 
 export const approvalExecutionAttentionQueryOptions = (offset = 0) =>
 	osQuery.tediApprovals.list.queryOptions({

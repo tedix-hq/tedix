@@ -433,6 +433,12 @@ export const tediApprovalsContract = oc
 							.describe(
 								"Only requests the caller can decide in their accessible personal or shared context",
 							),
+						workspaceId: z
+							.uuid()
+							.optional()
+							.describe(
+								"Only requests made in this workspace. A workspace the caller cannot open lists nothing",
+							),
 					})
 					.extend(PaginationSchema.shape)
 					.strict()

@@ -65,6 +65,7 @@ import {
 	rollbackProvisionalOutcome,
 } from "@tedix/db/queries/approvals";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
@@ -80,6 +81,7 @@ import {
 	recordObservedLearningInteraction,
 } from "../../services/learning-interaction-recorder";
 import { startIncrementalLessons } from "../../services/lesson-incremental-dispatch";
+import { assertOsWorkspaceVisible } from "../../services/os-workspace-visibility";
 import {
 	executeApprovedProvisionalPromotion,
 	isApprovedProvisionalPromotion,
@@ -874,8 +876,31 @@ const listApprovalsProcedure = authedOs.list
 				pagination: { limit, offset, total: 0, hasMore: false },
 			};
 
+		// A workspace the caller cannot open lists nothing, like one that
+		// does not exist.
+		if (input?.workspaceId) {
+			const workspace = orgId
+				? await getOsWorkspace(context.db, {
+						organizationId: orgId,
+						workspaceId: input.workspaceId,
+					})
+				: undefined;
+			const visible =
+				workspace !== undefined &&
+				(await assertOsWorkspaceVisible(context, workspace).then(
+					() => true,
+					() => false,
+				));
+			if (!visible)
+				return {
+					data: [],
+					pagination: { limit, offset, total: 0, hasMore: false },
+				};
+		}
+
 		const { data, total } = await listApprovalRequests(context.db, {
 			orgId: orgId ?? undefined,
+			workspaceId: input?.workspaceId,
 			viewerUserId:
 				input?.decidableOnly && context.authType === "user"
 					? context.user?.sub

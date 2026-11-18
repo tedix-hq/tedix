@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { sql } from "drizzle-orm";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
@@ -93,6 +94,38 @@ describe("conversation pending approval lookups", () => {
 				targetTediId: "missing",
 			}),
 		).toBeNull();
+	});
+
+	it("narrows held Home delegations to one workspace's conversations", async () => {
+		const { db, row } = fixture();
+		await db.run(
+			sql`CREATE TABLE kernel_conversations(organization_id TEXT, conversation_id TEXT, workspace_id TEXT)`,
+		);
+		await db.run(
+			sql`INSERT INTO kernel_conversations VALUES('org-fixture','ws:one','space-one'),('org-fixture','ws:two','space-two'),('other-org','ws:foreign','space-one')`,
+		);
+		await db.insert(kernelRuntimeRuns).values([
+			row("in-one", { conversationId: "ws:one", metadata: delegation }),
+			row("in-two", { conversationId: "ws:two", metadata: delegation }),
+			row("no-workspace", { metadata: delegation }),
+			row("foreign", {
+				organizationId: "other-org",
+				conversationId: "ws:foreign",
+				metadata: delegation,
+			}),
+		]);
+		const held = async (workspaceId: string) =>
+			(
+				await listPendingDelegationRuns(db, {
+					organizationId: "org-fixture",
+					limit: 50,
+					kind: "home_delegation",
+					workspaceId,
+				})
+			).map((run) => run.id);
+		expect(await held("space-one")).toEqual(["in-one"]);
+		expect(await held("space-two")).toEqual(["in-two"]);
+		expect(await held("space-none")).toEqual([]);
 	});
 
 	it("limits the global Home projection to held Home delegations", async () => {

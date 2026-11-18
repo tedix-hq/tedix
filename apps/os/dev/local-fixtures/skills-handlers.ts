@@ -866,12 +866,21 @@ export const skillHandlers: Record<string, (input: never) => unknown> = {
 		),
 	"tediApprovals/list": (
 		input:
-			| { status?: ApprovalRow["status"]; limit?: number; offset?: number }
+			| {
+					status?: ApprovalRow["status"];
+					workspaceId?: string;
+					limit?: number;
+					offset?: number;
+			  }
 			| undefined,
 	) =>
 		paginate(
 			state.approvals.filter(
-				(row) => input?.status === undefined || row.status === input.status,
+				(row) =>
+					(input?.status === undefined || row.status === input.status) &&
+					// A request belongs to a workspace only when it names one.
+					(input?.workspaceId === undefined ||
+						row.payload.workspaceId === input.workspaceId),
 			),
 			input,
 		),

@@ -1122,6 +1122,7 @@ export const listPendingHomeDelegationsRoute = authed.listPendingHomeDelegations
 			organizationId,
 			limit: input.limit ?? 50,
 			kind: "home_delegation",
+			workspaceId: input.workspaceId,
 		});
 		const approvalTtlHours =
 			candidates.length > 0

@@ -7,7 +7,7 @@ import {
 	ShieldCheck,
 	X,
 } from "@phosphor-icons/react";
-import { useContext, useState } from "react";
+import { type ReactNode, useContext, useState } from "react";
 import { createPortal } from "react-dom";
 import { ActivityAutoApproval } from "@/components/activity-auto-approval";
 import { ActivityHistory } from "@/components/activity-history";
@@ -42,6 +42,7 @@ import {
 import { Empty } from "@/components/kumo/empty";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import { Link } from "@/components/kumo/link";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import {
 	PopoverContent,
 	PopoverDescription,
@@ -68,6 +69,14 @@ export type ActivityTab =
 	| "history"
 	| "workspace";
 
+/** Inside a workspace: what belongs to it, or the whole organization. */
+export type ActivityScope = "workspace" | "everywhere";
+
+const ACTIVITY_SCOPES: readonly { value: ActivityScope; label: string }[] = [
+	{ value: "workspace", label: "This workspace" },
+	{ value: "everywhere", label: "Everywhere" },
+];
+
 export const approvalGroupHeadingClassName =
 	"m-0 flex min-w-0 items-center gap-2 wrap-anywhere px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold";
 
@@ -83,8 +92,7 @@ export function ApprovalNotifications({
 	const topbarMenu = useContext(OsTopbarMenuContext);
 	const menu = topbar ? topbarMenu : null;
 	const [open, setOpen] = useState(false);
-	const inbox = useApprovalInbox({ conversationId });
-	const { items, count, error, loading } = inbox;
+	const { count } = useApprovalInbox({ conversationId });
 	const [tab, setTab] = useState<ActivityTab>("review");
 	const unread = useUnreadTotal();
 	// Nothing to decide but something new: open on what is new.
@@ -140,148 +148,230 @@ export function ApprovalNotifications({
 				data-approvals-popover=""
 				side="bottom"
 			>
-				<Tabs
-					className="gap-0"
-					onValueChange={(value) => setTab(value as ActivityTab)}
-					value={tab}
-				>
-					<header className="sticky top-0 z-10 grid gap-2 border-b border-kumo-hairline bg-kumo-base px-4 pt-3">
-						<div className="grid min-w-0 gap-0.5">
+				<ActivityPanel
+					conversationId={conversationId}
+					heading={(summary) => (
+						<>
 							<PopoverTitle className="m-0 font-semibold text-kumo-default type-tedix-body">
 								Activity and approvals
 							</PopoverTitle>
 							<PopoverDescription className="m-0 text-kumo-subtle type-tedix-label">
-								{count === 0
-									? "Nothing is waiting for you."
-									: `${count} waiting for your decision`}
+								{summary}
 							</PopoverDescription>
-							<Text as="p" className="m-0" role="caption" tone="secondary">
-								{WORK_COUNT_DEFINITIONS.approvals}
-							</Text>
-						</div>
-						<TabsList
-							aria-label="Activity and approvals sections"
-							variant="line"
-						>
-							<TabsTrigger className="px-2!" value="review">
-								Needs you
-								{count > 0 ? (
-									<Badge className="ml-1.5 tabular-nums" variant="secondary">
-										{count > 99 ? "99+" : count}
-									</Badge>
-								) : null}
-							</TabsTrigger>
-							<TabsTrigger className="px-2!" value="unread">
-								Unread
-								<UnreadBadge className="ml-1.5" count={unread} label="unread" />
-							</TabsTrigger>
-							<TabsTrigger className="px-2!" value="auto">
-								Auto-approval
-							</TabsTrigger>
-							<TabsTrigger className="px-2!" value="history">
-								History
-							</TabsTrigger>
-							{workspaceId ? (
-								<TabsTrigger className="px-2!" value="workspace">
-									Workspace
-								</TabsTrigger>
-							) : null}
-						</TabsList>
-					</header>
-
-					<TabsContent value={tab}>
-						{tab === "workspace" && workspaceId ? (
-							<>
-								<WorkspaceAutoApprovalRules workspaceId={workspaceId} />
-								<WorkspaceActivity workspaceId={workspaceId} />
-							</>
-						) : tab === "unread" ? (
-							<UnreadList onNavigate={() => setOpen(false)} />
-						) : tab === "auto" ? (
-							<ActivityAutoApproval canChange={inbox.canDecide} />
-						) : tab === "history" ? (
-							<ActivityHistory tediNames={inbox.tediNames} />
-						) : loading ? (
-							<Text className="m-0 px-4 py-6" role="label" tone="secondary">
-								Checking for pending decisions…
-							</Text>
-						) : count === 0 ? (
-							<Empty
-								appearance="inline"
-								className="px-4! py-6!"
-								icon={
-									<CheckCircle
-										aria-hidden
-										className="text-kumo-subtle"
-										size={24}
-									/>
-								}
-								title="No approvals waiting"
-								description="When an agent needs your OK to change, send or pay for something, it waits here."
-							/>
-						) : (
-							<div className="grid grid-cols-[minmax(0,1fr)]">
-								{inbox.workStartPending.length > 0 && (
-									<Link href="/work/approvals" className="px-4 py-3">
-										Review requests to start Work (
-										{inbox.workStartPending.length})
-									</Link>
-								)}
-								{groupApprovalItems(items).map((group) => (
-									<section
-										aria-label={`${group.label}: ${group.items.length} waiting`}
-										className="border-b border-kumo-hairline last:border-b-0"
-										key={group.label}
-									>
-										<h3 className={approvalGroupHeadingClassName}>
-											{sanitizeUntrustedText(group.label)}
-											<span className="shrink-0 tabular-nums font-normal">
-												{group.items.length}
-											</span>
-										</h3>
-										<ul className="m-0 grid grid-cols-[minmax(0,1fr)] list-none p-0 pb-1">
-											{collapseIdenticalItems(group.items).map((row) => (
-												<ApprovalRow
-													busy={row.some((entry) => inbox.isPending(entry.key))}
-													items={row}
-													key={row[0]?.key}
-													onDecide={(choice) => void inbox.decide(row, choice)}
-													onRefresh={() => void inbox.refresh()}
-												/>
-											))}
-										</ul>
-									</section>
-								))}
-							</div>
-						)}
-					</TabsContent>
-				</Tabs>
-
-				{tab === "review" && inbox.outcome ? (
-					<div className="px-4 py-2" role="status">
-						<Text as="p" className="m-0" role="label">
-							{sanitizeUntrustedText(inbox.outcome.message)}
-						</Text>
-					</div>
-				) : null}
-				{tab === "review" && error ? (
-					<Text className="m-0 px-4 py-2" role="label" tone="error">
-						The decision could not be recorded:{" "}
-						{error instanceof Error ? error.message : "Unknown error"}
-					</Text>
-				) : null}
-				<footer className="sticky bottom-0 border-t border-kumo-hairline bg-kumo-base px-2 py-1.5">
-					<Link
-						className="flex min-h-9 w-full min-w-0 items-center justify-between rounded-md px-2 text-kumo-default type-tedix-control max-sm:min-h-11"
-						href="/work/approvals"
-						variant="collection"
-					>
-						Open the approvals page
-						<CaretRight aria-hidden size={14} />
-					</Link>
-				</footer>
+						</>
+					)}
+					onClose={() => setOpen(false)}
+					onTabChange={setTab}
+					tab={tab}
+					workspaceId={workspaceId}
+				/>
 			</PopoverContent>
 		</PopoverRoot>
+	);
+}
+
+/**
+ * The panel's tabs and lists. Opened inside a workspace, Needs you and
+ * History start on that workspace and can be switched to everywhere.
+ */
+export function ActivityPanel({
+	conversationId = null,
+	workspaceId = null,
+	tab,
+	onTabChange,
+	onClose,
+	heading,
+}: {
+	conversationId?: string | null;
+	workspaceId?: string | null;
+	tab: ActivityTab;
+	onTabChange: (tab: ActivityTab) => void;
+	/** Close the panel after following a link out of it. */
+	onClose: () => void;
+	/** The title and the one-line summary, drawn by the surface that hosts the panel. */
+	heading: (summary: string) => ReactNode;
+}) {
+	const [scope, setScope] = useState<ActivityScope>("workspace");
+	const here = workspaceId !== null && scope === "workspace";
+	const inbox = useApprovalInbox({
+		conversationId,
+		workspaceId: here ? workspaceId : null,
+	});
+	const { count } = inbox;
+	const unread = useUnreadTotal();
+	const shown = inbox.workspace ?? {
+		items: inbox.items,
+		count,
+		loading: inbox.loading,
+	};
+	const elsewhere = Math.max(0, count - shown.count);
+	return (
+		<>
+			<Tabs
+				className="gap-0"
+				onValueChange={(value) => onTabChange(value as ActivityTab)}
+				value={tab}
+			>
+				<header className="sticky top-0 z-10 grid gap-2 border-b border-kumo-hairline bg-kumo-base px-4 pt-3">
+					<div className="grid min-w-0 gap-0.5">
+						{heading(
+							shown.count === 0
+								? here
+									? "Nothing is waiting for you in this workspace."
+									: "Nothing is waiting for you."
+								: `${shown.count} waiting for your decision${here ? " in this workspace" : ""}`,
+						)}
+						<Text as="p" className="m-0" role="caption" tone="secondary">
+							{WORK_COUNT_DEFINITIONS.approvals}
+						</Text>
+					</div>
+					<TabsList aria-label="Activity and approvals sections" variant="line">
+						<TabsTrigger className="px-2!" value="review">
+							Needs you
+							{shown.count > 0 ? (
+								<Badge className="ml-1.5 tabular-nums" variant="secondary">
+									{shown.count > 99 ? "99+" : shown.count}
+								</Badge>
+							) : null}
+						</TabsTrigger>
+						<TabsTrigger className="px-2!" value="unread">
+							Unread
+							<UnreadBadge className="ml-1.5" count={unread} label="unread" />
+						</TabsTrigger>
+						<TabsTrigger className="px-2!" value="auto">
+							Auto-approval
+						</TabsTrigger>
+						<TabsTrigger className="px-2!" value="history">
+							History
+						</TabsTrigger>
+						{workspaceId ? (
+							<TabsTrigger className="px-2!" value="workspace">
+								Workspace
+							</TabsTrigger>
+						) : null}
+					</TabsList>
+				</header>
+
+				<TabsContent value={tab}>
+					{workspaceId && (tab === "review" || tab === "history") ? (
+						<div className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 pt-3">
+							<SegmentedControl
+								ariaLabel="Show activity from"
+								className="sm:w-fit"
+								compact
+								onValueChange={setScope}
+								options={ACTIVITY_SCOPES}
+								value={scope}
+							/>
+							{here && tab === "review" && elsewhere > 0 ? (
+								<Text as="span" role="label" tone="secondary">
+									{elsewhere} more waiting elsewhere
+								</Text>
+							) : null}
+						</div>
+					) : null}
+					{tab === "workspace" && workspaceId ? (
+						<>
+							<WorkspaceAutoApprovalRules workspaceId={workspaceId} />
+							<WorkspaceActivity workspaceId={workspaceId} />
+						</>
+					) : tab === "unread" ? (
+						<UnreadList onNavigate={onClose} />
+					) : tab === "auto" ? (
+						<ActivityAutoApproval canChange={inbox.canDecide} />
+					) : tab === "history" ? (
+						<ActivityHistory
+							tediNames={inbox.tediNames}
+							workspaceId={here ? workspaceId : null}
+						/>
+					) : shown.loading ? (
+						<Text className="m-0 px-4 py-6" role="label" tone="secondary">
+							Checking for pending decisions…
+						</Text>
+					) : shown.count === 0 ? (
+						<Empty
+							appearance="inline"
+							className="px-4! py-6!"
+							icon={
+								<CheckCircle
+									aria-hidden
+									className="text-kumo-subtle"
+									size={24}
+								/>
+							}
+							title={
+								here
+									? "No approvals waiting in this workspace"
+									: "No approvals waiting"
+							}
+							description={
+								here
+									? "When an agent needs your OK for something in this workspace, it waits here."
+									: "When an agent needs your OK to change, send or pay for something, it waits here."
+							}
+						/>
+					) : (
+						<div className="grid grid-cols-[minmax(0,1fr)]">
+							{!here && inbox.workStartPending.length > 0 && (
+								<Link href="/work/approvals" className="px-4 py-3">
+									Review requests to start Work ({inbox.workStartPending.length}
+									)
+								</Link>
+							)}
+							{groupApprovalItems(shown.items).map((group) => (
+								<section
+									aria-label={`${group.label}: ${group.items.length} waiting`}
+									className="border-b border-kumo-hairline last:border-b-0"
+									key={group.label}
+								>
+									<h3 className={approvalGroupHeadingClassName}>
+										{sanitizeUntrustedText(group.label)}
+										<span className="shrink-0 tabular-nums font-normal">
+											{group.items.length}
+										</span>
+									</h3>
+									<ul className="m-0 grid grid-cols-[minmax(0,1fr)] list-none p-0 pb-1">
+										{collapseIdenticalItems(group.items).map((row) => (
+											<ApprovalRow
+												busy={row.some((entry) => inbox.isPending(entry.key))}
+												items={row}
+												key={row[0]?.key}
+												onDecide={(choice) => void inbox.decide(row, choice)}
+												onRefresh={() => void inbox.refresh()}
+											/>
+										))}
+									</ul>
+								</section>
+							))}
+						</div>
+					)}
+				</TabsContent>
+			</Tabs>
+
+			{tab === "review" && inbox.outcome ? (
+				<div className="px-4 py-2" role="status">
+					<Text as="p" className="m-0" role="label">
+						{sanitizeUntrustedText(inbox.outcome.message)}
+					</Text>
+				</div>
+			) : null}
+			{tab === "review" && inbox.error ? (
+				<Text className="m-0 px-4 py-2" role="label" tone="error">
+					The decision could not be recorded:{" "}
+					{inbox.error instanceof Error ? inbox.error.message : "Unknown error"}
+				</Text>
+			) : null}
+			<footer className="sticky bottom-0 border-t border-kumo-hairline bg-kumo-base px-2 py-1.5">
+				<Link
+					className="flex min-h-9 w-full min-w-0 items-center justify-between rounded-md px-2 text-kumo-default type-tedix-control max-sm:min-h-11"
+					href="/work/approvals"
+					variant="collection"
+				>
+					Open the approvals page
+					<CaretRight aria-hidden size={14} />
+				</Link>
+			</footer>
+		</>
 	);
 }
 
