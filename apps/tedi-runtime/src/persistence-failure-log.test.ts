@@ -72,7 +72,6 @@ try {
 	};
 	const summary = await recordTurnSummaryArtifact({
 		platform,
-		bucket: {} as R2Bucket,
 		tediId: "private-tedi",
 		conversationId: "private-conversation",
 		runId: "private-run",
@@ -85,7 +84,6 @@ try {
 
 	const deliverable = await recordDeliverableArtifact({
 		platform,
-		bucket: {} as R2Bucket,
 		tediId: "private-tedi",
 		runId: "private-run",
 		name: "private-report.md",

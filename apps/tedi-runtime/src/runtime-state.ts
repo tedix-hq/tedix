@@ -22,9 +22,8 @@ export interface State {
 	identityLoaded: boolean;
 	systemPrompt: string;
 	/**
-	 * Latest identity hydration diagnostic. This is the isolate counterpart to
-	 * the container-side `artifactsStatus` file: status surfaces can distinguish
-	 * repo missing, file missing, R2 fallback, and successful Artifacts reads.
+	 * Latest identity hydration diagnostic: status surfaces can distinguish
+	 * repo missing, file missing, and successful Artifacts reads.
 	 */
 	identityDiagnostics?: IdentityReadDiagnostics;
 	/**

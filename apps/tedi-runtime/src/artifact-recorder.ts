@@ -31,7 +31,6 @@ import type { HttpPlatformClient } from "./brain/platform-client";
 
 export interface TurnSummaryArtifactInput extends CoreTurnSummaryArtifactInput {
 	platform: HttpPlatformClient;
-	bucket: R2Bucket;
 	signal?: AbortSignal;
 }
 
@@ -151,7 +150,6 @@ function sanitizeDeliverableName(name: string): string {
 
 export interface DeliverableArtifactInput {
 	platform: HttpPlatformClient;
-	bucket: R2Bucket;
 	tediId: string;
 	conversationId?: string;
 	runId?: string;
