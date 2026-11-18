@@ -76,7 +76,9 @@ beforeEach(() => {
 				id: "run-2",
 				status: "completed",
 				trigger: "scheduled",
-				completedAt: now(),
+				// A second earlier: two runs stamped in the same instant have no
+				// order of their own, and the list shows the newest first.
+				completedAt: new Date(Date.now() - 1_000).toISOString(),
 			},
 		],
 	});
