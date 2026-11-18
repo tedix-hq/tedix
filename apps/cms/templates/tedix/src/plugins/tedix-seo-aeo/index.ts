@@ -385,7 +385,10 @@ function extractFaqFromPortableContent(rawContent: unknown): FaqItem[] {
 
 	for (const block of rawContent) {
 		if (!block || typeof block !== "object") continue;
-		if ((block as Record<string, unknown>)._type === "marketing.faq") {
+		const type = (block as Record<string, unknown>)._type;
+		// Embedded rich-text FAQ objects and native marketing FAQ sections
+		// share the same question/answer items.
+		if (type === "marketing.faq" || type === "marketing_faq") {
 			flush();
 			items.push(...normaliseMarketingFaqBlock(block));
 			continue;
@@ -647,14 +650,10 @@ export default {
 			}
 
 			// ── FAQPage JSON-LD ──────────────────────────────────────
-			// Prefer the free-form `faq` field. For migrated/generated posts
-			// that only have a `## FAQ` section in Portable Text, derive the
-			// same FAQPage JSON-LD from question/answer blocks as a fallback.
-			if (
-				page.pageType === "article" &&
-				page.content?.collection &&
-				page.content?.id
-			) {
+			// Prefer the free-form `faq` field. Otherwise derive the same
+			// FAQPage JSON-LD from native FAQ sections or a `## FAQ` section
+			// in Portable Text, on articles and marketing pages alike.
+			if (page.content?.collection && page.content?.id) {
 				try {
 					const faqEntry = await ctx.content?.get(
 						page.content.collection,

@@ -128,3 +128,54 @@ describe("Native graph integration", () => {
 		).not.toHaveProperty("worksFor");
 	});
 });
+
+describe("FAQPage structured data", () => {
+	it("derives FAQPage from a native marketing FAQ section on a marketing page", async () => {
+		getSiteSettings.mockResolvedValue({ title: "GarageDesk" });
+		const contributions = await metadata(
+			{
+				page: {
+					pageType: "website",
+					path: "/pricing",
+					url: "https://garage.example.test/pricing",
+					canonical: "https://garage.example.test/pricing",
+					siteUrl: "https://garage.example.test",
+					siteName: "GarageDesk",
+					content: { collection: "pages", id: "pricing" },
+				},
+			},
+			{
+				site: { name: "GarageDesk" },
+				kv: { get: vi.fn() },
+				content: {
+					get: vi.fn(async () => ({
+						data: {
+							content: [
+								{ _type: "marketing_hero", _version: 1, headline: "Plans" },
+								{
+									_type: "marketing_faq",
+									_version: 1,
+									items: [
+										{ question: "Is there a trial?", answer: "Yes, 14 days." },
+									],
+								},
+							],
+						},
+					})),
+				},
+			},
+		);
+		expect(
+			contributions.find((entry) => entry.id === "tedix-seo-aeo:faq")?.graph,
+		).toMatchObject({
+			"@type": "FAQPage",
+			mainEntity: [
+				{
+					"@type": "Question",
+					name: "Is there a trial?",
+					acceptedAnswer: { "@type": "Answer", text: "Yes, 14 days." },
+				},
+			],
+		});
+	});
+});
