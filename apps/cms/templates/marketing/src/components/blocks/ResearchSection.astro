@@ -12,7 +12,7 @@ const Heading = value.page_heading ? "h1" : "h2";
 	{value.eyebrow && <p class="mk-research__eyebrow">{value.eyebrow}</p>}
 	<Heading>{value.heading}</Heading>
 	{value.body && <div class="mk-research__body"><PortableText value={value.body} /></div>}
-	{value.image && <figure><Image image={value.image} />{value.caption && <figcaption>{value.caption}</figcaption>}</figure>}
+	{value.image && <figure><Image image={value.image} sizes="(max-width: 960px) calc(100vw - 48px), 912px" />{value.caption && <figcaption>{value.caption}</figcaption>}</figure>}
 	{asItems(value.links).length > 0 && (
 		<ul class="mk-research__links">
 			{asItems(value.links).map((link) => <li><a href={link.href}>{link.label}</a></li>)}

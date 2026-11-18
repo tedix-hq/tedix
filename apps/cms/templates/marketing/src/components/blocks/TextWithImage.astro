@@ -35,7 +35,7 @@ const imageSide = node.image_side === "left" ? "left" : "right";
 			</div>
 			{(image || imageUrl) && (
 				<div class="mk-twi__media">
-					{image ? <Image image={image} /> : <img src={imageUrl} alt={heading ?? ""} loading="lazy" />}
+					{image ? <Image image={image} sizes="(max-width: 760px) 90vw, min(45vw, 600px)" /> : <img src={imageUrl} alt={heading ?? ""} loading="lazy" />}
 				</div>
 			)}
 		</div>
