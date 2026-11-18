@@ -2,6 +2,7 @@ import { DEPLOY_FAILURE_CODES } from "./deploy-failure";
 
 const NUMERIC_DETAIL_KEYS = new Set([
 	"copied",
+	"blockVersion",
 	"fileCount",
 	"rolledBackTo",
 	"skipped",
@@ -38,8 +39,9 @@ export function safeDeployDetails(
 			safe[key] = value;
 		} else if (
 			typeof value === "string" &&
-			((key === "code" &&
-				(DEPLOY_FAILURE_CODES as readonly string[]).includes(value)) ||
+			((key === "blockType" && /^[a-zA-Z0-9_-]{1,128}$/.test(value)) ||
+				(key === "code" &&
+					(DEPLOY_FAILURE_CODES as readonly string[]).includes(value)) ||
 				(key === "phase" &&
 					[
 						"preflight",

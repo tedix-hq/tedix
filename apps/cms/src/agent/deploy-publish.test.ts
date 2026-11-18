@@ -1,8 +1,13 @@
+import { checkLiveThemeCompatibility } from "./theme-content-compatibility";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { uploadTenantBundle } from "@tedix/provisioning/cms";
 import type { AppBindings } from "../types";
 import { withExactCmsSiteRestorePermit } from "./cms-restore-permit";
 import { publishStagedCmsBundle } from "./deploy-publish";
+
+vi.mock("./theme-content-compatibility", () => ({
+	checkLiveThemeCompatibility: vi.fn(async () => undefined),
+}));
 
 vi.mock("@tedix/provisioning/cms", () => ({ uploadTenantBundle: vi.fn() }));
 vi.mock("./cms-restore-permit", () => ({
@@ -21,6 +26,15 @@ describe("publishStagedCmsBundle restore fence", () => {
 			kind: "editable_source_digest" as const,
 			value: "a".repeat(64),
 		};
+		const release = {
+			version: 1,
+			templateSlug: "marketing",
+			upstreamStarterRevision: "b".repeat(40),
+			lockedTemplateSnapshotHash: "c".repeat(64),
+			dependencyLockHash: "d".repeat(64),
+			supportedBlocks: { hero: [1] },
+		};
+		let releaseBody = "";
 		const staging = {
 			get: vi.fn(async (key: string) => {
 				if (key.endsWith("/manifest.json"))
@@ -28,6 +42,7 @@ describe("publishStagedCmsBundle restore fence", () => {
 						mainModule: "entry.mjs",
 						files: ["entry.mjs"],
 						sourceRevision,
+						release,
 					});
 				if (key.endsWith("/files/entry.mjs"))
 					return {
@@ -47,10 +62,14 @@ describe("publishStagedCmsBundle restore fence", () => {
 			}),
 		};
 		const bundles = {
-			get: vi.fn(async () => ({
+			get: vi.fn(async (_key: string) => ({
+				text: async () => releaseBody,
 				arrayBuffer: async () => new TextEncoder().encode("asset").buffer,
 			})),
-			put: vi.fn(async (_key: string, _body: ArrayBuffer) => ({})),
+			put: vi.fn(async (key: string, body: ArrayBuffer | string) => {
+				if (key.endsWith("/theme-release.json")) releaseBody = String(body);
+				return {};
+			}),
 		};
 		const record = vi.fn(async () => {});
 		const db = {} as D1Database;
@@ -80,8 +99,75 @@ describe("publishStagedCmsBundle restore fence", () => {
 			deployedAt: "2026-09-29T00:00:00.000Z",
 			sourceRevision,
 		});
-		return { input, db, staging, bundles, record };
+		return { input, db, staging, bundles, record, release };
 	}
+
+	it("persists release inputs before activation and checks live content", async () => {
+		const { input, bundles, release } = fixture();
+		vi.mocked(withExactCmsSiteRestorePermit).mockImplementationOnce(
+			async (_db, _site, operation) => operation(),
+		);
+		await publishStagedCmsBundle(input);
+		expect(checkLiveThemeCompatibility).toHaveBeenCalledWith(
+			input.env,
+			"site-a",
+			release,
+		);
+		expect(bundles.put).toHaveBeenCalledWith(
+			"site-a/v7/theme-release.json",
+			expect.any(String),
+		);
+		const stored = JSON.parse(String(bundles.put.mock.calls[1]![1]));
+		expect(stored).toEqual({ ...release, sourceRevision: expect.any(Object) });
+		expect(bundles.put.mock.invocationCallOrder[1]).toBeLessThan(
+			vi.mocked(uploadTenantBundle).mock.invocationCallOrder[0]!,
+		);
+	});
+
+	it("never activates when the renderer cannot support live content", async () => {
+		const { input } = fixture();
+		vi.mocked(withExactCmsSiteRestorePermit).mockImplementationOnce(
+			async (_db, _site, operation) => operation(),
+		);
+		vi.mocked(checkLiveThemeCompatibility).mockRejectedValueOnce(
+			new Error("unsupported hero@2"),
+		);
+		await expect(publishStagedCmsBundle(input)).rejects.toThrow(
+			"unsupported hero@2",
+		);
+		expect(uploadTenantBundle).not.toHaveBeenCalled();
+	});
+
+	it("refuses activation when the release manifest is not durable", async () => {
+		const { input, bundles } = fixture();
+		vi.mocked(withExactCmsSiteRestorePermit).mockImplementationOnce(
+			async (_db, _site, operation) => operation(),
+		);
+		const original = bundles.get.getMockImplementation()!;
+		bundles.get.mockImplementation(async (key: string) => ({
+			...(await original(key)),
+			text: async () =>
+				key.endsWith("theme-release.json") ? "corrupt" : "asset",
+		}));
+		await expect(publishStagedCmsBundle(input)).rejects.toMatchObject({
+			code: "THEME_RELEASE_INVALID",
+		});
+		expect(uploadTenantBundle).not.toHaveBeenCalled();
+	});
+
+	it("records a first release without reading an uninitialized site", async () => {
+		const { input, bundles } = fixture();
+		vi.mocked(withExactCmsSiteRestorePermit).mockImplementationOnce(
+			async (_db, _site, operation) => operation(),
+		);
+		await publishStagedCmsBundle({ ...input, expectedActiveVersion: null });
+		expect(checkLiveThemeCompatibility).not.toHaveBeenCalled();
+		expect(bundles.put).toHaveBeenCalledWith(
+			"site-a/v7/theme-release.json",
+			expect.any(String),
+		);
+		expect(uploadTenantBundle).toHaveBeenCalledOnce();
+	});
 
 	it("rejects a queued build when the site fence is closed before reservation", async () => {
 		const { input, db, staging, bundles, record } = fixture();
@@ -130,8 +216,8 @@ describe("publishStagedCmsBundle restore fence", () => {
 		const publishing = publishStagedCmsBundle(input);
 		await vi.waitFor(() => expect(uploadTenantBundle).toHaveBeenCalledOnce());
 		expect(released).toBe(false);
-		expect(bundles.put).toHaveBeenCalledOnce();
-		expect(bundles.get).toHaveBeenCalledOnce();
+		expect(bundles.put).toHaveBeenCalledTimes(2);
+		expect(bundles.get).toHaveBeenCalledTimes(2);
 		finishUpload();
 		await publishing;
 		expect(bundles.put).toHaveBeenCalledWith(
@@ -231,6 +317,7 @@ describe("publishStagedCmsBundle restore fence", () => {
 			bundles.get.mockResolvedValueOnce(null as never);
 		if (fault === "corrupt")
 			bundles.get.mockResolvedValueOnce({
+				text: async () => "wrong",
 				arrayBuffer: async () => new TextEncoder().encode("wrong").buffer,
 			});
 		await expect(publishStagedCmsBundle(input)).rejects.toThrow(

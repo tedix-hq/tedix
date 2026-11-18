@@ -152,3 +152,24 @@ any live secret the config omits.
 `src/template-snapshot.ts` is generated (never hand-edited) — it bundles the
 CMS starter template so Site Builder can ship it to new tenants without a build-time
 filesystem read.
+
+Each theme must keep `src/theme-release.json` with its `upstreamStarterRevision`
+(full starter Git commit) and `supportedBlocks` (block slug to integer version
+list). For the Tedix-authored starters the revision names the Tedix source
+commit; native starters name their Emdash upstream commit. This file belongs to
+the theme: when adding or removing a renderer, update its declaration in the same
+source commit. Existing themes must explicitly add a declaration matching their
+own renderers; a deploy does not fill it from today's starter.
+
+Deploy stages a release manifest and stores it beside the versioned bundle as
+`theme-release.json`, including the source revision, locked-template snapshot
+SHA-256 and exact `bun.lock` SHA-256. Before upgrading an active site, publication
+checks every page of published content in every collection and locale against
+the declared block versions. Unversioned Portable Text nodes use their native
+renderer and are separate from this versioned-block check. An unsupported block
+stops activation with `THEME_BLOCK_UNSUPPORTED`, `blockType` and `blockVersion`;
+an unavailable or malformed content read stops it with
+`THEME_CONTENT_UNAVAILABLE`. First publication has no live content to check.
+`theme_list_versions` includes these release inputs and supported block versions;
+older bundles without a release manifest report `release: null`. Snapshot
+generation also fails if any required locked file is missing.

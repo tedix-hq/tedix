@@ -386,6 +386,7 @@ export interface SiteBuilderToolContext {
 			active: boolean;
 			deployedAt: string | null;
 			promptSummary: string | null;
+			release?: import("./theme-release").ThemeRelease | null;
 			sourceRevision:
 				| import("@tedix/provisioning/cms").TenantBundleSourceRevision
 				| null;

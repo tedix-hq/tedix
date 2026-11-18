@@ -6,7 +6,8 @@ import {
 } from "@tedix/db/queries/cms-restore-fences";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { rollback, type DeployContext } from "./deploy";
+import { rollback, listVersions, type DeployContext } from "./deploy";
+import { listTenantBundleVersions } from "@tedix/provisioning/cms";
 
 const activate = vi.hoisted(() => vi.fn());
 vi.mock("@tedix/provisioning/cms", () => ({
@@ -99,5 +100,48 @@ describe("manual CMS bundle rollback restore permit", () => {
 		} finally {
 			sqlite.close();
 		}
+	});
+});
+
+describe("theme version release inputs", () => {
+	it("lists release hashes and renderer versions, with unknown legacy releases as null", async () => {
+		const release = {
+			version: 1,
+			templateSlug: "marketing",
+			upstreamStarterRevision: "a".repeat(40),
+			lockedTemplateSnapshotHash: "b".repeat(64),
+			dependencyLockHash: "c".repeat(64),
+			supportedBlocks: { hero: [1, 2] },
+		};
+		vi.mocked(listTenantBundleVersions).mockResolvedValue([
+			{
+				version: 2,
+				etag: "etag",
+				isActive: true,
+				deployedAt: null,
+				summary: null,
+				sourceRevision: null,
+			},
+			{
+				version: 1,
+				etag: "old",
+				isActive: false,
+				deployedAt: null,
+				summary: null,
+				sourceRevision: null,
+			},
+		]);
+		const get = vi.fn(async (key: string) =>
+			key === "site-a/v2/theme-release.json"
+				? { json: async () => release }
+				: null,
+		);
+		const versions = await listVersions(
+			{ get } as unknown as R2Bucket,
+			{} as D1Database,
+			"site-a",
+		);
+		expect(versions.map((v) => v.release)).toEqual([release, null]);
+		expect(get).toHaveBeenCalledWith("site-a/v1/theme-release.json");
 	});
 });
