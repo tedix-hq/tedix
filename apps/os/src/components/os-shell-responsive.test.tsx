@@ -18,6 +18,12 @@ const api = vi.hoisted(() => ({
 	workspaces: { list: vi.fn() },
 	workspacePreferences: { list: vi.fn(), setFavorite: vi.fn() },
 }));
+const unreadSummary = vi.hoisted(() => ({
+	read: vi.fn(async () => ({
+		total: 0,
+		workspaces: [] as { workspaceId: string; total: number }[],
+	})),
+}));
 
 vi.mock("@/components/work-actor-directory", () => ({
 	WorkActorDirectory: ({ children }: { children: ReactNode }) => children,
@@ -29,7 +35,7 @@ vi.mock("@/lib/api", () => ({
 		osWorkspaces: api,
 		// Sidebar workspace rows read what is new and whether a workspace is muted.
 		workspaceUnread: {
-			summary: vi.fn(async () => ({ total: 0, workspaces: [] })),
+			summary: () => unreadSummary.read(),
 			markRead: vi.fn(),
 		},
 		webPush: {
@@ -164,6 +170,7 @@ beforeEach(() => {
 	route.context = false;
 	api.workspaces.list.mockResolvedValue({ items: [], truncated: false });
 	api.workspacePreferences.list.mockResolvedValue({ items: [] });
+	unreadSummary.read.mockResolvedValue({ total: 0, workspaces: [] });
 });
 
 afterEach(() => {
@@ -189,6 +196,40 @@ describe("OS shell chrome", () => {
 			rail(container).querySelector('[aria-label="Pinned workspaces"]')
 				?.textContent,
 		).toContain("Shared planning");
+	});
+
+	it("links to the Unread page from the sidebar and counts what is new", async () => {
+		unreadSummary.read.mockResolvedValue({
+			total: 7,
+			workspaces: [{ workspaceId: "starred-workspace", total: 7 }],
+		});
+		const container = renderShell();
+		const item = () =>
+			rail(container).querySelector<HTMLAnchorElement>(
+				'[aria-label="Primary"] a[href="/unread"]',
+			)!;
+		expect(item().textContent).toBe("Unread");
+		expect(item().hasAttribute("data-active")).toBe(false);
+		await act(async () => {
+			for (let tick = 0; tick < 5; tick += 1)
+				await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		expect(item().textContent).toBe("Unread7");
+		expect(item().querySelector('[aria-label="7 unread"]')).not.toBeNull();
+	});
+
+	it("shows no count on Unread when everything is read and marks it current on its page", async () => {
+		route.pathname = "/unread";
+		const container = renderShell();
+		await act(async () => {
+			for (let tick = 0; tick < 5; tick += 1)
+				await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		const item = rail(container).querySelector<HTMLAnchorElement>(
+			'[aria-label="Primary"] a[href="/unread"]',
+		)!;
+		expect(item.textContent).toBe("Unread");
+		expect(item.hasAttribute("data-active")).toBe(true);
 	});
 
 	it("lets keyboard users bypass the shell navigation", () => {
@@ -347,7 +388,7 @@ describe("OS shell chrome", () => {
 		const primary = container.querySelector('[aria-label="Primary"]')!;
 		expect(
 			[...primary.querySelectorAll("a")].map((a) => a.textContent),
-		).toEqual(["Work", "Chat", "Workspaces", "Documents"]);
+		).toEqual(["Work", "Chat", "Workspaces", "Documents", "Unread"]);
 		expect(primary.closest('[data-sidebar="content"]')).toBeNull();
 		expect(container.querySelector('[aria-label="Setup"]')).toBeNull();
 		expect(container.querySelector('[data-sidebar="group-label"]')).toBeNull();

@@ -11,6 +11,7 @@ import {
 	List,
 	MagnifyingGlass,
 	SquaresFour,
+	Tray,
 } from "@phosphor-icons/react";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { isTypingEvent } from "@/lib/keyboard";
@@ -57,6 +58,8 @@ import { OsWorkspaceSwitcher } from "@/components/os-workspace-switcher";
 import { OsSidebarWorkspaces } from "@/components/os-sidebar-workspaces";
 import { TransportStatus } from "@/components/transport-status";
 import { WorkNeedsYouCount } from "@/components/work-needs-you-count";
+import { UnreadBadge } from "@/components/unread-badge";
+import { useUnreadTotal } from "@/lib/workspace-unread";
 import { SharedDeckInboxProvider } from "@/lib/shared-deck-inbox";
 import { SupportGetHelp } from "@/components/support-get-help";
 import { shouldUseWorkspaceWorkbench } from "@/lib/os-layout-routing";
@@ -149,6 +152,26 @@ function SidebarNavigationItem({
 	);
 }
 
+/** Opens the Unread page and shows how much is new across all workspaces. */
+function SidebarUnreadItem({ pathname }: { pathname: string }) {
+	const unread = useUnreadTotal();
+	return (
+		<SidebarMenuButton
+			active={pathname === "/unread"}
+			href="/unread"
+			icon={Tray}
+			tooltip={unread > 0 ? `Unread: ${unread}` : "Unread"}
+		>
+			Unread
+			<UnreadBadge
+				className="ml-auto group-data-[state=collapsed]/sidebar:hidden"
+				count={unread}
+				label="unread"
+			/>
+		</SidebarMenuButton>
+	);
+}
+
 function OsSidebar({
 	identity,
 	onOpenPalette,
@@ -194,6 +217,7 @@ function OsSidebar({
 								pathname={pathname}
 							/>
 						))}
+						<SidebarUnreadItem pathname={pathname} />
 					</SidebarMenu>
 				</SidebarGroup>
 			</SidebarGroup>

@@ -8,7 +8,11 @@ import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
-import { unreadListQueryOptions, useMarkAllRead } from "@/lib/workspace-unread";
+import {
+	unreadListQueryOptions,
+	useMarkAllRead,
+	useMarkWorkspaceRead,
+} from "@/lib/workspace-unread";
 
 const CHAT_LABELS: Record<
 	Exclude<WorkspaceUnreadItem["kind"], "file">,
@@ -42,8 +46,76 @@ export function unreadItemLabel(item: WorkspaceUnreadItem): string {
 	return `${title} was changed`;
 }
 
-/** Everything new across the person's workspaces, newest first, grouped by workspace. */
-export function UnreadList({ onNavigate }: { onNavigate?: () => void }) {
+export type UnreadRow = {
+	/** The newest unread item of the conversation or file. */
+	item: WorkspaceUnreadItem;
+	/** How many unread items the row stands for. */
+	count: number;
+};
+
+/**
+ * One row per conversation and per file, newest first. Chat items that name
+ * no conversation stay separate rows.
+ */
+export function unreadRows(items: readonly WorkspaceUnreadItem[]): UnreadRow[] {
+	const rows: UnreadRow[] = [];
+	const byConversation = new Map<string, UnreadRow>();
+	for (const item of items) {
+		const conversationId =
+			item.kind === "file" ? undefined : item.conversationId;
+		const known = conversationId && byConversation.get(conversationId);
+		if (known) {
+			known.count += 1;
+			continue;
+		}
+		const row = { item, count: 1 };
+		if (conversationId) byConversation.set(conversationId, row);
+		rows.push(row);
+	}
+	return rows;
+}
+
+/** The second line of a row on the Unread page: what kind of thing is new. */
+export function unreadRowPreview({ item, count }: UnreadRow): string {
+	if (item.kind === "file")
+		return `File · changed by ${item.byAgent ? "an agent" : "a teammate"}`;
+	return `Conversation · ${count} new`;
+}
+
+function MarkWorkspaceRead({
+	workspaceId,
+	workspaceName,
+}: {
+	workspaceId: string;
+	workspaceName: string;
+}) {
+	const mark = useMarkWorkspaceRead();
+	return (
+		<Button
+			aria-label={`Mark ${workspaceName} as read`}
+			className="ml-auto shrink-0"
+			disabled={mark.isPending}
+			onClick={() => mark.mutate({ workspaceId, target: { type: "all" } })}
+			size="sm"
+			variant="ghost"
+		>
+			Mark as read
+		</Button>
+	);
+}
+
+/**
+ * Everything new across the person's workspaces, newest first, grouped by
+ * workspace. `page` is the full Unread page: one row per conversation and
+ * file with a second line, and "Mark as read" on each workspace.
+ */
+export function UnreadList({
+	onNavigate,
+	page = false,
+}: {
+	onNavigate?: () => void;
+	page?: boolean;
+}) {
 	const list = useQuery(unreadListQueryOptions());
 	const markAll = useMarkAllRead();
 	if (list.isPending)
@@ -69,7 +141,7 @@ export function UnreadList({ onNavigate }: { onNavigate?: () => void }) {
 				appearance="inline"
 				className="px-4! py-6!"
 				icon={<Checks aria-hidden className="text-kumo-subtle" size={24} />}
-				title="You're all caught up"
+				title={page ? "All caught up" : "You're all caught up"}
 				description="New chat messages, agent results and file changes in workspaces you have opened show up here."
 			/>
 		);
@@ -85,7 +157,7 @@ export function UnreadList({ onNavigate }: { onNavigate?: () => void }) {
 					size="sm"
 					variant="ghost"
 				>
-					Mark all read
+					{page ? "Mark all as read" : "Mark all read"}
 				</Button>
 			</div>
 			{list.data.groups.map((group) => (
@@ -99,9 +171,18 @@ export function UnreadList({ onNavigate }: { onNavigate?: () => void }) {
 						<span className="shrink-0 tabular-nums font-normal">
 							{group.items.length}
 						</span>
+						{page ? (
+							<MarkWorkspaceRead
+								workspaceId={group.workspaceId}
+								workspaceName={sanitizeUntrustedText(group.workspaceName)}
+							/>
+						) : null}
 					</h3>
 					<ul className="m-0 grid grid-cols-[minmax(0,1fr)] list-none p-0 pb-1">
-						{group.items.map((item) => (
+						{(page
+							? unreadRows(group.items)
+							: group.items.map((item) => ({ item, count: 1 }))
+						).map(({ item, count }) => (
 							<li key={`${item.kind}:${item.id}`}>
 								<Link
 									className="flex min-h-9 w-full min-w-0 items-center gap-2 rounded-none px-4 py-1.5 text-kumo-default type-tedix-control max-sm:min-h-11"
@@ -109,12 +190,23 @@ export function UnreadList({ onNavigate }: { onNavigate?: () => void }) {
 									onClick={onNavigate}
 									variant="collection"
 								>
-									<span
-										className="min-w-0 flex-1 truncate"
-										title={unreadItemLabel(item)}
-									>
-										{unreadItemLabel(item)}
-									</span>
+									{page ? (
+										<span className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)]">
+											<span className="truncate" title={unreadItemLabel(item)}>
+												{unreadItemLabel(item)}
+											</span>
+											<span className="truncate text-kumo-subtle type-tedix-label">
+												{unreadRowPreview({ item, count })}
+											</span>
+										</span>
+									) : (
+										<span
+											className="min-w-0 flex-1 truncate"
+											title={unreadItemLabel(item)}
+										>
+											{unreadItemLabel(item)}
+										</span>
+									)}
 									{item.byAgent ? (
 										<Badge className="shrink-0" variant="secondary">
 											Agent

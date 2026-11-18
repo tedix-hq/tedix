@@ -70,6 +70,7 @@ const expectedPaths = [
 	"/team/$tediId/settings",
 	"/team/$tediId/telemetry",
 	"/team/new",
+	"/unread",
 	"/workspaces",
 ] as const;
 
@@ -121,10 +122,11 @@ describe("OS route generation", () => {
 			expect(parentOf(id)).toBe("/_session/account");
 	});
 
-	it("keeps personal account pages inside the tenant shell", () => {
+	it("keeps personal account pages and Unread inside the tenant shell", () => {
 		for (const id of [
 			"/_session/_tenant/account/settings",
 			"/_session/_tenant/account/connections",
+			"/_session/_tenant/unread",
 		])
 			expect(parentOf(id)).toBe("/_session/_tenant");
 	});
