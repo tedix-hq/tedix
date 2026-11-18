@@ -4,9 +4,10 @@
  */
 
 import { mergeCatalogCategoryCounts } from "@tedix/api-contract/utils/catalog-categories";
-import { and, count, desc, eq, gt, or } from "drizzle-orm";
+import { and, count, desc, eq, gt, or, sql } from "drizzle-orm";
 import {
 	appCatalog,
+	appCatalogBrowseTotals,
 	appCatalogCategoryTotals,
 	appCatalogStoreListings,
 } from "../../schema/catalog";
@@ -97,8 +98,12 @@ export async function getCatalogStats(
 		writesResult,
 		sourceResult,
 	] = await Promise.all([
-		// Get total
-		db.select({ count: count() }).from(appCatalog).where(baseCondition),
+		includeUntrusted
+			? db.select({ count: count() }).from(appCatalog)
+			: db
+					.select({ count: appCatalogBrowseTotals.total })
+					.from(appCatalogBrowseTotals)
+					.where(eq(appCatalogBrowseTotals.id, "public")),
 		// Get MCP count
 		db
 			.select({ count: count() })
@@ -141,6 +146,10 @@ export async function getCatalogStats(
 			.groupBy(appCatalogStoreListings.source),
 	]);
 
+	if (!includeUntrusted && !totalResult[0]) {
+		throw new Error("Catalog browse totals migration is missing");
+	}
+
 	return {
 		total: totalResult[0]?.count ?? 0,
 		mcp: mcpResult[0]?.count ?? 0,
@@ -150,5 +159,36 @@ export async function getCatalogStats(
 			source: r.source,
 			count: r.count,
 		})),
+	};
+}
+
+/** Compare trigger-maintained totals in one D1 batch snapshot; never hide drift. */
+export async function checkCatalogBrowseTotals(db: Database) {
+	const [expected, stored] = await db.batch([
+		db
+			.select({
+				total: count(),
+				exploreTotal: sql<number>`coalesce(sum(case when ${appCatalog.exploreShadowed} = 0 then 1 else 0 end), 0)`,
+			})
+			.from(appCatalog)
+			.where(publicCatalogCondition),
+		db
+			.select({
+				total: appCatalogBrowseTotals.total,
+				exploreTotal: appCatalogBrowseTotals.exploreTotal,
+			})
+			.from(appCatalogBrowseTotals)
+			.where(eq(appCatalogBrowseTotals.id, "public")),
+	]);
+	const actual = expected[0];
+	if (!actual) throw new Error("Catalog count query returned no row");
+	return {
+		expectedTotal: actual.total,
+		expectedExploreTotal: actual.exploreTotal,
+		storedTotal: stored[0]?.total ?? null,
+		storedExploreTotal: stored[0]?.exploreTotal ?? null,
+		matches:
+			stored[0]?.total === actual.total &&
+			stored[0]?.exploreTotal === actual.exploreTotal,
 	};
 }
