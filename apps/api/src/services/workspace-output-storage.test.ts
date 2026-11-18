@@ -367,12 +367,15 @@ describe("workspace output storage authority", () => {
 					}),
 				() => storage.updateOsOutput(core, params, { title: "Changed" }),
 				() => storage.deleteOsOutput(core, params),
-				() => storage.moveOsOutput(core, output, "target"),
 			];
 			for (const write of writes)
 				await expect(write()).rejects.toThrow(
 					"Workspace output writes require an activated workspace object",
 				);
+			expect(await storage.moveOsOutput(core, output, "target")).toEqual({
+				ok: false,
+				reason: "source_not_ready",
+			});
 			expect(
 				(await d1Outputs.getOsOutput(core, params))?.currentRevisionId,
 			).toBe(revision.id);
@@ -540,7 +543,6 @@ describe("workspace output storage authority", () => {
 					}),
 				() => storage.updateOsOutput(core, params, { title: "Changed" }),
 				() => storage.deleteOsOutput(core, params),
-				() => storage.moveOsOutput(core, created.output, "target"),
 			];
 			for (const write of writes)
 				await expect(write()).rejects.toThrow(
@@ -548,6 +550,13 @@ describe("workspace output storage authority", () => {
 						? "Workspace output runtime is unavailable"
 						: "Workspace output writes require an activated workspace object",
 				);
+			const move = storage.moveOsOutput(core, created.output, "target");
+			if (state === "missing-runtime")
+				await expect(move).rejects.toThrow(
+					"Workspace output runtime is unavailable",
+				);
+			else
+				expect(await move).toEqual({ ok: false, reason: "source_not_ready" });
 			expect(await d1Outputs.getOsOutput(core, params)).toEqual(created.output);
 			expect(await core.select().from(osOutputs)).toHaveLength(1);
 			expect(await core.select().from(osOutputRevisions)).toHaveLength(1);
@@ -582,11 +591,9 @@ describe("workspace output storage authority", () => {
 				config.env.WORKSPACE_RUNTIME!,
 				"transferOutput",
 			);
-			await expect(
-				storage.moveOsOutput(core, created.output, "target"),
-			).rejects.toThrow(
-				"Workspace output writes require an activated workspace object",
-			);
+			expect(
+				await storage.moveOsOutput(core, created.output, "target"),
+			).toEqual({ ok: false, reason: "target_not_ready" });
 			expect(transfer).not.toHaveBeenCalled();
 			expect(
 				(
@@ -617,11 +624,10 @@ describe("workspace output storage authority", () => {
 			{ ...output, workspaceId: null },
 			revision,
 		);
-		await expect(
-			storage.moveOsOutput(core, created.output, "target"),
-		).rejects.toThrow(
-			"Workspace output writes require an activated workspace object",
-		);
+		expect(await storage.moveOsOutput(core, created.output, "target")).toEqual({
+			ok: false,
+			reason: "source_not_ready",
+		});
 	});
 
 	it("uses the indexed object for moves and never reads a stale shared row as fallback", async () => {

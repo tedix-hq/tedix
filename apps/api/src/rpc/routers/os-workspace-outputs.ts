@@ -45,6 +45,7 @@ import {
 import { getOsGadgetExecutionByRunId } from "@tedix/db/queries/os-workspaces/executions";
 import {
 	getOsOutput,
+	type MoveOsOutputResult,
 	moveOsOutput,
 	listOsOutputRevisions,
 	listOsOutputs,
@@ -609,29 +610,64 @@ const outputsRename = authorOs.outputs.rename.handler(
 	},
 );
 
+/** Each reason a file was not moved, in words the caller can act on. */
+function moveRefusal(
+	reason: Extract<MoveOsOutputResult, { ok: false }>["reason"],
+) {
+	switch (reason) {
+		case "not_found":
+			return createError(
+				ErrorCodes.NOT_FOUND,
+				"The file is no longer in its workspace: it was deleted or already moved. Read it again to see where it is.",
+			);
+		case "conflict":
+			return createError(
+				ErrorCodes.CONFLICT,
+				"Another move of this file is still in progress. Wait for it to finish, then read the file to see which workspace it is in.",
+			);
+		case "source_not_ready":
+			return createError(
+				ErrorCodes.SERVICE_UNAVAILABLE,
+				"The workspace this file is in does not keep its own files yet, so the file cannot be moved out of it. The file was not moved.",
+			);
+		case "target_not_ready":
+			return createError(
+				ErrorCodes.SERVICE_UNAVAILABLE,
+				"The target workspace's file storage is not set up yet, so it cannot take files. The file was not moved.",
+			);
+	}
+}
+
 const outputsMove = authorOs.outputs.move.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
-		const target = await requireWorkspace(context, input.workspaceId);
+		const target = await requireWorkspace(context, input.workspaceId).catch(
+			(error: unknown) => {
+				// A missing workspace and one the caller cannot open answer alike,
+				// so the answer does not reveal which workspaces exist.
+				if (error instanceof ORPCError && error.code === ErrorCodes.NOT_FOUND)
+					throw createError(
+						ErrorCodes.NOT_FOUND,
+						"The target workspace was not found, or you cannot open it. The file was not moved.",
+					);
+				throw error;
+			},
+		);
 		if (output.workspaceId === target.id)
 			return { output: mapOsOutputRow(output), previousWorkspaceId: target.id };
 		let moved;
 		try {
 			moved = await moveOsOutput(queryDb(context), output, target.id);
 		} catch (error) {
-			console.error("OS output transfer pending", error);
+			// The store keeps a started move and finishes it on its own or on
+			// the next request, so the file may be in either workspace.
+			console.error("OS output move did not finish", error);
 			throw createError(
 				ErrorCodes.SERVICE_UNAVAILABLE,
-				"Output transfer could not finish. Read the output again before retrying.",
+				"The move did not finish. Read the file to see which workspace it is in, then move it again if needed.",
 			);
 		}
-		if (!moved.ok && moved.reason === "not_found")
-			throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
-		if (!moved.ok)
-			throw createError(
-				ErrorCodes.CONFLICT,
-				"Output transfer already in progress",
-			);
+		if (!moved.ok) throw moveRefusal(moved.reason);
 		const row = moved.output;
 		await publishOutputMetadataChange(context, row);
 		// Editor bindings are per workspace; the target needs its own.

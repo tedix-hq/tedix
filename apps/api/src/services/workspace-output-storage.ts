@@ -114,35 +114,41 @@ export async function getOsOutput(
 	return store.outputQuery(scope, { op: "get", outputId: args[1].outputId });
 }
 
+/**
+ * Why a file was not moved. The store answers `not_found` and `conflict` (a
+ * move of this file is in progress); the two `not_ready` reasons are decided
+ * here, before the store is asked to start anything.
+ */
+export type MoveOsOutputResult =
+	| OutputTransferResult
+	| { ok: false; reason: "source_not_ready" | "target_not_ready" };
+
 export async function moveOsOutput(
 	_db: DbQueryClient,
 	output: NonNullable<Awaited<ReturnType<typeof getOsOutput>>>,
 	targetWorkspaceId: string,
-): Promise<OutputTransferResult> {
+): Promise<MoveOsOutputResult> {
 	const store = readRuntime();
-	if (!output.workspaceId)
-		throw new Error(
-			"Workspace output writes require an activated workspace object",
-		);
-	const scope = {
-		organizationId: output.organizationId,
-		workspaceId: output.workspaceId,
-	};
-	if (!(await workspaceOwnsDocuments(scope, store)))
-		throw new Error(
-			"Workspace output writes require an activated workspace object",
-		);
+	const { organizationId, workspaceId } = output;
 	if (
-		targetWorkspaceId !== output.workspaceId &&
+		!workspaceId ||
+		!(await workspaceOwnsDocuments({ organizationId, workspaceId }, store))
+	)
+		return { ok: false, reason: "source_not_ready" };
+	// A store that does not keep its own files yet cannot take one. Asking
+	// first keeps the file from waiting on a move that cannot finish.
+	if (
 		!(await workspaceOwnsDocuments(
-			{ organizationId: output.organizationId, workspaceId: targetWorkspaceId },
+			{ organizationId, workspaceId: targetWorkspaceId },
 			store,
 		))
 	)
-		throw new Error(
-			"Workspace output writes require an activated workspace object",
-		);
-	return store.transferOutput(scope, output.id, targetWorkspaceId);
+		return { ok: false, reason: "target_not_ready" };
+	return store.transferOutput(
+		{ organizationId, workspaceId },
+		output.id,
+		targetWorkspaceId,
+	);
 }
 
 export async function listOsOutputs(

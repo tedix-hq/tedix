@@ -4,13 +4,24 @@
  * answer must be true: a save that reports success has saved, a no-op says it
  * changed nothing, and a refusal names its real cause.
  */
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import type { WorkspaceOutputRuntime } from "@tedix/db/queries/durable-sqlite/output-rpc";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import { enrichInputValidationError } from "../input-validation-error";
 import { clients, homeWorkspaceId } from "./__tests__/os-workspaces-env";
 
 let c: ReturnType<typeof clients>;
 beforeEach(() => {
 	c = clients();
+});
+afterEach(() => {
+	vi.restoreAllMocks();
 });
 
 const paragraph = (text: string) => ({
@@ -295,5 +306,146 @@ describe("create_os_output with a richText body", () => {
 			workspaceId: await homeWorkspaceId(c.env),
 		});
 		expect(listed.items).toEqual([]);
+	});
+});
+
+describe("move_os_output refusals", () => {
+	const runtime = () =>
+		(c.env as unknown as { WORKSPACE_RUNTIME: WorkspaceOutputRuntime })
+			.WORKSPACE_RUNTIME;
+
+	async function fileInDrafts() {
+		const { workspace: from } = await c.org1.workspaces.create({
+			name: "Drafts",
+		});
+		const { workspace: to } = await c.org1.workspaces.create({
+			name: "Launch",
+		});
+		const created = await c.org1.outputs.create({
+			workspaceId: from.id,
+			kind: "document",
+			title: "Launch brief",
+			content: "First draft",
+		});
+		return { from, to, outputId: created.output.id };
+	}
+
+	/** One workspace's store answers that it does not keep its own files yet. */
+	function storeNotReady(workspaceId: string) {
+		const store = runtime();
+		const query = store.outputQuery.bind(store);
+		vi.spyOn(store, "outputQuery").mockImplementation(((
+			scope: Parameters<typeof query>[0],
+			request: Parameters<typeof query>[1],
+		) =>
+			request.op === "authority" && scope.workspaceId === workspaceId
+				? Promise.resolve("shared")
+				: query(scope, request)) as typeof store.outputQuery);
+	}
+
+	async function expectStillIn(outputId: string, workspaceId: string) {
+		const read = await c.org1.outputs.get({ outputId });
+		expect(read.output.workspaceId).toBe(workspaceId);
+	}
+
+	it("names the target workspace when it does not exist or the caller cannot open it", async () => {
+		const { from, outputId } = await fileInDrafts();
+		const { workspace: foreign } = await c.org2.workspaces.create({
+			name: "Elsewhere",
+		});
+		for (const workspaceId of [crypto.randomUUID(), foreign.id])
+			await expect(
+				c.org1.outputs.move({ outputId, workspaceId }),
+			).rejects.toMatchObject({
+				code: "NOT_FOUND",
+				message:
+					"The target workspace was not found, or you cannot open it. The file was not moved.",
+			});
+		await expectStillIn(outputId, from.id);
+	});
+
+	it("says the target's file storage is not ready instead of reporting a move in progress", async () => {
+		const { from, to, outputId } = await fileInDrafts();
+		storeNotReady(to.id);
+		const transfer = vi.spyOn(runtime(), "transferOutput");
+		await expect(
+			c.org1.outputs.move({ outputId, workspaceId: to.id }),
+		).rejects.toMatchObject({
+			code: "SERVICE_UNAVAILABLE",
+			message:
+				"The target workspace's file storage is not set up yet, so it cannot take files. The file was not moved.",
+		});
+		expect(transfer).not.toHaveBeenCalled();
+		await expectStillIn(outputId, from.id);
+	});
+
+	it("says the file's own workspace storage is not ready", async () => {
+		const { from, to, outputId } = await fileInDrafts();
+		storeNotReady(from.id);
+		const transfer = vi.spyOn(runtime(), "transferOutput");
+		await expect(
+			c.org1.outputs.move({ outputId, workspaceId: to.id }),
+		).rejects.toMatchObject({
+			code: "SERVICE_UNAVAILABLE",
+			message:
+				"The workspace this file is in does not keep its own files yet, so the file cannot be moved out of it. The file was not moved.",
+		});
+		expect(transfer).not.toHaveBeenCalled();
+	});
+
+	it("reports a move in progress only when the store says one is", async () => {
+		const { to, outputId } = await fileInDrafts();
+		vi.spyOn(runtime(), "transferOutput").mockResolvedValue({
+			ok: false,
+			reason: "conflict",
+		});
+		await expect(
+			c.org1.outputs.move({ outputId, workspaceId: to.id }),
+		).rejects.toMatchObject({
+			code: "CONFLICT",
+			message:
+				"Another move of this file is still in progress. Wait for it to finish, then read the file to see which workspace it is in.",
+		});
+	});
+
+	it("says the file is gone when the store no longer has it", async () => {
+		const { to, outputId } = await fileInDrafts();
+		vi.spyOn(runtime(), "transferOutput").mockResolvedValue({
+			ok: false,
+			reason: "not_found",
+		});
+		await expect(
+			c.org1.outputs.move({ outputId, workspaceId: to.id }),
+		).rejects.toMatchObject({
+			code: "NOT_FOUND",
+			message:
+				"The file is no longer in its workspace: it was deleted or already moved. Read it again to see where it is.",
+		});
+	});
+
+	it("says a move that broke part-way did not finish", async () => {
+		const { to, outputId } = await fileInDrafts();
+		vi.spyOn(runtime(), "transferOutput").mockRejectedValue(
+			new Error("Injected lost transfer reply"),
+		);
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		await expect(
+			c.org1.outputs.move({ outputId, workspaceId: to.id }),
+		).rejects.toMatchObject({
+			code: "SERVICE_UNAVAILABLE",
+			message:
+				"The move did not finish. Read the file to see which workspace it is in, then move it again if needed.",
+		});
+	});
+
+	it("changes nothing when the file is already in the target workspace", async () => {
+		const { from, outputId } = await fileInDrafts();
+		const transfer = vi.spyOn(runtime(), "transferOutput");
+		const moved = await c.org1.outputs.move({ outputId, workspaceId: from.id });
+		expect(moved).toMatchObject({
+			previousWorkspaceId: from.id,
+			output: { id: outputId, workspaceId: from.id },
+		});
+		expect(transfer).not.toHaveBeenCalled();
 	});
 });
