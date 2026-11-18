@@ -363,36 +363,21 @@ export async function recordCompetencyObservation(
 					"Economic value requires proof-certified completed work executed by this tedi",
 				);
 			}
-			const [executorCheckouts, legacyCheckouts] = await Promise.all([
-				db
-					.select({ id: workAttempts.id })
-					.from(workAttempts)
-					.where(
-						and(
-							eq(workAttempts.orgId, input.organizationId),
-							eq(workAttempts.workItemId, input.workItemId),
-							eq(workAttempts.executorType, "tedi"),
-							eq(workAttempts.executorId, input.tediId),
-							eq(workAttempts.runtimeState, "finished"),
-							eq(workAttempts.finishedAt, work.completedAt),
-						),
-					)
-					.limit(1),
-				db
-					.select({ id: workAttempts.id })
-					.from(workAttempts)
-					.where(
-						and(
-							eq(workAttempts.orgId, input.organizationId),
-							eq(workAttempts.workItemId, input.workItemId),
-							eq(workAttempts.executorId, input.tediId),
-							eq(workAttempts.runtimeState, "finished"),
-							eq(workAttempts.finishedAt, work.completedAt),
-						),
-					)
-					.limit(1),
-			]);
-			if (!executorCheckouts[0] && !legacyCheckouts[0]) {
+			const executorCheckouts = await db
+				.select({ id: workAttempts.id })
+				.from(workAttempts)
+				.where(
+					and(
+						eq(workAttempts.orgId, input.organizationId),
+						eq(workAttempts.workItemId, input.workItemId),
+						eq(workAttempts.executorType, "tedi"),
+						eq(workAttempts.executorId, input.tediId),
+						eq(workAttempts.runtimeState, "finished"),
+						eq(workAttempts.finishedAt, work.completedAt),
+					),
+				)
+				.limit(1);
+			if (!executorCheckouts[0]) {
 				throw new EarnedDelegationError(
 					"ineligible",
 					"Work Item completion is not attributed to this tedi",
