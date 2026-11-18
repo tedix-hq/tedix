@@ -1,5 +1,5 @@
 import { FileText, Plus } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { canvasOutputsQueryOptions } from "@/lib/os-query-options";
 import { Text } from "@/components/kumo/text";
@@ -19,11 +19,14 @@ export function WorkspaceChatResources({
 	onBrowseResources,
 	onSelect,
 	selectedIds,
+	messageBox,
 }: {
 	workspaceId: string;
 	onBrowseResources: () => void;
 	onSelect: (file: { outputId: string; title: string }) => void;
 	selectedIds: string[];
+	/** Typing continues here once a file is added or the panel closes. */
+	messageBox?: RefObject<HTMLTextAreaElement | null>;
 }) {
 	const [open, setOpen] = useState(false);
 	const outputs = useQuery({
@@ -44,7 +47,12 @@ export function WorkspaceChatResources({
 			>
 				<Plus aria-hidden />
 			</PopoverTrigger>
-			<PopoverContent align="start" side="top" className="grid w-72 gap-3 p-4">
+			<PopoverContent
+				align="start"
+				side="top"
+				className="grid w-72 gap-3 p-4"
+				finalFocus={messageBox}
+			>
 				<PopoverTitle>Add to your message</PopoverTitle>
 				<PopoverDescription>
 					Pick up to 5 documents, sheets or slides from this workspace for the
@@ -94,6 +102,7 @@ export function WorkspaceChatResources({
 					onUploaded={(file) => {
 						if (selectedIds.length < 5)
 							onSelect({ outputId: file.outputId, title: file.name });
+						setOpen(false);
 					}}
 				/>
 				<Button

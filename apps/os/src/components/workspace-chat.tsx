@@ -1786,6 +1786,7 @@ function Composer({
 						<WorkspaceChatResources
 							workspaceId={workspaceId}
 							onBrowseResources={onBrowseResources}
+							messageBox={textarea}
 							selectedIds={selected.map((file) => file.outputId)}
 							onSelect={(file) =>
 								setSelected((files) =>
