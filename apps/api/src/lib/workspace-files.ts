@@ -260,7 +260,8 @@ export async function readWorkspaceFileContent(
 		!format &&
 		!pdf &&
 		(isTextFile(file.filename, file.mimeType) ||
-			(!file.filename.includes(".") &&
+			// A leading dot names a hidden file (.gitignore), not an extension.
+			(!file.filename.replace(/^\./, "").includes(".") &&
 				(!file.mimeType ||
 					file.mimeType.toLowerCase() === "application/octet-stream")));
 	if (!format && !pdf && !plain) return none("unsupported");

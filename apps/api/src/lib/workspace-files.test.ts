@@ -345,7 +345,12 @@ describe("the whole text of an uploaded file", () => {
 	it.each(["", "application/octet-stream"])(
 		"checks extensionless files by bytes when the type is %j",
 		async (mimeType) => {
-			for (const filename of ["Dockerfile", "Makefile", "LICENSE"]) {
+			for (const filename of [
+				"Dockerfile",
+				"Makefile",
+				"LICENSE",
+				".gitignore",
+			]) {
 				const bytes = new TextEncoder().encode("first line\r\nGrüße 世界\n");
 				expect(
 					await readWorkspaceFileContent(stored(bytes), "key", {
