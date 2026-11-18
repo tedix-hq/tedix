@@ -1,6 +1,71 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { workspaceDescriptionForDisplay } from "./workspace-library";
+import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	groupWorkspaceLibrary,
+	workspaceDescriptionForDisplay,
+} from "./workspace-library";
+
+function workspace(id: string, name: string, description?: string) {
+	return { id, name, description: description ?? null } as OsWorkspace;
+}
+
+function preference(
+	workspaceId: string,
+	favorite: boolean,
+	lastOpenedAt: string | null,
+) {
+	return { workspaceId, favorite, lastOpenedAt, updatedAt: "2026-08-17" };
+}
+
+describe("groupWorkspaceLibrary", () => {
+	const workspaces = [
+		workspace("never-b", "Bravo"),
+		workspace("never-a", "Alpha"),
+		workspace("old", "Charlie"),
+		workspace("new", "Zulu"),
+		workspace("pin-old", "Delta"),
+		workspace("pin-new", "Yankee"),
+		workspace("pin-never", "Echo"),
+	];
+	const preferences = [
+		preference("old", false, "2026-08-01T09:00:00.000Z"),
+		preference("new", false, "2026-08-17T09:00:00.000Z"),
+		preference("pin-old", true, "2026-07-01T09:00:00.000Z"),
+		preference("pin-new", true, "2026-08-10T09:00:00.000Z"),
+		preference("pin-never", true, null),
+	];
+	const ids = (entries: { workspace: OsWorkspace }[]) =>
+		entries.map((entry) => entry.workspace.id);
+
+	it("lists pinned workspaces first, then the most recently opened, then the rest by name", () => {
+		const groups = groupWorkspaceLibrary(workspaces, preferences, "");
+		expect(ids(groups.all)).toEqual([
+			"pin-new",
+			"pin-old",
+			"pin-never",
+			"new",
+			"old",
+			"never-a",
+			"never-b",
+		]);
+		expect(ids(groups.favorites)).toEqual(["pin-new", "pin-old", "pin-never"]);
+	});
+
+	it("keeps Recent in last-opened order, pinned or not", () => {
+		const groups = groupWorkspaceLibrary(workspaces, preferences, "");
+		expect(ids(groups.recent)).toEqual(["new", "pin-new", "old", "pin-old"]);
+	});
+
+	it("keeps the order when a search narrows the list", () => {
+		const groups = groupWorkspaceLibrary(
+			[...workspaces, workspace("described", "Foxtrot", "the alpha plan")],
+			preferences,
+			" ALPHA ",
+		);
+		expect(ids(groups.all)).toEqual(["never-a", "described"]);
+	});
+});
 
 describe("workspaceDescriptionForDisplay", () => {
 	it("drops a parenthetical that carries a raw user id", () => {

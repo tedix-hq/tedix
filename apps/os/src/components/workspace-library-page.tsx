@@ -45,6 +45,7 @@ import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SharedWorkspacesList } from "@/components/shared-workspaces-list";
 import { WorkspaceDeleteDialog } from "@/components/workspace-delete-dialog";
+import { WorkspaceRowMenu } from "@/components/workspace-row-menu";
 import {
 	activeWorkspacesQueryOptions,
 	archivedWorkspacesQueryOptions,
@@ -52,6 +53,8 @@ import {
 	osQueryKeys,
 	workspacePreferencesQueryOptions,
 } from "@/lib/os-query-options";
+import { absoluteTime } from "@/lib/time";
+import { useSetWorkspaceFavorite } from "@/lib/workspace-favorite";
 import {
 	formatWorkspaceLastOpened,
 	groupWorkspaceLibrary,
@@ -99,64 +102,11 @@ export function WorkspaceLibraryPage() {
 		search.trim() === debouncedSearch.trim() && !workspaces.isFetching;
 	const preferences = useQuery(workspacePreferencesQueryOptions());
 	const [favoriteRefreshFailed, setFavoriteRefreshFailed] = useState(false);
-	const favorite = useMutation({
-		...osQuery.osWorkspaces.workspacePreferences.setFavorite.mutationOptions(),
-		onMutate: async ({ workspaceId, favorite }) => {
-			const options = workspacePreferencesQueryOptions();
-			await queryClient.cancelQueries(options);
-			const previous = queryClient.getQueryData(options.queryKey);
-			queryClient.setQueryData(options.queryKey, (old) => ({
-				items: [
-					...(old?.items ?? []).filter(
-						(item) => item.workspaceId !== workspaceId,
-					),
-					{
-						workspaceId,
-						favorite,
-						lastOpenedAt:
-							old?.items.find((item) => item.workspaceId === workspaceId)
-								?.lastOpenedAt ?? null,
-						updatedAt: new Date().toISOString(),
-					},
-				],
-			}));
-			return { previous };
-		},
-		onError: (_error, _input, context) => {
-			if (context?.previous) {
-				queryClient.setQueryData(
-					workspacePreferencesQueryOptions().queryKey,
-					context.previous,
-				);
-			}
-		},
+	const favorite = useSetWorkspaceFavorite({
 		onSettled: () => {
 			favoriteInFlight.current = false;
 		},
-		onSuccess: async ({ preference }) => {
-			try {
-				queryClient.setQueryData(
-					workspacePreferencesQueryOptions().queryKey,
-					(previous) =>
-						previous
-							? {
-									items: [
-										...previous.items.filter(
-											(item) => item.workspaceId !== preference.workspaceId,
-										),
-										preference,
-									],
-								}
-							: previous,
-				);
-				await queryClient.invalidateQueries(
-					{ queryKey: osQueryKeys.workspacePreferences() },
-					{ throwOnError: true },
-				);
-			} catch {
-				setFavoriteRefreshFailed(true);
-			}
-		},
+		onRefreshFailed: () => setFavoriteRefreshFailed(true),
 	});
 	const favoritesKnown = preferences.isSuccess && !favoriteRefreshFailed;
 	const retryFavorites = async () => {
@@ -317,10 +267,30 @@ export function WorkspaceLibraryPage() {
 									const lastOpened = formatWorkspaceLastOpened(
 										preference?.lastOpenedAt ?? null,
 									);
+									const lastOpenedTitle = preference?.lastOpenedAt
+										? `Last opened ${absoluteTime(preference.lastOpenedAt)}`
+										: undefined;
+									const togglePin = () => {
+										if (!favoritesKnown || favoriteInFlight.current) return;
+										favoriteInFlight.current = true;
+										favorite.mutate({
+											workspaceId: workspace.id,
+											favorite: !(preference?.favorite ?? false),
+										});
+									};
 									return (
-										<WorkspaceListRow
-											className="relative gap-1 rounded-lg p-0 pe-2 transition-colors hover:bg-kumo-tint has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-kumo-focus has-[a:focus-visible]:ring-inset motion-reduce:transition-none"
+										<WorkspaceRowMenu
 											key={workspace.id}
+											workspace={workspace}
+											pin={{
+												pinned: preference?.favorite ?? false,
+												disabled: !favoritesKnown || favorite.isPending,
+												onToggle: togglePin,
+											}}
+											buttonClassName="relative z-10 text-kumo-subtle"
+											render={
+												<WorkspaceListRow className="relative gap-1 rounded-lg p-0 pe-2 transition-colors hover:bg-kumo-tint has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-kumo-focus has-[a:focus-visible]:ring-inset motion-reduce:transition-none" />
+											}
 										>
 											{/* The link's overlay covers the whole row, date included;
 											    the favorite button sits above it as its own control. */}
@@ -338,6 +308,7 @@ export function WorkspaceLibraryPage() {
 														lastOpened ? (
 															<LastOpened
 																className="sm:hidden"
+																title={lastOpenedTitle}
 																value={lastOpened}
 															/>
 														) : null
@@ -346,6 +317,7 @@ export function WorkspaceLibraryPage() {
 												{lastOpened ? (
 													<LastOpened
 														className="max-sm:hidden"
+														title={lastOpenedTitle}
 														value={lastOpened}
 													/>
 												) : null}
@@ -373,15 +345,7 @@ export function WorkspaceLibraryPage() {
 														? "text-kumo-link"
 														: "text-kumo-subtle",
 												)}
-												onClick={() => {
-													if (!favoritesKnown || favoriteInFlight.current)
-														return;
-													favoriteInFlight.current = true;
-													favorite.mutate({
-														workspaceId: workspace.id,
-														favorite: !(preference?.favorite ?? false),
-													});
-												}}
+												onClick={togglePin}
 												size="icon-sm"
 												variant="ghost"
 											>
@@ -394,7 +358,7 @@ export function WorkspaceLibraryPage() {
 													<Question size={16} />
 												)}
 											</Button>
-										</WorkspaceListRow>
+										</WorkspaceRowMenu>
 									);
 								})}
 							</Collection>
@@ -669,9 +633,12 @@ function ArchivedWorkspaces({
 
 function LastOpened({
 	value,
+	title,
 	className,
 }: {
 	value: string;
+	/** The full date and time, shown on hover. */
+	title?: string;
 	className?: string;
 }) {
 	return (
@@ -679,6 +646,7 @@ function LastOpened({
 			as="span"
 			role="label"
 			tone="secondary"
+			title={title}
 			className={cn("flex shrink-0 items-center gap-1 tabular-nums", className)}
 		>
 			<Clock size={12} aria-hidden="true" />

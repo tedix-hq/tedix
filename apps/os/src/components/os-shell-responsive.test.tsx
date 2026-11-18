@@ -16,7 +16,7 @@ const route = vi.hoisted(() => ({ pathname: "/work", context: false }));
 
 const api = vi.hoisted(() => ({
 	workspaces: { list: vi.fn() },
-	workspacePreferences: { list: vi.fn() },
+	workspacePreferences: { list: vi.fn(), setFavorite: vi.fn() },
 }));
 
 vi.mock("@/components/work-actor-directory", () => ({
@@ -27,6 +27,19 @@ vi.mock("@/lib/api", () => ({
 	osApi: {
 		directory: { listMyWorkspaces: vi.fn() },
 		osWorkspaces: api,
+		// Sidebar workspace rows read what is new and whether a workspace is muted.
+		workspaceUnread: {
+			summary: vi.fn(async () => ({ total: 0, workspaces: [] })),
+			markRead: vi.fn(),
+		},
+		webPush: {
+			getStatus: vi.fn(async () => ({
+				enabled: false,
+				publicKey: null,
+				preferences: { mutedProjectIds: [], mutedWorkspaceIds: [] },
+			})),
+			setPreferences: vi.fn(),
+		},
 		userProfile: {
 			getMine: vi.fn(async () => ({ id: "fictional-shell-person" })),
 		},

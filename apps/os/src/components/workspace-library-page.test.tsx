@@ -12,7 +12,15 @@ import {
 } from "vite-plus/test";
 
 const api = vi.hoisted(() => ({
-	workspaces: { list: vi.fn(), restore: vi.fn(), delete: vi.fn() },
+	workspaces: {
+		list: vi.fn(),
+		restore: vi.fn(),
+		delete: vi.fn(),
+		update: vi.fn(),
+		archive: vi.fn(),
+		activity: vi.fn(),
+	},
+	outputs: { list: vi.fn() },
 	collaboration: { list: vi.fn() },
 	workspacePreferences: {
 		list: vi.fn(),
@@ -23,13 +31,21 @@ const api = vi.hoisted(() => ({
 const navigate = vi.hoisted(() => vi.fn());
 
 const shares = vi.hoisted(() => ({ list: vi.fn(), revoke: vi.fn() }));
+const unread = vi.hoisted(() => ({ summary: vi.fn(), markRead: vi.fn() }));
+const webPush = vi.hoisted(() => ({
+	getStatus: vi.fn(),
+	setPreferences: vi.fn(),
+}));
+const collaborators = vi.hoisted(() => ({ list: vi.fn() }));
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		osWorkspaces: api,
 		osShares: { shares },
+		osCollaborators: collaborators,
+		webPush,
 		workspaceUnread: {
-			summary: vi.fn(async () => ({ total: 0, workspaces: [] })),
+			summary: unread.summary,
 			list: vi.fn(async () => ({ total: 0, groups: [] })),
 			workspace: vi.fn(async ({ workspaceId }: { workspaceId: string }) => ({
 				workspaceId,
@@ -39,14 +55,7 @@ vi.mock("@/lib/api", () => ({
 				fileIds: [],
 				conversations: [],
 			})),
-			markRead: vi.fn(async ({ workspaceId }: { workspaceId: string }) => ({
-				workspaceId,
-				chat: 0,
-				files: 0,
-				total: 0,
-				fileIds: [],
-				conversations: [],
-			})),
+			markRead: unread.markRead,
 			markAllRead: vi.fn(async () => ({ ok: true })),
 		},
 	},
@@ -54,6 +63,12 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
 	useNavigate: () => navigate,
+}));
+// Another change owns the share dialog; these tests only prove it opens.
+vi.mock("@/components/workspace-share-dialog", () => ({
+	WorkspaceShareDialog: ({ workspaceName }: { workspaceName: string }) => (
+		<div role="dialog">Share {workspaceName}</div>
+	),
 }));
 vi.mock("@/components/shared-workspaces-list", () => ({
 	SharedWorkspacesList: () => null,
@@ -148,8 +163,55 @@ async function renderPage() {
 	return { container, root, queryClient };
 }
 
+/** Open a row's menu, from its "⋯" button or by right-click, and pick an entry. */
+async function chooseAction(
+	container: Element,
+	name: string,
+	label: string,
+	how: "button" | "right-click" = "button",
+) {
+	const more = container.querySelector<HTMLElement>(
+		`[aria-label="Actions for ${name}"]`,
+	)!;
+	await act(async () => {
+		if (how === "button") more.click();
+		else
+			more
+				.closest("[data-workspace-row-menu]")!
+				.dispatchEvent(
+					new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+				);
+	});
+	const entry = [
+		...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+	].find((node) => node.textContent?.trim() === label);
+	expect(entry, label).toBeDefined();
+	await act(async () => entry!.click());
+	await flush();
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
+	unread.summary.mockResolvedValue({ total: 0, workspaces: [] });
+	unread.markRead.mockImplementation(
+		async ({ workspaceId }: { workspaceId: string }) => ({
+			workspaceId,
+			chat: 0,
+			files: 0,
+			total: 0,
+			fileIds: [],
+			conversations: [],
+		}),
+	);
+	webPush.getStatus.mockResolvedValue({
+		enabled: true,
+		publicKey: "B".repeat(87),
+		preferences: { mutedProjectIds: [], mutedWorkspaceIds: [] },
+	});
+	webPush.setPreferences.mockResolvedValue({
+		mutedProjectIds: [],
+		mutedWorkspaceIds: [],
+	});
 	api.workspaces.list.mockResolvedValue({
 		items: [
 			workspace(),
@@ -694,6 +756,219 @@ describe("WorkspaceLibraryPage", () => {
 		expect(container.textContent).toContain(
 			"Showing the first 1 workspace — more exist beyond this page.",
 		);
+		act(() => root.unmount());
+	});
+});
+
+describe("Workspace row actions in the list", () => {
+	it("lists pinned workspaces first, then the most recently opened", async () => {
+		api.workspaces.list.mockResolvedValue({
+			items: [
+				workspace({ id: "never", name: "Alpha" }),
+				workspace({ id: "older", name: "Beta" }),
+				workspace({ id: "newer", name: "Zulu" }),
+				workspace({ id: "pinned", name: "Yankee" }),
+			],
+			truncated: false,
+		});
+		api.workspacePreferences.list.mockResolvedValue({
+			items: [
+				{
+					workspaceId: "older",
+					favorite: false,
+					lastOpenedAt: "2026-08-01T12:00:00.000Z",
+					updatedAt: "2026-08-01T12:00:00.000Z",
+				},
+				{
+					workspaceId: "newer",
+					favorite: false,
+					lastOpenedAt: "2026-08-17T12:00:00.000Z",
+					updatedAt: "2026-08-17T12:00:00.000Z",
+				},
+				{
+					workspaceId: "pinned",
+					favorite: true,
+					lastOpenedAt: null,
+					updatedAt: "2026-08-17T12:00:00.000Z",
+				},
+			],
+		});
+		const { container, root } = await renderPage();
+		expect(
+			[...container.querySelectorAll('ul[aria-label="Workspaces"] strong')].map(
+				(row) => row.textContent,
+			),
+		).toEqual(["Yankee", "Zulu", "Beta", "Alpha"]);
+		// Each opened workspace says when; hovering gives the full date and time.
+		const opened = container.querySelector('[title^="Last opened "]');
+		expect(opened?.textContent).toContain("Aug 17");
+		act(() => root.unmount());
+	});
+
+	it("offers every workspace action on a row, by button and by right-click", async () => {
+		const { container, root } = await renderPage();
+		for (const how of ["button", "right-click"] as const) {
+			const more = container.querySelector<HTMLElement>(
+				'[aria-label="Actions for Support Desk"]',
+			)!;
+			await act(async () => {
+				if (how === "button") more.click();
+				else
+					more.closest("[data-workspace-row-menu]")!.dispatchEvent(
+						new MouseEvent("contextmenu", {
+							bubbles: true,
+							cancelable: true,
+						}),
+					);
+			});
+			expect(
+				[...document.querySelectorAll('[role="menuitem"]')].map((node) =>
+					node.textContent?.trim(),
+				),
+			).toEqual([
+				"Rename",
+				"Pin",
+				"Mute",
+				"Mark as read",
+				"Share",
+				"Information",
+				"Archive",
+			]);
+			await act(async () => {
+				document.dispatchEvent(
+					new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+				);
+				document.activeElement?.dispatchEvent(
+					new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+				);
+			});
+			await flush();
+		}
+		act(() => root.unmount());
+	});
+
+	it("pins, mutes and marks a workspace read from its row", async () => {
+		unread.summary.mockResolvedValue({
+			total: 2,
+			workspaces: [
+				{ workspaceId: SECOND_WORKSPACE_ID, chat: 2, files: 0, total: 2 },
+			],
+		});
+		const { container, root } = await renderPage();
+
+		await chooseAction(container, "Support Desk", "Mark as read");
+		expect(unread.markRead.mock.calls[0]?.[0]).toEqual({
+			workspaceId: SECOND_WORKSPACE_ID,
+			target: { type: "all" },
+		});
+
+		await chooseAction(container, "Support Desk", "Mute", "right-click");
+		expect(webPush.setPreferences).toHaveBeenCalledWith({
+			mutedProjectIds: [],
+			mutedWorkspaceIds: [SECOND_WORKSPACE_ID],
+		});
+
+		await chooseAction(container, "Support Desk", "Pin");
+		expect(api.workspacePreferences.setFavorite.mock.calls[0]?.[0]).toEqual({
+			workspaceId: SECOND_WORKSPACE_ID,
+			favorite: true,
+		});
+		expect(container.textContent).toContain("Favorite saved.");
+		act(() => root.unmount());
+	});
+
+	it("leaves Mark as read off when nothing is new", async () => {
+		const { container, root } = await renderPage();
+		await act(async () => {
+			container
+				.querySelector<HTMLElement>('[aria-label="Actions for Support Desk"]')!
+				.click();
+		});
+		const entry = [
+			...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+		].find((node) => node.textContent?.trim() === "Mark as read");
+		expect(entry?.getAttribute("aria-disabled")).toBe("true");
+		act(() => root.unmount());
+	});
+
+	it("renames a workspace from its row", async () => {
+		api.workspaces.update.mockResolvedValue({
+			workspace: workspace({ id: SECOND_WORKSPACE_ID, name: "Support" }),
+		});
+		const { container, root } = await renderPage();
+		await chooseAction(container, "Support Desk", "Rename");
+		const name = document.querySelector<HTMLInputElement>(
+			'[role="dialog"] input',
+		)!;
+		expect(name.value).toBe("Support Desk");
+		setFieldValue(name, "Support");
+		await act(async () =>
+			[...document.querySelectorAll("button")]
+				.find((candidate) => candidate.textContent === "Save changes")!
+				.click(),
+		);
+		await flush();
+		expect(api.workspaces.update).toHaveBeenCalledWith({
+			workspaceId: SECOND_WORKSPACE_ID,
+			name: "Support",
+			description: "Customer triage",
+		});
+		act(() => root.unmount());
+	});
+
+	it("opens sharing and the workspace's information from its row", async () => {
+		collaborators.list.mockResolvedValue({
+			role: "owner",
+			isOwner: true,
+			ownerName: "Ada Lovelace",
+			collaborators: [],
+			links: [],
+		});
+		api.outputs.list.mockResolvedValue({ items: [], truncated: false });
+		api.workspaces.activity.mockResolvedValue({
+			items: [],
+			coverage: "recorded_only",
+			next: null,
+		});
+		const { container, root } = await renderPage();
+		await chooseAction(container, "Support Desk", "Share");
+		expect(document.body.textContent).toContain("Share Support Desk");
+		await chooseAction(container, "Support Desk", "Information");
+		expect(document.body.textContent).toContain("About Support Desk");
+		expect(document.body.textContent).toContain("Ada Lovelace");
+		expect(navigate).not.toHaveBeenCalled();
+		act(() => root.unmount());
+	});
+
+	it("archives a workspace from its row after asking, and drops the row", async () => {
+		api.workspaces.archive.mockImplementation(async () => {
+			api.workspaces.list.mockResolvedValue({
+				items: [workspace()],
+				truncated: false,
+			});
+			return {
+				workspace: workspace({ id: SECOND_WORKSPACE_ID, status: "archived" }),
+			};
+		});
+		const { container, root } = await renderPage();
+		await chooseAction(container, "Support Desk", "Archive");
+		expect(api.workspaces.archive).not.toHaveBeenCalled();
+		expect(document.body.textContent).toContain("Archive Support Desk?");
+		await act(async () =>
+			[...document.querySelectorAll("button")]
+				.find((candidate) => candidate.textContent === "Archive workspace")!
+				.click(),
+		);
+		await flush();
+		expect(api.workspaces.archive).toHaveBeenCalledWith({
+			workspaceId: SECOND_WORKSPACE_ID,
+		});
+		expect(
+			container.querySelector('[aria-label="Actions for Support Desk"]'),
+		).toBeNull();
+		expect(
+			container.querySelector('[aria-label="Actions for Revenue Ops"]'),
+		).not.toBeNull();
 		act(() => root.unmount());
 	});
 });

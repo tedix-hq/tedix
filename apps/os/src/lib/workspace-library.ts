@@ -35,10 +35,15 @@ export function groupWorkspaceLibrary(
 			workspace,
 			preference: preferenceById.get(workspace.id) ?? null,
 		}))
+		// Pinned first, then the most recently opened; a workspace the person
+		// never opened comes after those, by name.
 		.sort(
 			(left, right) =>
 				Number(right.preference?.favorite ?? false) -
 					Number(left.preference?.favorite ?? false) ||
+				(right.preference?.lastOpenedAt ?? "").localeCompare(
+					left.preference?.lastOpenedAt ?? "",
+				) ||
 				left.workspace.name.localeCompare(right.workspace.name),
 		);
 	return {
