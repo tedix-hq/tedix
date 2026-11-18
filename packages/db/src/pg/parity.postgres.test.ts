@@ -407,7 +407,22 @@ describe("SQLite and Postgres core query parity", () => {
 				workKind: "coding",
 			}),
 		]);
-		expect(pgItems).toEqual(sqliteItems);
+		// SQLite rows also carry columns it generates from `metadata` for its own
+		// indexes; the frozen Postgres copy stores `metadata` only.
+		const sqliteGenerated = new Set([
+			"repositoryObserver",
+			"report",
+			"observerWokenAt",
+			"metadataExecutor",
+			"metadataSource",
+		]);
+		expect(pgItems).toEqual(
+			sqliteItems.map((item) =>
+				Object.fromEntries(
+					Object.entries(item).filter(([key]) => !sqliteGenerated.has(key)),
+				),
+			),
+		);
 
 		const [sqliteAttempts, pgAttempts] = await Promise.all([
 			listSqliteAttemptSummaries(sqliteDb, {

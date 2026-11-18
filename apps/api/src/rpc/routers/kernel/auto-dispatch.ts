@@ -175,7 +175,7 @@ export function buildAutoDelegationDispatcher(deps: {
 				...(input.workOrder.authorityEnvelope
 					? { delegationAuthority: input.workOrder.authorityEnvelope }
 					: {}),
-				delegationAuthorityMode: "enforce",
+				delegationAuthorityMode: input.workOrder.authorityMode ?? "shadow",
 				...(input.workItemId ? { workItemId: input.workItemId } : {}),
 				// Depth propagation: carry this run's chain depth so the injected
 				// child runner increments it to parent+1 (it reads metadata.delegationDepth

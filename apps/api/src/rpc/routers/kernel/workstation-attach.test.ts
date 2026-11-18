@@ -212,7 +212,7 @@ describe("workstationAttachWorkOrder", () => {
 			targetTediId: "tedi-cto",
 			workItemId: "wi-7",
 			status: "requires_approval",
-			authorityMode: "enforce",
+			authorityMode: "shadow",
 			executionRequirement: {
 				surface: "workstation",
 				requiredCapabilities: ["process"],

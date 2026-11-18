@@ -9,6 +9,8 @@ import { deriveWorkItemReadiness } from "./readiness";
 const migration = "20261022073425_work_items_lane_dispatch_indexes";
 const backfill = "20261115163121_lane_ready_requires_state";
 const executionContract = "20261118053954_work_item_execution_contract";
+// The current Work row reads these generated columns.
+const generatedColumns = "20261118171241_generated_json_columns";
 
 // Build the chain-prefix template at collection, not inside a timed test on a
 // shared machine.
@@ -43,7 +45,12 @@ describe("lane dispatch indexes", () => {
 			INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision)
 			VALUES('legacy-factory','org-2','Legacy factory','accepted','{"factoryCycle":{"maxAttempts":3}}','2026-10-22T00:00:00Z','revision-1');
 		`);
-		for (const name of [migration, backfill, executionContract])
+		for (const name of [
+			migration,
+			backfill,
+			executionContract,
+			generatedColumns,
+		])
 			sqlite.exec(
 				readFileSync(
 					new URL(`../../../drizzle/${name}/migration.sql`, import.meta.url),

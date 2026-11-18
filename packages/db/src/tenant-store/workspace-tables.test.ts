@@ -45,10 +45,18 @@ describe("workspace table contract", () => {
 					.map(({ cid: _cid, ...column }) => column)
 					.sort((a, b) => String(a.name).localeCompare(String(b.name)));
 			expect(columns(local), table).toEqual(columns(platform));
+			// A generated column is computed by the core from stored columns, so it
+			// is never copied; an index over one serves core queries only.
 			const indexes = (db: DatabaseSync) =>
 				db
 					.prepare(
-						"SELECT name, sql FROM sqlite_schema WHERE type='index' AND tbl_name=? AND name NOT IN (?) ORDER BY name",
+						`SELECT name, sql FROM sqlite_schema AS s WHERE type='index' AND tbl_name=? AND name NOT IN (?)
+							AND NOT EXISTS (
+								SELECT 1 FROM pragma_index_info(s.name) AS i
+								JOIN pragma_table_xinfo(s.tbl_name) AS c ON c.name = i.name
+								WHERE c.hidden IN (2, 3)
+							)
+							ORDER BY name`,
 					)
 					.all(table, EXPRESSION_INDEX);
 			expect(indexes(local), table).toEqual(indexes(platform));

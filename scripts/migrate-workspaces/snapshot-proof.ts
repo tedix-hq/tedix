@@ -12,7 +12,7 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { renderRow, type StoredRow } from "./rows";
-import { hasTable, type Snapshot } from "./source";
+import { hasTable, storedColumns, type Snapshot } from "./source";
 import { WORKSPACE_TABLES } from "./tables";
 
 /** A snapshot older than this is stale for an import; take a new one. */
@@ -63,7 +63,7 @@ function storeProof(db: DatabaseSync, store: "main" | "logs"): StoreProof {
 		if (hasTable(db, mapping.table))
 			for (const row of db
 				.prepare(
-					`SELECT * FROM "${mapping.table}" ORDER BY ${mapping.primaryKey.map((c) => `"${c}"`).join(", ")}`,
+					`SELECT ${storedColumns(db, mapping.table)} FROM "${mapping.table}" ORDER BY ${mapping.primaryKey.map((c) => `"${c}"`).join(", ")}`,
 				)
 				.iterate()) {
 				hash.update(renderRow(row as StoredRow));
