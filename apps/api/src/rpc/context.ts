@@ -281,7 +281,7 @@ export function createContext(
 		},
 		dbBookmark: () => session?.getBookmark() ?? null,
 		get dbMetrics() {
-			return session?.metrics;
+			return getSession().metrics;
 		},
 		serverTiming: [],
 		headers: request.headers,
