@@ -5,15 +5,16 @@ import {
 	unavailableTediActivity,
 } from "../../../services/workflow-step-tedi-activity";
 import { AUTHZ, createError, ErrorCodes } from "../../orpc";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import { authedSkills } from "../cognitive-shared";
 import { getSkillRunForEnvironment, requireWorkflowRunTedi } from "./shared";
 
 export const skillsGetWorkflowStepTediActivity =
 	authedSkills.getWorkflowStepTediActivity
 		.use(AUTHZ.tedisRead)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 			if (
 				!run ||

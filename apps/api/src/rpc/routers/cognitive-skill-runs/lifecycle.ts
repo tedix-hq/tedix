@@ -11,7 +11,7 @@ import {
 } from "../../../kernel/runtime-submission-bridge";
 import { callSkillRuntime } from "../../../services/skill-runtime-client";
 import { AUTHZ, type BaseContext, createError, ErrorCodes } from "../../orpc";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import { authedSkills } from "../cognitive-shared";
 import {
 	type SkillRuntimeLifecycleResponse,
@@ -41,8 +41,9 @@ async function applySkillWorkflowLifecycleResponse(
 
 export const skillsPauseWorkflow = authedSkills.pauseWorkflow
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
@@ -70,8 +71,9 @@ export const skillsPauseWorkflow = authedSkills.pauseWorkflow
 
 export const skillsResumeWorkflow = authedSkills.resumeWorkflow
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
@@ -99,8 +101,9 @@ export const skillsResumeWorkflow = authedSkills.resumeWorkflow
 
 export const skillsRestartWorkflow = authedSkills.restartWorkflow
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
@@ -167,8 +170,9 @@ export const skillsRestartWorkflow = authedSkills.restartWorkflow
 export const skillsRetireUnstartedWorkflow =
 	authedSkills.retireUnstartedWorkflow
 		.use(AUTHZ.tedisWrite)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 			if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 			requireWorkflowRunTedi(run, input.tediId);
@@ -201,8 +205,9 @@ export const skillsRetireUnstartedWorkflow =
 
 export const skillsApproveWorkflow = authedSkills.approveWorkflow
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
@@ -233,8 +238,9 @@ export const skillsApproveWorkflow = authedSkills.approveWorkflow
 
 export const skillsRejectWorkflow = authedSkills.rejectWorkflow
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
@@ -308,8 +314,9 @@ function requireRevocableSkillRunProjection(run: SkillRun): void {
 
 export const skillsRevokeSkillRun = authedSkills.revokeSkillRun
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		if (input.skillId && run.skillId !== input.skillId) {
@@ -424,12 +431,12 @@ export const skillsRevokeSkillRun = authedSkills.revokeSkillRun
 			await import("@tedix/db/queries/skill-run-artifacts");
 		const beforeArtifacts = await listRunArtifacts(
 			context.db,
-			{ organizationId: requireOrgId(context) },
+			{ organizationId: context.organizationId },
 			run.id,
 		);
 		const artifactsDeleted = await deleteRunArtifacts(
 			context.db,
-			{ organizationId: requireOrgId(context) },
+			{ organizationId: context.organizationId },
 			run.id,
 		);
 

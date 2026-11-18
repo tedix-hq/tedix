@@ -36,7 +36,7 @@ import {
 import { runTediMcpAccessBatchOnTargets } from "../../services/tedi-mcp-access";
 import { auditActor } from "../audit-helpers";
 import { AUTHZ, type BaseContext, createError, ErrorCodes } from "../orpc";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import { authedSkills, isLifecycleOverrideAuthority } from "./cognitive-shared";
 
 type MoveActor = { actorId: string; actorType: string };
@@ -186,8 +186,9 @@ async function appAccess(
 
 export const skillsMoveToTedi = authedSkills.moveToTedi
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }): Promise<SkillMoveToTediResult> => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const skill = await getSkillEntry(context.db, input.skillId, orgId);
 		if (!skill) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
 		const target = await getTediByIdForOrganization(

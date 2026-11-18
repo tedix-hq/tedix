@@ -31,7 +31,7 @@ import {
 	summarizeSkillRunArtifact,
 } from "../../../services/skill-workflow-inspection";
 import { AUTHZ, createError, ErrorCodes } from "../../orpc";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import { authedSkills } from "../cognitive-shared";
 import {
 	parseSkillWorkflowRuntimeProvenance,
@@ -51,8 +51,9 @@ import { reconcileSkillRunWithEngine } from "./run-start";
 
 export const skillsRunWorkflowStatus = authedSkills.runWorkflowStatus
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRun(
 			context.db,
 			input.runId,
@@ -72,8 +73,9 @@ export const skillsRunWorkflowStatus = authedSkills.runWorkflowStatus
 
 export const skillsRunWorkflowCancel = authedSkills.runWorkflowCancel
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRun(
 			context.db,
 			input.runId,
@@ -184,8 +186,9 @@ export const skillsRunWorkflowCancel = authedSkills.runWorkflowCancel
 
 export const skillsRunWorkflowSendEvent = authedSkills.runWorkflowSendEvent
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRun(
 			context.db,
 			input.runId,
@@ -325,8 +328,9 @@ function compactSkillRun(run: SkillRunSummaryRow) {
 
 export const skillsRunWorkflowHistory = authedSkills.runWorkflowHistory
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const filters = {
 			status: input.status,
@@ -437,8 +441,9 @@ export const skillsRunWorkflowHistory = authedSkills.runWorkflowHistory
 export const skillsListWorkflowRetryCandidates =
 	authedSkills.listWorkflowRetryCandidates
 		.use(AUTHZ.tedisRead)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const rows = await listSkillWorkflowRetryCandidateRuns(
 				context.db,
 				orgId,
@@ -502,8 +507,9 @@ export const skillsListWorkflowRetryCandidates =
 
 export const skillsInspectWorkflowRun = authedSkills.inspectWorkflowRun
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const storedRun = await getSkillRunForEnvironment(
 			context,
 			input.runId,
@@ -590,8 +596,9 @@ export const skillsInspectWorkflowRun = authedSkills.inspectWorkflowRun
 
 export const skillsListWorkflowSteps = authedSkills.listWorkflowSteps
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
@@ -623,8 +630,9 @@ export const skillsListWorkflowSteps = authedSkills.listWorkflowSteps
 
 export const skillsListWorkflowToolCalls = authedSkills.listWorkflowToolCalls
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
@@ -660,8 +668,9 @@ export const skillsListWorkflowToolCalls = authedSkills.listWorkflowToolCalls
 
 export const skillsGetWorkflowRunTimeline = authedSkills.getWorkflowRunTimeline
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);

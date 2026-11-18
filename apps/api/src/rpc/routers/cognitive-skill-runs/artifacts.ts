@@ -7,7 +7,7 @@ import {
 import { type SkillRun } from "@tedix/db/queries/skill-runs";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { AUTHZ, type BaseContext, createError, ErrorCodes } from "../../orpc";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import { authedSkills } from "../cognitive-shared";
 import { verifiedActiveUserMembership } from "../work-items-principal";
 import { assessSkillUtility } from "../../../services/jev-skill-utility";
@@ -54,8 +54,9 @@ const TERMINAL_SKILL_RUN_STATUSES = new Set([
 export const skillsRecordRunEffectObservation =
 	authedSkills.recordRunEffectObservation
 		.use(AUTHZ.tedisWrite)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			if (context.authType !== "user")
 				throw createError(
 					ErrorCodes.FORBIDDEN,
@@ -100,8 +101,9 @@ export const skillsRecordRunEffectObservation =
 /** Assessment never changes the run, skill, Work Item, or usage ledger. */
 export const skillsGetRunUsefulness = authedSkills.getRunUsefulness
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run || run.organizationId !== orgId)
 			throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
@@ -175,8 +177,9 @@ export const skillsGetRunUsefulness = authedSkills.getRunUsefulness
 
 export const skillsGetRunArtifact = authedSkills.getRunArtifact
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
@@ -187,7 +190,7 @@ export const skillsGetRunArtifact = authedSkills.getRunArtifact
 			await import("@tedix/db/queries/skill-run-artifacts");
 		const artifact = await getRunArtifact(
 			context.db,
-			{ organizationId: requireOrgId(context) },
+			{ organizationId: context.organizationId },
 			input.runId,
 			input.path,
 		);
@@ -332,8 +335,9 @@ export const skillsGetRunArtifact = authedSkills.getRunArtifact
 
 export const skillsListRunArtifacts = authedSkills.listRunArtifacts
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
@@ -344,7 +348,7 @@ export const skillsListRunArtifacts = authedSkills.listRunArtifacts
 			await import("@tedix/db/queries/skill-run-artifacts");
 		const fetched = await listRunArtifactsPage(
 			context.db,
-			{ organizationId: requireOrgId(context) },
+			{ organizationId: context.organizationId },
 			input.runId,
 			{
 				limit: input.limit + 1,
