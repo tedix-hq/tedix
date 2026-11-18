@@ -138,9 +138,12 @@ scope)`. The non-empty rationale is part of the typed guard declaration;
 `null`, `[]`, and `{ anyOf: [] }` are invalid. The lint recognizes only that
 named shape and cannot exempt an ordinary one-plane procedure.
 
-Use `requireOrgId` / `requireOrgIdOrInput` from `rpc/org-scope.ts` for
-organization scope. Do not add a local copy. A missing organization is
-FORBIDDEN, never 401: a 401 bounces a user with a valid session to `/login`.
+Use `withOrg` from `rpc/org-scope.ts` after authentication and authorization
+for procedures requiring organization scope; handlers receive a typed
+`context.organizationId`. Keep `requireOrgIdOrInput` for trusted input fallback
+and `requireOrgId` for helpers not reached through that middleware. Do not add
+a local copy. A missing organization is FORBIDDEN, never 401: a 401 bounces a
+user with a valid session to `/login`.
 
 Tenant ownership belongs in the query predicate for caller-supplied record ids;
 use organization-scoped query helpers such as `getAppByIdForOrganization` and

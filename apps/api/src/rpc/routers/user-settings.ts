@@ -40,7 +40,7 @@ import {
 	getOrganizationProfile,
 } from "@tedix/db/queries/organizations";
 import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -221,8 +221,9 @@ function parseStoredPreferences(value: unknown): OsUserPreferences | null {
 const getPreferences = os.getPreferences
 	.use(withAuth)
 	.use(AUTHZ.osRead)
+	.use(withOrg)
 	.handler(async ({ context }) => {
-		const organizationId = requireOrgId(context);
+		const { organizationId } = context;
 		const userId = requirePreferenceUserId(context);
 		const row = await getUserConfig(context.db, {
 			userId,
@@ -249,8 +250,9 @@ const getPreferences = os.getPreferences
 const updatePreferences = os.updatePreferences
 	.use(withAuth)
 	.use(AUTHZ.osRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
+		const { organizationId } = context;
 		const userId = requirePreferenceUserId(context);
 		const result = await putUserConfig(context.db, {
 			userId,
@@ -282,8 +284,9 @@ const updatePreferences = os.updatePreferences
 const getContext = os.getContext
 	.use(withAuth)
 	.use(AUTHZ.osRead)
+	.use(withOrg)
 	.handler(async ({ context }) => {
-		const organizationId = requireOrgId(context);
+		const { organizationId } = context;
 		const [organization, appearance, purpose] = await Promise.all([
 			getOrganizationProfile(context.db, organizationId),
 			getOrganizationOsTheme(context.db, organizationId),
