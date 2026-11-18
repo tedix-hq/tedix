@@ -16,12 +16,10 @@ import {
 export function useByosAdvance({
 	context,
 	errorMessage,
-	logLabel,
 	next,
 }: {
 	context?: DescopeByosContext;
 	errorMessage: string;
-	logLabel: string;
 	next: DescopeFlowNext;
 }) {
 	const [pending, setPending] = useState<string | null>(null);
@@ -43,8 +41,7 @@ export function useByosAdvance({
 			// release of the pending state. A successful same-screen interaction has
 			// neither signal, so its caller must opt in to releasing on resolution.
 			if (options.releaseOnResolve) setPending(null);
-		} catch (cause) {
-			console.error(logLabel, cause);
+		} catch {
 			setError(errorMessage);
 			setPending(null);
 		}

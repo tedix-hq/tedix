@@ -89,11 +89,6 @@ import {
 	webMcpBridgeResponse,
 } from "./webmcp/bridge-injection";
 import {
-	handleProviderCohortHost,
-	PROVIDER_COHORT_PATH,
-	PROVIDER_COHORT_SESSION_PATH,
-} from "./webmcp/provider-cohort-host";
-import {
 	handleWidgetMcp,
 	handleWidgetResource,
 	type WidgetServiceIdentity,
@@ -139,11 +134,6 @@ export interface OsRouterEnv extends OsSessionBrokerEnv {
 	 * at `LOCAL_WORKSPACE_OBJECT_URL` instead.
 	 */
 	readonly WORKSPACE_RUNTIME?: FetcherLike;
-	/** Secret: exact embedded:session provider key; never sent to a browser. */
-	readonly TEDIX_PROVIDER_COHORT_API_KEY?: string;
-	/** Fixed, nonsecret identity and organization target for this bounded cohort. */
-	readonly PROVIDER_COHORT_OS_TENANT_ID?: string;
-	readonly PROVIDER_COHORT_EXTERNAL_TENANT_ID?: string;
 	/** Release sha stamped by deploy:production; "unknown" outside a deploy. */
 	readonly GIT_SHA?: string;
 	readonly RELEASE_REPOSITORY?: string;
@@ -1227,23 +1217,6 @@ export async function handleOsRequest(
 			: undefined,
 	);
 	if (brokerResponse) return withSecurityHeaders(brokerResponse);
-	// authz: verified OS session on the fixed Tedix tenant host. This is a
-	// first-party provider-host pilot, separate from OS Quick Chat and /mcp.
-	if (
-		url.pathname === PROVIDER_COHORT_PATH ||
-		url.pathname === PROVIDER_COHORT_SESSION_PATH
-	) {
-		// The proxy helper rebuilds its input Request and consumes a POST body.
-		// Guard a clone so the cohort handler can parse the original body.
-		const authenticated = withBrokerApiSession(
-			request.clone(),
-			OS_BROKER_SESSION_COOKIE,
-		);
-		if (!authenticated) return refuse(401, "Authentication required");
-		return withSecurityHeaders(
-			await handleProviderCohortHost(request, env, hostTenantId),
-		);
-	}
 	if (url.pathname === DESCOPE_OUTBOUND_BRIDGE_PATH) {
 		const authenticated = withBrokerApiSession(
 			new Request(request.url, { headers: request.headers }),

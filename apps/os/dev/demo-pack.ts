@@ -57,6 +57,7 @@ export const demoPackIsStale = (builtAtMs: number, nowMs: number): boolean =>
 	nowMs - builtAtMs > DEMO_PACK_MAX_AGE_MS;
 
 export type PackCard = (typeof cardsData)[number];
+// The root local-D1 seeder consumes these raw pack records directly.
 export const demoPackPresentations = presentationData as Record<
 	string,
 	unknown

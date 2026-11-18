@@ -127,12 +127,10 @@ export function postSessionTokenForm(action: string, sessionJwt: string): void {
 export function useIdentityOrganizationContinuation({
 	continueJourney,
 	errorMessage,
-	logLabel,
 	prepareOrganization = true,
 }: {
 	continueJourney: (sessionJwt: string) => void;
 	errorMessage: string;
-	logLabel: string;
 	prepareOrganization?: boolean;
 }) {
 	const inFlight = useRef(false);
@@ -154,14 +152,13 @@ export function useIdentityOrganizationContinuation({
 					prepareFirstOsOrganization(sessionJwt),
 				)
 				.then(() => continueJourney(sessionJwt))
-				.catch((cause: unknown) => {
+				.catch(() => {
 					inFlight.current = false;
 					setPreparing(false);
 					setError(errorMessage);
-					console.error(logLabel, cause);
 				});
 		},
-		[continueJourney, errorMessage, logLabel, prepareOrganization],
+		[continueJourney, errorMessage, prepareOrganization],
 	);
 
 	return { continueAfterAuthentication, error, preparing };

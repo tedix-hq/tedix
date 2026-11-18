@@ -557,7 +557,7 @@ export function OsQuickChat() {
 				.trackWidgetLifecycle({
 					events: [{ ...event, surface: "native_os" }],
 				})
-				.catch((error) => console.error("[OS quick chat telemetry]", error));
+				.catch(() => {});
 		};
 		const script = document.createElement("script");
 		script.src = WIDGET_LOADER_URL;
@@ -615,9 +615,7 @@ export function OsQuickChat() {
 					}),
 					window.Tedix.on("opened", () => {
 						recordLifecycle({ event: "opened" });
-						void getTediCandidates().catch((error) =>
-							console.error("[OS quick chat tedi prefetch]", error),
-						);
+						void getTediCandidates().catch(() => {});
 					}),
 					window.Tedix.on("closed", () => recordLifecycle({ event: "closed" })),
 					...(
@@ -770,7 +768,9 @@ export function OsQuickChat() {
 					window.location.pathname,
 				);
 				applyLauncherSuppression(window.location.pathname);
-			})().catch((error) => console.error("[OS quick chat]", error));
+			})().catch((error) => {
+				reportOsIssue("widget.initialization", error);
+			});
 		});
 		document.body.append(script);
 		return () => {

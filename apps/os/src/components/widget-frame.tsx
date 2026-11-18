@@ -21,6 +21,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
+import { reportOsIssue } from "@/lib/error-reporting/install";
 import { resolveThemeMode, useOsTheme } from "@/lib/theme";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { widgetSandboxUrl } from "@/lib/widget-sandbox-url";
@@ -273,7 +274,10 @@ class WidgetErrorBoundary extends Component<
 	}
 
 	componentDidCatch(error: Error): void {
-		console.error(`Widget renderer crashed: ${error.message}`);
+		reportOsIssue("widget.renderer", error, {
+			handled: true,
+			captureMechanism: "react",
+		});
 	}
 
 	render(): ReactNode {

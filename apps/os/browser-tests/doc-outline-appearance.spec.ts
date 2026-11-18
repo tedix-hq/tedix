@@ -92,9 +92,18 @@ try {
 		await editor.evaluate((node) => getComputedStyle(node).lineHeight),
 		"28.8px",
 	);
-	const pageWidth = await frame
-		.locator(".doc-page")
-		.evaluate((node) => node.getBoundingClientRect().width);
+	const pageWidth = await frame.locator(".doc-page").evaluate(
+		(node) =>
+			new Promise<number>((resolve) => {
+				const deadline = performance.now() + 1_000;
+				const measure = () => {
+					const width = node.getBoundingClientRect().width;
+					if (width > 900 || performance.now() >= deadline) resolve(width);
+					else requestAnimationFrame(measure);
+				};
+				measure();
+			}),
+	);
 	assert(pageWidth > 900, "full width expands the document measure");
 	await page.waitForTimeout(1_500);
 	assert.deepEqual((await tabs.saved()).content.appearance, {

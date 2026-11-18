@@ -51,7 +51,6 @@
 		"apps/os/src/components/organization-danger-zone.tsx\tconfig-hardcoded-product-host",
 		"apps/os/src/oauth-client-metadata.ts\tconfig-hardcoded-product-host",
 		"apps/os/src/shared/os-tenant.ts\tconfig-hardcoded-product-host",
-		"apps/os/src/webmcp/provider-cohort-host.ts\tconfig-hardcoded-product-host",
 		"apps/skill-runtime/src/outbound-proxy.ts\tconfig-hardcoded-model-id",
 		"apps/skill-runtime/src/vertex-product-keyframes.ts\tconfig-hardcoded-model-id",
 		"apps/tedi-runtime/src/chat-attachments.ts\tconfig-hardcoded-model-id",

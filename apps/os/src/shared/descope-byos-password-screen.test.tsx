@@ -166,7 +166,7 @@ describe("TedixByosPasswordScreen", () => {
 		await fill("email", "reviewer@example.com");
 		await fill("password", "Password123!");
 		await submit();
-		expect(log).toHaveBeenCalledWith("Tedix BYOS password interaction failed");
+		expect(log).not.toHaveBeenCalled();
 		expect(container.textContent).not.toContain("Password123!");
 		expect(container.textContent).toContain("Please try again");
 		expect(

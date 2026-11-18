@@ -88,7 +88,6 @@ export function TedixByosPasswordScreen({
 			// Resolution hands control to the flow, not proof of authentication.
 		} catch {
 			// A provider exception can contain the submitted form. Never log it.
-			console.error("Tedix BYOS password interaction failed");
 			setError(FAILURE);
 			setPending(null);
 		}

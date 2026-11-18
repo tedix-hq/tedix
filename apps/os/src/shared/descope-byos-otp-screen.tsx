@@ -31,7 +31,6 @@ export function TedixByosOtpScreen({
 	const { advance, error, pending } = useByosAdvance({
 		context,
 		errorMessage: IDENTITY_JOURNEY_COPY.errors.otpVerify,
-		logLabel: "Tedix BYOS OTP advance failed",
 		next,
 	});
 	const form = useForm({

@@ -159,10 +159,6 @@ describe("OS route boundaries", () => {
 		expect(reload).toHaveBeenCalledTimes(1);
 
 		// The wedge is reported, so the next occurrence carries a diagnosis.
-		expect(errorLog).toHaveBeenCalledWith(
-			"Tedix OS route load stalled",
-			expect.any(Error),
-		);
 		expect(sent).toHaveLength(1);
 		expect(sent[0]).toMatchObject({
 			schemaVersion: 1,
@@ -321,10 +317,6 @@ describe("OS route boundaries", () => {
 
 		expect(attempts).toBe(2);
 		expect(container.textContent).toContain("Route recovered");
-		expect(errorLog).toHaveBeenCalledWith(
-			"Tedix OS route failed",
-			expect.any(Error),
-		);
 		act(() => root.unmount());
 		errorLog.mockRestore();
 	});

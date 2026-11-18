@@ -113,15 +113,13 @@ function InvitationAcceptanceContent() {
 				}
 				try {
 					await finishInvitation(target, result.data.sessionJwt, descopeUserId);
-				} catch (cause) {
-					console.error("Tedix invitation setup failed", cause);
+				} catch {
 					setError(
 						"Your invitation was verified, but workspace setup could not finish. Please sign in again to retry.",
 					);
 				}
 			},
-			(cause: unknown) => {
-				console.warn("Tedix invitation token could not be verified", cause);
+			() => {
 				setRecoveryTarget(target);
 			},
 		);
@@ -151,8 +149,7 @@ function InvitationAcceptanceContent() {
 								recoveryTarget,
 								sessionJwt,
 								descopeUserId,
-							).catch((cause: unknown) => {
-								console.error("Tedix invitation recovery failed", cause);
+							).catch(() => {
 								setError(
 									"We could not finish workspace setup. Please sign in again to retry.",
 								);
