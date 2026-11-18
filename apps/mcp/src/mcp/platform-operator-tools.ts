@@ -1514,20 +1514,6 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
-		toolId: "restart_tedi",
-		endpoint: "tedis/restart",
-		kind: "write",
-		description:
-			"Restart the active tedi runtime when a supported runtime exposes a restart path.",
-	},
-	{
-		toolId: "reset_tedi_sandbox",
-		endpoint: "tedis/resetSandbox",
-		kind: "write",
-		description:
-			"Destroy a tedi sandbox so the next wake starts a fresh container from the current runtime image. Use for explicit operator recovery or post-runtime-image validation.",
-	},
-	{
 		toolId: "sync_tedi_config",
 		endpoint: "tedis/syncConfig",
 		kind: "write",

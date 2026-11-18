@@ -1284,11 +1284,6 @@ export const modelCatalogQueryOptions = (tediId?: string) =>
 		input: { includeDenied: true, ...(tediId ? { tediId } : {}) },
 	});
 
-export const tediPairingRequestsQueryOptions = (tediId: string) =>
-	osQuery.tedis.listPairingRequests.queryOptions({
-		input: { tediId, channel: "telegram" },
-	});
-
 export const tediDetailQueryOptions = (tediId: string) =>
 	osQuery.tedis.get.queryOptions({ input: { tediId } });
 

@@ -28,11 +28,8 @@ const INTERNAL_TIMEOUT_FLOORS_MS: Record<string, number> = {
 	// and persistence. The generic deadline can lose its mutation receipt.
 	"workAgentSessions/classifyRequests": 45_000,
 	"tedis/getLogs": 45_000,
-	"tedis/syncStorage": 125_000,
 	"tedis/wake": 120_000,
 	"tedis/triggerCronSync": 180_000,
-	"tedis/restart": 60_000,
-	"tedis/resetSandbox": 30_000,
 	"tedis/getStatus": 30_000,
 	"tedis/sendMessage": 145_000, // ACP: 130s wait + 15s headroom
 	"mcpEval/run": 30_000,

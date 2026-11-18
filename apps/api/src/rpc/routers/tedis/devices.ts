@@ -2,20 +2,17 @@
  * Tedis Router — Device management
  */
 
-import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	approveDevice,
 	getDeviceById,
 	getDevicesByTedi,
 	revokeDevice,
 } from "@tedix/db/queries/tedis";
-import { approveRuntimeDevice, getRuntimeDevices } from "@tedix/provisioning";
 import {
 	AUTHZ,
 	authedTedisOs,
 	createError,
 	ErrorCodes,
-	getProvisioningConfig,
 	requireTediAccess,
 } from "./helpers";
 
@@ -26,35 +23,7 @@ import {
 export const listDevices = authedTedisOs.listDevices
 	.use(AUTHZ.tedisAppsRead)
 	.handler(async ({ input, context }) => {
-		const tedi = await requireTediAccess(context, input.tediId);
-
-		const provConfig = getProvisioningConfig(tedi, context.env);
-		if (provConfig) {
-			try {
-				const runtimeDevices = await getRuntimeDevices(provConfig);
-				const normalize = (
-					device: (typeof runtimeDevices.pending)[number],
-				) => ({
-					id: device.id,
-					tediId: device.tediId ?? null,
-					deviceId: device.deviceId ?? device.id,
-					displayName: device.displayName ?? null,
-					platform: device.platform ?? null,
-					channel: device.channel ?? null,
-					status: device.status,
-					pairedAt: device.pairedAt ?? null,
-					createdAt: device.createdAt ?? null,
-				});
-				return {
-					pending: runtimeDevices.pending.map(normalize),
-					paired: runtimeDevices.paired.map(normalize),
-				};
-			} catch (error) {
-				console.warn(`[Tedis] Failed to fetch runtime devices for ${tedi.id}`, {
-					exception: safeExceptionTopology(error),
-				});
-			}
-		}
+		await requireTediAccess(context, input.tediId);
 
 		const projectedDevices = await getDevicesByTedi(context.db, input.tediId);
 		const mapProjected = (d: (typeof projectedDevices.pending)[number]) => ({
@@ -78,47 +47,7 @@ export const listDevices = authedTedisOs.listDevices
 export const approveDeviceProcedure = authedTedisOs.approveDevice
 	.use(AUTHZ.tedisAppsWrite)
 	.handler(async ({ input, context }) => {
-		const tedi = await requireTediAccess(context, input.tediId);
-
-		const provConfig = getProvisioningConfig(tedi, context.env);
-		let runtimeAttempted = false;
-		if (provConfig) {
-			runtimeAttempted = true;
-			try {
-				const runtimeResult = await approveRuntimeDevice(
-					provConfig,
-					input.deviceId,
-				);
-				if (runtimeResult.success) {
-					return {
-						success: true,
-						message:
-							runtimeResult.message ??
-							`Device request "${input.deviceId}" approved`,
-					};
-				}
-				throw createError(
-					ErrorCodes.BAD_REQUEST,
-					runtimeResult.message ??
-						`Runtime rejected device approval for "${input.deviceId}"`,
-				);
-			} catch (error) {
-				if (error && typeof error === "object" && "code" in error) {
-					throw error;
-				}
-				console.warn(
-					`[Tedis] Runtime device approval failed for ${input.deviceId}`,
-					{ exception: safeExceptionTopology(error) },
-				);
-			}
-		}
-
-		if (runtimeAttempted) {
-			throw createError(
-				ErrorCodes.BAD_GATEWAY,
-				"Runtime device approval unavailable",
-			);
-		}
+		await requireTediAccess(context, input.tediId);
 
 		const existingDevice = await getDeviceById(context.db, input.deviceId);
 		if (!existingDevice || existingDevice.tediId !== input.tediId) {

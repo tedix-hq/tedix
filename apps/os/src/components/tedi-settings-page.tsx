@@ -83,7 +83,6 @@ import {
 
 export function TediSettingsPage({ tediId }: { tediId: string }) {
 	const queryClient = useQueryClient();
-	const [resetOpen, setResetOpen] = useState(false);
 	const [retireOpen, setRetireOpen] = useState(false);
 	const navigate = useNavigate();
 	const canManage = useCanManageTedis();
@@ -125,13 +124,8 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 	const didSave = (promise: Promise<unknown>): Promise<boolean> =>
 		promise.then(() => true).catch(() => false);
 
-	const {
-		channelValues,
-		pairingRequests,
-		saveChannels,
-		testChannelToken,
-		approvePairing,
-	} = useTediSettingsChannels(tediId, tedi, invalidateTedi);
+	const { channelValues, saveChannels, testChannelToken } =
+		useTediSettingsChannels(tediId, tedi, invalidateTedi);
 
 	const update = useMutation({
 		...osQuery.tedis.update.mutationOptions(),
@@ -147,14 +141,8 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 	});
 
 	const run = useMutation({
-		mutationFn: async (action: "wake" | "recover" | "repair" | "sync") => {
+		mutationFn: async (action: "wake" | "repair" | "sync") => {
 			if (action === "wake") return osApi.tedis.wake({ tediId });
-			if (action === "recover")
-				return osApi.tedis.wake({
-					tediId,
-					allowSandboxReset: true,
-					reason: "Operator requested safe workstation recovery",
-				});
 			if (action === "repair") return osApi.tedis.repair({ tediId });
 			return osApi.tedis.syncConfig({ tediId, force: true });
 		},
@@ -163,11 +151,9 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 			toast.success(
 				action === "wake"
 					? "Wake requested"
-					: action === "recover"
-						? "Recovery wake requested"
-						: action === "repair"
-							? "Repair completed"
-							: "Configuration synced",
+					: action === "repair"
+						? "Repair completed"
+						: "Configuration synced",
 			);
 		},
 		onError: (error) =>
@@ -259,23 +245,6 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 			osApi.tedis.removeCustomDomain({ tediId, domainId }),
 		onSuccess: () =>
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.tedis() }),
-	});
-
-	const resetSandbox = useMutation({
-		mutationFn: () =>
-			osApi.tedis.resetSandbox({
-				tediId,
-				reason: "Operator requested non-force workstation reset",
-			}),
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: osQueryKeys.tedis() });
-			setResetOpen(false);
-			toast.success(
-				"Workstation sandbox reset; next wake creates a fresh lease",
-			);
-		},
-		onError: (error) =>
-			toast.error(errorMessage(error, "Safe sandbox reset failed")),
 	});
 
 	const {
@@ -401,14 +370,6 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 						size="sm"
 						variant="outline"
 						disabled={!canManage || run.isPending}
-						onClick={() => run.mutate("recover")}
-					>
-						Recover workstation
-					</Button>
-					<Button
-						size="sm"
-						variant="outline"
-						disabled={!canManage || run.isPending}
 						onClick={() => run.mutate("sync")}
 						icon={<ArrowsClockwise className="size-4" />}
 					>
@@ -446,34 +407,6 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 						testChannelToken.mutate({ channel, token })
 					}
 				/>
-				{(pairingRequests.data?.pending ?? []).length ? (
-					<Surface className="space-y-2 p-3">
-						<Text role="body" weight="medium">
-							Pending Telegram pairings
-						</Text>
-						<Collection aria-label="Pending Telegram pairings">
-							{(pairingRequests.data?.pending ?? []).map((request) => (
-								<SettingsRecordRow
-									key={request.code}
-									title={
-										<Text role="body">
-											{request.senderName ?? request.senderId ?? request.code}
-										</Text>
-									}
-									trailing={
-										<Button
-											size="sm"
-											disabled={!canManage || approvePairing.isPending}
-											onClick={() => approvePairing.mutate(request.code)}
-										>
-											Approve pairing
-										</Button>
-									}
-								/>
-							))}
-						</Collection>
-					</Surface>
-				) : null}
 			</SettingsSection>
 
 			<SettingsSection title="Encrypted credentials">
@@ -704,29 +637,6 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 				>
 					Rotate identity access key
 				</Button>
-				<Button
-					variant="outline"
-					disabled={!canDelete || resetSandbox.isPending}
-					title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
-					onClick={() => {
-						resetSandbox.reset();
-						setResetOpen(true);
-					}}
-				>
-					Reset workstation sandbox
-				</Button>
-				<ConfirmDialog
-					open={resetOpen}
-					onOpenChange={setResetOpen}
-					title="Reset this workstation sandbox?"
-					description="This non-force recovery destroys the current workstation sandbox and is blocked unless a healthy backup exists. It does not force a reset or delete the tedi's cognitive history."
-					confirmLabel="Reset safely"
-					pendingLabel="Resetting…"
-					destructive
-					isPending={resetSandbox.isPending}
-					error={resetSandbox.error}
-					onConfirm={() => resetSandbox.mutate()}
-				/>
 				<Button
 					variant="destructive"
 					disabled={!canDelete || retire.isPending}

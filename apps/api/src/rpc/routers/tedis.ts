@@ -31,8 +31,6 @@ import {
 import { tedisOs } from "./tedis/helpers";
 
 import {
-	approvePairingProcedure,
-	listPairingRequestsProcedure,
 	testChannelTokenProcedure,
 	updateChannelConfigProcedure,
 	validateChannelTokenProcedure,
@@ -74,7 +72,6 @@ import {
 import {
 	authorizeOsPortableCallProcedure,
 	createEmbeddedSessionProcedure,
-	listPeersProcedure,
 	sendMessageProcedure,
 } from "./tedis/gateway";
 import {
@@ -103,19 +100,10 @@ import {
 import {
 	auditBackupsProcedure,
 	authorizeCodingSessionProcedure,
-	deleteStorageFileProcedure,
-	getChannelStatus,
 	getStatus,
-	getStorageFileProcedure,
-	getStorageStatusProcedure,
-	listStorageFilesProcedure,
-	resetSandboxProcedure,
-	restart,
 	revokeCodingSessionProcedure,
-	syncStorage,
 	triggerCronSyncProcedure,
 	wake,
-	writeStorageFileProcedure,
 } from "./tedis/runtime";
 import { listSchedulesProcedure } from "./tedis/schedules";
 import {
@@ -165,21 +153,11 @@ export const tedisContractRouter = tedisOs.router({
 	inspectRuntimeRecovery: inspectRuntimeRecoveryProcedure,
 	inspectAgentMemory: inspectAgentMemoryProcedure,
 	wake,
-	getChannelStatus,
-	restart,
-	resetSandbox: resetSandboxProcedure,
-	syncStorage,
 	triggerCronSync: triggerCronSyncProcedure,
-	getStorageStatus: getStorageStatusProcedure,
-	listStorageFiles: listStorageFilesProcedure,
-	getStorageFile: getStorageFileProcedure,
-	writeStorageFile: writeStorageFileProcedure,
-	deleteStorageFile: deleteStorageFileProcedure,
 	listSessionStates: listSessionStatesProcedure,
 	updateSessionState: updateSessionStateProcedure,
 	deleteSession: deleteSessionProcedure,
 	deleteSessions: deleteSessionsProcedure,
-	listPeers: listPeersProcedure,
 	rotateAccessKey: rotateAccessKeyProcedure,
 	syncConfig,
 	getModelPolicy,
@@ -188,8 +166,6 @@ export const tedisContractRouter = tedisOs.router({
 	cleanupSnapshots,
 	testChannelToken: testChannelTokenProcedure,
 	validateChannelToken: validateChannelTokenProcedure,
-	listPairingRequests: listPairingRequestsProcedure,
-	approvePairing: approvePairingProcedure,
 	updateChannelConfig: updateChannelConfigProcedure,
 	listDevices,
 	approveDevice: approveDeviceProcedure,

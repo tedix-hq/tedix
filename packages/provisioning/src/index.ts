@@ -30,26 +30,6 @@ export interface ProvisioningConfig {
 	isDev?: boolean;
 }
 
-export interface BackupHandleSummary {
-	runtimeId?: string | null;
-	runtimeDir?: string | null;
-	runtimePresent?: boolean;
-	workspaceId?: string | null;
-	workspaceDir?: string | null;
-	workspacePresent?: boolean;
-	createdAt?: string | null;
-	restorable?: boolean;
-	format?: "missing" | "unified" | "legacy-split" | "unknown";
-}
-
-export interface SyncResult {
-	success: boolean;
-	lastSync?: string | null;
-	backupHandles?: BackupHandleSummary;
-	error?: string;
-	details?: string;
-}
-
 export interface CronSyncResult {
 	success: boolean;
 	cronBootstrap: {
@@ -67,34 +47,6 @@ export interface CronSyncResult {
 	};
 }
 
-export interface StorageStatus {
-	configured: boolean;
-	missing?: string[];
-	lastSync: string | null;
-	backupHandles?: BackupHandleSummary;
-	mountError?: string;
-	message: string;
-	bucketName?: string | null;
-	prefix?: string;
-}
-
-export interface StorageFileEntry {
-	path: string;
-	type: "file" | "dir";
-}
-
-export interface StorageFilesResult {
-	path: string;
-	entries: StorageFileEntry[];
-}
-
-export interface StorageFileResult {
-	path: string;
-	content: string;
-	sizeBytes: number | null;
-	truncated: boolean;
-}
-
 export interface AgentDiagnosticsResult {
 	ok: boolean;
 	slug?: string | null;
@@ -105,38 +57,6 @@ export interface AgentDiagnosticsResult {
 	artifacts?: Record<string, unknown> | null;
 	compaction?: unknown;
 	[key: string]: unknown;
-}
-
-export interface RuntimeDevice {
-	id: string;
-	tediId?: string | null;
-	deviceId?: string | null;
-	displayName?: string | null;
-	platform?: string | null;
-	channel?: string | null;
-	status: "pending" | "paired" | "revoked";
-	pairedAt?: string | null;
-	createdAt?: string | null;
-}
-
-export interface RuntimeDevicesResult {
-	pending: RuntimeDevice[];
-	paired: RuntimeDevice[];
-	raw?: unknown;
-}
-
-export interface RuntimeChannelStatus {
-	channel: string;
-	enabled?: boolean;
-	connected?: boolean;
-	status?: string;
-	lastError?: string | null;
-	observedAt?: string;
-}
-
-export interface RuntimeChannelsResult {
-	channels: RuntimeChannelStatus[];
-	observedAt?: string;
 }
 
 export class ProvisioningHttpError extends Error {
@@ -259,14 +179,7 @@ export interface WakeTediResult {
 	processId: string | null;
 	waitMs: number;
 	attempts?: number;
-	recoveredBySandboxReset?: boolean;
 	message?: string;
-}
-
-export interface WakeTediOptions {
-	allowSandboxReset?: boolean;
-	forceSandboxReset?: boolean;
-	reason?: string;
 }
 
 /**
@@ -275,15 +188,10 @@ export interface WakeTediOptions {
  */
 export async function wakeTedi(
 	config: ProvisioningConfig,
-	options: WakeTediOptions = {},
 ): Promise<WakeTediResult> {
-	const body = Object.values(options).some((value) => value !== undefined)
-		? JSON.stringify(options)
-		: undefined;
 	return runtimeFetch<WakeTediResult>(config, "/api/admin/status/wake", {
 		method: "POST",
-		timeoutMs: 210_000, // Must exceed STARTUP_TIMEOUT_MS (180s) + onboard (120s)
-		body,
+		timeoutMs: 210_000,
 	});
 }
 
@@ -297,33 +205,6 @@ export async function getAgentDiagnostics(
 ): Promise<AgentDiagnosticsResult> {
 	return runtimeFetch<AgentDiagnosticsResult>(config, "/__admin/agent-diag", {
 		timeoutMs: 8_000,
-	});
-}
-
-export interface SandboxResetResult {
-	success: boolean;
-	message: string;
-	audit?: {
-		tediId: string;
-		triggeredBy: string;
-		triggeredAt: string;
-		reason: string | null;
-	};
-}
-
-/**
- * Reset the runtime sandbox Durable Object when a runtime lease needs a clean
- * start. Agent-runtime tedis normally use wake/status instead.
- */
-export async function resetSandbox(
-	config: ProvisioningConfig,
-	reason?: string,
-	force?: boolean,
-): Promise<SandboxResetResult> {
-	return runtimeFetch<SandboxResetResult>(config, "/api/admin/sandbox/reset", {
-		method: "POST",
-		timeoutMs: 30_000,
-		body: JSON.stringify({ reason: reason ?? null, force: force ?? false }),
 	});
 }
 
@@ -645,236 +526,6 @@ export async function revokeCodingSession(
 }
 
 /**
- * Trigger a runtime storage sync.
- */
-export async function triggerSync(
-	config: ProvisioningConfig,
-): Promise<SyncResult> {
-	return runtimeFetch<SyncResult>(config, "/api/admin/storage/sync", {
-		method: "POST",
-		timeoutMs: 120_000,
-	});
-}
-
-/** Get runtime storage status. */
-export async function getStorageStatus(
-	config: ProvisioningConfig,
-): Promise<StorageStatus> {
-	return runtimeFetch<StorageStatus>(config, "/api/admin/storage", {
-		timeoutMs: 10_000,
-	});
-}
-
-/**
- * List files in the mounted R2 namespace.
- */
-export async function listStorageFiles(
-	config: ProvisioningConfig,
-	opts?: { path?: string; recursive?: boolean },
-): Promise<StorageFilesResult> {
-	const qs = new URLSearchParams();
-	if (opts?.path) qs.set("path", opts.path);
-	if (opts?.recursive) qs.set("recursive", "1");
-	const suffix = qs.size ? `?${qs.toString()}` : "";
-	return runtimeFetch<StorageFilesResult>(
-		config,
-		`/api/admin/storage/files${suffix}`,
-		{ timeoutMs: 20_000 },
-	);
-}
-
-/**
- * Read a small text file from the mounted R2 namespace.
- * Currently restricted server-side to .md/.txt/.json/.yaml/.yml.
- */
-export async function getStorageFile(
-	config: ProvisioningConfig,
-	path: string,
-): Promise<StorageFileResult> {
-	const qs = new URLSearchParams({ path });
-	return runtimeFetch<StorageFileResult>(
-		config,
-		`/api/admin/storage/file?${qs.toString()}`,
-		{ timeoutMs: 20_000 },
-	);
-}
-
-/**
- * Write a text file to the mounted R2 namespace.
- */
-export async function writeStorageFile(
-	config: ProvisioningConfig,
-	path: string,
-	content: string,
-): Promise<{ success: boolean; path: string; error?: string }> {
-	return runtimeFetch<{ success: boolean; path: string; error?: string }>(
-		config,
-		"/api/admin/storage/write",
-		{
-			method: "POST",
-			timeoutMs: 30_000,
-			body: JSON.stringify({ path, content }),
-		},
-	);
-}
-
-/**
- * Delete a file from the mounted R2 namespace.
- */
-export async function deleteStorageFile(
-	config: ProvisioningConfig,
-	path: string,
-): Promise<{ success: boolean }> {
-	return runtimeFetch<{ success: boolean }>(
-		config,
-		`/api/admin/storage/file?${new URLSearchParams({ path }).toString()}`,
-		{ method: "DELETE", timeoutMs: 20_000 },
-	);
-}
-
-export interface WriteStorageFileResult {
-	success: boolean;
-	path: string;
-	error?: string;
-}
-
-/**
- * Read device state from tedi Worker admin endpoint (runtime truth).
- */
-export async function getRuntimeDevices(
-	config: ProvisioningConfig,
-): Promise<RuntimeDevicesResult> {
-	const data = await runtimeFetch<{
-		pending?: Array<Record<string, unknown>>;
-		paired?: Array<Record<string, unknown>>;
-		raw?: unknown;
-	}>(config, "/api/admin/devices", { timeoutMs: 30_000 });
-
-	const normalize = (
-		status: "pending" | "paired" | "revoked",
-		device: Record<string, unknown>,
-	): RuntimeDevice => ({
-		id: String(
-			device.id ?? device.deviceId ?? device.requestId ?? crypto.randomUUID(),
-		),
-		tediId: null,
-		deviceId:
-			typeof device.deviceId === "string"
-				? device.deviceId
-				: typeof device.requestId === "string"
-					? device.requestId
-					: null,
-		displayName:
-			typeof device.displayName === "string"
-				? device.displayName
-				: typeof device.name === "string"
-					? device.name
-					: null,
-		platform: typeof device.platform === "string" ? device.platform : null,
-		channel: typeof device.channel === "string" ? device.channel : null,
-		status,
-		pairedAt: typeof device.pairedAt === "string" ? device.pairedAt : null,
-		createdAt:
-			typeof device.createdAt === "string"
-				? device.createdAt
-				: typeof device.requestedAt === "string"
-					? device.requestedAt
-					: null,
-	});
-
-	return {
-		pending: (data.pending ?? []).map((d) => normalize("pending", d)),
-		paired: (data.paired ?? []).map((d) => normalize("paired", d)),
-		raw: data.raw,
-	};
-}
-
-/**
- * Approve a pending runtime device by request ID.
- */
-// =============================================================================
-// PAIRING
-// =============================================================================
-
-export interface PairingRequest {
-	code: string;
-	senderId?: string;
-	senderName?: string;
-	createdAt?: string;
-}
-
-export interface PairingListResult {
-	channel: string;
-	pending: PairingRequest[];
-	count: number;
-}
-
-/**
- * List pending pairing requests for a channel.
- */
-export async function listPairingRequests(
-	config: ProvisioningConfig,
-	channel: string,
-): Promise<PairingListResult> {
-	return runtimeFetch<PairingListResult>(
-		config,
-		`/api/admin/pairing/list?channel=${encodeURIComponent(channel)}`,
-		{ timeoutMs: 20_000 },
-	);
-}
-
-/**
- * Approve a pairing request by channel + code.
- */
-export async function approvePairingRequest(
-	config: ProvisioningConfig,
-	channel: string,
-	code: string,
-): Promise<{
-	success: boolean;
-	channel: string;
-	code: string;
-	message: string;
-}> {
-	return runtimeFetch<{
-		success: boolean;
-		channel: string;
-		code: string;
-		message: string;
-	}>(config, "/api/admin/pairing/approve", {
-		method: "POST",
-		body: JSON.stringify({ channel, code }),
-		timeoutMs: 20_000,
-	});
-}
-
-export async function approveRuntimeDevice(
-	config: ProvisioningConfig,
-	requestId: string,
-): Promise<{ success: boolean; message?: string }> {
-	return runtimeFetch<{ success: boolean; message?: string }>(
-		config,
-		`/api/admin/devices/${encodeURIComponent(requestId)}/approve`,
-		{ method: "POST", timeoutMs: 20_000 },
-	);
-}
-
-/**
- * Read channel runtime status from tedi Worker admin endpoint.
- */
-export async function getRuntimeChannelStatus(
-	config: ProvisioningConfig,
-): Promise<RuntimeChannelsResult> {
-	return runtimeFetch<RuntimeChannelsResult>(
-		config,
-		"/api/admin/channels/status",
-		{
-			timeoutMs: 30_000,
-		},
-	);
-}
-
-/**
  * Await runtime configuration-cache invalidation and require its explicit ok receipt.
  * The edge independently rebuilds its cache when fresh D1 revision pins change.
  */
@@ -919,31 +570,9 @@ export async function triggerCronSync(
 }
 
 // =============================================================================
-// INTER-TEDI MESH
-// =============================================================================
-
-/**
- * List peer tedis in the same organization.
- */
-export async function listTediPeers(config: ProvisioningConfig): Promise<{
-	peers: Array<{
-		id: string;
-		name: string;
-		slug: string;
-		status: string;
-		description?: string;
-	}>;
-}> {
-	return runtimeFetch(config, "/api/admin/peers", { timeoutMs: 10_000 });
-}
-
-// =============================================================================
 // CONFIG BUILDER
 // =============================================================================
 
-/**
- * Build a ProvisioningConfig from environment variables and a tedi runtime URL.
- */
 export function buildProvisioningConfig(
 	workerUrl: string,
 	env: {

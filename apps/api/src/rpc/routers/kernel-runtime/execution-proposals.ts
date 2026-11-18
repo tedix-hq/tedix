@@ -275,7 +275,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 						const hasWorkstationLease = capableIds.has(delegateTarget.id);
 						return {
 							workstationCapable: deriveEmbodiedCapability({
-								runtimeKind: delegateTarget.runtimeKind,
 								repoConfig: delegateTarget.repoConfig,
 								hasWorkstationLease,
 							}),
@@ -289,7 +288,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 						);
 						return {
 							workstationCapable: deriveEmbodiedCapability({
-								runtimeKind: delegateTarget.runtimeKind,
 								repoConfig: delegateTarget.repoConfig,
 							}),
 							isolateWorkstationWarm: null,

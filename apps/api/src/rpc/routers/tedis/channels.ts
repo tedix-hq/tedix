@@ -1,19 +1,9 @@
 /**
- * Tedis Router — Channel helpers (test token, pairing, channel config)
+ * Tedis Router — Channel helpers (test token, channel config)
  */
 
-import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { updateTedi } from "@tedix/db/queries/tedis";
-import {
-	approvePairingRequest,
-	listPairingRequests,
-} from "@tedix/provisioning";
-import {
-	AUTHZ,
-	authedTedisOs,
-	getProvisioningConfig,
-	requireTediAccess,
-} from "./helpers";
+import { AUTHZ, authedTedisOs, requireTediAccess } from "./helpers";
 
 type ChannelType = "telegram" | "signal" | "voice";
 
@@ -76,58 +66,6 @@ export const validateChannelTokenProcedure = authedTedisOs.validateChannelToken
 	.handler(async ({ input }) =>
 		validateChannelToken(input.channel, input.token),
 	);
-
-// =============================================================================
-// PAIRING MANAGEMENT
-// =============================================================================
-
-export const listPairingRequestsProcedure = authedTedisOs.listPairingRequests
-	.use(AUTHZ.tedisAppsRead)
-	.handler(async ({ input, context }) => {
-		const tedi = await requireTediAccess(context, input.tediId);
-		const provConfig = getProvisioningConfig(tedi, context.env);
-
-		if (!provConfig) {
-			return { channel: input.channel, pending: [], count: 0 };
-		}
-
-		try {
-			const result = await listPairingRequests(provConfig, input.channel);
-			return result;
-		} catch (error) {
-			console.warn(`[Tedis] Failed to list pairing requests`, {
-				exception: safeExceptionTopology(error),
-			});
-			return { channel: input.channel, pending: [], count: 0 };
-		}
-	});
-
-export const approvePairingProcedure = authedTedisOs.approvePairing
-	.use(AUTHZ.tedisAppsWrite)
-	.handler(async ({ input, context }) => {
-		const tedi = await requireTediAccess(context, input.tediId);
-		const provConfig = getProvisioningConfig(tedi, context.env);
-
-		if (!provConfig) {
-			return {
-				success: false,
-				channel: input.channel,
-				code: input.code,
-				message: "Runtime not available",
-			};
-		}
-
-		const result = await approvePairingRequest(
-			provConfig,
-			input.channel,
-			input.code,
-		);
-		return result;
-	});
-
-// =============================================================================
-// CHANNEL CONFIGURATION
-// =============================================================================
 
 export const updateChannelConfigProcedure = authedTedisOs.updateChannelConfig
 	.use(AUTHZ.tedisAppsWrite)

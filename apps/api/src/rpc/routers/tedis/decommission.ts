@@ -115,8 +115,6 @@ type TediDecommissionStage =
 interface TediDecommissionDeps {
 	/** Stage 1: persist status='paused' + runtime_state='archived'. */
 	decommission: () => Promise<boolean>;
-	/** Whether this tedi has an isolate DO whose schedules can be cancelled. */
-	isIsolateBody: boolean;
 	/** Stage 2: invoke the isolate admin dequeue with cancelSchedules. */
 	stopSchedules: () => Promise<SchedulesStoppedResult>;
 	/** Stage 3: tear down the external identity footprint (Descope/FGA/AIH). */
@@ -187,9 +185,7 @@ function purgeResidualManualSteps(
  * Stage 1 (always, reversible): decommission to status='paused' +
  * runtime_state='archived'.
  * Stage 2 (`stopSchedules`, default true): cancel the isolate DO's armed
- * schedules so its self-perpetuating maintenance alarms actually stop. Skipped
- * (reported, not failed) for container/legacy bodies that have no isolate DO.
- * Stage 3 (`hardPurge`, irreversible): requires `confirmSlug === slug`; runs the
+ * schedules so its self-perpetuating maintenance alarms actually stop.  * Stage 3 (`hardPurge`, irreversible): requires `confirmSlug === slug`; runs the
  * external-identity teardown + D1 cascade delete and reports residual manual
  * steps for R2/artifacts.
  *
@@ -244,13 +240,6 @@ export async function orchestrateTediDecommission(args: {
 				attempted: false,
 				ok: true,
 				detail: "not requested",
-			};
-		} else if (!deps.isIsolateBody) {
-			result.schedulesStopped = {
-				attempted: false,
-				ok: true,
-				detail:
-					"skipped — container/legacy body has no isolate Durable Object schedules",
 			};
 		} else {
 			result.schedulesStopped = await deps.stopSchedules();
@@ -340,7 +329,6 @@ export const decommissionTediProcedure = authedTedisOs.decommission
 					});
 					return Boolean(updated);
 				},
-				isIsolateBody: true,
 				stopSchedules: async () => {
 					const res = await agentAdminFetch(context, tedi, "/__admin/dequeue", {
 						method: "POST",
