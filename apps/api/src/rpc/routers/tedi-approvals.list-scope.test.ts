@@ -15,6 +15,20 @@ import type { BaseContext } from "../orpc";
 
 const mocks = vi.hoisted(() => ({
 	listApprovalRequests: vi.fn(),
+	getOsWorkspace: vi.fn(),
+}));
+
+vi.mock(
+	"@tedix/db/queries/os-workspaces/workspaces",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("@tedix/db/queries/os-workspaces/workspaces")
+		>()),
+		getOsWorkspace: mocks.getOsWorkspace,
+	}),
+);
+vi.mock("../../services/os-workspace-collaborators", () => ({
+	isOsWorkspaceBuildCollaborator: vi.fn(async () => false),
 }));
 
 vi.mock("@tedix/db/queries/approvals", async (importOriginal) => ({
@@ -68,7 +82,19 @@ function createClient(context: BaseContext) {
 	return createRouterClient(tediApprovalsContractRouter, { context });
 }
 
+const WORKSPACE = "8a076b09-73c8-4c07-975a-258c65c36fed";
+
+function person(sub: string): BaseContext {
+	return {
+		...createContext("org-1"),
+		authType: "user",
+		user: { sub },
+		userRole: "admin",
+	} as BaseContext;
+}
+
 beforeEach(() => {
+	mocks.getOsWorkspace.mockReset();
 	mocks.listApprovalRequests.mockReset();
 	mocks.listApprovalRequests.mockResolvedValue({
 		data: [approvalRow()],
@@ -129,6 +155,52 @@ describe("tediApprovals.list org scoping", () => {
 		expect(result.data.map((row) => row.id)).toEqual([
 			"5b0e8a3c-1d2e-4f5a-8b9c-0d1e2f3a4b5c",
 		]);
+	});
+
+	it("narrows the list to one workspace the caller can open", async () => {
+		mocks.getOsWorkspace.mockResolvedValue({
+			id: WORKSPACE,
+			organizationId: "org-1",
+			visibility: "private",
+			ownerUserId: "fictional-luz",
+		});
+		const result = await createClient(person("fictional-luz")).list({
+			workspaceId: WORKSPACE,
+		});
+		expect(mocks.getOsWorkspace).toHaveBeenCalledWith(expect.anything(), {
+			organizationId: "org-1",
+			workspaceId: WORKSPACE,
+		});
+		expect(mocks.listApprovalRequests).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ orgId: "org-1", workspaceId: WORKSPACE }),
+		);
+		expect(result.data).toHaveLength(1);
+	});
+
+	it("lists nothing for another person's private workspace", async () => {
+		mocks.getOsWorkspace.mockResolvedValue({
+			id: WORKSPACE,
+			organizationId: "org-1",
+			visibility: "private",
+			ownerUserId: "fictional-river",
+		});
+		const result = await createClient(person("fictional-luz")).list({
+			workspaceId: WORKSPACE,
+		});
+		expect(result.data).toEqual([]);
+		expect(result.pagination.total).toBe(0);
+		expect(mocks.listApprovalRequests).not.toHaveBeenCalled();
+	});
+
+	it("lists nothing for a workspace outside the caller's organization", async () => {
+		// The lookup is fenced by the caller's organization, so it finds no row.
+		mocks.getOsWorkspace.mockResolvedValue(undefined);
+		const result = await createClient(person("fictional-luz")).list({
+			workspaceId: WORKSPACE,
+		});
+		expect(result.data).toEqual([]);
+		expect(mocks.listApprovalRequests).not.toHaveBeenCalled();
 	});
 
 	it("rejects a caller with neither an org context nor a tediId filter", async () => {

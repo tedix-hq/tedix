@@ -164,6 +164,8 @@ export async function listPendingDelegationRuns(
 		limit: number;
 		cursor?: { at: string; id: string };
 		kind?: "home_delegation";
+		/** Only runs whose conversation belongs to this workspace. */
+		workspaceId?: string;
 	},
 ): Promise<KernelRuntimeRun[]> {
 	return db
@@ -179,6 +181,11 @@ export async function listPendingDelegationRuns(
 				...(input.cursor
 					? [
 							sql`(${kernelRuntimeRuns.createdAt}, ${kernelRuntimeRuns.id}) < (${input.cursor.at}, ${input.cursor.id})`,
+						]
+					: []),
+				...(input.workspaceId
+					? [
+							sql`${kernelRuntimeRuns.conversationId} IN (SELECT conversation_id FROM kernel_conversations WHERE organization_id = ${input.organizationId} AND workspace_id = ${input.workspaceId})`,
 						]
 					: []),
 			),

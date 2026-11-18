@@ -601,6 +601,10 @@ export const ListPendingHomeDelegationsInputSchema = z
 	.object({
 		organizationId: z.string().optional(),
 		limit: z.number().int().positive().max(50).optional(),
+		workspaceId: z
+			.uuid()
+			.optional()
+			.describe("Only holds from conversations in this workspace"),
 	})
 	.strict();
 export type ListPendingHomeDelegationsInput = z.infer<

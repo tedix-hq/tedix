@@ -184,3 +184,37 @@ export function startOfToday(now = new Date()): string {
 	day.setHours(0, 0, 0, 0);
 	return day.toISOString();
 }
+
+/** The calendar day of an instant on the operator's wall clock, as `YYYY-MM-DD`. */
+export function dayKey(iso: string): string {
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return "";
+	const timeZone = osTimeZone();
+	return new Intl.DateTimeFormat("en-CA", {
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		...(timeZone ? { timeZone } : {}),
+	}).format(date);
+}
+
+/**
+ * Heading for a day of a list grouped by day: "Today", "Yesterday", then
+ * "Mon, Aug 6" and "Aug 6, 2025" for another year.
+ */
+export function dayHeading(iso: string, now: Date = new Date()): string {
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return "";
+	const key = dayKey(iso);
+	if (key === dayKey(now.toISOString())) return "Today";
+	if (key === dayKey(new Date(now.getTime() - DAY_MS).toISOString()))
+		return "Yesterday";
+	const timeZone = osTimeZone();
+	const sameYear = key.slice(0, 4) === dayKey(now.toISOString()).slice(0, 4);
+	return date.toLocaleDateString(osLocale(), {
+		month: "short",
+		day: "numeric",
+		...(sameYear ? { weekday: "short" } : { year: "numeric" }),
+		...(timeZone ? { timeZone } : {}),
+	});
+}

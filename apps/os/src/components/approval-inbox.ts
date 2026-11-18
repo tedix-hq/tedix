@@ -383,11 +383,15 @@ export function approvalOutcome(
 /**
  * Everything waiting on the signed-in person, with one-call decisions.
  * `conversationId` adds the Home holds of the open conversation.
+ * `workspaceId` also reads what waits in that one workspace (`workspace` in
+ * the result); the open conversation is taken to belong to it.
  */
 export function useApprovalInbox({
 	conversationId = null,
+	workspaceId = null,
 }: {
 	conversationId?: string | null;
+	workspaceId?: string | null;
 } = {}) {
 	const queryClient = useQueryClient();
 	const tediNames = useTediNames();
@@ -419,35 +423,65 @@ export function useApprovalInbox({
 				authority,
 			).filter(isActionableHomeApproval)
 		: [];
-	const globalHomeApprovals = pendingHome.data?.runSet
-		? approvalsForAuthority(
-				approvalsFromRunSet(pendingHome.data.runSet),
-				authority,
-			).filter(
-				(approval) =>
-					isActionableHomeApproval(approval) &&
-					!homeApprovals.some(
-						(current) => current.approvalId === approval.approvalId,
-					),
-			)
-		: [];
-	// A parked Home write is listed by both sources; show it once, as the
-	// Home card that names the tool and arguments.
-	const homeApprovalIds = new Set(
-		[...homeApprovals, ...globalHomeApprovals].map((a) => a.approvalId),
-	);
+	const scopedRuntime = useQuery({
+		...pendingApprovalsQueryOptions(workspaceId ?? undefined),
+		...workRefreshOptions,
+		enabled: workspaceId !== null,
+	});
+	const scopedHome = useQuery({
+		...pendingHomeDelegationsQueryOptions(workspaceId ?? undefined),
+		...workRefreshOptions,
+		enabled: workspaceId !== null,
+	});
 	const canDecide = hasOsApprovalAuthority(authority);
-	const runtimeRows = (runtime.data?.data ?? []).filter(
-		(approval) => canDecide && !homeApprovalIds.has(approval.id),
+	/** One list from a pending-holds read and a runtime read. */
+	const collect = (
+		pendingRunSet: NonNullable<typeof pendingHome.data>["runSet"] | undefined,
+		runtimeData: readonly RuntimeApproval[],
+	) => {
+		const otherHomeApprovals = pendingRunSet
+			? approvalsForAuthority(
+					approvalsFromRunSet(pendingRunSet),
+					authority,
+				).filter(
+					(approval) =>
+						isActionableHomeApproval(approval) &&
+						!homeApprovals.some(
+							(current) => current.approvalId === approval.approvalId,
+						),
+				)
+			: [];
+		// A parked Home write is listed by both sources; show it once, as the
+		// Home card that names the tool and arguments.
+		const homeApprovalIds = new Set(
+			[...homeApprovals, ...otherHomeApprovals].map((a) => a.approvalId),
+		);
+		const runtimeRows = runtimeData.filter(
+			(approval) => canDecide && !homeApprovalIds.has(approval.id),
+		);
+		const runtimeApprovals = runtimeRows.filter(isActionableRuntimeApproval);
+		return {
+			items: [
+				...[...homeApprovals, ...otherHomeApprovals].map(homeApprovalItem),
+				...runtimeApprovals.map((approval) =>
+					runtimeApprovalItem(approval, tediNames),
+				),
+			].sort(bySoonestExpiry),
+			home: homeApprovals.length + otherHomeApprovals.length,
+			runtime: runtimeApprovals.length,
+			runtimeRows,
+		};
+	};
+	const everywhere = collect(
+		pendingHome.data?.runSet,
+		runtime.data?.data ?? [],
 	);
-	const runtimeApprovals = runtimeRows.filter(isActionableRuntimeApproval);
-	const items = [
-		...[...homeApprovals, ...globalHomeApprovals].map(homeApprovalItem),
-		...runtimeApprovals.map((approval) =>
-			runtimeApprovalItem(approval, tediNames),
-		),
-	].sort(bySoonestExpiry);
-	const expired = runtimeRows
+	const { items } = everywhere;
+	const inWorkspace =
+		workspaceId === null
+			? null
+			: collect(scopedHome.data?.runSet, scopedRuntime.data?.data ?? []);
+	const expired = everywhere.runtimeRows
 		.filter(
 			(approval) =>
 				approval.review.decisionMode === "approve_or_reject" &&
@@ -455,8 +489,8 @@ export function useApprovalInbox({
 		)
 		.map((approval) => runtimeApprovalItem(approval, tediNames));
 	const count = approvalAttentionCount({
-		home: homeApprovals.length + globalHomeApprovals.length,
-		runtime: runtimeApprovals.length,
+		home: everywhere.home,
+		runtime: everywhere.runtime,
 		work: workStartPending.length,
 	});
 	const runtimeTotal = runtime.data?.pagination?.total ?? 0;
@@ -513,6 +547,11 @@ export function useApprovalInbox({
 			queryClient.invalidateQueries({
 				queryKey: pendingHomeDelegationsQueryOptions().queryKey,
 			}),
+			workspaceId !== null
+				? queryClient.invalidateQueries({
+						queryKey: pendingHomeDelegationsQueryOptions(workspaceId).queryKey,
+					})
+				: null,
 			conversationId !== null
 				? queryClient.invalidateQueries({
 						queryKey: homeRunSetQueryOptions(conversationId).queryKey,
@@ -602,6 +641,14 @@ export function useApprovalInbox({
 		workStartPending,
 		expired,
 		count,
+		/** What waits in the one workspace asked for; null without one. */
+		workspace: inWorkspace && {
+			items: inWorkspace.items,
+			count: inWorkspace.home + inWorkspace.runtime,
+			loading:
+				(conversationId !== null && runSet.isPending) ||
+				scopedRuntime.isPending,
+		},
 		/** More runtime requests exist than one read returns. */
 		hidden: Math.max(0, runtimeTotal - runtimeShown),
 		tediNames,

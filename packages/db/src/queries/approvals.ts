@@ -66,6 +66,11 @@ export interface CreateApprovalRequestParams {
 export interface ListApprovalRequestsOptions {
 	orgId?: string;
 	viewerUserId?: string;
+	/**
+	 * Only requests made in this workspace: the request names it, or its
+	 * conversation belongs to it. The caller checks the workspace is visible.
+	 */
+	workspaceId?: string;
 	tediId?: string;
 	status?: ApprovalStatus;
 	actionType?: string;
@@ -153,11 +158,15 @@ export async function listApprovalRequests(
 			gt(tediApprovalRequests.expiresAt, new Date().toISOString()),
 		);
 	}
+	const conversationId = sql`COALESCE(json_extract(${tediApprovalRequests.payload}, '$.homeConversationId'), json_extract(${tediApprovalRequests.payload}, '$.conversationId'), (SELECT conversation_id FROM kernel_runtime_runs WHERE organization_id = ${tediApprovalRequests.orgId} AND id = json_extract(${tediApprovalRequests.payload}, '$.homeRunId')))`;
+	const workspaceId = sql`COALESCE(json_extract(${tediApprovalRequests.payload}, '$.workspaceId'), (SELECT workspace_id FROM kernel_conversations WHERE organization_id = ${tediApprovalRequests.orgId} AND conversation_id = ${conversationId}))`;
+	if (options.workspaceId) {
+		if (!orgId) return { data: [], total: 0 };
+		conditions.push(sql`${workspaceId} = ${options.workspaceId}`);
+	}
 	if (options.viewerUserId) {
 		if (!orgId) return { data: [], total: 0 };
 		const personId = options.viewerUserId;
-		const conversationId = sql`COALESCE(json_extract(${tediApprovalRequests.payload}, '$.homeConversationId'), json_extract(${tediApprovalRequests.payload}, '$.conversationId'), (SELECT conversation_id FROM kernel_runtime_runs WHERE organization_id = ${tediApprovalRequests.orgId} AND id = json_extract(${tediApprovalRequests.payload}, '$.homeRunId')))`;
-		const workspaceId = sql`COALESCE(json_extract(${tediApprovalRequests.payload}, '$.workspaceId'), (SELECT workspace_id FROM kernel_conversations WHERE organization_id = ${tediApprovalRequests.orgId} AND conversation_id = ${conversationId}))`;
 		conditions.push(
 			sql`NOT EXISTS (SELECT 1 FROM tedis AS personal WHERE personal.id = ${tediApprovalRequests.tediId} AND personal.organization_id = ${tediApprovalRequests.orgId} AND personal.scope = 'personal' AND (personal.owner_user_id IS NULL OR personal.owner_user_id <> ${personId}))`,
 			sql`(NOT EXISTS (SELECT 1 FROM kernel_conversation_grants AS grants WHERE grants.organization_id = ${tediApprovalRequests.orgId} AND grants.conversation_id = ${conversationId}) OR EXISTS (SELECT 1 FROM kernel_conversation_grants AS mine WHERE mine.organization_id = ${tediApprovalRequests.orgId} AND mine.conversation_id = ${conversationId} AND mine.grantee_descope_user_id = ${personId}))`,

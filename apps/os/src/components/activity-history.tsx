@@ -261,8 +261,11 @@ export function ActivityHistory({
 	only,
 	canRetry = false,
 	attentionOnly = false,
+	workspaceId = null,
 }: {
 	tediNames: Record<string, string>;
+	/** Show only decisions on requests made in this workspace. */
+	workspaceId?: string | null;
 	/** Show one kind of entry and no filter control. */
 	only?: Exclude<HistoryFilter, "all">;
 	/** The signed-in person may try a failed approved call again (owner or admin). */
@@ -270,12 +273,16 @@ export function ActivityHistory({
 	attentionOnly?: boolean;
 }) {
 	const [chosen, setFilter] = useState<HistoryFilter>("all");
-	const filter = only ?? chosen;
+	// A tool call does not record the workspace it ran for, so one
+	// workspace's history lists decisions only.
+	const showActions = !attentionOnly && workspaceId === null;
+	const filter =
+		only ?? (chosen === "actions" && !showActions ? "all" : chosen);
 	const [offset, setOffset] = useState(0);
 	const approvals = useQuery({
 		...(attentionOnly
 			? approvalExecutionAttentionQueryOptions(offset)
-			: approvalHistoryQueryOptions()),
+			: approvalHistoryQueryOptions(workspaceId ?? undefined)),
 		refetchInterval: 15_000,
 	});
 	// Tool activity needs analytics access; without it History still shows
@@ -283,12 +290,12 @@ export function ActivityHistory({
 	const actions = useQuery({
 		...recentToolActivityQueryOptions(),
 		retry: false,
-		enabled: !attentionOnly,
+		enabled: showActions,
 	});
 	const history = filterHistory(
 		[
 			...approvalHistoryEntries(approvals.data?.data ?? [], tediNames),
-			...actionHistoryEntries(actions.data?.items ?? []),
+			...(showActions ? actionHistoryEntries(actions.data?.items ?? []) : []),
 		],
 		attentionOnly ? "all" : filter,
 	);
@@ -296,8 +303,10 @@ export function ActivityHistory({
 		? history.filter((entry) => entry.needsAttention)
 		: history;
 	const loading =
-		approvals.isPending || (filter === "actions" && actions.isPending);
-	const actionsHidden = actions.isError && filter !== "approvals";
+		approvals.isPending ||
+		(showActions && filter === "actions" && actions.isPending);
+	const actionsHidden =
+		showActions && actions.isError && filter !== "approvals";
 	if (
 		attentionOnly &&
 		!approvals.isPending &&
@@ -310,8 +319,9 @@ export function ActivityHistory({
 		<div className="grid min-w-0">
 			{!attentionOnly ? (
 				<Text as="p" className="m-0 px-4 pt-3" role="caption" tone="secondary">
-					Recent decisions and app tool calls across your organization. For
-					steps in a workspace conversation, open that conversation.
+					{workspaceId === null
+						? "Recent decisions and app tool calls across your organization. For steps in a workspace conversation, open that conversation."
+						: "Recent decisions on requests made in this workspace. App tool calls are listed under Everywhere."}
 				</Text>
 			) : null}
 			{attentionOnly ? (
@@ -327,7 +337,11 @@ export function ActivityHistory({
 						compact
 						fill
 						onValueChange={setFilter}
-						options={HISTORY_FILTERS}
+						options={
+							showActions
+								? HISTORY_FILTERS
+								: HISTORY_FILTERS.filter(({ value }) => value !== "actions")
+						}
 						value={filter}
 					/>
 				)}
@@ -340,7 +354,7 @@ export function ActivityHistory({
 					{loading ? "Loading…" : `${entries.length} shown`}
 				</Text>
 			</div>
-			{approvals.isError && (attentionOnly || actions.isError) ? (
+			{approvals.isError && (!showActions || actions.isError) ? (
 				<Text className="m-0 px-4 py-6" role="label" tone="error">
 					History could not be loaded. Reload and try again.
 				</Text>
@@ -352,7 +366,11 @@ export function ActivityHistory({
 				<Empty
 					appearance="inline"
 					className="px-4! py-6!"
-					description={EMPTY_COPY[filter].body}
+					description={
+						workspaceId !== null && filter === "all"
+							? "Requests made in this workspace appear here once they are approved, rejected or expire."
+							: EMPTY_COPY[filter].body
+					}
 					icon={
 						<ClockCounterClockwise
 							aria-hidden
@@ -360,7 +378,11 @@ export function ActivityHistory({
 							size={24}
 						/>
 					}
-					title={EMPTY_COPY[filter].title}
+					title={
+						workspaceId !== null && filter === "all"
+							? "No decisions in this workspace yet"
+							: EMPTY_COPY[filter].title
+					}
 				/>
 			) : (
 				<ol

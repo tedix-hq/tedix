@@ -72,6 +72,32 @@ it("keeps another person's runtime approvals out of the personal Deck, even for 
 		expect(
 			(await listApprovalRequests(db, { viewerUserId: "luz" })).data,
 		).toEqual([]);
+		const inWorkspace = async (
+			options: Parameters<typeof listApprovalRequests>[1],
+		) =>
+			(await listApprovalRequests(db, options)).data
+				.map((row) => row.id)
+				.sort();
+		// A request belongs to a workspace by name or through its conversation.
+		expect(
+			await inWorkspace({ orgId: "org", workspaceId: "luz-space" }),
+		).toEqual(["own-home"]);
+		expect(
+			await inWorkspace({ orgId: "org", workspaceId: "river-space" }),
+		).toEqual(["private-home", "private-run", "private-workspace"]);
+		// Another person's private workspace stays empty for this viewer.
+		expect(
+			await inWorkspace({
+				orgId: "org",
+				viewerUserId: "luz",
+				workspaceId: "river-space",
+			}),
+		).toEqual([]);
+		// The same workspace id in another organization, or no organization.
+		expect(
+			await inWorkspace({ orgId: "foreign-org", workspaceId: "luz-space" }),
+		).toEqual([]);
+		expect(await inWorkspace({ workspaceId: "luz-space" })).toEqual([]);
 	} finally {
 		sqlite.close();
 	}
