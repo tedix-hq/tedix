@@ -4724,3 +4724,268 @@ describe("a message sent while the agent works", () => {
 		).not.toContain("Skip the odd numbers");
 	});
 });
+
+describe("managing conversations", () => {
+	async function fixture() {
+		await seedCore();
+		const privateScope = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([privateScope]);
+		await testEnv.DB.prepare(
+			"UPDATE os_workspaces SET visibility = 'private', owner_user_id = 'u1' WHERE id = ?",
+		)
+			.bind(privateScope.workspaceId)
+			.run();
+		await grantOsWorkspaceAccess(createDbQueryClient(testEnv.DB), {
+			...privateScope,
+			now: "2026-11-15T00:00:00Z",
+			edges: [
+				{
+					kind: "user",
+					targetUserId: "fictional-builder",
+					targetEmail: null,
+					targetName: null,
+					sharerUserId: "u1",
+					role: "build",
+				},
+			],
+		});
+		const ws = workspace(privateScope);
+		await seedOutputs(ws, privateScope);
+		const say = async (text: string) => {
+			await ws.scriptModel(privateScope, [{ text: `Answer to ${text}` }]);
+			const started = await ws.sendTurn(privateScope, {
+				actorId: "u1",
+				actorKind: "user",
+				text,
+			});
+			await ws.awaitTurn(privateScope, started.turnId, 20_000);
+			return started.conversationId;
+		};
+		return { ws, privateScope, say };
+	}
+	/** An open chat that follows one conversation, or none. */
+	async function chat(
+		ws: Stub,
+		privateScope: WorkspaceScope,
+		conversationId: string | null,
+	) {
+		const response = await ws.fetch(
+			new Request("https://workspace.test/subscribe", {
+				headers: {
+					Upgrade: "websocket",
+					"X-Workspace-Org": privateScope.organizationId,
+					"X-Workspace-Id": privateScope.workspaceId,
+					"X-Workspace-Actor-Id": "fictional-builder",
+					"X-Workspace-Actor-Kind": "user",
+				},
+			}),
+		);
+		expect(response.status).toBe(101);
+		const socket = response.webSocket;
+		if (!socket) throw new Error("No socket");
+		const frames: Record<string, unknown>[] = [];
+		socket.addEventListener("message", (event) =>
+			frames.push(JSON.parse(String(event.data)) as Record<string, unknown>),
+		);
+		socket.accept();
+		const send = (frame: Record<string, unknown>) =>
+			socket.send(JSON.stringify(frame));
+		const got = (frame: Record<string, unknown>) =>
+			vi.waitFor(() =>
+				expect(frames).toContainEqual(expect.objectContaining(frame)),
+			);
+		send({ type: "subscribe", conversationId, cursor: null });
+		await got({ type: "caught_up" });
+		return {
+			frames,
+			send,
+			got,
+			/** What the object says to a chat that connects now. */
+			async hello() {
+				frames.length = 0;
+				send({ type: "subscribe", conversationId, cursor: null });
+				await got({ type: "caught_up" });
+				return frames.find((frame) => frame.type === "hello") as {
+					conversations: Array<Record<string, unknown>>;
+					archived: Array<Record<string, unknown>>;
+				};
+			},
+			close: () => socket.close(1000, "test complete"),
+		};
+	}
+
+	test("a rename, an archive and a restore reach every open chat", async () => {
+		const { ws, privateScope, say } = await fixture();
+		const first = await say("Plan the launch");
+		const second = await say("Draft the budget");
+		const here = await chat(ws, privateScope, first);
+		const elsewhere = await chat(ws, privateScope, second);
+		try {
+			here.send({
+				type: "rename_conversation",
+				conversationId: first,
+				title: "  Launch   plan  ",
+			});
+			for (const open of [here, elsewhere])
+				await open.got({
+					type: "conversation.updated",
+					conversationId: first,
+					title: "Launch plan",
+				});
+			expect(
+				(await ws.listConversations(privateScope)).find(
+					(row) => row.id === first,
+				)?.title,
+			).toBe("Launch plan");
+
+			here.send({
+				type: "rename_conversation",
+				conversationId: first,
+				title: " ",
+			});
+			await here.got({ type: "error", message: "A conversation needs a name" });
+
+			elsewhere.send({
+				type: "archive_conversation",
+				conversationId: first,
+				archived: true,
+			});
+			for (const open of [here, elsewhere])
+				await open.got({
+					type: "conversation.updated",
+					conversationId: first,
+					archivedAt: expect.any(String),
+				});
+			expect(
+				(await ws.listConversations(privateScope)).map((row) => row.id),
+			).toEqual([second]);
+			const archived = await elsewhere.hello();
+			expect(archived.conversations.map((row) => row.id)).toEqual([second]);
+			expect(archived.archived).toEqual([
+				expect.objectContaining({
+					id: first,
+					title: "Launch plan",
+					archivedAt: expect.any(String),
+				}),
+			]);
+
+			here.send({
+				type: "archive_conversation",
+				conversationId: first,
+				archived: false,
+			});
+			await elsewhere.got({
+				type: "conversation.updated",
+				conversationId: first,
+				archivedAt: null,
+			});
+			const restored = await elsewhere.hello();
+			expect(restored.archived).toEqual([]);
+			expect(restored.conversations.map((row) => row.id).sort()).toEqual(
+				[first, second].sort(),
+			);
+		} finally {
+			here.close();
+			elsewhere.close();
+		}
+	});
+
+	test("the list says how many changes wait for a decision", async () => {
+		const { ws, privateScope, say } = await fixture();
+		const conversationId = await say("Plan the launch");
+		await runInDurableObject(ws, async (_instance, state) => {
+			state.storage.sql.exec(
+				"INSERT INTO approvals (approval_id, turn_id, conversation_id, step_id, binding, method, args, resource, args_hash, actor_id, actor_kind, status) VALUES ('fictional-approval','fictional-turn',?,'step','outputs','create','{}','output','hash','u1','user','pending')",
+				conversationId,
+			);
+		});
+		expect(await ws.listConversations(privateScope)).toEqual([
+			expect.objectContaining({ id: conversationId, pendingApprovals: 1 }),
+		]);
+	});
+
+	test("a delete removes the conversation for good and tells every open chat", async () => {
+		const { ws, privateScope, say } = await fixture();
+		const kept = await say("Draft the budget");
+		const gone = await say("Plan the launch");
+		const here = await chat(ws, privateScope, gone);
+		const elsewhere = await chat(ws, privateScope, kept);
+		try {
+			await runInDurableObject(ws, async (_instance, state) => {
+				state.storage.sql.exec(
+					"INSERT INTO turns (turn_id, conversation_id, started_at, status, actor_id, actor_kind) VALUES ('fictional-working', ?, '2026-11-18T00:00:00Z', 'running', 'u1', 'user')",
+					gone,
+				);
+			});
+			here.send({ type: "delete_conversation", conversationId: gone });
+			await here.got({
+				type: "error",
+				message: "Stop the reply before you delete this conversation",
+			});
+			await runInDurableObject(ws, async (_instance, state) => {
+				state.storage.sql.exec(
+					"DELETE FROM turns WHERE turn_id = 'fictional-working'",
+				);
+			});
+
+			here.send({ type: "delete_conversation", conversationId: gone });
+			for (const open of [here, elsewhere])
+				await open.got({ type: "conversation.deleted", conversationId: gone });
+			expect(
+				(await ws.listConversations(privateScope)).map((row) => row.id),
+			).toEqual([kept]);
+			expect(
+				await ws.readEvents(privateScope, { conversationId: gone, after: 0 }),
+			).toEqual([]);
+			await runInDurableObject(ws, async (_instance, state) => {
+				for (const table of ["messages", "turns", "approvals"])
+					expect(
+						state.storage.sql
+							.exec(`SELECT 1 FROM ${table} WHERE conversation_id = ?`, gone)
+							.toArray(),
+					).toEqual([]);
+				expect(
+					state.storage.sql
+						.exec("SELECT 1 FROM messages WHERE conversation_id = ?", kept)
+						.toArray().length,
+				).toBeGreaterThan(0);
+			});
+			const hello = await elsewhere.hello();
+			expect(hello.conversations.map((row) => row.id)).toEqual([kept]);
+			expect(hello.archived).toEqual([]);
+
+			here.send({ type: "delete_conversation", conversationId: gone });
+			await here.got({ type: "error", message: "Unknown conversation" });
+		} finally {
+			here.close();
+			elsewhere.close();
+		}
+	});
+
+	test.each([
+		{ type: "rename_conversation", title: "Taken over" },
+		{ type: "archive_conversation", archived: true },
+		{ type: "delete_conversation" },
+	])("a person who can only view is refused $type", async (frame) => {
+		const { ws, privateScope, say } = await fixture();
+		const conversationId = await say("Plan the launch");
+		const viewer = await chat(ws, privateScope, null);
+		try {
+			await testEnv.DB.prepare(
+				"UPDATE os_workspace_access_edges SET role = 'use' WHERE workspace_id = ? AND target_user_id = 'fictional-builder'",
+			)
+				.bind(privateScope.workspaceId)
+				.run();
+			viewer.send({ ...frame, conversationId });
+			await viewer.got({ type: "error", code: "access_denied" });
+			expect(await ws.listConversations(privateScope)).toEqual([
+				expect.objectContaining({
+					id: conversationId,
+					title: "Plan the launch",
+				}),
+			]);
+		} finally {
+			viewer.close();
+		}
+	});
+});

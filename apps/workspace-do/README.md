@@ -80,7 +80,10 @@ its code runs beside the data.
   `subscribe`, `send_turn`, `decide_approval`, `decide_approvals` (several
   approvals of one reply, continued by one turn), `set_auto_approval` (turn
   an "Always approve" rule on or off; every socket gets `auto_approvals`, and
-  `hello` carries the rules), `cancel_turn`, `ping`; the
+  `hello` carries the rules), `cancel_turn`, `rename_conversation`,
+  `archive_conversation` (`archived: false` restores; `hello` lists archived
+  conversations in `archived`), `delete_conversation` (refused while a reply
+  is working; every socket gets `conversation.deleted`), `ping`; the
   object answers with ledger events (`turn.started`, `assistant.delta`,
   `step.started`/`step.finished`, `approval.requested`, `turn.finished`, …)
   that each carry a `seq` cursor, plus `hello`, `turn.accepted` and `error`.

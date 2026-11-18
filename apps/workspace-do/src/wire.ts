@@ -183,6 +183,8 @@ export type WireControlFrame =
 			cursor: number;
 			serverTime: string;
 			conversations: ConversationSummary[];
+			/** Archived conversations, each with `archivedAt`; not in `conversations`. */
+			archived?: ConversationSummary[];
 			models?: Array<{ id: string; label: string }>;
 			/** The whole workspace, archived conversations included, up to `cursor`. */
 			usage?: UsageTotals;
@@ -193,6 +195,18 @@ export type WireControlFrame =
 			/** The workspace's "Always approve" rules changed. */
 			type: "auto_approvals";
 			rules: AutoApprovalRule[];
+	  }
+	| {
+			/**
+			 * A conversation and everything in it is gone. Its events left the
+			 * ledger with it, so this is a control frame; every open chat gets it.
+			 */
+			type: "conversation.deleted";
+			conversationId: string;
+			/** The ledger position `usage` is counted up to. */
+			cursor: number;
+			/** The workspace's usage without the deleted conversation. */
+			usage?: UsageTotals;
 	  }
 	| { type: "caught_up"; cursor: number; conversationId: string | null }
 	| {
@@ -249,6 +263,14 @@ export type ClientFrame =
 			enabled: boolean;
 	  }
 	| { type: "cancel_turn"; turnId: string }
+	| { type: "rename_conversation"; conversationId: string; title: string }
+	| {
+			/** `archived: false` puts the conversation back in the list. */
+			type: "archive_conversation";
+			conversationId: string;
+			archived: boolean;
+	  }
+	| { type: "delete_conversation"; conversationId: string }
 	| {
 			type: "read_ledger";
 			conversationId: string;
@@ -264,6 +286,10 @@ export interface ConversationSummary {
 	lastTurnAt: string | null;
 	/** A turn in this conversation is still working. */
 	running?: boolean;
+	/** How many changes in this conversation wait for a decision. */
+	pendingApprovals?: number;
+	/** Set while the conversation is archived. */
+	archivedAt?: string;
 	/** Absent until a reply in this conversation reports usage. */
 	usage?: UsageTotals;
 }

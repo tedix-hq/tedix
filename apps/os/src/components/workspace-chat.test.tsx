@@ -81,6 +81,9 @@ function fakeClient(conversationId: string | null) {
 		cancelTurn(turnId) {
 			calls.push(["cancelTurn", turnId]);
 		},
+		changeConversation(change) {
+			calls.push(["changeConversation", change]);
+		},
 		loadEarlier() {
 			calls.push(["loadEarlier"]);
 		},
