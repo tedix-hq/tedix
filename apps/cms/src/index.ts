@@ -1150,6 +1150,28 @@ function isInternalDeploymentRequestAuthorized(
 	);
 }
 
+app.post(
+	"/api/internal/deployments/:slug/theme-release-migration",
+	async (c) => {
+		const auth = await authenticateRequest(c.req.raw, c.env);
+		const slug = c.req.param("slug");
+		if (!isInternalDeploymentRequestAuthorized(auth, slug)) {
+			return c.json({ error: "Internal service authorization required" }, 403);
+		}
+		const { migrateThemeRelease } =
+			await import("./agent/theme-release-migration");
+		const result = await migrateThemeRelease(c.env, slug);
+		return c.json(
+			result,
+			result.status === "failed"
+				? 500
+				: result.status === "running"
+					? 202
+					: 200,
+		);
+	},
+);
+
 app.get("/api/internal/deployments/:slug/resources", async (c) => {
 	const auth = await authenticateRequest(c.req.raw, c.env);
 	const slug = c.req.param("slug");
