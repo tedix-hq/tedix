@@ -573,6 +573,23 @@ export async function listOsWorkspaceSkillLinkCandidates(
 	return candidates;
 }
 
+/** Every resource row of one workspace, removed ones included. */
+export async function listAllOsWorkspaceResourceRows(
+	db: DbQueryClient,
+	scope: OsWorkspaceResourceScope,
+): Promise<OsWorkspaceResourceRow[]> {
+	return db
+		.select()
+		.from(osWorkspaceResources)
+		.where(
+			and(
+				eq(osWorkspaceResources.organizationId, scope.organizationId),
+				eq(osWorkspaceResources.workspaceId, scope.workspaceId),
+			),
+		)
+		.orderBy(asc(osWorkspaceResources.id));
+}
+
 /** List screens and cross-workspace lookups retain a projection of the object row. */
 export async function projectOsWorkspaceResource(
 	db: DbQueryClient,
