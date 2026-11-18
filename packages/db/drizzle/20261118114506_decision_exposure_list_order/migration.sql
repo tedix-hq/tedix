@@ -1,0 +1,1 @@
+CREATE INDEX `idx_decision_exposure_org_actor_time` ON `decision_exposures` (`organization_id`,`actor_id`,"occurred_at" DESC,`id`) WHERE +"decision_exposures"."occurred_at" >= '';
