@@ -73,8 +73,10 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,
 	): Promise<OutputQueryResult<K>> {
+		// A local run has no jurisdiction; everywhere else a new store must be in the EU.
 		if (
 			query.op === "initialize" &&
+			this.env.ENVIRONMENT !== "development" &&
 			readDurableObjectJurisdiction(this.env) !== "eu"
 		)
 			throw new Error(
