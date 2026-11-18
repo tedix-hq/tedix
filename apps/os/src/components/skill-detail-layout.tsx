@@ -583,7 +583,15 @@ export function SkillDetailLayout() {
 					>
 						<FormField form={runForm} name="tediId" label="Run as">
 							{(field, meta) => (
-								<FormSelect field={field} {...meta} placeholder="Select a tedi">
+								<FormSelect
+									field={field}
+									{...meta}
+									placeholder="Select a tedi"
+									items={(roster.data?.data ?? []).map((tedi) => ({
+										value: tedi.id,
+										label: tedi.name,
+									}))}
+								>
 									{(roster.data?.data ?? []).map((tedi) => (
 										<SelectItem key={tedi.id} value={tedi.id}>
 											{tedi.name}
