@@ -401,6 +401,94 @@ describe("syncCatalogToolsToApp write capability", () => {
 		},
 	});
 
+	it.each([false, true])(
+		"isolates invalid policies while staging valid schema changes (dryRun=%s)",
+		async (dryRun) => {
+			const { db } = setup();
+			await seed(db);
+			await db.insert(appCatalogMcpTools).values([
+				catalogTool("valid", "list_versions", { readOnlyHint: true }),
+				catalogTool("invalid-existing", "publish_page", {
+					readOnlyHint: false,
+				}),
+			]);
+			const options = {
+				catalogAppId: "catalog-wc",
+				appId: "app-wc",
+				mcpServerUrl: "https://mcp.acme.test/mcp",
+				dryRun: false,
+			};
+			await syncCatalogToolsToApp(db, options);
+			await db.update(appTools).set({ reviewState: "live" });
+			const before = await db.select().from(appTools);
+			const invalidMeta = {
+				"com.tedix/policy": {
+					riskTier: "high_impact_write",
+					blastRadius: "single_resource",
+				},
+			};
+			await db
+				.update(appCatalogMcpTools)
+				.set({ meta: invalidMeta })
+				.where(eq(appCatalogMcpTools.id, "invalid-existing"));
+			await db.insert(appCatalogMcpTools).values({
+				...catalogTool("invalid-new", "publish_site", { readOnlyHint: false }),
+				meta: invalidMeta,
+			});
+			const outputSchema = {
+				type: "object" as const,
+				properties: { versions: { type: "array" as const } },
+			};
+			await db
+				.update(appCatalogMcpTools)
+				.set({ outputSchema })
+				.where(eq(appCatalogMcpTools.id, "valid"));
+
+			const result = await syncCatalogToolsToApp(db, { ...options, dryRun });
+			expect(result.errors).toHaveLength(2);
+			expect(
+				result.errors.every((error) =>
+					error.includes("single_resource is not valid for high_impact_write"),
+				),
+			).toBe(true);
+			expect(result.results).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						toolName: "publish_page",
+						action: "skipped",
+						reason: expect.stringContaining("invalid policy"),
+					}),
+					expect.objectContaining({
+						toolName: "publish_site",
+						action: "skipped",
+						reason: expect.stringContaining("invalid policy"),
+					}),
+					expect.objectContaining({
+						toolName: "list_versions",
+						action: dryRun ? "would_update" : "updated",
+					}),
+				]),
+			);
+			const after = await db.select().from(appTools);
+			expect(after).toHaveLength(2);
+			expect(after.find((tool) => tool.toolId === "publish_page")).toEqual(
+				before.find((tool) => tool.toolId === "publish_page"),
+			);
+			if (dryRun) {
+				expect(after).toEqual(before);
+			} else {
+				expect(
+					after.find((tool) => tool.toolId === "list_versions"),
+				).toMatchObject({
+					reviewState: "pending",
+					reviewPending: { outputSchema },
+					outputSchema: before.find((tool) => tool.toolId === "list_versions")
+						?.outputSchema,
+				});
+			}
+		},
+	);
+
 	it("retains sampled shapes across refreshes until upstream declares an output schema", async () => {
 		const { db } = setup();
 		await seed(db);
