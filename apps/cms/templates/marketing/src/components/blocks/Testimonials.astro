@@ -36,7 +36,7 @@ const items = (node.items ?? []).map((row) => ({
 									loading="lazy"
 								/>
 							)}
-							{item.avatar && typeof item.avatar !== "string" && <Image image={item.avatar} alt={item.avatar.alt ?? item.author ?? ""} class="mk-testimonial__avatar" />}
+							{item.avatar && typeof item.avatar !== "string" && <Image image={item.avatar} alt={item.avatar.alt ?? item.author ?? ""} class="mk-testimonial__avatar" sizes="44px" />}
 							<div class="mk-testimonial__info">
 								{item.author && <span class="mk-testimonial__name">{item.author}</span>}
 								{(item.role || item.company) && (

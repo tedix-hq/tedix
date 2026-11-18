@@ -27,7 +27,8 @@ const items = node._version === 2
 			<div class="mk-logos__row">
 				{items.map((logo) => {
 					const img = logo.image ? (
-						<Image image={logo.image} class="mk-logo" />
+						<Image image={logo.image} class="mk-logo"
+							sizes="200px" />
 					) : (
 						<img
 							class="mk-logo"

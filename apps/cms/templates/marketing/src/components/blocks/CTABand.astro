@@ -26,7 +26,7 @@ const bandStyle = imageUrl
 
 {headline && (
 	<section class="mk-cta" style={bandStyle}>
-		{image && <div class="mk-cta__media" aria-hidden="true"><Image image={image} alt="" /></div>}
+		{image && <div class="mk-cta__media" aria-hidden="true"><Image image={image} alt="" sizes="(max-width: 845px) 90vw, 760px" /></div>}
 		{image && <div class="mk-cta__overlay" aria-hidden="true" />}
 		<div class="mk-cta__inner">
 			<h2>{headline}</h2>

@@ -8,7 +8,7 @@ const { value } = Astro.props;
 ---
 
 <section class="mk-profile">
-	{value.image && <div class="mk-profile__portrait"><Image image={value.image} /></div>}
+	{value.image && <div class="mk-profile__portrait"><Image image={value.image} sizes="112px" /></div>}
 	{value.eyebrow && <p class="mk-profile__eyebrow">{value.eyebrow}</p>}
 	<h1>{value.name}</h1>
 	{value.role && <p class="mk-profile__role">{value.role}</p>}
