@@ -120,8 +120,6 @@
 		"lint-d1.ts",
 		"lint-d1.test.ts",
 		"lint-import-cycles.ts",
-		"lint-knip-diff.ts",
-		"lint-knip-diff.test.ts",
 		"lint-remote-d1.ts",
 		"lint-remote-d1.test.ts",
 		"lint-loader-sandbox.ts",
