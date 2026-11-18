@@ -55,7 +55,7 @@ import {
 	createOsGadgetExecution,
 	getOsGadgetExecution,
 } from "@tedix/db/queries/os-workspaces/executions";
-import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getRequestOrganizationMembership } from "../org-membership";
 import {
 	parseDerivedAccessEnvelope,
 	authorizeDerivedOutputSources,
@@ -773,8 +773,8 @@ export function createOsAppRuntimeRouter() {
 		);
 		const member =
 			context.authType === "user" && scope.actorUserId
-				? await getMemberByUserId(
-						context.db,
+				? await getRequestOrganizationMembership(
+						context,
 						scope.organizationId,
 						scope.actorUserId,
 					)
@@ -992,8 +992,8 @@ export function createOsAppRuntimeRouter() {
 			);
 		// The member row, the caller's current access and the slot list are
 		// independent reads; one round of waiting instead of three.
-		const memberRead = getMemberByUserId(
-			context.db,
+		const memberRead = getRequestOrganizationMembership(
+			context,
 			session.organizationId,
 			session.actorUserId,
 		);

@@ -51,6 +51,9 @@ export interface UserTenantIdentityContext {
 	canonicalUserId: string | null;
 	/** Null means no membership row; false means an explicitly inactive row. */
 	memberIsActive: boolean | null;
+	memberId: string | null;
+	memberUserId: string | null;
+	memberDescopeUserId: string | null;
 	memberKind: typeof organizationMembers.$inferSelect.kind | null;
 	memberRole: string | null;
 	reviewProject?: { id: string; project: Project | undefined };
@@ -106,6 +109,17 @@ export async function resolveUserTenantIdentityContext(
 			),
 			canonicalUserId: sql<string | null>`${userMapping.principalId}`.as(
 				"identity_context_user_id",
+			),
+			memberId: sql<string | null>`${organizationMembers.id}`.as(
+				"identity_context_member_id",
+			),
+			memberUserId: sql<string | null>`${organizationMembers.userId}`.as(
+				"identity_context_member_user_id",
+			),
+			memberDescopeUserId: sql<
+				string | null
+			>`${organizationMembers.descopeUserId}`.as(
+				"identity_context_member_descope_user_id",
 			),
 			memberIsActive: sql<boolean | null>`CASE
 				WHEN ${organizationMembers.id} IS NULL THEN NULL

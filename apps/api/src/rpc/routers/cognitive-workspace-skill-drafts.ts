@@ -1,10 +1,7 @@
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { validateSkillInput } from "@tedix/db/queries/cognitive/skill-validation";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
-import {
-	getMemberByIdForOrganization,
-	getMemberByUserId,
-} from "@tedix/db/queries/organization-members";
+import { getMemberByIdForOrganization } from "@tedix/db/queries/organization-members";
 import {
 	getOsWorkspaceResource,
 	getOsWorkspaceSkillDraftGrant,
@@ -18,6 +15,7 @@ import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-schedule";
 import { auditActor, emitAuditEvent } from "../audit-helpers";
 import { requireOrgId } from "../org-scope";
+import { getRequestOrganizationMembership } from "../org-membership";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -51,7 +49,7 @@ async function requireMember(context: BaseContext) {
 			subject = context.descopeUserId;
 	}
 	const member = subject
-		? await getMemberByUserId(context.db, organizationId, subject)
+		? await getRequestOrganizationMembership(context, organizationId, subject)
 		: undefined;
 	if (!member || member.status !== "active")
 		throw createError(

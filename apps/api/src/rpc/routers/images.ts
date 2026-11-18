@@ -20,10 +20,7 @@ import {
 	updateEntityImageUrl,
 	updateEntityImageUrlForPlatform,
 } from "@tedix/db/queries/entity-images";
-import {
-	getMemberByCanonicalUserId,
-	getMemberByUserId,
-} from "@tedix/db/queries/organization-members";
+import { getRequestOrganizationMembership } from "../org-membership";
 import {
 	getOrganizationById,
 	isOrganizationOffboarding,
@@ -418,10 +415,14 @@ async function authorizeEntityImage(
 ): Promise<string> {
 	const { db, organizationId } = context;
 	if (entityType === "organization" && context.authType === "user") {
-		const member = context.userId
-			? await getMemberByCanonicalUserId(db, entityId, context.userId)
-			: context.user?.sub
-				? await getMemberByUserId(db, entityId, context.user.sub)
+		const member =
+			context.userId || context.user?.sub
+				? await getRequestOrganizationMembership(
+						context,
+						entityId,
+						context.user?.sub ?? "",
+						{ canonicalUserId: context.userId, fallbackToSubject: false },
+					)
 				: undefined;
 		if (
 			!member ||

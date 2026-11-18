@@ -771,6 +771,9 @@ describe("public user-session authentication", () => {
 		shareAuthMocks.resolveUserTenantIdentityContext.mockResolvedValue({
 			organizationId: "org-1",
 			canonicalUserId: "canonical-user",
+			memberId: "member-1",
+			memberUserId: "canonical-user",
+			memberDescopeUserId: "U2fictionaluser",
 			memberIsActive,
 			memberKind,
 			memberRole: memberIsActive ? "owner" : null,
@@ -818,6 +821,11 @@ describe("public user-session authentication", () => {
 			subject: "U2fictionaluser",
 			status: "active",
 			role: "owner",
+			id: "member-1",
+			userId: "canonical-user",
+			descopeUserId: "U2fictionaluser",
+			kind: undefined,
+			customPermissions: [],
 		});
 		const bootstrap = await authenticate(
 			{ iss: "https://auth.tedix.dev/P2fictional", roles: ["owner"] },

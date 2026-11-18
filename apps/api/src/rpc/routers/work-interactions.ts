@@ -710,6 +710,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 			userId: member.userId,
 			userRole: member.role,
 			userPermissionOverrides: member.customPermissions ?? [],
+			organizationMembership: { ...member, subject: member.descopeUserId },
 		};
 	}
 	try {

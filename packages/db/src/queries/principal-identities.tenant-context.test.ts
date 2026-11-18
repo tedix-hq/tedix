@@ -198,6 +198,9 @@ describe("user tenant identity context", () => {
 		await expect(resolve()).resolves.toEqual({
 			organizationId: ORG,
 			canonicalUserId: USER,
+			memberId: "00000000-0000-4000-8000-000000000003",
+			memberUserId: USER,
+			memberDescopeUserId: SUBJECT,
 			memberIsActive: true,
 			memberKind: "human",
 			memberRole: "admin",
@@ -220,6 +223,9 @@ describe("user tenant identity context", () => {
 			await expect(resolve()).resolves.toEqual({
 				organizationId: ORG,
 				canonicalUserId: null,
+				memberId: "00000000-0000-4000-8000-000000000004",
+				memberUserId: null,
+				memberDescopeUserId: SUBJECT,
 				memberIsActive: true,
 				memberKind: kind,
 				memberRole: "member",
@@ -265,6 +271,9 @@ describe("user tenant identity context", () => {
 		await expect(resolve()).resolves.toEqual({
 			organizationId: ORG,
 			canonicalUserId: null,
+			memberId: null,
+			memberUserId: null,
+			memberDescopeUserId: null,
 			memberIsActive: null,
 			memberKind: null,
 			memberRole: null,

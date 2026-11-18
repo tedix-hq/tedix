@@ -145,6 +145,11 @@ and `requireOrgId` for helpers not reached through that middleware. Do not add
 a local copy. A missing organization is FORBIDDEN, never 401: a 401 bounces a
 user with a valid session to `/login`.
 
+Use `getRequestOrganizationMembership` from `rpc/org-membership.ts` for member
+identity checks. It reuses authentication's row only for the same organization
+and lookup key, preserving canonical-only and canonical-first lookups. Do not
+use `userRole` as proof a member exists: bootstrap can fall back to token roles.
+
 Tenant ownership belongs in the query predicate for caller-supplied record ids;
 use organization-scoped query helpers such as `getAppByIdForOrganization` and
 `getTediByIdForOrganization`. `requireOrgId(context)` alone proves only that
