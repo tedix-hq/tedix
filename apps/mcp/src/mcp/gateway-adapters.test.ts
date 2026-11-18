@@ -273,15 +273,10 @@ describe("gateway adapters decide like wrapBinding", () => {
 		expect(await admission.settle({ status: "applied" })).toBeNull();
 	});
 
-	it("allows a destructive call once the approver accepted with a reason", async () => {
+	it("allows a destructive call confirmed in its arguments with a reason", async () => {
 		const gateway = await guardGatewayCall(
 			{
-				agent: gatewayContext({
-					elicit: async () => ({
-						action: "accept",
-						content: { reason: "owner asked" },
-					}),
-				}),
+				agent: gatewayContext({}),
 				tool: gatewayTool(
 					"delete_customer",
 					"high_impact_write",
@@ -290,6 +285,9 @@ describe("gateway adapters decide like wrapBinding", () => {
 				),
 				annotations: { destructiveHint: true },
 				args: { id: "one" },
+				approval: {
+					args: { id: "one", confirmDestructive: true, reason: "owner asked" },
+				},
 			},
 			async (executionArgs) => ({
 				content: [{ type: "text", text: JSON.stringify(executionArgs) }],

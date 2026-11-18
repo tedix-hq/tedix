@@ -765,7 +765,7 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 				return;
 			}
 			expect(buildMcpServer).toHaveBeenCalledOnce();
-			expect((buildMcpServer.mock.calls[0] as unknown[])[13]).toBe(true);
+			expect((buildMcpServer.mock.calls[0] as unknown[])[12]).toBe(true);
 		},
 	);
 
@@ -823,7 +823,7 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 				createExecutionContext(),
 			);
 			expect(list.status).toBe(200);
-			expect((buildMcpServer.mock.calls[0] as unknown[])[13]).toBe(
+			expect((buildMcpServer.mock.calls[0] as unknown[])[12]).toBe(
 				supportsApps,
 			);
 		},

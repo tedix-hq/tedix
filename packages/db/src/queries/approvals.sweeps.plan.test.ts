@@ -380,9 +380,14 @@ describe.each<{ statistics: Statistics }>([
 		).toBe(8);
 		expect(changed(before, snapshot(sqlite))).toEqual([...expected].sort());
 		expect(plans).toHaveLength(1);
-		expect(plans[0]).toBe(
+		// Each is a bounded seek: the organization's pending requests, or every
+		// pending request already past its expiry. Which one the planner prices
+		// lower depends on the statistics and the SQLite build.
+		expect([
+			`SEARCH tedi_approval_requests USING INDEX ${PENDING} (expires_at<?)`,
 			"SEARCH tedi_approval_requests USING INDEX idx_approval_requests_execution_attention (org_id=? AND status=?)",
-		);
+			"SEARCH tedi_approval_requests USING INDEX idx_approval_requests_status (org_id=? AND status=?)",
+		]).toContain(plans[0]);
 		expect(
 			sqlite
 				.prepare(
