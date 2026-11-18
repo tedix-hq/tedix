@@ -83,8 +83,6 @@ export interface CachedAgentCredential {
 
 type SessionCredentials = Record<string, Record<string, CachedAgentCredential>>;
 
-// A companion file keeps older CLI processes from dropping peer cache entries
-// when they rewrite the single-credential-per-workspace legacy store.
 function readSessionCredentials(
 	options?: ExternalAgentStoreOptions,
 ): SessionCredentials {
@@ -158,7 +156,6 @@ export interface PendingBootstrapApproval {
 
 interface ExternalAgentStore {
 	version: 1;
-	credentials?: Record<string, CachedAgentCredential>;
 	workspaces: Record<string, StoredExternalAgentProfile>;
 	bootstrapApprovals?: Record<string, PendingBootstrapApproval>;
 }
@@ -289,26 +286,6 @@ function readStore(options?: ExternalAgentStoreOptions): ExternalAgentStore {
 			const profile = coerceProfile(candidate);
 			if (profile) workspaces[workspace] = profile;
 		}
-		const credentials: Record<string, CachedAgentCredential> = {};
-		if (isRecord(parsed.credentials))
-			for (const [workspace, value] of Object.entries(parsed.credentials)) {
-				if (
-					workspaces[workspace] &&
-					isRecord(value) &&
-					typeof value.binding === "string" &&
-					typeof value.accessToken === "string" &&
-					value.accessToken.length > 0 &&
-					typeof value.expiresAt === "number" &&
-					Number.isFinite(value.expiresAt) &&
-					value.expiresAt > Date.now()
-				) {
-					credentials[workspace] = {
-						binding: value.binding,
-						accessToken: value.accessToken,
-						expiresAt: value.expiresAt,
-					};
-				}
-			}
 		const bootstrapApprovals: Record<string, PendingBootstrapApproval> = {};
 		if (isRecord(parsed.bootstrapApprovals))
 			for (const [slot, value] of Object.entries(parsed.bootstrapApprovals)) {
@@ -326,7 +303,7 @@ function readStore(options?: ExternalAgentStoreOptions): ExternalAgentStore {
 						requestedAt: value.requestedAt,
 					};
 			}
-		return { version: 1, workspaces, credentials, bootstrapApprovals };
+		return { version: 1, workspaces, bootstrapApprovals };
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === "EACCES" || code === "EPERM")
@@ -636,7 +613,6 @@ export function removeExternalAgentSession(
 		];
 		writeSessionCredentials(credentials, options);
 		delete profile.sessions[externalSessionKey];
-		if (store.credentials) delete store.credentials[workspace];
 	});
 }
 
@@ -659,7 +635,6 @@ export function discardExternalAgentCredential(
 			delete credentials[workspace]?.[credentialBinding(profile, session)];
 		else delete credentials[workspace];
 		writeSessionCredentials(credentials, options);
-		if (store.credentials) delete store.credentials[workspace];
 	});
 }
 
@@ -704,9 +679,7 @@ export function readExternalAgentCredentialEntry(
 ): CachedAgentCredential | undefined {
 	const store = readStore(options);
 	const binding = credentialBinding(profile, session);
-	const cached =
-		readSessionCredentials(options)[workspace]?.[binding] ??
-		store.credentials?.[workspace];
+	const cached = readSessionCredentials(options)[workspace]?.[binding];
 	const current = store.workspaces[workspace];
 	const currentSession = current?.sessions[session.externalSessionKey];
 	return cached &&
@@ -747,6 +720,5 @@ export function writeExternalAgentCredential(
 			expiresAt,
 		};
 		writeSessionCredentials(credentials, options);
-		if (store.credentials) delete store.credentials[workspace];
 	});
 }

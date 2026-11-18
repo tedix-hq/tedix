@@ -30,13 +30,14 @@ import {
 } from "./work-queries";
 import type { WorkContext } from "./work";
 
-/** Older gateways can misclassify an unresolved machine token as a human grant. */
+/** Renew a revoked machine credential once, keeping the same Attempt. */
 function isHeartbeatCredentialRejected(error: {
 	code?: string;
 	message: string;
 }): boolean {
-	return ["external_agent_inactive", "human_mcp_grant_invalid"].some(
-		(code) => error.code === code || error.message.includes(code),
+	return (
+		error.code === "external_agent_inactive" ||
+		error.message.includes("external_agent_inactive")
 	);
 }
 

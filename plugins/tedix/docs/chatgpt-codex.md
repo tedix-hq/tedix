@@ -325,8 +325,8 @@ resolves to.
 The hook reads bounded host metadata (including `session_id`), discards prompt text,
 and never uploads or saves it. It does not write updates, restore execution
 authority or deliver a full transcript. Document text is bounded to 3,200
-characters; each comment to 400; the whole briefing to 6,400 UTF-8 bytes in
-both Codex and Claude Code (both plugin hooks declare a 6,500-character limit).
+characters; each comment to 400; the whole briefing to 10,000 UTF-8 bytes in
+both Codex and Claude Code. Codex hook manifests allow 10,100 characters.
 Over that budget the hook first drops lower-ranked lessons, always keeping the
 top six, then shortens document text. Truncation is explicit. It checks every submitted user prompt rather than
 caching a successful read that may never have reached the model.

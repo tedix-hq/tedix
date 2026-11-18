@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EXPANDED_HOOK_BYTES, HOOK_BYTES } from "../src/hooks/prompt-context";
+import { HOOK_BYTES } from "../src/hooks/prompt-context";
 import { pluginRepoFiles } from "./build-plugin-repo";
 import { devinHooksSchema } from "./devin-hooks";
 import { syncPluginManifests } from "./sync-plugin-manifests";
@@ -438,8 +438,7 @@ describe("plugin packager", () => {
 				.map((handler) => handler.additionalContextLimit),
 		);
 		expect(declared).toEqual([[10100], [10100]]);
-		expect(HOOK_BYTES).toBeLessThan(6500);
-		expect(EXPANDED_HOOK_BYTES).toBeLessThan(10100);
+		expect(HOOK_BYTES).toBeLessThan(10100);
 		for (const hooks of [
 			JSON.parse(readFileSync(join(ROOT, "config/host-hooks.json"), "utf8"))
 				.hooks,
@@ -449,7 +448,7 @@ describe("plugin packager", () => {
 				handlers(hooks).find(
 					(handler) => hookName(handler) === "prompt-context",
 				).command,
-			).toContain(`TEDIX_HOOK_CONTEXT_BYTES=${EXPANDED_HOOK_BYTES}`);
+			).toBe(`${HOOK_GUARD}tedix hooks prompt-context`);
 	});
 
 	test("reproducible and does not overwrite", () =>
@@ -745,9 +744,7 @@ test("local SessionStart hooks have room and time for the open request ledger", 
 		(handler) => hookName(handler) === "session-start",
 	);
 	expect(start.timeout).toBe(30);
-	expect(start.additionalContextLimit).toBeGreaterThanOrEqual(
-		EXPANDED_HOOK_BYTES,
-	);
+	expect(start.additionalContextLimit).toBeGreaterThanOrEqual(HOOK_BYTES);
 	const claude = decode(
 		packageFiles({ host: "claude", local: true }),
 		"hooks/hooks.json",

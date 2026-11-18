@@ -7,7 +7,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v tedix >/dev/null 2>&1 || exit 0; v=$(tedix --version 2>/dev/null); [ \"$(printf '%s\\n' 0.19.4 \"$v\" | sort -V | head -n 1)\" = 0.19.4 ] || { echo \"Tedix preflight: CLI ${v:-unknown} is older than 0.19.4, which this plugin needs; run tedix update.\"; exit 0; }; tedix hooks session-start",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; v=$(tedix --version 2>/dev/null); [ \"$(printf '%s\\n' 0.19.4 \"$v\" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)\" = 0.19.4 ] || { echo \"Tedix preflight: CLI ${v:-unknown} is older than 0.19.4, which this plugin needs; run tedix update.\"; exit 0; }; tedix hooks session-start",
 						"timeout": 30,
 						"additionalContextLimit": 10100,
 						"statusMessage": "Checking opt-in Tedix context"
@@ -20,7 +20,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v tedix >/dev/null 2>&1 || exit 0; v=$(tedix --version 2>/dev/null); [ \"$(printf '%s\\n' 0.19.4 \"$v\" | sort -V | head -n 1)\" = 0.19.4 ] || { echo \"Tedix preflight: CLI ${v:-unknown} is older than 0.19.4, which this plugin needs; run tedix update.\"; exit 0; }; tedix hooks session-start",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; v=$(tedix --version 2>/dev/null); [ \"$(printf '%s\\n' 0.19.4 \"$v\" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)\" = 0.19.4 ] || { echo \"Tedix preflight: CLI ${v:-unknown} is older than 0.19.4, which this plugin needs; run tedix update.\"; exit 0; }; tedix hooks session-start",
 						"timeout": 30,
 						"additionalContextLimit": 5000
 					}
@@ -30,7 +30,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v tedix >/dev/null 2>&1 || exit 0; TEDIX_HOOK_CONTEXT_BYTES=10000 tedix hooks prompt-context",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks prompt-context",
 						"timeout": 30,
 						"additionalContextLimit": 10100,
 						"statusMessage": "Reading selected Tedix decisions and Work updates"

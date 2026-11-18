@@ -1202,7 +1202,7 @@ describe("external-agent CLI session", () => {
 		expect(started.profile.scopes).toEqual(["mcp:tedis.read"]);
 	});
 
-	test("grants explicitly requested operator scopes and drops legacy work:* key scopes", async () => {
+	test("grants explicitly requested operator scopes", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
 		process.env.TEDIX_CONFIG_DIR = configDir;
@@ -1212,7 +1212,7 @@ describe("external-agent CLI session", () => {
 		const started = await startExternalAgentSession({
 			...bootstrapBase,
 			agentKey: "codex-operator",
-			scopes: ["platform:admin", "connections.admin", "work:accept"],
+			scopes: ["platform:admin", "connections.admin"],
 			fetch: m2mFetch(),
 			createClient: scopesBootstrapClient(code),
 		});
@@ -1227,22 +1227,25 @@ describe("external-agent CLI session", () => {
 		]);
 	});
 
-	test("rejects unknown external-agent scopes instead of silently dropping them", async () => {
-		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
-		dirs.push(configDir);
-		process.env.TEDIX_CONFIG_DIR = configDir;
-		process.env.TEDIX_AGENT_SESSION = "session-1";
+	test.each(["platform:godmode", "work:accept"])(
+		"rejects unsupported external-agent scope %s",
+		async (scope) => {
+			const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+			dirs.push(configDir);
+			process.env.TEDIX_CONFIG_DIR = configDir;
+			process.env.TEDIX_AGENT_SESSION = "session-1";
 
-		await expect(
-			startExternalAgentSession({
-				...bootstrapBase,
-				agentKey: "codex-invalid",
-				scopes: ["platform:godmode"],
-				fetch: m2mFetch(),
-				createClient: scopesBootstrapClient([]),
-			}),
-		).rejects.toThrow("Unsupported external-agent scope: platform:godmode");
-	});
+			await expect(
+				startExternalAgentSession({
+					...bootstrapBase,
+					agentKey: "codex-invalid",
+					scopes: [scope],
+					fetch: m2mFetch(),
+					createClient: scopesBootstrapClient([]),
+				}),
+			).rejects.toThrow(`Unsupported external-agent scope: ${scope}`);
+		},
+	);
 
 	// Scopes are granted only when the principal is bootstrapped. Reusing a
 	// profile skips that block entirely, so an operator who passed

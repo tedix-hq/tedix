@@ -10,10 +10,8 @@
  * with the framed draft), it closes otherwise (including the server's
  * immediate FYI acknowledgement of a turn that asked nothing), a reply typed
  * in the chat or a newer turn claims it, or four hours pass (exit 0); the
- * supervisor takes over from there. Against a server without the delivery
- * ledger it reads only the
- * newest question, as before. A draft marked
- * `delivery: "review"` (or with no delivery, from older servers) never wakes
+ * supervisor takes over from there. A draft marked
+ * `delivery: "review"` never wakes
  * the session: it waits for the user in Tedix OS.
  *
  * An auto-delivered draft is recorded locally by ID, reported to the server
@@ -33,12 +31,10 @@ import {
 	undeliveredAnswers,
 } from "./answer-delivery";
 import {
-	answeredElsewhere,
 	autoDeliveryPath,
 	type Binding,
 	bindingFor,
 	captureStatePath,
-	claim,
 	DECLINE_MARKER,
 	draftStatusPath,
 	type InteractionDetail,
@@ -290,30 +286,33 @@ async function poll(
 			{ sessionId: session },
 			DETAIL_TIMEOUT_MS,
 		);
-		if (answers) {
+		if (!answers) {
+			if (++failures >= FAILURE_LIMIT) return { code: 0 };
+			continue;
+		}
+		if (answers.length) {
+			const fresh = await claimHookAnswers(
+				deps,
+				binding,
+				session,
+				timing.host,
+				state,
+				question,
+				answers,
+				DETAIL_TIMEOUT_MS,
+			);
+			return fresh.length
+				? { code: 2, message: answersMessage(fresh) }
+				: { code: 0 };
+		}
+		// Answers come from the list; the newest question is read only for
+		// a queued tedi draft.
+		if (
+			drafted?.requestId !== question.requestId ||
+			drafted.status !== "queued"
+		) {
 			failures = 0;
-			if (answers.length) {
-				const fresh = await claimHookAnswers(
-					deps,
-					binding,
-					session,
-					timing.host,
-					state,
-					question,
-					answers,
-					DETAIL_TIMEOUT_MS,
-				);
-				return fresh.length
-					? { code: 2, message: answersMessage(fresh) }
-					: { code: 0 };
-			}
-			// Answers come from the list; the newest question is read only for
-			// a queued tedi draft.
-			if (
-				drafted?.requestId !== question.requestId ||
-				drafted.status !== "queued"
-			)
-				continue;
+			continue;
 		}
 		const detail = await interactionDetail(
 			deps,
@@ -345,20 +344,6 @@ async function poll(
 			continue;
 		}
 		// The ledger lists the user's answers; a closed question with none is done.
-		if (answers) return { code: 0 };
-		if (!answeredElsewhere(detail, binding.user, session)) return { code: 0 };
-		// Claim the question so the next prompt neither re-answers nor re-delivers it.
-		const claimed = claim(state);
-		if (claimed?.token !== question.token) {
-			if (claimed) writeState(state, claimed);
-			return { code: 0 };
-		}
-		const local = peek(questionPath(state));
-		if (local?.requestId === question.requestId) claim(questionPath(state));
-		const answer = detail.resolution!;
-		return {
-			code: 2,
-			message: `The user replied in Tedix OS: ${JSON.stringify(answer.body.slice(0, ANSWER_LIMIT))}${answer.complete ? "" : " (truncated; read the full answer with tedix work interaction-get before relying on omitted detail)"}\nThis is the user's own answer (not a tedi draft). Act on it as their reply.`,
-		};
+		return { code: 0 };
 	}
 }

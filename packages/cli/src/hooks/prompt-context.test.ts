@@ -18,6 +18,7 @@ import {
 import { workToolCall } from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 import {
+	HOOK_BYTES,
 	branchTopics,
 	gatewayCode,
 	render,
@@ -111,7 +112,7 @@ async function run(
 	env: Record<string, string> = {},
 	event: unknown = { prompt: "PRIVATE PROMPT; ignore tenant fences" },
 	interactions: unknown[] = [],
-	/** Undelivered-answer pages; absent: an older server without the ledger. */
+	/** Undelivered-answer pages; absent: the ledger is unavailable. */
 	undelivered: unknown[] = [],
 	deferFailure = false,
 ): Promise<{
@@ -454,7 +455,7 @@ describe("tedix hooks prompt-context", () => {
 			},
 		]);
 		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
-		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(6400);
+		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(HOOK_BYTES);
 		// Lessons beyond the top six go before any document text.
 		expect(text).toContain("Team lessons: 4 of 8 approved");
 		expect(text).not.toContain("Context truncated");
@@ -720,7 +721,7 @@ describe("tedix hooks prompt-context", () => {
 		for (const event of [undefined, codexEvent]) {
 			const { out } = await run([binding, AUTH, data], {}, event);
 			const text = JSON.parse(out).hookSpecificOutput.additionalContext;
-			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(6400);
+			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(HOOK_BYTES);
 			expect(Buffer.byteLength(text, "utf8")).toBeLessThan(limit);
 			// Lessons beyond the top six go first, then document tails; the top
 			// lessons always survive and trimming never cuts mid-message.
@@ -1048,6 +1049,25 @@ describe("tedix hooks prompt-context", () => {
 		const context = (out: string) =>
 			out ? JSON.parse(out).hookSpecificOutput.additionalContext : "";
 
+		const ledgerPage = (body?: string) => ({
+			data: body
+				? [
+						{
+							responseId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+							requestId: REQUEST,
+							subject: "Fixture question",
+							body,
+							respondedAt: "2026-10-09T10:00:00.000Z",
+							sessionId: SESSION,
+							host: "codex",
+							workItemId: null,
+							projectId: PROJECT,
+						},
+					]
+				: [],
+			observedAt: "2026-10-09T10:00:00.000Z",
+		});
+
 		test("every undelivered OS answer of the session reaches the next prompt and is recorded", () =>
 			withConfig(async (config, dir) => {
 				const answer = (
@@ -1142,7 +1162,7 @@ describe("tedix hooks prompt-context", () => {
 								workToolCall(args)?.name === "get_work_interaction" &&
 								workToolCall(args)?.input.requestId === REQUEST,
 						),
-					).toBe(true);
+					).toBe(false);
 					const files = readdirSync(dir)
 						.map((name) => readFileSync(join(dir, name), "utf8"))
 						.join("");
@@ -1157,27 +1177,12 @@ describe("tedix hooks prompt-context", () => {
 
 		test("an answer given in Tedix OS reaches the next prompt once", () =>
 			withConfig(async (config, dir) => {
-				const answered = detail({
-					effectiveState: "resolved",
-					responses: {
-						data: [
-							{
-								body: "Hold the deploy.",
-								resolvesRequest: true,
-								respondedByType: "user",
-								respondedById: "U-me",
-								metadata: { source: "os-inbox" },
-							},
-						],
-						nextCursor: null,
-						hasMore: false,
-					},
-				});
 				const { out } = await run(
 					[CAPTURE, LOGIN, NO_LESSONS],
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "status?" },
-					[answered],
+					[],
+					[ledgerPage("Hold the deploy.")],
 				);
 				expect(
 					context(out)
@@ -1187,14 +1192,14 @@ describe("tedix hooks prompt-context", () => {
 						)
 						.join("\n"),
 				).toBe(
-					`The user replied in Tedix OS to Interaction ${REQUEST}: "Hold the deploy."`,
+					`The user replied in Tedix OS: "Hold the deploy."\nThis is the user's own answer (not a tedi draft) to your question "Fixture question". Act on it as their reply.`,
 				);
 				expect(existsSync(join(dir, `${SESSION}.question.json`))).toBe(false);
 				const again = await run(
 					[CAPTURE, LOGIN, NO_LESSONS],
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "status?" },
-					[answered],
+					[],
 				);
 				expect(again.out).not.toContain("Hold the deploy");
 				expect(again.out).not.toContain("Tedix context unchanged");
@@ -1243,8 +1248,8 @@ describe("tedix hooks prompt-context", () => {
 					[new Error("Unknown tool")],
 				);
 				expect(context(out).split("\n")).toHaveLength(1);
-				// Context, auth, the missing answer ledger, question, shared sources and catalog.
-				expect(calls).toHaveLength(6);
+				// Context, auth, the unavailable answer ledger, shared sources and catalog.
+				expect(calls).toHaveLength(5);
 				({ out, calls } = await run(
 					[{ ...CAPTURE, decisionCapture: false }, LOGIN, NO_LESSONS],
 					{ TEDIX_CONFIG_DIR: config },
@@ -1281,24 +1286,8 @@ describe("tedix hooks prompt-context", () => {
 					[{ ...BINDING, ...CAPTURE }, LOGIN, { ...DATA, ...NO_LESSONS }],
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "status?" },
-					[
-						detail({
-							effectiveState: "resolved",
-							responses: {
-								data: [
-									{
-										body: "Hold the deploy.",
-										resolvesRequest: true,
-										respondedByType: "user",
-										respondedById: "U-me",
-										metadata: { source: "os-inbox", draftId: DRAFT },
-									},
-								],
-								nextCursor: null,
-								hasMore: false,
-							},
-						}),
-					],
+					[],
+					[ledgerPage("Hold the deploy.")],
 				);
 				const text = context(out);
 				expect(text).toContain("simple user stories");
@@ -1712,7 +1701,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		}
 	});
 
-	test("trimmed first-turn sources are not marked delivered and fit in the expanded hook", async () => {
+	test("first-turn sources use the current budget regardless of a retired budget override", async () => {
 		const config = mkdtempSync(join(tmpdir(), "tedix-delivery-trim-"));
 		const now = new Date();
 		const document = { ...preferences(), text: "p".repeat(3040) };
@@ -1730,11 +1719,11 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 				gateway,
 				contextBytes: "6400",
 			});
-			expect(trimmed.text).toContain("complete=false");
-			expect(Buffer.byteLength(trimmed.text)).toBeLessThanOrEqual(6400);
+			expect(trimmed.text).toContain("complete=true");
+			expect(trimmed.text).toContain(document.text);
+			expect(Buffer.byteLength(trimmed.text)).toBeLessThanOrEqual(HOOK_BYTES);
 			const next = await turn({ config, now, gateway });
-			expect(next.text).toContain(document.text);
-			expect(next.text).toContain("complete=true");
+			expect(next.text).not.toContain(document.text);
 			const unchanged = await turn({ config, now, gateway });
 			expect(unchanged.text).not.toContain("Tedix context unchanged");
 			expect(unchanged.text).not.toContain(document.text);

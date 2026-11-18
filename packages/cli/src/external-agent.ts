@@ -186,17 +186,14 @@ const EXTERNAL_AGENT_AIH_SCOPES = new Set<string>([
 ]);
 
 /**
- * The MCP capability scopes a new principal is granted. `work:*` scopes used
- * to narrow the former API binding key; they are still accepted so existing
- * launchers keep working, but no API key exists any more to carry them.
+ * The MCP capability scopes a new principal is granted.
  */
 function resolveExternalAgentBootstrapScopes(
 	requestedScopes: string[],
 ): string[] {
 	const requested = [...new Set(requestedScopes)];
 	const unsupported = requested.filter(
-		(scope) =>
-			!scope.startsWith("work:") && !EXTERNAL_AGENT_AIH_SCOPES.has(scope),
+		(scope) => !EXTERNAL_AGENT_AIH_SCOPES.has(scope),
 	);
 	if (unsupported.length > 0) {
 		throw new Error(

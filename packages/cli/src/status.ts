@@ -105,19 +105,10 @@ function flattenTreeNodes(payload: unknown): Record<string, unknown>[] {
 }
 
 function nodePreview(node: Record<string, unknown>): string | undefined {
-	// The kernel's tree keeps a child's preview and progress under
-	// `node.metadata`; older/flat shapes carry them on the node itself.
 	const metadata = isRecord(node.metadata) ? node.metadata : {};
-	const progress = isRecord(node.progress)
-		? node.progress
-		: isRecord(metadata.progress)
-			? metadata.progress
-			: {};
+	const progress = isRecord(metadata.progress) ? metadata.progress : {};
 	return (
-		stringValue(node.preview) ??
 		stringValue(metadata.preview) ??
-		stringValue(node.childRunPreview) ??
-		stringValue(node.summary) ??
 		stringValue(progress.detail) ??
 		stringValue(progress.label)
 	);
