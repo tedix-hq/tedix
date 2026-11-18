@@ -3,6 +3,8 @@ import {
 	Archive,
 	ArrowCounterClockwise,
 	ArrowLeft,
+	Bell,
+	BellSlash,
 	DotsThree,
 	PencilSimple,
 	Trash,
@@ -181,6 +183,16 @@ export function ConversationTitle({
 	);
 }
 
+/**
+ * Which conversations notify the signed-in person. A conversation starts
+ * notifying when they first post or are mentioned in it; `set` is their own
+ * choice for one conversation and stays until they change it.
+ */
+export type ConversationNotifications = {
+	on: ReadonlySet<string>;
+	set: (conversationId: string, on: boolean) => void;
+};
+
 export function ConversationList({
 	conversations,
 	activeId,
@@ -189,6 +201,7 @@ export function ConversationList({
 	onSelect,
 	onChange,
 	unread,
+	notifications,
 }: {
 	/** Every conversation the object named, the archived ones included. */
 	conversations: ConversationSummary[];
@@ -201,6 +214,8 @@ export function ConversationList({
 	/** Null while the chat is not connected: nothing can be changed. */
 	onChange: ((change: ConversationChange) => void) | null;
 	unread?: ReadonlyMap<string, number>;
+	/** Left out while it is not known; the menu then has no notification item. */
+	notifications?: ConversationNotifications;
 }) {
 	const now = Date.now();
 	const [showArchived, setShowArchived] = useState(false);
@@ -306,6 +321,30 @@ export function ConversationList({
 							)}
 							{conversation.archivedAt ? "Restore" : "Archive"}
 						</DropdownMenuItem>
+						{notifications ? (
+							<DropdownMenuItem
+								onClick={() =>
+									notifications.set(
+										conversation.id,
+										!notifications.on.has(conversation.id),
+									)
+								}
+								title={
+									notifications.on.has(conversation.id)
+										? "Stop notifications for this conversation. Approval requests still notify you."
+										: "Get notified about new messages and agent results here."
+								}
+							>
+								{notifications.on.has(conversation.id) ? (
+									<BellSlash aria-hidden size={14} />
+								) : (
+									<Bell aria-hidden size={14} />
+								)}
+								{notifications.on.has(conversation.id)
+									? "Turn off notifications"
+									: "Turn on notifications"}
+							</DropdownMenuItem>
+						) : null}
 						<DropdownMenuItem
 							disabled={working}
 							onClick={() => setDeleting(conversation)}

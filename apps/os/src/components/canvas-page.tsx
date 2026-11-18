@@ -141,7 +141,10 @@ import { useLiveWorkspace } from "@/lib/use-live-workspace";
 import { useWorkspacePresence } from "@/lib/workspace-presence";
 import { useWorkspaceViewOnly } from "@/lib/workspace-view-only";
 import { hostWorkspaceChatDrafts } from "@/lib/workspace-chat-draft-handoff";
-import { useWorkspaceUnread } from "@/lib/workspace-unread";
+import {
+	setChatNotifications,
+	useWorkspaceUnread,
+} from "@/lib/workspace-unread";
 import { usePushConversation } from "@/lib/use-push-conversation";
 import { UnreadFilesContext } from "@/components/unread-badge";
 import { OS_COPY } from "@/shared/os-copy";
@@ -1623,6 +1626,21 @@ export function CanvasPage({
 			),
 		[unread?.conversations],
 	);
+	const chatNotifications = useMemo(
+		() =>
+			workspaceId && unread
+				? {
+						on: new Set(unread.notifyingConversationIds),
+						set: (conversationId: string, on: boolean) =>
+							setChatNotifications(queryClient, {
+								workspaceId,
+								conversationId,
+								on,
+							}),
+					}
+				: undefined,
+		[queryClient, unread, workspaceId],
+	);
 
 	const closeStagePane = (closedOn: string) => {
 		setTransitionEnabled(true);
@@ -2058,6 +2076,7 @@ export function CanvasPage({
 									onSendMessageReady={registerWidgetFollowUp}
 									onActivity={reportChatActivity}
 									unreadByConversation={unreadByConversation}
+									chatNotifications={chatNotifications}
 									viewOnly={chatViewOnly}
 									workspaceId={workspaceId}
 								/>

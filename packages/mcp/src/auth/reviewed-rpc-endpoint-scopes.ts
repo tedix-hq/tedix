@@ -28,6 +28,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"workspaceUnread/markRead": "mcp:apps.write",
 	"workspaceUnread/markAllRead": "mcp:apps.write",
 	"workspaceUnread/notifyChat": "mcp:apps.write",
+	"workspaceUnread/setChatNotifications": "mcp:apps.write",
 	"personalAgentInbound/enroll": "mcp:apps.write",
 	"personalAgentInbound/configureDelivery": "mcp:apps.write",
 	"personalAgentInbound/configureIdentity": "mcp:apps.write",

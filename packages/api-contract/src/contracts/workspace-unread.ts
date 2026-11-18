@@ -3,6 +3,7 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
+	WorkspaceChatNotificationsInputSchema,
 	WorkspaceMarkReadInputSchema,
 	WorkspaceUnreadListSchema,
 	WorkspaceUnreadStateSchema,
@@ -44,6 +45,14 @@ export const workspaceUnreadContract = oc
 					notified: z.number().int().nonnegative(),
 				}),
 			),
+		/**
+		 * Turn notifications for one conversation on or off for the caller. The
+		 * choice stays until they change it; requests for a decision notify
+		 * either way.
+		 */
+		setChatNotifications: oc
+			.input(WorkspaceChatNotificationsInputSchema)
+			.output(WorkspaceUnreadStateSchema),
 		markAllRead: oc
 			.input(z.object({}))
 			.output(z.object({ ok: z.literal(true) })),

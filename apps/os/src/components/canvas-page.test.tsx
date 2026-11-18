@@ -165,6 +165,7 @@ vi.mock("@/lib/api", () => ({
 				files: 0,
 				total: 0,
 				fileIds: [],
+				notifyingConversationIds: [],
 				conversations: [],
 			})),
 			markRead: vi.fn(async ({ workspaceId }: { workspaceId: string }) => ({
@@ -173,6 +174,7 @@ vi.mock("@/lib/api", () => ({
 				files: 0,
 				total: 0,
 				fileIds: [],
+				notifyingConversationIds: [],
 				conversations: [],
 			})),
 			markAllRead: vi.fn(async () => ({ ok: true })),

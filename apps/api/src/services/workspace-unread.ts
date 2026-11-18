@@ -10,6 +10,7 @@ import type {
 	WorkspaceUnreadKind,
 } from "@tedix/api-contract/schemas/workspace-unread";
 import { WorkspaceChangeSummarySchema } from "@tedix/api-contract/schemas/workspace-feed";
+import type { WorkspaceChatFollowState } from "@tedix/db/queries/workspace-chat-follow";
 import type {
 	WorkspaceReadMarker,
 	WorkspaceUnreadFeedRow,
@@ -35,13 +36,35 @@ function chatKind(
 	return null;
 }
 
+/** The chats a person has, by conversation id, and what each is set to. */
+export type WorkspaceChatFollows = ReadonlyMap<
+	string,
+	WorkspaceChatFollowState
+>;
+
+/**
+ * Whether a person gets notifications for a chat: they took part in it or
+ * turned notifications on, and did not turn them off.
+ */
+export function chatNotificationsOn(
+	follows: WorkspaceChatFollows,
+	conversationId: string | undefined,
+): boolean {
+	const state = follows.get(conversationId ?? "");
+	return state === "joined" || state === "on";
+}
+
 /**
  * Pick the unread rows out of a workspace's recent feed. `rows` are newest
  * first and already exclude the reader's own actions.
+ *
+ * Chat rows count only in the chats the reader gets notifications for. A
+ * request for a decision counts in every chat, whatever the reader chose.
  */
 export function unreadFromFeed(
 	rows: readonly WorkspaceUnreadFeedRow[],
 	marker: WorkspaceReadMarker,
+	follows: WorkspaceChatFollows,
 ): WorkspaceUnread {
 	const chat: WorkspaceUnreadItem[] = [];
 	const files = new Map<string, WorkspaceUnreadItem>();
@@ -77,6 +100,11 @@ export function unreadFromFeed(
 		if (row.seq <= (marker.chats[conversationId ?? ""] ?? 0)) continue;
 		const kind = chatKind(row, action.operation, action.outcome);
 		if (!kind) continue;
+		if (
+			kind !== "needs_decision" &&
+			!chatNotificationsOn(follows, conversationId)
+		)
+			continue;
 		chat.push({
 			id: String(row.seq),
 			kind,
@@ -88,6 +116,31 @@ export function unreadFromFeed(
 		});
 	}
 	return { chat, files: [...files.values()] };
+}
+
+/** The chats the person acted in, read from their own feed rows. */
+export function chatsTakenPartIn(
+	ownRows: readonly WorkspaceUnreadFeedRow[],
+): string[] {
+	const chats = new Set<string>();
+	for (const row of ownRows) {
+		if (row.kind !== "run" || row.actorKind !== "user" || !row.runSummary)
+			continue;
+		try {
+			const summary = WorkspaceChangeSummarySchema.safeParse(
+				JSON.parse(row.runSummary),
+			);
+			if (
+				summary.success &&
+				summary.data.action?.resource === "conversation" &&
+				summary.data.conversationId
+			)
+				chats.add(summary.data.conversationId);
+		} catch {
+			// A row that cannot be read names no chat.
+		}
+	}
+	return [...chats];
 }
 
 /**

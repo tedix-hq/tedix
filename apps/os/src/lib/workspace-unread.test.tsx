@@ -32,6 +32,7 @@ const state = (patch: Record<string, unknown> = {}) => ({
 	files: 0,
 	total: 0,
 	fileIds: [],
+	notifyingConversationIds: [],
 	conversations: [],
 	...patch,
 });

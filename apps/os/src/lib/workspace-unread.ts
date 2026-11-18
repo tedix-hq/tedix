@@ -105,6 +105,38 @@ export function useMarkWorkspaceRead() {
 	});
 }
 
+/**
+ * Turn notifications for one workspace conversation on or off for the
+ * signed-in person. The answer carries the workspace's new unread state; if
+ * the change does not go through, the state is read again as it is.
+ */
+export function setChatNotifications(
+	queryClient: QueryClient,
+	input: { workspaceId: string; conversationId: string; on: boolean },
+): void {
+	void import("./api")
+		.then(({ osApi }) => osApi.workspaceUnread.setChatNotifications(input))
+		.then((state) => {
+			queryClient.setQueryData(
+				osQuery.workspaceUnread.workspace.queryKey({
+					input: { workspaceId: state.workspaceId },
+				}),
+				state,
+			);
+			void queryClient.invalidateQueries({
+				queryKey: osQuery.workspaceUnread.summary.key(),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: osQuery.workspaceUnread.list.key(),
+			});
+		})
+		.catch(() =>
+			queryClient.invalidateQueries({
+				queryKey: osQuery.workspaceUnread.key(),
+			}),
+		);
+}
+
 export function useMarkAllRead() {
 	const queryClient = useQueryClient();
 	return useMutation({

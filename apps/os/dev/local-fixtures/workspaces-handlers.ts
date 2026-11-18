@@ -47,6 +47,8 @@ export const workspaceHandlers: Record<string, (input: never) => unknown> = {
 		emptyUnreadState(input.workspaceId),
 	"workspaceUnread/markRead": (input: { workspaceId: string }) =>
 		emptyUnreadState(input.workspaceId),
+	"workspaceUnread/setChatNotifications": (input: { workspaceId: string }) =>
+		emptyUnreadState(input.workspaceId),
 	"workspaceUnread/markAllRead": () => ({ ok: true }),
 	"workspaceUnread/notifyChat": () => ({ status: "none", notified: 0 }),
 

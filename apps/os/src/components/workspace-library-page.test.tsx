@@ -57,6 +57,7 @@ vi.mock("@/lib/api", () => ({
 				files: 0,
 				total: 0,
 				fileIds: [],
+				notifyingConversationIds: [],
 				conversations: [],
 			})),
 			markRead: unread.markRead,
@@ -215,6 +216,7 @@ beforeEach(() => {
 			files: 0,
 			total: 0,
 			fileIds: [],
+			notifyingConversationIds: [],
 			conversations: [],
 		}),
 	);

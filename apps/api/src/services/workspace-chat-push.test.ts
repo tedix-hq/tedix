@@ -168,7 +168,18 @@ async function setup() {
 				permissions: ["os:read"],
 			}),
 		}).notifyChat({ workspaceId: WS, conversationId: CHAT, mentionedUserIds });
-	return { db, post, notify };
+	const client = (name: string) =>
+		createRouterClient(workspaceUnreadRouter, {
+			context: userContext({
+				db,
+				env: { DB: d1 },
+				organizationId: "org-a",
+				userId: name,
+				sub: `descope-${name}`,
+				permissions: ["os:read"],
+			}),
+		});
+	return { db, post, notify, client };
 }
 
 describe("workspace chat push", () => {
@@ -262,6 +273,65 @@ describe("workspace chat push", () => {
 		expect(await notify("ada")).toEqual({ status: "sent", notified: 1 });
 		expect(sent.map((entry) => entry.endpoint)).toEqual([
 			"https://fcm.googleapis.com/ben",
+		]);
+	});
+
+	it("leaves out a member who never took part, and tells one who turned the chat on", async () => {
+		const { post, notify, client } = await setup();
+		await post("ben");
+		// Cy is in the workspace but never posted here; Dee asked to be told.
+		await post("cy", "another-chat");
+		await client("dee").setChatNotifications({
+			workspaceId: WS,
+			conversationId: CHAT,
+			on: true,
+		});
+		await post("ada");
+		expect(await notify("ada")).toEqual({ status: "sent", notified: 2 });
+		const byPerson = Object.fromEntries(
+			sent.map((entry) => [entry.endpoint.split("/").at(-1), entry.payload]),
+		);
+		expect(Object.keys(byPerson).sort()).toEqual(["ben", "dee"]);
+		expect(byPerson.dee?.body).toBe(
+			"Ada replied in a chat you get notifications for.",
+		);
+	});
+
+	it("stops telling someone who turned the chat off, even when they posted or are mentioned", async () => {
+		const { post, notify, client } = await setup();
+		await post("ben");
+		await post("cy");
+		for (const name of ["ben", "cy"])
+			await client(name).setChatNotifications({
+				workspaceId: WS,
+				conversationId: CHAT,
+				on: false,
+			});
+		await post("ada");
+		expect(await notify("ada", ["descope-cy"])).toEqual({
+			status: "none",
+			notified: 0,
+		});
+		expect(sent).toEqual([]);
+	});
+
+	it("counts posting and being mentioned as taking part from then on", async () => {
+		const { post, notify, client } = await setup();
+		await post("ada");
+		await notify("ada", ["descope-dee"]);
+		const following = async (name: string) =>
+			(await client(name).workspace({ workspaceId: WS }))
+				.notifyingConversationIds;
+		expect(await following("ada")).toEqual([CHAT]);
+		expect(await following("dee")).toEqual([CHAT]);
+		expect(await following("cy")).toEqual([]);
+		// Dee was only mentioned, and is told about the next reply as well.
+		sent.length = 0;
+		await post("ben");
+		expect(await notify("ben")).toEqual({ status: "sent", notified: 2 });
+		expect(sent.map((entry) => entry.endpoint).sort()).toEqual([
+			"https://fcm.googleapis.com/ada",
+			"https://fcm.googleapis.com/dee",
 		]);
 	});
 
