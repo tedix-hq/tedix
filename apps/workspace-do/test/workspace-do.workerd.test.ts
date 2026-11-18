@@ -1845,6 +1845,22 @@ describe("WorkspaceDO", () => {
 			),
 		).toBe(false);
 		expect(await current()).toBe("rev-doc");
+		// The activity feed says what kind of change waits and nothing about
+		// the file: that line is what a push to the people who decide repeats.
+		await ws.retryProjections(own);
+		const waiting = (
+			await testEnv.DB.prepare(
+				"SELECT summary FROM workspace_feed_ledger WHERE workspace_id = ? AND entity_id = ? AND change_record_id LIKE 'workspace-event:%' ORDER BY seq",
+			)
+				.bind(own.workspaceId, turnId)
+				.all<{ summary: string }>()
+		).results
+			.map((row) => JSON.parse(row.summary))
+			.filter((summary) => summary.action.operation === "approval.requested");
+		expect(waiting.map((summary) => summary.description)).toEqual([
+			"Editing document blocks",
+		]);
+		expect(JSON.stringify(waiting)).not.toContain("Priorities");
 
 		// The approver's decision applies the held call and the model finishes the answer.
 		await ws.scriptModel(own, [{ text: "Done: the heading was removed." }]);

@@ -3000,6 +3000,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			summary: {
 				// Lets an unread row open the conversation it belongs to.
 				conversationId: event.conversationId,
+				// What kind of change waits for a person, in fixed words; never
+				// its title, arguments or content.
+				...(event.type === "approval.requested" && !event.automatic && approval
+					? {
+							description: stepLabel(approval.binding, approval.method).label,
+						}
+					: {}),
 				action: {
 					resource: "conversation",
 					// A change that applies at once is not waiting for anyone, so

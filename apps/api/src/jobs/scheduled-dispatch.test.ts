@@ -72,6 +72,11 @@ vi.mock("./dispatcher-health-alarm", () => ({
 vi.mock("./approval-expiry", () => ({
 	expireOverdueApprovals: vi.fn().mockResolvedValue({ expired: 0 }),
 }));
+vi.mock("./workspace-approval-push", () => ({
+	pushWaitingWorkspaceApprovalsTick: vi
+		.fn()
+		.mockResolvedValue({ workspaces: 0, notified: 0 }),
+}));
 vi.mock("./work-attempt-lease-sweeper", () => ({
 	runWorkAttemptLeaseSweeperTick: vi.fn(),
 }));
