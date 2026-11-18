@@ -19,11 +19,12 @@ import type {
 export const SANDBOX_TIMEOUT_MS = 60_000;
 
 /**
- * A run whose time is up is no longer waited for, but it is not stopped, so
- * the model is told that its calls may have applied or may still apply.
+ * A run whose time is up is no longer waited for. Nothing can halt a loaded
+ * Worker, so its code may go on executing; the workspace refuses the calls it
+ * makes from then on. The model is told that earlier calls may have applied.
  */
 export function sandboxTimeoutError(timeoutMs: number): string {
-	return `The code did not finish within ${Math.round(timeoutMs / 1000)} s, so its result is unknown. Calls it made may have taken effect, and it may still be making them. Read the current state before you repeat a change, and split long work into shorter runs.`;
+	return `The code did not finish within ${Math.round(timeoutMs / 1000)} s, so its result is unknown. Calls it made before then may have taken effect; later ones are refused. Read the current state before you repeat a change, and split long work into shorter runs.`;
 }
 
 /**

@@ -125,7 +125,11 @@ import {
 } from "./prompt";
 import { fileWriteAppliesAtOnce } from "./auto-approval";
 import type { WorkspaceStorage } from "./runtime";
-import { createLoaderSandbox, validateWorkspaceAppSource } from "./sandbox";
+import {
+	createLoaderSandbox,
+	SANDBOX_TIMEOUT_MS,
+	validateWorkspaceAppSource,
+} from "./sandbox";
 import {
 	type AddedMessage,
 	runTurn,
@@ -498,6 +502,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		readAt: number;
 	} | null = null;
 	readonly #running = new Map<string, AbortController>();
+	/** The code run each running turn is waiting for; no entry between runs. */
+	readonly #codeRuns = new Map<string, string>();
 	/** Views each running turn has put in its answer. */
 	readonly #viewsShown = new Map<string, number>();
 	readonly #waiters = new Map<string, Array<() => void>>();
@@ -1522,6 +1528,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			durationMs: Math.max(0, Date.parse(now) - Date.parse(turn.started_at)),
 		});
 		this.#running.delete(turn.turn_id);
+		this.#codeRuns.delete(turn.turn_id);
 		for (const wake of this.#waiters.get(turn.turn_id) ?? []) wake();
 		this.#waiters.delete(turn.turn_id);
 	}
@@ -2352,19 +2359,30 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	/**
 	 * Called by the sandbox loopback: run one method of one wrapped binding
-	 * for a turn that is running. A held write is stored as a pending approval
+	 * for a turn that is running, on behalf of the code run that turn is
+	 * waiting for. Code that timed out, failed or finished may still be
+	 * executing; its calls are refused here, so it changes nothing after the
+	 * model was told how it ended. A held write is stored as a pending approval
 	 * and comes back as "Approval required: …"; the model goes on with other
 	 * work. The agent's own create or edit of a workspace file is not held:
 	 * it is applied here and the call returns its result.
 	 */
 	async callBinding(
 		scope: WorkspaceScope,
-		input: { turnId: string; binding: string; method: string; args: unknown[] },
+		input: {
+			turnId: string;
+			runId: string;
+			binding: string;
+			method: string;
+			args: unknown[];
+		},
 	): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> {
 		this.bindScope(scope);
 		const turn = this.#turn(input.turnId);
 		if (!turn || turn.status !== "running")
 			return { ok: false, error: "This turn is no longer running" };
+		if (this.#codeRuns.get(input.turnId) !== input.runId)
+			return { ok: false, error: ENDED_CODE_RUN_ERROR };
 		return this.#invokeBinding(
 			scope,
 			{
@@ -2392,6 +2410,22 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const turn = this.#turn(turnId);
 		if (!turn || turn.status !== "running") return;
 		this.#saveProgress(turn.conversation_id, turnId, progress);
+	}
+
+	/**
+	 * A turn is about to run code: from now on only this run's calls are
+	 * accepted for the turn. A turn runs one piece of code at a time.
+	 */
+	startCodeRun(scope: WorkspaceScope, turnId: string, runId: string): void {
+		this.bindScope(scope);
+		if (this.#turn(turnId)?.status === "running")
+			this.#codeRuns.set(turnId, runId);
+	}
+
+	/** The turn stopped waiting for this run: its later calls are refused. */
+	endCodeRun(scope: WorkspaceScope, turnId: string, runId: string): void {
+		this.bindScope(scope);
+		if (this.#codeRuns.get(turnId) === runId) this.#codeRuns.delete(turnId);
 	}
 
 	/** Facet callback: an event produced while the turn ran elsewhere. */
@@ -3800,15 +3834,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		if (body) this.#events.append(conversationId, body);
 	}
 
-	/** Sandbox `env`: one loopback stub per binding, valid for this turn only. */
-	sandboxEnv(scope: WorkspaceScope, turnId: string): Record<string, unknown> {
-		const env: Record<string, unknown> = {};
-		for (const binding of BINDING_NAMES) {
-			env[binding] = this.ctx.exports.WorkspaceBindingLoopback({
-				props: { objectName: tenantStoreName(scope), scope, turnId, binding },
-			});
-		}
-		return env;
+	/** How long a turn waits for one code run; a test shortens it. */
+	protected codeTimeoutMs(): number {
+		return SANDBOX_TIMEOUT_MS;
 	}
 
 	async #guestProfile(
@@ -4077,7 +4105,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				: await executeTurn(plan, {
 						env: this.env,
 						model: this.modelFor(scope, turnId, plan.actor.id, plan.modelId),
-						sandboxEnv: this.sandboxEnv(scope, turnId),
+						codeRuns: {
+							env: (runId) =>
+								loopbackEnv(this.ctx.exports.WorkspaceBindingLoopback, {
+									objectName: tenantStoreName(scope),
+									scope,
+									turnId,
+									runId,
+								}),
+							start: (runId) => this.startCodeRun(scope, turnId, runId),
+							end: (runId) => this.endCodeRun(scope, turnId, runId),
+							timeoutMs: this.codeTimeoutMs(),
+						},
 						emit: (event) => this.#emitLoopEvent(conversationId, turnId, event),
 						save: (progress) =>
 							this.#saveProgress(conversationId, turnId, progress),
@@ -4149,6 +4188,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			});
 		} finally {
 			this.#running.delete(turnId);
+			this.#codeRuns.delete(turnId);
 			this.#viewsShown.delete(turnId);
 			for (const wake of this.#waiters.get(turnId) ?? []) wake();
 			this.#waiters.delete(turnId);
@@ -4392,9 +4432,35 @@ function queuedReceipt(message: QueuedMessageRow) {
 	};
 }
 
+/** What a call is answered when its code run is not the one the turn waits for. */
+export const ENDED_CODE_RUN_ERROR =
+	"Not done: this code run has ended, so its calls are no longer accepted. This call changed nothing.";
+
+/**
+ * Each code run of a turn has its own id, carried by the stubs in its `env`.
+ * The workspace accepts a call only from the run the turn is waiting for.
+ */
+export interface CodeRuns {
+	/** Sandbox `env` for one run: one loopback stub per binding. */
+	env(runId: string): Record<string, unknown>;
+	start(runId: string): void | Promise<void>;
+	end(runId: string): void | Promise<void>;
+	timeoutMs: number;
+}
+
+function loopbackEnv(
+	loopback: (options: { props: LoopbackProps }) => unknown,
+	run: Omit<LoopbackProps, "binding">,
+): Record<string, unknown> {
+	const env: Record<string, unknown> = {};
+	for (const binding of BINDING_NAMES)
+		env[binding] = loopback({ props: { ...run, binding } });
+	return env;
+}
+
 export interface ExecuteTurnHost {
 	env: WorkspaceEnv;
-	sandboxEnv: Record<string, unknown>;
+	codeRuns: CodeRuns;
 	emit: (event: LoopEvent) => void;
 	save: (progress: TurnProgress) => void | Promise<void>;
 	takeAdded: () => AddedMessage[] | Promise<AddedMessage[]>;
@@ -4410,7 +4476,22 @@ export async function executeTurn(
 	return runTurn(
 		{
 			model: host.model,
-			runCode: (code) => sandbox.run({ code, env: host.sandboxEnv }),
+			runCode: async (code) => {
+				const runId = crypto.randomUUID();
+				await host.codeRuns.start(runId);
+				// However the run ends, its id stops being accepted before the
+				// model reads the result: code still executing after a timeout
+				// cannot change anything behind the model's back.
+				try {
+					return await sandbox.run({
+						code,
+						env: host.codeRuns.env(runId),
+						timeoutMs: host.codeRuns.timeoutMs,
+					});
+				} finally {
+					await host.codeRuns.end(runId);
+				}
+			},
 			emit: host.emit,
 			save: host.save,
 			takeAdded: host.takeAdded,
@@ -4466,6 +4547,11 @@ export class TurnFacet extends DurableObject<WorkspaceEnv> {
 		this.#stop.abort(new Error("cancelled by user"));
 	}
 
+	/** How long the turn waits for one code run; a test shortens it. */
+	protected async codeTimeoutMs(_plan: TurnPlan): Promise<number> {
+		return SANDBOX_TIMEOUT_MS;
+	}
+
 	/** The model this facet streams from; a test subclass returns a scripted one. */
 	protected async modelFor(plan: TurnPlan): Promise<ModelPort> {
 		return createWorkspaceModel(
@@ -4499,17 +4585,32 @@ export class TurnFacet extends DurableObject<WorkspaceEnv> {
 				scope: WorkspaceScope,
 				turnId: string,
 			): Promise<AddedMessage[]>;
+			startCodeRun(
+				scope: WorkspaceScope,
+				turnId: string,
+				runId: string,
+			): Promise<void>;
+			endCodeRun(
+				scope: WorkspaceScope,
+				turnId: string,
+				runId: string,
+			): Promise<void>;
 		};
-		const sandboxEnv: Record<string, unknown> = {};
-		for (const binding of BINDING_NAMES) {
-			sandboxEnv[binding] = this.ctx.exports.WorkspaceBindingLoopback({
-				props: { objectName, scope: plan.scope, turnId: plan.turnId, binding },
-			});
-		}
 		return executeTurn(plan, {
 			env: this.env,
 			model: await this.modelFor(plan),
-			sandboxEnv,
+			codeRuns: {
+				env: (runId) =>
+					loopbackEnv(this.ctx.exports.WorkspaceBindingLoopback, {
+						objectName,
+						scope: plan.scope,
+						turnId: plan.turnId,
+						runId,
+					}),
+				start: (runId) => parent.startCodeRun(plan.scope, plan.turnId, runId),
+				end: (runId) => parent.endCodeRun(plan.scope, plan.turnId, runId),
+				timeoutMs: await this.codeTimeoutMs(plan),
+			},
 			emit: (event) => {
 				void parent.appendTurnEvent(plan.scope, plan.turnId, event);
 			},
@@ -4525,6 +4626,8 @@ interface LoopbackProps {
 	objectName: string;
 	scope: WorkspaceScope;
 	turnId: string;
+	/** The code run this stub was made for. */
+	runId: string;
 	binding: BindingName;
 }
 
@@ -4547,6 +4650,7 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 				scope: WorkspaceScope,
 				input: {
 					turnId: string;
+					runId: string;
 					binding: string;
 					method: string;
 					args: unknown[];
@@ -4557,6 +4661,7 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 		// sandbox harness turns it into the throw the model's code sees.
 		return parent.callBinding(props.scope, {
 			turnId: props.turnId,
+			runId: props.runId,
 			binding: props.binding,
 			method,
 			args,

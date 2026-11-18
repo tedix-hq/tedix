@@ -47,7 +47,10 @@ its code runs beside the data.
    corrects it, and the turn goes on. Text holding half of a character (an
    emoji cut in two) is refused before any check or card, because it could
    not be saved as written. Code that runs past 60 s is no longer waited
-   for but is not stopped, so the model is told its calls may have applied.
+   for, and the model is told its earlier calls may have applied. The code
+   itself cannot be halted, so each run has its own id and the workspace
+   accepts calls only from the run the turn is waiting for: code that timed
+   out, failed or finished changes nothing afterwards.
    Only a failed model request or a result that cannot be stored ends the
    turn.
    A held write does not end the turn. The model reads "Approval required"

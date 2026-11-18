@@ -109,6 +109,7 @@ type Stub = DurableObjectStub &
 		): Promise<void>;
 		retryProjections(scope: WorkspaceScope): Promise<void>;
 		scriptModel(scope: WorkspaceScope, steps: ScriptStep[]): Promise<void>;
+		limitCodeRuns(scope: WorkspaceScope, ms: number): Promise<void>;
 		webFetchCount(scope: WorkspaceScope): Promise<number>;
 		importRows(
 			scope: WorkspaceScope,
@@ -2745,6 +2746,66 @@ describe("WorkspaceDO", () => {
 			events.filter((event) => event.type === "turn.finished"),
 		).toMatchObject([{ status: "done" }]);
 	});
+
+	test.each([
+		{ where: "in the workspace", isolate: false },
+		{ where: "beside it", isolate: true },
+	])(
+		"code that ran out of time cannot change a file afterwards (turn $where)",
+		async ({ isolate }) => {
+			await seedCore();
+			const own = { ...scope, workspaceId: crypto.randomUUID() };
+			await seedWorkspaceRows([own]);
+			const ws = workspace(own);
+			await seedOutputs(ws, own);
+			await ws.limitCodeRuns(own, 2_000);
+			const create = (title: string) =>
+				`env.outputs.create({ title: "${title}", content: { kind: "document", blocks: [] } })`;
+			// The first run is given up at 2 s and writes at 3 s, while the turn
+			// is still running its second piece of code.
+			const LATE = `export default async (env) => {
+				await new Promise((resolve) => setTimeout(resolve, 3000));
+				await ${create("written too late")};
+			}`;
+			const NEXT = `export default async (env) => {
+				const made = await ${create("written in time")};
+				await new Promise((resolve) => setTimeout(resolve, 1700));
+				return made.title;
+			}`;
+			await ws.scriptModel(own, [
+				{ code: LATE },
+				{ code: NEXT },
+				{ text: "Done." },
+			]);
+			const { turnId, conversationId } = await ws.sendTurn(own, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Write two files",
+				isolate,
+			});
+			expect(await ws.awaitTurn(own, turnId, 20_000)).toMatchObject({
+				status: "finished",
+			});
+			const events = await ws.readEvents(own, { conversationId, after: 0 });
+			expect(
+				events.flatMap((event) =>
+					event.type === "step.finished" && event.error ? [event.error] : [],
+				),
+			).toEqual([sandboxTimeoutError(2_000)]);
+			// Only the run the turn was waiting for reached the workspace.
+			const written = events.flatMap((event) =>
+				event.type === "step.started" && event.tool === "outputs.create"
+					? [(event.input as { title?: string }).title]
+					: [],
+			);
+			expect([...new Set(written)]).toEqual(["written in time"]);
+			expect(
+				events.filter(
+					(event) => event.type === "approval.executed" && event.output,
+				),
+			).toHaveLength(1);
+		},
+	);
 
 	test("code that runs out of time, cannot load or exports nothing fails its run, not the caller", async () => {
 		const sandbox = createLoaderSandbox(testEnv.LOADER, COMPATIBILITY_DATE);
