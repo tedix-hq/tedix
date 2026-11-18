@@ -65,6 +65,7 @@ import { SqlAccountabilityAdapter, SqlComplianceAdapter } from "./adapters";
 import { buildWorkspaceBindings } from "./bindings";
 import type { WorkspaceSnapshot } from "./data-port";
 import { MAX_VIEWS_PER_TURN } from "./views";
+import { createWebPort, type FetchFn } from "./web";
 import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
 import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-notice";
@@ -2299,6 +2300,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			},
 			actor,
 			source,
+			web: createWebPort(this.#store, turn.conversationId, this.webFetch()),
 			showView: (view) => {
 				const shown = this.#viewsShown.get(turn.turnId) ?? 0;
 				if (shown >= MAX_VIEWS_PER_TURN)
@@ -2639,6 +2641,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	protected configuredModels() {
 		return catalogWorkspaceModels(this.env, this.#modelCatalog?.entries ?? []);
+	}
+
+	/** Outbound fetch for `web.fetch`; a test subclass serves fixed pages. */
+	protected webFetch(): FetchFn | undefined {
+		return undefined;
 	}
 
 	/** The model a turn streams from; a test subclass returns a scripted one. */
@@ -3138,6 +3145,10 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	list(...args: unknown[]) {
 		return this.#call("list", args);
+	}
+	/** `web.fetch`: an entrypoint's own `fetch` is HTTP, so the harness calls this name. */
+	fetchPage(...args: unknown[]) {
+		return this.#call("fetch", args);
 	}
 	listOpen(...args: unknown[]) {
 		return this.#call("listOpen", args);

@@ -606,6 +606,7 @@
         "@tedix/chat-transport": "workspace:*",
         "@tedix/db": "workspace:*",
         "@tedix/mcp-shared": "workspace:*",
+        "@tedix/ssrf-guard": "workspace:*",
         "@tedix/tedi-codemode-core": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
         "@tedix/workers-ai": "workspace:*",

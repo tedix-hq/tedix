@@ -30,6 +30,8 @@ function show(value) {
 	if (typeof value === "string") return value;
 	try { return JSON.stringify(value); } catch { return String(value); }
 }
+// An RPC stub's own fetch is HTTP, so web.fetch travels as fetchPage.
+const RPC_NAMES = Object.assign(Object.create(null), { fetch: "fetchPage" });
 // Each env binding answers { ok, value | error }; the model's code gets a value or a throw.
 function unwrap(env) {
 	const out = {};
@@ -38,7 +40,7 @@ function unwrap(env) {
 			get(_target, method) {
 				if (typeof method !== "string") return undefined;
 				return async (...args) => {
-					const outcome = await stub[method](...args);
+					const outcome = await stub[RPC_NAMES[method] ?? method](...args);
 					if (outcome && outcome.ok === true) return outcome.value;
 					throw new Error((outcome && outcome.error) || (name + "." + method + " failed"));
 				};
