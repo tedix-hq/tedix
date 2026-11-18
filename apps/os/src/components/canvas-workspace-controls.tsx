@@ -30,6 +30,7 @@ import {
 	useBlueprintUpdate,
 } from "@/components/workspace-blueprint-update";
 import { ShareButton } from "@/components/share-controls";
+import { useWorkspaceLeave } from "@/components/workspace-leave";
 import {
 	WorkspaceShareDialog,
 	type WorkspaceShareItem,
@@ -61,6 +62,7 @@ export function CanvasWorkspaceControls({
 	const [blueprintOpen, setBlueprintOpen] = useState(false);
 	const [updateOpen, setUpdateOpen] = useState(false);
 	const blueprintUpdate = useBlueprintUpdate(workspace);
+	const leave = useWorkspaceLeave(workspace, onArchived);
 
 	const {
 		muted: pushMuted,
@@ -176,6 +178,7 @@ export function CanvasWorkspaceControls({
 								>
 									<Archive size={14} /> Archive workspace
 								</DropdownMenuItem>
+								{leave.menuItem}
 							</DropdownMenuContent>
 						</DropdownMenu>
 					</>
@@ -228,6 +231,7 @@ export function CanvasWorkspaceControls({
 						onOpenChange={setArchiveOpen}
 						onArchived={onArchived}
 					/>
+					{leave.dialog}
 				</>
 			)}
 		</>

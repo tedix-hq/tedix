@@ -212,7 +212,7 @@ describe("open workspace permission changes", () => {
 			osQuery.osCollaborators.access.queryOptions({
 				input: { workspaceId: id },
 			}).queryKey,
-			{ role: "build" },
+			{ role: "build", leave: "organization" },
 		);
 		const container = document.createElement("div"),
 			root = createRoot(container);

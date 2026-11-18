@@ -35,6 +35,10 @@ const webPushApi = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
+		// The owner is never offered "Leave workspace".
+		osCollaborators: {
+			access: vi.fn(async () => ({ role: "build", leave: "owner" })),
+		},
 		osWorkspaces: { workspaces, blueprints: { get: vi.fn() } },
 		osShares: osSharesApi,
 		webPush: webPushApi,

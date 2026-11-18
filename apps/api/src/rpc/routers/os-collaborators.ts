@@ -15,6 +15,7 @@ import {
 	copyWorkspaceShareLink,
 	createWorkspaceShareLink,
 	getWorkspacePresenceIdentity,
+	leaveWorkspace,
 	listWorkspaceSharing,
 	openWorkspaceAsCollaborator,
 	previewWorkspaceRemoval,
@@ -23,6 +24,7 @@ import {
 	requireWorkspaceCollaboratorAccess,
 	setWorkspaceCollaboratorRole,
 	updateWorkspaceShareLink,
+	workspaceLeaveStatus,
 } from "../../services/os-workspace-collaborators";
 import { requireOrgId } from "../org-scope";
 import { type BaseContext, withAuth, withAuthorization } from "../orpc";
@@ -52,7 +54,7 @@ const access = collaborator.access
 			input.workspaceId,
 			"metadata.read",
 		);
-		return { role: access.role! };
+		return { role: access.role!, leave: workspaceLeaveStatus(access) };
 	});
 /** How often a held request looks for a newer event. */
 const EVENT_POLL_MS = 1_500;
@@ -259,6 +261,21 @@ const remove = collaborator.remove
 		affected: await removeWorkspaceAccess(context, input),
 	}));
 
+const leave = collaborator.leave
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Access is the workspace permission graph: the handler requires a signed-in human who can open the workspace and removes only that person's own access.",
+			},
+			"apps:write",
+		),
+	)
+	.handler(async ({ input, context }) => {
+		await leaveWorkspace(context, input);
+		return { left: true as const };
+	});
+
 const listShared = collaborator.listShared
 	.use(
 		withAuthorization(
@@ -320,6 +337,7 @@ export const osCollaboratorsContractRouter = os.router({
 	copyLink,
 	previewRemove,
 	remove,
+	leave,
 	listShared,
 	dismissShared,
 });

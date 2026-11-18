@@ -13,6 +13,7 @@ import {
 	type OsCollaboratorRole,
 	type OsCollaboratorTarget,
 	type OsWorkspaceCapability,
+	type OsWorkspaceLeaveStatus,
 	operationAllowed,
 	operationsForRole,
 	type OsWorkspaceOperation,
@@ -20,6 +21,7 @@ import {
 import {
 	addOsWorkspaceShareKey,
 	createOsWorkspaceShareLink,
+	dismissOsSharedWorkspace,
 	findTedixPersonByEmail,
 	getActiveOsWorkspaceShareLinkByKeyHash,
 	getOsWorkspaceForCollaboration,
@@ -598,6 +600,65 @@ type RemovalPlan = {
 	sharerUserId?: string;
 };
 
+/**
+ * Whether the caller can leave. Only access someone gave them by name can be
+ * left: an owner stays, a member of an organization workspace still has the
+ * organization's access, and a share link that is still on would let them
+ * straight back in.
+ */
+export function workspaceLeaveStatus(
+	access: WorkspaceAccess,
+): OsWorkspaceLeaveStatus {
+	if (access.isRoot)
+		return access.workspace.visibility === "private" ? "owner" : "organization";
+	const activeLinks = new Set(
+		access.rows.links.filter((link) => !link.revokedAt).map((link) => link.id),
+	);
+	const throughLink = access.rows.edges.some(
+		(edge) =>
+			edge.kind === "link" &&
+			edge.targetUserId === access.callerId &&
+			edge.linkId !== null &&
+			activeLinks.has(edge.linkId),
+	);
+	return throughLink ? "link" : "allowed";
+}
+
+const LEAVE_REFUSED: Record<
+	Exclude<OsWorkspaceLeaveStatus, "allowed">,
+	string
+> = {
+	owner: "You own this workspace, so you can't leave it",
+	organization:
+		"Everyone in the organization has access to this workspace, so you can't leave it",
+	link: "You have access through a share link, so leaving wouldn't remove it. Ask the owner to turn the link off",
+};
+
+function isSelfRemoval(
+	context: BaseContext,
+	target: OsCollaboratorTarget,
+): boolean {
+	return (
+		target.kind === "user" &&
+		target.userId === requireCollaboratorIdentity(context)
+	);
+}
+
+/**
+ * Removing other people needs the sharing permission. Removing yourself needs
+ * only that you can open the workspace, whatever your role.
+ */
+function requireRemovalAccess(
+	context: BaseContext,
+	input: { workspaceId: string; target: OsCollaboratorTarget },
+): Promise<WorkspaceAccess> {
+	return requireWorkspaceCollaboratorAccess(
+		context,
+		input.workspaceId,
+		isSelfRemoval(context, input.target) ? "metadata.read" : "sharing.write",
+	);
+}
+
 function planRemoval(
 	access: WorkspaceAccess,
 	target: OsCollaboratorTarget,
@@ -612,6 +673,12 @@ function planRemoval(
 				"Only the owner or the link's creator can revoke it",
 			);
 		return { change: { revokedLinkId: link.id } };
+	}
+	if (target.userId === access.callerId) {
+		const status = workspaceLeaveStatus(access);
+		if (status !== "allowed")
+			throw createError(ErrorCodes.BAD_REQUEST, LEAVE_REFUSED[status]);
+		return { change: { removedUserId: target.userId } };
 	}
 	if (access.graph.roots.has(target.userId))
 		throw createError(ErrorCodes.BAD_REQUEST, "The owner can't be removed");
@@ -652,11 +719,7 @@ export async function previewWorkspaceRemoval(
 	context: BaseContext,
 	input: { workspaceId: string; target: OsCollaboratorTarget },
 ): Promise<OsAffectedCollaborator[]> {
-	const access = await requireWorkspaceCollaboratorAccess(
-		context,
-		input.workspaceId,
-		"sharing.write",
-	);
+	const access = await requireRemovalAccess(context, input);
 	const plan = planRemoval(access, input.target);
 	const after = computeEffectiveRoles(access.graph, plan.change);
 	return affectedView(context, access, diffRoles(access.roles, after));
@@ -670,11 +733,7 @@ export async function removeWorkspaceAccess(
 		keepUserIds: string[];
 	},
 ): Promise<OsAffectedCollaborator[]> {
-	const access = await requireWorkspaceCollaboratorAccess(
-		context,
-		input.workspaceId,
-		"sharing.write",
-	);
+	const access = await requireRemovalAccess(context, input);
 	const plan = planRemoval(access, input.target);
 	const predicted = computeEffectiveRoles(access.graph, plan.change);
 	const affected = diffRoles(access.roles, predicted);
@@ -734,6 +793,27 @@ export async function removeWorkspaceAccess(
 		principalIds: fell.map((change) => change.userId),
 	});
 	return affectedView(context, access, fell);
+}
+
+/**
+ * The caller removes their own access, through the same removal as above, and
+ * the workspace drops off their "Shared with you" list.
+ */
+export async function leaveWorkspace(
+	context: BaseContext,
+	input: { workspaceId: string },
+): Promise<void> {
+	const userId = requireCollaboratorIdentity(context);
+	await removeWorkspaceAccess(context, {
+		workspaceId: input.workspaceId,
+		target: { kind: "user", userId },
+		keepUserIds: [],
+	});
+	await dismissOsSharedWorkspace(db(context), {
+		workspaceId: input.workspaceId,
+		userId,
+		now: new Date().toISOString(),
+	});
 }
 
 const ADMINISTER_DENIED =

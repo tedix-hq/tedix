@@ -789,6 +789,7 @@ const CALLS = {
 		keepUserIds: [],
 	},
 	"osCollaborators/open": { workspaceId: IDS.workspaceRevenue },
+	"osCollaborators/leave": { workspaceId: IDS.workspaceRevenue },
 	"osCollaborators/listShared": {},
 	"osCollaborators/dismissShared": { workspaceId: IDS.workspaceRevenue },
 	"osWorkspaces/workspaces/update": {
