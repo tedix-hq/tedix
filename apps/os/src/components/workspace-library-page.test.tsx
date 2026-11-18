@@ -150,7 +150,7 @@ function setFieldValue(field: HTMLInputElement, value: string) {
 	});
 }
 
-async function renderPage() {
+async function renderPage(initialView?: "active" | "archived") {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
@@ -160,7 +160,7 @@ async function renderPage() {
 	act(() => {
 		root.render(
 			<QueryClientProvider client={queryClient}>
-				<WorkspaceLibraryPage />
+				<WorkspaceLibraryPage initialView={initialView} />
 			</QueryClientProvider>,
 		);
 	});
@@ -858,6 +858,32 @@ describe("WorkspaceLibraryPage", () => {
 		// A private workspace cannot hold share links, so none are looked up.
 		expect(shares.list).not.toHaveBeenCalled();
 		expect(api.workspaces.delete).not.toHaveBeenCalled();
+		act(() => root.unmount());
+	});
+
+	it("opens on the archived list when the address asks for it", async () => {
+		api.workspaces.list.mockImplementation(async (input: { status?: string }) =>
+			input.status === "archived"
+				? {
+						items: [
+							workspace({
+								id: SECOND_WORKSPACE_ID,
+								name: "Old Probe",
+								status: "archived",
+							}),
+						],
+						truncated: false,
+					}
+				: { items: [workspace()], truncated: false },
+		);
+		const { container, root } = await renderPage("archived");
+		expect(
+			container.querySelector('ul[aria-label="Archived workspaces"]')
+				?.textContent,
+		).toContain("Old Probe");
+		expect(
+			container.querySelector('button[aria-label="Restore Old Probe"]'),
+		).not.toBeNull();
 		act(() => root.unmount());
 	});
 

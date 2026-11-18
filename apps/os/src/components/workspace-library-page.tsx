@@ -75,10 +75,15 @@ const LIBRARY_VIEWS = [
 	{ value: "archived", label: "Archived" },
 ] as const;
 
-export function WorkspaceLibraryPage() {
+export function WorkspaceLibraryPage({
+	initialView = "active",
+}: {
+	/** The list an address such as `/workspaces?view=archived` opens on. */
+	initialView?: LibraryView;
+}) {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
-	const [view, setView] = useState<LibraryView>("active");
+	const [view, setView] = useState<LibraryView>(initialView);
 	const [search, setSearch] = useState("");
 	const [restoredAt, setRestoredAt] = useState<ReadonlyMap<string, string>>(
 		new Map(),

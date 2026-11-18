@@ -1,5 +1,5 @@
 import { ArrowRight, ShieldCheck } from "@phosphor-icons/react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { APP_RUNTIME_ENTRY } from "@tedix/api-contract/schemas/os-app-runtime";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,6 +19,7 @@ import {
 } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { WidgetFrame } from "@/components/widget-frame";
 import { ROLE_LABEL } from "@/components/workspace-share-dialog";
@@ -33,7 +34,15 @@ type PageState =
 	| { status: "loading" }
 	| { status: "ready"; opened: Opened }
 	| { status: "denied" }
+	| { status: "archived"; workspace: ArchivedWorkspace }
 	| { status: "missing" };
+
+type ArchivedWorkspace = { id: string; name: string; updatedAt: string };
+
+const errorCode = (error: unknown): unknown =>
+	typeof error === "object" && error !== null && "code" in error
+		? (error as { code: unknown }).code
+		: null;
 
 /** Read and strip the `#share=` key so it never lingers in the address bar. */
 export function takeShareKey(): string | undefined {
@@ -181,6 +190,63 @@ function SharedApp({
 }
 
 /**
+ * An archived workspace's address. Only someone who may see the workspace
+ * gets here; the server decides whether they may restore it, as it does for
+ * Restore under Workspaces → Archived.
+ */
+function ArchivedWorkspaceNotice({
+	workspace,
+}: {
+	workspace: ArchivedWorkspace;
+}) {
+	const queryClient = useQueryClient();
+	const restore = useMutation({
+		...osQuery.osWorkspaces.workspaces.restore.mutationOptions(),
+		onSuccess: async () => {
+			await Promise.allSettled([
+				queryClient.invalidateQueries({ queryKey: osQueryKeys.workspaces() }),
+				queryClient.invalidateQueries({
+					queryKey: osQueryKeys.collaborators(),
+				}),
+			]);
+			window.location.assign(`/workspace/${encodeURIComponent(workspace.id)}`);
+		},
+	});
+	return (
+		<main className="mx-auto grid min-h-dvh w-full max-w-xl place-items-center px-4">
+			<div className="grid w-full gap-3">
+				<Alert data-workspace-archived>
+					<AlertTitle>{workspace.name} is archived</AlertTitle>
+					<AlertDescription>
+						Archived on {new Date(workspace.updatedAt).toLocaleDateString()}.
+						Nothing was deleted. Restore it to open it again with its documents
+						and apps.
+					</AlertDescription>
+				</Alert>
+				{restore.isError ? (
+					<Alert variant="destructive">
+						<AlertTitle>Could not restore the workspace</AlertTitle>
+						<AlertDescription>{restore.error.message}</AlertDescription>
+					</Alert>
+				) : null}
+				<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+					<Button
+						loading={restore.isPending || restore.isSuccess}
+						onClick={() => {
+							if (restore.isPending || restore.isSuccess) return;
+							restore.mutate({ workspaceId: workspace.id });
+						}}
+					>
+						Restore workspace
+					</Button>
+					<Link href="/workspaces?view=archived">Workspaces → Archived</Link>
+				</div>
+			</div>
+		</main>
+	);
+}
+
+/**
  * A workspace someone shared with you. Opens it as yourself (redeeming a
  * share key from the URL fragment once), then shows only what your role
  * allows: a `use` collaborator sees the apps and nothing else.
@@ -237,11 +303,26 @@ export function SharedWorkspacePage({ workspaceId }: { workspaceId: string }) {
 			},
 			(error: unknown) => {
 				if (!alive) return;
-				const code =
-					typeof error === "object" && error !== null && "code" in error
-						? (error as { code: unknown }).code
-						: null;
-				setState({ status: code === "NOT_FOUND" ? "missing" : "denied" });
+				if (errorCode(error) !== "NOT_FOUND") {
+					setState({ status: "denied" });
+					return;
+				}
+				// Opening answers "not found" for an archived workspace too. The
+				// workspace read tells the two apart, and answers "not found"
+				// itself for a workspace this person may not see.
+				osApi.osWorkspaces.workspaces.get({ workspaceId }).then(
+					({ workspace }) => {
+						if (!alive) return;
+						setState(
+							workspace.status === "archived"
+								? { status: "archived", workspace }
+								: { status: "missing" },
+						);
+					},
+					() => {
+						if (alive) setState({ status: "missing" });
+					},
+				);
 			},
 		);
 		return () => {
@@ -258,6 +339,8 @@ export function SharedWorkspacePage({ workspaceId }: { workspaceId: string }) {
 			</main>
 		);
 	}
+	if (state.status === "archived")
+		return <ArchivedWorkspaceNotice workspace={state.workspace} />;
 	if (state.status !== "ready") {
 		return (
 			<main className="mx-auto grid min-h-dvh w-full max-w-xl place-items-center px-4">
