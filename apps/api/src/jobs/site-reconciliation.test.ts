@@ -42,11 +42,13 @@ it("adopts a routed custom domain that a ready hostname already serves", async (
 		{ siteId: "site-a", organizationId: "org-a", hostname: "blog.example.com" },
 		{ siteId: "site-b", organizationId: "org-b", hostname: "example.org" },
 	]);
-	hostnames.findCmsCustomHostname.mockImplementation(async (_env, hostname) =>
-		hostname === "blog.example.com"
+	hostnames.findCmsCustomHostname.mockImplementation(async (_env, hostname) => {
+		if (hostname === "example.org")
+			throw new Error("Invalid CMS custom hostname");
+		return hostname === "blog.example.com"
 			? { id: "provider-a", hostname, status: "active" }
-			: null,
-	);
+			: null;
+	});
 	claims.reserveCmsDomainClaim.mockImplementation(async (_db, input) => input);
 	claims.adoptLegacyCmsDomainClaim.mockImplementation(async (_db, input) => ({
 		...input,
