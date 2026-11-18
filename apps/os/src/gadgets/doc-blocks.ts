@@ -17,6 +17,25 @@ export interface Unit {
 	depth: number;
 }
 
+export interface DocumentHeading {
+	pos: number;
+	level: 1 | 2 | 3;
+	label: string;
+}
+
+/** Non-empty H1-H3 entries in document order, for the margin outline. */
+export function documentHeadings(editor: Editor): DocumentHeading[] {
+	const headings: DocumentHeading[] = [];
+	editor.state.doc.descendants((node, pos) => {
+		if (node.type.name !== "heading") return;
+		const level = Number(node.attrs.level);
+		const label = node.textContent.trim();
+		if (label && (level === 1 || level === 2 || level === 3))
+			headings.push({ pos, level, label });
+	});
+	return headings;
+}
+
 const LIST_ITEMS = new Set(["listItem", "taskItem"]);
 
 /** The unit holding document position `pos`: the innermost list item, else the top-level block. */

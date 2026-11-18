@@ -18,6 +18,7 @@ import {
 	clearBlockSelection,
 	deleteUnit,
 	duplicateUnit,
+	documentHeadings,
 	moveUnit,
 	setBlockSelection,
 	unitAt,
@@ -97,15 +98,41 @@ const PALETTE: [name: string, text: string, highlight: string][] = [
 const DEFAULT_HIGHLIGHT = "#fbefc4";
 const css = `:root{--ease:cubic-bezier(.2,.8,.2,1);--fg:var(--tedix-fg,CanvasText);--bg:var(--tedix-bg,Canvas);--pri:var(--tedix-primary,Highlight);--mut:var(--tedix-muted-fg,GrayText);--hov:color-mix(in srgb,var(--fg) 5.5%,var(--bg));--act:color-mix(in srgb,var(--fg) 8.5%,var(--bg));--line:color-mix(in srgb,var(--fg) 8%,transparent);--edge:color-mix(in srgb,var(--fg) 15%,transparent);--card:var(--tedix-surface,var(--bg));font:14px var(--tedix-font,system-ui,sans-serif);color:var(--fg);scrollbar-width:thin;scrollbar-color:var(--edge) transparent}*{box-sizing:border-box}body{margin:0;padding:0!important;background:var(--bg)}button,input,select{font:inherit;color:inherit}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--pri);outline-offset:1px}.doc-toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:6px 26px 6px 10px;background:var(--bg);border-bottom:1px solid transparent;transition:border-color .12s}.doc-toolbar[data-scrolled]{border-color:var(--line)}.doc-toolbar>*{flex:none}.doc-table{display:contents}.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-status button{height:29px;min-width:29px;display:inline-grid;place-items:center;padding:0 6px;border:0;border-radius:6px;background:none;cursor:pointer;transition:background .12s var(--ease),transform .12s var(--ease)}:is(button,select):hover:not(:disabled){background:var(--hov)}button:active:not(:disabled){background:var(--act);transform:scale(.94)}:is(button,select):disabled{opacity:.38;cursor:default}button[aria-pressed=true]{background:var(--act);color:var(--pri)}.doc-sep{flex:none;width:1px;height:16px;margin:0 5px;background:var(--edge)}.doc-readonly{padding:0 8px;font-size:12px;color:var(--mut)}.doc-toolbar .doc-more{margin-left:auto;position:sticky;right:0;background:var(--bg)}.doc-page{max-width:calc(700px + 2*clamp(20px,5.5vw,52px));margin:0 auto;padding:22px clamp(20px,5.5vw,52px) min(40vh,300px)}.doc-skel{animation:doc-fade .3s .25s both}.doc-skel i{display:block;height:12px;margin-bottom:15px;border-radius:6px;background:var(--act)}.doc-skel i:first-child{width:45%;height:26px;margin-bottom:24px}.doc-skel i:last-child{width:60%}@keyframes doc-fade{from{opacity:0}}@keyframes doc-in{from{opacity:0;transform:scale(.96)}}.doc-status,.doc-link,.doc-menu{position:fixed;background:var(--card);border:1px solid var(--edge);box-shadow:0 6px 22px #0002;animation:doc-in .16s var(--ease)}.doc-status{top:48px;right:12px;z-index:4;max-width:min(380px,calc(100% - 24px));display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 11px;border-radius:14px;font-size:12px;line-height:1.45;color:var(--mut)}.doc-status:empty{display:none}.doc-save{position:fixed;top:18px;right:12px;z-index:4;width:7px;height:7px;border-radius:50%;background:var(--mut)}.doc-save[data-s="1"]{background:#1a7f37}.doc-save[data-s="2"]{background:#c0262d}.doc-status[data-error=true]{color:var(--tedix-danger,#c0262d)}.doc-status button{height:24px;color:var(--fg);background:var(--hov)}.doc-link,.doc-menu{z-index:5;padding:5px;border-radius:10px;transform-origin:0 0}.doc-link{display:flex;gap:4px}.doc-link input{width:min(250px,60vw);height:29px;padding:0 8px;border:0;border-radius:6px;background:var(--hov)}.doc-link button{height:29px;padding:0 10px;border:0;border-radius:6px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);cursor:pointer}.doc-menu{display:grid;min-width:180px}.doc-menu button{justify-content:start;padding:0 9px}.doc-menu div{display:flex;gap:2px}.doc-slash{width:272px;max-height:min(320px,60vh);overflow-y:auto}.doc-slash button{display:flex;gap:10px;align-items:center;height:auto!important;padding:5px 8px!important}.doc-tile{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:7px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line);color:color-mix(in srgb,var(--fg) 72%,transparent);font-size:12px;font-weight:600}.doc-mi{flex:1}.doc-md{font:11.5px var(--tedix-font-mono,ui-monospace,monospace);color:var(--mut)}.doc-mempty{padding:10px;color:var(--mut)}.doc-table-grid{display:grid!important;grid-template-columns:repeat(8,16px);gap:3px;padding:6px;outline:0}.doc-table-grid i{width:16px;height:16px;border-radius:3px;box-shadow:inset 0 0 0 1px var(--edge);cursor:pointer}.doc-table-grid i.on{background:color-mix(in srgb,var(--pri) 22%,transparent);box-shadow:inset 0 0 0 1px var(--pri)}.doc-table-picker p{margin:2px 6px;font-size:12px;color:var(--mut);text-align:center}.doc-table-picker .doc-table-title{font-weight:550;text-align:left}.doc-table-pill{position:absolute;z-index:2;display:grid;place-items:center;padding:0;border:1px solid var(--edge);border-radius:6px;background:var(--card);color:var(--mut);font-size:11px;line-height:1;cursor:pointer}.doc-table-pill.col{width:24px;height:12px}.doc-table-pill.row{width:12px;height:24px}.doc-table-pill:hover{color:var(--fg);border-color:var(--pri)}.doc-table-add{position:absolute;z-index:1;display:grid;place-items:center;padding:0;border:0;border-radius:4px;background:var(--hov);color:var(--mut);opacity:0;transition:opacity .12s;cursor:pointer}.doc-table-add.row{height:14px}.doc-table-add.col{width:14px}.doc-table-add:hover{opacity:1;color:var(--fg)}.doc-table-menu .doc-danger{color:#c0262d}.doc-gutter{position:absolute;z-index:2;display:flex;gap:1px;opacity:0;transition:opacity .14s}.doc-gutter.on{opacity:1}.doc-gutter button{display:grid;place-items:center;width:22px;height:24px;padding:0;border:0;border-radius:5px;background:none;color:color-mix(in srgb,var(--fg) 35%,transparent);cursor:pointer}.doc-gutter .doc-handle{width:18px;cursor:grab}.doc-gutter button:hover{background:var(--hov);color:var(--fg)}.doc-grip-hover{background:color-mix(in srgb,var(--pri) 6%,transparent);border-radius:6px}.doc-drop{position:absolute;z-index:2;height:2px;border-radius:1px;background:var(--pri);pointer-events:none}.doc-drop:before{content:"";position:absolute;left:-8px;top:-3px;width:8px;height:8px;border-radius:50%;box-sizing:border-box;border:2px solid var(--pri);background:var(--bg)}.doc-ghost{position:fixed;z-index:6;max-height:240px;overflow:hidden;padding:4px 10px;border-radius:10px;background:var(--card);box-shadow:0 10px 30px #0003;opacity:.96;pointer-events:none;-webkit-mask-image:linear-gradient(#000 80%,transparent);mask-image:linear-gradient(#000 80%,transparent)}.doc-ghost>*{margin:0!important}.doc-ghost-count{position:absolute;top:6px;right:8px;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);font-size:11px;line-height:20px;text-align:center}.doc-dragging{opacity:.28;transition:opacity .16s}.doc-block-selected{background:color-mix(in srgb,var(--pri) 12%,transparent);border-radius:6px}.doc-block-menu{width:252px}.doc-block-menu p{margin:4px 9px 2px;font-size:11px;color:var(--mut)}.doc-turn{display:grid!important;grid-template-columns:repeat(5,1fr);gap:4px;padding:4px}.doc-turn button{height:36px!important;justify-content:center!important;font-size:12px;font-weight:600;box-shadow:inset 0 0 0 1px var(--line)}.doc-turn button[aria-current=true]{color:var(--pri);box-shadow:inset 0 0 0 1.5px var(--pri)}.doc-block-menu button:not(.doc-turn button){display:flex!important;justify-content:space-between!important;gap:12px}.doc-block-menu kbd{font:inherit;font-size:11.5px;color:var(--mut)}.doc-block-menu .doc-danger:hover{background:color-mix(in srgb,#c0262d 12%,transparent);color:#c0262d}.doc-colors{width:248px;padding:4px 8px 10px}.doc-colors p{margin:0;padding:7px 2px 5px;font-size:11.5px;font-weight:550;color:var(--mut)}.doc-swatches{display:grid!important;grid-template-columns:repeat(5,1fr);gap:6px;padding:0 2px}.doc-menu .doc-swatch{aspect-ratio:1;width:auto;height:auto!important;min-width:0;padding:0;border:0;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:620;font-size:14px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line);transition:transform .12s var(--ease),box-shadow .12s var(--ease)}.doc-menu .doc-swatch:hover{transform:scale(1.07)}.doc-menu .doc-swatch.on{box-shadow:inset 0 0 0 1px var(--line),0 0 0 2px var(--card),0 0 0 3.5px var(--pri)}.doc-menu .doc-swatch.none{background:linear-gradient(135deg,transparent calc(50% - .75px),var(--mut) calc(50% - .75px),var(--mut) calc(50% + .75px),transparent calc(50% + .75px)),var(--bg)}.doc-paint{position:relative;display:grid;place-items:center;width:22px;height:22px}.doc-paint svg{position:relative}.doc-paint-fill{position:absolute;inset:2px 1px;border-radius:5px;background:var(--paint-fill,transparent)}.doc-paint-bar{position:absolute;left:4px;right:4px;bottom:1px;height:2.5px;border-radius:2px;background:var(--paint-text,transparent)}.doc-keys{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(12,12,16,.28);backdrop-filter:blur(3px)}.doc-sheet{width:min(620px,100%);max-height:min(78vh,680px);overflow-y:auto;padding:22px 24px 18px;background:var(--card);border-radius:14px;box-shadow:0 12px 40px #0003}.doc-sheet h2{margin:0 0 4px;font-size:15px;font-weight:620}.doc-sheet .doc-sub{margin:0 0 16px;color:var(--mut);font-size:12.5px}.doc-sheet-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 32px}@media(max-width:580px){.doc-sheet-cols{grid-template-columns:1fr}}.doc-sheet h3{margin:14px 0 4px;font-size:11.5px;font-weight:550;color:var(--mut)}.doc-krow{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;border-bottom:1px solid var(--line);font-size:13px;line-height:20px}.doc-krow:last-child{border-bottom:0}.doc-chips{display:flex;gap:4px;flex:none}.doc-chip{display:inline-flex;align-items:center;justify-content:center;height:22px;min-width:22px;padding:0 6px;border-radius:6px;background:var(--hov);box-shadow:inset 0 -1px 0 var(--edge);font-size:12px}.doc-chip.md{font:11.5px var(--tedix-font-mono,ui-monospace,monospace)}.doc-slash button[aria-selected=true]{background:var(--act)}.doc-menu hr{width:100%;height:0;border:0;border-top:1px solid var(--line);margin:4px 0}.tiptap{outline:0;font-size:16px;line-height:1.62;min-height:50vh;caret-color:var(--pri);overflow-wrap:anywhere}.tiptap>:first-child{margin-top:0}.tiptap p{margin:0 0 .8em}.tiptap h1{font-size:1.875em;line-height:1.22;font-weight:680;letter-spacing:-.024em;margin:1.3em 0 .4em}.tiptap h2{font-size:1.4em;line-height:1.3;font-weight:640;letter-spacing:-.016em;margin:1.3em 0 .35em}.tiptap h3{font-size:1.15em;line-height:1.4;font-weight:620;margin:1.2em 0 .3em}.tiptap .doc-title{font-size:2.3em;font-weight:700}.tiptap [data-hint]:before{content:attr(data-hint);float:left;height:0;pointer-events:none;color:var(--mut);opacity:.65}.tiptap blockquote{margin:0 0 .8em;padding-left:14px;border-left:2px solid var(--edge);color:color-mix(in srgb,var(--fg) 72%,transparent)}.tiptap pre{font:13px/1.55 var(--tedix-font-mono,ui-monospace,monospace);background:var(--hov);margin:0 0 1em;padding:12px 14px;border-radius:8px;white-space:pre-wrap}.tiptap code{font-family:var(--tedix-font-mono,ui-monospace,monospace);font-size:.9em}.tiptap :not(pre)>code{background:var(--act);padding:.1em .3em;border-radius:4px}.tiptap hr{border:0;border-top:1px solid var(--edge);margin:1.6em 0}.tiptap ul,.tiptap ol{margin:0 0 .8em;padding-left:1.5em}.tiptap li p{margin:0 0 .2em}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-checked]{display:flex;gap:9px}.tiptap li[data-checked]>div{flex:1}.tiptap li[data-checked=true]>div{color:var(--mut)}.tiptap input[type=checkbox]{appearance:none;display:grid;place-content:center;width:16px;height:16px;margin:5px 0 0;border:1.5px solid color-mix(in srgb,var(--fg) 34%,transparent);border-radius:4.5px;cursor:pointer;transition:background .12s}.tiptap input:checked{background:var(--pri);border-color:var(--pri)}.tiptap input:checked:after{content:"";width:8px;height:4px;margin-top:-2px;border:solid var(--tedix-on-primary,HighlightText);border-width:0 0 2px 2px;transform:rotate(-45deg)}.tiptap table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;margin:0 0 1em;border:1px solid var(--edge);border-radius:8px;overflow:hidden}.tiptap th,.tiptap td{border:solid var(--line);border-width:0 1px 1px 0;min-width:60px;padding:7px 10px;position:relative;vertical-align:top;text-align:left}.tiptap :is(th,td):last-child{border-right:0}.tiptap tr:last-child>*{border-bottom:0}.tiptap th{background:color-mix(in srgb,var(--fg) 3.5%,transparent);font-weight:600}.tiptap :is(th,td) p{margin:0}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--pri) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:0;top:0;bottom:0;width:3px;background:var(--pri)}.tiptap img{max-width:100%;height:auto;border-radius:6px}.tiptap .ProseMirror-selectednode{outline:2px solid var(--pri)}.tiptap aside,.tiptap [data-type=details]{margin:0 0 1em;padding:11px 14px;border-radius:8px;background:var(--hov)}.tiptap [data-type=details]{display:flex;gap:6px}.tiptap [data-type=details]>button{flex:none;width:22px;height:26px;border:0;border-radius:5px;background:none;cursor:pointer}.tiptap [data-type=details]>button:before{content:"▸"}.tiptap .is-open>button:before{content:"▾"}.tiptap [data-type=details]>div{flex:1;min-width:0}.tiptap summary{list-style:none;font-weight:600}.tiptap :is(aside,[data-type=detailsContent])>:last-child{margin-bottom:0}.tiptap a{color:var(--pri);text-decoration:underline}@keyframes doc-mark{0%{background:transparent}10%,50%{background:color-mix(in srgb,var(--pri) 17%,transparent)}to{background:transparent}}@keyframes doc-wash{0%{background:transparent}20%{background:color-mix(in srgb,var(--pri) 6.5%,transparent)}to{background:transparent}}@keyframes doc-rise{from{transform:translateY(5px)}}.doc-landed-words{border-radius:3px;animation:doc-mark 1.9s var(--ease) both}.doc-landed{border-radius:7px;animation:doc-wash 1.3s var(--ease) both,doc-rise .28s var(--ease) both}@keyframes doc-tick{0%{opacity:0}15%{opacity:1}to{opacity:0}}@keyframes doc-ghost{0%{opacity:.85;filter:none;max-height:6em}to{opacity:0;filter:blur(1.5px);max-height:0}}.doc-removed{display:inline-block;width:2px;height:1.1em;margin:0 1px;vertical-align:text-bottom;border-radius:1px;background:color-mix(in srgb,var(--pri) 70%,transparent);animation:doc-tick 1.1s var(--ease) both;pointer-events:none}.doc-removed-block{display:block;overflow:hidden;white-space:pre-wrap;color:var(--mut);animation:doc-ghost .22s ease-out both;pointer-events:none}@media(prefers-reduced-motion:reduce){.doc-landed,.doc-landed-words{animation:none;background:color-mix(in srgb,var(--pri) 14%,transparent)}}@media(pointer:coarse){.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-link input,.doc-link button{height:44px;min-width:44px}.doc-save{top:25px}.doc-status{top:62px}}`;
 
+const featureCss = `
+.doc-page{transition:max-width .32s var(--ease)}
+.doc-page[data-typeface=sans] .tiptap{font-family:var(--tedix-font,system-ui,sans-serif);font-size:16px;line-height:1.65}
+.doc-page[data-typeface=serif] .tiptap{font-family:ui-serif,Georgia,Cambria,"Times New Roman",serif;font-size:18px;line-height:1.6}
+.doc-page[data-typeface=mono] .tiptap{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14.5px;line-height:1.7}
+.doc-page[data-wide=true]{max-width:calc(980px + 2*clamp(20px,5.5vw,52px))}
+.doc-toolbar .doc-more{margin-left:0;position:static}.doc-toolbar .doc-appearance-button{margin-left:auto;position:sticky;right:0;background:var(--bg);font-weight:650;letter-spacing:-.04em}
+.doc-appearance{position:fixed;width:250px;padding:10px}.doc-appearance-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.doc-appearance-grid button{height:58px;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;padding:9px}.doc-appearance-grid button[aria-pressed=true]{box-shadow:inset 0 0 0 1.5px var(--pri)}.doc-appearance-grid small{font-size:10px;color:var(--mut)}.doc-wide{width:100%;margin-top:8px;display:flex!important;grid-template-columns:1fr auto!important;justify-content:space-between!important;padding:0 9px!important}.doc-wide i{width:28px;height:16px;border-radius:9px;background:var(--edge);position:relative}.doc-wide i:after{content:"";position:absolute;width:12px;height:12px;left:2px;top:2px;border-radius:50%;background:var(--bg);transition:transform .18s var(--ease)}.doc-wide[aria-pressed=true] i{background:var(--pri)}.doc-wide[aria-pressed=true] i:after{transform:translateX(12px)}
+.doc-outline{position:fixed;z-index:2;right:14px;top:50%;transform:translateY(-50%);max-height:64vh;padding:8px 0;display:flex;flex-direction:column;align-items:flex-end;overflow:auto;filter:drop-shadow(0 8px 18px transparent);transition:padding .16s var(--ease),background .16s,filter .16s;border-radius:10px}.doc-outline:hover,.doc-outline:focus-within{padding:9px;background:var(--card);filter:drop-shadow(0 8px 18px color-mix(in srgb,var(--fg) 18%,transparent))}.doc-outline button{border:0;background:none;min-height:22px;padding:0;display:flex;align-items:center;justify-content:flex-end;gap:9px;cursor:pointer;color:var(--mut)}.doc-outline i{display:block;height:2px;width:var(--dash);background:currentColor;border-radius:2px;opacity:.46;transition:opacity .14s,transform .14s}.doc-outline button[aria-current=true]{color:var(--pri)}.doc-outline button[aria-current=true] i{opacity:1;transform:scaleY(1.5)}.doc-outline span{display:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;line-height:1.35}.doc-outline:hover span,.doc-outline:focus-within span{display:block}.doc-outline:hover i,.doc-outline:focus-within i{order:2}
+.doc-agent-caret{position:fixed;z-index:4;width:2px;min-height:8px;background:var(--pri);opacity:0;pointer-events:none;transition:left .28s var(--ease),top .28s var(--ease),height .28s var(--ease),opacity .35s}.doc-agent-caret.on{opacity:.85;transition:left .28s var(--ease),top .28s var(--ease),height .28s var(--ease),opacity .12s}
+`;
+
 export async function mountDocClient(
 	root: HTMLElement,
 	bridge: DocClientBridge,
 ) {
 	const style = document.createElement("style");
-	style.textContent = css;
+	style.textContent = css + featureCss;
 	document.head.append(style);
 	root.innerHTML =
 		'<main aria-label="Doc gadget"><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><i class="doc-save" role="img" hidden></i><div class="doc-status" role="status" aria-live="polite"></div><form class="doc-link" hidden><input type="text" aria-label="Link URL" placeholder="Paste or type a link"><button type="submit">Apply</button></form><div class="doc-menu" role="menu" aria-label="More" hidden></div><div class="doc-menu doc-slash" role="listbox" aria-label="Insert" hidden></div><div class="doc-menu doc-block-menu" role="menu" aria-label="Block" hidden></div><div class="doc-gutter" hidden><button type="button" class="doc-add" aria-label="Add below" title="Add below · ⌥-click to add above"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button><button type="button" class="doc-handle" aria-label="Drag to move, or click for block options" title="Drag to move · Click for options"><svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><circle cx="2.5" cy="3.5" r="1.3"/><circle cx="7.5" cy="3.5" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="12.5" r="1.3"/><circle cx="7.5" cy="12.5" r="1.3"/></svg></button></div><i class="doc-drop" hidden></i><div class="doc-ghost" hidden></div><div class="doc-menu doc-table-picker" role="dialog" aria-label="Insert table" hidden></div><div class="doc-menu doc-table-menu" role="menu" aria-label="Table" hidden></div><button type="button" class="doc-table-pill col" title="Column" aria-label="Column" hidden>⋯</button><button type="button" class="doc-table-pill row" title="Row" aria-label="Row" hidden>⋮</button><button type="button" class="doc-table-add row" title="Add row" aria-label="Add row" hidden>+</button><button type="button" class="doc-table-add col" title="Add column" aria-label="Add column" hidden>+</button><div class="doc-menu doc-colors" role="dialog" aria-label="Text color and highlight" hidden></div><div class="doc-keys" hidden></div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden><section class="doc-page" aria-label="Document page"><div class="doc-skel"><i></i><i></i><i></i><i></i><i></i></div></section></main>';
+	const main = root.querySelector("main")!;
+	const appearanceMenu = document.createElement("div");
+	appearanceMenu.className = "doc-menu doc-appearance";
+	appearanceMenu.setAttribute("role", "dialog");
+	appearanceMenu.setAttribute("aria-label", "Typeface & width");
+	appearanceMenu.hidden = true;
+	const outline = document.createElement("nav");
+	outline.className = "doc-outline";
+	outline.setAttribute("aria-label", "Document outline");
+	outline.hidden = true;
+	const agentCaret = document.createElement("i");
+	agentCaret.className = "doc-agent-caret";
+	agentCaret.setAttribute("aria-hidden", "true");
+	main.append(appearanceMenu, outline, agentCaret);
 	const get = <T extends HTMLElement>(selector: string) =>
 		root.querySelector<T>(selector)!;
 	const saveDot = get(".doc-save"),
@@ -164,11 +191,14 @@ export async function mountDocClient(
 		tries = 0,
 		failedWhy = "",
 		since = 0,
-		frame = 0;
+		frame = 0,
+		agentPos = -1;
 	let saveTimer: ReturnType<typeof setTimeout> | undefined,
 		draftTimer: typeof saveTimer,
 		statusTimer: typeof saveTimer,
-		landedTimer: typeof saveTimer;
+		landedTimer: typeof saveTimer,
+		outlineTimer: typeof saveTimer,
+		agentTimer: typeof saveTimer;
 	// What someone else changed while the document was open here.
 	const landed = createLandedChanges<DocumentContent>({
 			documentBlocks: blocksFromRichText,
@@ -295,6 +325,101 @@ export async function mountDocClient(
 	const controls = () => {
 		frame ||= requestAnimationFrame(paint);
 	};
+	const appearance = () => ({
+		typeface: draft?.appearance?.typeface ?? ("sans" as const),
+		wide: draft?.appearance?.wide ?? false,
+	});
+	function showAppearance() {
+		const value = appearance();
+		page.dataset.typeface = value.typeface;
+		page.dataset.wide = String(value.wide);
+		for (const node of appearanceMenu.querySelectorAll<HTMLButtonElement>(
+			"[data-typeface]",
+		))
+			node.setAttribute(
+				"aria-pressed",
+				String(node.dataset.typeface === value.typeface),
+			);
+		appearanceMenu
+			.querySelector<HTMLButtonElement>(".doc-wide")
+			?.setAttribute("aria-pressed", String(value.wide));
+	}
+	function updateOutlineCurrent() {
+		if (outline.hidden) return;
+		const threshold = toolbar.getBoundingClientRect().bottom + 40;
+		let current = -1;
+		for (const [index, node] of [
+			...outline.querySelectorAll<HTMLButtonElement>("button"),
+		].entries()) {
+			const dom = editor?.view.nodeDOM(Number(node.dataset.pos));
+			if (
+				dom instanceof HTMLElement &&
+				dom.getBoundingClientRect().top <= threshold
+			)
+				current = index;
+		}
+		for (const [index, node] of [
+			...outline.querySelectorAll<HTMLButtonElement>("button"),
+		].entries())
+			if (index === Math.max(0, current))
+				node.setAttribute("aria-current", "true");
+			else node.removeAttribute("aria-current");
+	}
+	function rebuildOutline() {
+		clearTimeout(outlineTimer);
+		if (!editor || page.hidden) return (outline.hidden = true);
+		const headings = documentHeadings(editor);
+		const room = innerWidth - page.getBoundingClientRect().right;
+		if (headings.length < 2 || room < 120) return (outline.hidden = true);
+		outline.replaceChildren(
+			...headings.map((heading) => {
+				const node = document.createElement("button");
+				node.type = "button";
+				node.dataset.pos = String(heading.pos);
+				node.setAttribute("aria-label", heading.label);
+				const label = document.createElement("span");
+				label.textContent = heading.label;
+				const dash = document.createElement("i");
+				dash.style.setProperty(
+					"--dash",
+					`${heading.level === 1 ? 16 : heading.level === 2 ? 11 : 7}px`,
+				);
+				node.append(label, dash);
+				node.onclick = () => {
+					const dom = editor?.view.nodeDOM(heading.pos);
+					if (dom instanceof HTMLElement)
+						dom.scrollIntoView({
+							behavior: matchMedia("(prefers-reduced-motion:reduce)").matches
+								? "auto"
+								: "smooth",
+							block: "start",
+						});
+				};
+				return node;
+			}),
+		);
+		outline.hidden = false;
+		updateOutlineCurrent();
+	}
+	function scheduleOutline() {
+		clearTimeout(outlineTimer);
+		outlineTimer = setTimeout(rebuildOutline, 400);
+	}
+	function moveAgentCaret(pos: number) {
+		if (!editor) return;
+		agentPos = pos;
+		try {
+			const box = editor.view.coordsAtPos(pos);
+			agentCaret.style.left = `${box.left}px`;
+			agentCaret.style.top = `${box.top}px`;
+			agentCaret.style.height = `${Math.max(8, box.bottom - box.top)}px`;
+			agentCaret.classList.add("on");
+			clearTimeout(agentTimer);
+			agentTimer = setTimeout(() => agentCaret.classList.remove("on"), 1400);
+		} catch {
+			agentCaret.classList.remove("on");
+		}
+	}
 
 	/** The document as it is on screen, in the shape a save sends. */
 	function snapshot(): DocumentContent {
@@ -430,6 +555,7 @@ export async function mountDocClient(
 		schedule();
 		clearTimeout(draftTimer);
 		draftTimer = setTimeout(retain, 1000);
+		scheduleOutline();
 	}
 	/**
 	 * Show what someone else's save changed on screen: each part lights up
@@ -445,6 +571,7 @@ export async function mountDocClient(
 		if (!before.eq(after)) landed.add(content(before), content(after), agent);
 		if (!ranges.length) return;
 		showLanded(editor!, ranges);
+		if (agent) moveAgentCaret(ranges[ranges.length - 1]!.to);
 		clearTimeout(landedTimer);
 		landedTimer = setTimeout(
 			() => editor && !destroyed && showLanded(editor, []),
@@ -539,6 +666,8 @@ export async function mountDocClient(
 		basis = latest.revision.revision;
 		draft = content;
 		show(next);
+		showAppearance();
+		scheduleOutline();
 		land(before, editor!.state.doc, savedByAgent(latest.revision));
 		if (dirty) {
 			since = Date.now();
@@ -669,10 +798,12 @@ export async function mountDocClient(
 			show(check(content));
 			basis = retained?.revision ?? value.revision.revision;
 			draft = content;
+			showAppearance();
 			dirty = !!retained;
 			failed = false;
 			available = true;
 			page.hidden = false;
+			scheduleOutline();
 			say(dirty ? "Restored your unsaved changes" : "", false, [], true);
 			if (dirty) {
 				since = Date.now();
@@ -825,7 +956,13 @@ export async function mountDocClient(
 	function closePopups(focus = false) {
 		if (
 			focus &&
-			!(linkForm.hidden && menu.hidden && colors.hidden && shortcuts.hidden)
+			!(
+				linkForm.hidden &&
+				menu.hidden &&
+				appearanceMenu.hidden &&
+				colors.hidden &&
+				shortcuts.hidden
+			)
 		)
 			editor?.commands.focus();
 		linkForm.hidden =
@@ -833,6 +970,7 @@ export async function mountDocClient(
 			tablePicker.hidden =
 			tableMenu.hidden =
 			menu.hidden =
+			appearanceMenu.hidden =
 			slash.hidden =
 			colors.hidden =
 			shortcuts.hidden =
@@ -1353,6 +1491,63 @@ export async function mountDocClient(
 	more.addEventListener("click", (event) => {
 		if (!event.detail && !menu.hidden) menu.querySelector("button")?.focus();
 	});
+	const appearanceButton = document.createElement("button");
+	appearanceButton.type = "button";
+	appearanceButton.className = "doc-appearance-button";
+	appearanceButton.textContent = "Aa";
+	appearanceButton.title = "Typeface & width";
+	appearanceButton.setAttribute("aria-label", "Typeface & width");
+	appearanceButton.setAttribute("aria-haspopup", "dialog");
+	appearanceButton.onmousedown = (event) => event.preventDefault();
+	appearanceButton.onclick = () => {
+		const open = appearanceMenu.hidden;
+		closePopups();
+		if (!open) return;
+		showAppearance();
+		const box = appearanceButton.getBoundingClientRect();
+		place(appearanceMenu, box.right - 250, box.bottom + 4);
+	};
+	toolbar.append(appearanceButton);
+	const appearanceGrid = document.createElement("div");
+	appearanceGrid.className = "doc-appearance-grid";
+	const setAppearance = (
+		typeface: "sans" | "serif" | "mono",
+		wide: boolean,
+	) => {
+		if (!draft || !editable) return;
+		const { appearance: _old, ...rest } = draft;
+		draft =
+			typeface === "sans" && !wide
+				? rest
+				: { ...rest, appearance: { typeface, wide } };
+		showAppearance();
+		changed();
+	};
+	for (const [typeface, label, sample] of [
+		["sans", "Default", "Sans"],
+		["serif", "Serif", "Aa"],
+		["mono", "Mono", "Aa"],
+	] as const) {
+		const tile = document.createElement("button");
+		tile.type = "button";
+		tile.dataset.typeface = typeface;
+		tile.disabled = !editable;
+		tile.innerHTML = "<span></span><small></small>";
+		tile.children[0]!.textContent = label;
+		tile.children[1]!.textContent = sample;
+		tile.onclick = () => setAppearance(typeface, appearance().wide);
+		appearanceGrid.append(tile);
+	}
+	const wideButton = document.createElement("button");
+	wideButton.type = "button";
+	wideButton.className = "doc-wide";
+	wideButton.disabled = !editable;
+	wideButton.innerHTML = "<span>Full width</span><i aria-hidden=true></i>";
+	wideButton.onclick = () => {
+		const value = appearance();
+		setAppearance(value.typeface, !value.wide);
+	};
+	appearanceMenu.append(appearanceGrid, wideButton);
 	menu.onclick = () => closePopups();
 	menu.onkeydown = (event) => {
 		const items = [...menu.querySelectorAll("button")],
@@ -2181,6 +2376,7 @@ export async function mountDocClient(
 		const popupOpen =
 			!slash.hidden ||
 			!menu.hidden ||
+			!appearanceMenu.hidden ||
 			!linkForm.hidden ||
 			!blockMenu.hidden ||
 			!colors.hidden ||
@@ -2219,7 +2415,13 @@ export async function mountDocClient(
 			undoLanded();
 			event.stopPropagation();
 		} else if (key === "escape") {
-			if (linkForm.hidden && menu.hidden && colors.hidden && shortcuts.hidden)
+			if (
+				linkForm.hidden &&
+				menu.hidden &&
+				appearanceMenu.hidden &&
+				colors.hidden &&
+				shortcuts.hidden
+			)
 				return;
 			closePopups(true);
 		} else if (mod && key === "s") void save();
@@ -2278,6 +2480,8 @@ export async function mountDocClient(
 	const pointerdown = (event: Event) => {
 		const target = event.target as Node;
 		if (!menu.contains(target) && !more.contains(target)) menu.hidden = true;
+		if (!appearanceMenu.contains(target) && !appearanceButton.contains(target))
+			appearanceMenu.hidden = true;
 		if (!slash.contains(target)) slash.hidden = true;
 	};
 	const flush = (event: Event) => {
@@ -2289,7 +2493,13 @@ export async function mountDocClient(
 			void save(false);
 		}
 	};
-	const onScroll = () => toolbar.toggleAttribute("data-scrolled", scrollY > 2);
+	const onScroll = () => {
+		toolbar.toggleAttribute("data-scrolled", scrollY > 2);
+		updateOutlineCurrent();
+		if (agentPos >= 0 && agentCaret.classList.contains("on"))
+			moveAgentCaret(agentPos);
+	};
+	const onResize = () => scheduleOutline();
 	const onMessage = (event: MessageEvent) => {
 		if (
 			event.source !== window.parent ||
@@ -2312,6 +2522,7 @@ export async function mountDocClient(
 	window.addEventListener("beforeunload", beforeUnload);
 	window.addEventListener("pagehide", flush);
 	window.addEventListener("scroll", onScroll, { passive: true });
+	window.addEventListener("resize", onResize, { passive: true });
 	document.addEventListener("visibilitychange", flush);
 	document.addEventListener("pointerdown", pointerdown);
 	root.addEventListener("keydown", keydown, true);
@@ -2327,7 +2538,14 @@ export async function mountDocClient(
 		save,
 		destroy() {
 			destroyed = true;
-			for (const timer of [saveTimer, draftTimer, statusTimer, landedTimer])
+			for (const timer of [
+				saveTimer,
+				draftTimer,
+				statusTimer,
+				landedTimer,
+				outlineTimer,
+				agentTimer,
+			])
 				clearTimeout(timer);
 			input.stop();
 			cancelAnimationFrame(frame);
@@ -2337,6 +2555,7 @@ export async function mountDocClient(
 			window.removeEventListener("beforeunload", beforeUnload);
 			window.removeEventListener("pagehide", flush);
 			window.removeEventListener("scroll", onScroll);
+			window.removeEventListener("resize", onResize);
 			document.removeEventListener("visibilitychange", flush);
 			document.removeEventListener("pointerdown", pointerdown);
 			root.removeEventListener("keydown", keydown, true);

@@ -5,6 +5,7 @@ import {
 	blockSelectionKey,
 	blockSelectionPlugin,
 	deleteUnit,
+	documentHeadings,
 	moveUnit,
 	unitAt,
 } from "./doc-blocks";
@@ -38,6 +39,28 @@ const press = (key: string, init: KeyboardEventInit = {}) =>
 	new KeyboardEvent("keydown", { key, ...init });
 
 describe("block units", () => {
+	it("lists only non-empty H1-H3 headings in document order", () => {
+		const editor = setup([
+			{
+				type: "heading",
+				attrs: { level: 1 },
+				content: [{ type: "text", text: " Plan " }],
+			},
+			{ type: "heading", attrs: { level: 2 } },
+			paragraph("Body"),
+			{
+				type: "heading",
+				attrs: { level: 3 },
+				content: [{ type: "text", text: "Details" }],
+			},
+		]);
+		expect(
+			documentHeadings(editor).map(({ level, label }) => ({ level, label })),
+		).toEqual([
+			{ level: 1, label: "Plan" },
+			{ level: 3, label: "Details" },
+		]);
+	});
 	it("treats a list item as its own block and moves it within its list", () => {
 		const editor = setup([
 			{

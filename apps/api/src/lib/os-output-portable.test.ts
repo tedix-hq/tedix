@@ -424,3 +424,25 @@ it("exports native document tables to Markdown, HTML and Word", async () => {
 	expect(xml).toContain('w:val="right"');
 	expect(xml).toContain("<w:b/>");
 });
+
+it("carries document typeface and full width into HTML, PDF source and Word", async () => {
+	const content: Extract<OsOutputContent, { kind: "document" }> = {
+		kind: "document",
+		blocks: [{ type: "paragraph", text: "Wide serif copy" }],
+		appearance: { typeface: "serif", wide: true },
+	};
+	const html = renderOsOutputHtml(
+		{ kind: "document", title: "Plan" },
+		{ revision: 1, createdAt: "today", content },
+	);
+	expect(html).toContain("font-family:ui-serif, Georgia");
+	expect(html).toContain("font-size:18px;line-height:1.6");
+	expect(html).toContain("max-width:980px");
+	const files = unzipSync(await buildDocx(content, "Plan"));
+	const styles = strFromU8(files["word/styles.xml"]!);
+	const document = strFromU8(files["word/document.xml"]!);
+	expect(styles).toContain('w:ascii="Georgia"');
+	expect(styles).toContain('w:sz w:val="27"');
+	expect(document).toContain('w:orient="landscape"');
+	expect(document).toContain('w:right="540"');
+});

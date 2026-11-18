@@ -389,33 +389,42 @@ function richTextParagraphs(
 	}
 }
 
-const STYLES_XML =
-	`<w:styles xmlns:w="${WORD_NS}">` +
-	'<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/></w:rPr></w:rPrDefault>' +
-	'<w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>' +
-	'<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>' +
-	[1, 2, 3, 4]
-		.map(
-			(level) =>
-				`<w:style w:type="paragraph" w:styleId="Heading${level}"><w:name w:val="heading ${level}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>` +
-				`<w:pPr><w:outlineLvl w:val="${level - 1}"/><w:spacing w:before="${
-					360 - level * 40
-				}" w:after="120"/></w:pPr>` +
-				`<w:rPr><w:b/><w:sz w:val="${36 - level * 4}"/></w:rPr></w:style>`,
-		)
-		.join("") +
-	'<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>' +
-	'<w:pPr><w:outlineLvl w:val="0"/><w:spacing w:after="120"/></w:pPr><w:rPr><w:b/><w:sz w:val="45"/></w:rPr></w:style>' +
-	'<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:qFormat/>' +
-	'<w:pPr><w:ind w:left="720"/></w:pPr><w:rPr><w:i/></w:rPr></w:style>' +
-	'<w:style w:type="paragraph" w:styleId="CodeBlock"><w:name w:val="Code Block"/><w:basedOn w:val="Normal"/><w:qFormat/>' +
-	'<w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:ind w:left="360"/></w:pPr>' +
-	'<w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/><w:sz w:val="20"/></w:rPr></w:style>' +
-	'<w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:qFormat/>' +
-	'<w:pPr><w:spacing w:after="60"/><w:ind w:left="720"/><w:contextualSpacing/></w:pPr></w:style>' +
-	'<w:style w:type="paragraph" w:styleId="HorizontalRule"><w:name w:val="Horizontal Rule"/><w:basedOn w:val="Normal"/>' +
-	'<w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr></w:pPr></w:style>' +
-	"</w:styles>";
+function stylesXml(content: DocumentContent): string {
+	const typeface = content.appearance?.typeface ?? "sans";
+	const [font, size, spacing] = {
+		sans: ["Calibri", 24, 396],
+		serif: ["Georgia", 27, 432],
+		mono: ["Consolas", 22, 374],
+	}[typeface];
+	return (
+		`<w:styles xmlns:w="${WORD_NS}">` +
+		`<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="${font}" w:hAnsi="${font}" w:cs="${font}"/><w:sz w:val="${size}"/></w:rPr></w:rPrDefault>` +
+		`<w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="${spacing}" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>` +
+		'<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>' +
+		[1, 2, 3, 4]
+			.map(
+				(level) =>
+					`<w:style w:type="paragraph" w:styleId="Heading${level}"><w:name w:val="heading ${level}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>` +
+					`<w:pPr><w:outlineLvl w:val="${level - 1}"/><w:spacing w:before="${
+						360 - level * 40
+					}" w:after="120"/></w:pPr>` +
+					`<w:rPr><w:b/><w:sz w:val="${36 - level * 4}"/></w:rPr></w:style>`,
+			)
+			.join("") +
+		'<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>' +
+		'<w:pPr><w:outlineLvl w:val="0"/><w:spacing w:after="120"/></w:pPr><w:rPr><w:b/><w:sz w:val="45"/></w:rPr></w:style>' +
+		'<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:qFormat/>' +
+		'<w:pPr><w:ind w:left="720"/></w:pPr><w:rPr><w:i/></w:rPr></w:style>' +
+		'<w:style w:type="paragraph" w:styleId="CodeBlock"><w:name w:val="Code Block"/><w:basedOn w:val="Normal"/><w:qFormat/>' +
+		'<w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:ind w:left="360"/></w:pPr>' +
+		'<w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/><w:sz w:val="20"/></w:rPr></w:style>' +
+		'<w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:qFormat/>' +
+		'<w:pPr><w:spacing w:after="60"/><w:ind w:left="720"/><w:contextualSpacing/></w:pPr></w:style>' +
+		'<w:style w:type="paragraph" w:styleId="HorizontalRule"><w:name w:val="Horizontal Rule"/><w:basedOn w:val="Normal"/>' +
+		'<w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr></w:pPr></w:style>' +
+		"</w:styles>"
+	);
+}
 
 const ORDERED_FORMATS = ["decimal", "lowerLetter", "lowerRoman"] as const;
 // Plain Unicode marks, deliberately not the Symbol-font `F0B7` trick: the
@@ -455,12 +464,13 @@ export async function buildDocx(
 	const rich = (content.richText ?? richTextFromBlocks(content.blocks)).content;
 	const body = rich.flatMap((node) => richTextParagraphs(node, assets));
 	const heading = paragraphXml(runXml(title), { style: "Heading1" });
+	const wide = content.appearance?.wide === true;
 	const document =
 		`<w:document xmlns:w="${WORD_NS}" xmlns:r="${REL_NS}" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>` +
 		heading +
 		(body.length > 0 ? body.join("") : paragraphXml("")) +
-		'<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>' +
-		'<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>' +
+		`<w:sectPr><w:pgSz w:w="${wide ? 15840 : 12240}" w:h="${wide ? 12240 : 15840}"${wide ? ' w:orient="landscape"' : ""}/>` +
+		`<w:pgMar w:top="810" w:right="${wide ? 540 : 810}" w:bottom="810" w:left="${wide ? 540 : 810}" w:header="720" w:footer="720" w:gutter="0"/>` +
 		"</w:sectPr></w:body></w:document>";
 
 	return createZip([
@@ -498,7 +508,7 @@ export async function buildDocx(
 				...assets.links,
 			]),
 		),
-		xmlPart("word/styles.xml", STYLES_XML),
+		xmlPart("word/styles.xml", stylesXml(content)),
 		xmlPart("word/numbering.xml", NUMBERING_XML),
 		...assets.images,
 	]);

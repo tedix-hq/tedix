@@ -63,6 +63,22 @@ const ok = (content: unknown) =>
 	OsOutputContentSchema.safeParse(content).success;
 
 describe("workspace file size bounds", () => {
+	it("accepts the shared document appearance and rejects unknown settings", () => {
+		expect(
+			OsOutputContentSchema.parse({
+				kind: "document",
+				blocks: [],
+				appearance: { typeface: "serif", wide: true },
+			}),
+		).toMatchObject({ appearance: { typeface: "serif", wide: true } });
+		expect(
+			ok({
+				kind: "document",
+				blocks: [],
+				appearance: { typeface: "display", wide: false },
+			}),
+		).toBe(false);
+	});
 	it("holds the decided numbers", () => {
 		expect([
 			OS_SHEET_MAX_ROWS,

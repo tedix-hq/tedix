@@ -1461,6 +1461,103 @@ describe("portable rich Doc client", () => {
 			expect(statusText(root)).toContain("Exported as Markdown."),
 		);
 	});
+	it("stores typeface and width with the document and restores their layout", async () => {
+		const test = fixture();
+		const { root, mounted } = await test.mount();
+		click(root, "Typeface & width");
+		root.querySelector<HTMLButtonElement>('[data-typeface="serif"]')!.click();
+		click(root, "Full width");
+		expect(root.querySelector<HTMLElement>(".doc-page")!.dataset).toMatchObject(
+			{
+				typeface: "serif",
+				wide: "true",
+			},
+		);
+		await mounted.save();
+		expect(test.persisted().appearance).toEqual({
+			typeface: "serif",
+			wide: true,
+		});
+	});
+	it("builds the margin outline after 400ms and hides it without side room", async () => {
+		fakeClock();
+		const test = fixture();
+		const richText: OsRichTextDocument = {
+			type: "doc",
+			content: [
+				{
+					type: "heading",
+					attrs: { level: 1 },
+					content: [{ type: "text", text: "Plan" }],
+				},
+				{ type: "paragraph", content: [{ type: "text", text: "Body" }] },
+				{
+					type: "heading",
+					attrs: { level: 2 },
+					content: [{ type: "text", text: "Work" }],
+				},
+				{
+					type: "heading",
+					attrs: { level: 3 },
+					content: [{ type: "text", text: "Proof" }],
+				},
+			],
+		};
+		test.content({
+			kind: "document",
+			blocks: blocksFromRichText(richText),
+			richText,
+		});
+		const { root } = await test.mount();
+		const page = root.querySelector<HTMLElement>(".doc-page")!;
+		vi.spyOn(page, "getBoundingClientRect").mockReturnValue({
+			left: 100,
+			right: 700,
+			top: 40,
+			bottom: 900,
+			width: 600,
+			height: 860,
+			x: 100,
+			y: 40,
+			toJSON: () => ({}),
+		});
+		await vi.advanceTimersByTimeAsync(400);
+		const outline = root.querySelector<HTMLElement>(".doc-outline")!;
+		expect(outline.hidden).toBe(false);
+		expect(
+			[...outline.querySelectorAll("button")].map((node) =>
+				node.getAttribute("aria-label"),
+			),
+		).toEqual(["Plan", "Work", "Proof"]);
+		expect(
+			[...outline.querySelectorAll<HTMLElement>("i")].map((node) =>
+				node.style.getPropertyValue("--dash"),
+			),
+		).toEqual(["16px", "11px", "7px"]);
+		vi.spyOn(page, "getBoundingClientRect").mockReturnValue({
+			left: 100,
+			right: innerWidth - 100,
+			top: 40,
+			bottom: 900,
+			width: innerWidth - 200,
+			height: 860,
+			x: 100,
+			y: 40,
+			toJSON: () => ({}),
+		});
+		window.dispatchEvent(new Event("resize"));
+		await vi.advanceTimersByTimeAsync(400);
+		expect(outline.hidden).toBe(true);
+	});
+	it("puts the temporary agent caret at the end of the latest agent change", async () => {
+		const test = fixture();
+		const { root } = await test.mount();
+		test.external("Changed by agent", window.parent, "tedi");
+		const caret = root.querySelector<HTMLElement>(".doc-agent-caret")!;
+		await vi.waitFor(() => expect(caret.classList.contains("on")).toBe(true));
+		expect(Number.parseFloat(caret.style.height)).toBeGreaterThanOrEqual(8);
+		expect(caret.getAttribute("aria-hidden")).toBe("true");
+	});
 	it("executes the generated self-contained client artifact, without the native host editor", async () => {
 		const test = fixture(),
 			root = document.createElement("div");
