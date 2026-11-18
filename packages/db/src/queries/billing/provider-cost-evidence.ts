@@ -19,7 +19,11 @@ import {
 	workResourceRequirements,
 	workResourceReservations,
 } from "../../schema/work-factory";
-import { workItems, workAttempts } from "../../schema/work-items";
+import {
+	workItems,
+	workItemStoredColumns,
+	workAttempts,
+} from "../../schema/work-items";
 
 export type ProviderCostEvidenceRow = typeof evidence.$inferSelect;
 export type NewProviderCostEvidenceRow = typeof evidence.$inferInsert;
@@ -182,7 +186,7 @@ export async function getProviderCostEvidenceAuthorityBundle(
 ) {
 	const [work, attempts, requirements] = await Promise.all([
 		db
-			.select()
+			.select(workItemStoredColumns)
 			.from(workItems)
 			.where(and(eq(workItems.orgId, organizationId), eq(workItems.id, workId)))
 			.limit(1),

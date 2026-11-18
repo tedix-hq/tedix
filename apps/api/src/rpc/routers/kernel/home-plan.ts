@@ -6,6 +6,7 @@
  * value import back would create a cycle).
  */
 
+import type { KernelRuntimeRun } from "@tedix/db/schema/cognitive-runtime";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
 import type {
@@ -13,7 +14,6 @@ import type {
 	HomePlan,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import { HomePlanSchema } from "@tedix/api-contract/schemas/kernel-runtime";
-import type { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
 import { terminalChildOutcomeFromStatus } from "../../../kernel/progress-ledger";
 import type { BaseContext } from "../../orpc";
 import { readChildRunEvidenceRows } from "./child-run-reads";
@@ -28,7 +28,7 @@ import {
 } from "./runtime-shared";
 
 export function readOptionalHomePlanFromRun(
-	row: typeof kernelRuntimeRuns.$inferSelect,
+	row: KernelRuntimeRun,
 ): HomePlan | null {
 	const metadata = nonNullRecord(row.metadata);
 	const parsed = HomePlanSchema.safeParse(metadata?.homePlan);
@@ -137,7 +137,7 @@ export function workItemStatusFromPlanAssignmentStatus(
 
 export async function readChildRunStatusesForRunRows(
 	context: BaseContext,
-	rows: Array<typeof kernelRuntimeRuns.$inferSelect>,
+	rows: Array<KernelRuntimeRun>,
 ): Promise<{
 	childRunStatuses: Map<string, Record<string, unknown>>;
 	unavailableChildRunKeys: Set<string>;
@@ -250,7 +250,7 @@ export async function readChildRunStatusesForRunRows(
  */
 export async function readTerminalChildOutcomesForParents(
 	context: BaseContext,
-	rows: Array<typeof kernelRuntimeRuns.$inferSelect>,
+	rows: Array<KernelRuntimeRun>,
 ): Promise<Map<string, "failed" | "canceled">> {
 	const { childRunStatuses: statuses } = await readChildRunStatusesForRunRows(
 		context,

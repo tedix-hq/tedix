@@ -8,6 +8,7 @@ import {
 	workEvidence,
 	workItemRelations,
 	workItems,
+	workItemStoredColumns,
 	type WorkItem,
 } from "../../schema/work-items";
 import {
@@ -248,7 +249,7 @@ export async function listReadyWork(
 		cost_blocked: 0,
 	};
 	const candidates = await db
-		.select()
+		.select(workItemStoredColumns)
 		.from(workItems)
 		.where(
 			and(

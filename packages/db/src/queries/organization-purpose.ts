@@ -1,5 +1,6 @@
 /** Organization purpose revisions and the deterministic owner-attention brief. */
 
+import type { WorkItem } from "../schema/work-items";
 import { and, desc, eq, gt, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
@@ -7,7 +8,7 @@ import {
 	organizationPurposeCharters,
 } from "../schema/organization-purpose";
 import { tediObjectives } from "../schema/tedi-objectives";
-import { workItems } from "../schema/work-items";
+import { workItems, workItemStoredColumns } from "../schema/work-items";
 
 export interface CreatePurposeCharterRevisionParams {
 	id: string;
@@ -172,7 +173,7 @@ export async function createPurposeCharterRevision(
 const PRIORITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 } as const;
 
 function attentionRow(
-	row: typeof workItems.$inferSelect,
+	row: WorkItem,
 	kind: OwnerAttentionKind,
 	reason: string,
 	blocking: boolean,
@@ -327,7 +328,7 @@ export async function getOrganizationOwnerBrief(
 				),
 			),
 		db
-			.select()
+			.select(workItemStoredColumns)
 			.from(workItems)
 			.where(
 				and(
@@ -338,7 +339,7 @@ export async function getOrganizationOwnerBrief(
 			.orderBy(desc(workItems.updatedAt), desc(workItems.createdAt))
 			.limit(500),
 		db
-			.select()
+			.select(workItemStoredColumns)
 			.from(workItems)
 			.where(
 				and(

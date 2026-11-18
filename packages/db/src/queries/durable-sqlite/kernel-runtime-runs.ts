@@ -1,5 +1,8 @@
 import { and, desc, eq, sql } from "drizzle-orm";
-import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
+import {
+	kernelRuntimeRuns,
+	kernelRuntimeRunStoredColumns,
+} from "../../schema/cognitive-runtime";
 import {
 	type KernelRuntimeRun,
 	type KernelRuntimeRunUpdate,
@@ -22,7 +25,7 @@ export async function getKernelRuntimeRun(
 	input: { id: string; organizationId: string },
 ): Promise<KernelRuntimeRun | undefined> {
 	const [row] = await db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -74,7 +77,7 @@ export async function listKernelRuntimeRuns(
 ): Promise<KernelRuntimeRun[]> {
 	if (input.childRunIds?.length === 0) return [];
 	const base = db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -110,7 +113,7 @@ export async function findKernelRuntimeRunByChild(
 	},
 ): Promise<KernelRuntimeRun | undefined> {
 	const [row] = await db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -133,7 +136,7 @@ export async function getDurableKernelRuntimeRun(
 	},
 ): Promise<KernelRuntimeRun | undefined> {
 	const [row] = await db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(

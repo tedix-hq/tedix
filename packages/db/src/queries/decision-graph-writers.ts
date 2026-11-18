@@ -11,12 +11,14 @@ import { organizationMembers } from "../schema/organization-members";
 import { organizationSecrets } from "../schema/organization-secrets";
 import {
 	workInteractions,
+	workInteractionStoredColumns,
 	workInteractionResponses,
 	type WorkInteraction,
 } from "../schema/work-factory";
 import {
 	workItemComments,
 	workItems,
+	workItemStoredColumns,
 	type WorkItem,
 	type NewWorkItemRelation,
 } from "../schema/work-items";
@@ -91,7 +93,7 @@ export async function recordPersistedCardCreationEdges(
 ) {
 	try {
 		const [card] = await db
-			.select()
+			.select(workInteractionStoredColumns)
 			.from(workInteractions)
 			.where(
 				and(eq(workInteractions.orgId, orgId), eq(workInteractions.id, cardId)),
@@ -122,7 +124,7 @@ export async function recordPersistedCardResolutionEdges(
 			.limit(1);
 		if (!response) return;
 		const [card] = await db
-			.select()
+			.select(workInteractionStoredColumns)
 			.from(workInteractions)
 			.where(
 				and(
@@ -224,7 +226,7 @@ export async function recordCardCreationEdges(
 	if (!work && card.workItemId) {
 		try {
 			[work] = await db
-				.select()
+				.select(workItemStoredColumns)
 				.from(workItems)
 				.where(
 					and(

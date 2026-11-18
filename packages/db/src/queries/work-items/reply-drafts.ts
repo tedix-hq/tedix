@@ -53,6 +53,7 @@ import {
 	workInteractionReplyDrafts,
 	workInteractionResponses,
 	workInteractions,
+	workInteractionStoredColumns,
 } from "../../schema/work-factory";
 import { WorkControlError } from "./factory-validation";
 import { competencyObservations } from "../../schema/earned-delegation";
@@ -782,7 +783,7 @@ export async function recordAutoReplyDelivery(
 	p: RecordAutoReplyDeliveryParams,
 ): Promise<AutoReplyDeliveryResult> {
 	const [request] = await db
-		.select()
+		.select(workInteractionStoredColumns)
 		.from(workInteractions)
 		.where(
 			and(

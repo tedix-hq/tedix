@@ -10,6 +10,7 @@ import {
 	workAttempts,
 	workItemComments,
 	workItems,
+	workItemStoredColumns,
 } from "../schema/work-items";
 
 /** Observation state lives on canonical Work, with one deterministic item per commit/incident. */
@@ -73,7 +74,7 @@ export async function getRepositoryObservation(
 	return (
 		(
 			await db
-				.select()
+				.select(workItemStoredColumns)
 				.from(workItems)
 				.where(
 					and(
@@ -92,7 +93,7 @@ export async function pendingRepositoryObservations(
 	projectId: string,
 ) {
 	return db
-		.select()
+		.select(workItemStoredColumns)
 		.from(workItems)
 		.where(
 			and(
@@ -256,7 +257,7 @@ export async function overdueRepositoryObservations(
 			metadata: sql`json_set(${workItems.metadata}, '$.observerRetryAt', ${retryAt}, '$.observerMaintenanceReason', 'in_progress')`,
 		})
 		.where(sql`${workItems.id} IN (${candidates})`)
-		.returning();
+		.returning(workItemStoredColumns);
 }
 
 export async function finishRepositoryObserverEscalation(

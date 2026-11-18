@@ -1,6 +1,9 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { workInteractions } from "../../schema/work-factory";
+import {
+	workInteractions,
+	workInteractionStoredColumns,
+} from "../../schema/work-factory";
 import { workItemComments, workItems } from "../../schema/work-items";
 
 /** Metadata source of the request a lane raises when Work needs an owner's permission. */
@@ -86,7 +89,7 @@ export async function settleLaneDelegationRequests(
 			)
 			.returning({ id: workInteractions.id }),
 		db
-			.select()
+			.select(workInteractionStoredColumns)
 			.from(workInteractions)
 			.where(
 				and(

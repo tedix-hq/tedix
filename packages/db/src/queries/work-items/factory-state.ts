@@ -4,6 +4,7 @@ import {
 	type WorkActorType,
 	type WorkItem,
 	workItems,
+	workItemStoredColumns,
 } from "../../schema/work-items";
 import { normalizeWorkItemRow } from "./normalization";
 
@@ -49,7 +50,7 @@ export async function getScopedWorkItem(
 ): Promise<WorkItem> {
 	const item = (
 		await db
-			.select()
+			.select(workItemStoredColumns)
 			.from(workItems)
 			.where(and(eq(workItems.orgId, orgId), eq(workItems.id, workItemId)))
 			.limit(1)

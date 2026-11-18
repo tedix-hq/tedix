@@ -7,7 +7,7 @@
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { SensitiveDataLatch } from "@tedix/api-contract/schemas/sensitive-data-latch";
-import { sql } from "drizzle-orm";
+import { getColumns, sql } from "drizzle-orm";
 import {
 	check,
 	index,
@@ -800,7 +800,21 @@ export type KernelRuntimeEvent = typeof kernelRuntimeEvents.$inferSelect;
 export type KernelToolResult = typeof kernelToolResults.$inferSelect;
 export type NewKernelToolResult = typeof kernelToolResults.$inferInsert;
 export type NewKernelRuntimeEvent = typeof kernelRuntimeEvents.$inferInsert;
-export type KernelRuntimeRun = typeof kernelRuntimeRuns.$inferSelect;
+/**
+ * The columns a kernel run row is read and returned with. Generated columns exist for
+ * WHERE, ORDER BY and indexes only: select and `returning()` through this, never
+ * the whole table, so they do not reach a caller or an API response.
+ */
+export const {
+	workItemId: _workItemId,
+	targetTediId: _targetTediId,
+	...kernelRuntimeRunStoredColumns
+} = getColumns(kernelRuntimeRuns);
+
+export type KernelRuntimeRun = Omit<
+	typeof kernelRuntimeRuns.$inferSelect,
+	"workItemId" | "targetTediId"
+>;
 export type NewKernelRuntimeRun = typeof kernelRuntimeRuns.$inferInsert;
 export type KernelHomeApprovalMirror =
 	typeof kernelHomeApprovalMirrors.$inferSelect;

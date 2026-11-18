@@ -21,7 +21,6 @@ import {
 	desc,
 	eq,
 	exists,
-	getColumns,
 	inArray,
 	isNull,
 	notExists,
@@ -39,6 +38,7 @@ import {
 	workInteractionDeliveries,
 	workInteractionResponses,
 	workInteractions,
+	workInteractionStoredColumns,
 	type WorkInteraction,
 	type WorkInteractionKind,
 	type WorkInteractionResponse,
@@ -328,11 +328,11 @@ export async function createWorkInteraction(
 			.onConflictDoNothing({
 				target: [workInteractions.orgId, workInteractions.id],
 			})
-			.returning()
+			.returning(workInteractionStoredColumns)
 	)[0];
 	if (!created && dedupe) {
 		const [existing] = await db
-			.select()
+			.select(workInteractionStoredColumns)
 			.from(workInteractions)
 			.where(equivalent)
 			.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
@@ -538,7 +538,7 @@ export async function refreshRepositoryCiAlerts(
 				metadata: sql`json_set(${workInteractions.metadata}, '$.notification.refreshedAt', ${p.now})`,
 			})
 			.where(scope)
-			.returning();
+			.returning(workInteractionStoredColumns);
 	return closeClearedInteractions(db, scope!, p.now, "CI checks are green.");
 }
 
@@ -645,7 +645,7 @@ async function closeClearedInteractions(
 	limit = 50,
 ) {
 	const rows = await db
-		.select()
+		.select(workInteractionStoredColumns)
 		.from(workInteractions)
 		.where(sql`${eligible}`)
 		.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
@@ -674,7 +674,7 @@ async function closeClearedInteractions(
 						eq(workInteractions.version, row.version),
 					),
 				)
-				.returning(),
+				.returning(workInteractionStoredColumns),
 			...clearedInteractionStatements(
 				db,
 				row,
@@ -850,7 +850,7 @@ export async function respondToWorkInteraction(
 	await validateActor(db, p.orgId, p.responder);
 	const request = (
 		await db
-			.select()
+			.select(workInteractionStoredColumns)
 			.from(workInteractions)
 			.where(
 				and(
@@ -1263,7 +1263,7 @@ export async function delegateWorkInteraction(
 					sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now})`,
 				),
 			)
-			.returning()
+			.returning(workInteractionStoredColumns)
 	)[0];
 	if (!row)
 		throw new WorkControlError("CONFLICT", "Question is no longer delegatable");
@@ -1311,7 +1311,7 @@ export async function cancelWorkInteraction(
 					...(p.actorIsAdmin ? [] : [or(isCreator, isRecipient)]),
 				),
 			)
-			.returning()
+			.returning(workInteractionStoredColumns)
 	)[0];
 	if (!row) {
 		const current = (
@@ -1764,7 +1764,7 @@ export async function sweepObsoleteWorkInteractions(
 		if (!dryRun && writes + 4 > budget) break;
 		const rows = await db
 			.select({
-				...getColumns(workInteractions),
+				...workInteractionStoredColumns,
 				cause: sql<ObsoleteRequestCause>`CASE
                     WHEN ${staleLaneReminder(p.now)} THEN 'original_request_closed'
                     WHEN ${passedExpiry} THEN 'expiry_passed'
@@ -2104,7 +2104,7 @@ export async function getWorkInteraction(
 	return (
 		(
 			await db
-				.select()
+				.select(workInteractionStoredColumns)
 				.from(workInteractions)
 				.where(
 					and(
@@ -2183,7 +2183,7 @@ export async function snoozeWorkInteraction(
 				),
 			),
 		)
-		.returning();
+		.returning(workInteractionStoredColumns);
 	if (!row)
 		throw new WorkControlError(
 			"CONFLICT",

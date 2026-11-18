@@ -7,7 +7,7 @@ import {
 import { organizationMembers } from "../../schema/organization-members";
 import { projects } from "../../schema/projects";
 import { tedis } from "../../schema/tedis";
-import { workItems } from "../../schema/work-items";
+import { workItems, workItemStoredColumns } from "../../schema/work-items";
 import { workCases } from "../../schema/work-factory";
 
 export class WorkControlError extends Error {
@@ -135,7 +135,7 @@ export async function requireWorkItem(
 ) {
 	const row = (
 		await db
-			.select()
+			.select(workItemStoredColumns)
 			.from(workItems)
 			.where(and(eq(workItems.orgId, orgId), eq(workItems.id, id)))
 			.limit(1)

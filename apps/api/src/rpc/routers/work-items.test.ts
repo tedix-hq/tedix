@@ -9,7 +9,11 @@ import { workItems } from "@tedix/db/schema/work-items";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
-import { WorkItemRelationEdgeSchema } from "@tedix/api-contract/schemas/work-items";
+import { WorkItemListRowSchema } from "@tedix/api-contract/contracts/work-items";
+import {
+	WorkItemRelationEdgeSchema,
+	WorkItemSchema,
+} from "@tedix/api-contract/schemas/work-items";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { workItemsContractRouter } from "./work-items";
@@ -441,6 +445,40 @@ describe("Work Item router canonical specification reads and writes", () => {
 		expect(read.evidence).toEqual([]);
 		expect(read.evidenceNextCursor).toBeNull();
 		expect(read.projections).toEqual([]);
+	});
+	it("returns Work Items without the generated index columns", async () => {
+		// MCP checks a tool result against the contract's output schema with no
+		// extra properties allowed, so a strict parse is the same check.
+		const generated = [
+			"repositoryObserver",
+			"report",
+			"observerWokenAt",
+			"metadataExecutor",
+			"metadataSource",
+		];
+		const created = await client().create({
+			...PURPOSE,
+			title: "Read by an agent",
+			metadata: { source: "example", executor: "codex" },
+		});
+		const read = await client().getById({ id: created.id });
+		const listed = await client().list({});
+		const updated = await client("owner").updateSpecification({
+			id: created.id,
+			title: "Read by an agent again",
+		});
+		expect(listed.data).toHaveLength(1);
+		for (const [item, schema] of [
+			[created, WorkItemSchema],
+			[read.workItem, WorkItemSchema],
+			[updated, WorkItemSchema],
+			[listed.data[0], WorkItemListRowSchema],
+		] as const) {
+			expect(Object.keys(item ?? {})).not.toEqual(
+				expect.arrayContaining([expect.stringMatching(generated.join("|"))]),
+			);
+			expect(schema.strict().safeParse(item).error?.issues).toBeUndefined();
+		}
 	});
 	it("includes attached epics in the exact Work Item read", async () => {
 		const created = await client().create({

@@ -23,6 +23,7 @@ import {
 	chatDispatchIdempotency,
 	kernelRuntimeEvents,
 	kernelRuntimeRuns,
+	kernelRuntimeRunStoredColumns,
 } from "../schema/cognitive-runtime";
 import {
 	buildRecordKernelConversationMessageStatement,
@@ -46,7 +47,10 @@ import {
 	resolveReplayedKernelRuntimeEvent,
 } from "./kernel-runtime-events";
 
-export type KernelRuntimeRun = typeof kernelRuntimeRuns.$inferSelect;
+export type KernelRuntimeRun = Omit<
+	typeof kernelRuntimeRuns.$inferSelect,
+	"workItemId" | "targetTediId"
+>;
 export type KernelRuntimeRunUpdate = Partial<
 	Omit<typeof kernelRuntimeRuns.$inferInsert, "id" | "organizationId">
 >;
@@ -57,7 +61,7 @@ export async function getKernelRuntimeRun(
 	input: { id: string; organizationId?: string },
 ): Promise<KernelRuntimeRun | undefined> {
 	const [row] = await db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			input.organizationId
@@ -139,7 +143,7 @@ export async function listKernelRuntimeRuns(
 			: []),
 	];
 	const base = db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(and(...conditions));
 	const ordered =
@@ -169,7 +173,7 @@ export async function listPendingDelegationRuns(
 	},
 ): Promise<KernelRuntimeRun[]> {
 	return db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -207,7 +211,7 @@ export async function listQuietDelegatedRuns(
 	input: { before: string; limit: number },
 ): Promise<KernelRuntimeRun[]> {
 	return db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -312,7 +316,7 @@ export async function findKernelRuntimeRunByChild(
 	},
 ): Promise<KernelRuntimeRun | undefined> {
 	const [row] = await db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -335,7 +339,7 @@ export async function getDurableKernelRuntimeRun(
 	},
 ): Promise<KernelRuntimeRun | undefined> {
 	const [row] = await db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -827,7 +831,7 @@ export async function readLatestRunAwaitingDelegationApproval(
 	},
 ): Promise<KernelRuntimeRun | null> {
 	const [row] = await db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
@@ -1154,7 +1158,7 @@ export async function claimApprovedHomeDelegationResume(
 				),
 			),
 		)
-		.returning();
+		.returning(kernelRuntimeRunStoredColumns);
 	return run ?? null;
 }
 
@@ -1448,7 +1452,7 @@ export async function recordApprovedHomeDelegationResumeDispatch(
 		)
 		.returning({ id: kernelRuntimeRuns.id });
 	const canonical = db
-		.select()
+		.select(kernelRuntimeRunStoredColumns)
 		.from(kernelRuntimeRuns)
 		.where(approvedHomeResumeScope(input))
 		.limit(1);

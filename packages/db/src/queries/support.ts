@@ -6,7 +6,12 @@ import {
 	type SupportTicketRow,
 } from "../schema/support";
 import { projects } from "../schema/projects";
-import { workItems, workEvents, workItemComments } from "../schema/work-items";
+import {
+	workItems,
+	workItemStoredColumns,
+	workEvents,
+	workItemComments,
+} from "../schema/work-items";
 import type { SupportConfiguration } from "@tedix/api-contract/schemas/support";
 import { workItemPurposeFor } from "./work-items/purpose";
 import { resolveWorkItemSteward } from "./work-items/stewardship";
@@ -57,7 +62,7 @@ export async function repairSupportWorkPurpose(
 		},
 	]) {
 		const [work] = await db
-			.select()
+			.select(workItemStoredColumns)
 			.from(workItems)
 			.where(
 				and(

@@ -4,6 +4,7 @@ import type { DbQueryClient } from "../../query-client";
 import {
 	workItemComments,
 	workItems,
+	workItemStoredColumns,
 	type WorkItem,
 } from "../../schema/work-items";
 
@@ -85,7 +86,12 @@ export async function proposeWorkDeliveryRepair(
 			.onConflictDoNothing(),
 	]);
 	return (
-		(await db.select().from(workItems).where(existingRepair).limit(1))[0] ??
-		null
+		(
+			await db
+				.select(workItemStoredColumns)
+				.from(workItems)
+				.where(existingRepair)
+				.limit(1)
+		)[0] ?? null
 	);
 }

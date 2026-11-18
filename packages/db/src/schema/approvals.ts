@@ -8,7 +8,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { sql } from "drizzle-orm";
+import { getColumns, sql } from "drizzle-orm";
 import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { organizations } from "./organizations";
 import { tedis } from "./tedis";
@@ -150,6 +150,18 @@ export const tediApprovalRequests = sqliteTable(
 			.where(openOwnerToolRun),
 	],
 );
+
+/**
+ * The columns a approval request row is read and returned with. Generated columns exist for
+ * WHERE, ORDER BY and indexes only: select and `returning()` through this, never
+ * the whole table, so they do not reach a caller or an API response.
+ */
+export const {
+	executionStatus: _executionStatus,
+	executionDismissedAt: _executionDismissedAt,
+	consumedAt: _consumedAt,
+	...approvalRequestStoredColumns
+} = getColumns(tediApprovalRequests);
 
 export type TediApprovalRequest = Omit<
 	typeof tediApprovalRequests.$inferSelect,

@@ -1,3 +1,4 @@
+import type { KernelRuntimeRun } from "../schema/cognitive-runtime";
 import {
 	and,
 	asc,
@@ -14,6 +15,7 @@ import type { DbClient } from "../client";
 import {
 	kernelRuntimeEvents,
 	kernelRuntimeRuns,
+	kernelRuntimeRunStoredColumns,
 	tediRuntimeEvents,
 } from "../schema/cognitive-runtime";
 import { harnessSubjectEvalResults } from "../schema/harness-versions";
@@ -192,14 +194,14 @@ export async function listKernelRunsForCorrection(
 	input: { organizationId: string; runIds: string[] },
 ) {
 	if (input.runIds.length === 0) return [];
-	const rows: Array<typeof kernelRuntimeRuns.$inferSelect> = [];
+	const rows: Array<KernelRuntimeRun> = [];
 	for (const chunk of chunkForBoundParams(
 		[...new Set(input.runIds)],
 		D1_IN_LIST_CHUNK,
 	)) {
 		rows.push(
 			...(await db
-				.select()
+				.select(kernelRuntimeRunStoredColumns)
 				.from(kernelRuntimeRuns)
 				.where(
 					and(
