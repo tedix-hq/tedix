@@ -32,15 +32,17 @@ const receiptSchema = z.object({
 	sourceCommit: z.string().optional(),
 	migrationCommit: z.string().optional(),
 	declaration: z.string().optional(),
+	launchedAt: z.string().optional(),
 	code: z.string().optional(),
 });
+/** How long an unreadable commit job is trusted before a fresh commit is launched. */
+const COMMIT_JOB_PATIENCE_MS = 30 * 60_000;
 type Receipt = z.infer<typeof receiptSchema>;
 
 /** One site and at most one launch or status probe per request. No deploys. */
 export async function migrateThemeRelease(env: AppBindings, orgSlug: string) {
 	const key = `cms-theme-release-migration/v1/${orgSlug}.json`;
 	let stage = "SITE_LOOKUP_FAILED";
-	let pending: Receipt | undefined;
 	const record = async (receipt: Omit<Receipt, "orgSlug" | "updatedAt">) => {
 		const stored = { ...receipt, orgSlug, updatedAt: new Date().toISOString() };
 		await env.SITE_BUILDER_STORAGE.put(key, JSON.stringify(stored));
@@ -75,43 +77,9 @@ export async function migrateThemeRelease(env: AppBindings, orgSlug: string) {
 			artifactCommitSandbox: (jobId: string) =>
 				getSiteBuilderSandbox(env, orgSlug, { kind: "artifact-commit", jobId }),
 		};
-		if (previous?.jobId && previous.declaration) {
-			pending = previous;
-			stage = "COMMIT_STATUS_FAILED";
-			const snapshot = await readThemeArtifactRepoCommitStatus(
-				themeArtifactCommitSandbox(ctx, previous.jobId),
-				previous.jobId,
-			);
-			if (snapshot.status === "running")
-				return record({ ...previous, status: "running", code: undefined });
-			if (snapshot.seed?.conflict)
-				return record({
-					status: "failed",
-					code: "HEAD_CONFLICT",
-					jobId: previous.jobId,
-				});
-			if (snapshot.status !== "complete" || snapshot.seed?.committed !== true) {
-				return record({
-					status: "failed",
-					code: "COMMIT_FAILED",
-					jobId: previous.jobId,
-				});
-			}
-			const commit = z
-				.string()
-				.regex(/^[a-f0-9]{40}$/)
-				.parse(snapshot.seed.commit);
-			stage = "COMMIT_VERIFICATION_FAILED";
-			if ((await readDeclaration(commit)) !== previous.declaration)
-				throw new Error("Declaration mismatch");
-			return record({
-				status: "committed",
-				sourceCommit: commit,
-				migrationCommit: commit,
-				expectedHead: previous.expectedHead,
-				jobId: previous.jobId,
-			});
-		}
+		// The repository is the source of truth: a declaration at HEAD means the
+		// site is migrated, whatever an earlier commit job reported.
+		stage = "ARTIFACTS_READ_FAILED";
 		const { sourceCommit } = await readThemeArtifactHead({
 			orgSlug,
 			artifacts: env.ARTIFACTS,
@@ -120,8 +88,25 @@ export async function migrateThemeRelease(env: AppBindings, orgSlug: string) {
 			return record({
 				status: "already-present",
 				sourceCommit,
-				migrationCommit: previous?.migrationCommit,
+				migrationCommit: previous?.migrationCommit ?? sourceCommit,
 			});
+		}
+		if (previous?.status === "running" && previous.jobId) {
+			const fresh =
+				previous.launchedAt !== undefined &&
+				Date.now() - Date.parse(previous.launchedAt) < COMMIT_JOB_PATIENCE_MS;
+			const snapshot = await readThemeArtifactRepoCommitStatus(
+				themeArtifactCommitSandbox(ctx, previous.jobId),
+				previous.jobId,
+			).catch(() => undefined);
+			if (fresh && (snapshot === undefined || snapshot.status === "running"))
+				return record({
+					...previous,
+					status: "running",
+					code: snapshot ? undefined : "COMMIT_STATUS_FAILED",
+				});
+			// Not at HEAD and the job is finished, failed or gone: launch a fresh
+			// commit below; expectedHead keeps it from overwriting newer theme work.
 		}
 		stage = "DECLARATION_INVALID";
 		const defaults = declarationSchema.parse(
@@ -157,10 +142,10 @@ export async function migrateThemeRelease(env: AppBindings, orgSlug: string) {
 			jobId: launch.jobId,
 			expectedHead: sourceCommit,
 			declaration,
+			launchedAt: new Date().toISOString(),
 		});
 	} catch (error) {
 		return record({
-			...pending,
 			status: "failed",
 			code: error instanceof CmsDeployFailure ? error.code : stage,
 		});

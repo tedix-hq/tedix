@@ -115,7 +115,7 @@ beforeEach(() => {
 	vi.spyOn(console, "log").mockImplementation(() => {});
 });
 describe("one-time theme release migration", () => {
-	it("unions template defaults and all published pages, commits once, then verifies the immutable file", async () => {
+	it("unions template defaults and all published pages, commits once, then trusts the file at HEAD", async () => {
 		const f = fixture();
 		expect(await migrateThemeRelease(f.env, "acme")).toMatchObject({
 			status: "running",
@@ -139,17 +139,17 @@ describe("one-time theme release migration", () => {
 			status: "running",
 		});
 		expect(startThemeArtifactRepoCommit).toHaveBeenCalledOnce();
+		// The job's own status no longer matters once the file is at HEAD.
 		vi.mocked(readThemeArtifactRepoCommitStatus).mockResolvedValue({
-			status: "complete",
-			seed: { committed: true, commit },
+			status: "failed",
 		} as never);
 		f.state.present = true;
 		f.state.content = input.files[0]!.content;
 		expect(await migrateThemeRelease(f.env, "acme")).toMatchObject({
-			status: "committed",
-			sourceCommit: commit,
+			status: "already-present",
+			sourceCommit: head,
 		});
-		expect(f.repo.readCommit).toHaveBeenCalledWith(commit);
+		expect(startThemeArtifactRepoCommit).toHaveBeenCalledOnce();
 		expect(JSON.stringify(vi.mocked(console.log).mock.calls)).not.toContain(
 			"private-git-token",
 		);
@@ -190,28 +190,31 @@ describe("one-time theme release migration", () => {
 		expect(startThemeArtifactRepoCommit).not.toHaveBeenCalled();
 		expect(f.repo.createToken).not.toHaveBeenCalled();
 	});
-	it("keeps the job receipt after a failed status read so a later call never relaunches it", async () => {
+	it("waits on an unreadable fresh job, then relaunches once it is stale", async () => {
 		const f = fixture();
 		await migrateThemeRelease(f.env, "acme");
-		vi.mocked(readThemeArtifactRepoCommitStatus).mockRejectedValueOnce(
+		vi.mocked(readThemeArtifactRepoCommitStatus).mockRejectedValue(
 			new Error("unavailable"),
 		);
 		expect(await migrateThemeRelease(f.env, "acme")).toMatchObject({
-			status: "failed",
+			status: "running",
 			code: "COMMIT_STATUS_FAILED",
 			jobId,
 		});
-		vi.mocked(readThemeArtifactRepoCommitStatus).mockResolvedValue({
-			status: "running",
-		} as never);
-		expect(await migrateThemeRelease(f.env, "acme")).toMatchObject({
-			status: "running",
-			jobId,
-		});
 		expect(startThemeArtifactRepoCommit).toHaveBeenCalledOnce();
+		vi.useFakeTimers();
+		vi.setSystemTime(Date.now() + 31 * 60_000);
+		try {
+			expect(await migrateThemeRelease(f.env, "acme")).toMatchObject({
+				status: "running",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(startThemeArtifactRepoCommit).toHaveBeenCalledTimes(2);
 	});
-	it.each(["conflict", "failed", "mismatched-file"])(
-		"does not claim committed for %s",
+	it.each(["conflict", "failed", "committed-but-missing"])(
+		"relaunches instead of claiming committed when the job reports %s and HEAD lacks the file",
 		async (fault) => {
 			const f = fixture();
 			await migrateThemeRelease(f.env, "acme");
@@ -222,10 +225,29 @@ describe("one-time theme release migration", () => {
 						? { conflict: true }
 						: { committed: true, commit },
 			} as never);
+			// A finished job without a declaration at HEAD is retried at once;
+			// expectedHead keeps the retry from overwriting newer theme work.
 			expect(await migrateThemeRelease(f.env, "acme")).toMatchObject({
-				status: "failed",
+				status: "running",
 			});
-			expect(startThemeArtifactRepoCommit).toHaveBeenCalledOnce();
+			expect(startThemeArtifactRepoCommit).toHaveBeenCalledTimes(2);
 		},
 	);
+	it("recovers receipts written before launch times were recorded", async () => {
+		const f = fixture();
+		f.storage.set(
+			"cms-theme-release-migration/v1/acme.json",
+			JSON.stringify({
+				orgSlug: "acme",
+				status: "failed",
+				code: "COMMIT_FAILED",
+				jobId,
+				updatedAt: "2026-11-18T14:01:00.000Z",
+			}),
+		);
+		expect(await migrateThemeRelease(f.env, "acme")).toMatchObject({
+			status: "running",
+		});
+		expect(startThemeArtifactRepoCommit).toHaveBeenCalledOnce();
+	});
 });
