@@ -451,7 +451,10 @@ for (const cached of [null, "Available cached guidance"]) {
 	assert.ok(restricted.text.includes("verify-second"));
 }
 // Semantic recall still runs with identical query/results; only bookkeeping is disabled.
-async function recall(disabled: boolean) {
+async function recall(
+	disabled: boolean,
+	userText = "Find scoped remembered workflow evidence",
+) {
 	const calls: unknown[][] = [];
 	const agent = tediDo({
 		brainDigest: null,
@@ -479,7 +482,7 @@ async function recall(disabled: boolean) {
 	});
 	return {
 		text: await agent.brainDigestAddendum(
-			"Find scoped remembered workflow evidence",
+			userText,
 			undefined,
 			"main",
 			disabled,
@@ -497,6 +500,19 @@ assert.deepEqual(
 );
 assert.deepEqual(recallLimited.calls[0]?.[2], { recordAccess: false });
 assert.equal(recallNormal.calls[0]?.[2], undefined);
+
+const delegatedRecall = await recall(
+	true,
+	`[HOME DELEGATION WORK ORDER test-run]
+Objective: answer the memory check
+Source request:
+Which clients have unpaid invoices?
+[END HOME DELEGATION WORK ORDER]`,
+);
+assert.deepEqual(delegatedRecall.calls, [
+	["Which clients have unpaid invoices?", 12, { recordAccess: false }],
+]);
+assert.ok(delegatedRecall.text.includes("Scoped remembered fact"));
 
 // Read-only guidance observes the same negative cache without refreshing it.
 {

@@ -58,6 +58,23 @@ export function isHomeDelegationWorkOrder(userText: string): boolean {
 	);
 }
 
+/** Search the task rather than Home's procedural wrapper; keep ambiguous envelopes intact. */
+export function memoryRecallQuery(userText: string): string {
+	if (!isHomeDelegationWorkOrder(userText)) return userText;
+	const sourceMarker = "\nSource request:\n";
+	const endMarker = "\n[END HOME DELEGATION WORK ORDER]";
+	const start = userText.indexOf(sourceMarker);
+	const end = userText.indexOf(endMarker);
+	if (
+		start < 0 ||
+		end < start ||
+		userText.indexOf(sourceMarker, start + sourceMarker.length) !== -1 ||
+		userText.indexOf(endMarker, end + endMarker.length) !== -1
+	)
+		return userText;
+	return userText.slice(start + sourceMarker.length, end).trim() || userText;
+}
+
 /**
  * The block set and its order are the CATALOG's, not this module's — see
  * `@tedix/context-core/context-catalog`. `CognitiveAddendaSources` is keyed by
