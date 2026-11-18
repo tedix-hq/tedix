@@ -1,3 +1,5 @@
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
+import { createOsOutput } from "../../services/os-workspace-outputs";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -38,6 +40,7 @@ async function fixture() {
 			osOutputs,
 		),
 	);
+	workspaceOutputFixture(sqlite);
 	const env = {
 		DB: createD1Facade(sqlite),
 		SECRETS_MASTER_KEY: secret,
@@ -74,15 +77,28 @@ async function fixture() {
 			createdById: "human-acme",
 		})),
 	);
-	await db.insert(osOutputs).values({
-		id: "output-acme",
-		organizationId: "org-acme",
-		workspaceId,
-		title: "Research notes",
-		kind: "document",
-		createdByKind: "user",
-		createdById: "human-acme",
-	});
+	await createOsOutput(
+		db,
+		{
+			id: "output-acme",
+			organizationId: "org-acme",
+			workspaceId,
+			title: "Research notes",
+			kind: "document",
+			createdByKind: "user",
+			createdById: "human-acme",
+			currentRevisionId: "output-revision-acme",
+		},
+		{
+			id: "output-revision-acme",
+			organizationId: "org-acme",
+			outputId: "output-acme",
+			revision: 1,
+			content: JSON.stringify({ kind: "document", blocks: [] }),
+			createdByKind: "user",
+			createdById: "human-acme",
+		},
+	);
 	const base = (): BaseContext =>
 		({
 			env,

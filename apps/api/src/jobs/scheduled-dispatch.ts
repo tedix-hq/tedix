@@ -435,21 +435,17 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 		}
 
 		if (fleetEnabled && cron === "0 3 * * *") {
-			await trackPlatformCronPath(
-				env,
-				event,
-				"output-revision-body-gc",
-				async () => {
-					const { createDbClient } = await import("@tedix/db/client");
-					const { runOutputRevisionBodyGc } =
-						await import("../services/os-output-revision-gc");
-					return runOutputRevisionBodyGc({
+			await trackPlatformCronPath(env, event, "output-asset-gc", async () => {
+				const { createDbClient } = await import("@tedix/db/client");
+				const { sweepDeletedOrganizationOutputAssets } =
+					await import("../services/os-output-asset-gc");
+				return {
+					assetsRemoved: await sweepDeletedOrganizationOutputAssets({
 						db: createDbClient(env.DB),
 						bucket: env.R2_BUCKET,
-						now: new Date(event.scheduledTime),
-					});
-				},
-			);
+					}),
+				};
+			});
 			const { runRetentionCleanupCron } = await import("./retention-cleanup");
 			await trackPlatformCronPath(env, event, "retention-cleanup", () =>
 				runRetentionCleanupCron(env, event, runId),

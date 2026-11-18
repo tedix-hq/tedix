@@ -1,7 +1,13 @@
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
+import { createOsOutput } from "./workspace-output-storage";
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { listOsWorkspaces } from "@tedix/db/queries/os-workspaces/workspaces";
-import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
+import {
+	osWorkspaces,
+	osOutputs,
+	osOutputRevisions,
+} from "@tedix/db/schema/os-workspaces";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -13,7 +19,8 @@ import {
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
-	sqlite.exec(schemaDdl(osWorkspaces));
+	sqlite.exec(schemaDdl(osWorkspaces, osOutputs, osOutputRevisions));
+	workspaceOutputFixture(sqlite, { uninitialized: true });
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
@@ -86,6 +93,40 @@ describe("default chat workspace", () => {
 		// An archived General stays archived; the output is left unassigned.
 		expect(await ensureDefaultOsWorkspace(db, service)).toBeNull();
 	});
+
+	it.each([member, service])(
+		"allows the first document write for $createdByKind default creation",
+		async (creator) => {
+			const db = fixture();
+			const workspace = (await ensureDefaultOsWorkspace(db, creator))!;
+			const scope = {
+				organizationId: workspace.organizationId,
+				workspaceId: workspace.id,
+			};
+			const output = {
+				...scope,
+				id: "first",
+				kind: "document" as const,
+				title: "First",
+				currentRevisionId: "rev-first",
+				createdByKind: creator.createdByKind,
+				createdById: creator.createdById,
+			};
+			const saved = await createOsOutput(db, scope, output, {
+				id: "rev-first",
+				organizationId: scope.organizationId,
+				outputId: output.id,
+				revision: 1,
+				content: "",
+				bodyR2Key: "body",
+				contentSha256: "abc",
+				contentBytes: 0,
+				createdByKind: creator.createdByKind,
+				createdById: creator.createdById,
+			});
+			expect(saved.output.id).toBe("first");
+		},
+	);
 
 	it("adds the default workspace only to an output create without one", async () => {
 		const resolve = vi.fn().mockResolvedValue({ id: "ws-general" });

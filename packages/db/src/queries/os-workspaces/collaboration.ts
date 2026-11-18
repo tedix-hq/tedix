@@ -15,12 +15,11 @@ import {
 	osGadgetCodeBlobs,
 	osGadgetExecutions,
 	osGadgets,
-	osOutputRevisions,
-	osOutputs,
 } from "../../schema/os-workspaces";
 import { normalizeStoredJsonText } from "../../utils/json";
 import { announceOsWorkspaceChange } from "../os-workspace-events";
 import { getOsGadgetRevision } from "./gadgets";
+import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envelope";
 import { chunkForBoundParams } from "../../utils/batch";
 import {
@@ -520,13 +519,6 @@ export type MergeOsCollaborationProposalResult =
 	| { ok: false; reason: "proposal_conflict" | "revision_conflict" };
 
 /**
- * Merge an accepted proposal into the canonical gadget/output revision chain.
- * The revision insert, current pointer advance, and proposal settlement are a
- * single D1 batch. Every statement is prebuilt and fenced by the previous
- * statement's `changes()`, so no accepted preview can silently become only
- * partially canonical.
- */
-/**
  * A gadget proposal is either a bare manifest or, for a runtime app, an object
  * with the manifest and its source files. The merge records the manifest on
  * the revision and the files in `os_gadget_code`; the files never land in the
@@ -573,6 +565,18 @@ export function splitGadgetProposalContent(content: string): {
 	};
 }
 
+export interface CommitCollaborationOutputParams {
+	proposal: OsCollaborationProposalRow;
+	revision: OsOutputRevisionRow;
+}
+
+export type CommitCollaborationOutput = (
+	params: CommitCollaborationOutputParams,
+) => Promise<
+	| { ok: true; revision: OsOutputRevisionRow }
+	| { ok: false; reason: "revision_conflict" }
+>;
+
 async function mergeOsCollaborationProposalUnannounced(
 	db: DbQueryClient,
 	params: OsCollaborationProposalScope & {
@@ -589,11 +593,13 @@ async function mergeOsCollaborationProposalUnannounced(
 			content: string;
 		};
 	},
+	commitOutput?: CommitCollaborationOutput,
 ): Promise<MergeOsCollaborationProposalResult> {
 	const proposal = await getOsCollaborationProposal(db, params);
 	if (
 		!proposal ||
-		proposal.status !== "accepted" ||
+		(proposal.status !== "accepted" &&
+			!(proposal.documentType === "output" && proposal.status === "merged")) ||
 		proposal.sequence !== params.expectedSequence
 	) {
 		return { ok: false, reason: "proposal_conflict" };
@@ -701,13 +707,15 @@ async function mergeOsCollaborationProposalUnannounced(
 			: { ok: false, reason: "revision_conflict" };
 	}
 	const [baseRevision] = await db
-		.select({ accessEnvelope: osOutputRevisions.accessEnvelope })
-		.from(osOutputRevisions)
+		.select({ accessEnvelope: workspaceOutputIndex.accessEnvelope })
+		.from(workspaceOutputIndex)
 		.where(
 			and(
-				eq(osOutputRevisions.id, proposal.baseRevisionId),
-				eq(osOutputRevisions.organizationId, params.organizationId),
-				eq(osOutputRevisions.outputId, proposal.documentId),
+				eq(workspaceOutputIndex.revisionId, proposal.baseRevisionId),
+				eq(workspaceOutputIndex.organizationId, params.organizationId),
+				eq(workspaceOutputIndex.workspaceId, proposal.workspaceId),
+				eq(workspaceOutputIndex.outputId, proposal.documentId),
+				eq(workspaceOutputIndex.revision, proposal.baseRevision),
 			),
 		)
 		.limit(1);
@@ -739,115 +747,63 @@ async function mergeOsCollaborationProposalUnannounced(
 			)
 		: mergeOsOutputAccessEnvelopes(baseRevision.accessEnvelope, null);
 
-	const insertRevision = db
-		.insert(osOutputRevisions)
-		.select(
-			db
-				.select({
-					id: sql<string>`${params.revisionId}`.as("id"),
-					organizationId: osCollaborationProposals.organizationId,
-					outputId: osCollaborationProposals.documentId,
-					revision:
-						sql<number>`${osCollaborationProposals.baseRevision} + 1`.as(
-							"revision",
-						),
-					// With an R2 body the row keeps the empty-string sentinel that
-					// hydrateOutputRevision reads as "fetch the pointer".
-					content: params.outputBody
-						? sql<string>`''`.as("content")
-						: osCollaborationProposals.content,
-					note: sql<string>`${params.rationale}`.as("note"),
-					createdByKind: sql<
-						OsOutputRevisionRow["createdByKind"]
-					>`${params.mergedByKind}`.as("created_by_kind"),
-					createdById: sql<string>`${params.mergedById}`.as("created_by_id"),
-					createdAt: sql<string>`${now}`.as("created_at"),
-					// The producer is the run that authored the proposed bytes, not the
-					// operator who merged them — the merger is already created_by. The
-					// proposal persists that source itself, so it is projected from the
-					// joined row rather than re-derived from a request header the
-					// merging operator would not carry.
-					skillRunId: sql<
-						string | null
-					>`case when ${osCollaborationProposals.sourceAttestationVersion} = 1 and ${osCollaborationProposals.sourceKind} = 'run' then ${osCollaborationProposals.sourceId} else null end`.as(
-						"skill_run_id",
-					),
-					skillId: sql<string | null>`null`.as("skill_id"),
-					accessEnvelope: sql<string | null>`${accessEnvelope}`.as(
-						"access_envelope",
-					),
-					contentSha256: sql<
-						string | null
-					>`${params.outputBody?.contentSha256 ?? null}`.as("content_sha256"),
-					contentBytes: sql<
-						number | null
-					>`${params.outputBody?.contentBytes ?? null}`.as("content_bytes"),
-					bodyR2Key: sql<
-						string | null
-					>`${params.outputBody?.bodyR2Key ?? null}`.as("body_r2_key"),
-				})
-				.from(osCollaborationProposals)
-				.innerJoin(
-					osOutputs,
-					and(
-						eq(osOutputs.id, osCollaborationProposals.documentId),
-						eq(
-							osOutputs.organizationId,
-							osCollaborationProposals.organizationId,
-						),
-						eq(osOutputs.workspaceId, osCollaborationProposals.workspaceId),
-						eq(
-							osOutputs.currentRevisionId,
-							osCollaborationProposals.baseRevisionId,
-						),
-					),
-				)
-				.where(
-					and(
-						proposalFence,
-						params.outputBody
-							? eq(osCollaborationProposals.content, params.outputBody.content)
-							: undefined,
-					),
-				),
-		)
-		.returning();
-	const advancePointer = db
-		.update(osOutputs)
-		.set({ currentRevisionId: params.revisionId, updatedAt: now })
-		.where(
-			and(
-				eq(osOutputs.id, proposal.documentId),
-				eq(osOutputs.organizationId, params.organizationId),
-				eq(osOutputs.currentRevisionId, proposal.baseRevisionId),
-				sql`changes() = 1`,
-			),
+	if (!commitOutput)
+		throw new Error(
+			"Collaboration output merges require an activated workspace object",
 		);
-	const settle = db
+	if (params.outputBody && params.outputBody.content !== proposal.content)
+		return { ok: false, reason: "proposal_conflict" };
+	// The proposal UUID is also the output revision UUID. Unlike the caller's
+	// fresh request UUID, it survives a crash before the shared receipt.
+	const committed = await commitOutput({
+		proposal,
+		revision: {
+			id: proposal.id,
+			organizationId: proposal.organizationId,
+			outputId: proposal.documentId,
+			revision: proposal.baseRevision + 1,
+			content: "",
+			note: params.rationale,
+			createdByKind: params.mergedByKind,
+			createdById: params.mergedById,
+			createdAt: now,
+			skillRunId: hasAttestedRun ? proposal.sourceId : null,
+			skillId: null,
+			agentTurnId: null,
+			accessEnvelope,
+			contentSha256: params.outputBody?.contentSha256 ?? null,
+			contentBytes: params.outputBody?.contentBytes ?? null,
+			bodyR2Key: params.outputBody?.bodyR2Key ?? null,
+		},
+	});
+	if (!committed.ok) return committed;
+	const revision = committed.revision;
+	if (proposal.status === "merged")
+		return proposal.resultRevisionId === revision.id
+			? { ok: true, proposal, revision }
+			: { ok: false, reason: "proposal_conflict" };
+	const [mergedProposal] = await db
 		.update(osCollaborationProposals)
 		.set({
 			status: "merged",
-			mergeRationale: params.rationale,
+			mergeRationale: revision.note,
 			mergeEvidenceRefs: params.evidenceRefs,
-			mergedByKind: params.mergedByKind,
-			mergedById: params.mergedById,
-			mergedAt: now,
-			resultRevisionId: params.revisionId,
-			resultRevision: proposal.baseRevision + 1,
+			mergedByKind: revision.createdByKind,
+			mergedById: revision.createdById,
+			mergedAt: revision.createdAt,
+			resultRevisionId: revision.id,
+			resultRevision: revision.revision,
 			updatedAt: now,
 		})
-		.where(and(proposalFence, sql`changes() = 1`))
+		.where(proposalFence)
 		.returning();
-	const [revisionRows, , proposalRows] = await db.batch([
-		insertRevision,
-		advancePointer,
-		settle,
-	]);
-	const revision = revisionRows[0];
-	const mergedProposal = proposalRows[0];
-	return revision && mergedProposal
-		? { ok: true, proposal: mergedProposal, revision }
-		: { ok: false, reason: "revision_conflict" };
+	if (mergedProposal) return { ok: true, proposal: mergedProposal, revision };
+	const receipt = await getOsCollaborationProposal(db, params);
+	return receipt?.status === "merged" &&
+		receipt.sequence === params.expectedSequence &&
+		receipt.resultRevisionId === revision.id
+		? { ok: true, proposal: receipt, revision }
+		: { ok: false, reason: "proposal_conflict" };
 }
 
 export async function mergeOsCollaborationProposal(
@@ -866,8 +822,13 @@ export async function mergeOsCollaborationProposal(
 			content: string;
 		};
 	},
+	commitOutput?: CommitCollaborationOutput,
 ): Promise<MergeOsCollaborationProposalResult> {
-	const result = await mergeOsCollaborationProposalUnannounced(db, params);
+	const result = await mergeOsCollaborationProposalUnannounced(
+		db,
+		params,
+		commitOutput,
+	);
 	if (result.ok) {
 		await announceOsWorkspaceChange(
 			db,

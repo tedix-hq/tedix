@@ -32,6 +32,8 @@ import {
 	getPersonalOsWorkspace,
 	isOsWorkspaceVisibleTo,
 	listOsWorkspaces,
+	listConversationWorkspaceDocuments,
+	listOrganizationWorkspaceDeletionCandidates,
 	findOsWorkspaceForKernelRun,
 	saveConversationAsOsWorkspace,
 	updateOsWorkspace,
@@ -135,60 +137,57 @@ describe("os workspaces", () => {
 		expect(filtered).toHaveLength(0);
 	});
 
-	it("keeps every private output behind an owner-only workspace after deletion", async () => {
+	it("refuses private deletion while documents remain in the index", async () => {
 		const db = fixture();
 		await createOsWorkspace(db, {
 			...workspace,
 			visibility: "private",
 			ownerUserId: "u-1",
 		});
-		for (const kind of ["document", "sheet", "presentation"] as const) {
-			await db.insert(osOutputs).values({
-				id: kind,
+		await db.insert(workspaceOutputIndex).values({
+			id: "doc:1",
+			organizationId: "org-1",
+			workspaceId: workspace.id,
+			outputId: "doc",
+			revision: 1,
+			revisionId: "r1",
+			isCurrent: 1,
+			outputKind: "document",
+			title: "Private",
+			status: "active",
+			outputCreatedByKind: "user",
+			outputCreatedById: "u-1",
+			outputCreatedAt: "now",
+			revisionCreatedByKind: "user",
+			revisionCreatedById: "u-1",
+			revisionCreatedAt: "now",
+			updatedAt: "now",
+		});
+		await expect(
+			deleteOsWorkspace(db, {
 				organizationId: "org-1",
 				workspaceId: workspace.id,
-				kind,
-				title: kind,
-				createdByKind: "user",
-				createdById: "u-1",
-			});
-		}
-		expect(
-			await deleteOsWorkspace(db, {
-				organizationId: "org-2",
-				workspaceId: workspace.id,
 			}),
-		).toBe(false);
-		expect(
-			await deleteOsWorkspace(db, {
-				organizationId: "org-1",
-				workspaceId: workspace.id,
-			}),
-		).toBe(true);
+		).rejects.toThrow("Transfer private documents");
 		expect(
 			await getOsWorkspace(db, {
 				organizationId: "org-1",
 				workspaceId: workspace.id,
 			}),
-		).toBeUndefined();
-		const [retained] = await listOsWorkspaces(db, "org-1", {
-			userIds: ["u-1"],
-		});
-		expect(retained).toMatchObject({
-			visibility: "private",
-			ownerUserId: "u-1",
-			status: "active",
-		});
-		expect(retained!.id).not.toBe(workspace.id);
-		expect(await listOsWorkspaces(db, "org-1", ANYONE)).toEqual([]);
-		const outputs = await db.select().from(osOutputs);
-		expect(outputs).toHaveLength(3);
-		expect(outputs.every((output) => output.workspaceId === retained!.id)).toBe(
-			true,
+		).toBeDefined();
+		expect((await db.select().from(workspaceOutputIndex))[0]?.workspaceId).toBe(
+			workspace.id,
 		);
+		await expect(
+			deleteOsWorkspace(db, {
+				organizationId: "org-1",
+				workspaceId: workspace.id,
+				expectedOwnerUserId: "other",
+			}),
+		).rejects.toThrow("owner changed");
 	});
 
-	it("rolls back private output relocation if a restrictive reference prevents deletion", async () => {
+	it("keeps the private workspace if a restrictive reference prevents deletion", async () => {
 		const db = fixture();
 		await createOsWorkspace(db, {
 			...workspace,
@@ -439,6 +438,7 @@ describe("save a conversation as a workspace", () => {
 				osOutputRevisions,
 				kernelRuntimeRuns,
 				kernelConversations,
+				workspaceOutputIndex,
 			),
 		);
 		return createDbQueryClient(createD1Facade(sqlite));
@@ -480,9 +480,29 @@ describe("save a conversation as a workspace", () => {
 			conversationId: input.conversationId,
 			outputRevisionId: `${input.id}-r1`,
 		});
+		if (input.workspaceId)
+			await db.insert(workspaceOutputIndex).values({
+				id: `${input.id}:1`,
+				organizationId,
+				workspaceId: input.workspaceId,
+				outputId: input.id,
+				revision: 1,
+				revisionId: `${input.id}-r1`,
+				isCurrent: 1,
+				outputKind: "document",
+				title: input.id,
+				status: "active",
+				outputCreatedByKind: "user",
+				outputCreatedById: "u-1",
+				outputCreatedAt: "now",
+				revisionCreatedByKind: "user",
+				revisionCreatedById: "u-1",
+				revisionCreatedAt: "now",
+				updatedAt: "now",
+			});
 	}
 
-	it("moves the conversation's unplaced and default outputs and links it", async () => {
+	it("creates only the core save destination without moving or linking documents", async () => {
 		const db = conversationFixture();
 		await createOsWorkspace(db, {
 			...workspace,
@@ -523,6 +543,30 @@ describe("save a conversation as a workspace", () => {
 			updatedAt: "2026-10-16T00:00:00.000Z",
 		});
 
+		const inventory = {
+			organizationId: "org-1",
+			conversationId: "home:os:a",
+			fromWorkspaceIds: [
+				...Array.from({ length: 150 }, (_, index) => `absent-${index}`),
+				"ws-general",
+			],
+		};
+		expect(await listConversationWorkspaceDocuments(db, inventory)).toEqual([
+			{ outputId: "out-general", workspaceId: "ws-general" },
+		]);
+		expect(
+			await listConversationWorkspaceDocuments(db, {
+				...inventory,
+				organizationId: "org-2",
+			}),
+		).toEqual([]);
+		expect(
+			await listConversationWorkspaceDocuments(db, {
+				...inventory,
+				conversationId: "home:os:b",
+			}),
+		).toEqual([]);
+
 		const saved = await saveConversationAsOsWorkspace(db, {
 			workspace: { ...workspace, id: "ws-new", name: "Launch plan" },
 			conversationId: "home:os:a",
@@ -533,8 +577,8 @@ describe("save a conversation as a workspace", () => {
 			id: "ws-new",
 			name: "Launch plan",
 		});
-		expect(saved.movedOutputIds.sort()).toEqual(["out-general", "out-loose"]);
-		expect(saved.linked).toBe(true);
+		expect(saved.movedOutputIds).toEqual([]);
+		expect(saved.linked).toBe(false);
 		const placement = Object.fromEntries(
 			(await db.select().from(osOutputs)).map((row) => [
 				row.id,
@@ -542,13 +586,13 @@ describe("save a conversation as a workspace", () => {
 			]),
 		);
 		expect(placement).toEqual({
-			"out-loose": "ws-new",
-			"out-general": "ws-new",
+			"out-loose": null,
+			"out-general": "ws-general",
 			"out-placed": "ws-other",
 			"out-elsewhere": null,
 		});
 		const [conversation] = await db.select().from(kernelConversations);
-		expect(conversation?.workspaceId).toBe("ws-new");
+		expect(conversation?.workspaceId).toBeNull();
 		expect(
 			await getOsWorkspaceByName(db, {
 				organizationId: "org-1",
@@ -561,59 +605,6 @@ describe("save a conversation as a workspace", () => {
 				name: "General",
 			}),
 		).toBeUndefined();
-	});
-
-	it("preserves all source matches beyond D1's parameter limit", async () => {
-		const db = conversationFixture();
-		const fromWorkspaceIds = Array.from({ length: 205 }, (_, i) => `ws-${i}`);
-		const selectedSources = ["ws-0", "ws-102", "ws-204"];
-		for (const id of [...selectedSources, "ws-excluded"]) {
-			await createOsWorkspace(db, { ...workspace, id, name: id });
-		}
-		for (const workspaceId of [...selectedSources, "ws-excluded", null]) {
-			await seedOutput(db, {
-				id: `out-${workspaceId ?? "loose"}`,
-				workspaceId,
-				conversationId: "home:os:a",
-			});
-		}
-		await seedOutput(db, {
-			id: "out-other-conversation",
-			workspaceId: "ws-204",
-			conversationId: "home:os:b",
-		});
-		await seedOutput(db, {
-			id: "out-other-org",
-			workspaceId: null,
-			conversationId: "home:os:a",
-			organizationId: "org-2",
-		});
-
-		const saved = await saveConversationAsOsWorkspace(db, {
-			workspace: { ...workspace, id: "ws-new", name: "Saved" },
-			conversationId: "home:os:a",
-			fromWorkspaceIds: [...fromWorkspaceIds, ...selectedSources],
-		});
-
-		expect(saved.movedOutputIds.sort()).toEqual(
-			["out-loose", ...selectedSources.map((id) => `out-${id}`)].sort(),
-		);
-		expect(
-			Object.fromEntries(
-				(await db.select().from(osOutputs)).map((row) => [
-					row.id,
-					row.workspaceId,
-				]),
-			),
-		).toEqual({
-			"out-ws-0": "ws-new",
-			"out-ws-102": "ws-new",
-			"out-ws-204": "ws-new",
-			"out-loose": "ws-new",
-			"out-ws-excluded": "ws-excluded",
-			"out-other-conversation": "ws-204",
-			"out-other-org": null,
-		});
 	});
 
 	it("finds a member's own oldest active private workspace only", async () => {
@@ -713,4 +704,33 @@ describe("save a conversation as a workspace", () => {
 		expect(await find("org-1", "run-global")).toBeNull();
 		expect(await find("org-2", "run-ws")).toBeNull();
 	});
+});
+
+it("pages organization deletion candidates including private workspaces without leaking another tenant", async () => {
+	const db = fixture();
+	for (let n = 0; n < 102; n++) {
+		const id = `workspace-${String(n).padStart(3, "0")}`;
+		await createOsWorkspace(db, {
+			...workspace,
+			id,
+			name: id,
+			visibility: "private",
+			ownerUserId: `owner-${n}`,
+		});
+	}
+	await createOsWorkspace(db, {
+		...workspace,
+		id: "foreign",
+		organizationId: "org-2",
+	});
+	const page = await listOrganizationWorkspaceDeletionCandidates(db, "org-1");
+	expect(page).toHaveLength(100);
+	expect(page[0]?.id).toBe("workspace-000");
+	expect(
+		await listOrganizationWorkspaceDeletionCandidates(
+			db,
+			"org-1",
+			page[99]!.id,
+		),
+	).toEqual([{ id: "workspace-100" }, { id: "workspace-101" }]);
 });

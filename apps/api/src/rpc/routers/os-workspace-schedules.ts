@@ -24,13 +24,15 @@ import {
 	recordConnectionGrant,
 } from "@tedix/db/queries/connection-instances";
 import {
+	listOsWorkspaceResources,
+	listOsWorkspaceSkillLinkCandidates,
+} from "@tedix/db/queries/os-workspaces/resources";
+import {
 	createOsWorkspaceResource,
 	findOsWorkspaceTenantResource,
 	getOsWorkspaceResource,
-	listOsWorkspaceResources,
-	listOsWorkspaceSkillLinkCandidates,
 	removeOsWorkspaceResource,
-} from "@tedix/db/queries/os-workspaces/resources";
+} from "../../services/workspace-resource-storage";
 import {
 	createPersonalResourceDelegation,
 	listActiveOwnerSkillPersonalResourceDelegations,

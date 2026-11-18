@@ -1,3 +1,9 @@
+import { deleteWorkspaceWithDocuments } from "../../services/workspace-document-delete";
+import {
+	saveConversationWorkspace,
+	workspacePlacementId,
+} from "../../services/workspace-document-placement";
+import { createWorkspaceDocumentOwner } from "../../services/workspace-document-owner";
 import { getOrganizationProfile } from "@tedix/db/queries/organizations";
 import { buildSurfaceUrl } from "@tedix/tenant-directory";
 import { platformDomain } from "@tedix/worker-kit/platform-hosts";
@@ -13,13 +19,10 @@ import { listOsCollaborationProposals } from "@tedix/db/queries/os-workspaces/co
 import { listOsShareLinks } from "@tedix/db/queries/os-shares";
 import { hasProviderInstallationForWorkspace } from "@tedix/db/queries/provider-installations";
 import {
-	createOsWorkspace,
-	deleteOsWorkspace,
 	getOsWorkspace,
 	getOsWorkspaceByName,
 	getPersonalOsWorkspace,
 	listOsWorkspaces,
-	saveConversationAsOsWorkspace,
 	updateOsWorkspace,
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
@@ -268,7 +271,7 @@ const create = authorOs.workspaces.create.handler(
 				? await requirePrivateOwner(context)
 				: null;
 		try {
-			const row = await createOsWorkspace(queryDb(context), {
+			const row = await createWorkspaceDocumentOwner(queryDb(context), {
 				id: crypto.randomUUID(),
 				organizationId: requireOrgId(context),
 				name: input.name,
@@ -340,9 +343,12 @@ const createFromConversation =
 			}
 			const accountable = creator(context);
 			const timestamp = new Date().toISOString();
-			const workspaceId = crypto.randomUUID();
+			const workspaceId = await workspacePlacementId(
+				organizationId,
+				`conversation:${input.conversationId}`,
+			);
 			const save = (name: string) =>
-				saveConversationAsOsWorkspace(db, {
+				saveConversationWorkspace(db, {
 					workspace: {
 						id: workspaceId,
 						organizationId,
@@ -606,10 +612,11 @@ const deleteWorkspace = adminOs.workspaces.delete.handler(
 		}
 		let removed: boolean;
 		try {
-			removed = await deleteOsWorkspace(queryDb(context), {
-				...scope,
-				preferenceNamespace: preferenceNamespace(workspace.organizationId),
-			});
+			removed = await deleteWorkspaceWithDocuments(
+				queryDb(context),
+				workspace,
+				preferenceNamespace(workspace.organizationId),
+			);
 		} catch (error) {
 			// An installation may have been attached after the preflight read.
 			if (await hasProviderInstallationForWorkspace(queryDb(context), scope)) {

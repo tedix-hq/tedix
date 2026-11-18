@@ -165,15 +165,7 @@ export function WorkspaceDeleteDialog({
 					heading="Deleted for good"
 					items={copy.deleteRemoves}
 				/>
-				<WorkspaceEffectList
-					heading="Kept"
-					items={[
-						workspace.visibility === "private"
-							? copy.deleteKeepsPrivateOutputs
-							: copy.deleteKeepsOutputs,
-						...copy.deleteKeeps,
-					]}
-				/>
+				<WorkspaceEffectList heading="Kept" items={copy.deleteKeeps} />
 			</div>
 		</TypedConfirmDialog>
 	);

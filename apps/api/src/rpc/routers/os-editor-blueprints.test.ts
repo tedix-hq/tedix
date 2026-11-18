@@ -1,14 +1,10 @@
+import { createOsOutput } from "../../services/os-workspace-outputs";
+import { confirmWorkspaceFileResource } from "../../services/workspace-resource-storage";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { DOC_BLUEPRINT_VERSION } from "@tedix/api-contract/assets/office-editor-versions";
 import { eq } from "drizzle-orm";
-import {
-	osGadgets,
-	osGadgetRevisions,
-	osOutputRevisions,
-	osOutputs,
-	osWorkspaceResources,
-} from "@tedix/db/schema/os-workspaces";
+import { osGadgets, osGadgetRevisions } from "@tedix/db/schema/os-workspaces";
 import { clients } from "./__tests__/os-workspaces-env";
 
 async function seedOutputWithoutEditor(
@@ -25,26 +21,29 @@ async function seedOutputWithoutEditor(
 			: kind === "sheet"
 				? { kind, columns: [], rows: [] }
 				: { kind, slides: [] };
-	await db.insert(osOutputs).values({
-		id: output.id,
-		organizationId: "org-1",
-		workspaceId,
-		kind,
-		title: "Keep",
-		currentRevisionId: revision.id,
-		createdByKind: "user",
-		createdById: "user-1",
-	});
-	await db.insert(osOutputRevisions).values({
-		id: revision.id,
-		organizationId: "org-1",
-		outputId: output.id,
-		revision: 1,
-		content: JSON.stringify(content),
-		accessEnvelope,
-		createdByKind: "user",
-		createdById: "user-1",
-	});
+	await createOsOutput(
+		db,
+		{
+			id: output.id,
+			organizationId: "org-1",
+			workspaceId,
+			kind,
+			title: "Keep",
+			currentRevisionId: revision.id,
+			createdByKind: "user",
+			createdById: "user-1",
+		},
+		{
+			id: revision.id,
+			organizationId: "org-1",
+			outputId: output.id,
+			revision: 1,
+			content: JSON.stringify(content),
+			accessEnvelope,
+			createdByKind: "user",
+			createdById: "user-1",
+		},
+	);
 	return { output, revision };
 }
 
@@ -231,7 +230,7 @@ describe("workspace editor blueprints", () => {
 		const db = createDbQueryClient(c.env.DB);
 		// An output from before attach-on-create: a resource, but no editor.
 		const made = await seedOutputWithoutEditor(db, workspace.id, "sheet");
-		await db.insert(osWorkspaceResources).values({
+		await confirmWorkspaceFileResource(db, {
 			id: crypto.randomUUID(),
 			organizationId: "org-1",
 			workspaceId: workspace.id,
@@ -338,9 +337,15 @@ describe("editor gadget attach on create", () => {
 		},
 	);
 
-	it("attaches an editor when an output without a workspace moves into one", async () => {
+	it("attaches an editor when an output moves into another workspace", async () => {
 		const c = clients();
-		const made = await c.org1.outputs.create({ kind: "sheet", title: "Loose" });
+		// Every output is stored by a workspace, so the move starts from one.
+		const from = await c.org1.workspaces.create({ name: "From" });
+		const made = await c.org1.outputs.create({
+			workspaceId: from.workspace.id,
+			kind: "sheet",
+			title: "Loose",
+		});
 		const { workspace } = await c.org1.workspaces.create({ name: "Home" });
 		expect(await editorBinding(c, workspace.id, made.output.id)).toBeNull();
 		await c.org1.outputs.move({

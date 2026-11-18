@@ -1,3 +1,4 @@
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
 import { apps, appTools } from "@tedix/db/schema";
@@ -172,6 +173,8 @@ it("backfills local slots on an existing skill resource without replacing it", a
 		"CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL); INSERT INTO organizations VALUES ('org-1');",
 	);
 	sqlite.exec(schemaDdl(osWorkspaces, osWorkspaceResources));
+	const store = workspaceOutputFixture(sqlite);
+	store.state.active = false;
 	const binding = createD1Facade(sqlite);
 	const db = createDbClient(binding);
 	const context = {

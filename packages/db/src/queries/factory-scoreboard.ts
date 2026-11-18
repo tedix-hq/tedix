@@ -5,20 +5,20 @@
  * works through skill runs: a loop's runs are its skill's runs, and a
  * Blueprint's runs are the gadget runs dispatched in Workspaces instantiated
  * from it. Outputs and Work are credited to a factory through those runs
- * (`os_output_revisions.skill_run_id`, `skill_runs.work_item_id`), so a skill
+ * (`workspace_output_index.skill_run_id`, `skill_runs.work_item_id`), so a skill
  * shared by a loop and a Blueprint gadget is never counted twice.
  */
 
 import { and, eq, isNotNull, type SQLWrapper, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { skillEntries, skillRuns, skillSchedules } from "../schema/cognitive";
 import {
 	osBlueprints,
 	osGadgetExecutions,
-	osOutputRevisions,
-	osOutputs,
 	osWorkspaces,
 } from "../schema/os-workspaces";
+import { workspaceOutputIndex } from "../schema/workspace-feed";
 import { tedis } from "../schema/tedis";
 import { workItems } from "../schema/work-items";
 
@@ -123,31 +123,36 @@ export async function listFactoryScoreboard(
 		)
 		.as("factory_runs");
 
+	const currentOutput = alias(workspaceOutputIndex, "current_output");
 	const outputRanked = db
 		.select({
 			key: sql<string>`${factoryRuns.key}`.as("last_output_key"),
-			id: sql<string>`${osOutputs.id}`.as("last_output_id"),
-			title: sql<string>`${osOutputs.title}`.as("last_output_title"),
-			at: sql<string>`datetime(${osOutputRevisions.createdAt})`.as(
+			id: sql<string>`${currentOutput.outputId}`.as("last_output_id"),
+			title: sql<string>`${currentOutput.title}`.as("last_output_title"),
+			at: sql<string>`datetime(${workspaceOutputIndex.revisionCreatedAt})`.as(
 				"last_output_at",
 			),
-			rank: sql<number>`row_number() OVER (PARTITION BY ${factoryRuns.key} ORDER BY datetime(${osOutputRevisions.createdAt}) DESC, ${osOutputRevisions.id} DESC)`.as(
+			rank: sql<number>`row_number() OVER (PARTITION BY ${factoryRuns.key} ORDER BY datetime(${workspaceOutputIndex.revisionCreatedAt}) DESC, ${workspaceOutputIndex.revisionId} DESC)`.as(
 				"last_output_rank",
 			),
 		})
-		.from(osOutputRevisions)
-		.innerJoin(factoryRuns, eq(factoryRuns.runId, osOutputRevisions.skillRunId))
+		.from(workspaceOutputIndex)
 		.innerJoin(
-			osOutputs,
+			factoryRuns,
+			eq(factoryRuns.runId, workspaceOutputIndex.skillRunId),
+		)
+		.innerJoin(
+			currentOutput,
 			and(
-				eq(osOutputs.organizationId, osOutputRevisions.organizationId),
-				eq(osOutputs.id, osOutputRevisions.outputId),
+				eq(currentOutput.organizationId, workspaceOutputIndex.organizationId),
+				eq(currentOutput.outputId, workspaceOutputIndex.outputId),
+				eq(currentOutput.isCurrent, 1),
 			),
 		)
 		.where(
 			and(
-				eq(osOutputRevisions.organizationId, orgId),
-				onOrAfter(osOutputRevisions.createdAt, lookback),
+				eq(workspaceOutputIndex.organizationId, orgId),
+				onOrAfter(workspaceOutputIndex.revisionCreatedAt, lookback),
 			),
 		)
 		.as("factory_last_output");
@@ -231,19 +236,19 @@ export async function listFactoryScoreboard(
 		db
 			.select({
 				key: sql<string>`${factoryRuns.key}`.as("output_key"),
-				count: sql<number>`count(DISTINCT ${osOutputRevisions.outputId})`.as(
+				count: sql<number>`count(DISTINCT ${workspaceOutputIndex.outputId})`.as(
 					"output_count",
 				),
 			})
-			.from(osOutputRevisions)
+			.from(workspaceOutputIndex)
 			.innerJoin(
 				factoryRuns,
-				eq(factoryRuns.runId, osOutputRevisions.skillRunId),
+				eq(factoryRuns.runId, workspaceOutputIndex.skillRunId),
 			)
 			.where(
 				and(
-					eq(osOutputRevisions.organizationId, orgId),
-					onOrAfter(osOutputRevisions.createdAt, since),
+					eq(workspaceOutputIndex.organizationId, orgId),
+					onOrAfter(workspaceOutputIndex.revisionCreatedAt, since),
 				),
 			)
 			.groupBy(factoryRuns.key),

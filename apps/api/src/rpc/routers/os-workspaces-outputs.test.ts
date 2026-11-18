@@ -43,6 +43,7 @@ import {
 	userContext,
 	apiKeyContext,
 	clients,
+	homeWorkspaceId,
 } from "./__tests__/os-workspaces-env";
 
 // Governed-dispatch collaborators. The paths a receipt records (preflight,
@@ -148,6 +149,7 @@ describe("outputs", () => {
 
 	it("stores blocks rebuilt from rich text when blocks arrive empty", async () => {
 		const made = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Rich only",
 			content: {
@@ -173,6 +175,7 @@ describe("outputs", () => {
 
 	it("normalizes Markdown create and paragraph revise with exact revision CAS", async () => {
 		const made = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Structured",
 			content: "## Plan\n\n| Name | Goal |\n| --- | --- |\n| Factory | Ship |",
@@ -256,6 +259,7 @@ describe("outputs", () => {
 			context,
 		});
 		const created = await producer.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Derived brief",
 		});
@@ -291,6 +295,7 @@ describe("outputs", () => {
 		const runId = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 		await seedSkillRunWithoutGrants(runId);
 		const created = await skillRunProducer(runId).outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Internal drift report",
 		});
@@ -316,7 +321,11 @@ describe("outputs", () => {
 	it("keeps a null envelope for a run this organization does not know", async () => {
 		const created = await skillRunProducer(
 			"2b3c4d5e-6f70-4a8b-9c0d-1e2f3a4b5c6d",
-		).outputs.create({ kind: "document", title: "Unverifiable" });
+		).outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
+			kind: "document",
+			title: "Unverifiable",
+		});
 		expect(created.revision.accessEnvelope).toBeNull();
 		await expect(
 			c.org1.outputs.get({ outputId: created.output.id }),
@@ -328,6 +337,7 @@ describe("outputs", () => {
 		const unknownRun = "4d5e6f70-8192-4cad-9e2f-3a4b5c6d7e8f";
 		await seedSkillRunWithoutGrants(knownRun);
 		const readable = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Legacy readable",
 			content: {
@@ -336,6 +346,7 @@ describe("outputs", () => {
 			},
 		});
 		const closed = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Legacy closed",
 		});
@@ -346,7 +357,7 @@ describe("outputs", () => {
 			[readable.revision.id, knownRun],
 			[closed.revision.id, unknownRun],
 		] as const) {
-			await db
+			await c.outputDb
 				.update(osOutputRevisions)
 				.set({ accessEnvelope: null, skillRunId, createdByKind: "tedi" })
 				.where(eq(osOutputRevisions.id, revisionId));
@@ -377,6 +388,7 @@ describe("outputs", () => {
 	it("denies direct reads, edits, and previews after source access is revoked", async () => {
 		mocks.authorizeDerivedOutputSources.mockResolvedValue(true);
 		const created = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Protected brief",
 			content: {
@@ -438,6 +450,7 @@ describe("outputs", () => {
 
 	it("reveals a Home authoring link only with conversation read access", async () => {
 		const created = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Authored",
 		});
@@ -522,6 +535,7 @@ describe("outputs", () => {
 
 	it("creates each format with revision 1 and rejects a mismatched body", async () => {
 		const doc = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Launch brief",
 			content: {
@@ -536,11 +550,12 @@ describe("outputs", () => {
 			kind: "document",
 			status: "active",
 			currentRevisionId: doc.revision.id,
-			workspaceId: null,
+			workspaceId: await homeWorkspaceId(c.env),
 		});
 		expect(doc.revision).toMatchObject({ revision: 1 });
 
 		const sheet = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "sheet",
 			title: "Pipeline",
 			content: {
@@ -556,6 +571,7 @@ describe("outputs", () => {
 
 		await expect(
 			c.org1.outputs.create({
+				workspaceId: await homeWorkspaceId(c.env),
 				kind: "presentation",
 				title: "Mismatch",
 				content: { kind: "document", blocks: [] },
@@ -587,6 +603,7 @@ describe("outputs", () => {
 			["presentation", { kind: "presentation", slides: [] }],
 		] as const) {
 			const created = await c.org1.outputs.create({
+				workspaceId: await homeWorkspaceId(c.env),
 				kind,
 				title: `Empty ${kind}`,
 			});
@@ -597,7 +614,11 @@ describe("outputs", () => {
 
 		// A video has no empty form: without a renderId it names nothing.
 		await expect(
-			c.org1.outputs.create({ kind: "video", title: "No render" }),
+			c.org1.outputs.create({
+				workspaceId: await homeWorkspaceId(c.env),
+				kind: "video",
+				title: "No render",
+			}),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		// Another tenant sees nothing.
 		expect((await c.org2.outputs.list({})).items).toHaveLength(0);
@@ -605,6 +626,7 @@ describe("outputs", () => {
 
 	it("revises with CAS, enforces kind stability, and archives in scope", async () => {
 		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "presentation",
 			title: "Board deck",
 			content: {
@@ -893,6 +915,7 @@ describe("outputs", () => {
 		});
 		expect(named.output.title).toBe("Launch brief for sales");
 		const long = await c.org1.outputs.create({
+			workspaceId: workspace.id,
 			kind: "document",
 			title: "x".repeat(120),
 		});
@@ -900,7 +923,7 @@ describe("outputs", () => {
 			outputId: long.output.id,
 		});
 		expect(longCopy.output.title).toBe(`${"x".repeat(115)} copy`);
-		expect(longCopy.output.workspaceId).toBeNull();
+		expect(longCopy.output.workspaceId).toBe(workspace.id);
 		const audit = await createDbClient(c.env.DB)
 			.select()
 			.from(auditEvents)
@@ -945,7 +968,9 @@ describe("outputs", () => {
 			createdByKind: "tedi",
 			createdById: "tedi-1",
 		});
+		const { workspace } = await c.org1.workspaces.create({ name: "Derived" });
 		const derived = await skillRunProducer(runId).outputs.create({
+			workspaceId: workspace.id,
 			kind: "document",
 			title: "Derived brief",
 		});
@@ -1056,6 +1081,7 @@ describe("outputs", () => {
 	});
 	it("patches visual slide props and backgrounds while preserving CAS and semantic projection", async () => {
 		const created = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "presentation",
 			title: "Visual parity",
 		});
@@ -1181,6 +1207,7 @@ describe("outputs", () => {
 	});
 	it("patches a presentation slide by slide and never drops its deck", async () => {
 		const created = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "presentation",
 			title: "Deck patching",
 		});
@@ -1260,6 +1287,7 @@ describe("outputs", () => {
 			}),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		const doc = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Not a deck",
 		});
@@ -1534,6 +1562,7 @@ describe("output patch verbs", () => {
 
 	it("applies document ops in order against the evolving list and CAS-persists", async () => {
 		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Launch brief",
 			content: {
@@ -1615,6 +1644,7 @@ describe("output patch verbs", () => {
 			],
 		};
 		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Rich writing",
 			content: {
@@ -1662,6 +1692,7 @@ describe("output patch verbs", () => {
 		// are its projection, so the stored pair can carry formatting blocks
 		// never spelled out.
 		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Preview brief",
 			content: {
@@ -1724,6 +1755,7 @@ describe("output patch verbs", () => {
 
 	it("rejects out-of-range indices, non-document outputs, and stale CAS", async () => {
 		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Bounds",
 			content: {
@@ -1761,6 +1793,7 @@ describe("output patch verbs", () => {
 		expect(unchanged.currentRevision.revision).toBe(1);
 
 		const sheet = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "sheet",
 			title: "Not a doc",
 			content: { kind: "sheet", columns: ["A"], rows: [] },
@@ -1801,6 +1834,7 @@ describe("output patch verbs", () => {
 
 	it("writes a sheet rectangle, null-filling extended rows and short rows", async () => {
 		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "sheet",
 			title: "Pipeline",
 			content: {
@@ -1842,6 +1876,7 @@ describe("output patch verbs", () => {
 
 	it("preserves workbook formatting when a headless range write updates cells", async () => {
 		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "sheet",
 			title: "Formatted workbook",
 			content: {
@@ -1897,6 +1932,7 @@ describe("output patch verbs", () => {
 
 	it("refuses column growth, the row cap, non-sheet outputs, and stale CAS", async () => {
 		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "sheet",
 			title: "Bounds",
 			content: { kind: "sheet", columns: ["A", "B"], rows: [] },
@@ -1922,6 +1958,7 @@ describe("output patch verbs", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
 		const doc = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Not a sheet",
 			content: { kind: "document", blocks: [] },
@@ -2066,6 +2103,7 @@ describe("output export", () => {
 			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "document",
 			title: "Launch <brief>",
 			content: {
@@ -2128,6 +2166,7 @@ describe("output export", () => {
 			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "presentation",
 			title: "Conference",
 			content: {
@@ -2166,6 +2205,7 @@ describe("output export", () => {
 			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "sheet",
 			title: "Pipeline",
 			content: { kind: "sheet", columns: ["Deal"], rows: [["Acme"]] },
@@ -2186,6 +2226,7 @@ describe("output export", () => {
 			context: userContext({ env: broken.env, organizationId: "org-1" }),
 		});
 		const other = await brokenClient.outputs.create({
+			workspaceId: await homeWorkspaceId(broken.env),
 			kind: "sheet",
 			title: "Broken",
 			content: { kind: "sheet", columns: ["A"], rows: [] },
@@ -2202,6 +2243,7 @@ describe("output export", () => {
 			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "document",
 			title: "Rich export",
 			content: {
@@ -2249,6 +2291,7 @@ describe("output export", () => {
 			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output: single } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "sheet",
 			title: "Single",
 			content: { kind: "sheet", columns: ["Value"], rows: [[42]] },
@@ -2262,6 +2305,7 @@ describe("output export", () => {
 			"Value\r\n42\r\n",
 		);
 		const { output: multi } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "sheet",
 			title: "Multi",
 			content: {
@@ -2332,6 +2376,7 @@ describe("output export", () => {
 			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "sheet",
 			title: "Pipeline",
 			content: {
@@ -2380,6 +2425,7 @@ describe("output export", () => {
 			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output: document } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "document",
 			title: "Launch brief",
 			content: {
@@ -2399,6 +2445,7 @@ describe("output export", () => {
 		).toContain("Ship the Tedix OS.");
 
 		const { output: deck } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "presentation",
 			title: "Quarterly",
 			content: {
@@ -2437,6 +2484,7 @@ describe("output export", () => {
 			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output: sheet } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "sheet",
 			title: "Pipeline",
 			content: { kind: "sheet", columns: ["Deal"], rows: [] },
@@ -2451,6 +2499,7 @@ describe("output export", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
 		const { output: document } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "document",
 			title: "Brief",
 			content: { kind: "document", blocks: [] },
@@ -2475,6 +2524,7 @@ describe("output export", () => {
 			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
+			workspaceId: await homeWorkspaceId(env),
 			kind: "document",
 			title: "No browser",
 			content: { kind: "document", blocks: [] },
@@ -2811,6 +2861,7 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 	});
 	async function deck() {
 		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "presentation",
 			title: "Board deck",
 			content: {
@@ -2881,7 +2932,7 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 		expect(history.revisions[0]?.content).toMatchObject({
 			deck: { slides: [{ elements: [{ text: "A" }, { text: "B" }] }, {}] },
 		});
-		const stored = await createDbClient(c.env.DB)
+		const stored = await c.outputDb
 			.select()
 			.from(osOutputRevisions)
 			.where(eq(osOutputRevisions.outputId, output.id));
@@ -2918,7 +2969,7 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 		});
 		expect(third.revision.revision).toBe(4);
 		expect(await texts(output.id)).toEqual(["First", "Second", "Third"]);
-		const rows = await createDbClient(c.env.DB)
+		const rows = await c.outputDb
 			.select()
 			.from(osOutputRevisions)
 			.where(eq(osOutputRevisions.outputId, output.id));
@@ -2968,6 +3019,7 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 			content: [{ type: "text", text: value }],
 		});
 		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Launch note",
 			content: {
@@ -3148,7 +3200,7 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 		expect(unknown.patch).toBeNull();
 		// The workspace chat agent saves on the person's behalf: still theirs,
 		// but an agent made it, so an open editor offers to undo it.
-		await createDbClient(c.env.DB)
+		await c.outputDb
 			.update(osOutputRevisions)
 			.set({ agentTurnId: "turn-fixture" })
 			.where(eq(osOutputRevisions.id, saved.revision.id));
@@ -3163,7 +3215,7 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 		const db = createDbClient(c.env.DB);
 		const rows = async () => ({
 			revisions: (
-				await db
+				await c.outputDb
 					.select()
 					.from(osOutputRevisions)
 					.where(eq(osOutputRevisions.outputId, output.id))
@@ -3211,16 +3263,17 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 			activity: before.activity + 1,
 			audit: before.audit + 1,
 		});
-		// The auto-saves that follow write one row each: the revision.
+		// The auto-saves that follow add no activity or audit entry. The feed
+		// still records each one: readers find every revision through it.
 		for (const value of ["ty", "typ", "type", "typed"])
 			expect(await save(c.org1, value)).toBe(true);
 		expect(await rows()).toEqual({
 			revisions: before.revisions + 5,
-			feed: before.feed + 1,
+			feed: before.feed + 5,
 			activity: before.activity + 1,
 			audit: before.audit + 1,
 		});
-		const stored = await db
+		const stored = await c.outputDb
 			.select()
 			.from(osOutputRevisions)
 			.where(eq(osOutputRevisions.outputId, output.id));
@@ -3236,11 +3289,11 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 		expect(await save(c.org1, "back")).toBe(false);
 		expect(await rows()).toMatchObject({
 			revisions: before.revisions + 10,
-			feed: before.feed + 5,
+			feed: before.feed + 10,
 			audit: before.audit + 5,
 		});
 		// A pause of more than a few minutes ends a burst.
-		await db
+		await c.outputDb
 			.update(osOutputRevisions)
 			.set({ createdAt: new Date(Date.now() - 10 * 60_000).toISOString() })
 			.where(eq(osOutputRevisions.outputId, output.id));
@@ -3259,7 +3312,7 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 		const db = createDbClient(c.env.DB);
 		// Revisions 2 and 3 are thinned away; 1 and 4 remain.
 		for (const revision of [2, 3])
-			await db
+			await c.outputDb
 				.delete(osOutputRevisions)
 				.where(
 					and(
@@ -3301,6 +3354,7 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 
 	it("patches a sheet cell by coordinates and a document block by position, rebuilding the plain copies", async () => {
 		const sheet = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "sheet",
 			title: "Budget",
 			content: {
@@ -3379,6 +3433,7 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 		// A document written as plain blocks gains its rich body the way the
 		// editor sees it, so the editor's first patch fits.
 		const doc = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
 			kind: "document",
 			title: "Notes",
 			content: {

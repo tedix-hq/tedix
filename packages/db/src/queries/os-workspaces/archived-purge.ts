@@ -8,17 +8,13 @@ import {
 	and,
 	asc,
 	count,
+	countDistinct,
 	eq,
 	gt,
-	notExists,
 	sql,
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import {
-	type OsWorkspaceRow,
-	osOutputs,
-	osWorkspaces,
-} from "../../schema/os-workspaces";
+import { type OsWorkspaceRow, osWorkspaces } from "../../schema/os-workspaces";
 import { workspaceOutputIndex } from "../../schema/workspace-feed";
 
 export interface ArchivedPurgePageParams {
@@ -69,20 +65,7 @@ export async function countArchivedOsWorkspacePurgeCandidates(
 	return row?.total ?? 0;
 }
 
-/**
- * Outputs stored in D1 carry their status on `os_outputs`; outputs a workspace
- * object owns are found through the current row of the output index. Both are
- * read, so the caller must confirm each candidate against its storage owner.
- */
-function legacyOutputFilter(params: ArchivedPurgePageParams) {
-	return and(
-		eq(osOutputs.organizationId, params.organizationId),
-		eq(osOutputs.status, "archived"),
-		params.afterId === undefined ? undefined : gt(osOutputs.id, params.afterId),
-		before(osOutputs.updatedAt, params.archivedBefore),
-	);
-}
-
+/** The index supplies candidates only; the caller confirms the storage owner's row. */
 function indexedOutputFilter(params: ArchivedPurgePageParams) {
 	return and(
 		eq(workspaceOutputIndex.organizationId, params.organizationId),
@@ -99,54 +82,22 @@ export async function listArchivedOsOutputPurgeCandidateIds(
 	db: DbQueryClient,
 	params: ArchivedPurgePageParams & { limit: number },
 ): Promise<string[]> {
-	const [legacy, indexed] = await db.batch([
-		db
-			.select({ id: osOutputs.id })
-			.from(osOutputs)
-			.where(legacyOutputFilter(params))
-			.orderBy(asc(osOutputs.id))
-			.limit(params.limit),
-		db
-			.select({ id: workspaceOutputIndex.outputId })
-			.from(workspaceOutputIndex)
-			.where(indexedOutputFilter(params))
-			.orderBy(asc(workspaceOutputIndex.outputId))
-			.limit(params.limit),
-	]);
-	return [...new Set([...legacy, ...indexed].map((row) => row.id))]
-		.sort()
-		.slice(0, params.limit);
+	const rows = await db
+		.selectDistinct({ id: workspaceOutputIndex.outputId })
+		.from(workspaceOutputIndex)
+		.where(indexedOutputFilter(params))
+		.orderBy(asc(workspaceOutputIndex.outputId))
+		.limit(params.limit);
+	return rows.map((row) => row.id);
 }
 
 export async function countArchivedOsOutputPurgeCandidates(
 	db: DbQueryClient,
 	params: ArchivedPurgePageParams,
 ): Promise<number> {
-	const [[legacy], [indexed]] = await db.batch([
-		db
-			.select({ legacyTotal: count() })
-			.from(osOutputs)
-			.where(legacyOutputFilter(params)),
-		// An output in both places is counted once, through os_outputs.
-		db
-			.select({ indexedTotal: count() })
-			.from(workspaceOutputIndex)
-			.where(
-				and(
-					indexedOutputFilter(params),
-					notExists(
-						db
-							.select({ id: osOutputs.id })
-							.from(osOutputs)
-							.where(
-								and(
-									legacyOutputFilter(params),
-									eq(osOutputs.id, workspaceOutputIndex.outputId),
-								),
-							),
-					),
-				),
-			),
-	]);
-	return (legacy?.legacyTotal ?? 0) + (indexed?.indexedTotal ?? 0);
+	const [row] = await db
+		.select({ total: countDistinct(workspaceOutputIndex.outputId) })
+		.from(workspaceOutputIndex)
+		.where(indexedOutputFilter(params));
+	return row?.total ?? 0;
 }

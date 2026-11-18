@@ -1,3 +1,4 @@
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 import blueprint from "../../../../os/dev/demo-pack/work-blueprint.json";
 import { policyPacks } from "@tedix/db/schema/control-plane";
 /**
@@ -67,6 +68,7 @@ function createEnv(): CloudflareEnv {
 		.run(
 			JSON.stringify({ workOnboarding: { version: 1, definition: blueprint } }),
 		);
+	workspaceOutputFixture(sqlite);
 	return {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",
@@ -314,6 +316,7 @@ describe("os-workspaces verb matrix", () => {
 			}),
 		).resolves.toMatchObject({ revision: { revision: 1 } });
 		const { output } = await author.outputs.create({
+			workspaceId: workspace.id,
 			kind: "document",
 			title: "Brief",
 			content: { kind: "document", blocks: [] },

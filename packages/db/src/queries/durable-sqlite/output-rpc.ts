@@ -1,8 +1,15 @@
+import {
+	executeWorkspaceResourceQuery,
+	type ResourceQuery,
+	type ResourceQueryResult,
+} from "./workspace-resource-rpc";
+import type { CommitCollaborationOutputParams } from "../os-workspaces/collaboration";
 import type { OsWorkspaceScopeParams } from "../os-workspaces/workspaces";
 import type {
 	NewOsOutputRow,
 	NewOsOutputRevisionRow,
 } from "../../schema/os-workspaces";
+import type { TenantStoreImportBatch } from "../../tenant-store/store";
 import type { TenantStoreDb } from "./tenant-store";
 import * as outputs from "./os-outputs";
 
@@ -11,10 +18,48 @@ export type OutputTransferResult =
 	| { ok: true; output: NonNullable<OutputQueryResults["get"]> }
 	| { ok: false; reason: "not_found" | "conflict" };
 
+export interface DocumentTransfer {
+	transferId: string;
+	outputId: string;
+	sourceWorkspaceId: string;
+	targetWorkspaceId: string;
+}
+
+export interface DocumentTransferPackage {
+	completed?: boolean;
+	transfer: DocumentTransfer;
+	snapshot: OutputTransferSnapshot;
+	batches: TenantStoreImportBatch[];
+}
+
+export interface DocumentTransferRuntime {
+	prepareDocumentTransfer(
+		scope: OsWorkspaceScopeParams,
+		transfer: DocumentTransfer,
+	): Promise<DocumentTransferPackage>;
+	importDocumentTransfer(
+		scope: OsWorkspaceScopeParams,
+		payload: DocumentTransferPackage,
+	): Promise<void>;
+	confirmDocumentTransfer(
+		scope: OsWorkspaceScopeParams,
+		transfer: DocumentTransfer,
+	): Promise<OutputTransferSnapshot>;
+	removeDocumentTransfer(
+		scope: OsWorkspaceScopeParams,
+		transfer: DocumentTransfer,
+	): Promise<void>;
+	outputQuery: WorkspaceOutputRuntime["outputQuery"];
+}
+
 export interface OutputQueryInputs {
+	resources: { query: ResourceQuery };
+	purge: unknown;
 	authority: unknown;
 	/** Like authority, but a workspace with no files anywhere becomes owned by its object. */
 	claim: unknown;
+	initialize: unknown;
+	placementPlan: { planId: string; documents: DocumentTransfer[] };
 	snapshot: { outputId: string };
 	import: { snapshot: OutputTransferSnapshot };
 	list: { options?: outputs.ListOsOutputsOptions };
@@ -26,8 +71,14 @@ export interface OutputQueryInputs {
 		outputId: string;
 		options?: { limit?: number; beforeRevision?: number };
 	};
-	create: { output: NewOsOutputRow; revision: NewOsOutputRevisionRow };
-	revise: { params: outputs.CreateOsOutputRevisionParams };
+	/** `excerpt` is the searchable text of the body, published with the save. */
+	create: {
+		output: NewOsOutputRow;
+		revision: NewOsOutputRevisionRow;
+		excerpt?: string;
+	};
+	revise: { params: outputs.CreateOsOutputRevisionParams; excerpt?: string };
+	mergeProposal: CommitCollaborationOutputParams;
 	thin: Parameters<typeof outputs.thinOsOutputRevisions>[2];
 	rebody: {
 		revisionId: string;
@@ -41,8 +92,12 @@ export interface OutputQueryInputs {
 }
 
 export interface OutputQueryResults {
+	resources: ResourceQueryResult;
+	purge: void;
 	authority: "object" | "shared";
 	claim: "object" | "shared";
+	initialize: "object";
+	placementPlan: DocumentTransfer[];
 	snapshot: Awaited<ReturnType<typeof outputs.snapshotOutput>>;
 	import: Awaited<ReturnType<typeof outputs.importOutput>>;
 	list: Awaited<ReturnType<typeof outputs.listOsOutputs>>;
@@ -55,6 +110,7 @@ export interface OutputQueryResults {
 	history: Awaited<ReturnType<typeof outputs.listOsOutputRevisions>>;
 	create: Awaited<ReturnType<typeof outputs.createOsOutput>>;
 	revise: Awaited<ReturnType<typeof outputs.createOsOutputRevision>>;
+	mergeProposal: ReturnType<typeof outputs.mergeOsOutputProposal>;
 	thin: string[];
 	rebody: boolean;
 	update: Awaited<ReturnType<typeof outputs.updateOsOutput>>;
@@ -114,6 +170,12 @@ async function execute(
 		outputId,
 	});
 	switch (query.op) {
+		case "purge":
+			return outputs.purgeWorkspaceDocuments(db, scope);
+		case "resources":
+			return executeWorkspaceResourceQuery(db, scope, query.query);
+		case "placementPlan":
+		case "initialize":
 		case "authority":
 		case "claim":
 			throw new Error("Workspace authority requires the shared inventory");
@@ -171,6 +233,8 @@ async function execute(
 			)
 				throw new Error("Output create scope mismatch");
 			return outputs.createOsOutput(db, query.output, query.revision);
+		case "mergeProposal":
+			return outputs.mergeOsOutputProposal(db, scope, query);
 		case "revise":
 			if (query.params.organizationId !== scope.organizationId)
 				throw new Error("Output revision scope mismatch");

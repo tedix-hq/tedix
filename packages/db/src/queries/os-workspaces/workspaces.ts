@@ -2,7 +2,6 @@ import {
 	and,
 	asc,
 	eq,
-	exists,
 	inArray,
 	isNotNull,
 	isNull,
@@ -20,9 +19,8 @@ import {
 import {
 	type NewOsWorkspaceRow,
 	type OsWorkspaceRow,
-	osOutputRevisions,
-	osOutputs,
 	osWorkspaces,
+	osOutputs,
 } from "../../schema/os-workspaces";
 import {
 	osWorkspaceAccessEdges,
@@ -210,71 +208,92 @@ export interface SaveConversationAsOsWorkspaceResult {
 	linked: boolean;
 }
 
-/**
- * Create a workspace from a Home conversation in one batch: insert it, move the
- * outputs that conversation's runs created into it, and link the conversation.
- * The link only claims a conversation that has none.
- */
+/** Creates only the core destination; document placement and linking follow initialization. */
 export async function saveConversationAsOsWorkspace(
 	db: DbQueryClient,
 	params: SaveConversationAsOsWorkspaceParams,
 ): Promise<SaveConversationAsOsWorkspaceResult> {
-	const { organizationId } = params.workspace;
-	const updatedAt = params.workspace.updatedAt ?? new Date().toISOString();
-	const createdOutputIds = db
-		.select({ outputId: osOutputRevisions.outputId })
-		.from(kernelRuntimeRuns)
+	await db.batch([
+		db
+			.insert(osWorkspaces)
+			.values(params.workspace)
+			.onConflictDoNothing({ target: osWorkspaces.id }),
+	]);
+	const workspace = await getOsWorkspace(db, {
+		organizationId: params.workspace.organizationId,
+		workspaceId: params.workspace.id,
+	});
+	if (
+		!workspace ||
+		workspace.createdById !== params.workspace.createdById ||
+		workspace.createdByKind !== params.workspace.createdByKind ||
+		workspace.visibility !== (params.workspace.visibility ?? "org") ||
+		workspace.ownerUserId !== (params.workspace.ownerUserId ?? null)
+	)
+		throw new Error("Workspace save destination conflicts with its owner");
+	return { workspace, movedOutputIds: [], linked: false };
+}
+
+/** The index supplies revision lineage and current location without reading shared documents. */
+export async function listConversationWorkspaceDocuments(
+	db: DbQueryClient,
+	params: {
+		organizationId: string;
+		conversationId: string;
+		fromWorkspaceIds: readonly string[];
+	},
+) {
+	if (!params.fromWorkspaceIds.length) return [];
+	return db
+		.selectDistinct({
+			outputId: workspaceOutputIndex.outputId,
+			workspaceId: workspaceOutputIndex.workspaceId,
+		})
+		.from(workspaceOutputIndex)
 		.innerJoin(
-			osOutputRevisions,
-			eq(osOutputRevisions.id, kernelRuntimeRuns.outputRevisionId),
+			kernelRuntimeRuns,
+			and(
+				eq(kernelRuntimeRuns.outputRevisionId, workspaceOutputIndex.revisionId),
+				eq(
+					kernelRuntimeRuns.organizationId,
+					workspaceOutputIndex.organizationId,
+				),
+			),
 		)
 		.where(
 			and(
-				eq(kernelRuntimeRuns.organizationId, organizationId),
+				eq(workspaceOutputIndex.organizationId, params.organizationId),
 				eq(kernelRuntimeRuns.conversationId, params.conversationId),
-				eq(osOutputRevisions.organizationId, organizationId),
+				sql`${workspaceOutputIndex.workspaceId} IN (SELECT value FROM json_each(${JSON.stringify(params.fromWorkspaceIds)}))`,
 			),
-		);
-	const [inserted, moved, linked] = await db.batch([
-		db.insert(osWorkspaces).values(params.workspace).returning(),
-		db
-			.update(osOutputs)
-			.set({ workspaceId: params.workspace.id, updatedAt })
-			.where(
-				and(
-					eq(osOutputs.organizationId, organizationId),
-					// bound-params: a subquery, not a bound list; it binds two values.
-					inArray(osOutputs.id, createdOutputIds),
-					params.fromWorkspaceIds.length > 0
-						? or(
-								isNull(osOutputs.workspaceId),
-								// One binding keeps arbitrary source lists within D1's limit.
-								sql`${osOutputs.workspaceId} IN (SELECT value FROM json_each(${JSON.stringify(params.fromWorkspaceIds)}))`,
-							)
-						: isNull(osOutputs.workspaceId),
-				),
-			)
-			.returning({ id: osOutputs.id }),
-		db
-			.update(kernelConversations)
-			.set({ workspaceId: params.workspace.id, updatedAt })
-			.where(
-				and(
-					eq(kernelConversations.organizationId, organizationId),
-					eq(kernelConversations.conversationId, params.conversationId),
-					isNull(kernelConversations.workspaceId),
-					isNull(kernelConversations.deletedAt),
-				),
-			)
-			.returning({ id: kernelConversations.id }),
-	]);
-	const [workspace] = inserted;
-	if (!workspace) throw new Error("OS workspace insert returned no row");
-	return {
-		workspace,
-		movedOutputIds: moved.map((row) => row.id),
-		linked: linked.length > 0,
-	};
+		)
+		.orderBy(asc(workspaceOutputIndex.outputId));
+}
+
+export async function linkConversationWorkspace(
+	db: DbQueryClient,
+	params: {
+		organizationId: string;
+		conversationId: string;
+		workspaceId: string;
+	},
+) {
+	const rows = await db
+		.update(kernelConversations)
+		.set({
+			workspaceId: params.workspaceId,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(
+			and(
+				eq(kernelConversations.organizationId, params.organizationId),
+				eq(kernelConversations.conversationId, params.conversationId),
+				isNull(kernelConversations.workspaceId),
+				isNull(kernelConversations.deletedAt),
+			),
+		)
+		.returning({ id: kernelConversations.id });
+	return rows.length > 0;
 }
 
 export async function listOsWorkspaces(
@@ -326,79 +345,57 @@ export async function updateOsWorkspace(
 	return row;
 }
 
-export async function deleteOsWorkspace(
+export async function listWorkspaceDocuments(
 	db: DbQueryClient,
-	params: OsWorkspaceScopeParams & { preferenceNamespace?: string },
-): Promise<boolean> {
-	const retainedWorkspaceId = crypto.randomUUID();
-	const scopedOutputs = and(
-		eq(osOutputs.organizationId, params.organizationId),
-		eq(osOutputs.workspaceId, params.workspaceId),
-	);
-	// Capture the owner in the same batch as deletion, so no output can outlive
-	// its privacy boundary. A fresh workspace avoids racing a personal-space edit.
-	const retainPrivateWorkspace = db.insert(osWorkspaces).select(
-		db
-			.select({
-				id: sql<string>`${retainedWorkspaceId}`.as("id"),
-				organizationId: osWorkspaces.organizationId,
-				name: sql<string>`${`Saved documents ${retainedWorkspaceId.slice(0, 8)}`}`.as(
-					"name",
-				),
-				status: sql<"active">`'active'`.as("status"),
-				createdByKind: osWorkspaces.createdByKind,
-				createdById: osWorkspaces.createdById,
-				createdAt: sql<string>`(datetime('now'))`.as("created_at"),
-				updatedAt: sql<string>`(datetime('now'))`.as("updated_at"),
-				visibility: osWorkspaces.visibility,
-				ownerUserId: osWorkspaces.ownerUserId,
-			})
-			.from(osWorkspaces)
-			.where(
-				and(
-					eq(osWorkspaces.organizationId, params.organizationId),
-					eq(osWorkspaces.id, params.workspaceId),
-					eq(osWorkspaces.visibility, "private"),
-					exists(
-						db
-							.select({ id: osOutputs.id })
-							.from(osOutputs)
-							.where(scopedOutputs),
-					),
-				),
-			),
-	);
-	const movedToRetained = exists(
-		db
-			.select({ id: osWorkspaces.id })
-			.from(osWorkspaces)
-			.where(
-				and(
-					eq(osWorkspaces.organizationId, params.organizationId),
-					eq(osWorkspaces.id, retainedWorkspaceId),
-				),
-			),
-	);
-	const movePrivateOutputs = db
-		.update(osOutputs)
-		.set({ workspaceId: retainedWorkspaceId })
-		.where(and(scopedOutputs, movedToRetained));
-	const movePrivateOutputIndex = db
-		.update(workspaceOutputIndex)
-		.set({ workspaceId: retainedWorkspaceId })
+	params: OsWorkspaceScopeParams,
+) {
+	return db
+		.selectDistinct({
+			outputId: workspaceOutputIndex.outputId,
+			workspaceId: workspaceOutputIndex.workspaceId,
+		})
+		.from(workspaceOutputIndex)
 		.where(
 			and(
 				eq(workspaceOutputIndex.organizationId, params.organizationId),
 				eq(workspaceOutputIndex.workspaceId, params.workspaceId),
-				movedToRetained,
 			),
-		);
+		)
+		.orderBy(asc(workspaceOutputIndex.outputId));
+}
+
+export async function deleteOsWorkspace(
+	db: DbQueryClient,
+	params: OsWorkspaceScopeParams & {
+		preferenceNamespace?: string;
+		expectedOwnerUserId?: string;
+	},
+): Promise<boolean> {
+	const workspace = await getOsWorkspace(db, params);
+	if (!workspace) return false;
+	if (
+		params.expectedOwnerUserId !== undefined &&
+		(workspace.visibility !== "private" ||
+			workspace.ownerUserId !== params.expectedOwnerUserId)
+	)
+		throw new Error("Workspace owner changed before deletion");
+	if (
+		workspace.visibility === "private" &&
+		(await listWorkspaceDocuments(db, params)).length
+	)
+		throw new Error("Transfer private documents before deleting the workspace");
 	const deleteWorkspace = db
 		.delete(osWorkspaces)
 		.where(
 			and(
 				eq(osWorkspaces.organizationId, params.organizationId),
 				eq(osWorkspaces.id, params.workspaceId),
+				params.expectedOwnerUserId !== undefined
+					? and(
+							eq(osWorkspaces.visibility, "private"),
+							eq(osWorkspaces.ownerUserId, params.expectedOwnerUserId),
+						)
+					: undefined,
 			),
 		)
 		.returning({ id: osWorkspaces.id });
@@ -409,9 +406,6 @@ export async function deleteOsWorkspace(
 		eq(osWorkspaceShareLinks.workspaceId, params.workspaceId),
 	);
 	const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
-		retainPrivateWorkspace,
-		movePrivateOutputs,
-		movePrivateOutputIndex,
 		deleteWorkspace,
 		db.delete(osWorkspaceShareKeys).where(
 			// bound-params: a subquery, not a bound list (two parameters).
@@ -452,12 +446,7 @@ export async function deleteOsWorkspace(
 					),
 				),
 		);
-	const [, , , result] = (await db.batch(statements)) as [
-		unknown,
-		unknown,
-		unknown,
-		{ id: string }[],
-	];
+	const [result] = (await db.batch(statements)) as [{ id: string }[]];
 	return result.length > 0;
 }
 
@@ -504,4 +493,60 @@ export async function findOsWorkspaceForKernelRun(
 	return row?.workspaceId
 		? { workspaceId: row.workspaceId, conversationId: row.conversationId }
 		: null;
+}
+
+/** No visibility filter: organization offboarding includes every private workspace. */
+export async function listOrganizationWorkspaceDeletionCandidates(
+	db: DbQueryClient,
+	organizationId: string,
+	afterId?: string,
+) {
+	return db
+		.select({ id: osWorkspaces.id })
+		.from(osWorkspaces)
+		.where(
+			and(
+				eq(osWorkspaces.organizationId, organizationId),
+				afterId === undefined
+					? undefined
+					: sql`${osWorkspaces.id} > ${afterId}`,
+			),
+		)
+		.orderBy(asc(osWorkspaces.id))
+		.limit(100);
+}
+
+/** Called only after the workspace object has acknowledged permanent deletion. */
+export async function deleteWorkspaceDocumentIndex(
+	db: DbQueryClient,
+	scope: OsWorkspaceScopeParams,
+) {
+	await db.batch([
+		db
+			.delete(workspaceOutputIndex)
+			.where(
+				and(
+					eq(workspaceOutputIndex.organizationId, scope.organizationId),
+					eq(workspaceOutputIndex.workspaceId, scope.workspaceId),
+				),
+			),
+	]);
+}
+
+/** Workspace-wide inventory for selecting a storage owner, without reading content. */
+export async function hasSharedWorkspaceOutputs(
+	db: DbQueryClient,
+	scope: { organizationId: string; workspaceId: string },
+): Promise<boolean> {
+	const [row] = await db
+		.select({ id: osOutputs.id })
+		.from(osOutputs)
+		.where(
+			and(
+				eq(osOutputs.organizationId, scope.organizationId),
+				eq(osOutputs.workspaceId, scope.workspaceId),
+			),
+		)
+		.limit(1);
+	return Boolean(row);
 }

@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { env } from "cloudflare:workers";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi, onTestFinished } from "vite-plus/test";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -10,7 +10,6 @@ import {
 	osOutputRevisions,
 	osWorkspaceResources,
 } from "@tedix/db/schema/os-workspaces";
-import { getOsOutputRevision as readRevision } from "@tedix/db/queries/os-workspaces/outputs";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
 	confirmOsWorkspaceFile,
@@ -20,6 +19,9 @@ import { hydrateOutputRevision } from "./os-output-revision-body-store";
 import { resolveWorkEvidenceReference } from "./work-evidence-resolution";
 import type { BaseContext } from "../rpc/orpc";
 
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
+import { getOsOutputRevision as readObjectRevision } from "@tedix/db/queries/durable-sqlite/os-outputs";
+
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
@@ -28,6 +30,8 @@ function fixture() {
 	sqlite.exec(
 		schemaDdl(osWorkspaces, osOutputs, osOutputRevisions, osWorkspaceResources),
 	);
+	const object = workspaceOutputFixture(sqlite);
+	onTestFinished(() => sqlite.close());
 	// Evidence resolution reads through the default Worker binding, so the
 	// writers under test share the stubbed `cloudflare:workers` bucket.
 	const bucket = {
@@ -36,7 +40,12 @@ function fixture() {
 		),
 		get: vi.fn((key: string) => env.R2_BUCKET.get(key)),
 	};
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)), bucket };
+	return {
+		...object,
+		sqlite,
+		db: createDbQueryClient(createD1Facade(sqlite)),
+		bucket,
+	};
 }
 
 const base = {
@@ -48,6 +57,7 @@ const base = {
 const content = '\ufeff{"kind":"document","blocks":[]}\r\nGrüße 🌍  ';
 const output = {
 	...base,
+	workspaceId: "ws-1",
 	id: "11111111-1111-4111-8111-111111111111",
 	kind: "document" as const,
 	title: "Test",
@@ -100,10 +110,10 @@ async function write(path: string, f: ReturnType<typeof fixture>) {
 describe.each(["file", "blueprint", "provisioning"])(
 	"%s output writer",
 	(path) => {
-		it("stores the body in R2, keeps the D1 row small and hydrates exact evidence bytes", async () => {
+		it("stores object rows with R2 pointers and hydrates exact evidence bytes", async () => {
 			const f = fixture();
 			await write(path, f);
-			const row = await readRevision(f.db, {
+			const row = await readObjectRevision(f.tenant, {
 				organizationId: base.organizationId,
 				revisionId: revision.id,
 			});
@@ -117,6 +127,10 @@ describe.each(["file", "blueprint", "provisioning"])(
 			const hydrated = await hydrateOutputRevision(row!, f.bucket);
 			expect(hydrated.content).toBe(content);
 			expect(await sha256Hex(hydrated.content)).toBe(digest);
+			for (const table of ["os_outputs", "os_output_revisions"])
+				expect(
+					f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n,
+				).toBe(0);
 			const evidence = await resolveWorkEvidenceReference(
 				{
 					organizationId: base.organizationId,
@@ -128,22 +142,158 @@ describe.each(["file", "blueprint", "provisioning"])(
 				kind: "output_revision",
 				digest,
 			});
-			f.sqlite.close();
 		});
 
-		it("does not write D1 rows when R2 fails", async () => {
+		it("refuses an inactive object before writing bodies or provisioning", async () => {
+			const f = fixture();
+			f.state.active = false;
+			await expect(write(path, f)).rejects.toThrow(
+				path === "file"
+					? "activated workspace object"
+					: "Staged workspace requires migration activation",
+			);
+			expect(f.sqlite.prepare("SELECT id FROM os_workspaces").all()).toEqual(
+				path === "file" ? [] : [{ id: workspace.id }],
+			);
+			expect(f.bucket.put).not.toHaveBeenCalled();
+			for (const table of ["os_outputs", "os_output_revisions"])
+				expect(
+					f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n,
+				).toBe(0);
+			expect(
+				f.objectSql.prepare("SELECT count(*) AS n FROM os_outputs").get()?.n,
+			).toBe(0);
+		});
+
+		it("retains only the retryable directory when R2 fails", async () => {
 			const f = fixture();
 			f.bucket.put.mockRejectedValue(new Error("R2 unavailable"));
 			await expect(write(path, f)).rejects.toThrow("R2 unavailable");
-			for (const table of [
-				"os_outputs",
-				"os_output_revisions",
-				"os_workspaces",
-			])
+			expect(f.sqlite.prepare("SELECT id FROM os_workspaces").all()).toEqual(
+				path === "file" ? [] : [{ id: workspace.id }],
+			);
+			for (const table of ["os_outputs", "os_output_revisions"])
 				expect(
 					f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get(),
 				).toEqual({ n: 0 });
-			f.sqlite.close();
 		});
 	},
 );
+
+describe("uploaded document routing", () => {
+	it("keeps repeated and concurrent confirmations idempotent", async () => {
+		const f = fixture();
+		await Promise.all([write("file", f), write("file", f)]);
+		await write("file", f);
+		for (const table of ["os_outputs", "os_output_revisions"])
+			expect(
+				f.objectSql.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n,
+			).toBe(1);
+	});
+	it("rejects a mismatched output/revision before storing a body", async () => {
+		const f = fixture();
+		await expect(
+			confirmOsWorkspaceFile(
+				f.db,
+				{ output, revision: { ...revision, outputId: "wrong" } },
+				f.bucket,
+			),
+		).rejects.toThrow("scope mismatch");
+		expect(f.bucket.put).not.toHaveBeenCalled();
+	});
+});
+
+describe("blueprint document validation", () => {
+	it.each(["wrong-workspace", "missing-revision", "orphan-revision"])(
+		"rejects %s before storing bodies",
+		async (invalid) => {
+			const f = fixture();
+			await expect(
+				instantiateOsBlueprint(
+					f.db,
+					{
+						workspace,
+						gadgets: [],
+						revisions: [],
+						outputs:
+							invalid === "orphan-revision"
+								? []
+								: [
+										{
+											...output,
+											workspaceId:
+												invalid === "wrong-workspace" ? "other" : workspace.id,
+										},
+									],
+						outputRevisions: invalid === "missing-revision" ? [] : [revision],
+					},
+					f.bucket,
+				),
+			).rejects.toThrow("scope mismatch");
+			expect(f.bucket.put).not.toHaveBeenCalled();
+			expect(
+				f.sqlite.prepare("SELECT count(*) AS n FROM os_workspaces").get()?.n,
+			).toBe(0);
+		},
+	);
+	it("requires initialization even for output-free blueprints", async () => {
+		const f = fixture();
+		delete (env as unknown as { WORKSPACE_RUNTIME?: unknown })
+			.WORKSPACE_RUNTIME;
+		await expect(
+			instantiateOsBlueprint(
+				f.db,
+				{ workspace, gadgets: [], revisions: [] },
+				f.bucket,
+			),
+		).rejects.toThrow("Workspace output runtime is unavailable");
+		expect(
+			f.sqlite.prepare("SELECT count(*) AS n FROM os_workspaces").get()?.n,
+		).toBe(1);
+		expect(f.bucket.put).not.toHaveBeenCalled();
+	});
+});
+
+it("writes resource-only Blueprint links to the object before its shared receipt", async () => {
+	const f = fixture();
+	const resource = {
+		...base,
+		id: "blueprint-resource",
+		workspaceId: workspace.id,
+		providerId: "example",
+		connectionScope: "tenant" as const,
+		resourceType: "folder",
+		providerResourceId: "folder",
+		name: "Sources",
+		updatedAt: base.createdAt,
+	};
+	const query = f.runtime.outputQuery.bind(f.runtime);
+	const calls = vi
+		.spyOn(f.runtime, "outputQuery")
+		.mockImplementation(async (scope, input) => {
+			if (input.op === "resources")
+				throw new Error("resource write unavailable");
+			return query(scope, input);
+		});
+	const params = {
+		workspace,
+		gadgets: [],
+		revisions: [],
+		resources: [resource],
+	};
+	await expect(instantiateOsBlueprint(f.db, params, f.bucket)).rejects.toThrow(
+		"resource write unavailable",
+	);
+	expect(
+		f.sqlite.prepare("SELECT count(*) n FROM os_workspace_resources").get()?.n,
+	).toBe(0);
+	calls.mockImplementation(query);
+	const result = await instantiateOsBlueprint(f.db, params, f.bucket);
+	expect(result.resources).toHaveLength(1);
+	expect(
+		f.objectSql.prepare("SELECT id, name FROM os_workspace_resources").all(),
+	).toEqual([{ id: resource.id, name: resource.name }]);
+	expect(
+		f.sqlite.prepare("SELECT id, name FROM os_workspace_resources").all(),
+	).toEqual([{ id: resource.id, name: resource.name }]);
+});

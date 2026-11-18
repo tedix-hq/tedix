@@ -8,6 +8,7 @@ import { learningInteractionEvents } from "../schema/learning-feedback";
 import { tediObjectives } from "../schema/tedi-objectives";
 import { projects } from "../schema/projects";
 import { osWorkspaces, osWorkspaceProjects } from "../schema/os-workspaces";
+import { workspaceOutputIndex } from "../schema/workspace-feed";
 import { workEvents, workItems } from "../schema/work-items";
 import type { AgentSessionRequestOwner } from "./agent-session-requests";
 
@@ -487,7 +488,7 @@ export async function emptyAutoCreatedWorkspaces(
 				eq(osWorkspaces.createdById, "request-auto-filer"),
 				eq(osWorkspaces.ownerUserId, owner.learningOwnerId ?? owner.userId),
 				sql`${osWorkspaces.createdAt} <= ${cutoff}`,
-				sql`not exists (select 1 from os_outputs o where o.organization_id = ${owner.organizationId} and o.workspace_id = ${osWorkspaces.id})`,
+				sql`not exists (select 1 from ${workspaceOutputIndex} where ${workspaceOutputIndex.organizationId} = ${owner.organizationId} and ${workspaceOutputIndex.workspaceId} = ${osWorkspaces.id})`,
 				sql`not exists (select 1 from os_gadgets g where g.organization_id = ${owner.organizationId} and g.workspace_id = ${osWorkspaces.id})`,
 				sql`not exists (select 1 from os_workspace_resources r where r.organization_id = ${owner.organizationId} and r.workspace_id = ${osWorkspaces.id} and r.status = 'active')`,
 				sql`not exists (select 1 from os_workspace_projects p join work_items w on w.org_id = p.organization_id and w.project_id = p.project_id where p.organization_id = ${owner.organizationId} and p.workspace_id = ${osWorkspaces.id} and p.status = 'active' and w.disposition not in ('completed', 'cancelled'))`,

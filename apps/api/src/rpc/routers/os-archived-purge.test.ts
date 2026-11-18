@@ -34,25 +34,37 @@ import {
 	userContext,
 } from "./__tests__/os-workspaces-env";
 
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 const ADMIN = ["settings:manage", "tedis:update"];
 
 function setup() {
-	const env = createEnv([
-		kernelRuntimeEvents,
-		kernelToolResults,
-		kernelConversationArtifactPins,
-		kernelConversationCapabilities,
-		kernelConversationSessionPolicies,
-		kernelHomeApprovalMirrors,
-		kernelWakeQueue,
-		chatDispatchIdempotency,
-		runtimeSubmissions,
-		harnessSubjectTraceBundles,
-	]);
+	let store!: ReturnType<typeof workspaceOutputFixture>;
+	const env = createEnv(
+		[
+			kernelRuntimeEvents,
+			kernelToolResults,
+			kernelConversationArtifactPins,
+			kernelConversationCapabilities,
+			kernelConversationSessionPolicies,
+			kernelHomeApprovalMirrors,
+			kernelWakeQueue,
+			chatDispatchIdempotency,
+			runtimeSubmissions,
+			harnessSubjectTraceBundles,
+		],
+		(sqlite) => {
+			store = workspaceOutputFixture(sqlite, {
+				uninitialized: true,
+				coreSchemaExists: true,
+			});
+			return store;
+		},
+	);
 	const adminContext = () =>
 		userContext({ env, organizationId: "org-1", permissions: ADMIN });
 	return {
 		env,
+		store,
 		db: createDbClient(env.DB),
 		adminContext,
 		admin: createRouterClient(osWorkspacesContractRouter, {
@@ -135,11 +147,11 @@ async function archivedWorkspace(t: Setup, name: string) {
 	return workspace;
 }
 
-async function archivedOutput(t: Setup, title: string, workspaceId?: string) {
+async function archivedOutput(t: Setup, title: string, workspaceId: string) {
 	const { output } = await t.admin.outputs.create({
 		kind: "document",
 		title,
-		...(workspaceId ? { workspaceId } : {}),
+		workspaceId,
 	});
 	await t.admin.outputs.archive({ outputId: output.id });
 	return output;
@@ -171,7 +183,7 @@ describe("purge_archived_os_items", () => {
 
 	it("dry run reports what would go and deletes nothing", async () => {
 		const workspace = await archivedWorkspace(t, "Old project");
-		const output = await archivedOutput(t, "Old notes");
+		const output = await archivedOutput(t, "Old notes", workspace.id);
 		await seedConversation(t, "chat-archived", {
 			archivedAt: "2026-10-02T00:00:00.000Z",
 		});
@@ -192,7 +204,7 @@ describe("purge_archived_os_items", () => {
 		expect(result.outputs?.sampleIds).toEqual([output.id]);
 		expect(result.conversations?.sampleIds).toEqual(["chat-archived"]);
 		expect(await t.db.select().from(osWorkspaces)).toHaveLength(1);
-		expect(await t.db.select().from(osOutputs)).toHaveLength(1);
+		expect(await t.store.tenant.select().from(osOutputs)).toHaveLength(1);
 		expect(await eventCount(t, "chat-archived")).toBe(1);
 		expect((await conversationRow(t, "chat-archived"))?.title).toBe(
 			"Chat chat-archived",
@@ -201,7 +213,7 @@ describe("purge_archived_os_items", () => {
 
 	it("preview reports eligible items and never deletes", async () => {
 		const workspace = await archivedWorkspace(t, "Old project");
-		const output = await archivedOutput(t, "Old notes");
+		const output = await archivedOutput(t, "Old notes", workspace.id);
 
 		const result = await t.admin.workspaces.previewArchivedCleanup({
 			kinds: ["workspaces", "outputs"],
@@ -215,7 +227,7 @@ describe("purge_archived_os_items", () => {
 		expect(result.workspaces?.sampleIds).toEqual([workspace.id]);
 		expect(result.outputs?.sampleIds).toEqual([output.id]);
 		expect(await t.db.select().from(osWorkspaces)).toHaveLength(1);
-		expect(await t.db.select().from(osOutputs)).toHaveLength(1);
+		expect(await t.store.tenant.select().from(osOutputs)).toHaveLength(1);
 	});
 
 	it("deletes archived workspaces and outputs but keeps active, shared and reviewed ones", async () => {
@@ -223,6 +235,7 @@ describe("purge_archived_os_items", () => {
 		const activeOutput = await t.admin.outputs.create({
 			kind: "document",
 			title: "Live doc",
+			workspaceId: active.workspace.id,
 		});
 		const gone = await archivedWorkspace(t, "Gone");
 		const shared = await archivedWorkspace(t, "Shared");
@@ -248,8 +261,12 @@ describe("purge_archived_os_items", () => {
 		await t.admin.outputs.archive({ outputId: reviewedOutput.output.id });
 		await t.admin.workspaces.archive({ workspaceId: reviewed.workspace.id });
 
-		const plainOutput = await archivedOutput(t, "Plain");
-		const sharedOutput = await archivedOutput(t, "Shared file");
+		const plainOutput = await archivedOutput(t, "Plain", active.workspace.id);
+		const sharedOutput = await archivedOutput(
+			t,
+			"Shared file",
+			active.workspace.id,
+		);
 		await shareLink(t, "output", sharedOutput.id);
 		const otherOrg = await t.org2.workspaces.create({ name: "Elsewhere" });
 		await t.org2.workspaces.archive({ workspaceId: otherOrg.workspace.id });
@@ -290,7 +307,7 @@ describe("purge_archived_os_items", () => {
 		);
 		expect(workspaceIds).not.toContain(gone.id);
 		expect(workspaceIds).not.toContain(onceShared.id);
-		const outputIds = (await t.db.select().from(osOutputs)).map(
+		const outputIds = (await t.store.tenant.select().from(osOutputs)).map(
 			(row) => row.id,
 		);
 		expect(outputIds).toContain(activeOutput.output.id);

@@ -21,7 +21,7 @@ import { organizations } from "../schema/organizations";
 import { platformCronCheckpoints } from "../schema/platform-cron-executions";
 import { tediApprovalRequests } from "../schema/approvals";
 import { memoryFacts } from "../schema/memory-graph";
-import { osOutputs } from "../schema/os-workspaces";
+import { workspaceOutputIndex } from "../schema/workspace-feed";
 import { tediRationaleRecords } from "../schema/rationale-records";
 import {
 	workApprovalDecisions,
@@ -312,8 +312,8 @@ export async function planDecisionGraphBackfillPage(
 		evidence: () => {
 			const e = workEvidence;
 			const target = alias(workItems, "target");
-			const o = osOutputs;
-			const targetId = sql`coalesce(${target.id},${o.id})`;
+			const o = workspaceOutputIndex;
+			const targetId = sql`coalesce(${target.id},${o.outputId})`;
 			return db
 				.select(
 					sourceFields({
@@ -338,8 +338,9 @@ export async function planDecisionGraphBackfillPage(
 					o,
 					and(
 						eq(o.organizationId, e.orgId),
+						eq(o.isCurrent, 1),
 						sql`substr(${e.uri},1,9)='output://'`,
-						sql`${o.id}=CASE WHEN instr(substr(${e.uri},10),'/')>0
+						sql`${o.outputId}=CASE WHEN instr(substr(${e.uri},10),'/')>0
      THEN substr(${e.uri},10,instr(substr(${e.uri},10),'/')-1) ELSE substr(${e.uri},10) END`,
 					),
 				)

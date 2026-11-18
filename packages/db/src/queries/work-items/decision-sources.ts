@@ -11,7 +11,7 @@ import { tediEmailMessages, tediEmailThreads } from "../../schema/tedi-email";
 import { getWorkItemById } from "./crud";
 import { decisionRelevantWorkComment } from "./comments";
 import { workItemComments } from "../../schema/work-items";
-import { getOsOutput } from "../os-workspaces/outputs";
+import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { workInteractions } from "../../schema/work-factory";
 
 type Request = {
@@ -296,10 +296,20 @@ async function decisionSourceMatches(
 			return { through: latest.createdAt, note: latest.body.slice(0, 600) };
 		}
 		case "output": {
-			const output = await getOsOutput(db, {
-				organizationId: orgId,
-				outputId: source.id,
-			});
+			const [output] = await db
+				.select({
+					status: workspaceOutputIndex.status,
+					currentRevisionId: workspaceOutputIndex.revisionId,
+				})
+				.from(workspaceOutputIndex)
+				.where(
+					and(
+						eq(workspaceOutputIndex.organizationId, orgId),
+						eq(workspaceOutputIndex.outputId, source.id),
+						eq(workspaceOutputIndex.isCurrent, 1),
+					),
+				)
+				.limit(1);
 			return (
 				output?.status === "active" &&
 				output.currentRevisionId === source.revisionId

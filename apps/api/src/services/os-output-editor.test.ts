@@ -18,10 +18,8 @@ vi.mock("../rpc/routers/os-workspaces-shared", async (original) => ({
 vi.mock("./workspace-output-storage", () => ({
 	getOsOutputRevision: reads.revision,
 }));
-vi.mock("@tedix/db/queries/os-workspaces/install-app", async (original) => ({
-	...(await original<
-		typeof import("@tedix/db/queries/os-workspaces/install-app")
-	>()),
+vi.mock("./workspace-resource-storage", async (original) => ({
+	...(await original<typeof import("./workspace-resource-storage")>()),
 	findWorkspaceOutputResource: reads.resource,
 	installWorkspaceApp: reads.install,
 }));

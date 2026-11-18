@@ -1,3 +1,4 @@
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 /**
  * Linking skills to a Workspace: one skill by id, unlinking it, and the
  * idempotent backfill that links what the Workspace's own data says runs it.
@@ -76,6 +77,7 @@ function createEnv() {
 			kernelConversations,
 		),
 	);
+	workspaceOutputFixture(sqlite);
 	sqlite.exec(`
 		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL);
 		INSERT INTO organizations (id, name) VALUES ('org-1', 'Fictional Org');
@@ -237,6 +239,12 @@ describe("Workspace skill links", () => {
 				"INSERT INTO os_output_revisions (id, organization_id, output_id, revision, content, created_by_kind, created_by_id, created_at, skill_run_id, skill_id) VALUES ('rev-1', 'org-1', 'out-1', 1, '{}', 'tedi', 't', '2026-10-01', 'run-1', ?)",
 			)
 			.run(WRITER);
+
+		sqlite
+			.prepare(
+				"INSERT INTO workspace_output_index (id, organization_id, workspace_id, output_id, revision, revision_id, output_kind, title, status, output_created_by_kind, output_created_by_id, output_created_at, revision_created_by_kind, revision_created_by_id, revision_created_at, updated_at, skill_id) VALUES ('out-1:1', 'org-1', ?, 'out-1', 1, 'rev-1', 'sheet', 'Cards', 'active', 'user', 'u', '2026-10-01', 'tedi', 't', '2026-10-01', '2026-10-01', ?)",
+			)
+			.run(workspaceId, WRITER);
 
 		const dry = await client.schedules.linkFactorySkills({ workspaceId });
 		expect(dry).toEqual({

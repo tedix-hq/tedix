@@ -159,27 +159,22 @@ export async function saveOsOutputPatch(
 				skillRunId: producer.skillRunId ?? null,
 				createdAt: new Date().toISOString(),
 			});
-		const result = await createOsOutputRevision(
-			db,
-			{
-				id: crypto.randomUUID(),
-				organizationId: output.organizationId,
-				outputId: output.id,
-				expectedWorkspaceId: input.expectedWorkspaceId,
-				content: JSON.stringify(checked.data),
-				note:
-					base === theirs
-						? note
-						: `${note ?? "Saved"} · merged with revision ${current.revision}`,
-				createdByKind: creator.kind,
-				createdById: creator.id,
-				...producer,
-				accessEnvelope,
-				expectedRevision: current.revision,
-			},
-			undefined,
-			{ continuesBurst },
-		);
+		const result = await createOsOutputRevision(db, {
+			id: crypto.randomUUID(),
+			organizationId: output.organizationId,
+			outputId: output.id,
+			expectedWorkspaceId: input.expectedWorkspaceId,
+			content: JSON.stringify(checked.data),
+			note:
+				base === theirs
+					? note
+					: `${note ?? "Saved"} · merged with revision ${current.revision}`,
+			createdByKind: creator.kind,
+			createdById: creator.id,
+			...producer,
+			accessEnvelope,
+			expectedRevision: current.revision,
+		});
 		if (result.ok) {
 			const advanced = await getOsOutput(db, {
 				organizationId: output.organizationId,

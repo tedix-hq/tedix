@@ -63,8 +63,19 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 // against the real producer rather than a hand-copied constant.
 import { bindTestContexts } from "../../test-context";
 import { osWorkspacesContractRouter } from "../os-workspaces";
+import { workspaceOutputFixture } from "../../../../test/workspace-output-fixture";
 
-export function createEnv(extraTables: SQLiteTable[] = []): CloudflareEnv {
+const outputStores = new WeakMap<
+	CloudflareEnv,
+	ReturnType<typeof workspaceOutputFixture>
+>();
+
+export function createEnv(
+	extraTables: SQLiteTable[] = [],
+	configure?: (
+		sqlite: DatabaseSync,
+	) => ReturnType<typeof workspaceOutputFixture>,
+): CloudflareEnv {
 	const sqlite = new DatabaseSync(":memory:");
 	// The router binds the caller's organization into every predicate, so the
 	// fixture keeps FKs off. The gallery join reads organizations.id/name only;
@@ -118,7 +129,10 @@ export function createEnv(extraTables: SQLiteTable[] = []): CloudflareEnv {
 			VALUES ('org-1', 'First Org'), ('org-2', 'Second Org');
 		INSERT INTO organization_members (id, organization_id, descope_user_id, email, name, role, status) VALUES ('member-1', 'org-1', 'user-1', 'member@example.test', 'Member', 'member', 'active');
 	`);
-	return {
+	const outputStore =
+		configure?.(sqlite) ??
+		workspaceOutputFixture(sqlite, { coreSchemaExists: true });
+	const env = {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",
 		SECRETS_MASTER_KEY: "test-gadget-export-secret",
@@ -126,7 +140,10 @@ export function createEnv(extraTables: SQLiteTable[] = []): CloudflareEnv {
 		TEDIX_BILLING_SETTLEMENT_MODE: "external",
 		TEDI_SERVICE: { fetch: async () => Response.json({ closed: true }) },
 		DB: createD1Facade(sqlite),
+		WORKSPACE_RUNTIME: outputStore.runtime,
 	} as unknown as CloudflareEnv;
+	outputStores.set(env, outputStore);
+	return env;
 }
 
 export const { userContext, apiKeyContext } = bindTestContexts({
@@ -135,11 +152,31 @@ export const { userContext, apiKeyContext } = bindTestContexts({
 	apiKey: { scopes: ["apps:read", "apps:write"] },
 });
 
+const homeWorkspaces = new WeakMap<CloudflareEnv, Promise<string>>();
+
+/**
+ * Every document is stored by a workspace. Tests about the document itself
+ * file it in this org-1 workspace, created once per environment.
+ */
+export function homeWorkspaceId(env: CloudflareEnv): Promise<string> {
+	let home = homeWorkspaces.get(env);
+	if (!home) {
+		home = createRouterClient(osWorkspacesContractRouter, {
+			context: userContext({ env, organizationId: "org-1" }),
+		})
+			.workspaces.create({ name: "Document home" })
+			.then(({ workspace }) => workspace.id);
+		homeWorkspaces.set(env, home);
+	}
+	return home;
+}
+
 export function clients() {
 	const env = createEnv();
 	return {
 		/** The shared D1 facade, so a test can assert on the ROW, not just the wire. */
 		env,
+		outputDb: outputStores.get(env)!.tenant,
 		org1: createRouterClient(osWorkspacesContractRouter, {
 			context: userContext({ env, organizationId: "org-1" }),
 		}),

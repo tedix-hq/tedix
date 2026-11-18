@@ -9,6 +9,8 @@ file is the reference for the commands and their contracts.
 
 ```bash
 bun scripts/migrate-workspaces/cli.ts capture --config capture-config.json --out /private/capture [--page-size 100] [--delay-ms 2000] [--delay-file /private/delay-ms]
+bun scripts/migrate-workspaces/cli.ts export-object --scope <org>/<workspace> --remote https://<mcp-host> --auth tedix --out /private/object-capture [--page-size 100] [--delay-ms 2000]
+bun scripts/migrate-workspaces/cli.ts compare --before /private/capture --after /private/object-capture [--report comparison.json]
 bun scripts/migrate-workspaces/cli.ts export    --snapshot main.sql --logs logs-1.sql logs-2.sql --assignments assignments.json --bundles r2://<bucket>/<prefix> [--scope <org>/<workspace>]
 bun scripts/migrate-workspaces/cli.ts import    --bundles r2://<bucket>/<prefix> --remote https://<mcp-host> --auth tedix --snapshot main.sql --logs logs-1.sql logs-2.sql [--scope <org>/<workspace>]
 bun scripts/migrate-workspaces/cli.ts reconcile --bundles r2://<bucket>/<prefix> --remote https://<mcp-host> --auth tedix --snapshot main.sql --logs logs-1.sql logs-2.sql [--scope <org>/<workspace>] --report reconcile.json
@@ -17,6 +19,26 @@ bun scripts/migrate-workspaces/cli.ts schema-check --snapshot main.sql --logs lo
 bun scripts/migrate-workspaces/cli.ts assignments --snapshot main.sql --out assignments.json
 ```
 
+- `export-object` reads exactly one named workspace through describe and paged
+  row reads, serially with a delay of at least two seconds before each request.
+  Use `--objects <directory>` instead of `--remote` for local SQLite objects;
+  this opens an existing file read-only without migrations or initialization.
+  It writes every mapped table, including revision body references and file
+  links, to `main.sqlite`, with counts, canonical row hashes and a file checksum
+  in `manifest.json`. External blob bodies are not downloaded. The object
+  manifest has its own kind: it is not proof of a full shared-database snapshot.
+  The output directory must be new. A failed walk leaves no manifest; restart
+  into a new directory. No imports, deltas, activation or shared-table writes
+  are performed. This is a moving read, not an atomic snapshot; arrange a
+  quiet workspace when comparing switch-over captures.
+- `compare` reads two local capture directories and verifies their recorded
+  checksums before comparing. An object capture selects the workspace; for two
+  shared captures, pass one `--scope <org>/<workspace>`. Shared rows are selected
+  using the capture's assignments and events are deduplicated across partitions,
+  as during import. The JSON report contains per-table counts and content
+  hashes, plus added, removed and changed primary keys. Exit status is zero for
+  equality and one for differences or invalid captures. Capture age does not
+  block a historical comparison. This command does not restore any data.
 - `capture` uses the audited D1 HTTP query API for the nine mapped main
   tables and only the moved conversations' runtime events in each log store.
   Its private configuration names `accountId`, `mainDatabaseId`, every

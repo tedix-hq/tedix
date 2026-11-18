@@ -1,3 +1,4 @@
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 import { DatabaseSync } from "node:sqlite";
 import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
 import { hydrateOutputRevision } from "../../services/os-output-revision-body-store";
@@ -114,6 +115,7 @@ function fixture(
 			auditEvents,
 		),
 	);
+	const outputStore = workspaceOutputFixture(sqlite, { uninitialized: true });
 	const env = {
 		DB: createD1Facade(sqlite, { maxBoundParams: 100 }),
 		ENVIRONMENT: "test",
@@ -154,12 +156,17 @@ function fixture(
 	const count = (table: string) =>
 		Number(
 			(
-				sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get() as {
+				(table === "os_outputs" || table === "os_output_revisions"
+					? outputStore.objectSql
+					: sqlite
+				)
+					.prepare(`SELECT count(*) AS n FROM ${table}`)
+					.get() as {
 					n: number;
 				}
 			).n,
 		);
-	return { client, sqlite, count };
+	return { client, sqlite, count, ...outputStore };
 }
 const input = {
 	blueprintId,
@@ -199,7 +206,7 @@ describe("generic blueprint apply", () => {
 			"notes",
 			"slides",
 		]);
-		f.sqlite
+		f.objectSql
 			.prepare("UPDATE os_outputs SET title = 'Edited title' WHERE id = ?")
 			.run(String(bindings[0]!.provider_resource_id));
 		const second = await f.client.apply(input);
@@ -207,7 +214,7 @@ describe("generic blueprint apply", () => {
 		expect(f.count("os_outputs")).toBe(4);
 		expect(f.count("os_output_revisions")).toBe(4);
 		expect(
-			f.sqlite
+			f.objectSql
 				.prepare("SELECT title FROM os_outputs WHERE id = ?")
 				.get(String(bindings[0]!.provider_resource_id))?.title,
 		).toBe("Edited title");
@@ -266,8 +273,12 @@ describe("generic blueprint apply", () => {
 		expect(JSON.parse(String(item.metadata)).suggestedOwners).toEqual([
 			"A fictional teammate",
 		]);
-		// The body is in R2; the D1 row keeps the pointer and an empty body.
-		const doc = f.sqlite
+		for (const table of ["os_outputs", "os_output_revisions"])
+			expect(
+				f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n,
+			).toBe(0);
+		// The body is in R2; the object row keeps the pointer and an empty body.
+		const doc = f.objectSql
 			.prepare(
 				"SELECT content, organization_id, content_sha256, content_bytes, body_r2_key FROM os_output_revisions",
 			)
@@ -324,14 +335,14 @@ describe("generic blueprint apply", () => {
 		expect(second.receipt.workspaceId).not.toBe(a.receipt.workspaceId);
 		expect(f.count("projects")).toBe(2);
 	});
-	it("rolls the complete batch back on a late insert failure", async () => {
+	it("does not write provisioning or a replay receipt when the object document insert fails", async () => {
 		const f = fixture();
-		f.sqlite.exec(
+		f.objectSql.exec(
 			"CREATE TRIGGER deny_document BEFORE INSERT ON os_output_revisions BEGIN SELECT RAISE(ABORT,'fictional failure'); END",
 		);
 		await expect(f.client.apply(input)).rejects.toThrow();
+		expect(f.count("os_workspaces")).toBe(1);
 		for (const table of [
-			"os_workspaces",
 			"projects",
 			"work_items",
 			"os_outputs",
@@ -339,6 +350,45 @@ describe("generic blueprint apply", () => {
 			"os_workspace_resources",
 		])
 			expect(f.count(table)).toBe(0);
+	});
+	it("refuses staged objects before creating provisioning or its receipt", async () => {
+		const f = fixture();
+		f.state.importGeneration = 1;
+		await expect(f.client.apply(input)).rejects.toThrow(
+			"requires migration activation",
+		);
+		expect(f.count("os_workspaces")).toBe(1);
+		for (const table of [
+			"projects",
+			"work_items",
+			"os_workspace_resources",
+			"os_outputs",
+			"os_output_revisions",
+		])
+			expect(f.count(table)).toBe(0);
+	});
+	it("rolls back a late shared insert failure and reuses retained object documents on retry", async () => {
+		const f = fixture();
+		f.sqlite.exec(
+			"CREATE TRIGGER deny_link BEFORE INSERT ON work_case_items BEGIN SELECT RAISE(ABORT,'fictional shared failure'); END",
+		);
+		await expect(f.client.apply(input)).rejects.toThrow();
+		expect(f.count("os_workspaces")).toBe(1);
+		for (const table of [
+			"projects",
+			"work_items",
+			"work_item_relations",
+			"os_workspace_resources",
+		])
+			expect(f.count(table)).toBe(0);
+		expect(f.count("os_outputs")).toBe(1);
+		expect(f.count("os_output_revisions")).toBe(1);
+		f.sqlite.exec("DROP TRIGGER deny_link");
+		const result = await f.client.apply(input);
+		expect(result.receipt.replayed).toBe(false);
+		expect(f.count("work_items")).toBe(3);
+		expect(f.count("os_outputs")).toBe(1);
+		expect(f.count("os_output_revisions")).toBe(1);
 	});
 	it("rejects another tenant's blueprint and incomplete machine scopes", async () => {
 		await expect(

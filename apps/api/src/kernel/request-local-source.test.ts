@@ -1,3 +1,5 @@
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
+import { createOsOutput } from "../services/os-workspace-outputs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
@@ -10,7 +12,7 @@ import {
 import { agentSessionRequests } from "@tedix/db/schema/agent-session-requests";
 import { workItems, workAttempts } from "@tedix/db/schema/work-items";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
-import { osOutputs, osWorkspaces } from "@tedix/db/schema/os-workspaces";
+import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import {
 	recordAgentSessionRequests,
 	fileAgentSessionRequest,
@@ -57,10 +59,10 @@ async function fixture() {
 			workItems,
 			workAttempts,
 			organizationMembers,
-			osOutputs,
 			osWorkspaces,
 		),
 	);
+	workspaceOutputFixture(sqlite);
 	const db = createDbClient(createD1Facade(sqlite));
 	const context = {
 		db,
@@ -86,18 +88,31 @@ async function fixture() {
 		createdAt: now,
 		updatedAt: now,
 	});
-	await db.insert(osOutputs).values({
-		id: "output-one",
-		organizationId: owner.organizationId,
-		workspaceId: "workspace-one",
-		kind: "document",
-		title: "Example",
-		currentRevisionId: "revision-one",
-		createdByKind: "user",
-		createdById: owner.userId,
-		createdAt: now,
-		updatedAt: now,
-	});
+	await createOsOutput(
+		db,
+		{
+			id: "output-one",
+			organizationId: owner.organizationId,
+			workspaceId: "workspace-one",
+			kind: "document",
+			title: "Example",
+			currentRevisionId: "revision-one",
+			createdByKind: "user",
+			createdById: owner.userId,
+			createdAt: now,
+			updatedAt: now,
+		},
+		{
+			id: "revision-one",
+			organizationId: owner.organizationId,
+			outputId: "output-one",
+			revision: 1,
+			content: JSON.stringify({ kind: "document", blocks: [] }),
+			createdByKind: "user",
+			createdById: "user-ada",
+			createdAt: now,
+		},
+	);
 	const [recorded] = await recordAgentSessionRequests(db, {
 		...session,
 		repository: "example/product",

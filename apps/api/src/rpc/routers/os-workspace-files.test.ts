@@ -1,3 +1,5 @@
+import { listWorkspaceResourceSummaries } from "@tedix/db/queries/durable-sqlite/workspace-resources";
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 import { DatabaseSync } from "node:sqlite";
 import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
 import { hydrateOutputRevision } from "../../services/os-output-revision-body-store";
@@ -76,6 +78,7 @@ function fixture() {
 	sqlite.exec(
 		`INSERT INTO os_workspaces (id,organization_id,name,status,created_by_kind,created_by_id,created_at,updated_at) VALUES ('${W}','fictional-a','Files','active','user','robin','2026-01-01','2026-01-01')`,
 	);
+	const outputStore = workspaceOutputFixture(sqlite);
 	const objects = new Map<string, Uint8Array>();
 	const uploads = new Map<
 		string,
@@ -221,6 +224,7 @@ function fixture() {
 	return {
 		env,
 		sqlite,
+		...outputStore,
 		context,
 		request,
 		confirm,
@@ -232,6 +236,54 @@ function fixture() {
 }
 
 describe("workspace file uploads", () => {
+	it("makes a newly attached file visible to the agent, then removes it from that read", async () => {
+		const f = fixture();
+		const { ticket, receipts } = await f.upload();
+		const scope = { organizationId: "fictional-a", workspaceId: W };
+		expect(listWorkspaceResourceSummaries(f.tenant, scope)).toEqual([]);
+		const { resource } = await f.confirm({
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+			parts: receipts,
+		});
+		expect(listWorkspaceResourceSummaries(f.tenant, scope)).toEqual([
+			{ id: resource.id, name: resource.name, kind: "file", status: "active" },
+		]);
+		const client = createRouterClient(osWorkspaceResourceProcedures, {
+			context: f.context(),
+		});
+		await client.remove({
+			workspaceId: W,
+			resourceId: resource.id,
+			expectedUpdatedAt: resource.updatedAt,
+		});
+		expect(listWorkspaceResourceSummaries(f.tenant, scope)).toEqual([]);
+	});
+	it("refuses a document on an inactive object while allowing resource-only confirmation", async () => {
+		const f = fixture();
+		const { ticket, receipts } = await f.upload();
+		f.state.active = false;
+		const input = {
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+			parts: receipts,
+		};
+		await expect(f.confirm({ ...input, document: true })).rejects.toThrow(
+			"activated workspace object",
+		);
+		expect(
+			f.sqlite.prepare("SELECT count(*) AS n FROM os_workspace_resources").get()
+				?.n,
+		).toBe(0);
+		await f.confirm(input);
+		expect(
+			f.sqlite.prepare("SELECT count(*) AS n FROM os_workspace_resources").get()
+				?.n,
+		).toBe(1);
+		expect(
+			f.objectSql.prepare("SELECT count(*) AS n FROM os_outputs").get()?.n,
+		).toBe(0);
+	});
 	it("confirms a binary upload into one Resource and Output and retries without duplicates", async () => {
 		const f = fixture();
 		const { ticket, receipts } = await f.upload();
@@ -244,6 +296,15 @@ describe("workspace file uploads", () => {
 		const first = await f.confirm(input);
 		const second = await f.confirm(input);
 		expect(second.outputId).toBe(first.outputId);
+		expect(
+			f.objectSql
+				.prepare("SELECT id, metadata FROM os_workspace_resources ORDER BY id")
+				.all(),
+		).toEqual(
+			f.sqlite
+				.prepare("SELECT id, metadata FROM os_workspace_resources ORDER BY id")
+				.all(),
+		);
 		expect(first.resource.metadata).toEqual({
 			mimeType: "application/octet-stream",
 			size: 6,
@@ -267,10 +328,14 @@ describe("workspace file uploads", () => {
 			gadget_status: "active",
 		});
 		expect(
-			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
+			f.objectSql.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
 		).toBe(1);
-		// The body is in R2; the D1 row keeps the pointer and an empty body.
-		const stored = f.sqlite
+		for (const table of ["os_outputs", "os_output_revisions"])
+			expect(
+				f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n,
+			).toBe(0);
+		// The body is in R2; the object row keeps the pointer and an empty body.
+		const stored = f.objectSql
 			.prepare(
 				"SELECT content, organization_id, content_sha256, content_bytes, body_r2_key FROM os_output_revisions",
 			)
@@ -347,10 +412,10 @@ describe("workspace file uploads", () => {
 		expect(first.resource.providerId).toBe("tedix");
 		expect(first.resource.resourceType).toBe("file");
 		expect(
-			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
+			f.objectSql.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
 		).toBe(0);
 		expect(
-			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_output_revisions").get()
+			f.objectSql.prepare("SELECT COUNT(*) AS n FROM os_output_revisions").get()
 				?.n,
 		).toBe(0);
 		const file = await f.get({
@@ -369,7 +434,7 @@ describe("workspace file uploads", () => {
 		const retry = await f.confirm(input);
 		expect(retry.outputId).toBeUndefined();
 		expect(
-			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
+			f.objectSql.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
 		).toBe(0);
 		const remove = createRouterClient(
 			{ resources: osWorkspaceResourceProcedures },
@@ -411,7 +476,7 @@ describe("workspace file uploads", () => {
 		};
 		await f.confirm(input);
 		expect(
-			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
+			f.objectSql.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
 		).toBe(0);
 		const published = await f.confirm({ ...input, document: true });
 		expect(published.outputId).toBe(ticket.resourceId);
@@ -423,7 +488,7 @@ describe("workspace file uploads", () => {
 				.get()?.n,
 		).toBe(1);
 		expect(
-			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
+			f.objectSql.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
 		).toBe(1);
 		const output = await createRouterClient(osOutputProcedures.get, {
 			context: f.context(),
@@ -745,9 +810,9 @@ describe("workspace file content validation", () => {
 			document: true,
 		});
 		expect(result.resource.name).toBe("ab.html");
-		expect(f.sqlite.prepare("SELECT title FROM os_outputs").get()?.title).toBe(
-			"ab.html",
-		);
+		expect(
+			f.objectSql.prepare("SELECT title FROM os_outputs").get()?.title,
+		).toBe("ab.html");
 		const file = await f.get({ workspaceId: W, resourceId: ticket.resourceId });
 		expect(file.filename).toBe("ab.html");
 		const response = await serveWorkspaceFile(

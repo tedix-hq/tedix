@@ -1,3 +1,8 @@
+import {
+	createOsOutput,
+	getOsOutputRevision,
+} from "../../services/os-workspace-outputs";
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 /**
  * Share-links router: tenant binding, shown-once token contract, revocation,
  * and creator accountability — end to end against the real D1 facade, with
@@ -36,6 +41,11 @@ import { bindTestContexts } from "../test-context";
 import { osSharesContractRouter } from "./os-shares";
 import { osWorkspacesContractRouter } from "./os-workspaces";
 
+const outputStores = new WeakMap<
+	CloudflareEnv,
+	ReturnType<typeof workspaceOutputFixture>
+>();
+
 function createEnv(): CloudflareEnv {
 	const sqlite = new DatabaseSync(":memory:");
 	// Tenant predicates are exercised below; unrelated FK parents are omitted.
@@ -62,11 +72,14 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		"INSERT INTO organizations (id, name, slug) VALUES ('org-1', 'First Org', 'first'), ('org-2', 'Second Org', 'second');",
 	);
-	return {
+	const outputStore = workspaceOutputFixture(sqlite);
+	const env = {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",
 		DB: createD1Facade(sqlite),
 	} as CloudflareEnv;
+	outputStores.set(env, outputStore);
+	return env;
 }
 
 const { userContext, apiKeyContext } = bindTestContexts({
@@ -111,26 +124,29 @@ async function fixture() {
 		createdById: "user-1",
 	});
 	await db.update(osGadgets).set({ currentRevisionId: gadgetRevisionId });
-	await db.insert(osOutputs).values({
-		id: sourceOutputId,
-		organizationId: "org-1",
-		workspaceId,
-		kind: "document",
-		title: "Source",
-		currentRevisionId: sourceRevisionId,
-		createdByKind: "user",
-		createdById: "user-1",
-	});
-	await db.insert(osOutputRevisions).values({
-		id: sourceRevisionId,
-		organizationId: "org-1",
-		outputId: sourceOutputId,
-		revision: 1,
-		content: JSON.stringify({ kind: "document", blocks: [] }),
-		accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
-		createdByKind: "user",
-		createdById: "user-1",
-	});
+	await createOsOutput(
+		db,
+		{
+			id: sourceOutputId,
+			organizationId: "org-1",
+			workspaceId,
+			kind: "document",
+			title: "Source",
+			currentRevisionId: sourceRevisionId,
+			createdByKind: "user",
+			createdById: "user-1",
+		},
+		{
+			id: sourceRevisionId,
+			organizationId: "org-1",
+			outputId: sourceOutputId,
+			revision: 1,
+			content: JSON.stringify({ kind: "document", blocks: [] }),
+			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+			createdByKind: "user",
+			createdById: "user-1",
+		},
+	);
 	const owner = createRouterClient(osSharesContractRouter, {
 		context: userContext({ env, organizationId: "org-1" }),
 	});
@@ -214,7 +230,10 @@ describe("bounded share reviews", () => {
 			(await h.owner.reviews.listFeedback({ shareId: h.input.shareId }))
 				.feedback,
 		).toHaveLength(1);
-		const [source] = await h.db.select().from(osOutputRevisions);
+		const source = (await getOsOutputRevision(h.db, {
+			organizationId: "org-1",
+			revisionId: h.input.sourceRevisionId,
+		}))!;
 		expect(source.content).toBe(
 			JSON.stringify({ kind: "document", blocks: [] }),
 		);
@@ -329,7 +348,10 @@ describe("bounded share reviews", () => {
 				expectedRevision: 2,
 			}),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
-		const [source] = await h.db.select().from(osOutputRevisions);
+		const source = (await getOsOutputRevision(h.db, {
+			organizationId: "org-1",
+			revisionId: h.input.sourceRevisionId,
+		}))!;
 		expect(source.content).toBe(
 			JSON.stringify({ kind: "document", blocks: [] }),
 		);
@@ -398,11 +420,17 @@ describe("bounded share reviews", () => {
 	});
 	it("fails closed on missing/malformed source provenance and never widens an existing batch", async () => {
 		const h = await fixture();
-		await h.db.update(osOutputRevisions).set({ accessEnvelope: null });
+		await outputStores
+			.get(h.env)!
+			.tenant.update(osOutputRevisions)
+			.set({ accessEnvelope: null });
 		await expect(h.owner.reviews.create(h.input)).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
-		await h.db.update(osOutputRevisions).set({ accessEnvelope: "malformed" });
+		await outputStores
+			.get(h.env)!
+			.tenant.update(osOutputRevisions)
+			.set({ accessEnvelope: "malformed" });
 		await expect(h.owner.reviews.create(h.input)).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});

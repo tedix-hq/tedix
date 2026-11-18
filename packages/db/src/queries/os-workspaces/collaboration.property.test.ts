@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import fc from "fast-check";
 import { describe, expect, it } from "vite-plus/test";
@@ -8,8 +9,12 @@ import {
 	osOutputs,
 	osOutputRevisions,
 } from "../../schema/os-workspaces";
+import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { createD1Facade } from "../../test/d1-facade";
+import { createDurableSqliteFixture } from "../../test/durable-sqlite-fixture";
 import { schemaDdl } from "../../test/schema-ddl";
+import { mergeOsOutputProposal } from "../durable-sqlite/os-outputs";
+import { createTenantStoreDb } from "../durable-sqlite/tenant-store";
 import {
 	createOsCollaborationProposal,
 	decideOsCollaborationProposal,
@@ -35,9 +40,17 @@ async function runSequence(sequence: Action[]) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
-		schemaDdl(osCollaborationProposals, osOutputs, osOutputRevisions),
+		schemaDdl(
+			osCollaborationProposals,
+			osOutputs,
+			osOutputRevisions,
+			workspaceOutputIndex,
+		),
 	);
 	const db = createDbQueryClient(createD1Facade(sqlite));
+	// The workspace object owns the document rows; the shared database keeps
+	// the proposal and the index row that records the base lineage.
+	const object = createTenantStoreDb(createDurableSqliteFixture(sqlite));
 	const author = {
 		createdByKind: "user" as const,
 		createdById: "reviewer",
@@ -75,6 +88,26 @@ async function runSequence(sequence: Action[]) {
 			revision: 1,
 			content: "original",
 			...author,
+		});
+		await db.insert(workspaceOutputIndex).values({
+			id: "file:1",
+			organizationId: scope.organizationId,
+			workspaceId: "workspace",
+			outputId: "file",
+			revision: 1,
+			revisionId: "base",
+			isCurrent: 1,
+			outputKind: "document",
+			title: "Draft",
+			status: "active",
+			outputCreatedByKind: author.createdByKind,
+			outputCreatedById: author.createdById,
+			outputCreatedAt: stamp,
+			revisionCreatedByKind: author.createdByKind,
+			revisionCreatedById: author.createdById,
+			revisionCreatedAt: stamp,
+			updatedAt: stamp,
+			accessEnvelope: '{"version":1,"sources":[]}',
 		});
 		await createOsCollaborationProposal(db, {
 			id: scope.proposalId,
@@ -135,20 +168,44 @@ async function runSequence(sequence: Action[]) {
 			} else if (action === "merge" || action === "staleMerge") {
 				const allowed =
 					model.status === "accepted" && !stale && model.pointer === "base";
-				const revisionId = `merged-${index}`;
-				const result = await mergeOsCollaborationProposal(db, {
-					...scope,
-					expectedSequence,
-					revisionId,
-					rationale: "Approved write",
-					evidenceRefs: "[]",
-					mergedByKind: "user",
-					mergedById: "reviewer",
-				});
-				expect(result.ok).toBe(allowed);
+				// Repeating a finished merge returns its receipt and writes nothing.
+				const replayed = model.status === "merged" && !stale;
+				const result = await mergeOsCollaborationProposal(
+					db,
+					{
+						...scope,
+						expectedSequence,
+						revisionId: `merged-${index}`,
+						rationale: "Approved write",
+						evidenceRefs: "[]",
+						mergedByKind: "user",
+						mergedById: "reviewer",
+						outputBody: {
+							content: model.content,
+							contentSha256: createHash("sha256")
+								.update(model.content)
+								.digest("hex"),
+							contentBytes: Buffer.byteLength(model.content),
+							bodyR2Key: "fixture-body",
+						},
+					},
+					(input) =>
+						Promise.resolve(
+							mergeOsOutputProposal(
+								object,
+								{
+									organizationId: input.proposal.organizationId,
+									workspaceId: input.proposal.workspaceId,
+								},
+								input,
+							),
+						),
+				);
+				expect(result.ok).toBe(allowed || replayed);
 				if (allowed) {
+					// The proposal id is the id of the revision it writes.
 					model.status = "merged";
-					model.pointer = revisionId;
+					model.pointer = scope.proposalId;
 					model.revisions++;
 				}
 			} else {

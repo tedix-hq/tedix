@@ -2,11 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { skillEntries } from "../../schema/cognitive";
-import {
-	osOutputs,
-	osWorkspaceResources,
-	osWorkspaces,
-} from "../../schema/os-workspaces";
+import { osWorkspaceResources, osWorkspaces } from "../../schema/os-workspaces";
+import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
@@ -30,7 +27,9 @@ function fixture() {
 		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL);
 		INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
 	`);
-	sqlite.exec(schemaDdl(osWorkspaces, osWorkspaceResources, osOutputs));
+	sqlite.exec(
+		schemaDdl(osWorkspaces, osWorkspaceResources, workspaceOutputIndex),
+	);
 	// schemaDdl deliberately omits expression indexes; exercise the production identity index on real SQLite.
 	sqlite.exec(
 		"CREATE UNIQUE INDEX os_workspace_resources_provider_object_unique ON os_workspace_resources(workspace_id,provider_id,connection_scope,coalesce(personal_owner_user_id, ''),coalesce(connection_instance_id, ''),resource_type,provider_resource_id)",
@@ -386,16 +385,26 @@ describe("OS Workspace resources", () => {
 
 	it("hides Tedix file and output references whose Output is archived or gone, on request", async () => {
 		const { db, resource } = await seed();
+		// Each file's current status comes from the workspace feed's index.
 		const output = (id: string, status: "active" | "archived") =>
-			db.insert(osOutputs).values({
-				id,
+			db.insert(workspaceOutputIndex).values({
+				id: `${id}:1`,
 				organizationId: "org-1",
 				workspaceId: "ws-1",
-				kind: "document",
+				outputId: id,
+				revision: 1,
+				revisionId: `${id}-r1`,
+				isCurrent: 1,
+				outputKind: "document",
 				title: id,
 				status,
-				createdByKind: "user",
-				createdById: "u-1",
+				outputCreatedByKind: "user",
+				outputCreatedById: "u-1",
+				outputCreatedAt: "2026-11-18T00:00:00.000Z",
+				revisionCreatedByKind: "user",
+				revisionCreatedById: "u-1",
+				revisionCreatedAt: "2026-11-18T00:00:00.000Z",
+				updatedAt: "2026-11-18T00:00:00.000Z",
 			});
 		await output("file-archived", "archived");
 		await output("file-active", "active");
@@ -433,7 +442,7 @@ describe("OS Workspace resources", () => {
 			await listOsWorkspaceResources(db, { ...scope, status: "active" }),
 		).toHaveLength(7);
 
-		await db.update(osOutputs).set({ status: "active" });
+		await db.update(workspaceOutputIndex).set({ status: "active" });
 		expect(
 			await listOsWorkspaceResources(db, {
 				...scope,

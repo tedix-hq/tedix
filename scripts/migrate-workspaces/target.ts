@@ -175,8 +175,18 @@ export class LocalWorkspaceStore implements WorkspaceStore {
 			jurisdiction?: string | null;
 			fallbackDdl?: (table: string) => string | null;
 			migrations?: Migration[];
+			readOnly?: boolean;
 		} = {},
 	) {
+		this.#ref = ref;
+		this.#jurisdiction =
+			options.jurisdiction === undefined
+				? REQUIRED_JURISDICTION
+				: options.jurisdiction;
+		if (options.readOnly) {
+			this.db = new DatabaseSync(path, { readOnly: true });
+			return;
+		}
 		const migrations = options.migrations ?? readTenantStoreMigrations();
 		if (path !== ":memory:") {
 			mkdirSync(dirname(path), { recursive: true });
@@ -189,11 +199,6 @@ export class LocalWorkspaceStore implements WorkspaceStore {
 		// core tables the object does not hold; the object itself has no
 		// cross-table constraints to the core either.
 		this.db.exec("PRAGMA foreign_keys = OFF");
-		this.#ref = ref;
-		this.#jurisdiction =
-			options.jurisdiction === undefined
-				? REQUIRED_JURISDICTION
-				: options.jurisdiction;
 		// An existing object still gets any migration it lacks.
 		applyMigrations(this.db, migrations);
 		for (const mapping of WORKSPACE_TABLES) {
@@ -341,6 +346,7 @@ export function localStoreFactory(
 	options: {
 		jurisdiction?: string | null;
 		fallbackDdl?: (table: string) => string | null;
+		readOnly?: boolean;
 	} = {},
 ): WorkspaceStoreFactory {
 	return {

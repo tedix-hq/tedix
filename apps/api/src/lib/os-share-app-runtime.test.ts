@@ -1,3 +1,5 @@
+import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
+import { createOsOutput } from "../services/os-workspace-outputs";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import {
@@ -40,7 +42,6 @@ import {
 	osGadgetRevisions,
 	osGadgets,
 	osOutputRevisions,
-	osOutputs,
 	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
@@ -108,8 +109,6 @@ async function fixture(options: { triggers?: unknown[] } = {}) {
 			osGadgetCodeBlobs,
 			osGadgetExecutions,
 			osWorkspaceResources,
-			osOutputs,
-			osOutputRevisions,
 			osShareLinks,
 			osShareSessions,
 			osShareLinkInvitees,
@@ -123,6 +122,8 @@ async function fixture(options: { triggers?: unknown[] } = {}) {
 	);
 	const facade = createD1Facade(sqlite);
 	const db = createDbClient(facade);
+	const { objectSql } = workspaceOutputFixture(sqlite);
+	const outputDb = createDbClient(createD1Facade(objectSql));
 	await db
 		.insert(organizations)
 		.values({ id: "org-1", name: "Fictional Org", slug: "fictional" });
@@ -194,26 +195,29 @@ async function fixture(options: { triggers?: unknown[] } = {}) {
 		files: JSON.stringify(files),
 		codeLength: files["server.js"].length,
 	});
-	await db.insert(osOutputs).values({
-		id: outputId,
-		organizationId: "org-1",
-		workspaceId,
-		kind: "sheet",
-		title: "Opportunities",
-		currentRevisionId: "88888888-8888-4888-8888-888888888888",
-		createdByKind: "user",
-		createdById: "user-1",
-	});
-	await db.insert(osOutputRevisions).values({
-		id: "88888888-8888-4888-8888-888888888888",
-		organizationId: "org-1",
-		outputId,
-		revision: 1,
-		content: JSON.stringify({ kind: "sheet", columns: ["#"], rows: [[1]] }),
-		accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
-		createdByKind: "user",
-		createdById: "user-1",
-	});
+	await createOsOutput(
+		db,
+		{
+			id: outputId,
+			organizationId: "org-1",
+			workspaceId,
+			kind: "sheet",
+			title: "Opportunities",
+			currentRevisionId: "88888888-8888-4888-8888-888888888888",
+			createdByKind: "user",
+			createdById: "user-1",
+		},
+		{
+			id: "88888888-8888-4888-8888-888888888888",
+			organizationId: "org-1",
+			outputId,
+			revision: 1,
+			content: JSON.stringify({ kind: "sheet", columns: ["#"], rows: [[1]] }),
+			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+			createdByKind: "user",
+			createdById: "user-1",
+		},
+	);
 	await db.insert(osWorkspaceResources).values({
 		id: crypto.randomUUID(),
 		organizationId: "org-1",
@@ -234,7 +238,7 @@ async function fixture(options: { triggers?: unknown[] } = {}) {
 		SECRETS_MASTER_KEY: key,
 		TEDI_SERVICE: { fetch },
 	} as unknown as CloudflareEnv;
-	return { db, env, fetch };
+	return { db, outputDb, env, fetch };
 }
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -575,7 +579,7 @@ describe("share-link guests on a runtime app", () => {
 	});
 
 	it("reads only granted, sourceless Outputs for the guest", async () => {
-		const { db, env } = await fixture();
+		const { db, outputDb, env } = await fixture();
 		const link = await seedLink(db);
 		const sessionToken = await redeem(db, link.token);
 		const granted = await handleGuestAppRead(db, {
@@ -594,7 +598,7 @@ describe("share-link guests on a runtime app", () => {
 		const opened = (await (
 			await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" })
 		).json()) as { session: string };
-		await db
+		await outputDb
 			.update(osOutputRevisions)
 			.set({
 				accessEnvelope: JSON.stringify({
@@ -624,7 +628,7 @@ describe("share-link guests on a runtime app", () => {
 				args: null,
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
-		await db
+		await outputDb
 			.update(osOutputRevisions)
 			.set({ accessEnvelope: JSON.stringify({ version: 1, sources: [] }) })
 			.where(eq(osOutputRevisions.outputId, outputId));
@@ -975,38 +979,41 @@ describe("Anyone-with-the-link workspace links", () => {
 
 	async function seedConnectedOutput(db: Fixture["db"]) {
 		const connectedId = "99999999-9999-4999-8999-999999999999";
-		await db.insert(osOutputs).values({
-			id: connectedId,
-			organizationId: "org-1",
-			workspaceId,
-			kind: "document",
-			title: "Inbox digest",
-			currentRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-			createdByKind: "user",
-			createdById: "user-1",
-		});
-		await db.insert(osOutputRevisions).values({
-			id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-			organizationId: "org-1",
-			outputId: connectedId,
-			revision: 1,
-			content: JSON.stringify({ kind: "document", blocks: [] }),
-			accessEnvelope: JSON.stringify({
-				version: 1,
-				sources: [
-					{
-						workspaceResourceId: "00000000-0000-4000-8000-000000000001",
-						workspaceId,
-						providerId: "gmail",
-						connectionScope: "personal",
-						providerResourceId: "inbox",
-						requiredScopes: [],
-					},
-				],
-			}),
-			createdByKind: "user",
-			createdById: "user-1",
-		});
+		await createOsOutput(
+			db,
+			{
+				id: connectedId,
+				organizationId: "org-1",
+				workspaceId,
+				kind: "document",
+				title: "Inbox digest",
+				currentRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+			{
+				id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+				organizationId: "org-1",
+				outputId: connectedId,
+				revision: 1,
+				content: JSON.stringify({ kind: "document", blocks: [] }),
+				accessEnvelope: JSON.stringify({
+					version: 1,
+					sources: [
+						{
+							workspaceResourceId: "00000000-0000-4000-8000-000000000001",
+							workspaceId,
+							providerId: "gmail",
+							connectionScope: "personal",
+							providerResourceId: "inbox",
+							requiredScopes: [],
+						},
+					],
+				}),
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+		);
 		return connectedId;
 	}
 
@@ -1595,8 +1602,9 @@ describe("a link that lets invited people edit", () => {
 				patch: change,
 				...body,
 			});
+		// The workspace stores the file's revisions, not the shared database.
 		const revisions = () =>
-			db
+			h.outputDb
 				.select()
 				.from(osOutputRevisions)
 				.where(eq(osOutputRevisions.outputId, outputId));
@@ -1767,7 +1775,7 @@ describe("a link that lets invited people edit", () => {
 	});
 
 	it("refuses another slot, a malformed change, and a file that carries connected data", async () => {
-		const { db, save, revisions } = await visitor();
+		const { outputDb, save, revisions } = await visitor();
 		expect((await save({ slot: "other" })).status).toBe(404);
 		expect((await save({ patch: { kind: "sheet", ops: [] } })).status).toBe(
 			404,
@@ -1783,7 +1791,7 @@ describe("a link that lets invited people edit", () => {
 				})
 			).status,
 		).toBe(400);
-		await db
+		await outputDb
 			.update(osOutputRevisions)
 			.set({
 				accessEnvelope: JSON.stringify({

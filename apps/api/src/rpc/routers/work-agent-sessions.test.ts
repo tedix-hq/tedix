@@ -1,3 +1,4 @@
+import { workspaceOutputIndex } from "@tedix/db/schema/workspace-feed";
 import {
 	learningInteractionEvents,
 	learningImprovementProposals,
@@ -89,6 +90,7 @@ function fixture() {
 		osWorkspaceProjects,
 		osGadgetExecutions,
 		osOutputs,
+		workspaceOutputIndex,
 		osGadgets,
 		osWorkspaceResources,
 	])

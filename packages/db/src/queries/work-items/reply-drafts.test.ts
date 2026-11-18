@@ -646,7 +646,7 @@ describe("auto reply delivery (migrated D1 triggers)", () => {
 		const revisionId = "00000000-0000-4000-8000-000000000002";
 		sqlite
 			.prepare(
-				"INSERT INTO os_outputs (id,organization_id,kind,title,current_revision_id,created_by_kind,created_by_id) VALUES (?,'org','document','Current resource state',?,'user','user')",
+				"INSERT INTO workspace_output_index (id,organization_id,workspace_id,output_id,revision,revision_id,is_current,output_kind,title,status,output_created_by_kind,output_created_by_id,output_created_at,revision_created_by_kind,revision_created_by_id,revision_created_at,updated_at) VALUES ('index-row','org','workspace',?,1,?,1,'document','Current resource state','active','user','user','2026-08-20T00:00:00.000Z','user','user','2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z')",
 			)
 			.run(outputId, revisionId);
 		question(sqlite, "q1", {
@@ -657,7 +657,9 @@ describe("auto reply delivery (migrated D1 triggers)", () => {
 		});
 		await insertReplyDraft(db, draft({ delivery: "auto" }));
 		sqlite
-			.prepare("UPDATE os_outputs SET current_revision_id=? WHERE id=?")
+			.prepare(
+				"UPDATE workspace_output_index SET revision_id=? WHERE output_id=?",
+			)
 			.run(outputId, outputId);
 		const answer: Parameters<typeof respondToWorkInteraction>[1] = {
 			orgId: "org",

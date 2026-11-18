@@ -1,5 +1,15 @@
+import type { CommitCollaborationOutputParams } from "@tedix/db/queries/os-workspaces/collaboration";
 import { env, waitUntil } from "cloudflare:workers";
-import * as d1Outputs from "@tedix/db/queries/os-workspaces/outputs";
+import type { TenantScope } from "@tedix/db/tenant-scope";
+import type {
+	NewOsOutputRow,
+	NewOsOutputRevisionRow,
+} from "@tedix/db/schema/os-workspaces";
+import type {
+	ListOsOutputsOptions,
+	UpdateOsOutputPatch,
+	CreateOsOutputRevisionParams as ObjectRevisionParams,
+} from "@tedix/db/queries/durable-sqlite/os-outputs";
 import type {
 	OutputTransferResult,
 	WorkspaceOutputRuntime,
@@ -14,9 +24,30 @@ import {
 	getOsWorkspace,
 	isOsWorkspaceVisibleTo,
 	type OsWorkspaceScopeParams,
+	type OsWorkspaceViewer,
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import { outputLibraryRowsFromIndex } from "./os-output-library";
 import { deleteOutputAssets } from "./os-output-assets";
+import { workspaceOwnsDocuments } from "./workspace-document-owner";
+
+type OutputScope = TenantScope & { outputId: string };
+type CreateOutputArgs = [
+	db: DbQueryClient,
+	scope: TenantScope,
+	output: NewOsOutputRow,
+	revision: NewOsOutputRevisionRow,
+	/** Searchable text of the body; the workspace publishes it with the save. */
+	excerpt?: string,
+];
+type RevisionParams = Omit<
+	ObjectRevisionParams,
+	"bodyR2Key" | "contentSha256" | "contentBytes"
+> &
+	Pick<
+		NewOsOutputRevisionRow,
+		"content" | "bodyR2Key" | "contentSha256" | "contentBytes"
+	> &
+	TenantScope & { expectedWorkspaceId?: string };
 
 async function refreshCommittedOutput(
 	store: WorkspaceOutputRuntime,
@@ -43,102 +74,94 @@ async function location(
 	organizationId: string,
 	outputId: string,
 ) {
+	const scope = await readLocation(db, organizationId, outputId);
+	if (!scope) return undefined;
+	return (await workspaceOwnsDocuments(scope, runtime()!)) ? scope : undefined;
+}
+
+function readRuntime(): WorkspaceOutputRuntime {
+	const store = runtime();
+	if (!store) throw new Error("Workspace output runtime is unavailable");
+	return store;
+}
+
+async function readLocation(
+	db: DbQueryClient,
+	organizationId: string,
+	outputId: string,
+) {
 	const index = await getWorkspaceOutputLocation(db, {
 		organizationId,
 		outputId,
 	});
-	if (!index?.workspaceId) return undefined;
-	const scope = { organizationId, workspaceId: index.workspaceId };
-	return (await runtime()!.outputQuery(scope, { op: "authority" })) === "object"
-		? scope
+	return index?.workspaceId
+		? { organizationId, workspaceId: index.workspaceId }
 		: undefined;
 }
 
-/** The index locates the workspace; the runtime resolves its storage owner. */
 export async function getOsOutput(
-	...args: Parameters<typeof d1Outputs.getOsOutput>
+	...args: [db: DbQueryClient, params: OutputScope]
 ) {
-	const store = runtime();
-	const scope = store
-		? await location(args[0], args[1].organizationId, args[1].outputId)
-		: undefined;
-	if (!scope) return d1Outputs.getOsOutput(...args);
+	const store = readRuntime();
+	const scope = await readLocation(
+		args[0],
+		args[1].organizationId,
+		args[1].outputId,
+	);
+	if (!scope) return undefined;
 	if (args[1].workspaceId && scope.workspaceId !== args[1].workspaceId)
 		return undefined;
-	return store!.outputQuery(scope, { op: "get", outputId: args[1].outputId });
+	return store.outputQuery(scope, { op: "get", outputId: args[1].outputId });
 }
 
 export async function moveOsOutput(
-	db: DbQueryClient,
+	_db: DbQueryClient,
 	output: NonNullable<Awaited<ReturnType<typeof getOsOutput>>>,
 	targetWorkspaceId: string,
 ): Promise<OutputTransferResult> {
-	const store = runtime();
-	const objectOwned = Boolean(
-		store &&
-		output.workspaceId &&
-		(await store.outputQuery(
-			{
-				organizationId: output.organizationId,
-				workspaceId: output.workspaceId,
-			},
-			{ op: "authority" },
-		)) === "object",
-	);
-	if (store && targetWorkspaceId !== output.workspaceId) {
-		const targetScope = {
-			organizationId: output.organizationId,
-			workspaceId: targetWorkspaceId,
-		};
-		const targetObjectOwned =
-			(await store.outputQuery(targetScope, { op: "authority" })) === "object";
-		if (
-			(!objectOwned && targetObjectOwned) ||
-			(objectOwned &&
-				!targetObjectOwned &&
-				(await d1Outputs.hasSharedWorkspaceOutputs(db, targetScope)))
-		)
-			return { ok: false, reason: "conflict" };
-	}
-	if (!store || !output.workspaceId || !objectOwned) {
-		const moved = await d1Outputs.updateOsOutput(
-			db,
-			{ organizationId: output.organizationId, outputId: output.id },
-			{ workspaceId: targetWorkspaceId },
+	const store = readRuntime();
+	if (!output.workspaceId)
+		throw new Error(
+			"Workspace output writes require an activated workspace object",
 		);
-		return moved
-			? { ok: true, output: moved }
-			: { ok: false, reason: "not_found" };
-	}
-	return store.transferOutput(
-		{ organizationId: output.organizationId, workspaceId: output.workspaceId },
-		output.id,
-		targetWorkspaceId,
-	);
+	const scope = {
+		organizationId: output.organizationId,
+		workspaceId: output.workspaceId,
+	};
+	if (!(await workspaceOwnsDocuments(scope, store)))
+		throw new Error(
+			"Workspace output writes require an activated workspace object",
+		);
+	if (
+		targetWorkspaceId !== output.workspaceId &&
+		!(await workspaceOwnsDocuments(
+			{ organizationId: output.organizationId, workspaceId: targetWorkspaceId },
+			store,
+		))
+	)
+		throw new Error(
+			"Workspace output writes require an activated workspace object",
+		);
+	return store.transferOutput(scope, output.id, targetWorkspaceId);
 }
 
 export async function listOsOutputs(
-	...args: Parameters<typeof d1Outputs.listOsOutputs>
+	...args: [
+		db: DbQueryClient,
+		scope: TenantScope,
+		viewer: OsWorkspaceViewer,
+		options?: ListOsOutputsOptions,
+	]
 ) {
 	const [db, scope, viewer, options = {}] = args;
-	const store = runtime();
-	if (!store) return d1Outputs.listOsOutputs(...args);
-	if (
-		scope.workspaceId &&
-		(await store.outputQuery(
-			{ organizationId: scope.organizationId, workspaceId: scope.workspaceId },
-			{ op: "authority" },
-		)) !== "object"
-	)
-		return d1Outputs.listOsOutputs(...args);
-	const rows = scope.workspaceId ? [] : await d1Outputs.listOsOutputs(...args);
 	let objectRows;
 	if (scope.workspaceId) {
 		const workspace = await getOsWorkspace(db, {
 			organizationId: scope.organizationId,
 			workspaceId: scope.workspaceId,
 		});
-		if (!workspace || !isOsWorkspaceVisibleTo(workspace, viewer)) return rows;
+		if (!workspace || !isOsWorkspaceVisibleTo(workspace, viewer)) return [];
+		const store = readRuntime();
 		objectRows = await store.outputQuery(
 			{ organizationId: scope.organizationId, workspaceId: scope.workspaceId },
 			{ op: "list", options },
@@ -149,9 +172,9 @@ export async function listOsOutputs(
 			organizationId: scope.organizationId,
 			workspaceId: scope.workspaceId,
 		};
-		const repairs = objectRows
-			.filter((row) => !rows.some((candidate) => candidate.id === row.id))
-			.map((row) => refreshCommittedOutput(store, workspaceScope, row.id));
+		const repairs = objectRows.map((row) =>
+			refreshCommittedOutput(store, workspaceScope, row.id),
+		);
 		if (repairs.length) waitUntil(Promise.all(repairs));
 	} else {
 		const indexed = await listWorkspaceOutputLibrary(
@@ -161,9 +184,7 @@ export async function listOsOutputs(
 		);
 		objectRows = indexed.map((row) => outputLibraryRowsFromIndex(row).output);
 	}
-	const merged = new Map(objectRows.map((row) => [row.id, row]));
-	for (const row of rows) merged.set(row.id, row);
-	return [...merged.values()]
+	return objectRows
 		.sort(
 			(a, b) =>
 				b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id),
@@ -172,105 +193,133 @@ export async function listOsOutputs(
 }
 
 export async function getOsOutputRevision(
-	...args: Parameters<typeof d1Outputs.getOsOutputRevision>
+	...args: [db: DbQueryClient, params: TenantScope & { revisionId: string }]
 ) {
-	if (!runtime()) return d1Outputs.getOsOutputRevision(...args);
+	const store = readRuntime();
 	const index = await getWorkspaceOutputIndexRevision(args[0], args[1]);
-	return index &&
-		(await runtime()!.outputQuery(
-			{ organizationId: index.organizationId, workspaceId: index.workspaceId },
-			{ op: "authority" },
-		)) === "object"
-		? runtime()!.outputQuery(
+	return index
+		? store.outputQuery(
 				{
 					organizationId: index.organizationId,
 					workspaceId: index.workspaceId,
 				},
 				{ op: "revision", revisionId: args[1].revisionId },
 			)
-		: d1Outputs.getOsOutputRevision(...args);
+		: undefined;
 }
 
 export async function getOsOutputRevisionByNumber(
-	...args: Parameters<typeof d1Outputs.getOsOutputRevisionByNumber>
+	...args: [db: DbQueryClient, params: OutputScope & { revision: number }]
 ) {
-	const scope = runtime()
-		? await location(args[0], args[1].organizationId, args[1].outputId)
-		: undefined;
+	const store = readRuntime();
+	const scope = await readLocation(
+		args[0],
+		args[1].organizationId,
+		args[1].outputId,
+	);
 	return scope
-		? runtime()!.outputQuery(scope, {
+		? store.outputQuery(scope, {
 				op: "revisionByNumber",
 				outputId: args[1].outputId,
 				revision: args[1].revision,
 			})
-		: d1Outputs.getOsOutputRevisionByNumber(...args);
+		: undefined;
 }
 
 export async function listOsOutputRevisions(
-	...args: Parameters<typeof d1Outputs.listOsOutputRevisions>
+	...args: [
+		db: DbQueryClient,
+		params: OutputScope,
+		options?: { limit?: number; beforeRevision?: number },
+	]
 ) {
-	const scope = runtime()
-		? await location(args[0], args[1].organizationId, args[1].outputId)
-		: undefined;
+	const store = readRuntime();
+	const scope = await readLocation(
+		args[0],
+		args[1].organizationId,
+		args[1].outputId,
+	);
 	return scope
-		? runtime()!.outputQuery(scope, {
+		? store.outputQuery(scope, {
 				op: "history",
 				outputId: args[1].outputId,
 				options: args[2],
 			})
-		: d1Outputs.listOsOutputRevisions(...args);
+		: [];
 }
 
-/**
- * Whether the workspace keeps its files in its own store, claiming a brand-new
- * workspace (no import, no shared files) for its store on the way.
- */
-export async function claimWorkspaceOutputs(scope: {
+export async function requireWorkspaceOutputAuthority(scope: {
 	organizationId: string;
-	workspaceId: string;
-}): Promise<boolean> {
-	return (
-		!!runtime() &&
-		(await runtime()!.outputQuery(scope, { op: "claim" })) === "object"
-	);
+	workspaceId?: string | null;
+}) {
+	const store = readRuntime();
+	if (
+		!scope.workspaceId ||
+		!(await workspaceOwnsDocuments(
+			{ organizationId: scope.organizationId, workspaceId: scope.workspaceId },
+			store,
+		))
+	)
+		throw new Error(
+			"Workspace output writes require an activated workspace object",
+		);
+	return {
+		organizationId: scope.organizationId,
+		workspaceId: scope.workspaceId,
+	};
 }
 
-export async function createOsOutput(
-	...args: Parameters<typeof d1Outputs.createOsOutput>
-) {
-	const [, scope, output, revision] = args;
-	if (
-		!output.workspaceId ||
-		!runtime() ||
-		(await runtime()!.outputQuery(
-			{ organizationId: scope.organizationId, workspaceId: output.workspaceId },
-			{ op: "claim" },
-		)) !== "object"
-	)
-		return d1Outputs.createOsOutput(...args);
-	const created = await runtime()!.outputQuery(
-		{ organizationId: scope.organizationId, workspaceId: output.workspaceId },
-		{ op: "create", output, revision },
-	);
-	await refreshCommittedOutput(
-		runtime()!,
-		{ organizationId: scope.organizationId, workspaceId: output.workspaceId },
-		output.id,
-	);
+export async function createOsOutput(...args: CreateOutputArgs) {
+	const [, scope, output, revision, excerpt] = args;
+	const store = readRuntime();
+	const bound = await requireWorkspaceOutputAuthority({
+		organizationId: scope.organizationId,
+		workspaceId: output.workspaceId,
+	});
+	const created = await store.outputQuery(bound, {
+		op: "create",
+		output,
+		revision,
+		...(excerpt ? { excerpt } : {}),
+	});
+	await refreshCommittedOutput(store, bound, output.id);
 	return created;
 }
 
+/** Concurrent upload confirmations must preserve the document and any later edits. */
+export async function ensureOsOutput(...args: CreateOutputArgs) {
+	const [, scope, output] = args;
+	const bound = await requireWorkspaceOutputAuthority({
+		organizationId: scope.organizationId,
+		workspaceId: output.workspaceId,
+	});
+	const store = readRuntime();
+	const existing = () =>
+		store.outputQuery(bound, { op: "get", outputId: output.id });
+	if (!(await existing())) {
+		try {
+			await createOsOutput(...args);
+		} catch (error) {
+			// The object serializes inserts; another confirmation may have won.
+			if (!(await existing())) throw error;
+		}
+	}
+	await refreshCommittedOutput(store, bound, output.id);
+}
+
 export async function createOsOutputRevision(
-	...args: Parameters<typeof d1Outputs.createOsOutputRevision>
+	...args: [db: DbQueryClient, params: RevisionParams, excerpt?: string]
 ) {
-	const [db, params] = args;
-	const scope = runtime()
-		? await location(db, params.organizationId, params.outputId)
-		: undefined;
-	if (!scope) return d1Outputs.createOsOutputRevision(...args);
+	const [db, params, excerpt] = args;
+	const store = readRuntime();
+	const scope = await location(db, params.organizationId, params.outputId);
+	if (!scope)
+		throw new Error(
+			"Workspace output writes require an activated workspace object",
+		);
 	if (!params.bodyR2Key || !params.contentSha256 || params.contentBytes == null)
 		throw new Error("Workspace output revision requires its stored R2 body");
-	const result = await runtime()!.outputQuery(scope, {
+	const result = await store.outputQuery(scope, {
 		op: "revise",
 		params: {
 			...params,
@@ -278,36 +327,39 @@ export async function createOsOutputRevision(
 			contentSha256: params.contentSha256,
 			contentBytes: params.contentBytes,
 		},
+		...(excerpt ? { excerpt } : {}),
 	});
-	if (result.ok)
-		await refreshCommittedOutput(runtime()!, scope, params.outputId);
+	if (result.ok) await refreshCommittedOutput(store, scope, params.outputId);
 	return result;
 }
 
 export async function updateOsOutput(
-	...args: Parameters<typeof d1Outputs.updateOsOutput>
+	...args: [db: DbQueryClient, params: OutputScope, patch: UpdateOsOutputPatch]
 ) {
-	const scope = runtime()
-		? await location(args[0], args[1].organizationId, args[1].outputId)
-		: undefined;
-	return scope
-		? runtime()!.outputQuery(scope, {
-				op: "update",
-				outputId: args[1].outputId,
-				patch: args[2],
-			})
-		: d1Outputs.updateOsOutput(...args);
+	const store = readRuntime();
+	const scope = await location(
+		args[0],
+		args[1].organizationId,
+		args[1].outputId,
+	);
+	if (!scope)
+		throw new Error(
+			"Workspace output writes require an activated workspace object",
+		);
+	return store.outputQuery(scope, {
+		op: "update",
+		outputId: args[1].outputId,
+		patch: args[2],
+	});
 }
 
 export async function getActiveSheetByTitle(
-	...args: Parameters<typeof d1Outputs.getActiveSheetByTitle>
+	...args: [
+		db: DbQueryClient,
+		params: OsWorkspaceScopeParams & { title: string },
+	]
 ) {
-	if (
-		!runtime() ||
-		(await runtime()!.outputQuery(args[1], { op: "authority" })) !== "object"
-	)
-		return d1Outputs.getActiveSheetByTitle(...args);
-	return runtime()!.outputQuery(
+	return readRuntime().outputQuery(
 		{
 			organizationId: args[1].organizationId,
 			workspaceId: args[1].workspaceId,
@@ -317,20 +369,20 @@ export async function getActiveSheetByTitle(
 }
 
 export async function deleteOsOutput(
-	...args: Parameters<typeof d1Outputs.deleteOsOutput>
+	...args: [db: DbQueryClient, params: OutputScope]
 ) {
 	const [db, params] = args;
-	const scope = runtime()
-		? await location(db, params.organizationId, params.outputId)
-		: undefined;
-	const removed = scope
-		? await runtime()!.outputQuery(scope, {
-				op: "delete",
-				outputId: params.outputId,
-			})
-		: await d1Outputs.deleteOsOutput(...args);
-	if (removed && scope)
-		await refreshCommittedOutput(runtime()!, scope, params.outputId);
+	const store = readRuntime();
+	const scope = await location(db, params.organizationId, params.outputId);
+	if (!scope)
+		throw new Error(
+			"Workspace output writes require an activated workspace object",
+		);
+	const removed = await store.outputQuery(scope, {
+		op: "delete",
+		outputId: params.outputId,
+	});
+	if (removed) await refreshCommittedOutput(store, scope, params.outputId);
 	// The file's images have no other owner. A failure leaves objects nothing
 	// can reach, never a file without its images.
 	if (removed)
@@ -341,4 +393,21 @@ export async function deleteOsOutput(
 			});
 		});
 	return removed;
+}
+
+export async function commitCollaborationOutput(
+	params: CommitCollaborationOutputParams,
+) {
+	const scope = await requireWorkspaceOutputAuthority(params.proposal);
+	const result = await readRuntime().outputQuery(scope, {
+		op: "mergeProposal",
+		...params,
+	});
+	if (result.ok)
+		await refreshCommittedOutput(
+			readRuntime(),
+			scope,
+			params.proposal.documentId,
+		);
+	return result;
 }

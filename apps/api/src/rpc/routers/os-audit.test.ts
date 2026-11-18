@@ -1,3 +1,4 @@
+import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 /**
  * Tedix OS audit emission, end to end through the real routers.
  *
@@ -92,6 +93,7 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		"INSERT INTO organizations (id, name, slug) VALUES ('org-1', 'First Org', 'first'), ('org-2', 'Second Org', 'second');",
 	);
+	workspaceOutputFixture(sqlite, { coreSchemaExists: true });
 	return {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",
@@ -340,7 +342,9 @@ describe("Tedix OS audit emission", () => {
 	});
 
 	it("records slide patches without copying presentation contents into audit metadata", async () => {
+		const { workspace } = await os.workspaces.create({ name: "Operations" });
 		const created = await os.outputs.create({
+			workspaceId: workspace.id,
 			kind: "presentation",
 			title: "Deck",
 		});

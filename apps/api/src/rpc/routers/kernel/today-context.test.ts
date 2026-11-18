@@ -1,18 +1,18 @@
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 import type { DbClient } from "@tedix/db/client";
 import { listOsWorkApps } from "@tedix/db/queries/os-workspaces/gadgets";
-import {
-	getOsOutput,
-	getOsOutputRevision,
-} from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutput } from "../../../services/workspace-output-storage";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { getOsOutputRevision } from "../../../services/os-workspace-outputs";
 import { readSavedToday } from "./today-context";
 
 vi.mock("@tedix/db/queries/os-workspaces/gadgets", () => ({
 	listOsWorkApps: vi.fn(),
 }));
-vi.mock("@tedix/db/queries/os-workspaces/outputs", () => ({
+vi.mock("../../../services/workspace-output-storage", () => ({
 	getOsOutput: vi.fn(),
+}));
+vi.mock("../../../services/os-workspace-outputs", () => ({
 	getOsOutputRevision: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/os-workspaces/workspaces", () => ({

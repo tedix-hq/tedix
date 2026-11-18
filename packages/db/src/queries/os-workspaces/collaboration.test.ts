@@ -1,16 +1,58 @@
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
+import { workspaceOutputIndex } from "../../schema/workspace-feed";
+import { schemaDdl } from "../../test/schema-ddl";
 import { createD1Facade } from "../../test/d1-facade";
 import {
 	createOsCollaborationProposal,
 	decideOsCollaborationProposal,
 	getOsCollaborationProposal,
 	listOsCollaborationProposals,
-	mergeOsCollaborationProposal,
+	mergeOsCollaborationProposal as mergeProposal,
 	splitGadgetProposalContent,
 	updateOsCollaborationProposalPreview,
 } from "./collaboration";
+
+import { createDurableSqliteFixture } from "../../test/durable-sqlite-fixture";
+import { createTenantStoreDb } from "../durable-sqlite/tenant-store";
+import { mergeOsOutputProposal } from "../durable-sqlite/os-outputs";
+
+const objectClients = new WeakMap<
+	Parameters<typeof mergeProposal>[0],
+	ReturnType<typeof createTenantStoreDb>
+>();
+async function mergeOsCollaborationProposal(
+	db: Parameters<typeof mergeProposal>[0],
+	params: Parameters<typeof mergeProposal>[1],
+) {
+	const proposal = await getOsCollaborationProposal(db, params);
+	const content = proposal?.content ?? "";
+	return mergeProposal(
+		db,
+		{
+			...params,
+			outputBody: params.outputBody ?? {
+				content,
+				contentSha256: createHash("sha256").update(content).digest("hex"),
+				contentBytes: Buffer.byteLength(content),
+				bodyR2Key: "fixture-body",
+			},
+		},
+		(input) =>
+			Promise.resolve(
+				mergeOsOutputProposal(
+					objectClients.get(db)!,
+					{
+						organizationId: input.proposal.organizationId,
+						workspaceId: input.proposal.workspaceId,
+					},
+					input,
+				),
+			),
+	);
+}
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
@@ -166,7 +208,17 @@ function fixture() {
 			'user', 'u-1', '2026-08-17T10:00:00.000Z'
 		);
 	`);
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
+	sqlite.exec(schemaDdl(workspaceOutputIndex));
+	sqlite.exec(`
+		INSERT INTO workspace_output_index (id, organization_id, workspace_id, output_id, revision, revision_id, is_current, output_kind, title, status, output_created_by_kind, output_created_by_id, output_created_at, revision_created_by_kind, revision_created_by_id, revision_created_at, updated_at, access_envelope)
+		VALUES ('out-1:1', 'org-1', 'ws-1', 'out-1', 1, 'out-rev-1', 1, 'document', 'Brief', 'active', 'user', 'u-1', '2026-08-17', 'user', 'u-1', '2026-08-17', '2026-08-17', '{"version":1,"sources":[]}');
+	`);
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	objectClients.set(
+		db,
+		createTenantStoreDb(createDurableSqliteFixture(sqlite)),
+	);
+	return { sqlite, db };
 }
 
 const createdAt = "2026-08-17T10:05:00.000Z";
@@ -209,6 +261,45 @@ const decision = {
 };
 
 describe("OS collaboration proposals", () => {
+	it.each([
+		"DELETE FROM workspace_output_index",
+		"UPDATE workspace_output_index SET organization_id = 'org-2'",
+		"UPDATE workspace_output_index SET workspace_id = 'other-workspace'",
+		"UPDATE workspace_output_index SET output_id = 'other-output'",
+		"UPDATE workspace_output_index SET revision = 2",
+		"UPDATE workspace_output_index SET revision_id = 'other-revision'",
+	])(
+		"refuses an absent or mismatched indexed base without falling back: %s",
+		async (change) => {
+			const { db, sqlite } = fixture();
+			await seedProposal(db, { status: "accepted" });
+			sqlite.exec(change);
+			expect(
+				await mergeOsCollaborationProposal(db, {
+					organizationId: "org-1",
+					proposalId: "proposal-1",
+					expectedSequence: 0,
+					revisionId: "out-rev-2",
+					rationale: "Reviewed",
+					evidenceRefs: "[]",
+					mergedByKind: "user",
+					mergedById: "u-1",
+				}),
+			).toEqual({ ok: false, reason: "revision_conflict" });
+			expect(
+				sqlite.prepare("SELECT count(*) AS n FROM os_output_revisions").get(),
+			).toEqual({ n: 1 });
+			expect(
+				(
+					await getOsCollaborationProposal(db, {
+						organizationId: "org-1",
+						proposalId: "proposal-1",
+					})
+				)?.status,
+			).toBe("accepted");
+		},
+	);
+
 	it("streams sequence-CAS previews, freezes them on acceptance, and scopes reads", async () => {
 		const { db } = fixture();
 		await seedProposal(db);
@@ -289,7 +380,7 @@ describe("OS collaboration proposals", () => {
 		).toEqual({ count: 1 });
 	});
 
-	it("atomically merges an accepted output preview into one immutable revision", async () => {
+	it("commits an accepted output revision before recording the proposal receipt", async () => {
 		const { db, sqlite } = fixture();
 		const proposal = await seedProposal(db);
 		await decideOsCollaborationProposal(db, {
@@ -317,7 +408,7 @@ describe("OS collaboration proposals", () => {
 			ok: true,
 			proposal: { status: "merged", resultRevision: 2 },
 			revision: {
-				id: "out-rev-2",
+				id: "proposal-1",
 				revision: 2,
 				contentSha256: "a".repeat(64),
 				contentBytes: new TextEncoder().encode(proposal.content).byteLength,
@@ -328,7 +419,7 @@ describe("OS collaboration proposals", () => {
 			sqlite
 				.prepare("SELECT current_revision_id FROM os_outputs WHERE id = ?")
 				.get("out-1"),
-		).toEqual({ current_revision_id: "out-rev-2" });
+		).toEqual({ current_revision_id: "proposal-1" });
 		expect(
 			sqlite.prepare("SELECT count(*) AS count FROM os_output_revisions").get(),
 		).toEqual({ count: 2 });
@@ -341,7 +432,7 @@ describe("OS collaboration proposals", () => {
 				.prepare(
 					"SELECT skill_run_id, skill_id, created_by_id FROM os_output_revisions WHERE id = ?",
 				)
-				.get("out-rev-2"),
+				.get("proposal-1"),
 		).toEqual({ skill_run_id: null, skill_id: null, created_by_id: "u-1" });
 	});
 
@@ -372,7 +463,7 @@ describe("OS collaboration proposals", () => {
 				.prepare(
 					"SELECT skill_run_id, created_by_id FROM os_output_revisions WHERE id = ?",
 				)
-				.get("out-rev-2"),
+				.get("proposal-1"),
 		).toEqual({
 			skill_run_id: "9f1e2d3c-4b5a-4697-8899-aabbccddeeff",
 			created_by_id: "u-1",
@@ -414,7 +505,7 @@ describe("OS collaboration proposals", () => {
 			});
 			sqlite
 				.prepare(
-					"UPDATE os_output_revisions SET access_envelope = ? WHERE id = ?",
+					"UPDATE workspace_output_index SET access_envelope = ? WHERE revision_id = ?",
 				)
 				.run(baseEnvelope, "out-rev-1");
 			sqlite
@@ -462,7 +553,7 @@ describe("OS collaboration proposals", () => {
 		};
 		sqlite
 			.prepare(
-				"UPDATE os_output_revisions SET access_envelope = ? WHERE id = ?",
+				"UPDATE workspace_output_index SET access_envelope = ? WHERE revision_id = ?",
 			)
 			.run(JSON.stringify({ version: 1, sources: [baseSource] }), "out-rev-1");
 		sqlite
@@ -495,7 +586,7 @@ describe("OS collaboration proposals", () => {
 		expect(merged.ok).toBe(true);
 		const row = sqlite
 			.prepare("SELECT access_envelope FROM os_output_revisions WHERE id = ?")
-			.get("out-rev-2") as { access_envelope: string };
+			.get("proposal-1") as { access_envelope: string };
 		expect(JSON.parse(row.access_envelope)).toEqual({
 			version: 1,
 			sources: [baseSource, producerSource],
@@ -573,7 +664,7 @@ describe("OS collaboration proposals", () => {
 		});
 	});
 
-	it("rolls back the batch when the canonical base moved before merge", async () => {
+	it("refuses a stale object base without writing a revision or receipt", async () => {
 		const { db, sqlite } = fixture();
 		await seedProposal(db);
 		await decideOsCollaborationProposal(db, {

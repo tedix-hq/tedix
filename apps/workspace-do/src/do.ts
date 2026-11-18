@@ -17,11 +17,20 @@ import {
 	executeOutputQuery,
 	type OutputQuery,
 	type OutputQueryResult,
-	type OutputTransferSnapshot,
 	type OutputTransferResult,
+	type DocumentTransfer,
+	type DocumentTransferPackage,
+	type DocumentTransferRuntime,
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
-import { hasWorkspaceOutputAuthority } from "@tedix/db/queries/durable-sqlite/os-outputs";
-import { hasSharedWorkspaceOutputs } from "@tedix/db/queries/os-workspaces/outputs";
+import {
+	purgeWorkspaceDocuments,
+	initializeWorkspaceDirectory,
+	hasWorkspaceOutputAuthority,
+} from "@tedix/db/queries/durable-sqlite/os-outputs";
+import {
+	getOsWorkspace,
+	hasSharedWorkspaceOutputs,
+} from "@tedix/db/queries/os-workspaces/workspaces";
 import { getTediById } from "@tedix/db/queries/tedis";
 import {
 	getSkillEntryBySlug,
@@ -29,8 +38,8 @@ import {
 } from "@tedix/db/queries/cognitive/skill-crud";
 import { parseSkillReferences } from "@tedix/api-contract/utils/skill-reference";
 import {
-	removeSharedWorkspaceOutputIndex,
 	retireWorkspaceOutputIndex,
+	getWorkspaceOutputIndexRevision,
 } from "@tedix/db/queries/workspace-feed/read";
 import {
 	hasWorkspaceActionProjection,
@@ -42,6 +51,7 @@ import {
 	type OsWorkspaceRunStatusSummary,
 	type OsWorkspaceUsageSummary,
 } from "@tedix/db/queries/os-workspaces/summaries";
+import { repointDocumentTransferIndex } from "@tedix/db/queries/workspace-feed/document-transfer";
 import { unreferencedObjectOutputRevisions } from "@tedix/db/queries/os-workspaces/output-revision-thinning";
 import { continuesOutputAutosaveBurst } from "@tedix/api-contract/utils/os-output-autosave";
 import type { ModelCatalogEntry } from "@tedix/api-contract/schemas/model-catalog";
@@ -51,10 +61,12 @@ import {
 	tenantStoreDefinition,
 	type TenantStoreImportBatch,
 	type TenantStoreDeltaBatch,
+	type TenantStoreImportRow,
 } from "@tedix/db/tenant-store/store";
 import type { TenantScope } from "@tedix/db/tenant-scope";
 import { tenantStoreName } from "@tedix/db/tenant-store/router";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import type {
 	Actor,
@@ -419,7 +431,21 @@ interface PendingOutputTransfer {
 	scope: WorkspaceScope;
 	targetWorkspaceId: string;
 	transferId: string;
-	snapshot: OutputTransferSnapshot;
+}
+
+interface DocumentTransferReceipt {
+	transfer: DocumentTransfer;
+	snapshot: DocumentTransferPackage["snapshot"];
+	payloadSha256: string;
+}
+
+function sameDocumentTransfer(a: DocumentTransfer, b: DocumentTransfer) {
+	return (
+		a.transferId === b.transferId &&
+		a.outputId === b.outputId &&
+		a.sourceWorkspaceId === b.sourceWorkspaceId &&
+		a.targetWorkspaceId === b.targetWorkspaceId
+	);
 }
 
 export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
@@ -730,6 +756,56 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	): Promise<OutputQueryResult<K>> {
 		this.bindScope(scope);
 		const operation = query as OutputQuery;
+		if (operation.op === "purge")
+			return this.#serializeOutput(async () => {
+				if (!(await this.#ownsOutputs(scope)))
+					throw new Error("Workspace does not own these documents");
+				this.ctx.storage.transactionSync(() => {
+					purgeWorkspaceDocuments(this.db as TenantStoreDb, scope);
+				});
+				return undefined as OutputQueryResult<K>;
+			});
+		if (operation.op === "initialize")
+			return this.#serializeOutput(async () => {
+				if (this.#store.get("output-authority") === "object")
+					return "object" as OutputQueryResult<K>;
+				if (this.#importGeneration() > 0)
+					throw new Error("Staged workspace requires migration activation");
+				const core = createDbQueryClient(this.env.DB);
+				const workspace = await getOsWorkspace(core, scope);
+				if (!workspace) throw new Error("Workspace directory is missing");
+				if (await hasSharedWorkspaceOutputs(core, scope))
+					throw new Error("Workspace still has shared documents");
+				this.ctx.storage.transactionSync(() => {
+					initializeWorkspaceDirectory(this.db as TenantStoreDb, workspace);
+					this.#store.put("output-authority", "object");
+				});
+				return "object" as OutputQueryResult<K>;
+			});
+		if (operation.op === "placementPlan")
+			return this.#serializeOutput(async () => {
+				if (!(await this.#ownsOutputs(scope)))
+					throw new Error("Document placement requires an object owner");
+				const key = `document-placement:${operation.planId}`;
+				const previous = this.#store.get<DocumentTransfer[]>(key) ?? [];
+				if (
+					operation.documents.some(
+						(document) =>
+							document.targetWorkspaceId !== scope.workspaceId ||
+							document.sourceWorkspaceId === scope.workspaceId,
+					)
+				)
+					throw new Error("Document placement scope mismatch");
+				const documents = [
+					...previous,
+					...operation.documents.filter(
+						(document) =>
+							!previous.some((saved) => saved.outputId === document.outputId),
+					),
+				];
+				this.#store.put(key, documents);
+				return documents as OutputQueryResult<K>;
+			});
 		if (operation.op === "authority")
 			return (
 				(await this.#ownsOutputs(scope)) ? "object" : "shared"
@@ -738,21 +814,51 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			return (
 				(await this.#claimOutputs(scope)) ? "object" : "shared"
 			) as OutputQueryResult<K>;
+		if (operation.op === "resources")
+			return this.#serializeOutput(async () => {
+				if (!(await this.#ownsOutputs(scope)))
+					throw new Error("Workspace does not own these resources");
+				return executeOutputQuery(this.db as TenantStoreDb, scope, query);
+			});
 		if (operation.op === "thin" && !(await this.#ownsOutputs(scope)))
 			throw new Error("Workspace does not own these outputs");
 		if (operation.op === "snapshot" || operation.op === "import")
 			throw new Error("Use the output transfer RPC");
-		const outputId =
+		let outputId =
 			operation.op === "create"
 				? operation.output.id
-				: operation.op === "revise"
-					? operation.params.outputId
-					: operation.op === "update" ||
-						  operation.op === "delete" ||
-						  operation.op === "thin"
-						? operation.outputId
-						: null;
+				: operation.op === "mergeProposal"
+					? operation.proposal.documentId
+					: operation.op === "revise"
+						? operation.params.outputId
+						: operation.op === "update" ||
+							  operation.op === "delete" ||
+							  operation.op === "thin"
+							? operation.outputId
+							: null;
+		if (operation.op === "rebody") {
+			const revision = await executeOutputQuery(
+				this.db as TenantStoreDb,
+				scope,
+				{ op: "revision", revisionId: operation.revisionId },
+			);
+			outputId = revision?.outputId ?? null;
+		}
+		// The writer knows the body's searchable text; publish it with this save.
+		const excerpt =
+			operation.op === "create" || operation.op === "revise"
+				? operation.excerpt
+				: undefined;
+		if (excerpt)
+			this.#store.put(
+				`output-excerpt:${operation.op === "create" ? operation.revision.id : (operation as OutputQuery<"revise">).params.id}`,
+				excerpt,
+			);
 		const write = async () => {
+			if (operation.op === "mergeProposal" && !(await this.#ownsOutputs(scope)))
+				throw new Error(
+					"Collaboration output merges require an activated workspace object",
+				);
 			const authorizedQuery: OutputQuery =
 				operation.op === "thin"
 					? {
@@ -811,6 +917,264 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		);
 	}
 
+	async prepareDocumentTransfer(
+		scope: WorkspaceScope,
+		transfer: DocumentTransfer,
+	): Promise<DocumentTransferPackage> {
+		this.bindScope(scope);
+		return this.#serializeOutput(async () => {
+			if (!(await this.#ownsOutputs(scope)))
+				throw new Error(
+					"Document transfer requires activated workspace objects",
+				);
+			if (
+				!transfer.transferId.trim() ||
+				transfer.sourceWorkspaceId !== scope.workspaceId ||
+				transfer.targetWorkspaceId === scope.workspaceId
+			)
+				throw new Error("Invalid document transfer scope");
+			const key = `document-transfer:${transfer.transferId}`;
+			const saved = this.#store.get<DocumentTransferPackage>(key);
+			if (saved) {
+				if (!sameDocumentTransfer(saved.transfer, transfer))
+					throw new Error("Document transfer id conflicts with its receipt");
+				return this.#store.get(
+					`document-transfer-removed:${transfer.transferId}`,
+				)
+					? { ...saved, completed: true }
+					: saved;
+			}
+			if (
+				this.#store.get(`document-transfer-owner:${transfer.outputId}`) ||
+				(this.#outputTransfers()[transfer.outputId] &&
+					this.#outputTransfers()[transfer.outputId]!.transferId !==
+						transfer.transferId) ||
+				this.#store.get(`incoming-output:${transfer.outputId}`)
+			)
+				throw new Error("Output transfer already in progress");
+			const snapshot = await executeOutputQuery(
+				this.db as TenantStoreDb,
+				scope,
+				{ op: "snapshot", outputId: transfer.outputId },
+			);
+			if (!snapshot) throw new Error("Document transfer source not found");
+			if (
+				!snapshot.revisions.length ||
+				!snapshot.revisions.some(
+					(row) => row.id === snapshot.output.currentRevisionId,
+				) ||
+				snapshot.revisions.some((row) => !row.bodyR2Key)
+			)
+				throw new Error("Document transfer requires all revision bodies in R2");
+			const outputRows = this.#store
+				.exec<TenantStoreImportRow>(
+					"SELECT * FROM os_outputs WHERE id = ?",
+					transfer.outputId,
+				)
+				.map((row) => ({ ...row, workspace_id: transfer.targetWorkspaceId }));
+			const revisions = this.#store.exec<TenantStoreImportRow>(
+				"SELECT * FROM os_output_revisions WHERE output_id = ? ORDER BY revision",
+				transfer.outputId,
+			);
+			const batches: DocumentTransferPackage["batches"] = [];
+			for (const [table, rows] of [
+				["os_outputs", outputRows],
+				["os_output_revisions", revisions],
+			] as const)
+				for (let offset = 0; offset < rows.length; offset += 1000)
+					batches.push({
+						batchId: `document-transfer:${transfer.transferId}:${table}:${offset}`,
+						table,
+						rows: rows.slice(offset, offset + 1000),
+					});
+			const payload = {
+				transfer,
+				snapshot: {
+					...snapshot,
+					output: {
+						...snapshot.output,
+						workspaceId: transfer.targetWorkspaceId,
+					},
+				},
+				batches,
+			};
+			this.ctx.storage.transactionSync(() => {
+				this.#store.put(key, payload);
+				this.#store.put(
+					`document-transfer-owner:${transfer.outputId}`,
+					transfer.transferId,
+				);
+			});
+			return payload;
+		});
+	}
+
+	async importDocumentTransfer(
+		scope: WorkspaceScope,
+		payload: DocumentTransferPackage,
+	) {
+		this.bindScope(scope);
+		return this.#serializeOutput(async () => {
+			if (!(await this.#ownsOutputs(scope)))
+				throw new Error(
+					"Document transfer requires activated workspace objects",
+				);
+			const { transfer, snapshot, batches } = payload;
+			if (
+				transfer.targetWorkspaceId !== scope.workspaceId ||
+				snapshot.output.workspaceId !== scope.workspaceId ||
+				snapshot.output.organizationId !== scope.organizationId ||
+				snapshot.output.id !== transfer.outputId
+			)
+				throw new Error("Document transfer scope mismatch");
+			const key = `document-transfer-import:${transfer.transferId}`;
+			const payloadSha256 = await sha256Hex(JSON.stringify(payload));
+			const receipt = { transfer, snapshot, payloadSha256 };
+			const saved = this.#store.get<
+				DocumentTransferReceipt | DocumentTransferPackage
+			>(key);
+			if (saved) {
+				const savedHash =
+					"payloadSha256" in saved
+						? saved.payloadSha256
+						: await sha256Hex(JSON.stringify(saved));
+				if (savedHash !== payloadSha256)
+					throw new Error("Document transfer id conflicts with its receipt");
+				this.#store.put(key, receipt);
+				return;
+			}
+			if (
+				this.#store.get(`incoming-output:${transfer.outputId}`) ||
+				this.#store.get(`document-transfer-owner:${transfer.outputId}`) ||
+				this.#outputTransfers()[transfer.outputId]
+			)
+				throw new Error("Output transfer already in progress");
+			this.ctx.storage.transactionSync(() => {
+				for (const batch of batches) {
+					if (
+						!["os_outputs", "os_output_revisions"].includes(batch.table) ||
+						!batch.batchId.startsWith(
+							`document-transfer:${transfer.transferId}:`,
+						)
+					)
+						throw new Error("Invalid document transfer batch");
+					this.importRowsSync(scope, batch);
+				}
+				this.#store.put(
+					`incoming-output:${transfer.outputId}`,
+					transfer.transferId,
+				);
+				this.#store.delete(`transferred-output:${transfer.outputId}`);
+				this.#store.put(key, receipt);
+			});
+		});
+	}
+
+	async confirmDocumentTransfer(
+		scope: WorkspaceScope,
+		transfer: DocumentTransfer,
+	) {
+		this.bindScope(scope);
+		if (!(await this.#ownsOutputs(scope)))
+			throw new Error("Document transfer requires activated workspace objects");
+		const saved = this.#store.get<DocumentTransferReceipt>(
+			`document-transfer-import:${transfer.transferId}`,
+		);
+		if (!saved || !sameDocumentTransfer(saved.transfer, transfer))
+			throw new Error("Document transfer is not confirmed");
+		const current = await executeOutputQuery(this.db as TenantStoreDb, scope, {
+			op: "snapshot",
+			outputId: transfer.outputId,
+		});
+		if (JSON.stringify(current) !== JSON.stringify(saved.snapshot))
+			throw new Error("Document transfer destination changed after import");
+		return saved.snapshot;
+	}
+
+	async removeDocumentTransfer(
+		scope: WorkspaceScope,
+		transfer: DocumentTransfer,
+	) {
+		this.bindScope(scope);
+		if (!(await this.#ownsOutputs(scope)))
+			throw new Error("Document transfer requires activated workspace objects");
+		const saved = this.#store.get<DocumentTransferPackage>(
+			`document-transfer:${transfer.transferId}`,
+		);
+		if (!saved || !sameDocumentTransfer(saved.transfer, transfer))
+			throw new Error("Document transfer source receipt mismatch");
+		const target = {
+			organizationId: scope.organizationId,
+			workspaceId: transfer.targetWorkspaceId,
+		};
+		const destination = durableObjectStubByName(
+			this.env.WORKSPACE,
+			this.env,
+			tenantStoreName(target),
+		) as unknown as WorkspaceRpc;
+		if (this.#store.get(`document-transfer-removed:${transfer.transferId}`)) {
+			await destination.completeOutputTransfer(
+				target,
+				transfer.outputId,
+				transfer.transferId,
+			);
+			return;
+		}
+		const confirmed = await destination.confirmDocumentTransfer(
+			target,
+			transfer,
+		);
+		if (JSON.stringify(confirmed) !== JSON.stringify(saved.snapshot))
+			throw new Error("Document transfer confirmation mismatch");
+		for (const revision of confirmed.revisions) {
+			const indexed = await getWorkspaceOutputIndexRevision(
+				createDbQueryClient(this.env.DB),
+				{ organizationId: scope.organizationId, revisionId: revision.id },
+			);
+			if (indexed?.workspaceId !== target.workspaceId)
+				throw new Error("Document transfer index is not repointed");
+		}
+		await this.#serializeOutput(async () => {
+			if (
+				!this.#store.get(`document-transfer-removed:${transfer.transferId}`)
+			) {
+				if (
+					this.#store.get(`document-transfer-owner:${transfer.outputId}`) !==
+					transfer.transferId
+				)
+					throw new Error("Document transfer source owner changed");
+				this.ctx.storage.transactionSync(() => {
+					this.#store.run(
+						"DELETE FROM os_output_revisions WHERE output_id = ?",
+						transfer.outputId,
+					);
+					this.#store.run(
+						"DELETE FROM os_outputs WHERE id = ?",
+						transfer.outputId,
+					);
+					this.#store.put(`transferred-output:${transfer.outputId}`, true);
+					this.#store.delete(`document-transfer-owner:${transfer.outputId}`);
+					const projections = this.#pendingOutputProjections();
+					delete projections[transfer.outputId];
+					this.#store.put("pending-output-projections", projections);
+					this.#store.put(
+						`document-transfer-removed:${transfer.transferId}`,
+						true,
+					);
+					this.#store.put(`document-transfer:${transfer.transferId}`, {
+						...saved,
+						batches: [],
+					});
+				});
+			}
+		});
+		await destination.completeOutputTransfer(
+			target,
+			transfer.outputId,
+			transfer.transferId,
+		);
+	}
+
 	async transferOutput(
 		scope: WorkspaceScope,
 		outputId: string,
@@ -826,8 +1190,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		}
 		const prepared = await this.#serializeOutput(async () => {
 			let pending = this.#outputTransfers()[outputId];
+			const owner = this.#store.get<string>(
+				`document-transfer-owner:${outputId}`,
+			);
 			if (
 				(pending && pending.targetWorkspaceId !== targetWorkspaceId) ||
+				(owner && owner !== pending?.transferId) ||
 				this.#store.get(`incoming-output:${outputId}`)
 			)
 				return { ok: false as const, reason: "conflict" as const };
@@ -843,7 +1211,6 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					scope,
 					targetWorkspaceId,
 					transferId: crypto.randomUUID(),
-					snapshot,
 				};
 				await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
 				this.#store.put("output-transfers", {
@@ -883,75 +1250,23 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.env,
 			tenantStoreName(target),
 		) as unknown as WorkspaceRpc;
-		const snapshot = {
-			...pending.snapshot,
-			output: { ...pending.snapshot.output, workspaceId: target.workspaceId },
-		};
-		const output = await destination.receiveOutputTransfer(
-			target,
-			pending.transferId,
-			snapshot,
-		);
-		await this.#serializeOutput(async () => {
-			await executeOutputQuery(this.db as TenantStoreDb, pending.scope, {
-				op: "delete",
-				outputId,
-			});
-			// A delayed source projection must never retire or republish the destination's index.
-			this.#store.put(`transferred-output:${outputId}`, true);
-			const projections = this.#pendingOutputProjections();
-			delete projections[outputId];
-			this.#store.put("pending-output-projections", projections);
-		});
-		await destination.completeOutputTransfer(
-			target,
+		const transfer = {
+			transferId: pending.transferId,
 			outputId,
-			pending.transferId,
-		);
-		const transfers = this.#outputTransfers();
-		delete transfers[outputId];
-		this.#store.put("output-transfers", transfers);
-		return output;
-	}
-
-	async receiveOutputTransfer(
-		scope: WorkspaceScope,
-		transferId: string,
-		snapshot: OutputTransferSnapshot,
-	) {
-		this.bindScope(scope);
-		if (
-			snapshot.output.organizationId !== scope.organizationId ||
-			snapshot.output.workspaceId !== scope.workspaceId
-		)
-			throw new Error("Output transfer scope mismatch");
-		return this.#serializeOutput(async () => {
-			const outputId = snapshot.output.id;
-			const receiptKey = `received-output:${transferId}`;
-			if (this.#store.get(receiptKey)) {
-				const output = await executeOutputQuery(
-					this.db as TenantStoreDb,
-					scope,
-					{ op: "get", outputId },
-				);
-				if (!output) throw new Error("Transferred output is missing");
-				return output;
-			}
-			const incoming = this.#store.get<string>(`incoming-output:${outputId}`);
-			if (incoming && incoming !== transferId)
-				throw new Error("Output transfer already in progress");
-			this.#store.put(`incoming-output:${outputId}`, transferId);
-			const output = await executeOutputQuery(this.db as TenantStoreDb, scope, {
-				op: "import",
-				snapshot,
-			});
+			sourceWorkspaceId: pending.scope.workspaceId,
+			targetWorkspaceId: pending.targetWorkspaceId,
+		};
+		const payload = await this.prepareDocumentTransfer(pending.scope, transfer);
+		if (!payload.completed) {
+			await destination.importDocumentTransfer(target, payload);
+			const snapshot = payload.snapshot;
 			for (const revision of snapshot.revisions)
 				await publishOutputProjection(
 					createDbQueryClient(this.env.DB),
-					output,
+					snapshot.output,
 					revision,
 					{
-						historical: revision.id !== output.currentRevisionId,
+						historical: revision.id !== snapshot.output.currentRevisionId,
 						continuesBurst: continuesOutputAutosaveBurst(
 							snapshot.revisions.find(
 								(row) => row.revision === revision.revision - 1,
@@ -960,10 +1275,23 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						),
 					},
 				);
-			this.#store.delete(`transferred-output:${outputId}`);
-			this.#store.put(receiptKey, true);
-			return output;
-		});
+			const confirmed = await destination.confirmDocumentTransfer(
+				target,
+				transfer,
+			);
+			if (JSON.stringify(confirmed) !== JSON.stringify(payload.snapshot))
+				throw new Error("Document transfer confirmation mismatch");
+			await repointDocumentTransferIndex(
+				createDbQueryClient(this.env.DB),
+				pending.scope.organizationId,
+				payload,
+			);
+		}
+		await this.removeDocumentTransfer(pending.scope, transfer);
+		const transfers = this.#outputTransfers();
+		delete transfers[outputId];
+		this.#store.put("output-transfers", transfers);
+		return payload.snapshot.output;
 	}
 
 	completeOutputTransfer(
@@ -2568,6 +2896,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return this.#serializeOutput(async () => {
 			if (
 				this.#outputTransfers()[outputId] ||
+				this.#store.get(`document-transfer-owner:${outputId}`) ||
 				this.#store.get(`incoming-output:${outputId}`) ||
 				this.#store.get(`transferred-output:${outputId}`)
 			)
@@ -2660,6 +2989,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		)) {
 			if (
 				this.#outputTransfers()[outputId] ||
+				this.#store.get(`document-transfer-owner:${outputId}`) ||
 				this.#store.get(`transferred-output:${outputId}`)
 			)
 				continue;
@@ -2679,10 +3009,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	protected async projectOutput(scope: WorkspaceScope, outputId: string) {
 		const core = createDbQueryClient(this.env.DB);
-		if ((await this.outputQuery(scope, { op: "authority" })) === "shared") {
-			await removeSharedWorkspaceOutputIndex(core, scope);
+		if ((await this.outputQuery(scope, { op: "authority" })) === "shared")
 			return;
-		}
 		const row = await executeOutputQuery(this.db as TenantStoreDb, scope, {
 			op: "get",
 			outputId,
@@ -2712,10 +3040,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					options: { limit: 1, beforeRevision: saved.revision },
 				},
 			);
+			const excerptKey = `output-excerpt:${saved.id}`;
 			await publishOutputProjection(core, row, saved, {
 				historical,
 				continuesBurst: continuesOutputAutosaveBurst(previous, saved),
+				excerpt: this.#store.get<string>(excerptKey),
 			});
+			this.#store.delete(excerptKey);
 		};
 		if (revision) await publish(revision);
 		// Immutable revisions recover every file save even when notifications coalesced.
@@ -3675,17 +4006,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 }
 
 /** The RPC surface other workers call; typed by hand so callers avoid deep stub inference. */
-export interface WorkspaceRpc {
+export interface WorkspaceRpc extends DocumentTransferRuntime {
 	transferOutput(
 		scope: WorkspaceScope,
 		outputId: string,
 		targetWorkspaceId: string,
 	): Promise<OutputTransferResult>;
-	receiveOutputTransfer(
-		scope: WorkspaceScope,
-		transferId: string,
-		snapshot: OutputTransferSnapshot,
-	): Promise<NonNullable<OutputQueryResult<"get">>>;
 	completeOutputTransfer(
 		scope: WorkspaceScope,
 		outputId: string,
