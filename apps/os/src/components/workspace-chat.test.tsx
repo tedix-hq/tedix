@@ -22,6 +22,11 @@ import {
 	setWorkspaceUsage,
 } from "@/lib/workspace-chat-state";
 const notifyChatPosted = vi.hoisted(() => vi.fn());
+const uploadWorkspaceFile = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/workspace-file-upload", async (original) => ({
+	...(await original<typeof import("@/lib/workspace-file-upload")>()),
+	uploadWorkspaceFile,
+}));
 vi.mock("@/lib/workspace-chat-notify", async (original) => ({
 	...(await original<typeof import("@/lib/workspace-chat-notify")>()),
 	notifyChatPosted,
@@ -421,6 +426,61 @@ describe("WorkspaceChat", () => {
 			).toBe(false);
 		},
 	);
+
+	it("returns typing to the message box after a file is picked or uploaded", async () => {
+		queryClient.setQueryData<unknown>(
+			canvasOutputsQueryOptions("ws-1").queryKey,
+			{
+				items: [{ id: "doc-1", title: "Budget notes", status: "active" }],
+				truncated: false,
+			},
+		);
+		uploadWorkspaceFile.mockResolvedValue({
+			outputId: "upload-1",
+			resource: { name: "sales.csv" },
+		});
+		mount(fakeClient("c1"), "c1", false, () => {});
+		const textarea = host.querySelector("textarea")!;
+		const settle = () =>
+			act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+		const openPanel = () =>
+			act(async () =>
+				host
+					.querySelector<HTMLButtonElement>('[aria-label="Add files"]')
+					?.click(),
+			);
+		const panelOpen = () =>
+			document.body.textContent?.includes("Add to your message") ?? false;
+
+		await openPanel();
+		await act(async () =>
+			[...document.querySelectorAll("button")]
+				.find((button) => button.textContent === "Budget notes")
+				?.click(),
+		);
+		await settle();
+		expect(panelOpen()).toBe(false);
+		expect(document.activeElement).toBe(textarea);
+
+		await openPanel();
+		const picker = document.querySelector<HTMLInputElement>(
+			'input[aria-label="Upload workspace file"]',
+		)!;
+		Object.defineProperty(picker, "files", {
+			configurable: true,
+			value: [new File(["Item,Amount\nPaper,345\n"], "sales.csv")],
+		});
+		await act(async () =>
+			picker.dispatchEvent(new Event("change", { bubbles: true })),
+		);
+		await settle();
+		expect(panelOpen()).toBe(false);
+		expect(
+			host.querySelector('[aria-label="Files added to this message"]')
+				?.textContent,
+		).toContain("sales.csv");
+		expect(document.activeElement).toBe(textarea);
+	});
 
 	it("replays attachment titles and revision links beside the original message", () => {
 		const fake = fakeClient("c1");
