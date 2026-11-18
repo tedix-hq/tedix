@@ -34,7 +34,6 @@ export interface BillingSettlementHealth {
 	oldestUnsettledAt: string | null;
 	latestSettledAt: string | null;
 	quarantined24h: number;
-	nonLegacyQuarantined24h: number;
 }
 
 export async function getBillingSettlementHealth(
@@ -80,10 +79,6 @@ export async function getBillingSettlementHealth(
 		db
 			.select({
 				quarantined24h: sql<number>`COUNT(*)`.as("quarantined24h"),
-				nonLegacyQuarantined24h:
-					sql<number>`COUNT(CASE WHEN ${billingUsageQuarantines.reason} <> 'missing_reservation' THEN 1 END)`.as(
-						"nonLegacyQuarantined24h",
-					),
 			})
 			.from(billingUsageQuarantines)
 			.where(gte(billingUsageQuarantines.createdAt, since24h)),
@@ -102,7 +97,6 @@ export async function getBillingSettlementHealth(
 		latestSettledAt:
 			typeof row.latestSettledAt === "string" ? row.latestSettledAt : null,
 		quarantined24h: Number(row.quarantined24h ?? 0),
-		nonLegacyQuarantined24h: Number(row.nonLegacyQuarantined24h ?? 0),
 	};
 }
 
@@ -285,7 +279,6 @@ export async function getRecentProviderPricingHealth(
 						'missing_execution', 'unverified_execution', 'rate_authority_unavailable', 'rate_lookup_failed', 'invalid_timestamp') THEN ${tediCallCosts.costReason}
 					WHEN ${tediCallCosts.costReason} IS NOT NULL THEN 'unknown_reason'
 					WHEN ${tediCallCosts.dataQuality} = 'quarantined_failed' THEN 'failed_usage_unknown'
-					WHEN ${tediCallCosts.dataQuality} = 'quarantined_no_pricing' AND ${tediCallCosts.costBasis} = 'legacy_estimate' THEN 'legacy_unspecified_no_pricing'
 					ELSE 'missing_cost_evidence'
 				END`.as("reason"),
 			})
