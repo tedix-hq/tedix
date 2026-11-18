@@ -1231,7 +1231,11 @@ export async function mountDocClient(
 		run().deleteRange({ from, to }).run();
 		item.add();
 	}
-	async function exportAs(format: string, name: string) {
+	async function exportAs(
+		format: string,
+		name: string,
+		revisionHeader = false,
+	) {
 		if (!loaded || !available) return;
 		await save(false);
 		if (destroyed) return;
@@ -1272,6 +1276,7 @@ export async function mountDocClient(
 				await bridge.call("app.exportOutput", {
 					slot,
 					format,
+					...(revisionHeader ? { revisionHeader: true } : {}),
 					expectedRevision: loaded.revision.revision,
 				});
 			say(
@@ -1467,12 +1472,15 @@ export async function mountDocClient(
 			["md", "Markdown"],
 			["docx", "Word"],
 			["pdf", "PDF"],
+			["pdf", "PDF with title and revision", true],
 			["html", "HTML"],
 			["png", "PNG"],
 		] as const
 	).filter(([format]) => !visitor || format === "md");
-	for (const [format, name] of exports)
-		button(menu, `Export as ${name}`, undefined, () => exportAs(format, name));
+	for (const [format, name, revisionHeader] of exports)
+		button(menu, `Export as ${name}`, undefined, () =>
+			exportAs(format, name, revisionHeader),
+		);
 	// Exporting and the menu itself also work for someone who can only read.
 	buttons.splice(-exports.length);
 	for (const node of menu.querySelectorAll("button"))

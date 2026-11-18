@@ -323,7 +323,7 @@ function apply(value: string) {
 	q<HTMLInputElement>("#command-value").value = value;
 	click("#command-apply");
 }
-function download(kind: "csv" | "xlsx") {
+function download(kind: "csv" | "xlsx" | "pdf" | "pdf-revision") {
 	click("#download");
 	click(`.menu [data-action="${kind}"]`);
 }
@@ -379,6 +379,26 @@ describe("Portable Sheet grid", () => {
 				expectedRevision: app.revision(),
 			}),
 		);
+	});
+	it("saves pending edits before exporting plain or titled PDF", async () => {
+		const app = await editor();
+		for (const [kind, value, revisionHeader] of [
+			["pdf", "8", false],
+			["pdf-revision", "9", true],
+		] as const) {
+			edit("A1", value);
+			app.call.mockClear();
+			download(kind);
+			await vi.waitFor(() =>
+				expect(app.call).toHaveBeenCalledWith("app.exportOutput", {
+					slot: "sheet",
+					format: "pdf",
+					expectedRevision: app.revision(),
+					...(revisionHeader ? { revisionHeader: true } : {}),
+				}),
+			);
+			expect(app.saved().rows[0]![0]).toBe(Number(value));
+		}
 	});
 	it("supports keyboard navigation, extending ranges, typing, cancellation and range traversal", async () => {
 		await editor();

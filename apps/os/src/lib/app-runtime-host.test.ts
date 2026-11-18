@@ -254,6 +254,41 @@ describe("app runtime host", () => {
 		).toMatchObject({ ok: false, error: "bad_arguments" });
 	});
 
+	it("forwards the PDF header only when requested and rejects a non-boolean", async () => {
+		const exportOutput = vi.fn(async () => ({
+			filename: "file.pdf",
+			revision: 3,
+			format: "pdf" as const,
+		}));
+		const host = { ...deps("owner"), exportOutput };
+		for (const revisionHeader of [undefined, false, true]) {
+			exportOutput.mockClear();
+			const args = {
+				slot: "opportunities",
+				format: "pdf",
+				expectedRevision: 3,
+				revisionHeader,
+			};
+			expect(
+				await handleAppRuntimeCall(host, "app.exportOutput", args),
+			).toMatchObject({ ok: true });
+			expect(exportOutput).toHaveBeenCalledWith({
+				workspaceId: host.context.workspaceId,
+				outputId,
+				format: "pdf",
+				expectedRevision: 3,
+				...(revisionHeader ? { revisionHeader: true } : {}),
+			});
+		}
+		expect(
+			await handleAppRuntimeCall(host, "app.exportOutput", {
+				slot: "opportunities",
+				format: "pdf",
+				expectedRevision: 3,
+				revisionHeader: "true",
+			}),
+		).toMatchObject({ ok: false, error: "bad_arguments" });
+	});
 	it("reads a linked image only for a granted output slot in this workspace", async () => {
 		const readOutputImage = vi.fn(async () => "data:image/png;base64,AA==");
 		const host = { ...deps("owner"), readOutputImage };
