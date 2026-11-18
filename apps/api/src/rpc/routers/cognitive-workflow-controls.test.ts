@@ -230,6 +230,37 @@ describe("workflow improvement governance", () => {
 			]),
 		).toBe(true);
 	});
+
+	it("accepts a failed tool call once a later attempt of its step succeeded", () => {
+		const step = "epochs/0/steps/x:gather/1/attempts";
+		const failedCall = {
+			path: `${step}/1/calls/run/1.json`,
+			outcome: "failure" as const,
+		};
+		const passed = { certification: { passed: true } };
+		expect(
+			workflowCertificationPassed(passed, [
+				failedCall,
+				{ path: `${step}/2.json`, outcome: "success" },
+			]),
+		).toBe(true);
+		// The same attempt succeeding means the workflow carried on past it.
+		expect(
+			workflowCertificationPassed(passed, [
+				failedCall,
+				{ path: `${step}/1.json`, outcome: "success" },
+			]),
+		).toBe(false);
+		expect(
+			workflowCertificationPassed(passed, [
+				failedCall,
+				{
+					path: "epochs/0/steps/x:other/2/attempts/2.json",
+					outcome: "success",
+				},
+			]),
+		).toBe(false);
+	});
 });
 
 function createContext(

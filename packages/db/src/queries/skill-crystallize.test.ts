@@ -23,7 +23,7 @@ function fixture() {
         INSERT INTO tedis VALUES ('tedi-author', 'org-1', 'policy-1');
         INSERT INTO policy_packs VALUES ('policy-1', 'org-1', '{"paceLayerPolicy":{"differentiation":{"evalRequired":false},"record":{"evalRequired":false}}}');
         CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT, skill_id TEXT, skill_revision INTEGER, status TEXT, result TEXT);
-        CREATE TABLE skill_run_artifacts (id TEXT PRIMARY KEY, run_id TEXT, path TEXT, outcome TEXT);
+        CREATE TABLE skill_run_artifacts (id TEXT PRIMARY KEY, run_id TEXT, path TEXT, outcome TEXT, attempt INTEGER NOT NULL DEFAULT 1);
 		CREATE TABLE skill_entries (
 			id TEXT PRIMARY KEY NOT NULL,
 			organization_id TEXT NOT NULL,
