@@ -709,6 +709,7 @@ const CALLS = {
 	"osCollaborators/events": { workspaceId: IDS.workspaceRevenue },
 	"osCollaborators/presence": { workspaceId: IDS.workspaceRevenue },
 	"osCollaborators/list": { workspaceId: IDS.workspaceRevenue },
+	"osCollaborators/suggestPeople": { query: "kai" },
 	"osCollaborators/add": {
 		workspaceId: IDS.workspaceRevenue,
 		email: "kai@example.test",

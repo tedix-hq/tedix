@@ -983,3 +983,87 @@ describe("workspace collaborators", () => {
 		expect((await as(env, ZOE).access({ workspaceId })).role).toBe("use");
 	});
 });
+
+describe("people suggestions for invites", () => {
+	function teamReader(env: CloudflareEnv, sub: string, permissions: string[]) {
+		const base = context(env, sub);
+		return createRouterClient(osCollaboratorsContractRouter, {
+			context: {
+				...base,
+				user: { ...base.user, permissions },
+			} as BaseContext,
+		});
+	}
+
+	it("finds people by part of a name or email, in the caller's organization only", async () => {
+		const { env, sqlite } = createEnv();
+		sqlite.exec(`
+			INSERT INTO organization_members (id, organization_id, descope_user_id, email, name, role, status, kind)
+			VALUES ('m-kira','org-1','member-kira','kira@example.test','Kira Fictional','member','active','human'),
+			       ('m-kit','org-1','member-kit','kit@example.test','Kit Invited','member','invited','human'),
+			       ('m-kbot','org-1','member-kbot','kbot@example.test','Kai Helper','member','active','external_agent'),
+			       ('m-kay','org-2','member-kay','kay@example.test','Kai Elsewhere','member','active','human');
+		`);
+		const robin = teamReader(env, ROBIN, ["team:read"]);
+		// A name match, case-insensitive: only active people, never agents, never org-2.
+		expect((await robin.suggestPeople({ query: "KAI" })).people).toEqual([
+			{ userId: KAI, email: "kai@example.test", name: "Kai" },
+		]);
+		// An email match.
+		expect(
+			(await robin.suggestPeople({ query: "kira@" })).people.map(
+				(person) => person.userId,
+			),
+		).toEqual(["member-kira"]);
+		// The caller is never suggested to themselves.
+		expect((await robin.suggestPeople({ query: "robin" })).people).toEqual([]);
+		// Someone from the other organization sees their own colleagues only.
+		expect(
+			(
+				await teamReader(env, ZOE, ["team:read"]).suggestPeople({
+					query: "kai",
+				})
+			).people,
+		).toEqual([
+			{
+				userId: "member-kay",
+				email: "kay@example.test",
+				name: "Kai Elsewhere",
+			},
+		]);
+	});
+
+	it("matches the typed text as written and keeps to the limit", async () => {
+		const { env } = createEnv();
+		const zoe = teamReader(env, ZOE, ["team:read"]);
+		// % and _ are not wildcards.
+		expect((await zoe.suggestPeople({ query: "%" })).people).toEqual([]);
+		expect((await zoe.suggestPeople({ query: "l_e" })).people).toEqual([]);
+		const everyone = await zoe.suggestPeople({ query: "example.test" });
+		expect(everyone.people.map((person) => person.name)).toEqual([
+			"Lee",
+			"Sam",
+		]);
+		expect(
+			(await zoe.suggestPeople({ query: "example.test", limit: 1 })).people,
+		).toHaveLength(1);
+	});
+
+	it("needs the permission the Team page needs, and a signed-in person", async () => {
+		const { env } = createEnv();
+		await expect(
+			teamReader(env, ROBIN, ["os:read"]).suggestPeople({ query: "kai" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		const base = context(env, ROBIN);
+		const noOrganization = createRouterClient(osCollaboratorsContractRouter, {
+			context: {
+				...base,
+				organizationId: undefined,
+				user: { ...base.user, permissions: ["team:read"] },
+			} as BaseContext,
+		});
+		await expect(
+			noOrganization.suggestPeople({ query: "kai" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+});

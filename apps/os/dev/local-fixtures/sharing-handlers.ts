@@ -53,6 +53,25 @@ export const sharingHandlers: Record<string, (input: never) => unknown> = {
 			links: localCollaboratorLinks.get(input.workspaceId) ?? [],
 		};
 	},
+	// Sample colleagues; their ids match what `add` gives the same address.
+	"osCollaborators/suggestPeople": (input: {
+		query: string;
+		limit?: number;
+	}) => {
+		const query = input.query.trim().toLowerCase();
+		return {
+			people: [
+				{ email: "kai@example.test", name: "Kai Fictional" },
+				{ email: "robin@example.test", name: "Robin Fictional" },
+				{ email: "zoe@example.test", name: "Zoe Fictional" },
+			]
+				.filter((person) =>
+					`${person.name} ${person.email}`.toLowerCase().includes(query),
+				)
+				.slice(0, input.limit ?? 8)
+				.map((person) => ({ userId: `local-${person.email}`, ...person })),
+		};
+	},
 	"osCollaborators/add": (input: {
 		workspaceId: string;
 		email: string;

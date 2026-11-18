@@ -565,6 +565,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osCollaborators/previewRemove": "mcp:apps.read",
 	"osCollaborators/remove": "mcp:apps.write",
 	"osCollaborators/setRole": "mcp:apps.write",
+	"osCollaborators/suggestPeople": "mcp:apps.read",
 	"osCollaborators/updateLink": "mcp:apps.write",
 	"osCompute/posture": "mcp:apps.read",
 	"osGadgetState/delete": "mcp:apps.admin",

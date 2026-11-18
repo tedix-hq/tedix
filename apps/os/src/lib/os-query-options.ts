@@ -227,6 +227,10 @@ export const userConnectionsQueryOptions = () =>
 export const workspaceCollaboratorsQueryOptions = (workspaceId: string) =>
 	osQuery.osCollaborators.list.queryOptions({ input: { workspaceId } });
 
+/** People in the caller's organization whose name or email contains `query`. */
+export const inviteSuggestionsQueryOptions = (query: string) =>
+	osQuery.osCollaborators.suggestPeople.queryOptions({ input: { query } });
+
 /** The signed-in person's own id and name in a workspace. */
 export const workspacePresenceQueryOptions = (workspaceId: string) =>
 	osQuery.osCollaborators.presence.queryOptions({ input: { workspaceId } });

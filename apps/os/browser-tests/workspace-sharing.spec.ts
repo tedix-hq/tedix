@@ -408,7 +408,7 @@ try {
 
 				// Several addresses go in at once; each is added on its own.
 				await dialog
-					.getByLabel("Email addresses")
+					.getByLabel("Names or email addresses")
 					.fill("lee@example.test, sam@example.test");
 				await dialog
 					.getByRole("button", { name: "Invite 2 people", exact: true })
