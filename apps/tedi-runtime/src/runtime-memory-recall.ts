@@ -9,6 +9,7 @@ import type { SkillSearchEntry } from "./brain/platform-client";
 import {
 	composeCognitiveAddenda,
 	isHomeDelegationWorkOrder,
+	memoryRecallQuery,
 } from "./cognitive-addenda";
 import { logTediSourceFailure } from "./context-failure-log";
 import type { ActiveTurnBinding } from "./runtime-state";
@@ -413,7 +414,7 @@ export async function brainDigestAddendum(
 	learningDisabled = false,
 ): Promise<string> {
 	const recallPromise = recallLongTermMemoryBlock({
-		userText,
+		userText: memoryRecallQuery(userText),
 		...(isHomeDelegationWorkOrder(userText)
 			? {
 					budgetMs: DELEGATED_MEMORY_RECALL_BUDGET_MS,

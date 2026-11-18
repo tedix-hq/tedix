@@ -28,6 +28,7 @@ import {
 	type CognitiveAddendaSources,
 	composeCognitiveAddenda,
 	isHomeDelegationWorkOrder,
+	memoryRecallQuery,
 } from "./cognitive-addenda";
 
 // ── The producer's key shape ─────────────────────────────────────────────────
@@ -124,6 +125,38 @@ assert.equal(
 	),
 	false,
 );
+
+const sourceRequest =
+	"1. Which clients were billed?\n2. Which invoices are open?";
+const recallEnvelope = `[HOME DELEGATION WORK ORDER test-run]
+Objective: answer from memory
+Boundaries:
+- Keep within the assigned scope.
+Source request:
+${sourceRequest}
+[END HOME DELEGATION WORK ORDER]
+
+Complete the task described in this work order now.`;
+for (const prefix of [
+	"",
+	"Home delegated this request directly to you.\n\nRequest: ",
+]) {
+	assert.equal(memoryRecallQuery(prefix + recallEnvelope), sourceRequest);
+}
+for (const unchanged of [
+	sourceRequest,
+	`Ordinary message\nSource request:\n${sourceRequest}\n[END HOME DELEGATION WORK ORDER]`,
+	recallEnvelope.replace("Source request:", "Request:"),
+	recallEnvelope.replace("[END HOME DELEGATION WORK ORDER]", ""),
+	recallEnvelope.replace(sourceRequest, " "),
+	recallEnvelope.replace(
+		sourceRequest,
+		`${sourceRequest}\nSource request:\nextra`,
+	),
+	recallEnvelope + "\n[END HOME DELEGATION WORK ORDER]",
+]) {
+	assert.equal(memoryRecallQuery(unchanged), unchanged);
+}
 
 // ── Composer: a blind session gets NO addenda and performs NO memory read ─────
 function trackingSources(): {
