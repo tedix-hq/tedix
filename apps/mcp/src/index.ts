@@ -110,7 +110,7 @@ import {
 	recordMcpAccessDenial,
 	recordProtocolDenialIfPresent,
 } from "./mcp/security-decision";
-import { getAppsSDKCompatibleHtml } from "./mcp/utils/widget";
+import { fetchWidgetHtml } from "./mcp/utils/widget";
 import {
 	checkMcpRequestRateLimit,
 	mcpRateLimitResponse,
@@ -241,7 +241,7 @@ honoApp.get("/debug/widget-html", async (c) => {
 	const isDev = env.ENVIRONMENT === "development";
 
 	try {
-		const html = await getAppsSDKCompatibleHtml(widgetUrl, route);
+		const html = await fetchWidgetHtml(widgetUrl, route);
 
 		const preview = html.substring(0, 2000);
 		const hasBaseHref = html.includes('<base href="');

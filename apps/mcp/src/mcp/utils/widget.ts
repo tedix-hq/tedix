@@ -178,7 +178,7 @@ export interface FetchWidgetOptions {
  * @param path - Widget route path (e.g., "/tedix/search-listings")
  * @param options - Optional configuration including theme payload
  */
-export async function getAppsSDKCompatibleHtml(
+export async function fetchWidgetHtml(
 	baseUrl: string,
 	path: string,
 	options?: FetchWidgetOptions,

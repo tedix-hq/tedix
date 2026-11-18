@@ -117,7 +117,6 @@ describe.each([true, false])(
 					undefined,
 					undefined,
 					undefined,
-					undefined,
 					clientSupportsMcpApps({ method: "initialize", params: initialize }),
 				);
 				const [client, transport] = InMemoryTransport.createLinkedPair();

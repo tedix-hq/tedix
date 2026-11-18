@@ -252,7 +252,6 @@ type SnapshotBodyRead = {
 /**
  * Decode one tier's snapshot. Current snapshots carry their age and generation
  * as metadata, so a reader can decide to skip the body before reading it.
- * Bodies without that metadata use the original `{ cachedAt, surface }` shape.
  */
 async function readSnapshotBody(
 	source: SnapshotBodySource,
@@ -281,15 +280,8 @@ async function readSnapshotBody(
 			reused: false,
 		};
 	}
-	const legacy = (await source.json()) as {
-		cachedAt?: number;
-		surface?: AggregatedMcpSurface;
-	};
-	return {
-		surface: legacy?.surface,
-		cachedAt: typeof legacy?.cachedAt === "number" ? legacy.cachedAt : 0,
-		reused: false,
-	};
+	cancelSnapshotBody(source.cancel);
+	return null;
 }
 
 function toTierRead(

@@ -36,68 +36,60 @@ async function populateSkillIndexFromD1(
 
 	// Fetch D1 cognitive skills for this app (retry once on failure — D1 cold-start
 	// can timeout, and a failed load leaves the Worker permanently without resources)
-	const appIdsToTry = [agent.appId];
-	// Skill inheritance: if the org app has no skills, fall back to the reference app
-	if (agent.upstreamAppId) appIdsToTry.push(agent.upstreamAppId);
-
 	const maxAttempts = 2;
-	for (const targetAppId of appIdsToTry) {
-		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-			try {
-				// Skill-cache discipline (budget + breaker) on this direct list call,
-				// so a stalled apps/api skills endpoint cannot hang tools/list
-				// silently on the request path.
-				const d1Result = await fetchSkillListWithBudget(
-					"register_app_skills_list",
-					targetAppId,
-					() =>
-						agent.apiClient.skills.listByApp({
-							appId: targetAppId,
-							tediId: agent.callerIdentity?.tediId,
-						}),
-				);
-				// Breaker open: upstream known-unhealthy — serve without skills.
-				if (!d1Result) break;
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		try {
+			// Skill-cache discipline (budget + breaker) on this direct list call,
+			// so a stalled apps/api skills endpoint cannot hang tools/list
+			// silently on the request path.
+			const d1Result = await fetchSkillListWithBudget(
+				"register_app_skills_list",
+				agent.appId,
+				() =>
+					agent.apiClient.skills.listByApp({
+						appId: agent.appId,
+						tediId: agent.callerIdentity?.tediId,
+					}),
+			);
+			// Breaker open: upstream known-unhealthy — serve without skills.
+			if (!d1Result) break;
 
-				for (const skill of d1Result.skills ?? []) {
-					skillIndex.set(skill.id, {
-						id: skill.id,
-						title: skill.title,
-						slug: skill.slug ?? null,
-						summary: skill.summary ?? null,
-						description: skill.description ?? null,
-						content: skill.content,
-						files:
-							(skill as { files?: Record<string, string> | null }).files ??
-							null,
-						tags: skill.tags ?? null,
-						toolIds: skill.toolIds ?? null,
-						successCount: skill.successCount,
-						revision: skill.revision,
-						appId: skill.appId ?? null,
-						audience: skill.audience ?? null,
-						r2Path: skill.r2Path ?? null,
-						updatedAt: skill.updatedAt ?? null,
-						createdAt: skill.createdAt ?? null,
-						source: "d1",
-					});
-				}
-				break; // Success — exit retry loop
-			} catch (error) {
-				// A tripped budget already emitted its diagnosis line, and an
-				// immediate retry of a full-budget timeout cannot succeed — the 1s
-				// backoff below exists for fast D1 cold-start errors, not stalls.
-				const budgetExceeded = error instanceof StepBudgetExceededError;
-				const isLast = attempt === maxAttempts || budgetExceeded;
-				console[isLast ? "warn" : "log"](
-					`[MCP] ${isLast ? "Failed" : "Retrying"} D1 skill load (attempt ${attempt}/${maxAttempts}):`,
-					error instanceof Error ? error.message : error,
-				);
-				if (budgetExceeded) break;
-				if (!isLast) await new Promise((r) => setTimeout(r, 1000)); // 1s backoff
+			for (const skill of d1Result.skills ?? []) {
+				skillIndex.set(skill.id, {
+					id: skill.id,
+					title: skill.title,
+					slug: skill.slug ?? null,
+					summary: skill.summary ?? null,
+					description: skill.description ?? null,
+					content: skill.content,
+					files:
+						(skill as { files?: Record<string, string> | null }).files ?? null,
+					tags: skill.tags ?? null,
+					toolIds: skill.toolIds ?? null,
+					successCount: skill.successCount,
+					revision: skill.revision,
+					appId: skill.appId ?? null,
+					audience: skill.audience ?? null,
+					r2Path: skill.r2Path ?? null,
+					updatedAt: skill.updatedAt ?? null,
+					createdAt: skill.createdAt ?? null,
+					source: "d1",
+				});
 			}
+			break; // Success — exit retry loop
+		} catch (error) {
+			// A tripped budget already emitted its diagnosis line, and an
+			// immediate retry of a full-budget timeout cannot succeed — the 1s
+			// backoff below exists for fast D1 cold-start errors, not stalls.
+			const budgetExceeded = error instanceof StepBudgetExceededError;
+			const isLast = attempt === maxAttempts || budgetExceeded;
+			console[isLast ? "warn" : "log"](
+				`[MCP] ${isLast ? "Failed" : "Retrying"} D1 skill load (attempt ${attempt}/${maxAttempts}):`,
+				error instanceof Error ? error.message : error,
+			);
+			if (budgetExceeded) break;
+			if (!isLast) await new Promise((r) => setTimeout(r, 1000)); // 1s backoff
 		}
-		if (skillIndex.size > 0) break; // Found skills — skip fallback
 	}
 
 	// Load skills from guidanceSkillApps — operator-curated aggregated apps whose
@@ -282,7 +274,6 @@ export async function loadCachedSkillSnapshot(
 	const guidanceSlugs = mcpConfig?.guidanceSkillApps as string[] | undefined;
 	const cacheKey = skillSnapshotCacheKey({
 		appId: agent.appId,
-		upstreamAppId: agent.upstreamAppId,
 		appSlug: agent.appSlug,
 		orgId: agent.callerIdentity?.organizationId,
 		tediId: agent.callerIdentity?.tediId,

@@ -47,7 +47,6 @@ import {
 } from "@tedix/api-contract/utils/skill-manifest";
 import {
 	MCP_CLIENT_CAPABILITIES_META_KEY,
-	MCP_MODERN_PROTOCOL_VERSION,
 	isModernMcpRequest,
 } from "@tedix/mcp-shared/protocol";
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
@@ -588,10 +587,8 @@ async function resolveWorkItemAuthorization(
  * Is the destructive caller an agent (including a verified coding session),
  * or a modern client that declared the tasks extension?
  *
- * Agents cannot receive a server→client `elicitation/create` over the stateless
- * transport (it drops standalone server requests), so they resolve approvals
- * via the synchronous-MRTR `input_required` round-trip. Human/bidirectional
- * hosts keep the legacy in-band `elicitInput()` prompt.
+ * Stateless transports drop standalone server requests. Agent callers resolve
+ * approvals through the synchronous-MRTR `input_required` round-trip.
  */
 function callerIsAgent(
 	agent: ApprovalContext,
@@ -604,12 +601,7 @@ function callerIsAgent(
 		authType === "external_agent"
 	)
 		return true;
-	// A modern client that opted into the tasks extension is treated as an agent
-	// capable of the multi-round resolution. Only a caller that declared
-	// capabilities and included tasks counts here; `clientSupportsTasks` now
-	// returns false for legacy/no-capabilities callers on its own (the exemption
-	// was removed with the compat shims), so the explicit
-	// capability guards below are belt-and-suspenders over the same check.
+	// Clients declaring the tasks extension can resolve approval round-trips.
 	const meta = extra?._meta;
 	if (!meta) return false;
 	const caps = (meta as Record<string, unknown>)[
@@ -2299,7 +2291,7 @@ export async function requireDestructiveToolApproval(
 		return null;
 	// Arguments cannot certify a preview: downstream schemas may discard dryRun.
 
-	// Grant fast path (Batch 4). Runs before confirmDestructive/MRTR/elicitInput
+	// Grant lookup precedes stateless confirmation and input_required.
 	// and works identically in the Code Mode inner-sandbox path (no
 	// input_required emission involved — it's a single awaited network call,
 	// not a client round trip). Only engages when the tool's D1 config declares
@@ -2473,10 +2465,7 @@ export async function requireDestructiveToolApproval(
 	const displayName = tool.title?.trim() || tool.toolId;
 
 	// ── Synchronous MRTR (input_required round-trip) ──
-	// The 2026-native way to request mid-request approval. Fire it for an agent
-	// caller (any era) or any caller on a modern serving connection — because on
-	// 2026-07-28 the legacy `elicitInput()` below is illegal (server→client
-	// requests are removed), so input_required is the only approval mechanism.
+	// Agent callers and modern connections request approval through input_required.
 	// The inputRequest is `elicitation/create`-typed, so a caller that declared
 	// clientCapabilities without elicitation must not receive it (MRTR spec);
 	// modern callers without that capability fail closed below. Code Mode
@@ -2544,95 +2533,17 @@ export async function requireDestructiveToolApproval(
 		);
 	}
 
-	// ── Human / bidirectional host: legacy in-band elicitInput() ──
-	try {
-		const result = await agent.server.server.elicitInput({
-			mode: "form",
-			message: `You are about to execute "${displayName}". Confirm this destructive action with a reason.`,
-			requestedSchema: {
-				type: "object",
-				properties: {
-					reason: {
-						type: "string",
-						title: "Reason",
-						description: "Why are you performing this action?",
-					},
-				},
-				required: ["reason"],
-			},
-		});
-
-		if (result.action !== "accept") {
-			const actionText = result.action === "decline" ? "declined" : "cancelled";
-			emitGovernanceAuditEvent(
-				agent,
-				tool,
-				"destructive_denied",
-				`user_${actionText}`,
-			);
-			return approvalFailure(
-				`Action "${tool.toolId}" was ${actionText} by the user. No side effect was executed.`,
-			);
-		}
-
-		const reason = approvalReason(result.content);
-		if (!reason) {
-			emitGovernanceAuditEvent(
-				agent,
-				tool,
-				"destructive_denied",
-				"missing_reason",
-			);
-			return approvalFailure(
-				`Action "${tool.toolId}" was not approved because a reason is required. No side effect was executed.`,
-			);
-		}
-
-		emitGovernanceAuditEvent(agent, tool, "destructive_approved", reason);
-		console.log(`[governance] ${tool.toolId} approved with reason: ${reason}`);
-		return null;
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		// Elicitation unavailable is not approval. Fail closed so destructive
-		// tools never execute just because the host cannot present the prompt.
-		emitGovernanceAuditEvent(
-			agent,
-			tool,
-			"destructive_denied",
-			`elicitation_unavailable: ${message}`,
-		);
-		console.warn(
-			`[governance] ${tool.toolId} destructive approval unavailable; denied before side effect: ${message}`,
-		);
-		// Reaching this point on a modern connection means the sync-MRTR branch
-		// was skipped — a Code Mode inner call (no round-trip channel) or a
-		// caller that declared no elicitation capability. Detect the modern
-		// elicitation restriction from the SDK error itself (Code Mode inner
-		// calls carry no request `_meta`, so `servingConnectionIsModern` can't
-		// see it) and point the caller at the explicit `confirmDestructive` arg
-		// instead of leaving them at a dead end.
-		// Reaching this catch means no approval channel exists at all: the
-		// legacy prompt threw and sync-MRTR was skipped or unavailable. The
-		// explicit `confirmDestructive` branch above is evaluated
-		// unconditionally and before both, so it is a legal recovery on every
-		// path that lands here — emit the recovery instruction regardless of
-		// why elicitation was unavailable. Gating the hint on the cause left
-		// the most common case ("client declared no elicitation capability" on
-		// a connection whose `_meta` carries no modern protocol marker) at a
-		// silent dead end.
-		const isModernElicitRestriction =
-			/Server-to-client requests are not available on protocol revision/i.test(
-				message,
-			);
-		const cause =
-			isModernElicitRestriction || servingConnectionIsModern(extra)
-				? `On protocol ${MCP_MODERN_PROTOCOL_VERSION} server-to-client elicitation is removed`
-				: "This client cannot present an elicitation prompt";
-		const recoveryHint =
-			` ${cause} — retry with confirmDestructive:true and a non-empty reason` +
-			` (or call as an agent that can fulfil the input_required round-trip).`;
-		return approvalFailure(
-			`Action "${tool.toolId}" was not approved because destructive approval is unavailable: ${message}. No side effect was executed.${recoveryHint}`,
-		);
-	}
+	// Request-scoped transports cannot deliver server-to-client requests.
+	emitGovernanceAuditEvent(
+		agent,
+		tool,
+		"destructive_denied",
+		"elicitation_unavailable",
+	);
+	console.warn(
+		`[governance] ${tool.toolId} destructive approval unavailable; denied before side effect`,
+	);
+	return approvalFailure(
+		`Action "${tool.toolId}" was not approved because destructive approval is unavailable. No side effect was executed. Retry with confirmDestructive:true and a non-empty reason, or use a client that can fulfil the input_required round-trip.`,
+	);
 }

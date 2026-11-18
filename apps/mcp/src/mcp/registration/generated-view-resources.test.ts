@@ -98,7 +98,6 @@ async function configuredViews(
 		undefined,
 		undefined,
 		undefined,
-		undefined,
 		options.apps ?? true,
 	);
 	const [client, transport] = InMemoryTransport.createLinkedPair();

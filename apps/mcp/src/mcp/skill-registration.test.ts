@@ -115,7 +115,6 @@ function createAgent(
 		server,
 		appId: options.appId ?? "app-test",
 		appSlug: options.appSlug ?? "sample-app",
-		upstreamAppId: undefined,
 		appMetadata: { mcpConfig: {} },
 		callerIdentity: { organizationId: "org-test", tediId: "tedi-test" },
 		apiClient: {

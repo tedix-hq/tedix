@@ -439,7 +439,6 @@ export async function handleMcpRequest(
 	const upstreamMcpUrl = cachedData?.metadata?.mcpConfig?.upstreamMcpUrl as
 		| string
 		| undefined;
-	const upstreamAppId: string | undefined = undefined;
 	if (upstreamMcpUrl) {
 		if (cachedData.tools.length === 0) {
 			return new Response(
@@ -762,7 +761,6 @@ export async function handleMcpRequest(
 			connectionLabel,
 			traceId,
 			tracestate,
-			upstreamAppId,
 			bearerToken,
 			inboundTraceMeta,
 			requestedCodeModeNamespaces,
@@ -810,7 +808,6 @@ export async function handleMcpRequest(
 		connectionLabel,
 		traceId,
 		tracestate,
-		upstreamAppId,
 		bearerToken,
 		requestedToolName,
 		inboundTraceMeta,

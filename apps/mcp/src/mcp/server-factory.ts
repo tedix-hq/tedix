@@ -79,7 +79,7 @@ import { buildCallerTelemetryFields, trackMcpEvent } from "./utils/analytics";
 import {
 	buildWidgetThemePayload,
 	createWidgetCSP,
-	getAppsSDKCompatibleHtml,
+	fetchWidgetHtml,
 } from "./utils/widget";
 import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 
@@ -613,7 +613,6 @@ export async function fetchWidgetHtmlForApp(
 	cachedData: CachedAppData,
 	route: string,
 	_description: string,
-	_hostType: "apps-sdk" | "mcp-app",
 	env: CloudflareEnv,
 	extraHeaders?: Record<string, string>,
 	appSlug = cachedData.app.slug,
@@ -629,7 +628,7 @@ export async function fetchWidgetHtmlForApp(
 			);
 
 	try {
-		const html = await getAppsSDKCompatibleHtml(widgetUrl, fullRoute, {
+		const html = await fetchWidgetHtml(widgetUrl, fullRoute, {
 			theme,
 			extraHeaders,
 		});
@@ -669,7 +668,6 @@ export function buildServerContext(
 	connectionLabel?: string,
 	traceId?: string,
 	tracestate?: string,
-	upstreamAppId?: string,
 	bearerToken?: string,
 	requestMeta?: Record<string, unknown>,
 	requestedCodeModeNamespaces?: ReadonlySet<string> | null,
@@ -706,7 +704,6 @@ export function buildServerContext(
 		requestMeta,
 		requestedCodeModeNamespaces: requestedCodeModeNamespaces ?? null,
 		connectionLabel,
-		upstreamAppId,
 		bearerToken,
 		registeredTools: new Map(),
 		registeredResources: new Map(),
@@ -725,27 +722,13 @@ export function buildServerContext(
 		getWidgetDomain: () =>
 			cachedData.metadata?.mcpConfig?.widgetDomain ?? env.MCP_UI_URL,
 		buildAppCsp: (tool) => buildCspForApp(cachedData, tool, env),
-		fetchWidgetHtml: (route, description, hostType, extraHeaders) =>
+		fetchWidgetHtml: (route, description, extraHeaders) =>
+			fetchWidgetHtmlForApp(cachedData, route, description, env, extraHeaders),
+		fetchWidgetHtmlForAppSlug: (appSlug, route, description, extraHeaders) =>
 			fetchWidgetHtmlForApp(
 				cachedData,
 				route,
 				description,
-				hostType,
-				env,
-				extraHeaders,
-			),
-		fetchWidgetHtmlForAppSlug: (
-			appSlug,
-			route,
-			description,
-			hostType,
-			extraHeaders,
-		) =>
-			fetchWidgetHtmlForApp(
-				cachedData,
-				route,
-				description,
-				hostType,
 				env,
 				extraHeaders,
 				appSlug,
@@ -770,7 +753,6 @@ async function buildServerInstructions(
 	cachedData: CachedAppData,
 	apiClient: ApiClient,
 	callerIdentity: CallerIdentity | undefined,
-	upstreamAppId: string | undefined,
 	connectionAppSlug: string,
 ): Promise<string | undefined> {
 	const appId = cachedData.app.id;
@@ -803,24 +785,13 @@ async function buildServerInstructions(
 	const autoAppend = mcpConfig?.autoAppendSkillInstructions !== false;
 	if (autoAppend && appId) {
 		try {
-			let summaries = await getCachedSkillSummaries({
+			const summaries = await getCachedSkillSummaries({
 				apiClient,
 				appId,
 				orgId,
 				tediId: callerIdentity?.tediId,
 				limit: MAX_SKILL_SUMMARIES,
 			});
-
-			// Skill inheritance: fall back to reference app's skills
-			if (summaries.length === 0 && upstreamAppId) {
-				summaries = await getCachedSkillSummaries({
-					apiClient,
-					appId: upstreamAppId,
-					orgId,
-					tediId: callerIdentity?.tediId,
-					limit: MAX_SKILL_SUMMARIES,
-				});
-			}
 
 			if (summaries.length > 0) {
 				const names = summaries
@@ -924,7 +895,6 @@ export async function buildMcpServer(
 	connectionLabel?: string,
 	traceId?: string,
 	tracestate?: string,
-	upstreamAppId?: string,
 	bearerToken?: string,
 	requestedToolName?: string,
 	requestMeta?: Record<string, unknown>,
@@ -963,7 +933,6 @@ export async function buildMcpServer(
 				cachedData,
 				orgApiClient,
 				callerIdentity,
-				upstreamAppId,
 				connectionAppSlug ?? cachedData.app.slug,
 			);
 
@@ -991,7 +960,6 @@ export async function buildMcpServer(
 		connectionLabel,
 		traceId,
 		tracestate,
-		upstreamAppId,
 		bearerToken,
 		requestMeta,
 		requestedCodeModeNamespaces,

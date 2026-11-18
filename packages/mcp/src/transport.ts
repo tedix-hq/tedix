@@ -1368,19 +1368,8 @@ export class StatelessMcpTransport implements Transport {
 	}
 
 	/**
-	 * SEP-2663 (Tasks, Final): `tasks/get|update|cancel` polling is gated on the
-	 * caller having declared the tasks extension, mirroring the gate already
-	 * enforced at task-CREATION time ({@link clientSupportsTasks}, used by
-	 * `apps/mcp/src/mcp/tool-execution.ts` before deferring `_asyncTask` work
-	 * and by `apps/mcp/src/index.ts::rewriteCompatibilityTaskResult` before
-	 * emitting a protocol-native task envelope). Reusing that same helper here
-	 * — rather than re-deriving the check — also reuses its exemption: legacy/
-	 * internal callers that never declare `_meta.clientCapabilities` at all
-	 * (e.g. Home/tedi compatibility-linkage polling, which predates the tasks
-	 * extension and still reads the `task.id` field embedded in tool results)
-	 * are treated as supporting tasks and are NOT rejected here. Only a caller
-	 * that declared capabilities WITHOUT the tasks extension — a deliberate
-	 * modern opt-out — is rejected.
+	 * Tasks polling requires the same explicit extension declaration as task
+	 * creation. Missing client capabilities do not opt a caller into tasks.
 	 */
 	private async handleTaskRequest(
 		request: JSONRPCRequest,
