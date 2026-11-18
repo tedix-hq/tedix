@@ -25,13 +25,37 @@ export function refForWorkspaceModelId(id: string): string {
 	return id.startsWith("@cf/") ? `${WORKERS_AI_PREFIX}${id}` : id;
 }
 
+/**
+ * The model a workspace chat's picker shows. A choice made in this chat comes
+ * first. A chat with answers stays on the model that last answered in it; a
+ * new chat starts on the person's remembered model. A model that is no longer
+ * offered is skipped, ending at the first offered one.
+ */
+export function workspaceChatModelId(input: {
+	offered: ReadonlyArray<{ id: string }>;
+	pickedHere: string | null;
+	lastAnswered: string | null;
+	remembered: string | null;
+}): string | undefined {
+	const offered = (id: string | null) =>
+		id !== null && input.offered.some((model) => model.id === id);
+	for (const id of [input.pickedHere, input.lastAnswered, input.remembered])
+		if (offered(id)) return id ?? undefined;
+	return input.offered[0]?.id;
+}
+
+// Saves run one at a time and only the newest pick is written, so two quick
+// picks end on the second one however long the server takes over each.
+let saveQueue: Promise<void> = Promise.resolve();
+let newestPick = 0;
+
 export function useChatModelPreference() {
 	const queryClient = useQueryClient();
 	const query = useQuery(userPreferencesQueryOptions());
 
-	const save = useCallback(
-		async (modelRef: string) => {
-			if (!parseModelRef(modelRef)) return;
+	const write = useCallback(
+		async (modelRef: string, pick: number) => {
+			if (pick !== newestPick) return;
 			// Other surfaces write the same row, so re-read and retry a lost write.
 			for (let attempt = 0; attempt < 3; attempt++) {
 				const fresh = await osApi.userSettings.getPreferences({});
@@ -55,6 +79,30 @@ export function useChatModelPreference() {
 			}
 		},
 		[queryClient],
+	);
+	const save = useCallback(
+		(modelRef: string) => {
+			if (!parseModelRef(modelRef)) return Promise.resolve();
+			const pick = ++newestPick;
+			// Shown at once on this page, so a chat opened before the save lands
+			// already starts on it; a failed save leaves it on this page only.
+			queryClient.setQueryData(
+				userPreferencesQueryOptions().queryKey,
+				(current) =>
+					current && {
+						...current,
+						preferences: {
+							...current.preferences,
+							conversationModelRef: modelRef,
+						},
+					},
+			);
+			const run = () => write(modelRef, pick);
+			const result = saveQueue.then(run, run);
+			saveQueue = result.catch(() => {});
+			return result;
+		},
+		[queryClient, write],
 	);
 
 	return {
