@@ -5,6 +5,7 @@ import { createDbClient } from "../../client";
 import { appCatalog } from "../../schema/catalog";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
+import { checkCatalogBrowseTotals, getCatalogStats } from "./categories-stats";
 import { listCatalogApps } from "./list-apps";
 
 const migration = readFileSync(
@@ -51,6 +52,59 @@ function expectAccurate(sqlite: DatabaseSync) {
 }
 
 describe("catalog browse totals", () => {
+	it("serves the public stats total from its primary key and detects drift and missing counters", async () => {
+		const { sqlite, insert } = fixture();
+		sqlite.exec(
+			"CREATE TABLE app_catalog_store_listings (catalog_app_id TEXT, source TEXT)",
+		);
+		const queries: string[] = [];
+		const db = createDbClient(
+			createD1Facade({
+				exec: (query) => sqlite.exec(query),
+				prepare: (query) => {
+					queries.push(query);
+					return sqlite.prepare(query);
+				},
+			}),
+		);
+		expect((await getCatalogStats(db)).total).toBe(2);
+		const totalQuery = queries.find((query) =>
+			query.includes('"app_catalog_browse_totals"'),
+		);
+		expect(totalQuery).toBeDefined();
+		expect(
+			sqlite
+				.prepare(`EXPLAIN QUERY PLAN ${totalQuery}`)
+				.all("public")
+				.map((row) => row.detail)
+				.join(" "),
+		).toContain("SEARCH app_catalog_browse_totals USING INDEX");
+		expect((await getCatalogStats(db, true)).total).toBe(5);
+		expect(await checkCatalogBrowseTotals(db)).toEqual({
+			expectedTotal: 2,
+			expectedExploreTotal: 1,
+			storedTotal: 2,
+			storedExploreTotal: 1,
+			matches: true,
+		});
+		insert.run("new-stats", "New", "OAI", 1, "RELEASED", 0);
+		expect((await getCatalogStats(db)).total).toBe(3);
+		expect((await checkCatalogBrowseTotals(db)).matches).toBe(true);
+		sqlite.exec("UPDATE app_catalog_browse_totals SET explore_total = 999");
+		expect((await checkCatalogBrowseTotals(db)).matches).toBe(false);
+		sqlite.exec(
+			"UPDATE app_catalog_browse_totals SET explore_total = 2, total = 999",
+		);
+		expect((await checkCatalogBrowseTotals(db)).matches).toBe(false);
+		sqlite.exec("DELETE FROM app_catalog_browse_totals");
+		await expect(getCatalogStats(db)).rejects.toThrow(
+			"Catalog browse totals migration is missing",
+		);
+		expect((await checkCatalogBrowseTotals(db)).storedTotal).toBeNull();
+		expect((await checkCatalogBrowseTotals(db)).matches).toBe(false);
+		sqlite.close();
+	});
+
 	it("backfills, then maintains totals through visibility changes, inserts and deletes", async () => {
 		const { sqlite, insert, db } = fixture();
 		expectAccurate(sqlite);

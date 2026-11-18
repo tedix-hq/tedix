@@ -9,7 +9,24 @@ vi.mock("@tedix/db/queries/billing/cost-rollups", () => ({
 	rebuildCostRollupDay: rollups.rebuild,
 }));
 
+const maintenance = vi.hoisted(() => ({
+	check: vi.fn(),
+	quarantine: vi.fn(),
+	staleSyncs: vi.fn(),
+}));
+vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
+vi.mock("@tedix/db/queries/catalog/categories-stats", () => ({
+	checkCatalogBrowseTotals: maintenance.check,
+}));
+vi.mock("./billing-metering", () => ({
+	quarantineUnreservedGatewayCosts: maintenance.quarantine,
+}));
+vi.mock("@tedix/db/queries/catalog/sync-logs", () => ({
+	failStaleAppCatalogSyncLogs: maintenance.staleSyncs,
+}));
+
 import {
+	runDailyBillingAndCatalogMaintenance,
 	COST_ROLLUP_DAYS_PER_RUN,
 	rebuildClosedCostRollups,
 } from "./daily-billing-and-catalog-maintenance";
@@ -58,5 +75,38 @@ describe("daily cost rollup step", () => {
 			failed: 0,
 		});
 		expect(rollups.rebuild).not.toHaveBeenCalled();
+	});
+});
+
+describe("daily catalog total verification", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		rollups.list.mockResolvedValue([]);
+		maintenance.quarantine.mockResolvedValue({
+			selected: 0,
+			quarantined: 0,
+			remainingAtLeast: 0,
+		});
+		maintenance.staleSyncs.mockResolvedValue(0);
+		vi.spyOn(console, "log").mockImplementation(() => {});
+	});
+
+	it("records a checked counter and fails the cron on drift or a failed read", async () => {
+		maintenance.check.mockResolvedValue({ matches: true });
+		expect(
+			await runDailyBillingAndCatalogMaintenance({} as CloudflareEnv, "run"),
+		).toMatchObject({ catalogTotalsChecked: 1 });
+		maintenance.check.mockResolvedValue({
+			matches: false,
+			expectedTotal: 2,
+			storedTotal: 1,
+		});
+		await expect(
+			runDailyBillingAndCatalogMaintenance({} as CloudflareEnv, "run"),
+		).rejects.toThrow("Catalog browse totals drift:");
+		maintenance.check.mockRejectedValue(new Error("D1 unavailable"));
+		await expect(
+			runDailyBillingAndCatalogMaintenance({} as CloudflareEnv, "run"),
+		).rejects.toThrow("D1 unavailable");
 	});
 });

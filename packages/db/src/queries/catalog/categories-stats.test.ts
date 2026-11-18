@@ -27,7 +27,8 @@ function fixture() {
 			is_discoverable INTEGER,
 			category TEXT,
 			has_interactive INTEGER,
-			has_writes INTEGER
+			has_writes INTEGER,
+			explore_shadowed INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE TABLE app_catalog_store_listings (
 			id TEXT PRIMARY KEY,
@@ -36,6 +37,15 @@ function fixture() {
 		);
 	`);
 	sqlite.exec(categoryMigration);
+	sqlite.exec(
+		readFileSync(
+			new URL(
+				"../../../drizzle/20261012225830_catalog-browse-totals/migration.sql",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
 	const insertApp = sqlite.prepare(`
 		INSERT INTO app_catalog (
 			id, name, connector_type, developer_type, status, review_status,

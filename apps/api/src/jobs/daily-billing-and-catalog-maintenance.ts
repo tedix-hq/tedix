@@ -55,7 +55,16 @@ export async function runDailyBillingAndCatalogMaintenance(
 	} catch (syncError) {
 		console.warn(`[Scheduled] catalog sync log maintenance failed:`, syncError);
 	}
+	const { checkCatalogBrowseTotals } =
+		await import("@tedix/db/queries/catalog/categories-stats");
+	const catalogTotals = await checkCatalogBrowseTotals(db);
+	if (!catalogTotals.matches) {
+		throw new Error(
+			`Catalog browse totals drift: ${JSON.stringify(catalogTotals)}`,
+		);
+	}
 	return {
+		catalogTotalsChecked: 1,
 		legacySelected,
 		legacyQuarantined,
 		costRollupDaysBuilt: costRollups.built,
