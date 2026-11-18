@@ -4954,37 +4954,45 @@ describe("dispatcher admission", () => {
 		const f = fixture({ executor: "opencode", max: 10 });
 		f.items.splice(1);
 		Object.assign(f.items[0]!, { priority: "high" });
-		writeFileSync(
-			join(f.dir, `${item(99).id}-2.json`),
-			JSON.stringify({
-				itemId: item(99).id,
-				version: 2,
-				phase: "deferred",
-				outcome: "expired",
-				admissionState: "admitted",
-				attemptId: "historical-attempt",
-				session: "opencode:historical-session",
-				pid: process.pid,
-			}),
-		);
-		f.dispatcher.holdAdmissions("0.23.0");
-		expect(f.dispatcher.quiet()).toBe(false);
-		await f.dispatcher.tick();
-		await f.dispatcher.drain();
-		expect(f.events.some((event) => event.verb === "dispatch-list")).toBe(
-			false,
-		);
-		expect(f.releases).toHaveLength(0);
-		const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
-		expect(log).toContain('"event":"admissions-held"');
-		expect(log).toContain("Waiting to restart onto Tedix CLI 0.23.0");
-		expect(log).toContain("0 running, 0 preparing");
-		expect(log).toContain('"event":"restart-held"');
-		expect(log).toContain(`PID ${process.pid}`);
-		expect(log).toContain("phase deferred, Attempt historical-attempt");
-		expect(log).toContain(
-			"PID liveness alone does not verify the agent identity",
-		);
+		// Liveness probes the process group, so the receipt needs a group leader.
+		// This test process leads its group on a terminal but not on a CI runner.
+		const agent = spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
+		const pid = agent.pid!;
+		try {
+			writeFileSync(
+				join(f.dir, `${item(99).id}-2.json`),
+				JSON.stringify({
+					itemId: item(99).id,
+					version: 2,
+					phase: "deferred",
+					outcome: "expired",
+					admissionState: "admitted",
+					attemptId: "historical-attempt",
+					session: "opencode:historical-session",
+					pid,
+				}),
+			);
+			f.dispatcher.holdAdmissions("0.23.0");
+			expect(f.dispatcher.quiet()).toBe(false);
+			await f.dispatcher.tick();
+			await f.dispatcher.drain();
+			expect(f.events.some((event) => event.verb === "dispatch-list")).toBe(
+				false,
+			);
+			expect(f.releases).toHaveLength(0);
+			const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
+			expect(log).toContain('"event":"admissions-held"');
+			expect(log).toContain("Waiting to restart onto Tedix CLI 0.23.0");
+			expect(log).toContain("0 running, 0 preparing");
+			expect(log).toContain('"event":"restart-held"');
+			expect(log).toContain(`PID ${pid}`);
+			expect(log).toContain("phase deferred, Attempt historical-attempt");
+			expect(log).toContain(
+				"PID liveness alone does not verify the agent identity",
+			);
+		} finally {
+			agent.kill("SIGKILL");
+		}
 	});
 	it("holding admissions for an update launches Work already admitted, cancels nothing and admits nothing new", async () => {
 		const f = fixture({ max: 1 });
