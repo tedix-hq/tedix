@@ -22,7 +22,8 @@ const item = (
 	accountableOwnerId: null,
 	dueDate: null,
 	deadline: null,
-	metadata: null,
+	executorType: null,
+	executorId: null,
 	createdAt: "2026-11-01T00:00:00.000Z",
 	...overrides,
 });
