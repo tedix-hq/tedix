@@ -212,6 +212,8 @@ describe("renderOsOutputHtml", () => {
 		expect(html).toContain(
 			"article aside, article details { break-inside: avoid; }",
 		);
+		// A table's first row is not left alone at the foot of a page.
+		expect(html).toContain("article tr:first-child { break-after: avoid; }");
 		expect(html).toMatch(/<body>\s*<article>/);
 	});
 
