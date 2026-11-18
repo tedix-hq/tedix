@@ -298,7 +298,7 @@ describe("run-local options", () => {
 		// with SQLITE_BUSY_RECOVERY; the API stage must own them first.
 		expect(LOCAL_STACK_STAGES).toEqual([
 			["@tedix/api"],
-			["@tedix/mcp", "@tedix/os"],
+			["@tedix/mcp", "@tedix/os", "@tedix/workspace-do"],
 		]);
 		expect(localStackStageCommand(LOCAL_STACK_STAGES[0])).toEqual([
 			"vp",
@@ -315,6 +315,8 @@ describe("run-local options", () => {
 			"@tedix/mcp",
 			"--filter",
 			"@tedix/os",
+			"--filter",
+			"@tedix/workspace-do",
 			"dev:local-launcher",
 		]);
 		const root = join(import.meta.dir, "..");
@@ -322,6 +324,7 @@ describe("run-local options", () => {
 			["apps/api", "@tedix/api"],
 			["apps/mcp", "@tedix/mcp"],
 			["apps/os", "@tedix/os"],
+			["apps/workspace-do", "@tedix/workspace-do"],
 		] as const) {
 			const manifest = (await Bun.file(
 				join(root, workspace, "package.json"),
