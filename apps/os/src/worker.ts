@@ -597,7 +597,7 @@ function isKernelVoiceTranscriptionPath(pathname: string): boolean {
  *
  * The envelope mirrors what `apps/api` itself returns for the same condition —
  * verified against a live 401 from `api.tedix.dev`, which is
- * `{"json":{"defined":true,"inferable":true,"code":"UNAUTHORIZED","message":…}}` —
+ * `{"json":{"defined":true,"code":"UNAUTHORIZED","message":…}}` —
  * so the client parses a proxy refusal exactly as it parses an origin one.
  */
 function refuseApi(
@@ -610,7 +610,7 @@ function refuseApi(
 	return withSecurityHeaders(
 		new Response(
 			JSON.stringify({
-				json: { defined: true, inferable: true, code, message: reason },
+				json: { defined: true, code, message: reason },
 			}),
 			{
 				status,
