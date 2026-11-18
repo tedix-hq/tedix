@@ -185,6 +185,11 @@ export type WireControlFrame =
 			conversations: ConversationSummary[];
 			/** Archived conversations, each with `archivedAt`; not in `conversations`. */
 			archived?: ConversationSummary[];
+			/**
+			 * Every request in the workspace waiting for a person up to `cursor`,
+			 * oldest first, whichever conversation asked.
+			 */
+			waiting: WaitingApproval[];
 			models?: Array<{ id: string; label: string }>;
 			/** The whole workspace, archived conversations included, up to `cursor`. */
 			usage?: UsageTotals;
@@ -223,6 +228,27 @@ export type WireControlFrame =
 			turnId: string;
 			conversationId: string;
 	  }
+	| {
+			/**
+			 * The answer to `decide_approval` and `decide_approvals`, sent to the
+			 * socket that decided: how far the run got and why it stopped.
+			 */
+			type: "approvals.decided";
+			runId?: string;
+			decision: "approve" | "deny";
+			/** How many requests the run was given. */
+			total: number;
+			/** How many of them this run decided itself and, on approve, applied. */
+			done: number;
+			/** How many someone else had decided first; those were left as they are. */
+			alreadyDecided: number;
+			/** Where the run stopped; every request after it still waits. */
+			stopped?: {
+				approvalId: string;
+				reason: "failed" | "decided_otherwise";
+				error?: string;
+			};
+	  }
 	| { type: "pong" }
 	| { type: "error"; code: string; message: string; clientTurnId?: string };
 
@@ -242,12 +268,19 @@ export type ClientFrame =
 			approvalId: string;
 			decision: "approve" | "deny";
 			note?: string;
+			/** Echoed in the `approvals.decided` answer. */
+			runId?: string;
 	  }
 	| {
-			/** Decide several approvals of one conversation; one turn continues. */
+			/**
+			 * Decide several approvals one at a time in the order given, from any
+			 * conversation; each conversation continues with one turn.
+			 */
 			type: "decide_approvals";
 			approvalIds: string[];
 			decision: "approve" | "deny";
+			/** Echoed in the `approvals.decided` answer. */
+			runId?: string;
 	  }
 	| { type: "cancel_turn"; turnId: string }
 	| { type: "rename_conversation"; conversationId: string; title: string }
@@ -265,6 +298,21 @@ export type ClientFrame =
 			limit?: number;
 	  }
 	| { type: "ping" };
+
+/** A request waiting for a person, as its `approval.requested` event told it. */
+export interface WaitingApproval {
+	approvalId: string;
+	conversationId: string;
+	turnId: string;
+	stepId: string;
+	title: string;
+	reason: string;
+	policy?: string;
+	input?: unknown;
+	target?: { id: string; title: string };
+	/** When it was asked for. */
+	at: string;
+}
 
 export interface ConversationSummary {
 	id: string;

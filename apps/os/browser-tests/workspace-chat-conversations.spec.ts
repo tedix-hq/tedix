@@ -38,6 +38,7 @@ try {
 								socket.send(
 									JSON.stringify({
 										type: "hello",
+										waiting: [],
 										serverTime: new Date().toISOString(),
 										cursor: seq,
 										conversations: [

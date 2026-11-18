@@ -14,6 +14,7 @@ import type {
 	TurnStatus,
 	TurnUsage,
 	UsageTotals,
+	WaitingApprovalSummary,
 	WorkspaceChatLedgerEvent,
 } from "./workspace-chat-protocol";
 
@@ -121,6 +122,40 @@ export type ChatTurn = {
 	replyKey: string;
 };
 
+/** A request waiting for a person, with the conversation that asked. */
+export type WaitingApproval = ChatApproval & { conversationId: string };
+
+/** Several requests being decided one after another, in this order. */
+export type ApprovalRun = {
+	runId: string;
+	decision: ApprovalDecision;
+	requests: WaitingApproval[];
+};
+
+/** What the person is owed after a decision did not go as asked. */
+export type ApprovalNotice =
+	| {
+			/** A run stopped part-way; the requests after `request` still wait. */
+			kind: "stopped";
+			decision: ApprovalDecision;
+			total: number;
+			/** How many this run decided itself before it stopped. */
+			done: number;
+			request: WaitingApproval | null;
+			reason: "failed" | "decided_otherwise";
+			error?: string;
+	  }
+	| {
+			/** Someone else had already decided it, the same way. */
+			kind: "already_decided";
+			request: WaitingApproval | null;
+	  }
+	| {
+			/** The connection dropped before the answer came back. */
+			kind: "disconnected";
+			decision: ApprovalDecision;
+	  };
+
 export type WorkspaceChatState = {
 	/** Highest seq folded; the resubscribe cursor. */
 	cursor: number | null;
@@ -128,6 +163,14 @@ export type WorkspaceChatState = {
 	lastEventAt: number | null;
 	conversationId: string | null;
 	turns: ChatTurn[];
+	/**
+	 * Every request in the workspace still waiting for a person, oldest
+	 * first, whichever conversation asked.
+	 */
+	waiting: WaitingApproval[];
+	/** Several requests this tab is deciding one after another. */
+	approvalRun: ApprovalRun | null;
+	approvalNotice: ApprovalNotice | null;
 	conversations: ConversationSummary[];
 	models: Array<{ id: string; label: string }>;
 	/** Older events exist before the first turn shown. */
@@ -171,6 +214,9 @@ export function initialWorkspaceChatState(
 		lastEventAt: null,
 		conversationId,
 		turns: [],
+		waiting: [],
+		approvalRun: null,
+		approvalNotice: null,
 		conversations: [],
 		models: [],
 		hasEarlier: false,
@@ -376,6 +422,7 @@ export function applyWorkspaceChatEvent(
 			),
 		};
 	}
+	state = foldWaiting(state, event);
 	if (event.conversationId !== state.conversationId)
 		return withCursor(state, event);
 
@@ -774,6 +821,77 @@ export function markSendFailed(
 	return { ...state, pendingSend: null, lastError: error };
 }
 
+/**
+ * Keeps the workspace's waiting requests current. The object's hello lists
+ * them up to `usageCursor`; only a later event adds one, so a replay or an
+ * older history page never brings back a request that was already decided.
+ */
+function foldWaiting(
+	state: WorkspaceChatState,
+	event: WorkspaceChatLedgerEvent,
+): WorkspaceChatState {
+	if (event.type === "approval.decided") {
+		return state.waiting.some((item) => item.approvalId === event.approvalId)
+			? {
+					...state,
+					waiting: state.waiting.filter(
+						(item) => item.approvalId !== event.approvalId,
+					),
+				}
+			: state;
+	}
+	if (
+		event.type !== "approval.requested" ||
+		// A change that applies at once was never waiting.
+		event.automatic ||
+		(state.usageCursor !== null && event.seq <= state.usageCursor) ||
+		state.approvalDecisions[event.approvalId] ||
+		state.waiting.some((item) => item.approvalId === event.approvalId)
+	)
+		return state;
+	return {
+		...state,
+		waiting: [
+			...state.waiting,
+			waitingApproval({
+				approvalId: event.approvalId,
+				conversationId: event.conversationId,
+				turnId: event.turnId,
+				stepId: event.stepId,
+				title: event.title,
+				reason: event.reason,
+				policy: event.policy,
+				input: event.input,
+				target: event.target,
+				at: event.at,
+			}),
+		],
+	};
+}
+
+function waitingApproval(summary: WaitingApprovalSummary): WaitingApproval {
+	return {
+		approvalId: summary.approvalId,
+		conversationId: summary.conversationId,
+		stepId: summary.stepId,
+		title: summary.title,
+		reason: summary.reason,
+		policy: summary.policy,
+		input: summary.input,
+		requestedAt: summary.at,
+		target: summary.target,
+		decision: null,
+	};
+}
+
+/** The object's hello: everything waiting in the workspace right now. */
+export function setWaitingApprovals(
+	state: WorkspaceChatState,
+	waiting: readonly WaitingApprovalSummary[],
+): WorkspaceChatState {
+	return { ...state, waiting: waiting.map(waitingApproval) };
+}
+
 export function setConversations(
 	state: WorkspaceChatState,
 	conversations: ConversationSummary[],
@@ -792,11 +910,16 @@ export function removeConversation(
 	const conversations = state.conversations.filter(
 		(row) => row.id !== conversationId,
 	);
+	// Its requests went with it.
+	const waiting = state.waiting.filter(
+		(item) => item.conversationId !== conversationId,
+	);
 	if (state.conversationId !== conversationId)
-		return { ...state, conversations };
+		return { ...state, conversations, waiting };
 	return {
 		...state,
 		conversations,
+		waiting,
 		turns: [],
 		hasEarlier: false,
 		pendingSend: null,
@@ -885,13 +1008,14 @@ export function activeTurn(state: WorkspaceChatState): ChatTurn | null {
 	return null;
 }
 
-/** Every proposal of the open conversation still waiting for a decision, oldest first. */
-export function waitingForDecision(state: WorkspaceChatState): ChatApproval[] {
-	return state.turns.flatMap((turn) =>
-		turn.approvals.filter(
-			(approval) => approval.decision === null && !approval.execution,
-		),
-	);
+/**
+ * Every request in the workspace still waiting for a decision, oldest first:
+ * the open conversation's and the ones other conversations raised.
+ */
+export function waitingForDecision(
+	state: WorkspaceChatState,
+): WaitingApproval[] {
+	return state.waiting;
 }
 
 /** The approval the object is waiting on, if any. */

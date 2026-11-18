@@ -42,6 +42,11 @@ type Workspace = {
 		{
 			turnId: string;
 			conversationId: string;
+			/** How the request was announced; a new chat's hello lists it. */
+			requested: Extract<
+				WorkspaceChatLedgerEvent,
+				{ type: "approval.requested" }
+			>;
 			resume: () => void;
 			end: () => void;
 		}
@@ -99,7 +104,10 @@ function emit(
 		if (
 			socket.data.conversationId === null ||
 			socket.data.conversationId === stamped.conversationId ||
-			stamped.type === "conversation.updated"
+			stamped.type === "conversation.updated" ||
+			// A waiting request and its decision reach every open chat.
+			stamped.type === "approval.requested" ||
+			stamped.type === "approval.decided"
 		)
 			sendTo(socket, stamped);
 	}
@@ -255,7 +263,7 @@ async function runTurn(
 			label: approvalTitle,
 			kind: "write",
 		});
-		emit(ws, {
+		const requested = emit(ws, {
 			type: "approval.requested",
 			conversationId,
 			turnId,
@@ -265,11 +273,12 @@ async function runTurn(
 			reason: "The workspace policy requires a person to approve this change.",
 			policy: "compliance:needs_approval",
 			input: { action: approvalTitle, rows: 3 },
-		});
+		}) as Extract<WorkspaceChatLedgerEvent, { type: "approval.requested" }>;
 		const decision = await new Promise<"approve" | "deny">((resolve) => {
 			ws.pendingApprovals.set(approvalId, {
 				turnId,
 				conversationId,
+				requested,
 				resume: () => resolve("approve"),
 				end: () => resolve("deny"),
 			});
@@ -356,6 +365,17 @@ function handle(socket: Socket, raw: string | Buffer): void {
 				conversations: [...ws.conversations.values()].sort((a, b) =>
 					b.updatedAt.localeCompare(a.updatedAt),
 				),
+				waiting: [...ws.pendingApprovals.values()].map(({ requested }) => ({
+					approvalId: requested.approvalId,
+					conversationId: requested.conversationId,
+					turnId: requested.turnId,
+					stepId: requested.stepId,
+					title: requested.title,
+					reason: requested.reason,
+					policy: requested.policy,
+					input: requested.input,
+					at: requested.at,
+				})),
 			});
 			const cursor = message.cursor ?? socket.data.after;
 			const relevant = ws.ledger.filter(
@@ -424,25 +444,20 @@ function handle(socket: Socket, raw: string | Buffer): void {
 			void runTurn(ws, conversationId, turnId, message.text, "person:local");
 			return;
 		}
-		case "decide_approval": {
-			const pending = ws.pendingApprovals.get(message.approvalId);
-			if (!pending) return;
-			emit(ws, {
-				type: "approval.decided",
-				conversationId: pending.conversationId,
-				turnId: pending.turnId,
-				approvalId: message.approvalId,
-				decision: message.decision,
-				by: "person:local",
-			});
-			if (message.decision === "approve") pending.resume();
-			else pending.end();
-			return;
-		}
+		case "decide_approval":
 		case "decide_approvals": {
-			for (const approvalId of message.approvalIds) {
+			// One at a time in the order given; a request no longer waiting was
+			// decided by someone else and is left as it is.
+			const approvalIds =
+				message.type === "decide_approval"
+					? [message.approvalId]
+					: message.approvalIds;
+			let done = 0;
+			for (const approvalId of approvalIds) {
 				const pending = ws.pendingApprovals.get(approvalId);
 				if (!pending) continue;
+				ws.pendingApprovals.delete(approvalId);
+				done += 1;
 				emit(ws, {
 					type: "approval.decided",
 					conversationId: pending.conversationId,
@@ -454,6 +469,14 @@ function handle(socket: Socket, raw: string | Buffer): void {
 				if (message.decision === "approve") pending.resume();
 				else pending.end();
 			}
+			sendTo(socket, {
+				type: "approvals.decided",
+				...(message.runId ? { runId: message.runId } : {}),
+				decision: message.decision,
+				total: approvalIds.length,
+				done,
+				alreadyDecided: approvalIds.length - done,
+			});
 			return;
 		}
 		case "cancel_turn":

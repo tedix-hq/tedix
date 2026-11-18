@@ -39,6 +39,7 @@ function harness() {
 			},
 			sendTurn: () => "turn",
 			decideApproval() {},
+			dismissApprovalNotice() {},
 			decideApprovals() {},
 			cancelTurn() {},
 			changeConversation() {},

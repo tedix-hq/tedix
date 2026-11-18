@@ -95,6 +95,7 @@ function harness(
 	const hello = (socket: FakeSocket, cursor = 0) =>
 		socket.receive({
 			type: "hello",
+			waiting: [],
 			cursor,
 			serverTime: new Date(now).toISOString(),
 			conversations: [],
@@ -128,6 +129,7 @@ describe("createWorkspaceChatClient", () => {
 		];
 		const hello = {
 			type: "hello" as const,
+			waiting: [],
 			cursor: 40,
 			serverTime: "2026-11-07T12:00:00.000Z",
 			conversations,
@@ -322,6 +324,7 @@ describe("createWorkspaceChatClient", () => {
 		first.open();
 		first.receive({
 			type: "hello",
+			waiting: [],
 			cursor: 0,
 			serverTime: "2026-11-07T12:00:00Z",
 			conversations: [],
@@ -837,8 +840,207 @@ describe("createWorkspaceChatClient", () => {
 		client.decideApproval("a1", "approve");
 		client.cancelTurn("t1");
 		expect(socket.sent.slice(-2)).toEqual([
-			{ type: "decide_approval", approvalId: "a1", decision: "approve" },
+			{
+				type: "decide_approval",
+				approvalId: "a1",
+				decision: "approve",
+				runId: "client-turn",
+			},
 			{ type: "cancel_turn", turnId: "t1" },
 		]);
+	});
+
+	const waitingRequest = (approvalId: string, conversationId: string) => ({
+		approvalId,
+		conversationId,
+		turnId: `t-${approvalId}`,
+		stepId: `s-${approvalId}`,
+		title: "Editing document blocks",
+		reason: "approval_pending",
+		target: { id: `out-${approvalId}`, title: `Plan ${approvalId}` },
+		at: "2026-11-18T10:00:00.000Z",
+	});
+
+	it("keeps the whole workspace's waiting requests, also from other conversations", () => {
+		const { client, sockets } = harness();
+		const socket = sockets[0]!;
+		socket.open();
+		socket.receive({
+			type: "hello",
+			cursor: 10,
+			serverTime: "2026-11-18T10:00:00.000Z",
+			conversations: [],
+			waiting: [waitingRequest("a1", "c1"), waitingRequest("a2", "c2")],
+		});
+		const waiting = () =>
+			client
+				.getSnapshot()
+				.state.waiting.map((item) => [item.approvalId, item.conversationId]);
+		expect(waiting()).toEqual([
+			["a1", "c1"],
+			["a2", "c2"],
+		]);
+		// A request the hello already accounted for is not added by a replay.
+		socket.receive({
+			seq: 4,
+			at: "2026-11-18T09:59:00.000Z",
+			conversationId: "c2",
+			type: "approval.requested",
+			turnId: "t-old",
+			stepId: "s-old",
+			approvalId: "old",
+			title: "Editing document blocks",
+			reason: "approval_pending",
+		});
+		socket.receive({
+			seq: 11,
+			at: "2026-11-18T10:01:00.000Z",
+			conversationId: "c3",
+			type: "approval.requested",
+			turnId: "t3",
+			stepId: "s3",
+			approvalId: "a3",
+			title: "Filing a Work Item",
+			reason: "approval_pending",
+		});
+		socket.receive({
+			seq: 12,
+			at: "2026-11-18T10:02:00.000Z",
+			conversationId: "c2",
+			type: "approval.decided",
+			approvalId: "a2",
+			decision: "deny",
+			by: "u2",
+		});
+		expect(waiting()).toEqual([
+			["a1", "c1"],
+			["a3", "c3"],
+		]);
+		socket.receive({
+			type: "conversation.deleted",
+			conversationId: "c3",
+			cursor: 13,
+		});
+		expect(waiting()).toEqual([["a1", "c1"]]);
+	});
+
+	it("shows a run while it works and says where it stopped", () => {
+		const { client, sockets } = harness(true, undefined, () => "run-1");
+		const socket = sockets[0]!;
+		socket.open();
+		socket.receive({
+			type: "hello",
+			cursor: 10,
+			serverTime: "2026-11-18T10:00:00.000Z",
+			conversations: [],
+			waiting: [
+				waitingRequest("a1", "c1"),
+				waitingRequest("a2", "c2"),
+				waitingRequest("a3", "c1"),
+			],
+		});
+		client.decideApprovals(["a1", "a2", "a3"], "approve");
+		expect(socket.sent.at(-1)).toEqual({
+			type: "decide_approvals",
+			approvalIds: ["a1", "a2", "a3"],
+			decision: "approve",
+			runId: "run-1",
+		});
+		expect(client.getSnapshot().state.approvalRun).toMatchObject({
+			runId: "run-1",
+			decision: "approve",
+		});
+		socket.receive({
+			type: "approvals.decided",
+			runId: "run-1",
+			decision: "approve",
+			total: 3,
+			done: 1,
+			alreadyDecided: 0,
+			stopped: { approvalId: "a2", reason: "failed", error: "Stale revision" },
+		});
+		const { approvalRun, approvalNotice } = client.getSnapshot().state;
+		expect(approvalRun).toBeNull();
+		expect(approvalNotice).toMatchObject({
+			kind: "stopped",
+			decision: "approve",
+			total: 3,
+			done: 1,
+			reason: "failed",
+			error: "Stale revision",
+			request: { approvalId: "a2", conversationId: "c2" },
+		});
+		client.dismissApprovalNotice();
+		expect(client.getSnapshot().state.approvalNotice).toBeNull();
+	});
+
+	it("tells the person when someone else had already decided", () => {
+		const { client, sockets } = harness(true, undefined, () => "run-1");
+		const socket = sockets[0]!;
+		socket.open();
+		socket.receive({
+			type: "hello",
+			cursor: 10,
+			serverTime: "2026-11-18T10:00:00.000Z",
+			conversations: [],
+			waiting: [waitingRequest("a1", "c1")],
+		});
+		client.decideApproval("a1", "approve");
+		expect(client.getSnapshot().state.approvalRun).toBeNull();
+		socket.receive({
+			type: "approvals.decided",
+			runId: "run-1",
+			decision: "approve",
+			total: 1,
+			done: 0,
+			alreadyDecided: 1,
+		});
+		expect(client.getSnapshot().state.approvalNotice).toMatchObject({
+			kind: "already_decided",
+			request: { approvalId: "a1" },
+		});
+	});
+
+	it("ends a run the object answered with an error", () => {
+		const { client, sockets } = harness(true, undefined, () => "run-1");
+		const socket = sockets[0]!;
+		socket.open();
+		socket.receive({
+			type: "hello",
+			cursor: 10,
+			serverTime: "2026-11-18T10:00:00.000Z",
+			conversations: [],
+			waiting: [waitingRequest("a1", "c1"), waitingRequest("a2", "c1")],
+		});
+		client.decideApprovals(["a1", "a2"], "approve");
+		expect(client.getSnapshot().state.approvalRun).not.toBeNull();
+		socket.receive({
+			type: "error",
+			code: "failed",
+			message: "Unknown approval",
+		});
+		expect(client.getSnapshot().state).toMatchObject({
+			approvalRun: null,
+			lastError: { message: "Unknown approval" },
+		});
+	});
+
+	it("ends a run with a notice when the connection drops under it", () => {
+		const { client, sockets } = harness(true, undefined, () => "run-1");
+		const socket = sockets[0]!;
+		socket.open();
+		socket.receive({
+			type: "hello",
+			cursor: 10,
+			serverTime: "2026-11-18T10:00:00.000Z",
+			conversations: [],
+			waiting: [waitingRequest("a1", "c1"), waitingRequest("a2", "c1")],
+		});
+		client.decideApprovals(["a2", "a1"], "deny");
+		socket.drop();
+		expect(client.getSnapshot().state).toMatchObject({
+			approvalRun: null,
+			approvalNotice: { kind: "disconnected", decision: "deny" },
+		});
 	});
 });

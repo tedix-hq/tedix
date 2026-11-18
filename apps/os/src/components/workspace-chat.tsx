@@ -127,8 +127,8 @@ import {
 import {
 	ApprovalTray,
 	approvalSubject,
-	approvalTarget,
 } from "@/components/workspace-chat-approval-tray";
+import { approvalTarget } from "@/lib/workspace-chat-approval-groups";
 import { receiveWorkspaceChatDrafts } from "@/lib/workspace-chat-draft-handoff";
 import {
 	approvalTitle,
@@ -258,6 +258,7 @@ export function WorkspaceChat({
 	// Waiting proposals never block the composer: they sit in the tray above
 	// it, and the agent is told about them on the next message. Every hold in
 	// workspace chat is an independent write; no agent step blocks on one.
+	// The tray holds the whole workspace's, not only this conversation's.
 	const waiting = waitingForDecision(state);
 	const connected = connection.phase === "open";
 	useEffect(() => {
@@ -516,12 +517,18 @@ export function WorkspaceChat({
 			<ApprovalTray
 				key={conversationId ?? "new"}
 				approvals={waiting}
+				// The object names a new chat before the pane's own id follows.
+				conversationId={state.conversationId ?? conversationId}
+				run={state.approvalRun}
+				notice={state.approvalNotice}
 				onDecide={(approvalId, decision) =>
 					client?.decideApproval(approvalId, decision)
 				}
-				onApproveAll={(approvalIds) =>
-					client?.decideApprovals(approvalIds, "approve")
+				onDecideAll={(approvalIds, decision) =>
+					client?.decideApprovals(approvalIds, decision)
 				}
+				onDismissNotice={() => client?.dismissApprovalNotice()}
+				onOpenConversation={onSelectConversation}
 			/>
 			{viewOnlyNote}
 			<Composer
