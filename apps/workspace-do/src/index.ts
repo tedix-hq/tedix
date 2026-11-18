@@ -1,3 +1,8 @@
+import type {
+	OsWorkspaceChangeRecordsQuery,
+	OsWorkspaceChangeRecordsExport,
+} from "@tedix/api-contract/schemas/os-workspace-change-records";
+import type { ChangeRecordQuery } from "./adapters";
 import type { TenantStoreImportRow } from "@tedix/db/tenant-store/store";
 /**
  * Worker entry. Other workers reach a workspace object through the
@@ -132,10 +137,13 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 	awaitTurn(scope: WorkspaceScope, turnId: string, timeoutMs: number) {
 		return stubFor(this.env, scope).awaitTurn(scope, turnId, timeoutMs);
 	}
-	readChangeRecords(
+	exportChangeRecords(
 		scope: WorkspaceScope,
-		query?: { afterSequence?: number; limit?: number; resource?: string },
-	) {
+		query: OsWorkspaceChangeRecordsQuery,
+	): Promise<OsWorkspaceChangeRecordsExport> {
+		return stubFor(this.env, scope).exportChangeRecords(scope, query);
+	}
+	readChangeRecords(scope: WorkspaceScope, query?: ChangeRecordQuery) {
 		return stubFor(this.env, scope).readChangeRecords(scope, query);
 	}
 	readMessages(scope: WorkspaceScope, conversationId: string, limit?: number) {

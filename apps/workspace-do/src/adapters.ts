@@ -45,6 +45,11 @@ CREATE TABLE IF NOT EXISTS approval_receipts (
 CREATE INDEX IF NOT EXISTS approval_receipts_call ON approval_receipts(resource, operation, args_hash);
 `;
 
+export interface ChangeRecordQuery extends LedgerQuery {
+	from?: string;
+	until?: string;
+}
+
 interface LedgerRow {
 	sequence: number;
 	id: string;
@@ -81,9 +86,17 @@ export class SqlAccountabilityAdapter implements AccountabilityAdapter {
 		return record;
 	}
 
-	async list(query: LedgerQuery = {}): Promise<ChangeRecord[]> {
+	async list(query: ChangeRecordQuery = {}): Promise<ChangeRecord[]> {
 		const conditions: string[] = [];
 		const params: unknown[] = [];
+		if (query.from !== undefined) {
+			conditions.push("recorded_at >= ?");
+			params.push(query.from);
+		}
+		if (query.until !== undefined) {
+			conditions.push("recorded_at < ?");
+			params.push(query.until);
+		}
 		if (query.resource) {
 			conditions.push("resource = ?");
 			params.push(query.resource);
@@ -105,6 +118,14 @@ export class SqlAccountabilityAdapter implements AccountabilityAdapter {
 				limit,
 			)
 			.map((row) => JSON.parse(row.record) as ChangeRecord);
+	}
+
+	countRange(from: string, until: string): number {
+		return this.storage.exec<{ count: number }>(
+			"SELECT COUNT(*) AS count FROM change_records WHERE recorded_at >= ? AND recorded_at < ?",
+			from,
+			until,
+		)[0]!.count;
 	}
 
 	async get(id: string): Promise<ChangeRecord | null> {

@@ -1,3 +1,9 @@
+import { env } from "cloudflare:workers";
+import { getRequestOrganizationMembership } from "../org-membership";
+import type {
+	OsWorkspaceChangeRecordsQuery,
+	OsWorkspaceChangeRecordsExport,
+} from "@tedix/api-contract/schemas/os-workspace-change-records";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { installDocument, installOutputEditor } from "./os-editor-blueprints";
 import { validateAppSource } from "../../services/os-app-validation";
@@ -159,6 +165,45 @@ const readOs = authed.use(AUTHZ.osRead);
 const authorOs = authed.use(AUTHZ.osAuthor);
 const runOs = authed.use(AUTHZ.osRun);
 const publishOs = authed.use(AUTHZ.osPublish);
+
+const workspacesChangeRecords = readOs.workspaces.changeRecords.handler(
+	async ({ input, context }) => {
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		const subject =
+			context.authType === "user" ? context.user?.sub : context.descopeUserId;
+		const membership = subject
+			? await getRequestOrganizationMembership(
+					context,
+					workspace.organizationId,
+					subject,
+				)
+			: null;
+		if (membership?.status !== "active")
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Active workspace membership required",
+			);
+		const runtime = (
+			env as unknown as {
+				WORKSPACE_RUNTIME?: {
+					exportChangeRecords(
+						scope: { organizationId: string; workspaceId: string },
+						query: OsWorkspaceChangeRecordsQuery,
+					): Promise<OsWorkspaceChangeRecordsExport>;
+				};
+			}
+		).WORKSPACE_RUNTIME;
+		if (!runtime)
+			throw createError(
+				ErrorCodes.SERVICE_UNAVAILABLE,
+				"Workspace runtime unavailable",
+			);
+		return runtime.exportChangeRecords(
+			{ organizationId: workspace.organizationId, workspaceId: workspace.id },
+			input,
+		);
+	},
+);
 
 const installWorkDefaults = authorOs.gadgets.installWorkDefaults.handler(
 	async ({ context }) =>
@@ -2362,6 +2407,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 	workspaces: {
 		...workspaceLibrary.osWorkspaceProcedures,
 		...workspaceActivity.osWorkspaceActivityProcedures,
+		changeRecords: workspacesChangeRecords,
 		previewBlueprintUpgrade: workspacesPreviewBlueprintUpgrade,
 		decideBlueprintUpgrade: workspacesDecideBlueprintUpgrade,
 	},

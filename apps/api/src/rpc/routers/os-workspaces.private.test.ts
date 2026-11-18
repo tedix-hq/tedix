@@ -1,3 +1,5 @@
+import { env as workerEnv } from "cloudflare:workers";
+import { vi } from "vite-plus/test";
 import { workspaceDocumentRuntime } from "../../services/workspace-document-owner";
 import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
 import { eq } from "drizzle-orm";
@@ -1306,4 +1308,145 @@ it("continues beyond an empty filtered page without skipping recorded activity",
 	expect(second.items.map((item) => item.entityId)).toEqual(["page-0"]);
 	expect(second.next).toBeNull();
 	expect(second.coverage).toBe("recorded_only");
+});
+
+describe("workspace change record export", () => {
+	const range = {
+		from: "2026-10-01T00:00:00Z",
+		until: "2026-10-02T00:00:00Z",
+		limit: 2,
+	};
+	function exportRuntime() {
+		const runtime = workerEnv as unknown as {
+			WORKSPACE_RUNTIME: Record<string, unknown>;
+		};
+		const read = vi.fn(
+			async (
+				scope: { workspaceId: string },
+				query: { from: string; until: string },
+			) => ({
+				workspaceId: scope.workspaceId,
+				from: query.from,
+				until: query.until,
+				exportedAt: query.until,
+				count: 1005,
+				records: [],
+				nextAfterSequence: null,
+			}),
+		);
+		runtime.WORKSPACE_RUNTIME.exportChangeRecords = read;
+		onTestFinished(() => {
+			delete runtime.WORKSPACE_RUNTIME.exportChangeRecords;
+		});
+		return read;
+	}
+	it("returns the runtime count and export for an active member with read permission", async () => {
+		const env = createEnv();
+		const { team } = await seed(env);
+		const read = exportRuntime();
+		const result = await member(env, OTHER, {
+			permissions: ["os:read"],
+		}).workspaces.changeRecords({ workspaceId: team.id, ...range });
+		expect(result).toMatchObject({
+			workspaceId: team.id,
+			count: 1005,
+			records: [],
+		});
+		expect(read).toHaveBeenCalledOnce();
+		expect(read).toHaveBeenCalledWith(
+			{ organizationId: "org-1", workspaceId: team.id },
+			expect.objectContaining({
+				from: "2026-10-01T00:00:00.000Z",
+				until: "2026-10-02T00:00:00.000Z",
+				limit: 2,
+			}),
+		);
+	});
+	it("denies missing read permission, inactive members, nonmembers, private outsiders and another organization", async () => {
+		const env = createEnv();
+		const { team, workspace } = await seed(env);
+		const read = exportRuntime();
+		await expect(
+			member(env, OTHER, {
+				permissions: ["os:author"],
+			}).workspaces.changeRecords({ workspaceId: team.id, ...range }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		for (const subject of ["member-gone", "outsider"])
+			await expect(
+				member(env, subject).workspaces.changeRecords({
+					workspaceId: team.id,
+					...range,
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			member(env, OTHER).workspaces.changeRecords({
+				workspaceId: workspace.id,
+				...range,
+			}),
+		).rejects.toMatchObject(notFound);
+		const foreign = createRouterClient(osWorkspacesContractRouter, {
+			context: { ...context(env, OWNER), organizationId: "org-other" },
+		});
+		await expect(
+			foreign.workspaces.changeRecords({ workspaceId: team.id, ...range }),
+		).rejects.toMatchObject(notFound);
+		expect(read).not.toHaveBeenCalled();
+	});
+	it("requires a read scope on a machine acting for a member", async () => {
+		const env = createEnv();
+		const { team } = await seed(env);
+		const read = exportRuntime();
+		const machine = (scopes: string[], actingFor: string | undefined = OWNER) =>
+			createRouterClient(osWorkspacesContractRouter, {
+				context: {
+					...context(env, OWNER),
+					user: undefined,
+					authType: "apikey",
+					descopeUserId: actingFor,
+					apiKey: {
+						id: "key",
+						organizationId: "org-1",
+						name: "member-key",
+						scopes,
+					},
+				} as BaseContext,
+			});
+		await expect(
+			machine(["apps:write"]).workspaces.changeRecords({
+				workspaceId: team.id,
+				...range,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		for (const actingFor of ["", "outsider"])
+			await expect(
+				machine(["apps:read"], actingFor).workspaces.changeRecords({
+					workspaceId: team.id,
+					...range,
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(read).not.toHaveBeenCalled();
+		await expect(
+			machine(["apps:read"]).workspaces.changeRecords({
+				workspaceId: team.id,
+				...range,
+			}),
+		).resolves.toMatchObject({ count: 1005 });
+	});
+	it("rejects invalid time ranges before reading the workspace runtime", async () => {
+		const env = createEnv();
+		const { team } = await seed(env);
+		const read = exportRuntime();
+		for (const times of [
+			{ from: range.until, until: range.from },
+			{ from: range.from, until: range.from },
+			{ from: "yesterday", until: range.until },
+		])
+			await expect(
+				member(env, OWNER).workspaces.changeRecords({
+					workspaceId: team.id,
+					...times,
+				}),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(read).not.toHaveBeenCalled();
+	});
 });
