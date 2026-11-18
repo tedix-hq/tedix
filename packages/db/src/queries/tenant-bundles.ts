@@ -6,8 +6,9 @@
  * isolate. Write paths live in `packages/provisioning/src/cms.ts`.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, asc, count, eq, gt, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
 import { type TenantBundle, tenantBundles } from "../schema/tenant-bundles";
 
 /**
@@ -37,6 +38,37 @@ export async function listActiveTenantBundles(
 		.select()
 		.from(tenantBundles)
 		.where(eq(tenantBundles.isActive, true));
+}
+
+/** Scan every retained generation, including inactive rollback targets. */
+export async function getNextTenantBundleForCompression(
+	db: DbQueryClient,
+	slug: string,
+	afterVersion: number,
+): Promise<{ bundle: TenantBundle | null; total: number; remaining: number }> {
+	const [bundles, totals] = await db.batch([
+		db
+			.select()
+			.from(tenantBundles)
+			.where(
+				and(
+					eq(tenantBundles.slug, slug),
+					gt(tenantBundles.version, afterVersion),
+				),
+			)
+			.orderBy(asc(tenantBundles.version))
+			.limit(1),
+		db
+			.select({
+				total: count(),
+				remaining: count(
+					sql`case when ${tenantBundles.version} > ${afterVersion} then 1 end`,
+				),
+			})
+			.from(tenantBundles)
+			.where(eq(tenantBundles.slug, slug)),
+	]);
+	return { bundle: bundles[0] ?? null, ...totals[0]! };
 }
 
 export async function getTenantBundleSummary(

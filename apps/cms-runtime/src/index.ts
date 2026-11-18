@@ -43,6 +43,7 @@ import {
 	withSharedCmsRestorePermit,
 } from "./tenant-restore-fence";
 import { runScheduledTenantWithPermit } from "./scheduled-restore-permits";
+import { migrateTenantBundleCompression } from "./bundle-compression-migration";
 import { r2RestHeaders } from "./r2-rest";
 import type {
 	CollectionDeletionGuardInput,
@@ -2382,6 +2383,23 @@ export default {
 				if (restoreEpoch === null) {
 					counters.skipped += 1;
 					continue;
+				}
+
+				try {
+					await migrateTenantBundleCompression(
+						env,
+						createDbQueryClient(env.PLATFORM_DB),
+						{ siteId: org.siteId, slug, restoreEpoch },
+						(prefix) =>
+							loadBundleModules(env, prefix, {
+								restoreIdentity: { siteId: org.siteId, slug, restoreEpoch },
+							}),
+					);
+				} catch (error) {
+					console.error("[cms-runtime] bundle compression migration failed", {
+						slug,
+						error: String(error),
+					});
 				}
 
 				const tenantEntrypoint = getTenantEntrypoint(env, ctx, {
