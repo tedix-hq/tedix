@@ -1,4 +1,8 @@
 // @vitest-environment node
+import {
+	LOCAL_DEMO_ORGANIZATION_ID,
+	LOCAL_DEMO_PROJECT_ID,
+} from "@tedix/auth/local-demo";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	handleOsRequest,
@@ -106,4 +110,21 @@ describe("workspace chat organization routing", () => {
 			expect(objectRequests).toHaveLength(0);
 		},
 	);
+
+	it("addresses the local demo organization on a loopback local run", async () => {
+		const { env, objectRequests } = chatEnv("owner");
+		env.TEDIX_LOCAL_DEMO_ENABLED = "true";
+		env.DESCOPE_PROJECT_ID = LOCAL_DEMO_PROJECT_ID;
+		const request = new Request(
+			`http://localhost:3042/workspace/${workspaceId}/chat`,
+			{ headers: { Upgrade: "websocket" } },
+		);
+		const response = await handleOsRequest(request, env, async () => ({
+			provisioned: false,
+		}));
+		await expect(response.text()).resolves.toBe("object-upgrade");
+		expect(objectRequests[0]?.headers.get("X-Workspace-Org")).toBe(
+			LOCAL_DEMO_ORGANIZATION_ID,
+		);
+	});
 });
