@@ -4,6 +4,7 @@ import {
 	GearSix,
 	Lightning,
 	MagnifyingGlass,
+	Plus,
 	Pulse,
 	SquaresFour,
 	Stack,
@@ -20,6 +21,8 @@ import {
 } from "@/lib/os-navigation";
 import type { ComponentType } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CreateOutputAppDialog } from "@/components/create-doc-app-dialog";
+import { WorkspaceFormDialog } from "@/components/workspace-actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { CommandPalette } from "@/components/kumo/command-palette";
@@ -31,7 +34,9 @@ import {
 	skillCatalogQueryOptions,
 	skillRunHistoryQueryOptions,
 	workAppsQueryOptions,
+	workspacePreferencesQueryOptions,
 } from "@/lib/os-query-options";
+import { canvasDocKey } from "@/lib/canvas-search";
 import { primaryOutputNavigationTarget } from "@/lib/output-navigation";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { openableWorkViews, WORK_VIEWS, type WorkView } from "@/lib/work-views";
@@ -39,6 +44,10 @@ import { openableWorkViews, WORK_VIEWS, type WorkView } from "@/lib/work-views";
 // Other resource groups remain bounded; workspace search loads every page.
 const PALETTE_LIST_LIMIT = 12;
 const PALETTE_RUNS_LIMIT = 8;
+// How many recently opened workspaces lead the list before anything is typed.
+const PALETTE_RECENT_LIMIT = 5;
+
+type PaletteCreateKind = "workspace" | "document" | "sheet" | "presentation";
 
 type PaletteCommand = {
 	id: string;
@@ -102,11 +111,159 @@ function pageCommands(
 	});
 }
 
+/**
+ * "New …" commands. Files are created in the workspace on screen; anywhere
+ * else the create dialog asks which workspace to use.
+ */
+function createCommands(
+	start: (kind: PaletteCreateKind) => void,
+	inWorkspace: boolean,
+): PaletteCommand[] {
+	const where = inWorkspace ? "in this workspace" : "in a workspace you choose";
+	return [
+		{
+			id: "create-workspace",
+			title: "New workspace",
+			description: "Create · a place for your work, documents and apps",
+			icon: Plus,
+			run: () => start("workspace"),
+		},
+		{
+			id: "create-document",
+			title: "New doc",
+			description: `Create · a document ${where}`,
+			icon: Plus,
+			run: () => start("document"),
+		},
+		{
+			id: "create-sheet",
+			title: "New sheet",
+			description: `Create · a sheet ${where}`,
+			icon: Plus,
+			run: () => start("sheet"),
+		},
+		{
+			id: "create-presentation",
+			title: "New slides",
+			description: `Create · slides ${where}`,
+			icon: Plus,
+			run: () => start("presentation"),
+		},
+	];
+}
+
+function queryTokens(query: string): string[] {
+	return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
 function matchesCommand(command: PaletteCommand, query: string): boolean {
-	const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+	const tokens = queryTokens(query);
 	if (tokens.length === 0) return true;
 	const haystack = `${command.title} ${command.description}`.toLowerCase();
 	return tokens.every((token) => haystack.includes(token));
+}
+
+/**
+ * How well a command answers the query, higher first: the whole name, the
+ * start of the name, the starts of words in the name, anywhere in the name,
+ * then the description only. 0 means it does not match.
+ */
+function commandScore(command: PaletteCommand, query: string): number {
+	if (!matchesCommand(command, query)) return 0;
+	const tokens = queryTokens(query);
+	if (tokens.length === 0) return 1;
+	const title = command.title.toLowerCase();
+	const typed = tokens.join(" ");
+	if (title === typed) return 5;
+	if (title.startsWith(typed)) return 4;
+	const words = title.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+	if (tokens.every((token) => words.some((word) => word.startsWith(token))))
+		return 3;
+	if (tokens.every((token) => title.includes(token))) return 2;
+	return 1;
+}
+
+/**
+ * The commands that match, best first. Equally good workspaces are ordered by
+ * when the person last opened them; everything else keeps its given order.
+ */
+function rankCommands(
+	commands: readonly PaletteCommand[],
+	query: string,
+	lastOpenedAt: ReadonlyMap<string, string> = new Map(),
+): PaletteCommand[] {
+	const opened = (command: PaletteCommand) =>
+		(command.workspace && lastOpenedAt.get(command.workspace.id)) || "";
+	return commands
+		.map((command, index) => ({
+			command,
+			index,
+			score: commandScore(command, query),
+		}))
+		.filter((entry) => entry.score > 0)
+		.sort(
+			(left, right) =>
+				right.score - left.score ||
+				opened(right.command).localeCompare(opened(left.command)) ||
+				left.index - right.index,
+		)
+		.map((entry) => entry.command);
+}
+
+/** Split text into runs, marking the parts the query matched. */
+function highlightParts(
+	text: string,
+	query: string,
+): { text: string; match: boolean }[] {
+	const lower = text.toLowerCase();
+	const tokens = queryTokens(query);
+	// Lowercasing can change the length of unusual text; leave that unmarked.
+	if (tokens.length === 0 || lower.length !== text.length)
+		return [{ text, match: false }];
+	const ranges: [number, number][] = [];
+	for (const token of tokens) {
+		for (
+			let at = lower.indexOf(token);
+			at !== -1;
+			at = lower.indexOf(token, at + token.length)
+		)
+			ranges.push([at, at + token.length]);
+	}
+	ranges.sort((left, right) => left[0] - right[0]);
+	const parts: { text: string; match: boolean }[] = [];
+	let cursor = 0;
+	for (const [start, end] of ranges) {
+		if (end <= cursor) continue;
+		const from = Math.max(start, cursor);
+		if (from > cursor)
+			parts.push({ text: text.slice(cursor, from), match: false });
+		const last = parts.at(-1);
+		if (last?.match) last.text += text.slice(from, end);
+		else parts.push({ text: text.slice(from, end), match: true });
+		cursor = end;
+	}
+	if (cursor < text.length)
+		parts.push({ text: text.slice(cursor), match: false });
+	return parts;
+}
+
+function Highlighted({ text, query }: { text: string; query: string }) {
+	return (
+		<>
+			{highlightParts(text, query).map((part, index) =>
+				part.match ? (
+					<mark
+						className="rounded-xs bg-kumo-warning-tint text-inherit"
+						key={index}
+					>
+						{part.text}
+					</mark>
+				) : (
+					part.text
+				),
+			)}
+		</>
+	);
 }
 
 export function OsCommandPalette({
@@ -120,6 +277,14 @@ export function OsCommandPalette({
 	const navigate = useNavigate();
 	const pathname = useLocation({ select: (location) => location.pathname });
 	const [query, setQuery] = useState("");
+	// A "New …" command hides the search and shows its dialog in the same
+	// place, so the page that opened the palette needs no dialog of its own.
+	const [creating, setCreating] = useState<PaletteCreateKind | null>(null);
+	const currentPage = matchOsPage(pathname);
+	const currentWorkspaceId =
+		currentPage?.page.id === "workspace"
+			? currentPage.params.workspaceId
+			: undefined;
 	// The shell mounts the palette on demand, without a Kumo Dialog.Trigger.
 	const [returnFocus] = useState(() =>
 		typeof document === "undefined" ? null : document.activeElement,
@@ -180,6 +345,23 @@ export function OsCommandPalette({
 		enabled: open,
 		staleTime: 30_000,
 	});
+	// Only orders workspaces; when it cannot be read they keep their given order.
+	const preferences = useQuery({
+		...workspacePreferencesQueryOptions(),
+		enabled: open,
+		staleTime: 30_000,
+	});
+	const lastOpenedAt = useMemo(
+		() =>
+			new Map(
+				(preferences.data?.items ?? []).flatMap((preference) =>
+					preference.lastOpenedAt
+						? [[preference.workspaceId, preference.lastOpenedAt] as const]
+						: [],
+				),
+			),
+		[preferences.data],
+	);
 	const resources = [
 		{ label: "Workspaces", query: workspaces },
 		{ label: OS_COPY.navigation.outputs, query: outputs },
@@ -310,6 +492,11 @@ export function OsCommandPalette({
 		}, workViews);
 
 		return [
+			{
+				id: "create",
+				label: "Create",
+				items: createCommands(setCreating, currentWorkspaceId !== undefined),
+			},
 			{ id: "pages", label: "OS", items: pages },
 			{ id: "work-views", label: "Work views", items: workViewItems },
 			{
@@ -328,6 +515,7 @@ export function OsCommandPalette({
 		];
 	}, [
 		apps.data,
+		currentWorkspaceId,
 		navigate,
 		pathname,
 		locale,
@@ -338,22 +526,100 @@ export function OsCommandPalette({
 		workspaces.data,
 	]);
 
-	const filteredGroups = useMemo(
-		() =>
-			groups
-				.map((group) => ({
-					...group,
-					items: group.items.filter((item) => matchesCommand(item, query)),
-				}))
-				.filter((group) => group.items.length > 0),
-		[groups, query],
-	);
+	const filteredGroups = useMemo(() => {
+		if (queryTokens(query).length === 0) {
+			// Nothing typed yet: lead with the workspaces opened most recently.
+			const recent = rankCommands(
+				groups
+					.find((group) => group.id === "workspaces")!
+					.items.filter(
+						(item) => item.workspace && lastOpenedAt.has(item.workspace.id),
+					),
+				"",
+				lastOpenedAt,
+			).slice(0, PALETTE_RECENT_LIMIT);
+			return [
+				{ id: "recent-workspaces", label: "Recent workspaces", items: recent },
+				...groups.map((group) =>
+					group.id === "workspaces"
+						? {
+								...group,
+								items: group.items.filter((item) => !recent.includes(item)),
+							}
+						: group,
+				),
+			].filter((group) => group.items.length > 0);
+		}
+		// The group holding the best match comes first.
+		return groups
+			.map((group, index) => {
+				const items = rankCommands(group.items, query, lastOpenedAt);
+				return {
+					group: { ...group, items },
+					index,
+					best: items[0] ? commandScore(items[0], query) : 0,
+				};
+			})
+			.filter((entry) => entry.best > 0)
+			.sort((left, right) => right.best - left.best || left.index - right.index)
+			.map((entry) => entry.group);
+	}, [groups, lastOpenedAt, query]);
 
 	const select = (command: PaletteCommand) => {
-		onOpenChange(false);
 		setQuery("");
+		if (command.id.startsWith("create-")) {
+			// Stay mounted: the dialog replaces the search until it is done.
+			command.run();
+			return;
+		}
+		onOpenChange(false);
 		command.run();
 	};
+	const finishCreating = () => {
+		setCreating(null);
+		onOpenChange(false);
+	};
+
+	if (creating === "workspace")
+		return (
+			<WorkspaceFormDialog
+				mode="create"
+				open
+				onOpenChange={(nextOpen) => {
+					if (!nextOpen) finishCreating();
+				}}
+				onSaved={(workspace) =>
+					void navigate({
+						to: "/workspace/$workspaceId",
+						params: { workspaceId: workspace.id },
+					})
+				}
+			/>
+		);
+	if (creating)
+		return (
+			<CreateOutputAppDialog
+				kind={creating}
+				workspaceId={currentWorkspaceId}
+				onClose={finishCreating}
+				onCreated={(gadget) =>
+					void navigate({
+						to: "/workspace/$workspaceId",
+						params: { workspaceId: gadget.workspaceId },
+						search: {
+							workpiece: canvasDocKey({ type: "gadget", id: gadget.id }),
+							pane: "workpiece",
+						},
+					})
+				}
+				onOpenOutput={(output) =>
+					void navigate({
+						to: "/outputs/$outputId",
+						params: { outputId: output.id },
+					})
+				}
+			/>
+		);
 
 	return (
 		<CommandPalette.Root<PaletteGroup, PaletteCommand>
@@ -448,10 +714,10 @@ export function OsCommandPalette({
 											)}
 											<div className="min-w-0">
 												<div className="font-medium text-kumo-default">
-													{item.title}
+													<Highlighted text={item.title} query={query} />
 												</div>
 												<div className="truncate text-kumo-subtle text-xs">
-													{item.description}
+													<Highlighted text={item.description} query={query} />
 												</div>
 											</div>
 										</CommandPalette.Item>
@@ -500,4 +766,12 @@ export function OsCommandPalette({
 	);
 }
 
-export { matchesCommand, pageCommands, workViewCommands };
+export {
+	commandScore,
+	createCommands,
+	highlightParts,
+	matchesCommand,
+	pageCommands,
+	rankCommands,
+	workViewCommands,
+};

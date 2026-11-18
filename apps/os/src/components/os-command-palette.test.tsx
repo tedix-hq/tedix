@@ -12,9 +12,13 @@ import {
 } from "vite-plus/test";
 import { WORK_VIEWS } from "@/lib/work-views";
 import {
+	commandScore,
+	createCommands,
+	highlightParts,
 	matchesCommand,
 	OsCommandPalette,
 	pageCommands,
+	rankCommands,
 	workViewCommands,
 } from "./os-command-palette";
 import {
@@ -31,13 +35,16 @@ const reads = vi.hoisted(() => ({
 	skills: vi.fn(async (_limit: number): Promise<unknown> => ({ entries: [] })),
 	runs: vi.fn(async (_limit: number): Promise<unknown> => ({ runs: [] })),
 	workApps: vi.fn(async (): Promise<unknown> => ({ items: [] })),
+	preferences: vi.fn(async (): Promise<unknown> => ({ items: [] })),
+	activeWorkspaces: vi.fn(async (): Promise<unknown> => ({ items: [] })),
 	navigate: vi.fn(),
+	pathname: "/work",
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
 	useNavigate: () => reads.navigate,
-	useLocation: () => "/work",
+	useLocation: () => reads.pathname,
 }));
 
 // Keep contract-derived keys and real Query observers; replace only the reads.
@@ -70,6 +77,14 @@ vi.mock("@/lib/os-query-options", async (importOriginal) => {
 			...original.workAppsQueryOptions(),
 			queryFn: () => reads.workApps(),
 		}),
+		workspacePreferencesQueryOptions: () => ({
+			...original.workspacePreferencesQueryOptions(),
+			queryFn: () => reads.preferences(),
+		}),
+		activeWorkspacesQueryOptions: () => ({
+			...original.activeWorkspacesQueryOptions(),
+			queryFn: () => reads.activeWorkspaces(),
+		}),
 	};
 });
 
@@ -101,6 +116,110 @@ describe("OS command palette matching", () => {
 	it("requires every search token", () => {
 		expect(matchesCommand(command, "workspace policy")).toBe(false);
 		expect(matchesCommand(command, "   ")).toBe(true);
+	});
+});
+
+describe("create commands", () => {
+	it("offers a workspace, a doc, a sheet and slides and starts the one chosen", () => {
+		const start = vi.fn();
+		const commands = createCommands(start, false);
+		expect(commands.map((item) => item.title)).toEqual([
+			"New workspace",
+			"New doc",
+			"New sheet",
+			"New slides",
+		]);
+		commands[2]!.run();
+		expect(start).toHaveBeenCalledWith("sheet");
+		expect(matchesCommand(commands[1]!, "new doc")).toBe(true);
+		expect(matchesCommand(commands[3]!, "create slides")).toBe(true);
+	});
+
+	it("says where a new file goes", () => {
+		expect(createCommands(() => {}, true)[1]!.description).toContain(
+			"in this workspace",
+		);
+		expect(createCommands(() => {}, false)[1]!.description).toContain(
+			"in a workspace you choose",
+		);
+	});
+});
+
+describe("ordering", () => {
+	const named = (id: string, title: string, description = "Workspace") => ({
+		...command,
+		id,
+		title,
+		description,
+		workspace: { id, name: title, visibility: "team" },
+	});
+
+	it("puts a whole-name match before a start, a word start, a middle and a description match", () => {
+		const ranked = rankCommands(
+			[
+				named("description", "Finance", "Workspace · plan the launch"),
+				named("middle", "Replan"),
+				named("word", "Launch plan"),
+				named("start", "Planning"),
+				named("exact", "Plan"),
+				named("none", "Budget"),
+			],
+			"plan",
+		);
+		expect(ranked.map((item) => item.id)).toEqual([
+			"exact",
+			"start",
+			"word",
+			"middle",
+			"description",
+		]);
+		expect(commandScore(named("none", "Budget"), "plan")).toBe(0);
+	});
+
+	it("orders equally good workspaces by when they were last opened", () => {
+		const ranked = rankCommands(
+			[
+				named("never", "Plan north"),
+				named("older", "Plan south"),
+				named("newest", "Plan east"),
+			],
+			"plan",
+			new Map([
+				["older", "2026-11-01T10:00:00.000Z"],
+				["newest", "2026-11-17T10:00:00.000Z"],
+			]),
+		);
+		expect(ranked.map((item) => item.id)).toEqual(["newest", "older", "never"]);
+	});
+
+	it("keeps the given order when nothing tells results apart", () => {
+		const ranked = rankCommands(
+			[named("b", "Plan b"), named("a", "Plan a")],
+			"plan",
+		);
+		expect(ranked.map((item) => item.id)).toEqual(["b", "a"]);
+	});
+});
+
+describe("highlight", () => {
+	it("marks every part the query matched and nothing else", () => {
+		expect(highlightParts("Tedix Books Reference", "book ref")).toEqual([
+			{ text: "Tedix ", match: false },
+			{ text: "Book", match: true },
+			{ text: "s ", match: false },
+			{ text: "Ref", match: true },
+			{ text: "erence", match: false },
+		]);
+	});
+
+	it("joins overlapping matches and leaves text alone without a query", () => {
+		expect(highlightParts("Planning", "plan lann")).toEqual([
+			{ text: "Plann", match: true },
+			{ text: "ing", match: false },
+		]);
+		expect(highlightParts("Planning", " ")).toEqual([
+			{ text: "Planning", match: false },
+		]);
 	});
 });
 
@@ -204,7 +323,10 @@ describe("mounted palette resource states", () => {
 		reads.skills.mockReset().mockResolvedValue({ entries: [] });
 		reads.runs.mockReset().mockResolvedValue({ runs: [] });
 		reads.workApps.mockReset().mockResolvedValue({ items: [] });
+		reads.preferences.mockReset().mockResolvedValue({ items: [] });
+		reads.activeWorkspaces.mockReset().mockResolvedValue({ items: [] });
 		reads.navigate.mockReset();
+		reads.pathname = "/work";
 		client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 		host = document.createElement("div");
 		document.body.append(host);
@@ -275,6 +397,134 @@ describe("mounted palette resource states", () => {
 			await new Promise((resolve) => setTimeout(resolve, 20));
 		});
 	}
+
+	function options() {
+		return [...document.querySelectorAll<HTMLElement>("[role=option]")];
+	}
+	function option(text: string) {
+		const found = options().find((node) => node.textContent?.includes(text));
+		expect(found, text).toBeDefined();
+		return found!;
+	}
+	const workspaceRows = [
+		{ id: "alpha", name: "Alpha plans", visibility: "team" },
+		{ id: "beta", name: "Beta plans", visibility: "team" },
+		{ id: "gamma", name: "Gamma plans", visibility: "team" },
+	];
+	const openedRows = [
+		{ workspaceId: "beta", lastOpenedAt: "2026-11-10T10:00:00.000Z" },
+		{ workspaceId: "gamma", lastOpenedAt: "2026-11-17T10:00:00.000Z" },
+		{ workspaceId: "alpha", lastOpenedAt: null },
+	];
+	async function pause() {
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		});
+	}
+
+	it("lists recently opened workspaces first, newest first, before anything is typed", async () => {
+		reads.workspaces.mockResolvedValue({ items: workspaceRows });
+		reads.preferences.mockResolvedValue({ items: openedRows });
+		await mount();
+		await openPalette();
+		await settled();
+		const names = options().map((node) => node.textContent ?? "");
+		expect(names[0]).toContain("Gamma plans");
+		expect(names[1]).toContain("Beta plans");
+		expect(names[2]).toContain("New workspace");
+		expect(document.body.textContent).toContain("Recent workspaces");
+		// A recent workspace is listed once; the rest stay under Workspaces.
+		expect(names.filter((name) => name.includes("Gamma plans"))).toHaveLength(
+			1,
+		);
+		expect(
+			names.findIndex((name) => name.includes("Alpha plans")),
+		).toBeGreaterThan(2);
+	});
+
+	it("orders equally good workspace matches by recency and highlights what matched", async () => {
+		reads.workspaces.mockResolvedValue({ items: workspaceRows });
+		reads.preferences.mockResolvedValue({ items: openedRows });
+		await mount();
+		await openPalette();
+		await settled();
+		await search("plans");
+		const names = options().map((node) => node.textContent ?? "");
+		expect(
+			names
+				.slice(0, 3)
+				.map((name) => name.match(/(Alpha|Beta|Gamma) plans/)?.[1]),
+		).toEqual(["Gamma", "Beta", "Alpha"]);
+		expect(document.body.textContent).not.toContain("Recent workspaces");
+		const marks = [...option("Gamma plans").querySelectorAll("mark")].map(
+			(node) => node.textContent,
+		);
+		expect(marks).toEqual(["plans"]);
+	});
+
+	it("still lists workspaces when their recency cannot be read", async () => {
+		reads.workspaces.mockResolvedValue({ items: workspaceRows });
+		reads.preferences.mockRejectedValue(new Error("offline"));
+		await mount();
+		await openPalette();
+		await settled();
+		expect(document.body.textContent).not.toContain("unavailable");
+		expect(document.body.textContent).not.toContain("Recent workspaces");
+		expect(option("Alpha plans")).toBeDefined();
+	});
+
+	it("opens the create workspace dialog from New workspace and closes with it", async () => {
+		await mount();
+		await openPalette();
+		await settled();
+		await search("new workspace");
+		await act(async () => option("New workspace").click());
+		await pause();
+		expect(document.querySelector("[role=dialog]")?.textContent).toContain(
+			"Create workspace",
+		);
+		expect(document.querySelector("[role=option]")).toBeNull();
+		expect(reads.navigate).not.toHaveBeenCalled();
+		await act(async () => button("Cancel").click());
+		await pause();
+		expect(document.querySelector("[role=dialog]")).toBeNull();
+		expect(document.querySelector("input")).toBeNull();
+	});
+
+	it("creates a file in the workspace on screen without asking where", async () => {
+		reads.pathname = "/workspace/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		await mount();
+		await openPalette();
+		await settled();
+		expect(option("New sheet").textContent).toContain("in this workspace");
+		await act(async () => option("New sheet").click());
+		await pause();
+		const dialog = document.querySelector("[role=dialog]")!;
+		expect(dialog.textContent).toContain("New Sheet");
+		expect(dialog.textContent).not.toContain("Choose a workspace");
+		expect(button("Create Sheet").disabled).toBe(false);
+		expect(reads.activeWorkspaces).not.toHaveBeenCalled();
+	});
+
+	it("asks which workspace a new file goes in when none is on screen", async () => {
+		reads.activeWorkspaces.mockResolvedValue({
+			items: [
+				{ id: "alpha", name: "Alpha plans" },
+				{ id: "beta", name: "Beta plans" },
+			],
+		});
+		await mount();
+		await openPalette();
+		await settled();
+		await search("new doc");
+		await act(async () => options()[0]!.click());
+		await settled();
+		const dialog = document.querySelector("[role=dialog]")!;
+		expect(dialog.textContent).toContain("New Doc");
+		expect(dialog.textContent).toContain("Choose a workspace");
+		expect(button("Create Doc").disabled).toBe(true);
+		expect(reads.activeWorkspaces).toHaveBeenCalled();
+	});
 
 	it("does not fetch even when the closed palette remains mounted", async () => {
 		await act(async () =>
