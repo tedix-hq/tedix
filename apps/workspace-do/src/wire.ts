@@ -101,6 +101,8 @@ export type WireEventBody =
 			approvalId: string;
 			status: "applied" | "failed";
 			error?: string;
+			/** The file the write saved; revision 1 means it created the file. */
+			output?: { outputId: string; revision: number };
 	  }
 	| {
 			/** A live view for the turn's answer, rendered in the widget frame. */
@@ -181,6 +183,12 @@ export type ClientFrame =
 			approvalId: string;
 			decision: "approve" | "deny";
 			note?: string;
+	  }
+	| {
+			/** Decide several approvals of one conversation; one turn continues. */
+			type: "decide_approvals";
+			approvalIds: string[];
+			decision: "approve" | "deny";
 	  }
 	| { type: "cancel_turn"; turnId: string }
 	| {

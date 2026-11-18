@@ -43,7 +43,12 @@ export type ChatApproval = {
 	decision: ApprovalDecision | null;
 	decidedBy?: string;
 	decidedAt?: string;
-	execution?: { status: "applied" | "failed"; error?: string };
+	execution?: {
+		status: "applied" | "failed";
+		error?: string;
+		/** The file the write saved; revision 1 means it created the file. */
+		output?: { outputId: string; revision: number };
+	};
 };
 
 export type ChatView = {
@@ -518,7 +523,11 @@ export function applyWorkspaceChatEvent(
 			}));
 			break;
 		case "approval.executed": {
-			const execution = { status: event.status, error: event.error };
+			const execution = {
+				status: event.status,
+				error: event.error,
+				...(event.output ? { output: event.output } : {}),
+			};
 			approvalExecutions = {
 				...approvalExecutions,
 				[event.approvalId]: execution,

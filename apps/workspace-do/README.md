@@ -52,7 +52,8 @@ its code runs beside the data.
 - WebSocket: forward the upgrade to `InternalEntrypoint.fetch` with
   `X-Workspace-Org`, `X-Workspace-Id`, `X-Workspace-Actor-Id` and a path
   ending in `/subscribe`. Frames follow `src/wire.ts`: the client sends
-  `subscribe`, `send_turn`, `decide_approval`, `cancel_turn`, `ping`; the
+  `subscribe`, `send_turn`, `decide_approval`, `decide_approvals` (several
+  approvals of one reply, continued by one turn), `cancel_turn`, `ping`; the
   object answers with ledger events (`turn.started`, `assistant.delta`,
   `step.started`/`step.finished`, `approval.requested`, `turn.finished`, …)
   that each carry a `seq` cursor, plus `hello`, `turn.accepted` and `error`.

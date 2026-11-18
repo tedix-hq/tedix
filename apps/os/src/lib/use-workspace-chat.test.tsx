@@ -39,6 +39,7 @@ function harness() {
 			},
 			sendTurn: () => "turn",
 			decideApproval() {},
+			decideApprovals() {},
 			cancelTurn() {},
 			loadEarlier() {},
 			forceDrop() {},

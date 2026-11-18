@@ -124,6 +124,7 @@ const FRAME_TYPES = new Set([
 	"subscribe",
 	"send_turn",
 	"decide_approval",
+	"decide_approvals",
 	"cancel_turn",
 	"read_ledger",
 	"ping",
@@ -231,6 +232,20 @@ interface ApprovalRow {
 	actor_kind: ActorKind;
 	tedi_id: string | null;
 	status: "pending" | "approved" | "denied" | "applied" | "failed";
+}
+
+/**
+ * The file an approved write saved, read from the write's result, so the
+ * chat can take the change back later. Revision 1 means the write created it.
+ */
+function changedOutput(
+	value: unknown,
+): { outputId: string; revision: number } | null {
+	if (!value || typeof value !== "object") return null;
+	const { id, revision, kind } = value as Record<string, unknown>;
+	if (typeof id !== "string" || typeof kind !== "string") return null;
+	if (typeof revision !== "number" || !Number.isInteger(revision)) return null;
+	return { outputId: id, revision };
 }
 
 /** Thin `WorkspaceStorage` over the object's synchronous SQLite and KV. */
@@ -1061,21 +1076,100 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			note?: string;
 		},
 	): Promise<{ applied: boolean; turnId?: string }> {
+		return (
+			await this.decideApprovals(scope, {
+				approvalIds: [input.approvalId],
+				decision: input.decision,
+				by: input.by,
+				...(input.note ? { note: input.note } : {}),
+			})
+		)[0]!;
+	}
+
+	/**
+	 * Decide several held writes of one conversation together, in the order
+	 * given. Each lands on its own, then one turn continues the conversation
+	 * with every result, so approving three proposals starts one answer, not
+	 * three that run side by side.
+	 */
+	async decideApprovals(
+		scope: WorkspaceScope,
+		input: {
+			approvalIds: string[];
+			decision: "approve" | "deny";
+			by: string;
+			note?: string;
+		},
+	): Promise<Array<{ applied: boolean; turnId?: string }>> {
 		this.bindScope(scope);
-		const [approval] = this.#store.exec<ApprovalRow>(
-			"SELECT * FROM approvals WHERE approval_id = ?",
-			input.approvalId,
-		);
-		if (!approval) throw new Error("Unknown approval");
-		if (approval.status !== "pending")
-			return (
-				this.#store.get<{ applied: boolean; turnId?: string }>(
-					`approval-result:${input.approvalId}`,
-				) ?? { applied: approval.status === "applied" }
+		const results: Array<{ applied: boolean; turnId?: string }> = [];
+		const settled: Array<{ approvalId: string; applied: boolean }> = [];
+		const summaries: string[] = [];
+		const rows = input.approvalIds.map((approvalId) => {
+			const [approval] = this.#store.exec<ApprovalRow>(
+				"SELECT * FROM approvals WHERE approval_id = ?",
+				approvalId,
 			);
+			if (!approval) throw new Error("Unknown approval");
+			return approval;
+		});
+		if (rows.some((row) => row.conversation_id !== rows[0]?.conversation_id))
+			throw new Error("Approvals decided together share one conversation");
+		let next: ApprovalRow | undefined;
+		for (const approval of rows) {
+			const approvalId = approval.approval_id;
+			if (approval.status !== "pending") {
+				results.push(
+					this.#store.get<{ applied: boolean; turnId?: string }>(
+						`approval-result:${approvalId}`,
+					) ?? { applied: approval.status === "applied" },
+				);
+				continue;
+			}
+			next ??= approval;
+			const outcome = await this.#settleApproval(scope, approval, input);
+			settled.push({ approvalId, applied: outcome.applied });
+			summaries.push(outcome.summary);
+			results.push({ applied: outcome.applied });
+		}
+		if (!next) return results;
+		const approve = input.decision === "approve";
+		const { turnId } = await this.sendTurn(
+			scope,
+			{
+				conversationId: next.conversation_id,
+				actorId: input.by,
+				actorKind: "user",
+				text: summaries.join("\n"),
+				...(next.tedi_id ? { tediId: next.tedi_id } : {}),
+			},
+			settled.length > 1
+				? approve
+					? `Approved ${settled.length} requested actions.`
+					: `Denied ${settled.length} requested actions.`
+				: approve
+					? "Approved the requested action."
+					: "Denied the requested action.",
+		);
+		for (const item of settled) {
+			const result = { applied: item.applied, turnId };
+			this.#store.put(`approval-result:${item.approvalId}`, result);
+			const index = input.approvalIds.indexOf(item.approvalId);
+			results[index] = result;
+		}
+		return results;
+	}
+
+	/** Record one decision and, on approve, run the held call. */
+	async #settleApproval(
+		scope: WorkspaceScope,
+		approval: ApprovalRow,
+		input: { decision: "approve" | "deny"; by: string; note?: string },
+	): Promise<{ applied: boolean; summary: string }> {
+		const approvalId = approval.approval_id;
 		const now = new Date().toISOString();
 		const state = input.decision === "approve" ? "approved" : "denied";
-		this.#compliance.recordApproval(input.approvalId, state, input.by, {
+		this.#compliance.recordApproval(approvalId, state, input.by, {
 			resource: approval.resource,
 			operation: approval.method,
 			argsHash: approval.args_hash,
@@ -1085,11 +1179,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			state,
 			input.by,
 			now,
-			input.approvalId,
+			approvalId,
 		);
 		this.#events.append(approval.conversation_id, {
 			type: "approval.decided",
-			approvalId: input.approvalId,
+			approvalId,
 			decision: input.decision,
 			by: input.by,
 			at: now,
@@ -1116,13 +1210,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.#store.run(
 				"UPDATE approvals SET status = ? WHERE approval_id = ?",
 				status,
-				input.approvalId,
+				approvalId,
 			);
+			const output = outcome.ok ? changedOutput(outcome.value) : null;
 			this.#events.append(approval.conversation_id, {
 				type: "approval.executed",
-				approvalId: input.approvalId,
+				approvalId,
 				status,
 				...(!outcome.ok ? { error: outcome.error } : {}),
+				...(output ? { output } : {}),
 			});
 			summary = outcome.ok
 				? `Approved by ${input.by}; ${approval.binding}.${approval.method} applied: ${JSON.stringify(outcome.value).slice(0, 2_000)}`
@@ -1130,23 +1226,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		} else {
 			summary = `Denied by ${input.by}${input.note ? `: ${input.note}` : ""}. Do not retry this action.`;
 		}
-		this.#store.put(`approval-result:${input.approvalId}`, { applied });
-		const { turnId } = await this.sendTurn(
-			scope,
-			{
-				conversationId: approval.conversation_id,
-				actorId: input.by,
-				actorKind: "user",
-				text: summary,
-				...(approval.tedi_id ? { tediId: approval.tedi_id } : {}),
-			},
-			input.decision === "approve"
-				? "Approved the requested action."
-				: "Denied the requested action.",
-		);
-		const result = { applied, turnId };
-		this.#store.put(`approval-result:${input.approvalId}`, result);
-		return result;
+		this.#store.put(`approval-result:${approvalId}`, { applied });
+		return { applied, summary };
 	}
 
 	/**
@@ -1418,6 +1499,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						decision: frame.decision,
 						by: attachment.actorId,
 						...(frame.note ? { note: frame.note } : {}),
+					});
+					return;
+				case "decide_approvals":
+					await this.decideApprovals(scope, {
+						approvalIds: frame.approvalIds,
+						decision: frame.decision,
+						by: attachment.actorId,
 					});
 					return;
 				case "cancel_turn":
@@ -2834,6 +2922,15 @@ export interface WorkspaceRpc {
 			note?: string;
 		},
 	): Promise<{ applied: boolean; turnId?: string }>;
+	decideApprovals(
+		scope: WorkspaceScope,
+		input: {
+			approvalIds: string[];
+			decision: "approve" | "deny";
+			by: string;
+			note?: string;
+		},
+	): Promise<Array<{ applied: boolean; turnId?: string }>>;
 	describe(scope: WorkspaceScope): Promise<{
 		organizationId: string;
 		workspaceId: string;

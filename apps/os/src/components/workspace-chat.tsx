@@ -75,6 +75,7 @@ import {
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
+import { ReplyApprovalActions } from "@/components/workspace-chat-reply-actions";
 import { ChatImagePreview } from "@/components/chat-image-preview";
 import { isImeComposing } from "@/lib/keyboard";
 import {
@@ -374,6 +375,9 @@ export function WorkspaceChat({
 				onDecide={(approvalId, decision) =>
 					client?.decideApproval(approvalId, decision)
 				}
+				onApproveAll={(approvalIds) =>
+					client?.decideApprovals(approvalIds, "approve")
+				}
 				onContinue={
 					running || state.pendingSend || approval
 						? null
@@ -586,6 +590,7 @@ function Thread({
 	hasEarlier,
 	onLoadEarlier,
 	onDecide,
+	onApproveAll,
 	onContinue,
 	onRetry,
 }: {
@@ -598,6 +603,7 @@ function Thread({
 	hasEarlier: boolean;
 	onLoadEarlier: () => void;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
+	onApproveAll: ApproveAll;
 	/** Resumes after the last turn; `null` while another turn is busy. */
 	onContinue: (() => void) | null;
 	/** Sends a failed or stopped turn's own message again; `null` while busy. */
@@ -653,6 +659,7 @@ function Thread({
 						models.find((model) => model.id === turn.model)?.label ?? turn.model
 					}
 					onDecide={onDecide}
+					onApproveAll={onApproveAll}
 					onContinue={
 						index === turns.length - 1 &&
 						(turn.status === "cancelled" || turn.status === "error")
@@ -678,6 +685,9 @@ function Thread({
 	);
 }
 
+/** Approves every listed proposal of one reply together. */
+type ApproveAll = (approvalIds: string[]) => void;
+
 type RetryTurn = (
 	text: string,
 	attachments?: Array<{ outputId: string }>,
@@ -692,6 +702,7 @@ function TurnView({
 	turn,
 	modelLabel,
 	onDecide,
+	onApproveAll,
 	onContinue,
 	onRetry,
 }: {
@@ -700,6 +711,7 @@ function TurnView({
 	/** The catalog name of the model that answered, else its id. */
 	modelLabel: string | undefined;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
+	onApproveAll: ApproveAll;
 	onContinue: (() => void) | null;
 	onRetry: RetryTurn | null;
 }) {
@@ -707,6 +719,7 @@ function TurnView({
 	const startedAt = Date.parse(turn.startedAt);
 	const waiting = turn.approvals.find((approval) => approval.decision === null);
 	const now = useNow(running && !waiting);
+	const [approvingAll, setApprovingAll] = useState<readonly string[]>([]);
 	const quiet =
 		running && !waiting && turn.reply === "" && turn.steps.length === 0;
 	return (
@@ -745,8 +758,21 @@ function TurnView({
 						workspaceId={workspaceId}
 						key={approval.approvalId}
 						onDecide={onDecide}
+						approving={approvingAll.includes(approval.approvalId)}
 					/>
 				))}
+				<ReplyApprovalActions
+					approvals={turn.approvals}
+					approvingAll={turn.approvals.some(
+						(approval) =>
+							approval.decision === null &&
+							approvingAll.includes(approval.approvalId),
+					)}
+					onApproveAll={(approvalIds) => {
+						setApprovingAll(approvalIds);
+						onApproveAll(approvalIds);
+					}}
+				/>
 				{quiet ? <Thinking label="Thinking" since={startedAt} /> : null}
 				{turn.reply ? (
 					<div
@@ -1131,17 +1157,37 @@ function approvalPreview(input: Record<string, unknown> | null): string {
 	return "";
 }
 
+/**
+ * What the proposal does to which item, for its buttons' names: "Approve
+ * creating Budget", "Deny changing Plan", "Deny editing an app draft".
+ */
+function approvalSubject(
+	approval: ChatApproval,
+	target: string | null,
+): string {
+	const title = approval.title.trim();
+	if (!target) return title.charAt(0).toLowerCase() + title.slice(1);
+	const verb = title.split(/\s+/)[0]?.toLowerCase();
+	const action =
+		verb === "creating" || verb === "filing" ? "creating" : "changing";
+	return `${action} ${target}`;
+}
+
 /** The decision and the action's recorded result remain separate. */
 function ApprovalCard({
 	approval,
 	workspaceId,
 	onDecide,
+	approving,
 }: {
 	approval: ChatApproval;
 	workspaceId: string;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
+	/** Approved together with the rest of its reply; the decision is on its way. */
+	approving: boolean;
 }) {
-	const [sent, setSent] = useState<"approve" | "deny" | null>(null);
+	const [own, setSent] = useState<"approve" | "deny" | null>(null);
+	const sent = own ?? (approving ? "approve" : null);
 	const decided = approval.decision ?? sent;
 	const input = objectValue(approval.input);
 	const target =
@@ -1151,6 +1197,7 @@ function ApprovalCard({
 	const preview = appEdit ? "" : approvalPreview(input);
 	const status = approvalStatus(approval);
 	const failed = approval.execution?.status === "failed";
+	const subject = approvalSubject(approval, target);
 	return (
 		<div
 			className="workspace-chat-approval"
@@ -1244,6 +1291,7 @@ function ApprovalCard({
 			{!approval.decision && !approval.execution ? (
 				<div className="workspace-chat-approval-actions">
 					<Button
+						aria-label={`${appEdit ? "Reject" : "Deny"} ${subject}`}
 						disabled={decided !== null}
 						onClick={() => {
 							setSent("deny");
@@ -1255,6 +1303,7 @@ function ApprovalCard({
 						{appEdit ? "Reject" : "Deny"}
 					</Button>
 					<Button
+						aria-label={`${appEdit ? "Accept" : "Approve"} ${subject}`}
 						disabled={decided !== null}
 						onClick={() => {
 							setSent("approve");
