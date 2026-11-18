@@ -1234,6 +1234,56 @@ describe("CMS tenant bundle activation CAS", () => {
 		expect(activeVersions(sqlite)).toEqual([1]);
 	});
 
+	it("publishes a readable compressed pack and refuses activation if its upload fails", async () => {
+		for (const fail of [false, true]) {
+			const { db, sqlite } = createD1Fixture(true);
+			const { bucket } = createBucket();
+			let packed: unknown;
+			const publication = uploadTenantBundle(
+				{
+					platformDb: db,
+					bundlesBucket: {
+						...bucket,
+						async put(key: string, value: ArrayBuffer | Uint8Array) {
+							if (key.endsWith("__tedix_packed_bundle.json.gz")) {
+								if (fail) throw new Error("compressed upload failed");
+								packed = await new Response(
+									new Response(new Uint8Array(value).buffer).body!.pipeThrough(
+										new DecompressionStream("gzip"),
+									),
+								).json();
+							}
+							await bucket.put(key, value);
+						},
+					},
+				},
+				{
+					orgSlug: "acme",
+					mainModule: "entry.mjs",
+					files: bundleFiles,
+					sourceRevision,
+				},
+			);
+			if (fail) {
+				await expect(publication).rejects.toThrow("compressed upload failed");
+				expect(activeVersions(sqlite)).toEqual([]);
+			} else {
+				await publication;
+				expect(packed).toEqual({
+					mainModule: "entry.mjs",
+					modules: Object.fromEntries(
+						Object.entries(bundleFiles).map(([path, bytes]) => [
+							path,
+							{ js: new TextDecoder().decode(bytes) },
+						]),
+					),
+				});
+				expect(activeVersions(sqlite)).toEqual([1]);
+			}
+			sqlite.close();
+		}
+	});
+
 	it("rejects Emdash 0.38 upload before reserving or writing files", async () => {
 		const { db, sqlite } = createD1Fixture(true);
 		const { bucket, puts } = createBucket();

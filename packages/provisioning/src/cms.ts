@@ -972,6 +972,35 @@ export async function uploadTenantBundle(
 			))(),
 	);
 
+	// Keep the manifest and modules for activation verification during migration.
+	// Publication must include the compressed runtime object before activation.
+	uploads.push(
+		(async () => {
+			const packed = JSON.stringify({
+				mainModule,
+				modules: Object.fromEntries(
+					modules.map((path) => [
+						path,
+						{ js: new TextDecoder().decode(files[path]!) },
+					]),
+				),
+			});
+			const compressed = await new Response(
+				new Blob([packed]).stream().pipeThrough(new CompressionStream("gzip")),
+			).arrayBuffer();
+			return bindings.bundlesBucket.put(
+				`${r2Prefix}__tedix_packed_bundle.json.gz`,
+				compressed,
+				{
+					httpMetadata: {
+						contentType: "application/gzip",
+						cacheControl: "public, max-age=31536000, immutable",
+					},
+				},
+			);
+		})(),
+	);
+
 	const outcomes = await Promise.allSettled(uploads);
 	const failed = outcomes.find(
 		(outcome): outcome is PromiseRejectedResult =>
