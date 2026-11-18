@@ -2,6 +2,7 @@ import { CmsDeployFailure, type DeployFailureCode } from "./deploy-failure";
 
 interface Candidate {
 	url: string;
+	runtimeHealthUrl: string;
 	publicUrl?: string;
 	fetcher?: (url: string, init: RequestInit) => Promise<Response>;
 	version: number;
@@ -93,6 +94,42 @@ export async function probeCmsDeploy(candidate: Candidate): Promise<{
 		return new TextDecoder().decode(body);
 	};
 	try {
+		// Negotiate on the installation endpoint before dispatching into a tenant.
+		probeUrl = candidate.runtimeHealthUrl;
+		candidate.signal.throwIfAborted();
+		const health = await (candidate.fetcher ?? fetch)(probeUrl, {
+			redirect: "error",
+			signal: candidate.signal,
+			headers: { "Cache-Control": "no-cache, no-store" },
+			cf: { cacheTtl: 0, cacheEverything: false },
+		});
+		if (candidate.signal.aborted) {
+			await health.body?.cancel();
+			candidate.signal.throwIfAborted();
+		}
+		status = health.status;
+		if (status !== 200) {
+			await health.body?.cancel();
+			throw new CmsDeployFailure(
+				"PROBE_HTTP_FAILED",
+				`Runtime health HTTP ${status}`,
+				status === 503 || status === 504,
+			);
+		}
+		const capability = (await health.json()) as {
+			service?: string;
+			deployProbeVersion?: number;
+		} | null;
+		if (
+			capability?.service !== "cms-runtime" ||
+			capability.deployProbeVersion !== 1
+		) {
+			status = 409;
+			throw new CmsDeployFailure(
+				"runtime-without-attestation",
+				"Runtime does not advertise deploy probe version 1",
+			);
+		}
 		const html = await read(base, "html");
 		if (!/<html(?:\s|>)/i.test(html)) {
 			status = 502;

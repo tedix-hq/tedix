@@ -85,7 +85,13 @@ function workflowFixture(siteId?: string) {
 		DB: {},
 		SITE_BUILDER_STORAGE: { get, put },
 		CMS_DISPATCH: {
-			fetch: vi.fn((input: string, init: RequestInit) => fetch(input, init)),
+			fetch: vi.fn((input: string, init: RequestInit) =>
+				new URL(input).pathname === "/health"
+					? Promise.resolve(
+							Response.json({ service: "cms-runtime", deployProbeVersion: 1 }),
+						)
+					: fetch(input, init),
+			),
 		},
 		ENVIRONMENT: "production",
 	};
@@ -917,6 +923,33 @@ describe("deployment health activation fence", () => {
 		};
 		return { ...fixture, step };
 	}
+	it("persists runtime-without-attestation and rolls back without tenant dispatch", async () => {
+		const { workflow, event, step, put, env } = healthFixture();
+		env.CMS_DISPATCH.fetch.mockResolvedValue(
+			Response.json({
+				status: "ok",
+				service: "cms-runtime",
+				deployedSha: "old",
+			}),
+		);
+		vi.mocked(rollbackCmsTenantBundle).mockClear();
+		await expect(workflow.run(event as never, step as never)).rejects.toThrow(
+			"HTTP 409",
+		);
+		expect(env.CMS_DISPATCH.fetch).toHaveBeenCalledExactlyOnceWith(
+			"https://cms.tedix.dev/health",
+			expect.objectContaining({ redirect: "error" }),
+		);
+		expect(rollbackCmsTenantBundle).toHaveBeenCalledTimes(1);
+		const final = JSON.parse(String(put.mock.calls.at(-1)?.[1]));
+		expect(final.details).toMatchObject({
+			phase: "health-check",
+			code: "runtime-without-attestation",
+			retryable: false,
+			rollback: "succeeded",
+			correlationId: event.instanceId,
+		});
+	});
 	it("accepts a first initialization completing after 64 seconds", async () => {
 		const { workflow, event, step } = healthFixture(true);
 		vi.useFakeTimers();

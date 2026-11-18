@@ -1468,6 +1468,7 @@ async function fetchCmsSite(
 				status: "ok",
 				service: "cms-runtime",
 				deployedSha: env.GIT_SHA,
+				deployProbeVersion: 1,
 			},
 			{ headers: { "Cache-Control": "no-store" } },
 		);
