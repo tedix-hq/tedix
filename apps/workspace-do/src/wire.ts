@@ -3,8 +3,6 @@
  * chat UI item (cc93f558): one reducer builds both history and live view.
  */
 
-import type { AutoApprovalKind, AutoApprovalRule } from "./auto-approval";
-
 export type AuthorKind = "person" | "tedi";
 
 export interface WireEventBase {
@@ -129,8 +127,8 @@ export type WireEventBody =
 			policy?: string;
 			input?: unknown;
 			target?: { id: string; title: string };
-			/** The "Always approve" rule that could cover this kind of change. */
-			rule?: { kind: AutoApprovalKind; label: string };
+			/** The change applies at once; it is not waiting for anyone. */
+			automatic?: true;
 	  }
 	| {
 			type: "approval.decided";
@@ -138,7 +136,7 @@ export type WireEventBody =
 			decision: "approve" | "deny";
 			by: string;
 			at: string;
-			/** Approved by a workspace "Always approve" rule, not by hand. */
+			/** Recorded for a change that applied at once, not decided by hand. */
 			automatic?: true;
 	  }
 	| {
@@ -190,13 +188,6 @@ export type WireControlFrame =
 			models?: Array<{ id: string; label: string }>;
 			/** The whole workspace, archived conversations included, up to `cursor`. */
 			usage?: UsageTotals;
-			/** This workspace's "Always approve" rules. */
-			autoApprovals?: AutoApprovalRule[];
-	  }
-	| {
-			/** The workspace's "Always approve" rules changed. */
-			type: "auto_approvals";
-			rules: AutoApprovalRule[];
 	  }
 	| {
 			/**
@@ -257,12 +248,6 @@ export type ClientFrame =
 			type: "decide_approvals";
 			approvalIds: string[];
 			decision: "approve" | "deny";
-	  }
-	| {
-			/** Turn one "Always approve" rule of this workspace on or off. */
-			type: "set_auto_approval";
-			kind: AutoApprovalKind;
-			enabled: boolean;
 	  }
 	| { type: "cancel_turn"; turnId: string }
 	| { type: "rename_conversation"; conversationId: string; title: string }

@@ -122,15 +122,7 @@ import {
 	type PendingApproval,
 	type ReferencedSkill,
 } from "./prompt";
-import {
-	type AutoApprovalKind,
-	type AutoApprovalRule,
-	autoApprovalKindFor,
-	autoApprovalLabel,
-	isAutoApprovalKind,
-	readAutoApprovalRules,
-	writeAutoApprovalRule,
-} from "./auto-approval";
+import { fileWriteAppliesAtOnce } from "./auto-approval";
 import type { WorkspaceStorage } from "./runtime";
 import { createLoaderSandbox, validateWorkspaceAppSource } from "./sandbox";
 import {
@@ -168,7 +160,6 @@ const FRAME_TYPES = new Set([
 	"send_turn",
 	"decide_approval",
 	"decide_approvals",
-	"set_auto_approval",
 	"cancel_turn",
 	"rename_conversation",
 	"archive_conversation",
@@ -1945,38 +1936,6 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		);
 	}
 
-	/** This workspace's "Always approve" rules. */
-	readAutoApprovals(scope: WorkspaceScope): AutoApprovalRule[] {
-		this.bindScope(scope);
-		return readAutoApprovalRules(this.#store);
-	}
-
-	/**
-	 * Turn one "Always approve" rule on or off. Only the kinds in
-	 * `auto-approval.ts` exist; every open chat hears the new list.
-	 */
-	setAutoApproval(
-		scope: WorkspaceScope,
-		input: { kind: AutoApprovalKind; enabled: boolean; by: string },
-	): AutoApprovalRule[] {
-		this.bindScope(scope);
-		if (!isAutoApprovalKind(input.kind))
-			throw new Error("Unknown kind of change");
-		const rules = writeAutoApprovalRule(this.#store, {
-			...input,
-			at: new Date().toISOString(),
-		});
-		const frame = JSON.stringify({ type: "auto_approvals", rules });
-		for (const ws of this.ctx.getWebSockets()) {
-			try {
-				ws.send(frame);
-			} catch {
-				/* a closed socket is dropped by the runtime */
-			}
-		}
-		return rules;
-	}
-
 	#conversationRow(conversationId: string) {
 		const [row] = this.#store.exec<{ archived_at: string | null }>(
 			"SELECT archived_at FROM conversations WHERE id = ?",
@@ -2155,7 +2114,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			decision: "approve" | "deny";
 			by: string;
 			note?: string;
-			/** Approved by a workspace rule rather than by hand. */
+			/** A file write that applies at once, not a decision made by hand. */
 			automatic?: boolean;
 		},
 	): Promise<{
@@ -2242,7 +2201,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	 * Called by the sandbox loopback: run one method of one wrapped binding
 	 * for a turn that is running. A held write is stored as a pending approval
 	 * and comes back as "Approval required: …"; the model goes on with other
-	 * work. A held write a workspace rule covers is approved and applied here.
+	 * work. The agent's own create or edit of a workspace file is not held:
+	 * it is applied here and the call returns its result.
 	 */
 	async callBinding(
 		scope: WorkspaceScope,
@@ -2514,13 +2474,6 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					await this.decideApprovals(scope, {
 						approvalIds: frame.approvalIds,
 						decision: frame.decision,
-						by: attachment.actorId,
-					});
-					return;
-				case "set_auto_approval":
-					this.setAutoApproval(scope, {
-						kind: frame.kind,
-						enabled: frame.enabled === true,
 						by: attachment.actorId,
 					});
 					return;
@@ -2842,14 +2795,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				conversationId: event.conversationId,
 				action: {
 					resource: "conversation",
-					// A change the workspace's own rule approves is not waiting for
-					// anyone, so it must not read as a request to the people here.
+					// A change that applies at once is not waiting for anyone, so
+					// it must not read as a request to the people here.
 					operation:
-						event.type === "approval.requested" &&
-						event.rule &&
-						readAutoApprovalRules(this.#store).some(
-							(rule) => rule.kind === event.rule?.kind,
-						)
+						event.type === "approval.requested" && event.automatic
 							? "approval.automatic"
 							: event.type,
 					outcome:
@@ -3191,7 +3140,6 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			archived: this.#listConversations(usage, true),
 			models: this.configuredModels(),
 			...(workspaceUsage ? { usage: workspaceUsage } : {}),
-			autoApprovals: readAutoApprovalRules(this.#store),
 		});
 		const page =
 			cursor !== null
@@ -3498,8 +3446,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					finishStep({ ok: false, error: repeated });
 					return { ok: false, error: repeated };
 				}
-				// Only a bounded write to one file inside this workspace qualifies.
-				const ruleKind = autoApprovalKindFor(binding, method, args, {
+				// The agent's own create or edit of one workspace file applies at
+				// once; version history and undo are the way back. Removing
+				// content, deleting, sharing and anything else waits for a person.
+				const appliesNow = fileWriteAppliesAtOnce(binding, method, args, {
 					destructive:
 						error.decision.riskTier !== "bounded_write" ||
 						error.decision.blastRadius !== "single_resource",
@@ -3549,27 +3499,20 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 							: args[0],
 					),
 					...(target ? { target: { id: target.id, title: target.title } } : {}),
-					...(ruleKind
-						? { rule: { kind: ruleKind, label: autoApprovalLabel(ruleKind) } }
-						: {}),
+					...(appliesNow ? { automatic: true as const } : {}),
 				});
-				const rule = ruleKind
-					? readAutoApprovalRules(this.#store).find(
-							(item) => item.kind === ruleKind,
-						)
-					: undefined;
-				const [held] = rule
+				const [held] = appliesNow
 					? this.#store.exec<ApprovalRow>(
 							"SELECT * FROM approvals WHERE approval_id = ?",
 							approvalId,
 						)
 					: [];
-				if (rule && held) {
-					// Approved by the workspace rule: recorded under the person who
-					// turned it on, applied now, and the turn gets the result.
+				if (held) {
+					// Recorded under whoever the turn acts for, applied now, and
+					// the turn gets the result.
 					const settled = await this.#settleApproval(scope, held, {
 						decision: "approve",
-						by: rule.enabledBy,
+						by: turn.actor.id,
 						automatic: true,
 					});
 					const outcome = settled.outcome ?? {
@@ -4184,11 +4127,6 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 			note?: string;
 		},
 	): Promise<Array<{ applied: boolean; turnId?: string }>>;
-	readAutoApprovals(scope: WorkspaceScope): Promise<AutoApprovalRule[]>;
-	setAutoApproval(
-		scope: WorkspaceScope,
-		input: { kind: AutoApprovalKind; enabled: boolean; by: string },
-	): Promise<AutoApprovalRule[]>;
 	describe(scope: WorkspaceScope): Promise<{
 		organizationId: string;
 		workspaceId: string;

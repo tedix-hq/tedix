@@ -16,17 +16,18 @@ its code runs beside the data.
 3. The model writes JavaScript. It runs in a fresh Worker with no network;
    its `env.outputs`, `env.apps`, `env.resources` and `env.work` are stubs
    that call back into this object. Every call is checked and recorded by the
-   shared adapters (`@tedix/agent-governance`): reads pass and canonical writes
-   hold for approval. App file tools stage changes in one conversation draft
-   on a pinned revision. The draft files and sequence let clients preview
-   edits while the turn runs. The existing app decision API validates and
+   shared adapters (`@tedix/agent-governance`): reads pass, and the agent's
+   own create or edit of a doc, sheet or deck applies at once (see below).
+   Other canonical writes hold for approval. App file tools stage changes in
+   one conversation draft on a pinned revision. The draft files and sequence
+   let clients preview edits while the turn runs. The existing app decision API validates and
    saves one revision on acceptance, or discards the draft on rejection.
    Restoring a previous revision preserves history; a moved base requires
    rebasing before acceptance.
    `env.apps.create({ name, files })` makes a new app. Its name and files
    are checked first (the same source check an app edit gets), so a card is
    shown only for an app that loads. The save always holds for the person's
-   approval; no "Always approve" rule covers it. Once approved the app has
+   approval. Once approved the app has
    revision 1 and no resource grants, and `approval.executed` names it so
    the card can open it.
    Each call has a change record; canonical writes include revision and undo
@@ -45,12 +46,17 @@ its code runs beside the data.
    while the chat goes on. The next turn's prompt lists the proposals still
    waiting. A decision made while a turn works is answered by one turn after
    it finishes (or, after a Stop, with the person's next message).
-   "Always approve" rules (`src/auto-approval.ts`) are stored in this object.
-   A covered write (creating or editing docs, sheets and slides here) is
-   approved under the person who turned the rule on, applied at once and
-   shown as approved automatically. Deleting or removing content, filing
-   Work, app drafts, web pages and anything outside the workspace are never
-   covered.
+   Creating or editing a doc, sheet or deck does not wait
+   (`src/auto-approval.ts`). The write is applied in the same turn and the
+   model gets the saved file, or the error, as the call's result. It is
+   recorded under whoever the turn acts for as `approval.requested`,
+   `approval.decided` (both with `automatic: true`) and `approval.executed`,
+   so the chat shows an applied change, not a card to decide, and the
+   activity feed records `approval.automatic` instead of a request. Undo and
+   version history are the way back. An edit that removes content (an `ops`
+   entry named delete, remove or archive), deleting, sharing, filing Work, a
+   new app, web pages and anything outside the workspace still wait for a
+   person. No setting changes this.
 4. Steps and tokens land in an event ledger first and are pushed to
    WebSocket subscribers. A late subscriber replays from any sequence number.
 5. The user's message, each model message and each tool result are saved
@@ -84,9 +90,7 @@ its code runs beside the data.
   `X-Workspace-Org`, `X-Workspace-Id`, `X-Workspace-Actor-Id` and a path
   ending in `/subscribe`. Frames follow `src/wire.ts`: the client sends
   `subscribe`, `send_turn`, `decide_approval`, `decide_approvals` (several
-  approvals of one reply, continued by one turn), `set_auto_approval` (turn
-  an "Always approve" rule on or off; every socket gets `auto_approvals`, and
-  `hello` carries the rules), `cancel_turn`, `rename_conversation`,
+  approvals of one reply, continued by one turn), `cancel_turn`, `rename_conversation`,
   `archive_conversation` (`archived: false` restores; `hello` lists archived
   conversations in `archived`), `delete_conversation` (refused while a reply
   is working; every socket gets `conversation.deleted`), `ping`; the

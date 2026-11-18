@@ -66,9 +66,9 @@ interface Views {
 /** Typed document operations on the same canonical outputs used by Doc apps. */
 interface Documents {
   read(input: { outputId: string }): Promise<DocumentDetail>;
-  /** Replaces content; recorded and may need approval. */
+  /** Replaces content. Applied at once and recorded; the person can undo it. */
   replace(input: { outputId: string; expectedRevision: number; content: DocumentContent }): Promise<DocumentDetail>;
-  /** Applies ordered block edits; recorded and may need approval. */
+  /** Applies ordered block edits. Applied at once and recorded; an edit with a delete op waits for the person's approval. */
   edit(input: { outputId: string; expectedRevision: number; ops: Array<{op:"insert" | "replace"; index:number; block:DocumentBlock} | {op:"delete"; index:number}> }): Promise<DocumentDetail>;
 }`.trim(),
 	outputs: `
@@ -78,9 +78,9 @@ interface Outputs {
   list(options?: { kind?: OutputKind; status?: "active" | "archived" }): Promise<OutputSummary[]>;
   /** One output with its current body. Read-only. */
   get(outputId: string): Promise<OutputDetail | null>;
-  /** Create a new output. Writes a revision; recorded and may need approval. */
+  /** Create a new output. Writes revision 1 at once; recorded, and the person can undo it. */
   create(input: { title: string; content: OutputContent }): Promise<OutputDetail>;
-  /** Replace the body. expectedRevision must equal the current revision. Recorded; may need approval. */
+  /** Replace the body. expectedRevision must equal the current revision. Applied at once and recorded; the person can undo it. */
   revise(input: { outputId: string; content: OutputContent; expectedRevision: number; note?: string }): Promise<OutputDetail>;
 }`.trim(),
 	apps: `

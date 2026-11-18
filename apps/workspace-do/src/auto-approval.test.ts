@@ -1,20 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import {
-	autoApprovalKindFor,
-	readAutoApprovalRules,
-	writeAutoApprovalRule,
-} from "./auto-approval";
+import { fileWriteAppliesAtOnce } from "./auto-approval";
 
-function memory() {
-	const map = new Map<string, unknown>();
-	return {
-		get: <T>(key: string) => map.get(key) as T | undefined,
-		put: (key: string, value: unknown) => void map.set(key, value),
-	};
-}
-
-describe("always approve rules", () => {
-	test("file writes in the workspace can be covered", () => {
+describe("file writes that apply at once", () => {
+	test("creating and editing a doc, sheet or deck", () => {
 		for (const [binding, method] of [
 			["outputs", "create"],
 			["outputs", "revise"],
@@ -23,20 +11,20 @@ describe("always approve rules", () => {
 			["sheets", "edit"],
 			["presentations", "replace"],
 		])
-			expect(autoApprovalKindFor(binding!, method!, [{}])).toBe("files");
+			expect(fileWriteAppliesAtOnce(binding!, method!, [{}])).toBe(true);
 	});
 
-	test("Work, app drafts, unknown methods, destructive calls and removals never are", () => {
-		expect(autoApprovalKindFor("work", "create", [{}])).toBeNull();
-		expect(autoApprovalKindFor("apps", "editFile", [{}])).toBeNull();
-		expect(autoApprovalKindFor("apps", "create", [{}])).toBeNull();
-		expect(autoApprovalKindFor("outputs", "delete", [{}])).toBeNull();
-		expect(autoApprovalKindFor("outputs", "share", [{}])).toBeNull();
+	test("Work, apps, unknown methods, destructive calls and removals wait", () => {
+		expect(fileWriteAppliesAtOnce("work", "create", [{}])).toBe(false);
+		expect(fileWriteAppliesAtOnce("apps", "editFile", [{}])).toBe(false);
+		expect(fileWriteAppliesAtOnce("apps", "create", [{}])).toBe(false);
+		expect(fileWriteAppliesAtOnce("outputs", "delete", [{}])).toBe(false);
+		expect(fileWriteAppliesAtOnce("outputs", "share", [{}])).toBe(false);
 		expect(
-			autoApprovalKindFor("outputs", "revise", [{}], { destructive: true }),
-		).toBeNull();
+			fileWriteAppliesAtOnce("outputs", "revise", [{}], { destructive: true }),
+		).toBe(false);
 		expect(
-			autoApprovalKindFor("documents", "edit", [
+			fileWriteAppliesAtOnce("documents", "edit", [
 				{
 					ops: [
 						{ op: "insert", index: 0 },
@@ -44,37 +32,11 @@ describe("always approve rules", () => {
 					],
 				},
 			]),
-		).toBeNull();
+		).toBe(false);
 		expect(
-			autoApprovalKindFor("presentations", "edit", [
+			fileWriteAppliesAtOnce("presentations", "edit", [
 				{ ops: [{ op: "delete", index: 0 }] },
 			]),
-		).toBeNull();
-	});
-
-	test("rules are stored per kind and can be turned off", () => {
-		const store = memory();
-		expect(readAutoApprovalRules(store)).toEqual([]);
-		writeAutoApprovalRule(store, {
-			kind: "files",
-			enabled: true,
-			by: "u1",
-			at: "2026-11-18T10:00:00.000Z",
-		});
-		expect(readAutoApprovalRules(store)).toEqual([
-			{
-				kind: "files",
-				label: "creating and editing docs, sheets and slides in this workspace",
-				enabledBy: "u1",
-				enabledAt: "2026-11-18T10:00:00.000Z",
-			},
-		]);
-		writeAutoApprovalRule(store, {
-			kind: "files",
-			enabled: false,
-			by: "u1",
-			at: "2026-11-18T10:05:00.000Z",
-		});
-		expect(readAutoApprovalRules(store)).toEqual([]);
+		).toBe(false);
 	});
 });
