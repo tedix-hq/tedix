@@ -60,6 +60,7 @@ import {
 	inviteFailureText,
 	itemAccessRows,
 	parseInviteEmails,
+	restrictedAccessLabel,
 	WorkspaceShareDialog,
 	type WorkspaceShareItem,
 	workspaceAddress,
@@ -90,6 +91,7 @@ function renderDialog(
 	props: {
 		item?: WorkspaceShareItem;
 		initialScope?: "workspace" | "item";
+		visibility?: "org" | "private";
 	} = {},
 ): HTMLElement {
 	const client = new QueryClient({
@@ -341,6 +343,39 @@ describe("WorkspaceShareDialog", () => {
 		expect(link?.textContent).toContain(
 			"Can use · made by Robin · Mar 4, 2020",
 		);
+	});
+
+	it("says who can open an organization workspace the same way in both places", async () => {
+		expect(restrictedAccessLabel("private", "Acme")).toBe(
+			"Only people invited",
+		);
+		expect(restrictedAccessLabel("org", "Acme")).toBe(
+			"Everyone in Acme, and people invited",
+		);
+		collaborators.list.mockResolvedValue({
+			role: "build",
+			isOwner: false,
+			ownerName: "Robin Fictional",
+			collaborators: [kai],
+			links: [],
+		});
+		const open = renderDialog({ visibility: "org" });
+		await flush();
+		const general = open.querySelector("[data-general-access]");
+		expect(general?.textContent).not.toContain("Only people invited");
+		expect(general?.textContent).toContain(
+			"Everyone in your organization, and people invited",
+		);
+		expect(open.querySelector("[data-organization-access]")?.textContent).toBe(
+			"Everyone in your organization can build here without a link. Links and invites are for people outside your organization.",
+		);
+
+		const closed = renderDialog({ visibility: "private" });
+		await flush();
+		expect(
+			closed.querySelector("[data-general-access]")?.textContent,
+		).toContain("Only people invited");
+		expect(closed.querySelector("[data-organization-access]")).toBeNull();
 	});
 
 	it("opens on the item when its own Share was pressed", async () => {

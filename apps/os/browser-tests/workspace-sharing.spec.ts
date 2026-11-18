@@ -315,6 +315,9 @@ document.querySelector('button').onclick = async () => { const result = await te
 				})
 				.catch(() => {});
 		} else if (endpoint === "listShared") json = { items: [] };
+		// Only an organization workspace asks which organization this is.
+		else if (endpoint === "getContext")
+			json = { organization: { name: "Fictional Org" } };
 		// Typing in the invite field looks colleagues up by name; none match here.
 		else if (endpoint === "suggestPeople") json = { people: [] };
 		else throw new Error(`Unexpected request ${endpoint}`);
@@ -579,6 +582,39 @@ try {
 					path: `${directory}/dialog-${width}-${theme}.png`,
 					fullPage: true,
 				});
+				await page.close();
+				cases++;
+			}
+			// An organization workspace: General access agrees with the list of
+			// people, and says what links are for.
+			{
+				const page = await browser.newPage({ viewport, colorScheme: theme });
+				await mockApi(page);
+				await page.goto(
+					`${server.origin}${path}?theme=${theme}&visibility=org`,
+				);
+				const dialog = page.getByRole("dialog");
+				await dialog
+					.getByText("Everyone in Fictional Org", { exact: true })
+					.waitFor();
+				await dialog
+					.getByText(
+						"Everyone in Fictional Org can build here without a link. Links and invites are for people outside Fictional Org.",
+					)
+					.waitFor();
+				await dialog.getByRole("combobox", { name: "General access" }).click();
+				await page
+					.getByRole("option", {
+						name: "Everyone in Fictional Org, and people invited",
+					})
+					.waitFor();
+				assert.equal(
+					await page
+						.getByRole("option", { name: "Only people invited" })
+						.count(),
+					0,
+				);
+				await assertFits(page, width, `organization ${width} ${theme}`);
 				await page.close();
 				cases++;
 			}
