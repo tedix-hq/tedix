@@ -203,6 +203,11 @@ describe("renderOsOutputHtml", () => {
 		expect(html).toContain("<blockquote><p>Measure twice.</p></blockquote>");
 		expect(html).not.toContain("revision 3");
 		expect(html).not.toContain('<header class="export-header">');
+		// Paper gets a smaller size across the page; the screen keeps its own.
+		expect(html).toContain("font-size:16px;line-height:1.65");
+		expect(html).toContain(
+			"@page{margin:2cm}@media print{body{padding:0;font-size:13.33px;line-height:1.45}",
+		);
 		// A callout stays on one page and a heading stays with its text.
 		expect(html).toContain(
 			"article aside, article details { break-inside: avoid; }",
