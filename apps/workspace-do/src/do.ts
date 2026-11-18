@@ -518,6 +518,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	constructor(ctx: DurableObjectState, env: WorkspaceEnv) {
 		super(ctx, env, tenantStoreDefinition);
 		this.#store = sqlStorage(ctx.storage);
+		this.#store.delete("auto-approval-rules");
 		this.#memory = new SqlMemoryAdapter(this.#store);
 		this.#store.run(CHAT_SCHEMA);
 		this.#activityRecords = new SqlActivityRecords(this.#store);
