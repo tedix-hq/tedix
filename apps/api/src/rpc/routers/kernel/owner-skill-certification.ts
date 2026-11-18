@@ -1,5 +1,5 @@
 import { createRouterClient } from "@orpc/server";
-import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getRequestOrganizationMembership } from "../../org-membership";
 import type { BaseContext } from "../../orpc";
 import type {
 	HomeToolWritePayload,
@@ -31,8 +31,8 @@ export async function executeOwnerSkillCertification(
 			ok: false,
 			error: "Certification requires the initiating signed-in owner or admin.",
 		};
-	const member = await getMemberByUserId(
-		context.db,
+	const member = await getRequestOrganizationMembership(
+		context,
 		payload.organizationId,
 		context.user.sub,
 	);

@@ -64,7 +64,7 @@ import {
 	resolveToolCatalogApprovalRequest,
 	rollbackProvisionalOutcome,
 } from "@tedix/db/queries/approvals";
-import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getRequestOrganizationMembership } from "../org-membership";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
@@ -1661,8 +1661,8 @@ const retryExecutionProcedure = authedOs.retryExecution
 				ErrorCodes.FORBIDDEN,
 				"Only a signed-in owner or admin can try an approved call again",
 			);
-		const member = await getMemberByUserId(
-			context.db,
+		const member = await getRequestOrganizationMembership(
+			context,
 			existing.orgId,
 			retriedBy,
 		);
@@ -1732,8 +1732,8 @@ const dismissExecutionProcedure = authedOs.dismissExecution
 				ErrorCodes.FORBIDDEN,
 				"Only a signed-in owner or admin can dismiss an approved call",
 			);
-		const member = await getMemberByUserId(
-			context.db,
+		const member = await getRequestOrganizationMembership(
+			context,
 			existing.orgId,
 			dismissedBy,
 		);

@@ -1,9 +1,9 @@
+import { getRequestOrganizationMembership } from "../org-membership";
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { implement } from "@orpc/server";
 import { directoryContract } from "@tedix/api-contract/contracts/directory";
 import type { JWTPayload } from "@tedix/auth/types";
 import {
-	getMemberByUserId,
 	getOrganizationAggregatorGateways,
 	getUserOrganizationMemberships,
 } from "@tedix/db/queries/organization-members";
@@ -237,12 +237,11 @@ const resolveWorkspace = authed.resolveWorkspace
 		}
 
 		// Bind the caller to the requested org: only an active member resolves.
-		const cached = context.organizationMembership;
-		const membership =
-			cached?.organizationId === input.organizationId &&
-			cached.subject === user.sub
-				? cached
-				: await getMemberByUserId(db, input.organizationId, user.sub);
+		const membership = await getRequestOrganizationMembership(
+			context,
+			input.organizationId,
+			user.sub,
+		);
 		if (!membership || membership.status !== "active") return null;
 
 		const organization = await getOrganizationById(db, input.organizationId);

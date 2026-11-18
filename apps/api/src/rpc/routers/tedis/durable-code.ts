@@ -10,7 +10,7 @@ import {
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
-import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getRequestOrganizationMembership } from "../../org-membership";
 import { buildRuntimeUrl } from "@tedix/db/utils/tedi-routing";
 import {
 	createDurableCodeDelegation,
@@ -177,8 +177,8 @@ export async function dispatchTediDurableCode(
 			"Durable code operation permission required",
 		);
 	if (caller.classification === "human") {
-		const member = await getMemberByUserId(
-			context.db,
+		const member = await getRequestOrganizationMembership(
+			context,
 			organizationId,
 			caller.principal.subject!,
 		);
