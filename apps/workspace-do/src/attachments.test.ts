@@ -51,3 +51,77 @@ test("inline budget counts UTF-8 bytes across files and deduplicates references"
 	});
 	expect(context).not.toContain("x".repeat(100));
 });
+
+test("an uploaded spreadsheet reaches the agent as its cell text, within the file budget", async () => {
+	const file = (id: string, rows: string[][]): OutputDetail => ({
+		id,
+		title: `${id}.xlsx`,
+		kind: "document",
+		status: "active",
+		revision: 1,
+		revisionId: `rev-${id}`,
+		updatedAt: "",
+		content: {
+			kind: "document",
+			file: {
+				workspaceId: "10000000-0000-4000-8000-000000000001",
+				resourceId: "10000000-0000-4000-8000-000000000002",
+				extract: [
+					{ type: "heading", level: 2, text: "Budget" },
+					{ type: "table", headers: ["Row", "A", "B", "C"], rows },
+				],
+			},
+			blocks: [],
+		},
+	});
+	const outputs = [
+		file("budget", [
+			["1", "Item", "Count", "Price"],
+			["2", "Paper", "2", "3.5"],
+			["3", "Ink", "1", "10"],
+		]),
+		file("huge", [["1", "y".repeat(60_000), "", ""]]),
+		{
+			...file("pdf", []),
+			content: {
+				kind: "document" as const,
+				file: {
+					workspaceId: "10000000-0000-4000-8000-000000000001",
+					resourceId: "10000000-0000-4000-8000-000000000003",
+				},
+				blocks: [],
+			},
+		},
+	];
+	const data = {
+		listOutputs: async () => outputs,
+		getOutput: async (id: string) =>
+			outputs.find((output) => output.id === id) ?? null,
+	} as WorkspaceDataPort;
+	const { context } = await resolveAttachments(data, [
+		{ outputId: "budget" },
+		{ outputId: "huge" },
+		{ outputId: "pdf" },
+	]);
+	const entries = context
+		.split("\n")
+		.filter((line) => line.startsWith("{"))
+		.map((line) => JSON.parse(line));
+	expect(entries[0].fileText).toBe(
+		"## Budget\n\n| Row | A | B | C |\n| 1 | Item | Count | Price |\n| 2 | Paper | 2 | 3.5 |\n| 3 | Ink | 1 | 10 |",
+	);
+	expect(entries[0].content).toBeUndefined();
+	expect(entries[1].fileText).toContain(
+		'[Cut short to fit this message. Read the rest with env.outputs.get("huge").]',
+	);
+	expect(
+		entries[0].fileText.length + entries[1].fileText.indexOf("\n\n[Cut short"),
+	).toBe(50_000);
+	expect(entries[2]).toEqual({
+		outputId: "pdf",
+		title: "pdf.xlsx",
+		revision: 1,
+		revisionId: "rev-pdf",
+	});
+	expect(context).toContain("column letters and row numbers");
+});

@@ -4,6 +4,12 @@ import {
 	WORKSPACE_FILE_PART_BYTES,
 	WorkspaceFileMetadataSchema,
 } from "@tedix/api-contract/schemas/workspace-files";
+import type { OsDocumentBlock } from "@tedix/api-contract/schemas/os-workspaces";
+import { officeExtractBlocks } from "@tedix/api-contract/utils/office-file-blocks";
+import {
+	officeFileFormat,
+	readOfficeFile,
+} from "@tedix/api-contract/utils/office-file-read";
 import * as z from "zod";
 
 export const WorkspaceFileManifestSchema = WorkspaceFileMetadataSchema.extend({
@@ -125,6 +131,14 @@ export function workspaceFileMimeMatches(mime: string, bytes: Uint8Array) {
 	switch (mime) {
 		case "application/pdf":
 			return text(0, 5) === "%PDF-";
+		case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+		case "application/vnd.ms-excel.sheet.macroenabled.12":
+		case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+			return matches([80, 75, 3, 4]);
+		case "text/csv":
+		case "text/tab-separated-values":
+			return bytes.length > 0 && !bytes.includes(0);
 		case "image/png":
 			return matches([137, 80, 78, 71, 13, 10, 26, 10]);
 		case "image/jpeg":
@@ -159,6 +173,38 @@ export function workspaceFileMimeMatches(mime: string, bytes: Uint8Array) {
 		}
 		default:
 			return false;
+	}
+}
+
+/** Larger files keep only their reference; reading them would cost too much memory. */
+export const WORKSPACE_FILE_EXTRACT_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * The readable text of an uploaded spreadsheet, Word document or slide deck,
+ * as bounded document blocks stored beside the file. Any other file, or one
+ * that cannot be read, gets no blocks: the upload itself never fails here.
+ */
+export async function workspaceFileExtractBlocks(
+	env: Pick<CloudflareEnv, "SKILL_ARTIFACTS">,
+	key: string,
+	file: { filename: string; mimeType: string; size: number },
+): Promise<OsDocumentBlock[]> {
+	const format = officeFileFormat(file.filename, file.mimeType);
+	if (!format || file.size > WORKSPACE_FILE_EXTRACT_MAX_BYTES) return [];
+	try {
+		const object = await env.SKILL_ARTIFACTS.get(key);
+		if (!object || object.size !== file.size) return [];
+		const content = await readOfficeFile(
+			new Uint8Array(await object.arrayBuffer()),
+			format,
+		);
+		return officeExtractBlocks(content);
+	} catch (error) {
+		console.warn("Workspace file text could not be read", {
+			format,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return [];
 	}
 }
 
