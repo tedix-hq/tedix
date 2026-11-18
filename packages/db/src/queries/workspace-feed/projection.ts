@@ -164,17 +164,33 @@ function projectionStatements(
 		);
 		// A file saved in the workspace's own store is published by that store
 		// and by the API: the same save, title and moment is one activity line.
-		if (event.kind === "output")
+		// A rename, move or archive is published by both too: the store's plain
+		// record and the API's described one ("Archived …") are one line, the
+		// described one, whichever arrives first.
+		if (event.kind === "output") {
+			const sameChange = sql`earlier.workspace_id = ${event.workspaceId} AND earlier.seq < ${event.seq} AND earlier.kind = 'output' AND earlier.entity_id = ${event.id} AND earlier.revision = ${event.revision} AND earlier.change_record_id = ${event.changeRecordId} AND earlier.occurred_at = ${event.at}`;
+			const described = clip(summary.description, 500) !== null;
 			statements.push(
 				db
 					.delete(workspaceActivity)
 					.where(
 						and(
 							eq(workspaceActivity.id, id),
-							sql`EXISTS (SELECT 1 FROM workspace_activity AS earlier WHERE earlier.workspace_id = ${event.workspaceId} AND earlier.seq < ${event.seq} AND earlier.kind = 'output' AND earlier.entity_id = ${event.id} AND earlier.revision = ${event.revision} AND earlier.change_record_id = ${event.changeRecordId} AND earlier.occurred_at = ${event.at} AND earlier.title IS ${title})`,
+							described
+								? sql`EXISTS (SELECT 1 FROM workspace_activity AS earlier WHERE ${sameChange} AND earlier.title IS ${title} AND earlier.summary IS ${clip(summary.description, 500)})`
+								: sql`EXISTS (SELECT 1 FROM workspace_activity AS earlier WHERE ${sameChange} AND (earlier.title IS ${title} OR earlier.summary IS NOT NULL))`,
 						),
 					),
 			);
+			if (described)
+				statements.push(
+					db
+						.delete(workspaceActivity)
+						.where(
+							sql`${workspaceActivity.workspaceId} = ${event.workspaceId} AND ${workspaceActivity.seq} < ${event.seq} AND ${workspaceActivity.kind} = 'output' AND ${workspaceActivity.entityId} = ${event.id} AND ${workspaceActivity.revision} = ${event.revision} AND ${workspaceActivity.changeRecordId} = ${event.changeRecordId} AND ${workspaceActivity.occurredAt} = ${event.at} AND ${workspaceActivity.summary} IS NULL`,
+						),
+				);
+		}
 	}
 	if (event.kind === "output") statements.push(...outputStatements(db, event));
 	if (event.kind === "chat") {
