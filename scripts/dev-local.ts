@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { parse, type ParseError } from "jsonc-parser";
+import { LOCAL_WORKERS_AI_MODEL } from "./lib/local-workers-ai-model";
 
 type JsonObject = Record<string, unknown>;
 
@@ -236,6 +237,7 @@ const LOCAL_PROCESS_ENV: Record<string, string> = {
 
 const LOCAL_D1_DATABASE_ID = "00000000-0000-0000-0000-000000000000";
 const LOCAL_API_WORKER_NAME = "public-installation-api";
+const LOCAL_WORKSPACE_WORKER_NAME = "public-installation-workspace-do";
 
 function isObject(value: unknown): value is JsonObject {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -349,12 +351,26 @@ export function createLocalWranglerConfig(configPath: string): JsonObject {
 		config.vars = vars;
 		delete vars.KERNEL_FORCE_WORKERS_AI;
 		// Native inference needs an explicit provider ref; Auto requires Gateway auth.
-		vars.KERNEL_WORKERS_AI_MODEL = "@cf/openai/gpt-oss-120b";
+		vars.KERNEL_WORKERS_AI_MODEL = LOCAL_WORKERS_AI_MODEL;
 		// Cloudflare creates the default gateway on the first authenticated call.
 		// Keep the admission identity complete even when no custom gateway is given.
 		vars.AI_GATEWAY_ACCOUNT_ID = localWorkersAiAccountId!;
 		vars.AI_GATEWAY_LLM_ID = localAiGatewayId || "default";
 		vars.AI_GATEWAY_BINDING_PROVIDERS = "";
+	} else if (
+		localInferenceBackend === "workers-ai" &&
+		config.name === LOCAL_WORKSPACE_WORKER_NAME
+	) {
+		// Workspace chat calls the same model through the AI Gateway binding,
+		// so it needs no gateway token.
+		config.account_id = localWorkersAiAccountId;
+		config.ai = { binding: "AI", remote: true };
+		const vars: JsonObject = isObject(config.vars) ? config.vars : {};
+		config.vars = vars;
+		vars.AI_GATEWAY_ACCOUNT_ID = localWorkersAiAccountId!;
+		vars.AI_GATEWAY_LLM_ID = localAiGatewayId || "default";
+		vars.AI_GATEWAY_BINDING_PROVIDERS = "workers-ai";
+		vars.AI_GATEWAY_AUTO_ALLOWED_MODELS = LOCAL_WORKERS_AI_MODEL;
 	}
 	applyShellVarOverrides(config);
 	if (

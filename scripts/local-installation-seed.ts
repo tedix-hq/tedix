@@ -7,21 +7,19 @@ import { join, resolve } from "node:path";
 import { ModelCatalogConfigSchema } from "@tedix/api-contract/schemas/model-catalog-config";
 import { WorkOnboardingSchema } from "@tedix/api-contract/schemas/work-onboarding";
 import blueprint from "../apps/os/dev/demo-pack/work-blueprint.json";
+import { LOCAL_WORKERS_AI_MODEL } from "./lib/local-workers-ai-model";
 
-/** The Workers AI model local chat uses when `bun run-local --inference` is on. */
-export const LOCAL_WORKERS_AI_MODEL_REF =
-	"workers-ai/@cf/moonshotai/kimi-k2.7-code";
+export const LOCAL_WORKERS_AI_MODEL_REF = `workers-ai/${LOCAL_WORKERS_AI_MODEL}`;
 
 /** A one-model catalog, so local chat can route and answer through Workers AI. */
 export function localModelCatalog() {
-	const [provider, ...rest] = LOCAL_WORKERS_AI_MODEL_REF.split("/");
 	return ModelCatalogConfigSchema.parse({
 		version: 1,
 		entries: [
 			{
 				ref: LOCAL_WORKERS_AI_MODEL_REF,
-				provider,
-				modelId: rest.join("/"),
+				provider: "workers-ai",
+				modelId: LOCAL_WORKERS_AI_MODEL,
 				label: "Kimi K2.7 Code",
 				reasoning: true,
 				tier: "balanced",

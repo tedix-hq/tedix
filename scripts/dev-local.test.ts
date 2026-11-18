@@ -25,7 +25,7 @@ import {
 
 const repoRoot = resolve(import.meta.dir, "..");
 // The isolated local launcher has an explicit bootstrap model, not a managed registry default.
-const LOCAL_WORKERS_AI_BOOTSTRAP_MODEL = "@cf/openai/gpt-oss-120b";
+const LOCAL_WORKERS_AI_BOOTSTRAP_MODEL = "@cf/moonshotai/kimi-k2.7-code";
 
 /** Every `apps/<dir>` that ships a package.json, with its scripts block. */
 function appScripts(): Array<[string, Record<string, string>]> {
@@ -574,6 +574,42 @@ describe("local Wrangler config", () => {
 			}
 		},
 	);
+	test("gives workspace chat the local Workers AI model through the gateway binding", async () => {
+		const keys = [
+			"TEDIX_LOCAL_INFERENCE_ENABLED",
+			"TEDIX_LOCAL_INFERENCE_BACKEND",
+			"TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID",
+			"TEDIX_LOCAL_AI_GATEWAY_ID",
+		] as const;
+		const previous = keys.map((key) => process.env[key]);
+		process.env.TEDIX_LOCAL_INFERENCE_ENABLED = "true";
+		process.env.TEDIX_LOCAL_INFERENCE_BACKEND = "workers-ai";
+		process.env.TEDIX_LOCAL_WORKERS_AI_ACCOUNT_ID =
+			"00000000000000000000000000000000";
+		process.env.TEDIX_LOCAL_AI_GATEWAY_ID = "local-gateway";
+		try {
+			const module = await import(
+				`./dev-local?workspace-ai=${crypto.randomUUID()}`
+			);
+			const config = module.createLocalWranglerConfig(
+				join(repoRoot, "apps/workspace-do/wrangler.jsonc"),
+			);
+			expect(config.account_id).toBe("00000000000000000000000000000000");
+			expect(config.ai).toEqual({ binding: "AI", remote: true });
+			expect(config.vars).toMatchObject({
+				AI_GATEWAY_ACCOUNT_ID: "00000000000000000000000000000000",
+				AI_GATEWAY_LLM_ID: "local-gateway",
+				AI_GATEWAY_BINDING_PROVIDERS: "workers-ai",
+				AI_GATEWAY_AUTO_ALLOWED_MODELS: LOCAL_WORKERS_AI_BOOTSTRAP_MODEL,
+			});
+		} finally {
+			keys.forEach((key, index) => {
+				const value = previous[index];
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
+			});
+		}
+	});
 });
 
 /**
