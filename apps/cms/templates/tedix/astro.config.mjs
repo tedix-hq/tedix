@@ -9,6 +9,7 @@ import emdash from "emdash/astro";
 import { emprivacyPlugin } from "emprivacy";
 import { defineConfig, fontProviders } from "astro/config";
 import { fileURLToPath } from "node:url";
+import { phosphorPerIconImports } from "./src/lib/phosphor-per-icon-imports.ts";
 import { workerLoaderDurableObjects as durableObjects } from "./src/lib/worker-loader-durable-objects.mjs";
 import { seoAeoPluginMetadata } from "./src/plugins/tedix-seo-aeo/metadata.ts";
 import { editorActionsMetadata } from "./src/plugins/tedix-editor-actions/metadata.ts";
@@ -47,10 +48,9 @@ export default defineConfig({
 				],
 			}
 		: undefined,
-	// Inline all CSS into HTML <style> tags. The dispatched user worker is
-	// uploaded as JS modules only — there's no Workers Assets binding, so
-	// /_astro/*.css would 500. Inlining ships every page with its CSS.
-	build: { inlineStylesheets: "always" },
+	// The parent CMS runtime serves hashed /_astro assets from tenant R2
+	// with immutable caching before dispatching to the tenant worker.
+	build: { inlineStylesheets: "never" },
 	// Platform-wide i18n superset. The locale list here must be a superset of
 	// every org's enabled locales. `defaultLocale: "en"` is the template
 	// default — patchLocaleConfig in deploy-workflow.ts rewrites this to the
@@ -360,7 +360,10 @@ export default defineConfig({
 		},
 	],
 	vite: {
-		plugins: [tailwindcss()],
+		plugins: [phosphorPerIconImports(), tailwindcss()],
+		optimizeDeps: {
+			exclude: ["@phosphor-icons/react"],
+		},
 		resolve: {
 			dedupe: ["react", "react-dom"],
 		},

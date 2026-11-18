@@ -3,6 +3,39 @@ import { staticAssetResponse } from "./static-assets";
 
 describe("immutable tenant static assets", () => {
 	const metadata = { size: 5, httpEtag: '"hash"' };
+	it("serves external CSS with immutable headers and a conditional 304", async () => {
+		const css = "body{color:blue}";
+		const get = vi.fn().mockImplementation(async () => ({
+			size: css.length,
+			httpEtag: '"css-hash"',
+			body: new Response(css).body,
+		}));
+		const bucket = { get } as unknown as R2Bucket;
+		const url = "https://site/_astro/Base.hash.css";
+		const response = await staticAssetResponse(
+			new Request(url),
+			bucket,
+			"tenant-a",
+			new URL(url).pathname,
+		);
+		expect(get.mock.calls[0]![0]).toBe("static/tenant-a/Base.hash.css");
+		expect(response!.status).toBe(200);
+		expect(response!.headers.get("content-type")).toBe(
+			"text/css; charset=utf-8",
+		);
+		expect(response!.headers.get("cache-control")).toBe(
+			"public, max-age=31536000, immutable",
+		);
+		expect(await response!.text()).toBe(css);
+		const cached = await staticAssetResponse(
+			new Request(url, { headers: { "if-none-match": '"css-hash"' } }),
+			bucket,
+			"tenant-a",
+			new URL(url).pathname,
+		);
+		expect(cached!.status).toBe(304);
+		expect(cached!.body).toBeNull();
+	});
 	it("streams GET without buffering and isolates the tenant key", async () => {
 		const body = new ReadableStream({
 			start(controller) {

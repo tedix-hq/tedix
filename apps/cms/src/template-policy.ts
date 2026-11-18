@@ -64,6 +64,7 @@ export const LOCKED_FILES = [
 	"src/lib/worker-loader-durable-objects.mjs",
 	"src/lib/worker-loader-do-sql-runtime.ts",
 	"src/lib/tenant-plugin-runner.ts",
+	"src/lib/phosphor-per-icon-imports.ts",
 ] as const;
 
 /** Branding transport remains platform infrastructure; presentation belongs to the site. */
@@ -75,7 +76,6 @@ const NATIVE_THEME_LOCKED_FILES = [
 ] as const;
 export const MARKETING_LOCKED_FILES = [
 	"src/lib/authored-discovery.ts",
-	"src/lib/phosphor-per-icon-imports.ts",
 	"src/lib/platform-branding.ts",
 	...NATIVE_THEME_LOCKED_FILES,
 ] as const;
