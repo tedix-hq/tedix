@@ -203,10 +203,28 @@ assert.match(
 	"the isolate's CMS_INTERNAL_AUTH_TOKEN must come from the per-tenant derivation, not the shared secret",
 );
 
+// Tenant preparation is deferred (a page-cache hit never builds a loader), so
+// the ordering lives in `prepareTenant`: de-scope first, and only then hand
+// back the dispatcher. `renderTenant` is the single path to that dispatcher.
 assert.match(
 	runtimeSource,
-	/let tenantRequest = rewriteTenantInternalAuthHeader\(normalizedRequest, \{[\s\S]{0,200}?sharedToken: env\.CMS_INTERNAL_AUTH_TOKEN[\s\S]*?protectLeadFormIp\(tenantRequest,[\s\S]*?tenantRequest = protectedTenantRequest;[\s\S]*?fetchTenant\(tenantRequest\)/,
+	/const prepareTenant = async \(\) => \{[\s\S]*?tenantRequest = rewriteTenantInternalAuthHeader\(normalizedRequest, \{[\s\S]{0,200}?sharedToken: env\.CMS_INTERNAL_AUTH_TOKEN[\s\S]*?protectLeadFormIp\(tenantRequest,[\s\S]*?if \(protectedTenantRequest instanceof Response\) \{\s*return protectedTenantRequest;\s*\}\s*tenantRequest = protectedTenantRequest;\s*return fetchTenant;\s*\};/,
 	"the parent must apply both internal-auth and lead-IP de-scoping before tenant dispatch",
+);
+assert.match(
+	runtimeSource,
+	/prepared \?\?= await prepareTenant\(\);\s*if \(prepared instanceof Response\) return prepared;\s*return prepared\(select\(tenantRequest\)\);/,
+	"the parent must apply both internal-auth and lead-IP de-scoping before tenant dispatch — renderTenant must prepare before it dispatches",
+);
+assert.equal(
+	runtimeSource.match(/\bprepared\(/g)?.length ?? 0,
+	1,
+	"renderTenant must be the only caller of the prepared tenant dispatcher",
+);
+assert.equal(
+	runtimeSource.match(/\bfetchTenant\(/g)?.length ?? 0,
+	0,
+	"fetchTenant must only be returned from prepareTenant, never called before de-scoping",
 );
 
 assert.match(
