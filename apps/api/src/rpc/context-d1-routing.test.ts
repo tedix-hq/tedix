@@ -63,6 +63,12 @@ describe("d1SessionConstraintFor", () => {
 			} as unknown as CloudflareEnv);
 			expect(withSession).not.toHaveBeenCalled();
 			context.dbReadOnly = readOnly;
+			expect(context.dbMetrics).toEqual({
+				queries: 0,
+				rowsRead: 0,
+				rowsWritten: 0,
+				withoutMeta: 0,
+			});
 			const db = context.db;
 			expect(context.db).toBe(db);
 			expect(withSession).toHaveBeenCalledExactlyOnceWith(expected);
