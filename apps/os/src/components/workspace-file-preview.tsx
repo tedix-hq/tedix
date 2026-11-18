@@ -5,6 +5,11 @@ import { buttonVariants } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { LoadError } from "@/components/kumo/alert";
 import { Text } from "@/components/kumo/text";
+import { officeFileFormat } from "@tedix/api-contract/utils/office-file-read";
+import {
+	OFFICE_PREVIEW_MAX_BYTES,
+	OfficeFilePreview,
+} from "@/components/office-file-preview";
 
 const VIDEO_MIME_TYPES = ["video/mp4", "video/webm"];
 export const IMAGE_MIME_TYPES = [
@@ -67,6 +72,10 @@ export function WorkspaceFilePreview({
 	if (playback.current.fileKey !== fileKey || !isVideo)
 		playback.current = { fileKey, time: 0, playing: false };
 	const src = file.url;
+	const officeFormat =
+		file.size <= OFFICE_PREVIEW_MAX_BYTES
+			? officeFileFormat(file.filename, file.mimeType)
+			: null;
 	return (
 		<figure className="m-0 grid w-full min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
 			{isVideo ? (
@@ -114,6 +123,14 @@ export function WorkspaceFilePreview({
 					src={src}
 					alt={file.filename}
 					className="max-h-[70vh] w-full object-contain"
+				/>
+			) : officeFormat ? (
+				<OfficeFilePreview
+					workspaceId={workspaceId}
+					resourceId={resourceId}
+					url={src}
+					filename={file.filename}
+					format={officeFormat}
 				/>
 			) : (
 				<Text as="p" role="body">

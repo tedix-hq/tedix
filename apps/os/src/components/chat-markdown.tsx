@@ -90,9 +90,12 @@ export function resolveChatMarkdownHref(
  * Where a chat link to `/outputs/<id>` opens. A Workspace provides a handler
  * so the output opens in its own editor pane instead of leaving the
  * Workspace; without one the link goes to the standalone output page.
+ * The Workspace stage also offers `openEditor`, which opens an editor app
+ * by its id, for example a new editable copy of an uploaded file.
  */
 export const ChatOutputLinkContext = createContext<{
 	openOutput?: (outputId: string) => void;
+	openEditor?: (gadgetId: string) => void;
 }>({});
 
 /** A plain primary click; modified clicks keep the browser's own behavior. */
