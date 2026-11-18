@@ -67,6 +67,11 @@ function WorkspaceRoute() {
 						<PhoneWorkspaceChat
 							conversationId={search.conversation ?? null}
 							onConversationChange={updateConversation}
+							onOpenAgents={() =>
+								void navigate({
+									search: (previous) => ({ ...previous, pane: "agents" }),
+								})
+							}
 							onOpenWorkspace={() =>
 								void navigate({
 									search: (previous) => ({

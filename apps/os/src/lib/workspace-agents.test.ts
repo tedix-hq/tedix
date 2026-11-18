@@ -3,6 +3,7 @@ import type { OsWorkspaceSchedule } from "@tedix/api-contract/schemas/os-workspa
 import { describe, expect, it } from "vite-plus/test";
 import {
 	agentConversations,
+	agentRunsNeedingYou,
 	agentCountsLine,
 	deriveWorkspaceAgents,
 	isAgentSkillRun,
@@ -77,6 +78,28 @@ describe("which conversations are an agent's", () => {
 
 	it("lists agent-started conversations as runs, without the archived ones", () => {
 		expect(agentConversations(list).map((row) => row.id)).toEqual(["run"]);
+	});
+
+	it("counts the agent runs that wait for a decision, not a person's own", () => {
+		const tedi = { kind: "tedi", id: "t1" } as const;
+		const waiting = [
+			conversation("mine", at(18), { pendingApprovals: 3 }),
+			conversation("asks", at(18), { startedBy: tedi, pendingApprovals: 2 }),
+			conversation("quiet", at(18), { startedBy: tedi }),
+			conversation("gone", at(10), {
+				startedBy: tedi,
+				pendingApprovals: 1,
+				archivedAt: at(11),
+			}),
+		];
+		expect(agentRunsNeedingYou(waiting)).toBe(1);
+		// The open run was just answered here; the list has not heard yet.
+		expect(
+			agentRunsNeedingYou(waiting, { id: "asks", pendingApprovals: 0 }),
+		).toBe(0);
+		expect(
+			agentRunsNeedingYou(waiting, { id: "quiet", pendingApprovals: 1 }),
+		).toBe(2);
 	});
 });
 

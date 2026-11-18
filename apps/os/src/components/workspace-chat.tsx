@@ -176,11 +176,13 @@ export type WorkspaceChatProps = {
 	onActivity?: () => void;
 	/** The person can view this workspace but not chat in it. */
 	viewOnly?: boolean;
-	/**
-	 * The host shows runs agents started in its own Agents view: it is handed
-	 * every conversation, and the list here keeps only the ones people started.
-	 */
+	/** Every conversation the chat knows, for a host that shows them itself. */
 	onConversations?: (conversations: readonly ConversationSummary[]) => void;
+	/**
+	 * Opens the host's Agents view. The list then links to it and keeps only
+	 * the conversations people started; the runs agents started are listed there.
+	 */
+	onOpenAgents?: () => void;
 	/** Test seam. */
 	createClient?: typeof createWorkspaceChatClient;
 };
@@ -200,6 +202,7 @@ export function WorkspaceChat({
 	onActivity,
 	viewOnly = false,
 	onConversations,
+	onOpenAgents,
 	createClient,
 }: WorkspaceChatProps) {
 	const queryClient = useQueryClient();
@@ -402,7 +405,7 @@ export function WorkspaceChat({
 			>
 				<ConversationList
 					conversations={state.conversations}
-					hideAgentRuns={onConversations !== undefined}
+					onOpenAgents={onOpenAgents}
 					activeId={conversationId}
 					activeRunning={running !== null}
 					activePendingApprovals={waiting.length}

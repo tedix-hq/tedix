@@ -23,7 +23,11 @@ import { Input } from "@/components/kumo/input";
 import { Text } from "@/components/kumo/text";
 import { UnreadBadge } from "@/components/unread-badge";
 import type { ConversationChange } from "@/lib/workspace-chat-client";
-import { ownConversations } from "@/lib/workspace-agents";
+import {
+	agentConversations,
+	agentRunsNeedingYou,
+	ownConversations,
+} from "@/lib/workspace-agents";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 
 const UNTITLED = "Untitled conversation";
@@ -196,7 +200,7 @@ export type ConversationNotifications = {
 
 export function ConversationList({
 	conversations: all,
-	hideAgentRuns = false,
+	onOpenAgents,
 	activeId,
 	activeRunning,
 	activePendingApprovals,
@@ -207,8 +211,11 @@ export function ConversationList({
 }: {
 	/** Every conversation the object named, the archived ones included. */
 	conversations: ConversationSummary[];
-	/** Leave out the conversations an agent started; an Agents view lists them. */
-	hideAgentRuns?: boolean;
+	/**
+	 * Opens the Agents view. With it, the conversations an agent started are
+	 * left out here, because that view lists them.
+	 */
+	onOpenAgents?: () => void;
 	activeId: string | null;
 	/** The open conversation's own turn is working, as this tab sees it. */
 	activeRunning: boolean;
@@ -222,7 +229,12 @@ export function ConversationList({
 	notifications?: ConversationNotifications;
 }) {
 	const now = Date.now();
-	const conversations = hideAgentRuns ? ownConversations(all) : all;
+	const conversations = onOpenAgents ? ownConversations(all) : all;
+	const agentRuns = onOpenAgents ? agentConversations(all) : [];
+	const runsNeedingYou = agentRunsNeedingYou(agentRuns, {
+		id: activeId,
+		pendingApprovals: activePendingApprovals,
+	});
 	const [showArchived, setShowArchived] = useState(false);
 	const [renaming, setRenaming] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ConversationSummary | null>(null);
@@ -385,6 +397,29 @@ export function ConversationList({
 					<Button onClick={() => onSelect(null)} size="sm" variant="secondary">
 						New conversation
 					</Button>
+					{onOpenAgents ? (
+						<Button
+							aria-label={
+								runsNeedingYou > 0
+									? `Agents, ${runsNeedingYou} ${runsNeedingYou === 1 ? "run needs" : "runs need"} you`
+									: undefined
+							}
+							onClick={onOpenAgents}
+							size="sm"
+							variant="ghost"
+						>
+							Agents
+							{runsNeedingYou > 0 ? (
+								<Badge
+									aria-hidden
+									className="h-4 min-w-4 shrink-0 justify-center rounded-full px-1 tabular-nums"
+									variant="warning"
+								>
+									{runsNeedingYou > 99 ? "99+" : runsNeedingYou}
+								</Badge>
+							) : null}
+						</Button>
+					) : null}
 					{archivedCount > 0 ? (
 						<Button
 							onClick={() => setShowArchived(true)}
@@ -396,7 +431,18 @@ export function ConversationList({
 					) : null}
 				</div>
 			)}
-			{groups.length === 0 ? (
+			{groups.length === 0 && onOpenAgents && agentRuns.length > 0 ? (
+				// Not an empty workspace: every conversation in it is an agent's run.
+				<div className="grid justify-items-start gap-2">
+					<Text role="body" tone="secondary">
+						No conversations of your own here. The ones agents started are under
+						Agents.
+					</Text>
+					<Button onClick={onOpenAgents} size="sm" variant="secondary">
+						Open Agents
+					</Button>
+				</div>
+			) : groups.length === 0 ? (
 				<Text role="body" tone="secondary">
 					No conversations in this workspace yet.
 				</Text>

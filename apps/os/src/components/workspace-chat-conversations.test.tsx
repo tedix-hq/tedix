@@ -219,13 +219,71 @@ describe("ConversationList", () => {
 				startedBy: { kind: "tedi", id: "tedi-1" },
 			}),
 		];
-		mount(list, { hideAgentRuns: true });
+		mount(list, { onOpenAgents: () => {} });
 		expect(sections()).toEqual([["Today", ["Conversation a"]]]);
 		// Without an Agents view beside it, the list still shows every one.
 		mount(list);
 		expect(sections()).toEqual([
 			["Today", ["Conversation run", "Conversation a"]],
 		]);
+		expect(() => button("Agents", host)).toThrow();
+	});
+
+	it("links to Agents and counts the agent runs that need the person", () => {
+		const tedi = { kind: "tedi", id: "tedi-1" } as const;
+		const opened = vi.fn();
+		mount(
+			[
+				conversation("a", localIso(18, 9), { pendingApprovals: 1 }),
+				conversation("run", localIso(18, 10), { startedBy: tedi }),
+			],
+			{ onOpenAgents: opened },
+		);
+		// A person's own waiting conversation is not an agent's run.
+		expect(button("Agents", host).textContent).toBe("Agents");
+		act(() => button("Agents", host).click());
+		expect(opened).toHaveBeenCalledTimes(1);
+
+		mount(
+			[
+				conversation("a", localIso(18, 9)),
+				conversation("run", localIso(18, 10), {
+					startedBy: tedi,
+					pendingApprovals: 2,
+				}),
+				conversation("run-2", localIso(18, 11), {
+					startedBy: tedi,
+					pendingApprovals: 1,
+				}),
+			],
+			{ onOpenAgents: opened },
+		);
+		expect(button("Agents, 2 runs need you", host).textContent).toBe("Agents2");
+	});
+
+	it("says so when every conversation was started by an agent", () => {
+		const opened = vi.fn();
+		mount(
+			[
+				conversation("run", localIso(18, 10), {
+					startedBy: { kind: "agent", id: "app:1" },
+				}),
+			],
+			{ onOpenAgents: opened },
+		);
+		expect(sections()).toEqual([]);
+		expect(host.textContent).toContain(
+			"No conversations of your own here. The ones agents started are under Agents.",
+		);
+		act(() => button("Open Agents", host).click());
+		expect(opened).toHaveBeenCalledTimes(1);
+
+		// A workspace nobody has used says the plain thing.
+		mount([], { onOpenAgents: opened });
+		expect(host.textContent).toContain(
+			"No conversations in this workspace yet.",
+		);
+		expect(() => button("Open Agents", host)).toThrow();
 	});
 
 	it("marks a conversation with changes waiting, beside the working dot", () => {
