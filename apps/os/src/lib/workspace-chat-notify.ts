@@ -4,6 +4,8 @@
  * told; this only says who the text mentions.
  */
 
+import { noteChatAsked } from "./workspace-toasts";
+
 /** The activity feed trails a post by a moment. */
 const FIRST_ATTEMPT_MS = 1_500;
 const SECOND_ATTEMPT_MS = 5_000;
@@ -41,6 +43,8 @@ export function notifyChatPosted(input: {
 	conversationId: string;
 	mentionedUserIds: string[];
 }): void {
+	// The reply to this post is announced if the person has moved on by then.
+	noteChatAsked(input.workspaceId, input.conversationId);
 	const attempt = (last: boolean) =>
 		void import("./api")
 			.then(({ osApi }) => osApi.workspaceUnread.notifyChat(input))

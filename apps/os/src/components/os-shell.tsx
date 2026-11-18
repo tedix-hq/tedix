@@ -78,6 +78,10 @@ const ApprovalNotifications = lazy(async () => ({
 		.ApprovalNotifications,
 }));
 
+const WorkspaceToasts = lazy(async () => ({
+	default: (await import("@/components/workspace-toasts")).WorkspaceToasts,
+}));
+
 const SIDEBAR_COLLAPSED_KEY = "tedix-os-sidebar-collapsed";
 
 function navigationIcon(item: OsShellNavigationItem) {
@@ -327,6 +331,9 @@ export function OsShell() {
 
 	return (
 		<SharedDeckInboxProvider>
+			<Suspense fallback={null}>
+				<WorkspaceToasts />
+			</Suspense>
 			<OsTopbarMenuContext.Provider
 				value={
 					phone && !workspaceWorkbench
