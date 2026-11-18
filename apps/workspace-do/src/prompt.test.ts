@@ -90,6 +90,21 @@ describe("prompt", () => {
 		expect(prefix).not.toContain("needs approval and stop");
 	});
 
+	test("the agent is told which changes apply at once and which wait", () => {
+		expect(STATIC_RULES).toContain(
+			"A new document, sheet or presentation and an edit to one apply at once",
+		);
+		expect(STATIC_RULES).toContain(
+			"undo it from your reply or from version history",
+		);
+		expect(STATIC_RULES).toContain(
+			"Removing content from a file, deleting, sharing, a new app, a web page and a Work Item wait for the person",
+		);
+		const prefix = staticPromptPrefix();
+		expect(prefix).not.toContain("workspace rule");
+		expect(prefix).not.toMatch(/may (need|require) approval/);
+	});
+
 	test("changes still waiting for a decision are in the turn's context", () => {
 		const suffix = dynamicPromptSuffix({
 			workspaceName: "Programme workspace",
