@@ -27,7 +27,7 @@ import {
 	type AuditEventOutput,
 	toAuditEventOutput,
 } from "../../lib/audit-event-output";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	withAuthorization,
 	type BaseContext,
@@ -115,8 +115,9 @@ function exportFilename(
 
 export const searchAuditEvents = authedOs.search
 	.use(withAuthorization(AUDIT_READ_PERMISSION, AUDIT_READ_SCOPE))
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const limit = input?.limit ?? 50;
 		const offset = input?.cursor ? 0 : (input?.offset ?? 0);
@@ -154,8 +155,9 @@ export const searchAuditEvents = authedOs.search
 
 export const exportAuditEvents = authedOs.export
 	.use(withAuthorization(AUDIT_READ_PERMISSION, AUDIT_READ_SCOPE))
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const exportedAt = new Date();
 		// Pin the window to the export's start so events written while paging
 		// cannot shift the offsets; ids are deduplicated for the same reason.
@@ -229,8 +231,9 @@ export const exportAuditEvents = authedOs.export
 
 export const getAuditEventsByResource = authedOs.getByResource
 	.use(withAuthorization(AUDIT_READ_PERMISSION, AUDIT_READ_SCOPE))
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const events = await getAuditEventsByResourceQuery(
 			context.db,

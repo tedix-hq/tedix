@@ -54,7 +54,7 @@ import {
 	ErrorCodes,
 	withPermission,
 } from "../orpc";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import { verifiedActiveUserMembership } from "./work-items-principal";
 import {
 	effectiveSkillPaceLayer,
@@ -98,8 +98,9 @@ import {
 
 export const skillsRecord = authedSkills.record
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const { workspaceId, ...skillInput } = input;
 		// Check the Workspace before the skill exists, so a bad id creates nothing.
 		// Without one, a skill made in a Workspace chat belongs to that Workspace.
@@ -141,8 +142,9 @@ async function linkSkillToWorkspace(
 
 export const skillsImprove = authedSkills.improve
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
 
@@ -463,8 +465,9 @@ export const skillsImprove = authedSkills.improve
 
 export const skillsDelete = authedSkills.delete
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
 		await deleteSkillEntry(context.db, input.id, orgId);
@@ -474,16 +477,18 @@ export const skillsDelete = authedSkills.delete
 
 export const skillsGet = authedSkills.get
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const entry = await getSkillEntry(context.db, input.id, orgId);
 		return { entry: entry ?? null };
 	});
 
 export const skillsMove = authedSkills.move
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
 		await moveSkillToFolder(context.db, orgId, input.id, input.folderPath);
@@ -527,8 +532,9 @@ export function summarizeSkillEntry<
 
 export const skillsListByOrg = authedSkills.listByOrg
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		const domainId = input.domain
 			? (
@@ -565,8 +571,9 @@ export const skillsListByOrg = authedSkills.listByOrg
 
 export const skillsFind = authedSkills.find
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const entries = await findSkillForTask(context.db, orgId, input.query, {
 			tediId: input.tediId,
 			appId: input.appId,
@@ -584,8 +591,9 @@ export const skillsFind = authedSkills.find
 
 export const skillsListByApp = authedSkills.listByApp
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const appId = await resolveAppId(context, input);
 		if (!appId) {
 			throw createError(
@@ -627,8 +635,9 @@ export const skillsListSummariesByApps = authedSkills.listSummariesByApps
 	// this endpoint: hasRequiredScope() short-circuits true for service-binding
 	// auth, which is how apps/mcp reaches apps/api.
 	.use(createScopeMiddleware("tedis:read"))
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const byApp = await withTransientD1ReadRetry(
 			`skill summaries for ${input.appIds.length} app(s)`,
 			() =>
@@ -644,8 +653,9 @@ export const skillsListSummariesByApps = authedSkills.listSummariesByApps
 export const skillsListPromotionCandidates =
 	authedSkills.listPromotionCandidates
 		.use(AUTHZ.tedisRead)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const appId = await resolveAppId(context, input);
 			const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
 			const offset = Math.max(input.offset ?? 0, 0);
@@ -678,8 +688,9 @@ export const skillsListPromotionCandidates =
 
 export const skillsAuditLowQuality = authedSkills.auditLowQuality
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		if (input.archive && !input.slug && !input.confirmBulkArchive) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -764,8 +775,9 @@ export const skillsAuditLowQuality = authedSkills.auditLowQuality
 
 export const skillsSweepDraftTtl = authedSkills.sweepDraftTtl
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const result = await sweepExpiredDraftSkills(context.db, {
 			organizationId: orgId,
 			olderThanDays: input.olderThanDays,
@@ -789,8 +801,9 @@ export const skillsSweepDraftTtl = authedSkills.sweepDraftTtl
 
 export const skillsGetForMcp = authedSkills.getForMcp
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		// A tedi reads skills as itself: its own private skills are readable
 		// without restating its id, and it cannot read as another tedi.
 		if (context.tediId && input.tediId && input.tediId !== context.tediId) {
@@ -808,8 +821,9 @@ export const skillsGetForMcp = authedSkills.getForMcp
 
 export const skillsUsage = authedSkills.usage
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		// Verify ownership before updating
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
@@ -847,8 +861,9 @@ export const skillsUsage = authedSkills.usage
 
 export const skillsPreview = authedSkills.preview
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		// Resolve appId (from appId or appSlug)
 		const resolvedAppId = await resolveAppId(context, input);
@@ -1034,8 +1049,9 @@ export const skillsPreview = authedSkills.preview
 
 export const skillsRepair = authedSkills.repair
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		if (!input.id && !input.slug) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -1104,8 +1120,9 @@ export const skillsRepair = authedSkills.repair
 
 export const skillsPromote = authedSkills.promote
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		if (!input.id && !input.slug) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
