@@ -39,6 +39,14 @@ interface CfResponse<T> {
 	errors?: Array<{ code?: number; message?: string }>;
 }
 
+/** Tedix-owned domains use platform routing, never a customer domain claim. */
+export function isPlatformHostname(hostname: string): boolean {
+	const normalized = hostname.toLowerCase().replace(/\.$/, "");
+	return ["tedix.dev", "tedix.tech"].some(
+		(domain) => normalized === domain || normalized.endsWith(`.${domain}`),
+	);
+}
+
 export function assertCustomHostname(hostname: string): string {
 	const normalized = hostname.toLowerCase().replace(/\.$/, "");
 	if (
@@ -47,10 +55,7 @@ export function assertCustomHostname(hostname: string): string {
 		!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$/.test(
 			normalized,
 		) ||
-		normalized === "tedix.dev" ||
-		normalized.endsWith(".tedix.dev") ||
-		normalized === "tedix.tech" ||
-		normalized.endsWith(".tedix.tech")
+		isPlatformHostname(normalized)
 	)
 		throw new Error("Invalid CMS custom hostname");
 	return normalized;

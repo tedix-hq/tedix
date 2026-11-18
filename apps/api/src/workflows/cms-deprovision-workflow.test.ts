@@ -34,7 +34,10 @@ vi.mock("@tedix/db/queries/cms-domain-claims", () => ({
 	beginRemovingCmsDomainClaim: mocks.beginRemovingClaim,
 	removeCmsDomainClaim: mocks.removeClaim,
 }));
-vi.mock("../services/cms-custom-hostnames", () => ({
+vi.mock("../services/cms-custom-hostnames", async (importOriginal) => ({
+	isPlatformHostname: (
+		await importOriginal<typeof import("../services/cms-custom-hostnames")>()
+	).isPlatformHostname,
 	findCmsCustomHostname: mocks.findHostname,
 	deleteCmsCustomHostname: mocks.deleteHostname,
 }));
