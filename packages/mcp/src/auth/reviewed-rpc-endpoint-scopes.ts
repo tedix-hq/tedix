@@ -638,6 +638,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/outputs/library": "mcp:apps.read",
 	"osWorkspaces/outputs/rename": "mcp:apps.write",
 	"osWorkspaces/outputs/move": "mcp:apps.write",
+	"osWorkspaces/outputs/duplicate": "mcp:apps.write",
 	"osWorkspaces/resources/create": "mcp:apps.write",
 	"osWorkspaces/resources/get": "mcp:apps.read",
 	"osWorkspaces/resources/list": "mcp:apps.read",

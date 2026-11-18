@@ -73,9 +73,11 @@ import {
 import { outputAssetDigest } from "@tedix/api-contract/utils/os-output-assets";
 import {
 	outputAssetReader,
+	parseOutputContentWithImages,
 	readOutputAsset,
 	storeOutputAsset,
 } from "../../services/os-output-assets";
+import { mergeOsOutputAccessEnvelopes } from "@tedix/db/utils/os-output-access-envelope";
 import {
 	OS_EXPORT_RESOURCE_WAIT,
 	renderOsOutputHtml,
@@ -113,6 +115,7 @@ import {
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
 import { listOsShareSessionPeople } from "@tedix/db/queries/os-shares";
+import { listTedixPeople } from "@tedix/db/queries/os-collaborators";
 import { SHARE_SESSION_PRINCIPAL_KIND } from "../../lib/os-share-app-runtime";
 import { resolveOsWorkspaceViewer } from "../../services/os-workspace-visibility";
 import {
@@ -481,14 +484,37 @@ const outputsHistory = readOs.outputs.history.handler(
 				)
 			: [];
 		const people = await shareLinkSavers(context, output.organizationId, rows);
-		const named = <Revision extends { createdById: string }>(
+		const authors = new Map(
+			(
+				await listTedixPeople(
+					queryDb(context),
+					rows
+						.filter((revision) => revision.createdByKind === "user")
+						.map((revision) => revision.createdById),
+				)
+			).map((person) => [person.userId, person.name?.trim() || person.email]),
+		);
+		const callerId =
+			context.authType === "user" ? context.user?.sub : undefined;
+		const named = <
+			Revision extends { createdByKind: string; createdById: string },
+		>(
 			revision: Revision,
 		) => {
 			const person = people.get(revision.createdById);
-			return person
+			if (person)
+				return {
+					...revision,
+					savedBy: { through: "share_link" as const, ...person },
+				};
+			const name =
+				revision.createdByKind === "user"
+					? authors.get(revision.createdById)
+					: undefined;
+			return name
 				? {
 						...revision,
-						savedBy: { through: "share_link" as const, ...person },
+						author: { name, self: revision.createdById === callerId },
 					}
 				: revision;
 		};
@@ -602,6 +628,81 @@ const outputsMove = authorOs.outputs.move.handler(
 		return {
 			output: mapOsOutputRow(row),
 			previousWorkspaceId: output.workspaceId,
+		};
+	},
+);
+
+/** The title a copy gets when the caller names none, kept within the title limit. */
+function copyTitle(title: string): string {
+	const suffix = " copy";
+	return `${title.slice(0, 120 - suffix.length).trimEnd()}${suffix}`;
+}
+
+const outputsDuplicate = authorOs.outputs.duplicate.handler(
+	async ({ input, context }) => {
+		const source = await requireOutput(context, input.outputId);
+		const workspace = source.workspaceId
+			? await requireWorkspace(context, source.workspaceId)
+			: undefined;
+		const current = await requireCurrentOutputRevision(context, source);
+		// A copy is new bytes of the same sources: it needs what the revision
+		// it was made from needs, plus whatever its author adds.
+		const sourceEnvelope = await resolveRevisionAccessEnvelope(
+			context,
+			current,
+		);
+		const accessEnvelope = mergeOsOutputAccessEnvelopes(
+			sourceEnvelope ? JSON.stringify(sourceEnvelope) : null,
+			await resolveAccessEnvelope(context),
+		);
+		// Stored images belong to one file. Embedding them here lets the copy
+		// store its own, so neither file depends on the other.
+		const content = await parseOutputContentWithImages(current);
+		const creator = resolveCreator(context);
+		const now = new Date().toISOString();
+		const outputId = crypto.randomUUID();
+		const revisionId = crypto.randomUUID();
+		const accountability = {
+			organizationId: source.organizationId,
+			createdByKind: creator.kind,
+			createdById: creator.id,
+			createdAt: now,
+		};
+		const created = await createOsOutput(
+			queryDb(context),
+			{
+				...accountability,
+				id: outputId,
+				workspaceId: source.workspaceId,
+				kind: source.kind,
+				title: input.title ?? copyTitle(source.title),
+				status: "active",
+				currentRevisionId: revisionId,
+				updatedAt: now,
+			},
+			{
+				...accountability,
+				id: revisionId,
+				outputId,
+				revision: 1,
+				content: JSON.stringify(content),
+				note: `Copy of “${source.title}”`,
+				...resolveProducer(context),
+				accessEnvelope,
+			},
+		);
+		await attachOutputEditor(
+			context,
+			created.output,
+			workspace && {
+				workspace,
+				output: created.output,
+				revision: created.revision,
+			},
+		);
+		return {
+			output: mapOsOutputRow(created.output),
+			revision: mapOsOutputRevisionRow(created.revision),
 		};
 	},
 );
@@ -1418,6 +1519,7 @@ export const osOutputProcedures = {
 	uploadImage: outputsUploadImage,
 	rename: outputsRename,
 	move: outputsMove,
+	duplicate: outputsDuplicate,
 	revise: outputsRevise,
 	patch: outputsPatch,
 	changes: outputsChanges,

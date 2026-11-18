@@ -455,6 +455,124 @@ try {
 			console.log(`outputs panel ${label}: ok`);
 		}
 	}
+	// File housekeeping from a row's menu: versions, restore, a copy, a move.
+	// Last, because it changes the sample workspace's files.
+	{
+		const label = "1280/light/housekeeping";
+		const context = await browser.newContext({
+			viewport: { width: 1280, height: 800 },
+			colorScheme: "light",
+			reducedMotion: "reduce",
+		});
+		const page = await context.newPage();
+		await routeFixture(page, "light");
+		await page.goto(`${server.origin}${workspacePath}`);
+		const files = page
+			.getByRole("complementary", { name: "Workspace files" })
+			.getByRole("list", { name: "Files" });
+		const actions = files
+			.getByRole("button", {
+				name: /^Actions for Lindenquay: reconciliation note/,
+			})
+			.first();
+		await actions.waitFor({ state: "attached" });
+		const title = ((await actions.getAttribute("aria-label")) ?? "").replace(
+			"Actions for ",
+			"",
+		);
+		// Give the file a second version, as an editor save would.
+		await page.evaluate(
+			async ({ workspaceId, title }) => {
+				const call = async (path: string, json: unknown) => {
+					const response = await fetch(
+						`/api/rpc/osWorkspaces/outputs/${path}`,
+						{
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ json }),
+						},
+					);
+					return (await response.json()).json;
+				};
+				const { items } = await call("list", { workspaceId });
+				const outputId = items.find(
+					(item: { title: string }) => item.title === title,
+				).id;
+				const { currentRevision } = await call("get", { outputId });
+				await call("revise", {
+					outputId,
+					content: currentRevision.content,
+					note: "Second save",
+				});
+			},
+			{ workspaceId: workspacePath.split("/").pop()!, title },
+		);
+		const pick = async (entry: string, row = title) => {
+			const more = files.getByRole("button", {
+				name: `Actions for ${row}`,
+				exact: true,
+			});
+			await more.locator("xpath=ancestor::li").hover();
+			await more.click();
+			await page.getByRole("menuitem", { name: entry }).click();
+		};
+
+		await pick("Version history");
+		const history = page
+			.getByRole("dialog")
+			.filter({ hasText: "Version history" });
+		await history.locator('[data-version="2"]').getByText("Current").waitFor();
+		await history
+			.locator('[data-version="2"]')
+			.getByText("Second save")
+			.waitFor();
+		await history.locator('[data-version="1"]').waitFor();
+		await page.screenshot({ path: `${evidence}/housekeeping-history.png` });
+		await history.getByRole("button", { name: "View version 1" }).click();
+		await page.locator("[data-version-content]").waitFor();
+		await page.screenshot({ path: `${evidence}/housekeeping-version.png` });
+		await page.getByRole("button", { name: "All versions" }).click();
+		await history.getByRole("button", { name: "Restore version 1" }).click();
+		const confirm = page.getByRole("alertdialog");
+		await confirm.getByText("Nothing is deleted").waitFor();
+		await confirm.getByRole("button", { name: "Restore", exact: true }).click();
+		await confirm.waitFor({ state: "hidden" });
+		// The restore is a third version; the two before it are still listed.
+		const restored = history.locator('[data-version="3"]');
+		await restored.getByText("Restored version 1").waitFor();
+		await restored.getByText("Current").waitFor();
+		assert.equal(
+			await history.locator("[data-version]").count(),
+			3,
+			`${label}: restoring keeps every earlier version`,
+		);
+		await page.keyboard.press("Escape");
+		await history.waitFor({ state: "hidden" });
+
+		await pick("Duplicate");
+		await files
+			.getByRole("button", { name: `Actions for ${title} copy`, exact: true })
+			.waitFor({ state: "attached" });
+
+		await pick("Move to workspace…", `${title} copy`);
+		const picker = page
+			.getByRole("dialog")
+			.filter({ hasText: "Move to workspace" });
+		const choice = picker.getByRole("radio").first();
+		const destination = (await choice.innerText()).trim();
+		await choice.click();
+		await page.screenshot({ path: `${evidence}/housekeeping-move.png` });
+		await picker
+			.getByRole("button", { name: `Move to ${destination}`, exact: true })
+			.click();
+		await picker.waitFor({ state: "hidden" });
+		await files
+			.getByRole("button", { name: `Actions for ${title} copy`, exact: true })
+			.waitFor({ state: "detached" });
+		await noOverflow(page, label);
+		await context.close();
+		console.log(`outputs panel ${label}: ok`);
+	}
 	console.log(`workspace outputs panel evidence: ${evidence}`);
 } finally {
 	await browser?.close();

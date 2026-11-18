@@ -232,7 +232,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 	"Workspace panels action/query error text; WebMCP tool error result": [
 		"osWorkspaces/blueprints/preflight",
 		"osWorkspaces/executions/export",
-		"osWorkspaces/outputs/history",
 		"osWorkspaces/outputs/patchDocument",
 		"osWorkspaces/outputs/patchSlides",
 		"osWorkspaces/resources/confirmFileUpload",

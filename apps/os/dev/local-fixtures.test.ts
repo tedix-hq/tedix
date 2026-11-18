@@ -1010,6 +1010,8 @@ const CALLS = {
 		outputId: IDS.outputDocument,
 		workspaceId: IDS.workspaceRevenue,
 	},
+	"osWorkspaces/outputs/duplicate": { outputId: IDS.outputDocument },
+	"osWorkspaces/outputs/history": { outputId: IDS.outputDocument },
 	"osWorkspaces/outputs/revise": {
 		outputId: IDS.outputDocument,
 		content: IDS.documentContent,

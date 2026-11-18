@@ -2,11 +2,19 @@ import "./output-views.css";
 import "./output-detail.css";
 import { SquaresFour } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import type {
+	OsOutput,
+	OsOutputRevision,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Button } from "@/components/kumo/button";
-import { DropdownMenuLinkItem } from "@/components/kumo/dropdown-menu";
+import {
+	DropdownMenuItem,
+	DropdownMenuLinkItem,
+	DropdownMenuSeparator,
+} from "@/components/kumo/dropdown-menu";
 import {
 	Page,
 	PageActions,
@@ -20,6 +28,10 @@ import {
 import { Skeleton } from "@/components/kumo/skeleton";
 import { SavedOutputContentView } from "@/components/output-content";
 import { OutputExportButtons } from "@/components/output-export-buttons";
+import {
+	OutputFileMenuButton,
+	useOutputFileActions,
+} from "@/components/output-file-actions";
 import { useOutputsWebMcpTools } from "@/components/outputs-webmcp-tools";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
 import { ShareControls } from "@/components/share-controls";
@@ -134,56 +146,11 @@ function OutputDetail({ outputId }: { outputId: string }) {
 							) : null}
 						</PageHeading>
 					</PageHeader>
-					<PageActions className="output-detail-actions ms-0 w-full justify-start sm:w-auto [&>[data-slot=button]:not([data-icon-only])]:max-sm:flex-1">
-						<ShareControls
-							outputId={outputId}
-							currentRevisionId={detail.data.currentRevision.id}
-						/>
-						{activeWorkspace ? (
-							<Button
-								render={
-									<Link
-										to="/workspace/$workspaceId"
-										params={{ workspaceId: activeWorkspace.id }}
-										search={{
-											workpiece: `output:${outputId}`,
-											pane: "workpiece",
-										}}
-									/>
-								}
-								variant="outline"
-								size="sm"
-								className="hidden sm:inline-flex"
-							>
-								<SquaresFour size={14} /> Open in workspace
-							</Button>
-						) : null}
-						<OutputExportButtons
-							outputId={outputId}
-							kind={detail.data.output.kind}
-							content={detail.data.currentRevision.content}
-							phoneOverflow
-							phoneActions={
-								activeWorkspace ? (
-									<DropdownMenuLinkItem
-										className="sm:hidden"
-										render={
-											<Link
-												to="/workspace/$workspaceId"
-												params={{ workspaceId: activeWorkspace.id }}
-												search={{
-													workpiece: `output:${outputId}`,
-													pane: "workpiece",
-												}}
-											/>
-										}
-									>
-										<SquaresFour size={14} /> Open in workspace
-									</DropdownMenuLinkItem>
-								) : null
-							}
-						/>
-					</PageActions>
+					<OutputDetailActions
+						output={detail.data.output}
+						currentRevision={detail.data.currentRevision}
+						activeWorkspaceId={activeWorkspace?.id ?? null}
+					/>
 					<SavedOutputContentView
 						outputId={outputId}
 						content={detail.data.currentRevision.content}
@@ -191,5 +158,95 @@ function OutputDetail({ outputId }: { outputId: string }) {
 				</>
 			)}
 		</Page>
+	);
+}
+
+/**
+ * Share, open in the workspace, export, and the file's housekeeping (version
+ * history, duplicate, move). Phones keep one overflow button for everything
+ * but Share, so the housekeeping entries join that menu there.
+ */
+function OutputDetailActions({
+	output,
+	currentRevision,
+	activeWorkspaceId,
+}: {
+	output: OsOutput;
+	currentRevision: OsOutputRevision;
+	activeWorkspaceId: string | null;
+}) {
+	const navigate = useNavigate();
+	const file = useOutputFileActions(
+		{
+			outputId: output.id,
+			title: output.title,
+			workspaceId: output.workspaceId,
+		},
+		{
+			onDuplicated: (copy) =>
+				void navigate({
+					to: "/outputs/$outputId",
+					params: { outputId: copy.id },
+				}),
+		},
+	);
+	const workspaceLink = activeWorkspaceId ? (
+		<Link
+			to="/workspace/$workspaceId"
+			params={{ workspaceId: activeWorkspaceId }}
+			search={{ workpiece: `output:${output.id}`, pane: "workpiece" }}
+		/>
+	) : null;
+	return (
+		<PageActions className="output-detail-actions ms-0 w-full justify-start sm:w-auto [&>[data-slot=button]:not([data-icon-only])]:max-sm:flex-1">
+			<ShareControls
+				outputId={output.id}
+				currentRevisionId={currentRevision.id}
+			/>
+			{workspaceLink ? (
+				<Button
+					render={workspaceLink}
+					variant="outline"
+					size="sm"
+					className="hidden sm:inline-flex"
+				>
+					<SquaresFour size={14} /> Open in workspace
+				</Button>
+			) : null}
+			<OutputExportButtons
+				outputId={output.id}
+				kind={output.kind}
+				content={currentRevision.content}
+				phoneOverflow
+				phoneActions={
+					<>
+						{workspaceLink ? (
+							<DropdownMenuLinkItem
+								className="sm:hidden"
+								render={workspaceLink}
+							>
+								<SquaresFour size={14} /> Open in workspace
+							</DropdownMenuLinkItem>
+						) : null}
+						{file.entries.map((entry) => (
+							<DropdownMenuItem
+								key={entry.key}
+								className="sm:hidden"
+								onClick={entry.onSelect}
+							>
+								{entry.icon} {entry.label}
+							</DropdownMenuItem>
+						))}
+						<DropdownMenuSeparator className="sm:hidden" />
+					</>
+				}
+			/>
+			<OutputFileMenuButton
+				title={output.title}
+				entries={file.entries}
+				className="hidden sm:inline-flex"
+			/>
+			{file.dialogs}
+		</PageActions>
 	);
 }

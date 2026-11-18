@@ -68,6 +68,33 @@ vi.mock("@/components/output-export-buttons", () => ({
 	),
 }));
 
+vi.mock("@/components/output-file-actions", () => ({
+	useOutputFileActions: (file: {
+		outputId: string;
+		workspaceId: string | null;
+	}) => ({
+		entries: [
+			{ key: "history", label: "Version history" },
+			{ key: "duplicate", label: "Duplicate" },
+			{ key: "move", label: "Move to workspace…" },
+		],
+		dialogs: (
+			<span data-file-dialogs={`${file.outputId}:${file.workspaceId}`} />
+		),
+	}),
+	OutputFileMenuButton: ({
+		title,
+		entries,
+	}: {
+		title: string;
+		entries: { label: string }[];
+	}) => (
+		<button type="button" data-file-menu={title}>
+			{entries.map((entry) => entry.label).join(", ")}
+		</button>
+	),
+}));
+
 vi.mock("@/components/share-controls", () => ({
 	ShareControls: ({ compact }: { compact?: boolean }) => (
 		<button type="button" data-compact={compact || undefined}>
@@ -173,6 +200,18 @@ describe("OutputDetailPage", () => {
 		expect(renderPage().container.textContent).not.toContain(
 			"See how it was made",
 		);
+	});
+	it("offers the file's version history, duplicate and move actions", () => {
+		const { container } = renderPage();
+		const menu = container.querySelector('[data-file-menu="Weekly report"]');
+		expect(menu?.textContent).toBe(
+			"Version history, Duplicate, Move to workspace…",
+		);
+		expect(
+			container
+				.querySelector("[data-file-dialogs]")
+				?.getAttribute("data-file-dialogs"),
+		).toBe(`${OUTPUT_ID}:${WORKSPACE_ID}`);
 	});
 	it("keeps the read-only detail in the standard route lane", () => {
 		const { container } = renderPage();

@@ -184,6 +184,75 @@ export const outputHandlers: Record<string, (input: never) => unknown> = {
 		}
 		return { output, previousWorkspaceId };
 	},
+	"osWorkspaces/outputs/duplicate": (input: {
+		outputId: string;
+		title?: string;
+	}) => {
+		const source = findOutput(input.outputId);
+		const current = latestRevision(
+			state.outputRevisions.filter((row) => row.outputId === source.id),
+		);
+		if (!current) throw new RpcError("NOT_FOUND", "Output revision not found");
+		const createdAt = now();
+		const revision: OsOutputRevision = {
+			...current,
+			id: nextId(),
+			outputId: nextId(),
+			revision: 1,
+			content: structuredClone(current.content),
+			note: `Copy of “${source.title}”`,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt,
+		};
+		const output: OsOutput = {
+			...source,
+			id: revision.outputId,
+			title: input.title ?? `${source.title.slice(0, 115).trimEnd()} copy`,
+			status: "active",
+			currentRevisionId: revision.id,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt,
+			updatedAt: createdAt,
+		};
+		for (const [key, dataUrl] of [...localOutputAssets])
+			if (key.startsWith(`${source.id}:`))
+				localOutputAssets.set(
+					`${output.id}:${key.slice(source.id.length + 1)}`,
+					dataUrl,
+				);
+		state.outputs.push(output);
+		state.outputRevisions.push(revision);
+		return { output, revision };
+	},
+	// Newest first. One exact version carries its content; the list does not.
+	"osWorkspaces/outputs/history": (input: {
+		outputId: string;
+		beforeRevision?: number;
+		revision?: number;
+	}) => {
+		const output = findOutput(input.outputId);
+		const author = { name: "Local Owner", self: true };
+		const rows = state.outputRevisions
+			.filter(
+				(row) =>
+					row.outputId === output.id &&
+					(input.revision === undefined || row.revision === input.revision) &&
+					(input.beforeRevision === undefined ||
+						row.revision < input.beforeRevision),
+			)
+			.sort((left, right) => right.revision - left.revision);
+		return {
+			revisions: rows.map(({ content, ...metadata }) => ({
+				...metadata,
+				...(input.revision === undefined ? {} : { content }),
+				...(metadata.createdByKind === "user" ? { author } : {}),
+			})),
+			nextBeforeRevision: null,
+			pending: [],
+		};
+	},
 	"osWorkspaces/outputs/revise": (input: {
 		outputId: string;
 		content: OsOutputContent;
