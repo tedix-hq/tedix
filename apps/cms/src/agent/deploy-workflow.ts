@@ -1,6 +1,5 @@
 import { identifyThemeRelease } from "./theme-release";
 import { probeCmsDeploy } from "./deploy-health";
-import { cmsPlatformHosts } from "../platform-hosts";
 import { CmsDeployFailure, type DeployRollback } from "./deploy-failure";
 import { normalizeCmsTemplateSlug } from "../template-policy";
 /**
@@ -1092,7 +1091,6 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 					const publicRoute = await getCmsPublicBuildRoute(env.DB, orgSlug);
 					const probe = await probeCmsDeploy({
 						url: `${url}${publicRoute?.publicPathPrefix ?? ""}`,
-						runtimeHealthUrl: cmsPlatformHosts(env).runtimeHealthUrl,
 						publicUrl: publicRoute
 							? `${publicRoute.publicSiteUrl.replace(/\/$/, "")}${publicRoute.publicPathPrefix ?? ""}`
 							: undefined,
