@@ -150,6 +150,26 @@ export function runtimeInferenceDenialMessage(
 	return `${RUNTIME_INFERENCE_DENIAL_REASONS[code]} (${code})`;
 }
 
+const microusdPerMillion = z
+	.number()
+	.int()
+	.nonnegative()
+	.max(Number.MAX_SAFE_INTEGER);
+
+/**
+ * The governed provider rate that priced this admission's identity and
+ * estimated input band. Senders pass it to AI Gateway as `cf-aig-custom-cost`
+ * so Gateway logs use it instead of Cloudflare's public price list.
+ */
+export const AdmittedProviderRateSchema = z.strictObject({
+	rateVersionId: z.string().min(1),
+	inputMicrousdPerMillion: microusdPerMillion,
+	outputMicrousdPerMillion: microusdPerMillion,
+	cacheReadMicrousdPerMillion: microusdPerMillion,
+	cacheWriteMicrousdPerMillion: microusdPerMillion,
+});
+export type AdmittedProviderRate = z.infer<typeof AdmittedProviderRateSchema>;
+
 export const AuthorizeRuntimeInferenceResponseSchema = z
 	.discriminatedUnion("allowed", [
 		z.object({
@@ -161,6 +181,8 @@ export const AuthorizeRuntimeInferenceResponseSchema = z
 			/** Service-only transport material. Never record in attribution or execution receipts. */
 			providerApiKey: z.string().optional(),
 			providerExecution: ProviderExecutionIdentitySchema.optional(),
+			/** Absent when no single governed rate resolves; never a guessed price. */
+			providerRate: AdmittedProviderRateSchema.optional(),
 			reservationId: z.string().nullable(),
 			expiresAt: z.string().nullable(),
 			estimatedChargeMicros: z.number().int().nonnegative().nullable(),

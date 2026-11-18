@@ -6,6 +6,7 @@ import type { AuthorizeRuntimeInferenceInput } from "@tedix/api-contract/schemas
 import {
 	AuthorizeRuntimeInferenceResponseSchema,
 	RuntimeEntitlementDenialCodeSchema,
+	type AdmittedProviderRate,
 } from "@tedix/api-contract/schemas/runtime-entitlements";
 import type { z } from "zod";
 import { resolveBillingSettlementMode } from "../../../lib/billing-settlement-mode";
@@ -18,6 +19,11 @@ const providerCredentials = new WeakMap<
 >();
 export function kernelRegionalExecution(context: KernelGatewayContext) {
 	return providerCredentials.get(context)?.execution;
+}
+const providerRates = new WeakMap<KernelGatewayContext, AdmittedProviderRate>();
+/** The governed rate admission resolved for this send, for `cf-aig-custom-cost`. */
+export function kernelProviderRate(context: KernelGatewayContext) {
+	return providerRates.get(context);
 }
 export function applyKernelProviderCredential(
 	context: KernelGatewayContext,
@@ -192,6 +198,7 @@ export async function reserveKernelBilling(
 		executionId: decision.executionId,
 		billingReservationId: decision.reservationId ?? undefined,
 	};
+	if (decision.providerRate) providerRates.set(result, decision.providerRate);
 	if (decision.providerApiKey)
 		providerCredentials.set(result, {
 			apiKey: decision.providerApiKey,

@@ -1,6 +1,9 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { requestInferenceOriginGuard } from "./runtime-inference-origin";
-import { regionalAzureGatewayUrl } from "@tedix/workers-ai/gateway-transport";
+import {
+	applyAiGatewayCustomCost,
+	regionalAzureGatewayUrl,
+} from "@tedix/workers-ai/gateway-transport";
 import { azureExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 /** Azure serving through authenticated AI Gateway, plus Tedix MCP tool adapters.
  * Agent tool turns use stateless Responses with BYOK and billing admission.
@@ -216,6 +219,7 @@ function gatewayFetch(
 			? regionalAzureGatewayUrl(rewritten, reservedMetadata.execution)
 			: rewritten;
 		reservedMetadata.applyProviderCredential(headers);
+		applyAiGatewayCustomCost(headers, reservedMetadata.receipt.providerRate);
 		if (reservedMetadata.restricted) init = { ...init, redirect: "manual" };
 		signal.throwIfAborted();
 		// Unrestricted requests keep Gateway BYOK; regional requests use the organization key.

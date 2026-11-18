@@ -67,6 +67,7 @@ const billing = vi.hoisted(() => {
 vi.mock("../rpc/routers/kernel/billing-reservation", () => ({
 	reserveKernelBilling: billing.reserve,
 	kernelRegionalExecution: () => undefined,
+	kernelProviderRate: () => undefined,
 }));
 
 const SCOPE = {

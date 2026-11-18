@@ -31,6 +31,7 @@ import { authorizeDataResidency, DataResidencyError } from "./data-residency";
 import { RuntimeEntitlementDenialCodeSchema } from "@tedix/api-contract/schemas/runtime-entitlements";
 import { recordResidencyExecution } from "@tedix/db/queries/data-residency";
 import { authorizeRuntimeBudget } from "./runtime-budget-admission";
+import { resolveProviderModelRate } from "./provider-model-pricing";
 import {
 	safeErrorClassification,
 	safeExceptionTopology,
@@ -153,6 +154,18 @@ export async function authorizeRuntimeInference(
 		});
 		if (residency)
 			identity = freezeProviderExecutionIdentity(residency.member.execution);
+		// AI Gateway prices Azure from Cloudflare's public list; senders override it
+		// with this governed rate. The estimated input picks the context band.
+		const rateRead =
+			identity.provider === "azure-openai"
+				? resolveProviderModelRate(input.env, {
+						provider: identity.provider,
+						modelId: identity.requestModel,
+						deploymentScope: providerDeploymentScope(identity),
+						occurredAt: new Date(now).toISOString(),
+						inputTokens: input.request.estimatedInputTokens,
+					})
+				: null;
 		enterPhase("read_latest_decision");
 		const current = origin
 			? await latestHistoricalDecision(
@@ -320,6 +333,7 @@ export async function authorizeRuntimeInference(
 				"Data residency changed while this request was queued. Retry the turn with the current setting.",
 			);
 		residency = currentResidency;
+		const rate = await rateRead;
 		if (residency) {
 			await recordResidencyExecution(input.db, {
 				executionId: persisted.id,
@@ -336,6 +350,19 @@ export async function authorizeRuntimeInference(
 		return {
 			...(residency
 				? { providerApiKey: residency.apiKey, providerExecution: identity }
+				: {}),
+			...(rate?.status === "resolved"
+				? {
+						providerRate: {
+							rateVersionId: rate.rate.id,
+							inputMicrousdPerMillion: rate.rate.inputMicrousdPerMillion,
+							outputMicrousdPerMillion: rate.rate.outputMicrousdPerMillion,
+							cacheReadMicrousdPerMillion:
+								rate.rate.cacheReadMicrousdPerMillion,
+							cacheWriteMicrousdPerMillion:
+								rate.rate.cacheWriteMicrousdPerMillion,
+						},
+					}
 				: {}),
 			...decision,
 			attributionVersion: 3,

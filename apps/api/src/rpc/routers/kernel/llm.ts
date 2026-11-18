@@ -2,7 +2,10 @@ import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { createDbClient } from "@tedix/db/client";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import type { ModelCatalogConfig } from "@tedix/api-contract/schemas/model-catalog-config";
-import { regionalAzureGatewayUrl } from "@tedix/workers-ai/gateway-transport";
+import {
+	applyAiGatewayCustomCost,
+	regionalAzureGatewayUrl,
+} from "@tedix/workers-ai/gateway-transport";
 import { withModelFallback } from "@tedix/workers-ai/model-fallback";
 import { kernelFallbackHooks } from "./model-fallback";
 import {
@@ -36,6 +39,7 @@ import {
 import {
 	reserveKernelBilling,
 	applyKernelProviderCredential,
+	kernelProviderRate,
 	kernelRegionalExecution,
 } from "./billing-reservation";
 import {
@@ -265,6 +269,7 @@ export function kernelGatewayFetch(
 			headers.delete("api-key");
 			headers.delete("cf-aig-authorization");
 		}
+		applyAiGatewayCustomCost(headers, kernelProviderRate(reservedContext));
 		const regionalExecution = kernelRegionalExecution(reservedContext);
 		const providerUrl = regionalExecution
 			? regionalAzureGatewayUrl(rewritten, regionalExecution)

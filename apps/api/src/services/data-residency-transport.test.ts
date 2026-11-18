@@ -14,7 +14,11 @@ const mocks = vi.hoisted(() => ({
 	budget: vi.fn(),
 	receipt: vi.fn(),
 	sent: vi.fn(),
+	rate: vi.fn(),
 	persisted: null as Record<string, unknown> | null,
+}));
+vi.mock("./provider-model-pricing", () => ({
+	resolveProviderModelRate: mocks.rate,
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("@tedix/db/queries/data-residency", () => ({
@@ -99,9 +103,52 @@ beforeEach(() => {
 		estimatedChargeMicros: null,
 	});
 	mocks.sent.mockResolvedValue(new Response("{}"));
+	mocks.rate.mockResolvedValue({ status: "unpriced", reason: "missing_rate" });
 	vi.stubGlobal("fetch", mocks.sent);
 });
 afterEach(() => vi.unstubAllGlobals());
+describe("AI Gateway custom cost on the kernel Azure transport", () => {
+	it("prices the send at the governed rate of the admitted regional identity", async () => {
+		mocks.rate.mockResolvedValue({
+			status: "resolved",
+			rate: {
+				id: "rate-lark",
+				inputMicrousdPerMillion: 2_000_000,
+				outputMicrousdPerMillion: 8_000_000,
+				cacheReadMicrousdPerMillion: 500_000,
+				cacheWriteMicrousdPerMillion: 2_000_000,
+			},
+		});
+		await send();
+		expect(mocks.rate).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				provider: "azure-openai",
+				modelId: "text-model",
+				deploymentScope: JSON.stringify([
+					"azure-openai",
+					"example-account",
+					"example-gateway",
+					"https://lark-eu.openai.azure.com",
+					"text-model",
+				]),
+			}),
+		);
+		const [, init] = mocks.sent.mock.calls[0]!;
+		expect(JSON.parse(init.headers.get("cf-aig-custom-cost"))).toEqual({
+			per_token_in: 0.000002,
+			per_token_out: 0.000008,
+			per_cache_read_token: 0.0000005,
+			per_cache_write_token: 0.000002,
+		});
+	});
+
+	it("sends no custom cost when no governed rate resolves", async () => {
+		await send();
+		const [, init] = mocks.sent.mock.calls[0]!;
+		expect(init.headers.has("cf-aig-custom-cost")).toBe(false);
+	});
+});
 describe("EU restriction at the actual kernel provider transport", () => {
 	it.each([false, true])(
 		"rejects every 3xx with its status (Request input: %s)",
