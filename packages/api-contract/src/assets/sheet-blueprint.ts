@@ -43,49 +43,52 @@ export class App {
 
 export const SHEET_README = `# Sheet
 
-Sheet is a reusable spreadsheet gadget bound to one canonical workspace
-output. The bundled grid runs inside the gadget, with no native editor
-dispatch or separate sheet body in app storage.
+This gadget edits one workspace sheet output. Its grid lives inside the
+gadget, and the output remains the only saved copy of the workbook.
 
-Select cells or ranges with the mouse, Shift and arrows, or the A1 name box.
-Type or press F2 to edit a cell; the formula bar edits its source. Tab and
-Enter move within a selected range. Copy/paste supports quoted multiline
-TSV, formula-relative copies and cell formats. Undo and redo preserve the
-workbook draft. The toolbar provides number/text formats, fills, alignment,
-sorting and filling; drag the selection's corner square up, down, left or
-right to fill: numbers continue their trend and "Item 1" counts on. While
-writing a formula, matching functions (the common ones on a bare =) and the
-current function's arguments show below it, ƒx lists every function,
-clicking or dragging over cells adds their reference with the ranges in use
-outlined, and Ctrl/⌘ Shift L or $ locks a reference (A1 → $A$1 → A$1 → $A1).
-Ctrl/⌘ F finds what cells show on this sheet, or on all sheets and in
-formulas from its options.
-More actions and the right-click menus on cells, headings and tabs cover
-row/column operations, sizing, frozen panes and filters: Filter on the
-toolbar finds the table and its heading row (or uses a selection spanning
-rows), and each heading's menu sorts the table, restores its original order,
-and chooses which values show. A filter is part of the sheet, so everyone
-sees the same rows. Workbooks
-can contain up to 32 tabs, each with 50,000 rows and 702 columns (A to ZZ).
+Use the mouse, Shift with the arrow keys, or the A1 box to choose cells and
+ranges. Start typing or press F2 to edit a cell. The formula bar changes the
+same cell input. Tab and Enter move through a selected range. Copy and paste
+keeps multiline TSV, relative formulas, and cell formats. Undo and redo apply
+to your workbook draft.
 
-Changes save on their own a moment after you stop editing; Ctrl/⌘ S saves at
-once. The generic host calculates formulas with the existing spreadsheet
-engine before each save, which sends only the cells, formats and tab
-properties that changed since the revision you loaded; the saved workbook
-keeps everything else. A workbook holds up to 8 MB of UTF-8 content. A failed save
-keeps your changes and is tried again, unless trying again cannot help (a
-file over the limit, or lost edit access): then Sheet says why and waits for
-your next change. When someone else saves first, their
-changes and yours are merged; for a cell you both changed the later save
-wins, and when someone replaces a cell you saved a moment ago Sheet says so.
-Undo puts back the cells you changed, even if someone edited them since.
+The toolbar controls number and text formats, colors, alignment, sorting, and
+fill. Drag the small square on a selection in any direction to fill nearby
+cells. Number patterns continue, and labels such as "Item 1" count forward.
+As you write a formula, Sheet suggests matching functions and shows the
+current arguments. A bare = shows common functions, while ƒx shows the full
+list. Click or drag across cells to add references and see referenced ranges
+outlined. Ctrl/⌘ Shift L or $ changes a reference through
+A1 → $A$1 → A$1 → $A1. Ctrl/⌘ F searches displayed values on the current
+sheet; its options include every sheet and formula text.
 
-Agent range edits retain typed inputs and last-calculated values; an open
-editor recalculates dependent formulas when it saves. Agent writes keep the
-workspace's approval policy. CSV exports saved active-sheet cached values
-with the canonical formula-injection protection. Excel exports the complete
-saved workbook, including formula source, tabs and styles. A download saves
-your changes first.
+Use More or right-click cells, headings, and tabs for row and column changes,
+sizing, frozen panes, and filters. Filter detects a table and its heading row,
+or uses a selection that spans rows. A heading menu can sort the table, return
+it to its original order, or choose the values to display. Everyone sees the
+same filtered rows because the filter is saved with the sheet. A workbook can
+have up to 32 tabs. Each tab can have 50,000 rows and 702 columns, from A to
+ZZ.
+
+Sheet saves shortly after you stop editing. Ctrl/⌘ S saves immediately. Before
+each save, the host calculates formulas with the existing spreadsheet engine.
+Only cells, formats, and tab properties changed since the loaded revision are
+sent; everything else stays as it was. A workbook can contain up to 8 MB of
+UTF-8 content. If a save fails, your changes stay in the draft and Sheet tries
+again. When retrying cannot help, such as when the file is too large or edit
+access is gone, Sheet explains the problem and waits for another change.
+
+If someone else saves first, Sheet combines both sets of changes. The later
+save wins when both people changed the same cell, and Sheet tells you when a
+recently saved cell was replaced. Undo restores the cells you changed even
+after another person edits them.
+
+Range edits from an agent keep typed inputs and last-calculated values. An
+open editor recalculates formulas that depend on those edits when it saves.
+Agent writes still follow the workspace approval policy. CSV downloads use
+the saved values from the active sheet and protect against formula injection.
+A full-workbook download keeps formulas, tabs, and styles. Sheet saves your
+changes before either download.
 `;
 
 export function buildSheetBlueprint(slot = "sheet"): OsBlueprintDefinition {
