@@ -940,4 +940,100 @@ describe("workspace file readable text", () => {
 			file: { workspaceId: W, resourceId: ticket.resourceId },
 		});
 	});
+
+	async function keptText(
+		f: ReturnType<typeof fixture>,
+		bytes: Uint8Array,
+		mime: string,
+		filename: string,
+	) {
+		const { ticket, receipts } = await f.upload(
+			bytes.length,
+			mime,
+			bytes,
+			filename,
+		);
+		const result = await f.confirm({
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+			parts: receipts,
+			document: true,
+		});
+		return {
+			mimeType: result.resource.metadata?.mimeType,
+			kept: JSON.parse(
+				new TextDecoder().decode(
+					f.objects.get(
+						workspaceFileTextKey("fictional-a", W, ticket.resourceId),
+					),
+				),
+			) as { status: string; text: string },
+		};
+	}
+
+	it("keeps every line of a 2,000-line Markdown file for the agent", async () => {
+		const lines = Array.from(
+			{ length: 2_000 },
+			(_, index) => `- Punkt ${index + 1}: geprüft ✓`,
+		);
+		lines[0] = "# Prüfliste";
+		lines[1_999] = "The last line names the owner: Jordan Example.";
+		const bytes = new TextEncoder().encode(`${lines.join("\n")}\n`);
+		const f = fixture();
+		// Browsers send Markdown with its type, with no type, or as plain text.
+		for (const mime of [
+			"text/markdown",
+			"application/octet-stream",
+			"text/plain",
+		]) {
+			const { mimeType, kept } = await keptText(f, bytes, mime, "Checklist.md");
+			expect(mimeType).toBe(mime);
+			expect(kept.status).toBe("text");
+			const read = kept.text.split("\n");
+			expect(read).toHaveLength(2_000);
+			expect(read[0]).toBe("# Prüfliste");
+			expect(read.at(-1)).toBe(
+				"The last line names the owner: Jordan Example.",
+			);
+		}
+	});
+
+	it("keeps the text of code and config files whatever type the browser sent", async () => {
+		const f = fixture();
+		for (const [filename, mime] of [
+			["notes.txt", "text/plain"],
+			["settings.json", "application/json"],
+			["main.ts", "video/mp2t"],
+			["deploy.sh", "application/x-sh"],
+			["config.yaml", "application/octet-stream"],
+		] as const) {
+			const text = `first line of ${filename}\r\nsecond line`;
+			const { kept } = await keptText(
+				f,
+				new TextEncoder().encode(text),
+				mime,
+				filename,
+			);
+			expect(kept).toEqual({
+				status: "text",
+				text: `first line of ${filename}\nsecond line`,
+			});
+		}
+	});
+
+	it("reports a binary file named .txt as having no text, never as garbled text", async () => {
+		const f = fixture();
+		const png = new Uint8Array([
+			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+		]);
+		const image = await keptText(f, png, "text/plain", "photo.txt");
+		expect(image.mimeType).toBe("application/octet-stream");
+		expect(image.kept).toEqual({ status: "unsupported", text: "" });
+		// No zero byte, but not UTF-8 either: Latin-1 text past the checked start.
+		const latin = new Uint8Array(2_000).fill(0x61);
+		latin[1_500] = 0xe9;
+		const legacy = await keptText(f, latin, "text/plain", "old-export.txt");
+		expect(legacy.mimeType).toBe("text/plain");
+		expect(legacy.kept).toEqual({ status: "unsupported", text: "" });
+	});
 });

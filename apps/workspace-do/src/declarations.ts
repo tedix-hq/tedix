@@ -79,7 +79,7 @@ interface Outputs {
   /** One output with its current body. Read-only. */
   get(outputId: string): Promise<OutputDetail | null>;
   /**
-   * Read the text of an uploaded spreadsheet, Word, PowerPoint or PDF file in parts. Read-only.
+   * Read the text of an uploaded text, Markdown, JSON, code, spreadsheet, Word, PowerPoint or PDF file in parts. Read-only.
    * Returns whole lines from startLine (default 1): at most lineCount lines and about 28,000 characters a call.
    * Continue with startLine: nextStartLine until it is null. A sheet row is one line that starts with its row number;
    * a PDF has a "## Page N" line before each page. readable: false comes with the reason, for example a scanned PDF.

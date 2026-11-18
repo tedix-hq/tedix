@@ -8,6 +8,7 @@ import {
 } from "vite-plus/test";
 import { DataResidencyError } from "../services/data-residency";
 import {
+	WORKSPACE_FILE_EXTRACT_MAX_BYTES,
 	WORKSPACE_FILE_PDF_MAX_BYTES,
 	pdfFileText,
 	readWorkspaceFileContent,
@@ -332,6 +333,13 @@ describe("the whole text of an uploaded file", () => {
 		expect(
 			await status({ filename: "clip.mp4", mimeType: "video/mp4", size: 9 }),
 		).toBe("unsupported");
+		expect(
+			await status({
+				filename: "server.log",
+				mimeType: "text/plain",
+				size: WORKSPACE_FILE_EXTRACT_MAX_BYTES + 1,
+			}),
+		).toBe("too_large");
 	});
 
 	it("keeps the text where the workspace reads it and never fails the upload", async () => {

@@ -94,8 +94,9 @@ its code runs beside the data.
 
 ## Attached files
 
-An attached upload (spreadsheet, Word, PowerPoint or PDF) reaches the model
-as text. The API keeps the file's whole text beside it at upload; this object
+An attached upload (plain text, Markdown, JSON, code or config file,
+spreadsheet, Word, PowerPoint or PDF) reaches the model as text. A file named
+as text whose bytes are not valid UTF-8 text is treated as having no text. The API keeps the file's whole text beside it at upload; this object
 reads it (`src/file-text.ts`). Attached files share 32K characters of text in
 one message: a file that fits is given whole, a longer one as its first whole
 lines with a note of the lines shown. The agent reads the rest with

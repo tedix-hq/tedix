@@ -12,7 +12,10 @@ import {
 } from "@tedix/api-contract/utils/office-file-read";
 import {
 	boundedFileText,
+	decodeTextFile,
+	isTextFile,
 	officeFileText,
+	plainFileText,
 	workspaceFileTextKey,
 	type WorkspaceFileText,
 } from "@tedix/api-contract/utils/workspace-file-text";
@@ -146,6 +149,16 @@ export function workspaceFileMimeMatches(mime: string, bytes: Uint8Array) {
 			return matches([80, 75, 3, 4]);
 		case "text/csv":
 		case "text/tab-separated-values":
+		// Text has no signature; a zero byte in the start rules it out. Markup
+		// and script types stay unconfirmed: those files are read as text by name.
+		case "text/plain":
+		case "text/markdown":
+		case "text/x-markdown":
+		case "application/json":
+		case "application/yaml":
+		case "application/x-yaml":
+		case "text/yaml":
+		case "application/toml":
 			return bytes.length > 0 && !bytes.includes(0);
 		case "image/png":
 			return matches([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -226,7 +239,8 @@ export function pdfFileText(markdown: string, name: string): string | null {
 /**
  * What can be read from an uploaded file: the start of a spreadsheet, Word
  * document or slide deck as bounded document blocks stored on its document,
- * and the whole text of those and of a PDF for reading in parts. A file that
+ * and the whole text of those, of a PDF and of a plain text, Markdown, JSON,
+ * code or config file for reading in parts. A file that
  * cannot be read gets no blocks and a status that says why: the upload itself
  * never fails here.
  */
@@ -242,7 +256,8 @@ export async function readWorkspaceFileContent(
 	});
 	const format = officeFileFormat(file.filename, file.mimeType);
 	const pdf = !format && file.mimeType === "application/pdf";
-	if (!format && !pdf) return none("unsupported");
+	const plain = !format && !pdf && isTextFile(file.filename, file.mimeType);
+	if (!format && !pdf && !plain) return none("unsupported");
 	if (
 		file.size >
 		(pdf ? WORKSPACE_FILE_PDF_MAX_BYTES : WORKSPACE_FILE_EXTRACT_MAX_BYTES)
@@ -258,6 +273,14 @@ export async function readWorkspaceFileContent(
 				blocks: officeExtractBlocks(content),
 				text: { status: "text", text: officeFileText(content) },
 			};
+		}
+		if (plain) {
+			// A file named or typed as text whose bytes are not text is read
+			// as no text at all, never as replacement characters.
+			const text = decodeTextFile(bytes);
+			return text === null
+				? none("unsupported")
+				: { blocks: [], text: { status: "text", text: plainFileText(text) } };
 		}
 		if (!pdfToMarkdown) return none("failed");
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -277,7 +300,7 @@ export async function readWorkspaceFileContent(
 	} catch (error) {
 		if (error instanceof DataResidencyError) return none("not_allowed");
 		console.warn("Workspace file text could not be read", {
-			format: format ?? "pdf",
+			format: format ?? (plain ? "text" : "pdf"),
 			error: error instanceof Error ? error.message : String(error),
 		});
 		return none("failed");
