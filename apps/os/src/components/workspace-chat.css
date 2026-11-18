@@ -461,6 +461,18 @@
 	text-decoration: none;
 }
 
+/* A long title is cut with an ellipsis so it never runs under the buttons. */
+.workspace-chat-tray-title {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.workspace-chat-tray-list > li > button {
+	flex: none;
+}
+
 /* The full address of a page the agent asked to read; never cut short. */
 .workspace-chat-tray-url,
 .workspace-chat-approval-url {

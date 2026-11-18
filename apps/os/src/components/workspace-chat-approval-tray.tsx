@@ -103,7 +103,11 @@ export function ApprovalTray({
 								href={`#approval-${approval.approvalId}`}
 								title="Show the proposal in the conversation"
 							>
-								<Text as="span" role="body" className="truncate">
+								<Text
+									as="span"
+									role="body"
+									className="workspace-chat-tray-title"
+								>
 									{approvalTitle(approval)}
 									{target ? `: ${target}` : ""}
 								</Text>

@@ -1043,6 +1043,16 @@ describe("WorkspaceChat", () => {
 			text: "Move slide 3 to position 1",
 		},
 		{
+			input: {
+				ops: Array.from({ length: 7 }, (_, index) => ({
+					op: "delete",
+					index,
+					slide: { title: `Slide ${index}` },
+				})),
+			},
+			text: "… and 1 more operation not shown",
+		},
+		{
 			input: { startRow: 2, startColumn: 1, cells: [["Marker", 42]] },
 			text: "Edit cells at row 3, column 2:\nMarker · 42",
 		},
