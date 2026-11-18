@@ -1510,3 +1510,64 @@ console.log(
 	}
 }
 console.log("PASS regional manual redirects reject every 3xx with status");
+
+// AI Gateway logs Azure cost at the admitted governed rate, or not at all.
+for (const providerRate of [
+	{
+		rateVersionId: "rate-terra",
+		inputMicrousdPerMillion: 1_250_000,
+		outputMicrousdPerMillion: 10_000_000,
+		cacheReadMicrousdPerMillion: 125_000,
+		cacheWriteMicrousdPerMillion: 1_250_000,
+	},
+	undefined,
+]) {
+	const savedFetch = globalThis.fetch;
+	let customCost: string | null | undefined;
+	const env = {
+		AZURE_OPENAI_RESOURCE: "fixture",
+		AZURE_OPENAI_API_VERSION: "test",
+		AZURE_OBSERVER_DEPLOYMENT: "gpt-5.6-terra",
+		AI_GATEWAY_ACCOUNT_ID: "account",
+		AI_GATEWAY_LLM_ID: "gateway",
+		CF_AI_GATEWAY_TOKEN: "token",
+		SECRETS_MASTER_KEY: "fixture-signing-secret",
+		TEDIX_BILLING_SETTLEMENT_MODE: "disabled",
+		API_SERVICE: {
+			fetch: async () => {
+				const response = (await wireGuardAdmission().json()) as {
+					json: Record<string, unknown>;
+				};
+				if (providerRate) response.json.providerRate = providerRate;
+				return Response.json(response);
+			},
+		},
+	};
+	globalThis.fetch = async (input, init) => {
+		customCost = new Request(input, init).headers.get("cf-aig-custom-cost");
+		return new Response("upstream unavailable", { status: 503 });
+	};
+	try {
+		const { azureModel } = await import("./ai-sdk-adapter");
+		const model = azureModel(
+			env as never,
+			{ orgId: "org", tediId: "fixture-tedi" },
+			undefined,
+			privateCapturedGuard(() => {}),
+		).responses("gpt-5.6-terra");
+		await assert.rejects(
+			generateText({ model, prompt: "hello", maxRetries: 0 }),
+		);
+		if (providerRate)
+			assert.deepEqual(JSON.parse(customCost!), {
+				per_token_in: 0.00000125,
+				per_token_out: 0.00001,
+				per_cache_read_token: 0.000000125,
+				per_cache_write_token: 0.00000125,
+			});
+		else assert.equal(customCost, null);
+	} finally {
+		globalThis.fetch = savedFetch;
+	}
+}
+console.log("PASS Azure sends carry the admitted governed rate as custom cost");

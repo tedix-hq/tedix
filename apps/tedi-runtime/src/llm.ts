@@ -22,7 +22,10 @@ import {
 } from "@tedix/workers-ai/gateway-transport";
 import { assertAiRequestSize } from "./ai-request-guard";
 import { authorizeInferenceEntitlement } from "./billing-reservation-client";
-import { regionalAzureGatewayUrl } from "@tedix/workers-ai/gateway-transport";
+import {
+	applyAiGatewayCustomCost,
+	regionalAzureGatewayUrl,
+} from "@tedix/workers-ai/gateway-transport";
 
 export interface ChatToolSpec {
 	type: "function";
@@ -389,6 +392,7 @@ export async function observerCompletion(
 	});
 	const headers = new Headers(azureChatHeaders(opts.env, metadata.attribution));
 	metadata.applyProviderCredential(headers);
+	applyAiGatewayCustomCost(headers, metadata.receipt.providerRate);
 	opts.signal?.throwIfAborted();
 	const response = await azureGatewayFetch(opts.env, metadata.beforeDispatch)(
 		metadata.restricted

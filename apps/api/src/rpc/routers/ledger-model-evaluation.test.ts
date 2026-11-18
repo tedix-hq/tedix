@@ -11,10 +11,12 @@ const mocks = vi.hoisted(() => ({
 	policy: vi.fn(),
 	fetch: vi.fn(),
 	reserve: vi.fn(),
+	rate: vi.fn(),
 }));
 vi.mock("./kernel/billing-reservation", () => ({
 	reserveKernelBilling: mocks.reserve,
 	kernelRegionalExecution: () => undefined,
+	kernelProviderRate: mocks.rate,
 }));
 vi.mock("@tedix/db/queries/model-catalog", () => ({
 	getModelCatalogConfig: mocks.catalog,
@@ -149,6 +151,24 @@ describe("managed fixed-corpus ledger qualification", () => {
 		});
 		expect(request.signal).toBeInstanceOf(AbortSignal);
 		expect(JSON.stringify(result)).not.toContain("fictional-managed-token");
+		expect(request.headers).not.toHaveProperty("cf-aig-custom-cost");
+	});
+	it("prices the Gateway log at the admitted governed rate", async () => {
+		mocks.rate.mockReturnValue({
+			rateVersionId: "rate-sol",
+			inputMicrousdPerMillion: 1_750_000,
+			outputMicrousdPerMillion: 14_000_000,
+			cacheReadMicrousdPerMillion: 175_000,
+			cacheWriteMicrousdPerMillion: 1_750_000,
+		});
+		await client().evaluateLedgerModel(input);
+		const [, request] = mocks.fetch.mock.calls[0]!;
+		expect(JSON.parse(request.headers["cf-aig-custom-cost"])).toEqual({
+			per_token_in: 0.00000175,
+			per_token_out: 0.000014,
+			per_cache_read_token: 0.000000175,
+			per_cache_write_token: 0.00000175,
+		});
 	});
 	it.each([
 		{ caseId: "missing" },

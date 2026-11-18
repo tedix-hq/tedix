@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	AI_GATEWAY_BINDING_AUTH,
+	applyAiGatewayCustomCost,
 	callCloudflareAutoRouter as sendCapturedAuto,
 	openCloudflareAutoRouterResponse as openCapturedAuto,
 	captureCloudflareAutoRouting,
@@ -9,6 +10,34 @@ import {
 	cloudflareAutoRouterCandidateHeaders,
 	resolveAiGatewayTransport,
 } from "./gateway-transport";
+
+describe("applyAiGatewayCustomCost", () => {
+	it("sends the governed rate as exact USD per token", () => {
+		const headers = new Headers();
+		applyAiGatewayCustomCost(headers, {
+			inputMicrousdPerMillion: 1_250_000,
+			outputMicrousdPerMillion: 10_000_000,
+			cacheReadMicrousdPerMillion: 125_000,
+			cacheWriteMicrousdPerMillion: 0,
+		});
+		const value = headers.get("cf-aig-custom-cost")!;
+		expect(value).toBe(
+			'{"per_token_in":0.00000125,"per_token_out":0.00001,"per_cache_read_token":0.000000125,"per_cache_write_token":0}',
+		);
+		expect(JSON.parse(value)).toEqual({
+			per_token_in: 1.25e-6,
+			per_token_out: 1e-5,
+			per_cache_read_token: 1.25e-7,
+			per_cache_write_token: 0,
+		});
+	});
+
+	it("sends no override without a resolved rate", () => {
+		const headers = new Headers({ "cf-aig-custom-cost": "{}" });
+		applyAiGatewayCustomCost(headers, undefined);
+		expect(headers.has("cf-aig-custom-cost")).toBe(false);
+	});
+});
 
 function fakeBinding(fetchImpl = vi.fn()): Ai {
 	return { fetch: fetchImpl } as unknown as Ai;

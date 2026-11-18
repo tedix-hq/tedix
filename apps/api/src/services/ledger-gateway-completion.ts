@@ -1,11 +1,13 @@
 import { azureExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 import type { RuntimeEntitlementUsageSourceSchema } from "@tedix/api-contract/schemas/runtime-entitlements";
 import {
+	aiGatewayCustomCost,
 	resolveAiGatewayTransport,
 	type AiGatewayTransportEnv,
 } from "@tedix/workers-ai/gateway-transport";
 import type { z } from "zod";
 import {
+	kernelProviderRate,
 	kernelRegionalExecution,
 	reserveKernelBilling,
 } from "../rpc/routers/kernel/billing-reservation";
@@ -62,6 +64,7 @@ export async function fetchLedgerGatewayCompletion(
 	});
 	if (kernelRegionalExecution(admitted))
 		throw new Error("Ledger model calls have no regional provider route");
+	const rate = kernelProviderRate(admitted);
 	return transport.fetch(url, {
 		method: "POST",
 		headers: {
@@ -69,6 +72,7 @@ export async function fetchLedgerGatewayCompletion(
 			"cf-aig-authorization": `Bearer ${transport.authorization}`,
 			"cf-aig-no-wholesale": "true",
 			"cf-aig-metadata": JSON.stringify(kernelGatewayMetadata(admitted)),
+			...(rate ? { "cf-aig-custom-cost": aiGatewayCustomCost(rate) } : {}),
 		},
 		body,
 		signal: AbortSignal.timeout(24_000),

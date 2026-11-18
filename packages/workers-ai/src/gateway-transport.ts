@@ -507,3 +507,39 @@ export function regionalAzureGatewayUrl(
 	);
 	return parsed.href;
 }
+
+/** Rates in microUSD per million tokens, as the governed rate table stores them. */
+export interface AiGatewayTokenRates {
+	inputMicrousdPerMillion: number;
+	outputMicrousdPerMillion: number;
+	cacheReadMicrousdPerMillion: number;
+	cacheWriteMicrousdPerMillion: number;
+}
+
+/** Exact decimal USD per token (microUSD per million / 1e12), never exponent notation. */
+function usdPerToken(microusdPerMillion: number): string {
+	if (!Number.isSafeInteger(microusdPerMillion) || microusdPerMillion < 0)
+		throw new Error("Invalid governed token rate");
+	const digits = String(microusdPerMillion).padStart(13, "0");
+	const fraction = digits.slice(-12).replace(/0+$/, "");
+	const whole = digits.slice(0, -12);
+	return fraction ? `${whole}.${fraction}` : whole;
+}
+
+/**
+ * `cf-aig-custom-cost` value for one governed rate. Without it AI Gateway
+ * estimates cost from Cloudflare's public price list, which misprices Azure.
+ * https://developers.cloudflare.com/ai-gateway/configuration/custom-costs/
+ */
+export function aiGatewayCustomCost(rate: AiGatewayTokenRates): string {
+	return `{"per_token_in":${usdPerToken(rate.inputMicrousdPerMillion)},"per_token_out":${usdPerToken(rate.outputMicrousdPerMillion)},"per_cache_read_token":${usdPerToken(rate.cacheReadMicrousdPerMillion)},"per_cache_write_token":${usdPerToken(rate.cacheWriteMicrousdPerMillion)}}`;
+}
+
+/** Price the request at the admitted rate; without one, send no override. */
+export function applyAiGatewayCustomCost(
+	headers: Headers,
+	rate: AiGatewayTokenRates | null | undefined,
+): void {
+	if (rate) headers.set("cf-aig-custom-cost", aiGatewayCustomCost(rate));
+	else headers.delete("cf-aig-custom-cost");
+}

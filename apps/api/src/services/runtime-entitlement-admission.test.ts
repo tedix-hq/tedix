@@ -11,9 +11,13 @@ const mocks = vi.hoisted(() => ({
 	budget: vi.fn(),
 	find: vi.fn(),
 	insert: vi.fn(),
+	rate: vi.fn(),
 }));
 vi.mock("./runtime-budget-admission", () => ({
 	authorizeRuntimeBudget: mocks.budget,
+}));
+vi.mock("./provider-model-pricing", () => ({
+	resolveProviderModelRate: mocks.rate,
 }));
 vi.mock("@tedix/db/queries/provider-executions", async (original) => ({
 	...(await original<typeof import("@tedix/db/queries/provider-executions")>()),
@@ -52,6 +56,7 @@ function request(mode: "managed" | "external" | "disabled") {
 }
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.rate.mockResolvedValue({ status: "unpriced", reason: "missing_rate" });
 	mocks.find.mockResolvedValue(null);
 	mocks.budget.mockImplementation(async (input) => {
 		if (input.execution) mocks.find.mockResolvedValue(input.execution);
@@ -70,6 +75,53 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("provider execution admission", () => {
+	it("returns the governed Azure rate for the admitted identity and input band", async () => {
+		mocks.rate.mockResolvedValueOnce({
+			status: "resolved",
+			rate: {
+				id: "rate-short",
+				inputMicrousdPerMillion: 1_250_000,
+				outputMicrousdPerMillion: 10_000_000,
+				cacheReadMicrousdPerMillion: 125_000,
+				cacheWriteMicrousdPerMillion: 1_250_000,
+			},
+		});
+		const result = await authorizeRuntimeInference({
+			plane: "organization_kernel",
+			db: {} as never,
+			env: { TEDIX_BILLING_SETTLEMENT_MODE: "external" },
+			request: request("external"),
+			nowMs: now,
+		});
+		expect(mocks.rate).toHaveBeenCalledWith(expect.anything(), {
+			provider: "azure-openai",
+			modelId: "custom",
+			deploymentScope: providerDeploymentScope(execution),
+			occurredAt: new Date(now).toISOString(),
+			inputTokens: 10,
+		});
+		expect(result).toMatchObject({
+			allowed: true,
+			providerRate: {
+				rateVersionId: "rate-short",
+				inputMicrousdPerMillion: 1_250_000,
+				outputMicrousdPerMillion: 10_000_000,
+				cacheReadMicrousdPerMillion: 125_000,
+				cacheWriteMicrousdPerMillion: 1_250_000,
+			},
+		});
+	});
+	it("returns no rate when none resolves", async () => {
+		const result = await authorizeRuntimeInference({
+			plane: "organization_kernel",
+			db: {} as never,
+			env: { TEDIX_BILLING_SETTLEMENT_MODE: "external" },
+			request: request("external"),
+			nowMs: now,
+		});
+		expect(result).toMatchObject({ allowed: true });
+		expect(result).not.toHaveProperty("providerRate");
+	});
 	it("overlaps the initial execution lookup with the first residency check", async () => {
 		let release: () => void = () => {};
 		const gate = new Promise<void>((resolve) => {
