@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
 import { createMigratedSqlite } from "./migrated-sqlite";
 
@@ -13,7 +14,6 @@ describe("retired Work tables migration", () => {
 			"work_item_outbox_events",
 			"work_item_inbox_deliveries",
 			"work_item_commit_certifications",
-			"release_locks",
 		];
 		const objects = db
 			.prepare(
@@ -36,5 +36,33 @@ describe("retired Work tables migration", () => {
 				?.body,
 		).toBe("Hello");
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+	});
+
+	it("restores release_locks with its original columns, idempotently", () => {
+		const db = createMigratedSqlite();
+		const columns = () =>
+			db
+				.prepare("PRAGMA table_info(release_locks)")
+				.all()
+				.map((column) => [column.name, column.type, column.notnull, column.pk]);
+		const expected = [
+			["surface", "TEXT", 0, 1],
+			["owner_token", "TEXT", 1, 0],
+			["target_sha", "TEXT", 1, 0],
+			["started_at", "INTEGER", 1, 0],
+			["github_run_id", "TEXT", 0, 0],
+			["github_job_id", "TEXT", 0, 0],
+		];
+		expect(columns()).toEqual(expected);
+		db.exec(
+			readFileSync(
+				new URL(
+					"../../drizzle/20261118083839_restore_release_locks/migration.sql",
+					import.meta.url,
+				),
+				"utf8",
+			),
+		);
+		expect(columns()).toEqual(expected);
 	});
 });

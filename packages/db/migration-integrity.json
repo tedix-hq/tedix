@@ -1576,6 +1576,10 @@
 		{
 			"name": "20261118053954_work_item_execution_contract/migration.sql",
 			"sha256": "2e8ec5a298991bd2106d2e798a74c086d5caba7d99345dbb297803eb31e78769"
+		},
+		{
+			"name": "20261118083839_restore_release_locks/migration.sql",
+			"sha256": "24d5224d8e13e23ad641b56192649b0f2306ee04fdb18c0e84cfd4ddfbf134a2"
 		}
 	]
 }
