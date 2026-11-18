@@ -241,11 +241,6 @@ export interface ServerContext {
 	 *  upstream service bindings for auth proxy. */
 	readonly bearerToken: string | undefined;
 
-	/** Reference app ID for skill inheritance. When an org-personalized app
-	 *  proxies to a reference app via same-zone upstream, skills from the
-	 *  reference app are inherited if the org app has none of its own. */
-	readonly upstreamAppId: string | undefined;
-
 	// Per-request mutable collections (not shared across requests)
 	readonly registeredTools: Map<string, RegisteredTool>;
 	readonly registeredResources: Map<string, RegisteredResource>;
@@ -270,14 +265,12 @@ export interface ServerContext {
 	fetchWidgetHtml(
 		route: string,
 		description: string,
-		hostType: "apps-sdk" | "mcp-app",
 		extraHeaders?: Record<string, string>,
 	): Promise<string>;
 	fetchWidgetHtmlForAppSlug(
 		appSlug: string,
 		route: string,
 		description: string,
-		hostType: "apps-sdk" | "mcp-app",
 		extraHeaders?: Record<string, string>,
 	): Promise<string>;
 }

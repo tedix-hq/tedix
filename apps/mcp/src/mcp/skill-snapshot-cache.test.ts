@@ -48,7 +48,6 @@ afterEach(() => {
 describe("skillSnapshotCacheKey", () => {
 	const base = {
 		appId: "app-1",
-		upstreamAppId: undefined,
 		appSlug: "app-1",
 		orgId: "org-1",
 		tediId: "tedi-1",
@@ -138,7 +137,6 @@ function makeAgent(opts: {
 	return {
 		appId: opts.appId ?? "app-1",
 		appSlug: "app-1",
-		upstreamAppId: undefined,
 		appMetadata: { mcpConfig: {} },
 		callerIdentity: {
 			organizationId: opts.orgId ?? "org-1",

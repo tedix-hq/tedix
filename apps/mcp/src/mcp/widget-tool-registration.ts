@@ -205,12 +205,12 @@ export async function registerDynamicTool(
 			return guarded.failure ?? guarded.result!;
 		},
 		buildCsp: async (t) => agent.buildAppCsp(t),
-		fetchHtml: async (route, description, hostType) => {
+		fetchHtml: async (route, description) => {
 			const extraHeaders: Record<string, string> = {};
 			if (layoutSpec) {
 				extraHeaders["X-Tedix-Layout-Spec"] = JSON.stringify(layoutSpec);
 			}
-			return agent.fetchWidgetHtml(route, description, hostType, extraHeaders);
+			return agent.fetchWidgetHtml(route, description, extraHeaders);
 		},
 		onResourceRead: (event) => {
 			trackResourceRead(

@@ -146,7 +146,6 @@ export async function handlePreviewRequest(
 			cachedData,
 			widgetRoute,
 			tool.description ?? tool.title,
-			"apps-sdk",
 			env,
 			Object.keys(extraHeaders).length > 0 ? extraHeaders : undefined,
 		);

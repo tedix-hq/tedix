@@ -10,9 +10,7 @@ import {
  * `_meta`. Returns `true` only when the tasks extension is explicitly declared.
  * Per the 2026-07-28 spec the extension is REQUIRED for task-shaped results, so
  * callers that omit `clientCapabilities` — or declare capabilities WITHOUT the
- * tasks extension — are treated as not task-capable (`false`). The former
- * no-capabilities exemption (legacy callers → `true`) was removed together with
- * the compat task shims.
+ * tasks extension — are treated as not task-capable (`false`).
  */
 export function clientSupportsTasks(meta: unknown): boolean {
 	if (typeof meta !== "object" || meta === null) return false;
@@ -28,9 +26,7 @@ export function clientSupportsTasks(meta: unknown): boolean {
 /**
  * Extract an MCP task id from a `tools/call` result: the 2026-07-28
  * protocol-native `resultType: "task"` envelope. Returns null for a normal
- * synchronous tool result. (The legacy Tedix `task: { id }` compatibility
- * linkage — top-level and under `structuredContent` — was removed together with
- * the compat task shims.)
+ * synchronous tool result.
  *
  * Canonical, shared by every Tedix-owned MCP client that must await a
  * long-running tool: the stateless client loop (`packages/mcp-client-core`) and

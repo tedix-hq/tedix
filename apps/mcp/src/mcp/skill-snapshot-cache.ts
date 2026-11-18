@@ -57,7 +57,6 @@ const skillSnapshotRevalidateInFlight = new Set<string>();
 
 export interface SkillSnapshotCacheKeyInput {
 	appId: string;
-	upstreamAppId: string | undefined;
 	appSlug: string;
 	/** Org the apiClient authenticates as; listByApp/listByOrg are org-scoped. */
 	orgId: string | undefined;
@@ -74,7 +73,6 @@ export function skillSnapshotCacheKey(
 ): string {
 	return JSON.stringify({
 		appId: input.appId,
-		upstreamAppId: input.upstreamAppId ?? null,
 		appSlug: input.appSlug,
 		orgId: input.orgId ?? "no-org",
 		tediId: input.tediId ?? "",

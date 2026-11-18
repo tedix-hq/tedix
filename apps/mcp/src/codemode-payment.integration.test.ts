@@ -862,7 +862,6 @@ async function postRpcWithData(
 		"codemode-payment-test-trace",
 		undefined,
 		undefined,
-		undefined,
 		requestedToolName,
 		undefined,
 		undefined,

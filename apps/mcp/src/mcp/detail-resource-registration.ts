@@ -41,7 +41,7 @@ export async function registerDetailResource(
 			{ description: "Item detail modal view" },
 			async () => {
 				const [html, csp] = await Promise.all([
-					agent.fetchWidgetHtml(widgetRoute, "Item detail", "apps-sdk"),
+					agent.fetchWidgetHtml(widgetRoute, "Item detail"),
 					agent.buildAppCsp(undefined as unknown as AppTool),
 				]);
 
@@ -82,7 +82,7 @@ export async function registerDetailResource(
 			{ description: "Item detail modal view (mcp-app)" },
 			async () => {
 				const [html, csp] = await Promise.all([
-					agent.fetchWidgetHtml(widgetRoute, "Item detail", "mcp-app"),
+					agent.fetchWidgetHtml(widgetRoute, "Item detail"),
 					agent.buildAppCsp(undefined as unknown as AppTool),
 				]);
 

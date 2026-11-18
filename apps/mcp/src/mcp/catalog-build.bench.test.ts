@@ -114,7 +114,6 @@ it("keeps discovery SDK bindings bounded on a 15,922-tool aggregate", async () =
 					undefined,
 					undefined,
 					undefined,
-					undefined,
 					"code",
 				);
 				const buildCpu = process.cpuUsage(start);

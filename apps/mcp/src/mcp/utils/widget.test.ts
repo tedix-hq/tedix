@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { WidgetThemePayload } from "@tedix/api-contract/schemas/widget-theme";
-import { getAppsSDKCompatibleHtml, rewriteRelativeUrls } from "./widget";
+import { fetchWidgetHtml, rewriteRelativeUrls } from "./widget";
 
 describe("widget asset URLs", () => {
 	it("resolves assets for opaque-origin frames without a base element or host shim", () => {
@@ -24,7 +24,7 @@ describe("widget theme failure diagnostics", () => {
 			.mockResolvedValue(new Response("<html>ok</html>"));
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		try {
-			const html = await getAppsSDKCompatibleHtml(
+			const html = await fetchWidgetHtml(
 				"https://mcp-ui.tedix.dev",
 				"/widget",
 				{ theme: theme as unknown as WidgetThemePayload },

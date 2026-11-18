@@ -275,7 +275,6 @@ function makeAgent(result: FakeRpcResult): ServerContext {
 		traceId: "trace-uuid",
 		connectionLabel: undefined,
 		bearerToken: undefined,
-		upstreamAppId: undefined,
 		registeredTools: new Map(),
 		registeredResources: new Map(),
 		registeredResourceTemplates: new Map(),

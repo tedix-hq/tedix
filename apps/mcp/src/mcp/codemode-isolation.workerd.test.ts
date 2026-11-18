@@ -532,7 +532,6 @@ it("native catalog uses zero real Loader calls while arbitrary code remains isol
 		undefined,
 		undefined,
 		undefined,
-		undefined,
 		"search_native_tools",
 	);
 	const [client, transport] = InMemoryTransport.createLinkedPair();

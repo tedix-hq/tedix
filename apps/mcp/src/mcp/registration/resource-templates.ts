@@ -852,7 +852,6 @@ export function registerResourceTemplates(agent: ServerContext): void {
 					appSlug,
 					route,
 					"Generated MCP-App widget",
-					"mcp-app",
 					extraHeaders,
 				),
 				agent.buildAppCsp(),

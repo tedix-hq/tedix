@@ -53,7 +53,6 @@ describe("server catalog retention", () => {
 				undefined,
 				undefined,
 				undefined,
-				undefined,
 				"code",
 				undefined,
 				undefined,

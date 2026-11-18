@@ -119,9 +119,14 @@ describe("aggregate join deadline", () => {
 		vi.useFakeTimers();
 		vi.spyOn(console, "warn").mockImplementation(() => {});
 		const stale = surface(12);
-		const json = vi.fn(async () => ({ cachedAt: 0, surface: stale }));
+		const json = vi.fn(async () => stale);
 		const env = {
-			AGGREGATE_CACHE: { get: vi.fn(async () => ({ json })) },
+			AGGREGATE_CACHE: {
+				get: vi.fn(async () => ({
+					json,
+					customMetadata: { cachedAt: "0", generation: "current" },
+				})),
+			},
 		} as never;
 		const load = new Promise<AggregatedMcpSurface>((resolve) =>
 			setTimeout(() => resolve(surface(14)), 500),
@@ -132,6 +137,34 @@ describe("aggregate join deadline", () => {
 		expect(json).toHaveBeenCalledOnce();
 		await vi.advanceTimersByTimeAsync(400);
 		expect((await load).tools).toHaveLength(14);
+	});
+
+	it("discards old snapshot bodies without reading them", async () => {
+		vi.useFakeTimers();
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const json = vi.fn(async () => ({ cachedAt: 0, surface: surface(12) }));
+		const cancel = vi.fn();
+		const env = {
+			AGGREGATE_CACHE: {
+				get: vi.fn(async () => ({ json, body: { cancel } })),
+			},
+		} as never;
+		const rebuilt = surface(14);
+		const load = new Promise<AggregatedMcpSurface>((resolve) =>
+			setTimeout(() => resolve(rebuilt), 500),
+		);
+		const joined = joinAggregateLoad(
+			load,
+			"old-root",
+			env,
+			"connect",
+			"cold",
+			100,
+		);
+		await vi.advanceTimersByTimeAsync(500);
+		expect(await joined).toBe(rebuilt);
+		expect(json).not.toHaveBeenCalled();
+		expect(cancel).toHaveBeenCalledOnce();
 	});
 
 	it("returns promptly when the load beats the deadline", async () => {

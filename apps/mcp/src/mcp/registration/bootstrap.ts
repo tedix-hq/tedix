@@ -434,11 +434,7 @@ export function registerBootstrapResources(agent: ServerContext): void {
 					{
 						uri,
 						mimeType: WIDGET_MIME_TYPES.MCP_APP,
-						text: await agent.fetchWidgetHtml(
-							"/r/sidebar-app",
-							"Workspace",
-							"mcp-app",
-						),
+						text: await agent.fetchWidgetHtml("/r/sidebar-app", "Workspace"),
 						_meta: buildMcpAppResourceMeta(
 							null,
 							await agent.buildAppCsp(),

@@ -129,7 +129,6 @@ describe("fetchWidgetHtmlForApp failure", () => {
 			createCachedData(),
 			"/search",
 			"Search widget",
-			"mcp-app",
 			createEnv(),
 		);
 
@@ -936,7 +935,6 @@ describe("Code Mode widget declarations", () => {
 				undefined,
 				undefined,
 				undefined,
-				undefined,
 				supportsApps,
 			);
 			const { request } = await connectLegacyClient(server);
@@ -1060,7 +1058,6 @@ it("named catalog calls retain the caller's full discovery projection", async ()
 		{ authType: "service", scopes: ["mcp:catalog.read", "mcp:apps.read"] },
 		createEnv(),
 		createExecutionContext(),
-		undefined,
 		undefined,
 		undefined,
 		undefined,
@@ -1496,7 +1493,6 @@ describe("execution-only server construction", () => {
 				{ authType: "service", scopes: ["mcp:catalog.read"] },
 				{ ...createEnv(), LOADER: {} } as CloudflareEnv,
 				createExecutionContext(),
-				undefined,
 				undefined,
 				undefined,
 				undefined,

@@ -149,64 +149,23 @@ describe("destructive tool approval", () => {
 		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
-	it("allows destructive execution after explicit accept with a reason", async () => {
-		const elicitInput = vi.fn(async () => ({
-			action: "accept",
-			content: { reason: "requested by owner" },
-		}));
-
+	it.each([
+		{ action: "accept", content: { reason: "requested by owner" } },
+		{ action: "accept", content: { reason: " " } },
+		{ action: "decline" },
+		{ action: "cancel" },
+	])("denies without sending an in-band prompt (%j)", async (response) => {
+		const elicitInput = vi.fn(async () => response);
 		const result = await requireDestructiveToolApproval(
 			approvalContext(elicitInput),
 			tool,
-			{
-				destructiveHint: true,
-			},
+			{ destructiveHint: true },
 		);
-
-		expect(result).toBeNull();
-		expect(elicitInput).toHaveBeenCalledWith(
-			expect.objectContaining({
-				mode: "form",
-				requestedSchema: expect.objectContaining({
-					required: ["reason"],
-				}),
-			}),
-		);
-	});
-
-	it("fails closed when the user declines", async () => {
-		const elicitInput = vi.fn(async () => ({ action: "decline" }));
-
-		const result = await requireDestructiveToolApproval(
-			approvalContext(elicitInput),
-			tool,
-			{
-				destructiveHint: true,
-			},
-		);
-
 		expect(result?.isError).toBe(true);
-		expect(callToolResultText(result!)).toContain("declined");
+		expect(callToolResultText(result!)).toContain("confirmDestructive:true");
+		expect(callToolResultText(result!)).toContain("non-empty reason");
 		expect(callToolResultText(result!)).toContain("No side effect");
-	});
-
-	it("fails closed when the user accepts without a reason", async () => {
-		const elicitInput = vi.fn(async () => ({
-			action: "accept",
-			content: { reason: " " },
-		}));
-
-		const result = await requireDestructiveToolApproval(
-			approvalContext(elicitInput),
-			tool,
-			{
-				destructiveHint: true,
-			},
-		);
-
-		expect(result?.isError).toBe(true);
-		expect(callToolResultText(result!)).toContain("reason is required");
-		expect(callToolResultText(result!)).toContain("No side effect");
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it("fails closed when elicitation is unavailable", async () => {
@@ -273,7 +232,7 @@ describe("destructive tool approval", () => {
 		);
 
 		expect(result?.isError).toBe(true);
-		expect(elicitInput).toHaveBeenCalledTimes(1);
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it("allows an explicit stateless confirmation only with a reason", async () => {
@@ -437,9 +396,7 @@ describe("destructive tool approval — synchronous MRTR (agent)", () => {
 		expect(marker?.inputRequests).toHaveProperty("approval");
 	});
 
-	it("keeps legacy elicitInput for a non-agent caller on a legacy connection", async () => {
-		// No modern _meta → not a modern connection → legacy bidirectional host
-		// path is preserved unchanged.
+	it("denies a non-agent caller on a legacy connection without sending a prompt", async () => {
 		const elicitInput = vi.fn(async () => ({
 			action: "accept",
 			content: { reason: "ok" },
@@ -451,8 +408,8 @@ describe("destructive tool approval — synchronous MRTR (agent)", () => {
 				destructiveHint: true,
 			},
 		);
-		expect(elicitInput).toHaveBeenCalledTimes(1);
-		expect(result).toBeNull();
+		expect(elicitInput).not.toHaveBeenCalled();
+		expect(result?.isError).toBe(true);
 	});
 
 	it("proceeds on retry with a valid requestState + reason", async () => {
@@ -645,7 +602,7 @@ describe("destructive tool approval — synchronous MRTR (agent)", () => {
 		);
 
 		expect(result?._meta?.["tedix/inputRequired"]).toBeUndefined();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(elicitInput).not.toHaveBeenCalled();
 		expect(result?.isError).toBe(true);
 		expect(callToolResultText(result!)).toContain(
 			"destructive approval is unavailable",
@@ -706,7 +663,7 @@ describe("destructive tool approval — synchronous MRTR (agent)", () => {
 		expect(typeof marker?.requestState).toBe("string");
 	});
 
-	it("keeps the legacy elicitInput path when sync-MRTR is disabled (Code Mode)", async () => {
+	it("denies without an in-band prompt when sync-MRTR is disabled (Code Mode)", async () => {
 		const elicitInput = vi.fn(async () => ({
 			action: "accept",
 			content: { reason: "code mode" },
@@ -719,8 +676,8 @@ describe("destructive tool approval — synchronous MRTR (agent)", () => {
 			{ allowSyncMrtr: false },
 		);
 
-		expect(result).toBeNull();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(result?.isError).toBe(true);
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 });
 
@@ -783,9 +740,9 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 		expect(resolveToolApprovalGrant).not.toHaveBeenCalled();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it("skips the grant lookup entirely when config is null — the actual D1 shape for the overwhelming majority of tools (`AppTool.config: Record<string, JsonValue> | null`), as opposed to an empty object", async () => {
@@ -801,9 +758,9 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 		expect(resolveToolApprovalGrant).not.toHaveBeenCalled();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it("skips the grant lookup entirely when approvalPolicy is 'never'", async () => {
@@ -819,9 +776,9 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 		expect(resolveToolApprovalGrant).not.toHaveBeenCalled();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it("treats a malformed approvalPolicy value as 'never' — never calls the grant lookup", async () => {
@@ -841,9 +798,9 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 		expect(resolveToolApprovalGrant).not.toHaveBeenCalled();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it("'once' policy: an approved grant skips elicitation entirely", async () => {
@@ -1386,7 +1343,7 @@ describe("destructive tool approval — Work Item authorization", () => {
 		);
 		expect(result?.isError).toBe(true);
 		expect(resolveWorkItemAuthorization).not.toHaveBeenCalled();
-		expect(elicitInput).toHaveBeenCalledTimes(1);
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it("denies before agent auto-confirm when the receipt is absent", async () => {
@@ -1481,7 +1438,7 @@ describe("destructive tool approval — Work Item authorization", () => {
 		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
-	it("keeps the normal explicit path for a user principal", async () => {
+	it("requires stateless confirmation for a user principal", async () => {
 		const elicitInput = vi.fn(async () => ({
 			action: "accept",
 			content: { reason: "owner publication" },
@@ -1499,9 +1456,9 @@ describe("destructive tool approval — Work Item authorization", () => {
 			{ args: publishArgs },
 		);
 
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 		expect(resolveWorkItemAuthorization).not.toHaveBeenCalled();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 });
 
@@ -1589,7 +1546,7 @@ describe("destructive tool approval — autonomous agent auto-confirm (Code Mode
 			{ allowSyncMrtr: false, autoConfirmAgent: true, args: {} },
 		);
 		expect(result?.isError).toBe(true);
-		expect(elicitInput).toHaveBeenCalledTimes(1);
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it("does not self-approve destructive service calls", async () => {
@@ -1766,7 +1723,7 @@ describe("declared capability reaches the destructive gate", () => {
 
 		// A refusal object means the gate engaged. `null` means it ran ungated.
 		expect(result).not.toBeNull();
-		expect(elicitInput).toHaveBeenCalledTimes(1);
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it("shows the raw column is NOT sufficient — the projection is what gates", async () => {
