@@ -147,7 +147,7 @@ function projectEntry(
 		.join("\n");
 }
 
-/** Bounded, repeatable backfill; the caller carries the cursor across requests. */
+/** Bounded, repeatable backfill; cron checkpoints only a successful batch. */
 export async function backfillSearch(
 	ctx: PluginContext,
 	input: { collection: string; cursor?: string },
@@ -219,30 +219,193 @@ export async function backfillSearch(
 	};
 }
 
+const BACKFILL_TASK = "backfill-search";
+const BACKFILL_STATE = "state:backfill-search";
+
+type BackfillState = {
+	fingerprint: string;
+	collections: string[];
+	collectionIndex: number;
+	cursor?: string;
+	done: boolean;
+};
+
+/** Reconcile on activation and public renders: config plugins already installed
+ * on a site do not receive install/activate again just because a bundle changed. */
+export async function armSearchBackfill(ctx: PluginContext): Promise<void> {
+	if (!ctx.cron) throw new Error("Native cron is unavailable");
+	const collections = (await searchCollections(ctx)).sort();
+	const schemas = await new BlockTypeRegistry(
+		await database(),
+	).listBlockTypes();
+	const signature = JSON.stringify([
+		collections,
+		schemas
+			.map(({ slug, versions }) => [slug, versions])
+			.sort(([a], [b]) => String(a).localeCompare(String(b))),
+	]);
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(signature),
+	);
+	const fingerprint = Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+	const current = await ctx.kv.getVersioned<BackfillState>(BACKFILL_STATE);
+	if (current?.value.fingerprint !== fingerprint) {
+		const result = await ctx.kv.compareAndSet(
+			BACKFILL_STATE,
+			current?.revision ?? null,
+			{
+				fingerprint,
+				collections,
+				collectionIndex: 0,
+				done: false,
+			} satisfies BackfillState,
+		);
+		if (!result.applied) return;
+	} else if (current.value.done) return;
+	// Do not postpone an existing task on every page request.
+	if (!(await ctx.cron.list()).some(({ name }) => name === BACKFILL_TASK))
+		await ctx.cron.schedule(BACKFILL_TASK, { schedule: "* * * * *" });
+}
+
+async function requestAIReindex(collections: string[]): Promise<void> {
+	if (!collections.length) return;
+	const { withEmDashRuntime } = await import("emdash/middleware");
+	await withEmDashRuntime(async (runtime) => {
+		const call = async (path: string, input?: unknown) => {
+			const method = input === undefined ? "GET" : "POST";
+			const result = await runtime.handlePluginApiRoute(
+				"ai-search",
+				method,
+				`/${path}`,
+				new Request(`https://internal.invalid/${path}`, {
+					method,
+					...(input === undefined
+						? {}
+						: {
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify(input),
+							}),
+				}),
+			);
+			if (!result.success) throw new Error(`AI Search ${path} failed`);
+			return record(result.data);
+		};
+		// A running job is reused by native reindex. Wait for it so our request
+		// always starts a fresh pass over the newly projected live content.
+		const previous = await call("reindex");
+		if (previous && previous.done !== true)
+			throw new Error("Waiting for the existing AI Search reindex");
+		const config = await call("config");
+		if (
+			!Array.isArray(config?.collections) ||
+			!config.collections.every((slug) => typeof slug === "string")
+		)
+			throw new Error("AI Search collections are unavailable");
+		const union = [...new Set([...config.collections, ...collections])];
+		const started = await call("reindex", {
+			collections: union,
+			onlyMissing: false,
+		});
+		if (
+			!started ||
+			typeof started.jobId !== "string" ||
+			started.jobId === previous?.jobId ||
+			!Array.isArray(started.collections) ||
+			!union.every((slug) => (started.collections as unknown[]).includes(slug))
+		)
+			throw new Error(
+				"AI Search did not accept a fresh reindex for all collections",
+			);
+	});
+}
+
+export async function runSearchBackfill(ctx: PluginContext): Promise<void> {
+	await armSearchBackfill(ctx);
+	const saved = await ctx.kv.getVersioned<BackfillState>(BACKFILL_STATE);
+	if (!saved) return;
+	const state = { ...saved.value };
+	let checkpoint = saved.revision;
+	if (!state.done) {
+		const collection = state.collections[state.collectionIndex];
+		if (collection) {
+			const batch = await backfillSearch(ctx, {
+				collection,
+				cursor: state.cursor,
+			});
+			state.cursor = batch.nextCursor ?? undefined;
+			if (!batch.nextCursor) state.collectionIndex++;
+			const result = await ctx.kv.compareAndSet(
+				BACKFILL_STATE,
+				checkpoint,
+				state,
+			);
+			if (!result.applied) return;
+			checkpoint = result.revision;
+		}
+		if (state.collectionIndex >= state.collections.length) {
+			await requestAIReindex(state.collections);
+			state.done = true;
+			const result = await ctx.kv.compareAndSet(
+				BACKFILL_STATE,
+				checkpoint,
+				state,
+			);
+			if (!result.applied) return;
+		}
+	}
+	if (state.done) {
+		await ctx.cron?.cancel(BACKFILL_TASK);
+		// A settings change may have re-armed the task during cancellation.
+		await armSearchBackfill(ctx);
+	}
+}
+
+async function reconcileSearch(ctx: PluginContext): Promise<void> {
+	try {
+		await armSearchBackfill(ctx);
+	} catch (error) {
+		ctx.log.error("Could not schedule native block search backfill", {
+			error: String(error),
+		});
+	}
+}
+
 export default {
-	routes: {
-		backfill: {
-			permission: "settings:manage",
-			handler: async ({ input, request }, ctx) => {
-				if (request.method !== "POST")
-					return new Response("Method not allowed", {
-						status: 405,
-						headers: { Allow: "POST" },
-					});
-				const body = record(input);
-				if (
-					typeof body?.collection !== "string" ||
-					(body.cursor !== undefined && typeof body.cursor !== "string")
-				)
-					throw new TypeError("A collection and optional cursor are required");
-				return backfillSearch(ctx, {
-					collection: body.collection,
-					cursor: body.cursor,
-				});
+	hooks: {
+		"plugin:install": {
+			errorPolicy: "continue",
+			handler: async (_event, ctx) => reconcileSearch(ctx),
+		},
+		"plugin:activate": {
+			errorPolicy: "continue",
+			handler: async (_event, ctx) => reconcileSearch(ctx),
+		},
+		"page:metadata": {
+			errorPolicy: "continue",
+			handler: async (_event, ctx) => {
+				await reconcileSearch(ctx);
+				return null;
 			},
 		},
-	},
-	hooks: {
+		cron: {
+			errorPolicy: "continue",
+			timeout: 120_000,
+			handler: async (event, ctx) => {
+				if (event.name !== BACKFILL_TASK) return;
+				try {
+					await runSearchBackfill(ctx);
+				} catch (error) {
+					// Keep the last successful cursor. A conflict retries this page
+					// against current revisions on the next native cron tick.
+					ctx.log.error("Native block search backfill will resume", {
+						error: String(error),
+					});
+				}
+			},
+		},
 		"content:beforeSave": {
 			errorPolicy: "abort",
 			handler: async ({ collection, content, id }, ctx) => {
