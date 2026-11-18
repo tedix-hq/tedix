@@ -101,6 +101,11 @@ interface ContinuitySliceParams {
  * are named because both end in the rowid, which lets SQLite walk one scope's
  * Work in rowid order and stop at the limit; any other index would read the
  * whole scope for every slice.
+ *
+ * The Attempt index is named too. `uniq_work_attempt_number` and
+ * `idx_work_attempt_org_item_started` both start with the organization and the
+ * Work Item, so SQLite rates them equal for this read and its pick would
+ * otherwise follow index creation order and statistics.
  */
 // Raw: needs AS MATERIALIZED CTEs and CROSS JOIN join-order pinning, which Drizzle cannot emit.
 function readContinuityScopeSlice(
@@ -173,7 +178,7 @@ function readContinuityScopeSlice(
  ), attempt_activity AS MATERIALIZED (
  SELECT w.key, max(julianday(coalesce(a.finished_at, a.heartbeat_at, a.started_at))) AS activity,
  sum(a.outcome = 'failed' AND w.disposition NOT IN ('completed','cancelled')) AS failedCount
- FROM scope_work w CROSS JOIN work_attempts a ON a.work_item_id = w.workItemId AND a.org_id = w.orgId GROUP BY w.key
+ FROM scope_work w CROSS JOIN work_attempts a INDEXED BY uniq_work_attempt_number ON a.work_item_id = w.workItemId AND a.org_id = w.orgId GROUP BY w.key
  ), activity AS (
  SELECT key, activity FROM attempt_activity
  UNION ALL

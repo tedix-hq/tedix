@@ -1,0 +1,1 @@
+CREATE INDEX `idx_memory_facts_org_current_sample` ON `memory_facts` (`organization_id`,`updated_at`,`created_at`,`id`) WHERE archived_at IS NULL AND valid_to IS NULL;
