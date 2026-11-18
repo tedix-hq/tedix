@@ -1568,6 +1568,10 @@
 		{
 			"name": "20261117152149_work_items_woken_repository_observation_index/migration.sql",
 			"sha256": "56329e21d48deaf91bb07635f0d0e33a34a8be7baf99ef2ed38c9d1f533eecdb"
+		},
+		{
+			"name": "20261118032404_drop_retired_work_tables/migration.sql",
+			"sha256": "d379ccb19ca86d674e5860266de6619ef6f4605c1f675da1c578a24dbd6d76c5"
 		}
 	]
 }

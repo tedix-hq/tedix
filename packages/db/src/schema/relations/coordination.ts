@@ -8,45 +8,6 @@ import { defineRelationsPart } from "drizzle-orm";
 import * as schema from "../index";
 
 export const coordinationRelations = defineRelationsPart(schema, (r) => ({
-	// =========================================================================
-	// WORK ITEM COORDINATION LEDGERS
-	//
-	// The credential-derived half of the board: notification fan-out, evidence,
-	// leases and shipment certification. Every table is org-scoped, and the three
-	// carrying the real composite FK to (work_items.org_id, work_items.id)
-	// declare it as a full two-column relation, so no relation can reach a work
-	// item in another org.
-	// =========================================================================
-
-	workItemOutboxEvents: {
-		organization: r.one.organizations({
-			from: r.workItemOutboxEvents.orgId,
-			to: r.organizations.id,
-		}),
-		workItem: r.one.workItems({
-			from: r.workItemOutboxEvents.workItemId,
-			to: r.workItems.id,
-		}),
-		// Deliveries key on the autoincrement `sequence` cursor, not on `id`.
-		deliveries: r.many.workItemInboxDeliveries({
-			from: r.workItemOutboxEvents.sequence,
-			to: r.workItemInboxDeliveries.eventSequence,
-		}),
-	},
-
-	workItemInboxDeliveries: {
-		organization: r.one.organizations({
-			from: r.workItemInboxDeliveries.orgId,
-			to: r.organizations.id,
-		}),
-		outboxEvent: r.one.workItemOutboxEvents({
-			from: r.workItemInboxDeliveries.eventSequence,
-			to: r.workItemOutboxEvents.sequence,
-		}),
-		// recipientType/recipientId is polymorphic (agent_session | tedi | user),
-		// so the recipient itself is not declared as a relation.
-	},
-
 	workItemCorroborations: {
 		organization: r.one.organizations({
 			from: r.workItemCorroborations.orgId,
@@ -66,34 +27,6 @@ export const coordinationRelations = defineRelationsPart(schema, (r) => ({
 		// principalType/principalId is polymorphic (user | organization | tedi |
 		// external_agent) and sessionId is audit provenance that never
 		// participates in dedup, so neither is declared.
-	},
-
-	workItemCommitCertifications: {
-		organization: r.one.organizations({
-			from: r.workItemCommitCertifications.orgId,
-			to: r.organizations.id,
-		}),
-		workItem: r.one.workItems({
-			from: [
-				r.workItemCommitCertifications.orgId,
-				r.workItemCommitCertifications.workItemId,
-			],
-			to: [r.workItems.orgId, r.workItems.id],
-		}),
-		// The operator-override authorization the deploy gate re-reads before
-		// admitting a shipment. ORM-level and org-scoped, mirroring
-		// getWorkItemCommentById's (id, orgId) lookup; the column holds no db FK on
-		// purpose, so a swept comment can never invalidate a write-once
-		// certification.
-		operatorOverrideComment: r.one.workItemComments({
-			from: [
-				r.workItemCommitCertifications.orgId,
-				r.workItemCommitCertifications.operatorOverrideCommentId,
-			],
-			to: [r.workItemComments.orgId, r.workItemComments.id],
-		}),
-		// agentSession is the harness-prefixed composite key (`claude-code:<uuid>`),
-		// not external_agent_sessions.external_session_key, so it is not related.
 	},
 
 	// =========================================================================
