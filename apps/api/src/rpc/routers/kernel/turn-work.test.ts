@@ -33,7 +33,7 @@ import { callWorkersAi } from "@tedix/workers-ai/transport";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	createKernelTurnStageTimings,
-	KERNEL_TURN_SERIAL_STAGE_ORDER,
+	type KernelTurnStage,
 	type KernelTurnStageTimingsSnapshot,
 } from "../../../kernel/turn-stage-timings";
 import type { KernelRouteDecision } from "./route-schema";
@@ -3955,6 +3955,20 @@ describe("runKernelTurnWork operator-cancel gates (P0)", () => {
 // ─── Per-stage first-token latency instrumentation ───────────────────────────
 
 describe("runKernelTurnWork stage timings (metadata.kernelTurnTimings)", () => {
+	const serialStageOrder = [
+		"workStarted",
+		"routePlanStarted",
+		"routePlanEnded",
+		"writeProposalPlanStarted",
+		"writeCatalogReady",
+		"writeToolSelected",
+		"writeSchemaReady",
+		"writeArgumentsReady",
+		"writeProposalPlanEnded",
+		"dispatchStarted",
+		"dispatchEnded",
+	] as const satisfies readonly KernelTurnStage[];
+
 	/** Pull the timings snapshot off the captured terminal metadata patch. */
 	function timingsOf(
 		capturedRunMetadata: Array<Record<string, unknown>>,
@@ -3970,7 +3984,7 @@ describe("runKernelTurnWork stage timings (metadata.kernelTurnTimings)", () => {
 	 * from workStarted, which is the 0 baseline by construction). */
 	function expectSerialOrder(snap: KernelTurnStageTimingsSnapshot): void {
 		let previous = 0;
-		for (const stage of KERNEL_TURN_SERIAL_STAGE_ORDER) {
+		for (const stage of serialStageOrder) {
 			if (stage === "workStarted") continue;
 			const offset = snap.stages[stage];
 			if (typeof offset !== "number") continue;

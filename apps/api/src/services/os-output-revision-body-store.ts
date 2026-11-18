@@ -32,37 +32,6 @@ export async function storeOutputRevisionBody(
 	return { contentSha256, contentBytes: bytes.byteLength, bodyR2Key };
 }
 
-/** Backfill proof must read R2 even while the inline-first reader is enabled. */
-export async function verifyStoredOutputRevisionBody(
-	bucket: OutputBodyBucket,
-	organizationId: string,
-	content: string,
-	metadata: { contentSha256: string; contentBytes: number; bodyR2Key: string },
-) {
-	if (
-		metadata.bodyR2Key !==
-		outputRevisionBodyKey(organizationId, metadata.contentSha256)
-	)
-		throw new Error("Output revision body key mismatch");
-	const object = await bucket.get(metadata.bodyR2Key);
-	if (!object) throw new Error("Output revision body object is missing");
-	const bytes = new Uint8Array(
-		await new Response(
-			new Blob([await object.arrayBuffer()])
-				.stream()
-				.pipeThrough(new DecompressionStream("gzip")),
-		).arrayBuffer(),
-	);
-	const expected = new TextEncoder().encode(content);
-	if (
-		(await sha256Hex(bytes)) !== metadata.contentSha256 ||
-		bytes.byteLength !== metadata.contentBytes ||
-		bytes.byteLength !== expected.byteLength ||
-		bytes.some((byte, index) => byte !== expected[index])
-	)
-		throw new Error("Output revision body verification mismatch");
-}
-
 /**
  * A row written since November 2026 keeps `content = ''` and a pointer; its
  * body is read from R2. A legacy row still carrying its inline body (until the
