@@ -8,6 +8,7 @@ import {
 	OsCollaboratorRoleSchema,
 	OsCollaboratorSchema,
 	OsCollaboratorTargetSchema,
+	OsInviteSuggestionSchema,
 	OsSharedWorkspaceSchema,
 	OsWorkspaceEventKindSchema,
 	OsWorkspaceCapabilitySchema,
@@ -143,6 +144,23 @@ export const osCollaboratorsContract = oc
 					links: z.array(OsCollaboratorLinkSchema),
 				}),
 			),
+		suggestPeople: oc
+			.route({
+				method: "GET",
+				path: "/people",
+				summary: "Find people in your organization to invite",
+				description:
+					"Matches part of a name or email among the active people in your own organization. Never returns anyone from another organization.",
+			})
+			.input(
+				z
+					.object({
+						query: z.string().trim().min(1).max(100),
+						limit: z.coerce.number().int().min(1).max(20).default(8),
+					})
+					.strict(),
+			)
+			.output(z.object({ people: z.array(OsInviteSuggestionSchema) })),
 		add: oc
 			.route({
 				method: "POST",

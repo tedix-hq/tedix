@@ -13,6 +13,7 @@ import {
 const collaborators = vi.hoisted(() => ({
 	list: vi.fn(),
 	presence: vi.fn(),
+	suggestPeople: vi.fn(),
 	add: vi.fn(),
 	createLink: vi.fn(),
 	copyLink: vi.fn(),
@@ -167,6 +168,7 @@ beforeEach(() => {
 		value: { writeText },
 	});
 	shares.list.mockResolvedValue({ items: [], truncated: false });
+	collaborators.suggestPeople.mockResolvedValue({ people: [] });
 	collaborators.presence.mockResolvedValue({
 		workspaceId: WORKSPACE_ID,
 		userId: "member-kai",
@@ -425,6 +427,192 @@ describe("WorkspaceShareDialog", () => {
 		expect(container.querySelector("[data-invite-failures]")?.textContent).toBe(
 			"bob@x.test: Not allowed right now",
 		);
+	});
+
+	describe("inviting by name", () => {
+		const robin = {
+			userId: "member-robin",
+			email: "robin@example.test",
+			name: "Robin Fictional",
+		};
+		const rory = {
+			userId: "member-rory",
+			email: "rory@example.test",
+			name: null,
+		};
+
+		/** Long enough for the search to start and answer. */
+		async function settleSearch() {
+			await act(async () => {
+				await new Promise((resolve) => setTimeout(resolve, 260));
+			});
+			await flush();
+		}
+
+		function options(container: Element): string[] {
+			return [
+				...container.querySelectorAll(
+					"[data-invite-suggestions] [role=option]",
+				),
+			].map((option) => option.textContent ?? "");
+		}
+
+		function chips(container: Element): string[] {
+			return [...container.querySelectorAll("[data-invite-chips] button")].map(
+				(chip) => chip.getAttribute("aria-label") ?? "",
+			);
+		}
+
+		function press(field: HTMLInputElement, key: string) {
+			act(() => {
+				field.dispatchEvent(
+					new KeyboardEvent("keydown", {
+						key,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			});
+		}
+
+		it("suggests colleagues for part of a name and turns the chosen one into a chip", async () => {
+			collaborators.suggestPeople.mockResolvedValue({
+				// Kai is already in the workspace, so he is not offered again.
+				people: [robin, rory, { ...robin, userId: kai.userId, name: "Kai" }],
+			});
+			collaborators.add.mockResolvedValue({
+				collaborator: { ...kai, ...robin },
+			});
+			const container = renderDialog();
+			await flush();
+			const field = emailField(container);
+			// One letter is too little to search on.
+			setValue(field, "r");
+			await settleSearch();
+			expect(collaborators.suggestPeople).not.toHaveBeenCalled();
+
+			setValue(field, "ana@x.test, ro");
+			await settleSearch();
+			// Only the name being typed is searched, not the address before it.
+			expect(collaborators.suggestPeople.mock.calls.at(-1)?.[0]).toEqual({
+				query: "ro",
+			});
+			expect(options(container)).toEqual([
+				"Robin Fictionalrobin@example.test",
+				"rory@example.test",
+			]);
+			expect(field.getAttribute("aria-expanded")).toBe("true");
+			expect(field.getAttribute("aria-activedescendant")).toBe(
+				"invite-suggestion-member-robin",
+			);
+
+			// Enter takes the highlighted person; it does not send the invite.
+			press(field, "Enter");
+			expect(collaborators.add).not.toHaveBeenCalled();
+			expect(chips(container)).toEqual(["Remove Robin Fictional"]);
+			expect(field.value).toBe("ana@x.test, ");
+			expect(options(container)).toEqual([]);
+
+			collaborators.add.mockImplementation(async ({ email }) => {
+				if (email === "ana@x.test") throw new Error("Not allowed right now");
+				return { collaborator: { ...kai, ...robin } };
+			});
+			await act(async () => button(container, "Invite 2 people").click());
+			await flush();
+			expect(
+				collaborators.add.mock.calls.map(([input]) => input.email),
+			).toEqual(["robin@example.test", "ana@x.test"]);
+			// The person who was added leaves; the address that failed stays.
+			expect(chips(container)).toEqual([]);
+			expect(field.value).toBe("ana@x.test");
+		});
+
+		it("chooses with the arrow keys or a click, and removes a chip", async () => {
+			collaborators.suggestPeople.mockResolvedValue({ people: [robin, rory] });
+			const container = renderDialog();
+			await flush();
+			const field = emailField(container);
+			setValue(field, "ro");
+			await settleSearch();
+			press(field, "ArrowDown");
+			expect(field.getAttribute("aria-activedescendant")).toBe(
+				"invite-suggestion-member-rory",
+			);
+			press(field, "Enter");
+			expect(chips(container)).toEqual(["Remove rory@example.test"]);
+			expect(field.value).toBe("");
+
+			// Someone already chosen is not offered again.
+			setValue(field, "ro");
+			await settleSearch();
+			expect(options(container)).toEqual(["Robin Fictionalrobin@example.test"]);
+			const option = container.querySelector(
+				"[data-invite-suggestions] [role=option]",
+			) as HTMLElement;
+			act(() => option.click());
+			expect(chips(container)).toEqual([
+				"Remove rory@example.test",
+				"Remove Robin Fictional",
+			]);
+			expect(button(container, "Invite 2 people").disabled).toBe(false);
+
+			act(() =>
+				(
+					container.querySelector(
+						'[aria-label="Remove rory@example.test"]',
+					) as HTMLButtonElement
+				).click(),
+			);
+			expect(chips(container)).toEqual(["Remove Robin Fictional"]);
+			expect(button(container, "Invite").disabled).toBe(false);
+		});
+
+		it("sends a full address as typed and says when no colleague matches a name", async () => {
+			collaborators.suggestPeople.mockResolvedValue({ people: [robin] });
+			collaborators.add.mockResolvedValue({ collaborator: kai });
+			const container = renderDialog();
+			await flush();
+			const field = emailField(container);
+			setValue(field, "robin@example.test");
+			await settleSearch();
+			// The match is offered but not highlighted, so Enter is not hijacked.
+			expect(options(container)).toHaveLength(1);
+			expect(field.getAttribute("aria-activedescendant")).toBeNull();
+			press(field, "Escape");
+			expect(options(container)).toEqual([]);
+
+			collaborators.suggestPeople.mockResolvedValue({ people: [] });
+			setValue(field, "zed");
+			await settleSearch();
+			expect(
+				container.querySelector("[data-invite-no-match]")?.textContent,
+			).toBe(
+				"No one in your organization matches. Type their full email address instead.",
+			);
+			// A search that is refused offers nothing and blocks nothing.
+			collaborators.suggestPeople.mockRejectedValue(new Error("Forbidden"));
+			setValue(field, "ana@x.test");
+			await settleSearch();
+			expect(container.querySelector("[data-invite-no-match]")).toBeNull();
+			await act(async () => button(container, "Invite").click());
+			await flush();
+			expect(collaborators.add.mock.calls.at(-1)?.[0].email).toBe("ana@x.test");
+		});
+
+		it("still takes a pasted column of addresses", async () => {
+			const container = renderDialog();
+			await flush();
+			const field = emailField(container);
+			const paste = new Event("paste", { bubbles: true, cancelable: true });
+			Object.defineProperty(paste, "clipboardData", {
+				value: { getData: () => "ana@x.test\nben@x.test\r\ncy@x.test" },
+			});
+			act(() => {
+				field.dispatchEvent(paste);
+			});
+			expect(field.value).toBe("ana@x.test, ben@x.test, cy@x.test");
+			expect(button(container, "Invite 3 people").disabled).toBe(false);
+		});
 	});
 
 	it("says Copied for about two seconds after copying a workspace link", async () => {

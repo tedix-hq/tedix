@@ -3,6 +3,7 @@ import { osCollaboratorsContract } from "@tedix/api-contract/contracts/os-collab
 import {
 	dismissOsSharedWorkspace,
 	listOsSharedWorkspacesForUser,
+	searchOrganizationPeople,
 } from "@tedix/db/queries/os-collaborators";
 import {
 	getLatestOsWorkspaceEventCursor,
@@ -23,6 +24,7 @@ import {
 	setWorkspaceCollaboratorRole,
 	updateWorkspaceShareLink,
 } from "../../services/os-workspace-collaborators";
+import { requireOrgId } from "../org-scope";
 import { type BaseContext, withAuth, withAuthorization } from "../orpc";
 
 const os = implement(osCollaboratorsContract).$context<BaseContext>();
@@ -142,6 +144,28 @@ const list = collaborator.list
 	.handler(({ input, context }) =>
 		listWorkspaceSharing(context, input.workspaceId),
 	);
+
+/**
+ * Suggestions for inviting by name. It reads the caller's own organization
+ * only, which the request cannot name, and needs the permission the Team page
+ * needs to list the same people.
+ */
+const suggestPeople = collaborator.suggestPeople
+	.use(withAuthorization("team:read", "team:read"))
+	.handler(async ({ input, context }) => {
+		const userId = requireCollaboratorIdentity(context);
+		return {
+			people: await searchOrganizationPeople(
+				createDbQueryClient(context.env.DB),
+				{
+					organizationId: requireOrgId(context, "people suggestions"),
+					query: input.query,
+					excludeUserId: userId,
+					limit: input.limit,
+				},
+			),
+		};
+	});
 
 const add = collaborator.add
 	.use(
@@ -288,6 +312,7 @@ export const osCollaboratorsContractRouter = os.router({
 	open,
 	presence,
 	list,
+	suggestPeople,
 	add,
 	createLink,
 	setRole,

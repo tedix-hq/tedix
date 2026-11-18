@@ -169,6 +169,14 @@ export const OsSharedWorkspaceSchema = z.object({
 });
 export type OsSharedWorkspace = z.infer<typeof OsSharedWorkspaceSchema>;
 
+/** A person in the caller's own organization, offered when inviting by name. */
+export const OsInviteSuggestionSchema = z.object({
+	userId: z.string(),
+	email: z.string(),
+	name: z.string().nullable(),
+});
+export type OsInviteSuggestion = z.infer<typeof OsInviteSuggestionSchema>;
+
 /** The removal target: one person, or one link. */
 export const OsCollaboratorTargetSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("user"), userId: z.string().min(1).max(200) }),

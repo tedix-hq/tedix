@@ -19,6 +19,7 @@ import type {
 	OsCollaboratorLink,
 	OsCollaboratorRole,
 	OsCollaboratorTarget,
+	OsInviteSuggestion,
 } from "@tedix/api-contract/schemas/os-collaborators";
 import {
 	type ClipboardEvent,
@@ -77,6 +78,14 @@ import {
 	useLinkCopy,
 	workspaceGuestLimitsText,
 } from "@/components/share-controls";
+import {
+	INVITE_SUGGESTIONS_ID,
+	InviteChips,
+	InviteSuggestionList,
+	suggestionOptionId,
+	useInviteSuggestions,
+	withoutInviteSearchTerm,
+} from "@/components/workspace-invite-people";
 import { osApi } from "@/lib/api";
 import {
 	canvasGadgetDetailQueryOptions,
@@ -584,6 +593,8 @@ function WorkspaceAccess(props: {
 	const queryClient = useQueryClient();
 	const sharing = useQuery(workspaceCollaboratorsQueryOptions(workspaceId));
 	const [email, setEmail] = useState("");
+	/** People chosen from the suggestions, shown as chips until invited. */
+	const [picked, setPicked] = useState<OsInviteSuggestion[]>([]);
 	const [inviteRole, setInviteRole] = useState<OsCollaboratorRole>("use");
 	const [freshUrl, setFreshUrl] = useState<string | null>(null);
 	const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
@@ -619,7 +630,10 @@ function WorkspaceAccess(props: {
 		queryClient.invalidateQueries({ queryKey: osQueryKeys.collaborators() });
 	const origin = typeof window === "undefined" ? "" : window.location.origin;
 
-	const inviteEmails = parseInviteEmails(email);
+	// Chosen people first, then whatever was typed or pasted, each address once.
+	const inviteEmails = parseInviteEmails(
+		[...picked.map((person) => person.email), email].join(" "),
+	);
 	// One call per address, so one unknown address never blocks the others.
 	const invite = useMutation({
 		mutationFn: async (emails: string[]): Promise<InviteResult> => {
@@ -651,8 +665,24 @@ function WorkspaceAccess(props: {
 		onMutate: () => setInvited(null),
 		onSuccess: (result) => {
 			setInvited(result);
-			// Addresses that failed stay in the field to be corrected.
-			setEmail(result.failed.map((failure) => failure.email).join(", "));
+			// What failed stays to be corrected: a chosen person as their chip, a
+			// typed address in the field.
+			const failed = new Set(
+				result.failed.map((failure) => failure.email.toLowerCase()),
+			);
+			const keptChips = picked.filter((person) =>
+				failed.has(person.email.toLowerCase()),
+			);
+			const chipEmails = new Set(
+				keptChips.map((person) => person.email.toLowerCase()),
+			);
+			setPicked(keptChips);
+			setEmail(
+				result.failed
+					.map((failure) => failure.email)
+					.filter((address) => !chipEmails.has(address.toLowerCase()))
+					.join(", "),
+			);
 			if (result.added.length > 0) {
 				highlight(result.added.map((person) => person.userId));
 				void refresh();
@@ -800,6 +830,18 @@ function WorkspaceAccess(props: {
 		);
 	};
 	const data = sharing.data;
+	// Never suggest someone already chosen or already in the workspace.
+	const suggestions = useInviteSuggestions(
+		email,
+		new Set([
+			...picked.map((person) => person.userId),
+			...(data?.collaborators ?? []).map((person) => person.userId),
+		]),
+	);
+	const pickSuggestion = (person: OsInviteSuggestion) => {
+		setPicked((current) => [...current, person]);
+		setEmail(withoutInviteSearchTerm(email));
+	};
 	const canGrantBuild = data?.role === "build";
 	const canManage = data?.role === "build";
 	const links = data?.links ?? [];
@@ -873,17 +915,38 @@ function WorkspaceAccess(props: {
 				>
 					Add people
 				</SectionHeading>
+				<InviteChips
+					people={picked}
+					disabled={invite.isPending}
+					onRemove={(person) =>
+						setPicked((current) =>
+							current.filter((entry) => entry.userId !== person.userId),
+						)
+					}
+				/>
 				<div className="flex flex-col gap-2 sm:flex-row">
 					<Input
-						aria-label="Email addresses"
+						aria-label="Names or email addresses"
 						type="text"
-						inputMode="email"
+						role="combobox"
+						aria-autocomplete="list"
+						aria-expanded={suggestions.people.length > 0}
+						aria-controls={INVITE_SUGGESTIONS_ID}
+						aria-activedescendant={
+							suggestions.active
+								? suggestionOptionId(suggestions.active)
+								: undefined
+						}
 						autoComplete="off"
 						autoCapitalize="off"
 						spellCheck={false}
-						placeholder="Email addresses, separated by commas"
+						placeholder="Names or email addresses, separated by commas"
 						value={email}
 						onChange={(event) => setEmail(event.target.value)}
+						onKeyDown={(event) => {
+							const person = suggestions.onKeyDown(event);
+							if (person) pickSuggestion(person);
+						}}
 						onPaste={pasteEmails}
 						className="min-w-0 flex-1"
 						data-invite-emails
@@ -907,7 +970,23 @@ function WorkspaceAccess(props: {
 						</Button>
 					</div>
 				</div>
+				<InviteSuggestionList
+					people={suggestions.people}
+					active={suggestions.active}
+					onPick={pickSuggestion}
+				/>
 				<div className="grid gap-2" aria-live="polite">
+					{suggestions.noMatch ? (
+						<Text
+							role="label"
+							tone="secondary"
+							className="m-0"
+							data-invite-no-match
+						>
+							No one in your organization matches. Type their full email address
+							instead.
+						</Text>
+					) : null}
 					{invited?.failed.length ? (
 						<ul className="m-0 grid list-none gap-1 p-0" data-invite-failures>
 							{invited.failed.map((failure) => (

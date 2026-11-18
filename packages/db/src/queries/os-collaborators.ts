@@ -1,4 +1,15 @@
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	inArray,
+	isNotNull,
+	isNull,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../query-client";
 import { organizationMembers } from "../schema/organization-members";
@@ -135,6 +146,49 @@ export async function listTedixPeople(
 	const seen = new Map<string, TedixPersonResult>();
 	for (const row of rows) if (!seen.has(row.userId)) seen.set(row.userId, row);
 	return [...seen.values()];
+}
+
+/**
+ * Active people in one organization whose name or email contains `query`.
+ * Always scoped to `organizationId`; `excludeUserId` leaves the caller out.
+ */
+export async function searchOrganizationPeople(
+	db: DbQueryClient,
+	params: {
+		organizationId: string;
+		query: string;
+		excludeUserId?: string;
+		limit: number;
+	},
+): Promise<TedixPersonResult[]> {
+	// The typed text is matched as written: % and _ are not wildcards.
+	const pattern = `%${params.query
+		.trim()
+		.toLowerCase()
+		.replace(/[\\%_]/g, "\\$&")}%`;
+	return db
+		.select({
+			userId: organizationMembers.descopeUserId,
+			email: organizationMembers.email,
+			name: organizationMembers.name,
+		})
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, params.organizationId),
+				eq(organizationMembers.status, "active"),
+				eq(organizationMembers.kind, "human"),
+				params.excludeUserId
+					? ne(organizationMembers.descopeUserId, params.excludeUserId)
+					: undefined,
+				or(
+					sql`lower(${organizationMembers.name}) like ${pattern} escape '\\'`,
+					sql`lower(${organizationMembers.email}) like ${pattern} escape '\\'`,
+				),
+			),
+		)
+		.orderBy(asc(organizationMembers.name), asc(organizationMembers.email))
+		.limit(params.limit);
 }
 
 export interface OrganizationMemberRoleResult {
