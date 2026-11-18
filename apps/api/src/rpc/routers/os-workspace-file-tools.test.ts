@@ -5,6 +5,7 @@
  * changed nothing, and a refusal names its real cause.
  */
 import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { enrichInputValidationError } from "../input-validation-error";
 import { clients, homeWorkspaceId } from "./__tests__/os-workspaces-env";
 
 let c: ReturnType<typeof clients>;
@@ -151,5 +152,148 @@ describe("revise_os_output", () => {
 		});
 		expect(again.status).toBe("unchanged");
 		expect(again.revision.revision).toBe(3);
+	});
+});
+
+describe("create_os_output with a richText body", () => {
+	// The HTTP handler names the refused field the same way before answering.
+	const create = async (content: unknown) =>
+		c.machine.outputs
+			.create({
+				workspaceId: await homeWorkspaceId(c.env),
+				kind: "document",
+				title: "Letter",
+				content: content as never,
+			})
+			.catch((error: unknown) => {
+				throw enrichInputValidationError(error);
+			});
+
+	it("creates a document from richText alone", async () => {
+		const created = await create({
+			kind: "document",
+			richText: {
+				type: "doc",
+				content: [
+					{
+						type: "heading",
+						attrs: { level: 1 },
+						content: [{ type: "text", text: "Offer" }],
+					},
+					paragraph("Dear customer"),
+				],
+			},
+		});
+		expect(created.revision.revision).toBe(1);
+		expect((await currentBody(created.output.id)).content).toMatchObject({
+			kind: "document",
+			blocks: [
+				{ type: "heading", level: 1, text: "Offer" },
+				{ type: "paragraph", text: "Dear customer" },
+			],
+			richText: { type: "doc" },
+		});
+	});
+
+	it("creates a document from richText plus blocks, with blocks rebuilt from the rich text", async () => {
+		const created = await create({
+			kind: "document",
+			blocks: [{ type: "paragraph", text: "Stale projection" }],
+			richText: {
+				type: "doc",
+				content: [
+					paragraph("Dear customer"),
+					{
+						type: "bulletList",
+						content: [
+							{ type: "listItem", content: [paragraph("One")] },
+							{ type: "listItem", content: [paragraph("Two")] },
+						],
+					},
+					{ type: "paragraph" },
+					{
+						type: "table",
+						content: [
+							{
+								type: "tableRow",
+								content: [
+									{ type: "tableHeader", content: [paragraph("Item")] },
+									{ type: "tableHeader", content: [paragraph("Price")] },
+								],
+							},
+							{
+								type: "tableRow",
+								content: [
+									{ type: "tableCell", content: [paragraph("Car")] },
+									{ type: "tableCell", content: [paragraph("1")] },
+								],
+							},
+						],
+					},
+				],
+			},
+		});
+		expect((await currentBody(created.output.id)).content).toMatchObject({
+			blocks: [
+				{ type: "paragraph", text: "Dear customer" },
+				{ type: "list", items: ["One", "Two"] },
+				{ type: "paragraph", text: "" },
+				{ type: "table", headers: ["Item", "Price"], rows: [["Car", "1"]] },
+			],
+		});
+	});
+
+	it.each([
+		["richText as a string", { kind: "document", richText: "Dear customer" }],
+		[
+			"a node list instead of a doc",
+			{ kind: "document", richText: [paragraph("Dear customer")] },
+		],
+		[
+			"children instead of content",
+			{
+				kind: "document",
+				blocks: [],
+				richText: { type: "doc", children: [paragraph("Dear customer")] },
+			},
+		],
+		[
+			"a node without a type",
+			{
+				kind: "document",
+				blocks: [],
+				richText: { type: "doc", content: [{ text: "Dear customer" }] },
+			},
+		],
+		[
+			"content that is not a list",
+			{
+				kind: "document",
+				richText: { type: "doc", content: { type: "paragraph" } },
+			},
+		],
+		[
+			"a table row without cells, which the block form cannot hold",
+			{
+				kind: "document",
+				richText: {
+					type: "doc",
+					content: [
+						{ type: "table", content: [{ type: "tableRow", content: [] }] },
+					],
+				},
+			},
+		],
+	])("refuses %s as BAD_REQUEST naming richText", async (_name, content) => {
+		const refused = await create(content).then(
+			() => undefined,
+			(error: { code?: string; message?: string }) => error,
+		);
+		expect(refused?.code).toBe("BAD_REQUEST");
+		expect(refused?.message).toContain("content.richText");
+		const listed = await c.org1.outputs.list({
+			workspaceId: await homeWorkspaceId(c.env),
+		});
+		expect(listed.items).toEqual([]);
 	});
 });

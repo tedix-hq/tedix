@@ -1896,12 +1896,21 @@ export const OsOutputContentSchema = z.discriminatedUnion("kind", [
  * `{ kind: "document", blocks: [], markdown: "..." }`, or rich text with
  * `children` instead of `content`, used to be stored as an empty document with
  * no error. Stored revisions are still read with the lenient schema.
+ *
+ * A document may be sent as `richText` alone: the server always rebuilds
+ * `blocks` from rich text, so requiring an empty `blocks` beside it only
+ * refused a complete body.
  */
 const [OsDocumentContentSchema, ...OsOtherOutputContentSchemas] =
 	OsOutputContentSchema.options;
 export const OsOutputContentInputSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
 		...OsDocumentContentSchema.shape,
+		blocks: OsDocumentContentSchema.shape.blocks
+			.default([])
+			.describe(
+				"Document body as typed blocks. May be left out when richText is sent: blocks are then rebuilt from it.",
+			),
 		richText: z
 			.strictObject(OsRichTextDocumentSchema.shape)
 			.optional()

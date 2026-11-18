@@ -45,6 +45,50 @@ interface SchemaIssue {
 	readonly code?: string;
 	readonly keys?: ReadonlyArray<unknown>;
 	readonly maximum?: unknown;
+	/** Zod `invalid_union`: the issues of each alternative, in schema order. */
+	readonly errors?: ReadonlyArray<unknown>;
+}
+
+/** The value is not the type this alternative takes at all (a string, say, where it takes an object). */
+function isWrongTypeForAlternative(issue: SchemaIssue): boolean {
+	return issue.code === "invalid_type" && !issue.path?.length;
+}
+
+/**
+ * A union reports one issue at its own path ("content: Invalid input") and
+ * keeps what each alternative refused in `errors`. When exactly one
+ * alternative takes the value's type, its issues are the ones the caller can
+ * act on ("content.richText.content.0.type: ..."), so they replace the
+ * union's. With no such alternative, or several, the union's issue stays.
+ */
+function expandUnionIssues(issues: ReadonlyArray<SchemaIssue>): SchemaIssue[] {
+	const expanded: SchemaIssue[] = [];
+	for (const issue of issues) {
+		const alternatives =
+			issue?.code === "invalid_union" && Array.isArray(issue.errors)
+				? (issue.errors as unknown[]).filter(
+						(alternative): alternative is SchemaIssue[] =>
+							Array.isArray(alternative) &&
+							alternative.length > 0 &&
+							alternative.every(isRecord) &&
+							!alternative.every(isWrongTypeForAlternative),
+					)
+				: [];
+		const only = alternatives.length === 1 ? alternatives[0] : undefined;
+		if (!only) {
+			expanded.push(issue);
+			continue;
+		}
+		expanded.push(
+			...expandUnionIssues(
+				only.map((inner) => ({
+					...inner,
+					path: [...(issue.path ?? []), ...(inner.path ?? [])],
+				})),
+			),
+		);
+	}
+	return expanded;
 }
 
 function lastPathKey(
@@ -177,8 +221,9 @@ export function describeValidationIssues(issues: unknown): string | null {
 	const seen = new Set<string>();
 	const parts: string[] = [];
 	const hints: string[] = [];
-	const schemaIssues = issues.filter(isRecord) as SchemaIssue[];
-	for (const raw of issues as SchemaIssue[]) {
+	const expanded = expandUnionIssues(issues as SchemaIssue[]);
+	const schemaIssues = expanded.filter(isRecord) as SchemaIssue[];
+	for (const raw of expanded) {
 		const field = formatIssuePath(raw?.path) ?? "(root)";
 		const message =
 			typeof raw?.message === "string" && raw.message ? raw.message : "invalid";
