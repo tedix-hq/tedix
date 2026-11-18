@@ -315,6 +315,8 @@ document.querySelector('button').onclick = async () => { const result = await te
 				})
 				.catch(() => {});
 		} else if (endpoint === "listShared") json = { items: [] };
+		// Typing in the invite field looks colleagues up by name; none match here.
+		else if (endpoint === "suggestPeople") json = { people: [] };
 		else throw new Error(`Unexpected request ${endpoint}`);
 		await route.fulfill({
 			contentType: "application/json",
