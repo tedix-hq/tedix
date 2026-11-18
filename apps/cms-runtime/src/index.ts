@@ -43,7 +43,6 @@ import {
 	withSharedCmsRestorePermit,
 } from "./tenant-restore-fence";
 import { runScheduledTenantWithPermit } from "./scheduled-restore-permits";
-import { migrateTenantBundleCompression } from "./bundle-compression-migration";
 import { r2RestHeaders } from "./r2-rest";
 import type {
 	CollectionDeletionGuardInput,
@@ -202,11 +201,6 @@ export {
 } from "./tenant-plugin-executor";
 
 // ── Active bundle lookup ──────────────────────────────────────────
-
-interface BundleManifest {
-	mainModule: string;
-	modules: string[];
-}
 
 interface TenantScheduledFetcher extends Fetcher {
 	ready(): Promise<true>;
@@ -735,160 +729,47 @@ type LoadedBundle = {
 	modules: Record<string, { js: string }>;
 };
 
-/**
- * Single-object form of a tenant bundle, written lazily beside the manifest.
- *
- * The parent Worker isolate does not survive between requests on a low-traffic
- * tenant, so Worker Loader's in-isolate cache is cold every time and this
- * factory re-reads the whole bundle. Reading it as hundreds of separate R2
- * objects costs seconds per request; one object costs a single round trip.
- *
- * Lives under the immutable versioned prefix (`<slug>/v<N>/`), so a new bundle
- * version writes a new prefix and the pack can never go stale. A corrupt or
- * missing pack falls through to the per-module path rather than taking the
- * tenant down.
- *
- * If you are editing this function, keep the packed fast path: dropping it
- * silently multiplies uncached request latency.
- */
-const PACKED_BUNDLE_KEY = "__tedix_packed_bundle.json";
+// Immutable versioned bundles are published as one compressed R2 object.
 const PACKED_GZIP_BUNDLE_KEY = "__tedix_packed_bundle.json.gz";
-
-async function writeCompressedBundle(
-	env: Env,
-	r2Prefix: string,
-	json: string,
-): Promise<void> {
-	const compressed = await new Response(
-		new Blob([json]).stream().pipeThrough(new CompressionStream("gzip")),
-	).arrayBuffer();
-	await env.TENANT_BUNDLES.put(
-		`${r2Prefix}${PACKED_GZIP_BUNDLE_KEY}`,
-		compressed,
-		{ httpMetadata: { contentType: "application/gzip" } },
-	);
-}
-
-async function writeCompressedBundleIfPermitted(
-	env: Env,
-	r2Prefix: string,
-	json: string,
-	identity: CmsRestoreFenceIdentity | undefined,
-): Promise<void> {
-	if (!identity) return;
-	try {
-		await withSharedCmsRestorePermit(env, identity, () =>
-			writeCompressedBundle(env, r2Prefix, json),
-		);
-	} catch (err) {
-		console.error(
-			`[cms-runtime] failed to write compressed bundle at ${r2Prefix}:`,
-			err instanceof Error ? err.message : String(err),
-		);
-	}
-}
 
 export async function loadBundleModules(
 	env: Env,
 	r2Prefix: string,
-	opts: {
-		spans?: ParentSpans;
-		restoreIdentity?: CmsRestoreFenceIdentity;
-	} = {},
+	opts: { spans?: ParentSpans } = {},
 ): Promise<LoadedBundle> {
-	const { spans, restoreIdentity } = opts;
-
-	// The versioned bundle is immutable. A compressed pack avoids transferring
-	// the same large JS sources from R2 on every Worker Loader cache miss.
 	const compressedObj = await env.TENANT_BUNDLES.get(
 		`${r2Prefix}${PACKED_GZIP_BUNDLE_KEY}`,
 	);
-	if (compressedObj) {
-		try {
-			const packed = (await new Response(
-				compressedObj.body.pipeThrough(new DecompressionStream("gzip")),
-			).json()) as LoadedBundle;
-			if (packed?.mainModule && packed.modules) {
-				if (spans) {
-					spans["bundle.packed"] = 1;
-					spans["bundle.packedGzip"] = 1;
-				}
-				return packed;
-			}
-			console.error(`[cms-runtime] malformed compressed bundle at ${r2Prefix}`);
-		} catch (err) {
-			console.error(
-				`[cms-runtime] compressed bundle unreadable at ${r2Prefix}:`,
-				err instanceof Error ? err.message : String(err),
-			);
-		}
+	if (!compressedObj)
+		throw new Error(`compressed bundle missing at ${r2Prefix}`);
+
+	let packed: LoadedBundle;
+	try {
+		packed = (await new Response(
+			compressedObj.body.pipeThrough(new DecompressionStream("gzip")),
+		).json()) as LoadedBundle;
+	} catch (cause) {
+		throw new Error(`compressed bundle unreadable at ${r2Prefix}`, { cause });
 	}
-
-	// Legacy pack: keep old bundles readable and upgrade them while the request
-	// still owns its nested permit. A corrupt or absent pack falls through.
-	const packedObj = await env.TENANT_BUNDLES.get(
-		`${r2Prefix}${PACKED_BUNDLE_KEY}`,
-	);
-	if (packedObj) {
-		try {
-			const json = await packedObj.text();
-			const packed = JSON.parse(json) as LoadedBundle;
-			if (packed?.mainModule && packed.modules) {
-				if (spans) {
-					spans["bundle.packed"] = 1;
-					spans["bundle.packedGzip"] = 0;
-				}
-				await writeCompressedBundleIfPermitted(
-					env,
-					r2Prefix,
-					json,
-					restoreIdentity,
-				);
-				return packed;
-			}
-			console.error(`[cms-runtime] malformed packed bundle at ${r2Prefix}`);
-		} catch (err) {
-			console.error(
-				`[cms-runtime] packed bundle unreadable at ${r2Prefix}:`,
-				err instanceof Error ? err.message : String(err),
-			);
-		}
+	if (
+		!packed ||
+		typeof packed.mainModule !== "string" ||
+		!packed.mainModule ||
+		!packed.modules ||
+		Array.isArray(packed.modules) ||
+		typeof packed.modules !== "object" ||
+		typeof packed.modules[packed.mainModule]?.js !== "string" ||
+		Object.values(packed.modules).some(
+			(module) => typeof module?.js !== "string",
+		)
+	) {
+		throw new Error(`malformed compressed bundle at ${r2Prefix}`);
 	}
-
-	// r2Prefix from tenant_bundles.r2_prefix already ends with `/` (e.g. "tedix/v1/")
-	const manifestObj = await env.TENANT_BUNDLES.get(`${r2Prefix}manifest.json`);
-	if (!manifestObj) throw new Error(`bundle manifest missing at ${r2Prefix}`);
-	const manifest = JSON.parse(await manifestObj.text()) as BundleManifest;
-
-	// Worker Loader infers module type from extension; .mjs is rejected. We pass
-	// the object form { js: source } to declare ES module explicitly so Astro's
-	// `entry.mjs` + chunked `chunks/*.mjs` files load correctly.
-	const modules: Record<string, { js: string }> = {};
-	const fetched = await Promise.all(
-		manifest.modules.map(async (m) => {
-			const obj = await env.TENANT_BUNDLES.get(`${r2Prefix}${m}`);
-			if (!obj) throw new Error(`bundle missing module: ${r2Prefix}${m}`);
-			return [m, { js: await obj.text() }] as const;
-		}),
-	);
-	for (const [m, mod] of fetched) modules[m] = mod;
-
-	const loaded: LoadedBundle = { mainModule: manifest.mainModule, modules };
-
-	// Write one compressed object for subsequent cold loads. Await the nested
-	// permit so a detached Worker task cannot strand it after the response.
-	await writeCompressedBundleIfPermitted(
-		env,
-		r2Prefix,
-		JSON.stringify(loaded),
-		restoreIdentity,
-	);
-
-	if (spans) {
-		spans["bundle.packed"] = 0;
-		spans["bundle.packedGzip"] = 0;
+	if (opts.spans) {
+		opts.spans["bundle.packed"] = 1;
+		opts.spans["bundle.packedGzip"] = 1;
 	}
-	return loaded;
+	return packed;
 }
 
 const TENANT_RUNTIME_ENTRYPOINT_MODULE = "__tedix_cms_runtime_entrypoint.mjs";
@@ -1111,7 +992,6 @@ export function getTenantEntrypoint(
 				() =>
 					loadBundleModules(env, bundle.r2Prefix, {
 						spans,
-						restoreIdentity: { siteId: org.siteId, slug, restoreEpoch },
 					}),
 			);
 			spans["loader.factory.moduleCount"] = Object.keys(modules).length;
@@ -2383,23 +2263,6 @@ export default {
 				if (restoreEpoch === null) {
 					counters.skipped += 1;
 					continue;
-				}
-
-				try {
-					await migrateTenantBundleCompression(
-						env,
-						createDbQueryClient(env.PLATFORM_DB),
-						{ siteId: org.siteId, slug, restoreEpoch },
-						(prefix) =>
-							loadBundleModules(env, prefix, {
-								restoreIdentity: { siteId: org.siteId, slug, restoreEpoch },
-							}),
-					);
-				} catch (error) {
-					console.error("[cms-runtime] bundle compression migration failed", {
-						slug,
-						error: String(error),
-					});
 				}
 
 				const tenantEntrypoint = getTenantEntrypoint(env, ctx, {
