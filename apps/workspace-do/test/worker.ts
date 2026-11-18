@@ -137,6 +137,23 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 		return this.#script;
 	}
 
+	#codeTimeoutMs: number | null = null;
+
+	/** Wait this long for a code run instead of the usual limit. */
+	limitCodeRuns(scope: WorkspaceScope, ms: number) {
+		this.bindScope(scope);
+		this.#codeTimeoutMs = ms;
+	}
+
+	readCodeTimeout(scope: WorkspaceScope): number {
+		this.bindScope(scope);
+		return this.codeTimeoutMs();
+	}
+
+	protected override codeTimeoutMs(): number {
+		return this.#codeTimeoutMs ?? super.codeTimeoutMs();
+	}
+
 	protected override async refreshModelCatalog(): Promise<void> {}
 
 	/** Fixed public pages instead of the network; counts what was fetched. */
@@ -207,6 +224,17 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 }
 
 export class TurnFacet extends ProductionTurnFacet {
+	protected override codeTimeoutMs(plan: TurnPlan): Promise<number> {
+		const parent = durableObjectStubByName(
+			this.env.WORKSPACE,
+			this.env,
+			tenantStoreName(plan.scope),
+		) as unknown as {
+			readCodeTimeout(scope: WorkspaceScope): Promise<number>;
+		};
+		return parent.readCodeTimeout(plan.scope);
+	}
+
 	protected override async modelFor(plan: TurnPlan): Promise<ModelPort> {
 		if (plan.modelId !== undefined && plan.modelId !== "faux")
 			throw new Error("Facet model request was not propagated");
