@@ -145,6 +145,7 @@ import {
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { requireOrgId } from "../org-scope";
+import { getRequestOrganizationMembership } from "../org-membership";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -181,7 +182,11 @@ async function isActiveOwnerOrAdmin(
 	organizationId: string,
 	userId: string,
 ): Promise<boolean> {
-	const member = await getMemberByUserId(context.db, organizationId, userId);
+	const member = await getRequestOrganizationMembership(
+		context,
+		organizationId,
+		userId,
+	);
 	return (
 		member?.status === "active" && ["owner", "admin"].includes(member.role)
 	);

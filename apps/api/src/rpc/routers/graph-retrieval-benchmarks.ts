@@ -10,7 +10,7 @@ import {
 	listGraphRetrievalBenchmarkResults,
 } from "@tedix/db/queries/graph-retrieval-benchmarks";
 import { getLatestGraphRetrievalPairEvaluation } from "@tedix/db/queries/graph-retrieval-runtime";
-import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getRequestOrganizationMembership } from "../org-membership";
 import { getTediById } from "@tedix/db/queries/tedis";
 import {
 	AUTHZ,
@@ -98,8 +98,8 @@ async function requireGraphBenchmarkGovernanceActor(
 	const actor = resolveGraphBenchmarkActor(context);
 	if (actor.type === "user") {
 		if (isPlatformPrincipal(context)) return actor;
-		const membership = await getMemberByUserId(
-			context.db,
+		const membership = await getRequestOrganizationMembership(
+			context,
 			organizationId,
 			actor.id,
 		);
