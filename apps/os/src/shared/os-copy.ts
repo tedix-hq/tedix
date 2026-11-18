@@ -354,21 +354,65 @@ const ENGLISH_COPY = {
 		newConversation: "Ask a question or hand off a task…",
 		followUp: "Ask a follow-up…",
 	},
+	/** Shown three at a time; each new chat shows the next three. */
 	chatStarterPrompts: [
 		{
+			kind: "doc",
 			title: "Write a doc",
 			detail: "A weekly update with three short sections.",
 			prompt: "Create a doc titled Weekly update with three short sections.",
 		},
 		{
+			kind: "sheet",
 			title: "Track tasks in a sheet",
 			detail: "Open tasks with owners and due dates.",
 			prompt: "Make a sheet that tracks open tasks, owners and due dates.",
 		},
 		{
+			kind: "recap",
 			title: "What changed this week",
 			detail: "A recap and what to decide next.",
 			prompt: "Summarize what changed this week and what I should decide next.",
+		},
+		{
+			kind: "doc",
+			title: "Draft meeting notes",
+			detail: "Agenda, decisions and next steps.",
+			prompt:
+				"Create a doc for meeting notes with agenda, decisions and next steps.",
+		},
+		{
+			kind: "sheet",
+			title: "Plan a project",
+			detail: "Steps, owners and dates in a sheet.",
+			prompt: "Make a sheet with a project plan: steps, owners and dates.",
+		},
+		{
+			kind: "question",
+			title: "What is waiting on me",
+			detail: "Open tasks and approvals, in order.",
+			prompt: "What is waiting on me right now, and what should I do first?",
+		},
+		{
+			kind: "deck",
+			title: "Build a short deck",
+			detail: "Five slides that explain a plan.",
+			prompt:
+				"Create a five-slide deck that explains our plan for next quarter.",
+		},
+		{
+			kind: "sheet",
+			title: "Compare options",
+			detail: "Pros, cons and costs side by side.",
+			prompt:
+				"Make a sheet that compares our options with pros, cons and costs.",
+		},
+		{
+			kind: "question",
+			title: "Show what you can do",
+			detail: "Five example tasks to try here.",
+			prompt:
+				"What can you help me with here? Give me five examples I can try.",
 		},
 	],
 	tediCostHeaders: [
