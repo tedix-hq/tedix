@@ -249,6 +249,10 @@ describe("app UI kit", () => {
 		).toEqual(["100%", "50%"]);
 		rows[1]?.click();
 		expect(onPick).toHaveBeenCalledWith("Done");
+		// The fill sits inside the track, so it must be a block or its width is ignored.
+		expect(document.getElementById("tedix-ui")?.textContent).toContain(
+			".tx-track,.tx-fill{display:block}",
+		);
 		const still = ui.bars({ label: "Plain", entries: [["A", 0]] });
 		expect(still.querySelector(".tx-bar")?.tagName).toBe("DIV");
 	});

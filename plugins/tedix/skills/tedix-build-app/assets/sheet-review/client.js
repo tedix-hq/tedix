@@ -44,6 +44,7 @@ button.tx-tile{cursor:pointer}
 .tx-bar{display:grid;grid-template-columns:minmax(90px,38%) 1fr 4ch;gap:8px;align-items:center;font-size:.9rem;min-height:32px;width:100%;padding:0;border:0;background:none;color:inherit;font-family:inherit;text-align:start}
 button.tx-bar{min-height:44px;cursor:pointer}
 .tx-track{background:color-mix(in srgb,var(--tx-fg) 8%,var(--tx-surface));border-radius:4px;height:12px}
+.tx-track,.tx-fill{display:block}
 .tx-fill{background:var(--tx-accent);height:12px;border-radius:4px;min-width:3px}
 .tx-n{text-align:end;font-variant-numeric:tabular-nums}
 :is(button.tx-tile,button.tx-bar):focus-visible{outline:3px solid var(--tx-accent);outline-offset:3px}
