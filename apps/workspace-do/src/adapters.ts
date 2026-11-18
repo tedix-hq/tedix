@@ -1,7 +1,7 @@
 /**
- * The three shared adapters, bound to this workspace object's own SQLite.
- * Compliance applies the shared `evaluateCall` rules; the change record is
- * append-only in the object; memory writes are revisions with provenance.
+ * Compliance and accountability bound to the workspace object's SQLite.
+ * Compliance applies the shared `evaluateCall` rules; change records are
+ * append-only. Memory revisions live in `memory-adapter.ts`.
  */
 import {
 	type ApprovalState,

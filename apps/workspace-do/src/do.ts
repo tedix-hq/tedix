@@ -78,6 +78,7 @@ import type {
 import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
 import { SqlAccountabilityAdapter, SqlComplianceAdapter } from "./adapters";
 import { buildWorkspaceBindings } from "./bindings";
+import { SqlMemoryAdapter } from "./memory-adapter";
 import { callFailureText, unsavableTextError } from "./call-failure";
 import type { WorkspaceSnapshot } from "./data-port";
 import { MAX_VIEWS_PER_TURN } from "./views";
@@ -477,6 +478,7 @@ function sameDocumentTransfer(a: DocumentTransfer, b: DocumentTransfer) {
 
 export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #store: WorkspaceStorage;
+	readonly #memory: SqlMemoryAdapter;
 	readonly #events: SqlEventLedger;
 	readonly #ledger: SqlAccountabilityAdapter;
 	readonly #activityRecords: SqlActivityRecords;
@@ -511,6 +513,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	constructor(ctx: DurableObjectState, env: WorkspaceEnv) {
 		super(ctx, env, tenantStoreDefinition);
 		this.#store = sqlStorage(ctx.storage);
+		this.#memory = new SqlMemoryAdapter(this.#store);
 		this.#store.run(CHAT_SCHEMA);
 		this.#activityRecords = new SqlActivityRecords(this.#store);
 		this.#events = new SqlEventLedger(this.#store, (event) => {
@@ -2317,7 +2320,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				{
 					turnId: approval.turn_id,
 					conversationId: approval.conversation_id,
-					actor: { id: approval.actor_id, kind: approval.actor_kind },
+					actor:
+						approval.binding === "memory" && approval.method === "review"
+							? { id: input.by, kind: "user" }
+							: { id: approval.actor_id, kind: approval.actor_kind },
 				},
 				approval.binding,
 				approval.method,
@@ -3561,6 +3567,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			organizationId: scope.organizationId,
 		};
 		return buildWorkspaceBindings({
+			memory: this.#memory,
 			data: this.#dataPort(scope, turn.actor.kind, turn),
 			compliance: this.#compliance,
 			accountability: {
@@ -4683,6 +4690,18 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	listOpen(...args: unknown[]) {
 		return this.#call("listOpen", args);
+	}
+	write(...args: unknown[]) {
+		return this.#call("write", args);
+	}
+	history(...args: unknown[]) {
+		return this.#call("history", args);
+	}
+	review(...args: unknown[]) {
+		return this.#call("review", args);
+	}
+	rollback(...args: unknown[]) {
+		return this.#call("rollback", args);
 	}
 	readFile(...args: unknown[]) {
 		return this.#call("readFile", args);

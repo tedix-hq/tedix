@@ -155,6 +155,27 @@ again to be read past its start.
   returns 409 on both public and service fetch. The importer proves its
   snapshot before it sends anything.
 
+## Workspace memory
+
+`env.memory` uses `SqlMemoryAdapter` in the workspace object's SQLite.
+`write({ key, value })` saves a pending revision with the turn's actor and
+source (including its turn ID); code cannot supply its own provenance or
+mark the write approved. Values must be JSON. `read(key)` returns the newest
+revision as `current` and the newest approved revision as `approved`.
+`list(prefix)` and `history(key)` expose the stored revisions and their source.
+
+`review({ revisionId, decision: "approve" | "reject", note? })` decides a
+pending revision once. `rollback({ key, toRevisionId })` appends the earlier
+value with the rollback turn's provenance and `rolledBackFrom`, preserving
+history. Restoring an approved revision stays approved; other restorations
+need review. Writes, review and rollback use the existing approval cards and
+change records. Review records name the person who approved that decision.
+All six methods are available through the sandbox loopback.
+
+This workspace memory is separate from the owner-scoped graph storage port
+`ownedMemory`; organization and personal graph memory retain their existing
+routing and policy checks.
+
 ## Data
 
 The object extends the tenant store from `@tedix/db/tenant-store/store`:
