@@ -397,7 +397,7 @@ const INLINE_CSS = `
 	article h3 { font-size:17px; font-weight:600; }
 	article a { color:#1267c4; text-decoration:underline; }
 	section.slide h2 { margin: 0 0 0.75rem; font-size: 1.4rem; }
-	@page { margin: 1.5cm; }
+	@page { size: A4; margin: 1.5cm; }
 `;
 
 // Match the authored canvas rather than fitting a slide into a document page.
@@ -463,7 +463,7 @@ function documentAppearanceCss(content: OsOutputContent): string {
 	// at five sixths (16px becomes 10pt), across the page, inside its margins.
 	const printSize = Math.round((Number(size) * 500) / 6) / 100;
 	const printLineHeight = Math.round((Number(lineHeight) - 0.2) * 100) / 100;
-	const print = `@page{margin:2cm}@media print{body{padding:0;font-size:${printSize}px;line-height:${printLineHeight}}article{line-height:${printLineHeight}}article,header.export-header{max-width:none}article th,article td{padding:5px 9px}}`;
+	const print = `@page{size:A4;margin:2cm}@media print{body{padding:0;font-size:${printSize}px;line-height:${printLineHeight}}article{line-height:${printLineHeight}}article,header.export-header{max-width:none}article th,article td{padding:5px 9px}}`;
 	return `${DOCUMENT_CSS}body{font-family:${family};font-size:${size}px;line-height:${lineHeight}}article{line-height:${lineHeight}}article,header.export-header{max-width:${width}px;margin-left:auto;margin-right:auto}${print}`;
 }
 
