@@ -3,7 +3,10 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import type { OsGadgetExecution } from "@tedix/api-contract/schemas/os-workspaces";
+import type {
+	OsGadgetExecution,
+	OsWorkspaceResource,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { startFixtureServer } from "./fixture-server";
 import { showWorkpieceView } from "./workpiece-views";
 
@@ -41,6 +44,28 @@ const receipt: OsGadgetExecution = {
 		agentSessionId: null,
 		executionEpoch: 0,
 	},
+};
+const orderSheet: OsWorkspaceResource = {
+	id: "44444444-4444-4444-8444-444444444444",
+	organizationId: "fictional-org",
+	workspaceId,
+	slot: "order_sheet",
+	providerId: "google-sheets",
+	connectionScope: "tenant",
+	personalOwnerUserId: null,
+	connectionInstanceId: null,
+	providerAccess: null,
+	requiredScopes: [],
+	resourceType: "spreadsheet",
+	providerResourceId: "fictional-sheet",
+	name: "Orders 2026",
+	metadata: {},
+	status: "active",
+	createdByKind: "user",
+	createdById: "fictional-member",
+	createdAt: "2026-10-26T12:00:00.000Z",
+	updatedAt: "2026-10-26T12:00:00.000Z",
+	removedAt: null,
 };
 const evidence =
 	process.env.TEDIX_SCREENSHOT_DIR ?? join(tmpdir(), "tedix-app-call-logs");
@@ -107,6 +132,55 @@ try {
 				});
 			},
 		);
+		// The app declares one resource, and the workspace has a sheet attached
+		// for it. Rename and remove answer like the API: they check the
+		// revision the page read and return the changed resource.
+		let sheet = { ...orderSheet };
+		const resourceWrites: Array<Record<string, unknown>> = [];
+		await page.route(
+			/\/api\/rpc\/osWorkspaces\/gadgets\/get(\?|$)/,
+			async (route) => {
+				const response = await route.fetch();
+				const body = await response.json();
+				body.json.currentRevision.manifest.resourceGrants = [
+					{ slot: "order_sheet", operations: ["read", "write"] },
+				];
+				return route.fulfill({ response, json: body });
+			},
+		);
+		await page.route(
+			/\/api\/rpc\/osWorkspaces\/resources\/list(\?|$)/,
+			async (route) => {
+				const response = await route.fetch();
+				const body = await response.json();
+				body.json.items = [...body.json.items, sheet];
+				return route.fulfill({ response, json: body });
+			},
+		);
+		for (const action of ["rename", "remove"] as const)
+			await page.route(
+				`**/api/rpc/osWorkspaces/resources/${action}**`,
+				async (route) => {
+					const input = route.request().postDataJSON().json;
+					resourceWrites.push({ action, ...input });
+					assert.equal(input.resourceId, sheet.id);
+					assert.equal(input.expectedUpdatedAt, sheet.updatedAt);
+					sheet =
+						action === "rename"
+							? {
+									...sheet,
+									name: input.name,
+									updatedAt: "2026-10-26T12:05:00.000Z",
+								}
+							: {
+									...sheet,
+									status: "removed",
+									removedAt: "2026-10-26T12:10:00.000Z",
+									updatedAt: "2026-10-26T12:10:00.000Z",
+								};
+					return route.fulfill({ json: { json: { resource: sheet } } });
+				},
+			);
 		await page.goto(
 			`${server.origin}/workspace/${workspaceId}?workpiece=gadget%3A${gadgetId}&pane=workpiece`,
 			{ waitUntil: "domcontentloaded" },
@@ -177,10 +251,58 @@ try {
 			path: join(evidence, `${width}-${colorScheme}-history-empty.png`),
 			fullPage: true,
 		});
+
+		// Connections: a person renames the sheet the app uses, then takes it
+		// out of the workspace after confirming.
+		await showWorkpieceView(page, "Connections");
+		const connection = page.locator('[data-app-connection="order_sheet"]');
+		await connection.getByText("Orders 2026", { exact: true }).waitFor();
+		await connection
+			.getByRole("button", { name: "Rename Orders 2026" })
+			.click();
+		const newName = connection.getByRole("textbox", {
+			name: "New name for Orders 2026",
+		});
+		const save = connection.getByRole("button", { name: "Save" });
+		assert(await save.isDisabled(), "Save is off until the name changes");
+		await newName.fill("Orders 2027");
+		await save.click();
+		await connection.getByText("Orders 2027", { exact: true }).waitFor();
+		await connection
+			.getByRole("button", { name: "Remove Orders 2027" })
+			.click();
+		await connection
+			.getByText("The connected account stays connected.", { exact: false })
+			.waitFor();
+		assert.equal(resourceWrites.length, 1, "Asking to remove changes nothing");
+		assert(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= innerWidth + 1,
+			),
+		);
+		await page.screenshot({
+			path: join(evidence, `${width}-${colorScheme}-connections.png`),
+			fullPage: true,
+		});
+		await connection
+			.getByRole("button", { name: "Remove", exact: true })
+			.click();
+		await connection.getByText("Nothing attached").waitFor();
+		assert.equal(
+			await connection.getByRole("button", { name: /Rename|Remove/ }).count(),
+			0,
+		);
+		assert.deepEqual(
+			resourceWrites.map((write) => [write.action, write.name]),
+			[
+				["rename", "Orders 2027"],
+				["remove", undefined],
+			],
+		);
 		await page.close();
 	}
 	console.log(
-		"History: run list, run details, late logs, level filters, escaping and pause passed at 375px and 1280px, light and dark",
+		"History (run list, run details, late logs, level filters, escaping, pause) and Connections (rename, remove) passed at 375px and 1280px, light and dark",
 	);
 } finally {
 	await browser.close();
