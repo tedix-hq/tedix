@@ -583,6 +583,12 @@ async function rollbackCmsTenantBundleUnderPermit(
 				`UPDATE tenant_bundles
 				 SET is_active = 0
 				 WHERE slug = ? AND version = ? AND is_active = 1
+				   AND NOT EXISTS (
+				     SELECT 1 FROM cms_restore_permits maintenance
+				     WHERE maintenance.slug = tenant_bundles.slug
+				       AND maintenance.kind = 'scheduled'
+				       AND maintenance.id LIKE 'bundle-retention:%'
+				   )
 				   AND EXISTS (
 				     SELECT 1 FROM tenant_bundles previous
 				     WHERE previous.slug = ? AND previous.version = ?

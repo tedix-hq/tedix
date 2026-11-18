@@ -32,10 +32,12 @@ export async function withScheduledCmsRestorePermit<T>(
 	storage: R2Bucket,
 	identity: CmsRestoreFenceIdentity,
 	run: () => Promise<T>,
+	// Retention's bundle-retention: prefix also fences bundle activation in D1.
+	permitId: string = crypto.randomUUID(),
 ): Promise<{ admitted: false } | { admitted: true; value: T }> {
 	const permit: CmsRestorePermitParams = {
 		...identity,
-		permitId: crypto.randomUUID(),
+		permitId,
 		kind: "scheduled",
 	};
 	if (!(await enterCmsRestorePermit(db, permit))) return { admitted: false };

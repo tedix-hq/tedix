@@ -99,6 +99,11 @@ function createD1Fixture(withRestorePermitSite = false) {
 		deployed_by TEXT,
 		summary TEXT,
 		UNIQUE(slug, version)
+	);
+	CREATE TABLE cms_restore_permits (
+		id TEXT PRIMARY KEY, site_id TEXT NOT NULL, slug TEXT NOT NULL,
+		restore_epoch INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL,
+		entered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`);
 	if (withRestorePermitSite) {
 		sqlite.exec(`
@@ -118,11 +123,6 @@ function createD1Fixture(withRestorePermitSite = false) {
 				capture_id TEXT NOT NULL, restore_epoch INTEGER, closed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 			);
 			CREATE TABLE cms_deprovision_operations (id TEXT PRIMARY KEY);
-			CREATE TABLE cms_restore_permits (
-				id TEXT PRIMARY KEY, site_id TEXT NOT NULL, slug TEXT NOT NULL,
-				restore_epoch INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT 'outer',
-				entered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-			);
 			CREATE TABLE cms_capture_cron_pauses (
 				site_id TEXT PRIMARY KEY, slug TEXT NOT NULL, capture_id TEXT NOT NULL,
 				expires_at_unix INTEGER NOT NULL, drained_at_unix INTEGER
@@ -1710,4 +1710,81 @@ describe("CMS human authority carry-forward on bundle activation", () => {
 		expect(activeVersions(sqlite)).toEqual([4]);
 		expect(markerOf(sqlite)).toBe("etag-4");
 	});
+});
+
+it("retention scheduled permit blocks manual and automatic rollback until release", async () => {
+	const { db, sqlite } = createD1Fixture(true);
+	try {
+		const { bucket, objects } = createBucket();
+		seedBundle(sqlite, 4, false);
+		seedBundle(sqlite, 5, true);
+		seedCompatibleBundle(sqlite, objects, 4, "acme", "0.41.0");
+		sqlite.exec(
+			"INSERT INTO cms_restore_permits (id,site_id,slug,kind) VALUES ('bundle-retention:tick','site-acme','acme','scheduled')",
+		);
+		expect(
+			await activateTenantBundleVersion(
+				{ platformDb: db, bundlesBucket: bucket },
+				"acme",
+				4,
+			),
+		).toMatchObject({ success: false });
+		expect(activeVersions(sqlite)).toEqual([5]);
+		await rollbackCmsTenantBundle(db, bucket, {
+			site: { siteId: "site-acme", slug: "acme", restoreEpoch: 0 },
+			failedVersion: 5,
+			previousVersion: 4,
+		});
+		expect(activeVersions(sqlite)).toEqual([5]);
+		sqlite.exec(
+			"DELETE FROM cms_restore_permits WHERE id = 'bundle-retention:tick'",
+		);
+		expect(
+			await activateTenantBundleVersion(
+				{ platformDb: db, bundlesBucket: bucket },
+				"acme",
+				4,
+			),
+		).toMatchObject({ success: true });
+		expect(activeVersions(sqlite)).toEqual([4]);
+	} finally {
+		sqlite.close();
+	}
+});
+
+it("retention permit prevents publication with and without a predecessor", async () => {
+	for (const predecessor of [null, 1]) {
+		const { db, sqlite } = createD1Fixture(true);
+		try {
+			const { bucket } = createBucket();
+			if (predecessor !== null) seedBundle(sqlite, predecessor, true);
+			sqlite.exec(
+				"INSERT INTO cms_restore_permits (id,site_id,slug,kind) VALUES ('bundle-retention:tick','site-acme','acme','scheduled')",
+			);
+			const upload = {
+				orgSlug: "acme",
+				mainModule: "entry.mjs",
+				files: bundleFiles,
+				version: 2,
+				expectedActiveVersion: predecessor,
+				sourceRevision,
+			};
+			await expect(
+				uploadTenantBundle({ bundlesBucket: bucket, platformDb: db }, upload),
+			).rejects.toThrow("compare-and-swap");
+			expect(activeVersions(sqlite)).toEqual(
+				predecessor === null ? [] : [predecessor],
+			);
+			sqlite.exec(
+				"DELETE FROM cms_restore_permits WHERE id = 'bundle-retention:tick'",
+			);
+			await uploadTenantBundle(
+				{ bundlesBucket: bucket, platformDb: db },
+				upload,
+			);
+			expect(activeVersions(sqlite)).toEqual([2]);
+		} finally {
+			sqlite.close();
+		}
+	}
 });

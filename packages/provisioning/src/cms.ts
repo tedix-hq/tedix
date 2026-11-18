@@ -1039,6 +1039,12 @@ export async function uploadTenantBundle(
 						`UPDATE tenant_bundles SET is_active = is_active
 						 WHERE id = ? AND is_active = 0
 						   AND NOT EXISTS (
+						     SELECT 1 FROM cms_restore_permits maintenance
+						     WHERE maintenance.slug = tenant_bundles.slug
+						       AND maintenance.kind = 'scheduled'
+						       AND maintenance.id LIKE 'bundle-retention:%'
+						   )
+						   AND NOT EXISTS (
 						     SELECT 1 FROM tenant_bundles active
 						     WHERE active.slug = ? AND active.is_active = 1
 						   )`,
@@ -1048,6 +1054,12 @@ export async function uploadTenantBundle(
 					.prepare(
 						`UPDATE tenant_bundles SET is_active = 0
 						 WHERE slug = ? AND version = ? AND is_active = 1
+						   AND NOT EXISTS (
+						     SELECT 1 FROM cms_restore_permits maintenance
+						     WHERE maintenance.slug = tenant_bundles.slug
+						       AND maintenance.kind = 'scheduled'
+						       AND maintenance.id LIKE 'bundle-retention:%'
+						   )
 						   AND EXISTS (
 						     SELECT 1 FROM tenant_bundles target
 						     WHERE target.id = ? AND target.is_active = 0
@@ -1146,6 +1158,12 @@ export async function activateTenantBundleVersion(
 						`UPDATE tenant_bundles SET is_active = is_active
 						 WHERE id = ? AND is_active = 0
 						   AND NOT EXISTS (
+						     SELECT 1 FROM cms_restore_permits maintenance
+						     WHERE maintenance.slug = tenant_bundles.slug
+						       AND maintenance.kind = 'scheduled'
+						       AND maintenance.id LIKE 'bundle-retention:%'
+						   )
+						   AND NOT EXISTS (
 						     SELECT 1 FROM tenant_bundles active
 						     WHERE active.slug = ? AND active.is_active = 1
 						   )`,
@@ -1155,6 +1173,12 @@ export async function activateTenantBundleVersion(
 					.prepare(
 						`UPDATE tenant_bundles SET is_active = 0
 						 WHERE slug = ? AND version = ? AND is_active = 1
+						   AND NOT EXISTS (
+						     SELECT 1 FROM cms_restore_permits maintenance
+						     WHERE maintenance.slug = tenant_bundles.slug
+						       AND maintenance.kind = 'scheduled'
+						       AND maintenance.id LIKE 'bundle-retention:%'
+						   )
 						   AND EXISTS (
 						     SELECT 1 FROM tenant_bundles target
 						     WHERE target.id = ? AND target.is_active = 0

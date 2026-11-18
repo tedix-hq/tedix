@@ -1,9 +1,8 @@
 /**
  * Tenant Bundle Queries
  *
- * Read-side helpers for the `tenant_bundles` table — used by `apps/cms-runtime`
- * to find which Astro+Emdash bundle to load into a per-tenant Worker Loader
- * isolate. Write paths live in `packages/provisioning/src/cms.ts`.
+ * Catalog lookup and retention for CMS runtime bundles. Publication and
+ * activation live in `packages/provisioning/src/cms.ts`.
  */
 
 import { and, asc, count, eq, gt, sql } from "drizzle-orm";
@@ -114,4 +113,69 @@ export async function listTenantBundleRecoveryPoints(
 	return rows
 		.map((row) => ({ ...row, active: Boolean(row.active) }))
 		.sort((a, b) => b.version - a.version);
+}
+
+/** R2 evidence collected under the caller's restore permit. */
+export interface TenantBundleRetentionEvidence {
+	compressedVersions: number[];
+	referencedVersions: number[];
+}
+
+export async function listTenantBundles(
+	db: DbQueryClient,
+	slug: string,
+): Promise<TenantBundle[]> {
+	return db
+		.select()
+		.from(tenantBundles)
+		.where(eq(tenantBundles.slug, slug))
+		.orderBy(asc(tenantBundles.version));
+}
+
+/** No active generation or ambiguous active state means no deletion. */
+export async function listPrunableTenantBundles(
+	db: DbQueryClient,
+	slug: string,
+	keep: number,
+	evidence: TenantBundleRetentionEvidence,
+): Promise<TenantBundle[]> {
+	if (!Number.isSafeInteger(keep) || keep < 0)
+		throw new Error("Invalid bundle retention count");
+	const bundles = await listTenantBundles(db, slug);
+	const active = bundles.filter((bundle) => bundle.isActive);
+	if (active.length !== 1) return [];
+	const older = bundles.filter(
+		(bundle) => !bundle.isActive && bundle.version < active[0]!.version,
+	);
+	const compressed = new Set(evidence.compressedVersions);
+	const protectedVersions = new Set([
+		...evidence.referencedVersions,
+		...(keep === 0
+			? []
+			: older
+					.filter((bundle) => compressed.has(bundle.version))
+					.slice(-keep)
+					.map((bundle) => bundle.version)),
+	]);
+	return older.filter((bundle) => !protectedVersions.has(bundle.version));
+}
+
+/** Recheck active authority in the delete statement, including rollback races. */
+export async function deleteTenantBundleRow(
+	db: DbQueryClient,
+	slug: string,
+	version: number,
+): Promise<boolean> {
+	const deleted = await db
+		.delete(tenantBundles)
+		.where(
+			and(
+				eq(tenantBundles.slug, slug),
+				eq(tenantBundles.version, version),
+				eq(tenantBundles.isActive, false),
+				sql`${tenantBundles.version} < (select min(active.version) from tenant_bundles active where active.slug = ${slug} and active.is_active = 1)`,
+			),
+		)
+		.returning({ version: tenantBundles.version });
+	return deleted.length === 1;
 }
