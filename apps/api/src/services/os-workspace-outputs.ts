@@ -80,7 +80,7 @@ export async function confirmOsWorkspaceFile(
 	// there, so the file's document is created there, not in the shared batch.
 	if (
 		output?.workspaceId &&
-		!(await workspaceOutputsInSharedStore({
+		(await outputs.claimWorkspaceOutputs({
 			organizationId: output.organizationId,
 			workspaceId: output.workspaceId,
 		}))

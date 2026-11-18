@@ -615,6 +615,25 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return owned;
 	}
 
+	/**
+	 * A workspace that has never been imported and has no files in the shared
+	 * database has nothing to move: it keeps its files here from the start.
+	 */
+	async #claimOutputs(scope: WorkspaceScope): Promise<boolean> {
+		const authority = this.#store.get("output-authority");
+		if (
+			authority !== "object" &&
+			authority !== "shared" &&
+			this.#importGeneration() === 0 &&
+			!(await hasSharedWorkspaceOutputs(
+				createDbQueryClient(this.env.DB),
+				scope,
+			))
+		)
+			this.#store.put("output-authority", "object");
+		return this.#ownsOutputs(scope);
+	}
+
 	async outputQuery<K extends OutputQuery["op"]>(
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,
@@ -625,24 +644,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			return (
 				(await this.#ownsOutputs(scope)) ? "object" : "shared"
 			) as OutputQueryResult<K>;
-		if (operation.op === "claim") {
-			// A workspace that has never been imported and has no files in the
-			// shared database has nothing to move: its first file starts here.
-			const authority = this.#store.get("output-authority");
-			if (
-				authority !== "object" &&
-				authority !== "shared" &&
-				this.#importGeneration() === 0 &&
-				!(await hasSharedWorkspaceOutputs(
-					createDbQueryClient(this.env.DB),
-					scope,
-				))
-			)
-				this.#store.put("output-authority", "object");
+		if (operation.op === "claim")
 			return (
-				(await this.#ownsOutputs(scope)) ? "object" : "shared"
+				(await this.#claimOutputs(scope)) ? "object" : "shared"
 			) as OutputQueryResult<K>;
-		}
 		if (operation.op === "thin" && !(await this.#ownsOutputs(scope)))
 			throw new Error("Workspace does not own these outputs");
 		if (operation.op === "snapshot" || operation.op === "import")
@@ -2412,7 +2417,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			validateAppSource: (files, date) =>
 				validateWorkspaceAppSource(this.env.LOADER, files, date),
 			assertWorkspaceAuthority: async () => {
-				if (!(await this.#ownsOutputs(scope)))
+				if (!(await this.#claimOutputs(scope)))
 					throw new Error("Workspace output activation is required");
 			},
 			commitOutput: (outputId, write) =>

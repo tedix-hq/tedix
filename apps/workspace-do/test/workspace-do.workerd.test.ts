@@ -418,6 +418,31 @@ describe("staged output migration", () => {
 		expect((await ws.describe(scope)).outputAuthority).toBe("object");
 	});
 
+	test("the agent can read files in a new workspace before any file exists", async () => {
+		await seedCore();
+		const scope: WorkspaceScope = {
+			organizationId: "org_test",
+			workspaceId: crypto.randomUUID(),
+		};
+		await seedWorkspaceRows([scope]);
+		const ws = workspace(scope);
+		await ws.scriptModel(scope, [
+			{ code: `export default async env => env.outputs.list()` },
+			{ text: "No files yet." },
+		]);
+		const turn = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "What files are here?",
+		});
+		await ws.awaitTurn(scope, turn.turnId, 20_000);
+		const messages = JSON.stringify(
+			await ws.readMessages(scope, turn.conversationId),
+		);
+		expect(messages).not.toContain("activation is required");
+		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");
+	});
+
 	test("a claim never takes over a workspace with files in the shared database or a staged import", async () => {
 		await seedCore();
 		const shared: WorkspaceScope = {
