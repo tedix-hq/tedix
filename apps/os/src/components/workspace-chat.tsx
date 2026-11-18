@@ -1209,8 +1209,9 @@ function approvalPreview(input: Record<string, unknown> | null): string {
 			.filter(Array.isArray)
 			.map((row) => row.join(" · "))
 			.join("\n")}`.slice(0, 2_000);
-	if (Array.isArray(input.ops))
-		return input.ops
+	if (Array.isArray(input.ops)) {
+		const hidden = input.ops.length - 6;
+		const shown = input.ops
 			.slice(0, 6)
 			.map((value) => {
 				const operation = objectValue(value);
@@ -1243,6 +1244,10 @@ function approvalPreview(input: Record<string, unknown> | null): string {
 			})
 			.join("\n")
 			.slice(0, 2_000);
+		return hidden > 0
+			? `${shown}\n… and ${hidden} more ${hidden === 1 ? "operation" : "operations"} not shown`
+			: shown;
+	}
 	const content = objectValue(input.content);
 	if (Array.isArray(content?.blocks))
 		return content.blocks
