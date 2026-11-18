@@ -336,7 +336,13 @@ export async function updateSkillEntry(
 						updates[key] !== undefined &&
 						JSON.stringify(updates[key]) !== JSON.stringify(current[key]),
 				);
-				await assertSkillPaceLayerEval(db, current, layer, !substantiveEdit);
+				await assertSkillPaceLayerEval(
+					db,
+					current,
+					layer,
+					!substantiveEdit,
+					updates.lifecycleState ?? undefined,
+				);
 				writeWhere = and(
 					scopedWhere,
 					eq(skillEntries.revision, current.revision),

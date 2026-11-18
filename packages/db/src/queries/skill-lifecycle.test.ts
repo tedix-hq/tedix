@@ -25,7 +25,7 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
         INSERT INTO policy_packs VALUES ('policy-1', 'org-1', '{"paceLayerPolicy":{"differentiation":{"evalRequired":false},"record":{"evalRequired":false}}}');
         CREATE TABLE skill_schedules (id TEXT PRIMARY KEY, skill_id TEXT, organization_id TEXT, enabled INTEGER, updated_at TEXT);
         CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT, skill_id TEXT, skill_revision INTEGER, status TEXT, result TEXT);
-        CREATE TABLE skill_run_artifacts (id TEXT PRIMARY KEY, run_id TEXT, path TEXT, outcome TEXT);
+        CREATE TABLE skill_run_artifacts (id TEXT PRIMARY KEY, run_id TEXT, path TEXT, outcome TEXT, attempt INTEGER NOT NULL DEFAULT 1);
 		CREATE TABLE skill_entries (
 			id TEXT PRIMARY KEY NOT NULL,
 			organization_id TEXT NOT NULL,
@@ -1232,7 +1232,7 @@ describe("pace-layer eval and TTL policy", () => {
 				);
 			if (kind === "failed-artifact")
 				sqlite.exec(
-					"INSERT INTO skill_run_artifacts VALUES ('artifact', 'eval', 'calls/run/0.json', 'failure')",
+					"INSERT INTO skill_run_artifacts (id, run_id, path, outcome) VALUES ('artifact', 'eval', 'calls/run/0.json', 'failure')",
 				);
 			await expect(
 				updateSkillEntry(
@@ -1246,6 +1246,68 @@ describe("pace-layer eval and TTL policy", () => {
 			});
 		},
 	);
+
+	// Paths and outcomes as the skill runtime writes them: one row per step
+	// attempt and per tool call, each mirrored under `timeline/`.
+	function certificationRun(
+		sqlite: DatabaseSync,
+		artifacts: [path: string, outcome: string, attempt: number][],
+	) {
+		sqlite.exec(
+			`INSERT INTO skill_runs VALUES ('eval', 'org-1', 'candidate', 1, 'completed', '{"mode":"check","certification":{"passed":true,"checks":7,"passedChecks":7},"writes":0}')`,
+		);
+		const insert = sqlite.prepare(
+			"INSERT INTO skill_run_artifacts (id, run_id, path, outcome, attempt) VALUES (?, 'eval', ?, ?, ?)",
+		);
+		for (const [path, outcome, attempt] of artifacts) {
+			insert.run(`a:${path}`, path, outcome, attempt);
+			insert.run(`t:${path}`, `timeline/${path}`, outcome, attempt);
+		}
+	}
+	const activate = (db: ReturnType<typeof fixture>["db"]) =>
+		updateSkillEntry(db, "candidate", {
+			lifecycleState: "active",
+			revision: 2,
+		});
+
+	it("activates a draft whose certification run retried a failed tool call and then passed", async () => {
+		const { db, sqlite, insertSkill, insertEvent, skillRow } = fixture();
+		insertSkill({ id: "candidate", lifecycleState: "draft", tediId: null });
+		insertEvent({ skillId: "candidate", outcome: "success" });
+		const step = "epochs/1/steps/read-inbox/1/attempts";
+		certificationRun(sqlite, [
+			[`${step}/1.json`, "failure", 1],
+			[`${step}/1/calls/run/1.json`, "failure", 1],
+			[`${step}/2.json`, "success", 2],
+			[`${step}/2/calls/run/1.json`, "success", 2],
+		]);
+		await activate(db);
+		expect(skillRow("candidate").lifecycleState).toBe("active");
+	});
+
+	it.each([
+		["the step never recovered", "failure"],
+		["the workflow carried on past it", "success"],
+	])("still refuses a failed tool call when %s", async (_case, stepOutcome) => {
+		const { db, sqlite, insertSkill, insertEvent } = fixture();
+		insertSkill({ id: "candidate", lifecycleState: "draft", tediId: null });
+		insertEvent({ skillId: "candidate", outcome: "success" });
+		const step = "epochs/1/steps/read-inbox/1/attempts";
+		certificationRun(sqlite, [
+			[`${step}/1.json`, stepOutcome, 1],
+			[`${step}/1/calls/run/1.json`, "failure", 1],
+			// A different step succeeding on a later attempt recovers nothing here.
+			["epochs/1/steps/other/2/attempts/2.json", "success", 2],
+		]);
+		await expect(activate(db)).rejects.toMatchObject({
+			message: expect.stringContaining(`${step}/1/calls/run/1.json`),
+			details: {
+				rule: "pace_layer_requires_eval",
+				from: "draft",
+				to: "active",
+			},
+		});
+	});
 
 	it("uses per-layer TTL before the global fallback for ordinary and ephemeral drafts", async () => {
 		const { db, sqlite, insertSkill, skillRow } = fixture();

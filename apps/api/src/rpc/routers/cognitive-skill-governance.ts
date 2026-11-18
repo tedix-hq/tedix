@@ -252,13 +252,29 @@ type WorkflowCertificationArtifact = {
 	outcome: "pending" | "success" | "failure";
 };
 
+/**
+ * A failed tool call that was never made good. Mirrors the eval gate in
+ * `@tedix/db/queries/skill-lifecycle`: a failure does not count once a later
+ * attempt of the same step succeeded.
+ */
 function isFailedWorkflowToolCall(
 	artifact: WorkflowCertificationArtifact,
+	artifacts: WorkflowCertificationArtifact[],
 ): boolean {
-	return (
-		artifact.outcome === "failure" &&
-		/(?:^|\/)calls\/(?:run|compensate)\/\d+\.json$/.test(artifact.path)
-	);
+	if (artifact.outcome !== "failure") return false;
+	const call =
+		/^(?:(.*\/attempts\/)(\d+)\/|(?:.*\/)?)calls\/(?:run|compensate)\/\d+\.json$/.exec(
+			artifact.path,
+		);
+	if (!call) return false;
+	const [, step, attempt] = call;
+	if (step === undefined) return true;
+	return !artifacts.some((other) => {
+		if (other.outcome !== "success" || !other.path.startsWith(step))
+			return false;
+		const later = /^(\d+)\.json$/.exec(other.path.slice(step.length));
+		return later !== null && Number(later[1]) > Number(attempt);
+	});
 }
 
 export function workflowCertificationPassed(
@@ -267,7 +283,10 @@ export function workflowCertificationPassed(
 ): boolean {
 	if (!result || typeof result !== "object" || Array.isArray(result))
 		return false;
-	if (artifacts.some(isFailedWorkflowToolCall)) return false;
+	if (
+		artifacts.some((artifact) => isFailedWorkflowToolCall(artifact, artifacts))
+	)
+		return false;
 	const certification = (result as Record<string, unknown>).certification;
 	if (
 		!certification ||

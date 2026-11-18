@@ -30,6 +30,7 @@
  */
 
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import {
 	type SkillEntry,
@@ -130,6 +131,38 @@ export function isSkillLifecyclePromotion(
 	return LIFECYCLE_RANK[target] > LIFECYCLE_RANK[current ?? "draft"];
 }
 
+const certificationPassed = sql<boolean>`(
+    json_extract(${skillRuns.result}, '$.certification.passed') = 1
+    or json_extract(${skillRuns.result}, '$.certification.status') = 'passed'
+    or json_extract(${skillRuns.result}, '$.certification.overallStatus') = 'passed'
+)`;
+
+const laterStepAttempt = alias(skillRunArtifacts, "later_step_attempt");
+
+/**
+ * A tool call of this run that failed and was never made good. The runtime
+ * keeps one record per attempt (`…/attempts/1/calls/run/1.json`), so a call
+ * that failed once and passed when the engine retried its step leaves the
+ * failure behind for good; it does not count once a later attempt of the same
+ * step (`…/attempts/2.json`) succeeded. A failure inside an attempt that
+ * itself succeeded still counts: the workflow carried on past a failed call.
+ */
+const unrecoveredFailedCall = sql<boolean>`(
+    ${skillRunArtifacts.runId} = ${skillRuns.id}
+    and ${skillRunArtifacts.outcome} = 'failure'
+    and (${skillRunArtifacts.path} glob '*calls/run/[0-9]*.json'
+        or ${skillRunArtifacts.path} glob '*calls/compensate/[0-9]*.json')
+    and not exists (
+        select 1 from ${skillRunArtifacts} as ${laterStepAttempt}
+        where ${laterStepAttempt.runId} = ${skillRunArtifacts.runId}
+        and ${laterStepAttempt.outcome} = 'success'
+        and ${laterStepAttempt.attempt} > ${skillRunArtifacts.attempt}
+        and instr(${skillRunArtifacts.path}, '/attempts/') > 0
+        and ${laterStepAttempt.path} = substr(${skillRunArtifacts.path}, 1, instr(${skillRunArtifacts.path}, '/attempts/') + 9)
+            || ${laterStepAttempt.attempt} || '.json'
+    )
+)`;
+
 /** Kept in the UPDATE predicate so a concurrent revision cannot reuse an older eval. */
 export function skillEvalGateCondition(
 	layer: SkillPaceLayer,
@@ -143,20 +176,55 @@ export function skillEvalGateCondition(
             and ${skillRuns.organizationId} = ${skillEntries.organizationId}
             and ${skillRuns.skillRevision} = ${skillEntries.revision}
             and ${skillRuns.status} = 'completed'
-            and (
-                json_extract(${skillRuns.result}, '$.certification.passed') = 1
-                or json_extract(${skillRuns.result}, '$.certification.status') = 'passed'
-                or json_extract(${skillRuns.result}, '$.certification.overallStatus') = 'passed'
-            )
+            and ${certificationPassed}
             and not exists (
-                select 1 from ${skillRunArtifacts}
-                where ${skillRunArtifacts.runId} = ${skillRuns.id}
-                and ${skillRunArtifacts.outcome} = 'failure'
-                and (${skillRunArtifacts.path} glob '*calls/run/[0-9]*.json'
-                    or ${skillRunArtifacts.path} glob '*calls/compensate/[0-9]*.json')
+                select 1 from ${skillRunArtifacts} where ${unrecoveredFailedCall}
             )
         ))
     )`;
+}
+
+/** Why the eval gate refused, named so the caller can act on it. */
+async function describeMissingSkillEval(
+	db: DbClient,
+	entry: Pick<SkillEntry, "id" | "organizationId">,
+	allowRecordedEval: boolean,
+): Promise<string> {
+	if (!allowRecordedEval)
+		return "This change also edits the skill, and a certification run only covers the revision it ran on. Save the edit first, run certification on the new revision, then promote.";
+	const runs = await db
+		.select({
+			runId: skillRuns.id,
+			runStatus: skillRuns.status,
+			entryRevision: skillEntries.revision,
+			passed: sql<number>`case when ${certificationPassed} then 1 else 0 end`,
+			failedCall: sql<
+				string | null
+			>`(select min(${skillRunArtifacts.path}) from ${skillRunArtifacts} where ${unrecoveredFailedCall})`,
+		})
+		.from(skillRuns)
+		.innerJoin(
+			skillEntries,
+			and(
+				eq(skillRuns.skillId, skillEntries.id),
+				eq(skillRuns.organizationId, skillEntries.organizationId),
+				eq(skillRuns.skillRevision, skillEntries.revision),
+			),
+		)
+		.where(
+			and(
+				eq(skillEntries.id, entry.id),
+				eq(skillEntries.organizationId, entry.organizationId),
+			),
+		)
+		.limit(50);
+	const completed = runs.filter((run) => run.runStatus === "completed");
+	if (completed.length === 0)
+		return "No completed run of the current revision was found; run it with certification=true.";
+	const passing = completed.find((run) => run.passed === 1);
+	if (!passing)
+		return `Run ${completed[0]!.runId} completed, but its result does not report certification.passed=true.`;
+	return `Run ${passing.runId} reported a pass, but its tool call ${passing.failedCall} failed and its step did not succeed on a later attempt; run certification again.`;
 }
 
 export async function assertSkillPaceLayerEval(
@@ -164,6 +232,7 @@ export async function assertSkillPaceLayerEval(
 	entry: Pick<SkillEntry, "id" | "organizationId" | "lifecycleState">,
 	layer: SkillPaceLayer,
 	allowRecordedEval = true,
+	target?: SkillLifecycleState,
 ): Promise<void> {
 	const [allowed] = await db
 		.select({ id: skillEntries.id })
@@ -178,11 +247,11 @@ export async function assertSkillPaceLayerEval(
 		.limit(1);
 	if (!allowed)
 		throw new SkillLifecycleTransitionError(
-			`Promotion into ${layer} requires a recorded passing certification eval for this skill revision`,
+			`Promotion into ${layer} requires a recorded passing certification eval for this skill revision. ${await describeMissingSkillEval(db, entry, allowRecordedEval)}`,
 			{
 				skillId: entry.id,
 				from: entry.lifecycleState ?? "draft",
-				to: entry.lifecycleState ?? "draft",
+				to: target ?? entry.lifecycleState ?? "draft",
 				rule: "pace_layer_requires_eval",
 			},
 		);
