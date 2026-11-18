@@ -49,13 +49,24 @@ export async function resolveThemeArtifactFile(
 	root: string,
 	path: string,
 ) {
+	const hash = await findThemeArtifactFile(repo, root, path);
+	if (!hash) throw new Error("Artifacts source file unavailable");
+	return hash;
+}
+
+/** Missing entries are distinct from failed reads or malformed trees. */
+export async function findThemeArtifactFile(
+	repo: ArtifactsRepo,
+	root: string,
+	path: string,
+) {
 	const parts = path.split("/");
 	let hash = root;
 	for (let index = 0; index < parts.length; index++) {
 		const entry = (await readTree(repo, hash)).find(
 			(item) => item.name === parts[index],
 		);
-		if (!entry) throw new Error("Artifacts source file unavailable");
+		if (!entry) return null;
 		if (index === parts.length - 1) {
 			if (
 				(entry.type !== "blob" && entry.type !== "exec") ||

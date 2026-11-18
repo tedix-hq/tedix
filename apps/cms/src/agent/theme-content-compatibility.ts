@@ -42,12 +42,16 @@ export async function withPublishedBlocks(
 	env: AppBindings,
 	orgSlug: string,
 	defaults: ThemeRelease["supportedBlocks"],
+	maxPages = Infinity,
 ): Promise<ThemeRelease["supportedBlocks"]> {
 	const blocks: Record<string, number[]> = Object.fromEntries(
 		Object.entries(defaults).map(([type, versions]) => [type, [...versions]]),
 	);
-	await visitPublishedContent(env, orgSlug, (data) =>
-		collectBlockVersions(data, blocks),
+	await visitPublishedContent(
+		env,
+		orgSlug,
+		(data) => collectBlockVersions(data, blocks),
+		maxPages,
 	);
 	return blocks;
 }
@@ -56,6 +60,7 @@ async function visitPublishedContent(
 	env: AppBindings,
 	orgSlug: string,
 	visit: (data: Record<string, unknown>) => void,
+	maxPages = Infinity,
 ): Promise<void> {
 	const ctx: CmsProxyContext = {
 		orgSlug,
@@ -83,10 +88,13 @@ async function visitPublishedContent(
 		const collections = collectionsSchema.parse(
 			await read("/schema/collections"),
 		);
+		let pages = 0;
 		for (const { slug } of collections.items) {
 			let cursor: string | undefined;
 			const seen = new Set<string>();
 			do {
+				if (++pages > maxPages)
+					throw new Error("Native content page limit exceeded");
 				const query = new URLSearchParams({
 					status: "published",
 					limit: "100",
