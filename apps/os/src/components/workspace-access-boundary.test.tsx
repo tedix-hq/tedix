@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 	events: vi.fn(),
 	dispose: vi.fn(),
 	retired: vi.fn(),
+	reopened: vi.fn(),
 }));
 vi.mock("@/lib/api", () => {
 	// Only the two collaborator reads are real here. Every other API path is a
@@ -40,7 +41,10 @@ vi.mock("@/lib/capability-lifecycle", () => ({
 	disposeOsCapabilities: mocks.dispose,
 }));
 vi.mock("@/components/shared-workspace-page", () => ({
-	SharedWorkspacePage: () => <div>Reopened workspace</div>,
+	SharedWorkspacePage: function SharedWorkspacePage() {
+		useEffect(() => mocks.reopened(), []);
+		return <div>Reopened workspace</div>;
+	},
 }));
 import {
 	WorkspaceAccessBoundary,
@@ -233,6 +237,56 @@ describe("open workspace permission changes", () => {
 				await vi.advanceTimersByTimeAsync(1);
 			});
 			expect(mount).not.toHaveBeenCalled();
+			expect(container.textContent).not.toContain("Private Canvas");
+		} finally {
+			act(() => root.unmount());
+			client.clear();
+		}
+	});
+
+	it("keeps the refused page in place while later checks are refused too", async () => {
+		vi.useFakeTimers();
+		mocks.access.mockRejectedValue({ code: "NOT_FOUND", status: 404 });
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const container = document.createElement("div"),
+			root = createRoot(container);
+		try {
+			await act(async () => {
+				root.render(
+					<QueryClientProvider client={client}>
+						<WorkspaceAccessBoundary workspaceId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa">
+							<div>Private Canvas</div>
+						</WorkspaceAccessBoundary>
+					</QueryClientProvider>,
+				);
+				await vi.advanceTimersByTimeAsync(1);
+			});
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(1);
+			});
+			expect(container.textContent).toBe("Reopened workspace");
+			let held: (error: unknown) => void = () => undefined;
+			mocks.access.mockImplementation(
+				() =>
+					new Promise((_resolve, reject) => {
+						held = reject;
+					}),
+			);
+			const checks = mocks.access.mock.calls.length;
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(WORKSPACE_ACCESS_CHECK_MS);
+			});
+			// The next check is on its way; the page a person reads must not blink.
+			expect(mocks.access.mock.calls.length).toBeGreaterThan(checks);
+			expect(container.textContent).toBe("Reopened workspace");
+			await act(async () => {
+				held({ code: "NOT_FOUND", status: 404 });
+				await vi.advanceTimersByTimeAsync(1);
+			});
+			expect(container.textContent).toBe("Reopened workspace");
+			expect(mocks.reopened).toHaveBeenCalledTimes(1);
 			expect(container.textContent).not.toContain("Private Canvas");
 		} finally {
 			act(() => root.unmount());

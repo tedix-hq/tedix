@@ -67,14 +67,22 @@ export function WorkspaceAccessBoundary({
 			access.data !== undefined &&
 			access.data.role !== "build";
 	const retainedWorkspace = useRef<string | null>(null);
+	// A refused check with nothing loaded goes back to "pending" on every
+	// recheck. The refused page stays up through those rechecks, or it would
+	// blink and reopen every few seconds; only a verified check replaces it.
+	const refusedWorkspace = useRef<string | null>(null);
 	useEffect(() => {
-		if (verified) retainedWorkspace.current = workspaceId;
+		if (verified) {
+			retainedWorkspace.current = workspaceId;
+			refusedWorkspace.current = null;
+		}
 		if (denied) {
 			if (retainedWorkspace.current === workspaceId) disposeOsCapabilities();
 			retainedWorkspace.current = null;
+			refusedWorkspace.current = workspaceId;
 		}
 	}, [denied, verified, workspaceId]);
-	if (denied)
+	if (denied || (!verified && refusedWorkspace.current === workspaceId))
 		return (
 			<Suspense fallback={<div role="status">Opening shared workspace…</div>}>
 				<SharedWorkspacePage workspaceId={workspaceId} />
