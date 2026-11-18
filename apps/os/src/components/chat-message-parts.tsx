@@ -413,15 +413,17 @@ export function ChatStarterPrompts({
 					</Button>
 				))}
 			</div>
-			<Button
-				type="button"
-				size="sm"
-				variant="ghost"
-				className="mt-1 text-kumo-subtle"
-				onClick={() => setSet((current) => current + 1)}
-			>
-				More ideas
-			</Button>
+			<div data-focus-ring="inset" className="mt-1">
+				<Button
+					type="button"
+					size="sm"
+					variant="ghost"
+					className="text-kumo-subtle"
+					onClick={() => setSet((current) => current + 1)}
+				>
+					More ideas
+				</Button>
+			</div>
 		</>
 	);
 }
