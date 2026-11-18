@@ -8345,6 +8345,36 @@ describe("structured dispatcher outcomes", () => {
 			f.events.some((e) => e.verb === "start" && e.args[4] === "work"),
 		).toBe(false);
 	});
+	it("rejects already_satisfied without CI approval with actionable guidance", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		f.control.finalMessage = `Already fixed on main\nTEDIX_LANE_RESULT ${JSON.stringify({ ...existing(), ciApprovalId: undefined })}`;
+		f.deps.verifyExisting = () => {
+			throw new Error("Must not request CI proof without CI approval");
+		};
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		expect(f.briefs[0]).toContain(
+			"Reserve outcome=already_satisfied for approved CI recovery only",
+		);
+		expect(f.briefs[0]).toContain(
+			"Non-CI tasks must use outcome=landed_unverified with existingCommits and unverified",
+		);
+		f.releases[0]!();
+		await dispatcher.drain();
+		const settle = f.events.find((e) => e.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("rejected");
+		const note = settle.args[settle.args.indexOf("--note") + 1]!;
+		expect(note).toContain("Result rejected");
+		expect(note).toContain("outcome=landed_unverified with existingCommits");
+		expect(note).toContain("Already fixed on main");
+		expect(note).not.toContain("runner fault");
+		expect(f.events.some((e) => e.verb === "approval-audit-list")).toBe(false);
+		expect(f.events.some((e) => e.verb === "complete")).toBe(false);
+	});
 	it.each(["verified", "unavailable", "stale-session", "stale-version"])(
 		"fences preexisting completion: %s",
 		async (mode) => {
