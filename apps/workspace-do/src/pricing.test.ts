@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { providerDeploymentScope } from "@tedix/api-contract/schemas/provider-execution";
-import { priceTurn, turnPricingIdentity } from "./pricing";
+import { turnPricingIdentity } from "./model";
+import { priceTurn } from "./pricing";
 
 const env = {
 	AI_GATEWAY_ACCOUNT_ID: "acct-example",

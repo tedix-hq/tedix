@@ -3,39 +3,9 @@
  * the chat can show what a turn cost or say exactly why it cannot.
  */
 import { resolveDirectProviderUsagePrice } from "@tedix/db/queries/billing/provider-model-rates";
-import { type AzureGatewayEnv, configured } from "./model";
+import { type AzureGatewayEnv, turnPricingIdentity } from "./model";
 import type { TurnResult } from "./turn-loop";
 import type { TurnUsage } from "./wire";
-
-/** The rate-table identity for a workspace model, matching `providerDeploymentScope`. */
-export function turnPricingIdentity(
-	env: AzureGatewayEnv,
-	modelId: string,
-): { provider: string; modelId: string; deploymentScope: string } | null {
-	const account = configured(env.AI_GATEWAY_ACCOUNT_ID);
-	if (!account) return null;
-	if (modelId.startsWith("@cf/"))
-		return {
-			provider: "workers-ai",
-			modelId,
-			deploymentScope: JSON.stringify(["workers-ai", account]),
-		};
-	const resource = configured(env.AZURE_OPENAI_RESOURCE);
-	const deployment = configured(env.AZURE_CHAT_DEPLOYMENT);
-	const gateway = configured(env.AI_GATEWAY_LLM_ID);
-	if (!resource || !deployment || !gateway) return null;
-	return {
-		provider: "azure-openai",
-		modelId: deployment,
-		deploymentScope: JSON.stringify([
-			"azure-openai",
-			account,
-			gateway,
-			`https://${resource.toLowerCase()}.openai.azure.com`,
-			deployment,
-		]),
-	};
-}
 
 const REASONS: Record<string, string> = {
 	missing_rate: "no price for this model",
