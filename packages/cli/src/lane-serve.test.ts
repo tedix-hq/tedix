@@ -7092,10 +7092,13 @@ it("removes stale recovery folders and says when the cap cannot be met", async (
 	const { dispatcher, dir, items, control } = fixture({ capBytes: 1 });
 	items.splice(0);
 	const run = join(dir, "runs", `${item().id}-2`);
+	const sibling = join(dir, "runs", `${item().id}-3`);
 	const stale = join(run, "repo.orphan-old");
 	const fresh = join(run, "repo.orphan-new");
+	const siblingFresh = join(sibling, "repo.orphan-new");
 	mkdirSync(join(stale, "repo"), { recursive: true });
 	mkdirSync(join(fresh, "repo"), { recursive: true });
+	mkdirSync(join(siblingFresh, "repo"), { recursive: true });
 	utimesSync(stale, 1, 1);
 	control.runSize = 2;
 	control.cleanupResult = false;
@@ -7106,8 +7109,10 @@ it("removes stale recovery folders and says when the cap cannot be met", async (
 	const log = readFileSync(join(dir, "dispatcher.log"), "utf8");
 	expect(log).toContain('"event":"recovery-removed"');
 	expect(log).toContain('"event":"checkout-cap-held"');
-	expect(log).toContain("1 removable run folders refused removal");
-	expect(log).toContain('"event":"checkout-held"');
+	expect(log).toContain("2 removable run folders refused removal");
+	expect(log.match(/"event":"checkout-held"/g)).toHaveLength(2);
+	expect(log).toContain(`${item().id}-2: refused`);
+	expect(log).toContain(`${item().id}-3: refused`);
 	expect(log).toContain("refused: it still has a checkout inside");
 });
 

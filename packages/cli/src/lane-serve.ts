@@ -3566,6 +3566,7 @@ export class LaneDispatcher {
 		}
 		let total = 0;
 		const candidates: Array<{
+			name: string;
 			run: string;
 			path: string;
 			itemId: string;
@@ -3573,7 +3574,9 @@ export class LaneDispatcher {
 			size: number;
 			remove: (refused: (reason: string) => void) => Promise<void>;
 		}> = [];
-		const held = new Map<string, string>();
+		const held = new Map<string, { itemId: string; reason: string }>();
+		const hold = (name: string, itemId: string, reason: string) =>
+			held.set(name, { itemId, reason });
 		for (const name of names) {
 			if (this.stopping) return;
 			const run = join(runs, name);
@@ -3591,12 +3594,14 @@ export class LaneDispatcher {
 			const itemId = name.slice(0, 36);
 			if (row) {
 				if (!this.checkoutCleanupReady(row, true))
-					held.set(
+					hold(
+						name,
 						itemId,
 						`protected: phase ${row.phase}${row.pid && alive(row.pid) ? ", process alive" : ""}${row.pendingCommitProof !== undefined || row.pendingObservation ? ", proof pending" : ""}${row.admissionState === "unknown" ? ", admission unknown" : ""}`,
 					);
 				else
 					candidates.push({
+						name,
 						run,
 						path: row.repo!,
 						itemId: row.itemId,
@@ -3622,9 +3627,10 @@ export class LaneDispatcher {
 						},
 					});
 			} else if (!this.orphanRun(name, itemId, run, receipted, referenced))
-				held.set(itemId, "protected: a live run or receipt refers to it");
+				hold(name, itemId, "protected: a live run or receipt refers to it");
 			else {
 				candidates.push({
+					name,
 					run,
 					path: run,
 					itemId,
@@ -3651,7 +3657,8 @@ export class LaneDispatcher {
 			// a checkout it had refused was never offered for eviction at all.
 			const eviction = `evict:${candidate.path}`;
 			if (!this.cleanupDue(eviction)) {
-				held.set(
+				hold(
+					candidate.name,
 					candidate.itemId,
 					`waiting for its retry backoff${this.refusals.has(candidate.path) ? `; last refused: ${this.refusals.get(candidate.path)}` : ""}`,
 				);
@@ -3659,15 +3666,19 @@ export class LaneDispatcher {
 			}
 			try {
 				await candidate.remove((reason) =>
-					held.set(candidate.itemId, `refused: ${reason}`),
+					hold(candidate.name, candidate.itemId, `refused: ${reason}`),
 				);
 			} catch (error) {
-				held.set(candidate.itemId, `failed: ${String(error)}`);
+				hold(candidate.name, candidate.itemId, `failed: ${String(error)}`);
 				this.log("cleanup-deferred", candidate.itemId, String(error));
 				continue;
 			}
-			if (existsSync(candidate.run) && !held.has(candidate.itemId))
-				held.set(candidate.itemId, "refused: it still has a checkout inside");
+			if (existsSync(candidate.run) && !held.has(candidate.name))
+				hold(
+					candidate.name,
+					candidate.itemId,
+					"refused: it still has a checkout inside",
+				);
 			if (!existsSync(candidate.run)) {
 				this.cleanupAfter.delete(eviction);
 				total -= candidate.size;
@@ -3680,10 +3691,14 @@ export class LaneDispatcher {
 		}
 		if (total > cap) {
 			for (const candidate of candidates)
-				if (existsSync(candidate.run) && !held.has(candidate.itemId))
-					held.set(candidate.itemId, "not reached before the cap was met");
-			for (const [itemId, reason] of held)
-				this.log("checkout-held", itemId, reason);
+				if (existsSync(candidate.run) && !held.has(candidate.name))
+					hold(
+						candidate.name,
+						candidate.itemId,
+						"not reached before the cap was met",
+					);
+			for (const [name, { itemId, reason }] of held)
+				this.log("checkout-held", itemId, `${name}: ${reason}`);
 			this.log(
 				"checkout-cap-held",
 				undefined,
