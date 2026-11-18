@@ -136,6 +136,9 @@ const collabCommit = vi.hoisted(() => ({
 const chatHarness = vi.hoisted(() => ({
 	onSelect: null as ((conversationId: string | null) => void) | null,
 	onConversationCreated: null as ((conversationId: string) => void) | null,
+	onSendMessageReady: null as
+		| ((send: (content: string) => void) => void)
+		| null,
 }));
 
 const organization = vi.hoisted(() => ({
@@ -254,13 +257,16 @@ vi.mock("@/components/workspace-chat", () => ({
 		onOpenList,
 		onSelectConversation,
 		onConversationCreated,
+		onSendMessageReady,
 	}: {
 		conversationId: string | null;
 		listOpen: boolean;
 		onOpenList: () => void;
 		onSelectConversation: (conversationId: string | null) => void;
 		onConversationCreated?: (conversationId: string) => void;
+		onSendMessageReady?: (send: (content: string) => void) => void;
 	}) => {
+		chatHarness.onSendMessageReady = onSendMessageReady ?? null;
 		chatHarness.onSelect = onSelectConversation;
 		chatHarness.onConversationCreated = onConversationCreated ?? null;
 		return (
@@ -356,6 +362,7 @@ import {
 	restoreCanvasChatWidth,
 	workspaceConnectionContext,
 } from "./canvas-page";
+import { holdWorkspaceFirstMessage } from "@/lib/workspace-first-message";
 import { canvasWorkpieceModeOptions } from "./canvas-workpiece-tabs";
 import {
 	outputKindError,
@@ -930,6 +937,8 @@ beforeEach(() => {
 	collabCommit.groundCommit.mockReset();
 	chatHarness.onSelect = null;
 	chatHarness.onConversationCreated = null;
+	chatHarness.onSendMessageReady = null;
+	window.sessionStorage.clear();
 	routing.navigate.mockReset();
 	routing.search = {};
 	mockCollab({ initial: docJson(baseContent) });
@@ -1264,6 +1273,18 @@ describe("canvasArtifactPaneLabel", () => {
 // ---------------------------------------------------------------------------
 
 describe("CanvasPage listing", () => {
+	it("sends a question held by Home chat as the workspace's first message, once", async () => {
+		mockLists();
+		holdWorkspaceFirstMessage(WORKSPACE_ID, "Plan the spring offsite");
+		renderPage();
+		await flush();
+		const send = vi.fn();
+		act(() => chatHarness.onSendMessageReady?.(send));
+		act(() => chatHarness.onSendMessageReady?.(send));
+		expect(send).toHaveBeenCalledOnce();
+		expect(send).toHaveBeenCalledWith("Plan the spring offsite");
+	});
+
 	it("opens a repository session without querying Output content or creating Work", async () => {
 		mockLists();
 		const workId = "11111111-1111-4111-8111-111111111111";
