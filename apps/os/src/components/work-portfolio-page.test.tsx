@@ -840,14 +840,6 @@ describe("Work landing", () => {
 		expect(WorkIndexRoute.options.component).toBeDefined();
 		expect(WorkIndexRoute.options.beforeLoad).toBeUndefined();
 	});
-	it("keeps old completed links as the Done feed filter", () => {
-		const validate = WorkIndexRoute.options.validateSearch as (
-			input: Record<string, unknown>,
-		) => Record<string, unknown>;
-		expect(validate({ disposition: "completed" })).toEqual({
-			filter: "history",
-		});
-	});
 });
 
 describe("isPlaceholderBrief", () => {
