@@ -133,12 +133,55 @@ describe("workspace activity sentences", () => {
 			entries.map((entry) => `${entry.lead} ${entry.file?.title}`),
 		).toEqual([
 			"Someone changed Notes",
-			"An agent changed a file",
-			"Someone archived a file",
+			"The agent changed a file",
+			"The agent archived a file",
 		]);
 		expect(JSON.stringify(entries)).not.toMatch(
 			/user-unknown|tedi-unknown|workspace_object|record-/,
 		);
+	});
+
+	it("credits the agent for what it did while answering a person, and names app work plainly", () => {
+		const me = { kind: "user", id: "user-me" } as const;
+		expect(
+			sentences([
+				item({ kind: "run", actor: me, action: action("app", "create") }),
+				item({
+					kind: "run",
+					actor: me,
+					action: action("app", "create", "needs_approval"),
+				}),
+				item({ kind: "run", actor: me, action: action("app", "readFile") }),
+				item({ kind: "run", actor: me, action: action("app", "writeFile") }),
+				// The person's own change through the app, not the agent's.
+				item({ actor: me, title: "Budget", revision: 1, ...file("b", "r1") }),
+			]),
+		).toEqual([
+			"The agent created an app",
+			"The agent asked to create an app",
+			"The agent read an app's code",
+			"The agent changed an app",
+			"You created Budget",
+		]);
+	});
+
+	it("leaves out the check before an app is created and anything it has no plain words for", () => {
+		const me = { kind: "user", id: "user-me" } as const;
+		expect(
+			sentences([
+				item({ kind: "run", actor: me, action: action("app_check", "create") }),
+				item({
+					kind: "run",
+					actor: me,
+					action: action("something_new", "poke"),
+				}),
+				item({
+					kind: "run",
+					actor: me,
+					action: action("conversation", "turn.finished"),
+				}),
+			]),
+		).toEqual([]);
 	});
 
 	it("tells created, changed, renamed, archived and restored apart", () => {

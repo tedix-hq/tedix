@@ -7,7 +7,6 @@ import {
 	FilePlus,
 	Files,
 	Globe,
-	Lightning,
 	ListChecks,
 	PencilSimple,
 	Plugs,
@@ -16,7 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { WorkspaceActivityItem } from "@tedix/api-contract/schemas/workspace-feed";
-import type { ComponentType } from "react";
+import { type ComponentType, useEffect } from "react";
 import { Button } from "@/components/kumo/button";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import { Link } from "@/components/kumo/link";
@@ -30,6 +29,11 @@ import {
 import { absoluteTime, dayHeading, dayKey, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { useTediNames } from "@/lib/use-tedi-names";
+
+/** How many lines the list tries to show before it stops reading further back by itself. */
+const ACTIVITY_FIRST_VIEW = 8;
+/** The most pages read without the person asking for more. */
+const ACTIVITY_AUTO_PAGES = 8;
 
 /** Only file changes and agent actions are shown; chat steps stay in their conversation. */
 const WORKSPACE_ACTIVITY_KINDS = ["output", "run"] as const;
@@ -135,6 +139,18 @@ const DEEDS = {
 		base: "read an app's code",
 		file: false,
 	},
+	createdApp: {
+		icon: Code,
+		past: "created an app",
+		base: "create an app",
+		file: false,
+	},
+	changedApp: {
+		icon: Code,
+		past: "changed an app",
+		base: "change an app",
+		file: false,
+	},
 	proposedAppChange: {
 		icon: Code,
 		past: "proposed a change to an app",
@@ -147,17 +163,15 @@ const DEEDS = {
 		base: "look at the connected sources",
 		file: false,
 	},
-	other: {
-		icon: Lightning,
-		past: "did something in this workspace",
-		base: "do something in this workspace",
-		file: false,
-	},
 } satisfies Record<string, Deed>;
 
 type DeedName = keyof typeof DEEDS;
 
-/** The deed a recorded agent action stands for; null for chat steps. */
+/**
+ * The deed a recorded agent action stands for; null for chat steps, for the
+ * check an app passes before it is created, and for anything with no plain
+ * name: a line that says only that something happened tells the reader nothing.
+ */
 function actionDeed(resource: string, operation: string): DeedName | null {
 	if (resource === "conversation") return null;
 	if (resource === "output" || resource === "outputs") {
@@ -174,10 +188,14 @@ function actionDeed(resource: string, operation: string): DeedName | null {
 	if (resource === "web") return "readWeb";
 	if (resource === "web_domain") return "openedSite";
 	if (resource === "view") return "showedView";
-	if (resource === "app") return "readApp";
+	if (resource === "app") {
+		if (operation === "create") return "createdApp";
+		if (/^(read|get|list|grep)/.test(operation)) return "readApp";
+		return "changedApp";
+	}
 	if (resource === "app_draft") return "proposedAppChange";
 	if (resource === "resource") return "listedSources";
-	return "other";
+	return null;
 }
 
 /** One line of the list: who did what to which file, and when. */
@@ -202,10 +220,23 @@ export type WorkspaceActivityNames = {
 	files?: Record<string, string>;
 };
 
+/**
+ * An action the workspace's agent took is recorded under the person whose
+ * message it was answering; the sentence still has to say the agent did it.
+ */
+function byWorkspaceAgent(item: WorkspaceActivityItem): boolean {
+	return item.kind === "run" && item.action?.surface === "workspace_object";
+}
+
 function actorName(
-	actor: WorkspaceActivityItem["actor"],
+	item: WorkspaceActivityItem,
 	names: WorkspaceActivityNames,
 ): string {
+	const actor = item.actor;
+	if (byWorkspaceAgent(item))
+		return actor.kind === "tedi"
+			? (names.tedis?.[actor.id] ?? "The agent")
+			: "The agent";
 	if (actor.kind === "user") {
 		if (names.viewerId && actor.id === names.viewerId) return "You";
 		return names.people?.[actor.id] ?? "Someone";
@@ -305,7 +336,7 @@ export function workspaceActivityEntries(
 			id: item.id,
 			at: item.occurredAt,
 			deed,
-			...sentence(actorName(item.actor, names), spec, outcome),
+			...sentence(actorName(item, names), spec, outcome),
 			file: spec.file
 				? {
 						title: title ?? "a file",
@@ -341,7 +372,12 @@ export function workspaceActivityEntries(
 		}
 		const named = (entry: (typeof drafts)[number]) =>
 			entry.item.actor.kind !== "service";
-		const keep = named(other) || !named(draft) ? other : draft;
+		// The agent's own record says who really made the change.
+		const keep = byWorkspaceAgent(draft.item)
+			? draft
+			: byWorkspaceAgent(other.item) || named(other) || !named(draft)
+				? other
+				: draft;
 		// "restored" and "renamed" say more than "changed the details of".
 		const deed =
 			[other, draft].find((entry) => entry.deed !== "details")?.deed ??
@@ -349,7 +385,7 @@ export function workspaceActivityEntries(
 		merged[twin] = {
 			...keep,
 			deed,
-			...sentence(actorName(keep.item.actor, names), DEEDS[deed], keep.outcome),
+			...sentence(actorName(keep.item, names), DEEDS[deed], keep.outcome),
 			file: [keep, other, draft].find(
 				(entry) => entry.file && entry.file.title !== "a file",
 			)?.file ??
@@ -433,6 +469,19 @@ export function WorkspaceActivity({ workspaceId }: { workspaceId: string }) {
 			(files.data?.items ?? []).map((file) => [file.id, file.title]),
 		),
 	});
+	// Most recorded rows are chat steps, which this list leaves out, so a page
+	// can hold nothing to show. Keep reading until there are lines to read.
+	const pages = activity.data?.pages.length ?? 0;
+	const { hasNextPage, isFetchingNextPage, fetchNextPage } = activity;
+	const wanting =
+		entries.length < ACTIVITY_FIRST_VIEW &&
+		pages < ACTIVITY_AUTO_PAGES &&
+		hasNextPage &&
+		!isFetchingNextPage;
+	useEffect(() => {
+		if (wanting) void fetchNextPage();
+	}, [wanting, pages, fetchNextPage]);
+	const lookingBack = entries.length === 0 && (wanting || isFetchingNextPage);
 	return (
 		<div className="grid min-w-0 gap-2 px-4 py-3">
 			<Text as="h3" role="label">
@@ -442,7 +491,7 @@ export function WorkspaceActivity({ workspaceId }: { workspaceId: string }) {
 				<Text role="label" tone="error">
 					Workspace activity could not be loaded. Try again later.
 				</Text>
-			) : activity.isPending ? (
+			) : activity.isPending || lookingBack ? (
 				<Text role="label" tone="secondary">
 					Loading workspace activity…
 				</Text>
