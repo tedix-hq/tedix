@@ -10,7 +10,6 @@ import {
 } from "../../../workstation/computer-body";
 import { startCheckoutOperation } from "../../../workstation/checkout-lock";
 import {
-	WORKSTATION_PROCESS_ARTIFACT_BUCKET_REF,
 	WORKSTATION_BOOTSTRAP_CACHE_PROFILE_VERSION,
 	ACTIVE_WORKSTATION_PROFILE_ID,
 	WORKSTATION_BOOTSTRAP_CACHE_RECORD_VERSION,
@@ -38,8 +37,11 @@ import {
 	withWorkstationOperationLock,
 } from "./locks";
 
-export function workstationBootstrapCacheRefForKey(key: string): string {
-	return `r2://${WORKSTATION_PROCESS_ARTIFACT_BUCKET_REF}/${key}`;
+export function workstationBootstrapCacheRefForKey(
+	c: Context<AppEnv>,
+	key: string,
+): string {
+	return `r2://${c.env.BACKUP_BUCKET_NAME}/${key}`;
 }
 
 export function workstationBootstrapCachePrefix(
@@ -220,7 +222,7 @@ export async function persistBootstrapCacheRecord(
 			record.lockfileHash,
 		);
 		return {
-			ref: workstationBootstrapCacheRefForKey(key),
+			ref: workstationBootstrapCacheRefForKey(c, key),
 			status: "persisted",
 		};
 	} catch (error) {
@@ -282,6 +284,7 @@ export async function restoreBootstrapDependencyCache(
 				};
 			return {
 				ref: workstationBootstrapCacheRefForKey(
+					c,
 					workstationBootstrapCacheRecordKey(
 						c,
 						packageManager,
@@ -436,6 +439,7 @@ fs.rmSync(i.stage, { recursive: true, force: true });
 			);
 		return {
 			ref: workstationBootstrapCacheRefForKey(
+				c,
 				workstationBootstrapCacheRecordKey(
 					c,
 					packageManager,
@@ -479,7 +483,7 @@ export async function ensureBootstrapDependencyCacheBackup(
 	);
 	if (existing) {
 		return {
-			ref: workstationBootstrapCacheRefForKey(existingKey),
+			ref: workstationBootstrapCacheRefForKey(c, existingKey),
 			status: "persisted",
 		};
 	}
@@ -561,7 +565,7 @@ export async function readBootstrapDependencyCacheStatus(
 	);
 	if (existing) {
 		return {
-			ref: workstationBootstrapCacheRefForKey(recordKey),
+			ref: workstationBootstrapCacheRefForKey(c, recordKey),
 			status: "persisted",
 		};
 	}

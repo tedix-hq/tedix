@@ -8,8 +8,6 @@ import {
 } from "@tedix/db/queries/ops-alert-state";
 import { sendOpsAlert } from "./ops-alert-egress";
 
-export const BILLING_METERING_DARK_CONDITION_KEY =
-	"billing-metering-dark:tedix-llm-production";
 export const BILLING_METERING_MAX_LAG_MS = 30 * 60 * 1000;
 
 export interface BillingMeteringFreshnessSnapshot {
@@ -60,17 +58,18 @@ export async function reconcileBillingMeteringFreshness(
 ): Promise<"new" | "ongoing" | "resolved" | "unchanged"> {
 	const probe = classifyBillingMeteringFreshness(snapshot, Date.parse(nowIso));
 	if (probe.status === "indeterminate") return "unchanged";
-	const previous = await getAlertState(db, BILLING_METERING_DARK_CONDITION_KEY);
+	const conditionKey = `billing-metering-dark:${env.AI_GATEWAY_LLM_ID}`;
+	const previous = await getAlertState(db, conditionKey);
 	if (probe.status === "healthy") {
 		if (previous?.status !== "open") return "unchanged";
-		await markAlertsResolved(db, [BILLING_METERING_DARK_CONDITION_KEY], nowIso);
+		await markAlertsResolved(db, [conditionKey], nowIso);
 		await sendOpsAlert(env, {
 			subject: "[Tedix Health] resolved · Gateway billing metering",
 			text: `RESOLVED: Gateway cost rows caught up with admitted inference at ${nowIso}.`,
 			emailRecipients: env.HEALTH_ALERT_EMAIL,
 			webhookUrl: env.HEALTH_ALERT_WEBHOOK,
 			meta: {
-				conditionKey: BILLING_METERING_DARK_CONDITION_KEY,
+				conditionKey,
 				lifecycle: "resolved",
 			},
 		});
@@ -79,7 +78,7 @@ export async function reconcileBillingMeteringFreshness(
 
 	const isNew = previous?.status !== "open";
 	await recordAlertState(db, {
-		conditionKey: BILLING_METERING_DARK_CONDITION_KEY,
+		conditionKey,
 		severity: "P1",
 		metricBucket: String(Math.max(1, Math.floor(probe.lagMinutes / 30))),
 		detail: probe.detail,
@@ -96,7 +95,7 @@ export async function reconcileBillingMeteringFreshness(
 			emailRecipients: env.HEALTH_ALERT_EMAIL,
 			webhookUrl: env.HEALTH_ALERT_WEBHOOK,
 			meta: {
-				conditionKey: BILLING_METERING_DARK_CONDITION_KEY,
+				conditionKey,
 				lifecycle: "new",
 				lagMinutes: probe.lagMinutes,
 			},
@@ -105,7 +104,7 @@ export async function reconcileBillingMeteringFreshness(
 	console.warn(
 		JSON.stringify({
 			signal: "platform.health.finding",
-			conditionKey: BILLING_METERING_DARK_CONDITION_KEY,
+			conditionKey,
 			lifecycle: isNew ? "new" : "ongoing",
 			lagMinutes: probe.lagMinutes,
 			asOf: nowIso,
