@@ -89,6 +89,7 @@ export function registerRpcRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	 * - POST /rpc/listings/search
 	 */
 	app.all("/rpc/*", async (c) => {
+		const startedAt = performance.now();
 		// Create base context. Authentication/authorization is procedure-specific.
 		const context = createContext(
 			c.req.raw,
@@ -187,6 +188,11 @@ export function registerRpcRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			}
 		}
 
+		// Includes context, lazy router loading, auth and the handler, through
+		// response headers. The response body may still be streaming.
+		(context.serverTiming ??= []).push(
+			`api-rpc;dur=${(performance.now() - startedAt).toFixed(1)}`,
+		);
 		return withResponseMetadata(response, context);
 	});
 
