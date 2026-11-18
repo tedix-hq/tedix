@@ -11,7 +11,7 @@ describe("qualified production ledger intake", () => {
 		expect(certificate.version).toBe(1);
 		expect(Object.keys(certificate.features)).toEqual(["intake"]);
 		const selected = certificate.features.intake;
-		expect(selected.modelRef).toBe("azure-openai/gpt-6.1-terra");
+		expect(selected.modelRef).toBe("azure-openai/gpt-6.1-sol");
 		expect(selected.evaluatedPromptVariant).toBe("production");
 		const cases = listLedgerEvaluationCases().filter(
 			(row) => row.surface === "intake",

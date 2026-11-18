@@ -2,7 +2,7 @@
 	"version": 1,
 	"features": {
 		"intake": {
-			"modelRef": "azure-openai/gpt-6.1-terra",
+			"modelRef": "azure-openai/gpt-6.1-sol",
 			"evaluatedPromptVariant": "production",
 			"systemHash": "41800be56ce428637c825c15c2024ca90331a77bc732e8ab324bd99d9d60ee89",
 			"cases": [
@@ -70,7 +70,7 @@
 						},
 						{
 							"repetition": 1,
-							"raw": "{\"new\":[]}"
+							"raw": "{\"new\": []}"
 						},
 						{
 							"repetition": 2,
@@ -426,7 +426,7 @@
 					"repetitions": [
 						{
 							"repetition": 0,
-							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Keep the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}]}"
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Maintain the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}]}"
 						},
 						{
 							"repetition": 1,
@@ -434,7 +434,7 @@
 						},
 						{
 							"repetition": 2,
-							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Keep the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}]}"
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Maintain the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}]}"
 						}
 					]
 				},
@@ -506,7 +506,7 @@
 						},
 						{
 							"repetition": 2,
-							"raw": "{\"new\":[{\"kind\":\"ask\",\"text\":\"Allow mail access before the workspace’s first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}]}"
+							"raw": "{\"new\":[{\"kind\":\"ask\",\"text\":\"Click Allow mail access before the workspace’s first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}]}"
 						}
 					]
 				},
@@ -516,15 +516,15 @@
 					"repetitions": [
 						{
 							"repetition": 0,
-							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Send a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}]}"
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Send you a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}]}"
 						},
 						{
 							"repetition": 1,
-							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Send a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}]}"
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Send you a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}]}"
 						},
 						{
 							"repetition": 2,
-							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Send a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}]}"
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Send you a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}]}"
 						}
 					]
 				},
@@ -588,15 +588,15 @@
 					"repetitions": [
 						{
 							"repetition": 0,
-							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Deliver a doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"A doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests\"}]}"
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Deliver a document in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"Here is the selected goal I'm starting now:\"}]}"
 						},
 						{
 							"repetition": 1,
-							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Achieve a doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"A doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests\"}]}"
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Deliver document retrieval under 5 seconds and answers under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"Here is the selected goal I'm starting now:\"}]}"
 						},
 						{
 							"repetition": 2,
-							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Achieve a doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"Here is the selected goal I'm starting now:\\n| Goal | Status |\\n| A doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests | Starting with Codex |\"}]}"
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Deliver a document in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"Here is the selected goal I'm starting now:\\n| Goal | Status |\\n| A doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests | Starting with Codex |\"}]}"
 						}
 					]
 				},
