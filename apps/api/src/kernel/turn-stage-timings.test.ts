@@ -7,11 +7,7 @@
  */
 
 import { describe, expect, it } from "vite-plus/test";
-import {
-	createKernelTurnStageTimings,
-	KERNEL_TURN_SERIAL_STAGE_ORDER,
-	KERNEL_TURN_STAGE_ORDER,
-} from "./turn-stage-timings";
+import { createKernelTurnStageTimings } from "./turn-stage-timings";
 
 /** Deterministic clock: every read advances 10ms from a fixed epoch. */
 function steppingClock(startMs = 1_750_000_000_000, stepMs = 10) {
@@ -100,11 +96,5 @@ describe("createKernelTurnStageTimings", () => {
 		});
 		expect(snap.enqueueToWorkMs).toBe(0);
 		expect(snap.totalMs).toBe(0);
-	});
-
-	it("the serial stage order is a subset of the full stage order", () => {
-		for (const stage of KERNEL_TURN_SERIAL_STAGE_ORDER) {
-			expect(KERNEL_TURN_STAGE_ORDER).toContain(stage);
-		}
 	});
 });

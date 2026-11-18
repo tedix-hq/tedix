@@ -71,28 +71,6 @@ export const KERNEL_TURN_STAGE_ORDER = [
 
 export type KernelTurnStage = (typeof KERNEL_TURN_STAGE_ORDER)[number];
 
-/**
- * The stages the turn body passes STRICTLY in sequence — each present mark is
- * ≥ its present predecessors. The streaming marks are excluded because they are
- * only partially ordered: `plannerFirstProgress` ≤ `firstAnswerDelta` land
- * inside the routePlan window, and `firstAnswerDeltaFlush` is guaranteed only
- * to be ≥ `firstAnswerDelta`.
- * @internal
- */
-export const KERNEL_TURN_SERIAL_STAGE_ORDER = [
-	"workStarted",
-	"routePlanStarted",
-	"routePlanEnded",
-	"writeProposalPlanStarted",
-	"writeCatalogReady",
-	"writeToolSelected",
-	"writeSchemaReady",
-	"writeArgumentsReady",
-	"writeProposalPlanEnded",
-	"dispatchStarted",
-	"dispatchEnded",
-] as const satisfies readonly KernelTurnStage[];
-
 /** Route-derived turn classification for the latency split. */
 export type KernelTurnType = "answer" | "write_proposal" | "delegated";
 
