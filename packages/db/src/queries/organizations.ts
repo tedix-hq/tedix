@@ -447,7 +447,7 @@ export async function listOrganizations(
 	let query = db
 		.select()
 		.from(organizations)
-		.orderBy(desc(organizations.createdAt))
+		.orderBy(desc(organizations.createdAt), organizations.id)
 		.limit(opts?.limit ?? 50)
 		.offset(opts?.offset ?? 0);
 

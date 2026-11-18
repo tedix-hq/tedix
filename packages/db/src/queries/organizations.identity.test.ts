@@ -80,6 +80,43 @@ function org(
 	};
 }
 
+describe("listOrganizations", () => {
+	it("orders newest first and breaks timestamp ties by id", async () => {
+		const db = setup();
+		await db.insert(organizations).values([
+			org("org-b"),
+			org("org-a"),
+			org("org-newest", { createdAt: RETIRED_AT }),
+			org("org-null-b", { createdAt: null }),
+			org("org-null-a", { createdAt: null }),
+			org("org-retired", {
+				metadata: { retiredAt: RETIRED_AT },
+			}),
+		]);
+
+		expect((await listOrganizations(db)).map((row) => row.id)).toEqual([
+			"org-newest",
+			"org-a",
+			"org-b",
+			"org-null-a",
+			"org-null-b",
+		]);
+	});
+
+	it("paginates equal timestamps in id order", async () => {
+		const db = setup();
+		await db
+			.insert(organizations)
+			.values([org("org-d"), org("org-c"), org("org-b"), org("org-a")]);
+
+		expect(
+			(await listOrganizations(db, { limit: 2, offset: 1 })).map(
+				(row) => row.id,
+			),
+		).toEqual(["org-b", "org-c"]);
+	});
+});
+
 describe("slugs", () => {
 	it("reports availability case-insensitively and honours the exclusion", async () => {
 		const db = setup();
