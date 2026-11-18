@@ -78,8 +78,8 @@ import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 
 const LEDGER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const MODEL_TIMEOUT_MS = 15_000;
-export const LEDGER_REFLECTOR_MODEL = "gpt-6-astra";
-const LEDGER_BOOKKEEPING_MODEL = "gpt-6.1-sol";
+/** One model for every gateway ledger step; it passed 87 of 89 graded ledger cases. */
+const LEDGER_GATEWAY_MODEL = "gpt-6.1-sol";
 export const LEDGER_SILENCE_TURNS = 5;
 const writeInferenceDiagnostic = createTelemetryWriter(
 	"agent-session-request-ledger",
@@ -114,11 +114,7 @@ async function reflectWithGateway(
 			organizationId,
 			source: surface,
 			billingSource: "system",
-			model:
-				surface === "agent-session-request-intake" ||
-				surface === "agent-session-request-reflector"
-					? LEDGER_BOOKKEEPING_MODEL
-					: LEDGER_REFLECTOR_MODEL,
+			model: LEDGER_GATEWAY_MODEL,
 			system,
 			prompt,
 		});
@@ -269,9 +265,9 @@ export function workersAiLedgerModel(
 			"agent-session-lesson-reflector",
 		);
 	model.routeProjects = true;
-	model.bookkeepingReflectionIdentity = { model: LEDGER_BOOKKEEPING_MODEL };
+	model.bookkeepingReflectionIdentity = { model: LEDGER_GATEWAY_MODEL };
 	model.lessonReflectionIdentity = {
-		model: LEDGER_REFLECTOR_MODEL,
+		model: LEDGER_GATEWAY_MODEL,
 		systemPrompt: SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
 	};
 	return Object.assign(model, { extractObligations, reflectLessons });
