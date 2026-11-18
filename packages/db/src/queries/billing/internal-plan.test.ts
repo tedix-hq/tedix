@@ -70,8 +70,6 @@ describe("complimentary internal plan assignment", () => {
 				maxTeamMembers: -1,
 				maxApps: -1,
 				maxCmsSites: -1,
-				maxTedis: -1,
-				maxTokensPerMonth: -1,
 				os: true,
 			});
 			const entitlement = (await getBillingEntitlement(

@@ -2826,7 +2826,7 @@ it("retains the qualified intake model and exact certified system prompt", async
 			fetch.mock.calls
 				.slice(1)
 				.map(([, request]) => JSON.parse(request.body).model),
-		).toEqual(["gpt-6.1-sol", "gpt-6-astra", "gpt-6-astra", "gpt-6-astra"]);
+		).toEqual(["gpt-6.1-sol", "gpt-6.1-sol", "gpt-6.1-sol", "gpt-6.1-sol"]);
 		expect(run).not.toHaveBeenCalled();
 		expect(
 			JSON.parse(fetch.mock.calls[0]![1].headers["cf-aig-metadata"]),
@@ -2985,7 +2985,7 @@ it("uses the qualified status prompt in real ledger orchestration and keeps repl
 	]) {
 		const call = calls.find((call) => call.metadata.source === surface)!;
 		expect(call).toBeDefined();
-		expect(call.body.model).toBe("gpt-6-astra");
+		expect(call.body.model).toBe("gpt-6.1-sol");
 	}
 	expect(
 		calls.find(
@@ -3005,7 +3005,7 @@ it("uses the qualified status prompt in real ledger orchestration and keeps repl
 
 it.each([
 	["agent-session-request-reflector", "gpt-6.1-sol"],
-	["agent-session-lesson-reflector", "gpt-6-astra"],
+	["agent-session-lesson-reflector", "gpt-6.1-sol"],
 ])(
 	"does not retry or fall back when bookkeeping %s fails",
 	async (surface, expectedModel) => {

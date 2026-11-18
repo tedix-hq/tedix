@@ -99,10 +99,6 @@ export interface OrganizationFeatures {
 	advancedAnalytics?: boolean;
 	/** White-label (remove Tedix branding) */
 	whiteLabel?: boolean;
-	/** Maximum tokens per month (-1 = unlimited) */
-	maxTokensPerMonth?: number;
-	/** Maximum tedis (-1 = unlimited) */
-	maxTedis?: number;
 	/** Tedix OS provisioned: `{slug}.os.tedix.dev` resolves to the OS shell */
 	os?: boolean;
 }
@@ -209,8 +205,6 @@ export const DEFAULT_ORGANIZATION_FEATURES_BY_PLAN: Record<
 		prioritySupport: false,
 		advancedAnalytics: false,
 		whiteLabel: false,
-		maxTokensPerMonth: 100_000,
-		maxTedis: 1,
 	},
 	growth: {
 		maxApps: 5,
@@ -222,8 +216,6 @@ export const DEFAULT_ORGANIZATION_FEATURES_BY_PLAN: Record<
 		prioritySupport: false,
 		advancedAnalytics: true,
 		whiteLabel: false,
-		maxTokensPerMonth: 500_000,
-		maxTedis: 1,
 	},
 	business: {
 		maxApps: 15,
@@ -235,8 +227,6 @@ export const DEFAULT_ORGANIZATION_FEATURES_BY_PLAN: Record<
 		prioritySupport: false,
 		advancedAnalytics: true,
 		whiteLabel: false,
-		maxTokensPerMonth: 2_000_000,
-		maxTedis: 3,
 	},
 	enterprise: {
 		maxApps: -1, // unlimited
@@ -248,7 +238,5 @@ export const DEFAULT_ORGANIZATION_FEATURES_BY_PLAN: Record<
 		prioritySupport: true,
 		advancedAnalytics: true,
 		whiteLabel: true,
-		maxTokensPerMonth: -1, // unlimited
-		maxTedis: -1, // unlimited
 	},
 };
