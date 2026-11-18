@@ -119,6 +119,13 @@ export interface BaseContext {
 	oidcScopes?: string[];
 	/** Organization ID (D1 UUID) resolved from Descope tenant id */
 	organizationId?: string;
+	/** Membership loaded by authentication, bound to this organization and subject. */
+	organizationMembership?: {
+		organizationId: string;
+		subject: string;
+		status: string | null;
+		role: string;
+	};
 	/** User role within the organization */
 	userRole?: string;
 	/** Gateway-verified approver, restricted to this exact tool dispatch. */

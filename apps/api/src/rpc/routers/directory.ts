@@ -237,11 +237,12 @@ const resolveWorkspace = authed.resolveWorkspace
 		}
 
 		// Bind the caller to the requested org: only an active member resolves.
-		const membership = await getMemberByUserId(
-			db,
-			input.organizationId,
-			user.sub,
-		);
+		const cached = context.organizationMembership;
+		const membership =
+			cached?.organizationId === input.organizationId &&
+			cached.subject === user.sub
+				? cached
+				: await getMemberByUserId(db, input.organizationId, user.sub);
 		if (!membership || membership.status !== "active") return null;
 
 		const organization = await getOrganizationById(db, input.organizationId);

@@ -1,6 +1,7 @@
 import { ORPCError } from "@orpc/client";
+import { call, os } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
-import { requireOrgId, requireOrgIdOrInput } from "./org-scope";
+import { requireOrgId, requireOrgIdOrInput, withOrg } from "./org-scope";
 import type { BaseContext } from "./orpc";
 
 const ctx = (organizationId?: string) =>
@@ -86,5 +87,49 @@ describe("requireOrgIdOrInput", () => {
 		expect(codeOf(() => requireOrgIdOrInput(ctx(), undefined))).toBe(
 			"FORBIDDEN",
 		);
+	});
+});
+
+describe("withOrg", () => {
+	const guarded = os
+		.$context<BaseContext>()
+		.use(withOrg)
+		.handler(({ context }) => {
+			const organizationId: string = context.organizationId;
+			return { organizationId, membership: context.organizationMembership };
+		});
+
+	it("keeps the authenticated membership and narrows organizationId", async () => {
+		const context = ctx("org_1");
+		context.organizationMembership = {
+			organizationId: "org_1",
+			subject: "user-1",
+			status: "active",
+			role: "member",
+		};
+		await expect(call(guarded, undefined, { context })).resolves.toEqual({
+			organizationId: "org_1",
+			membership: context.organizationMembership,
+		});
+	});
+
+	it("retains the missing-org code and message", async () => {
+		await expect(
+			call(guarded, undefined, { context: ctx() }),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: "Organization scope is required. Use an org-scoped credential.",
+		});
+	});
+
+	it("does not require human membership for an org-scoped machine", async () => {
+		await expect(
+			call(guarded, undefined, {
+				context: {
+					...ctx("org_1"),
+					authType: "apikey",
+				},
+			}),
+		).resolves.toEqual({ organizationId: "org_1", membership: undefined });
 	});
 });

@@ -8,7 +8,7 @@ import {
 	TokenExchangeDisabled,
 	TokenExchangeRefused,
 } from "../../services/token-exchange-broker";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -59,8 +59,9 @@ const exchange = tokenExchangeOs.exchange
 const revoke = tokenExchangeOs.revoke
 	.use(withAuth)
 	.use(AUTHZ.settingsWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
+		const { organizationId } = context;
 		const admin =
 			context.authType === "user" &&
 			(context.userRole === "admin" || context.userRole === "owner");

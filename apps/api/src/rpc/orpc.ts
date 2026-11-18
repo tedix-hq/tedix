@@ -589,6 +589,14 @@ async function authenticateForwardedMcpUserJwt(
 	}
 
 	context.organizationId = forwardedContext.organizationId;
+	if (member) {
+		context.organizationMembership = {
+			organizationId: targetOrg.id,
+			subject: userSubject,
+			status: member.status,
+			role: member.role,
+		};
+	}
 	if (forwardedContext.userRole) {
 		context.userRole = forwardedContext.userRole;
 	}
@@ -1807,6 +1815,12 @@ async function authenticateUserJwt(
 		context.userId = result.member.userId;
 		context.organizationId = result.session.organizationId;
 		context.userRole = result.member.role;
+		context.organizationMembership = {
+			organizationId: result.session.organizationId,
+			subject: result.member.userId,
+			status: "active",
+			role: result.member.role,
+		};
 		context.userPermissionOverrides = readMemberOverrides({
 			customPermissions: result.member.permissions,
 		});
@@ -1910,6 +1924,14 @@ async function authenticateUserJwt(
 					);
 				} else {
 					context.organizationId = identity.organizationId;
+					if (identity.memberIsActive && identity.memberRole) {
+						context.organizationMembership = {
+							organizationId: identity.organizationId,
+							subject: payload.sub,
+							status: "active",
+							role: identity.memberRole,
+						};
+					}
 					context.userMembershipKind = identity.memberIsActive
 						? (identity.memberKind ?? undefined)
 						: undefined;
@@ -1959,6 +1981,14 @@ async function authenticateUserJwt(
 						ErrorCodes.FORBIDDEN,
 						"Organization membership is not active",
 					);
+				}
+				if (member) {
+					context.organizationMembership = {
+						organizationId: personalOrg.id,
+						subject: payload.sub,
+						status: member.status,
+						role: member.role,
+					};
 				}
 				if (member?.role) {
 					context.userRole = member.role;

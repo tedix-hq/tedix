@@ -282,6 +282,45 @@ describe("directory.listMyWorkspaces", () => {
 });
 
 describe("directory.resolveWorkspace", () => {
+	it("reuses authentication's membership only for the same org and subject", async () => {
+		const context = createContext("user-1");
+		context.organizationMembership = {
+			organizationId: ORG_A,
+			subject: "user-1",
+			status: "active",
+			role: "owner",
+		};
+		mocks.getOrganizationById.mockResolvedValue({
+			id: ORG_A,
+			slug: "acme",
+			name: "Acme",
+			descopeTenantId: "T-acme",
+			features: { os: true },
+		});
+		await expect(
+			createClient(context).resolveWorkspace({ organizationId: ORG_A }),
+		).resolves.not.toBeNull();
+		expect(mocks.getMemberByUserId).not.toHaveBeenCalled();
+		mocks.getMemberByUserId.mockResolvedValue(undefined);
+		await expect(
+			createClient(context).resolveWorkspace({ organizationId: ORG_B }),
+		).resolves.toBeNull();
+		expect(mocks.getMemberByUserId).toHaveBeenCalledWith(
+			context.db,
+			ORG_B,
+			"user-1",
+		);
+		context.organizationMembership.subject = "someone-else";
+		await expect(
+			createClient(context).resolveWorkspace({ organizationId: ORG_A }),
+		).resolves.toBeNull();
+		expect(mocks.getMemberByUserId).toHaveBeenCalledWith(
+			context.db,
+			ORG_A,
+			"user-1",
+		);
+	});
+
 	it("returns null for an org the caller is not a member of (no cross-tenant leak)", async () => {
 		mocks.getMemberByUserId.mockResolvedValue(undefined);
 		const client = createClient(createContext("user-1"));

@@ -809,6 +809,24 @@ describe("public user-session authentication", () => {
 		return seen;
 	}
 
+	it("carries only the persisted active membership, never a token role fallback", async () => {
+		const context = await authenticate({
+			iss: "https://auth.tedix.dev/P2fictional",
+		});
+		expect(context?.organizationMembership).toEqual({
+			organizationId: "org-1",
+			subject: "U2fictionaluser",
+			status: "active",
+			role: "owner",
+		});
+		const bootstrap = await authenticate(
+			{ iss: "https://auth.tedix.dev/P2fictional", roles: ["owner"] },
+			"header.payload.sig",
+			null,
+		);
+		expect(bootstrap?.organizationMembership).toBeUndefined();
+	});
+
 	it("carries the live review policy from authentication into the request guard", async () => {
 		const project = {
 			id: "review-policy",

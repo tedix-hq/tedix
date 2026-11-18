@@ -23,7 +23,7 @@
 
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import type { BaseContext } from "./orpc";
-import { createError, ErrorCodes } from "./orpc";
+import { base, createError, ErrorCodes } from "./orpc";
 
 /**
  * Resolve the caller's organization scope, or reject.
@@ -41,6 +41,12 @@ export function requireOrgId(context: BaseContext, detail?: string): string {
 			: "Organization scope is required. Use an org-scoped credential.",
 	);
 }
+
+/** Use after authentication and authorization on procedures requiring org scope. */
+export const withOrg = base.middleware(async ({ context, next }) => {
+	const organizationId = requireOrgId(context);
+	return next({ context: { ...context, organizationId } });
+});
 
 /**
  * Same, but accepts an explicit organization id from the procedure input as a
