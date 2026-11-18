@@ -23,7 +23,8 @@ import {
 type ModelRef =
 	| "azure-openai/gpt-6-astra"
 	| "azure-openai/gpt-6.1-sol"
-	| "azure-openai/gpt-6-luna";
+	| "azure-openai/gpt-6-luna"
+	| "azure-openai/gpt-6.1-terra";
 interface Job {
 	surface: LedgerEvaluationSurface;
 	caseId: string;
@@ -439,6 +440,7 @@ const MODELS: ModelRef[] = [
 	"azure-openai/gpt-6-astra",
 	"azure-openai/gpt-6.1-sol",
 	"azure-openai/gpt-6-luna",
+	"azure-openai/gpt-6.1-terra",
 ];
 async function validateStoredReceipt(stored: RecordResult, file: string) {
 	const fixture = getLedgerEvaluationCase(
