@@ -972,6 +972,7 @@ describe("workspace file readable text", () => {
 			document: true,
 		});
 		return {
+			resourceId: ticket.resourceId,
 			mimeType: result.resource.metadata?.mimeType,
 			kept: JSON.parse(
 				new TextDecoder().decode(
@@ -1032,6 +1033,49 @@ describe("workspace file readable text", () => {
 			});
 		}
 	});
+
+	it.each(["Dockerfile", "Makefile", "LICENSE"])(
+		"keeps every line of extensionless %s while serving it as a download",
+		async (filename) => {
+			const f = fixture();
+			const lines = Array.from(
+				{ length: 2_000 },
+				(_, index) => `line ${index + 1}: geprüft ✓`,
+			);
+			const { resourceId, mimeType, kept } = await keptText(
+				f,
+				new TextEncoder().encode(lines.join("\n")),
+				"application/octet-stream",
+				filename,
+			);
+			expect(mimeType).toBe("application/octet-stream");
+			expect(kept).toEqual({ status: "text", text: lines.join("\n") });
+			const file = await f.get({ workspaceId: W, resourceId });
+			const response = await serveWorkspaceFile(
+				new Request(new URL(file.url.replace(/^\/api/, ""), f.env.API_URL)),
+				f.env,
+				{ organizationId: "fictional-a", workspaceId: W, resourceId },
+			);
+			expect(response.headers.get("Content-Type")).toBe(
+				"application/octet-stream",
+			);
+			expect(response.headers.get("Content-Disposition")).toMatch(
+				/^attachment/,
+			);
+			for (const invalid of [0, 0xff]) {
+				const bytes = new Uint8Array(2_000).fill(0x61);
+				bytes[1_999] = invalid;
+				const binary = await keptText(
+					f,
+					bytes,
+					"application/octet-stream",
+					filename,
+				);
+				expect(binary.mimeType).toBe("application/octet-stream");
+				expect(binary.kept).toEqual({ status: "unsupported", text: "" });
+			}
+		},
+	);
 
 	it("reports a binary file named .txt as having no text, never as garbled text", async () => {
 		const f = fixture();

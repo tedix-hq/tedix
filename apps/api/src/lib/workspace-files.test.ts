@@ -342,6 +342,71 @@ describe("the whole text of an uploaded file", () => {
 		).toBe("too_large");
 	});
 
+	it.each(["", "application/octet-stream"])(
+		"checks extensionless files by bytes when the type is %j",
+		async (mimeType) => {
+			for (const filename of ["Dockerfile", "Makefile", "LICENSE"]) {
+				const bytes = new TextEncoder().encode("first line\r\nGrüße 世界\n");
+				expect(
+					await readWorkspaceFileContent(stored(bytes), "key", {
+						filename,
+						mimeType,
+						size: bytes.length,
+					}),
+				).toEqual({
+					blocks: [],
+					text: { status: "text", text: "first line\nGrüße 世界" },
+				});
+				for (const invalid of [0, 0xff]) {
+					const binary = new Uint8Array(2_000).fill(0x61);
+					binary[1_999] = invalid;
+					expect(
+						await readWorkspaceFileContent(stored(binary), "key", {
+							filename,
+							mimeType,
+							size: binary.length,
+						}),
+					).toEqual({ blocks: [], text: { status: "unsupported", text: "" } });
+				}
+			}
+		},
+	);
+
+	it("does not fetch oversized extensionless files or sniff known non-text types", async () => {
+		const get = vi.fn();
+		const env = { SKILL_ARTIFACTS: { get } } as unknown as Pick<
+			CloudflareEnv,
+			"SKILL_ARTIFACTS"
+		>;
+		for (const mimeType of ["", "application/octet-stream"]) {
+			expect(
+				(
+					await readWorkspaceFileContent(env, "key", {
+						filename: "Dockerfile",
+						mimeType,
+						size: WORKSPACE_FILE_EXTRACT_MAX_BYTES + 1,
+					})
+				).text.status,
+			).toBe("too_large");
+		}
+		for (const [filename, mimeType] of [
+			["image", "image/svg+xml"],
+			["clip", "video/mp4"],
+			["archive.bin", "application/octet-stream"],
+		] as const) {
+			expect(
+				(
+					await readWorkspaceFileContent(env, "key", {
+						filename,
+						mimeType,
+						size: 10,
+					})
+				).text.status,
+			).toBe("unsupported");
+		}
+		expect(get).not.toHaveBeenCalled();
+	});
+
 	it("keeps the text where the workspace reads it and never fails the upload", async () => {
 		const puts: Array<[string, string]> = [];
 		const file = {
