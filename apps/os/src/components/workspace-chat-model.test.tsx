@@ -13,6 +13,8 @@ import { initialWorkspaceChatState } from "@/lib/workspace-chat-state";
 const server = vi.hoisted(() => ({
 	signedIn: "ana",
 	rows: new Map<string, { preferences: object; revision: number }>(),
+	/** When set, each save waits here until the test lets it reach the server. */
+	held: null as Array<() => void> | null,
 }));
 vi.mock("@/lib/api", async (original) => {
 	const actual = await original<typeof import("@/lib/api")>();
@@ -32,6 +34,8 @@ vi.mock("@/lib/api", async (original) => {
 			preferences: object;
 			expectedRevision: number;
 		}) => {
+			const held = server.held;
+			if (held) await new Promise<void>((release) => held.push(release));
 			const current = server.rows.get(server.signedIn)?.revision ?? 0;
 			if (current !== input.expectedRevision)
 				throw Object.assign(new Error("conflict"), { code: "CONFLICT" });
@@ -67,6 +71,7 @@ const storage = new Map<string, string>();
 beforeEach(() => {
 	server.signedIn = "ana";
 	server.rows.clear();
+	server.held = null;
 	storage.clear();
 	Object.defineProperty(window, "localStorage", {
 		configurable: true,
@@ -82,7 +87,12 @@ afterEach(() => {
 });
 
 /** One browser: its own page, query cache and chat connection. */
-async function openBrowser(workspaceId = "ws-1") {
+async function openBrowser(
+	workspaceId = "ws-1",
+	chat: { conversationId: string | null; answeredBy?: string } = {
+		conversationId: "c1",
+	},
+) {
 	const sent: unknown[] = [];
 	const client = {
 		getSnapshot: () => snapshot,
@@ -95,6 +105,27 @@ async function openBrowser(workspaceId = "ws-1") {
 		state: {
 			...initialWorkspaceChatState("c1"),
 			models: [AZURE, WORKERS],
+			turns: chat.answeredBy
+				? [
+						{
+							turnId: "t1",
+							conversationId: "c1",
+							startedAt: "2026-11-18T10:00:00.000Z",
+							authorId: "ana",
+							authorKind: "person" as const,
+							text: "Count them",
+							reply: "Three.",
+							replyMessageId: "m1",
+							replyDone: true,
+							steps: [],
+							approvals: [],
+							status: "succeeded" as const,
+							finishedAt: "2026-11-18T10:00:05.000Z",
+							model: chat.answeredBy,
+							replyKey: "reply-t1",
+						},
+					]
+				: [],
 		},
 		connection: { phase: "open" as const, since: 0 },
 		catchingUp: false,
@@ -114,7 +145,7 @@ async function openBrowser(workspaceId = "ws-1") {
 				}
 			>
 				<WorkspaceChat
-					conversationId="c1"
+					conversationId={chat.conversationId}
 					createClient={
 						(() => client) as unknown as typeof createWorkspaceChatClient
 					}
@@ -207,4 +238,58 @@ it("ignores a choice an earlier version left in this browser", async () => {
 	storage.set("tedix.workspace-chat.model.ws-1", WORKERS.id);
 	const browser = await openBrowser();
 	expect(browser.chosen()).toBe("Sol");
+});
+
+it("keeps a chat on the model that last answered in it, and starts a new chat on the remembered one", async () => {
+	server.rows.set("ana", {
+		preferences: {
+			...DEFAULT_OS_USER_PREFERENCES,
+			conversationModelRef: `workers-ai/${WORKERS.id}`,
+		},
+		revision: 1,
+	});
+	const earlierChat = await openBrowser("ws-1", {
+		conversationId: "c1",
+		answeredBy: AZURE.id,
+	});
+	expect(earlierChat.chosen()).toBe("Sol");
+	const newChat = await openBrowser("ws-1", { conversationId: null });
+	expect(newChat.chosen()).toBe("Llama");
+
+	// A pick in the earlier chat applies there and becomes the remembered one.
+	await earlierChat.choose("Llama");
+	expect(earlierChat.chosen()).toBe("Llama");
+});
+
+it("falls back to the remembered model when the one that answered is no longer offered", async () => {
+	server.rows.set("ana", {
+		preferences: {
+			...DEFAULT_OS_USER_PREFERENCES,
+			conversationModelRef: `workers-ai/${WORKERS.id}`,
+		},
+		revision: 1,
+	});
+	const browser = await openBrowser("ws-1", {
+		conversationId: "c1",
+		answeredBy: "azure-openai/withdrawn",
+	});
+	expect(browser.chosen()).toBe("Llama");
+});
+
+it("ends on the second of two quick picks, whichever save the server finishes first", async () => {
+	const browser = await openBrowser();
+	const held: Array<() => void> = [];
+	server.held = held;
+	await browser.choose("Llama");
+	await browser.choose("Sol");
+	while (held.length > 0) {
+		held.pop()!();
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+	}
+	expect(browser.chosen()).toBe("Sol");
+	expect(server.rows.get("ana")?.preferences).toMatchObject({
+		conversationModelRef: AZURE.id,
+	});
 });

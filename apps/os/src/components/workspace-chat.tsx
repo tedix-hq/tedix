@@ -93,6 +93,7 @@ import { useNow } from "@/lib/use-now";
 import {
 	refForWorkspaceModelId,
 	useChatModelPreference,
+	workspaceChatModelId,
 	workspaceModelIdForRef,
 } from "@/lib/use-chat-model-preference";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
@@ -203,21 +204,26 @@ export function WorkspaceChat({
 	);
 	const { state, connection, catchingUp } = snapshot;
 	const modelPreference = useChatModelPreference();
-	const [pickedModelId, setPickedModelId] = useState<string | null>(null);
-	const selectedModelId =
-		pickedModelId ?? workspaceModelIdForRef(modelPreference.modelRef);
+	const [pickedModel, setPickedModel] = useState<{
+		conversationId: string | null;
+		id: string;
+	} | null>(null);
 	const saveModelPreference = modelPreference.save;
 	const selectModel = useCallback(
 		(value: string) => {
-			setPickedModelId(value);
+			setPickedModel({ conversationId, id: value });
 			saveModelPreference(refForWorkspaceModelId(value));
 		},
-		[saveModelPreference],
+		[conversationId, saveModelPreference],
 	);
-	const selectedModel =
-		state.models.find((model) => model.id === selectedModelId) ??
-		state.models[0];
-	const modelId = selectedModel?.id;
+	const modelId = workspaceChatModelId({
+		offered: state.models,
+		pickedHere:
+			pickedModel?.conversationId === conversationId ? pickedModel.id : null,
+		lastAnswered: state.turns.findLast((turn) => turn.model)?.model ?? null,
+		remembered: workspaceModelIdForRef(modelPreference.modelRef),
+	});
+	const selectedModel = state.models.find((model) => model.id === modelId);
 	const modelControl = state.models.length ? (
 		<Select
 			value={modelId}
