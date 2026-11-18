@@ -78,8 +78,18 @@ import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 
 const LEDGER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const MODEL_TIMEOUT_MS = 15_000;
-/** One model for every gateway ledger step; it passed 87 of 89 graded ledger cases. */
-const LEDGER_GATEWAY_MODEL = "gpt-6.1-sol";
+/**
+ * Graded on the ledger evaluation cases (18 Nov 2026): gpt-6.1-terra passed
+ * every intake repetition and matched gpt-6.1-sol on replies at half the
+ * price; it missed one status repetition and more lesson cases, so status,
+ * lessons and project routing stay on gpt-6.1-sol.
+ */
+const LEDGER_TERRA_MODEL = "gpt-6.1-terra";
+const LEDGER_SOL_MODEL = "gpt-6.1-sol";
+const TERRA_SURFACES = new Set([
+	"agent-session-request-intake",
+	"agent-session-request-reply-reflector",
+]);
 export const LEDGER_SILENCE_TURNS = 5;
 const writeInferenceDiagnostic = createTelemetryWriter(
 	"agent-session-request-ledger",
@@ -114,7 +124,9 @@ async function reflectWithGateway(
 			organizationId,
 			source: surface,
 			billingSource: "system",
-			model: LEDGER_GATEWAY_MODEL,
+			model: TERRA_SURFACES.has(surface)
+				? LEDGER_TERRA_MODEL
+				: LEDGER_SOL_MODEL,
 			system,
 			prompt,
 		});
@@ -206,7 +218,7 @@ export interface LedgerModel {
 	reflectLessons?: (
 		sources: readonly LedgerLessonSource[],
 	) => Promise<string | null>;
-	bookkeepingReflectionIdentity?: { model: string };
+	bookkeepingReflectionIdentity?: { status: string; intake: string };
 	lessonReflectionIdentity?: { model: string; systemPrompt: string };
 	learn?: (
 		lessons: LedgerLesson[],
@@ -265,9 +277,12 @@ export function workersAiLedgerModel(
 			"agent-session-lesson-reflector",
 		);
 	model.routeProjects = true;
-	model.bookkeepingReflectionIdentity = { model: LEDGER_GATEWAY_MODEL };
+	model.bookkeepingReflectionIdentity = {
+		status: LEDGER_SOL_MODEL,
+		intake: LEDGER_TERRA_MODEL,
+	};
 	model.lessonReflectionIdentity = {
-		model: LEDGER_GATEWAY_MODEL,
+		model: LEDGER_SOL_MODEL,
 		systemPrompt: SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
 	};
 	return Object.assign(model, { extractObligations, reflectLessons });
@@ -555,7 +570,7 @@ async function reflectSessionBookkeeping(
 					inputKey: await sourceKey([
 						JSON.stringify({
 							version: 1,
-							identity: model.bookkeepingReflectionIdentity,
+							model: model.bookkeepingReflectionIdentity[phase],
 							systemPrompt,
 							repository: input.repository,
 							turn: input.turn,

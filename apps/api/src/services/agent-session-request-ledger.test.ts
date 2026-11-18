@@ -183,7 +183,10 @@ describe("durable lesson inference reuse", () => {
 			now: T0,
 		};
 		const { model, prompts } = scripted('{"updates":[]}');
-		model.bookkeepingReflectionIdentity = { model: "qualified-bookkeeping" };
+		model.bookkeepingReflectionIdentity = {
+			status: "qualified-status",
+			intake: "qualified-intake",
+		};
 		model.lessonReflectionIdentity = {
 			model: "qualified-model",
 			systemPrompt: SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
@@ -2827,7 +2830,7 @@ it("retains the qualified intake model and exact certified system prompt", async
 			fetch.mock.calls
 				.slice(1)
 				.map(([, request]) => JSON.parse(request.body).model),
-		).toEqual(["gpt-6.1-sol", "gpt-6.1-sol", "gpt-6.1-sol", "gpt-6.1-sol"]);
+		).toEqual(["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6.1-sol"]);
 		expect(run).not.toHaveBeenCalled();
 		expect(
 			JSON.parse(fetch.mock.calls[0]![1].headers["cf-aig-metadata"]),
@@ -2861,11 +2864,11 @@ it("does not fall back or retry when qualified intake inference fails", async ()
 		await model.extractObligations([], "Lead words", "User request"),
 	).toBeNull();
 	expect(fetch).toHaveBeenCalledTimes(1);
-	expect(JSON.parse(fetch.mock.calls[0]![1].body).model).toBe("gpt-6.1-sol");
+	expect(JSON.parse(fetch.mock.calls[0]![1].body).model).toBe("gpt-6.1-terra");
 	expect(run).not.toHaveBeenCalled();
 });
 
-it("uses the qualified status prompt in real ledger orchestration and keeps reply, lesson and filing on Astra", async () => {
+it("uses the qualified status prompt in real ledger orchestration and keeps lessons and filing on the lesson model", async () => {
 	const certificate = JSON.parse(
 		readFileSync(
 			new URL(
@@ -2979,14 +2982,14 @@ it("uses the qualified status prompt in real ledger orchestration and keeps repl
 	expect(status.body.input).toContain(
 		"Inspection started; no deployment outcome is verified.",
 	);
-	for (const surface of [
-		"agent-session-request-reply-reflector",
-		"agent-session-lesson-reflector",
-		"agent-session-project-routing",
+	for (const [surface, model] of [
+		["agent-session-request-reply-reflector", "gpt-6.1-terra"],
+		["agent-session-lesson-reflector", "gpt-6.1-sol"],
+		["agent-session-project-routing", "gpt-6.1-sol"],
 	]) {
 		const call = calls.find((call) => call.metadata.source === surface)!;
 		expect(call).toBeDefined();
-		expect(call.body.model).toBe("gpt-6.1-sol");
+		expect(call.body.model).toBe(model);
 	}
 	expect(
 		calls.find(
