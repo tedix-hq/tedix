@@ -952,9 +952,10 @@
 	}
 
 	/* One pane at a time: the chat, or the canvas column (which is showing
-	   the open item, the library, or Work). */
+	   the open item, the library, Work, or Agents). */
 	.canvas-surface[data-mobile-pane="resources"] .canvas-chat-pane,
 	.canvas-surface[data-mobile-pane="work"] .canvas-chat-pane,
+	.canvas-surface[data-mobile-pane="agents"] .canvas-chat-pane,
 	.canvas-surface[data-mobile-pane="chat"] .canvas-stage,
 	.canvas-surface[data-mobile-pane="workpiece"] .canvas-chat-pane {
 		display: none;

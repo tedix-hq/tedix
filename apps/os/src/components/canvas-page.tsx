@@ -13,6 +13,7 @@ import {
 	FileX,
 	Kanban,
 	ListChecks,
+	Robot,
 	ChatCircle,
 	FolderOpen,
 	Plugs,
@@ -141,6 +142,7 @@ import { useLiveWorkspace } from "@/lib/use-live-workspace";
 import { useWorkspacePresence } from "@/lib/workspace-presence";
 import { useWorkspaceViewOnly } from "@/lib/workspace-view-only";
 import { hostWorkspaceChatDrafts } from "@/lib/workspace-chat-draft-handoff";
+import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 import {
 	setChatNotifications,
 	useWorkspaceUnread,
@@ -196,6 +198,10 @@ const WorkspaceAppConnections = lazy(async () => ({
 const WorkspaceWorkPanel = lazy(async () => ({
 	default: (await import("@/components/workspace-work-panel"))
 		.WorkspaceWorkPanel,
+}));
+const WorkspaceAgentsPanel = lazy(async () => ({
+	default: (await import("@/components/workspace-agents-panel"))
+		.WorkspaceAgentsPanel,
 }));
 
 // ---------------------------------------------------------------------------
@@ -525,8 +531,8 @@ export function missingWorkpieceCopy(doc: CanvasWorkpieceSelection): {
 /**
  * What the canvas column shows. The open item leads; with nothing open, a
  * populated workspace shows its library rather than an empty "pick one" state,
- * and the library and Work are also reachable on purpose from the Files
- * panel and the workspace menu.
+ * and the library, Work and Agents are also reachable on purpose from the
+ * Files panel and the workspace menu.
  */
 export function canvasColumnView(input: {
 	pane: CanvasMobilePane;
@@ -536,9 +542,9 @@ export function canvasColumnView(input: {
 	unresolvedWorkpiece: boolean;
 	/** The directory resolved and this workspace is not in it. */
 	workspaceMissing: boolean;
-}): "work" | "library" | "doc" | "missing" | null {
+}): "work" | "agents" | "library" | "doc" | "missing" | null {
 	if (input.workspaceMissing) return "library";
-	if (input.pane === "work") return "work";
+	if (input.pane === "work" || input.pane === "agents") return input.pane;
 	if (input.libraryOpen) return "library";
 	if (input.hasSelection) return "doc";
 	if (input.unresolvedWorkpiece) return "missing";
@@ -741,6 +747,11 @@ export function CanvasPage({
 		requestedConversation === undefined,
 	);
 	const [resizingChat, setResizingChat] = useState(false);
+	// Every conversation the workspace chat knows; the Agents view reads the
+	// ones an agent started from here instead of asking for them again.
+	const [chatConversations, setChatConversations] = useState<
+		readonly ConversationSummary[]
+	>([]);
 	// Width/opacity motion is for the later reveal of the stage, never for the
 	// first paint: it starts off on mount and arms once the document lists have
 	// painted or on the first manual pane change, and pointer resizing switches
@@ -1062,7 +1073,9 @@ export function CanvasPage({
 						? "Files"
 						: mobilePane === "work"
 							? "Work"
-							: "Chat",
+							: mobilePane === "agents"
+								? "Agents"
+								: "Chat",
 			...(chatAt ? { chatAt } : {}),
 		},
 	});
@@ -1538,6 +1551,22 @@ export function CanvasPage({
 			focus: pane === "workpiece" ? canvasSearch.focus : undefined,
 		});
 	};
+	/** A run in the Agents view: its conversation opens in the chat. */
+	const openAgentRun = (conversationId: string) => {
+		setTransitionEnabled(true);
+		setActiveConversationId(conversationId);
+		setConversationListOpen(false);
+		setChatCollapsed(false);
+		if (narrow) {
+			setMobilePane("chat");
+			setResourceRailOpen(false);
+		}
+		writeCanvasSearch({
+			...canvasSearch,
+			conversation: conversationId,
+			pane: narrow ? "chat" : canvasSearch.pane,
+		});
+	};
 	const selectWorkpieceMode = (mode: CanvasWorkpieceMode) => {
 		setTransitionEnabled(true);
 		openStagePane();
@@ -1826,6 +1855,9 @@ export function CanvasPage({
 			<DropdownMenuItem onClick={() => showPane("work")}>
 				<Kanban size={14} /> Work
 			</DropdownMenuItem>
+			<DropdownMenuItem onClick={() => showPane("agents")}>
+				<Robot size={14} /> Agents
+			</DropdownMenuItem>
 			{selectedDoc ? (
 				<>
 					<DropdownMenuItem onClick={() => selectWorkpieceMode("connections")}>
@@ -2075,6 +2107,7 @@ export function CanvasPage({
 									}}
 									onSendMessageReady={registerWidgetFollowUp}
 									onActivity={reportChatActivity}
+									onConversations={setChatConversations}
 									unreadByConversation={unreadByConversation}
 									chatNotifications={chatNotifications}
 									viewOnly={chatViewOnly}
@@ -2205,6 +2238,16 @@ export function CanvasPage({
 										<WorkspaceWorkPanel workspaceId={workspaceId} />
 									</Suspense>
 								</section>
+							) : canvasView === "agents" && workspaceId ? (
+								<div className="canvas-work-view flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+									<Suspense fallback={<CanvasStagePending />}>
+										<WorkspaceAgentsPanel
+											workspaceId={workspaceId}
+											conversations={chatConversations}
+											onOpenConversation={openAgentRun}
+										/>
+									</Suspense>
+								</div>
 							) : null}
 							{/* Wide screens keep the open item mounted behind the other views. A
 					    phone mounts it only on its visible pane, avoiding editor downloads
@@ -2226,7 +2269,11 @@ export function CanvasPage({
 									if (event.target === event.currentTarget)
 										setEnteringKey(null);
 								}}
-								hidden={canvasView === "library" || canvasView === "work"}
+								hidden={
+									canvasView === "library" ||
+									canvasView === "work" ||
+									canvasView === "agents"
+								}
 								id={CANVAS_WORKPIECE_PANEL_ID}
 								role="tabpanel"
 							>
@@ -2403,12 +2450,15 @@ export function CanvasPage({
 							workspaceId={workspaceId}
 							expanded={outputsPanelExpanded}
 							canvasView={
-								canvasView === "library" || canvasView === "work"
+								canvasView === "library" ||
+								canvasView === "work" ||
+								canvasView === "agents"
 									? canvasView
 									: null
 							}
 							onBrowseLibrary={showCanvasResources}
 							onOpenWork={() => showPane("work")}
+							onOpenAgents={() => showPane("agents")}
 							onOpenActivity={openWorkspaceActivity}
 							onSelect={openOutputsPanelItem}
 							onArchived={(item) => {
@@ -2424,8 +2474,8 @@ export function CanvasPage({
 					) : null}
 				</div>
 				{/* A phone shows one pane at a time and switches at the bottom, where
-			    the thumb is. Work has no segment of its own: it opens from the
-			    menu and shows here only while it is the pane. */}
+			    the thumb is. Work and Agents have no segment of their own: each
+			    opens from the menu and shows here only while it is the pane. */}
 				<SegmentedControl
 					ariaLabel="Canvas pane"
 					className="canvas-pane-switcher"
@@ -2438,6 +2488,9 @@ export function CanvasPage({
 						{ value: "resources", label: countedLabel("Files", unread?.files) },
 						...(mobilePane === "work"
 							? [{ value: "work" as const, label: "Work" }]
+							: []),
+						...(mobilePane === "agents"
+							? [{ value: "agents" as const, label: "Agents" }]
 							: []),
 					]}
 					value={mobilePane}

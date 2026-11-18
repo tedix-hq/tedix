@@ -101,7 +101,7 @@ const routing = vi.hoisted(() => ({
 		conversation?: string;
 		workpiece?: string;
 		view?: "workpiece" | "edit" | "history" | "connections" | "activity";
-		pane?: "resources" | "work" | "chat" | "workpiece";
+		pane?: "resources" | "work" | "agents" | "chat" | "workpiece";
 		focus?: true;
 	},
 }));

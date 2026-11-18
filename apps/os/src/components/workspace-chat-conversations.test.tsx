@@ -212,6 +212,22 @@ describe("ConversationList", () => {
 		]);
 	});
 
+	it("leaves out conversations an agent started when an Agents view lists them", () => {
+		const list = [
+			conversation("a", localIso(18, 9)),
+			conversation("run", localIso(18, 10), {
+				startedBy: { kind: "tedi", id: "tedi-1" },
+			}),
+		];
+		mount(list, { hideAgentRuns: true });
+		expect(sections()).toEqual([["Today", ["Conversation a"]]]);
+		// Without an Agents view beside it, the list still shows every one.
+		mount(list);
+		expect(sections()).toEqual([
+			["Today", ["Conversation run", "Conversation a"]],
+		]);
+	});
+
 	it("marks a conversation with changes waiting, beside the working dot", () => {
 		mount(
 			[

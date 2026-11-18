@@ -225,6 +225,7 @@ function renderPanel(
 					onBrowseLibrary={() => {}}
 					onOpenActivity={() => {}}
 					onOpenWork={() => {}}
+					onOpenAgents={() => {}}
 					onSelect={() => {}}
 					selectedDoc={{ type: "output", id: "new-deck" }}
 					{...props}
@@ -272,6 +273,7 @@ describe("WorkspaceOutputsPanel", () => {
 						onSelect={onSelect}
 						onBrowseLibrary={() => {}}
 						onOpenWork={() => {}}
+						onOpenAgents={() => {}}
 						onOpenActivity={() => {}}
 					/>,
 				),
@@ -318,6 +320,7 @@ describe("WorkspaceOutputsPanel", () => {
 					onSelect={onSelect}
 					onBrowseLibrary={() => {}}
 					onOpenWork={() => {}}
+					onOpenAgents={() => {}}
 					onOpenActivity={() => {}}
 				/>,
 			),
@@ -416,11 +419,12 @@ describe("WorkspaceOutputsPanel", () => {
 		expect(doc.querySelector('ul[aria-label="Files"]')).toBeNull();
 	});
 
-	it("opens rows, approvals, the library and Work through its callbacks", () => {
+	it("opens rows, approvals, the library, Work and Agents through its callbacks", () => {
 		const onSelect = vi.fn();
 		const onOpenActivity = vi.fn();
 		const onBrowseLibrary = vi.fn();
 		const onOpenWork = vi.fn();
+		const onOpenAgents = vi.fn();
 		const host = document.createElement("div");
 		document.body.append(host);
 		const root = createRoot(host);
@@ -434,6 +438,7 @@ describe("WorkspaceOutputsPanel", () => {
 					onBrowseLibrary={onBrowseLibrary}
 					onOpenActivity={onOpenActivity}
 					onOpenWork={onOpenWork}
+					onOpenAgents={onOpenAgents}
 					onSelect={onSelect}
 					selectedDoc={null}
 				/>,
@@ -460,6 +465,12 @@ describe("WorkspaceOutputsPanel", () => {
 				.click(),
 		);
 		expect(onBrowseLibrary).toHaveBeenCalledOnce();
+		act(() =>
+			host
+				.querySelector<HTMLButtonElement>("[data-workspace-outputs-agents]")!
+				.click(),
+		);
+		expect(onOpenAgents).toHaveBeenCalledOnce();
 		act(() =>
 			host
 				.querySelector<HTMLButtonElement>("[data-workspace-outputs-work]")!

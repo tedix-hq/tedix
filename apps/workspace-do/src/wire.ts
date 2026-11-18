@@ -327,6 +327,12 @@ export interface ConversationSummary {
 	archivedAt?: string;
 	/** Absent until a reply in this conversation reports usage. */
 	usage?: UsageTotals;
+	/**
+	 * Set when the first message came from an agent rather than a person: a
+	 * tedi (`id` is the tedi) or a connected app's agent. It never changes, so
+	 * the conversation stays that agent's run when a person writes in it later.
+	 */
+	startedBy?: { kind: "tedi" | "agent"; id: string };
 }
 
 /** Plain labels for the steps a turn takes, by binding and method. */

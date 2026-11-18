@@ -23,6 +23,7 @@ import { Input } from "@/components/kumo/input";
 import { Text } from "@/components/kumo/text";
 import { UnreadBadge } from "@/components/unread-badge";
 import type { ConversationChange } from "@/lib/workspace-chat-client";
+import { ownConversations } from "@/lib/workspace-agents";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 
 const UNTITLED = "Untitled conversation";
@@ -194,7 +195,8 @@ export type ConversationNotifications = {
 };
 
 export function ConversationList({
-	conversations,
+	conversations: all,
+	hideAgentRuns = false,
 	activeId,
 	activeRunning,
 	activePendingApprovals,
@@ -205,6 +207,8 @@ export function ConversationList({
 }: {
 	/** Every conversation the object named, the archived ones included. */
 	conversations: ConversationSummary[];
+	/** Leave out the conversations an agent started; an Agents view lists them. */
+	hideAgentRuns?: boolean;
 	activeId: string | null;
 	/** The open conversation's own turn is working, as this tab sees it. */
 	activeRunning: boolean;
@@ -218,6 +222,7 @@ export function ConversationList({
 	notifications?: ConversationNotifications;
 }) {
 	const now = Date.now();
+	const conversations = hideAgentRuns ? ownConversations(all) : all;
 	const [showArchived, setShowArchived] = useState(false);
 	const [renaming, setRenaming] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ConversationSummary | null>(null);

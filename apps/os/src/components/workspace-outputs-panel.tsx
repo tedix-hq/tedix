@@ -6,6 +6,7 @@ import {
 	Books,
 	FileText,
 	Kanban,
+	Robot,
 	MonitorPlay,
 	PresentationChart,
 	ShieldCheck,
@@ -222,8 +223,10 @@ type WorkspaceOutputsListProps = {
 	onBrowseLibrary: () => void;
 	/** Opens the workspace's work items in the canvas. */
 	onOpenWork: () => void;
-	/** Which of the two canvas views above is showing, if either. */
-	canvasView?: "library" | "work" | null;
+	/** Opens the workspace's agents and their runs in the canvas. */
+	onOpenAgents: () => void;
+	/** Which of the canvas views above is showing, if any. */
+	canvasView?: "library" | "work" | "agents" | null;
 	/** The icon-only rail: labels hide and each row names itself in a tooltip. */
 	railed?: boolean;
 	now?: Date;
@@ -281,6 +284,7 @@ export function WorkspaceOutputsList({
 	onOpenActivity,
 	onBrowseLibrary,
 	onOpenWork,
+	onOpenAgents,
 	canvasView = null,
 	railed = false,
 	now,
@@ -389,6 +393,16 @@ export function WorkspaceOutputsList({
 					current={canvasView === "work"}
 					onClick={onOpenWork}
 					data-workspace-outputs-work=""
+				/>
+				<FooterRow
+					label="Agents"
+					icon={
+						<Robot aria-hidden className="workspace-outputs-icon" size={16} />
+					}
+					railed={railed}
+					current={canvasView === "agents"}
+					onClick={onOpenAgents}
+					data-workspace-outputs-agents=""
 				/>
 				<FooterRow
 					label="Activity and approvals"

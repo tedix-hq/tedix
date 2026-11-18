@@ -843,6 +843,8 @@ describe("WorkspaceDO", () => {
 		}
 		const [listed] = await ws.listConversations(scope);
 		expect(listed?.id).toBe(conversationId);
+		// A person started it, so it is not an agent's run.
+		expect(listed?.startedBy).toBeUndefined();
 		// The conversation carries what its finished reply used.
 		expect(listed?.usage).toMatchObject({
 			inputTokens:
@@ -4133,6 +4135,11 @@ test.each(["before", "after"] as const)(
 		);
 		const records = await ws.readChangeRecords(actionScope);
 		expect(records).toHaveLength(1);
+		// The conversation an agent opened names that agent as its starter.
+		expect((await ws.listConversations(actionScope))[0]?.startedBy).toEqual({
+			kind: "agent",
+			id: "u1",
+		});
 		if (when === "before")
 			expect((await ws.reconcileActivity(actionScope)).missing).toEqual([
 				records[0]!.id,

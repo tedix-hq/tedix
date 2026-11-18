@@ -276,6 +276,18 @@ try {
 				path: `${evidence}/${label.replace("/", "-")}-work.png`,
 			});
 
+			// Agents: this workspace links no skill and no agent has run in it.
+			await panel.getByRole("button", { name: "Agents", exact: true }).click();
+			await page
+				.getByRole("region", { name: "Workspace agents" })
+				.getByText("No agents work in this workspace yet")
+				.waitFor();
+			assert.equal(
+				new URL(page.url()).searchParams.get("pane"),
+				"agents",
+				`${label}: the Agents view is in the address`,
+			);
+
 			// The Approvals row opens the workspace's activity control.
 			await panel.getByRole("button", { name: "Approvals" }).click();
 			await page.locator("[data-approvals-popover]").waitFor();
@@ -285,6 +297,59 @@ try {
 			});
 			await page.keyboard.press("Escape");
 			await noOverflow(page, label);
+			await context.close();
+			console.log(`outputs panel ${label}: ok`);
+		}
+
+		// Agents in a workspace that links a skill: one row with its counts,
+		// and its latest runs when opened, wide and narrow.
+		for (const [width, height] of [
+			[1280, 800],
+			[375, 740],
+		] as const) {
+			const label = `${width}/${theme}/agents`;
+			const context = await browser.newContext({
+				viewport: { width, height },
+				colorScheme: theme,
+				reducedMotion: "reduce",
+				isMobile: width < 640,
+				hasTouch: width < 640,
+			});
+			const page = await context.newPage();
+			await routeFixture(page, theme);
+			await page.goto(
+				`${server.origin}/workspace/00000030-0000-4000-8000-000000000001?pane=agents`,
+			);
+			const agents = page.getByRole("region", { name: "Workspace agents" });
+			const row = agents.locator("[data-workspace-agent]").first();
+			await row.waitFor();
+			assert.match(
+				(await row.textContent()) ?? "",
+				/Weekly revenue report/,
+				`${label}: the linked skill is an agent`,
+			);
+			await row
+				.locator("[data-agent-counts]")
+				.getByText(/today$/)
+				.waitFor();
+			assert.equal(
+				await row.locator("[data-agent-run]").count(),
+				0,
+				`${label}: runs stay folded until asked for`,
+			);
+			await row.getByRole("button", { expanded: false }).click();
+			await row.locator("[data-agent-run]").first().waitFor();
+			await row.getByRole("link", { name: "See all runs" }).waitFor();
+			if (width < 640)
+				await page
+					.getByRole("group", { name: "Canvas pane" })
+					.getByRole("button", { name: "Agents" })
+					.waitFor();
+			await page.evaluate(() => document.fonts.ready);
+			await noOverflow(page, label);
+			await page.screenshot({
+				path: `${evidence}/${label.replaceAll("/", "-")}.png`,
+			});
 			await context.close();
 			console.log(`outputs panel ${label}: ok`);
 		}
