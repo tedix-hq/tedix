@@ -383,8 +383,8 @@ const showPoweredBy = (settings as Record<string, unknown> | undefined)?.powered
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<Font cssVariable="--font-sans" preload />
-		<Font cssVariable="--font-display" preload />
+		{!fontBody && <Font cssVariable="--font-sans" preload />}
+		{!fontHeading && <Font cssVariable="--font-display" preload />}
 		{googleFontsHref && (
 			<>
 				<link rel="preconnect" href="https://fonts.googleapis.com" />
