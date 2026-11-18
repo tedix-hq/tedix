@@ -161,6 +161,43 @@ export async function listCmsDomainClaimsForSite(
 		);
 }
 
+/** Active sites routed by a custom domain that no domain claim covers yet. */
+export async function listUnclaimedCmsCustomDomains(
+	db: DbQueryClient,
+	limit = 50,
+): Promise<
+	Array<{ siteId: string; organizationId: string; hostname: string }>
+> {
+	const rows = await db
+		.select({
+			siteId: cmsSites.id,
+			organizationId: cmsSites.organizationId,
+			hostname: cmsSites.customDomain,
+		})
+		.from(cmsSites)
+		.where(
+			and(
+				eq(cmsSites.status, "active"),
+				isNotNull(cmsSites.customDomain),
+				notExists(
+					db
+						.select({ id: cmsDomainClaims.id })
+						.from(cmsDomainClaims)
+						.where(
+							and(
+								eq(cmsDomainClaims.siteId, cmsSites.id),
+								eq(cmsDomainClaims.hostname, cmsSites.customDomain),
+							),
+						),
+				),
+			),
+		)
+		.limit(limit);
+	return rows.flatMap((row) =>
+		row.hostname ? [{ ...row, hostname: row.hostname }] : [],
+	);
+}
+
 /** Reserve one provider mutation; removal waits for this lease to finish. */
 export async function beginCmsDomainProvisioning(
 	db: DbQueryClient,
