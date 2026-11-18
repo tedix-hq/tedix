@@ -74,8 +74,9 @@ let currentAgents = agents;
 const env = {
 	DB,
 	ENVIRONMENT: "production",
-	TEDI_STORAGE: { get: async () => ({ text: async () => currentAgents }) },
 } as unknown as Cloudflare.Env;
+// AGENTS.md comes from the tedi's Artifacts repo; the reader stands in for it.
+const reader = async () => currentAgents;
 function request(headers: Record<string, string> = {}) {
 	return new Request("https://runtime.example/mcp", {
 		headers: {
@@ -98,6 +99,7 @@ const input = {
 	env,
 	orgId: "org-1",
 	tediId: "tedi-1",
+	artifactsReader: reader,
 };
 const admitted = await admitEvaluation(input);
 assert.equal(admitted.agents, agents);
@@ -106,7 +108,7 @@ assert.equal(
 	admitted.workflowSourceSha256,
 	await sha256Hex("export default function workflow() {}"),
 );
-await assertEvaluationWorkflow(env, "org-1", "tedi-1", admitted);
+await assertEvaluationWorkflow(env, "org-1", "tedi-1", admitted, reader);
 for (const change of [
 	{ orgId: "other" },
 	{ tediId: "other" },
@@ -118,24 +120,25 @@ for (const change of [
 currentAgents = "Unreviewed held-out decision";
 await assert.rejects(admitEvaluation(input), /reviewed digest/);
 await assert.rejects(
-	assertEvaluationWorkflow(env, "org-1", "tedi-1", admitted),
+	assertEvaluationWorkflow(env, "org-1", "tedi-1", admitted, reader),
 	/reviewed digest/,
 );
 currentAgents = agents;
 // A lease valid before backend I/O must be checked again after that I/O.
-const expiringDuringRead = {
-	...env,
-	TEDI_STORAGE: {
-		get: async () => {
-			sqlite.exec("UPDATE work_attempts SET expires_at='2000-01-01'");
-			return { text: async () => agents };
-		},
-	},
-} as unknown as Cloudflare.Env;
+const expiringDuringRead = async () => {
+	sqlite.exec("UPDATE work_attempts SET expires_at='2000-01-01'");
+	return agents;
+};
 for (const invoke of [
-	() => admitEvaluation({ ...input, env: expiringDuringRead }),
+	() => admitEvaluation({ ...input, artifactsReader: expiringDuringRead }),
 	() =>
-		assertEvaluationWorkflow(expiringDuringRead, "org-1", "tedi-1", admitted),
+		assertEvaluationWorkflow(
+			env,
+			"org-1",
+			"tedi-1",
+			admitted,
+			expiringDuringRead,
+		),
 ]) {
 	sqlite.exec("UPDATE work_attempts SET expires_at='2999-01-01'");
 	await assert.rejects(invoke());
@@ -145,19 +148,20 @@ for (const mutation of [
 	"UPDATE skill_runs SET status='canceled'",
 	"UPDATE skill_runs SET execution_epoch=1",
 ]) {
-	const changedDuringRead = {
-		...env,
-		TEDI_STORAGE: {
-			get: async () => {
-				sqlite.exec(mutation);
-				return { text: async () => agents };
-			},
-		},
-	} as unknown as Cloudflare.Env;
+	const changedDuringRead = async () => {
+		sqlite.exec(mutation);
+		return agents;
+	};
 	for (const invoke of [
-		() => admitEvaluation({ ...input, env: changedDuringRead }),
+		() => admitEvaluation({ ...input, artifactsReader: changedDuringRead }),
 		() =>
-			assertEvaluationWorkflow(changedDuringRead, "org-1", "tedi-1", admitted),
+			assertEvaluationWorkflow(
+				env,
+				"org-1",
+				"tedi-1",
+				admitted,
+				changedDuringRead,
+			),
 	]) {
 		sqlite.exec("UPDATE skill_runs SET status='running', execution_epoch=0");
 		await assert.rejects(invoke(), /certified/);
@@ -189,7 +193,7 @@ for (const [mutation, restore] of [
 	sqlite.exec(mutation);
 	await assert.rejects(admitEvaluation(input));
 	await assert.rejects(
-		assertEvaluationWorkflow(env, "org-1", "tedi-1", admitted),
+		assertEvaluationWorkflow(env, "org-1", "tedi-1", admitted, reader),
 	);
 	sqlite.exec(restore);
 }
