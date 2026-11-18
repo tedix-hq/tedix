@@ -45,6 +45,7 @@ import {
 	WorkspaceFileMetadataSchema,
 } from "@tedix/api-contract/schemas/workspace-files";
 import { buildXlsx } from "../../lib/ooxml/xlsx";
+import { workspaceFileTextKey } from "@tedix/api-contract/utils/workspace-file-text";
 
 const W = "10000000-0000-4000-8000-000000000001";
 // Exercise the real authorization middleware with an already-authenticated fictional caller.
@@ -157,6 +158,7 @@ function fixture() {
 		SECRETS_MASTER_KEY: "fictional-test-secret",
 		DB: createD1Facade(sqlite),
 		SKILL_ARTIFACTS: bucket,
+		R2_BUCKET: bucket,
 	} as unknown as CloudflareEnv;
 	function context(
 		org = "fictional-a",
@@ -887,6 +889,18 @@ describe("workspace file readable text", () => {
 				["2", "Paper", "2", "3.5"],
 				["3", "Ink", "1", "10"],
 			],
+		});
+		// The whole text is kept for the workspace's agent to read in parts.
+		const kept = JSON.parse(
+			new TextDecoder().decode(
+				f.objects.get(
+					workspaceFileTextKey("fictional-a", W, ticket.resourceId),
+				),
+			),
+		);
+		expect(kept).toEqual({
+			status: "text",
+			text: "## Sheet1\n\n| Row | A | B | C |\n| 1 | Item | Count | Price |\n| 2 | Paper | 2 | 3.5 |\n| 3 | Ink | 1 | 10 |",
 		});
 		// Still served as a download, never rendered by the browser.
 		const file = await f.get({ workspaceId: W, resourceId: ticket.resourceId });

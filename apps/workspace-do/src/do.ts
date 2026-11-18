@@ -4455,6 +4455,12 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	get(...args: unknown[]) {
 		return this.#call("get", args);
 	}
+	readFileText(...args: unknown[]) {
+		return this.#call("readFileText", args);
+	}
+	searchFileText(...args: unknown[]) {
+		return this.#call("searchFileText", args);
+	}
 	create(...args: unknown[]) {
 		return this.#call("create", args);
 	}

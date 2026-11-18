@@ -1,10 +1,14 @@
 import { z } from "zod";
-import {
-	OFFICE_EXTRACT_LIMITS,
-	officeExtractText,
-} from "@tedix/api-contract/utils/office-file-blocks";
+import { officeExtractText } from "@tedix/api-contract/utils/office-file-blocks";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import type { WorkspaceDataPort } from "./data-port";
+import {
+	FILE_TEXT_INLINE_CHARS,
+	FILE_TEXT_MIN_INLINE_CHARS,
+	fileTextLines,
+	fileTextUnavailable,
+	readTextPart,
+} from "./file-text";
 
 const AttachmentsSchema = z
 	.array(z.object({ outputId: z.string().min(1).max(200) }))
@@ -30,7 +34,7 @@ export async function resolveAttachments(
 	}> = [];
 	const contents: string[] = [];
 	let bytes = 0;
-	// Uploaded spreadsheets, Word and PowerPoint files share one text budget.
+	// Uploaded files share one text budget, so a message stays the size of a read.
 	let fileChars = 0;
 	for (const outputId of new Set(requested.map((item) => item.outputId))) {
 		if (!visible.has(outputId))
@@ -50,16 +54,63 @@ export async function resolveAttachments(
 		};
 		attachments.push(attachment);
 		if (output.content.kind === "document" && output.content.file) {
-			const text = officeExtractText(output.content.file.extract ?? []);
-			const room = OFFICE_EXTRACT_LIMITS.chars - fileChars;
-			if (text && room > 0) {
-				const fileText =
-					text.length > room
-						? `${text.slice(0, room)}\n\n[Cut short to fit this message. Read the rest with env.outputs.get("${outputId}").]`
-						: text;
-				fileChars += Math.min(text.length, room);
-				contents.push(JSON.stringify({ ...attachment, fileText }));
-			} else contents.push(JSON.stringify(attachment));
+			const stored = await data.readFileText(output.content.file);
+			const room = FILE_TEXT_INLINE_CHARS - fileChars;
+			const readOn = `env.outputs.readFileText({ outputId: "${outputId}", startLine })`;
+			if (stored?.status === "text") {
+				// A file that fits is given whole. A longer one gives its first
+				// lines, as a first read would, and says how to read on.
+				if (stored.text.length <= room) {
+					fileChars += stored.text.length;
+					contents.push(
+						JSON.stringify({ ...attachment, fileText: stored.text }),
+					);
+					continue;
+				}
+				const lines = fileTextLines(stored.text);
+				if (room < FILE_TEXT_MIN_INLINE_CHARS) {
+					contents.push(
+						JSON.stringify({
+							...attachment,
+							fileTextNote: `This file has ${lines.length} lines of text that are not shown here. Read them in parts with ${readOn}, starting at startLine 1.`,
+						}),
+					);
+					continue;
+				}
+				const part = readTextPart(lines, {}, room);
+				fileChars += part.text.length;
+				contents.push(
+					JSON.stringify({
+						...attachment,
+						fileText: part.text,
+						fileTextNote:
+							`${part.note ? `${part.note} ` : ""}These are lines 1 to ${part.endLine} of ${part.totalLines}; the rest is not shown here. ${part.nextStartLine ? `Read on with ${readOn}, from startLine ${part.nextStartLine}, or find lines with env.outputs.searchFileText.` : ""}`.trim(),
+					}),
+				);
+				continue;
+			}
+			// An upload from before whole texts were kept still has its start.
+			const start = stored
+				? ""
+				: officeExtractText(output.content.file.extract ?? []);
+			if (start && room >= FILE_TEXT_MIN_INLINE_CHARS) {
+				const fileText = start.slice(0, room);
+				fileChars += fileText.length;
+				contents.push(
+					JSON.stringify({
+						...attachment,
+						fileText,
+						fileTextNote: `This may be only the start of the file. ${fileTextUnavailable(null)}`,
+					}),
+				);
+			} else if (stored || start)
+				contents.push(
+					JSON.stringify({
+						...attachment,
+						fileTextNote: fileTextUnavailable(stored),
+					}),
+				);
+			else contents.push(JSON.stringify(attachment));
 			continue;
 		}
 		const content = JSON.stringify({ ...attachment, content: output.content });
@@ -77,7 +128,7 @@ export async function resolveAttachments(
 		attachments,
 		context:
 			"\n\nSelected workspace files:\n" +
-			"Files without inline content can be read on demand with env.outputs.get(outputId) through run_code. This reads the current revision; check revisionId against the attached reference. An uploaded spreadsheet, Word or PowerPoint file comes with its text as fileText: sheets are tables with spreadsheet column letters and row numbers, and long files show only their start. Other uploaded document and video bodies contain resource references, not file bytes.\n" +
+			"Files without inline content can be read on demand with env.outputs.get(outputId) through run_code. This reads the current revision; check revisionId against the attached reference. An uploaded spreadsheet, Word, PowerPoint or PDF file comes with its text as fileText: sheets are tables with spreadsheet column letters and row numbers. A long file shows only its first lines, and fileTextNote says which lines and how to read the rest in parts with env.outputs.readFileText; a fileTextNote without fileText says why the file has no text here. Other uploaded document and video bodies contain resource references, not file bytes.\n" +
 			wrapUntrustedInput(contents.join("\n"), "workspace_files"),
 	};
 }

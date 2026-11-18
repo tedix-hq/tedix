@@ -20,6 +20,14 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
 import type { BindingName } from "./declarations";
+import {
+	FILE_TEXT_PART_CHARS,
+	encodedLength,
+	fileTextLines,
+	fileTextUnavailable,
+	readTextPart,
+	searchTextLines,
+} from "./file-text";
 import { buildSheetBinding } from "./sheet-binding";
 import { buildPresentationBinding } from "./presentation-bindings";
 import { buildView, type ShownView } from "./views";
@@ -69,12 +77,58 @@ export function buildWorkspaceBindings(
 	};
 	const data = deps.data;
 
+	// The lines of an uploaded file's text, or the reason it has none.
+	const fileText = async (input: { outputId?: unknown }) => {
+		if (typeof input?.outputId !== "string" || !input.outputId)
+			throw new Error("Name the file by its outputId");
+		const output = await data.getOutput(input.outputId);
+		if (!output?.content) throw new Error("File not found or unavailable");
+		const file =
+			output.content.kind === "document" ? output.content.file : undefined;
+		if (!file)
+			throw new Error(
+				"This is not an uploaded file. Read it with env.outputs.get(outputId).",
+			);
+		const stored = await data.readFileText(file);
+		const named = { outputId: output.id, title: output.title };
+		return stored?.status === "text"
+			? { named, lines: fileTextLines(stored.text) }
+			: { named, reason: fileTextUnavailable(stored) };
+	};
 	const outputs = {
 		list: (options?: {
 			kind?: OutputSummary["kind"];
 			status?: OutputSummary["status"];
 		}) => data.listOutputs(options),
 		get: (outputId: string) => data.getOutput(outputId),
+		readFileText: async (input: {
+			outputId: string;
+			startLine?: number;
+			lineCount?: number;
+		}) => {
+			const file = await fileText(input);
+			if (!file.lines)
+				return { readable: false as const, ...file.named, reason: file.reason };
+			return {
+				readable: true as const,
+				...file.named,
+				...readTextPart(file.lines, input, FILE_TEXT_PART_CHARS, encodedLength),
+			};
+		},
+		searchFileText: async (input: {
+			outputId: string;
+			query: string;
+			startLine?: number;
+		}) => {
+			const file = await fileText(input);
+			if (!file.lines)
+				return { readable: false as const, ...file.named, reason: file.reason };
+			return {
+				readable: true as const,
+				...file.named,
+				...searchTextLines(file.lines, input),
+			};
+		},
 		create: (input: { title: string; content: OsOutputContent }) =>
 			data.createOutput({ ...input, actorId: deps.actor.id }),
 		revise: (input: {
@@ -308,6 +362,8 @@ export function buildWorkspaceBindings(
 			methods: {
 				list: { riskTier: "read", blastRadius: "none" },
 				get: { riskTier: "read", blastRadius: "none" },
+				readFileText: { riskTier: "read", blastRadius: "none" },
+				searchFileText: { riskTier: "read", blastRadius: "none" },
 				create: {
 					riskTier: "bounded_write",
 					blastRadius: "single_resource",

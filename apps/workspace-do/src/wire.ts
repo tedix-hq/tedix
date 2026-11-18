@@ -290,6 +290,8 @@ export function stepLabel(
 		outputs: {
 			list: "Listing documents and sheets",
 			get: "Reading a document or sheet",
+			readFileText: "Reading part of an uploaded file",
+			searchFileText: "Searching an uploaded file",
 			create: "Creating a new output",
 			revise: "Saving a new revision",
 		},

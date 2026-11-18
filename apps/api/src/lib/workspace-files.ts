@@ -10,6 +10,14 @@ import {
 	officeFileFormat,
 	readOfficeFile,
 } from "@tedix/api-contract/utils/office-file-read";
+import {
+	boundedFileText,
+	officeFileText,
+	workspaceFileTextKey,
+	type WorkspaceFileText,
+} from "@tedix/api-contract/utils/workspace-file-text";
+import { DataResidencyError } from "../services/data-residency";
+import { splitConvertedPdf } from "../workflows/content-ingestion-pdf";
 import * as z from "zod";
 
 export const WorkspaceFileManifestSchema = WorkspaceFileMetadataSchema.extend({
@@ -178,33 +186,126 @@ export function workspaceFileMimeMatches(mime: string, bytes: Uint8Array) {
 
 /** Larger files keep only their reference; reading them would cost too much memory. */
 export const WORKSPACE_FILE_EXTRACT_MAX_BYTES = 10 * 1024 * 1024;
+/** The size PDF conversion is proven at elsewhere in this app. */
+export const WORKSPACE_FILE_PDF_MAX_BYTES = 2 * 1024 * 1024;
+const PDF_CONVERSION_TIMEOUT_MS = 20_000;
+
+/** Turns PDF bytes into the converter's markdown; throws when it cannot. */
+export type PdfToMarkdown = (
+	bytes: Uint8Array,
+	name: string,
+) => Promise<string>;
 
 /**
- * The readable text of an uploaded spreadsheet, Word document or slide deck,
- * as bounded document blocks stored beside the file. Any other file, or one
- * that cannot be read, gets no blocks: the upload itself never fails here.
+ * A converted PDF as lines of text with a "## Page N" line before each page.
+ * Null when no page holds text, as with a scan: nothing here reads images.
  */
-export async function workspaceFileExtractBlocks(
+export function pdfFileText(markdown: string, name: string): string | null {
+	const { body } = splitConvertedPdf(markdown, name);
+	const marks = [...body.matchAll(/^### Page (\d+)[ \t]*$/gm)];
+	const pages = marks.length
+		? marks.map((mark, index) => ({
+				page: mark[1]!,
+				text: body
+					.slice(mark.index + mark[0].length, marks[index + 1]?.index)
+					.trim(),
+			}))
+		: [{ page: "", text: body.trim() }];
+	if (pages.every((page) => !page.text)) return null;
+	const lines: string[] = [];
+	for (const page of pages) {
+		if (page.page) lines.push(`## Page ${page.page}`, "");
+		lines.push(
+			...(page.text || "(This page has no readable text.)").split("\n"),
+			"",
+		);
+	}
+	return boundedFileText(lines);
+}
+
+/**
+ * What can be read from an uploaded file: the start of a spreadsheet, Word
+ * document or slide deck as bounded document blocks stored on its document,
+ * and the whole text of those and of a PDF for reading in parts. A file that
+ * cannot be read gets no blocks and a status that says why: the upload itself
+ * never fails here.
+ */
+export async function readWorkspaceFileContent(
 	env: Pick<CloudflareEnv, "SKILL_ARTIFACTS">,
 	key: string,
 	file: { filename: string; mimeType: string; size: number },
-): Promise<OsDocumentBlock[]> {
+	pdfToMarkdown?: PdfToMarkdown,
+): Promise<{ blocks: OsDocumentBlock[]; text: WorkspaceFileText }> {
+	const none = (status: WorkspaceFileText["status"]) => ({
+		blocks: [],
+		text: { status, text: "" },
+	});
 	const format = officeFileFormat(file.filename, file.mimeType);
-	if (!format || file.size > WORKSPACE_FILE_EXTRACT_MAX_BYTES) return [];
+	const pdf = !format && file.mimeType === "application/pdf";
+	if (!format && !pdf) return none("unsupported");
+	if (
+		file.size >
+		(pdf ? WORKSPACE_FILE_PDF_MAX_BYTES : WORKSPACE_FILE_EXTRACT_MAX_BYTES)
+	)
+		return none("too_large");
 	try {
 		const object = await env.SKILL_ARTIFACTS.get(key);
-		if (!object || object.size !== file.size) return [];
-		const content = await readOfficeFile(
-			new Uint8Array(await object.arrayBuffer()),
-			format,
-		);
-		return officeExtractBlocks(content);
+		if (!object || object.size !== file.size) return none("failed");
+		const bytes = new Uint8Array(await object.arrayBuffer());
+		if (format) {
+			const content = await readOfficeFile(bytes, format);
+			return {
+				blocks: officeExtractBlocks(content),
+				text: { status: "text", text: officeFileText(content) },
+			};
+		}
+		if (!pdfToMarkdown) return none("failed");
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const markdown = await Promise.race([
+			pdfToMarkdown(bytes, file.filename),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(
+					() => reject(new Error("PDF conversion timed out")),
+					PDF_CONVERSION_TIMEOUT_MS,
+				);
+			}),
+		]).finally(() => clearTimeout(timer));
+		const text = pdfFileText(markdown, file.filename);
+		return text === null
+			? none("no_text")
+			: { blocks: [], text: { status: "text", text } };
 	} catch (error) {
+		if (error instanceof DataResidencyError) return none("not_allowed");
 		console.warn("Workspace file text could not be read", {
-			format,
+			format: format ?? "pdf",
 			error: error instanceof Error ? error.message : String(error),
 		});
-		return [];
+		return none("failed");
+	}
+}
+
+/**
+ * Keep a file's whole text where the workspace's agent reads it in parts.
+ * Losing it costs only that later reading, so a failed write is not an error.
+ */
+export async function storeWorkspaceFileText(
+	env: Pick<CloudflareEnv, "R2_BUCKET">,
+	file: { organizationId: string; workspaceId: string; resourceId: string },
+	text: WorkspaceFileText,
+) {
+	try {
+		await env.R2_BUCKET.put(
+			workspaceFileTextKey(
+				file.organizationId,
+				file.workspaceId,
+				file.resourceId,
+			),
+			JSON.stringify(text),
+		);
+	} catch (error) {
+		console.warn("Workspace file text could not be kept", {
+			error: error instanceof Error ? error.message : String(error),
+		});
 	}
 }
 

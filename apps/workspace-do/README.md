@@ -89,6 +89,21 @@ its code runs beside the data.
    reads the rest. Stop hands unread messages back (`message.returned`), and
    the chat puts their text back into the composer.
 
+## Attached files
+
+An attached upload (spreadsheet, Word, PowerPoint or PDF) reaches the model
+as text. The API keeps the file's whole text beside it at upload; this object
+reads it (`src/file-text.ts`). Attached files share 32K characters of text in
+one message: a file that fits is given whole, a longer one as its first whole
+lines with a note of the lines shown. The agent reads the rest with
+`env.outputs.readFileText({ outputId, startLine, lineCount })`, which returns
+whole lines up to about 28,000 characters and the line to continue from, or
+finds lines with `env.outputs.searchFileText({ outputId, query })` (100
+matches a call). Both are reads and never wait for approval. A file with no
+text says why: a scanned PDF has no readable text (nothing here reads text in
+images), and an upload from before whole texts were kept must be uploaded
+again to be read past its start.
+
 ## Surfaces
 
 - RPC through the `InternalEntrypoint` service binding: `sendTurn`,

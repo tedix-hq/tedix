@@ -78,6 +78,11 @@ import type {
 	WorkspaceDataPort,
 	WorkspaceSnapshot,
 } from "./data-port";
+import {
+	WorkspaceFileTextSchema,
+	workspaceFileTextKey,
+	type WorkspaceFileText,
+} from "@tedix/api-contract/utils/workspace-file-text";
 
 export type OutputBodyBucket = Pick<R2Bucket, "get" | "put">;
 
@@ -250,6 +255,23 @@ export class TenantDataPort implements WorkspaceDataPort {
 		// This port has no provider credential authority. Derived sources require
 		// the API's source checks before their content can be released.
 		return parsed.success && parsed.data.sources.length === 0;
+	}
+
+	async readFileText(file: {
+		workspaceId: string;
+		resourceId: string;
+	}): Promise<WorkspaceFileText | null> {
+		if (file.workspaceId !== this.deps.workspaceId) return null;
+		const object = await this.deps.bucket.get(
+			workspaceFileTextKey(
+				this.deps.organizationId,
+				file.workspaceId,
+				file.resourceId,
+			),
+		);
+		if (!object) return null;
+		const parsed = WorkspaceFileTextSchema.safeParse(await object.json());
+		return parsed.success ? parsed.data : null;
 	}
 
 	async listOutputs(options?: {
