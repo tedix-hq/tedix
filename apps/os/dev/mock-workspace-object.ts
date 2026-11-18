@@ -48,6 +48,10 @@ type Workspace = {
 		}
 	>;
 	cancelled: Set<string>;
+	/** The turn working in each conversation. */
+	working: Map<string, string>;
+	/** Messages sent to a working turn that it has not read yet. */
+	queued: Map<string, Array<{ messageId: string; text: string }>>;
 };
 
 const workspaces = new Map<string, Workspace>();
@@ -62,6 +66,8 @@ function workspace(id: string): Workspace {
 			sockets: new Set(),
 			pendingApprovals: new Map(),
 			cancelled: new Set(),
+			working: new Map(),
+			queued: new Map(),
 		};
 		workspaces.set(id, found);
 	}
@@ -172,7 +178,27 @@ async function runTurn(
 	authorId: string,
 ): Promise<void> {
 	const started = Date.now();
-	const finish = (status: "done" | "error" | "cancelled", error?: string) =>
+	ws.working.set(conversationId, turnId);
+	const unread = () => ws.queued.get(conversationId) ?? [];
+	const queuedEvent = (
+		type: "message.read" | "message.returned",
+		message: { messageId: string; text: string },
+	) =>
+		emit(ws, {
+			type,
+			conversationId,
+			turnId,
+			messageId: message.messageId,
+			text: message.text,
+			authorId,
+			authorKind: "person",
+		});
+	const finish = (status: "done" | "error" | "cancelled", error?: string) => {
+		// Stop hands unread messages back; otherwise the oldest starts a turn.
+		if (status === "cancelled")
+			for (const message of unread().splice(0))
+				queuedEvent("message.returned", message);
+		ws.working.delete(conversationId);
 		emit(ws, {
 			type: "turn.finished",
 			conversationId,
@@ -181,6 +207,10 @@ async function runTurn(
 			error,
 			durationMs: Date.now() - started,
 		});
+		const next = unread().shift();
+		if (next)
+			void runTurn(ws, conversationId, next.messageId, next.text, authorId);
+	};
 	emit(ws, {
 		type: "turn.started",
 		conversationId,
@@ -210,6 +240,9 @@ async function runTurn(
 			summary: step.summary,
 			durationMs: step.ms,
 		});
+		// The turn reads what was sent meanwhile before its next step.
+		for (const message of unread().splice(0))
+			queuedEvent("message.read", message);
 	}
 	const approvalTitle = needsApproval(text);
 	if (approvalTitle) {
@@ -363,6 +396,29 @@ function handle(socket: Socket, raw: string | Buffer): void {
 					conversationId,
 					title: message.text.slice(0, 60),
 				});
+			}
+			const working = ws.working.get(conversationId);
+			if (working) {
+				ws.queued.set(conversationId, [
+					...(ws.queued.get(conversationId) ?? []),
+					{ messageId: message.clientTurnId, text: message.text },
+				]);
+				emit(ws, {
+					type: "message.queued",
+					conversationId,
+					turnId: working,
+					messageId: message.clientTurnId,
+					text: message.text,
+					authorId: "person:local",
+					authorKind: "person",
+				});
+				sendTo(socket, {
+					type: "turn.accepted",
+					clientTurnId: message.clientTurnId,
+					turnId: working,
+					conversationId,
+				});
+				return;
 			}
 			const turnId = `turn-${crypto.randomUUID().slice(0, 8)}`;
 			sendTo(socket, {

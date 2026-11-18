@@ -67,6 +67,18 @@ export type ChatView = {
 	toolResult: Record<string, unknown>;
 };
 
+/** A message sent while a turn was working. */
+export type ChatQueuedMessage = {
+	messageId: string;
+	/** The working turn it was sent to, then the turn that read it. */
+	turnId: string;
+	text: string;
+	at: string;
+	authorId: string;
+	authorKind: "person" | "tedi";
+	attachments?: ChatTurn["attachments"];
+};
+
 export type ChatTurn = {
 	turnId: string;
 	conversationId: string;
@@ -89,6 +101,8 @@ export type ChatTurn = {
 	replyDone: boolean;
 	steps: ChatStep[];
 	approvals: ChatApproval[];
+	/** Messages sent while this turn worked that the agent read, oldest first. */
+	added?: ChatQueuedMessage[];
 	/** Live views the agent put in its answer, in the order shown. */
 	views?: ChatView[];
 	/** Before this turn, earlier messages were summarised to fit the model. */
@@ -120,6 +134,13 @@ export type WorkspaceChatState = {
 	models: Array<{ id: string; label: string }>;
 	/** Older events exist before the first turn shown. */
 	hasEarlier: boolean;
+	/** Messages sent to a working turn that the agent has not read yet. */
+	queued: ChatQueuedMessage[];
+	/**
+	 * Messages Stop handed back unread. The tab that sent one, or pressed
+	 * Stop, puts its text back into the composer.
+	 */
+	returned: ChatQueuedMessage[];
 	/** A turn sent from this tab, not yet echoed by the object. */
 	pendingSend: { clientTurnId: string; text: string; sentAt: number } | null;
 	lastError: { code: string; message: string; clientTurnId?: string } | null;
@@ -157,6 +178,8 @@ export function initialWorkspaceChatState(
 		conversations: [],
 		models: [],
 		hasEarlier: false,
+		queued: [],
+		returned: [],
 		pendingSend: null,
 		lastError: null,
 		seen: new Set(),
@@ -328,6 +351,20 @@ export function applyWorkspaceChatEvent(
 	const at = event.at;
 	let turns = state.turns;
 	let pendingSend = state.pendingSend;
+	let queued = state.queued;
+	let returned = state.returned;
+	const settled = (messageId: string) =>
+		returned.some((message) => message.messageId === messageId) ||
+		turns.some(
+			(turn) =>
+				turn.turnId === messageId ||
+				turn.added?.some((message) => message.messageId === messageId),
+		);
+	const unqueue = (messageId: string) => {
+		if (queued.some((message) => message.messageId === messageId))
+			queued = queued.filter((message) => message.messageId !== messageId);
+		if (pendingSend?.clientTurnId === messageId) pendingSend = null;
+	};
 	let approvalDecisions = state.approvalDecisions;
 	let approvalExecutions = state.approvalExecutions;
 	const place = (turnId: string) => (patch: (turn: ChatTurn) => ChatTurn) =>
@@ -354,8 +391,39 @@ export function applyWorkspaceChatEvent(
 				}),
 			);
 			if (pendingSend && pendingSend.text === event.text) pendingSend = null;
+			// A message the working turn never read starts this turn instead.
+			unqueue(event.turnId);
 			break;
 		}
+		case "message.queued":
+			if (pendingSend?.clientTurnId === event.messageId) pendingSend = null;
+			// An older history page must not bring back a message already settled.
+			if (
+				!settled(event.messageId) &&
+				!queued.some((message) => message.messageId === event.messageId)
+			)
+				queued = [...queued, queuedMessage(event)].sort((a, b) =>
+					a.at.localeCompare(b.at),
+				);
+			break;
+		case "message.read":
+			unqueue(event.messageId);
+			turns = place(event.turnId)((turn) =>
+				turn.added?.some((message) => message.messageId === event.messageId)
+					? turn
+					: {
+							...turn,
+							added: [...(turn.added ?? []), queuedMessage(event)].sort(
+								(a, b) => a.at.localeCompare(b.at),
+							),
+						},
+			);
+			break;
+		case "message.returned":
+			unqueue(event.messageId);
+			if (!returned.some((message) => message.messageId === event.messageId))
+				returned = [...returned, queuedMessage(event)];
+			break;
 		// A completed reply is authoritative even if a facet progress RPC arrives late.
 		case "turn.usage":
 			turns = place(event.turnId)((turn) =>
@@ -599,10 +667,45 @@ export function applyWorkspaceChatEvent(
 		cursor: Math.max(state.cursor ?? -1, event.seq),
 		lastEventAt: Math.max(state.lastEventAt ?? 0, Date.parse(event.at) || 0),
 		turns,
+		queued,
+		returned,
 		pendingSend,
 		approvalDecisions,
 		approvalExecutions,
 	};
+}
+
+function queuedMessage(
+	event: Extract<
+		WorkspaceChatLedgerEvent,
+		{ type: "message.queued" | "message.read" | "message.returned" }
+	>,
+): ChatQueuedMessage {
+	return {
+		messageId: event.messageId,
+		turnId: event.turnId,
+		text: event.displayText ?? event.text,
+		at: event.at,
+		authorId: event.authorId,
+		authorKind: event.authorKind,
+		...(event.attachments?.length ? { attachments: event.attachments } : {}),
+	};
+}
+
+/** The object has a message sent from this tab: as a turn, queued, read or handed back. */
+export function messageAccepted(
+	state: Pick<WorkspaceChatState, "turns" | "queued" | "returned">,
+	messageId: string,
+): boolean {
+	return (
+		state.queued.some((message) => message.messageId === messageId) ||
+		state.returned.some((message) => message.messageId === messageId) ||
+		state.turns.some(
+			(turn) =>
+				turn.turnId === messageId ||
+				turn.added?.some((message) => message.messageId === messageId) === true,
+		)
+	);
 }
 
 function withCursor(

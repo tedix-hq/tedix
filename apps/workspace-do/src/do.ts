@@ -115,6 +115,7 @@ import {
 import type { WorkspaceStorage } from "./runtime";
 import { createLoaderSandbox, validateWorkspaceAppSource } from "./sandbox";
 import {
+	type AddedMessage,
 	runTurn,
 	toTurnUsage,
 	type TurnProgress,
@@ -204,6 +205,19 @@ CREATE TABLE IF NOT EXISTS approvals (
 	decided_by TEXT,
 	decided_at TEXT
 );
+CREATE TABLE IF NOT EXISTS queued_messages (
+	message_id TEXT PRIMARY KEY,
+	conversation_id TEXT NOT NULL,
+	at TEXT NOT NULL,
+	status TEXT NOT NULL,
+	turn_id TEXT NOT NULL,
+	seq INTEGER NOT NULL,
+	actor_id TEXT NOT NULL,
+	actor_kind TEXT NOT NULL,
+	model_text TEXT NOT NULL,
+	request TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS queued_messages_waiting ON queued_messages(conversation_id, status);
 `;
 
 type TurnStatus = "running" | "finished" | "failed" | "cancelled" | "waiting";
@@ -250,6 +264,37 @@ interface ApprovalRow {
 	actor_kind: ActorKind;
 	tedi_id: string | null;
 	status: "pending" | "approved" | "denied" | "applied" | "failed";
+}
+
+/**
+ * A message sent while a turn was working. `queued` until that turn reads it
+ * (`read`), Stop hands it back (`returned`) or, when the turn ended first, it
+ * starts the next turn (`started`).
+ */
+interface QueuedMessageRow {
+	message_id: string;
+	conversation_id: string;
+	at: string;
+	status: "queued" | "read" | "returned" | "started";
+	/** The turn it waited for, then the turn that read it. */
+	turn_id: string;
+	seq: number;
+	actor_id: string;
+	actor_kind: ActorKind;
+	/** What the model reads: the message and its attached files. */
+	model_text: string;
+	/** JSON `QueuedRequest`. */
+	request: string;
+}
+
+/** What a queued message needs to start a turn of its own. */
+interface QueuedRequest {
+	input: TurnRequest;
+	displayText?: string;
+	shown: Pick<
+		Extract<WireEventBody, { type: "message.queued" }>,
+		"text" | "displayText" | "attachments" | "authorId" | "authorKind"
+	>;
 }
 
 /** Results of decisions the person made while a turn was still working. */
@@ -888,12 +933,22 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.#store.delete(`incoming-output:${outputId}`);
 	}
 
-	/** Start a turn. Returns at once; follow it through the event stream. */
+	/**
+	 * Start a turn. Returns at once; follow it through the event stream.
+	 * While a turn is working in the conversation the message does not start
+	 * a second one: it is queued for that turn, which reads it before its next
+	 * model call. `turnId` is then the working turn and `queued` is set.
+	 */
 	async sendTurn(
 		scope: WorkspaceScope,
 		input: TurnRequest,
 		displayText?: string,
-	): Promise<{ turnId: string; conversationId: string; seq: number }> {
+	): Promise<{
+		turnId: string;
+		conversationId: string;
+		seq: number;
+		queued?: true;
+	}> {
 		this.bindScope(scope);
 		const turnId = input.turnId ?? crypto.randomUUID();
 		const existing = this.#turn(turnId);
@@ -904,6 +959,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				seq: existing.first_seq ?? this.#events.latestSeq(),
 			};
 		}
+		const waiting = this.#queuedMessage(turnId);
+		if (waiting) return queuedReceipt(waiting);
 		await this.refreshModelCatalog();
 		const models = this.configuredModels();
 		const modelId = input.modelId ?? models[0]?.id;
@@ -924,8 +981,43 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				conversationId: admitted.conversation_id,
 				seq: admitted.first_seq ?? this.#events.latestSeq(),
 			};
+		const requeued = this.#queuedMessage(turnId);
+		if (requeued) return queuedReceipt(requeued);
 		const now = new Date().toISOString();
 		this.#store.put("activity-scope", scope);
+		const author = {
+			authorId: input.tediId ?? input.actorId,
+			authorKind:
+				input.tediId || input.actorKind === "tedi"
+					? ("tedi" as const)
+					: ("person" as const),
+		};
+		const working = input.conversationId
+			? this.#runningTurnIn(input.conversationId)
+			: undefined;
+		if (working) {
+			const shown: QueuedRequest["shown"] = {
+				text,
+				...(displayText ? { displayText } : {}),
+				...(selected.attachments.length
+					? { attachments: selected.attachments }
+					: {}),
+				...author,
+			};
+			const request: QueuedRequest = {
+				input: { ...input, modelId },
+				...(displayText ? { displayText } : {}),
+				shown,
+			};
+			return queuedReceipt(
+				this.#queueMessage(working, turnId, now, {
+					actorId: input.actorId,
+					actorKind: input.actorKind,
+					modelText: text + selected.context,
+					request,
+				}),
+			);
+		}
 		const conversationId = this.#ensureConversation(
 			input.conversationId ?? null,
 			text,
@@ -948,9 +1040,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			...(selected.attachments.length
 				? { attachments: selected.attachments }
 				: {}),
-			authorId: input.tediId ?? input.actorId,
-			authorKind:
-				input.tediId || input.actorKind === "tedi" ? "tedi" : "person",
+			...author,
 		});
 		this.#store.run(
 			"UPDATE turns SET first_seq = ? WHERE turn_id = ?",
@@ -995,6 +1085,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			now,
 			turn.turn_id,
 		);
+		// Stop also takes back what the agent has not read; the chat puts the
+		// text back for the person. A failed turn leaves it for the next turn.
+		if (status === "cancelled")
+			for (const message of this.#queuedMessages(turn.conversation_id))
+				this.#returnQueuedMessage(message);
 		this.#events.append(turn.conversation_id, {
 			type: "turn.finished",
 			turnId: turn.turn_id,
@@ -1229,13 +1324,172 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return results;
 	}
 
-	#runningTurnIn(conversationId: string): boolean {
-		return (
-			this.#store.exec<{ turn_id: string }>(
-				"SELECT turn_id FROM turns WHERE conversation_id = ? AND status = 'running' LIMIT 1",
-				conversationId,
-			).length > 0
+	#runningTurnIn(conversationId: string): TurnRow | undefined {
+		return this.#store.exec<TurnRow>(
+			"SELECT * FROM turns WHERE conversation_id = ? AND status = 'running' LIMIT 1",
+			conversationId,
+		)[0];
+	}
+
+	/** A message held for a working turn; not one that became a turn itself. */
+	#queuedMessage(messageId: string): QueuedMessageRow | undefined {
+		return this.#store.exec<QueuedMessageRow>(
+			"SELECT * FROM queued_messages WHERE message_id = ? AND status != 'started'",
+			messageId,
+		)[0];
+	}
+
+	/** Messages no turn has read yet, oldest first. */
+	#queuedMessages(conversationId: string): QueuedMessageRow[] {
+		return this.#store.exec<QueuedMessageRow>(
+			"SELECT * FROM queued_messages WHERE conversation_id = ? AND status = 'queued' ORDER BY rowid ASC",
+			conversationId,
 		);
+	}
+
+	/** Hold a message for the turn that is working, and show it as waiting. */
+	#queueMessage(
+		working: TurnRow,
+		messageId: string,
+		now: string,
+		message: {
+			actorId: string;
+			actorKind: ActorKind;
+			modelText: string;
+			request: QueuedRequest;
+		},
+	): QueuedMessageRow {
+		const row: QueuedMessageRow = {
+			message_id: messageId,
+			conversation_id: working.conversation_id,
+			at: now,
+			status: "queued",
+			turn_id: working.turn_id,
+			seq: 0,
+			actor_id: message.actorId,
+			actor_kind: message.actorKind,
+			model_text: message.modelText,
+			request: JSON.stringify(message.request),
+		};
+		// The row comes first: the activity feed names the sender from it.
+		this.#store.run(
+			"INSERT OR REPLACE INTO queued_messages (message_id, conversation_id, at, status, turn_id, seq, actor_id, actor_kind, model_text, request) VALUES (?, ?, ?, 'queued', ?, 0, ?, ?, ?, ?)",
+			row.message_id,
+			row.conversation_id,
+			row.at,
+			row.turn_id,
+			row.actor_id,
+			row.actor_kind,
+			row.model_text,
+			row.request,
+		);
+		row.seq = this.#events.append(working.conversation_id, {
+			type: "message.queued",
+			turnId: working.turn_id,
+			messageId,
+			...message.request.shown,
+		}).seq;
+		this.#store.run(
+			"UPDATE queued_messages SET seq = ? WHERE message_id = ?",
+			row.seq,
+			messageId,
+		);
+		this.#store.run(
+			"UPDATE conversations SET updated_at = ?, last_turn_at = ? WHERE id = ?",
+			now,
+			now,
+			working.conversation_id,
+		);
+		return row;
+	}
+
+	#returnQueuedMessage(message: QueuedMessageRow) {
+		this.#store.run(
+			"UPDATE queued_messages SET status = 'returned' WHERE message_id = ?",
+			message.message_id,
+		);
+		this.#events.append(message.conversation_id, {
+			type: "message.returned",
+			turnId: message.turn_id,
+			messageId: message.message_id,
+			...(JSON.parse(message.request) as QueuedRequest).shown,
+		});
+	}
+
+	/**
+	 * Hand a working turn the messages sent since its last model call. Each
+	 * joins the conversation as the person's message, in this turn, and the
+	 * chat stops showing it as unread. Also the facet's callback.
+	 */
+	takeQueuedMessages(scope: WorkspaceScope, turnId: string): AddedMessage[] {
+		this.bindScope(scope);
+		const turn = this.#turn(turnId);
+		if (!turn || turn.status !== "running") return [];
+		const taken: AddedMessage[] = [];
+		for (const message of this.#queuedMessages(turn.conversation_id)) {
+			const now = new Date().toISOString();
+			this.#store.run(
+				"UPDATE queued_messages SET status = 'read', turn_id = ? WHERE message_id = ?",
+				turnId,
+				message.message_id,
+			);
+			this.#store.run(
+				"INSERT INTO messages (conversation_id, turn_id, at, message) VALUES (?, ?, ?, ?)",
+				turn.conversation_id,
+				turnId,
+				now,
+				JSON.stringify({
+					role: "user",
+					content: message.model_text,
+					timestamp: Date.parse(now),
+				} satisfies Message),
+			);
+			this.#events.append(turn.conversation_id, {
+				type: "message.read",
+				turnId,
+				messageId: message.message_id,
+				...(JSON.parse(message.request) as QueuedRequest).shown,
+			});
+			taken.push({ id: message.message_id, text: message.model_text });
+		}
+		return taken;
+	}
+
+	/**
+	 * A turn ended before it read everything sent to it: the oldest unread
+	 * message starts the next turn, and that turn reads the rest. True when a
+	 * turn started.
+	 */
+	async #startQueuedMessage(
+		scope: WorkspaceScope,
+		conversationId: string,
+	): Promise<boolean> {
+		if (this.#runningTurnIn(conversationId)) return false;
+		const [next] = this.#queuedMessages(conversationId);
+		if (!next) return false;
+		const request = JSON.parse(next.request) as QueuedRequest;
+		this.#store.run(
+			"UPDATE queued_messages SET status = 'started' WHERE message_id = ?",
+			next.message_id,
+		);
+		try {
+			await this.sendTurn(
+				scope,
+				{ ...request.input, turnId: next.message_id, conversationId },
+				request.displayText,
+			);
+			return true;
+		} catch (error) {
+			// It cannot start a turn (its model is gone, say). Hand it back so
+			// the chat does not show it as unread for ever.
+			workspaceLog.warn("A queued message did not start a turn", {
+				event: "workspace.queued_message_not_started",
+				error,
+				...this.#diagnostics(),
+			});
+			if (!this.#turn(next.message_id)) this.#returnQueuedMessage(next);
+			return false;
+		}
 	}
 
 	#queueDecisionNote(conversationId: string, note: DecisionNote) {
@@ -1792,6 +2046,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				"failed",
 			);
 		}
+		// A turn that failed or was cut off left its unread messages behind.
+		const scope = this.#store.get<WorkspaceScope>("activity-scope");
+		if (scope)
+			for (const row of this.#store.exec<{ conversation_id: string }>(
+				"SELECT DISTINCT conversation_id FROM queued_messages WHERE status = 'queued'",
+			))
+				await this.#startQueuedMessage(scope, row.conversation_id);
 		for (const [outputId, pending] of Object.entries(this.#outputTransfers())) {
 			try {
 				await this.#runOutputTransfer(outputId, pending);
@@ -1950,14 +2211,20 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			: approval
 				? this.#turn(approval.turn_id)
 				: undefined;
+		const sender =
+			event.type === "message.queued"
+				? this.#queuedMessage(event.messageId)
+				: undefined;
 		const actor =
 			event.type === "approval.decided"
 				? { kind: "user" as const, id: event.by }
 				: event.type === "turn.started" && turn
 					? { kind: turn.actor_kind, id: turn.actor_id }
-					: turn?.tedi_id
-						? { kind: "tedi" as const, id: turn.tedi_id }
-						: { kind: "service" as const, id: "workspace_object" };
+					: event.type === "message.queued" && sender
+						? { kind: sender.actor_kind, id: sender.actor_id }
+						: turn?.tedi_id
+							? { kind: "tedi" as const, id: turn.tedi_id }
+							: { kind: "service" as const, id: "workspace_object" };
 		this.#activityRecords.append({
 			...scope,
 			kind: "run",
@@ -2985,6 +3252,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						emit: (event) => this.#emitLoopEvent(conversationId, turnId, event),
 						save: (progress) =>
 							this.#saveProgress(conversationId, turnId, progress),
+						takeAdded: () => this.takeQueuedMessages(scope, turnId),
 						signal: controller.signal,
 					});
 			if (this.#turn(turnId)?.status !== "running") return;
@@ -3056,7 +3324,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			for (const wake of this.#waiters.get(turnId) ?? []) wake();
 			this.#waiters.delete(turnId);
 		}
-		if (answered)
+		// What the person sent too late for this turn starts the next one. A
+		// stopped turn handed its unread messages back instead.
+		const next =
+			!controller.signal.aborted &&
+			(await this.#startQueuedMessage(scope, conversationId));
+		if (answered && !next)
 			await this.#continueAfterDecisions(scope, conversationId).catch(
 				(error: unknown) =>
 					workspaceLog.warn("Decisions made during a turn were not answered", {
@@ -3184,7 +3457,13 @@ export interface WorkspaceRpc {
 	sendTurn(
 		scope: WorkspaceScope,
 		input: TurnRequest,
-	): Promise<{ turnId: string; conversationId: string; seq: number }>;
+	): Promise<{
+		turnId: string;
+		conversationId: string;
+		seq: number;
+		/** Held for the turn already working; `turnId` is that turn. */
+		queued?: true;
+	}>;
 	cancelTurn(scope: WorkspaceScope, turnId: string): Promise<boolean>;
 	readEvents(
 		scope: WorkspaceScope,
@@ -3284,11 +3563,22 @@ export interface WorkspaceRpc {
 }
 
 /** Everything a turn needs from the host, whichever object runs it. */
+/** What `sendTurn` answers for a message held for the working turn. */
+function queuedReceipt(message: QueuedMessageRow) {
+	return {
+		turnId: message.turn_id,
+		conversationId: message.conversation_id,
+		seq: message.seq,
+		queued: true as const,
+	};
+}
+
 export interface ExecuteTurnHost {
 	env: WorkspaceEnv;
 	sandboxEnv: Record<string, unknown>;
 	emit: (event: LoopEvent) => void;
 	save: (progress: TurnProgress) => void | Promise<void>;
+	takeAdded: () => AddedMessage[] | Promise<AddedMessage[]>;
 	signal?: AbortSignal;
 	model: ModelPort;
 }
@@ -3304,6 +3594,7 @@ export async function executeTurn(
 			runCode: (code) => sandbox.run({ code, env: host.sandboxEnv }),
 			emit: host.emit,
 			save: host.save,
+			takeAdded: host.takeAdded,
 			signal: host.signal,
 			summarize: async (messages) => {
 				const stream = host.model.stream(
@@ -3385,6 +3676,10 @@ export class TurnFacet extends DurableObject<WorkspaceEnv> {
 				turnId: string,
 				progress: TurnProgress,
 			): Promise<void>;
+			takeQueuedMessages(
+				scope: WorkspaceScope,
+				turnId: string,
+			): Promise<AddedMessage[]>;
 		};
 		const sandboxEnv: Record<string, unknown> = {};
 		for (const binding of BINDING_NAMES) {
@@ -3401,6 +3696,7 @@ export class TurnFacet extends DurableObject<WorkspaceEnv> {
 			},
 			save: (progress) =>
 				parent.saveTurnProgress(plan.scope, plan.turnId, progress),
+			takeAdded: () => parent.takeQueuedMessages(plan.scope, plan.turnId),
 			signal: this.#stop.signal,
 		});
 	}

@@ -55,6 +55,13 @@ its code runs beside the data.
    `interrupted`. The chat offers Continue after either.
 6. Long conversations run their turn in a `TurnFacet` so the object itself
    stays responsive. Stop reaches the facet through its `cancel()` call.
+7. One conversation has one working turn. A message sent while it works
+   starts no second turn: it is queued (`message.queued`) and the turn reads
+   it after its current tool results, before its next model call
+   (`message.read`), as the person's message in that turn. When the turn
+   ends first, the oldest unread message starts the next turn and that turn
+   reads the rest. Stop hands unread messages back (`message.returned`), and
+   the chat puts their text back into the composer.
 
 ## Surfaces
 

@@ -146,8 +146,35 @@ type Stamped = {
 	conversationId: string;
 };
 
+/** A message sent while a turn was working, as each of its events repeats it. */
+type QueuedMessage = Stamped & {
+	/** The working turn it was sent to, then the turn that read it. */
+	turnId: string;
+	messageId: string;
+	text: string;
+	displayText?: string;
+	attachments?: Array<{
+		outputId: string;
+		title: string;
+		revision: number;
+		revisionId: string;
+	}>;
+	authorId: string;
+	authorKind: "person" | "tedi";
+};
+
 /** Events the object writes to its ledger; each one carries a `seq`. */
 export type WorkspaceChatLedgerEvent =
+	/**
+	 * Sent while `turnId` was working: it waits for that turn's next step.
+	 * `message.read`, `message.returned` or a `turn.started` whose `turnId` is
+	 * this `messageId` settles it.
+	 */
+	| (QueuedMessage & { type: "message.queued" })
+	/** The working turn read it. */
+	| (QueuedMessage & { type: "message.read" })
+	/** The turn was stopped first; no turn read it. */
+	| (QueuedMessage & { type: "message.returned" })
 	| (Stamped & {
 			type: "turn.started";
 			turnId: string;
@@ -304,6 +331,9 @@ export type WorkspaceChatServerMessage =
 
 const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"turn.started",
+	"message.queued",
+	"message.read",
+	"message.returned",
 	"turn.model",
 	"turn.usage",
 	"assistant.delta",

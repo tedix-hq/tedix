@@ -4531,3 +4531,196 @@ describe("chat goes on while changes wait for approval", () => {
 		}
 	});
 });
+
+describe("a message sent while the agent works", () => {
+	const midTurnScope = scope;
+	type MidTurnStub = Stub & {
+		readModelCalls(scope: WorkspaceScope): Promise<string[][]>;
+	};
+	function midTurnWorkspace(): MidTurnStub {
+		return workspace(midTurnScope) as MidTurnStub;
+	}
+	const SLOW_STEP =
+		"export default async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); return 42; }";
+	const events = (ws: Stub, conversationId: string) =>
+		ws.readEvents(midTurnScope, { conversationId, after: 0 });
+
+	test.each([false, true])(
+		"reaches the working turn before its next model call and starts no second turn (isolate=%s)",
+		async (isolate) => {
+			await seedCore();
+			const ws = midTurnWorkspace();
+			const callsBefore = (await ws.readModelCalls(midTurnScope)).length;
+			await ws.scriptModel(midTurnScope, [
+				{ code: SLOW_STEP },
+				{ text: "Done, in euros." },
+			]);
+			const turn = await ws.sendTurn(midTurnScope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Total the invoices",
+				isolate,
+			});
+			const messageId = crypto.randomUUID();
+			const added = {
+				turnId: messageId,
+				conversationId: turn.conversationId,
+				actorId: "u1",
+				actorKind: "user" as const,
+				text: "Use euros, not dollars",
+			};
+			const queued = await ws.sendTurn(midTurnScope, added);
+			expect(queued).toMatchObject({
+				turnId: turn.turnId,
+				conversationId: turn.conversationId,
+				queued: true,
+			});
+			// A retried frame is the same message, not a second one.
+			expect(await ws.sendTurn(midTurnScope, added)).toEqual(queued);
+
+			expect(
+				await ws.awaitTurn(midTurnScope, turn.turnId, 20_000),
+			).toMatchObject({ status: "finished", text: "Done, in euros." });
+
+			const calls = (await ws.readModelCalls(midTurnScope)).slice(callsBefore);
+			expect(calls).toEqual([
+				["Total the invoices"],
+				["Total the invoices", "Use euros, not dollars"],
+			]);
+			const ledger = await events(ws, turn.conversationId);
+			expect(
+				ledger.filter((event) => event.type === "turn.started"),
+			).toHaveLength(1);
+			const about = ledger.filter(
+				(event) =>
+					event.type.startsWith("message.") &&
+					"messageId" in event &&
+					event.messageId === messageId,
+			);
+			expect(about.map((event) => event.type)).toEqual([
+				"message.queued",
+				"message.read",
+			]);
+			expect(about[0]).toMatchObject({
+				turnId: turn.turnId,
+				text: "Use euros, not dollars",
+				authorId: "u1",
+				authorKind: "person",
+			});
+			const finished = ledger.find((event) => event.type === "turn.finished");
+			expect(about[1]!.seq).toBeLessThan(finished!.seq);
+			expect(
+				(await ws.readMessages(midTurnScope, turn.conversationId)).map(
+					(message) => message.role,
+				),
+			).toEqual(["user", "assistant", "toolResult", "user", "assistant"]);
+			expect(
+				(await ws.listConversations(midTurnScope)).find(
+					(row) => row.id === turn.conversationId,
+				)?.running,
+			).toBeUndefined();
+		},
+	);
+
+	test("starts the next turn when the working turn ended before reading it", async () => {
+		await seedCore();
+		const ws = midTurnWorkspace();
+		// One model call and no tool step: nothing reads a message sent now.
+		await ws.scriptModel(midTurnScope, [
+			{ text: "one two three four five six", tokensPerSecond: 4 },
+		]);
+		const turn = await ws.sendTurn(midTurnScope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Count slowly",
+		});
+		const messageId = crypto.randomUUID();
+		const queued = await ws.sendTurn(midTurnScope, {
+			turnId: messageId,
+			conversationId: turn.conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "Then count backwards",
+		});
+		expect(queued).toMatchObject({ turnId: turn.turnId, queued: true });
+		expect(await ws.awaitTurn(midTurnScope, turn.turnId, 20_000)).toMatchObject(
+			{ status: "finished" },
+		);
+		const next = await vi.waitFor(
+			async () => {
+				const outcome = await ws.awaitTurn(midTurnScope, messageId, 20_000);
+				expect(outcome.status).toBe("finished");
+				return outcome;
+			},
+			{ timeout: 30_000, interval: 100 },
+		);
+		expect(next.status).toBe("finished");
+		const ledger = await events(ws, turn.conversationId);
+		const started = ledger.filter((event) => event.type === "turn.started");
+		expect(started.map((event) => event.turnId)).toEqual([
+			turn.turnId,
+			messageId,
+		]);
+		expect(started[1]).toMatchObject({
+			text: "Then count backwards",
+			authorId: "u1",
+		});
+		const firstFinished = ledger.find(
+			(event) => event.type === "turn.finished" && event.turnId === turn.turnId,
+		);
+		// One after the other, never side by side.
+		expect(started[1]!.seq).toBeGreaterThan(firstFinished!.seq);
+		expect(
+			ledger
+				.filter((event) => event.type.startsWith("message."))
+				.map((event) => event.type),
+		).toEqual(["message.queued"]);
+		expect(
+			(await ws.readMessages(midTurnScope, turn.conversationId)).map(
+				(message) => message.role,
+			),
+		).toEqual(["user", "assistant", "user", "assistant"]);
+	});
+
+	test("Stop hands an unread message back and starts nothing", async () => {
+		await seedCore();
+		const ws = midTurnWorkspace();
+		await ws.scriptModel(midTurnScope, [
+			{ text: "one two three four five six seven eight", tokensPerSecond: 1 },
+		]);
+		const turn = await ws.sendTurn(midTurnScope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Count very slowly",
+		});
+		const messageId = crypto.randomUUID();
+		await ws.sendTurn(midTurnScope, {
+			turnId: messageId,
+			conversationId: turn.conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "Skip the odd numbers",
+		});
+		expect(await ws.cancelTurn(midTurnScope, turn.turnId)).toBe(true);
+		expect(await ws.awaitTurn(midTurnScope, turn.turnId, 5_000)).toMatchObject({
+			status: "cancelled",
+		});
+		// Long enough for a turn that should not exist to have started.
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const ledger = await events(ws, turn.conversationId);
+		expect(
+			ledger.filter((event) => event.type === "turn.started"),
+		).toHaveLength(1);
+		const returned = ledger.find((event) => event.type === "message.returned");
+		expect(returned).toMatchObject({
+			messageId,
+			turnId: turn.turnId,
+			text: "Skip the odd numbers",
+		});
+		const finished = ledger.find((event) => event.type === "turn.finished");
+		expect(returned!.seq).toBeLessThan(finished!.seq);
+		expect(
+			JSON.stringify(await ws.readMessages(midTurnScope, turn.conversationId)),
+		).not.toContain("Skip the odd numbers");
+	});
+});

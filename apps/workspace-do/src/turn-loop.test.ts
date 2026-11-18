@@ -168,6 +168,69 @@ describe("runTurn", () => {
 		expect(JSON.stringify(fed).length).toBeGreaterThan(20_000);
 	});
 
+	test("a message sent while the turn works joins it before the next model call", async () => {
+		const core = createFauxCore({ tokensPerSecond: 0 });
+		core.setResponses([
+			fauxAssistantMessage(
+				fauxToolCall(RUN_CODE_TOOL, { code: "export default async () => 1" }),
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(fauxText("Done, in euros.")),
+		]);
+		const model = fauxModel(core);
+		const seen: string[][] = [];
+		const waiting = [{ id: "m1", text: "Use euros" }];
+		let asked = 0;
+		const saved: string[] = [];
+		const result = await runTurn(
+			{
+				model: {
+					...model,
+					stream: (context, options) => {
+						seen.push(
+							context.messages.flatMap((message) =>
+								message.role === "user" && typeof message.content === "string"
+									? [message.content]
+									: [],
+							),
+						);
+						return model.stream(context, options);
+					},
+				},
+				runCode: async () => ({ ok: true, result: 1, logs: [], durationMs: 1 }),
+				emit: () => {},
+				summarize: async () => ({ summary: "n/a", usage: tokenUsage(0, 0) }),
+				save: (progress) => {
+					saved.push(...progress.messages.map((message) => message.role));
+				},
+				takeAdded: () => {
+					asked += 1;
+					return waiting.splice(0);
+				},
+			},
+			{
+				turnId: "t-added",
+				systemPrompt: "sys",
+				history: [],
+				userText: "Total",
+			},
+		);
+		expect(seen).toEqual([["Total"], ["Total", "Use euros"]]);
+		expect(result.text).toBe("Done, in euros.");
+		expect(result.addedMessages).toBe(1);
+		expect(result.appended.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"toolResult",
+			"user",
+			"assistant",
+		]);
+		// Asked once, after the tool round; the answer ends the turn unasked.
+		expect(asked).toBe(1);
+		// The host stored the added message when it handed it over.
+		expect(saved).toEqual(["user", "assistant", "toolResult", "assistant"]);
+	});
+
 	test("an approval refusal does not end the turn; the model goes on", async () => {
 		const core = createFauxCore({ tokensPerSecond: 0 });
 		core.setResponses([

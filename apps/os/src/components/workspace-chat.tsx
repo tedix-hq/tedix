@@ -110,11 +110,17 @@ import {
 	elapsedLabel,
 	formatConversationUsage,
 	formatWorkspaceUsage,
+	messageAccepted,
 	pendingApproval,
 	turnDetails,
 	usageTotalsNote,
 	waitingForDecision,
 } from "@/lib/workspace-chat-state";
+import {
+	AddedMessages,
+	QueuedMessages,
+	useReturnedMessages,
+} from "./workspace-chat-queued";
 import {
 	ApprovalTray,
 	approvalSubject,
@@ -429,6 +435,7 @@ export function WorkspaceChat({
 					conversationId={conversationId}
 					turns={state.turns}
 					models={state.models}
+					queued={state.queued}
 					pendingSend={state.pendingSend}
 					catchingUp={
 						catchingUp && state.turns.length === 0 && conversationId !== null
@@ -660,6 +667,7 @@ function Thread({
 	conversationId,
 	turns,
 	models,
+	queued,
 	pendingSend,
 	catchingUp,
 	hasEarlier,
@@ -673,6 +681,8 @@ function Thread({
 	conversationId: string | null;
 	turns: ChatTurn[];
 	models: ReadonlyArray<{ id: string; label: string }>;
+	/** Sent while the agent works; it has not read them yet. */
+	queued: WorkspaceChatState["queued"];
 	pendingSend: { clientTurnId: string; text: string; sentAt: number } | null;
 	catchingUp: boolean;
 	hasEarlier: boolean;
@@ -751,6 +761,7 @@ function Thread({
 					turn={turn}
 				/>
 			))}
+			<QueuedMessages messages={queued} />
 			{pendingSend ? (
 				<div className="workspace-chat-turn" data-pending="true">
 					<UserBubble text={pendingSend.text} />
@@ -828,6 +839,7 @@ function TurnView({
 					))}
 				</ul>
 			) : null}
+			<AddedMessages messages={turn.added} />
 			<div className="workspace-chat-reply" key={turn.replyKey}>
 				{turn.steps.length > 0 ? (
 					<Activity steps={turn.steps} approvals={turn.approvals} />
@@ -1534,9 +1546,26 @@ function Composer({
 		setSubmitted(null);
 	}, [draftKey, workspaceId]);
 	useEffect(() => setSubmitted(null), [client]);
+	// Stop hands back what the agent had not read: it goes ahead of the draft.
+	const returnedMessages = useReturnedMessages(state.returned, (messages) => {
+		const text = messages.map((message) => message.text).join("\n\n");
+		setDraft((current) => (current.trim() ? `${text}\n\n${current}` : text));
+		setSelected((files) =>
+			[
+				...files,
+				...messages
+					.flatMap((message) => message.attachments ?? [])
+					.filter(
+						(file) => !files.some((item) => item.outputId === file.outputId),
+					)
+					.map(({ outputId, title }) => ({ outputId, title })),
+			].slice(0, 5),
+		);
+	});
+	const workingTurnId = activeTurn(state)?.turnId ?? null;
 	useEffect(() => {
 		if (!submitted) return;
-		if (state.turns.some((turn) => turn.turnId === submitted.id)) {
+		if (messageAccepted(state, submitted.id)) {
 			// The first message names the conversation, which moves the draft key.
 			writeDraft(submitted.draftKey, "");
 			setDraft((text) => (text === submitted.text ? "" : text));
@@ -1547,7 +1576,7 @@ function Composer({
 		} else if (state.lastError?.clientTurnId === submitted.id) {
 			setSubmitted(null);
 		}
-	}, [state.turns, state.lastError, submitted]);
+	}, [state.turns, state.queued, state.returned, state.lastError, submitted]);
 	const textarea = useRef<HTMLTextAreaElement | null>(null);
 	useEffect(() => {
 		if (autoFocus) textarea.current?.focus();
@@ -1559,6 +1588,7 @@ function Composer({
 			draft,
 			selected.map(({ outputId }) => ({ outputId })),
 		);
+		if (id) returnedMessages.sent(id);
 		if (id)
 			setSubmitted({
 				id,
@@ -1709,7 +1739,9 @@ function Composer({
 					onKeyDown={onKeyDown}
 					placeholder={
 						disabledReason ??
-						(busy ? "Add to this turn while it runs…" : "Ask this workspace…")
+						(busy
+							? "Add to what the agent is working on…"
+							: "Ask this workspace…")
 					}
 					ref={textarea}
 					rows={2}
@@ -1732,29 +1764,36 @@ function Composer({
 						/>
 					) : null}
 					<div className="workspace-chat-model">{modelControl}</div>
-					{onStop && !draft.trim() ? (
+					{onStop ? (
 						<Button
 							aria-label="Stop"
-							title="Stop"
-							onClick={onStop}
+							title="Stop. Messages the agent has not read come back here."
+							onClick={() => {
+								if (workingTurnId) returnedMessages.stopped(workingTurnId);
+								onStop();
+							}}
 							size="icon-sm"
 							type="button"
+							variant="outline"
 						>
 							<Stop aria-hidden weight="fill" />
 						</Button>
-					) : (
-						<Button
-							aria-label="Send"
-							title="Send (Enter). Shift+Enter adds a line."
-							disabled={
-								disabledReason !== null || submitted !== null || !draft.trim()
-							}
-							size="icon-sm"
-							type="submit"
-						>
-							<PaperPlaneRight aria-hidden />
-						</Button>
-					)}
+					) : null}
+					<Button
+						aria-label="Send"
+						title={
+							onStop
+								? "Send to the agent while it works (Enter). It reads this at its next step."
+								: "Send (Enter). Shift+Enter adds a line."
+						}
+						disabled={
+							disabledReason !== null || submitted !== null || !draft.trim()
+						}
+						size="icon-sm"
+						type="submit"
+					>
+						<PaperPlaneRight aria-hidden />
+					</Button>
 				</div>
 			</div>
 			{footer}
