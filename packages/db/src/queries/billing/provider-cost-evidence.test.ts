@@ -326,6 +326,7 @@ async function authorityFixture() {
 		const names: string[] = [],
 			values: unknown[] = [];
 		for (const [key, c] of Object.entries(columns)) {
+			if (c.generated) continue;
 			let value = Object.hasOwn(overrides, key)
 				? overrides[key]
 				: !c.notNull

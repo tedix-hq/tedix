@@ -154,13 +154,14 @@ export class Snapshot {
 	 * moment, but both copies must agree or the snapshot is unsafe to export.
 	 */
 	readRows(mapping: TableMapping, ref: WorkspaceRef): StoredRow[] {
-		const sql = `SELECT * FROM "${mapping.table}" WHERE ${this.expand(mapping.where, ref)}`;
+		const where = this.expand(mapping.where, ref);
 		const params: Record<string, string> = { org: ref.organizationId };
-		if (sql.includes("@ws")) params.ws = ref.workspaceId;
+		if (where.includes("@ws")) params.ws = ref.workspaceId;
 		const seen = new Map<string, StoredRow>();
 		const rows: StoredRow[] = [];
 		for (const db of this.storesFor(mapping.stores)) {
 			if (!hasTable(db, mapping.table)) continue;
+			const sql = `SELECT ${storedColumns(db, mapping.table)} FROM "${mapping.table}" WHERE ${where}`;
 			for (const raw of db.prepare(sql).all(params)) {
 				const row = raw as StoredRow;
 				const key = rowKey(row, mapping.primaryKey);
@@ -265,6 +266,19 @@ export function hasTable(db: DatabaseSync, table: string): boolean {
 			)
 			.get(table) !== undefined
 	);
+}
+
+/**
+ * The select list of a table's stored columns. Generated columns are left out:
+ * the source computes them from stored ones, and a workspace store has no such
+ * column to load them into.
+ */
+export function storedColumns(db: DatabaseSync, table: string): string {
+	return db
+		.prepare("SELECT name FROM pragma_table_info(?) ORDER BY cid")
+		.all(table)
+		.map((row) => `"${String(row.name)}"`)
+		.join(", ");
 }
 
 /**

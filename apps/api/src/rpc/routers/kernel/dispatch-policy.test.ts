@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	approvalHeldDelegationIntent,
-	isEarnedDelegationActivityAllowed,
 	classifyWorkstationDispatch,
 	parseDispatchPolicyLayer,
+	resolveEarnedDelegationEnforcement,
 	resolveLayeredDispatchPolicy,
 } from "./dispatch-policy";
 
@@ -256,7 +256,7 @@ describe("parseDispatchPolicyLayer", () => {
 		});
 	});
 
-	it("parses an exact earned-delegation policy without changing dispatch policy", () => {
+	it("parses an exact earned-delegation rollout without changing dispatch policy", () => {
 		expect(
 			parseDispatchPolicyLayer({
 				earnedDelegation: {
@@ -268,6 +268,7 @@ describe("parseDispatchPolicyLayer", () => {
 			}),
 		).toEqual({
 			earnedDelegation: {
+				mode: "enforce",
 				activityIds: ["activity-1"],
 				tediIds: ["tedi-cmo"],
 				environments: ["production"],
@@ -275,7 +276,7 @@ describe("parseDispatchPolicyLayer", () => {
 		});
 	});
 
-	it("rejects empty or malformed earned-delegation policies", () => {
+	it("rejects global or malformed enforce rollouts", () => {
 		expect(
 			parseDispatchPolicyLayer({
 				earnedDelegation: { mode: "enforce", activityIds: [] },
@@ -290,6 +291,81 @@ describe("parseDispatchPolicyLayer", () => {
 				},
 			}),
 		).toBeNull();
+	});
+});
+
+describe("resolveEarnedDelegationEnforcement", () => {
+	const policy = {
+		mode: "enforce" as const,
+		activityIds: ["activity-1"],
+		tediIds: ["tedi-cmo"],
+		environments: ["production"],
+	};
+
+	it("enrolls a named tedi fail-closed while preserving other tedi and environment boundaries", () => {
+		expect(
+			resolveEarnedDelegationEnforcement({
+				policy,
+				activityId: "activity-1",
+				tediId: "tedi-cmo",
+				environment: "production",
+			}),
+		).toBe("enforce");
+		expect(
+			resolveEarnedDelegationEnforcement({
+				policy,
+				activityId: null,
+				tediId: "tedi-cmo",
+				environment: "production",
+			}),
+		).toBe("enforce");
+		expect(
+			resolveEarnedDelegationEnforcement({
+				policy,
+				activityId: "other",
+				tediId: "tedi-cmo",
+				environment: "production",
+			}),
+		).toBe("enforce");
+		for (const input of [
+			{ policy: { ...policy, mode: "shadow" as const } },
+			{ tediId: "other" },
+			{ environment: "staging" },
+			{ policy: null },
+		]) {
+			expect(
+				resolveEarnedDelegationEnforcement({
+					policy,
+					activityId: "activity-1",
+					tediId: "tedi-cmo",
+					environment: "production",
+					...input,
+				}),
+			).toBe("shadow");
+		}
+	});
+
+	it("supports activity-only scoping while still requiring an exact activity", () => {
+		const activityOnly = {
+			mode: "enforce" as const,
+			activityIds: ["activity-1"],
+			tediIds: [],
+			environments: [],
+		};
+		for (const [activityId, expected] of [
+			["activity-1", "enforce"],
+			["other", "shadow"],
+			[null, "shadow"],
+		] as const) {
+			expect(
+				resolveEarnedDelegationEnforcement({
+					policy: activityOnly,
+					activityId,
+					tediId: "any-tedi",
+					environment: "canary",
+				}),
+			).toBe(expected);
+		}
 	});
 });
 
@@ -457,43 +533,5 @@ describe("approvalHeldDelegationIntent", () => {
 			"Do not approve anything; if approval is required, stop and report blocked.",
 		].join("\n");
 		expect(approvalHeldDelegationIntent(prompt)).toBe(false);
-	});
-});
-
-describe("isEarnedDelegationActivityAllowed", () => {
-	const policy = {
-		activityIds: ["activity-1"],
-		tediIds: ["tedi-1"],
-		environments: ["production"],
-	};
-	const route = {
-		policy,
-		activityId: "activity-1",
-		tediId: "tedi-1",
-		environment: "production",
-	};
-	it("requires an exact activity, tedi and environment match", () => {
-		expect(isEarnedDelegationActivityAllowed(route)).toBe(true);
-		for (const mismatch of [
-			{ policy: undefined },
-			{ activityId: null },
-			{ activityId: "other" },
-			{ tediId: "other" },
-			{ environment: "development" },
-		]) {
-			expect(isEarnedDelegationActivityAllowed({ ...route, ...mismatch })).toBe(
-				false,
-			);
-		}
-	});
-	it("allows any tedi and environment only when those policy lists are empty", () => {
-		expect(
-			isEarnedDelegationActivityAllowed({
-				...route,
-				policy: { ...policy, tediIds: [], environments: [] },
-				tediId: "other",
-				environment: "development",
-			}),
-		).toBe(true);
 	});
 });

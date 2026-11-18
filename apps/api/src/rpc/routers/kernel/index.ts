@@ -101,7 +101,7 @@ import {
 import {
 	type DispatchPolicyLayer,
 	approvalHeldDelegationIntent,
-	isEarnedDelegationActivityAllowed,
+	resolveEarnedDelegationEnforcement,
 } from "./dispatch-policy";
 import { factoryChatReader } from "./factory-chat-tools";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
@@ -1289,12 +1289,18 @@ export async function runKernel(args: {
 		const executionRequirement = deriveExecutionRequirement(content, route);
 		const executionEnvironment =
 			(env as unknown as { ENVIRONMENT?: string }).ENVIRONMENT ?? "development";
-		const earnedDelegationActivityAllowed = isEarnedDelegationActivityAllowed({
+		const earnedDelegationEnforcement = resolveEarnedDelegationEnforcement({
 			policy: orgPolicy?.earnedDelegation,
 			activityId: route.targetActivityId,
 			tediId: route.targetTediId,
 			environment: executionEnvironment,
 		});
+		const earnedDelegationActivityAllowed =
+			route.targetActivityId !== null &&
+			(orgPolicy?.earnedDelegation?.activityIds.includes(
+				route.targetActivityId,
+			) ??
+				false);
 		const stewardCloseoutTargets =
 			args.stewardCloseoutTargets === undefined
 				? undefined
@@ -1337,6 +1343,7 @@ export async function runKernel(args: {
 				.map((message) => `${message.role}: ${message.content}`),
 			executionRequirement,
 			executionEnvironment,
+			authorityMode: earnedDelegationEnforcement,
 		});
 		workOrder.autonomyPolicyPack = orgPolicy?.autonomy?.policyPack;
 		delegation = {
@@ -1360,6 +1367,7 @@ export async function runKernel(args: {
 					org: orgPolicy,
 				},
 				operatorHeldForApproval: approvalHeldDelegationIntent(inputContent),
+				earnedDelegationEnforcement,
 				earnedDelegationActivityAllowed,
 				executionEnvironment,
 				targetCapacity: card
