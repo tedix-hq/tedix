@@ -1,3 +1,4 @@
+import { isEarnedDelegationActivityAllowed } from "../kernel/dispatch-policy";
 import type { BaseContext } from "../../orpc";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { decideAutonomousAction } from "@tedix/api-contract/utils/approval-policy";
@@ -6,7 +7,6 @@ import {
 	buildDelegationWorkOrder,
 	decideDelegationDispatch,
 } from "../kernel/delegation-dispatch";
-import { resolveEarnedDelegationEnforcement } from "../kernel/dispatch-policy";
 import {
 	getTediCapabilityCards,
 	readOrgDispatchPolicyLayer,
@@ -70,22 +70,11 @@ export async function reviewDelegationAutonomy(
 		cards.find((candidate) => candidate.tediId === pending.targetTediId) ??
 		null;
 	const environment = context.env.ENVIRONMENT ?? "development";
-	const earnedDelegationEnforcement = resolveEarnedDelegationEnforcement({
-		globalMode:
-			context.env.EARNED_DELEGATION_ENFORCEMENT === "enforce"
-				? "enforce"
-				: "shadow",
-		policy: policy.earnedDelegation,
-		activityId: route.data.targetActivityId,
-		tediId: pending.targetTediId,
-		environment,
-	});
 	const workOrder = buildDelegationWorkOrder({
 		route: route.data,
 		card,
 		userContent: source,
 		executionEnvironment: environment,
-		authorityMode: earnedDelegationEnforcement,
 	});
 	const decision = decideDelegationDispatch({
 		route: route.data,
@@ -95,13 +84,12 @@ export async function reviewDelegationAutonomy(
 		executionRequirement: workOrder.executionRequirement,
 		capabilityPlan: workOrder.capabilityPlan,
 		executionEnvironment: environment,
-		earnedDelegationEnforcement,
-		earnedDelegationActivityAllowed: Boolean(
-			route.data.targetActivityId &&
-			policy.earnedDelegation?.activityIds.includes(
-				route.data.targetActivityId,
-			),
-		),
+		earnedDelegationActivityAllowed: isEarnedDelegationActivityAllowed({
+			policy: policy.earnedDelegation,
+			activityId: route.data.targetActivityId,
+			tediId: pending.targetTediId,
+			environment,
+		}),
 		gating: { org: policy, tedi: card?.dispatchPolicy },
 		delegationDepth: Number(nonNullRecord(run.metadata)?.delegationDepth ?? 0),
 		// A policy release must not push a held run into a tedi already at its

@@ -643,8 +643,6 @@ export function buildDelegationWorkOrder(input: {
 	executionRequirement?: ExecutionRequirement;
 	/** Runtime environment used to bind a matching earned-authority envelope. */
 	executionEnvironment?: string;
-	/** Shadow preserves legacy dispatch without a grant; enforce fails closed. */
-	authorityMode?: EarnedDelegationEnforcementMode;
 	/**
 	 * Output-schema task mode (opt-in Tedix result-contract pattern): an
 	 * optional, caller-supplied JSON Schema the
@@ -921,7 +919,7 @@ export function buildDelegationWorkOrder(input: {
 		// the child run metadata as delegationBudget/delegationDeadlineMs). Always
 		// present now: derived effort-class caps under any caller-supplied caps.
 		budget: mergedBudget,
-		authorityMode: input.authorityMode ?? "shadow",
+		authorityMode: "enforce",
 		...(authorityEnvelope ? { authorityEnvelope } : {}),
 		contract,
 		traceExcerpts: boundedTraceExcerpts,
@@ -1119,21 +1117,7 @@ export interface DispatchDecision {
 	 * failure, and stays unclassified.
 	 */
 	failure?: DelegationFailureClassification;
-	/**
-	 * Shadow-mode rollout signal: the target had no task-scoped grant matching
-	 * this route, and `shadow` let the dispatch proceed anyway.
-	 *
-	 * It is a flag rather than a prefix on `reason` because `reason` is what an
-	 * operator reads on the approval card. Smuggling a diagnostic through it
-	 * meant every surface had to strip the marker back out, and the one that
-	 * did not — Tedix OS — showed customers
-	 * "earned-delegation-shadow: no matching task-scoped grant; target not
-	 * active". Structured is also what a rollout actually wants to count.
-	 */
-	earnedDelegationShadow?: true;
 }
-
-export type EarnedDelegationEnforcementMode = "shadow" | "enforce";
 
 export type DelegationApprovalRoute = "agent" | "human";
 
@@ -1423,12 +1407,9 @@ export function decideDelegationDispatch(input: {
 	 * This suppresses otherwise-authorized auto dispatch.
 	 */
 	operatorHeldForApproval?: boolean;
-	/** Shadow records misses without changing dispatch; enforce gates them. */
-	earnedDelegationEnforcement?: EarnedDelegationEnforcementMode;
 	/**
-	 * Whether the planner's concrete activity is in the active rollout
-	 * allowlist. A named-tedi rollout can enforce even when the planner omits
-	 * the activity; false then holds the route before autonomous dispatch.
+	 * Whether the route matches the organization's activity, target and environment
+	 * allowlists; false holds the route before autonomous dispatch.
 	 */
 	earnedDelegationActivityAllowed?: boolean;
 	executionEnvironment?: string;
@@ -1455,9 +1436,6 @@ export function decideDelegationDispatch(input: {
 		canAutoDispatch: false,
 		mode: "deferred",
 		reason: `capacity: target is already running ${capacity.active} of its ${capacity.limit} concurrent delegated runs; starts automatically when one finishes`,
-		...(decision.earnedDelegationShadow
-			? { earnedDelegationShadow: true as const }
-			: {}),
 	};
 }
 
@@ -1504,16 +1482,13 @@ function decideDelegationDispatchWithinCapacity(
 		return { ...verdict, failure: classifyDelegationFailure(verdict.reason) };
 	}
 
-	if (
-		input.earnedDelegationEnforcement === "enforce" &&
-		input.earnedDelegationActivityAllowed === false
-	) {
+	if (input.earnedDelegationActivityAllowed === false) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",
 			approvalRoute: earnedHoldApprovalRoute(verdict),
 			reason:
-				"target is enrolled in earned-delegation enforcement, but the route omitted or selected an activity outside the rollout allowlist",
+				"the route does not match the organization earned-delegation activity, target or environment allowlists",
 		};
 	}
 
@@ -1526,10 +1501,7 @@ function decideDelegationDispatchWithinCapacity(
 			capabilityPlan: input.capabilityPlan,
 			environment: input.executionEnvironment ?? "production",
 		});
-	// Earned authority is a hard ceiling in enforce mode, including in open-
-	// testing mode. Shadow mode is the explicit zero-grant rollout posture: it
-	// preserves existing dispatch while recording the miss on the decision.
-	if (!matchingEntrustment && input.earnedDelegationEnforcement === "enforce") {
+	if (!matchingEntrustment) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",
@@ -1537,7 +1509,6 @@ function decideDelegationDispatchWithinCapacity(
 			reason: `target lacks a matching ${input.executionEnvironment ?? "production"} entrustment for this route risk, task family, tools, and constraints`,
 		};
 	}
-	const shadowMiss = !matchingEntrustment;
 
 	if (input.operatorHeldForApproval && verdict.mode === "auto") {
 		return {
@@ -1548,7 +1519,7 @@ function decideDelegationDispatchWithinCapacity(
 		};
 	}
 
-	return shadowMiss ? { ...verdict, earnedDelegationShadow: true } : verdict;
+	return verdict;
 }
 
 /**

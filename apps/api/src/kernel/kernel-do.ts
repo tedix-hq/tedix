@@ -120,33 +120,9 @@ const KERNEL_ASYNC_DISPATCH_MARKER = "kernelAsyncDispatched";
 
 /**
  * Steady-state batch interval for durable answer-delta persistence. The first delta flushes immediately; later deltas
- * use one D1 write per 1s window instead of per-token, bounding the cost (e.g. a 5s answer ≈ 6 rows). Gated by {@link
- * kernelAnswerDeltaPersistEnabled} (KERNEL_ANSWER_DELTA_PERSIST).
+ * use one D1 write per 1s window instead of per-token, bounding the cost (e.g. a 5s answer ≈ 6 rows).
  */
 const ANSWER_DELTA_FLUSH_INTERVAL_MS = 1_000;
-
-/**
- * Gate for the durable per-turn event persistence that feeds the D1-draining
- * SSE channel. When "true" the `startTurnProgress` seam also writes two
- * additive families of `kernel_runtime_events` rows for the in-flight turn:
- *   - `message.delta` answer-delta rows (batched ~1s — see
- *     {@link ANSWER_DELTA_FLUSH_INTERVAL_MS}), and
- *   - `tool.started`/`tool.completed`/`tool.failed` per-tool rows.
- * These events feed OS Cap'n Web delivery and CLI streaming, including replay
- * and recovery. Disabling persistence removes live answer deltas. The terminal
- * message.completed event is stamped at settle time, and the
- * turn body flushes the trailing delta batch (`flushStreamedProgress`) before
- * that settle clock is read, so the (createdAt, id) offset stream orders every
- * delta before it — `packages/cli/src/answer-stream.ts` renders them live and
- * drops them the moment the canonical answer lands. (Before that flush existed
- * the batcher's 1s window landed the bulk delta ~0.8s after the terminal row.)
- */
-function kernelAnswerDeltaPersistEnabled(env: CloudflareEnv): boolean {
-	return (
-		(env as unknown as Record<string, string>).KERNEL_ANSWER_DELTA_PERSIST ===
-		"true"
-	);
-}
 
 function kernelErrorMessage(value: unknown): string {
 	return value instanceof Error ? value.message : String(value);
@@ -368,14 +344,11 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		const afterSettle = createProgressPersistenceTracker();
 		// Durable answer-delta batcher: flushes the first answerDelta immediately, then persists `message.delta` events every
 		// ~1s. One write per steady-state window, not per token. Fail-soft — never affects the turn.
-		const persistEnabled = kernelAnswerDeltaPersistEnabled(this.env);
 		const deltaBatcher = createAnswerDeltaBatcher({
 			flushIntervalMs: ANSWER_DELTA_FLUSH_INTERVAL_MS,
 			persist: (chunk, seq) => {
-				// Stage-timing mark before the persist gate: the flush moment is what the first-token latency instrumentation
-				// measures, whether or not durable delta persistence is enabled. First occurrence only.
+				// The first flush marks the first-token latency, before the durable write starts.
 				stageTimings?.mark("firstAnswerDeltaFlush");
-				if (!persistEnabled) return;
 				const createdAt = new Date().toISOString();
 				persistence.track(
 					loadHomeLiveEvents().then((m) =>
@@ -401,7 +374,6 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		const rationaleBatcher = createAnswerDeltaBatcher({
 			flushIntervalMs: ANSWER_DELTA_FLUSH_INTERVAL_MS,
 			persist: (chunk, seq) => {
-				if (!persistEnabled) return;
 				const createdAt = new Date().toISOString();
 				persistence.track(
 					loadHomeLiveEvents().then((m) =>
@@ -426,7 +398,6 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 			lastPhase = phase;
 			phaseSequence += 1;
 			const sequence = phaseSequence;
-			if (!persistEnabled) return;
 			const createdAt = new Date().toISOString();
 			persistence.track(
 				loadHomeLiveEvents().then((m) =>

@@ -173,17 +173,8 @@ export function classifyWorkstationDispatch(args: {
 
 export type DispatchPolicyEffect = "allow" | "deny";
 
-/**
- * Organization-scoped rollout policy for the earned-authority ceiling.
- *
- * The Worker environment flag is only a kill switch. It cannot activate
- * enforcement by itself: an active organization policy pack must also name
- * the exact activity, and may further narrow the rollout to tedis and
- * environments. This prevents an empty-grant organization-wide authority
- * cliff while the first activities are being certified.
- */
-export interface EarnedDelegationRolloutPolicy {
-	mode: "shadow" | "enforce";
+/** Organization policy narrows which earned delegations may dispatch automatically. */
+export interface EarnedDelegationPolicy {
 	activityIds: string[];
 	tediIds: string[];
 	environments: string[];
@@ -195,8 +186,8 @@ export interface DispatchPolicyLayer {
 	effect?: DispatchPolicyEffect;
 	/** Optional human-readable note carried onto the delegation receipt. */
 	reason?: string;
-	/** Exact organization-scoped rollout allowlist for earned authority. */
-	earnedDelegation?: EarnedDelegationRolloutPolicy;
+	/** Exact organization-scoped allowlist for earned authority. */
+	earnedDelegation?: EarnedDelegationPolicy;
 	/**
 	 * Organization-designated agent approver for agent-routable Home
 	 * delegation holds (`approvalRoute: "agent"`). Read from the org layer only;
@@ -313,16 +304,16 @@ export function parseDispatchPolicyLayer(
 		typeof record.reason === "string" && record.reason.trim().length > 0
 			? record.reason.trim()
 			: undefined;
-	const rolloutRaw = record.earnedDelegation;
-	let earnedDelegation: EarnedDelegationRolloutPolicy | undefined;
+	const earnedDelegationRaw = record.earnedDelegation;
+	let earnedDelegation: EarnedDelegationPolicy | undefined;
 	if (
-		rolloutRaw &&
-		typeof rolloutRaw === "object" &&
-		!Array.isArray(rolloutRaw)
+		earnedDelegationRaw &&
+		typeof earnedDelegationRaw === "object" &&
+		!Array.isArray(earnedDelegationRaw)
 	) {
-		const rollout = rolloutRaw as Record<string, unknown>;
+		const policy = earnedDelegationRaw as Record<string, unknown>;
 		const parseStringList = (key: string): string[] | null => {
-			const value = rollout[key];
+			const value = policy[key];
 			if (value === undefined) return [];
 			if (
 				!Array.isArray(value) ||
@@ -338,14 +329,12 @@ export function parseDispatchPolicyLayer(
 		const tediIds = parseStringList("tediIds");
 		const environments = parseStringList("environments");
 		if (
-			(rollout.mode === "shadow" || rollout.mode === "enforce") &&
 			activityIds !== null &&
 			tediIds !== null &&
 			environments !== null &&
-			(rollout.mode === "shadow" || activityIds.length > 0)
+			activityIds.length > 0
 		) {
 			earnedDelegation = {
-				mode: rollout.mode,
 				activityIds,
 				tediIds,
 				environments,
@@ -385,42 +374,20 @@ function parseDelegationApprover(
 	return id.length > 0 ? { type: "tedi", id } : undefined;
 }
 
-/**
- * Resolve the effective earned-authority posture for one concrete route.
- *
- * Enforcement requires both the deployment kill switch and a match in the
- * active organization policy pack. An activity-only rollout gates exact
- * activity matches. Once a policy names tedis, however, those tedis are
- * fail-closed subjects in the configured environments: a missing or
- * non-allowlisted activity must still reach the earned-authority ceiling
- * instead of escaping into shadow mode.
- */
-export function resolveEarnedDelegationEnforcement(input: {
-	globalMode: "shadow" | "enforce";
-	policy: EarnedDelegationRolloutPolicy | null | undefined;
+export function isEarnedDelegationActivityAllowed(input: {
+	policy: EarnedDelegationPolicy | null | undefined;
 	activityId: string | null | undefined;
 	tediId: string | null | undefined;
 	environment: string;
-}): "shadow" | "enforce" {
-	if (input.globalMode !== "enforce" || input.policy?.mode !== "enforce") {
-		return "shadow";
-	}
-	if (
-		input.policy.environments.length > 0 &&
-		!input.policy.environments.includes(input.environment)
-	) {
-		return "shadow";
-	}
-	if (
-		input.policy.tediIds.length > 0 &&
-		(!input.tediId || !input.policy.tediIds.includes(input.tediId))
-	) {
-		return "shadow";
-	}
-	if (input.policy.tediIds.length > 0) {
-		return "enforce";
-	}
-	return input.activityId && input.policy.activityIds.includes(input.activityId)
-		? "enforce"
-		: "shadow";
+}): boolean {
+	const { policy, activityId, tediId, environment } = input;
+	return Boolean(
+		policy &&
+		activityId &&
+		policy.activityIds.includes(activityId) &&
+		(policy.tediIds.length === 0 ||
+			(tediId && policy.tediIds.includes(tediId))) &&
+		(policy.environments.length === 0 ||
+			policy.environments.includes(environment)),
+	);
 }

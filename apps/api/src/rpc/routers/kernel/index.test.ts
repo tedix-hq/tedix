@@ -229,16 +229,6 @@ function writeRoute(
 }
 
 describe("renderWriteDeclined — each stage maps to an honest one-liner", () => {
-	it("disabled: tells the operator the app isn't set up for writes, suggests delegation", () => {
-		const msg = renderWriteDeclined(
-			{ stage: "disabled" } satisfies KernelWriteProposalDeclined,
-			writeRoute(),
-		);
-		expect(msg).toContain("globex");
-		expect(msg).toContain("delegate");
-		expect(msg).not.toContain(OPTIMISTIC_PROMISE);
-	});
-
 	it("planner_declined on a Work create: names the reason from the planner's code", () => {
 		const route = {
 			toolIntent: { appSlug: "tedix-unified", capability: "work_items.create" },
@@ -260,7 +250,7 @@ describe("renderWriteDeclined — each stage maps to an honest one-liner", () =>
 		);
 	});
 
-	it("no_provider: same delegation message as disabled", () => {
+	it("no_provider: suggests delegation to a tedi with access", () => {
 		const msg = renderWriteDeclined(
 			{ stage: "no_provider" } satisfies KernelWriteProposalDeclined,
 			writeRoute("github"),
@@ -336,7 +326,7 @@ describe("renderWriteDeclined — each stage maps to an honest one-liner", () =>
 	});
 
 	it("missing toolIntent: falls back to generic labels gracefully", () => {
-		const msg = renderWriteDeclined({ stage: "disabled" }, {});
+		const msg = renderWriteDeclined({ stage: "no_provider" }, {});
 		expect(msg).toContain("that app");
 		expect(msg).not.toContain(OPTIMISTIC_PROMISE);
 	});
@@ -411,9 +401,9 @@ describe("renderRouteResponse — propose_tool_write: honest messaging", () => {
 		expect(msg).toContain("nothing was created or sent");
 	});
 
-	it("with writeDeclined (disabled): renders the delegation suggestion, no firm promise", () => {
+	it("with writeDeclined (no_provider): renders the delegation suggestion, no firm promise", () => {
 		const msg = renderRouteResponse(proposeWriteRoute("globex"), {
-			stage: "disabled",
+			stage: "no_provider",
 		} satisfies KernelWriteProposalDeclined);
 		expect(msg).toContain("globex");
 		expect(msg).toContain("delegate");
