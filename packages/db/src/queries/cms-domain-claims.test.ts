@@ -11,6 +11,7 @@ import {
 	beginRemovingReplacedCmsDomainClaim,
 	finishCmsDomainProvisioning,
 	getCmsDomainClaimForSite,
+	listUnclaimedCmsCustomDomains,
 	removeCmsDomainClaim,
 	reserveCmsDomainClaim,
 } from "./cms-domain-claims";
@@ -43,6 +44,22 @@ const key = { id: "claim-a", organizationId: "org-a", siteId: "site-a" };
 const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
 describe("CMS domain claims on D1", () => {
+	it("lists routed custom domains until a claim covers them", async () => {
+		const { db } = fixture();
+		const legacy = {
+			siteId: "site-b",
+			organizationId: "org-b",
+			hostname: "legacy.example.com",
+		};
+		expect(await listUnclaimedCmsCustomDomains(db)).toEqual([legacy]);
+		await reserveCmsDomainClaim(db, {
+			id: "claim-b",
+			...legacy,
+			verificationToken: "proof",
+			expiresAt,
+		});
+		expect(await listUnclaimedCmsCustomDomains(db)).toEqual([]);
+	});
 	it("reserves a www alias only behind this site's active verified primary", async () => {
 		const { db, sqlite } = fixture();
 		const aliasKey = { ...key, id: "alias-a" };
