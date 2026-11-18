@@ -130,12 +130,14 @@ import {
 import {
 	activeWorkspacesQueryOptions,
 	canvasGadgetDetailQueryOptions,
+	appRuntimeCodeQueryOptions,
 	canvasGadgetsQueryOptions,
 	canvasOutputLibraryQueryOptions,
 	canvasOutputsQueryOptions,
 	osQueryKeys,
 	outputDetailQueryOptions,
 	workspaceResourcesQueryOptions,
+	workspaceOpenQueryOptions,
 } from "@/lib/os-query-options";
 import { outputIdFromHref } from "@/lib/output-navigation";
 import { useLiveWorkspace } from "@/lib/use-live-workspace";
@@ -1005,6 +1007,43 @@ export function CanvasPage({
 	const selectedApp = gadgets.data?.items.find(
 		(gadget) => gadget.id === selectedAppId,
 	);
+	const openingEditorId =
+		selectedDoc?.type === "output"
+			? outputEditors.get(selectedDoc.id)
+			: selectedAppId;
+	const openingOutputId = [...outputEditors].find(
+		([, editor]) => editor === openingEditorId,
+	)?.[0];
+	const openingRevisionId = gadgets.data?.items.find(
+		(item) => item.id === openingEditorId,
+	)?.currentRevisionId;
+	useEffect(() => {
+		if (
+			!workspaceId ||
+			!openingEditorId ||
+			!openingOutputId ||
+			!openingRevisionId
+		)
+			return;
+		// Deep links and file-list selections both load data while the panel loads.
+		void queryClient.prefetchQuery(outputDetailQueryOptions(openingOutputId));
+		void queryClient.prefetchQuery(
+			appRuntimeCodeQueryOptions(
+				workspaceId,
+				openingEditorId,
+				openingRevisionId,
+			),
+		);
+		void queryClient.prefetchQuery(
+			workspaceOpenQueryOptions(workspaceId, openingEditorId),
+		);
+	}, [
+		queryClient,
+		workspaceId,
+		openingEditorId,
+		openingOutputId,
+		openingRevisionId,
+	]);
 	const documentCount =
 		(gadgets.data?.items.length ?? 0) + (outputs.data?.items.length ?? 0);
 	const hasAnyDocuments = documentCount > 0;

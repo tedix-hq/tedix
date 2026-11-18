@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -37,6 +37,8 @@ export interface AppRuntimeFrameProps {
 	onCall: (method: unknown, args: unknown) => Promise<AppRuntimeHostResult>;
 	/** Fill the pane; otherwise follow the app's reported content height. */
 	layout?: "content" | "fill";
+	/** Saved content stays readable until the client reports app.ready. */
+	loadingContent?: ReactNode;
 	/** The host's Translate, wired to the app document once it is ready. */
 	translation?: AppRuntimeTranslationChannel;
 	outputRevisions?: readonly AppRuntimeOutputRevision[];
@@ -76,6 +78,7 @@ export function AppRuntimeFrame({
 	title,
 	onCall,
 	layout = "content",
+	loadingContent,
 	translation,
 	outputRevisions = [],
 	onError,
@@ -95,10 +98,13 @@ export function AppRuntimeFrame({
 	const [presenting, setPresenting] = useState(false);
 	const frameRoot = useRef<HTMLDivElement>(null);
 	const autoRetries = useRef(0);
+	const sentHtml = useRef<string | null>(null);
+	const [contentReady, setContentReady] = useState(false);
 
 	useEffect(() => {
 		const host = container.current;
 		if (!host) return;
+		setContentReady(false);
 		const iframe = document.createElement("iframe");
 		iframe.title = title;
 		// The proxy is our own static document on the OS origin; it is the one
@@ -137,6 +143,7 @@ export function AppRuntimeFrame({
 			const data = event.data as JsonRpcMessage | null;
 			if (!data || typeof data !== "object" || data.jsonrpc !== "2.0") return;
 			if (data.method === PROXY_READY) {
+				sentHtml.current = latest.current.html;
 				post({
 					jsonrpc: "2.0",
 					method: RESOURCE_READY,
@@ -225,6 +232,15 @@ export function AppRuntimeFrame({
 				typeof data.params === "object" && data.params !== null
 					? (data.params as { method?: unknown; args?: unknown })
 					: {};
+			if (params.method === "app.ready") {
+				requestAnimationFrame(() =>
+					requestAnimationFrame(() => {
+						if (alive) setContentReady(true);
+					}),
+				);
+				post({ jsonrpc: "2.0", id: data.id, result: null });
+				return;
+			}
 			void latest.current
 				.onCall(params.method, params.args)
 				.then((result) => {
@@ -387,7 +403,8 @@ export function AppRuntimeFrame({
 	// A new revision replaces the running document in place.
 	useEffect(() => {
 		const iframe = container.current?.querySelector("iframe");
-		if (!iframe || state !== "ready") return;
+		if (!iframe || state !== "ready" || sentHtml.current === html) return;
+		sentHtml.current = html;
 		iframe.contentWindow?.postMessage(
 			{
 				jsonrpc: "2.0",
@@ -408,13 +425,15 @@ export function AppRuntimeFrame({
 	return (
 		<div
 			ref={frameRoot}
-			className="flex min-h-0 min-w-0 flex-col"
+			className="relative flex min-h-0 min-w-0 flex-col"
 			data-app-runtime-frame
 			data-presenting={presenting || undefined}
 			data-state={state}
+			data-content-ready={contentReady || undefined}
 			style={layout === "fill" ? { flex: "1 1 0px" } : undefined}
 		>
-			{state === "loading" && (
+			{loadingContent && !contentReady && state !== "failed" && loadingContent}
+			{state === "loading" && !loadingContent && (
 				<Skeleton
 					className="w-full"
 					style={{
@@ -450,6 +469,9 @@ export function AppRuntimeFrame({
 				style={{
 					...(layout === "fill" ? { flex: "1 1 0px" } : {}),
 					...(state === "ready" ? {} : { display: "none" }),
+					...(loadingContent && !contentReady && state !== "failed"
+						? { position: "absolute", inset: 0, visibility: "hidden" }
+						: {}),
 				}}
 			/>
 		</div>

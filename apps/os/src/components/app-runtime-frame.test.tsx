@@ -16,11 +16,11 @@ describe("runtime app frame", () => {
 		const node = document.createElement("div");
 		document.body.append(node);
 		const root = createRoot(node);
-		const render = async (revision: number) =>
+		const render = async (revision: number, html = "<p>Doc</p>") =>
 			act(async () =>
 				root.render(
 					<AppRuntimeFrame
-						html="<p>Doc</p>"
+						html={html}
 						title="Doc"
 						onCall={async () => ({ ok: true, value: null })}
 						outputRevisions={[
@@ -62,6 +62,7 @@ describe("runtime app frame", () => {
 			([message]) =>
 				message.method === "ui/notifications/sandbox-resource-ready",
 		).length;
+		expect(injections).toBe(1);
 		await render(2);
 		expect(node.querySelector("iframe")).toBe(frame);
 		expect(
@@ -87,6 +88,73 @@ describe("runtime app frame", () => {
 			},
 			window.location.origin,
 		);
+		await render(3, "<p>New client</p>");
+		expect(node.querySelector("iframe")).toBe(frame);
+		expect(
+			post.mock.calls.filter(
+				([message]) =>
+					message.method === "ui/notifications/sandbox-resource-ready",
+			),
+		).toHaveLength(2);
+		await act(async () => root.unmount());
+		node.remove();
+	});
+
+	it("keeps saved content visible until the trusted client has rendered", async () => {
+		vi.spyOn(HTMLIFrameElement.prototype, "src", "set").mockImplementation(
+			() => {},
+		);
+		const paints: FrameRequestCallback[] = [];
+		vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) =>
+			paints.push(callback),
+		);
+		const node = document.createElement("div");
+		document.body.append(node);
+		const root = createRoot(node);
+		const onCall = vi.fn();
+		await act(async () =>
+			root.render(
+				<AppRuntimeFrame
+					html="<p>Editor</p>"
+					title="Sheet"
+					onCall={onCall}
+					loadingContent={<p>Saved grid</p>}
+				/>,
+			),
+		);
+		const frame = node.querySelector("iframe")!;
+		vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => {});
+		const message = (method: string, origin = window.location.origin) =>
+			window.dispatchEvent(
+				new MessageEvent("message", {
+					source: frame.contentWindow,
+					origin,
+					data: {
+						jsonrpc: "2.0",
+						id: 1,
+						method,
+						params: { method: "app.ready" },
+					},
+				}),
+			);
+		await act(async () => {
+			message("ui/notifications/sandbox-proxy-ready");
+		});
+		expect(node.textContent).toContain("Saved grid");
+		await act(async () => {
+			message("tedix/call", "https://untrusted.example");
+		});
+		expect(paints).toHaveLength(0);
+		await act(async () => {
+			message("tedix/call");
+		});
+		expect(node.textContent).toContain("Saved grid");
+		await act(async () => {
+			paints.shift()!(0);
+			paints.shift()!(0);
+		});
+		expect(node.textContent).not.toContain("Saved grid");
+		expect(onCall).not.toHaveBeenCalled();
 		await act(async () => root.unmount());
 		node.remove();
 	});

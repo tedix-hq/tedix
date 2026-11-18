@@ -6,7 +6,9 @@ declare global {
 	}
 }
 const root = document.getElementById("app")!;
-void mountDocClient(root, window.tedix).catch((error) => {
-	root.textContent =
-		error instanceof Error ? error.message : "Doc could not open";
-});
+void mountDocClient(root, window.tedix)
+	.catch((error) => {
+		root.textContent =
+			error instanceof Error ? error.message : "Doc could not open";
+	})
+	.finally(() => window.tedix.call("app.ready", {}).catch(() => undefined));

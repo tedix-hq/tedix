@@ -3,7 +3,13 @@ const root = document.getElementById("app")!;
 void mountSheetClient(
 	root,
 	(window as Window & { tedix: SheetClientBridge }).tedix,
-).catch((error) => {
-	root.textContent =
-		error instanceof Error ? error.message : "Sheet could not open";
-});
+)
+	.catch((error) => {
+		root.textContent =
+			error instanceof Error ? error.message : "Sheet could not open";
+	})
+	.finally(() =>
+		(window as Window & { tedix: SheetClientBridge }).tedix
+			.call("app.ready", {})
+			.catch(() => undefined),
+	);
