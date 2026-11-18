@@ -39,8 +39,21 @@ export interface TurnPorts {
 	 * stopped, fails or is evicted keeps what it already did.
 	 */
 	save?(progress: TurnProgress): void | Promise<void>;
+	/**
+	 * Messages the person sent while this turn worked, taken once. The loop
+	 * asks after each round of tool results, so the next model call reads
+	 * them. The host stores each message as it hands it over, so `save` is
+	 * not called for them.
+	 */
+	takeAdded?(): AddedMessage[] | Promise<AddedMessage[]>;
 	signal?: AbortSignal;
 	now?: () => number;
+}
+
+/** A message that joins a turn already running. */
+export interface AddedMessage {
+	id: string;
+	text: string;
 }
 
 export interface TurnProgress {
@@ -73,6 +86,8 @@ export interface TurnResult {
 	 * them: the person decides on the card while the agent goes on.
 	 */
 	approvalsRequested: number;
+	/** Messages sent while the turn worked that the model read. */
+	addedMessages: number;
 	/** New compaction summary when the loop compacted before answering. */
 	compaction?: { summary: string; droppedMessages: number };
 }
@@ -283,6 +298,7 @@ export async function runTurn(
 	let finalText = "";
 	let stopReason: TurnResult["stopReason"] = "answered";
 	let approvalsRequested = 0;
+	let addedMessages = 0;
 
 	while (steps < MAX_STEPS) {
 		if (ports.signal?.aborted) {
@@ -387,6 +403,20 @@ export async function runTurn(
 			});
 			await keep(toolResult(call, rendered, !run.ok, now()));
 		}
+		// What the person sent meanwhile joins this turn before the next model
+		// call. Past the step ceiling nothing would read it, so it stays queued.
+		if (ports.takeAdded && !ports.signal?.aborted && steps < MAX_STEPS) {
+			for (const added of await ports.takeAdded()) {
+				const message: Message = {
+					role: "user",
+					content: added.text,
+					timestamp: now(),
+				};
+				messages.push(message);
+				appended.push(message);
+				addedMessages += 1;
+			}
+		}
 	}
 	if (steps >= MAX_STEPS && stopReason === "answered" && !finalText) {
 		stopReason = "step_ceiling";
@@ -399,6 +429,7 @@ export async function runTurn(
 		model,
 		stopReason,
 		approvalsRequested,
+		addedMessages,
 		compaction,
 	};
 }

@@ -36,6 +36,22 @@ export interface UsageTotals {
 	unpricedReplies?: number;
 }
 
+/** A message sent to a working turn, as each of its events repeats it. */
+export interface QueuedMessageBody {
+	turnId: string;
+	messageId: string;
+	text: string;
+	displayText?: string;
+	attachments?: Array<{
+		outputId: string;
+		title: string;
+		revision: number;
+		revisionId: string;
+	}>;
+	authorId: string;
+	authorKind: AuthorKind;
+}
+
 export type WireEventBody =
 	| {
 			type: "turn.started";
@@ -51,6 +67,22 @@ export type WireEventBody =
 			authorId: string;
 			authorKind: AuthorKind;
 	  }
+	| ({
+			/**
+			 * A message sent while `turnId` was working. It waits for that turn's
+			 * next model call; `message.read` or `message.returned` settles it, or
+			 * a `turn.started` whose `turnId` is this `messageId`.
+			 */
+			type: "message.queued";
+	  } & QueuedMessageBody)
+	| ({
+			/** The working turn read the message; it is part of `turnId` now. */
+			type: "message.read";
+	  } & QueuedMessageBody)
+	| ({
+			/** The turn was stopped first: no turn read the message. */
+			type: "message.returned";
+	  } & QueuedMessageBody)
 	| { type: "turn.model"; turnId: string; model: string }
 	| { type: "turn.usage"; turnId: string; usage: TurnUsage }
 	| { type: "assistant.delta"; turnId: string; messageId: string; text: string }

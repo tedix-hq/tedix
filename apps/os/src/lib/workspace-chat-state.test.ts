@@ -13,6 +13,7 @@ import {
 	formatWorkspaceUsage,
 	initialWorkspaceChatState,
 	markPendingSend,
+	messageAccepted,
 	pendingApproval,
 	setConversations,
 	setWorkspaceUsage,
@@ -673,5 +674,88 @@ describe("usage totals", () => {
 		expect(formatConversationUsage(null)).toBeNull();
 		expect(formatWorkspaceUsage(null)).toBeNull();
 		expect(conversationUsage(initialWorkspaceChatState(null))).toBeNull();
+	});
+});
+
+describe("messages sent while a turn works", () => {
+	const started = turn[0]!;
+	const message = (
+		type: "message.queued" | "message.read" | "message.returned",
+		seq: number,
+		messageId: string,
+	): WorkspaceChatLedgerEvent => ({
+		seq,
+		at: at(seq),
+		conversationId: "c1",
+		type,
+		turnId: "t1",
+		messageId,
+		text: `text of ${messageId}`,
+		authorId: "person:aaron",
+		authorKind: "person",
+	});
+	const fold = (events: WorkspaceChatLedgerEvent[]) =>
+		applyWorkspaceChatEvents(initialWorkspaceChatState("c1"), events);
+
+	it("waits unread, then joins the turn that read it", () => {
+		let state = markPendingSend(fold([started]), {
+			clientTurnId: "m1",
+			text: "text of m1",
+			sentAt: 0,
+		});
+		state = applyWorkspaceChatEvent(state, message("message.queued", 10, "m1"));
+		expect(state.pendingSend).toBeNull();
+		expect(state.queued.map((item) => item.messageId)).toEqual(["m1"]);
+		expect(state.turns).toHaveLength(1);
+		expect(messageAccepted(state, "m1")).toBe(true);
+		expect(messageAccepted(state, "m2")).toBe(false);
+
+		state = applyWorkspaceChatEvent(state, message("message.read", 11, "m1"));
+		expect(state.queued).toEqual([]);
+		expect(state.turns[0]!.added).toEqual([
+			expect.objectContaining({ messageId: "m1", text: "text of m1" }),
+		]);
+		expect(activeTurn(state)?.turnId).toBe("t1");
+		expect(messageAccepted(state, "m1")).toBe(true);
+	});
+
+	it("starts the next turn when no turn read it, and is handed back on Stop", () => {
+		const leftover = fold([
+			started,
+			message("message.queued", 10, "m1"),
+			{
+				seq: 20,
+				at: at(20),
+				conversationId: "c1",
+				type: "turn.started",
+				turnId: "m1",
+				text: "text of m1",
+				authorId: "person:aaron",
+				authorKind: "person",
+			},
+		]);
+		expect(leftover.queued).toEqual([]);
+		expect(leftover.turns.map((item) => item.turnId)).toEqual(["t1", "m1"]);
+
+		const stopped = fold([
+			started,
+			message("message.queued", 10, "m2"),
+			message("message.returned", 11, "m2"),
+		]);
+		expect(stopped.queued).toEqual([]);
+		expect(stopped.returned.map((item) => item.messageId)).toEqual(["m2"]);
+		expect(stopped.turns).toHaveLength(1);
+	});
+
+	it("an older history page does not bring a settled message back", () => {
+		const state = fold([
+			started,
+			message("message.read", 11, "m1"),
+			message("message.returned", 13, "m2"),
+			message("message.queued", 10, "m1"),
+			message("message.queued", 12, "m2"),
+		]);
+		expect(state.queued).toEqual([]);
+		expect(state.turns[0]!.added).toHaveLength(1);
 	});
 });

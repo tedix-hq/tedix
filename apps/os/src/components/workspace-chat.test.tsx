@@ -550,13 +550,12 @@ describe("WorkspaceChat", () => {
 		).toMatch(/^Working · (\d+m )?\d+s$/);
 	});
 
-	it("turns Send into Stop while a turn runs, and back when it ends", () => {
+	it("shows Stop beside Send while a turn runs, and takes it away when it ends", () => {
 		const fake = fakeClient("c1");
 		mount(fake);
 		expect(host.querySelector('[aria-label="Stop"]')).toBeNull();
 		act(() => fake.feed([started]));
-		// The button is rendered anew when its name changes, so look it up again.
-		expect(host.querySelector('[aria-label="Send"]')).toBeNull();
+		expect(host.querySelector('[aria-label="Send"]')).not.toBeNull();
 		expect(host.querySelectorAll('[aria-label="Stop"]').length).toBe(1);
 		expect(host.querySelector(".workspace-chat-turn-footer button")).toBeNull();
 		act(() =>
@@ -576,7 +575,7 @@ describe("WorkspaceChat", () => {
 			)!.set!.call(textarea, "Also count closed ones");
 			textarea.dispatchEvent(new Event("input", { bubbles: true }));
 		});
-		expect(host.querySelector('[aria-label="Stop"]')).toBeNull();
+		expect(host.querySelector('[aria-label="Stop"]')).not.toBeNull();
 		expect(host.querySelector('[aria-label="Send"]')).not.toBeNull();
 		act(() => {
 			Object.getOwnPropertyDescriptor(

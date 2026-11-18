@@ -13,6 +13,7 @@ import {
 	fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
+import type { Message } from "@earendil-works/pi-ai";
 import {
 	TurnFacet as ProductionTurnFacet,
 	type TurnPlan,
@@ -164,6 +165,18 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 	}
 
 	#systemPrompts: string[] = [];
+	#modelCalls: string[][] = [];
+
+	/** What the person said in each model call so far, oldest call first. */
+	readModelCalls(scope: WorkspaceScope): string[][] {
+		this.bindScope(scope);
+		return this.#modelCalls;
+	}
+
+	noteModelCall(scope: WorkspaceScope, userTexts: string[]) {
+		this.bindScope(scope);
+		this.#modelCalls.push(userTexts);
+	}
 
 	/** The system prompt of every model call so far, oldest first. */
 	readSystemPrompts(scope: WorkspaceScope): string[] {
@@ -184,6 +197,7 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 			...model,
 			stream: (context, options) => {
 				this.#systemPrompts.push(context.systemPrompt ?? "");
+				this.#modelCalls.push(userTexts(context.messages));
 				return model.stream(context, options);
 			},
 		};
@@ -200,9 +214,28 @@ export class TurnFacet extends ProductionTurnFacet {
 			tenantStoreName(plan.scope),
 		) as unknown as {
 			readScript(scope: WorkspaceScope): Promise<ScriptStep[]>;
+			noteModelCall(scope: WorkspaceScope, userTexts: string[]): Promise<void>;
 		};
-		return scriptedModel(await parent.readScript(plan.scope), plan.modelId);
+		const model = scriptedModel(
+			await parent.readScript(plan.scope),
+			plan.modelId,
+		);
+		return {
+			...model,
+			stream: (context, options) => {
+				void parent.noteModelCall(plan.scope, userTexts(context.messages));
+				return model.stream(context, options);
+			},
+		};
 	}
+}
+
+function userTexts(messages: Message[]): string[] {
+	return messages.flatMap((message) =>
+		message.role === "user" && typeof message.content === "string"
+			? [message.content]
+			: [],
+	);
 }
 
 function scriptedModel(script: ScriptStep[], modelId?: string): ModelPort {
