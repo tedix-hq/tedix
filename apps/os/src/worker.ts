@@ -981,6 +981,7 @@ export async function handleOsRequest(
 	env: OsRouterEnv,
 	resolver: TenantResolver = resolveTenantViaApi,
 ): Promise<Response> {
+	const startedAt = performance.now();
 	const url = new URL(request.url);
 	// authz: public — identity is bound to this Worker version, never tenant or caller data.
 	if (url.pathname === "/release-manifest.json") {
@@ -1095,6 +1096,8 @@ export async function handleOsRequest(
 			);
 		}
 	}
+
+	const tenantResolvedAt = performance.now();
 
 	// authz: public — only the host organization's explicitly published discovery fields.
 	if (url.pathname === "/.well-known/poppy.json") {
@@ -1352,7 +1355,32 @@ export async function handleOsRequest(
 				authenticated = new Request(authenticated, { headers });
 			}
 		}
-		return proxyApiRequest(authenticated, env, url, hostTenantId);
+		const proxyStartedAt = performance.now();
+		const response = await proxyApiRequest(
+			authenticated,
+			env,
+			url,
+			hostTenantId,
+		);
+		if (!/^\/(?:cli\/)?api\/rpc\//.test(url.pathname)) return response;
+		const finishedAt = performance.now();
+		const headers = new Headers(response.headers);
+		// Durations stop at upstream response headers; never consume the body.
+		// os-api contains the API's own timings, and os-total contains all phases.
+		headers.append(
+			"Server-Timing",
+			[
+				`os-tenant;dur=${(tenantResolvedAt - startedAt).toFixed(1)}`,
+				`os-session;dur=${(proxyStartedAt - tenantResolvedAt).toFixed(1)}`,
+				`os-api;dur=${(finishedAt - proxyStartedAt).toFixed(1)}`,
+				`os-total;dur=${(finishedAt - startedAt).toFixed(1)}`,
+			].join(", "),
+		);
+		return new Response(response.body, {
+			status: response.status,
+			statusText: response.statusText,
+			headers,
+		});
 	}
 
 	if (url.pathname.startsWith("/collab/")) {

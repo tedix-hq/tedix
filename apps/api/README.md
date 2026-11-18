@@ -84,6 +84,19 @@ Own-account deployment requires an installation manifest and operator-owned
 resources; see [installation manifests](../../docs/public/installation-manifests.md)
 and the [self-hosted boundary](../../docs/public/self-hosted-boundary.md).
 
+## Browser RPC timings
+
+Authenticated OS RPC responses expose `Server-Timing` phases: `os-tenant`
+covers hostname and tenant resolution, `os-session` covers the remaining host
+handling before proxying, and `os-api` covers the service-binding call until
+response headers arrive. `os-total` contains those three phases. Inside
+`os-api`, `api-rpc` measures API route handling, including context creation,
+lazy namespace loading, auth and the procedure. Existing `auth-jwt`,
+`auth-identity` and `db` entries describe authentication and D1 statement counts.
+The totals contain the inner phases; do not add them together. Worker startup,
+browser transport and body download are outside `api-rpc`, so acceptance
+measurements must still time each browser call through its consumed body.
+
 ## Runtime connection approvals
 
 `TEDIX.connectionsCall(slot, { appId, toolId, arguments, approvalRequestId? })`

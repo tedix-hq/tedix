@@ -1865,6 +1865,64 @@ describe("Tedix OS origin router", () => {
 		expect(proxied.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
 	});
 
+	it.each([200, 403])(
+		"times RPC tenant resolution and API transport without buffering a %i response",
+		async (status) => {
+			let now = 0;
+			const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+			onTestFinished(() => clock.mockRestore());
+			let controller!: ReadableStreamDefaultController<Uint8Array>;
+			const body = new ReadableStream<Uint8Array>({
+				start(value) {
+					controller = value;
+				},
+			});
+			const response = await handleOsRequest(
+				new Request("https://acme.os.tedix.dev/api/rpc/userProfile/getMine", {
+					method: "POST",
+					headers: {
+						Cookie: `${OS_BROKER_SESSION_COOKIE}=${HOST_SESSION}`,
+						"Server-Timing": "os-total;dur=9999",
+					},
+					body: '{"json":{}}',
+				}),
+				{
+					ASSETS: { fetch: async () => new Response("shell") },
+					API_SERVICE: {
+						fetch: async () => {
+							now = 40;
+							return new Response(body, {
+								status,
+								statusText: "Upstream status",
+								headers: {
+									"Server-Timing": "api-rpc;dur=25.0, auth-identity;dur=20.0",
+									"x-d1-bookmark": "upstream-bookmark",
+									"Set-Cookie": "session=updated; HttpOnly; Secure",
+								},
+							});
+						},
+					},
+				},
+				async (...args) => {
+					now = 10;
+					return provisioned(...args);
+				},
+			);
+			expect(response.status).toBe(status);
+			expect(response.statusText).toBe("Upstream status");
+			expect(response.headers.get("x-d1-bookmark")).toBe("upstream-bookmark");
+			expect(response.headers.get("Set-Cookie")).toBe(
+				"session=updated; HttpOnly; Secure",
+			);
+			expect(response.headers.get("Server-Timing")).toBe(
+				"api-rpc;dur=25.0, auth-identity;dur=20.0, os-tenant;dur=10.0, os-session;dur=0.0, os-api;dur=30.0, os-total;dur=40.0",
+			);
+			controller.enqueue(new TextEncoder().encode("streamed"));
+			controller.close();
+			await expect(response.text()).resolves.toBe("streamed");
+		},
+	);
+
 	it("exchanges the httpOnly product session for the scoped WS-token mint", async () => {
 		const seen: Request[] = [];
 		const env: OsRouterEnv = {
