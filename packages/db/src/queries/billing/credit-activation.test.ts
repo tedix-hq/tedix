@@ -250,19 +250,22 @@ describe("account-scoped credit billing activation", () => {
 				.creditBillingActivation,
 		).toBeTruthy();
 	});
-	it("internal renewal carries forward purchased funds and grants the next allowance once", async () => {
-		const { db, sqlite } = setup();
-		sqlite.exec("UPDATE billing_accounts SET billing_mode='internal'");
-		await configureCreditBilling(db, input, "owner", now);
-		await rollBillingPeriods(db, "2026-11-01T00:00:00.000Z");
-		await rollBillingPeriods(db, "2026-11-01T00:00:00.000Z");
-		expect(
-			(await getBillingEntitlement(db, "org"))?.account.creditBalanceMicros,
-		).toBe(205000000);
-		expect(
-			sqlite.prepare("SELECT COUNT(*) n FROM billing_credit_entries").get(),
-		).toMatchObject({ n: 2 });
-	});
+	it.each(["internal", "invoice"])(
+		"%s renewal carries forward purchased funds and grants the next allowance once",
+		async (billingMode) => {
+			const { db, sqlite } = setup();
+			sqlite.exec(`UPDATE billing_accounts SET billing_mode='${billingMode}'`);
+			await configureCreditBilling(db, input, "owner", now);
+			await rollBillingPeriods(db, "2026-11-01T00:00:00.000Z");
+			await rollBillingPeriods(db, "2026-11-01T00:00:00.000Z");
+			expect(
+				(await getBillingEntitlement(db, "org"))?.account.creditBalanceMicros,
+			).toBe(205000000);
+			expect(
+				sqlite.prepare("SELECT COUNT(*) n FROM billing_credit_entries").get(),
+			).toMatchObject({ n: 2 });
+		},
+	);
 	it("late old invoices cannot fund a new window; annual paid coverage funds monthly renewals only once", async () => {
 		const { db, sqlite } = setup();
 		await configureCreditBilling(db, input, "owner", now);

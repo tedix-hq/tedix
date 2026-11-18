@@ -388,8 +388,9 @@ export async function rollBillingPeriods(
 				),
 			);
 		const entitlement = await getBillingEntitlement(db, account.organizationId);
-		// Stripe grants only on a paid invoice. Internal accounts renew their funded
-		// allowance atomically; purchased balances are never reset or expired.
+		// Stripe grants only on a paid invoice. Internal and invoice-billed accounts
+		// are settled outside Stripe and renew their funded allowance atomically;
+		// purchased balances are never reset or expired.
 		const coverage = account.metadata.paidCreditCoverage as
 			| { subscriptionId?: string; periodStart?: string; periodEnd?: string }
 			| undefined;
@@ -401,7 +402,9 @@ export async function rollBillingPeriods(
 			coverage.periodStart <= nextStart &&
 			coverage.periodEnd >= nextEndDate.toISOString();
 		if (
-			(account.billingMode === "internal" || coveredStripePeriod) &&
+			(account.billingMode === "internal" ||
+				account.billingMode === "invoice" ||
+				coveredStripePeriod) &&
 			entitlement?.plan.metadata.monetaryInference &&
 			entitlement.plan.includedMonthlyCreditMicros > 0
 		) {
