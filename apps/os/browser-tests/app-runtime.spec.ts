@@ -131,7 +131,39 @@ try {
 			})),
 		}));
 		assert.equal(geometry.overflow, false);
-		assert.equal(geometry.background, "rgb(245, 244, 240)");
+		// The starter has no palette of its own: it follows the OS theme live.
+		await page.evaluate(() => {
+			document.documentElement.style.setProperty(
+				"--background",
+				"rgb(18, 52, 86)",
+			);
+			document.documentElement.style.setProperty(
+				"--foreground",
+				"rgb(240, 241, 242)",
+			);
+		});
+		await guest.locator("body").evaluate(
+			(body) =>
+				new Promise<void>((resolve, reject) => {
+					const started = Date.now();
+					const check = () => {
+						const style = getComputedStyle(body);
+						if (
+							style.backgroundColor === "rgb(18, 52, 86)" &&
+							style.color === "rgb(240, 241, 242)"
+						)
+							return resolve();
+						if (Date.now() - started > 5000)
+							return reject(
+								new Error(
+									`theme not applied: ${style.backgroundColor} / ${style.color}`,
+								),
+							);
+						requestAnimationFrame(check);
+					};
+					check();
+				}),
+		);
 		assert(
 			geometry.targets.every(
 				({ width, height }) => width >= 44 && height >= 44,

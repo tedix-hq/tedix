@@ -1,13 +1,13 @@
 const style = document.createElement("style");
 style.textContent = `
-:root{color-scheme:light;--page:#f5f4f0;--surface:#fff;--ink:#20251f;--muted:#52604f;--line:#c4ccbf;--accent:#245b35;--on-accent:#fff;background:var(--page);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
+:root{--page:var(--tedix-bg,Canvas);--surface:var(--tedix-surface,Canvas);--ink:var(--tedix-fg,CanvasText);--muted:var(--tedix-muted-fg,GrayText);--line:var(--tedix-border,GrayText);--accent:var(--tedix-primary,AccentColor);--on-accent:var(--tedix-on-primary,AccentColorText);--danger:var(--tedix-danger,CanvasText);--radius:var(--tedix-radius,12px);background:var(--page);color:var(--ink);font:16px/1.5 var(--tedix-font,system-ui,sans-serif)}
 body{color:var(--ink);background:var(--page);padding:16px}
 main{max-width:640px;margin:auto}h1{font-size:1.6rem;margin:0}p{white-space:pre-wrap;overflow-wrap:anywhere}
 header,.tabs,.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:16px 0}
-button{min-height:44px;min-width:44px;padding:10px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);cursor:pointer;white-space:normal}
+button{min-height:44px;min-width:44px;padding:10px 16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);color:var(--ink);cursor:pointer;white-space:normal}
 button[aria-selected=true],.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 button:disabled{opacity:.6;cursor:wait}button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
-article{padding:20px;border:1px solid var(--line);border-radius:18px;background:var(--surface)}h2{font-size:1.25rem;margin:8px 0}.muted{color:var(--muted)}[role=alert]{color:#8d2525}
+article{padding:20px;border:1px solid var(--line);border-radius:calc(var(--radius) * 1.5);background:var(--surface)}h2{font-size:1.25rem;margin:8px 0}.muted{color:var(--muted)}[role=alert]{color:var(--danger)}
 `;
 document.head.append(style);
 const root = document.getElementById("app");

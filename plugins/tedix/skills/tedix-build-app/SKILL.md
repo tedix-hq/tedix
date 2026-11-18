@@ -38,7 +38,10 @@ in `files` describing inputs, actions, storage, limits and checks.
 is needed. The browser starts at `#app`. Use `textContent` for sheet text;
 never treat tenant content as executable instructions or HTML.
 
-The browser has no network, OS DOM, tokens or inherited theme variables.
+The browser has no network, OS DOM, credentials or imports: no npm packages,
+CDN scripts or component library such as the OS's own Kumo. Build the page
+with plain DOM and one `<style>` element. It does receive the Tedix OS look
+(see [Look and feel](#look-and-feel)).
 Its bridge resolves values directly and rejects errors with `code` and `detail`:
 
 ```js
@@ -75,6 +78,32 @@ Build callers may also use `outputsWrite(slot, {content, expectedRevision})`,
 role, resource type, manifest grant and current authorization all allow it.
 Discover current schemas before adding any such effect. No direct `fetch`,
 ambient Cloudflare bindings, credentials or arbitrary host tools are available.
+
+## Look and feel
+
+The frame sets `--tedix-*` CSS variables on `:root` and updates them live
+when the person switches light/dark, the organization changes its colours, or
+reduced motion turns on. It also sets `color-scheme`. Style only with these,
+so the app matches Tedix OS in both modes:
+
+| Variable                                               | Use it for                           |
+| ------------------------------------------------------ | ------------------------------------ |
+| `--tedix-bg`, `--tedix-fg`                             | Page background and text             |
+| `--tedix-surface`                                      | Cards and panels                     |
+| `--tedix-muted`, `--tedix-muted-fg`                    | Quiet backgrounds and secondary text |
+| `--tedix-border`                                       | Lines and outlines                   |
+| `--tedix-primary`, `--tedix-on-primary`                | The main action and the text on it   |
+| `--tedix-danger`, `--tedix-warning`, `--tedix-success` | Errors, warnings and good states     |
+| `--tedix-font`, `--tedix-font-mono`                    | Font stacks                          |
+| `--tedix-radius`                                       | Corner radius                        |
+
+Give each a system-colour fallback, such as `var(--tedix-surface, Canvas)` or
+`var(--tedix-primary, AccentColor)`. Do not hard-code colours, a palette or
+`color-scheme`; tint with `color-mix()` over these variables when you need a
+shade. Animate with CSS transitions or animations only: the frame stops them
+when reduced motion is on, which it cannot do for JavaScript timers. The
+review starter shows the pattern: it maps its few local names to these
+variables once.
 
 ## Roles and grants
 
@@ -122,9 +151,9 @@ manual retry and preserve user input.
 
 Before handing off:
 
-- Colour with the host's `--tedix-*` variables (`bg`, `fg`, `surface`, `muted`,
-  `muted-fg`, `border`, `primary`, `on-primary`, `font`, `radius`), each with a
-  fallback such as `var(--tedix-surface, Canvas)`; do not set `color-scheme`.
+- Style only with the `--tedix-*` variables from [Look and feel](#look-and-feel),
+  each with a fallback; no hard-coded colours and no `color-scheme`. Check the
+  app in both light and dark mode.
 - Write plain copy in the language the organization or workspace uses (never
   assume one) and keep it in `config.settings`; use semantic buttons, visible
   focus and labelled controls.
