@@ -57,6 +57,7 @@ vi.mock("@/components/kumo/dialog", async (importOriginal) => ({
 }));
 
 import {
+	connectedSourceDetail,
 	inviteFailureText,
 	itemAccessRows,
 	parseInviteEmails,
@@ -376,6 +377,57 @@ describe("WorkspaceShareDialog", () => {
 			closed.querySelector("[data-general-access]")?.textContent,
 		).toContain("Only people invited");
 		expect(closed.querySelector("[data-organization-access]")).toBeNull();
+	});
+
+	it("lists the connected data the workspace draws on before anyone is invited", async () => {
+		const none = renderDialog();
+		await flush();
+		expect(none.querySelector("[data-connected-data]")).toBeNull();
+
+		const inbox = {
+			id: "source-inbox",
+			name: "Support inbox",
+			providerId: "gmail",
+			personal: false,
+			files: 2,
+			apps: 1,
+		};
+		const notes = {
+			id: "source-notes",
+			name: null,
+			providerId: "google-drive",
+			personal: true,
+			files: 1,
+			apps: 0,
+		};
+		expect(connectedSourceDetail(inbox)).toBe(
+			"Gmail · shared organization account · used by 2 files and 1 app",
+		);
+		expect(connectedSourceDetail(notes)).toBe(
+			"Google Drive · one person's own account · used by 1 file",
+		);
+		shares.list.mockResolvedValue({
+			items: [],
+			guestLimits: { hiddenFiles: 3, appsNeedingSignIn: 0 },
+			connectedData: [inbox, notes],
+		});
+		const container = renderDialog();
+		await flush();
+		const section = container.querySelector("[data-connected-data]");
+		expect(section?.querySelector("h3")?.textContent).toBe(
+			"Connected data in this workspace",
+		);
+		expect(section?.textContent).toContain(
+			"People in your organization you invite can see files made from a shared organization account. Files made from one person's own account open for that person only.",
+		);
+		expect(
+			[...(section?.querySelectorAll("li") ?? [])].map((row) =>
+				row.textContent?.trim(),
+			),
+		).toEqual([
+			"Support inboxGmail · shared organization account · used by 2 files and 1 app",
+			"A source no longer in this workspaceGoogle Drive · one person's own account · used by 1 file",
+		]);
 	});
 
 	it("opens on the item when its own Share was pressed", async () => {

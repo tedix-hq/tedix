@@ -117,7 +117,21 @@ document.querySelector('button').onclick = async () => { const result = await te
 			!pathname.includes("/osWorkspaces/"),
 			`Org-scoped read: ${pathname}`,
 		);
-		if (endpoint === "public:list") json = { items: publicLinks };
+		if (endpoint === "public:list")
+			json = {
+				items: publicLinks,
+				guestLimits: { hiddenFiles: 1, appsNeedingSignIn: 0 },
+				connectedData: [
+					{
+						id: "99999999-9999-4999-8999-999999999999",
+						name: "Community inbox with a rather long source name",
+						providerId: "gmail",
+						personal: false,
+						files: 1,
+						apps: 1,
+					},
+				],
+			};
 		else if (endpoint === "public:create") {
 			const share = {
 				id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
@@ -408,6 +422,18 @@ try {
 				// The person looking at the dialog is marked on their own row.
 				await dialog
 					.getByText("Kai Fictional (you)", { exact: true })
+					.waitFor();
+				// What the workspace draws on is named before anyone is invited.
+				const connected = dialog.getByRole("region", {
+					name: "Connected data in this workspace",
+				});
+				await connected
+					.getByText("Community inbox with a rather long source name")
+					.waitFor();
+				await connected
+					.getByText(
+						"Gmail · shared organization account · used by 1 file and 1 app",
+					)
 					.waitFor();
 				await assertFits(page, width, `dialog ${width} ${theme}`);
 

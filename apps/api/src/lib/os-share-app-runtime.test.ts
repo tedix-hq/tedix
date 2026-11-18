@@ -67,7 +67,7 @@ import {
 	handleOsShareSessionOutput,
 	hashOsShareToken,
 	openOsShareSession,
-	workspaceGuestLimits,
+	workspaceShareSummary,
 } from "./os-share-redemption";
 import { splitOsGadgetCodeRow } from "@tedix/db/queries/os-workspaces/gadget-code";
 
@@ -1173,13 +1173,125 @@ describe("Anyone-with-the-link workspace links", () => {
 
 	it("tells the Share dialog what the link leaves out", async () => {
 		const { db } = await fixture();
-		expect(
-			await workspaceGuestLimits(db, { organizationId: "org-1", workspaceId }),
-		).toEqual({ hiddenFiles: 0, appsNeedingSignIn: 1 });
+		const summary = () =>
+			workspaceShareSummary(db, { organizationId: "org-1", workspaceId });
+		expect(await summary()).toEqual({
+			guestLimits: { hiddenFiles: 0, appsNeedingSignIn: 1 },
+			connectedData: [],
+		});
 		await seedConnectedOutput(db);
-		expect(
-			await workspaceGuestLimits(db, { organizationId: "org-1", workspaceId }),
-		).toEqual({ hiddenFiles: 1, appsNeedingSignIn: 1 });
+		expect((await summary()).guestLimits).toEqual({
+			hiddenFiles: 1,
+			appsNeedingSignIn: 1,
+		});
+	});
+
+	it("lists the connected data the workspace's files and apps draw on", async () => {
+		const { db } = await fixture();
+		const mailboxId = "00000000-0000-4000-8000-0000000000a1";
+		const driveId = "00000000-0000-4000-8000-0000000000a2";
+		await db.insert(osWorkspaceResources).values([
+			{
+				id: mailboxId,
+				organizationId: "org-1",
+				workspaceId,
+				slot: "mailbox",
+				providerId: "gmail",
+				connectionScope: "tenant",
+				resourceType: "mailbox",
+				providerResourceId: "support@example.com",
+				name: "Support inbox",
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+			{
+				id: driveId,
+				organizationId: "org-1",
+				workspaceId,
+				slot: "pricing",
+				providerId: "google-drive",
+				connectionScope: "tenant",
+				resourceType: "spreadsheet",
+				providerResourceId: "sheet-1",
+				name: "Price list",
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+		]);
+		const source = {
+			workspaceResourceId: mailboxId,
+			workspaceId,
+			providerId: "gmail",
+			resourceType: "mailbox",
+			providerResourceId: "support@example.com",
+			connectionScope: "tenant",
+			requiredScopes: [],
+			operations: ["read"],
+		};
+		const digestId = "99999999-9999-4999-8999-99999999999a";
+		const digestRevisionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab";
+		await db.insert(osOutputs).values({
+			id: digestId,
+			organizationId: "org-1",
+			workspaceId,
+			kind: "document",
+			title: "Support digest",
+			currentRevisionId: digestRevisionId,
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		await db.insert(osOutputRevisions).values({
+			id: digestRevisionId,
+			organizationId: "org-1",
+			outputId: digestId,
+			revision: 1,
+			content: JSON.stringify({ kind: "document", blocks: [] }),
+			// Read twice by the same file: still one file for this source.
+			accessEnvelope: JSON.stringify({
+				version: 1,
+				sources: [source, { ...source, operations: ["search"] }],
+			}),
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		// The app is granted the price list as well as a Tedix sheet.
+		await db
+			.update(osGadgetRevisions)
+			.set({
+				manifest: JSON.stringify({
+					entry: "tedix:runtime/v1",
+					capabilities: [],
+					resourceGrants: [
+						{ slot: "opportunities", operations: ["outputs.read"] },
+						{ slot: "pricing", operations: ["connections.call"] },
+					],
+				}),
+			})
+			.where(eq(osGadgetRevisions.id, revisionId));
+		const { connectedData, guestLimits } = await workspaceShareSummary(db, {
+			organizationId: "org-1",
+			workspaceId,
+		});
+		expect(guestLimits.hiddenFiles).toBe(1);
+		// Tedix's own sheet is not a connected account, so it is not listed.
+		expect(connectedData).toEqual([
+			{
+				id: driveId,
+				name: "Price list",
+				providerId: "google-drive",
+				personal: false,
+				files: 0,
+				apps: 1,
+			},
+			{
+				id: mailboxId,
+				name: "Support inbox",
+				providerId: "gmail",
+				personal: false,
+				files: 1,
+				apps: 0,
+			},
+		]);
 	});
 });
 
