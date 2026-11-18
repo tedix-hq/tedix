@@ -79,6 +79,13 @@ export type WireEventBody =
 			summary?: string;
 			durationMs: number;
 			error?: string;
+			/** The start of what the step returned, as text; a few KB at most. */
+			result?: string;
+	  }
+	| {
+			/** Earlier messages of the conversation were summarised to fit the model. */
+			type: "conversation.summarized";
+			turnId: string;
 	  }
 	| {
 			type: "approval.requested";

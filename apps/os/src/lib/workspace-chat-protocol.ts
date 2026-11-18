@@ -195,6 +195,13 @@ export type WorkspaceChatLedgerEvent =
 			summary?: string;
 			durationMs: number;
 			error?: string;
+			/** The start of what the step returned, as text; a few KB at most. */
+			result?: string;
+	  })
+	| (Stamped & {
+			/** Earlier messages of the conversation were summarised to fit the model. */
+			type: "conversation.summarized";
+			turnId: string;
 	  })
 	| (Stamped & {
 			type: "approval.requested";
@@ -303,6 +310,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"assistant.done",
 	"step.started",
 	"step.finished",
+	"conversation.summarized",
 	"approval.requested",
 	"approval.decided",
 	"approval.executed",

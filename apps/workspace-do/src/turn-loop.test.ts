@@ -13,7 +13,12 @@ import type { Context, Usage } from "@earendil-works/pi-ai";
 import type { ModelPort } from "./model";
 import { RUN_CODE_TOOL } from "./prompt";
 import type { SandboxRunResult } from "./runtime";
-import { closeOpenToolCalls, runTurn, type TurnProgress } from "./turn-loop";
+import {
+	closeOpenToolCalls,
+	runTurn,
+	STEP_DETAIL_CHARS,
+	type TurnProgress,
+} from "./turn-loop";
 
 function tokenUsage(
 	input: number,
@@ -71,6 +76,7 @@ describe("runTurn", () => {
 		]);
 		const ran: string[] = [];
 		const events: string[] = [];
+		const details: Record<string, Record<string, unknown> | undefined> = {};
 		const result = await runTurn(
 			{
 				model: fauxModel(core),
@@ -78,7 +84,10 @@ describe("runTurn", () => {
 					ran.push(code);
 					return { ok: true, result: 3, logs: [], durationMs: 2 };
 				},
-				emit: (event) => events.push(event.type),
+				emit: (event) => {
+					events.push(event.type);
+					details[event.type] = event.data;
+				},
 				summarize: async () => ({ summary: "n/a", usage: tokenUsage(0, 0) }),
 			},
 			{
@@ -118,6 +127,45 @@ describe("runTurn", () => {
 		expect(events).toContain("code_started");
 		expect(events).toContain("code_finished");
 		expect(events).toContain("text_delta");
+		// The chat can show what ran and what came back.
+		expect(details.code_started?.code).toBe(ran[0]);
+		expect(details.code_finished?.result).toBe("return value:\n3");
+	});
+
+	test("a long result reaches the chat cut to a few thousand characters", async () => {
+		const core = createFauxCore({ tokensPerSecond: 0 });
+		core.setResponses([
+			fauxAssistantMessage(
+				fauxToolCall(RUN_CODE_TOOL, { code: "export default async () => 1" }),
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(fauxText("Done.")),
+		]);
+		let shown = "";
+		const result = await runTurn(
+			{
+				model: fauxModel(core),
+				runCode: async () => ({
+					ok: true,
+					result: "x".repeat(20_000),
+					logs: [],
+					durationMs: 1,
+				}),
+				emit: (event) => {
+					if (event.type === "code_finished")
+						shown = String(event.data?.result);
+				},
+				summarize: async () => ({ summary: "n/a", usage: tokenUsage(0, 0) }),
+			},
+			{ turnId: "t1", systemPrompt: "sys", history: [], userText: "Go" },
+		);
+		expect(shown.length).toBeLessThan(STEP_DETAIL_CHARS + 100);
+		expect(shown).toContain("more characters not shown");
+		// The model still gets the whole result.
+		const fed = result.appended.find(
+			(message) => message.role === "toolResult",
+		);
+		expect(JSON.stringify(fed).length).toBeGreaterThan(20_000);
 	});
 
 	test("an approval refusal does not end the turn; the model goes on", async () => {
