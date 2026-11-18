@@ -6,14 +6,12 @@ import {
 	Code,
 	Eye,
 	Lightbulb,
-	FileText,
 	PaperPlaneRight,
 	PencilSimple,
 	ShieldCheck,
 	Stop,
 	WarningCircle,
 	Wrench,
-	X,
 } from "@phosphor-icons/react";
 import {
 	type FormEvent,
@@ -78,6 +76,14 @@ import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { ReplyApprovalActions } from "@/components/workspace-chat-reply-actions";
 import { ChatImagePreview } from "@/components/chat-image-preview";
+import {
+	CHAT_FILE_LIMIT,
+	pastedFiles,
+	useWorkspaceChatFileDrop,
+	useWorkspaceChatUploads,
+	WorkspaceChatComposerFiles,
+	WorkspaceChatDropZone,
+} from "@/components/workspace-chat-attach";
 import { isImeComposing } from "@/lib/keyboard";
 import {
 	osQueryKeys,
@@ -390,7 +396,10 @@ export function WorkspaceChat({
 
 	if (listOpen) {
 		return (
-			<div className="workspace-chat" data-testid="workspace-chat">
+			<WorkspaceChatDropZone
+				className="workspace-chat"
+				data-testid="workspace-chat"
+			>
 				<ConversationList
 					conversations={state.conversations}
 					activeId={conversationId}
@@ -424,12 +433,15 @@ export function WorkspaceChat({
 					busy={false}
 					onStop={null}
 				/>
-			</div>
+			</WorkspaceChatDropZone>
 		);
 	}
 
 	return (
-		<div className="workspace-chat" data-testid="workspace-chat">
+		<WorkspaceChatDropZone
+			className="workspace-chat"
+			data-testid="workspace-chat"
+		>
 			<div className="workspace-chat-header">
 				<Button
 					aria-label="All conversations"
@@ -546,7 +558,7 @@ export function WorkspaceChat({
 				}
 				footer={<ConversationSpend state={state} />}
 			/>
-		</div>
+		</WorkspaceChatDropZone>
 	);
 }
 
@@ -1505,6 +1517,24 @@ function Composer({
 	const [selected, setSelected] = useState<
 		Array<{ outputId: string; title: string }>
 	>([]);
+	// Files dropped on the chat or pasted here are saved to the workspace, then
+	// join the files picked from it.
+	const uploads = useWorkspaceChatUploads({
+		workspaceId,
+		attachedCount: selected.length,
+		onAttached: (file) =>
+			setSelected((files) =>
+				files.some((item) => item.outputId === file.outputId) ||
+				files.length >= CHAT_FILE_LIMIT
+					? files
+					: [...files, file],
+			),
+	});
+	useWorkspaceChatFileDrop(
+		disabledReason === null
+			? { onFiles: uploads.addFiles, full: uploads.full }
+			: null,
+	);
 	const previousDraftKey = useRef(draftKey);
 	useEffect(() => {
 		const previous = previousDraftKey.current;
@@ -1520,6 +1550,7 @@ function Composer({
 			return;
 		}
 		setSelected([]);
+		uploads.clear();
 		setDraftText(readDraft(draftKey));
 		setSubmitted(null);
 	}, [draftKey, workspaceId]);
@@ -1561,7 +1592,7 @@ function Composer({
 	}, [autoFocus]);
 	const submit = (event?: FormEvent) => {
 		event?.preventDefault();
-		if (disabledReason || submitted || !draft.trim()) return;
+		if (disabledReason || submitted || uploads.busy || !draft.trim()) return;
 		const id = onSend(
 			draft,
 			selected.map(({ outputId }) => ({ outputId })),
@@ -1677,44 +1708,30 @@ function Composer({
 						textarea.current?.focus();
 					}}
 				/>
-				{selected.length ? (
-					<ul
-						aria-label="Files added to this message"
-						className="workspace-chat-composer-files"
-					>
-						{selected.map((file) => (
-							<li key={file.outputId}>
-								<ChatImagePreview
-									workspaceId={workspaceId}
-									outputId={file.outputId}
-									title={file.title}
-									size="chip"
-								/>
-								<FileText aria-hidden size={14} />
-								<span className="truncate">{file.title}</span>
-								<Button
-									size="icon-sm"
-									variant="ghost"
-									aria-label={`Remove ${file.title}`}
-									title="Remove"
-									onClick={() =>
-										setSelected((files) =>
-											files.filter((item) => item.outputId !== file.outputId),
-										)
-									}
-								>
-									<X aria-hidden size={12} />
-								</Button>
-							</li>
-						))}
-					</ul>
-				) : null}
+				<WorkspaceChatComposerFiles
+					workspaceId={workspaceId}
+					files={selected}
+					uploads={uploads.uploads}
+					notice={uploads.notice}
+					onRemove={(outputId) =>
+						setSelected((files) =>
+							files.filter((item) => item.outputId !== outputId),
+						)
+					}
+					onRemoveUpload={uploads.remove}
+				/>
 				<Textarea
 					aria-label="Message the workspace"
 					className="workspace-chat-composer-input"
 					disabled={disabledReason !== null}
 					onChange={(event) => setDraft(event.target.value)}
 					onKeyDown={onKeyDown}
+					onPaste={(event) => {
+						const files = pastedFiles(event);
+						if (files.length === 0) return;
+						event.preventDefault();
+						uploads.addFiles(files);
+					}}
 					placeholder={
 						disabledReason ??
 						(busy
@@ -1765,7 +1782,10 @@ function Composer({
 								: "Send (Enter). Shift+Enter adds a line."
 						}
 						disabled={
-							disabledReason !== null || submitted !== null || !draft.trim()
+							disabledReason !== null ||
+							submitted !== null ||
+							uploads.busy ||
+							!draft.trim()
 						}
 						size="icon-sm"
 						type="submit"

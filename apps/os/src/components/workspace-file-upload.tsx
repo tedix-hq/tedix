@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { UploadSimple } from "@phosphor-icons/react";
 import { Button } from "@/components/kumo/button";
 import { Alert } from "@/components/kumo/alert";
@@ -12,6 +12,24 @@ import {
 } from "@/lib/os-query-options";
 
 const RECONCILIATION_RETRY_MS = 1_000;
+
+/** Reloads every list that shows a workspace's files after one is added. */
+export async function refreshWorkspaceFileLists(
+	queryClient: QueryClient,
+	workspaceId: string,
+) {
+	await Promise.all([
+		queryClient.invalidateQueries({
+			queryKey: workspaceResourcesQueryOptions(workspaceId).queryKey,
+		}),
+		queryClient.invalidateQueries({
+			queryKey: canvasOutputsQueryOptions(workspaceId).queryKey,
+		}),
+		queryClient.invalidateQueries({
+			queryKey: osQuery.osWorkspaces.outputs.library.key(),
+		}),
+	]);
+}
 
 /**
  * `compact` is the chat composer's footer control: one icon button whose label
@@ -45,19 +63,7 @@ export function WorkspaceFileUpload({
 		setProgress(null);
 		setError(null);
 	}, [workspaceId]);
-	async function refresh() {
-		await Promise.all([
-			queryClient.invalidateQueries({
-				queryKey: workspaceResourcesQueryOptions(workspaceId).queryKey,
-			}),
-			queryClient.invalidateQueries({
-				queryKey: canvasOutputsQueryOptions(workspaceId).queryKey,
-			}),
-			queryClient.invalidateQueries({
-				queryKey: osQuery.osWorkspaces.outputs.library.key(),
-			}),
-		]);
-	}
+	const refresh = () => refreshWorkspaceFileLists(queryClient, workspaceId);
 	async function upload(file: File) {
 		if (busyRef.current) return;
 		busyRef.current = true;
