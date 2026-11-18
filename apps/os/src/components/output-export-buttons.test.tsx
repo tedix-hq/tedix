@@ -138,6 +138,24 @@ describe("OutputExportButtons", () => {
 			"http://localhost:3030/api/os-exports/example/rev-2.docx",
 		);
 	});
+	it("asks for the title and revision only from its own menu entry", async () => {
+		vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+		exportsApi.export.mockResolvedValue({
+			url: "http://localhost:8790/os-exports/example/rev-2-header.pdf",
+		});
+		const container = renderButtons("sheet");
+		await openMenu(container);
+		act(() => menuItem("PDF with title and revision").click());
+		await flush();
+		expect(exportsApi.export).toHaveBeenCalledWith({
+			outputId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			format: "pdf",
+			revisionHeader: true,
+		});
+		const deck = renderButtons("presentation");
+		await openMenu(deck);
+		expect(() => menuItem("PDF with title and revision")).toThrow();
+	});
 	it("names active export and prevents concurrent requests", async () => {
 		let resolveExport!: (value: { url: string }) => void;
 		exportsApi.export.mockReturnValue(

@@ -30,7 +30,11 @@ const FORMAT_LABELS: Partial<Record<OsOutputExportFormat, string>> = {
 	csv: "CSV (all sheets)",
 };
 
-type ExportRequest = { format: OsOutputExportFormat; sheetId?: string };
+type ExportRequest = {
+	format: OsOutputExportFormat;
+	sheetId?: string;
+	revisionHeader?: boolean;
+};
 
 export function OutputExportButtons({
 	outputId,
@@ -53,11 +57,12 @@ export function OutputExportButtons({
 	phoneActions?: ReactNode;
 }) {
 	const exportOutput = useMutation({
-		mutationFn: ({ format, sheetId }: ExportRequest) =>
+		mutationFn: ({ format, sheetId, revisionHeader }: ExportRequest) =>
 			osApi.osWorkspaces.outputs.export({
 				outputId,
 				format,
 				...(sheetId ? { sheetId } : {}),
+				...(revisionHeader ? { revisionHeader } : {}),
 			}),
 		onSuccess: (result) => {
 			const exportUrl = new URL(result.url);
@@ -120,6 +125,16 @@ export function OutputExportButtons({
 							{FORMAT_LABELS[format] ?? format.toUpperCase()}
 						</DropdownMenuItem>
 					))}
+					{kind === "document" || kind === "sheet" ? (
+						<DropdownMenuItem
+							disabled={exportOutput.isPending}
+							onClick={() =>
+								exportOutput.mutate({ format: "pdf", revisionHeader: true })
+							}
+						>
+							PDF with title and revision
+						</DropdownMenuItem>
+					) : null}
 					{sheets && sheets.length > 1
 						? sheets.map((sheet) => (
 								<DropdownMenuItem

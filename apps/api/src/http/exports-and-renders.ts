@@ -216,7 +216,7 @@ export function registerExportsAndRenders(
 		const outputId = c.req.param("outputId");
 		const file = c.req.param("file");
 		const match =
-			/^rev-(\d+)(?:-tab-\d+)?\.(pdf|png|xlsx|docx|pptx|md|html|csv|zip)$/.exec(
+			/^rev-(\d+)(?:-tab-\d+)?(?:-header)?\.(pdf|png|xlsx|docx|pptx|md|html|csv|zip)$/.exec(
 				file,
 			);
 		if (!match) return c.text("Not found", 404);
