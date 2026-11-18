@@ -1,8 +1,14 @@
 import escapeClient from "./app-runtime-escape-client.js?raw";
 import starterClient from "../../../plugins/tedix/skills/tedix-build-app/assets/sheet-review/client.js?raw";
 import starterManifest from "../../../plugins/tedix/skills/tedix-build-app/assets/sheet-review/manifest.json";
+import { useState } from "react";
 import { createRoot } from "react-dom/client";
+import { AppRuntimeErrorBar } from "../src/components/app-runtime-errors";
 import { AppRuntimeFrame } from "../src/components/app-runtime-frame";
+import {
+	addAppRuntimeError,
+	EMPTY_APP_RUNTIME_ERROR_LOG,
+} from "../src/lib/app-runtime-protocol";
 import {
 	buildAppRuntimeDocument,
 	handleAppRuntimeCall,
@@ -37,15 +43,25 @@ const render = () => {
 };
 render();
 `;
+// Fails in the three ways the host hears about; the throw is on line 5.
+const errorsClient = [
+	"const root = document.getElementById('app');",
+	"root.textContent = 'Broken on purpose';",
+	"console.error('Could not load', { sheet: 'cards' });",
+	"Promise.reject(new Error('not_permitted'));",
+	"setTimeout(() => { throw new TypeError('rows is undefined'); }, 0);",
+].join("\n");
 const html = buildAppRuntimeDocument({
 	"server.js": "",
-	"client.js": new URLSearchParams(location.search).has("translate")
-		? translateClient
-		: new URLSearchParams(location.search).has("escape")
-			? `const destination = ${JSON.stringify(new URLSearchParams(location.search).get("destination"))};\n${escapeClient}`
-			: starter
-				? starterClient
-				: `
+	"client.js": new URLSearchParams(location.search).has("errors")
+		? errorsClient
+		: new URLSearchParams(location.search).has("translate")
+			? translateClient
+			: new URLSearchParams(location.search).has("escape")
+				? `const destination = ${JSON.stringify(new URLSearchParams(location.search).get("destination"))};\n${escapeClient}`
+				: starter
+					? starterClient
+					: `
 const root = document.getElementById('app');
 const status = document.createElement('p');
 status.setAttribute('role', 'status');
@@ -60,33 +76,47 @@ button.onclick = async () => {
 root.append(button, status);
 `,
 });
-createRoot(document.getElementById("root")!).render(
-	<AppRuntimeFrame
-		html={html}
-		title="Rating app"
-		onCall={(method, args) =>
-			handleAppRuntimeCall(
-				{
-					context: {
-						workspaceId: "11111111-1111-4111-8111-111111111111",
-						gadget: {
-							id: "22222222-2222-4222-8222-222222222222",
-							name: "Rating app",
-							revision: 1,
+function Host() {
+	const [errors, setErrors] = useState(EMPTY_APP_RUNTIME_ERROR_LOG);
+	return (
+		<>
+			<AppRuntimeErrorBar
+				log={errors}
+				onDismiss={() => setErrors(EMPTY_APP_RUNTIME_ERROR_LOG)}
+			/>
+			<output data-app-errors hidden>
+				{JSON.stringify(errors.recent)}
+			</output>
+			<AppRuntimeFrame
+				html={html}
+				title="Rating app"
+				onError={(error) => setErrors((log) => addAppRuntimeError(log, error))}
+				onCall={(method, args) =>
+					handleAppRuntimeCall(
+						{
+							context: {
+								workspaceId: "11111111-1111-4111-8111-111111111111",
+								gadget: {
+									id: "22222222-2222-4222-8222-222222222222",
+									name: "Rating app",
+									revision: 1,
+								},
+								role: "use",
+								settings: starter ? starterManifest.config.settings : {},
+								grants: starter ? starterManifest.resourceGrants : [],
+							},
+							resources: [],
+							readOutput: async () => {
+								throw new Error("No Output grant");
+							},
+							callServer,
 						},
-						role: "use",
-						settings: starter ? starterManifest.config.settings : {},
-						grants: starter ? starterManifest.resourceGrants : [],
-					},
-					resources: [],
-					readOutput: async () => {
-						throw new Error("No Output grant");
-					},
-					callServer,
-				},
-				method,
-				args,
-			)
-		}
-	/>,
-);
+						method,
+						args,
+					)
+				}
+			/>
+		</>
+	);
+}
+createRoot(document.getElementById("root")!).render(<Host />);

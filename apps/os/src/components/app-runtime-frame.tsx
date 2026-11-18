@@ -4,10 +4,13 @@ import { Button } from "@/components/kumo/button";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	APP_RUNTIME_CALL_METHOD,
+	APP_RUNTIME_ERROR_METHOD,
 	APP_RUNTIME_LANGUAGE_METHOD,
 	APP_RUNTIME_OUTPUTS_CHANGED_METHOD,
 	APP_RUNTIME_TRANSLATE_TEXT_METHOD,
 	APP_RUNTIME_TRANSLATION_METHOD,
+	readAppRuntimeError,
+	type AppRuntimeError,
 	type AppRuntimeHostResult,
 	type AppRuntimeOutputRevision,
 } from "@/lib/app-runtime-protocol";
@@ -37,6 +40,8 @@ export interface AppRuntimeFrameProps {
 	/** The host's Translate, wired to the app document once it is ready. */
 	translation?: AppRuntimeTranslationChannel;
 	outputRevisions?: readonly AppRuntimeOutputRevision[];
+	/** An uncaught error, unhandled rejection or `console.error` in the app. */
+	onError?: (error: AppRuntimeError) => void;
 }
 
 const PROXY_READY = "ui/notifications/sandbox-proxy-ready";
@@ -73,10 +78,17 @@ export function AppRuntimeFrame({
 	layout = "content",
 	translation,
 	outputRevisions = [],
+	onError,
 }: AppRuntimeFrameProps) {
 	const container = useRef<HTMLDivElement>(null);
-	const latest = useRef({ html, onCall, translation, outputRevisions });
-	latest.current = { html, onCall, translation, outputRevisions };
+	const latest = useRef({
+		html,
+		onCall,
+		translation,
+		outputRevisions,
+		onError,
+	});
+	latest.current = { html, onCall, translation, outputRevisions, onError };
 	const outputRevisionKey = JSON.stringify(outputRevisions);
 	const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
 	const [attempt, setAttempt] = useState(0);
@@ -175,6 +187,11 @@ export function AppRuntimeFrame({
 							});
 					},
 				);
+				return;
+			}
+			if (data.method === APP_RUNTIME_ERROR_METHOD) {
+				const error = readAppRuntimeError(data.params);
+				if (error && alive) latest.current.onError?.(error);
 				return;
 			}
 			if (data.method === APP_RUNTIME_PRESENT_METHOD) {
