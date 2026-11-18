@@ -113,6 +113,8 @@ export async function admitEvaluation(input: {
 	orgId: string;
 	tediId: string;
 	env: Cloudflare.Env;
+	/** Test seam; production reads the tedi's Artifacts repo. */
+	artifactsReader?: InstructionsReader;
 }): Promise<EvaluationAdmission> {
 	const workflowRunId = skillWorkflowRunId(input.request);
 	const epoch = input.request.headers.get("X-Tedix-Workflow-Execution-Epoch");
@@ -140,6 +142,7 @@ export async function admitEvaluation(input: {
 	const instructions = await readEvaluationInstructions(
 		input.env,
 		input.tediId,
+		input.artifactsReader,
 	);
 	assertReviewedInstructions(instructions, admission);
 	await assertEvaluationAuthority(
@@ -158,13 +161,17 @@ export async function admitEvaluation(input: {
 }
 
 /** Preflight and admission use the same effective identity source and bytes. */
+type InstructionsReader = (path: string) => Promise<string | null>;
+
 export async function readEvaluationInstructions(
 	env: Cloudflare.Env,
 	tediId: string,
+	artifactsReader?: InstructionsReader,
 ) {
 	const identity = await readIdentityFilesWithDiagnostics({
 		tediId,
 		files: ["AGENTS.md"],
+		...(artifactsReader ? { artifactsReader } : {}),
 		artifacts: env.ARTIFACTS,
 		artifactsAccountId: env.CF_ACCOUNT_ID,
 		artifactsNamespace: TEDIX_ARTIFACTS_NAMESPACE_PRODUCTION,
@@ -323,9 +330,14 @@ export async function assertEvaluationWorkflow(
 	orgId: string,
 	tediId: string,
 	admission: EvaluationAdmission,
+	artifactsReader?: InstructionsReader,
 ) {
 	await assertEvaluationAuthority(env, orgId, tediId, admission);
-	const instructions = await readEvaluationInstructions(env, tediId);
+	const instructions = await readEvaluationInstructions(
+		env,
+		tediId,
+		artifactsReader,
+	);
 	assertReviewedInstructions(instructions, admission);
 	if (
 		instructions.content !== admission.agents ||
