@@ -28,7 +28,7 @@ import {
 	isLifecycleOverrideAuthority,
 	skillProposalApplyAuthority,
 } from "./cognitive-shared";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 
 // =============================================================================
 // MUSCLE MEMORY
@@ -36,8 +36,9 @@ import { requireOrgId } from "../org-scope";
 
 export const muscleList = authedMuscle.list
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const tediId = input.tediId ?? context.tediId;
 		if (!tediId) {
 			throw createError(
@@ -55,8 +56,9 @@ export const muscleList = authedMuscle.list
 
 export const muscleRegister = authedMuscle.register
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const tediId = input.tediId ?? context.tediId;
 		if (!tediId) {
 			throw createError(
@@ -87,8 +89,9 @@ export const muscleRegister = authedMuscle.register
 
 export const muscleCrystallize = authedMuscle.crystallize
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const tediId = input.tediId ?? context.tediId;
 		if (!tediId) {
 			throw createError(
@@ -190,10 +193,11 @@ export const muscleCrystallize = authedMuscle.crystallize
 
 export const muscleUsage = authedMuscle.usage
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
 		// Org-scoped load first: a foreign-org muscle id is a 404, never a
 		// counter write. recordMuscleUsage re-scopes its WHERE as the backstop.
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const muscle = await getMuscleMemoryById(context.db, input.id, orgId);
 		if (!muscle) {
 			throw createError(ErrorCodes.NOT_FOUND, "Muscle memory entry not found");

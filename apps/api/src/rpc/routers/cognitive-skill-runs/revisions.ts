@@ -10,7 +10,7 @@ import {
 	parseSkillWorkflowRecordsByRun,
 } from "../../../services/skill-workflow-inspection";
 import { AUTHZ, createError, ErrorCodes } from "../../orpc";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import { authedSkills } from "../cognitive-shared";
 import {
 	loadSkillWorkflowRuntimeProvenance,
@@ -29,8 +29,9 @@ import {
 
 export const skillsListWorkflowRevisions = authedSkills.listWorkflowRevisions
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const skillId = await resolveWorkflowSkillId(context, orgId, input);
 		if (input.tediId) await requireOwnedTedi(context, input.tediId, orgId);
 		const runs = await listSkillRunSnapshotsForSkill(
@@ -47,7 +48,7 @@ export const skillsListWorkflowRevisions = authedSkills.listWorkflowRevisions
 			await import("@tedix/db/queries/skill-run-artifacts");
 		const manifests = await listRunArtifactsForRunsByPath(
 			context.db,
-			{ organizationId: requireOrgId(context) },
+			{ organizationId: context.organizationId },
 			runs.map((run) => run.id),
 			"manifest.json",
 		);
@@ -163,8 +164,9 @@ export const skillsListWorkflowRevisions = authedSkills.listWorkflowRevisions
 
 export const skillsGetWorkflowRevision = authedSkills.getWorkflowRevision
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
@@ -183,8 +185,9 @@ export const skillsGetWorkflowRevision = authedSkills.getWorkflowRevision
 export const skillsCompareWorkflowRevisions =
 	authedSkills.compareWorkflowRevisions
 		.use(AUTHZ.tedisRead)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const [baselineRun, candidateRun] = await Promise.all([
 				getSkillRunForEnvironment(context, input.baselineRunId, orgId),
 				getSkillRunForEnvironment(context, input.candidateRunId, orgId),
@@ -281,8 +284,9 @@ export const skillsCompareWorkflowRevisions =
 
 export const skillsGetWorkflowReliability = authedSkills.getWorkflowReliability
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		if (!input.skillId && !input.slug && !input.tediId) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -318,7 +322,7 @@ export const skillsGetWorkflowReliability = authedSkills.getWorkflowReliability
 			await import("@tedix/db/queries/skill-run-artifacts");
 		const artifacts = await listRunOperationalArtifactsForRuns(
 			context.db,
-			{ organizationId: requireOrgId(context) },
+			{ organizationId: context.organizationId },
 			runs.map((run) => run.id),
 			5_000,
 		);
@@ -360,8 +364,9 @@ export const skillsGetWorkflowReliability = authedSkills.getWorkflowReliability
 
 export const skillsListWorkflowSchedules = authedSkills.listWorkflowSchedules
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		if (input.tediId) await requireOwnedTedi(context, input.tediId, orgId);
 		const skillId = input.slug
 			? await resolveWorkflowSkillId(context, orgId, input)

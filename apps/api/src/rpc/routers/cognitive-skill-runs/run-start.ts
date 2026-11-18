@@ -38,7 +38,7 @@ import {
 import { episodeTraceId } from "../../episode-trace";
 import { AUTHZ, type BaseContext, createError, ErrorCodes } from "../../orpc";
 import { insertRuntimeEvent } from "../cognitive-runtime/events-policy";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import { authedSkills } from "../cognitive-shared";
 import {
 	requireOwnedTedi,
@@ -50,8 +50,9 @@ import {
 
 export const skillsRunWorkflow = authedSkills.runWorkflow
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		if (
 			input.certification &&
 			(context.authType !== "user" ||

@@ -12,7 +12,7 @@ import {
 	getRunSensitiveDataLatch,
 } from "@tedix/db/queries/sensitive-data-latch";
 import { AUTHZ, createError, ErrorCodes } from "../../orpc";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import { authedSkills } from "../cognitive-shared";
 import { verifiedActiveUserMembership } from "../work-items-principal";
 
@@ -22,8 +22,9 @@ export const SENSITIVE_DATA_LATCH_CLEARED_ACTION =
 export const skillsGetRunSensitiveDataLatch =
 	authedSkills.getRunSensitiveDataLatch
 		.use(AUTHZ.tedisRead)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
-			const organizationId = requireOrgId(context);
+			const organizationId = context.organizationId;
 			const { known, latch } = await getRunSensitiveDataLatch(context.db, {
 				organizationId,
 				runRef: input.runRef,
@@ -34,8 +35,9 @@ export const skillsGetRunSensitiveDataLatch =
 export const skillsClearRunSensitiveDataLatch =
 	authedSkills.clearRunSensitiveDataLatch
 		.use(AUTHZ.tedisWrite)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
-			const organizationId = requireOrgId(context);
+			const organizationId = context.organizationId;
 			const membership = await verifiedActiveUserMembership(
 				context,
 				organizationId,

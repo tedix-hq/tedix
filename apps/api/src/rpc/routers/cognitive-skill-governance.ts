@@ -71,7 +71,7 @@ import {
 	createErrorWithData,
 	ErrorCodes,
 } from "../orpc";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	getSkillRunForEnvironment,
 	requireOwnedTedi,
@@ -351,8 +351,9 @@ async function workflowImprovementGovernance(
 
 export const skillsProposeWorkshop = authedSkills.proposeWorkshop
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const tediId = input.tediId ?? context.tediId;
 		if (!tediId) {
 			throw createError(
@@ -473,8 +474,9 @@ export async function mineTrajectoryCandidates(
 
 export const skillsMineCandidates = authedSkills.mineCandidates
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const tediId = input.tediId ?? context.tediId ?? undefined;
 		if (input.dryRun !== true && !tediId) {
 			throw createError(
@@ -496,8 +498,9 @@ export const skillsMineCandidates = authedSkills.mineCandidates
 
 export const skillsPortfolioBalance = authedSkills.portfolioBalance
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		return getSkillPortfolioBalance(context.db, orgId, {
 			tediId: input.tediId,
 		});
@@ -506,8 +509,9 @@ export const skillsPortfolioBalance = authedSkills.portfolioBalance
 export const skillsProposeWorkflowImprovement =
 	authedSkills.proposeWorkflowImprovement
 		.use(AUTHZ.tedisWrite)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const baselineRun = await getSkillRunForEnvironment(
 				context,
 				input.baselineRunId,
@@ -623,8 +627,9 @@ export const skillsProposeWorkflowImprovement =
 export const skillsInspectWorkflowImprovement =
 	authedSkills.inspectWorkflowImprovement
 		.use(AUTHZ.tedisRead)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const proposal = await getSkillWorkshopProposal(context, orgId, {
 				id: input.id,
 			});
@@ -655,10 +660,11 @@ export const skillsInspectWorkflowImprovement =
 export const skillsActivateWorkflowImprovement =
 	authedSkills.activateWorkflowImprovement
 		.use(AUTHZ.tedisWrite)
+		.use(withOrg)
 		.handler(async ({ input, context }) => {
 			// Any authorized caller (human or agent) may activate: the unchanged
 			// baseline and a passing certification run of this exact proposal are the gate.
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const proposal = await getSkillWorkshopProposal(context, orgId, {
 				id: input.id,
 			});
@@ -806,8 +812,9 @@ export const skillsActivateWorkflowImprovement =
 
 export const skillsInspectWorkshop = authedSkills.inspectWorkshop
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const existing = await getSkillWorkshopProposal(context, orgId, input);
 		const validation = await validateSkillInput(
 			context.db,
@@ -838,8 +845,9 @@ export const skillsInspectWorkshop = authedSkills.inspectWorkshop
 
 export const skillsReviseWorkshop = authedSkills.reviseWorkshop
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		await getSkillWorkshopProposal(context, orgId, { id: input.id });
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
@@ -985,8 +993,9 @@ export const skillsReviseWorkshop = authedSkills.reviseWorkshop
 
 export const skillsApplyWorkshop = authedSkills.applyWorkshop
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const existing = await getSkillWorkshopProposal(context, orgId, input);
 		// Disposer separation: human/apikey pass; a tedi may apply only a
 		// DIFFERENT identity's proposal; anonymous machine credentials fail.
@@ -1086,8 +1095,9 @@ export const skillsApplyWorkshop = authedSkills.applyWorkshop
 
 export const skillsRejectWorkshop = authedSkills.rejectWorkshop
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const existing = await getSkillWorkshopProposal(context, orgId, {
 			id: input.id,
 		});
@@ -1124,8 +1134,9 @@ export const skillsRejectWorkshop = authedSkills.rejectWorkshop
 
 export const skillsQuarantineWorkshop = authedSkills.quarantineWorkshop
 	.use(AUTHZ.tedisWrite)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const existing = await getSkillWorkshopProposal(context, orgId, {
 			id: input.id,
 		});
@@ -1146,8 +1157,9 @@ export const skillsQuarantineWorkshop = authedSkills.quarantineWorkshop
 
 export const skillsValidate = authedSkills.validate
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 
 		// Mode A: validate stored skill by id (or its skillId alias) or slug
 		const storedId = input.id ?? input.skillId;
@@ -1234,8 +1246,9 @@ async function withOwnerTediIssues(
 
 export const skillsAuditToolCoverage = authedSkills.auditToolCoverage
 	.use(AUTHZ.tedisRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const limit = Math.min(Math.max(input.limit ?? 250, 1), 500);
 		const scopeAppId = await resolveAppId(context, input);
 		const app = scopeAppId ? await getAppById(context.db, scopeAppId) : null;
