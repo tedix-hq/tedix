@@ -330,8 +330,6 @@ describe("what the agent did", () => {
 		expect(card?.textContent).toContain("Visit counter");
 		expect(card?.textContent).toContain("Counts visits.");
 		expect(card?.textContent).toContain("Files: server.js, client.js");
-		// A new app always asks: the card offers no "Always approve".
-		expect(card?.textContent).not.toContain("Always approve");
 		expect(button("Approve creating Visit counter")).toBeDefined();
 		expect(button("Open Visit counter")).toBeUndefined();
 		act(() =>

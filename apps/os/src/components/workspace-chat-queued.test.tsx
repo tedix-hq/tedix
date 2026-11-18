@@ -62,7 +62,6 @@ function fakeClient(conversationId: string) {
 		},
 		decideApproval() {},
 		decideApprovals() {},
-		setAutoApproval() {},
 		cancelTurn(turnId) {
 			calls.push(["cancelTurn", turnId]);
 		},

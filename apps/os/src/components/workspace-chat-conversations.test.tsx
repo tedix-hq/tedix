@@ -441,7 +441,6 @@ describe("WorkspaceChat conversation management", () => {
 			sendTurn: () => "client-turn",
 			decideApproval() {},
 			decideApprovals() {},
-			setAutoApproval() {},
 			cancelTurn() {},
 			changeConversation: (change) => changes.push(change),
 			loadEarlier() {},

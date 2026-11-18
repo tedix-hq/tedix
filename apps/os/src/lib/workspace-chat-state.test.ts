@@ -19,6 +19,7 @@ import {
 	setWorkspaceUsage,
 	turnDetails,
 	usageTotalsNote,
+	waitingForDecision,
 } from "./workspace-chat-state";
 
 const at = (seconds: number) =>
@@ -607,6 +608,66 @@ describe("usage totals", () => {
 			reply(3, "c1", { inputTokens: 5, outputTokens: 5, costUsd: 0.01 }),
 		);
 		expect(state.usage).toBeNull();
+	});
+
+	it("counts a change as waiting only when it waits for a person", () => {
+		let state = setWorkspaceUsage(
+			setConversations(initialWorkspaceChatState("c1"), [
+				{ id: "c1", title: null, updatedAt: at(0), lastTurnAt: null },
+			]),
+			undefined,
+			0,
+		);
+		const waiting = () => state.conversations[0]?.pendingApprovals ?? 0;
+		const requested = (seq: number, approvalId: string, automatic?: true) =>
+			({
+				seq,
+				at: at(seq),
+				conversationId: "c1",
+				type: "approval.requested",
+				turnId: "t1",
+				stepId: `s-${approvalId}`,
+				approvalId,
+				title: "Creating a new output",
+				reason: "r",
+				...(automatic ? { automatic } : {}),
+			}) as const;
+		state = applyWorkspaceChatEvents(state, [
+			{
+				seq: 1,
+				at: at(1),
+				conversationId: "c1",
+				type: "turn.started",
+				turnId: "t1",
+				text: "Write it",
+				authorId: "p",
+				authorKind: "person",
+			},
+			requested(2, "held"),
+			requested(3, "at-once", true),
+		]);
+		// The change that applies at once is not waiting, even undecided.
+		expect(waiting()).toBe(1);
+		expect(waitingForDecision(state).map((item) => item.approvalId)).toEqual([
+			"held",
+		]);
+		expect(pendingApproval(state.turns[0] ?? null)?.approvalId).toBe("held");
+		state = applyWorkspaceChatEvent(state, {
+			seq: 4,
+			at: at(4),
+			conversationId: "c1",
+			type: "approval.decided",
+			approvalId: "at-once",
+			decision: "approve",
+			by: "agent",
+			automatic: true,
+		});
+		expect(waiting()).toBe(1);
+		expect(state.turns[0]?.approvals[1]).toMatchObject({
+			decision: "approve",
+			automatic: true,
+			decidedBy: "agent",
+		});
 	});
 
 	it("keeps a conversation's usage when its title changes or a turn starts", () => {

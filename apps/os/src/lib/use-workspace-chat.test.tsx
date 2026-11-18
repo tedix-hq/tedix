@@ -40,7 +40,6 @@ function harness() {
 			sendTurn: () => "turn",
 			decideApproval() {},
 			decideApprovals() {},
-			setAutoApproval() {},
 			cancelTurn() {},
 			changeConversation() {},
 			loadEarlier() {},

@@ -9,8 +9,6 @@
 
 import type {
 	ApprovalDecision,
-	AutoApprovalKind,
-	AutoApprovalRule,
 	ConversationSummary,
 	StepKind,
 	TurnStatus,
@@ -44,12 +42,10 @@ export type ChatApproval = {
 	input?: unknown;
 	requestedAt: string;
 	target?: { id: string; title: string };
-	/** The "Always approve" rule that could cover this kind of change. */
-	rule?: { kind: AutoApprovalKind; label: string };
 	decision: ApprovalDecision | null;
 	decidedBy?: string;
 	decidedAt?: string;
-	/** Approved by a workspace "Always approve" rule, not by hand. */
+	/** The change applied at once; it never waited for a person. */
 	automatic?: boolean;
 	execution?: {
 		status: "applied" | "failed";
@@ -157,8 +153,6 @@ export type WorkspaceChatState = {
 			automatic?: boolean;
 		}
 	>;
-	/** This workspace's "Always approve" rules, as the object last said. */
-	autoApprovals: AutoApprovalRule[];
 	approvalExecutions: Record<string, NonNullable<ChatApproval["execution"]>>;
 	/** The whole workspace's usage; `null` until a reply reports any. */
 	usage: UsageTotals | null;
@@ -187,7 +181,6 @@ export function initialWorkspaceChatState(
 		seen: new Set(),
 		approvalDecisions: {},
 		approvalExecutions: {},
-		autoApprovals: [],
 		usage: null,
 		usageCursor: null,
 	};
@@ -362,6 +355,8 @@ export function applyWorkspaceChatEvent(
 	if (
 		(event.type === "approval.requested" ||
 			event.type === "approval.decided") &&
+		// A change that applies at once was never waiting.
+		!event.automatic &&
 		state.usageCursor !== null &&
 		event.seq > state.usageCursor
 	) {
@@ -621,8 +616,11 @@ export function applyWorkspaceChatEvent(
 									input: event.input,
 									requestedAt: event.at,
 									target: event.target,
-									...(event.rule ? { rule: event.rule } : {}),
-									decision: null,
+									// A change that applies at once never waits for a person,
+									// even before its decision arrives.
+									...(event.automatic
+										? { decision: "approve" as const, automatic: true }
+										: { decision: null }),
 									...approvalDecisions[event.approvalId],
 									execution: approvalExecutions[event.approvalId],
 								},

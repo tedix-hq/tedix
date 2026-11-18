@@ -15,7 +15,6 @@
 
 import type { ServerWebSocket } from "bun";
 import type {
-	AutoApprovalRule,
 	ConversationSummary,
 	WorkspaceChatClientMessage,
 	WorkspaceChatLedgerEvent,
@@ -339,9 +338,6 @@ async function runTurn(
 	finish("done");
 }
 
-/** "Always approve" rules per workspace; the mock only stores and echoes them. */
-const autoApprovals = new Map<string, AutoApprovalRule[]>();
-
 function handle(socket: Socket, raw: string | Buffer): void {
 	let message: WorkspaceChatClientMessage;
 	try {
@@ -360,7 +356,6 @@ function handle(socket: Socket, raw: string | Buffer): void {
 				conversations: [...ws.conversations.values()].sort((a, b) =>
 					b.updatedAt.localeCompare(a.updatedAt),
 				),
-				autoApprovals: autoApprovals.get(socket.data.workspaceId) ?? [],
 			});
 			const cursor = message.cursor ?? socket.data.after;
 			const relevant = ws.ledger.filter(
@@ -459,26 +454,6 @@ function handle(socket: Socket, raw: string | Buffer): void {
 				if (message.decision === "approve") pending.resume();
 				else pending.end();
 			}
-			return;
-		}
-		case "set_auto_approval": {
-			const others = (autoApprovals.get(socket.data.workspaceId) ?? []).filter(
-				(rule) => rule.kind !== message.kind,
-			);
-			const rules = message.enabled
-				? [
-						...others,
-						{
-							kind: message.kind,
-							label:
-								"creating and editing docs, sheets and slides in this workspace",
-							enabledBy: "person:local",
-							enabledAt: new Date().toISOString(),
-						},
-					]
-				: others;
-			autoApprovals.set(socket.data.workspaceId, rules);
-			sendTo(socket, { type: "auto_approvals", rules });
 			return;
 		}
 		case "cancel_turn":
