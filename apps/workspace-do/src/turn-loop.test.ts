@@ -120,7 +120,7 @@ describe("runTurn", () => {
 		expect(events).toContain("text_delta");
 	});
 
-	test("an approval refusal ends the turn with approval_required", async () => {
+	test("an approval refusal does not end the turn; the model goes on", async () => {
 		const core = createFauxCore({ tokensPerSecond: 0 });
 		core.setResponses([
 			fauxAssistantMessage(
@@ -129,7 +129,9 @@ describe("runTurn", () => {
 				}),
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage(fauxText("should not be reached")),
+			fauxAssistantMessage(
+				fauxText("The new doc waits for your approval; the summary is below."),
+			),
 		]);
 		const events: string[] = [];
 		const result = await runTurn(
@@ -151,9 +153,13 @@ describe("runTurn", () => {
 				userText: "Create a doc",
 			},
 		);
-		expect(result.stopReason).toBe("approval_required");
+		expect(result.stopReason).toBe("answered");
+		expect(result.approvalsRequested).toBe(1);
+		expect(result.text).toBe(
+			"The new doc waits for your approval; the summary is below.",
+		);
 		expect(events).toContain("approval_required");
-		expect(core.getPendingResponseCount()).toBe(1);
+		expect(core.getPendingResponseCount()).toBe(0);
 	});
 
 	test("compacts long history once and reports the summary", async () => {

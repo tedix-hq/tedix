@@ -71,4 +71,31 @@ describe("prompt", () => {
 		expect(dynamicPromptSuffix(input)).toContain("Step 1: do it");
 		expect(staticPromptPrefix()).not.toContain("Step 1: do it");
 	});
+
+	test("a held write does not tell the agent to stop", () => {
+		const prefix = staticPromptPrefix();
+		expect(prefix).toContain("while the chat goes on");
+		expect(prefix).not.toContain("needs approval and stop");
+	});
+
+	test("changes still waiting for a decision are in the turn's context", () => {
+		const suffix = dynamicPromptSuffix({
+			workspaceName: "Programme workspace",
+			nowIso: "2026-11-07T17:00:00.000Z",
+			pendingApprovals: [
+				{ action: "Creating a new output", target: "Budget" },
+				{ action: "Filing a Work Item", target: null },
+			],
+		});
+		expect(suffix).toContain("<waiting_for_approval");
+		expect(suffix).toContain("- Creating a new output: Budget");
+		expect(suffix).toContain("- Filing a Work Item\n");
+		expect(staticPromptPrefix()).not.toContain("Budget");
+		expect(
+			dynamicPromptSuffix({
+				workspaceName: "Programme workspace",
+				nowIso: "2026-11-07T17:00:00.000Z",
+			}),
+		).not.toContain("waiting_for_approval");
+	});
 });

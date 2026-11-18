@@ -95,7 +95,20 @@ import {
 	createWorkspaceModel,
 	type ModelPort,
 } from "./model";
-import { buildSystemPrompt, type ReferencedSkill } from "./prompt";
+import {
+	buildSystemPrompt,
+	type PendingApproval,
+	type ReferencedSkill,
+} from "./prompt";
+import {
+	type AutoApprovalKind,
+	type AutoApprovalRule,
+	autoApprovalKindFor,
+	autoApprovalLabel,
+	isAutoApprovalKind,
+	readAutoApprovalRules,
+	writeAutoApprovalRule,
+} from "./auto-approval";
 import type { WorkspaceStorage } from "./runtime";
 import { createLoaderSandbox, validateWorkspaceAppSource } from "./sandbox";
 import {
@@ -126,6 +139,7 @@ const FRAME_TYPES = new Set([
 	"send_turn",
 	"decide_approval",
 	"decide_approvals",
+	"set_auto_approval",
 	"cancel_turn",
 	"read_ledger",
 	"ping",
@@ -233,6 +247,16 @@ interface ApprovalRow {
 	actor_kind: ActorKind;
 	tedi_id: string | null;
 	status: "pending" | "approved" | "denied" | "applied" | "failed";
+}
+
+/** Results of decisions the person made while a turn was still working. */
+interface DecisionNote {
+	by: string;
+	tediId: string | null;
+	/** What the model reads: each decision and the call's result. */
+	text: string;
+	/** What the chat shows, e.g. "Approved the requested action." */
+	displayText: string;
 }
 
 /**
@@ -907,6 +931,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			started.seq,
 			turnId,
 		);
+		// Decisions made while an earlier turn worked reach the model with
+		// this message; the chat shows only what the person wrote.
+		const decisions = this.#takeDecisionNotes(conversationId)
+			.map((note) => `${note.text}\n\n`)
+			.join("");
 		const controller = new AbortController();
 		this.#running.set(turnId, controller);
 		await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
@@ -915,7 +944,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				scope,
 				turnId,
 				conversationId,
-				{ ...input, modelId, text: text + selected.context },
+				{ ...input, modelId, text: decisions + text + selected.context },
 				controller,
 			),
 		);
@@ -1135,22 +1164,35 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		}
 		if (!next) return results;
 		const approve = input.decision === "approve";
+		const note: DecisionNote = {
+			by: input.by,
+			tediId: next.tedi_id,
+			text: summaries.join("\n"),
+			displayText:
+				settled.length > 1
+					? approve
+						? `Approved ${settled.length} requested actions.`
+						: `Denied ${settled.length} requested actions.`
+					: approve
+						? "Approved the requested action."
+						: "Denied the requested action.",
+		};
+		// The person kept chatting and a turn is still working: it would race
+		// a second answer. The results wait for that turn to finish.
+		if (this.#runningTurnIn(next.conversation_id)) {
+			this.#queueDecisionNote(next.conversation_id, note);
+			return results;
+		}
 		const { turnId } = await this.sendTurn(
 			scope,
 			{
 				conversationId: next.conversation_id,
-				actorId: input.by,
+				actorId: note.by,
 				actorKind: "user",
-				text: summaries.join("\n"),
-				...(next.tedi_id ? { tediId: next.tedi_id } : {}),
+				text: note.text,
+				...(note.tediId ? { tediId: note.tediId } : {}),
 			},
-			settled.length > 1
-				? approve
-					? `Approved ${settled.length} requested actions.`
-					: `Denied ${settled.length} requested actions.`
-				: approve
-					? "Approved the requested action."
-					: "Denied the requested action.",
+			note.displayText,
 		);
 		for (const item of settled) {
 			const result = { applied: item.applied, turnId };
@@ -1161,12 +1203,102 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return results;
 	}
 
+	#runningTurnIn(conversationId: string): boolean {
+		return (
+			this.#store.exec<{ turn_id: string }>(
+				"SELECT turn_id FROM turns WHERE conversation_id = ? AND status = 'running' LIMIT 1",
+				conversationId,
+			).length > 0
+		);
+	}
+
+	#queueDecisionNote(conversationId: string, note: DecisionNote) {
+		const key = `decision-notes:${conversationId}`;
+		this.#store.put(key, [
+			...(this.#store.get<DecisionNote[]>(key) ?? []),
+			note,
+		]);
+	}
+
+	/** Decisions made while a turn was working, taken once. */
+	#takeDecisionNotes(conversationId: string): DecisionNote[] {
+		const key = `decision-notes:${conversationId}`;
+		const notes = this.#store.get<DecisionNote[]>(key) ?? [];
+		if (notes.length) this.#store.delete(key);
+		return notes;
+	}
+
+	/**
+	 * After a turn finishes, answer the decisions the person made while it
+	 * worked, in one turn. A stopped or failed turn leaves them for the
+	 * person's next message, so nothing starts on its own after a Stop.
+	 */
+	async #continueAfterDecisions(scope: WorkspaceScope, conversationId: string) {
+		if (this.#runningTurnIn(conversationId)) return;
+		const notes = this.#takeDecisionNotes(conversationId);
+		const last = notes.at(-1);
+		if (!last) return;
+		await this.sendTurn(
+			scope,
+			{
+				conversationId,
+				actorId: last.by,
+				actorKind: "user",
+				text: notes.map((note) => note.text).join("\n"),
+				...(notes[0]?.tediId ? { tediId: notes[0].tediId } : {}),
+			},
+			notes.map((note) => note.displayText).join(" "),
+		);
+	}
+
+	/** This workspace's "Always approve" rules. */
+	readAutoApprovals(scope: WorkspaceScope): AutoApprovalRule[] {
+		this.bindScope(scope);
+		return readAutoApprovalRules(this.#store);
+	}
+
+	/**
+	 * Turn one "Always approve" rule on or off. Only the kinds in
+	 * `auto-approval.ts` exist; every open chat hears the new list.
+	 */
+	setAutoApproval(
+		scope: WorkspaceScope,
+		input: { kind: AutoApprovalKind; enabled: boolean; by: string },
+	): AutoApprovalRule[] {
+		this.bindScope(scope);
+		if (!isAutoApprovalKind(input.kind))
+			throw new Error("Unknown kind of change");
+		const rules = writeAutoApprovalRule(this.#store, {
+			...input,
+			at: new Date().toISOString(),
+		});
+		const frame = JSON.stringify({ type: "auto_approvals", rules });
+		for (const ws of this.ctx.getWebSockets()) {
+			try {
+				ws.send(frame);
+			} catch {
+				/* a closed socket is dropped by the runtime */
+			}
+		}
+		return rules;
+	}
+
 	/** Record one decision and, on approve, run the held call. */
 	async #settleApproval(
 		scope: WorkspaceScope,
 		approval: ApprovalRow,
-		input: { decision: "approve" | "deny"; by: string; note?: string },
-	): Promise<{ applied: boolean; summary: string }> {
+		input: {
+			decision: "approve" | "deny";
+			by: string;
+			note?: string;
+			/** Approved by a workspace rule rather than by hand. */
+			automatic?: boolean;
+		},
+	): Promise<{
+		applied: boolean;
+		summary: string;
+		outcome?: { ok: true; value: unknown } | { ok: false; error: string };
+	}> {
 		const approvalId = approval.approval_id;
 		const now = new Date().toISOString();
 		const state = input.decision === "approve" ? "approved" : "denied";
@@ -1188,9 +1320,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			decision: input.decision,
 			by: input.by,
 			at: now,
+			...(input.automatic ? { automatic: true as const } : {}),
 		});
 		let summary: string;
 		let applied = false;
+		let result:
+			| { ok: true; value: unknown }
+			| { ok: false; error: string }
+			| undefined;
 		if (input.decision === "approve") {
 			const outcome = await this.#invokeBinding(
 				scope,
@@ -1207,6 +1344,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				error: error instanceof Error ? error.message : String(error),
 			}));
 			applied = outcome.ok;
+			result = outcome;
 			const status = applied ? "applied" : "failed";
 			this.#store.run(
 				"UPDATE approvals SET status = ? WHERE approval_id = ?",
@@ -1228,13 +1366,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			summary = `Denied by ${input.by}${input.note ? `: ${input.note}` : ""}. Do not retry this action.`;
 		}
 		this.#store.put(`approval-result:${approvalId}`, { applied });
-		return { applied, summary };
+		return { applied, summary, ...(result ? { outcome: result } : {}) };
 	}
 
 	/**
 	 * Called by the sandbox loopback: run one method of one wrapped binding
 	 * for a turn that is running. A held write is stored as a pending approval
-	 * and comes back as "Approval required: …" so the model stops.
+	 * and comes back as "Approval required: …"; the model goes on with other
+	 * work. A held write a workspace rule covers is approved and applied here.
 	 */
 	async callBinding(
 		scope: WorkspaceScope,
@@ -1506,6 +1645,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					await this.decideApprovals(scope, {
 						approvalIds: frame.approvalIds,
 						decision: frame.decision,
+						by: attachment.actorId,
+					});
+					return;
+				case "set_auto_approval":
+					this.setAutoApproval(scope, {
+						kind: frame.kind,
+						enabled: frame.enabled === true,
 						by: attachment.actorId,
 					});
 					return;
@@ -2085,6 +2231,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			conversations: this.#listConversations(usage),
 			models: this.configuredModels(),
 			...(workspaceUsage ? { usage: workspaceUsage } : {}),
+			autoApprovals: readAutoApprovalRules(this.#store),
 		});
 		const page =
 			cursor !== null
@@ -2363,11 +2510,39 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				value: value === undefined ? null : JSON.parse(JSON.stringify(value)),
 			};
 		} catch (error: unknown) {
-			const message = error instanceof Error ? error.message : String(error);
+			let message = error instanceof Error ? error.message : String(error);
 			if (
 				error instanceof CallRefusedError &&
 				error.decision.verdict === "needs_approval"
 			) {
+				const finishStep = (outcome: { ok: boolean; error?: string }) =>
+					this.#events.append(turn.conversationId, {
+						type: "step.finished",
+						turnId: turn.turnId,
+						stepId,
+						status: outcome.ok ? "ok" : "error",
+						durationMs: Date.now() - started,
+						...(outcome.error ? { error: outcome.error } : {}),
+					});
+				// The same change asked for again gets no second card.
+				const [waiting] = this.#store.exec<{ approval_id: string }>(
+					"SELECT approval_id FROM approvals WHERE conversation_id = ? AND binding = ? AND method = ? AND args_hash = ? AND status = 'pending' LIMIT 1",
+					turn.conversationId,
+					binding,
+					method,
+					error.record.argsHash,
+				);
+				if (waiting) {
+					const repeated = `${message}. This exact change is already waiting for the person's decision; do not propose it again.`;
+					finishStep({ ok: false, error: repeated });
+					return { ok: false, error: repeated };
+				}
+				// Only a bounded write to one file inside this workspace qualifies.
+				const ruleKind = autoApprovalKindFor(binding, method, args, {
+					destructive:
+						error.decision.riskTier !== "bounded_write" ||
+						error.decision.blastRadius !== "single_resource",
+				});
 				const approvalId = error.record.id;
 				this.#store.run(
 					"INSERT OR IGNORE INTO approvals (approval_id, turn_id, conversation_id, step_id, binding, method, args, resource, args_hash, actor_id, actor_kind, tedi_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
@@ -2405,7 +2580,37 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					policy: error.decision.gate,
 					input: boundedEventInput(args[0]),
 					...(target ? { target: { id: target.id, title: target.title } } : {}),
+					...(ruleKind
+						? { rule: { kind: ruleKind, label: autoApprovalLabel(ruleKind) } }
+						: {}),
 				});
+				const rule = ruleKind
+					? readAutoApprovalRules(this.#store).find(
+							(item) => item.kind === ruleKind,
+						)
+					: undefined;
+				const [held] = rule
+					? this.#store.exec<ApprovalRow>(
+							"SELECT * FROM approvals WHERE approval_id = ?",
+							approvalId,
+						)
+					: [];
+				if (rule && held) {
+					// Approved by the workspace rule: recorded under the person who
+					// turned it on, applied now, and the turn gets the result.
+					const settled = await this.#settleApproval(scope, held, {
+						decision: "approve",
+						by: rule.enabledBy,
+						automatic: true,
+					});
+					const outcome = settled.outcome ?? {
+						ok: false as const,
+						error: "The change could not be applied",
+					};
+					finishStep(outcome.ok ? { ok: true } : outcome);
+					return outcome;
+				}
+				message = `${message}. It waits for the person's decision on its card and is not applied yet; carry on with work that does not depend on it.`;
 			}
 			this.#events.append(turn.conversationId, {
 				type: "step.finished",
@@ -2563,6 +2768,38 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return skills;
 	}
 
+	/**
+	 * Changes this conversation proposed that still wait for a decision, so a
+	 * new turn knows about them instead of proposing them again.
+	 */
+	async #pendingApprovals(
+		scope: WorkspaceScope,
+		conversationId: string,
+		actorKind: ActorKind,
+	): Promise<PendingApproval[]> {
+		const rows = this.#store.exec<ApprovalRow>(
+			"SELECT * FROM approvals WHERE conversation_id = ? AND status = 'pending' ORDER BY rowid ASC LIMIT 50",
+			conversationId,
+		);
+		if (rows.length === 0) return [];
+		const data = this.#dataPort(scope, actorKind);
+		return Promise.all(
+			rows.map(async (row) => {
+				const request = (JSON.parse(row.args) as unknown[])[0] as
+					| { title?: unknown; outputId?: unknown }
+					| undefined;
+				const target =
+					typeof request?.title === "string"
+						? request.title
+						: typeof request?.outputId === "string"
+							? ((await data.getOutput(request.outputId).catch(() => null))
+									?.title ?? null)
+							: null;
+				return { action: stepLabel(row.binding, row.method).label, target };
+			}),
+		);
+	}
+
 	async #plan(
 		scope: WorkspaceScope,
 		turnId: string,
@@ -2580,13 +2817,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				if (this.#workspaceRead === workspaceRead) this.#workspaceRead = null;
 			},
 		);
-		const [workspace, guest, referencedSkills] = await Promise.all([
-			workspaceRead,
-			input.tediId ? this.#guestProfile(scope, input.tediId, input.text) : null,
-			input.actorKind === "user"
-				? this.#referencedSkills(scope, input.text)
-				: [],
-		]);
+		const [workspace, guest, referencedSkills, pendingApprovals] =
+			await Promise.all([
+				workspaceRead,
+				input.tediId
+					? this.#guestProfile(scope, input.tediId, input.text)
+					: null,
+				input.actorKind === "user"
+					? this.#referencedSkills(scope, input.text)
+					: [],
+				this.#pendingApprovals(scope, conversationId, input.actorKind),
+			]);
 		const history = this.#history(conversationId, 200);
 		const systemPrompt = buildSystemPrompt({
 			workspaceName: workspace.name,
@@ -2598,6 +2839,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			priorSummary:
 				this.#store.get<string>(`compaction:${conversationId}`) ?? null,
 			referencedSkills,
+			pendingApprovals,
 		});
 		const actorKind: ActorKind = input.tediId ? "tedi" : input.actorKind;
 		return {
@@ -2670,6 +2912,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		controller: AbortController,
 	) {
 		const startedAt = Date.now();
+		let answered = false;
 		try {
 			const plan = await this.#plan(scope, turnId, conversationId, input);
 			const isolate =
@@ -2727,6 +2970,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				status: result.stopReason === "aborted" ? "cancelled" : "done",
 				durationMs: Date.now() - startedAt,
 			});
+			if (result.stopReason !== "aborted") answered = true;
 		} catch (error) {
 			if (this.#turn(turnId)?.status !== "running") return;
 			const cancelled = controller.signal.aborted;
@@ -2766,6 +3010,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			for (const wake of this.#waiters.get(turnId) ?? []) wake();
 			this.#waiters.delete(turnId);
 		}
+		if (answered)
+			await this.#continueAfterDecisions(scope, conversationId).catch(
+				(error: unknown) =>
+					workspaceLog.warn("Decisions made during a turn were not answered", {
+						event: "workspace.decisions_unanswered",
+						error,
+						...this.#diagnostics(),
+					}),
+			);
 	}
 
 	async #runIsolated(plan: TurnPlan, signal: AbortSignal): Promise<TurnResult> {
@@ -2938,6 +3191,11 @@ export interface WorkspaceRpc {
 			note?: string;
 		},
 	): Promise<Array<{ applied: boolean; turnId?: string }>>;
+	readAutoApprovals(scope: WorkspaceScope): Promise<AutoApprovalRule[]>;
+	setAutoApproval(
+		scope: WorkspaceScope,
+		input: { kind: AutoApprovalKind; enabled: boolean; by: string },
+	): Promise<AutoApprovalRule[]>;
 	describe(scope: WorkspaceScope): Promise<{
 		organizationId: string;
 		workspaceId: string;

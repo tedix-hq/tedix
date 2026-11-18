@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { ActivityAutoApproval } from "@/components/activity-auto-approval";
 import { ActivityHistory } from "@/components/activity-history";
 import { WorkspaceActivity } from "@/components/workspace-activity";
+import { WorkspaceAutoApprovalRules } from "@/components/workspace-auto-approval-rules";
 import { UnreadBadge } from "@/components/unread-badge";
 import { UnreadList } from "@/components/unread-list";
 import { useUnreadTotal } from "@/lib/workspace-unread";
@@ -190,7 +191,10 @@ export function ApprovalNotifications({
 
 					<TabsContent value={tab}>
 						{tab === "workspace" && workspaceId ? (
-							<WorkspaceActivity workspaceId={workspaceId} />
+							<>
+								<WorkspaceAutoApprovalRules workspaceId={workspaceId} />
+								<WorkspaceActivity workspaceId={workspaceId} />
+							</>
 						) : tab === "unread" ? (
 							<UnreadList onNavigate={() => setOpen(false)} />
 						) : tab === "auto" ? (

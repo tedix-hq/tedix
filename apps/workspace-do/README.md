@@ -33,6 +33,18 @@ its code runs beside the data.
    fenced readable text. The first page from a domain in a conversation holds
    for the person's approval on the usual card; later pages on that domain in
    the same conversation load without asking.
+   A held write does not end the turn. The model reads "Approval required"
+   in its tool result and carries on with work that does not depend on it;
+   the person decides on the card or in the chat's "Waiting for you" tray
+   while the chat goes on. The next turn's prompt lists the proposals still
+   waiting. A decision made while a turn works is answered by one turn after
+   it finishes (or, after a Stop, with the person's next message).
+   "Always approve" rules (`src/auto-approval.ts`) are stored in this object.
+   A covered write (creating or editing docs, sheets and slides here) is
+   approved under the person who turned the rule on, applied at once and
+   shown as approved automatically. Deleting or removing content, filing
+   Work, app drafts, web pages and anything outside the workspace are never
+   covered.
 4. Steps and tokens land in an event ledger first and are pushed to
    WebSocket subscribers. A late subscriber replays from any sequence number.
 5. The user's message, each model message and each tool result are saved
@@ -59,7 +71,9 @@ its code runs beside the data.
   `X-Workspace-Org`, `X-Workspace-Id`, `X-Workspace-Actor-Id` and a path
   ending in `/subscribe`. Frames follow `src/wire.ts`: the client sends
   `subscribe`, `send_turn`, `decide_approval`, `decide_approvals` (several
-  approvals of one reply, continued by one turn), `cancel_turn`, `ping`; the
+  approvals of one reply, continued by one turn), `set_auto_approval` (turn
+  an "Always approve" rule on or off; every socket gets `auto_approvals`, and
+  `hello` carries the rules), `cancel_turn`, `ping`; the
   object answers with ledger events (`turn.started`, `assistant.delta`,
   `step.started`/`step.finished`, `approval.requested`, `turn.finished`, …)
   that each carry a `seq` cursor, plus `hello`, `turn.accepted` and `error`.

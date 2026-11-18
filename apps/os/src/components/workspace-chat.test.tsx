@@ -75,6 +75,9 @@ function fakeClient(conversationId: string | null) {
 		decideApprovals(approvalIds, decision) {
 			calls.push(["decideApprovals", approvalIds, decision]);
 		},
+		setAutoApproval(kind, enabled) {
+			calls.push(["setAutoApproval", kind, enabled]);
+		},
 		cancelTurn(turnId) {
 			calls.push(["cancelTurn", turnId]);
 		},
@@ -889,7 +892,7 @@ describe("WorkspaceChat", () => {
 		expect(host.textContent).not.toContain("Working");
 	});
 
-	it("renders an approval inline, blocks the composer and posts the decision", () => {
+	it("renders an approval inline, keeps the composer open and posts the decision", () => {
 		const fake = fakeClient("c1");
 		mount(fake);
 		act(() =>
@@ -917,9 +920,13 @@ describe("WorkspaceChat", () => {
 		expect(timer?.querySelector("a")?.getAttribute("href")).toBe(
 			"#approval-a1",
 		);
+		// A waiting proposal never blocks the composer; it waits in the tray.
 		const textarea = host.querySelector("textarea");
-		expect(textarea?.disabled).toBe(true);
-		expect(textarea?.placeholder).toContain("Approve or deny");
+		expect(textarea?.disabled).toBe(false);
+		expect(textarea?.placeholder).not.toContain("Approve or deny");
+		expect(
+			host.querySelector('[data-testid="workspace-chat-tray"]')?.textContent,
+		).toContain("Waiting for you (1)");
 		const approve = [...(card?.querySelectorAll("button") ?? [])].find(
 			(button) => button.textContent === "Approve",
 		);
@@ -945,6 +952,9 @@ describe("WorkspaceChat", () => {
 		expect(card?.textContent).not.toContain("person:aaron");
 		expect(card?.textContent).not.toContain("Applied");
 		expect(host.querySelector("textarea")?.disabled).toBe(false);
+		expect(
+			host.querySelector('[data-testid="workspace-chat-tray"]'),
+		).toBeNull();
 	});
 
 	it("labels a paged approval hold plainly before its request arrives", () => {
@@ -1529,6 +1539,101 @@ describe("WorkspaceChat", () => {
 					button.textContent?.startsWith("Approve all"),
 				),
 			).toBe(false);
+		});
+	});
+
+	describe("always approve", () => {
+		const rule = {
+			kind: "files" as const,
+			label: "creating and editing docs, sheets and slides in this workspace",
+		};
+		const covered: WorkspaceChatLedgerEvent = {
+			seq: 2,
+			at,
+			conversationId: "c1",
+			type: "approval.requested",
+			turnId: "t1",
+			stepId: "s1",
+			approvalId: "a1",
+			title: "Creating a new output",
+			reason: "approval_pending",
+			input: { title: "Budget" },
+			rule,
+		};
+		const documentButton = (name: string) =>
+			[...document.querySelectorAll("button")].find(
+				(button) => button.textContent === name,
+			);
+
+		it("turns the rule on and approves the card after the confirm dialog", () => {
+			const fake = fakeClient("c1");
+			mount(fake);
+			act(() => fake.feed([started, covered]));
+			act(() => documentButton("Always approve…")?.click());
+			expect(fake.calls).not.toContainEqual(["setAutoApproval", "files", true]);
+			act(() => documentButton("Always approve")?.click());
+			expect(fake.calls).toContainEqual(["setAutoApproval", "files", true]);
+			expect(fake.calls).toContainEqual(["decideApproval", "a1", "approve"]);
+		});
+
+		it("offers nothing for a change no rule may cover, or once the rule is on", () => {
+			const fake = fakeClient("c1");
+			mount(fake);
+			act(() =>
+				fake.feed([
+					started,
+					{ ...covered, approvalId: "a2", stepId: "s2", rule: undefined },
+				]),
+			);
+			expect(documentButton("Always approve…")).toBeUndefined();
+			act(() =>
+				fake.set({
+					state: {
+						...applyWorkspaceChatEvents(fake.client.getSnapshot().state, [
+							{ ...covered, seq: 3 },
+						]),
+						autoApprovals: [{ ...rule, enabledBy: "u1", enabledAt: at }],
+					},
+				}),
+			);
+			expect(documentButton("Always approve…")).toBeUndefined();
+		});
+
+		it("marks a change a rule applied as approved automatically", () => {
+			const fake = fakeClient("c1");
+			mount(fake);
+			act(() =>
+				fake.feed([
+					started,
+					covered,
+					{
+						seq: 3,
+						at,
+						conversationId: "c1",
+						type: "approval.decided",
+						approvalId: "a1",
+						decision: "approve",
+						by: "u1",
+						automatic: true,
+					},
+					{
+						seq: 4,
+						at,
+						conversationId: "c1",
+						type: "approval.executed",
+						approvalId: "a1",
+						status: "applied",
+						output: { outputId: "o1", revision: 1 },
+					},
+				]),
+			);
+			expect(
+				host.querySelector('[data-testid="workspace-chat-approval-status"]')
+					?.textContent,
+			).toBe("Approved automatically");
+			expect(
+				host.querySelector('[data-testid="workspace-chat-tray"]'),
+			).toBeNull();
 		});
 	});
 });
