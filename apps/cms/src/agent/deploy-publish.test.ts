@@ -1,7 +1,4 @@
-import {
-	checkLiveThemeCompatibility,
-	withPublishedBlocks,
-} from "./theme-content-compatibility";
+import { checkLiveThemeCompatibility } from "./theme-content-compatibility";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { uploadTenantBundle } from "@tedix/provisioning/cms";
 import type { AppBindings } from "../types";
@@ -10,7 +7,6 @@ import { publishStagedCmsBundle } from "./deploy-publish";
 
 vi.mock("./theme-content-compatibility", () => ({
 	checkLiveThemeCompatibility: vi.fn(async () => undefined),
-	withPublishedBlocks: vi.fn(),
 }));
 
 vi.mock("@tedix/provisioning/cms", () => ({ uploadTenantBundle: vi.fn() }));
@@ -106,65 +102,6 @@ describe("publishStagedCmsBundle restore fence", () => {
 		return { input, db, staging, bundles, record, release };
 	}
 
-	it("creates the release once from published blocks when the theme has none", async () => {
-		const { input, bundles, release } = fixture();
-		Object.assign(release, { generated: true });
-		vi.mocked(withPublishedBlocks).mockResolvedValueOnce({
-			hero: [1],
-			tedix_hero: [1],
-		});
-		vi.mocked(withExactCmsSiteRestorePermit).mockImplementationOnce(
-			async (_db, _site, operation) => operation(),
-		);
-		await publishStagedCmsBundle(input);
-		expect(withPublishedBlocks).toHaveBeenCalledWith(input.env, "site-a", {
-			hero: [1],
-		});
-		const expected = {
-			...release,
-			supportedBlocks: { hero: [1], tedix_hero: [1] },
-		};
-		expect(checkLiveThemeCompatibility).toHaveBeenCalledWith(
-			input.env,
-			"site-a",
-			expected,
-		);
-		const stored = JSON.parse(
-			String(
-				bundles.put.mock.calls.find(([key]) =>
-					key.endsWith("/theme-release.json"),
-				)![1],
-			),
-		);
-		expect(stored.supportedBlocks).toEqual({ hero: [1], tedix_hero: [1] });
-		expect(stored.generated).toBe(true);
-	});
-
-	it("keeps the site's stored release so later deploys are strict", async () => {
-		const { input, bundles, release } = fixture();
-		Object.assign(release, { generated: true });
-		const prior = { ...release, supportedBlocks: { hero: [1, 2] } };
-		const get = bundles.get.getMockImplementation()!;
-		bundles.get.mockImplementation(async (key: string) =>
-			key === "site-a/v6/theme-release.json"
-				? ({
-						text: async () => JSON.stringify(prior),
-						arrayBuffer: async () => new ArrayBuffer(0),
-					} as Awaited<ReturnType<typeof get>>)
-				: get(key),
-		);
-		vi.mocked(withExactCmsSiteRestorePermit).mockImplementationOnce(
-			async (_db, _site, operation) => operation(),
-		);
-		await publishStagedCmsBundle(input);
-		expect(withPublishedBlocks).not.toHaveBeenCalled();
-		expect(checkLiveThemeCompatibility).toHaveBeenCalledWith(
-			input.env,
-			"site-a",
-			{ ...release, supportedBlocks: { hero: [1, 2] } },
-		);
-	});
-
 	it("persists release inputs before activation and checks live content", async () => {
 		const { input, bundles, release } = fixture();
 		vi.mocked(withExactCmsSiteRestorePermit).mockImplementationOnce(
@@ -182,6 +119,9 @@ describe("publishStagedCmsBundle restore fence", () => {
 		);
 		const stored = JSON.parse(String(bundles.put.mock.calls[1]![1]));
 		expect(stored).toEqual({ ...release, sourceRevision: expect.any(Object) });
+		expect(bundles.get).not.toHaveBeenCalledWith(
+			"site-a/v6/theme-release.json",
+		);
 		expect(bundles.put.mock.invocationCallOrder[1]).toBeLessThan(
 			vi.mocked(uploadTenantBundle).mock.invocationCallOrder[0]!,
 		);

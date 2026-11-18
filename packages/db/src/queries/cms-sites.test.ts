@@ -8,7 +8,6 @@ import {
 	getCmsSiteByActiveWwwAlias,
 	getCmsSiteBySlug,
 	listCmsSitesByOrganization,
-	listActiveCmsSitesForThemeReleaseMigration,
 	moveCmsSiteToOrganization,
 	registerCmsSite,
 	registerCmsSiteIfAbsent,
@@ -16,45 +15,6 @@ import {
 	updateCmsSiteDomain,
 	rotateCmsSitePageCacheRevision,
 } from "./cms-sites";
-
-describe("theme release migration fleet page", () => {
-	it("pages active sites across organizations in stable order", async () => {
-		const { db, sqlite } = fixture();
-		for (let index = 12; index >= 0; index--) {
-			const id = `site-${String(index).padStart(2, "0")}`;
-			await registerCmsSite(db, {
-				id,
-				slug: id,
-				organizationId: index % 2 ? "org-one" : "org-two",
-				name: id,
-				canonicalUrl: `https://${id}.example`,
-			});
-		}
-		sqlite.exec("UPDATE cms_sites SET status = 'paused' WHERE id = 'site-01'");
-		const first = await listActiveCmsSitesForThemeReleaseMigration(db, "");
-		expect(first.map((site) => site.id)).toEqual([
-			"site-00",
-			"site-02",
-			"site-03",
-			"site-04",
-			"site-05",
-			"site-06",
-			"site-07",
-			"site-08",
-			"site-09",
-			"site-10",
-		]);
-		expect(
-			await listActiveCmsSitesForThemeReleaseMigration(db, first.at(-1)!.id),
-		).toEqual([
-			{ id: "site-11", slug: "site-11" },
-			{ id: "site-12", slug: "site-12" },
-		]);
-		expect(
-			await listActiveCmsSitesForThemeReleaseMigration(db, "site-12"),
-		).toEqual([]);
-	});
-});
 
 function fixture(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");

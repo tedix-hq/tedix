@@ -28,19 +28,11 @@ export async function runSiteReconciliationTick(
 			findings += result.issues.length;
 		}
 	}
-	const { runCmsThemeReleaseMigrationTick } =
-		await import("./cms-theme-release-migration");
-	const migration = await runCmsThemeReleaseMigrationTick(env);
-	if (migration.failed > 0)
-		throw new Error(
-			"CMS theme release migration failed; see per-site receipts",
-		);
 	return {
 		organizations: organizations.length,
 		sites,
 		findings,
 		...domains,
-		...migration,
 	};
 }
 

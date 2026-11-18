@@ -5,7 +5,6 @@ import {
 	identifyThemeRelease,
 	requireSupportedBlocks,
 	type ThemeRelease,
-	collectBlockVersions,
 } from "./theme-release";
 import { CMS_TEMPLATE_SLUGS } from "../template-policy";
 
@@ -98,51 +97,23 @@ describe("theme release identity", () => {
 			),
 		).rejects.toMatchObject({ code: "THEME_RELEASE_INVALID" });
 	});
-	it("uses the template declaration, marked generated, for a theme created before release manifests", async () => {
-		const template = JSON.parse(
-			await readFile(
-				new URL(
-					"../../templates/marketing/src/theme-release.json",
-					import.meta.url,
-				),
-				"utf8",
-			),
-		);
-		const release = await identifyThemeRelease(
-			{
-				readFile: async (path) => {
-					if (path.endsWith("/bun.lock")) return { content: "lock" };
-					throw new Error("missing");
-				},
-			},
-			"marketing",
-			"/build",
-		);
-		expect(release.generated).toBe(true);
-		expect(release.supportedBlocks).toEqual(template.supportedBlocks);
-		expect(release.upstreamStarterRevision).toBe(
-			template.upstreamStarterRevision,
-		);
-	});
-	it("collects every native block version, nested and deduplicated", () => {
-		const blocks: Record<string, number[]> = { hero: [1] };
-		collectBlockVersions(
-			{
-				content: [
-					{ _type: "hero", _version: 2 },
+	it.each(CMS_TEMPLATE_SLUGS)(
+		"refuses %s without an explicit renderer declaration",
+		async (slug) => {
+			await expect(
+				identifyThemeRelease(
 					{
-						_type: "tedix_hero",
-						_version: 1,
-						items: [{ _type: "card", _version: 3 }],
+						readFile: async (path) => {
+							if (path.endsWith("/bun.lock")) return { content: "lock" };
+							throw new Error("missing");
+						},
 					},
-					{ _type: "hero", _version: 2 },
-					{ _type: "block", children: [] },
-				],
-			},
-			blocks,
-		);
-		expect(blocks).toEqual({ hero: [1, 2], tedix_hero: [1], card: [3] });
-	});
+					slug,
+					"/build",
+				),
+			).rejects.toMatchObject({ code: "THEME_RELEASE_INVALID" });
+		},
+	);
 	it.each(CMS_TEMPLATE_SLUGS)(
 		"ships a valid declaration for %s",
 		async (slug) => {

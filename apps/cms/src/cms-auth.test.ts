@@ -29,10 +29,6 @@ vi.mock("./sandbox", () => ({ getSiteBuilderSandbox: vi.fn() }));
 const jwt = vi.hoisted(() => ({ validateToken: vi.fn() }));
 vi.mock("@tedix/auth/jwt", () => jwt);
 
-vi.mock("./agent/theme-release-migration", () => ({
-	migrateThemeRelease: vi.fn(),
-}));
-import { migrateThemeRelease } from "./agent/theme-release-migration";
 import app, { authenticateRequest } from "./index";
 
 const env = { PLATFORM_SERVICE_TOKEN: "service-secret" } as never;
@@ -46,71 +42,6 @@ const tediHeaders = {
 function request(headers: Record<string, string>) {
 	return new Request("https://builder.tedix.dev/mcp", { headers });
 }
-
-describe("internal theme release migration authorization", () => {
-	it.each([
-		{} as Record<string, string>,
-		{
-			Authorization: "Bearer wrong-secret",
-			"X-Tedix-Connection-Label": "acme",
-		},
-		{
-			Authorization: "Bearer service-secret",
-			"X-Tedix-Connection-Label": "other-site",
-		},
-		{ Authorization: "Bearer human-token", "X-Tedix-Connection-Label": "acme" },
-	])("rejects unauthorized migration calls %j", async (headers) => {
-		vi.mocked(migrateThemeRelease).mockClear();
-		jwt.validateToken.mockRejectedValue(new Error("Invalid token"));
-		const response = await app.request(
-			"/api/internal/deployments/acme/theme-release-migration",
-			{ method: "POST", headers },
-			env,
-		);
-		expect(response.status).toBe(403);
-		expect(migrateThemeRelease).not.toHaveBeenCalled();
-	});
-	it("rejects a valid human platform principal on the internal route", async () => {
-		vi.mocked(migrateThemeRelease).mockClear();
-		jwt.validateToken.mockResolvedValue({
-			sub: "human-1",
-			scope: "platform:admin",
-		});
-		const response = await app.request(
-			"/api/internal/deployments/acme/theme-release-migration",
-			{
-				method: "POST",
-				headers: {
-					Authorization: "Bearer human-token",
-					"X-Tedix-Connection-Label": "acme",
-				},
-			},
-			env,
-		);
-		expect(response.status).toBe(403);
-		expect(migrateThemeRelease).not.toHaveBeenCalled();
-	});
-	it("admits only the service-authorized target site and returns an asynchronous receipt", async () => {
-		vi.mocked(migrateThemeRelease).mockResolvedValue({
-			status: "running",
-			orgSlug: "acme",
-			updatedAt: "2026-01-01T00:00:00Z",
-		});
-		const response = await app.request(
-			"/api/internal/deployments/acme/theme-release-migration",
-			{
-				method: "POST",
-				headers: {
-					Authorization: "Bearer service-secret",
-					"X-Tedix-Connection-Label": "acme",
-				},
-			},
-			env,
-		);
-		expect(response.status).toBe(202);
-		expect(migrateThemeRelease).toHaveBeenCalledWith(env, "acme");
-	});
-});
 
 describe("CMS tedi platform delegation", () => {
 	beforeEach(() => {
