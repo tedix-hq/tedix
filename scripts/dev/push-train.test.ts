@@ -154,11 +154,16 @@ function trainTest(
 	timeout = 5_000,
 ) {
 	describe(name, () => {
-		const f = fixture(count);
-		setup(f);
-		roots.splice(roots.indexOf(f.root), 1);
-		afterAll(() => rmSync(f.root, { recursive: true, force: true }));
-		test(name, () => run(f), timeout);
+		let f: TrainFixture | undefined;
+		beforeAll(() => {
+			f = fixture(count);
+			setup(f);
+			roots.splice(roots.indexOf(f.root), 1);
+		});
+		afterAll(() => {
+			if (f) rmSync(f.root, { recursive: true, force: true });
+		});
+		test(name, () => run(f!), timeout);
 	});
 }
 
