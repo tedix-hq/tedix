@@ -700,6 +700,9 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 						`[McpScan] ${app.name} (${app.id}): one or more MCP lists were incomplete; preserving their last-known inventory.`,
 					);
 				}
+				let baseAppSync: { ok: true } | { ok: false; error: unknown } = {
+					ok: true,
+				};
 				if (Array.isArray(result.tools) && authoritative("tools")) {
 					const toolSync = await syncCatalogMcpTools(db, app.id, result.tools);
 					if (toolSync.drifts.length > 0) {
@@ -721,7 +724,11 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 					}
 					// Existing reviews may be stale even when upstream has no new drift.
 					if (app.toolSource === "upstream_mcp") {
-						await this.syncAutoSyncBaseApps(db, app);
+						// Report a failed base-app sync only after the inventory below syncs.
+						baseAppSync = await this.syncAutoSyncBaseApps(db, app).then(
+							() => ({ ok: true }) as const,
+							(error: unknown) => ({ ok: false, error }) as const,
+						);
 					}
 				}
 
@@ -815,6 +822,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 					});
 				}
 
+				if (!baseAppSync.ok) throw baseAppSync.error;
 				checked++;
 				if (result.status === "healthy" || result.status === "degraded") {
 					healthy++;

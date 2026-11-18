@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 	sync: vi.fn(),
 	review: vi.fn(),
 	resolveDrift: vi.fn(),
+	inventoryEvents: vi.fn(),
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("@tedix/db/queries/apps", () => ({
@@ -46,7 +47,7 @@ vi.mock("@tedix/db/vector/catalog", () => ({
 	getOrCreateCatalogVectorClient: vi.fn(),
 }));
 vi.mock("../lib/mcp-subscriptions", () => ({
-	publishMcpCatalogInventoryEvents: vi.fn(),
+	publishMcpCatalogInventoryEvents: mocks.inventoryEvents,
 }));
 vi.mock("../services/tool-review-approvals", () => ({
 	ensurePendingToolReviewApprovals: mocks.review,
@@ -136,6 +137,8 @@ describe("MCP scan sync failures", () => {
 		);
 		// Only the upstream inventory check resolves drift; failed materialization must not.
 		expect(mocks.resolveDrift).toHaveBeenCalledTimes(1);
+		// A tool sync failure must not skip the rest of the app's inventory sync.
+		expect(mocks.inventoryEvents).toHaveBeenCalledTimes(1);
 	});
 
 	it("reports completed when every tool sync succeeds", async () => {
