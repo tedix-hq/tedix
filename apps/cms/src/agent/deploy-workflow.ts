@@ -1082,9 +1082,13 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 					);
 					const publicRoute = await getCmsPublicBuildRoute(env.DB, orgSlug);
 					const probe = await probeCmsDeploy({
-						url: publicRoute
+						url: `${url}${publicRoute?.publicPathPrefix ?? ""}`,
+						publicUrl: publicRoute
 							? `${publicRoute.publicSiteUrl.replace(/\/$/, "")}${publicRoute.publicPathPrefix ?? ""}`
-							: url,
+							: undefined,
+						fetcher: env.CMS_DISPATCH
+							? env.CMS_DISPATCH.fetch.bind(env.CMS_DISPATCH)
+							: undefined,
 						version: published.version,
 						etag: published.etag,
 						staticFilenames: published.staticFilenames,

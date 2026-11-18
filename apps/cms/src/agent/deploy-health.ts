@@ -2,6 +2,8 @@ import { CmsDeployFailure, type DeployFailureCode } from "./deploy-failure";
 
 interface Candidate {
 	url: string;
+	publicUrl?: string;
+	fetcher?: (url: string, init: RequestInit) => Promise<Response>;
 	version: number;
 	etag: string;
 	staticFilenames: string[];
@@ -18,6 +20,10 @@ export async function probeCmsDeploy(candidate: Candidate): Promise<{
 }> {
 	let probeUrl = candidate.url;
 	let status = 502;
+	const base = new URL(candidate.url.replace(/\/$/, "") + "/");
+	const publicBase = new URL(
+		(candidate.publicUrl ?? candidate.url).replace(/\/$/, "") + "/",
+	);
 	const read = async (url: URL, type: "html" | "asset" | "image") => {
 		url.searchParams.set("_tedix_deploy", candidate.jobId);
 		url.searchParams.set("_tedix_version", String(candidate.version));
@@ -25,10 +31,14 @@ export async function probeCmsDeploy(candidate: Candidate): Promise<{
 		url.searchParams.set("_tedix_nonce", crypto.randomUUID());
 		probeUrl = url.href;
 		candidate.signal.throwIfAborted();
-		const response = await fetch(url.href, {
+		const response = await (candidate.fetcher ?? fetch)(url.href, {
 			redirect: "error",
 			signal: candidate.signal,
-			headers: { "Cache-Control": "no-cache, no-store", Pragma: "no-cache" },
+			headers: {
+				"Cache-Control": "no-cache, no-store",
+				Pragma: "no-cache",
+				"X-Tedix-Public-Host": publicBase.host,
+			},
 			cf: { cacheTtl: 0, cacheEverything: false },
 		});
 		if (candidate.signal.aborted) {
@@ -83,7 +93,6 @@ export async function probeCmsDeploy(candidate: Candidate): Promise<{
 		return new TextDecoder().decode(body);
 	};
 	try {
-		const base = new URL(candidate.url.replace(/\/$/, "") + "/");
 		const html = await read(base, "html");
 		if (!/<html(?:\s|>)/i.test(html)) {
 			status = 502;
@@ -103,7 +112,12 @@ export async function probeCmsDeploy(candidate: Candidate): Promise<{
 			)
 			.map((value) => {
 				try {
-					return new URL(value, base);
+					const dependency = new URL(value, publicBase);
+					if (dependency.origin === publicBase.origin) {
+						dependency.protocol = base.protocol;
+						dependency.host = base.host;
+					}
+					return dependency;
 				} catch {
 					return null;
 				}

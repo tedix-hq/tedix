@@ -84,6 +84,9 @@ function workflowFixture(siteId?: string) {
 	const env = {
 		DB: {},
 		SITE_BUILDER_STORAGE: { get, put },
+		CMS_DISPATCH: {
+			fetch: vi.fn((input: string, init: RequestInit) => fetch(input, init)),
+		},
 		ENVIRONMENT: "production",
 	};
 	const workflow = Object.create(DeployWorkflow.prototype) as DeployWorkflow;
