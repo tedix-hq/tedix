@@ -203,6 +203,10 @@ describe("renderOsOutputHtml", () => {
 		expect(html).toContain("<blockquote><p>Measure twice.</p></blockquote>");
 		expect(html).not.toContain("revision 3");
 		expect(html).not.toContain('<header class="export-header">');
+		// A callout stays on one page and a heading stays with its text.
+		expect(html).toContain(
+			"article aside, article details { break-inside: avoid; }",
+		);
 		expect(html).toMatch(/<body>\s*<article>/);
 	});
 
