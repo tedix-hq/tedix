@@ -9,7 +9,7 @@ import {
 	listReadyWorkExecutionClusters,
 	type ReadyWorkCandidate,
 } from "@tedix/db/queries/work-items/scheduler";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -123,9 +123,10 @@ function ineligibleReasons(result: {
 	};
 }
 
-const listReadyProcedure = authOs.listReady.handler(
-	async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+const listReadyProcedure = authOs.listReady
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const orgId = context.organizationId;
 		const actor = await verifiedActiveWorkActor(context, orgId);
 		if (actor.type === "user") {
 			throw createError(
@@ -180,12 +181,12 @@ const listReadyProcedure = authOs.listReady.handler(
 			nextCursor: result.nextCursor,
 			boundedCandidateLimit: result.boundedCandidateLimit,
 		});
-	},
-);
+	});
 
-const planClustersProcedure = authOs.planClusters.handler(
-	async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+const planClustersProcedure = authOs.planClusters
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const orgId = context.organizationId;
 		const actor = await verifiedActiveWorkActor(context, orgId);
 		if (actor.type === "user" && input.executor?.type !== "tedi")
 			throw createError(
@@ -258,8 +259,7 @@ const planClustersProcedure = authOs.planClusters.handler(
 			maxParallelism: result.maxParallelism,
 			advisory: true,
 		});
-	},
-);
+	});
 
 export const workSchedulerContractRouter = schedulerOs.router({
 	listReady: listReadyProcedure,

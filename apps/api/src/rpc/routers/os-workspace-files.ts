@@ -13,7 +13,7 @@ import {
 	ErrorCodes,
 	withAuth,
 } from "../orpc";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
 import {
 	queryDb,
@@ -364,9 +364,10 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 	},
 );
 
-export const getFile = read.resources.getFile.handler(
-	async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
+export const getFile = read.resources.getFile
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const organizationId = context.organizationId;
 		await requireWorkspace(context, input.workspaceId);
 		const resource = await getOsWorkspaceResource(queryDb(context), {
 			organizationId: organizationId,
@@ -404,5 +405,4 @@ export const getFile = read.resources.getFile.handler(
 			url: `/api/workspace-files/${encodeURIComponent(organizationId)}/${input.workspaceId}/${input.resourceId}/media?exp=${exp}&sig=${sig}`,
 			expiresAt: new Date(exp * 1000).toISOString(),
 		};
-	},
-);
+	});

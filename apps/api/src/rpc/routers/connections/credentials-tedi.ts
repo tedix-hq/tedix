@@ -43,7 +43,7 @@ import {
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { isPlatformPrincipal } from "@tedix/auth/types";
-import { requireOrgId } from "../../org-scope";
+import { type OrgContext, withOrg } from "../../org-scope";
 import {
 	CredentialPreference,
 	CredentialScope,
@@ -476,6 +476,7 @@ export const getTediConnections = mcpOrAuthOs.getTediConnections
  */
 export const storeApiKey = authedOs.storeApiKey
 	.use(AUTHZ.integrationAppsWrite)
+	.use(withOrg)
 	.handler(
 		async ({
 			input,
@@ -487,9 +488,9 @@ export const storeApiKey = authedOs.storeApiKey
 				credentialFields?: Record<string, string>;
 				tokenScope?: "tenant" | "user";
 			};
-			context: BaseContext;
+			context: OrgContext;
 		}) => {
-			const orgId = requireOrgId(context);
+			const orgId = context.organizationId;
 			const org = await getOrganizationById(context.db, orgId);
 			if (!org?.descopeTenantId) {
 				throw createError(
@@ -543,6 +544,7 @@ export const storeApiKey = authedOs.storeApiKey
  */
 export const createProvider = authedOs.createProvider
 	.use(AUTHZ.integrationAppsWrite)
+	.use(withOrg)
 	.handler(
 		async ({
 			input,
@@ -579,9 +581,8 @@ export const createProvider = authedOs.createProvider
 				dcrException?: ConnectionProviderDcrException;
 				credentialProfile?: ConnectionCredentialProfile;
 			};
-			context: BaseContext;
+			context: OrgContext;
 		}) => {
-			requireOrgId(context);
 			const dcrException =
 				input.useDcr === true
 					? requireDcrException({
@@ -629,7 +630,7 @@ export const createProvider = authedOs.createProvider
 				: await createConnectionProvider(context.env, config);
 			await createConnectionProviderOwnership(context.db, {
 				appId: result.id,
-				organizationId: requireOrgId(context),
+				organizationId: context.organizationId,
 			});
 			if (dcrException)
 				await recordConnectionProviderRegistration(context.db, {

@@ -5,13 +5,14 @@ import {
 	setConnectionAllowedResources,
 } from "@tedix/db/queries/connection-instances";
 import { AUTHZ, ErrorCodes, createError, withAuthorization } from "../../orpc";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import { authedOs } from "./policy-resolution";
 
 export const getAllowedResources = authedOs.getAllowedResources
 	.use(AUTHZ.appsRead)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
+		const organizationId = context.organizationId;
 		if (!input.id)
 			return {
 				allowedResources: await getOrganizationConnectionAllowedResources(
@@ -33,8 +34,9 @@ export const getAllowedResources = authedOs.getAllowedResources
 
 export const setAllowedResources = authedOs.setAllowedResources
 	.use(withAuthorization("integrations:manage", "connections.admin"))
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
+		const organizationId = context.organizationId;
 		if (!input.id) {
 			const updated = await setOrganizationConnectionAllowedResources(
 				context.db,

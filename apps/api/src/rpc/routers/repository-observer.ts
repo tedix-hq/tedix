@@ -5,7 +5,7 @@ import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import * as observations from "@tedix/db/queries/repository-observer";
 import { withAuth, withAuthorization, type BaseContext } from "../orpc";
-import { requireOrgId } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	observerConfig,
 	ownedObservation,
@@ -20,8 +20,9 @@ const write = authed.use(withAuthorization("tedis:update", "mcp:work.write"));
 export const repositoryObserverContractRouter = {
 	configure: authed.configure
 		.use(withAuthorization("settings:manage", "mcp:work.admin"))
+		.use(withOrg)
 		.handler(async ({ context, input }) => {
-			const org = requireOrgId(context);
+			const org = context.organizationId;
 			if (context.authType !== "user")
 				throw baseErrorConstructors.FORBIDDEN({
 					message:
@@ -53,13 +54,16 @@ export const repositoryObserverContractRouter = {
 				throw baseErrorConstructors.NOT_FOUND({ message: "Not Found" });
 			return { projectId: project.id };
 		}),
-	observe: write.observe.handler(({ context, input }) =>
-		observeRepositoryEvent(context, requireOrgId(context), input),
-	),
+	observe: write.observe
+		.use(withOrg)
+		.handler(({ context, input }) =>
+			observeRepositoryEvent(context, context.organizationId, input),
+		),
 	pending: authed.pending
 		.use(withAuthorization("tedis:read", "mcp:work.read"))
+		.use(withOrg)
 		.handler(async ({ context, input }) => {
-			const org = requireOrgId(context);
+			const org = context.organizationId;
 			await observerConfig(context, org, input.projectId);
 			return (
 				await observations.pendingRepositoryObservations(
@@ -74,8 +78,8 @@ export const repositoryObserverContractRouter = {
 				summary: row.description ?? "",
 			}));
 		}),
-	report: write.report.handler(async ({ context, input }) => {
-		const org = requireOrgId(context);
+	report: write.report.use(withOrg).handler(async ({ context, input }) => {
+		const org = context.organizationId;
 		const { row, config } = await ownedObservation(
 			context,
 			org,
@@ -132,7 +136,9 @@ export const repositoryObserverContractRouter = {
 			await escalateObserver(context, org, row, config, report.diagnosis);
 		return { observationId: row.id, workItemId, status: "reported" };
 	}),
-	repair: write.repair.handler(({ context, input }) =>
-		dispatchObserverRepair(context, requireOrgId(context), input),
-	),
+	repair: write.repair
+		.use(withOrg)
+		.handler(({ context, input }) =>
+			dispatchObserverRepair(context, context.organizationId, input),
+		),
 };

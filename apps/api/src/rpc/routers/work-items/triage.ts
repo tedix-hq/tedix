@@ -10,7 +10,7 @@ import {
 	markWorkItemDuplicate,
 	snoozeProposedWorkItem,
 } from "@tedix/db/queries/work-items/triage";
-import { requireOrgId } from "../../org-scope";
+import { withOrg } from "../../org-scope";
 import { createError, ErrorCodes, withAuthorization } from "../../orpc";
 import {
 	assertWorkItemAccess,
@@ -126,9 +126,10 @@ export const snoozeProcedure = triageWriteOs.snooze.handler(
 	},
 );
 
-export const listTriageProcedure = triageReadOs.listTriage.handler(
-	async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+export const listTriageProcedure = triageReadOs.listTriage
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const orgId = context.organizationId;
 		const limit = input?.limit ?? 50;
 		const offset = input?.offset ?? 0;
 		const now = new Date().toISOString();
@@ -153,5 +154,4 @@ export const listTriageProcedure = triageReadOs.listTriage.handler(
 			queues: counts.queues,
 			snoozed: counts.snoozed,
 		};
-	},
-);
+	});
