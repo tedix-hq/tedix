@@ -7,14 +7,14 @@ import {
 } from "@/components/kumo/page";
 import { UnreadList } from "@/components/unread-list";
 
-/** Everything new for the person, in one place: `/unread`. */
+/** Everything new for the person, in one place: `/inbox`. */
 export function UnreadPage() {
 	return (
 		<Page width="md">
 			<div className="grid min-w-0 gap-4">
 				<PageHeader>
 					<PageHeading>
-						<PageTitle>Unread</PageTitle>
+						<PageTitle>Inbox</PageTitle>
 						<PageDescription>
 							New chat messages, agent results and file changes in your
 							workspaces.

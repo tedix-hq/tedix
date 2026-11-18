@@ -31,12 +31,12 @@ import { Route as SessionTenantBlueprintsRouteImport } from './routes/_session/_
 import { Route as SessionTenantBrainRouteImport } from './routes/_session/_tenant/brain'
 import { Route as SessionTenantChatRouteImport } from './routes/_session/_tenant/chat'
 import { Route as SessionTenantComputeRouteImport } from './routes/_session/_tenant/compute'
+import { Route as SessionTenantInboxRouteImport } from './routes/_session/_tenant/inbox'
 import { Route as SessionTenantInstallRouteImport } from './routes/_session/_tenant/install'
 import { Route as SessionTenantOutputsRouteImport } from './routes/_session/_tenant/outputs'
 import { Route as SessionTenantSitesRouteImport } from './routes/_session/_tenant/sites'
 import { Route as SessionTenantSkillsRouteImport } from './routes/_session/_tenant/skills'
 import { Route as SessionTenantTeamRouteImport } from './routes/_session/_tenant/team'
-import { Route as SessionTenantUnreadRouteImport } from './routes/_session/_tenant/unread'
 import { Route as SessionTenantWidgetRouteImport } from './routes/_session/_tenant/widget'
 import { Route as SessionTenantWorkRouteImport } from './routes/_session/_tenant/work'
 import { Route as SessionTenantWorkspacesRouteImport } from './routes/_session/_tenant/workspaces'
@@ -199,6 +199,11 @@ const SessionTenantComputeRoute = SessionTenantComputeRouteImport.update({
   path: '/compute',
   getParentRoute: () => SessionTenantRoute,
 } as any)
+const SessionTenantInboxRoute = SessionTenantInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => SessionTenantRoute,
+} as any)
 const SessionTenantInstallRoute = SessionTenantInstallRouteImport.update({
   id: '/install',
   path: '/install',
@@ -222,11 +227,6 @@ const SessionTenantSkillsRoute = SessionTenantSkillsRouteImport.update({
 const SessionTenantTeamRoute = SessionTenantTeamRouteImport.update({
   id: '/team',
   path: '/team',
-  getParentRoute: () => SessionTenantRoute,
-} as any)
-const SessionTenantUnreadRoute = SessionTenantUnreadRouteImport.update({
-  id: '/unread',
-  path: '/unread',
   getParentRoute: () => SessionTenantRoute,
 } as any)
 const SessionTenantWidgetRoute = SessionTenantWidgetRouteImport.update({
@@ -573,12 +573,12 @@ export interface FileRoutesByFullPath {
   '/brain': typeof SessionTenantBrainRoute
   '/chat': typeof SessionTenantChatRoute
   '/compute': typeof SessionTenantComputeRoute
+  '/inbox': typeof SessionTenantInboxRoute
   '/install': typeof SessionTenantInstallRoute
   '/outputs': typeof SessionTenantOutputsRoute
   '/sites': typeof SessionTenantSitesRoute
   '/skills': typeof SessionTenantSkillsRouteWithChildren
   '/team': typeof SessionTenantTeamRoute
-  '/unread': typeof SessionTenantUnreadRoute
   '/widget': typeof SessionTenantWidgetRoute
   '/work': typeof SessionTenantWorkRouteWithChildren
   '/workspaces': typeof SessionTenantWorkspacesRoute
@@ -653,11 +653,11 @@ export interface FileRoutesByTo {
   '/brain': typeof SessionTenantBrainRoute
   '/chat': typeof SessionTenantChatRoute
   '/compute': typeof SessionTenantComputeRoute
+  '/inbox': typeof SessionTenantInboxRoute
   '/install': typeof SessionTenantInstallRoute
   '/outputs': typeof SessionTenantOutputsRoute
   '/sites': typeof SessionTenantSitesRoute
   '/team': typeof SessionTenantTeamRoute
-  '/unread': typeof SessionTenantUnreadRoute
   '/widget': typeof SessionTenantWidgetRoute
   '/workspaces': typeof SessionTenantWorkspacesRoute
   '/account/authorizations': typeof SessionAccountAuthorizationsRoute
@@ -734,12 +734,12 @@ export interface FileRoutesById {
   '/_session/_tenant/brain': typeof SessionTenantBrainRoute
   '/_session/_tenant/chat': typeof SessionTenantChatRoute
   '/_session/_tenant/compute': typeof SessionTenantComputeRoute
+  '/_session/_tenant/inbox': typeof SessionTenantInboxRoute
   '/_session/_tenant/install': typeof SessionTenantInstallRoute
   '/_session/_tenant/outputs': typeof SessionTenantOutputsRoute
   '/_session/_tenant/sites': typeof SessionTenantSitesRoute
   '/_session/_tenant/skills': typeof SessionTenantSkillsRouteWithChildren
   '/_session/_tenant/team': typeof SessionTenantTeamRoute
-  '/_session/_tenant/unread': typeof SessionTenantUnreadRoute
   '/_session/_tenant/widget': typeof SessionTenantWidgetRoute
   '/_session/_tenant/work': typeof SessionTenantWorkRouteWithChildren
   '/_session/_tenant/workspaces': typeof SessionTenantWorkspacesRoute
@@ -818,12 +818,12 @@ export interface FileRouteTypes {
     | '/brain'
     | '/chat'
     | '/compute'
+    | '/inbox'
     | '/install'
     | '/outputs'
     | '/sites'
     | '/skills'
     | '/team'
-    | '/unread'
     | '/widget'
     | '/work'
     | '/workspaces'
@@ -898,11 +898,11 @@ export interface FileRouteTypes {
     | '/brain'
     | '/chat'
     | '/compute'
+    | '/inbox'
     | '/install'
     | '/outputs'
     | '/sites'
     | '/team'
-    | '/unread'
     | '/widget'
     | '/workspaces'
     | '/account/authorizations'
@@ -978,12 +978,12 @@ export interface FileRouteTypes {
     | '/_session/_tenant/brain'
     | '/_session/_tenant/chat'
     | '/_session/_tenant/compute'
+    | '/_session/_tenant/inbox'
     | '/_session/_tenant/install'
     | '/_session/_tenant/outputs'
     | '/_session/_tenant/sites'
     | '/_session/_tenant/skills'
     | '/_session/_tenant/team'
-    | '/_session/_tenant/unread'
     | '/_session/_tenant/widget'
     | '/_session/_tenant/work'
     | '/_session/_tenant/workspaces'
@@ -1208,6 +1208,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantComputeRouteImport
       parentRoute: typeof SessionTenantRoute
     }
+    '/_session/_tenant/inbox': {
+      id: '/_session/_tenant/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof SessionTenantInboxRouteImport
+      parentRoute: typeof SessionTenantRoute
+    }
     '/_session/_tenant/install': {
       id: '/_session/_tenant/install'
       path: '/install'
@@ -1241,13 +1248,6 @@ declare module '@tanstack/react-router' {
       path: '/team'
       fullPath: '/team'
       preLoaderRoute: typeof SessionTenantTeamRouteImport
-      parentRoute: typeof SessionTenantRoute
-    }
-    '/_session/_tenant/unread': {
-      id: '/_session/_tenant/unread'
-      path: '/unread'
-      fullPath: '/unread'
-      preLoaderRoute: typeof SessionTenantUnreadRouteImport
       parentRoute: typeof SessionTenantRoute
     }
     '/_session/_tenant/widget': {
@@ -1867,12 +1867,12 @@ interface SessionTenantRouteChildren {
   SessionTenantBrainRoute: typeof SessionTenantBrainRoute
   SessionTenantChatRoute: typeof SessionTenantChatRoute
   SessionTenantComputeRoute: typeof SessionTenantComputeRoute
+  SessionTenantInboxRoute: typeof SessionTenantInboxRoute
   SessionTenantInstallRoute: typeof SessionTenantInstallRoute
   SessionTenantOutputsRoute: typeof SessionTenantOutputsRoute
   SessionTenantSitesRoute: typeof SessionTenantSitesRoute
   SessionTenantSkillsRoute: typeof SessionTenantSkillsRouteWithChildren
   SessionTenantTeamRoute: typeof SessionTenantTeamRoute
-  SessionTenantUnreadRoute: typeof SessionTenantUnreadRoute
   SessionTenantWidgetRoute: typeof SessionTenantWidgetRoute
   SessionTenantWorkRoute: typeof SessionTenantWorkRouteWithChildren
   SessionTenantWorkspacesRoute: typeof SessionTenantWorkspacesRoute
@@ -1895,12 +1895,12 @@ const SessionTenantRouteChildren: SessionTenantRouteChildren = {
   SessionTenantBrainRoute: SessionTenantBrainRoute,
   SessionTenantChatRoute: SessionTenantChatRoute,
   SessionTenantComputeRoute: SessionTenantComputeRoute,
+  SessionTenantInboxRoute: SessionTenantInboxRoute,
   SessionTenantInstallRoute: SessionTenantInstallRoute,
   SessionTenantOutputsRoute: SessionTenantOutputsRoute,
   SessionTenantSitesRoute: SessionTenantSitesRoute,
   SessionTenantSkillsRoute: SessionTenantSkillsRouteWithChildren,
   SessionTenantTeamRoute: SessionTenantTeamRoute,
-  SessionTenantUnreadRoute: SessionTenantUnreadRoute,
   SessionTenantWidgetRoute: SessionTenantWidgetRoute,
   SessionTenantWorkRoute: SessionTenantWorkRouteWithChildren,
   SessionTenantWorkspacesRoute: SessionTenantWorkspacesRoute,
