@@ -138,12 +138,14 @@ function projectionStatements(
 ): BatchStatement[] {
 	const summary = event.summary;
 	const statements: BatchStatement[] = [];
-	if (event.kind !== "output" || !summary.continuesBurst)
+	if (event.kind !== "output" || !summary.continuesBurst) {
+		const id = `${event.workspaceId}:${event.seq}`;
+		const title = clip(summary.title, TITLE_MAX);
 		statements.push(
 			db
 				.insert(workspaceActivity)
 				.values({
-					id: `${event.workspaceId}:${event.seq}`,
+					id,
 					organizationId: event.organizationId,
 					workspaceId: event.workspaceId,
 					seq: event.seq,
@@ -153,13 +155,27 @@ function projectionStatements(
 					actorKind: event.actor.kind,
 					actorId: event.actor.id,
 					changeRecordId: event.changeRecordId,
-					title: clip(summary.title, TITLE_MAX),
+					title,
 					summary: clip(summary.description, 500),
 					occurredAt: event.at,
 					appliedAt,
 				})
 				.onConflictDoNothing({ target: workspaceActivity.id }),
 		);
+		// A file saved in the workspace's own store is published by that store
+		// and by the API: the same save, title and moment is one activity line.
+		if (event.kind === "output")
+			statements.push(
+				db
+					.delete(workspaceActivity)
+					.where(
+						and(
+							eq(workspaceActivity.id, id),
+							sql`EXISTS (SELECT 1 FROM workspace_activity AS earlier WHERE earlier.workspace_id = ${event.workspaceId} AND earlier.seq < ${event.seq} AND earlier.kind = 'output' AND earlier.entity_id = ${event.id} AND earlier.revision = ${event.revision} AND earlier.change_record_id = ${event.changeRecordId} AND earlier.occurred_at = ${event.at} AND earlier.title IS ${title})`,
+						),
+					),
+			);
+	}
 	if (event.kind === "output") statements.push(...outputStatements(db, event));
 	if (event.kind === "chat") {
 		const chat = chatStatement(db, event);

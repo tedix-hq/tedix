@@ -379,3 +379,17 @@ it("indexes burst saves without activity and keeps sequence replay idempotent", 
 	expect(index.filter((row) => row.isCurrent)).toMatchObject([{ revision: 4 }]);
 	expect(await getWorkspaceFeedCursor(db, WS)).toBe(4);
 });
+
+it("shows one activity line when the same save is published twice", async () => {
+	const db = await fixture();
+	const same = { changeRecordId: "rev-1", at: "2026-11-07T10:00:01.000Z" };
+	await applyWorkspaceChangeEvents(db, [
+		event(1, same),
+		event(2, { ...same, summary: { excerpt: "same save" } }),
+		event(3, { ...same, summary: { title: "Renamed" } }),
+	]);
+	expect(
+		(await db.select().from(workspaceActivity)).map((row) => row.seq),
+	).toEqual([1, 3]);
+	expect(await getWorkspaceFeedCursor(db, WS)).toBe(3);
+});
