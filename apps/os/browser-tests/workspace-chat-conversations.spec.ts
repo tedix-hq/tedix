@@ -164,6 +164,10 @@ try {
 					"true",
 				);
 				await page.keyboard.press("Escape");
+				// Closing the menu returns focus to its button, whose tooltip can
+				// cover the next row: close it before clicking there.
+				await page.keyboard.press("Escape");
+				await page.getByRole("tooltip").waitFor({ state: "hidden" });
 
 				// Rename the open conversation from its title in the header.
 				await today.getByText("Launch plan", { exact: true }).click();
