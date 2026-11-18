@@ -16,7 +16,6 @@ export function cmsPlatformHosts(env: CmsPlatformHostEnv) {
 		"cms.tedix.dev",
 	);
 	return {
-		runtimeHealthUrl: `https://${tenantHostSuffix}/health`,
 		siteBuilderHostname: hostSetting(
 			env.SITE_BUILDER_HOSTNAME,
 			"builder.tedix.dev",
