@@ -312,19 +312,16 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 		} = event.payload;
 		const jobId = event.instanceId;
 		const env = this.env;
-		// The admitted payload fixes the execution disk across retries and code rollouts.
-		// Older workflows retain their original authoring disk; only newly admitted
-		// immutable-source jobs use a separate server-bound container.
+		// A pinned theme commit builds in its own server-bound container; a deploy
+		// without one builds the authoring disk.
 		const getExecutionSandbox = () =>
 			getSiteBuilderSandbox(
 				env,
 				orgSlug,
-				sourceCommit && event.payload.sourceSandbox === "isolated"
-					? { kind: "deploy", jobId }
-					: undefined,
+				sourceCommit ? { kind: "deploy", jobId } : undefined,
 			);
-		// Workflow.restart() retains its original payload. Legacy slug-only jobs
-		// must not bind to a different site that later reuses the slug.
+		// Workflow.restart() retains its original payload; a job must stay bound to
+		// the site it was admitted for, even if a later site reuses the slug.
 		if (!siteId || !Number.isSafeInteger(restoreEpoch) || restoreEpoch < 0) {
 			throw new NonRetryableError(
 				"CMS deploy workflow has no pinned site ID and restore epoch",

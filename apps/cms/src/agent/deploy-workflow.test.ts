@@ -107,8 +107,7 @@ function workflowFixture(siteId?: string) {
 
 describe("DeployWorkflow exact-site lifecycle", () => {
 	it.each([
-		{ sourceCommit: "a".repeat(40), sourceSandbox: "isolated", isolated: true },
-		{ sourceCommit: "a".repeat(40), isolated: false },
+		{ sourceCommit: "a".repeat(40), isolated: true },
 		{ isolated: false },
 	])(
 		"keeps the admitted execution disk stable for %j",

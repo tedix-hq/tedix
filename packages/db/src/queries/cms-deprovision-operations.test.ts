@@ -60,7 +60,7 @@ function fixture() {
 			site_id TEXT NOT NULL,
 			slug TEXT NOT NULL,
 			restore_epoch INTEGER NOT NULL DEFAULT 0,
-			kind TEXT NOT NULL DEFAULT 'legacy',
+			kind TEXT NOT NULL,
 			entered_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 		);
 		CREATE TABLE cms_capture_cron_pauses (
@@ -294,7 +294,7 @@ describe("CMS deprovision operation ledger", () => {
 		sqlite.exec(`
 			INSERT INTO cms_sites (id, organization_id, slug, authoring_app_id, status, updated_at)
 			VALUES ('site-2', 'org-2', 'other', NULL, 'active', '2026-01-01');
-			INSERT INTO cms_restore_permits (id, site_id, slug) VALUES ('old-slug-permit', 'site-2', 'old');
+			INSERT INTO cms_restore_permits (id, site_id, slug, kind) VALUES ('old-slug-permit', 'site-2', 'old', 'outer');
 		`);
 		expect(await countCmsRestorePermitsForSite(db, "site-2")).toBe(1);
 		expect(await countCmsRestorePermitsForSite(db, input.siteId)).toBe(0);

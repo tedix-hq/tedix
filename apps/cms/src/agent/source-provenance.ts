@@ -29,43 +29,6 @@ export interface EditableThemeSource {
 	fileCount: number;
 }
 
-/**
- * Prepare one explicit ownership migration from a pinned tenant commit and the
- * exact platform source used for that revision. previousLockedPaths is the
- * expanded concrete file inventory from that release's policy and snapshot.
- * Call separately for active source and draft; persist with expected-head CAS.
- */
-export function migrateThemePresentationSource(input: {
-	templateSlug: string;
-	source: Readonly<Record<string, string>>;
-	platformSource: Readonly<Record<string, string>>;
-	previousLockedPaths: readonly string[];
-}): { files: Record<string, string>; adoptedPaths: string[] } {
-	if (input.source[THEME_SOURCE_MANIFEST_PATH] !== undefined) {
-		throw new Error(
-			"Theme source already has an ownership manifest; do not fill missing files",
-		);
-	}
-	const files = { ...input.source };
-	const adoptedPaths = [...new Set(input.previousLockedPaths)]
-		.filter((path) => isPathEditable(path, input.templateSlug))
-		.sort();
-	if (adoptedPaths.length === 0)
-		throw new Error("No presentation paths in the previous platform inventory");
-	for (const path of adoptedPaths) {
-		const content = input.platformSource[path];
-		if (content === undefined) {
-			throw new Error(`Exact previous platform source missing: ${path}`);
-		}
-		// Those files were overwritten by locked resync on every old build.
-		// A stale copy in the tenant repository was not the deployed source.
-		files[path] = content;
-	}
-	files[THEME_SOURCE_MANIFEST_PATH] =
-		JSON.stringify({ version: THEME_SOURCE_VERSION }) + "\n";
-	return { files, adoptedPaths };
-}
-
 /** Sorted editable `src/...` paths under `root` (a workspace or checkout). */
 async function listEditablePaths(
 	sandbox: EditableSourceSandbox,

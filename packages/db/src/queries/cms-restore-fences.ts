@@ -492,10 +492,7 @@ export async function reconcileCmsRestoreOuterPermits(
 						.select({ one: sql`1` })
 						.from(blocker)
 						.where(
-							and(
-								eq(blocker.siteId, input.siteId),
-								inArray(blocker.kind, ["nested", "legacy"]),
-							),
+							and(eq(blocker.siteId, input.siteId), eq(blocker.kind, "nested")),
 						),
 				),
 			),

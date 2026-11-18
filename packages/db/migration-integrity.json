@@ -1600,6 +1600,10 @@
 		{
 			"name": "20261118152757_work-attempt-latest-index/migration.sql",
 			"sha256": "fe6fcf2ba48d0345885898450fd86d259f086e718b2011db01a615ced25cfae8"
+		},
+		{
+			"name": "20261118161145_cms-restore-permit-kind-required/migration.sql",
+			"sha256": "6eb5c8477cdc4611ae2d408dde6c4f30386f1bde3e8786776206dae4d8d2eedd"
 		}
 	]
 }

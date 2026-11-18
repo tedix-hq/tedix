@@ -177,7 +177,7 @@ export default defineConfig({
 				// Native upstream plugins — imported directly, no local entrypoint
 				// file. embedsPlugin() adds YouTube/Vimeo/Twitter/Bluesky/Mastodon
 				// Portable Text blocks. formsPlugin() adds an admin "Forms" builder
-				// and the shared native lead renderer. Legacy storage remains migration-only.
+				// and the shared native lead renderer.
 				embedsPlugin(),
 				formsPlugin(),
 				aiSearch(),
