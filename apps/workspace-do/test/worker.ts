@@ -83,6 +83,12 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 		this.#projectionFailures = 1;
 	}
 
+	/** Hold every file publish for `ms`, like a slow shared database. */
+	async delayProjections(scope: WorkspaceScope, ms: number) {
+		this.bindScope(scope);
+		await this.ctx.storage.put("test:projectionDelayMs", ms);
+	}
+
 	failActionProjection(scope: WorkspaceScope, when: "before" | "after") {
 		this.bindScope(scope);
 		this.#actionFailure = when;
@@ -115,6 +121,8 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 			this.#projectionFailures -= 1;
 			throw new Error("Injected projection outage");
 		}
+		const delay = await this.ctx.storage.get<number>("test:projectionDelayMs");
+		if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
 		return super.projectOutput(scope, outputId);
 	}
 

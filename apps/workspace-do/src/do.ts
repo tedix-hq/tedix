@@ -156,6 +156,12 @@ export const COMPATIBILITY_DATE = "2026-05-14";
 /** Turns with more history than this run in their own facet. */
 export const ISOLATE_AFTER_MESSAGES = 40;
 const KEEPALIVE_MS = 60_000;
+/**
+ * How long a save waits for its file to reach the workspace feed. A slow or
+ * failing feed must not hold the save: the file stays pending, publishing
+ * carries on in the background and the alarm retries it.
+ */
+const PROJECTION_WAIT_MS = 3_000;
 /** Client frame types a diagnostic line may name; anything else is "unknown". */
 const FRAME_TYPES = new Set([
 	"subscribe",
@@ -457,6 +463,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #activityRecords: SqlActivityRecords;
 	readonly #compliance: SqlComplianceAdapter;
 	#outputSerial: Promise<void> = Promise.resolve();
+	/** File publishes to the workspace feed, one at a time and apart from writes. */
+	#publishSerial: Promise<void> = Promise.resolve();
 	#inflightTransfers = new Map<
 		string,
 		Promise<NonNullable<OutputQueryResult<"get">>>
@@ -1240,6 +1248,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					[outputId]: pending,
 				});
 			}
+			// A publish already running must land before the index is repointed;
+			// later ones skip a file that is moving.
+			await this.#publishSerial;
 			return { pending };
 		});
 		if (!prepared.pending) return prepared;
@@ -2653,7 +2664,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				console.error("Workspace output transfer pending", error);
 			}
 		}
-		await this.#serializeOutput(() => this.#flushOutputProjections());
+		await this.#serializePublish(() => this.#flushOutputProjections());
 		await this.#flushActivity();
 		if (
 			this.#running.size > 0 ||
@@ -2901,6 +2912,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		);
 	}
 
+	#serializePublish(operation: () => Promise<void>): Promise<void> {
+		const next = this.#publishSerial.then(operation);
+		this.#publishSerial = next.then(
+			() => {},
+			() => {},
+		);
+		return next;
+	}
+
 	#serializeOutput<T>(operation: () => Promise<T>): Promise<T> {
 		const next = this.#outputSerial.then(operation);
 		this.#outputSerial = next.then(
@@ -2915,29 +2935,64 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		outputId: string,
 		write: () => Promise<T>,
 	): Promise<T> {
-		return this.#serializeOutput(async () => {
-			if (
-				this.#outputTransfers()[outputId] ||
-				this.#store.get(`document-transfer-owner:${outputId}`) ||
-				this.#store.get(`incoming-output:${outputId}`) ||
-				this.#store.get(`transferred-output:${outputId}`)
-			)
+		const written = this.#serializeOutput(async () => {
+			if (this.#outputMoving(outputId))
 				throw new Error("Output transfer in progress or output moved");
 			this.#store.put("activity-scope", scope);
-			// Persist retry before mutation; deletion and publication share this queue.
-			this.#store.delete(`output-history-before:${outputId}`);
-			this.#store.put("pending-output-projections", {
-				...this.#pendingOutputProjections(),
-				[outputId]: { scope, generation: crypto.randomUUID() },
-			});
-			await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
-			try {
-				return await write();
-			} finally {
-				await this.#flushOutputProjections();
-				await this.#flushActivity();
-			}
+			// Persist the retry before the write; the alarm publishes what is left.
+			await this.#markOutputPending(scope, outputId);
+			return write();
 		});
+		// Publishing waits for this write, whatever its outcome, but no later
+		// write waits for publishing: a slow feed cannot hold the queue.
+		const published = this.#publishOutput(
+			outputId,
+			written.then(
+				() => {},
+				() => {},
+			),
+		);
+		const value = await written;
+		await published;
+		return value;
+	}
+
+	#outputMoving(outputId: string) {
+		return Boolean(
+			this.#outputTransfers()[outputId] ||
+			this.#store.get(`document-transfer-owner:${outputId}`) ||
+			this.#store.get(`incoming-output:${outputId}`) ||
+			this.#store.get(`transferred-output:${outputId}`),
+		);
+	}
+
+	async #markOutputPending(scope: WorkspaceScope, outputId: string) {
+		this.#store.delete(`output-history-before:${outputId}`);
+		this.#store.put("pending-output-projections", {
+			...this.#pendingOutputProjections(),
+			[outputId]: { scope, generation: crypto.randomUUID() },
+		});
+		await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
+	}
+
+	/**
+	 * Publish one file to the workspace feed after `after`, waiting at most
+	 * PROJECTION_WAIT_MS. Other pending files are left to the alarm, so one
+	 * slow file no longer rides along on every save of another.
+	 */
+	#publishOutput(outputId: string, after: Promise<void>): Promise<void> {
+		const run = after
+			.then(() =>
+				this.#serializePublish(() => this.#flushOutputProjections([outputId])),
+			)
+			.then(() => this.#flushActivity())
+			.catch((error) =>
+				console.error("Workspace output projection queued for retry", error),
+			);
+		return Promise.race([
+			run,
+			new Promise<void>((resolve) => setTimeout(resolve, PROJECTION_WAIT_MS)),
+		]);
 	}
 
 	/** Bounded repair from durable source records, independent of the delivery checkpoint. */
@@ -2997,18 +3052,24 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		};
 	}
 
-	refreshOutputProjection(
+	async refreshOutputProjection(
 		scope: WorkspaceScope,
 		outputId: string,
 	): Promise<void> {
 		this.bindScope(scope);
-		return this.#commitOutput(scope, outputId, async () => {});
+		if (this.#outputMoving(outputId))
+			throw new Error("Output transfer in progress or output moved");
+		this.#store.put("activity-scope", scope);
+		await this.#markOutputPending(scope, outputId);
+		await this.#publishOutput(outputId, Promise.resolve());
 	}
 
-	async #flushOutputProjections() {
+	/** Publish pending files, all of them or only `only`; failures stay pending. */
+	async #flushOutputProjections(only?: readonly string[]) {
 		for (const [outputId, pending] of Object.entries(
 			this.#pendingOutputProjections(),
 		)) {
+			if (only && !only.includes(outputId)) continue;
 			if (
 				this.#outputTransfers()[outputId] ||
 				this.#store.get(`document-transfer-owner:${outputId}`) ||

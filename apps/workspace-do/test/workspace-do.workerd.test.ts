@@ -86,6 +86,7 @@ type Stub = DurableObjectStub &
 		pruneChatLedger(scope: WorkspaceScope): Promise<void>;
 		disableActivityProjection(scope: WorkspaceScope): Promise<void>;
 		failNextProjection(scope: WorkspaceScope): Promise<void>;
+		delayProjections(scope: WorkspaceScope, ms: number): Promise<void>;
 		failEventProjection(
 			scope: WorkspaceScope,
 			when: "before" | "after",
@@ -3321,6 +3322,100 @@ test.each(["before", "after"] as const)(
 		expect((await ws.reconcileActivity(actionScope)).missing).toEqual([]);
 	},
 );
+
+test("a slow workspace feed does not hold a file save", async () => {
+	await seedCore();
+	const ws = workspace();
+	const id = "slow-feed-file";
+	const now = new Date().toISOString();
+	const body = await storeOutputBody(
+		testEnv.R2_BUCKET,
+		scope.organizationId,
+		JSON.stringify({ kind: "document", blocks: [] }),
+	);
+	const core = createDbQueryClient(testEnv.DB);
+	await ws.delayProjections(scope, 5_000);
+	try {
+		const started = Date.now();
+		await ws.outputQuery(scope, {
+			op: "create",
+			output: {
+				id,
+				...scope,
+				kind: "document",
+				title: "Slow feed file",
+				currentRevisionId: "slow-feed-r1",
+				createdByKind: "user",
+				createdById: "u1",
+				createdAt: now,
+				updatedAt: now,
+			},
+			revision: {
+				id: "slow-feed-r1",
+				organizationId: scope.organizationId,
+				outputId: id,
+				revision: 1,
+				content: "",
+				...body,
+				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+				createdByKind: "user",
+				createdById: "u1",
+				createdAt: now,
+			},
+		});
+		// The save returns after the bounded wait, not after the slow publish.
+		expect(Date.now() - started).toBeLessThan(4_500);
+		expect(
+			await getWorkspaceOutputIndexCurrent(core, {
+				organizationId: scope.organizationId,
+				outputId: id,
+			}),
+		).toBeFalsy();
+		// The next save does not queue behind the first file's publish either.
+		const second = Date.now();
+		await ws.outputQuery(scope, {
+			op: "create",
+			output: {
+				id: `${id}-2`,
+				...scope,
+				kind: "document",
+				title: "Second slow feed file",
+				currentRevisionId: "slow-feed-r2",
+				createdByKind: "user",
+				createdById: "u1",
+				createdAt: now,
+				updatedAt: now,
+			},
+			revision: {
+				id: "slow-feed-r2",
+				organizationId: scope.organizationId,
+				outputId: `${id}-2`,
+				revision: 1,
+				content: "",
+				...body,
+				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+				createdByKind: "user",
+				createdById: "u1",
+				createdAt: now,
+			},
+		});
+		expect(Date.now() - second).toBeLessThan(4_500);
+		expect(
+			(await ws.outputQuery(scope, { op: "get", outputId: id }))
+				?.currentRevisionId,
+		).toBe("slow-feed-r1");
+	} finally {
+		await ws.delayProjections(scope, 0);
+	}
+	// The publish carries on; the alarm finishes whatever is left.
+	await ws.retryProjections(scope);
+	expect(
+		await getWorkspaceOutputIndexCurrent(core, {
+			organizationId: scope.organizationId,
+			outputId: id,
+		}),
+	).toMatchObject({ revisionId: "slow-feed-r1", title: "Slow feed file" });
+}, 30_000);
 
 test("recovers intermediate file revisions when output notifications coalesce", async () => {
 	await seedCore();
