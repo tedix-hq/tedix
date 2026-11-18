@@ -17,6 +17,7 @@ export const BINDING_NAMES = [
 	"work",
 	"views",
 	"web",
+	"memory",
 ] as const;
 export type BindingName = (typeof BINDING_NAMES)[number];
 
@@ -47,6 +48,25 @@ interface OutputDetail extends OutputSummary { content: OutputContent | null }
 `.trim();
 
 export const BINDING_DECLARATIONS: Record<BindingName, string> = {
+	memory: `
+/** Workspace-local memory. Writes, review and rollback need approval and are recorded. */
+interface MemoryRevision {
+  revisionId:string; key:string; revision:number; value:unknown; hash:string; writtenAt:string;
+  provenance:{actor:{id:string;kind:string;organizationId?:string};source:{surface:string;traceId?:string};changeRecordId?:string};
+  review:"pending"|"approved"|"rejected"; reviewedBy?:string; reviewedAt?:string; reviewNote?:string; rolledBackFrom?:string;
+}
+interface MemoryEntry {key:string;current:MemoryRevision;approved?:MemoryRevision}
+interface Memory {
+  /** Stores a pending revision. Actor and source come from this turn, never from input. */
+  write(input:{key:string;value:unknown}):Promise<MemoryRevision>;
+  /** current is the newest revision; use approved for reviewed knowledge. */
+  read(key:string):Promise<MemoryEntry|null>;
+  list(prefix?:string):Promise<MemoryEntry[]>;
+  history(key:string):Promise<MemoryRevision[]>;
+  review(input:{revisionId:string;decision:"approve"|"reject";note?:string}):Promise<MemoryRevision>;
+  /** Appends a revision with the old value, preserving all intervening history. */
+  rollback(input:{key:string;toRevisionId:string}):Promise<MemoryRevision>;
+}`.trim(),
 	views: `
 /**
  * Show a live view (table, facts or a custom layout) under your answer.
@@ -163,7 +183,7 @@ export function renderEnvDeclarations(): string {
 	return [
 		SHARED_TYPES,
 		...BINDING_NAMES.map((name) => BINDING_DECLARATIONS[name]),
-		`interface Env { documents: Documents; sheets: Sheets; presentations: Presentations; outputs: Outputs; apps: Apps; resources: Resources; work: Work; views: Views; web: Web; }`,
+		`interface Env { documents: Documents; sheets: Sheets; presentations: Presentations; outputs: Outputs; apps: Apps; resources: Resources; work: Work; views: Views; web: Web; memory: Memory; }`,
 	].join("\n\n");
 }
 

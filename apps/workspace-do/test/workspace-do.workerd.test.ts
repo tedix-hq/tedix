@@ -7029,3 +7029,150 @@ test("purges object documents, revisions and resources in one retryable RPC", as
 	await ws.outputQuery(purgeScope, { op: "purge" });
 	expect(await ws.outputQuery(purgeScope, { op: "list" })).toEqual([]);
 });
+
+test("sandbox memory uses SQL revisions, trusted provenance, review approval and rollback", async () => {
+	await seedCore();
+	const own = { ...scope, workspaceId: crypto.randomUUID() };
+	await seedWorkspaceRows([own]);
+	const ws = workspace(own);
+	const revisions = () =>
+		runInDurableObject(ws, async (_instance, state) =>
+			state.storage.sql
+				.exec<{ record: string }>(
+					"SELECT record FROM workspace_memory_revisions WHERE key = 'language' ORDER BY revision",
+				)
+				.toArray()
+				.map(
+					(row) =>
+						JSON.parse(
+							row.record,
+						) as import("@tedix/agent-governance/types").MemoryRevision,
+				),
+		);
+	const ask = async (code: string) => {
+		await ws.scriptModel(own, [{ code }]);
+		const turn = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Update workspace memory",
+		});
+		await ws.awaitTurn(own, turn.turnId, 20_000);
+		const events = await ws.readEvents(own, {
+			conversationId: turn.conversationId,
+		});
+		const approval = events.find(
+			(event) => event.type === "approval.requested",
+		);
+		if (approval?.type !== "approval.requested")
+			throw new Error(`Missing memory approval: ${JSON.stringify(events)}`);
+		return { turn, approval };
+	};
+	const decide = async (
+		approvalId: string,
+		decision: "approve" | "deny" = "approve",
+	) => {
+		await ws.scriptModel(own, [{ text: "Decision recorded." }]);
+		const result = await ws.decideApproval(own, {
+			approvalId,
+			decision,
+			by: "u1",
+		});
+		if (result.turnId) await ws.awaitTurn(own, result.turnId, 20_000);
+		return result;
+	};
+	const first = await ask(
+		`export default async env => env.memory.write({key:"language",value:"German",review:"approved",provenance:{actor:{id:"forged"},source:{surface:"forged"}}})`,
+	);
+	expect(first.approval.automatic).toBeUndefined();
+	expect(await revisions()).toEqual([]);
+	expect((await decide(first.approval.approvalId)).applied).toBe(true);
+	const [pending] = await revisions();
+	expect(pending).toMatchObject({
+		value: "German",
+		review: "pending",
+		provenance: {
+			actor: { id: "u1", kind: "user", organizationId: own.organizationId },
+			source: { surface: "workspace_object", traceId: first.turn.turnId },
+		},
+	});
+	const approve = await ask(
+		`export default async env => { const entry = await env.memory.read("language"); return env.memory.review({revisionId:entry.current.revisionId,decision:"approve",note:"Checked"}); }`,
+	);
+	expect((await revisions())[0]?.review).toBe("pending");
+	expect((await decide(approve.approval.approvalId)).applied).toBe(true);
+	expect((await revisions())[0]).toMatchObject({
+		review: "approved",
+		reviewedBy: "u1",
+		reviewNote: "Checked",
+	});
+
+	const denied = await ask(
+		`export default async env => env.memory.write({key:"language",value:"never saved"})`,
+	);
+	expect((await decide(denied.approval.approvalId, "deny")).applied).toBe(
+		false,
+	);
+	expect(await revisions()).toHaveLength(1);
+	const second = await ask(
+		`export default async env => env.memory.write({key:"language",value:"wrong"})`,
+	);
+	expect((await decide(second.approval.approvalId)).applied).toBe(true);
+	const reject = await ask(
+		`export default async env => { const entry = await env.memory.read("language"); return env.memory.review({revisionId:entry.current.revisionId,decision:"reject"}); }`,
+	);
+	expect((await decide(reject.approval.approvalId)).applied).toBe(true);
+	expect((await revisions())[1]?.review).toBe("rejected");
+	const rollback = await ask(
+		`export default async env => { const history = await env.memory.history("language"); return env.memory.rollback({key:"language",toRevisionId:history[0].revisionId}); }`,
+	);
+	expect((await decide(rollback.approval.approvalId)).applied).toBe(true);
+	await evictDurableObject(ws);
+	const history = await revisions();
+	expect(history).toHaveLength(3);
+	expect(history[2]).toMatchObject({
+		value: "German",
+		review: "approved",
+		rolledBackFrom: pending!.revisionId,
+		provenance: { source: { traceId: rollback.turn.turnId } },
+	});
+	await ws.scriptModel(own, [
+		{ code: `export default async env => env.memory.list("lang")` },
+	]);
+	const read = await ws.sendTurn(own, {
+		actorId: "u1",
+		actorKind: "user",
+		text: "Read memory",
+	});
+	await ws.awaitTurn(own, read.turnId, 20_000);
+	const readEvents = await ws.readEvents(own, {
+		conversationId: read.conversationId,
+	});
+	expect(readEvents.some((event) => event.type === "approval.requested")).toBe(
+		false,
+	);
+	expect(
+		readEvents.some(
+			(event) => event.type === "step.finished" && event.status === "error",
+		),
+	).toBe(false);
+	const records = await ws.readChangeRecords(own, { resource: "memory" });
+	for (const operation of [
+		"write",
+		"review",
+		"rollback",
+		"list",
+		"read",
+		"history",
+	])
+		expect(
+			records.some(
+				(record) =>
+					record.operation === operation && record.outcome === "applied",
+			),
+		).toBe(true);
+	expect(
+		records.find(
+			(record) => record.operation === "write" && record.outcome === "applied",
+		)?.after?.revisionId,
+	).toBe(pending!.revisionId);
+});

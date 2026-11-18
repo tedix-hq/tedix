@@ -9,6 +9,7 @@ import type {
 	Actor,
 	ChangeRecord,
 	ComplianceAdapter,
+	MemoryAdapter,
 	RevisionRef,
 	Source,
 	UndoPlan,
@@ -20,6 +21,7 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
 import type { BindingName } from "./declarations";
+import { buildMemoryBinding } from "./memory-binding";
 import {
 	FILE_TEXT_PART_CHARS,
 	encodedLength,
@@ -52,6 +54,7 @@ export interface BindingDeps {
 	data: WorkspaceDataPort;
 	compliance: ComplianceAdapter;
 	accountability: AccountabilityAdapter;
+	memory?: MemoryAdapter;
 	actor: Actor;
 	source: Source;
 	onRecorded?: (record: ChangeRecord) => void;
@@ -340,6 +343,7 @@ export function buildWorkspaceBindings(
 	};
 
 	return {
+		memory: buildMemoryBinding(deps),
 		views: wrapBinding(views, {
 			...common,
 			resource: "view",
