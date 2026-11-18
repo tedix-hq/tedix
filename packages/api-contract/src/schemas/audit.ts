@@ -79,3 +79,118 @@ export const AUDIT_EXPORT_ATTRIBUTION_KEYS = [
 
 /** The export is the file itself: CSV or one JSON event per line. */
 export const AuditExportOutputSchema = z.file();
+
+// One stored row per gateway tool call. Arguments are kept only as
+// `argsHash`; an undo plan's compensating call is not stored because it
+// would carry raw arguments.
+const RevisionRefSchema = z.object({
+	revisionId: z.string(),
+	hash: z.string().optional(),
+});
+export const GatewayChangeRecordBodySchema = z.object({
+	resource: z.string(),
+	operation: z.string(),
+	actor: z.object({
+		id: z.string(),
+		kind: z.string(),
+		organizationId: z.string().optional(),
+	}),
+	source: z.object({ surface: z.string(), traceId: z.string().optional() }),
+	before: RevisionRefSchema.optional(),
+	after: RevisionRefSchema.optional(),
+	decision: z.object({
+		verdict: z.enum(["allow", "needs_approval", "deny"]),
+		gate: z.enum([
+			"edge_access",
+			"tool_scope",
+			"risk_rate_limit",
+			"annotation_assertion",
+			"destructive_approval",
+			"secret_egress",
+			"budget",
+		]),
+		reason: z.string(),
+		riskTier: z.enum([
+			"read",
+			"bounded_write",
+			"high_impact_write",
+			"external_side_effect",
+			"unclassified",
+		]),
+		blastRadius: z.enum([
+			"none",
+			"single_resource",
+			"tenant",
+			"multi_tenant",
+			"external_system",
+			"unclassified",
+		]),
+		budget: z
+			.object({
+				limit: z.number(),
+				windowSeconds: z.number(),
+				used: z.number().optional(),
+				remaining: z.number().optional(),
+			})
+			.optional(),
+		rate: z
+			.object({
+				limited: z.boolean(),
+				retryAfterSeconds: z.number().optional(),
+				scope: z.string().optional(),
+			})
+			.optional(),
+		approvalRoute: z.enum(["human", "agent"]).optional(),
+	}),
+	outcome: z.enum([
+		"applied",
+		"not_applied",
+		"unknown",
+		"denied",
+		"needs_approval",
+	]),
+	approval: z
+		.object({
+			approverId: z.string(),
+			approvedAt: z.string(),
+			presentedHash: z.string(),
+			approvalRequestId: z.string().optional(),
+		})
+		.optional(),
+	undo: z
+		.object({
+			kind: z.enum(["rollback_revision", "compensating_call", "manual"]),
+			toRevision: RevisionRefSchema.optional(),
+			instructions: z.string().optional(),
+		})
+		.optional(),
+	argsHash: z.string(),
+});
+/**
+ * The gateway names the record (`id`, `recordedAt`) so it can answer a call
+ * before the write lands. Appending an `id` that is already stored for the
+ * organization stores nothing new.
+ */
+export const GatewayChangeRecordInputSchema =
+	GatewayChangeRecordBodySchema.extend({
+		id: z.uuid().optional(),
+		recordedAt: z.string().datetime().optional(),
+	});
+export const GatewayChangeRecordSchema = GatewayChangeRecordBodySchema.extend({
+	id: z.uuid(),
+	sequence: z.number().int().positive(),
+	recordedAt: z.string().datetime(),
+});
+export const GatewayLedgerQuerySchema = z.strictObject({
+	resource: z.string().optional(),
+	actorId: z.string().optional(),
+	afterSequence: z.number().int().nonnegative().optional(),
+	limit: z.number().int().min(1).max(1000).default(1000),
+});
+export type GatewayChangeRecordInput = z.infer<
+	typeof GatewayChangeRecordInputSchema
+>;
+export type GatewayChangeRecordBody = z.infer<
+	typeof GatewayChangeRecordBodySchema
+>;
+export type GatewayChangeRecord = z.infer<typeof GatewayChangeRecordSchema>;

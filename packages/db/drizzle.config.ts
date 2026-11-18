@@ -28,6 +28,7 @@ export default defineConfig({
 	// complete canonical schema through this explicit source list.
 	schema: [
 		"./src/schema/data-residency.ts",
+		"./src/schema/gateway-change-records.ts",
 		"./src/schema/kernel-requests.ts",
 		"./src/schema/index.ts",
 		"./src/schema/graph-retrieval-benchmarks.ts",

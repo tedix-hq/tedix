@@ -1,4 +1,6 @@
+import type { ChangeRecordInput as LedgerInput } from "@tedix/agent-governance/types";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { createInMemoryAdapters } from "@tedix/agent-governance/in-memory";
 import { admitGatewayCall } from "./gateway-adapters";
 import { toolApprovalMetadata } from "./tool-risk-policy";
 import type { AppTool, ServerContext } from "./server-context";
@@ -26,6 +28,10 @@ it("isolates verified approvers across concurrent exact-call admissions", async 
 			organizationId: "org-1",
 		},
 		apiClient: {
+			audit: {
+				appendChangeRecord: (input: LedgerInput) =>
+					createInMemoryAdapters().accountability.append(input),
+			},
 			mcpGovernance: {
 				requestOwnerToolApproval: vi.fn(async ({ args }) => ({
 					approved: args.allow,
@@ -87,7 +93,13 @@ it.each([undefined, "host-agent-session"])(
 				organizationId: "org-1",
 				ownerHostSessionId,
 			},
-			apiClient: { mcpGovernance: { requestOwnerToolApproval: request } },
+			apiClient: {
+				audit: {
+					appendChangeRecord: (input: LedgerInput) =>
+						createInMemoryAdapters().accountability.append(input),
+				},
+				mcpGovernance: { requestOwnerToolApproval: request },
+			},
 		} as unknown as ServerContext;
 		await admitGatewayCall({
 			agent,

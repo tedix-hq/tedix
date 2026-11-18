@@ -11,17 +11,22 @@ import {
 	vi,
 } from "vite-plus/test";
 
-const { getApiClient, listByApp, getRunArtifact } = vi.hoisted(() => {
-	const listByApp = vi.fn();
-	const getRunArtifact = vi.fn();
-	return {
-		listByApp,
-		getRunArtifact,
-		getApiClient: vi.fn(() => ({
-			skills: { listByApp, getRunArtifact },
-		})),
-	};
-});
+const { getApiClient, listByApp, getRunArtifact } = await vi.hoisted(
+	async () => {
+		const { createGatewayLedgerApi } =
+			await import("../../test/gateway-ledger");
+		const listByApp = vi.fn();
+		const getRunArtifact = vi.fn();
+		return {
+			listByApp,
+			getRunArtifact,
+			getApiClient: vi.fn(() => ({
+				audit: createGatewayLedgerApi(),
+				skills: { listByApp, getRunArtifact },
+			})),
+		};
+	},
+);
 
 vi.mock("../lib/api-client", () => ({ getApiClient }));
 

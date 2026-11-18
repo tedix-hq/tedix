@@ -1,3 +1,4 @@
+import { createGatewayLedgerApi } from "../test/gateway-ledger";
 import { mountMcp } from "@tedix/mcp-shared/transport";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { CallerIdentity } from "./mcp/caller-identity";
@@ -612,11 +613,20 @@ const CODE =
 	'async () => await payments.premium_research_brief({ topic: "Solana agent payments" })';
 
 function createApiService(draft?: string) {
+	const ledger = createGatewayLedgerApi();
 	return {
 		fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const request =
 				input instanceof Request ? input : new Request(input, init);
 			const url = new URL(request.url);
+			if (url.pathname === "/rpc/audit/appendChangeRecord") {
+				const body = (await request.json()) as {
+					json: Parameters<typeof ledger.appendChangeRecord>[0];
+				};
+				return Response.json({
+					json: await ledger.appendChangeRecord(body.json),
+				});
+			}
 
 			if (url.pathname === "/rpc/skills/listByApp") {
 				return Response.json({ json: { skills: [], summaries: [] } });

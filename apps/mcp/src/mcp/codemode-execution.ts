@@ -58,7 +58,7 @@ import {
 	emitMcpAuditEvent,
 } from "./utils/analytics";
 import { toolRiskAuditMetadata } from "./tool-risk-policy";
-import { admitGatewayCall } from "./gateway-adapters";
+import { admitGatewayCall, recordGatewayRefusal } from "./gateway-adapters";
 import { resolveWireAnnotations } from "./tool-registration-policy";
 import { type NamespaceGroup } from "@tedix/mcp-shared/compact-types";
 import { hasNoFundsRestriction, isNoFundsToolDenied } from "./no-funds-policy";
@@ -399,8 +399,26 @@ export function buildNamespaceGroups(
 			groups.set(ns, { fns: {}, schemas: {} });
 		}
 		const group = groups.get(ns)!;
+		const refuse = (
+			args: Record<string, unknown>,
+			gate: Parameters<typeof recordGatewayRefusal>[1],
+			reason: string,
+		) =>
+			recordGatewayRefusal(
+				{
+					agent: serverCtx,
+					tool,
+					args,
+					annotations: resolveWireAnnotations(tool),
+					toolName: `${ns}.${safeName}`,
+					surface: "mcp_codemode",
+				},
+				gate,
+				reason,
+			);
 		if (connectionRestricted && isNoFundsToolDenied(tool)) {
-			group.fns[safeName] = async () => {
+			group.fns[safeName] = async (args) => {
+				await refuse(args, "tool_scope", "payment_denied");
 				throw new Error(CONNECT_PAYMENT_DENIED);
 			};
 			continue;
@@ -427,11 +445,13 @@ export function buildNamespaceGroups(
 			const retryKey = buildIdenticalCallKey(ownerKey, args);
 			const retryState = executionRefs.failureBudget.state(retryKey);
 			if (retryState.blocked) {
+				await refuse(args, "budget", "identical_call_blocked");
 				throw new Error(
 					"Identical call blocked after repeated failures. Change the arguments or execution plan.",
 				);
 			}
 			let actionReceipt: ActionReceipt | undefined;
+			let admitted = false;
 			const runTool = async () => {
 				if (executionRefs.approvalResult)
 					throw new Error("Destructive approval pending");
@@ -571,6 +591,7 @@ export function buildNamespaceGroups(
 							: undefined,
 					},
 				});
+				admitted = true;
 				if (admission.failure) {
 					if (admission.failure._meta?.[INPUT_REQUIRED_META_KEY]) {
 						executionRefs.approvalResult = admission.failure;
@@ -584,8 +605,20 @@ export function buildNamespaceGroups(
 					tool,
 					args: executionArgs,
 					extra: executionRefs.paymentExtra ?? inlineExtra,
+				}).catch(async (error: unknown) => {
+					await admission.settle({
+						status: "not_applied",
+						error: "payment_check_failed",
+					});
+					throw error;
 				});
-				if (!payment.paid) return payment.result;
+				if (!payment.paid) {
+					await admission.settle({
+						status: "not_applied",
+						error: "payment_required",
+					});
+					return payment.result;
+				}
 
 				const adapterScope = parseAdapterScope(tool.adapterScope);
 				const resultStrategy = (tool.resultStrategy ??
@@ -770,6 +803,19 @@ export function buildNamespaceGroups(
 						limit: updatedRetryState.limit,
 					});
 				} catch (error) {
+					if (!admitted) {
+						// Stopped before the gates ran, so admission wrote no record.
+						const secretEgressDenied =
+							(error as { code?: unknown } | null)?.code ===
+							"SECRET_EGRESS_DENIED";
+						await refuse(
+							args,
+							secretEgressDenied ? "secret_egress" : "tool_scope",
+							secretEgressDenied
+								? "secret_egress_denied"
+								: "pre_admission_refused",
+						);
+					}
 					if (error instanceof Error) {
 						const detail = error as Error & {
 							code?: unknown;

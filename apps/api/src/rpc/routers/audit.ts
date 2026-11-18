@@ -21,6 +21,11 @@ import {
 	insertAuditEvent,
 	searchAuditEvents as searchAuditEventsQuery,
 } from "@tedix/db/queries/audit";
+import {
+	appendGatewayChangeRecord,
+	listGatewayChangeRecords,
+	getGatewayChangeRecord,
+} from "@tedix/db/queries/gateway-change-records";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { spillAuditMetadata } from "../../lib/audit-metadata-spill";
 import {
@@ -29,6 +34,8 @@ import {
 } from "../../lib/audit-event-output";
 import { withOrg } from "../org-scope";
 import {
+	createError,
+	ErrorCodes,
 	withAuthorization,
 	type BaseContext,
 	withAuth,
@@ -281,7 +288,58 @@ export const createAuditEvent = auditOs.createEvent
 		return { success: true as const };
 	});
 
+/**
+ * The gateway's change-record ledger: service binding only, and only from the
+ * MCP gateway's own entrypoint. The organization is the one the gateway put
+ * in `X-Tedix-Org-Id` (its resolved app's internal organization id), taken as
+ * sent so an append costs one insert and no lookup. It is never read from the
+ * request body, so a record cannot be filed under or read from another
+ * organization. A request the gateway carries for a caller is refused (every
+ * tool call it forwards is stamped `X-Tedix-Mcp-Tool-Id`): only the gateway's
+ * own ledger client may write or read here.
+ */
+function gatewayLedgerOrganizationId(context: BaseContext): string {
+	const organizationId = context.headers.get("X-Tedix-Org-Id")?.trim();
+	if (
+		context.serviceBindingPrincipal !== "mcp-edge" ||
+		context.headers.has("X-Tedix-Mcp-Tool-Id") ||
+		context.headers.has("X-Tedix-Caller-Type") ||
+		!organizationId ||
+		organizationId === "system"
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Gateway change records require the MCP gateway and an organization",
+		);
+	return organizationId;
+}
+
+const appendChangeRecord = auditOs.appendChangeRecord
+	.use(withServiceAuth)
+	.handler(async ({ input, context }) => {
+		const organizationId = gatewayLedgerOrganizationId(context);
+		return appendGatewayChangeRecord(context.db, organizationId, {
+			...input,
+			actor: { ...input.actor, organizationId },
+		});
+	});
+const listChangeRecords = auditOs.listChangeRecords
+	.use(withServiceAuth)
+	.handler(async ({ input, context }) => {
+		const organizationId = gatewayLedgerOrganizationId(context);
+		return listGatewayChangeRecords(context.db, organizationId, input);
+	});
+const getChangeRecord = auditOs.getChangeRecord
+	.use(withServiceAuth)
+	.handler(async ({ input, context }) => {
+		const organizationId = gatewayLedgerOrganizationId(context);
+		return getGatewayChangeRecord(context.db, organizationId, input.id);
+	});
+
 export const auditContractRouter = auditOs.router({
+	appendChangeRecord,
+	listChangeRecords,
+	getChangeRecord,
 	search: searchAuditEvents,
 	export: exportAuditEvents,
 	getByResource: getAuditEventsByResource,

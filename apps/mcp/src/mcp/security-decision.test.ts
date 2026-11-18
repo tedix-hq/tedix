@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+const { ledger, appendChangeRecord } = await vi.hoisted(async () => {
+	const { createGatewayLedgerApi } = await import("../../test/gateway-ledger");
+	const ledger = createGatewayLedgerApi();
+	return { ledger, appendChangeRecord: vi.fn(ledger.appendChangeRecord) };
+});
+vi.mock("../lib/api-client", () => ({
+	getApiClient: vi.fn(() => ({ audit: { ...ledger, appendChangeRecord } })),
+}));
 const { trackMcpEvent, emitMcpAuditEvent } = vi.hoisted(() => ({
 	trackMcpEvent: vi.fn(),
 	emitMcpAuditEvent: vi.fn(),
@@ -40,6 +48,7 @@ const resolvedApp = {
 
 describe("MCP pre-dispatch security decisions", () => {
 	beforeEach(() => {
+		appendChangeRecord.mockClear();
 		trackMcpEvent.mockReset();
 		emitMcpAuditEvent.mockReset();
 	});
@@ -76,6 +85,29 @@ describe("MCP pre-dispatch security decisions", () => {
 				httpStatus: 403,
 			});
 
+			// No verified caller, or a throttled request: telemetry only.
+			const unrecorded = [
+				"authentication_required",
+				"authentication_failed",
+				"oauth_audience_not_configured",
+				"rate_limited",
+			].includes(reason);
+			expect(appendChangeRecord).toHaveBeenCalledTimes(unrecorded ? 0 : 1);
+			if (!unrecorded)
+				expect(appendChangeRecord).toHaveBeenCalledWith(
+					expect.objectContaining({
+						operation: "run_tedi_turn",
+						outcome: "denied",
+						actor: expect.objectContaining({ organizationId: "org-1" }),
+						decision: expect.objectContaining({
+							gate: "edge_access",
+							reason,
+						}),
+					}),
+				);
+			expect(JSON.stringify(appendChangeRecord.mock.calls)).not.toContain(
+				"must-not-escape",
+			);
 			expect(trackMcpEvent).toHaveBeenCalledTimes(1);
 			const event = trackMcpEvent.mock.calls[0]?.[1];
 			expect(event).toMatchObject({

@@ -1,3 +1,4 @@
+import { createGatewayLedgerApi } from "../test/gateway-ledger";
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import { mountMcp } from "@tedix/mcp-shared/transport";
 import { NATIVE_CATALOG_TOOLS } from "./mcp/native-catalog-tools";
@@ -1425,9 +1426,18 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 			throw Error("get forbidden");
 		});
 		const logs = vi.spyOn(console, "log");
-		const api = vi.fn(async (_request: RequestInfo | URL) =>
-			Response.json({ json: { data: [], total: 0 } }),
-		);
+		const ledger = createGatewayLedgerApi();
+		const api = vi.fn(async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/audit/appendChangeRecord")) {
+				const body = (await request.json()) as {
+					json: Parameters<typeof ledger.appendChangeRecord>[0];
+				};
+				return Response.json({
+					json: await ledger.appendChangeRecord(body.json),
+				});
+			}
+			return Response.json({ json: { data: [], total: 0 } });
+		});
 		const env = createEnv({
 			ENVIRONMENT: "development",
 			MCP_URL: "http://localhost:3000",
@@ -1563,7 +1573,16 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 			const before = api.mock.calls.length;
 			const denied = await invoke(work.toolId, {}, ["mcp:catalog.read"]);
 			expect(denied.status).toBe(403);
-			expect(api.mock.calls).toHaveLength(before);
+			expect(
+				api.mock.calls
+					.slice(before)
+					.map(([request]) => new URL(request.url).pathname),
+			).toEqual(["/rpc/audit/appendChangeRecord"]);
+			expect((await ledger.listChangeRecords({})).at(-1)).toMatchObject({
+				operation: work.toolId,
+				outcome: "denied",
+				decision: { gate: "edge_access", reason: "insufficient_scope" },
+			});
 			const forgedArguments = await invoke(work.toolId, {
 				nativeDirect: true,
 				organizationId: "forged",

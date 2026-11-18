@@ -1,3 +1,4 @@
+import { createGatewayLedgerApi } from "../../test/gateway-ledger";
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import { mountMcp } from "@tedix/mcp-shared/transport";
 import { registerDynamicTool } from "./widget-tool-registration";
@@ -263,7 +264,7 @@ function makeAgent(result: FakeRpcResult): ServerContext {
 		},
 		appMetadata: null,
 		appCapabilities: {},
-		apiClient: {},
+		apiClient: { audit: createGatewayLedgerApi() },
 		toolHandler,
 		callerIdentity: {
 			authType: "oauth",

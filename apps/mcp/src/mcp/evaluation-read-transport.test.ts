@@ -1,3 +1,4 @@
+import { createGatewayLedgerApi } from "../../test/gateway-ledger";
 import { expect, it, vi } from "vite-plus/test";
 import { IdenticalFailureBudget } from "@tedix/tedi-codemode-core/failure-budget";
 import { unwrapJsonRpcToolResult } from "@tedix/mcp-shared/tool-result";
@@ -93,7 +94,7 @@ it.each([false, true])(
 				},
 			},
 			appCapabilities: {},
-			apiClient: {},
+			apiClient: { audit: createGatewayLedgerApi() },
 			toolHandler: new ToolHandler(),
 			traceId: "fixture-trace",
 			callerIdentity: {

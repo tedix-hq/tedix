@@ -1,4 +1,6 @@
+import type { ChangeRecordInput as LedgerInput } from "@tedix/agent-governance/types";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { createInMemoryAdapters } from "@tedix/agent-governance/in-memory";
 import {
 	isHomeApprovalCall,
 	requireDestructiveToolApproval,
@@ -38,7 +40,13 @@ function context(
 			...identity,
 			organizationId: "org-1",
 		},
-		apiClient: { mcpGovernance: { resolveHomeToolApproval: resolve } },
+		apiClient: {
+			audit: {
+				appendChangeRecord: (input: LedgerInput) =>
+					createInMemoryAdapters().accountability.append(input),
+			},
+			mcpGovernance: { resolveHomeToolApproval: resolve },
+		},
 	} as unknown as ServerContext;
 }
 describe("Home approval at MCP dispatch", () => {

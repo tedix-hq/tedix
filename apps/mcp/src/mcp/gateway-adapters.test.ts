@@ -1,3 +1,7 @@
+import type {
+	ChangeRecordInput as LedgerInput,
+	LedgerQuery,
+} from "@tedix/agent-governance/types";
 /**
  * The same call through the gateway adapters and through `wrapBinding` with
  * the in-memory adapters must produce the same decision and the same ledger
@@ -25,6 +29,7 @@ function gatewayContext(options: {
 	authType?: "user" | "tedi";
 }) {
 	const elicitInput = options.elicit ?? vi.fn();
+	const ledger = createInMemoryAdapters().accountability;
 	return {
 		server: { server: { elicitInput } },
 		env: {
@@ -38,17 +43,18 @@ function gatewayContext(options: {
 			options.authType === "tedi"
 				? { authType: "tedi", tediId: "tedi-1" }
 				: { authType: "user", userId: "user-1" },
-		...(options.authType === "tedi"
-			? {
-					apiClient: {
-						mcpGovernance: {
-							resolveAgentTransportPolicy: vi.fn(async () => ({
-								requireExplicitApprovalPolicy: false,
-							})),
-						},
-					},
-				}
-			: {}),
+		apiClient: {
+			audit: {
+				appendChangeRecord: (input: LedgerInput) => ledger.append(input),
+				listChangeRecords: (query: LedgerQuery) => ledger.list(query),
+				getChangeRecord: ({ id }: { id: string }) => ledger.get(id),
+			},
+			mcpGovernance: {
+				resolveAgentTransportPolicy: vi.fn(async () => ({
+					requireExplicitApprovalPolicy: false,
+				})),
+			},
+		},
 	} as unknown as ServerContext;
 }
 

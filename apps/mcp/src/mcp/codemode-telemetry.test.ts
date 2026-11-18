@@ -1,3 +1,4 @@
+import { createGatewayLedgerApi } from "../../test/gateway-ledger";
 import {
 	afterEach,
 	beforeEach,
@@ -380,7 +381,7 @@ function makeServerCtx(
 			},
 		},
 		appCapabilities: {},
-		apiClient: {},
+		apiClient: { audit: createGatewayLedgerApi() },
 		toolHandler: {},
 		callerIdentity: {
 			userId: "user-uuid",
@@ -883,7 +884,10 @@ describe("Code Mode tail telemetry", () => {
 					userId: "user-uuid",
 					organizationId: "org-uuid",
 				},
-				apiClient: { mcpGovernance: { resolveHomeToolApproval } },
+				apiClient: {
+					audit: createGatewayLedgerApi(),
+					mcpGovernance: { resolveHomeToolApproval },
+				},
 			});
 			executeToolMock.mockResolvedValue({
 				content: [],
@@ -1489,7 +1493,8 @@ describe("Code Mode tail telemetry", () => {
 			),
 		};
 
-		await registerCodeModeTools(server as never, makeServerCtx());
+		const serverCtx = makeServerCtx();
+		await registerCodeModeTools(server as never, serverCtx);
 		const response = (await registered.get("code")?.({
 			code: "async () => repeated_soft_fail()",
 		})) as {
@@ -1505,6 +1510,26 @@ describe("Code Mode tail telemetry", () => {
 			"soft fail",
 			expect.stringContaining("Identical call blocked"),
 		]);
+		// One change record per inner call: two that ran, one refused.
+		const records = await (
+			serverCtx.apiClient.audit as unknown as ReturnType<
+				typeof createGatewayLedgerApi
+			>
+		).listChangeRecords({});
+		expect(records).toMatchObject([
+			{ outcome: "not_applied", decision: { verdict: "allow" } },
+			{ outcome: "not_applied", decision: { verdict: "allow" } },
+			{
+				outcome: "denied",
+				decision: { gate: "budget", reason: "identical_call_blocked" },
+			},
+		]);
+		for (const record of records)
+			expect(record).toMatchObject({
+				resource: "tool:test__soft_fail",
+				source: { surface: "mcp_codemode", traceId: "trace-uuid" },
+				actor: { organizationId: "org-uuid" },
+			});
 	});
 
 	it("blocks retries immediately after a non-retryable secret-egress denial", async () => {

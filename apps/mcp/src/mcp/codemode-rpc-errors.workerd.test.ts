@@ -8,6 +8,14 @@ import { buildMcpServer, type CachedAppData } from "./server-factory";
 it("rejects first-party oRPC failures with code and status inside the real Code Mode sandbox", async () => {
 	let calls = 0;
 	const api = new RPCHandler({
+		audit: {
+			appendChangeRecord: os.handler(({ input }) => ({
+				...(input as object),
+				id: crypto.randomUUID(),
+				sequence: 1,
+				recordedAt: new Date().toISOString(),
+			})),
+		},
 		skills: {
 			improve: os.handler(() => {
 				calls++;

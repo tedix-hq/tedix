@@ -15,6 +15,9 @@ import {
 } from "../schemas/common";
 import {
 	AuditActorTypeSchema,
+	GatewayChangeRecordInputSchema,
+	GatewayChangeRecordSchema,
+	GatewayLedgerQuerySchema,
 	AuditExportInputSchema,
 	AuditExportOutputSchema,
 	AuditSearchFiltersSchema,
@@ -51,6 +54,34 @@ export const auditContract = oc
 	.route({ tags: ["audit"], prefix: "/audit" })
 	.errors(baseErrors)
 	.router({
+		appendChangeRecord: oc
+			.route({
+				tags: ["internal"],
+				method: "POST",
+				path: "/changes",
+				summary: "Append gateway change record",
+			})
+			.input(GatewayChangeRecordInputSchema)
+			.output(GatewayChangeRecordSchema),
+		listChangeRecords: oc
+			.route({
+				tags: ["internal"],
+				method: "GET",
+				path: "/changes",
+				summary: "List gateway change records",
+			})
+			.input(GatewayLedgerQuerySchema)
+			.output(z.array(GatewayChangeRecordSchema)),
+		getChangeRecord: oc
+			.route({
+				tags: ["internal"],
+				method: "GET",
+				path: "/changes/{id}",
+				summary: "Get gateway change record",
+			})
+			.input(z.object({ id: z.string().min(1) }))
+			.output(GatewayChangeRecordSchema.nullable()),
+
 		/**
 		 * Search audit events with optional filters
 		 * GET /audit
