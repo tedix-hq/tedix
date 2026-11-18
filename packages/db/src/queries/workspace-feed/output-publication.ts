@@ -13,7 +13,12 @@ import {
 	getWorkspaceOutputIndexRevision,
 } from "./read";
 
-/** The core ledger retains sequence ownership while existing D1 outputs remain writable. */
+/**
+ * Record a saved output revision in the workspace's feed ledger and bring the
+ * organization's index and activity up to that entry. The ledger gives the
+ * entry its sequence number. A revision that is not current is skipped unless
+ * `historical`, and a revision already recorded changes nothing.
+ */
 export async function publishOutputProjection(
 	db: DbQueryClient,
 	output: OsOutputRow,

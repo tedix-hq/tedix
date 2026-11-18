@@ -908,11 +908,13 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			operation.op === "create" || operation.op === "revise"
 				? operation.excerpt
 				: undefined;
-		if (excerpt)
-			this.#store.put(
-				`output-excerpt:${operation.op === "create" ? operation.revision.id : (operation as OutputQuery<"revise">).params.id}`,
-				excerpt,
-			);
+		const excerptRevisionId = !excerpt
+			? undefined
+			: operation.op === "create"
+				? operation.revision.id
+				: (operation as OutputQuery<"revise">).params.id;
+		if (excerptRevisionId)
+			this.#store.put(`output-excerpt:${excerptRevisionId}`, excerpt);
 		const write = async () => {
 			if (operation.op === "mergeProposal" && !(await this.#ownsOutputs(scope)))
 				throw new Error(
@@ -965,7 +967,31 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			}
 			return result as OutputQueryResult<K>;
 		};
-		return outputId ? this.#commitOutput(scope, outputId, write) : write();
+		const committed = outputId
+			? this.#commitOutput(scope, outputId, write)
+			: write();
+		if (!excerptRevisionId) return committed;
+		// Publishing a revision clears its text. A save that stored no revision
+		// under this id is never published, so its text is cleared here.
+		const dropUnsavedExcerpt = async () => {
+			const saved = await executeOutputQuery(this.db as TenantStoreDb, scope, {
+				op: "revision",
+				revisionId: excerptRevisionId,
+			});
+			if (!saved) this.#store.delete(`output-excerpt:${excerptRevisionId}`);
+		};
+		try {
+			const result = await committed;
+			if (operation.op === "revise") {
+				const revised = result as OutputQueryResult<"revise">;
+				if (!revised.ok || revised.revision.id !== excerptRevisionId)
+					await dropUnsavedExcerpt();
+			}
+			return result;
+		} catch (error) {
+			await dropUnsavedExcerpt();
+			throw error;
+		}
 	}
 
 	#outputTransfers() {
