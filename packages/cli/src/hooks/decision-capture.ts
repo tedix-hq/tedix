@@ -657,28 +657,6 @@ export async function interactionDetail(
 	}
 }
 
-/**
- * True when the user answered in Tedix OS (or elsewhere) rather than through
- * this chat's own reply capture, so the answer is news to the session.
- */
-export function answeredElsewhere(
-	detail: InteractionDetail,
-	user: string,
-	session: string,
-): boolean {
-	const resolution = detail.resolution;
-	return Boolean(
-		detail.state === "resolved" &&
-		resolution &&
-		resolution.byType === "user" &&
-		resolution.byId === user &&
-		// A closure that asks for no delivery (triage's FYI acknowledgement, the
-		// lead's `--no-deliver`) is not an answer for the session.
-		resolution.delivery !== "none" &&
-		!(resolution.source === "user-reply" && resolution.sessionId === session),
-	);
-}
-
 /** True when a tedi's auto-delivered draft resolved the question. */
 export function autoAnswered(detail: InteractionDetail): boolean {
 	return (
