@@ -152,17 +152,17 @@ function SidebarNavigationItem({
 	);
 }
 
-/** Opens the Unread page and shows how much is new across all workspaces. */
+/** Opens the Inbox and shows how much is new across all workspaces. */
 function SidebarUnreadItem({ pathname }: { pathname: string }) {
 	const unread = useUnreadTotal();
 	return (
 		<SidebarMenuButton
-			active={pathname === "/unread"}
-			href="/unread"
+			active={pathname === "/inbox"}
+			href="/inbox"
 			icon={Tray}
-			tooltip={unread > 0 ? `Unread: ${unread}` : "Unread"}
+			tooltip={unread > 0 ? `Inbox: ${unread} unread` : "Inbox"}
 		>
-			Unread
+			Inbox
 			<UnreadBadge
 				className="ml-auto group-data-[state=collapsed]/sidebar:hidden"
 				count={unread}

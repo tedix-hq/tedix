@@ -198,7 +198,7 @@ describe("OS shell chrome", () => {
 		).toContain("Shared planning");
 	});
 
-	it("links to the Unread page from the sidebar and counts what is new", async () => {
+	it("links to the Inbox from the sidebar and counts what is new", async () => {
 		unreadSummary.read.mockResolvedValue({
 			total: 7,
 			workspaces: [{ workspaceId: "starred-workspace", total: 7 }],
@@ -206,29 +206,29 @@ describe("OS shell chrome", () => {
 		const container = renderShell();
 		const item = () =>
 			rail(container).querySelector<HTMLAnchorElement>(
-				'[aria-label="Primary"] a[href="/unread"]',
+				'[aria-label="Primary"] a[href="/inbox"]',
 			)!;
-		expect(item().textContent).toBe("Unread");
+		expect(item().textContent).toBe("Inbox");
 		expect(item().hasAttribute("data-active")).toBe(false);
 		await act(async () => {
 			for (let tick = 0; tick < 5; tick += 1)
 				await new Promise((resolve) => setTimeout(resolve, 0));
 		});
-		expect(item().textContent).toBe("Unread7");
+		expect(item().textContent).toBe("Inbox7");
 		expect(item().querySelector('[aria-label="7 unread"]')).not.toBeNull();
 	});
 
-	it("shows no count on Unread when everything is read and marks it current on its page", async () => {
-		route.pathname = "/unread";
+	it("shows no count on Inbox when everything is read and marks it current on its page", async () => {
+		route.pathname = "/inbox";
 		const container = renderShell();
 		await act(async () => {
 			for (let tick = 0; tick < 5; tick += 1)
 				await new Promise((resolve) => setTimeout(resolve, 0));
 		});
 		const item = rail(container).querySelector<HTMLAnchorElement>(
-			'[aria-label="Primary"] a[href="/unread"]',
+			'[aria-label="Primary"] a[href="/inbox"]',
 		)!;
-		expect(item.textContent).toBe("Unread");
+		expect(item.textContent).toBe("Inbox");
 		expect(item.hasAttribute("data-active")).toBe(true);
 	});
 
@@ -388,7 +388,7 @@ describe("OS shell chrome", () => {
 		const primary = container.querySelector('[aria-label="Primary"]')!;
 		expect(
 			[...primary.querySelectorAll("a")].map((a) => a.textContent),
-		).toEqual(["Work", "Chat", "Workspaces", "Documents", "Unread"]);
+		).toEqual(["Work", "Chat", "Workspaces", "Documents", "Inbox"]);
 		expect(primary.closest('[data-sidebar="content"]')).toBeNull();
 		expect(container.querySelector('[aria-label="Setup"]')).toBeNull();
 		expect(container.querySelector('[data-sidebar="group-label"]')).toBeNull();

@@ -291,9 +291,9 @@ export const OS_PAGES: readonly OsPage[] = [
 		settings: true,
 	},
 	{
-		id: "unread",
-		path: "/unread",
-		label: "Unread",
+		id: "inbox",
+		path: "/inbox",
+		label: "Inbox",
 		palette: true,
 		description: "New chat messages and changed files in your workspaces.",
 	},

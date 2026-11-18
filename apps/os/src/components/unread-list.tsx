@@ -75,7 +75,7 @@ export function unreadRows(items: readonly WorkspaceUnreadItem[]): UnreadRow[] {
 	return rows;
 }
 
-/** The second line of a row on the Unread page: what kind of thing is new. */
+/** The second line of a row on the Inbox page: what kind of thing is new. */
 export function unreadRowPreview({ item, count }: UnreadRow): string {
 	if (item.kind === "file")
 		return `File · changed by ${item.byAgent ? "an agent" : "a teammate"}`;
@@ -106,7 +106,7 @@ function MarkWorkspaceRead({
 
 /**
  * Everything new across the person's workspaces, newest first, grouped by
- * workspace. `page` is the full Unread page: one row per conversation and
+ * workspace. `page` is the full Inbox page: one row per conversation and
  * file with a second line, and "Mark as read" on each workspace.
  */
 export function UnreadList({

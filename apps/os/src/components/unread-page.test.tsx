@@ -131,11 +131,11 @@ describe("unread rows", () => {
 	});
 });
 
-describe("Unread page", () => {
+describe("Inbox page", () => {
 	it("lists unread conversations and changed files per workspace with a second line", async () => {
 		unreadApi.list.mockResolvedValue(twoWorkspaces);
 		const host = await render();
-		expect(host.querySelector("h1")?.textContent).toBe("Unread");
+		expect(host.querySelector("h1")?.textContent).toBe("Inbox");
 		const sections = [...host.querySelectorAll("section[aria-label]")];
 		expect(sections.map((node) => node.getAttribute("aria-label"))).toEqual([
 			"Launch: 3 unread",
