@@ -1,16 +1,16 @@
 ---
-summary: "Map of every main-database table to its target storage plane (core Postgres, per-workspace SQLite, logs, remove)"
+summary: "Parked design map of main-database tables to proposed storage planes"
 read_when:
-  - Porting a query domain to the core or tenant store
-  - Adding a table or changing a table's scope keys
-  - Planning the migration pipeline or a cross-workspace read
+  - Reviewing the parked data-plane design and its table inventory
 title: "Data planes: table map"
 ---
 
 # Data planes: table map
 
-Working map for the clean-cut split (epic 00290527). It assigns every
-table declared under `packages/db/src/schema/` to a target plane:
+This is the frozen table map from the parked clean-cut split design (epic
+00290527). It is not an active migration plan or a description of current
+storage. The design assigned every table declared under
+`packages/db/src/schema/` to a proposed plane:
 
 - **core** — the shared core Postgres store: platform identity, org
   registries, billing, catalogs, governance, and the summary rows that

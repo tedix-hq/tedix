@@ -190,8 +190,6 @@ const DRAFT_SKILL_PROPERTIES: NonNullable<ToolInputJsonSchema["properties"]> = {
 const VALIDATE_SKILL_SCHEMA: ToolInputJsonSchema = {
 	type: "object",
 	properties: {
-		id: { type: "string" },
-		slug: { type: "string" },
 		...DRAFT_SKILL_PROPERTIES,
 	},
 	additionalProperties: false,
@@ -710,8 +708,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 	{
 		name: "validate_skill",
 		remoteName: "validate_skill",
-		description:
-			"Validate an existing or draft skill without mutating stored skills.",
+		description: "Validate a draft skill without writing it.",
 		inputSchema: VALIDATE_SKILL_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/validate",

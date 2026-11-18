@@ -4,7 +4,6 @@ import {
 	adoptSkillImprovementCopy,
 	removeSkillImprovementCopy,
 } from "@tedix/db/queries/cognitive/skill-improvement-cleanup";
-import { resolveFactoryRunContext } from "@tedix/db/queries/factories";
 import { isToolExcludedFromSkillCoverage } from "@tedix/api-contract/schemas/tools";
 import { getAppById } from "@tedix/db/queries/app-records";
 import {
@@ -1161,42 +1160,6 @@ export const skillsValidate = authedSkills.validate
 	.handler(async ({ input, context }) => {
 		const orgId = context.organizationId;
 
-		// Mode A: validate stored skill by id (or its skillId alias) or slug
-		const storedId = input.id ?? input.skillId;
-		if (storedId || input.slug) {
-			const skill = storedId
-				? await getSkillEntry(context.db, storedId, orgId)
-				: await getSkillEntryBySlug(context.db, orgId, input.slug!);
-			if (!skill) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
-			const factory = await resolveFactoryRunContext(context.db, {
-				orgId,
-				skillId: skill.id,
-			});
-			const result = await validateSkillInput(
-				context.db,
-				{
-					factory,
-					title: skill.title,
-					description: skill.description ?? undefined,
-					summary: skill.summary ?? undefined,
-					content: skill.content,
-					files: skill.files ?? null,
-					toolSlugs: extractMcpToolMetadata(skill.content),
-					metadataToolSlugs: extractMcpToolMetadata(skill.content),
-					mcpAppBindings: skill.mcpAppBindings,
-					organizationId: orgId,
-					slug: skill.slug,
-					ownerTediId: skill.tediId,
-				},
-				skill.appId ?? null,
-			);
-			return withOwnerTediIssues(context, orgId, result, {
-				content: skill.content,
-				ownerTediId: skill.tediId,
-			});
-		}
-
-		// Mode B: validate draft input
 		const appId = await resolveAppId(context, input);
 		if (input.toolSlugs?.length && !appId) {
 			throw createError(

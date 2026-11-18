@@ -7,9 +7,9 @@ export type BillingReturnState =
 /**
  * Canonical destination for organization billing flows: Tedix OS
  * `/admin/billing`. OS tenancy is hostname-based (`{slug}.os.tedix.dev`
- * resolves the organization), so there is no slug path segment — but the OS client normally passes its own tenant-origin
- * successUrl/cancelUrl/returnUrl, so this default mostly covers non-OS
- * callers and older clients.
+ * resolves the organization), so there is no slug path segment. The OS client
+ * normally passes its own tenant-origin successUrl/cancelUrl/returnUrl; this
+ * default covers callers that do not pass one.
  *
  * The `state` param drives the OS return handshake
  * (`?checkout=success|cancelled|topup-success|topup-cancelled` — invalidate the billing reads, show a

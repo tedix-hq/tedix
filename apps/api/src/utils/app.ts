@@ -22,8 +22,6 @@ export function slugify(input: string, maxLength = 50): string {
  * Examples (orgSlug = "acme"):
  * - "Admin Dashboard" -> "acme-admin-dashboard"
  * - "MCP Server" -> "acme-mcp-server"
- *
- * If no orgSlug is provided, falls back to app name only (legacy).
  */
 export function generateAppSlug(name: string, orgSlug?: string): string {
 	const appPart = slugify(name);
