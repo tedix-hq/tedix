@@ -26,8 +26,9 @@ writing. Settings and capabilities are supplied anew for each invocation;
 do not keep identity, capabilities or state in module globals.
 
 Test loading, empty/error states, both tabs, keyboard focus, rating, reload
-and reset at 375px and desktop width, including long text in the configured language. Root colour
-tokens explicitly choose light mode; all buttons are at least 44px tall.
+and reset at 375px and desktop width, including long text in the configured language. Colours,
+font and corner radius come from the host's `--tedix-*` variables, so the app
+follows Tedix OS in light and dark mode; all buttons are at least 44px tall.
 Preview uses isolated storage and cannot write resources; preview ratings do
 not migrate to the committed app. Leave the result as a draft for review.
 Never publish from this starter workflow.
