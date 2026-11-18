@@ -9,6 +9,7 @@ import {
 	withDynamicWorkerLoaderDiagnostics,
 	withModelAuthoredCodeIsolation,
 } from "@tedix/tedi-codemode-core/model-authored-code-loader";
+import { callFailureText } from "./call-failure";
 import type {
 	SandboxRunInput,
 	SandboxRunResult,
@@ -16,6 +17,14 @@ import type {
 } from "./runtime";
 
 export const SANDBOX_TIMEOUT_MS = 60_000;
+
+/**
+ * A run whose time is up is no longer waited for, but it is not stopped, so
+ * the model is told that its calls may have applied or may still apply.
+ */
+export function sandboxTimeoutError(timeoutMs: number): string {
+	return `The code did not finish within ${Math.round(timeoutMs / 1000)} s, so its result is unknown. Calls it made may have taken effect, and it may still be making them. Read the current state before you repeat a change, and split long work into shorter runs.`;
+}
 
 /**
  * Entry module of the sandbox Worker. It imports the model's module,
@@ -28,7 +37,13 @@ import * as agent from "./agent.js";
 const MAX_LOGS = 200;
 function show(value) {
 	if (typeof value === "string") return value;
-	try { return JSON.stringify(value); } catch { return String(value); }
+	try { return JSON.stringify(value) ?? String(value); } catch { return String(value); }
+}
+// What the model reads when its code throws: an Error's message, or the thrown value itself.
+function failure(error) {
+	if (error instanceof Error) return error.message || error.name;
+	if (typeof error === "string" && error) return error;
+	return "The code threw " + show(error).slice(0, 2000) + " instead of an Error";
 }
 // An RPC stub's own fetch is HTTP, so web.fetch travels as fetchPage.
 const RPC_NAMES = Object.assign(Object.create(null), { fetch: "fetchPage" });
@@ -61,7 +76,7 @@ export default class extends WorkerEntrypoint {
 			const result = await main(unwrap(env ?? {}));
 			return { ok: true, result: result === undefined ? undefined : JSON.parse(JSON.stringify(result)), logs };
 		} catch (error) {
-			return { ok: false, logs, error: error instanceof Error ? error.message : String(error) };
+			return { ok: false, logs, error: failure(error) };
 		}
 	}
 }
@@ -85,26 +100,28 @@ export function createLoaderSandbox(
 	return {
 		async run(input: SandboxRunInput): Promise<SandboxRunResult> {
 			const started = Date.now();
-			const worker = isolated.load({
-				compatibilityDate,
-				compatibilityFlags: ["disallow_importable_env"],
-				mainModule: "harness.js",
-				modules: { "harness.js": SANDBOX_HARNESS, "agent.js": input.code },
-				// Stubs travel on the run() call; the manifest env stays empty.
-				env: {},
-				// No network: the sandbox reaches the workspace only through env stubs.
-				globalOutbound: null,
-			});
-			const entrypoint = worker.getEntrypoint() as unknown as SandboxEntrypoint;
 			const timeoutMs = input.timeoutMs ?? SANDBOX_TIMEOUT_MS;
 			let timer: ReturnType<typeof setTimeout> | undefined;
+			// Whatever goes wrong with the model's code, loading it included, is
+			// this run's result and never a throw: the turn goes on.
 			try {
+				const worker = isolated.load({
+					compatibilityDate,
+					compatibilityFlags: ["disallow_importable_env"],
+					mainModule: "harness.js",
+					modules: { "harness.js": SANDBOX_HARNESS, "agent.js": input.code },
+					// Stubs travel on the run() call; the manifest env stays empty.
+					env: {},
+					// No network: the sandbox reaches the workspace only through env stubs.
+					globalOutbound: null,
+				});
+				const entrypoint =
+					worker.getEntrypoint() as unknown as SandboxEntrypoint;
 				const outcome = await Promise.race([
 					entrypoint.run(input.env),
 					new Promise<never>((_, reject) => {
 						timer = setTimeout(
-							() =>
-								reject(new Error(`Sandbox timed out after ${timeoutMs} ms`)),
+							() => reject(new Error(sandboxTimeoutError(timeoutMs))),
 							timeoutMs,
 						);
 					}),
@@ -114,7 +131,7 @@ export function createLoaderSandbox(
 				return {
 					ok: false,
 					logs: [],
-					error: error instanceof Error ? error.message : String(error),
+					error: callFailureText(error),
 					durationMs: Date.now() - started,
 				};
 			} finally {

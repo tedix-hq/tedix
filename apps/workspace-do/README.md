@@ -40,6 +40,16 @@ its code runs beside the data.
    fenced readable text. The first page from a domain in a conversation holds
    for the person's approval on the usual card; later pages on that domain in
    the same conversation load without asking.
+   A call that fails ends that call, not the turn (`src/call-failure.ts`).
+   Refused arguments, a stale `expectedRevision`, an unknown file, a tool
+   that throws anything at all, code that throws, does not load or runs out
+   of time: each comes back as that call's error with the reason, the model
+   corrects it, and the turn goes on. Text holding half of a character (an
+   emoji cut in two) is refused before any check or card, because it could
+   not be saved as written. Code that runs past 60 s is no longer waited
+   for but is not stopped, so the model is told its calls may have applied.
+   Only a failed model request or a result that cannot be stored ends the
+   turn.
    A held write does not end the turn. The model reads "Approval required"
    in its tool result and carries on with work that does not depend on it;
    the person decides on the card or in the chat's "Waiting for you" tray

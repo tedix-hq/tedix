@@ -78,6 +78,7 @@ import type {
 import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
 import { SqlAccountabilityAdapter, SqlComplianceAdapter } from "./adapters";
 import { buildWorkspaceBindings } from "./bindings";
+import { callFailureText, unsavableTextError } from "./call-failure";
 import type { WorkspaceSnapshot } from "./data-port";
 import { MAX_VIEWS_PER_TURN } from "./views";
 import {
@@ -3476,6 +3477,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			...(args[0] === undefined ? {} : { input: boundedEventInput(args[0]) }),
 		});
 		try {
+			// Refused here, before any check or card, so the model can correct
+			// the text and nothing waits for a decision that could not apply.
+			const unsavable = unsavableTextError(args);
+			if (unsavable) throw new Error(unsavable);
 			const value = await (fn as (...a: unknown[]) => Promise<unknown>)(
 				...args,
 			);
@@ -3492,7 +3497,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			});
 			return { ok: true, value: JSON.parse(json) };
 		} catch (error: unknown) {
-			let message = error instanceof Error ? error.message : String(error);
+			let message = callFailureText(error);
 			if (
 				error instanceof CallRefusedError &&
 				error.decision.verdict === "needs_approval"

@@ -66,7 +66,12 @@ import {
 } from "@tedix/db/queries/os-workspaces/collaboration";
 import { createOsGadgetRevision } from "@tedix/db/queries/os-workspaces/gadgets";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
-import { validateWorkspaceAppSource } from "../src/sandbox";
+import {
+	createLoaderSandbox,
+	sandboxTimeoutError,
+	validateWorkspaceAppSource,
+} from "../src/sandbox";
+import { COMPATIBILITY_DATE } from "../src/do";
 import type { WorkspaceEnv, WorkspaceScope } from "../src/env";
 import type { WorkspaceRpc } from "../src/do";
 import type { ScriptStep } from "./worker";
@@ -2315,6 +2320,192 @@ describe("WorkspaceDO", () => {
 		expect((await ws.readSystemPrompts(scope)).at(-1)).not.toContain(
 			"<waiting_for_approval",
 		);
+	});
+
+	test("each refused or failed call ends that call; the model reads why and the turn finishes", async () => {
+		await seedCore();
+		const ws = workspace();
+		await seedOutputs(ws);
+		// Where the files stand before anything fails.
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async (env) => [
+					(await env.documents.read({ outputId: "out-doc" })).revision,
+					(await env.sheets.read({ outputId: "out-sheet" })).revision,
+					(await env.outputs.list()).length,
+				]`,
+			},
+			{ text: "Read." },
+		]);
+		const read = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Read the files",
+		});
+		await ws.awaitTurn(scope, read.turnId, 20_000);
+		const [revision, sheetRevision, files] = (
+			JSON.stringify(await ws.readMessages(scope, read.conversationId)).match(
+				/return value:\\n\[\\n (\d+),\\n (\d+),\\n (\d+)/,
+			) ?? []
+		)
+			.slice(1)
+			.map(Number);
+		if (!revision || !sheetRevision || !files)
+			throw new Error("The files could not be read");
+		// "\\ud83d" reaches the sandbox as the escape \ud83d: half of an emoji.
+		const failing: Array<{ code: string; reads: string[] }> = [
+			{
+				code: `export default async (env) => env.documents.replace({ outputId: "out-doc", expectedRevision: ${revision},
+					content: { kind: "document", blocks: "not a list" } })`,
+				reads: ["Invalid arguments: blocks: "],
+			},
+			{
+				code: `export default async (env) => env.outputs.revise({ outputId: "out-doc", expectedRevision: 0,
+					content: { kind: "document", blocks: [{ type: "paragraph", text: "stale" }] } })`,
+				reads: ["revision_conflict"],
+			},
+			{
+				code: `export default async (env) => env.documents.replace({ outputId: "out-doc", expectedRevision: ${revision},
+					content: { kind: "document", blocks: [{ type: "paragraph", text: "Half \\ud83d" }] } })`,
+				reads: [
+					"Nothing was changed: content.blocks[0].text holds half of a character",
+					"Send whole characters",
+				],
+			},
+			{
+				code: `export default async (env) => env.sheets.edit({ outputId: "out-sheet", expectedRevision: ${sheetRevision},
+					startRow: 1, startColumn: 0, cells: [["\\ude00 cut"]] })`,
+				reads: ["cells[0][0] holds half of a character"],
+			},
+			{
+				code: `export default async (env) => env.outputs.create({ title: "Notes \\ud83d",
+					content: { kind: "document", blocks: [{ type: "paragraph", text: "whole" }] } })`,
+				reads: ["title holds half of a character"],
+			},
+			{
+				// An edit that removes a block would wait on a card; this one cannot apply.
+				code: `export default async (env) => env.documents.edit({ outputId: "out-doc", expectedRevision: ${revision},
+					ops: [{ op: "delete", index: 1 }, { op: "replace", index: 0, block: { type: "heading", level: 1, text: "\\ud83d" } }] })`,
+				reads: ["ops[1].block.text holds half of a character"],
+			},
+			{
+				code: `export default async (env) => env.documents.read({ outputId: "no-such-file" })`,
+				reads: ["Document not found or unavailable"],
+			},
+			{
+				code: `export default async (env) => env.outputs.shred("out-doc")`,
+				reads: ["shred"],
+			},
+			{
+				code: `export default async () => { throw { code: "E_PLAN", hint: "pick another row" }; }`,
+				reads: [
+					'The code threw {\\"code\\":\\"E_PLAN\\",\\"hint\\":\\"pick another row\\"} instead of an Error',
+				],
+			},
+			{
+				code: `export default async () => { throw undefined; }`,
+				reads: ["The code threw undefined instead of an Error"],
+			},
+			{
+				code: `export default async () => { console.log("read 4 rows"); throw new RangeError("row 9 is past the end"); }`,
+				reads: ["read 4 rows", "error: row 9 is past the end"],
+			},
+			{
+				code: `export default async (env) => {`,
+				reads: ["SyntaxError"],
+			},
+		];
+		await ws.scriptModel(scope, [
+			...failing.map(({ code }) => ({ code })),
+			{
+				code: `export default async (env) => {
+					const saved = await env.documents.replace({ outputId: "out-doc", expectedRevision: ${revision},
+						content: { kind: "document", blocks: [{ type: "paragraph", text: "Whole 😀" }] } });
+					const read = await env.documents.read({ outputId: "out-doc" });
+					return { revision: saved.revision, text: read.content.blocks[0].text, files: (await env.outputs.list()).length };
+				}`,
+			},
+			{ text: "Twelve calls failed; I read why and saved the file." },
+		]);
+		const started = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Try each of these",
+		});
+		expect(await ws.awaitTurn(scope, started.turnId, 30_000)).toMatchObject({
+			status: "finished",
+			text: "Twelve calls failed; I read why and saved the file.",
+		});
+		const results = (await ws.readMessages(scope, started.conversationId))
+			.filter((message) => message.role === "toolResult")
+			.map((message) => ({
+				isError: (message as { isError?: boolean }).isError,
+				text: JSON.stringify(message.content),
+			}));
+		expect(results.map((result) => result.isError)).toEqual([
+			...failing.map(() => true),
+			false,
+		]);
+		for (const [index, { reads }] of failing.entries())
+			for (const text of reads) expect(results[index]?.text).toContain(text);
+		// Refused arguments read as fields, not as a schema dump.
+		expect(results[0]?.text).not.toContain("invalid_type");
+		// None of the failed calls changed or added a file; the corrected one saved once.
+		expect(results.at(-1)?.text).toContain(`\\"revision\\": ${revision + 1}`);
+		expect(results.at(-1)?.text).toContain(`\\"files\\": ${files}`);
+		expect(results.at(-1)?.text).toContain('\\"text\\": \\"Whole 😀\\"');
+		const events = await ws.readEvents(scope, {
+			conversationId: started.conversationId,
+		});
+		// Nothing waits for a person, and the chat shows why each step failed.
+		expect(
+			events.filter(
+				(event) => event.type === "approval.requested" && !event.automatic,
+			),
+		).toEqual([]);
+		expect(
+			events.filter(
+				(event) =>
+					event.type === "step.finished" &&
+					event.status === "error" &&
+					event.error?.includes("holds half of a character"),
+			).length,
+		).toBeGreaterThanOrEqual(4);
+		expect(
+			events.filter((event) => event.type === "turn.finished"),
+		).toMatchObject([{ status: "done" }]);
+	});
+
+	test("code that runs out of time, cannot load or exports nothing fails its run, not the caller", async () => {
+		const sandbox = createLoaderSandbox(testEnv.LOADER, COMPATIBILITY_DATE);
+		const slow = await sandbox.run({
+			code: `export default async () => { await new Promise((resolve) => setTimeout(resolve, 3000)); return "late"; }`,
+			env: {},
+			timeoutMs: 1000,
+		});
+		expect(slow).toMatchObject({ ok: false, logs: [] });
+		expect(slow.error).toBe(sandboxTimeoutError(1000));
+		expect(slow.error).toContain("did not finish within 1 s");
+		expect(slow.error).toContain("may have taken effect");
+		expect(slow.durationMs).toBeLessThan(2500);
+		expect(
+			await sandbox.run({ code: `export const answer = 42;`, env: {} }),
+		).toMatchObject({
+			ok: false,
+			error: "Module must export default async (env) => …",
+		});
+		const broken = await sandbox.run({
+			code: `import "./missing.js";`,
+			env: {},
+		});
+		expect(broken.ok).toBe(false);
+		expect(broken.error).toBeTruthy();
+		expect(
+			await sandbox.run({
+				code: `export default async () => ({ total: 3 })`,
+				env: {},
+			}),
+		).toMatchObject({ ok: true, result: { total: 3 }, logs: [] });
 	});
 
 	test("an agent's saved edit tells everyone with the workspace open", async () => {
