@@ -251,6 +251,7 @@ export function buildDocBlueprint(slot = "document"): OsBlueprintDefinition {
 						settings: {
 							slot,
 							editor: "document-v4",
+							readySignal: true,
 							blueprintVersion: DOC_BLUEPRINT_VERSION,
 						},
 					},

@@ -67,6 +67,9 @@ import type {
 const FileOutputView = lazy(async () => ({
 	default: (await import("./output-content")).FileOutputView,
 }));
+const SavedOutputContentView = lazy(async () => ({
+	default: (await import("./output-content")).SavedOutputContentView,
+}));
 
 /**
  * A runtime app in the workspace panel: loads the current revision's files
@@ -130,14 +133,13 @@ export function AppRuntimePreview({
 	);
 	// The built-in editors read their file through the host, so only apps with
 	// their own server methods gain from an early session.
-	const callsServer = revision.manifest.operations?.some(
-		(operation) =>
-			!["readDocument", "readSheet", "readPresentation"].includes(
-				operation.name,
-			),
-	)
-		? callServer
-		: null;
+	const readsFileThroughHost = revision.manifest.operations?.some((operation) =>
+		["readDocument", "readSheet", "readPresentation"].includes(operation.name),
+	);
+	const callsServer =
+		!readsFileThroughHost && revision.manifest.operations?.length
+			? callServer
+			: null;
 	useEffect(() => callsServer?.prime(), [callsServer]);
 	if (code.isPending)
 		return <Skeleton className="h-40 w-full" aria-label="Loading app" />;
@@ -699,6 +701,26 @@ export function AppRuntimeSandbox({
 				title={title}
 				onCall={onCall}
 				layout={layout}
+				loadingContent={
+					context.settings.readySignal === true &&
+					legacyResource &&
+					boundContent ? (
+						<section
+							aria-label="Saved version while editor opens"
+							aria-busy="true"
+						>
+							<p className="px-4 py-2 text-kumo-subtle">
+								Opening editor… Showing the saved version.
+							</p>
+							<Suspense fallback={<Skeleton className="h-40 w-full" />}>
+								<SavedOutputContentView
+									outputId={legacyResource.providerResourceId}
+									content={boundContent}
+								/>
+							</Suspense>
+						</section>
+					) : undefined
+				}
 				translation={translation}
 				outputRevisions={outputRevisions}
 				onError={officeEditor ? undefined : onAppError}

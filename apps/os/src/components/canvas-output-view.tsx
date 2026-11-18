@@ -12,10 +12,13 @@ import { ShareButton } from "@/components/share-controls";
 import { SavedOutputContentView } from "@/components/output-content";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
 import {
+	appRuntimeCodeQueryOptions,
+	canvasGadgetDetailQueryOptions,
 	outputDetailQueryOptions,
 	osQuery,
 	osQueryKeys,
 	workspaceResourcesQueryOptions,
+	workspaceOpenQueryOptions,
 } from "@/lib/os-query-options";
 
 /**
@@ -74,6 +77,20 @@ export function CanvasOutputView({
 			outputId,
 			kind,
 		});
+		void queryClient.prefetchQuery(
+			canvasGadgetDetailQueryOptions(workspaceId, gadget.id),
+		);
+		void queryClient.prefetchQuery(
+			workspaceOpenQueryOptions(workspaceId, gadget.id),
+		);
+		if (gadget.currentRevisionId)
+			void queryClient.prefetchQuery(
+				appRuntimeCodeQueryOptions(
+					workspaceId,
+					gadget.id,
+					gadget.currentRevisionId,
+				),
+			);
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.gadgets() }),
 			queryClient.invalidateQueries({

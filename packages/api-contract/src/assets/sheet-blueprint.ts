@@ -115,7 +115,11 @@ export function buildSheetBlueprint(slot = "sheet"): OsBlueprintDefinition {
 					capabilities: [],
 					config: {
 						version: 1,
-						settings: { slot, blueprintVersion: SHEET_BLUEPRINT_VERSION },
+						settings: {
+							slot,
+							blueprintVersion: SHEET_BLUEPRINT_VERSION,
+							readySignal: true,
+						},
 					},
 					resourceGrants: [
 						{
