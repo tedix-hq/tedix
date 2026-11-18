@@ -444,14 +444,13 @@ describe("native skill ownership", () => {
 		expect(run?.getAttribute("aria-label")).toBe(TEDIS_MANAGE_DENIED_REASON);
 	});
 
-	it("runs the skill as a chosen tedi and refreshes the skill reads", async () => {
+	it("shows the chosen tedi's name for an owned skill and submits its id", async () => {
 		const { host, invalidated } = await mount(
 			<SkillDetailLayout />,
 			(client) => {
-				client.setQueryData(
-					q.skillDetailQueryOptions("skill-1").queryKey,
-					skill as never,
-				);
+				client.setQueryData(q.skillDetailQueryOptions("skill-1").queryKey, {
+					entry: { ...skill.entry, tediId: "tedi-1" },
+				});
 				client.setQueryData(q.tediRosterQueryOptions(100).queryKey, {
 					data: [{ id: "tedi-1", name: "CTO" }],
 				} as never);
@@ -476,6 +475,8 @@ describe("native skill ownership", () => {
 			option.click();
 			await Promise.resolve();
 		});
+		expect(trigger.textContent).toBe("CTO");
+		expect(trigger.textContent).not.toContain("tedi-1");
 		await act(async () => {
 			dialog.querySelector("form")!.requestSubmit();
 			for (let tick = 0; tick < 5; tick += 1)
