@@ -1230,30 +1230,33 @@ describe("Anyone-with-the-link workspace links", () => {
 		};
 		const digestId = "99999999-9999-4999-8999-99999999999a";
 		const digestRevisionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab";
-		await db.insert(osOutputs).values({
-			id: digestId,
-			organizationId: "org-1",
-			workspaceId,
-			kind: "document",
-			title: "Support digest",
-			currentRevisionId: digestRevisionId,
-			createdByKind: "user",
-			createdById: "user-1",
-		});
-		await db.insert(osOutputRevisions).values({
-			id: digestRevisionId,
-			organizationId: "org-1",
-			outputId: digestId,
-			revision: 1,
-			content: JSON.stringify({ kind: "document", blocks: [] }),
-			// Read twice by the same file: still one file for this source.
-			accessEnvelope: JSON.stringify({
-				version: 1,
-				sources: [source, { ...source, operations: ["search"] }],
-			}),
-			createdByKind: "user",
-			createdById: "user-1",
-		});
+		await createOsOutput(
+			db,
+			{
+				id: digestId,
+				organizationId: "org-1",
+				workspaceId,
+				kind: "document",
+				title: "Support digest",
+				currentRevisionId: digestRevisionId,
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+			{
+				id: digestRevisionId,
+				organizationId: "org-1",
+				outputId: digestId,
+				revision: 1,
+				content: JSON.stringify({ kind: "document", blocks: [] }),
+				// Read twice by the same file: still one file for this source.
+				accessEnvelope: JSON.stringify({
+					version: 1,
+					sources: [source, { ...source, operations: ["search"] }],
+				}),
+				createdByKind: "user",
+				createdById: "user-1",
+			},
+		);
 		// The app is granted the price list as well as a Tedix sheet.
 		await db
 			.update(osGadgetRevisions)
