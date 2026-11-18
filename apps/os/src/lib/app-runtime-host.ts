@@ -260,6 +260,8 @@ export async function handleAppRuntimeCall(
 				return { ok: true, value: null };
 			}
 			if (method === "app.draft.read") {
+				// Opening a file with nothing kept needs no second read of it.
+				if (!deps.drafts.has(key)) return { ok: true, value: null };
 				try {
 					const current = deps.serverResolvesSlots
 						? await deps.readSlot!(args.slot)
