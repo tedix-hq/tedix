@@ -27,7 +27,7 @@ import { getToolPaymentPolicy } from "./payments-policy";
 import { settleToolPayment } from "./payments-settlement";
 import type { AppTool, ServerContext } from "./server-context";
 import { executeTool, preflightSecretEgress } from "./tool-execution";
-import { guardGatewayCall } from "./gateway-adapters";
+import { guardGatewayCall, recordGatewayRefusal } from "./gateway-adapters";
 import {
 	setWireToolClassDeclaration,
 	toolApprovalMetadata,
@@ -137,7 +137,14 @@ export async function registerTextOnlyTool(
 		const secretEgress = await timings.measure("policy", () =>
 			preflightSecretEgress(agent, tool, args),
 		);
-		if (secretEgress.denial) return secretEgress.denial;
+		if (secretEgress.denial) {
+			await recordGatewayRefusal(
+				{ agent, tool, annotations, args },
+				"secret_egress",
+				"secret_egress_denied",
+			);
+			return secretEgress.denial;
+		}
 		const candidate = await timings.measure(
 			"policy",
 			async () =>
@@ -158,7 +165,12 @@ export async function registerTextOnlyTool(
 			(await timings.measure("policy", () =>
 				tenantMachinePolicyFallbackBlocked(agent, tool),
 			))
-		)
+		) {
+			await recordGatewayRefusal(
+				{ agent, tool, annotations, args },
+				"tool_scope",
+				"tenant_policy_unavailable",
+			);
 			return {
 				isError: true,
 				content: [
@@ -168,7 +180,13 @@ export async function registerTextOnlyTool(
 					},
 				],
 			};
-		if (candidate?.effect.disposition === "deny")
+		}
+		if (candidate?.effect.disposition === "deny") {
+			await recordGatewayRefusal(
+				{ agent, tool, annotations, args },
+				"tool_scope",
+				"tenant_policy_denied",
+			);
 			return {
 				isError: true,
 				content: [
@@ -178,6 +196,7 @@ export async function registerTextOnlyTool(
 					},
 				],
 			};
+		}
 		const bounded =
 			!!candidate && tenantProfileCandidateIsBounded(candidate, tool);
 		const effectiveCandidate =
@@ -194,7 +213,14 @@ export async function registerTextOnlyTool(
 			args,
 			verifiedBoundedCall: bounded,
 		});
-		if (scopeDenial) return scopeDenial;
+		if (scopeDenial) {
+			await recordGatewayRefusal(
+				{ agent, tool, annotations, args },
+				"tool_scope",
+				"native_tool_scope_denied",
+			);
+			return scopeDenial;
+		}
 
 		const guarded = await guardGatewayCall(
 			{

@@ -8,10 +8,23 @@
  * response is kept on the adapter so callers return the message clients and
  * tests already know.
  *
- * `append` writes refusals to the MCP audit stream as `access_denied`
- * events. Applied calls are already written there as `tool_call` events by
- * the telemetry wrapper, keyed by the same trace id, so they are not
- * duplicated here.
+ * `append` stores one ChangeRecord per call, allowed or refused, through the
+ * API (one insert, no read). It holds arguments only as `argsHash`. The
+ * gateway picks the record's `id` and `recordedAt`.
+ *
+ * A refused call waits for its record. A call that was allowed and has run
+ * does not: the write is handed to `ctx.waitUntil` and the response returns
+ * at once, so the ledger adds no latency to a working tool call. Without an
+ * execution context the write is awaited.
+ *
+ * The returned record of a background write has `sequence` 0
+ * (`UNSTORED_SEQUENCE`); its stored sequence is known only when it is read
+ * back with `get` or `list`. Sequence is storage order, so a background
+ * write can land after a later refusal: use `recordedAt` for call order.
+ *
+ * A ledger outage must not take tool calls down with it. A failed or slow
+ * write is logged as `gateway_change_record_write_failed`; an awaited one
+ * then also returns `sequence` 0. Refusal telemetry is a separate stream.
  */
 import { requestPhaseTimings } from "./phase-timings";
 import type {
@@ -52,13 +65,22 @@ import {
 } from "./tool-risk-policy";
 import { emitMcpAuditEvent, type McpEvent } from "./utils/analytics";
 
+/** What the ledger needs from a request: who called, for which app, and the API. */
+type LedgerContext = Partial<
+	Pick<
+		ServerContext,
+		| "env"
+		| "ctx"
+		| "appId"
+		| "appSlug"
+		| "app"
+		| "callerIdentity"
+		| "traceId"
+		| "apiClient"
+	>
+>;
 type GateContext = Parameters<typeof requireDestructiveToolApproval>[0] &
-	Partial<
-		Pick<
-			ServerContext,
-			"env" | "ctx" | "appId" | "appSlug" | "app" | "callerIdentity" | "traceId"
-		>
-	>;
+	LedgerContext;
 type GateTool = Parameters<typeof requireDestructiveToolApproval>[1] &
 	Pick<AppTool, "inputSchema"> &
 	Partial<Pick<AppTool, "meta" | "writeCapability">>;
@@ -75,7 +97,14 @@ export interface GatewayCallGates {
 	surface?: "mcp_gateway" | "mcp_codemode" | "mcp_widget";
 }
 
-export function describeGatewayCall(gates: GatewayCallGates): CallDescription {
+/** A call refused before the gates ran, which may be before a server exists. */
+export type GatewayRefusedCall = Omit<GatewayCallGates, "agent"> & {
+	agent: LedgerContext;
+};
+
+export function describeGatewayCall(
+	gates: GatewayCallGates | GatewayRefusedCall,
+): CallDescription {
 	const policy = resolveToolRiskPolicy({ meta: gates.tool.meta ?? null });
 	const identity = gates.agent.callerIdentity;
 	const actor: Actor = {
@@ -219,7 +248,7 @@ export class GatewayComplianceAdapter implements ComplianceAdapter {
 		_decision: ComplianceDecision,
 		_outcome: CallOutcome,
 	): Promise<void> {
-		// The telemetry wrapper writes the tool_call row; refusals go through append.
+		// The accountability adapter owns the durable ChangeRecord; telemetry is separate.
 	}
 }
 
@@ -230,18 +259,41 @@ function readRetryAfter(result: CallToolResult): number | undefined {
 	return security?.rateLimit?.retryAfterSeconds;
 }
 
+/** `sequence` of a record not (yet) confirmed stored; stored rows start at 1. */
+export const UNSTORED_SEQUENCE = 0;
+const LEDGER_WRITE_TIMEOUT_MS = 3000;
+
 export class GatewayAccountabilityAdapter implements AccountabilityAdapter {
-	private readonly records: ChangeRecord[] = [];
-	constructor(private readonly agent: GateContext) {}
+	constructor(private readonly agent: LedgerContext) {}
+
+	private get client() {
+		if (!this.agent.apiClient) {
+			throw new Error(
+				"Gateway change ledger requires an organization-scoped API client",
+			);
+		}
+		return this.agent.apiClient.audit;
+	}
 
 	async append(input: ChangeRecordInput): Promise<ChangeRecord> {
-		const record: ChangeRecord = Object.freeze({
+		// The gateway names the record, so a call that ran can be answered
+		// before the write lands and telemetry can cite the id either way.
+		const unstored: ChangeRecord = {
 			...input,
 			id: crypto.randomUUID(),
-			sequence: this.records.length + 1,
+			sequence: UNSTORED_SEQUENCE,
 			recordedAt: new Date().toISOString(),
-		});
-		this.records.push(record);
+		};
+		const refused =
+			input.outcome === "denied" || input.outcome === "needs_approval";
+		const context = this.agent.ctx;
+		let record: ChangeRecord;
+		if (!refused && context) {
+			context.waitUntil(this.store(unstored).catch(() => undefined));
+			record = Object.freeze(unstored);
+		} else {
+			record = Object.freeze(await this.store(unstored).catch(() => unstored));
+		}
 		const { agent } = this;
 		if (
 			(record.outcome === "denied" || record.outcome === "needs_approval") &&
@@ -278,19 +330,100 @@ export class GatewayAccountabilityAdapter implements AccountabilityAdapter {
 		}
 		return record;
 	}
+	/**
+	 * One insert through the API, bounded so a stalled ledger holds nothing
+	 * up for long. A failure is logged here and rethrown.
+	 */
+	private async store(record: ChangeRecord): Promise<ChangeRecord> {
+		const { sequence: _unstored, ...input } = record;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			return await Promise.race([
+				this.client.appendChangeRecord(input),
+				new Promise<never>((_, reject) => {
+					timer = setTimeout(
+						() => reject(new Error("change record write timed out")),
+						LEDGER_WRITE_TIMEOUT_MS,
+					);
+				}),
+			]);
+		} catch (error) {
+			console.error(
+				JSON.stringify({
+					level: "error",
+					event: "gateway_change_record_write_failed",
+					message:
+						"A gateway tool call has no stored change record; the call was not blocked.",
+					error: error instanceof Error ? error.message : String(error),
+					changeRecordId: record.id,
+					organizationId: this.agent.app?.organizationId,
+					appId: this.agent.appId,
+					traceId: record.source.traceId,
+					surface: record.source.surface,
+					resource: record.resource,
+					operation: record.operation,
+					actorId: record.actor.id,
+					outcome: record.outcome,
+					gate: record.decision.gate,
+					reason: record.decision.reason,
+					argsHash: record.argsHash,
+				}),
+			);
+			throw error;
+		} finally {
+			clearTimeout(timer);
+		}
+	}
 	async list(query: LedgerQuery = {}): Promise<ChangeRecord[]> {
-		return this.records.filter(
-			(r) =>
-				(!query.resource || r.resource === query.resource) &&
-				(query.afterSequence === undefined || r.sequence > query.afterSequence),
-		);
+		const records: ChangeRecord[] = [];
+		let afterSequence = query.afterSequence;
+		while (query.limit === undefined || records.length < query.limit) {
+			const limit = Math.min(
+				1000,
+				query.limit === undefined ? 1000 : query.limit - records.length,
+			);
+			const page = await this.client.listChangeRecords({
+				...query,
+				afterSequence,
+				limit,
+			});
+			for (const record of page) records.push(Object.freeze(record));
+			if (page.length < limit) break;
+			afterSequence = page[page.length - 1]!.sequence;
+		}
+		return records;
 	}
 	async get(id: string): Promise<ChangeRecord | null> {
-		return this.records.find((r) => r.id === id) ?? null;
+		const record = await this.client.getChangeRecord({ id });
+		return record ? Object.freeze(record) : null;
 	}
 	async export(): Promise<{ exportedAt: string; records: ChangeRecord[] }> {
-		return { exportedAt: new Date().toISOString(), records: [...this.records] };
+		return { exportedAt: new Date().toISOString(), records: await this.list() };
 	}
+}
+
+/** Record a refusal from a dispatch gate that runs before compliance admission. */
+export async function recordGatewayRefusal(
+	gates: GatewayRefusedCall,
+	gate: ComplianceDecision["gate"],
+	reason: string,
+): Promise<ChangeRecord> {
+	const call = describeGatewayCall(gates);
+	return new GatewayAccountabilityAdapter(gates.agent).append({
+		resource: call.resource,
+		operation: call.operation,
+		actor: call.actor,
+		source: call.source,
+		argsHash: await hashValue(call.args),
+		outcome: "denied",
+		decision: {
+			verdict: "deny",
+			gate,
+			reason,
+			riskTier: call.riskTier ?? "unclassified",
+			blastRadius: call.blastRadius ?? "unclassified",
+		},
+	});
 }
 
 export interface GuardedGatewayCall {

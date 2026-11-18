@@ -1,3 +1,4 @@
+import { getApiClient } from "../lib/api-client";
 import { gateDecisionMetadata } from "./gate-decision";
 import {
 	extractMcpTraceMeta,
@@ -32,6 +33,18 @@ export const MCP_ACCESS_DENIAL_REASONS = [
 
 export type McpAccessDenialReason = (typeof MCP_ACCESS_DENIAL_REASONS)[number];
 
+/**
+ * Edge refusals that write no change record. The first three have no
+ * verified caller to attribute the call to, and a throttled request must not
+ * cost a database write. All four still emit the denial telemetry below.
+ */
+const UNRECORDED_EDGE_REFUSALS: ReadonlySet<McpAccessDenialReason> = new Set([
+	"authentication_required",
+	"authentication_failed",
+	"oauth_audience_not_configured",
+	"rate_limited",
+]);
+
 const SAFE_OPERATION_ID = /^[A-Za-z0-9_.:/-]{1,200}$/;
 
 function safeOperationId(value: unknown): string | undefined {
@@ -43,6 +56,7 @@ function safeOperationId(value: unknown): string | undefined {
 async function readRequestEnvelope(request: Request): Promise<{
 	method?: string;
 	toolName?: string;
+	args?: Record<string, unknown>;
 	traceMeta?: Record<string, unknown>;
 }> {
 	const headerMethod = safeOperationId(request.headers.get("Mcp-Method"));
@@ -68,6 +82,12 @@ async function readRequestEnvelope(request: Request): Promise<{
 		return {
 			method: headerMethod ?? safeOperationId(record?.method),
 			toolName: headerToolName ?? safeOperationId(params?.name),
+			args:
+				typeof params?.arguments === "object" &&
+				params.arguments !== null &&
+				!Array.isArray(params.arguments)
+					? (params.arguments as Record<string, unknown>)
+					: {},
 			traceMeta: extractMcpTraceMeta(body),
 		};
 	} catch {
@@ -88,9 +108,66 @@ export async function recordMcpAccessDenial(input: {
 
 	const operation = await readRequestEnvelope(request);
 	const traceId = resolveInboundTraceId(request.headers, operation.traceMeta);
-	const callerFields = buildCallerTelemetryFields(
-		extractCallerIdentity(request),
-	);
+	const callerIdentity = extractCallerIdentity(request);
+	if (
+		operation.method === "tools/call" &&
+		operation.toolName &&
+		callerIdentity &&
+		!UNRECORDED_EDGE_REFUSALS.has(reason)
+	) {
+		try {
+			const { recordGatewayRefusal } = await import("./gateway-adapters");
+			const tool = resolvedApp.tools.find(
+				(tool) => tool.toolId === operation.toolName,
+			) ?? {
+				toolId: operation.toolName,
+				title: operation.toolName,
+				inputSchema: { type: "object" as const, properties: {} },
+			};
+			await recordGatewayRefusal(
+				{
+					agent: {
+						env,
+						app: {
+							id: resolvedApp.app.id,
+							slug: resolvedApp.app.slug,
+							name: resolvedApp.app.name,
+							domain: resolvedApp.app.domain ?? null,
+							organizationId: resolvedApp.app.organizationId,
+						},
+						appId: resolvedApp.app.id,
+						appSlug: resolvedApp.app.slug,
+						callerIdentity,
+						traceId,
+						apiClient: getApiClient({
+							serviceFetch: env.API_SERVICE,
+							orgId: resolvedApp.app.organizationId,
+						}),
+					},
+					tool,
+					annotations: undefined,
+					args: operation.args ?? {},
+				},
+				"edge_access",
+				reason,
+			);
+		} catch (error) {
+			console.error(
+				JSON.stringify({
+					level: "error",
+					event: "gateway_change_record_write_failed",
+					message: "An edge refusal has no stored change record.",
+					error: error instanceof Error ? error.message : String(error),
+					organizationId: resolvedApp.app.organizationId,
+					appId: resolvedApp.app.id,
+					traceId,
+					operation: operation.toolName,
+					reason,
+				}),
+			);
+		}
+	}
+	const callerFields = buildCallerTelemetryFields(callerIdentity);
 	const event: McpEvent = {
 		timestamp: new Date().toISOString(),
 		eventType: "access_denied",

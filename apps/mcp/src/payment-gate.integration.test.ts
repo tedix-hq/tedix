@@ -1,3 +1,4 @@
+import { createGatewayLedgerApi } from "../test/gateway-ledger";
 import { mountMcp } from "@tedix/mcp-shared/transport";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { buildMcpServer, type CachedAppData } from "./mcp/server-factory";
@@ -118,11 +119,20 @@ function createAppWithToolsResponse() {
 }
 
 function createApiService() {
+	const ledger = createGatewayLedgerApi();
 	return {
 		fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const request =
 				input instanceof Request ? input : new Request(input, init);
 			const url = new URL(request.url);
+			if (url.pathname === "/rpc/audit/appendChangeRecord") {
+				const body = (await request.json()) as {
+					json: Parameters<typeof ledger.appendChangeRecord>[0];
+				};
+				return Response.json({
+					json: await ledger.appendChangeRecord(body.json),
+				});
+			}
 
 			if (url.pathname === "/rpc/skills/listByApp") {
 				return Response.json({ json: { skills: [], summaries: [] } });

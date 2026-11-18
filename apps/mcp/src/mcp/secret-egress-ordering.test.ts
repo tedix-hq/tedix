@@ -1,3 +1,4 @@
+import { createGatewayLedgerApi } from "../../test/gateway-ledger";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const policy = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ function fixture() {
 		status: 200,
 		data: { executed: true },
 	}));
+	const ledger = createGatewayLedgerApi();
 	const agent = {
 		server: {
 			registerTool: vi.fn((_name, _spec, handler: ToolCallback) => {
@@ -50,6 +52,7 @@ function fixture() {
 		appCapabilities: {},
 		appMetadata: { mcpConfig: { authMode: "public" } },
 		apiClient: {
+			audit: ledger,
 			mcpGovernance: {
 				resolveSecretEgressPolicy: vi.fn(async () => ({ mode: "block" })),
 			},
@@ -68,6 +71,7 @@ function fixture() {
 		agent,
 		tool,
 		execute,
+		ledger,
 		get callback() {
 			if (!callback) throw new Error("Tool callback was not registered");
 			return callback;
@@ -101,6 +105,16 @@ describe("direct invocation secret-egress ordering", () => {
 		});
 		expect(policy.fallbackBlocked).not.toHaveBeenCalled();
 		expect(f.execute).not.toHaveBeenCalled();
+		const records = await f.ledger.listChangeRecords({});
+		expect(records).toMatchObject([
+			{
+				resource: "tool:create_ticket",
+				outcome: "denied",
+				decision: { gate: "secret_egress", reason: "secret_egress_denied" },
+				source: { surface: "mcp_gateway", traceId: "trace" },
+			},
+		]);
+		expect(JSON.stringify(records)).not.toContain(marker);
 	});
 
 	it("keeps a genuine organization-policy verification failure attributed", async () => {
@@ -122,5 +136,11 @@ describe("direct invocation secret-egress ordering", () => {
 		});
 		expect(policy.fallbackBlocked).toHaveBeenCalledOnce();
 		expect(f.execute).not.toHaveBeenCalled();
+		expect(await f.ledger.listChangeRecords({})).toMatchObject([
+			{
+				outcome: "denied",
+				decision: { gate: "tool_scope", reason: "tenant_policy_unavailable" },
+			},
+		]);
 	});
 });

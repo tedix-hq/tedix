@@ -13,13 +13,15 @@ const {
 	getBySlugWithTools,
 	mountMcp,
 	buildMcpServer,
-} = vi.hoisted(() => {
+} = await vi.hoisted(async () => {
+	const { createGatewayLedgerApi } = await import("../test/gateway-ledger");
 	const getByDomain = vi.fn();
 	const getBySlugWithTools = vi.fn();
 	return {
 		getByDomain,
 		getBySlugWithTools,
 		getApiClient: vi.fn(() => ({
+			audit: createGatewayLedgerApi(),
 			osTenant: {
 				personalAgentSession: vi.fn(async () => ({ status: "not_configured" })),
 			},
