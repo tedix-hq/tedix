@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { WorkspaceChat } from "@/components/workspace-chat";
 import { persistCanvasPhonePane } from "@/lib/canvas-phone-pane";
 import { takeWorkspaceFirstMessage } from "@/lib/workspace-first-message";
+import { useWorkspaceViewOnly } from "@/lib/workspace-view-only";
 
 export function PhoneWorkspaceChat({
 	workspaceId,
@@ -15,6 +16,7 @@ export function PhoneWorkspaceChat({
 	onOpenWorkspace: () => void;
 }) {
 	const [listOpen, setListOpen] = useState(false);
+	const viewOnly = useWorkspaceViewOnly(workspaceId);
 	const sendQueuedMessage = useCallback(
 		(send: (content: string) => void) => {
 			const text = takeWorkspaceFirstMessage(workspaceId, conversationId);
@@ -42,6 +44,7 @@ export function PhoneWorkspaceChat({
 					setListOpen(false);
 					onConversationChange(next);
 				}}
+				viewOnly={viewOnly}
 				workspaceId={workspaceId}
 			/>
 		</div>

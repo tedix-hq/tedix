@@ -448,6 +448,16 @@
 	text-decoration: underline;
 }
 
+/* Why a person with view-only access cannot write here. */
+.workspace-chat-view-only {
+	flex: none;
+	margin: 0;
+	padding: 8px 20px 0;
+	color: var(--color-kumo-subtle, inherit);
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+}
+
 .workspace-chat-composer {
 	flex: none;
 	padding: 8px 16px 16px;

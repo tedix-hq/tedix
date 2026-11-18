@@ -177,6 +177,8 @@ vi.mock("@/lib/api", () => ({
 			})),
 			markAllRead: vi.fn(async () => ({ ok: true })),
 		},
+		// The chat asks for the person's role, to disable itself for view-only access.
+		osCollaborators: { access: vi.fn(async () => ({ role: "build" })) },
 		// Connected source cards read app logos from the provider catalog.
 		connections: { listProviders: vi.fn(async () => ({ data: [] })) },
 		// The Review tab asks who is signed in before offering review rounds.
