@@ -59,6 +59,25 @@ function acceptingPermitD1(): D1Database {
 	} as unknown as D1Database;
 }
 
+test("installation health advertises deploy probe attestation before tenant dispatch", async () => {
+	const response = await cmsRuntime.fetch(
+		new Request("https://sites.example.com/health"),
+		{
+			CMS_TENANT_HOST_SUFFIX: "sites.example.com",
+			GIT_SHA: "runtime-test",
+		} as unknown as Parameters<typeof cmsRuntime.fetch>[1],
+		{} as ExecutionContext,
+	);
+	expect(response.status).toBe(200);
+	expect(response.headers.get("Cache-Control")).toBe("no-store");
+	expect(await response.json()).toEqual({
+		status: "ok",
+		service: "cms-runtime",
+		deployedSha: "runtime-test",
+		deployProbeVersion: 1,
+	});
+});
+
 const mediaAdminD1 = (workerEnv as unknown as { PLATFORM_DB: D1Database })
 	.PLATFORM_DB;
 const mediaAdminDb = createDbQueryClient(mediaAdminD1);
