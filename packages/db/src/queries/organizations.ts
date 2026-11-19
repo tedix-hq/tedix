@@ -918,11 +918,6 @@ export async function canCreateApp(
 	const features = await getOrganizationFeatures(db, id);
 	const maxApps = features?.maxApps ?? 1;
 
-	// -1 means unlimited
-	if (maxApps === -1) {
-		return { allowed: true };
-	}
-
 	const currentCount = org.appsCount ?? 0;
 	if (currentCount >= maxApps) {
 		return {

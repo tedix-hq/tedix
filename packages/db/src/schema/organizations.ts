@@ -229,9 +229,9 @@ export const DEFAULT_ORGANIZATION_FEATURES_BY_PLAN: Record<
 		whiteLabel: false,
 	},
 	enterprise: {
-		maxApps: -1, // unlimited
-		maxCmsSites: -1, // unlimited
-		maxTeamMembers: -1, // unlimited
+		maxApps: 50,
+		maxCmsSites: 25,
+		maxTeamMembers: 50,
 		customDomain: true,
 		sso: true,
 		apiAccess: true,

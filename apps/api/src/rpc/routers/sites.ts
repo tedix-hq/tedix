@@ -128,7 +128,8 @@ export const createCmsSiteProcedure = authedSitesOs.createCms
 				ErrorCodes.CONFLICT,
 				"CMS site slug already belongs to a different site configuration",
 			);
-		let maxCmsSites = -1;
+		// Only read when no existing site is reused; every plan has a finite quota.
+		let maxCmsSites = 0;
 		if (!existing) {
 			const features = await getOrganizationFeatures(
 				context.db,
@@ -138,15 +139,14 @@ export const createCmsSiteProcedure = authedSitesOs.createCms
 				features?.maxCmsSites ??
 				organization.features?.maxCmsSites ??
 				STARTER_CMS_SITE_QUOTA;
-			if (!Number.isSafeInteger(maxCmsSites) || maxCmsSites < -1)
+			if (!Number.isSafeInteger(maxCmsSites) || maxCmsSites < 0)
 				throw createError(
 					ErrorCodes.INTERNAL_SERVER_ERROR,
 					"Invalid CMS site quota",
 				);
 			if (
-				maxCmsSites !== -1 &&
 				(await listCmsSitesByOrganization(context.db, organizationId)).length >=
-					maxCmsSites
+				maxCmsSites
 			)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
