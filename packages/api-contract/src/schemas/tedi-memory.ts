@@ -7,6 +7,12 @@ import * as z from "zod";
  */
 export const TEDI_MEMORY_SCOPE = "tedi:memory";
 
+/**
+ * Session key prefix of the hidden session in which a tedi looks back on
+ * finished work and updates its memory. No person reads that session.
+ */
+export const TEDI_MEMORY_REFLECTION_SESSION_PREFIX = "core-memory-reflection:";
+
 /** The sections of a tedi's core memory, in the order they are shown. */
 export const TEDI_CORE_MEMORY_SECTIONS = [
 	{ key: "people", title: "How this person and team work" },

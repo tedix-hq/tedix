@@ -3,7 +3,7 @@
  * Every statement is scoped to one organization and one tedi.
  */
 
-import { and, desc, eq, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import {
 	type TediMemoryAuthorType,
@@ -11,6 +11,7 @@ import {
 	type TediMemoryDocumentRow,
 	tediMemoryDocuments,
 } from "../schema/tedi-memory";
+import { tedis } from "../schema/tedis";
 
 /** The name the core document is stored under. */
 export const TEDI_CORE_MEMORY_NAME = "core";
@@ -183,4 +184,24 @@ export async function listCurrentTediMemoryNotes(
 			charCount: row.charCount,
 			updatedAt: row.updatedAt,
 		}));
+}
+
+/** Active tedis, in any organization, with runtime activity since `since`. */
+export async function listRecentlyActiveTedis(
+	db: DbQueryClient,
+	params: { since: string; limit: number },
+) {
+	return db
+		.select({
+			orgId: tedis.organizationId,
+			tediId: tedis.id,
+			slug: tedis.slug,
+			runtimeOverrides: tedis.runtimeOverrides,
+		})
+		.from(tedis)
+		.where(
+			and(eq(tedis.status, "active"), gt(tedis.lastActivityAt, params.since)),
+		)
+		.orderBy(desc(tedis.lastActivityAt))
+		.limit(params.limit);
 }
