@@ -236,6 +236,7 @@ describe("invite helpers", () => {
 
 describe("itemAccessRows", () => {
 	const person = (userId: string, role: "use" | "build", email: string) => ({
+		principalKind: "user" as const,
 		userId,
 		email,
 		name: null,
@@ -562,6 +563,49 @@ describe("WorkspaceShareDialog", () => {
 				);
 			});
 		}
+
+		it("invites a suggested tedi by its own id and marks its people row", async () => {
+			const helper = {
+				userId: "12345678-1234-4234-8234-123456789abc",
+				email: "",
+				name: "Research helper",
+				principalKind: "tedi",
+			};
+			collaborators.suggestPeople.mockResolvedValue({ people: [helper] });
+			collaborators.add.mockResolvedValue({
+				collaborator: { ...kai, ...helper },
+			});
+			const container = renderDialog();
+			await flush();
+			const field = emailField(container);
+			setValue(field, "Research");
+			await settleSearch();
+			expect(options(container).join(" ")).toContain("Research helper · Tedi");
+			press(field, "Enter");
+			expect(chips(container)).toEqual(["Remove Research helper · Tedi"]);
+			await act(async () => button(container, "Invite").click());
+			await flush();
+			expect(collaborators.add).toHaveBeenCalledWith({
+				workspaceId: WORKSPACE_ID,
+				tediId: helper.userId,
+				role: "use",
+			});
+			expect(chips(container)).toEqual([]);
+			collaborators.list.mockResolvedValue({
+				role: "build",
+				isOwner: false,
+				ownerName: "Robin Fictional",
+				collaborators: [{ ...kai, ...helper }],
+				links: [],
+			});
+			const listed = renderDialog();
+			await flush();
+			expect(
+				listed.querySelector(`[data-collaborator="${helper.userId}"]`)
+					?.textContent,
+			).toContain("Tedi");
+			expect(listed.querySelector('[aria-label="Tedi"]')).not.toBeNull();
+		});
 
 		it("suggests colleagues for part of a name and turns the chosen one into a chip", async () => {
 			collaborators.suggestPeople.mockResolvedValue({

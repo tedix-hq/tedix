@@ -9,10 +9,9 @@ import {
 import { organizations } from "./organizations";
 
 /**
- * Workspace collaborators: people given direct access to a workspace they do
- * not own. User ids are Descope subjects, the same id space as
- * `os_workspaces.owner_user_id`. The owner is never stored here; it is the
- * implicit root of the permission graph.
+ * Workspace collaborators: people and tedis given direct access. A user id is
+ * a Descope subject; a tedi principal uses its own tedi id. The owner is never
+ * stored here; it is the implicit root of the permission graph.
  *
  * Nothing stores an effective role. Access is recomputed from the edges on
  * every open, so removing someone only severs the edges that grant them
@@ -29,6 +28,9 @@ export const osWorkspaceCollaborators = sqliteTable(
 			.references(() => organizations.id, { onDelete: "cascade" }),
 		workspaceId: text("workspace_id").notNull(),
 		userId: text("user_id").notNull(),
+		principalKind: text("principal_kind", { enum: ["user", "tedi"] })
+			.notNull()
+			.default("user"),
 		email: text("email"),
 		name: text("name"),
 		createdAt: text("created_at")
@@ -66,7 +68,7 @@ export const osWorkspaceAccessEdges = sqliteTable(
 			.references(() => organizations.id, { onDelete: "cascade" }),
 		workspaceId: text("workspace_id").notNull(),
 		targetUserId: text("target_user_id").notNull(),
-		kind: text("kind", { enum: ["user", "link"] }).notNull(),
+		kind: text("kind", { enum: ["user", "tedi", "link"] }).notNull(),
 		edgeKey: text("edge_key").notNull(),
 		sharerUserId: text("sharer_user_id"),
 		linkId: text("link_id"),
