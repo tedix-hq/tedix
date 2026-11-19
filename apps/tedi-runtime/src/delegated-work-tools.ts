@@ -12,25 +12,51 @@ import {
 	type StewardCloseoutTargets,
 } from "@tedix/api-contract/schemas/work-items";
 
+/**
+ * The error an API response carries. The RPC protocol wraps it as
+ * `{ json: { code, message, data } }`; a plain `{ message }` body is read too.
+ */
+function rpcErrorBody(error: unknown): Record<string, unknown> | undefined {
+	if (!(error instanceof RpcCallError)) return undefined;
+	try {
+		const body: unknown = JSON.parse(error.detail);
+		if (!body || typeof body !== "object") return undefined;
+		const envelope = (body as Record<string, unknown>).json;
+		return envelope && typeof envelope === "object"
+			? (envelope as Record<string, unknown>)
+			: (body as Record<string, unknown>);
+	} catch {
+		// HTTP bodies and transport diagnostics are not public tool messages.
+		return undefined;
+	}
+}
+
 /** The server's own reason when it gave one, bounded and scrubbed. */
 export function safeFailureReason(error: unknown): string {
 	let message = "Work API is unavailable";
 	if (error instanceof RpcCallError) {
-		message = `Work API rejected the request (HTTP ${error.status})`;
-		try {
-			const body: unknown = JSON.parse(error.detail);
-			if (
-				body &&
-				typeof body === "object" &&
-				"message" in body &&
-				typeof body.message === "string"
-			)
-				message = body.message;
-		} catch {
-			// HTTP bodies and transport diagnostics are not public tool messages.
-		}
+		const reason = rpcErrorBody(error)?.message;
+		const status = `HTTP ${error.status}`;
+		message =
+			typeof reason !== "string" || !reason.trim()
+				? `Work API rejected the request (${status})`
+				: error.status >= 500
+					? `${reason} (${status})`
+					: reason;
 	} else if (error instanceof Error) message = error.message;
 	return scrubText(message).replace(/\s+/g, " ").trim().slice(0, 300);
+}
+
+/** The id the API logged a failed request under, when it sent one. */
+export function failureTraceId(error: unknown): string | undefined {
+	const data = rpcErrorBody(error)?.data;
+	const traceId =
+		data && typeof data === "object"
+			? (data as Record<string, unknown>).traceId
+			: undefined;
+	return typeof traceId === "string" && /^[0-9a-f-]{32,36}$/i.test(traceId)
+		? traceId
+		: undefined;
 }
 
 /** No public MCP mount and no ambient Work write credential. The API rechecks

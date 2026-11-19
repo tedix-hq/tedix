@@ -4,7 +4,7 @@ import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import type { CallerTrustTier } from "@tedix/mcp-shared/auth/caller-trust";
 import { AGENT_RUN_SUPERVISION_SESSION_PREFIX } from "@tedix/api-contract/schemas/work-agent-runs";
 import type { PlatformClient } from "./brain/platform-client";
-import { safeFailureReason } from "./delegated-work-tools";
+import { failureTraceId, safeFailureReason } from "./delegated-work-tools";
 
 const AGENT_RUN_EXECUTORS = ["codex", "claude-code"] as const;
 const STEP_PAGE = 500;
@@ -67,11 +67,16 @@ export function agentRunTools(input: {
 		if (!platform) throw new Error("Tedi platform identity is unavailable");
 		return platform;
 	}
-	const refused = (message: string, workItemId?: string) => ({
-		kind: "agent_run_error" as const,
-		...(workItemId ? { workItemId, url: `/work/items/${workItemId}` } : {}),
-		message,
-	});
+	const refused = (message: string, workItemId?: string, error?: unknown) => {
+		const traceId = failureTraceId(error);
+		return {
+			kind: "agent_run_error" as const,
+			...(workItemId ? { workItemId, url: `/work/items/${workItemId}` } : {}),
+			message,
+			// What to quote when asking someone to look the failure up.
+			...(traceId ? { traceId } : {}),
+		};
+	};
 	const all = {
 		start_agent_run: tool({
 			description:
@@ -96,7 +101,10 @@ export function agentRunTools(input: {
 					.optional()
 					.describe("The project the task belongs to."),
 			}),
-			execute: async ({ title, brief, doneWhen, executor, projectId }) => {
+			execute: async (
+				{ title, brief, doneWhen, executor, projectId },
+				{ toolCallId },
+			) => {
 				if (!projectId)
 					return refused(
 						"No task was created. Which project does this belong to? Ask the person, then start the run again with its projectId.",
@@ -113,7 +121,10 @@ export function agentRunTools(input: {
 						executorReference: { type: "external_agent", id: executor },
 						sourceSessionKey:
 							input.personChatConversationId ?? input.sessionKey,
-						sourceIntentId: input.runId,
+						// One task per call. The run id alone is taken: the chat
+						// keys the task it made for this turn by it, and an
+						// organization holds one task per key.
+						sourceIntentId: `${input.runId}:start_agent_run:${toolCallId || crypto.randomUUID()}`,
 						provenance: {
 							source: "tedi.start_agent_run",
 							sessionKey: input.sessionKey,
@@ -130,7 +141,11 @@ export function agentRunTools(input: {
 					});
 					workItemId = created.id;
 				} catch (error) {
-					return refused(`No task was created. ${safeFailureReason(error)}`);
+					return refused(
+						`No task was created. ${safeFailureReason(error)}`,
+						undefined,
+						error,
+					);
 				}
 				try {
 					await (
@@ -143,6 +158,7 @@ export function agentRunTools(input: {
 					return refused(
 						`The task was created but not accepted, so no agent will pick it up. ${safeFailureReason(error)}`,
 						workItemId,
+						error,
 					);
 				}
 				return {
