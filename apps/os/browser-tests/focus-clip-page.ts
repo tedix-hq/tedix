@@ -1,12 +1,14 @@
-import type { FocusClipHit } from "./focus-clip-findings";
+export type FocusClipHit = {
+	control: string;
+	selector: string;
+	kind: "border" | "ring" | "column" | "focus";
+	sides: string;
+	overshoot: number;
+	clipper: string;
+	clipperSelector: string;
+};
 
-/**
- * The in-page half of the clipped-control audit. focus-clip.spec.ts
- * serializes these functions into its page.evaluate source, so each one may
- * reference browser globals and the other exported names here, but no other
- * module-scope value (including this import, which is type-only and erased).
- */
-
+// Workspace chat browser coverage serializes these functions into the page.
 export function describeControl(el: Element) {
 	const name =
 		el.getAttribute("aria-label") ??
