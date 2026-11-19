@@ -175,6 +175,7 @@ function fixture({
 		unpushedWait: undefined as Promise<string[]> | undefined,
 		heartbeatExpiry: false,
 		heartbeatError: undefined as Error | undefined,
+		onAgentEvent: undefined as ((observedAt: number) => void) | undefined,
 		cleanups: 0,
 		cleanupResult: true,
 		cleanupRemoves: false,
@@ -544,6 +545,7 @@ function fixture({
 			}
 			expect(deps?.forwardSignals).toBe(false);
 			deps?.onSpawn?.(control.spawnPid ?? 2_000_000_000);
+			control.onAgentEvent = deps?.onAgentEvent;
 			const completed = completedResult(
 				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!,
 			);
@@ -1697,6 +1699,7 @@ describe("dispatcher admission", () => {
 		"ended",
 		"expired",
 		"unreachable",
+		"unreachable with recent activity",
 	])(
 		"checks server authority before stopping a child: %s",
 		async (scenario) => {
@@ -1739,6 +1742,7 @@ describe("dispatcher admission", () => {
 					kill.mock.calls.filter(([, signal]) => signal !== 0),
 				).toHaveLength(0);
 				if (scenario === "stale" || scenario === "missing") {
+					f.control.onAgentEvent!(now);
 					f.control.heartbeatError = new CliReadError(
 						scenario === "stale"
 							? "STALE_ATTEMPT: no longer authoritative"
@@ -1757,12 +1761,24 @@ describe("dispatcher admission", () => {
 							).toISOString(),
 						},
 					];
-					if (scenario === "unreachable")
+					if (scenario.startsWith("unreachable"))
 						f.control.historyError = new CliReadError(
 							"Gateway unavailable",
 							"GATEWAY_UNAVAILABLE",
 						);
-					now += 240_001;
+					now += 190_001;
+					if (scenario !== "unreachable") f.control.onAgentEvent!(now);
+					now += 50_000;
+					leaseCheck();
+				}
+				if (scenario === "unreachable with recent activity") {
+					await until(() =>
+						readFileSync(join(f.dir, "dispatcher.log"), "utf8").includes(
+							'"event":"lease-check-failed"',
+						),
+					);
+					expect(kill).not.toHaveBeenCalledWith(-999999, "SIGTERM");
+					now += 10_001;
 					leaseCheck();
 				}
 				if (scenario === "outage") {
