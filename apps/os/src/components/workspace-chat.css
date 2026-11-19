@@ -92,6 +92,13 @@
 	justify-content: flex-end;
 }
 
+.workspace-chat-author {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
 /* Sent while the agent works: dimmed until it reads them. */
 .workspace-chat-queued {
 	display: flex;
@@ -675,6 +682,8 @@ button.workspace-chat-tray-item {
 /* The model name sits quietly beside Send, pushed to the right. */
 .workspace-chat-model {
 	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
 	min-width: 0;
 	margin-left: auto;
 }

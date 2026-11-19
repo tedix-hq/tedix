@@ -189,7 +189,9 @@ describe("messages sent while the agent works", () => {
 				message("message.queued", 2, "sent-1", "Use euros, not dollars"),
 			]),
 		);
-		expect(queuedRows()).toEqual(["Use euros, not dollarsNot read yet"]);
+		expect(queuedRows()).toEqual([
+			"WMWorkspace memberUse euros, not dollarsNot read yet",
+		]);
 		expect(
 			host
 				.querySelector(".workspace-chat-queued-text")
@@ -213,7 +215,7 @@ describe("messages sent while the agent works", () => {
 		expect(
 			turn.querySelector('[data-testid="workspace-chat-added-message"]')
 				?.textContent,
-		).toBe("Use euros, not dollars");
+		).toBe("WMWorkspace memberUse euros, not dollars");
 	});
 
 	it("keeps Stop next to Send while a turn runs, also with text typed", () => {

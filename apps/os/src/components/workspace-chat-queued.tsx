@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { Text } from "@/components/kumo/text";
 import type { ChatQueuedMessage } from "@/lib/workspace-chat-state";
+import { WorkspaceChatAuthor } from "./workspace-chat-author";
 
 function Bubble({ message }: { message: ChatQueuedMessage }) {
 	return (
@@ -17,14 +18,21 @@ function Bubble({ message }: { message: ChatQueuedMessage }) {
  */
 export function QueuedMessages({
 	messages,
+	tediNames,
 }: {
 	messages: readonly ChatQueuedMessage[];
+	tediNames: Record<string, string>;
 }) {
 	if (messages.length === 0) return null;
 	return (
 		<ul aria-label="Messages not read yet" className="workspace-chat-queued">
 			{messages.map((message) => (
 				<li data-testid="workspace-chat-queued-message" key={message.messageId}>
+					<WorkspaceChatAuthor
+						id={message.authorId}
+						kind={message.authorKind}
+						tediNames={tediNames}
+					/>
 					<div className="workspace-chat-queued-text">
 						<Bubble message={message} />
 					</div>
@@ -40,19 +48,24 @@ export function QueuedMessages({
 /** Messages the agent read while it worked on a turn, under the turn's first one. */
 export function AddedMessages({
 	messages,
+	tediNames,
 }: {
 	messages: readonly ChatQueuedMessage[] | undefined;
+	tediNames: Record<string, string>;
 }) {
 	if (!messages?.length) return null;
 	return (
 		<>
 			{messages.map((message) => (
-				<div
-					className="workspace-chat-user"
-					data-testid="workspace-chat-added-message"
-					key={message.messageId}
-				>
-					<Bubble message={message} />
+				<div key={message.messageId} data-testid="workspace-chat-added-message">
+					<WorkspaceChatAuthor
+						id={message.authorId}
+						kind={message.authorKind}
+						tediNames={tediNames}
+					/>
+					<div className="workspace-chat-user">
+						<Bubble message={message} />
+					</div>
 				</div>
 			))}
 		</>
