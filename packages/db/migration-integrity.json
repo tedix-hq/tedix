@@ -1688,6 +1688,10 @@
 		{
 			"name": "20261119211445_machine_tool_calls/migration.sql",
 			"sha256": "3c6543934afeb1cdb014435c7b6c56e0affe2a6f00bd595fb546657613b3e6e1"
+		},
+		{
+			"name": "20261119212445_credit_notice_deliveries/migration.sql",
+			"sha256": "57817d0cb04fbba17a3d6b3889715569e52a50409fc2ba125b112f28271b5b9a"
 		}
 	]
 }

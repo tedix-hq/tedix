@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	config: vi.fn(),
 	health: vi.fn(),
 	freshness: vi.fn(),
+	notices: vi.fn(),
 }));
 vi.mock("@tedix/db/client", () => ({
 	createDbClient: (binding: unknown) => binding,
@@ -42,6 +43,9 @@ vi.mock("../lib/cloudflare-credential-health", () => ({
 vi.mock("../lib/billing-metering-health", () => ({
 	reconcileBillingMeteringFreshness: mocks.freshness,
 }));
+vi.mock("./credit-notice-delivery", () => ({
+	deliverCreditNotices: mocks.notices,
+}));
 import { runBillingAndGatewayCostTick } from "./billing-cron";
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -57,6 +61,7 @@ beforeEach(() => {
 		remainingAtLeast: 0,
 	});
 	mocks.outbox.mockResolvedValue({ failed: 0 });
+	mocks.notices.mockResolvedValue({ failed: 0 });
 	mocks.stripe.mockReturnValue("live");
 	mocks.config.mockReturnValue({ secretKey: "offline-fixture" });
 });
@@ -120,6 +125,7 @@ describe("whole billing tick settlement isolation", () => {
 				mocks.outbox,
 				mocks.stripe,
 				mocks.config,
+				mocks.notices,
 			])
 				expect(operation).not.toHaveBeenCalled();
 		},
@@ -134,8 +140,31 @@ describe("whole billing tick settlement isolation", () => {
 			mocks.periods,
 			mocks.settle,
 			mocks.outbox,
+			mocks.notices,
 		])
 			expect(operation).toHaveBeenCalledOnce();
+	});
+	it("keeps credit notice delivery fail-soft", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		mocks.notices.mockRejectedValue(new Error("admin-email-secret"));
+		try {
+			expect(
+				await runBillingAndGatewayCostTick({
+					DB: {},
+					TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+				} as CloudflareEnv),
+			).toMatchObject({ gatewayRowsIngested: 3 });
+			expect(warn).toHaveBeenCalledWith({
+				component: "api.billing-cron",
+				event: "credit_notice_delivery_failed",
+				exception: { type: "Error" },
+			});
+			expect(JSON.stringify(warn.mock.calls)).not.toContain(
+				"admin-email-secret",
+			);
+		} finally {
+			warn.mockRestore();
+		}
 	});
 	it("keeps health reconciliation fail-soft without logging thrown text", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

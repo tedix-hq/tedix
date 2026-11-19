@@ -113,6 +113,31 @@ export async function runBillingAndGatewayCostTick(
 				);
 			}
 		}
+		if (settlementMode === "managed") {
+			try {
+				// Settlement raises the 80%/100% notices; tell admins in the same tick.
+				const { deliverCreditNotices } =
+					await import("./credit-notice-delivery");
+				const notices = await measurePhase("credit_notices", () =>
+					deliverCreditNotices(env, db),
+				);
+				if (notices.failed > 0) {
+					console.warn(
+						JSON.stringify({
+							signal: "billing.credit_notice.summary",
+							...notices,
+						}),
+					);
+				}
+			} catch (noticeError) {
+				// Notice delivery retries next tick; it must not fail billing.
+				console.warn({
+					component: "api.billing-cron",
+					event: "credit_notice_delivery_failed",
+					exception: safeExceptionTopology(noticeError),
+				});
+			}
+		}
 		try {
 			const { reconcileCloudflareCredentialFinding } =
 				await import("../lib/cloudflare-credential-health");

@@ -59,6 +59,7 @@
 		"./queries/billing/cost-rollups": "./src/queries/billing/cost-rollups.ts",
 		"./queries/billing/gateway-reconciliation": "./src/queries/billing/gateway-reconciliation.ts",
 		"./queries/billing/credit-pool": "./src/queries/billing/credit-pool.ts",
+		"./queries/billing/credit-notice-deliveries": "./src/queries/billing/credit-notice-deliveries.ts",
 		"./schema/provider-events": "./src/schema/provider-events.ts",
 		"./queries/provider-events": "./src/queries/provider-events.ts",
 		"./schema/os-gadget-state": "./src/schema/os-gadget-state.ts",
