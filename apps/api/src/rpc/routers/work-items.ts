@@ -41,6 +41,7 @@ import {
 	markDuplicateProcedure,
 	snoozeProcedure,
 } from "./work-items/triage";
+import { listAgentRunsProcedure } from "./work-items/agent-runs";
 import {
 	appendAttemptStepsProcedure,
 	listAttemptStepsProcedure,
@@ -161,6 +162,7 @@ export const workItemsContractRouter = workItemsOs.router({
 	listAttemptSteps: listAttemptStepsProcedure,
 	sendAttemptMessage: sendAttemptMessageProcedure,
 	stopAttempt: stopAttemptProcedure,
+	listAgentRuns: listAgentRunsProcedure,
 	settleAttempt: settleAttemptProcedure,
 	listAttempts: listAttemptsProcedure,
 	inspectAttemptRepository: inspectAttemptRepositoryProcedure,

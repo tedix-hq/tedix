@@ -49,6 +49,7 @@ import type {
 	GetWorkItemResult,
 	ListWorkItemAttemptsResult,
 } from "@tedix/api-contract/schemas/work-items";
+import type { ListAgentRunsResult } from "@tedix/api-contract/schemas/work-agent-runs";
 import type {
 	ListWorkAttemptStepsResult,
 	WorkAttemptMessage,
@@ -468,6 +469,11 @@ export interface PlatformClient {
 		body: string;
 	}): Promise<WorkAttemptMessage>;
 	stopWorkAttempt(params: { workItemId: string }): Promise<WorkAttemptMessage>;
+	/** The agent runs this tedi started, newest first, with their real state. */
+	listAgentRuns(params?: {
+		state?: "live" | "ended" | "all";
+		limit?: number;
+	}): Promise<ListAgentRunsResult>;
 	listWorkApprovalInbox(params?: {
 		proposalId?: string;
 		workItemId?: string;
@@ -1086,6 +1092,12 @@ export class HttpPlatformClient implements PlatformClient {
 		workItemId: string;
 	}): Promise<WorkAttemptMessage> {
 		return this.rpc("workItems", "stopAttempt", { id: params.workItemId });
+	}
+
+	async listAgentRuns(
+		params: { state?: "live" | "ended" | "all"; limit?: number } = {},
+	): Promise<ListAgentRunsResult> {
+		return this.rpc("workItems", "listAgentRuns", params);
 	}
 
 	async listWorkApprovalInbox(
