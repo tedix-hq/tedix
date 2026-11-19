@@ -126,6 +126,26 @@ describe("structured lane results", () => {
 			expect(parseCodexLaneResult(JSON.stringify(output))).toEqual(result);
 		}
 	});
+	it("drops a field that belongs to another outcome in Codex files", () => {
+		const deferred = {
+			workItemId: wait.workItemId,
+			workVersion: 2,
+			contractVersion: 1,
+			outcomeText: wait.outcomeText,
+			outcome: "deferred" as const,
+			reason: "Waiting for a release date",
+		};
+		expect(
+			parseCodexLaneResult(
+				JSON.stringify({
+					...deferred,
+					remaining: "Does not apply",
+					unverified: "Does not apply",
+					rootCause: "Does not apply here",
+				}),
+			),
+		).toEqual(deferred);
+	});
 	it("rejects malformed JSON, unknown fields and invalid outcome fields in Codex files", () => {
 		const base = {
 			workItemId: wait.workItemId,
@@ -141,7 +161,6 @@ describe("structured lane results", () => {
 			"[]",
 			`TEDIX_LANE_RESULT ${JSON.stringify(base)}`,
 			JSON.stringify({ ...base, ignored: null }),
-			JSON.stringify({ ...base, remaining: "Does not apply" }),
 			JSON.stringify({ ...base, outcome: "incomplete", remaining: null }),
 			JSON.stringify({ ...base, workVersion: 0 }),
 			JSON.stringify({ ...base, commitSha: "abc" }),

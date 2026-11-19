@@ -129,10 +129,19 @@ export function parseCodexLaneResult(message: string): LaneResult {
 	const value: unknown = JSON.parse(message);
 	if (typeof value !== "object" || value === null || Array.isArray(value))
 		return LaneResultSchema.parse(value);
+	// The output schema is flat, so Codex can fill a field that belongs to
+	// another outcome. Drop those; fields no outcome defines are still refused.
+	const outcome = (value as { outcome?: unknown }).outcome;
+	const own = codexResultVariants.find(
+		(variant) =>
+			(variant.properties!.outcome as { const?: unknown }).const === outcome,
+	)?.properties;
 	return LaneResultSchema.parse(
 		Object.fromEntries(
-			Object.entries(value).filter(
-				([key, field]) => field !== null || !codexResultKeys.includes(key),
+			Object.entries(value).filter(([key, field]) =>
+				codexResultKeys.includes(key)
+					? field !== null && (!own || key in own)
+					: true,
 			),
 		),
 	);
