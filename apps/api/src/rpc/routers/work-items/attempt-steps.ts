@@ -62,6 +62,7 @@ function pendingMessage(row: WorkAttemptMessageRow) {
 		body: row.body,
 		senderType: row.senderType,
 		senderId: row.senderId,
+		interrupt: row.interrupt,
 		createdAt: row.createdAt,
 	};
 }
@@ -133,7 +134,12 @@ export const listAttemptStepsProcedure = readerOs.listAttemptSteps.handler(
 
 async function steerRun(
 	context: BaseContext,
-	params: { id: string; kind: "follow_up" | "stop"; body: string },
+	params: {
+		id: string;
+		kind: "follow_up" | "stop";
+		body: string;
+		interrupt?: boolean;
+	},
 ) {
 	const workItem = await assertWorkItemAccess(context, params.id);
 	// The same rule as completing the Work Item: its owner or steward. An
@@ -145,6 +151,7 @@ async function steerRun(
 		kind: params.kind,
 		body: params.body,
 		sender: { type: actor.type, id: actor.id },
+		interrupt: params.interrupt,
 	});
 	if (!message) throw createError(ErrorCodes.CONFLICT, "No run is in progress");
 	return storedMessage(message);
@@ -152,7 +159,12 @@ async function steerRun(
 
 export const sendAttemptMessageProcedure =
 	steeringOs.sendAttemptMessage.handler(({ input, context }) =>
-		steerRun(context, { id: input.id, kind: "follow_up", body: input.body }),
+		steerRun(context, {
+			id: input.id,
+			kind: "follow_up",
+			body: input.body,
+			interrupt: input.interrupt,
+		}),
 	);
 
 export const stopAttemptProcedure = steeringOs.stopAttempt.handler(

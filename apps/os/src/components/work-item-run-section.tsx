@@ -51,8 +51,11 @@ export function WorkItemRunView({
 	viewerId?: string;
 	/** Messages sent from this page; "You" before the profile has loaded. */
 	ownMessageIds?: ReadonlySet<string>;
-	/** Resolves once the follow-up is stored; the draft is cleared then. */
-	onSend?: (body: string) => Promise<unknown>;
+	/**
+	 * Resolves once the follow-up is stored; the draft is cleared then. With
+	 * `interrupt` the agent's current step is stopped to apply it right away.
+	 */
+	onSend?: (body: string, interrupt?: boolean) => Promise<unknown>;
 	sending?: boolean;
 	sendError?: unknown;
 	onStop?: () => Promise<unknown>;
@@ -71,6 +74,14 @@ export function WorkItemRunView({
 	);
 	const stopRequested = run.messages.some((message) => message.kind === "stop");
 	const fieldId = `work-run-follow-up-${run.attemptId ?? "none"}`;
+	const sendDraft = (interrupt: boolean) => {
+		const body = draft.trim();
+		if (!body || sending || !onSend) return;
+		void onSend(body, interrupt).then(
+			() => setDraft(""),
+			() => {},
+		);
+	};
 
 	useLayoutEffect(() => {
 		const element = list.current;
@@ -125,12 +136,7 @@ export function WorkItemRunView({
 					className="grid gap-3"
 					onSubmit={(event) => {
 						event.preventDefault();
-						const body = draft.trim();
-						if (!body || sending || !onSend) return;
-						void onSend(body).then(
-							() => setDraft(""),
-							() => {},
-						);
+						sendDraft(false);
 					}}
 				>
 					<Label htmlFor={fieldId}>Send a follow-up</Label>
@@ -140,7 +146,7 @@ export function WorkItemRunView({
 						onChange={(event) => setDraft(event.target.value)}
 						maxLength={4000}
 						disabled={sending}
-						placeholder="The agent reads it when its current step ends"
+						placeholder="The agent reads it when its current step ends. Send now stops that step first."
 					/>
 					{sendError ? (
 						<p role="alert" className="m-0">
@@ -150,6 +156,14 @@ export function WorkItemRunView({
 					<div className="flex flex-wrap items-center gap-2">
 						<Button type="submit" disabled={!draft.trim() || sending}>
 							{sending ? "Sending…" : "Send"}
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							disabled={!draft.trim() || sending}
+							onClick={() => sendDraft(true)}
+						>
+							Send now
 						</Button>
 						<Button
 							type="button"
@@ -194,7 +208,7 @@ export function WorkItemRunSection({
 			names={names}
 			viewerId={viewerId}
 			ownMessageIds={ownMessageIds}
-			onSend={(body) => send.mutateAsync(body)}
+			onSend={(body, interrupt) => send.mutateAsync({ body, interrupt })}
 			sending={send.isPending}
 			sendError={send.error}
 			onStop={() => stop.mutateAsync()}

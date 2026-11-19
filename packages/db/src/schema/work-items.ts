@@ -1137,6 +1137,13 @@ export const workAttemptMessages = sqliteTable(
 			enum: WORK_ATTEMPT_MESSAGE_SENDER_TYPE_VALUES,
 		}).notNull(),
 		senderId: text("sender_id").notNull(),
+		/**
+		 * A follow-up that should not wait for the agent's current turn: the
+		 * runner stops that turn and starts the next one with this message.
+		 */
+		interrupt: integer("interrupt", { mode: "boolean" })
+			.notNull()
+			.default(false),
 		createdAt: text("created_at").notNull(),
 		/** Set when the runner holding the Attempt has received the message. */
 		deliveredAt: text("delivered_at"),

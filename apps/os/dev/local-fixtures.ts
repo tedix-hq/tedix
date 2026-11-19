@@ -128,8 +128,18 @@ const handlers: Record<string, (input: never) => unknown> = {
 	...billingHandlers,
 	// Sent by whoever `userProfile/getMine` says is signed in, which the
 	// sample company replaces, so the sender's own messages read as "You".
-	"workItems/sendAttemptMessage": (input: { id: string; body: string }) =>
-		sendLocalRunMessage(input.id, "follow_up", input.body, localViewerId()),
+	"workItems/sendAttemptMessage": (input: {
+		id: string;
+		body: string;
+		interrupt?: boolean;
+	}) =>
+		sendLocalRunMessage(
+			input.id,
+			"follow_up",
+			input.body,
+			localViewerId(),
+			input.interrupt === true,
+		),
 	"workItems/stopAttempt": (input: { id: string }) =>
 		sendLocalRunMessage(input.id, "stop", "", localViewerId()),
 };

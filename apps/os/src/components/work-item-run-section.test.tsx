@@ -26,6 +26,7 @@ const run = (
 			body: "Keep the old column too.",
 			senderType: "user",
 			senderId: "user-1",
+			interrupt: false,
 			createdAt: new Date(START + 120_000).toISOString(),
 			deliveredAt: null,
 			appliedAt: null,
@@ -117,7 +118,8 @@ describe("WorkItemRunView", () => {
 	});
 
 	it("keeps a refused follow-up in the box and clears it once sent", async () => {
-		const onSend = vi.fn<(body: string) => Promise<unknown>>();
+		const onSend =
+			vi.fn<(body: string, interrupt?: boolean) => Promise<unknown>>();
 		const host = document.createElement("div");
 		document.body.append(host);
 		const root = createRoot(host);
@@ -153,14 +155,25 @@ describe("WorkItemRunView", () => {
 			await submit();
 			expect(onSend).toHaveBeenCalledExactlyOnceWith(
 				"Add a test for the last page.",
+				false,
 			);
 			await render(refusal);
 			expect(textarea.value).toContain("Add a test for the last page.");
 			expect(host.querySelector('[role="alert"]')?.textContent).toBe(
 				"No run is in progress",
 			);
+			// "Send now" asks for the agent's current step to be stopped.
 			onSend.mockResolvedValueOnce({});
-			await submit();
+			await act(async () => {
+				[...host.querySelectorAll("button")]
+					.find((button) => button.textContent === "Send now")!
+					.click();
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			});
+			expect(onSend).toHaveBeenLastCalledWith(
+				"Add a test for the last page.",
+				true,
+			);
 			expect(textarea.value).toBe("");
 		} finally {
 			act(() => root.unmount());

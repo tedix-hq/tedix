@@ -7748,7 +7748,7 @@
 		{
 			"name": "send_work_attempt_message",
 			"remoteName": "send_work_attempt_message",
-			"description": "Send a follow-up to the run in progress on a Work Item you own or steward. The agent applies it after its current turn ends. Fails when no run is in progress.",
+			"description": "Send a follow-up to the run in progress on a Work Item you own or steward. The agent applies it after its current turn ends; set interrupt to stop the current turn and apply it right away. Fails when no run is in progress.",
 			"inputSchema": {
 				"type": "object",
 				"properties": {
@@ -7761,7 +7761,11 @@
 						"type": "string",
 						"minLength": 1,
 						"maxLength": 4000,
-						"description": "The follow-up for the agent. It is applied after the agent's current turn ends."
+						"description": "The follow-up for the agent. It is applied after the agent's current turn ends, unless interrupt is set."
+					},
+					"interrupt": {
+						"description": "Set to true to stop the agent's current turn and apply the follow-up right away, on the same session. Work the agent had not finished in that turn is not rolled back. When the turn cannot be stopped cleanly the follow-up is applied after the turn ends.",
+						"type": "boolean"
 					}
 				},
 				"required": ["id", "body"],

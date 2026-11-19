@@ -66,6 +66,11 @@ export const WorkAttemptPendingMessageSchema = z.object({
 	body: z.string().max(4_000),
 	senderType: WorkAttemptMessageSenderTypeSchema,
 	senderId: z.string().min(1).max(300),
+	interrupt: z
+		.boolean()
+		.describe(
+			"True for a follow-up that should stop the agent's current turn instead of waiting for it to end.",
+		),
 	createdAt: z.iso.datetime(),
 });
 export type WorkAttemptPendingMessage = z.infer<
@@ -153,7 +158,13 @@ export const SendWorkAttemptMessageInputSchema = z.strictObject({
 		.min(1)
 		.max(4_000)
 		.describe(
-			"The follow-up for the agent. It is applied after the agent's current turn ends.",
+			"The follow-up for the agent. It is applied after the agent's current turn ends, unless interrupt is set.",
+		),
+	interrupt: z
+		.boolean()
+		.optional()
+		.describe(
+			"Set to true to stop the agent's current turn and apply the follow-up right away, on the same session. Work the agent had not finished in that turn is not rolled back. When the turn cannot be stopped cleanly the follow-up is applied after the turn ends.",
 		),
 });
 

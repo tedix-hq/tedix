@@ -351,7 +351,7 @@ export const WORK_ITEM_TOOLS: TediToolSpec[] = [
 		name: "send_work_attempt_message",
 		remoteName: "send_work_attempt_message",
 		description:
-			"Send a follow-up to the run in progress on a Work Item you own or steward. The agent applies it after its current turn ends. Fails when no run is in progress.",
+			"Send a follow-up to the run in progress on a Work Item you own or steward. The agent applies it after its current turn ends; set interrupt to stop the current turn and apply it right away. Fails when no run is in progress.",
 		inputSchema: SEND_ATTEMPT_MESSAGE_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "workItems/sendAttemptMessage",
