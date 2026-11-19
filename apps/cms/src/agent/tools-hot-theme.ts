@@ -569,7 +569,7 @@ export function registerHotThemeTools(
 				"Use theme_read_file after this to inspect and edit the current source. This replaces unsaved editable sandbox files but does not deploy or publish. Locked template files remain platform-owned. The read token stays server-side.",
 			inputSchema: schema(
 				z.object({
-					sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
+					sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
 					confirmReplaceSandbox: z.literal(true),
 				}),
 			),
@@ -619,7 +619,7 @@ export function registerHotThemeTools(
 				"A changed main branch is reported as a conflict; this tool never force-pushes or deploys.",
 			inputSchema: schema(
 				z.object({
-					expectedHead: z.string().regex(/^[0-9a-f]{40}$/),
+					expectedHead: z.string().regex(/^[a-f0-9]{40}$/),
 					message: z.string().min(1).max(200),
 					files: z
 						.array(
