@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.24.1 — 2026-11-19
+
+### Patch Changes
+
+- A runner can check landed work after a deploy without any extra setting. It reads the health pages of the Tedix connection it already uses to see which version is deployed. Set `TEDIX_LANE_VERIFY_HEALTH_URLS` only to check other addresses.
+
 ## 0.24.0 — 2026-11-19
 
 ### Minor Changes
