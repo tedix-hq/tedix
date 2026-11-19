@@ -1,7 +1,14 @@
 import { QueryClient } from "@tanstack/react-query";
 import { osQueryKeys, outputDetailQueryOptions } from "./os-query-options";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
-import { describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import {
 	appRuntimeContextFromManifest,
 	buildAppRuntimeDocument,
@@ -649,6 +656,115 @@ describe("app runtime host", () => {
 			vi.restoreAllMocks();
 		}
 	});
+	describe("app.openLink", () => {
+		const assign = vi.fn();
+		const open = vi.fn();
+		const activation = { isActive: true };
+		const location = {
+			hostname: "os.example.test",
+			origin: "https://os.example.test",
+			assign,
+		};
+
+		beforeEach(() => {
+			assign.mockClear();
+			open.mockClear();
+			activation.isActive = true;
+			vi.stubGlobal("window", {
+				location,
+				navigator: { userActivation: activation },
+				open,
+			});
+		});
+		afterEach(() => {
+			location.hostname = "os.example.test";
+			location.origin = "https://os.example.test";
+			vi.unstubAllGlobals();
+		});
+
+		it("opens a same-origin share in the current tab for a guest", async () => {
+			const url = "https://os.example.test/s/other?view=cards#next";
+			const guest = { ...deps("use"), serverResolvesSlots: true };
+			expect(
+				await handleAppRuntimeCall(guest, "app.openLink", { url }),
+			).toEqual({
+				ok: true,
+				value: null,
+			});
+			expect(assign).toHaveBeenCalledExactlyOnceWith(url);
+			expect(open).not.toHaveBeenCalled();
+		});
+
+		it.each([
+			"https://other.example.test/s/share",
+			"https://os.example.test:8443/s/share",
+			"https://os.example.test/settings",
+			"https://os.example.test/s",
+		])("opens %s in an isolated tab, including for viewers", async (url) => {
+			expect(
+				await handleAppRuntimeCall(deps("viewer"), "app.openLink", { url }),
+			).toEqual({
+				ok: true,
+				value: null,
+			});
+			expect(open).toHaveBeenCalledExactlyOnceWith(
+				url,
+				"_blank",
+				"noopener,noreferrer",
+			);
+			expect(assign).not.toHaveBeenCalled();
+		});
+
+		it("permits loopback HTTP when OS is running locally", async () => {
+			const url = "http://127.0.0.1:3030/s/share";
+			location.hostname = "127.0.0.1";
+			location.origin = new URL(url).origin;
+			expect(
+				await handleAppRuntimeCall(deps("owner"), "app.openLink", { url }),
+			).toMatchObject({ ok: true });
+			expect(assign).toHaveBeenCalledExactlyOnceWith(url);
+		});
+
+		it.each([
+			undefined,
+			"/s/relative",
+			"javascript:void(0)",
+			"data:text/plain,example",
+			"http://example.test/",
+			"http://localhost:3030/s/share",
+			"https://user@os.example.test/s/share",
+			"https://:password@os.example.test/s/share",
+			"https://example.test/" + "x".repeat(4096),
+		])("rejects an invalid link before navigation", async (url) => {
+			expect(
+				await handleAppRuntimeCall(deps("use"), "app.openLink", { url }),
+			).toEqual({
+				ok: false,
+				error: "bad_arguments",
+			});
+			expect(assign).not.toHaveBeenCalled();
+			expect(open).not.toHaveBeenCalled();
+		});
+
+		it("requires transient user activation for both destinations", async () => {
+			activation.isActive = false;
+			for (const url of [
+				"https://os.example.test/s/share",
+				"https://other.example.test/",
+			]) {
+				expect(
+					await handleAppRuntimeCall(deps("use"), "app.openLink", { url }),
+				).toMatchObject({
+					ok: false,
+					error: "not_permitted",
+					detail: "user_activation_required",
+				});
+			}
+			expect(assign).not.toHaveBeenCalled();
+			expect(open).not.toHaveBeenCalled();
+		});
+	});
+
 	it("invalidates canonical output caches only after successful declared writes", async () => {
 		const client = new QueryClient();
 		const key: readonly unknown[] = outputDetailQueryOptions(outputId).queryKey;

@@ -21,6 +21,8 @@ await mkdir(evidence, { recursive: true });
 
 const server = await startFixtureServer("/");
 let browser: Browser | undefined;
+const externalGuide = "https://guide.example.test/";
+const shareDestination = `${server.origin}/s/PricePilotWorkspace001`;
 
 async function fits(page: Page, label: string) {
 	assert(
@@ -42,7 +44,10 @@ async function openGuestApp(page: Page, label: string) {
 }
 
 try {
-	browser = await chromium.launch({ headless: true });
+	browser = await chromium.launch({
+		headless: true,
+		ignoreDefaultArgs: ["--disable-popup-blocking"],
+	});
 	for (const [width, theme] of [
 		[1280, "light"],
 		[375, "dark"],
@@ -63,6 +68,30 @@ try {
 				? route.continue()
 				: route.abort("blockedbyclient"),
 		);
+		if (width === 1280) {
+			await context.route(externalGuide, (route) =>
+				route.fulfill({ contentType: "text/html", body: "<h1>Guide</h1>" }),
+			);
+			await page.route("**/api/os-shared/app/open", async (route) => {
+				const response = await route.fetch();
+				const body = await response.json();
+				body.app.client = `
+for (const [label, url] of ${JSON.stringify([
+					["Open guide", externalGuide],
+					["Open shared workspace", shareDestination],
+				])}) {
+	const link = document.createElement("a");
+	link.textContent = label;
+	link.href = url;
+	link.addEventListener("click", (event) => {
+		event.preventDefault();
+		return tedix.call("app.openLink", { url: link.href });
+	});
+	document.getElementById("app").append(link, document.createElement("br"));
+}`;
+				await route.fulfill({ response, json: body });
+			});
+		}
 
 		// The permanent address opens the app for someone with no account.
 		await page.goto(`${server.origin}/s/${PUBLIC_ID}`);
@@ -100,6 +129,26 @@ try {
 			.waitFor();
 
 		if (width === 1280) {
+			const guest = page
+				.frameLocator('iframe[title="Opportunity cards"]')
+				.frameLocator("iframe");
+			const originalUrl = page.url();
+			const [popup] = await Promise.all([
+				context.waitForEvent("page", { timeout: 10_000 }),
+				guest.getByRole("link", { name: "Open guide" }).click(),
+			]);
+			await popup.waitForURL(externalGuide);
+			await popup.getByRole("heading", { name: "Guide" }).waitFor();
+			assert.equal(await popup.evaluate(() => window.opener), null);
+			assert.equal(await popup.evaluate(() => document.referrer), "");
+			assert.equal(page.url(), originalUrl);
+			await popup.close();
+
+			await Promise.all([
+				page.waitForURL(shareDestination, { timeout: 10_000 }),
+				guest.getByRole("link", { name: "Open shared workspace" }).click(),
+			]);
+			assert.deepEqual(context.pages(), [page]);
 			await context.close();
 			continue;
 		}

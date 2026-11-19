@@ -11,6 +11,7 @@ import type {
 	OsWorkspaceResource,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
+import { isLoopbackHostname } from "@tedix/auth/local-demo";
 import { OS_OUTPUT_CONTENT_MAX_BYTES } from "@tedix/api-contract/utils/os-output-limits";
 import {
 	OS_OUTPUT_ASSET_MAX_BYTES,
@@ -584,6 +585,43 @@ export async function handleAppRuntimeCall(
 					return { ok: false, error: "bad_arguments", detail: error.message };
 				throw error;
 			}
+		}
+		case "app.openLink": {
+			if (
+				!isRecord(args) ||
+				typeof args.url !== "string" ||
+				args.url.length > 4096
+			)
+				return { ok: false, error: "bad_arguments" };
+			let url: URL;
+			try {
+				url = new URL(args.url);
+			} catch {
+				return { ok: false, error: "bad_arguments" };
+			}
+			const { location, navigator } = window;
+			const localHttp =
+				url.protocol === "http:" &&
+				isLoopbackHostname(location.hostname) &&
+				isLoopbackHostname(url.hostname);
+			if (
+				(url.protocol !== "https:" && !localHttp) ||
+				url.username ||
+				url.password
+			)
+				return { ok: false, error: "bad_arguments" };
+			// The click activates ancestor frames. Check before either navigation,
+			// while the browser can still open a tab from that interaction.
+			if (!navigator.userActivation?.isActive)
+				return {
+					ok: false,
+					error: "not_permitted",
+					detail: "user_activation_required",
+				};
+			if (url.origin === location.origin && url.pathname.startsWith("/s/"))
+				location.assign(url.href);
+			else window.open(url.href, "_blank", "noopener,noreferrer");
+			return { ok: true, value: null };
 		}
 		case "app.download": {
 			if (context.role === "viewer")

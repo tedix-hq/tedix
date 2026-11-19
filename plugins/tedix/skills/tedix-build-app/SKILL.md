@@ -53,9 +53,34 @@ const result = await tedix.call("app.call", {
 });
 ```
 
-These are the only browser call methods. `context` also includes `workspaceId`
+Browser methods for these apps include `context`, `outputs.read`, `app.call`
+and `app.openLink`. `context` also includes `workspaceId`
 and `gadget: {id, name, revision}`. `outputs.read` returns an Output content body,
 not a response envelope. `app.call` invokes an own public method of `App.prototype`.
+`app.openLink` takes `{url}` and works for every role, including share-link
+guests. Pass an absolute HTTPS URL of at most 4,096 characters without a
+username or password. HTTP works for loopback URLs when OS runs on loopback.
+A same-origin URL whose path starts with `/s/` opens in the current tab.
+Other allowed links open in a new tab without an opener or referrer.
+Call the method directly in the click handler, before awaiting other work.
+
+```js
+const link = document.createElement("a");
+link.href = "https://example.com/guide";
+link.textContent = "Read the guide";
+const status = document.createElement("p");
+status.setAttribute("role", "status");
+link.addEventListener("click", async (event) => {
+	event.preventDefault();
+	try {
+		await tedix.call("app.openLink", { url: link.href });
+	} catch {
+		status.textContent = "Could not open the guide.";
+	}
+});
+document.getElementById("app").append(link, status);
+```
+
 Export `class App` from `server.js`; its constructor receives `(ctx, env)`.
 Use synchronous `ctx.storage.kv.get/put/delete/list` for durable app state.
 An App instance is created per call; instance fields are not persistence.
@@ -136,7 +161,7 @@ the kit in use. Add a helper to the kit here, not by editing a copy in one app.
   skill runs and Work board reads (`work.read`).
 - `use`: `app.call`, Output reads and Work board reads. App-local KV writes through a public
   method are possible; do not confuse them with permission to write Outputs.
-- `viewer`: no runtime operations. `context` exposes presentation context only.
+- `viewer`: `context` for presentation context and `app.openLink` for clicks.
 
 Every resource operation additionally needs a matching `resourceGrants` slot
 and operation. Bind Output slots to active workspace resources with
