@@ -4503,7 +4503,14 @@ export class LaneDispatcher {
 			const finalMessage =
 				receipt.telemetry?.finalMessage ||
 				(existsSync(last) ? readFileSync(last, "utf8") : "No final message");
-			if (exit !== 0 && isMissingNativeState(finalMessage))
+			if (
+				exit !== 0 &&
+				(isMissingNativeState(finalMessage) ||
+					(executor === "codex" &&
+						/\bstream disconnected before completion\b|\bIO error:\s*Broken pipe\b/i.test(
+							finalMessage,
+						)))
+			)
 				receipt.retryable = true;
 			receipt.note = finalMessage.slice(0, 1800);
 			if (exit === 0 && receipt.outcome === "succeeded") {
