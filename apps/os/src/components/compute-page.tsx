@@ -51,10 +51,9 @@ import {
 } from "@/lib/os-query-options";
 import {
 	type CreditUsage,
-	availableCredits,
-	creditPercent,
+	allowanceUsage,
 	creditsPaused,
-	formatCredits,
+	formatUsagePercent,
 } from "@/lib/billing-credits";
 import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
@@ -230,9 +229,10 @@ export function LedgerCard({
 				</Text>
 			)}
 			<Text as="span" role="label" tone="secondary">
-				AI calls recorded for this organization. What they used is shown in
-				credits above. {formatCount(posture.spend.pricedRowCount)} priced calls
-				· {formatCount(posture.spend.unpricedRowCount)} unpriced calls.
+				AI calls recorded for this organization. Their share of this month's
+				credits is part of Credits this month.{" "}
+				{formatCount(posture.spend.pricedRowCount)} priced calls ·{" "}
+				{formatCount(posture.spend.unpricedRowCount)} unpriced calls.
 			</Text>
 			{posture.spend.quarantinedRowCount > 0 && (
 				<Text as="span" role="label" tone="secondary">
@@ -329,7 +329,8 @@ export function CreditsCard({
 }) {
 	useOsFormattingPreferences();
 	const paused = creditsPaused(credits);
-	const percent = creditPercent(credits.usedCredits, credits.includedCredits);
+	const usage = allowanceUsage(credits);
+	const used = credits.usedCredits;
 	return (
 		<ComputeSummary embedded={embedded}>
 			<div className="flex flex-wrap items-center gap-2">
@@ -340,9 +341,7 @@ export function CreditsCard({
 					variant={paused ? "destructive" : "info"}
 					data-tone={paused ? "bad" : "ok"}
 				>
-					{paused
-						? "Out of credits"
-						: `${formatCredits(availableCredits(credits))} left`}
+					{paused ? "Out of credits" : "Available"}
 				</Badge>
 			</div>
 			{paused && (
@@ -350,19 +349,34 @@ export function CreditsCard({
 					New work that uses credits has stopped until the credits renew.
 				</Text>
 			)}
-			<Text as="span" role="label" tone="secondary">
-				{formatCredits(credits.usedCredits)} used of{" "}
-				{formatCredits(credits.includedCredits)} included · {percent}% ·{" "}
-				{formatCredits(credits.topUpCredits)} top-up credits
+			<Text
+				as="span"
+				role="metric"
+				weight="semibold"
+				className="tabular-nums"
+				data-credit-percent={usage.percent}
+			>
+				{usage.label} used this month
 			</Text>
-			<Meter label="Included credits used" value={percent} />
+			<Meter
+				label="Share of this month's credits used"
+				hideLabel
+				value={usage.percent}
+				getAriaValueText={() => usage.label}
+			/>
 			<Text as="span" role="label" tone="secondary">
-				AI {formatCredits(credits.breakdown.ai)} · Code runs{" "}
-				{formatCredits(credits.breakdown.codeRuns)} · Services{" "}
-				{formatCredits(credits.breakdown.services)}
+				Of your plan's monthly credits
+				{credits.topUpCredits > 0 ? " plus credit packs" : ""}.
 			</Text>
+			{used > 0 && (
+				<Text as="span" role="label" tone="secondary">
+					AI {formatUsagePercent(credits.breakdown.ai, used)} · Code runs{" "}
+					{formatUsagePercent(credits.breakdown.codeRuns, used)} · Services{" "}
+					{formatUsagePercent(credits.breakdown.services, used)}
+				</Text>
+			)}
 			<Text as="span" className="opacity-70" role="caption" tone="secondary">
-				Caps, credit packs, and pay-as-you-go are managed in{" "}
+				Exact credit counts, caps, credit packs, and pay-as-you-go are in{" "}
 				<Link href="/admin/billing">Billing</Link>.
 			</Text>
 		</ComputeSummary>
@@ -535,8 +549,8 @@ export function ComputePage() {
 				<PageHeading>
 					<PageTitle>{OS_COPY.navigation.usage}</PageTitle>
 					<PageDescription>
-						Credits used this month, recorded AI calls, and model routing. For
-						your plan, caps, credit packs, and invoices, open{" "}
+						Share of this month's credits used, recorded AI calls, and model
+						routing. For your plan, caps, credit packs, and invoices, open{" "}
 						<Link href="/admin/billing">Billing</Link>.
 					</PageDescription>
 				</PageHeading>
@@ -554,7 +568,7 @@ export function ComputePage() {
 			<PageSection>
 				<BillingSectionHeader
 					title="Credits and calls"
-					description="Credits used this month, recorded AI calls, record freshness, and where the figures come from."
+					description="Share of this month's credits used, recorded AI calls, record freshness, and where the figures come from."
 				/>
 				{posture.isPending && <ListSkeleton rows={3} rowClassName="h-24" />}
 				{nonData?.kind === "refused" && (

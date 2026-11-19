@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	allowanceShare,
+	allowanceUsage,
 	availableCredits,
 	creditLevel,
-	creditPercent,
 	creditsPaused,
 	type CreditUsage,
 	formatCredits,
+	formatUsagePercent,
 	latestCreditNotice,
+	monthlyAllowanceCredits,
 	parseCreditCap,
 	parseEuroCapMicros,
+	usagePercent,
 } from "./billing-credits";
 
 function usage(overrides: Partial<CreditUsage> = {}): CreditUsage {
@@ -38,7 +42,43 @@ describe("Tedix credits", () => {
 		expect(creditLevel(79, 100)).toBe("ok");
 		expect(creditLevel(80, 100)).toBe("warn");
 		expect(creditLevel(100, 100)).toBe("full");
-		expect(creditPercent(150, 100)).toBe(100);
+		expect(usagePercent(150, 100)).toBe(100);
+	});
+
+	it("rounds percent down, shows <1% for small usage, 100% only at the limit", () => {
+		expect(formatUsagePercent(0, 1_000)).toBe("0%");
+		expect(formatUsagePercent(1, 1_000)).toBe("<1%");
+		expect(formatUsagePercent(9, 1_000)).toBe("<1%");
+		expect(formatUsagePercent(10, 1_000)).toBe("1%");
+		expect(formatUsagePercent(29, 100)).toBe("29%");
+		expect(formatUsagePercent(999, 1_000)).toBe("99%");
+		expect(formatUsagePercent(1_000, 1_000)).toBe("100%");
+		expect(formatUsagePercent(5, 0)).toBe("100%");
+		expect(usagePercent(1, 1_000)).toBe(0);
+	});
+
+	it("measures usage against included plus top-up credits this month", () => {
+		const growth = usage({
+			includedCredits: 15_000,
+			usedCredits: 12_600,
+			remainingIncludedCredits: 2_400,
+			topUpCredits: 5_000,
+		});
+		expect(monthlyAllowanceCredits(growth)).toBe(20_000);
+		expect(allowanceUsage(growth)).toEqual({ percent: 63, label: "63%" });
+		expect(allowanceShare(growth, 2)).toEqual({ percent: 0, label: "<1%" });
+		// The 200 top-up credits already drawn this month still count.
+		const drawing = usage({
+			includedCredits: 1_000,
+			usedCredits: 1_200,
+			remainingIncludedCredits: 0,
+			topUpCredits: 300,
+		});
+		expect(allowanceUsage(drawing)).toEqual({ percent: 80, label: "80%" });
+	});
+
+	it("reads 100% when the organization is out of credits", () => {
+		expect(allowanceUsage(usage())).toEqual({ percent: 100, label: "100%" });
 	});
 
 	it("counts plan credits, then top-ups, then pay-as-you-go room", () => {

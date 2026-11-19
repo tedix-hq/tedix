@@ -95,6 +95,8 @@ const directReadApi = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
+		// The usage line under the composer reads the monthly credits.
+		billing: { getOverview: vi.fn(() => new Promise(() => {})) },
 		capabilities: capabilitiesApi,
 		kernelRuntime: kernelRuntimeApi,
 		modelCatalog: modelCatalogApi,

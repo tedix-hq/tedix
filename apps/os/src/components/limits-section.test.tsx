@@ -48,7 +48,8 @@ describe("monthly limits", () => {
 			"tedi:tedi-fictional-a",
 			"member:user-fictional-a",
 		]);
-		expect(rows[0]!.limitLabel).toBe("15,000 credits a month from the plan");
+		expect(rows[0]!.name).toBe("This month's credits");
+		expect(rows[0]!.limit).toBe(15_000);
 	});
 
 	it("adds the pay-as-you-go cap in credits when it is on", () => {
@@ -74,6 +75,10 @@ describe("monthly limits", () => {
 		expect(html).toContain(
 			"Work started by Sam Rivera pauses until next month.",
 		);
+		// Shares, not counts: exact credits stay on Billing › Usage.
+		expect(html).toContain("40% used");
+		expect(html).toContain("85% used");
+		expect(html).not.toMatch(/\d credits?\b/);
 		expect(html.toLowerCase()).not.toContain("token");
 		expect(html.toLowerCase()).not.toContain("daily");
 	});

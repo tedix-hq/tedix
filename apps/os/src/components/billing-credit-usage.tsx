@@ -14,10 +14,12 @@ import { Meter } from "@/components/kumo/meter";
 import { Text } from "@/components/kumo/text";
 import {
 	type CreditUsage,
-	creditPercent,
+	allowanceUsage,
 	creditsPaused,
 	formatCredits,
+	formatUsagePercent,
 	latestCreditNotice,
+	monthlyAllowanceCredits,
 	payAsYouGoRemainingCredits,
 } from "@/lib/billing-credits";
 import { formatBillingAmount } from "@/lib/billing-price";
@@ -90,7 +92,8 @@ function formatResetDate(periodEnd: string): string {
 }
 
 export function BillingCreditUsage({ credits }: { credits: CreditUsage }) {
-	const percent = creditPercent(credits.usedCredits, credits.includedCredits);
+	const usage = allowanceUsage(credits);
+	const allowance = monthlyAllowanceCredits(credits);
 	const paused = creditsPaused(credits);
 	const payAsYouGoLeft = payAsYouGoRemainingCredits(credits.payAsYouGo);
 	const period = formatCreditPeriod(credits.periodStart, credits.periodEnd);
@@ -114,12 +117,15 @@ export function BillingCreditUsage({ credits }: { credits: CreditUsage }) {
 						role="metric"
 						weight="semibold"
 						className="tabular-nums"
+						data-credit-percent={usage.percent}
 					>
-						{formatCredits(credits.usedCredits)} used
+						{usage.label} used this month
 					</Text>
 					<Meter
-						label={`${percent}% of ${formatCredits(credits.includedCredits)} included`}
-						value={percent}
+						label={`${formatCredits(credits.usedCredits)} used of ${formatCredits(allowance)} (included plus top-up credits)`}
+						showValue={false}
+						value={usage.percent}
+						getAriaValueText={() => usage.label}
 					/>
 				</div>
 				<MetricGrid
@@ -147,6 +153,11 @@ export function BillingCreditUsage({ credits }: { credits: CreditUsage }) {
 					credits.payAsYouGo.monthlyCapMicros !== null && (
 						<Text tone="secondary">
 							Pay-as-you-go:{" "}
+							{formatUsagePercent(
+								credits.payAsYouGo.spentMicros,
+								credits.payAsYouGo.monthlyCapMicros,
+							)}{" "}
+							of the monthly cap ·{" "}
 							{formatBillingAmount(credits.payAsYouGo.spentMicros, "eur")} of{" "}
 							{formatBillingAmount(credits.payAsYouGo.monthlyCapMicros, "eur")}{" "}
 							used this month ({formatCredits(payAsYouGoLeft)} left).
@@ -191,11 +202,10 @@ function BreakdownItem({
 	credits: number;
 	total: number;
 }) {
-	const share = total > 0 ? Math.round((credits / total) * 100) : 0;
 	return (
 		<div className="grid min-w-0 gap-0.5" data-credit-breakdown={label}>
 			<Text role="label" tone="secondary">
-				{label} · {share}%
+				{label} · {formatUsagePercent(credits, total)}
 			</Text>
 			<Text weight="medium" className="tabular-nums">
 				{formatCredits(credits)}

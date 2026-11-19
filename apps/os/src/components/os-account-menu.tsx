@@ -24,7 +24,8 @@ import {
 	SidebarTrigger,
 	useSidebar,
 } from "@/components/kumo/sidebar";
-import { availableCredits, formatCredits } from "@/lib/billing-credits";
+import { Meter } from "@/components/kumo/meter";
+import { allowanceUsage } from "@/lib/billing-credits";
 import { isLocalSession } from "@/lib/local-inference";
 import { billingOverviewQueryOptions } from "@/lib/os-query-options";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
@@ -51,9 +52,7 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 		refetchInterval: canManageBilling ? 60_000 : false,
 	});
 	const balance = canManageBilling ? overview.data : undefined;
-	const remaining = balance
-		? `${formatCredits(availableCredits(balance.credits))} left`
-		: null;
+	const usage = balance ? allowanceUsage(balance.credits) : null;
 	const UsageIcon = SURFACE_ICONS.compute;
 	const avatar = (
 		<Avatar className="size-5 shrink-0">
@@ -116,9 +115,19 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 								}
 							>
 								{OS_COPY.navigation.usage}
-								{remaining ? (
-									<span className="ml-auto text-kumo-subtle type-tedix-caption">
-										{remaining}
+								{usage ? (
+									<span
+										className="ml-auto w-32 shrink-0"
+										data-credit-percent={usage.percent}
+									>
+										<Meter
+											label={`${usage.label} used this month`}
+											showValue={false}
+											value={usage.percent}
+											getAriaValueText={() => usage.label}
+											className="gap-1 tabular-nums [&>div:first-child]:justify-end"
+											trackClassName="h-1"
+										/>
 									</span>
 								) : null}
 							</DropdownMenuLinkItem>

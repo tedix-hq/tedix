@@ -1,14 +1,34 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
-import { homeConversationChargesQueryOptions } from "@/lib/os-query-options";
+import type { CreditUsage } from "@/lib/billing-credits";
+import {
+	billingOverviewQueryOptions,
+	homeConversationChargesQueryOptions,
+} from "@/lib/os-query-options";
 import {
 	ConversationUsageLine,
+	conversationUsage,
 	conversationUsageText,
 } from "./chat-usage-line";
 
+const credits: CreditUsage = {
+	periodStart: "2026-11-01T00:00:00.000Z",
+	periodEnd: "2026-12-01T00:00:00.000Z",
+	includedCredits: 1_000,
+	usedCredits: 400,
+	remainingIncludedCredits: 600,
+	topUpCredits: 0,
+	breakdown: { ai: 400, codeRuns: 0, services: 0 },
+	notices: [],
+	payAsYouGo: { enabled: false, monthlyCapMicros: null, spentMicros: 0 },
+	tedis: [],
+	members: [],
+};
+
 function render(
 	data?: { chargedMicros: number; chargeCount: number } | undefined,
+	withCredits = true,
 ) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { enabled: false, retry: false } },
@@ -18,6 +38,10 @@ function render(
 			homeConversationChargesQueryOptions("home:fictional").queryKey,
 			{ currency: "eur", runCount: 3, ...data },
 		);
+	if (withCredits)
+		client.setQueryData(billingOverviewQueryOptions().queryKey, {
+			credits,
+		} as never);
 	return renderToStaticMarkup(
 		<QueryClientProvider client={client}>
 			<ConversationUsageLine
@@ -29,23 +53,28 @@ function render(
 }
 
 describe("ConversationUsageLine", () => {
-	it("states the settled credits of the conversation", () => {
-		expect(conversationUsageText(1_250_000)).toBe(
-			"125 credits used in this conversation",
+	it("states the conversation's share of this month's credits, not a count", () => {
+		const usage = conversationUsage(1_250_000, credits);
+		expect(usage).toEqual({ percent: 12, label: "12%" });
+		expect(conversationUsageText(usage)).toBe(
+			"12% of this month's credits used in this conversation",
 		);
 		const html = render({ chargedMicros: 1_250_000, chargeCount: 4 });
-		expect(html).toContain("125 credits used in this conversation");
-		expect(html).toContain("pending usage appears once settled");
-	});
-
-	it("rounds a part credit up rather than showing zero", () => {
-		expect(conversationUsageText(4_200)).toBe(
-			"1 credit used in this conversation",
+		expect(html).toContain(
+			"12% of this month&#x27;s credits used in this conversation",
 		);
+		expect(html).toContain('role="meter"');
+		expect(html).toContain("pending usage appears once settled");
+		expect(html).not.toMatch(/\d credits?\b/);
 	});
 
-	it("stays silent while loading or before anything has settled", () => {
+	it("shows <1% for a small charge rather than zero", () => {
+		expect(conversationUsage(4_200, credits).label).toBe("<1%");
+	});
+
+	it("stays silent while loading, before anything has settled, or without billing access", () => {
 		expect(render()).toBe("");
 		expect(render({ chargedMicros: 0, chargeCount: 0 })).toBe("");
+		expect(render({ chargedMicros: 4_200, chargeCount: 1 }, false)).toBe("");
 	});
 });

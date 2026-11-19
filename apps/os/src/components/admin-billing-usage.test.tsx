@@ -171,8 +171,18 @@ describe("billing usage in credits", () => {
 	it("shows used, included, remaining and top-up credits with a breakdown", () => {
 		const html = render(<BillingUsageOverview />);
 		expect(html).toContain("Credits this month");
-		expect(html).toContain("12,600 credits used");
-		expect(html).toContain("84% of 15,000 credits included");
+		// Leads with the share of 15,000 included plus 5,000 top-up credits.
+		expect(html).toContain("63% used this month");
+		expect(html).toContain(
+			"12,600 credits used of 20,000 credits (included plus top-up credits)",
+		);
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		expect(
+			doc
+				.querySelector('[aria-label="Credits this month"] [role="meter"]')
+				?.getAttribute("aria-valuenow"),
+		).toBe("63");
+		expect(html).toContain("AI · 86%");
 		expect(html).toContain("2,400 credits");
 		expect(html).toContain("5,000 credits");
 		expect(html).toContain('data-credit-breakdown="AI"');
@@ -216,6 +226,7 @@ describe("billing usage in credits", () => {
 			}),
 		);
 		expect(html).toContain('data-credit-notice="paused"');
+		expect(html).toContain("100% used this month");
 		expect(html).toContain("out of credits");
 		expect(html).toContain("turn on pay-as-you-go");
 	});
@@ -223,6 +234,9 @@ describe("billing usage in credits", () => {
 	it("lists per-tedi and per-member usage with their monthly caps", () => {
 		const html = render(<BillingUsageOverview />);
 		expect(html).toContain("Usage by tedi and member");
+		expect(html).toContain("77% of cap used");
+		expect(html).toContain("24% of this month&#x27;s credits");
+		expect(html).toContain("100% of cap used");
 		expect(html).toContain("6,200 credits of 8,000 credits used");
 		expect(html).toContain("4,900 credits used · no separate cap");
 		expect(html).toContain("cap of 1,500 credits reached");

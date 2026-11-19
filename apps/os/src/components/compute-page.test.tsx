@@ -299,17 +299,18 @@ describe("ProvenanceCard", () => {
 });
 
 describe("CreditsCard", () => {
-	it("shows credits used, included, left and the breakdown", () => {
+	it("shows the share of this month's credits used, not counts", () => {
 		const html = renderToStaticMarkup(<CreditsCard credits={credits()} />);
 		expect(html).toContain("Credits this month");
-		expect(html).toContain("10,000 credits left");
-		expect(html).toContain("6,000 credits used of 15,000 credits included");
-		expect(html).toContain("Code runs");
+		// 6,000 of 15,000 included plus 1,000 top-up credits, rounded down.
+		expect(html).toContain("37% used this month");
+		expect(html).toContain("Code runs 10%");
+		expect(html).not.toMatch(/\d credits?\b/);
 		expect(html.toLowerCase()).not.toContain("token");
 		const doc = new DOMParser().parseFromString(html, "text/html");
 		expect(
 			doc.querySelector('[role="meter"]')?.getAttribute("aria-valuenow"),
-		).toBe("40");
+		).toBe("37");
 	});
 
 	it("says work has stopped when no credits are left", () => {
@@ -323,6 +324,7 @@ describe("CreditsCard", () => {
 			/>,
 		);
 		expect(html).toContain("Out of credits");
+		expect(html).toContain("100% used this month");
 		expect(html).toContain("New work that uses credits has stopped");
 	});
 });

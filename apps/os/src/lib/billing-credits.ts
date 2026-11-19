@@ -61,10 +61,66 @@ export function creditLevel(used: number, limit: number): CreditLevel {
 	return "ok";
 }
 
-/** Whole-number percent of a limit, capped at 100 for meters. */
-export function creditPercent(used: number, limit: number): number {
-	if (limit <= 0) return used > 0 ? 100 : 0;
-	return Math.min(100, Math.round((used / limit) * 100));
+/**
+ * Whole percent of a limit used, rounded down and capped at 100, so 100%
+ * only shows once the limit is actually reached. Usage under 1% is 0 here;
+ * `formatUsagePercent` shows it as "<1%".
+ */
+export function usagePercent(used: number, limit: number): number {
+	if (used <= 0) return 0;
+	if (limit <= 0) return 100;
+	// Integer math: (29 / 100) * 100 is 28.999… in floating point.
+	return Math.min(100, Math.floor((used * 100) / limit));
+}
+
+/** "23%", "<1%" for small non-zero usage, "100%" once the limit is reached. */
+export function formatUsagePercent(used: number, limit: number): string {
+	if (used > 0 && limit > 0 && used * 100 < limit) return "<1%";
+	return `${usagePercent(used, limit)}%`;
+}
+
+/**
+ * This month's allowance: the plan's included credits plus the top-up
+ * credits available this period. `topUpCredits` is what is still unused, so
+ * the top-up credits this month already drew on are added back; otherwise
+ * the share would jump as top-ups are spent. Pay-as-you-go is not part of
+ * the allowance.
+ */
+export function monthlyAllowanceCredits(credits: CreditUsage): number {
+	const payAsYouGoUsed = microsToCredits(credits.payAsYouGo.spentMicros);
+	const topUpUsedThisMonth = Math.max(
+		0,
+		credits.usedCredits - credits.includedCredits - payAsYouGoUsed,
+	);
+	return credits.includedCredits + credits.topUpCredits + topUpUsedThisMonth;
+}
+
+export type AllowanceUsage = {
+	/** Whole percent for meters, 0–100. */
+	percent: number;
+	/** "23%", "<1%" or "100%". */
+	label: string;
+};
+
+/** How much of this month's allowance a part of the usage (one conversation) is. */
+export function allowanceShare(
+	credits: CreditUsage,
+	used: number,
+): AllowanceUsage {
+	const allowance = monthlyAllowanceCredits(credits);
+	return {
+		percent: usagePercent(used, allowance),
+		label: formatUsagePercent(used, allowance),
+	};
+}
+
+/**
+ * How much of this month's allowance the organization has used. When it is
+ * out of credits this reads 100%, whatever the counts say.
+ */
+export function allowanceUsage(credits: CreditUsage): AllowanceUsage {
+	if (creditsPaused(credits)) return { percent: 100, label: "100%" };
+	return allowanceShare(credits, credits.usedCredits);
 }
 
 /** Pay-as-you-go room left this month, in credits. */

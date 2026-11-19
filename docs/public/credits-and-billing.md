@@ -124,8 +124,13 @@ Enterprise contract.
 
 ## Where else you see credits
 
-- **Usage** in the account menu shows how many credits are left this month.
-- The **Usage** page shows credits used this month and every monthly limit
-  with how much of it is used.
-- Home shows how many credits each conversation used once its work is
-  finished.
+Outside **Billing › Usage**, Tedix shows usage as a percentage of this month's
+credits: your plan's included credits plus any credit-pack credits for the
+month. For example, "23% used this month". Exact credit counts appear only on
+the Billing › Usage page.
+
+- **Usage** in the account menu shows the percentage used this month.
+- The **Usage** page shows the percentage used this month and every monthly
+  limit with how much of it is used.
+- Home shows what share of this month's credits each conversation used once
+  its work is finished. You see it if you can view billing.
