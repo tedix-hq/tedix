@@ -1,9 +1,14 @@
 import { ArrowCircleUp } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import type {
+	OsAppDraftContent,
 	OsBlueprintUpgradeReport,
+	OsCollaborationProposal,
+	OsGadget,
 	OsWorkspace,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { AppDraftEditor } from "@/components/app-draft-editor";
 import {
 	LoadError,
 	Alert,
@@ -21,7 +26,11 @@ import {
 } from "@/components/kumo/dialog";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
-import { blueprintDetailQueryOptions, osQuery } from "@/lib/os-query-options";
+import {
+	blueprintDetailQueryOptions,
+	osQuery,
+	osQueryKeys,
+} from "@/lib/os-query-options";
 
 type Candidate = { id: string; revision: number };
 
@@ -262,6 +271,126 @@ export function BlueprintUpdateDialog({
 					>
 						Apply update
 					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+export function useBlueprintAppUpdate(
+	workspaceId: string,
+	gadget: OsGadget | undefined,
+) {
+	const query = useQuery({
+		...osQuery.osWorkspaces.collaboration.previewBlueprintAppUpdate.queryOptions(
+			{
+				input: { workspaceId, gadgetId: gadget?.id ?? "" },
+			},
+		),
+		enabled: Boolean(gadget?.sourceBlueprintRevisionId),
+		retry: false,
+	});
+	return query.data?.status === "no_change" ? undefined : query.data;
+}
+
+export function BlueprintAppUpdateDialog({
+	workspaceId,
+	gadget,
+	update,
+	onClose,
+	onDraftCreated,
+}: {
+	workspaceId: string;
+	gadget: OsGadget;
+	update: NonNullable<ReturnType<typeof useBlueprintAppUpdate>>;
+	onClose: () => void;
+	onDraftCreated: (proposal: OsCollaborationProposal) => void;
+}) {
+	const queryClient = useQueryClient();
+	const missingBase = update.status === "base_missing";
+	const [conflict, setConflict] = useState<{
+		manifest: string;
+		files: Record<string, string>;
+	}>();
+	const prepare = useMutation({
+		mutationFn: (resolution?: OsAppDraftContent) =>
+			osApi.osWorkspaces.collaboration.createBlueprintAppUpdate({
+				workspaceId,
+				gadgetId: gadget.id,
+				appRevisionId: update.appRevisionId,
+				releaseId: update.releaseId,
+				mode: missingBase ? "replace" : "merge",
+				resolution,
+			}),
+		onSuccess: async (result) => {
+			if (result.status === "conflicts") {
+				setConflict(result);
+				return;
+			}
+			await queryClient.invalidateQueries({
+				queryKey: osQueryKeys.collaborationProposals(),
+			});
+			onDraftCreated(result.proposal);
+			onClose();
+		},
+	});
+	return (
+		<Dialog
+			open
+			onOpenChange={(open) => !open && !prepare.isPending && onClose()}
+		>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Update {gadget.name} from its blueprint?</DialogTitle>
+					<DialogDescription>
+						{missingBase
+							? "We couldn't find the version this app was made from. You can review a replacement from the blueprint or keep your app."
+							: "Review the update in a draft before applying it to your app."}
+					</DialogDescription>
+				</DialogHeader>
+				{update.conflicts.length > 0 && (
+					<Alert>
+						<AlertTitle>Some changes overlap</AlertTitle>
+						<AlertDescription>
+							Review both versions in {update.conflicts.join(", ")} before
+							saving the draft.
+						</AlertDescription>
+					</Alert>
+				)}
+				{conflict && (
+					<AppDraftEditor
+						manifest={conflict.manifest}
+						files={conflict.files}
+						onSave={(resolution) => prepare.mutateAsync(resolution)}
+					/>
+				)}
+				{prepare.isError && !conflict && (
+					<Alert variant="destructive">
+						<AlertTitle>Couldn't prepare this update</AlertTitle>
+						<AlertDescription>{prepare.error.message}</AlertDescription>
+					</Alert>
+				)}
+				<DialogFooter>
+					<Button
+						variant="outline"
+						disabled={prepare.isPending}
+						onClick={onClose}
+					>
+						Keep my app
+					</Button>
+					{!conflict && (
+						<Button
+							loading={prepare.isPending}
+							disabled={prepare.isPending}
+							onClick={() => prepare.mutate(undefined)}
+						>
+							{missingBase
+								? "Review replacement"
+								: update.conflicts.length > 0
+									? "Review overlapping changes"
+									: "Review update"}
+						</Button>
+					)}
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
