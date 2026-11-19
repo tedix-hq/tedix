@@ -1,3 +1,4 @@
+import { readCmsBundle } from "@tedix/provisioning/cms-bundle";
 import { listTenantBundleVersions } from "@tedix/provisioning/cms";
 import type { CmsSandbox } from "../sandbox";
 import type { ArtifactsBinding } from "../types";
@@ -120,32 +121,13 @@ async function verifyPinnedCmsBuilderRecovery(
 			"CMS active bundle or Artifacts source changed; Builder stop refused",
 		);
 
-	const manifestObject = await input.bundlesBucket.get(
-		`${pins.orgSlug}/v${pins.expectedVersion}/manifest.json`,
+	await readCmsBundle(
+		input.bundlesBucket,
+		`${pins.orgSlug}/v${pins.expectedVersion}/`,
 	);
-	if (!manifestObject || manifestObject.size > 1024 * 1024)
-		throw new Error("Pinned CMS bundle manifest is unavailable");
-	let manifest: unknown;
-	try {
-		manifest = JSON.parse(await manifestObject.text());
-	} catch {
-		throw new Error("Pinned CMS bundle manifest is invalid");
-	}
-	if (
-		!manifest ||
-		typeof manifest !== "object" ||
-		(manifest as Record<string, unknown>).version !== pins.expectedVersion ||
-		(manifest as Record<string, unknown>).etag !== pins.expectedBundleEtag ||
-		JSON.stringify((manifest as Record<string, unknown>).sourceRevision) !==
-			JSON.stringify({
-				kind: "artifacts_commit",
-				value: pins.expectedSourceCommit,
-			})
-	)
-		throw new Error("Pinned CMS bundle manifest does not match active source");
 
-	// The repository must still exist before any container action. The active
-	// bundle and manifest carry the exact commit; no Sandbox read is involved.
+	// The D1 row pins the source commit; require its bundle and repository before
+	// any container action. No Sandbox read is involved.
 	await input.artifacts.get(themeArtifactRepoName(pins.orgSlug));
 	const receiptObject = await input.storage.get(
 		deployProofStatusKey(pins.proofJobId),

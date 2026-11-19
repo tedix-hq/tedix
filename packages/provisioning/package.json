@@ -7,7 +7,8 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./cms": "./src/cms.ts"
+		"./cms": "./src/cms.ts",
+		"./cms-bundle": "./src/cms-bundle.ts"
 	},
 	"scripts": {
 		"type-check": "tsc --noEmit"

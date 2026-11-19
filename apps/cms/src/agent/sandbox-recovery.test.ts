@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { getActiveCmsSiteForPermit } from "./cms-restore-permit";
 import { listTenantBundleVersions } from "@tedix/provisioning/cms";
@@ -48,15 +49,13 @@ function fixture() {
 	const destroy = vi.fn(async () => undefined);
 	const getSandboxForOrg = vi.fn(() => ({ destroy }));
 	const get = vi.fn(async () => ({ name: "cms-theme-tedix-landing" }));
-	const manifest = {
-		version: pins.expectedVersion,
-		etag: ETAG,
-		sourceRevision: { kind: "artifacts_commit", value: ACTIVE_COMMIT },
+	const bundle = {
+		mainModule: "entry.mjs",
+		modules: { "entry.mjs": { js: "export default {}" } },
 	};
-	const bucketGet = vi.fn(async () => ({
-		size: 200,
-		text: async () => JSON.stringify(manifest),
-	}));
+	const bucketGet = vi.fn(
+		async () => new Response(Uint8Array.from(gzipSync(JSON.stringify(bundle)))),
+	);
 	const receipt = {
 		jobId: pins.proofJobId,
 		orgSlug: pins.orgSlug,
@@ -100,7 +99,7 @@ function fixture() {
 		bucketGet,
 		storageGet,
 		getDeployStatus,
-		manifest,
+		bundle,
 		receipt,
 	};
 }
@@ -114,7 +113,9 @@ describe("stopPinnedCmsBuilderSandbox", () => {
 		expect(result.message).toMatch(/signal delivery is unverified/);
 		expect(f.getSandboxForOrg).toHaveBeenCalledWith(pins.orgSlug);
 		expect(f.destroy).toHaveBeenCalledOnce();
-		expect(f.bucketGet).toHaveBeenCalledWith("tedix-landing/v72/manifest.json");
+		expect(f.bucketGet).toHaveBeenCalledWith(
+			"tedix-landing/v72/__tedix_packed_bundle.json.gz",
+		);
 		expect(f.get).toHaveBeenCalledWith("cms-theme-tedix-landing");
 		expect(f.storageGet).toHaveBeenCalledWith(
 			`themes/deploy-status/${pins.proofJobId}.json`,
@@ -177,11 +178,11 @@ describe("stopPinnedCmsBuilderSandbox", () => {
 		}
 	});
 
-	it("refuses a mismatched immutable manifest or missing Artifacts repo", async () => {
+	it("refuses a malformed compressed bundle or missing Artifacts repo", async () => {
 		const f = fixture();
-		f.manifest.sourceRevision.value = "d".repeat(40);
+		f.bundle.mainModule = "missing.mjs";
 		await expect(stopPinnedCmsBuilderSandbox(f.input)).rejects.toThrow(
-			/manifest does not match/,
+			/malformed compressed bundle/,
 		);
 		expect(f.destroy).not.toHaveBeenCalled();
 		const g = fixture();

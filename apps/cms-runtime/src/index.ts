@@ -1,3 +1,4 @@
+import { readCmsBundle, type CmsBundle } from "@tedix/provisioning/cms-bundle";
 import { isCmsDeployProbe, serveCmsDeployProbe } from "./deploy-probe";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
@@ -725,47 +726,12 @@ export class TenantRuntimeFailureTail extends WorkerEntrypoint<
 
 // ── Bundle assembly ───────────────────────────────────────────────
 
-type LoadedBundle = {
-	mainModule: string;
-	modules: Record<string, { js: string }>;
-};
-
-// Immutable versioned bundles are published as one compressed R2 object.
-const PACKED_GZIP_BUNDLE_KEY = "__tedix_packed_bundle.json.gz";
-
 export async function loadBundleModules(
 	env: Env,
 	r2Prefix: string,
 	opts: { spans?: ParentSpans } = {},
-): Promise<LoadedBundle> {
-	const compressedObj = await env.TENANT_BUNDLES.get(
-		`${r2Prefix}${PACKED_GZIP_BUNDLE_KEY}`,
-	);
-	if (!compressedObj)
-		throw new Error(`compressed bundle missing at ${r2Prefix}`);
-
-	let packed: LoadedBundle;
-	try {
-		packed = (await new Response(
-			compressedObj.body.pipeThrough(new DecompressionStream("gzip")),
-		).json()) as LoadedBundle;
-	} catch (cause) {
-		throw new Error(`compressed bundle unreadable at ${r2Prefix}`, { cause });
-	}
-	if (
-		!packed ||
-		typeof packed.mainModule !== "string" ||
-		!packed.mainModule ||
-		!packed.modules ||
-		Array.isArray(packed.modules) ||
-		typeof packed.modules !== "object" ||
-		typeof packed.modules[packed.mainModule]?.js !== "string" ||
-		Object.values(packed.modules).some(
-			(module) => typeof module?.js !== "string",
-		)
-	) {
-		throw new Error(`malformed compressed bundle at ${r2Prefix}`);
-	}
+): Promise<CmsBundle> {
+	const packed = await readCmsBundle(env.TENANT_BUNDLES, r2Prefix);
 	if (opts.spans) {
 		opts.spans["bundle.packed"] = 1;
 		opts.spans["bundle.packedGzip"] = 1;

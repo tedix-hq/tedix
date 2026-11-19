@@ -10,6 +10,12 @@
  * See docs/engineering/emdash/cms.md for storage ownership.
  */
 
+import {
+	readCmsBundle,
+	readCmsBundleModule,
+	COMPRESSED_CMS_BUNDLE_KEY,
+	type CmsBundle,
+} from "./cms-bundle";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 // Minimal structural types — each caller worker has its own auto-generated
@@ -34,7 +40,9 @@ interface R2ListResult {
 	cursor?: string;
 }
 interface R2Bucket {
-	get(key: string): Promise<{ size?: number; text(): Promise<string> } | null>;
+	get(
+		key: string,
+	): Promise<{ body: ReadableStream<Uint8Array<ArrayBuffer>> } | null>;
 	put(
 		key: string,
 		value: ArrayBuffer | Uint8Array,
@@ -82,6 +90,7 @@ export interface CmsBundlesBindings {
 
 /** Read the immutable compiled target before changing the active bundle pointer. */
 export interface VerifiedTenantBundle {
+	bundle?: CmsBundle;
 	id?: string;
 	error?: string;
 	etag?: string;
@@ -122,21 +131,10 @@ export async function verifyTenantBundleDirectDo(
 			!modules.includes(row.mainModule)
 		)
 			return incompatible("invalid module catalog");
-		const manifestObject = await bindings.bundlesBucket.get(
-			`${row.r2Prefix}manifest.json`,
-		);
-		if (!manifestObject) return incompatible("bundle manifest is missing");
-		const manifest = JSON.parse(await manifestObject.text()) as Record<
-			string,
-			unknown
-		>;
-		if (
-			manifest.version !== version ||
-			manifest.etag !== row.etag ||
-			manifest.mainModule !== row.mainModule ||
-			JSON.stringify(manifest.modules) !== JSON.stringify(modules)
-		)
-			return incompatible("bundle manifest does not match the catalog");
+		const bundle = await readCmsBundle(bindings.bundlesBucket, row.r2Prefix, {
+			mainModule: row.mainModule,
+			modules,
+		});
 		const configs = modules.filter((module) =>
 			/^chunks\/config_[^/]+\.mjs$/.test(module),
 		);
@@ -145,13 +143,7 @@ export async function verifyTenantBundleDirectDo(
 		);
 		if (configs.length === 0 || dialects.length === 0)
 			return incompatible("compiled database adapter is missing");
-		const read = async (module: string) => {
-			const object = await bindings.bundlesBucket.get(
-				`${row.r2Prefix}${module}`,
-			);
-			if (!object) throw new Error(`missing ${module}`);
-			return object.text();
-		};
+		const read = async (module: string) => bundle.modules[module]!.js;
 		const compiledVersion = await readCompiledEmdashVersion(modules, read);
 		if (!isSupportedCompiledEmdashVersion(compiledVersion))
 			return incompatible(
@@ -190,9 +182,19 @@ export async function verifyTenantBundleDirectDo(
 			return incompatible(
 				"compiled dialect does not use direct DO query/batch",
 			);
-		return { id: row.id, etag: row.etag, r2Prefix: row.r2Prefix, modules };
-	} catch {
-		return incompatible("compiled bundle could not be verified");
+		return {
+			id: row.id,
+			etag: row.etag,
+			r2Prefix: row.r2Prefix,
+			modules,
+			bundle,
+		};
+	} catch (cause) {
+		return incompatible(
+			cause instanceof Error
+				? cause.message
+				: "compiled bundle could not be verified",
+		);
 	}
 }
 
@@ -933,82 +935,31 @@ export async function uploadTenantBundle(
 		};
 	}
 
-	// 1. PUT every bundle file to R2 in parallel.
-	const uploads = modules.map(async (path) =>
-		bindings.bundlesBucket.put(
-			`${r2Prefix}${path}`,
-			asArrayBuffer(files[path]!),
-			{
-				httpMetadata: {
-					contentType: "application/javascript+module",
-					cacheControl: "public, max-age=31536000, immutable",
-				},
-			},
-		),
-	);
-
-	// 2. PUT manifest.json so the runtime can discover module list.
-	const manifest = {
+	// Publish the single immutable runtime object before activating its D1 row.
+	const packed = JSON.stringify({
 		mainModule,
-		modules,
-		etag,
-		version,
-		deployedAt,
-		summary: summary ?? null,
-		sourceRevision: normalizedSourceRevision,
-	};
-	uploads.push(
-		(async () =>
-			bindings.bundlesBucket.put(
-				`${r2Prefix}manifest.json`,
-				new TextEncoder().encode(JSON.stringify(manifest))
-					.buffer as ArrayBuffer,
-				{
-					httpMetadata: {
-						contentType: "application/json",
-						cacheControl: "public, max-age=31536000, immutable",
-					},
-				},
-			))(),
+		modules: Object.fromEntries(
+			modules.map((path) => [
+				path,
+				{ js: new TextDecoder().decode(files[path]!) },
+			]),
+		),
+	});
+	const compressed = await new Response(
+		new Blob([packed]).stream().pipeThrough(new CompressionStream("gzip")),
+	).arrayBuffer();
+	await bindings.bundlesBucket.put(
+		`${r2Prefix}${COMPRESSED_CMS_BUNDLE_KEY}`,
+		compressed,
+		{
+			httpMetadata: {
+				contentType: "application/gzip",
+				cacheControl: "public, max-age=31536000, immutable",
+			},
+		},
 	);
 
-	// Keep the manifest and modules for activation verification during migration.
-	// Publication must include the compressed runtime object before activation.
-	uploads.push(
-		(async () => {
-			const packed = JSON.stringify({
-				mainModule,
-				modules: Object.fromEntries(
-					modules.map((path) => [
-						path,
-						{ js: new TextDecoder().decode(files[path]!) },
-					]),
-				),
-			});
-			const compressed = await new Response(
-				new Blob([packed]).stream().pipeThrough(new CompressionStream("gzip")),
-			).arrayBuffer();
-			return bindings.bundlesBucket.put(
-				`${r2Prefix}__tedix_packed_bundle.json.gz`,
-				compressed,
-				{
-					httpMetadata: {
-						contentType: "application/gzip",
-						cacheControl: "public, max-age=31536000, immutable",
-					},
-				},
-			);
-		})(),
-	);
-
-	const outcomes = await Promise.allSettled(uploads);
-	const failed = outcomes.find(
-		(outcome): outcome is PromiseRejectedResult =>
-			outcome.status === "rejected",
-	);
-	if (failed) throw failed.reason;
-
-	// 3. Activate only if the predecessor captured at admission is still active.
+	// Activate only if the predecessor captured at admission is still active.
 	// `changes()` is intentionally the first condition in the next statement of
 	// the same D1 batch; it gates the dependent activation on the CAS winner.
 	// The human OAuth marker follows the activation in the same batch when the
@@ -1121,7 +1072,13 @@ export async function activateTenantBundleVersion(
 	humanAuthority?: CmsHumanAuthorityCarry;
 }> {
 	const target = await verifyTenantBundleDirectDo(bindings, slug, version);
-	if (!target.id || !target.etag || !target.r2Prefix || !target.modules)
+	if (
+		!target.id ||
+		!target.etag ||
+		!target.r2Prefix ||
+		!target.modules ||
+		!target.bundle
+	)
 		return { success: false, error: target.error };
 	const generation = await readTenantBundleGeneration(
 		bindings.platformDb,
@@ -1132,24 +1089,20 @@ export async function activateTenantBundleVersion(
 	}
 	if (generation.activeVersion === version)
 		return { success: true, humanAuthority: "unchanged" };
-	const { etag: targetEtag, r2Prefix: targetPrefix } = target;
+	const { etag: targetEtag, bundle } = target;
 	const humanAuthority = await planCmsHumanAuthorityCarry(bindings.platformDb, {
 		slug,
 		previousActiveEtag: generation.activeEtag,
 		targetEtag,
 		modules: target.modules,
-		readModule: async (module) => {
-			const object = await bindings.bundlesBucket.get(
-				`${targetPrefix}${module}`,
-			);
-			const limit =
+		readModule: async (module) =>
+			readCmsBundleModule(
+				bundle,
+				module,
 				module === CMS_HUMAN_AUTH_MODULE
 					? HUMAN_AUTH_MODULE_MAX_BYTES
-					: CMS_HUMAN_AUTH_CHUNK_MAX_BYTES;
-			return object && (object.size === undefined || object.size <= limit)
-				? object.text()
-				: null;
-		},
+					: CMS_HUMAN_AUTH_CHUNK_MAX_BYTES,
+			),
 	});
 	const releaseCurrent =
 		generation.activeVersion === null

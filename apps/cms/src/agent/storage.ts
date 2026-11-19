@@ -8,6 +8,10 @@
  */
 
 import {
+	readCmsBundle,
+	readCmsBundleModule,
+} from "@tedix/provisioning/cms-bundle";
+import {
 	CMS_HUMAN_AUTH_MODULE,
 	type CmsHumanAuthorityCarry,
 	hasReviewedCmsHumanAuth,
@@ -299,37 +303,23 @@ export async function inspectCmsHumanAuthActivation(
 			modules.filter((module) => module === CMS_HUMAN_AUTH_MODULE).length !== 1
 		)
 			return unavailableHumanAuth("bundle_module_catalog_invalid", base);
-		const manifestObject = await bundlesBucket.get(
-			`${row.r2Prefix}manifest.json`,
+		const bundle = await readCmsBundle(bundlesBucket, row.r2Prefix, {
+			mainModule: row.mainModule,
+			modules,
+		});
+		const source = readCmsBundleModule(
+			bundle,
+			CMS_HUMAN_AUTH_MODULE,
+			1024 * 1024,
 		);
-		if (!manifestObject || manifestObject.size > 1024 * 1024)
-			return unavailableHumanAuth("bundle_manifest_missing", base);
-		const manifest: unknown = JSON.parse(await manifestObject.text());
-		if (
-			!manifest ||
-			typeof manifest !== "object" ||
-			(manifest as Record<string, unknown>).version !== row.activeVersion ||
-			(manifest as Record<string, unknown>).etag !== row.activeBundleEtag ||
-			(manifest as Record<string, unknown>).mainModule !== row.mainModule ||
-			JSON.stringify((manifest as Record<string, unknown>).modules) !==
-				JSON.stringify(modules)
-		)
-			return unavailableHumanAuth("bundle_manifest_mismatch", base);
-		const middleware = await bundlesBucket.get(
-			`${row.r2Prefix}${CMS_HUMAN_AUTH_MODULE}`,
-		);
-		if (!middleware || middleware.size > 1024 * 1024)
+		if (source === null)
 			return unavailableHumanAuth("human_auth_module_missing", base);
-		const source = await middleware.text();
+
 		if (
 			!(await hasReviewedCmsHumanAuth(source, {
 				modules,
-				readModule: async (module) => {
-					const object = await bundlesBucket.get(`${row.r2Prefix}${module}`);
-					return object && object.size <= CMS_HUMAN_AUTH_CHUNK_MAX_BYTES
-						? object.text()
-						: null;
-				},
+				readModule: async (module) =>
+					readCmsBundleModule(bundle, module, CMS_HUMAN_AUTH_CHUNK_MAX_BYTES),
 			}))
 		)
 			return unavailableHumanAuth("human_auth_module_incompatible", base);
@@ -346,8 +336,6 @@ export async function inspectCmsHumanAuthActivation(
 
 const REVOCABLE_CAPABILITY_REASONS = new Set([
 	"bundle_module_catalog_invalid",
-	"bundle_manifest_missing",
-	"bundle_manifest_mismatch",
 	"human_auth_module_missing",
 	"human_auth_module_incompatible",
 	"bundle_capability_unreadable",
@@ -556,7 +544,13 @@ async function rollbackCmsTenantBundleUnderPermit(
 		input.orgSlug,
 		input.previousVersion,
 	);
-	if (!target.id || !target.etag || !target.r2Prefix || !target.modules)
+	if (
+		!target.id ||
+		!target.etag ||
+		!target.r2Prefix ||
+		!target.modules ||
+		!target.bundle
+	)
 		return { rolledBack: false, error: target.error };
 	const failed = await db
 		.prepare(
@@ -566,16 +560,20 @@ async function rollbackCmsTenantBundleUnderPermit(
 		.first<{ etag: string }>();
 	// A marker carried onto the failed bundle follows the rollback in the same
 	// batch when the predecessor still carries the reviewed verifier.
-	const { etag: targetEtag, r2Prefix: targetPrefix } = target;
+	const { etag: targetEtag, bundle } = target;
 	const humanAuthority = await planCmsHumanAuthorityCarry(db, {
 		slug: input.orgSlug,
 		previousActiveEtag: failed?.etag ?? null,
 		targetEtag,
 		modules: target.modules,
-		readModule: async (module) => {
-			const object = await bundlesBucket.get(`${targetPrefix}${module}`);
-			return object ? object.text() : null;
-		},
+		readModule: async (module) =>
+			readCmsBundleModule(
+				bundle,
+				module,
+				module === CMS_HUMAN_AUTH_MODULE
+					? 1024 * 1024
+					: CMS_HUMAN_AUTH_CHUNK_MAX_BYTES,
+			),
 	});
 	const results = await db.batch([
 		db

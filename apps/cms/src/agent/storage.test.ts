@@ -1,3 +1,5 @@
+import { gzipSync, gunzipSync } from "node:zlib";
+import type { CmsBundle } from "@tedix/provisioning/cms-bundle";
 import { DatabaseSync } from "node:sqlite";
 import {
 	activateTenantBundleVersion,
@@ -220,25 +222,78 @@ describe("CMS bundle deploy generation", () => {
 	});
 });
 
+function unpack(objects: Map<string, Uint8Array>, prefix: string): CmsBundle {
+	return JSON.parse(
+		gunzipSync(
+			objects.get(`${prefix}__tedix_packed_bundle.json.gz`)!,
+		).toString(),
+	);
+}
+function setBundleCatalog(
+	objects: Map<string, Uint8Array>,
+	prefix: string,
+	catalog: { mainModule: string; modules: string[] },
+) {
+	const old = objects.has(`${prefix}__tedix_packed_bundle.json.gz`)
+		? unpack(objects, prefix).modules
+		: {};
+	objects.set(
+		`${prefix}__tedix_packed_bundle.json.gz`,
+		gzipSync(
+			JSON.stringify({
+				mainModule: catalog.mainModule,
+				modules: Object.fromEntries(
+					catalog.modules.map((name) => [name, old[name] ?? { js: "" }]),
+				),
+			}),
+		),
+	);
+}
+function setModule(
+	objects: Map<string, Uint8Array>,
+	key: string,
+	source: string,
+) {
+	const [, prefix, module] = key.match(/^([^/]+\/v\d+\/)(.+)$/)!;
+	const bundle = unpack(objects, prefix!);
+	bundle.modules[module!] = { js: source };
+	objects.set(
+		`${prefix}__tedix_packed_bundle.json.gz`,
+		gzipSync(JSON.stringify(bundle)),
+	);
+}
+function getModule(
+	objects: Map<string, Uint8Array>,
+	key: string,
+): string | undefined {
+	const [, prefix, module] = key.match(/^([^/]+\/v\d+\/)(.+)$/)!;
+	return unpack(objects, prefix!).modules[module!]?.js;
+}
+function deleteModule(objects: Map<string, Uint8Array>, key: string) {
+	const [, prefix, module] = key.match(/^([^/]+\/v\d+\/)(.+)$/)!;
+	const bundle = unpack(objects, prefix!);
+	delete bundle.modules[module!];
+	objects.set(
+		`${prefix}__tedix_packed_bundle.json.gz`,
+		gzipSync(JSON.stringify(bundle)),
+	);
+}
 function createBucket() {
 	const puts: string[] = [];
-	const objects = new Map<string, string>();
+	const objects = new Map<string, Uint8Array>();
 	return {
 		puts,
 		objects,
 		bucket: {
 			async put(key: string, value: ArrayBuffer | Uint8Array) {
 				puts.push(key);
-				objects.set(key, new TextDecoder().decode(value));
+				objects.set(key, new Uint8Array(value));
 			},
 			async get(key: string) {
 				const value = objects.get(key);
 				return value === undefined
 					? null
-					: {
-							size: new TextEncoder().encode(value).byteLength,
-							text: async () => value,
-						};
+					: new Response(Uint8Array.from(value));
 			},
 		} as unknown as R2Bucket,
 	};
@@ -246,7 +301,7 @@ function createBucket() {
 
 function seedCompatibleBundle(
 	sqlite: DatabaseSync,
-	objects: Map<string, string>,
+	objects: Map<string, Uint8Array>,
 	version: number,
 	slug = "acme",
 	emdashVersion = "1.0.1",
@@ -263,24 +318,22 @@ function seedCompatibleBundle(
 		)
 		.run(JSON.stringify(modules), slug, version);
 	const prefix = `${slug}/v${version}/`;
-	objects.set(
-		`${prefix}manifest.json`,
-		JSON.stringify({
-			mainModule: "entry.mjs",
-			modules,
-			etag: `etag-${version}`,
-			version,
-		}),
-	);
-	objects.set(
+	setBundleCatalog(objects, `${prefix}`, {
+		mainModule: "entry.mjs",
+		modules,
+	});
+	setModule(
+		objects,
 		`${prefix}chunks/config_test.mjs`,
 		`//#region \\0virtual:emdash/config\nvar config_default = { "database": ${JSON.stringify({ type: "sqlite", entrypoint: "/app/src/lib/worker-loader-do-sql-runtime.ts", config: { binding: "DB_DO", name: slug }, supportsRequestScope: true })} };`,
 	);
-	objects.set(
+	setModule(
+		objects,
 		`${prefix}chunks/dialect_test.mjs`,
 		`if (binding && typeof binding.query === "function" && typeof binding.batchQuery === "function") return binding;`,
 	);
-	objects.set(
+	setModule(
+		objects,
 		`${prefix}chunks/version-test.mjs`,
 		`var VERSION = "${emdashVersion}";`,
 	);
@@ -318,17 +371,20 @@ function createHumanAuthFixture() {
 		.prepare("UPDATE tenant_bundles SET modules_json = ? WHERE slug = 'acme'")
 		.run(JSON.stringify(modules));
 	const { bucket, objects } = createBucket();
-	objects.set(
-		"acme/v1/manifest.json",
-		JSON.stringify({
-			mainModule: "entry.mjs",
-			modules,
-			etag: "etag-1",
-			version: 1,
-		}),
+	setBundleCatalog(objects, "acme/v1/", {
+		mainModule: "entry.mjs",
+		modules,
+	});
+	setModule(
+		objects,
+		"acme/v1/virtual_astro_middleware.mjs",
+		emittedHumanAuthRoot,
 	);
-	objects.set("acme/v1/virtual_astro_middleware.mjs", emittedHumanAuthRoot);
-	objects.set("acme/v1/chunks/middleware_current.mjs", emittedHumanAuthChunk);
+	setModule(
+		objects,
+		"acme/v1/chunks/middleware_current.mjs",
+		emittedHumanAuthChunk,
+	);
 	const expected = {
 		slug: "acme",
 		expectedSiteId: "site-one",
@@ -341,80 +397,45 @@ function createHumanAuthFixture() {
 }
 
 describe("CMS human auth activation", () => {
-	it("refuses oversized shared chunks using R2 metadata before reading bytes", async () => {
+	it("refuses an oversized shared auth chunk inside the compressed pack", async () => {
 		const { db, sqlite, bucket, objects } = createHumanAuthFixture();
 		try {
-			const module = "chunks/middleware_current.mjs";
-			const modules = ["entry.mjs", "virtual_astro_middleware.mjs", module];
-			sqlite
-				.prepare(
-					"UPDATE tenant_bundles SET modules_json = ? WHERE slug = 'acme'",
-				)
-				.run(JSON.stringify(modules));
-			objects.set(
-				"acme/v1/manifest.json",
-				JSON.stringify({
-					mainModule: "entry.mjs",
-					modules,
-					etag: "etag-1",
-					version: 1,
-				}),
+			setModule(
+				objects,
+				"acme/v1/chunks/middleware_current.mjs",
+				" ".repeat(2 * 1024 * 1024 + 1) + emittedHumanAuthChunk,
 			);
-			objects.set(
-				"acme/v1/virtual_astro_middleware.mjs",
-				'import { i as authenticate$1 } from "./' +
-					module +
-					'";\nvar authenticate = authenticate$1;\nasync function callAuth(request, authMode) { await authenticate(request, authMode.config); }',
-			);
-			let read = false;
-			const guarded = {
-				get: async (key: string) =>
-					key.endsWith(module)
-						? {
-								size: 2 * 1024 * 1024 + 1,
-								text: async () => {
-									read = true;
-									throw new Error("Must not read");
-								},
-							}
-						: bucket.get(key),
-			} as unknown as R2Bucket;
-			expect(
-				await inspectCmsHumanAuthActivation(db, guarded, "acme"),
-			).toMatchObject({ reason: "human_auth_module_incompatible" });
-			expect(read).toBe(false);
+			await expect(
+				inspectCmsHumanAuthActivation(db, bucket, "acme"),
+			).resolves.toMatchObject({ reason: "human_auth_module_incompatible" });
 		} finally {
 			sqlite.close();
 		}
 	});
 
-	it("manual activation resolves reviewed auth only through its immutable manifest-listed chunk", async () => {
+	it("manual activation resolves reviewed auth only through its immutable catalog-listed chunk", async () => {
 		const { db, sqlite, bucket, objects, expected } = createHumanAuthFixture();
 		try {
 			const module = "chunks/middleware_current.mjs";
-			const chunk = objects.get("acme/v1/" + module)!;
+			const chunk = getModule(objects, "acme/v1/" + module)!;
 			const modules = ["entry.mjs", "virtual_astro_middleware.mjs", module];
 			sqlite
 				.prepare(
 					"UPDATE tenant_bundles SET modules_json = ? WHERE slug = 'acme'",
 				)
 				.run(JSON.stringify(modules));
-			objects.set(
-				"acme/v1/manifest.json",
-				JSON.stringify({
-					mainModule: "entry.mjs",
-					modules,
-					etag: "etag-1",
-					version: 1,
-				}),
-			);
-			objects.set(
+			setBundleCatalog(objects, "acme/v1/", {
+				mainModule: "entry.mjs",
+				modules,
+			});
+			setModule(
+				objects,
 				"acme/v1/virtual_astro_middleware.mjs",
 				'import { i as authenticate$1 } from "./' +
 					module +
 					'";\nvar authenticate = authenticate$1;\nasync function callAuth(request, authMode) { await authenticate(request, authMode.config); }',
 			);
-			objects.set("acme/v1/" + module, chunk);
+			setModule(objects, "acme/v1/" + module, chunk);
 			expect(
 				await inspectCmsHumanAuthActivation(db, bucket, "acme"),
 			).toMatchObject({ status: "ready", compatible: true });
@@ -422,7 +443,8 @@ describe("CMS human auth activation", () => {
 				...expected,
 				enabled: true,
 			});
-			objects.set(
+			setModule(
+				objects,
 				"acme/v1/" + module,
 				chunk.replace("payload.siteId", "payload.otherId"),
 			);
@@ -490,41 +512,32 @@ describe("CMS human auth activation", () => {
 		}
 	});
 
-	it("fails closed on manifest or compiled module drift", async () => {
+	it("fails closed on catalog or compiled module drift", async () => {
 		const { db, sqlite, bucket, objects, expected } = createHumanAuthFixture();
 		try {
-			objects.set(
-				"acme/v1/manifest.json",
-				JSON.stringify({
-					mainModule: "entry.mjs",
-					modules: ["entry.mjs"],
-					etag: "etag-1",
-					version: 1,
-				}),
-			);
+			setBundleCatalog(objects, "acme/v1/", {
+				mainModule: "entry.mjs",
+				modules: ["entry.mjs"],
+			});
 			await expect(
 				inspectCmsHumanAuthActivation(db, bucket, "acme"),
 			).resolves.toMatchObject({
 				status: "unavailable",
-				reason: "bundle_manifest_mismatch",
+				reason: "bundle_capability_unreadable",
 			});
 			await expect(
 				setCmsHumanAuthActivation(db, bucket, { ...expected, enabled: true }),
 			).rejects.toThrow("CAS conflict");
-			objects.set(
-				"acme/v1/manifest.json",
-				JSON.stringify({
-					mainModule: "entry.mjs",
-					modules: [
-						"entry.mjs",
-						"virtual_astro_middleware.mjs",
-						"chunks/middleware_current.mjs",
-					],
-					etag: "etag-1",
-					version: 1,
-				}),
-			);
-			objects.set(
+			setBundleCatalog(objects, "acme/v1/", {
+				mainModule: "entry.mjs",
+				modules: [
+					"entry.mjs",
+					"virtual_astro_middleware.mjs",
+					"chunks/middleware_current.mjs",
+				],
+			});
+			setModule(
+				objects,
 				"acme/v1/virtual_astro_middleware.mjs",
 				"old auth middleware",
 			);
@@ -542,7 +555,8 @@ describe("CMS human auth activation", () => {
 	it("rejects inert signature strings without the reviewed verifier and dispatch", async () => {
 		const { db, sqlite, bucket, objects, expected } = createHumanAuthFixture();
 		try {
-			objects.set(
+			setModule(
+				objects,
 				"acme/v1/virtual_astro_middleware.mjs",
 				`const dead = ["function authenticateHumanAssertion(", "X-Tedix-CMS-Human-Assertion", "CMS_HUMAN_AUTH_KEY", "CMS_HUMAN_AUTH_SITE_ID", "CMS_HUMAN_AUTH_BUNDLE_ETAG", "crypto.subtle.verify(", "payload.siteId", "payload.bundleEtag", "payload.tenantId", "payload.method", "payload.path", 'authProvider: "tedix-cms-human"'];
 				export async function authenticate() { return null; }`,
@@ -565,9 +579,10 @@ describe("CMS human auth activation", () => {
 		const { db, sqlite, bucket, objects } = createHumanAuthFixture();
 		try {
 			const key = "acme/v1/virtual_astro_middleware.mjs";
-			objects.set(
+			setModule(
+				objects,
 				key,
-				`${objects.get(key)!}\n/* async function authenticateHumanAssertion( */`,
+				`${getModule(objects, key)!}\n/* async function authenticateHumanAssertion( */`,
 			);
 			await expect(
 				inspectCmsHumanAuthActivation(db, bucket, "acme"),
@@ -596,20 +611,17 @@ describe("CMS human auth activation", () => {
 			sqlite
 				.prepare("UPDATE tenant_bundles SET modules_json = ? WHERE version = 2")
 				.run(JSON.stringify(modules));
-			objects.set(
-				"acme/v2/manifest.json",
-				JSON.stringify({
-					mainModule: "entry.mjs",
-					modules,
-					etag: "etag-2",
-					version: 2,
-				}),
-			);
-			objects.set(
+			setBundleCatalog(objects, "acme/v2/", {
+				mainModule: "entry.mjs",
+				modules,
+			});
+			setModule(
+				objects,
 				"acme/v2/virtual_astro_middleware.mjs",
-				objects.get("acme/v1/virtual_astro_middleware.mjs")!,
+				getModule(objects, "acme/v1/virtual_astro_middleware.mjs")!,
 			);
-			objects.set(
+			setModule(
+				objects,
 				"acme/v2/chunks/middleware_current.mjs",
 				emittedHumanAuthChunk,
 			);
@@ -654,7 +666,8 @@ describe("CMS human auth activation", () => {
 			sqlite.exec(
 				"UPDATE cms_sites SET config = json_set(config, '$.blog.humanAssertionBundleEtag', 'etag-1')",
 			);
-			objects.set(
+			setModule(
+				objects,
 				"acme/v1/virtual_astro_middleware.mjs",
 				"old auth middleware",
 			);
@@ -753,7 +766,7 @@ describe("CMS human auth activation", () => {
 		const racingBucket = {
 			get: async (key: string) => {
 				const value = objects.get(key);
-				if (key.endsWith("virtual_astro_middleware.mjs") && !swapped) {
+				if (key.endsWith("__tedix_packed_bundle.json.gz") && !swapped) {
 					swapped = true;
 					sqlite.exec(
 						"UPDATE tenant_bundles SET is_active = 0 WHERE version = 1",
@@ -762,10 +775,7 @@ describe("CMS human auth activation", () => {
 				}
 				return value === undefined
 					? null
-					: {
-							size: new TextEncoder().encode(value).byteLength,
-							text: async () => value,
-						};
+					: new Response(Uint8Array.from(value));
 			},
 		} as unknown as R2Bucket;
 		try {
@@ -795,7 +805,7 @@ describe("CMS human auth activation", () => {
 		const racingBucket = {
 			get: async (key: string) => {
 				const value = objects.get(key);
-				if (key.endsWith("virtual_astro_middleware.mjs") && !swapped) {
+				if (key.endsWith("__tedix_packed_bundle.json.gz") && !swapped) {
 					swapped = true;
 					sqlite.exec(
 						"UPDATE tenant_bundles SET is_active = 0 WHERE version = 1",
@@ -804,10 +814,7 @@ describe("CMS human auth activation", () => {
 				}
 				return value === undefined
 					? null
-					: {
-							size: new TextEncoder().encode(value).byteLength,
-							text: async () => value,
-						};
+					: new Response(Uint8Array.from(value));
 			},
 		} as unknown as R2Bucket;
 		try {
@@ -969,7 +976,8 @@ describe("CMS tenant bundle activation CAS", () => {
 		seedBundle(sqlite, 4, false);
 		seedBundle(sqlite, 5, true);
 		seedCompatibleBundle(sqlite, objects, 4);
-		objects.set(
+		setModule(
+			objects,
 			"acme/v4/chunks/dialect_test.mjs",
 			"const stub = binding.get(binding.idFromName('acme')); return stub.query(sql);",
 		);
@@ -1021,7 +1029,9 @@ describe("CMS tenant bundle activation CAS", () => {
 			error: expect.stringContaining("compiled Emdash 0.38.0"),
 		});
 		expect(activeVersions(sqlite)).toEqual([5]);
-		expect(objects.has("acme/v4/chunks/version-test.mjs")).toBe(true);
+		expect(Boolean(getModule(objects, "acme/v4/chunks/version-test.mjs"))).toBe(
+			true,
+		);
 	});
 
 	it("reads the release version beside Emdash 1.5's site-settings version chunk", async () => {
@@ -1042,16 +1052,12 @@ describe("CMS tenant bundle activation CAS", () => {
 				"UPDATE tenant_bundles SET modules_json = ? WHERE slug = ? AND version = ?",
 			)
 			.run(JSON.stringify(modules), "acme", 4);
-		objects.set(
-			"acme/v4/manifest.json",
-			JSON.stringify({
-				mainModule: "entry.mjs",
-				modules,
-				etag: "etag-4",
-				version: 4,
-			}),
-		);
-		objects.set(
+		setBundleCatalog(objects, "acme/v4/", {
+			mainModule: "entry.mjs",
+			modules,
+		});
+		setModule(
+			objects,
 			"acme/v4/chunks/version-settings.mjs",
 			"function normalizeSiteSettingsVersion(input) { return input; }",
 		);
@@ -1072,7 +1078,8 @@ describe("CMS tenant bundle activation CAS", () => {
 		seedBundle(sqlite, 4, false);
 		seedBundle(sqlite, 5, true);
 		seedCompatibleBundle(sqlite, objects, 4);
-		objects.set(
+		setModule(
+			objects,
 			"acme/v4/chunks/version-test.mjs",
 			'var VERSION = "0.42.0"; var VERSION = "0.38.0";',
 		);
@@ -1084,7 +1091,9 @@ describe("CMS tenant bundle activation CAS", () => {
 		);
 		expect(result).toMatchObject({
 			success: false,
-			error: expect.stringContaining("could not be verified"),
+			error: expect.stringContaining(
+				"compiled Emdash version is missing or ambiguous",
+			),
 		});
 		expect(activeVersions(sqlite)).toEqual([5]);
 	});
@@ -1095,7 +1104,7 @@ describe("CMS tenant bundle activation CAS", () => {
 		seedBundle(sqlite, 4, false);
 		seedBundle(sqlite, 5, true);
 		seedCompatibleBundle(sqlite, objects, 4);
-		objects.delete("acme/v4/chunks/config_test.mjs");
+		deleteModule(objects, "acme/v4/chunks/config_test.mjs");
 
 		const result = await activateTenantBundleVersion(
 			{ platformDb: db, bundlesBucket: bucket },
@@ -1104,7 +1113,9 @@ describe("CMS tenant bundle activation CAS", () => {
 		);
 		expect(result).toMatchObject({
 			success: false,
-			error: expect.stringContaining("could not be verified"),
+			error: expect.stringContaining(
+				"compressed bundle does not match the catalog",
+			),
 		});
 		expect(activeVersions(sqlite)).toEqual([5]);
 	});
@@ -1222,6 +1233,7 @@ describe("CMS tenant bundle activation CAS", () => {
 			{ bundlesBucket: bucket, platformDb: db },
 			upload,
 		);
+		expect(puts).toEqual(["acme/v1/__tedix_packed_bundle.json.gz"]);
 		const putCount = puts.length;
 		const replay = await uploadTenantBundle(
 			{ bundlesBucket: bucket, platformDb: db },
@@ -1309,29 +1321,22 @@ describe("CMS tenant bundle activation CAS", () => {
 		expect(puts).toEqual([]);
 	});
 
-	it("waits for a delayed sibling R2 put after another fails and never activates", async () => {
+	it("waits for the only compressed upload and never activates after its failure", async () => {
 		const { db, sqlite } = createD1Fixture(true);
 		seedBundle(sqlite, 1, true);
-		let releaseSibling!: () => void;
-		const sibling = new Promise<void>((resolve) => {
-			releaseSibling = resolve;
-		});
-		let siblingStarted!: () => void;
+		let rejectUpload!: (reason: Error) => void;
+		let markStarted!: () => void;
 		const started = new Promise<void>((resolve) => {
-			siblingStarted = resolve;
+			markStarted = resolve;
 		});
 		const puts: string[] = [];
 		const bucket = {
 			put(key: string) {
 				puts.push(key);
-				if (key.endsWith("/entry.mjs")) {
-					throw new Error("first R2 put failed");
-				}
-				if (key.endsWith("/chunks/version-test.mjs")) {
-					siblingStarted();
-					return sibling;
-				}
-				return Promise.resolve();
+				markStarted();
+				return new Promise<void>((_resolve, reject) => {
+					rejectUpload = reject;
+				});
 			},
 		} as unknown as R2Bucket;
 		const publication = uploadTenantBundle(
@@ -1355,13 +1360,12 @@ describe("CMS tenant bundle activation CAS", () => {
 			},
 		);
 		await started;
-		await Promise.resolve();
 		expect(settled).toBe(false);
 		expect(activeVersions(sqlite)).toEqual([1]);
-		releaseSibling();
-		await expect(publication).rejects.toThrow("first R2 put failed");
+		rejectUpload(new Error("compressed upload failed"));
+		await expect(publication).rejects.toThrow("compressed upload failed");
 		expect(activeVersions(sqlite)).toEqual([1]);
-		expect(puts).toContain("acme/v2/manifest.json");
+		expect(puts).toEqual(["acme/v2/__tedix_packed_bundle.json.gz"]);
 		sqlite.close();
 	});
 
@@ -1499,17 +1503,15 @@ describe("CMS tenant bundle activation CAS", () => {
 /** A direct-DO-compatible bundle that also ships the compiled human verifier. */
 function seedCarryBundle(
 	sqlite: DatabaseSync,
-	objects: Map<string, string>,
+	objects: Map<string, Uint8Array>,
 	version: number,
 	authChunkSource: string,
 ): void {
 	seedCompatibleBundle(sqlite, objects, version, "acme", "1.0.1");
 	const prefix = `acme/v${version}/`;
-	const manifest = JSON.parse(objects.get(`${prefix}manifest.json`)!) as {
-		modules: string[];
-	};
+	const bundle = unpack(objects, prefix);
 	const modules = [
-		...manifest.modules,
+		...Object.keys(bundle.modules),
 		"virtual_astro_middleware.mjs",
 		"chunks/middleware_current.mjs",
 	];
@@ -1518,12 +1520,13 @@ function seedCarryBundle(
 			"UPDATE tenant_bundles SET modules_json = ? WHERE slug = 'acme' AND version = ?",
 		)
 		.run(JSON.stringify(modules), version);
-	objects.set(
-		`${prefix}manifest.json`,
-		JSON.stringify({ ...manifest, modules }),
+	setBundleCatalog(objects, `${prefix}`, { ...bundle, modules });
+	setModule(
+		objects,
+		`${prefix}virtual_astro_middleware.mjs`,
+		emittedHumanAuthRoot,
 	);
-	objects.set(`${prefix}virtual_astro_middleware.mjs`, emittedHumanAuthRoot);
-	objects.set(`${prefix}chunks/middleware_current.mjs`, authChunkSource);
+	setModule(objects, `${prefix}chunks/middleware_current.mjs`, authChunkSource);
 }
 
 function siteConfig(sqlite: DatabaseSync): Record<string, unknown> {
