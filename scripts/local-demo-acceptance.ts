@@ -6,7 +6,8 @@ import {
 	createORPCClient,
 	getApiClient,
 } from "@tedix/api-client/client";
-import { demoTodayId } from "../apps/os/dev/demo-pack";
+import { demoTodayId, uid } from "../apps/os/dev/demo-pack";
+import { verifyLocalFiles } from "./local-file-acceptance";
 import { readToday } from "../apps/os/src/lib/today-digest";
 import type { ApiContract } from "@tedix/api-contract/contracts/api";
 import type { RouterContractClient } from "@tedix/api-contract/types";
@@ -152,6 +153,7 @@ if (demo) {
 		readToday(today.currentRevision.content)?.rows.length === 3,
 		"Sample Today digest is unavailable",
 	);
+	await verifyLocalFiles(osOrigin, uid(48, 1), uid(64, 20));
 	const blocked = await fetch(
 		`${osOrigin}/api/rpc/workInteractions/outbound/act`,
 		{

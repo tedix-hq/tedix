@@ -39,6 +39,34 @@ function appScripts(): Array<[string, Record<string, string>]> {
 }
 
 describe("local Wrangler config", () => {
+	test("uses only the launcher's temporary workspace migration token", () => {
+		const directory = mkdtempSync(join(tmpdir(), "tedix-local-workspace-"));
+		const path = join(directory, "wrangler.jsonc");
+		writeFileSync(
+			path,
+			JSON.stringify({
+				name: "public-installation-workspace-do",
+				vars: { MIGRATE_WORKSPACES_TOKEN: "deployment-token" },
+			}),
+		);
+		const previous = process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN;
+		try {
+			delete process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN;
+			expect(
+				(createLocalWranglerConfig(path).vars as Record<string, unknown>)
+					.MIGRATE_WORKSPACES_TOKEN,
+			).toBeUndefined();
+			process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN = "temporary-local-token";
+			expect(
+				(createLocalWranglerConfig(path).vars as Record<string, unknown>)
+					.MIGRATE_WORKSPACES_TOKEN,
+			).toBe("temporary-local-token");
+		} finally {
+			if (previous === undefined)
+				delete process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN;
+			else process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN = previous;
+		}
+	});
 	test("supplies an isolated app-session signing key without production secrets", async () => {
 		const { mintWorkspaceAppSession, verifyWorkspaceAppSession } =
 			await import("../packages/auth/src/workspace-app-session");
