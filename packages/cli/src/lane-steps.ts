@@ -6,6 +6,8 @@ import { scrubText } from "@tedix/context-core/trace-safety";
 export interface LaneStep {
 	kind: WorkAttemptStepKind;
 	text: string;
+	/** Only on a question: the short answers the agent offers. */
+	choices?: string[];
 }
 
 /** What someone sent to a run in progress. */
@@ -251,11 +253,22 @@ export function createRunStepLog(options: {
 			inFlight = undefined;
 		}));
 	return {
-		add(kind: LaneStep["kind"], text: string) {
+		add(kind: LaneStep["kind"], text: string, choices?: string[]) {
 			if (unavailable) return;
 			const bounded = stepText(text);
 			if (!bounded) return;
-			buffer.push({ seq: seq++, at: Date.now(), kind, text: bounded });
+			const offered = (choices ?? [])
+				.map((choice) => stepText(choice, 100))
+				.filter(Boolean);
+			buffer.push({
+				seq: seq++,
+				at: Date.now(),
+				kind,
+				text: bounded,
+				...(kind === "question" && offered.length >= 2
+					? { choices: offered.slice(0, 5) }
+					: {}),
+			});
 			if (buffer.length > STEP_BUFFER) buffer.shift();
 			options.onSeq?.(seq);
 		},

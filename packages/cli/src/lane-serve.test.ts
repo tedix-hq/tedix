@@ -19,6 +19,7 @@ import { CodexLaneResultJsonSchema } from "./lane-result";
 import {
 	LaneDispatcher,
 	followUpRefusal,
+	questionRefusal,
 	LaneCommitFetchError,
 	ARCHIVED_RUNS_KEPT,
 	DISPATCHER_LOG_CAP_BYTES,
@@ -10479,6 +10480,155 @@ describe("watching and steering a run", () => {
 			flush.restore();
 			kill.mockRestore();
 		}
+	});
+
+	const asks = (question: string, choices?: string[]) => {
+		const { outcome: _outcome, ...fence } = completedResult(item(1));
+		return `Asking.\nTEDIX_LANE_RESULT ${JSON.stringify({ ...fence, outcome: "question", question, ...(choices ? { choices } : {}) })}`;
+	};
+
+	it("keeps the run alive on a question and gives the agent the answer as its next turn", async () => {
+		const flush = flushNow();
+		const realNow = Date.now;
+		let later = 0;
+		const clock = spyOn(Date, "now").mockImplementation(
+			() => realNow() + later,
+		);
+		const f = fixture();
+		f.items.splice(1);
+		const sessions: string[] = [];
+		f.control.duringTurn = (turn) => {
+			sessions.push(turn.args[turn.args.indexOf("resume") + 1]!);
+			f.control.finalMessage =
+				turn.number === 1
+					? asks("Which table holds the plan?", ["accounts", "subscriptions"])
+					: "Used subscriptions.";
+		};
+		try {
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			// The turn has ended with a question; nothing is settled while it waits.
+			await until(() =>
+				f.control.stepCalls.some((call) =>
+					call.steps.some((step) => step.kind === "question"),
+				),
+			);
+			expect(f.events.some((event) => event.verb === "settle")).toBe(false);
+			f.control.stepReplies = [[fromOwner("message-1", "subscriptions")]];
+			// A waiting run asks for messages every 15 seconds.
+			later = 20_000;
+			flush.send();
+			await until(() => f.releases.length === 2);
+			f.releases[1]!();
+			await f.dispatcher.drain();
+			expect(sessions[1]).toBe(sessions[0]!);
+			expect(f.briefs[1]).toContain(
+				'You asked: "Which table holds the plan?". The answer follows.',
+			);
+			expect(f.briefs[1]).toContain(
+				"From user fictional-owner:\nsubscriptions",
+			);
+			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
+				"succeeded",
+			);
+			expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
+				"Used subscriptions.",
+			);
+			expect(
+				sentSteps(f).map((step) => [step.kind, step.text, step.choices]),
+			).toEqual([
+				["started", "Started codex with model test-model", undefined],
+				[
+					"question",
+					"Which table holds the plan?",
+					["accounts", "subscriptions"],
+				],
+				["follow_up", "subscriptions", undefined],
+				["finished", "Agent run ended: succeeded", undefined],
+			]);
+		} finally {
+			flush.restore();
+			clock.mockRestore();
+		}
+	});
+
+	const liveFence = (f: ReturnType<typeof fixture>) => {
+		const saved = JSON.parse(
+			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+		);
+		f.control.history.data = [
+			{
+				id: saved.attemptId,
+				externalSessionKey: saved.session,
+				outcome: null,
+				expiresAt: new Date(Date.now() + 300000).toISOString(),
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+	};
+
+	it("ends as deferred with the question on record when no answer arrives in time", async () => {
+		const f = fixture();
+		f.deps.questionWaitMs = 20;
+		const dispatcher = f.restart();
+		f.items.splice(1);
+		f.control.finalMessage = asks("Which table holds the plan?");
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await dispatcher.drain();
+		expect(f.briefs).toHaveLength(1);
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("cancelled");
+		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
+			"Deferred: No answer arrived within 0 minutes. Question: Which table holds the plan?",
+		);
+		const receipt = JSON.parse(
+			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+		);
+		expect(receipt.laneResult).toMatchObject({ outcome: "deferred" });
+		expect(sentSteps(f).map((step) => step.kind)).toEqual([
+			"started",
+			"question",
+			"error",
+			"finished",
+		]);
+	});
+
+	it("does not pass on a question that asks for a secret, a sign-in, consent or MFA", async () => {
+		for (const question of [
+			"What is the API key for the billing service?",
+			"Can you paste your password here?",
+			"Could you sign in to the dashboard for me?",
+			"Please approve the OAuth consent screen.",
+			"Tell me the verification code you received.",
+		])
+			expect(questionRefusal(question), question).toContain("not passed on");
+		for (const question of [
+			"Should the token cache live in memory or on disk?",
+			"Which table holds the plan: accounts or subscriptions?",
+			"Do you want the sign-in page tests moved too?",
+		])
+			expect(questionRefusal(question), question).toBeUndefined();
+
+		const f = fixture();
+		f.items.splice(1);
+		f.control.finalMessage = asks(
+			"What is the API key for the billing service?",
+		);
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(sentSteps(f).map((step) => step.kind)).not.toContain("question");
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
+			"Deferred: Question not passed on",
+		);
 	});
 
 	it("leaves the turn running when its agent has no clean stop, and applies the follow-up after it", async () => {

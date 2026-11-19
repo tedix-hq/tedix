@@ -212,7 +212,13 @@ export function createLaneStepSender(
 	const gateway = laneGateway(scope, deps);
 	return async (
 		receipt: LeaseReceipt,
-		steps: Array<{ seq: number; at: number; kind: string; text: string }>,
+		steps: Array<{
+			seq: number;
+			at: number;
+			kind: string;
+			text: string;
+			choices?: string[];
+		}>,
 		appliedMessageIds: string[],
 	): Promise<unknown> => {
 		const { attemptId, session, executorKey } = receipt;

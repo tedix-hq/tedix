@@ -68,6 +68,18 @@ export const LaneResultSchema = z.discriminatedUnion("outcome", [
 		orgId: z.uuid(),
 		userId: z.string().min(1).max(300),
 	}),
+	// The agent ends its turn to ask the person a question; the runner keeps
+	// the Attempt alive and passes the answer on as the next turn.
+	z.strictObject({
+		...fence,
+		outcome: z.literal("question"),
+		question: z.string().trim().min(1).max(500),
+		choices: z
+			.array(z.string().trim().min(1).max(100))
+			.min(2)
+			.max(5)
+			.optional(),
+	}),
 	z.strictObject({
 		...fence,
 		outcome: z.literal("deferred"),
@@ -148,6 +160,7 @@ export function parseCodexLaneResult(message: string): LaneResult {
 }
 export type LaneWait = Extract<LaneResult, { outcome: "waiting_on_user" }>;
 export type LaneDeferral = Extract<LaneResult, { outcome: "deferred" }>;
+export type LaneQuestion = Extract<LaneResult, { outcome: "question" }>;
 export type ExistingLaneResult = Extract<
 	LaneResult,
 	{ outcome: "already_satisfied" }
