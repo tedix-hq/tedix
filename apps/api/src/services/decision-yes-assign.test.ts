@@ -82,7 +82,7 @@ describe("assignAgentOnYes", () => {
 		expect(spec()).toEqual({
 			id: workItemId,
 			expectedWorkItemVersion: 3,
-			executor: "codex",
+			executorReference: { type: "external_agent", id: "codex" },
 			laneDispatch: { state: "ready" },
 		});
 		expect(mocks.delegate).not.toHaveBeenCalled();
@@ -103,7 +103,7 @@ describe("assignAgentOnYes", () => {
 		expect(spec()).toEqual({
 			id: workItemId,
 			expectedWorkItemVersion: 3,
-			executor: "tedi",
+			executorReference: { type: "tedi", id: "tedi" },
 			laneDispatch: { state: "ready" },
 		});
 		expect(mocks.delegate.mock.calls[0]?.[1]).toMatchObject({

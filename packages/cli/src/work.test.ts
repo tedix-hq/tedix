@@ -1883,11 +1883,13 @@ describe("Work executor assignment", () => {
 		const created = makeContext({ project: ITEM, executor: ` ${executor} ` });
 		expect((await capture("create Executor smoke", created.ctx)).code).toBe(0);
 		expect(created.sources).toHaveLength(1);
-		expect(created.sources[0]).toContain(`"executor":"${executor}"`);
+		expect(created.sources[0]).toContain(
+			`"executorReference":${JSON.stringify({ type: executor === "human" ? "human" : executor === "tedi" ? "tedi" : "external_agent", id: executor })}`,
+		);
 		const accepted = makeContext({ executor, doneWhen: "Assignment persists" });
 		expect((await capture(`accept ${ITEM}`, accepted.ctx)).code).toBe(0);
 		expect(accepted.sources).toEqual([
-			`work.update_work_item_specification(${JSON.stringify({ id: ITEM, executor })})`,
+			`work.update_work_item_specification(${JSON.stringify({ id: ITEM, executorReference: { type: executor === "human" ? "human" : executor === "tedi" ? "tedi" : "external_agent", id: executor } })})`,
 			`work.accept_work_item(${JSON.stringify({ id: ITEM, acceptanceContract: { version: 1, doneLooksLike: "Assignment persists" } })})`,
 		]);
 	});

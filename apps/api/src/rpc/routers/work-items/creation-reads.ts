@@ -9,9 +9,7 @@ import {
 	WorkCliResolveRowSchema,
 	WorkCheckpointProjectionSchema,
 	WorkCaseSchema,
-	WorkExecutorSchema,
 	isLaneReadyExecutorReference,
-	workExecutorReference,
 } from "@tedix/api-contract/schemas/work-items";
 import { withAuthorization } from "../../orpc";
 import {
@@ -130,23 +128,7 @@ export const createProcedure = authOs.create.handler(
 			const existing = await replayFactoryCycle(context.db, orgId, input);
 			if (existing) return existing;
 			attemptedCreate = true;
-			const legacyExecutor = WorkExecutorSchema.safeParse(
-				input.executor ?? input.metadata?.executor,
-			);
-			const legacyReference = legacyExecutor.success
-				? workExecutorReference(legacyExecutor.data)
-				: undefined;
-			if (
-				input.executorReference &&
-				legacyReference &&
-				(input.executorReference.type !== legacyReference.type ||
-					input.executorReference.id !== legacyReference.id)
-			)
-				throw createError(
-					ErrorCodes.BAD_REQUEST,
-					"executor and executorReference must name the same executor",
-				);
-			const executorReference = input.executorReference ?? legacyReference;
+			const executorReference = input.executorReference;
 			const executor = executorReference?.id;
 			const laneExecution = input.metadata?.laneExecution as
 				| { delegationDepth?: number; maxAttempts?: number }

@@ -21,7 +21,7 @@ import { updateSpecificationProcedure } from "./factory-lifecycle";
 const input = {
 	id: "11111111-1111-4111-8111-111111111111",
 	expectedWorkItemVersion: 3,
-	executor: "opencode" as const,
+	executorReference: { type: "external_agent" as const, id: "opencode" },
 	idleReassignment: {
 		fromExecutor: "codex" as const,
 		unavailableSince: "2026-11-07T21:45:00Z",
@@ -79,3 +79,16 @@ it("does not combine reassignment with a specification change", async () => {
 	).rejects.toThrow("without specification edits");
 	expect(mocks.reassign).not.toHaveBeenCalled();
 });
+
+it.each(["human", "tedi", "team", "organization"])(
+	"rejects a %s reference with a local host ID during idle reassignment",
+	async (type) => {
+		await expect(
+			invoke({
+				...input,
+				executorReference: { type, id: "opencode" },
+			} as typeof input),
+		).rejects.toThrow("Idle reassignment requires an executor");
+		expect(mocks.reassign).not.toHaveBeenCalled();
+	},
+);

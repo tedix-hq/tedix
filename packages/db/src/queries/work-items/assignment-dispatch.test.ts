@@ -49,7 +49,7 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 	]);
 	const changed = await updateWorkItemSpecification(db, {
 		...base,
-		executor: "codex",
+		executorReference: { type: "external_agent", id: "codex" },
 		expectedWorkItemVersion: accepted.version,
 	});
 	expect(changed.executorId).toBe("codex");
@@ -57,7 +57,7 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 	await expect(
 		updateWorkItemSpecification(db, {
 			...base,
-			executor: "claude-code",
+			executorReference: { type: "external_agent", id: "claude-code" },
 			expectedWorkItemVersion: accepted.version,
 		}),
 	).rejects.toThrow();
