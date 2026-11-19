@@ -4645,6 +4645,17 @@ assert.equal(
 	null,
 );
 assert.equal(fullyRefusedWorkflowStep([]), null);
+assert.equal(
+	fullyRefusedWorkflowStep([
+		callReceipt(
+			"judge-read",
+			"failed",
+			1,
+			"MCP tool error: Execution error: Skill manifest authorization is unavailable; no side effect was executed.",
+		),
+	]),
+	null,
+);
 for (const message of [
 	"Inference daily budget exhausted for 2026-10-25 (100/100 tokens used)",
 	"Monthly budget exceeded",
