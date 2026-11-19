@@ -1837,6 +1837,48 @@ describe("output patch verbs", () => {
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 
+	it("saves one cell in a 150-row sheet within the response budget", async () => {
+		const rows = Array.from({ length: 150 }, (_, row) => [
+			`Row ${row + 1}`,
+			row,
+			"Pending",
+			"Fixture description ".repeat(20),
+		]);
+		const { output } = await c.org1.outputs.create({
+			workspaceId: await homeWorkspaceId(c.env),
+			kind: "sheet",
+			title: "Save timing fixture",
+			content: {
+				kind: "sheet",
+				columns: ["Name", "Count", "Status", "Description"],
+				rows,
+			},
+		});
+		const timings: number[] = [];
+		for (let revision = 1; revision <= 5; revision++) {
+			const started = performance.now();
+			const saved = await c.org1.outputs.setSheetRange({
+				outputId: output.id,
+				startRow: 74,
+				startColumn: 2,
+				cells: [[`Saved ${revision}`]],
+				expectedRevision: revision,
+			});
+			timings.push(performance.now() - started);
+			expect(saved.revision.revision).toBe(revision + 1);
+			if (saved.revision.content.kind !== "sheet")
+				throw new Error("Expected sheet");
+			expect(saved.revision.content.rows).toHaveLength(150);
+			expect(saved.revision.content.rows[74]?.[2]).toBe(`Saved ${revision}`);
+			expect(saved.revision.content.rows[73]).toEqual(rows[73]);
+		}
+		console.info(
+			"150-row setSheetRange milliseconds",
+			timings.map((ms) => Number(ms.toFixed(2))),
+		);
+		expect(Math.max(...timings)).toBeLessThan(1_500);
+	});
+
 	it("writes a sheet rectangle, null-filling extended rows and short rows", async () => {
 		const { output } = await c.org1.outputs.create({
 			workspaceId: await homeWorkspaceId(c.env),

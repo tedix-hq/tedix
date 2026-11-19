@@ -1,3 +1,4 @@
+import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
 import { requireSavableText } from "../lib/savable-text";
 import { confirmWorkspaceFileResource } from "./workspace-resource-storage";
 import {
@@ -28,7 +29,7 @@ import {
 	externalizeOutputAssets,
 	type OutputAssetBucket,
 } from "./os-output-assets";
-import { excerptFromContent } from "./workspace-feed";
+import { excerptFromValue } from "./workspace-feed";
 
 /**
  * Every writer stores the body in R2 first and leaves this sentinel in the
@@ -43,10 +44,12 @@ type OutputStorageBucket = OutputBodyBucket &
 
 /** Every new revision passes here, so one file cannot grow without bound. */
 function requireStorableBody(content: string) {
-	if (new TextEncoder().encode(content).length > OS_OUTPUT_CONTENT_MAX_BYTES)
+	const bytes = new TextEncoder().encode(content);
+	if (bytes.length > OS_OUTPUT_CONTENT_MAX_BYTES)
 		throw new ORPCError("BAD_REQUEST", {
 			message: `This file is over the ${OS_OUTPUT_CONTENT_MAX_BYTES / 1_000_000} MB limit. Remove or shrink large images.`,
 		});
+	return bytes;
 }
 
 /**
@@ -57,10 +60,13 @@ function requireStorableBody(content: string) {
 async function storeRevisionBody(
 	bucket: OutputStorageBucket,
 	revision: { organizationId: string; outputId: string; content: string },
+	previous?: OsOutputRevisionRow,
 ) {
 	let decoded: unknown = revision.content;
+	let isJson = false;
 	try {
 		decoded = JSON.parse(revision.content);
+		isJson = true;
 	} catch {
 		// Existing callers also store plain text bodies.
 	}
@@ -71,14 +77,29 @@ async function storeRevisionBody(
 		revision.content,
 		bucket,
 	);
-	requireStorableBody(content);
+	const bytes = requireStorableBody(content);
+	// Reuse the verified, durable base body; revision CAS still guards the save.
+	const reusable =
+		previous?.organizationId === revision.organizationId &&
+		previous.outputId === revision.outputId &&
+		previous.content === content &&
+		previous.bodyR2Key &&
+		previous.contentSha256 &&
+		previous.contentBytes === bytes.byteLength;
 	return {
 		content,
-		body: await storeOutputRevisionBody(
-			bucket,
-			revision.organizationId,
-			content,
-		),
+		parsedContent: isJson
+			? content === revision.content
+				? decoded
+				: JSON.parse(content)
+			: undefined,
+		body: reusable
+			? {
+					bodyR2Key: previous.bodyR2Key!,
+					contentSha256: previous.contentSha256!,
+					contentBytes: previous.contentBytes!,
+				}
+			: await storeOutputRevisionBody(bucket, revision.organizationId, bytes),
 	};
 }
 
@@ -231,7 +252,10 @@ export async function createOsOutput(
 		output.id !== revision.outputId
 	)
 		throw new Error("Output revision scope mismatch");
-	const { content, body } = await storeRevisionBody(bucket, revision);
+	const { content, body, parsedContent } = await storeRevisionBody(
+		bucket,
+		revision,
+	);
 	const created = await outputs.createOsOutput(
 		db,
 		{
@@ -245,7 +269,7 @@ export async function createOsOutput(
 			content: INLINE_BODY_OFFLOADED,
 		},
 		// The workspace publishes the save to its feed once, with this text.
-		excerptFromContent(content),
+		excerptFromValue(parsedContent),
 	);
 	return { ...created, revision: { ...created.revision, content } };
 }
@@ -254,14 +278,19 @@ export async function createOsOutputRevision(
 	db: Parameters<typeof outputs.createOsOutputRevision>[0],
 	params: Parameters<typeof outputs.createOsOutputRevision>[1],
 	bucket: OutputStorageBucket = env.R2_BUCKET,
+	previous?: OsOutputRevisionRow,
 ) {
-	const { content, body } = await storeRevisionBody(bucket, params);
+	const { content, body, parsedContent } = await storeRevisionBody(
+		bucket,
+		params,
+		previous,
+	);
 	// The workspace publishes the save to its feed once, and decides itself
 	// whether it continues a burst of auto-saves.
 	const result = await outputs.createOsOutputRevision(
 		db,
 		{ ...params, ...body, content: INLINE_BODY_OFFLOADED },
-		excerptFromContent(content),
+		excerptFromValue(parsedContent),
 	);
 	if (result.ok) {
 		const output = await outputs.getOsOutput(db, {

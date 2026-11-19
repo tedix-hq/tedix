@@ -4465,6 +4465,81 @@ test("a slow workspace feed does not hold a file save", async () => {
 	).toMatchObject({ revisionId: "slow-feed-r1", title: "Slow feed file" });
 }, 30_000);
 
+test("a one-cell 150-row sheet save stays under 1.5 seconds with a slow feed", async () => {
+	await seedCore();
+	const ws = workspace();
+	const id = "sheet-save-budget";
+	const now = new Date().toISOString();
+	const content = {
+		kind: "sheet",
+		columns: ["Name", "Status"],
+		rows: Array.from({ length: 150 }, (_, n) => [`Row ${n}`, "Pending"]),
+	};
+	const body = await storeOutputBody(
+		testEnv.R2_BUCKET,
+		scope.organizationId,
+		JSON.stringify(content),
+	);
+	const author = { createdByKind: "user" as const, createdById: "u1" };
+	await ws.outputQuery(scope, {
+		op: "create",
+		output: {
+			id,
+			...scope,
+			kind: "sheet",
+			title: "Save fixture",
+			currentRevisionId: `${id}-1`,
+			...author,
+			createdAt: now,
+			updatedAt: now,
+		},
+		revision: {
+			id: `${id}-1`,
+			organizationId: scope.organizationId,
+			outputId: id,
+			revision: 1,
+			content: "",
+			...body,
+			...author,
+			createdAt: now,
+		},
+	});
+	content.rows[74]![1] = "Saved";
+	await ws.delayProjections(scope, 5_000);
+	try {
+		const started = Date.now();
+		const stored = await storeOutputBody(
+			testEnv.R2_BUCKET,
+			scope.organizationId,
+			JSON.stringify(content),
+		);
+		const result = await ws.outputQuery(scope, {
+			op: "revise",
+			params: {
+				id: `${id}-2`,
+				organizationId: scope.organizationId,
+				outputId: id,
+				expectedRevision: 1,
+				...stored,
+				...author,
+			},
+		});
+		const elapsed = Date.now() - started;
+		console.info("150-row slow-feed revision milliseconds", elapsed);
+		expect(result).toMatchObject({ ok: true, revision: { revision: 2 } });
+		expect(elapsed).toBeLessThan(1_500);
+	} finally {
+		await ws.delayProjections(scope, 0);
+	}
+	await ws.retryProjections(scope);
+	expect(
+		await getWorkspaceOutputIndexCurrent(createDbQueryClient(testEnv.DB), {
+			organizationId: scope.organizationId,
+			outputId: id,
+		}),
+	).toMatchObject({ revision: 2 });
+});
+
 test("recovers intermediate file revisions when output notifications coalesce", async () => {
 	await seedCore();
 	const ws = workspace();
@@ -4545,6 +4620,79 @@ test("recovers intermediate file revisions when output notifications coalesce", 
 			})
 		)?.revision,
 	).toBe(2);
+	const checkpoint = () =>
+		runInDurableObject(ws, (_instance, state) =>
+			state.storage.kv.get<number>(`output-history-through:${id}`),
+		);
+	expect(await checkpoint()).toBe(2);
+	await evictDurableObject(ws);
+	const third = await storeOutputBody(
+		testEnv.R2_BUCKET,
+		scope.organizationId,
+		"third body",
+	);
+	expect(
+		await ws.outputQuery(scope, {
+			op: "revise",
+			params: {
+				id: "coalesced-r3",
+				organizationId: scope.organizationId,
+				outputId: id,
+				expectedRevision: 2,
+				...third,
+				createdByKind: "user",
+				createdById: "u1",
+			},
+		}),
+	).toMatchObject({ ok: true });
+	expect(await checkpoint()).toBe(3);
+	await ws.failNextProjection(scope);
+	const fourth = await storeOutputBody(
+		testEnv.R2_BUCKET,
+		scope.organizationId,
+		"fourth body",
+	);
+	await ws.outputQuery(scope, {
+		op: "revise",
+		params: {
+			id: "coalesced-r4",
+			organizationId: scope.organizationId,
+			outputId: id,
+			expectedRevision: 3,
+			...fourth,
+			createdByKind: "user",
+			createdById: "u1",
+		},
+	});
+	expect(await checkpoint()).toBe(3);
+	const fifth = await storeOutputBody(
+		testEnv.R2_BUCKET,
+		scope.organizationId,
+		"fifth body",
+	);
+	await ws.outputQuery(scope, {
+		op: "revise",
+		params: {
+			id: "coalesced-r5",
+			organizationId: scope.organizationId,
+			outputId: id,
+			expectedRevision: 4,
+			...fifth,
+			createdByKind: "user",
+			createdById: "u1",
+		},
+	});
+	await ws.retryProjections(scope);
+	expect(await checkpoint()).toBe(5);
+	expect(
+		(
+			await testEnv.DB.prepare(
+				"SELECT revision FROM workspace_output_index WHERE output_id = ? ORDER BY revision",
+			)
+				.bind(id)
+				.all()
+		).results,
+	).toEqual([1, 2, 3, 4, 5].map((revision) => ({ revision })));
 });
 
 test("clears a save's search text when the save stores no revision, and keeps it for a publish still owed", async () => {

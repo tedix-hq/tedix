@@ -224,7 +224,9 @@ describe("output body persistence", () => {
 				f.db,
 				{ ...f.revision, id: "unused", expectedRevision: 1 },
 				f.storage,
+				first.revision,
 			);
+			expect(f.revisionCountsAtWrite).toEqual([0]);
 			expect(same).toMatchObject({
 				ok: true,
 				revision: {
