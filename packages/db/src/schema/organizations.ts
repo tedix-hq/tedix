@@ -83,7 +83,7 @@ export const organizations = sqliteTable(
 export interface OrganizationFeatures {
 	/** Maximum number of AI apps this org can create */
 	maxApps?: number;
-	/** Maximum CMS sites (-1 = unlimited); paused sites still occupy a slot. */
+	/** Maximum CMS sites; paused sites still occupy a slot. */
 	maxCmsSites?: number;
 	/** Maximum team members */
 	maxTeamMembers?: number;
