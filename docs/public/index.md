@@ -88,7 +88,6 @@ what is available today.
 | Choose between skills, automations, flows, and runs        | [Skills, automations, flows, and runs](./skills-flows-workflows.md)         |
 | Check what is available today                              | [Release status](./release-status.md)                                       |
 | Understand the license boundary                            | [Licensing and operator FAQ](./licensing.md)                                |
-| Review the dated permissive package inventory              | [Tedix permissive package inventory](./permissive-packages.md)              |
 
 ## Read these docs as an agent
 
