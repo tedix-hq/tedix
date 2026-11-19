@@ -22,21 +22,18 @@ export type DeclaredDelegationOutcome =
 	| "failed"
 	| "needs_follow_up";
 
+const DELEGATION_OUTCOME_PREFIX =
+	/^\s*Outcome: (succeeded|failed|needs_follow_up)(?:[ \t]+—[ \t]*(?:\r?\n)?|[ \t]*(?:\r?\n|$))(?:[ \t]*\r?\n)*/;
+
 export function declaredDelegationOutcome(
 	text: string | null | undefined,
 ): DeclaredDelegationOutcome | null {
-	// Only an exact first line declares an outcome. Missing/invalid declarations
-	// keep the existing ordinary-answer path; mentions and quoted logs do not count.
-	switch (text?.trimStart().split("\n", 1)[0]?.trimEnd()) {
-		case "Outcome: succeeded":
-			return "succeeded";
-		case "Outcome: failed":
-			return "failed";
-		case "Outcome: needs_follow_up":
-			return "needs_follow_up";
-		default:
-			return null;
-	}
+	const outcome = text?.match(DELEGATION_OUTCOME_PREFIX)?.[1];
+	return (outcome as DeclaredDelegationOutcome | undefined) ?? null;
+}
+
+export function stripDelegationOutcome(text: string): string {
+	return text.replace(DELEGATION_OUTCOME_PREFIX, "");
 }
 
 /**

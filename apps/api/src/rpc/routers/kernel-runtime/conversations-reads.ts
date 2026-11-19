@@ -109,7 +109,11 @@ import {
 	cancelKernelRunCore,
 	resolveKernelWorkstationAttachWorkOrder,
 } from "./control-proposals";
-import { collapseHomeDelegationNarration } from "../kernel/home-narration";
+import {
+	collapseHomeDelegationNarration,
+	readHomeNarrationClass,
+} from "../kernel/home-narration";
+import { stripDelegationOutcome } from "../kernel/delegated-stop";
 import { summarizeRunSetReconciliation } from "./reconciliation-observability";
 
 const capabilityView = (
@@ -885,9 +889,27 @@ export const readMessagesRoute = authed.readMessages
 					childRunStatuses,
 					homeRunsById,
 				);
-				return [
-					disposition === "blank" ? { ...message, content: "" } : message,
-				];
+				if (disposition === "blank") {
+					return [
+						{
+							...message,
+							content: "",
+							metadata: {
+								...message.metadata,
+								homeNarration: readHomeNarrationClass(row.payload),
+							},
+						},
+					];
+				}
+				if (
+					row.childRunId &&
+					message.id === `${message.runId}:async-completion:assistant`
+				) {
+					return [
+						{ ...message, content: stripDelegationOutcome(message.content) },
+					];
+				}
+				return [message];
 			}),
 			nextCursor:
 				messageRowsDesc.length >= limit
