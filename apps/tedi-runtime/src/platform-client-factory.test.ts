@@ -8,6 +8,7 @@ import {
 	TEDI_RUNTIME_API_SCOPES_CLAIM,
 } from "@tedix/auth/tedi-identity";
 import { WEB_SEARCH_EXECUTE_SCOPE } from "@tedix/api-contract/schemas/web-search";
+import { WORK_RUN_STEER_SCOPE } from "@tedix/api-contract/schemas/work-attempt-steps";
 import type { HttpPlatformClient } from "./brain/platform-client";
 import {
 	findMissingRuntimeApiScopes,
@@ -107,6 +108,16 @@ assert.equal(
 	),
 	false,
 	"web search never rides on connected-provider authority",
+);
+assert.deepEqual(
+	TEDI_RUNTIME_SERVICE_BINDING_SCOPES.filter((scope) => /work/.test(scope)),
+	["work:accept", WORK_RUN_STEER_SCOPE],
+	"the agent-run tools may accept their own task and read and steer its run, and hold no other Work scope",
+);
+assert.equal(
+	TEDI_RUNTIME_API_SCOPES.some((scope) => /work/.test(scope)),
+	false,
+	"direct tedi JWTs gain no Work scope; only the service binding runs the agent-run tools",
 );
 assert.equal(
 	new Set<string>(TEDI_RUNTIME_API_SCOPES).has(WEB_SEARCH_EXECUTE_SCOPE),
