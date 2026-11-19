@@ -146,6 +146,7 @@ export * from "./audit-metadata-refs";
 // Canonical billing entitlements, credits, reservations, usage, and metering
 export * from "./billing";
 export * from "./billing-cost-rollups";
+export * from "./billing-gateway-reconciliations";
 // Cognitive stack (knowledge entries, skill entries, muscle memory)
 export * from "./cognitive";
 // Cognitive runtime protocol (runtime events and durable artifacts)

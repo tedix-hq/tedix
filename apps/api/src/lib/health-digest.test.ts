@@ -446,6 +446,9 @@ vi.mock("@tedix/db/queries/billing/health", async (original) => ({
 	getRecentProviderPricingHealth: vi.fn(),
 	getRecentProviderAttributionHealth: vi.fn(),
 }));
+vi.mock("@tedix/db/queries/billing/gateway-reconciliation", () => ({
+	getLatestGatewayReconciliation: vi.fn(() => Promise.resolve([])),
+}));
 vi.mock("@tedix/db/queries/ops-alert-state", () => ({
 	listOpenAlertStates: vi.fn(),
 	recordAlertState: vi.fn(),
