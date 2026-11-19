@@ -1379,7 +1379,7 @@ export const workItemsContract = oc
 				path: "/{id}/attempt-messages",
 				summary: "Send a follow-up to a run",
 				description:
-					"Send a follow-up to the run in progress on a Work Item. The agent applies it after its current turn ends; with interrupt set, the runner stops the current turn and applies it right away. Needs a run in progress; only the Work Item's owner or steward may send one.",
+					"Send a follow-up to the run in progress on a Work Item. The agent applies it after its current turn ends; with interrupt set, the runner stops the current turn and applies it right away. An ended run can take an answer to its open question. Only the Work Item's owner or steward may send a message.",
 			})
 			.input(SendWorkAttemptMessageInputSchema)
 			.output(WorkAttemptMessageSchema),

@@ -6330,6 +6330,35 @@
 								"type": "null"
 							}
 						]
+					},
+					"machineName": {
+						"anyOf": [
+							{
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 100,
+								"pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"machineTools": {
+						"anyOf": [
+							{
+								"maxItems": 32,
+								"type": "array",
+								"items": {
+									"type": "string",
+									"minLength": 1,
+									"maxLength": 64
+								}
+							},
+							{
+								"type": "null"
+							}
+						]
 					}
 				},
 				"required": [
@@ -7748,11 +7777,17 @@
 		{
 			"name": "send_work_attempt_message",
 			"remoteName": "send_work_attempt_message",
-			"description": "Send a follow-up to the run in progress on a Work Item you own or steward. The agent applies it after its current turn ends; set interrupt to stop the current turn and apply it right away. Fails when no run is in progress.",
+			"description": "Send a follow-up to the live run or answer an open question from the newest ended run on a Work Item you own or steward. A live follow-up is applied after the current turn ends, or right away if interrupt is set. An answer to an ended run resumes its session on a fresh Attempt.",
 			"inputSchema": {
 				"type": "object",
 				"properties": {
 					"id": {
+						"type": "string",
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					},
+					"attemptId": {
+						"description": "Refuse if this is no longer the newest run.",
 						"type": "string",
 						"format": "uuid",
 						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"

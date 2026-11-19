@@ -134,7 +134,7 @@ export function WorkItemRunView({
 					The agent has not reported a step yet.
 				</p>
 			)}
-			{run.live ? (
+			{run.live || question ? (
 				<form
 					className="grid gap-3"
 					onSubmit={(event) => {
@@ -150,9 +150,7 @@ export function WorkItemRunView({
 						/>
 					) : null}
 					<Label htmlFor={fieldId}>
-						{question
-							? "Answer in your own words, or send a follow-up"
-							: "Send a follow-up"}
+						{question ? "Answer in your own words" : "Send a follow-up"}
 					</Label>
 					<Textarea
 						id={fieldId}
@@ -160,7 +158,11 @@ export function WorkItemRunView({
 						onChange={(event) => setDraft(event.target.value)}
 						maxLength={4000}
 						disabled={sending}
-						placeholder="The agent reads it when its current step ends. Send now stops that step first."
+						placeholder={
+							question
+								? undefined
+								: "The agent reads it when its current step ends. Send now stops that step first."
+						}
 					/>
 					{sendError ? (
 						<p role="alert" className="m-0">
@@ -171,22 +173,26 @@ export function WorkItemRunView({
 						<Button type="submit" disabled={!draft.trim() || sending}>
 							{sending ? "Sending…" : "Send"}
 						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							disabled={!draft.trim() || sending}
-							onClick={() => sendDraft(true)}
-						>
-							Send now
-						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							disabled={stopRequested}
-							onClick={() => setConfirmStop(true)}
-						>
-							{stopRequested ? "Stop requested" : "Stop run"}
-						</Button>
+						{run.live && !question ? (
+							<>
+								<Button
+									type="button"
+									variant="outline"
+									disabled={!draft.trim() || sending}
+									onClick={() => sendDraft(true)}
+								>
+									Send now
+								</Button>
+								<Button
+									type="button"
+									variant="outline"
+									disabled={stopRequested}
+									onClick={() => setConfirmStop(true)}
+								>
+									{stopRequested ? "Stop requested" : "Stop run"}
+								</Button>
+							</>
+						) : null}
 					</div>
 					<WorkRunStopConfirm
 						open={confirmStop}
@@ -222,7 +228,13 @@ export function WorkItemRunSection({
 			names={names}
 			viewerId={viewerId}
 			ownMessageIds={ownMessageIds}
-			onSend={(body, interrupt) => send.mutateAsync({ body, interrupt })}
+			onSend={(body, interrupt) =>
+				send.mutateAsync({
+					body,
+					interrupt,
+					attemptId: run.attemptId ?? undefined,
+				})
+			}
 			sending={send.isPending}
 			sendError={send.error}
 			onStop={() => stop.mutateAsync()}

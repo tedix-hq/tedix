@@ -10,6 +10,7 @@ import {
 	workAttemptMessages,
 	workAttemptSteps,
 	workAttempts,
+	workItems,
 } from "../../schema/work-items";
 import { getAuthoritativeWorkItemAttempt } from "./attempts";
 import {
@@ -129,7 +130,7 @@ export async function appendWorkAttemptSteps(
 		eq(workAttemptMessages.orgId, params.orgId),
 		eq(workAttemptMessages.workItemId, params.workItemId),
 		params.externalSessionKey
-			? // bound-params: a subquery with six bound values, not a caller list
+			? // bound-params: a fixed-size subquery
 				inArray(
 					workAttemptMessages.attemptId,
 					db
@@ -146,7 +147,15 @@ export async function appendWorkAttemptSteps(
 											workAttempts.externalSessionKey,
 											params.externalSessionKey,
 										),
-										inArray(workAttempts.outcome, ["expired", "failed"]),
+										or(
+											inArray(workAttempts.outcome, ["expired", "failed"]),
+											sql`(${workAttempts.outcome} = 'cancelled'
+											AND ${workAttemptMessages.id} = (
+												SELECT json_extract(${workItems.metadata}, '$.questionContinuation.messageId')
+												FROM ${workItems} WHERE ${workItems.id} = ${params.workItemId}
+												AND ${workItems.orgId} = ${params.orgId}
+											))`,
+										),
 									),
 								),
 							),
@@ -228,6 +237,7 @@ export interface ListWorkAttemptStepsParams {
 export interface ListWorkAttemptStepsResult {
 	attemptId: string | null;
 	live: boolean;
+	questionVersion?: number;
 	steps: WorkAttemptStepRow[];
 	messages: WorkAttemptMessageRow[];
 }
@@ -280,6 +290,13 @@ export async function listWorkAttemptSteps(
 	return {
 		attemptId: attempt.id,
 		live: isWorkAttemptLive(attempt, at),
+		questionVersion:
+			attempt.outcome === "cancelled" &&
+			typeof attempt.metadata.runQuestion === "object" &&
+			attempt.metadata.runQuestion !== null &&
+			typeof attempt.metadata.dispatchVersion === "number"
+				? attempt.metadata.dispatchVersion
+				: undefined,
 		steps,
 		messages,
 	};
@@ -288,6 +305,7 @@ export async function listWorkAttemptSteps(
 export interface SendWorkAttemptMessageParams {
 	orgId: string;
 	workItemId: string;
+	attemptId?: string;
 	kind: WorkAttemptMessageKind;
 	body: string;
 	sender: { type: WorkAttemptMessageSenderType; id: string };
@@ -296,32 +314,119 @@ export interface SendWorkAttemptMessageParams {
 	at?: string;
 }
 
-/**
- * Queue a follow-up or a stop for the run in progress on a Work Item. Returns
- * null when no run is in progress; the runner picks the message up with its
- * next step report.
- */
+/** Queue steering on the newest run or answer its outstanding question. */
 export async function sendWorkAttemptMessage(
 	db: DbQueryClient,
 	params: SendWorkAttemptMessageParams,
 ): Promise<WorkAttemptMessageRow | null> {
 	const at = params.at ?? new Date().toISOString();
-	const attempt = await findWorkAttemptForSteps(db, params);
-	if (!attempt || !isWorkAttemptLive(attempt, at)) return null;
-	const [message] = await db
+	const id = crypto.randomUUID();
+	const live = sql`${workAttempts.outcome} IS NULL
+		AND ${inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES)}
+		AND ${workAttempts.expiresAt} > ${at}`;
+	const lastQuestionSeq = sql`(
+		SELECT CASE WHEN step.kind = 'question' THEN step.seq END
+		FROM work_attempt_steps step WHERE step.attempt_id = ${workAttempts.id}
+		ORDER BY step.seq DESC LIMIT 1
+	)`;
+	const unanswered = sql`(
+		${lastQuestionSeq} IS NOT NULL
+		AND NOT (
+			coalesce(json_extract(${workItems.metadata}, '$.questionContinuation.attemptId'), '') = ${workAttempts.id}
+			AND json_extract(${workItems.metadata}, '$.questionContinuation.seq') = ${lastQuestionSeq}
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM ${workAttemptMessages}
+			WHERE ${workAttemptMessages.attemptId} = ${workAttempts.id}
+			AND ${workAttemptMessages.kind} = 'stop'
+		)
+	)`;
+	const insert = db
 		.insert(workAttemptMessages)
-		.values({
-			id: crypto.randomUUID(),
-			orgId: params.orgId,
-			workItemId: params.workItemId,
-			attemptId: attempt.id,
-			kind: params.kind,
-			body: params.body,
-			senderType: params.sender.type,
-			senderId: params.sender.id,
-			interrupt: params.kind === "follow_up" && params.interrupt === true,
-			createdAt: at,
-		})
+		.select(
+			db
+				.select({
+					id: sql<string>`${id}`.as("message_id"),
+					orgId: workAttempts.orgId,
+					workItemId: workAttempts.workItemId,
+					attemptId: workAttempts.id,
+					kind: sql<WorkAttemptMessageKind>`${params.kind}`.as("message_kind"),
+					body: sql<string>`${params.body}`.as("message_body"),
+					senderType:
+						sql<WorkAttemptMessageSenderType>`${params.sender.type}`.as(
+							"sender_type",
+						),
+					senderId: sql<string>`${params.sender.id}`.as("sender_id"),
+					interrupt:
+						sql<boolean>`(${params.kind === "follow_up" && params.interrupt === true} AND ${live})`.as(
+							"interrupt",
+						),
+					createdAt: sql<string>`${at}`.as("message_created_at"),
+					deliveredAt: sql<null>`NULL`.as("delivered_at"),
+					appliedAt: sql<null>`NULL`.as("applied_at"),
+				})
+				.from(workAttempts)
+				.innerJoin(
+					workItems,
+					and(
+						eq(workItems.id, workAttempts.workItemId),
+						eq(workItems.orgId, workAttempts.orgId),
+					),
+				)
+				.where(
+					and(
+						eq(workAttempts.orgId, params.orgId),
+						eq(workAttempts.workItemId, params.workItemId),
+						params.attemptId
+							? eq(workAttempts.id, params.attemptId)
+							: undefined,
+						sql`NOT EXISTS (
+					SELECT 1 FROM work_attempts successor
+					WHERE successor.work_item_id = ${workAttempts.workItemId}
+					AND successor.org_id = ${workAttempts.orgId}
+					AND successor.attempt_number > ${workAttempts.attemptNumber}
+				)`,
+						params.kind === "stop"
+							? sql`(${live} AND ${lastQuestionSeq} IS NULL)`
+							: sql`(
+					(${live} AND ${lastQuestionSeq} IS NULL) OR (
+						${unanswered} AND ${workItems.disposition} = 'accepted'
+						AND (${live} OR (
+							${workAttempts.outcome} = 'cancelled'
+							AND json_extract(${workAttempts.metadata}, '$.runQuestion.seq') = ${lastQuestionSeq}
+							AND json_extract(${workAttempts.metadata}, '$.dispatchVersion') = ${workItems.version}
+						))
+					)
+				)`,
+					),
+				),
+		)
 		.returning();
+
+	if (params.kind === "stop") return (await insert)[0] ?? null;
+
+	// Only an answer to the last step wakes the runner. Store the signal in
+	// the same batch as the message, without changing the Work revision.
+	const continuation = sql`(
+		SELECT json_object('messageId', ${id}, 'attemptId', msg.attempt_id, 'seq', step.seq)
+		FROM work_attempt_messages msg
+		JOIN work_attempt_steps step ON step.attempt_id = msg.attempt_id
+		WHERE msg.id = ${id} AND step.seq = (
+			SELECT max(last.seq) FROM work_attempt_steps last WHERE last.attempt_id = msg.attempt_id
+		) AND step.kind = 'question'
+	)`;
+	const signal = db
+		.update(workItems)
+		.set({
+			metadata: sql`json_set(coalesce(${workItems.metadata}, '{}'), '$.questionContinuation', json(${continuation}))`,
+		})
+		.where(
+			and(
+				eq(workItems.id, params.workItemId),
+				eq(workItems.orgId, params.orgId),
+				sql`${continuation} IS NOT NULL`,
+			),
+		);
+	const [[message]] = await db.batch([insert, signal]);
 	return message ?? null;
 }

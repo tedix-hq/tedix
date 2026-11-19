@@ -139,9 +139,23 @@ export const listAttemptStepsProcedure = readerOs.listAttemptSteps.handler(
 				afterSeq: input.afterSeq,
 				limit: input.limit,
 			});
+			const continuation = workItem.metadata?.questionContinuation;
+			const answered =
+				continuation &&
+				typeof continuation === "object" &&
+				"attemptId" in continuation &&
+				continuation.attemptId === result.attemptId;
 			return {
 				attemptId: result.attemptId,
 				live: result.live,
+				...(!result.live
+					? {
+							questionOpen:
+								workItem.disposition === "accepted" &&
+								result.questionVersion === workItem.version &&
+								!answered,
+						}
+					: {}),
 				steps: result.steps.map((step) => ({
 					seq: step.seq,
 					at: step.at,
@@ -161,6 +175,7 @@ async function steerRun(
 	context: BaseContext,
 	params: {
 		id: string;
+		attemptId?: string;
 		kind: "follow_up" | "stop";
 		body: string;
 		interrupt?: boolean;
@@ -173,12 +188,19 @@ async function steerRun(
 	const message = await sendWorkAttemptMessage(context.db, {
 		orgId: workItem.orgId,
 		workItemId: workItem.id,
+		attemptId: params.attemptId,
 		kind: params.kind,
 		body: params.body,
 		sender: { type: actor.type, id: actor.id },
 		interrupt: params.interrupt,
 	});
-	if (!message) throw createError(ErrorCodes.CONFLICT, "No run is in progress");
+	if (!message)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			params.kind === "stop"
+				? "No run is in progress"
+				: "This run no longer accepts a message",
+		);
 	// A tedi steers over the tedi runtime's service binding, which the MCP
 	// gateway never sees, so its steering is recorded here. A member steering
 	// through the gateway is recorded there; one steering from the app is not
@@ -201,6 +223,7 @@ export const sendAttemptMessageProcedure =
 		steerRun(context, {
 			id: input.id,
 			kind: "follow_up",
+			attemptId: input.attemptId,
 			body: input.body,
 			interrupt: input.interrupt,
 		}),

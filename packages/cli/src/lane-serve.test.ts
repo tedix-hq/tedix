@@ -10612,15 +10612,10 @@ describe("watching and steering a run", () => {
 		return `Asking.\nTEDIX_LANE_RESULT ${JSON.stringify({ ...fence, outcome: "question", question, ...(choices ? { choices } : {}) })}`;
 	};
 
-	it("keeps the run alive on a question and gives the agent the answer as its next turn", async () => {
-		const flush = flushNow();
-		const realNow = Date.now;
-		let later = 0;
-		const clock = spyOn(Date, "now").mockImplementation(
-			() => realNow() + later,
-		);
+	it("releases the Attempt and resumes the same native session with a late answer", async () => {
 		const f = fixture();
 		f.items.splice(1);
+		f.control.uniqueAttempts = true;
 		const sessions: string[] = [];
 		f.control.duringTurn = (turn) => {
 			sessions.push(turn.args[turn.args.indexOf("resume") + 1]!);
@@ -10629,55 +10624,67 @@ describe("watching and steering a run", () => {
 					? asks("Which table holds the plan?", ["accounts", "subscriptions"])
 					: "Used subscriptions.";
 		};
-		try {
-			await f.dispatcher.tick();
-			await until(() => f.releases.length === 1);
-			f.releases[0]!();
-			// The turn has ended with a question; nothing is settled while it waits.
-			await until(() =>
-				f.control.stepCalls.some((call) =>
-					call.steps.some((step) => step.kind === "question"),
-				),
-			);
-			expect(f.events.some((event) => event.verb === "settle")).toBe(false);
-			f.control.stepReplies = [[fromOwner("message-1", "subscriptions")]];
-			// A waiting run asks for messages every 15 seconds.
-			later = 20_000;
-			flush.send();
-			await until(() => f.releases.length === 2);
-			f.releases[1]!();
-			await f.dispatcher.drain();
-			expect(sessions[1]).toBe(sessions[0]!);
-			expect(f.briefs[1]).toContain(
-				'You asked: "Which table holds the plan?". The answer follows.',
-			);
-			expect(f.briefs[1]).toContain(
-				"From user fictional-owner:\nsubscriptions",
-			);
-			const settle = f.events.find((event) => event.verb === "settle")!;
-			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
-				"succeeded",
-			);
-			expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
-				"Used subscriptions.",
-			);
-			expect(
-				sentSteps(f).map((step) => [step.kind, step.text, step.choices]),
-			).toEqual([
-				["started", "Started codex with model test-model", undefined],
-				[
-					"question",
-					"Which table holds the plan?",
-					["accounts", "subscriptions"],
-				],
-				["follow_up", "subscriptions", undefined],
-				["finished", "Agent run ended: succeeded", undefined],
-			]);
-			expect(f.control.turnFiles).toEqual(twoTurnFiles);
-		} finally {
-			flush.restore();
-			clock.mockRestore();
-		}
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+
+		const settled = f.events.find((event) => event.verb === "settle")!;
+		expect(settled.args[settled.args.indexOf("--outcome") + 1]).toBe(
+			"cancelled",
+		);
+		expect(settled.input?.metadata).toMatchObject({
+			runQuestion: { kind: "question", text: "Which table holds the plan?" },
+			laneResult: { outcome: "deferred" },
+		});
+		expect(sentSteps(f).map((step) => step.kind)).toEqual([
+			"started",
+			"question",
+		]);
+		expect(sentSteps(f).at(-1)?.choices).toEqual(["accounts", "subscriptions"]);
+
+		f.control.history.data[0]!.outcome = "cancelled";
+		f.control.history.data[0]!.metadata = settled.input?.metadata;
+		// Even after the usual deferral timer, only an answer can wake this run.
+		const path = join(f.dir, `${item().id}-2.json`);
+		const waiting = JSON.parse(readFileSync(path, "utf8"));
+		waiting.retryAt = 0;
+		writeFileSync(path, JSON.stringify(waiting));
+		const restarted = f.restart();
+		await restarted.tick();
+		expect(
+			f.events.filter(
+				(event) => event.verb === "start" && event.args[4] === "work",
+			),
+		).toHaveLength(1);
+
+		const answerId = "77777777-7777-4777-8777-777777777777";
+		f.items[0]!.metadata = {
+			...f.items[0]!.metadata,
+			questionContinuation: {
+				attemptId: "fictional-attempt-1",
+				messageId: answerId,
+			},
+		};
+		f.control.stepReplies = [[fromOwner(answerId, "subscriptions")]];
+		await restarted.tick();
+		await until(() => f.releases.length === 2);
+		f.releases[1]!();
+		await restarted.drain();
+
+		expect(sessions).toEqual([sessions[0]!, sessions[0]!]);
+		expect(f.briefs).toHaveLength(2);
+		expect(f.briefs[1]).toContain('You asked: "Which table holds the plan?".');
+		expect(f.briefs[1]).toContain("From user fictional-owner:\nsubscriptions");
+		expect(
+			f.control.stepCalls
+				.filter((call) => call.applied.length)
+				.map((call) => [call.attemptId, call.applied]),
+		).toEqual([["fictional-attempt-2", [answerId]]]);
+		expect(
+			f.events.filter((event) => event.verb === "settle").at(-1)?.args,
+		).toContain("succeeded");
 	});
 
 	const liveFence = (f: ReturnType<typeof fixture>) => {
@@ -10694,35 +10701,6 @@ describe("watching and steering a run", () => {
 			},
 		];
 	};
-
-	it("ends as deferred with the question on record when no answer arrives in time", async () => {
-		const f = fixture();
-		f.deps.questionWaitMs = 20;
-		const dispatcher = f.restart();
-		f.items.splice(1);
-		f.control.finalMessage = asks("Which table holds the plan?");
-		await dispatcher.tick();
-		await until(() => f.releases.length === 1);
-		liveFence(f);
-		f.releases[0]!();
-		await dispatcher.drain();
-		expect(f.briefs).toHaveLength(1);
-		const settle = f.events.find((event) => event.verb === "settle")!;
-		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("cancelled");
-		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
-			"Deferred: No answer arrived within 0 minutes. Question: Which table holds the plan?",
-		);
-		const receipt = JSON.parse(
-			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
-		);
-		expect(receipt.laneResult).toMatchObject({ outcome: "deferred" });
-		expect(sentSteps(f).map((step) => step.kind)).toEqual([
-			"started",
-			"question",
-			"error",
-			"finished",
-		]);
-	});
 
 	it("does not pass on a question that asks for a secret, a sign-in, consent or MFA", async () => {
 		for (const question of [

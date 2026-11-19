@@ -202,7 +202,7 @@ export function AgentRunCardView({
 						Open task
 						<CaretRight size={11} aria-hidden />
 					</LinkComponent>
-					{live ? (
+					{live && !question ? (
 						<Button
 							type="button"
 							variant="outline"
@@ -239,7 +239,12 @@ export function AgentRunCard({ agentRun }: { agentRun: AgentRunRef }) {
 			attempt={attempt}
 			viewerId={viewerId}
 			ownMessageIds={ownMessageIds}
-			onAnswer={(answer) => send.mutateAsync({ body: answer })}
+			onAnswer={(answer) =>
+				send.mutateAsync({
+					body: answer,
+					attemptId: run?.attemptId ?? undefined,
+				})
+			}
 			answering={send.isPending}
 			onStop={() => stop.mutateAsync()}
 			stopping={stop.isPending}
