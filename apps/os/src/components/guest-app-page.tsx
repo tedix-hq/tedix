@@ -518,6 +518,7 @@ function GuestApp({
 					gadgetId: app.app.id,
 					revisionId: app.revisionId,
 				},
+				app,
 			),
 		[app, sessionToken, guestName, appId],
 	);

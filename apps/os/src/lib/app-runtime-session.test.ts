@@ -48,13 +48,26 @@ describe("app runtime session", () => {
 		await expect(call("rate", [])).rejects.toThrow("revision changed");
 		expect(api.call).not.toHaveBeenCalled();
 	});
-	it("renews an expiring session before the next call", async () => {
+	it("uses the capability from the page open until it needs renewal", async () => {
 		vi.useFakeTimers();
-		const { api, call } = fixture();
+		const { api } = fixture();
+		const call = createAppRuntimeServerCall(api, scope, {
+			session: "page-session",
+			revisionId: scope.revisionId,
+			role: "use",
+			expiresAt: Math.floor(Date.now() / 1000) + 60,
+		});
 		await call("ratings", []);
+		expect(api.open).not.toHaveBeenCalled();
+		expect(api.call).toHaveBeenLastCalledWith(
+			expect.objectContaining({ session: "page-session" }),
+		);
 		vi.advanceTimersByTime(56000);
 		await call("ratings", []);
-		expect(api.open).toHaveBeenCalledTimes(2);
+		expect(api.open).toHaveBeenCalledTimes(1);
+		expect(api.call).toHaveBeenLastCalledWith(
+			expect.objectContaining({ session: "signed" }),
+		);
 	});
 	it("allows a later open after failure but never replays a failed mutation", async () => {
 		const { api, call } = fixture();

@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import {
 	afterEach,
@@ -64,13 +64,14 @@ const json = (body: unknown, status = 200) =>
 
 const cleanups: Array<() => void> = [];
 
-async function renderPage(id = ID, url = `/s/${id}`) {
+async function renderPage(id = ID, url = `/s/${id}`, strict = false) {
 	window.history.replaceState(null, "", url);
 	const container = document.createElement("div");
 	document.body.append(container);
 	const root = createRoot(container);
 	await act(async () => {
-		root.render(<ShareLinkPage id={id} />);
+		const page = <ShareLinkPage id={id} />;
+		root.render(strict ? <StrictMode>{page}</StrictMode> : page);
 		for (let tick = 0; tick < 5; tick += 1)
 			await new Promise((resolve) => setTimeout(resolve, 0));
 	});
@@ -155,14 +156,21 @@ describe("ShareLinkPage", () => {
 		expect(container.textContent).toContain("no sign-in needed");
 	});
 
-	it.each(["use", "edit"] as const)(
-		"opens an app shared to %s in the visitor's app view with that role",
-		async (role) => {
+	it.each([
+		{ role: "use", access: "anyone_with_link", refused: "ended-session" },
+		{ role: "edit", access: "invited", refused: null },
+	] as const)(
+		"opens the $role app once after resolving the $access link",
+		async ({ role, access, refused }) => {
+			if (refused) {
+				window.sessionStorage.setItem(`tedix.os.share.${ID}`, refused);
+				vi.mocked(fetch).mockResolvedValueOnce(json("gone", 404));
+			}
 			vi.mocked(fetch).mockImplementation(async (input) =>
 				String(input) === "/api/os-shared/app/open"
 					? json({
 							session: "app-session",
-							expiresAt: Date.now() + 60_000,
+							expiresAt: Math.floor(Date.now() / 1000) + 60,
 							role,
 							revisionId: "rev-1",
 							verifiedEmail: "ada@visitor.example.test",
@@ -179,7 +187,7 @@ describe("ShareLinkPage", () => {
 						})
 					: json(
 							opened({
-								access: "invited",
+								access,
 								share: {
 									id: "share-1",
 									resourceType: "gadget",
@@ -208,7 +216,24 @@ describe("ShareLinkPage", () => {
 							}),
 						),
 			);
-			const container = await renderPage();
+			const container = await renderPage(ID, `/s/${ID}`, true);
+			expect(
+				vi
+					.mocked(fetch)
+					.mock.calls.map(([path, request]) => [
+						path,
+						JSON.parse(String(request?.body)),
+					]),
+			).toEqual([
+				...(refused
+					? [["/api/os-shared/session", { sessionToken: refused }]]
+					: []),
+				["/api/os-shared/open", { id: ID }],
+				["/api/os-shared/app/open", { sessionToken: SESSION }],
+			]);
+			expect(window.sessionStorage.getItem(`tedix.os.share.${ID}`)).toBe(
+				SESSION,
+			);
 			expect(container.querySelector("[data-guest-app]")).not.toBeNull();
 			expect(
 				container.querySelector("[data-guest-bar-tools]")?.textContent,

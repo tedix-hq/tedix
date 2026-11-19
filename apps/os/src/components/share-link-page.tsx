@@ -33,6 +33,7 @@ type OpenedShare = SharePayload &
 	};
 
 type Opened = { payload: OpenedShare; sessionToken: string };
+type OpenedPage = Opened & { guest?: GuestPageState; from?: string };
 
 type PageState =
 	| { status: "loading" }
@@ -141,6 +142,29 @@ async function openShareLink(
 	return { payload, sessionToken: payload.sessionToken };
 }
 
+async function openSharePage(
+	id: string,
+): Promise<OpenedPage | "sign-in" | "email"> {
+	const opened = await openShareLink(id);
+	if (typeof opened === "string") return opened;
+	const { payload, sessionToken } = opened;
+	if (opensAsGuestApp(payload))
+		return { ...opened, guest: await openGuestApp(payload, sessionToken) };
+	const resource = payload.resource;
+	if (resource.type !== "workspace") return opened;
+	const guestApps = resource.gadgets.filter((app) => app.opensWithoutSignIn);
+	const firstApp =
+		guestApps.find(
+			(app) => app.revision?.manifest.navigation?.workspaceDefault,
+		) ?? guestApps[0];
+	if (!firstApp) return opened;
+	return {
+		...opened,
+		guest: await openGuestApp(payload, sessionToken, firstApp.id),
+		from: resource.workspace.name,
+	};
+}
+
 /**
  * `/s/<id>` on the organization's own host: one permanent address for a
  * shared app, workspace or file. Links for anyone open without an account;
@@ -149,10 +173,10 @@ async function openShareLink(
 export function ShareLinkPage({ id }: { id: string }) {
 	const [state, setState] = useState<PageState>({ status: "loading" });
 	const [verification, setVerification] = useState(0);
-	// One opening survives StrictMode's effect replay.
+	// Share redemption and app opening must run together through effect replay.
 	const opening = useRef<{
 		id: string;
-		promise: Promise<Opened | "sign-in" | "email">;
+		promise: Promise<OpenedPage | "sign-in" | "email">;
 	} | null>(null);
 	// The latest opened share, so an app opened from a workspace can go back.
 	const lastReady = useRef<Opened | null>(null);
@@ -215,46 +239,27 @@ export function ShareLinkPage({ id }: { id: string }) {
 			if (timer !== undefined) window.clearInterval(timer);
 		};
 		if (opening.current?.id !== id)
-			opening.current = { id, promise: openShareLink(id) };
+			opening.current = { id, promise: openSharePage(id) };
 		opening.current.promise
-			.then(async (opened) => {
+			.then((result) => {
 				if (!alive) return;
-				if (opened === "email") {
+				if (result === "email") {
 					opening.current = null;
 					setState({ status: "email" });
 					return;
 				}
-				if (opened === "sign-in") {
+				if (result === "sign-in") {
 					opening.current = null;
 					// Signed in and still refused: this account is not on the link.
 					if (backFromSignIn) fail();
 					else window.location.assign(`${shareLinkPath(id)}?${SIGN_IN_PARAM}`);
 					return;
 				}
-				if (opensAsGuestApp(opened.payload)) {
-					const guest = await openGuestApp(opened.payload, opened.sessionToken);
-					if (alive) setState({ status: "guest", guest });
-					return;
-				}
+				const { guest, from, ...opened } = result;
+				if (guest) setState({ status: "guest", guest, from });
+				else setState({ status: "ready", ...opened });
+				if (guest && from === undefined) return;
 				lastReady.current = opened;
-				const resource = opened.payload.resource;
-				const guestApps =
-					resource.type === "workspace"
-						? resource.gadgets.filter((app) => app.opensWithoutSignIn)
-						: [];
-				const firstApp =
-					guestApps.find(
-						(app) => app.revision?.manifest.navigation?.workspaceDefault,
-					) ?? guestApps[0];
-				if (firstApp && resource.type === "workspace") {
-					const guest = await openGuestApp(
-						opened.payload,
-						opened.sessionToken,
-						firstApp.id,
-					);
-					if (!alive) return;
-					setState({ status: "guest", guest, from: resource.workspace.name });
-				} else setState({ status: "ready", ...opened });
 				// The readable suffix makes the permanent address tell people what
 				// it opens; only the id resolves it.
 				if (opened.payload.share?.slug)
