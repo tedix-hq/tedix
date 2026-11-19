@@ -18,8 +18,8 @@ import {
 	type WorkExecutor,
 } from "./factory-state";
 
-/** Eight bound values per step row; D1 allows 100 per statement. */
-const STEP_INSERT_CHUNK = 12;
+/** Nine bound values per step row; D1 allows 100 per statement. */
+const STEP_INSERT_CHUNK = 11;
 const MESSAGE_LIST_LIMIT = 200;
 
 export interface AppendWorkAttemptStepsParams {
@@ -29,13 +29,21 @@ export interface AppendWorkAttemptStepsParams {
 	executor: WorkExecutor;
 	sessionId?: string;
 	externalSessionKey?: string;
-	steps: { seq: number; at: number; kind: WorkAttemptStepKind; text: string }[];
+	steps: {
+		seq: number;
+		at: number;
+		kind: WorkAttemptStepKind;
+		text: string;
+		choices?: string[];
+	}[];
 	appliedMessageIds?: string[];
 	at?: string;
 }
 
 export interface AppendWorkAttemptStepsResult {
 	accepted: number;
+	/** The `seq` of every step this call stored; a retried step is not in it. */
+	acceptedSeqs: number[];
 	pending: WorkAttemptMessageRow[];
 }
 
@@ -99,6 +107,8 @@ export async function appendWorkAttemptSteps(
 		at: step.at,
 		kind: step.kind,
 		text: step.text,
+		choices:
+			step.kind === "question" && step.choices?.length ? step.choices : null,
 	}));
 	const inserts = [];
 	for (let index = 0; index < rows.length; index += STEP_INSERT_CHUNK) {
@@ -109,7 +119,10 @@ export async function appendWorkAttemptSteps(
 				.onConflictDoNothing({
 					target: [workAttemptSteps.attemptId, workAttemptSteps.seq],
 				})
-				.returning({ stepId: workAttemptSteps.id }),
+				.returning({
+					stepId: workAttemptSteps.id,
+					stepSeq: workAttemptSteps.seq,
+				}),
 		);
 	}
 	const attemptMessages = and(
@@ -170,8 +183,12 @@ export async function appendWorkAttemptSteps(
 		handOver,
 		...inserts,
 	]);
+	const acceptedSeqs = inserted.flatMap((result) =>
+		result.map((row) => row.stepSeq),
+	);
 	return {
-		accepted: inserted.reduce((count, result) => count + result.length, 0),
+		accepted: acceptedSeqs.length,
+		acceptedSeqs,
 		pending: [...pending].sort(
 			(a, b) =>
 				a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),

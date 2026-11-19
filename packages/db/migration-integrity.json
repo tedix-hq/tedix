@@ -1680,6 +1680,10 @@
 		{
 			"name": "20261119204639_work_attempt_message_interrupt/migration.sql",
 			"sha256": "e767e4f10a82dfe06db48b753631f499cabddc6e3698b68d75f769dd8e2cc371"
+		},
+		{
+			"name": "20261119205742_work_attempt_step_choices/migration.sql",
+			"sha256": "c388bfc6018305e6201efe1c2627bf77f923646b38178db8dab38fc332864e21"
 		}
 	]
 }

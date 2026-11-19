@@ -181,9 +181,44 @@ describe("run log and steering", () => {
 			attemptId: attempt,
 			steps: [],
 		});
-		expect(report.pending).toMatchObject([
-			{ id: urgent.id, kind: "follow_up", interrupt: true },
-			{ id: stop.id, kind: "stop", interrupt: false },
+		// Both were sent within the same millisecond, so their order is by id.
+		expect(
+			Object.fromEntries(
+				report.pending.map((message) => [message.id, message.interrupt]),
+			),
+		).toEqual({ [urgent.id]: true, [stop.id]: false });
+	});
+
+	it("stores a question with its offered answers and returns them in the log", async () => {
+		const { person, tedi } = fixture();
+		const report = {
+			id: work,
+			attemptId: attempt,
+			steps: [
+				{
+					seq: 0,
+					at: 1,
+					kind: "question" as const,
+					text: "Which table holds the plan?",
+					choices: ["accounts", "subscriptions"],
+				},
+				{ seq: 1, at: 2, kind: "message" as const, text: "Waiting." },
+			],
+		};
+		await expect(
+			call(appendAttemptStepsProcedure, tedi("runner"), report),
+		).resolves.toMatchObject({ accepted: 2 });
+		await expect(
+			call(appendAttemptStepsProcedure, tedi("runner"), report),
+		).resolves.toMatchObject({ accepted: 0 });
+		const log = await call(
+			listAttemptStepsProcedure,
+			person("member-subject"),
+			{ id: work, limit: 200 },
+		);
+		expect(log.steps).toEqual([
+			{ ...report.steps[0], choices: ["accounts", "subscriptions"] },
+			report.steps[1],
 		]);
 	});
 

@@ -1074,6 +1074,7 @@ export const WORK_ATTEMPT_STEP_KIND_VALUES = [
 	"file_change",
 	"error",
 	"follow_up",
+	"question",
 	"stopped",
 	"finished",
 ] as const;
@@ -1095,6 +1096,8 @@ export const workAttemptSteps = sqliteTable(
 		at: integer("at").notNull(),
 		kind: text("kind", { enum: WORK_ATTEMPT_STEP_KIND_VALUES }).notNull(),
 		text: text("text").notNull(),
+		/** The short answers a `question` step offers; null for any other step. */
+		choices: text("choices", { mode: "json" }).$type<string[]>(),
 	},
 	(table) => [
 		uniqueIndex("uniq_work_attempt_step_seq").on(table.attemptId, table.seq),
