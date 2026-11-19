@@ -61,6 +61,50 @@ const WS_A = "ws-a";
 const WS_B = "ws-b";
 const NOW = "2026-11-07T10:00:00.000Z";
 
+test("adopt sends explicit dry-run intent through the migration import route", async () => {
+	const requests: unknown[] = [];
+	const server = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		async fetch(request) {
+			requests.push({
+				path: new URL(request.url).pathname,
+				body: await request.json(),
+			});
+			return Response.json({ writes: [], unchanged: [] });
+		},
+	});
+	try {
+		const argv = [
+			"adopt",
+			"--scope",
+			"org/home",
+			"--outputs",
+			"doc,sheet",
+			"--remote",
+			server.url.origin,
+		];
+		const env = { MIGRATE_WORKSPACES_TOKEN: "fixture-token" };
+		const output: string[] = [];
+		expect(
+			await main([...argv, "--dry-run"], env, (line) => output.push(line)),
+		).toBe(0);
+		expect(await main(argv, env, () => {})).toBe(0);
+		await expect(main([...argv, "--dry-run", "false"], env)).rejects.toThrow(
+			"--dry-run takes no value",
+		);
+		expect(JSON.parse(output[0]!)).toEqual({ writes: [], unchanged: [] });
+		expect(requests).toEqual(
+			[true, false].map((dryRun) => ({
+				path: "/migration/workspaces/org/home/import",
+				body: { operation: "adopt", outputIds: ["doc", "sheet"], dryRun },
+			})),
+		);
+	} finally {
+		server.stop();
+	}
+});
+
 /** Two workspaces, one organization, rows in every mapped domain, run events split across stores. */
 function fixtureSnapshot(
 	options: {

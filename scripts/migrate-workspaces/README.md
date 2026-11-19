@@ -225,6 +225,38 @@ same file: organization memory, factory runs and their artifacts, a tedi's
 own ledger, and organization Home threads (conversations with no
 workspace) together with their runs and events.
 
+## Adopt files without a workspace
+
+Before dropping the shared output tables, run `adopt` from a checkout that
+includes the command. The workspace worker must also include adoption support.
+Use one invocation per organization. Set `HOME_SCOPE` to the reviewed
+`<organization id>/<workspace id>` assignment for that organization's Home and
+`OUTPUT_IDS` to the comma-separated list of approved file IDs for that
+organization. The assignments step proposes the oldest active workspace for
+review. Confirm that the selected Home is active, organization-visible, and
+already owns its files.
+
+```bash
+bun scripts/migrate-workspaces/cli.ts adopt --scope "$HOME_SCOPE" --outputs "$OUTPUT_IDS" \
+  --remote "$MIGRATION_GATEWAY" --auth tedix --workspace connect --dry-run
+```
+
+Review the destination and every row in `writes`. The preview prints the file
+and all revision rows, including creator, timestamps, status, and external body
+references. It writes no rows, bodies, or projections. Each revision must have
+an organization-scoped body reference. The worker reads that object with the
+normal workspace body reader and verifies its gzip payload and digest. A file
+already assigned in the shared database, a missing or foreign file, or a
+destination conflict blocks the request before file writes.
+
+Run the same command without `--dry-run` to apply. The shared rows stay in place
+for the later table drop. Each file and its revisions commit together. An
+identical rerun reports the file IDs in `unchanged` with an empty `writes` array.
+The store publishes its normal feed and D1 index projections, with failed or
+unfinished publication retried by its alarm. For each archived file, open
+**Archived** in the destination workspace, open the file, and check its revision
+history. Record the dry-run and apply results and those checks on the Work Item.
+
 ## Remote protocol
 
 The worker that hosts the workspace objects serves migration routes under

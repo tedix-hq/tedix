@@ -40,6 +40,7 @@ import { Snapshot, type WorkspaceRef } from "./source";
 import type { WorkspaceAssignments } from "./tables";
 import {
 	localStoreFactory,
+	RemoteWorkspaceStore,
 	remoteStoreFactory,
 	type WorkspaceStoreFactory,
 } from "./target";
@@ -211,6 +212,49 @@ export async function main(
 	const { command, flags } = parseArgs(argv);
 	const reportPath = text(flags, "report");
 	switch (command) {
+		case "adopt": {
+			const allowed = [
+				"scope",
+				"outputs",
+				"remote",
+				"auth",
+				"workspace",
+				"dry-run",
+			];
+			for (const flag of Object.keys(flags))
+				if (!allowed.includes(flag))
+					throw new Error(`Unexpected --${flag} for adopt`);
+			if ("dry-run" in flags && flags["dry-run"] !== true)
+				throw new Error("--dry-run takes no value");
+			const rawScope = required(flags, "scope");
+			const [key] = Scope.parse(rawScope).keys;
+			if (rawScope.includes(","))
+				throw new Error("adopt requires exactly one workspace");
+			const [organizationId, workspaceId] = key!.split("/");
+			const outputIds = required(flags, "outputs")
+				.split(",")
+				.map((id) => id.trim());
+			if (
+				outputIds.some((id) => !id) ||
+				new Set(outputIds).size !== outputIds.length
+			)
+				throw new Error("--outputs requires distinct, comma-separated ids");
+			required(flags, "remote");
+			const store = await (
+				await openStores(flags, env)
+			).open({
+				organizationId: organizationId!,
+				workspaceId: workspaceId!,
+			});
+			if (!(store instanceof RemoteWorkspaceStore))
+				throw new Error("adopt requires a remote workspace store");
+			const result = await store.adoptSharedOutputs(
+				outputIds,
+				flags["dry-run"] === true,
+			);
+			out(JSON.stringify(result, null, 2));
+			return 0;
+		}
 		case "export-object": {
 			const scope = Scope.parse(required(flags, "scope"));
 			if (scope.keys.size !== 1)
@@ -474,7 +518,7 @@ export async function main(
 		}
 		default:
 			out(
-				"usage: cli.ts capture|export-object|compare|export|import|delta|reconcile|activate|rehearse|schema-check|assignments [flags]; see README.md",
+				"usage: cli.ts capture|export-object|compare|export|import|adopt|delta|reconcile|activate|rehearse|schema-check|assignments [flags]; see README.md",
 			);
 			return 2;
 	}

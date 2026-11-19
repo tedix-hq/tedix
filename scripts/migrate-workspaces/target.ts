@@ -425,6 +425,10 @@ export class RemoteWorkspaceStore implements WorkspaceStore {
 		return this.call<StoreDescription>("");
 	}
 
+	adoptSharedOutputs(outputIds: string[], dryRun: boolean): Promise<unknown> {
+		return this.call("/import", { operation: "adopt", outputIds, dryRun });
+	}
+
 	activate(input: {
 		importGeneration: number;
 		reconciliationRef: string;
