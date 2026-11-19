@@ -7511,6 +7511,78 @@ it("parses a retained-checkout cap from the flag or environment", () => {
 	expect(runnerServeArgs(duty)).toContain("25");
 });
 
+it.each([
+	[
+		'{"type":"error","message":"Reconnecting... 2/5 (stream disconnected before completion: invalid peer certificate: UnknownIssuer)"}',
+		true,
+	],
+	[
+		"Reconnecting... 2/5 (stream disconnected before completion: IO error: Broken pipe)",
+		true,
+	],
+	["IO error: Broken pipe", true],
+	["Codex authentication failed", false],
+] as const)(
+	"classifies Codex failure and bounds transport retries: %s",
+	async (message, retryable) => {
+		let now = 1_800_000_000_000;
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		const f = fixture();
+		f.items.splice(1);
+		f.control.telemetryOutcome = "failed";
+		f.control.exitCode = 1;
+		f.control.declareCompleted = false;
+		f.control.finalMessage = message;
+		const path = join(f.dir, `${item().id}-2.json`);
+		try {
+			for (let n = 1; n <= (retryable ? 3 : 1); n++) {
+				const dispatcher = f.restart();
+				await dispatcher.tick();
+				await until(() => f.releases.length === n);
+				f.releases[n - 1]!();
+				await dispatcher.drain();
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				expect(saved).toMatchObject({
+					phase: retryable ? "deferred" : "settled",
+					outcome: "failed",
+					retryable,
+					retries: n,
+					identicalFailures: n,
+					held: n === 3,
+				});
+				expect(saved.retryAt).toBe(now + 60_000 * 2 ** (n - 1));
+				f.control.history.data = [
+					{
+						id: saved.attemptId,
+						externalSessionKey: saved.session,
+						outcome: saved.outcome,
+						metadata: { dispatchVersion: 2 },
+					},
+				];
+				now = saved.retryAt - 1;
+				await dispatcher.tick();
+				await dispatcher.drain();
+				expect(f.releases).toHaveLength(n);
+				now++;
+			}
+			if (retryable) {
+				const dispatcher = f.restart();
+				await dispatcher.tick();
+				await dispatcher.drain();
+				expect(f.releases).toHaveLength(3);
+				expect(
+					f.events.filter((event) => event.verb === "start" && event.input),
+				).toHaveLength(3);
+				expect(
+					f.events.filter((event) => event.verb === "comment"),
+				).toHaveLength(1);
+			}
+		} finally {
+			clock.mockRestore();
+		}
+	},
+);
+
 it.each(["failed", "stopped"] as const)(
 	"backs off and holds three identical admitted %s runs across restarts",
 	async (outcome) => {
