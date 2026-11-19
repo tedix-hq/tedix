@@ -43,7 +43,7 @@
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "catalog:",
-		"@emdash-cms/plugin-types": "0.6.0",
+		"@emdash-cms/plugin-types": "0.6.1",
 		"@orpc/client": "catalog:",
 		"@tedix/tsconfig": "workspace:*",
 		"@types/react": "^19.3.0",

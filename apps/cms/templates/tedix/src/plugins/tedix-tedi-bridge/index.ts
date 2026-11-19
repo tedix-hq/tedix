@@ -151,6 +151,7 @@ export default {
 					const apiKey = await readSetting(ctx, "tedi.platformApiKey");
 					if (typeof apiKey !== "string" || !apiKey || !ctx.http)
 						throw new Error("Bridge not configured");
+					const capabilityFetch = ctx.http.fetch.bind(ctx.http);
 					const apiUrl = String(
 						(await readSetting(ctx, "tedi.platformApiUrl")) ?? DEFAULT_API_URL,
 					);
@@ -160,7 +161,7 @@ export default {
 						job.payload,
 						apiKey,
 						(url, init) =>
-							ctx.http!.fetch(url, {
+							capabilityFetch(url, {
 								...init,
 								signal: AbortSignal.timeout(8_000),
 							}),

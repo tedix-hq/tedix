@@ -20,8 +20,8 @@
 		"type-check": "LANDING_INSPECTOR_PORT=0 astro sync && tsc --noEmit"
 	},
 	"dependencies": {
-		"@astrojs/cloudflare": "^14.4.7",
-		"@astrojs/react": "^7.1.7",
+		"@astrojs/cloudflare": "^14.4.9",
+		"@astrojs/react": "^7.1.9",
 		"@cloudflare/kumo": "2.19.0",
 		"@fontsource-variable/comfortaa": "^5.3.0",
 		"@fontsource-variable/raleway": "^5.3.0",
@@ -32,10 +32,10 @@
 		"@tedix/design-tokens": "workspace:*",
 		"@tedix/widget-ui": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
-		"astro": "^7.4.10",
+		"astro": "^7.4.13",
 		"clsx": "^2.1.1",
-		"lucide-react": "^1.72.0",
-		"motion": "^14.12.0",
+		"lucide-react": "^1.76.0",
+		"motion": "^14.14.0",
 		"react": "catalog:",
 		"react-dom": "catalog:",
 		"tailwind-merge": "^3.7.0"

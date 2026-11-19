@@ -22,7 +22,7 @@ concurrency:
 
 env:
   CI: "true"
-  BUN_VERSION: "1.4.4"
+  BUN_VERSION: "1.4.5"
 
 jobs:
   plan:

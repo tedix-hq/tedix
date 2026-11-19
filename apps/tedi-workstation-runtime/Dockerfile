@@ -1,6 +1,6 @@
 ARG SANDBOX_TOOLS_IMAGE=docker.io/cloudflare/sandbox:1.0.3@sha256:fc1740c3cba26461f0ab1771287c84018ab2cca43a70ebb823087c85d780aaec
 FROM ${SANDBOX_TOOLS_IMAGE} AS sandbox-tools
-FROM docker.io/oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS bun-binary
+FROM docker.io/oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS bun-binary
 
 FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe
 COPY --from=sandbox-tools /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
@@ -28,7 +28,7 @@ RUN apt-get update \
     && node --version \
     && npm --version \
     && ln -s bun /usr/local/bin/bunx \
-    && test "$(bun --version)" = "1.4.4"
+    && test "$(bun --version)" = "1.4.5"
 
 ENV HOME=/home/tedi
 ENV TEDIX_WORKSTATION_HOME=/home/tedi

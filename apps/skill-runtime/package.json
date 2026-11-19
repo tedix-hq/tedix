@@ -31,7 +31,7 @@
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/tedi-codemode-core": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
-		"es-module-lexer": "^3.0.4",
+		"es-module-lexer": "^3.0.5",
 		"hono": "catalog:",
 		"sucrase": "^3.35.1",
 		"zod": "catalog:"

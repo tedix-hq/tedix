@@ -34,7 +34,7 @@ export const LOCKED_FILES = [
 	// sandboxes otherwise retain a stale lockfile and can request removed patches.
 	"bun.lock",
 	"patches/@emdash-cms/cloudflare@1.5.0.patch",
-	"patches/@emdash-cms/plugin-forms@0.2.12.patch",
+	"patches/@emdash-cms/plugin-forms@0.2.13.patch",
 	"patches/emdash@1.5.0.patch",
 	"tsconfig.json",
 	"wrangler.jsonc",

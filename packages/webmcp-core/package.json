@@ -24,6 +24,6 @@
 		"typescript": "catalog:",
 		"vite": "catalog:",
 		"vite-plus": "catalog:",
-		"webmcp-types": "0.1.10"
+		"webmcp-types": "0.1.11"
 	}
 }
