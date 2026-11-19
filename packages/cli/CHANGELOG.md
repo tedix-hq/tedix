@@ -3,6 +3,19 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.22.2 — 2026-11-19
+
+### Patch Changes
+
+- A runner keeps renewing its hold on a task while Git prepares, cleans or inspects a checkout. Renewals no longer wait behind other reads or other runs.
+- Checks of local tools and of results run in the background, so they cannot delay a renewal. Repeated checks are cached, and Devin sign-in is checked only on runners that serve Devin.
+- Before stopping an agent at a deadline it remembered, the runner asks the server whether the task is still held, so one lost reply does not interrupt a live run. It stops promptly when the server refuses a stale hold.
+- Codex runs that fail with a dropped stream or a broken pipe are retried, with the runner's existing backoff and its limit on identical failures.
+- Codex runs must write their result to a file in a fixed format. A missing or invalid result, or one that does not match the task, fails the run with a clear reason. Other executors are unchanged.
+- `tedix lane serve` no longer counts an ended run against its capacity when that run's process ID now belongs to an unrelated process. Before, such leftover runs could fill every slot and stop new Work from starting.
+- Creating, accepting or reassigning Work sends the executor as a kind and an ID.
+- Retired command aliases, the credential-cache fallback and response handling for older servers are removed. Obsolete work scopes are rejected. Use `tedix who` to see who is working on a file.
+
 ## 0.22.1 — 2026-11-18
 
 ### Patch Changes
