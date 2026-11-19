@@ -9,6 +9,7 @@ import type {
 	AgentRun,
 	AgentRunReason,
 } from "@tedix/api-contract/schemas/work-agent-runs";
+import { WorkExecutorSchema } from "@tedix/api-contract/schemas/work-items";
 import {
 	AGENT_RUN_LIST_WINDOW_DAYS,
 	type AgentRunRow,
@@ -29,6 +30,7 @@ export const RUNNER_REPORT_STALE_MS = 300_000;
 const READINESS_LIMIT = 5;
 const DETAIL_LIMIT = 700;
 const SUMMARY_LIMIT = 500;
+const LocalExecutorSchema = WorkExecutorSchema.exclude(["human", "tedi"]);
 
 const RUNNER_WAIT_REASONS: Record<string, string> = {
 	retry: "it will retry the task",
@@ -39,7 +41,7 @@ const RUNNER_WAIT_REASONS: Record<string, string> = {
 };
 
 const UNKNOWN_QUEUED =
-	"A runner's own decision to skip or hold a task stays on its machine unless the task is among the three waiting tasks it reports.";
+	"No connected runner has reported a current hold or repeated skip for this task.";
 const UNKNOWN_LEASE =
 	"The platform does not record why a run stopped reporting.";
 
@@ -142,6 +144,29 @@ export function agentRunReason(
 			report.running &&
 			facts.now - Date.parse(report.reportedAt) <= RUNNER_REPORT_STALE_MS,
 	);
+	const localExecutor = LocalExecutorSchema.safeParse(executor).success;
+	const skip = facts.reports
+		.filter((report) => {
+			const observedAt = Date.parse(report.duty?.skips?.observedAt ?? "");
+			return (
+				report.running &&
+				(report.executor === executor ||
+					(report.executor === "any-local" && localExecutor)) &&
+				facts.now - Date.parse(report.reportedAt) <= RUNNER_REPORT_STALE_MS &&
+				observedAt <= facts.now &&
+				facts.now - observedAt <= RUNNER_REPORT_STALE_MS
+			);
+		})
+		.sort((a, b) => b.observedAt.localeCompare(a.observedAt))
+		.flatMap((report) => report.duty?.skips?.entries ?? [])
+		.find((entry) => entry.workItemId === row.workItem.id);
+	if (skip)
+		return known({
+			code: "runner_skipped",
+			detail: bounded(
+				`A runner has skipped this task since ${skip.since}: ${skip.reason}`,
+			),
+		});
 	if (connected.length === 0) {
 		const newest = lanes
 			.map((report) => report.reportedAt)

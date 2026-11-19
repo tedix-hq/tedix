@@ -140,6 +140,14 @@ describe("reported task references", () => {
 				restartsLastHour: 0,
 				retryAt: null,
 				lastProblem: null,
+				skips: {
+					observedAt: NOW,
+					entries: [own, foreign, done].map((workItemId) => ({
+						workItemId,
+						reason: "Missing coordinator selection",
+						since: NOW,
+					})),
+				},
 				activity: {
 					current: [
 						{ id: own, phase: "working", title: "Untrusted title" },
@@ -183,6 +191,9 @@ describe("reported task references", () => {
 		]);
 		expect(activity.waiting).toEqual([]);
 		expect(activity.lastCompleted).toBeNull();
+		expect(
+			out.data[0]!.duty!.skips?.entries.map(({ workItemId }) => workItemId),
+		).toEqual([own]);
 		expect(JSON.stringify(out)).not.toContain("Foreign title");
 		expect(mocks.listDispatcherWorkReferences).toHaveBeenCalledWith(
 			{},

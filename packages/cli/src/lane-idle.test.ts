@@ -130,6 +130,7 @@ it("reports no-coordinator items without widening admission reads, and samples o
 						data: [
 							{
 								id: "11111111-1111-4111-8111-111111111111",
+								version: 1,
 								disposition: "accepted",
 								projectId: "project",
 								metadata: {
@@ -147,15 +148,29 @@ it("reports no-coordinator items without widening admission reads, and samples o
 		await dispatcher.tick();
 		await dispatcher.tick();
 		expect(samples).toBe(1);
-		const source = JSON.parse(
-			readFileSync(join(directory, "health-source.json"), "utf8"),
-		);
-		expect(source.idle).toMatchObject({
+		const source = () =>
+			JSON.parse(readFileSync(join(directory, "health-source.json"), "utf8"));
+		expect(source().idle).toMatchObject({
 			noCoordinator: 1,
 			held: 0,
 			waitingOnPerson: 0,
 			complete: true,
 		});
+		expect(source().skips.entries).toEqual([]);
+		const nextSample = Date.now() + 60_000;
+		const clock = spyOn(Date, "now").mockImplementation(() => nextSample);
+		try {
+			await dispatcher.tick();
+			expect(samples).toBe(2);
+			expect(source().skips.entries).toMatchObject([
+				{
+					workItemId: "11111111-1111-4111-8111-111111111111",
+					reason: "Work has no ready coordinator selection",
+				},
+			]);
+		} finally {
+			clock.mockRestore();
+		}
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}

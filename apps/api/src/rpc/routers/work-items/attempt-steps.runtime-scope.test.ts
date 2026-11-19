@@ -296,6 +296,34 @@ describe("agent runs through the tedi runtime service binding", () => {
 		expect(await only()).toMatchObject([
 			{ reason: { code: "queued" }, unknown: expect.any(String) },
 		]);
+		const entry = {
+			workItemId: WORK_ITEM_ID,
+			reason: "Work has no ready coordinator selection",
+			since: reportedAt,
+		};
+		const storeSkips = (workItemId: string, observedAt: string) =>
+			sqlite.prepare("UPDATE dispatcher_health_reports SET duty = ?").run(
+				JSON.stringify({
+					skips: { observedAt, entries: [{ ...entry, workItemId }] },
+				}),
+			);
+		storeSkips(ATTEMPT_ID, reportedAt);
+		expect(await only()).toMatchObject([{ reason: { code: "queued" } }]);
+		storeSkips(WORK_ITEM_ID, new Date(Date.now() - 360_000).toISOString());
+		expect(await only()).toMatchObject([{ reason: { code: "queued" } }]);
+		storeSkips(WORK_ITEM_ID, reportedAt);
+		sqlite.exec("UPDATE dispatcher_health_reports SET executor='opencode'");
+		expect(await only()).toMatchObject([{ reason: { code: "no_runner" } }]);
+		sqlite.exec("UPDATE dispatcher_health_reports SET executor='any-local'");
+		expect(await only()).toMatchObject([
+			{
+				reason: {
+					code: "runner_skipped",
+					detail: `A runner has skipped this task since ${reportedAt}: ${entry.reason}`,
+				},
+				unknown: null,
+			},
+		]);
 		// A hold with its stored reason wins over everything else.
 		sqlite.exec(
 			`UPDATE work_items SET dispatch_state='held', metadata=json_set(metadata,'$.laneDispatch',json('{"reason":"Needs the owner"}'))`,

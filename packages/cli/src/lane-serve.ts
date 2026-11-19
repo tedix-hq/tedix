@@ -147,6 +147,9 @@ import {
 import {
 	recordDispatcherAdmission,
 	recordDispatcherIdle,
+	observeDispatcherSkip,
+	recordDispatcherSkips,
+	type DispatcherSkipObservation,
 	collectDispatcherHealth,
 	recordDispatcherCompletion,
 	recordDispatcherNextCheck,
@@ -212,6 +215,18 @@ function isLocalAssignment(
 	);
 }
 
+function matchesLaneAssignment(
+	item: DispatchItem,
+	executor: ServeOptions["executor"],
+) {
+	return executor === "any-local"
+		? [...localExecutors, "any-local"].includes(
+				String(assignedExecutor(item)),
+			) &&
+				(item.executorType == null || item.executorType === "external_agent")
+		: isLocalAssignment(item, executor);
+}
+
 function leaseMayBeLive(attempt: unknown): boolean {
 	const expiry =
 		isRecord(attempt) && typeof attempt.expiresAt === "string"
@@ -227,17 +242,7 @@ export function dispatchSkip(
 	coordinated = false,
 ): string | undefined {
 	if (item.disposition !== "accepted") return "Work is not accepted";
-	if (
-		executor === "any-local"
-			? ![...localExecutors, "any-local"].includes(
-					String(assignedExecutor(item)),
-				) ||
-				item.executorType === "human" ||
-				item.executorType === "tedi" ||
-				item.executorType === "team" ||
-				item.executorType === "organization"
-			: !isLocalAssignment(item, executor)
-	)
+	if (!matchesLaneAssignment(item, executor))
 		return `Work is not assigned to ${executor}`;
 	if (!item.projectId) return "Work has no project";
 	if (coordinated) {
@@ -2542,9 +2547,10 @@ export class LaneDispatcher {
 	private loggedStates = new Map<string, { reason: string; at: number }>();
 	/** Executors whose slow version probe was already logged. */
 	private slowProbes = new Set<LocalExecutor>();
+	private previousSkips = new Map<string, DispatcherSkipObservation>();
 	private coordinatorSample = {
 		at: 0,
-		ids: new Set<string>(),
+		skips: new Map<string, DispatcherSkipObservation>(),
 		complete: false,
 	};
 	private ownerEnv = laneChildEnv();
@@ -2865,10 +2871,19 @@ export class LaneDispatcher {
 	async tick() {
 		this.ticking = true;
 		this.notePassProgress();
+		const skips = new Map<string, DispatcherSkipObservation>();
+		const observedAt = new Date().toISOString();
+		let sampled = false;
 		try {
-			await this.runTick();
+			sampled = (await this.runTick(skips, observedAt)) === true;
 		} finally {
 			this.ticking = false;
+			this.previousSkips = sampled ? skips : new Map();
+			recordDispatcherSkips(
+				this.directory,
+				observedAt,
+				this.previousSkips.values(),
+			);
 		}
 	}
 	private pendingDevinProbe?: Promise<
@@ -2899,7 +2914,26 @@ export class LaneDispatcher {
 			this.pendingDevinProbe = undefined;
 		}
 	}
-	private async runTick() {
+	private async runTick(
+		skips: Map<string, DispatcherSkipObservation>,
+		observedAt: string,
+	) {
+		const observeSkip = (item: DispatchItem, reason: string) => {
+			if (
+				item.disposition !== "accepted" ||
+				!matchesLaneAssignment(item, this.options.executor)
+			)
+				return;
+			skips.set(
+				item.id,
+				observeDispatcherSkip(
+					item,
+					reason,
+					observedAt,
+					this.previousSkips.get(item.id),
+				),
+			);
+		};
 		if (this.stopping || (await this.deps.darkWake())) {
 			this.log("deferred", undefined, "Stopping or macOS dark wake");
 			return;
@@ -3100,18 +3134,24 @@ export class LaneDispatcher {
 		const preflightFailed =
 			this.options.executor !== "any-local" &&
 			this.availability[this.options.executor].preflightFailed;
+		const admissionPause =
+			this.admissionsHeld ??
+			(diskLow
+				? "The runner is low on disk space"
+				: preflightFailed
+					? "The executor preflight check failed"
+					: undefined);
+		const healthSource = existsSync(join(this.directory, "health-source.json"));
 		while (
 			!this.stopping &&
-			!this.admissionsHeld &&
-			!diskLow &&
-			!preflightFailed
+			(admissionPause ? healthSource : !this.admissionsHeld)
 		) {
 			const page = await this.call<{
 				data: DispatchItem[];
 				pagination: { hasMore: boolean };
 			}>([
 				"work",
-				"dispatch-list",
+				admissionPause ? "dispatch-idle-list" : "dispatch-list",
 				"--input",
 				JSON.stringify({
 					disposition: "accepted",
@@ -3123,14 +3163,26 @@ export class LaneDispatcher {
 					limit: 25,
 					offset,
 				}),
-			]);
+			]).catch((error: unknown) => {
+				if (!admissionPause) throw error;
+				this.log("idle-observation-unavailable", undefined, String(error));
+			});
+			if (!page) break;
 			if (
 				!Array.isArray(page.data) ||
 				typeof page.pagination?.hasMore !== "boolean"
-			)
+			) {
+				if (admissionPause) break;
 				throw new Error("Malformed dispatch page");
+			}
 			for (const item of page.data) {
 				if (this.stopping) break;
+				this.coordinatorSample.skips.delete(item.id);
+				const pause = admissionPause ?? this.admissionsHeld;
+				if (pause) {
+					observeSkip(item, pause);
+					continue;
+				}
 				let reason = dispatchSkip(
 					item,
 					[],
@@ -3172,9 +3224,14 @@ export class LaneDispatcher {
 				}
 				if (!reason && assignedExecutor(item) === "devin") {
 					const status = await this.devinStatus();
-					if (!status.available) reason = status.reason;
+					if (!status.available) {
+						observeSkip(item, status.reason);
+						this.log("skipped", item.id, status.reason);
+						continue;
+					}
 				}
 				if (reason) {
+					observeSkip(current, reason);
 					this.log("skipped", item.id, reason);
 					if (!verificationPlan(current))
 						await this.requestDelegation(current, reason);
@@ -3188,11 +3245,10 @@ export class LaneDispatcher {
 							(row.pendingCommitProof !== undefined || row.completionPending),
 					)
 				) {
-					this.log(
-						"skipped",
-						item.id,
-						"Existing outcome proof or completion remains retained",
-					);
+					const reason =
+						"Existing outcome proof or completion remains retained";
+					observeSkip(item, reason);
+					this.log("skipped", item.id, reason);
 					continue;
 				}
 				const waits = retained.filter(
@@ -3204,11 +3260,10 @@ export class LaneDispatcher {
 						row.waitReleasedAt === undefined,
 				);
 				if (waits.length && !(await this.releaseWaits(waits, item.version))) {
-					this.log(
-						"waiting-on-user",
-						item.id,
-						"Existing Interaction has no verified resolving human response",
-					);
+					const reason =
+						"Existing Interaction has no verified resolving human response";
+					observeSkip(item, reason);
+					this.log("waiting-on-user", item.id, reason);
 					continue;
 				}
 				const previous = existsSync(this.path(item))
@@ -3250,7 +3305,10 @@ export class LaneDispatcher {
 					previous.held = false;
 				const decision = item.metadata?.decisionContinuation;
 				if (previous && waitsForRunAnswer(previous)) {
-					if (!runQuestionAnswer(item.metadata, previous.attemptId)) continue;
+					if (!runQuestionAnswer(item.metadata, previous.attemptId)) {
+						observeSkip(item, "Waiting for an answer to the run's question");
+						continue;
+					}
 					previous.retryAt = 0;
 				}
 				if (
@@ -3294,7 +3352,9 @@ export class LaneDispatcher {
 				if (this.running.has(item.id) || this.maintenance.has(item.id)) {
 					// A newer revision waits for this runner's in-flight preparation,
 					// which re-reads the Work and stops before admission.
-					this.log("skipped", item.id, "Already preparing or running here");
+					const reason = "Already preparing or running here";
+					observeSkip(item, reason);
+					this.log("skipped", item.id, reason);
 					continue;
 				}
 				if (
@@ -3308,10 +3368,13 @@ export class LaneDispatcher {
 						((previous.retries ?? 0) >= 5 &&
 							Date.now() < (previous.retryDeadlineAt ?? 0)))
 				) {
+					const reason =
+						"This Work revision has a retained receipt or retry deadline";
+					observeSkip(item, reason);
 					this.log(
 						"skipped",
 						item.id,
-						`This Work revision has a retained receipt or retry deadline${previous?.note ? `: ${previous.note}` : ""}`,
+						`${reason}${previous.note ? `: ${previous.note}` : ""}`,
 					);
 					continue;
 				}
@@ -3325,8 +3388,12 @@ export class LaneDispatcher {
 					}
 				})();
 				if (paused) {
-					if (!(paused instanceof LocalExecutorPreflightError))
+					if (paused instanceof LocalExecutorPreflightError) {
+						observeSkip(item, "The executor preflight check failed");
+					} else {
+						observeSkip(item, paused.message);
 						this.log("skipped", item.id, String(paused));
+					}
 					continue;
 				}
 				const task = this.execute(item, previous)
@@ -3334,7 +3401,8 @@ export class LaneDispatcher {
 					.finally(() => this.running.delete(item.id));
 				this.running.set(item.id, task);
 			}
-			if (!page.pagination.hasMore) break;
+			// A paused runner only needs a bounded sample for health telemetry.
+			if (admissionPause || !page.pagination.hasMore) break;
 			offset += page.data.length;
 			if (!page.data.length)
 				throw new Error("Dispatch pagination made no progress");
@@ -3428,11 +3496,13 @@ export class LaneDispatcher {
 			hasCapacity &&
 			this.options.coordinated &&
 			Date.now() - this.coordinatorSample.at >= 60_000 &&
-			existsSync(join(this.directory, "health-source.json"))
+			healthSource &&
+			!admissionPause
 		) {
+			const previous = this.coordinatorSample;
 			this.coordinatorSample = {
 				at: Date.now(),
-				ids: new Set(),
+				skips: new Map(),
 				complete: false,
 			};
 			try {
@@ -3470,7 +3540,17 @@ export class LaneDispatcher {
 							this.options.coordinated,
 						);
 						if (reason === "Work has no ready coordinator selection")
-							this.coordinatorSample.ids.add(item.id);
+							this.coordinatorSample.skips.set(
+								item.id,
+								observeDispatcherSkip(
+									item,
+									reason,
+									observedAt,
+									Date.now() - previous.at < 120_000
+										? previous.skips.get(item.id)
+										: undefined,
+								),
+							);
 					}
 					if (!page.pagination.hasMore) {
 						this.coordinatorSample.complete = true;
@@ -3485,12 +3565,21 @@ export class LaneDispatcher {
 		if (hasCapacity && this.options.coordinated && this.coordinatorSample.at) {
 			idle.complete = this.coordinatorSample.complete;
 			idle.observedAt = new Date(this.coordinatorSample.at).toISOString();
-			for (const id of this.coordinatorSample.ids)
+			for (const [id, skip] of this.coordinatorSample.skips) {
 				if (!this.idleItems.has(id)) this.idleItems.set(id, "noCoordinator");
+				if (
+					!admissionPause &&
+					Date.now() - this.coordinatorSample.at < 120_000 &&
+					skip.repeated &&
+					!skips.has(id)
+				)
+					skips.set(id, skip);
+			}
 		}
 		for (const reason of this.idleItems.values()) idle[reason]++;
 		recordDispatcherIdle(this.directory, idle);
 		if (!diskLow && !this.preparing.size) await this.takeIdleWork();
+		return true;
 	}
 	private async takeIdleWork() {
 		const executor = this.options.executor;

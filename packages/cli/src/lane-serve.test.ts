@@ -381,7 +381,10 @@ function fixture({
 			if (args[4] === "code") response = control.appRead?.(args[5]!);
 			else if (verb === "dispatch-list" && input.disposition === "proposed")
 				response = { data: proposed, pagination: { hasMore: false } };
-			else if (verb === "dispatch-list")
+			else if (
+				verb === "dispatch-list" ||
+				(verb === "dispatch-idle-list" && input.dispatchReadyOnly)
+			)
 				// Like the server's ready filter: held Work is not offered.
 				response = {
 					data: items.filter(
@@ -7574,9 +7577,43 @@ it("keeps a run directory whose checkout cleanup refuses", async () => {
 	expect(existsSync(join(run, "repo"))).toBe(true);
 });
 
+it("reports only repeated skips for accepted tasks assigned to the runner", async () => {
+	const { dispatcher, dir, items } = fixture();
+	writeDispatcherHealthSource(dir, options);
+	const skipped = items[0]!;
+	skipped.projectId = null;
+	items[1]!.executorId = "devin";
+	items[2]!.disposition = "proposed";
+	const health = () =>
+		JSON.parse(readFileSync(join(dir, "health-source.json"), "utf8")).skips;
+
+	await dispatcher.tick();
+	const firstPoll = health().observedAt;
+	expect(health().entries).toEqual([]);
+	await dispatcher.tick();
+	expect(health().entries).toEqual([
+		{ workItemId: skipped.id, reason: "Work has no project", since: firstPoll },
+	]);
+
+	skipped.projectId = item(1).projectId;
+	skipped.activeAttempt = {
+		expiresAt: new Date(Date.now() + 60_000).toISOString(),
+	};
+	await dispatcher.tick();
+	expect(health().entries).toEqual([]);
+	await dispatcher.tick();
+	expect(health().entries).toMatchObject([
+		{ workItemId: skipped.id, reason: "Work already has a live Attempt" },
+	]);
+	items.splice(0);
+	await dispatcher.tick();
+	expect(health().entries).toEqual([]);
+});
+
 it("holds new admissions on low disk and still reclaims checkouts", async () => {
 	const { dispatcher, dir, items, events, control } = fixture();
 	items.splice(1);
+	writeDispatcherHealthSource(dir, options);
 	const run = join(dir, "runs", `${item(9).id}-1`);
 	mkdirSync(join(run, "repo"), { recursive: true });
 	control.freeDiskBytes = MIN_FREE_DISK_BYTES - 1;
@@ -7589,6 +7626,14 @@ it("holds new admissions on low disk and still reclaims checkouts", async () => 
 	expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
 		'"event":"disk-low"',
 	);
+	await dispatcher.tick();
+	expect(
+		JSON.parse(readFileSync(join(dir, "health-source.json"), "utf8")).skips
+			.entries,
+	).toMatchObject([
+		{ workItemId: items[0]!.id, reason: "The runner is low on disk space" },
+	]);
+	expect(events.some((event) => event.verb === "start")).toBe(false);
 	control.freeDiskBytes = MIN_FREE_DISK_BYTES;
 	items.splice(0);
 	await dispatcher.tick();

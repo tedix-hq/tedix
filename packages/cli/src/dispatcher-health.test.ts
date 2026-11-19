@@ -11,6 +11,8 @@ import { join } from "node:path";
 import { recordDutyStatus } from "./supervise-duty-status";
 import {
 	collectDispatcherHealth,
+	observeDispatcherSkip,
+	recordDispatcherSkips,
 	recordDispatcherAdmission,
 	recordDispatcherCompletion,
 	recordDispatcherNextCheck,
@@ -123,6 +125,52 @@ describe("local dispatcher health", () => {
 			"running",
 		);
 	});
+	test("publishes up to twenty bounded, redacted skips in supervisor health", () => {
+		const { root, directory } = lane();
+		const env = { TEDIX_CONFIG_DIR: root };
+		const now = Date.now();
+		const since = new Date(now - 30_000).toISOString();
+		const observedAt = new Date(now).toISOString();
+		const identity = {
+			id: "lane-key",
+			kind: "service" as const,
+			workspace: "fixture",
+			organization: "org_fixture",
+			executor: "codex",
+		};
+		writeDispatcherHealthSource(directory, {
+			scope: [
+				"--workspace",
+				identity.workspace,
+				"--organization",
+				identity.organization,
+			],
+			executor: identity.executor,
+		});
+		recordDutyStatus(env, identity, { state: "running" }, now);
+		const reason = `Paused /home/fixture/repo codex:private-session ${"x".repeat(510)}`;
+		const observations = Array.from({ length: 21 }, (_, i) => {
+			const item = {
+				id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+				version: 1,
+			};
+			return observeDispatcherSkip(
+				item,
+				reason,
+				observedAt,
+				observeDispatcherSkip(item, reason, since),
+			);
+		});
+		recordDispatcherSkips(directory, observedAt, observations);
+		const skips = collectDispatcherHealth(env, now)[0]?.duty?.skips;
+		expect(skips?.entries).toHaveLength(20);
+		expect(skips?.entries[0]).toEqual({
+			workItemId: observations[0]!.workItemId,
+			reason: `Paused <path> <session> ${"x".repeat(500)}`.slice(0, 500),
+			since,
+		});
+	});
+
 	test.each([
 		"skipped",
 		"completion-retained",
