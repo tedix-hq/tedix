@@ -18,6 +18,11 @@ import {
 	RpcError,
 } from "./core";
 import { workItemId } from "./work";
+import {
+	MACHINE_CALL_FULL_RESULT,
+	MACHINE_CALL_ID,
+	machineActivityEvents,
+} from "./machine-activity";
 import { CANNED_REPLY, findConversation, findHomeRun } from "./lookups";
 import { runSteeringMessages, state } from "./state";
 import { TOOL_EVENTS } from "./tedis";
@@ -249,6 +254,11 @@ export const runtimeHandlers: Record<string, (input: never) => unknown> = {
 					// The event log keeps a tool result as `resultPreview`.
 					...(input.childRunId === CHILD_RUN_AGENT_RUN
 						? [
+								...machineActivityEvents({
+									childRunId: input.childRunId,
+									tediId: input.delegatedTediId,
+									at: run.startedAt ?? run.createdAt,
+								}),
 								{
 									id: `${input.childRunId}:4`,
 									organizationId: ORG_ID,
@@ -280,6 +290,20 @@ export const runtimeHandlers: Record<string, (input: never) => unknown> = {
 			},
 		};
 	},
+	"machines/readToolCall": (input: { callId: string }) => {
+		if (input.callId !== MACHINE_CALL_ID)
+			throw new RpcError("NOT_FOUND", "Tool call not found");
+		return {
+			callId: input.callId,
+			machine: "studio-mac",
+			tool: "read_file",
+			status: "done",
+			result: MACHINE_CALL_FULL_RESULT,
+			createdAt: now(),
+			finishedAt: now(),
+		};
+	},
+
 	"kernelRuntime/readRunSet": (input: { conversationId: string }) => {
 		const runs = state.homeRuns.filter(
 			(row) => row.conversationId === input.conversationId,
