@@ -122,15 +122,15 @@ A self-hosted installation runs with the fleet-commercial features off
 before touching storage, commercial schedules do not run, and payment webhooks
 reject. Tests enforce this for every procedure.
 
-### Usage limits and overage
+### Usage limits and pay-as-you-go
 
-A Tedix Cloud plan includes a monthly usage allowance. Priced overage is off
-by default: while it is off, work stops when the organization reaches the
-included allowance, and nothing is metered to Stripe. An organization owner or
-admin can turn overage on in the billing settings of Tedix OS and must set a
-monthly cap in the plan currency; while it is on, work stops at that cap
-instead. The billing overview shows whether overage is on and marks the period
-as "Cap reached" once the cap is hit.
+A Tedix Cloud plan includes Tedix credits each month (1 credit = EUR 0.01).
+Work uses the month's included credits first, then any credit packs bought.
+Pay-as-you-go is off by default: while it is off, work stops when those credits
+run out, and nothing is metered to Stripe. An organization owner or admin can
+turn pay-as-you-go on in the billing settings of Tedix OS and must set a monthly
+cap in euros; while it is on, work continues at EUR 0.01 per credit and stops
+at that cap. See [Credits and billing](./credits-and-billing.md).
 
 ## Choosing
 
