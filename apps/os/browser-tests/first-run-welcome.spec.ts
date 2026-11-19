@@ -10,11 +10,23 @@ try {
 		const context = await browser.newContext({
 			viewport: { width, height: 812 },
 		});
-		let completed = false;
+		let completed = true;
 		let writes = 0;
 		let failSave = false;
-		await context.route("**/api/rpc/userProfile/getWelcomeState", (route) =>
-			route.fulfill({ json: { json: { completed } } }),
+		await context.route("**/api/rpc/userProfile/getMine", (route) =>
+			route.fulfill({
+				json: {
+					json: {
+						id: "welcome-person",
+						name: "Welcome Person",
+						email: "welcome@example.com",
+						avatarUrl: null,
+						revision: 1,
+						updatedAt: null,
+						welcomeCompleted: completed,
+					},
+				},
+			}),
 		);
 		await context.route("**/api/rpc/userProfile/completeWelcome", (route) => {
 			writes++;
@@ -39,11 +51,18 @@ try {
 		const errors: string[] = [];
 		page.on("pageerror", (error) => errors.push(error.message));
 		const pending = new Set<string>();
-		page.on("request", (request) => pending.add(request.url()));
+		const requests: string[] = [];
+		page.on("request", (request) => {
+			pending.add(request.url());
+			requests.push(request.url());
+		});
 		page.on("requestfinished", (request) => pending.delete(request.url()));
 		page.on("requestfailed", (request) => pending.delete(request.url()));
 		try {
-			await page.goto(`${server.origin}/work`);
+			await Promise.all([
+				page.waitForResponse("**/api/rpc/userProfile/getMine"),
+				page.goto(`${server.origin}/work`),
+			]);
 		} catch (error) {
 			console.error({
 				pending: [...pending],
@@ -69,6 +88,36 @@ try {
 				throw error;
 			}
 		};
+		try {
+			await page.locator(".os-shell").waitFor();
+		} catch (error) {
+			console.error({
+				width,
+				errors,
+				pending: [...pending],
+				text: await page.locator("body").innerText(),
+			});
+			throw error;
+		}
+		await page.evaluate(
+			() =>
+				new Promise<void>((resolve) =>
+					requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+				),
+		);
+		assert.equal(await dialog.count(), 0, "existing account sees no welcome");
+		assert.equal(writes, 0, "existing account needs no completion write");
+		assert.equal(
+			requests.filter((url) => url.endsWith("/userProfile/getMine")).length,
+			1,
+		);
+		assert.equal(
+			requests.some((url) => url.includes("first-run-welcome.tsx")),
+			false,
+			"existing account does not load the welcome component",
+		);
+		completed = false;
+		await page.reload();
 		await waitForWelcome("first visit");
 		assert.ok(
 			await dialog
@@ -138,6 +187,11 @@ try {
 			.getByRole("combobox", { name: "Message", exact: true })
 			.waitFor();
 		assert.equal(completed, true);
+		assert.equal(
+			requests.some((url) => url.includes("/userProfile/getWelcomeState")),
+			false,
+			"the shell never makes a separate welcome-state request",
+		);
 		assert.deepEqual(errors, []);
 		assert.ok(
 			await page.evaluate(
@@ -145,7 +199,7 @@ try {
 			),
 		);
 		console.log(
-			`PASS ${width}px: welcome steps, completion, reload, second tab, failed save and skip to chat`,
+			`PASS ${width}px: existing account without welcome request or chunk; new account steps, completion, reload, second tab, failed save and skip to chat`,
 		);
 		await context.close();
 	}

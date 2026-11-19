@@ -133,6 +133,7 @@ function renderShell(): HTMLElement {
 		defaultOptions: { queries: { retry: false } },
 	});
 	queryClient.setQueryData(userProfileQueryOptions().queryKey, {
+		welcomeCompleted: true,
 		id: "fictional-shell-person",
 		email: "person@example.com",
 		name: "Fictional person",

@@ -167,6 +167,7 @@ it("keeps row identities across factory runs and reconciles a verdict through th
 			scoring: { agentDecidableClasses: ["opportunity"] },
 		}).scoring;
 		client.setQueryData(userProfileQueryOptions().queryKey, {
+			welcomeCompleted: true,
 			id: "pine",
 			email: "pine@example.test",
 			name: null,

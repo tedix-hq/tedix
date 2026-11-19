@@ -345,7 +345,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 	"ProfilePage profile error and avatar/save failure text": [
 		"userProfile/confirmAvatarUpload",
 		"userProfile/deleteAvatar",
-		"userProfile/getMine",
 		"userProfile/requestAvatarUpload",
 		"userProfile/updateMine",
 	],

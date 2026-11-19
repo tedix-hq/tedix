@@ -23,6 +23,7 @@ export const UserProfileSchema = z.object({
 		.url()
 		.nullable()
 		.describe("Null when the human has no managed Tedix avatar"),
+	welcomeCompleted: z.boolean(),
 	revision: z.number().int().min(1),
 	updatedAt: z
 		.string()
@@ -56,15 +57,6 @@ export const userProfileContract = oc
 	.route({ tags: ["user-profile"], prefix: "/user-profile" })
 	.errors(baseErrors)
 	.router({
-		getWelcomeState: oc
-			.route({
-				method: "GET",
-				path: "/welcome",
-				summary: "Get the human's account-wide welcome status",
-			})
-			.input(z.object({}))
-			.output(UserWelcomeStateSchema),
-
 		completeWelcome: oc
 			.route({
 				method: "POST",
