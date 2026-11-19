@@ -30,7 +30,7 @@ import * as tediQueries from "@tedix/db/queries/tedis";
 import * as workItemQueries from "@tedix/db/queries/work-items/crud";
 import * as memberQueries from "@tedix/db/queries/organization-members";
 import * as rationaleQueries from "@tedix/db/queries/rationale-records";
-import { kernelRuntimeEvents, memoryFacts } from "@tedix/db/schema";
+import { kernelRuntimeEvents, memoryFacts, workItems } from "@tedix/db/schema";
 import type { MemoryFact } from "@tedix/db/schema/memory-graph";
 import { generateText } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
@@ -249,6 +249,31 @@ describe("assembleHomeContext read scheduling", () => {
 		expect(recallStarted).toHaveBeenCalledOnce();
 		vi.restoreAllMocks();
 	});
+});
+
+it("includes only active Work Items within the caller organization", async () => {
+	const { db, seed } = createApiSqliteFixture();
+	seed(
+		workItems,
+		[
+			{ id: "draft", disposition: "proposed", orgId: ORG_ID },
+			{ id: "assigned", disposition: "accepted", orgId: ORG_ID },
+			{ id: "done", disposition: "completed", orgId: ORG_ID },
+			{ id: "closed", disposition: "cancelled", orgId: ORG_ID },
+			{ id: "foreign", disposition: "accepted", orgId: "foreign-org" },
+		].map((row) => ({
+			...row,
+			title: row.id,
+			admissionSpecRevision: `fixture-spec-${row.id}`,
+			createdAt: "2026-06-11T08:00:00.000Z",
+		})),
+	);
+
+	const context = await assembleHomeContext(db, ORG_ID, {});
+	expect(context.workItems.map((item) => item.id).sort()).toEqual([
+		"assigned",
+		"draft",
+	]);
 });
 
 describe("assembleHomeContext per-org context cache", () => {

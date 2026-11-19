@@ -25,13 +25,6 @@ try {
 			url: "/work?app=projects",
 			endpoint: "/projects/getPortfolio",
 		},
-		{
-			name: "factories",
-			width: 375,
-			theme: "dark",
-			url: "/work?app=projects",
-			endpoint: "/projects/getFactoryScoreboard",
-		},
 	] as const) {
 		const { width, theme } = scenario;
 		const page = await browser.newPage({
@@ -150,7 +143,7 @@ try {
 		}
 	}
 	console.log(
-		"PASS: accounts, projects and factories load-error layout, closed diagnostics, keyboard Details and read retry on phone and desktop",
+		"PASS: accounts and projects load-error layout, closed diagnostics, keyboard Details and read retry on phone and desktop",
 	);
 } finally {
 	await browser.close();

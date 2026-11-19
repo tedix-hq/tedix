@@ -255,8 +255,3 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 		await browser.close();
 	}
 }
-if (import.meta.main)
-	await assertLeanTopbar(
-		process.env.SHELL_TEST_ORIGIN ?? "http://127.0.0.1:3010",
-		process.env.SHELL_EVIDENCE_DIR,
-	);
