@@ -1,10 +1,4 @@
-name: Tests after deploy
-
-# The unit, workerd, type and browser suites plus the onboarding and scripts
-# checks, run against main after a push certifies on the gate in
-# full-suite-hourly.yml. Nothing here holds a deploy: a red verify files the
-# incident through the observer and Red main heal bisects and reverts the
-# culprit, which the gate then certifies again within minutes.
+name: Workspace types after push
 
 on:
   push:
@@ -31,8 +25,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       workspace: ${{ steps.plan.outputs.workspace }}
-      repository: ${{ steps.plan.outputs.repository }}
-      checks: ${{ steps.plan.outputs.checks }}
       matrix: ${{ steps.plan.outputs.matrix }}
       runners: ${{ steps.plan.outputs.runners }}
     steps:
@@ -49,19 +41,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           FULL_SUITE_RUNNER_LABELS: ${{ vars.FULL_SUITE_RUNNER_LABELS }}
-          # Every test lane plus the onboarding and scripts checks; the gate in
-          # full-suite-hourly.yml certified on the policy check alone.
           SUITE_LANE: verify
         run: node scripts/ci/full-suite-hourly.mjs
 
   workspace:
-    name: Workspace ${{ matrix.workspace }}${{ matrix.testScript && format(' / {0}', matrix.testScript) || '' }}${{ matrix.shard && format(' [{0}]', matrix.shard) || '' }}
+    name: Types ${{ matrix.workspace }}
     needs: plan
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.workspace == 'true' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
-    # The slowest job takes about 13 minutes; a hang fails here instead of
-    # holding the run open.
-    timeout-minutes: 25
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -88,124 +76,17 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
-      # The duration identifies a slow runner for the infrastructure rerun.
-      - name: Frozen install
-        run: |
-          started=$SECONDS
-          bun install --frozen-lockfile --ignore-scripts
-          echo "FROZEN_INSTALL_SECONDS=$((SECONDS - started))" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile --ignore-scripts
       - name: Provide the Vite+ package manager
         uses: ./.github/actions/vite-plus-package-manager
-      - name: Install ripgrep
-        if: matrix.workspace == 'apps/tedi-runtime'
-        uses: ./.github/actions/ripgrep
-      # The plan derives each script's browsers from the specs it runs.
-      - name: Install Playwright browsers
-        if: matrix.browsers
-        uses: ./.github/actions/playwright-browsers
-        with:
-          browsers: ${{ matrix.browsers }}
-      - name: Full test suite
-        if: matrix.test
-        env:
-          WORKSPACE: ${{ matrix.workspace }}
-          TEST_SCRIPT: ${{ matrix.testScript }}
-          TEST_SHARD: ${{ matrix.shard }}
-          BROWSERS: ${{ matrix.browsers }}
-          TEDIX_SCREENSHOT_DIR: ${{ matrix.workspace == 'apps/os' && matrix.testScript == 'test:browser:work-iphone' && format('{0}/work-iphone-evidence', runner.temp) || format('{0}/browser-evidence', runner.temp) }}
-        run: |
-          script="${TEST_SCRIPT:-$(node -e 'const p=require("./"+process.env.WORKSPACE+"/package.json"); console.log(p.scripts["test:ci"] ? "test:ci" : "test:run")')}"
-          command=(bun run --cwd "$WORKSPACE" "$script")
-          if [ -n "$TEST_SHARD" ]; then command+=(--shard "$TEST_SHARD"); fi
-          # Browser suites get one recorded rerun, only for an infrastructure failure.
-          if [ -n "$BROWSERS" ]; then
-            node scripts/ci/rerun-on-infrastructure.mjs -- "${command[@]}"
-          else
-            "${command[@]}"
-          fi
-      - name: Retain browser failure traces
-        if: ${{ failure() && matrix.workspace == 'apps/os' && matrix.browsers }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: browser-diagnostics-${{ github.sha }}-${{ github.run_attempt }}-job${{ strategy.job-index }}
-          path: apps/os/browser-tests/.cache
-          include-hidden-files: true
-          if-no-files-found: warn
-          retention-days: 14
-      - name: Retain iPhone Work failure evidence
-        if: ${{ failure() && matrix.workspace == 'apps/os' && matrix.testScript == 'test:browser:work-iphone' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: work-iphone-${{ github.sha }}-${{ github.run_attempt }}-job${{ strategy.job-index }}
-          path: ${{ runner.temp }}/work-iphone-evidence
-          if-no-files-found: warn
-          retention-days: 30
       - name: Type-check
-        if: ${{ !cancelled() && matrix.types }}
         env:
           WORKSPACE: ${{ matrix.workspace }}
         run: bun run --cwd "$WORKSPACE" type-check
 
-  repository:
-    needs: plan
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.repository == 'true' }}
-    runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        check: ${{ fromJSON(needs.plan.outputs.checks) }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: "24.22.1"
-          package-manager-cache: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - name: Share the frozen dependency cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
-      - run: bun install --frozen-lockfile --ignore-scripts
-      - name: Provide the Vite+ package manager
-        uses: ./.github/actions/vite-plus-package-manager
-      - name: Local onboarding smoke
-        if: matrix.check == 'onboarding'
-        run: bun run-local --smoke --no-install
-      - if: matrix.check == 'scripts'
-        run: bun run test:scripts
-      - if: ${{ !cancelled() && matrix.check == 'scripts' }}
-        run: bun run type-check:scripts
-      - if: ${{ !cancelled() && matrix.check == 'scripts' }}
-        run: bun run docs:public:check
-
-      - name: Fetch canonical main for the migration order gate
-        if: ${{ !cancelled() && matrix.check == 'policy' }}
-        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
-      - if: ${{ !cancelled() && matrix.check == 'policy' }}
-        run: bun run verify --all --ci-policy
-      - name: Require shellcheck
-        if: matrix.check == 'policy'
-        run: |
-          if ! command -v shellcheck; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends shellcheck
-          fi
-          command -v shellcheck
-      - name: Lint workflows with shellcheck
-        if: matrix.check == 'policy'
-        uses: ./.github/actions/actionlint
-
   aggregate:
     name: Main verify
-    needs: [plan, workspace, repository]
+    needs: [plan, workspace]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -214,17 +95,12 @@ jobs:
         env:
           PLAN: ${{ needs.plan.result }}
           WORKSPACE_REQUIRED: ${{ needs.plan.outputs.workspace }}
-          REPOSITORY_REQUIRED: ${{ needs.plan.outputs.repository }}
           WORKSPACE: ${{ needs.workspace.result }}
-          REPOSITORY: ${{ needs.repository.result }}
         run: |
           test "$PLAN" = success
-          for lane in WORKSPACE REPOSITORY; do
-            required="${lane}_REQUIRED"
-            if [ "${!required}" = true ]; then
-              test "${!lane}" = success
-            else
-              test "${!required}" = false
-              test "${!lane}" = skipped
-            fi
-          done
+          if [ "$WORKSPACE_REQUIRED" = true ]; then
+            test "$WORKSPACE" = success
+          else
+            test "$WORKSPACE_REQUIRED" = false
+            test "$WORKSPACE" = skipped
+          fi

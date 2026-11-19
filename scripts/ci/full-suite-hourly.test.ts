@@ -456,7 +456,7 @@ test("review command attaches a failed receipt without board credentials", () =>
 	});
 });
 
-test("lanes: the gate keeps only the policy check, verify runs every test lane", () => {
+test("lanes: push lanes run policy and types while manual runs select suites", () => {
 	const plan = {
 		matrix: {
 			include: [
@@ -487,10 +487,10 @@ test("lanes: the gate keeps only the policy check, verify runs every test lane",
 		matrix: { include: [] },
 	});
 	const verify = laneSelection(plan, "verify");
-	expect(verify.matrix.include).toHaveLength(2);
+	expect(verify.matrix.include).toEqual([{ workspace: "apps/api" }]);
 	expect(verify).toMatchObject({
-		repository: true,
-		checks: ["onboarding", "scripts"],
+		repository: false,
+		checks: [],
 		lane: "verify",
 	});
 	expect(

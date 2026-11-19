@@ -284,7 +284,8 @@ upgrade.
 
 `test:ci` runs browser and workerd suites; `build` performs a production Vite
 build of the SPA and the Worker (`build:local` builds the isolated `bun dev`
-lane). Main verify runs the OS tests and type check on affected pushes.
+lane). Main verify runs the OS type check on affected pushes. Run browser or Worker
+tests only when they help verify the change.
 
 Managed deployment runs through the guarded workflow in `tedix-hq/tedix-cloud-ops`,
 not an app-local deploy command. OS owns the SQLite `CollabRoom`

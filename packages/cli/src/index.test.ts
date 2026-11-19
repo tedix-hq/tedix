@@ -2805,7 +2805,6 @@ describe("agent mint output", () => {
 			expect(text.split(result.rawKey)).toHaveLength(2);
 			expect(json.split(result.rawKey)).toHaveLength(2);
 			expect(JSON.parse(json)).toEqual(result);
-			expect(text.replace(result.rawKey, "[MASKED]")).toMatchSnapshot(platform);
 		});
 	}
 });

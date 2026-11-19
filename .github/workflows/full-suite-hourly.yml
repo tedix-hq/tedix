@@ -50,10 +50,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           FULL_SUITE_RUNNER_LABELS: ${{ vars.FULL_SUITE_RUNNER_LABELS }}
-          # A push certifies on the gate lane: only the policy check, which
-          # guards what a deploy cannot heal (schema and migrations). Every
-          # test runs in main-verify.yml on the same push, after the deploy.
-          # Hand-started runs stay full.
+          # Pushes run the policy gate. Manual dispatch runs the full suite.
           SUITE_LANE: ${{ github.event_name == 'push' && 'gate' || 'full' }}
         run: node scripts/ci/full-suite-hourly.mjs
 

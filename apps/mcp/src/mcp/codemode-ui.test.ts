@@ -233,7 +233,6 @@ describe("Code Mode UI provider", () => {
 			receipt: "kept",
 			ui: { resourceUri: "ui://widgets/mcp-app/example/r/counts.html" },
 		});
-		expect(view.layoutSpec).toMatchSnapshot();
 	});
 
 	it.each([

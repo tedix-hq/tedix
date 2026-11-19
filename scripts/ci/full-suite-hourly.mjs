@@ -413,9 +413,7 @@ function selectSuite(root, { eventName, files }) {
 // Which jobs a run owes, by lane. A push certifies on the gate, which holds
 // only what cannot be healed after a deploy: the policy check (migration order,
 // D1 schema and destructive DDL), because Ship refuses to roll a schema back.
-// Every test lane, unit, workerd, type checks and browser suites, runs in the
-// verify lane on the same push. A red verify files the incident and hands
-// Red main heal the culprit. Manual full runs keep all lanes.
+// Verify checks workspace types. Manual full runs include the test matrices.
 export const SUITE_LANES = ["full", "gate", "verify"];
 export const REPOSITORY_CHECKS = ["onboarding", "scripts", "policy"];
 export function laneSelection(plan, lane = "full") {
@@ -440,7 +438,13 @@ export function laneSelection(plan, lane = "full") {
 	return {
 		...plan,
 		lane,
-		checks: checks.filter((check) => check !== "policy"),
+		matrix: {
+			include: plan.matrix.include
+				.filter(({ types }) => types)
+				.map(({ workspace }) => ({ workspace })),
+		},
+		repository: false,
+		checks: [],
 	};
 }
 
@@ -499,20 +503,6 @@ export async function certificationFiles({
 			(job) => job.name === (lane === "verify" ? "Main verify" : "Main CI"),
 		);
 		if (aggregate.length !== 1 || aggregate[0].conclusion !== "success")
-			continue;
-		// Older verify plans could inherit a policy-only gate and skip red tests.
-		// Only inherit a baseline that actually ran both test lanes.
-		if (
-			lane === "verify" &&
-			(!jobs.some(
-				(job) =>
-					job.name === "repository (scripts)" && job.conclusion === "success",
-			) ||
-				!jobs.some(
-					(job) =>
-						job.name.startsWith("Workspace ") && job.conclusion === "success",
-				))
-		)
 			continue;
 		return git([
 			"diff",

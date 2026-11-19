@@ -122,7 +122,10 @@ An area is a standing part of the work with one owner and a goal.
 
 ## Check your change
 
-Run the checks that apply; follow the nearest guide for focused tests.
+Run checks that apply to the change. Use focused tests when they catch a
+consequential failure that types, review or a direct product check cannot.
+Skip tests that restate the code, copy, configuration or Work Item. Broad
+unit, integration and browser suites are available on demand.
 
 | Command                                | What it checks                                                   |
 | -------------------------------------- | ---------------------------------------------------------------- |
