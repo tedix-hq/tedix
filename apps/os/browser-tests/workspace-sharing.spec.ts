@@ -48,6 +48,7 @@ async function mockApi(
 		denied?: boolean;
 		runtime?: "use" | "build";
 		clientDenied?: boolean;
+		recipientAccounts?: string[];
 	} = {},
 ) {
 	const calls: Calls = {};
@@ -117,7 +118,15 @@ document.querySelector('button').onclick = async () => { const result = await te
 			!pathname.includes("/osWorkspaces/"),
 			`Org-scoped read: ${pathname}`,
 		);
-		if (endpoint === "public:list")
+		if (endpoint === "public:list" && input.resourceType === "gadget")
+			json = {
+				items: [],
+				recipientAccounts: options.recipientAccounts,
+				guestRefusal: options.recipientAccounts?.length
+					? { reason: "connection_grant" }
+					: null,
+			};
+		else if (endpoint === "public:list")
 			json = {
 				items: publicLinks,
 				guestLimits: { hiddenFiles: 1, appsNeedingSignIn: 0 },
@@ -370,6 +379,34 @@ async function assertFits(page: Page, width: number, label: string) {
 const started = performance.now();
 let cases = 0;
 try {
+	for (const recipientAccounts of [[], ["Calendar Service", "Mail Service"]]) {
+		const page = await browser.newPage();
+		await mockApi(page, { recipientAccounts });
+		await page.goto(`${server.origin}${path}?view=app-share`);
+		await page.getByRole("button", { name: "Share", exact: true }).click();
+		const accounts = page.getByRole("region", { name: "Connected accounts" });
+		await accounts.waitFor();
+		assert.deepEqual(
+			await accounts.getByRole("listitem").allTextContents(),
+			recipientAccounts,
+		);
+		const create = page.getByRole("button", { name: "Create link" });
+		if (recipientAccounts.length) {
+			await page
+				.getByText("People opening this link can't use the app", {
+					exact: false,
+				})
+				.waitFor();
+			assert.equal(await create.count(), 0);
+		} else {
+			await accounts
+				.getByText("People don't need to connect any accounts of their own.")
+				.waitFor();
+			assert(await create.isEnabled());
+		}
+		await page.close();
+		cases++;
+	}
 	{
 		const page = await browser.newPage({
 			viewport: { width: 1280, height: 900 },

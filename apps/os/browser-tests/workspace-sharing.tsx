@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { KumoLinkProvider } from "../src/components/kumo/link-provider";
+import { ShareControls } from "../src/components/share-controls";
 import { SharedWorkspacePage } from "../src/components/shared-workspace-page";
 import { WorkspaceAccessBoundary } from "../src/components/workspace-access-boundary";
 import { WorkspaceShareDialog } from "../src/components/workspace-share-dialog";
@@ -26,6 +27,11 @@ createRoot(document.getElementById("root")!).render(
 				<WorkspaceAccessBoundary workspaceId={WORKSPACE_ID}>
 					<div data-live-workspace>Workspace editor and chat</div>
 				</WorkspaceAccessBoundary>
+			) : params.get("view") === "app-share" ? (
+				<ShareControls
+					resourceType="gadget"
+					resourceId="cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+				/>
 			) : params.get("view") === "page" ? (
 				<SharedWorkspacePage workspaceId={WORKSPACE_ID} />
 			) : (
