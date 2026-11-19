@@ -1,7 +1,9 @@
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
+// "Skill manifest authorization is unavailable" is a platform failure, not a
+// refusal: the gateway could not read the manifest (see isPlatformSkillFailure).
 export const WORKFLOW_TOOL_REFUSAL_PATTERN =
-	"requires approval|approval required|human approval required|not approved|MCP_INPUT_REQUIRED|DESTRUCTIVE_GATE_DENIED|CAPABILITY_NOT_DECLARED|ANNOTATION_VIOLATION|forbidden|unauthorized|Skill run identity|Skill manifest authorization|\\bbudget(?:[ _]limit)?[ _](?:exhausted|exceeded|denied)\\b";
+	"requires approval|approval required|human approval required|not approved|MCP_INPUT_REQUIRED|DESTRUCTIVE_GATE_DENIED|CAPABILITY_NOT_DECLARED|ANNOTATION_VIOLATION|forbidden|unauthorized|Skill run identity|\\bbudget(?:[ _]limit)?[ _](?:exhausted|exceeded|denied)\\b";
 
 /** Inspect durable receipts even when tenant code caught the bridge error. */
 export function fullyRefusedWorkflowStep(receipts: unknown[]): string | null {
