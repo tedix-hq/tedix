@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	CREDIT_TOP_UP_PACKS,
 	loadBillingCatalog,
 	StripeBillingCatalogSchema,
 } from "../apps/api/scripts/billing/stripe-catalog";
@@ -10,14 +11,12 @@ import {
 const fixture = () => ({
 	version: 1 as const,
 	catalogVersion: 9,
-	currency: "eur",
+	currency: "eur" as const,
 	priceLabel: "Example",
-	meter: { eventName: "example_usage", displayName: "Example usage" },
-	overage: {
-		productName: "Example overage",
-		unitAmount: 7,
-		divideBy: 100,
-		nickname: "Example usage price",
+	meter: { displayName: "Example credits" },
+	payAsYouGo: {
+		productName: "Example pay-as-you-go credits",
+		nickname: "Example credit price",
 	},
 	plans: [
 		{
@@ -27,10 +26,6 @@ const fixture = () => ({
 			annualAmount: 1400,
 		},
 	],
-	inferenceCapacity: {
-		lookupVersion: 6,
-		packs: [{ key: "small", name: "Example capacity", unitAmount: 456 }],
-	},
 	portal: {
 		name: "Example portal",
 		headline: "Manage Example",
@@ -66,6 +61,7 @@ test("missing or ambiguous catalog selection fails without a commercial fallback
 test("invalid values and unknown keys cannot silently become provider prices", () => {
 	for (const patch of [
 		{ currency: "EURO" },
+		{ currency: "usd" },
 		{ catalogVersion: 0 },
 		{ surprise: true },
 	]) {
@@ -87,6 +83,8 @@ test("product key collisions including generated and reserved keys are rejected"
 	for (const collision of [
 		"starter",
 		"token_overage",
+		"pay_as_you_go_credits",
+		"credit_top_up_1000",
 		"inference_capacity_small",
 	]) {
 		const catalog = fixture();
@@ -113,4 +111,35 @@ test("the executable rejects missing config before credentials or provider acces
 	const error = await new Response(result.stderr).text();
 	expect(error).toContain("Missing billing catalog");
 	expect(error).not.toContain("Missing STRIPE");
+});
+
+test("top-up packs match the approved credit catalog and D1 lookup keys", () => {
+	expect(
+		CREDIT_TOP_UP_PACKS.map(({ credits, unitAmount, lookupKey }) => ({
+			credits,
+			unitAmount,
+			lookupKey,
+		})),
+	).toEqual([
+		{ credits: 1000, unitAmount: 1000, lookupKey: "tedix_credits_1000_eur_v1" },
+		{ credits: 5000, unitAmount: 5000, lookupKey: "tedix_credits_5000_eur_v1" },
+		{
+			credits: 10000,
+			unitAmount: 10000,
+			lookupKey: "tedix_credits_10000_eur_v1",
+		},
+		{
+			credits: 25000,
+			unitAmount: 25000,
+			lookupKey: "tedix_credits_25000_eur_v1",
+		},
+		{
+			credits: 50000,
+			unitAmount: 50000,
+			lookupKey: "tedix_credits_50000_eur_v1",
+		},
+	]);
+	expect(CREDIT_TOP_UP_PACKS.every((pack) => pack.validMonths === 12)).toBe(
+		true,
+	);
 });
