@@ -250,16 +250,21 @@ export function agentRunTools(input: {
 		}),
 		send_agent_run_message: tool({
 			description:
-				"Pass a follow-up from this chat to the agent working on a task. The agent applies it after its current step ends. Works only while a run is in progress.",
+				"Pass a follow-up from this chat to the agent working on a task. The agent applies it after its current step ends. Set interrupt to true only when the follow-up cannot wait, for example the agent is working on the wrong thing: its current step is then stopped and the follow-up applied right away, and what that step had not finished stays unfinished. Works only while a run is in progress.",
 			inputSchema: z.strictObject({
 				workItemId: z.uuid(),
 				message: z.string().trim().min(1).max(4_000),
+				interrupt: z.boolean().optional(),
 			}),
-			execute: async ({ workItemId, message }) => {
+			execute: async ({ workItemId, message, interrupt }) => {
 				try {
 					const sent = await (
 						await platformClient()
-					).sendWorkAttemptMessage({ workItemId, body: message });
+					).sendWorkAttemptMessage({
+						workItemId,
+						body: message,
+						...(interrupt ? { interrupt: true } : {}),
+					});
 					return {
 						kind: "agent_run_message" as const,
 						workItemId,
