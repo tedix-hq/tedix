@@ -12,6 +12,10 @@ import { enteredSpans } from "../../test/stubs/cloudflare-workers";
 
 const executorBudgets = vi.hoisted(() => [] as number[]);
 const executedPrograms = vi.hoisted(() => [] as string[]);
+vi.mock("./code-run-admission", () => ({
+	admitCodeModeRun: vi.fn(async () => ({ allowed: true })),
+}));
+
 vi.mock("@cloudflare/codemode", async () => {
 	const actual = await vi.importActual<typeof import("@cloudflare/codemode")>(
 		"@cloudflare/codemode",

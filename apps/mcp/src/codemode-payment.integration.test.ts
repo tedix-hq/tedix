@@ -5,6 +5,10 @@ import type { CallerIdentity } from "./mcp/caller-identity";
 import { buildMcpServer, type CachedAppData } from "./mcp/server-factory";
 import { clientSupportsMcpApps } from "./mcp/client-apps-capability";
 
+vi.mock("./mcp/code-run-admission", () => ({
+	admitCodeModeRun: vi.fn(async () => ({ allowed: true })),
+}));
+
 vi.mock("cloudflare:workers", async (importOriginal) => ({
 	...(await importOriginal<typeof import("cloudflare:workers")>()),
 	tracing: {

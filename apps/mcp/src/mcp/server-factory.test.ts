@@ -28,6 +28,10 @@ const { getApiClient, listByApp, getRunArtifact } = await vi.hoisted(
 	},
 );
 
+vi.mock("./code-run-admission", () => ({
+	admitCodeModeRun: vi.fn(async () => ({ allowed: true })),
+}));
+
 vi.mock("../lib/api-client", () => ({ getApiClient }));
 
 import { MCP_RESULT_CACHE_HINT_META_KEY } from "@tedix/mcp-shared/transport";
