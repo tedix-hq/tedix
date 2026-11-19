@@ -33,6 +33,7 @@ import { decryptTediSecret } from "@tedix/db/utils/secrets-encryption";
 import { WEB_SEARCH_EXECUTE_SCOPE } from "@tedix/api-contract/schemas/web-search";
 import { MACHINES_USE_SCOPE } from "@tedix/api-contract/schemas/machines";
 import { WORK_RUN_STEER_SCOPE } from "@tedix/api-contract/schemas/work-attempt-steps";
+import { TEDI_MEMORY_SCOPE } from "@tedix/api-contract/schemas/tedi-memory";
 
 const DESCOPE_ACCESS_KEY_NAME = "DESCOPE_ACCESS_KEY";
 const ACCESS_KEY_VALIDATION_TTL_MS = 10 * 60 * 1000;
@@ -62,6 +63,10 @@ export const TEDI_RUNTIME_SERVICE_BINDING_SCOPES = [
 	// tool call for one and read its result. The API accepts this scope only
 	// for those three procedures.
 	MACHINES_USE_SCOPE,
+	// The memory tools (`tedi-memory-tools.ts`): read and edit the calling
+	// tedi's own core memory and notes. The API refuses any other tedi's.
+	// `mcp:memory.write` stays withheld.
+	TEDI_MEMORY_SCOPE,
 ] as const;
 
 /** Exact headers for one trusted runtime -> API service-binding procedure. */

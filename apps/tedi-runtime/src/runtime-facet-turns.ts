@@ -179,6 +179,7 @@ import { delegatedWorkTools } from "./delegated-work-tools";
 import { agentRunTools } from "./agent-run-tools";
 import { machineTools } from "./machine-tools";
 import { tediRepositoryReadTools } from "./repository-read-tools";
+import { coreMemoryPromptBlock, tediMemoryTools } from "./tedi-memory-tools";
 import {
 	RuntimeAdmissionDO,
 	readStoredRuntimeAdmission,
@@ -1170,6 +1171,16 @@ export const runtimeFacetTurns = {
 					Boolean(input.executionRestriction),
 				);
 		addendaPromise?.catch(() => undefined);
+		// Read beside the addenda so it adds no wait of its own. Trusted turns
+		// only; see `coreMemoryPromptBlock`.
+		const coreMemoryPromise = input.toolsOnly
+			? ""
+			: coreMemoryPromptBlock({
+					trust: input.trust ?? "trusted",
+					sessionKey: input.sessionKey,
+					tediId: this.state.tediId,
+					getPlatform: () => this.getPlatformClient(),
+				});
 		const preflightStartedAt = Date.now();
 		const requiredSchemas = preflightRequired
 			? await preflightDelegationTools(input.capabilityPlan, async (code) => {
@@ -1221,6 +1232,15 @@ export const runtimeFacetTurns = {
 			this.env,
 			this.state.tediId,
 		);
+		// A tedi keeps its own memory in its own conversation or when a person
+		// picked it, never as a delegated child working on someone's task.
+		const memoryTools: ToolSet =
+			supervised && !pickedInChat
+				? {}
+				: tediMemoryTools({
+						tediId: this.state.tediId,
+						getPlatform: () => this.getPlatformClient(),
+					});
 		const unrestrictedTools: ToolSet = {
 			// Computer owns the durable filesystem and no-network isolate shell;
 			// native Git and checkpoints share that same workspace substrate.
@@ -1229,6 +1249,7 @@ export const runtimeFacetTurns = {
 			...workAiTools(() => this.getPlatformClient()),
 			...runTools,
 			...repositoryTools,
+			...memoryTools,
 			...(supervised &&
 			this.state.tediId &&
 			this.state.orgId &&
@@ -1297,7 +1318,9 @@ export const runtimeFacetTurns = {
 			// The delegated surface names none of the agent-run or repository read
 			// tools; a tedi the person picked keeps them. A capability plan, an
 			// enforced authority envelope and turn trust below still narrow them.
-			...(pickedInChat ? { ...runTools, ...repositoryTools } : {}),
+			...(pickedInChat
+				? { ...runTools, ...repositoryTools, ...memoryTools }
+				: {}),
 		};
 		const capabilityTools = capabilityToolSet({
 			tools: input.capabilityPlan
@@ -1347,7 +1370,10 @@ export const runtimeFacetTurns = {
 				system: "",
 				turnBinding,
 			};
-		const addenda = addendaPromise ? await addendaPromise : "";
+		const [addenda, coreMemory] = await Promise.all([
+			addendaPromise ?? "",
+			coreMemoryPromise,
+		]);
 		const addendaMs = Date.now() - addendaStartedAt;
 		console.log("[mcp-facet] turn setup", {
 			runId: input.runId,
@@ -1379,7 +1405,7 @@ export const runtimeFacetTurns = {
 				CODE_MODE_BATCHING_NOTE,
 				trust === "untrusted" ? untrustedTurnSystemAddendum("mcp") : "",
 			],
-			[addenda],
+			[coreMemory, addenda],
 		);
 		// Runtime-authored consent block: appended to the
 		// SYSTEM prompt, never the user message, so the one trustworthy consent

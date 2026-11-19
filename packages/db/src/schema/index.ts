@@ -259,6 +259,12 @@ export type {
 	TediTask,
 } from "./tedi-objectives";
 export * from "./tedi-objectives";
+// What a tedi keeps for itself: core memory and named notes, versioned
+export type {
+	NewTediMemoryDocumentRow,
+	TediMemoryDocumentRow,
+} from "./tedi-memory";
+export * from "./tedi-memory";
 // Per-app CMS bundles (apps/cms-runtime serves these via Worker Loader)
 export type { NewTenantBundle, TenantBundle } from "./tenant-bundles";
 export * from "./tenant-bundles";

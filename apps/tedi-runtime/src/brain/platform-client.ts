@@ -8,6 +8,11 @@ import type {
 	RankSkillsOutput,
 } from "@tedix/api-contract/schemas/jev";
 import type { TurnMemory } from "@tedix/api-contract/schemas/turn-memory";
+import type {
+	EditTediCoreMemoryOutput,
+	TediCoreMemory,
+	TediCoreMemorySectionKey,
+} from "@tedix/api-contract/schemas/tedi-memory";
 import type { MemorySourceEvidence } from "@tedix/api-contract/schemas/memory-graph";
 import type { SearchResult } from "@tedix/api-contract/schemas/memory-graph";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
@@ -510,6 +515,15 @@ export interface PlatformClient {
 		decision: "approved" | "rejected";
 		rationale: string;
 	}): Promise<WorkApprovalDecisionForContext>;
+	/** This tedi's own core memory; the API refuses any other tedi's. */
+	readTediCoreMemory(params: { tediId: string }): Promise<TediCoreMemory>;
+	editTediCoreMemory(params: {
+		tediId: string;
+		section: TediCoreMemorySectionKey;
+		mode: "replace" | "append";
+		text: string;
+		origin?: "conversation" | "reflection";
+	}): Promise<EditTediCoreMemoryOutput>;
 	/** Public web search through the deployment's model gateway. */
 	searchWeb(params: WebSearchInput): Promise<WebSearchOutput>;
 
@@ -1128,6 +1142,22 @@ export class HttpPlatformClient implements PlatformClient {
 			id: params.workItemId,
 			message: params.message,
 		});
+	}
+
+	async readTediCoreMemory(params: {
+		tediId: string;
+	}): Promise<TediCoreMemory> {
+		return this.rpc("tediMemory", "readCore", params);
+	}
+
+	async editTediCoreMemory(params: {
+		tediId: string;
+		section: TediCoreMemorySectionKey;
+		mode: "replace" | "append";
+		text: string;
+		origin?: "conversation" | "reflection";
+	}): Promise<EditTediCoreMemoryOutput> {
+		return this.rpc("tediMemory", "editCore", params);
 	}
 
 	async listAgentRuns(
