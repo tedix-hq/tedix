@@ -198,18 +198,29 @@ export async function listOsOutputs(
 		.slice(0, options.limit ?? 100);
 }
 
+/**
+ * A caller that already holds the output passes its `workspaceId`. The
+ * revision index is filled by the feed publish, which a save no longer waits
+ * for, so a save straight after another would miss it.
+ */
 export async function getOsOutputRevision(
-	...args: [db: DbQueryClient, params: TenantScope & { revisionId: string }]
+	...args: [
+		db: DbQueryClient,
+		params: TenantScope & { revisionId: string; workspaceId?: string },
+	]
 ) {
 	const store = readRuntime();
-	const index = await getWorkspaceOutputIndexRevision(args[0], args[1]);
-	return index
+	const { organizationId, revisionId, workspaceId } = args[1];
+	const scope = workspaceId
+		? { organizationId, workspaceId }
+		: await getWorkspaceOutputIndexRevision(args[0], args[1]);
+	return scope
 		? store.outputQuery(
 				{
-					organizationId: index.organizationId,
-					workspaceId: index.workspaceId,
+					organizationId: scope.organizationId,
+					workspaceId: scope.workspaceId,
 				},
-				{ op: "revision", revisionId: args[1].revisionId },
+				{ op: "revision", revisionId },
 			)
 		: undefined;
 }
