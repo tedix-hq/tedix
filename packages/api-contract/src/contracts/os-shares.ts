@@ -617,6 +617,7 @@ export const osSharesContract = oc
 							.describe(
 								"For an app: why people without a Tedix account cannot open it through a link, or null when they can. Absent for other resources.",
 							),
+						recipientAccounts: z.array(z.string()).optional(),
 						guestLimits: z
 							.object({
 								hiddenFiles: z.number().int().nonnegative(),

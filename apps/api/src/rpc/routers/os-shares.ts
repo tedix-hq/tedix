@@ -4,7 +4,11 @@ import {
 	osSharesContract,
 } from "@tedix/api-contract/contracts/os-shares";
 import type { OsShareLink } from "@tedix/api-contract/contracts/os-shares";
-import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	OsDerivedAccessEnvelopeSchema,
+	OsGadgetManifestSchema,
+} from "@tedix/api-contract/schemas/os-workspaces";
+import { listConnectionProviderNames } from "@tedix/db/queries/connection-providers";
 import {
 	addOsShareLinkInvitee,
 	countActiveOsShareSessions,
@@ -43,7 +47,10 @@ import { roleImpliesPermission } from "@tedix/auth/rbac";
 import { listWorkspaceAccessHolders } from "../../services/os-workspace-collaborators";
 import { shareAccessChange } from "../../lib/os-share-access-preview";
 import { cutWorkspaceAppSessions } from "../../services/os-app-session-revocation";
-import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
+import {
+	getOsWorkspaceResource,
+	listOsWorkspaceResources,
+} from "@tedix/db/queries/os-workspaces/resources";
 import { findKernelRuntimeRunForOutputRevision } from "@tedix/db/queries/kernel-runtime-runs";
 import { getRunSensitiveDataLatch } from "@tedix/db/queries/sensitive-data-latch";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -587,6 +594,40 @@ const sharesCreate = authorOs.shares.create.handler(
 	},
 );
 
+async function appRecipientAccounts(
+	db: ReturnType<typeof queryDb>,
+	scope: { organizationId: string; workspaceId: string; gadgetId: string },
+	revisionId: string | null,
+): Promise<string[] | undefined> {
+	if (!revisionId) return undefined;
+	const revision = await getOsGadgetRevision(db, {
+		organizationId: scope.organizationId,
+		revisionId,
+	});
+	if (!revision || revision.gadgetId !== scope.gadgetId) return undefined;
+	let manifest: ReturnType<typeof OsGadgetManifestSchema.parse>;
+	try {
+		manifest = OsGadgetManifestSchema.parse(JSON.parse(revision.manifest));
+	} catch {
+		return undefined;
+	}
+	const slots = new Set(manifest.resourceGrants?.map((grant) => grant.slot));
+	if (!slots.size) return [];
+	const resources = await listOsWorkspaceResources(db, {
+		organizationId: scope.organizationId,
+		workspaceId: scope.workspaceId,
+		status: "active",
+		limit: 200,
+	});
+	const names = await listConnectionProviderNames(
+		db,
+		resources
+			.filter((row) => row.connectionScope === "user" && slots.has(row.slot))
+			.map((row) => row.providerId),
+	);
+	return [...new Set(names.values())].sort((a, b) => a.localeCompare(b));
+}
+
 const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 	const { resource, title, isPrivate } = await requireResource(
 		context,
@@ -622,23 +663,35 @@ const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 		return { items };
 	const { guestAppRefusalForApp } =
 		await import("../../lib/os-share-app-runtime");
+	const now = new Date().toISOString();
+	const primaryLink = rows.find(
+		(row) =>
+			!row.revokedAt && (row.disabledAt || stopped(row) || isActive(row, now)),
+	);
+	const revisionId =
+		primaryLink?.pinnedRevisionId ?? resource.currentRevisionId;
+	const recipientAccounts = await appRecipientAccounts(
+		db,
+		{
+			organizationId: resource.organizationId,
+			workspaceId: resource.workspaceId,
+			gadgetId: resource.id,
+		},
+		revisionId,
+	);
 	return {
 		items,
+		recipientAccounts,
 		guestRefusal: await guestAppRefusalForApp(
 			db,
 			{
 				...resource,
+				currentRevisionId: revisionId,
 				workspaceId: resource.workspaceId,
 			},
-			rows
-				.filter(
-					(row) =>
-						!row.revokedAt &&
-						!row.disabledAt &&
-						!stopped(row) &&
-						(!row.expiresAt || Date.parse(row.expiresAt) > Date.now()),
-				)
-				.map((row) => row.id),
+			primaryLink && isActive(primaryLink, now) && !stopped(primaryLink)
+				? [primaryLink.id]
+				: [],
 		),
 	};
 });

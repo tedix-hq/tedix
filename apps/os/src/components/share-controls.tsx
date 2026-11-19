@@ -1148,6 +1148,13 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 		["active", "off"].includes(shareStatus(share)),
 	);
 	const link = listedLinks[0] ?? null;
+	const recipientAccounts = shares.data?.recipientAccounts;
+	const guestRefusal = shares.data?.guestRefusal;
+	const appRefusal =
+		resourceType === "gadget" && guestRefusal?.reason !== "not_runtime_app"
+			? guestRefusal
+			: null;
+	const cannotCreateAppLink = !link && Boolean(appRefusal);
 	const linkOff = link !== null && shareStatus(link) === "off";
 	const defaultRole: OsShareRole = resourceType === "output" ? "viewer" : "use";
 	const noun = RESOURCE_NOUN[resourceType];
@@ -1394,6 +1401,39 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					Links made here only work on this local copy of Tedix.
 				</Surface>
 			)}
+			{recipientAccounts ? (
+				<section className="grid gap-1" aria-label="Connected accounts">
+					<Text as="h3" role="label" tone="strong" className="m-0">
+						Connected accounts
+					</Text>
+					{recipientAccounts.length ? (
+						<>
+							<Text as="p" role="label" tone="secondary" className="m-0">
+								{appRefusal
+									? "This app uses these personal accounts."
+									: "People need to connect their own accounts for these services."}
+							</Text>
+							<ul className="m-0 pl-5 text-sm">
+								{recipientAccounts.map((name) => (
+									<li key={name}>{name}</li>
+								))}
+							</ul>
+						</>
+					) : (
+						<Text as="p" role="label" tone="secondary" className="m-0">
+							People don't need to connect any accounts of their own.
+						</Text>
+					)}
+				</section>
+			) : null}
+			{appRefusal ? (
+				<Alert variant="warning" data-guest-refusal={appRefusal.reason}>
+					People opening this link can't use the app because{" "}
+					{appRefusal.reason === "connection_grant"
+						? "it needs access to accounts or services they can't use."
+						: "they can't read the files it needs."}
+				</Alert>
+			) : null}
 			<section className="grid gap-2" aria-label="Access" data-share-access>
 				<Text as="h3" role="label" tone="strong" className="m-0">
 					Who can open it
@@ -1429,15 +1469,15 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 						);
 					})}
 				</div>
-				{access === "anyone_with_link" && shares.data?.guestRefusal ? (
+				{access === "anyone_with_link" && guestRefusal && !appRefusal ? (
 					<Surface
 						className="m-0 grid gap-2 px-3 py-2 text-kumo-subtle text-xs"
-						data-guest-refusal={shares.data.guestRefusal.reason}
+						data-guest-refusal={guestRefusal.reason}
 					>
 						<p className="m-0">
-							{guestRefusalText(shares.data.guestRefusal, organization)}
+							{guestRefusalText(guestRefusal, organization)}
 						</p>
-						{shares.data.guestRefusal.reason === "not_runtime_app" ? (
+						{guestRefusal.reason === "not_runtime_app" ? (
 							<div>
 								<Button
 									size="sm"
@@ -1553,7 +1593,9 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 						</div>
 					) : null}
 				</section>
-			) : shares.isSuccess && formMode.kind === "closed" ? (
+			) : shares.isSuccess &&
+			  !cannotCreateAppLink &&
+			  formMode.kind === "closed" ? (
 				<div className="flex flex-wrap gap-2">
 					<Button
 						size="sm"
@@ -1678,7 +1720,7 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					</ul>
 				</section>
 			) : null}
-			{formMode.kind === "create" || editing ? (
+			{(formMode.kind === "create" && !cannotCreateAppLink) || editing ? (
 				<LinkForm
 					key={editing?.id ?? "create"}
 					resourceType={resourceType}

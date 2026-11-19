@@ -777,7 +777,42 @@ describe("ShareControls", () => {
 		});
 	});
 
-	it("explains why a no-sign-in link will not open an app that reaches a connected account", async () => {
+	it.each([
+		{ accounts: ["Calendar Service", "Mail Service"], blocked: true },
+		{ accounts: [], blocked: false },
+	])(
+		"shows the recipient account requirements and blocks a broken link (%j)",
+		async ({ accounts, blocked }) => {
+			sharesApi.list.mockResolvedValue({
+				items: [],
+				recipientAccounts: accounts,
+				guestRefusal: blocked ? { reason: "connection_grant" } : null,
+			});
+			const container = await openDialog({
+				resourceType: "gadget",
+				resourceId: GADGET_ID,
+			});
+			const section = container.querySelector(
+				'[aria-label="Connected accounts"]',
+			)!;
+			expect(
+				[...section.querySelectorAll("li")].map((item) => item.textContent),
+			).toEqual(accounts);
+			if (blocked) {
+				expect(container.textContent).toContain(
+					"People opening this link can't use the app",
+				);
+				expect(() => findButton(container, "Create link")).toThrow();
+			} else {
+				expect(section.textContent).toContain(
+					"People don't need to connect any accounts of their own.",
+				);
+				expect(findButton(container, "Create link").disabled).toBe(false);
+			}
+		},
+	);
+
+	it("explains why a connected app cannot open without exposing the app configuration", async () => {
 		sharesApi.list.mockResolvedValue({
 			items: [],
 			guestRefusal: { slot: "notes", reason: "connection_grant" },
@@ -788,7 +823,8 @@ describe("ShareControls", () => {
 		});
 		const note = container.querySelector("[data-guest-refusal]");
 		expect(note?.getAttribute("data-guest-refusal")).toBe("connection_grant");
-		expect(note?.textContent).toContain('"notes"');
+		expect(note?.textContent).toContain("accounts or services they can't use");
+		expect(note?.textContent).not.toContain('"notes"');
 	});
 
 	it("says plainly that an app without its own code needs sign-in, and offers the organization instead", async () => {

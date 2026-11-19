@@ -331,6 +331,7 @@ describe("shares.list guest notes", () => {
 		});
 		expect(app.guestRefusal).toEqual({ reason: "not_runtime_app" });
 		expect(app.guestLimits).toBeUndefined();
+		expect(app.recipientAccounts).toEqual([]);
 		const space = await h.org1.shares.list({
 			resourceType: "workspace",
 			resourceId: workspace.id,
