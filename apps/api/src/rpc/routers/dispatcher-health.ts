@@ -83,22 +83,20 @@ const listProcedure = os.list
 			requireOrgId(context),
 		);
 		const reports = rows.map((row) => toReport(row, now));
-		const activities = reports
-			.filter(
-				(row) =>
-					!row.stale &&
-					now.getTime() - Date.parse(row.observedAt) <=
-						DISPATCHER_HEALTH_STALE_AFTER_SECONDS * 1000,
-			)
-			.map((row) => row.duty?.activity)
-			.filter((value) => value !== undefined);
-		const ids = activities.flatMap((activity) =>
-			[
-				...activity.current,
-				...activity.waiting,
-				...(activity.lastCompleted ? [activity.lastCompleted] : []),
-			].map((work) => work.id),
+		const fresh = reports.filter(
+			(row) =>
+				!row.stale &&
+				now.getTime() - Date.parse(row.observedAt) <=
+					DISPATCHER_HEALTH_STALE_AFTER_SECONDS * 1000,
 		);
+		const ids = fresh.flatMap(({ duty }) => [
+			...(duty?.activity?.current.map(({ id }) => id) ?? []),
+			...(duty?.activity?.waiting.map(({ id }) => id) ?? []),
+			...(duty?.activity?.lastCompleted
+				? [duty.activity.lastCompleted.id]
+				: []),
+			...(duty?.skips?.entries.map(({ workItemId }) => workItemId) ?? []),
+		]);
 		const work = new Map(
 			(
 				await listDispatcherWorkReferences(
@@ -109,7 +107,26 @@ const listProcedure = os.list
 			).map((row) => [row.id, row]),
 		);
 		for (const report of reports) {
-			const activity = report.duty?.activity;
+			const duty = report.duty;
+			if (!duty) continue;
+			if (duty.skips) {
+				const observedAt = Date.parse(duty.skips.observedAt);
+				duty.skips =
+					report.running &&
+					fresh.includes(report) &&
+					observedAt <= now.getTime() &&
+					now.getTime() - observedAt <=
+						DISPATCHER_HEALTH_STALE_AFTER_SECONDS * 1000
+						? {
+								...duty.skips,
+								entries: duty.skips.entries.filter(
+									({ workItemId }) =>
+										work.get(workItemId)?.disposition === "accepted",
+								),
+							}
+						: undefined;
+			}
+			const activity = duty.activity;
 			if (!activity) continue;
 			const current = activity.current.flatMap((ref) => {
 				const row = work.get(ref.id);
@@ -135,7 +152,7 @@ const listProcedure = os.list
 					: null,
 			);
 			report.duty = {
-				...report.duty!,
+				...duty,
 				activity: {
 					...activity,
 					current,

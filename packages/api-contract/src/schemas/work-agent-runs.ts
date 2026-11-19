@@ -28,6 +28,7 @@ export const AgentRunReasonCodeSchema = z.enum([
 	"start_refused",
 	"no_runner",
 	"runner_waiting",
+	"runner_skipped",
 	"queued",
 	"lease_lost",
 	"stopped",
@@ -36,7 +37,7 @@ export type AgentRunReasonCode = z.infer<typeof AgentRunReasonCodeSchema>;
 
 export const AgentRunReasonSchema = z.object({
 	code: AgentRunReasonCodeSchema.describe(
-		"not_accepted, not_ready, not_before: the task itself may not start yet. held: a runner or the platform put the task on hold. start_refused: a runner tried to start the task and the platform refused, with its stored code and reason. no_runner: no connected machine reports a runner for this agent. runner_waiting: a runner has the task and waits before it works on it. queued: nothing blocks the task; a runner has not taken it yet. lease_lost: the run stopped reporting before it was settled. stopped: someone stopped the run.",
+		"not_accepted, not_ready, not_before: the task itself may not start yet. held: a runner or the platform put the task on hold. start_refused: a runner tried to start the task and the platform refused, with its stored code and reason. no_runner: no connected machine reports a runner for this agent. runner_waiting: a runner has the task and waits before it works on it. runner_skipped: a runner repeatedly skipped this task and reported why. queued: nothing blocks the task; a runner has not taken it yet. lease_lost: the run stopped reporting before it was settled. stopped: someone stopped the run.",
 	),
 	detail: z.string().max(700),
 });

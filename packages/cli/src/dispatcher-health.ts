@@ -14,6 +14,8 @@ import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
 import * as z from "zod";
 import {
+	DispatcherSkipsSchema,
+	type DispatcherSkips,
 	NativeProviderActivitySchema,
 	type NativeProviderActivity,
 	type SupervisorActivity,
@@ -74,6 +76,7 @@ export interface DispatcherHealthSource {
 	lastCompleted?: { id: string; completedAt: string };
 	reliability?: z.infer<typeof ReliabilityJournalSchema>;
 	idle?: DispatcherIdle;
+	skips?: DispatcherSkips;
 }
 
 export interface LocalDispatcherHealth {
@@ -134,6 +137,48 @@ export function writeDispatcherHealthSource(
 	}
 	writeFileSync(`${path}.tmp`, JSON.stringify(source), { mode: 0o600 });
 	renameSync(`${path}.tmp`, path);
+}
+
+export interface DispatcherSkipObservation {
+	workItemId: string;
+	version: number;
+	reason: string;
+	since: string;
+	repeated: boolean;
+}
+
+export function observeDispatcherSkip(
+	item: { id: string; version: number },
+	rawReason: string,
+	at: string,
+	previous?: DispatcherSkipObservation,
+): DispatcherSkipObservation {
+	const reason = safeReason(rawReason);
+	const repeated =
+		previous !== undefined &&
+		previous.version === item.version &&
+		previous.reason === reason;
+	return {
+		workItemId: item.id,
+		version: item.version,
+		reason,
+		since: repeated ? previous.since : at,
+		repeated,
+	};
+}
+
+export function recordDispatcherSkips(
+	directory: string,
+	observedAt: string,
+	skips: Iterable<DispatcherSkipObservation>,
+) {
+	const entries: DispatcherSkips["entries"] = [];
+	for (const { workItemId, reason, since, repeated } of skips) {
+		if (!repeated || !reason || !UUID_RE.test(workItemId)) continue;
+		entries.push({ workItemId, reason, since });
+		if (entries.length === 20) break;
+	}
+	updateSource(directory, { skips: { observedAt, entries } }, process.pid);
 }
 
 export function recordDispatcherIdle(directory: string, idle: DispatcherIdle) {
@@ -579,6 +624,7 @@ export function collectDispatcherHealth(
 	const activities = new Map<string, SupervisorActivity>();
 	const reliability = new Map<string, DispatcherReliability>();
 	const idle = new Map<string, DispatcherIdle>();
+	const skips = new Map<string, DispatcherSkips>();
 	for (const name of existsSync(root) ? readdirSync(root) : []) {
 		const directory = join(root, name);
 		try {
@@ -591,6 +637,8 @@ export function collectDispatcherHealth(
 			const counts = dispatcherReliability(source, now);
 			if (counts) reliability.set(name, counts);
 			if (source.idle) idle.set(name, source.idle);
+			const skipped = DispatcherSkipsSchema.safeParse(source.skips);
+			if (running && skipped.success) skips.set(name, skipped.data);
 			reports.push({
 				workspace: source.workspace,
 				organization: source.organization,
@@ -627,6 +675,7 @@ export function collectDispatcherHealth(
 						activity: activities.get(row.id),
 						reliability: reliability.get(row.id),
 						idle: idle.get(row.id),
+						skips: skips.get(row.id),
 					};
 			} else {
 				reports.push({
