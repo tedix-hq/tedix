@@ -4,7 +4,11 @@ import {
 	TEDI_CORE_MEMORY_SECTIONS,
 	type TediCoreMemory,
 } from "@tedix/api-contract/schemas/tedi-memory";
-import { MCP_FACET_TURN_INPUT, mcpFacetTurnProbe } from "../test/tedi-do";
+import {
+	MCP_FACET_TURN_INPUT,
+	mcpFacetTurnProbe,
+	tediDo,
+} from "../test/tedi-do";
 import type { PlatformClient } from "./brain/platform-client";
 import { supervisedDelegationToolSet } from "./delegation-authority";
 import {
@@ -247,4 +251,36 @@ const platformWith = (over: Partial<PlatformClient>) =>
 		trust: "untrusted",
 	});
 	assert.deepEqual(untrustedReflection.tools, {});
+}
+
+// The guest profile supplies the per-turn context used by workspace chat.
+{
+	const guest = tediDo({
+		ensureIdentity: async () => {},
+		getSystemPrompt: () => "Guest persona",
+		cognitiveAddenda: async () => "Workspace recall",
+		getPlatformClient: platformWith({
+			readTediCoreMemory: async (input) => {
+				assert.deepEqual(input, { tediId: "tedi-1" });
+				return {
+					...memory({ project: "The review is on Thursday." }),
+					notes: [{ name: "release-checklist", description: "Review steps" }],
+				};
+			},
+		}),
+	});
+	const profile = await guest.guestProfile({
+		tediId: "tedi-1",
+		organizationId: "org-1",
+		sessionKey: "workspace:launch",
+		userText: "When is the review?",
+		trust: "trusted",
+	});
+	assert.equal(profile.systemPrompt, "Guest persona");
+	assert.match(profile.addenda, /Workspace recall/);
+	assert.match(profile.addenda, /The review is on Thursday\./);
+	assert.match(
+		profile.addenda,
+		/### Notes you can open\n- release-checklist: Review steps/,
+	);
 }

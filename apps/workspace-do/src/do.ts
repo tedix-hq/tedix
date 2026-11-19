@@ -4177,6 +4177,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		tediId: string,
 		userText: string,
+		actorKind: ActorKind,
 	): Promise<GuestProfile> {
 		const tedi = await getTediById(createDbClient(this.env.DB), tediId);
 		if (
@@ -4195,6 +4196,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				organizationId: string;
 				sessionKey: string;
 				userText: string;
+				trust: "trusted" | "untrusted";
 			}): Promise<GuestProfile>;
 		};
 		return stub.guestProfile({
@@ -4202,6 +4204,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			organizationId: scope.organizationId,
 			sessionKey: `workspace:${scope.workspaceId}`,
 			userText,
+			trust: actorKind === "user" ? "trusted" : "untrusted",
 		});
 	}
 
@@ -4346,7 +4349,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			linkedAccounts,
 		] = await Promise.all([
 			workspaceRead,
-			input.tediId ? this.#guestProfile(scope, input.tediId, input.text) : null,
+			input.tediId
+				? this.#guestProfile(scope, input.tediId, input.text, input.actorKind)
+				: null,
 			input.actorKind === "user"
 				? this.#referencedSkills(scope, input.text)
 				: [],
