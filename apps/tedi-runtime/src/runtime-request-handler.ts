@@ -122,7 +122,10 @@ import { embeddedTurnQuotaFromPayload } from "./embedded-turn-quota";
 import { trustedInstructionOriginForInject } from "./inference-guardrails";
 import { buildRunId, buildWorkflowInstanceId } from "./ledger-mirror";
 import { recordDirectMcpAuditEvent } from "./mcp-audit";
-import { skillWorkflowRunId } from "./mcp-authorization";
+import {
+	actingMemberForRequest,
+	skillWorkflowRunId,
+} from "./mcp-authorization";
 import { callerTrustTierForRequest } from "./mcp-caller-trust";
 import type { AgentMcpRuntime } from "./mcp-client-runtime";
 import type { CronToolInput } from "./mcp-mount";
@@ -758,6 +761,7 @@ export async function handleRuntimeRequest(
 		}
 		const callerTrust = callerTrustTierForRequest(request.headers);
 		const noFunds = request.headers.get("X-Tedix-No-Funds") === "true";
+		const actingUserId = actingMemberForRequest(request);
 		// Defense in depth: the gateway already strips these for non-members.
 		payload = stripMemberOnlyInjectFields(payload, callerTrust);
 		const text = (payload.text ?? payload.message ?? "").trim();
@@ -1082,6 +1086,7 @@ export async function handleRuntimeRequest(
 								callerTrust,
 								noFunds,
 								...(turnModel ? { turnModel } : {}),
+								...(actingUserId ? { actingUserId } : {}),
 							},
 							// Agent binding can't be auto-detected from the class name in
 							// this dispatch context (runWorkflow throws "Could not detect
@@ -1176,6 +1181,7 @@ export async function handleRuntimeRequest(
 				executionRestriction,
 				callerTrust,
 				noFunds,
+				...(actingUserId ? { actingUserId } : {}),
 			};
 			const result = await host.runDurableChatTurn(turnInput);
 			return Response.json({ success: true, ...result });
@@ -2031,6 +2037,7 @@ export async function handleRuntimeRequest(
 						attachments: sanitizeChatAttachments(attachments),
 						callerTrust: callerTrustTierForRequest(request.headers),
 						noFunds: request.headers.get("X-Tedix-No-Funds") === "true",
+						actingUserId: actingMemberForRequest(request),
 					};
 					return host.runDurableChatTurn(turnInput);
 				},

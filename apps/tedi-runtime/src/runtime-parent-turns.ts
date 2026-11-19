@@ -703,6 +703,7 @@ export const runtimeParentTurns = {
 			runId?: string;
 			sessionKey?: string;
 			workItemId?: string;
+			actingUserId?: string;
 		},
 	): AigMetadata {
 		const purpose = source ?? inferenceSource(correlation?.sessionKey, "chat");
@@ -730,6 +731,10 @@ export const runtimeParentTurns = {
 				runId,
 				workItemId,
 			}),
+			// Admission-only: member caps follow the person who started the turn.
+			...(correlation?.actingUserId
+				? { actingUserId: correlation.actingUserId }
+				: {}),
 		};
 	},
 	/**

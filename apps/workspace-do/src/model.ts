@@ -11,18 +11,25 @@ import type {
 import { streamSimple } from "@earendil-works/pi-ai/api/azure-openai-responses";
 import { streamSimple as streamCompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import {
-	aiGatewayCustomCost,
 	resolveAiGatewayTransport,
 	type AiGatewayTransportEnv,
 } from "@tedix/workers-ai/gateway-transport";
-import { findProviderModelRates } from "@tedix/db/queries/billing/provider-model-rates";
-import { createDbQueryClient } from "@tedix/db/query-client";
+import {
+	azureExecutionIdentity,
+	ProviderExecutionIdentitySchema,
+} from "@tedix/api-contract/schemas/provider-execution";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import {
 	type ModelCatalogEntry,
 	offeredInChat,
 } from "@tedix/api-contract/schemas/model-catalog";
 import { repairJsonUnicode } from "@tedix/chat-transport/repair-json-unicode";
+import {
+	admittedProviderFetch,
+	type InferenceAdmissionPort,
+	type InferenceRefusedError,
+	type WorkspaceModelCall,
+} from "./admission";
 
 function requestContext(context: Context) {
 	const normalized = normalizeContext(context);
@@ -49,6 +56,12 @@ export interface ModelPort {
 	contextWindow: number;
 	maxOutputTokens: number;
 	responseMetadata?(): { model?: string; usageReported: boolean };
+	/**
+	 * Why credit admission refused the last stream's model call, in words the
+	 * person reads in the chat; null when it was admitted. The provider SDK
+	 * replaces a refused fetch with its own connection error, so the loop asks.
+	 */
+	admissionRefusal?(): string | null;
 	stream(
 		context: Context,
 		options?: { signal?: AbortSignal; maxTokens?: number },
@@ -110,36 +123,6 @@ export function turnPricingIdentity(
 			deployment,
 		]),
 	};
-}
-
-const RATE_CACHE_MS = 5 * 60_000;
-const customCostCache = new Map<string, { at: number; value: string | null }>();
-
-/**
- * AI Gateway prices Azure from Cloudflare's public list unless the request
- * carries our governed rate. Chat context stays under the short-context band
- * (128k window), so the zero-token band is the rate every turn pays.
- */
-async function governedCustomCost(
-	db: D1Database | undefined,
-	identity: ReturnType<typeof turnPricingIdentity>,
-): Promise<string | null> {
-	if (!db || !identity) return null;
-	const cached = customCostCache.get(identity.deploymentScope);
-	if (cached && Date.now() - cached.at < RATE_CACHE_MS) return cached.value;
-	let value: string | null = null;
-	try {
-		const rows = await findProviderModelRates(createDbQueryClient(db), {
-			...identity,
-			occurredAt: new Date().toISOString(),
-			inputTokens: 0,
-		});
-		value = rows.length === 1 ? aiGatewayCustomCost(rows[0]!) : null;
-	} catch {
-		value = null;
-	}
-	customCostCache.set(identity.deploymentScope, { at: Date.now(), value });
-	return value;
 }
 
 export interface WorkspaceModelChoice {
@@ -221,7 +204,8 @@ export function catalogWorkspaceModels(
 
 export function createWorkspaceModel(
 	env: WorkspaceModelEnv,
-	metadata: GatewayMetadata,
+	call: WorkspaceModelCall,
+	admission: InferenceAdmissionPort,
 	requestedId?: string,
 ): ModelPort {
 	const choices = configuredWorkspaceModels(env);
@@ -233,20 +217,14 @@ export function createWorkspaceModel(
 				: "This model is not configured for workspace chat",
 		);
 	return modelId.startsWith("@cf/")
-		? createWorkersAiGatewayModel(env, metadata, modelId)
-		: createAzureGatewayModel(env, metadata);
-}
-
-/** Per-request attribution; the gateway caps this at five flat entries. */
-export interface GatewayMetadata {
-	workspaceId: string;
-	turnId: string;
-	actorId: string;
+		? createWorkersAiGatewayModel(env, call, admission, modelId)
+		: createAzureGatewayModel(env, call, admission);
 }
 
 export function createAzureGatewayModel(
-	env: AzureGatewayEnv & { DB?: D1Database },
-	metadata: GatewayMetadata,
+	env: AzureGatewayEnv,
+	call: WorkspaceModelCall,
+	admission: InferenceAdmissionPort,
 ): ModelPort {
 	const resource = configured(env.AZURE_OPENAI_RESOURCE);
 	const deployment = configured(env.AZURE_CHAT_DEPLOYMENT);
@@ -259,7 +237,8 @@ export function createAzureGatewayModel(
 		);
 	}
 	// https://developers.cloudflare.com/ai-gateway/providers/azureopenai/
-	const baseUrl = `https://gateway.ai.cloudflare.com/v1/${account}/${gateway}/azure-openai/${resource}/openai/v1`;
+	// Lowercase, so the logged path matches the admitted execution's resource.
+	const baseUrl = `https://gateway.ai.cloudflare.com/v1/${account}/${gateway}/azure-openai/${resource.toLowerCase()}/openai/v1`;
 	const model: Model<"azure-openai-responses"> = {
 		id: deployment,
 		name: deployment,
@@ -275,24 +254,22 @@ export function createAzureGatewayModel(
 			"cf-aig-authorization": `Bearer ${token}`,
 			// Stored BYOK credentials are authoritative; never fall back to wholesale.
 			"cf-aig-no-wholesale": "true",
-			"cf-aig-metadata": JSON.stringify({
-				surface: "workspace_object",
-				workspaceId: metadata.workspaceId,
-				turnId: metadata.turnId,
-				actorId: metadata.actorId,
-			}),
 		},
 	};
 	let responseMetadata: { model?: string; usageReported: boolean } = {
 		usageReported: false,
 	};
+	let refusal: InferenceRefusedError | null = null;
 	return {
 		responseMetadata: () => responseMetadata,
+		admissionRefusal: () => refusal?.message ?? null,
 		id: `azure-openai/${deployment}`,
 		contextWindow: model.contextWindow,
 		maxOutputTokens: model.maxTokens,
 		stream(context, options) {
 			responseMetadata = { usageReported: false };
+			refusal = null;
+			const maxTokens = options?.maxTokens ?? model.maxTokens;
 			const streamOptions: SimpleStreamOptions = {
 				apiKey: "cloudflare-ai-gateway-byok",
 				onProviderStreamEvent: (data) => {
@@ -317,6 +294,8 @@ export function createAzureGatewayModel(
 						responseMetadata.usageReported = true;
 				},
 				fetch: async (input, init) => {
+					// The SDK retries a failed fetch; a refusal stands for the stream.
+					if (refusal) throw refusal;
 					const request = new Request(input, init);
 					const url = new URL(request.url);
 					// This endpoint uses the GA v1 path, not a dated preview version.
@@ -324,15 +303,26 @@ export function createAzureGatewayModel(
 					// Provider credentials override the Gateway's stored BYOK key.
 					request.headers.delete("api-key");
 					request.headers.delete("authorization");
-					const customCost = await governedCustomCost(
-						env.DB,
-						turnPricingIdentity(env, `azure-openai/${deployment}`),
-					);
-					if (customCost) request.headers.set("cf-aig-custom-cost", customCost);
-					return fetch(new Request(url, request));
+					return admittedProviderFetch({
+						admission,
+						call,
+						execution: azureExecutionIdentity({
+							url: url.href,
+							model: deployment,
+							accountId: account,
+							gatewayId: gateway,
+							transportKind: "https",
+						}),
+						request: new Request(url, request),
+						maxOutputTokens: maxTokens,
+						send: (admitted) => fetch(admitted),
+						onRefused: (error) => {
+							refusal = error;
+						},
+					});
 				},
 				signal: options?.signal,
-				maxTokens: options?.maxTokens ?? model.maxTokens,
+				maxTokens,
 				azureBaseUrl: baseUrl,
 				azureDeploymentName: deployment,
 				azureApiVersion: configured(env.AZURE_OPENAI_API_VERSION) ?? "v1",
@@ -344,12 +334,25 @@ export function createAzureGatewayModel(
 
 function createWorkersAiGatewayModel(
 	env: WorkspaceModelEnv,
-	metadata: GatewayMetadata,
+	call: WorkspaceModelCall,
+	admission: InferenceAdmissionPort,
 	modelId: string,
 ): ModelPort {
 	const transport = workersAiTransport(env);
 	if (!transport)
 		throw new Error("Workers AI gateway transport is not configured");
+	const execution = ProviderExecutionIdentitySchema.parse({
+		provider: "workers-ai",
+		requestModel: modelId,
+		gatewayAccountId: configured(env.AI_GATEWAY_ACCOUNT_ID) ?? null,
+		gatewayId: configured(env.AI_GATEWAY_LLM_ID) ?? null,
+		transportKind:
+			transport.kind === "binding" ? "gateway-binding" : "gateway-https",
+		apiKind: "workers-ai-chat",
+		providerResource: null,
+		providerOrigin: null,
+		deployment: null,
+	});
 	const model: Model<"openai-completions"> = {
 		id: modelId,
 		name: modelId,
@@ -369,28 +372,26 @@ function createWorkersAiGatewayModel(
 		headers: {
 			"cf-aig-authorization": `Bearer ${transport.authorization}`,
 			"cf-aig-no-wholesale": "true",
-			"cf-aig-metadata": JSON.stringify({
-				surface: "workspace_object",
-				workspaceId: metadata.workspaceId,
-				turnId: metadata.turnId,
-				actorId: metadata.actorId,
-			}),
 		},
 	};
 	let responseMetadata: { model?: string; usageReported: boolean } = {
 		usageReported: false,
 	};
+	let refusal: InferenceRefusedError | null = null;
 	return {
 		id: modelId,
 		contextWindow: model.contextWindow,
 		maxOutputTokens: model.maxTokens,
 		responseMetadata: () => responseMetadata,
+		admissionRefusal: () => refusal?.message ?? null,
 		stream(context, options) {
 			responseMetadata = { usageReported: false };
+			refusal = null;
+			const maxTokens = options?.maxTokens ?? model.maxTokens;
 			return streamCompletions(model, requestContext(context), {
 				apiKey: "cloudflare-ai-gateway-byok",
 				signal: options?.signal,
-				maxTokens: options?.maxTokens ?? model.maxTokens,
+				maxTokens,
 				onProviderStreamEvent(data) {
 					const event = data as {
 						model?: unknown;
@@ -417,12 +418,24 @@ function createWorkersAiGatewayModel(
 							responseMetadata.usageReported = true;
 					}
 				},
-				fetch(input, init) {
+				async fetch(input, init) {
+					// The SDK retries a failed fetch; a refusal stands for the stream.
+					if (refusal) throw refusal;
 					const request = new Request(input, init);
 					request.headers.delete("authorization");
 					request.headers.delete("api-key");
 					request.headers.delete("x-api-key");
-					return transport.fetch(request);
+					return admittedProviderFetch({
+						admission,
+						call,
+						execution,
+						request,
+						maxOutputTokens: maxTokens,
+						send: (admitted) => transport.fetch(admitted),
+						onRefused: (error) => {
+							refusal = error;
+						},
+					});
 				},
 			});
 		},

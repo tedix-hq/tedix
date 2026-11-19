@@ -215,6 +215,65 @@ assert.equal(
 	false,
 );
 
+// The member who started the turn rides in the signed admission request, so
+// their credit cap applies; without one only the org and tedi limits apply.
+{
+	const { verifyRuntimeInferenceOrigin } =
+		await import("@tedix/auth/runtime-inference-origin");
+	const { aigMetadataRecord } = await import("./llm");
+	for (const actingUserId of ["user-1", undefined]) {
+		const sent: Array<Record<string, unknown>> = [];
+		await authorizeInferenceEntitlement(
+			{
+				SECRETS_MASTER_KEY: "fixture-signing-secret",
+				TEDIX_BILLING_SETTLEMENT_MODE: "disabled",
+				API_SERVICE: {
+					fetch: async (input: RequestInfo, init?: RequestInit) => {
+						const payload = (await new Request(input, init).json()) as {
+							json?: Record<string, unknown>;
+						};
+						sent.push(payload.json ?? payload);
+						return Response.json({ json: admission });
+					},
+				} as unknown as Fetcher,
+			},
+			{
+				metadata: {
+					orgId: "org",
+					tediId: "fixture-tedi",
+					...(actingUserId ? { actingUserId } : {}),
+				},
+				beforeDispatch: fixtureOriginGuard("org"),
+				execution,
+				body: "{}",
+			},
+		);
+		const { originToken, ...projection } = sent[0]! as {
+			originToken: string;
+		} & Record<string, unknown>;
+		if (actingUserId) assert.equal(projection.userId, actingUserId);
+		else assert.equal(Object.hasOwn(projection, "userId"), false);
+		// The member is covered by the origin signature: changing it fails.
+		await verifyRuntimeInferenceOrigin({
+			secret: "fixture-signing-secret",
+			token: originToken,
+			request: projection,
+		});
+		await assert.rejects(
+			verifyRuntimeInferenceOrigin({
+				secret: "fixture-signing-secret",
+				token: originToken,
+				request: { ...projection, userId: "someone-else" },
+			}),
+		);
+	}
+	// The member never reaches AI Gateway metadata.
+	assert.deepEqual(
+		aigMetadataRecord({ orgId: "org", actingUserId: "user-1" }),
+		{ orgId: "org" },
+	);
+}
+
 console.log("billing-reservation-client.test.ts: all assertions passed");
 
 // Scripted fixture assertion; this is not evidence of a production Durable Object.

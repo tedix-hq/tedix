@@ -4,6 +4,7 @@ import {
 } from "@tedix/mcp-shared/auth/scopes";
 import assert from "node:assert/strict";
 import {
+	actingMemberForRequest,
 	canCallTediMcpTool,
 	decodeTediMcpCaller,
 	encodeTediMcpCaller,
@@ -226,4 +227,69 @@ assert.equal(
 	),
 	undefined,
 );
+
+// The acting member comes only from edge-derived identity.
+{
+	const turnRequest = (headers: Record<string, string>) =>
+		new Request("https://tedi.internal/__internal/inject", { headers });
+	const service = encodeTediMcpCaller({
+		method: "service",
+		principalId: "service-binding",
+		principalType: "service",
+		scopes: [],
+	});
+	// A trusted hop (gateway or apps/api) names the person behind the turn.
+	assert.equal(
+		actingMemberForRequest(
+			turnRequest({
+				"X-Service-Binding": "true",
+				"X-Tedix-Acting-User": "user-1",
+			}),
+		),
+		"user-1",
+	);
+	assert.equal(
+		actingMemberForRequest(
+			turnRequest({
+				"X-Service-Binding": "true",
+				"X-Tedix-Acting-User": "user-1",
+				[TEDI_MCP_AUTH_CONTEXT_HEADER]: service,
+			}),
+		),
+		"user-1",
+	);
+	// Without the binding marker the header is a forgery and counts for nothing.
+	assert.equal(
+		actingMemberForRequest(turnRequest({ "X-Tedix-Acting-User": "user-1" })),
+		undefined,
+	);
+	// A person authenticated at the edge is the member; a tedi caller is not.
+	assert.equal(
+		actingMemberForRequest(
+			turnRequest({
+				[TEDI_MCP_AUTH_CONTEXT_HEADER]: encodeTediMcpCaller(reader),
+				"X-Service-Binding": "true",
+				"X-Tedix-Acting-User": "someone-else",
+			}),
+		),
+		"user-1",
+	);
+	assert.equal(
+		actingMemberForRequest(
+			turnRequest({
+				[TEDI_MCP_AUTH_CONTEXT_HEADER]: encodeTediMcpCaller({
+					...reader,
+					principalId: "tedi-1",
+					principalType: "tedi",
+				}),
+			}),
+		),
+		undefined,
+	);
+	// Scheduled work names no member at all.
+	assert.equal(
+		actingMemberForRequest(turnRequest({ "X-Service-Binding": "true" })),
+		undefined,
+	);
+}
 console.log("All mcp-authorization tests passed.");

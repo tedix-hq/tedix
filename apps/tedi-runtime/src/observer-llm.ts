@@ -31,7 +31,7 @@ async function observerViaAutoRouter(
 	opts: ConfiguredObserverCallOptions,
 ): Promise<string> {
 	const model = cloudflareAutoRouterModel(
-		workersAiClient(opts.env, opts.beforeDispatch),
+		workersAiClient(opts.env, opts.beforeDispatch, opts.metadata?.actingUserId),
 		{
 			gatewayId: opts.env.AI_GATEWAY_LLM_ID?.trim() ?? "",
 			attribution: aigMetadataRecord(opts.metadata) ?? undefined,
@@ -65,7 +65,7 @@ async function observerViaWorkersAi(
 		? opts.modelRef.slice("workers-ai/".length)
 		: opts.env.TEDI_WORKERS_AI_MODEL?.trim() || "";
 	const result = await callWorkersAi(
-		workersAiClient(opts.env, opts.beforeDispatch),
+		workersAiClient(opts.env, opts.beforeDispatch, opts.metadata?.actingUserId),
 		modelId,
 		{
 			messages: opts.messages,

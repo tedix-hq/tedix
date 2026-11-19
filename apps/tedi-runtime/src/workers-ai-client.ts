@@ -61,13 +61,17 @@ export interface WorkersAiEnv extends WorkersAiRuntimeEnv {
 export function workersAiClient(
 	env: WorkersAiRuntimeEnv,
 	beforeDispatch?: ProviderBeforeDispatch,
+	/** Member behind the turn; the shared transport carries only Gateway metadata. */
+	actingUserId?: string,
 ): WorkersAiClient {
 	return {
 		env,
 		authorize: async (input) => {
 			const requestGuard = requestInferenceOriginGuard(beforeDispatch);
 			const reserved = await authorizeInferenceEntitlement(env, {
-				metadata: input.attribution as AigMetadata | undefined,
+				metadata: actingUserId
+					? { ...(input.attribution as AigMetadata | undefined), actingUserId }
+					: (input.attribution as AigMetadata | undefined),
 				execution: input.execution,
 				body: input.body,
 				beforeDispatch: requestGuard,
@@ -93,7 +97,7 @@ export function workersAiRuntimeModel(
 	beforeDispatch?: ProviderBeforeDispatch,
 ): LanguageModel {
 	return workersAiModel(
-		workersAiClient(env, beforeDispatch),
+		workersAiClient(env, beforeDispatch, metadata?.actingUserId),
 		modelId,
 		aigMetadataRecord(metadata) ?? undefined,
 	);

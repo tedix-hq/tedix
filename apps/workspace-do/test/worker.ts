@@ -203,12 +203,8 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 		return this.#systemPrompts;
 	}
 
-	protected override modelFor(
-		_scope: WorkspaceScope,
-		_turnId: string,
-		_actorId: string,
-		modelId?: string,
-	): ModelPort {
+	protected override modelFor(plan: TurnPlan): ModelPort {
+		const modelId = plan.modelId;
 		if (modelId !== undefined && modelId !== "faux")
 			throw new Error("Model request was not propagated");
 		const model = scriptedModel(this.#script, modelId);

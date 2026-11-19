@@ -29,7 +29,10 @@ import {
 	resolveCallerTrustTier,
 	stripMemberOnlyInjectFields,
 } from "@tedix/mcp-shared/auth/caller-trust";
-import { normalizeCallerIdentity } from "./caller-identity";
+import {
+	actingMemberSubject,
+	normalizeCallerIdentity,
+} from "./caller-identity";
 import { mcpPlatformHosts } from "../platform-hosts";
 import { getByPath, redactByPath } from "./handlers/path-utils";
 import {
@@ -363,6 +366,10 @@ export async function executeMcpTransport(
 		if (orgId) {
 			headers["X-Tedix-Org-Id"] = orgId;
 		}
+		// The tedi applies this member's monthly credit cap to the turn's model
+		// calls. Only the edge-verified person (or Home acting for them) counts.
+		const actingMember = actingMemberSubject(ctx.callerIdentity);
+		if (actingMember) headers["X-Tedix-Acting-User"] = actingMember;
 	}
 
 	// Forward connection label as a routing hint to upstream MCP servers

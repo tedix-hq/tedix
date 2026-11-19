@@ -141,6 +141,7 @@ export interface RuntimeMemoryHost {
 			runId?: string;
 			sessionKey?: string;
 			workItemId?: string;
+			actingUserId?: string;
 		},
 	): AigMetadata;
 	ensureDirectivesLoaded(): Promise<void>;

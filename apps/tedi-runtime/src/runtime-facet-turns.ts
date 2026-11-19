@@ -517,6 +517,7 @@ export const runtimeFacetTurns = {
 			sessionKey: string;
 			guardedUserText: string;
 			userTs: number;
+			actingUserId?: string;
 		},
 	): Promise<{
 		assistantText: string;
@@ -537,6 +538,7 @@ export const runtimeFacetTurns = {
 				aigMetadata: this.tediAigMetadata(source, {
 					runId,
 					sessionKey: input.sessionKey,
+					...(input.actingUserId ? { actingUserId: input.actingUserId } : {}),
 				}),
 				system: this.state.systemPrompt,
 			});
@@ -609,6 +611,7 @@ export const runtimeFacetTurns = {
 			sessionKey: string;
 			guardedUserText: string;
 			runId: string;
+			actingUserId?: string;
 		},
 	): Promise<{
 		assistantText: string;
@@ -647,6 +650,7 @@ export const runtimeFacetTurns = {
 				aigMetadata: this.tediAigMetadata(source, {
 					runId: input.runId,
 					sessionKey: input.sessionKey,
+					...(input.actingUserId ? { actingUserId: input.actingUserId } : {}),
 				}),
 				modelRef:
 					this.modelOverrideForSurface(input.evaluation ? "chat" : "synthesis")
@@ -1375,6 +1379,8 @@ export const runtimeFacetTurns = {
 		this: RuntimeFacetTurnsHost,
 		input: {
 			sessionKey: string;
+			/** Member who started the turn; their credit cap applies to its model calls. */
+			actingUserId?: string;
 			guardedUserText: string;
 			userTs: number;
 			system: string;
@@ -1519,6 +1525,7 @@ export const runtimeFacetTurns = {
 					runId: input.gatewayAttributionRunId ?? input.runId,
 					sessionKey: input.sessionKey,
 					...(input.workItemId ? { workItemId: input.workItemId } : {}),
+					...(input.actingUserId ? { actingUserId: input.actingUserId } : {}),
 				}),
 				maxSteps: input.maxSteps,
 				// Per-SURFACE model selection: a scheduled turn can run on
@@ -1970,6 +1977,7 @@ export const runtimeFacetTurns = {
 			learningMode?: AdaptiveLearningMode;
 			callerTrust?: CallerTrustTier;
 			gatewayAttributionRunId?: string;
+			actingUserId?: string;
 		},
 	): Promise<{
 		ok: true;
@@ -2097,6 +2105,7 @@ export const runtimeFacetTurns = {
 						callerTrust: input.callerTrust,
 						gatewayAttributionRunId: input.gatewayAttributionRunId,
 						noFunds: input.noFunds,
+						...(input.actingUserId ? { actingUserId: input.actingUserId } : {}),
 					},
 					// Same explicit binding as the async-inject dispatch: the binding
 					// can't be auto-detected from the class name in this context.
@@ -2534,6 +2543,7 @@ export const runtimeFacetTurns = {
 		if (isBlindVerificationSession(input.sessionKey)) {
 			const judge = await this.runJudgeFacetTurn({
 				runId: input.runId,
+				...(input.actingUserId ? { actingUserId: input.actingUserId } : {}),
 				sessionKey: input.sessionKey,
 				guardedUserText: wrapUntrustedInput(input.userText, "mcp"),
 				userTs: input.userTs,
@@ -2569,6 +2579,7 @@ export const runtimeFacetTurns = {
 		if (input.evaluation || isWorkflowSynthesisSession(input.sessionKey)) {
 			const synthesis = await this.runSynthesisFacetTurn({
 				evaluation: input.evaluation,
+				...(input.actingUserId ? { actingUserId: input.actingUserId } : {}),
 				sessionKey: input.sessionKey,
 				guardedUserText: wrapUntrustedInput(input.userText, "mcp"),
 				runId: input.runId,
@@ -2653,6 +2664,10 @@ export const runtimeFacetTurns = {
 		try {
 			facetTurn = await this.runConversationFacetTurn({
 				freshHistory: isCronTurn,
+				// A scheduled maintenance cycle has no member behind it.
+				...(input.actingUserId && !isCronTurn
+					? { actingUserId: input.actingUserId }
+					: {}),
 				durableSubmissionId: `${input.runId}:segment:${input.computerContinuation ?? 0}`,
 				executionRestriction: input.executionRestriction,
 				guardedUserText,
