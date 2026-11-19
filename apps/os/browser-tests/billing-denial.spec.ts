@@ -5,9 +5,9 @@ await runShellSpec(async ({ origin, newPage, pageErrors }) => {
 	// Let Vite finish first-use module optimization before holding API responses.
 	const warm = await newPage();
 	await warm.goto(`${origin}/admin/billing`);
-	await warm.getByText("Token plan allowance", { exact: true }).waitFor();
+	await warm.getByText("Credits this month", { exact: true }).first().waitFor();
 	await warm
-		.getByRole("heading", { name: "Daily inference capacity", exact: true })
+		.getByRole("heading", { name: "Buy credit packs", exact: true })
 		.waitFor();
 	await warm.close();
 	for (const width of [390, 1280]) {
@@ -28,10 +28,16 @@ await runShellSpec(async ({ origin, newPage, pageErrors }) => {
 				}
 				if (route.request().url().includes("getOverview")) {
 					const body = await response.json();
-					body.json.inferenceCapacity.available = false;
-					body.json.inferenceCapacity.blockingReason =
-						"credit_allowance_exhausted";
-					body.json.inferenceCapacity.unblockAction = "top_up";
+					const credits = body.json.credits;
+					credits.usedCredits = credits.includedCredits;
+					credits.remainingIncludedCredits = 0;
+					credits.topUpCredits = 0;
+					credits.payAsYouGo.enabled = false;
+					body.json.admission = {
+						available: false,
+						blockingReason: "monthly_credit_limit_reached",
+						unblockAction: "top_up",
+					};
 					await route.fulfill({ response, json: body });
 				} else {
 					await route.fulfill({ response });
@@ -49,15 +55,14 @@ await runShellSpec(async ({ origin, newPage, pageErrors }) => {
 					"billing shell renders before the stalled read finishes",
 				);
 				release();
-				const reason = page.getByText(
-					"There are not enough usage credits for this request. (credit_allowance_exhausted)",
-					{ exact: true },
-				);
-				await reason.nth(1).waitFor();
+				const reason = page.getByText("Your organization is out of credits", {
+					exact: true,
+				});
+				await reason.first().waitFor();
 				assert.equal(
 					await reason.count(),
-					2,
-					"wallet and inference status agree",
+					1,
+					"the out-of-credits notice shows once",
 				);
 				assert.ok(
 					releasedResponses > 0,
@@ -78,6 +83,6 @@ await runShellSpec(async ({ origin, newPage, pageErrors }) => {
 	}
 	assert.deepEqual(pageErrors, []);
 	console.log(
-		"PASS: billing renders with stalled overview/plans, then shows matching credit denial reasons; phone and desktop",
+		"PASS: billing renders with stalled overview/plans, then shows the out-of-credits notice; phone and desktop",
 	);
 });
