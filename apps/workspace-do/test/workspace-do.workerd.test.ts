@@ -3055,6 +3055,7 @@ describe("WorkspaceDO", () => {
 	});
 
 	test("events replay from a cursor and a guest tedi's profile comes from its own object", async () => {
+		await seedCore();
 		const ws = workspace();
 		const before = await ws.readEvents(scope, { after: 0, limit: 5000 });
 		const last = before.at(-1)?.seq ?? 0;
@@ -3074,9 +3075,10 @@ describe("WorkspaceDO", () => {
 		const startedEvent = replayed.find(
 			(event) => event.type === "turn.started",
 		);
-		expect(
-			startedEvent?.type === "turn.started" && startedEvent.authorKind,
-		).toBe("tedi");
+		expect(startedEvent).toMatchObject({
+			authorId: "u1",
+			authorKind: "person",
+		});
 		const done = replayed.find((event) => event.type === "assistant.done");
 		expect(done?.type === "assistant.done" && done.text).toBe(
 			"Hello from the guest.",
@@ -6321,6 +6323,7 @@ describe("a message sent while the agent works", () => {
 	const midTurnScope = scope;
 	type MidTurnStub = Stub & {
 		readModelCalls(scope: WorkspaceScope): Promise<string[][]>;
+		readSystemPrompts(scope: WorkspaceScope): Promise<string[]>;
 	};
 	function midTurnWorkspace(): MidTurnStub {
 		return workspace(midTurnScope) as MidTurnStub;
@@ -6406,6 +6409,66 @@ describe("a message sent while the agent works", () => {
 			).toBeUndefined();
 		},
 	);
+
+	test("starts a separate turn for a guest tedi addressed while another agent works", async () => {
+		await seedCore();
+		const ws = midTurnWorkspace();
+		await ws.scriptModel(midTurnScope, [
+			{ code: SLOW_STEP },
+			{ text: "Review complete." },
+		]);
+		const turn = await ws.sendTurn(midTurnScope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Start the review",
+		});
+		const messageId = crypto.randomUUID();
+		const queued = await ws.sendTurn(midTurnScope, {
+			turnId: messageId,
+			conversationId: turn.conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "Guest, review the notes",
+			tediId: "tedi1",
+		});
+		expect(queued).toMatchObject({ turnId: turn.turnId, queued: true });
+		expect(await ws.awaitTurn(midTurnScope, turn.turnId, 20_000)).toMatchObject(
+			{
+				status: "finished",
+				text: "Review complete.",
+			},
+		);
+		await vi.waitFor(
+			async () => {
+				expect(
+					await ws.awaitTurn(midTurnScope, messageId, 20_000),
+				).toMatchObject({
+					status: "finished",
+					text: "Review complete.",
+				});
+			},
+			{ timeout: 30_000, interval: 100 },
+		);
+		expect((await ws.readSystemPrompts(midTurnScope)).at(-1)).toContain(
+			"You are tedi tedi1.",
+		);
+		const ledger = await events(ws, turn.conversationId);
+		expect(
+			ledger.find((event) => event.type === "message.queued"),
+		).toMatchObject({
+			messageId,
+			authorId: "u1",
+			authorKind: "person",
+		});
+		expect(
+			ledger.find(
+				(event) => event.type === "turn.started" && event.turnId === messageId,
+			),
+		).toMatchObject({
+			authorId: "u1",
+			authorKind: "person",
+		});
+	});
 
 	test("starts the next turn when the working turn ended before reading it", async () => {
 		await seedCore();

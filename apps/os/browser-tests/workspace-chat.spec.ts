@@ -96,6 +96,7 @@ try {
 								);
 								return;
 							}
+							const firstSeq = sent.length === 2 ? 1 : 50;
 							const base = {
 								at: new Date().toISOString(),
 								conversationId: "c1",
@@ -104,7 +105,7 @@ try {
 							for (const event of [
 								{
 									type: "turn.started",
-									seq: 1,
+									seq: firstSeq,
 									text: frame.text,
 									attachments: [
 										{
@@ -119,12 +120,12 @@ try {
 								},
 								{
 									type: "turn.model",
-									seq: 2,
+									seq: firstSeq + 1,
 									model: "provider-model-snapshot",
 								},
 								{
 									type: "assistant.done",
-									seq: 3,
+									seq: firstSeq + 2,
 									messageId: frame.clientTurnId,
 									text: "Here is your answer.",
 									model: "provider-model-snapshot",
@@ -137,7 +138,7 @@ try {
 								},
 								{
 									type: "turn.finished",
-									seq: 4,
+									seq: firstSeq + 3,
 									status: "done",
 									durationMs: 2000,
 								},
@@ -169,6 +170,19 @@ try {
 			await option.waitFor();
 			assert.equal(await page.getByRole("option").count(), 1);
 			await option.click();
+			const agentPicker = page.getByRole("combobox", {
+				name: "Replying agent",
+			});
+			await agentPicker.click();
+			await page
+				.getByRole("option", { name: "Personal Tedi", exact: true })
+				.waitFor();
+			assert.equal(
+				await page.getByRole("option", { name: "Other Person’s Tedi" }).count(),
+				0,
+			);
+			await page.getByRole("option", { name: "Operations Tedi" }).click();
+			assert.match(await agentPicker.innerText(), /Operations Tedi/);
 			await page
 				.getByRole("button", { name: "Add files", exact: true })
 				.click();
@@ -248,6 +262,8 @@ return focusClipAudit();
 			);
 			assert.equal(sent[0]?.modelId, "azure-openai/configured");
 			assert.deepEqual(sent[0]?.attachments, [{ outputId: "native-doc" }]);
+			assert.equal(sent[0]?.tediId, "tedi-ops");
+			assert.equal(sent[1]?.tediId, "tedi-ops");
 			await page
 				.getByRole("link", { name: "Planning notes", exact: true })
 				.waitFor();
@@ -395,6 +411,40 @@ return focusClipAudit();
 					() => document.documentElement.scrollWidth <= innerWidth,
 				),
 				`${width} ${theme}: horizontal overflow with a Connect card`,
+			);
+			const message = page.getByRole("textbox", {
+				name: "Message the workspace",
+			});
+			await message.fill("@Pers");
+			await page
+				.getByRole("group", { name: "Mention a tedi" })
+				.getByRole("button", { name: "Personal Tedi" })
+				.waitFor();
+			await message.fill("@Personal Tedi Please review the notes");
+			await message.press("Enter");
+			await page
+				.getByText("@Personal Tedi Please review the notes", { exact: true })
+				.waitFor();
+			assert.equal(sent[2]?.tediId, "tedi-personal");
+			push({
+				type: "turn.started",
+				seq: 54,
+				at: new Date().toISOString(),
+				conversationId: "c1",
+				turnId: "agent-started",
+				text: "I brought the planning notes.",
+				authorId: "tedi-ops",
+				authorKind: "tedi",
+			});
+			const agentMessage = page.getByTestId("workspace-chat-turn").filter({
+				hasText: "I brought the planning notes.",
+			});
+			await agentMessage
+				.getByText("Operations Tedi", { exact: true })
+				.waitFor();
+			assert.equal(
+				await agentMessage.locator('[data-entity-kind="tedi"]').count(),
+				1,
 			);
 		} finally {
 			await page.close();

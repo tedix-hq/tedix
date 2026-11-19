@@ -1451,11 +1451,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const now = new Date().toISOString();
 		this.#store.put("activity-scope", scope);
 		const author = {
-			authorId: input.tediId ?? input.actorId,
+			authorId: input.actorId,
 			authorKind:
-				input.tediId || input.actorKind === "tedi"
-					? ("tedi" as const)
-					: ("person" as const),
+				input.actorKind === "tedi" ? ("tedi" as const) : ("person" as const),
 		};
 		const working = input.conversationId
 			? this.#runningTurnIn(input.conversationId)
@@ -2006,6 +2004,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		if (!turn || turn.status !== "running") return [];
 		const taken: AddedMessage[] = [];
 		for (const message of this.#queuedMessages(turn.conversation_id)) {
+			const request = JSON.parse(message.request) as QueuedRequest;
+			// A message addressed to another tedi needs that tedi's own turn.
+			if (request.input.tediId && request.input.tediId !== turn.tedi_id) break;
 			const now = new Date().toISOString();
 			this.#store.run(
 				"UPDATE queued_messages SET status = 'read', turn_id = ? WHERE message_id = ?",
@@ -2027,7 +2028,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				type: "message.read",
 				turnId,
 				messageId: message.message_id,
-				...(JSON.parse(message.request) as QueuedRequest).shown,
+				...request.shown,
 			});
 			taken.push({ id: message.message_id, text: message.model_text });
 		}

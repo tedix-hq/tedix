@@ -70,7 +70,10 @@ import {
 	appEditRequestFrom,
 	publishPendingAppEdits,
 } from "@/lib/app-edit-approval";
-import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
+import {
+	WorkActorDirectoryContext,
+	WorkActorOwnerContext,
+} from "@/components/work-actor-avatar";
 import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { ReplyApprovalActions } from "@/components/workspace-chat-reply-actions";
@@ -89,8 +92,11 @@ import {
 	osQueryKeys,
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
+	tediRosterQueryOptions,
 } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
+import { useTediNames } from "@/lib/use-tedi-names";
+import { WorkspaceChatAuthor } from "./workspace-chat-author";
 import {
 	refForWorkspaceModelId,
 	useChatModelPreference,
@@ -350,12 +356,17 @@ export function WorkspaceChat({
 	}, [client, conversationId, onConversationCreated, state.conversationId]);
 
 	const send = useCallback(
-		(text: string, attachments?: Array<{ outputId: string }>) => {
+		(
+			text: string,
+			attachments?: Array<{ outputId: string }>,
+			tediId?: string,
+		) => {
 			const trimmed = text.trim();
 			if (!trimmed || !client || viewOnly) return;
 			notePost(trimmed);
 			return client.sendTurn({
 				text: trimmed,
+				...(tediId ? { tediId } : {}),
 				...(modelId ? { modelId } : {}),
 				...(attachments?.length ? { attachments } : {}),
 			});
@@ -423,13 +434,14 @@ export function WorkspaceChat({
 					modelControl={modelControl}
 					workspaceId={workspaceId}
 					onBrowseResources={onBrowseResources}
-					onSend={(text, attachments) => {
+					onSend={(text, attachments, tediId) => {
 						if (viewOnly) return undefined;
 						onSelectConversation(null);
 						notePost(text);
 						return client?.sendTurn({
 							text,
 							newConversation: true,
+							...(tediId ? { tediId } : {}),
 							...(modelId ? { modelId } : {}),
 							...(attachments?.length ? { attachments } : {}),
 						});
@@ -687,6 +699,7 @@ function Thread({
 	/** Sends a failed or stopped turn's own message again; `null` while busy. */
 	onRetry: RetryTurn | null;
 }) {
+	const tediNames = useTediNames();
 	const scroller = useRef<HTMLDivElement | null>(null);
 	const stick = useRef(true);
 	const shownConversation = useRef(conversationId);
@@ -752,9 +765,10 @@ function Thread({
 							: null
 					}
 					turn={turn}
+					tediNames={tediNames}
 				/>
 			))}
-			<QueuedMessages messages={queued} />
+			<QueuedMessages messages={queued} tediNames={tediNames} />
 			{pendingSend ? (
 				<div className="workspace-chat-turn" data-pending="true">
 					<UserBubble text={pendingSend.text} />
@@ -780,6 +794,7 @@ const CONTINUE_TEXT =
 function TurnView({
 	workspaceId,
 	turn,
+	tediNames,
 	modelLabel,
 	latest,
 	onDecide,
@@ -789,6 +804,7 @@ function TurnView({
 }: {
 	workspaceId: string;
 	turn: ChatTurn;
+	tediNames: Record<string, string>;
 	/** The catalog name of the model that answered, else its id. */
 	modelLabel: string | undefined;
 	/** The newest turn of the thread. */
@@ -812,7 +828,18 @@ function TurnView({
 			data-testid="workspace-chat-turn"
 		>
 			{turn.summarizedEarlier ? <SummarisedMarker /> : null}
-			{turn.text ? <UserBubble text={turn.text} /> : null}
+			{turn.text ? (
+				<>
+					{turn.authorId ? (
+						<WorkspaceChatAuthor
+							id={turn.authorId}
+							kind={turn.authorKind}
+							tediNames={tediNames}
+						/>
+					) : null}
+					<UserBubble text={turn.text} />
+				</>
+			) : null}
 			{turn.attachments?.length ? (
 				<ul aria-label="Message files" className="m-0 grid list-none gap-1 p-0">
 					{turn.attachments.map((file) => (
@@ -832,7 +859,7 @@ function TurnView({
 					))}
 				</ul>
 			) : null}
-			<AddedMessages messages={turn.added} />
+			<AddedMessages messages={turn.added} tediNames={tediNames} />
 			<div className="workspace-chat-reply" key={turn.replyKey}>
 				{turn.steps.length > 0 ? (
 					<Activity steps={turn.steps} approvals={turn.approvals} />
@@ -1500,6 +1527,7 @@ function Composer({
 	onSend: (
 		text: string,
 		attachments?: Array<{ outputId: string }>,
+		tediId?: string,
 	) => string | undefined;
 	state: WorkspaceChatState;
 	client: WorkspaceChatClient | null;
@@ -1519,6 +1547,32 @@ function Composer({
 	// An unsent message survives a reload and a switch to another conversation.
 	const draftKey = `tedix.workspace-chat.draft.${workspaceId}.${client?.getConversationId() ?? "new"}`;
 	const [draft, setDraftText] = useState(() => readDraft(draftKey));
+	const [pickedTediId, setPickedTediId] = useState<string | null>(null);
+	const ownerId = useContext(WorkActorOwnerContext);
+	const tedis = useQuery({
+		...tediRosterQueryOptions(100, { status: "active" }),
+		enabled: disabledReason === null,
+		staleTime: 60_000,
+	});
+	const recipients = (tedis.data?.data ?? [])
+		.filter(
+			(tedi) =>
+				tedi.status === "active" &&
+				(tedi.scope === "organization" ||
+					(ownerId && tedi.ownerUserId === ownerId)),
+		)
+		.map((tedi) => ({ id: tedi.id, name: tedi.displayName ?? tedi.name }));
+	const pickedTedi = recipients.find((tedi) => tedi.id === pickedTediId);
+	const mention = /(?:^|\s)@([^\s@]*)$/u.exec(draft)?.[1];
+	const mentionOptions =
+		mention !== undefined
+			? recipients
+					.filter((tedi) =>
+						tedi.name.toLowerCase().startsWith(mention.toLowerCase()),
+					)
+					.slice(0, 6)
+			: [];
+	const [mentionDismissed, setMentionDismissed] = useState(false);
 	const setDraft = (next: string | ((text: string) => string)) =>
 		setDraftText((text) => {
 			const value = typeof next === "function" ? next(text) : next;
@@ -1561,6 +1615,7 @@ function Composer({
 			return;
 		}
 		setSelected([]);
+		setPickedTediId(null);
 		uploads.clear();
 		setDraftText(readDraft(draftKey));
 		setSubmitted(null);
@@ -1618,9 +1673,14 @@ function Composer({
 	const submit = (event?: FormEvent) => {
 		event?.preventDefault();
 		if (disabledReason || submitted || uploads.busy || !draft.trim()) return;
+		const mentioned = mentionedPeople(
+			draft,
+			recipients.map(({ id, name }) => [id, name]),
+		);
 		const id = onSend(
 			draft,
 			selected.map(({ outputId }) => ({ outputId })),
+			mentioned.length === 1 ? mentioned[0] : pickedTedi?.id,
 		);
 		if (id) returnedMessages.sent(id);
 		if (id)
@@ -1679,6 +1739,16 @@ function Composer({
 		textarea.current?.focus();
 	};
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+		if (
+			event.key === "Escape" &&
+			!mentionDismissed &&
+			mentionOptions.length &&
+			!isImeComposing(event)
+		) {
+			event.preventDefault();
+			setMentionDismissed(true);
+			return;
+		}
 		if (skillPickerOpen && !isImeComposing(event)) {
 			if (
 				skillMatches.length > 0 &&
@@ -1745,11 +1815,42 @@ function Composer({
 					}
 					onRemoveUpload={uploads.remove}
 				/>
+				{mention !== undefined &&
+				!mentionDismissed &&
+				disabledReason === null &&
+				mentionOptions.length > 0 ? (
+					<div
+						className="flex flex-wrap gap-1"
+						aria-label="Mention a tedi"
+						role="group"
+					>
+						{mentionOptions.map((tedi) => (
+							<Button
+								key={tedi.id}
+								type="button"
+								size="xs"
+								variant="ghost"
+								onClick={() => {
+									setDraft(
+										`${draft.slice(0, draft.length - mention.length)}${tedi.name} `,
+									);
+									setPickedTediId(tedi.id);
+									textarea.current?.focus();
+								}}
+							>
+								{tedi.name}
+							</Button>
+						))}
+					</div>
+				) : null}
 				<Textarea
 					aria-label="Message the workspace"
 					className="workspace-chat-composer-input"
 					disabled={disabledReason !== null}
-					onChange={(event) => setDraft(event.target.value)}
+					onChange={(event) => {
+						setMentionDismissed(false);
+						setDraft(event.target.value);
+					}}
 					onKeyDown={onKeyDown}
 					onPaste={(event) => {
 						const files = pastedFiles(event);
@@ -1784,7 +1885,34 @@ function Composer({
 							}
 						/>
 					) : null}
-					<div className="workspace-chat-model">{modelControl}</div>
+					<div className="workspace-chat-model">
+						{recipients.length > 0 && disabledReason === null ? (
+							<Select
+								value={pickedTedi?.id ?? ""}
+								onValueChange={(id) => setPickedTediId(id || null)}
+								disabled={client === null}
+							>
+								<SelectTrigger
+									aria-label="Replying agent"
+									className="workspace-chat-model-trigger"
+									size="sm"
+								>
+									<SelectValue>
+										{pickedTedi?.name ?? "Workspace agent"}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="">Workspace agent</SelectItem>
+									{recipients.map((tedi) => (
+										<SelectItem key={tedi.id} value={tedi.id}>
+											{tedi.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						) : null}
+						{modelControl}
+					</div>
 					{onStop ? (
 						<Button
 							aria-label="Stop"
