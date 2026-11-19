@@ -109,6 +109,9 @@ vi.mock("@tedix/db/queries/approvals", async (load) => ({
 vi.mock("../lib/first-party-mcp", () => ({
 	requestFirstPartyMcp: mocks.gateway,
 }));
+// Load the real governance router during test collection so the first case
+// measures the adapter call without Vite's cold transform of the router graph.
+import "../rpc/routers/mcp-governance";
 import { callWorkspaceAppConnection } from "./os-app-connection";
 import {
 	decideLinkedWorkspaceAccountApproval,
