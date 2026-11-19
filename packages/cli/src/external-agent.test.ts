@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -415,7 +415,6 @@ describe("external-agent CLI session", () => {
 	);
 
 	test.each([
-		["busy then success", 409, "credential_issuance_in_progress", 2, true],
 		["immutable conflict", 409, "immutable_session_conflict", 1, false],
 		["unknown conflict", 409, undefined, 1, false],
 		["server failure", 503, undefined, 2, false],
@@ -834,30 +833,48 @@ describe("external-agent CLI session", () => {
 			createdAt: "2026-07-22T00:00:00.000Z",
 			sessions: {},
 		});
-		let attempts = 0;
-		const started = await startExternalAgentSession({
-			workspace: "tedix",
-			mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
-			harness: "codex",
-			harnessVersion: "1.2.3",
-			modelProvider: "openai",
-			modelId: "gpt-5.6",
-			modelVersion: "2026-07-22",
-			fetch: async () => {
-				attempts += 1;
-				return attempts < 5
-					? Response.json(
-							{
-								error: "Credential issuance is busy; retry shortly",
-								code: "credential_issuance_in_progress",
-							},
-							{ status: 409 },
-						)
-					: exchangeResponse();
-			},
-		});
-		expect(started.session.id).toBe(SESSION);
-		expect(attempts).toBe(5);
+		const bodies: string[] = [];
+		const backoffs: number[] = [];
+		const schedule = globalThis.setTimeout;
+		const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
+			...args: Parameters<typeof setTimeout>
+		) => {
+			const delay = args[1];
+			if (delay !== undefined && delay <= 2_000) {
+				backoffs.push(delay);
+				args[1] = 0;
+			}
+			return schedule(...args);
+		}) as typeof setTimeout);
+		try {
+			const started = await startExternalAgentSession({
+				workspace: "tedix",
+				mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+				harness: "codex",
+				harnessVersion: "1.2.3",
+				modelProvider: "openai",
+				modelId: "gpt-5.6",
+				modelVersion: "2026-07-22",
+				fetch: async (_url, init) => {
+					bodies.push(String(init?.body));
+					return bodies.length < 5
+						? Response.json(
+								{
+									error: "Credential issuance is busy; retry shortly",
+									code: "credential_issuance_in_progress",
+								},
+								{ status: 409 },
+							)
+						: exchangeResponse();
+				},
+			});
+			expect(started.session.id).toBe(SESSION);
+			expect(bodies).toHaveLength(5);
+			expect(new Set(bodies).size).toBe(1);
+			expect(backoffs).toEqual([250, 500, 1000, 2000]);
+		} finally {
+			timer.mockRestore();
+		}
 	});
 
 	test("settles an unfinished attempt before ending a session", async () => {

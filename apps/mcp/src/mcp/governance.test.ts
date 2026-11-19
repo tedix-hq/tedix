@@ -1069,7 +1069,7 @@ describe("destructive tool approval — Work Item authorization", () => {
 			aggregateLabel,
 			expected,
 		] of cases) {
-			const context = grantApprovalContext({ appSlug });
+			const context = grantApprovalContext({ appSlug, elicitInput: vi.fn() });
 			expect(
 				isTedixOwnedChannelPublishBoundary(
 					{ ...context, connectionLabel },

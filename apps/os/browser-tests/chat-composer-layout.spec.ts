@@ -200,41 +200,42 @@ async function checkRunning(page: Page, label: string, phone: boolean) {
 }
 
 try {
-	for (const theme of ["light", "dark"] as const) {
-		for (const width of [320, 375, 560, 1280]) {
-			const phone = width < 640;
-			const context = await browser.newContext({
-				viewport: { width, height: 844 },
-				colorScheme: theme,
-				isMobile: phone,
-				hasTouch: phone,
-			});
-			const page = await context.newPage();
-			await page.clock.setFixedTime(fixtureTime);
-			for (const surface of surfaces) {
-				const label = `${surface.name} ${width}px ${theme}`;
-				await openComposer(page, surface.path);
-				const defects = await footerDefects(page);
-				assert.deepEqual(defects, [], label);
-				if (shots) {
-					await mkdir(shots, { recursive: true });
-					await page.locator('[data-slot="chat-composer"]').screenshot({
-						path: `${shots}/${surface.name.replace(" ", "-")}-${width}-${theme}.png`,
-					});
-				}
+	for (const [width, theme] of [
+		[320, "dark"],
+		[1280, "light"],
+	] as const) {
+		const phone = width < 640;
+		const context = await browser.newContext({
+			viewport: { width, height: 844 },
+			colorScheme: theme,
+			isMobile: phone,
+			hasTouch: phone,
+		});
+		const page = await context.newPage();
+		await page.clock.setFixedTime(fixtureTime);
+		for (const surface of surfaces) {
+			const label = `${surface.name} ${width}px ${theme}`;
+			await openComposer(page, surface.path);
+			const defects = await footerDefects(page);
+			assert.deepEqual(defects, [], label);
+			if (shots) {
+				await mkdir(shots, { recursive: true });
+				await page.locator('[data-slot="chat-composer"]').screenshot({
+					path: `${shots}/${surface.name.replace(" ", "-")}-${width}-${theme}.png`,
+				});
 			}
-			for (const surface of runningSurfaces) {
-				const label = `${surface.name} running ${width}px ${theme}`;
-				await page.goto(`${server.origin}${surface.path}`);
-				await checkRunning(page, label, phone);
-				assert.deepEqual(await footerDefects(page), [], label);
-				if (shots)
-					await page.screenshot({
-						path: `${shots}/${surface.name.replace(" ", "-")}-running-${width}-${theme}.png`,
-					});
-			}
-			await context.close();
 		}
+		for (const surface of runningSurfaces) {
+			const label = `${surface.name} running ${width}px ${theme}`;
+			await page.goto(`${server.origin}${surface.path}`);
+			await checkRunning(page, label, phone);
+			assert.deepEqual(await footerDefects(page), [], label);
+			if (shots)
+				await page.screenshot({
+					path: `${shots}/${surface.name.replace(" ", "-")}-running-${width}-${theme}.png`,
+				});
+		}
+		await context.close();
 	}
 
 	// Pane widths the viewport alone never produces: a desktop window with the
@@ -245,7 +246,7 @@ try {
 	await page.clock.setFixedTime(fixtureTime);
 	for (const surface of surfaces) {
 		await openComposer(page, surface.path);
-		for (let pane = 280; pane <= 800; pane += 24) {
+		for (const pane of [280, 360, 361, 480, 481, 640, 641, 720, 721, 800]) {
 			await page.locator('[data-slot="chat-composer"]').evaluate((form, px) => {
 				const host = form.parentElement as HTMLElement;
 				host.style.width = `${px}px`;

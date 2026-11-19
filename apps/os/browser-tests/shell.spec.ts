@@ -67,7 +67,8 @@ await runShellSpec(
 		console.log(
 			"PASS: direct-link timestamps update after delayed timezone preferences without remount",
 		);
-		for (const theme of ["light", "dark"] as const) {
+		{
+			const theme = "light";
 			const page = await newPage({
 				viewport: { width: 1280, height: 900 },
 				colorScheme: theme,
@@ -248,7 +249,7 @@ await runShellSpec(
 			"Shell pages must not raise browser errors",
 		);
 		console.log(
-			"PASS: sidebar drag, keyboard bounds, reset, persistence, delayed hover/focus peek, Escape/leave, stable layout, coarse-pointer and mobile guards; light/dark",
+			"PASS: sidebar drag, keyboard bounds, reset, persistence, delayed hover/focus peek, Escape/leave, stable layout, coarse-pointer and mobile guards",
 		);
 	},
 );

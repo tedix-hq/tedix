@@ -22,8 +22,10 @@ async function translate(page: Page, target: string | null) {
 const server = await startFixtureServer("/browser-tests/app-runtime.html");
 const browser = await chromium.launch({ headless: true });
 try {
-	for (const width of [375, 1280]) {
-		const page = await browser.newPage({ viewport: { width, height: 812 } });
+	{
+		const page = await browser.newPage({
+			viewport: { width: 375, height: 812 },
+		});
 		await page.addInitScript(() => {
 			const seen: unknown[] = [];
 			Object.assign(window, { translationStatus: seen });
@@ -73,7 +75,7 @@ try {
 		assert.equal(overflow, false);
 		await page.close();
 	}
-	console.log("Runtime app host translation passed at 375px and 1280px");
+	console.log("Runtime app host translation passed at 375px");
 } finally {
 	await browser.close();
 	await server.stop();

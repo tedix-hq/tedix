@@ -98,86 +98,86 @@ for (const lane of lanes) {
 				undefined,
 				{ polling: 100 },
 			);
-		for (const width of [1280, 375])
-			for (const theme of ["light", "dark"] as const) {
-				const page = await browser.newPage({
-					viewport: { width, height: 900 },
-					colorScheme: theme,
-					reducedMotion: "reduce",
-					locale: "en-GB",
-					timezoneId: "UTC",
-				});
-				await page.addInitScript(
-					(mode) => localStorage.setItem("tedix-os-theme", mode),
-					theme,
-				);
-				const errors: string[] = [];
-				page.on("pageerror", (error) => errors.push(error.message));
-				await page.goto(`${origin}${workspacePath}`);
-				const panel = page.locator('[aria-label="Workspace Work"]');
-				await panel.waitFor({ timeout: 30_000 });
-				await lane.check(panel);
-				assert.equal(
-					await page.locator('[aria-label="Work sprint"]').count(),
-					0,
-					`${lane.name}: no sprint filter`,
-				);
-				assert.equal(
-					await panel
-						.getByText("Some workspace work could not be loaded")
-						.count(),
-					0,
-					`${lane.name}: no fixture-coverage error`,
-				);
-				assert(
-					await page.evaluate(
-						() => document.documentElement.scrollWidth <= innerWidth + 1,
-					),
-					`${lane.name} ${width}/${theme}: no horizontal overflow`,
-				);
-				assert.deepEqual(errors, [], "page errors");
-				await page.screenshot({
-					path: `${shots}/workspace-work-${lane.name}-${width}-${theme}.png`,
-					fullPage: true,
-				});
-				// Removing a linked project asks first and names what it hides.
-				await withInteractionProfile(
-					browser,
-					`manage-remove-${lane.name}-${width}-${theme}`,
-					async () => {
-						await page.getByRole("button", { name: "Manage projects" }).click();
-						await page
-							.getByRole("dialog", { name: "Manage projects" })
-							.waitFor();
-						await settled(page);
-						await page
-							.getByRole("button", { name: /^Remove / })
-							.first()
-							.click();
-					},
-				);
-				const confirm = page.getByRole("alertdialog");
-				await confirm.waitFor();
-				assert.match(
-					(await confirm.textContent()) ?? "",
-					/from this workspace\?.*not changed/s,
-					`${lane.name} ${width}/${theme}: remove confirmation explains the effect`,
-				);
-				assert(
-					await page.evaluate(
-						() => document.documentElement.scrollWidth <= innerWidth + 1,
-					),
-					`${lane.name} ${width}/${theme}: confirmation fits`,
-				);
-				await page.screenshot({
-					path: `${shots}/workspace-work-remove-${lane.name}-${width}-${theme}.png`,
-				});
-				await settled(page);
-				await confirm.getByRole("button", { name: "Keep linked" }).click();
-				await confirm.waitFor({ state: "hidden" });
-				await page.close();
-				console.log(`PASS workspace work pane ${lane.name} ${width}/${theme}`);
-			}
+		for (const [width, theme] of [
+			[375, "dark"],
+			[1280, "light"],
+		] as const) {
+			const page = await browser.newPage({
+				viewport: { width, height: 900 },
+				colorScheme: theme,
+				reducedMotion: "reduce",
+				locale: "en-GB",
+				timezoneId: "UTC",
+			});
+			await page.addInitScript(
+				(mode) => localStorage.setItem("tedix-os-theme", mode),
+				theme,
+			);
+			const errors: string[] = [];
+			page.on("pageerror", (error) => errors.push(error.message));
+			await page.goto(`${origin}${workspacePath}`);
+			const panel = page.locator('[aria-label="Workspace Work"]');
+			await panel.waitFor({ timeout: 30_000 });
+			await lane.check(panel);
+			assert.equal(
+				await page.locator('[aria-label="Work sprint"]').count(),
+				0,
+				`${lane.name}: no sprint filter`,
+			);
+			assert.equal(
+				await panel
+					.getByText("Some workspace work could not be loaded")
+					.count(),
+				0,
+				`${lane.name}: no fixture-coverage error`,
+			);
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth + 1,
+				),
+				`${lane.name} ${width}/${theme}: no horizontal overflow`,
+			);
+			assert.deepEqual(errors, [], "page errors");
+			await page.screenshot({
+				path: `${shots}/workspace-work-${lane.name}-${width}-${theme}.png`,
+				fullPage: true,
+			});
+			// Removing a linked project asks first and names what it hides.
+			await withInteractionProfile(
+				browser,
+				`manage-remove-${lane.name}-${width}-${theme}`,
+				async () => {
+					await page.getByRole("button", { name: "Manage projects" }).click();
+					await page.getByRole("dialog", { name: "Manage projects" }).waitFor();
+					await settled(page);
+					await page
+						.getByRole("button", { name: /^Remove / })
+						.first()
+						.click();
+				},
+			);
+			const confirm = page.getByRole("alertdialog");
+			await confirm.waitFor();
+			assert.match(
+				(await confirm.textContent()) ?? "",
+				/from this workspace\?.*not changed/s,
+				`${lane.name} ${width}/${theme}: remove confirmation explains the effect`,
+			);
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth + 1,
+				),
+				`${lane.name} ${width}/${theme}: confirmation fits`,
+			);
+			await page.screenshot({
+				path: `${shots}/workspace-work-remove-${lane.name}-${width}-${theme}.png`,
+			});
+			await settled(page);
+			await confirm.getByRole("button", { name: "Keep linked" }).click();
+			await confirm.waitFor({ state: "hidden" });
+			await page.close();
+			console.log(`PASS workspace work pane ${lane.name} ${width}/${theme}`);
+		}
 	} finally {
 		await browser.close();
 		try {

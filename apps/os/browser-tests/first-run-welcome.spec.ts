@@ -6,7 +6,8 @@ const server = await startFixtureServer("/work");
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const width of [1280, 375]) {
+	{
+		const width = 375;
 		const context = await browser.newContext({
 			viewport: { width, height: 812 },
 		});

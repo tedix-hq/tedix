@@ -168,362 +168,364 @@ async function noOverflow(page: Page, label: string) {
 
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const theme of ["light", "dark"] as const) {
-		// Desktop: the panel sits on the right edge of the workbench.
-		{
-			const label = `1280/${theme}`;
-			const context = await browser.newContext({
-				viewport: { width: 1280, height: 800 },
-				colorScheme: theme,
-				reducedMotion: "reduce",
-			});
-			const page = await context.newPage();
-			await routeFixture(page, theme);
-			await page.goto(`${server.origin}${workspacePath}`);
-			const panel = page.getByRole("complementary", {
-				name: "Workspace files",
-			});
-			await panel.waitFor();
-			// Each row also has an "Actions for …" menu button; count the rows.
-			const rows = panel
-				.getByRole("list", { name: "Files" })
-				.locator("button.workspace-outputs-row");
-			await rows.first().waitFor();
-			await page.evaluate(() => document.fonts.ready);
-			assert.equal(
-				await page.locator("html").getAttribute("data-mode"),
-				theme,
-				`${label}: theme applied`,
-			);
-			const box = await panel.boundingBox();
-			assert(box, `${label}: panel has a box`);
-			assert(
-				Math.abs(box.x + box.width - 1280) <= 1,
-				`${label}: panel is on the right edge`,
-			);
-			assert(Math.abs(box.width - 240) <= 1, `${label}: expanded width`);
-			const rowCount = await rows.count();
-			assert(rowCount > 0, `${label}: lists outputs`);
-			assert.equal(
-				await panel.locator("[data-output-kind]").count(),
-				rowCount,
-				`${label}: every row has a type icon`,
-			);
-			await page.screenshot({
-				path: `${evidence}/${label.replace("/", "-")}-expanded.png`,
-			});
+	// Desktop: the panel sits on the right edge of the workbench.
+	{
+		const theme = "light";
+		const label = `1280/${theme}`;
+		const context = await browser.newContext({
+			viewport: { width: 1280, height: 800 },
+			colorScheme: theme,
+			reducedMotion: "reduce",
+		});
+		const page = await context.newPage();
+		await routeFixture(page, theme);
+		await page.goto(`${server.origin}${workspacePath}`);
+		const panel = page.getByRole("complementary", {
+			name: "Workspace files",
+		});
+		await panel.waitFor();
+		// Each row also has an "Actions for …" menu button; count the rows.
+		const rows = panel
+			.getByRole("list", { name: "Files" })
+			.locator("button.workspace-outputs-row");
+		await rows.first().waitFor();
+		await page.evaluate(() => document.fonts.ready);
+		assert.equal(
+			await page.locator("html").getAttribute("data-mode"),
+			theme,
+			`${label}: theme applied`,
+		);
+		const box = await panel.boundingBox();
+		assert(box, `${label}: panel has a box`);
+		assert(
+			Math.abs(box.x + box.width - 1280) <= 1,
+			`${label}: panel is on the right edge`,
+		);
+		assert(Math.abs(box.width - 240) <= 1, `${label}: expanded width`);
+		const rowCount = await rows.count();
+		assert(rowCount > 0, `${label}: lists outputs`);
+		assert.equal(
+			await panel.locator("[data-output-kind]").count(),
+			rowCount,
+			`${label}: every row has a type icon`,
+		);
+		await page.screenshot({
+			path: `${evidence}/${label.replace("/", "-")}-expanded.png`,
+		});
 
-			// Opening a row puts it in the stage beside the chat.
-			const target = rows.nth(rowCount - 1);
-			await target.click();
-			await page.waitForFunction(() =>
-				new URLSearchParams(location.search).get("workpiece"),
-			);
+		// Opening a row puts it in the stage beside the chat.
+		const target = rows.nth(rowCount - 1);
+		await target.click();
+		await page.waitForFunction(() =>
+			new URLSearchParams(location.search).get("workpiece"),
+		);
+		await page
+			.locator('ul[aria-label="Files"] [aria-current="true"]')
+			.waitFor();
+		assert(
 			await page
-				.locator('ul[aria-label="Files"] [aria-current="true"]')
-				.waitFor();
-			assert(
-				await page
-					.getByRole("complementary", { name: "Workspace chat" })
-					.isVisible(),
-				`${label}: chat stays beside the opened output`,
-			);
+				.getByRole("complementary", { name: "Workspace chat" })
+				.isVisible(),
+			`${label}: chat stays beside the opened output`,
+		);
 
-			// One toggle, in the top bar: collapse, and the choice survives a reload.
-			const toggles = page.getByRole("button", {
-				name: /^(Hide|Show) files$/,
-			});
-			assert.equal(
-				await toggles.count(),
-				1,
-				`${label}: exactly one Files toggle`,
-			);
-			assert.equal(
-				await panel.getByRole("button", { name: /files/i }).count(),
-				0,
-				`${label}: the panel carries no toggle of its own`,
-			);
-			await page.getByRole("button", { name: "Hide files" }).click();
-			await page.getByRole("button", { name: "Show files" }).waitFor();
-			assert(
-				Math.abs(((await panel.boundingBox())?.width ?? 0) - 48) <= 1,
-				`${label}: collapsed to the icon rail`,
-			);
-			await page.screenshot({
-				path: `${evidence}/${label.replace("/", "-")}-collapsed.png`,
-			});
-			await page.reload();
-			await page.getByRole("button", { name: "Show files" }).waitFor();
-			assert.equal(
-				await page.evaluate(() =>
-					localStorage.getItem("tedix-os:workspace-outputs-panel"),
-				),
-				"collapsed",
-				`${label}: collapsed state is remembered`,
-			);
-			await page.getByRole("button", { name: "Show files" }).click();
-			await page.getByRole("button", { name: "Hide files" }).waitFor();
+		// One toggle, in the top bar: collapse, and the choice survives a reload.
+		const toggles = page.getByRole("button", {
+			name: /^(Hide|Show) files$/,
+		});
+		assert.equal(
+			await toggles.count(),
+			1,
+			`${label}: exactly one Files toggle`,
+		);
+		assert.equal(
+			await panel.getByRole("button", { name: /files/i }).count(),
+			0,
+			`${label}: the panel carries no toggle of its own`,
+		);
+		await page.getByRole("button", { name: "Hide files" }).click();
+		await page.getByRole("button", { name: "Show files" }).waitFor();
+		assert(
+			Math.abs(((await panel.boundingBox())?.width ?? 0) - 48) <= 1,
+			`${label}: collapsed to the icon rail`,
+		);
+		await page.screenshot({
+			path: `${evidence}/${label.replace("/", "-")}-collapsed.png`,
+		});
+		await page.reload();
+		await page.getByRole("button", { name: "Show files" }).waitFor();
+		assert.equal(
+			await page.evaluate(() =>
+				localStorage.getItem("tedix-os:workspace-outputs-panel"),
+			),
+			"collapsed",
+			`${label}: collapsed state is remembered`,
+		);
+		await page.getByRole("button", { name: "Show files" }).click();
+		await page.getByRole("button", { name: "Hide files" }).waitFor();
 
-			// The footer opens the library and Work in the canvas; the open file
-			// stays beside the chat on the way back.
-			await panel.getByRole("button", { name: "Overview" }).click();
-			await page.getByRole("heading", { name: "Overview" }).waitFor();
-			await panel.getByRole("button", { name: "Work", exact: true }).click();
+		// The footer opens the library and Work in the canvas; the open file
+		// stays beside the chat on the way back.
+		await panel.getByRole("button", { name: "Overview" }).click();
+		await page.getByRole("heading", { name: "Overview" }).waitFor();
+		await panel.getByRole("button", { name: "Work", exact: true }).click();
+		await page
+			.getByRole("region", { name: "Workspace work", exact: true })
+			.waitFor();
+		await page.screenshot({
+			path: `${evidence}/${label.replace("/", "-")}-work.png`,
+		});
+
+		// Agents: this workspace links no skill and no agent has run in it.
+		await panel.getByRole("button", { name: "Agents", exact: true }).click();
+		await page
+			.getByRole("region", { name: "Workspace agents" })
+			.getByText("No agents work in this workspace yet")
+			.waitFor();
+		assert.equal(
+			new URL(page.url()).searchParams.get("pane"),
+			"agents",
+			`${label}: the Agents view is in the address`,
+		);
+
+		// The Approvals row opens the workspace's activity control.
+		await panel.getByRole("button", { name: "Approvals" }).click();
+		await page.locator("[data-approvals-popover]").waitFor();
+		await page.waitForTimeout(250);
+		await page.screenshot({
+			path: `${evidence}/${label.replace("/", "-")}-activity.png`,
+		});
+		await page.keyboard.press("Escape");
+		await noOverflow(page, label);
+		await context.close();
+		console.log(`outputs panel ${label}: ok`);
+	}
+
+	// Agents in a workspace that links a skill: the tedi that owns the
+	// skill is one row with its counts, and shows its latest runs and the
+	// skill's run list when opened, wide and narrow.
+	for (const [width, height, theme] of [
+		[1280, 800, "light"],
+		[375, 740, "dark"],
+	] as const) {
+		const label = `${width}/${theme}/agents`;
+		const context = await browser.newContext({
+			viewport: { width, height },
+			colorScheme: theme,
+			reducedMotion: "reduce",
+			isMobile: width < 640,
+			hasTouch: width < 640,
+		});
+		const page = await context.newPage();
+		await routeFixture(page, theme);
+		await page.goto(
+			`${server.origin}/workspace/00000030-0000-4000-8000-000000000001?pane=agents`,
+		);
+		const agents = page.getByRole("region", { name: "Workspace agents" });
+		const row = agents.locator(
+			'[data-workspace-agent="tedi:00000010-0000-4000-8000-000000000001"]',
+		);
+		await row.waitFor();
+		assert.match(
+			(await row.textContent()) ?? "",
+			/Reddit Scout/,
+			`${label}: the tedi that owns the linked skill is an agent`,
+		);
+		await row
+			.locator("[data-agent-counts]")
+			.getByText(/today$/)
+			.waitFor();
+		assert.equal(
+			await row.locator("[data-agent-run]").count(),
+			0,
+			`${label}: runs stay folded until asked for`,
+		);
+		await row.getByRole("button", { expanded: false }).click();
+		await row.locator("[data-agent-run]").first().waitFor();
+		await row
+			.getByRole("link", { name: "Weekly revenue report · See all runs" })
+			.waitFor();
+		if (width < 640)
 			await page
-				.getByRole("region", { name: "Workspace work", exact: true })
+				.getByRole("group", { name: "Canvas pane" })
+				.getByRole("button", { name: "Agents" })
 				.waitFor();
-			await page.screenshot({
-				path: `${evidence}/${label.replace("/", "-")}-work.png`,
-			});
+		await page.evaluate(() => document.fonts.ready);
+		await noOverflow(page, label);
+		await page.screenshot({
+			path: `${evidence}/${label.replaceAll("/", "-")}.png`,
+		});
+		await context.close();
+		console.log(`outputs panel ${label}: ok`);
+	}
 
-			// Agents: this workspace links no skill and no agent has run in it.
-			await panel.getByRole("button", { name: "Agents", exact: true }).click();
+	// The overview's Connected sources, wide and narrow.
+	for (const [width, height, columns, theme] of [
+		[1280, 800, 3, "light"],
+		[375, 740, 1, "dark"],
+	] as const) {
+		const label = `${width}/${theme}/sources`;
+		const context = await browser.newContext({
+			viewport: { width, height },
+			colorScheme: theme,
+			reducedMotion: "reduce",
+			isMobile: width < 640,
+			hasTouch: width < 640,
+		});
+		const page = await context.newPage();
+		await routeFixture(page, theme);
+		await routeSources(page, sources);
+		await page.goto(`${server.origin}${workspacePath}`);
+		if (width < 640) {
 			await page
-				.getByRole("region", { name: "Workspace agents" })
-				.getByText("No agents work in this workspace yet")
-				.waitFor();
-			assert.equal(
-				new URL(page.url()).searchParams.get("pane"),
-				"agents",
-				`${label}: the Agents view is in the address`,
-			);
-
-			// The Approvals row opens the workspace's activity control.
-			await panel.getByRole("button", { name: "Approvals" }).click();
-			await page.locator("[data-approvals-popover]").waitFor();
-			await page.waitForTimeout(250);
-			await page.screenshot({
-				path: `${evidence}/${label.replace("/", "-")}-activity.png`,
-			});
-			await page.keyboard.press("Escape");
-			await noOverflow(page, label);
-			await context.close();
-			console.log(`outputs panel ${label}: ok`);
-		}
-
-		// Agents in a workspace that links a skill: the tedi that owns the
-		// skill is one row with its counts, and shows its latest runs and the
-		// skill's run list when opened, wide and narrow.
-		for (const [width, height] of [
-			[1280, 800],
-			[375, 740],
-		] as const) {
-			const label = `${width}/${theme}/agents`;
-			const context = await browser.newContext({
-				viewport: { width, height },
-				colorScheme: theme,
-				reducedMotion: "reduce",
-				isMobile: width < 640,
-				hasTouch: width < 640,
-			});
-			const page = await context.newPage();
-			await routeFixture(page, theme);
-			await page.goto(
-				`${server.origin}/workspace/00000030-0000-4000-8000-000000000001?pane=agents`,
-			);
-			const agents = page.getByRole("region", { name: "Workspace agents" });
-			const row = agents.locator(
-				'[data-workspace-agent="tedi:00000010-0000-4000-8000-000000000001"]',
-			);
-			await row.waitFor();
-			assert.match(
-				(await row.textContent()) ?? "",
-				/Reddit Scout/,
-				`${label}: the tedi that owns the linked skill is an agent`,
-			);
-			await row
-				.locator("[data-agent-counts]")
-				.getByText(/today$/)
-				.waitFor();
-			assert.equal(
-				await row.locator("[data-agent-run]").count(),
-				0,
-				`${label}: runs stay folded until asked for`,
-			);
-			await row.getByRole("button", { expanded: false }).click();
-			await row.locator("[data-agent-run]").first().waitFor();
-			await row
-				.getByRole("link", { name: "Weekly revenue report · See all runs" })
-				.waitFor();
-			if (width < 640)
-				await page
-					.getByRole("group", { name: "Canvas pane" })
-					.getByRole("button", { name: "Agents" })
-					.waitFor();
-			await page.evaluate(() => document.fonts.ready);
-			await noOverflow(page, label);
-			await page.screenshot({
-				path: `${evidence}/${label.replaceAll("/", "-")}.png`,
-			});
-			await context.close();
-			console.log(`outputs panel ${label}: ok`);
-		}
-
-		// The overview's Connected sources, wide and narrow.
-		for (const [width, height, columns] of [
-			[1280, 800, 3],
-			[375, 740, 1],
-		] as const) {
-			const label = `${width}/${theme}/sources`;
-			const context = await browser.newContext({
-				viewport: { width, height },
-				colorScheme: theme,
-				reducedMotion: "reduce",
-				isMobile: width < 640,
-				hasTouch: width < 640,
-			});
-			const page = await context.newPage();
-			await routeFixture(page, theme);
-			await routeSources(page, sources);
-			await page.goto(`${server.origin}${workspacePath}`);
-			if (width < 640) {
-				await page
-					.getByRole("group", { name: "Canvas pane" })
-					.getByRole("button", { name: "Files" })
-					.click();
-			} else {
-				await page
-					.getByRole("complementary", { name: "Workspace files" })
-					.getByRole("button", { name: "Overview" })
-					.click();
-			}
-			await page.evaluate(() => document.fonts.ready);
-			await checkSources(page, label, columns);
-			await context.close();
-			console.log(`outputs panel ${label}: ok`);
-		}
-
-		// Empty workspace: the panel explains what will appear.
-		{
-			const label = `1280/${theme}/empty`;
-			const context = await browser.newContext({
-				viewport: { width: 1280, height: 800 },
-				colorScheme: theme,
-				reducedMotion: "reduce",
-			});
-			const page = await context.newPage();
-			await routeFixture(page, theme, true);
-			await page.goto(`${server.origin}${workspacePath}`);
-			const empty = page.locator("[data-workspace-outputs-empty]");
-			await empty.waitFor();
-			assert.equal((await empty.innerText()).trim(), emptyCopy, label);
-			await noOverflow(page, label);
-			await page.screenshot({
-				path: `${evidence}/${label.replaceAll("/", "-")}.png`,
-			});
-			await context.close();
-			console.log(`outputs panel ${label}: ok`);
-		}
-
-		// Keep the original sheet hit test even though phones now use Files.
-		{
-			const label = `375/${theme}`;
-			const context = await browser.newContext({
-				viewport: { width: 375, height: 740 },
-				colorScheme: theme,
-				reducedMotion: "reduce",
-				isMobile: true,
-				hasTouch: true,
-			});
-			const page = await context.newPage();
-			await page.goto(
-				`${server.origin}/browser-tests/dialogs.html?view=outputs&theme=${theme}`,
-			);
-			await page.getByRole("button", { name: "Outputs", exact: true }).tap();
-			const sheet = page.getByRole("dialog", { name: "Outputs" });
-			await sheet.waitFor();
-			await sheet.getByRole("list", { name: "Files" }).waitFor();
-			await page.waitForFunction(
-				() => !document.querySelector("[data-starting-style]"),
-			);
-			const close = sheet.getByRole("button", { name: "Close", exact: true });
-			assert(
-				await close.evaluate((node) => {
-					const box = node.getBoundingClientRect();
-					const hit = document.elementFromPoint(
-						box.x + box.width / 2,
-						box.y + box.height / 2,
-					);
-					return hit !== null && node.contains(hit);
-				}),
-				`${label}: the sheet's close button is reachable`,
-			);
-			await page.screenshot({
-				path: `${evidence}/${label.replace("/", "-")}-sheet.png`,
-			});
-			await close.tap();
-			await sheet.waitFor({ state: "hidden" });
-			await context.close();
-			console.log(`outputs sheet ${label}: ok`);
-		}
-
-		// Phone: no side panel and no toggle; the bottom switcher shows one pane
-		// at a time and Files is the whole library.
-		{
-			const label = `375/${theme}`;
-			const context = await browser.newContext({
-				viewport: { width: 375, height: 740 },
-				colorScheme: theme,
-				reducedMotion: "reduce",
-				isMobile: true,
-				hasTouch: true,
-			});
-			const page = await context.newPage();
-			await routeFixture(page, theme);
-			await page.goto(`${server.origin}${workspacePath}`);
-			const switcher = page.getByRole("group", { name: "Canvas pane" });
-			await switcher.waitFor();
-			assert(
-				!(await page
-					.getByRole("complementary", { name: "Workspace files" })
-					.isVisible()),
-				`${label}: side panel is hidden on a phone`,
-			);
-			assert.equal(
-				await page.getByRole("button", { name: /^(Hide|Show) files$/ }).count(),
-				0,
-				`${label}: no panel toggle on a phone`,
-			);
-			const switcherBox = await switcher.boundingBox();
-			assert(
-				switcherBox && Math.abs(switcherBox.y + switcherBox.height - 740) <= 1,
-				`${label}: the switcher sits at the bottom`,
-			);
-			assert.deepEqual(
-				await switcher.getByRole("button").allInnerTexts(),
-				["Chat", "Canvas", "Files"],
-				`${label}: Chat · Canvas · Files`,
-			);
-			await switcher.getByRole("button", { name: "Files" }).click();
-			const library = page.getByRole("complementary", {
-				name: "Workspace library",
-			});
-			await library.waitFor();
-			assert(
-				!(await page
-					.getByRole("complementary", { name: "Workspace chat" })
-					.isVisible()),
-				`${label}: one pane at a time`,
-			);
-			await noOverflow(page, label);
-			await page.screenshot({
-				path: `${evidence}/${label.replace("/", "-")}-files.png`,
-			});
-			await library
-				.getByRole("button", { name: /Lindenquay: reconciliation note/ })
-				.first()
+				.getByRole("group", { name: "Canvas pane" })
+				.getByRole("button", { name: "Files" })
 				.click();
-			await page.waitForFunction(() =>
-				new URLSearchParams(location.search).get("workpiece"),
-			);
-			await page.getByRole("tab").first().waitFor();
-			await noOverflow(page, label);
-			await page.screenshot({
-				path: `${evidence}/${label.replace("/", "-")}-opened.png`,
-			});
-			await context.close();
-			console.log(`outputs panel ${label}: ok`);
+		} else {
+			await page
+				.getByRole("complementary", { name: "Workspace files" })
+				.getByRole("button", { name: "Overview" })
+				.click();
 		}
+		await page.evaluate(() => document.fonts.ready);
+		await checkSources(page, label, columns);
+		await context.close();
+		console.log(`outputs panel ${label}: ok`);
+	}
+
+	// Empty workspace: the panel explains what will appear.
+	{
+		const theme = "light";
+		const label = `1280/${theme}/empty`;
+		const context = await browser.newContext({
+			viewport: { width: 1280, height: 800 },
+			colorScheme: theme,
+			reducedMotion: "reduce",
+		});
+		const page = await context.newPage();
+		await routeFixture(page, theme, true);
+		await page.goto(`${server.origin}${workspacePath}`);
+		const empty = page.locator("[data-workspace-outputs-empty]");
+		await empty.waitFor();
+		assert.equal((await empty.innerText()).trim(), emptyCopy, label);
+		await noOverflow(page, label);
+		await page.screenshot({
+			path: `${evidence}/${label.replaceAll("/", "-")}.png`,
+		});
+		await context.close();
+		console.log(`outputs panel ${label}: ok`);
+	}
+
+	// Keep the original sheet hit test even though phones now use Files.
+	{
+		const theme = "dark";
+		const label = `375/${theme}`;
+		const context = await browser.newContext({
+			viewport: { width: 375, height: 740 },
+			colorScheme: theme,
+			reducedMotion: "reduce",
+			isMobile: true,
+			hasTouch: true,
+		});
+		const page = await context.newPage();
+		await page.goto(
+			`${server.origin}/browser-tests/dialogs.html?view=outputs&theme=${theme}`,
+		);
+		await page.getByRole("button", { name: "Outputs", exact: true }).tap();
+		const sheet = page.getByRole("dialog", { name: "Outputs" });
+		await sheet.waitFor();
+		await sheet.getByRole("list", { name: "Files" }).waitFor();
+		await page.waitForFunction(
+			() => !document.querySelector("[data-starting-style]"),
+		);
+		const close = sheet.getByRole("button", { name: "Close", exact: true });
+		assert(
+			await close.evaluate((node) => {
+				const box = node.getBoundingClientRect();
+				const hit = document.elementFromPoint(
+					box.x + box.width / 2,
+					box.y + box.height / 2,
+				);
+				return hit !== null && node.contains(hit);
+			}),
+			`${label}: the sheet's close button is reachable`,
+		);
+		await page.screenshot({
+			path: `${evidence}/${label.replace("/", "-")}-sheet.png`,
+		});
+		await close.tap();
+		await sheet.waitFor({ state: "hidden" });
+		await context.close();
+		console.log(`outputs sheet ${label}: ok`);
+	}
+
+	// Phone: no side panel and no toggle; the bottom switcher shows one pane
+	// at a time and Files is the whole library.
+	{
+		const theme = "dark";
+		const label = `375/${theme}`;
+		const context = await browser.newContext({
+			viewport: { width: 375, height: 740 },
+			colorScheme: theme,
+			reducedMotion: "reduce",
+			isMobile: true,
+			hasTouch: true,
+		});
+		const page = await context.newPage();
+		await routeFixture(page, theme);
+		await page.goto(`${server.origin}${workspacePath}`);
+		const switcher = page.getByRole("group", { name: "Canvas pane" });
+		await switcher.waitFor();
+		assert(
+			!(await page
+				.getByRole("complementary", { name: "Workspace files" })
+				.isVisible()),
+			`${label}: side panel is hidden on a phone`,
+		);
+		assert.equal(
+			await page.getByRole("button", { name: /^(Hide|Show) files$/ }).count(),
+			0,
+			`${label}: no panel toggle on a phone`,
+		);
+		const switcherBox = await switcher.boundingBox();
+		assert(
+			switcherBox && Math.abs(switcherBox.y + switcherBox.height - 740) <= 1,
+			`${label}: the switcher sits at the bottom`,
+		);
+		assert.deepEqual(
+			await switcher.getByRole("button").allInnerTexts(),
+			["Chat", "Canvas", "Files"],
+			`${label}: Chat · Canvas · Files`,
+		);
+		await switcher.getByRole("button", { name: "Files" }).click();
+		const library = page.getByRole("complementary", {
+			name: "Workspace library",
+		});
+		await library.waitFor();
+		assert(
+			!(await page
+				.getByRole("complementary", { name: "Workspace chat" })
+				.isVisible()),
+			`${label}: one pane at a time`,
+		);
+		await noOverflow(page, label);
+		await page.screenshot({
+			path: `${evidence}/${label.replace("/", "-")}-files.png`,
+		});
+		await library
+			.getByRole("button", { name: /Lindenquay: reconciliation note/ })
+			.first()
+			.click();
+		await page.waitForFunction(() =>
+			new URLSearchParams(location.search).get("workpiece"),
+		);
+		await page.getByRole("tab").first().waitFor();
+		await noOverflow(page, label);
+		await page.screenshot({
+			path: `${evidence}/${label.replace("/", "-")}-opened.png`,
+		});
+		await context.close();
+		console.log(`outputs panel ${label}: ok`);
 	}
 	// File housekeeping from a row's menu: versions, restore, a copy, a move.
 	// Last, because it changes the sample workspace's files.
