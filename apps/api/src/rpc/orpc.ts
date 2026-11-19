@@ -1254,6 +1254,11 @@ export function withPermission(...permissions: Permission[]) {
  * resource, or role check. `null` and empty permission sets are deliberately
  * not part of the type: neither may silently turn the human branch into a
  * vacuous pass.
+ *
+ * `serviceBindingScope` names a narrower scope that a trusted service-binding
+ * caller may hold instead of `requiredScope`. No other kind of caller can use
+ * it, so an upstream Worker can be given one procedure family without the
+ * whole capability.
  */
 type NonEmptyPermissions = readonly [Permission, ...Permission[]];
 
@@ -1266,6 +1271,7 @@ type UserAuthorization =
 export function withAuthorization(
 	userAuthorization: UserAuthorization,
 	requiredScope: string,
+	serviceBindingScope?: string,
 ) {
 	let allOf: readonly Permission[] = [];
 	let anyOf: readonly Permission[] | null = null;
@@ -1303,7 +1309,11 @@ export function withAuthorization(
 			} else {
 				assertUserPermissions(context, allOf);
 			}
-		} else {
+		} else if (
+			!serviceBindingScope ||
+			context.authType !== "service-binding" ||
+			!hasRequiredScope(context, serviceBindingScope)
+		) {
 			assertMachineScope(context, requiredScope);
 		}
 		return next({ context });

@@ -2052,6 +2052,49 @@ describe("composite two-plane authorization", () => {
 			}),
 		).resolves.toBe("u1");
 	});
+
+	it("accepts the narrower scope from a service binding only", async () => {
+		const guarded = os
+			.$context<BaseContext>()
+			.use(
+				withAuthorization(
+					{
+						handlerOwnedUserAuthorization:
+							"The handler binds the record to the authenticated subject.",
+					},
+					"mcp:work.write",
+					"work:steer",
+				),
+			)
+			.handler(async () => "ok");
+		const run = (context: Partial<BaseContext>) =>
+			call(guarded, undefined, { context: context as BaseContext });
+		const headers = new Headers();
+		for (const tediScopes of [["work:steer"], ["mcp:work.write"]])
+			await expect(
+				run({ authType: "service-binding", headers, tediScopes }),
+			).resolves.toBe("ok");
+		for (const context of [
+			{ authType: "service-binding", headers, tediScopes: ["work:accept"] },
+			{ authType: "tedi", tediId: "t1", tediScopes: ["work:steer"] },
+			{
+				authType: "apikey",
+				apiKey: {
+					id: "k1",
+					name: "key",
+					organizationId: "o1",
+					scopes: ["work:steer"],
+				},
+			},
+			{ authType: "m2m", serviceAccount: { scope: "work:steer" } },
+			{
+				authType: "user",
+				user: { sub: "u1", permissions: [], roles: [] },
+				oidcScopes: ["work:steer"],
+			},
+		] as Partial<BaseContext>[])
+			await expect(run(context)).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
 });
 
 describe("exact API-key scope authorization", () => {

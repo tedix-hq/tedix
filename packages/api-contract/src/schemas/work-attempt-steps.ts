@@ -5,6 +5,15 @@
 
 import * as z from "zod";
 
+/**
+ * The one machine scope that reads a run's steps and steers the run and nothing
+ * else. The tedi runtime delegates it over its trusted service binding for the
+ * calling tedi, so its agent-run tools work without the wider `mcp:work.read`
+ * and `mcp:work.write`. A follow-up or a stop still needs the Work Item's
+ * owner or steward.
+ */
+export const WORK_RUN_STEER_SCOPE = "work:steer";
+
 export const WorkAttemptStepKindSchema = z.enum([
 	"started",
 	"message",

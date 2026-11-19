@@ -31,6 +31,7 @@ import {
 } from "@tedix/db/queries/tedi-runtime-bootstrap";
 import { decryptTediSecret } from "@tedix/db/utils/secrets-encryption";
 import { WEB_SEARCH_EXECUTE_SCOPE } from "@tedix/api-contract/schemas/web-search";
+import { WORK_RUN_STEER_SCOPE } from "@tedix/api-contract/schemas/work-attempt-steps";
 
 const DESCOPE_ACCESS_KEY_NAME = "DESCOPE_ACCESS_KEY";
 const ACCESS_KEY_VALIDATION_TTL_MS = 10 * 60 * 1000;
@@ -49,6 +50,13 @@ export const TEDI_RUNTIME_SERVICE_BINDING_SCOPES = [
 	// The native `web_search` tool calls `webSearch.search` for the calling
 	// tedi; the API still applies the organization switch and the tedi policy.
 	WEB_SEARCH_EXECUTE_SCOPE,
+	// The agent-run tools (`agent-run-tools.ts`). `start_agent_run` accepts the
+	// task it has just created: the API asks a tedi for `work:accept`.
+	"work:accept",
+	// `read_agent_run`, `send_agent_run_message` and `stop_agent_run` read and
+	// steer a run. The API still limits a follow-up or a stop to the Work Item's
+	// owner or steward tedi. `mcp:work.read` and `mcp:work.write` stay withheld.
+	WORK_RUN_STEER_SCOPE,
 ] as const;
 
 /** Exact headers for one trusted runtime -> API service-binding procedure. */

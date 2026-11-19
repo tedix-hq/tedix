@@ -9,6 +9,7 @@ import {
 	listWorkAttemptSteps,
 	sendWorkAttemptMessage,
 } from "@tedix/db/queries/work-items/attempt-steps";
+import { WORK_RUN_STEER_SCOPE } from "@tedix/api-contract/schemas/work-attempt-steps";
 import type { WorkAttemptMessageRow } from "@tedix/db/schema/work-items";
 import {
 	type BaseContext,
@@ -40,6 +41,7 @@ const readerOs = authOs.use(
 				"The handler verifies Work Item organization access before reading the run's rows",
 		},
 		"mcp:work.read",
+		WORK_RUN_STEER_SCOPE,
 	),
 );
 const steeringOs = authOs.use(
@@ -49,6 +51,7 @@ const steeringOs = authOs.use(
 				"The handler checks organization scope and requires the Work Item's owner or steward",
 		},
 		"mcp:work.write",
+		WORK_RUN_STEER_SCOPE,
 	),
 );
 
