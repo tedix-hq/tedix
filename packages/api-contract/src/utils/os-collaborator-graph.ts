@@ -2,10 +2,10 @@
  * Workspace permission graph. Pure: no I/O, so every access decision (open,
  * listing, removal previews) derives from one computation over the same rows.
  *
- * Nodes are people or tedis. Roots (the workspace owner) hold `build` implicitly and
+ * Nodes are people. Roots (the workspace owner) hold `build` implicitly and
  * are never stored as collaborators. Each collaborator has one or more edges
  * explaining how they got access:
- * - a user or tedi edge: a sharer added that principal directly at a role;
+ * - a user edge: a sharer added them directly at a role;
  * - a link edge: they redeemed a key for a share link; the role comes from
  *   the link, and the link's creator is the sharer.
  *
@@ -22,7 +22,7 @@ import {
 } from "@tedix/api-contract/schemas/os-collaborators";
 
 export type GraphUserEdge = {
-	kind: "user" | "tedi";
+	kind: "user";
 	targetId: string;
 	sharerId: string;
 	role: OsCollaboratorRole;
@@ -79,7 +79,7 @@ export function computeEffectiveRoles(
 		if (graph.roots.has(edge.targetId)) return false;
 		if (edge.targetId === change.removedUserId) return false;
 		if (
-			edge.kind !== "link" &&
+			edge.kind === "user" &&
 			change.removedEdge &&
 			edge.targetId === change.removedEdge.targetId &&
 			edge.sharerId === change.removedEdge.sharerId
@@ -112,7 +112,7 @@ function grantedRole(
 ): OsCollaboratorRole | null {
 	let sharerId: string;
 	let edgeRole: OsCollaboratorRole;
-	if (edge.kind !== "link") {
+	if (edge.kind === "user") {
 		sharerId = edge.sharerId;
 		edgeRole = edge.role;
 	} else {

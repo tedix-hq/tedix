@@ -12,7 +12,6 @@ import {
 } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../query-client";
-import { tedis } from "../schema/tedis";
 import { organizationMembers } from "../schema/organization-members";
 import {
 	type OsWorkspaceAccessEdgeRow,
@@ -98,7 +97,6 @@ export async function loadOsWorkspacePermissionRows(
 }
 
 export interface TedixPersonResult {
-	principalKind: "user" | "tedi";
 	userId: string;
 	email: string;
 	name: string | null;
@@ -124,29 +122,7 @@ export async function findTedixPersonByEmail(
 			),
 		)
 		.limit(1);
-	return row ? { ...row, principalKind: "user" } : undefined;
-}
-
-export async function findWorkspaceTedi(
-	db: DbQueryClient,
-	params: { organizationId: string; tediId: string },
-): Promise<TedixPersonResult | undefined> {
-	const [row] = await db
-		.select({
-			userId: tedis.id,
-			name: sql<string>`coalesce(${tedis.displayName}, ${tedis.name})`,
-			email: sql<string>`''`,
-		})
-		.from(tedis)
-		.where(
-			and(
-				eq(tedis.organizationId, params.organizationId),
-				eq(tedis.id, params.tediId),
-				eq(tedis.status, "active"),
-			),
-		)
-		.limit(1);
-	return row ? { ...row, principalKind: "tedi" } : undefined;
+	return row;
 }
 
 export interface TedixPersonMembershipResult {
@@ -196,7 +172,6 @@ export async function listTedixPeople(
 		rows.push(
 			...(await db
 				.select({
-					principalKind: sql<"user">`'user'`.as("principal_kind"),
 					userId: organizationMembers.descopeUserId,
 					email: organizationMembers.email,
 					name: organizationMembers.name,
@@ -211,7 +186,7 @@ export async function listTedixPeople(
 }
 
 /**
- * Active people and tedis in one organization matching a name or email.
+ * Active people in one organization whose name or email contains `query`.
  * Always scoped to `organizationId`; `excludeUserId` leaves the caller out.
  */
 export async function searchOrganizationPeople(
@@ -228,7 +203,7 @@ export async function searchOrganizationPeople(
 		.trim()
 		.toLowerCase()
 		.replace(/[\\%_]/g, "\\$&")}%`;
-	const humans = await db
+	return db
 		.select({
 			userId: organizationMembers.descopeUserId,
 			email: organizationMembers.email,
@@ -251,32 +226,6 @@ export async function searchOrganizationPeople(
 		)
 		.orderBy(asc(organizationMembers.name), asc(organizationMembers.email))
 		.limit(params.limit);
-	const agents = await db
-		.select({
-			userId: tedis.id,
-			email: sql<string>`''`,
-			name: sql<string>`coalesce(${tedis.displayName}, ${tedis.name})`,
-		})
-		.from(tedis)
-		.where(
-			and(
-				eq(tedis.organizationId, params.organizationId),
-				eq(tedis.status, "active"),
-				params.excludeUserId ? ne(tedis.id, params.excludeUserId) : undefined,
-				or(
-					sql`lower(${tedis.name}) like ${pattern} escape '\\'`,
-					sql`lower(${tedis.displayName}) like ${pattern} escape '\\'`,
-				),
-			),
-		)
-		.orderBy(asc(tedis.name))
-		.limit(params.limit);
-	return [
-		...humans.map((row) => ({ ...row, principalKind: "user" as const })),
-		...agents.map((row) => ({ ...row, principalKind: "tedi" as const })),
-	]
-		.sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email))
-		.slice(0, params.limit);
 }
 
 export interface OrganizationMemberRoleResult {
@@ -315,8 +264,7 @@ export interface OsWorkspaceEdgeInput {
 	targetUserId: string;
 	targetEmail: string | null;
 	targetName: string | null;
-	targetKind?: "user" | "tedi";
-	kind: "user" | "tedi" | "link";
+	kind: "user" | "link";
 	sharerUserId?: string;
 	linkId?: string;
 	role?: OsCollaboratorRole;
@@ -324,7 +272,7 @@ export interface OsWorkspaceEdgeInput {
 }
 
 function edgeKey(edge: OsWorkspaceEdgeInput): string {
-	return edge.kind !== "link"
+	return edge.kind === "user"
 		? `user:${edge.sharerUserId}`
 		: `link:${edge.linkId}`;
 }
@@ -343,8 +291,6 @@ function grantStatements(
 				organizationId: scope.organizationId,
 				workspaceId: scope.workspaceId,
 				userId: edge.targetUserId,
-				principalKind:
-					edge.targetKind ?? (edge.kind === "tedi" ? "tedi" : "user"),
 				email: edge.targetEmail,
 				name: edge.targetName,
 				createdAt: now,
@@ -355,7 +301,6 @@ function grantStatements(
 					osWorkspaceCollaborators.userId,
 				],
 				set: {
-					principalKind: sql`excluded.principal_kind`,
 					email: sql`coalesce(excluded.email, ${osWorkspaceCollaborators.email})`,
 					name: sql`coalesce(excluded.name, ${osWorkspaceCollaborators.name})`,
 				},
@@ -369,9 +314,9 @@ function grantStatements(
 				targetUserId: edge.targetUserId,
 				kind: edge.kind,
 				edgeKey: edgeKey(edge),
-				sharerUserId: edge.kind !== "link" ? edge.sharerUserId : null,
+				sharerUserId: edge.kind === "user" ? edge.sharerUserId : null,
 				linkId: edge.kind === "link" ? edge.linkId : null,
-				role: edge.kind !== "link" ? edge.role : null,
+				role: edge.kind === "user" ? edge.role : null,
 				note: edge.note ?? null,
 				createdAt: now,
 			})
@@ -425,10 +370,7 @@ export async function severOsWorkspaceUserAccess(
 				eq(osWorkspaceAccessEdges.workspaceId, params.workspaceId),
 				eq(osWorkspaceAccessEdges.targetUserId, params.targetUserId),
 				params.sharerUserId
-					? and(
-							ne(osWorkspaceAccessEdges.kind, "link"),
-							eq(osWorkspaceAccessEdges.sharerUserId, params.sharerUserId),
-						)
+					? eq(osWorkspaceAccessEdges.edgeKey, `user:${params.sharerUserId}`)
 					: undefined,
 			),
 		);
