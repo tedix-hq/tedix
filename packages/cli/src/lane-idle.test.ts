@@ -115,6 +115,7 @@ it("reports no-coordinator items without widening admission reads, and samples o
 			health: () => [],
 			devinAvailability: () => ({ available: true }),
 			available: () => ({ available: true }),
+			preflight: async () => undefined,
 			budgets: () => ({}),
 			freeDiskBytes: () => 100 * 1024 ** 3,
 			cli: async <T>(args: string[]): Promise<T> => {
@@ -215,6 +216,7 @@ it.each(["unreachable", "held", "retained worktree", "quota", "free donor"])(
 					health: () => [donor],
 					devinAvailability: () => ({ available: true }),
 					available: () => ({ available: true }),
+					preflight: async () => undefined,
 					freeDiskBytes: () => 100 * 1024 ** 3,
 					budgets: () =>
 						state === "quota"

@@ -185,8 +185,11 @@ export class LocalExecutorCapacityError extends Error {
 	override name = "LocalExecutorCapacityError";
 }
 
+export class LocalExecutorPreflightError extends LocalExecutorCapacityError {}
+
 export interface ExecutorAvailability {
 	available: boolean;
+	preflightFailed?: boolean;
 	/** Why the route was rejected, e.g. a failed `--version` probe. */
 	reason?: string;
 	/**
@@ -228,6 +231,7 @@ export function routeLocalWork(
 			`No routes configured for ${rule.name}; use --routing-config or TEDIX_LANE_ROUTING_CONFIG to choose executors and models`,
 		);
 	let capacityPaused = false;
+	let preflightPaused = false;
 	const rejected: string[] = [];
 	for (const route of routes) {
 		const budget = budgets[route.executor];
@@ -238,6 +242,7 @@ export function routeLocalWork(
 		const probe = available[route.executor];
 		if (!probe?.available) {
 			if (probe?.transient) capacityPaused = true;
+			if (probe?.preflightFailed) preflightPaused = true;
 			rejected.push(`${route.executor}: ${probe?.reason ?? "unavailable"}`);
 			continue;
 		}
@@ -280,6 +285,7 @@ export function routeLocalWork(
 		`No eligible local executor for ${rule.name}` +
 		(rejected.length ? ` (${rejected.join("; ")})` : "") +
 		"; assignments and capability requirements retained";
+	if (preflightPaused) throw new LocalExecutorPreflightError(message);
 	throw capacityPaused
 		? new LocalExecutorCapacityError(message)
 		: new Error(message);

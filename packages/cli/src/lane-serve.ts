@@ -76,12 +76,14 @@ import {
 	resumeThenFresh,
 	isMissingNativeState,
 	LocalExecutorCapacityError,
+	LocalExecutorPreflightError,
 	type LocalExecutor,
 	type ExecutorAvailability,
 	type ExecutorBudgets,
 	type RoutingPolicy,
 } from "./lane-routing";
 import { cachedExecutorProbe } from "./lane-executor-probe";
+import { cachedExecutorPreflight } from "./lane-executor-preflight";
 import { createCodexLaneThread } from "./codex-lane-thread";
 import { BOOTSTRAP_AWAITING_APPROVAL } from "./external-agent";
 import { UUID_RE } from "./work-identity";
@@ -2113,6 +2115,7 @@ interface DispatcherDeps {
 	available: (
 		executor: LocalExecutor,
 	) => ExecutorAvailability | Promise<ExecutorAvailability>;
+	preflight?: Parameters<typeof cachedExecutorPreflight>[2];
 	budgets: (
 		policy: RoutingPolicy,
 	) => ExecutorBudgets | Promise<ExecutorBudgets>;
@@ -2264,6 +2267,7 @@ export class LaneDispatcher {
 	};
 	private ownerEnv = laneChildEnv();
 	private deps: DispatcherDeps;
+	private preflight: ReturnType<typeof cachedExecutorPreflight>;
 	private policy: RoutingPolicy;
 	private budgets: ExecutorBudgets = {};
 	private availability = Object.fromEntries(
@@ -2275,6 +2279,16 @@ export class LaneDispatcher {
 		deps: Partial<DispatcherDeps> = {},
 	) {
 		this.deps = { ...defaultDeps, ...deps };
+		this.preflight = cachedExecutorPreflight(
+			options.repo,
+			(executor, reason) =>
+				this.log(
+					"executor-preflight-failed",
+					undefined,
+					`${executor}: ${reason}`,
+				),
+			deps.preflight,
+		);
 		this.policy = readRoutingPolicy(options.routingConfig);
 		const budgetPath = join(directory, "budgets.state");
 		if (existsSync(budgetPath))
@@ -2629,36 +2643,46 @@ export class LaneDispatcher {
 			);
 		}
 		const observed = await this.deps.budgets(this.policy);
-		for (const executor of localExecutors) {
-			let probe = await this.deps.available(executor);
-			const slow = probe.slow ?? (probe.transient ? probe.reason : undefined);
-			if (!slow) this.slowProbes.delete(executor);
-			else if (!this.slowProbes.has(executor)) {
-				this.slowProbes.add(executor);
-				this.log("executor-probe-slow", undefined, slow);
-			}
-			if (
-				executor === "devin" &&
-				probe.available &&
-				(this.options.executor === "devin" ||
-					this.options.executor === "any-local")
-			) {
-				const status = await this.devinStatus();
-				if (!status.available)
-					probe = { available: false, reason: status.reason };
-			}
-			this.availability[executor] = probe;
-			const prior = this.budgets[executor];
-			this.budgets[executor] = {
-				...observed[executor]!,
-				...(prior?.backoffUntil
-					? {
-							backoffUntil: prior.backoffUntil,
-							consecutiveLimits: prior.consecutiveLimits,
-						}
-					: {}),
-			};
-		}
+		await Promise.all(
+			localExecutors.map(async (executor) => {
+				let probe = await this.deps.available(executor);
+				const slow = probe.slow ?? (probe.transient ? probe.reason : undefined);
+				if (!slow) this.slowProbes.delete(executor);
+				else if (!this.slowProbes.has(executor)) {
+					this.slowProbes.add(executor);
+					this.log("executor-probe-slow", undefined, slow);
+				}
+				if (
+					executor === "devin" &&
+					probe.available &&
+					(this.options.executor === "devin" ||
+						this.options.executor === "any-local")
+				) {
+					const status = await this.devinStatus();
+					if (!status.available)
+						probe = { available: false, reason: status.reason };
+				}
+				if (
+					this.options.executor === executor ||
+					this.options.executor === "any-local"
+				) {
+					const reason = await this.preflight(executor);
+					if (reason)
+						probe = { available: false, preflightFailed: true, reason };
+				}
+				this.availability[executor] = probe;
+				const prior = this.budgets[executor];
+				this.budgets[executor] = {
+					...observed[executor]!,
+					...(prior?.backoffUntil
+						? {
+								backoffUntil: prior.backoffUntil,
+								consecutiveLimits: prior.consecutiveLimits,
+							}
+						: {}),
+				};
+			}),
+		);
 		this.saveBudgets();
 		const freeDisk = this.deps.freeDiskBytes(this.directory);
 		const diskLow = freeDisk < MIN_FREE_DISK_BYTES;
@@ -2782,7 +2806,15 @@ export class LaneDispatcher {
 		}
 		// Every ready Work Item this runner may take starts; leases, claims and
 		// per-item receipts, not a slot count, keep each item to one run.
-		while (!this.stopping && !this.admissionsHeld && !diskLow) {
+		const preflightFailed =
+			this.options.executor !== "any-local" &&
+			this.availability[this.options.executor].preflightFailed;
+		while (
+			!this.stopping &&
+			!this.admissionsHeld &&
+			!diskLow &&
+			!preflightFailed
+		) {
 			const page = await this.call<{
 				data: DispatchItem[];
 				pagination: { hasMore: boolean };
@@ -2993,7 +3025,8 @@ export class LaneDispatcher {
 					}
 				})();
 				if (paused) {
-					this.log("skipped", item.id, String(paused));
+					if (!(paused instanceof LocalExecutorPreflightError))
+						this.log("skipped", item.id, String(paused));
 					continue;
 				}
 				const task = this.execute(item, previous)
@@ -3035,6 +3068,7 @@ export class LaneDispatcher {
 		if (
 			!this.preparing.size &&
 			this.options.acceptProposed &&
+			!preflightFailed &&
 			this.options.project &&
 			Date.now() - this.proposalsSweptAt >= PROPOSAL_SWEEP_INTERVAL_MS
 		) {
@@ -3967,6 +4001,7 @@ export class LaneDispatcher {
 		};
 		let admitted = false;
 		let admissionSent = false;
+		let preflightPaused = false;
 		let heartbeating: Promise<unknown> | undefined;
 		let checkingLease: Promise<void> | undefined;
 		let childFinished = false;
@@ -4222,6 +4257,9 @@ export class LaneDispatcher {
 					current.workItem?.version,
 				);
 			if (this.stopping) throw new DispatcherStoppingError();
+			const health = this.availability[executor];
+			if (health.preflightFailed)
+				throw new LocalExecutorPreflightError(health.reason);
 			receipt.admissionState = "unknown";
 			this.save(path, receipt);
 			admissionSent = true;
@@ -4665,6 +4703,10 @@ export class LaneDispatcher {
 				}
 			}
 		} catch (error) {
+			if (error instanceof LocalExecutorPreflightError) {
+				preflightPaused = true;
+				return;
+			}
 			receipt.outcome = receipt.interrupted
 				? "expired"
 				: error instanceof WorkRevisedDuringPreparationError ||
@@ -4755,16 +4797,18 @@ export class LaneDispatcher {
 				receipt.phase = "settling";
 				this.save(path, receipt);
 				await this.settle(receipt);
-			} else {
+			} else if (!preflightPaused || receipt.session) {
 				receipt.phase = "deferred";
-				receipt.retries = (receipt.retries ?? 0) + 1;
-				receipt.retryAt =
-					receipt.retries >= 5
-						? retryDeadlineAt
-						: Math.min(
-								Date.now() + 60_000 * 2 ** (receipt.retries - 1),
-								retryDeadlineAt,
-							);
+				if (!preflightPaused) {
+					receipt.retries = (receipt.retries ?? 0) + 1;
+					receipt.retryAt =
+						receipt.retries >= 5
+							? retryDeadlineAt
+							: Math.min(
+									Date.now() + 60_000 * 2 ** (receipt.retries - 1),
+									retryDeadlineAt,
+								);
+				}
 				if (!admissionSent && interrupted) {
 					// Keep correlation only; a fresh admission still owns the next lease and PID.
 					Object.assign(receipt, {
@@ -4778,9 +4822,9 @@ export class LaneDispatcher {
 					});
 				}
 			}
-			// This run still holds its `running` slot until execute returns.
-			this.scheduleCleanup(receipt, true);
-			this.save(path, receipt);
+			if (!preflightPaused) this.scheduleCleanup(receipt, true);
+			// A pre-flight pause before preparation has no receipt to update.
+			if (!preflightPaused || receipt.session) this.save(path, receipt);
 		}
 	}
 	/** The person signed in on this runner, asked when a task has no user owner. */
