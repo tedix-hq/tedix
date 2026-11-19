@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.26.1 — 2026-11-19
+
+### Patch Changes
+
+- A tedi's machine tool calls are answered by a process of their own (`tedix lane serve --machine-tools-only`), which the supervisor starts and keeps running, one per machine. Before, the Codex runner answered them, and calls waited for minutes while it was busy with agent runs. Its log is `~/.tedix/dev.tedix.machine-tools.log`; while calls cannot be claimed it says so every minute, and once when they work again.
+
 ## 0.26.0 — 2026-11-19
 
 ### Minor Changes
