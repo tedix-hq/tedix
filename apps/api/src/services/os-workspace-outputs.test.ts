@@ -84,6 +84,43 @@ function fixture() {
 }
 
 describe("output body persistence", () => {
+	it("refuses escaped half characters before any body or asset write", async () => {
+		const f = fixture();
+		try {
+			const bad = {
+				...f.revision,
+				content: JSON.stringify({
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "\uD800" }],
+				}),
+			};
+			await expect(
+				createOsOutput(f.db, f.output, bad, f.storage),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			expect(f.objects.size).toBe(0);
+			expect(f.revisionCountsAtWrite).toEqual([]);
+			await createOsOutput(f.db, f.output, f.revision, f.storage);
+			const before = new Map(f.objects);
+			await expect(
+				createOsOutputRevision(
+					f.db,
+					{ ...bad, id: "rev-2", expectedRevision: 1 },
+					f.storage,
+				),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			expect(f.objects).toEqual(before);
+			expect(f.revisionCountsAtWrite).toEqual([0]);
+			expect(
+				await listOsOutputRevisions(f.db, {
+					organizationId: "org-1",
+					outputId: f.output.id,
+				}),
+			).toHaveLength(1);
+		} finally {
+			f.sqlite.close();
+		}
+	});
+
 	it("writes R2 before object create/append, hydrates exact bytes and lists only metadata", async () => {
 		const f = fixture();
 		try {

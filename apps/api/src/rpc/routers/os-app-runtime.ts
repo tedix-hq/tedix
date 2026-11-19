@@ -1,3 +1,4 @@
+import { requireSavableText } from "../../lib/savable-text";
 import { validateAppSource } from "../../services/os-app-validation";
 import { requestAppDraftRoom } from "../../services/os-app-draft-room";
 import { getOrganizationProfile } from "@tedix/db/queries/organizations";
@@ -1137,6 +1138,7 @@ export function createOsAppRuntimeRouter() {
 					output,
 					revision: { ...revision, content: JSON.parse(revision.content) },
 				});
+			requireSavableText(input.args);
 			if (input.operation === "outputs.patch") {
 				const patch = OsOutputPatchSchema.parse(input.args);
 				if (patch.kind !== output.kind)
