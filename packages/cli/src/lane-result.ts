@@ -88,6 +88,54 @@ export const LaneResultSchema = z.discriminatedUnion("outcome", [
 	}),
 ]);
 export type LaneResult = z.infer<typeof LaneResultSchema>;
+
+// Structured Outputs requires an object root and every property to be required.
+// Fields absent from an outcome use null; the strict outcome schema still decides
+// which non-null fields are allowed and required when the dispatcher reads them.
+const codexResultVariants = LaneResultSchema.options.map((option) =>
+	z.toJSONSchema(option, { target: "draft-7" }),
+);
+const codexResultKeys = [
+	...new Set(
+		codexResultVariants.flatMap((variant) => Object.keys(variant.properties!)),
+	),
+];
+export const CodexLaneResultJsonSchema = {
+	type: "object" as const,
+	additionalProperties: false,
+	properties: Object.fromEntries(
+		codexResultKeys.map((key) => {
+			const schemas = new Map(
+				codexResultVariants.flatMap((variant) => {
+					const schema = variant.properties![key];
+					return typeof schema === "object"
+						? [[JSON.stringify(schema), schema] as const]
+						: [];
+				}),
+			);
+			if (
+				codexResultVariants.some((variant) => !variant.required?.includes(key))
+			)
+				schemas.set('"null"', { type: "null" });
+			const variants = [...schemas.values()];
+			return [key, variants.length === 1 ? variants[0]! : { anyOf: variants }];
+		}),
+	),
+	required: codexResultKeys,
+};
+
+export function parseCodexLaneResult(message: string): LaneResult {
+	const value: unknown = JSON.parse(message);
+	if (typeof value !== "object" || value === null || Array.isArray(value))
+		return LaneResultSchema.parse(value);
+	return LaneResultSchema.parse(
+		Object.fromEntries(
+			Object.entries(value).filter(
+				([key, field]) => field !== null || !codexResultKeys.includes(key),
+			),
+		),
+	);
+}
 export type LaneWait = Extract<LaneResult, { outcome: "waiting_on_user" }>;
 export type LaneDeferral = Extract<LaneResult, { outcome: "deferred" }>;
 export type ExistingLaneResult = Extract<

@@ -3,6 +3,8 @@ import * as z from "zod";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import {
+	CodexLaneResultJsonSchema,
+	parseCodexLaneResult,
 	LaneOutcomeReadError,
 	laneWaitResponse,
 	laneWaitTerminal,
@@ -10,6 +12,7 @@ import {
 	verifyExistingLaneResult,
 	verifyRepositoryLaneResult,
 	type ExistingLaneResult,
+	type LaneResult,
 	type LaneWait,
 } from "./lane-result";
 
@@ -78,6 +81,73 @@ function interaction() {
 }
 
 describe("structured lane results", () => {
+	it("round trips every outcome through the Codex output schema", () => {
+		const { interactionId, requestVersion, orgId, userId, ...base } = wait;
+		const schema = z.fromJSONSchema(CodexLaneResultJsonSchema);
+		const results: LaneResult[] = [
+			{
+				...base,
+				outcome: "completed",
+				evidenceRefs: ["tedix://example/evidence"],
+			},
+			{ ...base, outcome: "incomplete", remaining: "Tests have not passed" },
+			{
+				...base,
+				outcome: "landed_unverified",
+				unverified: "CI is pending",
+				existingCommits: ["a".repeat(40)],
+			},
+			wait,
+			{
+				...base,
+				outcome: "deferred",
+				reason: "Measurement window",
+				notBefore: "2026-12-01T00:00:00Z",
+			},
+			{
+				...base,
+				outcome: "already_satisfied",
+				ciApprovalId: interactionId,
+				commitSha: "a".repeat(40),
+				runId: 123,
+				workflowName: "Tests",
+				minimumCommit: "b".repeat(40),
+				rootCause: "A previous fix is verified",
+			},
+		];
+		for (const result of results) {
+			const output = {
+				...Object.fromEntries(
+					CodexLaneResultJsonSchema.required.map((key) => [key, null]),
+				),
+				...result,
+			};
+			expect(schema.safeParse(output).success).toBe(true);
+			expect(parseCodexLaneResult(JSON.stringify(output))).toEqual(result);
+		}
+	});
+	it("rejects malformed JSON, unknown fields and invalid outcome fields in Codex files", () => {
+		const base = {
+			workItemId: wait.workItemId,
+			workVersion: 2,
+			contractVersion: 1,
+			outcomeText: wait.outcomeText,
+			outcome: "completed",
+		};
+		for (const invalid of [
+			"",
+			"not-json",
+			"null",
+			"[]",
+			`TEDIX_LANE_RESULT ${JSON.stringify(base)}`,
+			JSON.stringify({ ...base, ignored: null }),
+			JSON.stringify({ ...base, remaining: "Does not apply" }),
+			JSON.stringify({ ...base, outcome: "incomplete", remaining: null }),
+			JSON.stringify({ ...base, workVersion: 0 }),
+			JSON.stringify({ ...base, commitSha: "abc" }),
+		])
+			expect(() => parseCodexLaneResult(invalid)).toThrow();
+	});
 	it.each(["completed", "incomplete"] as const)(
 		"retains declared commit and evidence through strict %s parsing and settlement input",
 		(outcome) => {

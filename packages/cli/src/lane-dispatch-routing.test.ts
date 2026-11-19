@@ -134,6 +134,15 @@ function fixture(configured = true) {
 				control.events.push("launch");
 				control.launches.push(args);
 				const at = new Date().toISOString();
+				const result = JSON.stringify({
+					outcome: "completed",
+					workItemId: item.id,
+					workVersion: item.version,
+					contractVersion: item.acceptanceContract!.version,
+					outcomeText: item.acceptanceContract!.doneLooksLike,
+				});
+				if (args[args.indexOf("--executor") + 1] === "codex")
+					writeFileSync(args[args.indexOf("-o") + 1]!, result);
 				deps?.onTelemetry?.({
 					executor: args[args.indexOf("--executor") + 1] as LocalExecutor,
 					model: "test-model",
@@ -148,7 +157,7 @@ function fixture(configured = true) {
 						: control.exit
 							? "failed"
 							: "succeeded",
-					finalMessage: `${control.message}\nTEDIX_LANE_RESULT ${JSON.stringify({ outcome: "completed", workItemId: item.id, workVersion: item.version, contractVersion: item.acceptanceContract!.version, outcomeText: item.acceptanceContract!.doneLooksLike })}`,
+					finalMessage: `${control.message}\nTEDIX_LANE_RESULT ${result}`,
 					tools: {},
 					usage: null,
 					shas: [],
