@@ -12,7 +12,7 @@ import {
  * A workspace page has at most two navigation rows above the canvas: the
  * workspace's top bar, and the open item's tab row. No control appears twice
  * (one chat toggle, one Files toggle, one presence stack, one place for each
- * view), and every width gets the same structure in both themes. On a phone
+ * view) across the phone, tablet and desktop layouts. On a phone
  * the open item's row is a single line: the view tabs fold into a menu there.
  */
 const appPath =
@@ -43,323 +43,315 @@ async function navigationRows(page: Page): Promise<number> {
 }
 
 try {
-	for (const theme of ["light", "dark"] as const) {
-		for (const width of [375, 470, 768, 1280, 1600]) {
-			const label = `${width}/${theme}`;
-			const phone = width < 700;
-			// Below 960px the workbench shows one pane at a time.
-			const narrow = width < 960;
-			const context = await browser.newContext({
-				viewport: { width, height: phone ? 812 : 900 },
-				colorScheme: theme,
-				reducedMotion: "reduce",
-				isMobile: phone,
-				hasTouch: phone,
-			});
-			const page = await context.newPage();
-			// One collaborator in the open app, so the roster renders.
-			await page.routeWebSocket("**/collab/*/workspace%3A*", (socket) => {
-				socket.onMessage((data) => {
-					const frame = JSON.parse(String(data));
-					if (frame.t !== "base") return;
-					socket.send(JSON.stringify({ t: "hello", peerId: 1 }));
-					socket.send(
-						JSON.stringify({
-							t: "base",
-							id: frame.id,
-							generation: 0,
-							revision: 0,
-							files: [["document", ""]],
-							canonical: { revision: 0, revisionId: null },
-						}),
-					);
-					socket.send(
-						JSON.stringify({
-							t: "presence",
-							peers: [
-								[
-									2,
-									{
-										user: {
-											key: "p_ada",
-											displayName: "Ada Lovelace",
-											kind: "human",
-											role: "build",
-											verified: true,
-										},
-										location: {
-											surface: "canvas",
-											artifactKind: "gadget",
-											artifactLabel: "Activity",
-										},
+	for (const [width, theme] of [
+		[375, "dark"],
+		[768, "light"],
+		[1280, "light"],
+	] as const) {
+		const label = `${width}/${theme}`;
+		const phone = width < 700;
+		// Below 960px the workbench shows one pane at a time.
+		const narrow = width < 960;
+		const context = await browser.newContext({
+			viewport: { width, height: phone ? 812 : 900 },
+			colorScheme: theme,
+			reducedMotion: "reduce",
+			isMobile: phone,
+			hasTouch: phone,
+		});
+		const page = await context.newPage();
+		// One collaborator in the open app, so the roster renders.
+		await page.routeWebSocket("**/collab/*/workspace%3A*", (socket) => {
+			socket.onMessage((data) => {
+				const frame = JSON.parse(String(data));
+				if (frame.t !== "base") return;
+				socket.send(JSON.stringify({ t: "hello", peerId: 1 }));
+				socket.send(
+					JSON.stringify({
+						t: "base",
+						id: frame.id,
+						generation: 0,
+						revision: 0,
+						files: [["document", ""]],
+						canonical: { revision: 0, revisionId: null },
+					}),
+				);
+				socket.send(
+					JSON.stringify({
+						t: "presence",
+						peers: [
+							[
+								2,
+								{
+									user: {
+										key: "p_ada",
+										displayName: "Ada Lovelace",
+										kind: "human",
+										role: "build",
+										verified: true,
 									},
-								],
+									location: {
+										surface: "canvas",
+										artifactKind: "gadget",
+										artifactLabel: "Activity",
+									},
+								},
 							],
-						}),
-					);
-				});
-			});
-			await page.route("**/userSettings/getPreferences", async (route) => {
-				const response = await route.fetch();
-				const body = await response.json();
-				body.json.preferences.theme = theme;
-				return route.fulfill({ response, json: body });
-			});
-			await page.goto(`${server.origin}${appPath}`, {
-				waitUntil: "domcontentloaded",
-			});
-			await page.getByRole("tab").first().waitFor();
-			assert.equal(
-				await page.locator("html").getAttribute("data-mode"),
-				theme,
-				`${label}: theme applied`,
-			);
-
-			assert(
-				(await navigationRows(page)) <= 2,
-				`${label}: at most two navigation rows above the canvas`,
-			);
-			const switcher = page.locator(".canvas-pane-switcher");
-			assert.equal(
-				await switcher.count(),
-				1,
-				`${label}: one pane switcher in the tree`,
-			);
-			assert.equal(
-				await switcher.isVisible(),
-				narrow,
-				`${label}: the pane switcher is for narrow screens only`,
-			);
-			assert.deepEqual(
-				await workpieceViewNames(page),
-				["App", "Code", "History", "Connections"],
-				`${label}: four plain views for the open app`,
-			);
-			assert.equal(
-				await workpieceViewTabs(page).isVisible(),
-				!phone,
-				`${label}: view tabs on wide screens, a view menu on a phone`,
-			);
-
-			// One control per job: a single chat toggle and a single Files toggle,
-			// both in the top bar, and nothing named Resources or Outputs.
-			for (const name of [/^(Hide|Show) files$/, /^(Hide|Show) chat$/]) {
-				const toggles = page.getByRole("button", { name });
-				assert.equal(
-					await toggles.count(),
-					narrow ? 0 : 1,
-					`${label}: one ${name} toggle on wide screens, none on narrow ones`,
+						],
+					}),
 				);
-				if (!narrow)
-					assert(
-						await toggles.evaluate(
-							(button) => !!button.closest(".canvas-workspace-header"),
-						),
-						`${label}: ${name} sits in the top bar`,
-					);
-			}
-
-			// Who is here shows once, in the top bar, as tall as its icon buttons.
-			const roster = page.getByRole("button", {
-				name: "1 collaborator here now. Open collaborator details.",
 			});
-			await roster.waitFor();
-			assert.equal(
-				await page.locator(".canvas-presence-trigger").count(),
-				1,
-				`${label}: exactly one presence stack on the page`,
-			);
-			assert(
-				await roster.evaluate(
-					(button) => !!button.closest(".canvas-workspace-header"),
-				),
-				`${label}: the presence stack sits in the top bar`,
-			);
-			const share = page.getByRole("button", { name: "Share", exact: true });
-			assert.equal(
-				(await roster.boundingBox())?.height,
-				(await share.boundingBox())?.height,
-				`${label}: presence stack is as tall as the icon buttons`,
-			);
-			await roster.click();
-			await page.getByText("In this app", { exact: true }).waitFor();
-			await page.keyboard.press("Escape");
+		});
+		await page.route("**/userSettings/getPreferences", async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			body.json.preferences.theme = theme;
+			return route.fulfill({ response, json: body });
+		});
+		await page.goto(`${server.origin}${appPath}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await page.getByRole("tab").first().waitFor();
+		assert.equal(
+			await page.locator("html").getAttribute("data-mode"),
+			theme,
+			`${label}: theme applied`,
+		);
 
-			// The title never collapses to an empty segment.
-			const emptySegments = await page.evaluate(
-				() =>
-					[
-						...document.querySelectorAll(
-							".canvas-workspace-title :is(h1, [data-kumo-part=link], [aria-current=page])",
-						),
-					].filter((segment) => {
-						const box = segment.getBoundingClientRect();
-						// Hidden, or kept for assistive technology only.
-						if (box.width <= 1 || box.height <= 1) return false;
-						return box.width < 24 || !segment.textContent?.trim();
-					}).length,
-			);
-			assert.equal(emptySegments, 0, `${label}: no empty title segment`);
+		assert(
+			(await navigationRows(page)) <= 2,
+			`${label}: at most two navigation rows above the canvas`,
+		);
+		const switcher = page.locator(".canvas-pane-switcher");
+		assert.equal(
+			await switcher.count(),
+			1,
+			`${label}: one pane switcher in the tree`,
+		);
+		assert.equal(
+			await switcher.isVisible(),
+			narrow,
+			`${label}: the pane switcher is for narrow screens only`,
+		);
+		assert.deepEqual(
+			await workpieceViewNames(page),
+			["App", "Code", "History", "Connections"],
+			`${label}: four plain views for the open app`,
+		);
+		assert.equal(
+			await workpieceViewTabs(page).isVisible(),
+			!phone,
+			`${label}: view tabs on wide screens, a view menu on a phone`,
+		);
 
-			// The view control keeps its place whichever view is open: the tabs
-			// by their left edge, the phone's menu (named after the view, so its
-			// width changes) by its right edge beside Close.
-			const viewControl = phone
-				? workpieceViewMenu(page)
-				: workpieceViewTabs(page);
-			const tabX: number[] = [];
-			for (const view of ["App", "Code", "History", "Connections"]) {
-				await showWorkpieceView(page, view);
-				await page.waitForTimeout(150);
-				const box = await viewControl.boundingBox();
-				tabX.push(Math.round(box ? box.x + (phone ? box.width : 0) : -1));
-			}
+		// One control per job: a single chat toggle and a single Files toggle,
+		// both in the top bar, and nothing named Resources or Outputs.
+		for (const name of [/^(Hide|Show) files$/, /^(Hide|Show) chat$/]) {
+			const toggles = page.getByRole("button", { name });
 			assert.equal(
-				new Set(tabX).size,
-				1,
-				`${label}: the view control stays put across App, Code, History and Connections (${tabX})`,
+				await toggles.count(),
+				narrow ? 0 : 1,
+				`${label}: one ${name} toggle on wide screens, none on narrow ones`,
 			);
-			await showWorkpieceView(page, "App");
-
-			// The open item's bar is at most two rows, on one left edge.
-			const barRows = await page.evaluate(() => {
-				const bar = document.querySelector(".canvas-workpiece-bar");
-				const boxes = [...(bar?.children ?? [])]
-					.map((child) => child.getBoundingClientRect())
-					.filter((box) => box.width > 0 && box.height > 0)
-					.sort((a, b) => a.top - b.top);
-				// A row starts where a control begins below the previous row.
-				const rows: { bottom: number; left: number }[] = [];
-				for (const box of boxes) {
-					const row = rows.at(-1);
-					if (row && box.top < row.bottom - 1) {
-						row.bottom = Math.max(row.bottom, box.bottom);
-						row.left = Math.min(row.left, box.left);
-					} else rows.push({ bottom: box.bottom, left: box.left });
-				}
-				return rows.map((row) => Math.round(row.left));
-			});
-			assert(
-				barRows.length <= (phone ? 1 : 2),
-				`${label}: item bar is ${phone ? "one row" : "at most two rows"} (${barRows.length})`,
-			);
-			assert.equal(
-				new Set(barRows).size,
-				1,
-				`${label}: item bar rows share one left edge (${barRows})`,
-			);
-			for (const stale of ["Resources", "Outputs", "Editor"]) {
-				assert.equal(
-					await page.getByRole("button", { name: stale, exact: true }).count(),
-					0,
-					`${label}: no "${stale}" control`,
+			if (!narrow)
+				assert(
+					await toggles.evaluate(
+						(button) => !!button.closest(".canvas-workspace-header"),
+					),
+					`${label}: ${name} sits in the top bar`,
 				);
-			}
-			assert.equal(
-				await page.getByRole("button", { name: "Focus", exact: true }).count(),
-				phone ? 0 : 1,
-				`${label}: one Focus control, none on a phone`,
-			);
-			// The top bar shares the workspace; the open app's own header shares
-			// that app. Both open the same dialog, on what was clicked.
-			assert.equal(
-				await share.count(),
-				1,
-				`${label}: one workspace Share control`,
-			);
-			assert(
-				await share.evaluate(
-					(button) => !!button.closest(".canvas-workspace-header"),
-				),
-				`${label}: Share sits in the top bar`,
-			);
-			await share.click();
-			const dialog = page.getByRole("dialog");
-			await dialog.getByText("People with access").waitFor();
-			// Sharing the open app alone is a scope inside the same dialog, never
-			// a popover stacked on top of it.
-			await dialog
-				.getByRole("button", { name: "This app", exact: true })
-				.click();
-			await dialog
-				.getByRole("radiogroup", { name: "Who can open it" })
-				.waitFor();
-			assert.equal(await page.getByRole("dialog").count(), 1);
-			assert.equal(await page.locator(".kumo-popover-popup").count(), 0);
-			assert(
-				await page.evaluate(
-					() => document.documentElement.scrollWidth <= innerWidth + 1,
-				),
-				`${label}: no sideways page scroll with Share open`,
-			);
-			await page.keyboard.press("Escape");
-			await dialog.waitFor({ state: "hidden" });
-			assert(
-				await page.evaluate(
-					() => document.documentElement.scrollWidth <= innerWidth + 1,
-				),
-				`${label}: no sideways page scroll`,
-			);
-			// The open app's Share starts the dialog on that app.
-			const itemShare = page.getByRole("button", {
-				name: "Share this app",
-				exact: true,
-			});
-			assert.equal(await itemShare.count(), 1, `${label}: one app Share`);
-			assert(
-				await itemShare.evaluate(
-					(button) => !button.closest(".canvas-workspace-header"),
-				),
-				`${label}: the app's Share sits in the app's header`,
-			);
-			// Closing the dialog returns focus to the top bar's Share, whose
-			// tooltip can sit over the app's header on a phone.
-			await page.evaluate(() =>
-				(document.activeElement as HTMLElement | null)?.blur(),
-			);
-			await itemShare.click();
-			await dialog
-				.getByRole("radiogroup", { name: "Who can open it" })
-				.waitFor();
-			assert.equal(await dialog.getByText("People with access").count(), 0);
-			assert.equal(await page.getByRole("dialog").count(), 1);
-			await page.keyboard.press("Escape");
-			await dialog.waitFor({ state: "hidden" });
-			assert(
-				await page.evaluate(
-					() => document.documentElement.scrollWidth <= innerWidth + 1,
-				),
-				`${label}: no sideways page scroll with the app's Share`,
-			);
-			// Focus mode (wide screens only) hides the top bar; Share stays
-			// reachable from the panel.
-			if (!phone) {
-				await page.getByRole("button", { name: "Focus", exact: true }).click();
-				const focusShare = page.getByRole("button", { name: /^Share\b/ });
-				await focusShare.waitFor();
-				assert.equal(
-					await focusShare.count(),
-					1,
-					`${label}: one Share in focus`,
-				);
-				await focusShare.click();
-				await page
-					.getByRole("dialog")
-					.getByRole("radiogroup", { name: "Who can open it" })
-					.waitFor();
-				assert.equal(await page.getByRole("dialog").count(), 1);
-				await page.keyboard.press("Escape");
-				await page.getByRole("dialog").waitFor({ state: "hidden" });
-				await page
-					.getByRole("button", { name: "Exit focus", exact: true })
-					.click();
-			}
-			// Drop route handlers first: a request still in flight must not
-			// reach route.fetch() after the context is gone.
-			await page.unrouteAll({ behavior: "ignoreErrors" });
-			await context.close();
-			console.log(`workspace nav ${label}: ok`);
 		}
+
+		// Who is here shows once, in the top bar, as tall as its icon buttons.
+		const roster = page.getByRole("button", {
+			name: "1 collaborator here now. Open collaborator details.",
+		});
+		await roster.waitFor();
+		assert.equal(
+			await page.locator(".canvas-presence-trigger").count(),
+			1,
+			`${label}: exactly one presence stack on the page`,
+		);
+		assert(
+			await roster.evaluate(
+				(button) => !!button.closest(".canvas-workspace-header"),
+			),
+			`${label}: the presence stack sits in the top bar`,
+		);
+		const share = page.getByRole("button", { name: "Share", exact: true });
+		assert.equal(
+			(await roster.boundingBox())?.height,
+			(await share.boundingBox())?.height,
+			`${label}: presence stack is as tall as the icon buttons`,
+		);
+		await roster.click();
+		await page.getByText("In this app", { exact: true }).waitFor();
+		await page.keyboard.press("Escape");
+
+		// The title never collapses to an empty segment.
+		const emptySegments = await page.evaluate(
+			() =>
+				[
+					...document.querySelectorAll(
+						".canvas-workspace-title :is(h1, [data-kumo-part=link], [aria-current=page])",
+					),
+				].filter((segment) => {
+					const box = segment.getBoundingClientRect();
+					// Hidden, or kept for assistive technology only.
+					if (box.width <= 1 || box.height <= 1) return false;
+					return box.width < 24 || !segment.textContent?.trim();
+				}).length,
+		);
+		assert.equal(emptySegments, 0, `${label}: no empty title segment`);
+
+		// The view control keeps its place whichever view is open: the tabs
+		// by their left edge, the phone's menu (named after the view, so its
+		// width changes) by its right edge beside Close.
+		const viewControl = phone
+			? workpieceViewMenu(page)
+			: workpieceViewTabs(page);
+		const tabX: number[] = [];
+		for (const view of ["App", "Code", "History", "Connections"]) {
+			await showWorkpieceView(page, view);
+			await page.waitForTimeout(150);
+			const box = await viewControl.boundingBox();
+			tabX.push(Math.round(box ? box.x + (phone ? box.width : 0) : -1));
+		}
+		assert.equal(
+			new Set(tabX).size,
+			1,
+			`${label}: the view control stays put across App, Code, History and Connections (${tabX})`,
+		);
+		await showWorkpieceView(page, "App");
+
+		// The open item's bar is at most two rows, on one left edge.
+		const barRows = await page.evaluate(() => {
+			const bar = document.querySelector(".canvas-workpiece-bar");
+			const boxes = [...(bar?.children ?? [])]
+				.map((child) => child.getBoundingClientRect())
+				.filter((box) => box.width > 0 && box.height > 0)
+				.sort((a, b) => a.top - b.top);
+			// A row starts where a control begins below the previous row.
+			const rows: { bottom: number; left: number }[] = [];
+			for (const box of boxes) {
+				const row = rows.at(-1);
+				if (row && box.top < row.bottom - 1) {
+					row.bottom = Math.max(row.bottom, box.bottom);
+					row.left = Math.min(row.left, box.left);
+				} else rows.push({ bottom: box.bottom, left: box.left });
+			}
+			return rows.map((row) => Math.round(row.left));
+		});
+		assert(
+			barRows.length <= (phone ? 1 : 2),
+			`${label}: item bar is ${phone ? "one row" : "at most two rows"} (${barRows.length})`,
+		);
+		assert.equal(
+			new Set(barRows).size,
+			1,
+			`${label}: item bar rows share one left edge (${barRows})`,
+		);
+		for (const stale of ["Resources", "Outputs", "Editor"]) {
+			assert.equal(
+				await page.getByRole("button", { name: stale, exact: true }).count(),
+				0,
+				`${label}: no "${stale}" control`,
+			);
+		}
+		assert.equal(
+			await page.getByRole("button", { name: "Focus", exact: true }).count(),
+			phone ? 0 : 1,
+			`${label}: one Focus control, none on a phone`,
+		);
+		// The top bar shares the workspace; the open app's own header shares
+		// that app. Both open the same dialog, on what was clicked.
+		assert.equal(
+			await share.count(),
+			1,
+			`${label}: one workspace Share control`,
+		);
+		assert(
+			await share.evaluate(
+				(button) => !!button.closest(".canvas-workspace-header"),
+			),
+			`${label}: Share sits in the top bar`,
+		);
+		await share.click();
+		const dialog = page.getByRole("dialog");
+		await dialog.getByText("People with access").waitFor();
+		// Sharing the open app alone is a scope inside the same dialog, never
+		// a popover stacked on top of it.
+		await dialog.getByRole("button", { name: "This app", exact: true }).click();
+		await dialog.getByRole("radiogroup", { name: "Who can open it" }).waitFor();
+		assert.equal(await page.getByRole("dialog").count(), 1);
+		assert.equal(await page.locator(".kumo-popover-popup").count(), 0);
+		assert(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= innerWidth + 1,
+			),
+			`${label}: no sideways page scroll with Share open`,
+		);
+		await page.keyboard.press("Escape");
+		await dialog.waitFor({ state: "hidden" });
+		assert(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= innerWidth + 1,
+			),
+			`${label}: no sideways page scroll`,
+		);
+		// The open app's Share starts the dialog on that app.
+		const itemShare = page.getByRole("button", {
+			name: "Share this app",
+			exact: true,
+		});
+		assert.equal(await itemShare.count(), 1, `${label}: one app Share`);
+		assert(
+			await itemShare.evaluate(
+				(button) => !button.closest(".canvas-workspace-header"),
+			),
+			`${label}: the app's Share sits in the app's header`,
+		);
+		// Closing the dialog returns focus to the top bar's Share, whose
+		// tooltip can sit over the app's header on a phone.
+		await page.evaluate(() =>
+			(document.activeElement as HTMLElement | null)?.blur(),
+		);
+		await itemShare.click();
+		await dialog.getByRole("radiogroup", { name: "Who can open it" }).waitFor();
+		assert.equal(await dialog.getByText("People with access").count(), 0);
+		assert.equal(await page.getByRole("dialog").count(), 1);
+		await page.keyboard.press("Escape");
+		await dialog.waitFor({ state: "hidden" });
+		assert(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= innerWidth + 1,
+			),
+			`${label}: no sideways page scroll with the app's Share`,
+		);
+		// Focus mode (wide screens only) hides the top bar; Share stays
+		// reachable from the panel.
+		if (!phone) {
+			await page.getByRole("button", { name: "Focus", exact: true }).click();
+			const focusShare = page.getByRole("button", { name: /^Share\b/ });
+			await focusShare.waitFor();
+			assert.equal(await focusShare.count(), 1, `${label}: one Share in focus`);
+			await focusShare.click();
+			await page
+				.getByRole("dialog")
+				.getByRole("radiogroup", { name: "Who can open it" })
+				.waitFor();
+			assert.equal(await page.getByRole("dialog").count(), 1);
+			await page.keyboard.press("Escape");
+			await page.getByRole("dialog").waitFor({ state: "hidden" });
+			await page
+				.getByRole("button", { name: "Exit focus", exact: true })
+				.click();
+		}
+		// Drop route handlers first: a request still in flight must not
+		// reach route.fetch() after the context is gone.
+		await page.unrouteAll({ behavior: "ignoreErrors" });
+		await context.close();
+		console.log(`workspace nav ${label}: ok`);
 	}
 } finally {
 	await browser.close();

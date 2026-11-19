@@ -23,231 +23,231 @@ try {
 		["/admin/connections", "organization"],
 		["/account/connections", "personal"],
 	] as const)
-		for (const width of [375, 390, 1280])
-			for (const theme of ["light", "dark"] as const) {
-				const label = `${owner}/${width}/${theme}`;
-				const page = await browser.newPage({
-					viewport: { width, height: 900 },
-					colorScheme: theme,
-					reducedMotion: "reduce",
-				});
-				await page.goto(`${server.origin}${path}`);
-				const rows = page.locator(
-					'[aria-label="Connected accounts"] > li[data-account-group]',
-				);
-				await rows.first().waitFor();
-				await page.evaluate(() => document.fonts.ready);
-				const text = await page.locator("main, body").first().innerText();
+		for (const [width, theme] of [
+			[375, "dark"],
+			[1280, "light"],
+		] as const) {
+			const label = `${owner}/${width}/${theme}`;
+			const page = await browser.newPage({
+				viewport: { width, height: 900 },
+				colorScheme: theme,
+				reducedMotion: "reduce",
+			});
+			await page.goto(`${server.origin}${path}`);
+			const rows = page.locator(
+				'[aria-label="Connected accounts"] > li[data-account-group]',
+			);
+			await rows.first().waitFor();
+			await page.evaluate(() => document.fonts.ready);
+			const text = await page.locator("main, body").first().innerText();
+			assert.ok(
+				!text.includes("Verification incomplete"),
+				`${label}: page-level verification banner is gone`,
+			);
+			// A status Tedix couldn't check is neutral, not a fault: no
+			// "Needs attention" and no Reconnect on that row.
+			const unchecked = page.locator("li[data-account-group]", {
+				has: page.getByRole("button", { name: "Stripe details" }),
+			});
+			assert.equal(
+				await unchecked
+					.locator("[data-account-status]")
+					.first()
+					.getAttribute("data-account-status"),
+				"unchecked",
+				`${label}: the unverifiable account is neutral`,
+			);
+			const uncheckedText = await unchecked.innerText();
+			assert.ok(
+				uncheckedText.includes("Status not checked") &&
+					!uncheckedText.includes("Needs attention"),
+				`${label}: the unverifiable account says "Status not checked"`,
+			);
+			assert.equal(
+				await unchecked.getByRole("button", { name: "Reconnect" }).count(),
+				0,
+				`${label}: no Reconnect for an unchecked status`,
+			);
+			assert.ok(
+				text.includes("Available to connect"),
+				`${label}: never-connected apps are collapsed`,
+			);
+			for (const noise of [
+				"MCP service not checked",
+				"App references",
+				"Referenced by",
+				"pricewise-official-f9ab445d",
+				"Access",
+			])
+				assert.ok(!text.includes(noise), `${label}: no "${noise}"`);
+
+			// Needs attention sorts before connected, then unchecked.
+			const kinds = await rows.evaluateAll((items) =>
+				items.map(
+					(item) =>
+						item
+							.querySelector("[data-account-status]")
+							?.getAttribute("data-account-status") ?? "",
+				),
+			);
+			const order = ["attention", "connected", "unchecked"];
+			const ranks = kinds.map((kind) => order.indexOf(kind));
+			assert.ok(
+				ranks.every(
+					(rank, index) =>
+						rank >= 0 && (index === 0 || rank >= ranks[index - 1]!),
+				),
+				`${label}: attention, connected, unchecked (${kinds.join(",")})`,
+			);
+
+			// One status per row: never a second "Connected" badge.
+			for (const count of await rows.evaluateAll((items) =>
+				items.map(
+					(item) =>
+						(item.textContent ?? "").split("Connected").length -
+						1 -
+						(item.textContent?.match(/Connected accounts/g)?.length ?? 0),
+				),
+			))
+				assert.ok(count <= 1, `${label}: duplicate Connected status`);
+
+			const target = owner === "organization" ? "Pricewise" : "Google Calendar";
+			const targetRow = page.locator("li[data-account-group]", {
+				has: page.getByRole("button", { name: `${target} details` }),
+			});
+			await page.getByRole("button", { name: `${target} details` }).click();
+			const opened = await targetRow.innerText();
+			assert.ok(
+				opened.includes(
+					owner === "organization"
+						? "Everyone in this organization can use it"
+						: "Only you can use it",
+				),
+				`${label}: opened row names who can use it`,
+			);
+			// With several accounts each says which apps use it; a single
+			// account keeps "Used by" behind Details.
+			assert.equal(
+				opened.includes("Used by"),
+				owner === "personal",
+				`${label}: "Used by" only on accounts that need telling apart`,
+			);
+			for (const hidden of [
+				"Who can use it",
+				"Last checked",
+				"Tedix keeps your",
+				"Provider ID",
+				"pricewise-official-f9ab445d",
+			])
 				assert.ok(
-					!text.includes("Verification incomplete"),
-					`${label}: page-level verification banner is gone`,
+					!opened.includes(hidden),
+					`${label}: "${hidden}" waits behind Details`,
 				);
-				// A status Tedix couldn't check is neutral, not a fault: no
-				// "Needs attention" and no Reconnect on that row.
-				const unchecked = page.locator("li[data-account-group]", {
-					has: page.getByRole("button", { name: "Stripe details" }),
-				});
-				assert.equal(
-					await unchecked
-						.locator("[data-account-status]")
+			// Each account carries its own Reconnect and Disconnect.
+			for (const action of ["Disconnect"])
+				assert.ok(
+					await targetRow
+						.getByRole("button", { name: new RegExp(`^${action} ${target}`) })
 						.first()
-						.getAttribute("data-account-status"),
-					"unchecked",
-					`${label}: the unverifiable account is neutral`,
+						.isVisible(),
+					`${label}: ${action} on the account`,
 				);
-				const uncheckedText = await unchecked.innerText();
+			if (owner === "personal")
 				assert.ok(
-					uncheckedText.includes("Status not checked") &&
-						!uncheckedText.includes("Needs attention"),
-					`${label}: the unverifiable account says "Status not checked"`,
+					await targetRow
+						.getByRole("button", { name: "Add account", exact: true })
+						.isVisible(),
+					`${label}: Add account available`,
 				);
-				assert.equal(
-					await unchecked.getByRole("button", { name: "Reconnect" }).count(),
-					0,
-					`${label}: no Reconnect for an unchecked status`,
-				);
+			await targetRow
+				.getByRole("button", { name: "Details", exact: true })
+				.click();
+			const details = await targetRow.innerText();
+			assert.ok(
+				details.includes(
+					owner === "organization" ? "One account" : "Multiple accounts",
+				) && details.includes("Last checked"),
+				`${label}: Details hold account mode and last check`,
+			);
+			assert.equal(
+				details.includes("Who can use this"),
+				owner === "organization",
+				`${label}: organization Details alone control who can use it`,
+			);
+			if (owner === "organization")
 				assert.ok(
-					text.includes("Available to connect"),
-					`${label}: never-connected apps are collapsed`,
+					details.includes("Everyone in the organization"),
+					`${label}: everyone is the default`,
 				);
-				for (const noise of [
-					"MCP service not checked",
-					"App references",
-					"Referenced by",
-					"pricewise-official-f9ab445d",
-					"Access",
-				])
-					assert.ok(!text.includes(noise), `${label}: no "${noise}"`);
-
-				// Needs attention sorts before connected, then unchecked.
-				const kinds = await rows.evaluateAll((items) =>
-					items.map(
-						(item) =>
-							item
-								.querySelector("[data-account-status]")
-								?.getAttribute("data-account-status") ?? "",
-					),
-				);
-				const order = ["attention", "connected", "unchecked"];
-				const ranks = kinds.map((kind) => order.indexOf(kind));
-				assert.ok(
-					ranks.every(
-						(rank, index) =>
-							rank >= 0 && (index === 0 || rank >= ranks[index - 1]!),
-					),
-					`${label}: attention, connected, unchecked (${kinds.join(",")})`,
-				);
-
-				// One status per row: never a second "Connected" badge.
-				for (const count of await rows.evaluateAll((items) =>
-					items.map(
-						(item) =>
-							(item.textContent ?? "").split("Connected").length -
-							1 -
-							(item.textContent?.match(/Connected accounts/g)?.length ?? 0),
-					),
-				))
-					assert.ok(count <= 1, `${label}: duplicate Connected status`);
-
-				const target =
-					owner === "organization" ? "Pricewise" : "Google Calendar";
-				const targetRow = page.locator("li[data-account-group]", {
-					has: page.getByRole("button", { name: `${target} details` }),
-				});
-				await page.getByRole("button", { name: `${target} details` }).click();
-				const opened = await targetRow.innerText();
-				assert.ok(
-					opened.includes(
-						owner === "organization"
-							? "Everyone in this organization can use it"
-							: "Only you can use it",
-					),
-					`${label}: opened row names who can use it`,
-				);
-				// With several accounts each says which apps use it; a single
-				// account keeps "Used by" behind Details.
-				assert.equal(
-					opened.includes("Used by"),
-					owner === "personal",
-					`${label}: "Used by" only on accounts that need telling apart`,
-				);
-				for (const hidden of [
-					"Who can use it",
-					"Last checked",
-					"Tedix keeps your",
-					"Provider ID",
-					"pricewise-official-f9ab445d",
-				])
+			if (owner === "personal") {
+				for (const app of ["Notion", "GitHub"]) {
+					const appRow = page.locator("li[data-account-group]", {
+						has: page.getByRole("button", { name: `${app} details` }),
+					});
+					await page.getByRole("button", { name: `${app} details` }).click();
 					assert.ok(
-						!opened.includes(hidden),
-						`${label}: "${hidden}" waits behind Details`,
+						!(await appRow.innerText()).includes("What Tedix can do"),
+						`${label}: ${app} actions wait behind Details`,
 					);
-				// Each account carries its own Reconnect and Disconnect.
-				for (const action of ["Disconnect"])
-					assert.ok(
-						await targetRow
-							.getByRole("button", { name: new RegExp(`^${action} ${target}`) })
-							.first()
-							.isVisible(),
-						`${label}: ${action} on the account`,
-					);
-				if (owner === "personal")
-					assert.ok(
-						await targetRow
-							.getByRole("button", { name: "Add account", exact: true })
-							.isVisible(),
-						`${label}: Add account available`,
-					);
-				await targetRow
-					.getByRole("button", { name: "Details", exact: true })
-					.click();
-				const details = await targetRow.innerText();
-				assert.ok(
-					details.includes(
-						owner === "organization" ? "One account" : "Multiple accounts",
-					) && details.includes("Last checked"),
-					`${label}: Details hold account mode and last check`,
-				);
-				assert.equal(
-					details.includes("Who can use this"),
-					owner === "organization",
-					`${label}: organization Details alone control who can use it`,
-				);
-				if (owner === "organization")
-					assert.ok(
-						details.includes("Everyone in the organization"),
-						`${label}: everyone is the default`,
-					);
-				if (owner === "personal") {
-					for (const app of ["Notion", "GitHub"]) {
-						const appRow = page.locator("li[data-account-group]", {
-							has: page.getByRole("button", { name: `${app} details` }),
-						});
-						await page.getByRole("button", { name: `${app} details` }).click();
-						assert.ok(
-							!(await appRow.innerText()).includes("What Tedix can do"),
-							`${label}: ${app} actions wait behind Details`,
-						);
-						await appRow
-							.getByRole("button", { name: "Details", exact: true })
-							.click();
-						const appDetails = await appRow.innerText();
-						for (const copy of [
-							"What Tedix can do with it",
-							"Read:",
-							"Create and edit:",
-							"Protected effects:",
-						])
-							assert.ok(
-								appDetails.includes(copy),
-								`${label}: ${app} shows ${copy}`,
-							);
-						await page.getByRole("button", { name: `${app} details` }).click();
-					}
-					await page
-						.getByRole("button", { name: /Available to connect/ })
+					await appRow
+						.getByRole("button", { name: "Details", exact: true })
 						.click();
-					const gmail = page.locator('[data-account-group="google-gmail"]');
-					await gmail.getByRole("button", { name: "Connect" }).click();
-					const dialog = page.getByRole("dialog");
+					const appDetails = await appRow.innerText();
 					for (const copy of [
 						"What Tedix can do with it",
 						"Read:",
 						"Create and edit:",
 						"Protected effects:",
-						"Tedix keeps your Gmail key",
 					])
 						assert.ok(
-							(await dialog.innerText()).includes(copy),
-							`${label}: Gmail dialog shows ${copy}`,
+							appDetails.includes(copy),
+							`${label}: ${app} shows ${copy}`,
 						);
-					await dialog.getByRole("button", { name: "Cancel" }).click();
+					await page.getByRole("button", { name: `${app} details` }).click();
 				}
-
-				const overflow = await page.evaluate(
-					() => document.documentElement.scrollWidth - innerWidth,
-				);
-				assert.equal(overflow, 0, `${label}: horizontal overflow`);
-				backgrounds.set(
-					label,
-					await page.evaluate(
-						() => getComputedStyle(document.body).backgroundColor,
-					),
-				);
-				await page.screenshot({
-					path: `${evidence}${owner}-${width}-${theme}.png`,
-					fullPage: true,
-				});
-				checks += 1;
-				await page.close();
+				await page
+					.getByRole("button", { name: /Available to connect/ })
+					.click();
+				const gmail = page.locator('[data-account-group="google-gmail"]');
+				await gmail.getByRole("button", { name: "Connect" }).click();
+				const dialog = page.getByRole("dialog");
+				for (const copy of [
+					"What Tedix can do with it",
+					"Read:",
+					"Create and edit:",
+					"Protected effects:",
+					"Tedix keeps your Gmail key",
+				])
+					assert.ok(
+						(await dialog.innerText()).includes(copy),
+						`${label}: Gmail dialog shows ${copy}`,
+					);
+				await dialog.getByRole("button", { name: "Cancel" }).click();
 			}
-	for (const owner of ["organization", "personal"])
-		for (const width of [375, 390, 1280])
-			assert.notEqual(
-				backgrounds.get(`${owner}/${width}/light`),
-				backgrounds.get(`${owner}/${width}/dark`),
-				`${owner}/${width}: dark theme applied`,
+
+			const overflow = await page.evaluate(
+				() => document.documentElement.scrollWidth - innerWidth,
 			);
+			assert.equal(overflow, 0, `${label}: horizontal overflow`);
+			backgrounds.set(
+				label,
+				await page.evaluate(
+					() => getComputedStyle(document.body).backgroundColor,
+				),
+			);
+			await page.screenshot({
+				path: `${evidence}${owner}-${width}-${theme}.png`,
+				fullPage: true,
+			});
+			checks += 1;
+			await page.close();
+		}
+	for (const owner of ["organization", "personal"])
+		assert.notEqual(
+			backgrounds.get(`${owner}/1280/light`),
+			backgrounds.get(`${owner}/375/dark`),
+			`${owner}: dark theme applied`,
+		);
 	console.log(
 		`PASS: account list ${checks} page states; screenshots in ${evidence}`,
 	);

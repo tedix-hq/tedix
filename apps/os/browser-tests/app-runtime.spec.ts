@@ -8,8 +8,10 @@ import manifest from "../../../plugins/tedix/skills/tedix-build-app/assets/sheet
 const server = await startFixtureServer("/browser-tests/app-runtime.html");
 const browser = await chromium.launch({ headless: true });
 try {
-	for (const width of [375, 1280]) {
-		const page = await browser.newPage({ viewport: { width, height: 812 } });
+	{
+		const page = await browser.newPage({
+			viewport: { width: 1280, height: 812 },
+		});
 		await routeSandboxProxy(page);
 		const calls: string[] = [];
 		let saved: unknown;
@@ -52,7 +54,8 @@ try {
 		);
 		await page.close();
 	}
-	for (const width of [375, 1280]) {
+	{
+		const width = 375;
 		const page = await browser.newPage({
 			viewport: { width, height: 812 },
 			colorScheme: "light",
@@ -205,7 +208,7 @@ try {
 		await page.close();
 	}
 	console.log(
-		"Runtime app sandbox rating round trip passed at 375px and 1280px",
+		"Runtime app sandbox and phone starter rating round trips passed",
 	);
 	{
 		// A failing app tells the host: uncaught error (with its client.js

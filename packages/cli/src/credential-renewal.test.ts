@@ -37,7 +37,7 @@ const jwt = (claims: object) =>
  * is held after the rotation commits: the window in which a killed client used
  * to lose the only valid token.
  */
-function rotatingServer(replyDelayMs: number) {
+function rotatingServer(beforeReply?: () => Promise<void>) {
 	const state = { current: "refresh-0", rotations: 0, invalidated: false };
 	let firstRequest: () => void;
 	const requested = new Promise<void>((resolve) => {
@@ -64,7 +64,7 @@ function rotatingServer(replyDelayMs: number) {
 			state.rotations += 1;
 			state.current = `refresh-${state.rotations}`;
 			firstRequest();
-			await Bun.sleep(replyDelayMs);
+			await beforeReply?.();
 			return Response.json({
 				access_token: jwt({
 					sub: "user-1",
@@ -153,7 +153,8 @@ describe("stored login renewal across processes", () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-renewal-"));
 		const previous = process.env.TEDIX_CONFIG_DIR;
 		process.env.TEDIX_CONFIG_DIR = configDir;
-		const { server, state, requested } = rotatingServer(1_000);
+		const reply = Promise.withResolvers<void>();
+		const { server, state, requested } = rotatingServer(() => reply.promise);
 		const base = `http://127.0.0.1:${server.port}`;
 		const storedRefresh = () =>
 			readWorkspaceCredentials(WORKSPACE)?.oauthTokens?.refresh_token;
@@ -171,6 +172,7 @@ describe("stored login renewal across processes", () => {
 				} catch {}
 			}
 			await Promise.all(first.map(({ exited }) => exited));
+			reply.resolve();
 			expect(await until(() => storedRefresh() === state.current, 15_000)).toBe(
 				true,
 			);
@@ -185,6 +187,7 @@ describe("stored login renewal across processes", () => {
 			expect(state.rotations).toBe(2);
 			expect(storedRefresh()).toBe(state.current);
 		} finally {
+			reply.resolve();
 			server.stop(true);
 			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
 			else process.env.TEDIX_CONFIG_DIR = previous;
@@ -195,7 +198,8 @@ describe("stored login renewal across processes", () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-renewal-"));
 		const previous = process.env.TEDIX_CONFIG_DIR;
 		process.env.TEDIX_CONFIG_DIR = configDir;
-		const { server, state, requested } = rotatingServer(1_000);
+		const reply = Promise.withResolvers<void>();
+		const { server, state, requested } = rotatingServer(() => reply.promise);
 		const base = `http://127.0.0.1:${server.port}`;
 		try {
 			storeExpiredLogin(base, state.current);
@@ -205,6 +209,7 @@ describe("stored login renewal across processes", () => {
 			await requested;
 			killDescendants(command.child.pid!);
 			await command.exited;
+			reply.resolve();
 			expect(
 				await until(
 					() =>
@@ -215,6 +220,7 @@ describe("stored login renewal across processes", () => {
 			).toBe(true);
 			expect(state.rotations).toBe(1);
 		} finally {
+			reply.resolve();
 			server.stop(true);
 			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
 			else process.env.TEDIX_CONFIG_DIR = previous;
@@ -416,7 +422,7 @@ test("a new login saved during a transient response is never overwritten", async
 });
 
 test("a rotated but unanswered exchange never replays its spent token", async () => {
-	const { server, state, requested } = rotatingServer(200);
+	const { server, state, requested } = rotatingServer(() => Bun.sleep(200));
 	const base = `http://127.0.0.1:${server.port}`;
 	try {
 		storeExpiredLogin(base, state.current);
@@ -455,7 +461,7 @@ test("a rotated but unanswered exchange never replays its spent token", async ()
 });
 
 test("a proven pre-connect failure retries once and saves the only rotation", async () => {
-	const { server, state } = rotatingServer(0);
+	const { server, state } = rotatingServer();
 	const base = `http://127.0.0.1:${server.port}`;
 	const timer = spyOn(globalThis, "setTimeout");
 	try {
@@ -490,7 +496,7 @@ test("a proven pre-connect failure retries once and saves the only rotation", as
 test.each([false, true])(
 	"pre-connect exhaustion stays unfenced (deadline elapsed: %s)",
 	async (elapsed) => {
-		const { server, state } = rotatingServer(0);
+		const { server, state } = rotatingServer();
 		const base = `http://127.0.0.1:${server.port}`;
 		try {
 			storeExpiredLogin(base, state.current);
@@ -524,7 +530,7 @@ test.each([false, true])(
 test.each(["exchange-error", "http-error", "malformed"] as const)(
 	"failed pre-connect attempts followed by a rotated %s never replay the token",
 	async (failure) => {
-		const { server, state } = rotatingServer(0);
+		const { server, state } = rotatingServer();
 		const base = `http://127.0.0.1:${server.port}`;
 		try {
 			storeExpiredLogin(base, state.current);

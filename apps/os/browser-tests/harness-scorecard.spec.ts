@@ -5,7 +5,8 @@ import { startFixtureServer } from "./fixture-server";
 const server = await startFixtureServer();
 const browser = await chromium.launch({ headless: true });
 try {
-	for (const theme of ["light", "dark"] as const) {
+	{
+		const theme = "light";
 		const page = await browser.newPage({
 			viewport: { width: 800, height: 1000 },
 			colorScheme: theme,

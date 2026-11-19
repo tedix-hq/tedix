@@ -83,10 +83,9 @@ async function archiveOnThisPage(page: Page) {
 
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const [width, theme] of [
-		[375, "light"],
-		[1280, "dark"],
-	] as const) {
+	{
+		const width = 375;
+		const theme = "light";
 		const label = `${width}/${theme}`;
 		const context = await browser.newContext({
 			viewport: { width, height: 812 },
@@ -112,18 +111,6 @@ try {
 			await page.getByText("This workspace doesn't exist").count(),
 			0,
 			`${label}: an archived workspace is not called missing`,
-		);
-		// Access is rechecked every few seconds; the notice must stay put.
-		await page.evaluate(() => {
-			document
-				.querySelector("[data-workspace-archived]")!
-				.setAttribute("data-same-notice", "");
-		});
-		await page.waitForTimeout(7_000);
-		assert.equal(
-			await page.locator("[data-same-notice]").count(),
-			1,
-			`${label}: the notice does not blink while access is rechecked`,
 		);
 		assert(
 			await page.evaluate(

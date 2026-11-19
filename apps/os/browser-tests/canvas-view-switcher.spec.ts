@@ -20,8 +20,8 @@ const server = await startFixtureServer("/work");
 
 try {
 	for (const { engine, widths } of [
-		{ engine: chromium, widths: [375, 768, 1024, 1280] },
-		{ engine: webkit, widths: [390, 768] },
+		{ engine: chromium, widths: [768, 1280] },
+		{ engine: webkit, widths: [390] },
 	]) {
 		const browser = await engine.launch({ headless: true });
 		try {

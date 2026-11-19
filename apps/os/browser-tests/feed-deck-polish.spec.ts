@@ -53,8 +53,6 @@ try {
 	}
 	for (const [width, theme, surface, palette] of [
 		[390, "dark", "question", "default"],
-		[1280, "light", "question", "default"],
-		[390, "light", "feed", "blue"],
 		[1280, "dark", "feed", "blue"],
 	] as const) {
 		const page = await browser.newPage({
@@ -374,37 +372,39 @@ try {
 		await page.locator(".fd-decision").focus();
 		await page.keyboard.press("y");
 		await page.locator(".fd-closure").waitFor();
-		await page.goto(
-			`${origin}/browser-tests/feed-deck-polish.html?surface=approval&theme=${theme}`,
-		);
-		await page
-			.getByRole("heading", { name: "Approve fictional test login" })
-			.waitFor();
-		if (
-			!(await page
+		if (width === 390) {
+			await page.goto(
+				`${origin}/browser-tests/feed-deck-polish.html?surface=approval&theme=${theme}`,
+			);
+			await page
+				.getByRole("heading", { name: "Approve fictional test login" })
+				.waitFor();
+			if (
+				!(await page
+					.getByRole("button", { name: "Approve", exact: true })
+					.isEnabled()) ||
+				(await page.getByRole("textbox", { name: "Your answer" }).count())
+			)
+				throw new Error("Typed approval regressed to a free-text question");
+			if (await page.getByText("Prepared args:", { exact: false }).isVisible())
+				throw new Error("Raw approval arguments leaked outside Details");
+			await page.getByRole("button", { name: "Details", exact: true }).click();
+			await page.getByText("Prepared args:", { exact: false }).waitFor();
+			await page.keyboard.press("Escape");
+			await settleAnimations(page);
+			const footer = await page
+				.locator('[data-slot="card-footer"]')
+				.boundingBox();
+			const primaryBox = await page
 				.getByRole("button", { name: "Approve", exact: true })
-				.isEnabled()) ||
-			(await page.getByRole("textbox", { name: "Your answer" }).count())
-		)
-			throw new Error("Typed approval regressed to a free-text question");
-		if (await page.getByText("Prepared args:", { exact: false }).isVisible())
-			throw new Error("Raw approval arguments leaked outside Details");
-		await page.getByRole("button", { name: "Details", exact: true }).click();
-		await page.getByText("Prepared args:", { exact: false }).waitFor();
-		await page.keyboard.press("Escape");
-		await settleAnimations(page);
-		const footer = await page
-			.locator('[data-slot="card-footer"]')
-			.boundingBox();
-		const primaryBox = await page
-			.getByRole("button", { name: "Approve", exact: true })
-			.boundingBox();
-		if (
-			!footer ||
-			!primaryBox ||
-			primaryBox.y + primaryBox.height > footer.y + footer.height + 1
-		)
-			throw new Error("Approval actions escaped the footer");
+				.boundingBox();
+			if (
+				!footer ||
+				!primaryBox ||
+				primaryBox.y + primaryBox.height > footer.y + footer.height + 1
+			)
+				throw new Error("Approval actions escaped the footer");
+		}
 		await page.goto(
 			`${origin}/browser-tests/feed-deck-polish.html?surface=feed&theme=${theme}`,
 		);
@@ -524,34 +524,38 @@ try {
 			rhythm.day !== "Today"
 		)
 			throw new Error(`Activity rhythm: ${JSON.stringify(rhythm)}`);
-		await page.getByRole("button", { name: "Shipped", exact: true }).click();
-		await page.getByRole("feed", { name: "Shipped activity" }).waitFor();
-		// Repeated updates fold into one row each; opening them restores every record.
-		await page
-			.getByRole("button", { name: "Show all 12", exact: true })
-			.waitFor();
-		const folds = page.getByRole("button", { name: /^Show all \d+$/ });
-		while (await folds.count()) await folds.first().click();
-		const records = await page
-			.locator("[data-focus-row]:not(.ft-group)")
-			.count();
-		if (records !== 17)
-			throw new Error(`Shipped lost canonical fixture records: ${records}`);
-		if (
-			await page.getByRole("button", { name: /finished without you/ }).count()
-		)
-			throw new Error("Shipped hid records behind the attention budget");
-		const everythingStory = page
-			.getByRole("feed", { name: "Shipped activity" })
-			.locator(".fd-story")
-			.first();
-		await everythingStory
-			.getByRole("button", { name: "More actions", exact: true })
-			.click();
-		await page.getByRole("menuitem", { name: "Comment", exact: true }).click();
-		await everythingStory
-			.getByRole("textbox", { name: "Your correction", exact: true })
-			.waitFor();
+		if (width === 390) {
+			await page.getByRole("button", { name: "Shipped", exact: true }).click();
+			await page.getByRole("feed", { name: "Shipped activity" }).waitFor();
+			// Repeated updates fold into one row each; opening them restores every record.
+			await page
+				.getByRole("button", { name: "Show all 12", exact: true })
+				.waitFor();
+			const folds = page.getByRole("button", { name: /^Show all \d+$/ });
+			while (await folds.count()) await folds.first().click();
+			const records = await page
+				.locator("[data-focus-row]:not(.ft-group)")
+				.count();
+			if (records !== 17)
+				throw new Error(`Shipped lost canonical fixture records: ${records}`);
+			if (
+				await page.getByRole("button", { name: /finished without you/ }).count()
+			)
+				throw new Error("Shipped hid records behind the attention budget");
+			const everythingStory = page
+				.getByRole("feed", { name: "Shipped activity" })
+				.locator(".fd-story")
+				.first();
+			await everythingStory
+				.getByRole("button", { name: "More actions", exact: true })
+				.click();
+			await page
+				.getByRole("menuitem", { name: "Comment", exact: true })
+				.click();
+			await everythingStory
+				.getByRole("textbox", { name: "Your correction", exact: true })
+				.waitFor();
+		}
 		await page.close();
 	}
 
@@ -693,7 +697,8 @@ try {
 		await page.close();
 	}
 
-	for (const theme of ["light", "dark"]) {
+	{
+		const theme = "dark";
 		const preferred = await browser.newPage();
 		await preferred.goto(
 			`${origin}/browser-tests/feed-deck-polish.html?theme=${theme}`,

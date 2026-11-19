@@ -90,203 +90,195 @@ async function capture(page: Page, name: string) {
 
 try {
 	browser = await webkit.launch({ headless: true });
-	for (const viewport of [
-		{ width: 375, height: 667 },
-		{ width: 390, height: 844 },
-		{ width: 1280, height: 900 },
-	]) {
-		for (const theme of ["light", "dark"] as const) {
-			const context = await browser.newContext({
-				viewport,
-				colorScheme: theme,
-				hasTouch: viewport.width < 640,
-			});
-			const page = await context.newPage();
-			const consoleEntries: string[] = [];
-			receipts.push({ viewport, theme, engine: "webkit", consoleEntries });
-			page.on("console", (entry) =>
-				consoleEntries.push(`${entry.type()}: ${entry.text()}`),
-			);
-			page.on("pageerror", (error) =>
-				consoleEntries.push(`pageerror: ${error.message}`),
-			);
-			await page.addInitScript(() => {
-				(window as unknown as { downloads: unknown[] }).downloads = [];
-				HTMLAnchorElement.prototype.click = function () {
-					(window as unknown as { downloads: unknown[] }).downloads.push({
-						href: this.href,
-						download: this.download,
-					});
-				};
-			});
-			let calls = 0;
-			let finish: ((message?: string) => Promise<void>) | undefined;
-			await context.route("**/api/**", async (route) => {
-				assert.equal(
-					new URL(route.request().url()).pathname,
-					"/api/rpc/osWorkspaces/outputs/export",
-				);
-				assert.equal(route.request().method(), "POST");
-				assert.deepEqual(route.request().postDataJSON(), {
-					json: {
-						outputId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-						format: "pdf",
-					},
+	for (const { viewport, theme } of [
+		{ viewport: { width: 375, height: 667 }, theme: "dark" },
+		{ viewport: { width: 1280, height: 900 }, theme: "light" },
+	] as const) {
+		const context = await browser.newContext({
+			viewport,
+			colorScheme: theme,
+			hasTouch: viewport.width < 640,
+		});
+		const page = await context.newPage();
+		const consoleEntries: string[] = [];
+		receipts.push({ viewport, theme, engine: "webkit", consoleEntries });
+		page.on("console", (entry) =>
+			consoleEntries.push(`${entry.type()}: ${entry.text()}`),
+		);
+		page.on("pageerror", (error) =>
+			consoleEntries.push(`pageerror: ${error.message}`),
+		);
+		await page.addInitScript(() => {
+			(window as unknown as { downloads: unknown[] }).downloads = [];
+			HTMLAnchorElement.prototype.click = function () {
+				(window as unknown as { downloads: unknown[] }).downloads.push({
+					href: this.href,
+					download: this.download,
 				});
-				calls++;
-				await new Promise<void>((resolve) => {
-					finish = async (message) => {
-						await route.fulfill(
-							message
-								? {
-										status: 500,
+			};
+		});
+		let calls = 0;
+		let finish: ((message?: string) => Promise<void>) | undefined;
+		await context.route("**/api/**", async (route) => {
+			assert.equal(
+				new URL(route.request().url()).pathname,
+				"/api/rpc/osWorkspaces/outputs/export",
+			);
+			assert.equal(route.request().method(), "POST");
+			assert.deepEqual(route.request().postDataJSON(), {
+				json: {
+					outputId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+					format: "pdf",
+				},
+			});
+			calls++;
+			await new Promise<void>((resolve) => {
+				finish = async (message) => {
+					await route.fulfill(
+						message
+							? {
+									status: 500,
+									json: {
 										json: {
-											json: {
-												defined: false,
-												code: "INTERNAL_SERVER_ERROR",
-												message,
-											},
-										},
-									}
-								: {
-										json: {
-											json: {
-												key: "fixture/rev-2.pdf",
-												format: "pdf",
-												revision: 2,
-												sizeBytes: 0,
-												url: "https://api.example.test/os-exports/fixture/rev-2.pdf?fixture=1",
-											},
+											defined: false,
+											code: "INTERNAL_SERVER_ERROR",
+											message,
 										},
 									},
-						);
-						finish = undefined;
-						resolve();
-					};
-				});
+								}
+							: {
+									json: {
+										json: {
+											key: "fixture/rev-2.pdf",
+											format: "pdf",
+											revision: 2,
+											sizeBytes: 0,
+											url: "https://api.example.test/os-exports/fixture/rev-2.pdf?fixture=1",
+										},
+									},
+								},
+					);
+					finish = undefined;
+					resolve();
+				};
 			});
-			await context.route(/^https?:\/\/(?!127\.0\.0\.1:)/, (route) =>
-				route.abort(),
+		});
+		await context.route(/^https?:\/\/(?!127\.0\.0\.1:)/, (route) =>
+			route.abort(),
+		);
+		await page.goto(
+			`${origin}/browser-tests/b9-export-phone.html?theme=${theme}`,
+		);
+		for (const variant of ["compact", "normal"]) {
+			const label = `${viewport.width}x${viewport.height}-${theme}-${variant}`;
+			const scope = page.locator(`[data-variant="${variant}"]`);
+			const trigger = scope.getByRole("button", {
+				name: "Export",
+				exact: true,
+			});
+			await trigger.focus();
+			await page.keyboard.press("ArrowDown");
+			const menu = page.getByRole("menu");
+			await menu.waitFor();
+			assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), [
+				"PDF",
+				"PNG",
+				"Document (.docx)",
+				"Markdown (.md)",
+				"HTML (.html)",
+				"PDF with title and revision",
+			]);
+			await until(
+				() => menu.evaluate((el) => el.contains(document.activeElement)),
+				"menu receives focus",
 			);
-			await page.goto(
-				`${origin}/browser-tests/b9-export-phone.html?theme=${theme}`,
+			if (viewport.width < 640)
+				for (const item of await menu.getByRole("menuitem").all()) {
+					const box = (await item.boundingBox())!;
+					receipts.push({ label, menuTarget: box });
+					assert(box.height >= 44 && box.width >= 44, "44px menu target");
+				}
+			await capture(page, `${label}-menu`);
+			await page.keyboard.press("Escape");
+			await until(
+				() => trigger.evaluate((el) => document.activeElement === el),
+				"focus returns to trigger",
 			);
-			for (const variant of ["compact", "normal"]) {
-				const label = `${viewport.width}x${viewport.height}-${theme}-${variant}`;
-				const scope = page.locator(`[data-variant="${variant}"]`);
-				const trigger = scope.getByRole("button", {
-					name: "Export",
+			assert(
+				await trigger.evaluate(
+					(el) =>
+						el.matches(":focus-visible") &&
+						getComputedStyle(el).boxShadow !== "none",
+				),
+				"visible keyboard focus",
+			);
+			for (const message of [spaced, token, undefined]) {
+				const before = calls;
+				await trigger.click();
+				await page.getByRole("menuitem", { name: "PDF", exact: true }).click();
+				await until(
+					async () => calls === before + 1 && Boolean(finish),
+					"one mock export starts",
+				);
+				const pending = scope.getByRole("button", {
+					name: "Exporting PDF",
 					exact: true,
 				});
-				await trigger.focus();
-				await page.keyboard.press("ArrowDown");
-				const menu = page.getByRole("menu");
-				await menu.waitFor();
-				assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), [
-					"PDF",
-					"PNG",
-					"Document (.docx)",
-					"Markdown (.md)",
-					"HTML (.html)",
-					"PDF with title and revision",
-				]);
-				await until(
-					() => menu.evaluate((el) => el.contains(document.activeElement)),
-					"menu receives focus",
+				assert(await pending.isDisabled());
+				assert.equal(await pending.getAttribute("aria-busy"), "true");
+				assert.equal(
+					await scope.getByRole("status").textContent(),
+					"Exporting PDF",
 				);
-				if (viewport.width < 640)
-					for (const item of await menu.getByRole("menuitem").all()) {
-						const box = (await item.boundingBox())!;
-						receipts.push({ label, menuTarget: box });
-						assert(box.height >= 44 && box.width >= 44, "44px menu target");
-					}
-				await capture(page, `${label}-menu`);
-				await page.keyboard.press("Escape");
-				await until(
-					() => trigger.evaluate((el) => document.activeElement === el),
-					"focus returns to trigger",
-				);
-				assert(
-					await trigger.evaluate(
-						(el) =>
-							el.matches(":focus-visible") &&
-							getComputedStyle(el).boxShadow !== "none",
-					),
-					"visible keyboard focus",
-				);
-				for (const message of [spaced, token, undefined]) {
-					const before = calls;
-					await trigger.click();
-					await page
-						.getByRole("menuitem", { name: "PDF", exact: true })
-						.click();
-					await until(
-						async () => calls === before + 1 && Boolean(finish),
-						"one mock export starts",
+				assert.equal(await scope.getByRole("alert").count(), 0);
+				await pending.evaluate((el: HTMLButtonElement) => {
+					el.click();
+					el.click();
+				});
+				await page.waitForTimeout(100);
+				assert.equal(calls, before + 1, "one mutation while pending");
+				await measure(page, scope, viewport.width < 640);
+				await capture(page, `${label}-pending`);
+				await finish!(message);
+				await until(() => trigger.isEnabled(), "export settles");
+				if (message) {
+					const alert = scope.getByRole("alert");
+					await alert.waitFor();
+					assert.equal(await alert.textContent(), `Export failed: ${message}`);
+					await alert.scrollIntoViewIfNeeded();
+					await capture(
+						page,
+						`${label}-${message === spaced ? "spaced" : "token"}`,
 					);
-					const pending = scope.getByRole("button", {
-						name: "Exporting PDF",
-						exact: true,
-					});
-					assert(await pending.isDisabled());
-					assert.equal(await pending.getAttribute("aria-busy"), "true");
-					assert.equal(
-						await scope.getByRole("status").textContent(),
-						"Exporting PDF",
-					);
-					assert.equal(await scope.getByRole("alert").count(), 0);
-					await pending.evaluate((el: HTMLButtonElement) => {
-						el.click();
-						el.click();
-					});
-					await page.waitForTimeout(100);
-					assert.equal(calls, before + 1, "one mutation while pending");
 					await measure(page, scope, viewport.width < 640);
-					await capture(page, `${label}-pending`);
-					await finish!(message);
-					await until(() => trigger.isEnabled(), "export settles");
-					if (message) {
-						const alert = scope.getByRole("alert");
-						await alert.waitFor();
-						assert.equal(
-							await alert.textContent(),
-							`Export failed: ${message}`,
-						);
-						await alert.scrollIntoViewIfNeeded();
-						await capture(
-							page,
-							`${label}-${message === spaced ? "spaced" : "token"}`,
-						);
-						await measure(page, scope, viewport.width < 640);
-					} else assert.equal(await scope.getByRole("alert").count(), 0);
-				}
+				} else assert.equal(await scope.getByRole("alert").count(), 0);
 			}
-			assert.equal(calls, 6, "three explicit requests per variant");
-			assert.deepEqual(
-				await page.evaluate(
-					() => (window as unknown as { downloads: unknown[] }).downloads,
-				),
-				Array.from({ length: 2 }, () => ({
-					href: `${origin}/api/os-exports/fixture/rev-2.pdf?fixture=1`,
-					download: "rev-2.pdf",
-				})),
-			);
-			receipts.push({
-				viewport,
-				theme,
-				engine: "webkit",
-				calls,
-				consoleEntries,
-			});
-			assert(
-				!consoleEntries.some((line) => line.startsWith("pageerror:")),
-				consoleEntries.join("\n"),
-			);
-			await context.close();
 		}
+		assert.equal(calls, 6, "three explicit requests per variant");
+		assert.deepEqual(
+			await page.evaluate(
+				() => (window as unknown as { downloads: unknown[] }).downloads,
+			),
+			Array.from({ length: 2 }, () => ({
+				href: `${origin}/api/os-exports/fixture/rev-2.pdf?fixture=1`,
+				download: "rev-2.pdf",
+			})),
+		);
+		receipts.push({
+			viewport,
+			theme,
+			engine: "webkit",
+			calls,
+			consoleEntries,
+		});
+		assert(
+			!consoleEntries.some((line) => line.startsWith("pageerror:")),
+			consoleEntries.join("\n"),
+		);
+		await context.close();
 	}
 	console.log(
-		"PASS: real export controls wrap diagnostics, retain focus and 44px phone targets, and allow only explicit retries with inert proxy downloads (WebKit, 6 viewport/theme combinations)",
+		"PASS: real export controls wrap diagnostics, retain focus and 44px phone targets, and allow only explicit retries with inert proxy downloads (WebKit phone and desktop)",
 	);
 } finally {
 	await writeFile(

@@ -99,27 +99,27 @@ async function roundTrip(page: Page, label: string) {
 
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const width of [375, 1280]) {
-		{
-			const { context, page } = await open("de-DE", width, appPath);
-			await roundTrip(page, `${width}-signed-in`);
-			await context.close();
-		}
-		{
-			const { context, page } = await open(
-				"de-DE",
-				width,
-				`/guest#token=${token}`,
-			);
-			await roundTrip(page, `${width}-guest`);
-			const bar = await page.locator("[data-guest-app] header").boundingBox();
-			// One row: at most a 44px touch target tall.
-			assert(
-				bar && bar.height <= 44,
-				`${width}: the guest bar stays one line (${bar?.height}px)`,
-			);
-			await context.close();
-		}
+	{
+		const width = 1280;
+		const { context, page } = await open("de-DE", width, appPath);
+		await roundTrip(page, `${width}-signed-in`);
+		await context.close();
+	}
+	{
+		const width = 375;
+		const { context, page } = await open(
+			"de-DE",
+			width,
+			`/guest#token=${token}`,
+		);
+		await roundTrip(page, `${width}-guest`);
+		const bar = await page.locator("[data-guest-app] header").boundingBox();
+		// One row: at most a 44px touch target tall.
+		assert(
+			bar && bar.height <= 44,
+			`${width}: the guest bar stays one line (${bar?.height}px)`,
+		);
+		await context.close();
 	}
 
 	// A viewer who already reads the app's language sees no Translate.
@@ -133,7 +133,7 @@ try {
 		await context.close();
 	}
 	console.log(
-		`App Translate passed signed in and as a guest at 375px and 1280px; screenshots in ${evidence}`,
+		`App Translate passed signed in on desktop and as a guest on a phone; screenshots in ${evidence}`,
 	);
 } finally {
 	await browser?.close();

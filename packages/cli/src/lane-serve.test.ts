@@ -648,8 +648,8 @@ function fixture({
 		briefs,
 	};
 }
-async function until(test: () => boolean) {
-	for (let n = 0; n < 100 && !test(); n++)
+async function until(test: () => boolean, attempts = 100) {
+	for (let n = 0; n < attempts && !test(); n++)
 		await new Promise((done) => setTimeout(done, 2));
 	expect(test()).toBe(true);
 }
@@ -2046,13 +2046,14 @@ describe("dispatcher admission", () => {
 		const { dispatcher, items, control, releases, events, dir } = fixture();
 		items.splice(1);
 		control.spawnPid = child.pid;
+		const timeouts = spyOn(globalThis, "setTimeout");
 		try {
 			await once(child.stdout!, "data");
 			await dispatcher.tick();
 			await until(() => releases.length === 1);
 			const ignored = once(child.stdout!, "data");
+			const offset = timeouts.mock.calls.length;
 			now += 300_001;
-			const stoppingAt = performance.now();
 			leaseCheck();
 			expect(String((await ignored)[0])).toContain("ignored");
 			const receiptPath = join(dir, `${item().id}-2.json`);
@@ -2067,10 +2068,14 @@ describe("dispatcher admission", () => {
 			}
 			expect(events.some((event) => event.verb === "heartbeat")).toBe(false);
 			expect(child.signalCode).toBeNull();
+			const escalation = timeouts.mock.calls
+				.slice(offset)
+				.filter(([, delay]) => delay === 5_000);
+			expect(escalation).toHaveLength(1);
+			escalation[0]![0]();
 			const [code, signal] = await exited;
 			expect(code).toBeNull();
 			expect(signal).toBe("SIGKILL");
-			expect(performance.now() - stoppingAt).toBeGreaterThanOrEqual(4900);
 			releases[0]!();
 			await dispatcher.drain();
 			expect(JSON.parse(readFileSync(receiptPath, "utf8"))).toMatchObject({
@@ -2090,6 +2095,7 @@ describe("dispatcher admission", () => {
 			await exited;
 			for (const release of releases) release();
 			await dispatcher.drain();
+			timeouts.mockRestore();
 			timer.mockRestore();
 			clock.mockRestore();
 		}
@@ -6379,6 +6385,7 @@ it("renews ten runs during slow Git preparation, cleanup and proof inspection", 
 	const bin = join(root, "bin");
 	const marker = join(root, "slow-next");
 	const entered = join(root, "git-entered");
+	const released = join(root, "git-released");
 	mkdirSync(bin);
 	writeFileSync(
 		join(bin, "git"),
@@ -6386,7 +6393,12 @@ it("renews ten runs during slow Git preparation, cleanup and proof inspection", 
 if [ -f '${marker}' ]; then
   rm '${marker}'
   touch '${entered}'
-  sleep 6
+  polls=0
+  while [ ! -f '${released}' ] && [ "$polls" -lt 250 ]; do
+    sleep 0.02
+    polls=$((polls + 1))
+  done
+  [ -f '${released}' ] || exit 124
 fi
 exec '${realGit}' "$@"
 `,
@@ -6426,12 +6438,13 @@ exec '${realGit}' "$@"
 	};
 	const dispatcher = f.restart();
 	const previousPath = process.env.PATH;
+	const renewingIds = new Set(f.items.slice(1).map((entry) => entry.id));
 	let reading: Promise<unknown> | undefined;
 	try {
 		await dispatcher.tick();
 		await until(() => f.releases.length === 10);
 		reading = dispatcher["call"](["work", "dispatch-get", "blocked-read"]);
-		await until(() => readBlocked && renewalBlocked);
+		await until(() => readBlocked && renewalBlocked, 500);
 		process.env.PATH = `${bin}:${previousPath}`;
 		const destination = join(root, "checkout");
 		const phases = [
@@ -6441,23 +6454,31 @@ exec '${realGit}' "$@"
 		];
 		for (const phase of phases) {
 			rmSync(entered, { force: true });
+			rmSync(released, { force: true });
 			writeFileSync(marker, "slow");
 			let finished = false;
 			const working = phase().finally(() => {
 				finished = true;
 			});
-			await until(() => existsSync(entered));
-			const offset = f.events.length;
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			expect(finished).toBe(false);
-			const renewed = new Set(
-				f.events
-					.slice(offset)
-					.filter((event) => event.verb === "heartbeat")
-					.map((event) => event.args[6]),
-			);
-			expect(renewed.size).toBe(9);
-			await working;
+			void working.catch(() => {});
+			try {
+				await until(() => finished || existsSync(entered), 500);
+				expect(finished).toBe(false);
+				const offset = f.events.length;
+				const renewed = () =>
+					new Set(
+						f.events
+							.slice(offset)
+							.filter((event) => event.verb === "heartbeat")
+							.map((event) => event.args[6]),
+					);
+				await until(() => finished || renewed().size >= renewingIds.size, 500);
+				expect(finished).toBe(false);
+				expect(renewed()).toEqual(renewingIds);
+			} finally {
+				writeFileSync(released, "");
+				await working;
+			}
 		}
 		releaseRenewal();
 		await until(() =>

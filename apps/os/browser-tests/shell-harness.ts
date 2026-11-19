@@ -170,12 +170,12 @@ export async function runShellSpec(
 		record("sidebar", await sidebarState(page));
 	}
 	async function capture(page: Page, name: string) {
+		if (!evidenceDir) return;
 		await page.waitForTimeout(300);
-		if (evidenceDir)
-			await page.screenshot({
-				path: `${evidenceDir}/plain-labels-${name}.png`,
-				fullPage: true,
-			});
+		await page.screenshot({
+			path: `${evidenceDir}/plain-labels-${name}.png`,
+			fullPage: true,
+		});
 	}
 	async function runBody() {
 		const deadline = Date.now() + 20_000;

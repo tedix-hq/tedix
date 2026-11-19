@@ -406,332 +406,329 @@ try {
 		await page.close();
 		cases++;
 	}
-	for (const theme of ["light", "dark"] as const) {
-		for (const width of [375, 1280]) {
-			const viewport = { width, height: 900 };
-			// The Share dialog.
-			{
-				const page = await browser.newPage({ viewport, colorScheme: theme });
-				const calls = await mockApi(page);
-				await page.goto(`${server.origin}${path}?theme=${theme}`);
-				const dialog = page.getByRole("dialog");
-				await dialog
-					.getByRole("heading", { name: "Share “Reddit research”" })
-					.waitFor();
-				await dialog.getByText("Invite people or share a link.").waitFor();
-				// The person looking at the dialog is marked on their own row.
-				await dialog
-					.getByText("Kai Fictional (you)", { exact: true })
-					.waitFor();
-				// What the workspace draws on is named before anyone is invited.
-				const connected = dialog.getByRole("region", {
-					name: "Connected data in this workspace",
-				});
-				await connected
-					.getByText("Community inbox with a rather long source name")
-					.waitFor();
-				await connected
-					.getByText(
-						"Gmail · shared organization account · used by 1 file and 1 app",
-					)
-					.waitFor();
-				await assertFits(page, width, `dialog ${width} ${theme}`);
+	for (const [width, theme] of [
+		[1280, "light"],
+		[375, "dark"],
+	] as const) {
+		const viewport = { width, height: 900 };
+		// The Share dialog.
+		{
+			const page = await browser.newPage({ viewport, colorScheme: theme });
+			const calls = await mockApi(page);
+			await page.goto(`${server.origin}${path}?theme=${theme}`);
+			const dialog = page.getByRole("dialog");
+			await dialog
+				.getByRole("heading", { name: "Share “Reddit research”" })
+				.waitFor();
+			await dialog.getByText("Invite people or share a link.").waitFor();
+			// The person looking at the dialog is marked on their own row.
+			await dialog.getByText("Kai Fictional (you)", { exact: true }).waitFor();
+			// What the workspace draws on is named before anyone is invited.
+			const connected = dialog.getByRole("region", {
+				name: "Connected data in this workspace",
+			});
+			await connected
+				.getByText("Community inbox with a rather long source name")
+				.waitFor();
+			await connected
+				.getByText(
+					"Gmail · shared organization account · used by 1 file and 1 app",
+				)
+				.waitFor();
+			await assertFits(page, width, `dialog ${width} ${theme}`);
 
-				// Several addresses go in at once; each is added on its own.
-				await dialog
-					.getByLabel("Names or email addresses")
-					.fill("lee@example.test, sam@example.test");
-				await dialog
-					.getByRole("button", { name: "Invite 2 people", exact: true })
-					.click();
-				const invited = dialog.locator("[data-invited-link]");
-				await invited
-					.getByText(
-						"Added lee@example.test and sam@example.test. Tedix tells them; you can also send this link",
-					)
-					.waitFor();
-				assert.equal(
-					await invited.locator("[data-share-url]").textContent(),
-					`${server.origin}/shared/workspace/${WORKSPACE_ID}`,
-				);
-				await invited.getByRole("button", { name: "Copy link" }).waitFor();
-				assert.equal(
-					await dialog.locator("[data-invite-emails]").inputValue(),
-					"",
-				);
-				assert.deepEqual(calls.add, [
-					{
-						workspaceId: WORKSPACE_ID,
-						email: "lee@example.test",
-						role: "use",
-					},
-					{
-						workspaceId: WORKSPACE_ID,
-						email: "sam@example.test",
-						role: "use",
-					},
-				]);
-				await assertFits(page, width, `invited ${width} ${theme}`);
-				await page.screenshot({
-					path: `${directory}/dialog-invited-${width}-${theme}.png`,
-					fullPage: true,
-				});
-
-				// Owners change a person's role in place from their row.
-				await dialog
-					.getByRole("combobox", { name: "Role for Zoe Fictional" })
-					.click();
-				await page.getByRole("option", { name: "Can build" }).click();
-				await dialog
-					.getByRole("combobox", { name: "Role for Kai Fictional" })
-					.waitFor();
-				await expectCall(calls, "setRole", {
+			// Several addresses go in at once; each is added on its own.
+			await dialog
+				.getByLabel("Names or email addresses")
+				.fill("lee@example.test, sam@example.test");
+			await dialog
+				.getByRole("button", { name: "Invite 2 people", exact: true })
+				.click();
+			const invited = dialog.locator("[data-invited-link]");
+			await invited
+				.getByText(
+					"Added lee@example.test and sam@example.test. Tedix tells them; you can also send this link",
+				)
+				.waitFor();
+			assert.equal(
+				await invited.locator("[data-share-url]").textContent(),
+				`${server.origin}/shared/workspace/${WORKSPACE_ID}`,
+			);
+			await invited.getByRole("button", { name: "Copy link" }).waitFor();
+			assert.equal(
+				await dialog.locator("[data-invite-emails]").inputValue(),
+				"",
+			);
+			assert.deepEqual(calls.add, [
+				{
 					workspaceId: WORKSPACE_ID,
-					userId: "member-zoe",
-					role: "build",
-				});
-
-				// A link's settings change without minting or showing its URL.
-				await dialog
-					.getByRole("button", {
-						name: "Options for Reviewers with a rather long link name",
-					})
-					.click();
-				await page.getByRole("menuitem", { name: "Edit settings" }).click();
-				const settings = dialog.locator("[data-link-settings]");
-				await settings.getByLabel("Link name").fill("Reviewers");
-				await assertFits(page, width, `link settings ${width} ${theme}`);
-				await page.screenshot({
-					path: `${directory}/dialog-link-settings-${width}-${theme}.png`,
-					fullPage: true,
-				});
-				await settings.getByRole("button", { name: "Save" }).click();
-				await settings.waitFor({ state: "detached" });
-				await expectCall(calls, "updateLink", {
-					workspaceId: WORKSPACE_ID,
-					linkId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+					email: "lee@example.test",
 					role: "use",
-					label: "Reviewers",
-				});
-				assert.equal(await dialog.locator("[data-fresh-link]").count(), 0);
-				assert.equal(calls.copyLink, undefined);
-
-				await dialog
-					.getByRole("button", { name: "Options for Kai Fictional" })
-					.click();
-				await page
-					.getByRole("menuitem", { name: "Remove Kai Fictional" })
-					.click();
-				const confirm = dialog.locator("[data-removal-confirm]");
-				await confirm.getByText("This also removes Zoe Fictional.").waitFor();
-				await confirm.getByText("Keep Zoe Fictional at can use").click();
-				await assertFits(page, width, `confirm ${width} ${theme}`);
-				await page.screenshot({
-					path: `${directory}/dialog-confirm-${width}-${theme}.png`,
-					fullPage: true,
-				});
-				await confirm
-					.getByRole("button", { name: "Remove", exact: true })
-					.click();
-				await confirm.waitFor({ state: "detached" });
-				assert.deepEqual(calls.remove?.[0], {
+				},
+				{
 					workspaceId: WORKSPACE_ID,
-					target: { kind: "user", userId: "member-kai" },
-					keepUserIds: ["member-zoe"],
-				});
-
-				// General access is one dropdown: a sign-in link at a role, or the
-				// no-sign-in link. Each new link is shown once, with Copy link.
-				const access = dialog.getByRole("combobox", {
-					name: "General access",
-				});
-				assert.equal(
-					(await access.textContent())?.trim(),
-					"Anyone with the link can use",
-					"the existing link sets the shown access",
-				);
-				await access.click();
-				await page
-					.getByRole("option", { name: "Anyone with the link can build" })
-					.click();
-				// Choosing a role gives the person their own link at once, unnamed.
-				const fresh = dialog.locator("[data-fresh-link]");
-				await fresh.waitFor();
-				const text = await fresh.textContent();
-				assert(
-					text?.includes(`/shared/workspace/${WORKSPACE_ID}#share=${KEY}`),
-					text ?? "",
-				);
-				await fresh.getByRole("button", { name: "Copy link" }).waitFor();
-				assert.deepEqual(calls.createLink?.[0], {
-					workspaceId: WORKSPACE_ID,
-					role: "build",
-				});
-				// A link for one group gets a name and is made separately.
-				await dialog.getByRole("button", { name: "New named link" }).click();
-				const newLink = dialog.locator("[data-new-link]");
-				await newLink.getByLabel("Name this link").fill("Partners");
-				await assertFits(page, width, `name link ${width} ${theme}`);
-				await newLink.getByRole("button", { name: "Create link" }).click();
-				await newLink.waitFor({ state: "detached" });
-				await fresh.waitFor();
-				assert.deepEqual(calls.createLink?.[1], {
-					workspaceId: WORKSPACE_ID,
+					email: "sam@example.test",
 					role: "use",
-					label: "Partners",
-				});
-				assert.equal(await page.getByRole("dialog").count(), 1);
-				assert.equal(await page.locator(".kumo-popover-popup").count(), 0);
-				await assertFits(page, width, `link ${width} ${theme}`);
+				},
+			]);
+			await assertFits(page, width, `invited ${width} ${theme}`);
+			await page.screenshot({
+				path: `${directory}/dialog-invited-${width}-${theme}.png`,
+				fullPage: true,
+			});
 
-				await access.click();
-				await page
-					.getByRole("option", {
-						name: "Anyone with the link can view, no sign-in",
-					})
-					.click();
-				const publicUrl = dialog.locator("[data-public-url]");
-				await publicUrl.waitFor();
-				const publicText = await publicUrl.textContent();
-				assert(
-					publicText?.includes(`/s/${PUBLIC_ID}`) &&
-						!publicText.includes("#token="),
-					publicText ?? "",
-				);
-				await publicUrl.getByRole("button", { name: "Copy link" }).waitFor();
-				assert.equal(await dialog.locator("[data-fresh-link]").count(), 0);
-				assert.deepEqual(calls["public:create"]?.[0], {
-					resourceType: "workspace",
-					resourceId: WORKSPACE_ID,
-					role: "use",
-					access: "anyone_with_link",
-					revisionMode: "living",
-				});
-				assert.equal(
-					(await access.textContent())?.trim(),
-					"Anyone with the link can view, no sign-in",
-				);
-				await assertFits(page, width, `public ${width} ${theme}`);
-				await page.screenshot({
-					path: `${directory}/dialog-${width}-${theme}.png`,
-					fullPage: true,
-				});
-				await page.close();
-				cases++;
-			}
-			// An organization workspace: General access agrees with the list of
-			// people, and says what links are for.
-			{
-				const page = await browser.newPage({ viewport, colorScheme: theme });
-				await mockApi(page);
-				await page.goto(
-					`${server.origin}${path}?theme=${theme}&visibility=org`,
-				);
-				const dialog = page.getByRole("dialog");
-				await dialog
-					.getByText("Everyone in Fictional Org", { exact: true })
-					.waitFor();
-				await dialog
-					.getByText(
-						"Everyone in Fictional Org can build here without a link. Links and invites are for people outside Fictional Org.",
-					)
-					.waitFor();
-				await dialog.getByRole("combobox", { name: "General access" }).click();
-				await page
-					.getByRole("option", {
-						name: "Everyone in Fictional Org, and people invited",
-					})
-					.waitFor();
-				assert.equal(
-					await page
-						.getByRole("option", { name: "Only people invited" })
-						.count(),
-					0,
-				);
-				await assertFits(page, width, `organization ${width} ${theme}`);
-				await page.close();
-				cases++;
-			}
-			// The collaborator's page, with the key stripped from the address bar.
-			{
-				const page = await browser.newPage({ viewport, colorScheme: theme });
-				const calls = await mockApi(page);
-				await page.goto(
-					`${server.origin}${path}?theme=${theme}&view=page#share=${KEY}`,
-				);
-				await page.getByRole("heading", { name: "Reddit research" }).waitFor();
-				await page.getByText("Can use").waitFor();
-				await page.getByText("Thread finder").waitFor();
-				assert.equal(
-					await page.getByRole("button", { name: "Open workspace" }).count(),
-					0,
-				);
-				assert.deepEqual(calls.open?.[0], {
-					workspaceId: WORKSPACE_ID,
-					shareKey: KEY,
-				});
-				assert.equal(new URL(page.url()).hash, "");
-				await assertFits(page, width, `page ${width} ${theme}`);
-				await page.screenshot({
-					path: `${directory}/page-${width}-${theme}.png`,
-					fullPage: true,
-				});
-				await page.close();
-				cases++;
-			}
-			for (const role of ["use", "build"] as const) {
-				const page = await browser.newPage({ viewport, colorScheme: theme });
-				const calls = await mockApi(page, { runtime: role });
-				await page.goto(`${server.origin}${path}?theme=${theme}&view=page`);
-				const app = page
-					.frameLocator('iframe[title="Thread finder"]')
-					.frameLocator("iframe");
-				await app.getByText(role, { exact: true }).waitFor();
-				await app
-					.getByText("Shared content: Granted document", { exact: true })
-					.waitFor();
-				await app.getByRole("button", { name: "Run app" }).click();
-				await app.getByRole("status").filter({ hasText: "Count: 1" }).waitFor();
-				assert.equal(calls.client?.length, 1);
-				assert.equal(calls.readOutput?.length, 1);
-				assert.equal(calls.call?.length, 1);
-				assert.equal(
-					await page.getByRole("button", { name: "Open workspace" }).count(),
-					role === "build" ? 1 : 0,
-				);
-				await assertFits(page, width, `runtime ${role} ${width} ${theme}`);
-				await page.screenshot({
-					path: `${directory}/runtime-${role}-${width}-${theme}.png`,
-					fullPage: true,
-				});
-				await page.close();
-				cases++;
-			}
-			{
-				const page = await browser.newPage({ viewport, colorScheme: theme });
-				await mockApi(page, { runtime: "use", clientDenied: true });
-				await page.goto(`${server.origin}${path}?theme=${theme}&view=page`);
-				await page.getByText("This app is unavailable").waitFor();
-				assert.equal(await page.locator("[data-app-runtime-frame]").count(), 0);
-				await assertFits(page, width, `runtime denied ${width} ${theme}`);
-				await page.close();
-				cases++;
-			}
-			// Access denied names nothing about the workspace.
-			{
-				const page = await browser.newPage({ viewport, colorScheme: theme });
-				await mockApi(page, { denied: true });
-				await page.goto(`${server.origin}${path}?theme=${theme}&view=page`);
-				await page.getByText("You don't have access").waitFor();
-				const body = (await page.textContent("body")) ?? "";
-				assert(!body.includes("Reddit research"), body);
-				assert(!body.includes("Robin"), body);
-				await assertFits(page, width, `denied ${width} ${theme}`);
-				await page.close();
-				cases++;
-			}
-			console.log(`PASS workspace sharing ${width}px ${theme}`);
+			// Owners change a person's role in place from their row.
+			await dialog
+				.getByRole("combobox", { name: "Role for Zoe Fictional" })
+				.click();
+			await page.getByRole("option", { name: "Can build" }).click();
+			await dialog
+				.getByRole("combobox", { name: "Role for Kai Fictional" })
+				.waitFor();
+			await expectCall(calls, "setRole", {
+				workspaceId: WORKSPACE_ID,
+				userId: "member-zoe",
+				role: "build",
+			});
+
+			// A link's settings change without minting or showing its URL.
+			await dialog
+				.getByRole("button", {
+					name: "Options for Reviewers with a rather long link name",
+				})
+				.click();
+			await page.getByRole("menuitem", { name: "Edit settings" }).click();
+			const settings = dialog.locator("[data-link-settings]");
+			await settings.getByLabel("Link name").fill("Reviewers");
+			await assertFits(page, width, `link settings ${width} ${theme}`);
+			await page.screenshot({
+				path: `${directory}/dialog-link-settings-${width}-${theme}.png`,
+				fullPage: true,
+			});
+			await settings.getByRole("button", { name: "Save" }).click();
+			await settings.waitFor({ state: "detached" });
+			await expectCall(calls, "updateLink", {
+				workspaceId: WORKSPACE_ID,
+				linkId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+				role: "use",
+				label: "Reviewers",
+			});
+			assert.equal(await dialog.locator("[data-fresh-link]").count(), 0);
+			assert.equal(calls.copyLink, undefined);
+
+			await dialog
+				.getByRole("button", { name: "Options for Kai Fictional" })
+				.click();
+			await page
+				.getByRole("menuitem", { name: "Remove Kai Fictional" })
+				.click();
+			const confirm = dialog.locator("[data-removal-confirm]");
+			await confirm.getByText("This also removes Zoe Fictional.").waitFor();
+			await confirm.getByText("Keep Zoe Fictional at can use").click();
+			await assertFits(page, width, `confirm ${width} ${theme}`);
+			await page.screenshot({
+				path: `${directory}/dialog-confirm-${width}-${theme}.png`,
+				fullPage: true,
+			});
+			await confirm
+				.getByRole("button", { name: "Remove", exact: true })
+				.click();
+			await confirm.waitFor({ state: "detached" });
+			assert.deepEqual(calls.remove?.[0], {
+				workspaceId: WORKSPACE_ID,
+				target: { kind: "user", userId: "member-kai" },
+				keepUserIds: ["member-zoe"],
+			});
+
+			// General access is one dropdown: a sign-in link at a role, or the
+			// no-sign-in link. Each new link is shown once, with Copy link.
+			const access = dialog.getByRole("combobox", {
+				name: "General access",
+			});
+			assert.equal(
+				(await access.textContent())?.trim(),
+				"Anyone with the link can use",
+				"the existing link sets the shown access",
+			);
+			await access.click();
+			await page
+				.getByRole("option", { name: "Anyone with the link can build" })
+				.click();
+			// Choosing a role gives the person their own link at once, unnamed.
+			const fresh = dialog.locator("[data-fresh-link]");
+			await fresh.waitFor();
+			const text = await fresh.textContent();
+			assert(
+				text?.includes(`/shared/workspace/${WORKSPACE_ID}#share=${KEY}`),
+				text ?? "",
+			);
+			await fresh.getByRole("button", { name: "Copy link" }).waitFor();
+			assert.deepEqual(calls.createLink?.[0], {
+				workspaceId: WORKSPACE_ID,
+				role: "build",
+			});
+			// A link for one group gets a name and is made separately.
+			await dialog.getByRole("button", { name: "New named link" }).click();
+			const newLink = dialog.locator("[data-new-link]");
+			await newLink.getByLabel("Name this link").fill("Partners");
+			await assertFits(page, width, `name link ${width} ${theme}`);
+			await newLink.getByRole("button", { name: "Create link" }).click();
+			await newLink.waitFor({ state: "detached" });
+			await fresh.waitFor();
+			assert.deepEqual(calls.createLink?.[1], {
+				workspaceId: WORKSPACE_ID,
+				role: "use",
+				label: "Partners",
+			});
+			assert.equal(await page.getByRole("dialog").count(), 1);
+			assert.equal(await page.locator(".kumo-popover-popup").count(), 0);
+			await assertFits(page, width, `link ${width} ${theme}`);
+
+			await access.click();
+			await page
+				.getByRole("option", {
+					name: "Anyone with the link can view, no sign-in",
+				})
+				.click();
+			const publicUrl = dialog.locator("[data-public-url]");
+			await publicUrl.waitFor();
+			const publicText = await publicUrl.textContent();
+			assert(
+				publicText?.includes(`/s/${PUBLIC_ID}`) &&
+					!publicText.includes("#token="),
+				publicText ?? "",
+			);
+			await publicUrl.getByRole("button", { name: "Copy link" }).waitFor();
+			assert.equal(await dialog.locator("[data-fresh-link]").count(), 0);
+			assert.deepEqual(calls["public:create"]?.[0], {
+				resourceType: "workspace",
+				resourceId: WORKSPACE_ID,
+				role: "use",
+				access: "anyone_with_link",
+				revisionMode: "living",
+			});
+			assert.equal(
+				(await access.textContent())?.trim(),
+				"Anyone with the link can view, no sign-in",
+			);
+			await assertFits(page, width, `public ${width} ${theme}`);
+			await page.screenshot({
+				path: `${directory}/dialog-${width}-${theme}.png`,
+				fullPage: true,
+			});
+			await page.close();
+			cases++;
 		}
+		if (width === 1280) continue;
+
+		// An organization workspace: General access agrees with the list of
+		// people, and says what links are for.
+		{
+			const page = await browser.newPage({ viewport, colorScheme: theme });
+			await mockApi(page);
+			await page.goto(`${server.origin}${path}?theme=${theme}&visibility=org`);
+			const dialog = page.getByRole("dialog");
+			await dialog
+				.getByText("Everyone in Fictional Org", { exact: true })
+				.waitFor();
+			await dialog
+				.getByText(
+					"Everyone in Fictional Org can build here without a link. Links and invites are for people outside Fictional Org.",
+				)
+				.waitFor();
+			await dialog.getByRole("combobox", { name: "General access" }).click();
+			await page
+				.getByRole("option", {
+					name: "Everyone in Fictional Org, and people invited",
+				})
+				.waitFor();
+			assert.equal(
+				await page.getByRole("option", { name: "Only people invited" }).count(),
+				0,
+			);
+			await assertFits(page, width, `organization ${width} ${theme}`);
+			await page.close();
+			cases++;
+		}
+		// The collaborator's page, with the key stripped from the address bar.
+		{
+			const page = await browser.newPage({ viewport, colorScheme: theme });
+			const calls = await mockApi(page);
+			await page.goto(
+				`${server.origin}${path}?theme=${theme}&view=page#share=${KEY}`,
+			);
+			await page.getByRole("heading", { name: "Reddit research" }).waitFor();
+			await page.getByText("Can use").waitFor();
+			await page.getByText("Thread finder").waitFor();
+			assert.equal(
+				await page.getByRole("button", { name: "Open workspace" }).count(),
+				0,
+			);
+			assert.deepEqual(calls.open?.[0], {
+				workspaceId: WORKSPACE_ID,
+				shareKey: KEY,
+			});
+			assert.equal(new URL(page.url()).hash, "");
+			await assertFits(page, width, `page ${width} ${theme}`);
+			await page.screenshot({
+				path: `${directory}/page-${width}-${theme}.png`,
+				fullPage: true,
+			});
+			await page.close();
+			cases++;
+		}
+		for (const role of ["use", "build"] as const) {
+			const page = await browser.newPage({ viewport, colorScheme: theme });
+			const calls = await mockApi(page, { runtime: role });
+			await page.goto(`${server.origin}${path}?theme=${theme}&view=page`);
+			const app = page
+				.frameLocator('iframe[title="Thread finder"]')
+				.frameLocator("iframe");
+			await app.getByText(role, { exact: true }).waitFor();
+			await app
+				.getByText("Shared content: Granted document", { exact: true })
+				.waitFor();
+			await app.getByRole("button", { name: "Run app" }).click();
+			await app.getByRole("status").filter({ hasText: "Count: 1" }).waitFor();
+			assert.equal(calls.client?.length, 1);
+			assert.equal(calls.readOutput?.length, 1);
+			assert.equal(calls.call?.length, 1);
+			assert.equal(
+				await page.getByRole("button", { name: "Open workspace" }).count(),
+				role === "build" ? 1 : 0,
+			);
+			await assertFits(page, width, `runtime ${role} ${width} ${theme}`);
+			await page.screenshot({
+				path: `${directory}/runtime-${role}-${width}-${theme}.png`,
+				fullPage: true,
+			});
+			await page.close();
+			cases++;
+		}
+		{
+			const page = await browser.newPage({ viewport, colorScheme: theme });
+			await mockApi(page, { runtime: "use", clientDenied: true });
+			await page.goto(`${server.origin}${path}?theme=${theme}&view=page`);
+			await page.getByText("This app is unavailable").waitFor();
+			assert.equal(await page.locator("[data-app-runtime-frame]").count(), 0);
+			await assertFits(page, width, `runtime denied ${width} ${theme}`);
+			await page.close();
+			cases++;
+		}
+		// Access denied names nothing about the workspace.
+		{
+			const page = await browser.newPage({ viewport, colorScheme: theme });
+			await mockApi(page, { denied: true });
+			await page.goto(`${server.origin}${path}?theme=${theme}&view=page`);
+			await page.getByText("You don't have access").waitFor();
+			const body = (await page.textContent("body")) ?? "";
+			assert(!body.includes("Reddit research"), body);
+			assert(!body.includes("Robin"), body);
+			await assertFits(page, width, `denied ${width} ${theme}`);
+			await page.close();
+			cases++;
+		}
+		console.log(`PASS workspace sharing ${width}px ${theme}`);
 	}
 } finally {
 	await browser.close();

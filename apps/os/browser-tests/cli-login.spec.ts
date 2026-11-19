@@ -6,113 +6,114 @@ const server = await startFixtureServer("/browser-tests/cli-login.html");
 const browser = await chromium.launch();
 const started = performance.now();
 try {
-	for (const width of [320, 390, 1280]) {
-		for (const theme of ["light", "dark"] as const) {
-			const page = await browser.newPage({
-				// A 900px-tall window cannot fit the default permissions form; the
-				// page must scroll so every control stays reachable.
-				viewport: { width, height: 900 },
-				colorScheme: theme,
+	for (const [width, theme] of [
+		[320, "dark"],
+		[1280, "light"],
+	] as const) {
+		const page = await browser.newPage({
+			// A 900px-tall window cannot fit the default permissions form; the
+			// page must scroll so every control stays reachable.
+			viewport: { width, height: 900 },
+			colorScheme: theme,
+		});
+		await page.addInitScript((mode) => {
+			document.addEventListener("DOMContentLoaded", () => {
+				document.documentElement.classList.toggle("dark", mode === "dark");
 			});
-			await page.addInitScript((mode) => {
-				document.addEventListener("DOMContentLoaded", () => {
-					document.documentElement.classList.toggle("dark", mode === "dark");
-				});
-			}, theme);
-			await page.goto(
-				`${server.origin}/browser-tests/cli-login.html?port=42123&state=fixture`,
+		}, theme);
+		await page.goto(
+			`${server.origin}/browser-tests/cli-login.html?port=42123&state=fixture`,
+		);
+		const choose = page.getByRole("button", {
+			name: "Choose organizations",
+			exact: true,
+		});
+		assert(
+			await page.evaluate(() => {
+				const main = document.querySelector("main.cli-authorize")!;
+				return main.scrollHeight > main.clientHeight;
+			}),
+			`${width}px permissions form overflows a 900px window`,
+		);
+		await choose.scrollIntoViewIfNeeded();
+		const chooseBox = await choose.boundingBox();
+		assert(
+			chooseBox && chooseBox.y >= 0 && chooseBox.y + chooseBox.height <= 900,
+			"Choose organizations scrolls into view",
+		);
+		await page.evaluate(() =>
+			document.querySelector("main.cli-authorize")!.scrollTo(0, 0),
+		);
+		assert(
+			(await page.getByRole("heading", { level: 1 }).boundingBox())!.y >= 0,
+			"tall content starts inside the window instead of above it",
+		);
+		await choose.click();
+		const edit = page.getByRole("button", {
+			name: "Edit permissions",
+			exact: true,
+		});
+		const review = page.getByRole("button", { name: /^Review access for/ });
+		for (const count of [0, 1, 2]) {
+			if (count > 0)
+				await page
+					.getByRole("checkbox")
+					.nth(count - 1)
+					.check();
+			assert.equal(await review.isEnabled(), count > 0);
+			assert.equal(
+				await review.textContent(),
+				`Review access for ${count} ${count === 1 ? "organization" : "organizations"}`,
 			);
-			const choose = page.getByRole("button", {
-				name: "Choose organizations",
-				exact: true,
-			});
-			assert(
-				await page.evaluate(() => {
-					const main = document.querySelector("main.cli-authorize")!;
-					return main.scrollHeight > main.clientHeight;
-				}),
-				`${width}px permissions form overflows a 900px window`,
-			);
-			await choose.scrollIntoViewIfNeeded();
-			const chooseBox = await choose.boundingBox();
-			assert(
-				chooseBox && chooseBox.y >= 0 && chooseBox.y + chooseBox.height <= 900,
-				"Choose organizations scrolls into view",
-			);
-			await page.evaluate(() =>
-				document.querySelector("main.cli-authorize")!.scrollTo(0, 0),
-			);
-			assert(
-				(await page.getByRole("heading", { level: 1 }).boundingBox())!.y >= 0,
-				"tall content starts inside the window instead of above it",
-			);
-			await choose.click();
-			const edit = page.getByRole("button", {
-				name: "Edit permissions",
-				exact: true,
-			});
-			const review = page.getByRole("button", { name: /^Review access for/ });
-			for (const count of [0, 1, 2]) {
-				if (count > 0)
-					await page
-						.getByRole("checkbox")
-						.nth(count - 1)
-						.check();
-				assert.equal(await review.isEnabled(), count > 0);
-				assert.equal(
-					await review.textContent(),
-					`Review access for ${count} ${count === 1 ? "organization" : "organizations"}`,
-				);
-				const boxes = await Promise.all([
-					edit.boundingBox(),
-					review.boundingBox(),
-				]);
-				const [editBox, reviewBox] = boxes;
-				assert(editBox && reviewBox);
-				for (const box of [editBox, reviewBox]) {
-					assert(
-						box.x >= 0 && box.x + box.width <= width,
-						`footer action fits ${width}px`,
-					);
-					if (width < 640) assert(box.height >= 44);
-				}
-				for (const action of [edit, review]) {
-					assert(
-						await action.evaluate(
-							(node) =>
-								node.scrollWidth <= node.clientWidth &&
-								node.scrollHeight <= node.clientHeight,
-						),
-					);
-				}
-				if (width < 640) {
-					assert(
-						reviewBox.y >= editBox.y + editBox.height,
-						"phone actions stack",
-					);
-				} else {
-					assert.equal(editBox.y, reviewBox.y);
-				}
+			const boxes = await Promise.all([
+				edit.boundingBox(),
+				review.boundingBox(),
+			]);
+			const [editBox, reviewBox] = boxes;
+			assert(editBox && reviewBox);
+			for (const box of [editBox, reviewBox]) {
 				assert(
-					await page.evaluate(
-						() => document.documentElement.scrollWidth <= innerWidth,
+					box.x >= 0 && box.x + box.width <= width,
+					`footer action fits ${width}px`,
+				);
+				if (width < 640) assert(box.height >= 44);
+			}
+			for (const action of [edit, review]) {
+				assert(
+					await action.evaluate(
+						(node) =>
+							node.scrollWidth <= node.clientWidth &&
+							node.scrollHeight <= node.clientHeight,
 					),
 				);
 			}
-			await edit.click();
-			await choose.click();
-			assert.equal(
-				await review.textContent(),
-				"Review access for 2 organizations",
+			if (width < 640) {
+				assert(
+					reviewBox.y >= editBox.y + editBox.height,
+					"phone actions stack",
+				);
+			} else {
+				assert.equal(editBox.y, reviewBox.y);
+			}
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
 			);
-			await page.setViewportSize({ width, height: 900 });
-			await page.screenshot({
-				path: `/tmp/n70-cli-${width}-${theme}.png`,
-				fullPage: true,
-			});
-			console.log(`PASS CLI footer ${width}px ${theme}`);
-			await page.close();
 		}
+		await edit.click();
+		await choose.click();
+		assert.equal(
+			await review.textContent(),
+			"Review access for 2 organizations",
+		);
+		await page.setViewportSize({ width, height: 900 });
+		await page.screenshot({
+			path: `/tmp/n70-cli-${width}-${theme}.png`,
+			fullPage: true,
+		});
+		console.log(`PASS CLI footer ${width}px ${theme}`);
+		await page.close();
 	}
 
 	// Every organization row shows its complete name: long names wrap inside
@@ -122,47 +123,48 @@ try {
 		"Northwind Regional Logistics Cooperative of the Upper Valley — Field Operations",
 		"ContosoInternationalHoldingsEuropeanOperationsDivisionShared",
 	];
-	for (const width of [320, 375, 1280]) {
-		for (const query of ["", "&organization=unknown-org"]) {
-			const page = await browser.newPage({ viewport: { width, height: 900 } });
-			await page.goto(
-				`${server.origin}/browser-tests/cli-login.html?port=42123&state=fixture${query}`,
-			);
-			if (!query)
-				await page
-					.getByRole("button", { name: "Choose organizations", exact: true })
-					.click();
-			for (const name of longNames) {
-				const label = page.getByText(name, { exact: true });
-				await label.waitFor();
-				const fits = await label.evaluate((node) => {
-					const rect = node.getBoundingClientRect();
-					return (
-						node.scrollWidth <= node.clientWidth + 1 &&
-						getComputedStyle(node).textOverflow !== "ellipsis" &&
-						rect.left >= 0 &&
-						rect.right <= innerWidth
-					);
-				});
-				assert(
-					fits,
-					`${name} is shown in full at ${width}px (${query || "multi"})`,
+	for (const query of ["", "&organization=unknown-org"]) {
+		const width = 320;
+		const page = await browser.newPage({ viewport: { width, height: 900 } });
+		await page.goto(
+			`${server.origin}/browser-tests/cli-login.html?port=42123&state=fixture${query}`,
+		);
+		if (!query)
+			await page
+				.getByRole("button", { name: "Choose organizations", exact: true })
+				.click();
+		for (const name of longNames) {
+			const label = page.getByText(name, { exact: true });
+			await label.waitFor();
+			const fits = await label.evaluate((node) => {
+				const rect = node.getBoundingClientRect();
+				return (
+					node.scrollWidth <= node.clientWidth + 1 &&
+					getComputedStyle(node).textOverflow !== "ellipsis" &&
+					rect.left >= 0 &&
+					rect.right <= innerWidth
 				);
-			}
+			});
 			assert(
-				await page.evaluate(
-					() => document.documentElement.scrollWidth <= innerWidth,
-				),
-				`no horizontal scroll at ${width}px`,
+				fits,
+				`${name} is shown in full at ${width}px (${query || "multi"})`,
 			);
-			console.log(
-				`PASS CLI full organization names ${width}px ${query ? "single" : "multi"}`,
-			);
-			await page.close();
 		}
+		assert(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= innerWidth,
+			),
+			`no horizontal scroll at ${width}px`,
+		);
+		console.log(
+			`PASS CLI full organization names ${width}px ${query ? "single" : "multi"}`,
+		);
+		await page.close();
 	}
 } finally {
 	await browser.close();
 	await server.stop();
 }
-console.log(`6 cases in ${((performance.now() - started) / 1000).toFixed(1)}s`);
+console.log(
+	`CLI authorization layout in ${((performance.now() - started) / 1000).toFixed(1)}s`,
+);

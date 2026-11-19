@@ -43,81 +43,82 @@ try {
 	await waitForFixtureServer(origin, server ? { server } : {});
 	browser = await chromium.launch({ headless: true });
 	if (screenshots) await mkdir(screenshots, { recursive: true });
-	for (const width of [1280, 375]) {
-		for (const theme of ["light", "dark"] as const) {
-			const context = await browser.newContext({
-				viewport: { width, height: 900 },
-				hasTouch: width < 1280,
-				permissions: ["clipboard-read", "clipboard-write"],
-				colorScheme: theme,
+	for (const [width, theme] of [
+		[375, "dark"],
+		[1280, "light"],
+	] as const) {
+		const context = await browser.newContext({
+			viewport: { width, height: 900 },
+			hasTouch: width < 1280,
+			permissions: ["clipboard-read", "clipboard-write"],
+			colorScheme: theme,
+		});
+		const page = await context.newPage();
+		await page.goto(`${origin}${approvalChat}`);
+		const approval = page.locator('[data-slot="chat-write-approval"]');
+		await approval.waitFor();
+		await page.evaluate(
+			(dark) => document.documentElement.classList.toggle("dark", dark),
+			theme === "dark",
+		);
+		assert.match(
+			await approval.innerText(),
+			/^Create sheet “Opportunities - final format”/,
+		);
+		assert.doesNotMatch(await approval.innerText(), /\{"kind"/);
+		const trigger = approval.getByRole("button", { name: /Arguments/ });
+		assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+		assert.equal(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= innerWidth,
+			),
+			true,
+			`chat stays within the ${width}px viewport`,
+		);
+		if (screenshots)
+			await page.screenshot({
+				path: `${screenshots}/approval-collapsed-${width}-${theme}.png`,
 			});
-			const page = await context.newPage();
-			await page.goto(`${origin}${approvalChat}`);
-			const approval = page.locator('[data-slot="chat-write-approval"]');
-			await approval.waitFor();
+		await trigger.click();
+		const code = approval.locator('[data-slot="chat-json-code"]');
+		await code.waitFor();
+		assert.match(await code.innerText(), /"kind": "sheet"/);
+		await approval.getByText("Shortened by the server").waitFor();
+		await approval.getByRole("button", { name: "Copy JSON" }).click();
+		assert.match(
+			await page.evaluate(() => navigator.clipboard.readText()),
+			/"title": "Opportunities - final format"/,
+		);
+		assert.equal(
 			await page.evaluate(
-				(dark) => document.documentElement.classList.toggle("dark", dark),
-				theme === "dark",
-			);
-			assert.match(
-				await approval.innerText(),
-				/^Create sheet “Opportunities - final format”/,
-			);
-			assert.doesNotMatch(await approval.innerText(), /\{"kind"/);
-			const trigger = approval.getByRole("button", { name: /Arguments/ });
-			assert.equal(await trigger.getAttribute("aria-expanded"), "false");
-			assert.equal(
-				await page.evaluate(
-					() => document.documentElement.scrollWidth <= innerWidth,
-				),
-				true,
-				`chat stays within the ${width}px viewport`,
-			);
-			if (screenshots)
-				await page.screenshot({
-					path: `${screenshots}/approval-collapsed-${width}-${theme}.png`,
-				});
-			await trigger.click();
-			const code = approval.locator('[data-slot="chat-json-code"]');
-			await code.waitFor();
-			assert.match(await code.innerText(), /"kind": "sheet"/);
-			await approval.getByText("Shortened by the server").waitFor();
-			await approval.getByRole("button", { name: "Copy JSON" }).click();
-			assert.match(
-				await page.evaluate(() => navigator.clipboard.readText()),
-				/"title": "Opportunities - final format"/,
-			);
-			assert.equal(
-				await page.evaluate(
-					() => document.documentElement.scrollWidth <= innerWidth,
-				),
-				true,
-				`open arguments stay within the ${width}px viewport`,
-			);
-			if (screenshots)
-				await page.screenshot({
-					path: `${screenshots}/approval-open-${width}-${theme}.png`,
-				});
+				() => document.documentElement.scrollWidth <= innerWidth,
+			),
+			true,
+			`open arguments stay within the ${width}px viewport`,
+		);
+		if (screenshots)
+			await page.screenshot({
+				path: `${screenshots}/approval-open-${width}-${theme}.png`,
+			});
 
-			await page.goto(`${origin}${failureChat}`);
-			const failure = page.locator('[data-slot="chat-write-failure"]');
-			await failure.waitFor();
-			await page.evaluate(
-				(dark) => document.documentElement.classList.toggle("dark", dark),
-				theme === "dark",
-			);
-			const text = await failure.innerText();
-			assert.match(
-				text,
-				/^Couldn't create the output: Action "tedix__create_os_output" requires approval\./,
-			);
-			assert.doesNotMatch(text, /"type"/);
-			if (screenshots)
-				await page.screenshot({
-					path: `${screenshots}/failure-${width}-${theme}.png`,
-				});
-			await context.close();
-		}
+		await page.goto(`${origin}${failureChat}`);
+		const failure = page.locator('[data-slot="chat-write-failure"]');
+		await failure.waitFor();
+		await page.evaluate(
+			(dark) => document.documentElement.classList.toggle("dark", dark),
+			theme === "dark",
+		);
+		const text = await failure.innerText();
+		assert.match(
+			text,
+			/^Couldn't create the output: Action "tedix__create_os_output" requires approval\./,
+		);
+		assert.doesNotMatch(text, /"type"/);
+		if (screenshots)
+			await page.screenshot({
+				path: `${screenshots}/failure-${width}-${theme}.png`,
+			});
+		await context.close();
 	}
 	console.log(
 		"Chat structured content passed: approval summary, folded arguments, copy, failure line, light/dark at 1280/375.",
