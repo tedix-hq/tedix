@@ -283,7 +283,7 @@ async function runLaneProcessWithReporter(
 	const opencode = executor === "opencode";
 	if (devin) {
 		const { assertDevinProjectHooks } = await import("./devin-lane-security");
-		assertDevinProjectHooks(deps.cwd ?? process.cwd());
+		await assertDevinProjectHooks(deps.cwd ?? process.cwd());
 	}
 	const devinThreadModule = devin
 		? await import("./devin-lane-thread")
@@ -431,7 +431,10 @@ async function runLaneProcessWithReporter(
 			import("./devin-config"),
 			import("./external-agent-store"),
 		]);
-		writeDevinGitIdentity(join(dir, "gitconfig"), deps.cwd ?? process.cwd());
+		await writeDevinGitIdentity(
+			join(dir, "gitconfig"),
+			deps.cwd ?? process.cwd(),
+		);
 		const config = join(dir, "devin", "config.json");
 		const prompt = join(dir, "devin-brief.txt");
 		writeFileSync(
@@ -444,7 +447,7 @@ async function runLaneProcessWithReporter(
 			options.get("--workspace") ??
 			options.get("-w") ??
 			process.env.TEDIX_WORKSPACE;
-		writeDevinLaneConfig(config, deps.cwd ?? process.cwd(), {
+		await writeDevinLaneConfig(config, deps.cwd ?? process.cwd(), {
 			id: sessionKey,
 			principalKey: workspace
 				? readExternalAgentProfile(
@@ -841,9 +844,9 @@ async function runLaneProcessWithReporter(
 			if (devin) {
 				const { devinSessionIds } = await import("./devin-lane-thread");
 				if (
-					!devinSessionIds(deps.cwd ?? process.cwd(), command[0]!).includes(
-						sessionKey,
-					)
+					!(
+						await devinSessionIds(deps.cwd ?? process.cwd(), command[0]!)
+					).includes(sessionKey)
 				)
 					throw new Error(
 						"Devin resumed session was not found in this worktree",

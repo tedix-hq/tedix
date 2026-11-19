@@ -1188,6 +1188,57 @@ describe("dispatcher admission", () => {
 			await dispatcher.drain();
 		}
 	});
+	it.each(["codex", "claude-code", "opencode", "devin", "any-local"] as const)(
+		"only checks Devin sign-in when %s serves Devin, and caches the check",
+		async (executor) => {
+			const f = fixture({ executor });
+			f.items.splice(0);
+			let checks = 0;
+			f.deps.devinAvailability = async () => {
+				checks++;
+				return { available: true };
+			};
+			const dispatcher = f.restart();
+			await dispatcher.tick();
+			await dispatcher.tick();
+			expect(checks).toBe(
+				executor === "devin" || executor === "any-local" ? 1 : 0,
+			);
+		},
+	);
+	it("renews the real heartbeat while an executor child-process probe is pending", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		let heartbeat!: () => void;
+		const intervals = spyOn(globalThis, "setInterval").mockImplementation(((
+			callback: () => void,
+			ms: number,
+		) => {
+			if (ms === 60_000) heartbeat = callback;
+			return setTimeout(() => {}, 60_000);
+		}) as typeof setInterval);
+		const dispatcher = f.restart();
+		try {
+			await dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			const { laneCommand } = await import("./lane-command");
+			f.deps.available = async () => {
+				await laneCommand("/bin/sleep", ["0.2"], { timeout: 2000 });
+				return { available: true };
+			};
+			const offset = f.events.length;
+			const tick = dispatcher.tick();
+			setTimeout(() => heartbeat(), 20);
+			await until(() =>
+				f.events.slice(offset).some((e) => e.verb === "heartbeat"),
+			);
+			await tick;
+		} finally {
+			for (const done of f.releases) done();
+			await dispatcher.drain();
+			intervals.mockRestore();
+		}
+	});
 	it("renews the real heartbeat while a pickup read is still blocked", async () => {
 		const f = fixture();
 		f.items.splice(1);
@@ -8984,7 +9035,7 @@ describe("structured dispatcher outcomes", () => {
 		f.items.splice(1);
 		f.items[0]!.workKind = "coding";
 		f.control.finalMessage = `Already fixed on main\nTEDIX_LANE_RESULT ${JSON.stringify({ ...existing(), ciApprovalId: undefined })}`;
-		f.deps.verifyExisting = () => {
+		f.deps.verifyExisting = async () => {
 			throw new Error("Must not request CI proof without CI approval");
 		};
 		const dispatcher = f.restart();
@@ -9016,7 +9067,7 @@ describe("structured dispatcher outcomes", () => {
 			f.items.splice(1);
 			f.items[0]!.workKind = "coding";
 			f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(existing())}`;
-			f.deps.verifyExisting = () => {
+			f.deps.verifyExisting = async () => {
 				if (mode === "unavailable")
 					throw new LaneOutcomeReadError("Provider unavailable");
 				return {

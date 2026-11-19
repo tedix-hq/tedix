@@ -1,5 +1,6 @@
 import * as z from "zod";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { GetWorkInteractionResultSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { ListWorkApprovalInboxResultSchema } from "@tedix/api-contract/schemas/work-approvals";
 import { safeParseServerResponse } from "./server-response";
@@ -231,13 +232,15 @@ const githubRepository = (remote: string) =>
 		remote,
 	)?.[1];
 
-const command = (repo: string, executable: string, args: string[]) =>
-	execFileSync(executable, args, {
-		cwd: repo,
-		encoding: "utf8",
-		timeout: 30_000,
-		maxBuffer: 1024 * 1024,
-	}).trim();
+const command = async (repo: string, executable: string, args: string[]) =>
+	(
+		await promisify(execFile)(executable, args, {
+			cwd: repo,
+			encoding: "utf8",
+			timeout: 30_000,
+			maxBuffer: 1024 * 1024,
+		})
+	).stdout.trim();
 
 /** The approval ledger pins criteria separately from the accepted outcome text. */
 const CiRecoveryCriteriaSchema = z.strictObject({
@@ -257,10 +260,13 @@ const CiRecoveryCriteriaSchema = z.strictObject({
 	requiredJobs: z.array(z.string().min(1).max(300)).min(1).max(500),
 });
 
-export function verifyExistingLaneResult(
+export async function verifyExistingLaneResult(
 	repo: string,
 	result: ExistingLaneResult,
-	run = (executable: string, args: string[]) => command(repo, executable, args),
+	run: (executable: string, args: string[]) => string | Promise<string> = (
+		executable,
+		args,
+	) => command(repo, executable, args),
 	authorization?: { orgId: string; response: unknown },
 ) {
 	const approval = safeParseServerResponse(
@@ -315,7 +321,7 @@ export function verifyExistingLaneResult(
 	)
 		throw new Error("CI recovery declaration differs from approved criteria");
 	const repository = githubRepository(
-		run("git", ["remote", "get-url", "origin"]),
+		await run("git", ["remote", "get-url", "origin"]),
 	);
 	if (repository !== criteria.repository)
 		throw new Error("CI recovery approval does not match the checkout origin");
@@ -329,7 +335,7 @@ export function verifyExistingLaneResult(
 		run_number: z.number().int().positive(),
 	});
 	try {
-		run("git", [
+		await run("git", [
 			"fetch",
 			"--no-tags",
 			"origin",
@@ -337,32 +343,39 @@ export function verifyExistingLaneResult(
 		]);
 		proof = fullRunSchema.parse(
 			JSON.parse(
-				run("gh", ["api", `repos/${repository}/actions/runs/${result.runId}`]),
+				await run("gh", [
+					"api",
+					`repos/${repository}/actions/runs/${result.runId}`,
+				]),
 			),
 		);
 		workflow = z
 			.object({ id: z.number(), name: z.string(), path: z.string() })
 			.parse(
 				JSON.parse(
-					run("gh", [
+					await run("gh", [
 						"api",
 						`repos/${repository}/actions/workflows/${criteria.workflowId}`,
 					]),
 				),
 			);
-		latestFullRuns = ["schedule", "workflow_dispatch"].flatMap(
-			(event) =>
-				z
-					.object({ workflow_runs: z.array(fullRunSchema).max(1) })
-					.parse(
-						JSON.parse(
-							run("gh", [
-								"api",
-								`repos/${repository}/actions/workflows/${criteria.workflowId}/runs?branch=main&event=${event}&per_page=1`,
-							]),
-						),
-					).workflow_runs,
-		);
+		latestFullRuns = (
+			await Promise.all(
+				["schedule", "workflow_dispatch"].map(
+					async (event) =>
+						z
+							.object({ workflow_runs: z.array(fullRunSchema).max(1) })
+							.parse(
+								JSON.parse(
+									await run("gh", [
+										"api",
+										`repos/${repository}/actions/workflows/${criteria.workflowId}/runs?branch=main&event=${event}&per_page=1`,
+									]),
+								),
+							).workflow_runs,
+				),
+			)
+		).flat();
 		// Read this attempt only; a successful job from an earlier attempt is not proof.
 		jobs = z
 			.object({
@@ -377,7 +390,7 @@ export function verifyExistingLaneResult(
 			})
 			.parse(
 				JSON.parse(
-					run("gh", [
+					await run("gh", [
 						"api",
 						"--paginate",
 						"--slurp",
@@ -444,7 +457,7 @@ export function verifyExistingLaneResult(
 		[sha, "refs/remotes/origin/main"],
 	]) {
 		try {
-			run("git", ["merge-base", "--is-ancestor", ancestor!, descendant!]);
+			await run("git", ["merge-base", "--is-ancestor", ancestor!, descendant!]);
 		} catch {
 			throw new Error(
 				"Existing CI commits do not satisfy the accepted ancestry",
@@ -464,14 +477,19 @@ export function verifyExistingLaneResult(
 }
 
 /** Verifies a result landed in another repository owned beside this checkout. */
-export function verifyRepositoryLaneResult(
+export async function verifyRepositoryLaneResult(
 	repo: string,
 	result: RepositoryCapableLaneResult,
-	run = (executable: string, args: string[]) => command(repo, executable, args),
+	run: (executable: string, args: string[]) => string | Promise<string> = (
+		executable,
+		args,
+	) => command(repo, executable, args),
 ) {
 	const repositoryProof = result.repositoryProof;
 	if (!repositoryProof) throw new Error("Repository proof is required");
-	const source = githubRepository(run("git", ["remote", "get-url", "origin"]));
+	const source = githubRepository(
+		await run("git", ["remote", "get-url", "origin"]),
+	);
 	if (!source)
 		throw new Error("Repository proof requires the checkout's GitHub origin");
 	const target = repositoryProof.repository;
@@ -486,7 +504,7 @@ export function verifyRepositoryLaneResult(
 	try {
 		proof = ciRunSchema.parse(
 			JSON.parse(
-				run("gh", [
+				await run("gh", [
 					"api",
 					`repos/${target}/actions/runs/${repositoryProof.runId}`,
 				]),
@@ -496,7 +514,7 @@ export function verifyRepositoryLaneResult(
 			.object({ workflow_runs: z.array(ciRunSchema).length(1) })
 			.parse(
 				JSON.parse(
-					run("gh", [
+					await run("gh", [
 						"api",
 						`repos/${target}/actions/workflows/${proof.workflow_id}/runs?branch=main&per_page=1`,
 					]),
@@ -505,7 +523,9 @@ export function verifyRepositoryLaneResult(
 		main = z
 			.object({ object: z.object({ sha: z.string().regex(/^[a-f0-9]{40}$/) }) })
 			.parse(
-				JSON.parse(run("gh", ["api", `repos/${target}/git/ref/heads/main`])),
+				JSON.parse(
+					await run("gh", ["api", `repos/${target}/git/ref/heads/main`]),
+				),
 			).object.sha;
 	} catch (error) {
 		throw new LaneOutcomeReadError(String(error));
@@ -534,7 +554,7 @@ export function verifyRepositoryLaneResult(
 				.object({ status: z.enum(["ahead", "identical"]) })
 				.parse(
 					JSON.parse(
-						run("gh", [
+						await run("gh", [
 							"api",
 							`repos/${target}/compare/${ancestor}...${descendant}`,
 						]),

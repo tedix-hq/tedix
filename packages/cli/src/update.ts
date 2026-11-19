@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { laneCommand } from "./lane-command";
 import { createHash } from "node:crypto";
 import {
 	chmodSync,
@@ -180,26 +180,28 @@ export function newerInstalledVersion({
 	installPath = process.execPath,
 	standalone = IS_STANDALONE_BUILD,
 	current = CLI_VERSION,
-	readVersion = (path: string) =>
-		spawnSync(path, ["--version"], {
-			encoding: "utf8",
-			timeout: VERSION_TIMEOUT_MS,
-		}).stdout,
+	readVersion = async (path: string) =>
+		(
+			await laneCommand(path, ["--version"], {
+				encoding: "utf8",
+				timeout: VERSION_TIMEOUT_MS,
+			})
+		).stdout,
 }: {
 	installPath?: string;
 	standalone?: boolean;
 	current?: string;
-	readVersion?: (path: string) => string;
-} = {}): () => string | undefined {
+	readVersion?: (path: string) => string | Promise<string>;
+} = {}): () => Promise<string | undefined> {
 	let seen: string | undefined;
 	let newer: string | undefined;
-	return () => {
+	return async () => {
 		if (!standalone) return;
 		try {
 			const stat = statSync(installPath);
 			const stamp = `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
 			if (stamp === seen) return newer;
-			const version = readVersion(installPath).trim();
+			const version = (await readVersion(installPath)).trim();
 			newer = compareVersions(version, current) > 0 ? version : undefined;
 			seen = stamp;
 		} catch {

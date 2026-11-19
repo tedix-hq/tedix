@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readExecutorBudgets } from "./lane-budget";
+import { cachedExecutorBudgets, readExecutorBudgets } from "./lane-budget";
 import {
 	defaultRoutingPolicy,
 	readRoutingPolicy,
@@ -20,7 +20,7 @@ afterEach(() => {
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
-it("reads native usage and explicit plan caps, omitting secrets and keeping absent allowances unknown", () => {
+it("reads native usage and explicit plan caps, omitting secrets and keeping absent allowances unknown", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "lane-budget-test-"));
 	dirs.push(dir);
 	const sessions = join(dir, "sessions", "2026", "10", "21");
@@ -45,7 +45,7 @@ it("reads native usage and explicit plan caps, omitting secrets and keeping abse
 	);
 	const policy = structuredClone(defaultRoutingPolicy);
 	policy.budgetFiles = { devin: [cap] };
-	const budgets = readExecutorBudgets(policy, {
+	const budgets = await readExecutorBudgets(policy, {
 		PATH: "/missing",
 		CODEX_HOME: dir,
 		CLAUDE_CONFIG_DIR: join(dir, "absent"),
@@ -56,14 +56,14 @@ it("reads native usage and explicit plan caps, omitting secrets and keeping abse
 	expect(budgets.opencode?.remainingPercent).toBeUndefined();
 	expect(JSON.stringify(budgets)).not.toContain("never-project-this");
 });
-it("terminates a stats probe that ignores SIGTERM and keeps its budget unknown", () => {
+it("terminates a stats probe that ignores SIGTERM and keeps its budget unknown", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "lane-budget-stall-"));
 	dirs.push(dir);
 	const executable = join(dir, "opencode");
 	writeFileSync(executable, "#!/bin/sh\ntrap '' TERM\nexec /bin/sleep 60\n");
 	chmodSync(executable, 0o755);
 	const startedAt = Date.now();
-	const budgets = readExecutorBudgets(defaultRoutingPolicy, {
+	const budgets = await readExecutorBudgets(defaultRoutingPolicy, {
 		PATH: dir,
 		CODEX_HOME: dir,
 		CLAUDE_CONFIG_DIR: dir,
@@ -141,4 +141,26 @@ it("uses explicit choices without merging managed preferences and fails closed o
 	writeFileSync(path, JSON.stringify({ ...configured, version: 2 }));
 	expect(() => readRoutingPolicy(path, {})).toThrow();
 	expect(() => readRoutingPolicy(join(dir, "missing.json"), {})).toThrow();
+});
+
+it("shares budget probes until the cache expires and retries rejected reads", async () => {
+	let now = 0;
+	let calls = 0;
+	let failed = false;
+	const read = cachedExecutorBudgets(
+		async () => {
+			calls++;
+			if (failed) throw new Error("unavailable");
+			return {};
+		},
+		() => now,
+	);
+	await Promise.all([read(defaultRoutingPolicy), read(defaultRoutingPolicy)]);
+	expect(calls).toBe(1);
+	now = 60_000;
+	failed = true;
+	await expect(read(defaultRoutingPolicy)).rejects.toThrow("unavailable");
+	failed = false;
+	await read(defaultRoutingPolicy);
+	expect(calls).toBe(3);
 });
