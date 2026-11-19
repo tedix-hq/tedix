@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
 	schedules: vi.fn(),
 	resources: vi.fn(),
 	runs: vi.fn(),
+	skill: vi.fn(),
+	tedi: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
 	osApi: {
@@ -22,9 +24,11 @@ vi.mock("@/lib/api", () => ({
 			resources: { list: mocks.resources },
 			schedules: { list: mocks.schedules },
 		},
-		skills: { runWorkflowHistory: mocks.runs },
+		skills: { runWorkflowHistory: mocks.runs, get: mocks.skill },
+		tedis: { get: mocks.tedi },
 	},
 }));
+import { WorkActorDirectoryContext } from "./work-actor-avatar";
 import { WorkspaceAgentsPanel } from "./workspace-agents-panel";
 
 (
@@ -69,6 +73,17 @@ beforeEach(() => {
 			},
 		],
 	});
+	mocks.skill
+		.mockReset()
+		.mockResolvedValue({ entry: { id: "digest", tediId: "tedi-ops" } });
+	mocks.tedi.mockReset().mockResolvedValue({
+		id: "tedi-ops",
+		name: "Ops Tedi",
+		displayName: null,
+		avatar: "🦉",
+		scope: "organization",
+		ownerUserId: null,
+	});
 	mocks.runs.mockReset().mockResolvedValue({
 		runs: [
 			{ id: "run-1", status: "paused", trigger: "scheduled", pausedAt: now() },
@@ -101,11 +116,15 @@ async function mount(
 					new QueryClient({ defaultOptions: { queries: { retry: false } } })
 				}
 			>
-				<WorkspaceAgentsPanel
-					workspaceId={WORKSPACE_ID}
-					conversations={conversations}
-					onOpenConversation={onOpenConversation}
-				/>
+				<WorkActorDirectoryContext.Provider
+					value={new Map([["user:alex", { name: "Alex" }]])}
+				>
+					<WorkspaceAgentsPanel
+						workspaceId={WORKSPACE_ID}
+						conversations={conversations}
+						onOpenConversation={onOpenConversation}
+					/>
+				</WorkActorDirectoryContext.Provider>
 			</QueryClientProvider>,
 		);
 	});
@@ -139,17 +158,16 @@ describe("WorkspaceAgentsPanel", () => {
 				{ id: "c-mine", title: "Mine", updatedAt: now(), lastTurnAt: now() },
 			],
 			() =>
-				counts("skill:digest") === "1 needs you · 2 today" &&
+				counts("tedi:tedi-ops") === "2 need you · 3 today" &&
 				agentRow("tedi:tedi-ops")?.textContent?.includes("Ops Tedi") === true,
 		);
 		expect(mocks.runs).toHaveBeenCalledWith(
 			expect.objectContaining({ skillId: "digest", limit: 30 }),
 			expect.anything(),
 		);
-		expect(counts("skill:digest")).toBe("1 needs you · 2 today");
-		expect(counts("tedi:tedi-ops")).toBe("1 needs you · 1 today");
+		expect(counts("tedi:tedi-ops")).toBe("2 need you · 3 today");
 		expect(agentRow("tedi:tedi-ops").textContent).toContain("Ops Tedi");
-		expect(host.querySelectorAll("[data-workspace-agent]")).toHaveLength(2);
+		expect(host.querySelectorAll("[data-workspace-agent]")).toHaveLength(1);
 		expect(host.querySelector("[data-agent-run]")).toBeNull();
 
 		act(() => agentRow("tedi:tedi-ops").querySelector("button")!.click());
@@ -160,14 +178,27 @@ describe("WorkspaceAgentsPanel", () => {
 		act(() => review.click());
 		expect(onOpen).toHaveBeenCalledWith("c-run");
 
-		act(() => agentRow("skill:digest").querySelector("button")!.click());
+		expect(agentRow("tedi:tedi-ops").textContent).toContain(
+			"Belongs to the organization",
+		);
+		expect(
+			agentRow("tedi:tedi-ops").querySelector('[data-entity-kind="tedi"]')
+				?.textContent,
+		).toBe("🦉");
+		act(() =>
+			agentRow("tedi:tedi-ops")
+				.querySelector<HTMLButtonElement>('[aria-label="Message Ops Tedi"]')!
+				.click(),
+		);
+		expect(onOpen).toHaveBeenCalledWith("", "tedi-ops");
 		const links = [
-			...agentRow("skill:digest").querySelectorAll<HTMLAnchorElement>("a"),
+			...agentRow("tedi:tedi-ops").querySelectorAll<HTMLAnchorElement>("a"),
 		].map((link) => [link.textContent, link.getAttribute("href")]);
 		expect(links).toEqual([
+			["View profile", "/tedis/tedi-ops"],
 			["Review", "/work/runs/run-1"],
 			["Open", "/work/runs/run-2"],
-			["See all runs", "/skills/digest/runs"],
+			["Morning digest · See all runs", "/skills/digest/runs"],
 		]);
 	});
 
@@ -175,13 +206,67 @@ describe("WorkspaceAgentsPanel", () => {
 		mocks.runs.mockRejectedValue(new Error("offline"));
 		await mount(
 			[],
-			() => counts("skill:digest") === "Its runs could not be loaded",
+			() => counts("tedi:tedi-ops") === "Its runs could not be loaded",
 		);
-		expect(counts("skill:digest")).toBe("Its runs could not be loaded");
+		expect(counts("tedi:tedi-ops")).toBe("Its runs could not be loaded");
+	});
+
+	it("shows a personal owner and keeps linked tedis with no activity", async () => {
+		mocks.schedules.mockResolvedValue({ items: [] });
+		mocks.tedi.mockResolvedValue({
+			id: "tedi-ops",
+			name: "Ops Tedi",
+			avatar: null,
+			scope: "personal",
+			ownerUserId: "alex",
+		});
+		await mount([], () => host.textContent?.includes("Owned by Alex") === true);
+		expect(host.textContent).toContain("Owned by Alex");
+		expect(counts("tedi:tedi-ops")).toBe("Has not run yet");
+		expect(host.querySelectorAll("[data-workspace-agent]")).toHaveLength(1);
+	});
+
+	it("does not invent ownership when a profile is unavailable", async () => {
+		mocks.tedi.mockRejectedValue(new Error("offline"));
+		await mount([], () => counts("tedi:tedi-ops") === "1 needs you · 2 today");
+		expect(host.textContent).toContain("Owner unavailable");
+		expect(host.textContent).not.toContain("Belongs to the organization");
+	});
+
+	it("reports unavailable skill owners instead of inventing skill agents", async () => {
+		mocks.skill.mockRejectedValue(new Error("offline"));
+		await mount(
+			[],
+			() =>
+				host.textContent?.includes(
+					"Some skills or their owners could not be loaded",
+				) === true,
+		);
+		expect(agentRow("skill:digest")).toBeNull();
+		expect(host.textContent).toContain(
+			"Some skills or their owners could not be loaded",
+		);
+	});
+
+	it("reports a failed linked tedi read instead of an empty workspace", async () => {
+		mocks.schedules.mockResolvedValue({ items: [] });
+		mocks.resources.mockRejectedValue(new Error("offline"));
+		await mount(
+			[],
+			() =>
+				host.textContent?.includes(
+					"The tedis linked to this workspace could not be loaded",
+				) === true,
+		);
+		expect(host.textContent).toContain(
+			"The tedis linked to this workspace could not be loaded",
+		);
+		expect(host.textContent).not.toContain("No agents work");
 	});
 
 	it("says so when no agent works in the workspace", async () => {
 		mocks.schedules.mockResolvedValue({ items: [] });
+		mocks.resources.mockResolvedValue({ items: [] });
 		await mount(
 			[],
 			() => host.textContent?.includes("No agents work") === true,
