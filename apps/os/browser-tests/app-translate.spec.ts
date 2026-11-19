@@ -5,10 +5,8 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
-// Translate in the host's header row, signed in and as a share-link guest:
-// the demo pack's English Opportunity cards app, opened by a German-speaking
-// viewer, switches to German and back. Headless browsers have no on-device
-// translator or language detector, so every frame gets a fake one.
+// Translate the demo app in the workspace and through a guest share link.
+// The guest also records a verdict that survives a reload.
 const workspaceId = "00000030-0000-4000-8000-000000000001";
 const gadgetId = "00000031-0000-4000-8000-00000000000e";
 const appPath = `/workspace/${workspaceId}?workpiece=gadget%3A${gadgetId}&pane=workpiece`;
@@ -23,6 +21,7 @@ let browser: Browser | undefined;
 async function open(locale: string, width: number, path: string) {
 	const context = await browser!.newContext({
 		viewport: { width, height: width < 820 ? 812 : 800 },
+		colorScheme: width < 820 ? "dark" : "light",
 		locale,
 		reducedMotion: "reduce",
 	});
@@ -51,15 +50,28 @@ async function open(locale: string, width: number, path: string) {
 			: route.abort("blockedbyclient"),
 	);
 	await page.goto(`${server.origin}${path}`, { waitUntil: "domcontentloaded" });
-	if (path.startsWith("/guest")) {
-		await page
-			.getByRole("textbox", {
-				name: locale.startsWith("de") ? "Ihr Name" : "Your name",
-			})
-			.fill("Maya");
+	if (path.startsWith("/guest#")) {
+		const german = locale.startsWith("de");
+		const name = page.getByRole("textbox", {
+			name: german ? "Ihr Name" : "Your name",
+		});
+		await name.fill("Maya");
+		if (german) {
+			assert(
+				await name.evaluate(
+					(input) => input.getBoundingClientRect().height >= 44,
+				),
+			);
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth + 1,
+				),
+				"The phone name form fits the screen",
+			);
+		}
 		await page
 			.getByRole("button", {
-				name: locale.startsWith("de") ? "App öffnen" : "Open app",
+				name: german ? "App öffnen" : "Open app",
 				exact: true,
 			})
 			.click();
@@ -112,13 +124,60 @@ try {
 			width,
 			`/guest#token=${token}`,
 		);
-		await roundTrip(page, `${width}-guest`);
-		const bar = await page.locator("[data-guest-app] header").boundingBox();
-		// One row: at most a 44px touch target tall.
-		assert(
-			bar && bar.height <= 44,
-			`${width}: the guest bar stays one line (${bar?.height}px)`,
+		const main = page.locator("[data-guest-app]");
+		await main.getByText("Kann nutzen", { exact: true }).waitFor();
+		assert.equal(await page.locator("html").getAttribute("lang"), "de-DE");
+		assert.equal(await page.locator("html").getAttribute("data-mode"), "dark");
+		assert.equal(
+			new URL(page.url()).hash,
+			"",
+			"The link secret leaves the URL",
 		);
+		await main.getByRole("heading", { name: "Opportunity cards" }).waitFor();
+
+		await roundTrip(page, `${width}-guest`);
+		const layout = await main.evaluate((node) => {
+			const bar = node.querySelector("[data-guest-bar]")!;
+			const frame = node
+				.querySelector('iframe[title="Opportunity cards"]')!
+				.getBoundingClientRect();
+			return {
+				frameLeft: frame.left,
+				frameWidth: frame.width,
+				frameBottom: frame.bottom,
+				gap: frame.top - bar.getBoundingClientRect().bottom,
+				headerHeight: bar.querySelector("header")!.getBoundingClientRect()
+					.height,
+				width: innerWidth,
+				height: innerHeight,
+			};
+		});
+		assert(
+			layout.frameLeft === 0 &&
+				layout.frameWidth === layout.width &&
+				Math.abs(layout.frameBottom - layout.height) <= 1 &&
+				Math.abs(layout.gap) <= 1 &&
+				layout.headerHeight <= 44,
+			`The app fills the screen under its one-row guest bar: ${JSON.stringify(layout)}`,
+		);
+
+		const saved = page.waitForResponse(
+			(response) =>
+				new URL(response.url()).pathname === "/api/os-shared/app/call" &&
+				(response.request().postData() ?? "").includes('"recordVerdict"'),
+		);
+		await app(page)
+			.getByRole("button", { name: "Useful", exact: true })
+			.click();
+		await app(page)
+			.getByText(/2 of 8/)
+			.waitFor();
+		assert.equal((await saved).status(), 200, "The verdict reaches the server");
+		await page.reload();
+		await app(page).getByText("Verdict: yes").waitFor();
+
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await main.getByText(/^Geteilt von /).waitFor();
 		await context.close();
 	}
 
@@ -132,8 +191,14 @@ try {
 		assert.equal(await page.locator("[data-app-translate]").count(), 0);
 		await context.close();
 	}
+	{
+		const { context, page } = await open("en-US", 375, "/guest");
+		await page.getByText("This link no longer opens anything").waitFor();
+		assert.equal(await page.locator("iframe").count(), 0);
+		await context.close();
+	}
 	console.log(
-		`App Translate passed signed in on desktop and as a guest on a phone; screenshots in ${evidence}`,
+		`App translation, guest redemption and verdict resume passed; screenshots in ${evidence}`,
 	);
 } finally {
 	await browser?.close();

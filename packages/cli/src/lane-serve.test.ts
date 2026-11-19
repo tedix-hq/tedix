@@ -813,6 +813,17 @@ describe("dispatcher lock handoff", () => {
 		const predecessor = beginFileLock(lockDirectory("codex"));
 		const tick = spyOn(LaneDispatcher.prototype, "tick").mockResolvedValue();
 		const stderr = spyOn(process.stderr, "write").mockReturnValue(true);
+		let polls = 0;
+		const schedule = globalThis.setTimeout;
+		const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
+			...args: Parameters<typeof setTimeout>
+		) => {
+			if (args[1] === 250) {
+				polls++;
+				args[1] = 1;
+			}
+			return schedule(...args);
+		}) as typeof setTimeout);
 		const signals = [
 			process.listenerCount("SIGTERM"),
 			process.listenerCount("SIGINT"),
@@ -834,11 +845,15 @@ describe("dispatcher lock handoff", () => {
 			stderr,
 			running,
 			lockDirectory,
+			get polls() {
+				return polls;
+			},
 			async cleanup() {
 				predecessor.release();
 				await running.catch(() => {});
 				tick.mockRestore();
 				stderr.mockRestore();
+				timer.mockRestore();
 				if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
 				else process.env.TEDIX_CONFIG_DIR = previous;
 				expect(process.listenerCount("SIGTERM")).toBe(signals[0]);
@@ -849,7 +864,7 @@ describe("dispatcher lock handoff", () => {
 	it("waits through multiple polls, logs once, and takes over after the predecessor drains", async () => {
 		const f = handoff();
 		try {
-			await new Promise((done) => setTimeout(done, 550));
+			await until(() => f.polls >= 3);
 			expect(f.tick).not.toHaveBeenCalled();
 			expect(f.stderr.mock.calls.map(([line]) => line)).toEqual([
 				`Dispatcher waiting for ${process.pid} to finish draining\n`,
@@ -973,7 +988,7 @@ describe("dispatcher lock handoff", () => {
 				},
 			);
 			try {
-				await new Promise((done) => setTimeout(done, 550));
+				await until(() => same.polls > 0);
 				expect(same.tick).not.toHaveBeenCalled();
 				peer.release();
 				expect(await same.running).toBe(0);

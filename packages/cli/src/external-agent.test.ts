@@ -29,6 +29,23 @@ const ORG = "11111111-1111-4111-8111-111111111111";
 const PRINCIPAL = "33333333-3333-4333-8333-333333333333";
 const SESSION = "44444444-4444-4444-8444-444444444444";
 const dirs: string[] = [];
+
+function shortenExchangeBackoffs() {
+	const backoffs: number[] = [];
+	const schedule = globalThis.setTimeout;
+	const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
+		...args: Parameters<typeof setTimeout>
+	) => {
+		const delay = args[1];
+		if (delay !== undefined && delay <= 2_000) {
+			backoffs.push(delay);
+			args[1] = 0;
+		}
+		return schedule(...args);
+	}) as typeof setTimeout);
+	return { backoffs, restore: () => timer.mockRestore() };
+}
+
 const savedEnv = {
 	config: process.env.TEDIX_CONFIG_DIR,
 	session: process.env.TEDIX_AGENT_SESSION,
@@ -441,33 +458,43 @@ describe("external-agent CLI session", () => {
 				sessions: {},
 			});
 			const bodies: string[] = [];
-			const result = startExternalAgentSession({
-				workspace: "tedix",
-				mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
-				harness: "codex",
-				harnessVersion: "1.2.3",
-				modelProvider: "openai",
-				modelId: "gpt-5.6",
-				modelVersion: "2026-07-22",
-				fetch: async (_url, init) => {
-					bodies.push(String(init?.body));
-					if (status === 0) throw new Error(scenario);
-					return succeeds && bodies.length === 2
-						? exchangeResponse()
-						: Response.json({ error: scenario, code }, { status });
-				},
-			});
-			if (succeeds) expect((await result).session.id).toBe(SESSION);
-			else
-				await expect(result).rejects.toThrow(
-					status === 0
-						? scenario
-						: code === "immutable_session_conflict"
-							? 'Agent-Session "codex:session-1" is already registered with a different harness version or model than codex 1.2.3 / openai gpt-5.6.\nA session key is immutable: pass the flags it was registered with (see `tedix agent status`), or start a fresh session:\n  export TEDIX_AGENT_SESSION="codex:$(uuidgen'
-							: `External-agent session exchange failed (${status}${code ? `, ${code}` : ""}): ${scenario}. Inspect agent status before retrying; server-side issuance may have changed.`,
-				);
-			expect(bodies).toHaveLength(expectedCalls);
-			expect(new Set(bodies).size).toBe(1);
+			const { backoffs, restore } = shortenExchangeBackoffs();
+			try {
+				const result = startExternalAgentSession({
+					workspace: "tedix",
+					mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+					harness: "codex",
+					harnessVersion: "1.2.3",
+					modelProvider: "openai",
+					modelId: "gpt-5.6",
+					modelVersion: "2026-07-22",
+					fetch: async (_url, init) => {
+						bodies.push(String(init?.body));
+						if (status === 0) throw new Error(scenario);
+						return succeeds && bodies.length === 2
+							? exchangeResponse()
+							: Response.json({ error: scenario, code }, { status });
+					},
+				});
+				if (succeeds) expect((await result).session.id).toBe(SESSION);
+				else
+					await expect(result).rejects.toThrow(
+						status === 0
+							? scenario
+							: code === "immutable_session_conflict"
+								? 'Agent-Session "codex:session-1" is already registered with a different harness version or model than codex 1.2.3 / openai gpt-5.6.\nA session key is immutable: pass the flags it was registered with (see `tedix agent status`), or start a fresh session:\n  export TEDIX_AGENT_SESSION="codex:$(uuidgen'
+								: `External-agent session exchange failed (${status}${code ? `, ${code}` : ""}): ${scenario}. Inspect agent status before retrying; server-side issuance may have changed.`,
+					);
+				expect(bodies).toHaveLength(expectedCalls);
+				expect(new Set(bodies).size).toBe(1);
+				expect(backoffs).toHaveLength(expectedCalls - 1);
+				if (code === "session_backend_unavailable") {
+					expect(backoffs[0]).toBeGreaterThanOrEqual(1_000);
+					expect(backoffs[0]).toBeLessThan(2_000);
+				}
+			} finally {
+				restore();
+			}
 		},
 	);
 
@@ -834,18 +861,7 @@ describe("external-agent CLI session", () => {
 			sessions: {},
 		});
 		const bodies: string[] = [];
-		const backoffs: number[] = [];
-		const schedule = globalThis.setTimeout;
-		const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
-			...args: Parameters<typeof setTimeout>
-		) => {
-			const delay = args[1];
-			if (delay !== undefined && delay <= 2_000) {
-				backoffs.push(delay);
-				args[1] = 0;
-			}
-			return schedule(...args);
-		}) as typeof setTimeout);
+		const { backoffs, restore } = shortenExchangeBackoffs();
 		try {
 			const started = await startExternalAgentSession({
 				workspace: "tedix",
@@ -873,7 +889,7 @@ describe("external-agent CLI session", () => {
 			expect(new Set(bodies).size).toBe(1);
 			expect(backoffs).toEqual([250, 500, 1000, 2000]);
 		} finally {
-			timer.mockRestore();
+			restore();
 		}
 	});
 

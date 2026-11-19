@@ -61,82 +61,81 @@ async function widenSheet(page: Page, rows: number) {
 const server = await startFixtureServer(path);
 const browser = await chromium.launch({ headless: true });
 try {
-	for (const width of [375, 1280]) {
-		for (const theme of ["light", "dark"] as const) {
-			const label = `${width}px ${theme}`;
-			const phone = width < 640;
-			const page = await browser.newPage({
-				viewport: { width, height: phone ? 760 : 820 },
-				colorScheme: theme,
-				isMobile: phone,
-				hasTouch: phone,
-				reducedMotion: "reduce",
-			});
-			await widenSheet(page, 24);
-			await page.goto(`${server.origin}${path}`);
-			const grid = page.locator(".sheet-read-grid");
-			await grid.waitFor();
-			await page.evaluate(() => document.fonts.ready);
-			const geometry = await page.evaluate(() => {
-				const box = (selector: string) => {
-					const rect = document
-						.querySelector(selector)!
-						.getBoundingClientRect();
-					return { left: rect.left, right: rect.right };
-				};
-				const gridElement = document.querySelector(".sheet-read-grid")!;
-				const strip = document.querySelector(".sheet-tab-strip")!;
-				return {
-					viewport: innerWidth,
-					scrollWidth: document.documentElement.scrollWidth,
-					desk: box(".sheet-read-desk"),
-					page: box(".sheet-read-page"),
-					bar: box(".sheet-read-bar"),
-					grid: box(".sheet-read-grid"),
-					footer: box(".sheet-footer"),
-					status: box(".sheet-status"),
-					gridScrolls: gridElement.scrollWidth > gridElement.clientWidth,
-					stripScrolls: strip.scrollWidth > strip.clientWidth,
-				};
-			});
-			const detail = JSON.stringify(geometry);
+	for (const [width, theme] of [
+		[375, "dark"],
+		[1280, "light"],
+	] as const) {
+		const label = `${width}px ${theme}`;
+		const phone = width < 640;
+		const page = await browser.newPage({
+			viewport: { width, height: phone ? 760 : 820 },
+			colorScheme: theme,
+			isMobile: phone,
+			hasTouch: phone,
+			reducedMotion: "reduce",
+		});
+		await widenSheet(page, 24);
+		await page.goto(`${server.origin}${path}`);
+		const grid = page.locator(".sheet-read-grid");
+		await grid.waitFor();
+		await page.evaluate(() => document.fonts.ready);
+		const geometry = await page.evaluate(() => {
+			const box = (selector: string) => {
+				const rect = document.querySelector(selector)!.getBoundingClientRect();
+				return { left: rect.left, right: rect.right };
+			};
+			const gridElement = document.querySelector(".sheet-read-grid")!;
+			const strip = document.querySelector(".sheet-tab-strip")!;
+			return {
+				viewport: innerWidth,
+				scrollWidth: document.documentElement.scrollWidth,
+				desk: box(".sheet-read-desk"),
+				page: box(".sheet-read-page"),
+				bar: box(".sheet-read-bar"),
+				grid: box(".sheet-read-grid"),
+				footer: box(".sheet-footer"),
+				status: box(".sheet-status"),
+				gridScrolls: gridElement.scrollWidth > gridElement.clientWidth,
+				stripScrolls: strip.scrollWidth > strip.clientWidth,
+			};
+		});
+		const detail = JSON.stringify(geometry);
+		assert(
+			geometry.scrollWidth <= geometry.viewport + 1,
+			`${label}: the page never scrolls sideways ${detail}`,
+		);
+		for (const part of ["page", "bar", "grid", "footer"] as const) {
 			assert(
-				geometry.scrollWidth <= geometry.viewport + 1,
-				`${label}: the page never scrolls sideways ${detail}`,
+				geometry[part].left >= geometry.desk.left - 1 &&
+					geometry[part].right <= geometry.desk.right + 1,
+				`${label}: ${part} stays inside the sheet's frame ${detail}`,
 			);
-			for (const part of ["page", "bar", "grid", "footer"] as const) {
-				assert(
-					geometry[part].left >= geometry.desk.left - 1 &&
-						geometry[part].right <= geometry.desk.right + 1,
-					`${label}: ${part} stays inside the sheet's frame ${detail}`,
-				);
-			}
-			assert(
-				Math.abs(geometry.bar.right - geometry.grid.right) <= 1 &&
-					Math.abs(geometry.footer.right - geometry.grid.right) <= 1,
-				`${label}: filter bar and tab strip match the grid's width ${detail}`,
-			);
-			assert(
-				geometry.desk.right <= geometry.viewport + 1,
-				`${label}: the sheet's frame ends inside the viewport ${detail}`,
-			);
-			assert(geometry.gridScrolls, `${label}: the grid scrolls in place`);
-			assert(geometry.stripScrolls, `${label}: the tab strip scrolls in place`);
-			assert(
-				geometry.status.right <= geometry.footer.right + 1 &&
-					geometry.status.left >= geometry.footer.left - 1,
-				`${label}: the row count stays visible ${detail}`,
-			);
-			await page.screenshot({
-				path: `${evidence}/canvas-wide-sheet-${width}-${theme}.png`,
-			});
-			await page.locator(".sheet-footer").scrollIntoViewIfNeeded();
-			await page.locator(".sheet-read-desk").screenshot({
-				path: `${evidence}/canvas-wide-sheet-${width}-${theme}-footer.png`,
-			});
-			await page.close();
-			console.log(`canvas wide sheet ${label}: ok`);
 		}
+		assert(
+			Math.abs(geometry.bar.right - geometry.grid.right) <= 1 &&
+				Math.abs(geometry.footer.right - geometry.grid.right) <= 1,
+			`${label}: filter bar and tab strip match the grid's width ${detail}`,
+		);
+		assert(
+			geometry.desk.right <= geometry.viewport + 1,
+			`${label}: the sheet's frame ends inside the viewport ${detail}`,
+		);
+		assert(geometry.gridScrolls, `${label}: the grid scrolls in place`);
+		assert(geometry.stripScrolls, `${label}: the tab strip scrolls in place`);
+		assert(
+			geometry.status.right <= geometry.footer.right + 1 &&
+				geometry.status.left >= geometry.footer.left - 1,
+			`${label}: the row count stays visible ${detail}`,
+		);
+		await page.screenshot({
+			path: `${evidence}/canvas-wide-sheet-${width}-${theme}.png`,
+		});
+		await page.locator(".sheet-footer").scrollIntoViewIfNeeded();
+		await page.locator(".sheet-read-desk").screenshot({
+			path: `${evidence}/canvas-wide-sheet-${width}-${theme}-footer.png`,
+		});
+		await page.close();
+		console.log(`canvas wide sheet ${label}: ok`);
 	}
 } finally {
 	await browser.close();

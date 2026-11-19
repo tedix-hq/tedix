@@ -27,15 +27,14 @@ try {
 	// One open file: its tab fits, so nothing offers to scroll the tabs and a
 	// tap on Close reaches Close. The tab row settles after the title loads.
 	const openTabs = page.getByRole("tablist", { name: "Open workpieces" });
-	await openTabs.getByRole("tab").waitFor();
-	await page.waitForTimeout(1_000);
+	const close = page.getByRole("button", { name: /^Close Doc/ });
+	await close.waitFor();
 	assert.equal(await openTabs.getByRole("tab").count(), 1);
 	assert.equal(
 		await page.getByRole("button", { name: /^Scroll Open workpieces/ }).count(),
 		0,
 		"one tab that fits has no scroll arrows",
 	);
-	const close = page.getByRole("button", { name: /^Close Doc/ });
 	const closeBox = await close.boundingBox();
 	assert(closeBox, "the tab's Close is on screen");
 	assert(
@@ -79,8 +78,9 @@ try {
 	await toolbar.locator(".doc-more").click();
 	const menu = frame.getByRole("menu", { name: "More" });
 	await menu.waitFor();
-	// The menu scales in; measure it once it has its full size.
-	await page.waitForTimeout(400);
+	await menu.evaluate((node) =>
+		Promise.all(node.getAnimations().map((animation) => animation.finished)),
+	);
 	const menuBox = await menu.boundingBox();
 	assert(menuBox, "the More menu is on screen");
 	assert(
@@ -99,8 +99,11 @@ try {
 	await editor.click();
 	await page.keyboard.press("ControlOrMeta+End");
 	await page.keyboard.press("Enter");
+	const savedText = tabs.waitForSave(page, (content) =>
+		JSON.stringify(content).includes("Written on a phone"),
+	);
 	await page.keyboard.type("Written on a phone");
-	await page.waitForTimeout(2_000);
+	await savedText;
 	assert.match(
 		JSON.stringify((await tabs.saved()).content.richText),
 		/Written on a phone/,

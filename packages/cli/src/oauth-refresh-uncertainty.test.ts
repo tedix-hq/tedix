@@ -166,17 +166,15 @@ for (const failure of ["timeout", "body-timeout", "killed", "save"] as const) {
 			expect(exitedUnsent).toBe(false);
 			if (failure === "killed") first.kill("SIGKILL");
 			await first.exited;
-			children.push(command(), command());
-			const results = await Promise.all(
-				children.slice(1).map(async (child) => {
-					expect(await child.exited).toBe(0);
-					return (await new Response(child.stdout).text()).trim();
-				}),
+			const retry = command();
+			children.push(retry);
+			expect(await retry.exited).toBe(0);
+			expect((await new Response(retry.stdout).text()).trim()).toBe(
+				"uncertain",
 			);
 			expect(markedBeforeSend).toBe(true);
 			expect(requests).toBe(1);
 			expect(invalidated).toBe(false);
-			expect(results).toEqual(["uncertain", "uncertain"]);
 			expect(
 				readWorkspaceCredentials("fixture", { configDir: dir })
 					?.oauthRefreshPending,

@@ -96,7 +96,17 @@ export async function startFixtureServer(
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
 		}
-		await Promise.race([server.exited, Bun.sleep(5_000)]);
+		let graceTimer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await Promise.race([
+				server.exited,
+				new Promise<void>((resolve) => {
+					graceTimer = setTimeout(resolve, 5_000);
+				}),
+			]);
+		} finally {
+			clearTimeout(graceTimer);
+		}
 		if (server.exitCode === null)
 			try {
 				process.kill(-server.pid, "SIGKILL");

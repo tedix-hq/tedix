@@ -70,7 +70,10 @@ try {
 		"Plan",
 	);
 	await outline.getByRole("button", { name: "Proof" }).click();
-	await page.waitForTimeout(100);
+	await outline
+		.getByRole("button", { name: "Work" })
+		.and(outline.locator('[aria-current="true"]'))
+		.waitFor();
 	assert(
 		(await frame.locator(".tiptap").evaluate(() => scrollY)) > 0,
 		"an outline click scrolls to its heading",
@@ -82,6 +85,12 @@ try {
 
 	await frame.getByRole("button", { name: "Typeface & width" }).click();
 	await frame.locator('[data-typeface="serif"]').click();
+	const savedAppearance = tabs.waitForSave(
+		page,
+		(content) =>
+			(content as { appearance?: { wide?: boolean } }).appearance?.wide ===
+			true,
+	);
 	await frame.getByRole("button", { name: "Full width" }).click();
 	const editor = frame.locator(".tiptap");
 	assert.equal(
@@ -105,7 +114,7 @@ try {
 			}),
 	);
 	assert(pageWidth > 900, "full width expands the document measure");
-	await page.waitForTimeout(1_500);
+	await savedAppearance;
 	assert.deepEqual((await tabs.saved()).content.appearance, {
 		typeface: "serif",
 		wide: true,

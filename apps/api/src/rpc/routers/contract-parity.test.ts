@@ -36,6 +36,8 @@ import {
 	planToolSchemaSyncProjection,
 	resolveEffectiveToolSchemaSyncOptions,
 } from "../../services/tool-schema-sync";
+import baseline from "../fleet-authority-guards.json";
+import { withFleetAuthority } from "../orpc";
 import { apiRouter } from "./index";
 
 /** Keep full nested paths: matching namespaces can hide missing procedures. */
@@ -67,9 +69,38 @@ function expectSchemas(actual: object, contract: object, path: string) {
 
 const declared = procedures(apiContract);
 const registered = procedures(ROUTERS);
+type GuardPolicy =
+	| { guard: "namespace"; tenantExceptions: string[] }
+	| { guard: "procedures"; commercialProcedures: string[] };
+
+const policies = baseline.namespaces as Record<string, GuardPolicy>;
+
+interface ProcedureGuardState {
+	namespace: string;
+	/** Procedure path inside the namespace, dot-joined for nested groups. */
+	name: string;
+	guarded: boolean;
+}
+
 let implemented: Map<string, object>;
+let inventory: ProcedureGuardState[];
 beforeAll(async () => {
 	implemented = procedures(await unlazyRouter(apiRouter));
+	inventory = [...implemented].map(([path, procedure]) => {
+		const [namespace = "", ...parts] = path.split("/");
+		const internal = (
+			procedure as {
+				"~orpc": { orderedMiddlewares?: Array<{ middleware: unknown }> };
+			}
+		)["~orpc"];
+		return {
+			namespace,
+			name: parts.join("."),
+			guarded: (internal.orderedMiddlewares ?? []).some(
+				(entry) => entry.middleware === withFleetAuthority,
+			),
+		};
+	});
 }, 120_000);
 
 describe("contract/router parity", () => {
@@ -145,5 +176,84 @@ describe("contract/router parity", () => {
 			expect(router, endpoint).toBeInstanceOf(Procedure);
 			expectSchemas(router!, registered.get(endpoint)!, endpoint);
 		}
+	});
+});
+
+describe("fleet-authority guard coverage", () => {
+	it("keeps fleet marketing authority structurally outside tenant Work Items", () => {
+		const namesFor = (namespace: string) =>
+			inventory
+				.filter((entry) => entry.namespace === namespace)
+				.map((entry) => entry.name)
+				.sort();
+		expect(namesFor("fleetMarketing")).toEqual([]);
+	});
+
+	it("keeps tenant catalog utilities structurally outside fleet curation", () => {
+		const namesFor = (namespace: string) =>
+			inventory
+				.filter((entry) => entry.namespace === namespace)
+				.map((entry) => entry.name)
+				.sort();
+		const tenantProcedures = [
+			"installTenantMcpApp",
+			"installTenantMcpApps",
+			"previewOpenApiImport",
+			"uninstallTenantMcpApp",
+		];
+
+		expect(namesFor("tenantCatalog")).toEqual(tenantProcedures);
+		expect(
+			namesFor("catalog").filter((name) => tenantProcedures.includes(name)),
+		).toEqual([]);
+	});
+
+	it("matches the live router guard state exactly", () => {
+		const namespaces = new Set(inventory.map((entry) => entry.namespace));
+		const violations: string[] = [];
+
+		for (const [namespace, policy] of Object.entries(policies)) {
+			if (!namespaces.has(namespace)) {
+				violations.push(`${namespace}: classified namespace is not served`);
+				continue;
+			}
+			const procedures = inventory.filter(
+				(entry) => entry.namespace === namespace,
+			);
+			const names = new Set(procedures.map((entry) => entry.name));
+			const listed =
+				policy.guard === "namespace"
+					? policy.tenantExceptions
+					: policy.commercialProcedures;
+			for (const name of listed) {
+				if (!names.has(name)) {
+					violations.push(`${namespace}.${name}: stale baseline entry`);
+				}
+			}
+			for (const procedure of procedures) {
+				const expectGuarded =
+					policy.guard === "namespace"
+						? !policy.tenantExceptions.includes(procedure.name)
+						: policy.commercialProcedures.includes(procedure.name);
+				if (procedure.guarded !== expectGuarded) {
+					violations.push(
+						`${namespace}.${procedure.name}: ${
+							expectGuarded
+								? "fleet-commercial procedure is missing withFleetAuthority"
+								: "tenant-product procedure unexpectedly carries withFleetAuthority"
+						}`,
+					);
+				}
+			}
+		}
+
+		expect(violations).toEqual([]);
+	});
+
+	it("never guards a procedure outside a fleet-commercial namespace", () => {
+		const strays = inventory
+			.filter((entry) => entry.guarded && !(entry.namespace in policies))
+			.map((entry) => `${entry.namespace}.${entry.name}`);
+		expect(strays).toEqual([]);
 	});
 });

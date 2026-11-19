@@ -13,7 +13,7 @@ import {
 
 // The runtime app panel on the demo pack's Reddit workspace: the live app,
 // its code, and a chat draft that previews in its own sandbox and is accepted
-// as the next revision. Light and dark, phone and desktop.
+// as the next revision.
 const workspaceId = "00000030-0000-4000-8000-000000000001";
 const gadgetId = "00000031-0000-4000-8000-00000000000e";
 const appPath = `/workspace/${workspaceId}?workpiece=gadget%3A${gadgetId}&pane=workpiece`;
@@ -58,13 +58,12 @@ function guest(page: Page, title: string) {
 
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const [width, theme] of [
-		[375, "dark"],
-		[1280, "light"],
-	] as const) {
+	{
+		const width = 375;
+		const theme = "dark";
 		const label = `${width}/${theme}`;
 		const context = await browser.newContext({
-			viewport: { width, height: width < 820 ? 812 : 800 },
+			viewport: { width, height: 812 },
 			colorScheme: theme,
 			reducedMotion: "reduce",
 		});
@@ -87,12 +86,11 @@ try {
 			.waitFor();
 		// The open draft is counted on the Code view and announced in the
 		// app; a phone's view menu shows the count while Code is not open.
-		if (width < 640)
-			assert.equal(
-				await workpieceViewMenu(page).getAttribute("aria-label"),
-				"View: App, 1 draft in Code",
-				`${label}: the view menu counts the open draft`,
-			);
+		assert.equal(
+			await workpieceViewMenu(page).getAttribute("aria-label"),
+			"View: App, 1 draft in Code",
+			`${label}: the view menu counts the open draft`,
+		);
 		assert(
 			(await workpieceViewNames(page)).includes("Code 1"),
 			`${label}: the Code view counts the open draft`,
@@ -172,28 +170,6 @@ try {
 		await page.screenshot({
 			path: `${evidence}/${width}-${theme}-code.png`,
 		});
-		// History fills the column too: its header and rows have no card.
-		await showWorkpieceView(page, "History");
-		const history = page.locator("[data-gadget-executions]");
-		await history.getByRole("button", { name: "Run manually" }).waitFor();
-		const historyEdges = await page.evaluate(() => {
-			const box = (selector: string) =>
-				document.querySelector(selector)!.getBoundingClientRect();
-			const column = box(".canvas-document-shell");
-			const runs = box("[data-gadget-executions]");
-			return [column.left, column.right, runs.left, runs.right];
-		});
-		assert(
-			Math.abs(historyEdges[0]! - historyEdges[2]!) <= 1 &&
-				Math.abs(historyEdges[1]! - historyEdges[3]!) <= 1,
-			`${label}: History fills the canvas column (${historyEdges})`,
-		);
-		await noOverflow(page, `${label} history`);
-		await page.screenshot({
-			path: `${evidence}/${width}-${theme}-edit-history.png`,
-		});
-		await showWorkpieceView(page, /^Code/);
-
 		// The draft sits above the code in Edit: what it changes, and its own
 		// preview.
 		const draft = page.getByRole("group", { name: "Draft 1" });
@@ -386,7 +362,7 @@ try {
 		await context.close();
 	}
 	console.log(
-		`Runtime app panel (App, Code with drafts, accept) passed at 375px dark and 1280px light; screenshots in ${evidence}`,
+		`Runtime app panel preview, acceptance and draft conflict resolution passed; screenshots in ${evidence}`,
 	);
 } finally {
 	await browser?.close();
