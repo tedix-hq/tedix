@@ -3,8 +3,15 @@
  * stored code-transport tool runs in a dynamic Worker; before one starts, the
  * organization credit pool must admit it. The execution id keys the charge, so
  * a retried execution is charged once.
+ *
+ * Only an installation whose billing settlement is `managed` charges credits.
+ * A self-hosted installation (`external` or `disabled`) has no credit pool to
+ * draw from, so its code runs start without admission. The mode is the same
+ * explicit `TEDIX_BILLING_SETTLEMENT_MODE` value the API reads; a missing or
+ * unknown value fails closed, as it does there.
  */
 
+import { BillingSettlementModeSchema } from "@tedix/api-contract/schemas/runtime-entitlements";
 import { CODE_RUN_CREDITS } from "@tedix/api-contract/utils/credit-pricing";
 import { createDbClient } from "@tedix/db/client";
 import { admitCodeRun } from "@tedix/db/queries/billing/credit-pool";
@@ -15,6 +22,8 @@ export type CodeRunAdmission =
 	| { allowed: false; code: string; message: string };
 
 const REFUSAL_MESSAGES: Record<string, string> = {
+	billing_settlement_mode_missing:
+		"Code runs are unavailable: this installation has no billing settlement mode configured.",
 	billing_not_configured:
 		"Code runs are unavailable: billing is not configured for this organization.",
 	subscription_inactive:
@@ -35,7 +44,7 @@ export function codeRunRefusalMessage(code: string): string {
 
 /** Admit and charge one code run before its dynamic Worker starts. */
 export async function admitCodeModeRun(input: {
-	env: { DB?: D1Database };
+	env: { DB?: D1Database; TEDIX_BILLING_SETTLEMENT_MODE?: string };
 	organizationId: string | null | undefined;
 	executionId: string;
 	caller: CallerIdentity | undefined;
@@ -48,6 +57,11 @@ export async function admitCodeModeRun(input: {
 		code,
 		message: codeRunRefusalMessage(code),
 	});
+	const settlementMode = BillingSettlementModeSchema.safeParse(
+		input.env.TEDIX_BILLING_SETTLEMENT_MODE,
+	);
+	if (!settlementMode.success) return refuse("billing_settlement_mode_missing");
+	if (settlementMode.data !== "managed") return { allowed: true };
 	if (!organizationId || !input.env.DB) return refuse("billing_not_configured");
 	const caller = input.caller;
 	const tediId = caller?.authType === "tedi" ? (caller.tediId ?? null) : null;
