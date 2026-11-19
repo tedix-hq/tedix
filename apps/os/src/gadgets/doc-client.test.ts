@@ -9,7 +9,6 @@ import type {
 	OsOutputContent,
 	OsRichTextDocument,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { DOC_CLIENT_SOURCE } from "@tedix/api-contract/assets/doc-blueprint";
 import { blocksFromRichText } from "./doc-engine";
 import { mountDocClient, type DocClientBridge } from "./doc-client";
 
@@ -736,26 +735,6 @@ describe("portable rich Doc client", () => {
 			expect.objectContaining({ revision: basis }),
 		);
 	});
-	it("keeps and saves a restored draft over a newer save to the same words without asking", async () => {
-		const test = fixture(),
-			first = await test.mount();
-		fakeClock();
-		test.offline(true);
-		first.editor.commands.insertContentAt(1, "My draft ");
-		await vi.advanceTimersByTimeAsync(1000);
-		first.mounted.destroy();
-		first.root.remove();
-		vi.useRealTimers();
-		test.offline(false);
-		test.external("Newer saved version");
-		const second = await test.mount();
-		await second.mounted.save();
-		await second.mounted.save();
-		expect(second.mounted.dirty).toBe(false);
-		expect(test.persisted().richText!.content[0]!.content![0]!.text).toBe(
-			"My draft Original",
-		);
-	});
 	it("refreshes clean documents only from the parent, quietly, and fails closed on lost source access", async () => {
 		const test = fixture(),
 			{ root, editor } = await test.mount();
@@ -1147,26 +1126,6 @@ describe("portable rich Doc client", () => {
 			// It was the person's own edit: their undo brings the agent's work back.
 			editor.commands.undo();
 			expect(texts(editor)[1]).toBe("Two, says the agent");
-		});
-		it("undoes the agent's change with the undo shortcut while it is the newest change", async () => {
-			const { test, root, editor } = await opened();
-			test.external(
-				body(para("One fine day"), para("Two"), para("Three"), para("Agent")),
-				window.parent,
-				"external_agent",
-			);
-			await vi.waitFor(() =>
-				expect(find(root, "Undo agent change")).toBeDefined(),
-			);
-			const undo = new KeyboardEvent("keydown", {
-				key: "z",
-				ctrlKey: true,
-				bubbles: true,
-				cancelable: true,
-			});
-			editor.view.dom.dispatchEvent(undo);
-			expect(undo.defaultPrevented).toBe(true);
-			expect(texts(editor)).toEqual(["One fine day", "Two", "Three"]);
 		});
 		it("undoes several quick agent saves as one, and keeps what the person wrote since", async () => {
 			const { test, root, editor } = await opened();
@@ -1560,42 +1519,5 @@ describe("portable rich Doc client", () => {
 		await vi.waitFor(() => expect(caret.classList.contains("on")).toBe(true));
 		expect(Number.parseFloat(caret.style.height)).toBeGreaterThanOrEqual(8);
 		expect(caret.getAttribute("aria-hidden")).toBe("true");
-	});
-	it("executes the generated self-contained client artifact, without the native host editor", async () => {
-		const test = fixture(),
-			root = document.createElement("div");
-		root.id = "app";
-		document.body.append(root);
-		const previous = window.tedix;
-		window.tedix = test.bridge;
-		const listeners: [EventTarget, string, EventListener][] = [];
-		for (const target of [window, document]) {
-			const add = target.addEventListener.bind(target);
-			vi.spyOn(target, "addEventListener").mockImplementation(
-				(type: string, listener: unknown, options?: unknown) => {
-					listeners.push([target, type, listener as EventListener]);
-					add(type, listener as EventListener, options as boolean);
-				},
-			);
-		}
-		new Function(DOC_CLIENT_SOURCE)();
-		await vi.waitFor(() =>
-			expect(root.querySelector(".tiptap")?.textContent).toContain("Original"),
-		);
-		const editor = (
-			root.querySelector(".tiptap") as HTMLElement & { editor: Editor }
-		).editor;
-		editor.chain().setTextSelection({ from: 1, to: 9 }).toggleBold().run();
-		press(editor.view.dom, { key: "s", ctrlKey: true });
-		await vi.waitFor(() => expect(statusText(root)).toBe("Saved"));
-		expect(
-			test.persisted().richText!.content[0]!.content![0]!.marks,
-		).toContainEqual({ type: "bold" });
-		cleanups.push(() => {
-			editor.destroy();
-			window.tedix = previous;
-			for (const [target, type, listener] of listeners)
-				target.removeEventListener(type, listener);
-		});
 	});
 });

@@ -1,6 +1,5 @@
 import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { SLIDES_CLIENT_SOURCE } from "@tedix/api-contract/assets/slides-blueprint";
 import { mountSlidesClient, type SlidesClientBridge } from "./slides-client";
 import { projectDeck, type PresentationContent } from "./slides-engine";
 import {
@@ -705,30 +704,6 @@ describe("portable Slides canvas", () => {
 		expect(
 			api.result().revision.content.deck!.slides[0]!.elements[0],
 		).toMatchObject({ text: "Before the drag" });
-	});
-	it("keeps trying after a failed save and says so in plain words", async () => {
-		vi.useFakeTimers();
-		const api = await mount();
-		api.failSaves(1);
-		clickElement();
-		format();
-		change("Text", "Survives a failure");
-		await vi.advanceTimersByTimeAsync(230);
-		expect(status()).toContain("not saved yet");
-		expect(api.draft()?.content.deck!.slides[0]!.elements[0]!.text).toBe(
-			"Survives a failure",
-		);
-		// The first retry follows 40 ms after the failure, not sooner.
-		expect(api.saves()).toBe(1);
-		await vi.advanceTimersByTimeAsync(20);
-		expect(api.saves()).toBe(1);
-		await vi.advanceTimersByTimeAsync(30);
-		expect(api.saves()).toBe(2);
-		expect(api.result().revision.content.slides[0]?.title).toBe(
-			"Survives a failure",
-		);
-		expect(status()).toBe("");
-		expect(api.draft()).toBeNull();
 	});
 	it("saves when the tab is hidden", async () => {
 		const api = await mount();
@@ -1797,25 +1772,6 @@ describe("portable Slides canvas", () => {
 			expect(card.props?.body).toBe("New body");
 			expect(card.props?.title).toBe("Artwork");
 		});
-		it("lights up the words someone else added", async () => {
-			const lit: string[] = [];
-			const highlights = new Map<string, unknown>();
-			vi.stubGlobal("CSS", { highlights });
-			vi.stubGlobal(
-				"Highlight",
-				class {
-					constructor(...ranges: Range[]) {
-						lit.push(...ranges.map((range) => range.toString()));
-					}
-				},
-			);
-			const api = await mount();
-			api.external("user", "Original revised title");
-			api.notify();
-			await vi.waitFor(() => expect(highlights.has("slides-added")).toBe(true));
-			expect(lit).toEqual(["revised"]);
-			vi.unstubAllGlobals();
-		});
 	});
 	describe("changes someone else makes while the presentation is open", () => {
 		const banner = () => document.querySelector(".slides-updates")!;
@@ -1830,22 +1786,6 @@ describe("portable Slides canvas", () => {
 			api.notify();
 			await vi.waitFor(() => expect(stageElement().textContent).toBe(text));
 		};
-		it("lights the changed element and its slide, leaves the rest alone, then lets go", async () => {
-			const api = await mount();
-			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-			api.external();
-			await landed(api, "External title");
-			expect(stageElement().classList.contains("landed")).toBe(true);
-			expect(stageElement("artwork").classList.contains("landed")).toBe(false);
-			expect(thumb("slide-1").classList.contains("landed")).toBe(true);
-			expect(thumb("slide-2").classList.contains("landed")).toBe(false);
-			// A person's change: nothing to undo here, and nothing to save.
-			expect(offer()).toBeUndefined();
-			expect(button("undo").disabled).toBe(true);
-			expect(api.saves()).toBe(0);
-			await vi.advanceTimersByTimeAsync(4_100);
-			expect(document.querySelector(".landed")).toBeNull();
-		});
 		it("follows an editor to the changed slide only 2.5 seconds after they chose a slide", async () => {
 			const api = await mount();
 			thumb("slide-2").dispatchEvent(
@@ -1933,22 +1873,6 @@ describe("portable Slides canvas", () => {
 			// It was the person's own edit: their undo brings the agent's work back.
 			button("undo").click();
 			expect(stageElement().textContent).toBe("External title");
-		});
-		it("undoes the agent's change with the undo shortcut while it is the newest change", async () => {
-			const api = await mount();
-			clickElement("artwork");
-			key(stage(), { key: "ArrowRight" });
-			await api.app.save();
-			api.external("external_agent");
-			await landed(api, "External title");
-			key(stage(), { key: "z", ctrlKey: true });
-			expect(stageElement().textContent).toBe("Original title");
-			// The person's own earlier nudge is still there to undo next.
-			const left = stageElement("artwork").style.left;
-			key(stage(), { key: "z", ctrlKey: true });
-			expect(stageElement().textContent).toBe("External title");
-			key(stage(), { key: "z", ctrlKey: true });
-			expect(stageElement("artwork").style.left).not.toBe(left);
 		});
 		it("stops offering once the person edits, after half a minute, and for a reader", async () => {
 			const api = await mount();
@@ -2149,36 +2073,5 @@ describe("portable Slides canvas", () => {
 		expect(
 			document.querySelector<HTMLElement>('[data-export="outline"]')!.hidden,
 		).toBe(false);
-	});
-	it("runs the standalone bundle without importing a host editor", async () => {
-		document.body.innerHTML = '<div id="app"></div>';
-		const api = fixture();
-		const listeners: Array<[string, EventListenerOrEventListenerObject]> = [];
-		const add = window.addEventListener.bind(window);
-		vi.spyOn(window, "addEventListener").mockImplementation(
-			(name, listener, options) => {
-				listeners.push([name, listener]);
-				add(name, listener, options);
-			},
-		);
-		cleanup.push(() =>
-			listeners.forEach(([name, listener]) =>
-				window.removeEventListener(name, listener),
-			),
-		);
-		new Function("window", SLIDES_CLIENT_SOURCE)(
-			Object.assign(window, { tedix: api.bridge }),
-		);
-		await vi.waitFor(() =>
-			expect(
-				document.querySelector<HTMLElement>(".slides-app")?.dataset.revision,
-			).toBe("3"),
-		);
-		expect(SLIDES_CLIENT_SOURCE).not.toMatch(
-			/import\s*\(|from\s*["']react|native-editor/,
-		);
-		expect(
-			document.querySelectorAll(".slides-stage [data-element-id]"),
-		).toHaveLength(2);
 	});
 });

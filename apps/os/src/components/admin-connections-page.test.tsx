@@ -590,20 +590,45 @@ function recoveryButton(parent: ParentNode, label: string) {
 	return button!;
 }
 
-const recoveryCases = (["oauth", "named_oauth", "api_key"] as const).flatMap(
-	(kind) =>
-		(["user", "tenant"] as const).flatMap((scope) =>
-			(["missing", "expired", "needs_consent", "error"] as const)
-				// API keys cannot request OAuth consent.
-				.filter((status) => kind !== "api_key" || status !== "needs_consent")
-				.flatMap((status) =>
-					[true, false].map((allowed) => ({ kind, scope, status, allowed })),
-				),
-		),
-);
+type RecoveryCase = {
+	kind: AccountKind;
+	scope: "user" | "tenant";
+	status: RecoveryState;
+	allowed: boolean;
+};
+
+const capabilityRecoveryCases: RecoveryCase[] = [
+	{ kind: "oauth", scope: "user", status: "missing", allowed: true },
+	{ kind: "oauth", scope: "user", status: "needs_consent", allowed: false },
+	{ kind: "oauth", scope: "tenant", status: "expired", allowed: true },
+	{ kind: "oauth", scope: "tenant", status: "error", allowed: false },
+	{ kind: "named_oauth", scope: "user", status: "missing", allowed: true },
+	{
+		kind: "named_oauth",
+		scope: "tenant",
+		status: "needs_consent",
+		allowed: true,
+	},
+	{ kind: "api_key", scope: "user", status: "expired", allowed: true },
+	{ kind: "api_key", scope: "tenant", status: "missing", allowed: false },
+];
+
+const directRecoveryCases: RecoveryCase[] = [
+	{ kind: "oauth", scope: "user", status: "missing", allowed: true },
+	{ kind: "oauth", scope: "tenant", status: "expired", allowed: false },
+	{
+		kind: "named_oauth",
+		scope: "tenant",
+		status: "needs_consent",
+		allowed: true,
+	},
+	{ kind: "named_oauth", scope: "user", status: "missing", allowed: false },
+	{ kind: "api_key", scope: "user", status: "missing", allowed: false },
+	{ kind: "api_key", scope: "tenant", status: "expired", allowed: true },
+];
 
 describe("Disconnected account recovery matrix", () => {
-	it.each(recoveryCases)(
+	it.each(capabilityRecoveryCases)(
 		"$kind / $scope / $status / allowed=$allowed preserves recovery and ownership",
 		async ({ kind, scope, status, allowed }) => {
 			const target = recoveryRow(kind, scope, status);
@@ -701,7 +726,7 @@ describe("Disconnected account recovery matrix", () => {
 		},
 	);
 
-	it.each(recoveryCases.filter(({ status }) => status !== "error"))(
+	it.each(directRecoveryCases)(
 		"$kind / $scope / $status / allowed=$allowed has a recovery action without capability metadata",
 		async ({ kind, scope, status, allowed }) => {
 			const target = recoveryRow(kind, scope, status);

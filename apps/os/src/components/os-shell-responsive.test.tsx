@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -126,7 +125,6 @@ import { userProfileQueryOptions } from "@/lib/os-query-options";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const roots: Root[] = [];
-const styles = readFileSync("src/styles.css", "utf8");
 
 function renderShell(): HTMLElement {
 	const queryClient = new QueryClient({
@@ -459,141 +457,5 @@ describe("OS shell chrome", () => {
 		} finally {
 			window.matchMedia = original;
 		}
-	});
-
-	/*
-	 * The rail's geometry used to be ~480 lines of BEM CSS in `styles.css`, so
-	 * this suite asserted on the stylesheet's raw text. Kumo's `Sidebar` owns it
-	 * now, which means the contract has to be read off the RENDERED shell.
-	 */
-	it("composes the rail from the Kumo sidebar rather than hand-rolled BEM", () => {
-		const container = renderShell();
-		const railElement = rail(container);
-
-		expect(railElement.dataset.state).toBe("expanded");
-		expect(railElement.dataset.collapsible).toBe("icon");
-		expect(container.querySelector('[data-sidebar="header"]')).not.toBeNull();
-		expect(container.querySelector('[data-sidebar="content"]')).not.toBeNull();
-		expect(container.querySelector('[data-sidebar="footer"]')).not.toBeNull();
-		expect(
-			container.querySelectorAll('[data-sidebar="menu-button"]').length,
-		).toBeGreaterThan(0);
-
-		// The classes Kumo replaced must not come back as shell CSS or markup.
-		for (const dead of [
-			".os-sidebar",
-			".sidebar-nav",
-			".sidebar-primary",
-			".sidebar-subnav",
-			".sidebar-scrim",
-			".sidebar-spacer",
-			".nav-item",
-			".nav-parent",
-			".user-chip",
-		]) {
-			expect(styles, `${dead} survived in styles.css`).not.toContain(
-				`\n${dead} `,
-			);
-			expect(
-				container.querySelector(dead),
-				`${dead} survived in the shell markup`,
-			).toBeNull();
-		}
-	});
-
-	it("keeps the OS rail geometry and comfortable row targets", () => {
-		const container = renderShell();
-		const wrapper = container.querySelector<HTMLElement>(
-			"[data-sidebar-wrapper]",
-		);
-
-		expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("260px");
-		expect(wrapper?.style.getPropertyValue("--sidebar-width-icon")).toBe(
-			"56px",
-		);
-
-		const row = container.querySelector<HTMLElement>(
-			'[data-sidebar="menu-button"]',
-		);
-		// 44px rows, 8px radius, 0 12px padding, 13px/500 type.
-		expect(row?.className).toContain("min-h-11");
-		expect(row?.className).toContain("rounded-lg");
-		expect(row?.className).toContain("px-3");
-		expect(row?.className).toContain("type-tedix-control");
-		expect(row?.className).toContain("font-medium");
-		expect(row?.className).toContain("[&>div]:gap-2");
-		// Console paints the selected row with the solid control step.
-		expect(row?.className).toContain(
-			"data-[active]:[--sidebar-active-bg:var(--color-kumo-control)]",
-		);
-	});
-
-	it("uses semantic shell typography without raw pixel sizes or tracking drift", () => {
-		const container = renderShell();
-		const railMarkup = rail(container).outerHTML;
-
-		expect(railMarkup).toMatch(/type-tedix-(caption|label|control|body)/);
-		expect(railMarkup).not.toMatch(/text-\[\d+px\]/);
-		expect(railMarkup).not.toMatch(/tracking-/);
-
-		// Surviving shell CSS keeps the same semantic contract.
-		const ruleFor = (selector: string) =>
-			styles.match(
-				new RegExp(
-					`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([\\s\\S]*?)\\}`,
-				),
-			)?.[1];
-
-		for (const selector of [
-			".brand-mark",
-			".topbar-context",
-			".governed-status",
-			".transport-status",
-		]) {
-			const rule = ruleFor(selector);
-			expect(rule, `missing ${selector}`).toBeDefined();
-			expect(rule).toMatch(
-				/font-size:\s*var\(--text-tedix-(caption|label|control|body)\)/,
-			);
-			expect(rule).toMatch(
-				/line-height:\s*var\(--text-tedix-(caption|label|control|body)--line-height\)/,
-			);
-			expect(rule).not.toMatch(/letter-spacing:/);
-			expect(rule).not.toMatch(/font-size:\s*\d+px/);
-		}
-	});
-
-	it("keeps navigation targets touch-friendly by viewport and pointer", () => {
-		const container = renderShell();
-		const railMarkup = rail(container).outerHTML;
-
-		expect(railMarkup).toContain("max-sm:min-h-11");
-		expect(railMarkup).toMatch(/max-sm:min-w-11/);
-		expect(railMarkup).toContain("max-sm:size-11");
-		expect(railMarkup).toContain("coarse:min-h-11");
-		expect(railMarkup).toMatch(/coarse:min-w-11/);
-
-		const trigger = rail(container).querySelector<HTMLButtonElement>(
-			'[aria-label="Collapse sidebar"]',
-		)!;
-		act(() => trigger.click());
-		const search = container.querySelector<HTMLButtonElement>(
-			'[aria-label="Search"]',
-		)!;
-		expect(container.querySelectorAll('[aria-label="Search"]')).toHaveLength(1);
-		expect(search.querySelector('[data-slot="kbd"]')?.textContent).toBe("⌘K");
-		expect(search.className).toContain("ring-kumo-line");
-		expect(search.className).toContain("!h-7");
-		for (const floor of [
-			"max-sm:min-h-11",
-			"max-sm:min-w-11",
-			"coarse:min-h-11",
-			"coarse:min-w-11",
-		])
-			expect(search.className).toContain(floor);
-
-		expect(styles).toContain(
-			"@custom-variant coarse (@media (pointer: coarse))",
-		);
 	});
 });

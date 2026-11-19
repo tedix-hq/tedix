@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
@@ -50,6 +50,7 @@ function fixture(productionLikeStatistics: boolean) {
 		);
 	}
 	if (productionLikeStatistics) sqlite.exec("ANALYZE");
+	sqlite.exec("PRAGMA query_only = ON");
 	const queries: string[] = [];
 	const db = createDbClient(
 		createD1Facade(sqlite, {
@@ -104,6 +105,11 @@ function expected(sqlite: DatabaseSync, options: ListCatalogAppsOptions) {
 const FINANCE = { category: "FINANCE", hideShadowedVariants: true } as const;
 
 describe("filtered public catalog pages", () => {
+	let catalog: ReturnType<typeof fixture>;
+	beforeAll(() => {
+		catalog = fixture(true);
+	});
+
 	it.each<[string, ListCatalogAppsOptions]>([
 		["with store variants", { category: "FINANCE", limit: 6 }],
 		["descending", { ...FINANCE, limit: 24, sortDir: "desc" }],
@@ -131,7 +137,7 @@ describe("filtered public catalog pages", () => {
 			{ ...FINANCE, sortBy: "sourceCreatedAt", limit: 24, offset: 24 },
 		],
 	])("returns the same apps and total for %s", async (_name, options) => {
-		const { sqlite, db } = fixture(true);
+		const { sqlite, db } = catalog;
 		const result = await listCatalogApps(db, options);
 		const reference = expected(sqlite, options);
 		expect(result.total).toBe(reference.total);
@@ -150,8 +156,16 @@ describe.each([
 	{ statistics: "no statistics", productionLike: false },
 	{ statistics: "collected statistics", productionLike: true },
 ])("catalog query plans with $statistics", ({ productionLike }) => {
+	let catalog: ReturnType<typeof fixture>;
+	beforeAll(() => {
+		catalog = fixture(productionLike);
+	});
+	beforeEach(() => {
+		catalog.queries.length = 0;
+	});
+
 	it("counts a category through its own index and walks names for the page", async () => {
-		const { sqlite, db, queries } = fixture(productionLike);
+		const { sqlite, db, queries } = catalog;
 		for (const [options, nameIndex] of [
 			[{ ...FINANCE, limit: 6 }, "app_catalog_explore_name_idx"],
 			[
@@ -183,7 +197,7 @@ describe.each([
 	});
 
 	it("reads only the category for a page near its end or of a small category", async () => {
-		const { sqlite, db, queries } = fixture(productionLike);
+		const { sqlite, db, queries } = catalog;
 		for (const options of [
 			{ category: "DESIGN", limit: 6 },
 			{ ...FINANCE, limit: 50, offset: 1_150 },
@@ -204,7 +218,7 @@ describe.each([
 	});
 
 	it("reads only one health status for a page filtered by it", async () => {
-		const { sqlite, db, queries } = fixture(productionLike);
+		const { sqlite, db, queries } = catalog;
 		await listCatalogApps(db, {
 			healthStatus: "healthy",
 			hideShadowedVariants: true,
@@ -219,7 +233,7 @@ describe.each([
 	});
 
 	it("does not read a page that has no apps", async () => {
-		const { db, queries } = fixture(productionLike);
+		const { db, queries } = catalog;
 		expect(await listCatalogApps(db, { category: "FOOD", limit: 6 })).toEqual({
 			apps: [],
 			total: 0,
@@ -232,7 +246,7 @@ describe.each([
 	});
 
 	it("leaves search and operator lists to the planner", async () => {
-		const { db, queries } = fixture(productionLike);
+		const { db, queries } = catalog;
 		await listCatalogApps(db, { category: "FINANCE", search: "app 000" });
 		await listCatalogApps(db, { category: "FINANCE", includeAll: true });
 		await listCatalogApps(db, {

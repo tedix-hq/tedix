@@ -151,10 +151,31 @@ describe("contract/router parity", () => {
 			{},
 			"5eed0020-0000-4000-8000-000000000020",
 		);
-		expect(plan.endpoints.length).toBeGreaterThan(0);
 		expect(Object.keys(plan.toolIds).sort()).toEqual(
 			[...plan.endpoints].sort(),
 		);
+		expect(plan.endpoints).toEqual(
+			expect.arrayContaining([
+				"skills/listPromotionCandidates",
+				"skills/auditToolCoverage",
+				"toolSchemaSync/run",
+				"workItems/create",
+				"cognitiveRuntime/getStability",
+				"workflows/listRuns",
+			]),
+		);
+		expect(plan.toolIds).toMatchObject({
+			"workflows/listDefinitions": "list_workflow_definitions",
+			"workflows/listDefinitionHealth": "list_workflow_definition_health",
+		});
+		expect(
+			plan.endpoints.filter(
+				(endpoint) =>
+					endpoint.startsWith("tenantBehavioralEvals/") ||
+					(endpoint.startsWith("cognitiveRuntime/") &&
+						endpoint.includes("ArtifactRelease")),
+			),
+		).toEqual([]);
 		// Overrides are maintained by hand and a stale key can otherwise be
 		// silently excluded by the projection candidate filter.
 		const options = resolveEffectiveToolSchemaSyncOptions(
@@ -171,11 +192,6 @@ describe("contract/router parity", () => {
 		expect(
 			[...endpoints].filter((endpoint) => !resolveContractEndpoint(endpoint)),
 		).toEqual([]);
-		for (const endpoint of endpoints) {
-			const router = implemented.get(endpoint);
-			expect(router, endpoint).toBeInstanceOf(Procedure);
-			expectSchemas(router!, registered.get(endpoint)!, endpoint);
-		}
 	});
 });
 

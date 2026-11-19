@@ -1,5 +1,4 @@
 import { DatabaseSync } from "node:sqlite";
-import { readdirSync, readFileSync } from "node:fs";
 import { expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import {
@@ -10,6 +9,7 @@ import {
 import { organizationMembers } from "../../schema/organization-members";
 import { tedis } from "../../schema/tedis";
 import { createD1Facade } from "../../test/d1-facade";
+import { deployedWorkInteractionGuards } from "../../test/work-interaction-guards";
 import { canonicalWorkFactoryDdl, schemaDdl } from "../../test/schema-ddl";
 import {
 	retireStaleLaneDelegationRequests,
@@ -17,36 +17,6 @@ import {
 } from "./lane-delegation-requests";
 
 const NOW = "2026-11-06T12:00:00.000Z";
-
-/** The deployed update guards on work_interactions, latest definition each. */
-function armGuards(sqlite: DatabaseSync) {
-	const migrations = new URL("../../../drizzle/", import.meta.url);
-	const guards = new Map<string, string>();
-	for (const name of readdirSync(migrations).sort()) {
-		if (!/^\d+_/.test(name)) continue;
-		const text = readFileSync(
-			new URL(`${name}/migration.sql`, migrations),
-			"utf8",
-		);
-		for (const statement of text.split("--> statement-breakpoint")) {
-			const drop = statement.match(
-				/DROP TRIGGER(?: IF EXISTS)?\s+[`"]?([\w]+)[`"]?/i,
-			);
-			if (drop) guards.delete(drop[1]!);
-			const create = statement.match(
-				/CREATE TRIGGER\s+[`"]?([\w]+)[`"]?[\s\S]*?\bEND;/i,
-			);
-			if (
-				create &&
-				/BEFORE UPDATE ON\s+[`"]?work_interactions[`"]?(?:\s|$)/i.test(
-					create[0],
-				)
-			)
-				guards.set(create[1]!, create[0]);
-		}
-	}
-	for (const guard of guards.values()) sqlite.exec(guard);
-}
 
 function fixture(answered = false) {
 	const sqlite = new DatabaseSync(":memory:");
@@ -158,7 +128,8 @@ function fixture(answered = false) {
 		sqlite.exec(
 			"UPDATE work_interactions SET status='resolved', resolved_at='2026-11-06T11:30:00.000Z' WHERE id='current'",
 		);
-	armGuards(sqlite);
+	for (const guard of deployedWorkInteractionGuards("update"))
+		sqlite.exec(guard);
 	const status = (id: string) =>
 		(
 			sqlite

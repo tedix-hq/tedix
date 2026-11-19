@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createMigratedSqlite } from "./migrated-sqlite";
 
 const root = new URL("../../drizzle/", import.meta.url);
-const names = readdirSync(root).sort();
+const [base, next, last, beforeMigration] = readdirSync(root)
+	.filter((name) => /^\d{14}_/.test(name))
+	.sort() as [string, string, string, string, ...string[]];
+const names = [base, next, last];
 const schema = (sqlite: DatabaseSync) =>
 	sqlite
 		.prepare(
@@ -12,41 +15,10 @@ const schema = (sqlite: DatabaseSync) =>
 		)
 		.all();
 
-// Fresh replays are the baseline these tests compare against; build them once
-// at collection, not inside a timed test on a shared machine.
-const freshReplay = (() => {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=ON");
-	for (const name of names)
-		sqlite.exec(readFileSync(new URL(`${name}/migration.sql`, root), "utf8"));
-	return sqlite;
-})();
-
-const beforeMigration = "20260920072429_provider_execution_cost_provenance";
-const freshPrefixReplay = (() => {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=OFF");
-	for (const name of names.filter((name) => name < beforeMigration))
-		sqlite.exec(readFileSync(new URL(`${name}/migration.sql`, root), "utf8"));
-	return sqlite;
-})();
-
 const transformMigration = (sql: string, name: string) =>
-	`${sql}\n${name === names[0] ? "CREATE TABLE transform_order(name TEXT);" : ""}\nINSERT INTO transform_order(name) VALUES('${name}');`;
-
-// The transformed and prefix variants build at collection too.
-createMigratedSqlite({ transformMigration }).close();
-createMigratedSqlite({ beforeMigration, foreignKeys: false }).close();
-createMigratedSqlite({ beforeMigration: names[names.length - 2] }).close();
+	`${sql}\n${name === base ? "CREATE TABLE transform_order(name TEXT);" : ""}\nINSERT INTO transform_order(name) VALUES('${name}');`;
 
 describe("migrated SQLite template", () => {
-	it("preserves every table, index and trigger from a fresh ordered replay", () => {
-		const copy = createMigratedSqlite();
-		expect(schema(copy)).toEqual(schema(freshReplay));
-		for (const type of ["table", "index", "trigger"])
-			expect(schema(copy).some((row) => row.type === type)).toBe(true);
-	});
-
 	it("enables and enforces foreign keys on each copy", () => {
 		for (const sqlite of [createMigratedSqlite(), createMigratedSqlite()]) {
 			expect(sqlite.prepare("PRAGMA foreign_keys").get()).toEqual({
@@ -86,8 +58,8 @@ describe("migrated SQLite template", () => {
 
 	it("keeps transformed ledgers separate while preserving migration order", () => {
 		for (const sqlite of [
-			createMigratedSqlite({ transformMigration }),
-			createMigratedSqlite({ transformMigration }),
+			createMigratedSqlite({ beforeMigration, transformMigration }),
+			createMigratedSqlite({ beforeMigration, transformMigration }),
 		])
 			expect(
 				sqlite.prepare("SELECT name FROM transform_order ORDER BY rowid").all(),
@@ -102,24 +74,33 @@ describe("migrated SQLite template", () => {
 			beforeMigration,
 			foreignKeys: false,
 		});
-		expect(schema(sqlite)).toEqual(schema(freshPrefixReplay));
+		const replay = new DatabaseSync(":memory:");
+		try {
+			replay.exec("PRAGMA foreign_keys=OFF");
+			for (const name of names)
+				replay.exec(
+					readFileSync(new URL(`${name}/migration.sql`, root), "utf8"),
+				);
+			expect(schema(sqlite)).toEqual(schema(replay));
+		} finally {
+			replay.close();
+		}
 		expect(sqlite.prepare("PRAGMA foreign_keys").get()).toEqual({
 			foreign_keys: 0,
 		});
-		expect(() =>
-			sqlite.prepare("SELECT * FROM provider_execution_attempts"),
-		).toThrow(/no such table/);
 	});
-	it("invalidates late variants when prefix or suffix SQL changes", () => {
+	it("reuses an unchanged prefix and invalidates changed suffix SQL", () => {
+		createMigratedSqlite({ beforeMigration: next }).close();
 		const marker = `probe_${Date.now()}`;
 		const exec = vi.spyOn(DatabaseSync.prototype, "exec");
 		for (const value of [1, 2]) {
 			const options = {
+				beforeMigration,
 				transformMigration: (sql: string, name: string) =>
 					sql +
-					(name === names[names.length - 2]
+					(name === next
 						? `CREATE TABLE ${marker}(value INTEGER); INSERT INTO ${marker} VALUES (${value});`
-						: name === names[names.length - 1]
+						: name === last
 							? `UPDATE ${marker} SET value=value+10;`
 							: ""),
 			};

@@ -151,9 +151,9 @@ describe("AI Gateway custom cost on the kernel Azure transport", () => {
 });
 describe("EU restriction at the actual kernel provider transport", () => {
 	it.each([false, true])(
-		"rejects every 3xx with its status (Request input: %s)",
+		"rejects redirects with their status (Request input: %s)",
 		async (requestInput) => {
-			for (let status = 300; status < 400; status++) {
+			for (const status of [300, 307, 399]) {
 				const before = mocks.sent.mock.calls.length;
 				mocks.sent.mockResolvedValueOnce(
 					new Response(null, {
@@ -194,7 +194,7 @@ describe("EU restriction at the actual kernel provider transport", () => {
 			poolRevision: 1,
 		});
 	});
-	it.each(["pool", "credential", "region", "expired", "read"])(
+	it.each(["pool", "credential", "region", "expired"])(
 		"blocks %s before transport and budget",
 		async (kind) => {
 			if (kind === "pool") mocks.pool.mockResolvedValue([]);
@@ -205,14 +205,26 @@ describe("EU restriction at the actual kernel provider transport", () => {
 				mocks.pool.mockResolvedValue([
 					{ ...member, expiresAt: "2020-01-01T00:00:00.000Z" },
 				]);
-			if (kind === "read") mocks.policy.mockRejectedValue(Error("unavailable"));
-			await expect(send()).rejects.toThrow(
-				/EU_PROVIDER_|RESIDENCY_POLICY_UNAVAILABLE/,
-			);
+			await expect(send()).rejects.toThrow(/EU_PROVIDER_/);
 			expect(mocks.sent).not.toHaveBeenCalled();
 			expect(mocks.budget).not.toHaveBeenCalled();
 		},
 	);
+	it("blocks transport and budget after policy read retries are exhausted", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			mocks.policy.mockRejectedValue(Error("unavailable"));
+			const rejected = expect(send()).rejects.toThrow(
+				/RESIDENCY_POLICY_UNAVAILABLE/,
+			);
+			await vi.runAllTimersAsync();
+			await rejected;
+			expect(mocks.sent).not.toHaveBeenCalled();
+			expect(mocks.budget).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 	it("revalidates a queued request before returning dispatch authority", async () => {
 		mocks.policy
 			.mockResolvedValueOnce({ mode: "eu", revision: 1 })

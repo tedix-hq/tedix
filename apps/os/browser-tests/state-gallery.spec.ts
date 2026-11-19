@@ -1,36 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { createServer } from "node:net";
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { chromium, type Browser, type Page } from "playwright";
+import { startFixtureServer } from "./fixture-server";
 
-const cwd = new URL("../", import.meta.url).pathname;
-const screenshots =
-	process.env.STATE_GALLERY_SCREENSHOTS ?? "/tmp/ui-state-gallery-screenshots";
-const probe = createServer();
-await new Promise<void>((resolve, reject) => {
-	probe.once("error", reject);
-	probe.listen(0, "127.0.0.1", resolve);
-});
-const address = probe.address();
-assert(address && typeof address !== "string");
-const port = String(address.port);
-await new Promise<void>((resolve, reject) =>
-	probe.close((error) => (error ? reject(error) : resolve())),
-);
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-);
+const screenshots = process.env.STATE_GALLERY_SCREENSHOTS;
+const path = "/browser-tests/state-gallery.html";
+const server = await startFixtureServer(path);
 
 // Runs in the page, on real computed CSS, including inherited and translucent colors.
 async function audit(page: Page) {
@@ -160,10 +135,7 @@ async function audit(page: Page) {
 
 let browser: Browser | undefined;
 try {
-	await waitForFixtureServer(`${origin}/browser-tests/state-gallery.html`, {
-		server,
-	});
-	await mkdir(screenshots, { recursive: true });
+	if (screenshots) await mkdir(screenshots, { recursive: true });
 	browser = await chromium.launch({ headless: true });
 	for (const [width, theme] of [
 		[390, "dark"],
@@ -180,9 +152,7 @@ try {
 		await page.clock.pauseAt(new Date("2026-01-15T09:00:00Z"));
 		const errors: string[] = [];
 		page.on("pageerror", (error) => errors.push(error.message));
-		await page.goto(
-			`${origin}/browser-tests/state-gallery.html?theme=${theme}`,
-		);
+		await page.goto(`${server.origin}${path}?theme=${theme}`);
 		await page.locator("[data-state-frame]").last().waitFor();
 		await page.addStyleTag({
 			content:
@@ -224,79 +194,72 @@ try {
 			`${width}/${theme} contrast offenders`,
 		);
 		assert.deepEqual(errors, [], "Gallery renders without runtime errors");
-		const screenshot = await page.screenshot({
-			path: `${screenshots}/state-gallery-${width}-${theme}.png`,
-			fullPage: true,
-			animations: "disabled",
-		});
+		if (screenshots)
+			await page.screenshot({
+				path: `${screenshots}/state-gallery-${width}-${theme}.png`,
+				fullPage: true,
+				animations: "disabled",
+			});
 
-		await page.reload();
-		await page.locator("#chat-partial").waitFor();
-		await page.addStyleTag({
-			content:
-				"*, *::before, *::after { transition: none !important; animation: none !important; }",
-		});
-		await page.evaluate(() => document.fonts.ready);
-		assert(
-			(
-				await page.screenshot({ fullPage: true, animations: "disabled" })
-			).equals(screenshot),
-			"Fixed data and clock reproduce the same screenshot after reload",
-		);
+		if (theme === "dark") {
+			// Negative controls prove a blank state and low-contrast text/icon fail the gate.
+			await page
+				.locator("#feed-empty [data-state-content]")
+				.evaluate((el) => ((el as HTMLElement).style.visibility = "hidden"));
 
-		// Negative controls prove a blank state and low-contrast text/icon fail the gate.
-		await page
-			.locator("#feed-empty [data-state-content]")
-			.evaluate((el) => ((el as HTMLElement).style.visibility = "hidden"));
-
-		const hidden = await audit(page);
-		assert(
-			hidden.missingText.some((selector) => selector.startsWith("#feed-empty")),
-			JSON.stringify(hidden),
-		);
-		await page
-			.locator("#feed-empty [data-state-content]")
-			.evaluate((el) => (el as HTMLElement).style.removeProperty("visibility"));
-		const title = page.locator("#team-empty [data-slot=empty-title]");
-		await title.evaluate((el) => {
-			(el as HTMLElement).style.color = "rgb(128,128,128)";
-			(el as HTMLElement).style.backgroundColor = "rgb(128,128,128)";
-		});
-		assert(
-			(await audit(page)).offenders.some(
-				(offender) =>
-					offender.includes("#team-empty") && offender.includes("1.00:1"),
-			),
-		);
-		await title.evaluate((el) => el.removeAttribute("style"));
-		const icon = page.locator("#team-empty svg");
-		await icon.evaluate((el) => {
-			el.style.color = "rgb(128,128,128)";
-			el.style.backgroundColor = "rgb(128,128,128)";
-		});
-		assert(
-			(await audit(page)).offenders.some(
-				(offender) =>
-					offender.includes("svg") && offender.includes("requires 3:1"),
-			),
-		);
-		await icon.evaluate((el) => el.removeAttribute("style"));
-		for (const surface of [
-			"feed",
-			"deck",
-			"connections",
-			"team",
-			"skills",
-			"memory",
-			"chat",
-		]) {
-			const frame = page.locator(`#${surface}-error`);
-			await frame.getByRole("button", { name: "Retry", exact: true }).click();
+			const hidden = await audit(page);
 			assert(
-				await frame
-					.getByText("Retry requested (1)", { exact: true })
-					.isVisible(),
+				hidden.missingText.some((selector) =>
+					selector.startsWith("#feed-empty"),
+				),
+				JSON.stringify(hidden),
 			);
+			await page
+				.locator("#feed-empty [data-state-content]")
+				.evaluate((el) =>
+					(el as HTMLElement).style.removeProperty("visibility"),
+				);
+			const title = page.locator("#team-empty [data-slot=empty-title]");
+			await title.evaluate((el) => {
+				(el as HTMLElement).style.color = "rgb(128,128,128)";
+				(el as HTMLElement).style.backgroundColor = "rgb(128,128,128)";
+			});
+			assert(
+				(await audit(page)).offenders.some(
+					(offender) =>
+						offender.includes("#team-empty") && offender.includes("1.00:1"),
+				),
+			);
+			await title.evaluate((el) => el.removeAttribute("style"));
+			const icon = page.locator("#team-empty svg");
+			await icon.evaluate((el) => {
+				el.style.color = "rgb(128,128,128)";
+				el.style.backgroundColor = "rgb(128,128,128)";
+			});
+			assert(
+				(await audit(page)).offenders.some(
+					(offender) =>
+						offender.includes("svg") && offender.includes("requires 3:1"),
+				),
+			);
+			await icon.evaluate((el) => el.removeAttribute("style"));
+			for (const surface of [
+				"feed",
+				"deck",
+				"connections",
+				"team",
+				"skills",
+				"memory",
+				"chat",
+			]) {
+				const frame = page.locator(`#${surface}-error`);
+				await frame.getByRole("button", { name: "Retry", exact: true }).click();
+				assert(
+					await frame
+						.getByText("Retry requested (1)", { exact: true })
+						.isVisible(),
+				);
+			}
 		}
 		await page.close();
 		console.log(
@@ -305,10 +268,5 @@ try {
 	}
 } finally {
 	await browser?.close();
-	try {
-		process.kill(-server.pid, "SIGTERM");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-	}
-	await server.exited;
+	await server.stop();
 }
