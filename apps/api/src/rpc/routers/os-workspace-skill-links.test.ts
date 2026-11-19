@@ -27,13 +27,6 @@ import {
 	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
-import {
-	osWorkspaceAccessEdges,
-	osWorkspaceCollaborators,
-	osWorkspaceEvents,
-	osWorkspaceShareKeys,
-	osWorkspaceShareLinks,
-} from "@tedix/db/schema/os-collaborators";
 import { projects } from "@tedix/db/schema/projects";
 import { tedis } from "@tedix/db/schema/tedis";
 import { userConfigs } from "@tedix/db/schema/user-configs";
@@ -69,11 +62,6 @@ function createEnv() {
 			osWorkspaces,
 			osWorkspaceResources,
 			osWorkspaceProjects,
-			osWorkspaceCollaborators,
-			osWorkspaceAccessEdges,
-			osWorkspaceShareLinks,
-			osWorkspaceShareKeys,
-			osWorkspaceEvents,
 			osOutputs,
 			osOutputRevisions,
 			projects,

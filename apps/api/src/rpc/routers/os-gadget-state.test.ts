@@ -14,13 +14,6 @@ import {
 	osGadgetExecutions,
 } from "@tedix/db/schema/os-workspaces";
 import { skillRuns } from "@tedix/db/schema/cognitive";
-import { organizationMembers } from "@tedix/db/schema/organization-members";
-import {
-	osWorkspaceAccessEdges,
-	osWorkspaceCollaborators,
-	osWorkspaceShareLinks,
-} from "@tedix/db/schema/os-collaborators";
-import { tedis } from "@tedix/db/schema/tedis";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 const sources = vi.hoisted(() => vi.fn(async () => true));
@@ -51,19 +44,11 @@ function fixture() {
 			osGadgetRevisions,
 			osGadgetExecutions,
 			skillRuns,
-			tedis,
-			organizationMembers,
-			osWorkspaceCollaborators,
-			osWorkspaceAccessEdges,
-			osWorkspaceShareLinks,
 		),
 	);
 	sqlite.exec(`INSERT INTO os_workspaces(id,organization_id,name,status,created_by_kind,created_by_id,created_at,updated_at) VALUES('${ws}','org','Operations','active','user','operator','2030-01-01','2030-01-01');
  INSERT INTO os_gadgets(id,organization_id,workspace_id,name,status,current_revision_id,created_by_kind,created_by_id,created_at,updated_at) VALUES('${gadget}','org','${ws}','Coordinator','active','${revision}','user','operator','2030-01-01','2030-01-01');
  INSERT INTO os_gadget_revisions(id,organization_id,gadget_id,revision,manifest,created_by_kind,created_by_id,created_at) VALUES('${revision}','org','${gadget}',1,'{"entry":"coordinator","capabilities":["os.gadget.state.read","os.gadget.state.write"]}','user','operator','2030-01-01');
- INSERT INTO organization_members(id,organization_id,descope_user_id,email,role,status) VALUES('member','org','operator','operator@example.test','owner','active');
- INSERT INTO tedis(id,organization_id,name,slug,status,scope) VALUES('tedi','org','Coordinator tedi','coordinator','active','organization');
- INSERT INTO os_workspace_access_edges(id,organization_id,workspace_id,target_user_id,kind,edge_key,sharer_user_id,role,created_at) VALUES('edge','org','${ws}','tedi','tedi','user:operator','operator','build','2030-01-01');
  INSERT INTO skill_runs(id,organization_id,skill_id,tedi_id,workflow_instance_id,runtime_environment,status,execution_epoch) VALUES('${run}','org','skill','tedi','workflow','production','running',0);
  INSERT INTO os_gadget_executions(id,organization_id,workspace_id,gadget_id,revision_id,revision,status,granted_capabilities,policy_decision,run_id,tedi_id,runtime_environment,created_by_kind,created_by_id,resource_access_envelope,execution_epoch,created_at) VALUES('${execution}','org','${ws}','${gadget}','${revision}',1,'running','["os.gadget.state.read","os.gadget.state.write"]','{"allowed":true}','${run}','tedi','production','tedi','tedi','{"version":1,"sources":[]}',0,'2030-01-01');`);
 	const DB = createD1Facade(sqlite);
