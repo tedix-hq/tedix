@@ -177,6 +177,7 @@ import { withTimeout } from "./with-timeout";
 import { createWorkApprovalAiTools as workAiTools } from "./work-approval-tools";
 import { delegatedWorkTools } from "./delegated-work-tools";
 import { agentRunTools } from "./agent-run-tools";
+import { machineTools } from "./machine-tools";
 import { tediRepositoryReadTools } from "./repository-read-tools";
 import {
 	RuntimeAdmissionDO,
@@ -1199,20 +1200,23 @@ export const runtimeFacetTurns = {
 		const computerScope = computerWorkspaceScope(input);
 		// A delegated child works on the task Home gave it. Only a tedi in its
 		// own conversation, or one a person picked in the chat, starts and
-		// steers agent runs.
+		// steers agent runs and reads from the organization's machines.
 		const pickedInChat = supervised && Boolean(input.personChatConversationId);
 		const runTools: ToolSet =
 			supervised && !pickedInChat
 				? {}
-				: agentRunTools({
-						getPlatform: () => this.getPlatformClient(),
-						sessionKey: input.sessionKey,
-						personChatConversationId: pickedInChat
-							? input.personChatConversationId
-							: undefined,
-						conversationId: input.conversationId,
-						runId: input.runId,
-					});
+				: {
+						...agentRunTools({
+							getPlatform: () => this.getPlatformClient(),
+							sessionKey: input.sessionKey,
+							personChatConversationId: pickedInChat
+								? input.personChatConversationId
+								: undefined,
+							conversationId: input.conversationId,
+							runId: input.runId,
+						}),
+						...machineTools({ getPlatform: () => this.getPlatformClient() }),
+					};
 		const repositoryTools = tediRepositoryReadTools(
 			this.env,
 			this.state.tediId,

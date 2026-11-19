@@ -1,4 +1,9 @@
 import type {
+	Machine,
+	MachineToolCall,
+	MachineToolName,
+} from "@tedix/api-contract/schemas/machines";
+import type {
 	RankSkillsInput,
 	RankSkillsOutput,
 } from "@tedix/api-contract/schemas/jev";
@@ -484,6 +489,15 @@ export interface PlatformClient {
 		state?: "live" | "ended" | "all";
 		limit?: number;
 	}): Promise<ListAgentRunsResult>;
+	/** The organization's machines that run agents. */
+	listMachines(): Promise<{ machines: Machine[] }>;
+	/** Queue one read-only tool call for a named machine. */
+	requestMachineToolCall(params: {
+		machine: string;
+		tool: MachineToolName;
+		input: Record<string, string | number>;
+	}): Promise<{ callId: string; status: MachineToolCall["status"] }>;
+	readMachineToolCall(params: { callId: string }): Promise<MachineToolCall>;
 	listWorkApprovalInbox(params?: {
 		proposalId?: string;
 		workItemId?: string;
@@ -1120,6 +1134,24 @@ export class HttpPlatformClient implements PlatformClient {
 		params: { state?: "live" | "ended" | "all"; limit?: number } = {},
 	): Promise<ListAgentRunsResult> {
 		return this.rpc("workItems", "listAgentRuns", params);
+	}
+
+	async listMachines(): Promise<{ machines: Machine[] }> {
+		return this.rpc("machines", "list", {});
+	}
+
+	async requestMachineToolCall(params: {
+		machine: string;
+		tool: MachineToolName;
+		input: Record<string, string | number>;
+	}): Promise<{ callId: string; status: MachineToolCall["status"] }> {
+		return this.rpc("machines", "requestToolCall", params);
+	}
+
+	async readMachineToolCall(params: {
+		callId: string;
+	}): Promise<MachineToolCall> {
+		return this.rpc("machines", "readToolCall", params);
 	}
 
 	async listWorkApprovalInbox(
