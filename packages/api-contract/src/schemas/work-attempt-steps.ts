@@ -150,8 +150,12 @@ export const ListWorkAttemptStepsResultSchema = z.object({
 	live: z
 		.boolean()
 		.describe(
-			"True while the run has no outcome and its lease has not expired. Only a live run takes a follow-up or a stop.",
+			"True while the run has no outcome and its lease has not expired. An ended run can still take an answer to its open question.",
 		),
+	questionOpen: z
+		.boolean()
+		.optional()
+		.describe("Whether the ended run still accepts an answer."),
 	steps: z.array(WorkAttemptStepSchema),
 	messages: z.array(WorkAttemptMessageSchema),
 });
@@ -161,6 +165,10 @@ export type ListWorkAttemptStepsResult = z.infer<
 
 export const SendWorkAttemptMessageInputSchema = z.strictObject({
 	id: z.uuid(),
+	attemptId: z
+		.uuid()
+		.optional()
+		.describe("Refuse if this is no longer the newest run."),
 	body: z
 		.string()
 		.trim()

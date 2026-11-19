@@ -1,3 +1,4 @@
+import { WorkAttemptStepSchema } from "@tedix/api-contract/schemas/work-attempt-steps";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type {
 	RepositoryCandidateDescriptor,
@@ -18,6 +19,7 @@ import {
 	type WorkAttemptOutcome,
 	type WorkAttemptRuntimeState,
 	type WorkItem,
+	workAttemptSteps,
 	workAttempts,
 	workEvents,
 	workItems,
@@ -1267,11 +1269,55 @@ export async function settleWorkItemAttempt(
 					sql`EXISTS (SELECT 1 FROM work_attempts AS settlement_winner WHERE settlement_winner.id=${params.attemptId} AND settlement_winner.admission_id=${workBudgetReservations.admissionId} AND settlement_winner.org_id=${workBudgetReservations.orgId} AND settlement_winner.work_item_id=${workBudgetReservations.workItemId} AND settlement_winner.version=${prior.version + 1} AND settlement_winner.runtime_state=${runtimeState})`,
 				),
 			);
+		// The step report tells the watching chat promptly. Settlement also
+		// stores the question, so a missed report cannot leave a parked run
+		// with no way to answer.
+		const question = WorkAttemptStepSchema.safeParse(
+			settlementMetadata.runQuestion,
+		).data;
+		const persistQuestion =
+			params.outcome === "cancelled" && question?.kind === "question"
+				? db
+						.insert(workAttemptSteps)
+						.select(
+							db
+								.select({
+									id: sql<string>`${crypto.randomUUID()}`.as("step_id"),
+									orgId: workAttempts.orgId,
+									workItemId: workAttempts.workItemId,
+									attemptId: workAttempts.id,
+									seq: sql<number>`${question.seq}`.as("step_seq"),
+									at: sql<number>`${question.at}`.as("step_at"),
+									kind: sql<"question">`'question'`.as("step_kind"),
+									text: sql<string>`${question.text}`.as("step_text"),
+									choices: sql<
+										string[] | null
+									>`${question.choices ? JSON.stringify(question.choices) : null}`.as(
+										"step_choices",
+									),
+								})
+								.from(workAttempts)
+								.where(
+									and(
+										eq(workAttempts.id, params.attemptId),
+										eq(workAttempts.orgId, params.orgId),
+										eq(workAttempts.workItemId, params.workItemId),
+										eq(workAttempts.version, prior.version + 1),
+										eq(workAttempts.finishedAt, settledAt),
+										eq(workAttempts.outcome, "cancelled"),
+									),
+								),
+						)
+						.onConflictDoNothing({
+							target: [workAttemptSteps.attemptId, workAttemptSteps.seq],
+						})
+				: undefined;
 		const [settledRows] = await db.batch([
 			settleMutation,
 			releaseResources,
 			consumeBudgets,
 			settleEvent,
+			...(persistQuestion ? [persistQuestion] : []),
 			...(handoff && work
 				? laneHandoffStatements(db, {
 						work,

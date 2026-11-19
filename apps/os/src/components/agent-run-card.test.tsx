@@ -111,9 +111,9 @@ describe("AgentRunCardView", () => {
 		failed.unmount();
 	});
 
-	it("shows a question the run is waiting on and sends the person's answer", async () => {
+	it("sends an answer from the chat card after the run ends", async () => {
 		const onAnswer = vi.fn(async (_answer: string) => ({}));
-		const asking = run(2);
+		const asking = { ...run(2), live: false };
 		asking.steps.push({
 			seq: 2,
 			at: START + 5_000,

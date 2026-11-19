@@ -1,11 +1,17 @@
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
+import { settleWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
 import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
 import {
+	workBudgetReservations,
+	workResourceReservations,
+} from "@tedix/db/schema/work-factory";
+import {
 	workAttemptMessages,
 	workAttemptSteps,
+	workEvents,
 } from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -38,6 +44,9 @@ function fixture() {
 				tedis,
 				workAttemptSteps,
 				workAttemptMessages,
+				workResourceReservations,
+				workBudgetReservations,
+				workEvents,
 				gatewayChangeRecords,
 			),
 	);
@@ -315,8 +324,51 @@ describe("run log and steering", () => {
 		])
 			await expect(attemptCall).rejects.toMatchObject({
 				code: "CONFLICT",
-				message: "No run is in progress",
 			});
+	});
+
+	it("accepts one answer for the newest ended question from the owner", async () => {
+		const { person } = fixture();
+		const owner = person("owner-subject");
+		const question = {
+			seq: 0,
+			at: Date.now(),
+			kind: "question",
+			text: "Which table?",
+		};
+		// The final question must survive even when the runner's step report was lost.
+		await settleWorkItemAttempt(owner.db, {
+			orgId: org,
+			workItemId: work,
+			attemptId: attempt,
+			executor: { type: "tedi", id: "runner" },
+			outcome: "cancelled",
+			metadata: { dispatchVersion: 1, runQuestion: question },
+		});
+		const read = () =>
+			call(listAttemptStepsProcedure, owner, { id: work, limit: 200 });
+		await expect(read()).resolves.toMatchObject({
+			live: false,
+			questionOpen: true,
+			steps: [question],
+		});
+		const answer = { id: work, attemptId: attempt, body: "Plans" };
+		await expect(
+			call(sendAttemptMessageProcedure, person("member-subject"), answer),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		const message = await call(
+			sendAttemptMessageProcedure,
+			person("owner-subject"),
+			answer,
+		);
+		await expect(read()).resolves.toMatchObject({
+			live: false,
+			questionOpen: false,
+			messages: [message],
+		});
+		await expect(
+			call(sendAttemptMessageProcedure, person("owner-subject"), answer),
+		).rejects.toMatchObject({ code: "CONFLICT" });
 	});
 
 	it("keeps another organization out of the log and the controls", async () => {

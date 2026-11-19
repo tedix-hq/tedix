@@ -254,13 +254,12 @@ export function createRunStepLog(options: {
 		}));
 	return {
 		add(kind: LaneStep["kind"], text: string, choices?: string[]) {
-			if (unavailable) return;
 			const bounded = stepText(text);
 			if (!bounded) return;
 			const offered = (choices ?? [])
 				.map((choice) => stepText(choice, 100))
 				.filter(Boolean);
-			buffer.push({
+			const step = {
 				seq: seq++,
 				at: Date.now(),
 				kind,
@@ -268,9 +267,13 @@ export function createRunStepLog(options: {
 				...(kind === "question" && offered.length >= 2
 					? { choices: offered.slice(0, 5) }
 					: {}),
-			});
-			if (buffer.length > STEP_BUFFER) buffer.shift();
-			options.onSeq?.(seq);
+			};
+			if (!unavailable) {
+				buffer.push(step);
+				if (buffer.length > STEP_BUFFER) buffer.shift();
+				options.onSeq?.(seq);
+			}
+			return step;
 		},
 		applied(ids: string[]) {
 			if (!unavailable) applied.push(...ids);

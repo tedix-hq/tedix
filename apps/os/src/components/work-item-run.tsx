@@ -92,20 +92,18 @@ export function workRunEntries(
 	return entries.sort((a, b) => a.at - b.at);
 }
 
-/**
- * The question a run in progress is waiting on: its newest step, as long as
- * nobody has sent the run anything since.
- */
+/** The last question stays open until someone answers or stops the run. */
 export function workRunOpenQuestion(
 	run:
-		| Pick<ListWorkAttemptStepsResult, "live" | "steps" | "messages">
+		| Pick<ListWorkAttemptStepsResult, "steps" | "messages" | "questionOpen">
 		| undefined,
 ): WorkAttemptStep | undefined {
-	const last = run?.live ? run.steps.at(-1) : undefined;
-	if (last?.kind !== "question") return;
-	return run!.messages.some(
+	const last = run?.steps.at(-1);
+	if (!run || last?.kind !== "question" || run.questionOpen === false) return;
+	if (run.questionOpen) return last;
+	return run.messages.some(
 		(message) =>
-			message.kind === "follow_up" && Date.parse(message.createdAt) > last.at,
+			message.kind === "stop" || Date.parse(message.createdAt) >= last.at,
 	)
 		? undefined
 		: last;
@@ -396,7 +394,11 @@ export function useWorkItemRun(itemId: string) {
 	const run = useQuery({
 		...options,
 		refetchInterval: (query) =>
-			query.state.data?.live ? RUN_REFRESH_MS : false,
+			query.state.data?.live ||
+			query.state.data?.questionOpen ||
+			query.state.data?.steps.at(-1)?.kind === "question"
+				? RUN_REFRESH_MS
+				: false,
 	});
 	const attempts = useQuery(workItemAttemptsQueryOptions(itemId));
 	// Already loaded by the shell; this adds a reader, not a request.
@@ -407,17 +409,22 @@ export function useWorkItemRun(itemId: string) {
 	const refreshRun = () =>
 		client.invalidateQueries({ queryKey: options.queryKey });
 	const send = useMutation({
-		mutationFn: (followUp: { body: string; interrupt?: boolean }) =>
+		mutationFn: (followUp: {
+			body: string;
+			interrupt?: boolean;
+			attemptId?: string;
+		}) =>
 			osApi.workItems.sendAttemptMessage({
 				id: itemId,
 				body: followUp.body,
+				...(followUp.attemptId ? { attemptId: followUp.attemptId } : {}),
 				...(followUp.interrupt ? { interrupt: true } : {}),
 			}),
 		onSuccess: (message) => {
 			setOwnMessageIds((ids) => new Set(ids).add(message.id));
 			return refreshRun();
 		},
-		// A refusal because the run just ended should also end the composer.
+		// Refresh if another answer won or a newer run took over.
 		onError: refreshRun,
 	});
 	const stop = useMutation({

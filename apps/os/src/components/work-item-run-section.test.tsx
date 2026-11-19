@@ -196,9 +196,10 @@ describe("a question the run is waiting on", () => {
 	};
 	const asking = run({ steps: [...run().steps, question] });
 
-	it("is open only while it is the newest step of a live run and nothing was sent since", () => {
+	it("is open after the run ends until someone answers", () => {
 		expect(workRunOpenQuestion(asking)).toEqual(question);
-		expect(workRunOpenQuestion({ ...asking, live: false })).toBeUndefined();
+		const ended = { ...asking, live: false };
+		expect(workRunOpenQuestion(ended)).toEqual(question);
 		expect(
 			workRunOpenQuestion({
 				...asking,
@@ -221,7 +222,7 @@ describe("a question the run is waiting on", () => {
 		).toBeUndefined();
 	});
 
-	it("sends an offered answer as an ordinary follow-up", async () => {
+	it("sends an offered answer after the run ends", async () => {
 		const onSend =
 			vi.fn<(body: string, interrupt?: boolean) => Promise<unknown>>();
 		onSend.mockResolvedValue({});
@@ -230,7 +231,9 @@ describe("a question the run is waiting on", () => {
 		const root = createRoot(host);
 		try {
 			await act(async () =>
-				root.render(<WorkItemRunView run={asking} onSend={onSend} />),
+				root.render(
+					<WorkItemRunView run={{ ...asking, live: false }} onSend={onSend} />,
+				),
 			);
 			const group = host.querySelector('[data-slot="run-question"]')!;
 			expect(group.textContent).toContain("Which table holds the plan?");

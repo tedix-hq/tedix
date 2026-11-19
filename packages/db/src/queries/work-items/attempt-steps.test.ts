@@ -320,6 +320,58 @@ describe("run steps and steering messages", () => {
 		},
 	);
 
+	it("delivers a cancelled run's answer only when its native session resumes", async () => {
+		const { db, sqlite } = await fixture();
+		const question = { ...step(0, "Which table?"), kind: "question" as const };
+		await appendWorkAttemptSteps(db, { ...runner, steps: [question] });
+		sqlite.exec(`UPDATE work_attempts SET runtime_state='finished', outcome='cancelled',
+			finished_at='${during}', metadata='${JSON.stringify({ dispatchVersion: 1, runQuestion: question })}'`);
+		const answer = await sendWorkAttemptMessage(db, {
+			orgId: runner.orgId,
+			workItemId: runner.workItemId,
+			attemptId: runner.attemptId,
+			kind: "follow_up",
+			body: "Plans",
+			sender: owner,
+			at: during,
+		});
+		expect(answer).toMatchObject({
+			attemptId: runner.attemptId,
+			body: "Plans",
+		});
+		await db.insert(workAttempts).values({
+			id: "next",
+			orgId: runner.orgId,
+			workItemId: runner.workItemId,
+			executorType: "external_agent",
+			executorId: "agent",
+			executorSessionId: "other",
+			externalSessionKey: "codex:other",
+			runtimeState: "running",
+			attemptNumber: 2,
+			startedAt: during,
+			heartbeatAt: during,
+			expiresAt: expiry,
+		});
+		const next = { ...runner, attemptId: "next", steps: [] };
+		await expect(
+			appendWorkAttemptSteps(db, {
+				...next,
+				sessionId: "other",
+				externalSessionKey: "codex:other",
+			}),
+		).resolves.toMatchObject({ pending: [] });
+		sqlite.exec(
+			"UPDATE work_attempts SET executor_session_id='session', external_session_key='codex:session' WHERE id='next'",
+		);
+		await expect(appendWorkAttemptSteps(db, next)).resolves.toMatchObject({
+			pending: [{ id: answer!.id, body: "Plans" }],
+		});
+		await expect(
+			appendWorkAttemptSteps(db, { ...next, appliedMessageIds: [answer!.id] }),
+		).resolves.toMatchObject({ pending: [] });
+	});
+
 	it("lists the newest Attempt by default and says whether it is live", async () => {
 		const { db, sqlite } = await fixture();
 		await appendWorkAttemptSteps(db, { ...runner, steps: [step(0, "first")] });
