@@ -54,8 +54,7 @@ const kernelRuntimeApi = vi.hoisted(() => ({
 		>(),
 	steerRun: vi.fn(),
 	readConversationCharges: vi.fn(async () => ({
-		currency: "eur",
-		chargedMicros: 0,
+		credits: 0,
 		chargeCount: 0,
 		runCount: 0,
 	})),

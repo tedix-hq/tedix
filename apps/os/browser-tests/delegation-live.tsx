@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import {
 	type CardRunLinkProps,
@@ -6,6 +7,7 @@ import {
 	delegationFromRun,
 } from "../src/components/chat-cards";
 import { delegationLiveState } from "../src/lib/delegation-activity";
+import { billingOverviewQueryOptions } from "../src/lib/os-query-options";
 import "../src/styles.css";
 
 // The delegation card in its three shapes against the app's real CSS: working
@@ -98,8 +100,7 @@ const finished = {
 		costUsd: 0.0042,
 	},
 	settledCharge: {
-		currency: "eur" as const,
-		chargedMicros: 40_000,
+		credits: 40,
 		chargeCount: 3,
 	},
 };
@@ -127,18 +128,41 @@ function Card({ run, slot }: { run: typeof working; slot: string }) {
 	);
 }
 
+// The finished line shows its charge as a share of this month's credits:
+// 40 of 1,000 is 4%. Nothing is fetched; the monthly total is seeded.
+const client = new QueryClient({
+	defaultOptions: { queries: { enabled: false, retry: false } },
+});
+client.setQueryData(billingOverviewQueryOptions().queryKey, {
+	credits: {
+		includedCredits: 1_000,
+		usedCredits: 400,
+		remainingIncludedCredits: 600,
+		topUpCredits: 0,
+		payAsYouGo: { enabled: false, monthlyCapMicros: null, spentMicros: 0 },
+	},
+} as never);
+
 createRoot(document.getElementById("root")!).render(
-	<main className="mx-auto grid max-w-3xl gap-8 bg-kumo-base px-4 py-6 text-kumo-default">
-		<Card run={working} slot="working" />
-		<Card run={stalled} slot="stalled" />
-		<section data-fixture="finished" aria-label="finished">
-			<ul className="m-0 grid list-none gap-4 p-0">
-				<DelegationSummaryRow
-					work={delegationFromRun(finished)!}
-					tediName="Community Operator"
-					LinkComponent={Link}
-				/>
-			</ul>
-		</section>
-	</main>,
+	<QueryClientProvider client={client}>
+		<Fixtures />
+	</QueryClientProvider>,
 );
+
+function Fixtures() {
+	return (
+		<main className="mx-auto grid max-w-3xl gap-8 bg-kumo-base px-4 py-6 text-kumo-default">
+			<Card run={working} slot="working" />
+			<Card run={stalled} slot="stalled" />
+			<section data-fixture="finished" aria-label="finished">
+				<ul className="m-0 grid list-none gap-4 p-0">
+					<DelegationSummaryRow
+						work={delegationFromRun(finished)!}
+						tediName="Community Operator"
+						LinkComponent={Link}
+					/>
+				</ul>
+			</section>
+		</main>
+	);
+}

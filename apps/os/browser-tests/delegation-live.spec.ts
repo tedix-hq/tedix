@@ -94,10 +94,12 @@ try {
 				);
 			}
 
-			// Finished: one line, duration and cost.
+			// Finished: one line, duration and share of this month's credits.
 			await page
 				.locator('[data-fixture="finished"]')
-				.getByText("Community Operator finished in 8m 03s · €0.04")
+				.getByText(
+					"Community Operator finished in 8m 03s · 4% of this month's credits",
+				)
 				.waitFor();
 
 			await noOverflow(page, width);

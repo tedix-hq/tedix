@@ -57,7 +57,7 @@ import {
 	type DelegationLiveState,
 	type DelegationStep,
 } from "@/lib/delegation-activity";
-import { formatSettledEurMicros } from "@/lib/billing-price";
+import { useCreditShare } from "@/lib/use-credit-share";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { cn } from "@/lib/utils";
 import { OS_COPY } from "@/shared/os-copy";
@@ -1002,11 +1002,12 @@ export function DelegationSummaryRow({
 							: sentenceCase(work.status).toLowerCase();
 	// Only the delegated run's own settled charge is its cost; the parent run's
 	// `usage.costUsd` is the kernel's routing call and would misstate it.
+	// Shown as a share of this month's credits, never a count; omitted when
+	// the viewer cannot read billing.
+	const share = useCreditShare(timing?.settledCharge?.credits);
 	const parts = [
 		`${who} ${verb}${duration ? ` in ${duration}` : ""}`,
-		timing?.settledCharge
-			? formatSettledEurMicros(timing.settledCharge.chargedMicros)
-			: null,
+		share ? `${share.label} of this month's credits` : null,
 	].filter(Boolean);
 	return (
 		<li

@@ -36,6 +36,20 @@ vi.mock("@/lib/os-query-options", () => ({
 	},
 }));
 vi.mock("@/lib/use-tedi-names", () => ({ useTediNames: () => ({}) }));
+// A settled charge shows as a share of a fictional 1,000 monthly credits.
+vi.mock("@/lib/use-credit-share", async () => {
+	const { usagePercent, formatUsagePercent } =
+		await import("@/lib/billing-credits");
+	return {
+		useCreditShare: (credits: number | null | undefined) =>
+			credits == null
+				? null
+				: {
+						percent: usagePercent(credits, 1_000),
+						label: formatUsagePercent(credits, 1_000),
+					},
+	};
+});
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children }: { children?: unknown }) => <a>{children as never}</a>,
 }));
@@ -268,7 +282,7 @@ it("shows the delegated run's settled cost instead of the kernel's routing cost"
 				totalTokens: 15,
 				costUsd: 0.0042,
 			},
-			settledCharge: { currency: "eur", chargedMicros: 40_000, chargeCount: 3 },
+			settledCharge: { credits: 40, chargeCount: 3 },
 			metadata: {},
 		},
 		trace: {
@@ -305,7 +319,9 @@ it("shows the delegated run's settled cost instead of the kernel's routing cost"
 	act(() => root.render(<HomeExecutionDetailView {...props} />));
 	await flush();
 	const summary = host.querySelector('[aria-label="Response summary"]');
-	expect(summary?.textContent).toContain("€0.04 settled for the delegated run");
+	expect(summary?.textContent).toContain(
+		"4% of this month's credits, settled for the delegated run",
+	);
 	expect(summary?.textContent).not.toContain("Home only");
 });
 

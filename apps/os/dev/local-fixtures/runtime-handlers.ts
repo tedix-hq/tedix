@@ -271,11 +271,11 @@ export const runtimeHandlers: Record<string, (input: never) => unknown> = {
 		const runs = state.homeRuns.filter(
 			(row) => row.conversationId === input.conversationId,
 		);
-		// Sample data: each completed run settled a fictional EUR 0.0042.
+		// Sample data: each completed run settled 120 fictional credits, so a
+		// few runs read as a small share of this month's 20,000.
 		const settled = runs.filter((row) => row.status === "completed").length;
 		return {
-			currency: "eur" as const,
-			chargedMicros: settled * 4_200,
+			credits: settled * 120,
 			chargeCount: settled,
 			runCount: runs.length,
 		};

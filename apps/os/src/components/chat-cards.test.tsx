@@ -2,7 +2,22 @@ import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-sub
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+// A settled charge shows as a share of a fictional 1,000 monthly credits.
+vi.mock("@/lib/use-credit-share", async () => {
+	const { usagePercent, formatUsagePercent } =
+		await import("@/lib/billing-credits");
+	return {
+		useCreditShare: (credits: number | null | undefined) =>
+			credits == null
+				? null
+				: {
+						percent: usagePercent(credits, 1_000),
+						label: formatUsagePercent(credits, 1_000),
+					},
+	};
+});
 import {
 	type ApprovalCardData,
 	ApprovalCard,
@@ -1661,7 +1676,7 @@ describe("live delegation card", () => {
 				totalTokens: 15,
 				costUsd: 0.0042,
 			},
-			settledCharge: { currency: "eur", chargedMicros: 40_000, chargeCount: 3 },
+			settledCharge: { credits: 40, chargeCount: 3 },
 		});
 		if (!work) throw new Error("expected delegation work");
 		const html = renderToStaticMarkup(
@@ -1672,7 +1687,10 @@ describe("live delegation card", () => {
 			/>,
 		);
 		expect(html).toContain('data-slot="delegation-summary"');
-		expect(html).toContain("Reddit Operator finished in 8m 03s · €0.04");
+		expect(html).toContain(
+			"Reddit Operator finished in 8m 03s · 4% of this month&#x27;s credits",
+		);
+		expect(html).not.toMatch(/\d credits?\b/);
 		expect(html).not.toContain("$0.0042");
 		expect(html).toContain(
 			`href="/work/executions/${RUN_ID}?branch=${CHILD_RUN_ID}"`,
@@ -1752,17 +1770,19 @@ describe("live delegation card", () => {
 		expect(html).toContain("A digital worker was blocked in 2m 07s");
 	});
 
-	it("keeps sub-cent settled charges readable", () => {
+	it("shows a small settled charge as <1% rather than zero", () => {
 		const work = delegationFromRun({
 			...run,
 			status: "completed",
 			completedAt: at(483),
-			settledCharge: { currency: "eur", chargedMicros: 3_200, chargeCount: 1 },
+			settledCharge: { credits: 1, chargeCount: 1 },
 		});
 		if (!work) throw new Error("expected delegation work");
 		const html = renderToStaticMarkup(
 			<DelegationSummaryRow work={work} LinkComponent={StubLink} />,
 		);
-		expect(html).toContain("finished in 8m 03s · €0.0032");
+		expect(html).toContain(
+			"finished in 8m 03s · &lt;1% of this month&#x27;s credits",
+		);
 	});
 });

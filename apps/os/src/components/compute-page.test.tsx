@@ -50,29 +50,22 @@ function posture(overrides: Partial<ComputePosture> = {}): ComputePosture {
 			detail: "Ingested within the last 15 minutes.",
 		},
 		spend: {
-			knownSubtotalUsd: 1.25,
 			pricedRowCount: 10 - 0,
 			unpricedRowCount: 0,
 			unpricedTokens: 0,
 			costCompleteness: "complete",
-			quarantinedKnownSubtotalUsd: 0,
 
 			rowCount: 10,
 			totalTokens: 100_000,
-			costUsd: 1.25,
-			quarantinedCostUsd: 0,
 			quarantinedTokens: 0,
 			quarantinedRowCount: 0,
 			provenanceFloor: "pricing_table_estimate",
 		},
 		provenance: [
 			{
-				knownSubtotalUsd: 1.25,
-
 				provenance: "pricing_table_estimate",
 				rowCount: 10,
 				totalTokens: 100_000,
-				costUsd: 1.25,
 			},
 		],
 		budget: {
@@ -108,7 +101,6 @@ function posture(overrides: Partial<ComputePosture> = {}): ComputePosture {
 			detail: COST_ADMISSION_POLICY_DETAIL,
 		},
 		attribution: {
-			unattributedCostUsd: 0,
 			unattributedTokens: 0,
 			unattributedRowCount: 0,
 			unattributedQuarantinedRowCount: 0,
@@ -197,17 +189,13 @@ describe("LedgerCard", () => {
 							"No cost rows in the last 30 days. This is indistinguishable from a stalled ingestion job, so no spend can be attested for this workspace — it is not $0.",
 					},
 					spend: {
-						knownSubtotalUsd: 0,
 						pricedRowCount: 0 - 0,
 						unpricedRowCount: 0,
 						unpricedTokens: 0,
 						costCompleteness: "complete",
-						quarantinedKnownSubtotalUsd: 0,
 
 						rowCount: 0,
 						totalTokens: 0,
-						costUsd: null,
-						quarantinedCostUsd: 0,
 						quarantinedTokens: 0,
 						quarantinedRowCount: 0,
 						provenanceFloor: null,
@@ -225,17 +213,13 @@ describe("LedgerCard", () => {
 			<LedgerCard
 				posture={posture({
 					spend: {
-						knownSubtotalUsd: 1.25,
 						pricedRowCount: 12 - 2,
 						unpricedRowCount: 2,
 						unpricedTokens: 0,
 						costCompleteness: "partial",
-						quarantinedKnownSubtotalUsd: 0.4,
 
 						rowCount: 12,
 						totalTokens: 100_000,
-						costUsd: 1.25,
-						quarantinedCostUsd: 0.4,
 						quarantinedTokens: 20_000,
 						quarantinedRowCount: 2,
 						provenanceFloor: "pricing_table_estimate",
@@ -274,18 +258,14 @@ describe("ProvenanceCard", () => {
 				posture={posture({
 					provenance: [
 						{
-							knownSubtotalUsd: 0.0777,
 							provenance: "gateway_reported",
 							rowCount: 3,
 							totalTokens: 900,
-							costUsd: 0.0777,
 						},
 						{
-							knownSubtotalUsd: 0,
 							provenance: "quarantined",
 							rowCount: 5,
 							totalTokens: 0,
-							costUsd: null,
 						},
 					],
 				})}
@@ -385,7 +365,6 @@ describe("AttributionCard", () => {
 				posture={posture({
 					attribution: {
 						...posture().attribution,
-						unattributedCostUsd: 0.42,
 						unattributedRowCount: 4,
 					},
 				})}
@@ -481,12 +460,9 @@ describe("AI call record", () => {
 		value.spend.rowCount = 12;
 		value.spend.quarantinedRowCount = 2;
 		value.spend.quarantinedTokens = 40;
-		value.spend.quarantinedCostUsd = 0.4;
-		value.spend.quarantinedKnownSubtotalUsd = 0.4;
 		value.spend.unpricedRowCount = 2;
 		value.spend.unpricedTokens = 40;
 		value.spend.costCompleteness = "partial";
-		value.spend.costUsd = null;
 		const html = renderToStaticMarkup(<LedgerCard posture={value} />);
 		expect(html).toContain("AI call record");
 		expect(html).toContain("2 calls are held for review");

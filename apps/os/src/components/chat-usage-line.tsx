@@ -2,28 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { Meter } from "@/components/kumo/meter";
 import { Text } from "@/components/kumo/text";
-import {
-	type AllowanceUsage,
-	CREDIT_VALUE_MICROS,
-	type CreditUsage,
-	allowanceShare,
-} from "@/lib/billing-credits";
-import { isLocalSession } from "@/lib/local-inference";
-import {
-	billingOverviewQueryOptions,
-	homeConversationChargesQueryOptions,
-} from "@/lib/os-query-options";
-import { useOsOperationalContext } from "@/lib/use-os-preferences";
-
-/** This conversation's settled charges as a share of this month's credits. */
-export function conversationUsage(
-	chargedMicros: number,
-	credits: CreditUsage,
-): AllowanceUsage {
-	// A part credit still counts, so a small charge reads "<1%", never "0%".
-	const used = Math.ceil(chargedMicros / CREDIT_VALUE_MICROS);
-	return allowanceShare(credits, used);
-}
+import type { AllowanceUsage } from "@/lib/billing-credits";
+import { homeConversationChargesQueryOptions } from "@/lib/os-query-options";
+import { useCreditShare } from "@/lib/use-credit-share";
 
 /** The quiet line's words, exported for tests. */
 export function conversationUsageText(usage: AllowanceUsage): string {
@@ -45,35 +26,22 @@ export function ConversationUsageLine({
 	/** Runs that have finished; a change means new charges may have settled. */
 	settledRunCount: number;
 }) {
-	const context = useOsOperationalContext();
-	const authority = context.data?.authority;
-	const canReadBilling =
-		!isLocalSession() &&
-		(authority?.permissions.includes("billing:read") ||
-			authority?.permissions.includes("billing:manage") ||
-			false);
-	const overview = useQuery({
-		...billingOverviewQueryOptions(),
-		enabled: canReadBilling,
-		staleTime: 30_000,
-	});
 	const charges = useQuery({
 		...homeConversationChargesQueryOptions(conversationId),
 		staleTime: 30_000,
 	});
 	const lastCount = useRef(settledRunCount);
 	const { refetch } = charges;
-	const refetchOverview = overview.refetch;
 	useEffect(() => {
 		if (lastCount.current === settledRunCount) return;
 		lastCount.current = settledRunCount;
 		void refetch();
-		if (canReadBilling) void refetchOverview();
-	}, [settledRunCount, refetch, refetchOverview, canReadBilling]);
+	}, [settledRunCount, refetch]);
+	const settled =
+		charges.data && charges.data.chargeCount > 0 ? charges.data.credits : null;
+	const usage = useCreditShare(settled);
 
-	const credits = overview.data?.credits;
-	if (!charges.data || charges.data.chargeCount === 0 || !credits) return null;
-	const usage = conversationUsage(charges.data.chargedMicros, credits);
+	if (!usage) return null;
 	return (
 		<div
 			className="chat-usage-line mx-auto flex w-full max-w-3xl items-center justify-end gap-2 px-4 pt-1.5"
