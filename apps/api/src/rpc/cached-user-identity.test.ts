@@ -18,7 +18,7 @@ afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
 });
 
-it("uses the production cache, primary fence, role changes and logout together", async () => {
+it("keeps identity cached across routine metadata writes and invalidates on role changes and logout", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	databases.push(sqlite);
 	sqlite.exec(
@@ -34,6 +34,15 @@ it("uses the production cache, primary fence, role changes and logout together",
 		readFileSync(
 			new URL(
 				"../../../../packages/db/drizzle/20261119100738_auth_context_cache/migration.sql",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
+	sqlite.exec(
+		readFileSync(
+			new URL(
+				"../../../../packages/db/drizzle/20261119182503_auth_cache_organization_fields/migration.sql",
 				import.meta.url,
 			),
 			"utf8",
@@ -95,6 +104,12 @@ it("uses the production cache, primary fence, role changes and logout together",
 		return { value, timing: context.serverTiming };
 	};
 	expect((await resolve()).value?.memberRole).toBe("owner");
+	sqlite.exec(
+		`UPDATE organizations SET metadata = json_set(coalesce(metadata, '{}'),
+			'$.decisionLearning', json('{}'), '$.deckRankerBudget', json('{}'),
+			'$.factoryWeights', json('{}'), '$.deckSweep', json('{}'))
+		WHERE id = 'org-one'`,
+	);
 	expect((await resolve()).timing).toContain('auth-identity-cache;desc="hit"');
 	expect(identityReads()).toBe(1);
 	expect(session).toHaveBeenCalledWith("first-primary");
