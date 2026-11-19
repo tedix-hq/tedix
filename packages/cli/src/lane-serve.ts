@@ -3952,6 +3952,8 @@ export class LaneDispatcher {
 		let admitted = false;
 		let admissionSent = false;
 		let heartbeating: Promise<unknown> | undefined;
+		let checkingLease: Promise<void> | undefined;
+		let childFinished = false;
 		let recordingCommits: Promise<void> | undefined;
 		let timer: ReturnType<typeof setInterval> | undefined;
 		let leaseTimer: ReturnType<typeof setInterval> | undefined;
@@ -4245,17 +4247,8 @@ export class LaneDispatcher {
 			let leaseExpiry = Date.parse(started.attempt.expiresAt);
 			if (!Number.isFinite(leaseExpiry) || leaseExpiry <= Date.now())
 				throw new Error("Admission returned no live lease");
-			let lastLeaseCheck = Date.now();
-			leaseTimer = setInterval(() => {
-				if (receipt.interrupted) return;
-				if (Date.now() - lastLeaseCheck > 5_000)
-					this.log(
-						"lease-check-delayed",
-						item.id,
-						`Lease check delayed by ${Date.now() - lastLeaseCheck} ms`,
-					);
-				lastLeaseCheck = Date.now();
-				if (Date.now() < leaseExpiry || !receipt.pid) return;
+			const stopExpiredChild = () => {
+				if (childFinished || receipt.interrupted || !receipt.pid) return;
 				receipt.interrupted = true;
 				receipt.outcome = "expired";
 				this.save(path, receipt);
@@ -4264,7 +4257,7 @@ export class LaneDispatcher {
 				this.log(
 					"lease-expired",
 					item.id,
-					"Stopping the child; the last confirmed Attempt lease expired",
+					"Stopping the child; the Attempt lease is no longer confirmed live",
 				);
 				const recordStop = () =>
 					recordDispatcherReliability(this.directory, {
@@ -4284,6 +4277,62 @@ export class LaneDispatcher {
 						recordStop();
 					} catch {}
 				}, 5000);
+			};
+			let lastLeaseCheck = Date.now();
+			leaseTimer = setInterval(() => {
+				if (receipt.interrupted) return;
+				if (Date.now() - lastLeaseCheck > 5_000)
+					this.log(
+						"lease-check-delayed",
+						item.id,
+						`Lease check delayed by ${Date.now() - lastLeaseCheck} ms`,
+					);
+				lastLeaseCheck = Date.now();
+				if (Date.now() < leaseExpiry || !receipt.pid || checkingLease) return;
+				// A renewal may have reached the server even when its reply was lost.
+				// This final read cannot queue behind other Work or prolong an outage.
+				checkingLease = this.deps
+					.cli<{ data: WorkAttempt[] }>(
+						[
+							...this.options.scope,
+							"work",
+							"dispatch-attempts",
+							item.id,
+							"--input",
+							'{"limit":1}',
+						],
+						this.ownerEnv,
+						undefined,
+						undefined,
+						10_000,
+					)
+					.then(({ data }) => {
+						const latest = data[0];
+						const expiry = Date.parse(latest?.expiresAt ?? "");
+						if (
+							latest &&
+							latest.id === receipt.attemptId &&
+							latest.externalSessionKey === receipt.session &&
+							["queued", "running", "waiting", "retrying"].includes(
+								latest.runtimeState,
+							) &&
+							expiry > Date.now()
+						) {
+							leaseExpiry = expiry;
+							this.log(
+								"lease-confirmed",
+								item.id,
+								`Lease live until ${latest.expiresAt}`,
+							);
+						} else stopExpiredChild();
+					})
+					.catch((error) => {
+						this.log("lease-check-failed", item.id, String(error));
+						if (Date.now() >= leaseExpiry) stopExpiredChild();
+					})
+					.finally(() => {
+						checkingLease = undefined;
+					});
 			}, 1000);
 			timer = setInterval(() => {
 				if (receipt.interrupted || heartbeating) return;
@@ -4304,9 +4353,18 @@ export class LaneDispatcher {
 								},
 							);
 					})
-					.catch((error) =>
-						this.log("heartbeat-failed", item.id, String(error)),
-					)
+					.catch((error) => {
+						this.log("heartbeat-failed", item.id, String(error));
+						if (
+							error instanceof CliReadError &&
+							(["STALE_ATTEMPT", "NOT_FOUND", "INVALID_LEASE"].includes(
+								error.code ?? "",
+							) ||
+								(error.code === "CONFLICT" &&
+									error.message.includes("STALE_ATTEMPT")))
+						)
+							stopExpiredChild();
+					})
 					.finally(() => {
 						heartbeating = undefined;
 					});
@@ -4507,6 +4565,7 @@ export class LaneDispatcher {
 					},
 				},
 			);
+			childFinished = true;
 			receipt.retryable =
 				exit !== 0 &&
 				(!!receipt.providerRecovery ||
@@ -4640,11 +4699,13 @@ export class LaneDispatcher {
 				}
 			}
 		} finally {
+			childFinished = true;
 			this.finishPreparation(candidate.id);
 			if (timer) clearInterval(timer);
 			if (leaseTimer) clearInterval(leaseTimer);
 			if (killTimer) clearTimeout(killTimer);
 			await heartbeating;
+			await checkingLease;
 			await recordingCommits;
 			if (admitted) {
 				// The comment below waits its turn like any other call.

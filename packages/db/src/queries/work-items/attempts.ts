@@ -70,6 +70,7 @@ export async function getAuthoritativeWorkItemAttempt(
 						: undefined,
 					inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
 					sql`${workAttempts.expiresAt} > ${at}`,
+					sql`NOT EXISTS (SELECT 1 FROM work_attempts successor WHERE successor.org_id=${workAttempts.orgId} AND successor.work_item_id=${workAttempts.workItemId} AND successor.attempt_number>${workAttempts.attemptNumber})`,
 				),
 			)
 			.limit(1)
@@ -983,6 +984,7 @@ export async function heartbeatWorkItemAttempt(
 				inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
 				sql`${workAttempts.heartbeatAt} <= ${heartbeatAt}`,
 				sql`${workAttempts.expiresAt} > ${heartbeatAt}`,
+				sql`NOT EXISTS (SELECT 1 FROM work_attempts successor WHERE successor.org_id=${workAttempts.orgId} AND successor.work_item_id=${workAttempts.workItemId} AND successor.attempt_number>${workAttempts.attemptNumber})`,
 			),
 		)
 		.returning();
@@ -998,6 +1000,16 @@ export async function heartbeatWorkItemAttempt(
 				eq(workAttempts.workItemId, params.workItemId),
 				eq(workAttempts.heartbeatAt, heartbeatAt),
 				eq(workAttempts.expiresAt, expiresAt),
+				eq(workAttempts.executorType, params.executor.type),
+				eq(workAttempts.executorId, params.executor.id),
+				params.sessionId
+					? eq(workAttempts.executorSessionId, params.sessionId)
+					: isNull(workAttempts.executorSessionId),
+				params.externalSessionKey
+					? eq(workAttempts.externalSessionKey, params.externalSessionKey)
+					: isNull(workAttempts.externalSessionKey),
+				inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
+				sql`NOT EXISTS (SELECT 1 FROM work_attempts successor WHERE successor.org_id=${workAttempts.orgId} AND successor.work_item_id=${workAttempts.workItemId} AND successor.attempt_number>${workAttempts.attemptNumber})`,
 			),
 		);
 	const extendResources = db
@@ -1188,6 +1200,7 @@ export async function settleWorkItemAttempt(
 						: isNull(workAttempts.externalSessionKey),
 					inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
 					sql`${workAttempts.expiresAt} > ${settledAt}`,
+					sql`NOT EXISTS (SELECT 1 FROM work_attempts successor WHERE successor.org_id=${workAttempts.orgId} AND successor.work_item_id=${workAttempts.workItemId} AND successor.attempt_number>${workAttempts.attemptNumber})`,
 				),
 			)
 			.returning();

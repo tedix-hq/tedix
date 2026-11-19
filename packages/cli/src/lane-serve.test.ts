@@ -171,6 +171,7 @@ function fixture({
 		unpushedCommits: [] as string[],
 		unpushedWait: undefined as Promise<string[]> | undefined,
 		heartbeatExpiry: false,
+		heartbeatError: undefined as Error | undefined,
 		cleanups: 0,
 		cleanupResult: true,
 		cleanupRemoves: false,
@@ -415,6 +416,8 @@ function fixture({
 				throw new Error("Transient settlement failure");
 			else if (verb === "complete" && control.completeError)
 				throw control.completeError;
+			else if (verb === "heartbeat" && control.heartbeatError)
+				throw control.heartbeatError;
 			else if (verb === "heartbeat" && control.heartbeatExpiry)
 				response = { expiresAt: new Date(Date.now() + 300_000).toISOString() };
 			else response = {};
@@ -1568,6 +1571,131 @@ describe("dispatcher admission", () => {
 			}
 		},
 	);
+	it.each([
+		"outage",
+		"stale",
+		"missing",
+		"superseded",
+		"ended",
+		"expired",
+		"unreachable",
+	])(
+		"checks server authority before stopping a child: %s",
+		async (scenario) => {
+			let now = 1_800_000_000_000;
+			const clock = spyOn(Date, "now").mockImplementation(() => now);
+			let leaseCheck!: () => void;
+			let heartbeat!: () => void;
+			const timer = spyOn(globalThis, "setInterval").mockImplementation(((
+				callback: () => void,
+				ms: number,
+			) => {
+				if (ms === 1000) leaseCheck = callback;
+				if (ms === 60_000) heartbeat = callback;
+				return setTimeout(() => {}, 60_000);
+			}) as typeof setInterval);
+			const kill = spyOn(process, "kill").mockReturnValue(true);
+			const f = fixture();
+			f.items.splice(1);
+			f.control.spawnPid = 999999;
+			f.control.heartbeatError = new CliReadError(
+				"Gateway unavailable",
+				"GATEWAY_UNAVAILABLE",
+			);
+			const path = join(f.dir, `${item().id}-2.json`);
+			try {
+				await f.dispatcher.tick();
+				await until(() => f.releases.length === 1);
+				const receipt = JSON.parse(readFileSync(path, "utf8"));
+				// A failed renewal is not proof the server lost the Attempt.
+				now += 60_000;
+				heartbeat();
+				await until(() =>
+					readFileSync(join(f.dir, "dispatcher.log"), "utf8").includes(
+						'"event":"heartbeat-failed"',
+					),
+				);
+				await new Promise((done) => setTimeout(done, 0));
+				leaseCheck();
+				expect(
+					kill.mock.calls.filter(([, signal]) => signal !== 0),
+				).toHaveLength(0);
+				if (scenario === "stale" || scenario === "missing") {
+					f.control.heartbeatError = new CliReadError(
+						scenario === "stale"
+							? "STALE_ATTEMPT: no longer authoritative"
+							: "Attempt not found",
+						scenario === "stale" ? "CONFLICT" : "NOT_FOUND",
+					);
+					heartbeat();
+				} else {
+					f.control.history.data = [
+						{
+							id: scenario === "superseded" ? "replacement" : receipt.attemptId,
+							externalSessionKey: receipt.session,
+							runtimeState: scenario === "ended" ? "finished" : "running",
+							expiresAt: new Date(
+								now + (scenario === "expired" ? 0 : 600_000),
+							).toISOString(),
+						},
+					];
+					if (scenario === "unreachable")
+						f.control.historyError = new CliReadError(
+							"Gateway unavailable",
+							"GATEWAY_UNAVAILABLE",
+						);
+					now += 240_001;
+					leaseCheck();
+				}
+				if (scenario === "outage") {
+					await until(() =>
+						readFileSync(join(f.dir, "dispatcher.log"), "utf8").includes(
+							'"event":"lease-confirmed"',
+						),
+					);
+					expect(
+						kill.mock.calls.filter(([, signal]) => signal !== 0),
+					).toHaveLength(0);
+					expect(JSON.parse(readFileSync(path, "utf8")).interrupted).not.toBe(
+						true,
+					);
+					f.control.heartbeatError = undefined;
+					f.control.heartbeatExpiry = true;
+					heartbeat();
+					await until(
+						() =>
+							f.events.filter((event) => event.verb === "heartbeat").length ===
+							2,
+					);
+					await new Promise((done) => setTimeout(done, 0));
+					now += 1000;
+					leaseCheck();
+					expect(
+						kill.mock.calls.filter(([, signal]) => signal !== 0),
+					).toHaveLength(0);
+				} else {
+					await until(() =>
+						kill.mock.calls.some((call) => call[1] === "SIGTERM"),
+					);
+					expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+						interrupted: true,
+						outcome: "expired",
+					});
+				}
+			} finally {
+				f.control.historyError = undefined;
+				for (const release of f.releases) release();
+				await f.dispatcher.drain();
+				kill.mockRestore();
+				timer.mockRestore();
+				clock.mockRestore();
+			}
+			if (scenario === "outage")
+				expect(JSON.parse(readFileSync(path, "utf8")).outcome).toBe(
+					"succeeded",
+				);
+		},
+	);
 	it.each([false, true])(
 		"keeps renewing through a 20-minute push queue with commit reads blocked=%s",
 		async (blocked) => {
@@ -1716,6 +1844,9 @@ describe("dispatcher admission", () => {
 				}
 				if (scenario === "lease expiry") {
 					leaseCheck();
+					await until(() =>
+						kill.mock.calls.some((call) => call[1] === "SIGTERM"),
+					);
 					leaseCheck();
 					expect(kill).toHaveBeenCalledWith(-control.spawnPid, "SIGTERM");
 					expect(
