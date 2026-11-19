@@ -70,7 +70,7 @@ type Ref = SQLWrapper | AnyColumn;
 
 const account = alias(billingAccounts, "account");
 const plan = alias(billingPlanVersions, "plan");
-const orgTotal = alias(billingCreditUsageTotals, "org_total");
+const orgTotal = alias(billingCreditUsageTotals, "organization_total");
 const usedTotal = alias(billingCreditUsageTotals, "used_total");
 const topUp = alias(billingCreditTopUps, "top_up");
 const heldAi = alias(billingUsageReservations, "held_ai");
