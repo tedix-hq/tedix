@@ -258,10 +258,6 @@ The native Output layer stays small on purpose. `document`, `sheet`, and
 `presentation` are the three typed, revisioned kinds; `video` is a rendered
 artifact. Tedix OS has no first-party Output editor: Doc, Sheet and Slides
 are edited only in their reusable workspace gadgets.
-`scripts/lint-output-kinds.ts` (runs in `lint:repo`) guards this boundary: a
-fourth kind in `OsOutputKindSchema` or a new route naming outputs fails the
-gate unless it carries the decision that allowed it, and any
-`output-editor*.tsx` component always fails.
 
 Doc, Sheet, and Slides gadgets are the normal creation, opening and editing
 experience. Their typed Outputs own content, revisions, source access and

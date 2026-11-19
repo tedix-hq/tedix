@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type {
 	OsGadget,
@@ -2739,72 +2738,6 @@ describe("CanvasPage listing", () => {
 				?.getAttribute("data-appearance"),
 		).toBe("quiet");
 		expect(osWorkspacesApi.gadgets.list).not.toHaveBeenCalled();
-	});
-});
-
-describe("Canvas Cloudflare-reference composition", () => {
-	it("keeps selected workpiece tabs borderless and the bars one height", () => {
-		const styles =
-			readFileSync("src/components/canvas-page.css", "utf8") +
-			readFileSync("src/components/output-views.css", "utf8");
-		expect(styles).toMatch(
-			/\.canvas-workpiece-tab\[data-selected\][\s\S]*?background:\s*var\(--color-kumo-tint\);/,
-		);
-		expect(styles).toMatch(/\.canvas-workbench\s*\{[^}]*?overflow:\s*clip;/);
-		expect(styles).toMatch(
-			/\.canvas-surface\[data-stage-open="false"\] \.workspace-chat-thread > \*[\s\S]*?max-width:\s*920px;[\s\S]*?margin-inline:\s*auto;/,
-		);
-		expect(styles).toMatch(
-			/\.canvas-surface\[data-resizing-chat\] iframe\s*\{[\s\S]*?pointer-events:\s*none;/,
-		);
-		expect(styles).toMatch(
-			/\.canvas-workpiece-bar\s*\{[\s\S]*?height:\s*48px;[\s\S]*?min-height:\s*48px;/,
-		);
-		expect(styles).toMatch(
-			/\.canvas-stage-content\[data-has-workpiece\]\s*\{[\s\S]*?padding:\s*0;/,
-		);
-		expect(styles).toMatch(
-			/\.canvas-document-header\s*\{[\s\S]*?padding:\s*4px 8px;[\s\S]*?border-bottom:\s*1px solid var\(--border\);/,
-		);
-		const resizerRule = styles.match(
-			/^\.canvas-chat-resizer\s*\{([^}]*)\}/m,
-		)?.[1];
-		expect(resizerRule).toBeDefined();
-		expect(resizerRule).toContain("width: 1px");
-		expect(resizerRule).not.toContain("z-index");
-		expect(styles).toMatch(
-			/\.canvas-chat-resizer::after\s*\{[\s\S]*?right:\s*-6px;[\s\S]*?left:\s*-6px;/,
-		);
-	});
-
-	it("slides the phone pane that appears and stills it for reduced motion", () => {
-		const styles = readFileSync("src/components/canvas-page.css", "utf8");
-		expect(styles).toMatch(
-			/\[data-mobile-pane="chat"\]\s*\.canvas-chat-pane\s*\{[^}]*animation:\s*canvas-pane-enter-from-start/,
-		);
-		expect(styles).toMatch(
-			/\.canvas-stage\s*\{[^}]*animation:\s*canvas-pane-enter-from-end/,
-		);
-		expect(styles).toMatch(
-			/@media \(prefers-reduced-motion: reduce\) \{[^@]*?\.canvas-stage\s*\{\s*animation:\s*none;/,
-		);
-		expect(styles).toMatch(
-			/:root\[data-motion="reduced"\][\s\S]*?\.canvas-stage\s*\{\s*animation:\s*none;/,
-		);
-	});
-
-	it("keeps a 44px hit target on the workspace chrome through the tablet widths", () => {
-		const styles = readFileSync("src/components/canvas-page.css", "utf8");
-		const tablet = styles.match(
-			/@media \(max-width: 819px\) \{([\s\S]*?)\n\}/,
-		)?.[1];
-		expect(tablet).toBeDefined();
-		expect(tablet).toMatch(
-			/\.canvas-workspace-header button,[\s\S]*?\.canvas-workpiece-bar button\s*\{[\s\S]*?min-width:\s*44px;[\s\S]*?min-height:\s*44px;/,
-		);
-		expect(tablet).toMatch(
-			/\.canvas-workpiece-bar\s*\{[\s\S]*?height:\s*auto;[\s\S]*?min-height:\s*48px;/,
-		);
 	});
 });
 

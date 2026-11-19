@@ -6,27 +6,27 @@ When upgrading the queue itself, `--queue-candidate` pins committed local queue
 code only after proving it contains freshly fetched main; rebase before using it.
 Normal pushes always load the fetched main version.
 
-`full-suite-hourly.yml` runs on every main push, hourly, and manual dispatch.
-All triggers share one concurrency group. Active certification finishes while
-newer runs replace the pending run, so sustained pushes cannot starve certification.
-The required aggregate is `Main CI`. Pushes run every test/type-check shard of
-workspaces affected since the latest green main ancestor, including transitive
-package consumers. This includes earlier changes whose CI is red or pending;
-a docs push cannot certify an untested code change. Docs/Markdown-only ranges
-skip tests. Unknown paths or missing certification history run everything.
+`full-suite-hourly.yml` runs on main pushes and manual dispatch. Pushes use
+its policy gate and `Main CI` aggregate. `main-verify.yml` runs the affected
+workspace tests and type checks after each push, with a separate `Main verify`
+aggregate. Manual dispatch of `full-suite-hourly.yml` runs the complete suite.
+There is no scheduled full-suite run.
 
-Shared inputs (root manifests, lockfiles, TypeScript/Vite/Vitest and formatter
-configuration, workflows, scripts, API contracts, DB schema/migrations and Worker
-configuration) run all workspace and repository checks. The selection rules live
-in `scripts/ci/full-suite-hourly.mjs`. Scheduled and manual runs always run the
-complete suite, even when the same SHA already passed affected checks. Repository
-checks retain script tests, public docs, generated types, migration validation,
-builds, licenses and lint. The aggregate requires success from each selected lane
-and accepts a skipped lane only when the plan explicitly omitted it.
+Affected verification compares against the latest verified main ancestor,
+including transitive package consumers and earlier changes whose tests are red
+or pending. Docs-only ranges skip workspace tests. Unknown paths, shared
+configuration changes, and missing verification history select the full suite.
+The selection rules live in `scripts/ci/full-suite-hourly.mjs`.
 
-Ship continues to require a successful exact-SHA `Main CI` from this workflow
-when green-only deployment is enabled; affected certification does not bypass
-that selection. The plan summary records the selected shard count and scope.
+The policy lane runs repository checks, including scripts type checking.
+The scripts lane runs script tests and public documentation checks. Each
+aggregate requires success from every selected lane and accepts skipped lanes
+only when its plan explicitly omitted them. Manual full runs share neither
+the push gate's concurrency group nor the after-push verification group.
+
+The `Main CI` aggregate is a source policy result. Passing it does not prove
+that after-push tests passed or that any surface was deployed. Managed Ship
+configuration belongs to the private ops repository.
 
 Workspace and repository shards default to GitHub-hosted `ubuntu-latest`.
 Standard hosted runners are free for this public repository. Set

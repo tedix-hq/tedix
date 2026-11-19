@@ -280,7 +280,7 @@ const existing: ExistingLaneResult = {
 	ciApprovalId: responseId,
 	commitSha: "b".repeat(40),
 	runId: 123,
-	workflowName: "Deploy gate (push) and full test run (every 8 hours)",
+	workflowName: "Deploy gate (push) and full test run",
 	minimumCommit: "a".repeat(40),
 	rootCause: "Fixture parity mismatch",
 };
