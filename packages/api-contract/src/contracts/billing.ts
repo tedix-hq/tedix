@@ -21,10 +21,6 @@ import {
 } from "../schemas/provider-model-pricing";
 import { baseErrors } from "../errors";
 import {
-	BillingInferenceSpendingInputSchema,
-	BillingInferenceSpendingSchema,
-} from "../schemas/billing-spending";
-import {
 	FiniteExecutionRevocationInputSchema,
 	FiniteExecutionRevocationSchema,
 	HistoricalExposureListInputSchema,
@@ -73,15 +69,6 @@ export const billingContract = oc
 			})
 			.input(AssignInternalPlanInputSchema)
 			.output(AssignInternalPlanResponseSchema),
-		getInferenceSpending: oc
-			.route({
-				method: "GET",
-				path: "/inference-spending",
-				description:
-					"Read the authenticated organization's newest settled USD inference-credit receipts from the last 30 days. Pagination and missing run/price attribution remain explicit; no financial mutation.",
-			})
-			.input(BillingInferenceSpendingInputSchema)
-			.output(BillingInferenceSpendingSchema),
 		listHistoricalExposures: oc
 			.route({
 				method: "GET",

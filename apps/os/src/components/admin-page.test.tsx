@@ -138,7 +138,7 @@ describe("AdminPage", () => {
 		await act(async () => root.unmount());
 	});
 
-	it("reports missing credentials and paused AI capacity from live reads", async () => {
+	it("reports missing credentials and used-up credits from live reads", async () => {
 		state.context = {
 			isPending: false,
 			isError: false,
@@ -158,7 +158,7 @@ describe("AdminPage", () => {
 		state.billing = {
 			isPending: false,
 			isError: false,
-			data: { plan: { name: "Pro" }, inferenceCapacity: { available: false } },
+			data: { plan: { name: "Pro" }, admission: { available: false } },
 		};
 		const root = createRoot(container);
 		await act(async () => root.render(<AdminPage />));
@@ -166,9 +166,7 @@ describe("AdminPage", () => {
 		expect(container.textContent).toContain(
 			"1 missing or expired among 2 loaded accounts; inventory is partial.",
 		);
-		expect(container.textContent).toContain(
-			"AI inference capacity unavailable",
-		);
+		expect(container.textContent).toContain("No Tedix credits left this month");
 		expect(container.textContent).not.toContain("Provider healthy");
 		expect(state.enabled).toEqual([
 			{ key: "connections", enabled: true },
@@ -211,7 +209,7 @@ describe("AdminPage", () => {
 			"Credential inventory could not be read.",
 		);
 		expect(container.textContent).toContain(
-			"Plan and capacity could not be read.",
+			"Plan and credits could not be read.",
 		);
 		expect(
 			container.querySelector('a[href="/admin/connections"]'),

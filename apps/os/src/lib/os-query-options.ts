@@ -1183,9 +1183,6 @@ export const billingPlansQueryOptions = () =>
 export const billingOverviewQueryOptions = () =>
 	osQuery.billing.getOverview.queryOptions({});
 
-export const providerCapacitySponsorshipsQueryOptions = () =>
-	osQuery.billing.listProviderCapacitySponsorships.queryOptions({});
-
 /** One-time credit packs an owner can buy; no `.input()`. */
 export const billingTopUpPacksQueryOptions = () =>
 	osQuery.billing.listTopUpPacks.queryOptions({});

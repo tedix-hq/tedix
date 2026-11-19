@@ -431,6 +431,11 @@ const BillingOverviewFieldsSchema = z.object({
 		billingMode: z.enum(["trial", "stripe", "invoice", "internal"]),
 		periodStart: z.string(),
 		periodEnd: z.string(),
+		hasStripeCustomer: z
+			.boolean()
+			.describe(
+				"True when a Stripe customer exists, so invoices and the billing portal are available",
+			),
 	}),
 	plan: BillingPlanSchema,
 	credits: BillingCreditsSchema,

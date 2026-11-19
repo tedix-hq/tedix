@@ -33,7 +33,6 @@ import {
 	osQuery,
 	operationalContextQueryOptions,
 	organizationDetailQueryOptions,
-	providerCapacitySponsorshipsQueryOptions,
 	widgetLifecycleHealthQueryOptions,
 	appAnalyticsRange,
 } from "@/lib/os-query-options";
@@ -64,14 +63,6 @@ it("targets the selected customer after returning from another audience editor",
 			.queryKey,
 		{ data: [] },
 	);
-	seed(providerCapacitySponsorshipsQueryOptions().queryKey, {
-		data: ["staging", "production"].map((installationId) => ({
-			installationId,
-			externalTenantId: "8042",
-			policy: null,
-			readiness: { status: "disabled" },
-		})),
-	});
 	seed(
 		osQuery.tedis.listWidgetAccessConfigurations.queryOptions({ input: {} })
 			.queryKey,
@@ -128,7 +119,7 @@ it("targets the selected customer after returning from another audience editor",
 		Array.from(container.querySelectorAll('[role="tab"]')).map(
 			(tab) => tab.textContent,
 		),
-	).toEqual(["Customize", "Customers", "Funding", "Performance"]);
+	).toEqual(["Customize", "Customers", "Installations", "Performance"]);
 	expect(
 		container.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
 	).toBe("Customize");
@@ -174,7 +165,7 @@ it("targets the selected customer after returning from another audience editor",
 	);
 	expect(customerFilter.textContent).not.toBe("staging");
 
-	await click("Funding");
+	await click("Installations");
 	expect(container.textContent).not.toContain("Performance analytics");
 	expect(container.textContent).toContain("Demo garage");
 	expect(container.textContent).toContain("https://staging.example.com");

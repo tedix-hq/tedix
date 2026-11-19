@@ -8,7 +8,6 @@ import {
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
-	listMonetaryInferenceSpending,
 	sumRunInferenceCharges,
 	sumRunInferenceChargesByRun,
 } from "./spending";
@@ -46,60 +45,7 @@ function fixture() {
 	}
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)), charge };
 }
-describe("settled monetary spending", () => {
-	it("reads actual customer components once, excludes legacy/provider estimates and other tenants", async () => {
-		const f = fixture();
-		try {
-			f.charge("monetary");
-			f.charge("foreign", "other", "foreign-hold");
-			f.charge("legacy", "own", "hold", {});
-			f.charge("outside", "own", "hold", undefined, to);
-			const r = await listMonetaryInferenceSpending(f.db, {
-				organizationId: "own",
-				from,
-				to,
-				limit: 10,
-			});
-			expect(r).toMatchObject({
-				hasMore: false,
-				rows: [
-					{
-						id: "monetary",
-						runId: "own-run",
-						creditAppliedMicros: 40,
-						customerChargeMicros: 10,
-						creditValueMicros: 10000,
-					},
-				],
-			});
-			expect(r.rows).toHaveLength(1);
-			expect(r.rows[0]).not.toHaveProperty("providerCostMicros");
-		} finally {
-			f.sqlite.close();
-		}
-	});
-	it("does not leak a foreign run through a corrupt reservation link; retains unlinked charges and reports a bounded page", async () => {
-		const f = fixture();
-		try {
-			f.charge("z-orphan", "own", "foreign-hold");
-			f.charge("a-own");
-			const r = await listMonetaryInferenceSpending(f.db, {
-				organizationId: "own",
-				from,
-				to,
-				limit: 1,
-			});
-			expect(r.hasMore).toBe(true);
-			expect(r.rows).toHaveLength(1);
-			expect(r.rows[0]).toMatchObject({
-				id: "z-orphan",
-				runId: null,
-				traceId: null,
-			});
-		} finally {
-			f.sqlite.close();
-		}
-	});
+describe("settled EUR charges per run", () => {
 	it("groups settled EUR charges per run and leaves uncharged runs out", async () => {
 		const f = fixture();
 		try {

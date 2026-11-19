@@ -250,24 +250,24 @@ export function AdminPage() {
 					? {
 							label: "Loading",
 							variant: "secondary",
-							detail: "Checking plan and AI capacity…",
+							detail: "Checking plan and Tedix credits…",
 						}
 					: billing.isError || !billing.data
 						? {
 								label: "Unavailable",
 								variant: "warning",
-								detail: "Plan and capacity could not be read.",
+								detail: "Plan and credits could not be read.",
 							}
-						: billing.data.inferenceCapacity.available
+						: billing.data.admission.available
 							? {
 									label: "Available",
 									variant: "success",
-									detail: `${billing.data.plan.name} plan · AI inference capacity available.`,
+									detail: `${billing.data.plan.name} plan · Tedix credits available.`,
 								}
 							: {
 									label: "Action needed",
 									variant: "warning",
-									detail: `${billing.data.plan.name} plan · AI inference capacity unavailable.`,
+									detail: `${billing.data.plan.name} plan · No Tedix credits left this month.`,
 								};
 
 	return (
@@ -302,7 +302,7 @@ export function AdminPage() {
 							status: connectionsStatus,
 						},
 						{
-							title: "AI capacity",
+							title: "Tedix credits",
 							to: "/admin/billing",
 							status: billingStatus,
 						},

@@ -13,14 +13,14 @@ vi.mock("@/lib/api", () => ({ osApi: { billing: { createPortal } } }));
 
 function overview(
 	customer: string | null,
-	status: BillingOverview["snapshot"]["status"] = "active",
+	status: BillingOverview["account"]["status"] = "active",
 ) {
 	const value = (
 		handleLocalRpc("/api/rpc/billing/getOverview", "POST", { json: {} })!
 			.body as { json: BillingOverview }
 	).json;
-	value.snapshot.status = status;
-	value.snapshot.stripeCustomerId = customer;
+	value.account.status = status;
+	value.account.hasStripeCustomer = customer !== null;
 	return value;
 }
 function render(value: BillingOverview) {

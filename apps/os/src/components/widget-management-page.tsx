@@ -2,8 +2,7 @@ import { ExperienceEditor } from "@/components/widget-experience-editor";
 import { WidgetContacts } from "@/components/widget-contacts";
 import { WidgetAccessSettings } from "@/components/widget-access-settings";
 import { getOsSurface } from "@/lib/os-navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import {
 	LoadError,
@@ -54,22 +53,12 @@ import {
 	osQuery,
 	operationalContextQueryOptions,
 	organizationDetailQueryOptions,
-	providerCapacitySponsorshipsQueryOptions,
 	appAnalyticsRange,
 	widgetLifecycleHealthQueryOptions,
 } from "@/lib/os-query-options";
 import { resolveTediWidgetConfig } from "@/lib/tedi-widget-config";
 
 type Tab = "experience" | "customers" | "settings" | "performance";
-type CapacityPolicy = {
-	enabled: boolean;
-	budgetRevision: number;
-	maxTransfersPerBudgetDay: number;
-	lowWatermarkTokens: number;
-	lowWatermarkSpendMicros: number;
-	transferTokens: number;
-	transferSpendMicros: number;
-};
 
 function Panel({
 	title,
@@ -125,7 +114,6 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 	const organizationQuery = useQuery(
 		organizationDetailQueryOptions(organizationId),
 	);
-	const sponsorships = useQuery(providerCapacitySponsorshipsQueryOptions());
 	const businesses = useQuery({
 		...osQuery.tedis.listWidgetAccessConfigurations.queryOptions({ input: {} }),
 		enabled: tab === "settings" || tab === "performance",
@@ -142,37 +130,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 		}),
 		refetchInterval: tab === "performance" ? 30_000 : false,
 	});
-	const mutation = useMutation({
-		mutationFn: ({
-			installationId,
-			enabled,
-			policy,
-		}: {
-			installationId: string;
-			enabled: boolean;
-			policy: CapacityPolicy | null;
-		}) =>
-			osApi.billing.setProviderCapacitySponsorship({
-				installationId,
-				policy: policy
-					? { ...policy, enabled }
-					: {
-							enabled,
-							budgetRevision: 1,
-							maxTransfersPerBudgetDay: 1,
-							lowWatermarkTokens: 250_000,
-							lowWatermarkSpendMicros: 1_000_000,
-							transferTokens: 1_000_000,
-							transferSpendMicros: 5_000_000,
-						},
-			}),
-		onSuccess: () =>
-			client.invalidateQueries({
-				queryKey: providerCapacitySponsorshipsQueryOptions().queryKey,
-			}),
-	});
-	const rows = sponsorships.data?.data ?? [];
-	const enabled = rows.filter((row) => row.policy?.enabled).length;
+	const rows = businesses.data?.data ?? [];
 	const hasProviderInstallations = rows.length > 0;
 	if (organizationQuery.isPending)
 		return (
@@ -220,7 +178,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 					<TabsList variant="line" aria-label="Website chat settings">
 						<TabsTrigger value="experience">Customize</TabsTrigger>
 						<TabsTrigger value="customers">Customers</TabsTrigger>
-						<TabsTrigger value="settings">Funding</TabsTrigger>
+						<TabsTrigger value="settings">Installations</TabsTrigger>
 						<TabsTrigger value="performance">Performance</TabsTrigger>
 					</TabsList>
 				</div>
@@ -292,22 +250,9 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 						</p>
 						<Badge variant={hasProviderInstallations ? "success" : "outline"}>
 							{hasProviderInstallations
-								? `${organization.name} sponsored`
+								? "Embedded provider"
 								: "Not acting as an embedded provider"}
 						</Badge>
-					</Panel>
-					<Panel
-						title="Capacity automation"
-						description="Tenants never top up or handle Tedix billing."
-					>
-						<p>
-							{hasProviderInstallations
-								? `${enabled} of ${rows.length} installations replenish automatically.`
-								: "No installation policies to manage."}
-						</p>
-						<p className="text-kumo-subtle">
-							Manage automatic funding separately from customer access.
-						</p>
 					</Panel>
 					<Alert>
 						<AlertTitle>
@@ -318,97 +263,15 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 							not listed here, and each embedded tenant remains isolated.
 						</AlertDescription>
 					</Alert>
-					{sponsorships.isPending && <Skeleton className="h-32 w-full" />}
-					{sponsorships.isError && (
-						<LoadError
-							title="Tenant installations unavailable"
-							error={sponsorships.error}
-							onRetry={() => {
-								void sponsorships.refetch();
-							}}
-							retrying={sponsorships.isFetching}
-							help="The provider sponsorship inventory could not be loaded."
-						/>
-					)}
 					{rows.map((row) => (
 						<Card key={row.installationId}>
-							<CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-								<div>
-									<p className="font-medium text-kumo-strong">
-										{businessByInstallation.get(row.installationId)
-											?.businessName ?? `Installation ${row.installationId}`}
-									</p>
-									<p className="text-kumo-subtle type-tedix-label">
-										{businessByInstallation.get(row.installationId)
-											?.allowedOrigin ?? "Business details unavailable"}
-										<br />
-										Daily funding is separate from assistant access.
-									</p>
-								</div>
-								<div className="flex items-center gap-2">
-									<Badge variant={row.policy?.enabled ? "success" : "warning"}>
-										{row.policy?.enabled ? "Automatic policy" : "Not sponsored"}
-									</Badge>
-									{row.policy?.enabled && (
-										<Badge
-											variant={
-												row.readiness.status === "ready" ||
-												row.readiness.status === "customer_funded"
-													? "success"
-													: "warning"
-											}
-										>
-											{row.readiness.status === "customer_funded"
-												? "Customer funded today"
-												: row.readiness.status === "ready"
-													? "Next transfer funded"
-													: row.readiness.status === "allowance_exhausted"
-														? "Daily allowance used"
-														: "Provider pool needs funding"}
-										</Badge>
-									)}
-									{row.readiness.status ===
-										"provider_capacity_insufficient" && (
-										<Button size="sm" render={<Link to="/admin/billing" />}>
-											Fund today&apos;s pool
-										</Button>
-									)}
-									<Button
-										size="sm"
-										variant="secondary"
-										disabled={mutation.isPending}
-										onClick={() =>
-											mutation.mutate({
-												installationId: row.installationId,
-												enabled: !row.policy?.enabled,
-												policy: row.policy,
-											})
-										}
-									>
-										{row.policy?.enabled
-											? "Pause automatic funding"
-											: "Enable automatic funding"}
-									</Button>
-									{row.policy?.enabled && (
-										<Button
-											size="sm"
-											variant="secondary"
-											disabled={mutation.isPending}
-											onClick={() =>
-												mutation.mutate({
-													installationId: row.installationId,
-													enabled: true,
-													policy: {
-														...row.policy!,
-														budgetRevision: row.policy!.budgetRevision + 1,
-													},
-												})
-											}
-										>
-											Reset allowance
-										</Button>
-									)}
-								</div>
+							<CardContent className="py-4">
+								<p className="font-medium text-kumo-strong">
+									{row.businessName ?? `Installation ${row.installationId}`}
+								</p>
+								<p className="text-kumo-subtle type-tedix-label">
+									{row.allowedOrigin ?? "Business details unavailable"}
+								</p>
 							</CardContent>
 						</Card>
 					))}
