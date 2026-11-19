@@ -6,6 +6,7 @@ import {
 	resolveToolAnnotations,
 	type ToolConfig,
 } from "@tedix/api-contract/schemas/tools";
+import type { WorkspaceConnectionActor } from "@tedix/api-contract/schemas/workspace-connection-read";
 import type { WorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import { getAppByIdWithToolsForOrganization } from "@tedix/db/queries/app-records";
 import {
@@ -39,6 +40,18 @@ const inputSchema = z.strictObject({
 	approvalRequestId: z.uuid().optional(),
 });
 
+type ConnectionCaller =
+	| { kind: "app"; session: WorkspaceAppSession }
+	| {
+			kind: "agent";
+			workspaceId: string;
+			conversationId: string;
+			actor: WorkspaceConnectionActor;
+	  };
+
+/** Keeps the app's refusal text while allowing the agent to offer the right connect link. */
+export class WorkspaceConnectionNotConnected extends Error {}
+
 function refuse(): never {
 	throw createError(
 		ErrorCodes.FORBIDDEN,
@@ -54,7 +67,7 @@ function refuse(): never {
  */
 async function resolveActingAccount(
 	db: BaseContext["db"],
-	actingUserId: string,
+	actingUserId: string | null,
 	resource: OsWorkspaceResourceRow,
 ): Promise<ConnectionInstanceRow> {
 	if (resource.connectionScope !== "user") {
@@ -64,9 +77,13 @@ async function resolveActingAccount(
 			resource.connectionInstanceId!,
 			resource.providerId,
 		);
-		if (!account?.tokenIds.length || !account.tokenSub) refuse();
+		if (!account?.tokenIds.length || !account.tokenSub)
+			throw new WorkspaceConnectionNotConnected(
+				"Connection call is not permitted for this slot",
+			);
 		return account;
 	}
+	if (!actingUserId) refuse();
 	if (resource.personalOwnerUserId === actingUserId) {
 		const account = await getConnectionInstance(
 			db,
@@ -74,7 +91,10 @@ async function resolveActingAccount(
 			resource.connectionInstanceId!,
 			resource.providerId,
 		);
-		if (!account?.tokenIds.length || !account.tokenSub) refuse();
+		if (!account?.tokenIds.length || !account.tokenSub)
+			throw new WorkspaceConnectionNotConnected(
+				"Connection call is not permitted for this slot",
+			);
 		return account;
 	}
 	const own = (
@@ -86,8 +106,7 @@ async function resolveActingAccount(
 			row.tokenSub,
 	);
 	if (!own)
-		throw createError(
-			ErrorCodes.FORBIDDEN,
+		throw new WorkspaceConnectionNotConnected(
 			`This slot reads a personal ${resource.providerId} account. Connect your own ${resource.providerId} account to use it; the workspace owner's account is never used on your behalf.`,
 		);
 	return own;
@@ -100,20 +119,31 @@ async function resolveActingAccount(
  */
 function observationReceipt(
 	context: BaseContext,
-	session: WorkspaceAppSession,
+	caller: ConnectionCaller,
 	resource: OsWorkspaceResourceRow,
-	read: { appSlug: string; toolId: string; actingUserId: string },
+	read: { appSlug: string; toolId: string; actingUserId: string | null },
 	access: OwnAccessEvaluation,
 ) {
 	return {
 		id: crypto.randomUUID(),
 		organizationId: resource.organizationId,
 		workspaceId: resource.workspaceId,
-		gadgetId: session.gadgetId,
-		revisionId: session.revisionId,
-		revision: session.revision,
+		// Agent observations use a conversation namespace; there is no gadget FK.
+		gadgetId:
+			caller.kind === "app"
+				? caller.session.gadgetId
+				: `conversation:${caller.conversationId}`,
+		...(caller.kind === "app"
+			? {
+					revisionId: caller.session.revisionId,
+					revision: caller.session.revision,
+				}
+			: {}),
 		input: JSON.stringify({
 			kind: "connection_observation",
+			...(caller.kind === "agent"
+				? { conversationId: caller.conversationId, actor: caller.actor }
+				: {}),
 			appSlug: read.appSlug,
 			toolId: read.toolId,
 			slot: resource.slot,
@@ -141,35 +171,80 @@ function observationReceipt(
 					: []),
 			],
 		}),
-		createdByKind: "user" as const,
-		createdById: read.actingUserId,
+		createdByKind: read.actingUserId ? ("user" as const) : ("service" as const),
+		createdById:
+			read.actingUserId ??
+			(caller.kind === "agent"
+				? `workspace-agent:${caller.conversationId}`
+				: ""),
 		runtimeEnvironment: context.env.ENVIRONMENT,
 	};
 }
 
-/** Only reviewed, resource-bound reads are supported; effectful tools retain their human boundary. */
+/** App sessions retain their existing actor and preview boundary. */
 export async function callWorkspaceAppConnection(
 	context: BaseContext,
 	session: WorkspaceAppSession,
 	resource: OsWorkspaceResourceRow,
 	input: unknown,
 ) {
+	try {
+		return await callWorkspaceResourceConnection(
+			context,
+			{ kind: "app", session },
+			resource,
+			input,
+		);
+	} catch (error) {
+		if (error instanceof WorkspaceConnectionNotConnected)
+			throw createError(ErrorCodes.FORBIDDEN, error.message);
+		throw error;
+	}
+}
+
+/** All resource, tool, argument, account, access and dispatch checks live here. */
+export async function callWorkspaceResourceConnection(
+	context: BaseContext,
+	caller: ConnectionCaller,
+	resource: OsWorkspaceResourceRow,
+	input: unknown,
+) {
 	const args = inputSchema.parse(input);
+	if (caller.kind === "app") {
+		const session = caller.session;
+		if (
+			context.authType !== "user" ||
+			!context.user?.sub ||
+			session.principal.kind !== "user" ||
+			session.principal.id !== context.user.sub ||
+			session.actorUserId !== context.user.sub ||
+			!["build", "owner"].includes(session.role) ||
+			session.previewId
+		)
+			refuse();
+	}
+	const workspaceId =
+		caller.kind === "app" ? caller.session.workspaceId : caller.workspaceId;
+	const actingUserId =
+		caller.kind === "app"
+			? (context.user?.sub ?? null)
+			: caller.actor.kind === "user"
+				? caller.actor.id
+				: null;
 	if (
-		context.authType !== "user" ||
-		!context.user?.sub ||
-		session.principal.kind !== "user" ||
-		session.principal.id !== context.user.sub ||
-		session.actorUserId !== context.user.sub ||
-		!["build", "owner"].includes(session.role) ||
-		session.previewId ||
 		resource.organizationId !== context.organizationId ||
-		resource.workspaceId !== session.workspaceId ||
+		resource.workspaceId !== workspaceId ||
 		resource.status !== "active" ||
 		!resource.connectionInstanceId ||
-		resource.providerId === "tedix"
+		resource.providerId === "tedix" ||
+		!["user", "tenant"].includes(resource.connectionScope)
 	)
 		refuse();
+	if (!actingUserId && resource.connectionScope === "user")
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Personal accounts require a turn started by a signed-in person. Scheduled and tedi-started turns may use only organization accounts.",
+		);
 	const surface = await getAppByIdWithToolsForOrganization(
 		context.db,
 		args.appId,
@@ -247,7 +322,6 @@ export async function callWorkspaceAppConnection(
 		checkPath((value as Record<string, unknown>)[head], tail);
 	}
 	for (const path of binding.paths) checkPath(args.arguments, path);
-	const actingUserId = context.user.sub;
 	const account = await resolveActingAccount(
 		context.db,
 		actingUserId,
@@ -256,7 +330,7 @@ export async function callWorkspaceAppConnection(
 	const access = await evaluateOwnAccess(context, actingUserId, resource);
 	const receipt = observationReceipt(
 		context,
-		session,
+		caller,
 		resource,
 		{ appSlug: surface.app.slug, toolId: tool.toolId, actingUserId },
 		access,
@@ -293,16 +367,20 @@ export async function callWorkspaceAppConnection(
 		mcpGovernanceContractRouter.requestOwnerToolApproval,
 		{
 			organizationId: resource.organizationId,
-			userId: context.user.sub,
+			...(actingUserId ? { userId: actingUserId } : {}),
 			appSlug: surface.app.slug,
 			toolId: tool.toolId,
 			target: {
 				transport: config.transport ?? "",
 				configHash,
 				workspaceId: resource.workspaceId,
-				gadgetId: session.gadgetId,
-				revisionId: session.revisionId,
-				slot: resource.slot,
+				...(caller.kind === "app"
+					? {
+							gadgetId: caller.session.gadgetId,
+							revisionId: caller.session.revisionId,
+							slot: resource.slot,
+						}
+					: { conversationId: caller.conversationId, actor: caller.actor }),
 				resourceHash: await canonicalDigest(resource),
 				accountHash: await canonicalDigest(account),
 			},
@@ -315,6 +393,10 @@ export async function callWorkspaceAppConnection(
 			context: {
 				...context,
 				authType: "service-binding",
+				workspaceConnectionRead:
+					caller.kind === "agent"
+						? { actor: caller.actor, toolRowId: tool.id }
+						: undefined,
 				headers: new Headers({ "X-Service-Binding": "true" }),
 			},
 		},
@@ -335,7 +417,7 @@ export async function callWorkspaceAppConnection(
 				"X-Service-Binding": "true",
 				"X-Tedix-Org-Id": resource.organizationId,
 				"X-Tedix-Host": `${surface.app.slug}.${new URL(MCP_URL).hostname}`,
-				"X-Tedix-Acting-User": context.user.sub,
+				...(actingUserId ? { "X-Tedix-Acting-User": actingUserId } : {}),
 				"X-Tedix-Kernel": "true",
 				"X-Tedix-Tedi-Scopes": "connections.read",
 			},

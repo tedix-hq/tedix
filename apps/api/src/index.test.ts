@@ -30,6 +30,11 @@ const h = vi.hoisted(() => ({
 	accessChecks: 0,
 	candidateAccessChecks: 0,
 	identityInvalidations: 0,
+	connectionRead: vi.fn(),
+}));
+
+vi.mock("./services/workspace-connection-read", () => ({
+	readLinkedWorkspaceAccount: h.connectionRead,
 }));
 
 vi.mock("./services/identity-cache-invalidation", () => ({
@@ -83,7 +88,11 @@ vi.mock("./kernel/kernel-voice-input-do", () => ({
 	KernelVoiceInputDO: class {},
 }));
 
-import worker, { InternalEntrypoint, McpEntrypoint } from "./index";
+import worker, {
+	InternalEntrypoint,
+	McpEntrypoint,
+	WorkspaceConnectionsEntrypoint,
+} from "./index";
 
 const env = {} as CloudflareEnv;
 const ctx = {} as ExecutionContext;
@@ -296,5 +305,31 @@ describe("version-bound public API release manifest", () => {
 				deploymentRunId: Number(run),
 			});
 		}
+	});
+});
+
+describe("WorkspaceConnectionsEntrypoint", () => {
+	it("exports a dedicated RPC method without loading the HTTP application", async () => {
+		const before = h.evaluations;
+		const input = {
+			organizationId: "org-1",
+			workspaceId: "workspace-1",
+			resourceId: "resource-1",
+			toolName: "list_events",
+			args: {},
+			conversationId: "conversation-1",
+			actor: { kind: "unattended" as const, startedBy: "schedule" as const },
+		};
+		h.connectionRead.mockResolvedValueOnce({
+			status: "refused",
+			message: "The linked resource was not found in this workspace.",
+		});
+		expect(
+			await new WorkspaceConnectionsEntrypoint(ctx, env).readLinkedAccount(
+				input,
+			),
+		).toMatchObject({ status: "refused" });
+		expect(h.connectionRead).toHaveBeenCalledWith(env, input);
+		expect(h.evaluations).toBe(before);
 	});
 });

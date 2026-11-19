@@ -26,6 +26,29 @@ const mocks = vi.hoisted(() => ({
 	ownToken: vi.fn(),
 	receipt: vi.fn(),
 	settle: vi.fn(),
+	workspace: vi.fn(),
+	resource: vi.fn(),
+	role: vi.fn(),
+	membership: vi.fn(),
+	findTool: vi.fn(),
+	approvalTool: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/os-workspaces/workspaces", async (load) => ({
+	...(await load<object>()),
+	getOsWorkspace: mocks.workspace,
+}));
+vi.mock("@tedix/db/queries/os-workspaces/resources", async (load) => ({
+	...(await load<object>()),
+	getOsWorkspaceResource: mocks.resource,
+}));
+vi.mock("@tedix/db/queries/os-workspace-access", async (load) => ({
+	...(await load<object>()),
+	readWorkspaceSessionRole: mocks.role,
+}));
+vi.mock("@tedix/db/queries/tools", async (load) => ({
+	...(await load<object>()),
+	findWorkspaceConnectionTool: mocks.findTool,
+	getToolByIdForOrganization: mocks.approvalTool,
 }));
 vi.mock("@tedix/db/queries/connection-providers", async (load) => ({
 	...(await load<object>()),
@@ -51,6 +74,7 @@ vi.mock("@tedix/db/queries/connection-instances", async (load) => ({
 vi.mock("@tedix/db/queries/organization-members", async (load) => ({
 	...(await load<object>()),
 	getMemberByUserId: mocks.member,
+	getMemberAccessByUserId: mocks.membership,
 }));
 vi.mock("@tedix/db/queries/organizations", async (load) => ({
 	...(await load<object>()),
@@ -68,6 +92,7 @@ vi.mock("../lib/first-party-mcp", () => ({
 	requestFirstPartyMcp: mocks.gateway,
 }));
 import { callWorkspaceAppConnection } from "./os-app-connection";
+import { readLinkedWorkspaceAccount } from "./workspace-connection-read";
 
 const resource = {
 	id: "resource-1",
@@ -855,6 +880,520 @@ describe("app connection read observations and own-access checks", () => {
 		expect(mocks.settle).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({ status: "failed" }),
+		);
+	});
+});
+
+describe("workspace agent linked account reads", () => {
+	const request = {
+		organizationId: "org-1",
+		workspaceId: "workspace-1",
+		resourceId: "resource-1",
+		toolName: "list_events",
+		args: input.arguments,
+		conversationId: "conversation-1",
+		actor: { kind: "user" as const, id: "user-2" },
+	};
+	const env = () =>
+		({
+			...context().env,
+			DB: {
+				withSession: () => ({
+					prepare: vi.fn(),
+					batch: vi.fn(),
+					getBookmark: () => null,
+				}),
+			},
+		}) as unknown as CloudflareEnv;
+	const ownAccount = {
+		id: "account-2",
+		providerId: resource.providerId,
+		tokenIds: ["grant-2"],
+		tokenSub: "subject-2",
+	};
+	beforeEach(() => {
+		mocks.workspace.mockResolvedValue({
+			id: "workspace-1",
+			organizationId: "org-1",
+			status: "active",
+		});
+		mocks.resource.mockResolvedValue({ ...resource });
+		mocks.membership.mockResolvedValue({ status: "active", role: "member" });
+		mocks.member.mockResolvedValue({ status: "active", role: "member" });
+		mocks.role.mockResolvedValue("build");
+		mocks.findTool.mockResolvedValue({ appId: "app-1", toolId: "list_events" });
+		mocks.surface.mockResolvedValue({
+			...surface(),
+			tools: [{ ...surface().tools[0], id: "tool-row-1" }],
+		});
+		mocks.approvalTool.mockResolvedValue({
+			...surface().tools[0],
+			id: "tool-row-1",
+		});
+		mocks.ownAccounts.mockResolvedValue([ownAccount]);
+	});
+	async function read(overrides: Record<string, unknown> = {}) {
+		return readLinkedWorkspaceAccount(env(), { ...request, ...overrides });
+	}
+	function tenant() {
+		mocks.resource.mockResolvedValue({
+			...resource,
+			connectionScope: "tenant",
+			personalOwnerUserId: null,
+		});
+		const app = surface();
+		app.app.metadata.mcpConfig.connectionScope = "tenant";
+		mocks.surface.mockResolvedValue({
+			...app,
+			tools: [{ ...app.tools[0], id: "tool-row-1" }],
+		});
+	}
+	it("re-reads membership and role for every personal read and uses the acting person's own account", async () => {
+		expect(await read()).toMatchObject({ status: "ok" });
+		expect(mocks.membership).toHaveBeenCalledWith(
+			expect.anything(),
+			"org-1",
+			"user-2",
+		);
+		expect(mocks.role).toHaveBeenCalledWith(
+			expect.anything(),
+			"workspace-1",
+			"user-2",
+		);
+		expect(mocks.resource).toHaveBeenCalledWith(expect.anything(), {
+			organizationId: "org-1",
+			workspaceId: "workspace-1",
+			resourceId: "resource-1",
+		});
+		expect(mocks.account).not.toHaveBeenCalled();
+		expect(mocks.gateway).toHaveBeenCalledWith(
+			expect.objectContaining({
+				headers: expect.objectContaining({ "X-Tedix-Acting-User": "user-2" }),
+			}),
+			"tools/call",
+			expect.objectContaining({
+				_meta: expect.objectContaining({
+					"tedix/expectedToolConfig": expect.any(String),
+					"tedix/expectedConnection": expect.objectContaining({
+						connectionInstanceId: "account-2",
+						scope: "user",
+					}),
+				}),
+			}),
+		);
+		expect(mocks.receipt.mock.calls[0]![1]).toMatchObject({
+			gadgetId: "conversation:conversation-1",
+			createdByKind: "user",
+			createdById: "user-2",
+		});
+		expect(JSON.parse(mocks.receipt.mock.calls[0]![1].input)).toMatchObject({
+			conversationId: "conversation-1",
+			actor: request.actor,
+		});
+		mocks.membership.mockResolvedValue({ status: "suspended" });
+		expect(await read()).toMatchObject({
+			status: "refused",
+			message: expect.stringContaining("membership"),
+		});
+		expect(mocks.gateway).toHaveBeenCalledTimes(1);
+	});
+	it.each(["schedule", "tedi"] as const)(
+		"allows an unattended %s read only on the organization account without claiming a person",
+		async (startedBy) => {
+			tenant();
+			const actor = {
+				kind: "unattended",
+				startedBy,
+				...(startedBy === "tedi" ? { tediId: "tedi-1" } : {}),
+			};
+			expect(await read({ actor })).toMatchObject({ status: "ok" });
+			expect(mocks.account).toHaveBeenCalledWith(
+				expect.anything(),
+				{ organizationId: "org-1" },
+				"account-1",
+				resource.providerId,
+			);
+			expect(mocks.membership).not.toHaveBeenCalled();
+			expect(mocks.role).not.toHaveBeenCalled();
+			expect(mocks.gateway.mock.calls[0]![0].headers).not.toHaveProperty(
+				"X-Tedix-Acting-User",
+			);
+			expect(mocks.receipt.mock.calls[0]![1]).toMatchObject({
+				createdByKind: "service",
+				createdById: "workspace-agent:conversation-1",
+			});
+			expect(JSON.parse(mocks.receipt.mock.calls[0]![1].input)).toMatchObject({
+				actor,
+			});
+		},
+	);
+	it.each(["schedule", "tedi"] as const)(
+		"refuses personal reads for an unattended %s actor",
+		async (startedBy) => {
+			expect(
+				await read({ actor: { kind: "unattended", startedBy } }),
+			).toMatchObject({
+				status: "refused",
+				message: expect.stringContaining("signed-in person"),
+			});
+			expect(mocks.account).not.toHaveBeenCalled();
+			expect(mocks.gateway).not.toHaveBeenCalled();
+		},
+	);
+	it("returns the personal connect link without using the owner's account", async () => {
+		mocks.ownAccounts.mockResolvedValue([]);
+		expect(await read()).toEqual({
+			status: "not_connected",
+			providerId: resource.providerId,
+			scope: "user",
+			connectPath: `/account/connections?connect=${resource.providerId}`,
+		});
+		expect(mocks.account).not.toHaveBeenCalled();
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it("returns the organization connect path for a missing grant", async () => {
+		tenant();
+		mocks.account.mockResolvedValue({
+			id: "account-1",
+			tokenIds: [],
+			tokenSub: "subject",
+		});
+		expect(
+			await read({ actor: { kind: "unattended", startedBy: "schedule" } }),
+		).toEqual({
+			status: "not_connected",
+			providerId: resource.providerId,
+			scope: "tenant",
+			connectPath: "/admin/connections",
+		});
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it("returns a bound owner approval when the tool has an approval rule", async () => {
+		mocks.approvalTool.mockResolvedValue({
+			...surface().tools[0],
+			config: { ...surface().tools[0]!.config, approvalPolicy: "always" },
+		});
+		const result = await read();
+		expect(result).toMatchObject({
+			status: "approval_required",
+			approvalId: expect.any(String),
+		});
+		expect(mocks.gateway).not.toHaveBeenCalled();
+		const target = mocks.create.mock.calls[0]![1].payload.target;
+		expect(target).toMatchObject({
+			workspaceId: "workspace-1",
+			conversationId: "conversation-1",
+			actor: request.actor,
+			resourceHash: expect.any(String),
+			accountHash: expect.any(String),
+			configHash: expect.any(String),
+		});
+		expect(target).not.toHaveProperty("gadgetId");
+		expect(target).not.toHaveProperty("revisionId");
+		expect(target).not.toHaveProperty("slot");
+	});
+	it("records an unattended approval as a service request", async () => {
+		tenant();
+		mocks.approvalTool.mockResolvedValue({
+			...surface().tools[0],
+			config: { ...surface().tools[0]!.config, approvalPolicy: "once" },
+		});
+		expect(
+			await read({ actor: { kind: "unattended", startedBy: "schedule" } }),
+		).toMatchObject({ status: "approval_required" });
+		expect(mocks.create.mock.calls[0]![1].payload).not.toHaveProperty(
+			"initiatedByUserId",
+		);
+		expect(mocks.create.mock.calls[0]![2]).toMatchObject({
+			actorType: "service",
+			actorId: "workspace-agent:conversation-1",
+		});
+	});
+	it.each([null, "use", "view"])(
+		"refuses a person whose current workspace role is %s",
+		async (role) => {
+			mocks.role.mockResolvedValue(role);
+			expect(await read()).toMatchObject({
+				status: "refused",
+				message: expect.stringContaining("build or owner"),
+			});
+			expect(mocks.gateway).not.toHaveBeenCalled();
+		},
+	);
+	it("accepts an owner role and refuses once the role is revoked", async () => {
+		mocks.role.mockResolvedValue("owner");
+		expect(await read()).toMatchObject({ status: "ok" });
+		mocks.role.mockResolvedValue(null);
+		expect(await read()).toMatchObject({ status: "refused" });
+		expect(mocks.gateway).toHaveBeenCalledTimes(1);
+	});
+	it.each([undefined, { status: "suspended" }, { status: "invited" }])(
+		"requires active organization membership: %j",
+		async (member) => {
+			mocks.membership.mockResolvedValue(member);
+			expect(await read()).toMatchObject({ status: "refused" });
+			expect(mocks.role).not.toHaveBeenCalled();
+			expect(mocks.gateway).not.toHaveBeenCalled();
+		},
+	);
+	it.each([undefined, { status: "archived" }])(
+		"refuses unavailable workspaces: %j",
+		async (workspace) => {
+			mocks.workspace.mockResolvedValue(workspace);
+			expect(await read()).toMatchObject({ status: "refused" });
+			expect(mocks.gateway).not.toHaveBeenCalled();
+		},
+	);
+	it("refuses missing resources and ambiguous tool names", async () => {
+		mocks.resource.mockResolvedValueOnce(undefined);
+		expect(await read()).toMatchObject({ status: "refused" });
+		mocks.findTool.mockResolvedValue(undefined);
+		expect(await read()).toMatchObject({ status: "refused" });
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it.each([
+		{ organizationId: "other-org" },
+		{ workspaceId: "other-workspace" },
+		{ status: "archived" },
+		{ providerId: "tedix" },
+		{ connectionInstanceId: null },
+		{ connectionScope: "invalid" },
+		{ requiredScopes: '["extra.scope"]' },
+		{ requiredScopes: "invalid" },
+		{ providerAccess: { canRead: false } },
+		{ resourceType: "other" },
+		{ providerResourceId: "other" },
+	])("shares the resource refusal checks: %j", async (change) => {
+		mocks.resource.mockResolvedValue({ ...resource, ...change });
+		expect(await read()).toMatchObject({ status: "refused" });
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it.each([
+		{ toolId: "different_tool" },
+		{ config: undefined },
+		{
+			config: {
+				...surface().tools[0]!.config,
+				personalResourceBinding: {
+					...surface().tools[0]!.config.personalResourceBinding,
+					operation: "write",
+				},
+			},
+		},
+		{ enabled: false },
+		{ config: { ...surface().tools[0]!.config, transport: "rpc" } },
+		{ config: { ...surface().tools[0]!.config, connectionReadOnly: false } },
+		{ annotations: { readOnlyHint: false } },
+		{ annotations: { readOnlyHint: true, destructiveHint: true } },
+		{ config: { ...surface().tools[0]!.config, auth: { type: "none" } } },
+		{
+			config: {
+				...surface().tools[0]!.config,
+				auth: {
+					type: "connection",
+					connectionId: "other",
+					scopes: ["calendar.read"],
+				},
+			},
+		},
+		{
+			config: {
+				...surface().tools[0]!.config,
+				personalResourceBinding: undefined,
+			},
+		},
+	])("shares the tool refusal checks: %j", async (change) => {
+		mocks.surface.mockResolvedValue({
+			...surface(),
+			tools: [{ ...surface().tools[0], ...change }],
+		});
+		expect(await read()).toMatchObject({ status: "refused" });
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it.each([
+		{ connectionProviderId: "other" },
+		{ connectionInstanceId: "other" },
+		{ connectionScope: "tenant" },
+	])("refuses a changed connection route: %j", async (route) => {
+		const app = surface();
+		Object.assign(app.app.metadata.mcpConfig, route);
+		mocks.surface.mockResolvedValue(app);
+		expect(await read()).toMatchObject({ status: "refused" });
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it.each([
+		{ calendarId: "other" },
+		{},
+		{ calendarId: ["calendar-1", "other"] },
+	])("refuses unbound arguments: %j", async (args) => {
+		expect(await read({ args })).toMatchObject({ status: "refused" });
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it("keeps own-access enforcement for unattended organization reads", async () => {
+		tenant();
+		mocks.organization.mockResolvedValue({
+			slug: "fictional",
+			metadata: {
+				connectionAccessChecks: [
+					{ connectionInstanceId: "account-1", checkEachPersonsAccess: true },
+				],
+			},
+		});
+		expect(
+			await read({ actor: { kind: "unattended", startedBy: "schedule" } }),
+		).toMatchObject({
+			status: "refused",
+			message: expect.stringContaining("checks each person's"),
+		});
+		expect(mocks.receipt.mock.calls[0]![1]).toMatchObject({ status: "denied" });
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it("settles failed reads without exposing internal errors", async () => {
+		mocks.gateway.mockRejectedValue(new Error("private error details"));
+		expect(await read()).toMatchObject({
+			status: "refused",
+			message: expect.not.stringContaining("private error"),
+		});
+		expect(mocks.settle).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ status: "failed" }),
+		);
+	});
+	it.each([
+		{ actor: { kind: "user", id: "user-2", role: "owner" } },
+		{ resource },
+		{ args: undefined },
+		{ conversationId: "" },
+	])(
+		"rejects caller-supplied authority and malformed requests: %j",
+		async (change) => {
+			expect(await read(change)).toMatchObject({ status: "refused" });
+			expect(mocks.workspace).not.toHaveBeenCalled();
+		},
+	);
+});
+
+describe("shared workspace connection refusal boundaries", () => {
+	it.each([
+		"machine",
+		"missing user",
+		"non-user principal",
+		"different principal",
+		"different actor",
+		"use role",
+		"preview",
+	])("refuses an app session with %s", async (change) => {
+		const ctx = context();
+		let actor = { ...session };
+		if (change === "machine") ctx.authType = "service-binding";
+		if (change === "missing user") delete ctx.user;
+		if (change === "non-user principal")
+			actor = {
+				...actor,
+				principal: { kind: "service", id: "service-1" },
+			} as WorkspaceAppSession;
+		if (change === "different principal")
+			actor.principal = { kind: "user", id: "user-2" };
+		if (change === "different actor") actor.actorUserId = "user-2";
+		if (change === "use role") actor.role = "use";
+		if (change === "preview") actor.previewId = "preview-1";
+		await expect(
+			callWorkspaceAppConnection(ctx, actor, resource, input),
+		).rejects.toThrow();
+		expect(mocks.surface).not.toHaveBeenCalled();
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it.each([
+		undefined,
+		{ tokenIds: [], tokenSub: "subject" },
+		{ tokenIds: ["grant"], tokenSub: null },
+	])("refuses a missing account grant: %j", async (account) => {
+		mocks.account.mockResolvedValue(account);
+		await expect(
+			callWorkspaceAppConnection(context(), session, resource, input),
+		).rejects.toThrow();
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it.each([
+		{ paths: [["calendarId"]], args: {} },
+		{ paths: [["calendarId"]], args: { calendarId: "other" } },
+		{ paths: [["items", "*", "id"]], args: { items: [] } },
+		{ paths: [["items", "*", "id"]], args: { items: "calendar-1" } },
+		{
+			paths: [["items", "*", "id"]],
+			args: { items: Array.from({ length: 51 }, () => ({ id: "calendar-1" })) },
+		},
+		{
+			paths: [["items", "*", "id"]],
+			args: { items: [{ id: "calendar-1" }, { id: "other" }] },
+		},
+		{ paths: [["nested", "id"]], args: { nested: ["calendar-1"] } },
+		{ paths: [["nested", "id"]], args: { nested: null } },
+		{
+			paths: [["constructor", "id"]],
+			args: { constructor: { id: "calendar-1" } },
+		},
+		{
+			paths: [["calendarId"], ["secondId"]],
+			args: { calendarId: "calendar-1", secondId: "other" },
+		},
+	])(
+		"refuses every mismatched resource argument: %j",
+		async ({ paths, args }) => {
+			const app = surface();
+			app.tools[0]!.config.personalResourceBinding.paths = paths;
+			mocks.surface.mockResolvedValue(app);
+			await expect(
+				callWorkspaceAppConnection(context(), session, resource, {
+					...input,
+					arguments: args,
+				}),
+			).rejects.toThrow();
+			expect(mocks.create).not.toHaveBeenCalled();
+			expect(mocks.gateway).not.toHaveBeenCalled();
+		},
+	);
+	it("accepts a bounded wildcard only when every element points to the linked resource", async () => {
+		const app = surface();
+		app.tools[0]!.config.personalResourceBinding.paths = [["items", "*", "id"]];
+		mocks.surface.mockResolvedValue(app);
+		expect(
+			await callWorkspaceAppConnection(context(), session, resource, {
+				...input,
+				arguments: { items: [{ id: "calendar-1" }, { id: "calendar-1" }] },
+			}),
+		).toMatchObject({ approval: { approved: false } });
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it.each(["MCP_SERVICE", "MCP_URL"] as const)(
+		"refuses when %s is unavailable",
+		async (key) => {
+			const ctx = context();
+			delete ctx.env[key];
+			await expect(
+				callWorkspaceAppConnection(ctx, session, resource, input),
+			).rejects.toThrow("MCP service unavailable");
+			expect(mocks.gateway).not.toHaveBeenCalled();
+		},
+	);
+	it("settles a provider error as a failed receipt and preserves the tool result", async () => {
+		const approved = await retry();
+		const result = {
+			isError: true,
+			content: [{ type: "text", text: "Read unavailable" }],
+		};
+		mocks.gateway.mockResolvedValue(result);
+		expect(
+			await callWorkspaceAppConnection(context(), session, resource, approved),
+		).toEqual(result);
+		expect(mocks.settle).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				status: "failed",
+				error: "Provider reported an error",
+			}),
 		);
 	});
 });

@@ -6,6 +6,10 @@
  * "why not a direct D1 query from apps/mcp" rationale.
  */
 
+import {
+	resolveToolAnnotations,
+	type ToolConfig,
+} from "@tedix/api-contract/schemas/tools";
 import { ProviderCredentialSummarySchema } from "@tedix/api-contract/schemas/provider-probe-receipt";
 import { SensitiveDataEgressApprovalSchema } from "@tedix/api-contract/schemas/sensitive-data-latch";
 import { extractJwtScopes } from "@tedix/auth/types";
@@ -1550,7 +1554,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				workItemId = admittedWork;
 				input.userId = active.principal.credentialBindingId;
 			}
-			if (!input.userId)
+			if (!input.userId && !context.workspaceConnectionRead)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
 					"A verified requesting owner is required",
@@ -1581,14 +1585,20 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						"Exact fetch approval is disabled, the turn ended, or the sensitive-data lock changed",
 					);
 			}
-			const requester = await getMemberByUserId(
-				context.db,
-				input.organizationId,
-				input.userId,
-			);
+			const requester = input.userId
+				? await getMemberByUserId(
+						context.db,
+						input.organizationId,
+						input.userId,
+					)
+				: undefined;
 			if (
-				requester?.status !== "active" ||
-				!["owner", "admin"].includes(requester.role)
+				context.workspaceConnectionRead
+					? context.workspaceConnectionRead.actor.kind === "user" &&
+						(requester?.status !== "active" ||
+							context.workspaceConnectionRead.actor.id !== input.userId)
+					: requester?.status !== "active" ||
+						!["owner", "admin"].includes(requester.role)
 			)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
@@ -1608,13 +1618,57 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					ErrorCodes.NOT_FOUND,
 					"Organization OS is unavailable",
 				);
+			if (context.workspaceConnectionRead) {
+				// Only the internal checked workspace adapter attests these reads. Re-read
+				// the tool so this attestation cannot turn a mutating tool into a free read.
+				const tool = await getToolByIdForOrganization(context.db, {
+					organizationId: input.organizationId,
+					toolId: context.workspaceConnectionRead.toolRowId,
+				});
+				const annotations = tool ? resolveToolAnnotations(tool) : undefined;
+				const config = tool?.config as ToolConfig | null | undefined;
+				if (
+					!tool?.enabled ||
+					tool.toolId !== input.toolId ||
+					config?.connectionReadOnly !== true ||
+					annotations?.readOnlyHint !== true ||
+					annotations.destructiveHint === true ||
+					!["mcp", "external"].includes(config.transport ?? "") ||
+					input.requestingAgent ||
+					input.directUserCall ||
+					egress ||
+					(context.workspaceConnectionRead.actor.kind === "unattended" &&
+						input.userId !== undefined) ||
+					typeof input.target.workspaceId !== "string" ||
+					typeof input.target.conversationId !== "string" ||
+					typeof input.target.resourceHash !== "string" ||
+					typeof input.target.accountHash !== "string" ||
+					(await canonicalDigest(input.target.actor)) !==
+						(await canonicalDigest(context.workspaceConnectionRead.actor))
+				)
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Only a checked workspace connection read may use this approval path",
+					);
+				const policy =
+					config.approvalPolicies?.[`${input.appSlug}:${tool.toolId}`] ??
+					config.approvalPolicy;
+				// The gateway still checks the pinned live configuration and all its rules.
+				if (!policy || policy === "never")
+					return { approved: true, status: "read_allowed", url: origin };
+			}
+			const requestingUserId = input.userId ?? "";
+
 			if (
 				input.directUserCall &&
 				!input.requestingAgent &&
 				!input.approvalRequestId &&
 				!egress
 			) {
-				if (input.target.requiredRole === "owner" && requester.role !== "owner")
+				if (
+					input.target.requiredRole === "owner" &&
+					requester?.role !== "owner"
+				)
 					throw createError(
 						ErrorCodes.FORBIDDEN,
 						"Only an owner can run this tool",
@@ -1628,7 +1682,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			}
 			const fingerprint = await canonicalDigest({
 				organizationId: input.organizationId,
-				userId: input.userId,
+				userId: requestingUserId,
 				appSlug: input.appSlug,
 				toolId: input.toolId,
 				target: input.target,
@@ -1639,7 +1693,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			});
 			const callIdentity = ownerToolCallIdentity({
 				...input,
-				userId: input.userId,
+				userId: requestingUserId,
 			});
 			const callFingerprint = await canonicalDigest(callIdentity);
 			const now = new Date().toISOString();
@@ -1799,7 +1853,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			const app = input.appSlug.replace(/[-_]+/g, " ");
 			const organizationName = organization!.name || organization!.slug;
 			const requestedFor =
-				requester.name || "the requesting organization member";
+				requester?.name || "the requesting organization member";
 			// The anchor supplies the existing approval queue's FK, never tedi authority.
 			const anchor = await getApprovalAnchor(context.db, input.organizationId);
 			if (!anchor)
@@ -1820,7 +1874,9 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						: `${title}. In ${app} for ${requestedFor} (${organizationName}). ${input.target.requiredRole === "owner" ? "Only an owner can run this tool. " : input.target.requiredRole === "admin_or_owner" ? "Only an owner or admin can run this tool. " : ""}Nothing has run yet; approving runs this exact call once.`,
 					payload: {
 						kind: "mcp_tool_call",
-						initiatedByUserId: input.userId,
+						...(input.userId
+							? { initiatedByUserId: input.userId }
+							: { workspaceReadActor: context.workspaceConnectionRead!.actor }),
 						appSlug: input.appSlug,
 						toolId: input.toolId,
 						target: input.target,
@@ -1836,8 +1892,15 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				},
 				{
 					organizationId: input.organizationId,
-					actorId: input.requestingAgent?.principalId ?? input.userId,
-					actorType: input.requestingAgent ? "external_agent" : "user",
+					actorId:
+						input.requestingAgent?.principalId ??
+						input.userId ??
+						`workspace-agent:${input.target.conversationId}`,
+					actorType: input.requestingAgent
+						? "external_agent"
+						: input.userId
+							? "user"
+							: "service",
 					action: "approval.requested",
 					resourceType: "approval_request",
 					resourceId: id,

@@ -2,9 +2,10 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { appTools } from "../schema/tools";
+import { apps } from "../schema/apps";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { listToolsPage } from "./tools";
+import { findWorkspaceConnectionTool, listToolsPage } from "./tools";
 
 const APP_ID = "5eed0020-0000-4000-8000-000000000020";
 const OTHER_APP_ID = "11111111-1111-4111-8111-111111111111";
@@ -103,5 +104,74 @@ describe("listToolsPage", () => {
 		});
 		expect(literalWildcard.total).toBe(0);
 		expect(literalWildcard.inventoryTotal).toBe(3);
+	});
+});
+
+describe("findWorkspaceConnectionTool", () => {
+	it("scopes exact names to the tenant and connection route and refuses ambiguity", async () => {
+		const db = await setupTools([
+			{ id: "tool-1", toolId: "list_events" },
+			{ id: "tool-2", toolId: "list_events", appId: OTHER_APP_ID },
+		]);
+		await db.$client.exec(schemaDdl(apps));
+		const metadata = {
+			mcpConfig: {
+				connectionProviderId: "fictional-calendar",
+				connectionInstanceId: "account-1",
+				connectionScope: "tenant" as const,
+			},
+		};
+		await db.insert(apps).values([
+			{
+				id: APP_ID,
+				organizationId: "org-1",
+				name: "Calendar reader",
+				slug: "calendar-reader",
+				metadata,
+			},
+			{
+				id: OTHER_APP_ID,
+				organizationId: "org-2",
+				name: "Other reader",
+				slug: "other-reader",
+				metadata,
+			},
+		]);
+		const input = {
+			organizationId: "org-1",
+			toolName: "list_events",
+			providerId: "fictional-calendar",
+			connectionInstanceId: "account-1",
+			connectionScope: "tenant" as const,
+		};
+		expect(await findWorkspaceConnectionTool(db, input)).toEqual({
+			appId: APP_ID,
+			toolId: "list_events",
+		});
+		for (const change of [
+			{ organizationId: "org-3" },
+			{ toolName: "missing" },
+			{ providerId: "other" },
+			{ connectionInstanceId: "other" },
+			{ connectionScope: "user" as const },
+		])
+			expect(
+				await findWorkspaceConnectionTool(db, { ...input, ...change }),
+			).toBeUndefined();
+		await db.insert(apps).values({
+			id: "duplicate-app",
+			organizationId: "org-1",
+			name: "Duplicate reader",
+			slug: "duplicate-reader",
+			metadata,
+		});
+		await db.insert(appTools).values({
+			id: "duplicate-tool",
+			title: "List events",
+			appId: "duplicate-app",
+			toolId: "list_events",
+			toolTypeId: "rpc",
+		});
+		expect(await findWorkspaceConnectionTool(db, input)).toBeUndefined();
 	});
 });
