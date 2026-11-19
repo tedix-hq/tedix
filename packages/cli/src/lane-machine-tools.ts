@@ -1,6 +1,6 @@
-import { appendFile, open, readdir, readFile } from "node:fs/promises";
+import { open, readdir, readFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import {
 	MACHINE_READ_TOOL_NAMES,
 	MACHINE_TOOL_NAMES,
@@ -21,11 +21,13 @@ import { laneChildEnv } from "./lane-child-env";
 import { laneCommand } from "./lane-command";
 import { runStepToolMissing } from "./lane-heartbeat";
 import { machineWorkspaces } from "./lane-machine-workspaces";
+import { beginFileLock } from "./local-file-lock";
 import { fileNativeBootstrapCache } from "./native-bootstrap-cache";
 import { parseOptions } from "./options";
 import { resolveOrganizationTarget } from "./organization-target";
 import {
 	readRunnerDuties,
+	RUNNER_UPDATE_EXIT_CODE,
 	runnerKey,
 	type RunnerDuty,
 } from "./supervise-runners";
@@ -56,6 +58,7 @@ export const MACHINE_TOOL_ACTIVE_MS = 2_000;
 const ACTIVE_WINDOW_MS = 120_000;
 /** How long it stops asking after the server said it has no such tool. */
 export const MACHINE_TOOL_UNAVAILABLE_MS = 3_600_000;
+export const MACHINE_TOOL_FAILURE_LOG_MS = 60_000;
 const FILE_LINE_LIMIT = 400;
 const LINE_LIMIT = 300;
 const FETCH_INTERVAL_MS = 60_000;
@@ -89,9 +92,10 @@ export interface MachineToolsIdentity {
 }
 
 /**
- * Who this machine is to a tedi, from the saved runner settings. One runner
- * serves machine tools: the codex runner when one is enabled, else the first
- * enabled runner in the saved list, which is the first the supervisor starts.
+ * Who this machine is to a tedi, from the saved runner settings. Machine
+ * tools are served under one runner's settings and sign-in, by a process of
+ * their own: the codex runner's when one is enabled, else the first enabled
+ * runner's in the saved list.
  */
 export function machineToolsIdentity(
 	env: NodeJS.ProcessEnv,
@@ -708,7 +712,8 @@ export function createMachineToolsLoop(options: {
 	const running = new Set<Promise<void>>();
 	let finished: NonNullable<MachineToolClaimInput["results"]> = [];
 	let lastCallAt = Number.NEGATIVE_INFINITY;
-	let failing = false;
+	let failures = 0;
+	let failureLoggedAt = Number.NEGATIVE_INFINITY;
 
 	async function cycle(): Promise<number> {
 		const sending = finished.slice(0, 20);
@@ -728,11 +733,21 @@ export function createMachineToolsLoop(options: {
 				options.log("machine-tools-unavailable", message);
 				return MACHINE_TOOL_UNAVAILABLE_MS;
 			}
-			if (!failing) options.log("machine-tools-failed", message);
-			failing = true;
+			// Said again each minute, so a long outage is not one old line.
+			if (Date.now() - failureLoggedAt >= MACHINE_TOOL_FAILURE_LOG_MS) {
+				failureLoggedAt = Date.now();
+				options.log("machine-tools-failed", message);
+			}
+			failures += 1;
 			return MACHINE_TOOL_IDLE_MS;
 		}
-		failing = false;
+		if (failures)
+			options.log(
+				"machine-tools-recovered",
+				`after ${failures} failed ${failures === 1 ? "claim" : "claims"}`,
+			);
+		failures = 0;
+		failureLoggedAt = Number.NEGATIVE_INFINITY;
 		finished = finished.filter((result) => !sending.includes(result));
 		for (const call of isRecord(value) && Array.isArray(value.calls)
 			? value.calls
@@ -759,46 +774,90 @@ export function createMachineToolsLoop(options: {
 			: MACHINE_TOOL_IDLE_MS;
 	}
 
-	return { cycle, inFlight: () => Promise.all(running) };
+	return {
+		cycle,
+		inFlight: () => Promise.all(running),
+		/** True when no call is being answered and no answer waits to be sent. */
+		idle: () => running.size === 0 && finished.length === 0,
+	};
 }
 
 /**
- * Starts machine tools on the runner the saved settings pick; on any other
- * runner it does nothing.
+ * `tedix lane serve --machine-tools-only`: answers machine tool calls in a
+ * process of its own, so a runner busy with agent runs cannot delay them. The
+ * supervisor keeps one per machine, started with the arguments of the runner
+ * the saved settings pick; a second one waits for the first to leave. It
+ * leaves, to be started again, when those settings change or a newer CLI is
+ * installed, once no answer is in progress or unsent.
  */
-export function startLaneMachineTools(
+export async function serveMachineTools(
 	serve: { scope: string[]; repo: string },
-	directory: string,
+	installedVersion: () => string | undefined | Promise<string | undefined>,
 	env: NodeJS.ProcessEnv = process.env,
-): void {
+): Promise<number> {
 	const identity = machineToolsIdentity(env);
-	if (identity.serving?.key !== basename(directory)) return;
+	const saved = JSON.stringify(identity);
+	const scoped = (name: string) => serve.scope[serve.scope.indexOf(name) + 1];
+	if (
+		identity.serving?.organization !== scoped("--organization") ||
+		identity.serving?.workspace !== scoped("--workspace")
+	) {
+		process.stderr.write(
+			"Machine tools are served for the runner the saved settings pick; these arguments are not that runner's\n",
+		);
+		return 1;
+	}
+	const configDir = env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix");
+	const log = (event: string, reason: string) =>
+		process.stderr.write(
+			`${JSON.stringify({ at: new Date().toISOString(), event, reason })}\n`,
+		);
 	const loop = createMachineToolsLoop({
 		reporterId: dispatcherReporterId(env),
 		machineName: identity.machineName,
 		claim: createMachineToolClaimer(serve.scope),
 		handlers: machineToolHandlers({
 			checkout: serve.repo,
-			configDir: env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
+			configDir,
 			env,
 			write: identity.write,
 		}),
-		log: (event, reason) => {
-			const line = `${JSON.stringify({ at: new Date().toISOString(), event, reason })}\n`;
-			void appendFile(join(directory, "dispatcher.log"), line).catch(() => {});
-			process.stderr.write(line);
-		},
+		log,
 	});
-	const next = (delay: number) => {
-		// Never the reason a stopping runner stays alive.
-		setTimeout(
-			() =>
-				void loop
-					.cycle()
-					.catch(() => MACHINE_TOOL_IDLE_MS)
-					.then(next),
-			delay,
-		).unref();
+	let stopping = false;
+	let wake = () => {};
+	const stop = () => {
+		stopping = true;
+		wake();
 	};
-	next(MACHINE_TOOL_IDLE_MS);
+	process.on("SIGTERM", stop);
+	process.on("SIGINT", stop);
+	const lock = beginFileLock(join(configDir, "machine-tools", "lock"));
+	try {
+		log("machine-tools-serving", identity.machineName);
+		while (!stopping) {
+			if (
+				loop.idle() &&
+				(JSON.stringify(machineToolsIdentity(env)) !== saved ||
+					(await installedVersion()))
+			)
+				return RUNNER_UPDATE_EXIT_CODE;
+			const delay = lock.ready()
+				? await loop.cycle().catch(() => MACHINE_TOOL_IDLE_MS)
+				: MACHINE_TOOL_ACTIVE_MS;
+			if (stopping) break;
+			await new Promise<void>((done) => {
+				const timer = setTimeout(done, delay);
+				wake = () => {
+					clearTimeout(timer);
+					done();
+				};
+			});
+		}
+		return 0;
+	} finally {
+		process.off("SIGTERM", stop);
+		process.off("SIGINT", stop);
+		lock.release();
+	}
 }
