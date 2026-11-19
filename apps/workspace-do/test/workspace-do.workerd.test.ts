@@ -5,7 +5,7 @@ import {
 	osWorkspaceAccessEdges,
 	osWorkspaceShareLinks,
 } from "@tedix/db/schema/os-collaborators";
-import { InternalEntrypoint } from "../src/index";
+import migrationWorker, { InternalEntrypoint } from "../src/index";
 import {
 	createExecutionContext,
 	env,
@@ -64,9 +64,14 @@ import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	getWorkspaceOutputIndexCurrent,
+	getWorkspaceOutputIndexRevision,
 	listWorkspaceActivity,
 } from "@tedix/db/queries/workspace-feed/read";
-import { storeOutputBody, TenantDataPort } from "../src/data-port-tenant";
+import {
+	readOutputBody,
+	storeOutputBody,
+	TenantDataPort,
+} from "../src/data-port-tenant";
 import {
 	FILE_TEXT_INLINE_CHARS,
 	FILE_TEXT_PART_CHARS,
@@ -7463,6 +7468,220 @@ describe("document transfer primitive", () => {
 				outputId: transfer.outputId,
 			}),
 		).toBeDefined();
+	});
+});
+
+describe("adopting shared files", () => {
+	async function fixture() {
+		await seedCore();
+		const target = { ...scope, workspaceId: crypto.randomUUID() };
+		const core = createDbQueryClient(testEnv.DB);
+		await core.insert(osWorkspaces).values({
+			id: target.workspaceId,
+			organizationId: target.organizationId,
+			name: "Home",
+			createdByKind: "user",
+			createdById: "u1",
+		});
+		const ws = workspace(target);
+		await ws.outputQuery(target, { op: "initialize" });
+		async function seedFile(
+			options: {
+				organizationId?: string;
+				workspaceId?: string;
+				kind?: "document" | "sheet";
+			} = {},
+		) {
+			const id = crypto.randomUUID();
+			const organizationId = options.organizationId ?? target.organizationId;
+			const createdAt = "2026-11-07T10:00:00.000Z";
+			const updatedAt = "2026-11-08T10:00:00.000Z";
+			const [output] = await core
+				.insert(osOutputs)
+				.values({
+					id,
+					organizationId,
+					workspaceId: options.workspaceId ?? null,
+					title: "Archived material",
+					kind: options.kind ?? "document",
+					status: "archived",
+					currentRevisionId: `${id}-r2`,
+					createdByKind: "tedi",
+					createdById: "tedi1",
+					createdAt,
+					updatedAt,
+				})
+				.returning();
+			const revisions = [];
+			for (const revision of [1, 2]) {
+				const body = await storeOutputBody(
+					testEnv.R2_BUCKET,
+					organizationId,
+					`fixture body ${revision}`,
+				);
+				const [saved] = await core
+					.insert(osOutputRevisions)
+					.values({
+						...body,
+						id: `${id}-r${revision}`,
+						organizationId,
+						outputId: id,
+						revision,
+						content: "",
+						note: "Imported note",
+						createdByKind: "tedi",
+						createdById: "tedi1",
+						createdAt: revision === 1 ? createdAt : updatedAt,
+					})
+					.returning();
+				revisions.push(saved!);
+			}
+			return { output: output!, revisions };
+		}
+		async function adopt(outputIds: string[], dryRun: boolean) {
+			const token = "test-migration-token";
+			return migrationWorker.fetch(
+				new Request(
+					`https://workspace.internal/migration/workspaces/${target.organizationId}/${target.workspaceId}/import`,
+					{
+						method: "POST",
+						headers: {
+							authorization: `Bearer ${token}`,
+							"content-type": "application/json",
+						},
+						body: JSON.stringify({ operation: "adopt", outputIds, dryRun }),
+					},
+				),
+				{
+					...testEnv,
+					DB: testEnv.DB,
+					WORKSPACE: testEnv.WORKSPACE,
+					MIGRATE_WORKSPACES_TOKEN: token,
+				},
+			);
+		}
+		return { target, core, ws, seedFile, adopt };
+	}
+
+	test("previews exact writes and adopts archived files and all revisions once", async () => {
+		const { target, core, ws, seedFile, adopt } = await fixture();
+		const files = [await seedFile({ kind: "sheet" }), await seedFile()];
+		const outputIds = files.map(({ output }) => output.id);
+		const writes = files.map(({ output, revisions }) => ({
+			output: { ...output, workspaceId: target.workspaceId },
+			revisions,
+		}));
+		const stored = () => ws.outputQuery(target, { op: "list" });
+		const activity = () =>
+			listWorkspaceActivity(
+				core,
+				{
+					organizationId: target.organizationId,
+					viewer: { userIds: [] },
+				},
+				{ workspaceId: target.workspaceId, kinds: ["output"] },
+			);
+		const generation = (await ws.describe(target)).importGeneration;
+		const preview = await adopt(outputIds, true);
+		expect(preview.status).toBe(200);
+		expect(await preview.json()).toEqual({
+			dryRun: true,
+			scope: target,
+			writes,
+			unchanged: [],
+		});
+		expect(await stored()).toEqual([]);
+		expect(await activity()).toEqual([]);
+		expect(
+			await getWorkspaceOutputIndexCurrent(core, {
+				...target,
+				outputId: outputIds[0]!,
+			}),
+		).toBeUndefined();
+
+		const applied = await adopt(outputIds, false);
+		expect(applied.status).toBe(200);
+		expect(await applied.json()).toEqual({
+			dryRun: false,
+			scope: target,
+			writes,
+			unchanged: [],
+		});
+		for (const { output, revisions } of writes) {
+			expect(
+				await ws.outputQuery(target, { op: "get", outputId: output.id }),
+			).toEqual(output);
+			for (const revision of revisions) {
+				const storedRevision = await ws.outputQuery(target, {
+					op: "revision",
+					revisionId: revision.id,
+				});
+				expect(storedRevision).toEqual(revision);
+				expect(await readOutputBody(testEnv.R2_BUCKET, storedRevision!)).toBe(
+					`fixture body ${revision.revision}`,
+				);
+				expect(
+					await getWorkspaceOutputIndexRevision(core, {
+						organizationId: target.organizationId,
+						revisionId: revision.id,
+					}),
+				).toMatchObject({
+					workspaceId: target.workspaceId,
+					status: "archived",
+					bodyR2Key: revision.bodyR2Key,
+				});
+			}
+			expect(
+				await getWorkspaceOutputIndexCurrent(core, {
+					...target,
+					outputId: output.id,
+				}),
+			).toMatchObject({
+				workspaceId: target.workspaceId,
+				status: "archived",
+				revision: 2,
+			});
+		}
+		const published = await activity();
+		expect(published.length).toBeGreaterThan(0);
+		const repeated = await adopt([...outputIds].reverse(), false);
+		expect(repeated.status).toBe(200);
+		expect(await repeated.json()).toEqual({
+			dryRun: false,
+			scope: target,
+			writes: [],
+			unchanged: [...outputIds].reverse(),
+		});
+		expect(await activity()).toEqual(published);
+		expect((await ws.describe(target)).importGeneration).toBe(generation);
+	});
+
+	test("rejects the entire request if a file is assigned or belongs to another organization", async () => {
+		const { target, ws, seedFile, adopt } = await fixture();
+		const valid = await seedFile();
+		const assigned = await seedFile({ workspaceId: scope.workspaceId });
+		const foreign = await seedFile({ organizationId: "other-org" });
+		for (const [file, error] of [
+			[assigned, "already has a workspace"],
+			[foreign, "missing from this organization"],
+		] as const) {
+			const response = await adopt([valid.output.id, file.output.id], false);
+			expect(response.status).toBe(400);
+			expect(await response.text()).toContain(error);
+			expect(await ws.outputQuery(target, { op: "list" })).toEqual([]);
+		}
+	});
+
+	test("refuses to adopt a file when an external body is missing", async () => {
+		const { target, ws, seedFile, adopt } = await fixture();
+		const { output, revisions } = await seedFile();
+		await testEnv.R2_BUCKET.delete(revisions[0]!.bodyR2Key!);
+		const response = await adopt([output.id], false);
+		expect(response.status).toBe(400);
+		expect(await response.text()).toContain(
+			"Output revision body object is missing",
+		);
+		expect(await ws.outputQuery(target, { op: "list" })).toEqual([]);
 	});
 });
 

@@ -32,11 +32,15 @@ import {
 	adoptWorkspaceDirectory,
 	initializeWorkspaceDirectory,
 	hasWorkspaceOutputAuthority,
+	importOutput,
+	snapshotOutput,
+	type OutputTransferSnapshot,
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import { listAllOsWorkspaceResourceRows } from "@tedix/db/queries/os-workspaces/resources";
 import {
 	getOsWorkspace,
 	hasSharedWorkspaceOutputs,
+	readSharedOutputForAdoption,
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getTediById } from "@tedix/db/queries/tedis";
 import {
@@ -46,6 +50,7 @@ import {
 import { parseSkillReferences } from "@tedix/api-contract/utils/skill-reference";
 import {
 	retireWorkspaceOutputIndex,
+	getWorkspaceOutputIndexCurrent,
 	getWorkspaceOutputIndexRevision,
 } from "@tedix/db/queries/workspace-feed/read";
 import {
@@ -101,7 +106,11 @@ import {
 	webApprovalTitle,
 } from "./web";
 import { resolveAttachments } from "./attachments";
-import { TenantDataPort } from "./data-port-tenant";
+import {
+	outputRevisionBodyKey,
+	readOutputBody,
+	TenantDataPort,
+} from "./data-port-tenant";
 import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-notice";
 import { BINDING_NAMES, type BindingName } from "./declarations";
 import {
@@ -672,6 +681,99 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			if (batch.table.startsWith("kernel_")) this.#movedChatReady = false;
 			return result;
 		});
+	}
+
+	async adoptSharedOutputs(
+		scope: WorkspaceScope,
+		input: { outputIds: string[]; dryRun: boolean },
+	): Promise<{
+		dryRun: boolean;
+		scope: WorkspaceScope;
+		writes: OutputTransferSnapshot[];
+		unchanged: string[];
+	}> {
+		// A persisted owner has already bound its identity. Preview needs no claim,
+		// directory adoption, or chat migration.
+		if (this.#store.get("output-authority") !== "object")
+			throw new Error(
+				"Adoption requires an initialized or activated workspace store",
+			);
+		super.bindScope(scope);
+		const result = await this.#serializeOutput(async () => {
+			const core = createDbQueryClient(this.env.DB);
+			const target = await getOsWorkspace(core, scope);
+			if (target?.status !== "active" || target.visibility !== "org")
+				throw new Error("Adoption requires an active organization workspace");
+			const db = this.db as TenantStoreDb;
+			const writes: OutputTransferSnapshot[] = [];
+			const unchanged: string[] = [];
+			for (const outputId of input.outputIds) {
+				const source = await readSharedOutputForAdoption(core, {
+					organizationId: scope.organizationId,
+					outputId,
+				});
+				if (!source)
+					throw new Error(
+						`Output ${outputId} is missing from this organization`,
+					);
+				if (source.output.workspaceId !== null || this.#outputMoving(outputId))
+					throw new Error(
+						`Output ${outputId} already has a workspace or is moving`,
+					);
+				const snapshot = {
+					output: { ...source.output, workspaceId: scope.workspaceId },
+					revisions: source.revisions,
+				};
+				if (
+					!snapshot.revisions.some(
+						(row) => row.id === snapshot.output.currentRevisionId,
+					)
+				)
+					throw new Error(
+						`Output ${outputId} has no current revision in the source`,
+					);
+				const current = await getWorkspaceOutputIndexCurrent(core, {
+					organizationId: scope.organizationId,
+					outputId,
+				});
+				const existing = await snapshotOutput(db, { ...scope, outputId });
+				if (current && (current.workspaceId !== scope.workspaceId || !existing))
+					throw new Error(
+						`Output ${outputId} already has a workspace in the index`,
+					);
+				for (const row of snapshot.revisions) {
+					if (
+						row.content !== "" ||
+						!row.contentSha256 ||
+						row.bodyR2Key !==
+							outputRevisionBodyKey(scope.organizationId, row.contentSha256)
+					)
+						throw new Error(
+							`Revision ${row.id} lacks an organization-scoped external body`,
+						);
+					await readOutputBody(this.env.R2_BUCKET, row);
+				}
+				if (!existing) writes.push(snapshot);
+				else if (JSON.stringify(existing) === JSON.stringify(snapshot))
+					unchanged.push(outputId);
+				else
+					throw new Error(`Output ${outputId} conflicts with the destination`);
+			}
+			if (!input.dryRun) {
+				for (const snapshot of writes) {
+					await this.#markOutputPending(scope, snapshot.output.id);
+					await importOutput(db, snapshot);
+				}
+			}
+			return { dryRun: input.dryRun, scope, writes, unchanged };
+		});
+		if (!input.dryRun && result.writes.length) {
+			const outputIds = result.writes.map(({ output }) => output.id);
+			await this.#serializePublish(() =>
+				this.#flushOutputProjections(outputIds),
+			);
+		}
+		return result;
 	}
 
 	async applyImportDelta(
@@ -4567,6 +4669,10 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 		scope: WorkspaceScope,
 		outputId: string,
 	): Promise<void>;
+	adoptSharedOutputs(
+		scope: WorkspaceScope,
+		input: { outputIds: string[]; dryRun: boolean },
+	): ReturnType<WorkspaceDO["adoptSharedOutputs"]>;
 	outputQuery<K extends OutputQuery["op"]>(
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,

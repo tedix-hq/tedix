@@ -266,6 +266,22 @@ async function handleMigration(
 		);
 	}
 	if (route === "/import") {
+		if (body.operation === "adopt") {
+			const { outputIds, dryRun } = body;
+			if (
+				typeof dryRun !== "boolean" ||
+				!Array.isArray(outputIds) ||
+				outputIds.length === 0 ||
+				outputIds.some((id) => typeof id !== "string" || !id.trim()) ||
+				new Set(outputIds).size !== outputIds.length
+			)
+				throw new Error(
+					"Adoption requires distinct output ids and an explicit dryRun",
+				);
+			return Response.json(
+				await stub().adoptSharedOutputs(scope, { outputIds, dryRun }),
+			);
+		}
 		const table = String(body.table ?? "");
 		// Organization memory stays in the organization database with its
 		// permissions; no client may move it into a workspace.

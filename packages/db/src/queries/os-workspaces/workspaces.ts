@@ -21,6 +21,7 @@ import {
 	type OsWorkspaceRow,
 	osWorkspaces,
 	osOutputs,
+	osOutputRevisions,
 } from "../../schema/os-workspaces";
 import {
 	osWorkspaceAccessEdges,
@@ -531,6 +532,36 @@ export async function deleteWorkspaceDocumentIndex(
 				),
 			),
 	]);
+}
+
+/** Read the legacy source for one explicitly selected output. */
+export async function readSharedOutputForAdoption(
+	db: DbQueryClient,
+	params: { organizationId: string; outputId: string },
+) {
+	const [outputs, revisions] = await db.batch([
+		db
+			.select()
+			.from(osOutputs)
+			.where(
+				and(
+					eq(osOutputs.organizationId, params.organizationId),
+					eq(osOutputs.id, params.outputId),
+				),
+			),
+		db
+			.select()
+			.from(osOutputRevisions)
+			.where(
+				and(
+					eq(osOutputRevisions.organizationId, params.organizationId),
+					eq(osOutputRevisions.outputId, params.outputId),
+				),
+			)
+			.orderBy(osOutputRevisions.revision),
+	]);
+	const [output] = outputs;
+	return output && { output, revisions };
 }
 
 /** Workspace-wide inventory for selecting a storage owner, without reading content. */
