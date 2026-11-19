@@ -28,7 +28,7 @@ import {
 	type LaneWait,
 	type LaneDeferral,
 } from "./lane-result";
-import { execFile, spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import {
@@ -675,7 +675,7 @@ export function serialCalls() {
 		while (pending.length) {
 			const urgent = pending.findIndex((entry) => entry.critical);
 			const normal = pending.findIndex((entry) => !entry.critical);
-			// Prioritize leases without letting steady renewals starve admission.
+			// Prioritize settlement without letting it starve admission.
 			const index =
 				urgent >= 0 && (urgentBurst < 3 || normal < 0)
 					? urgent
@@ -1383,16 +1383,17 @@ function evictedLaneRef(destination: string): string {
 	return `refs/lane-evicted/${basename(dirname(destination))}/${basename(destination)}`;
 }
 
-function evictedLaneWork(
+async function evictedLaneWork(
 	source: string,
 	destination: string,
-): string | undefined {
+): Promise<string | undefined> {
 	const ref = evictedLaneRef(destination);
-	return spawnSync(
-		"git",
-		["-C", source, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`],
-		{ timeout: 10_000 },
-	).status === 0
+	return (await gitSucceeds(source, [
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		`${ref}^{commit}`,
+	]))
 		? ref
 		: undefined;
 }
@@ -1430,7 +1431,7 @@ async function saveLostCheckout(
 ): Promise<boolean> {
 	const scratch = mkdtempSync(join(tmpdir(), "tedix-lane-evict-"));
 	try {
-		const gitDir = gitOutput(source, ["rev-parse", "--absolute-git-dir"]);
+		const gitDir = await gitOutput(source, ["rev-parse", "--absolute-git-dir"]);
 		const main = "refs/remotes/origin/main";
 		const git = async (args: string[]) =>
 			(
@@ -1706,24 +1707,32 @@ function lockLaneWorktreeArgs(destination: string): string[] {
 	];
 }
 
-function lockLaneWorktree(source: string, destination: string) {
-	const result = spawnSync(
-		"git",
-		["-C", source, ...lockLaneWorktreeArgs(destination)],
-		{ encoding: "utf8", timeout: 30_000 },
-	);
-	if (result.status !== 0 && !/already locked/i.test(result.stderr))
-		throw new Error(result.stderr || "git worktree lock failed");
+async function lockLaneWorktree(source: string, destination: string) {
+	try {
+		await gitOutput(source, lockLaneWorktreeArgs(destination));
+	} catch (error) {
+		if (!/already locked/i.test(String(error))) throw error;
+	}
 }
 
-function gitOutput(repo: string, args: string[]): string {
-	const result = spawnSync("git", ["-C", repo, ...args], {
+async function gitOutput(repo: string, args: string[]): Promise<string> {
+	const result = await promisify(execFile)("git", ["-C", repo, ...args], {
 		encoding: "utf8",
 		timeout: 30_000,
 	});
-	if (result.status !== 0)
-		throw new Error(result.stderr || `git ${args[0]} failed`);
 	return result.stdout.trim();
+}
+
+async function gitSucceeds(repo: string, args: string[]): Promise<boolean> {
+	try {
+		await promisify(execFile)("git", ["-C", repo, ...args], {
+			encoding: "utf8",
+			timeout: 10_000,
+		});
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -1756,10 +1765,10 @@ async function addLaneWorktree(
 	} catch (error) {
 		const failure = error as { killed?: boolean; stderr?: string };
 		await rm(destination, { recursive: true, force: true });
-		spawnSync("git", ["-C", source, "worktree", "unlock", destination], {
-			timeout: 30_000,
-		});
-		spawnSync("git", ["-C", source, "worktree", "prune"], { timeout: 30_000 });
+		await gitOutput(source, ["worktree", "unlock", destination]).catch(
+			() => {},
+		);
+		await gitOutput(source, ["worktree", "prune"]).catch(() => {});
 		throw new Error(
 			`git worktree add failed: ${
 				failure.killed
@@ -1785,24 +1794,23 @@ export async function provisionLaneWorktree(
 	destination: string,
 	addTimeoutMs = 5 * 60_000,
 ): Promise<string> {
-	gitOutput(source, [
+	await gitOutput(source, [
 		"fetch",
 		"origin",
 		"refs/heads/main:refs/remotes/origin/main",
 	]);
-	const head = gitOutput(source, ["rev-parse", "refs/remotes/origin/main"]);
+	const head = await gitOutput(source, [
+		"rev-parse",
+		"refs/remotes/origin/main",
+	]);
 	if (
-		!gitOutput(source, ["status", "--porcelain"]) &&
-		spawnSync(
-			"git",
-			["-C", source, "merge-base", "--is-ancestor", "HEAD", head],
-			{ encoding: "utf8", timeout: 10_000 },
-		).status === 0
+		!(await gitOutput(source, ["status", "--porcelain"])) &&
+		(await gitSucceeds(source, ["merge-base", "--is-ancestor", "HEAD", head]))
 	)
-		gitOutput(source, ["merge", "--ff-only", head]);
-	gitOutput(source, ["worktree", "prune"]);
+		await gitOutput(source, ["merge", "--ff-only", head]);
+	await gitOutput(source, ["worktree", "prune"]);
 	const registered = new Set(
-		gitOutput(source, ["worktree", "list", "--porcelain", "-z"])
+		(await gitOutput(source, ["worktree", "list", "--porcelain", "-z"]))
 			.split("\0")
 			.filter((line) => line.startsWith("worktree "))
 			.map((line) => canonicalPath(line.slice("worktree ".length))),
@@ -1814,22 +1822,16 @@ export async function provisionLaneWorktree(
 		// falls through to the next free suffix like a dirty checkout.
 		const reusable =
 			existsSync(destination) &&
-			!gitOutput(destination, ["status", "--porcelain"]) &&
-			spawnSync(
-				"git",
-				[
-					"-C",
-					source,
-					"merge-base",
-					"--is-ancestor",
-					gitOutput(destination, ["rev-parse", "HEAD"]),
-					head,
-				],
-				{ encoding: "utf8", timeout: 10_000 },
-			).status === 0;
+			!(await gitOutput(destination, ["status", "--porcelain"])) &&
+			(await gitSucceeds(source, [
+				"merge-base",
+				"--is-ancestor",
+				await gitOutput(destination, ["rev-parse", "HEAD"]),
+				head,
+			]));
 		if (reusable) {
-			gitOutput(destination, ["checkout", "--detach", head]);
-			lockLaneWorktree(source, destination);
+			await gitOutput(destination, ["checkout", "--detach", head]);
+			await lockLaneWorktree(source, destination);
 			return destination;
 		}
 		let next = 2;
@@ -1847,7 +1849,7 @@ export async function provisionLaneWorktree(
 		renameSync(destination, join(recovery, "repo"));
 	}
 	await addLaneWorktree(source, destination, head, addTimeoutMs);
-	lockLaneWorktree(source, destination);
+	await lockLaneWorktree(source, destination);
 	return destination;
 }
 
@@ -1940,11 +1942,11 @@ export async function landedLaneCommits(
 	base: string,
 	finalMessage: string,
 	deps: {
-		fetch: (repo: string) => void;
+		fetch: (repo: string) => void | Promise<void>;
 		sleep: (ms: number) => Promise<void>;
 	} = {
-		fetch: (repo) => {
-			gitOutput(repo, [
+		fetch: async (repo) => {
+			await gitOutput(repo, [
 				"fetch",
 				"--no-tags",
 				"origin",
@@ -1966,14 +1968,14 @@ export async function landedLaneCommits(
 		...(finalMessage.match(/\b[0-9a-f]{40}\b/gi) ?? []).map((sha) =>
 			sha.toLowerCase(),
 		),
-		...gitOutput(repo, ["rev-list", `${base}..HEAD`])
+		...(await gitOutput(repo, ["rev-list", `${base}..HEAD`]))
 			.split("\n")
 			.filter(Boolean),
 	]);
 	if (!candidates.size) return [];
 	for (let attempt = 0; attempt < 3; attempt++) {
 		try {
-			deps.fetch(repo);
+			await deps.fetch(repo);
 			break;
 		} catch (error) {
 			if (attempt === 2) throw new LaneCommitFetchError(String(error));
@@ -1981,10 +1983,7 @@ export async function landedLaneCommits(
 		}
 	}
 	const isAncestor = (sha: string, of: string) =>
-		spawnSync("git", ["-C", repo, "merge-base", "--is-ancestor", sha, of], {
-			encoding: "utf8",
-			timeout: 10_000,
-		}).status === 0;
+		gitSucceeds(repo, ["merge-base", "--is-ancestor", sha, of]);
 	const landed: string[] = [];
 	const historical: Array<{
 		sha: string;
@@ -1992,19 +1991,21 @@ export async function landedLaneCommits(
 		committedAt: number;
 	}> = [];
 	for (const sha of candidates) {
-		if (!isAncestor(sha, "refs/remotes/origin/main")) continue;
-		if (!isAncestor(sha, base)) {
+		if (!(await isAncestor(sha, "refs/remotes/origin/main"))) continue;
+		if (!(await isAncestor(sha, base))) {
 			landed.push(sha);
 			continue;
 		}
 		// Historical proof must retain its original Work and executor custody.
 		if (!recovery) continue;
-		const [committed, ...trailers] = gitOutput(repo, [
-			"show",
-			"-s",
-			"--format=%cI%n%(trailers:only,unfold)",
-			sha,
-		]).split("\n");
+		const [committed, ...trailers] = (
+			await gitOutput(repo, [
+				"show",
+				"-s",
+				"--format=%cI%n%(trailers:only,unfold)",
+				sha,
+			])
+		).split("\n");
 		const work = trailers.filter((line) => /^Work-Item:/i.test(line));
 		const sessions = trailers.filter((line) => /^Agent-Session:/i.test(line));
 		if (
@@ -2032,25 +2033,31 @@ export async function landedLaneCommits(
 	return landed;
 }
 
-export function mainLaneCommits(repo: string, commits: string[]): string[] {
+export async function mainLaneCommits(
+	repo: string,
+	commits: string[],
+): Promise<string[]> {
 	if (!commits.length) return [];
 	try {
-		gitOutput(repo, [
+		await gitOutput(repo, [
 			"fetch",
 			"--no-tags",
 			"origin",
 			"refs/heads/main:refs/remotes/origin/main",
 		]);
-		return commits.filter(
-			(sha) =>
-				!gitOutput(repo, [
+		const landed: string[] = [];
+		for (const sha of commits)
+			if (
+				!(await gitOutput(repo, [
 					"rev-list",
 					"--max-count=1",
 					`${sha}^{commit}`,
 					"--not",
 					"refs/remotes/origin/main",
-				]),
-		);
+				]))
+			)
+				landed.push(sha);
+		return landed;
 	} catch (error) {
 		throw new LaneCommitFetchError(String(error));
 	}
@@ -2067,7 +2074,7 @@ export async function existingLaneCommits(
 	cited: string[],
 ): Promise<string | undefined> {
 	try {
-		gitOutput(repo, [
+		await gitOutput(repo, [
 			"fetch",
 			"--no-tags",
 			"origin",
@@ -2078,24 +2085,18 @@ export async function existingLaneCommits(
 	}
 	for (const sha of cited)
 		if (
-			spawnSync(
-				"git",
-				[
-					"-C",
-					repo,
-					"merge-base",
-					"--is-ancestor",
-					`${sha}^{commit}`,
-					"refs/remotes/origin/main",
-				],
-				{ encoding: "utf8", timeout: 10_000 },
-			).status !== 0
+			!(await gitSucceeds(repo, [
+				"merge-base",
+				"--is-ancestor",
+				`${sha}^{commit}`,
+				"refs/remotes/origin/main",
+			]))
 		)
 			return `${sha.slice(0, 12)} is not on origin/main`;
 	const unpushed = await unpushedLaneCommits(repo);
 	if (unpushed.length)
 		return `the checkout has ${unpushed.length} commit${unpushed.length === 1 ? " that is" : "s that are"} not on origin/main`;
-	if (gitOutput(repo, ["status", "--porcelain", "--untracked-files=no"]))
+	if (await gitOutput(repo, ["status", "--porcelain", "--untracked-files=no"]))
 		return "the checkout has uncommitted changes to tracked files";
 }
 
@@ -2130,11 +2131,17 @@ interface DispatcherDeps {
 	darkWake: typeof inDarkWake;
 	provision: (source: string, destination: string) => string | Promise<string>;
 	installDependencies: typeof installLaneDependencies;
-	baseCommit: (repo: string) => string;
+	baseCommit: (repo: string) => string | Promise<string>;
 	/** The Git ref that saved an evicted checkout's work, when one exists. */
-	evictedWork: (source: string, destination: string) => string | undefined;
+	evictedWork: (
+		source: string,
+		destination: string,
+	) => string | undefined | Promise<string | undefined>;
 	landedCommits: typeof landedLaneCommits;
-	mainCommits: typeof mainLaneCommits;
+	mainCommits: (
+		repo: string,
+		commits: string[],
+	) => string[] | Promise<string[]>;
 	existingCommits: typeof existingLaneCommits;
 	unpushedCommits: typeof unpushedLaneCommits;
 	verifyExisting: typeof verifyExistingLaneResult;
@@ -2495,24 +2502,30 @@ export class LaneDispatcher {
 				args[1] ?? "",
 			);
 		this.notePassProgress();
-		return this.queue(
-			() =>
-				safe
-					? retryRead((timeoutMs) => invoke(args, timeoutMs), {
-							operation: `work.${args[1]}`,
-							budgetMs: readBudgetMs(READ_BUDGET_MS, this.options.max),
-							attemptMs: READ_BUDGET_MS / 3,
-							log: (line) => this.log("read-budget", args[2], line),
-						})
-					: invoke(
-							args,
-							args[0] === "work" && args[1] === "start"
-								? readBudgetMs(READ_BUDGET_MS, this.options.max)
-								: undefined,
-						),
-			args[0] === "work" &&
-				["heartbeat", "settle", "complete"].includes(args[1] ?? ""),
-		).finally(() => this.notePassProgress());
+		const operation = () =>
+			safe
+				? retryRead((timeoutMs) => invoke(args, timeoutMs), {
+						operation: `work.${args[1]}`,
+						budgetMs: readBudgetMs(READ_BUDGET_MS, this.options.max),
+						attemptMs: READ_BUDGET_MS / 3,
+						log: (line) => this.log("read-budget", args[2], line),
+					})
+				: invoke(
+						args,
+						args[0] === "work" && args[1] === "start"
+							? readBudgetMs(READ_BUDGET_MS, this.options.max)
+							: undefined,
+					);
+		// A slow read or another run's renewal must not hold an Attempt's lease.
+		const result =
+			args[0] === "work" && args[1] === "heartbeat"
+				? operation()
+				: this.queue(
+						operation,
+						args[0] === "work" &&
+							["settle", "complete"].includes(args[1] ?? ""),
+					);
+		return result.finally(() => this.notePassProgress());
 	}
 	/**
 	 * A pass walks its items one call at a time, so with slow reads it can
@@ -4039,20 +4052,24 @@ export class LaneDispatcher {
 			mkdirSync(dir, { recursive: true, mode: 0o700 });
 			// A checkout evicted to free disk left its work under a Git ref.
 			const evicted: string[] = [];
+			const missing: string[] = [];
 			const previousLane = retainedLaneWorktree(
 				this.directory,
 				item.id,
 				history.data,
 				(repo) => {
-					const ref = this.deps.evictedWork(this.options.repo, repo);
-					if (ref) evicted.push(ref);
-					this.log(
-						"run-folder-missing",
-						item.id,
-						`Retained run folder ${repo} is gone; ${ref ? `its work is saved as ${ref}` : "provisioning a fresh worktree"}`,
-					);
+					missing.push(repo);
 				},
 			);
+			for (const repo of missing) {
+				const ref = await this.deps.evictedWork(this.options.repo, repo);
+				if (ref) evicted.push(ref);
+				this.log(
+					"run-folder-missing",
+					item.id,
+					`Retained run folder ${repo} is gone; ${ref ? `its work is saved as ${ref}` : "provisioning a fresh worktree"}`,
+				);
+			}
 			const failedAttempt = history.data.find(
 				(row) => row.outcome === "failed" || row.outcome === "expired",
 			);
@@ -4073,7 +4090,7 @@ export class LaneDispatcher {
 			receipt.unpushedCommits = previousLane?.unpushedCommits;
 			receipt.unpushedReason = previousLane?.unpushedReason;
 			receipt.baseCommit =
-				previousLane?.baseCommit ?? this.deps.baseCommit(repo);
+				previousLane?.baseCommit ?? (await this.deps.baseCommit(repo));
 			receipt.expectsCode = item.workKind === "coding";
 			const artifactSkillId = item.metadata?.artifactSkillId;
 			const artifactSkillRevision = item.metadata?.artifactSkillRevision;
@@ -4231,7 +4248,7 @@ export class LaneDispatcher {
 			let lastLeaseCheck = Date.now();
 			leaseTimer = setInterval(() => {
 				if (receipt.interrupted) return;
-				if (Date.now() - lastLeaseCheck > 30_000)
+				if (Date.now() - lastLeaseCheck > 5_000)
 					this.log(
 						"lease-check-delayed",
 						item.id,
