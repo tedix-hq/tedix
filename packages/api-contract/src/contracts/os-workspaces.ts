@@ -39,6 +39,9 @@ import {
 	OsBlueprintSchema,
 	OsBlueprintStatusSchema,
 	OsBlueprintUpgradeReportSchema,
+	OsBlueprintAppUpdatePreviewSchema,
+	OsBlueprintAppUpdateDraftInputSchema,
+	OsBlueprintAppUpdateDraftResultSchema,
 	OsWorkspaceBlueprintDecisionSchema,
 	WorkspaceConversationChargesInputSchema,
 	WorkspaceConversationChargesSchema,
@@ -2059,6 +2062,22 @@ export const osWorkspacesContract = oc
 				),
 		}),
 		collaboration: oc.router({
+			previewBlueprintAppUpdate: oc
+				.route({
+					method: "GET",
+					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/blueprint-update",
+					summary: "Check for an update to one app from its blueprint",
+				})
+				.input(gadgetIdInput)
+				.output(OsBlueprintAppUpdatePreviewSchema),
+			createBlueprintAppUpdate: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/blueprint-update",
+					summary: "Prepare a draft of an app update from its blueprint",
+				})
+				.input(gadgetIdInput.extend(OsBlueprintAppUpdateDraftInputSchema.shape))
+				.output(OsBlueprintAppUpdateDraftResultSchema),
 			list: oc
 				.route({
 					method: "GET",

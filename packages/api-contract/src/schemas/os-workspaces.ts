@@ -2904,6 +2904,19 @@ export type OsBlueprintGadgetChange = z.infer<
 	typeof OsBlueprintGadgetChangeSchema
 >;
 
+export const OsBlueprintAppUpdatePreviewSchema = z.discriminatedUnion(
+	"status",
+	[
+		z.object({ status: z.literal("no_change") }),
+		z.object({
+			status: z.enum(["ready", "base_missing"]),
+			releaseId: z.string().uuid(),
+			appRevisionId: z.string().uuid(),
+			conflicts: z.array(z.string()),
+		}),
+	],
+);
+
 /**
  * The compatibility report behind an apply-or-stay-pinned decision: what the
  * candidate revision changes, and whether it resolves in THIS organization.
@@ -3086,6 +3099,27 @@ export const OsAppDraftContentSchema = z.strictObject({
 	files: AppRuntimeFilesSchema,
 });
 export type OsAppDraftContent = z.infer<typeof OsAppDraftContentSchema>;
+export const OsBlueprintAppUpdateDraftInputSchema = z.object({
+	releaseId: z.string().uuid(),
+	appRevisionId: z.string().uuid(),
+	mode: z.enum(["merge", "replace"]),
+	resolution: OsAppDraftContentSchema.optional(),
+});
+export const OsBlueprintAppUpdateDraftResultSchema = z.discriminatedUnion(
+	"status",
+	[
+		z.object({
+			status: z.literal("created"),
+			proposal: OsCollaborationProposalSchema,
+		}),
+		z.object({
+			status: z.literal("conflicts"),
+			conflicts: z.array(z.string()),
+			manifest: z.string(),
+			files: z.record(z.string(), z.string()),
+		}),
+	],
+);
 export type OsGadgetExportDescriptor = z.infer<
 	typeof OsGadgetExportDescriptorSchema
 >;

@@ -18,18 +18,24 @@
  * drift under the unchanged pin.
  */
 
-import type {
-	OsBlueprintDefinition,
-	OsBlueprintGadgetChange,
-	OsBlueprintPreflight,
-	OsBlueprintRequirementChange,
-	OsBlueprintUpgradeDecisionSummary,
-	OsBlueprintUpgradeReport,
+import {
+	type OsAppDraftContent,
+	type OsBlueprintDefinition,
+	type OsBlueprintGadgetChange,
+	type OsBlueprintPreflight,
+	type OsBlueprintRequirementChange,
+	type OsBlueprintUpgradeDecisionSummary,
+	type OsBlueprintUpgradeReport,
+	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type {
 	ExecutionPreflightPin,
 	WorkItemExecutionPreflightDecision,
 } from "@tedix/api-contract/schemas/work-items";
+import {
+	mergeAppFiles,
+	mergeAppText,
+} from "@tedix/api-contract/utils/app-draft-merge";
 import type { DbClient } from "@tedix/db/client";
 import { canonicalJson } from "../lib/blueprint-digest";
 import { resolveOsBlueprintPreflight } from "./os-blueprint-preflight";
@@ -287,6 +293,44 @@ export async function resolveOsBlueprintUpgradeReport(
 		],
 		consentReasons: candidatePreflightNow.consentReasons,
 		resolvedAt,
+	};
+}
+
+export function mergeBlueprintApp(
+	base: OsAppDraftContent,
+	current: OsAppDraftContent,
+	release: OsAppDraftContent,
+) {
+	const { files, conflicts } = mergeAppFiles(
+		base.files,
+		release.files,
+		current.files,
+	);
+	const manifest = mergeAppText(
+		JSON.stringify(base.manifest, null, 2),
+		JSON.stringify(release.manifest, null, 2),
+		JSON.stringify(current.manifest, null, 2),
+	);
+	let parsedManifest: unknown;
+	if (!manifest.conflict && manifest.text !== undefined) {
+		try {
+			parsedManifest = JSON.parse(manifest.text);
+		} catch {
+			// Disjoint line edits can still produce invalid JSON.
+		}
+	}
+	const parsed = OsGadgetManifestSchema.safeParse(parsedManifest);
+	const merged = { manifest: current.manifest, files };
+	if (parsed.success) merged.manifest = parsed.data;
+	else conflicts.push("manifest.json");
+	return {
+		content: merged,
+		manifestText: manifest.text ?? JSON.stringify(current.manifest, null, 2),
+		conflicts,
+		changed:
+			conflicts.length > 0 ||
+			canonicalJson(merged) !==
+				canonicalJson({ manifest: current.manifest, files: current.files }),
 	};
 }
 

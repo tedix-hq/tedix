@@ -1,3 +1,5 @@
+import { loadAppRuntimeRevision } from "../../services/os-app-runtime-code";
+import { mergeBlueprintApp } from "../../services/os-blueprint-upgrade";
 import { requireSavableText } from "../../lib/savable-text";
 import { validateAppSource } from "../../services/os-app-validation";
 import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
@@ -11,7 +13,12 @@ import {
 	OsAppDraftContentSchema,
 	OsGadgetManifestSchema,
 	OsOutputContentSchema,
+	parseStoredOsBlueprintDefinition,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	getOsBlueprint,
+	getOsBlueprintRevision,
+} from "@tedix/db/queries/os-workspaces/blueprints";
 import { hasAppConflictMarkers } from "@tedix/api-contract/utils/app-draft-merge";
 import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import {
@@ -46,6 +53,7 @@ import {
 	createError,
 	createErrorWithData,
 	ErrorCodes,
+	hasRequiredScope,
 	withAuth,
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
@@ -289,6 +297,21 @@ const collaborationUpdatePreview = authorOs.collaboration.updatePreview.handler(
 	},
 );
 
+async function appDraftRole(context: BaseContext, workspaceId: string) {
+	if (context.authType === "user") {
+		const access = await requireWorkspaceCollaboratorAccess(
+			context,
+			workspaceId,
+			"app.connect",
+		);
+		return access.role;
+	}
+	const callerId = await resolveOsWorkspaceOwnerCandidate(context);
+	return callerId
+		? await readWorkspaceSessionRole(queryDb(context), workspaceId, callerId)
+		: null;
+}
+
 async function requireAppDraftBuilder(
 	context: BaseContext,
 	proposal: OsCollaborationProposalRow,
@@ -298,24 +321,7 @@ async function requireAppDraftBuilder(
 		!OsAppDraftContentSchema.safeParse(JSON.parse(proposal.content)).success
 	)
 		return;
-	const callerId = await resolveOsWorkspaceOwnerCandidate(context);
-	const role =
-		context.authType === "user"
-			? (
-					await requireWorkspaceCollaboratorAccess(
-						context,
-						proposal.workspaceId,
-						"app.connect",
-					)
-				).role
-			: callerId
-				? await readWorkspaceSessionRole(
-						queryDb(context),
-						proposal.workspaceId,
-						callerId,
-					)
-				: null;
-	if (role !== "build")
+	if ((await appDraftRole(context, proposal.workspaceId)) !== "build")
 		throw createError(
 			ErrorCodes.FORBIDDEN,
 			"App draft decisions require build access",
@@ -516,7 +522,186 @@ const collaborationMerge = authorOs.collaboration.merge.handler(
 	},
 );
 
+async function resolveBlueprintAppUpdate(
+	context: BaseContext,
+	input: { workspaceId: string; gadgetId: string },
+) {
+	if (!hasRequiredScope(context, "apps:write")) return null;
+	const [workspace, gadget] = await Promise.all([
+		requireWorkspace(context, input.workspaceId),
+		requireGadget(context, input.workspaceId, input.gadgetId),
+	]);
+	if (
+		!workspace.sourceBlueprintId ||
+		!gadget.sourceBlueprintRevisionId ||
+		!gadget.currentRevisionId ||
+		gadget.status !== "active"
+	)
+		return null;
+	if ((await appDraftRole(context, workspace.id)) !== "build") return null;
+
+	const organizationId = workspace.organizationId;
+	const db = queryDb(context);
+	const blueprint = await getOsBlueprint(db, {
+		organizationId,
+		blueprintId: workspace.sourceBlueprintId,
+	});
+	if (!blueprint?.currentRevisionId || blueprint.status !== "published")
+		return null;
+	const [installed, release] = await Promise.all([
+		getOsBlueprintRevision(db, {
+			organizationId,
+			revisionId: gadget.sourceBlueprintRevisionId,
+		}),
+		getOsBlueprintRevision(db, {
+			organizationId,
+			revisionId: blueprint.currentRevisionId,
+		}),
+	]);
+	if (
+		!release?.publishedAt ||
+		release.blueprintId !== blueprint.id ||
+		release.id === gadget.sourceBlueprintRevisionId ||
+		(installed && installed.blueprintId !== blueprint.id) ||
+		release.revision <=
+			(installed?.revision ?? workspace.sourceBlueprintRevisionNumber ?? 0)
+	)
+		return null;
+
+	const next = parseStoredOsBlueprintDefinition(
+		release.definition,
+	).gadgets.find((app) => app.name === gadget.name);
+	if (!next?.files) return null;
+	const current = await loadAppRuntimeRevision(
+		db,
+		{ organizationId, gadgetId: gadget.id },
+		gadget.currentRevisionId,
+	);
+	const base =
+		installed &&
+		parseStoredOsBlueprintDefinition(installed.definition).gadgets.find(
+			(app) => app.name === gadget.name,
+		);
+	const target = {
+		releaseId: release.id,
+		appRevisionId: gadget.currentRevisionId,
+	};
+	const replacement = { manifest: next.manifest, files: next.files };
+	if (!base?.files) return { target, replacement, merge: null, organizationId };
+	const merge = mergeBlueprintApp(
+		{ manifest: base.manifest, files: base.files },
+		current,
+		replacement,
+	);
+	return merge.changed ? { target, replacement, merge, organizationId } : null;
+}
+
+const previewBlueprintAppUpdate =
+	authorOs.collaboration.previewBlueprintAppUpdate.handler(
+		async ({ context, input }) => {
+			const update = await resolveBlueprintAppUpdate(context, input);
+			if (!update) return { status: "no_change" as const };
+			return {
+				...update.target,
+				status: update.merge ? ("ready" as const) : ("base_missing" as const),
+				conflicts: update.merge?.conflicts ?? [],
+			};
+		},
+	);
+
+const createBlueprintAppUpdate =
+	authorOs.collaboration.createBlueprintAppUpdate.handler(
+		async ({ context, input }) => {
+			const update = await resolveBlueprintAppUpdate(context, input);
+			if (
+				!update ||
+				update.target.releaseId !== input.releaseId ||
+				update.target.appRevisionId !== input.appRevisionId
+			)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"The app or its blueprint changed. Open the update again.",
+				);
+
+			const { merge } = update;
+			let content = update.replacement;
+			if (merge) {
+				if (input.mode !== "merge")
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						"This update can be combined with your edits.",
+					);
+				if (!merge.conflicts.length) content = merge.content;
+				else if (input.resolution) content = input.resolution;
+				else
+					return {
+						status: "conflicts" as const,
+						conflicts: merge.conflicts,
+						manifest: merge.manifestText,
+						files: merge.content.files,
+					};
+			} else if (input.mode !== "replace") {
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Choose whether to replace this app with the new release.",
+				);
+			}
+			if (Object.values(content.files).some(hasAppConflictMarkers))
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Resolve the conflicting edits before creating a draft.",
+				);
+			const validated = await validateProposalContent(
+				context,
+				{
+					workspaceId: input.workspaceId,
+					documentId: input.gadgetId,
+					documentType: "gadget",
+				},
+				content,
+			);
+			const db = queryDb(context);
+			const base = await getOsGadgetRevision(db, {
+				organizationId: update.organizationId,
+				revisionId: input.appRevisionId,
+			});
+			if (!base || base.gadgetId !== input.gadgetId)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"The app changed. Open the update again.",
+				);
+
+			const creator = resolveCreator(context);
+			const proposal = await createOsCollaborationProposal(db, {
+				id: crypto.randomUUID(),
+				organizationId: update.organizationId,
+				workspaceId: input.workspaceId,
+				documentType: "gadget",
+				documentId: input.gadgetId,
+				baseRevisionId: base.id,
+				baseRevision: base.revision,
+				status: "open",
+				...(context.authType === "user" &&
+				!context.externalAgentSessionId &&
+				!context.ownerHostSessionId
+					? { sourceKind: "user" as const, sourceId: creator.id }
+					: resolveCollaborationSource(context)),
+				sourceAttestationVersion: 1,
+				content: JSON.stringify(validated),
+				sequence: 0,
+				createdByKind: creator.kind,
+				createdById: creator.id,
+			});
+			return {
+				status: "created" as const,
+				proposal: mapCollaborationProposal(proposal),
+			};
+		},
+	);
+
 export const osCollaborationProcedures = {
+	previewBlueprintAppUpdate,
+	createBlueprintAppUpdate,
 	list: collaborationList,
 	get: collaborationGet,
 	create: collaborationCreate,
