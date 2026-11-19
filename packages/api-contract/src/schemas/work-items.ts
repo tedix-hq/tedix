@@ -1947,6 +1947,7 @@ export type LaneDispatchPlan = z.infer<typeof LaneDispatchPlanSchema>;
 
 export const CreateWorkItemInputSchema = z
 	.object({
+		executor: WorkExecutorSchema.optional(),
 		executorReference: WorkExecutorReferenceSchema.optional(),
 		delegationDepth: z.number().int().min(0).max(10).optional(),
 		maxAttempts: z.number().int().min(1).max(20).optional(),

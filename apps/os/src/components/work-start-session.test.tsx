@@ -314,7 +314,7 @@ describe("Start session", () => {
 		expect(mocks.update).toHaveBeenCalledWith({
 			id,
 			expectedWorkItemVersion: 3,
-			executorReference: { type: "external_agent", id: "claude-code" },
+			executor: "claude-code",
 			laneDispatch: { state: "ready" },
 			description: "Ship it and attach the proof.",
 		});

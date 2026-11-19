@@ -1,4 +1,3 @@
-import { workExecutorReference } from "@tedix/api-contract/schemas/work-items";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 import { LANE_READY_EXECUTORS } from "@tedix/api-contract/schemas/work-items";
@@ -31,7 +30,7 @@ it.each([...LANE_READY_EXECUTORS])(
 			orgId: "org",
 			workItemId: "w",
 			actor: { type: "user", id: "owner" },
-			executorReference: workExecutorReference(executor),
+			executor,
 		});
 		expect(updated.dispatchState).toBe("ready");
 		expect(updated.executorId).toBe(executor);

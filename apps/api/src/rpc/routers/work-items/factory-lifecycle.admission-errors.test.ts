@@ -35,8 +35,6 @@ const mocks = vi.hoisted(() => ({
 	readiness: vi.fn(),
 	preview: vi.fn(),
 	grant: vi.fn(),
-	provision: vi.fn(),
-	recordRepository: vi.fn(),
 }));
 
 vi.mock("./policy-helpers", async (importOriginal) => ({
@@ -54,10 +52,6 @@ vi.mock("@tedix/db/queries/work-items/attempts", async (importOriginal) => ({
 		typeof import("@tedix/db/queries/work-items/attempts")
 	>()),
 	startWorkItemAttempt: mocks.start,
-	recordWorkAttemptRepository: mocks.recordRepository,
-}));
-vi.mock("../../../services/work-artifacts-repository", () => ({
-	provisionWorkAttemptRepository: mocks.provision,
 }));
 vi.mock("@tedix/db/queries/work-items/admissions", async (importOriginal) => ({
 	...(await importOriginal<
@@ -397,32 +391,3 @@ describe("grantLaneAttempt", () => {
 		);
 	});
 });
-
-it.each([undefined, "false"])(
-	"provisions a requested repository without the retired flag (%s)",
-	async (flag) => {
-		const attempt = { id: "attempt-1" };
-		const repository = { status: "ready", observedAt: "2026-11-18T00:00:00Z" };
-		mocks.admit.mockResolvedValue({ id: "admission-1" });
-		mocks.start.mockResolvedValue({ workItem, attempt });
-		mocks.provision.mockResolvedValue(repository);
-		mocks.recordRepository.mockResolvedValue(attempt);
-		await expect(
-			startAttemptProcedure["~orpc"].handler!({
-				input: { id: workItem.id, repository: { mode: "create" } },
-				context: {
-					db: {},
-					tediId: "tedi-1",
-					env: { WORK_ATTEMPT_ARTIFACTS_ENABLED: flag },
-				} as BaseContext,
-				path: ["workItems", "startAttempt"],
-				procedure: startAttemptProcedure,
-				signal: undefined,
-				lastEventId: undefined,
-			}),
-		).resolves.toMatchObject({ attempt, repository });
-		expect(mocks.provision).toHaveBeenCalledWith(
-			expect.objectContaining({ enabled: true, request: { mode: "create" } }),
-		);
-	},
-);

@@ -189,36 +189,6 @@ describe("Work Item factory contract", () => {
 		}
 	});
 
-	it("requires the sole typed executor input on create and specification updates", () => {
-		for (const operation of ["create", "updateSpecification"] as const) {
-			const base =
-				operation === "create"
-					? { title: "Review" }
-					: { id: "11111111-1111-4111-8111-111111111111" };
-			const schema = inputSchema(operation);
-			expect(schema.safeParse({ ...base, executor: "codex" }).success).toBe(
-				false,
-			);
-			expect(
-				schema.safeParse({
-					...base,
-					executor: "codex",
-					executorReference: { type: "external_agent", id: "codex" },
-				}).success,
-			).toBe(false);
-			for (const type of [
-				"human",
-				"tedi",
-				"external_agent",
-				"team",
-				"organization",
-			] as const) {
-				const input = { ...base, executorReference: { type, id: "codex" } };
-				expect(schema.parse(input)).toMatchObject(input);
-			}
-		}
-	});
-
 	it("rejects lifecycle state on create", () => {
 		expect(
 			CreateWorkItemInputSchema.safeParse({

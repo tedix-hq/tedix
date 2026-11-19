@@ -21,6 +21,7 @@ import {
 	ListWorkAttemptCliProjectionResultSchema,
 	ListWorkEvidenceCliProjectionResultSchema,
 	ListWorkEventCliProjectionResultSchema,
+	workExecutorReference,
 } from "@tedix/api-contract/schemas/work-items";
 import {
 	getAuthoritativeWorkItemAttempt,
@@ -56,6 +57,7 @@ import {
 	type WorkAdmissionRejectionCode,
 } from "@tedix/db/queries/work-items/admissions";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
+import { initialLaneDispatch } from "../../../services/lane-dispatch-plan";
 import {
 	createWorkResourcePool,
 	getWorkResourcePoolByKey,
@@ -302,14 +304,13 @@ export const updateSpecificationProcedure =
 				"Idle runner reassignment",
 			);
 			if (
-				!input.executorReference ||
-				input.executorReference.type !== "external_agent" ||
+				!input.executor ||
 				!input.expectedWorkItemVersion ||
 				Object.keys(input).some(
 					(key) =>
 						![
 							"id",
-							"executorReference",
+							"executor",
 							"expectedWorkItemVersion",
 							"idleReassignment",
 						].includes(key),
@@ -333,7 +334,7 @@ export const updateSpecificationProcedure =
 					orgId: workItem.orgId,
 					workItemId: workItem.id,
 					expectedVersion: input.expectedWorkItemVersion,
-					executor: input.executorReference.id,
+					executor: input.executor,
 					...input.idleReassignment,
 				});
 			} catch (error) {
@@ -363,7 +364,7 @@ export const updateSpecificationProcedure =
 				actor.type === "tedi" ||
 				("canAssignExecutor" in actor && actor.canAssignExecutor)
 					? undefined
-					: input.executorReference,
+					: (input.executor ?? input.executorReference),
 				"canMoveProject" in actor && actor.canMoveProject
 					? undefined
 					: input.projectId,
@@ -481,7 +482,21 @@ export const updateSpecificationProcedure =
 					workItem,
 					input.projectId,
 				);
-			const executorReference = input.executorReference;
+			const legacyExecutorReference = input.executor
+				? workExecutorReference(input.executor)
+				: undefined;
+			if (
+				input.executorReference &&
+				legacyExecutorReference &&
+				(input.executorReference.type !== legacyExecutorReference.type ||
+					input.executorReference.id !== legacyExecutorReference.id)
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"executor and executorReference must name the same executor",
+				);
+			const executorReference =
+				input.executorReference ?? legacyExecutorReference;
 			const laneProject =
 				actor.type === "user" &&
 				executorReference?.type === "external_agent" &&
@@ -503,8 +518,9 @@ export const updateSpecificationProcedure =
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				actor,
+				executor: input.executor,
 				executorReference,
-				laneDispatch: input.laneDispatch,
+				laneDispatch: input.laneDispatch ?? initialLaneDispatch(input.executor),
 				projectId: input.projectId,
 				title: input.title,
 				description: input.description,

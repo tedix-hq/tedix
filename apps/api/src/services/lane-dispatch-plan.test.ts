@@ -1,5 +1,17 @@
 import { expect, it } from "vite-plus/test";
-import { mentionedExecutor } from "./lane-dispatch-plan";
+import { initialLaneDispatch, mentionedExecutor } from "./lane-dispatch-plan";
+it("assignment readies every supported executor", () => {
+	for (const executor of [
+		"codex",
+		"claude-code",
+		"opencode",
+		"devin",
+		"tedi",
+		"human",
+	])
+		expect(initialLaneDispatch(executor)).toEqual({ state: "ready" });
+	expect(initialLaneDispatch(undefined)).toBeUndefined();
+});
 it("records explicit delegation mentions without guessing arbitrary names", () => {
 	expect(
 		mentionedExecutor(

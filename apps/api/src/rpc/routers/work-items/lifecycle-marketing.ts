@@ -1,4 +1,3 @@
-import { workExecutorReference } from "@tedix/api-contract/schemas/work-items";
 import { addWorkItemComment } from "@tedix/db/queries/work-items/comments";
 import { updateWorkItemSpecification } from "@tedix/db/queries/work-items/crud";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
@@ -60,9 +59,7 @@ export const addCommentProcedure = authOs.addComment.handler(
 										id: assignment.tediId,
 									},
 								}
-							: {
-									executorReference: workExecutorReference(assignment.executor),
-								}),
+							: { executor: assignment.executor }),
 						...(assignment.tediId
 							? {
 									accountableOwnerType: "tedi" as const,

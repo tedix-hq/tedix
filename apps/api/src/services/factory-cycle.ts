@@ -94,6 +94,7 @@ export async function compileFactoryCycle(input: {
 		summary: request.description ?? null,
 		binding: {
 			parentWorkItemId: request.parentWorkItemId,
+			executor: request.executor,
 			executorReference: request.executorReference,
 			delegationDepth: request.delegationDepth,
 			rootWorkItemId: request.rootWorkItemId,

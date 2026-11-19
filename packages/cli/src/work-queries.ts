@@ -3,7 +3,6 @@ import {
 	WorkItemKindSchema,
 	WorkItemClassSchema,
 	WorkExecutorSchema,
-	workExecutorReference,
 } from "@tedix/api-contract/schemas/work-items";
 import { WorkInteractionCursorSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { readFileSync } from "node:fs";
@@ -561,7 +560,7 @@ export async function workCreate(
 
 	const args: Record<string, unknown> = {
 		title: t,
-		...(executor ? { executorReference: workExecutorReference(executor) } : {}),
+		...(executor ? { executor } : {}),
 		...(desc?.trim() ? { description: desc.trim() } : {}),
 		...(ownerMatch
 			? {
