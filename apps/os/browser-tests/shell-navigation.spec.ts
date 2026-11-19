@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { runShellSpec } from "./shell-harness";
-import { assertLeanTopbar } from "./topbar.spec";
+import { assertLeanTopbar } from "./topbar-checks";
 
 await runShellSpec(
 	async ({

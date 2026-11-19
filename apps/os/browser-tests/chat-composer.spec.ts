@@ -143,9 +143,23 @@ try {
 			`open thread placeholder at ${width}px`,
 		);
 
-		await page
-			.getByRole("button", { name: "Composer options", exact: true })
-			.click();
+		const options = page.getByRole("button", {
+			name: "Composer options",
+			exact: true,
+		});
+		if (width === 1280) {
+			await composer(page).fill("Keep my draft");
+			await options.press("ArrowDown");
+			const menu = page.getByRole("menu");
+			await menu.waitFor();
+			await page.waitForFunction(
+				() => document.activeElement?.getAttribute("role") === "menuitem",
+			);
+			await page.keyboard.press("Escape");
+			await menu.waitFor({ state: "hidden" });
+			assert(await options.evaluate((el) => el === document.activeElement));
+		}
+		await options.click();
 		for (const command of [
 			"/summarize",
 			"/delegate",
@@ -162,7 +176,9 @@ try {
 			.getByRole("menuitem")
 			.filter({ has: page.getByText("/sample.send_message", { exact: true }) })
 			.click();
-		assert((await composer(page).inputValue()).includes("sample.send_message"));
+		const draft = await composer(page).inputValue();
+		assert(draft.includes("sample.send_message"));
+		if (width === 1280) assert(draft.includes("Keep my draft"));
 		await page.close();
 		console.log(`PASS chat composer ${width}px`);
 	}
