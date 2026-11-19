@@ -41,15 +41,10 @@ import {
 import { Surface } from "@/components/kumo/surface";
 import { Meter } from "@/components/kumo/meter";
 import { Text } from "@/components/kumo/text";
-import { CostChip } from "@/components/cost-chip";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { LimitsSection } from "@/components/limits-section";
 import { ModelCatalogSection } from "@/components/model-catalog-card";
-import {
-	formatUsd,
-	postureSpendReading,
-	queryReading,
-} from "@/lib/cost-reading";
+import { queryReading } from "@/lib/cost-reading";
 import {
 	billingOverviewQueryOptions,
 	computePostureQueryOptions,
@@ -207,15 +202,16 @@ export function LedgerCard({
 		<ComputeSummary embedded={embedded}>
 			<div className="flex flex-wrap items-center gap-2">
 				<Text as="strong" role="body" weight="medium" tone="strong">
-					Model-cost ledger
+					AI call record
 				</Text>
 				<Badge variant={TONE_VARIANTS[tone]} data-tone={tone}>
 					{freshnessLabel(posture.freshness.state)}
 				</Badge>
-				<CostChip
-					reading={postureSpendReading(posture)}
-					subject={`Model spend recorded in the last ${posture.window}`}
-				/>
+				<Badge variant="secondary">
+					<span className="tabular-nums">
+						{formatCount(posture.spend.rowCount)} calls in {posture.window}
+					</span>
+				</Badge>
 			</div>
 			<Text as="span" role="label" tone="secondary">
 				{posture.freshness.detail}
@@ -234,30 +230,19 @@ export function LedgerCard({
 				</Text>
 			)}
 			<Text as="span" role="label" tone="secondary">
-				Organization-attributed model costs · excludes total infrastructure
-				spend. {formatCount(posture.spend.pricedRowCount)} priced rows ·{" "}
-				{formatCount(posture.spend.unpricedRowCount)} unpriced rows.
+				AI calls recorded for this organization. What they used is shown in
+				credits above. {formatCount(posture.spend.pricedRowCount)} priced calls
+				· {formatCount(posture.spend.unpricedRowCount)} unpriced calls.
 			</Text>
 			{posture.spend.quarantinedRowCount > 0 && (
 				<Text as="span" role="label" tone="secondary">
-					{formatCount(posture.spend.quarantinedRowCount)} row
-					{posture.spend.quarantinedRowCount === 1 ? " is" : "s are"} held
-					outside the model-spend amount above.{" "}
-					{posture.spend.quarantinedCostUsd !== null
-						? `Recorded held amount ${formatUsd(posture.spend.quarantinedCostUsd)}.`
-						: `Held total unknown; known subtotal ${formatUsd(posture.spend.quarantinedKnownSubtotalUsd)}.`}
+					{formatCount(posture.spend.quarantinedRowCount)} call
+					{posture.spend.quarantinedRowCount === 1 ? " is" : "s are"} held for
+					review.
 				</Text>
 			)}
 		</ComputeSummary>
 	);
-}
-
-/** Unknown held amounts remain distinct from explicitly recorded zero. */
-export function bucketAmountLabel(bucket: {
-	provenance: CostProvenance;
-	costUsd: number | null;
-}): string {
-	return bucket.costUsd !== null ? formatUsd(bucket.costUsd) : "amount unknown";
 }
 
 export function ProvenanceCard({
@@ -294,7 +279,6 @@ export function ProvenanceCard({
 								data-produced="yes"
 							>
 								<span className="tabular-nums">
-									{bucketAmountLabel(entry.bucket)} ·{" "}
 									{formatCount(entry.bucket.rowCount)} calls
 								</span>
 							</Badge>
@@ -500,7 +484,7 @@ export function AttributionCard({
 		<ComputeSummary embedded={embedded}>
 			<div className="flex flex-wrap items-center gap-2">
 				<Text as="strong" role="body" weight="medium" tone="strong">
-					Unattributed cost
+					Unattributed calls
 				</Text>
 				<Badge
 					variant={gap.unattributedRowCount > 0 ? "warning" : "outline"}
@@ -508,7 +492,7 @@ export function AttributionCard({
 				>
 					{gap.unattributedRowCount === 0
 						? "None in scope"
-						: `${formatUsd(gap.unattributedCostUsd)} across ${formatCount(gap.unattributedRowCount)} calls`}
+						: `${formatCount(gap.unattributedRowCount)} calls`}
 				</Badge>
 			</div>
 			<Text as="span" role="label" tone="secondary">
@@ -551,8 +535,8 @@ export function ComputePage() {
 				<PageHeading>
 					<PageTitle>{OS_COPY.navigation.usage}</PageTitle>
 					<PageDescription>
-						Credits used this month, recorded model costs, and model routing.
-						For your plan, caps, credit packs, and invoices, open{" "}
+						Credits used this month, recorded AI calls, and model routing. For
+						your plan, caps, credit packs, and invoices, open{" "}
 						<Link href="/admin/billing">Billing</Link>.
 					</PageDescription>
 				</PageHeading>
@@ -569,13 +553,13 @@ export function ComputePage() {
 
 			<PageSection>
 				<BillingSectionHeader
-					title="Credits and cost"
-					description="Credits used this month, recorded spend, ingestion freshness, and source basis."
+					title="Credits and calls"
+					description="Credits used this month, recorded AI calls, record freshness, and where the figures come from."
 				/>
 				{posture.isPending && <ListSkeleton rows={3} rowClassName="h-24" />}
 				{nonData?.kind === "refused" && (
 					<Alert>
-						<AlertTitle>Cost is not visible to this account</AlertTitle>
+						<AlertTitle>Usage is not visible to this account</AlertTitle>
 						<AlertDescription>
 							Reading compute posture needs the OS read verb on this workspace.
 							Nothing here is zero — the read was refused, not empty.
@@ -586,7 +570,7 @@ export function ComputePage() {
 					<LoadError
 						title="The compute posture is unavailable"
 						error={nonData.message}
-						help="Spending and budget information are unknown until this loads."
+						help="Usage information is unknown until this loads."
 					/>
 				)}
 				{posture.data && (

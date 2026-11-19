@@ -20,7 +20,6 @@ import {
 	formatUsd,
 	gadgetCostReading,
 	kernelUsageReading,
-	postureSpendReading,
 	queryReading,
 	readingDetail,
 	readingLabel,
@@ -326,101 +325,6 @@ describe("gadgetCostReading", () => {
 			kind: "absent",
 			reason: "no_rows",
 		});
-	});
-});
-
-describe("postureSpendReading", () => {
-	function posture(
-		spend: Partial<Parameters<typeof postureSpendReading>[0]["spend"]>,
-		state: Parameters<
-			typeof postureSpendReading
-		>[0]["freshness"]["state"] = "fresh",
-	) {
-		return {
-			freshness: { state },
-			spend: {
-				knownSubtotalUsd: spend.costUsd ?? 0,
-				pricedRowCount: spend.rowCount ?? 0,
-				unpricedRowCount: 0,
-				unpricedTokens: 0,
-				costCompleteness: "complete",
-				quarantinedKnownSubtotalUsd: 0,
-				rowCount: 0,
-				totalTokens: 0,
-				costUsd: 0,
-				quarantinedCostUsd: 0,
-				quarantinedTokens: 0,
-				quarantinedRowCount: 0,
-				provenanceFloor: null,
-				...spend,
-			},
-		} as Parameters<typeof postureSpendReading>[0];
-	}
-
-	it("reports an empty window as an absence, not a clean zero", () => {
-		expect(postureSpendReading(posture({}))).toEqual({
-			kind: "absent",
-			reason: "no_rows",
-		});
-	});
-
-	it("names a dark ledger as the reason there is nothing to show", () => {
-		expect(postureSpendReading(posture({}, "dark"))).toEqual({
-			kind: "absent",
-			reason: "ingestion_dark",
-		});
-	});
-
-	it("marks spend a floor while ingestion is behind", () => {
-		const reading = postureSpendReading(
-			posture(
-				{
-					rowCount: 5,
-					costUsd: 1.5,
-					totalTokens: 500,
-					provenanceFloor: "pricing_table_estimate",
-				},
-				"ingestion_pending",
-			),
-		);
-		expect(reading.kind === "priced" && reading.partial).toBe(
-			"ingestion_pending",
-		);
-	});
-
-	// A boolean `partial` made these three states render byte-identically —
-	// including the reassuring "not ingested yet" sentence on a ledger that had
-	// been dark for days. The chip this feeds sits in the Canvas header with no
-	// freshness badge next to it, so this field is the ONLY thing carrying the
-	// difference between "cheap workspace" and "ingestion stopped".
-	it("distinguishes why the floor exists, not merely that it does", () => {
-		const priced = {
-			rowCount: 5,
-			costUsd: 1.5,
-			totalTokens: 500,
-			provenanceFloor: "pricing_table_estimate" as const,
-		};
-		const reasonFor = (
-			state: Parameters<typeof postureSpendReading>[0]["freshness"]["state"],
-		) => {
-			const reading = postureSpendReading(posture(priced, state));
-			return reading.kind === "priced" ? reading.partial : "not-priced";
-		};
-		expect(reasonFor("ingestion_pending")).toBe("ingestion_pending");
-		expect(reasonFor("lagging")).toBe("ingestion_lagging");
-		expect(reasonFor("dark")).toBe("ingestion_dark");
-		expect(reasonFor("fresh")).toBeNull();
-		// All four render differently to a reader.
-		const sentences = new Set(
-			(["ingestion_pending", "lagging", "dark", "fresh"] as const).map(
-				(state) => readingDetail(postureSpendReading(posture(priced, state))),
-			),
-		);
-		expect(sentences.size).toBe(4);
-		// A dark ledger must never wear the "resolves itself shortly" wording.
-		const dark = readingDetail(postureSpendReading(posture(priced, "dark")));
-		expect(dark).toContain("DARK");
-		expect(dark).not.toContain("not been ingested yet");
 	});
 });
 

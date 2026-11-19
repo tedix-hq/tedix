@@ -77,14 +77,13 @@ function posture(overrides: Partial<ComputePosture> = {}): ComputePosture {
 		],
 		budget: {
 			configured: true,
-			includedTokens: 1_000_000,
-			usedTokens: 400_000,
-			reservedTokens: 1_000,
-			remainingIncludedTokens: 599_000,
-			unlimitedTokenUsage: false,
-			allowOverage: false,
+			includedCredits: 15_000,
+			usedCredits: 6_000,
+			heldCredits: 10,
+			topUpCredits: 1_000,
+			availableCredits: 9_990,
 			entitlementActive: true,
-			detail: "Copied from the canonical billing balance snapshot.",
+			detail: "Copied from the canonical credit pool.",
 		},
 		routing: {
 			modelRef: "azure-openai/gpt-5.6-luna",
@@ -105,8 +104,7 @@ function posture(overrides: Partial<ComputePosture> = {}): ComputePosture {
 		providerHealth: { status: "unknown", detail: COST_PROVIDER_HEALTH_DETAIL },
 		admissionPolicy: {
 			state: "d1_authoritative",
-			desiredDailyTokenLimit: 5_000_000,
-			desiredDailySpendLimitMicros: 25_000_000,
+			allowedModelTiers: null,
 			detail: COST_ADMISSION_POLICY_DETAIL,
 		},
 		attribution: {
@@ -219,11 +217,10 @@ describe("LedgerCard", () => {
 			/>,
 		);
 		expect(html).toContain("No rows ingested");
-		expect(html).toContain('data-cost-kind="absent"');
-		expect(html).toContain("it is not $0");
+		expect(html).toContain("0 calls in 7d");
 	});
 
-	it("reports quarantined rows beside the amount, never inside it", () => {
+	it("reports held calls without any money amount", () => {
 		const html = renderToStaticMarkup(
 			<LedgerCard
 				posture={posture({
@@ -246,8 +243,9 @@ describe("LedgerCard", () => {
 				})}
 			/>,
 		);
-		expect(html).toContain("$1.25");
-		expect(html).toContain("held outside the model-spend amount above");
+		expect(html).toContain("12 calls in 7d");
+		expect(html).toContain("2 calls are held for review");
+		expect(html).not.toContain("$");
 	});
 });
 
@@ -268,51 +266,22 @@ describe("ProvenanceCard", () => {
 		expect(html).toContain("provider reported");
 	});
 
-	// The legend sits two lines under the headline chip. When the chip correctly
-	// refused to price unknown/quarantined rows, the legend priced the SAME rows
-	// at $0.0000 — the page contradicted itself about the same window.
-	it("does not price the buckets whose whole meaning is that no price resolved", () => {
+	// Customers see credits only: a provider cost in USD would reveal the
+	// markup, so the legend reports call counts and never an amount.
+	it("reports calls per source and never a money amount", () => {
 		const html = renderToStaticMarkup(
 			<ProvenanceCard
 				posture={posture({
 					provenance: [
 						{
-							knownSubtotalUsd: 0,
-
-							provenance: "unknown",
-							rowCount: 1,
-							totalTokens: 5000,
-							costUsd: null,
-						},
-						{
-							knownSubtotalUsd: 0,
-
-							provenance: "quarantined",
-							rowCount: 2,
+							knownSubtotalUsd: 0.0777,
+							provenance: "gateway_reported",
+							rowCount: 3,
 							totalTokens: 900,
-							costUsd: null,
+							costUsd: 0.0777,
 						},
-					],
-				})}
-			/>,
-		);
-		expect(html).not.toContain("$0.0000");
-		expect(html).toContain("amount unknown");
-		expect(html).not.toContain("tokens");
-	});
-
-	// The exact shape production carries: 5 `quarantined_failed` rows that never
-	// got far enough to spend a token. Cost 0 AND tokens 0 — and still not $0.00,
-	// because a bucket that exists BECAUSE no price resolved has an unknown
-	// held-out value, not a zero one.
-	it("does not price a quarantined bucket that has neither cost nor tokens", () => {
-		const html = renderToStaticMarkup(
-			<ProvenanceCard
-				posture={posture({
-					provenance: [
 						{
 							knownSubtotalUsd: 0,
-
 							provenance: "quarantined",
 							rowCount: 5,
 							totalTokens: 0,
@@ -322,28 +291,10 @@ describe("ProvenanceCard", () => {
 				})}
 			/>,
 		);
-		expect(html).toContain("amount unknown");
-		expect(html).not.toContain("$0.00");
-	});
-
-	it("still prints a real amount for a bucket that has one", () => {
-		const html = renderToStaticMarkup(
-			<ProvenanceCard
-				posture={posture({
-					provenance: [
-						{
-							knownSubtotalUsd: 0.0777,
-
-							provenance: "gateway_reported",
-							rowCount: 3,
-							totalTokens: 900,
-							costUsd: 0.0777,
-						},
-					],
-				})}
-			/>,
-		);
-		expect(html).toContain("$0.0777");
+		expect(html).toContain("3 calls");
+		expect(html).toContain("5 calls");
+		expect(html).not.toContain("$");
+		expect(html).not.toContain("0.0777");
 	});
 });
 
@@ -424,6 +375,22 @@ describe("AttributionCard", () => {
 	it("states that orphaned rows are invisible, so the figure is a floor", () => {
 		const html = renderToStaticMarkup(<AttributionCard posture={posture()} />);
 		expect(html).toContain("never a total");
+	});
+
+	it("counts unattributed calls without their USD cost", () => {
+		const html = renderToStaticMarkup(
+			<AttributionCard
+				posture={posture({
+					attribution: {
+						...posture().attribution,
+						unattributedCostUsd: 0.42,
+						unattributedRowCount: 4,
+					},
+				})}
+			/>,
+		);
+		expect(html).toContain("4 calls");
+		expect(html).not.toContain("$");
 	});
 });
 
@@ -506,65 +473,23 @@ describe("compute posture summaries support both composition levels", () => {
 	});
 });
 
-describe("model ledger coverage", () => {
-	it("shows held zero and tokens without pricing them into spend", () => {
+describe("AI call record", () => {
+	it("shows held and unpriced calls without pricing them", () => {
 		const value = posture();
 		value.spend.rowCount = 12;
 		value.spend.quarantinedRowCount = 2;
 		value.spend.quarantinedTokens = 40;
-		value.spend.quarantinedCostUsd = 0;
-		value.spend.quarantinedKnownSubtotalUsd = 0;
-		value.spend.unpricedRowCount = 2;
-		value.spend.unpricedTokens = 40;
-		value.spend.costCompleteness = "partial";
-		value.spend.costUsd = null;
-		const html = renderToStaticMarkup(<LedgerCard posture={value} />);
-		expect(html).toContain("Model-cost ledger");
-		expect(html).toContain("excludes total infrastructure spend");
-		expect(html).toContain("2 rows are held");
-		expect(html).not.toContain("tokens");
-		expect(html).toContain("Recorded held amount $0");
-		expect(html).toContain("$1.25");
-	});
-	it("retains a known held subtotal when the held total is unknown", () => {
-		const value = posture();
-		value.spend.rowCount = 12;
-		value.spend.quarantinedRowCount = 2;
-		value.spend.quarantinedTokens = 40;
-		value.spend.quarantinedCostUsd = null;
+		value.spend.quarantinedCostUsd = 0.4;
 		value.spend.quarantinedKnownSubtotalUsd = 0.4;
 		value.spend.unpricedRowCount = 2;
 		value.spend.unpricedTokens = 40;
 		value.spend.costCompleteness = "partial";
 		value.spend.costUsd = null;
 		const html = renderToStaticMarkup(<LedgerCard posture={value} />);
-		expect(html).toContain("Held total unknown; known subtotal $0.40");
-		expect(html).toContain("2 unpriced rows");
+		expect(html).toContain("AI call record");
+		expect(html).toContain("2 calls are held for review");
+		expect(html).toContain("2 unpriced calls");
 		expect(html).not.toContain("tokens");
-		expect(html).not.toContain("Recorded held amount");
+		expect(html).not.toContain("$");
 	});
-});
-
-it("does not turn an all-held ledger into complete spend", () => {
-	const value = posture();
-	value.spend = {
-		rowCount: 2,
-		totalTokens: 0,
-		costUsd: null,
-		knownSubtotalUsd: 0,
-		pricedRowCount: 0,
-		unpricedRowCount: 2,
-		unpricedTokens: 40,
-		costCompleteness: "unknown",
-		quarantinedCostUsd: null,
-		quarantinedKnownSubtotalUsd: 0,
-		quarantinedTokens: 40,
-		quarantinedRowCount: 2,
-		provenanceFloor: null,
-	};
-	const html = renderToStaticMarkup(<LedgerCard posture={value} />);
-	expect(html).toContain("Held total unknown");
-	expect(html).toContain("0 priced rows");
-	expect(html).not.toContain("held tokens");
-	expect(html).not.toContain("Recorded held amount");
 });

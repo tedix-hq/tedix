@@ -24,7 +24,6 @@ import {
 	persistedCostAmount,
 	provenanceFloor,
 } from "@tedix/api-contract/schemas/cost-provenance";
-import type { ComputePosture } from "@tedix/api-contract/contracts/os-compute";
 import { isAuthorizationError } from "@/lib/orpc-error";
 
 /**
@@ -464,67 +463,4 @@ export function callCostRunReading(
 				: null,
 		emptyReason: options.emptyReason,
 	});
-}
-
-/**
- * Map ingestion freshness onto why a total is a floor. `fresh` and
- * `never_ingested` yield null for opposite reasons: the first has nothing
- * missing, the second has no total to qualify in the first place.
- */
-export function ledgerFloorReason(
-	state: ComputePosture["freshness"]["state"],
-): CostFloorReason | null {
-	switch (state) {
-		case "ingestion_pending":
-			return "ingestion_pending";
-		case "lagging":
-			return "ingestion_lagging";
-		case "dark":
-			return "ingestion_dark";
-		case "fresh":
-		case "never_ingested":
-			return null;
-	}
-}
-
-/**
- * Spend reading for the window. Delegates the branch order to the shared
- * rollup so the headline number obeys exactly the same rules as every chip.
- */
-export function postureSpendReading(posture: ComputePosture): CostReading {
-	// Carried through as the REASON, not a boolean: the chip this feeds sits in
-	// the Canvas header with no freshness badge beside it, so collapsing these
-	// three states here is what made a four-day-dark ledger claim its amount was
-	// merely waiting on the next tick.
-	const partial =
-		ledgerFloorReason(posture.freshness.state) ??
-		(posture.spend.costCompleteness !== "complete" ? "usage_incomplete" : null);
-	if (posture.spend.rowCount === 0) {
-		return {
-			kind: "absent",
-			reason: posture.freshness.state === "dark" ? "ingestion_dark" : "no_rows",
-		};
-	}
-	if (posture.spend.rowCount === posture.spend.quarantinedRowCount) {
-		return {
-			kind: "quarantined",
-			tokens: posture.spend.quarantinedTokens,
-			costUsd: posture.spend.quarantinedCostUsd,
-		};
-	}
-	if (posture.spend.provenanceFloor === null) {
-		return { kind: "absent", reason: "unattested" };
-	}
-	if (posture.spend.knownSubtotalUsd <= 0) {
-		return posture.spend.costCompleteness !== "complete"
-			? { kind: "unpriced", tokens: posture.spend.totalTokens }
-			: { kind: "zero", provenance: posture.spend.provenanceFloor };
-	}
-	return {
-		kind: "priced",
-		costUsd: posture.spend.knownSubtotalUsd,
-		tokens: posture.spend.totalTokens,
-		provenance: posture.spend.provenanceFloor,
-		partial,
-	};
 }
