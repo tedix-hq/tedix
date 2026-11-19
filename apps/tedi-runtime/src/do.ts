@@ -315,6 +315,7 @@ import {
 	type FacetTurnUsage,
 	type StepTelemetryPayload,
 } from "./step-telemetry";
+import { coreMemoryPromptBlock } from "./tedi-memory-tools";
 import { type TelegramChannelLike } from "./telegram-config";
 import {
 	type TraceMemoryHit,
@@ -2436,24 +2437,33 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 
 	/**
 	 * What a workspace object needs to run a turn as this tedi: its composed
-	 * persona and the per-turn recall (directives, memory digest, skills).
-	 * Nothing is copied; the workspace object asks on every turn.
+	 * persona and per-turn context, including core memory on trusted turns.
 	 */
 	async guestProfile(input: {
 		tediId: string;
 		organizationId: string;
 		sessionKey: string;
 		userText: string;
+		trust: SurfaceTrust;
 	}): Promise<{ systemPrompt: string; addenda: string }> {
 		await this.ensureIdentity({
 			tediId: input.tediId,
 			orgId: input.organizationId,
 		});
-		const [systemPrompt, addenda] = await Promise.all([
+		const [systemPrompt, addenda, coreMemory] = await Promise.all([
 			this.getSystemPrompt(),
 			this.cognitiveAddenda(input.sessionKey, input.userText),
+			coreMemoryPromptBlock({
+				trust: input.trust,
+				sessionKey: input.sessionKey,
+				tediId: input.tediId,
+				getPlatform: () => this.getPlatformClient(),
+			}),
 		]);
-		return { systemPrompt, addenda };
+		return {
+			systemPrompt,
+			addenda: [addenda, coreMemory].filter(Boolean).join("\n\n"),
+		};
 	}
 
 	// ===========================================================================
