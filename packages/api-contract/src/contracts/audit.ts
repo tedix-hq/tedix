@@ -17,6 +17,8 @@ import {
 	AuditActorTypeSchema,
 	GatewayChangeRecordInputSchema,
 	GatewayChangeRecordSchema,
+	GatewayChangeRecordsExportSchema,
+	GatewayChangeRecordsInputSchema,
 	GatewayLedgerQuerySchema,
 	AuditExportInputSchema,
 	AuditExportOutputSchema,
@@ -81,6 +83,16 @@ export const auditContract = oc
 			})
 			.input(z.object({ id: z.string().min(1) }))
 			.output(GatewayChangeRecordSchema.nullable()),
+		listGatewayChangeRecords: oc
+			.route({
+				method: "GET",
+				path: "/gateway-change-records",
+				summary: "List and count gateway change records",
+				description:
+					"Read your organization's record of tool calls made through the MCP gateway, allowed or refused, for a time range. Returns one page, oldest first, plus the count of every record in the range. Follow nextAfterSequence with the same range to read the remaining records. Records hold a hash of the call's arguments, never the arguments. Only an active owner or admin of the organization can call it.",
+			})
+			.input(GatewayChangeRecordsInputSchema)
+			.output(GatewayChangeRecordsExportSchema),
 
 		/**
 		 * Search audit events with optional filters

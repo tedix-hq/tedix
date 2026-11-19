@@ -298,6 +298,18 @@ describe("reviewed RPC endpoint scopes", () => {
 		}
 	});
 
+	it("opens the organization's gateway change record read and keeps the gateway's own ledger closed", () => {
+		expect(resolve("audit/listGatewayChangeRecords")).toEqual([
+			"mcp:observe.read",
+		]);
+		for (const endpoint of [
+			"audit/appendChangeRecord",
+			"audit/listChangeRecords",
+			"audit/getChangeRecord",
+		])
+			expect(resolve(endpoint)).toEqual(["platform:admin"]);
+	});
+
 	it("still fails closed for unreviewed endpoints", () => {
 		expect(() => resolve("tedis/unreviewedOperation")).toThrow(
 			/Missing MCP capability mapping/,

@@ -1,5 +1,5 @@
 import type { GatewayChangeRecordInput } from "@tedix/api-contract/schemas/audit";
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, count, eq, gt, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { gatewayChangeRecords } from "../schema/gateway-change-records";
 
@@ -88,4 +88,72 @@ export async function getGatewayChangeRecord(
 		)
 		.limit(1);
 	return row ? toRecord(row) : null;
+}
+
+export interface GatewayChangeRecordRangeParams {
+	/** Inclusive start, as `Date.prototype.toISOString()` writes it. */
+	from: string;
+	/** Exclusive end, in the same form. */
+	until: string;
+	resource?: string;
+	actorId?: string;
+}
+
+/**
+ * `recorded_at` in the millisecond form the range bounds use, so a stored
+ * timestamp without fractional seconds compares by time, not by text.
+ */
+const recordedAtMillis = sql<string>`strftime('%Y-%m-%dT%H:%M:%fZ', ${gatewayChangeRecords.recordedAt})`;
+
+function inRange(
+	organizationId: string,
+	range: GatewayChangeRecordRangeParams,
+) {
+	return and(
+		eq(gatewayChangeRecords.organizationId, organizationId),
+		sql`${recordedAtMillis} >= ${range.from}`,
+		sql`${recordedAtMillis} < ${range.until}`,
+		range.resource === undefined
+			? undefined
+			: eq(gatewayChangeRecords.resource, range.resource),
+		range.actorId === undefined
+			? undefined
+			: eq(gatewayChangeRecords.actorId, range.actorId),
+	);
+}
+
+/** One page of an organization's records in a time range, oldest first. */
+export async function listGatewayChangeRecordsInRange(
+	db: DbQueryClient,
+	organizationId: string,
+	range: GatewayChangeRecordRangeParams,
+	page: { afterSequence?: number; limit: number },
+) {
+	const rows = await db
+		.select()
+		.from(gatewayChangeRecords)
+		.where(
+			and(
+				inRange(organizationId, range),
+				page.afterSequence === undefined
+					? undefined
+					: gt(gatewayChangeRecords.sequence, page.afterSequence),
+			),
+		)
+		.orderBy(asc(gatewayChangeRecords.sequence))
+		.limit(page.limit);
+	return rows.map(toRecord);
+}
+
+/** Every record of an organization in a time range, whatever the page. */
+export async function countGatewayChangeRecordsInRange(
+	db: DbQueryClient,
+	organizationId: string,
+	range: GatewayChangeRecordRangeParams,
+): Promise<number> {
+	const [row] = await db
+		.select({ total: count() })
+		.from(gatewayChangeRecords)
+		.where(inRange(organizationId, range));
+	return row?.total ?? 0;
 }

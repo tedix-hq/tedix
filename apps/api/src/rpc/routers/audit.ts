@@ -23,7 +23,9 @@ import {
 } from "@tedix/db/queries/audit";
 import {
 	appendGatewayChangeRecord,
+	countGatewayChangeRecordsInRange,
 	listGatewayChangeRecords,
+	listGatewayChangeRecordsInRange,
 	getGatewayChangeRecord,
 } from "@tedix/db/queries/gateway-change-records";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -32,6 +34,7 @@ import {
 	type AuditEventOutput,
 	toAuditEventOutput,
 } from "../../lib/audit-event-output";
+import { isActiveOwnerOrAdmin } from "../org-membership";
 import { withOrg } from "../org-scope";
 import {
 	createError,
@@ -336,7 +339,53 @@ const getChangeRecord = auditOs.getChangeRecord
 		return getGatewayChangeRecord(context.db, organizationId, input.id);
 	});
 
+/**
+ * An owner's or admin's read of their own organization's ledger. Separate
+ * from the gateway-only procedures above: the organization is the caller's
+ * authenticated one and no input can name another.
+ */
+const listOrganizationGatewayChangeRecords = authedOs.listGatewayChangeRecords
+	.use(withAuthorization(AUDIT_READ_PERMISSION, AUDIT_READ_SCOPE))
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		const subject =
+			context.authType === "user" ? context.user?.sub : context.descopeUserId;
+		if (
+			!subject ||
+			!(await isActiveOwnerOrAdmin(context, context.organizationId, subject))
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only an active owner or admin can read gateway change records",
+			);
+		const { afterSequence, limit, ...range } = input;
+		const [count, records] = await Promise.all([
+			countGatewayChangeRecordsInRange(
+				context.db,
+				context.organizationId,
+				range,
+			),
+			listGatewayChangeRecordsInRange(
+				context.db,
+				context.organizationId,
+				range,
+				{ afterSequence, limit: limit + 1 },
+			),
+		]);
+		const page = records.slice(0, limit);
+		return {
+			from: range.from,
+			until: range.until,
+			exportedAt: new Date().toISOString(),
+			count,
+			records: page,
+			nextAfterSequence:
+				records.length > limit ? (page.at(-1)?.sequence ?? null) : null,
+		};
+	});
+
 export const auditContractRouter = auditOs.router({
+	listGatewayChangeRecords: listOrganizationGatewayChangeRecords,
 	appendChangeRecord,
 	listChangeRecords,
 	getChangeRecord,

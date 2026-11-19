@@ -187,6 +187,51 @@ export const GatewayLedgerQuerySchema = z.strictObject({
 	afterSequence: z.number().int().nonnegative().optional(),
 	limit: z.number().int().min(1).max(1000).default(1000),
 });
+const GatewayChangeRecordTimestampSchema = z
+	.string()
+	.datetime({ offset: true })
+	.transform((value) => new Date(value).toISOString());
+
+/** An owner's or admin's read of their own organization's gateway records. */
+export const GatewayChangeRecordsInputSchema = z
+	.strictObject({
+		from: GatewayChangeRecordTimestampSchema.describe(
+			"Inclusive start of the recorded-at time range",
+		),
+		until: GatewayChangeRecordTimestampSchema.describe(
+			"Exclusive end of the recorded-at time range",
+		),
+		afterSequence: z.number().int().nonnegative().optional(),
+		limit: z.number().int().min(1).max(200).default(100),
+		resource: z
+			.string()
+			.min(1)
+			.optional()
+			.describe("Only records for this resource, such as tool:<tool id>"),
+		actorId: z
+			.string()
+			.min(1)
+			.optional()
+			.describe("Only records for calls made by this actor"),
+	})
+	.refine((input) => input.from < input.until, {
+		message: "from must precede until",
+		path: ["until"],
+	});
+export const GatewayChangeRecordsExportSchema = z.object({
+	from: z.string(),
+	until: z.string(),
+	exportedAt: z.string(),
+	count: z
+		.number()
+		.int()
+		.nonnegative()
+		.describe(
+			"Total records in the time range and filters, independent of page size and cursor",
+		),
+	records: z.array(GatewayChangeRecordSchema),
+	nextAfterSequence: z.number().int().nullable(),
+});
 export type GatewayChangeRecordInput = z.infer<
 	typeof GatewayChangeRecordInputSchema
 >;
