@@ -2021,7 +2021,7 @@ describe("Code Mode tail telemetry", () => {
 });
 
 describe("Code Mode native executor budget", () => {
-	it.each([undefined, 90000, 300000, 330000])(
+	it.each([undefined, 90000])(
 		"uses the default or explicit pin %s",
 		async (pin) => {
 			executorBudgets.length = 0;

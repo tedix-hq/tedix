@@ -380,52 +380,44 @@ describe("CardReviewApp decision interactions", () => {
 		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
 		expect(osApi.attention.decideDeckCard).not.toHaveBeenCalled();
 	});
-	it.each([true, false])(
-		"explains denied source sheets without a write (deck=%s)",
-		async (inDeck) => {
-			vi.mocked(osApi.osWorkspaces.outputs.get).mockRejectedValue(
-				Object.assign(new Error("Output source access is unavailable"), {
-					code: "FORBIDDEN",
-				}),
-			);
-			await mount(inDeck);
-			expect(host.textContent).toContain("Cards from Practice didn't load");
-			expect(host.textContent).toContain(
-				"You can't open the sheet “Practice cards today”",
-			);
-			expect(host.textContent).toContain("Ask its owner to share it with you");
-			expect(host.textContent).not.toContain("Loading your activity");
-			expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
-		},
-	);
-	it.each([true, false])(
-		"retries a failed first card read without an error, then shows the cards (deck=%s)",
-		async (inDeck) => {
-			vi.mocked(osApi.osWorkspaces.outputs.get).mockRejectedValueOnce(
-				Object.assign(new Error("Temporary 503"), {
-					code: "SERVICE_UNAVAILABLE",
-				}),
-			);
-			const seen: string[] = [];
-			const watch = new MutationObserver(() =>
-				seen.push(host.textContent ?? ""),
-			);
-			watch.observe(host, {
-				childList: true,
-				subtree: true,
-				characterData: true,
-			});
-			await mount(inDeck);
-			await vi.waitFor(() =>
-				expect(
-					heading(0) ?? host.querySelector("[data-card-review-card]"),
-				).not.toBeNull(),
-			);
-			watch.disconnect();
-			expect(osApi.osWorkspaces.outputs.get).toHaveBeenCalledTimes(2);
-			expect(seen.join("\n")).not.toMatch(/didn't load|couldn't load/);
-		},
-	);
+	it("explains a denied source sheet without a write", async () => {
+		vi.mocked(osApi.osWorkspaces.outputs.get).mockRejectedValue(
+			Object.assign(new Error("Output source access is unavailable"), {
+				code: "FORBIDDEN",
+			}),
+		);
+		await mount(false);
+		expect(host.textContent).toContain("Cards from Practice didn't load");
+		expect(host.textContent).toContain(
+			"You can't open the sheet “Practice cards today”",
+		);
+		expect(host.textContent).toContain("Ask its owner to share it with you");
+		expect(host.textContent).not.toContain("Loading your activity");
+		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
+	});
+	it("retries a failed first card read before showing an error", async () => {
+		vi.mocked(osApi.osWorkspaces.outputs.get).mockRejectedValueOnce(
+			Object.assign(new Error("Temporary 503"), {
+				code: "SERVICE_UNAVAILABLE",
+			}),
+		);
+		const seen: string[] = [];
+		const watch = new MutationObserver(() => seen.push(host.textContent ?? ""));
+		watch.observe(host, {
+			childList: true,
+			subtree: true,
+			characterData: true,
+		});
+		await mount(true);
+		await vi.waitFor(() =>
+			expect(
+				heading(0) ?? host.querySelector("[data-card-review-card]"),
+			).not.toBeNull(),
+		);
+		watch.disconnect();
+		expect(osApi.osWorkspaces.outputs.get).toHaveBeenCalledTimes(2);
+		expect(seen.join("\n")).not.toMatch(/didn't load|couldn't load/);
+	});
 	it("names a source that is only temporarily unreachable and offers Retry", async () => {
 		vi.mocked(osApi.osWorkspaces.outputs.get).mockRejectedValue(
 			Object.assign(new Error("Temporary 503"), {
@@ -584,7 +576,7 @@ describe("CardReviewApp decision interactions", () => {
 		expect(host.querySelector(".fd-decision")).toBeNull();
 		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
 	});
-	it.each(["invalid JSON", "null", '"stale"', '{"old":42}'])(
+	it.each(["invalid JSON", '{"old":42}'])(
 		"ignores stale storage %s",
 		async (stored) => {
 			localStorage.setItem(storageKey(), stored);
@@ -875,17 +867,14 @@ describe("CardReviewApp scored factory cards", () => {
 			);
 	});
 
-	it.each([true, false])(
-		"shows effort, timing and why this card (in Deck: %s)",
-		async (inDeck) => {
-			await mount(inDeck, false, scored);
-			const chips = host.querySelector("[data-card-review-chips]");
-			expect(chips?.textContent).toBe("5 minToday");
-			expect(
-				host.querySelector("[data-card-review-ranked-for]")?.textContent,
-			).toBe("Why this card: fresh thread, buyer intent");
-		},
-	);
+	it("shows effort, timing and ranking reasons on a scored card", async () => {
+		await mount(true, false, scored);
+		const chips = host.querySelector("[data-card-review-chips]");
+		expect(chips?.textContent).toBe("5 minToday");
+		expect(
+			host.querySelector("[data-card-review-ranked-for]")?.textContent,
+		).toBe("Why this card: fresh thread, buyer intent");
+	});
 
 	it("asks for a factory skip reason in the Deck and records it", async () => {
 		await mount(true, false, scored);

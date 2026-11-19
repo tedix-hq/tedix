@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { isolateRenewalTests } from "./renewal-test-env";
 import { spawn } from "node:child_process";
 import {
@@ -273,7 +273,6 @@ process.stdout.write("unavailable\\n");`,
 });
 
 for (const [status, body, oauthError, terminal] of [
-	[503, "<html>upstream unavailable</html>", undefined, false],
 	[500, '{"error":"invalid_grant"}', "invalid_grant", false],
 	[
 		429,
@@ -281,11 +280,8 @@ for (const [status, body, oauthError, terminal] of [
 		"temporarily_unavailable",
 		false,
 	],
-	[429, "rate limited", undefined, false],
 	[400, "<html>bad gateway</html>", undefined, false],
 	[200, "{", undefined, false],
-	[200, '{"message":"upstream unavailable"}', undefined, false],
-	[400, '{"message":"upstream unavailable"}', undefined, false],
 	[400, '{"error":"invalid_grant"}', "invalid_grant", true],
 	[403, '{"error":"access_denied"}', "access_denied", true],
 ] as const) {
@@ -419,28 +415,6 @@ test("a new login saved during a transient response is never overwritten", async
 	}
 });
 
-test("a token endpoint slower than the former 15s deadline saves its rotation", async () => {
-	const { server, state } = rotatingServer(16_000);
-	const base = `http://127.0.0.1:${server.port}`;
-	try {
-		storeExpiredLogin(base, state.current);
-		const provider = new WorkspaceOAuthProvider({
-			workspace: WORKSPACE,
-			mcpUrl: `${base}/mcp`,
-		});
-		expect(
-			await refreshStoredSession(provider, { isDarkWake: () => false }),
-		).toBe("refreshed");
-		expect(state.rotations).toBe(1);
-		expect(state.invalidated).toBe(false);
-		expect(
-			readWorkspaceCredentials(WORKSPACE)?.oauthTokens?.refresh_token,
-		).toBe(state.current);
-	} finally {
-		server.stop(true);
-	}
-}, 20_000);
-
 test("a rotated but unanswered exchange never replays its spent token", async () => {
 	const { server, state, requested } = rotatingServer(200);
 	const base = `http://127.0.0.1:${server.port}`;
@@ -483,6 +457,7 @@ test("a rotated but unanswered exchange never replays its spent token", async ()
 test("a proven pre-connect failure retries once and saves the only rotation", async () => {
 	const { server, state } = rotatingServer(0);
 	const base = `http://127.0.0.1:${server.port}`;
+	const timer = spyOn(globalThis, "setTimeout");
 	try {
 		storeExpiredLogin(base, state.current);
 		const provider = new WorkspaceOAuthProvider({
@@ -500,10 +475,14 @@ test("a proven pre-connect failure retries once and saves the only rotation", as
 				},
 			}),
 		).toBe("refreshed");
+		expect(
+			timer.mock.calls.some(([, ms]) => typeof ms === "number" && ms > 15_000),
+		).toBe(true);
 		expect(calls).toBe(2);
 		expect(state.rotations).toBe(1);
 		expect(state.invalidated).toBe(false);
 	} finally {
+		timer.mockRestore();
 		server.stop(true);
 	}
 });

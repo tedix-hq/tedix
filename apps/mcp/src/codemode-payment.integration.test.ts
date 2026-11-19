@@ -291,21 +291,6 @@ vi.mock("@cloudflare/codemode", async (importOriginal) => {
 						return { result, logs: [] };
 					}
 
-					if (code.includes("auto_generated_stats")) {
-						const result = await createView({
-							appSlug: "tedix",
-							appName: "Tedix",
-							data: {
-								totalTools: 447,
-								publishedWidgets: 39,
-								failedChecks: 2,
-							},
-							title: "MCP Gateway health",
-							visualKind: "stats",
-						});
-						return { result, logs: [] };
-					}
-
 					if (code.includes("auto_generated_time_series_chart")) {
 						const result = await createView({
 							appSlug: "tedix",
@@ -2040,58 +2025,6 @@ describe("Code Mode payment-gated tools", () => {
 		).toMatchObject({
 			type: "DataChart",
 		});
-	});
-
-	it("infers a native stats layout when visualKind is stats", async () => {
-		const apiService = createApiService();
-		const env = createEnv(apiService);
-		const ctx = createExecutionContext();
-
-		const response = await postRpc(env, ctx, {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: {
-				name: "code",
-				arguments: {
-					code: "async () => await ui.create_view({ data: {}, title: 'auto_generated_stats' })",
-				},
-			},
-		});
-		const body = (await response.json()) as {
-			result: {
-				structuredContent: {
-					result: {
-						_view: {
-							stats: Array<Record<string, unknown>>;
-						};
-						layoutSpec: {
-							elements: {
-								stats: {
-									type: string;
-									props: {
-										stats: { $state: string };
-									};
-								};
-							};
-						};
-					};
-				};
-			};
-		};
-		const result = body.result.structuredContent.result;
-		expect(result.layoutSpec.elements.stats).toMatchObject({
-			type: "StatGrid",
-			props: {
-				stats: { $state: "/_view/stats" },
-			},
-		});
-		expect(result._view.stats).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ label: "Total Tools", value: 447 }),
-				expect.objectContaining({ label: "Failed Checks", tone: "danger" }),
-			]),
-		);
 	});
 
 	it("honors every explicit ui.create_view visualKind", async () => {

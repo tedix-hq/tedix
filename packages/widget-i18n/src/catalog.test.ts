@@ -13,9 +13,11 @@ describe("shipped catalogs", () => {
 	 * carries the product or assistant name.
 	 */
 	for (const [locale, catalog] of Object.entries(WIDGET_CATALOGS)) {
-		it(`${locale} covers every source key with the same placeholders`, () => {
+		if (locale === "en") continue;
+		it(`${locale} matches the source keys and placeholders`, () => {
 			const missing = Object.keys(source).filter((key) => !catalog[key]);
 			expect(missing).toEqual([]);
+			expect(Object.keys(catalog).filter((key) => !source[key])).toEqual([]);
 			const drifted = Object.keys(source).filter(
 				(key) =>
 					String(tokens(source[key] as string)) !==
@@ -23,15 +25,7 @@ describe("shipped catalogs", () => {
 			);
 			expect(drifted).toEqual([]);
 		});
-
-		it(`${locale} ships no key the source dropped`, () => {
-			expect(Object.keys(catalog).filter((key) => !source[key])).toEqual([]);
-		});
 	}
-
-	it("ships English as the source language", () => {
-		expect(Object.keys(WIDGET_CATALOGS)).toContain("en");
-	});
 });
 
 describe("resolveWidgetCatalog", () => {

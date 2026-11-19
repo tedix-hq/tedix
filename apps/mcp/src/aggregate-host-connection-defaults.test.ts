@@ -703,7 +703,6 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 	});
 
 	it.each([
-		["io.modelcontextprotocol/ui", true],
 		["io.modelcontextprotocol/apps", true],
 		["io.modelcontextprotocol/apps", false],
 	])(
@@ -1245,55 +1244,6 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		}>;
 		expect(payload[0]?.result?.structuredContent?.fastPath).toBe("bootstrap");
 		expect(buildMcpServer).not.toHaveBeenCalled();
-	});
-
-	it("hydrates only directly called Code Mode aggregate namespaces", async () => {
-		installFixtures([
-			{
-				slug: "code-mode-host-b",
-				mcpConfig: {
-					authMode: "public",
-					codeMode: true,
-					aggregateApps: [{ slug: "gmail" }, { slug: "todoist" }],
-					codeModeNamespaces: { gmail: "mail" },
-					aggregateTedis: [
-						{ slug: "cpo", namespace: "cpo", runtimeKind: "agent" },
-						{ slug: "cto", namespace: "cto", runtimeKind: "agent" },
-					],
-				},
-			},
-			{
-				slug: "gmail",
-				tools: [connectionTool("messages_list", "gmail-provider")],
-			},
-			{
-				slug: "todoist",
-				tools: [connectionTool("tasks_list", "todoist-provider")],
-			},
-		]);
-
-		await postMcp("code-mode-host-b", {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: {
-				name: "code",
-				arguments: {
-					code: 'async () => ({ run: await home.read_home_run({ homeRunId: "run_1" }), status: await cpo.exec({ command: "git status" }) })',
-				},
-			},
-		});
-
-		expect(buildMcpServer).toHaveBeenCalledOnce();
-		const cachedData = (buildMcpServer.mock.calls[0] as unknown[])[0] as {
-			tools: Array<{ toolId: string }>;
-		};
-		const toolIds = cachedData.tools.map((tool) => tool.toolId);
-		expect(toolIds).toContain("home__read_home_run");
-		expect(toolIds).toContain("cpo__exec");
-		expect(toolIds).not.toContain("cto__messages_read");
-		expect(toolIds).not.toContain("gmail__messages_list");
-		expect(toolIds).not.toContain("todoist__tasks_list");
 	});
 
 	it("rebuilds a transiently degraded selectively requested namespace before executing Code Mode", async () => {

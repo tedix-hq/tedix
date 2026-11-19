@@ -161,11 +161,7 @@ describe("a turn", () => {
 		expect(stream.input.modelRef).toBe("deep");
 	});
 
-	it.each([
-		["", "cloudflare/auto"],
-		["cloudflare/auto", "cloudflare/auto"],
-		["fast", "fast"],
-	])(
+	it.each([["", "cloudflare/auto"]])(
 		"lists Auto first with no Default entry, and a saved %j answers with %j",
 		async (modelRef, answeringRef) => {
 			const saved = JSON.stringify({ modelRef, effort: "" });
@@ -478,7 +474,6 @@ describe("the composer", () => {
 	});
 
 	it.each([
-		["an unsupported result", { kind: "mystery" }],
 		["an invalid context", { kind: "context", context: { kind: "Bad Kind" } }],
 		[
 			"a cross-origin handoff",

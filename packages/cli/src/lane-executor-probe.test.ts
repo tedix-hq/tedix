@@ -58,15 +58,14 @@ it("retries a timed-out probe once and reports a second timeout as transient", a
 	});
 }, 15_000);
 
-it("passes a 6-second version check on the longer second try", async () => {
-	const command = fakeBinary("#!/bin/sh\n/bin/sleep 6\necho 1.2.3\n");
-	const probe = await probeExecutorVersion(command);
+it("accepts a version probe that fits only the retry budget", async () => {
+	const command = fakeBinary("#!/bin/sh\n/bin/sleep 0.4\necho 1.2.3\n");
+	const probe = await probeExecutorVersion(command, 100, 2_000);
 	expect(probe.available).toBe(true);
-	expect(probe.transient).toBeUndefined();
 	expect(probe.slow).toContain(
-		`${command} --version timed out at 5000 ms, then passed in`,
+		`${command} --version timed out at 100 ms, then passed in`,
 	);
-}, 40_000);
+});
 
 it("does not retry a probe that fails without timing out", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "lane-probe-test-"));

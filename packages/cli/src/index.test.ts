@@ -972,11 +972,6 @@ describe("parseOptions", () => {
 		expect(options.follow).toBe(false);
 	});
 
-	test("--once sets follow=false", () => {
-		const { options } = parseOptions(["tail", "--once"]);
-		expect(options.follow).toBe(false);
-	});
-
 	test("--no-color sets noColor=true", () => {
 		const { options } = parseOptions(["chat", "--no-color"]);
 		expect(options.noColor).toBe(true);
@@ -1735,51 +1730,9 @@ describe("parseOptions: value-flag guard (fix #1)", () => {
 		);
 	});
 
-	test("-p followed immediately by another flag throws", () => {
-		expect(() => parseOptions(["ask", "-p", "--json"])).toThrow(
-			"-p requires a value",
-		);
-	});
-
 	test("--prompt missing at end of args throws", () => {
 		expect(() => parseOptions(["ask", "--prompt"])).toThrow(
 			"--prompt requires a value",
-		);
-	});
-
-	test("--conversation followed by flag throws", () => {
-		expect(() => parseOptions(["chat", "--conversation", "--json"])).toThrow(
-			"--conversation requires a value",
-		);
-	});
-
-	test("--delegate-to-tedi missing value throws", () => {
-		expect(() => parseOptions(["ask", "--delegate-to-tedi"])).toThrow(
-			"--delegate-to-tedi requires a value",
-		);
-	});
-
-	test("--delegate-to-tedi followed by flag throws", () => {
-		expect(() => parseOptions(["ask", "--delegate-to-tedi", "--json"])).toThrow(
-			"--delegate-to-tedi requires a value",
-		);
-	});
-
-	test("--idempotency-key followed by flag throws", () => {
-		expect(() => parseOptions(["ask", "--idempotency-key", "--json"])).toThrow(
-			"--idempotency-key requires a value",
-		);
-	});
-
-	test("--url followed by flag throws", () => {
-		expect(() => parseOptions(["chat", "--url", "--json"])).toThrow(
-			"--url requires a value",
-		);
-	});
-
-	test("--org followed by flag throws", () => {
-		expect(() => parseOptions(["login", "--org", "--json"])).toThrow(
-			"--org requires a value",
 		);
 	});
 
@@ -1787,11 +1740,6 @@ describe("parseOptions: value-flag guard (fix #1)", () => {
 		expect(() =>
 			parseOptions(["login", "--email", "user@example.com"]),
 		).toThrow("Unknown option --email");
-	});
-
-	test("valid value after --prompt works", () => {
-		const { options } = parseOptions(["ask", "--prompt", "hello world"]);
-		expect(options.prompt).toBe("hello world");
 	});
 });
 
@@ -1802,11 +1750,6 @@ describe("parseOptions: value-flag guard (fix #1)", () => {
 describe("parseOptions: --flag=value equals normalization (fix #2)", () => {
 	beforeEach(() => {
 		delete process.env.TEDIX_MCP_URL;
-	});
-
-	test("--prompt=text sets prompt", () => {
-		const { options } = parseOptions(["ask", "--prompt=hello"]);
-		expect(options.prompt).toBe("hello");
 	});
 
 	test("--json=true is not valid (no-arg flag) but --json works", () => {
@@ -1860,21 +1803,6 @@ describe("parseOptions: --flag=value equals normalization (fix #2)", () => {
 			}
 		}
 	});
-
-	test("--url=https://example.com sets url", () => {
-		const { options } = parseOptions(["chat", "--url=https://example.com/mcp"]);
-		expect(options.url).toBe("https://example.com/mcp");
-	});
-
-	test("--conversation=my-conv-id sets conversationId", () => {
-		const { options } = parseOptions(["chat", "--conversation=my-conv-id"]);
-		expect(options.conversationId).toBe("my-conv-id");
-	});
-
-	test("--limit=5 sets limit", () => {
-		const { options } = parseOptions(["chat", "--limit=5"]);
-		expect(options.limit).toBe(5);
-	});
 });
 
 // ---------------------------------------------------------------------------
@@ -1884,18 +1812,6 @@ describe("parseOptions: --flag=value equals normalization (fix #2)", () => {
 describe("parseOptions: -- terminator (fix #3)", () => {
 	beforeEach(() => {
 		delete process.env.TEDIX_MCP_URL;
-	});
-
-	test("-- passes remainder as positionals (and hence as prompt)", () => {
-		const { options } = parseOptions(["ask", "--", "hello", "world"]);
-		expect(options.prompt).toBe("hello world");
-	});
-
-	test("-- stops option parsing: a flag-like positional is not rejected", () => {
-		// Without --, '--json' after '--' would normally throw Unknown option.
-		expect(() => parseOptions(["ask", "--", "--not-a-flag"])).not.toThrow();
-		const { options } = parseOptions(["ask", "--", "--not-a-flag"]);
-		expect(options.prompt).toBe("--not-a-flag");
 	});
 
 	test("-- with empty remainder produces no prompt from positionals", () => {

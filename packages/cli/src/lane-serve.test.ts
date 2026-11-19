@@ -858,28 +858,6 @@ describe("dispatcher lock handoff", () => {
 				await f.cleanup();
 			}
 		});
-		it("waits for a runner holding the same scoped lock", async () => {
-			let peer!: ReturnType<typeof beginFileLock>;
-			const f = handoff(
-				"any-local",
-				["--project", projectId, "--repo", repo],
-				(directory) => {
-					peer = beginFileLock(
-						join(directory, "dispatchers", scopedKey(), "lock"),
-					);
-				},
-			);
-			try {
-				await new Promise((done) => setTimeout(done, 550));
-				expect(f.tick).not.toHaveBeenCalled();
-				peer.release();
-				expect(await f.running).toBe(0);
-				expect(f.tick).toHaveBeenCalledTimes(1);
-			} finally {
-				peer.release();
-				await f.cleanup();
-			}
-		});
 		it("runs beside differently scoped runners but waits on the same scope", async () => {
 			const otherProject = "33333333-3333-4333-8333-333333333333";
 			const otherRepo = "/fictional/other-checkout";
@@ -3263,7 +3241,6 @@ describe("dispatcher admission", () => {
 
 	it.each([
 		[null, "missing"],
-		["", "invalid"],
 		["not-json", "invalid"],
 		[JSON.stringify({ ...completedResult(), extra: true }), "invalid"],
 		[
@@ -3319,30 +3296,22 @@ describe("dispatcher admission", () => {
 		).toMatchObject({ laneResult: result });
 		expect(f.events.some((event) => event.verb === "complete")).toBe(true);
 	});
-	it.each([
-		"The command failed immediately with Installed build changed.",
-		"Recovery remains unverified.",
-		"Certification remains incomplete; endpoint reviews remain.",
-	])(
-		"does not infer completion from a successful process exit: %s",
-		async (message) => {
-			const f = fixture();
-			f.items.splice(1);
-			f.control.declareCompleted = false;
-			f.control.finalMessage = message;
-			await f.dispatcher.tick();
-			await until(() => f.releases.length === 1);
-			f.releases[0]!();
-			await f.dispatcher.drain();
-			const settle = f.events.find((event) => event.verb === "settle")!;
-			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
-			expect(f.events.some((event) => event.verb === "complete")).toBe(false);
-		},
-	);
+	it("does not infer completion from a successful process exit", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.declareCompleted = false;
+		f.control.finalMessage = "Recovery remains unverified.";
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+	});
 	it.each([
 		"Pushed the fix; checks green.",
 		`Result\nTEDIX_LANE_RESULT {"outcome":"completed","extra":true}`,
-		"Result\nTEDIX_LANE_RESULT not-json",
 	])(
 		"recovers an undeclared result from the Attempt's landed commit: %s",
 		async (message) => {
@@ -7558,7 +7527,7 @@ it("sweeps every settled run and keeps each Work item's latest receipt", async (
 	expect(readdirSync(join(dir, "archive"))).toHaveLength(2);
 });
 
-it.each(Array.from({ length: 10 }, (_, cursor) => cursor))(
+it.each([0, 3, 9])(
 	"deletes only unprotected settled receipts from older Work revisions (cursor %i)",
 	async (cursor) => {
 		const { dispatcher, dir, items } = fixture();

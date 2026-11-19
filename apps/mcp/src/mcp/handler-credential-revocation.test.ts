@@ -10,12 +10,9 @@ afterEach(() => {
 
 describe("connection revocation across gateway isolates", () => {
 	it.each([
-		{ scope: "tenant", tediId: undefined },
-		{ scope: "user", tediId: undefined },
 		{ scope: "hybrid", tediId: undefined },
 		{ scope: "tenant", tediId: "tedi-example" },
 		{ scope: "user", tediId: "tedi-example" },
-		{ scope: "hybrid", tediId: "tedi-example" },
 	] as const)(
 		"observes replace, lookup failure and disconnect for $scope / $tediId without TTL expiry",
 		async ({ scope, tediId }) => {

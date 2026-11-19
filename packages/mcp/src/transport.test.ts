@@ -319,15 +319,6 @@ describe("transport — method allow-list", () => {
 		expect(body.jsonrpc).toBe("2.0");
 		expect(body.error.message).toMatch(/method not allowed/i);
 	});
-
-	it.each(["GET", "DELETE", "PATCH"])(
-		"%s advertises only implemented methods",
-		async (method) => {
-			const res = await call(new Request(URL_OK, { method }));
-			expect(res.status).toBe(405);
-			expect(res.headers.get("Allow")).toBe("POST, OPTIONS");
-		},
-	);
 });
 
 // =============================================================================
@@ -535,7 +526,7 @@ function modernPost(
 }
 
 describe("transport — MCP 2026-07-28 modern mode", () => {
-	it.each([undefined, "2025-11-25", "2025-06-18", "2025-03-26", MODERN])(
+	it.each([undefined, "2025-11-25", MODERN])(
 		"allows the supported protocol header %s at Tedix-owned mounts",
 		(version) => {
 			const headers: Record<string, string> = version

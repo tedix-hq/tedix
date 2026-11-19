@@ -1041,74 +1041,52 @@ describe("destructive tool approval — Work Item authorization", () => {
 	};
 	const publishArgs = { collection: "posts", id: "post-1" };
 
-	it("decides every backfilled publish route exactly as the former slug list did", () => {
-		const formerBoundary = (
-			appSlug: string | undefined,
-			toolId: string,
-			label: string | undefined,
-		) =>
-			(appSlug === "tedix-unified" &&
-				[
-					"cms_landing__content_publish",
-					"cms_tedix__content_publish",
-					"cms-tedix__content_publish",
-				].includes(toolId)) ||
-			((appSlug === "cms-tedix-landing" || appSlug === "cms-tedix") &&
-				["cms__content_publish", "content_publish"].includes(toolId)) ||
-			(label?.trim().toLowerCase() === "tedix" &&
-				(toolId === "content_publish" || toolId.endsWith("__content_publish")));
-		const appSlugs = [
-			undefined,
-			"tedix-unified",
-			"cms-tedix-landing",
-			"cms-tedix",
-			"cms",
-			"acme-unified",
-			"cms-acme",
-		];
-		const toolIds = [
-			"content_publish",
-			"cms__content_publish",
-			"cms_landing__content_publish",
-			"cms_tedix__content_publish",
-			"cms-tedix__content_publish",
-			"cms-acme__content_publish",
-			"tedix__cms__content_publish",
-		];
-		const labels = [undefined, "", "tedix", " Tedix ", "tedix-landing", "acme"];
-		let onBoundary = 0;
-		for (const appSlug of appSlugs) {
-			for (const toolId of toolIds) {
-				for (const requestLabel of labels) {
-					for (const aggregateLabel of labels) {
-						const decision = isTedixOwnedChannelPublishBoundary(
-							{
-								appSlug,
-								connectionLabel: requestLabel,
-							} as Parameters<typeof isTedixOwnedChannelPublishBoundary>[0],
-							{
-								toolId,
-								title: toolId,
-								config: {
-									ownedChannelPublish,
-									...(aggregateLabel === undefined
-										? {}
-										: { _aggregateConnectionLabel: aggregateLabel }),
-								},
-							},
-						);
-						expect(
-							decision,
-							`${appSlug}:${toolId} request=${requestLabel} aggregate=${aggregateLabel}`,
-						).toBe(
-							formerBoundary(appSlug, toolId, aggregateLabel ?? requestLabel),
-						);
-						if (decision) onBoundary += 1;
-					}
-				}
-			}
+	it("matches configured publish routes and prefers the aggregate credential label", () => {
+		const cases = [
+			[
+				"tedix-unified",
+				"cms_landing__content_publish",
+				undefined,
+				undefined,
+				true,
+			],
+			["cms-tedix-landing", "content_publish", undefined, undefined, true],
+			["acme-unified", "content_publish", " Tedix ", undefined, true],
+			["acme-unified", "content_publish", "acme", " Tedix ", true],
+			["acme-unified", "content_publish", "tedix", "acme", false],
+			[
+				"acme-unified",
+				"cms_landing__content_publish",
+				undefined,
+				undefined,
+				false,
+			],
+		] as const;
+		for (const [
+			appSlug,
+			toolId,
+			connectionLabel,
+			aggregateLabel,
+			expected,
+		] of cases) {
+			const context = grantApprovalContext({ appSlug });
+			expect(
+				isTedixOwnedChannelPublishBoundary(
+					{ ...context, connectionLabel },
+					{
+						toolId,
+						title: toolId,
+						config: {
+							ownedChannelPublish,
+							...(aggregateLabel === undefined
+								? {}
+								: { _aggregateConnectionLabel: aggregateLabel }),
+						},
+					},
+				),
+				JSON.stringify({ appSlug, toolId, connectionLabel, aggregateLabel }),
+			).toBe(expected);
 		}
-		expect(onBoundary).toBeGreaterThan(0);
 	});
 
 	it("keeps an undeclared tool off the owned-channel boundary", () => {
@@ -1464,16 +1442,20 @@ describe("destructive tool approval — Work Item authorization", () => {
 
 describe("destructive tool approval — autonomous agent auto-confirm (Code Mode)", () => {
 	for (const approvalPolicy of ["once", "always"] as const) {
-		it.each([
-			"denied",
-			"missing_grant_id",
-			"error",
-			"no_api",
-			"no_org",
-			"no_app",
-			"no_identity",
-			"no_subject",
-		])(
+		const failures =
+			approvalPolicy === "once"
+				? [
+						"denied",
+						"missing_grant_id",
+						"error",
+						"no_api",
+						"no_org",
+						"no_app",
+						"no_identity",
+						"no_subject",
+					]
+				: ["denied"];
+		it.each(failures)(
 			`${approvalPolicy} denies %s before agent auto-confirm or explicit confirmation`,
 			async (failure) => {
 				const elicitInput = vi.fn(async () => ({

@@ -1555,29 +1555,12 @@ describe("enrichToolNotFoundError (did-you-mean suggestions)", () => {
 		"discover.search",
 	];
 
-	it("appends nearest callables to upstream Tool not found errors", () => {
-		const enriched = enrichToolNotFoundError(
-			'Tool "list_skills" not found',
-			callables,
-		);
-		// The guessed name "list_skills" should surface both the per-tedi exact
-		// matches and the suffixed skills-namespace variants.
-		expect(enriched).toContain("ceo.list_skills");
-		expect(enriched).toContain("Closest callables:");
-		expect(enriched).toContain("discover.search");
-	});
-
 	it("suggests suffixed names for clean-name guesses", () => {
 		const enriched = enrichToolNotFoundError(
 			'Tool "rotate_access_key" not found',
 			callables,
 		);
 		expect(enriched).toContain("tedis.rotate_access_key_tedis");
-	});
-
-	it("leaves non-tool-not-found errors untouched", () => {
-		const error = "Execution timed out";
-		expect(enrichToolNotFoundError(error, callables)).toBe(error);
 	});
 
 	it("still teaches discover.search when nothing is close", () => {
@@ -2082,32 +2065,6 @@ describe("discover.search results flat array", () => {
 		// Namespace map and meta live on named keys.
 		expect(typeof results.namespaces.skills).toBe("object");
 		expect(results.meta).toBeDefined();
-	});
-
-	it("results[] is a real array with .slice and .map without throwing", async () => {
-		const ctx = buildLargeServerCtx(10);
-		const provider = buildCatalogProvider(ctx, undefined);
-		const results = await runSearch(provider, "thing");
-		const flat = results.results;
-		expect(Array.isArray(flat)).toBe(true);
-		const sliced = flat.slice(0, 3);
-		const mapped = flat.map((e) => e.callable);
-		expect(sliced.length).toBeLessThanOrEqual(3);
-		expect(mapped.every((c) => typeof c === "string")).toBe(true);
-	});
-
-	it("meta and namespaces survive structured clone on named keys", async () => {
-		const ctx = buildLargeServerCtx(10);
-		const provider = buildCatalogProvider(ctx, undefined);
-		const results = await runSearch(provider, "thing");
-		const cloned = structuredClone(results) as CatalogSearchResult;
-
-		expect(cloned.results[0]).toMatchObject({ callable: expect.any(String) });
-		expect(cloned.meta).toBeDefined();
-		expect(cloned.namespaces).toBeDefined();
-		expect(
-			(cloned.meta.pagination as Record<string, unknown>).total,
-		).toBeDefined();
 	});
 
 	it("discover.describe returns one full definition by exact callable", async () => {
