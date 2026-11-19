@@ -123,6 +123,9 @@ import {
 	getCurrentWorkspace,
 	readWorkspaceCredentials,
 } from "./credential-store";
+import { resolveWorkspaceName } from "./auth-resolve";
+import { parseOptions } from "./options";
+import { resolveCliApiUrl } from "./workspace-resolver";
 import { fileGatewayCooldown } from "./gateway-cooldown";
 import { installLaneService } from "./lane-service";
 import { CliReadError, readJsonChild } from "./hooks/hook-io";
@@ -2167,17 +2170,22 @@ export async function mainLaneCommits(
 export async function landedDeployments(
 	repo: string,
 	commits: string[],
-	repository?: string,
-	healthUrls = process.env.TEDIX_LANE_VERIFY_HEALTH_URLS?.split(/\s+/).filter(
-		Boolean,
-	),
+	repository: string | undefined,
+	scope: string[],
 	readHealth: (url: string, options: RequestInit) => Promise<Response> = fetch,
 ): Promise<z.infer<typeof DeploymentSchema>[]> {
-	const urls = new Set(healthUrls);
-	if (!urls.size)
-		throw new Error(
-			"Set TEDIX_LANE_VERIFY_HEALTH_URLS to the deployment health endpoints",
-		);
+	const urls = new Set(
+		process.env.TEDIX_LANE_VERIFY_HEALTH_URLS?.split(/\s+/).filter(Boolean),
+	);
+	if (!urls.size) {
+		const { options } = parseOptions(scope);
+		// Dispatcher owner calls use the workspace login and strip agent credentials.
+		const workspaceUrl = options.urlExplicit
+			? undefined
+			: readWorkspaceCredentials(resolveWorkspaceName(options))?.mcpUrl;
+		for (const baseUrl of [resolveCliApiUrl(), workspaceUrl ?? options.url])
+			urls.add(new URL("/health", baseUrl).href);
+	}
 	if (
 		!repository &&
 		(await mainLaneCommits(repo, commits)).length !== commits.length
@@ -5339,6 +5347,7 @@ export class LaneDispatcher {
 						this.options.repo,
 						commits,
 						repository,
+						this.options.scope,
 					);
 					const data = {
 						round: checkedRound + 1,

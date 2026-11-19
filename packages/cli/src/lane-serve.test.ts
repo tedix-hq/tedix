@@ -55,6 +55,7 @@ import {
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 import { laneChildEnv } from "./lane-child-env";
+import { writeWorkspaceCredentials } from "./credential-store";
 import { parseOptions } from "./options";
 import { CliReadError } from "./hooks/hook-io";
 import { beginFileLock } from "./local-file-lock";
@@ -6428,7 +6429,7 @@ function gitFixture(withOrigin = false, autoCleanup = true) {
 }
 
 it("requires the deployed revision to contain every landed commit", async () => {
-	const { repo, git } = gitFixture(true);
+	const { root, repo, git } = gitFixture(true);
 	const previous = git(["rev-parse", "HEAD"]);
 	const commit = (message: string) => {
 		git([
@@ -6445,14 +6446,44 @@ it("requires the deployed revision to contain every landed commit", async () => 
 	const second = commit("second landed commit");
 	const descendant = commit("deployed descendant");
 	git(["push", "origin", "main"]);
-	const url = "https://live.example.test/health";
+	const env = {
+		TEDIX_CONFIG_DIR: join(root, "config"),
+		TEDIX_API_URL: "https://api.example.test:8443/v1/",
+		TEDIX_MCP_URL: undefined,
+		TEDIX_LANE_VERIFY_HEALTH_URLS: undefined,
+	};
+	const previousEnv = Object.keys(env).map(
+		(key) => [key, process.env[key]] as const,
+	);
+	fixtureCleanup.push(async () => {
+		for (const [key, value] of previousEnv) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	});
+	for (const [key, value] of Object.entries(env)) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+	writeWorkspaceCredentials("acme", {
+		loginId: "fixture",
+		mcpUrl: "https://gateway.example.test/connect/mcp?tenant=acme",
+	});
 	const check = (deployedSha: string) =>
-		landedDeployments(repo, [first, second], undefined, [url], async () =>
-			Response.json({ deployedSha }),
+		landedDeployments(
+			repo,
+			[first, second],
+			undefined,
+			options.scope,
+			async () => Response.json({ deployedSha }),
 		);
-	await expect(
-		landedDeployments(repo, [first, second], undefined, []),
-	).rejects.toThrow("Set TEDIX_LANE_VERIFY_HEALTH_URLS");
+	await expect(check(descendant)).resolves.toEqual([
+		{ url: "https://api.example.test:8443/health", sha: descendant },
+		{ url: "https://gateway.example.test/health", sha: descendant },
+	]);
+
+	const url = "https://live.example.test/custom-health";
+	process.env.TEDIX_LANE_VERIFY_HEALTH_URLS = `  ${url}  ${url}  `;
 	await expect(check(previous)).rejects.toThrow("does not prove deployment");
 	await expect(check(first)).rejects.toThrow(second);
 	await expect(check(descendant)).resolves.toEqual([{ url, sha: descendant }]);

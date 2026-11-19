@@ -3,6 +3,13 @@ import { sleep as sleepDefault } from "@tedix/worker-kit/sleep";
 
 const DEFAULT_TEDIX_API_URL = "https://api.tedix.dev";
 
+export function resolveCliApiUrl(apiUrl?: string): string {
+	return (apiUrl ?? process.env.TEDIX_API_URL ?? DEFAULT_TEDIX_API_URL).replace(
+		/\/$/,
+		"",
+	);
+}
+
 type FetchLike = (
 	input: string | URL | Request,
 	init?: RequestInit,
@@ -122,11 +129,7 @@ export async function resolvePublicCliWorkspace(options: {
 			"Organization slug must use lowercase letters, numbers, and hyphens.",
 		);
 	}
-	const apiUrl = (
-		options.apiUrl ??
-		process.env.TEDIX_API_URL ??
-		DEFAULT_TEDIX_API_URL
-	).replace(/\/$/, "");
+	const apiUrl = resolveCliApiUrl(options.apiUrl);
 	const response = await fetchWorkspaceWithRetry(
 		`${apiUrl}/v1/organizations/cli-workspace/${encodeURIComponent(slug)}`,
 		options.fetch ?? fetch,
