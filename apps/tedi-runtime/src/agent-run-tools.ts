@@ -2,6 +2,7 @@ import { tool, type ToolSet } from "ai";
 import * as z from "zod";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import type { CallerTrustTier } from "@tedix/mcp-shared/auth/caller-trust";
+import { AGENT_RUN_SUPERVISION_SESSION_PREFIX } from "@tedix/api-contract/schemas/work-agent-runs";
 import type { PlatformClient } from "./brain/platform-client";
 import { safeFailureReason } from "./delegated-work-tools";
 
@@ -35,7 +36,9 @@ export function personChatConversationForInject(
 /**
  * Lets a tedi start a coding run on one of the organization's machines from
  * a chat, list the runs it started, read a run's steps, pass on a follow-up
- * and stop it.
+ * and stop it. In a supervision round (a session whose key starts with
+ * `agent-run-supervision:`) it cannot start a run and can instead tell the
+ * person about one.
  *
  * The tedi acts under its own identity through the platform client. The API
  * decides every time whether it may accept the task and steer the run; a
@@ -69,7 +72,7 @@ export function agentRunTools(input: {
 		...(workItemId ? { workItemId, url: `/work/items/${workItemId}` } : {}),
 		message,
 	});
-	return {
+	const all = {
 		start_agent_run: tool({
 			description:
 				"Start a coding task for an agent on one of the organization's machines. Creates the task with your brief, assigns it to the chosen agent and accepts it, so a connected machine picks it up and works in the project's repository. Give a brief the agent can act on without this chat, and say what done looks like. Needs the project the task belongs to; ask the person which project if you do not know it. A brief that asks for a sign-in, consent, a payment or sending a message for someone is not picked up until a person who owns the task allows it.",
@@ -294,5 +297,36 @@ export function agentRunTools(input: {
 				}
 			},
 		}),
+		tell_person_about_agent_run: tool({
+			description:
+				"Tell the person something about an agent run you started, in the chat it was started from. Use it only when they need to know or decide something now: the run is stuck, was refused, needs their action, or went wrong. Write what happened and what you suggest, in plain words, without command output, file contents or secrets. At most one message per run in five minutes; the end of a run is reported to them separately.",
+			inputSchema: z.strictObject({
+				workItemId: z.uuid(),
+				message: z.string().trim().min(1).max(1_000),
+			}),
+			execute: async ({ workItemId, message }) => {
+				try {
+					const told = await (
+						await platformClient()
+					).tellPersonAboutAgentRun({ workItemId, message });
+					return {
+						kind: "agent_run_update" as const,
+						workItemId,
+						status: told.status,
+					};
+				} catch (error) {
+					return refused(
+						`The person was not told. ${safeFailureReason(error)}`,
+						workItemId,
+					);
+				}
+			},
+		}),
 	} satisfies ToolSet;
+	// A supervision round checks on runs and may tell the person; it starts
+	// none. Every other turn talks to the person directly.
+	const { start_agent_run, tell_person_about_agent_run, ...steering } = all;
+	return input.sessionKey.startsWith(AGENT_RUN_SUPERVISION_SESSION_PREFIX)
+		? { ...steering, tell_person_about_agent_run }
+		: { start_agent_run, ...steering };
 }

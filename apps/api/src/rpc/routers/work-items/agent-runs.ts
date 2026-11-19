@@ -5,10 +5,12 @@
 
 import { WORK_RUN_STEER_SCOPE } from "@tedix/api-contract/schemas/work-attempt-steps";
 import { requireOrgId } from "../../org-scope";
+import { AGENT_RUN_SOURCE } from "@tedix/db/queries/work-items/agent-runs";
+import { sendAgentRunPersonUpdate } from "../../../services/agent-run-person-update";
 import { describeAgentRuns } from "../../../services/agent-run-status";
-import { withAuthorization } from "../../orpc";
+import { createError, ErrorCodes, withAuthorization } from "../../orpc";
 import { assertTediAccess } from "../work-items-principal";
-import { authOs } from "./policy-helpers";
+import { assertWorkItemAccess, authOs } from "./policy-helpers";
 
 const readerOs = authOs.use(
 	withAuthorization(
@@ -34,3 +36,36 @@ export const listAgentRunsProcedure = readerOs.listAgentRuns.handler(
 		});
 	},
 );
+
+const stewardTediOs = authOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"The handler admits only the tedi that stewards the run; no person or other agent may call it",
+		},
+		"mcp:work.write",
+		WORK_RUN_STEER_SCOPE,
+	),
+);
+
+export const tellPersonAboutAgentRunProcedure =
+	stewardTediOs.tellPersonAboutAgentRun.handler(async ({ input, context }) => {
+		const workItem = await assertWorkItemAccess(context, input.id);
+		if (!context.tediId)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only the tedi that started the run can send this update",
+			);
+		await assertTediAccess(context, context.tediId, workItem.orgId);
+		if (
+			workItem.stewardType !== "tedi" ||
+			workItem.stewardId !== context.tediId ||
+			workItem.executorType !== "external_agent" ||
+			workItem.metadata?.source !== AGENT_RUN_SOURCE
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only the tedi that started the run can send this update",
+			);
+		return sendAgentRunPersonUpdate(context, workItem, input.message);
+	});

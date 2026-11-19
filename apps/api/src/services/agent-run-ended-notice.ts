@@ -31,7 +31,16 @@ type Enqueue = (
 	message: AgentRunEndedMessage,
 ) => Promise<{ status: string; error?: string }>;
 
-const enqueueTediMessage: Enqueue = async (context, message) => {
+/**
+ * Sends a message to the tedi in its own chat, the way the person's message
+ * arrives, so the tedi answers in that thread. `source` labels the message
+ * in the run's history.
+ */
+export const enqueueTediMessage = async (
+	context: BaseContext,
+	message: AgentRunEndedMessage,
+	source = "agent-run-ended",
+): Promise<{ status: string; error?: string }> => {
 	const { cognitiveRuntimeContractRouter } =
 		await import("../rpc/routers/cognitive-runtime");
 	const client = createRouterClient(cognitiveRuntimeContractRouter, {
@@ -39,7 +48,7 @@ const enqueueTediMessage: Enqueue = async (context, message) => {
 	});
 	return client.enqueueMessage({
 		...message,
-		metadata: { source: "agent-run-ended", dispatchMode: "async" },
+		metadata: { source, dispatchMode: "async" },
 	});
 };
 
@@ -59,14 +68,15 @@ type EnqueueHome = (
  * Sends the notice as a message to Home in the person's chat, the same way
  * the person's own message arrives, so Home answers in that thread.
  */
-export const enqueueHomeMessage: EnqueueHome = async (context, message) => {
+export const enqueueHomeMessage = async (
+	context: BaseContext,
+	message: AgentRunEndedHomeMessage,
+	metadata: Record<string, boolean> = { agentRunEnded: true },
+): Promise<{ status: string; error?: string }> => {
 	const { kernelRuntimeContractRouter } =
 		await import("../rpc/routers/kernel-runtime");
 	const client = createRouterClient(kernelRuntimeContractRouter, { context });
-	return client.enqueueMessage({
-		...message,
-		metadata: { agentRunEnded: true },
-	});
+	return client.enqueueMessage({ ...message, metadata });
 };
 
 /**

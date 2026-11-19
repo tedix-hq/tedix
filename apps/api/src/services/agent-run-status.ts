@@ -210,11 +210,14 @@ function describeRun(
 	};
 }
 
-/** The runs with their reasons, newest first. */
-export async function describeAgentRuns(
+/** The stored rows beside what a tedi reads of them, newest first. */
+export async function describeAgentRunRows(
 	db: DbQueryClient,
 	params: ListAgentRunsParams,
-): Promise<{ listedAt: string; windowDays: number; runs: AgentRun[] }> {
+): Promise<{
+	listedAt: string;
+	described: { row: AgentRunRow; run: AgentRun }[];
+}> {
 	const listedAt = params.at ?? new Date().toISOString();
 	const rows = await listAgentRuns(db, { ...params, at: listedAt });
 	const waiting = rows.filter((row) => row.state === "waiting_for_runner");
@@ -227,6 +230,7 @@ export async function describeAgentRuns(
 		.filter(
 			(candidate) =>
 				!candidate.attempt &&
+				!candidate.refusedStart &&
 				candidate.workItem.disposition === "accepted" &&
 				candidate.workItem.dispatchState !== "held",
 		)
@@ -242,13 +246,26 @@ export async function describeAgentRuns(
 	const now = Date.parse(listedAt);
 	return {
 		listedAt,
-		windowDays: AGENT_RUN_LIST_WINDOW_DAYS,
-		runs: rows.map((row) =>
-			describeRun(row, {
+		described: rows.map((row) => ({
+			row,
+			run: describeRun(row, {
 				readiness: readiness.get(row.workItem.id),
 				reports,
 				now,
 			}),
-		),
+		})),
+	};
+}
+
+/** The runs with their reasons, newest first. */
+export async function describeAgentRuns(
+	db: DbQueryClient,
+	params: ListAgentRunsParams,
+): Promise<{ listedAt: string; windowDays: number; runs: AgentRun[] }> {
+	const { listedAt, described } = await describeAgentRunRows(db, params);
+	return {
+		listedAt,
+		windowDays: AGENT_RUN_LIST_WINDOW_DAYS,
+		runs: described.map(({ run }) => run),
 	};
 }

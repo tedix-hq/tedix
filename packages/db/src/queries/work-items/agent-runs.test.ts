@@ -1,6 +1,9 @@
+import { eq } from "drizzle-orm";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
+import { organizations } from "../../schema/organizations";
+import { tedis } from "../../schema/tedis";
 import { workAdmissions } from "../../schema/work-factory";
 import {
 	workAttemptMessages,
@@ -10,7 +13,13 @@ import {
 } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
-import { listAgentRuns } from "./agent-runs";
+import {
+	AGENT_RUN_SOURCE,
+	agentRunSupervisionState,
+	listAgentRuns,
+	listAgentRunSupervisors,
+	recordAgentRunSupervisionRound,
+} from "./agent-runs";
 
 const now = "2026-10-10T12:00:00.000Z";
 const later = "2026-10-10T12:30:00.000Z";
@@ -48,6 +57,7 @@ async function fixture() {
 		stewardType: "tedi" as const,
 		stewardId: "tedi-a",
 		sourceSessionKey: "agent:main:chat",
+		metadata: { source: AGENT_RUN_SOURCE },
 		createdAt,
 		...extra,
 	});
@@ -58,7 +68,11 @@ async function fixture() {
 		run("lapsed", "2026-10-10T10:03:00.000Z"),
 		run("other-tedi", "2026-10-10T10:04:00.000Z", { stewardId: "tedi-b" }),
 		run("other-org", "2026-10-10T10:05:00.000Z", { orgId: "elsewhere" }),
-		// Not agent runs: no source conversation, a tedi executor, too old.
+		// Not agent runs: another source, no source conversation, a tedi
+		// executor, too old.
+		run("other-source", "2026-10-10T10:08:00.000Z", {
+			metadata: { source: "elsewhere" },
+		}),
 		run("no-chat", "2026-10-10T10:06:00.000Z", { sourceSessionKey: null }),
 		run("tedi-task", "2026-10-10T10:07:00.000Z", {
 			executorType: "tedi",
@@ -247,5 +261,69 @@ describe("listAgentRuns", () => {
 		expect(
 			await ids({ orgId: "nowhere", stewardTediId: "tedi-a", state: "all" }),
 		).toEqual([]);
+	});
+});
+
+describe("supervision of agent runs", () => {
+	it("finds active tedis with an accepted run they started, in any organization", async () => {
+		const db = await fixture();
+		const sqlite = databases.at(-1)!;
+		sqlite.exec(
+			schemaDdl(organizations, tedis) +
+				`INSERT INTO organizations(id,name,slug) VALUES('org','Example','example'),('elsewhere','Other','other'),('idle','Idle','idle');
+				INSERT INTO tedis(id,organization_id,name,slug,status,runtime_overrides) VALUES
+					('tedi-a','org','A','a','active','{"agentRunSupervision":{"enabled":false}}'),
+					('tedi-b','org','B','b','paused',NULL),
+					('tedi-c','idle','C','c','active',NULL);`,
+		);
+		// A paused tedi and an organization without runs are left out, and so
+		// is a run whose steward belongs to another organization.
+		const supervisors = () =>
+			listAgentRunSupervisors(db, {
+				since: "2026-09-10T12:00:00.000Z",
+				limit: 10,
+			});
+		expect(await supervisors()).toEqual([
+			{
+				orgId: "org",
+				tediId: "tedi-a",
+				slug: "a",
+				runtimeOverrides: { agentRunSupervision: { enabled: false } },
+			},
+		]);
+		await db
+			.update(workItems)
+			.set({ disposition: "completed" })
+			.where(eq(workItems.orgId, "org"));
+		expect(await supervisors()).toEqual([]);
+	});
+
+	it("counts a round once when two ticks record it", async () => {
+		const db = await fixture();
+		const state = { rounds: 1, lastRoundAt: now, seen: "running:a:2:0:-" };
+		const record = () =>
+			recordAgentRunSupervisionRound(db, {
+				orgId: "org",
+				workItemId: "running",
+				expectedRounds: 0,
+				state,
+			});
+		expect(await record()).toBe(true);
+		expect(await record()).toBe(false);
+		expect(
+			await recordAgentRunSupervisionRound(db, {
+				orgId: "elsewhere",
+				workItemId: "running",
+				expectedRounds: 1,
+				state,
+			}),
+		).toBe(false);
+		const [run] = (
+			await listAgentRuns(db, { orgId: "org", state: "all", at: now })
+		).filter((row) => row.workItem.id === "running");
+		expect(agentRunSupervisionState(run!.workItem.metadata)).toEqual(state);
+		// The source that makes it an agent run survives the write.
+		expect(run!.workItem.metadata?.source).toBe(AGENT_RUN_SOURCE);
+		expect(agentRunSupervisionState({ agentRunSupervision: "x" })).toBeNull();
 	});
 });

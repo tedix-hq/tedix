@@ -5,8 +5,21 @@
  * waiting, so a tedi can supervise several runs without reading each log.
  */
 
-import { and, desc, eq, gt, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	gt,
+	inArray,
+	isNotNull,
+	isNull,
+	or,
+	sql,
+} from "drizzle-orm";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../../query-client";
+import { organizations } from "../../schema/organizations";
+import { tedis } from "../../schema/tedis";
 import { workAdmissions } from "../../schema/work-factory";
 import {
 	type WorkAttempt,
@@ -20,6 +33,8 @@ import {
 } from "../../schema/work-items";
 import { isWorkAttemptLive } from "./attempt-steps";
 
+/** `metadata.source` of a Work Item that `start_agent_run` created. */
+export const AGENT_RUN_SOURCE = "tedi.start_agent_run";
 /** Runs started longer ago than this are not listed. */
 export const AGENT_RUN_LIST_WINDOW_DAYS = 30;
 /** Newest Work Items examined before the state filter is applied. */
@@ -137,7 +152,9 @@ export async function listAgentRuns(
 		.from(workItems)
 		.where(
 			and(
+				// Org, source and creation time match idx_work_items_metadata_source.
 				eq(workItems.orgId, params.orgId),
+				eq(workItems.metadataSource, AGENT_RUN_SOURCE),
 				gt(workItems.createdAt, since),
 				eq(workItems.executorType, "external_agent"),
 				eq(workItems.stewardType, "tedi"),
@@ -311,4 +328,143 @@ export async function listAgentRuns(
 				: null,
 		};
 	});
+}
+
+export interface AgentRunSupervisor {
+	orgId: string;
+	tediId: string;
+	slug: string;
+	runtimeOverrides: Record<string, JsonValue> | null;
+}
+
+/**
+ * Active tedis, in any organization, that have an accepted agent run they
+ * started since `since`. One index seek per organization on
+ * idx_work_items_metadata_source; no tenant is read beyond these columns.
+ */
+export async function listAgentRunSupervisors(
+	db: DbQueryClient,
+	params: { since: string; limit: number },
+): Promise<AgentRunSupervisor[]> {
+	return db
+		.select({
+			orgId: workItems.orgId,
+			tediId: sql<string>`${tedis.id}`.as("supervisor_tedi_id"),
+			slug: tedis.slug,
+			runtimeOverrides: tedis.runtimeOverrides,
+		})
+		.from(organizations)
+		.innerJoin(
+			workItems,
+			and(
+				eq(workItems.orgId, organizations.id),
+				eq(workItems.metadataSource, AGENT_RUN_SOURCE),
+				gt(workItems.createdAt, params.since),
+			),
+		)
+		.innerJoin(
+			tedis,
+			and(
+				eq(tedis.id, workItems.stewardId),
+				eq(tedis.organizationId, workItems.orgId),
+				eq(tedis.status, "active"),
+			),
+		)
+		.where(
+			and(
+				eq(workItems.disposition, "accepted"),
+				eq(workItems.executorType, "external_agent"),
+				eq(workItems.stewardType, "tedi"),
+				isNotNull(workItems.sourceSessionKey),
+			),
+		)
+		.groupBy(organizations.id, tedis.id)
+		.orderBy(organizations.id, tedis.id)
+		.limit(params.limit);
+}
+
+/** What the last supervision round saw of one run. */
+export interface AgentRunSupervisionState {
+	/** Rounds this run has caused; capped per run. */
+	rounds: number;
+	lastRoundAt: string;
+	/** The run's fingerprint in the last round's digest. */
+	seen: string;
+}
+
+const SUPERVISION_KEY = "agentRunSupervision";
+
+export function agentRunSupervisionState(
+	metadata: Record<string, JsonValue> | null | undefined,
+): AgentRunSupervisionState | null {
+	const stored = metadata?.[SUPERVISION_KEY];
+	if (!stored || typeof stored !== "object" || Array.isArray(stored))
+		return null;
+	const { rounds, lastRoundAt, seen } = stored;
+	return typeof rounds === "number" &&
+		Number.isInteger(rounds) &&
+		rounds >= 0 &&
+		typeof lastRoundAt === "string" &&
+		typeof seen === "string"
+		? { rounds, lastRoundAt, seen }
+		: null;
+}
+
+/**
+ * Stores what a supervision round saw of one run. Writes only when the stored
+ * round count is still `expectedRounds`, so two ticks that planned the same
+ * round count it once. Returns whether this call wrote.
+ */
+export async function recordAgentRunSupervisionRound(
+	db: DbQueryClient,
+	params: {
+		orgId: string;
+		workItemId: string;
+		expectedRounds: number;
+		state: AgentRunSupervisionState;
+	},
+): Promise<boolean> {
+	const rows = await db
+		.update(workItems)
+		.set({
+			metadata: sql<
+				Record<string, JsonValue>
+			>`json_set(COALESCE(${workItems.metadata}, '{}'), '$.agentRunSupervision', json(${JSON.stringify(params.state)}))`,
+		})
+		.where(
+			and(
+				eq(workItems.orgId, params.orgId),
+				eq(workItems.id, params.workItemId),
+				sql`COALESCE(json_extract(${workItems.metadata}, '$.agentRunSupervision.rounds'), 0) = ${params.expectedRounds}`,
+			),
+		)
+		.returning({ id: workItems.id });
+	return rows.length === 1;
+}
+
+/**
+ * Marks that the supervising tedi sent the person an update about this run.
+ * Returns false, and writes nothing, when the last update is newer than
+ * `notBefore`, so a tedi cannot message the person about one run in a loop.
+ */
+export async function claimAgentRunPersonUpdate(
+	db: DbQueryClient,
+	params: { orgId: string; workItemId: string; at: string; notBefore: string },
+): Promise<boolean> {
+	const rows = await db
+		.update(workItems)
+		.set({
+			metadata: sql<
+				Record<string, JsonValue>
+			>`json_set(COALESCE(${workItems.metadata}, '{}'), '$.agentRunUpdateAt', ${params.at})`,
+		})
+		.where(
+			and(
+				eq(workItems.orgId, params.orgId),
+				eq(workItems.id, params.workItemId),
+				sql`COALESCE(json_extract(${workItems.metadata}, '$.agentRunUpdateAt'), '') < ${params.notBefore}`,
+			),
+		)
+		.returning({ id: workItems.id });
+	return rows.length === 1;
 }

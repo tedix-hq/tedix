@@ -36,6 +36,8 @@ import {
 import {
 	ListAgentRunsInputSchema,
 	ListAgentRunsResultSchema,
+	TellPersonAboutAgentRunInputSchema,
+	TellPersonAboutAgentRunResultSchema,
 } from "../schemas/work-agent-runs";
 import "@orpc/openapi/extensions/route";
 /**
@@ -1403,6 +1405,17 @@ export const workItemsContract = oc
 			})
 			.input(ListAgentRunsInputSchema)
 			.output(ListAgentRunsResultSchema),
+
+		tellPersonAboutAgentRun: oc
+			.route({
+				method: "POST",
+				path: "/{id}/agent-run-update",
+				summary: "Tell the person about an agent run",
+				description:
+					"For the tedi that started an agent run from a chat: send the person an update about that run in the chat it was started from. Only that tedi may call it, and at most once per run in five minutes.",
+			})
+			.input(TellPersonAboutAgentRunInputSchema)
+			.output(TellPersonAboutAgentRunResultSchema),
 
 		settleAttempt: oc
 			.route({

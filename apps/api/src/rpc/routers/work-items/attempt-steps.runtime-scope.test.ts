@@ -28,7 +28,7 @@ import {
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { TEDI_RUNTIME_SERVICE_BINDING_SCOPES } from "../../../../../tedi-runtime/src/platform-client-factory";
 import type { BaseContext } from "../../orpc";
 import {
@@ -37,7 +37,10 @@ import {
 	sendAttemptMessageProcedure,
 	stopAttemptProcedure,
 } from "./attempt-steps";
-import { listAgentRunsProcedure } from "./agent-runs";
+import {
+	listAgentRunsProcedure,
+	tellPersonAboutAgentRunProcedure,
+} from "./agent-runs";
 import { listCliProjectionProcedure } from "./creation-reads";
 import { acceptProcedure } from "./factory-lifecycle";
 
@@ -58,7 +61,18 @@ const router = {
 	appendAttemptSteps: appendAttemptStepsProcedure,
 	listCliProjection: listCliProjectionProcedure,
 	listAgentRuns: listAgentRunsProcedure,
+	tellPersonAboutAgentRun: tellPersonAboutAgentRunProcedure,
 };
+
+// The two chat deliveries of the run-ended notice; the update reuses them.
+const chat = vi.hoisted(() => ({
+	tedi: vi.fn(async () => ({ status: "queued" })),
+	home: vi.fn(async () => ({ status: "queued" })),
+}));
+vi.mock("../../../services/agent-run-ended-notice", () => ({
+	enqueueTediMessage: chat.tedi,
+	enqueueHomeMessage: chat.home,
+}));
 
 const databases: DatabaseSync[] = [];
 afterEach(() => {
@@ -245,7 +259,7 @@ describe("agent runs through the tedi runtime service binding", () => {
 		const { sqlite, runtimeClient, startRun } = fixture();
 		// What `start_agent_run` stores besides the owner and steward.
 		sqlite.exec(
-			`UPDATE work_items SET executor_type='external_agent', executor_id='codex', source_session_key='agent:main:chat-7', created_at='${new Date().toISOString()}'`,
+			`UPDATE work_items SET executor_type='external_agent', executor_id='codex', source_session_key='agent:main:chat-7', metadata='{"source":"tedi.start_agent_run"}', created_at='${new Date().toISOString()}'`,
 		);
 		const starter = runtimeClient(STARTER_TEDI_ID);
 		const only = async () => (await starter.listAgentRuns({})).runs;
@@ -336,6 +350,80 @@ describe("agent runs through the tedi runtime service binding", () => {
 				),
 			).listAgentRuns({}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("lets only the starting tedi tell the person about its run, once in five minutes", async () => {
+		const { sqlite, runtimeClient } = fixture();
+		chat.tedi.mockClear();
+		chat.home.mockClear();
+		const update = {
+			id: WORK_ITEM_ID,
+			message: "The run waits for a machine.",
+		};
+		const starter = runtimeClient(STARTER_TEDI_ID);
+		// Not an agent run yet: a task the tedi merely stewards gets no update.
+		await expect(starter.tellPersonAboutAgentRun(update)).rejects.toMatchObject(
+			{ code: "FORBIDDEN" },
+		);
+		sqlite.exec(
+			`UPDATE work_items SET executor_type='external_agent', executor_id='codex', source_session_key='agent:main:chat-7', metadata='{"source":"tedi.start_agent_run"}'`,
+		);
+		for (const refused of [
+			() => runtimeClient(BYSTANDER_TEDI_ID).tellPersonAboutAgentRun(update),
+			() =>
+				runtimeClient(OTHER_ORG_TEDI_ID, OTHER_ORG_ID).tellPersonAboutAgentRun(
+					update,
+				),
+			() =>
+				runtimeClient(OTHER_ORG_TEDI_ID, ORG_ID).tellPersonAboutAgentRun(
+					update,
+				),
+			() =>
+				runtimeClient(
+					STARTER_TEDI_ID,
+					ORG_ID,
+					TEDI_RUNTIME_SERVICE_BINDING_SCOPES.filter(
+						(held) => held !== WORK_RUN_STEER_SCOPE,
+					),
+				).tellPersonAboutAgentRun(update),
+		])
+			await expect(refused()).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(chat.tedi).not.toHaveBeenCalled();
+
+		await expect(starter.tellPersonAboutAgentRun(update)).resolves.toEqual({
+			status: "sent",
+			chat: "tedi",
+		});
+		expect(chat.tedi).toHaveBeenCalledTimes(1);
+		expect(chat.tedi.mock.calls[0]).toMatchObject([
+			expect.anything(),
+			{
+				tediId: STARTER_TEDI_ID,
+				conversationId: "agent:main:chat-7",
+				content: expect.stringContaining("The run waits for a machine."),
+			},
+			"agent-run-update",
+		]);
+		await expect(starter.tellPersonAboutAgentRun(update)).resolves.toEqual({
+			status: "too_soon",
+			chat: "tedi",
+		});
+		expect(chat.tedi).toHaveBeenCalledTimes(1);
+
+		// A run started by a tedi the person picked in the chat reports to Home
+		// in that chat, the same way its end is reported.
+		sqlite.exec(
+			`UPDATE work_items SET source_session_key='home:person:thread', metadata=json_remove(metadata,'$.agentRunUpdateAt')`,
+		);
+		await expect(starter.tellPersonAboutAgentRun(update)).resolves.toEqual({
+			status: "sent",
+			chat: "home",
+		});
+		expect(chat.home.mock.calls[0]).toMatchObject([
+			expect.anything(),
+			{ organizationId: ORG_ID, conversationId: "home:person:thread" },
+			{ agentRunUpdate: true },
+		]);
 	});
 
 	it("opens nothing else behind the wider Work scopes", async () => {
