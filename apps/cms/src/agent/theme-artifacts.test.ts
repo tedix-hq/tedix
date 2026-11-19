@@ -2,18 +2,6 @@ import type {
 	NativeProcess as NativeProcess,
 	NativeProcessStatus as ProcessStatus,
 } from "@tedix/container-runtime/sandbox";
-import { execFileSync } from "node:child_process";
-import {
-	existsSync,
-	mkdtempSync,
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	symlinkSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
 import { describe, it, expect, vi } from "vite-plus/test";
 import type { CmsJobClient } from "../sandbox";
 
@@ -92,7 +80,6 @@ function fixture(
 }
 import {
 	startThemeArtifactRepoSeed,
-	startThemeArtifactRepoCommit,
 	readThemeArtifactRepoSeedStatus,
 	cancelThemeArtifactRepoSeed,
 	themeArtifactCommitSandbox,
@@ -111,40 +98,6 @@ function context(f: ReturnType<typeof fixture>) {
 	};
 }
 describe("CMS native artifact seed", () => {
-	it("launches and polls an artifact commit on its exact isolated job without accessing authoring", async () => {
-		const f = fixture();
-		const isolated = {
-			...f.sandbox,
-			writeFile: vi.fn(async (_path: string, _content: string) => undefined),
-		};
-		const select = vi.fn(() => isolated);
-		const ctx = {
-			orgSlug: "acme",
-			artifactCommitSandbox: select,
-			get sandbox(): never {
-				throw new Error("authoring must not be accessed");
-			},
-		};
-		const launch = await startThemeArtifactRepoCommit(ctx, {
-			branch: "main",
-			expectedHead: "a".repeat(40),
-			files: [{ path: "src/components/Hero.astro", content: "<h1>New</h1>" }],
-			message: "Update theme",
-			remote: "https://example.test/repo",
-			token: "private",
-		});
-		expect(launch.jobId).toMatch(/^tac-[a-f0-9-]{36}$/);
-		expect(select).toHaveBeenCalledWith(launch.jobId);
-		expect(f.launchCmsJob).toHaveBeenCalledOnce();
-		expect(themeArtifactCommitSandbox(ctx, launch.jobId)).toBe(isolated);
-		expect(select).toHaveBeenLastCalledWith(launch.jobId);
-		expect(
-			isolated.writeFile.mock.calls.every(([path]) =>
-				String(path).startsWith("/tmp/"),
-			),
-		).toBe(true);
-	});
-
 	it("keeps old commit jobs on their original disk", () => {
 		const f = fixture();
 		const { ctx } = context(f);
@@ -207,124 +160,6 @@ describe("CMS native artifact seed", () => {
 			(await cancelThemeArtifactRepoSeed(context(f).ctx.sandbox, "seed"))
 				.cancelled,
 		).toBe(true);
-	});
-});
-
-describe("CMS artifact commit", () => {
-	it("commits selected files with expected-head CAS and no credential in argv", async () => {
-		const root = mkdtempSync(join(tmpdir(), "tedix-cms-artifact-test-"));
-		try {
-			const remote = join(root, "remote.git");
-			const author = join(root, "author");
-			execFileSync("git", ["init", "--bare", remote]);
-			execFileSync("git", ["clone", remote, author]);
-			execFileSync("git", ["-C", author, "config", "user.name", "Test"]);
-			execFileSync("git", [
-				"-C",
-				author,
-				"config",
-				"user.email",
-				"test@example.invalid",
-			]);
-			const initial = join(author, "src/components/PostCard.astro");
-			mkdirSync(dirname(initial), { recursive: true });
-			writeFileSync(initial, "old");
-			execFileSync("git", ["-C", author, "add", "."]);
-			execFileSync("git", ["-C", author, "commit", "-m", "Initial"]);
-			execFileSync("git", ["-C", author, "branch", "-M", "main"]);
-			execFileSync("git", ["-C", author, "push", "origin", "main"]);
-			const expectedHead = execFileSync(
-				"git",
-				["-C", author, "rev-parse", "HEAD"],
-				{ encoding: "utf8" },
-			).trim();
-			const f = fixture();
-			const written: string[] = [];
-			const ctx = context(f).ctx;
-			ctx.sandbox.writeFile = vi.fn(async (path: string, content: string) => {
-				mkdirSync(dirname(path), { recursive: true });
-				writeFileSync(path, content);
-				written.push(path);
-				return { success: true };
-			}) as unknown as typeof ctx.sandbox.writeFile;
-			const args = {
-				branch: "main",
-				expectedHead,
-				remote,
-				token: "secret-token",
-				message: "Edit card",
-				files: [{ path: "src/components/PostCard.astro", content: "new" }],
-			};
-			await startThemeArtifactRepoCommit(ctx, args);
-			expect(JSON.stringify(f.launchCmsJob.mock.calls)).not.toContain(
-				"secret-token",
-			);
-			const script = written.find((path) => path.endsWith(".sh"));
-			expect(script).toBeDefined();
-			expect(readFileSync(script!, "utf8")).not.toContain("--force");
-			expect(readFileSync(script!, "utf8")).toContain(
-				"pack.window=0 -c pack.depth=0 push",
-			);
-			const result = JSON.parse(
-				execFileSync("sh", [script!], { encoding: "utf8" }).trim(),
-			);
-			expect(result.committed).toBe(true);
-			expect(result.commit).toMatch(/^[0-9a-f]{40}$/);
-			expect(
-				execFileSync("git", ["--git-dir", remote, "rev-parse", "main"], {
-					encoding: "utf8",
-				}).trim(),
-			).toBe(result.commit);
-			await startThemeArtifactRepoCommit(ctx, args);
-			const staleScript = written
-				.filter((path) => path.endsWith(".sh"))
-				.at(-1)!;
-			const stale = JSON.parse(
-				execFileSync("sh", [staleScript], { encoding: "utf8" }).trim(),
-			);
-			expect(stale).toMatchObject({
-				committed: false,
-				conflict: true,
-				remoteHead: result.commit,
-			});
-			execFileSync("git", [
-				"-C",
-				author,
-				"pull",
-				"--ff-only",
-				"origin",
-				"main",
-			]);
-			const outside = join(root, "outside");
-			mkdirSync(outside);
-			symlinkSync(outside, join(author, "src/components/escape"));
-			execFileSync("git", ["-C", author, "add", "src/components/escape"]);
-			execFileSync("git", ["-C", author, "commit", "-m", "Add symlink"]);
-			execFileSync("git", ["-C", author, "push", "origin", "main"]);
-			const symlinkHead = execFileSync(
-				"git",
-				["-C", author, "rev-parse", "HEAD"],
-				{ encoding: "utf8" },
-			).trim();
-			await startThemeArtifactRepoCommit(ctx, {
-				...args,
-				expectedHead: symlinkHead,
-				files: [{ path: "src/components/escape/owned.txt", content: "bad" }],
-			});
-			const symlinkScript = written
-				.filter((path) => path.endsWith(".sh"))
-				.at(-1)!;
-			expect(() => execFileSync("sh", [symlinkScript])).toThrow();
-			expect(existsSync(join(outside, "owned.txt"))).toBe(false);
-			await expect(
-				startThemeArtifactRepoCommit(ctx, {
-					...args,
-					files: [{ path: "src/components/.git/config", content: "bad" }],
-				}),
-			).rejects.toThrow("Invalid CMS theme artifact path");
-		} finally {
-			rmSync(root, { recursive: true, force: true });
-		}
 	});
 });
 

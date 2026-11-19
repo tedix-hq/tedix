@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./artifacts-git-push": "./src/artifacts-git-push.ts",
 		"./capped-body": "./src/capped-body.ts",
 		"./cors": "./src/cors.ts",
 		"./crypto": "./src/crypto.ts",
@@ -13,6 +14,7 @@
 		"./error-message": "./src/error-message.ts",
 		"./errors": "./src/errors.ts",
 		"./exception-topology": "./src/exception-topology.ts",
+		"./git-memory-fs": "./src/git-memory-fs.ts",
 		"./logger": "./src/logger.ts",
 		"./platform-hosts": "./src/platform-hosts.ts",
 		"./request-auth": "./src/request-auth.ts",
@@ -31,6 +33,7 @@
 	"devDependencies": {
 		"@cloudflare/workers-types": "catalog:",
 		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
 		"hono": "catalog:",
 		"typescript": "catalog:",
 		"vite": "catalog:",

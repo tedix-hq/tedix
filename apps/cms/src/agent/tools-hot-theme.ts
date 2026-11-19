@@ -4,6 +4,7 @@ import {
 	readThemeArtifactFile,
 	readThemeArtifactHead,
 } from "./artifact-source-read";
+import { commitThemeArtifactFiles } from "./theme-artifact-commit";
 import { isPathEditable } from "./constraints";
 import {
 	HOT_THEME_PUBLIC_PATH,
@@ -24,7 +25,6 @@ import {
 	cancelThemeArtifactRepoSeed,
 	readThemeArtifactRepoCommitStatus,
 	readThemeArtifactRepoSeedStatus,
-	startThemeArtifactRepoCommit,
 	startThemeArtifactRepoSeed,
 	isIsolatedThemeArtifactCommit,
 	themeArtifactCommitSandbox,
@@ -615,7 +615,7 @@ export function registerHotThemeTools(
 			description:
 				"Commit complete editable Astro/CSS file contents to the tenant's existing Artifacts Git main branch. " +
 				"The server handles the short-lived Git token; no credential is returned. Pass the current full main commit as expectedHead. " +
-				"Poll theme_artifact_commit_status for the commit SHA, then pass that SHA to theme_deploy.sourceCommit. " +
+				"Pass result.commit from a successful commit to theme_deploy.sourceCommit. The result can also be read using theme_artifact_commit_status. " +
 				"A changed main branch is reported as a conflict; this tool never force-pushes or deploys.",
 			inputSchema: schema(
 				z.object({
@@ -640,6 +640,10 @@ export function registerHotThemeTools(
 		}) => {
 			if (!ctx.artifacts)
 				return forbidden("CMS Artifacts binding is not configured");
+			if (!args.message.trim() || args.message.includes("\0"))
+				return forbidden(
+					"Theme commit message must be nonblank and contain no NUL",
+				);
 			const paths = args.files.map((file) => file.path);
 			if (
 				new Set(paths).size !== paths.length ||
@@ -660,7 +664,7 @@ export function registerHotThemeTools(
 									!segment ||
 									segment === "." ||
 									segment === ".." ||
-									segment === ".git",
+									segment.toLowerCase() === ".git",
 							),
 				)
 			) {
@@ -668,46 +672,41 @@ export function registerHotThemeTools(
 					"Theme artifact paths may contain only letters, numbers, dot, underscore, dash, slash, and brackets",
 				);
 			}
-			const repo = await ctx.artifacts.get(themeArtifactRepoName(ctx.orgSlug));
-			const tokenResult = await repo.createToken("write", 600);
-			const launch = await withSandboxTimeout(
-				ctx,
-				"commit_theme_artifact_files launch",
-				startThemeArtifactRepoCommit(ctx, {
-					branch: "main",
-					expectedHead: args.expectedHead,
-					files: args.files,
-					message: args.message,
-					remote: themeArtifactRemote(
-						ctx.artifactsAccountId,
-						ctx.orgSlug,
-						ctx.artifactsNamespace,
-					),
-					token: await tokenResult.plaintext,
-				}),
-			);
+			const startedAt = Date.now();
+			const jobId = `tac-${crypto.randomUUID()}`;
+			using repo = await ctx.artifacts.get(themeArtifactRepoName(ctx.orgSlug));
+			const result = await commitThemeArtifactFiles({
+				...args,
+				repo,
+				remote: themeArtifactRemote(
+					ctx.artifactsAccountId,
+					ctx.orgSlug,
+					ctx.artifactsNamespace,
+				),
+			});
 			const receipt = await updateStoredJobReceipt(
 				ctx.storage,
-				cmsThemeArtifactCommitStatusKey(ctx.orgSlug, launch.jobId),
+				cmsThemeArtifactCommitStatusKey(ctx.orgSlug, jobId),
 				async () =>
 					themeArtifactSeedOutput({
-						jobId: launch.jobId,
-						status: "running",
-						exitCode: null,
-						running: true,
-						startedAt: launch.startedAt,
-						durationMs: 0,
-						seed: null,
+						jobId,
+						status: "complete",
+						exitCode: 0,
+						running: false,
+						startedAt,
+						durationMs: Date.now() - startedAt,
+						seed: { ...result, ok: true },
 						stdoutTail: "",
 						stderrTail: "",
 						logTail: "",
-						message: "CMS theme artifact commit started",
+						message: "CMS theme artifact commit complete",
 					}),
 			);
 			const output = {
-				jobId: launch.jobId,
+				jobId,
 				status: receipt.status,
 				message: receipt.message,
+				result: receipt.seed,
 			};
 			return {
 				content: [{ type: "text" as const, text: JSON.stringify(output) }],
