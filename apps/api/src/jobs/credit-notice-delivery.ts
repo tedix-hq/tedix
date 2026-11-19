@@ -28,11 +28,11 @@ import { sendTransactionalEmail } from "../lib/email";
 
 const BATCH_SIZE = 100;
 const LEASE_MS = 5 * 60 * 1_000;
-const DEFAULT_OS_URL = "https://os.tedix.dev";
 
 export interface CreditNoticeDeliveryEnv {
 	EMAIL?: SendEmail;
 	OS_URL?: string;
+	SHARE_EMAIL_FROM?: string;
 }
 
 export interface CreditNoticeDeliveryResult {
@@ -47,16 +47,13 @@ export interface CreditNoticeDeliveryResult {
 /** Plain-text email: the story, then the link to Settings › Billing › Usage. */
 export function creditNoticeEmail(
 	delivery: Pick<ClaimedCreditNoticeDelivery, "threshold" | "organizationName">,
-	osUrl: string | undefined,
+	osUrl: string,
 ): { subject: string; text: string } {
 	const copy = creditNoticeCopy({
 		threshold: delivery.threshold,
 		organizationName: delivery.organizationName,
 	});
-	const url = new URL(
-		CREDIT_NOTICE_PATH,
-		osUrl?.trim() || DEFAULT_OS_URL,
-	).toString();
+	const url = new URL(CREDIT_NOTICE_PATH, osUrl).toString();
 	return {
 		subject: copy.subject,
 		text: `${copy.story}\n\nOpen ${CREDIT_NOTICE_LINK_LABEL}: ${url}`,
@@ -79,9 +76,13 @@ async function deliver(
 ): Promise<string | null> {
 	if (row.channel === "deck")
 		return deliverCreditNoticeDeckCard(db, { delivery: row, now });
-	const email = creditNoticeEmail(row, env.OS_URL);
+	const osUrl = env.OS_URL?.trim();
+	const sender = env.SHARE_EMAIL_FROM?.trim();
+	if (!osUrl || !sender)
+		throw new Error("OS_URL and SHARE_EMAIL_FROM must be configured");
+	const email = creditNoticeEmail(row, osUrl);
 	const result = await sendTransactionalEmail(env, {
-		from: { email: "noreply@tedix.tech", name: "Tedix Billing" },
+		from: { email: sender, name: "Tedix Billing" },
 		to: [{ email: row.recipientEmail }],
 		subject: email.subject,
 		text: email.text,
