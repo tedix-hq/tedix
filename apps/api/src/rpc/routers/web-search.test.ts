@@ -10,6 +10,14 @@ const mocks = vi.hoisted(() => ({
 	credential: vi.fn(),
 	search: vi.fn(),
 	costs: vi.fn(),
+	reserve: vi.fn(),
+	settle: vi.fn(),
+	release: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/billing-service-credits", () => ({
+	reserveBillingServiceCredits: mocks.reserve,
+	settleBillingServiceCreditUsage: mocks.settle,
+	releaseBillingServiceCreditReservation: mocks.release,
 }));
 vi.mock("@tedix/db/queries/organizations", () => ({
 	getOrganizationById: mocks.organization,
@@ -102,4 +110,49 @@ it("rejects a tedi outside the organization before accessing credentials", async
 	});
 	expect(mocks.search).not.toHaveBeenCalled();
 	expect(mocks.credential).not.toHaveBeenCalled();
+});
+
+it("charges a managed search through the web search rate card and releases a failed one", async () => {
+	const context = {
+		...apiKeyContext({ scopes: ["web-search:execute"] }),
+		env: {
+			ENVIRONMENT: "test",
+			TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+		} as unknown as CloudflareEnv,
+		tediId,
+	};
+	mocks.reserve.mockResolvedValue({ allowed: true, replayed: false });
+	const client = createRouterClient(webSearchContractRouter, { context });
+	await expect(client.search({ query: "release" })).resolves.toMatchObject({
+		status: "ok",
+	});
+	expect(mocks.reserve.mock.calls[0]![1]).toMatchObject({
+		organizationId: orgId,
+		tediId,
+		serviceKey: "web_search",
+		operationKey: "search",
+	});
+	expect(mocks.settle.mock.calls[0]![1]).toMatchObject({
+		reservationId: mocks.reserve.mock.calls[0]![1].id,
+		providerSucceeded: true,
+	});
+
+	mocks.search.mockResolvedValueOnce({ status: "failed", message: "down" });
+	await client.search({ query: "release" });
+	expect(mocks.release.mock.calls[0]![1]).toMatchObject({
+		reservationId: mocks.reserve.mock.calls[1]![1].id,
+		reason: "search_failed",
+	});
+	expect(mocks.settle).toHaveBeenCalledTimes(1);
+
+	mocks.reserve.mockResolvedValueOnce({
+		allowed: false,
+		code: "monthly_credit_limit_reached",
+		snapshot: null,
+	});
+	await expect(client.search({ query: "release" })).resolves.toMatchObject({
+		status: "unavailable",
+		message: expect.stringContaining("credits are used up"),
+	});
+	expect(mocks.search).toHaveBeenCalledTimes(2);
 });
