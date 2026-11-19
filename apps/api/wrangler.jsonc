@@ -157,6 +157,10 @@
 				"class_name": "KernelVoiceInputDO",
 			},
 			{
+				"name": "MACHINE_CONNECTIONS",
+				"class_name": "MachineConnectionDO",
+			},
+			{
 				"name": "APP_DRAFT_ROOM",
 				"class_name": "CollabRoom",
 				"script_name": "public-installation-os-development",
@@ -236,6 +240,10 @@
 		{
 			"tag": "v12",
 			"new_sqlite_classes": ["KernelVoiceInputDO"],
+		},
+		{
+			"tag": "v13",
+			"new_sqlite_classes": ["MachineConnectionDO"],
 		},
 	],
 	"ratelimits": [
@@ -616,6 +624,10 @@
 					{
 						"name": "KERNEL_VOICE_INPUT",
 						"class_name": "KernelVoiceInputDO",
+					},
+					{
+						"name": "MACHINE_CONNECTIONS",
+						"class_name": "MachineConnectionDO",
 					},
 					{
 						"name": "APP_DRAFT_ROOM",
