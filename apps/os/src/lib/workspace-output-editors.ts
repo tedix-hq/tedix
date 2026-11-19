@@ -27,3 +27,20 @@ export function workspaceOutputEditors(
 	}
 	return editors;
 }
+
+/** File editors follow the bound file's title while app names identify standalone apps. */
+export function workspaceAppTitles<App extends { id: string; name: string }>(
+	apps: readonly App[],
+	outputs: readonly { id: string; title: string }[],
+	editors: ReadonlyMap<string, string>,
+): App[] {
+	const titles = new Map<string, string>();
+	for (const output of outputs) {
+		const appId = editors.get(output.id);
+		if (appId) titles.set(appId, output.title);
+	}
+	return apps.map((app) => {
+		const name = titles.get(app.id);
+		return name === undefined ? app : { ...app, name };
+	});
+}

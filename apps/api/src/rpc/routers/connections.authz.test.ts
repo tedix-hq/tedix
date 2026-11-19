@@ -1,3 +1,4 @@
+import { LOCAL_DEMO_PROJECT_ID } from "@tedix/auth/local-demo";
 import * as providerEvents from "@tedix/db/queries/provider-events";
 import * as appRecords from "@tedix/db/queries/app-records";
 import * as organizations from "@tedix/db/queries/organizations";
@@ -19,6 +20,28 @@ const { userContext, apiKeyContext } = bindTestContexts({
 });
 
 describe("connections authorization-plane composition", () => {
+	it("lists no connection providers in the local stack without a management key", async () => {
+		const env = {
+			ENVIRONMENT: "development",
+			DESCOPE_PROJECT_ID: LOCAL_DEMO_PROJECT_ID,
+		} as CloudflareEnv;
+		const makeClient = (environment: CloudflareEnv, permissions: string[]) =>
+			createRouterClient(connectionsContractRouter, {
+				context: userContext({ env: environment, permissions }),
+			});
+		await expect(
+			makeClient(env, ["apps:read"]).listProviders({}),
+		).resolves.toEqual({ data: [] });
+		await expect(makeClient(env, []).listProviders({})).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(
+			makeClient({ ...env, ENVIRONMENT: "production" }, [
+				"apps:read",
+			]).listProviders({}),
+		).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+	});
+
 	it.each([
 		() => userContext({ permissions: ["apps:read"] }),
 		() => apiKeyContext({ scopes: ["apps:write", "connections.execute"] }),

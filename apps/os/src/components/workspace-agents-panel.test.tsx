@@ -14,6 +14,7 @@ import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 const mocks = vi.hoisted(() => ({
 	schedules: vi.fn(),
 	resources: vi.fn(),
+	collaborators: vi.fn(),
 	runs: vi.fn(),
 	skill: vi.fn(),
 	tedi: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@/lib/api", () => ({
 		},
 		skills: { runWorkflowHistory: mocks.runs, get: mocks.skill },
 		tedis: { get: mocks.tedi },
+		osCollaborators: { list: mocks.collaborators },
 	},
 }));
 import { WorkActorDirectoryContext } from "./work-actor-avatar";
@@ -45,6 +47,7 @@ beforeEach(() => {
 	host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
+	mocks.collaborators.mockReset().mockResolvedValue({ collaborators: [] });
 	mocks.schedules.mockReset().mockResolvedValue({
 		items: [
 			{
@@ -145,6 +148,28 @@ const counts = (key: string) =>
 	agentRow(key)?.querySelector("[data-agent-counts]")?.textContent;
 
 describe("WorkspaceAgentsPanel", () => {
+	it("shows a shared tedi before its first run", async () => {
+		mocks.schedules.mockResolvedValue({ items: [] });
+		mocks.resources.mockResolvedValue({ items: [] });
+		mocks.tedi.mockRejectedValue(new Error("Profile unavailable"));
+		mocks.collaborators.mockResolvedValue({
+			collaborators: [
+				{
+					principalKind: "tedi",
+					userId: "invited",
+					name: "Invited Tedi",
+					role: "use",
+				},
+				{ principalKind: "user", userId: "alex", name: "Alex", role: "build" },
+			],
+		});
+
+		await mount([], () => Boolean(agentRow("tedi:invited")));
+		expect(agentRow("tedi:invited").textContent).toContain("Invited Tedi");
+		expect(mocks.runs).not.toHaveBeenCalled();
+		expect(agentRow("tedi:alex")).toBeNull();
+	});
+
 	it("shows one row per agent with its counts and opens its latest runs", async () => {
 		const onOpen = await mount(
 			[

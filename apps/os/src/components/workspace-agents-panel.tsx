@@ -14,6 +14,7 @@ import {
 	skillRunsQueryOptions,
 	skillDetailQueryOptions,
 	tediDetailQueryOptions,
+	workspaceCollaboratorsQueryOptions,
 	workspaceResourcesQueryOptions,
 	workspaceSchedulesQueryOptions,
 } from "@/lib/os-query-options";
@@ -55,6 +56,7 @@ export function WorkspaceAgentsPanel({
 }) {
 	const schedules = useQuery(workspaceSchedulesQueryOptions(workspaceId));
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
+	const sharing = useQuery(workspaceCollaboratorsQueryOptions(workspaceId));
 	const skillIds = useMemo(
 		() => (schedules.data?.items ?? []).map((item) => item.skillId),
 		[schedules.data?.items],
@@ -87,6 +89,15 @@ export function WorkspaceAgentsPanel({
 			)
 			.map((row) => [row.providerResourceId, row.name]),
 	);
+	for (const collaborator of sharing.data?.collaborators ?? []) {
+		if (collaborator.principalKind !== "tedi") continue;
+		tediNames.set(
+			collaborator.userId,
+			collaborator.name ??
+				tediNames.get(collaborator.userId) ??
+				"Tedi profile unavailable",
+		);
+	}
 	const tediIds = [
 		...new Set([
 			...tediNames.keys(),
@@ -171,6 +182,7 @@ export function WorkspaceAgentsPanel({
 			<div className="grid gap-2 p-4 md:p-6">
 				{(schedules.isPending ||
 					resources.isPending ||
+					sharing.isPending ||
 					skills.some((row) => row.isPending)) &&
 				agents.length === 0 ? (
 					<ListSkeleton rows={2} rowClassName="h-14" />
@@ -181,7 +193,7 @@ export function WorkspaceAgentsPanel({
 					<Empty
 						appearance="quiet"
 						title="No agents work in this workspace yet"
-						description="Link a skill in Overview, or let a tedi or a connected app send this workspace a task. Each one shows here with what it is doing."
+						description="Invite a tedi, link a skill in Overview, or let a connected app send this workspace a task."
 					/>
 				) : (
 					<ul className="m-0 grid list-none gap-2 p-0" aria-label="Agents">

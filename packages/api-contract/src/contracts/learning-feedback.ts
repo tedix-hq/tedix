@@ -74,7 +74,7 @@ export const learningFeedbackContract = oc
 				summary: "Record your bounded Decisions exposure context",
 			})
 			.input(DecisionExposureInputSchema)
-			.output(z.object({ id: z.string() })),
+			.output(z.object({ id: z.string().nullable() })),
 		getCalibration: oc
 			.route({
 				operationId: "get_decision_calibration",

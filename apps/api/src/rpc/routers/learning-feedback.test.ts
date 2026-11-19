@@ -1,3 +1,6 @@
+import { LOCAL_DEMO_PROJECT_ID } from "@tedix/auth/local-demo";
+import { createRouterClient } from "@orpc/server";
+import { userContext, apiKeyContext } from "../test-context";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	canAccessLearningEvent,
@@ -5,9 +8,52 @@ import {
 	learningScopeCanNominateSubject,
 	resolveLearningActor,
 	resolveLearningScope,
+	learningFeedbackContractRouter,
 } from "./learning-feedback";
 
 describe("learning feedback identity and scope", () => {
+	it("acknowledges local exposure without storing it and still requires a person", async () => {
+		const env = {
+			ENVIRONMENT: "development",
+			DESCOPE_PROJECT_ID: LOCAL_DEMO_PROJECT_ID,
+		} as CloudflareEnv;
+		const input = {
+			clientEventId: crypto.randomUUID(),
+			sessionId: crypto.randomUUID(),
+			cardId: "sample-card",
+			sourceVersion: 1,
+			position: 0,
+			aboveFold: ["title" as const],
+			railOpened: false,
+			timezone: "UTC",
+			ranking: {
+				version: "decision-learning-v1" as const,
+				score: 0,
+				features: [],
+			},
+			candidates: [
+				{
+					cardId: "sample-card",
+					score: 0,
+					reason: "shown" as const,
+					position: 0,
+				},
+			],
+			candidateCount: 1,
+			candidateSetComplete: true,
+		};
+		const person = createRouterClient(learningFeedbackContractRouter, {
+			context: userContext({ env }),
+		});
+		const machine = createRouterClient(learningFeedbackContractRouter, {
+			context: apiKeyContext({ env, scopes: ["tedis:write"] }),
+		});
+		await expect(person.recordExposure(input)).resolves.toEqual({ id: null });
+		await expect(machine.recordExposure(input)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+	});
+
 	it("derives personal and organization scopes instead of trusting caller ids", () => {
 		expect(
 			resolveLearningScope({

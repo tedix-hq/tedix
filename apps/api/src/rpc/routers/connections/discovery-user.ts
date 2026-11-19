@@ -1,3 +1,4 @@
+import { isLocalDemoProject } from "@tedix/auth/local-demo";
 import { disableProviderEventSubscriptionsByConnection } from "@tedix/db/queries/provider-events";
 import { filterAppConnectionResourceTools } from "@tedix/db/queries/app-records";
 import { getToolsByAppId } from "@tedix/db/queries/tools";
@@ -534,7 +535,18 @@ export async function readConnectionProviders(context: BaseContext) {
 
 export const listProviders = authedOs.listProviders
 	.use(AUTHZ.appsRead)
-	.handler(({ context }) => readConnectionProviders(context));
+	.handler(({ context }) => {
+		const { env } = context;
+		if (
+			env.ENVIRONMENT === "development" &&
+			isLocalDemoProject(env.DESCOPE_PROJECT_ID) &&
+			!env.DESCOPE_MANAGEMENT_KEY
+		) {
+			requireOrgId(context);
+			return { data: [] };
+		}
+		return readConnectionProviders(context);
+	});
 
 export const setProviderAccountMode = authedOs.setProviderAccountMode
 	.use(AUTHZ.integrationAppsWrite)

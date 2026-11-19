@@ -1,3 +1,4 @@
+import { isLocalDemoProject } from "@tedix/auth/local-demo";
 import { implement } from "@orpc/server";
 import { modelCatalogContract } from "@tedix/api-contract/contracts/model-catalog";
 import { getTediById } from "@tedix/db/queries/tedis";
@@ -50,6 +51,25 @@ const list = os.list
 			// Scope every canonical read to the tedi's OWN organization: its
 			// entitlement and org-scope tier ceiling are what gate its inference.
 			organizationId = tedi.organizationId;
+		}
+		if (
+			context.env.ENVIRONMENT === "development" &&
+			isLocalDemoProject(context.env.DESCOPE_PROJECT_ID)
+		) {
+			return {
+				models: [],
+				selections: [],
+				wiredProviders: [],
+				routing: {
+					slot: "chat" as const,
+					modelRef: null,
+					selectedBy: null,
+					detail: "The model catalog is unavailable in the local stack.",
+					allowed: null,
+					selectable: null,
+					deniedBy: null,
+				},
+			};
 		}
 		return buildModelCatalogProjection({
 			db: context.db,

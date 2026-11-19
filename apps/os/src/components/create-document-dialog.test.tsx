@@ -117,6 +117,9 @@ describe("document creation", () => {
 			await flush();
 			click(label);
 			await flush();
+			expect(document.body.textContent).toContain(
+				"Create a file you can edit in this workspace.",
+			);
 			click(`Create ${label}`);
 			await flush();
 			expect(api.create.mock.calls[0]![0]).toMatchObject({
@@ -152,7 +155,7 @@ describe("document creation", () => {
 		await flush();
 		expect(document.body.textContent).toContain("Your file was created");
 		expect(onAppCreated).not.toHaveBeenCalled();
-		click("Retry app installation");
+		click("Try again");
 		await flush();
 		expect(api.create).toHaveBeenCalledTimes(1);
 		expect(api.install.mock.calls.map((call) => call[0].outputId)).toEqual([

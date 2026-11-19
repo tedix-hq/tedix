@@ -155,8 +155,8 @@ export function CreateOutputAppDialog({
 				<DialogHeader>
 					<DialogTitle>New {label}</DialogTitle>
 					<DialogDescription>
-						Create a {label} gadget that edits one saved file with revision
-						history in your workspace.
+						Create a file you can edit in this workspace. You can look back at
+						earlier versions.
 					</DialogDescription>
 				</DialogHeader>
 				<label>
@@ -209,13 +209,13 @@ export function CreateOutputAppDialog({
 				{!workspaceId &&
 					workspaces.isSuccess &&
 					!workspaces.data.items.length && (
-						<p>Create a workspace first to add a {label} gadget.</p>
+						<p>Create a workspace first to save your file.</p>
 					)}
 				{error && (
 					<p role="alert">
 						{error}
 						{output
-							? " Your file was created. Retry installing its editor, or open the file read-only."
+							? " Your file was created. Try opening it for editing again, or open it read-only."
 							: ""}
 					</p>
 				)}
@@ -235,11 +235,7 @@ export function CreateOutputAppDialog({
 						disabled={pending || !targetWorkspace}
 						onClick={() => void submit()}
 					>
-						{pending
-							? "Creating…"
-							: output
-								? "Retry app installation"
-								: `Create ${label}`}
+						{pending ? "Creating…" : output ? "Try again" : `Create ${label}`}
 					</Button>
 				</DialogFooter>
 			</DialogContent>
