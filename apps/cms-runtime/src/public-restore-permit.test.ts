@@ -39,6 +39,65 @@ beforeEach(() => {
 	mocks.permit.mockResolvedValue({ admitted: false });
 });
 
+describe("legacy marketing blog hostname", () => {
+	it.each([
+		["/", "/blog/"],
+		["/posts", "/blog/"],
+		["/posts/", "/blog/"],
+		["/posts/example-post", "/blog/example-post"],
+		["/posts/example-post/?ref=source", "/blog/example-post?ref=source"],
+		["/posts/example-post.md", "/blog/example-post.md"],
+		["/blog/example-post/", "/blog/example-post"],
+		["/tag/ai/", "/blog/tag/ai/"],
+		["/rss.xml", "/rss.xml"],
+		["/sitemap.xml", "/sitemap-posts.xml"],
+		["/sitemap-posts.xml", "/sitemap-posts.xml"],
+	])(
+		"redirects GET and HEAD %s to %s before tenant lookup",
+		async (source, target) => {
+			for (const method of ["GET", "HEAD"]) {
+				const response = await cmsRuntime.fetch(
+					new Request(`https://blog.tedix.dev${source}`, { method }),
+					{} as never,
+					{} as never,
+				);
+				expect(response.status).toBe(301);
+				expect(response.headers.get("Location")).toBe(
+					`https://tedix.dev${target}`,
+				);
+				expect(response.body).toBeNull();
+			}
+			expect(mocks.getSiteByAlias).not.toHaveBeenCalled();
+			expect(mocks.getSiteBySlug).not.toHaveBeenCalled();
+			expect(mocks.permit).not.toHaveBeenCalled();
+		},
+	);
+
+	it("uses the configured legacy hostname", async () => {
+		const response = await cmsRuntime.fetch(
+			new Request("https://blog.example.com/"),
+			{ MARKETING_BLOG_HOST: "blog.example.com" } as never,
+			{} as never,
+		);
+		expect(response.status).toBe(301);
+		expect(response.headers.get("Location")).toBe("https://tedix.dev/blog/");
+	});
+
+	it("rejects writes even if the old host is listed as a marketing domain", async () => {
+		const response = await cmsRuntime.fetch(
+			new Request("https://blog.tedix.dev/api/contact", { method: "POST" }),
+			{
+				MARKETING_DOMAINS: "blog.tedix.dev",
+				MARKETING_SITE_SLUG: "tedix-landing",
+			} as never,
+			{} as never,
+		);
+		expect(response.status).toBe(405);
+		expect(response.headers.get("Allow")).toBe("GET, HEAD");
+		expect(mocks.getSiteBySlug).not.toHaveBeenCalled();
+	});
+});
+
 describe("early public restore gate", () => {
 	it("overlaps fresh metadata reads and still refuses content behind a closed fence", async () => {
 		let resolveSite!: (site: {

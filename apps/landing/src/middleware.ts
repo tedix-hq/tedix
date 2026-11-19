@@ -65,28 +65,6 @@ function redirect(target: URL, status: 301 | 302 | 308): Response {
 	});
 }
 
-const legacyBlogRedirect = defineMiddleware((context, next) => {
-	const { pathname, search } = context.url;
-	if (pathname !== "/blog" && !pathname.startsWith("/blog/")) {
-		return next();
-	}
-
-	const slug = pathname.replace(/^\/blog\/?/, "").replace(/\/$/, "");
-	if (slug === "archive") {
-		const archiveTarget = new URL("/posts/", "https://blog.tedix.dev");
-		archiveTarget.search = search;
-		return redirect(archiveTarget, 301);
-	}
-
-	const target = new URL(
-		slug ? `/posts/${slug}/` : "/",
-		"https://blog.tedix.dev",
-	);
-	target.search = search;
-
-	return redirect(target, 301);
-});
-
 /**
  * `/sitemap.xml` is the conventional discovery path crawlers probe directly,
  * and Google already knows it for this property. Point it at the real index
@@ -137,7 +115,6 @@ const trailingSlashRedirect = defineMiddleware((context, next) => {
 export const onRequest = sequence(
 	agentDiscoveryHeader,
 	cliDownloads,
-	legacyBlogRedirect,
 	sitemapAliasRedirect,
 	euroLabsRedirect,
 	trailingSlashRedirect,

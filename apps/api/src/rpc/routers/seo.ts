@@ -1173,10 +1173,8 @@ export const registerGoogleProperty = authedOs.registerGoogleProperty
 				accessToken,
 			);
 
-			// Persist per-site so apex + blog can each have their own token
-			// without overwriting each other (apex tedix.dev vs blog.tedix.dev).
-			// Legacy single-string field stays the primary apex token; the new
-			// keyed map covers any subdomain.
+			// Keep verification tokens per site property, such as tedix.dev
+			// and tedix.dev/blog. The single-string field holds the apex token.
 			const prevSeo = (metadata.seoConfig ?? {}) as {
 				googleVerification?: string;
 				googleVerifications?: Record<string, string>;

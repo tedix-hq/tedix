@@ -14,8 +14,8 @@ const org = {
 	brandingJson: '{"primary":"#7c3aed"}',
 	socialJson: '{"linkedin":"https://example.com"}',
 	descopeTenantId: "org_tedix",
-	publicSiteUrl: "https://blog.tedix.dev",
-	publicPathPrefix: null,
+	publicSiteUrl: "https://tedix.dev",
+	publicPathPrefix: "/blog",
 	defaultLocale: "en",
 };
 

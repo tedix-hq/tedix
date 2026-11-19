@@ -22,6 +22,7 @@ import {
 	isMarketingHost,
 	isMarketingContactPath,
 	marketingResponse,
+	redirectLegacyMarketingBlog,
 } from "./marketing";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
@@ -1981,11 +1982,15 @@ export default {
 		ctx: ExecutionContext,
 	): Promise<Response> {
 		const url = new URL(request.url);
+		const { healthHostname, marketingBlogHostname } =
+			cmsRuntimePlatformHosts(env);
+		if (url.hostname === marketingBlogHostname)
+			return redirectLegacyMarketingBlog(request, url);
+
 		// Health is installation-scoped. Service-only routes must remain reachable
 		// while the public site is closed for a restore; each handler checks auth.
 		if (
-			(url.hostname === cmsRuntimePlatformHosts(env).healthHostname &&
-				url.pathname === "/health") ||
+			(url.hostname === healthHostname && url.pathname === "/health") ||
 			[
 				DATABASE_RUNTIME_ADMIN_PATH,
 				DATABASE_CONTENT_ROWS_ADMIN_PATH,
@@ -2002,11 +2007,7 @@ export default {
 			return fetchCmsSite(request, env, ctx);
 		if (url.hostname === env.CLI_DOWNLOAD_HOST)
 			return fetchCmsSite(request, env, ctx);
-		if (
-			!env.MARKETING_SITE_SLUG &&
-			(isMarketingHost(url.hostname, env) ||
-				url.hostname === cmsRuntimePlatformHosts(env).marketingBlogHostname)
-		)
+		if (!env.MARKETING_SITE_SLUG && isMarketingHost(url.hostname, env))
 			return cmsRestoreFenceResponse();
 
 		// Site lookups and admission read D1. A single failed read used to turn
@@ -2020,9 +2021,7 @@ export default {
 				? await getCmsSiteByActiveWwwAlias(db, url.hostname)
 				: null;
 			const marketingSlug =
-				env.MARKETING_SITE_SLUG &&
-				(isMarketingHost(url.hostname, env) ||
-					url.hostname === cmsRuntimePlatformHosts(env).marketingBlogHostname)
+				env.MARKETING_SITE_SLUG && isMarketingHost(url.hostname, env)
 					? env.MARKETING_SITE_SLUG
 					: null;
 			const resolved = alias
