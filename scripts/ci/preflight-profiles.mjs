@@ -8,7 +8,7 @@ export function gateInProfile(name, profile) {
 	// Seconds, not minutes: a push from a laptop shared by many agents must not
 	// hold the push queue while tests run. Related tests and dependents' type
 	// checks run in Main verify after the deploy; a red verify is reverted.
-	return /^(node_modules matches|format:check|lint:code|lint:repo|lint:deps|OSS secret|migration order |procedure parity |type-check )/.test(
+	return /^(node_modules matches|format:check|lint:code|lint:repo|lint:deps|OSS secret|migration order |procedure parity |type-check scripts\/$)/.test(
 		name,
 	);
 }

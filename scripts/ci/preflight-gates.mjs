@@ -2,8 +2,8 @@
 
 /**
  * Validation shared by the local hook and main CI. The fast local profile
- * keeps owner types, formatting, lint, secret scanning and procedure parity;
- * CI retains the rest.
+ * keeps formatting, lint, secret scanning, scripts type checking and procedure
+ * parity. Main verify runs workspace type checks.
  *
  * WHY THESE GATES. Each one is here because of a regression that reached main
  * and was first seen after the push — the comment on each gate names its
