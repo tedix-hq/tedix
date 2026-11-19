@@ -11,6 +11,17 @@
 -- rate already pinned by the live EUR credit wallet (USD 1.1181 per EUR,
 -- 2026-10-12). Every account moves to its plan's new version and the old
 -- versions retire.
+-- Nothing is unlimited: every plan version that stored -1 for tedis or
+-- scheduled jobs per tedi (Enterprise) gets Enterprise's finite limits, 25
+-- tedis and 50 scheduled jobs per tedi (live: tedix has 18 tedis), before the
+-- new versions copy them.
+UPDATE billing_plan_versions
+SET max_tedis = CASE WHEN max_tedis < 0 THEN 25 ELSE max_tedis END,
+	max_cron_jobs_per_tedi = CASE
+		WHEN max_cron_jobs_per_tedi < 0 THEN 50 ELSE max_cron_jobs_per_tedi
+	END
+WHERE max_tedis < 0 OR max_cron_jobs_per_tedi < 0;
+--> statement-breakpoint
 INSERT INTO billing_plan_versions (
 	id, plan_key, version, status, name, currency,
 	monthly_price_micros, annual_price_micros,
@@ -49,7 +60,7 @@ FROM (
 	UNION ALL SELECT 'business-credits-v1', 'business', 'Business', 500000000,
 		40000, 1, 3, 25, 32
 	UNION ALL SELECT 'enterprise-credits-v1', 'enterprise', 'Enterprise',
-		1000000000, 100000, 1, -1, -1, 64
+		1000000000, 100000, 1, 25, 50, 64
 ) AS plan
 LEFT JOIN billing_plan_versions AS current
 	ON current.id = (

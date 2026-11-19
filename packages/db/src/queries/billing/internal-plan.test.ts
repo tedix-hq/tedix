@@ -44,7 +44,7 @@ function setup(account = true) {
 	sqlite.exec(`
 		INSERT INTO organizations (id, name, slug, features) VALUES ('org-1', 'Example', 'example', '{"os":true,"maxTeamMembers":2}');
 		INSERT INTO billing_plan_versions (id, plan_key, version, status, name, included_monthly_credits, max_tedis, max_cron_jobs_per_tedi, max_iterations_per_task, allow_overage, effective_at, created_at)
-		VALUES ('enterprise-1', 'enterprise', 1, 'active', 'Enterprise', 100000, -1, -1, 64, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+		VALUES ('enterprise-1', 'enterprise', 1, 'active', 'Enterprise', 100000, 25, 50, 64, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
 		INSERT INTO organization_members (id, organization_id, descope_user_id, email, role, status) VALUES ('invite-1', 'org-1', 'pending:invite-1', 'admin@example.test', 'admin', 'invited');
 	`);
 	if (account)

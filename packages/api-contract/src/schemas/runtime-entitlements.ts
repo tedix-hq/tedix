@@ -39,8 +39,8 @@ export const RuntimeEntitlementSchema = z.object({
 	}),
 	limits: z.object({
 		includedMonthlyCredits: z.number().int().nonnegative(),
-		maxTedis: z.number().int(),
-		maxCronJobsPerTedi: z.number().int(),
+		maxTedis: z.number().int().nonnegative(),
+		maxCronJobsPerTedi: z.number().int().nonnegative(),
 		maxIterationsPerTask: z.number().int(),
 	}),
 	grants: z.array(RuntimeEntitlementGrantSchema),

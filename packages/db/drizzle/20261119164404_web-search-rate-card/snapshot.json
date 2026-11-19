@@ -1,10 +1,10 @@
 {
+  "id": "b736b198-8996-455a-a685-08c867d47278",
+  "prevIds": [
+    "77d09072-d9ab-4cf2-8386-e4d98c765ed8"
+  ],
   "version": "7",
   "dialect": "sqlite",
-  "id": "2db764c7-d173-464c-a47e-594983247863",
-  "prevIds": [
-    "284521b4-f859-47af-ad27-af055d602f68"
-  ],
   "ddl": [
     {
       "name": "auth_context_cache_state",
