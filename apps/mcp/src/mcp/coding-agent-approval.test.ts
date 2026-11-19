@@ -233,14 +233,25 @@ it.each([undefined, { version: 1, maxRisk: "medium" }] as const)(
 				resolveAgentLifecycleAuthorization: resolve,
 			});
 			const binding = tool("bounded_lifecycle_write", endpoint);
+			const onApprovalEvidence = vi.fn();
 			expect(
 				await requireDestructiveToolApproval(
 					ctx,
 					binding,
 					resolveToolAnnotations(binding),
-					{ args: { id: "own-work" }, allowSyncMrtr: false },
+					{
+						args: { id: "own-work" },
+						allowSyncMrtr: false,
+						onApprovalEvidence,
+					},
 				),
 			).toBeNull();
+			expect(onApprovalEvidence).toHaveBeenCalledWith({
+				kind: "attempt_lifecycle",
+				approverId: "fictional-agent",
+				approvedAt: expect.any(String),
+				singleUse: false,
+			});
 			expect(resolve).toHaveBeenCalledWith({
 				organizationId: "fictional-org",
 				principalId: "fictional-agent",

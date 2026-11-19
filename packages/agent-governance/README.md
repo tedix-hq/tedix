@@ -67,6 +67,15 @@ arguments use a stable structural hash; ordinary JSON arguments keep their
 existing hash. If neither hash can be computed, the denied row uses the explicit
 `unavailable` marker. Errors from `onRecorded` do not change the call's outcome.
 
+`guardedCall` takes an optional `approval` function returning the
+`ApprovalEvidence` of the approval that let the call through: which path
+(`kind`), who approved and when, a hash of what they were shown
+(`presentedHash`, absent when nobody was shown anything), the hash of the
+arguments the approval was tied to (`boundArgsHash`, the same function as
+`argsHash`), whether it was single use, and the policy identifiers it used. It is
+read when the row is written, after the call ran, and only for an allowed
+call; a failure to read it never changes the outcome.
+
 ## Tamper-evident ledgers (`@tedix/agent-governance/seal`)
 
 Lets anyone holding the public key check an exported ledger offline: a

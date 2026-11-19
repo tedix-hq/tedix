@@ -16,6 +16,18 @@ import * as z from "zod";
 import { JsonValueSchema } from "./common";
 import { ToolActionTypeSchema } from "./tools";
 
+/**
+ * Who approved a consumed request and a SHA-256 of what they were shown,
+ * computed by the API from the stored request when it consumes it. The
+ * gateway copies it into the call's change record.
+ */
+export const ConsumedApprovalEvidenceSchema = z.object({
+	/** The approving user's id, or `policy` for an automatic resolution. */
+	approverId: z.string().min(1),
+	approvedAt: z.string().min(1),
+	presentedHash: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
 /** Exact Home write receipt, checked again at the MCP dispatch boundary. */
 export const ResolveHomeToolApprovalInputSchema = z.object({
 	organizationId: z.string().min(1),
@@ -32,6 +44,8 @@ export const ResolveHomeToolApprovalResponseSchema = z.object({
 	approved: z.boolean(),
 	/** Accountable creator from the consumed receipt, not a delegated session. */
 	initiatingAgentPrincipalId: z.uuid().optional(),
+	/** Present when the receipt was consumed by this call. */
+	evidence: ConsumedApprovalEvidenceSchema.optional(),
 });
 
 export const ResolveSkillManifestAuthorizationInputSchema = z.object({
@@ -295,6 +309,8 @@ export const RequestOwnerToolApprovalResponseSchema = z.object({
 	approvedUserId: z.string().min(1).optional(),
 	status: z.string(),
 	url: z.string().url(),
+	/** Present when a parked request was consumed by this call. */
+	evidence: ConsumedApprovalEvidenceSchema.optional(),
 });
 
 /**

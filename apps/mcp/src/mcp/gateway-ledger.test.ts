@@ -183,6 +183,37 @@ describe("durable gateway ledger", () => {
 		expect(JSON.stringify(rows)).not.toContain("do-not-store");
 		expect(JSON.parse(String(rows[0]!.record)).argsHash).toMatch(/\S/);
 	});
+	it("stores the approval evidence of a confirmed call, never its arguments", async () => {
+		const { context, sqlite } = setup();
+		const args = {
+			secret: "do-not-store",
+			confirmDestructive: true,
+			reason: "owner asked to remove it",
+		};
+		const confirmed = await guardGatewayCall(
+			{
+				agent: context(),
+				tool,
+				args,
+				annotations: { destructiveHint: true },
+				approval: { args },
+			},
+			async () => ok,
+		);
+		const rows = sqlite.prepare("SELECT * FROM gateway_change_records").all();
+		expect(rows).toHaveLength(1);
+		expect(JSON.stringify(rows)).not.toContain("do-not-store");
+		const stored = await new GatewayAccountabilityAdapter(context()).get(
+			confirmed.record.id,
+		);
+		expect(stored?.approval).toEqual({
+			kind: "self_confirmation",
+			approverId: "user-a",
+			approvedAt: confirmed.record.approval!.approvedAt,
+			singleUse: false,
+			reason: "owner asked to remove it",
+		});
+	});
 	it("lets the call finish and logs loudly when the ledger write fails", async () => {
 		const { context } = setup();
 		const agent = context();

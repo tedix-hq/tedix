@@ -83,6 +83,8 @@ export const AuditExportOutputSchema = z.file();
 // One stored row per gateway tool call. Arguments are kept only as
 // `argsHash`; an undo plan's compensating call is not stored because it
 // would carry raw arguments.
+/** Same cap as `APPROVAL_REASON_MAX_LENGTH` in `@tedix/agent-governance/types`. */
+const APPROVAL_REASON_MAX_LENGTH = 500;
 const RevisionRefSchema = z.object({
 	revisionId: z.string(),
 	hash: z.string().optional(),
@@ -149,12 +151,49 @@ export const GatewayChangeRecordBodySchema = z.object({
 		"denied",
 		"needs_approval",
 	]),
+	/**
+	 * Who approved the call and through which path. Every field is in this
+	 * schema so the sealer's record digest covers it; see `ApprovalEvidence`
+	 * in `@tedix/agent-governance/types` for what each one means.
+	 */
 	approval: z
 		.object({
 			approverId: z.string(),
 			approvedAt: z.string(),
-			presentedHash: z.string(),
+			/** SHA-256 of what the approver was shown; absent when nobody was shown anything. */
+			presentedHash: z.string().optional(),
 			approvalRequestId: z.string().optional(),
+			kind: z
+				.enum([
+					"owner_request",
+					"self_authorized",
+					"home_request",
+					"machine_request",
+					"durable_grant",
+					"work_item_authorization",
+					"self_confirmation",
+					"elicitation",
+					"policy",
+					"legacy_agent_confirmation",
+					"skill_manifest",
+					"owner_skill_start",
+					"own_home_run",
+					"attempt_lifecycle",
+				])
+				.optional(),
+			/** Same hash function as `argsHash`, over the arguments the approval was tied to. */
+			boundArgsHash: z.string().optional(),
+			singleUse: z.boolean().optional(),
+			policy: z
+				.object({
+					revisionId: z.string().optional(),
+					ruleDigest: z.string().optional(),
+					descriptorDigest: z.string().optional(),
+					configHash: z.string().optional(),
+					ruleId: z.string().optional(),
+				})
+				.optional(),
+			reason: z.string().max(APPROVAL_REASON_MAX_LENGTH).optional(),
 		})
 		.optional(),
 	undo: z

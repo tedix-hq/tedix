@@ -56,6 +56,11 @@ import {
 	resolveMcpToolNamespace,
 } from "@tedix/mcp-shared/auth/tool-scopes";
 import { normalizeCallerIdentity } from "./caller-identity";
+import { hashArguments, hashValue } from "@tedix/agent-governance/hash";
+import {
+	APPROVAL_REASON_MAX_LENGTH,
+	type ApprovalEvidence,
+} from "@tedix/agent-governance/types";
 import {
 	buildApprovalInputRequest,
 	INPUT_REQUIRED_META_KEY,
@@ -143,6 +148,36 @@ export function stripDestructiveApprovalArgs(
 	if (stripConfirmation) delete executionArgs.confirmDestructive;
 	if (stripReason) delete executionArgs.reason;
 	return executionArgs;
+}
+
+/**
+ * Binding for an elicited approval on a direct tool call, so an answer given
+ * for one call cannot approve another. The signed `requestState` carries it
+ * and the retry must produce the same value. It covers the tool id and the
+ * call's arguments without the approval-only fields a client may add on the
+ * retry (`confirmDestructive` and `reason`, unless the tool declares them as
+ * real input); `requestState` and the input responses travel in `_meta`,
+ * never in the arguments. Code Mode binds its program source and inner
+ * arguments instead.
+ *
+ * `requestBindingArgsHash` is `hashArguments` of those arguments, the same
+ * function as the change record's `argsHash`.
+ */
+export async function textToolRequestBinding(
+	tool: Pick<AppTool, "toolId" | "inputSchema">,
+	args: Record<string, unknown>,
+): Promise<{ requestBinding: string; requestBindingArgsHash: string }> {
+	const requestBindingArgsHash = await hashArguments(
+		stripDestructiveApprovalArgs(tool, args),
+	);
+	return {
+		requestBinding: await hashValue([
+			"tedix.tool-call-approval-binding.v1",
+			tool.toolId,
+			requestBindingArgsHash,
+		]),
+		requestBindingArgsHash,
+	};
 }
 
 /**
@@ -253,6 +288,44 @@ function approvalReason(content: unknown): string | null {
 	return typeof reason === "string" && reason.trim().length > 0
 		? reason.trim()
 		: null;
+}
+
+/** The caller's id as the change record names its actor. */
+function callerActorId(agent: Pick<ApprovalContext, "callerIdentity">): string {
+	const identity = agent.callerIdentity;
+	return (
+		identity?.userId ?? identity?.tediId ?? identity?.clientId ?? "anonymous"
+	);
+}
+
+/**
+ * `hashValue` of the arguments an approval path sent for matching, after the
+ * same JSON round trip the API receives. The change record's `argsHash` is
+ * `hashValue` of the call's arguments, so the two are equal exactly when the
+ * approval covered the recorded arguments. The API matches with its own
+ * `canonicalDigest`; that is a different function, which serializes plain
+ * JSON identically, and it is never stored here.
+ */
+async function approvalArgsHash(
+	args: Record<string, unknown> | undefined,
+): Promise<string> {
+	return hashValue(JSON.parse(JSON.stringify(args ?? {})));
+}
+
+function evidenceReason(reason: string): string {
+	return reason.slice(0, APPROVAL_REASON_MAX_LENGTH);
+}
+
+/** Hand evidence to the caller's recorder; a failing recorder never changes the decision. */
+function reportApprovalEvidence(
+	options: Pick<DestructiveApprovalOptions, "onApprovalEvidence"> | undefined,
+	evidence: ApprovalEvidence,
+): void {
+	try {
+		options?.onApprovalEvidence?.(evidence);
+	} catch {
+		// Evidence is recorded alongside the call; it is not part of the decision.
+	}
 }
 
 export function callToolResultText(result: CallToolResult): string {
@@ -444,7 +517,11 @@ async function requiresExplicitThirdPartyApprovalPolicy(
 async function tryResolveApprovalGrant(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
-): Promise<{ approved: true; grantId: string } | { approved: false } | null> {
+): Promise<
+	| { approved: true; grantId: string; grantKind: "once" | "always" }
+	| { approved: false }
+	| null
+> {
 	const grantKind = readApprovalPolicy(agent, tool);
 	if (!grantKind || grantKind === "work_item") return null;
 
@@ -468,7 +545,7 @@ async function tryResolveApprovalGrant(
 			grantKind,
 		});
 		if (result?.approved && result.grantId) {
-			return { approved: true, grantId: result.grantId };
+			return { approved: true, grantId: result.grantId, grantKind };
 		}
 		return { approved: false };
 	} catch (error) {
@@ -742,8 +819,16 @@ export interface DestructiveApprovalOptions {
 	onOwnerToolVerified?: (userId: string) => void;
 	/** Server-projected callable, rather than an aggregate tool's wire id. */
 	toolName?: string;
-	/** Bind a Code Mode retry to its source and inner arguments. */
+	/** Bind an elicited approval's retry to the exact call (see `textToolRequestBinding`). */
 	requestBinding?: string;
+	/** `hashValue` of the arguments `requestBinding` covers, for the approval evidence. */
+	requestBindingArgsHash?: string;
+	/**
+	 * Receives evidence of the approval that let this call through, once the
+	 * approval is final (for paths that consume it during execution, then).
+	 * Recording only: it never changes a decision.
+	 */
+	onApprovalEvidence?: (evidence: ApprovalEvidence) => void;
 	/** Retry metadata. Canonical params are adapted by the stateless transport. */
 	extra?: { _meta?: Record<string, unknown> };
 	/** Parsed tool arguments bound to this approval request. */
@@ -866,6 +951,7 @@ async function ownerToolApproval(
 	try {
 		const approvalRequestId =
 			options?.extra?._meta?.["com.tedix/approvalRequestId"];
+		const configHash = await sha256Hex(JSON.stringify(tool.config ?? {}));
 		const approval =
 			await agent.apiClient.mcpGovernance.requestOwnerToolApproval({
 				organizationId: agent.app.organizationId,
@@ -890,7 +976,7 @@ async function ownerToolApproval(
 					endpoint: tool.config?.endpoint ?? null,
 					mcpToolName: tool.config?.mcpToolName ?? null,
 					providerId: connectedProviderId(tool),
-					configHash: await sha256Hex(JSON.stringify(tool.config ?? {})),
+					configHash,
 					...(options?.tenantPolicyCandidate
 						? {
 								tenantPolicyBinding: {
@@ -909,6 +995,56 @@ async function ownerToolApproval(
 		if (approval.approved) {
 			if (replay && approval.approvedUserId)
 				options?.onOwnerToolVerified?.(approval.approvedUserId);
+			const candidate = options?.tenantPolicyCandidate;
+			const policy = {
+				configHash,
+				...(candidate
+					? {
+							revisionId: candidate.revisionId,
+							ruleDigest: candidate.ruleDigest,
+							descriptorDigest: candidate.descriptorDigest,
+						}
+					: {}),
+			};
+			// A direct owner/admin call has no request: the caller decided.
+			// `read_allowed` is a checked connection read with no approval policy.
+			reportApprovalEvidence(
+				options,
+				approval.status === "self_authorized"
+					? {
+							kind: "self_authorized",
+							approverId: approval.approvedUserId ?? callerActorId(agent),
+							approvedAt: new Date().toISOString(),
+							singleUse: false,
+							policy,
+						}
+					: approval.status === "read_allowed"
+						? {
+								kind: "policy",
+								approverId: "policy:read_allowed",
+								approvedAt: new Date().toISOString(),
+								singleUse: false,
+								policy: { ...policy, ruleId: "read_allowed" },
+							}
+						: {
+								kind: "owner_request",
+								approverId:
+									approval.evidence?.approverId ??
+									approval.approvedUserId ??
+									"unknown",
+								approvedAt:
+									approval.evidence?.approvedAt ?? new Date().toISOString(),
+								...(approval.evidence
+									? { presentedHash: approval.evidence.presentedHash }
+									: {}),
+								...(approval.approvalRequestId
+									? { approvalRequestId: approval.approvalRequestId }
+									: {}),
+								boundArgsHash: await approvalArgsHash(options?.args),
+								singleUse: true,
+								policy,
+							},
+			);
 			emitGovernanceAuditEvent(
 				agent,
 				tool,
@@ -1167,6 +1303,7 @@ export async function requireDestructiveToolApproval(
 					);
 		}
 		if (!ruleId) return null;
+		let policyApprovalRequestId: string | undefined;
 		try {
 			if (
 				agent.app?.organizationId &&
@@ -1194,6 +1331,7 @@ export async function requireDestructiveToolApproval(
 					});
 				if (!receipt.approvalRequestId)
 					throw new Error("Approval record unavailable");
+				policyApprovalRequestId = receipt.approvalRequestId;
 			}
 		} catch {
 			return preDispatchUnavailableToolResult(
@@ -1209,6 +1347,34 @@ export async function requireDestructiveToolApproval(
 			decision.reason,
 			{ resolvedBy: "policy", approvalRule: ruleId, ...metadata },
 		);
+		// The rule decided; nobody was shown anything. The legacy agent path is
+		// the caller's own confirmation, so the caller is its approver.
+		const legacy = ruleId === "legacy_agent_confirmation";
+		const candidate =
+			ruleId === "native_policy"
+				? options?.nativePolicyCandidate
+				: ruleId === "tenant_policy"
+					? options?.tenantPolicyCandidate
+					: undefined;
+		reportApprovalEvidence(options, {
+			kind: legacy ? "legacy_agent_confirmation" : "policy",
+			approverId: legacy ? callerActorId(agent) : `policy:${ruleId}`,
+			approvedAt: new Date().toISOString(),
+			...(policyApprovalRequestId
+				? { approvalRequestId: policyApprovalRequestId }
+				: {}),
+			singleUse: false,
+			policy: {
+				ruleId,
+				...(candidate
+					? {
+							revisionId: candidate.revisionId,
+							ruleDigest: candidate.ruleDigest,
+							descriptorDigest: candidate.descriptorDigest,
+						}
+					: {}),
+			},
+		});
 		return null;
 	};
 	if (latchRunRef && tool.publicEgress === true) {
@@ -1311,6 +1477,18 @@ export async function requireDestructiveToolApproval(
 			if (approval?.approved) {
 				if (approval.initiatingAgentPrincipalId)
 					options?.onHomeAgentVerified?.(approval.initiatingAgentPrincipalId);
+				reportApprovalEvidence(options, {
+					kind: "home_request",
+					approverId: approval.evidence?.approverId ?? "unknown",
+					approvedAt: approval.evidence?.approvedAt ?? new Date().toISOString(),
+					...(approval.evidence
+						? { presentedHash: approval.evidence.presentedHash }
+						: {}),
+					approvalRequestId: homeApprovalId,
+					boundArgsHash: await approvalArgsHash(options?.args),
+					// The receipt's slot for these exact arguments is used up.
+					singleUse: true,
+				});
 				emitGovernanceAuditEvent(
 					agent,
 					tool,
@@ -1466,6 +1644,22 @@ export async function requireDestructiveToolApproval(
 					const result = await requestApproval(approvalRequestId);
 					if (!result.approved) return false;
 					consumed = true;
+					reportApprovalEvidence(options, {
+						kind: "machine_request",
+						approverId: result.evidence?.approverId ?? "unknown",
+						approvedAt: result.evidence?.approvedAt ?? new Date().toISOString(),
+						...(result.evidence
+							? { presentedHash: result.evidence.presentedHash }
+							: {}),
+						approvalRequestId,
+						boundArgsHash: await approvalArgsHash(options.args),
+						singleUse: true,
+						policy: {
+							revisionId: candidate.revisionId,
+							ruleDigest: candidate.ruleDigest,
+							descriptorDigest: candidate.descriptorDigest,
+						},
+					});
 					return true;
 				} catch {
 					return false;
@@ -1625,6 +1819,23 @@ export async function requireDestructiveToolApproval(
 								});
 							if (!result.approved) return false;
 							consumed = true;
+							reportApprovalEvidence(options, {
+								kind: "machine_request",
+								approverId: result.evidence?.approverId ?? "unknown",
+								approvedAt:
+									result.evidence?.approvedAt ?? new Date().toISOString(),
+								...(result.evidence
+									? { presentedHash: result.evidence.presentedHash }
+									: {}),
+								approvalRequestId,
+								boundArgsHash: await approvalArgsHash(options.args),
+								singleUse: true,
+								policy: {
+									revisionId: candidate.revisionId,
+									ruleDigest: candidate.ruleDigest,
+									descriptorDigest: candidate.descriptorDigest,
+								},
+							});
 							return true;
 						} catch {
 							return false;
@@ -1939,6 +2150,15 @@ export async function requireDestructiveToolApproval(
 						skillRunId: workflowCaller.skillRunId,
 					},
 				);
+				reportApprovalEvidence(options, {
+					kind: "skill_manifest",
+					approverId: `skill:${resolution.skillId}@${resolution.revision}`,
+					approvedAt: new Date().toISOString(),
+					singleUse: false,
+					policy: {
+						ruleId: `skill:${resolution.skillId}@${resolution.revision}`,
+					},
+				});
 				return null;
 			}
 			return approvalFailure(
@@ -2008,6 +2228,12 @@ export async function requireDestructiveToolApproval(
 							skillRevision: start.revision,
 						},
 					);
+					reportApprovalEvidence(options, {
+						kind: "owner_skill_start",
+						approverId: agent.callerIdentity.userId,
+						approvedAt: new Date().toISOString(),
+						singleUse: false,
+					});
 					return null;
 				}
 			} catch (error) {
@@ -2056,6 +2282,12 @@ export async function requireDestructiveToolApproval(
 					"destructive_approved",
 					"own_home_run",
 				);
+				reportApprovalEvidence(options, {
+					kind: "own_home_run",
+					approverId: agent.callerIdentity.userId,
+					approvedAt: new Date().toISOString(),
+					singleUse: false,
+				});
 				return null;
 			}
 		} catch {
@@ -2141,6 +2373,12 @@ export async function requireDestructiveToolApproval(
 					"admitted_lifecycle_write",
 					{ resolvedBy: "attempt" },
 				);
+				reportApprovalEvidence(options, {
+					kind: "attempt_lifecycle",
+					approverId: agent.callerIdentity.externalAgentPrincipalId,
+					approvedAt: new Date().toISOString(),
+					singleUse: false,
+				});
 				return null;
 			}
 		} catch {
@@ -2323,6 +2561,15 @@ export async function requireDestructiveToolApproval(
 		console.log(
 			`[governance] ${tool.toolId} approved via durable grant ${grantApproval.grantId}`,
 		);
+		// Grants bind caller, app and tool, never arguments; the API does not
+		// return who made the grant, so the grant itself is the authority.
+		reportApprovalEvidence(options, {
+			kind: "durable_grant",
+			approverId: `grant:${grantApproval.grantId}`,
+			approvedAt: new Date().toISOString(),
+			singleUse: grantApproval.grantKind === "once",
+			policy: { ruleId: grantApproval.grantId },
+		});
 		return null;
 	}
 
@@ -2356,6 +2603,19 @@ export async function requireDestructiveToolApproval(
 			console.log(
 				`[governance] ${tool.toolId} approved by Work Item ${resolution.workItemId}`,
 			);
+			// Not traced past the API: the receipt's scope is matched there, and
+			// its author is not returned, so the receipt comment is the authority.
+			reportApprovalEvidence(options, {
+				kind: "work_item_authorization",
+				approverId: resolution.authorizationCommentId
+					? `work_item_comment:${resolution.authorizationCommentId}`
+					: `work_item:${resolution.workItemId ?? "unknown"}`,
+				approvedAt: new Date().toISOString(),
+				singleUse: false,
+				...(resolution.authorizationCommentId
+					? { policy: { ruleId: resolution.authorizationCommentId } }
+					: {}),
+			});
 			return null;
 		}
 
@@ -2440,6 +2700,13 @@ export async function requireDestructiveToolApproval(
 		console.log(
 			`[governance] ${tool.toolId} approved via explicit stateless confirmation with reason: ${reason}`,
 		);
+		reportApprovalEvidence(options, {
+			kind: "self_confirmation",
+			approverId: callerActorId(agent),
+			approvedAt: new Date().toISOString(),
+			singleUse: false,
+			reason: evidenceReason(reason),
+		});
 		return null;
 	}
 
@@ -2524,6 +2791,20 @@ export async function requireDestructiveToolApproval(
 		console.log(
 			`[governance] ${tool.toolId} approved via sync-MRTR with reason: ${reason}`,
 		);
+		// The answerer saw the input request `buildApprovalInputRequest`
+		// builds for this display name; the same call rebuilds it here. The
+		// signed state stays valid for its lifetime, so it is not single use.
+		reportApprovalEvidence(options, {
+			kind: "elicitation",
+			approverId: callerActorId(agent),
+			approvedAt: new Date().toISOString(),
+			presentedHash: await hashValue(buildApprovalInputRequest(displayName)),
+			...(verification.payload.binding && options?.requestBindingArgsHash
+				? { boundArgsHash: options.requestBindingArgsHash }
+				: {}),
+			singleUse: false,
+			reason: evidenceReason(reason),
+		});
 		return null;
 	}
 

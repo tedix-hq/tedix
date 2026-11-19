@@ -332,11 +332,19 @@ describe("effect-based gateway approval", () => {
 		};
 		it("starts directly without parking an approval", async () => {
 			const ctx = ownerStartContext(true);
+			const onApprovalEvidence = vi.fn();
 			expect(
 				await requireDestructiveToolApproval(ctx, skill, skill.annotations, {
 					args,
+					onApprovalEvidence,
 				}),
 			).toBeNull();
+			expect(onApprovalEvidence).toHaveBeenCalledWith({
+				kind: "owner_skill_start",
+				approverId: "owner-1",
+				approvedAt: expect.any(String),
+				singleUse: false,
+			});
 			expect(
 				ctx.apiClient.mcpGovernance.resolveOwnerSkillStart,
 			).toHaveBeenCalledWith({

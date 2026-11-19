@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 import { guardedCall, CallRefusedError } from "./wrap-binding";
-import type { CallDescription, GovernanceAdapters } from "./types";
+import type {
+	ApprovalEvidence,
+	CallDescription,
+	GovernanceAdapters,
+} from "./types";
 
 const actor = { id: "agent-1", kind: "agent", organizationId: "org-test" };
 const provenance = {
@@ -129,6 +133,55 @@ export function describeGovernanceConformance(
 			);
 			expect(await adapters.accountability.list({ limit: 0 })).toEqual([]);
 			expect((await adapters.accountability.export()).records).toEqual(rows);
+		});
+		it("keeps the approval evidence of an allowed call and drops it from a refused one", async () => {
+			const adapters = build();
+			const call = {
+				...readCall,
+				operation: "update",
+				riskTier: "bounded_write" as const,
+				blastRadius: "single_resource" as const,
+			};
+			const shown: ApprovalEvidence = {
+				approverId: "user-approver",
+				approvedAt: "2026-11-19T10:00:00.000Z",
+				presentedHash: "a".repeat(64),
+				approvalRequestId: "request-1",
+				kind: "owner_request",
+				boundArgsHash: "b".repeat(64),
+				singleUse: true,
+				policy: { revisionId: "rev-1", ruleDigest: "c".repeat(64) },
+			};
+			// Nothing was shown to anyone: presentedHash is absent.
+			const unseen: ApprovalEvidence = {
+				approverId: "policy:tenant_policy",
+				approvedAt: "2026-11-19T10:00:01.000Z",
+				kind: "policy",
+				singleUse: false,
+				policy: { ruleId: "tenant_policy" },
+			};
+			const first = await guardedCall(call, async () => "ok", {
+				...adapters,
+				approval: () => shown,
+			});
+			const second = await guardedCall(call, async () => "ok", {
+				...adapters,
+				approval: () => unseen,
+			});
+			await expect(
+				guardedCall({ ...call, destructive: true }, async () => "no", {
+					...adapters,
+					approval: () => shown,
+				}),
+			).rejects.toBeInstanceOf(CallRefusedError);
+			expect(first.record.approval).toEqual(shown);
+			expect(second.record.approval).toEqual(unseen);
+			const rows = await adapters.accountability.list();
+			expect(rows.map((row) => row.approval)).toEqual([
+				shown,
+				unseen,
+				undefined,
+			]);
 		});
 		it("enforces tier budgets and separates actors", async () => {
 			const adapters = build();

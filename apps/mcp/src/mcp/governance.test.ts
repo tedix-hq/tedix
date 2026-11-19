@@ -6,8 +6,11 @@ import {
 	isTedixOwnedChannelPublishBoundary,
 	requireDestructiveToolApproval,
 	stripDestructiveApprovalArgs,
+	textToolRequestBinding,
 	withDestructiveApprovalSchema,
 } from "./governance";
+import { hashArguments, hashValue } from "@tedix/agent-governance/hash";
+import { buildApprovalInputRequest } from "./mrtr";
 import { resolveWireAnnotations } from "./tool-registration-policy";
 import type { AppTool } from "./server-context";
 import type { ServerContext } from "./server-context";
@@ -240,6 +243,7 @@ describe("destructive tool approval", () => {
 			throw new Error("should not prompt after explicit confirmation");
 		});
 
+		const onApprovalEvidence = vi.fn();
 		const result = await requireDestructiveToolApproval(
 			approvalContext(elicitInput),
 			tool,
@@ -249,11 +253,20 @@ describe("destructive tool approval", () => {
 					confirmDestructive: true,
 					reason: "operator requested cleanup",
 				},
+				onApprovalEvidence,
 			},
 		);
 
 		expect(result).toBeNull();
 		expect(elicitInput).not.toHaveBeenCalled();
+		// The caller is its own approver; nothing was shown and nothing bound.
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "self_confirmation",
+			approverId: "anonymous",
+			approvedAt: expect.any(String),
+			singleUse: false,
+			reason: "operator requested cleanup",
+		});
 	});
 
 	it("rejects explicit stateless confirmation without a reason", async () => {
@@ -421,6 +434,7 @@ describe("destructive tool approval — synchronous MRTR (agent)", () => {
 		});
 		const requestState = requiredRequestState(first);
 
+		const onApprovalEvidence = vi.fn();
 		const retry = await requireDestructiveToolApproval(
 			ctx,
 			tool,
@@ -434,11 +448,135 @@ describe("destructive tool approval — synchronous MRTR (agent)", () => {
 						},
 					},
 				},
+				onApprovalEvidence,
 			},
 		);
 
 		expect(retry).toBeNull();
 		expect(elicitInput).not.toHaveBeenCalled();
+		// The answerer saw the input request built for the tool's display name.
+		// This unbound state carries no binding, so no arguments are claimed.
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "elicitation",
+			approverId: "tedi-1",
+			approvedAt: expect.any(String),
+			presentedHash: await hashValue(buildApprovalInputRequest("Delete app")),
+			singleUse: false,
+			reason: "approved by kernel",
+		});
+	});
+
+	describe("binding a direct tool call's answer to its arguments", () => {
+		const boundTool = {
+			...tool,
+			inputSchema: {
+				type: "object" as const,
+				properties: { id: { type: "string" } },
+			},
+		};
+		const retryWith = (
+			requestState: string,
+			binding: Awaited<ReturnType<typeof textToolRequestBinding>>,
+			onApprovalEvidence = vi.fn(),
+		) =>
+			requireDestructiveToolApproval(
+				agentApprovalContext(vi.fn()),
+				boundTool,
+				{ destructiveHint: true },
+				{
+					...binding,
+					onApprovalEvidence,
+					extra: {
+						_meta: {
+							"tedix/inputResponses": {
+								requestState,
+								content: { reason: "approved for app-1" },
+							},
+						},
+					},
+				},
+			);
+		async function answeredState(args: Record<string, unknown>) {
+			const first = await requireDestructiveToolApproval(
+				agentApprovalContext(vi.fn()),
+				boundTool,
+				{ destructiveHint: true },
+				await textToolRequestBinding(boundTool, args),
+			);
+			return requiredRequestState(first);
+		}
+
+		it("accepts the same call, ignoring the approval-only fields a retry adds", async () => {
+			const requestState = await answeredState({ id: "app-1" });
+			const onApprovalEvidence = vi.fn();
+			const retryArgs = {
+				id: "app-1",
+				confirmDestructive: true,
+				reason: "approved for app-1",
+			};
+			const binding = await textToolRequestBinding(boundTool, retryArgs);
+			expect(
+				await retryWith(requestState, binding, onApprovalEvidence),
+			).toBeNull();
+			// Same function as the record's argsHash, over the call's own arguments.
+			expect(binding.requestBindingArgsHash).toBe(
+				await hashArguments({ id: "app-1" }),
+			);
+			expect(onApprovalEvidence).toHaveBeenCalledWith(
+				expect.objectContaining({
+					kind: "elicitation",
+					boundArgsHash: binding.requestBindingArgsHash,
+				}),
+			);
+		});
+
+		it("refuses the same answer for different arguments", async () => {
+			const requestState = await answeredState({ id: "app-1" });
+			const onApprovalEvidence = vi.fn();
+			const retry = await retryWith(
+				requestState,
+				await textToolRequestBinding(boundTool, { id: "app-2" }),
+				onApprovalEvidence,
+			);
+			expect(retry?.isError).toBe(true);
+			expect(callToolResultText(retry!)).toContain(
+				"requestState is invalid (request_mismatch)",
+			);
+			expect(onApprovalEvidence).not.toHaveBeenCalled();
+		});
+
+		it("refuses an unbound state issued before calls were bound", async () => {
+			// States live 300 seconds, so refusing an unbound one costs at most one
+			// fresh approval round during a deploy.
+			const first = await requireDestructiveToolApproval(
+				agentApprovalContext(vi.fn()),
+				boundTool,
+				{ destructiveHint: true },
+			);
+			const retry = await retryWith(
+				requiredRequestState(first),
+				await textToolRequestBinding(boundTool, { id: "app-1" }),
+			);
+			expect(retry?.isError).toBe(true);
+			expect(callToolResultText(retry!)).toContain("request_mismatch");
+		});
+
+		it("keeps a declared reason argument inside the binding", async () => {
+			const declared = {
+				...boundTool,
+				inputSchema: {
+					type: "object" as const,
+					properties: { id: { type: "string" }, reason: { type: "string" } },
+				},
+			};
+			expect(
+				(await textToolRequestBinding(declared, { id: "a", reason: "x" }))
+					.requestBinding,
+			).not.toBe(
+				(await textToolRequestBinding(declared, { id: "a", reason: "y" }))
+					.requestBinding,
+			);
+		});
 	});
 
 	it("proceeds on canonical retry params adapted through metadata", async () => {
@@ -809,14 +947,24 @@ describe("destructive tool approval — grant fast path", () => {
 			approved: true,
 			grantId: "grant-1",
 		}));
+		const onApprovalEvidence = vi.fn();
 
 		const result = await requireDestructiveToolApproval(
 			grantApprovalContext({ elicitInput, resolveToolApprovalGrant }),
 			{ ...tool, config: { approvalPolicy: "once" } },
 			{ destructiveHint: true },
+			{ onApprovalEvidence },
 		);
 
 		expect(result).toBeNull();
+		// A grant binds caller, app and tool, never arguments.
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "durable_grant",
+			approverId: "grant:grant-1",
+			approvedAt: expect.any(String),
+			singleUse: true,
+			policy: { ruleId: "grant-1" },
+		});
 		expect(elicitInput).not.toHaveBeenCalled();
 		expect(resolveToolApprovalGrant).toHaveBeenCalledWith({
 			organizationId: "org-1",
@@ -833,14 +981,19 @@ describe("destructive tool approval — grant fast path", () => {
 			approved: true,
 			grantId: "grant-2",
 		}));
+		const onApprovalEvidence = vi.fn();
 
 		const result = await requireDestructiveToolApproval(
 			grantApprovalContext({ elicitInput, resolveToolApprovalGrant }),
 			{ ...tool, config: { approvalPolicy: "always" } },
 			{ destructiveHint: true },
+			{ onApprovalEvidence },
 		);
 
 		expect(result).toBeNull();
+		expect(onApprovalEvidence).toHaveBeenCalledWith(
+			expect.objectContaining({ kind: "durable_grant", singleUse: false }),
+		);
 		expect(elicitInput).not.toHaveBeenCalled();
 		expect(resolveToolApprovalGrant).toHaveBeenCalledWith(
 			expect.objectContaining({ grantKind: "always" }),
@@ -1110,6 +1263,7 @@ describe("destructive tool approval — Work Item authorization", () => {
 
 	it("allows an agent only when the API resolves an active owner/admin receipt", async () => {
 		const elicitInput = vi.fn();
+		const onApprovalEvidence = vi.fn();
 		const resolveWorkItemAuthorization = vi.fn(async () => authorized);
 		const result = await requireDestructiveToolApproval(
 			grantApprovalContext({
@@ -1124,10 +1278,18 @@ describe("destructive tool approval — Work Item authorization", () => {
 				allowSyncMrtr: false,
 				autoConfirmAgent: true,
 				args: publishArgs,
+				onApprovalEvidence,
 			},
 		);
 
 		expect(result).toBeNull();
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "work_item_authorization",
+			approverId: "work_item_comment:comment-1",
+			approvedAt: expect.any(String),
+			singleUse: false,
+			policy: { ruleId: "comment-1" },
+		});
 		expect(elicitInput).not.toHaveBeenCalled();
 		expect(resolveWorkItemAuthorization).toHaveBeenCalledWith({
 			organizationId: "org-1",
@@ -1665,6 +1827,38 @@ describe("destructive tool approval — autonomous agent auto-confirm (Code Mode
 		);
 		expect(result).toBeNull();
 	});
+
+	it("records an agent's own confirmation of a bounded write as its approval", async () => {
+		const onApprovalEvidence = vi.fn();
+		const result = await requireDestructiveToolApproval(
+			agentApprovalContext(vi.fn(), "tedi"),
+			{
+				...tool,
+				toolId: "rename_app",
+				meta: {
+					"com.tedix/policy": {
+						riskTier: "bounded_write",
+						blastRadius: "single_resource",
+					},
+				},
+			},
+			{},
+			{
+				allowSyncMrtr: false,
+				autoConfirmAgent: true,
+				args: { name: "new" },
+				onApprovalEvidence,
+			},
+		);
+		expect(result).toBeNull();
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "legacy_agent_confirmation",
+			approverId: "tedi-1",
+			approvedAt: expect.any(String),
+			singleUse: false,
+			policy: { ruleId: "legacy_agent_confirmation" },
+		});
+	});
 });
 
 /**
@@ -2163,9 +2357,19 @@ it("audits the authorizing skill revision for every manifest-approved call", asy
 		},
 	} as unknown as ServerContext;
 	try {
-		await requireDestructiveToolApproval(agent, {
-			toolId: "create_report",
-			title: "Report",
+		const onApprovalEvidence = vi.fn();
+		await requireDestructiveToolApproval(
+			agent,
+			{ toolId: "create_report", title: "Report" },
+			undefined,
+			{ onApprovalEvidence },
+		);
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "skill_manifest",
+			approverId: "skill:skill-1@40",
+			approvedAt: expect.any(String),
+			singleUse: false,
+			policy: { ruleId: "skill:skill-1@40" },
 		});
 		expect(audit).toHaveBeenCalledWith(
 			expect.anything(),
@@ -2552,11 +2756,13 @@ describe("trusted email recipients", () => {
 			subject: "Opportunity",
 			text: "Hello",
 		};
+		const onApprovalEvidence = vi.fn();
 		await expect(
 			requireDestructiveToolApproval(context, emailSend, null, {
 				args,
 				autoConfirmAgent: true,
 				allowSyncMrtr: false,
+				onApprovalEvidence,
 			}),
 		).resolves.toBeNull();
 		expect(trusted).toHaveBeenCalledWith({
@@ -2567,6 +2773,14 @@ describe("trusted email recipients", () => {
 			cc: [PARTNER],
 		});
 		expect(args.trustedRecipientsOnly).toBe(true);
+		// An automatic rule decided: no person, nothing shown, no bound arguments.
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "policy",
+			approverId: "policy:trusted_recipient",
+			approvedAt: expect.any(String),
+			singleUse: false,
+			policy: { ruleId: "trusted_recipient" },
+		});
 		expect(elicitInput).not.toHaveBeenCalled();
 	});
 

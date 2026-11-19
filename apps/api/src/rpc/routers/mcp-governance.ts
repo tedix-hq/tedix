@@ -1059,6 +1059,36 @@ function ownerToolApprovalTitle(
 	return action[0]!.toUpperCase() + action.slice(1);
 }
 
+/**
+ * Evidence for an approval request this call consumed: the approver and
+ * time from the stored row, and `presentedHash`, a `canonicalDigest` of what
+ * the approval queue shows for it: the stored `description` (the request's
+ * title, app and requester line) plus the stored call identity passed in
+ * `presented`, which always carries a digest of the stored arguments. Only
+ * stored fields are hashed, never the caller's copy.
+ */
+async function consumedApprovalEvidence(
+	approval: {
+		description: string;
+		resolvedBy: string | null;
+		resolvedAt: string | null;
+	},
+	presented: Record<string, unknown>,
+	now: string,
+) {
+	return {
+		approverId:
+			approval.resolvedBy === "policy"
+				? "policy"
+				: (approvingUserId(approval.resolvedBy) ?? "unknown"),
+		approvedAt: approval.resolvedAt ?? now,
+		presentedHash: await canonicalDigest({
+			description: approval.description,
+			...presented,
+		}),
+	};
+}
+
 async function requestMachineApproval(
 	context: BaseContext,
 	input: RequestMachineToolApprovalInput,
@@ -1153,6 +1183,20 @@ async function requestMachineApproval(
 			approvalRequestId: approval.id,
 			status: approved ? "consumed" : approval.status,
 			url: url(approval.id),
+			...(approved
+				? {
+						evidence: await consumedApprovalEvidence(
+							approval,
+							{
+								presentation: "machine_request.v1",
+								toolId: input.descriptor.mount.sourceToolId,
+								principalId,
+								argsDigest: await canonicalDigest(approval.payload.args ?? {}),
+							},
+							now,
+						),
+					}
+				: {}),
 		};
 	}
 	const pending = await findPendingOwnerToolApproval(context.db, {
@@ -1309,16 +1353,33 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			)
 				return { approved: false };
 			// While the run is still running, the same call must not run twice.
+			const now = new Date().toISOString();
 			const approved = await consumeHomeToolApprovalCall(context.db, {
 				id: input.approvalRequestId,
 				organizationId: input.organizationId,
 				slot: `${input.credential}_${digest}`,
-				now: new Date().toISOString(),
+				now,
 			});
 			return {
 				approved,
 				...(approved && payload.initiatedByAgentPrincipalId
 					? { initiatingAgentPrincipalId: payload.initiatedByAgentPrincipalId }
+					: {}),
+				...(approved
+					? {
+							// The tray shows the write summary for the stored call; the
+							// matched arguments are one of the stored argument sets.
+							evidence: await consumedApprovalEvidence(
+								approval,
+								{
+									presentation: "home_request.v1",
+									appSlug: payload.appSlug,
+									toolName: payload.toolName,
+									argsDigest: digest,
+								},
+								now,
+							),
+						}
 					: {}),
 			};
 		},
@@ -1796,7 +1857,20 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				return {
 					approved: Boolean(approved),
 					...(approved
-						? { approvedUserId: approval.resolvedBy!.replace(/^user:/, "") }
+						? {
+								approvedUserId: approval.resolvedBy!.replace(/^user:/, ""),
+								evidence: await consumedApprovalEvidence(
+									approval,
+									{
+										presentation: "owner_request.v1",
+										appSlug: stored.appSlug ?? null,
+										toolId: stored.toolId ?? null,
+										requesterUserId: stored.initiatedByUserId ?? null,
+										argsDigest: await canonicalDigest(stored.args ?? {}),
+									},
+									now,
+								),
+							}
 						: {}),
 					approvalRequestId: approval.id,
 					status: approved

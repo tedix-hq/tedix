@@ -409,6 +409,24 @@ describe("owner and admin read of gateway change records", () => {
 
 describe("verifying an export offline", () => {
 	const NOW = Date.parse("2026-11-19T12:00:00.000Z");
+	/** Every approval field, so the seal is shown to cover each one. */
+	const lateApproval = {
+		approverId: "owner-1",
+		approvedAt: "2026-11-18T08:59:00.000Z",
+		presentedHash: "a".repeat(64),
+		approvalRequestId: "22222222-2222-4222-8222-222222222222",
+		kind: "owner_request" as const,
+		boundArgsHash: "b".repeat(64),
+		singleUse: true,
+		policy: {
+			revisionId: "revision-1",
+			ruleDigest: "c".repeat(64),
+			descriptorDigest: "d".repeat(64),
+			configHash: "e".repeat(64),
+			ruleId: "rule-1",
+		},
+		reason: "remove the stale record",
+	};
 
 	async function sealedLedger() {
 		const sqlite = new DatabaseSync(":memory:", {
@@ -505,6 +523,7 @@ describe("verifying an export offline", () => {
 					},
 					outcome: "applied",
 					argsHash: "hash-late",
+					approval: lateApproval,
 				},
 			});
 			await runGatewayChangeRecordSealer(
@@ -601,6 +620,37 @@ describe("verifying an export offline", () => {
 				recordsVerified: 9,
 				checkpointsVerified: exported.checkpoints.length,
 			});
+
+			// The approval evidence comes back whole and is under the seal.
+			const late = exported.records.find(
+				(record) => record.id === "00000000-0000-4000-8000-000000000099",
+			);
+			expect(late?.approval).toEqual(lateApproval);
+			sqlite
+				.prepare(
+					"UPDATE gateway_change_records SET record = json_set(record, '$.approval.boundArgsHash', ?) WHERE id = ?",
+				)
+				.run("f".repeat(64), "00000000-0000-4000-8000-000000000099");
+			const forged = await exportAll(audit(ORG_A, "owner-a"));
+			expect(
+				await verifyChain({
+					records: forged.records,
+					checkpoints: forged.checkpoints,
+					publicKey,
+				}),
+			).toMatchObject({
+				ok: false,
+				reason: "digest",
+				sequence: late?.sequence,
+			});
+			sqlite
+				.prepare(
+					"UPDATE gateway_change_records SET record = json_set(record, '$.approval.boundArgsHash', ?) WHERE id = ?",
+				)
+				.run(
+					lateApproval.boundArgsHash,
+					"00000000-0000-4000-8000-000000000099",
+				);
 
 			// A row deleted in the database shows up in the next export.
 			sqlite

@@ -78,6 +78,7 @@ import {
 } from "./governance";
 import { isModernMcpRequest } from "@tedix/mcp-shared/protocol";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { hashArguments } from "@tedix/agent-governance/hash";
 import { INPUT_REQUIRED_META_KEY } from "./mrtr";
 import { checkToolPayment, attachPaymentResponseMeta } from "./payments";
 import { settleToolPayment } from "./payments-settlement";
@@ -589,6 +590,10 @@ export function buildNamespaceGroups(
 									JSON.stringify([executionRefs.approvalSource, toolArgs]),
 								)
 							: undefined,
+						// Same function as the change record's argsHash.
+						...(executionRefs.approvalSource
+							? { requestBindingArgsHash: await hashArguments(toolArgs) }
+							: {}),
 					},
 				});
 				admitted = true;

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { hashArguments, hashValue } from "./hash";
 import { createInMemoryAdapters } from "./in-memory";
-import { CallRefusedError, wrapBinding } from "./wrap-binding";
+import { CallRefusedError, guardedCall, wrapBinding } from "./wrap-binding";
+import type { ApprovalEvidence } from "./types";
 import type { MethodPolicy } from "./wrap-binding";
 
 const actor = { id: "agent-1", kind: "agent" };
@@ -151,6 +152,47 @@ describe("one record per binding invocation", () => {
 			expect(adapters.compliance.outcomes).toHaveLength(1);
 		},
 	);
+});
+
+describe("approval evidence", () => {
+	const call = {
+		resource: "tool:crm",
+		operation: "rename",
+		args: { id: "c1" },
+		actor,
+		source,
+		riskTier: "bounded_write" as const,
+		blastRadius: "single_resource" as const,
+	};
+	it("reads evidence after the call ran, for approvals consumed during execution", async () => {
+		const adapters = createInMemoryAdapters();
+		let evidence: ApprovalEvidence | undefined;
+		const { record } = await guardedCall(
+			call,
+			async () => {
+				evidence = {
+					approverId: "user-approver",
+					approvedAt: "2026-11-19T10:00:00.000Z",
+					kind: "machine_request",
+					singleUse: true,
+				};
+				return "ok";
+			},
+			{ ...adapters, approval: () => evidence },
+		);
+		expect(record.approval).toEqual(evidence);
+	});
+	it("records the call when reading the evidence fails", async () => {
+		const adapters = createInMemoryAdapters();
+		const { record } = await guardedCall(call, async () => "ok", {
+			...adapters,
+			approval: () => {
+				throw new Error("evidence unavailable");
+			},
+		});
+		expect(record.outcome).toBe("applied");
+		expect(record.approval).toBeUndefined();
+	});
 });
 
 describe("argument hash fallback", () => {

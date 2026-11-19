@@ -315,6 +315,14 @@ describe("gateway adapters decide like wrapBinding", () => {
 			reason: "destructive_approved",
 		});
 		expect(gateway.record.outcome).toBe("applied");
+		// The record says who approved and how; the raw arguments stay out.
+		expect(gateway.record.approval).toEqual({
+			kind: "self_confirmation",
+			approverId: "user-1",
+			approvedAt: expect.any(String),
+			singleUse: false,
+			reason: "owner asked",
+		});
 	});
 
 	it("denies a destructive call the approver declined, on both paths", async () => {
