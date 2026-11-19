@@ -33,6 +33,10 @@ import {
 	StopWorkAttemptInputSchema,
 	WorkAttemptMessageSchema,
 } from "../schemas/work-attempt-steps";
+import {
+	ListAgentRunsInputSchema,
+	ListAgentRunsResultSchema,
+} from "../schemas/work-agent-runs";
 import "@orpc/openapi/extensions/route";
 /**
  * Work Items Contract
@@ -1388,6 +1392,17 @@ export const workItemsContract = oc
 			})
 			.input(StopWorkAttemptInputSchema)
 			.output(WorkAttemptMessageSchema),
+
+		listAgentRuns: oc
+			.route({
+				method: "GET",
+				path: "/agent-runs",
+				summary: "List agent runs started by tedis",
+				description:
+					"List the agent runs tedis started from a chat, newest first: whether each waits for a runner, runs or has ended, its newest step, the follow-ups not yet applied and, when it is not running, the reason the platform knows. A tedi reads only the runs it started.",
+			})
+			.input(ListAgentRunsInputSchema)
+			.output(ListAgentRunsResultSchema),
 
 		settleAttempt: oc
 			.route({

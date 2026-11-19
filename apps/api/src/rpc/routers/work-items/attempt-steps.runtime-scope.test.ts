@@ -16,8 +16,10 @@ import {
 	externalAgentPrincipals,
 	externalAgentSessions,
 } from "@tedix/db/schema/external-agent-identity";
+import { dispatcherHealthReports } from "@tedix/db/schema/dispatcher-health";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
+import { workAdmissions } from "@tedix/db/schema/work-factory";
 import {
 	workAttemptMessages,
 	workAttemptSteps,
@@ -35,6 +37,7 @@ import {
 	sendAttemptMessageProcedure,
 	stopAttemptProcedure,
 } from "./attempt-steps";
+import { listAgentRunsProcedure } from "./agent-runs";
 import { listCliProjectionProcedure } from "./creation-reads";
 import { acceptProcedure } from "./factory-lifecycle";
 
@@ -54,6 +57,7 @@ const router = {
 	stopAttempt: stopAttemptProcedure,
 	appendAttemptSteps: appendAttemptStepsProcedure,
 	listCliProjection: listCliProjectionProcedure,
+	listAgentRuns: listAgentRunsProcedure,
 };
 
 const databases: DatabaseSync[] = [];
@@ -77,6 +81,8 @@ function fixture() {
 				workEvents,
 				workAttemptSteps,
 				workAttemptMessages,
+				dispatcherHealthReports,
+				workAdmissions,
 			),
 	);
 	// What `start_agent_run` creates: the starting tedi owns and stewards the
@@ -233,6 +239,103 @@ describe("agent runs through the tedi runtime service binding", () => {
 			() => misnamed.stopAttempt({ id: WORK_ITEM_ID }),
 		])
 			await expect(refused()).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("lists a tedi's own runs with the reason one is not running, and no other tedi's", async () => {
+		const { sqlite, runtimeClient, startRun } = fixture();
+		// What `start_agent_run` stores besides the owner and steward.
+		sqlite.exec(
+			`UPDATE work_items SET executor_type='external_agent', executor_id='codex', source_session_key='agent:main:chat-7', created_at='${new Date().toISOString()}'`,
+		);
+		const starter = runtimeClient(STARTER_TEDI_ID);
+		const only = async () => (await starter.listAgentRuns({})).runs;
+		expect(await only()).toMatchObject([
+			{ state: "waiting_for_runner", reason: { code: "not_accepted" } },
+		]);
+		await starter.accept(acceptance);
+		// An accepted task that a readiness gate still blocks says which one.
+		expect(await only()).toMatchObject([
+			{
+				reason: {
+					code: "not_ready",
+					detail: expect.stringContaining("purpose_blocked"),
+				},
+			},
+		]);
+		sqlite.exec(
+			`UPDATE work_items SET work_class='maintenance', purpose_exception_expires_at='${new Date(Date.now() + 86_400_000).toISOString()}'`,
+		);
+		expect(await only()).toMatchObject([
+			{
+				workItemId: WORK_ITEM_ID,
+				tediId: STARTER_TEDI_ID,
+				state: "waiting_for_runner",
+				attemptId: null,
+				reason: { code: "no_runner" },
+			},
+		]);
+		// A runner on a connected machine reports in; the task is only queued.
+		const reportedAt = new Date().toISOString();
+		sqlite.exec(
+			`INSERT INTO dispatcher_health_reports(org_id,reporter_id,executor,lane,running,observed_at,reported_at) VALUES('${ORG_ID}','machine','codex','lane',1,'${reportedAt}','${reportedAt}')`,
+		);
+		expect(await only()).toMatchObject([
+			{ reason: { code: "queued" }, unknown: expect.any(String) },
+		]);
+		// A hold with its stored reason wins over everything else.
+		sqlite.exec(
+			`UPDATE work_items SET dispatch_state='held', metadata=json_set(metadata,'$.laneDispatch',json('{"reason":"Needs the owner"}'))`,
+		);
+		expect(await only()).toMatchObject([
+			{ reason: { code: "held", detail: "Needs the owner" } },
+		]);
+		startRun();
+		await starter.stopAttempt({ id: WORK_ITEM_ID });
+		expect(await only()).toMatchObject([
+			{ state: "running", attemptId: ATTEMPT_ID, reason: null },
+		]);
+		sqlite.exec(
+			`UPDATE work_attempts SET runtime_state='cancelled', outcome='cancelled', finished_at='${reportedAt}', summary='Stopped'`,
+		);
+		expect(await only()).toEqual([]);
+		expect(
+			(await starter.listAgentRuns({ state: "ended" })).runs,
+		).toMatchObject([
+			{
+				state: "ended",
+				outcome: "cancelled",
+				reason: {
+					code: "stopped",
+					detail: expect.stringContaining(STARTER_TEDI_ID),
+				},
+			},
+		]);
+
+		// Another tedi sees none of them, even when it names the starter; an
+		// outsider reads only its own organization; the scope is required.
+		await expect(
+			runtimeClient(BYSTANDER_TEDI_ID).listAgentRuns({
+				state: "all",
+				tediId: STARTER_TEDI_ID,
+			}),
+		).resolves.toMatchObject({ runs: [] });
+		await expect(
+			runtimeClient(OTHER_ORG_TEDI_ID, OTHER_ORG_ID).listAgentRuns({
+				state: "all",
+			}),
+		).resolves.toMatchObject({ runs: [] });
+		await expect(
+			runtimeClient(OTHER_ORG_TEDI_ID, ORG_ID).listAgentRuns({ state: "all" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			runtimeClient(
+				STARTER_TEDI_ID,
+				ORG_ID,
+				TEDI_RUNTIME_SERVICE_BINDING_SCOPES.filter(
+					(held) => held !== WORK_RUN_STEER_SCOPE,
+				),
+			).listAgentRuns({}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 
 	it("opens nothing else behind the wider Work scopes", async () => {
