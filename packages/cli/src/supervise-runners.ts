@@ -92,6 +92,11 @@ const runnerSchema = z.object({
 	enabled: z.boolean().default(true),
 	/** The name a tedi uses for this machine; the host name when unset. */
 	machineName: text.max(100).optional(),
+	/**
+	 * `allow` lets a tedi change files and run commands in its own workspace
+	 * on this machine. Off when unset. Set only by editing this file.
+	 */
+	machineWriteMode: z.enum(["allow", "off"]).optional(),
 });
 const fileSchema = z.object({
 	version: z.literal(1),
@@ -267,9 +272,14 @@ export function writeRunnerDuty(
 	const runners = readRunnerDuties(env);
 	const key = runnerKey(runner);
 	const index = runners.findIndex((entry) => runnerKey(entry) === key);
-	// The machine name is edited in the file; a reinstall keeps it.
+	// The machine's name and write mode are edited in the file; a reinstall
+	// keeps them.
 	if (index >= 0)
-		runners[index] = { machineName: runners[index]!.machineName, ...runner };
+		runners[index] = {
+			machineName: runners[index]!.machineName,
+			machineWriteMode: runners[index]!.machineWriteMode,
+			...runner,
+		};
 	else runners.push(runner);
 	writeRunnerDuties(env, runners);
 	return { replaced: index >= 0 };

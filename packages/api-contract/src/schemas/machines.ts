@@ -1,8 +1,11 @@
 /**
  * Machines and their tool calls: a runner reports a readable machine name and
- * the read-only tools that machine accepts; a member or a tedi queues a call
- * for a named machine; the machine's runner claims the call and returns a
- * bounded result.
+ * the tools that machine accepts; a member or a tedi queues a call for a named
+ * machine; the machine's runner claims the call and returns a bounded result.
+ *
+ * A machine accepts the write tools (a workspace, file writes and edits,
+ * commands) only when its owner switched them on in the runner's saved
+ * settings on that machine. The runner then lists them in its health reports.
  */
 
 import * as z from "zod";
@@ -14,6 +17,12 @@ import * as z from "zod";
  * without the wider `mcp:work.read` and `mcp:work.write`.
  */
 export const MACHINES_USE_SCOPE = "machines:use";
+/**
+ * Needed on top of `machines:use` when a tedi queues one of the write tools.
+ * The tedi runtime delegates it like `machines:use`, and offers the write
+ * tools only in a chat with a signed-in person.
+ */
+export const MACHINES_WRITE_SCOPE = "machines:write";
 
 /** A machine counts as online while a runner on it reported this recently. */
 export const MACHINE_ONLINE_WINDOW_MS = 3 * 60_000;
@@ -21,14 +30,23 @@ export const MACHINE_ONLINE_WINDOW_MS = 3 * 60_000;
 export const MACHINE_TOOL_CALL_CLAIM_WINDOW_MS = 60_000;
 /** A claimed call that has no result after this time fails. */
 export const MACHINE_TOOL_CALL_ANSWER_WINDOW_MS = 120_000;
+export const MACHINE_COMMAND_DEFAULT_TIMEOUT_SECONDS = 120;
+export const MACHINE_COMMAND_MAX_TIMEOUT_SECONDS = 1_800;
+/** A claimed command may take its longest timeout before it counts as unanswered. */
+export const MACHINE_COMMAND_ANSWER_WINDOW_MS =
+	MACHINE_COMMAND_MAX_TIMEOUT_SECONDS * 1_000 +
+	MACHINE_TOOL_CALL_ANSWER_WINDOW_MS;
 export const MACHINE_TOOL_CALL_TIMEOUT_ERROR =
 	"The machine did not answer in time";
 
 export const MACHINE_TOOL_INPUT_MAX_CHARS = 4_000;
+export const MACHINE_FILE_CONTENT_MAX_CHARS = 200_000;
+/** The stored input of a file write or edit: its content plus the other fields. */
+export const MACHINE_WRITE_INPUT_MAX_CHARS = 220_000;
 export const MACHINE_TOOL_RESULT_MAX_CHARS = 20_000;
 export const MACHINE_TOOL_ERROR_MAX_CHARS = 1_000;
 
-export const MACHINE_TOOL_NAMES = [
+export const MACHINE_READ_TOOL_NAMES = [
 	"read_file",
 	"search_code",
 	"list_commits",
@@ -37,8 +55,23 @@ export const MACHINE_TOOL_NAMES = [
 	"read_ci_job_log",
 	"read_runner_state",
 ] as const;
+/** Tools that change a workspace on the machine or run a command in it. */
+export const MACHINE_WRITE_TOOL_NAMES = [
+	"open_workspace",
+	"close_workspace",
+	"write_file",
+	"edit_file",
+	"run_command",
+] as const;
+export const MACHINE_TOOL_NAMES = [
+	...MACHINE_READ_TOOL_NAMES,
+	...MACHINE_WRITE_TOOL_NAMES,
+] as const;
 export const MachineToolNameSchema = z.enum(MACHINE_TOOL_NAMES);
 export type MachineToolName = z.infer<typeof MachineToolNameSchema>;
+export function isMachineWriteTool(tool: string): boolean {
+	return (MACHINE_WRITE_TOOL_NAMES as readonly string[]).includes(tool);
+}
 
 export const MACHINE_TOOL_CALL_STATUS_VALUES = [
 	"pending",
@@ -88,6 +121,14 @@ const CommitShaSchema = z
 	.string()
 	.regex(/^[0-9a-fA-F]{7,40}$/, "Use 7 to 40 hexadecimal characters");
 
+/**
+ * A workspace is a checkout of the repository that the machine's runner made
+ * for the caller with `open_workspace`, apart from every other checkout.
+ */
+const WorkspaceIdSchema = z
+	.string()
+	.regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "Use the id open_workspace returned");
+
 export const MACHINE_READ_FILE_MAX_LINES = 400;
 
 export const MACHINE_TOOL_INPUT_SCHEMAS = {
@@ -96,6 +137,8 @@ export const MACHINE_TOOL_INPUT_SCHEMAS = {
 			path: RepositoryPathSchema,
 			startLine: z.number().int().min(1).max(10_000_000).optional(),
 			endLine: z.number().int().min(1).max(10_000_000).optional(),
+			/** Read the file as it is in this workspace, not on the main branch. */
+			workspace: WorkspaceIdSchema.optional(),
 		})
 		.refine(
 			(input) =>
@@ -114,6 +157,8 @@ export const MACHINE_TOOL_INPUT_SCHEMAS = {
 			.regex(/^[^\n\r\0]+$/, "Use a pattern on one line"),
 		pathPrefix: RepositoryPathSchema.optional(),
 		maxResults: z.number().int().min(1).max(200).optional(),
+		/** Search the files as they are in this workspace. */
+		workspace: WorkspaceIdSchema.optional(),
 	}),
 	list_commits: z.strictObject({
 		path: RepositoryPathSchema.optional(),
@@ -128,9 +173,50 @@ export const MACHINE_TOOL_INPUT_SCHEMAS = {
 		jobId: z.string().regex(/^\d{1,20}$/, "Use the job's number"),
 	}),
 	read_runner_state: z.strictObject({}),
+	open_workspace: z.strictObject({
+		name: z
+			.string()
+			.regex(/^[a-z0-9][a-z0-9-]{0,39}$/, "Use lowercase letters, digits and -")
+			.optional(),
+		/** A commit, branch or tag to start from; the main branch when omitted. */
+		base: z
+			.string()
+			.regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/, "Use a commit or a branch")
+			.optional(),
+	}),
+	close_workspace: z.strictObject({ workspace: WorkspaceIdSchema }),
+	write_file: z.strictObject({
+		workspace: WorkspaceIdSchema,
+		path: RepositoryPathSchema,
+		content: z.string().max(MACHINE_FILE_CONTENT_MAX_CHARS),
+	}),
+	edit_file: z.strictObject({
+		workspace: WorkspaceIdSchema,
+		path: RepositoryPathSchema,
+		oldText: z
+			.string()
+			.min(1)
+			.max(MACHINE_FILE_CONTENT_MAX_CHARS / 2),
+		newText: z.string().max(MACHINE_FILE_CONTENT_MAX_CHARS / 2),
+		replaceAll: z.boolean().optional(),
+	}),
+	run_command: z.strictObject({
+		workspace: WorkspaceIdSchema,
+		command: z
+			.string()
+			.min(1)
+			.max(3_500)
+			.regex(/^[^\0]+$/, "A command cannot hold a null character"),
+		timeoutSeconds: z
+			.number()
+			.int()
+			.min(1)
+			.max(MACHINE_COMMAND_MAX_TIMEOUT_SECONDS)
+			.optional(),
+	}),
 } as const satisfies Record<MachineToolName, z.ZodType>;
 
-export type MachineToolInput = Record<string, string | number>;
+export type MachineToolInput = Record<string, string | number | boolean>;
 
 /**
  * Check one tool's input. The server runs this before it queues a call and the
@@ -153,7 +239,11 @@ export function parseMachineToolInput(
 				.join("; ")
 				.slice(0, 500),
 		};
-	if (JSON.stringify(parsed.data).length > MACHINE_TOOL_INPUT_MAX_CHARS)
+	const maxChars =
+		tool === "write_file" || tool === "edit_file"
+			? MACHINE_WRITE_INPUT_MAX_CHARS
+			: MACHINE_TOOL_INPUT_MAX_CHARS;
+	if (JSON.stringify(parsed.data).length > maxChars)
 		return { ok: false, message: "The input is too long" };
 	return { ok: true, input: parsed.data as MachineToolInput };
 }
@@ -185,7 +275,7 @@ export const RequestMachineToolCallInputSchema = z.object({
 		.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
 		.default({})
 		.describe(
-			"The tool's input: read_file {path, startLine?, endLine?}; search_code {pattern, pathPrefix?, maxResults?}; list_commits {path?, limit?}; read_commit {sha}; read_ci_runs {sha?, limit?}; read_ci_job_log {jobId}; read_runner_state {}",
+			"The tool's input: read_file {path, startLine?, endLine?, workspace?}; search_code {pattern, pathPrefix?, maxResults?, workspace?}; list_commits {path?, limit?}; read_commit {sha}; read_ci_runs {sha?, limit?}; read_ci_job_log {jobId}; read_runner_state {}. On a machine that accepts the write tools: open_workspace {name?, base?}; close_workspace {workspace}; write_file {workspace, path, content}; edit_file {workspace, path, oldText, newText, replaceAll?}; run_command {workspace, command, timeoutSeconds?}",
 		),
 });
 
@@ -241,7 +331,10 @@ export const ClaimMachineToolCallsResultSchema = z.object({
 			z.object({
 				callId: MachineToolCallIdSchema,
 				tool: MachineToolNameSchema,
-				input: z.record(z.string(), z.union([z.string(), z.number()])),
+				input: z.record(
+					z.string(),
+					z.union([z.string(), z.number(), z.boolean()]),
+				),
 			}),
 		)
 		.max(10),

@@ -6,7 +6,10 @@
  */
 
 import { createRouterClient } from "@orpc/server";
-import { MACHINES_USE_SCOPE } from "@tedix/api-contract/schemas/machines";
+import {
+	MACHINES_USE_SCOPE,
+	MACHINES_WRITE_SCOPE,
+} from "@tedix/api-contract/schemas/machines";
 import { createDbClient } from "@tedix/db/client";
 import { dispatcherHealthReports } from "@tedix/db/schema/dispatcher-health";
 import {
@@ -259,6 +262,37 @@ describe("machines", () => {
 		expect(
 			f.sqlite.prepare("SELECT count(*) AS n FROM machine_tool_calls").get(),
 		).toEqual({ n: 1 });
+	});
+
+	it("queues a write tool only for a machine that accepts it, and for a tedi only with the write scope", async () => {
+		const f = fixture();
+		const input = {
+			machine: "Studio",
+			tool: "run_command" as const,
+			input: { workspace: "fix-0a1b2c3d", command: "bun test" },
+		};
+		// The machine's owner has not switched the write tools on.
+		await f.report(f.person("member-subject"));
+		await expect(
+			f.runtime("tedi-1").machines.requestToolCall(input),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+		await f.report(f.person("member-subject"), {
+			machineTools: ["read_file", "run_command"],
+		});
+		expect(
+			await f.runtime("tedi-1").machines.requestToolCall(input),
+		).toMatchObject({ status: "pending" });
+		await expect(
+			f
+				.runtime(
+					"tedi-1",
+					TEDI_RUNTIME_SERVICE_BINDING_SCOPES.filter(
+						(scope) => scope !== MACHINES_WRITE_SCOPE,
+					),
+				)
+				.machines.requestToolCall(input),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 
 	it("shows a call to the one who queued it and to an admin, and to nobody else", async () => {

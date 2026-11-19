@@ -193,6 +193,37 @@ assert.deepEqual(Object.keys(build().tools), NAMES);
 		{ machine: "Studio", tool: "read_runner_state", input: {} },
 	]);
 
+	// Changing files and running commands on a machine is offered in a chat
+	// with a person only: not to an unverified author, a scheduled turn or a
+	// round that checks on agent runs.
+	const WRITE_NAMES = [
+		"open_machine_workspace",
+		"close_machine_workspace",
+		"write_machine_file",
+		"edit_machine_file",
+		"run_machine_command",
+	];
+	for (const name of WRITE_NAMES) {
+		assert.ok(name in own.tools, name);
+		assert.ok(name in picked.tools, name);
+	}
+	await (own.tools.run_machine_command!.execute as Execute)(
+		{ machine: "Studio", workspace: "fix-0a1b2c3d", command: "bun test" },
+		{},
+	);
+	assert.deepEqual(requests.pop(), {
+		machine: "Studio",
+		tool: "run_command",
+		input: { workspace: "fix-0a1b2c3d", command: "bun test" },
+	});
+	for (const turn of [
+		await probe({ trust: "untrusted" }),
+		await probe({ trustedInstructionOrigin: "cron" }),
+		await probe({ sessionKey: "agent-run-supervision:chat-7" }),
+	])
+		for (const name of WRITE_NAMES)
+			assert.equal(name in turn.tools, false, name);
+
 	const refusedTurns = [
 		await probe({ trust: "untrusted" }),
 		await probe({ sessionKey: "embed:site:visitor-1", trust: "untrusted" }),

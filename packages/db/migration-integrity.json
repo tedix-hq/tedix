@@ -1696,6 +1696,10 @@
 		{
 			"name": "20261119212658_tedi_memory_documents/migration.sql",
 			"sha256": "df23de98e90512384372e7add25e2110d08eddadf3fe2e789a65c0833144f7f5"
+		},
+		{
+			"name": "20261119213322_machine_tool_call_write_input/migration.sql",
+			"sha256": "6803e63defc9126d4d18938c736ec175c9e99bc1c5577638b23be17ce26c2c05"
 		}
 	]
 }

@@ -178,6 +178,7 @@ import { createWorkApprovalAiTools as workAiTools } from "./work-approval-tools"
 import { delegatedWorkTools } from "./delegated-work-tools";
 import { agentRunTools } from "./agent-run-tools";
 import { machineTools } from "./machine-tools";
+import { AGENT_RUN_SUPERVISION_SESSION_PREFIX } from "@tedix/api-contract/schemas/work-agent-runs";
 import { tediRepositoryReadTools } from "./repository-read-tools";
 import { coreMemoryPromptBlock, tediMemoryTools } from "./tedi-memory-tools";
 import {
@@ -1038,6 +1039,8 @@ export const runtimeFacetTurns = {
 			homeRunId?: string;
 			/** Set only when a person picked this tedi in the chat. */
 			personChatConversationId?: string;
+			/** Set for a turn the scheduler or the runtime started, not a person. */
+			trustedInstructionOrigin?: ChatTurnParams["trustedInstructionOrigin"];
 			personalRequest?: boolean;
 			executionSurface?: ExecutionSurface;
 			repositoryMode?: RepositoryMode;
@@ -1226,7 +1229,17 @@ export const runtimeFacetTurns = {
 							conversationId: input.conversationId,
 							runId: input.runId,
 						}),
-						...machineTools({ getPlatform: () => this.getPlatformClient() }),
+						...machineTools({
+							getPlatform: () => this.getPlatformClient(),
+							// Changing files and running commands on a machine is for a
+							// chat with a person: never a scheduled turn, a turn the
+							// runtime started, or a round that checks on agent runs.
+							write:
+								!input.trustedInstructionOrigin &&
+								!input.sessionKey.startsWith(
+									AGENT_RUN_SUPERVISION_SESSION_PREFIX,
+								),
+						}),
 					};
 		const repositoryTools = tediRepositoryReadTools(
 			this.env,
@@ -2677,6 +2690,7 @@ export const runtimeFacetTurns = {
 			workItemId: input.workItemId,
 			homeRunId: input.homeRunId,
 			personChatConversationId: input.personChatConversationId,
+			trustedInstructionOrigin: input.trustedInstructionOrigin,
 			personalRequest: input.personalRequest,
 			executionSurface: input.executionSurface,
 			repositoryMode: input.repositoryMode,

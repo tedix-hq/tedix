@@ -21,16 +21,16 @@ export const machinesContract = oc
 				path: "" as `/${string}`,
 				summary: "List machines",
 				description:
-					"List the machines whose runners report to this organization, with the agents each one runs, the read-only tools it accepts and whether it is online.",
+					"List the machines whose runners report to this organization, with the agents each one runs, the tools it accepts and whether it is online.",
 			})
 			.output(ListMachinesResultSchema),
 		requestToolCall: oc
 			.route({
 				method: "POST",
 				path: "/tool-calls",
-				summary: "Queue a read-only tool call for a machine",
+				summary: "Queue a tool call for a machine",
 				description:
-					"Queue one read-only tool call for a named machine: read a file, search code, list or read commits, read CI runs or a CI job log, or read the state of its runners. Refused when the machine is unknown, offline or does not accept the tool. Read the result with read_machine_tool_call.",
+					"Queue one tool call for a named machine: read a file, search code, list or read commits, read CI runs or a CI job log, or read the state of its runners. A machine whose owner switched the write tools on also accepts: open or close a workspace (its own checkout of the repository), write or edit a file in it, and run a command in it. Refused when the machine is unknown, offline or does not accept the tool. Read the result with read_machine_tool_call.",
 			})
 			.input(RequestMachineToolCallInputSchema)
 			.output(RequestMachineToolCallResultSchema),

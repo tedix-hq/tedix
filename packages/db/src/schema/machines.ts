@@ -54,7 +54,7 @@ export const machineToolCalls = sqliteTable(
 		),
 		check(
 			"chk_machine_tool_calls_bounds",
-			sql`length(${table.input}) <= 4000
+			sql`length(${table.input}) <= 220000
 				AND (${table.result} IS NULL OR length(${table.result}) <= 20000)
 				AND (${table.error} IS NULL OR length(${table.error}) <= 1000)`,
 		),

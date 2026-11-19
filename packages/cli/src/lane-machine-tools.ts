@@ -2,8 +2,10 @@ import { appendFile, open, readdir, readFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
 import {
+	MACHINE_READ_TOOL_NAMES,
 	MACHINE_TOOL_NAMES,
 	MACHINE_TOOL_RESULT_MAX_CHARS,
+	MACHINE_WRITE_TOOL_NAMES,
 	parseMachineToolInput,
 	type MachineToolInput,
 	type MachineToolName,
@@ -18,6 +20,7 @@ import { TedixHomeClient } from "./home-client";
 import { laneChildEnv } from "./lane-child-env";
 import { laneCommand } from "./lane-command";
 import { runStepToolMissing } from "./lane-heartbeat";
+import { machineWorkspaces } from "./lane-machine-workspaces";
 import { fileNativeBootstrapCache } from "./native-bootstrap-cache";
 import { parseOptions } from "./options";
 import { resolveOrganizationTarget } from "./organization-target";
@@ -39,6 +42,11 @@ import type { NativeToolContext } from "./work";
  * shell. Files and history are read from Git objects of the runner's own
  * source checkout, never from a working folder. Every answer is masked for
  * secret shapes and cut to the stored limit.
+ *
+ * A machine whose saved runner settings say `machineWriteMode: "allow"` also
+ * lists and answers the write tools of `lane-machine-workspaces.ts`. The
+ * setting is read from the file on this machine only; nothing sent to the
+ * runner can change it.
  */
 
 export const MACHINE_TOOL_CLAIM = "machines.claim_machine_tool_calls";
@@ -74,6 +82,8 @@ export interface MachineToolsIdentity {
 	machineName: string;
 	/** The tools this machine accepts; empty when no saved runner serves them. */
 	machineTools: MachineToolName[];
+	/** True when the owner switched the write tools on for this machine. */
+	write: boolean;
 	/** The saved runner that serves machine tools, when one does. */
 	serving?: { key: string; workspace: string; organization: string };
 }
@@ -104,7 +114,15 @@ export function machineToolsIdentity(
 		machineName:
 			(name ?? hostname().split(".")[0] ?? "").trim().slice(0, 100) ||
 			"machine",
-		machineTools: duty ? [...MACHINE_TOOL_NAMES] : [],
+		machineTools: duty
+			? [
+					...MACHINE_READ_TOOL_NAMES,
+					...(duty.machineWriteMode === "allow"
+						? MACHINE_WRITE_TOOL_NAMES
+						: []),
+				]
+			: [],
+		write: duty?.machineWriteMode === "allow",
 		...(duty
 			? {
 					serving: {
@@ -181,7 +199,10 @@ export function machineToolHandlers(options: {
 	/** The Tedix settings folder that holds `dispatchers/`. */
 	configDir: string;
 	env?: NodeJS.ProcessEnv;
-}): Record<MachineToolName, MachineToolHandler> {
+	/** Also answer the write tools; only for `machineWriteMode: "allow"`. */
+	write?: boolean;
+}): Record<(typeof MACHINE_READ_TOOL_NAMES)[number], MachineToolHandler> &
+	Partial<Record<MachineToolName, MachineToolHandler>> {
 	const { checkout } = options;
 	const base = laneChildEnv(options.env ?? process.env);
 	const gitEnv = {
@@ -345,9 +366,41 @@ export function machineToolHandlers(options: {
 		].join("\n");
 	}
 
+	const workspaces = machineWorkspaces({
+		checkout,
+		configDir: options.configDir,
+		mainCommit,
+		env: options.env,
+	});
+	const numbered = (lines: string[], input: MachineToolInput) => {
+		if (lines.at(-1) === "") lines.pop();
+		const start = Number(input.startLine ?? 1);
+		const end = Math.min(
+			Number(input.endLine ?? Number.POSITIVE_INFINITY),
+			start + FILE_LINE_LIMIT - 1,
+			lines.length,
+		);
+		return `lines ${start}-${end} of ${lines.length}\n${lines
+			.slice(start - 1, end)
+			.map((line, index) => `${start + index}\t${line}`)
+			.join("\n")}`;
+	};
+
 	return {
+		...(options.write ? workspaces.handlers : {}),
 		async read_file(input) {
 			const path = String(input.path);
+			if (input.workspace !== undefined) {
+				// The file as the workspace has it now, committed or not.
+				const text = await readFile(
+					await workspaces.filePath(String(input.workspace), path),
+					"utf8",
+				).catch(() => {
+					throw new Error(`No such file in the workspace: ${path}`);
+				});
+				if (text.includes("\0")) throw new Error(`${path} is not a text file`);
+				return `${path} in workspace ${input.workspace}, ${numbered(text.split("\n"), input)}`;
+			}
 			const commit = await mainCommit();
 			const listed = await git(["ls-tree", "-z", commit, "--", path]);
 			if (listed.status !== 0) throw failure("Reading the file", listed);
@@ -364,41 +417,38 @@ export function machineToolHandlers(options: {
 			if (shown.status !== 0) throw failure("Reading the file", shown);
 			if (shown.stdout.includes("\0"))
 				throw new Error(`${path} is not a text file`);
-			const lines = shown.stdout.split("\n");
-			if (lines.at(-1) === "") lines.pop();
-			const start = Number(input.startLine ?? 1);
-			const end = Math.min(
-				Number(input.endLine ?? Number.POSITIVE_INFINITY),
-				start + FILE_LINE_LIMIT - 1,
-				lines.length,
-			);
-			return `${path} at ${commit.slice(0, 9)}, lines ${start}-${end} of ${lines.length}\n${lines
-				.slice(start - 1, end)
-				.map((line, index) => `${start + index}\t${line}`)
-				.join("\n")}`;
+			return `${path} at ${commit.slice(0, 9)}, ${numbered(shown.stdout.split("\n"), input)}`;
 		},
 
 		async search_code(input) {
-			const commit = await mainCommit();
+			// A workspace is searched as its files are now, new files included.
+			const folder =
+				input.workspace === undefined
+					? undefined
+					: await workspaces.folder(String(input.workspace));
+			const commit = folder ? "" : await mainCommit();
 			const max = Number(input.maxResults ?? 50);
 			const grep = (mode: "-E" | "-F") =>
-				git(
+				laneCommand(
+					"git",
 					[
+						"-C",
+						folder ?? checkout,
 						"grep",
 						"-n",
 						"-I",
 						"--no-color",
+						...(folder ? ["--untracked"] : []),
 						mode,
 						"-e",
 						String(input.pattern),
-						commit,
+						...(folder ? [] : [commit]),
 						"--",
 						...(input.pathPrefix === undefined
 							? []
 							: [String(input.pathPrefix)]),
 					],
-					20_000,
-					4 * 1024 * 1024,
+					{ timeout: 20_000, maxBuffer: 4 * 1024 * 1024, env: gitEnv },
 				);
 			let found = await grep("-E");
 			// A pattern that is not a valid expression is searched as plain text.
@@ -407,11 +457,10 @@ export function machineToolHandlers(options: {
 			if (found.status !== 0 && !overflowed(found))
 				throw failure("Searching the code", found);
 			const lines = found.stdout.split("\n").filter(Boolean);
-			const shown = lines
-				.slice(0, max)
-				.map((line) =>
-					line.slice(commit.length + 1, commit.length + 1 + LINE_LIMIT),
-				);
+			const shown = lines.slice(0, max).map((line) => {
+				const from = folder ? 0 : commit.length + 1;
+				return line.slice(from, from + LINE_LIMIT);
+			});
 			return `${shown.join("\n")}${lines.length > max || overflowed(found) ? `\n[showing the first ${shown.length} matches; there are more]` : ""}`;
 		},
 
@@ -732,6 +781,7 @@ export function startLaneMachineTools(
 			checkout: serve.repo,
 			configDir: env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
 			env,
+			write: identity.write,
 		}),
 		log: (event, reason) => {
 			const line = `${JSON.stringify({ at: new Date().toISOString(), event, reason })}\n`;
