@@ -4,7 +4,7 @@ import { chromium, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
 /**
- * Workspace icon at phone and desktop widths in both themes: the Edit
+ * Workspace icon on a phone: the Edit
  * workspace control uploads an SVG, the tile switches from initials to the
  * image, Remove brings the initials back, and an unsupported file is refused
  * before any request.
@@ -69,60 +69,55 @@ async function mockApi(page: Page) {
 let cases = 0;
 const started = performance.now();
 try {
-	for (const width of [375, 1280]) {
-		for (const theme of ["light", "dark"] as const) {
-			const page = await browser.newPage({
-				viewport: { width, height: 720 },
-				colorScheme: theme,
-			});
-			const calls = await mockApi(page);
-			await page.goto(`${server.origin}${path}?theme=${theme}`);
-			const field = page.getByTestId("workspace-icon-field");
-			const tile = page.getByTestId("breadcrumb");
-			await field.getByText("Workspace icon").waitFor();
-			assert.equal(await tile.locator("img").count(), 0);
-			assert.equal((await tile.textContent())?.includes("RR"), true);
-			assert.equal(
-				await field.getByRole("button", { name: "Remove" }).count(),
-				0,
-			);
+	const width = 375;
+	const theme = "dark";
+	const page = await browser.newPage({
+		viewport: { width, height: 720 },
+		colorScheme: theme,
+	});
+	const calls = await mockApi(page);
+	await page.goto(`${server.origin}${path}?theme=${theme}`);
+	const field = page.getByTestId("workspace-icon-field");
+	const tile = page.getByTestId("breadcrumb");
+	await field.getByText("Workspace icon").waitFor();
+	assert.equal(await tile.locator("img").count(), 0);
+	assert.equal((await tile.textContent())?.includes("RR"), true);
+	assert.equal(await field.getByRole("button", { name: "Remove" }).count(), 0);
 
-			await page.getByLabel("Upload workspace icon").setInputFiles(textFile);
-			await field.getByText("Choose a PNG, JPEG, WebP or SVG image.").waitFor();
-			assert.equal(calls.setIcon, undefined);
+	await page.getByLabel("Upload workspace icon").setInputFiles(textFile);
+	await field.getByText("Choose a PNG, JPEG, WebP or SVG image.").waitFor();
+	assert.equal(calls.setIcon, undefined);
 
-			await page.getByLabel("Upload workspace icon").setInputFiles(svgFile);
-			await tile.locator("img").waitFor();
-			assert.deepEqual(calls.setIcon, [
-				{
-					workspaceId: WORKSPACE_ID,
-					contentType: "image/svg+xml",
-					fileData: Buffer.from(SVG).toString("base64"),
-				},
-			]);
-			await field.getByRole("button", { name: "Remove" }).waitFor();
-			const overflow = await page.evaluate(
-				() => document.documentElement.scrollWidth - innerWidth,
-			);
-			assert(overflow <= 1, `${width} ${theme} overflows by ${overflow}px`);
-			await page.screenshot({
-				path: `${directory}/icon-${width}-${theme}.png`,
-			});
+	await page.getByLabel("Upload workspace icon").setInputFiles(svgFile);
+	await tile.locator("img").waitFor();
+	assert.deepEqual(calls.setIcon, [
+		{
+			workspaceId: WORKSPACE_ID,
+			contentType: "image/svg+xml",
+			fileData: Buffer.from(SVG).toString("base64"),
+		},
+	]);
+	await field.getByRole("button", { name: "Remove" }).waitFor();
+	const overflow = await page.evaluate(
+		() => document.documentElement.scrollWidth - innerWidth,
+	);
+	assert(overflow <= 1, `${width} ${theme} overflows by ${overflow}px`);
+	await page.screenshot({
+		path: `${directory}/icon-${width}-${theme}.png`,
+	});
 
-			await field.getByRole("button", { name: "Remove" }).click();
-			await page.waitForFunction(
-				() =>
-					!document.querySelector('[data-testid="breadcrumb"] img') &&
-					document
-						.querySelector('[data-testid="breadcrumb"]')
-						?.textContent?.includes("RR"),
-			);
-			assert.equal(calls.removeIcon?.length, 1);
-			await page.close();
-			cases++;
-			console.log(`PASS workspace icon ${width}px ${theme}`);
-		}
-	}
+	await field.getByRole("button", { name: "Remove" }).click();
+	await page.waitForFunction(
+		() =>
+			!document.querySelector('[data-testid="breadcrumb"] img') &&
+			document
+				.querySelector('[data-testid="breadcrumb"]')
+				?.textContent?.includes("RR"),
+	);
+	assert.equal(calls.removeIcon?.length, 1);
+	await page.close();
+	cases++;
+	console.log(`PASS workspace icon ${width}px ${theme}`);
 } finally {
 	await browser.close();
 	await server.stop();

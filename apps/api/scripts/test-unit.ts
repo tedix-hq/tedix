@@ -6,18 +6,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-
-/** Whether this invocation also runs the lazy-import check: shard 1, or no shard. */
-export function lazyCheckShard(argv = process.argv.slice(2)) {
-	const flag = argv.findIndex(
-		(arg) => arg === "--shard" || arg.startsWith("--shard="),
-	);
-	if (flag < 0) return true;
-	const value = argv[flag]!.includes("=")
-		? argv[flag]!.split("=")[1]
-		: argv[flag + 1];
-	return value?.split("/")[0] === "1";
-}
+import { isPrimaryTestShard } from "../../../scripts/ci/test-shard";
 
 if (import.meta.main) {
 	const appRoot = join(import.meta.dir, "..");
@@ -35,7 +24,7 @@ if (import.meta.main) {
 		...process.argv.slice(2),
 	]);
 	process.exit(
-		status !== 0 || !lazyCheckShard()
+		status !== 0 || !isPrimaryTestShard(process.argv.slice(2))
 			? status
 			: run(["bun", "scripts/check-lazy-imports.ts"]),
 	);

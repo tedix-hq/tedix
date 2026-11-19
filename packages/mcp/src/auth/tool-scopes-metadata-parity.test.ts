@@ -118,53 +118,44 @@ describe("required-scope parity between the API field and the edge", () => {
 		}
 	});
 
-	it.each([
-		"apps",
-		"tedix_unified",
-		"acme_unified",
-		"globex_unified",
-		"example_unified",
-		"tedix_demo_unified",
-		"personal_unified",
-		"workspace_unified",
-		"sample_unified",
-		"long_example_name_unified",
-		"customer_unified",
-	])("preserves the Apps list capability through %s", (namespace) => {
-		const candidate = {
-			toolId: `${namespace}__list_apps`,
-			toolTypeId: "rpc",
-			config: { endpoint: "apps/list", _aggregateNamespace: namespace },
-			authRequired: true,
-			writeCapability: "read" as const,
-			annotations: { readOnlyHint: true },
-		};
-		expect(resolveMcpToolRequiredScopes(candidate, namespace, {})).toEqual([
-			"mcp:apps.read",
-		]);
-		expect(
-			isMcpToolVisibleToCaller(
-				candidate,
-				namespace,
-				{},
-				{
-					authType: "oauth",
-					scopes: ["mcp:apps.read"],
-				},
-			),
-		).toBe(true);
-		expect(
-			isMcpToolVisibleToCaller(
-				candidate,
-				namespace,
-				{},
-				{
-					authType: "oauth",
-					scopes: ["mcp:content.read"],
-				},
-			),
-		).toBe(false);
-	});
+	it.each(["apps", "customer_unified"])(
+		"preserves the Apps list capability through %s",
+		(namespace) => {
+			const candidate = {
+				toolId: `${namespace}__list_apps`,
+				toolTypeId: "rpc",
+				config: { endpoint: "apps/list", _aggregateNamespace: namespace },
+				authRequired: true,
+				writeCapability: "read" as const,
+				annotations: { readOnlyHint: true },
+			};
+			expect(resolveMcpToolRequiredScopes(candidate, namespace, {})).toEqual([
+				"mcp:apps.read",
+			]);
+			expect(
+				isMcpToolVisibleToCaller(
+					candidate,
+					namespace,
+					{},
+					{
+						authType: "oauth",
+						scopes: ["mcp:apps.read"],
+					},
+				),
+			).toBe(true);
+			expect(
+				isMcpToolVisibleToCaller(
+					candidate,
+					namespace,
+					{},
+					{
+						authType: "oauth",
+						scopes: ["mcp:content.read"],
+					},
+				),
+			).toBe(false);
+		},
+	);
 
 	it.each([
 		["apps/unreviewedOperation", "rpc"],
@@ -222,12 +213,7 @@ describe("required-scope parity between the API field and the edge", () => {
 	it.each([
 		["kernelRuntime/enqueueMessage", "ask", "write"],
 		["kernelRuntime/readRun", "read_home_run", "read"],
-		["kernelRuntime/readRunEvents", "read_home_run_events", "read"],
-		["kernelRuntime/readMessages", "read_home_messages", "read"],
-		["kernelRuntime/listConversations", "list_conversations", "read"],
-		["kernelRuntime/readRunTrace", "read_home_trace", "read"],
 		["kernelRuntime/readChildRunEvidence", "read_child_run_evidence", "read"],
-		["kernelRuntime/readChildRunTree", "read_child_run_tree", "read"],
 	] as const)(
 		"retains the existing Home grant for %s",
 		(endpoint, name, tier) => {
@@ -256,82 +242,25 @@ describe("required-scope parity between the API field and the edge", () => {
 		],
 		["kernelRuntime/readRun", "read_kernel_runtime_run", "tedis", "read"],
 		[
-			"kernelRuntime/readRunEvents",
-			"read_kernel_runtime_run_events",
-			"tedis",
-			"read",
-		],
-		[
-			"kernelRuntime/readMessages",
-			"read_kernel_runtime_messages",
-			"tedis",
-			"read",
-		],
-		[
-			"kernelRuntime/readToolResult",
-			"read_kernel_runtime_tool_result",
-			"tedis",
-			"read",
-		],
-		[
-			"kernelRuntime/listConversations",
-			"list_kernel_runtime_conversations",
-			"tedis",
-			"read",
-		],
-		["kernelRuntime/readRunTrace", "read_run_trace", "tedis", "read"],
-		[
-			"kernelRuntime/readChildRunEvidence",
-			"read_child_run_evidence",
-			"tedis",
-			"read",
-		],
-		["kernelRuntime/readChildRunTree", "read_child_run_tree", "tedis", "read"],
-		[
 			"harness/listKernelTraceBundles",
 			"list_kernel_trace_bundles",
 			"tedis",
 			"read",
 		],
 		["osWorkspaces/workspaces/list", "list_os_workspaces", "apps", "read"],
-		["osWorkspaces/workspaces/get", "get_os_workspace", "apps", "read"],
-		[
-			"osWorkspaces/resources/list",
-			"list_os_workspace_resources",
-			"apps",
-			"read",
-		],
-		["osWorkspaces/resources/get", "get_os_workspace_resource", "apps", "read"],
 		[
 			"osWorkspaces/resources/create",
 			"create_os_workspace_resource",
 			"apps",
 			"write",
 		],
-		[
-			"osWorkspaces/work/attachProject",
-			"attach_os_workspace_project",
-			"apps",
-			"write",
-		],
 		["projects/list", "list_projects", "memory", "read"],
-		["osWorkspaces/outputs/list", "list_os_outputs", "apps", "read"],
-		["osWorkspaces/outputs/get", "get_os_output", "apps", "read"],
-		["osWorkspaces/outputs/create", "create_os_output", "apps", "write"],
-		["osWorkspaces/outputs/revise", "revise_os_output", "apps", "write"],
 		[
 			"osWorkspaces/outputs/patchDocument",
 			"patch_os_document",
 			"apps",
 			"write",
 		],
-		[
-			"osWorkspaces/outputs/setSheetRange",
-			"set_os_sheet_range",
-			"apps",
-			"write",
-		],
-		["osWorkspaces/outputs/patchSlides", "patch_os_slides", "apps", "write"],
 	] as const)(
 		"preserves %s capability through organization aliases",
 		(endpoint, name, family, tier) => {

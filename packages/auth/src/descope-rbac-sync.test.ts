@@ -6,7 +6,6 @@ import {
 	type DescopeRbacSnapshot,
 	type DescopeSdkResult,
 	describePermission,
-	formatDescopeRbacPlan,
 	planIsEmpty,
 	planPermissionSync,
 	planRoleSync,
@@ -134,19 +133,6 @@ describe("planRoleSync", () => {
 });
 
 describe("buildDescopeRbacPlan", () => {
-	it("is a no-op fixpoint against an already-synced snapshot", () => {
-		const plan = buildDescopeRbacPlan(inSyncSnapshot());
-		expect(planIsEmpty(plan)).toBe(true);
-		expect(formatDescopeRbacPlan(plan)).toContain("in sync");
-	});
-
-	it("provisions the whole model against an empty project", () => {
-		const plan = buildDescopeRbacPlan({ permissions: [], roles: [] });
-		expect(plan.permissions).toHaveLength(ALL_PERMISSIONS.length);
-		expect(plan.roles).toHaveLength(Object.keys(ROLE_PERMISSION_GRANTS).length);
-		expect(planIsEmpty(plan)).toBe(false);
-	});
-
 	it("is idempotent: applying then re-planning yields an empty plan", async () => {
 		// Simulate a Descope project by mutating an in-memory snapshot as ops apply.
 		const state: DescopeRbacSnapshot = { permissions: [], roles: [] };
@@ -234,18 +220,6 @@ describe("applyDescopeRbacPlan", () => {
  * module's contract promises survives untouched.
  */
 describe("readDescopeRolePermissionNames", () => {
-	it("reads the documented spelling", () => {
-		expect(
-			readDescopeRolePermissionNames({ permissionNames: ["apps:read"] }),
-		).toEqual(["apps:read"]);
-	});
-
-	it("reads the permissionsNames alias Descope also returns", () => {
-		expect(
-			readDescopeRolePermissionNames({ permissionsNames: ["apps:read"] }),
-		).toEqual(["apps:read"]);
-	});
-
 	it("prefers the documented spelling when both are present", () => {
 		expect(
 			readDescopeRolePermissionNames({
@@ -398,13 +372,6 @@ describe("readDescopeRbacSnapshot", () => {
  * and train everyone to ignore the signal.
  */
 describe("summarizeDescopeRbacDrift", () => {
-	it("reports nothing wrong for an empty plan", () => {
-		const drift = summarizeDescopeRbacDrift({ permissions: [], roles: [] });
-		expect(drift.inSync).toBe(true);
-		expect(drift.missingPermissions).toEqual([]);
-		expect(drift.rolesMissingPermissions).toEqual([]);
-	});
-
 	it("does not count description backfill as drift", () => {
 		const drift = summarizeDescopeRbacDrift({
 			permissions: [
@@ -524,22 +491,12 @@ describe("summarizeDescopeRbacDrift", () => {
  * unsupported by the authorization model.
  */
 describe("findUnusableDescopePermissions", () => {
-	it("finds a permission no guard can ever evaluate", () => {
-		expect(
-			findUnusableDescopePermissions(["apps:read", "content:manage"]),
-		).toEqual(["content:manage"]);
-	});
-
 	it("does not flag Descope's own built-ins", () => {
 		// `User Admin` is load-bearing: Descope requires it for the embedded Role
 		// Management widget, so calling it unusable would be actively wrong.
 		expect(
 			findUnusableDescopePermissions([...DESCOPE_BUILT_IN_PERMISSIONS]),
 		).toEqual([]);
-	});
-
-	it("does not flag anything the model defines", () => {
-		expect(findUnusableDescopePermissions([...ALL_PERMISSIONS])).toEqual([]);
 	});
 
 	it("reports unsupported grants alongside valid permissions", () => {

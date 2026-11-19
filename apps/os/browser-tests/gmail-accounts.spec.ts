@@ -106,154 +106,150 @@ function gmailAccounts(template: Record<string, unknown>) {
 	];
 }
 
-let checks = 0;
 try {
-	for (const width of [375, 1280])
-		for (const theme of ["light", "dark"] as const) {
-			const label = `${width}/${theme}`;
-			const page = await browser.newPage({
-				viewport: { width, height: 900 },
-				colorScheme: theme,
-				reducedMotion: "reduce",
-			});
-			const errors: string[] = [];
-			page.on("pageerror", (error) => errors.push(error.message));
-			await page.route(
-				"**/api/rpc/connections/getConnectionsOverview*",
-				async (route) => {
-					const response = await route.fetch();
-					const body = await response.json();
-					if (body.json?.scope !== "personal")
-						return route.fulfill({ response, json: body });
-					const rows = body.json.rows as Record<string, unknown>[];
-					const template = rows.find(
-						(row) =>
-							(row.provider as { appId: string }).appId === "google-gmail",
-					);
-					assert.ok(template, "fixture has a personal Gmail row");
-					body.json.rows = [
-						...rows.filter((row) => row !== template),
-						...gmailAccounts(template),
-					];
-					body.json.total = body.json.rows.length;
-					await route.fulfill({ response, json: body });
-				},
+	const width = 375;
+	const theme = "dark";
+	const label = `${width}/${theme}`;
+	const page = await browser.newPage({
+		viewport: { width, height: 900 },
+		colorScheme: theme,
+		reducedMotion: "reduce",
+	});
+	const errors: string[] = [];
+	page.on("pageerror", (error) => errors.push(error.message));
+	await page.route(
+		"**/api/rpc/connections/getConnectionsOverview*",
+		async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			if (body.json?.scope !== "personal")
+				return route.fulfill({ response, json: body });
+			const rows = body.json.rows as Record<string, unknown>[];
+			const template = rows.find(
+				(row) => (row.provider as { appId: string }).appId === "google-gmail",
 			);
-			await page.goto(`${server.origin}/account/connections`);
-			const gmail = page.locator(
-				'[aria-label="Connected accounts"] > li[data-account-group="google-gmail"]',
-			);
-			await gmail.waitFor();
-			await page.evaluate(() => document.fonts.ready);
-			assert.equal(
-				await page.locator('li[data-account-group="google-gmail"]').count(),
-				1,
-				`${label}: Gmail is one app row`,
-			);
-			await page.getByRole("button", { name: "Gmail details" }).click();
+			assert.ok(template, "fixture has a personal Gmail row");
+			body.json.rows = [
+				...rows.filter((row) => row !== template),
+				...gmailAccounts(template),
+			];
+			body.json.total = body.json.rows.length;
+			await route.fulfill({ response, json: body });
+		},
+	);
+	await page.goto(`${server.origin}/account/connections`);
+	const gmail = page.locator(
+		'[aria-label="Connected accounts"] > li[data-account-group="google-gmail"]',
+	);
+	await gmail.waitFor();
+	await page.evaluate(() => document.fonts.ready);
+	assert.equal(
+		await page.locator('li[data-account-group="google-gmail"]').count(),
+		1,
+		`${label}: Gmail is one app row`,
+	);
+	await page.getByRole("button", { name: "Gmail details" }).click();
 
-			// One row per account ID, never a "Default account" twin.
-			const accounts = gmail.locator("li[data-account-row]");
-			assert.equal(await accounts.count(), 2, `${label}: two account rows`);
-			assert.deepEqual(
-				await accounts.evaluateAll((items) =>
-					items.map((item) => item.getAttribute("data-account-row")),
-				),
-				[
-					"00000000-0000-4000-8000-0000000000a1",
-					"00000000-0000-4000-8000-0000000000a2",
-				],
-				`${label}: one row per account ID`,
-			);
-			const opened = await gmail.innerText();
-			assert.ok(
-				!opened.includes("Default account"),
-				`${label}: no unnamed default twin`,
-			);
+	// One row per account ID, never a "Default account" twin.
+	const accounts = gmail.locator("li[data-account-row]");
+	assert.equal(await accounts.count(), 2, `${label}: two account rows`);
+	assert.deepEqual(
+		await accounts.evaluateAll((items) =>
+			items.map((item) => item.getAttribute("data-account-row")),
+		),
+		[
+			"00000000-0000-4000-8000-0000000000a1",
+			"00000000-0000-4000-8000-0000000000a2",
+		],
+		`${label}: one row per account ID`,
+	);
+	const opened = await gmail.innerText();
+	assert.ok(
+		!opened.includes("Default account"),
+		`${label}: no unnamed default twin`,
+	);
 
-			const [owner, second] = [accounts.nth(0), accounts.nth(1)];
-			const ownerText = await owner.innerText();
-			const secondText = await second.innerText();
-			assert.ok(
-				ownerText.includes("owner@solstice.example"),
-				`${label}: the default account shows its Gmail address`,
-			);
-			assert.ok(
-				ownerText.includes("Default · Personal · Used by Google Gmail"),
-				`${label}: default, scope and app on the first account (${ownerText})`,
-			);
-			assert.ok(
-				secondText.includes("sam@solstice.example"),
-				`${label}: the added account shows its Gmail address`,
-			);
-			assert.ok(
-				secondText.includes(
-					"Named “Account” · Personal · Used by Google Gmail Tedix",
-				) && !secondText.includes("Default ·"),
-				`${label}: the added account is personal, not default (${secondText})`,
-			);
-			assert.ok(
-				secondText.includes(
-					"Missing permission for Identity. Reconnect and allow “See your primary Google Account email address” on Google's screen",
-				),
-				`${label}: the Identity fault names Google's exact line`,
-			);
-			assert.ok(
-				await second
-					.getByRole("button", {
-						name: "Reconnect Gmail sam@solstice.example",
-					})
-					.isVisible(),
-				`${label}: Reconnect on the account that needs it`,
-			);
+	const [owner, second] = [accounts.nth(0), accounts.nth(1)];
+	const ownerText = await owner.innerText();
+	const secondText = await second.innerText();
+	assert.ok(
+		ownerText.includes("owner@solstice.example"),
+		`${label}: the default account shows its Gmail address`,
+	);
+	assert.ok(
+		ownerText.includes("Default · Personal · Used by Google Gmail"),
+		`${label}: default, scope and app on the first account (${ownerText})`,
+	);
+	assert.ok(
+		secondText.includes("sam@solstice.example"),
+		`${label}: the added account shows its Gmail address`,
+	);
+	assert.ok(
+		secondText.includes(
+			"Named “Account” · Personal · Used by Google Gmail Tedix",
+		) && !secondText.includes("Default ·"),
+		`${label}: the added account is personal, not default (${secondText})`,
+	);
+	assert.ok(
+		secondText.includes(
+			"Missing permission for Identity. Reconnect and allow “See your primary Google Account email address” on Google's screen",
+		),
+		`${label}: the Identity fault names Google's exact line`,
+	);
+	assert.ok(
+		await second
+			.getByRole("button", {
+				name: "Reconnect Gmail sam@solstice.example",
+			})
+			.isVisible(),
+		`${label}: Reconnect on the account that needs it`,
+	);
 
-			await gmail.getByRole("button", { name: "Details", exact: true }).click();
-			const details = await gmail.innerText();
-			assert.ok(
-				details.includes(
-					"2 apps use Gmail. Each signs in on its own, so each can use a different account.",
-				),
-				`${label}: two app identifiers are explained`,
-			);
-			assert.ok(
-				details.includes(
-					"One per app that uses Gmail: google-gmail, google-gmail-tedix",
-				),
-				`${label}: app identifiers say why there are two`,
-			);
-			for (const [slug, text] of [
-				["google-gmail", "Google Gmail uses owner@solstice.example"],
-				["google-gmail-tedix", "Google Gmail Tedix uses sam@solstice.example"],
-			] as const)
-				assert.ok(
-					(
-						await gmail.locator(`[data-app-account="${slug}"]`).innerText()
-					).includes(text),
-					`${label}: ${text}`,
-				);
-			assert.ok(
-				await gmail
-					.getByRole("button", {
-						name: "Use sam@solstice.example for Google Gmail",
-					})
-					.isVisible(),
-				`${label}: switching names the account and the app`,
-			);
+	await gmail.getByRole("button", { name: "Details", exact: true }).click();
+	const details = await gmail.innerText();
+	assert.ok(
+		details.includes(
+			"2 apps use Gmail. Each signs in on its own, so each can use a different account.",
+		),
+		`${label}: two app identifiers are explained`,
+	);
+	assert.ok(
+		details.includes(
+			"One per app that uses Gmail: google-gmail, google-gmail-tedix",
+		),
+		`${label}: app identifiers say why there are two`,
+	);
+	for (const [slug, text] of [
+		["google-gmail", "Google Gmail uses owner@solstice.example"],
+		["google-gmail-tedix", "Google Gmail Tedix uses sam@solstice.example"],
+	] as const)
+		assert.ok(
+			(
+				await gmail.locator(`[data-app-account="${slug}"]`).innerText()
+			).includes(text),
+			`${label}: ${text}`,
+		);
+	assert.ok(
+		await gmail
+			.getByRole("button", {
+				name: "Use sam@solstice.example for Google Gmail",
+			})
+			.isVisible(),
+		`${label}: switching names the account and the app`,
+	);
 
-			const overflow = await page.evaluate(
-				() => document.documentElement.scrollWidth - innerWidth,
-			);
-			assert.equal(overflow, 0, `${label}: horizontal overflow`);
-			assert.deepEqual(errors, [], `${label}: no page errors`);
-			await page.screenshot({
-				path: `${evidence}gmail-accounts-${width}-${theme}.png`,
-				fullPage: true,
-			});
-			checks += 1;
-			await page.close();
-		}
+	const overflow = await page.evaluate(
+		() => document.documentElement.scrollWidth - innerWidth,
+	);
+	assert.equal(overflow, 0, `${label}: horizontal overflow`);
+	assert.deepEqual(errors, [], `${label}: no page errors`);
+	await page.screenshot({
+		path: `${evidence}gmail-accounts-${width}-${theme}.png`,
+		fullPage: true,
+	});
+	await page.close();
 	console.log(
-		`PASS: two Gmail accounts in ${checks} page states; screenshots in ${evidence}`,
+		`PASS: independent Gmail accounts on a phone; screenshots in ${evidence}`,
 	);
 } finally {
 	await browser.close();

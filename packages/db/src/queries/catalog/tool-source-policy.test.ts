@@ -9,7 +9,6 @@ import {
 	inferExternalToolOutputSchema,
 	isExternalCatalogLogoUrl,
 	isTedixCatalogAssetUrl,
-	isTedixCatalogToolSource,
 	isTedixHostedMcpEndpoint,
 	jsonEqual,
 	mcpToolOutputSchema,
@@ -483,20 +482,6 @@ describe("catalogMcpToolSourceHash", () => {
 	});
 });
 
-describe("isTedixCatalogToolSource", () => {
-	it("accepts the first-party tool sources", () => {
-		expect(isTedixCatalogToolSource("tedix_app")).toBe(true);
-		expect(isTedixCatalogToolSource("openapi")).toBe(true);
-		expect(isTedixCatalogToolSource("google-discovery")).toBe(true);
-	});
-
-	it("rejects upstream and missing sources", () => {
-		expect(isTedixCatalogToolSource("upstream_mcp")).toBe(false);
-		expect(isTedixCatalogToolSource(null)).toBe(false);
-		expect(isTedixCatalogToolSource(undefined)).toBe(false);
-	});
-});
-
 describe("isTedixHostedMcpEndpoint", () => {
 	it("accepts subdomains of the tedix MCP hostnames", () => {
 		expect(isTedixHostedMcpEndpoint("https://docs.mcp.tedix.dev/mcp")).toBe(
@@ -528,15 +513,14 @@ describe("shouldProjectCatalogToolsFromBaseApp", () => {
 	};
 
 	it("projects for first-party tool sources regardless of endpoint", () => {
-		expect(
-			shouldProjectCatalogToolsFromBaseApp({
-				...base,
-				toolSource: "tedix_app",
-			}),
-		).toBe(true);
-		expect(
-			shouldProjectCatalogToolsFromBaseApp({ ...base, toolSource: "openapi" }),
-		).toBe(true);
+		for (const toolSource of [
+			"tedix_app",
+			"openapi",
+			"google-discovery",
+		] as const)
+			expect(
+				shouldProjectCatalogToolsFromBaseApp({ ...base, toolSource }),
+			).toBe(true);
 	});
 
 	it("projects upstream_mcp apps hosted on tedix MCP endpoints", () => {

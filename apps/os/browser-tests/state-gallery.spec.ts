@@ -202,6 +202,14 @@ try {
 			});
 
 		if (theme === "dark") {
+			await page
+				.locator("#feed-empty")
+				.getByRole("heading", {
+					level: 2,
+					name: "Nothing waiting in Feed",
+					exact: true,
+				})
+				.waitFor();
 			// Negative controls prove a blank state and low-contrast text/icon fail the gate.
 			await page
 				.locator("#feed-empty [data-state-content]")

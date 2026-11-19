@@ -521,53 +521,6 @@ export type CatalogStoreListingSummary = {
 	regions: string[] | null;
 };
 
-/**
- * D1 rejects a statement with more than 100 bound parameters. Any
- * `inArray(column, appIds)` fan-out over a caller-controlled page of catalog
- * apps therefore has to be batched — `catalog.list` accepts `limit` up to 200,
- * so an unbatched lookup 500s for every page larger than 100.
- */
-
-export /**
- * D1 rejects a statement with more than 100 bound parameters. Any
- * `inArray(column, appIds)` fan-out over a caller-controlled page of catalog
- * apps therefore has to be batched — `catalog.list` accepts `limit` up to 200,
- * so an unbatched lookup 500s for every page larger than 100.
- */
-const CATALOG_ID_LOOKUP_BATCH_SIZE = 50;
-
-/**
- * Run an id-keyed lookup in D1-safe batches and concatenate the rows.
- *
- * Every `inArray(..., appIds)` lookup in this router must go through here so
- * the bound-parameter ceiling cannot be reintroduced one query at a time.
- */
-
-export /**
- * Run an id-keyed lookup in D1-safe batches and concatenate the rows.
- *
- * Every `inArray(..., appIds)` lookup in this router must go through here so
- * the bound-parameter ceiling cannot be reintroduced one query at a time.
- */
-async function selectByCatalogAppIds<Row>(
-	appIds: string[],
-	select: (batch: string[]) => Promise<Row[]>,
-): Promise<Row[]> {
-	const rows: Row[] = [];
-	for (
-		let index = 0;
-		index < appIds.length;
-		index += CATALOG_ID_LOOKUP_BATCH_SIZE
-	) {
-		rows.push(
-			...(await select(
-				appIds.slice(index, index + CATALOG_ID_LOOKUP_BATCH_SIZE),
-			)),
-		);
-	}
-	return rows;
-}
-
 export async function listStoreListingsForCatalogApps(
 	db: BaseContext["db"],
 	appIds: string[],

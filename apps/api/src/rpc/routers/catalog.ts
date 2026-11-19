@@ -13,11 +13,7 @@ import {
 	syncCatalogToolsToAppCatalog,
 	triggerToolTestCatalog,
 } from "./catalog/quality-governance";
-import {
-	CATALOG_ID_LOOKUP_BATCH_SIZE,
-	catalogOs,
-	selectByCatalogAppIds,
-} from "./catalog/policy-quality";
+import { catalogOs } from "./catalog/policy-quality";
 import {
 	generatedTenantOpenApiProviderId,
 	openApiSyncMetadataFromInput,
@@ -116,8 +112,6 @@ export const catalogContractRouter = catalogOs.router({
 // =============================================================================
 
 export const catalogRouterTestInternals = {
-	CATALOG_ID_LOOKUP_BATCH_SIZE,
-	selectByCatalogAppIds,
 	generatedTenantOpenApiProviderId,
 	openApiSyncMetadataFromInput,
 	parseOpenApiSpecText,

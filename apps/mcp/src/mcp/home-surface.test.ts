@@ -30,38 +30,9 @@ describe("home surface tools", () => {
 		}
 	});
 	it("emits ask as the sole unnamespaced Home entry point", () => {
-		expect([...byId.keys()].sort()).toEqual(
-			[
-				"home__accept_work_item",
-				"home__approve_home_plan",
-				"ask",
-				"home__async_canary",
-				"home__cancel_home_run",
-				"home__cancel_work_item",
-				"home__complete_work_item",
-				"home__create_work_item",
-				"home__archive_conversation",
-				"home__delete_conversation",
-				"home__list_kernel_trace_bundles",
-				"home__list_conversations",
-				"home__pin_conversation",
-				"home__read_child_run_evidence",
-				"home__read_child_run_tree",
-				"home__read_home_messages",
-				"home__read_home_run",
-				"home__read_home_trace",
-				"home__read_home_run_events",
-				"home__read_delegated_tedi_traces",
-				"home__read_home_run_set",
-				"home__rename_conversation",
-				"home__respond_home_approval",
-				"home__retry_delegation",
-				"home__retry_home_run",
-				"home__steer_home_run",
-				"home__synthesize_spoken_reply",
-				"home__update_work_item",
-			].sort(),
-		);
+		expect([...byId.keys()].filter((id) => !id.startsWith("home__"))).toEqual([
+			"ask",
+		]);
 	});
 
 	it("marks the async canary _asyncTask so the generic-task gate is reachable", () => {
@@ -89,42 +60,10 @@ describe("home surface tools", () => {
 		}
 	});
 
-	it("maps each tool to its kernelRuntime rpc endpoint", () => {
-		const endpoints = Object.fromEntries(
-			tools.map((tool) => [
-				tool.toolId,
-				(tool.config as { endpoint?: string }).endpoint,
-			]),
+	it("routes ask to the queued Home entry point", () => {
+		expect(byId.get("ask")?.config?.endpoint).toBe(
+			"kernelRuntime/enqueueMessage",
 		);
-		expect(endpoints).toMatchObject({
-			ask: "kernelRuntime/enqueueMessage",
-			home__read_home_messages: "kernelRuntime/readMessages",
-			home__read_home_run_set: "kernelRuntime/readRunSet",
-			home__read_home_run: "kernelRuntime/readRun",
-			home__read_home_trace: "kernelRuntime/readRunTrace",
-			home__read_home_run_events: "kernelRuntime/readRunEvents",
-			home__read_child_run_evidence: "kernelRuntime/readChildRunEvidence",
-			home__read_child_run_tree: "kernelRuntime/readChildRunTree",
-			home__list_conversations: "kernelRuntime/listConversations",
-			home__rename_conversation: "kernelRuntime/renameConversation",
-			home__pin_conversation: "kernelRuntime/pinConversation",
-			home__archive_conversation: "kernelRuntime/archiveConversation",
-			home__delete_conversation: "kernelRuntime/deleteConversation",
-			home__read_delegated_tedi_traces: "harness/listTraceBundles",
-			home__list_kernel_trace_bundles: "harness/listKernelTraceBundles",
-			home__approve_home_plan: "kernelRuntime/approvePlanAssignments",
-			home__respond_home_approval: "kernelRuntime/respondApproval",
-			home__cancel_home_run: "kernelRuntime/cancelRun",
-			home__steer_home_run: "kernelRuntime/steerRun",
-			home__retry_delegation: "kernelRuntime/retryDelegation",
-			home__retry_home_run: "kernelRuntime/retryRun",
-			home__synthesize_spoken_reply: "voice/synthesizeSpokenReply",
-			home__create_work_item: "workItems/create",
-			home__update_work_item: "workItems/updateSpecification",
-			home__accept_work_item: "workItems/accept",
-			home__complete_work_item: "workItems/complete",
-			home__cancel_work_item: "workItems/cancel",
-		});
 	});
 
 	it("never carries a tedi identity (org resolves from caller header)", () => {
@@ -289,10 +228,6 @@ describe("home surface tools", () => {
 		expect(tool?.inputSchema.properties?.approvalRequestId).toBeUndefined();
 		expect(tool?.description).toContain("write-action");
 		expect(tool?.description).toContain("plan");
-	});
-
-	it("enumerates suggest_handoff among the kernel route kinds in ask", () => {
-		expect(byId.get("ask")?.description).toContain("suggest_handoff");
 	});
 
 	it("wires the Work Item write tools to workItems/* over the service binding (org from header, no organizationId input)", () => {

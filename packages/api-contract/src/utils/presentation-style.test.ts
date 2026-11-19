@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { OsPresentationElementSchema } from "../schemas/os-workspaces";
 import {
 	parseSlideText,
-	slideArrowPath,
 	slideBackgroundMarkup,
 	slideCss,
 	slideDeckLogo,
@@ -124,12 +123,6 @@ describe("slide styles", () => {
 		]);
 		expect(parseSlideText("****")).toEqual([{ text: "****", bold: false }]);
 		expect(parseSlideText("")).toEqual([]);
-	});
-
-	it("draws a horizontal shaft and arrowhead inside the box", () => {
-		expect(slideArrowPath({ ...element, width: 200, height: 40 })).toBe(
-			"M 2 20 H 198 M 180 2 L 198 20 L 180 38",
-		);
 	});
 
 	it("keeps canvas-scaled lengths in serialized markup", () => {

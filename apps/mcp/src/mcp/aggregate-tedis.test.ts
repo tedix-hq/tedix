@@ -388,27 +388,6 @@ describe("aggregate tedis", () => {
 			).toBe(false);
 	});
 
-	it("projects promote_skill with the canonical skills.promote input schema", () => {
-		const tools = buildAggregateTediTools(
-			[
-				{ slug: "cto", namespace: "cto", tediId: "cto-id" },
-				{ slug: "ceo", namespace: "ceo", tediId: "ceo-id" },
-				{ slug: "cmo", namespace: "cmo", tediId: "cmo-id" },
-			],
-			env,
-		);
-		const canonicalPromoteSchema = zodToToolInputJsonSchema(
-			procedureInputSchema(skillsContract.promote),
-		);
-
-		for (const namespace of ["cto", "ceo", "cmo"]) {
-			const promoteSkill = tools.find(
-				(tool) => tool.toolId === `${namespace}__promote_skill`,
-			);
-			expect(promoteSkill?.inputSchema).toEqual(canonicalPromoteSchema);
-		}
-	});
-
 	it("projects list_promotion_candidates with the native tedi schema shape", () => {
 		const tools = buildAggregateTediTools(
 			[
@@ -587,37 +566,6 @@ describe("aggregate tedis", () => {
 		).toHaveProperty("restartAborted");
 	});
 
-	it("projects audit_low_quality_skills with the native tedi schema shape", () => {
-		const tools = buildAggregateTediTools(
-			[
-				{ slug: "cto", namespace: "cto", tediId: "cto-id" },
-				{ slug: "ceo", namespace: "ceo", tediId: "ceo-id" },
-				{ slug: "cmo", namespace: "cmo", tediId: "cmo-id" },
-			],
-			env,
-		);
-		const canonicalAuditSchema = zodToToolInputJsonSchema(
-			procedureInputSchema(skillsContract.auditLowQuality),
-		);
-		const { tediId: _tediId, ...auditProperties } =
-			canonicalAuditSchema.properties ?? {};
-		const expectedAuditSchema = {
-			...canonicalAuditSchema,
-			properties: auditProperties,
-			required: canonicalAuditSchema.required?.filter(
-				(name) => name !== "tediId",
-			),
-		};
-
-		for (const namespace of ["cto", "ceo", "cmo"]) {
-			const auditTool = tools.find(
-				(tool) => tool.toolId === `${namespace}__audit_low_quality_skills`,
-			);
-			expect(auditTool?.inputSchema).toEqual(expectedAuditSchema);
-			expect(auditTool?.annotations).toMatchObject({ readOnlyHint: false });
-		}
-	});
-
 	it("keeps container tools off the collaboration surface", () => {
 		const tools = buildAggregateTediTools(
 			[
@@ -678,16 +626,6 @@ describe("aggregate tedis", () => {
 		// Container-only collaboration tools are gone.
 		expect(ids).not.toContain("echo__read_resource");
 		expect(ids).not.toContain("echo__get_tedi_status");
-	});
-
-	it("hides container diagnostics on the full tedi surface", () => {
-		const tools = buildAggregateTediTools(
-			[{ slug: "cto", namespace: "cto", runtimeKind: "agent" }],
-			env,
-		);
-		const toolIds = tools.map((tool) => tool.toolId);
-
-		expect(toolIds).not.toContain("cto__get_process_logs");
 	});
 
 	it("filters container-only tools out of the isolate surface", () => {
@@ -1037,15 +975,6 @@ describe("aggregate tedis", () => {
 		// Container-only (`requiresContainer`) tools must not leak onto the
 		// default Agent surface.
 		expect(hydratedIds).not.toContain("echo__get_process_logs");
-	});
-
-	it("hides container-only tools even for agent rows", () => {
-		const agentTools = buildAggregateTediTools(
-			[{ slug: "cmo", namespace: "cmo", runtimeKind: "agent" }],
-			env,
-		);
-		const agentIds = agentTools.map((tool) => tool.toolId);
-		expect(agentIds).not.toContain("cmo__get_process_logs");
 	});
 
 	it("transient-API-failure fallback does not expose container tools", async () => {

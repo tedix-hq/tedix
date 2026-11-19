@@ -6,45 +6,66 @@
  * rather than a generic listing.
  */
 
-import { describe, expect, it } from "vite-plus/test";
+import { DatabaseSync } from "node:sqlite";
+import { createDbClient } from "@tedix/db/client";
+import { catalogRunnableSql } from "@tedix/db/queries/catalog/vendor-variants";
+import { appCatalog } from "@tedix/db/schema/catalog";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { calculateCatalogInstallability } from "./catalog";
 
-describe("calculateCatalogInstallability — service_connector", () => {
-	it("classifies a no-endpoint SERVICE connector as service_connector", () => {
-		const result = calculateCatalogInstallability({
-			status: "ENABLED",
-			connectorType: "SERVICE",
-			baseUrl: null,
-			mcpEndpointNormalized: null,
-			mcpToolCount: 0,
-		});
-		expect(result.installable).toBe(false);
-		expect(result.state).toBe("service_connector");
-	});
+const endpoint = "https://mcp.example.test/mcp";
 
-	it("keeps FIRST_PARTY_ECOSYSTEM umbrellas as listing_only", () => {
-		const result = calculateCatalogInstallability({
-			status: "ENABLED",
-			connectorType: "FIRST_PARTY_ECOSYSTEM",
-			baseUrl: null,
-			mcpEndpointNormalized: null,
-			mcpToolCount: 0,
-		});
-		expect(result.state).toBe("listing_only");
-	});
+describe("catalog installability", () => {
+	it("keeps API installability aligned with SQL runnability", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		onTestFinished(() => sqlite.close());
+		sqlite.exec(schemaDdl(appCatalog));
+		const db = createDbClient(createD1Facade(sqlite));
+		const samples = [
+			[{ connectorType: "MCP" }, "needs_mcp_endpoint"],
+			[{ connectorType: "MCP", baseUrl: endpoint }, "needs_base_app"],
+			[
+				{ connectorType: "MCP", mcpEndpointNormalized: endpoint },
+				"needs_base_app",
+			],
+			[{ connectorType: "SERVICE" }, "service_connector"],
+			[{ connectorType: "SERVICE", baseUrl: endpoint }, "listing_only"],
+			[{ connectorType: "SERVICE", mcpToolCount: 1 }, "needs_base_app"],
+			[{ connectorType: "NATIVE", mcpResourceCount: 1 }, "needs_base_app"],
+			[{ connectorType: "NATIVE", mcpPromptCount: 1 }, "needs_base_app"],
+			[
+				{
+					connectorType: "FIRST_PARTY_ECOSYSTEM",
+					baseUrl: endpoint,
+					mcpToolCount: 1,
+				},
+				"listing_only",
+			],
+		] as const;
+		const entries = samples.map(([sample], index) => ({
+			...sample,
+			id: String(index),
+			name: "Vendor",
+			status: "ENABLED" as const,
+			lastSyncedAt: "2026-01-01T00:00:00Z",
+		}));
+		for (const entry of entries) await db.insert(appCatalog).values(entry);
+		const rows = await db
+			.select({
+				id: appCatalog.id,
+				runnable: catalogRunnableSql(appCatalog).as("runnable"),
+			})
+			.from(appCatalog)
+			.orderBy(appCatalog.id);
 
-	it("does not mark a SERVICE connector that has an endpoint as service_connector", () => {
-		const result = calculateCatalogInstallability(
-			{
-				status: "ENABLED",
-				connectorType: "SERVICE",
-				baseUrl: "https://api.example.com/mcp",
-				mcpEndpointNormalized: "https://api.example.com/mcp",
-				mcpToolCount: 3,
-			},
-			null,
+		expect(
+			entries.map((entry) => calculateCatalogInstallability(entry).state),
+		).toEqual(samples.map(([, state]) => state));
+		expect(rows.map((row) => Boolean(row.runnable))).toEqual(
+			samples.map(([, state]) => state === "needs_base_app"),
 		);
-		expect(result.state).not.toBe("service_connector");
 	});
 
 	it("still reports a real MCP app with a prepared base app as installable", () => {
@@ -52,8 +73,8 @@ describe("calculateCatalogInstallability — service_connector", () => {
 			{
 				status: "ENABLED",
 				connectorType: "MCP",
-				baseUrl: "https://api.githubcopilot.com/mcp",
-				mcpEndpointNormalized: "https://api.githubcopilot.com/mcp",
+				baseUrl: endpoint,
+				mcpEndpointNormalized: endpoint,
 				mcpToolCount: 44,
 			},
 			{ metadata: {} } as never,

@@ -528,6 +528,14 @@ describe("check_catalog_integrity — brokered_service_connector", () => {
 		expect(brokered).toHaveLength(1);
 		expect(brokered[0]?.repairAction).toBe("none");
 		expect(brokered[0]?.summary).toMatch(/runnable official row exists/);
+		expect(
+			report.issues.filter(
+				(issue) =>
+					issue.catalogAppId === brokered[0]?.catalogAppId &&
+					(issue.code === "missing_mcp_endpoint" ||
+						issue.code === "empty_tool_snapshot"),
+			),
+		).toEqual([]);
 	});
 
 	it("does NOT treat a shared domain with a different name as a merge candidate (BigQuery vs Gmail)", async () => {

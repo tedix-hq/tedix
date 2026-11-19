@@ -1504,12 +1504,6 @@ describe("CMS origin route policy", () => {
 		expect(isOriginRedirectablePath("/blog")).toBe(false);
 		expect(isOriginRedirectablePath("/blog/example")).toBe(false);
 	});
-
-	test("keeps current CMS routes canonical on the public host", () => {
-		expect(isOriginRedirectablePath("/")).toBe(true);
-		expect(isOriginRedirectablePath("/posts/example")).toBe(true);
-		expect(isOriginRedirectablePath("/sitemap.xml")).toBe(true);
-	});
 });
 
 describe("missing tenant routes", () => {

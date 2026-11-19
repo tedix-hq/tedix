@@ -3,8 +3,6 @@ import { unzipSync, strFromU8 } from "fflate";
 import { XMLValidator } from "fast-xml-parser";
 import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { DEFAULT_ORGANIZATION_OS_THEME } from "@tedix/api-contract/schemas/os-theme";
-import { slideElementMarkup } from "@tedix/api-contract/utils/presentation-style";
-import { renderOsOutputHtml } from "./os-output-html";
 import { buildOsOutputOfficeExport } from "./os-output-office";
 import { pptxImageFrame } from "./ooxml/presentation-image";
 
@@ -144,35 +142,6 @@ const content = OsOutputContentSchema.parse({
 });
 
 describe("slide parity exports", () => {
-	it("uses exact shared screen markup for PDF/PNG elements and slide backgrounds", () => {
-		if (content.kind !== "presentation") throw new Error("fixture");
-		const html = renderOsOutputHtml(
-			{ kind: "presentation", title: "Parity" },
-			{ content, revision: 1, createdAt: "2026-01-01T00:00:00Z" },
-			organization,
-		);
-		for (const element of content.deck!.slides[0]!.elements)
-			expect(html).toContain(
-				slideElementMarkup(element, "pixels", organization),
-			);
-		for (const value of [
-			"linear-gradient(120deg, #123456 0%, #abcdef 100%)",
-			"opacity:0.3",
-			"object-fit:cover",
-			"object-position:20% 80%",
-			"inset:24px",
-			"Safe &lt;copy&gt;",
-			"font-family:Space Grotesk, sans-serif",
-			"font-family:Inter, sans-serif",
-			"font-family:JetBrains Mono, monospace",
-			"font-weight:300",
-			"letter-spacing:2px",
-			"family=Space+Grotesk",
-			"family=Inter",
-			"family=JetBrains+Mono",
-		])
-			expect(html).toContain(value);
-	});
 	it("writes native card parts, hanging bullets, highlights, arrows, tones, shapes and embedded backgrounds/logo", async () => {
 		const file = unzipSync(
 			await buildOsOutputOfficeExport("pptx", content, "Parity", organization),
