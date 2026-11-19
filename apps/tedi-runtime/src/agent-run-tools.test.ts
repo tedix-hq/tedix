@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { ToolSet } from "ai";
 import { MCP_FACET_TURN_INPUT, mcpFacetTurnProbe } from "../test/tedi-do";
 import { RpcCallError } from "@tedix/api-client/internal";
 import type { PlatformClient } from "./brain/platform-client";
@@ -27,17 +28,21 @@ function refusal(status: number, message: string) {
 	);
 }
 
-function build(platform: Partial<PlatformClient> | null) {
-	const tools = agentRunTools({
+function build(
+	platform: Partial<PlatformClient> | null,
+	sessionKey = "agent:main:chat-7",
+) {
+	const tools: ToolSet = agentRunTools({
 		getPlatform: async () => platform as PlatformClient | null,
-		sessionKey: "agent:main:chat-7",
-		conversationId: "fictional-tedi:agent:main:chat-7",
+		sessionKey,
+		conversationId: `fictional-tedi:${sessionKey}`,
 		runId: "run-7",
 	});
-	const run = (name: keyof typeof tools, input: unknown) =>
-		(tools[name].execute as Execute)(input, {});
+	const run = (name: string, input: unknown) =>
+		(tools[name]!.execute as Execute)(input, {});
 	return { tools, run };
 }
+const supervisionSession = "agent-run-supervision:fictional-tedi";
 
 const start = {
 	title: "Fix the date filter",
@@ -330,6 +335,43 @@ assert.deepEqual(Object.keys(build({}).tools), [
 	});
 }
 
+// A supervision round cannot start a run and can tell the person; every
+// other turn is the reverse. The update passes through once and a refusal is
+// the server's reason.
+{
+	const told: unknown[] = [];
+	const { tools, run } = build(
+		{
+			tellPersonAboutAgentRun: async (params) => {
+				told.push(params);
+				if (told.length > 1) throw refusal(403, "Only the starting tedi");
+				return { status: "sent", chat: "tedi" };
+			},
+		},
+		supervisionSession,
+	);
+	assert.deepEqual(Object.keys(tools), [
+		"list_agent_runs",
+		"read_agent_run",
+		"send_agent_run_message",
+		"stop_agent_run",
+		"tell_person_about_agent_run",
+	]);
+	const update = { workItemId: item, message: "The run waits for a machine." };
+	assert.deepEqual(await run("tell_person_about_agent_run", update), {
+		kind: "agent_run_update",
+		workItemId: item,
+		status: "sent",
+	});
+	assert.deepEqual(await run("tell_person_about_agent_run", update), {
+		kind: "agent_run_error",
+		workItemId: item,
+		url: `/work/items/${item}`,
+		message: "The person was not told. Only the starting tedi",
+	});
+	assert.deepEqual(told, [update, update]);
+}
+
 // Follow-up and stop pass through once; a refusal is the server's reason.
 {
 	const sent: unknown[] = [];
@@ -402,15 +444,19 @@ assert.deepEqual(Object.keys(build({}).tools), [
 	// An unverified author is never offered them: not by email, Telegram or an
 	// MCP caller, and not in the embedded widget (`embed:` sessions), whose
 	// wider allowlist names none of them.
+	const round = build({}, supervisionSession).tools;
 	for (const channel of ["email", "telegram", "widget", "mcp"] as const) {
 		const allowlist = untrustedTurnToolAllowlist(channel);
-		for (const name of Object.keys(tools))
-			assert.equal(allowlist.has(name), false);
-		assert.deepEqual(
-			selectTrustedTurnTools({ trust: "untrusted", full: tools, allowlist }),
-			{},
-		);
+		for (const full of [tools, round]) {
+			for (const name of Object.keys(full))
+				assert.equal(allowlist.has(name), false);
+			assert.deepEqual(
+				selectTrustedTurnTools({ trust: "untrusted", full, allowlist }),
+				{},
+			);
+		}
 	}
+	assert.deepEqual(supervisedDelegationToolSet(round, true), {});
 }
 
 // A tedi's own turn offers the tools and binds them to that turn's
@@ -448,6 +494,20 @@ assert.deepEqual(Object.keys(build({}).tools), [
 		assert.equal(name in untrusted.tools, false);
 		assert.equal(name in delegated.tools, false);
 	}
+
+	// A supervision round's turn offers its tools, and an untrusted turn in a
+	// session with that name still gets none of them.
+	const round = await probe({ sessionKey: supervisionSession });
+	assert.ok("tell_person_about_agent_run" in round.tools);
+	assert.ok("stop_agent_run" in round.tools);
+	assert.equal("start_agent_run" in round.tools, false);
+	assert.equal("tell_person_about_agent_run" in own.tools, false);
+	const untrustedRound = await probe({
+		sessionKey: supervisionSession,
+		trust: "untrusted",
+	});
+	for (const name of Object.keys(build({}, supervisionSession).tools))
+		assert.equal(name in untrustedRound.tools, false);
 
 	// A tedi the person picked in the chat runs as a delegated turn in a hidden
 	// conversation. It keeps the tools, and the task it starts is filed under

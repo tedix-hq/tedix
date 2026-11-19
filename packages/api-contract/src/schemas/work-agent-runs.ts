@@ -7,6 +7,12 @@ import * as z from "zod";
 import { WorkAttemptStepKindSchema } from "./work-attempt-steps";
 import { WorkAttemptOutcomeSchema } from "./work-items";
 
+/**
+ * Session key prefix of the session, seen by no person, in which a tedi gets
+ * its supervision rounds. The tedi's id follows the prefix.
+ */
+export const AGENT_RUN_SUPERVISION_SESSION_PREFIX = "agent-run-supervision:";
+
 export const AgentRunStateSchema = z.enum([
 	"waiting_for_runner",
 	"running",
@@ -120,3 +126,27 @@ export const ListAgentRunsResultSchema = z.object({
 	runs: z.array(AgentRunSchema),
 });
 export type ListAgentRunsResult = z.infer<typeof ListAgentRunsResultSchema>;
+
+export const TellPersonAboutAgentRunInputSchema = z.strictObject({
+	id: z.uuid(),
+	message: z
+		.string()
+		.trim()
+		.min(1)
+		.max(1_000)
+		.describe(
+			"What the person should know about the run, in plain words. Never command output, file contents or secrets.",
+		),
+});
+
+export const TellPersonAboutAgentRunResultSchema = z.object({
+	status: z
+		.enum(["sent", "too_soon", "no_chat", "failed"])
+		.describe(
+			"sent: the chat the run was started from received the update. too_soon: an update about this run went out in the last five minutes. no_chat: the run was not started from a chat. failed: the chat did not accept it.",
+		),
+	chat: z.enum(["tedi", "home"]).optional(),
+});
+export type TellPersonAboutAgentRunResult = z.infer<
+	typeof TellPersonAboutAgentRunResultSchema
+>;

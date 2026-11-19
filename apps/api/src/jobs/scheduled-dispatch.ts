@@ -299,6 +299,12 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			await trackPlatformCronPath(env, event, "commitment-wakes", () =>
 				dispatchCommitmentWakes(env, event.scheduledTime),
 			);
+			// A tedi with live agent runs it started gets a round to check on them.
+			const { dispatchAgentRunSupervision } =
+				await import("./agent-run-supervision");
+			await trackPlatformCronPath(env, event, "agent-run-supervision", () =>
+				dispatchAgentRunSupervision(env, event.scheduledTime),
+			);
 			await trackPlatformCronPath(
 				env,
 				event,

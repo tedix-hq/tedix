@@ -49,7 +49,10 @@ import type {
 	GetWorkItemResult,
 	ListWorkItemAttemptsResult,
 } from "@tedix/api-contract/schemas/work-items";
-import type { ListAgentRunsResult } from "@tedix/api-contract/schemas/work-agent-runs";
+import type {
+	ListAgentRunsResult,
+	TellPersonAboutAgentRunResult,
+} from "@tedix/api-contract/schemas/work-agent-runs";
 import type {
 	ListWorkAttemptStepsResult,
 	WorkAttemptMessage,
@@ -471,6 +474,11 @@ export interface PlatformClient {
 		interrupt?: boolean;
 	}): Promise<WorkAttemptMessage>;
 	stopWorkAttempt(params: { workItemId: string }): Promise<WorkAttemptMessage>;
+	/** Update for the person in the chat a run was started from. */
+	tellPersonAboutAgentRun(params: {
+		workItemId: string;
+		message: string;
+	}): Promise<TellPersonAboutAgentRunResult>;
 	/** The agent runs this tedi started, newest first, with their real state. */
 	listAgentRuns(params?: {
 		state?: "live" | "ended" | "all";
@@ -1096,6 +1104,16 @@ export class HttpPlatformClient implements PlatformClient {
 		workItemId: string;
 	}): Promise<WorkAttemptMessage> {
 		return this.rpc("workItems", "stopAttempt", { id: params.workItemId });
+	}
+
+	async tellPersonAboutAgentRun(params: {
+		workItemId: string;
+		message: string;
+	}): Promise<TellPersonAboutAgentRunResult> {
+		return this.rpc("workItems", "tellPersonAboutAgentRun", {
+			id: params.workItemId,
+			message: params.message,
+		});
 	}
 
 	async listAgentRuns(

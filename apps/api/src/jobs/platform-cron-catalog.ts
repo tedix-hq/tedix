@@ -26,6 +26,7 @@ export const PLATFORM_CRON_IDS = [
 	"workspace-approval-push",
 	"work-approval-redrive",
 	"commitment-wakes",
+	"agent-run-supervision",
 	"stall-recovery",
 	"repository-observer",
 	"support-maintenance",
@@ -131,6 +132,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	},
 	{
 		id: "commitment-wakes",
+		cron: "*/2 * * * *",
+		intervalMinutes: 2,
+		requiresBinding: "TEDI_SERVICE",
+	},
+	{
+		id: "agent-run-supervision",
 		cron: "*/2 * * * *",
 		intervalMinutes: 2,
 		requiresBinding: "TEDI_SERVICE",
