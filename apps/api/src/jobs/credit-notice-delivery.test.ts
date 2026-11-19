@@ -64,7 +64,11 @@ function seed() {
 	return {
 		sqlite,
 		db: createDbClient(createD1Facade(sqlite)),
-		env: { EMAIL, OS_URL: "https://os.example.test", SHARE_EMAIL_FROM: "billing@example.test" },
+		env: {
+			EMAIL,
+			OS_URL: "https://os.example.test",
+			SHARE_EMAIL_FROM: "billing@example.test",
+		},
 		sent,
 		failEmailTo: (email: string | null) => {
 			failFor = email;
