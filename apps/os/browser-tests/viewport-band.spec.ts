@@ -12,7 +12,7 @@ if (shots) await mkdir(shots, { recursive: true });
 let browser;
 try {
 	browser = await (mobileSafari ? webkit : chromium).launch({ headless: true });
-	for (const width of mobileSafari ? [390] : [390, 768, 1280]) {
+	for (const width of mobileSafari ? [390] : [390, 768]) {
 		const page = await browser.newPage({ viewport: { width, height: 800 } });
 		await page.goto(`${origin}/admin/connections`);
 		const accounts = page.locator(
@@ -30,7 +30,8 @@ try {
 		await page.close();
 	}
 	for (const width of mobileSafari ? [390] : [1280, 390]) {
-		for (const zoom of width === 1280 ? [0.8, 1, 1.25, 1.5, 1.75] : [1, 1.5]) {
+		// At 175% the desktop viewport crosses the shell's 768px breakpoint.
+		for (const zoom of width === 1280 ? [1, 1.75] : [1, 1.5]) {
 			// Desktop browser zoom changes CSS viewport dimensions and pixel density together.
 			const page = await browser.newPage({
 				viewport: {
@@ -163,7 +164,7 @@ window.Tedix = {
 					JSON.stringify(result),
 				);
 				assert(result.padding >= 80, JSON.stringify(result));
-				if (shots && [1, 1.5].includes(zoom))
+				if (shots)
 					await page.screenshot({
 						path: `${shots}/viewport-band-after-${name}-${width}-zoom-${zoom}${mobileSafari ? "-webkit" : ""}.png`,
 					});

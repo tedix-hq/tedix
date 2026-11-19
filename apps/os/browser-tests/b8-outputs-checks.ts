@@ -434,128 +434,141 @@ export async function runB8OutputsChecks(
 			}
 			await inspect(page, `${label}-opened`, phone);
 		});
-		await scenario("pending", async () => {
-			mode = "pending";
-			gate = new Promise<void>((resolve) => {
-				release = resolve;
+		// The phone run covers the same request states at the tighter layout.
+		if (phone) {
+			await scenario("pending", async () => {
+				mode = "pending";
+				gate = new Promise<void>((resolve) => {
+					release = resolve;
+				});
+				const pendingRequest = page.waitForRequest(
+					(request) =>
+						new URL(request.url()).pathname ===
+						"/api/rpc/osWorkspaces/outputs/library",
+				);
+				await page.goto(`${origin}/outputs`);
+				await pendingRequest;
+				await visible(
+					page.locator(
+						'section[data-slot="page"][aria-busy="true"], main[aria-busy="true"]',
+					),
+				);
+				assert.equal(
+					await page.getByText("No documents yet", { exact: true }).count(),
+					0,
+				);
+				assert.equal(
+					await page
+						.getByText("No matching documents", { exact: true })
+						.count(),
+					0,
+				);
+				await inspect(page, `${label}-pending`, phone);
+				mode = "ready";
+				release();
+				await ready();
 			});
-			const pendingRequest = page.waitForRequest(
-				(request) =>
-					new URL(request.url()).pathname ===
-					"/api/rpc/osWorkspaces/outputs/library",
-			);
-			await page.goto(`${origin}/outputs`);
-			await pendingRequest;
-			await visible(
-				page.locator(
-					'section[data-slot="page"][aria-busy="true"], main[aria-busy="true"]',
-				),
-			);
-			assert.equal(
-				await page.getByText("No documents yet", { exact: true }).count(),
-				0,
-			);
-			assert.equal(
-				await page.getByText("No matching documents", { exact: true }).count(),
-				0,
-			);
-			await inspect(page, `${label}-pending`, phone);
 			mode = "ready";
 			release();
-			await ready();
-		});
-		mode = "ready";
-		release();
-		await scenario("retry", async () => {
-			mode = "error";
-			await page.goto(`${origin}/outputs`);
-			await visible(
-				page.getByText("Documents are unavailable", { exact: true }),
-			);
-			assert.equal(
-				await page.getByText("No documents yet", { exact: true }).count(),
-				0,
-			);
-			await inspect(page, `${label}-error`, phone, [
-				page.getByRole("button", { name: "Retry", exact: true }),
-			]);
-			const previousReads = reads;
-			mode = "pending";
-			gate = new Promise<void>((resolve) => {
-				release = resolve;
+			await scenario("retry", async () => {
+				mode = "error";
+				await page.goto(`${origin}/outputs`);
+				await visible(
+					page.getByText("Documents are unavailable", { exact: true }),
+				);
+				assert.equal(
+					await page.getByText("No documents yet", { exact: true }).count(),
+					0,
+				);
+				await inspect(page, `${label}-error`, phone, [
+					page.getByRole("button", { name: "Retry", exact: true }),
+				]);
+				const previousReads = reads;
+				mode = "pending";
+				gate = new Promise<void>((resolve) => {
+					release = resolve;
+				});
+				const retryRequest = page.waitForRequest(
+					(request) =>
+						new URL(request.url()).pathname ===
+						"/api/rpc/osWorkspaces/outputs/library",
+				);
+				await page.getByRole("button", { name: "Retry", exact: true }).click();
+				await retryRequest;
+				// Query may reset its error while retrying; either pending treatment
+				// must remain honest, with no empty-library claim during the read.
+				await visible(
+					page
+						.locator('[data-slot="skeleton"]')
+						.first()
+						.or(
+							page.getByRole("button", { name: "Trying again…", exact: true }),
+						)
+						.first(),
+				);
+				assert.equal(
+					await page.getByText("No documents yet", { exact: true }).count(),
+					0,
+				);
+				assert.equal(
+					await page
+						.getByText("No matching documents", { exact: true })
+						.count(),
+					0,
+				);
+				await inspect(page, `${label}-retry-pending`, phone);
+				mode = "ready";
+				release();
+				await ready();
+				assert(reads > previousReads);
+				assert.equal(
+					await page
+						.getByText("Documents are unavailable", { exact: true })
+						.count(),
+					0,
+				);
 			});
-			const retryRequest = page.waitForRequest(
-				(request) =>
-					new URL(request.url()).pathname ===
-					"/api/rpc/osWorkspaces/outputs/library",
-			);
-			await page.getByRole("button", { name: "Retry", exact: true }).click();
-			await retryRequest;
-			// Query may reset its error while retrying; either pending treatment
-			// must remain honest, with no empty-library claim during the read.
-			await visible(
-				page
-					.locator('[data-slot="skeleton"]')
-					.first()
-					.or(page.getByRole("button", { name: "Trying again…", exact: true }))
-					.first(),
-			);
-			assert.equal(
-				await page.getByText("No documents yet", { exact: true }).count(),
-				0,
-			);
-			assert.equal(
-				await page.getByText("No matching documents", { exact: true }).count(),
-				0,
-			);
-			await inspect(page, `${label}-retry-pending`, phone);
 			mode = "ready";
 			release();
-			await ready();
-			assert(reads > previousReads);
-			assert.equal(
+			await scenario("bounded", async () => {
+				library = {
+					items: Array.from({ length: 200 }, (_, index) => ({
+						...readable,
+						output: {
+							...readable.output,
+							id: crypto.randomUUID(),
+							title: `Bounded output ${index + 1} ${"long".repeat(20)}`,
+						},
+					})),
+					truncated: true,
+				};
+				await page.goto(`${origin}/outputs`);
+				await ready();
+				assert.equal(await cards().count(), 20);
+				await visible(
+					page.getByText("Showing 20 of 200 items", { exact: true }),
+				);
+				await visible(
+					page.getByText("Showing the 200 most recently updated documents.", {
+						exact: true,
+					}),
+				);
+				await inspect(page, `${label}-bounded`, phone, [
+					page.getByRole("button", { name: "Show more", exact: true }),
+				]);
 				await page
-					.getByText("Documents are unavailable", { exact: true })
-					.count(),
-				0,
-			);
-		});
-		mode = "ready";
-		release();
-		await scenario("bounded", async () => {
-			library = {
-				items: Array.from({ length: 200 }, (_, index) => ({
-					...readable,
-					output: {
-						...readable.output,
-						id: crypto.randomUUID(),
-						title: `Bounded output ${index + 1} ${"long".repeat(20)}`,
-					},
-				})),
-				truncated: true,
-			};
-			await page.goto(`${origin}/outputs`);
-			await ready();
-			assert.equal(await cards().count(), 20);
-			await visible(page.getByText("Showing 20 of 200 items", { exact: true }));
-			await visible(
-				page.getByText("Showing the 200 most recently updated documents.", {
-					exact: true,
-				}),
-			);
-			await inspect(page, `${label}-bounded`, phone, [
-				page.getByRole("button", { name: "Show more", exact: true }),
-			]);
-			await page
-				.getByRole("button", { name: "Show more", exact: true })
-				.click();
-			assert.equal(await cards().count(), 40);
-			await search.fill("Bounded output 200 ");
-			await visible(cards().first());
-			assert.equal(await cards().count(), 1);
-			await search.fill("");
-			await visible(page.getByText("Showing 20 of 200 items", { exact: true }));
-		});
+					.getByRole("button", { name: "Show more", exact: true })
+					.click();
+				assert.equal(await cards().count(), 40);
+				await search.fill("Bounded output 200 ");
+				await visible(cards().first());
+				assert.equal(await cards().count(), 1);
+				await search.fill("");
+				await visible(
+					page.getByText("Showing 20 of 200 items", { exact: true }),
+				);
+			});
+		}
 		assert.deepEqual(
 			forbidden,
 			[],

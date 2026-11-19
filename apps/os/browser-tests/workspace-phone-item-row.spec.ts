@@ -119,8 +119,11 @@ try {
 				path: join(evidence, `${width}-${theme}-${item}.png`),
 			});
 
-			// Every view stays one choice away.
-			for (const view of views.toReversed()) {
+			// The Doc menu has distinct views. For the App, the shared switcher
+			// spec exercises every view and this checks the longest label fits.
+			for (const view of item === "doc"
+				? views.toReversed()
+				: ["Connections"]) {
 				await menuButton.click();
 				const menu = page.getByRole("menu");
 				const items = menu.getByRole("menuitemradio");

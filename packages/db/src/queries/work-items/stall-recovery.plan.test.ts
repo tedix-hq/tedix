@@ -462,21 +462,6 @@ describe.each([
 		expect(Object.keys(scopes[0]!)).not.toContain("workEnd");
 	});
 
-	it("returns the same scopes with or without an organization filter", async () => {
-		const { db } = fixture(productionLike);
-		const mine = await listAll(db, ORG);
-		const everyone = await listAll(db);
-		expect(everyone.filter((scope) => scope.orgId === ORG)).toEqual(mine);
-		expect(
-			everyone
-				.filter((scope) => scope.orgId !== ORG)
-				.map((scope) => [scope.key, scope.pendingCount, scope.failedCount]),
-		).toEqual([
-			["objective:o-other", 0, 0],
-			["project:p-other", 0, 0],
-		]);
-	});
-
 	it("walks each scope's Work in rowid order between two bounds", async () => {
 		const { sqlite, db, statements } = fixture(productionLike);
 		await listAll(db, ORG);
@@ -563,8 +548,65 @@ describe.each([
 		);
 	});
 
+	it("reads a shared workspace and a shared objective once per page", async () => {
+		const { sqlite, db, statements, bound } = fixture(productionLike);
+		await listAll(db, ORG);
+		const shared: string[] = [];
+		const linked: string[] = [];
+		for (const [index, query] of statements.entries()) {
+			if (!isHistory(query)) continue;
+			const rows = sqlite
+				.prepare(query)
+				.all(...(bound[index] as string[])) as Array<{
+				source: string;
+				key: string | null;
+				id: string | null;
+			}>;
+			for (const row of rows) {
+				if (row.source === "link") linked.push(`${row.key} ${row.id}`);
+				if (row.source === "workspace" || row.source === "objective")
+					shared.push(`${row.source} ${row.id}`);
+			}
+		}
+		// Every link is still reported, in all three statements...
+		expect(linked.sort()).toEqual([
+			"project:p-07 ws-shared",
+			"project:p-09 ws-shared",
+			"project:p-12 ws-own",
+			"project:p-12 ws-shared",
+			"project:p-20 ws-shared",
+		]);
+		// ...but the executions of ws-shared and the tasks of o-shared are
+		// aggregated by the first statement that meets them and by no later one.
+		// o-big has no tasks; it is read once and returns a row with no activity.
+		expect(shared.sort()).toEqual([
+			"objective o-big",
+			"objective o-shared",
+			"objective o-small",
+			"workspace ws-own",
+			"workspace ws-shared",
+		]);
+	});
+});
+
+describe("continuity inventory results", () => {
+	it("returns the same scopes with or without an organization filter", async () => {
+		const { db } = fixture(true);
+		const mine = await listAll(db, ORG);
+		const everyone = await listAll(db);
+		expect(everyone.filter((scope) => scope.orgId === ORG)).toEqual(mine);
+		expect(
+			everyone
+				.filter((scope) => scope.orgId !== ORG)
+				.map((scope) => [scope.key, scope.pendingCount, scope.failedCount]),
+		).toEqual([
+			["objective:o-other", 0, 0],
+			["project:p-other", 0, 0],
+		]);
+	});
+
 	it("finds the latest time among timestamps of both stored shapes", async () => {
-		const { sqlite, db } = fixture(productionLike);
+		const { sqlite, db } = fixture(true);
 		// SQL defaults write `2026-11-13 23:30:00`, the API writes
 		// `2026-11-13T11:00:00.000Z`. Within one day the second shape is the
 		// later text whatever its time, so the end of an index is not always
@@ -621,45 +663,5 @@ describe.each([
 		expect(byKey.get("objective:o-big")!.lastActivityAt).toBe(
 			"2026-11-19T00:00:00.000Z",
 		);
-	});
-
-	it("reads a shared workspace and a shared objective once per page", async () => {
-		const { sqlite, db, statements, bound } = fixture(productionLike);
-		await listAll(db, ORG);
-		const shared: string[] = [];
-		const linked: string[] = [];
-		for (const [index, query] of statements.entries()) {
-			if (!isHistory(query)) continue;
-			const rows = sqlite
-				.prepare(query)
-				.all(...(bound[index] as string[])) as Array<{
-				source: string;
-				key: string | null;
-				id: string | null;
-			}>;
-			for (const row of rows) {
-				if (row.source === "link") linked.push(`${row.key} ${row.id}`);
-				if (row.source === "workspace" || row.source === "objective")
-					shared.push(`${row.source} ${row.id}`);
-			}
-		}
-		// Every link is still reported, in all three statements...
-		expect(linked.sort()).toEqual([
-			"project:p-07 ws-shared",
-			"project:p-09 ws-shared",
-			"project:p-12 ws-own",
-			"project:p-12 ws-shared",
-			"project:p-20 ws-shared",
-		]);
-		// ...but the executions of ws-shared and the tasks of o-shared are
-		// aggregated by the first statement that meets them and by no later one.
-		// o-big has no tasks; it is read once and returns a row with no activity.
-		expect(shared.sort()).toEqual([
-			"objective o-big",
-			"objective o-shared",
-			"objective o-small",
-			"workspace ws-own",
-			"workspace ws-shared",
-		]);
 	});
 });

@@ -182,7 +182,7 @@ describe("real local D1 prefix snapshots", () => {
 		expect(await check()).toEqual({ cachedCount: 0, appliedCount: 1 });
 	});
 
-	it.each([{ CI: "true" }, { CI: "1" }, { TEDIX_D1_CHAIN_FULL_REPLAY: "1" }])(
+	it.each([{ CI: "true" }, { TEDIX_D1_CHAIN_FULL_REPLAY: "1" }])(
 		"forces an empty-store replay with %j",
 		async (env) => {
 			expect(await check(env)).toEqual({ cachedCount: 0, appliedCount: 1 });

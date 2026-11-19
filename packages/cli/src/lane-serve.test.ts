@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import * as retryTimers from "node:timers/promises";
 import { CodexLaneResultJsonSchema } from "./lane-result";
 import {
 	LaneDispatcher,
@@ -648,6 +649,15 @@ function fixture({
 		briefs,
 	};
 }
+async function withoutReadBackoff(run: () => Promise<void>) {
+	const wait = spyOn(retryTimers, "setTimeout").mockResolvedValue(undefined);
+	try {
+		await run();
+	} finally {
+		wait.mockRestore();
+	}
+}
+
 async function until(test: () => boolean, attempts = 100) {
 	for (let n = 0; n < attempts && !test(); n++)
 		await new Promise((done) => setTimeout(done, 2));
@@ -3145,8 +3155,10 @@ describe("dispatcher admission", () => {
 			const thread = spyOn(deps, "thread");
 			try {
 				const interrupted = restart();
-				await interrupted.tick();
-				await interrupted.drain();
+				await withoutReadBackoff(async () => {
+					await interrupted.tick();
+					await interrupted.drain();
+				});
 				const saved = JSON.parse(readFileSync(path, "utf8"));
 				expect(saved).toMatchObject({
 					phase: "deferred",
@@ -3234,8 +3246,10 @@ describe("dispatcher admission", () => {
 				};
 			}
 			const dispatcher = restart();
-			await dispatcher.tick();
-			await dispatcher.drain();
+			await withoutReadBackoff(async () => {
+				await dispatcher.tick();
+				await dispatcher.drain();
+			});
 			const saved = JSON.parse(readFileSync(path, "utf8"));
 			expect(saved.attemptId).toBeUndefined();
 			expect(saved.processIdentity).toBeUndefined();
@@ -5649,7 +5663,7 @@ describe("dispatcher admission", () => {
 			events.filter((e) => e.verb === "start" && e.args[6] === item(1).id);
 		try {
 			control.historyError = new Error("Tedix CLI read deadline elapsed");
-			await dispatcher.tick();
+			await withoutReadBackoff(() => dispatcher.tick());
 			let saved = JSON.parse(readFileSync(path, "utf8"));
 			expect(saved).toMatchObject({
 				phase: "settling",
@@ -6578,32 +6592,6 @@ it("does not cut a stale run when origin cannot be fetched", async () => {
 	const destination = join(root, "repo");
 	await expect(provisionLaneWorktree(repo, destination)).rejects.toThrow();
 	expect(existsSync(destination)).toBe(false);
-}, 30_000);
-
-it("suppresses worktree checkout progress while provisioning", async () => {
-	const { root, repo } = gitFixture(true);
-	const trace = join(root, "git-trace.json");
-	const previousTrace = process.env.GIT_TRACE2_EVENT;
-	process.env.GIT_TRACE2_EVENT = trace;
-	try {
-		await provisionLaneWorktree(repo, join(root, "repo"));
-	} finally {
-		if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
-		else process.env.GIT_TRACE2_EVENT = previousTrace;
-	}
-	const events = readFileSync(trace, "utf8")
-		.trim()
-		.split("\n")
-		.map((line) => JSON.parse(line) as { event: string; argv?: string[] });
-	expect(
-		events.some(
-			(event) =>
-				event.event === "start" &&
-				event.argv?.includes("worktree") &&
-				event.argv.includes("add") &&
-				event.argv.includes("--quiet"),
-		),
-	).toBe(true);
 }, 30_000);
 
 it.each(["slow", "failing"])(

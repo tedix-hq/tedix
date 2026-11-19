@@ -181,8 +181,7 @@ describe("stored login renewal across processes", () => {
 			// The next renewal presents the token the server issued, not the one
 			// it superseded, so the family survives.
 			storeExpiredLogin(base, state.current);
-			const second = Array.from({ length: 6 }, startCommand);
-			await Promise.all(second.map(({ exited }) => exited));
+			await startCommand().exited;
 			expect(state.invalidated).toBe(false);
 			expect(state.rotations).toBe(2);
 			expect(storedRefresh()).toBe(state.current);

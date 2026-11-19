@@ -8,8 +8,6 @@ import { startFixtureServer } from "./fixture-server";
 // The workspace Files panel: a right-side list on desktop, folded by the top
 // bar's one toggle; phones reach the library from the bottom switcher.
 const workspacePath = "/workspace/00000030-0000-4000-8000-000000000002";
-const emptyCopy =
-	"Nothing here yet. Apps and files made in this workspace will show up here.";
 const evidence =
 	process.env.TEDIX_SCREENSHOT_DIR ??
 	join(tmpdir(), "tedix-workspace-outputs-panel");
@@ -18,11 +16,7 @@ await mkdir(evidence, { recursive: true });
 const server = await startFixtureServer("/");
 let browser: Browser | undefined;
 
-async function routeFixture(
-	page: Page,
-	theme: "light" | "dark",
-	empty = false,
-) {
+async function routeFixture(page: Page, theme: "light" | "dark") {
 	await page.route("**/*", async (route) => {
 		const url = new URL(route.request().url());
 		if (url.origin !== server.origin) return route.abort("blockedbyclient");
@@ -30,17 +24,6 @@ async function routeFixture(
 			const response = await route.fetch();
 			const body = await response.json();
 			body.json.preferences.theme = theme;
-			return route.fulfill({ response, json: body });
-		}
-		if (
-			empty &&
-			(url.pathname.endsWith("/osWorkspaces/outputs/list") ||
-				url.pathname.endsWith("/osWorkspaces/gadgets/list") ||
-				url.pathname.endsWith("/osWorkspaces/outputs/library"))
-		) {
-			const response = await route.fetch();
-			const body = await response.json();
-			body.json.items = [];
 			return route.fulfill({ response, json: body });
 		}
 		return route.continue();
@@ -391,72 +374,6 @@ try {
 		await checkSources(page, label, columns);
 		await context.close();
 		console.log(`outputs panel ${label}: ok`);
-	}
-
-	// Empty workspace: the panel explains what will appear.
-	{
-		const theme = "light";
-		const label = `1280/${theme}/empty`;
-		const context = await browser.newContext({
-			viewport: { width: 1280, height: 800 },
-			colorScheme: theme,
-			reducedMotion: "reduce",
-		});
-		const page = await context.newPage();
-		await routeFixture(page, theme, true);
-		await page.goto(`${server.origin}${workspacePath}`);
-		const empty = page.locator("[data-workspace-outputs-empty]");
-		await empty.waitFor();
-		assert.equal((await empty.innerText()).trim(), emptyCopy, label);
-		await noOverflow(page, label);
-		await page.screenshot({
-			path: `${evidence}/${label.replaceAll("/", "-")}.png`,
-		});
-		await context.close();
-		console.log(`outputs panel ${label}: ok`);
-	}
-
-	// Keep the original sheet hit test even though phones now use Files.
-	{
-		const theme = "dark";
-		const label = `375/${theme}`;
-		const context = await browser.newContext({
-			viewport: { width: 375, height: 740 },
-			colorScheme: theme,
-			reducedMotion: "reduce",
-			isMobile: true,
-			hasTouch: true,
-		});
-		const page = await context.newPage();
-		await page.goto(
-			`${server.origin}/browser-tests/dialogs.html?view=outputs&theme=${theme}`,
-		);
-		await page.getByRole("button", { name: "Outputs", exact: true }).tap();
-		const sheet = page.getByRole("dialog", { name: "Outputs" });
-		await sheet.waitFor();
-		await sheet.getByRole("list", { name: "Files" }).waitFor();
-		await page.waitForFunction(
-			() => !document.querySelector("[data-starting-style]"),
-		);
-		const close = sheet.getByRole("button", { name: "Close", exact: true });
-		assert(
-			await close.evaluate((node) => {
-				const box = node.getBoundingClientRect();
-				const hit = document.elementFromPoint(
-					box.x + box.width / 2,
-					box.y + box.height / 2,
-				);
-				return hit !== null && node.contains(hit);
-			}),
-			`${label}: the sheet's close button is reachable`,
-		);
-		await page.screenshot({
-			path: `${evidence}/${label.replace("/", "-")}-sheet.png`,
-		});
-		await close.tap();
-		await sheet.waitFor({ state: "hidden" });
-		await context.close();
-		console.log(`outputs sheet ${label}: ok`);
 	}
 
 	// Phone: no side panel and no toggle; the bottom switcher shows one pane

@@ -1,6 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import type { ConversationPoller } from "./conversation-poller";
-import { INK_TICK_MS, InkReplBridge } from "./ink-bridge";
+import { InkReplBridge } from "./ink-bridge";
 import type { ReplState } from "./ink-repl";
 
 // ---------------------------------------------------------------------------
@@ -269,13 +269,16 @@ describe("InkReplBridge typed lifecycle", () => {
 });
 
 describe("InkReplBridge rendering cadence", () => {
-	test("idle bridge publishes no animation frames", async () => {
+	test("idle bridge publishes no animation frames", () => {
+		const timer = spyOn(globalThis, "setInterval");
 		const { bridge, states } = makeBridge();
-
-		await Bun.sleep(INK_TICK_MS + 75);
-
-		expect(states).toHaveLength(0);
-		bridge.stop();
+		try {
+			for (const [tick] of timer.mock.calls) tick();
+			expect(states).toHaveLength(0);
+		} finally {
+			bridge.stop();
+			timer.mockRestore();
+		}
 	});
 
 	test("settled answer clears thinking and commits in one publication", () => {

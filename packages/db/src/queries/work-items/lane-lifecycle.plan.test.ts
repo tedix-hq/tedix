@@ -291,8 +291,40 @@ describe.each<{ statistics: Statistics }>([
 		expect(checkpoint()).toBe(newest());
 	});
 
+	it("seeks the new events and finds each notice's event by its id", async () => {
+		const { db, sqlite, lane, statements } = fixture(statistics);
+		await notifyStoppedLanes(db, LATER);
+		lane("planned");
+		statements.length = 0;
+		expect(await notifyStoppedLanes(db, LATER)).toBe(1);
+		const choice = explain(sqlite, statements.find(isChoice)!);
+		expect(choice[0]).toBe(
+			"SEARCH work_events USING INDEX idx_work_events_stopped_lane_sequence (sequence>?)",
+		);
+		// The newest stopped-lane event is the first entry from the index's end.
+		expect(statements[1]).toMatch(
+			/order by "work_events"."sequence" desc limit \?$/,
+		);
+		expect(explain(sqlite, statements[1]!)).toEqual([
+			"SCAN work_events USING INDEX idx_work_events_stopped_lane_sequence",
+		]);
+		// Each notice finds its event by the event's unique id.
+		const notice = explain(sqlite, statements.find(isNotice)!);
+		expect(notice.filter((line) => line.includes(" work_events "))).toEqual([
+			"SEARCH work_events USING INDEX sqlite_autoindex_work_events_1 (id=?)",
+		]);
+		for (const plan of [choice, notice]) {
+			expect(plan.join("\n")).not.toMatch(
+				/SCAN (?:work_events|work_attempts|work_items|external_agent_principals)\b/,
+			);
+		}
+		sqlite.close();
+	});
+});
+
+describe("stopped-lane notice recovery", () => {
 	it("drains more than one page of new stops in order", async () => {
-		const { db, lane, legacy, noticed } = fixture(statistics);
+		const { db, lane, legacy, noticed } = fixture("production-sized");
 		await notifyStoppedLanes(db, LATER);
 		const before = noticed();
 		for (let i = 0; i < 150; i++) {
@@ -313,7 +345,7 @@ describe.each<{ statistics: Statistics }>([
 
 	it("examines the same events again when a tick dies before its notices", async () => {
 		const { db, legacy, noticed, checkpoint, failNextNotice } =
-			fixture(statistics);
+			fixture("production-sized");
 		const due = legacy();
 		failNextNotice();
 		await expect(notifyStoppedLanes(db, LATER)).rejects.toThrow();
@@ -325,7 +357,7 @@ describe.each<{ statistics: Statistics }>([
 
 	it("leaves an event that became due later to the whole-ledger call", async () => {
 		const { db, sqlite, lane, legacy, noticed, checkpoint } =
-			fixture(statistics);
+			fixture("production-sized");
 		await notifyStoppedLanes(db, LATER);
 		const before = noticed();
 		const position = checkpoint();
@@ -359,35 +391,5 @@ describe.each<{ statistics: Statistics }>([
 		).toBe(3);
 		// Noticing old events does not move the position backwards.
 		expect(checkpoint()).toBe(advanced);
-	});
-
-	it("seeks the new events and finds each notice's event by its id", async () => {
-		const { db, sqlite, lane, statements } = fixture(statistics);
-		await notifyStoppedLanes(db, LATER);
-		lane("planned");
-		statements.length = 0;
-		expect(await notifyStoppedLanes(db, LATER)).toBe(1);
-		const choice = explain(sqlite, statements.find(isChoice)!);
-		expect(choice[0]).toBe(
-			"SEARCH work_events USING INDEX idx_work_events_stopped_lane_sequence (sequence>?)",
-		);
-		// The newest stopped-lane event is the first entry from the index's end.
-		expect(statements[1]).toMatch(
-			/order by "work_events"."sequence" desc limit \?$/,
-		);
-		expect(explain(sqlite, statements[1]!)).toEqual([
-			"SCAN work_events USING INDEX idx_work_events_stopped_lane_sequence",
-		]);
-		// Each notice finds its event by the event's unique id.
-		const notice = explain(sqlite, statements.find(isNotice)!);
-		expect(notice.filter((line) => line.includes(" work_events "))).toEqual([
-			"SEARCH work_events USING INDEX sqlite_autoindex_work_events_1 (id=?)",
-		]);
-		for (const plan of [choice, notice]) {
-			expect(plan.join("\n")).not.toMatch(
-				/SCAN (?:work_events|work_attempts|work_items|external_agent_principals)\b/,
-			);
-		}
-		sqlite.close();
 	});
 });

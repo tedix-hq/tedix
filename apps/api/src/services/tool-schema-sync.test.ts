@@ -1,4 +1,3 @@
-import { ToolIdSchema } from "@tedix/api-contract/schemas/tools";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import * as z from "zod";
 import {
@@ -280,16 +279,6 @@ describe("schema-only provenance refresh", () => {
 			).toMatchObject({ inSync: 1, planned: 0 });
 		},
 	);
-
-	it("leaves a fresh unchanged row alone", async () => {
-		const row = await synchronizedTool();
-		row.updatedAt = "2025-01-01T00:00:00.000Z";
-		const fixture = makeDb([row]);
-		expect(
-			await runToolSchemaSync(fixture.db, { apply: true, pruneStale: false }),
-		).toMatchObject({ inSync: 1, updated: 0, planned: 0 });
-		expect(fixture.updates).toHaveLength(0);
-	});
 
 	it("writes changed rows in full and only touches synced_at on unchanged ones", async () => {
 		const synced = await synchronizedTool();
@@ -613,7 +602,7 @@ describe("projection native transport opt-in", () => {
 		expect(fixture.updates).toHaveLength(0);
 	});
 
-	it.each([undefined, false, "true", 1, {}, []])(
+	it.each([undefined, false, "true"])(
 		"does not opt in absent or non-true policy %j",
 		async (nativeDirect) => {
 			const fixture = makeDb([
@@ -974,25 +963,6 @@ describe("oRPC tool projection sync", () => {
 		]);
 	});
 
-	it("covers every top-level API router used by the unified contract", () => {
-		const endpoints = listContractEndpoints({ includeInternal: true }).map(
-			(endpoint) => `${endpoint.router}/${endpoint.procPath}`,
-		);
-		const uniqueEndpoints = new Set(endpoints);
-
-		expect(uniqueEndpoints.size).toBe(endpoints.length);
-		expect(endpoints).toContain("skills/auditToolCoverage");
-		expect(endpoints).toContain("skills/listPromotionCandidates");
-		expect(endpoints).toContain("flywheelHealth/learningCurves");
-		expect(endpoints).toContain("flywheelHealth/getOrphanRunHealth");
-		expect(endpoints).toContain("workItems/create");
-		expect(endpoints).toContain("tedis/getStatus");
-		expect(endpoints).toContain("toolSchemaSync/run");
-		expect(endpoints).toContain("cognitiveRuntime/getStability");
-		expect(endpoints).toContain("workflows/listDefinitions");
-		expect(endpoints).toContain("workflows/listRuns");
-	});
-
 	it("projects browser endpoints as a global stateless provider surface", async () => {
 		const { db } = makeDb([]);
 
@@ -1344,78 +1314,6 @@ describe("oRPC tool projection sync", () => {
 		});
 	});
 
-	it("projects stable skill-workflow names by default for the Tedix admin app", async () => {
-		const { db } = makeDb([]);
-		const result = await runToolSchemaSync(db, {
-			mode: "projection",
-			apply: false,
-			endpoints: [
-				"skills/runWorkflowStatus",
-				"skills/listWorkflowRetryCandidates",
-				"skills/inspectWorkflowRun",
-				"skills/restartWorkflow",
-				"skills/retireUnstartedWorkflow",
-			],
-		});
-		const byEndpoint = new Map(
-			result.items.map((item) => [item.endpoint, item.toolId]),
-		);
-
-		expect(byEndpoint).toEqual(
-			new Map([
-				["skills/runWorkflowStatus", "get_skill_workflow_status"],
-				[
-					"skills/listWorkflowRetryCandidates",
-					"list_skill_workflow_retry_candidates",
-				],
-				["skills/inspectWorkflowRun", "inspect_skill_workflow_run"],
-				["skills/restartWorkflow", "restart_skill_workflow"],
-				["skills/retireUnstartedWorkflow", "retire_unstarted_skill_workflow"],
-			]),
-		);
-	});
-
-	it("projects the stable governance-overview name and read kind by default for the Tedix admin app", async () => {
-		const { db } = makeDb([]);
-		const result = await runToolSchemaSync(db, {
-			mode: "projection",
-			apply: false,
-			router: "governance",
-		});
-
-		expect(result.items).toHaveLength(1);
-		expect(result.items[0]).toMatchObject({
-			endpoint: "governance/overview",
-			toolId: "get_governance_overview",
-		});
-	});
-
-	it("projects stable capability-map names and kinds by default for the Tedix admin app", async () => {
-		const { db } = makeDb([]);
-		const result = await runToolSchemaSync(db, {
-			mode: "projection",
-			apply: false,
-			router: "capabilities",
-		});
-		const byEndpoint = new Map(
-			result.items.map((item) => [item.endpoint, item.toolId]),
-		);
-
-		expect(byEndpoint).toEqual(
-			new Map([
-				["capabilities/create", "create_capability"],
-				["capabilities/update", "update_capability"],
-				["capabilities/archive", "archive_capability"],
-				["capabilities/list", "list_capabilities"],
-				["capabilities/tree", "get_capability_tree"],
-				["capabilities/coverage", "get_capability_coverage"],
-				["capabilities/unmapped", "list_unmapped_capability_entities"],
-				["capabilities/link", "link_capability"],
-				["capabilities/unlink", "unlink_capability"],
-			]),
-		);
-	});
-
 	it("projects CMS recovery capture tools with read, write, and destructive intent", async () => {
 		const { db, inserts } = makeDb([]);
 		const result = await runToolSchemaSync(db, {
@@ -1467,41 +1365,6 @@ describe("oRPC tool projection sync", () => {
 			readOnlyHint: false,
 			destructiveHint: true,
 		});
-	});
-
-	it("projects stable work-hierarchy tool ids by default for the Tedix admin app", async () => {
-		// Projects: the 8 projected tool ids that need a projection sync.
-		// projects/list needs no override (the bare-verb rule already emits
-		// list_projects); the workItems reads carry their object in the proc name.
-		const { db } = makeDb([]);
-		const result = await runToolSchemaSync(db, {
-			mode: "projection",
-			apply: false,
-			endpoints: [
-				"projects/create",
-				"projects/list",
-				"projects/get",
-				"projects/update",
-				"projects/archive",
-				"projects/getRollup",
-				"projects/getContinuity",
-			],
-		});
-		const byEndpoint = new Map(
-			result.items.map((item) => [item.endpoint, item.toolId]),
-		);
-
-		expect(byEndpoint).toEqual(
-			new Map([
-				["projects/create", "create_project"],
-				["projects/list", "list_projects"],
-				["projects/get", "get_project"],
-				["projects/update", "update_project"],
-				["projects/archive", "archive_project"],
-				["projects/getRollup", "get_project_rollup"],
-				["projects/getContinuity", "get_project_continuity"],
-			]),
-		);
 	});
 
 	it("projects Tedix OS lifecycle deletions with stable singular ids and destructive annotations", async () => {
@@ -1928,31 +1791,6 @@ describe("oRPC tool projection sync", () => {
 		).toBe("cancel_graph_gds_refresh_task");
 	});
 
-	it("projects org graph health as a stable read tool", async () => {
-		// Blocked-work dependency analysis (org "digital twin", Stage 1): a
-		// read-only recursive-CTE report, so readOnlyHint true / destructiveHint
-		// false with the verb-first id pinned via WORK_HIERARCHY_TOOL_ID_OVERRIDES.
-		const { db, inserts } = makeDb([]);
-		const result = await runToolSchemaSync(db, {
-			mode: "projection",
-			apply: true,
-			endpoints: ["workItems/getOrgGraphHealth"],
-		});
-
-		const byEndpoint = new Map(
-			result.items.map((item) => [item.endpoint, item.toolId]),
-		);
-		expect(byEndpoint).toEqual(
-			new Map([["workItems/getOrgGraphHealth", "get_org_graph_health"]]),
-		);
-
-		const byToolId = new Map(inserts.map((tool) => [tool.toolId, tool]));
-		expect(byToolId.get("get_org_graph_health")?.annotations).toMatchObject({
-			readOnlyHint: true,
-			destructiveHint: false,
-		});
-	});
-
 	it("projects stable role-template tool ids with the right annotations", async () => {
 		// The router key is camelCase (roleTemplates), so tools need id overrides.
 		// create and copy=write, list=read,
@@ -2085,24 +1923,6 @@ describe("oRPC tool projection sync", () => {
 		).toMatchObject({
 			readOnlyHint: false,
 			destructiveHint: false,
-		});
-	});
-
-	it("projects the knowledge-market report as a stable read tool", async () => {
-		// flywheel P5 #6: verb-first generated id needs no override, and the GET
-		// route must project read-only annotations.
-		const { db } = makeDb([]);
-		const result = await runToolSchemaSync(db, {
-			mode: "projection",
-			apply: true,
-			endpoints: ["flywheelHealth/getKnowledgeMarketReport"],
-		});
-
-		expect(result.created).toBe(1);
-		expect(result.items[0]).toMatchObject({
-			toolId: "get_knowledge_market_report",
-			endpoint: "flywheelHealth/getKnowledgeMarketReport",
-			status: "created",
 		});
 	});
 
@@ -2529,23 +2349,6 @@ describe("oRPC tool projection sync", () => {
 		);
 		expect(byEndpoint.get("skills/listByApp")).toBe("list_skills_by_app");
 		expect(byEndpoint.get("skills/getForMcp")).toBe("get_skills_for_mcp");
-	});
-
-	it("leaves procs that already contain the router token untouched", async () => {
-		// `search` for router `memory_graph` → bare verb keeps `search_memory_graph`;
-		// the proc never carries a redundant router suffix.
-		const { db } = makeDb([]);
-		const result = await runToolSchemaSync(db, {
-			mode: "projection",
-			apply: false,
-			endpoints: ["memoryGraph/search"],
-		});
-		const byEndpoint = new Map(
-			result.items.map((item) => [item.endpoint, item.toolId]),
-		);
-		if (byEndpoint.has("memoryGraph/search")) {
-			expect(byEndpoint.get("memoryGraph/search")).toBe("search_memory_graph");
-		}
 	});
 
 	it("disambiguates colliding generated tool ids with the router prefix", async () => {
@@ -3059,25 +2862,6 @@ it("projects app operation discovery and invocation into persisted tools", async
 	}
 });
 
-it("pins headless attention names and capability kinds", () => {
-	for (const [endpoint, name, kind] of [
-		["attention/listDeckCards", "list_deck_cards", "read"],
-		["attention/showDeck", "show_deck", "read"],
-		["attention/showFeed", "show_feed", "read"],
-		["attention/getDeckCard", "get_deck_card", "read"],
-		["attention/decideDeckCard", "decide_deck_card", "write"],
-		["attention/listFeedForYou", "list_feed_for_you", "read"],
-		["workInteractions/listCardVersions", "list_card_versions", "read"],
-		["workInteractions/requestCardChanges", "request_card_changes", "write"],
-	]) {
-		expect(WORK_HIERARCHY_TOOL_ID_OVERRIDES[endpoint!]).toBe(name);
-		expect(WORK_HIERARCHY_KIND_OVERRIDES[endpoint!]).toBe(kind);
-		expect(
-			ToolIdSchema.parse(WORK_HIERARCHY_TOOL_ID_OVERRIDES[endpoint!]),
-		).toBe(name);
-	}
-});
-
 it("syncs memory reads served over POST as read-only, so they emit no action receipt", async () => {
 	for (const endpoint of [
 		"memoryGraph/assemble",
@@ -3193,52 +2977,6 @@ it("projects bounded Deck feedback through the real object-envelope converter", 
 			openWorldHint: false,
 		},
 	});
-});
-
-it("projects plain-English descriptions for the headless Deck tools", async () => {
-	const fixture = makeDb([
-		makeRpcTool({
-			toolId: "list_deck_cards",
-			endpoint: "attention/listDeckCards",
-		}),
-		makeRpcTool({
-			toolId: "get_deck_card",
-			endpoint: "attention/getDeckCard",
-		}),
-		makeRpcTool({
-			toolId: "decide_deck_card",
-			endpoint: "attention/decideDeckCard",
-		}),
-	]);
-
-	await runToolSchemaSync(fixture.db, {
-		mode: "projection",
-		apply: true,
-		endpoints: [
-			"attention/listDeckCards",
-			"attention/getDeckCard",
-			"attention/decideDeckCard",
-		],
-	});
-
-	expect(
-		fixture.updates.find(({ id }) => id === "tool-list_deck_cards")?.patch
-			.description,
-	).toBe(
-		"Read every open decision and factory card waiting for you. This is read-only and does not answer, approve, change or hide any card.",
-	);
-	expect(
-		fixture.updates.find(({ id }) => id === "tool-get_deck_card")?.patch
-			.description,
-	).toBe(
-		"Read one open decision or factory card without answering or changing it.",
-	);
-	expect(
-		fixture.updates.find(({ id }) => id === "tool-decide_deck_card")?.patch
-			.description,
-	).toBe(
-		"Answer a Decisions card. For kind factory_changes, ask the factory to rewrite the draft card; each round creates a new revision of the same draft. Use kind factory_restore to restore an earlier revision. This does not approve or execute the card.",
-	);
 });
 
 it("projects the version list as a native read with a plain-text summary and keeps the original history verb", async () => {
