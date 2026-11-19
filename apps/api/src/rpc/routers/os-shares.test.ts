@@ -6,6 +6,7 @@ import { workspaceOutputFixture } from "../../../test/workspace-output-fixture";
  */
 
 import { organizations } from "@tedix/db/schema/organizations";
+import { tedis } from "@tedix/db/schema/tedis";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
@@ -47,6 +48,7 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		schemaDdl(
 			organizations,
+			tedis,
 			osOutputs,
 			osOutputRevisions,
 			osWorkspaces,
@@ -577,6 +579,71 @@ describe("governed resource roles and revision modes", () => {
 });
 
 describe("shares.update", () => {
+	it.each(["tedi", "external_agent", "apikey"] as const)(
+		"requires admin authority for %s audience changes",
+		async (kind) => {
+			const h = harness();
+			const outputId = await seedOutput(h);
+			const { share } = await h.org1.shares.create(outputShareInput(outputId));
+			const db = createDbQueryClient(h.env.DB);
+			await db
+				.insert(organizationMembers)
+				.values({
+					id: "viewer",
+					organizationId: "org-1",
+					descopeUserId: "viewer",
+					email: "viewer@example.test",
+					role: "viewer",
+					status: "active",
+				});
+			await db
+				.insert(tedis)
+				.values({
+					id: "tedi-viewer",
+					organizationId: "org-1",
+					name: "Viewer",
+					slug: "viewer",
+					scope: "personal",
+					ownerUserId: "viewer",
+					status: "active",
+				});
+			const context = apiKeyContext({ env: h.env });
+			if (kind === "tedi") {
+				context.authType = "tedi";
+				context.tediId = "tedi-viewer";
+				context.tediScopes = ["apps:write"];
+			} else if (kind === "external_agent") {
+				context.externalAgentPrincipalId = "external-1";
+			}
+			const caller = createRouterClient(osSharesContractRouter, { context });
+			await expect(
+				caller.shares.update({ shareId: share.id, access: "organization" }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				caller.shares.invitees.add({
+					shareId: share.id,
+					email: "guest@example.test",
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				caller.shares.delete({ shareId: share.id }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect((await db.select().from(osShareLinks))[0]?.access).toBe(
+				"anyone_with_link",
+			);
+			expect(await db.select().from(osShareLinkInvitees)).toHaveLength(0);
+			if (kind === "tedi") {
+				await db
+					.update(organizationMembers)
+					.set({ role: "admin" })
+					.where(eq(organizationMembers.id, "viewer"));
+				await expect(
+					caller.shares.update({ shareId: share.id, access: "organization" }),
+				).resolves.toMatchObject({ share: { access: "organization" } });
+			}
+		},
+	);
+
 	it("lets only an invite-only link to one app carry edit, on create and on every change", async () => {
 		const h = harness();
 		const { workspace } = await h.outputs.workspaces.create({

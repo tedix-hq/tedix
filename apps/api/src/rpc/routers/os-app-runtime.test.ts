@@ -37,6 +37,7 @@ import { OWNER_HOST_SESSION_HEADER } from "@tedix/api-contract/contracts/externa
 import { bindForwardedOwnerHostSession } from "../orpc";
 import { osCollaborationProcedures } from "./os-workspace-collaboration";
 import { organizations } from "@tedix/db/schema/organizations";
+import { tedis } from "@tedix/db/schema/tedis";
 import { projects } from "@tedix/db/schema/projects";
 import { tedis } from "@tedix/db/schema/tedis";
 import { workAttempts, workItems } from "@tedix/db/schema/work-items";
@@ -108,6 +109,7 @@ async function fixture(manifestOverrides: Record<string, unknown> = {}) {
 			osOutputs,
 			osOutputRevisions,
 			organizations,
+			tedis,
 			organizationMembers,
 			osWorkspaceAccessEdges,
 			osWorkspaceCollaborators,
@@ -1486,6 +1488,78 @@ describe("app chat drafts", () => {
 		};
 		return { ...f, collaboration, input };
 	}
+	it.each(["tedi", "external_agent", "apikey"] as const)(
+		"requires build access for %s draft decisions",
+		async (kind) => {
+			const f = await chatFixture();
+			const { proposal } = await f.client.proposeEdit(f.input);
+			await f.db.insert(tedis).values({
+				id: "tedi-viewer",
+				organizationId: "org-1",
+				name: "Viewer",
+				slug: "viewer",
+				scope: "personal",
+				ownerUserId: "user-2",
+				status: "active",
+			});
+			const context = apiKeyContext({ env: f.env, scopes: ["apps:write"] });
+			if (kind === "tedi") {
+				context.authType = "tedi";
+				context.tediId = "tedi-viewer";
+				context.tediScopes = ["apps:write"];
+			} else if (kind === "external_agent") {
+				context.externalAgentPrincipalId = "external-1";
+				context.externalAgentSessionId = "session-1";
+			}
+			const caller = createRouterClient(osCollaborationProcedures, { context });
+			const decision = {
+				proposalId: proposal.id,
+				expectedSequence: 0,
+				rationale: "Reviewed",
+				evidenceRefs: [],
+			};
+			await expect(caller.accept(decision)).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+			if (kind === "tedi") {
+				await f.db
+					.update(organizationMembers)
+					.set({ role: "member" })
+					.where(eq(organizationMembers.id, "member-2"));
+			}
+			const accepted = await (
+				kind === "tedi" ? caller : f.collaboration
+			).accept(decision);
+			if (kind === "tedi") {
+				await f.db
+					.update(organizationMembers)
+					.set({ role: "viewer" })
+					.where(eq(organizationMembers.id, "member-2"));
+			}
+			await expect(
+				caller.merge({
+					...decision,
+					expectedSequence: accepted.proposal.sequence,
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(
+				(await f.collaboration.get({ proposalId: proposal.id })).proposal
+					.status,
+			).toBe("accepted");
+			expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
+			if (kind === "tedi") {
+				await f.db
+					.update(organizationMembers)
+					.set({ role: "member" })
+					.where(eq(organizationMembers.id, "member-2"));
+				const merged = await caller.merge({
+					...decision,
+					expectedSequence: accepted.proposal.sequence,
+				});
+				expect(merged.proposal.status).toBe("merged");
+			}
+		},
+	);
 	it("accumulates exact replacements in one chat draft and accepts one validated revision", async () => {
 		const f = await chatFixture();
 		const first = await f.client.proposeEdit(f.input);
@@ -2328,7 +2402,7 @@ describe("MCP app editing", () => {
 			},
 		],
 	};
-	it("drafts with an attested agent, previews, accepts and restores without rewriting history", async () => {
+	it("drafts with an attested agent and requires a builder to accept without rewriting history", async () => {
 		const f = await agentFixture();
 		const { proposal, previewUrl } = await f.agent.proposeEdit(edit);
 		expect(proposal).toMatchObject({
@@ -2352,7 +2426,15 @@ describe("MCP app editing", () => {
 		expect(await (f.fetch.mock.calls[0][0] as Request).json()).toMatchObject({
 			files: { "server.js": edit.edits[0].after },
 		});
-		const published = await f.agent.acceptEdit({
+		await expect(
+			f.agent.acceptEdit({
+				...scope,
+				proposalId: proposal.id,
+				expectedSequence: 0,
+				rationale: "Preview checked",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		const published = await f.client.acceptEdit({
 			...scope,
 			proposalId: proposal.id,
 			expectedSequence: 0,
@@ -2361,7 +2443,7 @@ describe("MCP app editing", () => {
 		expect(published.revision.revision).toBe(2);
 		expect(
 			(
-				await f.agent.acceptEdit({
+				await f.client.acceptEdit({
 					...scope,
 					proposalId: proposal.id,
 					expectedSequence: 0,

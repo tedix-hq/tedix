@@ -1,6 +1,8 @@
 import { requireSavableText } from "../../lib/savable-text";
 import { validateAppSource } from "../../services/os-app-validation";
 import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
+import { resolveOsWorkspaceOwnerCandidate } from "../../services/os-workspace-visibility";
+import { readWorkspaceSessionRole } from "@tedix/db/queries/os-workspace-access";
 import { serviceBindingFetch } from "@tedix/api-client/internal";
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
@@ -296,16 +298,24 @@ async function requireAppDraftBuilder(
 		!OsAppDraftContentSchema.safeParse(JSON.parse(proposal.content)).success
 	)
 		return;
-	if (context.authType !== "user") {
-		await requireWorkspace(context, proposal.workspaceId);
-		return;
-	}
-	const access = await requireWorkspaceCollaboratorAccess(
-		context,
-		proposal.workspaceId,
-		"app.connect",
-	);
-	if (access.role !== "build")
+	const callerId = await resolveOsWorkspaceOwnerCandidate(context);
+	const role =
+		context.authType === "user"
+			? (
+					await requireWorkspaceCollaboratorAccess(
+						context,
+						proposal.workspaceId,
+						"app.connect",
+					)
+				).role
+			: callerId
+				? await readWorkspaceSessionRole(
+						queryDb(context),
+						proposal.workspaceId,
+						callerId,
+					)
+				: null;
+	if (role !== "build")
 		throw createError(
 			ErrorCodes.FORBIDDEN,
 			"App draft decisions require build access",
