@@ -925,8 +925,6 @@ interface Receipt {
 	nativeResumeCount?: number;
 	/** The next step number of this run's log. */
 	stepSeq?: number;
-	/** Follow-ups received for this run and not yet passed to its agent. */
-	runMessages?: RunMessage[];
 	retryable?: boolean;
 	attemptId?: string;
 	executorKey?: string;
@@ -4691,8 +4689,24 @@ export class LaneDispatcher {
 				turnRunning: false,
 				started: false,
 				followUpTurns: 0,
+				// Follow-ups the next turn carries, acknowledged once it has started.
+				launching: undefined as string[] | undefined,
 			};
+			// The server returns a message again until it is reported applied, so
+			// a restarted runner gets the unapplied ones back; nothing is kept here.
 			const followUps: RunMessage[] = [];
+			const stopAgent = () => {
+				const pid = receipt.pid;
+				if (!run.turnRunning || !pid || stopKillTimer) return;
+				try {
+					process.kill(-pid, "SIGTERM");
+				} catch {}
+				stopKillTimer = setTimeout(() => {
+					try {
+						process.kill(-pid, "SIGKILL");
+					} catch {}
+				}, 5000);
+			};
 			const sentBy = (message: RunMessage) =>
 				`${message.senderType} ${message.senderId}`.trim();
 			const steps = createRunStepLog({
@@ -4707,25 +4721,13 @@ export class LaneDispatcher {
 						run.stop = message;
 						steps.add("stopped", `Stopped by ${sentBy(message)}`);
 						this.log("run-stop-requested", item.id, sentBy(message));
-						if (!run.turnRunning || !receipt.pid) return;
-						const pid = receipt.pid;
-						try {
-							process.kill(-pid, "SIGTERM");
-						} catch {}
-						stopKillTimer = setTimeout(() => {
-							try {
-								process.kill(-pid, "SIGKILL");
-							} catch {}
-						}, 5000);
+						stopAgent();
 						return;
 					}
 					steps.add("follow_up", message.body);
 					const refusal = followUpRefusal(item, message);
 					if (!refusal) {
-						// The server hands a message over once; keep it until applied.
 						followUps.push(message);
-						receipt.runMessages = [...followUps];
-						this.save(path, receipt);
 						return;
 					}
 					steps.add("error", refusal);
@@ -4936,6 +4938,14 @@ export class LaneDispatcher {
 							}
 							this.save(path, receipt);
 							this.captureIdentityLater(path, receipt, pid, repo);
+							if (run.launching) {
+								// The turn carrying these follow-ups has started.
+								steps.applied(run.launching);
+								run.launching = undefined;
+								void steps.flush();
+							}
+							// A stop that arrived while this turn was starting.
+							if (run.stop) stopAgent();
 						},
 						onAgentStep: (step) => steps.add(step.kind, step.text),
 						onTelemetry: (telemetry) => {
@@ -4957,7 +4967,8 @@ export class LaneDispatcher {
 						},
 					},
 				);
-			let exit = await runTurn(brief, resumed);
+			// A stop that arrived during preparation starts no turn at all.
+			let exit = run.stop ? 1 : await runTurn(brief, resumed);
 			run.turnRunning = false;
 			await steps.flush(true);
 			// A follow-up waits for the turn in progress, then runs as a further
@@ -4972,7 +4983,6 @@ export class LaneDispatcher {
 				run.followUpTurns < MAX_FOLLOW_UP_TURNS
 			) {
 				const batch = followUps.splice(0);
-				delete receipt.runMessages;
 				run.followUpTurns++;
 				const followUpBrief = join(dir, `follow-up-${run.followUpTurns}.txt`);
 				writeFileSync(
@@ -4987,10 +4997,11 @@ export class LaneDispatcher {
 					item.id,
 					`Turn ${run.followUpTurns} on ${receipt.session}: ${batch.map((message) => message.id).join(", ")}`,
 				);
-				steps.applied(batch.map((message) => message.id));
-				void steps.flush();
+				run.launching = batch.map((message) => message.id);
 				exit = await runTurn(followUpBrief, true);
 				run.turnRunning = false;
+				// A turn that never started leaves its follow-ups unapplied.
+				run.launching = undefined;
 				await steps.flush(true);
 			}
 			for (const message of followUps.splice(0)) {
@@ -5003,7 +5014,8 @@ export class LaneDispatcher {
 				steps.add("error", `Follow-up not applied: ${reason}`);
 				this.log("follow-up-dropped", item.id, `${message.id}: ${reason}`);
 			}
-			delete receipt.runMessages;
+			// The agent is no longer running: the stop has been carried out.
+			if (run.stop) steps.applied([run.stop.id]);
 			childFinished = true;
 			receipt.retryable =
 				exit !== 0 &&

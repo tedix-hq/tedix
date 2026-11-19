@@ -96,7 +96,7 @@ describe("run steps and steering messages", () => {
 		]);
 	});
 
-	it("hands a waiting message over once and records when it was applied", async () => {
+	it("returns a message until the runner reports it applied", async () => {
 		const { db } = await fixture();
 		const followUp = await sendWorkAttemptMessage(db, {
 			orgId: "org",
@@ -124,13 +124,30 @@ describe("run steps and steering messages", () => {
 			appliedAt: null,
 			senderId: "owner",
 		});
+		// The first answer may have been lost: the next report gets both again,
+		// and the time of the first hand-over is kept.
+		const retry = await appendWorkAttemptSteps(db, {
+			...runner,
+			steps: [],
+			at: "2026-10-01T00:01:30.000Z",
+		});
+		expect(retry.pending).toEqual(first.pending);
+		// A message acknowledged in a report is not part of that report's answer.
 		const second = await appendWorkAttemptSteps(db, {
 			...runner,
 			steps: [step(0)],
 			appliedMessageIds: [followUp!.id],
 			at: "2026-10-01T00:02:00.000Z",
 		});
-		expect(second).toEqual({ accepted: 1, pending: [] });
+		expect(second.accepted).toBe(1);
+		expect(second.pending.map((message) => message.id)).toEqual([stop!.id]);
+		const third = await appendWorkAttemptSteps(db, {
+			...runner,
+			steps: [],
+			appliedMessageIds: [stop!.id],
+			at: "2026-10-01T00:02:30.000Z",
+		});
+		expect(third).toEqual({ accepted: 0, pending: [] });
 		const { messages } = await listWorkAttemptSteps(db, {
 			orgId: "org",
 			workItemId: "work",
@@ -148,8 +165,100 @@ describe("run steps and steering messages", () => {
 				deliveredAt: during,
 				appliedAt: "2026-10-01T00:02:00.000Z",
 			},
-			{ kind: "stop", deliveredAt: during, appliedAt: null },
+			{
+				kind: "stop",
+				deliveredAt: during,
+				appliedAt: "2026-10-01T00:02:30.000Z",
+			},
 		]);
+	});
+
+	it("carries unapplied messages to the same session's next Attempt after an interruption", async () => {
+		const { db, sqlite } = await fixture();
+		const send = (body: string, at: string) =>
+			sendWorkAttemptMessage(db, {
+				orgId: "org",
+				workItemId: "work",
+				kind: "follow_up",
+				body,
+				sender: owner,
+				at,
+			});
+		const applied = await send("Applied before the interruption", start);
+		const waiting = await send(
+			"Received, not applied",
+			"2026-10-01T00:00:10.000Z",
+		);
+		const unseen = await send("Never received", "2026-10-01T00:00:50.000Z");
+		await appendWorkAttemptSteps(db, {
+			...runner,
+			steps: [],
+			appliedMessageIds: [applied!.id],
+			at: "2026-10-01T00:00:20.000Z",
+		});
+		const successor = (id: string, session: string, attemptNumber: number) =>
+			db.insert(workAttempts).values({
+				id,
+				orgId: "org",
+				workItemId: "work",
+				executorType: "external_agent",
+				executorId: "agent",
+				executorSessionId: "session",
+				externalSessionKey: session,
+				runtimeState: "running",
+				attemptNumber,
+				startedAt: during,
+				heartbeatAt: during,
+				expiresAt: expiry,
+			});
+		const resumed = { ...runner, attemptId: "resumed" };
+		const end = (id: string, outcome: string) =>
+			sqlite.exec(
+				`UPDATE work_attempts SET runtime_state='${outcome === "expired" ? "expired" : "finished"}', outcome='${outcome}', finished_at='${during}' WHERE id='${id}'`,
+			);
+
+		// A run that ended on its own verdict hands nothing on.
+		end("attempt", "cancelled");
+		await successor("resumed", "codex:session", 2);
+		await expect(
+			appendWorkAttemptSteps(db, { ...resumed, steps: [] }),
+		).resolves.toEqual({ accepted: 0, pending: [] });
+
+		// An interrupted run does, to the same agent session only.
+		sqlite.exec(
+			"UPDATE work_attempts SET outcome='expired' WHERE id='attempt'",
+		);
+		end("resumed", "failed");
+		await successor("other", "codex:other-session", 3);
+		await expect(
+			appendWorkAttemptSteps(db, {
+				...runner,
+				attemptId: "other",
+				externalSessionKey: "codex:other-session",
+				steps: [],
+			}),
+		).resolves.toEqual({ accepted: 0, pending: [] });
+		end("other", "failed");
+		await successor("again", "codex:session", 4);
+		const again = { ...runner, attemptId: "again" };
+		const carried = await appendWorkAttemptSteps(db, { ...again, steps: [] });
+		expect(carried.pending.map((message) => message.id)).toEqual([
+			waiting!.id,
+			unseen!.id,
+		]);
+		// Reporting them under the new Attempt settles them for good.
+		await expect(
+			appendWorkAttemptSteps(db, {
+				...again,
+				steps: [],
+				appliedMessageIds: [waiting!.id, unseen!.id],
+			}),
+		).resolves.toEqual({ accepted: 0, pending: [] });
+		expect(
+			(await db.select().from(workAttemptMessages)).filter(
+				(message) => message.appliedAt === null,
+			),
+		).toEqual([]);
 	});
 
 	it.each([

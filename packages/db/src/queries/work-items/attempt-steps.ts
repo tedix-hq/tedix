@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkAttempt,
@@ -58,8 +58,14 @@ export function isWorkAttemptLive(
  * Store the steps a runner reports and hand it the messages waiting for its
  * run. Only the runner holding the Attempt may call this: a stale or foreign
  * Attempt is refused with STALE_ATTEMPT, as for a heartbeat. A step whose
- * `seq` is already stored is ignored, so a retry is safe. Every message
- * returned in `pending` is marked delivered in the same batch.
+ * `seq` is already stored is ignored, so a retry is safe.
+ *
+ * `pending` holds every message the runner has not yet reported as applied,
+ * whether or not an earlier answer already carried it: a lost answer or a
+ * restarted runner gets it again, and the runner tells them apart by id. The
+ * first hand-over sets `delivered_at`. When the same agent session resumes
+ * under a fresh Attempt after an interruption, the unapplied messages of its
+ * expired or failed Attempts on this Work Item come along.
  */
 export async function appendWorkAttemptSteps(
 	db: DbQueryClient,
@@ -109,7 +115,31 @@ export async function appendWorkAttemptSteps(
 	const attemptMessages = and(
 		eq(workAttemptMessages.orgId, params.orgId),
 		eq(workAttemptMessages.workItemId, params.workItemId),
-		eq(workAttemptMessages.attemptId, params.attemptId),
+		params.externalSessionKey
+			? // bound-params: a subquery with six bound values, not a caller list
+				inArray(
+					workAttemptMessages.attemptId,
+					db
+						.select({ runAttemptId: workAttempts.id })
+						.from(workAttempts)
+						.where(
+							and(
+								eq(workAttempts.orgId, params.orgId),
+								eq(workAttempts.workItemId, params.workItemId),
+								or(
+									eq(workAttempts.id, params.attemptId),
+									and(
+										eq(
+											workAttempts.externalSessionKey,
+											params.externalSessionKey,
+										),
+										inArray(workAttempts.outcome, ["expired", "failed"]),
+									),
+								),
+							),
+						),
+				)
+			: eq(workAttemptMessages.attemptId, params.attemptId),
 	);
 	const appliedIds = [...new Set(params.appliedMessageIds ?? [])];
 	const markApplied = db
@@ -125,15 +155,19 @@ export async function appendWorkAttemptSteps(
 			),
 		)
 		.returning({ appliedId: workAttemptMessages.id });
-	const markDelivered = db
+	// Runs after markApplied, so a message acknowledged in this call is not
+	// handed over again.
+	const handOver = db
 		.update(workAttemptMessages)
-		.set({ deliveredAt: at })
-		.where(and(attemptMessages, isNull(workAttemptMessages.deliveredAt)))
+		.set({
+			deliveredAt: sql`coalesce(${workAttemptMessages.deliveredAt}, ${at})`,
+		})
+		.where(and(attemptMessages, isNull(workAttemptMessages.appliedAt)))
 		.returning();
 
-	const [pending, , ...inserted] = await db.batch([
-		markDelivered,
+	const [, pending, ...inserted] = await db.batch([
 		markApplied,
+		handOver,
 		...inserts,
 	]);
 	return {

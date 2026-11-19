@@ -10114,6 +10114,168 @@ describe("watching and steering a run", () => {
 		);
 	});
 
+	it("applies a follow-up once when the server returns it again", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const message = fromOwner("message-1", "Also cover pricing.");
+		// Until the runner reports it applied, every answer carries it.
+		f.control.duringTurn = () => {
+			f.control.stepReplies = [[message], [message], [message]];
+		};
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await until(() => f.releases.length === 2);
+		f.releases[1]!();
+		await f.dispatcher.drain();
+		expect(f.briefs).toHaveLength(2);
+		expect(
+			sentSteps(f).filter((step) => step.kind === "follow_up"),
+		).toHaveLength(1);
+		expect(f.control.stepCalls.flatMap((call) => call.applied)).toEqual([
+			"message-1",
+		]);
+	});
+
+	it("applies a follow-up whose first answer was lost", async () => {
+		let sendNow!: () => void;
+		const timer = spyOn(globalThis, "setInterval").mockImplementation(((
+			callback: () => void,
+			ms: number,
+		) => {
+			if (ms === 5000) sendNow = callback;
+			return setTimeout(() => {}, 60_000);
+		}) as typeof setInterval);
+		const f = fixture();
+		f.items.splice(1);
+		try {
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			// The server handed the message over, but its answer never arrived;
+			// the next send gets the message again because it is still unapplied.
+			f.control.stepReplies = [
+				new Error("fetch failed: connection reset"),
+				[fromOwner("message-1", "Also cover pricing.")],
+			];
+			sendNow();
+			await until(() => f.control.stepCalls.length === 1);
+			f.releases[0]!();
+			await until(() => f.releases.length === 2);
+			f.releases[1]!();
+			await f.dispatcher.drain();
+			expect(f.briefs).toHaveLength(2);
+			expect(f.briefs[1]).toContain("Also cover pricing.");
+			expect(f.control.stepCalls.flatMap((call) => call.applied)).toEqual([
+				"message-1",
+			]);
+		} finally {
+			timer.mockRestore();
+		}
+	});
+
+	it("reports a follow-up as applied only once its turn has started", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.stepReplies = [[fromOwner("message-1", "Also cover pricing.")]];
+		const launch = f.deps.launch!;
+		const appliedBeforeSpawn: string[][] = [];
+		f.deps.launch = (args, deps) =>
+			launch(args, {
+				...deps,
+				onSpawn: (pid) => {
+					appliedBeforeSpawn.push(
+						f.control.stepCalls.flatMap((call) => call.applied),
+					);
+					deps?.onSpawn?.(pid);
+				},
+			} as typeof deps);
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await until(() => f.releases.length === 2);
+		await until(() =>
+			f.control.stepCalls.some((call) => call.applied.includes("message-1")),
+		);
+		f.releases[1]!();
+		await dispatcher.drain();
+		expect(appliedBeforeSpawn).toEqual([[], []]);
+	});
+
+	it("applies an unapplied follow-up after a restart resumes the run", async () => {
+		const f = fixture();
+		f.deps.provision = (_source, destination) => {
+			mkdirSync(destination, { recursive: true });
+			return destination;
+		};
+		const clock = spyOn(Date, "now");
+		let now = Date.now();
+		clock.mockImplementation(() => now);
+		f.items.splice(1);
+		f.control.uniqueAttempts = true;
+		f.control.cleanupRemoves = true;
+		const message = fromOwner("message-1", "Also cover pricing.");
+		const path = join(f.dir, `${item().id}-2.json`);
+		try {
+			// The first run receives the follow-up, then loses its connection
+			// before it can start the follow-up turn.
+			f.control.telemetryOutcome = "failed";
+			f.control.exitCode = 1;
+			f.control.declareCompleted = false;
+			f.control.finalMessage = "stream disconnected before completion";
+			f.control.stepReplies = [[message]];
+			const first = f.restart();
+			await first.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			await first.drain();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved).toMatchObject({ phase: "deferred", outcome: "failed" });
+			expect(saved.runMessages).toBeUndefined();
+			expect(f.briefs).toHaveLength(1);
+			expect(f.control.stepCalls.flatMap((call) => call.applied)).toEqual([]);
+			now = saved.retryDeadlineAt + 1;
+			f.control.history.data.unshift({
+				id: saved.attemptId,
+				externalSessionKey: saved.session,
+				outcome: "failed",
+				expiresAt: new Date(now - 1).toISOString(),
+				metadata: { dispatchVersion: 2 },
+			});
+			// A new runner process resumes the thread under a fresh Attempt. It
+			// remembers nothing; the server returns the unapplied follow-up.
+			f.control.telemetryOutcome = "succeeded";
+			f.control.exitCode = 0;
+			f.control.declareCompleted = true;
+			f.control.finalMessage = "Result recorded in OS.";
+			f.control.stepCalls.length = 0;
+			f.control.stepReplies = [[message]];
+			const second = f.restart();
+			await second.tick();
+			await until(() => f.releases.length === 2);
+			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+				session: saved.session,
+				attemptId: "fictional-attempt-2",
+				nativeResumeCount: 1,
+			});
+			f.releases[1]!();
+			await until(() => f.releases.length === 3);
+			f.releases[2]!();
+			await second.drain();
+			expect(f.briefs).toHaveLength(3);
+			expect(f.briefs[2]).toContain(
+				"From user fictional-owner:\nAlso cover pricing.",
+			);
+			expect(
+				f.control.stepCalls
+					.filter((call) => call.applied.length)
+					.map((call) => [call.attemptId, call.applied]),
+			).toEqual([["fictional-attempt-2", ["message-1"]]]);
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
 	it("does not pass a reserved action to the agent unless the accountable owner sent it", async () => {
 		const body = "Send the invoice to the customer by e-mail.";
 		expect(followUpRefusal(item(), fromOwner("m", body))).toBeUndefined();
@@ -10207,6 +10369,11 @@ describe("watching and steering a run", () => {
 				["stopped", "Stopped by user fictional-owner"],
 				["finished", "Agent run ended: cancelled"],
 			]);
+			// The stop is acknowledged after the agent ended, not when it arrived.
+			expect(
+				f.control.stepCalls.map((call) => call.applied).filter((a) => a.length),
+			).toEqual([["message-1"]]);
+			expect(f.control.stepCalls.at(-1)!.applied).toEqual(["message-1"]);
 			await f.dispatcher.tick();
 			await f.dispatcher.drain();
 			expect(f.briefs).toHaveLength(1);

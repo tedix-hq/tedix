@@ -118,8 +118,10 @@ export type SendRunSteps = (
 
 /**
  * Buffers one run's steps and sends them in order. Each send also returns the
- * messages people sent to the run. Sending never throws into the run: a failed
- * send keeps its steps for the next one.
+ * messages people sent to the run. The server returns a message again until
+ * this run reports it applied, so each one is passed on once, by id. Sending
+ * never throws into the run: a failed send keeps its steps and its applied
+ * ids for the next one.
  */
 export function createRunStepLog(options: {
 	seq?: number;
