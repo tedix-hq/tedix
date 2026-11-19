@@ -1,4 +1,4 @@
-import { open, readdir, readFile } from "node:fs/promises";
+import { open, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import {
@@ -19,6 +19,7 @@ import { dispatcherReporterId } from "./dispatcher-health";
 import { TedixHomeClient } from "./home-client";
 import { laneChildEnv } from "./lane-child-env";
 import { laneCommand } from "./lane-command";
+import { dispatchRequestsDirectory } from "./lane-dispatch-wake";
 import { runStepToolMissing } from "./lane-heartbeat";
 import { machineWorkspaces } from "./lane-machine-workspaces";
 import { beginFileLock } from "./local-file-lock";
@@ -213,6 +214,7 @@ export function machineToolHandlers(options: {
 	checkout: string;
 	/** The Tedix settings folder that holds `dispatchers/`. */
 	configDir: string;
+	organization?: string;
 	env?: NodeJS.ProcessEnv;
 	/** Also answer the write tools; only for `machineWriteMode: "allow"`. */
 	write?: boolean;
@@ -609,6 +611,38 @@ export function machineToolHandlers(options: {
 			}\n${shown.map((line) => line.slice(0, 500)).join("\n")}`;
 		},
 
+		async dispatch_work_item({ workItemId, projectId, executor }) {
+			const duties = readRunnerDuties(options.env ?? process.env).filter(
+				(duty) =>
+					duty.enabled &&
+					duty.organization === options.organization &&
+					(!duty.project || duty.project === projectId),
+			);
+			for (const wanted of [executor, "any-local"]) {
+				for (const duty of duties) {
+					if (duty.executor !== wanted) continue;
+					const directory = join(
+						options.configDir,
+						"dispatchers",
+						runnerKey(duty),
+					);
+					try {
+						await writeFile(
+							join(dispatchRequestsDirectory(directory), String(workItemId)),
+							"",
+							{ flag: "wx", mode: 0o600 },
+						);
+						return "Dispatcher notified";
+					} catch (error) {
+						const code = (error as NodeJS.ErrnoException).code;
+						if (code === "EEXIST") return "Dispatcher notified";
+						if (code !== "ENOENT") throw error;
+					}
+				}
+			}
+			throw new Error("No matching dispatcher is listening on this machine");
+		},
+
 		async read_runner_state() {
 			const root = join(options.configDir, "dispatchers");
 			const names = await readdir(root).catch(() => [] as string[]);
@@ -943,8 +977,9 @@ export async function serveMachineTools(
 	const saved = JSON.stringify(identity);
 	const scoped = (name: string) => serve.scope[serve.scope.indexOf(name) + 1];
 	if (
-		identity.serving?.organization !== scoped("--organization") ||
-		identity.serving?.workspace !== scoped("--workspace")
+		!identity.serving ||
+		identity.serving.organization !== scoped("--organization") ||
+		identity.serving.workspace !== scoped("--workspace")
 	) {
 		process.stderr.write(
 			"Machine tools are served for the runner the saved settings pick; these arguments are not that runner's\n",
@@ -963,6 +998,7 @@ export async function serveMachineTools(
 		handlers: machineToolHandlers({
 			checkout: serve.repo,
 			configDir,
+			organization: identity.serving.organization,
 			env,
 			write: identity.write,
 		}),

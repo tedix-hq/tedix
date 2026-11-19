@@ -10,6 +10,52 @@ const AGENT_RUN_EXECUTORS = ["codex", "claude-code"] as const;
 const STEP_PAGE = 500;
 const STEP_PAGES = 4;
 const STEPS_SHOWN = 40;
+const DISPATCH_WAIT_MS = 5_000;
+
+async function wakeAgentRunner(
+	platform: PlatformClient,
+	workItemId: string,
+	projectId: string,
+	executor: (typeof AGENT_RUN_EXECUTORS)[number],
+) {
+	const deadline = Date.now() + DISPATCH_WAIT_MS;
+	const wake = async () => {
+		const { machines } = await platform.listMachines();
+		const eligible = machines.filter(
+			(machine) =>
+				machine.online && machine.machineTools.includes("dispatch_work_item"),
+		);
+		const target =
+			eligible.find((machine) => machine.executors.includes(executor)) ??
+			eligible.find((machine) => machine.executors.includes("any-local"));
+		if (!target || Date.now() >= deadline) return;
+		const { callId } = await platform.requestMachineToolCall({
+			machine: target.machineName,
+			tool: "dispatch_work_item",
+			input: { workItemId, projectId, executor },
+		});
+		while (Date.now() < deadline) {
+			const { status } = await platform.readMachineToolCall({ callId });
+			if (status !== "pending" && status !== "claimed") return;
+			await new Promise<void>((resolve) => setTimeout(resolve, 500));
+		}
+	};
+	// A machine that does not answer promptly leaves the accepted Work for
+	// normal pickup. The Work Item remains the handle in either case.
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([
+			wake(),
+			new Promise<void>((resolve) => {
+				timer = setTimeout(resolve, DISPATCH_WAIT_MS);
+			}),
+		]);
+	} catch {
+		// The Work Item was accepted even if the wake could not be delivered.
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 /**
  * The person's chat conversation when this inject is a delegation to a tedi
@@ -147,10 +193,10 @@ export function agentRunTools(input: {
 						error,
 					);
 				}
+				let platform: PlatformClient;
 				try {
-					await (
-						await platformClient()
-					).acceptWorkItem({
+					platform = await platformClient();
+					await platform.acceptWorkItem({
 						workItemId,
 						acceptanceContract: { version: 1, doneLooksLike: doneWhen },
 					});
@@ -161,6 +207,7 @@ export function agentRunTools(input: {
 						error,
 					);
 				}
+				await wakeAgentRunner(platform, workItemId, projectId, executor);
 				return {
 					kind: "agent_run" as const,
 					workItemId,

@@ -54,6 +54,7 @@ export const MACHINE_READ_TOOL_NAMES = [
 	"read_ci_runs",
 	"read_ci_job_log",
 	"read_runner_state",
+	"dispatch_work_item",
 ] as const;
 /** Tools that change a workspace on the machine or run a command in it. */
 export const MACHINE_WRITE_TOOL_NAMES = [
@@ -180,6 +181,11 @@ export const MACHINE_TOOL_INPUT_SCHEMAS = {
 		jobId: z.string().regex(/^\d{1,20}$/, "Use the job's number"),
 	}),
 	read_runner_state: z.strictObject({}),
+	dispatch_work_item: z.strictObject({
+		workItemId: z.uuid().transform((id) => id.toLowerCase()),
+		projectId: z.uuid(),
+		executor: z.enum(["codex", "claude-code"]),
+	}),
 	open_workspace: z.strictObject({
 		name: z
 			.string()
@@ -282,7 +288,7 @@ export const RequestMachineToolCallInputSchema = z.object({
 		.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
 		.default({})
 		.describe(
-			"The tool's input: read_file {path, startLine?, endLine?, workspace?}; search_code {pattern, pathPrefix?, maxResults?, workspace?}; list_commits {path?, limit?}; read_commit {sha}; read_ci_runs {sha?, limit?}; read_ci_job_log {jobId}; read_runner_state {}. On a machine that accepts the write tools: open_workspace {name?, base?}; close_workspace {workspace}; write_file {workspace, path, content}; edit_file {workspace, path, oldText, newText, replaceAll?}; run_command {workspace, command, timeoutSeconds?}",
+			"The tool's input: read_file {path, startLine?, endLine?, workspace?}; search_code {pattern, pathPrefix?, maxResults?, workspace?}; list_commits {path?, limit?}; read_commit {sha}; read_ci_runs {sha?, limit?}; read_ci_job_log {jobId}; read_runner_state {}; dispatch_work_item {workItemId, projectId, executor} wakes the runner to check one Work Item. On a machine that accepts the write tools: open_workspace {name?, base?}; close_workspace {workspace}; write_file {workspace, path, content}; edit_file {workspace, path, oldText, newText, replaceAll?}; run_command {workspace, command, timeoutSeconds?}",
 		),
 });
 

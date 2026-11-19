@@ -69,6 +69,10 @@ import {
 	type NativeProviderActivity,
 } from "@tedix/api-contract/schemas/dispatcher-health";
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
+import {
+	dispatchRequestsDirectory,
+	waitForDispatchRequest,
+} from "./lane-dispatch-wake";
 import { laneReservedActions, userPresenceStep } from "./lane-reserved-actions";
 import { lanePermissionCopy } from "./lane-permission-copy";
 import { cachedExecutorBudgets } from "./lane-budget";
@@ -2868,22 +2872,24 @@ export class LaneDispatcher {
 			? remaining + Math.round(Math.random() * COOLDOWN_WAKE_JITTER_MS)
 			: 30_000;
 	}
-	async tick() {
+	async tick(workItemId?: string) {
 		this.ticking = true;
 		this.notePassProgress();
 		const skips = new Map<string, DispatcherSkipObservation>();
 		const observedAt = new Date().toISOString();
 		let sampled = false;
 		try {
-			sampled = (await this.runTick(skips, observedAt)) === true;
+			sampled = (await this.runTick(skips, observedAt, workItemId)) === true;
 		} finally {
 			this.ticking = false;
-			this.previousSkips = sampled ? skips : new Map();
-			recordDispatcherSkips(
-				this.directory,
-				observedAt,
-				this.previousSkips.values(),
-			);
+			if (!workItemId) {
+				this.previousSkips = sampled ? skips : new Map();
+				recordDispatcherSkips(
+					this.directory,
+					observedAt,
+					this.previousSkips.values(),
+				);
+			}
 		}
 	}
 	private pendingDevinProbe?: Promise<
@@ -2917,6 +2923,7 @@ export class LaneDispatcher {
 	private async runTick(
 		skips: Map<string, DispatcherSkipObservation>,
 		observedAt: string,
+		workItemId?: string,
 	) {
 		const observeSkip = (item: DispatchItem, reason: string) => {
 			if (
@@ -3141,6 +3148,7 @@ export class LaneDispatcher {
 				: preflightFailed
 					? "The executor preflight check failed"
 					: undefined);
+		if (workItemId && admissionPause) return;
 		const healthSource = existsSync(join(this.directory, "health-source.json"));
 		while (
 			!this.stopping &&
@@ -3160,6 +3168,7 @@ export class LaneDispatcher {
 						: { executor: this.options.executor }),
 					dispatchReadyOnly: true,
 					...(this.options.project ? { projectId: this.options.project } : {}),
+					...(workItemId ? { idPrefix: workItemId } : {}),
 					limit: 25,
 					offset,
 				}),
@@ -3407,6 +3416,7 @@ export class LaneDispatcher {
 			if (!page.data.length)
 				throw new Error("Dispatch pagination made no progress");
 		}
+		if (workItemId) return;
 		// Historical delivery must not queue ahead of admission or lease renewal.
 		// Live orphan fences above remain synchronous even while Work is running.
 		if (!this.preparing.size) {
@@ -7503,8 +7513,10 @@ export async function runLaneServe(
 	let stopping = false;
 	let abandoned = false;
 	let updating = false;
+	const stopWaiting = new AbortController();
 	const stop = () => {
 		stopping = true;
+		stopWaiting.abort();
 		dispatcher?.stop();
 	};
 	process.on("SIGTERM", stop);
@@ -7532,13 +7544,19 @@ export async function runLaneServe(
 			if (stopping) return 0;
 		}
 		writeDispatcherHealthSource(directory, options);
-		dispatcher = new LaneDispatcher(options, directory);
-		do {
+		const lane = new LaneDispatcher(options, directory);
+		dispatcher = lane;
+		const requests = dispatchRequestsDirectory(directory);
+		if (!options.once) mkdirSync(requests, { recursive: true, mode: 0o700 });
+		const tick = async (workItemId?: string) => {
 			try {
-				await dispatcher.tick();
+				await lane.tick(workItemId);
 			} catch (error) {
 				process.stderr.write(`Dispatcher deferred: ${String(error)}\n`);
 			}
+		};
+		do {
+			await tick();
 			if (options.once || stopping) break;
 			// Only a runner the supervisor will start again leaves for an update.
 			const newer = await installedVersion();
@@ -7556,12 +7574,19 @@ export async function runLaneServe(
 					return RUNNER_UPDATE_EXIT_CODE;
 				}
 			}
-			const delay = dispatcher.nextTickDelayMs();
-			recordDispatcherNextCheck(
-				directory,
-				new Date(Date.now() + delay).toISOString(),
-			);
-			await new Promise<void>((done) => setTimeout(done, delay));
+			const nextPass = Date.now() + dispatcher.nextTickDelayMs();
+			while (!stopping) {
+				recordDispatcherNextCheck(directory, new Date(nextPass).toISOString());
+				const delay = nextPass - Date.now();
+				if (delay <= 0) break;
+				const workItemId = await waitForDispatchRequest(
+					requests,
+					delay,
+					stopWaiting.signal,
+				);
+				if (!workItemId || stopping) break;
+				await tick(workItemId);
+			}
 		} while (!stopping);
 		if (options.once) {
 			await dispatcher.drain();
