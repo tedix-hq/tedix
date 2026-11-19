@@ -44,10 +44,10 @@ updated independently.
 
 ## Overrides
 
-Security overrides pin `dompurify` to 3.4.17, `body-parser` to 2.4.0 and
+Security overrides pin `dompurify` to 3.4.18, `body-parser` to 2.4.0 and
 `fast-uri` to 4.2.3. Undici uses version-scoped overrides: 7.x consumers stay
 on 7.30.2 and 8.x consumers stay on 8.12.4. This includes Miniflare's exact
-7.x dependency without moving it to a different major. Bun 1.4.4 writes these
+7.x dependency without moving it to a different major. Bun 1.4.5 writes these
 scoped rules in lockfile format 3; keep the manifest and lockfile together.
 The independently installed CMS starters carry the same security overrides
 in their manifests and lockfiles, and in the generated template snapshot.
@@ -76,7 +76,7 @@ Cloudflare adapter; `bun.lock` records the same patch paths:
   a policy hook before facet initialization and alarm dispatch.
 
 The CMS starters carry matching copies under `apps/cms/templates/*/patches/`.
-Their manifests also apply `@emdash-cms/plugin-forms@0.2.12.patch`, which excludes
+Their manifests also apply `@emdash-cms/plugin-forms@0.2.13.patch`, which excludes
 raw visitor IPs from stored submissions and defaults new forms to 30-day
 retention. Each patched dependency has an entry in `THIRD_PARTY_NOTICES.md`,
 and `bun run oss:check` fails on a patch without one.

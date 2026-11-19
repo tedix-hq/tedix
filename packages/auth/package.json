@@ -73,13 +73,13 @@
 		"@tedix/ssrf-guard": "workspace:*",
 		"@tedix/tenant-directory": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
-		"jose": "^6.2.17",
+		"jose": "^6.2.18",
 		"zod": "catalog:"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "catalog:",
 		"@tedix/tsconfig": "workspace:*",
-		"bun-types": "^1.4.4",
+		"bun-types": "^1.4.5",
 		"vite": "catalog:",
 		"vite-plus": "catalog:",
 		"vitest": "catalog:"

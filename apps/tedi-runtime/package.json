@@ -54,7 +54,7 @@
 		"diff": "9.0.0",
 		"fast-xml-parser": "catalog:",
 		"isomorphic-git": "catalog:",
-		"just-bash": "^3.6.0",
+		"just-bash": "^3.6.1",
 		"postal-mime": "^4.2.1",
 		"zod": "catalog:"
 	},

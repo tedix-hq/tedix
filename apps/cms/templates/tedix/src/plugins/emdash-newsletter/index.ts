@@ -278,8 +278,9 @@ async function sendPlatformEmail(
 		ctx.log?.warn?.("[newsletter] HTTP capability unavailable");
 		return { ok: false, error: "HTTP capability unavailable" };
 	}
+	const capabilityFetch = ctx.http.fetch.bind(ctx.http);
 	const platformFetch = (url: string, init?: RequestInit) =>
-		ctx.http!.fetch(url, { ...init, signal: AbortSignal.timeout(8_000) });
+		capabilityFetch(url, { ...init, signal: AbortSignal.timeout(8_000) });
 	try {
 		const out = await callPlatformRpc<{
 			ok?: boolean;

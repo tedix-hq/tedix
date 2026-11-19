@@ -1,21 +1,21 @@
 diff --git a/package.json b/package.json
-index 3c79c54..6ed4f48 100644
+index 240f5b2..baee8bb 100644
 --- a/package.json
 +++ b/package.json
-@@ -30,7 +30,7 @@
-     "emdash": ">=0.11.0",
-     "react": "^18.0.0 || ^19.0.0",
+@@ -26,7 +26,7 @@
+   "author": "Matt Kane",
+   "license": "MIT",
+   "peerDependencies": {
+-    "@cloudflare/kumo": "2.15.0",
++    "@cloudflare/kumo": "^2.15.0",
+     "@lingui/react": "^5.9.4",
      "@phosphor-icons/react": "^2.1.10",
--    "@cloudflare/kumo": "2.6.0"
-+    "@cloudflare/kumo": "^2.6.0"
-   },
-   "devDependencies": {
-     "@testing-library/react": "^16.3.0",
+     "astro": ">=6.0.0-beta.0",
 diff --git a/src/admin.tsx b/src/admin.tsx
-index 127bc13..afda631 100644
+index 6217dc8..bc34d5f 100644
 --- a/src/admin.tsx
 +++ b/src/admin.tsx
-@@ -553,7 +553,7 @@ function FormEditor({
+@@ -614,7 +614,7 @@ function FormEditor({
  						notifyEmails: [],
  						digestEnabled: false,
  						digestHour: 9,
@@ -23,8 +23,8 @@ index 127bc13..afda631 100644
 +						retentionDays: 30,
  						spamProtection: "honeypot",
  						submitLabel: "Submit",
- 						...settings,
-@@ -688,7 +688,7 @@ function FormEditor({
+ 						...savedSettings,
+@@ -750,7 +750,7 @@ function FormEditor({
  					<Input
  						label="Retention (days, 0 = forever)"
  						type="number"
@@ -33,10 +33,10 @@ index 127bc13..afda631 100644
  						onChange={(e) =>
  							setSettings((s) => ({
  								...s,
-@@ -696,6 +696,19 @@ function FormEditor({
- 							}))
- 						}
- 					/>
+@@ -818,6 +818,19 @@ function FormEditor({
+ 							onChange={(e) => setSettings((s) => ({ ...s, webhookUrl: e.target.value }))}
+ 						/>
+ 					</div>
 +					<Input
 +						label="Hourly submissions per visitor (0 = off)"
 +						type="number"
@@ -54,7 +54,7 @@ index 127bc13..afda631 100644
  						<Input
  							label="Redirect URL (optional)"
 diff --git a/src/astro/FormEmbed.astro b/src/astro/FormEmbed.astro
-index f123f2e..5afbe3a 100644
+index 72b7540..f4a56a6 100644
 --- a/src/astro/FormEmbed.astro
 +++ b/src/astro/FormEmbed.astro
 @@ -182,7 +182,7 @@ function fieldId(name: string): string {
@@ -93,7 +93,7 @@ index bc9cd59..f47775b 100644
  		},
  		orderBy: { createdAt: "desc" },
 diff --git a/src/handlers/forms.ts b/src/handlers/forms.ts
-index bbea84e..aea5c88 100644
+index bb0045b..9f9c3fa 100644
 --- a/src/handlers/forms.ts
 +++ b/src/handlers/forms.ts
 @@ -39,10 +39,11 @@ function withoutWebhookUrl(form: FormDefinition): FormDefinition {
@@ -122,7 +122,7 @@ index bbea84e..aea5c88 100644
  			nextLabel: input.settings.nextLabel,
  			prevLabel: input.settings.prevLabel,
 diff --git a/src/handlers/submit.ts b/src/handlers/submit.ts
-index b978501..406a5ff 100644
+index 3ceb14f..e5eeac2 100644
 --- a/src/handlers/submit.ts
 +++ b/src/handlers/submit.ts
 @@ -123,6 +123,29 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
@@ -169,7 +169,7 @@ index b978501..406a5ff 100644
  			userAgent: ctx.requestMeta.userAgent,
  			referer: ctx.requestMeta.referer,
  			country: ctx.requestMeta.geo?.country ?? null,
-@@ -233,7 +256,7 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
+@@ -240,7 +263,7 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
  		submitterEmail && z.email().safeParse(submitterEmail).success ? submitterEmail : undefined;
  
  	// 7. Immediate email notifications (not digest)
@@ -178,7 +178,7 @@ index b978501..406a5ff 100644
  		const text = formatSubmissionText(form, result.data, files);
  		for (const email of settings.notifyEmails) {
  			await ctx.email
-@@ -254,7 +277,7 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
+@@ -261,7 +284,7 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
  	}
  
  	// 8. Autoresponder
@@ -187,7 +187,7 @@ index b978501..406a5ff 100644
  		await ctx.email
  			.send({
  				to: submitterEmail,
-@@ -279,7 +302,7 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
+@@ -286,7 +309,7 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
  	// Redirects are detected by comparing the final URL, NOT by `response.redirected`: plugin HTTP access
  	// follows redirects itself with `redirect: "manual"` so it can strip credentials on a cross-origin hop,
  	// so the response it hands back always reports `redirected: false` however many hops it took.
@@ -265,7 +265,7 @@ index 00e69b5..289e86b 100644
  			settingsSchema: {
  				turnstileSiteKey: { type: "string", label: "Turnstile Site Key" },
 diff --git a/src/schemas.ts b/src/schemas.ts
-index 078e22c..553b38b 100644
+index 462ef4b..ce44379 100644
 --- a/src/schemas.ts
 +++ b/src/schemas.ts
 @@ -9,6 +9,7 @@ const HTTP_SCHEME_RE = /^https?:\/\//i;
@@ -294,7 +294,7 @@ index 078e22c..553b38b 100644
  	spamProtection: formSettingsShape.spamProtection.default("honeypot"),
  	submitLabel: formSettingsShape.submitLabel.default("Submit"),
  });
-@@ -170,6 +173,8 @@ export const formDuplicateSchema = z.object({
+@@ -177,6 +180,8 @@ export const formDuplicateSchema = z.object({
  		.optional(),
  });
  
@@ -304,7 +304,7 @@ index 078e22c..553b38b 100644
  	id: z.string().min(1),
  });
 diff --git a/src/types.ts b/src/types.ts
-index 6de927a..7314c6e 100644
+index e79d131..b59116a 100644
 --- a/src/types.ts
 +++ b/src/types.ts
 @@ -46,6 +46,10 @@ export interface FormSettings {
@@ -319,7 +319,7 @@ index 6de927a..7314c6e 100644
  	submitLabel: string;
  	/** Label for Next button on multi-page forms */
 diff --git a/src/validation.ts b/src/validation.ts
-index 26f2564..08e04e3 100644
+index 5f6da83..97234af 100644
 --- a/src/validation.ts
 +++ b/src/validation.ts
 @@ -58,7 +58,7 @@ export function validateSubmission(

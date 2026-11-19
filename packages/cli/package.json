@@ -41,7 +41,7 @@
 		"@tedix/tsconfig": "workspace:*",
 		"@types/node": "catalog:",
 		"@types/react": "^19.3.0",
-		"bun-types": "^1.4.4",
+		"bun-types": "^1.4.5",
 		"ink-testing-library": "4.0.0",
 		"typescript": "catalog:"
 	}
