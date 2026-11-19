@@ -186,16 +186,15 @@ inline statements, or call
 
 ## Verification
 
-Narrowest proof that covers the risk:
+Check the affected types and boundaries, then exercise the changed
+procedure if that gives better evidence. Add a focused regression case for
+a consequential gap, such as a missed permission, tenant filter, or unsafe
+write. Extend existing coverage where possible and remove cases that just
+mirror a schema, registry, or mocked call sequence.
 
-```bash
-cd apps/api && bunx tsc --noEmit        # 0 errors expected
-cd apps/api && bun run test:run         # full suite
-bun run lint:repo                       # boundaries, exports, tsconfig, wrangler, planes
-bunx vp check <files you touched>
-```
-
-Do **not** use `bun test` here — it ignores the Vitest/Workers aliases.
+Select existing Vitest cases through the workspace runner when needed.
+`bun run test:run` is the full suite. Bare `bun test` ignores the
+Vitest/Workers aliases.
 
 A passing source check is not deployment proof. For authorized deployments,
 read the exact target's live revision and verify the changed behavior.

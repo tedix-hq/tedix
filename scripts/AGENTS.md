@@ -56,10 +56,13 @@ including test cases and commit messages. Findings print locations only.
 
 ## Adding or changing a gate
 
-- Keep the shape: pure exported analysis functions with a co-located
-  `<script>.test.ts`, driven by a thin runner that owns I/O and exit codes.
-- Tests run with `bun run test:scripts` (plain Bun; the Worker-app `bun test`
-  ban does not apply here).
+- Keep analysis in pure functions and let a thin runner own I/O and exit
+  codes. Add a focused case when it catches a consequential failure, such as
+  a check accepting invalid input or blocking valid work.
+- Use `bun test <file>` for focused script tests. `bun run test:scripts` is
+  the full script suite. Remove cases that only pin command strings, output
+  copy, or workflow layout. Add a gate only for a material risk existing
+  checks cannot catch.
 - Opt new code into type checking through `scripts/tsconfig.json`'s `include`
   list (`bun run type-check:scripts`).
 - Changing what a gate enforces is its own stated change, never a side effect

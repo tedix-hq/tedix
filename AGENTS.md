@@ -108,19 +108,31 @@ An area is a standing part of the work with one owner and a goal.
 
 ## Check your change
 
-Run checks that apply to the change. Use focused tests when they catch a
-consequential failure that types, review or a direct product check cannot.
-Skip tests that restate the code, copy, configuration or Work Item. Broad
-unit, integration and browser suites are available on demand.
+Start with the Work Item outcome. Choose the cheapest check that can show
+whether the changed behavior works: read the relevant code and contract,
+use the applicable static checks, or exercise the changed path directly.
 
-| Command                                | What it checks                                                   |
-| -------------------------------------- | ---------------------------------------------------------------- |
-| `bun run --cwd <workspace> type-check` | TypeScript source                                                |
-| `bun run --cwd <workspace> test:run`   | That workspace's tests; never use bare `bun test` on Worker apps |
-| `bun run types:check`                  | Generated Worker bindings; fix with `bun run types:generate`     |
-| `bun run lint:repo`                    | Rules about where code belongs                                   |
-| `bun run docs:public:check`            | Public docs and agent-guide references                           |
-| `bun run scan:secrets`                 | Secrets in public source                                         |
+- Add a test only when you can name a consequential failure it would catch,
+  why existing checks miss it, and why the recurring cost is justified.
+  Use the smallest layer that can reproduce the failure. Unit, integration,
+  and end-to-end tests are options, not a checklist.
+- Prefer a focused case in a relevant existing test file. Add a file, fixture
+  matrix, or CI gate only when it buys distinct coverage that is worth keeping.
+- When editing nearby tests, remove duplicates, obsolete cases, and
+  assertions that only mirror code, copy, configuration, or the Work Item.
+  Keep coverage of consequential failures, including access control, data
+  loss, and unsafe state transitions.
+- Run the smallest check that answers the question. Full suites are available
+  on demand. Docs and routine reversible edits generally need no test cases.
+
+| Command                                | What it checks                                                       |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| `bun run --cwd <workspace> type-check` | TypeScript source                                                    |
+| `bun run --cwd <workspace> test:run`   | Workspace suite on demand; use the workspace runner for Worker tests |
+| `bun run types:check`                  | Generated Worker bindings; fix with `bun run types:generate`         |
+| `bun run lint:repo`                    | Rules about where code belongs                                       |
+| `bun run docs:public:check`            | Public docs and agent-guide references                               |
+| `bun run scan:secrets`                 | Secrets in public source                                             |
 
 The pre-push hook selects relevant checks. Do not weaken a failing check.
 Report what ran and what remains unverified. Passing tests, completing a

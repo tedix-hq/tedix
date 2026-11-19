@@ -82,15 +82,11 @@ owning schema, query module and tests before changing persistence behavior.
   verify the target ledger and schema. Never infer a database target from an
   example or use a direct apply to bypass the release procedure.
 
-Run the narrowest relevant set, then the package gates:
-
-```sh
-bun run --cwd packages/db type-check
-bun run --cwd packages/db test:run
-bun run lint:db-access
-bun run lint:d1
-bun run lint:exports
-```
+Choose the applicable type and repository checks. For a consequential query
+change, prefer a focused case that executes the real query using the
+existing database fixture. Look for tenant leaks, lost or duplicated writes,
+or ordering failures. Avoid cases that only restate the Drizzle mapping or
+assert which mock was called. The full workspace suite is available on demand.
 
 For schema changes also run `bun run db:migrate:generate -- --name <change>`,
 review the generated SQL, and run `bun run db:migrate:check`.

@@ -3,8 +3,8 @@
 Read `README.md` first. Rules that are easy to break:
 
 - The agent loop (`src/turn-loop.ts`) is pure: model, sandbox, events and
-  summariser are ports. Keep it that way so it runs in the object, in a
-  facet and in a `bun test` with a scripted model.
+  summariser are ports. Keep it that way so the object and facets can share
+  the same loop.
 - Every binding the sandbox sees goes through `wrapBinding`
   (`src/bindings.ts`). Never hand a raw data-port method to the sandbox.
 - The sandbox manifest lives only in `src/sandbox.ts` (allow-listed in
@@ -22,6 +22,7 @@ Read `README.md` first. Rules that are easy to break:
   not proof of object authority. Agent output and resource bindings require
   activation and never fall back to D1. Core rows (apps, Work, tedis)
   use the `DB` binding. The object never reads another workspace's rows.
-- Tests: `test:unit` (bun) for the loop, prompt and bindings;
-  `test:workers` (workerd) for the object with the scripted model in
-  `test/worker.ts`. Never bare `bun test`.
+- Choose a focused case for changes that risk losing data, breaking workspace
+  isolation, or transferring authority incorrectly. Reuse `test:unit` for
+  pure behavior and `test:workers` when the object or its storage matters.
+  Use the workspace runner so workerd and its fixture load correctly.
