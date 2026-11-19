@@ -113,7 +113,6 @@ export const OsWorkspaceCapabilitySchema = z.object({
 export type OsWorkspaceCapability = z.infer<typeof OsWorkspaceCapabilitySchema>;
 
 export const OsCollaboratorPersonSchema = z.object({
-	principalKind: z.enum(["user", "tedi"]).default("user"),
 	userId: z.string(),
 	email: z.string().nullable(),
 	name: z.string().nullable(),
@@ -174,7 +173,6 @@ export type OsSharedWorkspace = z.infer<typeof OsSharedWorkspaceSchema>;
 
 /** A person in the caller's own organization, offered when inviting by name. */
 export const OsInviteSuggestionSchema = z.object({
-	principalKind: z.enum(["user", "tedi"]).default("user"),
 	userId: z.string(),
 	email: z.string(),
 	name: z.string().nullable(),

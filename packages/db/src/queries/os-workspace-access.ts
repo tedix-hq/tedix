@@ -17,17 +17,6 @@ import {
 } from "@tedix/api-contract/utils/os-collaborator-graph";
 import type { OsCollaboratorRole } from "@tedix/api-contract/schemas/os-collaborators";
 
-type WorkspaceAccess = {
-	workspace: OsWorkspaceRow;
-	callerId: string;
-	rows: OsWorkspacePermissionRows;
-	graph: PermissionGraph;
-	roles: Map<string, OsCollaboratorRole>;
-	role: OsCollaboratorRole | null;
-	isRoot: boolean;
-	canAdminister: boolean;
-};
-
 const ORG_ROLE: Record<string, OsCollaboratorRole> = {
 	owner: "build",
 	admin: "build",
@@ -37,10 +26,10 @@ const ORG_ROLE: Record<string, OsCollaboratorRole> = {
 
 function toGraphEdges(rows: OsWorkspacePermissionRows): GraphEdge[] {
 	return rows.edges.flatMap((edge): GraphEdge[] => {
-		if (edge.kind !== "link" && edge.sharerUserId && edge.role)
+		if (edge.kind === "user" && edge.sharerUserId && edge.role)
 			return [
 				{
-					kind: edge.kind,
+					kind: "user",
 					targetId: edge.targetUserId,
 					sharerId: edge.sharerUserId,
 					role: edge.role,
@@ -106,8 +95,7 @@ export async function loadWorkspaceAccess(
 	database: DbQueryClient,
 	workspace: OsWorkspaceRow,
 	callerId: string,
-	actorKind: "user" | "tedi" = "user",
-): Promise<WorkspaceAccess> {
+) {
 	const rows = await loadOsWorkspacePermissionRows(database, {
 		organizationId: workspace.organizationId,
 		workspaceId: workspace.id,
@@ -118,26 +106,6 @@ export async function loadWorkspaceAccess(
 		rows,
 		callerId,
 	);
-	const tedi =
-		actorKind === "tedi"
-			? await readWorkspaceTedi(database, workspace.organizationId, callerId)
-			: undefined;
-	if (actorKind === "tedi") {
-		// A direct edge takes precedence even if its grant is no longer reachable.
-		if (
-			tedi?.status === "active" &&
-			tedi.scope === "personal" &&
-			tedi.ownerUserId &&
-			!rows.edges.some((edge) => edge.targetUserId === callerId)
-		) {
-			const ownerRole = await readWorkspaceSessionRole(
-				database,
-				workspace.id,
-				tedi.ownerUserId,
-			);
-			if (ownerRole) roots.set(callerId, ownerRole);
-		}
-	}
 	const graph: PermissionGraph = {
 		roots,
 		edges: toGraphEdges(rows),
@@ -149,8 +117,6 @@ export async function loadWorkspaceAccess(
 		})),
 	};
 	const roles = computeEffectiveRoles(graph);
-	if (actorKind === "tedi" && (!tedi || tedi.status !== "active"))
-		roles.delete(callerId);
 	return {
 		workspace,
 		callerId,
@@ -158,8 +124,8 @@ export async function loadWorkspaceAccess(
 		graph,
 		roles,
 		role: roles.get(callerId) ?? null,
-		isRoot: actorKind === "user" && roots.has(callerId),
-		canAdminister: actorKind === "user" && administrators.has(callerId),
+		isRoot: roots.has(callerId),
+		canAdminister: administrators.has(callerId),
 	};
 }
 
@@ -184,8 +150,8 @@ export async function readWorkspaceSessionRole(
 }
 
 /** Current role for a principal authenticated by a trusted workspace ingress.
- * A tedi uses its own edge first, then its active personal owner's grant.
- * Organization membership alone never grants a tedi workspace access.
+ * A tedi can use its personal owner's grant only while that binding is active.
+ * Organization/app/service identity alone is never a workspace grant.
  */
 export async function readWorkspaceRuntimeRole(
 	database: DbQueryClient,
@@ -194,13 +160,23 @@ export async function readWorkspaceRuntimeRole(
 ): Promise<OsCollaboratorRole | null> {
 	const workspace = await getOsWorkspace(database, scope);
 	if (!workspace || workspace.status !== "active") return null;
+	let userId = principal.actorId;
 	if (principal.actorKind === "tedi") {
-		return (
-			await loadWorkspaceAccess(database, workspace, principal.actorId, "tedi")
-		).role;
-	}
-	if (principal.actorKind !== "user") return null;
-	return readWorkspaceSessionRole(database, workspace.id, principal.actorId);
+		const tedi = await readWorkspaceTedi(
+			database,
+			scope.organizationId,
+			principal.actorId,
+		);
+		if (
+			!tedi ||
+			tedi.status !== "active" ||
+			tedi.scope !== "personal" ||
+			!tedi.ownerUserId
+		)
+			return null;
+		userId = tedi.ownerUserId;
+	} else if (principal.actorKind !== "user") return null;
+	return readWorkspaceSessionRole(database, workspace.id, userId);
 }
 
 async function readWorkspaceTedi(

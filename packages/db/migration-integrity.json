@@ -1628,10 +1628,6 @@
 		{
 			"name": "20261119100738_auth_context_cache/migration.sql",
 			"sha256": "56712e7f3a286a08b7cd2a8b4531cd9439602192266a5528c338c52afd13dc5d"
-		},
-		{
-			"name": "20261119111534_workspace_tedi_principals/migration.sql",
-			"sha256": "6d54ffd17c4c15d10661e8644c004c5f1e71a528877f5451455ee58ce5607ea8"
 		}
 	]
 }

@@ -7,7 +7,6 @@ import {
 	PencilSimple,
 	Plugs,
 	Prohibit,
-	Robot,
 	UsersThree,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -723,23 +722,14 @@ function WorkspaceAccess(props: {
 
 	// Chosen people first, then whatever was typed or pasted, each address once.
 	const inviteEmails = parseInviteEmails(
-		[
-			...picked.map((person) =>
-				person.principalKind === "tedi" ? person.userId : person.email,
-			),
-			email,
-		].join(" "),
+		[...picked.map((person) => person.email), email].join(" "),
 	);
 	// One call per address, so one unknown address never blocks the others.
 	const invite = useMutation({
 		mutationFn: async (emails: string[]): Promise<InviteResult> => {
 			const result: InviteResult = { added: [], failed: [] };
 			for (const address of emails) {
-				const tedi = picked.find(
-					(person) =>
-						person.principalKind === "tedi" && person.userId === address,
-				);
-				if (!tedi && !EMAIL_SHAPE.test(address)) {
+				if (!EMAIL_SHAPE.test(address)) {
 					result.failed.push({
 						email: address,
 						message: `${address} doesn't look like an email address.`,
@@ -749,7 +739,7 @@ function WorkspaceAccess(props: {
 				try {
 					const { collaborator } = await osApi.osCollaborators.add({
 						workspaceId,
-						...(tedi ? { tediId: tedi.userId } : { email: address }),
+						email: address,
 						role: inviteRole,
 					});
 					result.added.push(collaborator);
@@ -771,20 +761,10 @@ function WorkspaceAccess(props: {
 				result.failed.map((failure) => failure.email.toLowerCase()),
 			);
 			const keptChips = picked.filter((person) =>
-				failed.has(
-					(person.principalKind === "tedi"
-						? person.userId
-						: person.email
-					).toLowerCase(),
-				),
+				failed.has(person.email.toLowerCase()),
 			);
 			const chipEmails = new Set(
-				keptChips.map((person) =>
-					(person.principalKind === "tedi"
-						? person.userId
-						: person.email
-					).toLowerCase(),
-				),
+				keptChips.map((person) => person.email.toLowerCase()),
 			);
 			setPicked(keptChips);
 			setEmail(
@@ -1046,11 +1026,7 @@ function WorkspaceAccess(props: {
 					Add people
 				</SectionHeading>
 				<InviteChips
-					people={picked.map((person) =>
-						person.principalKind === "tedi"
-							? { ...person, name: `${person.name ?? "Tedi"} · Tedi` }
-							: person,
-					)}
+					people={picked}
 					disabled={invite.isPending}
 					onRemove={(person) =>
 						setPicked((current) =>
@@ -1105,19 +1081,9 @@ function WorkspaceAccess(props: {
 					</div>
 				</div>
 				<InviteSuggestionList
-					people={suggestions.people.map((person) =>
-						person.principalKind === "tedi"
-							? { ...person, name: `${person.name ?? "Tedi"} · Tedi` }
-							: person,
-					)}
+					people={suggestions.people}
 					active={suggestions.active}
-					onPick={(person) =>
-						pickSuggestion(
-							suggestions.people.find(
-								(entry) => entry.userId === person.userId,
-							) ?? person,
-						)
-					}
+					onPick={pickSuggestion}
 				/>
 				<div className="grid gap-2" aria-live="polite">
 					{suggestions.noMatch ? (
@@ -1175,15 +1141,9 @@ function WorkspaceAccess(props: {
 						<PersonRow
 							key={person.userId}
 							name={personLabel(person)}
-							icon={
-								person.principalKind === "tedi" ? (
-									<Robot size={16} aria-label="Tedi" />
-								) : undefined
-							}
 							you={person.userId === you?.userId}
 							highlighted={highlighted.has(person.userId)}
 							detail={[
-								person.principalKind === "tedi" ? "Tedi" : null,
 								person.name && person.email ? person.email : null,
 								person.addedBy.length
 									? `added by ${person.addedBy.join(", ")}`
