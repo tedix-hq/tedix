@@ -37,18 +37,18 @@ it("maps each executor to the binary the lane probes", () => {
 	expect(executorBinary("devin")).toBe("devin");
 });
 
-it("names the exit status and elapsed time when the version probe fails", () => {
+it("names the exit status and elapsed time when the version probe fails", async () => {
 	const command = fakeBinary("#!/bin/sh\nexit 3\n");
-	const probe = probeExecutorVersion(command);
+	const probe = await probeExecutorVersion(command);
 	expect(probe.available).toBe(false);
 	expect(probe.reason).toContain(`${command} --version exited 3 after`);
 	expect(probe.reason).toContain("ms");
 });
 
-it("retries a timed-out probe once and reports a second timeout as transient", () => {
+it("retries a timed-out probe once and reports a second timeout as transient", async () => {
 	const command = fakeBinary("#!/bin/sh\nexec /bin/sleep 60\n");
 	const started = Date.now();
-	const probe = probeExecutorVersion(command, 200, 400);
+	const probe = await probeExecutorVersion(command, 200, 400);
 	expect(Date.now() - started).toBeLessThan(10_000);
 	expect(probe).toEqual({
 		available: false,
@@ -57,9 +57,9 @@ it("retries a timed-out probe once and reports a second timeout as transient", (
 	});
 }, 15_000);
 
-it("passes a 6-second version check on the longer second try", () => {
+it("passes a 6-second version check on the longer second try", async () => {
 	const command = fakeBinary("#!/bin/sh\n/bin/sleep 6\necho 1.2.3\n");
-	const probe = probeExecutorVersion(command);
+	const probe = await probeExecutorVersion(command);
 	expect(probe.available).toBe(true);
 	expect(probe.transient).toBeUndefined();
 	expect(probe.slow).toContain(
@@ -67,16 +67,16 @@ it("passes a 6-second version check on the longer second try", () => {
 	);
 }, 40_000);
 
-it("does not retry a probe that fails without timing out", () => {
+it("does not retry a probe that fails without timing out", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "lane-probe-test-"));
 	dirs.push(dir);
 	const command = fakeBinary(`#!/bin/sh\necho run >> ${dir}/runs\nexit 3\n`);
-	const probe = probeExecutorVersion(command);
+	const probe = await probeExecutorVersion(command);
 	expect(probe.transient).toBeUndefined();
 	expect(readFileSync(join(dir, "runs"), "utf8")).toBe("run\n");
 });
 
-it("reuses a twice-timed-out probe briefly, then probes again", () => {
+it("reuses a twice-timed-out probe briefly, then probes again", async () => {
 	let now = 1_000_000;
 	let calls = 0;
 	let result: ExecutorAvailability = {
@@ -93,28 +93,28 @@ it("reuses a twice-timed-out probe briefly, then probes again", () => {
 		() => now,
 		30_000,
 	);
-	expect(probe("codex").transient).toBe(true);
-	expect(probe("codex").transient).toBe(true);
+	expect((await probe("codex")).transient).toBe(true);
+	expect((await probe("codex")).transient).toBe(true);
 	expect(calls).toBe(1);
 	now += 30_000;
 	result = { available: true };
-	expect(probe("codex")).toEqual({ available: true });
+	expect(await probe("codex")).toEqual({ available: true });
 	expect(calls).toBe(2);
 });
 
-it("names a missing binary instead of reporting a nonzero exit", () => {
-	const probe = probeExecutorVersion("/definitely/missing/executor");
+it("names a missing binary instead of reporting a nonzero exit", async () => {
+	const probe = await probeExecutorVersion("/definitely/missing/executor");
 	expect(probe.available).toBe(false);
 	expect(probe.reason).toContain("failed to start");
 	expect(probe.reason).toContain("ENOENT");
 });
 
-it("reports available for a passing --version probe", () => {
+it("reports available for a passing --version probe", async () => {
 	const command = fakeBinary("#!/bin/sh\necho 1.2.3\n");
-	expect(probeExecutorVersion(command)).toEqual({ available: true });
+	expect(await probeExecutorVersion(command)).toEqual({ available: true });
 });
 
-it("reuses a passing probe for its cache window and never caches a failure", () => {
+it("reuses a passing probe for its cache window and never caches a failure", async () => {
 	let now = 1_000_000;
 	let calls = 0;
 	let result: ExecutorAvailability = { available: true };
@@ -126,24 +126,45 @@ it("reuses a passing probe for its cache window and never caches a failure", () 
 		60_000,
 		() => now,
 	);
-	expect(probe("codex").available).toBe(true);
-	expect(probe("codex").available).toBe(true);
+	expect((await probe("codex")).available).toBe(true);
+	expect((await probe("codex")).available).toBe(true);
 	expect(calls).toBe(1);
 	// Each executor's probe is cached on its own.
-	expect(probe("devin").available).toBe(true);
+	expect((await probe("devin")).available).toBe(true);
 	expect(calls).toBe(2);
 	// Inside the window no new probe runs, so a transient failure cannot drop
 	// the executor.
 	result = { available: false, reason: "probe timed out" };
-	expect(probe("codex").available).toBe(true);
+	expect((await probe("codex")).available).toBe(true);
 	expect(calls).toBe(2);
 	// Past the window the probe runs again; a failure is never cached, so the
 	// next pass probes once more.
 	now += 60_000;
-	expect(probe("codex").available).toBe(false);
-	expect(probe("codex").available).toBe(false);
+	expect((await probe("codex")).available).toBe(false);
+	expect((await probe("codex")).available).toBe(false);
 	expect(calls).toBe(4);
 	// Devin's window expired at the same instant.
-	expect(probe("devin").available).toBe(false);
+	expect((await probe("devin")).available).toBe(false);
 	expect(calls).toBe(5);
+});
+
+it("shares a pending version probe and leaves heartbeat timers free", async () => {
+	const command = fakeBinary("#!/bin/sh\nexec /bin/sleep 0.2\n");
+	let calls = 0;
+	let heartbeats = 0;
+	const timer = setInterval(() => heartbeats++, 10);
+	const probe = cachedExecutorProbe(() => {
+		calls++;
+		return probeExecutorVersion(command);
+	});
+	try {
+		expect(await Promise.all([probe("codex"), probe("codex")])).toEqual([
+			{ available: true },
+			{ available: true },
+		]);
+		expect(calls).toBe(1);
+		expect(heartbeats).toBeGreaterThan(0);
+	} finally {
+		clearInterval(timer);
+	}
 });

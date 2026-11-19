@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { laneCommand } from "./lane-command";
 import {
 	existsSync,
 	lstatSync,
@@ -11,8 +11,8 @@ import { join, resolve, sep } from "node:path";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 /** Linked worktrees keep their index and commit objects outside the source tree. */
-export function devinGitWritePaths(cwd: string): string[] {
-	const result = spawnSync(
+export async function devinGitWritePaths(cwd: string): Promise<string[]> {
+	const result = await laneCommand(
 		"git",
 		[
 			"-c",
@@ -55,7 +55,7 @@ export function devinGitWritePaths(cwd: string): string[] {
 		`${commonDir}/logs/refs/remotes/origin/main`,
 		`${commonDir}/ci-completion.log`,
 	];
-	const branch = spawnSync("git", ["symbolic-ref", "-q", "HEAD"], {
+	const branch = await laneCommand("git", ["symbolic-ref", "-q", "HEAD"], {
 		cwd,
 		encoding: "utf8",
 		timeout: 10_000,
@@ -132,7 +132,7 @@ export function devinSecretPaths(env = process.env) {
 }
 
 /** Run before ACP creation and every resume, including retained failed worktrees. */
-export function assertDevinProjectHooks(cwd: string) {
+export async function assertDevinProjectHooks(cwd: string) {
 	const paths = [".devin", ".claude"];
 	const blocked =
 		"Devin project hooks differ from HEAD or contain executable hooks; inspect .devin/ and .claude/ before retrying";
@@ -185,7 +185,7 @@ export function assertDevinProjectHooks(cwd: string) {
 	];
 	const gitEnv = { ...process.env, GIT_NO_LAZY_FETCH: "1" };
 	// Metadata-only fixtures and new non-Git workspaces must contain no hooks.
-	const repository = spawnSync(
+	const repository = await laneCommand(
 		"git",
 		[...gitOptions, "rev-parse", "--show-toplevel"],
 		{
@@ -200,7 +200,7 @@ export function assertDevinProjectHooks(cwd: string) {
 			throw new Error("Cannot verify Devin project hooks outside Git");
 		return;
 	}
-	const filters = spawnSync(
+	const filters = await laneCommand(
 		"git",
 		[
 			...gitOptions,
@@ -237,7 +237,7 @@ export function assertDevinProjectHooks(cwd: string) {
 		],
 		["ls-files", "--others", "--", ...paths],
 	]) {
-		const result = spawnSync("git", [...gitOptions, ...args], {
+		const result = await laneCommand("git", [...gitOptions, ...args], {
 			cwd,
 			env: gitEnv,
 			encoding: "utf8",
@@ -251,10 +251,10 @@ export function assertDevinProjectHooks(cwd: string) {
 }
 
 /** Keep Git usable without copying helper scripts, includes or token-bearing config. */
-export function writeDevinGitIdentity(path: string, cwd: string) {
+export async function writeDevinGitIdentity(path: string, cwd: string) {
 	writeFileSync(path, "", { mode: 0o600, flag: "wx" });
 	for (const key of ["user.name", "user.email"]) {
-		const identity = spawnSync("git", ["config", "--get", key], {
+		const identity = await laneCommand("git", ["config", "--get", key], {
 			cwd,
 			encoding: "utf8",
 			timeout: 10_000,
@@ -262,7 +262,7 @@ export function writeDevinGitIdentity(path: string, cwd: string) {
 		if (identity.status === 1) continue;
 		if (identity.status !== 0)
 			throw new Error("Cannot resolve Git author identity for Devin lane");
-		const saved = spawnSync(
+		const saved = await laneCommand(
 			"git",
 			["config", "--file", path, "--add", "--", key, identity.stdout.trim()],
 			{ cwd, encoding: "utf8", timeout: 10_000 },
@@ -272,7 +272,7 @@ export function writeDevinGitIdentity(path: string, cwd: string) {
 	}
 	// The macOS helper uses the existing Keychain; no credential file is exposed.
 	if (process.platform === "darwin") {
-		const saved = spawnSync(
+		const saved = await laneCommand(
 			"git",
 			[
 				"config",

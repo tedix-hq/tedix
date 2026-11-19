@@ -67,7 +67,7 @@ import {
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
 import { laneReservedActions, userPresenceStep } from "./lane-reserved-actions";
 import { lanePermissionCopy } from "./lane-permission-copy";
-import { readExecutorBudgets } from "./lane-budget";
+import { cachedExecutorBudgets } from "./lane-budget";
 import {
 	localExecutors,
 	readRoutingPolicy,
@@ -94,7 +94,6 @@ import {
 import { createDevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import {
-	laneProcessIdentity,
 	reapLaneProcess,
 	waitForLaneProcessIdentity,
 } from "./lane-process-recovery";
@@ -942,8 +941,8 @@ interface Receipt {
 	waitResponseId?: string;
 	waitCheckAt?: number;
 	waitReleasedAt?: number;
-	existingProof?: ReturnType<typeof verifyExistingLaneResult>;
-	repositoryProof?: ReturnType<typeof verifyRepositoryLaneResult>;
+	existingProof?: Awaited<ReturnType<typeof verifyExistingLaneResult>>;
+	repositoryProof?: Awaited<ReturnType<typeof verifyRepositoryLaneResult>>;
 	/** The run changed nothing; `commits` are earlier ones verified on origin/main. */
 	existingCommitsProven?: boolean;
 	expectsCode?: boolean;
@@ -2115,9 +2114,15 @@ interface DispatcherDeps {
 	health: typeof collectDispatcherHealth;
 	cli: typeof cli;
 	observe: typeof reportLaneObservation;
-	devinAvailability: typeof devinAvailability;
-	available: (executor: LocalExecutor) => ExecutorAvailability;
-	budgets: typeof readExecutorBudgets;
+	devinAvailability: () =>
+		| Awaited<ReturnType<typeof devinAvailability>>
+		| ReturnType<typeof devinAvailability>;
+	available: (
+		executor: LocalExecutor,
+	) => ExecutorAvailability | Promise<ExecutorAvailability>;
+	budgets: (
+		policy: RoutingPolicy,
+	) => ExecutorBudgets | Promise<ExecutorBudgets>;
 	thread: (
 		cwd: string,
 		executor: LocalExecutor,
@@ -2130,7 +2135,7 @@ interface DispatcherDeps {
 	}>;
 	launch: typeof runLaneProcess;
 	waitForIdentity: typeof waitForLaneProcessIdentity;
-	darkWake: typeof inDarkWake;
+	darkWake: () => boolean | Promise<boolean>;
 	provision: (source: string, destination: string) => string | Promise<string>;
 	installDependencies: typeof installLaneDependencies;
 	baseCommit: (repo: string) => string | Promise<string>;
@@ -2147,7 +2152,11 @@ interface DispatcherDeps {
 	existingCommits: typeof existingLaneCommits;
 	unpushedCommits: typeof unpushedLaneCommits;
 	verifyExisting: typeof verifyExistingLaneResult;
-	verifyRepository: typeof verifyRepositoryLaneResult;
+	verifyRepository: (
+		...args: Parameters<typeof verifyRepositoryLaneResult>
+	) =>
+		| Awaited<ReturnType<typeof verifyRepositoryLaneResult>>
+		| ReturnType<typeof verifyRepositoryLaneResult>;
 	localBranch: typeof localBranchProof;
 	cleanup: (
 		source: string,
@@ -2170,7 +2179,7 @@ const defaultDeps: DispatcherDeps = {
 	gatewayCooldownUntil,
 	devinAvailability,
 	available: cachedExecutorProbe(),
-	budgets: readExecutorBudgets,
+	budgets: cachedExecutorBudgets(),
 	thread: (cwd, executor, model, resume) =>
 		executor === "devin"
 			? createDevinLaneThread(cwd, "devin", model, 30_000, resume)
@@ -2567,8 +2576,36 @@ export class LaneDispatcher {
 			this.ticking = false;
 		}
 	}
+	private pendingDevinProbe?: Promise<
+		Awaited<ReturnType<typeof devinAvailability>>
+	>;
+	private devinProbe?: {
+		at: number;
+		result: Awaited<ReturnType<typeof devinAvailability>>;
+	};
+	private async devinStatus() {
+		const cached = this.devinProbe;
+		if (
+			cached &&
+			Date.now() - cached.at < (cached.result.available ? 60_000 : 30_000)
+		)
+			return cached.result;
+		if (this.pendingDevinProbe) return this.pendingDevinProbe;
+		const pending = Promise.resolve(this.deps.devinAvailability()).then(
+			(result) => {
+				this.devinProbe = { at: Date.now(), result };
+				return result;
+			},
+		);
+		this.pendingDevinProbe = pending;
+		try {
+			return await pending;
+		} finally {
+			this.pendingDevinProbe = undefined;
+		}
+	}
 	private async runTick() {
-		if (this.stopping || this.deps.darkWake()) {
+		if (this.stopping || (await this.deps.darkWake())) {
 			this.log("deferred", undefined, "Stopping or macOS dark wake");
 			return;
 		}
@@ -2601,17 +2638,22 @@ export class LaneDispatcher {
 				},
 			);
 		}
-		const observed = this.deps.budgets(this.policy);
+		const observed = await this.deps.budgets(this.policy);
 		for (const executor of localExecutors) {
-			let probe = this.deps.available(executor);
+			let probe = await this.deps.available(executor);
 			const slow = probe.slow ?? (probe.transient ? probe.reason : undefined);
 			if (!slow) this.slowProbes.delete(executor);
 			else if (!this.slowProbes.has(executor)) {
 				this.slowProbes.add(executor);
 				this.log("executor-probe-slow", undefined, slow);
 			}
-			if (executor === "devin" && probe.available) {
-				const status = this.deps.devinAvailability();
+			if (
+				executor === "devin" &&
+				probe.available &&
+				(this.options.executor === "devin" ||
+					this.options.executor === "any-local")
+			) {
+				const status = await this.devinStatus();
 				if (!status.available)
 					probe = { available: false, reason: status.reason };
 			}
@@ -2719,7 +2761,12 @@ export class LaneDispatcher {
 				) {
 					if (
 						row.processIdentity &&
-						reapLaneProcess(row.pid, row.session, row.processIdentity, row.repo)
+						(await reapLaneProcess(
+							row.pid,
+							row.session,
+							row.processIdentity,
+							row.repo,
+						))
 					) {
 						row.note = orphanStopNote(row);
 						this.recheckAfter.delete(orphanKey);
@@ -2828,7 +2875,7 @@ export class LaneDispatcher {
 					}
 				}
 				if (!reason && assignedExecutor(item) === "devin") {
-					const status = this.deps.devinAvailability();
+					const status = await this.devinStatus();
 					if (!status.available) reason = status.reason;
 				}
 				if (reason) {
@@ -3978,7 +4025,7 @@ export class LaneDispatcher {
 				`${selection.rule}: ${executor}${selection.model ? `/${selection.model}` : ""}`,
 			);
 			if (executor === "devin") {
-				const status = this.deps.devinAvailability();
+				const status = await this.devinStatus();
 				if (!status.available) throw new Error(status.reason);
 			}
 			const reason = dispatchSkip(
@@ -4551,15 +4598,10 @@ export class LaneDispatcher {
 						}),
 					onSpawn: (pid) => {
 						receipt.pid = pid;
-						receipt.processIdentity = laneProcessIdentity(
-							pid,
-							receipt.session!,
-							repo,
-						);
+						receipt.processIdentity = undefined;
 						receipt.phase = "running";
 						this.save(path, receipt);
-						if (!receipt.processIdentity)
-							this.captureIdentityLater(path, receipt, pid, repo);
+						this.captureIdentityLater(path, receipt, pid, repo);
 					},
 					onTelemetry: (telemetry) => {
 						receipt.telemetry = telemetry;
@@ -5579,7 +5621,7 @@ export class LaneDispatcher {
 							} catch (error) {
 								throw new LaneOutcomeReadError(String(error));
 							}
-							receipt.existingProof = this.deps.verifyExisting(
+							receipt.existingProof = await this.deps.verifyExisting(
 								receipt.repo!,
 								receipt.laneResult,
 								undefined,
@@ -5592,7 +5634,7 @@ export class LaneDispatcher {
 						"repositoryProof" in receipt.laneResult &&
 						receipt.laneResult.repositoryProof
 					) {
-						receipt.repositoryProof = this.deps.verifyRepository(
+						receipt.repositoryProof = await this.deps.verifyRepository(
 							receipt.repo!,
 							receipt.laneResult,
 						);
@@ -6352,7 +6394,10 @@ function supervised(key: string): boolean {
 
 export async function runLaneServe(
 	args: string[],
-	installedVersion = newerInstalledVersion(),
+	installedVersion: () =>
+		| string
+		| undefined
+		| Promise<string | undefined> = newerInstalledVersion(),
 ): Promise<number> {
 	if (args.includes("--help")) {
 		console.log(
@@ -6424,7 +6469,7 @@ export async function runLaneServe(
 			}
 			if (options.once || stopping) break;
 			// Only a runner the supervisor will start again leaves for an update.
-			const newer = installedVersion();
+			const newer = await installedVersion();
 			if (newer && supervised(key)) {
 				if (!updating)
 					process.stderr.write(

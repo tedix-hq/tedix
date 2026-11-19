@@ -433,7 +433,7 @@ function proofFixture() {
 	const latest = { workflow_runs: [{ ...proof }] };
 	const commands: string[][] = [];
 	let failure = "";
-	const run = (executable: string, args: string[]) => {
+	const run = async (executable: string, args: string[]) => {
 		commands.push([executable, ...args]);
 		if (args.includes(failure)) throw new Error("unavailable");
 		if (executable === "gh") {
@@ -469,12 +469,12 @@ function proofFixture() {
 	};
 }
 describe("verified preexisting CI outcomes", () => {
-	it("admits the unchanged generic incident outcome using exact approved CI identity", () => {
+	it("admits the unchanged generic incident outcome using exact approved CI identity", async () => {
 		const f = proofFixture();
 		expect(
 			parseLaneResult(`TEDIX_LANE_RESULT ${JSON.stringify(existing)}`),
 		).toEqual(existing);
-		expect(f.verify()).toMatchObject({
+		expect(await f.verify()).toMatchObject({
 			mode: "verified_existing",
 			commitSha: existing.commitSha,
 			runId: 123,
@@ -499,11 +499,11 @@ describe("verified preexisting CI outcomes", () => {
 			),
 		).toBe(true);
 	});
-	it("reads all pages of the authorized attempt's jobs", () => {
+	it("reads all pages of the authorized attempt's jobs", async () => {
 		const f = proofFixture();
 		const last = f.pages[0]!.jobs.pop()!;
 		f.pages.push({ total_count: 2, jobs: [last] });
-		expect(f.verify().runId).toBe(123);
+		expect((await f.verify()).runId).toBe(123);
 	});
 	it.each([
 		"newerFullRun",
@@ -534,7 +534,7 @@ describe("verified preexisting CI outcomes", () => {
 		"outcomeText",
 		"minimum",
 		"repository",
-	])("rejects invalid immutable proof: %s", (mode) => {
+	])("rejects invalid immutable proof: %s", async (mode) => {
 		const f = proofFixture();
 		switch (mode) {
 			case "newerFullRun":
@@ -626,20 +626,20 @@ describe("verified preexisting CI outcomes", () => {
 				f.criteria.repository = "example/other";
 				break;
 		}
-		expect(() => f.verify()).toThrow();
+		await expect(f.verify()).rejects.toThrow();
 	});
-	it("retains unavailable approval or provider reads", () => {
+	it("retains unavailable approval or provider reads", async () => {
 		const f = proofFixture();
 		const legacy = { ...existing, ciApprovalId: undefined };
 		expect(
 			parseLaneResult(`TEDIX_LANE_RESULT ${JSON.stringify(legacy)}`),
 		).toMatchObject({ outcome: "already_satisfied" });
-		expect(() => f.verify(legacy)).toThrow();
-		expect(() =>
+		await expect(f.verify(legacy)).rejects.toThrow();
+		await expect(
 			verifyExistingLaneResult("/fictional", existing, f.run),
-		).toThrow(LaneOutcomeReadError);
+		).rejects.toThrow(LaneOutcomeReadError);
 		f.fail("api");
-		expect(() => f.verify()).toThrow(LaneOutcomeReadError);
+		await expect(f.verify()).rejects.toThrow(LaneOutcomeReadError);
 	});
 });
 
@@ -661,7 +661,7 @@ function repositoryFixture() {
 		latest,
 		commands,
 		compareStatus: "ahead",
-		run(executable: string, args: string[]) {
+		async run(executable: string, args: string[]) {
 			commands.push([executable, ...args]);
 			if (executable === "git") return "git@github.com:example/product.git";
 			const path = args[1]!;
@@ -687,10 +687,10 @@ describe("target repository results", () => {
 			workflowName: "Deploy tests",
 		},
 	};
-	it("verifies an allowed repository's main ancestry and latest green CI", () => {
+	it("verifies an allowed repository's main ancestry and latest green CI", async () => {
 		const f = repositoryFixture();
 		expect(
-			verifyRepositoryLaneResult("/fictional", result, f.run.bind(f)),
+			await verifyRepositoryLaneResult("/fictional", result, f.run.bind(f)),
 		).toEqual({
 			mode: "repository_commit",
 			repository: "example/operations",
@@ -704,9 +704,9 @@ describe("target repository results", () => {
 			f.commands.filter((command) => command[2]?.includes("/compare/")),
 		).toHaveLength(2);
 	});
-	it("rejects repositories outside the checkout owner and non-ancestral commits", () => {
+	it("rejects repositories outside the checkout owner and non-ancestral commits", async () => {
 		const f = repositoryFixture();
-		expect(() =>
+		await expect(
 			verifyRepositoryLaneResult(
 				"/fictional",
 				{
@@ -718,13 +718,13 @@ describe("target repository results", () => {
 				},
 				f.run.bind(f),
 			),
-		).toThrow("allowed GitHub owner");
+		).rejects.toThrow("allowed GitHub owner");
 		f.compareStatus = "diverged";
-		expect(() =>
+		await expect(
 			verifyRepositoryLaneResult("/fictional", result, f.run.bind(f)),
-		).toThrow("not on target main");
+		).rejects.toThrow("not on target main");
 	});
-	it("rejects stale or unsuccessful target CI", () => {
+	it("rejects stale or unsuccessful target CI", async () => {
 		for (const change of [
 			(f: ReturnType<typeof repositoryFixture>) => {
 				f.proof.conclusion = "failure";
@@ -735,9 +735,9 @@ describe("target repository results", () => {
 		]) {
 			const f = repositoryFixture();
 			change(f);
-			expect(() =>
+			await expect(
 				verifyRepositoryLaneResult("/fictional", result, f.run.bind(f)),
-			).toThrow("latest successful main workflow run");
+			).rejects.toThrow("latest successful main workflow run");
 		}
 	});
 });

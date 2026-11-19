@@ -1,3 +1,4 @@
+import { laneCommand } from "./lane-command";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
@@ -18,6 +19,13 @@ function psFacts(pid: number): LaneProcessFacts | undefined {
 		["-p", String(pid), "-o", "pgid=", "-o", "lstart=", "-o", "command="],
 		{ encoding: "utf8", timeout: 2000, maxBuffer: 16384 },
 	);
+	return parsePsFacts(result);
+}
+
+function parsePsFacts(result: {
+	status: number | null;
+	stdout: string;
+}): LaneProcessFacts | undefined {
 	if (result.status !== 0) return;
 	const fields = result.stdout.trim().split(/\s+/);
 	if (fields.length < 7) return;
@@ -28,13 +36,17 @@ function psFacts(pid: number): LaneProcessFacts | undefined {
 	};
 }
 
-function defaultFactsReader(pid: number): LaneProcessFacts | undefined {
+function nativeFacts(pid: number) {
 	const kernel = kernelProcessFacts(pid);
-	// On Linux an empty /proc cmdline means exec is still in progress. Falling
-	// back to ps then would hash its lstart tokens, which never match the
-	// kernel start tick read later, so the same process could not be reaped.
+	// During Linux exec, an empty cmdline must keep its kernel birth token;
+	// ps lstart tokens would not match the kernel reader on a later pass.
 	if (kernel && (kernel.argv.length || process.platform === "linux"))
-		return { pgid: kernel.pgid, start: kernel.start, argv: kernel.argv };
+		return kernel;
+}
+
+function defaultFactsReader(pid: number): LaneProcessFacts | undefined {
+	const kernel = nativeFacts(pid);
+	if (kernel) return kernel;
 	try {
 		return psFacts(pid);
 	} catch {
@@ -47,6 +59,50 @@ function defaultCwdReader(pid: number): string | undefined {
 		const kernel = kernelProcessCwd(pid);
 		if (kernel) return kernel;
 		const result = spawnSync(
+			"lsof",
+			["-a", "-p", String(pid), "-d", "cwd", "-Fn"],
+			{
+				encoding: "utf8",
+				timeout: 2000,
+				maxBuffer: 16384,
+			},
+		);
+		if (result.status !== 0) return;
+		const paths = result.stdout
+			.split("\n")
+			.filter((line) => line.startsWith("n"));
+		if (paths.length === 1) return realpathSync(paths[0]!.slice(1));
+	} catch {}
+}
+
+async function psFactsAsync(
+	pid: number,
+): Promise<LaneProcessFacts | undefined> {
+	const result = await laneCommand(
+		"ps",
+		["-p", String(pid), "-o", "pgid=", "-o", "lstart=", "-o", "command="],
+		{ encoding: "utf8", timeout: 2000, maxBuffer: 16384 },
+	);
+	return parsePsFacts(result);
+}
+
+async function asyncFactsReader(
+	pid: number,
+): Promise<LaneProcessFacts | undefined> {
+	const kernel = nativeFacts(pid);
+	if (kernel) return kernel;
+	try {
+		return await psFactsAsync(pid);
+	} catch {
+		return;
+	}
+}
+
+async function asyncCwdReader(pid: number): Promise<string | undefined> {
+	try {
+		const kernel = kernelProcessCwd(pid);
+		if (kernel) return kernel;
+		const result = await laneCommand(
 			"lsof",
 			["-a", "-p", String(pid), "-d", "cwd", "-Fn"],
 			{
@@ -82,6 +138,22 @@ export function laneProcessIdentity(
 	cwd?: string,
 ): string | undefined {
 	const facts = factsReader(pid);
+	return identityFromFacts(
+		pid,
+		session,
+		cwd,
+		facts,
+		cwd ? cwdReader(pid) : undefined,
+	);
+}
+
+function identityFromFacts(
+	pid: number,
+	session: string,
+	cwd: string | undefined,
+	facts: LaneProcessFacts | undefined,
+	processCwd: string | undefined,
+): string | undefined {
 	if (
 		!facts ||
 		facts.pgid !== pid ||
@@ -94,7 +166,7 @@ export function laneProcessIdentity(
 			.digest("hex");
 	try {
 		const directory = realpathSync(cwd);
-		if (cwdReader(pid) !== directory) return;
+		if (processCwd !== directory) return;
 		// exec replaces argv, but preserves the process birth, group and cwd.
 		return `v2:${createHash("sha256")
 			.update(
@@ -104,6 +176,22 @@ export function laneProcessIdentity(
 	} catch {
 		return;
 	}
+}
+
+export async function laneProcessIdentityAsync(
+	pid: number,
+	session: string,
+	cwd?: string,
+) {
+	const facts = await (factsReader === defaultFactsReader
+		? asyncFactsReader(pid)
+		: factsReader(pid));
+	const directory = cwd
+		? await (cwdReader === defaultCwdReader
+				? asyncCwdReader(pid)
+				: cwdReader(pid))
+		: undefined;
+	return identityFromFacts(pid, session, cwd, facts, directory);
 }
 
 /** Wait briefly for a newly spawned process to expose its post-exec argv. */
@@ -116,7 +204,7 @@ export async function waitForLaneProcessIdentity(
 	const attempts = options.attempts ?? 30;
 	const delayMs = options.delayMs ?? 100;
 	for (let attempt = 0; attempt < attempts; attempt++) {
-		const identity = laneProcessIdentity(pid, session, cwd);
+		const identity = await laneProcessIdentityAsync(pid, session, cwd);
 		if (identity) return identity;
 		if (attempt + 1 < attempts)
 			await new Promise<void>((resolve) => {
@@ -125,19 +213,19 @@ export async function waitForLaneProcessIdentity(
 	}
 }
 
-export function reapLaneProcess(
+export async function reapLaneProcess(
 	pid: number,
 	session: string,
 	identity: string,
 	cwd?: string,
-): boolean {
+): Promise<boolean> {
 	if (identity.startsWith("v2:") && !cwd) return false;
 	if (
-		laneProcessIdentity(
+		(await laneProcessIdentityAsync(
 			pid,
 			session,
 			identity.startsWith("v2:") ? cwd : undefined,
-		) !== identity
+		)) !== identity
 	)
 		return false;
 	try {

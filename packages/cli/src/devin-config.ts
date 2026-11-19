@@ -163,7 +163,7 @@ export function setupDevin(directory = devinConfigDirectory()) {
 }
 
 /** Paired with mandatory --sandbox: Read denies also constrain exec processes. */
-export function devinPermissionProfile(
+export async function devinPermissionProfile(
 	cwd: string,
 	session?: { id: string; principalKey?: string },
 ) {
@@ -184,7 +184,9 @@ export function devinPermissionProfile(
 			...permissions,
 			allow: [
 				...permissions.allow,
-				...devinGitWritePaths(resolve(cwd)).map((path) => `Write(${path})`),
+				...(await devinGitWritePaths(resolve(cwd))).map(
+					(path) => `Write(${path})`,
+				),
 			],
 		},
 	};
@@ -279,7 +281,7 @@ export function devinToolPermissions(
 	};
 }
 
-export function writeDevinLaneConfig(
+export async function writeDevinLaneConfig(
 	path: string,
 	cwd: string,
 	session?: { id: string; principalKey?: string },
@@ -311,7 +313,10 @@ export function writeDevinLaneConfig(
 	writeFileSync(
 		path,
 		JSON.stringify(
-			{ ...devinPermissionProfile(cwd, session), devin: { org_id: selected } },
+			{
+				...(await devinPermissionProfile(cwd, session)),
+				devin: { org_id: selected },
+			},
 			null,
 			2,
 		) + "\n",

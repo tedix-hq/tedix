@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { laneCommand } from "./lane-command";
 import { closeSync, openSync, readSync, statSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -41,10 +41,10 @@ function recentFiles(root: string, depth: number): string[] {
 	}
 }
 /** Read usage records, never credential/configuration stores or arbitrary stdout. */
-export function readExecutorBudgets(
+export async function readExecutorBudgets(
 	policy: RoutingPolicy,
 	env = process.env,
-): ExecutorBudgets {
+): Promise<ExecutorBudgets> {
 	const result: ExecutorBudgets = {};
 	for (const executor of localExecutors) {
 		let best: BudgetSnapshot = { source: "unknown", observedAt: Date.now() };
@@ -103,7 +103,7 @@ export function readExecutorBudgets(
 			}
 		}
 		if (executor === "opencode") {
-			const stats = spawnSync("opencode", ["stats", "--days", "1"], {
+			const stats = await laneCommand("opencode", ["stats", "--days", "1"], {
 				env: { ...laneChildEnv(env), OPENCODE_DISABLE_AUTOUPDATE: "true" },
 				encoding: "utf8",
 				timeout: 5000,
@@ -120,4 +120,24 @@ export function readExecutorBudgets(
 		result[executor] = best;
 	}
 	return result;
+}
+
+/** Budget sampling need not spawn OpenCode more than once per minute. */
+export function cachedExecutorBudgets(
+	read = readExecutorBudgets,
+	now = Date.now,
+) {
+	let cached:
+		| { policy: RoutingPolicy; at: number; result: Promise<ExecutorBudgets> }
+		| undefined;
+	return (policy: RoutingPolicy) => {
+		if (cached?.policy === policy && now() - cached.at < 60_000)
+			return cached.result;
+		const result = read(policy);
+		cached = { policy, at: now(), result };
+		result.catch(() => {
+			if (cached?.result === result) cached = undefined;
+		});
+		return result;
+	};
 }

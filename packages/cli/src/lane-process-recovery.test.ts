@@ -1,9 +1,18 @@
 import { expect, it } from "bun:test";
+import {
+	chmodSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import {
 	laneProcessIdentity,
+	laneProcessIdentityAsync,
 	reapLaneProcess,
 	setLaneProcessReaders,
 	waitForLaneProcessIdentity,
@@ -112,19 +121,21 @@ it("keeps a verified identity across a real exec and rejects changed birth, sess
 		];
 		expect(laneProcessIdentity(child.pid!, session, cwd)).toBe(identity);
 		expect(laneProcessIdentity(child.pid!, session)).not.toBe(legacy);
-		expect(reapLaneProcess(child.pid!, session, legacy, cwd)).toBe(false);
-		expect(reapLaneProcess(child.pid!, "codex:other", identity, cwd)).toBe(
-			false,
-		);
-		expect(reapLaneProcess(child.pid!, session, identity, tmpdir())).toBe(
-			false,
-		);
-		expect(reapLaneProcess(child.pid!, session, identity)).toBe(false);
+		expect(await reapLaneProcess(child.pid!, session, legacy, cwd)).toBe(false);
 		expect(
-			reapLaneProcess(child.pid!, session, `v2:${"0".repeat(64)}`, cwd),
+			await reapLaneProcess(child.pid!, "codex:other", identity, cwd),
+		).toBe(false);
+		expect(await reapLaneProcess(child.pid!, session, identity, tmpdir())).toBe(
+			false,
+		);
+		expect(await reapLaneProcess(child.pid!, session, identity)).toBe(false);
+		expect(
+			await reapLaneProcess(child.pid!, session, `v2:${"0".repeat(64)}`, cwd),
 		).toBe(false);
 		const exited = once(child, "exit");
-		expect(reapLaneProcess(child.pid!, session, identity, cwd)).toBe(true);
+		expect(await reapLaneProcess(child.pid!, session, identity, cwd)).toBe(
+			true,
+		);
 		await exited;
 	} finally {
 		setLaneProcessReaders();
@@ -155,15 +166,54 @@ it("reaps only the original process group bound to the native session and start 
 		expect(identity).toMatch(/^[a-f0-9]{64}$/);
 		expect(laneProcessIdentity(child.pid!, "codex:other")).toBeUndefined();
 		expect(
-			reapLaneProcess(child.pid!, `codex:${id}`, "different-start-time"),
+			await reapLaneProcess(child.pid!, `codex:${id}`, "different-start-time"),
 		).toBe(false);
 		const exited = once(child, "exit");
-		expect(reapLaneProcess(child.pid!, `codex:${id}`, identity)).toBe(true);
+		expect(await reapLaneProcess(child.pid!, `codex:${id}`, identity)).toBe(
+			true,
+		);
 		await exited;
 	} finally {
 		setLaneProcessReaders();
 		try {
 			process.kill(-child.pid!, "SIGTERM");
 		} catch {}
+	}
+});
+
+it("yields during ps/lsof fallbacks and preserves identity checks", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "lane-async-facts-"));
+	const cwd = realpathSync(dir);
+	const previous = process.env.PATH;
+	const pid = 99999999;
+	const id = "44444444-4444-4444-8444-444444444444";
+	writeFileSync(
+		join(dir, "ps"),
+		`#!/bin/sh\n/bin/sleep 0.1\nprintf '${pid} Thu Nov 19 12:00:00 2026 ${id}\\n'\n`,
+	);
+	writeFileSync(
+		join(dir, "lsof"),
+		`#!/bin/sh\n/bin/sleep 0.1\nprintf 'n${cwd}\\n'\n`,
+	);
+	chmodSync(join(dir, "ps"), 0o700);
+	chmodSync(join(dir, "lsof"), 0o700);
+	let heartbeats = 0;
+	const timer = setInterval(() => heartbeats++, 10);
+	process.env.PATH = dir;
+	try {
+		const identity = await laneProcessIdentityAsync(pid, `codex:${id}`, cwd);
+		expect(identity).toMatch(/^v2:[a-f0-9]{64}$/);
+		expect(heartbeats).toBeGreaterThan(0);
+		expect(
+			await laneProcessIdentityAsync(pid, "codex:other", cwd),
+		).toBeUndefined();
+		expect(await reapLaneProcess(pid, `codex:${id}`, "v2:wrong", cwd)).toBe(
+			false,
+		);
+	} finally {
+		clearInterval(timer);
+		if (previous === undefined) delete process.env.PATH;
+		else process.env.PATH = previous;
+		rmSync(dir, { recursive: true, force: true });
 	}
 });

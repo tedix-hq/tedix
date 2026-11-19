@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { spawnSync } from "node:child_process";
+import { laneCommand } from "./lane-command";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { boardErrorFromValue } from "./work-native";
 
@@ -23,8 +23,8 @@ export class LaneLocalBranchProofReadError extends Error {}
 
 const MAX_BRANCH_COMMITS = 50;
 
-function gitOutput(repo: string, args: string[]): string {
-	const result = spawnSync("git", ["-C", repo, ...args], {
+async function gitOutput(repo: string, args: string[]): Promise<string> {
+	const result = await laneCommand("git", ["-C", repo, ...args], {
 		encoding: "utf8",
 		timeout: 30_000,
 	});
@@ -54,45 +54,50 @@ export async function localBranchProof(
 		) => Promise<boolean>;
 		call: (args: string[]) => Promise<unknown>;
 	},
-	git: (args: string[]) => string = (args) => gitOutput(input.repo, args),
+	git: (args: string[]) => string | Promise<string> = (args) =>
+		gitOutput(input.repo, args),
 ): Promise<LocalBranchProof | { reason: string }> {
 	const { commitSha } = input;
 	if (!commitSha) return { reason: "the result declared no commitSha" };
-	const read = (args: string[]) => {
+	const read = async (args: string[]) => {
 		try {
-			return git(args);
+			return await git(args);
 		} catch {
 			return undefined;
 		}
 	};
 	const ref = `refs/heads/${artifact.branch}`;
-	if (read(["rev-parse", "--verify", `${ref}^{commit}`]) !== commitSha)
+	if ((await read(["rev-parse", "--verify", `${ref}^{commit}`])) !== commitSha)
 		return {
 			reason: `branch ${artifact.branch} is not at the declared commit`,
 		};
 	if (
-		read(["symbolic-ref", "-q", "HEAD"]) !== ref ||
-		read(["rev-parse", "HEAD"]) !== commitSha
+		(await read(["symbolic-ref", "-q", "HEAD"])) !== ref ||
+		(await read(["rev-parse", "HEAD"])) !== commitSha
 	)
 		return {
 			reason: `the retained checkout is not on ${artifact.branch} at the declared commit`,
 		};
-	if (read(["status", "--porcelain", "--untracked-files=all"]) !== "")
+	if ((await read(["status", "--porcelain", "--untracked-files=all"])) !== "")
 		return { reason: "the retained checkout is not clean" };
 	if (
 		artifact.baseCommit === commitSha ||
-		read(["merge-base", "--is-ancestor", artifact.baseCommit, commitSha]) ===
-			undefined
+		(await read([
+			"merge-base",
+			"--is-ancestor",
+			artifact.baseCommit,
+			commitSha,
+		])) === undefined
 	)
 		return {
 			reason: "the declared commit does not descend from the configured base",
 		};
 	const commits = (
-		read([
+		(await read([
 			"rev-list",
 			`--max-count=${MAX_BRANCH_COMMITS + 1}`,
 			`${artifact.baseCommit}..${commitSha}`,
-		]) ?? ""
+		])) ?? ""
 	)
 		.split("\n")
 		.filter(Boolean);
@@ -102,7 +107,12 @@ export async function localBranchProof(
 		};
 	for (const sha of commits) {
 		const [committed, ...trailers] = (
-			read(["show", "-s", "--format=%cI%n%(trailers:only,unfold)", sha]) ?? ""
+			(await read([
+				"show",
+				"-s",
+				"--format=%cI%n%(trailers:only,unfold)",
+				sha,
+			])) ?? ""
 		).split("\n");
 		const work = trailers.filter((line) => /^Work-Item:/i.test(line));
 		const sessions = trailers.filter((line) => /^Agent-Session:/i.test(line));

@@ -295,40 +295,40 @@ describe("newerInstalledVersion", () => {
 		};
 	}
 
-	test("reports a newer installed binary, reading it only when the file changes", () => {
+	test("reports a newer installed binary, reading it only when the file changes", async () => {
 		const f = installed("1.2.3");
 		try {
-			expect(f.check()).toBeUndefined();
-			expect(f.check()).toBeUndefined();
+			expect(await f.check()).toBeUndefined();
+			expect(await f.check()).toBeUndefined();
 			expect(f.reads).toEqual(["1.2.3"]);
 			f.install("1.2.4");
-			expect(f.check()).toBe("1.2.4");
-			expect(f.check()).toBe("1.2.4");
+			expect(await f.check()).toBe("1.2.4");
+			expect(await f.check()).toBe("1.2.4");
 			expect(f.reads).toEqual(["1.2.3", "1.2.4"]);
 			// A rollback is not an update.
 			f.install("1.2.2");
-			expect(f.check()).toBeUndefined();
+			expect(await f.check()).toBeUndefined();
 		} finally {
 			rmSync(f.root, { recursive: true, force: true });
 		}
 	});
 
-	test("sees an update that landed before the first check and retries a failed read", () => {
+	test("sees an update that landed before the first check and retries a failed read", async () => {
 		const f = installed("2.0.0");
 		try {
-			expect(f.check()).toBe("2.0.0");
+			expect(await f.check()).toBe("2.0.0");
 			f.install("unreadable");
-			f.check();
-			f.check();
+			await f.check();
+			await f.check();
 			expect(f.reads).toEqual(["2.0.0", "unreadable", "unreadable"]);
 		} finally {
 			rmSync(f.root, { recursive: true, force: true });
 		}
 	});
 
-	test("never reports from a source checkout", () => {
+	test("never reports from a source checkout", async () => {
 		expect(
-			newerInstalledVersion({
+			await newerInstalledVersion({
 				standalone: false,
 				readVersion: () => "99.0.0",
 			})(),

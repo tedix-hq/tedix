@@ -113,7 +113,7 @@ if (args[0] === 'acp') {
 	return path;
 }
 
-test("Devin is an explicit executor; logged-out installations are unavailable", () => {
+test("Devin is an explicit executor; logged-out installations are unavailable", async () => {
 	const dir = temporary();
 	expect(
 		parseServeOptions([
@@ -125,13 +125,13 @@ test("Devin is an explicit executor; logged-out installations are unavailable", 
 			"example",
 		]).executor,
 	).toBe("devin");
-	expect(devinAvailability(fakeDevin(dir))).toEqual({
+	expect(await devinAvailability(fakeDevin(dir))).toEqual({
 		available: false,
 		reason: "Devin is logged out",
 	});
 });
 
-test("Devin accepts a signed-in status command slower than ten seconds", () => {
+test("Devin accepts a signed-in status command slower than ten seconds", async () => {
 	const binary = join(temporary(), "devin");
 	writeFileSync(
 		binary,
@@ -140,10 +140,10 @@ setTimeout(() => console.log('Logged in (via Devin).'), 10_500);
 `,
 	);
 	chmodSync(binary, 0o700);
-	expect(devinAvailability(binary)).toEqual({ available: true });
+	expect(await devinAvailability(binary)).toEqual({ available: true });
 }, 15_000);
 
-test("Devin distinguishes a timed-out probe from logged-out and missing installations", () => {
+test("Devin distinguishes a timed-out probe from logged-out and missing installations", async () => {
 	const dir = temporary();
 	const binary = join(dir, "devin");
 	writeFileSync(
@@ -154,11 +154,11 @@ setInterval(() => {}, 1000);
 `,
 	);
 	chmodSync(binary, 0o700);
-	expect(devinAvailability(binary, 1000)).toEqual({
+	expect(await devinAvailability(binary, 1000)).toEqual({
 		available: false,
 		reason: "Devin auth status probe timed out after 1000 ms",
 	});
-	expect(devinAvailability(join(dir, "missing"))).toEqual({
+	expect(await devinAvailability(join(dir, "missing"))).toEqual({
 		available: false,
 		reason: "Devin executable not found",
 	});
@@ -174,11 +174,11 @@ test.each([
 		"console.log('Logged in'); console.error('Not authenticated');",
 		"Devin is logged out",
 	],
-])("Devin rejects unconfirmed status: %s", (body, reason) => {
+])("Devin rejects unconfirmed status: %s", async (body, reason) => {
 	const binary = join(temporary(), "devin");
 	writeFileSync(binary, `#!${process.execPath}\n${body}\n`);
 	chmodSync(binary, 0o700);
-	expect(devinAvailability(binary)).toEqual({ available: false, reason });
+	expect(await devinAvailability(binary)).toEqual({ available: false, reason });
 });
 
 test("ACP reports a busy recorded session without launching a model prompt", async () => {
@@ -380,7 +380,7 @@ test("headless permission rejection fails the lane even when Devin exits zero", 
 	expect(reports.at(-1)?.telemetry).toMatchObject({ outcome: "failed" });
 });
 
-test("setup merges idempotently and refuses a conflicting MCP endpoint without writes", () => {
+test("setup merges idempotently and refuses a conflicting MCP endpoint without writes", async () => {
 	const dir = temporary();
 	writeFileSync(
 		join(dir, "config.json"),
@@ -424,7 +424,7 @@ test("setup merges idempotently and refuses a conflicting MCP endpoint without w
 	expect(JSON.parse(once).hooks.PreToolUse).toEqual([
 		{ hooks: [{ command: "unrelated-check" }] },
 	]);
-	const permissionHooks = devinPermissionProfile(dir).hooks.PreToolUse;
+	const permissionHooks = (await devinPermissionProfile(dir)).hooks.PreToolUse;
 	expect(JSON.stringify(permissionHooks)).toContain("|| exit 2");
 	expect(JSON.parse(once).hooks.Stop[0].hooks[0].command).toBe("unrelated");
 	expect(JSON.parse(once).hooks.Stop[1].hooks[0].command).toBe(
@@ -522,14 +522,14 @@ test("tool permission checks do not launch Git metadata probes", () => {
 	expect(existsSync(marker)).toBe(false);
 });
 
-test("only exact environment examples are readable and no environment files are writable", () => {
+test("only exact environment examples are readable and no environment files are writable", async () => {
 	const root = temporary();
 	const block = (tool_name: string, name: string) =>
 		devinPermissionBlock(
 			JSON.stringify({ tool_name, tool_input: { path: join(root, name) } }),
 			root,
 		);
-	const deny = devinPermissionProfile(root).permissions.deny;
+	const deny = (await devinPermissionProfile(root)).permissions.deny;
 	const read = deny
 		.filter((rule) => rule.startsWith("Read(**/"))
 		.map((rule) => new Bun.Glob(rule.slice(5, -1)));
@@ -593,10 +593,10 @@ test("exec environment cannot hide editor scripts or disable guarded push fences
 	}
 });
 
-test("lane tools cannot read or write the shared Devin plugin OAuth store", () => {
+test("lane tools cannot read or write the shared Devin plugin OAuth store", async () => {
 	const root = temporary();
 	const path = join(homedir(), ".local/share/devin/mcp/oauth/example.json");
-	const permissions = devinPermissionProfile(root).permissions;
+	const permissions = (await devinPermissionProfile(root)).permissions;
 	for (const tool_name of ["read", "write", "edit"]) {
 		expect(
 			devinPermissionBlock(
@@ -630,7 +630,7 @@ for (const file of [
 	"mcp_config.json",
 	"mcp_config.local.json",
 ]) {
-	test(`project ${file} cannot override lane MCP isolation`, () => {
+	test(`project ${file} cannot override lane MCP isolation`, async () => {
 		const root = temporary();
 		mkdirSync(join(root, ".devin"));
 		writeFileSync(
@@ -639,13 +639,13 @@ for (const file of [
 				mcpServers: { tedix: { url: "https://example.invalid/mcp" } },
 			}),
 		);
-		expect(() => assertDevinProjectHooks(root)).toThrow(
+		await expect(assertDevinProjectHooks(root)).rejects.toThrow(
 			"remove project MCP servers",
 		);
 	});
 }
 
-test("permission fence blocks traversal, symlinks, secrets and prohibited commands", () => {
+test("permission fence blocks traversal, symlinks, secrets and prohibited commands", async () => {
 	const dir = temporary();
 	const root = join(dir, "repo");
 	mkdirSync(root);
@@ -671,7 +671,7 @@ test("permission fence blocks traversal, symlinks, secrets and prohibited comman
 				root,
 			),
 		).toBeDefined();
-	const profile = devinPermissionProfile(root, {
+	const profile = await devinPermissionProfile(root, {
 		id: "quiet-river",
 		principalKey: "local-example",
 	});
@@ -746,7 +746,7 @@ test("a transcript from a different native session fails settlement", async () =
 	expect(reports.at(-1)?.state).toBe("error");
 });
 
-test("Work text cannot exfiltrate fictional credentials through file tools or exec prefixes", () => {
+test("Work text cannot exfiltrate fictional credentials through file tools or exec prefixes", async () => {
 	const dir = temporary();
 	process.env.TEDIX_CONFIG_DIR = join(dir, "private-config");
 	mkdirSync(process.env.TEDIX_CONFIG_DIR);
@@ -787,7 +787,7 @@ test("Work text cannot exfiltrate fictional credentials through file tools or ex
 			expect(block("exec", { command: injected })).toBeDefined();
 		}
 	}
-	const profile = devinPermissionProfile(root);
+	const profile = await devinPermissionProfile(root);
 	for (const path of [
 		"credentials.json",
 		"external-agents.json",
@@ -807,9 +807,9 @@ test("Work text cannot exfiltrate fictional credentials through file tools or ex
 	).toBeUndefined();
 });
 
-test("Smart mode cannot grant commands outside the explicit exec scope", () => {
+test("Smart mode cannot grant commands outside the explicit exec scope", async () => {
 	const root = temporary();
-	const profile = devinPermissionProfile(root);
+	const profile = await devinPermissionProfile(root);
 	for (const name of ["curl", "wget", "ssh", "scp", "env"]) {
 		expect(profile.permissions.deny).toContain(`Exec(${name})`);
 	}
@@ -879,13 +879,13 @@ function gitFixture() {
 	return { dir, git };
 }
 
-test("linked worktree Git grants cover its metadata and guarded single-lane push paths", () => {
+test("linked worktree Git grants cover its metadata and guarded single-lane push paths", async () => {
 	const { dir, git } = gitFixture();
 	const lane = join(dir, "lane");
 	const peer = join(dir, "peer");
 	git("worktree", "add", "-qb", "lane", lane);
 	git("worktree", "add", "--detach", peer);
-	const paths = devinGitWritePaths(lane);
+	const paths = await devinGitWritePaths(lane);
 	const common = realpathSync(join(dir, ".git"));
 	const pushPaths = [
 		`${common}/push-code/**`,
@@ -910,7 +910,7 @@ test("linked worktree Git grants cover its metadata and guarded single-lane push
 		`${common}/refs/heads/lane.lock`,
 		`${common}/logs/refs/heads/lane`,
 	]);
-	const allows = devinPermissionProfile(lane).permissions.allow;
+	const allows = (await devinPermissionProfile(lane)).permissions.allow;
 	for (const path of paths) expect(allows).toContain(`Write(${path})`);
 	for (const path of [
 		common,
@@ -921,12 +921,12 @@ test("linked worktree Git grants cover its metadata and guarded single-lane push
 		`${common}/packed-refs`,
 	])
 		expect(allows).not.toContain(`Write(${path}/**)`);
-	expect(devinGitWritePaths(peer)).toEqual([
+	expect(await devinGitWritePaths(peer)).toEqual([
 		`${common}/worktrees/peer/**`,
 		`${common}/objects/**`,
 		...pushPaths,
 	]);
-	expect(devinGitWritePaths(dir)).toEqual([]);
+	expect(await devinGitWritePaths(dir)).toEqual([]);
 	const block = (command: string, workdir = lane) =>
 		devinPermissionBlock(
 			JSON.stringify({ tool_name: "exec", tool_input: { command, workdir } }),
@@ -980,7 +980,7 @@ test("linked worktree Git grants cover its metadata and guarded single-lane push
 for (const mode of ["untracked", "ignored", "modified", "staged", "deleted"]) {
 	test(`${mode} project hooks block launch and retained retries`, async () => {
 		const { dir, git } = gitFixture();
-		expect(() => assertDevinProjectHooks(dir)).not.toThrow();
+		await expect(assertDevinProjectHooks(dir)).resolves.toBeUndefined();
 		if (mode === "deleted") rmSync(join(dir, ".claude"), { recursive: true });
 		else if (["modified", "staged"].includes(mode)) {
 			writeFileSync(
@@ -1042,13 +1042,13 @@ test("Devin conversation exports are ignored even beside a tracked brief", () =>
 	git("check-ignore", "example.devin.atif.json");
 });
 
-test("sandbox Git identity excludes inherited helper scripts and uses only the macOS Keychain helper", () => {
+test("sandbox Git identity excludes inherited helper scripts and uses only the macOS Keychain helper", async () => {
 	const { dir, git } = gitFixture();
 	git("config", "user.name", "Example Author");
 	git("config", "user.email", "author@example.invalid");
 	git("config", "credential.helper", "!echo fictional-secret");
 	const config = join(temporary(), "gitconfig");
-	writeDevinGitIdentity(config, dir);
+	await writeDevinGitIdentity(config, dir);
 	const text = readFileSync(config, "utf8");
 	expect(text).toContain("Example Author");
 	expect(text).toContain("author@example.invalid");
@@ -1074,7 +1074,7 @@ for (const path of [
 	".devin/config.json",
 	".claude/settings.json",
 ]) {
-	test(`committed ${path} hooks block retained retries`, () => {
+	test(`committed ${path} hooks block retained retries`, async () => {
 		const { dir, git } = gitFixture();
 		mkdirSync(dirname(join(dir, path)), { recursive: true });
 		writeFileSync(
@@ -1099,11 +1099,13 @@ for (const path of [
 			"-qm",
 			"planted fixture",
 		);
-		expect(() => assertDevinProjectHooks(dir)).toThrow("executable hooks");
+		await expect(assertDevinProjectHooks(dir)).rejects.toThrow(
+			"executable hooks",
+		);
 	});
 }
 
-test("project hook verification cannot execute Git fsmonitor or text conversion helpers", () => {
+test("project hook verification cannot execute Git fsmonitor or text conversion helpers", async () => {
 	const { dir, git } = gitFixture();
 	writeFileSync(
 		join(dir, ".gitattributes"),
@@ -1134,14 +1136,18 @@ test("project hook verification cannot execute Git fsmonitor or text conversion 
 	git("config", "filter.lane_test.process", helper);
 	git("config", "filter.lane_test.required", "true");
 	writeFileSync(join(dir, ".claude/settings.json"), '{"version":2}');
-	expect(() => assertDevinProjectHooks(dir)).toThrow("differ from HEAD");
+	await expect(assertDevinProjectHooks(dir)).rejects.toThrow(
+		"differ from HEAD",
+	);
 	expect(existsSync(marker)).toBe(false);
 });
 
-test("unsupported Git filter driver names fail closed before verification", () => {
+test("unsupported Git filter driver names fail closed before verification", async () => {
 	const { dir, git } = gitFixture();
 	git("config", "filter.lane=unsafe.clean", "echo fictional-helper");
-	expect(() => assertDevinProjectHooks(dir)).toThrow("Devin project hooks");
+	await expect(assertDevinProjectHooks(dir)).rejects.toThrow(
+		"Devin project hooks",
+	);
 });
 
 test.each([
@@ -1468,16 +1474,16 @@ test.each([
 	);
 });
 
-test("private config keeps only the selected Devin org and refuses onboarding", () => {
+test("private config keeps only the selected Devin org and refuses onboarding", async () => {
 	const dir = temporary();
 	fakeDevin(dir);
 	const config = join(dir, "private/devin/config.json");
-	writeDevinLaneConfig(config, dir);
+	await writeDevinLaneConfig(config, dir);
 	const value = JSON.parse(readFileSync(config, "utf8"));
 	expect(value.devin).toEqual({ org_id: "org_fixture" });
 	expect(value.permissions.allow).not.toContain("Exec(**)");
 	writeFileSync(join(process.env.XDG_CONFIG_HOME!, "devin/config.json"), "{}");
-	expect(() =>
+	await expect(
 		writeDevinLaneConfig(join(dir, "missing/config.json"), dir),
-	).toThrow("organization selection missing");
+	).rejects.toThrow("organization selection missing");
 });

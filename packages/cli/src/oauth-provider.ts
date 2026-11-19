@@ -18,6 +18,7 @@ import {
 	scrubText,
 } from "@tedix/context-core/trace-safety";
 import { decodeUnverifiedJwtClaims } from "@tedix/auth/web";
+import { laneCommand } from "./lane-command";
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -915,9 +916,9 @@ const REFRESH_FAMILY_INVALIDATED =
  * Power assertions do not keep a battery-powered Mac in dark wake, so the
  * renewal is not started there at all.
  */
-export function inDarkWake(): boolean {
+export async function inDarkWake(): Promise<boolean> {
 	if (process.platform !== "darwin") return false;
-	const state = spawnSync("/usr/bin/pmset", ["-g", "systemstate"], {
+	const state = await laneCommand("/usr/bin/pmset", ["-g", "systemstate"], {
 		encoding: "utf8",
 		timeout: 2_000,
 	});
@@ -980,7 +981,7 @@ export async function refreshStoredSession(
 		fetchFn?: FetchLike;
 		timeoutMs?: number;
 		workspace?: string;
-		isDarkWake?: () => boolean;
+		isDarkWake?: () => boolean | Promise<boolean>;
 	} = {},
 ): Promise<SessionRefreshOutcome> {
 	// Serialise renewal across processes, then re-read. Refresh tokens ROTATE, so
@@ -1040,7 +1041,7 @@ export async function refreshStoredSession(
 			provider.discoveryState()?.authorizationServerUrl;
 		if (!refreshToken || !clientInformation || !authorizationServerUrl)
 			return finish("unavailable");
-		if ((options.isDarkWake ?? inDarkWake)()) {
+		if (await (options.isDarkWake ?? inDarkWake)()) {
 			phase = "dark-wake";
 			return finish("deferred-dark-wake");
 		}

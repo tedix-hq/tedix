@@ -1,4 +1,5 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { laneCommand } from "./lane-command";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,12 +21,12 @@ type DevinAvailability =
 	| { available: true }
 	| { available: false; reason: string };
 
-export function devinAvailability(
+export async function devinAvailability(
 	executable = "devin",
 	timeoutMs = 30_000,
-): DevinAvailability {
+): Promise<DevinAvailability> {
 	// Non-TTY status checks can take over ten seconds even when signed in.
-	const result = spawnSync(executable, ["auth", "status"], {
+	const result = await laneCommand(executable, ["auth", "status"], {
 		env: laneChildEnv(),
 		encoding: "utf8",
 		timeout: timeoutMs,
@@ -58,8 +59,11 @@ export function devinAvailability(
 	return { available: true };
 }
 
-export function devinSessionIds(cwd: string, executable = "devin"): string[] {
-	const result = spawnSync(executable, ["list", "--format", "json"], {
+export async function devinSessionIds(
+	cwd: string,
+	executable = "devin",
+): Promise<string[]> {
+	const result = await laneCommand(executable, ["list", "--format", "json"], {
 		cwd,
 		env: laneChildEnv(),
 		encoding: "utf8",
@@ -85,9 +89,9 @@ export async function createDevinLaneThread(
 	timeoutMs = 30_000,
 	resume?: string,
 ) {
-	assertDevinProjectHooks(cwd);
+	await assertDevinProjectHooks(cwd);
 	// ACP's agentInfo can contain a development placeholder rather than the CLI release.
-	const release = spawnSync(executable, ["--version"], {
+	const release = await laneCommand(executable, ["--version"], {
 		cwd,
 		env: laneChildEnv(),
 		encoding: "utf8",
@@ -100,7 +104,7 @@ export async function createDevinLaneThread(
 		throw new Error("Devin CLI version unavailable; no model turn launched");
 	const configHome = mkdtempSync(join(tmpdir(), "tedix-devin-metadata-"));
 	const config = join(configHome, "devin/config.json");
-	writeDevinLaneConfig(config, cwd);
+	await writeDevinLaneConfig(config, cwd);
 	const child = spawn(
 		executable,
 		["acp", ...(model ? ["--model", model] : [])],
@@ -197,7 +201,7 @@ export async function createDevinLaneThread(
 			throw new Error(
 				"Devin did not expose a native session, CLI version and resolved model; no model turn launched",
 			);
-		if (!devinSessionIds(cwd, executable).includes(session.sessionId))
+		if (!(await devinSessionIds(cwd, executable)).includes(session.sessionId))
 			throw new Error(
 				"Devin ACP session is not persisted in this worktree; no model turn launched",
 			);

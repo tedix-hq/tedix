@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { laneCommand } from "./lane-command";
 import { laneChildEnv } from "./lane-child-env";
 import type { ExecutorAvailability, LocalExecutor } from "./lane-routing";
 
@@ -20,26 +20,25 @@ export function executorBinary(executor: LocalExecutor) {
  * runs once more with a longer limit, and a second timeout is reported as
  * transient so routing waits instead of failing the Work.
  */
-export function probeExecutorVersion(
+export async function probeExecutorVersion(
 	command: string,
 	timeoutMs = EXECUTOR_PROBE_TIMEOUT_MS,
 	retryTimeoutMs = EXECUTOR_PROBE_RETRY_TIMEOUT_MS,
-): ExecutorAvailability {
+): Promise<ExecutorAvailability> {
 	const probe = `${command} --version`;
-	const run = (limit: number) => {
+	const run = async (limit: number) => {
 		const started = Date.now();
-		const result = spawnSync(command, ["--version"], {
+		const result = await laneCommand(command, ["--version"], {
 			env: laneChildEnv(),
 			timeout: limit,
-			stdio: "ignore",
 		});
 		return { result, elapsedMs: Date.now() - started };
 	};
-	const timedOut = (result: ReturnType<typeof run>["result"]) =>
+	const timedOut = (result: Awaited<ReturnType<typeof run>>["result"]) =>
 		(result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
-	let { result, elapsedMs } = run(timeoutMs);
+	let { result, elapsedMs } = await run(timeoutMs);
 	const retried = timedOut(result);
-	if (retried) ({ result, elapsedMs } = run(retryTimeoutMs));
+	if (retried) ({ result, elapsedMs } = await run(retryTimeoutMs));
 	if (result.status === 0)
 		return retried
 			? {
@@ -79,23 +78,35 @@ export function probeExecutorVersion(
  * the runner for both limits, so its answer is reused for a short while.
  */
 export function cachedExecutorProbe(
-	probe: (executor: LocalExecutor) => ExecutorAvailability = (executor) =>
+	probe: (
+		executor: LocalExecutor,
+	) => ExecutorAvailability | Promise<ExecutorAvailability> = (executor) =>
 		probeExecutorVersion(executorBinary(executor)),
 	cacheMs = EXECUTOR_PROBE_CACHE_MS,
 	now: () => number = Date.now,
 	timeoutCacheMs = EXECUTOR_PROBE_TIMEOUT_CACHE_MS,
-): (executor: LocalExecutor) => ExecutorAvailability {
+): (executor: LocalExecutor) => Promise<ExecutorAvailability> {
 	const cache = new Map<LocalExecutor, number>();
+	const pending = new Map<LocalExecutor, Promise<ExecutorAvailability>>();
 	const busy = new Map<
 		LocalExecutor,
 		{ at: number; result: ExecutorAvailability }
 	>();
-	return (executor) => {
+	return async (executor) => {
 		const at = cache.get(executor);
 		if (at !== undefined && now() - at < cacheMs) return { available: true };
 		const waiting = busy.get(executor);
 		if (waiting && now() - waiting.at < timeoutCacheMs) return waiting.result;
-		const result = probe(executor);
+		const existing = pending.get(executor);
+		if (existing) return existing;
+		const running = Promise.resolve().then(() => probe(executor));
+		pending.set(executor, running);
+		let result: ExecutorAvailability;
+		try {
+			result = await running;
+		} finally {
+			pending.delete(executor);
+		}
 		if (result.available) cache.set(executor, now());
 		else cache.delete(executor);
 		if (result.transient) busy.set(executor, { at: now(), result });
