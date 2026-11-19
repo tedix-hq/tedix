@@ -120,7 +120,7 @@ describe("kernelGatewayMetadata", () => {
 			orgId: "org-1",
 			source: "kernel:route",
 		});
-		expect(metadata.sessionKeyHash).toMatch(/^[0-9a-f]{8}$/);
+		expect(metadata.sessionKeyHash).toBe("ec699729");
 		expect(decodeAiGatewayAttribution(metadata.attribution)).toEqual({
 			runId: "home-run-1",
 			workItemId: "work-item-1",
@@ -139,6 +139,12 @@ describe("kernelGatewayMetadata", () => {
 			workItemId: "system:kernel:kernel:conversation-title",
 		});
 		expect(metadata.sessionKeyHash).toMatch(/^[0-9a-f]{8}$/);
+		const withoutContext = kernelGatewayMetadata("org-1");
+		expect(withoutContext.orgId).toBe("org-1");
+		expect(decodeAiGatewayAttribution(withoutContext.attribution)).toEqual({
+			runId: "system:kernel:kernel",
+			workItemId: "system:kernel:kernel",
+		});
 	});
 });
 

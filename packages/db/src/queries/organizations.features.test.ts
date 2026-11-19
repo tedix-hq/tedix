@@ -1,8 +1,6 @@
 /**
  * Organization features — plan defaults, explicit overrides and the widget
  * quota projection, executed against the D1 facade with real billing rows.
- * `organizations-plan-features.test.ts` covers OS-provisioning preservation
- * across plan changes; this file covers the surrounding read/write contract.
  */
 
 import { DatabaseSync } from "node:sqlite";
@@ -57,13 +55,17 @@ const METADATA = {
 	},
 };
 
-async function seedOrganization(db: DbClient, id: string) {
+async function seedOrganization(
+	db: DbClient,
+	id: string,
+	provisioning: { os?: boolean } = { os: true },
+) {
 	await db.insert(organizations).values({
 		id,
 		name: "Fictional Co",
 		slug: id,
 		descopeTenantId: `T_${id}`,
-		features: { os: true, maxApps: 999, customDomain: true },
+		features: { ...provisioning, maxApps: 999, customDomain: true },
 		metadata: METADATA,
 		createdAt: NOW,
 		updatedAt: NOW,
@@ -118,6 +120,29 @@ describe("applyOrganizationPlanFeatures", () => {
 			createdAt: NOW,
 		});
 		expect(updated.updatedAt).not.toBe(NOW);
+	});
+
+	it("preserves disabled and legacy absent OS provisioning through plan changes", async () => {
+		const db = setup();
+		await seedOrganization(db, "org-disabled", { os: false });
+		await seedOrganization(db, "org-legacy", {});
+		for (const tier of ["business", "starter"] as const) {
+			const disabled = await applyOrganizationPlanFeatures(
+				db,
+				"org-disabled",
+				tier,
+			);
+			const legacy = await applyOrganizationPlanFeatures(
+				db,
+				"org-legacy",
+				tier,
+			);
+			expect(disabled.features).toEqual({
+				...DEFAULT_ORGANIZATION_FEATURES_BY_PLAN[tier],
+				os: false,
+			});
+			expect(legacy.features?.os).toBeUndefined();
+		}
 	});
 
 	it("throws for an unknown organization", async () => {

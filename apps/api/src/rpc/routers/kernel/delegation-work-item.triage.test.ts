@@ -29,11 +29,14 @@ function fixture() {
 				"INSERT INTO projects(id,org_id,key,name,status,lead_tedi_id,created_at) VALUES(?,?,?,?,'active',?,?)",
 			)
 			.run(id, ORG_ID, id, id, leadTediId, NOW);
-	const delegate = (childRunId: string) =>
+	const delegate = (
+		childRunId: string,
+		content = "Draft the fictional invoice",
+	) =>
 		createDelegationWorkItem(context, {
 			assigneeTediId: "tedi-cfo",
 			childRunId,
-			content: "Draft the fictional invoice",
+			content,
 			conversationId: "home:os:conv",
 			createdAt: NOW,
 			executionRequirement: {
@@ -94,7 +97,15 @@ describe("Home delegation and the project a request points at", () => {
 	it("files the delegation under the project the tedi leads and starts it", async () => {
 		f.addProject("finance", "tedi-cfo");
 		f.addProject("growth", null);
-		await f.delegate("child-run-1");
+		await f.delegate(
+			"child-run-1",
+			"[[tedix-context:workspace:5eed0014-0000-4000-8000-000000000014:Finance]]\n\nPlease draft the fictional invoice: use the sample prices.",
+		);
+		expect(
+			f.sqlite.prepare("SELECT title FROM work_items").get(),
+		).toMatchObject({
+			title: "Draft the fictional invoice",
+		});
 		expect(f.work()).toEqual([
 			{
 				disposition: "accepted",

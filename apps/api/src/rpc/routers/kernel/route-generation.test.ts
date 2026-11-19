@@ -40,6 +40,14 @@ const details = {
 };
 
 describe("compact route generation", () => {
+	it("requests the route and answer first in the model's JSON schema", async () => {
+		const schema = await kernelRouteGenerationSchema.jsonSchema;
+		expect(Object.keys(schema.properties ?? {}).slice(0, 2)).toEqual([
+			"routeKind",
+			"answer",
+		]);
+	});
+
 	it.each(["prose", "fence"])(
 		"validates a single complete route wrapped in %s",
 		async (wrapper) => {

@@ -596,6 +596,12 @@ describe("SQLite and Postgres core query parity", () => {
 		});
 
 		it("keeps project bindings, review context and policy settings identical", async () => {
+			expect(resolveCoreStore({ plane: "platform-d1" }, clients)).toEqual(
+				stores[0],
+			);
+			expect(() =>
+				resolveCoreStore({ plane: "postgres" }, { platform: sqliteDb }),
+			).toThrow("CORE_STORE_UNBOUND");
 			const project = {
 				id: `${orgId}-project`,
 				orgId,

@@ -64,6 +64,27 @@ describe("normalizeVendorName", () => {
 	});
 });
 
+describe("normalizeMcpEndpoint", () => {
+	it("keeps routable endpoint identity and rejects templates", () => {
+		expect(normalizeMcpEndpoint("{url}")).toBeNull();
+		expect(normalizeMcpEndpoint("https://{tenant}.crm.example/mcp")).toBeNull();
+		expect(
+			normalizeMcpEndpoint("https://mcp.example.com/{workspace}"),
+		).toBeNull();
+		expect(normalizeMcpEndpoint("https://mcp.example.com/mcp/")).toBe(
+			"https://mcp.example.com/mcp",
+		);
+		expect(
+			normalizeMcpEndpoint(
+				"http://DOCS-ADMIN.TEDIX.DEV/mcp/?site=public&org=tedix#ignored",
+			),
+		).toBe("https://docs-admin.tedix.dev/mcp?org=tedix&site=public");
+		expect(normalizeMcpEndpoint("https://example.com/mcp?org=tedix")).not.toBe(
+			normalizeMcpEndpoint("https://example.com/mcp?org=acme"),
+		);
+	});
+});
+
 describe("vendor-identity canonicalization", () => {
 	let db: DbClient;
 	beforeEach(() => {
@@ -178,17 +199,6 @@ describe("templated and endpoint-less imports", () => {
 	let db: DbClient;
 	beforeEach(() => {
 		db = migratedDb();
-	});
-
-	it("treats a templated base URL as no endpoint", () => {
-		expect(normalizeMcpEndpoint("{url}")).toBeNull();
-		expect(normalizeMcpEndpoint("https://{tenant}.crm.example/mcp")).toBeNull();
-		expect(
-			normalizeMcpEndpoint("https://mcp.example.com/{workspace}"),
-		).toBeNull();
-		expect(normalizeMcpEndpoint("https://mcp.example.com/mcp/")).toBe(
-			"https://mcp.example.com/mcp",
-		);
 	});
 
 	it("folds a template-endpoint listing into the existing same-vendor template row", async () => {

@@ -11,12 +11,20 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { apiKeys } from "../schema/api-keys";
 import { apps } from "../schema/apps";
+import { appCatalog } from "../schema/catalog";
+import {
+	policyPacks,
+	runtimeProfiles,
+	workspaceTemplateSets,
+} from "../schema/control-plane";
+import { memoryDomains, memoryFacts } from "../schema/memory-graph";
 import { organizationMembers } from "../schema/organization-members";
 import {
 	DEFAULT_ORGANIZATION_FEATURES_BY_PLAN,
 	organizations,
 } from "../schema/organizations";
 import { principalIdentities } from "../schema/principal-identities";
+import { tediRationaleRecords } from "../schema/rationale-records";
 import { tedis } from "../schema/tedis";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
@@ -42,11 +50,9 @@ const RETIRED_AT = "2026-10-21T08:00:00.000Z";
 
 let sqlite: DatabaseSync | undefined;
 
-function setup(): DbClient {
+function setup(foreignKeys = false): DbClient {
 	sqlite = new DatabaseSync(":memory:");
-	// `tedis` and `apps` reference control-plane and catalog tables that the
-	// retirement batch never reads.
-	sqlite.exec("PRAGMA foreign_keys = OFF;");
+	sqlite.exec(`PRAGMA foreign_keys = ${foreignKeys ? "ON" : "OFF"};`);
 	sqlite.exec(
 		schemaDdl(
 			organizations,
@@ -55,6 +61,17 @@ function setup(): DbClient {
 			tedis,
 			apiKeys,
 			apps,
+			...(foreignKeys
+				? [
+						appCatalog,
+						runtimeProfiles,
+						policyPacks,
+						workspaceTemplateSets,
+						memoryDomains,
+						memoryFacts,
+						tediRationaleRecords,
+					]
+				: []),
 		),
 	);
 	return createDbClient(createD1Facade(sqlite));
@@ -365,9 +382,24 @@ describe("retireOrganization", () => {
 		};
 	}
 
-	it("tombstones the organization and its live dependants in one batch", async () => {
-		const db = setup();
+	it("tombstones the organization and its live dependants while preserving tedi memory", async () => {
+		const db = setup(true);
 		await seedTenant(db);
+		await db.insert(memoryFacts).values({
+			id: "fact-retained",
+			organizationId: "org-1",
+			tediId: "tedi-live",
+			content: "Workspace knowledge",
+			factType: "pattern",
+		});
+		await db.insert(tediRationaleRecords).values({
+			id: "rationale-retained",
+			orgId: "org-1",
+			tediId: "tedi-live",
+			action: "record",
+			rationale: "Workspace history",
+			createdAt: NOW,
+		});
 
 		const retired = await retireOrganization(db, retireParams());
 
@@ -451,6 +483,14 @@ describe("retireOrganization", () => {
 			.from(organizationMembers)
 			.where(eq(organizationMembers.id, "m-bystander"));
 		expect(bystanderMember[0]?.status).toBe("active");
+		expect(await db.select({ id: memoryFacts.id }).from(memoryFacts)).toEqual([
+			{ id: "fact-retained" },
+		]);
+		expect(
+			await db
+				.select({ id: tediRationaleRecords.id })
+				.from(tediRationaleRecords),
+		).toEqual([{ id: "rationale-retained" }]);
 	});
 
 	it("hides the organization from slug, tenant and list reads but not from id reads", async () => {
@@ -519,6 +559,9 @@ describe("getPersonalOrganization", () => {
 			organizationId,
 			descopeUserId: user,
 			email: `${user}@example.test`,
+			name: "Member display name",
+			createdAt: RETIRED_AT,
+			updatedAt: RETIRED_AT,
 			status: "active" as const,
 		});
 		await db
@@ -528,6 +571,7 @@ describe("getPersonalOrganization", () => {
 				member("m-retired", "org-personal-retired", "U1"),
 				member("m-personal", "org-personal", "U1"),
 				member("m-other", "org-personal-other", "U2"),
+				member("m-team-only", "org-team", "U3"),
 			]);
 
 		const personal = await getPersonalOrganization(db, "U1");
@@ -535,6 +579,8 @@ describe("getPersonalOrganization", () => {
 		expect(personal?.id).toBe("org-personal");
 		expect(personal?.name).toBe("Personal");
 		expect(personal?.type).toBe("personal");
+		expect(personal?.createdAt).toBe(NOW);
+		expect(personal?.updatedAt).toBe(NOW);
 		expect(await getPersonalOrganization(db, "U3")).toBeUndefined();
 	});
 });

@@ -13,7 +13,7 @@
  *     `billingPolicyDenialCode`, rethrown by the callers rather than folded
  *     into a provider-outage result).
  *   - ATTRIBUTION — `kernelGatewayMetadata`: the kernel's AI Gateway encoder,
- *     pinned byte-for-byte by `gateway-attribution.golden.test.ts`. It is
+ *     covered by `gateway-attribution.test.ts`. It is
  *     applied to the context RETURNED by the reservation, so the minted
  *     reservation id rides along in the `cf-aig-metadata` tag.
  *
