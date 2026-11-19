@@ -1186,30 +1186,12 @@ export const billingOverviewQueryOptions = () =>
 export const providerCapacitySponsorshipsQueryOptions = () =>
 	osQuery.billing.listProviderCapacitySponsorships.queryOptions({});
 
+/** One-time credit packs an owner can buy; no `.input()`. */
+export const billingTopUpPacksQueryOptions = () =>
+	osQuery.billing.listTopUpPacks.queryOptions({});
+
 export const portableWebMcpConfigurationsQueryOptions = () =>
 	osQuery.tedis.listPortableWebMcpConfigurations.queryOptions({});
-
-/**
- * /admin/billing reads one fixed window; the loader and the surface must pass
- * the identical period or they warm and read two different cache entries.
- */
-export const ORG_USAGE_PERIOD = "30d" as const;
-
-/**
- * Org-wide token usage and cost aggregation. `organizationId` comes from
- * `operationalContextQueryOptions` — never from the hostname or a path
- * segment.
- */
-export const orgUsageQueryOptions = (
-	organizationId: string,
-	period: NonNullable<
-		ClientInput<typeof osApi.orgUsage.getOrgUsage>["period"]
-	> = ORG_USAGE_PERIOD,
-	window?: ClientInput<typeof osApi.orgUsage.getOrgUsage>["window"],
-) =>
-	osQuery.orgUsage.getOrgUsage.queryOptions({
-		input: { organizationId, period, window },
-	});
 
 /**
  * The MCP payment ledger backing /admin/payments. The complete validated

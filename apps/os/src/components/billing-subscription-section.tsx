@@ -16,9 +16,7 @@
 import { errorMessage } from "@/lib/orpc-error";
 import { BillingSectionHeader } from "@/components/billing-section-header";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { BillingPlanCatalogItem } from "@tedix/api-contract/schemas/billing";
 import { ArrowUpRight, FileText, Info, Sparkle } from "@phosphor-icons/react";
-import { useState } from "react";
 import {
 	LoadError,
 	Alert,
@@ -31,33 +29,20 @@ import {
 	SettingsSection,
 	SettingsSectionContent,
 } from "@/components/kumo/page";
-import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
-import { formatPlanTokenAllowance } from "@/lib/billing-display";
-import { formatBillingAmount, formatBillingPrice } from "@/lib/billing-price";
-import { formatCount } from "@/lib/format";
+import {
+	type CreditPlan,
+	creditsInEuros,
+	formatCredits,
+} from "@/lib/billing-credits";
+import { formatBillingAmount } from "@/lib/billing-price";
 import {
 	billingOverviewQueryOptions,
 	billingPlansQueryOptions,
 } from "@/lib/os-query-options";
-
-const BILLING_INTERVAL_OPTIONS = [
-	{ value: "month", label: "Monthly" },
-	{
-		value: "year",
-		label: (
-			<>
-				Annual
-				<Text as="span" role="label" tone="success" className="ml-1">
-					Save 20%
-				</Text>
-			</>
-		),
-	},
-] as const;
 
 /**
  * Stripe return destination on the CURRENT tenant origin. Built from
@@ -73,10 +58,31 @@ function billingReturnUrl(
 	return `${window.location.origin}/admin/billing?${search.toString()}`;
 }
 
+/** What a plan card lists, in plain words. */
+export function planCardFeatures(plan: CreditPlan): string[] {
+	if (plan.key === "enterprise") {
+		return [
+			`${formatCredits(plan.includedCredits)} a month by default`,
+			"Monthly credits set in your contract",
+			"Credit packs and pay-as-you-go available",
+		];
+	}
+	return [
+		`${formatCredits(plan.includedCredits)} a month (worth ${creditsInEuros(plan.includedCredits)})`,
+		"Unused included credits do not carry over",
+		plan.priceMicros === 0
+			? "Credit packs available"
+			: "Credit packs and pay-as-you-go available",
+	];
+}
+
+function planPriceLabel(plan: CreditPlan): string {
+	if (plan.priceMicros === 0) return "Free";
+	const amount = formatBillingAmount(plan.priceMicros, plan.currency);
+	return plan.key === "enterprise" ? `From ${amount}` : amount;
+}
+
 export function SubscriptionSection() {
-	const [billingInterval, setBillingInterval] = useState<"month" | "year">(
-		"month",
-	);
 	const plansQuery = useQuery(billingPlansQueryOptions());
 	const overviewQuery = useQuery(billingOverviewQueryOptions());
 
@@ -84,7 +90,7 @@ export function SubscriptionSection() {
 		mutationFn: (selectedTier: "growth" | "business" | "enterprise") =>
 			osApi.billing.createCheckout({
 				tier: selectedTier,
-				interval: billingInterval,
+				interval: "month",
 				successUrl: billingReturnUrl("success"),
 				cancelUrl: billingReturnUrl("cancelled"),
 			}),
@@ -128,33 +134,17 @@ export function SubscriptionSection() {
 		);
 	}
 
-	const planCatalog = plansQuery.data;
+	const plans: CreditPlan[] = plansQuery.data;
 	const overview = overviewQuery.data;
 	const isStripeTestMode = overview.stripeEnvironment === "test";
 	const tier = overview.snapshot.planKey;
 	const status = overview.snapshot.status;
-	const formatLimit = (value: number, unit: string) =>
-		value < 0 ? `Unlimited ${unit}` : `${formatCount(value)} ${unit}`;
-	const featuresForPlan = (plan: BillingPlanCatalogItem) => [
-		formatLimit(
-			plan.maxTedis,
-			plan.maxTedis === 1 ? "autonomous tedi" : "autonomous tedis",
-		),
-		formatPlanTokenAllowance(plan),
-		formatLimit(plan.maxCronJobsPerTedi, "scheduled jobs per tedi"),
-		formatLimit(plan.maxIterationsPerTask, "steps per task"),
-		...(plan.overageUnitPriceMicros > 0
-			? [
-					`${formatBillingPrice(plan.overageUnitPriceMicros, plan.currency)} per ${formatCount(plan.overageUnitTokens)} overage tokens`,
-				]
-			: []),
-	];
 
 	return (
 		<SettingsSection>
 			<BillingSectionHeader
 				title="Plan &amp; billing"
-				description="Manage the subscription, payment details, and plan features."
+				description="Each plan includes a number of Tedix credits every month. 1 credit = €0.01."
 			/>
 			<SettingsSectionContent className="space-y-6">
 				{isStripeTestMode && (
@@ -163,38 +153,26 @@ export function SubscriptionSection() {
 						<AlertTitle>Billing test mode</AlertTitle>
 						<AlertDescription>
 							Checkout, subscriptions, invoices, and the billing portal use test
-							data. Tedix usage, provider cost, credits, limits, and admission
-							remain canonical billing records. No real payment method will be
-							charged.
+							data. No real payment method will be charged. Credits used by your
+							tedis are real usage records.
 						</AlertDescription>
 					</Alert>
 				)}
 
-				{/* Pricing cards */}
 				{(status === "trial" ||
 					status === "suspended" ||
 					status === "past_due" ||
 					tier === "starter") && (
 					<div className="space-y-4">
-						<SegmentedControl
-							className="items-center"
-							value={billingInterval}
-							onValueChange={setBillingInterval}
-							ariaLabel="Billing interval"
-							options={BILLING_INTERVAL_OPTIONS}
-						/>
-
-						<div className="grid gap-4 md:grid-cols-3">
-							{planCatalog.plans.map((plan) => {
-								const isCurrent = plan.planKey === tier;
-								const priceMicros =
-									billingInterval === "year"
-										? plan.annualPriceMicros
-										: plan.monthlyPriceMicros;
-								const popular = plan.planKey === "business";
+						<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+							{plans.map((plan) => {
+								const isCurrent = plan.key === tier;
+								const popular = plan.key === "business";
+								const paidKey = plan.key === "starter" ? null : plan.key;
 								return (
 									<Surface
-										key={`${plan.planKey}-v${plan.version}`}
+										key={plan.key}
+										data-plan={plan.key}
 										className={`relative p-4 ${
 											popular ? "border-kumo-brand ring-1 ring-kumo-brand" : ""
 										}`}
@@ -218,11 +196,13 @@ export function SubscriptionSection() {
 											</Text>
 											<div className="mt-1">
 												<Text as="span" role="metric" weight="semibold">
-													{formatBillingAmount(priceMicros, plan.currency)}
+													{planPriceLabel(plan)}
 												</Text>
-												<Text as="span" tone="secondary">
-													/{billingInterval === "year" ? "year" : "month"}
-												</Text>
+												{plan.priceMicros > 0 && (
+													<Text as="span" tone="secondary">
+														/month
+													</Text>
+												)}
 											</div>
 										</div>
 										{/* `ul` is not a supported Text `as` element, and the
@@ -230,7 +210,7 @@ export function SubscriptionSection() {
 										feature text, so this size/color cascade is left as raw
 										utilities. */}
 										<ul className="mb-4 space-y-1.5 text-sm">
-											{featuresForPlan(plan).map((f) => (
+											{planCardFeatures(plan).map((f) => (
 												<li key={f} className="flex items-start gap-2">
 													<span className="mt-0.5 text-kumo-success">
 														&#10003;
@@ -239,25 +219,36 @@ export function SubscriptionSection() {
 												</li>
 											))}
 										</ul>
-										<Button
-											loading={
-												checkoutMutation.isPending &&
-												checkoutMutation.variables === plan.planKey
-											}
-											icon={<ArrowUpRight size={16} />}
-											className="w-full"
-											variant={
-												isCurrent ? "outline" : popular ? "default" : "outline"
-											}
-											disabled={isCurrent || checkoutMutation.isPending}
-											onClick={() => checkoutMutation.mutate(plan.planKey)}
-										>
-											{isCurrent
-												? "Current plan"
-												: isStripeTestMode
-													? "Test checkout"
-													: "Subscribe"}
-										</Button>
+										{paidKey && (
+											<Button
+												loading={
+													checkoutMutation.isPending &&
+													checkoutMutation.variables === paidKey
+												}
+												icon={<ArrowUpRight size={16} />}
+												className="w-full"
+												variant={
+													isCurrent
+														? "outline"
+														: popular
+															? "default"
+															: "outline"
+												}
+												disabled={isCurrent || checkoutMutation.isPending}
+												onClick={() => checkoutMutation.mutate(paidKey)}
+											>
+												{isCurrent
+													? "Current plan"
+													: isStripeTestMode
+														? "Test checkout"
+														: "Subscribe"}
+											</Button>
+										)}
+										{!paidKey && isCurrent && (
+											<Text role="label" tone="secondary">
+												Current plan
+											</Text>
+										)}
 									</Surface>
 								);
 							})}

@@ -33,7 +33,7 @@ const api = vi.hoisted(() => ({
 	getOperationalContext: vi.fn(),
 	getBillingOverview: vi.fn(),
 	listBillingPlans: vi.fn(),
-	getOrgUsage: vi.fn(),
+	listTopUpPacks: vi.fn(),
 	listApprovals: vi.fn(),
 	listInteractions: vi.fn(),
 	listWorkApprovals: vi.fn(),
@@ -62,8 +62,8 @@ vi.mock("@/lib/api", () => ({
 		billing: {
 			getOverview: api.getBillingOverview,
 			listPlans: api.listBillingPlans,
+			listTopUpPacks: api.listTopUpPacks,
 		},
-		orgUsage: { getOrgUsage: api.getOrgUsage },
 		osWorkspaces: {
 			workspaces: { list: api.listWorkspaces },
 			gadgets: { list: api.listGadgets },
@@ -216,7 +216,7 @@ beforeEach(() => {
 		snapshot: { periodStart: "2026-10-01", periodEnd: "2026-11-01" },
 	});
 	api.listBillingPlans.mockResolvedValue({ plans: [] });
-	api.getOrgUsage.mockResolvedValue({});
+	api.listTopUpPacks.mockResolvedValue([]);
 	api.listSessionRequests.mockResolvedValue({ data: [] });
 	api.listWorkspaces.mockResolvedValue({ items: [], truncated: false });
 	api.listGadgets.mockResolvedValue({ items: [], truncated: false });
@@ -315,7 +315,7 @@ beforeEach(() => {
 });
 
 describe("OS route loaders", () => {
-	it.each(["overview", "plans", "context", "usage"])(
+	it.each(["overview", "plans", "context", "packs"])(
 		"lands billing while %s is stalled and keeps the read in the cache",
 		async (read) => {
 			vi.useFakeTimers();
@@ -328,7 +328,7 @@ describe("OS route loaders", () => {
 				overview: api.getBillingOverview,
 				plans: api.listBillingPlans,
 				context: api.getOperationalContext,
-				usage: api.getOrgUsage,
+				packs: api.listTopUpPacks,
 			}[read]!;
 			mock.mockReturnValueOnce(pending);
 			try {

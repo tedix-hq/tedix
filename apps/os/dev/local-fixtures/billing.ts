@@ -179,3 +179,123 @@ export const CALL_COSTS = [
 		"quarantined_no_pricing",
 	),
 ];
+
+// --- Tedix credits (/admin/billing, /compute) ---
+// Literals, not contract imports: vite.config.ts loads fixtures under raw Node.
+
+const creditNow = new Date();
+export const CREDIT_PERIOD_START = new Date(
+	Date.UTC(creditNow.getUTCFullYear(), creditNow.getUTCMonth(), 1),
+).toISOString();
+export const CREDIT_PERIOD_END = new Date(
+	Date.UTC(creditNow.getUTCFullYear(), creditNow.getUTCMonth() + 1, 1),
+).toISOString();
+
+/** Monthly plans; 1 credit = €0.01 = 10,000 EUR micros. */
+export const CREDIT_PLANS = [
+	{
+		key: "starter" as const,
+		name: "Starter",
+		priceMicros: 0,
+		currency: "eur" as const,
+		includedCredits: 500,
+	},
+	{
+		key: "growth" as const,
+		name: "Growth",
+		priceMicros: 200_000_000,
+		currency: "eur" as const,
+		includedCredits: 15_000,
+	},
+	{
+		key: "business" as const,
+		name: "Business",
+		priceMicros: 500_000_000,
+		currency: "eur" as const,
+		includedCredits: 40_000,
+	},
+	{
+		key: "enterprise" as const,
+		name: "Enterprise",
+		priceMicros: 1_000_000_000,
+		currency: "eur" as const,
+		includedCredits: 100_000,
+	},
+];
+
+const topUpPack = (credits: number) => ({
+	packKey: `credits-${credits}`,
+	credits,
+	priceMicros: credits * 10_000,
+	currency: "eur" as const,
+	validMonths: 12 as const,
+});
+
+/** One-time packs; unused credits last 12 months. */
+export const CREDIT_TOP_UP_PACKS = [1_000, 5_000, 10_000, 25_000, 50_000].map(
+	topUpPack,
+);
+
+type CreditCap = number | null;
+
+/**
+ * A Growth organization past its 80% notice: 12,600 of 15,000 included
+ * credits used, with 5,000 top-up credits still unused. Mutable so the cap
+ * and pay-as-you-go forms round-trip in the dev lane.
+ */
+export const creditUsage = {
+	periodStart: CREDIT_PERIOD_START,
+	periodEnd: CREDIT_PERIOD_END,
+	includedCredits: 15_000,
+	usedCredits: 12_600,
+	remainingIncludedCredits: 2_400,
+	topUpCredits: 5_000,
+	breakdown: { ai: 10_900, codeRuns: 1_200, services: 500 },
+	notices: [
+		{
+			threshold: 80 as 80 | 100,
+			reachedAt: new Date(
+				Date.parse(CREDIT_PERIOD_START) + 18 * 86_400_000,
+			).toISOString(),
+		},
+	],
+	payAsYouGo: {
+		enabled: false,
+		monthlyCapMicros: null as CreditCap,
+		spentMicros: 0,
+	},
+	tedis: [
+		{
+			tediId: TEDI_NOVA,
+			name: "Nova",
+			usedCredits: 6_200,
+			monthlyCapCredits: 8_000 as CreditCap,
+		},
+		{
+			tediId: TEDI_MILES,
+			name: "Miles",
+			usedCredits: 4_900,
+			monthlyCapCredits: null as CreditCap,
+		},
+		{
+			tediId: TEDI_JUNO,
+			name: "Juno",
+			usedCredits: 1_500,
+			monthlyCapCredits: 2_000 as CreditCap,
+		},
+	],
+	members: [
+		{
+			userId: "dev-operator",
+			name: "Local Operator",
+			usedCredits: 3_400,
+			monthlyCapCredits: null as CreditCap,
+		},
+		{
+			userId: "dev-teammate",
+			name: "Sam Rivera",
+			usedCredits: 1_100,
+			monthlyCapCredits: 1_500 as CreditCap,
+		},
+	],
+};

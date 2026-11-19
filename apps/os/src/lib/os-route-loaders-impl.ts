@@ -40,6 +40,7 @@ import {
 	expiringApiKeysQueryOptions,
 	billingOverviewQueryOptions,
 	billingPlansQueryOptions,
+	billingTopUpPacksQueryOptions,
 	BLUEPRINT_GALLERY_LIMIT,
 	BLUEPRINTS_LIST_LIMIT,
 	blueprintGalleryQueryOptions,
@@ -62,8 +63,6 @@ import {
 	latestGrowthSnapshotQueryOptions,
 	operationalContextQueryOptions,
 	pendingApprovalsQueryOptions,
-	ORG_USAGE_PERIOD,
-	orgUsageQueryOptions,
 	organizationDetailQueryOptions,
 	organizationFeaturesQueryOptions,
 	outputDetailQueryOptions,
@@ -548,33 +547,16 @@ export async function prefetchAdminOrganizationRoute(queryClient: QueryClient) {
 
 export async function prefetchAdminBillingRoute(queryClient: QueryClient) {
 	if (isLocalSession()) return;
-	// Usage is keyed by both the host-resolved organization and the canonical
-	// billing window. Resolve those two authorities before warming the chart row.
-	const plansRead = queryClient.ensureQueryData(billingPlansQueryOptions());
-	const overviewReads = Promise.allSettled([
-		queryClient.ensureQueryData(operationalContextQueryOptions()),
-		queryClient.ensureQueryData(billingOverviewQueryOptions()),
-	]).then(([contextResult, overviewResult]) => {
-		if (
-			contextResult.status === "fulfilled" &&
-			overviewResult.status === "fulfilled"
-		) {
-			// A full-period chart read must not delay the page used to resolve a denial.
-			void queryClient
-				.ensureQueryData(
-					orgUsageQueryOptions(
-						contextResult.value.organization.id,
-						ORG_USAGE_PERIOD,
-						{
-							from: overviewResult.value.snapshot.periodStart,
-							to: overviewResult.value.snapshot.periodEnd,
-						},
-					),
-				)
-				.catch(() => undefined);
-		}
-	});
-	await withFirstPaintDeadline(Promise.allSettled([plansRead, overviewReads]));
+	// Credits, caps and pay-as-you-go all come from the one overview read; the
+	// plan and credit-pack catalogs take no input and load beside it.
+	await withFirstPaintDeadline(
+		Promise.allSettled([
+			queryClient.ensureQueryData(operationalContextQueryOptions()),
+			queryClient.ensureQueryData(billingPlansQueryOptions()),
+			queryClient.ensureQueryData(billingOverviewQueryOptions()),
+			queryClient.ensureQueryData(billingTopUpPacksQueryOptions()),
+		]),
+	);
 }
 
 export async function prefetchAdminPaymentsRoute(

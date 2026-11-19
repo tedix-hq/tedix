@@ -29,18 +29,18 @@ function render(
 }
 
 describe("ConversationUsageLine", () => {
-	it("states the settled EUR cost of the conversation", () => {
+	it("states the settled credits of the conversation", () => {
 		expect(conversationUsageText(1_250_000)).toBe(
-			"€1.25 used in this conversation",
+			"125 credits used in this conversation",
 		);
 		const html = render({ chargedMicros: 1_250_000, chargeCount: 4 });
-		expect(html).toContain("€1.25 used in this conversation");
+		expect(html).toContain("125 credits used in this conversation");
 		expect(html).toContain("pending usage appears once settled");
 	});
 
-	it("keeps sub-cent charges visible rather than rounding them to zero", () => {
+	it("rounds a part credit up rather than showing zero", () => {
 		expect(conversationUsageText(4_200)).toBe(
-			"€0.0042 used in this conversation",
+			"1 credit used in this conversation",
 		);
 	});
 

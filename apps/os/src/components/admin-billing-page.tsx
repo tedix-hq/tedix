@@ -1,11 +1,8 @@
 /**
  * Admin › Billing
  *
- * Usage, plan limits, and subscription management on the `orgUsage` and
- * `billing` contracts.
- * The canonical usage cards now add only the two operator-relevant Kumo chart
- * readings: daily estimated cost and cost concentration by tedi. Their exact
- * tables remain available, and ECharts stays behind a nested lazy boundary.
+ * Credits, monthly limits, credit packs, plans, and pay-as-you-go on the
+ * `billing` contract. Customers see Tedix credits (1 credit = €0.01) only.
  *
  * Authority: the /admin layout gate admits `settings:manage`/`os:admin` and
  * the owner/admin roles, but `billing:manage` is OWNER-only in
@@ -74,15 +71,9 @@ const BillingDocumentsSection = lazy(() =>
 	})),
 );
 
-const BillingOverageSection = lazy(() =>
-	import("@/components/billing-overage-section").then((mod) => ({
-		default: mod.BillingOverageSection,
-	})),
-);
-
-const BillingInferenceCapacitySection = lazy(() =>
-	import("@/components/billing-inference-capacity-section").then((mod) => ({
-		default: mod.BillingInferenceCapacitySection,
+const BillingPayAsYouGoSection = lazy(() =>
+	import("@/components/billing-pay-as-you-go").then((mod) => ({
+		default: mod.BillingPayAsYouGoSection,
 	})),
 );
 
@@ -122,8 +113,8 @@ export function AdminBillingPage({
 				<PageHeading>
 					<PageTitle>{OS_COPY.navigation.billing}</PageTitle>
 					<PageDescription>
-						Understand what you are using, what you will pay, and how much
-						capacity remains.
+						See how many credits you have used this month, what used them, and
+						how many are left.
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
@@ -144,7 +135,6 @@ export function AdminBillingPage({
 				<BillingRestricted />
 			) : (
 				<AdminBillingBody
-					organizationId={context.data.organization.id}
 					checkout={checkout}
 					section={section}
 					onSectionChange={onSectionChange}
@@ -160,13 +150,13 @@ const CHECKOUT_NOTICES: Record<
 	{ title: string; description: string }
 > = {
 	"topup-success": {
-		title: "Capacity payment complete",
+		title: "Credit pack payment complete",
 		description:
-			"Payment confirmed. Capacity appears once processing finishes; the balance refreshes automatically.",
+			"Payment confirmed. The credits appear once processing finishes; the balance refreshes automatically.",
 	},
 	"topup-cancelled": {
-		title: "Capacity checkout cancelled",
-		description: "No capacity was purchased.",
+		title: "Credit pack checkout cancelled",
+		description: "No credits were purchased.",
 	},
 	success: {
 		title: "Checkout complete",
@@ -193,13 +183,11 @@ function CheckoutNotice({ state }: { state: BillingCheckoutState }) {
 }
 
 function AdminBillingBody({
-	organizationId,
 	checkout,
 	section,
 	onSectionChange,
 	onClearCheckout,
 }: {
-	organizationId: string;
 	checkout?: BillingCheckoutState;
 	section: AdminBillingSection;
 	onSectionChange: (section: AdminBillingSection) => void;
@@ -235,10 +223,7 @@ function AdminBillingBody({
 
 				<TabsContent value="usage" className="space-y-8 pt-4">
 					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
-						<BillingUsageOverview organizationId={organizationId} />
-					</Suspense>
-					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
-						<BillingInferenceCapacitySection />
+						<BillingUsageOverview />
 					</Suspense>
 				</TabsContent>
 
@@ -248,7 +233,7 @@ function AdminBillingBody({
 						<SubscriptionSection />
 					</Suspense>
 					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
-						<BillingOverageSection />
+						<BillingPayAsYouGoSection />
 					</Suspense>
 				</TabsContent>
 

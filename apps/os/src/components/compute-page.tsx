@@ -50,7 +50,17 @@ import {
 	postureSpendReading,
 	queryReading,
 } from "@/lib/cost-reading";
-import { computePostureQueryOptions } from "@/lib/os-query-options";
+import {
+	billingOverviewQueryOptions,
+	computePostureQueryOptions,
+} from "@/lib/os-query-options";
+import {
+	type CreditUsage,
+	availableCredits,
+	creditPercent,
+	creditsPaused,
+	formatCredits,
+} from "@/lib/billing-credits";
 import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { OS_COPY } from "@/shared/os-copy";
@@ -157,38 +167,6 @@ export function credentialLabel(
 	}
 }
 
-/** Customer allowance and included balance are distinct from runtime admission. */
-export function remainingTokensLabel(
-	budget: Pick<
-		ComputePosture["budget"],
-		"configured" | "remainingIncludedTokens" | "unlimitedTokenUsage"
-	>,
-): string {
-	if (!budget.configured || budget.unlimitedTokenUsage === null) {
-		return "No budget known";
-	}
-	if (budget.unlimitedTokenUsage) return "Unlimited";
-	if (budget.remainingIncludedTokens === null) return "No budget known";
-	return `${formatCount(budget.remainingIncludedTokens)} included tokens left`;
-}
-
-/**
- * Consumed share of the included allowance. Null — not 0 — whenever the
- * denominator is absent or unlimited, so the meter renders as unknown rather
- * than as a full bar or an empty one.
- */
-export function consumedShare(
-	budget: Pick<
-		ComputePosture["budget"],
-		"includedTokens" | "usedTokens" | "configured" | "unlimitedTokenUsage"
-	>,
-): number | null {
-	if (!budget.configured || budget.unlimitedTokenUsage !== false) return null;
-	if (budget.includedTokens === null || budget.usedTokens === null) return null;
-	if (budget.includedTokens <= 0) return null;
-	return Math.min(1, budget.usedTokens / budget.includedTokens);
-}
-
 /**
  * The full provenance legend, including labels that earned nothing.
  *
@@ -258,15 +236,13 @@ export function LedgerCard({
 			<Text as="span" role="label" tone="secondary">
 				Organization-attributed model costs · excludes total infrastructure
 				spend. {formatCount(posture.spend.pricedRowCount)} priced rows ·{" "}
-				{formatCount(posture.spend.unpricedRowCount)} unpriced rows ·{" "}
-				{formatCount(posture.spend.unpricedTokens)} unpriced tokens.
+				{formatCount(posture.spend.unpricedRowCount)} unpriced rows.
 			</Text>
 			{posture.spend.quarantinedRowCount > 0 && (
 				<Text as="span" role="label" tone="secondary">
 					{formatCount(posture.spend.quarantinedRowCount)} row
 					{posture.spend.quarantinedRowCount === 1 ? " is" : "s are"} held
-					outside the model-spend amount above ·{" "}
-					{formatCount(posture.spend.quarantinedTokens)} held tokens.{" "}
+					outside the model-spend amount above.{" "}
 					{posture.spend.quarantinedCostUsd !== null
 						? `Recorded held amount ${formatUsd(posture.spend.quarantinedCostUsd)}.`
 						: `Held total unknown; known subtotal ${formatUsd(posture.spend.quarantinedKnownSubtotalUsd)}.`}
@@ -280,12 +256,8 @@ export function LedgerCard({
 export function bucketAmountLabel(bucket: {
 	provenance: CostProvenance;
 	costUsd: number | null;
-	totalTokens: number;
 }): string {
-	if (bucket.costUsd !== null) return formatUsd(bucket.costUsd);
-	return bucket.totalTokens > 0
-		? `${formatCount(bucket.totalTokens)} tokens · amount unknown`
-		: "amount unknown";
+	return bucket.costUsd !== null ? formatUsd(bucket.costUsd) : "amount unknown";
 }
 
 export function ProvenanceCard({
@@ -360,76 +332,69 @@ export function ProvenanceCard({
 	);
 }
 
-export function BudgetCard({
-	posture,
+/**
+ * Credits this month for the organization, from `billing.getOverview`. The
+ * same numbers as Billing; every limit is monthly.
+ */
+export function CreditsCard({
+	credits,
 	embedded = false,
 }: {
-	posture: ComputePosture;
+	credits: CreditUsage;
 	embedded?: boolean;
 }) {
 	useOsFormattingPreferences();
-	const share = consumedShare(posture.budget);
-	const blocked = posture.budget.entitlementActive === false;
+	const paused = creditsPaused(credits);
+	const percent = creditPercent(credits.usedCredits, credits.includedCredits);
 	return (
 		<ComputeSummary embedded={embedded}>
 			<div className="flex flex-wrap items-center gap-2">
 				<Text as="strong" role="body" weight="medium" tone="strong">
-					Budget
+					Credits this month
 				</Text>
 				<Badge
-					variant={
-						blocked
-							? "destructive"
-							: posture.budget.configured
-								? "info"
-								: "outline"
-					}
-					data-tone={
-						blocked ? "bad" : posture.budget.configured ? "ok" : "unknown"
-					}
+					variant={paused ? "destructive" : "info"}
+					data-tone={paused ? "bad" : "ok"}
 				>
-					{remainingTokensLabel(posture.budget)}
+					{paused
+						? "Out of credits"
+						: `${formatCredits(availableCredits(credits))} left`}
 				</Badge>
 			</div>
-			{posture.budget.configured &&
-				posture.budget.unlimitedTokenUsage === false &&
-				posture.budget.allowOverage === true && (
-					<Text role="label" tone="secondary" className="m-0">
-						Your plan permits additional token usage. Other usage limits still
-						apply.
-					</Text>
-				)}
-			{blocked && (
+			{paused && (
 				<Text role="label" tone="error" className="m-0">
-					Runtime inference is not admitted for this workspace right now.
+					New work that uses credits has stopped until the credits renew.
 				</Text>
 			)}
 			<Text as="span" role="label" tone="secondary">
-				{posture.budget.configured && posture.budget.usedTokens !== null ? (
-					<>
-						{formatCount(posture.budget.usedTokens)} tokens consumed
-						{posture.budget.reservedTokens !== null &&
-							posture.budget.reservedTokens > 0 && (
-								<>
-									{" "}
-									· {formatCount(posture.budget.reservedTokens)} reserved in
-									flight
-								</>
-							)}
-						{share !== null && <> · {Math.round(share * 100)}% of allowance</>}
-					</>
-				) : (
-					"Consumption is unknown, not zero."
-				)}
+				{formatCredits(credits.usedCredits)} used of{" "}
+				{formatCredits(credits.includedCredits)} included · {percent}% ·{" "}
+				{formatCredits(credits.topUpCredits)} top-up credits
 			</Text>
-			{share !== null && (
-				<Meter label="Included allowance used" value={share * 100} />
-			)}
+			<Meter label="Included credits used" value={percent} />
 			<Text as="span" role="label" tone="secondary">
-				{posture.budget.detail}
+				AI {formatCredits(credits.breakdown.ai)} · Code runs{" "}
+				{formatCredits(credits.breakdown.codeRuns)} · Services{" "}
+				{formatCredits(credits.breakdown.services)}
 			</Text>
 			<Text as="span" className="opacity-70" role="caption" tone="secondary">
-				Invoices, payment methods and reconciliation live in Admin Billing.
+				Caps, credit packs, and pay-as-you-go are managed in{" "}
+				<Link href="/admin/billing">Billing</Link>.
+			</Text>
+		</ComputeSummary>
+	);
+}
+
+function CreditsUnavailable({ refused }: { refused: boolean }) {
+	return (
+		<ComputeSummary embedded>
+			<Text as="strong" role="body" weight="medium" tone="strong">
+				Credits this month
+			</Text>
+			<Text as="span" role="label" tone="secondary">
+				{refused
+					? "Credits are shown to people who can view billing."
+					: "Credits could not be read. They are unknown, not zero."}
 			</Text>
 		</ComputeSummary>
 	);
@@ -516,22 +481,6 @@ export function HealthCard({
 				{posture.providerHealth.detail}
 			</Text>
 			<Text as="span" role="label" tone="secondary">
-				D1 daily ceiling:{" "}
-				{posture.admissionPolicy.desiredDailyTokenLimit === null &&
-				posture.admissionPolicy.desiredDailySpendLimitMicros === null
-					? "none configured"
-					: [
-							posture.admissionPolicy.desiredDailyTokenLimit !== null
-								? `${formatCount(posture.admissionPolicy.desiredDailyTokenLimit)} tokens/day`
-								: null,
-							posture.admissionPolicy.desiredDailySpendLimitMicros !== null
-								? `${formatUsd(posture.admissionPolicy.desiredDailySpendLimitMicros / 1_000_000)}/day`
-								: null,
-						]
-							.filter((part): part is string => part !== null)
-							.join(" · ")}
-			</Text>
-			<Text as="span" role="label" tone="secondary">
 				{posture.admissionPolicy.detail}
 			</Text>
 		</ComputeSummary>
@@ -589,6 +538,12 @@ export function ComputePage() {
 		staleTime: 60_000,
 	});
 	const nonData = queryReading(posture);
+	const overview = useQuery({
+		...billingOverviewQueryOptions(),
+		staleTime: 60_000,
+	});
+	const credits = overview.data?.credits;
+	const creditsReading = queryReading(overview);
 
 	return (
 		<Page width="lg">
@@ -596,8 +551,8 @@ export function ComputePage() {
 				<PageHeading>
 					<PageTitle>{OS_COPY.navigation.usage}</PageTitle>
 					<PageDescription>
-						Recorded model costs and runtime capacity. For your plan, credits,
-						invoices, and payment methods, open{" "}
+						Credits used this month, recorded model costs, and model routing.
+						For your plan, caps, credit packs, and invoices, open{" "}
 						<Link href="/admin/billing">Billing</Link>.
 					</PageDescription>
 				</PageHeading>
@@ -614,8 +569,8 @@ export function ComputePage() {
 
 			<PageSection>
 				<BillingSectionHeader
-					title="Cost and budget"
-					description="Recorded spend, ingestion freshness, capacity, and source basis."
+					title="Credits and cost"
+					description="Credits used this month, recorded spend, ingestion freshness, and source basis."
 				/>
 				{posture.isPending && <ListSkeleton rows={3} rowClassName="h-24" />}
 				{nonData?.kind === "refused" && (
@@ -643,7 +598,15 @@ export function ComputePage() {
 							<LedgerCard posture={posture.data} embedded />
 						</li>
 						<li>
-							<BudgetCard posture={posture.data} embedded />
+							{credits ? (
+								<CreditsCard credits={credits} embedded />
+							) : overview.isPending ? (
+								<ListSkeleton rows={1} rowClassName="h-16" />
+							) : (
+								<CreditsUnavailable
+									refused={creditsReading?.kind === "refused"}
+								/>
+							)}
 						</li>
 						<li>
 							<ProvenanceCard posture={posture.data} embedded />
@@ -661,7 +624,7 @@ export function ComputePage() {
 				</CollapsibleDefaultTrigger>
 				<CollapsibleDefaultContent keepMounted>
 					<div className="space-y-6">
-						{posture.data && <LimitsSection posture={posture.data} />}
+						{credits && <LimitsSection credits={credits} />}
 
 						<PageSection>
 							<BillingSectionHeader
@@ -686,7 +649,7 @@ export function ComputePage() {
 						<PageSection>
 							<BillingSectionHeader
 								title="Admission health"
-								description="Credential evidence, provider visibility, and D1 policy ceilings."
+								description="Credential evidence, provider visibility, and the admission policy."
 							/>
 							{posture.data && (
 								<Collection
