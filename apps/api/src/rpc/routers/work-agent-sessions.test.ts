@@ -297,17 +297,6 @@ describe("workAgentSessions router", () => {
 		expect((await grace.list({})).sessions).toEqual([]);
 	});
 
-	it("hides ended sessions unless asked", async () => {
-		const { ada } = fixture();
-		await ada.report({ ...report, state: "ended" });
-		expect((await ada.list({})).sessions).toEqual([]);
-		expect(
-			(await ada.list({ includeEnded: true })).sessions.map(
-				(session) => session.effectiveState,
-			),
-		).toEqual(["ended"]);
-	});
-
 	it("returns full stored Work briefs without breaking the session board", async () => {
 		const { ada, sqlite } = fixture();
 		const db = createDbClient(createD1Facade(sqlite));

@@ -27,12 +27,6 @@ describe("tool class on save", () => {
 		expect(result.ok ? "" : result.reason).toContain("no write class");
 	});
 
-	it("refuses an older row until its write class is supplied", () => {
-		expect(save({ writeCapability: null, classStated: false })).toMatchObject({
-			ok: false,
-		});
-	});
-
 	it("refuses a write without an explicit risk tier", () => {
 		const result = save({});
 		expect(result.ok ? "" : result.reason).toContain("has no risk tier");

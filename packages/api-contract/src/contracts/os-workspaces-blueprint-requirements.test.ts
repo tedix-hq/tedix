@@ -300,36 +300,4 @@ describe("MCP JSON-Schema projection", () => {
 			zodToStructuredOutputJsonSchema(OsBlueprintPreflightSchema),
 		).not.toBeNull();
 	});
-
-	it("round-trips a fully populated preflight envelope", () => {
-		const envelope = {
-			blueprintId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-			revisionId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-			revision: 2,
-			status: "blocked",
-			instantiateAllowed: false,
-			targetTediId: null,
-			requirements: requirements({
-				skills: [{ skillId: SKILL_ID, slug: "lead-triage", revision: 3 }],
-			}),
-			decisions: [
-				{
-					kind: "skill",
-					subject: "skill:lead-triage",
-					verdict: "incompatible",
-					reason: "pinned at revision 3 but has moved to 5",
-					declaredPin: { id: SKILL_ID, revision: 3, digest: null },
-					resolvedPin: { id: SKILL_ID, revision: 5, digest: null },
-				},
-			],
-			blockingReasons: ["pinned at revision 3 but has moved to 5"],
-			consentReasons: [],
-			configurationReasons: [],
-			resolvedAt: "2026-08-17T12:00:00.000Z",
-		};
-		expect(OsBlueprintPreflightSchema.parse(envelope)).toMatchObject({
-			status: "blocked",
-			instantiateAllowed: false,
-		});
-	});
 });

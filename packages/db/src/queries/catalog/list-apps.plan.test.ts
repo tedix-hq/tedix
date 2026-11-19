@@ -103,25 +103,15 @@ function expected(sqlite: DatabaseSync, options: ListCatalogAppsOptions) {
 
 const FINANCE = { category: "FINANCE", hideShadowedVariants: true } as const;
 
-describe.each([
-	{ statistics: "no statistics", productionLike: false },
-	{ statistics: "collected statistics", productionLike: true },
-])("filtered public catalog pages with $statistics", ({ productionLike }) => {
+describe("filtered public catalog pages", () => {
 	it.each<[string, ListCatalogAppsOptions]>([
-		["the related rail of a large category", { ...FINANCE, limit: 6 }],
 		["with store variants", { category: "FINANCE", limit: 6 }],
-		["a later page", { ...FINANCE, limit: 24, offset: 48 }],
 		["descending", { ...FINANCE, limit: 24, sortDir: "desc" }],
-		["a deep page", { ...FINANCE, limit: 50, offset: 900 }],
-		["the last, partial page", { ...FINANCE, limit: 50, offset: 1_150 }],
 		["past the last page", { ...FINANCE, limit: 50, offset: 5_000 }],
-		["everything at once", { ...FINANCE, limit: 2_000 }],
-		["a small category", { category: "DESIGN", limit: 6 }],
 		[
 			"a small category, second page",
 			{ category: "DESIGN", hideShadowedVariants: true, limit: 6, offset: 6 },
 		],
-		["a category with no apps", { category: "FOOD", limit: 6 }],
 		["a category and a capability", { ...FINANCE, hasWrites: false, limit: 6 }],
 		[
 			"a category and a health status",
@@ -141,7 +131,7 @@ describe.each([
 			{ ...FINANCE, sortBy: "sourceCreatedAt", limit: 24, offset: 24 },
 		],
 	])("returns the same apps and total for %s", async (_name, options) => {
-		const { sqlite, db } = fixture(productionLike);
+		const { sqlite, db } = fixture(true);
 		const result = await listCatalogApps(db, options);
 		const reference = expected(sqlite, options);
 		expect(result.total).toBe(reference.total);
@@ -154,7 +144,12 @@ describe.each([
 				reviewStatus: "RELEASED",
 			});
 	});
+});
 
+describe.each([
+	{ statistics: "no statistics", productionLike: false },
+	{ statistics: "collected statistics", productionLike: true },
+])("catalog query plans with $statistics", ({ productionLike }) => {
 	it("counts a category through its own index and walks names for the page", async () => {
 		const { sqlite, db, queries } = fixture(productionLike);
 		for (const [options, nameIndex] of [

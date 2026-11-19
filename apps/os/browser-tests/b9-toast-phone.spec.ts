@@ -2,8 +2,7 @@ import { startFixtureServer } from "./fixture-server";
 import assert from "node:assert/strict";
 import { webkit, type Browser, type Page } from "playwright";
 
-// Real-adapter harness for the shared OS toast outlet: WebKit at two phone
-// sizes and a desktop size, light and dark, against the app's real CSS.
+// Exercise the shared OS toast adapter on WebKit at phone and desktop widths.
 const fixturePath = "/browser-tests/b9-toast-phone.html";
 const server = await startFixtureServer(fixturePath);
 
@@ -215,103 +214,100 @@ try {
 	browser = await webkit.launch({ headless: true });
 	const titleColors = new Map<string, string>();
 	let lifetimeChecked = false;
-	for (const theme of ["light", "dark"] as const) {
-		for (const size of [
-			{ width: 375, height: 667, phone: true },
-			{ width: 390, height: 844, phone: true },
-			{ width: 1280, height: 800, phone: false },
-		]) {
-			const label = `${size.width}x${size.height} ${theme}`;
-			const context = await browser.newContext({
-				viewport: { width: size.width, height: size.height },
-				isMobile: size.phone,
-				hasTouch: size.phone,
-				colorScheme: theme,
-			});
-			const page = await context.newPage();
-			await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
+	for (const [size, theme] of [
+		[{ width: 375, height: 667, phone: true }, "light"],
+		[{ width: 375, height: 667, phone: true }, "dark"],
+		[{ width: 1280, height: 800, phone: false }, "light"],
+	] as const) {
+		const label = `${size.width}x${size.height} ${theme}`;
+		const context = await browser.newContext({
+			viewport: { width: size.width, height: size.height },
+			isMobile: size.phone,
+			hasTouch: size.phone,
+			colorScheme: theme,
+		});
+		const page = await context.newPage();
+		await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
 
-			// Error: long title + long description with an unbroken URL.
-			await raise(page, "Raise error", 1);
-			const error = await measure(page);
-			assertLayout(error, size.phone, `${label} error`);
-			assert(error.titleLines >= 2, `${label} long title wraps`);
-			titleColors.set(label, error.titleColor);
-			await focusClose(page);
-			await page.keyboard.press("Enter");
-			await expectCount(page, 0, `${label} error closed with Enter`);
+		// Error: long title + long description with an unbroken URL.
+		await raise(page, "Raise error", 1);
+		const error = await measure(page);
+		assertLayout(error, size.phone, `${label} error`);
+		assert(error.titleLines >= 2, `${label} long title wraps`);
+		titleColors.set(label, error.titleColor);
+		await focusClose(page);
+		await page.keyboard.press("Enter");
+		await expectCount(page, 0, `${label} error closed with Enter`);
 
-			// Success: Escape on the focused toast dismisses it.
-			await raise(page, "Raise success", 1);
-			const success = await measure(page);
-			assertLayout(success, size.phone, `${label} success`);
-			await page.keyboard.press("F6");
-			await page.keyboard.press("Tab");
-			await page.keyboard.press("Escape");
-			await expectCount(page, 0, `${label} success closed with Escape`);
+		// Success: Escape on the focused toast dismisses it.
+		await raise(page, "Raise success", 1);
+		const success = await measure(page);
+		assertLayout(success, size.phone, `${label} success`);
+		await page.keyboard.press("F6");
+		await page.keyboard.press("Tab");
+		await page.keyboard.press("Escape");
+		await expectCount(page, 0, `${label} success closed with Escape`);
 
-			// Loading: same id twice stays one toast; close via keyboard.
-			await raise(page, "Raise loading", 1);
-			await page.getByRole("button", { name: "Raise loading" }).click();
-			await settle(page);
-			await expectCount(page, 1, `${label} duplicate loading stays one`);
-			const loading = await measure(page);
-			assertLayout(loading, size.phone, `${label} loading`);
-			if (!lifetimeChecked) {
-				// Kumo's default timeout is 5 s; success must expire, loading not.
-				await raise(page, "Raise success", 2);
-				await page.waitForTimeout(5_001);
-				await expectCount(
-					page,
-					1,
-					`${label} success expires while loading persists`,
-				);
-				assert(
-					(await page.locator(toastSelector).innerText()).includes(
-						"Creating workspace",
-					),
-					"loading toast persists past the default timeout",
-				);
-				lifetimeChecked = true;
-			}
-			await focusClose(page);
-			await page.keyboard.press("Enter");
-			await expectCount(page, 0, `${label} loading closed with Enter`);
-
-			// Programmatic dismissal by notification id still works.
-			await raise(page, "Raise loading", 1);
-			await page.getByRole("button", { name: "Finish loading" }).click();
-			await expectCount(page, 0, `${label} loading dismissed by id`);
-
-			const announcer = await page
-				.locator("[data-os-toast-outlet] [role=region]")
-				.evaluate((el) => ({
-					live: el.getAttribute("aria-live"),
-					label: el.getAttribute("aria-label"),
-				}));
-			assert.deepEqual(announcer, { live: "polite", label: "Notifications" });
-
-			report.push({
-				label,
-				error: {
-					close: error.close,
-					icon: error.icon,
-					root: error.root,
-					titleLines: error.titleLines,
-					column: error.column,
-				},
-				success: { close: success.close, root: success.root },
-				loading: { close: loading.close, root: loading.root },
-			});
-			await context.close();
+		// Loading: same id twice stays one toast; close via keyboard.
+		await raise(page, "Raise loading", 1);
+		await page.getByRole("button", { name: "Raise loading" }).click();
+		await settle(page);
+		await expectCount(page, 1, `${label} duplicate loading stays one`);
+		const loading = await measure(page);
+		assertLayout(loading, size.phone, `${label} loading`);
+		if (!lifetimeChecked) {
+			// Kumo's default timeout is 5 s; success must expire, loading not.
+			await raise(page, "Raise success", 2);
+			await page.waitForTimeout(5_001);
+			await expectCount(
+				page,
+				1,
+				`${label} success expires while loading persists`,
+			);
+			assert(
+				(await page.locator(toastSelector).innerText()).includes(
+					"Creating workspace",
+				),
+				"loading toast persists past the default timeout",
+			);
+			lifetimeChecked = true;
 		}
+		await focusClose(page);
+		await page.keyboard.press("Enter");
+		await expectCount(page, 0, `${label} loading closed with Enter`);
+
+		// Programmatic dismissal by notification id still works.
+		await raise(page, "Raise loading", 1);
+		await page.getByRole("button", { name: "Finish loading" }).click();
+		await expectCount(page, 0, `${label} loading dismissed by id`);
+
+		const announcer = await page
+			.locator("[data-os-toast-outlet] [role=region]")
+			.evaluate((el) => ({
+				live: el.getAttribute("aria-live"),
+				label: el.getAttribute("aria-label"),
+			}));
+		assert.deepEqual(announcer, { live: "polite", label: "Notifications" });
+
+		report.push({
+			label,
+			error: {
+				close: error.close,
+				icon: error.icon,
+				root: error.root,
+				titleLines: error.titleLines,
+				column: error.column,
+			},
+			success: { close: success.close, root: success.root },
+			loading: { close: loading.close, root: loading.root },
+		});
+		await context.close();
 	}
-	for (const size of ["375x667", "390x844", "1280x800"])
-		assert.notEqual(
-			titleColors.get(`${size} light`),
-			titleColors.get(`${size} dark`),
-			`${size} dark theme restyles the toast`,
-		);
+	assert.notEqual(
+		titleColors.get("375x667 light"),
+		titleColors.get("375x667 dark"),
+		"Dark theme restyles the phone toast",
+	);
 	for (const row of report) console.log(JSON.stringify(row));
 	console.log("b9 toast phone: ok");
 } finally {

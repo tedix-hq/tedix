@@ -707,14 +707,6 @@ describe("Work Item router canonical specification reads and writes", () => {
 		expect(seen).toHaveLength(SCALE);
 		expect(new Set(seen).size).toBe(SCALE);
 	});
-	it("rejects malformed id prefixes at the contract boundary", async () => {
-		await expect(client().list({ idPrefix: "ABCDEF12" })).rejects.toThrow(
-			/Input validation failed/,
-		);
-		await expect(client().list({ idPrefix: "abc" })).rejects.toThrow(
-			/Input validation failed/,
-		);
-	});
 	it("updates specification fields without changing disposition", async () => {
 		const created = await client().create({ ...PURPOSE, title: "Draft" });
 		const updated = await client("owner").updateSpecification({

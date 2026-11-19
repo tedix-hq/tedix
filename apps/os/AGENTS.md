@@ -283,11 +283,9 @@ upgrade.
 ## Validation and deployment
 
 Main verify runs the OS type check on affected pushes. Check visual and
-interaction changes in the affected screen and viewport. Add a browser case
-only when browser behavior matters to a consequential regression. Prefer one
-representative scenario and reuse an existing spec. Remove copied assertions
-about markup, styling, and text, and collapse browser, theme, or viewport
-matrices whose configurations exercise the same behavior.
+interaction changes in the affected screen and viewport. Exercise additional
+browser, theme, or viewport configurations when they change the behavior
+being verified.
 
 Managed deployment runs through the guarded workflow in `tedix-hq/tedix-cloud-ops`,
 not an app-local deploy command. OS owns the SQLite `CollabRoom`
@@ -299,11 +297,9 @@ Current OS conventions: one generated `osQuery` namespace per domain,
 loader-prefetched first-paint data, validated URL state, exact-key mutation
 reconciliation, lazy route chunks, and OS-owned canonical links.
 
-## Gates
+## Build
 
-Select a focused unit, workerd, or browser check when it exercises the
-changed behavior. `test:run` and `test:ci` are broad suites available on
-demand. `build` produces the SPA and Worker and reports Vite's output sizes.
+`build` produces the SPA and Worker and reports Vite's output sizes.
 Keep lazy routes and investigate actual loading regressions.
 
 ## Before proposing a framework change

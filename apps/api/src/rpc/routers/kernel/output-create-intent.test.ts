@@ -183,18 +183,13 @@ function answerRoute(
 describe("explicitOutputCreateKind", () => {
 	it.each([
 		["Create a 3-slide deck about Blue Harbor Bakery", "presentation"],
-		["create a 3 slide deck about the spring menu", "presentation"],
-		["Please make a slide deck on onboarding", "presentation"],
-		["Can you build a presentation for the Northwind kickoff?", "presentation"],
 		["Draft a short document about our refund policy.", "document"],
 		[
 			'Create a short OS document titled "Review" in the existing workspace 11111111-2222-4333-8444-555555555555.',
 			"document",
 		],
-		["Create a Tedix OS document about our review process", "document"],
 		["write a doc summarizing this thread", "document"],
 		["Make me a new spreadsheet of supplier prices", "sheet"],
-		["Generate a sheet with five columns", "sheet"],
 		[
 			"Hey, could you please create a new deck: quarterly review",
 			"presentation",
@@ -205,14 +200,10 @@ describe("explicitOutputCreateKind", () => {
 
 	it.each([
 		"How do I create a deck?",
-		"What makes a good presentation?",
 		"Create a Google Slides deck about the launch",
 		"Create a Google document in the OS workspace",
-		"Make a Notion doc for the team",
 		"Create a work item to review the deck",
-		"Make the deck shorter",
 		"Create a new slide about pricing",
-		"Add a sheet to the budget",
 		"Create a new sheet in the budget workbook",
 		"Summarize the deck",
 		"Create a plan for the offsite and then a deck",

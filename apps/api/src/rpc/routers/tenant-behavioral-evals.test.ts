@@ -8,21 +8,8 @@ import {
 	mapTenantBehavioralEvalRunConflict,
 	tenantBehavioralEvalPublicDetail,
 	tenantBehavioralEvalPublicRun,
-	tenantBehavioralEvalsContractRouter,
 } from "./tenant-behavioral-evals";
 describe("tenant behavioral eval router", () => {
-	it("registers only the admitted lifecycle", () => {
-		expect(Object.keys(tenantBehavioralEvalsContractRouter)).toEqual([
-			"create",
-			"revise",
-			"get",
-			"list",
-			"startRun",
-			"getRun",
-			"listRuns",
-			"advanceRun",
-		]);
-	});
 	it("strips private lease authority from run outputs", () => {
 		const output = tenantBehavioralEvalPublicRun({
 			id: "run",

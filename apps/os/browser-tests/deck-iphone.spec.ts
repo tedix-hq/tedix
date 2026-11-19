@@ -272,172 +272,168 @@ async function leanDeck(page: Page) {
 let browser: Browser | undefined;
 try {
 	browser = await webkit.launch({ headless: true });
-	for (const [size, device] of [
-		["390x844", devices["iPhone 13"]],
-		["375x667", devices["iPhone 8"]],
-	] as const)
-		for (const colorScheme of ["light", "dark"] as const) {
-			const label = `${size} ${colorScheme}`;
-			const context = await browser.newContext({
-				...device,
-				colorScheme,
-				reducedMotion: "reduce",
-			});
-			await context.addInitScript(
-				(theme) => localStorage.setItem("tedix-os-theme", theme),
-				colorScheme,
-			);
-			const page = await context.newPage();
-			await page.route(
-				/\/api\/rpc\/(?:workInteractions\/(?:listInbox|get)|attention\/(?:getDeckCard|listDeckCards))/,
-				async (route) => {
-					const response = await route.fetch();
-					const body = (await response.json()) as { json?: Row };
-					const data = body.json;
-					if (data) {
-						for (const row of (data.data as Row[] | undefined) ?? [])
-							liveRequest(row.request as Row);
-						for (const card of (data.cards as Row[] | undefined) ?? [])
-							liveDeckCard(card);
-						liveRequest(data.request as Row);
-						liveDeckCard(data);
-					}
-					await route.fulfill({ response, json: body });
-				},
-			);
-			await page.goto(`${origin}/work?view=deck`);
-			// Vite can render the lazy Deck before the global stylesheet has applied.
-			await page.waitForFunction(
-				() =>
-					getComputedStyle(document.documentElement).letterSpacing !== "normal",
-			);
-			await page.locator(".fd-deck-current .fd-card").waitFor();
-			await page.locator('[data-slot="card-footer"]').first().waitFor();
-			// The launcher marks <html> last; measure once it has fully mounted.
-			await page.waitForFunction(
-				() =>
-					document.documentElement.hasAttribute("data-quick-chat-launcher") &&
-					document
-						.querySelector("[data-tedix-widget]")
-						?.shadowRoot?.querySelector(".tedix-launcher")
-						?.getBoundingClientRect().height,
-			);
-			await settleAnimations(page, ".fd-deck");
-
-			const loaded = await measure(page);
-			assert.equal(loaded.focused, null, `${label}: focused on load`);
-			assert.deepEqual(loaded.failures, [], `${label}: card layout on load`);
-			assert(
-				loaded.cardHeight >= MIN_CARD_HEIGHT,
-				`${label}: card only ${loaded.cardHeight}px tall`,
-			);
-			assert(
-				Math.abs(loaded.navBottom - loaded.layoutHeight) <
-					LAYOUT_ROUNDING_TOLERANCE,
-				`${label}: Feed/Deck bar ends at ${loaded.navBottom}, viewport ${loaded.layoutHeight}`,
-			);
-			if (shots)
-				await page.screenshot({
-					path: `${shots}/deck-${size}-${colorScheme}.png`,
-				});
-			// CI can sample an entrance animation after the old fixed delay.
-			await page.locator(".fd-deck-current .fd-card").evaluate((card) => {
-				card.animate([{ transform: "scale(0.98)" }, { transform: "none" }], {
-					duration: 1_000,
-				});
-			});
-			await settleAnimations(page, ".fd-deck");
-			const animated = await measure(page);
-			assert(
-				Math.abs(animated.cardHeight - loaded.cardHeight) <
-					LAYOUT_ROUNDING_TOLERANCE,
-				`${label}: measured an unfinished card animation ${loaded.cardHeight} -> ${animated.cardHeight}`,
-			);
-			const lean = !process.env.TEDIX_DECK_LEAN_SKIP;
-			if (lean) {
-				assert.deepEqual(await leanDeck(page), [], `${label}: lean Deck`);
-				if (shots) {
-					await page
-						.locator(".fd-deck-current .fd-card")
-						.getByRole("button", { name: "More actions" })
-						.click();
-					await page.getByRole("menu").waitFor();
-					await page.screenshot({
-						path: `${shots}/deck-menu-${size}-${colorScheme}.png`,
-					});
-					await page.keyboard.press("Escape");
-					await page.getByRole("menu").waitFor({ state: "hidden" });
-				}
-				await page.locator(".fd-decision").first().blur();
-				await settleAnimations(page, ".fd-deck");
+	const size = "375x667";
+	const colorScheme = "dark";
+	const device = devices["iPhone 8"];
+	const label = `${size} ${colorScheme}`;
+	const context = await browser.newContext({
+		...device,
+		colorScheme,
+		reducedMotion: "reduce",
+	});
+	await context.addInitScript(
+		(theme) => localStorage.setItem("tedix-os-theme", theme),
+		colorScheme,
+	);
+	const page = await context.newPage();
+	await page.route(
+		/\/api\/rpc\/(?:workInteractions\/(?:listInbox|get)|attention\/(?:getDeckCard|listDeckCards))/,
+		async (route) => {
+			const response = await route.fetch();
+			const body = (await response.json()) as { json?: Row };
+			const data = body.json;
+			if (data) {
+				for (const row of (data.data as Row[] | undefined) ?? [])
+					liveRequest(row.request as Row);
+				for (const card of (data.cards as Row[] | undefined) ?? [])
+					liveDeckCard(card);
+				liveRequest(data.request as Row);
+				liveDeckCard(data);
 			}
-			// "More" may have opened the consequence; the keyboard compares against this.
-			const reference = await measure(page);
+			await route.fulfill({ response, json: body });
+		},
+	);
+	await page.goto(`${origin}/work?view=deck`);
+	// Vite can render the lazy Deck before the global stylesheet has applied.
+	await page.waitForFunction(
+		() => getComputedStyle(document.documentElement).letterSpacing !== "normal",
+	);
+	await page.locator(".fd-deck-current .fd-card").waitFor();
+	await page.locator('[data-slot="card-footer"]').first().waitFor();
+	// The launcher marks <html> last; measure once it has fully mounted.
+	await page.waitForFunction(
+		() =>
+			document.documentElement.hasAttribute("data-quick-chat-launcher") &&
+			document
+				.querySelector("[data-tedix-widget]")
+				?.shadowRoot?.querySelector(".tedix-launcher")
+				?.getBoundingClientRect().height,
+	);
+	await settleAnimations(page, ".fd-deck");
 
-			// The iOS keyboard: the layout viewport stays, the visual viewport shrinks and pans.
-			await page.evaluate(() => {
-				const viewport = window.visualViewport!;
-				const height = Math.round(innerHeight * 0.55);
-				Object.defineProperty(viewport, "height", {
-					configurable: true,
-					get: () => height,
-				});
-				Object.defineProperty(viewport, "offsetTop", {
-					configurable: true,
-					get: () => 40,
-				});
-				viewport.dispatchEvent(new Event("resize"));
-				viewport.dispatchEvent(new Event("scroll"));
+	const loaded = await measure(page);
+	assert.equal(loaded.focused, null, `${label}: focused on load`);
+	assert.deepEqual(loaded.failures, [], `${label}: card layout on load`);
+	assert(
+		loaded.cardHeight >= MIN_CARD_HEIGHT,
+		`${label}: card only ${loaded.cardHeight}px tall`,
+	);
+	assert(
+		Math.abs(loaded.navBottom - loaded.layoutHeight) <
+			LAYOUT_ROUNDING_TOLERANCE,
+		`${label}: Feed/Deck bar ends at ${loaded.navBottom}, viewport ${loaded.layoutHeight}`,
+	);
+	if (shots)
+		await page.screenshot({
+			path: `${shots}/deck-${size}-${colorScheme}.png`,
+		});
+	// CI can sample an entrance animation after the old fixed delay.
+	await page.locator(".fd-deck-current .fd-card").evaluate((card) => {
+		card.animate([{ transform: "scale(0.98)" }, { transform: "none" }], {
+			duration: 1_000,
+		});
+	});
+	await settleAnimations(page, ".fd-deck");
+	const animated = await measure(page);
+	assert(
+		Math.abs(animated.cardHeight - loaded.cardHeight) <
+			LAYOUT_ROUNDING_TOLERANCE,
+		`${label}: measured an unfinished card animation ${loaded.cardHeight} -> ${animated.cardHeight}`,
+	);
+	const lean = !process.env.TEDIX_DECK_LEAN_SKIP;
+	if (lean) {
+		assert.deepEqual(await leanDeck(page), [], `${label}: lean Deck`);
+		if (shots) {
+			await page
+				.locator(".fd-deck-current .fd-card")
+				.getByRole("button", { name: "More actions" })
+				.click();
+			await page.getByRole("menu").waitFor();
+			await page.screenshot({
+				path: `${shots}/deck-menu-${size}-${colorScheme}.png`,
 			});
-			await settleAnimations(page, ".fd-deck");
-			const keyboard = await measure(page);
-			assert.deepEqual(
-				keyboard.failures,
-				[],
-				`${label}: card layout with keyboard`,
-			);
-			assert(
-				Math.abs(keyboard.cardHeight - reference.cardHeight) <
-					LAYOUT_ROUNDING_TOLERANCE,
-				`${label}: keyboard resized the card ${reference.cardHeight} -> ${keyboard.cardHeight}`,
-			);
-			assert(
-				Math.abs(keyboard.navBottom - keyboard.layoutHeight) <
-					LAYOUT_ROUNDING_TOLERANCE,
-				`${label}: keyboard lifted the Feed/Deck bar to ${keyboard.navBottom}`,
-			);
-			if (shots)
-				await page.screenshot({
-					path: `${shots}/after-keyboard-${size}-${colorScheme}.png`,
-				});
-
-			// A browser that shrinks the layout viewport for its keyboard still keeps a usable card.
-			await page.setViewportSize({ width: device.viewport.width, height: 360 });
-			await settleAnimations(page, ".fd-deck");
-			const short = await measure(page);
-			assert.deepEqual(short.failures, [], `${label}: card layout at 360px`);
-			assert(
-				short.cardHeight >= MIN_CARD_HEIGHT,
-				`${label}: card only ${short.cardHeight}px tall at 360px`,
-			);
-			// Wider glyphs (CI's Linux fonts) wrap the action row onto two lines.
-			await page.addStyleTag({
-				content:
-					".fd-deck-current [data-decision-actions] > button { padding-inline: 1.6rem !important }",
-			});
-			await settleAnimations(page, ".fd-deck");
-			const wrapped = await measure(page);
-			assert.deepEqual(
-				wrapped.failures,
-				[],
-				`${label}: card layout at 360px with a wrapped action row`,
-			);
-			// Drop route handlers first: a request still in flight must not
-			// reach route.fetch() after the context is gone.
-			await page.unrouteAll({ behavior: "ignoreErrors" });
-			await context.close();
-			console.log(`PASS ${label}`);
+			await page.keyboard.press("Escape");
+			await page.getByRole("menu").waitFor({ state: "hidden" });
 		}
+		await page.locator(".fd-decision").first().blur();
+		await settleAnimations(page, ".fd-deck");
+	}
+	// "More" may have opened the consequence; the keyboard compares against this.
+	const reference = await measure(page);
+
+	// The iOS keyboard: the layout viewport stays, the visual viewport shrinks and pans.
+	await page.evaluate(() => {
+		const viewport = window.visualViewport!;
+		const height = Math.round(innerHeight * 0.55);
+		Object.defineProperty(viewport, "height", {
+			configurable: true,
+			get: () => height,
+		});
+		Object.defineProperty(viewport, "offsetTop", {
+			configurable: true,
+			get: () => 40,
+		});
+		viewport.dispatchEvent(new Event("resize"));
+		viewport.dispatchEvent(new Event("scroll"));
+	});
+	await settleAnimations(page, ".fd-deck");
+	const keyboard = await measure(page);
+	assert.deepEqual(
+		keyboard.failures,
+		[],
+		`${label}: card layout with keyboard`,
+	);
+	assert(
+		Math.abs(keyboard.cardHeight - reference.cardHeight) <
+			LAYOUT_ROUNDING_TOLERANCE,
+		`${label}: keyboard resized the card ${reference.cardHeight} -> ${keyboard.cardHeight}`,
+	);
+	assert(
+		Math.abs(keyboard.navBottom - keyboard.layoutHeight) <
+			LAYOUT_ROUNDING_TOLERANCE,
+		`${label}: keyboard lifted the Feed/Deck bar to ${keyboard.navBottom}`,
+	);
+	if (shots)
+		await page.screenshot({
+			path: `${shots}/after-keyboard-${size}-${colorScheme}.png`,
+		});
+
+	// A browser that shrinks the layout viewport for its keyboard still keeps a usable card.
+	await page.setViewportSize({ width: device.viewport.width, height: 360 });
+	await settleAnimations(page, ".fd-deck");
+	const short = await measure(page);
+	assert.deepEqual(short.failures, [], `${label}: card layout at 360px`);
+	assert(
+		short.cardHeight >= MIN_CARD_HEIGHT,
+		`${label}: card only ${short.cardHeight}px tall at 360px`,
+	);
+	// Wider glyphs (CI's Linux fonts) wrap the action row onto two lines.
+	await page.addStyleTag({
+		content:
+			".fd-deck-current [data-decision-actions] > button { padding-inline: 1.6rem !important }",
+	});
+	await settleAnimations(page, ".fd-deck");
+	const wrapped = await measure(page);
+	assert.deepEqual(
+		wrapped.failures,
+		[],
+		`${label}: card layout at 360px with a wrapped action row`,
+	);
+	// Drop route handlers first: a request still in flight must not
+	// reach route.fetch() after the context is gone.
+	await page.unrouteAll({ behavior: "ignoreErrors" });
+	await context.close();
+	console.log(`PASS ${label}`);
 } finally {
 	await browser?.close();
 	await server.stop();

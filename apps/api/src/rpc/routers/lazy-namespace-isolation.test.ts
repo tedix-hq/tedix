@@ -9,21 +9,13 @@
  * contracts.
  *
  * `apiRouter` therefore holds a `Lazy` per namespace, so a request materialises
- * only the branch it routes into. Three things have to hold, and each is easy
- * to break silently:
- *
- *  1. every namespace is still deferred — one plain static import re-eagers the
- *     whole contract graph, and nothing else in the suite would notice;
- *  2. the deferred tree still resolves every procedure the contracts declare —
- *     laziness must not lose an endpoint;
- *  3. oRPC's matcher still unlazies only the matched prefix — the fix is worth
- *     nothing if a dependency bump starts walking the tree eagerly, and every
- *     other test would still pass.
+ * only the branch it routes into. Contract parity checks the complete router
+ * tree. This suite checks that all namespaces are deferred and that the
+ * matcher can resolve a branch without loading its siblings.
  */
 
 import { Lazy, os } from "@orpc/server";
 import { RPCMatcher } from "@orpc/server/standard";
-import { listContractEndpoints } from "@tedix/api-contract/utils/contract-routers";
 import { describe, expect, it } from "vite-plus/test";
 import { apiRouter } from "./index";
 
@@ -36,22 +28,12 @@ describe("lazy namespace isolation", () => {
 		expect(eager).toEqual([]);
 	});
 
-	it("still resolves every declared contract endpoint through the matcher", async () => {
+	it("resolves a procedure from the lazy API tree through the matcher", async () => {
 		const matcher = new RPCMatcher(apiRouter as never);
-		const endpoints = listContractEndpoints({ includeInternal: true });
 
-		const unresolved: string[] = [];
-		for (const endpoint of endpoints) {
-			const rpcPath = `/${endpoint.router}/${endpoint.procPath}` as const;
-			const match = await matcher.match("POST", rpcPath, undefined);
-			if (match === undefined) {
-				unresolved.push(rpcPath);
-				continue;
-			}
-			expect(match.path).toEqual(rpcPath.slice(1).split("/"));
-		}
-
-		expect(unresolved).toEqual([]);
+		await expect(
+			matcher.match("POST", "/audit/search", undefined),
+		).resolves.toMatchObject({ path: ["audit", "search"] });
 	});
 
 	/**

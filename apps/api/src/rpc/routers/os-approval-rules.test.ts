@@ -134,22 +134,6 @@ beforeEach(() => {
 });
 
 describe("rule lifecycle", () => {
-	it("creates an enabled approve rule with creator accountability", async () => {
-		const fixture = createFixture();
-		const c = clients(fixture);
-
-		const { rule } = await c.org1.create({ actionKind: "cron_job" });
-		expect(rule).toMatchObject({
-			organizationId: "org-1",
-			actionKind: "cron_job",
-			decision: "approve",
-			enabled: true,
-			createdByKind: "user",
-			createdById: "user-1",
-			disabledAt: null,
-		});
-	});
-
 	it("is idempotent per kind: a second create returns the standing rule", async () => {
 		const fixture = createFixture();
 		const c = clients(fixture);
@@ -256,6 +240,10 @@ describe("verb matrix", () => {
 		await seedApproval(fixture, { id: "11111111-1111-4111-8111-111111111111" });
 
 		const { rule } = await approver.create({ actionKind: "cron_job" });
+		expect(rule).toMatchObject({
+			createdByKind: "user",
+			createdById: "user-1",
+		});
 		await approver.setEnabled({ ruleId: rule.id, enabled: true });
 		// The sweep runs the REAL tediApprovals.resolve per match, so this proves
 		// resolve itself accepts os:approve (the shared AUTHZ.osApprove guard).

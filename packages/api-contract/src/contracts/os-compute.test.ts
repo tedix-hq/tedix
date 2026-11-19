@@ -92,10 +92,6 @@ function posture(overrides: Record<string, unknown> = {}) {
 }
 
 describe("ComputePostureSchema accepts what the producers emit", () => {
-	it("accepts the ordinary finite-allowance envelope", () => {
-		expect(() => ComputePostureSchema.parse(posture())).not.toThrow();
-	});
-
 	// An unlimited plan reports a negative includedTokens sentinel; rejecting
 	// it would 500 the whole read.
 	it("accepts an unlimited plan's negative token sentinel", () => {

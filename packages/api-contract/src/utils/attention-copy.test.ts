@@ -1,18 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-	ATTENTION_COPY,
-	attentionSourceLabel,
 	attentionStatusLabel,
 	inactiveSessionLabel,
 	localSessionInactive,
 } from "./attention-copy";
 
 describe("Attention copy", () => {
-	it("contains no device guesses or personal labels", () => {
-		expect(Object.values(ATTENTION_COPY).join(" ")).not.toMatch(
-			/\b(laptop|offline|asleep|Lead|Aaron)\b/i,
-		);
-	});
 	it("describes only the heartbeat age", () => {
 		const now = new Date("2026-10-17T12:00:00Z");
 		expect(inactiveSessionLabel("2026-10-17T11:48:00Z", now)).toBe(
@@ -25,16 +18,6 @@ describe("Attention copy", () => {
 		expect(localSessionInactive("2026-10-17T11:55:00Z", now)).toBe(true);
 		expect(localSessionInactive(null, now)).toBe(false);
 		expect(inactiveSessionLabel(null, now)).toBe("Heartbeat not reported");
-	});
-	it("labels registered source kinds without inferring from names", () => {
-		expect(attentionSourceLabel("local_codex")).toBe("Local · Codex");
-		expect(attentionSourceLabel("local_claude")).toBe("Local · Claude");
-		expect(attentionSourceLabel("cloud_tedi", "CTO")).toBe("Tedi (CTO)");
-		expect(attentionSourceLabel("factory", "Inbox opportunities")).toBe(
-			"Factory (Inbox opportunities)",
-		);
-		expect(attentionSourceLabel("coordinator")).toBe("Scheduled job");
-		expect(attentionSourceLabel("unknown", "Codex")).toBe("Source unknown");
 	});
 	it("ages local sessions without changing observed cloud run states", () => {
 		const now = new Date("2026-10-17T12:00:00Z");

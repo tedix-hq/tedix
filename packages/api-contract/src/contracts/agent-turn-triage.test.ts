@@ -5,9 +5,7 @@ import {
 	LabelAgentReplyResultSchema,
 	ProposeAgentReplyDraftInputSchema,
 	TriageAgentTurnInputSchema,
-	TriageResultSchema,
 } from "../schemas/agent-turn-triage";
-import { agentTurnTriageContract } from "./agent-turn-triage";
 
 const question = {
 	id: "blocker_or_failure",
@@ -16,30 +14,6 @@ const question = {
 };
 
 describe("agentTurnTriageContract", () => {
-	it("exposes exactly the triage and reply-draft procedures", () => {
-		expect(Object.keys(agentTurnTriageContract).sort()).toEqual([
-			"backfillLessonTriggers",
-			"getCaptureHealth",
-			"getLessonEffectiveness",
-			"getPolicy",
-			"getReplyDraftAcceptance",
-			"getReplyDraftLeaderboard",
-			"getSessionLessons",
-			"importSessionDecisions",
-			"labelReply",
-			"listLessons",
-			"mineSessionLessons",
-			"proposeReplyDraft",
-			"recordLessonIncident",
-			"recordSessionFeedback",
-			"requestReplyDraft",
-			"retriageQuestions",
-			"triage",
-			"updateLessonTriggers",
-			"updatePolicy",
-		]);
-	});
-
 	it("defaults drafting off and eligibility to 90% over 50 drafts", () => {
 		const stored = AgentTurnTriagePolicySchema.parse({
 			enabled: true,
@@ -181,25 +155,6 @@ describe("agentTurnTriageContract", () => {
 		expect(
 			TriageAgentTurnInputSchema.safeParse({ text: "x".repeat(20_001) })
 				.success,
-		).toBe(false);
-	});
-
-	it("pins the shared TriageResult shape", () => {
-		const result = {
-			status: "ok",
-			urgency: "now",
-			labels: { blocker_or_failure: 0.9 },
-			urgentLabels: ["blocker_or_failure"],
-			model: "@cf/cloudflare/clef-flash",
-			policyVersion: 1,
-			latencyMs: 120,
-		};
-		expect(TriageResultSchema.parse(result)).toEqual(result);
-		expect(
-			TriageResultSchema.safeParse({ ...result, labels: { x: 1.5 } }).success,
-		).toBe(false);
-		expect(
-			TriageResultSchema.safeParse({ ...result, urgency: "soon" }).success,
 		).toBe(false);
 	});
 

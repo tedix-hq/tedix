@@ -22,7 +22,6 @@ Read `README.md` first. Rules that are easy to break:
   not proof of object authority. Agent output and resource bindings require
   activation and never fall back to D1. Core rows (apps, Work, tedis)
   use the `DB` binding. The object never reads another workspace's rows.
-- Choose a focused case for changes that risk losing data, breaking workspace
-  isolation, or transferring authority incorrectly. Reuse `test:unit` for
-  pure behavior and `test:workers` when the object or its storage matters.
-  Use the workspace runner so workerd and its fixture load correctly.
+- Use `test:unit` for pure behavior and `test:workers` for Durable Object
+  authority, workspace isolation, or storage behavior. Use the workspace
+  runner so workerd and its fixture load correctly.

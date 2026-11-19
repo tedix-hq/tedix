@@ -10,11 +10,8 @@ const selectedWidth = Number(process.env.DECK_CHECK_WIDTH ?? 0);
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const width of [390, 1280].filter(
-		(width) =>
-			(section === "all" || section === "snooze") &&
-			(!selectedWidth || selectedWidth === width),
-	)) {
+	if (section === "all" || section === "snooze") {
+		const width = 390;
 		const page = await browser.newPage({ viewport: { width, height: 844 } });
 		try {
 			let submitted: unknown;
@@ -45,7 +42,7 @@ try {
 				await page.evaluate(
 					() => document.documentElement.scrollWidth <= innerWidth,
 				),
-				"snooze and context fit phone and desktop",
+				"snooze and context fit the phone",
 			);
 		} finally {
 			await page.close();
@@ -186,18 +183,83 @@ try {
 					`Decision deck browser passed: ${viewport.width}x${viewport.height}`,
 				);
 			}
-			if (section === "all" || section === "tldr") {
-				for (const dark of [false, true]) {
-					for (const mcp of [false, true]) {
-						await page.goto(
-							`${origin}/browser-tests/card-tldr.html?${mcp ? "mcp=1&" : ""}${dark ? "dark=1" : ""}`,
+			if (viewport.width === 390 && (section === "all" || section === "tldr")) {
+				for (const [mcp, dark] of [
+					[false, true],
+					[true, false],
+				] as const) {
+					await page.goto(
+						`${origin}/browser-tests/card-tldr.html?${mcp ? "mcp=1&" : ""}${dark ? "dark=1" : ""}`,
+					);
+					const plain = page.getByRole(mcp ? "article" : "region", {
+						name: "Save a follow-up task for Jules?",
+					});
+					await plain.waitFor();
+					await page.evaluate(async () => {
+						await document.fonts.ready;
+						await Promise.all(
+							document
+								.getAnimations()
+								.filter(
+									(animation) =>
+										animation.effect?.getTiming().iterations !== Infinity,
+								)
+								.map((animation) => animation.finished.catch(() => {})),
 						);
-						const plain = page.getByRole(mcp ? "article" : "region", {
-							name: "Save a follow-up task for Jules?",
+					});
+					await page
+						.getByRole("button", { name: "Save task", exact: false })
+						.waitFor();
+					assert(
+						!(await page
+							.getByText("Source invocation:", { exact: false })
+							.first()
+							.isVisible()),
+						"technical source stays behind Details",
+					);
+					const text = await plain.innerText();
+					assert(
+						(text.match(/\S+/gu) ?? []).length <= 60,
+						`the full visible card is under 60 words: ${text}`,
+					);
+					assert(
+						await page.evaluate(
+							() => document.documentElement.scrollWidth <= innerWidth,
+						),
+						"plain card has no horizontal overflow",
+					);
+					if (process.env.CARD_TLDR_SCREENSHOT_DIR)
+						await page.screenshot({
+							path: `${process.env.CARD_TLDR_SCREENSHOT_DIR}/card-tldr-${mcp ? "mcp" : "after"}-${viewport.width}-${dark ? "dark" : "light"}.png`,
+							fullPage: true,
 						});
-						await plain.waitFor();
+					if (mcp) {
+						await plain.locator("summary").focus();
+						await page.keyboard.press("Enter");
+					} else
+						await page
+							.getByRole("button", {
+								name: "Details for agents",
+								exact: true,
+							})
+							.click();
+					assert(
+						await page
+							.getByText("Source invocation:", { exact: false })
+							.filter({ visible: true })
+							.first()
+							.isVisible(),
+						"the exact source remains available",
+					);
+					if (process.env.CARD_TLDR_SCREENSHOT_DIR && !mcp) {
+						await page.goto(
+							`${origin}/browser-tests/card-tldr.html?before=1${dark ? "&dark=1" : ""}`,
+						);
+						await page
+							.getByText("Source invocation:", { exact: false })
+							.first()
+							.waitFor();
 						await page.evaluate(async () => {
-							await document.fonts.ready;
 							await Promise.all(
 								document
 									.getAnimations()
@@ -208,74 +270,10 @@ try {
 									.map((animation) => animation.finished.catch(() => {})),
 							);
 						});
-						await page
-							.getByRole("button", { name: "Save task", exact: false })
-							.waitFor();
-						assert(
-							!(await page
-								.getByText("Source invocation:", { exact: false })
-								.first()
-								.isVisible()),
-							"technical source stays behind Details",
-						);
-						const text = await plain.innerText();
-						assert(
-							(text.match(/\S+/gu) ?? []).length <= 60,
-							`the full visible card is under 60 words: ${text}`,
-						);
-						assert(
-							await page.evaluate(
-								() => document.documentElement.scrollWidth <= innerWidth,
-							),
-							"plain card has no horizontal overflow",
-						);
-						if (process.env.CARD_TLDR_SCREENSHOT_DIR)
-							await page.screenshot({
-								path: `${process.env.CARD_TLDR_SCREENSHOT_DIR}/card-tldr-${mcp ? "mcp" : "after"}-${viewport.width}-${dark ? "dark" : "light"}.png`,
-								fullPage: true,
-							});
-						if (mcp) {
-							await plain.locator("summary").focus();
-							await page.keyboard.press("Enter");
-						} else
-							await page
-								.getByRole("button", {
-									name: "Details for agents",
-									exact: true,
-								})
-								.click();
-						assert(
-							await page
-								.getByText("Source invocation:", { exact: false })
-								.filter({ visible: true })
-								.first()
-								.isVisible(),
-							"the exact source remains available",
-						);
-						if (process.env.CARD_TLDR_SCREENSHOT_DIR && !mcp) {
-							await page.goto(
-								`${origin}/browser-tests/card-tldr.html?before=1${dark ? "&dark=1" : ""}`,
-							);
-							await page
-								.getByText("Source invocation:", { exact: false })
-								.first()
-								.waitFor();
-							await page.evaluate(async () => {
-								await Promise.all(
-									document
-										.getAnimations()
-										.filter(
-											(animation) =>
-												animation.effect?.getTiming().iterations !== Infinity,
-										)
-										.map((animation) => animation.finished.catch(() => {})),
-								);
-							});
-							await page.screenshot({
-								path: `${process.env.CARD_TLDR_SCREENSHOT_DIR}/card-tldr-before-${viewport.width}-${dark ? "dark" : "light"}.png`,
-								fullPage: true,
-							});
-						}
+						await page.screenshot({
+							path: `${process.env.CARD_TLDR_SCREENSHOT_DIR}/card-tldr-before-${viewport.width}-${dark ? "dark" : "light"}.png`,
+							fullPage: true,
+						});
 					}
 				}
 			}

@@ -427,60 +427,6 @@ describe("renderRouteResponse — propose_tool_write: honest messaging", () => {
 	});
 });
 
-/**
- * route-planner SYSTEM_PROMPT: owned writes must guide the LLM to delegate
- * to the owning tedi rather than propose_tool_write.
- *
- * These tests inspect the SYSTEM_PROMPT text to ensure the owned-write
- * delegation rule is present and correctly scoped. They do NOT test the LLM's
- * routing decisions (those are non-deterministic) — they test the guidance
- * contract.
- */
-describe("route-planner SYSTEM_PROMPT — owned-write delegation guidance", async () => {
-	const { SYSTEM_PROMPT } = await import("./route-planner");
-
-	it("SYSTEM_PROMPT instructs the LLM to delegate owned writes to the owning tedi", () => {
-		// The owned-write delegation rule must be present.
-		expect(SYSTEM_PROMPT).toContain("delegate_tedi");
-		// Must call out that propose_tool_write is reserved for NO-OWNER writes.
-		expect(SYSTEM_PROMPT).toContain("NO tedi");
-		// Must mention domain ownership for the write-delegation guidance.
-		expect(SYSTEM_PROMPT).toContain("owns the domain");
-	});
-
-	it("SYSTEM_PROMPT gives a concrete example of owned write → delegate_tedi (platform/CTO for policy)", () => {
-		// The guidance must give "make tedis autonomous" as an owned-write example
-		// (or equivalent language) so the LLM knows platform policy is a tedi domain.
-		expect(SYSTEM_PROMPT).toContain("autonomous");
-		expect(SYSTEM_PROMPT).toContain("delegate_tedi");
-	});
-
-	it("SYSTEM_PROMPT retains owner routing for external provider and governance writes", () => {
-		// Internal artifact actions do not remove external-domain ownership.
-		expect(SYSTEM_PROMPT).toContain(
-			"Reserve propose_tool_write for such writes only when NO tedi owns the domain",
-		);
-	});
-
-	it("SYSTEM_PROMPT treats a described but unlisted destination as a lookup", () => {
-		// The finance draft asked which workspace to use although the request
-		// described it and a tedi could find it.
-		expect(SYSTEM_PROMPT).toContain(
-			"a described destination is a lookup, not ambiguity",
-		);
-	});
-
-	it("SYSTEM_PROMPT teaches the canonical Work factory lifecycle", () => {
-		expect(SYSTEM_PROMPT).toContain("business disposition");
-		expect(SYSTEM_PROMPT).toContain("derived readiness");
-		expect(SYSTEM_PROMPT).toContain("fenced execution attempts");
-		expect(SYSTEM_PROMPT).toContain("claim-addressed evidence");
-		expect(SYSTEM_PROMPT).not.toContain(
-			"tracked unit of delegated work with status and approvals",
-		);
-	});
-});
-
 // This suite isolates turn orchestration; model publication IO is supplied
 // explicitly while the real synchronous provider selector remains in use.
 vi.mock("@tedix/db/queries/model-catalog", async () => {

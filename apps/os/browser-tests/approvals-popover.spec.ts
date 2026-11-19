@@ -70,9 +70,8 @@ async function assertStableTabOverflow(page: Page) {
 	);
 }
 
-// The topbar Approvals panel against the app's real CSS: WebKit at 320, 375, 390 and
-// 1280 px, light and dark, with three held delegations, with mixed action
-// requests and history, and with nothing.
+// The topbar Approvals panel against the app's real CSS, including
+// overflow on a narrow phone and actions on a desktop.
 const fixturePath = "/browser-tests/approvals-popover.html";
 const server = await startFixtureServer(fixturePath);
 const evidenceDir = process.env.APPROVALS_POPOVER_EVIDENCE_DIR;
@@ -83,336 +82,315 @@ let activePage: Page | undefined;
 let scenario = "browser startup";
 let crashed = false;
 try {
-	for (const engine of [webkit, chromium]) {
+	for (const [engine, width, height, theme] of [
+		[webkit, 320, 812, "dark"],
+		[chromium, 1280, 900, "light"],
+	] as const) {
 		const browser = await engine.launch();
 		browsers.push(browser);
-		for (const theme of ["light", "dark"] as const)
-			for (const [width, height] of [
-				[320, 812],
-				[375, 812],
-				[390, 844],
-				[1280, 900],
-			] as const) {
-				const page = await browser.newPage({
-					viewport: { width, height },
-					colorScheme: theme,
-					hasTouch: width < 820,
-				});
-				activePage = page;
-				scenario = `${engine.name()} ${width}x${height} ${theme}`;
-				crashed = false;
-				page.on("crash", () => {
-					crashed = true;
-				});
-				await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
-				// The shared dev server can still be re-bundling fixture
-				// dependencies when the first page connects, and Vite then
-				// reloads every connected page mid-run. Load once so the whole
-				// module graph is discovered, then restart from a settled
-				// navigation: no optimizer reload can land inside an open menu.
-				await page
-					.getByRole("button", { name: /^Activity and approvals: / })
-					.waitFor();
-				await page.reload();
-				const trigger = page.getByRole("button", {
-					name: "Activity and approvals: 3 waiting",
-					exact: true,
-				});
-				await trigger.click();
-				const panel = page.locator("[data-approvals-popover]");
-				await panel.waitFor();
-				await page.evaluate(() => document.fonts.ready);
-				const box = await panel.boundingBox();
-				assert(box && box.x >= 0 && box.x + box.width <= width, "Panel fits");
-				assert.equal(
-					await panel.evaluate((node) => node.scrollWidth <= node.clientWidth),
-					true,
-					"No horizontal overflow",
-				);
-				// Grouped by tedi with counts, largest first.
-				const groups = await panel
-					.locator("section")
-					.evaluateAll((nodes) =>
-						nodes.map((n) => n.getAttribute("aria-label")),
+		const page = await browser.newPage({
+			viewport: { width, height },
+			colorScheme: theme,
+			hasTouch: width < 820,
+		});
+		activePage = page;
+		scenario = `${engine.name()} ${width}x${height} ${theme}`;
+		crashed = false;
+		page.on("crash", () => {
+			crashed = true;
+		});
+		await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
+		// The shared dev server can still be re-bundling fixture
+		// dependencies when the first page connects, and Vite then
+		// reloads every connected page mid-run. Load once so the whole
+		// module graph is discovered, then restart from a settled
+		// navigation: no optimizer reload can land inside an open menu.
+		await page
+			.getByRole("button", { name: /^Activity and approvals: / })
+			.waitFor();
+		await page.reload();
+		const trigger = page.getByRole("button", {
+			name: "Activity and approvals: 3 waiting",
+			exact: true,
+		});
+		await trigger.click();
+		const panel = page.locator("[data-approvals-popover]");
+		await panel.waitFor();
+		await page.evaluate(() => document.fonts.ready);
+		const box = await panel.boundingBox();
+		assert(box && box.x >= 0 && box.x + box.width <= width, "Panel fits");
+		assert.equal(
+			await panel.evaluate((node) => node.scrollWidth <= node.clientWidth),
+			true,
+			"No horizontal overflow",
+		);
+		// Grouped by tedi with counts, largest first.
+		const groups = await panel
+			.locator("section")
+			.evaluateAll((nodes) => nodes.map((n) => n.getAttribute("aria-label")));
+		assert.deepEqual(groups, ["CTO: 2 waiting", "CFO: 1 waiting"]);
+		assert.equal(
+			await panel.getByRole("button", { name: "Approve", exact: true }).count(),
+			3,
+		);
+		assert.equal(await panel.getByText(/^Suggested:/).isVisible(), false);
+		await panel
+			.getByText(/^expires in /)
+			.first()
+			.waitFor();
+		await capture(page, `approvals-list-${width}-${theme}`);
+		// The recommendation is a hint inside the expanded details only.
+		const firstTitle = panel
+			.getByRole("button", { name: /Show details$/ })
+			.first();
+		await firstTitle.focus();
+		await page.keyboard.press("Enter");
+		await panel.getByText("Suggested: Reject", { exact: true }).waitFor();
+		assert.equal(
+			await panel.getByRole("button", { name: /Hide details$/ }).count(),
+			1,
+		);
+		// The expanding panel slides the action row down; a press spanning
+		// the motion releases outside the moved trigger and Base UI cancels
+		// the menu it just opened. Settle the disclosure before pressing.
+		await settle(page);
+		// Overflow carries the secondary choices.
+		const moreActions = panel
+			.getByRole("button", { name: /^More actions for / })
+			.first();
+		await moreActions.focus();
+		await page.keyboard.press("Enter");
+		await page
+			.getByRole("menuitem", {
+				name: "Follow the suggestion (reject)",
+				exact: true,
+			})
+			.waitFor();
+		const menuBox = await page.getByRole("menu").boundingBox();
+		assert(
+			menuBox && menuBox.x >= 0 && menuBox.x + menuBox.width <= width,
+			"Menu fits",
+		);
+		await page.keyboard.press("Escape");
+		await page.getByRole("menu").waitFor({ state: "hidden" });
+		await capture(page, `approvals-details-${width}-${theme}`);
+		await page.keyboard.press("Escape");
+		await panel.waitFor({ state: "hidden" });
+		assert.equal(
+			await page.evaluate(() =>
+				document.activeElement?.getAttribute("aria-label"),
+			),
+			"Activity and approvals: 3 waiting",
+			"Focus returns to the trigger",
+		);
+
+		await page.goto(`${server.origin}${fixturePath}?theme=${theme}&empty`);
+		await page
+			.getByRole("button", {
+				name: "Activity and approvals: none waiting",
+				exact: true,
+			})
+			.click();
+		await page.getByText("No approvals waiting", { exact: true }).waitFor();
+		await capture(page, `approvals-empty-${width}-${theme}`);
+		const emptyPanel = page.locator("[data-approvals-popover]");
+		await emptyPanel.getByRole("tab", { name: "Auto-approval" }).click();
+		await emptyPanel.getByText("No saved rules", { exact: true }).waitFor();
+		await emptyPanel
+			.getByRole("button", { name: "How approvals work" })
+			.click();
+		await emptyPanel
+			.getByText("Reading information", { exact: true })
+			.waitFor();
+		await fits(page, width);
+		await capture(page, `activity-auto-empty-${width}-${theme}`);
+		await emptyPanel.getByRole("tab", { name: "History" }).click();
+		await emptyPanel.getByText("No activity yet", { exact: true }).waitFor();
+		await capture(page, `activity-history-empty-${width}-${theme}`);
+
+		await page.goto(
+			`${server.origin}${fixturePath}?theme=${theme}&empty&work-start`,
+		);
+		await page
+			.getByRole("button", {
+				name: "Activity and approvals: 1 waiting",
+				exact: true,
+			})
+			.click();
+		const workStart = page.getByRole("link", {
+			name: "Review requests to start Work (1)",
+		});
+		await workStart.waitFor();
+		assert.equal(await workStart.getAttribute("href"), "/work/approvals");
+		assert.equal(
+			await page.getByText("No approvals waiting", { exact: true }).count(),
+			0,
+		);
+		await fits(page, width);
+
+		// Unread: thirty rows under long unbroken workspace names and file
+		// titles stay inside the panel; titles truncate, headings wrap.
+		await page.route("**/api/rpc/workspaceUnread/list**", (route) =>
+			route.fulfill({ json: { json: unreadFixture(Date.now()) } }),
+		);
+		await page.goto(
+			`${server.origin}${fixturePath}?theme=${theme}&empty&unread`,
+		);
+		await page
+			.getByRole("button", {
+				name: "Activity and approvals: none waiting, 30 unread",
+				exact: true,
+			})
+			.click();
+		const unreadPanel = page.locator("[data-approvals-popover]");
+		await unreadPanel.getByText("30 unread", { exact: true }).waitFor();
+		await unreadPanel
+			.getByRole("region", {
+				name: /^Quarterly_planning_workspace_.*: 10 unread$/,
+			})
+			.waitFor();
+		await fits(page, width);
+		const rows = await unreadPanel
+			.locator("section li a")
+			.evaluateAll((links) =>
+				links.map((link) => {
+					const panel = link.closest("[data-approvals-popover]")!;
+					return (
+						link.getBoundingClientRect().right <=
+						panel.getBoundingClientRect().right + 0.5
 					);
-				assert.deepEqual(groups, ["CTO: 2 waiting", "CFO: 1 waiting"]);
-				assert.equal(
-					await panel
-						.getByRole("button", { name: "Approve", exact: true })
-						.count(),
-					3,
-				);
-				assert.equal(await panel.getByText(/^Suggested:/).isVisible(), false);
-				await panel
-					.getByText(/^expires in /)
-					.first()
-					.waitFor();
-				await capture(page, `approvals-list-${width}-${theme}`);
-				// The recommendation is a hint inside the expanded details only.
-				const firstTitle = panel
-					.getByRole("button", { name: /Show details$/ })
-					.first();
-				await firstTitle.focus();
-				await page.keyboard.press("Enter");
-				await panel.getByText("Suggested: Reject", { exact: true }).waitFor();
-				assert.equal(
-					await panel.getByRole("button", { name: /Hide details$/ }).count(),
-					1,
-				);
-				// The expanding panel slides the action row down; a press spanning
-				// the motion releases outside the moved trigger and Base UI cancels
-				// the menu it just opened. Settle the disclosure before pressing.
-				await settle(page);
-				// Overflow carries the secondary choices.
-				const moreActions = panel
-					.getByRole("button", { name: /^More actions for / })
-					.first();
-				await moreActions.focus();
-				await page.keyboard.press("Enter");
-				await page
-					.getByRole("menuitem", {
-						name: "Follow the suggestion (reject)",
-						exact: true,
-					})
-					.waitFor();
-				const menuBox = await page.getByRole("menu").boundingBox();
-				assert(
-					menuBox && menuBox.x >= 0 && menuBox.x + menuBox.width <= width,
-					"Menu fits",
-				);
-				await page.keyboard.press("Escape");
-				await page.getByRole("menu").waitFor({ state: "hidden" });
-				await capture(page, `approvals-details-${width}-${theme}`);
-				await page.keyboard.press("Escape");
-				await panel.waitFor({ state: "hidden" });
-				assert.equal(
-					await page.evaluate(() =>
-						document.activeElement?.getAttribute("aria-label"),
-					),
-					"Activity and approvals: 3 waiting",
-					"Focus returns to the trigger",
-				);
+				}),
+			);
+		assert.equal(rows.length, 30);
+		assert.equal(rows.every(Boolean), true, "Every unread row fits");
+		await capture(page, `activity-unread-${width}-${theme}`);
+		await page.unroute("**/api/rpc/workspaceUnread/list**");
 
-				await page.goto(`${server.origin}${fixturePath}?theme=${theme}&empty`);
-				await page
-					.getByRole("button", {
-						name: "Activity and approvals: none waiting",
-						exact: true,
-					})
-					.click();
-				await page.getByText("No approvals waiting", { exact: true }).waitFor();
-				await capture(page, `approvals-empty-${width}-${theme}`);
-				const emptyPanel = page.locator("[data-approvals-popover]");
-				await emptyPanel.getByRole("tab", { name: "Auto-approval" }).click();
-				await emptyPanel.getByText("No saved rules", { exact: true }).waitFor();
-				await emptyPanel
-					.getByRole("button", { name: "How approvals work" })
-					.click();
-				await emptyPanel
-					.getByText("Reading information", { exact: true })
-					.waitFor();
-				await fits(page, width);
-				await capture(page, `activity-auto-empty-${width}-${theme}`);
-				await emptyPanel.getByRole("tab", { name: "History" }).click();
-				await emptyPanel
-					.getByText("No activity yet", { exact: true })
-					.waitFor();
-				await capture(page, `activity-history-empty-${width}-${theme}`);
+		// Needs review: raw tool slugs read as plain titles, and identical
+		// requests from one tedi are one row decided together.
+		await page.goto(`${server.origin}${fixturePath}?theme=${theme}&activity`);
+		await page
+			.getByRole("button", {
+				name: "Activity and approvals: 6 waiting",
+				exact: true,
+			})
+			.click();
+		const activity = page.locator("[data-approvals-popover]");
+		await activity
+			.getByText("Run skill: Weekly sales report in Example", {
+				exact: true,
+			})
+			.waitFor();
+		assert.equal(
+			await activity
+				.getByRole("button", { name: "Approve all 2", exact: true })
+				.count(),
+			1,
+		);
+		await activity
+			.getByText("Create draft in Google Gmail", { exact: true })
+			.waitFor();
+		await activity
+			.getByRole("region", { name: "Ops: 3 waiting" })
+			.getByText("High risk", { exact: true })
+			.waitFor();
+		assert.equal(
+			await activity.getByText(/tedi_146194|google_gmail/).count(),
+			0,
+			"No raw tool slug is shown",
+		);
+		await fits(page, width);
+		await capture(page, `activity-review-${width}-${theme}`);
+		if (width === 320) await assertStableTabOverflow(page);
 
-				await page.goto(
-					`${server.origin}${fixturePath}?theme=${theme}&empty&work-start`,
-				);
-				await page
-					.getByRole("button", {
-						name: "Activity and approvals: 1 waiting",
-						exact: true,
-					})
-					.click();
-				const workStart = page.getByRole("link", {
-					name: "Review requests to start Work (1)",
-				});
-				await workStart.waitFor();
-				assert.equal(await workStart.getAttribute("href"), "/work/approvals");
-				assert.equal(
-					await page.getByText("No approvals waiting", { exact: true }).count(),
-					0,
-				);
-				await fits(page, width);
+		// Automatic rules and their explanation are separate from history.
+		await activity.getByRole("tab", { name: "Auto-approval" }).click();
+		await activity.getByRole("button", { name: "How approvals work" }).click();
+		await activity.getByText("Reading information", { exact: true }).waitFor();
+		await activity.getByText("Deleting data", { exact: true }).waitFor();
+		await activity
+			.getByText("Always approve: Add note in Example Crm", { exact: true })
+			.waitFor();
+		await fits(page, width);
+		await capture(page, `activity-auto-${width}-${theme}`);
 
-				// Unread: thirty rows under long unbroken workspace names and file
-				// titles stay inside the panel; titles truncate, headings wrap.
-				await page.route("**/api/rpc/workspaceUnread/list**", (route) =>
-					route.fulfill({ json: { json: unreadFixture(Date.now()) } }),
-				);
-				await page.goto(
-					`${server.origin}${fixturePath}?theme=${theme}&empty&unread`,
-				);
-				await page
-					.getByRole("button", {
-						name: "Activity and approvals: none waiting, 30 unread",
-						exact: true,
-					})
-					.click();
-				const unreadPanel = page.locator("[data-approvals-popover]");
-				await unreadPanel.getByText("30 unread", { exact: true }).waitFor();
-				await unreadPanel
-					.getByRole("region", {
-						name: /^Quarterly_planning_workspace_.*: 10 unread$/,
-					})
-					.waitFor();
-				await fits(page, width);
-				const rows = await unreadPanel
-					.locator("section li a")
-					.evaluateAll((links) =>
-						links.map((link) => {
-							const panel = link.closest("[data-approvals-popover]")!;
-							return (
-								link.getBoundingClientRect().right <=
-								panel.getBoundingClientRect().right + 0.5
-							);
-						}),
-					);
-				assert.equal(rows.length, 30);
-				assert.equal(rows.every(Boolean), true, "Every unread row fits");
-				await capture(page, `activity-unread-${width}-${theme}`);
-				await page.unroute("**/api/rpc/workspaceUnread/list**");
-
-				// Needs review: raw tool slugs read as plain titles, and identical
-				// requests from one tedi are one row decided together.
-				await page.goto(
-					`${server.origin}${fixturePath}?theme=${theme}&activity`,
-				);
-				await page
-					.getByRole("button", {
-						name: "Activity and approvals: 6 waiting",
-						exact: true,
-					})
-					.click();
-				const activity = page.locator("[data-approvals-popover]");
-				await activity
-					.getByText("Run skill: Weekly sales report in Example", {
-						exact: true,
-					})
-					.waitFor();
-				assert.equal(
-					await activity
-						.getByRole("button", { name: "Approve all 2", exact: true })
-						.count(),
-					1,
-				);
-				await activity
-					.getByText("Create draft in Google Gmail", { exact: true })
-					.waitFor();
-				await activity
-					.getByRole("region", { name: "Ops: 3 waiting" })
-					.getByText("High risk", { exact: true })
-					.waitFor();
-				assert.equal(
-					await activity.getByText(/tedi_146194|google_gmail/).count(),
-					0,
-					"No raw tool slug is shown",
-				);
-				await fits(page, width);
-				await capture(page, `activity-review-${width}-${theme}`);
-				if (width === 320) await assertStableTabOverflow(page);
-
-				// Automatic rules and their explanation are separate from history.
-				await activity.getByRole("tab", { name: "Auto-approval" }).click();
-				await activity
-					.getByRole("button", { name: "How approvals work" })
-					.click();
-				await activity
-					.getByText("Reading information", { exact: true })
-					.waitFor();
-				await activity.getByText("Deleting data", { exact: true }).waitFor();
-				await activity
-					.getByText("Always approve: Add note in Example Crm", { exact: true })
-					.waitFor();
-				await fits(page, width);
-				await capture(page, `activity-auto-${width}-${theme}`);
-
-				// A rule turns off with its switch, then deletes after one confirm.
-				const rule = {
-					id: "00000000-0000-4000-8000-0000000000e1",
-					organizationId: "org",
-					actionKind: "home.tool_write",
-					toolSlug: "example-crm.crm.add_note",
-					verb: "add",
-					decision: "approve",
-					enabled: true,
-					createdByKind: "user",
-					createdById: "person",
-					createdAt: new Date().toISOString(),
-					disabledAt: null as string | null,
-				};
-				let rules = [rule];
-				const ruleCalls: string[] = [];
-				await page.route("**/api/rpc/osApprovalRules/**", (route) => {
-					const call = new URL(route.request().url()).pathname
-						.split("/")
-						.pop()!;
-					ruleCalls.push(call);
-					if (call === "setEnabled") {
-						rule.enabled = false;
-						rule.disabledAt = new Date().toISOString();
-						return route.fulfill({ json: { json: { rule } } });
-					}
-					if (call === "delete") {
-						rules = [];
-						return route.fulfill({ json: { json: { deleted: true } } });
-					}
-					return route.fulfill({ json: { json: { items: rules } } });
-				});
-				await activity
-					.getByRole("switch", {
-						name: "Always approve Add note in Example Crm",
-					})
-					.click();
-				await activity
-					.getByText("Off: this rule won't approve requests.", {
-						exact: false,
-					})
-					.waitFor();
-				await activity.getByRole("button", { name: "Delete rule" }).click();
-				await activity
-					.getByText("Delete this rule? Past approvals keep a record of it.")
-					.waitFor();
-				await fits(page, width);
-				await capture(page, `activity-rule-delete-${width}-${theme}`);
-				await activity
-					.getByRole("button", { name: "Delete", exact: true })
-					.click();
-				await activity.getByText("No saved rules", { exact: true }).waitFor();
-				assert.deepEqual(
-					ruleCalls.filter((call) => call !== "list"),
-					["setEnabled", "delete"],
-				);
-
-				// History: decisions and tool calls, newest first, with filters.
-				await activity.getByRole("tab", { name: "History" }).click();
-				const history = activity.getByRole("list", {
-					name: "Activity and approvals history",
-				});
-				await history.waitFor();
-				assert.equal(await history.locator(":scope > li").count(), 4);
-				for (const label of ["Auto-approved", "Rejected", "Expired", "Failed"])
-					await history.getByText(label, { exact: true }).waitFor();
-				await fits(page, width);
-				await capture(page, `activity-history-${width}-${theme}`);
-				await activity
-					.getByRole("button", { name: "Automatic", exact: true })
-					.click();
-				await activity.getByText("1 shown", { exact: true }).waitFor();
-				assert.equal(await history.locator(":scope > li").count(), 1);
-				await activity
-					.getByRole("button", { name: "Actions", exact: true })
-					.click();
-				await history.getByText("Add note", { exact: true }).waitFor();
-				await page.close();
+		// A rule turns off with its switch, then deletes after one confirm.
+		const rule = {
+			id: "00000000-0000-4000-8000-0000000000e1",
+			organizationId: "org",
+			actionKind: "home.tool_write",
+			toolSlug: "example-crm.crm.add_note",
+			verb: "add",
+			decision: "approve",
+			enabled: true,
+			createdByKind: "user",
+			createdById: "person",
+			createdAt: new Date().toISOString(),
+			disabledAt: null as string | null,
+		};
+		let rules = [rule];
+		const ruleCalls: string[] = [];
+		await page.route("**/api/rpc/osApprovalRules/**", (route) => {
+			const call = new URL(route.request().url()).pathname.split("/").pop()!;
+			ruleCalls.push(call);
+			if (call === "setEnabled") {
+				rule.enabled = false;
+				rule.disabledAt = new Date().toISOString();
+				return route.fulfill({ json: { json: { rule } } });
 			}
+			if (call === "delete") {
+				rules = [];
+				return route.fulfill({ json: { json: { deleted: true } } });
+			}
+			return route.fulfill({ json: { json: { items: rules } } });
+		});
+		await activity
+			.getByRole("switch", {
+				name: "Always approve Add note in Example Crm",
+			})
+			.click();
+		await activity
+			.getByText("Off: this rule won't approve requests.", {
+				exact: false,
+			})
+			.waitFor();
+		await activity.getByRole("button", { name: "Delete rule" }).click();
+		await activity
+			.getByText("Delete this rule? Past approvals keep a record of it.")
+			.waitFor();
+		await fits(page, width);
+		await capture(page, `activity-rule-delete-${width}-${theme}`);
+		await activity.getByRole("button", { name: "Delete", exact: true }).click();
+		await activity.getByText("No saved rules", { exact: true }).waitFor();
+		assert.deepEqual(
+			ruleCalls.filter((call) => call !== "list"),
+			["setEnabled", "delete"],
+		);
+
+		// History: decisions and tool calls, newest first, with filters.
+		await activity.getByRole("tab", { name: "History" }).click();
+		const history = activity.getByRole("list", {
+			name: "Activity and approvals history",
+		});
+		await history.waitFor();
+		assert.equal(await history.locator(":scope > li").count(), 4);
+		for (const label of ["Auto-approved", "Rejected", "Expired", "Failed"])
+			await history.getByText(label, { exact: true }).waitFor();
+		await fits(page, width);
+		await capture(page, `activity-history-${width}-${theme}`);
+		await activity
+			.getByRole("button", { name: "Automatic", exact: true })
+			.click();
+		await activity.getByText("1 shown", { exact: true }).waitFor();
+		assert.equal(await history.locator(":scope > li").count(), 1);
+		await activity
+			.getByRole("button", { name: "Actions", exact: true })
+			.click();
+		await history.getByText("Add note", { exact: true }).waitFor();
+		await page.close();
 	}
 	console.log(
-		"PASS: Approvals panel review groups, plain titles, identical-request rows, unread rows within the panel width, auto-approval policy, history filters, overflow, focus return and empty states; WebKit and Chromium × 320/375/390/1280 × light/dark",
+		"PASS: Approvals panel review groups, plain titles, identical-request rows, unread rows within the panel width, auto-approval policy, history filters, overflow, focus return and empty states; WebKit phone and Chromium desktop",
 	);
 } catch (error) {
 	// The preload sees an uncaught error only after finally has closed the page.

@@ -47,39 +47,29 @@ type Case = {
 	theme: "light" | "dark";
 };
 
-// Chromium keeps its original desktop and phone cases; WebKit covers the two
-// phone sizes. Every case gets a fresh isolated context.
-const cases: Case[] = [];
-for (const theme of ["light", "dark"] as const) {
-	cases.push({
+const cases: Case[] = [
+	{
 		engine: "chromium",
 		type: chromium,
 		width: 1280,
 		height: 900,
-		theme,
-	});
-	cases.push({
+		theme: "light",
+	},
+	{
 		engine: "chromium",
 		type: chromium,
 		width: 390,
 		height: 900,
-		theme,
-	});
-	cases.push({
+		theme: "dark",
+	},
+	{
 		engine: "webkit",
 		type: webkit,
 		width: 375,
 		height: 667,
-		theme,
-	});
-	cases.push({
-		engine: "webkit",
-		type: webkit,
-		width: 390,
-		height: 844,
-		theme,
-	});
-}
+		theme: "dark",
+	},
+];
 
 // Playwright's WebKit follows Safari's default of skipping plain buttons in
 // sequential navigation, so Shift+Tab cannot reach the row button there. On

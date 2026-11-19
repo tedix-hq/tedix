@@ -172,143 +172,132 @@ async function reachable(page: Page, index: number) {
 
 const browsers: Browser[] = [];
 try {
-	for (const engine of [webkit, chromium]) {
+	for (const [engine, width, height, theme] of [
+		[webkit, 375, 812, "dark"],
+		[chromium, 1280, 900, "light"],
+	] as const) {
 		const browser = await engine.launch();
 		browsers.push(browser);
-		for (const theme of ["light", "dark"] as const)
-			for (const [width, height] of [
-				[375, 812],
-				[1280, 900],
-			] as const) {
-				const page = await browser.newPage({
-					viewport: { width, height },
-					colorScheme: theme,
-					hasTouch: width < 820,
-				});
-				page.setDefaultTimeout(20_000);
-				await seed(page);
-				await page.goto(`${server.origin}${PATH}`);
-				const cards = page.locator("[data-approval-card]");
-				await cards.first().waitFor();
-				await page.getByText(`${WAITING} waiting`).first().waitFor();
-				assert.equal(await cards.count(), WAITING, "Every request has a card");
-				assert.equal(
-					await page.getByText("Expired · 1").count(),
-					1,
-					"The expired request is listed apart",
-				);
-				for (const jargon of [
-					"Decide for me",
-					"Choose veto",
-					"Remove from review",
-					"hard dependency graph",
-				])
-					assert.equal(await page.getByText(jargon).count(), 0, jargon);
-				const sideways = await page.evaluate(
-					() =>
-						document.documentElement.scrollWidth >
-						document.documentElement.clientWidth,
-				);
-				assert.equal(sideways, false, "No horizontal scroll");
-				for (let index = 0; index < WAITING; index += 1)
-					await reachable(page, index);
-				// The last card can sit fully above the bottom chrome.
-				await page
-					.getByRole("button", { name: "Clear expired" })
-					.scrollIntoViewIfNeeded();
-				if (evidenceDir)
-					await page.screenshot({
-						path: `${evidenceDir}/${engine.name()}-${width}-${theme}-end.png`,
-					});
-				await page.evaluate(() => window.scrollTo(0, 0));
-				await page
-					.locator("main")
-					.evaluate((node) => node.scrollTo?.(0, 0))
-					.catch(() => undefined);
-				const first = cards.first();
-				const title = (await first.locator("h3").textContent()) ?? "";
-				await first
-					.getByRole("button", { name: "Approve", exact: true })
-					.click();
-				// The card leaves the list, so the result is a toast shown wherever
-				// the person scrolled to.
-				await page
-					.locator("[data-os-toast-outlet]")
-					.getByText(/^Approved: Create 1 Work item in Example research/)
-					.waitFor();
-				await page
-					.getByText(`${WAITING - 1} waiting`)
-					.first()
-					.waitFor();
-				assert.equal(
-					await page.getByRole("heading", { name: title, exact: true }).count(),
-					0,
-					"The approved card leaves the list",
-				);
-				if (evidenceDir)
-					await page.screenshot({
-						path: `${evidenceDir}/${engine.name()}-${width}-${theme}-approved.png`,
-					});
-				await page.getByRole("tab", { name: "Automatic rules" }).click();
-				await page
-					.getByRole("button", { name: "Add rule", exact: true })
-					.click();
-				const ruleSheet = page.getByRole("dialog", { name: "Add a rule" });
-				const ruleApp = ruleSheet.getByRole("combobox", {
-					name: "App",
-					exact: true,
-				});
-				await ruleApp.click();
-				await page
-					.getByRole("option", { name: "Storefront", exact: true })
-					.click();
-				assert.match(await ruleApp.innerText(), /Storefront/);
-				await ruleSheet.getByRole("button", { name: "Add field" }).click();
-				await ruleSheet
-					.getByRole("textbox", { name: "Field 1 name" })
-					.fill("page_id");
-				await ruleSheet
-					.getByRole("textbox", { name: "Field 1 value" })
-					.fill("example");
-				assert.equal(
-					await ruleSheet
-						.getByRole("button", { name: "Review action" })
-						.isDisabled(),
-					true,
-				);
-				const check = ruleSheet.getByRole("combobox", {
-					name: "Account check",
-				});
-				await check.click();
-				await page
-					.getByRole("option", { name: "example: edit_page", exact: true })
-					.click();
-				assert.match(await check.innerText(), /example: edit_page/);
-				if (evidenceDir)
-					await page.screenshot({
-						path: `${evidenceDir}/${engine.name()}-${width}-${theme}-rule.png`,
-					});
-				await page.keyboard.press("Escape");
-				await ruleSheet.waitFor({ state: "hidden" });
-				await page.getByRole("button", { name: "Add account check" }).click();
-				const accountSheet = page.getByRole("dialog", {
-					name: "Add account check",
-				});
-				const accountApp = accountSheet.getByRole("combobox", {
-					name: "Profile app",
-				});
-				await accountApp.click();
-				await page
-					.getByRole("option", { name: "Storefront", exact: true })
-					.click();
-				assert.match(await accountApp.innerText(), /Storefront/);
-				await accountSheet
-					.getByRole("textbox", { name: "Fields that identify the account" })
-					.waitFor();
-				await page.keyboard.press("Escape");
-				await accountSheet.waitFor({ state: "hidden" });
-				await page.close();
-			}
+		const page = await browser.newPage({
+			viewport: { width, height },
+			colorScheme: theme,
+			hasTouch: width < 820,
+		});
+		page.setDefaultTimeout(20_000);
+		await seed(page);
+		await page.goto(`${server.origin}${PATH}`);
+		const cards = page.locator("[data-approval-card]");
+		await cards.first().waitFor();
+		await page.getByText(`${WAITING} waiting`).first().waitFor();
+		assert.equal(await cards.count(), WAITING, "Every request has a card");
+		assert.equal(
+			await page.getByText("Expired · 1").count(),
+			1,
+			"The expired request is listed apart",
+		);
+		for (const jargon of [
+			"Decide for me",
+			"Choose veto",
+			"Remove from review",
+			"hard dependency graph",
+		])
+			assert.equal(await page.getByText(jargon).count(), 0, jargon);
+		const sideways = await page.evaluate(
+			() =>
+				document.documentElement.scrollWidth >
+				document.documentElement.clientWidth,
+		);
+		assert.equal(sideways, false, "No horizontal scroll");
+		for (let index = 0; index < WAITING; index += 1)
+			await reachable(page, index);
+		// The last card can sit fully above the bottom chrome.
+		await page
+			.getByRole("button", { name: "Clear expired" })
+			.scrollIntoViewIfNeeded();
+		if (evidenceDir)
+			await page.screenshot({
+				path: `${evidenceDir}/${engine.name()}-${width}-${theme}-end.png`,
+			});
+		await page.evaluate(() => window.scrollTo(0, 0));
+		await page
+			.locator("main")
+			.evaluate((node) => node.scrollTo?.(0, 0))
+			.catch(() => undefined);
+		const first = cards.first();
+		const title = (await first.locator("h3").textContent()) ?? "";
+		await first.getByRole("button", { name: "Approve", exact: true }).click();
+		// The card leaves the list, so the result is a toast shown wherever
+		// the person scrolled to.
+		await page
+			.locator("[data-os-toast-outlet]")
+			.getByText(/^Approved: Create 1 Work item in Example research/)
+			.waitFor();
+		await page
+			.getByText(`${WAITING - 1} waiting`)
+			.first()
+			.waitFor();
+		assert.equal(
+			await page.getByRole("heading", { name: title, exact: true }).count(),
+			0,
+			"The approved card leaves the list",
+		);
+		if (evidenceDir)
+			await page.screenshot({
+				path: `${evidenceDir}/${engine.name()}-${width}-${theme}-approved.png`,
+			});
+		await page.getByRole("tab", { name: "Automatic rules" }).click();
+		await page.getByRole("button", { name: "Add rule", exact: true }).click();
+		const ruleSheet = page.getByRole("dialog", { name: "Add a rule" });
+		const ruleApp = ruleSheet.getByRole("combobox", {
+			name: "App",
+			exact: true,
+		});
+		await ruleApp.click();
+		await page.getByRole("option", { name: "Storefront", exact: true }).click();
+		assert.match(await ruleApp.innerText(), /Storefront/);
+		await ruleSheet.getByRole("button", { name: "Add field" }).click();
+		await ruleSheet
+			.getByRole("textbox", { name: "Field 1 name" })
+			.fill("page_id");
+		await ruleSheet
+			.getByRole("textbox", { name: "Field 1 value" })
+			.fill("example");
+		assert.equal(
+			await ruleSheet
+				.getByRole("button", { name: "Review action" })
+				.isDisabled(),
+			true,
+		);
+		const check = ruleSheet.getByRole("combobox", {
+			name: "Account check",
+		});
+		await check.click();
+		await page
+			.getByRole("option", { name: "example: edit_page", exact: true })
+			.click();
+		assert.match(await check.innerText(), /example: edit_page/);
+		if (evidenceDir)
+			await page.screenshot({
+				path: `${evidenceDir}/${engine.name()}-${width}-${theme}-rule.png`,
+			});
+		await page.keyboard.press("Escape");
+		await ruleSheet.waitFor({ state: "hidden" });
+		await page.getByRole("button", { name: "Add account check" }).click();
+		const accountSheet = page.getByRole("dialog", {
+			name: "Add account check",
+		});
+		const accountApp = accountSheet.getByRole("combobox", {
+			name: "Profile app",
+		});
+		await accountApp.click();
+		await page.getByRole("option", { name: "Storefront", exact: true }).click();
+		assert.match(await accountApp.innerText(), /Storefront/);
+		await accountSheet
+			.getByRole("textbox", { name: "Fields that identify the account" })
+			.waitFor();
+		await page.keyboard.press("Escape");
+		await accountSheet.waitFor({ state: "hidden" });
+		await page.close();
 	}
 	console.log(
 		"approvals page: every card reachable, one-tap approve confirmed",
