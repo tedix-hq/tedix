@@ -18,11 +18,13 @@ const project = "11111111-1111-4111-8111-111111111111";
 const item = "22222222-2222-4222-8222-222222222222";
 type Execute = (input: unknown, options: unknown) => Promise<unknown>;
 
+const trace = "44444444-4444-4444-8444-444444444444";
+/** The API's error body: the RPC envelope, with the id it logged under. */
 function refusal(status: number, message: string) {
 	return new RpcCallError(
 		"workItems/accept",
 		status,
-		JSON.stringify({ message }),
+		JSON.stringify({ json: { message, data: { traceId: trace } } }),
 		"",
 		undefined,
 	);
@@ -39,7 +41,7 @@ function build(
 		runId: "run-7",
 	});
 	const run = (name: string, input: unknown) =>
-		(tools[name]!.execute as Execute)(input, {});
+		(tools[name]!.execute as Execute)(input, { toolCallId: "call-1" });
 	return { tools, run };
 }
 const supervisionSession = "agent-run-supervision:fictional-tedi";
@@ -96,7 +98,9 @@ assert.deepEqual(Object.keys(build({}).tools), [
 				projectId: project,
 				executorReference: { type: "external_agent", id: "codex" },
 				sourceSessionKey: "agent:main:chat-7",
-				sourceIntentId: "run-7",
+				// Never the bare run id: the chat's own task for a picked tedi's
+				// turn holds that key, and the API refuses a second one.
+				sourceIntentId: "run-7:start_agent_run:call-1",
 				provenance: {
 					source: "tedi.start_agent_run",
 					sessionKey: "agent:main:chat-7",
@@ -156,6 +160,7 @@ assert.deepEqual(Object.keys(build({}).tools), [
 		url: `/work/items/${item}`,
 		message:
 			"The task was created but not accepted, so no agent will pick it up. Work Item acceptance by a tedi principal requires the work:accept scope",
+		traceId: trace,
 	});
 	assert.equal(accepts, 1);
 }
@@ -170,6 +175,18 @@ assert.deepEqual(Object.keys(build({}).tools), [
 	assert.deepEqual(await run("start_agent_run", start), {
 		kind: "agent_run_error",
 		message: "No task was created. Project not found",
+		traceId: trace,
+	});
+	// A failure inside the API names its status too.
+	const failed = build({
+		createWorkItem: async () => {
+			throw refusal(500, "Internal server error");
+		},
+	});
+	assert.deepEqual(await failed.run("start_agent_run", start), {
+		kind: "agent_run_error",
+		message: "No task was created. Internal server error (HTTP 500)",
+		traceId: trace,
 	});
 	assert.deepEqual(await build(null).run("start_agent_run", start), {
 		kind: "agent_run_error",
@@ -482,9 +499,14 @@ assert.deepEqual(Object.keys(build({}).tools), [
 		});
 	const own = await probe({ sessionKey: "agent:main:chat-7" });
 	for (const name of Object.keys(build({}).tools)) assert.ok(name in own.tools);
-	await (own.tools.start_agent_run!.execute as Execute)(start, {});
+	await (own.tools.start_agent_run!.execute as Execute)(start, {
+		toolCallId: "call-1",
+	});
 	assert.equal(created?.sourceSessionKey, "agent:main:chat-7");
-	assert.equal(created?.sourceIntentId, MCP_FACET_TURN_INPUT.runId);
+	assert.equal(
+		created?.sourceIntentId,
+		`${MCP_FACET_TURN_INPUT.runId}:start_agent_run:call-1`,
+	);
 	const untrusted = await probe({ trust: "untrusted" });
 	const delegated = await probe({
 		workItemId: "3f1c2a1e-0000-4000-8000-000000000001",

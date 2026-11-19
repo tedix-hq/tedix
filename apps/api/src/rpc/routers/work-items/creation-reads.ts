@@ -271,6 +271,18 @@ export const createProcedure = authOs.create.handler(
 				const winner = await replayFactoryCycle(context.db, orgId, input);
 				if (winner) return winner;
 			}
+			// Any other caller that reuses a key gets a reason instead of a
+			// database failure.
+			for (let cause = error; cause instanceof Error; cause = cause.cause)
+				if (
+					/unique constraint failed: work_items\.org_id, work_items\.source_intent_id/i.test(
+						cause.message,
+					)
+				)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"A Work Item with this sourceIntentId already exists in this organization",
+					);
 			try {
 				rethrowWorkItemWriteError(error);
 			} catch (mapped) {

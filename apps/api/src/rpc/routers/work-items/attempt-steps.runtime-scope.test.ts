@@ -41,7 +41,7 @@ import {
 	listAgentRunsProcedure,
 	tellPersonAboutAgentRunProcedure,
 } from "./agent-runs";
-import { listCliProjectionProcedure } from "./creation-reads";
+import { createProcedure, listCliProjectionProcedure } from "./creation-reads";
 import { acceptProcedure } from "./factory-lifecycle";
 
 const ORG_ID = "00000000-0000-4000-8000-000000000301";
@@ -54,6 +54,7 @@ const BYSTANDER_TEDI_ID = "bystander-tedi-id";
 const OTHER_ORG_TEDI_ID = "other-org-tedi-id";
 
 const router = {
+	create: createProcedure,
 	accept: acceptProcedure,
 	listAttemptSteps: listAttemptStepsProcedure,
 	sendAttemptMessage: sendAttemptMessageProcedure,
@@ -187,6 +188,57 @@ describe("agent runs through the tedi runtime service binding", () => {
 			senderType: "tedi",
 			senderId: STARTER_TEDI_ID,
 		});
+	});
+
+	it("starts a run from the turn of a tedi a person picked in the chat", async () => {
+		const { sqlite, runtimeClient } = fixture();
+		// The task the chat made for this very turn, keyed by the turn's run id.
+		sqlite.exec(
+			`INSERT INTO work_items(id,org_id,title,work_kind,disposition,accountable_owner_type,accountable_owner_id,steward_type,steward_id,source_session_key,source_intent_id,created_at)
+				VALUES('00000000-0000-4000-8000-000000000306','${ORG_ID}','Picked tedi turn','operations','accepted','tedi','${STARTER_TEDI_ID}','system','home','home:os:chat-7','turn-run-7','2026-11-19T00:00:00.000Z')`,
+		);
+		const runtime = runtimeClient(STARTER_TEDI_ID);
+		const start = (sourceIntentId: string) =>
+			runtime.create({
+				title: "Fix the date filter",
+				description: "The date filter drops the last day.",
+				workKind: "coding",
+				riskLevel: "medium",
+				priority: "medium",
+				accountableOwnerType: "tedi",
+				accountableOwnerId: STARTER_TEDI_ID,
+				stewardType: "tedi",
+				stewardId: STARTER_TEDI_ID,
+				workClass: "maintenance",
+				purposeExceptionExpiresAt: new Date(
+					Date.now() + 86_400_000,
+				).toISOString(),
+				projectId: PROJECT_ID,
+				sourceSessionKey: "home:os:chat-7",
+				sourceIntentId,
+				executorReference: { type: "external_agent", id: "codex" },
+				provenance: { source: "tedi.start_agent_run", runId: "turn-run-7" },
+				metadata: {
+					source: "tedi.start_agent_run",
+					homeRunId: "turn-run-7",
+					purposeContext: "tedi_task",
+				},
+			});
+
+		// A key another task already holds is refused with a reason, not a 500.
+		await expect(start("turn-run-7")).rejects.toMatchObject({
+			code: "CONFLICT",
+		});
+		const created = await start("turn-run-7:start_agent_run:call-1");
+		expect(created).toMatchObject({
+			disposition: "proposed",
+			executorType: "external_agent",
+			executorId: "codex",
+			dispatchState: "ready",
+		});
+		await expect(
+			runtime.accept({ ...acceptance, id: created.id }),
+		).resolves.toMatchObject({ disposition: "accepted" });
 	});
 
 	it("refuses each call when the runtime's list loses the scope that call needs", async () => {
