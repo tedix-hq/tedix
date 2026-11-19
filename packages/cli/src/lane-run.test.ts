@@ -349,6 +349,79 @@ it.each(["codex", "claude"])(
 	},
 );
 
+it.each(["codex", "claude"])(
+	"summarises %s events into steps and survives a failing step listener",
+	async (agent) => {
+		const { args, out } = fixture();
+		const executable = join(out, "..", agent);
+		const lines =
+			agent === "codex"
+				? [
+						{
+							type: "item.completed",
+							item: {
+								type: "command_execution",
+								command: "bun test",
+								aggregated_output: "private output",
+								exit_code: 0,
+							},
+						},
+						{
+							type: "item.completed",
+							item: { type: "agent_message", text: "Tests pass." },
+						},
+					]
+				: [
+						{
+							type: "assistant",
+							message: {
+								content: [
+									{
+										type: "tool_use",
+										name: "Bash",
+										input: { command: "bun test" },
+									},
+								],
+							},
+						},
+						{
+							type: "assistant",
+							message: { content: [{ type: "text", text: "Tests pass." }] },
+						},
+					];
+		writeFileSync(
+			executable,
+			`#!${process.execPath}\nconsole.log(${codeModeLiteral(lines.map((line) => JSON.stringify(line)).join("\n"))});`,
+		);
+		chmodSync(executable, 0o700);
+		args[2] = agent === "codex" ? "codex" : "claude-code";
+		args.splice(
+			args.indexOf("--") + 1,
+			2,
+			executable,
+			...(agent === "codex" ? ["exec"] : ["--output-format", "stream-json"]),
+		);
+		const steps: unknown[] = [];
+		const events: number[] = [];
+		await runLaneProcess(args, {
+			detachedChild: true,
+			onAgentEvent: (observedAt) => events.push(observedAt),
+			onAgentStep: (step) => {
+				steps.push(step);
+				throw new Error("listener failed");
+			},
+			report: async () => ({}),
+		});
+		expect(steps).toEqual([
+			agent === "codex"
+				? { kind: "command", text: "bun test (exit 0)" }
+				: { kind: "tool", text: "Bash: bun test" },
+			{ kind: "message", text: "Tests pass." },
+		]);
+		expect(events).toHaveLength(2);
+	},
+);
+
 it("reconciles Claude output only against the admitted native identity and transcript", async () => {
 	const id = "11111111-1111-4111-8111-111111111111";
 	const foreign = "22222222-2222-4222-8222-222222222222";
