@@ -147,18 +147,21 @@ describe("deriveWorkspaceAgents", () => {
 				],
 			]),
 			conversations: [],
-			tediNames: new Map(),
+			tedis: new Map(),
+			tediIdsBySkill: new Map(),
 			now: NOW,
 		});
 		expect(agent).toMatchObject({
 			key: "skill:digest",
 			name: "Morning digest",
-			detail: "Run by Research Tedi",
+			detail: "No tedi assigned",
 			working: 1,
 			needsYou: 1,
 			today: 3,
 			lastActiveAt: at(18, 11),
-			allRunsHref: "/skills/digest/runs",
+			skills: [
+				{ id: "digest", name: "Morning digest", href: "/skills/digest/runs" },
+			],
 		});
 		expect(agent!.runs.map((row) => [row.key, row.state])).toEqual([
 			["r-running", "working"],
@@ -189,7 +192,17 @@ describe("deriveWorkspaceAgents", () => {
 					running: true,
 				}),
 			],
-			tediNames: new Map([["t1", "Ops Tedi"]]),
+			tedis: new Map([
+				[
+					"t1",
+					{
+						name: "Ops Tedi",
+						avatar: null,
+						owner: "Belongs to the organization",
+					},
+				],
+			]),
+			tediIdsBySkill: new Map(),
 			now: NOW,
 		});
 		expect(
@@ -214,6 +227,68 @@ describe("deriveWorkspaceAgents", () => {
 		});
 	});
 
+	it("merges multiple skills and conversations under their tedi id, keeping equal names distinct", () => {
+		const agents = deriveWorkspaceAgents({
+			schedules: [schedule("digest", "Digest"), schedule("check", "Check")],
+			runsBySkill: new Map([
+				[
+					"digest",
+					[run("digest-run", { status: "paused", pausedAt: at(18, 9) })],
+				],
+				[
+					"check",
+					[run("check-run", { status: "running", startedAt: at(18, 11) })],
+				],
+			]),
+			conversations: [
+				conversation("chat", at(18, 10), {
+					startedBy: { kind: "tedi", id: "t1" },
+					running: true,
+				}),
+			],
+			tedis: new Map([
+				["t1", { name: "Ops", avatar: "🦉", owner: "Owned by Alex" }],
+				[
+					"t2",
+					{ name: "Ops", avatar: null, owner: "Belongs to the organization" },
+				],
+			]),
+			tediIdsBySkill: new Map([
+				["digest", "t1"],
+				["check", "t1"],
+			]),
+			now: NOW,
+		});
+		expect(agents).toHaveLength(2);
+		expect(agents[0]).toMatchObject({
+			key: "tedi:t1",
+			tediId: "t1",
+			name: "Ops",
+			avatar: "🦉",
+			detail: "Owned by Alex",
+			profileHref: "/tedis/t1",
+			working: 2,
+			needsYou: 1,
+			today: 3,
+			lastActiveAt: at(18, 11),
+		});
+		expect(agents[0]!.skills.map((skill) => skill.id)).toEqual([
+			"digest",
+			"check",
+		]);
+		expect(agents[0]!.runs.map((row) => row.key)).toEqual([
+			"check-run",
+			"chat",
+			"digest-run",
+		]);
+		expect(agents[1]).toMatchObject({
+			key: "tedi:t2",
+			detail: "Belongs to the organization",
+			runs: [],
+			today: 0,
+		});
+	});
+
 	it("orders agents by newest activity and puts one that never ran last", () => {
 		const agents = deriveWorkspaceAgents({
 			schedules: [schedule("idle", "Idle skill"), schedule("digest", "Digest")],
@@ -224,11 +299,12 @@ describe("deriveWorkspaceAgents", () => {
 			conversations: [
 				conversation("a", at(18), { startedBy: { kind: "tedi", id: "t9" } }),
 			],
-			tediNames: new Map(),
+			tedis: new Map(),
+			tediIdsBySkill: new Map(),
 			now: NOW,
 		});
 		expect(agents.map((agent) => agent.name)).toEqual([
-			"A tedi",
+			"Tedi profile unavailable",
 			"Digest",
 			"Idle skill",
 		]);

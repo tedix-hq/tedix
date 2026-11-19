@@ -3,14 +3,6 @@ import type { OsWorkspaceSchedule } from "@tedix/api-contract/schemas/os-workspa
 import { normalizeD1Timestamp } from "@/lib/time";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 
-/**
- * The Agents view of a workspace: one row per agent that works there, built
- * from two things a workspace already records. A linked skill is an agent
- * whose runs nobody typed for (its schedule, or another agent or app, started
- * them). A conversation whose first message came from a tedi or a connected
- * app is a run of that agent, and stays one when a person writes in it later.
- */
-
 export type WorkspaceAgentRunState =
 	| "working"
 	| "needs_you"
@@ -30,7 +22,17 @@ export type WorkspaceAgentRun = {
 		| { type: "link"; href: string };
 };
 
+export type WorkspaceTedi = {
+	name: string;
+	avatar: string | null;
+	owner: string;
+};
+
 export type WorkspaceAgent = {
+	tediId: string | null;
+	avatar: string | null;
+	profileHref: string | null;
+	skills: { id: string; name: string; href: string }[];
 	key: string;
 	name: string;
 	/** Who runs it, or what kind of agent it is. */
@@ -42,8 +44,6 @@ export type WorkspaceAgent = {
 	/** Runs whose last activity was today, on the reader's own calendar. */
 	today: number;
 	lastActiveAt: string | null;
-	/** Where every run of a linked skill is listed. */
-	allRunsHref: string | null;
 };
 
 /** Conversations a person started: all the chat list shows beside an Agents view. */
@@ -114,7 +114,10 @@ function sameLocalDay(at: string | null, now: Date): boolean {
 }
 
 function summarize(
-	agent: Pick<WorkspaceAgent, "key" | "name" | "detail" | "allRunsHref">,
+	agent: Omit<
+		WorkspaceAgent,
+		"runs" | "working" | "needsYou" | "today" | "lastActiveAt"
+	>,
 	runs: WorkspaceAgentRun[],
 	counts: { working: number; needsYou: number },
 	now: Date,
@@ -141,43 +144,82 @@ export function deriveWorkspaceAgents(input: {
 	/** Each linked skill's newest runs; a skill still loading is absent. */
 	runsBySkill: ReadonlyMap<string, readonly SkillRunSummary[]>;
 	conversations: readonly ConversationSummary[];
-	/** Names of the tedis linked to the workspace, by tedi id. */
-	tediNames: ReadonlyMap<string, string>;
+	/** Linked tedis and profiles of conversation starters and skill owners. */
+	tedis: ReadonlyMap<string, WorkspaceTedi>;
+	tediIdsBySkill: ReadonlyMap<string, string | null>;
 	now: Date;
 }): WorkspaceAgent[] {
 	const agents: WorkspaceAgent[] = [];
+	const tediAgent = (id: string) => {
+		let agent = agents.find((row) => row.tediId === id);
+		if (!agent) {
+			const tedi = input.tedis.get(id);
+			agent = summarize(
+				{
+					key: `tedi:${id}`,
+					tediId: id,
+					name: tedi?.name ?? "Tedi profile unavailable",
+					avatar: tedi?.avatar ?? null,
+					detail: tedi?.owner ?? "Owner unavailable",
+					profileHref: `/tedis/${encodeURIComponent(id)}`,
+					skills: [],
+				},
+				[],
+				{ working: 0, needsYou: 0 },
+				input.now,
+			);
+			agents.push(agent);
+		}
+		return agent;
+	};
+	for (const id of input.tedis.keys()) tediAgent(id);
 
 	for (const schedule of input.schedules) {
 		const runs = (input.runsBySkill.get(schedule.skillId) ?? []).filter(
 			isAgentSkillRun,
 		);
-		agents.push(
-			summarize(
-				{
-					key: `skill:${schedule.skillId}`,
-					name: schedule.name,
-					detail: schedule.tediName ? `Run by ${schedule.tediName}` : null,
-					allRunsHref: `/skills/${encodeURIComponent(schedule.skillId)}/runs`,
-				},
-				runs.map((run) => ({
-					key: run.id,
-					title: RUN_TITLES[run.trigger ?? ""] ?? "Run",
-					state: skillRunState(run.status),
-					at: iso(run.completedAt) ?? iso(run.pausedAt) ?? iso(run.startedAt),
-					open: {
-						type: "link",
-						href: `/work/runs/${encodeURIComponent(run.id)}`,
+		const skillAgent = summarize(
+			{
+				key: `skill:${schedule.skillId}`,
+				tediId: null,
+				avatar: null,
+				profileHref: null,
+				skills: [
+					{
+						id: schedule.skillId,
+						name: schedule.name,
+						href: `/skills/${encodeURIComponent(schedule.skillId)}/runs`,
 					},
-				})),
-				{
-					working: runs.filter(
-						(run) => run.status === "queued" || run.status === "running",
-					).length,
-					needsYou: runs.filter((run) => run.status === "paused").length,
+				],
+				name: schedule.name,
+				detail: "No tedi assigned",
+			},
+			runs.map((run) => ({
+				key: run.id,
+				title: RUN_TITLES[run.trigger ?? ""] ?? "Run",
+				state: skillRunState(run.status),
+				at: iso(run.completedAt) ?? iso(run.pausedAt) ?? iso(run.startedAt),
+				open: {
+					type: "link",
+					href: `/work/runs/${encodeURIComponent(run.id)}`,
 				},
-				input.now,
-			),
+			})),
+			{
+				working: runs.filter(
+					(run) => run.status === "queued" || run.status === "running",
+				).length,
+				needsYou: runs.filter((run) => run.status === "paused").length,
+			},
+			input.now,
 		);
+		const tediId = input.tediIdsBySkill.get(schedule.skillId);
+		if (tediId) {
+			const agent = tediAgent(tediId);
+			agent.skills.push(...skillAgent.skills);
+			agent.runs.push(...skillAgent.runs);
+			agent.working += skillAgent.working;
+			agent.needsYou += skillAgent.needsYou;
+		} else agents.push(skillAgent);
 	}
 
 	const byStarter = new Map<string, ConversationSummary[]>();
@@ -188,41 +230,51 @@ export function deriveWorkspaceAgents(input: {
 	}
 	for (const [key, conversations] of byStarter) {
 		const starter = conversations[0]!.startedBy!;
-		agents.push(
-			summarize(
-				{
-					key,
-					name:
-						starter.kind === "tedi"
-							? (input.tediNames.get(starter.id) ?? "A tedi")
-							: "Connected agent",
-					detail:
-						starter.kind === "tedi"
-							? "Tedi that sends this workspace tasks"
-							: "An agent that reaches this workspace through a connected app",
-					allRunsHref: null,
-				},
-				conversations.map((conversation) => ({
-					key: conversation.id,
-					title: conversation.title ?? "Untitled run",
-					// A decision the run waits for outranks the work still going on.
-					state: conversation.pendingApprovals
-						? "needs_you"
-						: conversation.running
-							? "working"
-							: "done",
-					at: conversation.lastTurnAt ?? conversation.updatedAt,
-					open: { type: "conversation", conversationId: conversation.id },
-				})),
-				{
-					working: conversations.filter((conversation) => conversation.running)
-						.length,
-					needsYou: conversations.filter(
-						(conversation) => (conversation.pendingApprovals ?? 0) > 0,
-					).length,
-				},
-				input.now,
-			),
+		const conversationAgent = summarize(
+			{
+				key,
+				tediId: null,
+				avatar: null,
+				profileHref: null,
+				skills: [],
+				name: "Connected agent",
+				detail: "An agent that reaches this workspace through a connected app",
+			},
+			conversations.map((conversation) => ({
+				key: conversation.id,
+				title: conversation.title ?? "Untitled run",
+				// A decision the run waits for outranks the work still going on.
+				state: conversation.pendingApprovals
+					? "needs_you"
+					: conversation.running
+						? "working"
+						: "done",
+				at: conversation.lastTurnAt ?? conversation.updatedAt,
+				open: { type: "conversation", conversationId: conversation.id },
+			})),
+			{
+				working: conversations.filter((conversation) => conversation.running)
+					.length,
+				needsYou: conversations.filter(
+					(conversation) => (conversation.pendingApprovals ?? 0) > 0,
+				).length,
+			},
+			input.now,
+		);
+		if (starter.kind === "tedi") {
+			const agent = tediAgent(starter.id);
+			agent.runs.push(...conversationAgent.runs);
+			agent.working += conversationAgent.working;
+			agent.needsYou += conversationAgent.needsYou;
+		} else agents.push(conversationAgent);
+	}
+	for (let at = 0; at < agents.length; at++) {
+		const agent = agents[at]!;
+		agents[at] = summarize(
+			agent,
+			agent.runs,
+			{ working: agent.working, needsYou: agent.needsYou },
+			input.now,
 		);
 	}
 

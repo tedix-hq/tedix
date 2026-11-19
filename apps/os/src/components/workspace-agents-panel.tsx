@@ -1,15 +1,19 @@
 import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { WORKSPACE_TEDI_RESOURCE } from "@tedix/api-contract/schemas/os-workspace-schedules";
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
+import { EntityAvatar } from "@/shared/entity-avatar";
+import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	skillRunsQueryOptions,
+	skillDetailQueryOptions,
+	tediDetailQueryOptions,
 	workspaceResourcesQueryOptions,
 	workspaceSchedulesQueryOptions,
 } from "@/lib/os-query-options";
@@ -20,6 +24,7 @@ import {
 	deriveWorkspaceAgents,
 	type WorkspaceAgent,
 	type WorkspaceAgentRun,
+	type WorkspaceTedi,
 } from "@/lib/workspace-agents";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 
@@ -43,7 +48,8 @@ export function WorkspaceAgentsPanel({
 	workspaceId: string;
 	/** The workspace chat's conversations; the agent-started ones are runs. */
 	conversations: readonly ConversationSummary[];
-	onOpenConversation: (conversationId: string) => void;
+	/** Message passes an empty conversation id and the selected tedi id. */
+	onOpenConversation: (conversationId: string, tediId?: string) => void;
 }) {
 	const schedules = useQuery(workspaceSchedulesQueryOptions(workspaceId));
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
@@ -51,6 +57,11 @@ export function WorkspaceAgentsPanel({
 		() => (schedules.data?.items ?? []).map((item) => item.skillId),
 		[schedules.data?.items],
 	);
+	const skills = useQueries({ queries: skillIds.map(skillDetailQueryOptions) });
+	const tediIdsBySkill = new Map(
+		skillIds.map((id, at) => [id, skills[at]?.data?.entry?.tediId ?? null]),
+	);
+	const directory = useContext(WorkActorDirectoryContext);
 	const runs = useQueries({
 		queries: skillIds.map((skillId) => ({
 			...skillRunsQueryOptions(skillId, undefined, RUNS_READ),
@@ -74,6 +85,44 @@ export function WorkspaceAgentsPanel({
 			)
 			.map((row) => [row.providerResourceId, row.name]),
 	);
+	const tediIds = [
+		...new Set([
+			...tediNames.keys(),
+			...[...tediIdsBySkill.values()].filter((id): id is string => Boolean(id)),
+			...conversations.flatMap((row) =>
+				row.startedBy?.kind === "tedi" && !row.archivedAt
+					? [row.startedBy.id]
+					: [],
+			),
+		]),
+	];
+	const profiles = useQueries({ queries: tediIds.map(tediDetailQueryOptions) });
+	const tedis = new Map<string, WorkspaceTedi>(
+		tediIds.map((id, at) => {
+			const profile = profiles[at]?.data;
+			const owner = profile?.ownerUserId
+				? directory.get(`user:${profile.ownerUserId}`)?.name
+				: null;
+			return [
+				id,
+				{
+					name:
+						profile?.displayName ||
+						profile?.name ||
+						tediNames.get(id) ||
+						"Tedi profile unavailable",
+					avatar: profile?.avatar ?? null,
+					owner: profile
+						? profile.scope === "organization"
+							? "Belongs to the organization"
+							: profile.ownerUserId
+								? `Owned by ${owner ?? profile.ownerUserId}`
+								: "Owner unavailable"
+						: "Owner unavailable",
+				},
+			];
+		}),
+	);
 	const runsBySkill = new Map(
 		skillIds.flatMap((skillId, at) => {
 			const data = runs[at]?.data;
@@ -84,13 +133,20 @@ export function WorkspaceAgentsPanel({
 	const unknown = new Set(
 		skillIds
 			.filter((_, at) => !runs[at]?.data)
-			.map((skillId) => `skill:${skillId}`),
+			.map((skillId) =>
+				tediIdsBySkill.get(skillId)
+					? `tedi:${tediIdsBySkill.get(skillId)}`
+					: `skill:${skillId}`,
+			),
 	);
 	const agents = deriveWorkspaceAgents({
-		schedules: schedules.data?.items ?? [],
+		schedules: (schedules.data?.items ?? []).filter(
+			(_, at) => skills[at]?.isSuccess,
+		),
 		runsBySkill,
 		conversations,
-		tediNames,
+		tedis,
+		tediIdsBySkill,
 		now,
 	});
 
@@ -109,9 +165,15 @@ export function WorkspaceAgentsPanel({
 				</Text>
 			</header>
 			<div className="grid gap-2 p-4 md:p-6">
-				{schedules.isPending && agents.length === 0 ? (
+				{(schedules.isPending ||
+					resources.isPending ||
+					skills.some((row) => row.isPending)) &&
+				agents.length === 0 ? (
 					<ListSkeleton rows={2} rowClassName="h-14" />
-				) : agents.length === 0 && !schedules.isError ? (
+				) : agents.length === 0 &&
+				  !schedules.isError &&
+				  !resources.isError &&
+				  !skills.some((row) => row.isError) ? (
 					<Empty
 						appearance="quiet"
 						title="No agents work in this workspace yet"
@@ -138,10 +200,15 @@ export function WorkspaceAgentsPanel({
 						))}
 					</ul>
 				)}
-				{schedules.isError ? (
+				{resources.isError ? (
 					<Text as="p" role="label" tone="secondary" className="m-0">
-						The skills linked to this workspace could not be loaded, so their
-						runs are missing from this list.
+						The tedis linked to this workspace could not be loaded.
+					</Text>
+				) : null}
+				{schedules.isError || skills.some((row) => row.isError) ? (
+					<Text as="p" role="label" tone="secondary" className="m-0">
+						Some skills or their owners could not be loaded, so their runs are
+						missing from this list.
 					</Text>
 				) : null}
 			</div>
@@ -161,7 +228,7 @@ function AgentRow({
 	countsUnknown: boolean;
 	expanded: boolean;
 	now: Date;
-	onOpenConversation: (conversationId: string) => void;
+	onOpenConversation: (conversationId: string, tediId?: string) => void;
 	onToggle: () => void;
 }) {
 	const runsId = `workspace-agent-runs-${agent.key}`;
@@ -182,6 +249,13 @@ function AgentRow({
 					aria-hidden
 					className="mt-1 shrink-0 text-kumo-subtle"
 					size={14}
+				/>
+				<EntityAvatar
+					id={agent.tediId ?? agent.key}
+					name={agent.name}
+					kind={agent.tediId ? "tedi" : "app"}
+					image={agent.avatar}
+					className="size-9 shrink-0"
 				/>
 				<span className="grid min-w-0 flex-1 gap-0.5">
 					<Text as="span" role="body" weight="medium" className="wrap-anywhere">
@@ -216,6 +290,25 @@ function AgentRow({
 					</Text>
 				) : null}
 			</button>
+			{agent.tediId ? (
+				<div className="flex flex-wrap items-center gap-3 px-3 pb-3">
+					<Link
+						href={agent.profileHref!}
+						variant="navigation"
+						aria-label={`View ${agent.name} profile`}
+					>
+						View profile
+					</Link>
+					<Button
+						size="sm"
+						variant="secondary"
+						aria-label={`Message ${agent.name}`}
+						onClick={() => onOpenConversation("", agent.tediId!)}
+					>
+						Message
+					</Button>
+				</div>
+			) : null}
 			{expanded ? (
 				<div
 					className="grid gap-2 border-t border-kumo-line px-3 py-3"
@@ -242,15 +335,16 @@ function AgentRow({
 							))}
 						</ul>
 					)}
-					{agent.allRunsHref ? (
+					{agent.skills.map((skill) => (
 						<Link
+							key={skill.id}
 							className="w-fit"
 							variant="navigation"
-							href={agent.allRunsHref}
+							href={skill.href}
 						>
-							See all runs
+							{skill.name} · See all runs
 						</Link>
-					) : null}
+					))}
 				</div>
 			) : null}
 		</li>
@@ -264,7 +358,7 @@ function RunRow({
 }: {
 	run: WorkspaceAgentRun;
 	now: Date;
-	onOpenConversation: (conversationId: string) => void;
+	onOpenConversation: (conversationId: string, tediId?: string) => void;
 }) {
 	// A run that waits for a person opens where its request can be answered.
 	const action = run.state === "needs_you" ? "Review" : "Open";
