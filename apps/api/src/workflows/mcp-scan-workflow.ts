@@ -74,7 +74,11 @@ import {
 	resolveTedixInternalScanHeaders,
 } from "../lib/catalog-internal-scan";
 import { connectMcpServer, type McpSkillManifest } from "../lib/mcp-client";
-import { publishMcpCatalogInventoryEvents } from "../lib/mcp-subscriptions";
+import {
+	publishMcpCatalogInventoryEvents,
+	publishMcpListChangedEvents,
+	purgeMcpAggregateCache,
+} from "../lib/mcp-subscriptions";
 import { exchangeScanClientCredentials } from "./mcp-scan-auth";
 import {
 	runMcpScanBatchConcurrently,
@@ -104,6 +108,8 @@ export interface McpScanWorkflowParams {
 	timeout?: number;
 	/** Force rescan specific apps regardless of age */
 	catalogAppIds?: string[];
+	/** Force rescan by catalog slug, e.g. Ship after it releases that app's server */
+	catalogAppSlugs?: string[];
 }
 
 /** Minimal app info needed for scanning - keeps step output small */
@@ -387,13 +393,13 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 			maxAgeHours = 24,
 			timeout = 30000,
 			catalogAppIds,
+			catalogAppSlugs,
 		} = payload;
+		const targets = [...(catalogAppIds ?? []), ...(catalogAppSlugs ?? [])];
 
 		console.log(
 			`[MCP Scan] Starting workflow: limit=${limit}, maxAgeHours=${maxAgeHours}, timeout=${timeout}ms` +
-				(catalogAppIds?.length
-					? `, catalogAppIds=${catalogAppIds.length}`
-					: ""),
+				(targets.length ? `, targets=${targets.length}` : ""),
 		);
 
 		const db = createDbClient(this.env.DB);
@@ -401,12 +407,12 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 			const ledger = await createWorkflowRunRecord(db, {
 				workflowType: "mcp_scan",
 				workflowId: event.instanceId,
-				trigger: catalogAppIds?.length ? "operator" : "cron",
+				trigger: targets.length ? "operator" : "cron",
 				target:
-					catalogAppIds?.length === 1
-						? catalogAppIds[0]
-						: catalogAppIds?.length
-							? `${catalogAppIds.length} catalog apps`
+					targets.length === 1
+						? targets[0]
+						: targets.length
+							? `${targets.length} catalog apps`
 							: null,
 			});
 			return ledger.id;
@@ -425,6 +431,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 						limit,
 						maxAgeHours,
 						catalogAppIds,
+						catalogAppSlugs,
 					});
 
 					// Extract only the fields needed for scanning (avoids 1MiB step output limit)
@@ -479,6 +486,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				const result = {
 					success: true,
 					message: "No actionable apps need scans",
+					targeted: 0,
 					appsChecked: 0,
 					scanBacklog,
 				};
@@ -573,6 +581,8 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 			});
 			const result = {
 				success: totalErrors === 0,
+				// Named apps found; callers that named apps check it before appsChecked.
+				targeted: targets.length ? apps.length : 0,
 				appsChecked: totalChecked,
 				healthy: totalHealthy,
 				unhealthy: totalUnhealthy,
@@ -863,6 +873,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 
 		let synced = 0;
 		const errors: string[] = [];
+		const changedApps: string[] = [];
 		for (const baseApp of baseApps) {
 			if (!catalogBaseAppAutoSyncEnabled(baseApp.metadata)) continue;
 			const sync = await syncCatalogToolsToApp(db, {
@@ -872,6 +883,12 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				dryRun: false,
 				disableRemoved: true,
 			});
+			if (
+				sync.results?.some((result) =>
+					["created", "updated", "disabled"].includes(result.action),
+				)
+			)
+				changedApps.push(baseApp.id);
 			await ensurePendingToolReviewApprovals(db, {
 				organizationId: baseApp.organizationId,
 				appId: baseApp.id,
@@ -879,6 +896,20 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 			});
 			errors.push(...sync.errors.map((error) => `${baseApp.name}: ${error}`));
 			synced++;
+		}
+
+		// The gateway caches each installed app's tool list for minutes. Clear it
+		// for changed installs so a released schema is listed at once.
+		if (changedApps.length > 0) {
+			await purgeMcpAggregateCache(this.env, "mcp scan base-app sync");
+			for (const appId of changedApps)
+				await publishMcpListChangedEvents(this.env, { appId }, [
+					"notifications/tools/list_changed",
+				]).catch((error: unknown) =>
+					console.warn("[MCP Scan] tools/list_changed publish failed", {
+						exception: safeExceptionTopology(error),
+					}),
+				);
 		}
 
 		// Create reviews for valid changes before surfacing partial sync failures.

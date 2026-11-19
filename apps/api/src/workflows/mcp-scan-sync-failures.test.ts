@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
 	review: vi.fn(),
 	resolveDrift: vi.fn(),
 	inventoryEvents: vi.fn(),
+	purge: vi.fn(),
+	listChanged: vi.fn(),
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("@tedix/db/queries/apps", () => ({
@@ -48,6 +50,8 @@ vi.mock("@tedix/db/vector/catalog", () => ({
 }));
 vi.mock("../lib/mcp-subscriptions", () => ({
 	publishMcpCatalogInventoryEvents: mocks.inventoryEvents,
+	purgeMcpAggregateCache: mocks.purge,
+	publishMcpListChangedEvents: mocks.listChanged,
 }));
 vi.mock("../services/tool-review-approvals", () => ({
 	ensurePendingToolReviewApprovals: mocks.review,
@@ -95,6 +99,68 @@ beforeEach(() => {
 	]);
 	mocks.backlog.mockResolvedValue({ dueNow: 0 });
 	mocks.sync.mockResolvedValue({ errors: [] });
+	mocks.listChanged.mockResolvedValue(undefined);
+});
+
+describe("MCP scan base-app sync publication", () => {
+	it("clears the gateway tool cache and announces the change only for installs whose tools changed", async () => {
+		mocks.sync
+			.mockResolvedValueOnce({
+				errors: [],
+				results: [{ action: "updated" }, { action: "skipped" }],
+			})
+			.mockResolvedValueOnce({ errors: [], results: [{ action: "skipped" }] });
+		await run();
+		expect(mocks.purge).toHaveBeenCalledTimes(1);
+		expect(mocks.listChanged).toHaveBeenCalledTimes(1);
+		expect(mocks.listChanged).toHaveBeenCalledWith(
+			expect.anything(),
+			{ appId: "base" },
+			["notifications/tools/list_changed"],
+		);
+	});
+
+	it("reports how many named apps it found, so a caller can tell its target was scanned", async () => {
+		const workflow = new McpScanWorkflow(
+			{} as ExecutionContext,
+			{} as CloudflareEnv,
+		);
+		vi.spyOn(
+			workflow as unknown as { scanApp: () => Promise<unknown> },
+			"scanApp",
+		).mockResolvedValue({
+			status: "healthy",
+			checkedAt: "2026-11-18T00:00:00.000Z",
+			tools: [],
+		});
+		const step = {
+			do: async (_name: string, ...args: unknown[]) =>
+				(args.at(-1) as () => Promise<unknown>)(),
+		};
+		const named = await workflow.run(
+			{
+				instanceId: "named",
+				payload: { catalogAppSlugs: ["fictional"] },
+			} as never,
+			step as never,
+		);
+		expect(mocks.apps).toHaveBeenLastCalledWith(
+			{},
+			expect.objectContaining({ catalogAppSlugs: ["fictional"] }),
+		);
+		expect(named).toMatchObject({ targeted: 1, appsChecked: 1, errors: 0 });
+		expect(await run()).toMatchObject({ targeted: 0, appsChecked: 1 });
+	});
+
+	it("leaves the cache alone when the scan changed no installed tool", async () => {
+		mocks.sync.mockResolvedValue({
+			errors: [],
+			results: [{ action: "skipped" }],
+		});
+		await run();
+		expect(mocks.purge).not.toHaveBeenCalled();
+		expect(mocks.listChanged).not.toHaveBeenCalled();
+	});
 });
 
 describe("MCP scan sync failures", () => {
