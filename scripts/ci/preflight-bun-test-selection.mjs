@@ -23,8 +23,7 @@
  *
  * Three deliberate over-selections keep it honest. A test that reads the repo
  * through the filesystem (`import.meta.dirname`, `__dirname`) pins behavior
- * of files it never imports — do-canonical-transcript.guard.test.ts reads
- * do.ts as text — so it always runs. A test whose closure holds a dynamic
+ * of files it never imports, so it always runs. A test whose closure holds a dynamic
  * import of a computed path could load any file, so it always runs too. And
  * the bunfig `preload` modules run before every test, so they are an import
  * of every test file.

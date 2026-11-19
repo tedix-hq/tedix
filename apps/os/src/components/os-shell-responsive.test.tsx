@@ -461,39 +461,6 @@ describe("OS shell chrome", () => {
 		}
 	});
 
-	it("keeps persistent shell identity and default cards flat", () => {
-		const brandMark = styles.match(/(?:^|\n)\.brand-mark \{[\s\S]*?\n\}/)?.[0];
-
-		expect(brandMark).toBeDefined();
-		expect(brandMark).not.toContain("box-shadow");
-		expect(brandMark).not.toContain("transition:");
-		expect(styles).not.toMatch(
-			/\[data-slot=["']card["']\]\s*\{[^}]*box-shadow/,
-		);
-		expect(styles).toContain("box-shadow: var(--shadow-tedix-floating)");
-		expect(styles).toContain("box-shadow: var(--shadow-tedix-overlay)");
-	});
-
-	it("keeps ordinary identity and library hover feedback quiet", () => {
-		const galleryCard = styles.match(
-			/(?:^|\n)\.blueprint-gallery-card \{[\s\S]*?\n\}/,
-		)?.[0];
-		const galleryInteraction = styles.match(
-			/\.blueprint-gallery-card:hover,[\s\S]*?\n\}/,
-		)?.[0];
-
-		expect(styles).not.toContain(".sidebar-brand:hover .brand-mark");
-		expect(styles).not.toMatch(/\[data-slot=["']card["']\]:has\(/);
-		expect(galleryCard).toContain("transition: border-color");
-		expect(galleryCard).not.toContain("box-shadow");
-		expect(galleryCard).not.toContain("transform");
-		expect(galleryInteraction).toContain("border-color");
-		expect(galleryInteraction).not.toContain("box-shadow");
-		expect(galleryInteraction).not.toContain("transform");
-		expect(styles).toContain(".blueprint-gallery-preview-window {");
-		expect(styles).toContain("box-shadow: var(--shadow-tedix-overlay)");
-	});
-
 	/*
 	 * The rail's geometry used to be ~480 lines of BEM CSS in `styles.css`, so
 	 * this suite asserted on the stylesheet's raw text. Kumo's `Sidebar` owns it

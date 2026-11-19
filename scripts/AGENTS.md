@@ -28,8 +28,6 @@ relaxing the gate.
 | `lint-contracts.ts`                                  | Contract naming/JSON conventions; collection-read inputs reject unknown keys                                                                            |
 | `lint-kumo.ts`, `lint-os.ts`                         | Tedix OS design tokens, Kumo adapters, query-key namespace, WebMCP tool modules                                                                         |
 | `lint-loader-sandbox.ts`                             | Every Worker Loader site sets its sandbox policy explicitly                                                                                             |
-| `lint-session-genericity.ts`                         | Session ingestion and Attention stay independent of installation identities                                                                             |
-| `lint-output-kinds.ts`                               | New Output kinds and first-party Output editors need a decision reference                                                                               |
 | `lint-public-quality.ts`                             | Public prose free of AI filler; no developer paths or private links; no tenant, host or model literals in source (rules in `public-quality-rules.json`) |
 
 Each script's header states its rule. Run one directly, e.g. `bun scripts/lint-d1.ts`;

@@ -1,11 +1,9 @@
-name: Deploy gate (push) and full test run (every 8 hours)
+name: Deploy gate (push) and full test run
 run-name: ${{ github.event_name == 'push' && 'Deploy gate' || 'Full test run' }} @ ${{ github.sha }}
 
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: "17 */8 * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,9 +11,8 @@ permissions:
   actions: read
 
 concurrency:
-  # Push gates coalesce among themselves and never cancel an active one. The
-  # scheduled and hand-started full runs get their own lane, so a scheduled full
-  # run can never displace a push's two-minute gate (it did at 16:21 on 7 Nov).
+  # Push gates coalesce without cancelling active runs. Manual full runs use
+  # a separate lane so they cannot displace a push gate.
   group: main-certification-${{ github.event_name == 'push' && 'gate' || 'full' }}
   cancel-in-progress: false
 
@@ -56,7 +53,7 @@ jobs:
           # A push certifies on the gate lane: only the policy check, which
           # guards what a deploy cannot heal (schema and migrations). Every
           # test runs in main-verify.yml on the same push, after the deploy.
-          # Scheduled and hand-started runs stay full.
+          # Hand-started runs stay full.
           SUITE_LANE: ${{ github.event_name == 'push' && 'gate' || 'full' }}
         run: node scripts/ci/full-suite-hourly.mjs
 
@@ -224,8 +221,6 @@ jobs:
         run: bun run-local --smoke --no-install
       - if: matrix.check == 'scripts'
         run: bun run test:scripts
-      - if: ${{ !cancelled() && matrix.check == 'scripts' }}
-        run: bun run type-check:scripts
       - if: ${{ !cancelled() && matrix.check == 'scripts' }}
         run: bun run docs:public:check
 

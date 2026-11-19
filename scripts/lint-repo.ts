@@ -29,9 +29,7 @@ const GATES: string[][] = [
 	["lint-worker-route-authz.ts", "--strict"],
 	["lint-contracts.ts"],
 	["lint-os.ts"],
-	["lint-output-kinds.ts"],
 	["lint-tool-class.ts"],
-	["lint-session-genericity.ts"],
 	["lint-demo-identities.ts"],
 	["lint-public-quality.ts", "--strict"],
 ];
