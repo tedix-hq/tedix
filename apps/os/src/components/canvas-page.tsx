@@ -1,7 +1,10 @@
 import { EntityAvatar } from "@/shared/entity-avatar";
 import { AppRuntimeDraftProvider } from "@/components/app-runtime-draft-store";
 import { KeepAliveProvider } from "@/components/keep-alive";
-import { workspaceOutputEditors } from "@/lib/workspace-output-editors";
+import {
+	workspaceOutputEditors,
+	workspaceAppTitles,
+} from "@/lib/workspace-output-editors";
 import "./canvas-page.css";
 import "./output-views.css";
 import { OrganizationMark } from "@/shared/organization-mark";
@@ -1004,9 +1007,19 @@ export function CanvasPage({
 			: selectedDoc?.type === "output"
 				? selectedDoc.linkedGadgetId
 				: undefined;
-	const selectedApp = gadgets.data?.items.find(
-		(gadget) => gadget.id === selectedAppId,
+	const appTitlesPending = resources.isPending || outputs.isPending;
+	const namedApps = useMemo(
+		() =>
+			appTitlesPending
+				? []
+				: workspaceAppTitles(
+						gadgets.data?.items ?? [],
+						outputs.data?.items ?? [],
+						outputEditors,
+					),
+		[appTitlesPending, gadgets.data?.items, outputs.data?.items, outputEditors],
 	);
+	const selectedApp = namedApps.find((gadget) => gadget.id === selectedAppId);
 	const openingEditorId =
 		selectedDoc?.type === "output"
 			? outputEditors.get(selectedDoc.id)
@@ -2222,7 +2235,7 @@ export function CanvasPage({
 							{openedDocs.length > 0 ? (
 								<div className="canvas-workpiece-bar" data-focus-ring="inset">
 									<CanvasWorkpieceTabs
-										gadgets={gadgets.data?.items ?? []}
+										gadgets={namedApps}
 										onClose={closeCanvasDoc}
 										onCloseOthers={closeOtherCanvasDocs}
 										onMove={moveCanvasDoc}

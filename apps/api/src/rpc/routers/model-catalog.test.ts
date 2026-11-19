@@ -1,3 +1,4 @@
+import { LOCAL_DEMO_PROJECT_ID } from "@tedix/auth/local-demo";
 import {
 	modelCatalogEntry,
 	modelCatalogConfig,
@@ -237,6 +238,26 @@ beforeEach(() => {
 });
 
 describe("modelCatalog.list — authz", () => {
+	it("returns an empty local catalog while retaining the tedi fence", async () => {
+		const env = {
+			ENVIRONMENT: "development",
+			DESCOPE_PROJECT_ID: LOCAL_DEMO_PROJECT_ID,
+		} as CloudflareEnv;
+		const local = client(ORG, { env });
+		await expect(local.list({})).resolves.toMatchObject({
+			models: [],
+			selections: [],
+			wiredProviders: [],
+			routing: {
+				modelRef: null,
+				detail: expect.stringContaining("local stack"),
+			},
+		});
+		await expect(local.list({ tediId: TEDI })).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+	});
+
 	it("admits a user with only the os:read verb", async () => {
 		seedOrganization(ORG);
 		seedPlanAndAccount(ORG);

@@ -22,6 +22,9 @@ describe("demo sending gate", () => {
 
 	it.each([
 		["osWorkspaces/schedules/allowPersonalRead", {}],
+		["osWorkspaces/schedules/linkFactorySkills", { dryRun: false }],
+		["osWorkspaces/schedules/linkFactorySkills", { dryRun: "true" }],
+		["other/schedules/linkFactorySkills", { dryRun: true }],
 		["workInteractions/respond", { scheduledFor: "2026-11-01T09:00:00Z" }],
 		[
 			"workInteractions/respond",
@@ -36,6 +39,8 @@ describe("demo sending gate", () => {
 		["workInteractions/outbound/act", { action: "reject" }],
 		["workInteractions/outbound/list", {}],
 		["osWorkspaces/schedules/list", {}],
+		["osWorkspaces/schedules/linkFactorySkills", {}],
+		["osWorkspaces/schedules/linkFactorySkills", { dryRun: true }],
 		["workInteractions/respond", { body: "Useful" }],
 		["workInteractions/listInbox", {}],
 	])("lets %s run locally", (procedure, input) => {

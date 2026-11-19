@@ -75,7 +75,13 @@ export function demoSendingBlock(
 		)
 			return block("send");
 	}
-	if (parts.includes("schedules") && leaf !== "list") return block("schedule");
+	if (parts.includes("schedules") && leaf !== "list") {
+		const dryRun = object(input).dryRun;
+		const isWorkspaceSkillPreview =
+			parts.join("/") === "osWorkspaces/schedules/linkFactorySkills" &&
+			(dryRun === undefined || dryRun === true);
+		if (!isWorkspaceSkillPreview) return block("schedule");
+	}
 	if (leaf === "respond" || leaf === "create") {
 		const body = object(input);
 		if (

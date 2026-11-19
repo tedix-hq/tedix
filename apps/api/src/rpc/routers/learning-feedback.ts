@@ -1,3 +1,4 @@
+import { isLocalDemoProject } from "@tedix/auth/local-demo";
 import { archiveCorrectedAgentLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
 import { implement } from "@orpc/server";
 import {
@@ -790,10 +791,17 @@ const recordExposure = authed.recordExposure
 		),
 	)
 	.handler(async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const actorId = requireLearningPerson(context);
+		if (
+			context.env.ENVIRONMENT === "development" &&
+			isLocalDemoProject(context.env.DESCOPE_PROJECT_ID)
+		)
+			return { id: null };
 		try {
 			return await recordDecisionExposure(context.db, {
-				organizationId: requireOrgId(context),
-				actorId: requireLearningPerson(context),
+				organizationId,
+				actorId,
 				mayReadApprovals: userHoldsPermission(context, "tedis:read"),
 				input,
 			});
