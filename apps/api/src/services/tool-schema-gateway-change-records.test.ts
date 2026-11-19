@@ -20,3 +20,30 @@ it("projects the gateway change record read as one read-only gateway tool", asyn
 		).sort(),
 	).toEqual(["actorId", "afterSequence", "from", "limit", "resource", "until"]);
 });
+
+it("projects the checkpoint read as one read-only gateway tool", async () => {
+	const endpoint = resolveContractEndpoint(
+		"audit/listGatewayChangeRecordCheckpoints",
+	);
+	if (!endpoint) throw new Error("Missing checkpoint contract endpoint");
+	const { tool } = await buildProjectedTool("fixture-app", endpoint);
+	expect(tool.toolId).toBe("list_gateway_change_record_checkpoints");
+	expect(tool.writeCapability).toBe("read");
+	expect(parseToolPolicyMetadata(tool.meta)).toMatchObject({
+		riskTier: "read",
+		blastRadius: "none",
+	});
+	expect(tool.config?.transport).toBe("rpc");
+	expect(
+		Object.keys(
+			(tool.inputSchema as { properties: Record<string, unknown> }).properties,
+		).sort(),
+	).toEqual([
+		"afterLastSequence",
+		"from",
+		"fromSequence",
+		"limit",
+		"until",
+		"untilSequence",
+	]);
+});

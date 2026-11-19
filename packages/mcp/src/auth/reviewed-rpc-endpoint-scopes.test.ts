@@ -298,10 +298,12 @@ describe("reviewed RPC endpoint scopes", () => {
 		}
 	});
 
-	it("opens the organization's gateway change record read and keeps the gateway's own ledger closed", () => {
-		expect(resolve("audit/listGatewayChangeRecords")).toEqual([
-			"mcp:observe.read",
-		]);
+	it("opens the organization's gateway change record reads and keeps the gateway's own ledger closed", () => {
+		for (const endpoint of [
+			"audit/listGatewayChangeRecords",
+			"audit/listGatewayChangeRecordCheckpoints",
+		])
+			expect(resolve(endpoint)).toEqual(["mcp:observe.read"]);
 		for (const endpoint of [
 			"audit/appendChangeRecord",
 			"audit/listChangeRecords",

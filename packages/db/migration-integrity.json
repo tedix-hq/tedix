@@ -1644,6 +1644,10 @@
 		{
 			"name": "20261119144848_gateway_change_records_time_indexes/migration.sql",
 			"sha256": "7641bbd0125257b93d1bac97b5392ae245447b94885578063f91a2f8d8e52949"
+		},
+		{
+			"name": "20261119154006_gateway_change_record_seals/migration.sql",
+			"sha256": "cacea72fb1109f6052e521d832cee472f5e98ab09c601a6a49e476aab6c072ef"
 		}
 	]
 }

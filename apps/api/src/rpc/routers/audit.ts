@@ -24,11 +24,15 @@ import {
 import {
 	appendGatewayChangeRecord,
 	countGatewayChangeRecordsInRange,
+	listGatewayChangeRecordCheckpoints,
 	listGatewayChangeRecords,
 	listGatewayChangeRecordsInRange,
 	getGatewayChangeRecord,
 } from "@tedix/db/queries/gateway-change-records";
 import { toJsonRecord } from "@tedix/db/utils/json";
+import type { DsseEnvelope } from "@tedix/agent-governance/seal";
+import { loadChangeRecordSigningKey } from "../../lib/change-record-signing-key";
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { spillAuditMetadata } from "../../lib/audit-metadata-spill";
 import {
 	type AuditEventOutput,
@@ -339,6 +343,23 @@ const getChangeRecord = auditOs.getChangeRecord
 		return getGatewayChangeRecord(context.db, organizationId, input.id);
 	});
 
+/** Gateway change records and their checkpoints are for owners and admins. */
+async function assertGatewayChangeRecordReader(
+	context: BaseContext,
+	organizationId: string,
+): Promise<void> {
+	const subject =
+		context.authType === "user" ? context.user?.sub : context.descopeUserId;
+	if (
+		!subject ||
+		!(await isActiveOwnerOrAdmin(context, organizationId, subject))
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Only an active owner or admin can read gateway change records",
+		);
+}
+
 /**
  * An owner's or admin's read of their own organization's ledger. Separate
  * from the gateway-only procedures above: the organization is the caller's
@@ -348,16 +369,7 @@ const listOrganizationGatewayChangeRecords = authedOs.listGatewayChangeRecords
 	.use(withAuthorization(AUDIT_READ_PERMISSION, AUDIT_READ_SCOPE))
 	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const subject =
-			context.authType === "user" ? context.user?.sub : context.descopeUserId;
-		if (
-			!subject ||
-			!(await isActiveOwnerOrAdmin(context, context.organizationId, subject))
-		)
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"Only an active owner or admin can read gateway change records",
-			);
+		await assertGatewayChangeRecordReader(context, context.organizationId);
 		const { afterSequence, limit, ...range } = input;
 		const [count, records] = await Promise.all([
 			countGatewayChangeRecordsInRange(
@@ -384,8 +396,76 @@ const listOrganizationGatewayChangeRecords = authedOs.listGatewayChangeRecords
 		};
 	});
 
+/**
+ * The checkpoints that let a reader verify an export of the records offline
+ * (`verifyChain` in `@tedix/agent-governance/seal`), with the current public
+ * key. The key is returned for convenience only: a verifier must obtain the
+ * public key out of band (from the organization, not from this response) to
+ * trust a signature, since whoever could alter the records could also alter
+ * what this read returns.
+ */
+const listOrganizationGatewayChangeRecordCheckpoints =
+	authedOs.listGatewayChangeRecordCheckpoints
+		.use(withAuthorization(AUDIT_READ_PERMISSION, AUDIT_READ_SCOPE))
+		.use(withOrg)
+		.handler(async ({ input, context }) => {
+			await assertGatewayChangeRecordReader(context, context.organizationId);
+			const rows = await listGatewayChangeRecordCheckpoints(
+				context.db,
+				context.organizationId,
+				{
+					fromSequence: input.fromSequence,
+					untilSequence: input.untilSequence,
+					sealedFrom: input.from,
+					sealedUntil: input.until,
+					afterLastSequence: input.afterLastSequence,
+					limit: input.limit + 1,
+				},
+			);
+			const page = rows.slice(0, input.limit);
+			let publicKey: {
+				keyId: string;
+				algorithm: "Ed25519";
+				spki: string;
+			} | null = null;
+			try {
+				const key = await loadChangeRecordSigningKey(context.env);
+				if (key)
+					publicKey = {
+						keyId: key.keyId,
+						algorithm: "Ed25519",
+						spki: key.publicKeySpki,
+					};
+			} catch (error) {
+				// A broken key fails the sealer's cron receipt; the read still
+				// returns the stored checkpoints.
+				console.warn(
+					JSON.stringify({
+						event: "gateway_change_records.signing_key_unreadable",
+						exception: safeExceptionTopology(error),
+					}),
+				);
+			}
+			return {
+				exportedAt: new Date().toISOString(),
+				checkpoints: page.map((row) => ({
+					...row,
+					envelope: row.envelope
+						? (JSON.parse(row.envelope) as DsseEnvelope)
+						: null,
+				})),
+				nextAfterLastSequence:
+					rows.length > input.limit
+						? (page.at(-1)?.lastSequence ?? null)
+						: null,
+				publicKey,
+			};
+		});
+
 export const auditContractRouter = auditOs.router({
 	listGatewayChangeRecords: listOrganizationGatewayChangeRecords,
+	listGatewayChangeRecordCheckpoints:
+		listOrganizationGatewayChangeRecordCheckpoints,
 	appendChangeRecord,
 	listChangeRecords,
 	getChangeRecord,

@@ -16,6 +16,8 @@ import {
 import {
 	AuditActorTypeSchema,
 	GatewayChangeRecordInputSchema,
+	GatewayChangeRecordCheckpointsExportSchema,
+	GatewayChangeRecordCheckpointsInputSchema,
 	GatewayChangeRecordSchema,
 	GatewayChangeRecordsExportSchema,
 	GatewayChangeRecordsInputSchema,
@@ -93,6 +95,16 @@ export const auditContract = oc
 			})
 			.input(GatewayChangeRecordsInputSchema)
 			.output(GatewayChangeRecordsExportSchema),
+		listGatewayChangeRecordCheckpoints: oc
+			.route({
+				method: "GET",
+				path: "/gateway-change-record-checkpoints",
+				summary: "List gateway change record checkpoints",
+				description:
+					"Read the signed checkpoints that make your organization's gateway change records tamper-evident, by record sequence or by when they were sealed, oldest first. Each checkpoint states how many records it covers and the hash its last record must chain to; a checkpoint signed with the organization's key holds that statement in a signed envelope. Use them with list_gateway_change_records to check an export offline. Also returns the current public key; confirm it through another channel before trusting it. Only an active owner or admin of the organization can call it.",
+			})
+			.input(GatewayChangeRecordCheckpointsInputSchema)
+			.output(GatewayChangeRecordCheckpointsExportSchema),
 
 		/**
 		 * Search audit events with optional filters

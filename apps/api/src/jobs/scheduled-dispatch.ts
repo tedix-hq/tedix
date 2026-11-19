@@ -42,7 +42,8 @@ async function trackPlatformCronPath(
  *   of each quarter hour: retire expired, finished-Work and duplicate cards),
  *   due skill schedules, always-on keepalive, orphan-run sweep, work-attempt
  *   lease sweep, kernel request reconcile, interaction review dispatch, work
- *   approval redrive, MCP event webhook delivery, Work
+ *   approval redrive, MCP event webhook delivery, gateway change record
+ *   sealing, Work
  *   routing (every ten minutes: accepted non-coding Work to its steward tedi).
  * - Every 15 minutes → AI Gateway cost-ledger tick, workstation lease reaper,
  *   reply-draft career ladder,
@@ -211,6 +212,19 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				await import("./dispatcher-health-alarm");
 			await trackPlatformCronPath(env, event, "dispatcher-health-alarm", () =>
 				runDispatcherHealthAlarm(env, event.scheduledTime),
+			);
+		}
+
+		if (cron === "*/2 * * * *") {
+			// No AI: chains and checkpoints gateway change records written since
+			// the last run, in bounded batches, off the tool-call path.
+			const { runGatewayChangeRecordSealer } =
+				await import("./gateway-change-record-sealer");
+			await trackPlatformCronPath(
+				env,
+				event,
+				"gateway-change-record-sealer",
+				() => runGatewayChangeRecordSealer(env, event.scheduledTime),
 			);
 		}
 

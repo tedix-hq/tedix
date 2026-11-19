@@ -234,8 +234,103 @@ export const GatewayChangeRecordsExportSchema = z.object({
 		.describe(
 			"Total records in the time range and filters, independent of page size and cursor",
 		),
-	records: z.array(GatewayChangeRecordSchema),
+	records: z.array(
+		GatewayChangeRecordSchema.extend({
+			recordDigest: z
+				.string()
+				.nullable()
+				.describe(
+					"SHA-256 of the record's content; null until the record is sealed",
+				),
+			chainHash: z
+				.string()
+				.nullable()
+				.describe(
+					"SHA-256 linking the record to the organization's previous record; null until sealed",
+				),
+		}),
+	),
 	nextAfterSequence: z.number().int().nullable(),
+});
+
+/**
+ * Checkpoints of an organization's gateway change records, by sequence or by
+ * when they were sealed. Every filter is optional; with none, the read starts
+ * at the organization's first checkpoint.
+ */
+export const GatewayChangeRecordCheckpointsInputSchema = z
+	.strictObject({
+		fromSequence: z
+			.number()
+			.int()
+			.nonnegative()
+			.optional()
+			.describe("Only checkpoints whose records end at or after this sequence"),
+		untilSequence: z
+			.number()
+			.int()
+			.nonnegative()
+			.optional()
+			.describe(
+				"Only checkpoints whose records start at or before this sequence",
+			),
+		from: GatewayChangeRecordTimestampSchema.optional().describe(
+			"Only checkpoints sealed at or after this time",
+		),
+		until: GatewayChangeRecordTimestampSchema.optional().describe(
+			"Only checkpoints sealed before this time",
+		),
+		afterLastSequence: z
+			.number()
+			.int()
+			.nonnegative()
+			.optional()
+			.describe("Page cursor: pass the previous page's nextAfterLastSequence"),
+		limit: z.number().int().min(1).max(200).default(100),
+	})
+	.refine((input) => !input.from || !input.until || input.from < input.until, {
+		message: "from must precede until",
+		path: ["until"],
+	});
+
+/** https://github.com/secure-systems-lab/dsse/blob/master/envelope.md */
+export const DsseEnvelopeSchema = z.object({
+	payloadType: z.string(),
+	payload: z.string(),
+	signatures: z.array(z.object({ keyid: z.string(), sig: z.string() })),
+});
+
+export const GatewayChangeRecordCheckpointSchema = z.object({
+	id: z.string(),
+	organizationId: z.string(),
+	firstSequence: z.number().int(),
+	lastSequence: z.number().int(),
+	recordCount: z.number().int(),
+	headChainHash: z.string(),
+	previousCheckpointDigest: z.string().nullable(),
+	previousChainHash: z.string().nullable(),
+	checkpointDigest: z.string(),
+	sealedAt: z.string(),
+	envelope: DsseEnvelopeSchema.nullable().describe(
+		"The signed in-toto statement for this checkpoint; null when signing was off",
+	),
+	keyId: z.string().nullable(),
+});
+
+export const GatewayChangeRecordCheckpointsExportSchema = z.object({
+	exportedAt: z.string(),
+	checkpoints: z.array(GatewayChangeRecordCheckpointSchema),
+	nextAfterLastSequence: z.number().int().nullable(),
+	publicKey: z
+		.object({
+			keyId: z.string(),
+			algorithm: z.literal("Ed25519"),
+			spki: z.string().describe("Base64 SubjectPublicKeyInfo DER"),
+		})
+		.nullable()
+		.describe(
+			"The key new checkpoints are signed with, null when signing is off. Confirm it through another channel before trusting it.",
+		),
 });
 export type GatewayChangeRecordInput = z.infer<
 	typeof GatewayChangeRecordInputSchema

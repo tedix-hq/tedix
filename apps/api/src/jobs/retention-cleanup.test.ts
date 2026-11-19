@@ -1,7 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { tediCallCosts } from "@tedix/db/schema/tedis";
 import { appCatalogHealthHistory } from "@tedix/db/schema/catalog";
-import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
+import {
+	gatewayChangeRecordCheckpoints,
+	gatewayChangeRecords,
+} from "@tedix/db/schema/gateway-change-records";
 import { kernelToolResults } from "@tedix/db/schema/cognitive-runtime";
 import { organizations } from "@tedix/db/schema/organizations";
 import { sweepAbandonedSkillImprovements } from "@tedix/db/queries/cognitive/skill-improvement-cleanup";
@@ -139,6 +142,7 @@ describe("scheduled usage evidence retention", () => {
 					tediCallCosts,
 					appCatalogHealthHistory,
 					gatewayChangeRecords,
+					gatewayChangeRecordCheckpoints,
 				),
 			);
 			const old = new Date(Date.now() - 60 * 86_400_000).toISOString();
@@ -179,17 +183,32 @@ describe("scheduled usage evidence retention", () => {
 					.run(id, timestamp);
 			}
 			// The run is at 2026-09-21T03:00Z, so the 90-day cutoff is
-			// 2026-06-23T03:00:00.000Z, exclusive.
-			for (const [id, recordedAt] of [
-				["expired", "2026-06-23T02:59:59.999Z"],
-				["at-cutoff", "2026-06-23T03:00:00.000Z"],
-				["recent", "2026-09-20T12:00:00.000Z"],
-			])
-				sqlite
+			// 2026-06-23T03:00:00.000Z, exclusive. Rows go only with a whole
+			// checkpoint sealed before the cutoff; unsealed rows always stay.
+			for (const [id, recordedAt, sealedAt] of [
+				["expired", "2026-06-23T02:59:00.000Z", "2026-06-23T02:59:59.999Z"],
+				["at-cutoff", "2026-06-23T02:59:30.000Z", "2026-06-23T03:00:00.000Z"],
+				["unsealed", "2026-06-01T00:00:00.000Z", null],
+				["recent", "2026-09-20T12:00:00.000Z", null],
+			] as const) {
+				const { lastInsertRowid } = sqlite
 					.prepare(
-						"INSERT INTO gateway_change_records (id, organization_id, resource, actor_id, recorded_at, record) VALUES (?, 'org', 'tool:x', 'user', ?, '{}')",
+						"INSERT INTO gateway_change_records (id, organization_id, resource, actor_id, recorded_at, record, record_digest, chain_hash) VALUES (?, 'org', 'tool:x', 'user', ?, '{}', ?, ?)",
 					)
-					.run(id, recordedAt);
+					.run(id, recordedAt, sealedAt && "d", sealedAt && `chain-${id}`);
+				if (sealedAt)
+					sqlite
+						.prepare(
+							"INSERT INTO gateway_change_record_checkpoints (id, organization_id, first_sequence, last_sequence, record_count, head_chain_hash, checkpoint_digest, sealed_at) VALUES (?, 'org', ?, ?, 1, ?, 'digest', ?)",
+						)
+						.run(
+							`checkpoint-${id}`,
+							lastInsertRowid,
+							lastInsertRowid,
+							`chain-${id}`,
+							sealedAt,
+						);
+			}
 			const before = sqlite
 				.prepare("SELECT * FROM tedi_call_costs ORDER BY id")
 				.all();
@@ -221,7 +240,14 @@ describe("scheduled usage evidence retention", () => {
 				sqlite
 					.prepare("SELECT id FROM gateway_change_records ORDER BY sequence")
 					.all(),
-			).toEqual([{ id: "at-cutoff" }, { id: "recent" }]);
+			).toEqual([{ id: "at-cutoff" }, { id: "unsealed" }, { id: "recent" }]);
+			expect(
+				sqlite
+					.prepare(
+						"SELECT id FROM gateway_change_record_checkpoints ORDER BY id",
+					)
+					.all(),
+			).toEqual([{ id: "checkpoint-at-cutoff" }, { id: "checkpoint-expired" }]);
 			const retentionLine = log.mock.calls
 				.map(([line]) => String(line))
 				.find((line) => line.includes("gateway_change_records.retention.run"));
@@ -230,8 +256,8 @@ describe("scheduled usage evidence retention", () => {
 				before: "2026-06-23T03:00:00.000Z",
 				deletedRows: 1,
 				reachedRunCap: false,
-				rows: 2,
-				oldestRecordedAt: "2026-06-23T03:00:00.000Z",
+				rows: 3,
+				oldestRecordedAt: "2026-06-01T00:00:00.000Z",
 			});
 			expect(result.removedSkillImprovementCopies).toBe(1);
 			expect(sweepAbandonedSkillImprovements).toHaveBeenCalledWith(
@@ -274,6 +300,7 @@ it("logs 3am maintenance failures without returned or thrown text", async () => 
 				tediCallCosts,
 				appCatalogHealthHistory,
 				gatewayChangeRecords,
+				gatewayChangeRecordCheckpoints,
 			),
 		);
 		const { backfillCatalogBaseAppAutoSync } =

@@ -67,6 +67,35 @@ arguments use a stable structural hash; ordinary JSON arguments keep their
 existing hash. If neither hash can be computed, the denied row uses the explicit
 `unavailable` marker. Errors from `onRecorded` do not change the call's outcome.
 
+## Tamper-evident ledgers (`@tedix/agent-governance/seal`)
+
+Lets anyone holding the public key check an exported ledger offline: a
+changed, deleted or reordered record is found, and the result names where.
+
+- `recordDigest(record)`: SHA-256 hex of the record's content, which is every
+  field except `sequence`, `recordDigest` and `chainHash`, serialized with
+  `serializeGovernanceValue`.
+- `chainHash(previous, sequence, digest)`: SHA-256 hex over the UTF-8 of
+  `tedix.change-record-chain.v1`, the previous chain hash (64 zeros for the
+  first record), the sequence and the digest, joined by newlines.
+- `checkpointStatement(...)`: an
+  [in-toto Statement v1](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md)
+  whose subject is `gateway-change-records/<organizationId>` with the head
+  chain hash as its `sha256` digest. The predicate type
+  `https://tedix.dev/attestations/change-record-checkpoint/v1` holds the
+  organization, first and last sequence, record count, previous checkpoint
+  digest, previous chain hash and seal time.
+- `signCheckpoint` / `verifyCheckpoint`: a
+  [DSSE envelope](https://github.com/secure-systems-lab/dsse/blob/master/protocol.md)
+  of payload type `application/vnd.in-toto+json`, signed with Ed25519.
+- `sealRun(...)` seals the next records and builds their checkpoint;
+  `verifyChain({ records, checkpoints, publicKey })` checks an export, also one
+  that starts partway through the ledger, and reports the first `order`,
+  `digest`, `link`, `gap`, `signature`, `checkpoint` or `unsealed` failure.
+
+Get the public key from the ledger's owner through another channel; a key
+read from the same place as the export proves nothing about who signed it.
+
 ## In-memory implementations (`@tedix/agent-governance/in-memory`)
 
 `createInMemoryAdapters({ policies, callerScopes, approvedRequestIds,
