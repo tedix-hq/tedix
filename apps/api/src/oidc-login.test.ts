@@ -7,6 +7,7 @@ import { oidcSessions } from "@tedix/db/schema/oidc-sessions";
 import { organizations } from "@tedix/db/schema/organizations";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { principalIdentities } from "@tedix/db/schema";
+import { userConfigs } from "@tedix/db/schema/user-configs";
 import { users } from "@tedix/db/schema/users";
 import {
 	insertOidcRecord,
@@ -36,6 +37,8 @@ async function setup(status: "active" | "invited" | "deactivated" = "active") {
 			organizationMembers,
 			principalIdentities,
 			oidcSessions,
+			// The profile read looks up a new account's welcome record.
+			userConfigs,
 		),
 	);
 	const statements: string[] = [];
