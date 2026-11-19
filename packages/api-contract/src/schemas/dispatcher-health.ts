@@ -115,23 +115,16 @@ export const DispatcherHealthTopReasonSchema = z.object({
 	count: z.number().int().min(1).max(1_000_000),
 });
 
-export const ReportDispatcherHealthInputSchema = z
-	.object({
-		reporterId: BoundedIdSchema,
-		executor: z.string().trim().min(1).max(64),
-		lane: BoundedIdSchema,
-		running: z.boolean(),
-		observedAt: z.iso.datetime(),
-		lastAdmissionAt: z.iso.datetime().nullable(),
-		slotsInUse: z.number().int().min(0).max(10_000),
-		slotsTotal: z.number().int().min(0).max(10_000),
-		topReason: DispatcherHealthTopReasonSchema.nullable(),
-		duty: SupervisorDutyHealthSchema.nullable().optional(),
-	})
-	.refine((value) => value.slotsInUse <= value.slotsTotal, {
-		message: "slotsInUse must not exceed slotsTotal",
-		path: ["slotsInUse"],
-	});
+export const ReportDispatcherHealthInputSchema = z.object({
+	reporterId: BoundedIdSchema,
+	executor: z.string().trim().min(1).max(64),
+	lane: BoundedIdSchema,
+	running: z.boolean(),
+	observedAt: z.iso.datetime(),
+	lastAdmissionAt: z.iso.datetime().nullable(),
+	topReason: DispatcherHealthTopReasonSchema.nullable(),
+	duty: SupervisorDutyHealthSchema.nullable().optional(),
+});
 
 export const DispatcherHealthReportSchema = z.object({
 	reporterId: BoundedIdSchema,
@@ -141,8 +134,6 @@ export const DispatcherHealthReportSchema = z.object({
 	observedAt: z.iso.datetime(),
 	reportedAt: z.iso.datetime(),
 	lastAdmissionAt: z.iso.datetime().nullable(),
-	slotsInUse: z.number().int().min(0).max(10_000),
-	slotsTotal: z.number().int().min(0).max(10_000),
 	topReason: DispatcherHealthTopReasonSchema.nullable(),
 	duty: SupervisorDutyHealthSchema.nullable().optional(),
 	ageSeconds: z.number().int().nonnegative(),

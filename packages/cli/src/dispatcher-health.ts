@@ -65,13 +65,11 @@ export interface DispatcherHealthSource {
 	workspace: string;
 	organization: string;
 	executor: string;
-	slotsTotal: number;
 	pid: number;
 	startedAt: string;
 	/** The CLI version this dispatcher process runs. */
 	cliVersion?: string;
 	lastAdmissionAt?: string;
-	preparingSlots?: number;
 	nextCheckAt?: string;
 	lastCompleted?: { id: string; completedAt: string };
 	reliability?: z.infer<typeof ReliabilityJournalSchema>;
@@ -87,8 +85,6 @@ export interface LocalDispatcherHealth {
 	running: boolean;
 	observedAt: string;
 	lastAdmissionAt: string | null;
-	slotsInUse: number;
-	slotsTotal: number;
 	topReason: { reason: string; count: number } | null;
 	duty?: SupervisorDutyHealth;
 }
@@ -104,7 +100,6 @@ export function writeDispatcherHealthSource(
 	options: {
 		scope: string[];
 		executor: string;
-		max: number;
 	},
 	pid = process.pid,
 	startedAt = new Date().toISOString(),
@@ -117,11 +112,9 @@ export function writeDispatcherHealthSource(
 		workspace: selector(options.scope, "--workspace"),
 		organization: selector(options.scope, "--organization"),
 		executor: options.executor,
-		slotsTotal: options.max,
 		pid,
 		startedAt,
 		cliVersion,
-		preparingSlots: 0,
 		reliability: { coverageStartedAt: startedAt, events: [] },
 	};
 	if (
@@ -302,33 +295,6 @@ export function recordDispatcherAdmission(
 	}
 }
 
-export function recordDispatcherPreparing(
-	directory: string,
-	count: number,
-	pid = process.pid,
-): void {
-	const path = join(directory, SOURCE_FILE);
-	const source = readSource(path);
-	if (
-		!source ||
-		source.pid !== pid ||
-		!Number.isInteger(count) ||
-		count < 0 ||
-		count > source.slotsTotal
-	)
-		return;
-	try {
-		writeFileSync(
-			`${path}.tmp`,
-			JSON.stringify({ ...source, preparingSlots: count }),
-			{ mode: 0o600 },
-		);
-		renameSync(`${path}.tmp`, path);
-	} catch {
-		// Health publication must not interrupt preparation or admission.
-	}
-}
-
 function processAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
@@ -349,20 +315,13 @@ function validSource(value: unknown): value is DispatcherHealthSource {
 		row.organization.length > 0 &&
 		typeof row.executor === "string" &&
 		row.executor.length > 0 &&
-		Number.isSafeInteger(row.slotsTotal) &&
-		Number(row.slotsTotal) > 0 &&
-		Number(row.slotsTotal) <= 100 &&
 		Number.isSafeInteger(row.pid) &&
 		Number(row.pid) > 0 &&
 		typeof row.startedAt === "string" &&
 		Number.isFinite(Date.parse(row.startedAt)) &&
 		(row.lastAdmissionAt === undefined ||
 			(typeof row.lastAdmissionAt === "string" &&
-				Number.isFinite(Date.parse(row.lastAdmissionAt)))) &&
-		(row.preparingSlots === undefined ||
-			(Number.isInteger(row.preparingSlots) &&
-				Number(row.preparingSlots) >= 0 &&
-				Number(row.preparingSlots) <= Number(row.slotsTotal)))
+				Number.isFinite(Date.parse(row.lastAdmissionAt))))
 	);
 }
 
@@ -443,7 +402,7 @@ function receiptActivity(
 	source: DispatcherHealthSource,
 	now: number,
 ) {
-	let slots = 0;
+	let active = 0;
 	const current: SupervisorActivity["current"] = [];
 	const waiting: SupervisorActivity["waiting"] = [];
 	const latest = new Map<
@@ -478,7 +437,7 @@ function receiptActivity(
 			Date.parse(parsedActivity.data.observedAt) <= now + 60_000
 				? parsedActivity.data
 				: undefined;
-		if (["admitted", "running", "settling"].includes(phase) && live) slots++;
+		if (["admitted", "running", "settling"].includes(phase) && live) active++;
 		if (
 			(["preparing", "admitted"].includes(phase) && live) ||
 			(phase === "running" && typeof row.pid === "number" && live) ||
@@ -539,10 +498,9 @@ function receiptActivity(
 	waiting.sort((a, b) => reasons[a.reason] - reasons[b.reason]);
 	const last = source.lastCompleted;
 	return {
-		slots,
 		activity: {
 			current: current.slice(0, 3),
-			currentCount: Math.max(current.length, slots),
+			currentCount: Math.max(current.length, active),
 			waiting: waiting.slice(0, 3),
 			nextCheckAt:
 				typeof source.nextCheckAt === "string" &&
@@ -637,13 +595,6 @@ export function collectDispatcherHealth(
 							Date.parse(log.lastAdmissionAt))
 						? (source.lastAdmissionAt ?? null)
 						: log.lastAdmissionAt,
-				slotsInUse: running
-					? Math.min(
-							source.slotsTotal,
-							activity.slots + (source.preparingSlots ?? 0),
-						)
-					: 0,
-				slotsTotal: source.slotsTotal,
 				topReason: log.topReason,
 			});
 		} catch {}
@@ -675,8 +626,6 @@ export function collectDispatcherHealth(
 					running: row.state === "running",
 					observedAt: row.observedAt,
 					lastAdmissionAt: null,
-					slotsInUse: 0,
-					slotsTotal: 1,
 					topReason: null,
 					duty,
 				});
@@ -716,8 +665,6 @@ export function collectSupervisorBeats(
 		running: true,
 		observedAt,
 		lastAdmissionAt: null,
-		slotsInUse: 0,
-		slotsTotal: 0,
 		topReason: null,
 	}));
 }

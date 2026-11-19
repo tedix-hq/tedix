@@ -29,8 +29,6 @@ const row = {
 	observedAt: "2026-10-30T10:04:59.000Z",
 	reportedAt: "2026-10-30T10:04:59.000Z",
 	lastAdmissionAt: null,
-	slotsInUse: 0,
-	slotsTotal: 2,
 	topReason: "session label clash",
 	topReasonCount: 3,
 };
@@ -80,8 +78,6 @@ describe("dispatcher health router", () => {
 			running: row.running,
 			observedAt: row.observedAt,
 			lastAdmissionAt: null,
-			slotsInUse: 0,
-			slotsTotal: 2,
 			topReason: { reason: row.topReason, count: row.topReasonCount },
 		});
 

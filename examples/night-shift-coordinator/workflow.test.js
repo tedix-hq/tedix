@@ -216,8 +216,6 @@ describe("native night coordination", () => {
 					executor: "devin",
 					running: true,
 					stale: false,
-					slotsInUse: 2,
-					slotsTotal: 3,
 					lastAdmissionAt: "2026-10-17T21:55:00.000Z",
 					topReason: { reason: "Session label clash", count: 4 },
 				},
@@ -228,7 +226,7 @@ describe("native night coordination", () => {
 			[...f.outputs.values()][0].currentRevision.content.blocks.some(
 				(block) =>
 					block.text ===
-					"Lane devin: running; slots 2/3; last admission 2026-10-17T21:55:00.000Z; repeated 4x: Session label clash.",
+					"Lane devin: running; 0 in progress; last admission 2026-10-17T21:55:00.000Z; repeated 4x: Session label clash.",
 			),
 		).toBe(true);
 	});

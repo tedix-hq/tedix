@@ -72,8 +72,6 @@ const report = {
 	observedAt: at,
 	reportedAt: at,
 	lastAdmissionAt: at,
-	slotsInUse: 1,
-	slotsTotal: 2,
 	topReason: null,
 	ageSeconds: 0,
 	staleAfterSeconds: 60,

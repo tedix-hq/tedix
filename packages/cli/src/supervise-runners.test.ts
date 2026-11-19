@@ -45,7 +45,6 @@ const runner = (extra: Partial<RunnerDuty> = {}): RunnerDuty => ({
 	workspace: "fixture",
 	organization: "org_fixture",
 	executor: "codex",
-	max: 4,
 	rules: "runner-rules",
 	repo: "/repo/fixture",
 	coordinated: false,
@@ -65,15 +64,15 @@ describe("the runners file", () => {
 		const env = { TEDIX_CONFIG_DIR: config };
 		expect(readRunnerDuties(env)).toEqual([]);
 		expect(writeRunnerDuty(env, runner())).toEqual({ replaced: false });
-		expect(writeRunnerDuty(env, runner({ max: 2 }))).toEqual({
+		expect(writeRunnerDuty(env, runner({ rules: "other-rules" }))).toEqual({
 			replaced: true,
 		});
 		expect(writeRunnerDuty(env, runner({ executor: "devin" }))).toEqual({
 			replaced: false,
 		});
-		expect(readRunnerDuties(env).map((l) => [l.executor, l.max])).toEqual([
-			["codex", 2],
-			["devin", 4],
+		expect(readRunnerDuties(env).map((l) => [l.executor, l.rules])).toEqual([
+			["codex", "other-rules"],
+			["devin", "runner-rules"],
 		]);
 		expect(removeRunnerDuty(env, runnerKey(runner()))).toBe(true);
 		expect(removeRunnerDuty(env, runnerKey(runner()))).toBe(false);
@@ -118,7 +117,11 @@ describe("the runners file", () => {
 		expect(
 			writeRunnerDuty(
 				env,
-				runner({ executor: "any-local", project: PROJECT, max: 2 }),
+				runner({
+					executor: "any-local",
+					project: PROJECT,
+					rules: "other-rules",
+				}),
 			).replaced,
 		).toBe(true);
 		expect(readRunnerDuties(env)).toHaveLength(2);
@@ -136,8 +139,6 @@ describe("the runners file", () => {
 						[
 							"--executor",
 							"opencode",
-							"--max",
-							"3",
 							"--rules",
 							PROJECT,
 							"--repo",
@@ -161,7 +162,6 @@ describe("the runners file", () => {
 		expect(readRunnerDuties(env)).toEqual([
 			runner({
 				executor: "opencode",
-				max: 3,
 				rules: PROJECT,
 				repo: "/repo/x",
 				project: PROJECT,
@@ -335,7 +335,7 @@ describe("running the dispatchers", () => {
 
 	test("starts each enabled runner once with the lane serve arguments and records its pid", () => {
 		const f = setup();
-		f.write([runner(), runner({ executor: "devin", max: 2, enabled: false })]);
+		f.write([runner(), runner({ executor: "devin", enabled: false })]);
 		f.duties.tick();
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(1);
@@ -348,8 +348,6 @@ describe("running the dispatchers", () => {
 			"serve",
 			"--executor",
 			"codex",
-			"--max",
-			"4",
 			"--rules",
 			"runner-rules",
 			"--repo",
@@ -361,7 +359,7 @@ describe("running the dispatchers", () => {
 		expect(f.duties.status()).toEqual([
 			{ key: runnerKey(runner()), executor: "codex", pid: 100 },
 		]);
-		expect(f.lines[0]).toContain("codex started (pid 100, 4 slots)");
+		expect(f.lines[0]).toContain("codex started (pid 100)");
 	});
 
 	test("kills and immediately restarts a runner that misses its lane pass", () => {
@@ -379,7 +377,6 @@ describe("running the dispatchers", () => {
 			{
 				scope: ["--organization", "org_fixture", "--workspace", "fixture"],
 				executor: "claude-code",
-				max: 4,
 			},
 			100,
 		);
@@ -449,7 +446,6 @@ describe("running the dispatchers", () => {
 			{
 				scope: ["--organization", "org_fixture", "--workspace", "fixture"],
 				executor: "any-local",
-				max: 4,
 			},
 			lane.pid,
 		);
@@ -505,7 +501,6 @@ describe("running the dispatchers", () => {
 				{
 					scope: ["--organization", "org_fixture", "--workspace", "fixture"],
 					executor: "codex",
-					max: 4,
 				},
 				pid,
 				new Date(f.now()).toISOString(),

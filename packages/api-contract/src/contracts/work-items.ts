@@ -758,7 +758,7 @@ export const workItemsContract = oc
 							]),
 							unavailableSince: z.iso.datetime(),
 							minimumIdleMinutes: z.number().int().min(1).max(1440).default(15),
-							reason: z.enum(["busy", "unreachable"]),
+							reason: z.literal("unreachable"),
 						})
 						.optional()
 						.describe(

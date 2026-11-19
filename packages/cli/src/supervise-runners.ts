@@ -77,7 +77,6 @@ const runnerSchema = z.object({
 	workspace: text,
 	organization: text,
 	executor: z.enum(["codex", "claude-code", "opencode", "devin", "any-local"]),
-	max: z.number().int().min(1).max(100),
 	rules: text,
 	repo: text.refine(isAbsolute, "repo must be an absolute path"),
 	project: text.optional(),
@@ -103,7 +102,6 @@ export interface ServeLike {
 	executor: RunnerDuty["executor"];
 	coordinated: boolean;
 	acceptProposed: boolean;
-	max: number;
 	project?: string;
 	routingConfig?: string;
 	idleTakeoverMinutes?: number;
@@ -190,8 +188,6 @@ export function runnerServeArgs(runner: RunnerDuty): string[] {
 		"serve",
 		"--executor",
 		runner.executor,
-		"--max",
-		String(runner.max),
 		"--rules",
 		runner.rules,
 		"--repo",
@@ -220,7 +216,6 @@ export function runnerDutyFromServeOptions(options: ServeLike): RunnerDuty {
 		workspace: selector("--workspace"),
 		organization: selector("--organization"),
 		executor: options.executor,
-		max: options.max,
 		rules: options.rules,
 		repo: options.repo,
 		...(options.project ? { project: options.project } : {}),
@@ -307,12 +302,12 @@ export function runnerDutyFromPlist(
 		(arg, index) => arg === "lane" && args[index + 1] === "serve",
 	);
 	if (serve < 1) return undefined;
-	const options = parse(
-		[...args.slice(1, serve), ...args.slice(serve + 2)].filter(
-			(arg) => arg !== "--install",
-		),
+	// Old agents carry a fixed `--max` slot count; runners no longer take one.
+	const kept = [...args.slice(1, serve), ...args.slice(serve + 2)].filter(
+		(arg, index, all) =>
+			arg !== "--install" && arg !== "--max" && all[index - 1] !== "--max",
 	);
-	return runnerDutyFromServeOptions(options);
+	return runnerDutyFromServeOptions(parse(kept));
 }
 
 export const RUNNER_AGENT_PREFIX = "dev.tedix.lane-serve.";
@@ -693,9 +688,7 @@ export class RunnerDuties {
 		} catch {
 			/* The child runs; the record only helps a later supervisor adopt it. */
 		}
-		this.log(
-			`${runner.executor} started (pid ${child.pid}, ${runner.max} slots)`,
-		);
+		this.log(`${runner.executor} started (pid ${child.pid})`);
 		this.record(
 			runner,
 			{

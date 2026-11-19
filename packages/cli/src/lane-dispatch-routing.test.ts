@@ -44,7 +44,6 @@ function fixture(configured = true) {
 		...(configured ? { routingConfig } : {}),
 		coordinated: false,
 		acceptProposed: false,
-		max: 1,
 		rules: "rules",
 		repo: dir,
 		scope: ["--workspace", "acme", "--organization", "org_acme"],

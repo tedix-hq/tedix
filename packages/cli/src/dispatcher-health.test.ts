@@ -14,7 +14,6 @@ import {
 	recordDispatcherAdmission,
 	recordDispatcherCompletion,
 	recordDispatcherNextCheck,
-	recordDispatcherPreparing,
 	recordDispatcherReliability,
 	dispatcherReliability,
 	writeDispatcherHealthSource,
@@ -28,7 +27,6 @@ test("retains rolling reliability observations across restart without reading lo
 	const options = {
 		scope: ["--workspace", "fixture", "--organization", "org_fixture"],
 		executor: "any-local",
-		max: 2,
 	};
 	writeDispatcherHealthSource(directory, options, process.pid, start);
 	const event = {
@@ -93,7 +91,6 @@ describe("local dispatcher health", () => {
 		writeDispatcherHealthSource(directory, {
 			scope: ["--workspace", "fixture", "--organization", "org_fixture"],
 			executor: "fixture-runner",
-			max: 2,
 		});
 		const identity = {
 			id: "lane-key",
@@ -138,7 +135,6 @@ describe("local dispatcher health", () => {
 			{
 				scope: ["--workspace", "connect", "--organization", "org_example"],
 				executor: "alternate-runner",
-				max: 3,
 			},
 			process.pid,
 			"2026-10-30T09:00:00.000Z",
@@ -185,8 +181,6 @@ describe("local dispatcher health", () => {
 				lane: "lane-key",
 				running: true,
 				lastAdmissionAt: "2026-10-30T10:00:00.000Z",
-				slotsInUse: 1,
-				slotsTotal: 3,
 				topReason: {
 					reason: "Session label clash for <uuid>",
 					count: 2,
@@ -202,7 +196,6 @@ describe("local dispatcher health", () => {
 			{
 				scope: ["--workspace", "connect", "--organization", "org_example"],
 				executor: "fixture-runner",
-				max: 2,
 			},
 			2_147_483_647,
 		);
@@ -213,8 +206,6 @@ describe("local dispatcher health", () => {
 		const [report] = collectDispatcherHealth({ TEDIX_CONFIG_DIR: root });
 		expect(report).toMatchObject({
 			running: false,
-			slotsInUse: 0,
-			slotsTotal: 2,
 		});
 	});
 
@@ -223,7 +214,6 @@ describe("local dispatcher health", () => {
 		const options = {
 			scope: ["--workspace", "connect", "--organization", "org_example"],
 			executor: "fixture-runner",
-			max: 2,
 		};
 		writeDispatcherHealthSource(directory, options);
 		const at = "2026-10-30T10:00:00.000Z";
@@ -250,7 +240,6 @@ describe("local dispatcher health", () => {
 		writeDispatcherHealthSource(directory, {
 			scope: ["--workspace", "connect", "--organization", "org_example"],
 			executor: "fixture-runner",
-			max: 2,
 		});
 		recordDispatcherAdmission(directory, "2026-10-30T10:00:00.000Z");
 		recordDispatcherAdmission(directory, "2026-10-30T09:00:00.000Z");
@@ -261,28 +250,6 @@ describe("local dispatcher health", () => {
 		expect(
 			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.lastAdmissionAt,
 		).toBe("2026-10-30T11:00:00.000Z");
-	});
-
-	test("resets preparation on restart and rejects updates from a different process", () => {
-		const { root, directory } = lane();
-		const options = {
-			scope: ["--workspace", "connect", "--organization", "org_example"],
-			executor: "fixture-runner",
-			max: 3,
-		};
-		writeDispatcherHealthSource(directory, options);
-		recordDispatcherPreparing(directory, 2);
-		expect(
-			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.slotsInUse,
-		).toBe(2);
-		recordDispatcherPreparing(directory, 3, process.pid + 1);
-		expect(
-			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.slotsInUse,
-		).toBe(2);
-		writeDispatcherHealthSource(directory, options);
-		expect(
-			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.slotsInUse,
-		).toBe(0);
 	});
 
 	test("ignores malformed and pre-descriptor lane directories", () => {
@@ -302,7 +269,6 @@ describe("generic task activity", () => {
 		const options = {
 			scope: ["--workspace", "example", "--organization", "org_example"],
 			executor: "custom.build-agent",
-			max: 4,
 		};
 		writeDispatcherHealthSource(directory, options);
 		recordDutyStatus(

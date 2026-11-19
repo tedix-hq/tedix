@@ -5928,16 +5928,6 @@
 							}
 						]
 					},
-					"slotsInUse": {
-						"type": "integer",
-						"minimum": 0,
-						"maximum": 10000
-					},
-					"slotsTotal": {
-						"type": "integer",
-						"minimum": 0,
-						"maximum": 10000
-					},
 					"topReason": {
 						"anyOf": [
 							{
@@ -6349,8 +6339,6 @@
 					"running",
 					"observedAt",
 					"lastAdmissionAt",
-					"slotsInUse",
-					"slotsTotal",
 					"topReason"
 				]
 			},
@@ -8845,7 +8833,7 @@
 							},
 							"reason": {
 								"type": "string",
-								"enum": ["busy", "unreachable"]
+								"const": "unreachable"
 							}
 						},
 						"required": ["fromExecutor", "unavailableSince", "reason"],

@@ -90,7 +90,6 @@ const options: ServeOptions = {
 	executor: "codex",
 	coordinated: false,
 	acceptProposed: false,
-	max: 2,
 	project: projectId,
 	rules: projectId,
 	repo: "/fictional/repo",
@@ -114,7 +113,6 @@ function fixture({
 	executor = "codex" as ServeOptions["executor"],
 	coordinated = false,
 	acceptProposed = false,
-	max = options.max,
 	capBytes = undefined as number | undefined,
 	proposed = [] as DispatchItem[],
 	autoCleanup = true,
@@ -217,7 +215,6 @@ function fixture({
 		executor,
 		coordinated,
 		acceptProposed,
-		max,
 		checkoutCapBytes: capBytes,
 	};
 	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
@@ -635,7 +632,6 @@ describe("restarting onto an updated CLI", () => {
 							workspace: "acme",
 							organization: "org_acme",
 							executor: "codex",
-							max: 5,
 							rules: "lane-rules",
 							repo: "/fictional/repo",
 						},
@@ -1054,7 +1050,7 @@ describe("dispatcher admission", () => {
 		},
 	);
 	it("holds a legacy ownership receipt whose itemId is missing", async () => {
-		const f = fixture({ max: 1 });
+		const f = fixture();
 		const path = join(f.dir, "old.json");
 		const contents = JSON.stringify({
 			version: 2,
@@ -1075,9 +1071,12 @@ describe("dispatcher admission", () => {
 		);
 	});
 	it("keeps an already running worker's result while corrupt ownership holds new admission", async () => {
-		const f = fixture({ max: 1 });
+		const f = fixture();
+		const second = f.items[1]!;
+		f.items.splice(1);
 		await f.dispatcher.tick();
 		await until(() => f.releases.length === 1);
+		f.items.push(second);
 		const path = join(f.dir, `${item(2).id}-2.json`);
 		writeFileSync(path, "null");
 		await f.dispatcher.tick();
@@ -1104,7 +1103,7 @@ describe("dispatcher admission", () => {
 		await f.dispatcher.drain();
 	});
 	it("ignores health metadata by filename even when it is null", async () => {
-		const f = fixture({ max: 1 });
+		const f = fixture();
 		f.items.splice(1);
 		writeFileSync(join(f.dir, "health-source.json"), "null");
 		await f.dispatcher.tick();
@@ -1119,9 +1118,9 @@ describe("dispatcher admission", () => {
 			{ detached: true, stdio: "ignore" },
 		);
 		await once(parent, "spawn");
-		const f = fixture({ max: 1 });
+		const f = fixture();
 		f.items.splice(1);
-		writeDispatcherHealthSource(f.dir, { ...options, max: 1 }, parent.pid);
+		writeDispatcherHealthSource(f.dir, options, parent.pid);
 		try {
 			await f.dispatcher.tick();
 			await until(() => f.releases.length === 1);
@@ -1527,7 +1526,7 @@ describe("dispatcher admission", () => {
 		const admissions = (f: ReturnType<typeof fixture>) =>
 			f.events.filter((event) => event.verb === "start" && event.input);
 		it("re-admits the revision when no canonical Attempt exists", async () => {
-			const f = fixture({ max: 1 });
+			const f = fixture();
 			f.items.splice(1);
 			const path = stuck(f);
 			await f.dispatcher.tick();
@@ -1542,7 +1541,7 @@ describe("dispatcher admission", () => {
 			await f.dispatcher.drain();
 		});
 		it("adopts this session's live Attempt instead of admitting another", async () => {
-			const f = fixture({ max: 1 });
+			const f = fixture();
 			f.items.splice(1);
 			const path = stuck(f);
 			f.control.history.data = [
@@ -1562,7 +1561,7 @@ describe("dispatcher admission", () => {
 			expect(receipt.admissionState).toBe("admitted");
 		});
 		it("backs off when re-resolution cannot read Attempts", async () => {
-			const f = fixture({ max: 1 });
+			const f = fixture();
 			f.items.splice(1);
 			const path = stuck(f);
 			f.control.historyError = new Error("MCP tools/call error");
@@ -1579,7 +1578,7 @@ describe("dispatcher admission", () => {
 		});
 	});
 	it.each(["succeeded", "failed", "unknown admission"])(
-		"does not reserve an unrelated reused PID for settled %s except uncertain admission",
+		"neither signals an unrelated reused PID nor holds other Work for settled %s",
 		async (state) => {
 			const child = spawn(
 				process.execPath,
@@ -1587,8 +1586,10 @@ describe("dispatcher admission", () => {
 				{ detached: true, stdio: "ignore" },
 			);
 			await once(child, "spawn");
-			const f = fixture({ max: 1 });
+			const f = fixture();
 			if (state !== "succeeded") f.items.splice(0, 1);
+			// One startable item beside the retained receipt.
+			f.items.splice(state === "succeeded" ? 2 : 1);
 			writeFileSync(
 				join(f.dir, `${item(1).id}-2.json`),
 				JSON.stringify({
@@ -1610,9 +1611,8 @@ describe("dispatcher admission", () => {
 			const signals = spyOn(process, "kill");
 			try {
 				await f.dispatcher.tick();
-				if (state !== "unknown admission")
-					await until(() => f.releases.length === 1);
-				expect(f.releases).toHaveLength(state === "unknown admission" ? 0 : 1);
+				// Other ready Work starts; only an uncertain admission is re-read.
+				await until(() => f.releases.length === 1);
 				expect(
 					f.events.filter(
 						(event) =>
@@ -1908,7 +1908,6 @@ describe("dispatcher admission", () => {
 			writeDispatcherHealthSource(dir, {
 				scope: ["--workspace", "fixture", "--organization", "org_fixture"],
 				executor: "codex",
-				max: 1,
 			});
 			items.splice(1);
 			control.spawnPid = 999999;
@@ -2171,14 +2170,14 @@ describe("dispatcher admission", () => {
 			executor: "devin",
 		});
 		await dispatcher.tick();
-		await until(() => releases.length === 2);
+		await until(() => releases.length === 3);
 		expect(
 			events.find((event) => event.verb === "start")?.env.TEDIX_AGENT_SESSION,
 		).toStartWith("devin:");
 		for (const release of releases) release();
 		await dispatcher.drain();
-		expect(events.filter((event) => event.verb === "settle")).toHaveLength(2);
-		expect(control.installed).toHaveLength(2);
+		expect(events.filter((event) => event.verb === "settle")).toHaveLength(3);
+		expect(control.installed).toHaveLength(3);
 	});
 	it("posts Devin notes only to the admitted Work using its own fenced identity", async () => {
 		const f = fixture({ executor: "devin" });
@@ -2314,7 +2313,7 @@ describe("dispatcher admission", () => {
 		).toBeUndefined();
 		const silent = fixture({ proposed: [shift, bare, other] });
 		await silent.dispatcher.tick();
-		await until(() => silent.releases.length === 2);
+		await until(() => silent.releases.length === 3);
 		for (const release of silent.releases) release();
 		await silent.dispatcher.drain();
 		expect(silent.events.some((e) => e.verb === "accept")).toBe(false);
@@ -2323,7 +2322,7 @@ describe("dispatcher admission", () => {
 			proposed: [shift, bare, other],
 		});
 		await dispatcher.tick();
-		await until(() => releases.length === 2);
+		await until(() => releases.length === 3);
 		await dispatcher.tick();
 		for (const release of releases) release();
 		await dispatcher.drain();
@@ -2347,7 +2346,7 @@ describe("dispatcher admission", () => {
 			executor: "claude-code",
 		});
 		await dispatcher.tick();
-		await until(() => releases.length === 2);
+		await until(() => releases.length === 3);
 		const bootstrap = events.filter((e) => e.verb === "start" && !e.input);
 		expect(bootstrap[0]?.env.TEDIX_AGENT_SESSION).toMatch(
 			/^claude-code:33333333/,
@@ -2357,86 +2356,22 @@ describe("dispatcher admission", () => {
 		).toBe("claude-code");
 		for (const release of releases) release();
 		await dispatcher.drain();
-		expect(events.filter((e) => e.verb === "settle")).toHaveLength(2);
+		expect(events.filter((e) => e.verb === "settle")).toHaveLength(3);
 	});
-	it.each([1, 2])(
-		"counts a retained live process group against capacity %i after restart",
-		async (max) => {
-			const child = spawn(
-				process.execPath,
-				["-e", "setTimeout(() => {}, 30000)"],
-				{ detached: true, stdio: "ignore" },
-			);
-			await once(child, "spawn");
-			const { restart, deps, dir, releases, events } = fixture({ max });
-			const history = [
-				{
-					id: "retained-attempt",
-					externalSessionKey: "codex:retained",
-					outcome: null,
-					expiresAt: new Date(Date.now() + 300000).toISOString(),
-				},
-			];
-			const cli = deps.cli!;
-			deps.cli = async (args, ...rest) => {
-				const response = await cli(args, ...rest);
-				return args[5] === "dispatch-attempts" && args[6] === item(1).id
-					? ({ data: history, nextCursor: null } as never)
-					: (response as never);
-			};
-			const dispatcher = restart();
-			writeFileSync(
-				join(dir, `${item(1).id}-2.json`),
-				JSON.stringify({
-					itemId: item(1).id,
-					version: 2,
-					phase: "running",
-					pid: child.pid,
-					processIdentity: "deliberately-foreign",
-					session: "codex:retained",
-					attemptId: "retained-attempt",
-				}),
-			);
-			try {
-				await dispatcher.tick();
-				if (max === 2) await until(() => releases.length === 1);
-				expect(events[0]!.verb).toBe("dispatch-attempts");
-				await dispatcher.tick();
-				expect(releases).toHaveLength(max - 1);
-				expect(
-					events.filter(
-						(event) =>
-							event.verb === "dispatch-attempts" &&
-							event.args[6] === item(1).id,
-					),
-					// The live lease is read once, then again only when it runs out.
-				).toHaveLength(1);
-				for (const release of releases) release();
-				await dispatcher.drain();
-			} finally {
-				const exited = once(child, "exit");
-				process.kill(-child.pid!, "SIGTERM");
-				await exited;
-			}
-		},
-	);
-	it("frees the slot of an ended Attempt whose pid now belongs to another process", async () => {
+	it("starts other ready Work beside a retained live process group after restart", async () => {
 		const child = spawn(
 			process.execPath,
 			["-e", "setTimeout(() => {}, 30000)"],
-			{
-				detached: true,
-				stdio: "ignore",
-			},
+			{ detached: true, stdio: "ignore" },
 		);
 		await once(child, "spawn");
-		const { restart, deps, dir, releases } = fixture({ max: 1 });
+		const { restart, deps, dir, releases, events } = fixture();
 		const history = [
 			{
-				id: "ended-attempt",
-				externalSessionKey: "codex:ended",
-				outcome: "failed",
-				expiresAt: new Date(Date.now() - 60000).toISOString(),
+				id: "retained-attempt",
+				externalSessionKey: "codex:retained",
+				outcome: null,
+				expiresAt: new Date(Date.now() + 300000).toISOString(),
 			},
 		];
 		const cli = deps.cli!;
@@ -2454,14 +2389,25 @@ describe("dispatcher admission", () => {
 				version: 2,
 				phase: "running",
 				pid: child.pid,
-				processIdentity: "a-different-process",
-				session: "codex:ended",
-				attemptId: "ended-attempt",
+				processIdentity: "deliberately-foreign",
+				session: "codex:retained",
+				attemptId: "retained-attempt",
 			}),
 		);
 		try {
 			await dispatcher.tick();
-			await until(() => releases.length === 1);
+			await until(() => releases.length === 2);
+			expect(events[0]!.verb).toBe("dispatch-attempts");
+			await dispatcher.tick();
+			// The retained item keeps its run; every other ready item started.
+			expect(releases).toHaveLength(2);
+			expect(
+				events.filter(
+					(event) =>
+						event.verb === "dispatch-attempts" && event.args[6] === item(1).id,
+				),
+				// The live lease is read once, then again only when it runs out.
+			).toHaveLength(1);
 			for (const release of releases) release();
 			await dispatcher.drain();
 		} finally {
@@ -2470,16 +2416,16 @@ describe("dispatcher admission", () => {
 			await exited;
 		}
 	});
-	it("runs at most N, claims the native child before launch and persists settlement", async () => {
+	it("starts every ready item, claims the native child before launch and persists settlement", async () => {
 		const { dispatcher, events, releases, dir } = fixture();
 		await dispatcher.tick();
-		await until(() => releases.length === 2);
+		await until(() => releases.length === 3);
 		await dispatcher.tick();
-		expect(releases).toHaveLength(2);
+		expect(releases).toHaveLength(3);
 		const starts = events.filter(
 			(event) => event.verb === "start" && event.input,
 		);
-		expect(starts).toHaveLength(2);
+		expect(starts).toHaveLength(3);
 		expect(starts[0]!.env.TEDIX_AGENT_SESSION).toMatch(/^codex:33333333/);
 		expect(starts[0]!.env.TEDIX_EXTERNAL_AGENT).toBe("local-acme");
 		expect(starts[0]!.input).toMatchObject({
@@ -2487,7 +2433,7 @@ describe("dispatcher admission", () => {
 		});
 		for (const release of releases) release();
 		await dispatcher.drain();
-		expect(events.filter((event) => event.verb === "settle")).toHaveLength(2);
+		expect(events.filter((event) => event.verb === "settle")).toHaveLength(3);
 		expect(
 			events.find((event) => event.verb === "settle")!.input,
 		).toMatchObject({
@@ -2498,10 +2444,6 @@ describe("dispatcher admission", () => {
 		expect(
 			JSON.parse(readFileSync(join(dir, `${item(1).id}-2.json`), "utf8")).phase,
 		).toBe("settled");
-		await dispatcher.tick();
-		await until(() => releases.length === 3);
-		releases[2]!();
-		await dispatcher.drain();
 	});
 	it("completes a successful result under its original session and retains a denied completion for retry", async () => {
 		const { dispatcher, items, control, events, releases, dir } = fixture();
@@ -2952,7 +2894,6 @@ describe("dispatcher admission", () => {
 		const { dispatcher, deps, items, control, events, releases, dir } = fixture(
 			{
 				executor: "opencode",
-				max: 1,
 			},
 		);
 		const next = items[1]!;
@@ -3016,7 +2957,7 @@ describe("dispatcher admission", () => {
 		).toHaveLength(1);
 	});
 	it("defers an expired orphan with diagnostics and re-admits it on the next eligible pass", async () => {
-		const f = fixture({ max: 1 });
+		const f = fixture();
 		f.items.splice(1);
 		const path = join(f.dir, `${item().id}-2.json`);
 		const repo = join(f.dir, "runs", `${item().id}-2`, "repo");
@@ -3443,7 +3384,7 @@ describe("dispatcher admission", () => {
 		},
 	);
 	it("logs, and does not stop, an expired orphan whose identity was never recorded", async () => {
-		const f = fixture({ max: 1 });
+		const f = fixture();
 		f.items.splice(1);
 		const path = join(f.dir, `${item().id}-2.json`);
 		const attemptId = "44444444-4444-4444-8444-444444444444";
@@ -4169,7 +4110,6 @@ describe("dispatcher admission", () => {
 		writeDispatcherHealthSource(dir, {
 			scope: ["--workspace", "fixture", "--organization", "org_fixture"],
 			executor: "codex",
-			max: 1,
 		});
 		items.splice(1);
 		deps.available = () => ({
@@ -4508,7 +4448,7 @@ describe("dispatcher admission", () => {
 	it("sends the full any-local executor set to server-side discovery", async () => {
 		const { dispatcher, events, releases } = fixture({ executor: "any-local" });
 		await dispatcher.tick();
-		await until(() => releases.length === 2);
+		await until(() => releases.length === 3);
 		expect(
 			events.find((e) => e.verb === "dispatch-list")?.input?.executor,
 		).toEqual(["codex", "claude-code", "opencode", "devin", "any-local"]);
@@ -5277,7 +5217,7 @@ describe("dispatcher admission", () => {
 		expect(settle[0]!.args).toContain("cancelled");
 	});
 	it("explains an idle opencode update drain blocked by an expired receipt with a live PID", async () => {
-		const f = fixture({ executor: "opencode", max: 10 });
+		const f = fixture({ executor: "opencode" });
 		f.items.splice(1);
 		Object.assign(f.items[0]!, { priority: "high" });
 		// Liveness probes the process group, so the receipt needs a group leader.
@@ -5321,7 +5261,8 @@ describe("dispatcher admission", () => {
 		}
 	});
 	it("holding admissions for an update launches Work already admitted, cancels nothing and admits nothing new", async () => {
-		const f = fixture({ max: 1 });
+		const f = fixture();
+		const waiting = f.items.splice(1);
 		const recall = f.deps.recall!;
 		let runner!: ReturnType<typeof f.restart>;
 		f.deps.recall = async (...args) => {
@@ -5334,6 +5275,7 @@ describe("dispatcher admission", () => {
 		await runner.tick();
 		await until(() => f.releases.length === 1);
 		expect(runner.quiet()).toBe(false);
+		f.items.push(...waiting);
 		f.releases[0]!();
 		await runner.drain();
 		await runner.tick();
@@ -5424,7 +5366,7 @@ describe("dispatcher admission", () => {
 			expect(dispatcher.nextTickDelayMs()).toBe(30_000);
 			await dispatcher.tick();
 			expect(events.some((event) => event.verb === "dispatch-list")).toBe(true);
-			await until(() => releases.length === 2);
+			await until(() => releases.length === 3);
 		} finally {
 			for (const release of releases) release();
 			await dispatcher.drain();
@@ -5464,7 +5406,7 @@ describe("dispatcher admission", () => {
 		}
 	});
 	it("retries a settling receipt after a read deadline and re-admits the same revision", async () => {
-		const { dispatcher, dir, events, releases, control } = fixture({ max: 3 });
+		const { dispatcher, dir, events, releases, control } = fixture();
 		// Another Work Item stays in preparation, as on a busy lane.
 		let openGate!: () => void;
 		control.preparationGate = {
@@ -5536,7 +5478,7 @@ describe("dispatcher admission", () => {
 	it("retains the exact fence, outcome and retry deadline when settlement fails", async () => {
 		const { dispatcher, releases, dir } = fixture({ failSettle: true });
 		await dispatcher.tick();
-		await until(() => releases.length === 2);
+		await until(() => releases.length === 3);
 		for (const release of releases) release();
 		await dispatcher.drain();
 		const saved = JSON.parse(
@@ -5901,10 +5843,12 @@ it("dispatches Work that only mentions logins or credentials and holds credentia
 			"Consent, MFA and user presence remain human-only",
 		);
 });
-it("validates concurrency and pins selectors without persisting inherited identity or credentials", () => {
+it("takes no slot count and pins selectors without persisting inherited identity or credentials", () => {
 	const args = ["--executor", "codex", "--rules", projectId];
 	const env = { TEDIX_WORKSPACE: "acme", TEDIX_ORGANIZATION: "org_acme" };
-	expect(parseServeOptions(args, env).max).toBe(5);
+	expect(() => parseServeOptions([...args, "--max", "3"], env)).toThrow(
+		"Unknown serve option --max",
+	);
 	expect(parseServeOptions([...args, "--coordinated"], env).coordinated).toBe(
 		true,
 	);
@@ -5917,18 +5861,13 @@ it("validates concurrency and pins selectors without persisting inherited identi
 			env,
 		),
 	).toThrow("Conflicting");
-	for (const n of ["0", "-1", "NaN", "1.5", "101"])
-		expect(() => parseServeOptions([...args, "--max", n], env)).toThrow(
-			"integer",
-		);
 	const duty = runnerDutyFromServeOptions(
-		parseServeOptions([...args, "--repo", "/repo/a&b", "--max", "3"], env),
+		parseServeOptions([...args, "--repo", "/repo/a&b"], env),
 	);
 	expect(duty).toMatchObject({
 		workspace: "acme",
 		organization: "org_acme",
 		executor: "codex",
-		max: 3,
 		rules: projectId,
 		repo: "/repo/a&b",
 		enabled: true,
@@ -6124,8 +6063,6 @@ it("any-local accepts either native executor but never human or tedi Work", () =
 	const parsed = parseServeOptions([
 		"--executor",
 		"any-local",
-		"--max",
-		"2",
 		"--workspace",
 		"acme",
 		"--organization",
@@ -6154,19 +6091,19 @@ it("any-local accepts either native executor but never human or tedi Work", () =
 	).toContain("not assigned");
 });
 
-it("any-local shares two slots across native Claude and Codex Attempts", async () => {
+it("any-local runs native Claude and Codex Attempts side by side", async () => {
 	const { dispatcher, events, releases } = fixture({ executor: "any-local" });
 	await dispatcher.tick();
-	await until(() => releases.length === 2);
+	await until(() => releases.length === 3);
 	const starts = events.filter((e) => e.verb === "start" && !e.input);
 	expect(
 		starts.map((e) => e.env.TEDIX_AGENT_SESSION?.split(":")[0]).sort(),
-	).toEqual(["claude-code", "codex"]);
+	).toEqual(["claude-code", "codex", "codex"]);
 	await dispatcher.tick();
-	expect(releases).toHaveLength(2);
+	expect(releases).toHaveLength(3);
 	for (const done of releases) done();
 	await dispatcher.drain();
-	expect(events.filter((e) => e.verb === "settle")).toHaveLength(2);
+	expect(events.filter((e) => e.verb === "settle")).toHaveLength(3);
 });
 
 it("any-local requests delegation for the assigned native executor", () => {
@@ -6239,7 +6176,7 @@ exec '${realGit}' "$@"
 `,
 		{ mode: 0o755 },
 	);
-	const f = fixture({ max: 10 });
+	const f = fixture();
 	f.items.splice(
 		0,
 		f.items.length,
@@ -7057,7 +6994,7 @@ it.each(["admitted", "unknown"])(
 			{ detached: true, stdio: "ignore" },
 		);
 		await once(child, "spawn");
-		const f = fixture({ max: 1 });
+		const f = fixture();
 		f.items.splice(1);
 		const repo = join(f.dir, "runs", `${item().id}-2`, "repo");
 		mkdirSync(repo, { recursive: true });
@@ -7574,7 +7511,7 @@ it("evicts the oldest removable run checkouts until the retained cap holds", asy
 });
 
 it("admits ready high-priority opencode Work in one pass despite a refused checkout cap", async () => {
-	const f = fixture({ executor: "opencode", max: 10, capBytes: 1 });
+	const f = fixture({ executor: "opencode", capBytes: 1 });
 	const ready = { ...f.items[0]!, priority: "high" as const };
 	f.items.splice(0);
 	const repo = join(f.dir, "runs", `${item(99).id}-2`, "repo");
@@ -9158,7 +9095,7 @@ it("publishes only canonical completed Work, never a cancelled succeeded receipt
 });
 
 it("asks again after a lost request reply without holding the Work twice, and drops a hold the Work outgrew", async () => {
-	const f = fixture({ max: 1 });
+	const f = fixture();
 	f.items.splice(2);
 	const held = (n: number) => ({
 		itemId: item(n).id,
@@ -9206,7 +9143,7 @@ it("asks again after a lost request reply without holding the Work twice, and dr
 });
 
 it("records a pre-agent failure distinctly and retries without feeding the hold", async () => {
-	const f = fixture({ max: 1 });
+	const f = fixture();
 	f.items.splice(1);
 	const launch = f.deps.launch!;
 	f.deps.launch = () =>
@@ -9280,7 +9217,7 @@ it("keeps a slow but progressing pass from looking hung to the supervisor", asyn
 });
 
 it("retries claim preflight deadlines inside one logged budget before admission", async () => {
-	const f = fixture({ max: 20 });
+	const f = fixture();
 	f.items.splice(1);
 	const cli = f.deps.cli!;
 	const launch = f.deps.launch!;
@@ -9317,7 +9254,8 @@ it("retries claim preflight deadlines inside one logged budget before admission"
 			.map((row) => JSON.parse(row.reason))
 			.filter((row) => row.operation === "work.readiness");
 		expect(new Set(logs.map((row) => row.budgetId)).size).toBe(1);
-		expect(logs[0].budgetMs).toBe(300_000);
+		// One run in flight: the budget grows only with this runner's live runs.
+		expect(logs[0].budgetMs).toBe(60_000);
 		expect(logs.map((row) => row.event)).toEqual([
 			"read-budget",
 			"read-retry",

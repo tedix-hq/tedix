@@ -278,7 +278,6 @@ test.each([
 			executor: "codex",
 			coordinated: false,
 			acceptProposed: false,
-			max: 1,
 			rules: "lane-rules",
 			repo: "/fixture",
 			scope: ["--workspace", "fixture", "--organization", "org_fixture"],

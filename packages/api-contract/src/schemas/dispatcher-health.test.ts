@@ -12,8 +12,6 @@ const valid = {
 	running: true,
 	observedAt: "2026-10-30T10:00:00.000Z",
 	lastAdmissionAt: null,
-	slotsInUse: 1,
-	slotsTotal: 2,
 	topReason: { reason: "session label clash", count: 3 },
 };
 
@@ -78,8 +76,6 @@ describe("dispatcher health report input", () => {
 
 	it.each([
 		{ ...valid, reporterId: "x".repeat(129) },
-		{ ...valid, slotsInUse: 3 },
-		{ ...valid, slotsTotal: 10_001 },
 		{ ...valid, topReason: { reason: "", count: 1 } },
 		{ ...valid, topReason: { reason: "blocked", count: 0 } },
 		{ ...valid, observedAt: "not-a-timestamp" },

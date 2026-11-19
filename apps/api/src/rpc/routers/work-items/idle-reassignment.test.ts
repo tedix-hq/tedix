@@ -26,7 +26,7 @@ const input = {
 		fromExecutor: "codex" as const,
 		unavailableSince: "2026-11-07T21:45:00Z",
 		minimumIdleMinutes: 15,
-		reason: "busy" as const,
+		reason: "unreachable" as const,
 	},
 };
 const invoke = (value = input) =>

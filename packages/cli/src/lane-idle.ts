@@ -3,10 +3,13 @@ import { localExecutors, type LocalExecutor } from "./lane-routing";
 
 export type UnavailableRunner = {
 	since: number;
-	reason: "busy" | "unreachable";
+	reason: "unreachable";
 };
 
-/** Every runner for the donor must lack capacity continuously, in this scope. */
+/**
+ * A donor is unavailable while none of its runners in this scope is running.
+ * A running runner takes every ready item it may, so it is never full.
+ */
 export function observeUnavailableRunners(
 	reports: LocalDispatcherHealth[],
 	previous: Map<LocalExecutor, UnavailableRunner>,
@@ -22,18 +25,10 @@ export function observeUnavailableRunners(
 				row.organization === scope.organization &&
 				row.duty?.kind !== "task",
 		);
-		if (
-			!matching.length ||
-			matching.some((row) => row.running && row.slotsInUse < row.slotsTotal)
-		)
-			continue;
-		const reason = matching.every((row) => !row.running)
-			? "unreachable"
-			: "busy";
-		const prior = previous.get(executor);
+		if (!matching.length || matching.some((row) => row.running)) continue;
 		next.set(executor, {
-			since: prior?.reason === reason ? prior.since : now,
-			reason,
+			since: previous.get(executor)?.since ?? now,
+			reason: "unreachable",
 		});
 	}
 	return next;

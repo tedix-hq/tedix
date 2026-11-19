@@ -102,8 +102,6 @@ export function buildWorkMapLanes(
 			reportedAt: iso(newest.reportedAt),
 			ageSeconds: supervisorAge,
 			downAfterSeconds: downAfter,
-			slotsInUse: 0,
-			slotsTotal: 0,
 			heartbeat: fast,
 		});
 		for (const row of rows) {
@@ -143,14 +141,12 @@ export function buildWorkMapLanes(
 								? duty
 									? "The last run failed."
 									: "The runner process is not running; the supervisor restarts it on its next pass."
-								: row.slotsTotal
-									? `${row.slotsInUse} of ${row.slotsTotal} slots busy.`
+								: row.duty?.activity
+									? `${row.duty.activity.currentCount} running.`
 									: "Reported.") + problem,
 				reportedAt: iso(row.reportedAt),
 				ageSeconds: age,
 				downAfterSeconds: LEGACY_DOWN_AFTER_SECONDS,
-				slotsInUse: row.slotsInUse,
-				slotsTotal: row.slotsTotal,
 				heartbeat: fast,
 			});
 		}

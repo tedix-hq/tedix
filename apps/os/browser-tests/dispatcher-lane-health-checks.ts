@@ -34,7 +34,7 @@ export async function runLaneStates() {
 			const page = await browser.newPage({ viewport: { width, height: 900 } });
 			await page.goto(`${origin}/work/capacity`);
 			const section = page.getByRole("region", { name: "Local runners" });
-			await section.getByText("Slots in use", { exact: true }).waitFor();
+			await section.getByText("Running", { exact: true }).first().waitFor();
 			assert.equal(
 				await section
 					.getByText("Historical machines (1)", { exact: true })
@@ -63,13 +63,16 @@ export async function runLaneStates() {
 				await history.evaluate((button) => button === document.activeElement),
 				true,
 			);
-			for (const state of ["Slots in use", "Idle", "Unknown · stale"])
+			for (const [state, count] of [
+				["Running", 2],
+				["Unknown · stale", 1],
+			] as const)
 				assert.equal(
 					await section.locator(`[data-lane-state="${state}"]`).count(),
-					1,
+					count,
 				);
 			const skipDetails = section.locator(
-				'[data-lane-state="Idle"] [data-lane-details]',
+				'[data-lane-state="Running"] [data-lane-details]',
 			);
 			const skip = skipDetails.getByText(
 				"Most reported problem (30 min): Approval required · 2 observations",
@@ -150,8 +153,6 @@ export async function runLaneStates() {
 							observedAt: at,
 							reportedAt: at,
 							lastAdmissionAt: null,
-							slotsInUse: 0,
-							slotsTotal: 1,
 							topReason: { reason, count: 15 },
 							ageSeconds: 0,
 							staleAfterSeconds: 90,
@@ -214,8 +215,6 @@ export async function runLaneStates() {
 									observedAt: at,
 									reportedAt: at,
 									lastAdmissionAt: null,
-									slotsInUse: 0,
-									slotsTotal: 1,
 									topReason: {
 										reason: "custom-review pass finished",
 										count: 1,
@@ -244,8 +243,6 @@ export async function runLaneStates() {
 									observedAt: at,
 									reportedAt: at,
 									lastAdmissionAt: null,
-									slotsInUse: 0,
-									slotsTotal: 1,
 									topReason: null,
 									ageSeconds: 0,
 									staleAfterSeconds: 90,
@@ -278,9 +275,12 @@ export async function runLaneStates() {
 			);
 			assert.doesNotMatch(
 				await lead.innerText(),
-				/slots in use|Idle|observations/,
+				/in progress|Running|observations/,
 			);
-			assert.equal(await machine.getByText("Idle", { exact: true }).count(), 1);
+			assert.equal(
+				await machine.getByText("Running", { exact: true }).count(),
+				1,
+			);
 			assert.ok(
 				await page.evaluate(
 					() => document.documentElement.scrollWidth <= innerWidth,
@@ -370,8 +370,6 @@ export async function runLaneStates() {
 								observedAt: observationTime,
 								reportedAt: at,
 								lastAdmissionAt: null,
-								slotsInUse: 0,
-								slotsTotal: 1,
 								topReason: null,
 								ageSeconds: fresh ? 0 : 600,
 								staleAfterSeconds: 90,
@@ -404,7 +402,7 @@ export async function runLaneStates() {
 		);
 		fresh = true;
 		await stalePage.reload();
-		await stalePage.getByText("Idle", { exact: true }).waitFor();
+		await stalePage.getByText("Running", { exact: true }).waitFor();
 		assert.equal(await unknown.count(), 0);
 		assert.equal(
 			await stalePage.getByText("Historical report", { exact: true }).count(),
@@ -490,8 +488,6 @@ export async function runLaneActivity(theme: "light" | "dark") {
 									observedAt: at,
 									reportedAt: at,
 									lastAdmissionAt: at,
-									slotsInUse: index ? 0 : 2,
-									slotsTotal: 8,
 									topReason: null,
 									stale,
 									ageSeconds: stale ? 600 : 0,

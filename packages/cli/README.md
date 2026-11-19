@@ -186,7 +186,7 @@ the exact unsupported requirement when a compatible CLI workflow is needed.
   deadline. Server reads keep their existing deadlines.
   Every two minutes the same supervisor reads each local dispatcher's bounded
   health descriptor, recent log tail and active receipts, then publishes its
-  running state, last admission, occupied slots and top repeated problem to
+  running state, last admission, Work in progress and top repeated problem to
   Tedix. It never starts, stops or restarts a dispatcher. Reports go out one
   at a time, apart from answer delivery; a timed-out report is retried within
   45 seconds, and a failure logs its elapsed time and attempts. Reports become
@@ -459,21 +459,21 @@ a private receipt for idempotent replay under the same lane identity.
 
 ### Local Work dispatcher
 
-`tedix lane serve --executor codex --max 5 --rules <skill-uuid> --project <project-uuid> --repo <checkout>`
+`tedix lane serve --executor codex --rules <skill-uuid> --project <project-uuid> --repo <checkout>`
 finds accepted Work with `metadata.executor: "codex"`. Named executors are
 `codex`, `claude-code`, `opencode` or `devin`. An idle named runner can take
-startable Work after every local runner for its assigned executor has been busy
-or unreachable for 15 minutes. `--idle-takeover-minutes` changes that interval.
+startable Work after no local runner for its assigned executor has run for 15
+minutes. `--idle-takeover-minutes` changes that interval.
 The owner/admin dispatcher records a reassignment comment and preserves the Work
 revision, failure count and admission fences. It never takes held Work, human
 waits, retained working copies, named harness requirements, or Work with required
 capabilities or authorities. Activity reports current idle blockers; incomplete
 or stale observations remain unknown. This requires the matching API update.
 `--executor any-local` serves all four
-with one shared slot limit and routes Work assigned to `metadata.executor: "any-local"`.
+and routes Work assigned to `metadata.executor: "any-local"`.
 Without `--project` or `--repo` it replaces the per-executor services: stop
 them before switching; the combined service preserves their retained receipts
-and running process slots. With `--project`, `--repo`, or both it serves only
+and running processes. With `--project`, `--repo`, or both it serves only
 that slice beside them under its own dispatcher lane, and a same-scoped
 runner is the only one it waits for. `--project` is optional;
 workspace and organization are pinned explicitly. Rules default to the organization's
@@ -590,7 +590,7 @@ Long sleep/wake gaps and stopped children are recorded as interruptions. The old
 Attempt must be settled or canonically expired before fresh admission. Dead runs
 are reconciled against their exact canonical Attempt. Expired orphan process groups
 are stopped only when their saved OS start identity and native session still match;
-other live groups retain their slots. Cleanup removes only clean, merged worktrees using ordinary
+other live groups keep running. Cleanup removes only clean, merged worktrees using ordinary
 Git worktree removal; dirty and unverified work stays retained. Once a run
 settles, its checkout is removed as soon as every commit is on `origin/main`.
 A checkout with a live Attempt or with unpushed commits is never removed,
@@ -788,8 +788,10 @@ commits are still required.
 Devin's structured Work delivery remains separate; these lines must be carried in
 its delivered note and do not replace its success/failure envelope.
 
-`--max` defaults to 5. One dispatcher per organization and executor runs on a
-machine; retained live process groups consume slots after restart. Completed
+A dispatcher starts every ready Work Item it may take; there is no slot count.
+Leases, claims and per-item receipts keep each Work Item to one run. One
+dispatcher per organization and executor runs on a machine; retained live
+process groups keep their Work after restart. Completed
 receipts remain fenced. Admission failures and failed or expired executions retain
 their diagnostics and retry with exponential backoff starting at one minute, at most five times per
 30-minute window. A new Work revision or an elapsed window permits fresh

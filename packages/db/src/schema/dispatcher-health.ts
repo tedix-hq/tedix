@@ -23,8 +23,6 @@ export const dispatcherHealthReports = sqliteTable(
 		observedAt: text("observed_at").notNull(),
 		reportedAt: text("reported_at").notNull(),
 		lastAdmissionAt: text("last_admission_at"),
-		slotsInUse: integer("slots_in_use").notNull(),
-		slotsTotal: integer("slots_total").notNull(),
 		topReason: text("top_reason"),
 		topReasonCount: integer("top_reason_count"),
 		duty: text("duty", { mode: "json" }).$type<SupervisorDutyHealth>(),
@@ -39,12 +37,6 @@ export const dispatcherHealthReports = sqliteTable(
 				AND length(${table.executor}) BETWEEN 1 AND 64
 				AND length(${table.lane}) BETWEEN 1 AND 128
 				AND (${table.topReason} IS NULL OR length(${table.topReason}) BETWEEN 1 AND 500)`,
-		),
-		check(
-			"chk_dispatcher_health_slots",
-			sql`${table.slotsInUse} BETWEEN 0 AND 10000
-				AND ${table.slotsTotal} BETWEEN 0 AND 10000
-				AND ${table.slotsInUse} <= ${table.slotsTotal}`,
 		),
 		check(
 			"chk_dispatcher_health_reason",

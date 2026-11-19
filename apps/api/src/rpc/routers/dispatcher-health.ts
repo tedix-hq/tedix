@@ -30,8 +30,6 @@ function toReport(row: DispatcherHealthReportRow, now: Date) {
 		reportedAt: row.reportedAt,
 		lastAdmissionAt: row.lastAdmissionAt,
 		duty: row.duty ?? null,
-		slotsInUse: row.slotsInUse,
-		slotsTotal: row.slotsTotal,
 		topReason:
 			row.topReason === null || row.topReasonCount === null
 				? null
@@ -56,8 +54,6 @@ const reportProcedure = os.report
 			observedAt: input.observedAt,
 			reportedAt: now.toISOString(),
 			lastAdmissionAt: input.lastAdmissionAt,
-			slotsInUse: input.slotsInUse,
-			slotsTotal: input.slotsTotal,
 			topReason: input.topReason?.reason ?? null,
 			topReasonCount: input.topReason?.count ?? null,
 			duty: input.duty ?? null,

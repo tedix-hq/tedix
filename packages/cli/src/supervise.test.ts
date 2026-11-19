@@ -226,7 +226,6 @@ describe("dispatcher health publication", () => {
 			{
 				scope: ["--workspace", "fixture", "--organization", "org_fixture"],
 				executor: "opencode",
-				max: 4,
 			},
 			process.pid,
 		);
@@ -238,8 +237,6 @@ describe("dispatcher health publication", () => {
 			executor: "opencode",
 			lane: "fixture-lane",
 			running: true,
-			slotsInUse: 0,
-			slotsTotal: 4,
 		});
 		run.advance(2 * 60 * 1000);
 		await run.runner.tick(true);
@@ -255,7 +252,6 @@ describe("dispatcher health publication", () => {
 				{
 					scope: ["--workspace", "fixture", "--organization", "org_fixture"],
 					executor: name,
-					max: 1,
 				},
 				process.pid,
 			);

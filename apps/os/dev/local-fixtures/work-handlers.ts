@@ -214,8 +214,6 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 			).toISOString(),
 			reportedAt: new Date().toISOString(),
 			lastAdmissionAt: null,
-			slotsInUse: index === 0 ? 1 : 0,
-			slotsTotal: 3,
 			topReason:
 				index === 1 ? { reason: "Waiting for approval", count: 2 } : null,
 			ageSeconds: index === 2 ? 600 : 10,

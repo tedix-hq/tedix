@@ -1632,6 +1632,10 @@
 		{
 			"name": "20261119111534_workspace_tedi_principals/migration.sql",
 			"sha256": "6d54ffd17c4c15d10661e8644c004c5f1e71a528877f5451455ee58ce5607ea8"
+		},
+		{
+			"name": "20261119131810_drop-dispatcher-health-slots/migration.sql",
+			"sha256": "c24a5968cfe18ba88e5224438ce4c9149d0bc09e0e2d1fd86a43ef82bb847f50"
 		}
 	]
 }

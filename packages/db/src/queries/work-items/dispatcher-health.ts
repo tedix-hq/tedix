@@ -95,8 +95,6 @@ export async function upsertDispatcherHealthReport(
 				observedAt: params.observedAt,
 				reportedAt: params.reportedAt,
 				lastAdmissionAt: params.lastAdmissionAt ?? null,
-				slotsInUse: params.slotsInUse,
-				slotsTotal: params.slotsTotal,
 				topReason: params.topReason ?? null,
 				topReasonCount: params.topReasonCount ?? null,
 				duty: params.duty ?? null,

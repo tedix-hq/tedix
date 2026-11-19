@@ -333,11 +333,9 @@ function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 					}[duty.state]
 				: lead
 					? "Last pass reported"
-					: !lane.running
-						? "Stopped"
-						: lane.slotsInUse > 0
-							? "Slots in use"
-							: "Idle";
+					: lane.running
+						? "Running"
+						: "Stopped";
 	return (
 		<TableRow data-lane-state={state}>
 			<TableCell
@@ -433,12 +431,12 @@ function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 							) : null}
 							{lead ? (
 								<Text>Current pass: {duty ? state : "Not reported"}</Text>
-							) : (
+							) : activity ? (
 								<Text>
-									{lane.slotsInUse} / {lane.slotsTotal} slots in use
+									{activity.currentCount} in progress
 									{stale ? " at last observation" : ""}
 								</Text>
-							)}
+							) : null}
 							<Text tone="secondary">
 								Received {absoluteTime(lane.reportedAt)}
 							</Text>
