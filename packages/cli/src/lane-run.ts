@@ -19,6 +19,7 @@ import type { DevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import type { LaneObservation } from "./lane-telemetry";
 import { laneOutput } from "./lane-output";
+import { laneAgentSteps, type LaneStep } from "./lane-steps";
 import { transientReadFailure } from "./read-retry";
 
 /** Whether a Devin delivery turn ended with a result envelope saying it succeeded. */
@@ -184,6 +185,8 @@ async function runLaneProcessWithReporter(
 		deliverWorkNote?: (note: string) => Promise<void>;
 		onSpawn?: (pid: number) => void;
 		onAgentEvent?: (observedAt: number) => void;
+		/** A bounded summary of what the agent just did, for the run's log. */
+		onAgentStep?: (step: LaneStep) => void;
 		onTelemetry?: (value: LaneObservation) => void;
 		onNativeActivity?: (value: NativeProviderActivity) => void;
 		providerStallMs?: number;
@@ -636,6 +639,16 @@ async function runLaneProcessWithReporter(
 					const event = JSON.parse(line);
 					if ((codexJson || claudeJson) && typeof event?.type === "string")
 						deps.onAgentEvent?.(Date.now());
+					if (deps.onAgentStep && (codexJson || claudeJson))
+						try {
+							for (const step of laneAgentSteps(
+								codexJson ? "codex" : "claude-code",
+								event,
+							))
+								deps.onAgentStep(step);
+						} catch {
+							/* The run's log never affects the run. */
+						}
 					if (
 						event.type === "error" ||
 						(claudeJson && event.type === "result" && event.is_error)

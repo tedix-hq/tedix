@@ -70,6 +70,7 @@ function fixture(configured = true) {
 			createHeartbeat: () => async () => ({
 				expiresAt: new Date(Date.now() + 300_000).toISOString(),
 			}),
+			createStepSender: () => async () => ({ accepted: 0, pending: [] }),
 			health: () => [],
 			darkWake: () => false,
 			available: () => ({ available: true }),

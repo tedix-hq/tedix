@@ -18,6 +18,7 @@ import * as retryTimers from "node:timers/promises";
 import { CodexLaneResultJsonSchema } from "./lane-result";
 import {
 	LaneDispatcher,
+	followUpRefusal,
 	LaneCommitFetchError,
 	ARCHIVED_RUNS_KEPT,
 	DISPATCHER_LOG_CAP_BYTES,
@@ -42,6 +43,7 @@ import {
 	type DispatchItem,
 	type ServeOptions,
 } from "./lane-serve";
+import { RunStepsUnavailableError } from "./lane-steps";
 import {
 	runnerDutyFromPlist,
 	runnerDutyFromServeOptions,
@@ -178,6 +180,23 @@ function fixture({
 		heartbeatExpiry: false,
 		heartbeatError: undefined as Error | undefined,
 		onAgentEvent: undefined as ((observedAt: number) => void) | undefined,
+		// What the step tool answers, one entry per call; an Error is thrown.
+		stepReplies: [] as Array<Record<string, unknown>[] | Error>,
+		stepCalls: [] as Array<{
+			attemptId?: string;
+			steps: Array<{ seq: number; kind: string; text: string }>;
+			applied: string[];
+		}>,
+		// Runs inside each agent turn, after it started and before it ends.
+		duringTurn: undefined as
+			| ((turn: {
+					number: number;
+					brief: string;
+					args: string[];
+					step: (kind: "message" | "command", text: string) => void;
+			  }) => void | Promise<void>)
+			| undefined,
+		turns: 0,
 		cleanups: 0,
 		cleanupResult: true,
 		cleanupRemoves: false,
@@ -235,6 +254,16 @@ function fixture({
 					TEDIX_CLI_EXPECTED_ATTEMPT_ID: receipt.attemptId,
 				},
 			),
+		createStepSender: () => async (receipt, steps, applied) => {
+			control.stepCalls.push({
+				attemptId: receipt.attemptId,
+				steps: [...steps],
+				applied,
+			});
+			const reply = control.stepReplies.shift();
+			if (reply instanceof Error) throw reply;
+			return { accepted: steps.length, pending: reply ?? [] };
+		},
 		waitForIdentity: async () => undefined,
 		darkWake: () => dark,
 		gatewayCooldownUntil: (workspace) => {
@@ -473,6 +502,10 @@ function fixture({
 							: "codex";
 			const brief = readFileSync(args[args.indexOf("--brief") + 1]!, "utf8");
 			briefs.push(brief);
+			// A follow-up turn resumes the thread with only the new message.
+			const followUp = /follow-up-\d+\.txt$/.test(
+				args[args.indexOf("--brief") + 1]!,
+			);
 			const work = items.find(
 				(row) => row.id === args[args.indexOf("--work-item") + 1],
 			)!;
@@ -513,7 +546,7 @@ function fixture({
 							? [
 									"claude",
 									"-p",
-									control.threadSessions.includes(deps?.sessionKey)
+									followUp || control.threadSessions.includes(deps?.sessionKey)
 										? "--resume"
 										: "--session-id",
 									expect.any(String),
@@ -535,16 +568,18 @@ function fixture({
 									"-",
 								],
 			);
-			expect(brief).toContain("revision 7");
-			expect(brief).toContain("Keep all evidence in OS.");
-			expect(brief).toContain("already holds Attempt");
+			if (!followUp) {
+				expect(brief).toContain("revision 7");
+				expect(brief).toContain("Keep all evidence in OS.");
+				expect(brief).toContain("already holds Attempt");
+			}
 			if (
 				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!
 					.metadata?.artifactKind === "skill_revision"
 			)
 				expect(brief).toContain("--evidence-kind skill_revision");
 			else expect(brief).not.toContain("--evidence-kind skill_revision");
-			if (!brief.includes("Verify-only Attempt.")) {
+			if (!followUp && !brief.includes("Verify-only Attempt.")) {
 				// One trailer paragraph with this lane's exact ids, so the pre-push
 				// secret scan accepts the lane's commits.
 				expect(brief).toMatch(
@@ -557,6 +592,12 @@ function fixture({
 			expect(deps?.forwardSignals).toBe(false);
 			deps?.onSpawn?.(control.spawnPid ?? 2_000_000_000);
 			control.onAgentEvent = deps?.onAgentEvent;
+			await control.duringTurn?.({
+				number: ++control.turns,
+				brief,
+				args,
+				step: (kind, text) => deps?.onAgentStep?.({ kind, text }),
+			});
 			const completed = completedResult(
 				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!,
 			);
@@ -9949,3 +9990,251 @@ it("provisions beside a locked worktree registration whose folder is gone", asyn
 		`${destination}-3`,
 	);
 }, 30_000);
+
+describe("watching and steering a run", () => {
+	const fromOwner = (
+		id: string,
+		body: string,
+		kind: "follow_up" | "stop" = "follow_up",
+	) => ({
+		id,
+		kind,
+		body,
+		senderType: "user",
+		senderId: "fictional-owner",
+		createdAt: "2026-11-19T10:00:00.000Z",
+	});
+	const sentSteps = (f: ReturnType<typeof fixture>) =>
+		// A retried step keeps its number, so the server stores it once.
+		[
+			...new Map(
+				f.control.stepCalls
+					.flatMap((call) => call.steps)
+					.map((step) => [step.seq, step]),
+			).values(),
+		];
+
+	it("applies a follow-up after the turn in progress and settles the last turn's result", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const sessions: string[] = [];
+		f.control.duringTurn = (turn) => {
+			sessions.push(turn.args[turn.args.indexOf("resume") + 1]!);
+			turn.step("message", `Turn ${turn.number} is reading the guide.`);
+			f.control.finalMessage = `Result of turn ${turn.number}.`;
+		};
+		f.control.stepReplies = [[fromOwner("message-1", "Also cover pricing.")]];
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await until(() => f.releases.length === 2);
+		f.releases[1]!();
+		await f.dispatcher.drain();
+		expect(f.briefs).toHaveLength(2);
+		expect(sessions[1]).toBe(sessions[0]!);
+		expect(f.briefs[1]).toContain(
+			"From user fictional-owner:\nAlso cover pricing.",
+		);
+		expect(f.briefs[1]).toContain(
+			"only the JSON object required by --output-schema",
+		);
+		expect(f.briefs[1]).not.toContain("Standing rules");
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+		const note = settle.args[settle.args.indexOf("--note") + 1]!;
+		expect(note).toContain("Result of turn 2.");
+		expect(note).not.toContain("Result of turn 1.");
+		const steps = sentSteps(f);
+		expect(steps.map((step) => step.seq)).toEqual(steps.map((_, n) => n));
+		expect(steps.map((step) => [step.kind, step.text])).toEqual([
+			["started", "Started codex with model test-model"],
+			["message", "Turn 1 is reading the guide."],
+			["follow_up", "Also cover pricing."],
+			["message", "Turn 2 is reading the guide."],
+			["finished", "Agent run ended: succeeded"],
+		]);
+		expect(f.control.stepCalls.flatMap((call) => call.applied)).toEqual([
+			"message-1",
+		]);
+		expect(
+			f.control.stepCalls.every(
+				(call) => call.attemptId === "fictional-attempt",
+			),
+		).toBe(true);
+		expect(
+			JSON.parse(readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"))
+				.stepSeq,
+		).toBe(5);
+	});
+
+	it("keeps a run going when a send fails and sends the same steps again", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.stepReplies = [new Error("Gateway unavailable")];
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(f.control.stepCalls.map((call) => call.steps.length)).toEqual([
+			1, 2,
+		]);
+		expect(f.control.stepCalls[1]!.steps.map((step) => step.seq)).toEqual([
+			0, 1,
+		]);
+		expect(f.events.find((event) => event.verb === "settle")!.args).toContain(
+			"succeeded",
+		);
+	});
+
+	it("takes at most five follow-up turns in one Attempt", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		// Every send at the end of a turn brings one more follow-up.
+		f.control.duringTurn = (turn) => {
+			f.control.stepReplies = [
+				[fromOwner(`message-${turn.number}`, `Refine part ${turn.number}.`)],
+			];
+		};
+		await f.dispatcher.tick();
+		for (let turn = 1; turn <= 6; turn++) {
+			await until(() => f.releases.length === turn);
+			f.releases[turn - 1]!();
+		}
+		await f.dispatcher.drain();
+		expect(f.briefs).toHaveLength(6);
+		expect(f.control.stepCalls.flatMap((call) => call.applied)).toEqual([
+			"message-1",
+			"message-2",
+			"message-3",
+			"message-4",
+			"message-5",
+		]);
+		expect(sentSteps(f).map((step) => step.text)).toContain(
+			"Follow-up not applied: this run already took 5 follow-ups",
+		);
+	});
+
+	it("does not pass a reserved action to the agent unless the accountable owner sent it", async () => {
+		const body = "Send the invoice to the customer by e-mail.";
+		expect(followUpRefusal(item(), fromOwner("m", body))).toBeUndefined();
+		expect(
+			followUpRefusal(item(), { ...fromOwner("m", body), senderType: "tedi" }),
+		).toBe("Follow-up not applied: it needs the owner's own message");
+		expect(
+			followUpRefusal(
+				{ accountableOwnerType: "tedi", accountableOwnerId: "fictional-owner" },
+				fromOwner("m", body),
+			),
+		).toBe("Follow-up not applied: it needs the owner's own message");
+		// Consent, MFA and sign-in stay with the person whoever asks.
+		expect(
+			followUpRefusal(item(), fromOwner("m", "Complete the MFA prompt.")),
+		).toBe(
+			"Follow-up not applied: consent, MFA and sign-in steps stay with the person",
+		);
+		expect(
+			followUpRefusal(item(), {
+				...fromOwner("m", "Also cover pricing."),
+				senderId: "fictional-steward",
+			}),
+		).toBeUndefined();
+
+		const f = fixture();
+		f.items.splice(1);
+		f.control.stepReplies = [
+			[{ ...fromOwner("message-1", body), senderId: "fictional-steward" }],
+		];
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(f.briefs).toHaveLength(1);
+		expect(f.control.stepCalls.flatMap((call) => call.applied)).toEqual([]);
+		expect(sentSteps(f).map((step) => [step.kind, step.text])).toContainEqual([
+			"error",
+			"Follow-up not applied: it needs the owner's own message",
+		]);
+		expect(f.events.find((event) => event.verb === "settle")!.args).toContain(
+			"succeeded",
+		);
+	});
+
+	it("stops the agent on request, settles cancelled and does not start that version again", async () => {
+		let sendNow!: () => void;
+		const timer = spyOn(globalThis, "setInterval").mockImplementation(((
+			callback: () => void,
+			ms: number,
+		) => {
+			if (ms === 5000) sendNow = callback;
+			return setTimeout(() => {}, 60_000);
+		}) as typeof setInterval);
+		const kill = spyOn(process, "kill").mockReturnValue(true);
+		const f = fixture();
+		f.items.splice(1);
+		f.control.spawnPid = 999999;
+		try {
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.control.stepReplies = [[fromOwner("message-1", "", "stop")]];
+			sendNow();
+			await until(() =>
+				kill.mock.calls.some(
+					([pid, signal]) => pid === -999999 && signal === "SIGTERM",
+				),
+			);
+			f.control.exitCode = 143;
+			f.control.telemetryOutcome = "stopped";
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
+				"cancelled",
+			);
+			expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
+				"Stopped by user fictional-owner",
+			);
+			const path = join(f.dir, `${item().id}-2.json`);
+			const receipt = JSON.parse(readFileSync(path, "utf8"));
+			expect(receipt).toMatchObject({
+				phase: "settled",
+				outcome: "cancelled",
+				held: true,
+				note: "Stopped by user fictional-owner",
+			});
+			expect(receipt.interrupted).toBeUndefined();
+			expect(sentSteps(f).map((step) => [step.kind, step.text])).toEqual([
+				["started", "Started codex with model test-model"],
+				["stopped", "Stopped by user fictional-owner"],
+				["finished", "Agent run ended: cancelled"],
+			]);
+			await f.dispatcher.tick();
+			await f.dispatcher.drain();
+			expect(f.briefs).toHaveLength(1);
+			expect(f.events.filter((event) => event.verb === "settle")).toHaveLength(
+				1,
+			);
+		} finally {
+			timer.mockRestore();
+			kill.mockRestore();
+		}
+	});
+
+	it("runs to its result against a server that has no step tool", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.stepReplies = [
+			new RunStepsUnavailableError(
+				"Native Work callable work.append_work_attempt_steps is absent or ambiguous",
+			),
+		];
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(f.control.stepCalls).toHaveLength(1);
+		const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
+		expect(log.match(/"event":"run-steps-unavailable"/g)).toHaveLength(1);
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+	});
+});

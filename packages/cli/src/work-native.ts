@@ -158,6 +158,7 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	accept_work_item: "workItems/accept",
 	add_comment: "workItems/addComment",
 	add_work_case_dependency: "workItems/addCaseDependency",
+	append_work_attempt_steps: "workItems/appendAttemptSteps",
 	attach_work_case_item: "workItems/attachCaseWorkItem",
 	detach_work_case_item: "workItems/detachCaseWorkItem",
 	restore_work_filing: "workItems/restoreFiling",
