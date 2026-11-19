@@ -70,6 +70,27 @@ try {
 		await dialog.getByRole("button", { name: "Keep running" }).click();
 		await dialog.waitFor({ state: "hidden" });
 		await card.getByRole("button", { name: "Stop run" }).waitFor();
+		if (theme === "dark") {
+			// A question the agent asks shows on the card; the person answers
+			// there in their own words. Checked once, last, because the messages
+			// stay in the sample data. The sample agent asks back when a
+			// follow-up sent from the task page mentions a question.
+			await page.goto(`${server.origin}${TASK}`);
+			const taskRun = page.getByRole("region", { name: "Run", exact: true });
+			await taskRun
+				.getByLabel("Send a follow-up")
+				.fill(`Ask me a question (${theme})`);
+			await taskRun.getByRole("button", { name: "Send", exact: true }).click();
+			await taskRun.getByRole("group", { name: "The agent asks" }).waitFor();
+			await page.goto(`${server.origin}${CHAT}`);
+			const asks = card.getByRole("group", { name: "The agent asks" });
+			await asks.getByText("Should the last page be empty").waitFor();
+			assert.equal(await overflow(), false, `question overflows at ${width}`);
+			await asks.getByLabel("Your answer").fill("Leave it out, please");
+			await asks.getByRole("button", { name: "Answer" }).click();
+			await asks.waitFor({ state: "detached" });
+			await card.getByText("You: Leave it out, please").waitFor();
+		}
 		await page.close();
 		console.log(`Chat run card ${width}x${height} ${theme} passed`);
 	}

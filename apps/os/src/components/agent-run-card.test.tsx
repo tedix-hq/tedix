@@ -1,7 +1,7 @@
 import type { ListWorkAttemptStepsResult } from "@tedix/api-contract/schemas/work-attempt-steps";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { AgentRunCardView, type AgentRunTaskLinkProps } from "./agent-run-card";
 
 const START = Date.now() - 10 * 60_000;
@@ -109,5 +109,50 @@ describe("AgentRunCardView", () => {
 		).toContain("could not be loaded");
 		expect(failed.host.querySelector("a")).not.toBeNull();
 		failed.unmount();
+	});
+
+	it("shows a question the run is waiting on and sends the person's answer", async () => {
+		const onAnswer = vi.fn(async (_answer: string) => ({}));
+		const asking = run(2);
+		asking.steps.push({
+			seq: 2,
+			at: START + 5_000,
+			kind: "question",
+			text: "Which table holds the plan?",
+			choices: ["accounts", "subscriptions"],
+		});
+		const { host, unmount } = await mount(
+			<AgentRunCardView
+				agentRun={agentRun}
+				run={asking}
+				onAnswer={onAnswer}
+				LinkComponent={TaskLink}
+			/>,
+		);
+		const group = host.querySelector('[data-slot="run-question"]')!;
+		expect(group.textContent).toContain("Which table holds the plan?");
+		await act(async () => {
+			[...group.querySelectorAll("button")]
+				.find((button) => button.textContent === "accounts")!
+				.click();
+		});
+		const input = group.querySelector("input")!;
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(
+				HTMLInputElement.prototype,
+				"value",
+			)!.set!.call(input, " Neither, use plans ");
+			input.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		await act(async () => {
+			group
+				.querySelector("form")!
+				.dispatchEvent(
+					new Event("submit", { bubbles: true, cancelable: true }),
+				);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		});
+		expect(onAnswer.mock.calls).toEqual([["accounts"], ["Neither, use plans"]]);
+		unmount();
 	});
 });

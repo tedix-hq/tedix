@@ -129,6 +129,20 @@ try {
 			.getByText("Stopping the current step to apply this")
 			.waitFor();
 
+		// A question the agent asks shows with its offered answers; picking
+		// one sends it as the answer and the question closes.
+		await run
+			.getByLabel("Send a follow-up")
+			.fill(`Ask me a question (${theme})`);
+		await run.getByRole("button", { name: "Send", exact: true }).click();
+		const asks = run.getByRole("group", { name: "The agent asks" });
+		await asks.getByText("Should the last page be empty").waitFor();
+		assert.equal(await overflow(), false, `question overflows at ${width}`);
+		await asks.getByRole("button", { name: "Leave it out" }).click();
+		await asks.waitFor({ state: "detached" });
+		// The first viewport's answer is still in the sample data.
+		await steps.getByText("You: Leave it out").last().waitFor();
+
 		// Stopping asks first; declining leaves the run as it was.
 		await run.getByRole("button", { name: "Stop run" }).click();
 		const dialog = page.getByRole("alertdialog", { name: "Stop this run?" });

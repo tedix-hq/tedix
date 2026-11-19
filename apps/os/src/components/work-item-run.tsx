@@ -7,6 +7,8 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Button } from "@/components/kumo/button";
+import { Input } from "@/components/kumo/input";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { osLocale, osTimeZone } from "@/lib/format";
@@ -88,6 +90,110 @@ export function workRunEntries(
 	}
 	// A stable sort keeps steps in seq order when two share a millisecond.
 	return entries.sort((a, b) => a.at - b.at);
+}
+
+/**
+ * The question a run in progress is waiting on: its newest step, as long as
+ * nobody has sent the run anything since.
+ */
+export function workRunOpenQuestion(
+	run:
+		| Pick<ListWorkAttemptStepsResult, "live" | "steps" | "messages">
+		| undefined,
+): WorkAttemptStep | undefined {
+	const last = run?.live ? run.steps.at(-1) : undefined;
+	if (last?.kind !== "question") return;
+	return run!.messages.some(
+		(message) =>
+			message.kind === "follow_up" && Date.parse(message.createdAt) > last.at,
+	)
+		? undefined
+		: last;
+}
+
+/**
+ * The question a run is waiting on, with the answers the agent offers. With
+ * `answerBox` it also takes an answer in the person's own words; the task
+ * page uses its follow-up box for that instead.
+ */
+export function WorkRunQuestion({
+	question,
+	onAnswer,
+	sending = false,
+	answerBox = false,
+}: {
+	question: WorkAttemptStep;
+	/** Resolves once the answer is stored. */
+	onAnswer?: (answer: string) => Promise<unknown>;
+	sending?: boolean;
+	answerBox?: boolean;
+}) {
+	const [draft, setDraft] = useState("");
+	const answer = (text: string) => {
+		const body = text.trim();
+		if (!body || sending || !onAnswer) return;
+		void onAnswer(body).then(
+			() => setDraft(""),
+			() => {},
+		);
+	};
+	return (
+		<div
+			role="group"
+			aria-label="The agent asks"
+			data-slot="run-question"
+			className="grid min-w-0 gap-2 rounded-lg border border-kumo-hairline px-3 py-2.5"
+		>
+			<Text as="span" role="label" tone="secondary" weight="medium">
+				The agent is waiting for your answer
+			</Text>
+			<Text className="m-0 whitespace-pre-wrap break-words">
+				{question.text}
+			</Text>
+			{question.choices?.length ? (
+				<div className="flex min-w-0 flex-wrap gap-2">
+					{question.choices.map((choice) => (
+						<Button
+							key={choice}
+							type="button"
+							variant="outline"
+							size="sm"
+							disabled={sending || !onAnswer}
+							onClick={() => answer(choice)}
+						>
+							{choice}
+						</Button>
+					))}
+				</div>
+			) : null}
+			{answerBox ? (
+				<form
+					className="flex min-w-0 flex-wrap items-center gap-2"
+					onSubmit={(event) => {
+						event.preventDefault();
+						answer(draft);
+					}}
+				>
+					<Input
+						aria-label="Your answer"
+						className="min-w-0 flex-1"
+						value={draft}
+						onChange={(event) => setDraft(event.target.value)}
+						maxLength={4000}
+						disabled={sending}
+						placeholder="Answer in your own words"
+					/>
+					<Button
+						type="submit"
+						size="sm"
+						disabled={!draft.trim() || sending || !onAnswer}
+					>
+						Answer
+					</Button>
+				</form>
+			) : null}
+		</div>
+	);
 }
 
 function clockTime(at: number): string {

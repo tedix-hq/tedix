@@ -92,6 +92,24 @@ const localRunSteps = (workItem: string) => {
 			| "finished",
 		text: string,
 	) => ({ seq, at: Math.trunc(minutesAgo(minutes)), kind, text });
+	// The sample agent asks back when the newest follow-up mentions a
+	// question, so the answer controls can be tried: send "Ask me a question".
+	// The answer is the next follow-up, and the question leaves the log.
+	const newest = localRunMessages
+		.filter((message) => message.kind === "follow_up")
+		.at(-1);
+	const asked =
+		newest && /\bquestion\b/i.test(newest.body)
+			? [
+					{
+						seq: 8,
+						at: Date.parse(newest.createdAt) + 1,
+						kind: "question" as const,
+						text: "Should the last page be empty or left out when the rows divide evenly?",
+						choices: ["Leave it out", "Keep it empty"],
+					},
+				]
+			: [];
 	if (workItem === workItemId(1))
 		return [
 			step(0, 4, "started", "The agent started working on this task."),
@@ -107,6 +125,7 @@ const localRunSteps = (workItem: string) => {
 			step(5, 1.5, "command", "bun test churn-cohort (exit 1)"),
 			step(6, 1.4, "error", "One test failed: the last page came back empty."),
 			step(7, 0.5, "message", "The page size was off by one. Fixing it now."),
+			...asked,
 		];
 	if (workItem === workItemId(4))
 		return [

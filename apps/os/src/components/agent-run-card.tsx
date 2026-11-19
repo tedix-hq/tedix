@@ -10,6 +10,8 @@ import {
 	type WorkRunAttempt,
 	WorkRunEntryRow,
 	workRunEntries,
+	workRunOpenQuestion,
+	WorkRunQuestion,
 	workRunStatus,
 	WorkRunStopConfirm,
 } from "@/components/work-item-run";
@@ -38,7 +40,8 @@ function executorLabel(executor: string): string | null {
 /**
  * A run a tedi started for an agent, in the chat: what it is for, who runs
  * it, where it stands and its newest steps. The person steers the run by
- * writing to the tedi, so there is no follow-up box here; stopping is direct.
+ * writing to the tedi, so there is no follow-up box here; stopping is direct,
+ * and so is answering a question the agent is waiting on.
  */
 export function AgentRunCardView({
 	agentRun,
@@ -47,6 +50,8 @@ export function AgentRunCardView({
 	attempt,
 	viewerId,
 	ownMessageIds,
+	onAnswer,
+	answering = false,
 	onStop,
 	stopping = false,
 	stopError,
@@ -60,6 +65,9 @@ export function AgentRunCardView({
 	attempt?: WorkRunAttempt;
 	viewerId?: string;
 	ownMessageIds?: ReadonlySet<string>;
+	/** Sends the person's answer to a question the run is waiting on. */
+	onAnswer?: (answer: string) => Promise<unknown>;
+	answering?: boolean;
 	onStop?: () => Promise<unknown>;
 	stopping?: boolean;
 	stopError?: unknown;
@@ -92,6 +100,7 @@ export function AgentRunCardView({
 	const visible = hidden ? entries.slice(hidden) : entries;
 	const title = agentRun.title || "Agent run";
 	const outcome = attempt?.outcome;
+	const question = workRunOpenQuestion(run);
 
 	return (
 		<li
@@ -176,6 +185,14 @@ export function AgentRunCardView({
 						))}
 					</ul>
 				) : null}
+				{question ? (
+					<WorkRunQuestion
+						question={question}
+						onAnswer={onAnswer}
+						sending={answering}
+						answerBox
+					/>
+				) : null}
 				<div className="flex min-w-0 flex-wrap items-center gap-2">
 					<LinkComponent
 						to="/work/items/$workItemId"
@@ -212,7 +229,7 @@ export function AgentRunCardView({
 
 /** The run card with its own data: reads the run and keeps it current. */
 export function AgentRunCard({ agentRun }: { agentRun: AgentRunRef }) {
-	const { run, failed, attempt, viewerId, ownMessageIds, stop } =
+	const { run, failed, attempt, viewerId, ownMessageIds, send, stop } =
 		useWorkItemRun(agentRun.workItemId);
 	return (
 		<AgentRunCardView
@@ -222,6 +239,8 @@ export function AgentRunCard({ agentRun }: { agentRun: AgentRunRef }) {
 			attempt={attempt}
 			viewerId={viewerId}
 			ownMessageIds={ownMessageIds}
+			onAnswer={(answer) => send.mutateAsync({ body: answer })}
+			answering={send.isPending}
 			onStop={() => stop.mutateAsync()}
 			stopping={stop.isPending}
 			stopError={stop.error}
