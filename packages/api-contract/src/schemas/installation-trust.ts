@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { JsonValueSchema } from "./common";
 
 const IdentityListSchema = z
 	.array(z.string().trim().min(1).max(200))
@@ -21,7 +22,11 @@ export const InstallationTrustPolicySchema = z.object({
 });
 
 export const InstallationTrustDefinitionSchema = z
-	.object({ installationTrust: InstallationTrustPolicySchema })
+	.object({
+		installationTrust: InstallationTrustPolicySchema,
+		// Every policy pack carries its approval posture; it grants no trust.
+		governancePolicy: JsonValueSchema.optional(),
+	})
 	.strict();
 
 export type InstallationTrustPolicy = z.infer<

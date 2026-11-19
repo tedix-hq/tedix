@@ -102,6 +102,17 @@ describe("installation trust authority", () => {
 		expect(await getInstallationTrustPolicy(db)).toEqual(policy);
 	});
 
+	it("reads published revisions that carry the policy pack approval posture", async () => {
+		const { db, insert } = fixture();
+		await insert({
+			definition: {
+				installationTrust: policy,
+				governancePolicy: { requireExplicitThirdPartyApprovalPolicy: false },
+			},
+		});
+		expect(await getInstallationTrustPolicy(db)).toEqual(policy);
+	});
+
 	it("still rejects unexpected aggregate authority fields", async () => {
 		const { db, insert } = fixture();
 		await insert({

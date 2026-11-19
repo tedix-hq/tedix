@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { JsonValueSchema } from "./common";
 
 const HostSchema = z
 	.string()
@@ -79,6 +80,8 @@ export const SiteRoutingDefinitionSchema = z
 					),
 			})
 			.strict(),
+		// Every policy pack carries its approval posture; it routes nothing.
+		governancePolicy: JsonValueSchema.optional(),
 	})
 	.strict();
 
