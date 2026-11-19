@@ -1084,6 +1084,8 @@ export const billingCreditNotices = sqliteTable(
 		periodStart: text("period_start").notNull(),
 		threshold: integer("threshold").notNull(),
 		reachedAt: text("reached_at").notNull(),
+		/** Set once the notice's admin deliveries are queued; null = not yet. */
+		deliveriesPlannedAt: text("deliveries_planned_at"),
 	},
 	(table) => [
 		primaryKey({
@@ -1091,6 +1093,81 @@ export const billingCreditNotices = sqliteTable(
 		}),
 		check(
 			"chk_billing_credit_notice_threshold",
+			sql`${table.threshold} IN (80, 100)`,
+		),
+		index("idx_billing_credit_notices_unplanned")
+			.on(table.reachedAt)
+			.where(sql`${table.deliveriesPlannedAt} IS NULL`),
+	],
+);
+
+export const CREDIT_NOTICE_DELIVERY_CHANNELS = ["deck", "email"] as const;
+export type CreditNoticeDeliveryChannel =
+	(typeof CREDIT_NOTICE_DELIVERY_CHANNELS)[number];
+
+export const CREDIT_NOTICE_DELIVERY_STATUSES = [
+	"pending",
+	"sending",
+	"sent",
+	"failed",
+	// Terminal: the attempt ceiling was reached.
+	"dead",
+	// Terminal: the billing period ended before delivery; the notice is stale.
+	"expired",
+] as const;
+export type CreditNoticeDeliveryStatus =
+	(typeof CREDIT_NOTICE_DELIVERY_STATUSES)[number];
+
+/**
+ * Durable outbox telling each organization admin about a usage notice: one
+ * row per notice, channel and admin. The id is deterministic, so planning
+ * twice queues nothing new, and a row marked sent is never claimed again.
+ */
+export const billingCreditNoticeDeliveries = sqliteTable(
+	"billing_credit_notice_deliveries",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		periodStart: text("period_start").notNull(),
+		threshold: integer("threshold").notNull(),
+		channel: text("channel", {
+			enum: CREDIT_NOTICE_DELIVERY_CHANNELS,
+		}).notNull(),
+		recipientUserId: text("recipient_user_id").notNull(),
+		recipientEmail: text("recipient_email").notNull(),
+		status: text("status", { enum: CREDIT_NOTICE_DELIVERY_STATUSES })
+			.notNull()
+			.default("pending"),
+		attemptCount: integer("attempt_count").notNull().default(0),
+		nextAttemptAt: text("next_attempt_at").notNull(),
+		leaseExpiresAt: text("lease_expires_at"),
+		/** The Deck card id or the email provider's message id. */
+		deliveryRef: text("delivery_ref"),
+		lastError: text("last_error"),
+		sentAt: text("sent_at"),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+		updatedAt: text("updated_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+	},
+	(table) => [
+		uniqueIndex("uniq_billing_credit_notice_delivery").on(
+			table.organizationId,
+			table.periodStart,
+			table.threshold,
+			table.channel,
+			table.recipientUserId,
+		),
+		index("idx_billing_credit_notice_delivery_retry").on(
+			table.status,
+			table.nextAttemptAt,
+		),
+		check(
+			"chk_billing_credit_notice_delivery_threshold",
 			sql`${table.threshold} IN (80, 100)`,
 		),
 	],
@@ -1261,6 +1338,8 @@ export type BillingCreditUsageTotal =
 	typeof billingCreditUsageTotals.$inferSelect;
 export type BillingCreditCap = typeof billingCreditCaps.$inferSelect;
 export type BillingCreditNotice = typeof billingCreditNotices.$inferSelect;
+export type BillingCreditNoticeDelivery =
+	typeof billingCreditNoticeDeliveries.$inferSelect;
 export type BillingPlanVersion = typeof billingPlanVersions.$inferSelect;
 export type NewBillingPlanVersion = typeof billingPlanVersions.$inferInsert;
 export type BillingAccount = typeof billingAccounts.$inferSelect;

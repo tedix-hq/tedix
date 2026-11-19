@@ -386,6 +386,7 @@
 		"./utils/execution-requirement": "./src/utils/execution-requirement.ts",
 		"./utils/fact-evidence": "./src/utils/fact-evidence.ts",
 		"./utils/credit-pricing": "./src/utils/credit-pricing.ts",
+		"./utils/credit-notice-copy": "./src/utils/credit-notice-copy.ts",
 		"./utils/is-record": "./src/utils/is-record.ts",
 		"./utils/stable-json": "./src/utils/stable-json.ts",
 		"./utils/action-receipt": "./src/utils/action-receipt.ts",
