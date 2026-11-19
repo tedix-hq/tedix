@@ -79,6 +79,15 @@ const SETTLE_ATTEMPT_SCHEMA = zodToToolInputJsonSchema(
 const LIST_ATTEMPTS_SCHEMA = zodToToolInputJsonSchema(
 	procedureInputSchema(workItemsContract.listAttempts),
 );
+const LIST_ATTEMPT_STEPS_SCHEMA = zodToToolInputJsonSchema(
+	procedureInputSchema(workItemsContract.listAttemptSteps),
+);
+const SEND_ATTEMPT_MESSAGE_SCHEMA = zodToToolInputJsonSchema(
+	procedureInputSchema(workItemsContract.sendAttemptMessage),
+);
+const STOP_ATTEMPT_SCHEMA = zodToToolInputJsonSchema(
+	procedureInputSchema(workItemsContract.stopAttempt),
+);
 const GET_READINESS_SCHEMA = zodToToolInputJsonSchema(
 	procedureInputSchema(workItemsContract.getReadiness),
 );
@@ -327,6 +336,38 @@ export const WORK_ITEM_TOOLS: TediToolSpec[] = [
 		annotations: READ_ONLY,
 		rpcEndpoint: "workItems/listAttempts",
 		includeTediIdParam: false,
+	},
+	{
+		name: "list_work_attempt_steps",
+		remoteName: "list_work_attempt_steps",
+		description:
+			"Watch a run on a Work Item: read its steps, oldest first, and the messages sent to it. Without attemptId it reads the newest run; `live` says whether the run is still in progress.",
+		inputSchema: LIST_ATTEMPT_STEPS_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "workItems/listAttemptSteps",
+		includeTediIdParam: false,
+	},
+	{
+		name: "send_work_attempt_message",
+		remoteName: "send_work_attempt_message",
+		description:
+			"Send a follow-up to the run in progress on a Work Item you own or steward. The agent applies it after its current turn ends. Fails when no run is in progress.",
+		inputSchema: SEND_ATTEMPT_MESSAGE_SCHEMA,
+		annotations: MUTATING,
+		rpcEndpoint: "workItems/sendAttemptMessage",
+		includeTediIdParam: false,
+		credentialDerivedTediActor: true,
+	},
+	{
+		name: "stop_work_attempt",
+		remoteName: "stop_work_attempt",
+		description:
+			"Stop the run in progress on a Work Item you own or steward. The runner ends the agent and settles the Attempt as cancelled. Fails when no run is in progress.",
+		inputSchema: STOP_ATTEMPT_SCHEMA,
+		annotations: MUTATING,
+		rpcEndpoint: "workItems/stopAttempt",
+		includeTediIdParam: false,
+		credentialDerivedTediActor: true,
 	},
 	{
 		name: "submit_work_evidence",

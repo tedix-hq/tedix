@@ -1,0 +1,158 @@
+/**
+ * Run log and steering: a runner reports the steps of its run, people and
+ * tedis read them, and the Work Item's owner or steward sends a follow-up or
+ * stops the run.
+ */
+
+import {
+	appendWorkAttemptSteps,
+	listWorkAttemptSteps,
+	sendWorkAttemptMessage,
+} from "@tedix/db/queries/work-items/attempt-steps";
+import type { WorkAttemptMessageRow } from "@tedix/db/schema/work-items";
+import {
+	type BaseContext,
+	createError,
+	ErrorCodes,
+	withAuthorization,
+} from "../../orpc";
+import { resolveAttemptIdentity } from "./factory-lifecycle";
+import {
+	assertWorkItemAccess,
+	authOs,
+	rethrowWorkItemWriteError,
+	workItemStewardActor,
+} from "./policy-helpers";
+
+const runnerOs = authOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"Only the executor holding the Attempt may report its steps; the handler checks organization scope and the Attempt fence",
+		},
+		"mcp:work.write",
+	),
+);
+const readerOs = authOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"The handler verifies Work Item organization access before reading the run's rows",
+		},
+		"mcp:work.read",
+	),
+);
+const steeringOs = authOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"The handler checks organization scope and requires the Work Item's owner or steward",
+		},
+		"mcp:work.write",
+	),
+);
+
+function pendingMessage(row: WorkAttemptMessageRow) {
+	return {
+		id: row.id,
+		kind: row.kind,
+		body: row.body,
+		senderType: row.senderType,
+		senderId: row.senderId,
+		createdAt: row.createdAt,
+	};
+}
+
+function storedMessage(row: WorkAttemptMessageRow) {
+	return {
+		...pendingMessage(row),
+		deliveredAt: row.deliveredAt,
+		appliedAt: row.appliedAt,
+	};
+}
+
+export const appendAttemptStepsProcedure = runnerOs.appendAttemptSteps.handler(
+	async ({ input, context }) => {
+		const workItem = await assertWorkItemAccess(context, input.id);
+		const { executor, external } = await resolveAttemptIdentity(
+			context,
+			workItem.orgId,
+		);
+		try {
+			const result = await appendWorkAttemptSteps(context.db, {
+				orgId: workItem.orgId,
+				workItemId: workItem.id,
+				attemptId: input.attemptId,
+				executor: { type: executor.type, id: executor.id },
+				sessionId:
+					executor.type === "external_agent" ? executor.sessionId : undefined,
+				externalSessionKey: external?.externalSessionKey,
+				steps: input.steps,
+				appliedMessageIds: input.appliedMessageIds,
+			});
+			return {
+				accepted: result.accepted,
+				pending: result.pending.map(pendingMessage),
+			};
+		} catch (error) {
+			rethrowWorkItemWriteError(error);
+		}
+	},
+);
+
+export const listAttemptStepsProcedure = readerOs.listAttemptSteps.handler(
+	async ({ input, context }) => {
+		const workItem = await assertWorkItemAccess(context, input.id);
+		try {
+			const result = await listWorkAttemptSteps(context.db, {
+				orgId: workItem.orgId,
+				workItemId: workItem.id,
+				attemptId: input.attemptId,
+				afterSeq: input.afterSeq,
+				limit: input.limit,
+			});
+			return {
+				attemptId: result.attemptId,
+				live: result.live,
+				steps: result.steps.map((step) => ({
+					seq: step.seq,
+					at: step.at,
+					kind: step.kind,
+					text: step.text,
+				})),
+				messages: result.messages.map(storedMessage),
+			};
+		} catch (error) {
+			rethrowWorkItemWriteError(error);
+		}
+	},
+);
+
+async function steerRun(
+	context: BaseContext,
+	params: { id: string; kind: "follow_up" | "stop"; body: string },
+) {
+	const workItem = await assertWorkItemAccess(context, params.id);
+	// The same rule as completing the Work Item: its owner or steward. An
+	// agent can never qualify here while its own run is still in progress.
+	const actor = await workItemStewardActor(context, workItem, "completion");
+	const message = await sendWorkAttemptMessage(context.db, {
+		orgId: workItem.orgId,
+		workItemId: workItem.id,
+		kind: params.kind,
+		body: params.body,
+		sender: { type: actor.type, id: actor.id },
+	});
+	if (!message) throw createError(ErrorCodes.CONFLICT, "No run is in progress");
+	return storedMessage(message);
+}
+
+export const sendAttemptMessageProcedure =
+	steeringOs.sendAttemptMessage.handler(({ input, context }) =>
+		steerRun(context, { id: input.id, kind: "follow_up", body: input.body }),
+	);
+
+export const stopAttemptProcedure = steeringOs.stopAttempt.handler(
+	({ input, context }) =>
+		steerRun(context, { id: input.id, kind: "stop", body: "" }),
+);

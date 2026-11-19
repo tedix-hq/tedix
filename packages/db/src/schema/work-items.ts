@@ -1065,3 +1065,91 @@ export type WorkEvidenceVerification =
 	typeof workEvidenceVerifications.$inferSelect;
 export type NewWorkEvidenceVerification =
 	typeof workEvidenceVerifications.$inferInsert;
+
+export const WORK_ATTEMPT_STEP_KIND_VALUES = [
+	"started",
+	"message",
+	"command",
+	"tool",
+	"file_change",
+	"error",
+	"follow_up",
+	"stopped",
+	"finished",
+] as const;
+export type WorkAttemptStepKind =
+	(typeof WORK_ATTEMPT_STEP_KIND_VALUES)[number];
+
+/** One row per step a run reports while it works on a Work Item. */
+export const workAttemptSteps = sqliteTable(
+	"work_attempt_steps",
+	{
+		id: text("id").primaryKey(),
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		workItemId: text("work_item_id").notNull(),
+		attemptId: text("attempt_id").notNull(),
+		seq: integer("seq").notNull(),
+		/** When the step happened on the runner, in epoch milliseconds. */
+		at: integer("at").notNull(),
+		kind: text("kind", { enum: WORK_ATTEMPT_STEP_KIND_VALUES }).notNull(),
+		text: text("text").notNull(),
+	},
+	(table) => [
+		uniqueIndex("uniq_work_attempt_step_seq").on(table.attemptId, table.seq),
+		index("idx_work_attempt_steps_item_attempt_seq").on(
+			table.workItemId,
+			table.attemptId,
+			table.seq,
+		),
+	],
+);
+
+export type WorkAttemptStepRow = typeof workAttemptSteps.$inferSelect;
+export type NewWorkAttemptStepRow = typeof workAttemptSteps.$inferInsert;
+
+export const WORK_ATTEMPT_MESSAGE_KIND_VALUES = ["follow_up", "stop"] as const;
+export type WorkAttemptMessageKind =
+	(typeof WORK_ATTEMPT_MESSAGE_KIND_VALUES)[number];
+
+export const WORK_ATTEMPT_MESSAGE_SENDER_TYPE_VALUES = [
+	"user",
+	"tedi",
+	"external_agent",
+] as const;
+export type WorkAttemptMessageSenderType =
+	(typeof WORK_ATTEMPT_MESSAGE_SENDER_TYPE_VALUES)[number];
+
+/** What a person or tedi sends to a run in progress: a follow-up or a stop. */
+export const workAttemptMessages = sqliteTable(
+	"work_attempt_messages",
+	{
+		id: text("id").primaryKey(),
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		workItemId: text("work_item_id").notNull(),
+		attemptId: text("attempt_id").notNull(),
+		kind: text("kind", { enum: WORK_ATTEMPT_MESSAGE_KIND_VALUES }).notNull(),
+		body: text("body").notNull().default(""),
+		senderType: text("sender_type", {
+			enum: WORK_ATTEMPT_MESSAGE_SENDER_TYPE_VALUES,
+		}).notNull(),
+		senderId: text("sender_id").notNull(),
+		createdAt: text("created_at").notNull(),
+		/** Set when the runner holding the Attempt has received the message. */
+		deliveredAt: text("delivered_at"),
+		/** Set when the runner reports that it acted on the message. */
+		appliedAt: text("applied_at"),
+	},
+	(table) => [
+		index("idx_work_attempt_messages_attempt_delivered").on(
+			table.attemptId,
+			table.deliveredAt,
+		),
+	],
+);
+
+export type WorkAttemptMessageRow = typeof workAttemptMessages.$inferSelect;
+export type NewWorkAttemptMessageRow = typeof workAttemptMessages.$inferInsert;

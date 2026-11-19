@@ -571,12 +571,15 @@ const TEDI_WORK_BOARD_TOOL_NAMES = new Set([
 	"heartbeat_work_attempt",
 	"list_dispatcher_health",
 	"list_work_attempts",
+	"list_work_attempt_steps",
 	"list_work_events",
 	"list_work_evidence",
 	"report_dispatcher_health",
 	"run_work_graph_steward",
+	"send_work_attempt_message",
 	"settle_work_attempt",
 	"start_work_attempt",
+	"stop_work_attempt",
 	"submit_work_evidence",
 ]);
 

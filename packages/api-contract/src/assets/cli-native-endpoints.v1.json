@@ -33,6 +33,7 @@
 		"workItems/accept",
 		"workItems/addCaseDependency",
 		"workItems/addComment",
+		"workItems/appendAttemptSteps",
 		"workItems/attachCaseWorkItem",
 		"workItems/authorizeOwnedChannel",
 		"workItems/cancel",

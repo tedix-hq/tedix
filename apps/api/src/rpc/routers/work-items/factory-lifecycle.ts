@@ -227,7 +227,7 @@ function budgetEnvelopeOutput(row: {
 }
 
 export const WORK_ATTEMPT_LEASE_TTL_MS = 5 * 60_000;
-async function resolveAttemptIdentity(
+export async function resolveAttemptIdentity(
 	context: Parameters<typeof verifiedExternalAgent>[0],
 	orgId: string,
 ) {
