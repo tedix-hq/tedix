@@ -17,7 +17,7 @@ export interface RunMessage {
 	body: string;
 	senderType: string;
 	senderId: string;
-	/** A follow-up that should stop the turn in progress instead of waiting for it. */
+	/** Send now may interrupt the active turn if it cannot be steered. */
 	interrupt?: boolean;
 	createdAt?: string;
 }
@@ -64,20 +64,34 @@ export function laneAgentSteps(
 		if (event.type === "error") add("error", stepText(event.message));
 		if (event.type === "turn.failed" && isRecord(event.error))
 			add("error", stepText(event.error.message));
-		const item = event.type === "item.completed" ? event.item : undefined;
+		if (
+			event.type === "turn/completed" &&
+			isRecord(event.turn) &&
+			isRecord(event.turn.error)
+		)
+			add("error", stepText(event.turn.error.message));
+		const item =
+			event.type === "item.completed" || event.type === "item/completed"
+				? event.item
+				: undefined;
 		if (!isRecord(item)) return steps;
-		if (item.type === "agent_message") add("message", stepText(item.text));
-		if (item.type === "command_execution") {
+		if (item.type === "agent_message" || item.type === "agentMessage")
+			add("message", stepText(item.text));
+		if (item.type === "command_execution" || item.type === "commandExecution") {
 			const command = stepText(item.command, COMMAND_LIMIT);
+			const exitCode = item.exit_code ?? item.exitCode;
 			if (command)
 				add(
 					"command",
-					typeof item.exit_code === "number"
-						? `${command} (exit ${item.exit_code})`
+					typeof exitCode === "number"
+						? `${command} (exit ${exitCode})`
 						: command,
 				);
 		}
-		if (item.type === "file_change" && Array.isArray(item.changes))
+		if (
+			(item.type === "file_change" || item.type === "fileChange") &&
+			Array.isArray(item.changes)
+		)
 			add(
 				"file_change",
 				stepText(
@@ -91,7 +105,7 @@ export function laneAgentSteps(
 				),
 			);
 		if (
-			item.type === "mcp_tool_call" &&
+			(item.type === "mcp_tool_call" || item.type === "mcpToolCall") &&
 			typeof item.server === "string" &&
 			typeof item.tool === "string"
 		)
