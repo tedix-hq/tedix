@@ -76,9 +76,11 @@ try {
 	assert.deepEqual(await options(), ["To-do list", "Divider", "Image"]);
 	await list.getByText("To-do list").click();
 	await editor.locator('ul[data-type="taskList"]').waitFor();
+	const savedTask = tabs.waitForSave(page, (content) =>
+		JSON.stringify(content).includes("Call Ada"),
+	);
 	await page.keyboard.type("Call Ada");
-
-	await page.waitForTimeout(2_000);
+	await savedTask;
 	const saved = JSON.stringify((await tabs.saved()).content.richText);
 	assert.match(saved, /"type":"table"/, "the table was saved");
 	assert.match(saved, /"type":"taskList"/, "the to-do list was saved");

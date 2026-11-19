@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { once } from "node:events";
 import { realpathSync } from "node:fs";
 import {
 	kernelProcessCwd,
@@ -33,12 +34,14 @@ describe.skipIf(!supported)("kernel process facts", () => {
 		const id = "33333333-3333-4333-8333-333333333333";
 		const child = spawn(
 			process.execPath,
-			["-e", "setInterval(()=>{},1000)", id],
-			{ detached: true, stdio: "ignore" },
+			["-e", "console.log('ready'); setInterval(()=>{},1000)", id],
+			{ detached: true, stdio: ["ignore", "pipe", "ignore"] },
 		);
+		const exited = once(child, "close");
 		const pid = child.pid!;
 		try {
-			await new Promise((resolve) => setTimeout(resolve, 300));
+			const [ready] = await Promise.race([once(child.stdout!, "data"), exited]);
+			expect(String(ready).trim()).toBe("ready");
 			const facts = kernelProcessFacts(pid)!;
 			expect(facts.pgid).toBe(pid);
 			if (process.platform === "linux") expect(facts.argv).toContain(id);
@@ -46,6 +49,7 @@ describe.skipIf(!supported)("kernel process facts", () => {
 			try {
 				process.kill(-pid, "SIGKILL");
 			} catch {}
+			await exited;
 		}
 	});
 });

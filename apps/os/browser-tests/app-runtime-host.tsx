@@ -24,25 +24,8 @@ const callServer = createAppRuntimeServerCall(
 		revisionId: "33333333-3333-4333-8333-333333333333",
 	},
 );
-const starter = new URLSearchParams(location.search).has("starter");
-// A fake on-device translator stands in for Chrome's, which headless browsers lack.
-const translateClient = `
-self.Translator = { create: async () => ({ translate: async (text) => '[en] ' + text }) };
-const root = document.getElementById('app');
-let page = 1;
-const render = () => {
-  const title = document.createElement('h1');
-  title.textContent = 'Karte ' + page;
-  const name = document.createElement('span');
-  name.setAttribute('translate', 'no');
-  name.textContent = 'r/Finanzen';
-  const next = document.createElement('button');
-  next.textContent = 'Weiter';
-  next.onclick = () => { page++; render(); };
-  root.replaceChildren(title, name, next);
-};
-render();
-`;
+const params = new URLSearchParams(location.search);
+const starter = params.has("starter");
 // Fails in the three ways the host hears about; the throw is on line 5.
 const errorsClient = [
 	"const root = document.getElementById('app');",
@@ -53,28 +36,13 @@ const errorsClient = [
 ].join("\n");
 const html = buildAppRuntimeDocument({
 	"server.js": "",
-	"client.js": new URLSearchParams(location.search).has("errors")
+	"client.js": params.has("errors")
 		? errorsClient
-		: new URLSearchParams(location.search).has("translate")
-			? translateClient
-			: new URLSearchParams(location.search).has("escape")
-				? `const destination = ${JSON.stringify(new URLSearchParams(location.search).get("destination"))};\n${escapeClient}`
-				: starter
-					? starterClient
-					: `
-const root = document.getElementById('app');
-const status = document.createElement('p');
-status.setAttribute('role', 'status');
-const button = document.createElement('button');
-button.textContent = 'Hilfreich';
-button.onclick = async () => {
-  try {
-    await tedix.call('app.call', { method: 'rate', args: [{ cardId: 'one', decision: 'Hilfreich' }] });
-    status.textContent = JSON.stringify(await tedix.call('app.call', { method: 'ratings', args: [] }));
-  } catch (error) { status.textContent = error.message; }
-};
-root.append(button, status);
-`,
+		: params.has("escape")
+			? `const destination = ${JSON.stringify(params.get("destination"))};\n${escapeClient}`
+			: starter
+				? starterClient
+				: "",
 });
 function Host() {
 	const [errors, setErrors] = useState(EMPTY_APP_RUNTIME_ERROR_LOG);

@@ -70,9 +70,15 @@ try {
 			await route.fallback();
 		};
 		await page.route("**/api/rpc/osWorkspaces/outputs/patch", handler);
-		return () => {
-			open = true;
-			release();
+		return {
+			intercepted: page.waitForEvent(fail ? "requestfailed" : "request", {
+				predicate: (request) =>
+					request.url().endsWith("/api/rpc/osWorkspaces/outputs/patch"),
+			}),
+			release() {
+				open = true;
+				release();
+			},
 		};
 	};
 
@@ -83,18 +89,22 @@ try {
 	await shows(b, "The launch is on Monday and the owner is Ada.");
 
 	// 1. A's save is still on its way when B's lands: the server merges.
-	let release = await hold(a.page);
+	let held = await hold(a.page);
 	await replace(a, "Monday", "Friday");
-	await a.page.waitForTimeout(600);
+	await held.intercepted;
+	const savedByB = tabs.waitForSave(b.page, (content) =>
+		JSON.stringify(content).includes(
+			"The launch is on Monday and the owner is Bob.",
+		),
+	);
 	await replace(b, "Ada", "Bob");
-	await shows(a, "Friday");
-	await b.page.waitForTimeout(1_500);
+	await savedByB;
 	assert.equal(
 		await paragraph(),
 		"The launch is on Monday and the owner is Bob.",
 		"B saved while A's save was held",
 	);
-	release();
+	held.release();
 	await shows(a, "The launch is on Friday and the owner is Bob.");
 	await shows(b, "The launch is on Friday and the owner is Bob.");
 	assert.equal(
@@ -107,28 +117,28 @@ try {
 
 	// 2. A cannot save for a moment and B's change arrives meanwhile: A's
 	// editor merges it into the unsaved text, then saves both.
-	release = await hold(a.page, true);
+	held = await hold(a.page, true);
 	await replace(a, "launch", "release");
-	await a.page.waitForTimeout(600);
+	await held.intercepted;
 	await replace(b, "owner", "lead");
 	await shows(a, "The release is on Friday and the lead is Bob.");
 	assert.equal(await question(a).count(), 0, "A was not asked");
-	release();
+	held.release();
 	await shows(b, "The release is on Friday and the lead is Bob.");
 	await a.page.unroute("**/api/rpc/osWorkspaces/outputs/patch");
 
 	// 3. Both change the same word, and each another word too.
-	release = await hold(a.page, true);
+	held = await hold(a.page, true);
 	await replace(a, "Friday", "Tuesday");
 	await replace(a, "release", "launch");
-	await a.page.waitForTimeout(600);
+	await held.intercepted;
 	await replace(b, "Friday", "Sunday");
 	await replace(b, "Bob", "Cy");
 	// A's words win where both wrote, quietly: nobody is asked or told.
 	await shows(a, "The launch is on Tuesday and the lead is Cy.");
 	assert.equal(await question(a).count(), 0, "A was not asked");
 	assert.equal(await question(b).count(), 0, "B was not asked");
-	release();
+	held.release();
 	await shows(a, "The launch is on Tuesday and the lead is Cy.");
 	await shows(b, "The launch is on Tuesday and the lead is Cy.");
 	assert.equal(

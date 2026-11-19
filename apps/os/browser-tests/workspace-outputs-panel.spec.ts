@@ -274,8 +274,8 @@ try {
 		// The Approvals row opens the workspace's activity control.
 		await panel.getByRole("button", { name: "Approvals" }).click();
 		await page.locator("[data-approvals-popover]").waitFor();
-		await page.waitForTimeout(250);
 		await page.screenshot({
+			animations: "disabled",
 			path: `${evidence}/${label.replace("/", "-")}-activity.png`,
 		});
 		await page.keyboard.press("Escape");

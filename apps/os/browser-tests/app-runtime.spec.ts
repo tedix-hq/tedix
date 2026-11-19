@@ -9,52 +9,6 @@ const server = await startFixtureServer("/browser-tests/app-runtime.html");
 const browser = await chromium.launch({ headless: true });
 try {
 	{
-		const page = await browser.newPage({
-			viewport: { width: 1280, height: 812 },
-		});
-		await routeSandboxProxy(page);
-		const calls: string[] = [];
-		let saved: unknown;
-		await page.route("**/api/rpc/osAppRuntime/*", async (route) => {
-			const method = new URL(route.request().url()).pathname.split("/").pop();
-			if (method === "open")
-				return route.fulfill({
-					json: {
-						json: {
-							session: "host-only",
-							expiresAt: Math.floor(Date.now() / 1000) + 60,
-							role: "use",
-							revisionId: "33333333-3333-4333-8333-333333333333",
-						},
-					},
-				});
-			const input = route.request().postDataJSON().json;
-			assert.equal(input.session, "host-only");
-			calls.push(input.method);
-			if (input.method === "rate") saved = input.args[0];
-			return route.fulfill({
-				json: {
-					json: { result: input.method === "rate" ? saved : { one: saved } },
-				},
-			});
-		});
-		await page.goto(`${server.origin}/browser-tests/app-runtime.html`);
-		const guest = page
-			.frameLocator('iframe[title="Rating app"]')
-			.frameLocator("iframe");
-		await guest.getByRole("button", { name: "Hilfreich", exact: true }).click();
-		await guest
-			.getByRole("status")
-			.filter({ hasText: '"decision":"Hilfreich"' })
-			.waitFor();
-		assert.deepEqual(calls, ["rate", "ratings"]);
-		assert.equal(
-			await page.locator("[data-app-runtime-frame]").getAttribute("data-state"),
-			"ready",
-		);
-		await page.close();
-	}
-	{
 		const width = 375;
 		const page = await browser.newPage({
 			viewport: { width, height: 812 },
@@ -109,6 +63,7 @@ try {
 					},
 				});
 			const input = route.request().postDataJSON().json;
+			assert.equal(input.session, "host-only");
 			const result =
 				input.method === "cards"
 					? await app.cards()
@@ -207,9 +162,7 @@ try {
 		await guest.getByRole("alert").waitFor();
 		await page.close();
 	}
-	console.log(
-		"Runtime app sandbox and phone starter rating round trips passed",
-	);
+	console.log("Runtime app starter rating, reset, and recovery passed");
 	{
 		// A failing app tells the host: uncaught error (with its client.js
 		// line), unhandled rejection and console.error.

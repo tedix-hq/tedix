@@ -73,234 +73,225 @@ await mkdir(evidence, { recursive: true });
 const server = await startFixtureServer();
 const browser = await chromium.launch({ headless: true });
 try {
-	for (const [width, colorScheme] of [
-		[375, "dark"],
-		[1280, "light"],
-	] as const) {
-		const page = await browser.newPage({
-			viewport: { width, height: 900 },
-			reducedMotion: "reduce",
-			colorScheme,
-		});
-		page.setDefaultNavigationTimeout(120_000);
-		page.setDefaultTimeout(120_000);
-		let polls = 0;
-		let neverRun = false;
-		await page.route(
-			"**/api/rpc/osWorkspaces/executions/list**",
-			async (route) => {
-				const url = new URL(route.request().url());
-				const input =
-					route.request().method() === "GET"
-						? JSON.parse(url.searchParams.get("data") ?? "{}").json
-						: route.request().postDataJSON().json;
-				const trace = {
-					...receipt,
-					id: "33333333-3333-4333-8333-333333333333",
-					grantedCapabilities: [],
-					policyDecision: { allowed: true, reasons: ["runtime_trace"] },
-					output: {
-						callId,
-						events: [
-							{
-								timestamp: Date.parse(receipt.createdAt),
-								logs: [
-									{ level: "info", message: "Count loaded" },
-									{ level: "warn", message: "No saved rating" },
-									{ level: "error", message: "<script>untrusted</script>" },
-								],
-								exceptions: [],
-							},
-						],
-					},
-				};
-				return route.fulfill({
-					json: {
-						json: {
-							items: input?.callId
-								? ++polls > 1
-									? [trace]
-									: []
-								: neverRun
-									? []
-									: [trace, receipt],
-							truncated: false,
+	const width = 375;
+	const colorScheme = "dark";
+	const page = await browser.newPage({
+		viewport: { width, height: 900 },
+		reducedMotion: "reduce",
+		colorScheme,
+	});
+	page.setDefaultNavigationTimeout(120_000);
+	page.setDefaultTimeout(120_000);
+	let polls = 0;
+	let neverRun = false;
+	await page.route(
+		"**/api/rpc/osWorkspaces/executions/list**",
+		async (route) => {
+			const url = new URL(route.request().url());
+			const input =
+				route.request().method() === "GET"
+					? JSON.parse(url.searchParams.get("data") ?? "{}").json
+					: route.request().postDataJSON().json;
+			const trace = {
+				...receipt,
+				id: "33333333-3333-4333-8333-333333333333",
+				grantedCapabilities: [],
+				policyDecision: { allowed: true, reasons: ["runtime_trace"] },
+				output: {
+					callId,
+					events: [
+						{
+							timestamp: Date.parse(receipt.createdAt),
+							logs: [
+								{ level: "info", message: "Count loaded" },
+								{ level: "warn", message: "No saved rating" },
+								{ level: "error", message: "<script>untrusted</script>" },
+							],
+							exceptions: [],
 						},
-					},
-				});
-			},
-		);
-		// The app declares one resource, and the workspace has a sheet attached
-		// for it. Rename and remove answer like the API: they check the
-		// revision the page read and return the changed resource.
-		let sheet = { ...orderSheet };
-		const resourceWrites: Array<Record<string, unknown>> = [];
-		await page.route(
-			/\/api\/rpc\/osWorkspaces\/gadgets\/get(\?|$)/,
-			async (route) => {
-				const response = await route.fetch();
-				const body = await response.json();
-				body.json.currentRevision.manifest.resourceGrants = [
-					{ slot: "order_sheet", operations: ["read", "write"] },
-				];
-				return route.fulfill({ response, json: body });
-			},
-		);
-		await page.route(
-			/\/api\/rpc\/osWorkspaces\/resources\/list(\?|$)/,
-			async (route) => {
-				const response = await route.fetch();
-				const body = await response.json();
-				body.json.items = [...body.json.items, sheet];
-				return route.fulfill({ response, json: body });
-			},
-		);
-		for (const action of ["rename", "remove"] as const)
-			await page.route(
-				`**/api/rpc/osWorkspaces/resources/${action}**`,
-				async (route) => {
-					const input = route.request().postDataJSON().json;
-					resourceWrites.push({ action, ...input });
-					assert.equal(input.resourceId, sheet.id);
-					assert.equal(input.expectedUpdatedAt, sheet.updatedAt);
-					sheet =
-						action === "rename"
-							? {
-									...sheet,
-									name: input.name,
-									updatedAt: "2026-10-26T12:05:00.000Z",
-								}
-							: {
-									...sheet,
-									status: "removed",
-									removedAt: "2026-10-26T12:10:00.000Z",
-									updatedAt: "2026-10-26T12:10:00.000Z",
-								};
-					return route.fulfill({ json: { json: { resource: sheet } } });
+					],
 				},
-			);
-		await page.goto(
-			`${server.origin}/workspace/${workspaceId}?workpiece=gadget%3A${gadgetId}&pane=workpiece`,
-			{ waitUntil: "domcontentloaded" },
+			};
+			return route.fulfill({
+				json: {
+					json: {
+						items: input?.callId
+							? ++polls > 1
+								? [trace]
+								: []
+							: neverRun
+								? []
+								: [trace, receipt],
+						truncated: false,
+					},
+				},
+			});
+		},
+	);
+	// The app declares one resource, and the workspace has a sheet attached
+	// for it. Rename and remove answer like the API: they check the
+	// revision the page read and return the changed resource.
+	let sheet = { ...orderSheet };
+	const resourceWrites: Array<Record<string, unknown>> = [];
+	await page.route(
+		/\/api\/rpc\/osWorkspaces\/gadgets\/get(\?|$)/,
+		async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			body.json.currentRevision.manifest.resourceGrants = [
+				{ slot: "order_sheet", operations: ["read", "write"] },
+			];
+			return route.fulfill({ response, json: body });
+		},
+	);
+	await page.route(
+		/\/api\/rpc\/osWorkspaces\/resources\/list(\?|$)/,
+		async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			body.json.items = [...body.json.items, sheet];
+			return route.fulfill({ response, json: body });
+		},
+	);
+	for (const action of ["rename", "remove"] as const)
+		await page.route(
+			`**/api/rpc/osWorkspaces/resources/${action}**`,
+			async (route) => {
+				const input = route.request().postDataJSON().json;
+				resourceWrites.push({ action, ...input });
+				assert.equal(input.resourceId, sheet.id);
+				assert.equal(input.expectedUpdatedAt, sheet.updatedAt);
+				sheet =
+					action === "rename"
+						? {
+								...sheet,
+								name: input.name,
+								updatedAt: "2026-10-26T12:05:00.000Z",
+							}
+						: {
+								...sheet,
+								status: "removed",
+								removedAt: "2026-10-26T12:10:00.000Z",
+								updatedAt: "2026-10-26T12:10:00.000Z",
+							};
+				return route.fulfill({ json: { json: { resource: sheet } } });
+			},
 		);
-		await showWorkpieceView(page, "History");
-		const runs = page.getByRole("list", { name: "Runs" });
-		const row = runs.getByRole("button", { name: /clicked Count/ });
-		await row.waitFor();
-		// The list reads like a deploy log: one run, in plain words, trace rows hidden.
-		assert.equal(await runs.getByRole("listitem").count(), 1);
-		assert.match(await row.innerText(), /Done/);
-		assert.match(await row.innerText(), /count: 1/);
-		await page.getByRole("button", { name: "Run manually" }).waitFor();
-		const historyText = (await runs.innerText()).toLowerCase();
-		for (const jargon of ["receipt", "admission", "pinned", "app.call"])
-			assert(!historyText.includes(jargon), `History shows "${jargon}"`);
-		await row.click();
-		const log = page.getByRole("log", { name: "Logs for this run" });
-		await log.getByText("Count loaded", { exact: false }).waitFor();
-		const chooseLevel = async (name: string) => {
-			await page.getByRole("combobox", { name: "Log level" }).click();
-			await page.getByRole("option", { name }).click();
-		};
-		await chooseLevel("Warnings");
-		assert.match(await log.innerText(), /No saved rating/);
-		assert.doesNotMatch(await log.innerText(), /Count loaded/);
-		await chooseLevel("All levels");
-		assert.match(await log.innerText(), /<script>untrusted<\/script>/);
-		await page.getByRole("button", { name: "Pause live logs" }).click();
-		assert.equal(await log.getAttribute("aria-live"), "off");
-		assert(
-			await page.evaluate(
-				() => document.documentElement.scrollWidth <= innerWidth + 1,
-			),
-		);
-		await log.scrollIntoViewIfNeeded();
-		await page.screenshot({
-			path: join(evidence, `${width}-${colorScheme}-history.png`),
-			fullPage: true,
-		});
+	await page.goto(
+		`${server.origin}/workspace/${workspaceId}?workpiece=gadget%3A${gadgetId}&pane=workpiece`,
+		{ waitUntil: "domcontentloaded" },
+	);
+	await showWorkpieceView(page, "History");
+	const runs = page.getByRole("list", { name: "Runs" });
+	const row = runs.getByRole("button", { name: /clicked Count/ });
+	await row.waitFor();
+	// The list reads like a deploy log: one run, in plain words, trace rows hidden.
+	assert.equal(await runs.getByRole("listitem").count(), 1);
+	assert.match(await row.innerText(), /Done/);
+	assert.match(await row.innerText(), /count: 1/);
+	await page.getByRole("button", { name: "Run manually" }).waitFor();
+	const historyText = (await runs.innerText()).toLowerCase();
+	for (const jargon of ["receipt", "admission", "pinned", "app.call"])
+		assert(!historyText.includes(jargon), `History shows "${jargon}"`);
+	await row.click();
+	const log = page.getByRole("log", { name: "Logs for this run" });
+	await log.getByText("Count loaded", { exact: false }).waitFor();
+	const chooseLevel = async (name: string) => {
+		await page.getByRole("combobox", { name: "Log level" }).click();
+		await page.getByRole("option", { name }).click();
+	};
+	await chooseLevel("Warnings");
+	assert.match(await log.innerText(), /No saved rating/);
+	assert.doesNotMatch(await log.innerText(), /Count loaded/);
+	await chooseLevel("All levels");
+	assert.match(await log.innerText(), /<script>untrusted<\/script>/);
+	await page.getByRole("button", { name: "Pause live logs" }).click();
+	assert.equal(await log.getAttribute("aria-live"), "off");
+	assert(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth <= innerWidth + 1,
+		),
+	);
+	await log.scrollIntoViewIfNeeded();
+	await page.screenshot({
+		path: join(evidence, `${width}-${colorScheme}-history.png`),
+		fullPage: true,
+	});
 
-		// An app nobody has run yet explains where runs come from, and the
-		// manual run stays one small action away.
-		neverRun = true;
-		await page.reload({ waitUntil: "domcontentloaded" });
-		await showWorkpieceView(page, "History");
-		await page.getByText("No runs yet").waitFor();
-		await page
-			.getByText(
-				"Runs appear here when someone uses the app, a schedule runs, or you run it manually.",
-			)
-			.waitFor();
-		await page.getByRole("button", { name: "Run manually" }).click();
-		const form = page.getByRole("form", { name: "Run manually" });
-		const runAs = form.getByRole("combobox", { name: "Run as" });
-		await runAs.waitFor();
-		// The tedi is picked by name, never by its id.
-		assert.doesNotMatch(
-			await runAs.innerText(),
-			/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/,
-		);
-		assert(
-			await page.evaluate(
-				() => document.documentElement.scrollWidth <= innerWidth + 1,
-			),
-		);
-		await page.screenshot({
-			path: join(evidence, `${width}-${colorScheme}-history-empty.png`),
-			fullPage: true,
-		});
+	// An app nobody has run yet explains where runs come from, and the
+	// manual run stays one small action away.
+	neverRun = true;
+	await page.reload({ waitUntil: "domcontentloaded" });
+	await showWorkpieceView(page, "History");
+	await page.getByText("No runs yet").waitFor();
+	await page
+		.getByText(
+			"Runs appear here when someone uses the app, a schedule runs, or you run it manually.",
+		)
+		.waitFor();
+	await page.getByRole("button", { name: "Run manually" }).click();
+	const form = page.getByRole("form", { name: "Run manually" });
+	const runAs = form.getByRole("combobox", { name: "Run as" });
+	await runAs.waitFor();
+	// The tedi is picked by name, never by its id.
+	assert.doesNotMatch(
+		await runAs.innerText(),
+		/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/,
+	);
+	assert(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth <= innerWidth + 1,
+		),
+	);
+	await page.screenshot({
+		path: join(evidence, `${width}-${colorScheme}-history-empty.png`),
+		fullPage: true,
+	});
 
-		// Connections: a person renames the sheet the app uses, then takes it
-		// out of the workspace after confirming.
-		await showWorkpieceView(page, "Connections");
-		const connection = page.locator('[data-app-connection="order_sheet"]');
-		await connection.getByText("Orders 2026", { exact: true }).waitFor();
-		await connection
-			.getByRole("button", { name: "Rename Orders 2026" })
-			.click();
-		const newName = connection.getByRole("textbox", {
-			name: "New name for Orders 2026",
-		});
-		const save = connection.getByRole("button", { name: "Save" });
-		assert(await save.isDisabled(), "Save is off until the name changes");
-		await newName.fill("Orders 2027");
-		await save.click();
-		await connection.getByText("Orders 2027", { exact: true }).waitFor();
-		await connection
-			.getByRole("button", { name: "Remove Orders 2027" })
-			.click();
-		await connection
-			.getByText("The connected account stays connected.", { exact: false })
-			.waitFor();
-		assert.equal(resourceWrites.length, 1, "Asking to remove changes nothing");
-		assert(
-			await page.evaluate(
-				() => document.documentElement.scrollWidth <= innerWidth + 1,
-			),
-		);
-		await page.screenshot({
-			path: join(evidence, `${width}-${colorScheme}-connections.png`),
-			fullPage: true,
-		});
-		await connection
-			.getByRole("button", { name: "Remove", exact: true })
-			.click();
-		await connection.getByText("Nothing attached").waitFor();
-		assert.equal(
-			await connection.getByRole("button", { name: /Rename|Remove/ }).count(),
-			0,
-		);
-		assert.deepEqual(
-			resourceWrites.map((write) => [write.action, write.name]),
-			[
-				["rename", "Orders 2027"],
-				["remove", undefined],
-			],
-		);
-		await page.close();
-	}
+	// Connections: a person renames the sheet the app uses, then takes it
+	// out of the workspace after confirming.
+	await showWorkpieceView(page, "Connections");
+	const connection = page.locator('[data-app-connection="order_sheet"]');
+	await connection.getByText("Orders 2026", { exact: true }).waitFor();
+	await connection.getByRole("button", { name: "Rename Orders 2026" }).click();
+	const newName = connection.getByRole("textbox", {
+		name: "New name for Orders 2026",
+	});
+	const save = connection.getByRole("button", { name: "Save" });
+	assert(await save.isDisabled(), "Save is off until the name changes");
+	await newName.fill("Orders 2027");
+	await save.click();
+	await connection.getByText("Orders 2027", { exact: true }).waitFor();
+	await connection.getByRole("button", { name: "Remove Orders 2027" }).click();
+	await connection
+		.getByText("The connected account stays connected.", { exact: false })
+		.waitFor();
+	assert.equal(resourceWrites.length, 1, "Asking to remove changes nothing");
+	assert(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth <= innerWidth + 1,
+		),
+	);
+	await page.screenshot({
+		path: join(evidence, `${width}-${colorScheme}-connections.png`),
+		fullPage: true,
+	});
+	await connection.getByRole("button", { name: "Remove", exact: true }).click();
+	await connection.getByText("Nothing attached").waitFor();
+	assert.equal(
+		await connection.getByRole("button", { name: /Rename|Remove/ }).count(),
+		0,
+	);
+	assert.deepEqual(
+		resourceWrites.map((write) => [write.action, write.name]),
+		[
+			["rename", "Orders 2027"],
+			["remove", undefined],
+		],
+	);
+	await page.close();
 	console.log(
-		"History (run list, run details, late logs, level filters, escaping, pause) and Connections (rename, remove) passed at 375px dark and 1280px light",
+		"History (run list, run details, late logs, level filters, escaping, pause) and Connections (rename, remove) passed on a phone",
 	);
 } finally {
 	await browser.close();

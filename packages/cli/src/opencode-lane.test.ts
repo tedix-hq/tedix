@@ -212,17 +212,24 @@ it("does not turn a completed provider turn into a stall after inspection finish
 	const dir = fixture();
 	const brief = join(dir, "brief.txt");
 	const child = join(dir, "opencode");
+	const finish = join(dir, "finish");
 	writeFileSync(brief, "Inspect a fictional widget");
 	writeFileSync(
 		child,
 		`#!${process.execPath}
+import { existsSync } from 'node:fs';
 process.stdin.resume(); process.stdin.on('end', () => {
  console.log(JSON.stringify({type:'step_start',sessionID:${JSON.stringify(id)},part:{messageID:'finished-message'}}));
- setTimeout(() => process.exit(0), 30);
+ const deadline = Date.now() + 2000;
+ const waiting = setInterval(() => {
+   if (existsSync(${JSON.stringify(finish)}) || Date.now() >= deadline) clearInterval(waiting);
+ }, 2);
 });`,
 	);
 	chmodSync(child, 0o700);
 	const activities: Array<{ state: string }> = [];
+	const inspection = Promise.withResolvers<boolean>();
+	let inspected = false;
 	const code = await runLaneProcess(
 		[
 			"run",
@@ -241,15 +248,18 @@ process.stdin.resume(); process.stdin.on('end', () => {
 			cwd: dir,
 			sessionKey: id,
 			providerStallMs: 10,
-			confirmProviderStallSafe: async () => {
-				await new Promise((resolve) => setTimeout(resolve, 80));
-				return true;
+			confirmProviderStallSafe: () => {
+				inspected = true;
+				writeFileSync(finish, "");
+				return inspection.promise;
 			},
 			onNativeActivity: (activity) => activities.push(activity),
 			report: async () => ({}),
 		},
 	);
-	await new Promise((resolve) => setTimeout(resolve, 100));
+	inspection.resolve(true);
+	await inspection.promise;
+	expect(inspected).toBe(true);
 	expect(code).toBe(0);
 	expect(activities.map((activity) => activity.state)).toEqual([
 		"provider_waiting",

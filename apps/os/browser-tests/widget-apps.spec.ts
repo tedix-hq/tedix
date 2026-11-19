@@ -1,10 +1,5 @@
 import { chromium, type Browser, type Page } from "playwright";
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
-import { fixturePort } from "./fixture-server";
-
-const cwd = new URL("../", import.meta.url).pathname;
-const port = fixturePort();
-const origin = `http://127.0.0.1:${port}`;
+import { startFixtureServer } from "./fixture-server";
 
 async function expectEvent(page: Page, event: string) {
 	await page.waitForFunction(
@@ -19,7 +14,9 @@ async function expectEvent(page: Page, event: string) {
 
 async function run() {
 	const build = await Bun.build({
-		entrypoints: [`${cwd}browser-tests/widget-app-guest-entry.ts`],
+		entrypoints: [
+			new URL("./widget-app-guest-entry.ts", import.meta.url).pathname,
+		],
 		target: "browser",
 		format: "iife",
 		globalName: "McpAppsGuest",
@@ -27,29 +24,11 @@ async function run() {
 	});
 	if (!build.success) throw new Error(build.logs.map(String).join("\n"));
 	const bundle = await build.outputs[0]!.text();
-	const server = Bun.spawn(
-		[
-			"../../node_modules/.bin/vp",
-			"dev",
-			"--port",
-			port,
-			"--strictPort",
-			"--host",
-			"127.0.0.1",
-		],
-		{
-			cwd,
-			stdout: "inherit",
-			stderr: "inherit",
-			env: { ...process.env, TEDIX_BUILD_LOCAL_DEMO_ENABLED: "false" },
-			detached: true,
-		},
-	);
+	const fixture = "/browser-tests/widget-apps.html";
+	const server = await startFixtureServer(fixture);
+	const { origin } = server;
 	let browser: Browser | undefined;
 	try {
-		await waitForFixtureServer(`${origin}/browser-tests/widget-apps.html`, {
-			server,
-		});
 		browser = await chromium.launch({ headless: true }).catch((error) => {
 			throw new Error(
 				`${error}\nInstall Chromium: cd apps/os && bunx playwright install --with-deps chromium`,
@@ -67,7 +46,7 @@ async function run() {
 		page.on("console", (message) => {
 			if (message.type() === "error") errors.push(message.text());
 		});
-		await page.goto(`${origin}/browser-tests/widget-apps.html`);
+		await page.goto(`${origin}${fixture}`);
 		try {
 			await expectEvent(page, "connected");
 		} catch (error) {
@@ -270,14 +249,9 @@ async function run() {
 		);
 		if (bridgeCloses !== 1)
 			throw new Error(`Expected one host bridge close, got ${bridgeCloses}.`);
-		await context.close();
-		const fillPage = await browser.newPage();
-		await fillPage.addInitScript((guestBundle) => {
-			(
-				window as Window & { __MCP_APP_GUEST_BUNDLE__: string }
-			).__MCP_APP_GUEST_BUNDLE__ = guestBundle;
-		}, bundle);
-		await fillPage.goto(`${origin}/browser-tests/widget-apps.html?layout=fill`);
+		await page.close();
+		const fillPage = await context.newPage();
+		await fillPage.goto(`${origin}${fixture}?layout=fill`);
 		await expectEvent(fillPage, "connected");
 		for (const viewport of [
 			{ width: 1100, height: 900 },
@@ -308,21 +282,13 @@ async function run() {
 			throw new Error("Bounded guest content cannot scroll.");
 		await fillGuest.getByRole("button", { name: "Call host tool" }).click();
 		await expectEvent(fillPage, "outboundResult");
-		await fillPage.close();
-		if (server.exitCode !== null)
-			throw new Error(`Own browser-test server exited: ${server.exitCode}`);
+		await context.close();
 		console.log(
 			"PASS: real MCP Apps v2 browser handshake, data, tool call, permissions, source/origin checks, and sandbox attributes.",
 		);
 	} finally {
 		await browser?.close();
-		// vp launches Vite in a child; close the group so test gates receive EOF.
-		try {
-			process.kill(-server.pid, "SIGTERM");
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-		}
-		await server.exited;
+		await server.stop();
 	}
 }
 

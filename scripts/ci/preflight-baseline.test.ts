@@ -211,8 +211,8 @@ test("the gate runner ends a failed run with the verdict the push queue reads", 
 		join(bin, "bun"),
 		`#!/bin/sh
 case "$*" in
-  *fleet-authority-coverage.test.ts*)
-    echo ' FAIL  src/rpc/fleet-authority-coverage.test.ts [ src/rpc/fleet-authority-coverage.test.ts ]'
+  *src/rpc/routers/contract-parity.test.ts*)
+    echo ' FAIL  src/rpc/routers/contract-parity.test.ts [ src/rpc/routers/contract-parity.test.ts ]'
     echo 'Error: Hook timed out in 120000ms.'
     exit 1 ;;
   *reviewed-rpc-endpoint-scopes.test.ts*)

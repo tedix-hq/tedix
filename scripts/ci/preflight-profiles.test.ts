@@ -5,71 +5,37 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gateInProfile, procedureParityGates } from "./preflight-profiles.mjs";
 
-test("procedure parity selects only the invariant suites for every risky source path", () => {
-	for (const file of [
-		"packages/api-contract/src/contracts/os-app-runtime.ts",
-		"packages/api-contract/src/utils/contract-routers.ts",
-		"packages/api-contract/src/schemas/mcp-capability-scopes.ts",
-		"packages/mcp/src/auth/reviewed-rpc-endpoint-scopes.ts",
-		"apps/api/src/rpc/routers/connections.ts",
-		"apps/api/src/rpc/os-audit.ts",
-		"apps/api/src/rpc/fleet-authority-guards.json",
-		"apps/mcp/src/mcp/home-surface-tools.ts",
-		"apps/mcp/src/mcp/aggregate-tedis-work-items.ts",
-		"scripts/ci/preflight-gates.mjs",
-		"scripts/ci/preflight-profiles.mjs",
-	]) {
-		const gates = procedureParityGates([file]);
-		expect(gates.every((gate) => gate.when)).toBe(true);
-		for (const gate of gates)
-			for (const profile of ["local-fast", "full", "ci-policy"])
-				expect(gateInProfile(gate.name, profile)).toBe(true);
-		expect(gates.map((gate) => gate.cmd)).toEqual([
-			[
-				"bun",
-				"run",
-				"--cwd",
-				"apps/api",
-				"test:unit",
-				"src/services/tool-schema-sync-scope-coverage.test.ts",
-				"src/rpc/os-audit.coverage.test.ts",
-				"src/rpc/routers/contract-parity.test.ts",
-				"src/rpc/fleet-authority-coverage.test.ts",
-			],
-			[
-				"bun",
-				"run",
-				"--cwd",
-				"packages/mcp",
-				"test:run",
-				"src/auth/reviewed-rpc-endpoint-scopes.test.ts",
-			],
-			[
-				"bun",
-				"run",
-				"--cwd",
-				"packages/api-contract",
-				"test:run",
-				"src/schemas/mcp-capability-scopes.test.ts",
-			],
-			[
-				"bun",
-				"run",
-				"--cwd",
-				"apps/mcp",
-				"test:run",
-				"src/mcp/aggregate-contract-parity.test.ts",
-			],
-		]);
+test("procedure parity runs the checks whose inputs changed", () => {
+	const all = procedureParityGates(null).map((gate) => gate.name);
+	const [api, reviewed, capability, native] = all;
+	if (!api || !reviewed || !capability || !native)
+		throw new Error("Expected four parity checks");
+	const cases = [
+		[null, all],
+		["scripts/ci/preflight-gates.mjs", all],
+		["packages/api-contract/src/contracts/os-app-runtime.ts", all],
+		["packages/api-contract/src/utils/contract-routers.ts", all],
+		[
+			"packages/api-contract/src/schemas/mcp-capability-scopes.ts",
+			[api, reviewed, capability],
+		],
+		["packages/mcp/src/auth/reviewed-rpc-endpoint-scopes.ts", [api, reviewed]],
+		["apps/mcp/src/mcp/aggregate-tedi-catalog.generated.json", [native]],
+		["apps/mcp/src/mcp/home-surface-tools.ts", [native]],
+		["apps/api/src/rpc/routers/connections.ts", [api]],
+		["apps/api/src/rpc/os-audit.ts", [api]],
+		["apps/api/src/rpc/fleet-authority-guards.json", [api]],
+		["apps/api/src/services/tool-schema-projection.ts", [api]],
+		["apps/api/src/rpc/routers/contract-parity.test.ts", [api]],
+		["apps/api/src/rpc/routers/projects.portfolio-access.test.ts", []],
+		["README.md", []],
+	] as const;
+	for (const [file, expected] of cases) {
+		const selected = procedureParityGates(file === null ? null : [file])
+			.filter((gate) => gate.when)
+			.map((gate) => gate.name);
+		expect(selected).toEqual([...expected]);
 	}
-	for (const files of [
-		[],
-		["README.md"],
-		["apps/os/src/components/avatar.tsx"],
-		["packages/api-contract/src/schemas/unrelated.ts"],
-	])
-		expect(procedureParityGates(files).some((gate) => gate.when)).toBe(false);
-	expect(procedureParityGates(null).every((gate) => gate.when)).toBe(true);
 });
 
 describe("fast pre-push parity failures", () => {
