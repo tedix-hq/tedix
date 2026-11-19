@@ -3,6 +3,20 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.24.0 — 2026-11-19
+
+### Minor Changes
+
+- A runner keeps a log of each Codex or Claude run and lets people steer it. While an agent works on a task, the runner sends short steps to Tedix every 5 seconds: what the agent said, which commands and tools it ran, and which files it changed. Secrets are masked, and command output and file contents are never sent.
+- A follow-up sent to a run reaches the agent as a further turn in the same session once the current turn ends, up to five per run. The result of the last turn is the one recorded. A follow-up that asks for a human-reserved action is passed on only when the task's accountable owner sent it; consent, MFA and sign-in steps are never passed on.
+- A stop request ends the agent and records the run as cancelled with a note naming who stopped it. The runner does not start that version of the task again.
+
+### Patch Changes
+
+- A Codex or Claude run that is still producing output is not stopped when the runner cannot confirm its hold on the task. It is stopped when the server says the hold is gone, or when the agent goes quiet for a minute while the hold is unconfirmed.
+- After a lost hold or a dropped connection, the runner continues the same Codex, Claude Code or OpenCode session under a new attempt. After two unsuccessful resumes it holds that version of the task.
+- A follow-up or a stop sent to a run is not lost when the server's answer does not arrive or the runner restarts. Each message reaches the agent once, a follow-up counts as applied only after its turn has started, a stop after the agent has ended, and a resumed run picks up follow-ups that were not yet applied.
+
 ## 0.23.1 — 2026-11-19
 
 ### Patch Changes
