@@ -3,6 +3,15 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.23.1 — 2026-11-19
+
+### Patch Changes
+
+- A Codex run no longer fails when its result file fills a field that belongs to a different outcome. The runner drops such fields; a field no outcome defines is still refused.
+- A runner renews its hold on a task over a connection it keeps open, without starting a new process each time. A shared pause after a rate limit, or a queued read, no longer delays a renewal.
+- `tedix lane serve` checks that Codex can reach the network and that Claude Code starts its plugins and connections before it claims a task. An executor that fails the check takes no new tasks; the runner logs the first failure and retries with a growing wait.
+- A runner can send an agent to check landed work after a deploy. Live evidence can complete the task or return it for repair, without asking the owner to check it. Set `TEDIX_LANE_VERIFY_HEALTH_URLS` on the runner to the space-separated health URLs of the deployed services it checks; each must report a full `deployedSha` that contains the landed commits.
+
 ## 0.23.0 — 2026-11-19
 
 ### Minor Changes
