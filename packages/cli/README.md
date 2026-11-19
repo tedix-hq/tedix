@@ -665,8 +665,8 @@ task with that reason; it is listed as stuck and its next edit makes it ready
 again. Completion records the reported outcome; it does
 not independently verify the result.
 
-For a human dependency, native sessions can append one `TEDIX_LANE_RESULT`
-JSON line with `outcome: "waiting_on_user"`, the existing `interactionId`,
+For a human dependency, native sessions can return
+`outcome: "waiting_on_user"`, the existing `interactionId`,
 observed `requestVersion`, `orgId` and recipient `userId`. Structured
 outcomes also require the exact `workItemId`, `workVersion`, `contractVersion`
 and accepted `outcomeText` supplied in the brief. A wait cancels only the
@@ -679,8 +679,13 @@ release the hold. A cancelled, expired or otherwise closed request — or a
 newer Work revision — releases the wait so the lane re-checks the item and
 asks a fresh question when it still needs a person.
 
-Every dispatched final answer ends with one `TEDIX_LANE_RESULT` JSON line using
-the Work, version, contract and accepted-outcome fields supplied in its brief.
+Codex runs receive `--output-schema` and `-o` and return only a JSON object,
+using `null` for fields that do not apply to the outcome. The dispatcher reads
+that Attempt's result file and validates the outcome and its Work contract.
+A missing or invalid file fails the run with a reason, even if it landed a
+commit. Other executors end their final answer with one `TEDIX_LANE_RESULT`
+JSON line. Both formats use the Work, version, contract and accepted-outcome
+fields supplied in the brief.
 Use `outcome: "completed"` only when the entire accepted outcome happened.
 Otherwise use `outcome: "incomplete"` with `remaining` explaining what is unmet.
 A successful process exit or landed partial commit does not complete Work.

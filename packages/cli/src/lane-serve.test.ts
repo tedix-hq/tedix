@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { CodexLaneResultJsonSchema } from "./lane-result";
 import {
 	LaneDispatcher,
 	LaneCommitFetchError,
@@ -158,6 +159,7 @@ function fixture({
 		exitCode: 0,
 		finalMessage: "Result recorded in OS.",
 		declareCompleted: true,
+		codexResultFile: undefined as string | null | undefined,
 		provisionError: undefined as Error | undefined,
 		threadError: undefined as Error | undefined,
 		resumeError: undefined as Error | undefined,
@@ -483,6 +485,8 @@ function fixture({
 									join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
 									"resume",
 									expect.any(String),
+									"--output-schema",
+									expect.any(String),
 									"-o",
 									expect.any(String),
 									"-",
@@ -524,6 +528,35 @@ function fixture({
 				);
 				await bridge.verify(
 					`TEDIX_WORK_VERIFIED ${JSON.stringify({ binding: bridge.binding, commentId: saved.commentId, sha256: saved.sha256 })}`,
+				);
+			}
+			if (nativeExecutor === "codex") {
+				const schema = JSON.parse(
+					readFileSync(args[args.indexOf("--output-schema") + 1]!, "utf8"),
+				);
+				expect(schema.type).toBe("object");
+				expect(schema.additionalProperties).toBe(false);
+				expect(schema.required).toEqual(Object.keys(schema.properties));
+				expect(brief).toContain(
+					"only the JSON object required by --output-schema",
+				);
+				expect(brief).not.toContain(
+					"End your final answer with exactly one TEDIX_LANE_RESULT JSON line",
+				);
+				const line = control.finalMessage
+					.split("\n")
+					.find((line) => line.startsWith("TEDIX_LANE_RESULT "));
+				const resultFile =
+					control.codexResultFile !== undefined
+						? control.codexResultFile
+						: (line?.slice("TEDIX_LANE_RESULT ".length) ??
+							(control.declareCompleted ? JSON.stringify(completed) : null));
+				if (resultFile !== null)
+					writeFileSync(args[args.indexOf("-o") + 1]!, resultFile);
+			} else {
+				expect(args).not.toContain("--output-schema");
+				expect(brief).toContain(
+					"End your final answer with exactly one TEDIX_LANE_RESULT JSON line",
 				);
 			}
 			deps?.onTelemetry?.({
@@ -3181,6 +3214,64 @@ describe("dispatcher admission", () => {
 	);
 
 	it.each([
+		[null, "missing"],
+		["", "invalid"],
+		["not-json", "invalid"],
+		[JSON.stringify({ ...completedResult(), extra: true }), "invalid"],
+		[
+			JSON.stringify({ ...completedResult(), outcome: "incomplete" }),
+			"invalid",
+		],
+	] as const)(
+		"fails Codex result file %j despite successful telemetry and landed evidence",
+		async (content, reason) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.control.commits = ["b".repeat(40)];
+			f.control.codexResultFile = content;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const saved = JSON.parse(
+				readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+			);
+			expect(saved.outcome).toBe("failed");
+			expect(saved.note).toContain(`Codex lane result file is ${reason}`);
+			expect(f.events.find((event) => event.verb === "settle")!.args).toContain(
+				"failed",
+			);
+			expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+		},
+	);
+	it("reads Codex's result file instead of a conflicting telemetry declaration", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		const commitSha = "c".repeat(40);
+		const result = { ...completedResult(), commitSha };
+		f.deps.landedCommits = async (_repo, _base, message) => {
+			expect(message).toContain(commitSha);
+			return [commitSha];
+		};
+		f.control.codexResultFile = JSON.stringify({
+			...Object.fromEntries(
+				CodexLaneResultJsonSchema.required.map((key) => [key, null]),
+			),
+			...result,
+		});
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(), outcome: "incomplete", remaining: "Telemetry must not decide the result" })}`;
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await dispatcher.drain();
+		expect(
+			f.events.find((event) => event.verb === "settle")!.input?.metadata,
+		).toMatchObject({ laneResult: result });
+		expect(f.events.some((event) => event.verb === "complete")).toBe(true);
+	});
+	it.each([
 		"The command failed immediately with Installed build changed.",
 		"Recovery remains unverified.",
 		"Certification remains incomplete; endpoint reviews remain.",
@@ -3207,7 +3298,7 @@ describe("dispatcher admission", () => {
 	])(
 		"recovers an undeclared result from the Attempt's landed commit: %s",
 		async (message) => {
-			const f = fixture();
+			const f = fixture({ executor: "claude-code" });
 			f.items.splice(1);
 			f.items[0]!.workKind = "coding";
 			const commitSha = "b".repeat(40);
@@ -3348,7 +3439,7 @@ describe("dispatcher admission", () => {
 		}
 	});
 	it("recovers an undeclared result from the session's result comment", async () => {
-		const f = fixture();
+		const f = fixture({ executor: "claude-code" });
 		f.items.splice(1);
 		f.control.declareCompleted = false;
 		f.control.finalMessage = "Result recorded in OS.";
@@ -3402,7 +3493,7 @@ describe("dispatcher admission", () => {
 		]);
 		const sha = git(["rev-parse", "HEAD"]);
 		git(["push", "origin", "main"]);
-		const f = fixture();
+		const f = fixture({ executor: "claude-code" });
 		f.items.splice(1);
 		f.items[0]!.workKind = "coding";
 		f.control.declareCompleted = false;
