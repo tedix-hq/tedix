@@ -19,9 +19,10 @@ export function outputRevisionBodyKey(organizationId: string, sha256: string) {
 export async function storeOutputRevisionBody(
 	bucket: OutputBodyBucket,
 	organizationId: string,
-	content: string,
+	content: string | Uint8Array,
 ) {
-	const bytes = new TextEncoder().encode(content);
+	const bytes =
+		typeof content === "string" ? new TextEncoder().encode(content) : content;
 	const contentSha256 = await sha256Hex(bytes);
 	const bodyR2Key = outputRevisionBodyKey(organizationId, contentSha256);
 	const compressed = await new Response(
@@ -42,6 +43,7 @@ export async function hydrateOutputRevision(
 	bucket: OutputBodyBucket | undefined = env.R2_BUCKET,
 ): Promise<OsOutputRevisionRow> {
 	let content = row.content;
+	let bytes: Uint8Array;
 	if (content == null || (content === "" && row.bodyR2Key)) {
 		if (!row.contentSha256 || !row.bodyR2Key || !bucket)
 			throw new Error("Output revision body is unavailable");
@@ -54,18 +56,19 @@ export async function hydrateOutputRevision(
 			);
 		const object = await bucket.get(row.bodyR2Key);
 		if (!object) throw new Error("Output revision body object is missing");
-		const bytes = await new Response(
-			new Blob([await object.arrayBuffer()])
-				.stream()
-				.pipeThrough(new DecompressionStream("gzip")),
-		).arrayBuffer();
-		if ((await sha256Hex(bytes)) !== row.contentSha256)
-			throw new Error("Output revision body digest mismatch");
+		bytes = new Uint8Array(
+			await new Response(
+				new Blob([await object.arrayBuffer()])
+					.stream()
+					.pipeThrough(new DecompressionStream("gzip")),
+			).arrayBuffer(),
+		);
 		content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
 			bytes,
 		);
+	} else {
+		bytes = new TextEncoder().encode(content);
 	}
-	const bytes = new TextEncoder().encode(content);
 	if (row.contentSha256 && (await sha256Hex(bytes)) !== row.contentSha256)
 		throw new Error("Output revision body digest mismatch");
 	if (row.contentBytes != null && bytes.byteLength !== row.contentBytes)

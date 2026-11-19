@@ -165,7 +165,7 @@ const KEEPALIVE_MS = 60_000;
  * failing feed must not hold the save: the file stays pending, publishing
  * carries on in the background and the alarm retries it.
  */
-const PROJECTION_WAIT_MS = 3_000;
+const PROJECTION_WAIT_MS = 250;
 /** Client frame types a diagnostic line may name; anything else is "unknown". */
 const FRAME_TYPES = new Set([
 	"subscribe",
@@ -3285,6 +3285,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		if (this.#outputMoving(outputId))
 			throw new Error("Output transfer in progress or output moved");
 		this.#store.put("activity-scope", scope);
+		this.#store.delete(`output-history-through:${outputId}`);
 		await this.#markOutputPending(scope, outputId);
 		await this.#publishOutput(outputId, Promise.resolve());
 	}
@@ -3357,6 +3358,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.#store.delete(excerptKey);
 		};
 		if (revision) await publish(revision);
+		const throughKey = `output-history-through:${outputId}`;
+		const through = this.#store.get<number>(throughKey);
+		// Advance only from a completely recovered history. An index entry for
+		// the previous revision alone cannot prove older coalesced saves arrived.
+		if (revision && through != null && through >= revision.revision - 1) {
+			this.#store.put(throughKey, revision.revision);
+			return true;
+		}
 		// Immutable revisions recover every file save even when notifications coalesced.
 		const beforeRevision = this.#store.get<number>(
 			`output-history-before:${outputId}`,
@@ -3379,6 +3388,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			return false;
 		}
 		this.#store.delete(`output-history-before:${outputId}`);
+		if (revision) this.#store.put(throughKey, revision.revision);
 		return true;
 	}
 

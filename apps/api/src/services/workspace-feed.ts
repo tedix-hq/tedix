@@ -52,29 +52,50 @@ export function excerptFromContent(content: string | null | undefined): string {
 	} catch {
 		return "";
 	}
+	return excerptFromValue(parsed);
+}
+
+/** Reuse the writer's validated JSON; bound both traversal and string work. */
+export function excerptFromValue(parsed: unknown): string {
 	const parts: string[] = [];
 	let length = 0;
-	const visit = (value: unknown): void => {
-		if (length >= WORKSPACE_CHANGE_EXCERPT_MAX) return;
+	let remaining = 2_048;
+	const full = () => length >= WORKSPACE_CHANGE_EXCERPT_MAX || remaining <= 0;
+	const visit = (value: unknown, depth: number): void => {
+		if (full()) return;
+		remaining--;
+		if (depth > 64) return;
 		if (typeof value === "string") {
-			const text = value.replace(/\s+/g, " ").trim();
+			const text = value
+				.slice(0, WORKSPACE_CHANGE_EXCERPT_MAX * 2)
+				.replace(/\s+/g, " ")
+				.trim();
 			if (!text || /^[0-9a-f-]{36}$/i.test(text)) return;
-			parts.push(text);
-			length += text.length + 1;
+			parts.push(text.slice(0, WORKSPACE_CHANGE_EXCERPT_MAX - length));
+			length += parts.at(-1)!.length + 1;
 			return;
 		}
 		if (Array.isArray(value)) {
-			for (const item of value) visit(item);
+			for (let index = 0; index < value.length && !full(); index++)
+				visit(value[index], depth + 1);
 			return;
 		}
 		if (value && typeof value === "object") {
-			for (const [key, item] of Object.entries(value)) {
-				if (key === "kind" || key === "type" || key === "id") continue;
-				visit(item);
+			for (const key in value) {
+				if (full()) break;
+				remaining--;
+				if (
+					!Object.hasOwn(value, key) ||
+					key === "kind" ||
+					key === "type" ||
+					key === "id"
+				)
+					continue;
+				visit((value as Record<string, unknown>)[key], depth + 1);
 			}
 		}
 	};
-	visit(parsed);
+	visit(parsed, 0);
 	return parts.join(" ").slice(0, WORKSPACE_CHANGE_EXCERPT_MAX);
 }
 

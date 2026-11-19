@@ -75,6 +75,25 @@ describe("output revision body store", () => {
 		},
 	);
 
+	it("accepts encoded bytes and verifies a hydrated body with one digest", async () => {
+		const storage = bucket();
+		const content = "\ufeffGrüße 🌍";
+		const metadata = await storeOutputRevisionBody(
+			storage,
+			"org-1",
+			new TextEncoder().encode(content),
+		);
+		const digest = vi.spyOn(crypto.subtle, "digest");
+		try {
+			expect(
+				(await hydrateOutputRevision(revision("", metadata), storage)).content,
+			).toBe(content);
+			expect(digest).toHaveBeenCalledTimes(1);
+		} finally {
+			digest.mockRestore();
+		}
+	});
+
 	it("deduplicates within an organization and separates organizations", async () => {
 		const storage = bucket();
 		const a = await storeOutputRevisionBody(storage, "org-1", "same");

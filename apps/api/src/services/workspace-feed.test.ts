@@ -11,7 +11,11 @@ import {
 } from "@tedix/db/schema/os-workspaces";
 import { workspaceOutputIndex } from "@tedix/db/schema/workspace-feed";
 import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
-import { publishWorkspaceChange } from "./workspace-feed";
+import {
+	excerptFromContent,
+	excerptFromValue,
+	publishWorkspaceChange,
+} from "./workspace-feed";
 
 it.each(["staged", "uninitialized", "no runtime", "initialized"])(
 	"publishing keeps every indexed revision for a %s workspace",
@@ -94,3 +98,33 @@ it.each(["staged", "uninitialized", "no runtime", "initialized"])(
 		});
 	},
 );
+
+it("reuses parsed content and stops when the excerpt or traversal budget is full", () => {
+	const content = {
+		kind: "sheet",
+		columns: ["Name"],
+		rows: [["Hello  world"], ["00000000-0000-4000-8000-000000000001"]],
+	};
+	expect(excerptFromValue(content)).toBe("Name Hello world");
+	expect(excerptFromContent(JSON.stringify(content))).toBe(
+		excerptFromValue(content),
+	);
+	expect(excerptFromContent("not JSON")).toBe("");
+	const numeric = Array.from({ length: 10_000 }, () => 0);
+	Object.defineProperty(numeric, 3_000, {
+		get() {
+			throw new Error("walked past traversal budget");
+		},
+	});
+	expect(excerptFromValue(numeric)).toBe("");
+	const text = ["x".repeat(100_000)];
+	Object.defineProperty(text, 1, {
+		get() {
+			throw new Error("walked past excerpt budget");
+		},
+	});
+	expect(excerptFromValue(text)).toMatch(/^x+$/);
+	let deep: unknown = "unreachable";
+	for (let depth = 0; depth < 1_000; depth++) deep = [deep];
+	expect(excerptFromValue(deep)).toBe("");
+});

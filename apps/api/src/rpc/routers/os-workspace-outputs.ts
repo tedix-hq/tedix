@@ -954,25 +954,30 @@ async function requireCurrentOutputRevision(
 async function persistEditedOutputRevision(
 	context: BaseContext,
 	output: OsOutputRow,
-	baseRevision: number,
+	baseRevision: OsOutputRevisionRow,
 	content: OsOutputContent,
 	note: string | undefined,
 ): Promise<{ output: OsOutput; revision: OsOutputRevision }> {
 	const creator = resolveCreator(context);
 	const accessEnvelope = await resolveAccessEnvelope(context);
 	const db = queryDb(context);
-	const result = await createOsOutputRevision(db, {
-		id: crypto.randomUUID(),
-		organizationId: output.organizationId,
-		outputId: output.id,
-		content: JSON.stringify(content),
-		note: note ?? null,
-		createdByKind: creator.kind,
-		createdById: creator.id,
-		...resolveProducer(context),
-		accessEnvelope,
-		expectedRevision: baseRevision,
-	});
+	const result = await createOsOutputRevision(
+		db,
+		{
+			id: crypto.randomUUID(),
+			organizationId: output.organizationId,
+			outputId: output.id,
+			content: JSON.stringify(content),
+			note: note ?? null,
+			createdByKind: creator.kind,
+			createdById: creator.id,
+			...resolveProducer(context),
+			accessEnvelope,
+			expectedRevision: baseRevision.revision,
+		},
+		context.env.R2_BUCKET,
+		baseRevision,
+	);
 	if (!result.ok) {
 		if (result.reason === "output_not_found") {
 			throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
@@ -982,7 +987,11 @@ async function persistEditedOutputRevision(
 			{ organizationId: output.organizationId, outputId: output.id },
 			{ limit: 1 },
 		);
-		throw revisionConflict("Output", baseRevision, latest?.revision ?? null);
+		throw revisionConflict(
+			"Output",
+			baseRevision.revision,
+			latest?.revision ?? null,
+		);
 	}
 	const advanced = await getOsOutput(db, {
 		organizationId: output.organizationId,
@@ -1073,13 +1082,7 @@ const outputsPatchSlides = authorOs.outputs.patchSlides.handler(
 				error instanceof Error ? error.message : "Invalid slide edits",
 			);
 		}
-		return persistEditedOutputRevision(
-			context,
-			output,
-			base.revision,
-			next,
-			input.note,
-		);
+		return persistEditedOutputRevision(context, output, base, next, input.note);
 	},
 );
 
@@ -1116,13 +1119,7 @@ const outputsPatchDocument = authorOs.outputs.patchDocument.handler(
 				error instanceof Error ? error.message : "Invalid document patch",
 			);
 		}
-		return persistEditedOutputRevision(
-			context,
-			output,
-			base.revision,
-			next,
-			input.note,
-		);
+		return persistEditedOutputRevision(context, output, base, next, input.note);
 	},
 );
 
@@ -1177,7 +1174,7 @@ const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 		return persistEditedOutputRevision(
 			context,
 			output,
-			base.revision,
+			base,
 			next.data,
 			input.note,
 		);
