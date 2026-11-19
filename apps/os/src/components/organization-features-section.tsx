@@ -42,7 +42,7 @@ export function FeaturesSection({
 			name: "AI apps",
 			description:
 				features.maxApps === -1
-					? "Unlimited apps"
+					? "No limit on apps"
 					: `Up to ${features.maxApps} apps`,
 			enabled: true,
 			icon: AppWindow,
@@ -51,7 +51,7 @@ export function FeaturesSection({
 			name: "Team members",
 			description:
 				features.maxTeamMembers === -1
-					? "Unlimited team members"
+					? "No limit on team members"
 					: `Up to ${features.maxTeamMembers} members`,
 			enabled: true,
 			icon: Users,

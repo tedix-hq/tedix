@@ -24,8 +24,7 @@ import {
 	SidebarTrigger,
 	useSidebar,
 } from "@/components/kumo/sidebar";
-import { formatUsageCredits } from "@/lib/billing-credit-display";
-import { hasUnlimitedTokenUsage } from "@/lib/billing-display";
+import { availableCredits, formatCredits } from "@/lib/billing-credits";
 import { isLocalSession } from "@/lib/local-inference";
 import { billingOverviewQueryOptions } from "@/lib/os-query-options";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
@@ -53,11 +52,7 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 	});
 	const balance = canManageBilling ? overview.data : undefined;
 	const remaining = balance
-		? balance.credits?.billingMode === "monetary"
-			? `${formatUsageCredits(balance.credits.availableMicros, balance.credits.creditValueMicros)} left`
-			: hasUnlimitedTokenUsage(balance.snapshot, balance.plan)
-				? "Unlimited tokens"
-				: `${balance.snapshot.remainingIncludedTokens.toLocaleString()} tokens left`
+		? `${formatCredits(availableCredits(balance.credits))} left`
 		: null;
 	const UsageIcon = SURFACE_ICONS.compute;
 	const avatar = (

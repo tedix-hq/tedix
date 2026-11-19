@@ -23,7 +23,7 @@ describe("FeaturesSection", () => {
 		expect(html).toContain('aria-label="Plan features"');
 		expect(html.match(/<li/g)).toHaveLength(8);
 		expect(html).toContain("Up to 12 apps");
-		expect(html).toContain("Unlimited team members");
+		expect(html).toContain("No limit on team members");
 		expect(html).toContain("Included");
 		expect(html).toContain("Not included");
 	});

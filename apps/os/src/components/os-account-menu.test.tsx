@@ -74,9 +74,9 @@ beforeEach(() => {
 	viewer.local = false;
 	billing.query.mockReset().mockResolvedValue({
 		credits: {
-			billingMode: "monetary",
-			availableMicros: 500_000,
-			creditValueMicros: 10_000,
+			remainingIncludedCredits: 30,
+			topUpCredits: 20,
+			payAsYouGo: { enabled: false, monthlyCapMicros: null, spentMicros: 0 },
 		},
 	});
 });

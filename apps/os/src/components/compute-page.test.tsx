@@ -14,14 +14,17 @@ import {
 } from "@tedix/api-contract/schemas/cost-provenance";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { USAGE_PERIOD_OPTIONS } from "@/components/kumo/segmented-control";
-import { computePostureQueryOptions } from "@/lib/os-query-options";
+import type { CreditUsage } from "@/lib/billing-credits";
+import {
+	billingOverviewQueryOptions,
+	computePostureQueryOptions,
+} from "@/lib/os-query-options";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	AttributionCard,
-	BudgetCard,
 	ComputePage,
-	consumedShare,
+	CreditsCard,
 	credentialLabel,
 	credentialTone,
 	freshnessLabel,
@@ -30,7 +33,6 @@ import {
 	LedgerCard,
 	ProvenanceCard,
 	provenanceLegend,
-	remainingTokensLabel,
 	RoutingCard,
 } from "./compute-page";
 
@@ -119,6 +121,23 @@ function posture(overrides: Partial<ComputePosture> = {}): ComputePosture {
 	};
 }
 
+function credits(overrides: Partial<CreditUsage> = {}): CreditUsage {
+	return {
+		periodStart: "2026-08-01T00:00:00.000Z",
+		periodEnd: "2026-09-01T00:00:00.000Z",
+		includedCredits: 15_000,
+		usedCredits: 6_000,
+		remainingIncludedCredits: 9_000,
+		topUpCredits: 1_000,
+		breakdown: { ai: 5_000, codeRuns: 600, services: 400 },
+		notices: [],
+		payAsYouGo: { enabled: false, monthlyCapMicros: null, spentMicros: 0 },
+		tedis: [],
+		members: [],
+		...overrides,
+	};
+}
+
 describe("freshnessTone / freshnessLabel", () => {
 	it("tones an empty ledger as bad, not neutral — it is what a blackout looks like", () => {
 		expect(freshnessTone("never_ingested")).toBe("bad");
@@ -137,47 +156,6 @@ describe("credentialTone / credentialLabel", () => {
 		expect(credentialTone("unattested")).toBe("unknown");
 		expect(credentialTone("firing")).toBe("bad");
 		expect(credentialLabel("unattested")).toContain("unattested");
-	});
-});
-
-describe("remainingTokensLabel / consumedShare", () => {
-	it("says no budget is known rather than showing zero remaining", () => {
-		expect(
-			remainingTokensLabel({
-				configured: false,
-				remainingIncludedTokens: null,
-				unlimitedTokenUsage: null,
-			}),
-		).toBe("No budget known");
-	});
-
-	it("renders the unlimited sentinel as unlimited, not as a negative balance", () => {
-		expect(
-			remainingTokensLabel({
-				configured: true,
-				remainingIncludedTokens: -1,
-				unlimitedTokenUsage: true,
-			}),
-		).toBe("Unlimited");
-	});
-
-	it("has no consumed share when the denominator is unknown or unlimited", () => {
-		expect(
-			consumedShare({
-				configured: false,
-				includedTokens: null,
-				unlimitedTokenUsage: null,
-				usedTokens: null,
-			}),
-		).toBeNull();
-		expect(
-			consumedShare({
-				configured: true,
-				includedTokens: -1,
-				unlimitedTokenUsage: true,
-				usedTokens: 100,
-			}),
-		).toBeNull();
 	});
 });
 
@@ -320,7 +298,7 @@ describe("ProvenanceCard", () => {
 		);
 		expect(html).not.toContain("$0.0000");
 		expect(html).toContain("amount unknown");
-		expect(html).toContain("5,000 tokens");
+		expect(html).not.toContain("tokens");
 	});
 
 	// The exact shape production carries: 5 `quarantined_failed` rows that never
@@ -369,53 +347,32 @@ describe("ProvenanceCard", () => {
 	});
 });
 
-describe("BudgetCard", () => {
-	it("meters known allowance usage without inventing a meter for unknown usage", () => {
-		const known = new DOMParser().parseFromString(
-			renderToStaticMarkup(<BudgetCard posture={posture()} />),
-			"text/html",
-		);
+describe("CreditsCard", () => {
+	it("shows credits used, included, left and the breakdown", () => {
+		const html = renderToStaticMarkup(<CreditsCard credits={credits()} />);
+		expect(html).toContain("Credits this month");
+		expect(html).toContain("10,000 credits left");
+		expect(html).toContain("6,000 credits used of 15,000 credits included");
+		expect(html).toContain("Code runs");
+		expect(html.toLowerCase()).not.toContain("token");
+		const doc = new DOMParser().parseFromString(html, "text/html");
 		expect(
-			known.querySelector('[role="meter"]')?.getAttribute("aria-valuenow"),
+			doc.querySelector('[role="meter"]')?.getAttribute("aria-valuenow"),
 		).toBe("40");
-		const unknown = renderToStaticMarkup(
-			<BudgetCard
-				posture={posture({ budget: { ...posture().budget, usedTokens: null } })}
-			/>,
-		);
-		expect(unknown).not.toContain('role="meter"');
-	});
-	it("says consumption is unknown rather than zero when no account exists", () => {
-		const html = renderToStaticMarkup(
-			<BudgetCard
-				posture={posture({
-					budget: {
-						configured: false,
-						includedTokens: null,
-						usedTokens: null,
-						reservedTokens: null,
-						remainingIncludedTokens: null,
-						unlimitedTokenUsage: null,
-						allowOverage: null,
-						entitlementActive: null,
-						detail: "No billing account is configured.",
-					},
-				})}
-			/>,
-		);
-		expect(html).toContain("No budget known");
-		expect(html).toContain("Consumption is unknown, not zero.");
 	});
 
-	it("warns when the admission gate is closed", () => {
+	it("says work has stopped when no credits are left", () => {
 		const html = renderToStaticMarkup(
-			<BudgetCard
-				posture={posture({
-					budget: { ...posture().budget, entitlementActive: false },
+			<CreditsCard
+				credits={credits({
+					usedCredits: 15_000,
+					remainingIncludedCredits: 0,
+					topUpCredits: 0,
 				})}
 			/>,
 		);
-		expect(html).toContain("Runtime inference is not admitted");
+		expect(html).toContain("Out of credits");
+		expect(html).toContain("New work that uses credits has stopped");
 	});
 });
 
@@ -459,6 +416,7 @@ describe("HealthCard", () => {
 	it("reports the D1 policy that atomically admits inference", () => {
 		const html = renderToStaticMarkup(<HealthCard posture={posture()} />);
 		expect(html).toContain("D1 is the sole inference-admission authority");
+		expect(html).not.toContain("daily ceiling");
 	});
 });
 
@@ -473,7 +431,6 @@ describe("compute posture summaries support both composition levels", () => {
 	it.each([
 		["LedgerCard", LedgerCard],
 		["ProvenanceCard", ProvenanceCard],
-		["BudgetCard", BudgetCard],
 		["RoutingCard", RoutingCard],
 		["HealthCard", HealthCard],
 		["AttributionCard", AttributionCard],
@@ -488,7 +445,6 @@ describe("compute posture summaries support both composition levels", () => {
 	it.each([
 		["LedgerCard", LedgerCard],
 		["ProvenanceCard", ProvenanceCard],
-		["BudgetCard", BudgetCard],
 		["RoutingCard", RoutingCard],
 		["HealthCard", HealthCard],
 		["AttributionCard", AttributionCard],
@@ -508,6 +464,9 @@ describe("compute posture summaries support both composition levels", () => {
 			computePostureQueryOptions("7d").queryKey,
 			posture() as never,
 		);
+		client.setQueryData(billingOverviewQueryOptions().queryKey, {
+			credits: credits(),
+		} as never);
 		const doc = new DOMParser().parseFromString(
 			renderToStaticMarkup(
 				<QueryClientProvider client={client}>
@@ -530,6 +489,7 @@ describe("compute posture summaries support both composition levels", () => {
 		expect(collections).toEqual(
 			expect.arrayContaining([
 				"Cost and budget status",
+				"Monthly limits",
 				"Routing and model status",
 				"Admission health status",
 			]),
@@ -561,7 +521,8 @@ describe("model ledger coverage", () => {
 		const html = renderToStaticMarkup(<LedgerCard posture={value} />);
 		expect(html).toContain("Model-cost ledger");
 		expect(html).toContain("excludes total infrastructure spend");
-		expect(html).toContain("40 held tokens");
+		expect(html).toContain("2 rows are held");
+		expect(html).not.toContain("tokens");
 		expect(html).toContain("Recorded held amount $0");
 		expect(html).toContain("$1.25");
 	});
@@ -578,9 +539,8 @@ describe("model ledger coverage", () => {
 		value.spend.costUsd = null;
 		const html = renderToStaticMarkup(<LedgerCard posture={value} />);
 		expect(html).toContain("Held total unknown; known subtotal $0.40");
-		expect(html).toContain("40 held tokens");
 		expect(html).toContain("2 unpriced rows");
-		expect(html).toContain("40 unpriced tokens");
+		expect(html).not.toContain("tokens");
 		expect(html).not.toContain("Recorded held amount");
 	});
 });
@@ -605,76 +565,6 @@ it("does not turn an all-held ledger into complete spend", () => {
 	const html = renderToStaticMarkup(<LedgerCard posture={value} />);
 	expect(html).toContain("Held total unknown");
 	expect(html).toContain("0 priced rows");
-	expect(html).toContain("40 held tokens");
+	expect(html).not.toContain("held tokens");
 	expect(html).not.toContain("Recorded held amount");
-});
-
-describe("rendered explicit customer token allowance", () => {
-	it.each([-1, 0])(
-		"renders allowance %s as Unlimited and preserves consumed/reserved observations",
-		(includedTokens) => {
-			const budget = {
-				...posture().budget,
-				includedTokens,
-				remainingIncludedTokens: includedTokens,
-				unlimitedTokenUsage: true,
-				allowOverage: true,
-			};
-			const html = renderToStaticMarkup(
-				<BudgetCard posture={posture({ budget })} />,
-			);
-			expect(html).toContain("Unlimited");
-			expect(html).not.toContain("included tokens left");
-			expect(html).not.toContain("% of allowance");
-			expect(html).toContain("tokens consumed");
-			expect(html).toContain("reserved in flight");
-			expect(consumedShare(budget)).toBeNull();
-		},
-	);
-	it.each([false, true])(
-		"finite zero with permitted overage=%s never becomes Unlimited",
-		(allowOverage) => {
-			const budget = {
-				...posture().budget,
-				includedTokens: 0,
-				remainingIncludedTokens: 0,
-				unlimitedTokenUsage: false,
-				allowOverage,
-			};
-			const html = renderToStaticMarkup(
-				<BudgetCard posture={posture({ budget })} />,
-			);
-			expect(html).toContain("0 included tokens left");
-			expect(html).not.toContain("Unlimited");
-			expect(html.includes("Your plan permits additional token usage")).toBe(
-				allowOverage,
-			);
-			expect(consumedShare(budget)).toBeNull();
-		},
-	);
-	it("keeps finite allowance percentages, unknown semantic and runtime blocking distinct", () => {
-		expect(remainingTokensLabel(posture().budget)).toBe(
-			"599,000 included tokens left",
-		);
-		expect(consumedShare(posture().budget)).toBe(0.4);
-		expect(
-			remainingTokensLabel({ ...posture().budget, unlimitedTokenUsage: null }),
-		).toBe("No budget known");
-		const html = renderToStaticMarkup(
-			<BudgetCard
-				posture={posture({
-					budget: {
-						...posture().budget,
-						includedTokens: 0,
-						remainingIncludedTokens: 0,
-						unlimitedTokenUsage: true,
-						entitlementActive: false,
-					},
-				})}
-			/>,
-		);
-		expect(html).toContain("Unlimited");
-		expect(html).toContain("Runtime inference is not admitted");
-		expect(html).not.toContain("% of allowance");
-	});
 });

@@ -415,27 +415,6 @@ const ENGLISH_COPY = {
 				"What can you help me with here? Give me five examples I can try.",
 		},
 	],
-	tediCostHeaders: [
-		"Tedi",
-		"Estimated model cost",
-		"Observed tokens",
-		"Cache hit rate",
-		"Pricing coverage",
-		"Known subtotal",
-		"Priced rows",
-		"Unpriced rows",
-		"Unpriced tokens",
-	],
-	dailyCostHeaders: [
-		"Date",
-		"Estimated model cost",
-		"Observed tokens",
-		"Pricing coverage",
-		"Known subtotal",
-		"Priced rows",
-		"Unpriced rows",
-		"Unpriced tokens",
-	],
 	portfolio: {
 		defaults: [
 			{ key: "projects", label: "Projects" },

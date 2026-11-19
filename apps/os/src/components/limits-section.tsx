@@ -1,6 +1,4 @@
-import type { ComputePosture } from "@tedix/api-contract/contracts/os-compute";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Badge } from "@/components/kumo/badge";
 import { Empty } from "@/components/kumo/empty";
 import { Meter } from "@/components/kumo/meter";
 import {
@@ -12,111 +10,91 @@ import {
 	SectionTitle,
 } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
-import { formatUsd } from "@/lib/cost-reading";
-import { useOsFormattingPreferences, formatCount } from "@/lib/format";
-
-/** Warn at 80% of a limit; at 100% the limit is reached. */
-export const LIMIT_WARN_SHARE = 0.8;
-
-export type LimitLevel = "ok" | "warn" | "full";
-
-export function limitLevel(share: number | null): LimitLevel | null {
-	if (share === null) return null;
-	if (share >= 1) return "full";
-	if (share >= LIMIT_WARN_SHARE) return "warn";
-	return "ok";
-}
+import {
+	type CreditLevel,
+	type CreditUsage,
+	creditLevel,
+	creditPercent,
+	formatCredits,
+	microsToCredits,
+} from "@/lib/billing-credits";
+import { useOsFormattingPreferences } from "@/lib/format";
 
 export type LimitRow = {
 	id: string;
 	name: string;
-	/** What the limit is, with its window. */
+	/** What the limit is. Every limit is monthly. */
 	limitLabel: string;
-	/** Where the number comes from. */
-	source: string;
-	/** Null means usage is not measured on this surface, never 0. */
-	usage: { used: number; limit: number; label: string } | null;
-	/** Where it is configured, shown when usage is not measured. */
-	configuredAt: { text: string; href?: string };
+	used: number;
+	limit: number;
 	/** Plain-English consequence once the limit is reached. */
 	consequence: string;
 };
 
-const DAILY_RESET =
-	"New AI replies pause until tomorrow 00:00 UTC. Daily limits count by UTC calendar day.";
+const NEXT_MONTH = "New work stops until the credits renew next month.";
 
 /**
- * Build the rows from the single posture read. Only limits whose value the
- * existing endpoint returns are listed; a limit with no readable usage carries
- * `usage: null` and renders "Usage not measured".
+ * Every monthly credit limit that applies to this organization: the plan's
+ * included credits, the pay-as-you-go cap when it is on, and each tedi or
+ * member cap an admin has set.
  */
-export function limitRows(posture: ComputePosture): LimitRow[] {
-	const rows: LimitRow[] = [];
-	const { budget, admissionPolicy } = posture;
-
-	if (budget.configured && budget.unlimitedTokenUsage === false) {
-		const included = budget.includedTokens;
-		const used = budget.usedTokens;
-		const measurable = included !== null && included > 0 && used !== null;
-		rows.push({
-			id: "plan-tokens",
-			name: "Included plan tokens",
-			limitLabel:
-				included !== null && included > 0
-					? `${formatCount(included)} tokens in the plan allowance`
-					: "Plan token allowance not known",
-			source: "Billing balance for the current plan period",
-			usage: measurable
-				? {
-						used,
-						limit: included,
-						label: `${formatCount(used)} of ${formatCount(included)} tokens used`,
-					}
-				: null,
-			configuredAt: { text: "Billing", href: "/admin/billing" },
+export function limitRows(credits: CreditUsage): LimitRow[] {
+	const rows: LimitRow[] = [
+		{
+			id: "monthly-credits",
+			name: "Included monthly credits",
+			limitLabel: `${formatCredits(credits.includedCredits)} a month from the plan`,
+			used: credits.usedCredits,
+			limit: credits.includedCredits,
 			consequence:
-				budget.allowOverage === true
-					? "Your plan allows usage beyond the allowance; other limits still apply."
-					: "New AI replies pause until the next plan period or a plan change.",
-		});
-	}
-
-	if (admissionPolicy.desiredDailyTokenLimit !== null) {
+				credits.topUpCredits > 0 || credits.payAsYouGo.enabled
+					? "Work continues on top-up credits, then pay-as-you-go if it is on."
+					: NEXT_MONTH,
+		},
+	];
+	const { payAsYouGo } = credits;
+	if (payAsYouGo.enabled && payAsYouGo.monthlyCapMicros !== null) {
 		rows.push({
-			id: "daily-tokens",
-			name: "Daily token limit",
-			limitLabel: `${formatCount(admissionPolicy.desiredDailyTokenLimit)} tokens per UTC day, whole workspace`,
-			source: "Workspace admission policy",
-			usage: null,
-			configuredAt: { text: "the workspace policy pack (no screen yet)" },
-			consequence: DAILY_RESET,
+			id: "pay-as-you-go",
+			name: "Pay-as-you-go cap",
+			limitLabel: `Up to ${formatCredits(microsToCredits(payAsYouGo.monthlyCapMicros))} extra a month`,
+			used: microsToCredits(payAsYouGo.spentMicros),
+			limit: microsToCredits(payAsYouGo.monthlyCapMicros),
+			consequence: NEXT_MONTH,
 		});
 	}
-
-	if (admissionPolicy.desiredDailySpendLimitMicros !== null) {
+	for (const tedi of credits.tedis) {
+		if (tedi.monthlyCapCredits === null) continue;
 		rows.push({
-			id: "daily-spend",
-			name: "Daily spend limit",
-			limitLabel: `${formatUsd(admissionPolicy.desiredDailySpendLimitMicros / 1_000_000)} per UTC day, whole workspace`,
-			source: "Workspace admission policy",
-			usage: null,
-			configuredAt: { text: "the workspace policy pack (no screen yet)" },
-			consequence: DAILY_RESET,
+			id: `tedi:${tedi.tediId}`,
+			name: `${tedi.name} monthly cap`,
+			limitLabel: `${formatCredits(tedi.monthlyCapCredits)} a month for this tedi`,
+			used: tedi.usedCredits,
+			limit: tedi.monthlyCapCredits,
+			consequence: `${tedi.name} pauses until next month; other tedis keep working.`,
 		});
 	}
-
+	for (const member of credits.members) {
+		if (member.monthlyCapCredits === null) continue;
+		rows.push({
+			id: `member:${member.userId}`,
+			name: `${member.name} monthly cap`,
+			limitLabel: `${formatCredits(member.monthlyCapCredits)} a month for this member`,
+			used: member.usedCredits,
+			limit: member.monthlyCapCredits,
+			consequence: `Work started by ${member.name} pauses until next month.`,
+		});
+	}
 	return rows;
 }
 
-function LimitAlert({ row }: { row: LimitRow }) {
-	const share = row.usage ? row.usage.used / row.usage.limit : null;
-	const level = limitLevel(share);
+function LimitAlert({ row, level }: { row: LimitRow; level: CreditLevel }) {
 	if (level === "warn")
 		return (
 			<Alert variant="warning" data-limit-alert="warn">
 				<AlertTitle>{row.name} is nearly used up</AlertTitle>
 				<AlertDescription>
-					{Math.round((share ?? 0) * 100)}% used. {row.consequence}
+					{creditPercent(row.used, row.limit)}% used. {row.consequence}
 				</AlertDescription>
 			</Alert>
 		);
@@ -131,77 +109,51 @@ function LimitAlert({ row }: { row: LimitRow }) {
 }
 
 export function LimitItem({ row }: { row: LimitRow }) {
+	const level = creditLevel(row.used, row.limit);
 	return (
 		<div className="grid gap-1.5 px-4 py-3" data-limit-id={row.id}>
-			<div className="flex flex-wrap items-center gap-2">
-				<Text as="strong" role="body" weight="medium" tone="strong">
-					{row.name}
-				</Text>
-				{row.usage === null && (
-					<Badge variant="outline" data-usage="not-measured">
-						Usage not measured
-					</Badge>
-				)}
-			</div>
+			<Text as="strong" role="body" weight="medium" tone="strong">
+				{row.name}
+			</Text>
 			<Text as="span" role="label" tone="secondary">
 				{row.limitLabel}
 			</Text>
-			{row.usage && (
-				<>
-					<Meter
-						label={`${row.name} used`}
-						hideLabel
-						value={Math.min(100, (row.usage.used / row.usage.limit) * 100)}
-						className="h-2"
-					/>
-					<Text as="span" role="label" tone="secondary">
-						{row.usage.label}
-					</Text>
-				</>
-			)}
-			<Text as="span" role="caption" tone="secondary" className="opacity-70">
-				Read from: {row.source}
+			<Meter
+				label={`${row.name} used`}
+				hideLabel
+				value={creditPercent(row.used, row.limit)}
+				className="h-2"
+			/>
+			<Text as="span" role="label" tone="secondary">
+				{formatCredits(row.used)} of {formatCredits(row.limit)} used
 			</Text>
-			{row.usage === null && (
-				<Text as="span" role="caption" tone="secondary">
-					If reached: {row.consequence} Configured in{" "}
-					{row.configuredAt.href ? (
-						<a className="underline" href={row.configuredAt.href}>
-							{row.configuredAt.text}
-						</a>
-					) : (
-						row.configuredAt.text
-					)}
-					.
-				</Text>
-			)}
-			<LimitAlert row={row} />
+			<LimitAlert row={row} level={level} />
 		</div>
 	);
 }
 
-export function LimitsSection({ posture }: { posture: ComputePosture }) {
+export function LimitsSection({ credits }: { credits: CreditUsage }) {
 	useOsFormattingPreferences();
-	const rows = limitRows(posture);
+	const rows = limitRows(credits);
 	return (
 		<PageSection>
 			<SectionHeader>
 				<SectionHeading>
-					<SectionTitle>Limits</SectionTitle>
+					<SectionTitle>Monthly limits</SectionTitle>
 					<SectionDescription>
-						Each spending limit this page can read, with usage against it.
-						Read-only.
+						Each monthly credit limit, with usage against it. Change caps and
+						pay-as-you-go in{" "}
+						<a className="underline" href="/admin/billing">
+							Billing
+						</a>
+						.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
 			{rows.length === 0 ? (
-				<Empty
-					appearance="quiet"
-					title="No limits are readable here"
-					description="No plan allowance or daily limit is configured for this workspace."
-				/>
+				<Empty appearance="quiet" title="No monthly limits are set" />
 			) : (
-				<Collection aria-label="Limits" className="[&>li]:min-w-0">
+				<Collection aria-label="Monthly limits" className="[&>li]:min-w-0">
 					{rows.map((row) => (
 						<li key={row.id}>
 							<LimitItem row={row} />
@@ -209,10 +161,6 @@ export function LimitsSection({ posture }: { posture: ComputePosture }) {
 					))}
 				</Collection>
 			)}
-			<Text as="span" role="caption" tone="secondary">
-				Not shown (no readable value on this page): per-tedi daily limits, the
-				monthly hard spend limit, payment budgets and delegation budgets.
-			</Text>
 		</PageSection>
 	);
 }

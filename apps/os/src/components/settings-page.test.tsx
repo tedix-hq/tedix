@@ -234,10 +234,8 @@ describe("modelPolicySummary", () => {
 		expect(
 			modelPolicySummary({
 				allowedModelTiers: ["balanced", "frontier"],
-				dailyTokenLimit: 50_000,
-				dailySpendLimitMicros: 2_500_000,
 			}),
-		).toBe("Models: balanced · frontier · 50,000 tokens/day · $2.50/day");
+		).toBe("Models: balanced · frontier");
 	});
 });
 

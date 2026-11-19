@@ -214,8 +214,6 @@ export const organizationHandlers: Record<string, (input: never) => unknown> = {
 		},
 		modelPolicy: {
 			allowedModelTiers: ["economy" as const, "balanced" as const],
-			dailyTokenLimit: 5_000_000,
-			dailySpendLimitMicros: 25_000_000,
 		},
 	}),
 

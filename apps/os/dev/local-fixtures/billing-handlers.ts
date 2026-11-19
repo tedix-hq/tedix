@@ -5,6 +5,11 @@
 
 import {
 	CALL_COSTS,
+	CREDIT_PERIOD_END,
+	CREDIT_PERIOD_START,
+	CREDIT_PLANS,
+	CREDIT_TOP_UP_PACKS,
+	creditUsage,
 	MCP_PAYMENT_EVENTS,
 	MCP_PAYMENT_POLICIES,
 } from "./billing";
@@ -190,10 +195,10 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 			},
 			admissionPolicy: {
 				state: "d1_authoritative" as const,
-				desiredDailyTokenLimit: 5_000_000,
-				desiredDailySpendLimitMicros: 25_000_000,
+				desiredDailyTokenLimit: null,
+				desiredDailySpendLimitMicros: null,
 				detail:
-					"D1 is the sole inference-admission authority. Daily token and spend limits are checked atomically with reservations; AI Gateway only records provider usage and cost.",
+					"D1 is the sole inference-admission authority. Monthly credits are checked atomically with reservations; AI Gateway only records provider usage and cost.",
 			},
 			attribution: {
 				unattributedCostUsd: 0.006,
@@ -213,157 +218,52 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 		hasMore: false,
 		rows: [],
 	}),
-	"billing/listPlans": () => ({
-		stripeEnvironment: "test" as const,
-		plans: [
-			{
-				planKey: "growth" as const,
-				version: 1,
-				name: "Growth",
-				currency: "usd",
-				monthlyPriceMicros: 99_000_000,
-				annualPriceMicros: 950_000_000,
-				includedMonthlyTokens: 5_000_000,
-				overageUnitTokens: 100_000,
-				overageUnitPriceMicros: 500_000,
-				maxTedis: 1,
-				maxCronJobsPerTedi: 5,
-				maxIterationsPerTask: 50,
-			},
-			{
-				planKey: "business" as const,
-				version: 1,
-				name: "Business",
-				currency: "usd",
-				monthlyPriceMicros: 249_000_000,
-				annualPriceMicros: 2_390_000_000,
-				includedMonthlyTokens: 20_000_000,
-				overageUnitTokens: 100_000,
-				overageUnitPriceMicros: 400_000,
-				maxTedis: 3,
-				maxCronJobsPerTedi: 10,
-				maxIterationsPerTask: 100,
-			},
-			{
-				planKey: "enterprise" as const,
-				version: 1,
-				name: "Enterprise",
-				currency: "usd",
-				monthlyPriceMicros: 999_000_000,
-				annualPriceMicros: 9_590_000_000,
-				includedMonthlyTokens: -1,
-				overageUnitTokens: 100_000,
-				overageUnitPriceMicros: 0,
-				maxTedis: -1,
-				maxCronJobsPerTedi: -1,
-				maxIterationsPerTask: -1,
-			},
-		],
-	}),
+	"billing/listPlans": () => CREDIT_PLANS,
+	"billing/listTopUpPacks": () => CREDIT_TOP_UP_PACKS,
+	"billing/setCreditCaps": (input: {
+		tediCaps?: Array<{ tediId: string; monthlyCapCredits: number | null }>;
+		memberCaps?: Array<{ userId: string; monthlyCapCredits: number | null }>;
+	}) => {
+		for (const cap of input.tediCaps ?? []) {
+			const row = creditUsage.tedis.find((tedi) => tedi.tediId === cap.tediId);
+			if (!row) throw new RpcError("NOT_FOUND", "Tedi not found");
+			row.monthlyCapCredits = cap.monthlyCapCredits;
+		}
+		for (const cap of input.memberCaps ?? []) {
+			const row = creditUsage.members.find(
+				(member) => member.userId === cap.userId,
+			);
+			if (!row) throw new RpcError("NOT_FOUND", "Member not found");
+			row.monthlyCapCredits = cap.monthlyCapCredits;
+		}
+		return { ok: true as const };
+	},
+	"billing/setPayAsYouGo": (input: {
+		enabled: boolean;
+		monthlyCapMicros: number | null;
+	}) => {
+		creditUsage.payAsYouGo = {
+			...creditUsage.payAsYouGo,
+			enabled: input.enabled,
+			monthlyCapMicros: input.enabled ? input.monthlyCapMicros : null,
+		};
+		return { ok: true as const };
+	},
 	"billing/getOverview": () => ({
 		stripeEnvironment: "test" as const,
-		overage: {
-			enabled: false,
-			monthlyCapMicros: null,
-			currency: "usd",
-			planSellsOverage: true,
-			monthToDateChargeMicros: 0,
-			reservedChargeMicros: 0,
-			capReached: false,
-		},
-		workstationCostCoverage: {
-			periodStart: T1,
-			periodEnd: new Date(Date.parse(T1) + 30 * 86_400_000).toISOString(),
-			observedAt: T1,
-			unit: "compute_seconds",
-			basis: "recorded_lease_end_wall_clock",
-			status: "partial",
-			knownAttributedCostMicros: 2000000,
-			total: { rowCount: 3, leaseSeconds: 300 },
-			reconciled: { rowCount: 1, leaseSeconds: 100 },
-			pending: { rowCount: 1, leaseSeconds: 100 },
-			unproven: { rowCount: 1, leaseSeconds: 100 },
-		} as const,
 		snapshot: {
 			status: "active" as const,
 			billingMode: "trial" as const,
 			planKey: "growth" as const,
-			planVersion: 1,
-			periodStart: T1,
-			periodEnd: new Date(Date.parse(T1) + 30 * 86_400_000).toISOString(),
-			includedTokens: 5_000_000,
-			usedTokens: 1_260_000,
-			reservedTokens: 40_000,
-			remainingIncludedTokens: 3_700_000,
-			creditBalanceMicros: 25_000_000,
-			reservedChargeMicros: 0,
-			availableCreditMicros: 25_000_000,
-			customerChargeMicros: 0,
+			planVersion: 2,
+			periodStart: CREDIT_PERIOD_START,
+			periodEnd: CREDIT_PERIOD_END,
 			hardSpendLimitMicros: null,
 			allowOverage: false,
 			stripeCustomerId: null,
 		},
-		plan: {
-			name: "Growth",
-			currency: "usd",
-			monthlyPriceMicros: 99_000_000,
-			annualPriceMicros: 950_000_000,
-			includedMonthlyCreditMicros: 0,
-			overageUnitTokens: 100_000,
-			overageUnitPriceMicros: 500_000,
-			maxTedis: 1,
-			maxCronJobsPerTedi: 5,
-			maxIterationsPerTask: 50,
-			defaultDailyTokenLimit: 500_000,
-			defaultDailyMessageLimit: 500,
-		},
-		period: {
-			usedInputTokens: 940_000,
-			usedOutputTokens: 320_000,
-			meteredOverageTokens: 0,
-			providerCostMicros: 3_400_000,
-			customerChargeMicros: 0,
-			creditAppliedMicros: 0,
-		},
-		inferenceCapacity: {
-			available: true,
-			monthlyMetered: false,
-			blockingReason: null,
-			unblockAction: "none",
-			budgetDay: new Date().toISOString().slice(0, 10),
-			baseDailyTokenLimit: 10_000_000,
-			baseDailySpendLimitMicros: 80_000_000,
-			allocatedTokens: 2_000_000,
-			allocatedSpendCapacityMicros: 10_000_000,
-			// A provider fixture: part of the allocation is capacity sponsored to
-			// embedded customers, so the local surface renders that line too.
-			sponsoredTokens: -500_000,
-			sponsoredSpendCapacityMicros: -2_500_000,
-			usedTokens: 4_200_000,
-			usedSpendMicros: 31_000_000,
-			remainingTokens: 7_800_000,
-			remainingSpendMicros: 59_000_000,
-			expiresAt: new Date(
-				Date.UTC(
-					new Date().getUTCFullYear(),
-					new Date().getUTCMonth(),
-					new Date().getUTCDate() + 1,
-				),
-			).toISOString(),
-			allocations: [],
-			tediOverflow: [],
-			packs: [
-				{
-					packKey: "daily-boost",
-					name: "Daily boost",
-					tokens: 2_000_000,
-					spendCapacityMicros: 10_000_000,
-					priceMicros: 12_000_000,
-					currency: "usd",
-				},
-			],
-		},
-		serviceCredits: { seo: null },
+		plan: CREDIT_PLANS[1],
+		credits: structuredClone(creditUsage),
 	}),
 	"orgUsage/getOrgUsage": (input: {
 		organizationId: string;

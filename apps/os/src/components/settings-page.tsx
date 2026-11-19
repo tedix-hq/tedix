@@ -257,18 +257,9 @@ export function inferenceAdmissionLabel(input: {
 export function modelPolicySummary(
 	policy: AiGatewayAdmissionPolicy | null,
 ): string {
-	const parts = [
-		policy?.allowedModelTiers?.length
-			? `Models: ${policy.allowedModelTiers.join(" · ")}`
-			: "Any model allowed",
-	];
-	if (policy?.dailyTokenLimit !== undefined) {
-		parts.push(`${formatCount(policy.dailyTokenLimit)} tokens/day`);
-	}
-	if (policy?.dailySpendLimitMicros !== undefined) {
-		parts.push(`$${(policy.dailySpendLimitMicros / 1_000_000).toFixed(2)}/day`);
-	}
-	return parts.join(" · ");
+	return policy?.allowedModelTiers?.length
+		? `Models: ${policy.allowedModelTiers.join(" · ")}`
+		: "Any model allowed";
 }
 
 /**

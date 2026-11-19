@@ -1,17 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { Text } from "@/components/kumo/text";
-import { formatCreditWorth } from "@/lib/billing-credit-display";
+import { CREDIT_VALUE_MICROS, formatCredits } from "@/lib/billing-credits";
 import { homeConversationChargesQueryOptions } from "@/lib/os-query-options";
 
 /** The quiet line's words, exported for tests. */
 export function conversationUsageText(chargedMicros: number): string {
-	return `${formatCreditWorth(chargedMicros, "eur")} used in this conversation`;
+	const credits = Math.ceil(chargedMicros / CREDIT_VALUE_MICROS);
+	return `${formatCredits(credits)} used in this conversation`;
 }
 
 /**
  * A muted line under the composer: what this conversation's settled runs
- * cost in EUR credits. It stays silent until something has settled, and
+ * cost in Tedix credits. It stays silent until something has settled, and
  * never shows a guess while a read is pending or failed.
  */
 export function ConversationUsageLine({

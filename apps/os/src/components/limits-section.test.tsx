@@ -1,91 +1,80 @@
-import type { ComputePosture } from "@tedix/api-contract/contracts/os-compute";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
-import { limitLevel, limitRows, LimitsSection } from "./limits-section";
+import type { CreditUsage } from "@/lib/billing-credits";
+import { LimitsSection, limitRows } from "./limits-section";
 
-function posture(
-	budget: Partial<ComputePosture["budget"]> = {},
-	admission: Partial<ComputePosture["admissionPolicy"]> = {},
-): ComputePosture {
+function credits(overrides: Partial<CreditUsage> = {}): CreditUsage {
 	return {
-		budget: {
-			configured: true,
-			includedTokens: 1_000_000,
-			usedTokens: 400_000,
-			reservedTokens: 0,
-			remainingIncludedTokens: 600_000,
-			unlimitedTokenUsage: false,
-			allowOverage: false,
-			entitlementActive: true,
-			detail: "",
-			...budget,
-		},
-		admissionPolicy: {
-			state: "d1_authoritative",
-			desiredDailyTokenLimit: null,
-			desiredDailySpendLimitMicros: null,
-			detail: "",
-			...admission,
-		},
-	} as ComputePosture;
+		periodStart: "2026-11-01T00:00:00.000Z",
+		periodEnd: "2026-12-01T00:00:00.000Z",
+		includedCredits: 15_000,
+		usedCredits: 6_000,
+		remainingIncludedCredits: 9_000,
+		topUpCredits: 0,
+		breakdown: { ai: 5_000, codeRuns: 600, services: 400 },
+		notices: [],
+		payAsYouGo: { enabled: false, monthlyCapMicros: null, spentMicros: 0 },
+		tedis: [
+			{
+				tediId: "tedi-fictional-a",
+				name: "Nova",
+				usedCredits: 1_700,
+				monthlyCapCredits: 2_000,
+			},
+			{
+				tediId: "tedi-fictional-b",
+				name: "Miles",
+				usedCredits: 900,
+				monthlyCapCredits: null,
+			},
+		],
+		members: [
+			{
+				userId: "user-fictional-a",
+				name: "Sam Rivera",
+				usedCredits: 500,
+				monthlyCapCredits: 500,
+			},
+		],
+		...overrides,
+	};
 }
 
-describe("limitLevel", () => {
-	it("is null without a share, then ok, warn at 80%, full at 100%", () => {
-		expect(limitLevel(null)).toBeNull();
-		expect(limitLevel(0.79)).toBe("ok");
-		expect(limitLevel(0.8)).toBe("warn");
-		expect(limitLevel(1)).toBe("full");
-	});
-});
-
-describe("LimitsSection", () => {
-	it("shows a meter and no alert under 80%", () => {
-		const html = renderToStaticMarkup(<LimitsSection posture={posture()} />);
-		expect(html).toContain("400,000 of 1,000,000 tokens used");
-		expect(html).toContain('data-slot="meter"');
-		expect(html).not.toContain("data-limit-alert");
+describe("monthly limits", () => {
+	it("lists the plan credits and every cap that is set, all monthly", () => {
+		const rows = limitRows(credits());
+		expect(rows.map((row) => row.id)).toEqual([
+			"monthly-credits",
+			"tedi:tedi-fictional-a",
+			"member:user-fictional-a",
+		]);
+		expect(rows[0]!.limitLabel).toBe("15,000 credits a month from the plan");
 	});
 
-	it("warns at 80% and blocks at 100% in plain English", () => {
-		expect(
-			renderToStaticMarkup(
-				<LimitsSection posture={posture({ usedTokens: 850_000 })} />,
-			),
-		).toContain('data-limit-alert="warn"');
-		const full = renderToStaticMarkup(
-			<LimitsSection posture={posture({ usedTokens: 1_000_000 })} />,
+	it("adds the pay-as-you-go cap in credits when it is on", () => {
+		const rows = limitRows(
+			credits({
+				payAsYouGo: {
+					enabled: true,
+					monthlyCapMicros: 50_000_000,
+					spentMicros: 10_000_000,
+				},
+			}),
 		);
-		expect(full).toContain('data-limit-alert="full"');
-		expect(full).toContain("New AI replies pause");
+		const payg = rows.find((row) => row.id === "pay-as-you-go")!;
+		expect(payg.used).toBe(1_000);
+		expect(payg.limit).toBe(5_000);
 	});
 
-	it("never shows 0 for a daily limit without readable usage", () => {
-		const html = renderToStaticMarkup(
-			<LimitsSection
-				posture={posture(
-					{ configured: false, unlimitedTokenUsage: null },
-					{
-						desiredDailyTokenLimit: 500_000,
-						desiredDailySpendLimitMicros: 5_000_000,
-					},
-				)}
-			/>,
+	it("warns at 80% and says what happens at 100%", () => {
+		const html = renderToStaticMarkup(<LimitsSection credits={credits()} />);
+		expect(html).toContain('data-limit-alert="warn"');
+		expect(html).toContain("Nova monthly cap is nearly used up");
+		expect(html).toContain('data-limit-alert="full"');
+		expect(html).toContain(
+			"Work started by Sam Rivera pauses until next month.",
 		);
-		expect(html).toContain("Usage not measured");
-		expect(html).toContain("tomorrow 00:00 UTC");
-		expect(html).not.toContain('data-slot="meter"');
-		expect(limitRows(posture({}, { desiredDailyTokenLimit: 1 }))).toHaveLength(
-			2,
-		);
-	});
-
-	it("says so when nothing is readable", () => {
-		const html = renderToStaticMarkup(
-			<LimitsSection
-				posture={posture({ configured: false, unlimitedTokenUsage: null })}
-			/>,
-		);
-		expect(html).toContain("No limits are readable here");
+		expect(html.toLowerCase()).not.toContain("token");
+		expect(html.toLowerCase()).not.toContain("daily");
 	});
 });

@@ -148,7 +148,7 @@ export function BillingPlanStatus({ overview }: { overview: BillingOverview }) {
 							: "Subscription suspended"}
 					</AlertTitle>
 					<AlertDescription>
-						Inference is blocked until billing is restored.{" "}
+						New work that uses credits is paused until billing is restored.{" "}
 						{selectedStripeCustomerId
 							? "Update your payment method to reactivate."
 							: "Subscribe to reactivate."}
