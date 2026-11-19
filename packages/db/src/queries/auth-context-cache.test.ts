@@ -40,6 +40,15 @@ function fixture() {
 			"utf8",
 		),
 	);
+	sqlite.exec(
+		readFileSync(
+			new URL(
+				"../../drizzle/20261119182503_auth_cache_organization_fields/migration.sql",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
 	const db = createDbQueryClient(
 		createD1Facade({
 			prepare: (sql) => sqlite.prepare(sql),
@@ -60,7 +69,11 @@ describe("authorization cache version fence", () => {
 			"UPDATE organization_members SET custom_permissions = '[]' WHERE id = 'member-one'",
 			"UPDATE organization_members SET status = 'deactivated' WHERE id = 'member-one'",
 			"DELETE FROM organization_members WHERE id = 'member-one'",
-			"UPDATE organizations SET metadata = '{}' WHERE id = 'org-one'",
+			"UPDATE organizations SET descope_tenant_id = 'tenant-one' WHERE id = 'org-one'",
+			"UPDATE organizations SET metadata = json_set(coalesce(metadata, '{}'), '$.identityProvider', json_object('issuer', 'https://issuer.example.test', 'clientId', 'old-client')) WHERE id = 'org-one'",
+			"UPDATE organizations SET metadata = json_set(metadata, '$.identityProvider.clientId', 'new-client') WHERE id = 'org-one'",
+			"UPDATE organizations SET metadata = json_remove(metadata, '$.identityProvider') WHERE id = 'org-one'",
+			"UPDATE organizations SET metadata = json_set(metadata, '$.retiredAt', '2026-01-01T00:00:00Z') WHERE id = 'org-one'",
 			"INSERT INTO principal_identities (id, provider, issuer, subject, principal_type, principal_id, created_at, updated_at) VALUES ('identity-one', 'descope', 'issuer', 'subject-one', 'user', 'user-one', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
 			"UPDATE principal_identities SET status = 'revoked' WHERE id = 'identity-one'",
 		]) {

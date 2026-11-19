@@ -1668,6 +1668,10 @@
 		{
 			"name": "20261119182301_work_attempt_steps/migration.sql",
 			"sha256": "6f2612dd4e5f8225033b45dfb481a335665ec8742bf7e8f5f1791564ca28fe38"
+		},
+		{
+			"name": "20261119182503_auth_cache_organization_fields/migration.sql",
+			"sha256": "1a767200981d98a28157931ce6efd5bba3f8e126c166a7364ddb3726e0f031ef"
 		}
 	]
 }
