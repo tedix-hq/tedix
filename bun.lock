@@ -114,6 +114,7 @@
         "@tedix/worker-kit": "workspace:*",
         "@tedix/workers-ai": "workspace:*",
         "hono": "catalog:",
+        "isomorphic-git": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -1056,6 +1057,7 @@
       "devDependencies": {
         "@cloudflare/workers-types": "catalog:",
         "@tedix/tsconfig": "workspace:*",
+        "@types/node": "catalog:",
         "hono": "catalog:",
         "typescript": "catalog:",
         "vite": "catalog:",

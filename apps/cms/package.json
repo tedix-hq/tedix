@@ -39,6 +39,7 @@
 		"@tedix/worker-kit": "workspace:*",
 		"@tedix/workers-ai": "workspace:*",
 		"hono": "catalog:",
+		"isomorphic-git": "catalog:",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

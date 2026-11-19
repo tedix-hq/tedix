@@ -9,6 +9,7 @@ import {
 	cmsProcessOutcome,
 } from "./preview-exec-runner";
 import { isPathEditable } from "./constraints";
+import themeArtifactAuthor from "./theme-artifact-author.json";
 
 /** Resolve immutable Git objects without creating tokens or touching a Sandbox. */
 export async function readThemeArtifactTree(
@@ -25,7 +26,10 @@ export async function readThemeArtifactTree(
 	return metadata.treeHash;
 }
 
-async function readTree(repo: ArtifactsRepo, hash: string) {
+export async function readThemeArtifactTreeEntries(
+	repo: ArtifactsRepo,
+	hash: string,
+) {
 	const entries = await repo.readTree(hash);
 	if (!entries) throw new Error("Artifacts tree unavailable");
 	const names = new Set<string>();
@@ -63,7 +67,7 @@ export async function findThemeArtifactFile(
 	const parts = path.split("/");
 	let hash = root;
 	for (let index = 0; index < parts.length; index++) {
-		const entry = (await readTree(repo, hash)).find(
+		const entry = (await readThemeArtifactTreeEntries(repo, hash)).find(
 			(item) => item.name === parts[index],
 		);
 		if (!entry) return null;
@@ -107,7 +111,7 @@ export async function themeArtifactSourceView(
 	async function walk(hash: string, prefix: string, ancestors: Set<string>) {
 		if (ancestors.has(hash)) throw new Error("Cyclic Artifacts tree");
 		const next = new Set(ancestors).add(hash);
-		for (const entry of await readTree(repo, hash)) {
+		for (const entry of await readThemeArtifactTreeEntries(repo, hash)) {
 			const path = prefix ? `${prefix}/${entry.name}` : entry.name;
 			if (entry.type === "tree" && ["40000", "040000"].includes(entry.mode))
 				await walk(entry.hash, path, next);
@@ -121,7 +125,7 @@ export async function themeArtifactSourceView(
 			}
 		}
 	}
-	const src = (await readTree(repo, root)).find(
+	const src = (await readThemeArtifactTreeEntries(repo, root)).find(
 		(entry) => entry.name === "src",
 	);
 	if (!src || src.type !== "tree" || !["40000", "040000"].includes(src.mode))
@@ -156,11 +160,6 @@ export type ThemeArtifactSeedStatus =
 	| "failed"
 	| "timeout"
 	| "cancelled";
-
-export interface ThemeArtifactFileChange {
-	path: string;
-	content: string;
-}
 
 export interface ThemeArtifactSeedLaunch {
 	jobId: string;
@@ -299,8 +298,8 @@ fi
 cd "$TMP"
 git init -q
 git checkout -B "$BRANCH" >/dev/null 2>&1
-git config user.name "Tedix CMS"
-git config user.email "cms@tedix.dev"
+git config user.name ${shellSingleQuote(themeArtifactAuthor.name)}
+git config user.email ${shellSingleQuote(themeArtifactAuthor.email)}
 git remote add origin "$(cat "$REMOTE_FILE")"
 
 TOKEN="$(cat "$TOKEN_FILE")"
@@ -329,155 +328,6 @@ FILE_COUNT="$(git ls-files | wc -l | tr -d ' ')"
 git push -u origin "$BRANCH" --force >/dev/null 2>&1
 printf '{"seeded":true,"commit":"%s","fileCount":%s,"branch":"%s"}\\n' "$COMMIT" "$FILE_COUNT" "$BRANCH"
 `;
-}
-
-function buildThemeArtifactCommitScript(input: {
-	branch: string;
-	expectedHead: string;
-	files: readonly ThemeArtifactFileChange[];
-	filePaths: readonly string[];
-	messagePath: string;
-	remotePath: string;
-	tokenPath: string;
-}): string {
-	const copies = input.files
-		.map(({ path }, index) => {
-			const quoted = shellSingleQuote(path);
-			return `DEST="$TMP/repo/${path}"
-PARENT="$(dirname "$DEST")"
-while [ "$PARENT" != "$TMP/repo" ]; do
-  if [ -L "$PARENT" ]; then exit 21; fi
-  PARENT="$(dirname "$PARENT")"
-done
-if [ -L "$DEST" ]; then exit 21; fi
-mkdir -p "$(dirname "$DEST")"
-cp ${shellSingleQuote(input.filePaths[index]!)} "$DEST"
-git add -- ${quoted}`;
-		})
-		.join("\n");
-	return `#!/bin/sh
-set -eu
-BRANCH=${shellSingleQuote(input.branch)}
-EXPECTED=${shellSingleQuote(input.expectedHead)}
-TOKEN_FILE=${shellSingleQuote(input.tokenPath)}
-REMOTE_FILE=${shellSingleQuote(input.remotePath)}
-MESSAGE_FILE=${shellSingleQuote(input.messagePath)}
-TMP="/tmp/tedix-cms-theme-commit-$$"
-cleanup() {
-  rm -rf "$TMP"
-  rm -f "$TOKEN_FILE" "$REMOTE_FILE" "$MESSAGE_FILE" "$0" ${input.filePaths.map(shellSingleQuote).join(" ")}
-}
-
-trap cleanup EXIT INT TERM
-mkdir -p "$TMP"
-TOKEN="$(cat "$TOKEN_FILE")"
-export GIT_CONFIG_COUNT=1
-export GIT_CONFIG_KEY_0=http.extraHeader
-export GIT_CONFIG_VALUE_0="Authorization: Bearer $TOKEN"
-REMOTE="$(cat "$REMOTE_FILE")"
-git ls-remote --heads "$REMOTE" "$BRANCH" >"$TMP/refs" 2>/dev/null || exit 22
-REMOTE_HEAD="$(awk '{print $1}' "$TMP/refs" | head -1)"
-if [ -z "$REMOTE_HEAD" ]; then exit 22; fi
-if [ "$REMOTE_HEAD" != "$EXPECTED" ]; then
-  printf '{"committed":false,"conflict":true,"remoteHead":"%s"}\\n' "$REMOTE_HEAD"
-  exit 0
-fi
-git clone -q --single-branch --branch "$BRANCH" "$REMOTE" "$TMP/repo" 2>/dev/null
-cd "$TMP/repo"
-if [ "$(git rev-parse HEAD)" != "$EXPECTED" ]; then
-  printf '{"committed":false,"conflict":true,"remoteHead":"%s"}\\n' "$(git rev-parse HEAD)"
-  exit 0
-fi
-git config user.name "Tedix CMS"
-git config user.email "cms@tedix.dev"
-${copies}
-if git diff --cached --quiet; then
-  printf '{"committed":false,"unchanged":true,"commit":"%s"}\\n' "$EXPECTED"
-  exit 0
-fi
-git commit -q -F "$MESSAGE_FILE"
-COMMIT="$(git rev-parse HEAD)"
-# Artifacts Git can reject a delta-packed reversal with a stored delta cycle.
-# Send full objects; the branch is still protected by the normal fast-forward push.
-if ! git -c pack.window=0 -c pack.depth=0 push -q origin "HEAD:refs/heads/$BRANCH" 2>/dev/null; then
-  git ls-remote --heads origin "$BRANCH" >"$TMP/refs" 2>/dev/null || exit 23
-  REMOTE_HEAD="$(awk '{print $1}' "$TMP/refs" | head -1)"
-  if [ -z "$REMOTE_HEAD" ] || [ "$REMOTE_HEAD" = "$EXPECTED" ]; then exit 23; fi
-  printf '{"committed":false,"conflict":true,"remoteHead":"%s"}\\n' "$REMOTE_HEAD"
-  exit 0
-fi
-printf '{"committed":true,"commit":"%s","branch":"%s"}\\n' "$COMMIT" "$BRANCH"
-`;
-}
-
-export async function startThemeArtifactRepoCommit(
-	ctx: ThemeArtifactSeedContext,
-	input: {
-		branch: string;
-		expectedHead: string;
-		files: readonly ThemeArtifactFileChange[];
-		message: string;
-		remote: string;
-		token: string;
-	},
-): Promise<ThemeArtifactSeedLaunch> {
-	for (const file of input.files) {
-		if (
-			!/^[a-zA-Z0-9._/\[\]-]+$/.test(file.path) ||
-			file.path
-				.split("/")
-				.some(
-					(segment) =>
-						!segment ||
-						segment === "." ||
-						segment === ".." ||
-						segment === ".git",
-				)
-		) {
-			throw new Error(`Invalid CMS theme artifact path "${file.path}"`);
-		}
-	}
-	const jobId = `tac-${crypto.randomUUID()}`;
-	const sandbox = themeArtifactCommitSandbox(ctx, jobId);
-	const base = `/tmp/tedix-theme-artifact-commit-${safeId(ctx.orgSlug)}-${jobId}-${crypto.randomUUID()}`;
-	const scriptPath = `${base}.sh`;
-	const tokenPath = `${base}.token`;
-	const remotePath = `${base}.remote`;
-	const messagePath = `${base}.message`;
-	const filePaths = input.files.map((_, index) => `${base}.file-${index}`);
-	const script = buildThemeArtifactCommitScript({
-		branch: input.branch,
-		expectedHead: input.expectedHead,
-		files: input.files,
-		filePaths,
-		messagePath,
-		remotePath,
-		tokenPath,
-	});
-	await Promise.all([
-		sandbox.writeFile(scriptPath, script),
-		sandbox.writeFile(tokenPath, input.token),
-		sandbox.writeFile(remotePath, input.remote),
-		sandbox.writeFile(messagePath, input.message),
-		...input.files.map((file, index) =>
-			sandbox.writeFile(filePaths[index]!, file.content),
-		),
-	]);
-	const process = await startCmsJob(
-		sandbox,
-		`theme-commit:${jobId}`,
-		[
-			"bash",
-			"-lc",
-			`chmod 700 ${shellSingleQuote(scriptPath)} && chmod 600 ${shellSingleQuote(tokenPath)} ${shellSingleQuote(remotePath)} ${shellSingleQuote(messagePath)} && sh ${shellSingleQuote(scriptPath)}`,
-		],
-		{ cwd: "/workspace", timeout: THEME_ARTIFACT_SEED_TIMEOUT_MS },
-	);
-	return {
-		jobId,
-		processId: process.id,
-		startedAt: cmsProcessStartedAt(await process.status()) ?? Date.now(),
-	};
 }
 
 export async function startThemeArtifactRepoSeed(

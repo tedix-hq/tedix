@@ -5,11 +5,11 @@ type Entry =
 	| { kind: "file"; bytes: Uint8Array };
 
 function failure(code: string): Error & { code: string } {
-	return Object.assign(new Error(`Candidate Git filesystem ${code}`), { code });
+	return Object.assign(new Error(`Git filesystem ${code}`), { code });
 }
 
 /** Request-local Git storage. It has no access to the host filesystem. */
-export class CandidateGitMemoryFs {
+export class GitMemoryFs {
 	private entries = new Map<string, Entry>([
 		["/", { kind: "directory", children: new Set() }],
 	]);

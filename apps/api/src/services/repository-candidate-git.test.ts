@@ -10,7 +10,7 @@ import {
 	CANDIDATE_GIT_LIMITS,
 	type CandidateCommitRecipe,
 } from "./repository-candidate-git";
-import { CandidateGitMemoryFs } from "./repository-candidate-git-fs";
+import { GitMemoryFs as CandidateGitMemoryFs } from "@tedix/worker-kit/git-memory-fs";
 
 const remote = `https://${"a".repeat(32)}.artifacts.cloudflare.net/git/fixture/candidate.git`;
 const recipe: CandidateCommitRecipe = {
