@@ -3,6 +3,7 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
+import { UserWelcomeStateSchema } from "../schemas/user-settings";
 
 export const UserProfileSchema = z.object({
 	id: z
@@ -55,6 +56,24 @@ export const userProfileContract = oc
 	.route({ tags: ["user-profile"], prefix: "/user-profile" })
 	.errors(baseErrors)
 	.router({
+		getWelcomeState: oc
+			.route({
+				method: "GET",
+				path: "/welcome",
+				summary: "Get the human's account-wide welcome status",
+			})
+			.input(z.object({}))
+			.output(UserWelcomeStateSchema),
+
+		completeWelcome: oc
+			.route({
+				method: "POST",
+				path: "/welcome/complete",
+				summary: "Finish or skip the human's welcome",
+			})
+			.input(z.object({}))
+			.output(UserWelcomeStateSchema),
+
 		getMine: oc
 			.route({
 				method: "GET",

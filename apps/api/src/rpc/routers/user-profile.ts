@@ -8,6 +8,10 @@ import { baseErrorConstructors } from "@tedix/api-contract/errors";
 
 import { implement } from "@orpc/server";
 import { userProfileContract } from "@tedix/api-contract/contracts/user-profile";
+import {
+	getUserConfig,
+	upsertUserConfig,
+} from "@tedix/db/queries/user-configs";
 import { getUserById, updateUserProfile } from "@tedix/db/queries/users";
 import {
 	buildDeliveryUrl,
@@ -244,7 +248,52 @@ const deleteAvatar = authed.deleteAvatar
 		return { success: true as const, revision: updated.profileRevision };
 	});
 
+// Account-wide: moving to another organization must not restart the welcome.
+const welcomeKey = (userId: string) => ({
+	userId,
+	namespace: "os.welcome",
+	key: "account",
+});
+
+const getWelcomeState = authed.getWelcomeState
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Only the credential-resolved human can read or complete their own welcome.",
+			},
+			"apps:read",
+		),
+	)
+	.handler(async ({ context }) => {
+		const row = await getUserConfig(
+			context.db,
+			welcomeKey(requireHumanUserId(context)),
+		);
+		return { completed: row?.value.completed === true };
+	});
+
+const completeWelcome = authed.completeWelcome
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Only the credential-resolved human can read or complete their own welcome.",
+			},
+			"apps:read",
+		),
+	)
+	.handler(async ({ context }) => {
+		await upsertUserConfig(context.db, {
+			...welcomeKey(requireHumanUserId(context)),
+			value: { completed: true },
+		});
+		return { completed: true };
+	});
+
 export const userProfileContractRouter = os.router({
+	getWelcomeState,
+	completeWelcome,
 	getMine,
 	updateMine,
 	requestAvatarUpload,

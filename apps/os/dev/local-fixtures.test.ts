@@ -563,6 +563,8 @@ const CALLS = {
 		mutedProjectIds: [],
 		mutedWorkspaceIds: [],
 	},
+	"userProfile/getWelcomeState": {},
+	"userProfile/completeWelcome": {},
 	"userSettings/getPreferences": {},
 	"userSettings/updatePreferences": {
 		preferences: {
