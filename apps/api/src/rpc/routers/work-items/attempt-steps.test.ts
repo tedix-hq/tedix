@@ -125,6 +125,43 @@ describe("run log and steering", () => {
 			messages: [{ id: sent.id, appliedAt: null }],
 		});
 		expect(log.messages[0]?.deliveredAt).not.toBeNull();
+
+		// The runner may never have seen that answer: it gets the follow-up
+		// again until it reports it applied, and not after.
+		const report2 = { id: work, attemptId: attempt, steps: [] };
+		await expect(
+			call(appendAttemptStepsProcedure, tedi("runner"), report2),
+		).resolves.toEqual({
+			accepted: 0,
+			pending: [
+				{
+					id: sent.id,
+					kind: "follow_up",
+					body: "Also update the guide",
+					senderType: "user",
+					senderId: "owner",
+					createdAt: sent.createdAt,
+				},
+			],
+		});
+		await expect(
+			call(appendAttemptStepsProcedure, tedi("runner"), {
+				...report2,
+				appliedMessageIds: [sent.id],
+			}),
+		).resolves.toEqual({ accepted: 0, pending: [] });
+		await expect(
+			call(appendAttemptStepsProcedure, tedi("runner"), report2),
+		).resolves.toEqual({ accepted: 0, pending: [] });
+		const after = await call(
+			listAttemptStepsProcedure,
+			person("member-subject"),
+			{ id: work, limit: 200 },
+		);
+		expect(after.messages).toMatchObject([
+			{ id: sent.id, deliveredAt: log.messages[0]!.deliveredAt },
+		]);
+		expect(after.messages[0]?.appliedAt).not.toBeNull();
 	});
 
 	it("lets only the Work Item's owner or steward send or stop", async () => {

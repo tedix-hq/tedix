@@ -100,7 +100,7 @@ export const AppendWorkAttemptStepsResultSchema = z.object({
 	pending: z
 		.array(WorkAttemptPendingMessageSchema)
 		.describe(
-			"Messages waiting for this run, oldest first. Each is handed over once.",
+			"Messages this run has not yet reported in appliedMessageIds, oldest first. A message is returned again until then, so tell them apart by id.",
 		),
 });
 
