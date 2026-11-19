@@ -114,6 +114,7 @@ import { inDarkWake } from "./oauth-provider";
 import { lastLaneOutputTurn } from "./lane-output";
 import { runLaneProcess, reportLaneObservation } from "./lane-run";
 import { createLaneHeartbeat, createLaneStepSender } from "./lane-heartbeat";
+import { startLaneMachineTools } from "./lane-machine-tools";
 import {
 	createRunStepLog,
 	RUN_STEP_FLUSH_MS,
@@ -7417,6 +7418,7 @@ export async function runLaneServe(
 		}
 		writeDispatcherHealthSource(directory, options);
 		dispatcher = new LaneDispatcher(options, directory);
+		if (!options.once) startLaneMachineTools(options, directory);
 		do {
 			try {
 				await dispatcher.tick();
