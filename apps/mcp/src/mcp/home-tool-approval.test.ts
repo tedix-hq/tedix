@@ -1,6 +1,7 @@
 import type { ChangeRecordInput as LedgerInput } from "@tedix/agent-governance/types";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createInMemoryAdapters } from "@tedix/agent-governance/in-memory";
+import { hashValue } from "@tedix/agent-governance/hash";
 import {
 	isHomeApprovalCall,
 	requireDestructiveToolApproval,
@@ -139,15 +140,29 @@ describe("Home approval at MCP dispatch", () => {
 	);
 
 	it("accepts only the exact server-verified call without another elicitation", async () => {
-		const resolve = vi.fn().mockResolvedValue({ approved: true });
+		const evidence = {
+			approverId: "approver-1",
+			approvedAt: "2026-11-19T09:00:00.000Z",
+			presentedHash: "d".repeat(64),
+		};
+		const resolve = vi.fn().mockResolvedValue({ approved: true, evidence });
+		const onApprovalEvidence = vi.fn();
 		expect(
 			await requireDestructiveToolApproval(
 				context(resolve),
 				{ toolId: "tedix__create_os_output", title: "Create output" },
 				{ destructiveHint: true },
-				options,
+				{ ...options, onApprovalEvidence },
 			),
 		).toBeNull();
+		// The API hashed the tray's write summary; the slot is used up.
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "home_request",
+			...evidence,
+			approvalRequestId: "approval-1",
+			boundArgsHash: await hashValue(args),
+			singleUse: true,
+		});
 		expect(resolve).toHaveBeenCalledWith({
 			organizationId: "org-1",
 			userId: "user-1",

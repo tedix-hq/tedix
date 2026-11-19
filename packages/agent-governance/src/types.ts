@@ -142,14 +142,84 @@ export interface RevisionRef {
 	hash?: string;
 }
 
-/** What an approver saw when they approved. */
+/**
+ * Which approval path let a call through. One name per path of the runtime
+ * that recorded it:
+ *
+ * - `owner_request`: an owner or admin approved a parked request for this exact call.
+ * - `self_authorized`: an owner or admin called the tool directly; the call is the decision.
+ * - `home_request`: a person approved the write in a Home run's approval tray.
+ * - `machine_request`: an owner or admin approved a parked machine-session request.
+ * - `durable_grant`: a standing `once` or `always` grant for this caller and tool.
+ * - `work_item_authorization`: an authorization receipt on the caller's Work Item.
+ * - `self_confirmation`: the caller confirmed in its own arguments, with a reason.
+ * - `elicitation`: the caller answered an approval request (input round trip).
+ * - `policy`: an automatic rule approved it; no person was asked.
+ * - `legacy_agent_confirmation`: an agent's own confirmation of a bounded write.
+ * - `skill_manifest`: the pinned manifest of the running skill declares the call.
+ * - `owner_skill_start`: an owner or admin started an active skill.
+ * - `own_home_run`: the caller stopped their own Home run.
+ * - `attempt_lifecycle`: an admitted Work Attempt's own lifecycle write.
+ */
+export type ApprovalKind =
+	| "owner_request"
+	| "self_authorized"
+	| "home_request"
+	| "machine_request"
+	| "durable_grant"
+	| "work_item_authorization"
+	| "self_confirmation"
+	| "elicitation"
+	| "policy"
+	| "legacy_agent_confirmation"
+	| "skill_manifest"
+	| "owner_skill_start"
+	| "own_home_run"
+	| "attempt_lifecycle";
+
+/** Longest approver or caller reason kept in approval evidence. */
+export const APPROVAL_REASON_MAX_LENGTH = 500;
+
+/** Policy identifiers an approval path had when it decided. */
+export interface ApprovalPolicyRef {
+	revisionId?: string;
+	ruleDigest?: string;
+	descriptorDigest?: string;
+	/** Digest of the tool's configuration the approval was requested against. */
+	configHash?: string;
+	/** Rule, grant or receipt id that decided. */
+	ruleId?: string;
+}
+
+/** Who approved a call, through which path, and what they were shown. */
 export interface ApprovalEvidence {
+	/**
+	 * The approving person's id. For self paths, the caller. For paths with no
+	 * human approver at decision time, a `<kind>:<id>` reference to the
+	 * authority that decided, such as `policy:<rule>` or `grant:<id>`.
+	 */
 	approverId: string;
 	approvedAt: string;
-	/** Hash of the exact description shown to the approver. */
-	presentedHash: string;
+	/**
+	 * SHA-256 hex of what the approver was shown. Absent when nobody was shown
+	 * anything (grants, policies, self paths).
+	 */
+	presentedHash?: string;
 	/** The approval request this evidence settles. */
 	approvalRequestId?: string;
+	kind?: ApprovalKind;
+	/**
+	 * `hashValue` of the arguments the approval was tied to, computed the same
+	 * way as `ChangeRecord.argsHash`, so equal values mean the approval covered
+	 * exactly the recorded arguments. Absent when the path does not bind
+	 * arguments.
+	 */
+	boundArgsHash?: string;
+	/** The approval was consumed by this call and cannot be used again. */
+	singleUse?: boolean;
+	policy?: ApprovalPolicyRef;
+	/** Reason given by the approver or caller, at most `APPROVAL_REASON_MAX_LENGTH` characters. */
+	reason?: string;
 }
 
 /** How to undo the change. Absent when the change is not reversible. */

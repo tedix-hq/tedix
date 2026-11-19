@@ -40,6 +40,7 @@ import {
 import type {
 	AccountabilityAdapter,
 	Actor,
+	ApprovalEvidence,
 	CallDescription,
 	CallOutcome,
 	ChangeRecord,
@@ -156,6 +157,12 @@ export function describeGatewayCall(
 export class GatewayComplianceAdapter implements ComplianceAdapter {
 	verifiedHomeAgentPrincipalId?: string;
 	verifiedOwnerToolUserId?: string;
+	/**
+	 * Evidence from the approval path that let the call through. A path that
+	 * consumes its approval during execution sets it then, so read it when the
+	 * record is written, and only for an allowed call.
+	 */
+	approvalEvidence?: ApprovalEvidence;
 	/** The gate response for the last refusal, in the shape clients expect. */
 	failure: CallToolResult | null = null;
 	constructor(private readonly gates: GatewayCallGates) {}
@@ -175,6 +182,7 @@ export class GatewayComplianceAdapter implements ComplianceAdapter {
 		this.failure = null;
 		this.verifiedHomeAgentPrincipalId = undefined;
 		this.verifiedOwnerToolUserId = undefined;
+		this.approvalEvidence = undefined;
 		const base = {
 			riskTier: call.riskTier,
 			blastRadius: call.blastRadius,
@@ -223,8 +231,13 @@ export class GatewayComplianceAdapter implements ComplianceAdapter {
 				onHomeAgentVerified: (principalId) => {
 					this.verifiedHomeAgentPrincipalId = principalId;
 				},
+				onApprovalEvidence: (evidence) => {
+					this.approvalEvidence = evidence;
+				},
 			},
 		);
+		// Evidence from a path that was later refused is not evidence.
+		if (approvalFailure) this.approvalEvidence = undefined;
 		let approvalState: ApprovalState;
 		if (!approvalFailure) {
 			approvalState =
@@ -497,6 +510,7 @@ export async function guardGatewayCall(
 			{
 				compliance,
 				accountability,
+				approval: () => compliance.approvalEvidence,
 				classify: (result) =>
 					result.isError
 						? { status: "not_applied", error: resultText(result) }
@@ -578,8 +592,10 @@ export async function admitGatewayCall(
 		settle: async (outcome) => {
 			if (settled) return null;
 			settled = true;
+			const approval = compliance.approvalEvidence;
 			const record = await accountability.append({
 				...common,
+				...(approval ? { approval } : {}),
 				outcome: outcome.status,
 			});
 			await compliance.record(call, decision, outcome);

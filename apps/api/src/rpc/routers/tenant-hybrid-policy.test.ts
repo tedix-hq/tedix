@@ -851,14 +851,23 @@ describe("profile-bound tenant policy", () => {
 		mocks.consumeApproval
 			.mockResolvedValueOnce(true)
 			.mockResolvedValueOnce(false);
-		expect(
-			(
-				await client.requestMachineToolApproval({
-					...call,
-					approvalRequestId: parked.approvalRequestId,
-				})
-			).approved,
-		).toBe(true);
+		const consumed = await client.requestMachineToolApproval({
+			...call,
+			approvalRequestId: parked.approvalRequestId,
+		});
+		expect(consumed.approved).toBe(true);
+		// What the approver saw: the stored card text and call identity.
+		expect(consumed.evidence).toEqual({
+			approverId: "owner",
+			approvedAt: expect.any(String),
+			presentedHash: await canonicalDigest({
+				description: saved.description,
+				presentation: "machine_request.v1",
+				toolId: call.descriptor.mount.sourceToolId,
+				principalId: saved.payload.principalId,
+				argsDigest: await canonicalDigest(saved.payload.args),
+			}),
+		});
 		expect(
 			(
 				await client.requestMachineToolApproval({

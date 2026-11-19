@@ -22,6 +22,13 @@ vi.mock("@tedix/api-client/internal", async (original) => ({
 	}),
 }));
 import { requireDestructiveToolApproval } from "./governance";
+import { hashValue } from "@tedix/agent-governance/hash";
+
+const machineEvidence = {
+	approverId: "owner-1",
+	approvedAt: "2026-11-19T09:00:00.000Z",
+	presentedHash: "f".repeat(64),
+};
 
 const agent = {
 	appId: "root",
@@ -101,17 +108,41 @@ describe("native machine approval", () => {
 				auth: { type: "connection", connectionId: "provider" },
 			},
 		};
+		mocks.approve.mockResolvedValue({
+			approved: true,
+			approvalRequestId: "approval",
+			status: "consumed",
+			url: "https://example.test",
+			evidence: machineEvidence,
+		});
+		const onApprovalEvidence = vi.fn();
 		expect(
 			await requireDestructiveToolApproval(agent, connectedTool, null, {
 				args: { id: "one" },
 				extra: { _meta: { "com.tedix/approvalRequestId": "approval" } },
 				tenantPolicyCandidate: candidate as never,
+				onApprovalEvidence,
 			}),
 		).toBeNull();
 		expect(mocks.approve).not.toHaveBeenCalled();
+		// Nothing is consumed yet, so there is no evidence yet.
+		expect(onApprovalEvidence).not.toHaveBeenCalled();
 		expect(await candidate.probe.revalidate()).toBe(true);
 		expect(mocks.approve).toHaveBeenCalledOnce();
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "machine_request",
+			...machineEvidence,
+			approvalRequestId: "approval",
+			boundArgsHash: await hashValue({ id: "one" }),
+			singleUse: true,
+			policy: {
+				revisionId: "revision",
+				ruleDigest: "rule",
+				descriptorDigest: "digest",
+			},
+		});
 		expect(await candidate.probe.revalidate()).toBe(false);
+		expect(onApprovalEvidence).toHaveBeenCalledOnce();
 	});
 	it("requires fresh admin scope for a high-impact connected approval", async () => {
 		mocks.proof.mockResolvedValue({ receiptId: "" });
@@ -171,16 +202,34 @@ describe("native machine approval", () => {
 	});
 	it("consumes only immediately before the first RPC send", async () => {
 		const candidate = newCandidate();
+		const onApprovalEvidence = vi.fn();
 		expect(
 			await requireDestructiveToolApproval(agent, tool, null, {
 				args: { id: "one" },
 				extra: { _meta: { "com.tedix/approvalRequestId": "approval" } },
 				nativePolicyCandidate: candidate as never,
+				onApprovalEvidence,
 			}),
 		).toBeNull();
 		expect(mocks.approve).not.toHaveBeenCalled();
+		expect(onApprovalEvidence).not.toHaveBeenCalled();
 		expect(await candidate.revalidate()).toBe(true);
 		expect(mocks.approve).toHaveBeenCalledOnce();
+		// No evidence came back from the API: the gateway still names the path
+		// and the bound arguments, and does not invent what was shown.
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "machine_request",
+			approverId: "unknown",
+			approvedAt: expect.any(String),
+			approvalRequestId: "approval",
+			boundArgsHash: await hashValue({ id: "one" }),
+			singleUse: true,
+			policy: {
+				revisionId: "revision",
+				ruleDigest: "rule",
+				descriptorDigest: "digest",
+			},
+		});
 		expect(await candidate.revalidate()).toBe(false);
 		expect(mocks.approve).toHaveBeenCalledOnce();
 	});

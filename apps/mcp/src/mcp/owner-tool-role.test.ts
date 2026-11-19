@@ -39,6 +39,15 @@ it("isolates verified approvers across concurrent exact-call admissions", async 
 					status: args.allow ? "consumed" : "pending",
 					approvalRequestId: "approval",
 					url: "https://example.test",
+					...(args.allow
+						? {
+								evidence: {
+									approverId: args.approver,
+									approvedAt: "2026-11-19T09:00:00.000Z",
+									presentedHash: "e".repeat(64),
+								},
+							}
+						: {}),
 				})),
 			},
 		},
@@ -65,6 +74,24 @@ it("isolates verified approvers across concurrent exact-call admissions", async 
 	]);
 	expect(admissions[1]?.failure?.isError).toBe(true);
 	expect(agent.callerIdentity?.approvedToolUserId).toBeUndefined();
+	const records = await Promise.all(
+		admissions.map((admission) => admission.settle({ status: "applied" })),
+	);
+	expect(records[1]).toBeNull();
+	for (const i of [0, 2]) {
+		const record = records[i]!;
+		// The approval bound exactly the recorded arguments: same hash function.
+		expect(record.approval).toEqual({
+			kind: "owner_request",
+			approverId: `owner-${i}`,
+			approvedAt: "2026-11-19T09:00:00.000Z",
+			presentedHash: "e".repeat(64),
+			approvalRequestId: "approval",
+			boundArgsHash: record.argsHash,
+			singleUse: true,
+			policy: { configHash: expect.stringMatching(/^[0-9a-f]{64}$/) },
+		});
+	}
 });
 
 describe("role discovery", () => {
@@ -101,7 +128,7 @@ it.each([undefined, "host-agent-session"])(
 				mcpGovernance: { requestOwnerToolApproval: request },
 			},
 		} as unknown as ServerContext;
-		await admitGatewayCall({
+		const admission = await admitGatewayCall({
 			agent,
 			tool,
 			args: {},
@@ -111,5 +138,14 @@ it.each([undefined, "host-agent-session"])(
 		expect(request).toHaveBeenCalledWith(
 			expect.objectContaining({ directUserCall: !ownerHostSessionId }),
 		);
+		// The caller decided: no request, nothing shown, nothing consumed.
+		const record = await admission.settle({ status: "applied" });
+		expect(record?.approval).toEqual({
+			kind: "self_authorized",
+			approverId: "owner",
+			approvedAt: expect.any(String),
+			singleUse: false,
+			policy: { configHash: expect.stringMatching(/^[0-9a-f]{64}$/) },
+		});
 	},
 );

@@ -31,6 +31,17 @@ vi.mock("@tedix/db/queries/kernel-runtime-runs", async (load) => ({
 	getKernelRuntimeRun: mocks.run,
 }));
 import { mcpGovernanceContractRouter } from "./mcp-governance";
+import { canonicalDigest } from "../../lib/blueprint-digest";
+
+/** A consumed receipt: who approved it and a hash of what the tray showed. */
+const consumed = (approverId: string) => ({
+	approved: true,
+	evidence: {
+		approverId,
+		approvedAt: expect.any(String),
+		presentedHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+	},
+});
 
 const input = {
 	organizationId: "org-1",
@@ -102,13 +113,34 @@ beforeEach(() => {
 	mocks.run.mockResolvedValue(run);
 });
 describe("Home approval dispatch receipt", () => {
+	it("hashes what the tray showed from the stored request it consumed", async () => {
+		mocks.approval.mockResolvedValue({
+			...approval,
+			description: "Create the sheet Opportunities",
+			resolvedAt: "2026-10-25T11:59:00.000Z",
+		});
+		expect(await client().resolveHomeToolApproval(input)).toEqual({
+			approved: true,
+			evidence: {
+				approverId: "owner-1",
+				approvedAt: "2026-10-25T11:59:00.000Z",
+				presentedHash: await canonicalDigest({
+					description: "Create the sheet Opportunities",
+					presentation: "home_request.v1",
+					appSlug: payload.appSlug,
+					toolName: payload.toolName,
+					argsDigest: await canonicalDigest(input.args),
+				}),
+			},
+		});
+	});
 	it.each(["user:owner-1", "policy"])(
 		"accepts the exact claimed write resolved by %s",
 		async (resolvedBy) => {
 			mocks.approval.mockResolvedValue({ ...approval, resolvedBy });
-			expect(await client().resolveHomeToolApproval(input)).toEqual({
-				approved: true,
-			});
+			expect(await client().resolveHomeToolApproval(input)).toEqual(
+				consumed(resolvedBy === "policy" ? "policy" : "owner-1"),
+			);
 			expect(mocks.run).toHaveBeenCalledWith(expect.anything(), {
 				id: "run-1",
 				organizationId: "org-1",
@@ -159,16 +191,16 @@ describe("Home approval dispatch receipt", () => {
 		});
 	});
 	it("authorizes each approved call once per credential path", async () => {
-		expect(await client().resolveHomeToolApproval(input)).toEqual({
-			approved: true,
-		});
+		expect(await client().resolveHomeToolApproval(input)).toEqual(
+			consumed("owner-1"),
+		);
 		expect(await client().resolveHomeToolApproval(input)).toEqual({
 			approved: false,
 		});
 		const fallback = { ...input, credential: "tenant" as const };
-		expect(await client().resolveHomeToolApproval(fallback)).toEqual({
-			approved: true,
-		});
+		expect(await client().resolveHomeToolApproval(fallback)).toEqual(
+			consumed("owner-1"),
+		);
 		expect(await client().resolveHomeToolApproval(fallback)).toEqual({
 			approved: false,
 		});
@@ -211,9 +243,9 @@ describe("Home approval dispatch receipt", () => {
 					resolvedBy,
 					payload: agentPayload,
 				});
-				expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
-					approved: true,
-				});
+				expect(await client().resolveHomeToolApproval(asApprover)).toEqual(
+					consumed("owner-1"),
+				);
 				// Approving twice writes once.
 				expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
 					approved: false,
@@ -294,7 +326,7 @@ describe("Home approval dispatch receipt", () => {
 			});
 			const policyInput = { ...asApprover, userId: undefined };
 			expect(await client().resolveHomeToolApproval(policyInput)).toEqual({
-				approved: true,
+				...consumed("policy"),
 				initiatingAgentPrincipalId: agentPrincipalId,
 			});
 			expect(await client().resolveHomeToolApproval(policyInput)).toEqual({
@@ -372,7 +404,7 @@ describe("Home approval dispatch receipt", () => {
 		);
 		it("keeps the exact approver-bound receipt and consumes it once", async () => {
 			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
-				approved: true,
+				...consumed("owner-1"),
 				initiatingAgentPrincipalId: agentPrincipalId,
 			});
 			expect(mocks.principal).toHaveBeenCalledWith(expect.anything(), {
@@ -417,7 +449,7 @@ describe("Home approval dispatch receipt", () => {
 					: { status: "active", role: "owner" },
 			);
 			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
-				approved: true,
+				...consumed("owner-1"),
 				initiatingAgentPrincipalId: agentPrincipalId,
 			});
 		});

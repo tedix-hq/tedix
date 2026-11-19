@@ -43,9 +43,19 @@ const options = { args: { runId: "run-1" } };
 describe("own Home run cancellation", () => {
 	it("does not ask for approval when the authenticated user owns the run", async () => {
 		const ctx = context();
+		const onApprovalEvidence = vi.fn();
 		expect(
-			await requireDestructiveToolApproval(ctx, tool, annotations, options),
+			await requireDestructiveToolApproval(ctx, tool, annotations, {
+				...options,
+				onApprovalEvidence,
+			}),
 		).toBeNull();
+		expect(onApprovalEvidence).toHaveBeenCalledWith({
+			kind: "own_home_run",
+			approverId: "user-1",
+			approvedAt: expect.any(String),
+			singleUse: false,
+		});
 		expect(ctx.apiClient.kernelRuntime.readRun).toHaveBeenCalledWith({
 			organizationId: "example-org",
 			runId: "run-1",

@@ -10,7 +10,7 @@ import {
 import * as z from "zod";
 import { withDestructiveApprovalSchema } from "./governance";
 import { guardGatewayCall } from "./gateway-adapters";
-import { isApprovedReplayCall } from "./governance";
+import { isApprovedReplayCall, textToolRequestBinding } from "./governance";
 import type { AppTool, ServerContext } from "./server-context";
 import { executeTool } from "./tool-execution";
 import {
@@ -182,7 +182,12 @@ export async function registerDynamicTool(
 					tool,
 					annotations,
 					args,
-					approval: { args, extra },
+					approval: {
+						args,
+						extra,
+						// An elicited answer approves only this exact call.
+						...(await textToolRequestBinding(tool, args)),
+					},
 					surface: "mcp_widget",
 				},
 				async (

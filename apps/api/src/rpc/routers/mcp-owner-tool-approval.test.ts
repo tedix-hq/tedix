@@ -444,14 +444,29 @@ describe("owner gateway approvals", () => {
 	}
 	it("consumes an approved exact call once", async () => {
 		const retry = await seed();
+		const row = mocks.create.mock.calls[0]![1];
+		// Evidence comes from the stored request: its approver, and a hash of
+		// the card's description plus the stored call identity and arguments.
 		expect(await client().requestOwnerToolApproval(retry)).toMatchObject({
 			approved: true,
 			status: "consumed",
+			evidence: {
+				approverId: "owner-1",
+				approvedAt: expect.any(String),
+				presentedHash: await canonicalDigest({
+					description: row.description,
+					presentation: "owner_request.v1",
+					appSlug: input.appSlug,
+					toolId: input.toolId,
+					requesterUserId: input.userId,
+					argsDigest: await canonicalDigest(input.args),
+				}),
+			},
 		});
 		mocks.consume.mockResolvedValue(false);
-		expect(await client().requestOwnerToolApproval(retry)).toMatchObject({
-			approved: false,
-		});
+		const refused = await client().requestOwnerToolApproval(retry);
+		expect(refused).toMatchObject({ approved: false });
+		expect(refused).not.toHaveProperty("evidence");
 	});
 	it("does not consume an approval with an invalid policy binding", async () => {
 		const bound = {

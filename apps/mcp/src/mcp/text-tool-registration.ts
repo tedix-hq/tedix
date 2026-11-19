@@ -17,7 +17,7 @@ import {
 	type ToolAnnotations,
 } from "@tedix/api-contract/schemas/tools";
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
-import { isApprovedReplayCall } from "./governance";
+import { isApprovedReplayCall, textToolRequestBinding } from "./governance";
 import {
 	type ToolCallback,
 	wrapToolCallTelemetry,
@@ -233,6 +233,8 @@ export async function registerTextOnlyTool(
 					extra,
 					tenantPolicyCandidate: effectiveCandidate ?? undefined,
 					nativePolicyCandidate: nativeCandidate ?? undefined,
+					// An elicited answer approves only this exact call.
+					...(await textToolRequestBinding(tool, args)),
 				},
 			},
 			async (

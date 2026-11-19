@@ -7,6 +7,7 @@ import { hashArguments } from "./hash";
 import type {
 	AccountabilityAdapter,
 	Actor,
+	ApprovalEvidence,
 	CallDescription,
 	CallOutcome,
 	ChangeRecord,
@@ -80,6 +81,13 @@ export async function guardedCall<T>(
 		undo?: (result: T) => UndoPlan | undefined;
 		/** Bindings that report failure in their result instead of throwing. */
 		classify?: (result: T) => CallOutcome;
+		/**
+		 * Evidence of the approval that let the call through. Read when the
+		 * record is written, after the call ran, so a path that consumes its
+		 * approval during execution can still report it. Ignored unless the
+		 * decision is `allow`.
+		 */
+		approval?: () => ApprovalEvidence | undefined;
 	},
 ): Promise<{ result: T; decision: ComplianceDecision; record: ChangeRecord }> {
 	const started = Date.now();
@@ -129,6 +137,14 @@ export async function guardedCall<T>(
 			};
 		}
 	}
+	let approval: ApprovalEvidence | undefined;
+	if (decision.verdict === "allow") {
+		try {
+			approval = deps.approval?.();
+		} catch {
+			// Evidence is a record field; reading it cannot change the outcome.
+		}
+	}
 	const record = await deps.accountability.append({
 		resource: call.resource,
 		operation: call.operation,
@@ -139,6 +155,7 @@ export async function guardedCall<T>(
 		...(before ? { before } : {}),
 		...(after ? { after } : {}),
 		...(undo ? { undo } : {}),
+		...(approval ? { approval } : {}),
 		outcome:
 			decision.verdict === "allow"
 				? outcome.status
