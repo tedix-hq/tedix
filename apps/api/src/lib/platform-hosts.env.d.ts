@@ -2,4 +2,6 @@
 interface CloudflareEnv {
 	PLATFORM_DOMAIN?: string;
 	TEDI_HOST_SUFFIX?: string;
+	SITE_BUILDER_HOSTNAME?: string;
+	CMS_TENANT_HOST_SUFFIX?: string;
 }

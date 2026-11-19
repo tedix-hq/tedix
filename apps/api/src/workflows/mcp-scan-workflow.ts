@@ -17,7 +17,6 @@
  * @see apps/api/src/lib/mcp-client.ts for the direct MCP client
  */
 
-import { getInstallationTrustPolicy } from "@tedix/db/queries/installation-trust";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	WorkflowEntrypoint,
@@ -68,12 +67,15 @@ import {
 	upsertCatalogApp,
 } from "@tedix/db/vector/catalog";
 import {
-	getManagedCatalogScanEndpoint,
-	catalogScanSnapshotHeaders,
-	createManagedCatalogScanFetch,
-	resolveTedixInternalScanHeaders,
+	createCatalogScanFetch,
+	externalCatalogScanHeaders,
+	resolveCatalogBuilderSite,
 } from "../lib/catalog-internal-scan";
-import { connectMcpServer, type McpSkillManifest } from "../lib/mcp-client";
+import {
+	connectMcpServer,
+	type FetchFn,
+	type McpSkillManifest,
+} from "../lib/mcp-client";
 import {
 	publishMcpCatalogInventoryEvents,
 	publishMcpListChangedEvents,
@@ -658,15 +660,21 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 
 		await runMcpScanBatchConcurrently(apps, async (app) => {
 			try {
-				// A runnable first-party MCP endpoint is the protocol and health source of
-				// truth. The old projection shortcut retained its base-app inventory but
-				// could never observe a protocol upgrade or successful authentication.
-				// Non-hosted generated catalogs still project from their owning base app.
-				const result = isTedixHostedMcpEndpoint(app.mcpEndpointNormalized)
-					? await this.scanApp(app, timeout)
-					: shouldProjectCatalogToolsFromBaseApp(app)
-						? await this.projectApp(app, db)
-						: await this.scanApp(app, timeout);
+				const fetchFn = createCatalogScanFetch(
+					app.mcpEndpointNormalized,
+					this.env,
+					() =>
+						resolveCatalogBuilderSite(db, {
+							catalogAppId: app.id,
+							organizationId: app.scanOrganizationId,
+						}),
+				);
+				const result =
+					fetchFn ||
+					isTedixHostedMcpEndpoint(app.mcpEndpointNormalized) ||
+					!shouldProjectCatalogToolsFromBaseApp(app)
+						? await this.scanApp(app, timeout, fetchFn)
+						: await this.projectApp(app, db);
 
 				// Update health metrics in D1
 				await updateCatalogAppHealthMetrics(db, app.id, result);
@@ -935,6 +943,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 	private async scanApp(
 		app: AppScanInfo,
 		timeout: number,
+		fetchFn?: FetchFn,
 	): Promise<ScanResultWithCompleteness> {
 		const endpoint = app.mcpEndpointNormalized;
 		const checkedAt = new Date().toISOString();
@@ -946,10 +955,13 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 			let authHeaders: Record<string, string> | undefined;
 			let resolvedVaultHeaders = false;
 
-			if (app.scanConnectionId && app.scanOrganizationId) {
+			if (!fetchFn && app.scanConnectionId && app.scanOrganizationId) {
 				// Vault-based resolution: Descope user credential → tenant credential
 				try {
-					authHeaders = await this.resolveVaultToken(app);
+					authHeaders = externalCatalogScanHeaders(
+						await this.resolveVaultToken(app),
+						this.env.PLATFORM_SERVICE_TOKEN,
+					);
 					resolvedVaultHeaders = !!authHeaders;
 					if (authHeaders) {
 						console.log(
@@ -965,7 +977,12 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 			}
 
 			// Fallback: decrypt static auth headers snapshot
-			if (!authHeaders && app.scanAuthHeaders && this.env.SECRETS_MASTER_KEY) {
+			if (
+				!fetchFn &&
+				!authHeaders &&
+				app.scanAuthHeaders &&
+				this.env.SECRETS_MASTER_KEY
+			) {
 				try {
 					const { decryptCatalogAppSecret } =
 						await import("@tedix/db/utils/secrets-encryption");
@@ -974,7 +991,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 						app.id,
 						app.scanAuthHeaders,
 					);
-					authHeaders = catalogScanSnapshotHeaders(
+					authHeaders = externalCatalogScanHeaders(
 						JSON.parse(decrypted) as Record<string, string>,
 						this.env.PLATFORM_SERVICE_TOKEN,
 					);
@@ -986,30 +1003,10 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				}
 			}
 
-			const installationTrust = await getInstallationTrustPolicy(
-				createDbClient(this.env.DB),
-			);
-			const managedEndpoint = getManagedCatalogScanEndpoint(
-				endpoint,
-				installationTrust,
-			);
-			if (!authHeaders) {
-				authHeaders = resolveTedixInternalScanHeaders({
-					endpoint,
-					platformServiceToken: this.env.PLATFORM_SERVICE_TOKEN,
-					policy: installationTrust,
-				});
-			}
-			const internalTenantFetch = managedEndpoint
-				? createManagedCatalogScanFetch(managedEndpoint, {
-						mcp: this.env.MCP_SERVICE,
-						cms: this.env.CMS,
-					})
-				: undefined;
 			const result = await connectMcpServer(endpoint, {
 				timeout,
 				headers: authHeaders,
-				fetchFn: internalTenantFetch,
+				fetchFn,
 			});
 
 			// If vault resolution succeeded, refresh the encrypted snapshot so it stays warm
@@ -1171,7 +1168,9 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 
 			// Handle WAF blocks distinctly from auth
 			if (result.wafProvider) {
-				const manifest = await fetchPublicMcpManifest(endpoint, timeout);
+				const manifest = fetchFn
+					? null
+					: await fetchPublicMcpManifest(endpoint, timeout);
 				if (manifest) {
 					console.log(
 						`[MCP Scan] WAF blocked: ${app.name}; using public manifest ${manifest.url} with ${manifest.tools.length} tools`,
@@ -1208,7 +1207,9 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 
 			// Handle real auth requirement
 			if (result.requiresAuth) {
-				const manifest = await fetchPublicMcpManifest(endpoint, timeout);
+				const manifest = fetchFn
+					? null
+					: await fetchPublicMcpManifest(endpoint, timeout);
 				if (manifest) {
 					console.log(
 						`[MCP Scan] Auth required: ${app.name}; using public manifest ${manifest.url} with ${manifest.tools.length} tools`,
