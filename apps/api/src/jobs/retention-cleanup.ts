@@ -23,9 +23,10 @@ export function formatWorkGraphStewardSummary(
 }
 
 /**
- * Gateway change record retention: 500-row deletes, at most 50 a night
- * (25,000 rows), well above the few thousand change records a day the
- * gateway writes once reads and liveness reports are left out.
+ * Gateway change record retention: each round looks at the 500 oldest sealed
+ * rows and deletes the whole checkpoints covering them, at most 50 rounds a
+ * night (about 25,000 rows), well above the few thousand change records a
+ * day the gateway writes once reads and liveness reports are left out.
  */
 export const GATEWAY_CHANGE_RECORD_PRUNE_BATCH_SIZE = 500;
 export const GATEWAY_CHANGE_RECORD_PRUNE_MAX_BATCHES = 50;

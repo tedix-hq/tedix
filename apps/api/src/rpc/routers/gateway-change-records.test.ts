@@ -1,11 +1,20 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
+import {
+	encodeBase64,
+	importVerifyingKey,
+	verifyChain,
+} from "@tedix/agent-governance/seal";
 import { createDbClient } from "@tedix/db/client";
-import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
+import {
+	gatewayChangeRecordCheckpoints,
+	gatewayChangeRecords,
+} from "@tedix/db/schema/gateway-change-records";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { runGatewayChangeRecordSealer } from "../../jobs/gateway-change-record-sealer";
 import type { BaseContext } from "../orpc";
 import { auditContractRouter } from "./audit";
 
@@ -392,6 +401,279 @@ describe("owner and admin read of gateway change records", () => {
 					})
 				).count,
 			).toBe(0);
+		} finally {
+			sqlite.close();
+		}
+	});
+});
+
+describe("verifying an export offline", () => {
+	const NOW = Date.parse("2026-11-19T12:00:00.000Z");
+
+	async function sealedLedger() {
+		const sqlite = new DatabaseSync(":memory:", {
+			enableForeignKeyConstraints: false,
+		});
+		sqlite.exec(
+			schemaDdl(
+				gatewayChangeRecords,
+				gatewayChangeRecordCheckpoints,
+				organizationMembers,
+			),
+		);
+		const facade = createD1Facade(sqlite);
+		const db = createDbClient(facade);
+		await db.insert(organizationMembers).values(
+			(
+				[
+					[ORG_A, "owner-a", "owner"],
+					[ORG_A, "member-a", "member"],
+					[ORG_B, "owner-b", "owner"],
+				] as const
+			).map(([organizationId, descopeUserId, role]) => ({
+				id: `${organizationId}:${descopeUserId}`,
+				organizationId,
+				descopeUserId,
+				email: `${descopeUserId}@example.test`,
+				role,
+				status: "active" as const,
+			})),
+		);
+		// Interleaved organizations, so each one's sequences have gaps.
+		await db.insert(gatewayChangeRecords).values(
+			Array.from({ length: 12 }, (_, index) => {
+				const organizationId = index % 3 === 2 ? ORG_B : ORG_A;
+				const resource = index % 2 ? "tool:send_example" : "tool:get_example";
+				return {
+					id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+					organizationId,
+					resource,
+					actorId: "user-1",
+					recordedAt: new Date(Date.UTC(2026, 10, 18, 10, index)).toISOString(),
+					record: {
+						resource,
+						operation: resource.slice("tool:".length),
+						actor: { id: "user-1", kind: "user", organizationId },
+						source: { surface: "mcp_gateway", traceId: `trace-${index}` },
+						decision: {
+							verdict: index === 5 ? "deny" : "allow",
+							gate: "tool_scope",
+							reason: index === 5 ? "refused" : "allowed",
+							riskTier: "bounded_write",
+							blastRadius: "single_resource",
+						},
+						outcome: index === 5 ? "denied" : "applied",
+						argsHash: `hash-${index}`,
+					} as (typeof gatewayChangeRecords.$inferInsert)["record"],
+				};
+			}),
+		);
+		const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
+			"sign",
+			"verify",
+		])) as CryptoKeyPair;
+		const pkcs8 = encodeBase64(
+			new Uint8Array(await crypto.subtle.exportKey("pkcs8", pair.privateKey)),
+		);
+		const env = {
+			ENVIRONMENT: "test",
+			DB: facade,
+			CHANGE_RECORD_SIGNING_KEY: pkcs8,
+			CHANGE_RECORD_SIGNING_KEY_ID: "change-records-2026",
+		};
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		try {
+			// Two sealer runs, so the export spans several checkpoints.
+			await runGatewayChangeRecordSealer(env as unknown as CloudflareEnv, NOW);
+			await db.insert(gatewayChangeRecords).values({
+				id: "00000000-0000-4000-8000-000000000099",
+				organizationId: ORG_A,
+				resource: "tool:send_example",
+				actorId: "user-2",
+				recordedAt: "2026-11-18T09:00:00.000Z",
+				record: {
+					resource: "tool:send_example",
+					operation: "send_example",
+					actor: { id: "user-2", kind: "agent", organizationId: ORG_A },
+					source: { surface: "mcp_codemode" },
+					decision: {
+						verdict: "allow",
+						gate: "tool_scope",
+						reason: "allowed",
+						riskTier: "bounded_write",
+						blastRadius: "single_resource",
+					},
+					outcome: "applied",
+					argsHash: "hash-late",
+				},
+			});
+			await runGatewayChangeRecordSealer(
+				env as unknown as CloudflareEnv,
+				NOW + 120_000,
+			);
+		} finally {
+			log.mockRestore();
+		}
+		const audit = (organizationId: string, sub: string) =>
+			createRouterClient(auditContractRouter, {
+				context: {
+					db,
+					env,
+					headers: new Headers(),
+					url: new URL("https://api.tedix.test/rpc/audit"),
+					authType: "user",
+					organizationId,
+					user: {
+						sub,
+						permissions: ["analytics:read"],
+						roles: [],
+					} as unknown as BaseContext["user"],
+				} as unknown as BaseContext,
+			});
+		return { sqlite, audit, publicKey: pair.publicKey };
+	}
+
+	/** Read every record and checkpoint of the caller's organization. */
+	async function exportAll(
+		client: ReturnType<Awaited<ReturnType<typeof sealedLedger>>["audit"]>,
+	) {
+		const records = [];
+		let afterSequence: number | undefined;
+		do {
+			const page = await client.listGatewayChangeRecords({
+				from: "2000-01-01T00:00:00Z",
+				until: "2100-01-01T00:00:00Z",
+				limit: 3,
+				afterSequence,
+			});
+			records.push(...page.records);
+			afterSequence = page.nextAfterSequence ?? undefined;
+		} while (afterSequence !== undefined);
+		const checkpoints = [];
+		let afterLastSequence: number | undefined;
+		let publicKey = null;
+		do {
+			const page = await client.listGatewayChangeRecordCheckpoints({
+				limit: 1,
+				afterLastSequence,
+			});
+			checkpoints.push(...page.checkpoints);
+			publicKey = page.publicKey;
+			afterLastSequence = page.nextAfterLastSequence ?? undefined;
+		} while (afterLastSequence !== undefined);
+		return { records, checkpoints, publicKey };
+	}
+
+	it("verifies what the two reads return with only the public key", async () => {
+		const { sqlite, audit, publicKey } = await sealedLedger();
+		try {
+			const exported = await exportAll(audit(ORG_A, "owner-a"));
+			expect(exported.records).toHaveLength(9);
+			expect(
+				exported.records.every(
+					(record) => record.recordDigest && record.chainHash,
+				),
+			).toBe(true);
+			expect(exported.checkpoints.length).toBeGreaterThanOrEqual(2);
+			expect(exported.checkpoints[0]?.envelope?.signatures[0]?.keyid).toBe(
+				"change-records-2026",
+			);
+			expect(exported.publicKey).toMatchObject({
+				keyId: "change-records-2026",
+				algorithm: "Ed25519",
+			});
+
+			// The verifier holds the public key from elsewhere; the one the read
+			// returns is the same key.
+			const fromRead = await importVerifyingKey(exported.publicKey?.spki ?? "");
+			expect(await crypto.subtle.exportKey("spki", fromRead)).toEqual(
+				await crypto.subtle.exportKey("spki", publicKey),
+			);
+			const offline = JSON.parse(JSON.stringify(exported));
+			expect(
+				await verifyChain({
+					records: offline.records,
+					checkpoints: offline.checkpoints,
+					publicKey,
+				}),
+			).toMatchObject({
+				ok: true,
+				recordsVerified: 9,
+				checkpointsVerified: exported.checkpoints.length,
+			});
+
+			// A row deleted in the database shows up in the next export.
+			sqlite
+				.prepare("DELETE FROM gateway_change_records WHERE id = ?")
+				.run("00000000-0000-4000-8000-000000000007");
+			const deleted = await exportAll(audit(ORG_A, "owner-a"));
+			expect(
+				await verifyChain({
+					records: deleted.records,
+					checkpoints: deleted.checkpoints,
+					publicKey,
+				}),
+			).toMatchObject({ ok: false, reason: "gap", sequence: 10 });
+
+			// So does an edited row, at its own sequence.
+			sqlite
+				.prepare(
+					"UPDATE gateway_change_records SET record = json_set(record, '$.outcome', 'denied') WHERE id = ?",
+				)
+				.run("00000000-0000-4000-8000-000000000004");
+			const tampered = await exportAll(audit(ORG_A, "owner-a"));
+			expect(
+				await verifyChain({
+					records: tampered.records,
+					checkpoints: tampered.checkpoints,
+					publicKey,
+				}),
+			).toMatchObject({ ok: false, reason: "digest", sequence: 5 });
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("gives checkpoints only to an owner or admin of the organization", async () => {
+		const { sqlite, audit } = await sealedLedger();
+		try {
+			const own = await audit(
+				ORG_B,
+				"owner-b",
+			).listGatewayChangeRecordCheckpoints({});
+			expect(own.checkpoints.length).toBeGreaterThan(0);
+			expect(
+				own.checkpoints.every(
+					(checkpoint) => checkpoint.organizationId === ORG_B,
+				),
+			).toBe(true);
+			for (const [organizationId, sub] of [
+				[ORG_A, "member-a"],
+				[ORG_A, "owner-b"],
+				[ORG_B, "owner-a"],
+			] as const)
+				await expect(
+					audit(organizationId, sub).listGatewayChangeRecordCheckpoints({}),
+				).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				audit(ORG_A, "owner-a").listGatewayChangeRecordCheckpoints({
+					organizationId: ORG_B,
+				} as Record<string, never>),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			// Sequence filters select overlapping checkpoints.
+			const all = (
+				await audit(ORG_A, "owner-a").listGatewayChangeRecordCheckpoints({})
+			).checkpoints;
+			const last = all.at(-1);
+			const fromLast = await audit(
+				ORG_A,
+				"owner-a",
+			).listGatewayChangeRecordCheckpoints({
+				fromSequence: last?.lastSequence,
+			});
+			expect(fromLast.checkpoints.map((checkpoint) => checkpoint.id)).toEqual([
+				last?.id,
+			]);
 		} finally {
 			sqlite.close();
 		}

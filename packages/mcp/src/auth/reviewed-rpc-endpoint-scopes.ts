@@ -150,6 +150,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"audit/getByResource": "mcp:observe.read",
 	"audit/getChangeRecord": "platform:admin",
 	"audit/listChangeRecords": "platform:admin",
+	"audit/listGatewayChangeRecordCheckpoints": "mcp:observe.read",
 	"audit/listGatewayChangeRecords": "mcp:observe.read",
 	"audit/search": "mcp:observe.read",
 	"billing/correctBillingPeriod": "platform:admin",

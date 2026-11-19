@@ -11,7 +11,8 @@
 		"./compliance": "./src/compliance.ts",
 		"./hash": "./src/hash.ts",
 		"./wrap-binding": "./src/wrap-binding.ts",
-		"./in-memory": "./src/in-memory.ts"
+		"./in-memory": "./src/in-memory.ts",
+		"./seal": "./src/seal.ts"
 	},
 	"scripts": {
 		"clean": "true",

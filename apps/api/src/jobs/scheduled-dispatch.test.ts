@@ -69,6 +69,9 @@ vi.mock("./delegated-run-deadline-sweep", () => ({
 vi.mock("./dispatcher-health-alarm", () => ({
 	runDispatcherHealthAlarm: vi.fn().mockResolvedValue({}),
 }));
+vi.mock("./gateway-change-record-sealer", () => ({
+	runGatewayChangeRecordSealer: vi.fn().mockResolvedValue({}),
+}));
 vi.mock("./approval-expiry", () => ({
 	expireOverdueApprovals: vi.fn().mockResolvedValue({ expired: 0 }),
 }));
