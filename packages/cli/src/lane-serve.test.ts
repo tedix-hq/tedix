@@ -1152,7 +1152,7 @@ describe("dispatcher admission", () => {
 			await dispatcher.drain();
 		}
 	});
-	it("prioritizes the real heartbeat over queued pickup reads", async () => {
+	it("renews the real heartbeat while a pickup read is still blocked", async () => {
 		const f = fixture();
 		f.items.splice(1);
 		let heartbeat!: () => void;
@@ -1187,6 +1187,9 @@ describe("dispatcher admission", () => {
 			const offset = f.events.length;
 			const second = dispatcher.tick();
 			heartbeat();
+			await until(() =>
+				f.events.slice(offset).some((event) => event.verb === "heartbeat"),
+			);
 			release();
 			await Promise.all([first, second]);
 			expect(
@@ -1196,7 +1199,7 @@ describe("dispatcher admission", () => {
 						["dispatch-list", "heartbeat"].includes(event.verb),
 					)
 					.map((event) => event.verb),
-			).toEqual(["dispatch-list", "heartbeat", "dispatch-list"]);
+			).toEqual(["heartbeat", "dispatch-list", "dispatch-list"]);
 		} finally {
 			release?.();
 			for (const done of f.releases) done();
@@ -1234,10 +1237,10 @@ describe("dispatcher admission", () => {
 		release();
 		await Promise.all([current, background, settle, complete, heartbeat]);
 		expect(f.events.map((event) => event.verb)).toEqual([
+			"heartbeat",
 			"dispatch-list",
 			"settle",
 			"complete",
-			"heartbeat",
 			"dispatch-list",
 		]);
 	});
@@ -5943,6 +5946,114 @@ function gitFixture(withOrigin = false, autoCleanup = true) {
 	return { root, repo, git };
 }
 
+it("renews ten runs during slow Git preparation, cleanup and proof inspection", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const head = git(["rev-parse", "HEAD"]);
+	const realGit = Bun.which("git")!;
+	const bin = join(root, "bin");
+	const marker = join(root, "slow-next");
+	const entered = join(root, "git-entered");
+	mkdirSync(bin);
+	writeFileSync(
+		join(bin, "git"),
+		`#!/bin/sh
+if [ -f '${marker}' ]; then
+  rm '${marker}'
+  touch '${entered}'
+  sleep 6
+fi
+exec '${realGit}' "$@"
+`,
+		{ mode: 0o755 },
+	);
+	const f = fixture({ max: 10 });
+	f.items.splice(
+		0,
+		f.items.length,
+		...Array.from({ length: 10 }, (_, i) => item(i + 1)),
+	);
+	f.control.heartbeatExpiry = true;
+	const interval = globalThis.setInterval;
+	const intervals = spyOn(globalThis, "setInterval").mockImplementation(((
+		callback: () => void,
+		ms: number,
+	) => interval(callback, ms === 60_000 ? 100 : ms)) as typeof setInterval);
+	let releaseRead!: () => void;
+	let releaseRenewal!: () => void;
+	let readBlocked = false;
+	let renewalBlocked = false;
+	const cli = f.deps.cli!;
+	f.deps.cli = async (args, ...rest) => {
+		if (args[5] === "dispatch-get" && args[6] === "blocked-read") {
+			readBlocked = true;
+			await new Promise<void>((resolve) => {
+				releaseRead = resolve;
+			});
+		}
+		if (args[5] === "heartbeat" && args[6] === item(1).id && !renewalBlocked) {
+			renewalBlocked = true;
+			await new Promise<void>((resolve) => {
+				releaseRenewal = resolve;
+			});
+		}
+		return cli(args, ...rest);
+	};
+	const dispatcher = f.restart();
+	const previousPath = process.env.PATH;
+	let reading: Promise<unknown> | undefined;
+	try {
+		await dispatcher.tick();
+		await until(() => f.releases.length === 10);
+		reading = dispatcher["call"](["work", "dispatch-get", "blocked-read"]);
+		await until(() => readBlocked && renewalBlocked);
+		process.env.PATH = `${bin}:${previousPath}`;
+		const destination = join(root, "checkout");
+		const phases = [
+			() => provisionLaneWorktree(repo, destination),
+			() => cleanupLaneWorktree(repo, destination, () => false),
+			() => mainLaneCommits(repo, [head]),
+		];
+		for (const phase of phases) {
+			rmSync(entered, { force: true });
+			writeFileSync(marker, "slow");
+			let finished = false;
+			const working = phase().finally(() => {
+				finished = true;
+			});
+			await until(() => existsSync(entered));
+			const offset = f.events.length;
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			expect(finished).toBe(false);
+			const renewed = new Set(
+				f.events
+					.slice(offset)
+					.filter((event) => event.verb === "heartbeat")
+					.map((event) => event.args[6]),
+			);
+			expect(renewed.size).toBe(9);
+			await working;
+		}
+		releaseRenewal();
+		await until(() =>
+			f.events.some(
+				(event) => event.verb === "heartbeat" && event.args[6] === item(1).id,
+			),
+		);
+		const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
+		expect(log).not.toContain('"event":"lease-check-delayed"');
+		expect(log).not.toContain('"event":"lease-expired"');
+		expect(log).not.toContain('"event":"heartbeat-failed"');
+	} finally {
+		process.env.PATH = previousPath;
+		releaseRead?.();
+		releaseRenewal?.();
+		await reading;
+		for (const release of f.releases) release();
+		await dispatcher.drain();
+		intervals.mockRestore();
+	}
+}, 30_000);
+
 it.each([false, true])(
 	"refreshes a stale source before cutting a run (retry=%s)",
 	async (retry) => {
@@ -6368,7 +6479,7 @@ it("extracts and deduplicates final-message and local commits, accepting only or
 	await expect(landedLaneCommits(repo, "f".repeat(40), "")).rejects.toThrow();
 });
 
-it("rechecks collected commit reachability and retains unknown proof on Git failure", () => {
+it("rechecks collected commit reachability and retains unknown proof on Git failure", async () => {
 	const { root, repo, git } = gitFixture(true);
 	const landed = git(["rev-parse", "HEAD"]);
 	git([
@@ -6380,12 +6491,14 @@ it("rechecks collected commit reachability and retains unknown proof on Git fail
 		"Unpushed",
 	]);
 	const unpushed = git(["rev-parse", "HEAD"]);
-	expect(mainLaneCommits(repo, [landed, unpushed])).toEqual([landed]);
-	expect(() => mainLaneCommits(repo, ["f".repeat(40)])).toThrow(
+	expect(await mainLaneCommits(repo, [landed, unpushed])).toEqual([landed]);
+	await expect(mainLaneCommits(repo, ["f".repeat(40)])).rejects.toThrow(
 		LaneCommitFetchError,
 	);
 	git(["remote", "set-url", "origin", join(root, "unavailable.git")]);
-	expect(() => mainLaneCommits(repo, [landed])).toThrow(LaneCommitFetchError);
+	await expect(mainLaneCommits(repo, [landed])).rejects.toThrow(
+		LaneCommitFetchError,
+	);
 });
 
 it("accepts cited existing commits only when each is on origin/main and the checkout holds no change of its own", async () => {
