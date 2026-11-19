@@ -1027,6 +1027,9 @@ export async function completeWorkItem(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.version, params.expectedWorkItemVersion ?? item.version),
 				eq(workItems.disposition, "accepted"),
+				params.actor.type === "external_agent"
+					? sql`EXISTS (SELECT 1 FROM ${workAttempts} completed_attempt WHERE completed_attempt.org_id=${params.orgId} AND completed_attempt.work_item_id=${params.workItemId} AND completed_attempt.executor_type='external_agent' AND completed_attempt.executor_id=${params.actor.id} AND completed_attempt.executor_session_id=${params.actor.sessionId ?? null} AND completed_attempt.runtime_state='finished' AND completed_attempt.outcome='succeeded' AND completed_attempt.finished_at < completed_attempt.expires_at AND NOT EXISTS (SELECT 1 FROM ${workAttempts} successor WHERE successor.org_id=completed_attempt.org_id AND successor.work_item_id=completed_attempt.work_item_id AND successor.attempt_number>completed_attempt.attempt_number))`
+					: undefined,
 				native
 					? and(
 							eq(workItems.stewardType, "tedi"),
