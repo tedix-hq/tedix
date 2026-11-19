@@ -231,10 +231,7 @@ async function createTediResources(
 			"An active runtime entitlement is required to create a tedi",
 		);
 	}
-	if (
-		entitlement.limits.maxTedis >= 0 &&
-		existingOrgTedis.length >= entitlement.limits.maxTedis
-	) {
+	if (existingOrgTedis.length >= entitlement.limits.maxTedis) {
 		throw createError(
 			ErrorCodes.FORBIDDEN,
 			`The ${entitlement.profile.name} profile allows ${entitlement.limits.maxTedis} tedi(s)`,

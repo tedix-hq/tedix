@@ -1655,14 +1655,14 @@
 		},
 		{
 			"name": "20261119162932_backfill-tedix-credits/migration.sql",
-			"sha256": "da999b9429bddddf6ba5dbbc8d364a0b034d77cf7cbb36547f5a5f7ae241b057"
+			"sha256": "94780354dbf42ec45442ff1dbe032492154516ed00434ef590b9130ee7e79513"
 		},
 		{
-			"name": "20261119162941_drop-token-plans-and-daily-limits/migration.sql",
+			"name": "20261119164350_drop-token-plans-and-daily-limits/migration.sql",
 			"sha256": "6f88abb2da69b3dbdbe8dee665747d13568d4ea39561abcce65b4bac9e060dbb"
 		},
 		{
-			"name": "20261119163116_web-search-rate-card/migration.sql",
+			"name": "20261119164404_web-search-rate-card/migration.sql",
 			"sha256": "bdd10c69175c88d38908993c1c3000cf932ee0c734e5b5216fe1da85fa28685f"
 		}
 	]

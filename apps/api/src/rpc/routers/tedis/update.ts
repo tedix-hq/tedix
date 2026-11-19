@@ -196,11 +196,7 @@ export const updateTediProcedure = authedTedisOs.update
 				existingTedi.organizationId,
 			);
 			const maxCronJobs = entitlement?.limits.maxCronJobsPerTedi ?? 0;
-			if (
-				maxCronJobs >= 0 &&
-				data.cronJobs !== null &&
-				data.cronJobs.length > maxCronJobs
-			) {
+			if (data.cronJobs !== null && data.cronJobs.length > maxCronJobs) {
 				throw createError(
 					ErrorCodes.BAD_REQUEST,
 					`The ${entitlement?.profile.name ?? "current"} profile allows ${maxCronJobs} scheduled job(s) per tedi`,
