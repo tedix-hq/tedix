@@ -1,6 +1,7 @@
 import { tool, type ToolSet } from "ai";
 import * as z from "zod";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
+import type { CallerTrustTier } from "@tedix/mcp-shared/auth/caller-trust";
 import type { PlatformClient } from "./brain/platform-client";
 import { safeFailureReason } from "./delegated-work-tools";
 
@@ -8,6 +9,28 @@ const AGENT_RUN_EXECUTORS = ["codex", "claude-code"] as const;
 const STEP_PAGE = 500;
 const STEP_PAGES = 4;
 const STEPS_SHOWN = 40;
+
+/**
+ * The person's chat conversation when this inject is a delegation to a tedi
+ * that a signed-in person picked in the chat, otherwise undefined.
+ *
+ * The API sets `pickedByPerson` only on that dispatch. A delegation Home
+ * decides by itself, a scheduled turn and a turn from a caller that is not a
+ * member never yield a conversation here, so they are not offered the
+ * agent-run tools.
+ */
+export function personChatConversationForInject(
+	metadata: Record<string, unknown> | null | undefined,
+	callerTrust: CallerTrustTier,
+): string | undefined {
+	if (callerTrust !== "member") return undefined;
+	if (metadata?.pickedByPerson !== true) return undefined;
+	if (metadata.source !== "kernelRuntime.delegate") return undefined;
+	const text = (value: unknown) =>
+		typeof value === "string" && value.trim() ? value.trim() : undefined;
+	if (!text(metadata.homeRunId) || !text(metadata.workItemId)) return undefined;
+	return text(metadata.homeConversationId);
+}
 
 /**
  * Lets a tedi start a coding run on one of the organization's machines from
@@ -25,6 +48,13 @@ export function agentRunTools(input: {
 	 * chat (a key that starts with `agent:`); other channels get no report.
 	 */
 	sessionKey: string;
+	/**
+	 * Set when a person picked this tedi in the chat: the conversation the
+	 * person is in. It replaces the session key as the task's source session,
+	 * so the task and the report of the run's end belong to that chat and not
+	 * to the hidden conversation the delegated turn runs in.
+	 */
+	personChatConversationId?: string;
 	conversationId: string;
 	runId: string;
 }) {
@@ -77,13 +107,17 @@ export function agentRunTools(input: {
 						workKind: "coding",
 						projectId,
 						executorReference: { type: "external_agent", id: executor },
-						sourceSessionKey: input.sessionKey,
+						sourceSessionKey:
+							input.personChatConversationId ?? input.sessionKey,
 						sourceIntentId: input.runId,
 						provenance: {
 							source: "tedi.start_agent_run",
 							sessionKey: input.sessionKey,
 							conversationId: input.conversationId,
 							runId: input.runId,
+							...(input.personChatConversationId
+								? { homeConversationId: input.personChatConversationId }
+								: {}),
 						},
 						metadata: {
 							source: "tedi.start_agent_run",

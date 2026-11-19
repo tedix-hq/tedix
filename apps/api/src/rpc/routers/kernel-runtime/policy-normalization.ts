@@ -111,7 +111,25 @@ export type KernelDelegateRunnerInput = {
 	delegateToTediId: string;
 	attachments?: EnqueueHomeMessageInput["attachments"];
 	metadata: Record<string, unknown>;
+	/**
+	 * True only when a signed-in person picked this tedi in the chat. It is the
+	 * one source of the `pickedByPerson` flag the tedi's turn receives.
+	 */
+	pickedByPerson?: boolean;
 };
+
+/**
+ * Sets `pickedByPerson` on a delegation's metadata from the caller's own
+ * argument and from nothing else. Metadata can carry values a request or a
+ * stored run supplied, so a flag that arrived inside it is always dropped.
+ */
+export function delegationMetadataForPick(
+	metadata: Record<string, unknown>,
+	pickedByPerson: boolean | undefined,
+): Record<string, unknown> {
+	const { pickedByPerson: _supplied, ...rest } = metadata;
+	return pickedByPerson === true ? { ...rest, pickedByPerson: true } : rest;
+}
 
 export type KernelDelegateRunnerOutput = {
 	childRunId: string;
@@ -276,8 +294,10 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 	content,
 	delegateToTediId,
 	attachments,
-	metadata,
+	metadata: suppliedMetadata,
+	pickedByPerson,
 }) => {
+	let metadata = delegationMetadataForPick(suppliedMetadata, pickedByPerson);
 	const organizationId = requireOrgId(context);
 	// Keep delayed dispatches and same-owner follow-ups attached to the exact
 	// Home source run rather than exposing a private attachment reader.

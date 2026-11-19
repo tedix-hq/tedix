@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { MCP_FACET_TURN_INPUT, mcpFacetTurnProbe } from "../test/tedi-do";
 import { RpcCallError } from "@tedix/api-client/internal";
 import type { PlatformClient } from "./brain/platform-client";
-import { agentRunTools } from "./agent-run-tools";
+import {
+	agentRunTools,
+	personChatConversationForInject,
+} from "./agent-run-tools";
 import { configuredRuntimeTools } from "./configured-tool-surface";
 import { supervisedDelegationToolSet } from "./delegation-authority";
 import {
@@ -375,6 +378,86 @@ assert.deepEqual(Object.keys(build({}).tools), [
 		assert.equal(name in untrusted.tools, false);
 		assert.equal(name in delegated.tools, false);
 	}
+
+	// A tedi the person picked in the chat runs as a delegated turn in a hidden
+	// conversation. It keeps the tools, and the task it starts is filed under
+	// the person's chat, the same conversation the delegation's own task names.
+	const supervisedTurn = {
+		sessionKey: "agent:main:delegation-child-1",
+		workItemId: "3f1c2a1e-0000-4000-8000-000000000001",
+		homeRunId: "home-1",
+	};
+	const picked = await probe({
+		...supervisedTurn,
+		personChatConversationId: "home:os:chat-7",
+	});
+	for (const name of Object.keys(build({}).tools))
+		assert.ok(name in picked.tools);
+	await (picked.tools.start_agent_run!.execute as Execute)(start, {});
+	assert.equal(created?.sourceSessionKey, "home:os:chat-7");
+	assert.deepEqual(created?.provenance, {
+		source: "tedi.start_agent_run",
+		sessionKey: "agent:main:delegation-child-1",
+		conversationId: MCP_FACET_TURN_INPUT.conversationId,
+		runId: MCP_FACET_TURN_INPUT.runId,
+		homeConversationId: "home:os:chat-7",
+	});
+	// Narrower ceilings still apply to a picked tedi: an unverified author and
+	// an enforced delegation without an authority envelope get none of them.
+	const pickedUntrusted = await probe({
+		...supervisedTurn,
+		personChatConversationId: "home:os:chat-7",
+		trust: "untrusted",
+	});
+	const pickedEnforced = await probe({
+		...supervisedTurn,
+		personChatConversationId: "home:os:chat-7",
+		authorityMode: "enforce",
+	});
+	for (const name of Object.keys(build({}).tools)) {
+		assert.equal(name in pickedUntrusted.tools, false);
+		assert.equal(name in pickedEnforced.tools, false);
+	}
+	// Outside a delegated turn the person's chat is not a source: the task
+	// keeps the turn's own session key.
+	const stray = await probe({
+		sessionKey: "agent:main:chat-7",
+		personChatConversationId: "home:os:chat-7",
+	});
+	await (stray.tools.start_agent_run!.execute as Execute)(start, {});
+	assert.equal(created?.sourceSessionKey, "agent:main:chat-7");
+}
+
+// Only the API's dispatch for a tedi a signed-in person picked yields the
+// person's chat. A delegation Home decides by itself, a scheduled turn and a
+// caller that is not a member never do, whatever their metadata says.
+{
+	const pick = {
+		pickedByPerson: true,
+		source: "kernelRuntime.delegate",
+		homeConversationId: "home:os:chat-7",
+		homeRunId: "home-1",
+		workItemId: "3f1c2a1e-0000-4000-8000-000000000001",
+	};
+	assert.equal(
+		personChatConversationForInject(pick, "member"),
+		"home:os:chat-7",
+	);
+	for (const [metadata, trust] of [
+		[{ ...pick, pickedByPerson: undefined }, "member"],
+		[{ ...pick, pickedByPerson: "true" }, "member"],
+		[{ ...pick, source: "kernelRuntime.autoDispatch" }, "member"],
+		[{ ...pick, source: "kernelRuntime.plan.approve" }, "member"],
+		[{ ...pick, source: "work_item_assignment_inbox" }, "member"],
+		[{ ...pick, source: "cognitiveRuntime.enqueueMessage" }, "member"],
+		[{ ...pick, homeRunId: undefined }, "member"],
+		[{ ...pick, workItemId: " " }, "member"],
+		[{ ...pick, homeConversationId: undefined }, "member"],
+		[pick, "tedi"],
+		[pick, "foreign"],
+		[null, "member"],
+	] as const)
+		assert.equal(personChatConversationForInject(metadata, trust), undefined);
 }
 
 console.log("agent-run-tools.test.ts: agent run tools passed");

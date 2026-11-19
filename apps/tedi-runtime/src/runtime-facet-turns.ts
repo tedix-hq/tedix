@@ -1033,6 +1033,8 @@ export const runtimeFacetTurns = {
 			/** Trusted skill-run id for gateway cost attribution only. */
 			gatewayAttributionRunId?: string;
 			homeRunId?: string;
+			/** Set only when a person picked this tedi in the chat. */
+			personChatConversationId?: string;
 			personalRequest?: boolean;
 			executionSurface?: ExecutionSurface;
 			repositoryMode?: RepositoryMode;
@@ -1194,22 +1196,29 @@ export const runtimeFacetTurns = {
 			platform.setEpisodeTrace(input.traceId ?? input.runId);
 		}
 		const computerScope = computerWorkspaceScope(input);
+		// A delegated child works on the task Home gave it. Only a tedi in its
+		// own conversation, or one a person picked in the chat, starts and
+		// steers agent runs.
+		const pickedInChat = supervised && Boolean(input.personChatConversationId);
+		const runTools: ToolSet =
+			supervised && !pickedInChat
+				? {}
+				: agentRunTools({
+						getPlatform: () => this.getPlatformClient(),
+						sessionKey: input.sessionKey,
+						personChatConversationId: pickedInChat
+							? input.personChatConversationId
+							: undefined,
+						conversationId: input.conversationId,
+						runId: input.runId,
+					});
 		const unrestrictedTools: ToolSet = {
 			// Computer owns the durable filesystem and no-network isolate shell;
 			// native Git and checkpoints share that same workspace substrate.
 			...this.workspaceAiTools(computerScope, computerTurnContext),
 			...(mcpRuntime ? tedixMcpAITools(mcpRuntime, turnBinding) : {}),
 			...workAiTools(() => this.getPlatformClient()),
-			// A delegated child works on the task Home gave it; only a tedi in its
-			// own conversation starts and steers agent runs.
-			...(supervised
-				? {}
-				: agentRunTools({
-						getPlatform: () => this.getPlatformClient(),
-						sessionKey: input.sessionKey,
-						conversationId: input.conversationId,
-						runId: input.runId,
-					})),
+			...runTools,
 			...(supervised &&
 			this.state.tediId &&
 			this.state.orgId &&
@@ -1268,12 +1277,18 @@ export const runtimeFacetTurns = {
 				getPlatform: () => this.getPlatformClient(),
 			}),
 		};
-		const supervisedTools = supervisedDelegationToolSet(
-			selectRepositoryToolSurface(unrestrictedTools, input.repositoryMode),
-			supervised,
-			input.authorityMode === "enforce" || Boolean(input.capabilityPlan),
-			hasOperatorRecordPlan(input.capabilityPlan),
-		);
+		const supervisedTools = {
+			...supervisedDelegationToolSet(
+				selectRepositoryToolSurface(unrestrictedTools, input.repositoryMode),
+				supervised,
+				input.authorityMode === "enforce" || Boolean(input.capabilityPlan),
+				hasOperatorRecordPlan(input.capabilityPlan),
+			),
+			// The delegated surface names none of the agent-run tools; a tedi the
+			// person picked keeps them. A capability plan, an enforced authority
+			// envelope and turn trust below still narrow them.
+			...(pickedInChat ? runTools : {}),
+		};
 		const capabilityTools = capabilityToolSet({
 			tools: input.capabilityPlan
 				? {
@@ -2625,6 +2640,7 @@ export const runtimeFacetTurns = {
 			traceId: input.traceId,
 			workItemId: input.workItemId,
 			homeRunId: input.homeRunId,
+			personChatConversationId: input.personChatConversationId,
 			personalRequest: input.personalRequest,
 			executionSurface: input.executionSurface,
 			repositoryMode: input.repositoryMode,
