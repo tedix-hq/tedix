@@ -90,6 +90,8 @@ const runnerSchema = z.object({
 	coordinated: z.boolean().default(false),
 	acceptProposed: z.boolean().default(false),
 	enabled: z.boolean().default(true),
+	/** The name a tedi uses for this machine; the host name when unset. */
+	machineName: text.max(100).optional(),
 });
 const fileSchema = z.object({
 	version: z.literal(1),
@@ -265,7 +267,9 @@ export function writeRunnerDuty(
 	const runners = readRunnerDuties(env);
 	const key = runnerKey(runner);
 	const index = runners.findIndex((entry) => runnerKey(entry) === key);
-	if (index >= 0) runners[index] = runner;
+	// The machine name is edited in the file; a reinstall keeps it.
+	if (index >= 0)
+		runners[index] = { machineName: runners[index]!.machineName, ...runner };
 	else runners.push(runner);
 	writeRunnerDuties(env, runners);
 	return { replaced: index >= 0 };

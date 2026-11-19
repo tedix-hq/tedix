@@ -119,6 +119,7 @@ import {
 	runnerKey,
 	readRunnerDuties,
 } from "./supervise-runners";
+import { machineToolsIdentity } from "./lane-machine-tools";
 import { LeadDuty, type LeadRun } from "./supervise-lead";
 import { readDutyStatuses } from "./supervise-duty-status";
 import { laneProcessIdentity } from "./lane-process-recovery";
@@ -268,7 +269,11 @@ export class Supervisor {
 		) {
 			this.healthReportedAt = now;
 			this.healthPass = this.reportHealth(
-				collectDispatcherHealth(this.deps.env, now),
+				collectDispatcherHealth(
+					this.deps.env,
+					now,
+					machineToolsIdentity(this.deps.env),
+				),
 			).finally(() => {
 				this.healthPass = undefined;
 			});

@@ -87,6 +87,10 @@ export interface LocalDispatcherHealth {
 	lastAdmissionAt: string | null;
 	topReason: { reason: string; count: number } | null;
 	duty?: SupervisorDutyHealth;
+	/** The name a tedi uses for this machine. */
+	machineName?: string;
+	/** The machine tools this machine accepts for this organization. */
+	machineTools?: string[];
 }
 
 function selector(scope: string[], name: string): string {
@@ -557,6 +561,12 @@ export function supervisorDutyHealth(
 export function collectDispatcherHealth(
 	env: NodeJS.ProcessEnv,
 	now = Date.now(),
+	/** Who this machine is to a tedi; the reporter passes it with each report. */
+	machine?: {
+		machineName: string;
+		machineTools: string[];
+		serving?: { workspace: string; organization: string };
+	},
 ): LocalDispatcherHealth[] {
 	const root = join(
 		env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
@@ -633,6 +643,16 @@ export function collectDispatcherHealth(
 		}
 	} catch {
 		// Missing duty history must not suppress the independent dispatcher observations.
+	}
+	for (const report of reports) {
+		if (!machine) break;
+		report.machineName = machine.machineName;
+		// Only the organization whose runner answers the calls is offered them.
+		report.machineTools =
+			machine.serving?.organization === report.organization &&
+			machine.serving.workspace === report.workspace
+				? machine.machineTools
+				: [];
 	}
 	return reports.sort(
 		(a, b) =>
