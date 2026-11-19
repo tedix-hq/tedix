@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import {
 	evidenceDirVariable,
@@ -55,6 +55,29 @@ export function flakyFailure(output) {
 	};
 }
 
+export function browserFlakeCommand(command, specs, scripts) {
+	const [bun, run, cwd, workspace, script] = command;
+	if (
+		bun !== "bun" ||
+		run !== "run" ||
+		cwd !== "--cwd" ||
+		workspace !== "apps/os"
+	)
+		return command;
+	const runner = "browser-tests/run-specs.ts";
+	const [program, path, ...listed] = (scripts[script] ?? "").split(/\s+/);
+	if (
+		program !== "bun" ||
+		path !== runner ||
+		!listed.every((spec) =>
+			/^browser-tests\/[a-z\d-]+\.spec\.ts$/.test(spec),
+		) ||
+		!specs.every((spec) => listed.includes(spec))
+	)
+		return command;
+	return [bun, run, cwd, workspace, runner, ...specs];
+}
+
 function run(command) {
 	return new Promise((resolve, reject) => {
 		const child = spawn(command[0], command.slice(1), {
@@ -103,13 +126,21 @@ if (
 		process.exit(first.code);
 	}
 	const kind = reason ? "Infrastructure rerun" : "Flake check";
+	const retry =
+		flake && command[3] === "apps/os"
+			? browserFlakeCommand(
+					command,
+					flake.specs,
+					JSON.parse(readFileSync("apps/os/package.json", "utf8")).scripts,
+				)
+			: command;
 	const note = reason
 		? `Infrastructure rerun: \`${command.join(" ")}\` failed because of ${reason}; running it once more.`
-		: `Flake check: ${flake.reason}; running it once more to separate a flake from a regression.`;
+		: `Flake check: ${flake.reason}; rerunning ${retry === command ? "the command" : "only the failed specs"} to separate a flake from a regression.`;
 	console.log(`::warning title=${kind}::${note}`);
 	if (process.env.GITHUB_STEP_SUMMARY)
 		appendFileSync(process.env.GITHUB_STEP_SUMMARY, `- ${note}\n`);
-	const second = await run(command);
+	const second = await run(retry);
 	const verdict =
 		second.code === 0
 			? reason
