@@ -12,8 +12,8 @@ import type Stripe from "stripe";
  */
 const STRIPE_CATALOG_VERSION = 4;
 
-/** The metered overage price, sold only by a plan that prices overage. */
-export const STRIPE_TOKEN_OVERAGE_LOOKUP_KEY = "tedix_token_overage_v4";
+/** The metered pay-as-you-go credit price (EUR 0.01 per credit). */
+export const STRIPE_CREDIT_PAYG_LOOKUP_KEY = "tedix_credits_payg_eur_v1";
 
 export function stripePlanPriceLookupKey(
 	planKey: BillingPlanKey,
@@ -35,14 +35,14 @@ export function planKeyFromStripePriceLookupKey(
 }
 
 /**
- * A plan sells metered overage only when it both allows overage and prices it.
- * Enterprise allows overage at a zero unit price (internal metering), so it
- * must not get the paid overage line item.
+ * A plan that lets admins opt into pay-as-you-go carries the metered credit
+ * price on its subscription, so pay-as-you-go credits can be billed once an
+ * admin turns it on. Nothing is billed while it is off.
  */
-export function planSellsStripeOverage(
-	plan: Pick<BillingPlanVersion, "allowOverage" | "overageUnitPriceMicros">,
+export function planSellsPayAsYouGo(
+	plan: Pick<BillingPlanVersion, "allowOverage">,
 ): boolean {
-	return plan.allowOverage && plan.overageUnitPriceMicros > 0;
+	return plan.allowOverage;
 }
 
 export interface ResolvedStripePlan {
@@ -107,7 +107,7 @@ export async function stripeCheckoutIdempotencyKey(input: {
 	organizationId: string;
 	planVersionId: string;
 	priceId: string;
-	overagePriceId: string | null;
+	payAsYouGoPriceId: string | null;
 	interval: "month" | "year";
 	successUrl: string;
 	cancelUrl: string;
@@ -118,7 +118,7 @@ export async function stripeCheckoutIdempotencyKey(input: {
 		input.organizationId,
 		input.planVersionId,
 		input.priceId,
-		input.overagePriceId ?? "",
+		input.payAsYouGoPriceId ?? "",
 		input.interval,
 		input.successUrl,
 		input.cancelUrl,

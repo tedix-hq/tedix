@@ -67,11 +67,10 @@ function seedPlan(id: string, name: string) {
 	sqlite
 		.prepare(
 			`INSERT INTO billing_plan_versions (
-				id, plan_key, version, status, name, included_monthly_tokens,
+				id, plan_key, version, status, name, included_monthly_credits,
 				max_tedis, max_cron_jobs_per_tedi, max_iterations_per_task,
-				default_daily_token_limit, default_daily_message_limit, effective_at,
-				created_at
-			) VALUES (?, 'growth', 1, 'active', ?, 1000000, 5, 3, 25, 100000, 200,
+				effective_at, created_at
+			) VALUES (?, 'growth', 1, 'active', ?, 15000, 5, 3, 25,
 				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
 		)
 		.run(id, name);
@@ -104,21 +103,19 @@ function seedAccount(input: {
 function seedOrganizationPolicy(input: {
 	organizationId: string;
 	allowedModelTiers: string[];
-	dailyTokenLimit?: number;
 }) {
 	sqlite
 		.prepare(
 			`INSERT INTO billing_inference_policies (
 				id, organization_id, scope, subject_key, allowed_model_tiers,
-				daily_token_limit, created_at, updated_at
-			) VALUES (?, ?, 'organization', 'organization', ?, ?,
+				created_at, updated_at
+			) VALUES (?, ?, 'organization', 'organization', ?,
 				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
 		)
 		.run(
 			`policy:${input.organizationId}`,
 			input.organizationId,
 			JSON.stringify(input.allowedModelTiers),
-			input.dailyTokenLimit ?? null,
 		);
 }
 
@@ -162,7 +159,6 @@ describe("runtimeEntitlements.get", () => {
 		seedOrganizationPolicy({
 			organizationId: "org-1",
 			allowedModelTiers: ["balanced", "frontier"],
-			dailyTokenLimit: 50000,
 		});
 		await expect(client("org-1").get({})).resolves.toEqual({
 			entitlement: {
@@ -178,7 +174,6 @@ describe("runtimeEntitlements.get", () => {
 			},
 			modelPolicy: {
 				allowedModelTiers: ["balanced", "frontier"],
-				dailyTokenLimit: 50000,
 			},
 		});
 	});

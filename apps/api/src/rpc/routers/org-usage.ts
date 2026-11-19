@@ -13,7 +13,7 @@ import {
 	nextUtcDay,
 	previousUtcDay,
 } from "@tedix/db/queries/billing/cost-rollups";
-import { getBillingBalanceSnapshot } from "@tedix/db/queries/billing/credits";
+import { getCreditPoolSnapshot } from "@tedix/db/queries/billing/credit-pool";
 import { getRuntimeEntitlement } from "@tedix/db/queries/runtime-entitlements";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
@@ -558,22 +558,23 @@ const getOrgUsageProcedure = authedOs.getOrgUsage
 
 		// Financial usage remains billing-owned; runtime capacity comes from the
 		// provider-neutral entitlement projection.
-		const billing = await getBillingBalanceSnapshot(
-			db,
+		const billing = await getCreditPoolSnapshot(db, {
 			organizationId,
-			now.toISOString(),
-		);
+			now: now.toISOString(),
+		});
 		if (!billing) {
 			throw createError(
 				ErrorCodes.NOT_FOUND,
 				"Billing account is not configured",
 			);
 		}
-		const maxTokensPerMonth = billing.includedTokens;
+		const includedCreditsPerMonth = billing.includedCredits;
 		const maxTedis =
 			(await getRuntimeEntitlement(db, organizationId))?.limits.maxTedis ?? 1;
 		const usagePct =
-			maxTokensPerMonth > 0 ? billing.usedTokens / maxTokensPerMonth : null;
+			includedCreditsPerMonth > 0
+				? billing.usedCredits / includedCreditsPerMonth
+				: null;
 
 		return {
 			organization: {
@@ -586,8 +587,8 @@ const getOrgUsageProcedure = authedOs.getOrgUsage
 			window: { from: window.from, to: window.to },
 			totals: breakdowns.totals,
 			planLimits: {
-				maxTokensPerMonth,
-				currentMonthTokens: billing.usedTokens,
+				includedCreditsPerMonth,
+				currentMonthCredits: billing.usedCredits,
 				usagePct,
 				maxTedis,
 				currentTedis: tedis.length,
@@ -619,11 +620,10 @@ const getCostDrilldownProcedure = authedOs.getCostDrilldown
 			throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
 		}
 
-		const billing = await getBillingBalanceSnapshot(
-			db,
+		const billing = await getCreditPoolSnapshot(db, {
 			organizationId,
-			new Date().toISOString(),
-		);
+			now: new Date().toISOString(),
+		});
 		if (!billing) {
 			throw createError(
 				ErrorCodes.NOT_FOUND,
@@ -704,11 +704,10 @@ const getBillingLedgerProcedure = authedOs.getBillingLedger
 			throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
 		}
 
-		const billing = await getBillingBalanceSnapshot(
-			db,
+		const billing = await getCreditPoolSnapshot(db, {
 			organizationId,
-			new Date().toISOString(),
-		);
+			now: new Date().toISOString(),
+		});
 		if (!billing) {
 			throw createError(
 				ErrorCodes.NOT_FOUND,

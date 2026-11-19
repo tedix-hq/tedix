@@ -214,7 +214,7 @@ describe("governed gadget dispatch", () => {
 			attributionVersion: 1,
 			reservationId: "resv-1",
 			expiresAt: null,
-			estimatedChargeMicros: null,
+			estimatedCredits: null,
 		});
 		mocks.getWorkItemById.mockResolvedValue({
 			id: WORK_ITEM_ID,
@@ -859,7 +859,7 @@ describe("governed gadget dispatch", () => {
 							attributionVersion: 1,
 							reservationId: null,
 							expiresAt: null,
-							estimatedChargeMicros: null,
+							estimatedCredits: null,
 						},
 			);
 			mocks.createApprovalRequest.mockImplementation(

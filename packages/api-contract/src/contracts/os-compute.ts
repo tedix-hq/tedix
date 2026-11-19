@@ -37,7 +37,7 @@ import { ModelCatalogSelectionKindSchema } from "../schemas/model-catalog-projec
  *   - Unattributed cost is a FLOOR. Rows with no organization are invisible to
  *     every org-scoped read by construction.
  *   - Budget numbers are copied from the canonical admission readers
- *     (`getBillingBalanceSnapshot`, `getRuntimeEntitlement`) and never
+ *     (`getCreditPoolSnapshot`, `getRuntimeEntitlement`) and never
  *     recomputed here, so the surface cannot disagree with the gate that
  *     actually blocks inference.
  */
@@ -46,64 +46,49 @@ export const CostComputeWindowSchema = z.enum(["24h", "7d", "30d"]);
 export type CostComputeWindow = z.infer<typeof CostComputeWindowSchema>;
 
 /**
- * Budget, projected from the canonical balance snapshot.
- *
- * `remainingIncludedTokens` keeps the included-allowance snapshot, including
- * its negative sentinel. `unlimitedTokenUsage` additionally identifies a
- * zero included allowance with permitted, zero-priced overage. `configured: false` means no billing
- * account exists — which is NOT "0 remaining", it is "no budget is known".
+ * Budget in Tedix credits, projected from the canonical credit pool.
+ * `configured: false` means no billing account exists, which is not "0 left":
+ * no budget is known, so every figure is null.
  */
 export const CostBudgetSchema = z.object({
-	unlimitedTokenUsage: z
-		.boolean()
-		.nullable()
-		.describe(
-			"Customer token allowance semantics from the current plan; null means no configured budget. This is not runtime admission or unlimited compute.",
-		),
 	configured: z.boolean(),
-	// NO `.min(0)`. `getBillingBalanceSnapshot` passes the plan's
-	// `included_monthly_tokens` through verbatim, and a NEGATIVE value is that
-	// column's unlimited sentinel (`credits.ts:119` tests `< 0` for exactly
-	// this). A `.min(0)` here made the whole posture read fail output validation
-	// with a 500 for every organization on an unlimited plan — including
-	// org_tedix — while every fixture used a finite allowance and passed.
-	includedTokens: z
+	includedCredits: z
 		.number()
 		.int()
+		.min(0)
 		.nullable()
-		.describe(
-			"A negative value is the plan's unlimited sentinel; null means no billing account exists, which is not an allowance of 0",
-		),
-	usedTokens: z
+		.describe("Null when no billing account exists"),
+	usedCredits: z
 		.number()
 		.int()
 		.min(0)
 		.nullable()
 		.describe("Null when no billing account exists — not a consumption of 0"),
-	reservedTokens: z
+	heldCredits: z
 		.number()
 		.int()
 		.min(0)
 		.nullable()
-		.describe("Null when no billing account exists — not a reservation of 0"),
-	remainingIncludedTokens: z
+		.describe(
+			"Credits held by calls in flight; null when no billing account exists",
+		),
+	topUpCredits: z
 		.number()
 		.int()
+		.min(0)
+		.nullable()
+		.describe("Unexpired top-up credits; null when no billing account exists"),
+	availableCredits: z
+		.number()
+		.int()
+		.min(0)
 		.nullable()
 		.describe(
-			"Remaining included allowance; -1 is the negative allowance sentinel. Customer usage semantics are carried separately; null means no budget is known",
+			"Credits the organization can still use this month, including pay-as-you-go room; null when no billing account exists",
 		),
-	// `availableCreditMicros` and `hardSpendLimitMicros` are DELIBERATELY absent.
-	// They are billing-plane values (`billing.getOverview`, rendered only in the
-	// OS admin billing surface), nothing on this surface renders them, and putting them here
-	// would widen what an `os:read` user or an `apps:read` machine key can read
-	// for no benefit at all. The plane boundary is the point.
-	allowOverage: z
-		.boolean()
-		.nullable()
-		.describe(
-			"Null when no entitlement is configured, which is not the same as overage being denied",
-		),
+	// Pay-as-you-go caps and prices are DELIBERATELY absent. They are billing-
+	// plane values (`billing.getOverview`), and putting them here would widen
+	// what an `os:read` user or an `apps:read` machine key can read.
 	entitlementActive: z
 		.boolean()
 		.nullable()

@@ -85,7 +85,7 @@ async function observe(
 			sendBefore: receipt.sendBefore,
 			reservationId: receipt.billingReservationId,
 			expiresAt: mode === "managed" ? receipt.sendBefore : null,
-			estimatedChargeMicros: mode === "managed" ? 1 : null,
+			estimatedCredits: mode === "managed" ? 1 : null,
 		};
 	});
 	const run = vi.fn(async (_model, _body, options) => {

@@ -65,7 +65,7 @@ beforeEach(() => {
 			settlementMode: input.request.settlementMode,
 			reservationId: input.execution?.billingReservationId ?? null,
 			expiresAt: null,
-			estimatedChargeMicros: null,
+			estimatedCredits: null,
 		};
 	});
 	mocks.insert.mockImplementation((_db, input) => {
@@ -268,7 +268,7 @@ describe("provider execution admission", () => {
 			settlementMode: "managed",
 			reservationId: "reservation",
 			expiresAt: null,
-			estimatedChargeMicros: 0,
+			estimatedCredits: 0,
 		});
 		await expect(
 			authorizeRuntimeInference({
@@ -415,7 +415,7 @@ async function nativeFixture(mode: "managed" | "external" | "disabled") {
 		)
 		.run();
 	sqlite.exec(
-		"INSERT INTO billing_plan_versions(id,plan_key,version,status,name,included_monthly_tokens,max_tedis,max_cron_jobs_per_tedi,max_iterations_per_task,default_daily_token_limit,default_daily_message_limit,effective_at,created_at) VALUES ('plan','growth',1,'active','Plan',100000,10,10,10,100000,1000,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z'); INSERT INTO billing_accounts(organization_id,plan_version_id,status,billing_mode,period_start,period_end,created_at,updated_at) VALUES ('org','plan','active','internal','2026-01-01T00:00:00Z','2100-01-01T00:00:00Z','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')",
+		"INSERT INTO billing_plan_versions(id,plan_key,version,status,name,included_monthly_credits,max_tedis,max_cron_jobs_per_tedi,max_iterations_per_task,effective_at,created_at) VALUES ('plan','growth',1,'active','Plan',15000,10,10,10,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z'); INSERT INTO billing_accounts(organization_id,plan_version_id,status,billing_mode,period_start,period_end,created_at,updated_at) VALUES ('org','plan','active','internal','2026-01-01T00:00:00Z','2100-01-01T00:00:00Z','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')",
 	);
 	const db = createDbClient(createD1Facade(sqlite));
 	const owner = await vi.importActual<
@@ -430,7 +430,7 @@ async function nativeFixture(mode: "managed" | "external" | "disabled") {
 				settlementMode: mode,
 				reservationId: null,
 				expiresAt: null,
-				estimatedChargeMicros: null,
+				estimatedCredits: null,
 			};
 		const result = await reserveBillingUsage(db, {
 			id: input.execution.billingReservationId,
@@ -447,6 +447,7 @@ async function nativeFixture(mode: "managed" | "external" | "disabled") {
 			idempotencyKey: "attempt-key",
 			expiresAt: input.execution.sendBefore,
 			now: new Date().toISOString(),
+			credits: 1,
 		});
 		if (!result.allowed) throw new Error(result.code);
 		return {
@@ -454,7 +455,7 @@ async function nativeFixture(mode: "managed" | "external" | "disabled") {
 			settlementMode: mode,
 			reservationId: result.reservation.id,
 			expiresAt: result.reservation.expiresAt,
-			estimatedChargeMicros: result.reservation.estimatedChargeMicros,
+			estimatedCredits: result.reservation.credits,
 		};
 	});
 	const projection = { ...request(mode), tediId: "tedi" };

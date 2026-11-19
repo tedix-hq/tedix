@@ -428,9 +428,12 @@ const OrgUsageOutputSchema = z.object({
 		activeTedis: z.number(),
 	}),
 	planLimits: z.object({
-		maxTokensPerMonth: z.number(),
-		currentMonthTokens: z.number(),
-		usagePct: z.number().nullable(),
+		includedCreditsPerMonth: z.number().int().nonnegative(),
+		currentMonthCredits: z.number().int().nonnegative(),
+		usagePct: z
+			.number()
+			.nullable()
+			.describe("Null when the month includes no credits"),
 		maxTedis: z.number(),
 		currentTedis: z.number(),
 	}),

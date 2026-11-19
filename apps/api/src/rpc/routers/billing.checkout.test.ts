@@ -16,25 +16,18 @@ vi.mock("../../lib/stripe", () => ({ getStripe: async () => stripe }));
 const storage = vi.hoisted(() => ({
 	entitlement: vi.fn(),
 	plan: vi.fn(),
-	pack: vi.fn(),
-	balance: vi.fn(),
+	packs: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/billing/plans", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/db/queries/billing/plans")>()),
 	getBillingEntitlement: storage.entitlement,
 	getActiveBillingPlanByKey: storage.plan,
 }));
-vi.mock("@tedix/db/queries/billing/capacity-packs", async (importOriginal) => ({
+vi.mock("@tedix/db/queries/billing/credit-pool", async (importOriginal) => ({
 	...(await importOriginal<
-		typeof import("@tedix/db/queries/billing/capacity-packs")
+		typeof import("@tedix/db/queries/billing/credit-pool")
 	>()),
-	getActiveInferenceCapacityPackByKey: storage.pack,
-}));
-vi.mock("@tedix/db/queries/billing/credits", async (importOriginal) => ({
-	...(await importOriginal<
-		typeof import("@tedix/db/queries/billing/credits")
-	>()),
-	getBillingBalanceSnapshot: storage.balance,
+	listActiveTopUpPacks: storage.packs,
 }));
 
 import { billingContractRouter } from "./billing";
@@ -71,13 +64,12 @@ function context(mode: "test" | "live"): BaseContext {
 	} as unknown as BaseContext;
 }
 
-function planRow(planKey: string, sellsOverage: boolean) {
+function planRow(planKey: string, offersPayAsYouGo: boolean) {
 	return {
-		id: `${planKey}-v3`,
+		id: `${planKey}-credits-v1`,
 		planKey,
 		name: planKey,
-		allowOverage: true,
-		overageUnitPriceMicros: sellsOverage ? 50_000 : 0,
+		allowOverage: offersPayAsYouGo,
 	};
 }
 
@@ -102,12 +94,11 @@ beforeEach(() => {
 		},
 		plan: { allowOverage: false },
 	});
-	storage.balance.mockResolvedValue({ isSponsoredCustomer: false });
 });
 
 describe("subscription checkout", () => {
 	for (const mode of ["test", "live"] as const) {
-		it(`resolves plan and overage prices by lookup key (${mode})`, async () => {
+		it(`resolves plan and pay-as-you-go prices by lookup key (${mode})`, async () => {
 			storage.plan.mockResolvedValue(planRow("growth", true));
 			const client = createRouterClient(billingContractRouter, {
 				context: context(mode),
@@ -121,11 +112,11 @@ describe("subscription checkout", () => {
 			expect(result.stripeEnvironment).toBe(mode);
 			expect(
 				stripe.prices.list.mock.calls.map(([params]) => params.lookup_keys),
-			).toEqual([["tedix_growth_year_v4"], ["tedix_token_overage_v4"]]);
+			).toEqual([["tedix_growth_year_v4"], ["tedix_credits_payg_eur_v1"]]);
 			const [params] = stripe.checkout.sessions.create.mock.calls[0];
 			expect(params.line_items).toEqual([
 				{ price: "price_for_tedix_growth_year_v4", quantity: 1 },
-				{ price: "price_for_tedix_token_overage_v4" },
+				{ price: "price_for_tedix_credits_payg_eur_v1" },
 			]);
 		});
 	}
@@ -146,7 +137,7 @@ describe("subscription checkout", () => {
 		expect(params.consent_collection).toBeUndefined();
 	});
 
-	it("omits overage for a plan that does not price it (live)", async () => {
+	it("omits pay-as-you-go for a plan that does not offer it (live)", async () => {
 		storage.plan.mockResolvedValue(planRow("enterprise", false));
 		const client = createRouterClient(billingContractRouter, {
 			context: context("live"),
@@ -179,22 +170,42 @@ describe("subscription checkout", () => {
 	});
 });
 
-describe("inference capacity checkout", () => {
+describe("credit top-up checkout", () => {
 	it("resolves the pack price by lookup key in live mode", async () => {
-		storage.pack.mockResolvedValue({
-			id: "inference-capacity-daily-1m-live-v1",
-			packKey: "daily_1m",
-			stripeLookupKey: "tedix_inference_capacity_daily_1m_v1",
-		});
+		storage.packs.mockResolvedValue([
+			{
+				id: "credits-1000-live-v1",
+				packKey: "credits-1000",
+				credits: 1_000,
+				priceMicros: 10_000_000,
+				stripeLookupKey: "tedix_credits_1000_eur_v1",
+			},
+		]);
 		const client = createRouterClient(billingContractRouter, {
 			context: context("live"),
 		});
 
-		await client.createInferenceCapacityCheckout({ packKey: "daily_1m" });
+		await client.createTopUpCheckout({ packKey: "credits-1000" });
 
 		const [params] = stripe.checkout.sessions.create.mock.calls[0];
+		expect(params.mode).toBe("payment");
 		expect(params.line_items).toEqual([
-			{ price: "price_for_tedix_inference_capacity_daily_1m_v1", quantity: 1 },
+			{ price: "price_for_tedix_credits_1000_eur_v1", quantity: 1 },
 		]);
+		expect(params.metadata).toMatchObject({
+			checkoutKind: "credit_top_up",
+			packVersionId: "credits-1000-live-v1",
+		});
+	});
+
+	it("refuses a pack that is not on sale", async () => {
+		storage.packs.mockResolvedValue([]);
+		const client = createRouterClient(billingContractRouter, {
+			context: context("live"),
+		});
+		await expect(
+			client.createTopUpCheckout({ packKey: "credits-999" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(stripe.checkout.sessions.create).not.toHaveBeenCalled();
 	});
 });

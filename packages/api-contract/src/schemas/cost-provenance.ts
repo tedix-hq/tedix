@@ -439,28 +439,18 @@ export const COST_PROVIDER_HEALTH_DETAIL =
  */
 export const CostAdmissionPolicySchema = z.object({
 	state: z.literal("d1_authoritative"),
-	desiredDailyTokenLimit: z
-		.number()
-		.int()
-		.min(0)
+	allowedModelTiers: z
+		.array(z.enum(["economy", "balanced", "frontier"]))
 		.nullable()
 		.describe(
-			"Null when no daily token limit is configured in D1 — an absent cap, not a cap of 0. D1 enforces this value during atomic reservation",
-		),
-	desiredDailySpendLimitMicros: z
-		.number()
-		.int()
-		.min(0)
-		.nullable()
-		.describe(
-			"Null when no daily spend limit is configured in D1 — an absent cap, not a cap of 0. D1 enforces this value during atomic reservation",
+			"Null when the organization allows every model tier. Usage limits are monthly Tedix credits, not tokens.",
 		),
 	detail: z.string(),
 });
 export type CostAdmissionPolicy = z.infer<typeof CostAdmissionPolicySchema>;
 
 export const COST_ADMISSION_POLICY_DETAIL =
-	"D1 is the sole inference-admission authority. Daily token and spend limits are checked atomically with reservations; AI Gateway only records provider usage and cost.";
+	"D1 is the sole inference-admission authority. Each call reserves Tedix credits from the organization's monthly pool atomically; AI Gateway only records provider usage and cost.";
 
 // =============================================================================
 // ATTRIBUTION

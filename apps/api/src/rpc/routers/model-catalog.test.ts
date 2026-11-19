@@ -123,12 +123,11 @@ function seedPlanAndAccount(organizationId: string, status = "active") {
 	sqlite
 		.prepare(
 			`INSERT OR IGNORE INTO billing_plan_versions (
-				id, plan_key, version, status, name, included_monthly_tokens,
+				id, plan_key, version, status, name, included_monthly_credits,
 				max_tedis, max_cron_jobs_per_tedi, max_iterations_per_task,
-				default_daily_token_limit, default_daily_message_limit, effective_at,
-				created_at
-			) VALUES ('plan-1', 'growth', 1, 'active', 'Growth', 1000000, 5, 3, 25,
-				100000, 200, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+				effective_at, created_at
+			) VALUES ('plan-1', 'growth', 1, 'active', 'Growth', 15000, 5, 3, 25,
+				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
 		)
 		.run();
 	sqlite
@@ -304,12 +303,11 @@ describe("modelCatalog.list — entitlement gate", () => {
 		sqlite
 			.prepare(
 				`INSERT OR IGNORE INTO billing_plan_versions (
-					id, plan_key, version, status, name, included_monthly_tokens,
+					id, plan_key, version, status, name, included_monthly_credits,
 					max_tedis, max_cron_jobs_per_tedi, max_iterations_per_task,
-					default_daily_token_limit, default_daily_message_limit, effective_at,
-					created_at
-				) VALUES ('plan-1', 'growth', 1, 'active', 'Growth', 1000000, 5, 3, 25,
-					100000, 200, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+					effective_at, created_at
+				) VALUES ('plan-1', 'growth', 1, 'active', 'Growth', 15000, 5, 3, 25,
+					'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
 			)
 			.run();
 		sqlite

@@ -5,7 +5,8 @@ import type { BaseContext } from "../orpc";
 const storage = vi.hoisted(() => ({
 	coverage: vi.fn(),
 	snapshot: vi.fn(),
-	entitlement: vi.fn(),
+	tedis: vi.fn(),
+	members: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/billing/provider-usage", async (original) => ({
 	...(await original<
@@ -13,56 +14,41 @@ vi.mock("@tedix/db/queries/billing/provider-usage", async (original) => ({
 	>()),
 	getWorkstationCostCoverage: storage.coverage,
 }));
-vi.mock("@tedix/db/queries/billing/credits", async (original) => ({
-	...(await original<typeof import("@tedix/db/queries/billing/credits")>()),
-	getBillingBalanceSnapshot: storage.snapshot,
+vi.mock("@tedix/db/queries/billing/credit-pool", async (original) => ({
+	...(await original<typeof import("@tedix/db/queries/billing/credit-pool")>()),
+	getCreditPoolSnapshot: storage.snapshot,
+	listCreditNotices: async () => [
+		{ threshold: 80, reachedAt: "2026-09-18T00:00:00.000Z" },
+	],
+	listCreditSubjectUsage: async (
+		_db: unknown,
+		input: { subjectKind: "tedi" | "member" },
+	) =>
+		input.subjectKind === "tedi"
+			? [
+					{
+						subjectKey: "tedi-1",
+						usedCredits: 9_000,
+						monthlyCapCredits: 10_000,
+					},
+				]
+			: [
+					{
+						subjectKey: "member-sub",
+						usedCredits: 3_000,
+						monthlyCapCredits: null,
+					},
+				],
 }));
-vi.mock("@tedix/db/queries/billing/plans", async (original) => ({
-	...(await original<typeof import("@tedix/db/queries/billing/plans")>()),
-	getBillingEntitlement: storage.entitlement,
+vi.mock("@tedix/db/queries/tedis", async (original) => ({
+	...(await original<typeof import("@tedix/db/queries/tedis")>()),
+	getTedisByOrganization: storage.tedis,
 }));
-vi.mock("@tedix/db/queries/billing-service-credits", async (original) => ({
+vi.mock("@tedix/db/queries/organization-members", async (original) => ({
 	...(await original<
-		typeof import("@tedix/db/queries/billing-service-credits")
+		typeof import("@tedix/db/queries/organization-members")
 	>()),
-	getBillingServiceCreditSnapshot: async () => null,
-}));
-vi.mock("@tedix/db/queries/billing/inference-policies", async (original) => ({
-	...(await original<
-		typeof import("@tedix/db/queries/billing/inference-policies")
-	>()),
-	getEffectiveInferencePolicies: async () => ({
-		organization: { dailyTokenLimit: 1000000, dailySpendLimitMicros: null },
-	}),
-}));
-vi.mock("@tedix/db/queries/billing/capacity-allocations", async (original) => ({
-	...(await original<
-		typeof import("@tedix/db/queries/billing/capacity-allocations")
-	>()),
-	getInferenceCapacityDailyOverview: async () => ({
-		budgetDay: "2026-09-20",
-		allocatedTokens: 0,
-		allocatedSpendMicros: 0,
-		sponsoredTokens: 0,
-		sponsoredSpendMicros: 0,
-		usedTokens: 0,
-		usedSpendMicros: 0,
-		earliestExpiryAt: null,
-	}),
-	getInferenceCapacityLedger: async () => ({
-		allocations: [],
-		tediOverflow: [],
-	}),
-}));
-vi.mock("@tedix/db/queries/billing/capacity-packs", async (original) => ({
-	...(await original<
-		typeof import("@tedix/db/queries/billing/capacity-packs")
-	>()),
-	listActiveInferenceCapacityPacks: async () => [],
-}));
-vi.mock("@tedix/db/queries/billing/health", async (original) => ({
-	...(await original<typeof import("@tedix/db/queries/billing/health")>()),
-	getBillingUsagePeriod: async () => null,
+	getMembersByOrganization: storage.members,
 }));
 import { billingContractRouter } from "./billing";
 const org = "5eed0033-0000-4000-8000-000000000033";
@@ -97,49 +83,54 @@ function context(scopes = ["billing:read"]): BaseContext {
 		url: new URL("https://api.example.test/rpc/billing"),
 	} as BaseContext;
 }
-describe("workstation coverage in existing canonical billing overview", () => {
+describe("credits and workstation coverage in the billing overview", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		storage.coverage.mockResolvedValue(coverage);
 		storage.snapshot.mockResolvedValue({
+			organizationId: org,
+			planVersionId: "growth-credits-v1",
+			planKey: "growth",
+			planName: "Growth",
+			planPriceMicros: 200_000_000,
 			status: "active",
 			billingMode: "trial",
-			planKey: "growth",
-			planVersion: 1,
+			stripeEnvironment: null,
+			stripeCustomerId: null,
 			periodStart: coverage.periodStart,
 			periodEnd: coverage.periodEnd,
-			includedTokens: 1000000,
-			usedTokens: 0,
-			reservedTokens: 0,
-			remainingIncludedTokens: 1000000,
-			creditBalanceMicros: 0,
-			reservedChargeMicros: 0,
-			availableCreditMicros: 0,
-			customerChargeMicros: 0,
-			hardSpendLimitMicros: null,
-			allowOverage: false,
-			overageEnabled: false,
-			stripeCustomerId: null,
-		});
-		storage.entitlement.mockResolvedValue({
-			account: { stripeEnvironment: "test" },
-			plan: {
-				metadata: {},
-				name: "Growth",
-				currency: "usd",
-				monthlyPriceMicros: 0,
-				annualPriceMicros: 0,
-				includedMonthlyCreditMicros: 0,
-				overageUnitTokens: 1000000,
-				overageUnitPriceMicros: 0,
-				allowOverage: false,
-				maxTedis: 1,
-				maxCronJobsPerTedi: 1,
-				maxIterationsPerTask: 10,
-				defaultDailyTokenLimit: 1000000,
-				defaultDailyMessageLimit: 100,
+			planIncludedCredits: 15_000,
+			includedCreditsOverride: null,
+			includedCredits: 15_000,
+			usedCredits: 12_000,
+			includedUsedCredits: 12_000,
+			remainingIncludedCredits: 3_000,
+			topUpUsedCredits: 0,
+			topUpCredits: 1_000,
+			breakdown: { ai: 11_000, codeRuns: 500, services: 500 },
+			heldCredits: 0,
+			availableCredits: 4_000,
+			payAsYouGo: {
+				allowed: true,
+				enabled: false,
+				monthlyCapMicros: null,
+				spentMicros: 0,
+				usedCredits: 0,
 			},
+			creditFx: null,
+			tediCap: null,
+			tediUsedCredits: 0,
+			memberCap: null,
+			memberUsedCredits: 0,
 		});
+		storage.tedis.mockResolvedValue([{ id: "tedi-1", name: "Research" }]);
+		storage.members.mockResolvedValue([
+			{
+				descopeUserId: "member-sub",
+				name: "Admin",
+				email: "admin@example.test",
+			},
+		]);
 	});
 	it("uses canonical org and snapshot window and publishes required coverage separately", async () => {
 		const ctx = context();
@@ -153,8 +144,43 @@ describe("workstation coverage in existing canonical billing overview", () => {
 		expect(BillingOverviewSchema.parse(result).workstationCostCoverage).toEqual(
 			coverage,
 		);
-		expect(result.period).toBeNull();
-		expect(result.snapshot.customerChargeMicros).toBe(0);
+		expect(result.plan).toEqual({
+			key: "growth",
+			name: "Growth",
+			priceMicros: 200_000_000,
+			currency: "eur",
+			includedCredits: 15_000,
+		});
+		expect(result.credits).toMatchObject({
+			includedCredits: 15_000,
+			usedCredits: 12_000,
+			remainingIncludedCredits: 3_000,
+			topUpCredits: 1_000,
+			breakdown: { ai: 11_000, codeRuns: 500, services: 500 },
+			notices: [{ threshold: 80, reachedAt: "2026-09-18T00:00:00.000Z" }],
+			tedis: [
+				{
+					tediId: "tedi-1",
+					name: "Research",
+					usedCredits: 9_000,
+					monthlyCapCredits: 10_000,
+				},
+			],
+			members: [
+				{
+					userId: "member-sub",
+					name: "Admin",
+					usedCredits: 3_000,
+					monthlyCapCredits: null,
+				},
+			],
+		});
+		// The fixture's September period is over, so the overview says so.
+		expect(result.admission).toEqual({
+			available: false,
+			blockingReason: "billing_period_inactive",
+			unblockAction: "none",
+		});
 	});
 	it("cannot publish a fresh zero when coverage query rejects", async () => {
 		storage.coverage.mockRejectedValue(new Error("coverage read failed"));

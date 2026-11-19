@@ -24,28 +24,27 @@ function resolve(
 	);
 }
 
-describe("provider capacity sponsorship scope resolution", () => {
+describe("own-organization billing scope resolution", () => {
 	it("lets a tenant inspect its own funding without platform authority", () => {
 		expect(resolve("get_billing_overview", { readOnlyHint: true })).toEqual([
 			"mcp:settings.read",
 		]);
 	});
-	it("keeps own-org sponsorship reads and writes off platform authority", () => {
-		expect(
-			resolve("list_provider_capacity_sponsorships", { readOnlyHint: true }),
-		).toEqual(["mcp:settings.read"]);
-		expect(
-			resolve("set_provider_capacity_sponsorship", {
-				readOnlyHint: false,
-				destructiveHint: false,
-			}),
-		).toEqual(["mcp:settings.write"]);
+	it("keeps own-org credit caps and pay-as-you-go off platform authority", () => {
+		expect(resolve("list_top_up_packs", { readOnlyHint: true })).toEqual([
+			"mcp:settings.read",
+		]);
+		for (const tool of ["set_credit_caps", "set_pay_as_you_go"])
+			expect(
+				resolve(tool, { readOnlyHint: false, destructiveHint: false }),
+			).toEqual(["mcp:settings.write"]);
 	});
 
-	it("keeps unrelated billing tools on the platform-admin fallback", () => {
-		expect(
-			resolve("grant_inference_capacity", { readOnlyHint: false }),
-		).toEqual(["platform:admin"]);
+	it("keeps credit grants and overrides on the platform-admin fallback", () => {
+		for (const tool of ["grant_top_up_credits", "set_account_credits"])
+			expect(resolve(tool, { readOnlyHint: false })).toEqual([
+				"platform:admin",
+			]);
 	});
 	it("permits only the reviewed own-org spending read without platform authority", () => {
 		expect(

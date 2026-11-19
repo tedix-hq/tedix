@@ -9,13 +9,12 @@ import { getOpenAPIMeta } from "@orpc/openapi";
  * production while the spec test still proves exact equality.
  */
 export const PUBLIC_REST_OPERATION_LIST = [
-	/** Stable customer account checkout, portal, plan, status, and overview resources. */
+	/** Stable customer account checkout, credit top-up, portal, plan, and overview resources. */
 	"POST /billing/checkout",
-	"POST /billing/inference-capacity/checkout",
-	"GET /billing/inference-capacity/sponsorships",
-	"PUT /billing/inference-capacity/sponsorships/{installationId}",
+	"POST /billing/top-ups/checkout",
 	"POST /billing/portal",
 	"GET /billing/plans",
+	"GET /billing/top-ups",
 	"GET /billing/overview",
 	/** First-class customer tenant lifecycle and membership resources. */
 	"GET /organizations/cli-workspace/{slug}",

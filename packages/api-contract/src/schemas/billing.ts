@@ -11,13 +11,6 @@ import { CutoverInspectionHopSchema, type CutoverInspectionHop } from "./tedi";
 // BILLING SCHEMAS
 // =============================================================================
 
-const MonetaryTokenRatesSchema = z.object({
-	uncachedInput: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-	cacheRead: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-	cacheWrite: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-	output: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-});
-
 /** The published reference rate a credit price was converted at (ECB: USD per 1 EUR). */
 export const CreditFxRateSchema = z.object({
 	microUsdPerEur: z.number().int().positive().max(10_000_000),
@@ -25,85 +18,6 @@ export const CreditFxRateSchema = z.object({
 	asOf: z.iso.date(),
 });
 export type CreditFxRate = z.infer<typeof CreditFxRateSchema>;
-
-/**
- * Opt-in plan-version configuration; existing token plans remain unchanged.
- * Credits are EUR (1 credit = EUR 0.01). Provider rates stay in their receipt
- * currency (USD); customer rates are those converted at the pinned FX rate.
- */
-export const MonetaryInferenceConfigSchema = z.object({
-	version: z.literal(1),
-	currency: z.literal("EUR"),
-	creditValueMicros: z.literal(10_000),
-	pricing: z.literal("provider_pass_through"),
-	perRunBudgetMicros: z.number().int().positive().safe().optional(),
-	rates: z
-		.array(
-			z.object({
-				schemaVersion: z.literal(1),
-				id: z.string().min(1),
-				version: z.number().int().positive(),
-				provider: z.string().min(1),
-				model: z.string().min(1),
-				deploymentScope: z.string().min(1),
-				currency: z.literal("USD"),
-				customerCurrency: z.literal("EUR"),
-				fx: CreditFxRateSchema,
-				funding: z.literal("managed"),
-				effectiveFrom: z.iso.datetime(),
-				effectiveUntil: z.iso.datetime().nullable(),
-				sourceReceipt: z.string().min(1),
-				providerRates: MonetaryTokenRatesSchema,
-				customerRates: MonetaryTokenRatesSchema,
-				creditValueMicros: z.literal(10_000),
-				inputConvention: z.enum(["inclusive", "exclusive"]),
-				requestModelAliases: z.array(z.string().min(1)).max(20).default([]),
-				inputTokenMin: z.number().int().nonnegative().safe().default(0),
-				inputTokenMax: z
-					.number()
-					.int()
-					.positive()
-					.safe()
-					.nullable()
-					.default(null),
-			}),
-		)
-		.min(1)
-		.max(100),
-});
-export type MonetaryInferenceConfig = z.infer<
-	typeof MonetaryInferenceConfigSchema
->;
-
-export const BillingCreditOverviewSchema = z.object({
-	billingMode: z.enum(["monetary", "tokens"]),
-	currency: z.literal("eur"),
-	creditValueMicros: z.literal(10_000),
-	includedMicros: z.number().int().nonnegative(),
-	usedIncludedMicros: z.number().int().nonnegative(),
-	remainingIncludedMicros: z.number().int().nonnegative(),
-	walletBalanceMicros: z.number().int(),
-	reservedMicros: z.number().int().nonnegative(),
-	availableMicros: z.number().int().nonnegative(),
-	spentMicros: z.number().int().nonnegative(),
-	monthlyCapMicros: z.number().int().nonnegative().nullable(),
-	perRunBudgetMicros: z.number().int().positive().safe().optional(),
-});
-export type BillingCreditOverview = z.infer<typeof BillingCreditOverviewSchema>;
-
-export const ProviderCapacityPolicySchema = z.object({
-	enabled: z.boolean(),
-	budgetRevision: z.number().int().positive().max(1_000_000),
-	maxTransfersPerBudgetDay: z.number().int().positive().max(100),
-	lowWatermarkTokens: z.number().int().nonnegative().max(1_000_000_000),
-	lowWatermarkSpendMicros: z
-		.number()
-		.int()
-		.nonnegative()
-		.max(1_000_000_000_000),
-	transferTokens: z.number().int().nonnegative().max(1_000_000_000),
-	transferSpendMicros: z.number().int().nonnegative().max(1_000_000_000_000),
-});
 
 export const BillingIntervalSchema = z.enum(["month", "year"]);
 export type BillingInterval = z.infer<typeof BillingIntervalSchema>;
@@ -146,86 +60,11 @@ export const CheckoutResponseSchema = z.object({
 });
 export type CheckoutResponse = z.infer<typeof CheckoutResponseSchema>;
 
-export const InferenceCapacityPackSchema = z.object({
-	packKey: z.string().min(1).max(100),
-	name: z.string().min(1).max(200),
-	tokens: z.number().int().positive(),
-	spendCapacityMicros: z.number().int().positive(),
-	priceMicros: z.number().int().nonnegative(),
-	currency: z.string().min(3).max(3),
-});
-export type InferenceCapacityPack = z.infer<typeof InferenceCapacityPackSchema>;
-
-export const CreateInferenceCapacityCheckoutInputSchema = z.object({
-	packKey: z.string().min(1).max(100),
-	successUrl: z
-		.string()
-		.url()
-		.optional()
-		.describe(
-			"Optional caller return URL; defaults to the canonical OS billing settings success state.",
-		),
-	cancelUrl: z
-		.string()
-		.url()
-		.optional()
-		.describe(
-			"Optional caller return URL; defaults to the canonical OS billing settings cancellation state.",
-		),
-});
-export type CreateInferenceCapacityCheckoutInput = z.infer<
-	typeof CreateInferenceCapacityCheckoutInputSchema
->;
-
 export const PortalResponseSchema = z.object({
 	portalUrl: z.string().url(),
 	stripeEnvironment: StripeEnvironmentSchema,
 });
 export type PortalResponse = z.infer<typeof PortalResponseSchema>;
-
-export const BillingPlanCatalogItemSchema = z.object({
-	planKey: z.enum(["growth", "business", "enterprise"]),
-	version: z.number().int().positive(),
-	name: z.string(),
-	currency: z.string(),
-	monthlyPriceMicros: z.number().int().nonnegative(),
-	annualPriceMicros: z.number().int().nonnegative(),
-	includedMonthlyTokens: z.number().int(),
-	overageUnitTokens: z.number().int().positive(),
-	overageUnitPriceMicros: z.number().int().nonnegative(),
-	maxTedis: z.number().int(),
-	maxCronJobsPerTedi: z.number().int(),
-	maxIterationsPerTask: z.number().int(),
-});
-export type BillingPlanCatalogItem = z.infer<
-	typeof BillingPlanCatalogItemSchema
->;
-
-export const BillingPlanCatalogSchema = z.object({
-	stripeEnvironment: StripeEnvironmentSchema,
-	plans: z.array(BillingPlanCatalogItemSchema),
-});
-export type BillingPlanCatalog = z.infer<typeof BillingPlanCatalogSchema>;
-
-const BillingBalanceSnapshotSchema = z.object({
-	status: z.enum(["trial", "active", "past_due", "cancelled", "suspended"]),
-	billingMode: z.enum(["trial", "stripe", "invoice", "internal"]),
-	planKey: BillingPlanKeySchema,
-	planVersion: z.number().int(),
-	periodStart: z.string(),
-	periodEnd: z.string(),
-	includedTokens: z.number().int(),
-	usedTokens: z.number().int(),
-	reservedTokens: z.number().int(),
-	remainingIncludedTokens: z.number().int(),
-	creditBalanceMicros: z.number().int(),
-	reservedChargeMicros: z.number().int(),
-	availableCreditMicros: z.number().int(),
-	customerChargeMicros: z.number().int(),
-	hardSpendLimitMicros: z.number().int().nullable(),
-	allowOverage: z.boolean(),
-	stripeCustomerId: z.string().nullable(),
-});
 
 export const RecordVoiceProviderUsageInputSchema = z
 	.object({
@@ -262,26 +101,6 @@ export const RecordVoiceProviderUsageResponseSchema = z.object({
 });
 export type RecordVoiceProviderUsageResponse = z.infer<
 	typeof RecordVoiceProviderUsageResponseSchema
->;
-
-export const GrantBillingCreditInputSchema = z.object({
-	organizationId: z.string().min(1),
-	amountMicros: z.number().int().positive().max(1_000_000_000_000),
-	idempotencyKey: z.string().min(8).max(300),
-	sourceRef: z.string().max(300).nullable().optional(),
-	expiresAt: z.string().datetime().nullable().optional(),
-	description: z.string().max(500).nullable().optional(),
-});
-export type GrantBillingCreditInput = z.infer<
-	typeof GrantBillingCreditInputSchema
->;
-
-export const GrantBillingCreditResponseSchema = z.object({
-	entryId: z.string(),
-	creditBalanceMicros: z.number().int(),
-});
-export type GrantBillingCreditResponse = z.infer<
-	typeof GrantBillingCreditResponseSchema
 >;
 
 export const ProviderReconciliationInputSchema = z
@@ -325,8 +144,6 @@ export const BillingServiceCreditSnapshotSchema = z.object({
 	planVersionId: z.string(),
 	periodStart: z.string(),
 	periodEnd: z.string(),
-	includedCredits: z.number().int().nonnegative(),
-	grantedCredits: z.number().int().nonnegative(),
 	usedCredits: z.number().int().nonnegative(),
 	reservedCredits: z.number().int().nonnegative(),
 	availableCredits: z.number().int().nonnegative(),
@@ -339,27 +156,6 @@ export const BillingServiceCreditSnapshotSchema = z.object({
 });
 export type BillingServiceCreditSnapshot = z.infer<
 	typeof BillingServiceCreditSnapshotSchema
->;
-
-export const GrantBillingServiceCreditsInputSchema = z.object({
-	organizationId: z.string().min(1),
-	serviceKey: z.literal("seo").default("seo"),
-	amountCredits: z.number().int().positive().max(100_000_000),
-	idempotencyKey: z.string().min(8).max(300),
-	sourceRef: z.string().max(300).nullable().optional(),
-	expiresAt: z.string().datetime().nullable().optional(),
-	description: z.string().max(500).nullable().optional(),
-});
-export type GrantBillingServiceCreditsInput = z.infer<
-	typeof GrantBillingServiceCreditsInputSchema
->;
-
-export const GrantBillingServiceCreditsResponseSchema = z.object({
-	entryId: z.string(),
-	snapshot: BillingServiceCreditSnapshotSchema,
-});
-export type GrantBillingServiceCreditsResponse = z.infer<
-	typeof GrantBillingServiceCreditsResponseSchema
 >;
 
 export const SetBillingServiceCreditControlsInputSchema = z.object({
@@ -376,52 +172,6 @@ export const SetBillingServiceCreditControlsInputSchema = z.object({
 });
 export type SetBillingServiceCreditControlsInput = z.infer<
 	typeof SetBillingServiceCreditControlsInputSchema
->;
-
-/** 1,000,000 currency units; mirrors BILLING_OVERAGE_MONTHLY_CAP_MAX_MICROS. */
-export const BILLING_OVERAGE_MONTHLY_CAP_MAX_MICROS = 1_000_000_000_000;
-
-export const SetBillingOverageSettingsInputSchema = z
-	.object({
-		enabled: z.boolean(),
-		monthlyCapMicros: z
-			.number()
-			.int()
-			.positive()
-			.max(BILLING_OVERAGE_MONTHLY_CAP_MAX_MICROS)
-			.nullable()
-			.describe(
-				"Hard monthly ceiling on overage charges in the plan currency; required while enabled",
-			),
-	})
-	.strict()
-	.superRefine((value, ctx) => {
-		if (value.enabled && value.monthlyCapMicros === null) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["monthlyCapMicros"],
-				message: "A monthly cap is required when overage is enabled",
-			});
-		}
-	});
-export type SetBillingOverageSettingsInput = z.infer<
-	typeof SetBillingOverageSettingsInputSchema
->;
-
-export const BillingOverageSettingsSchema = z.object({
-	enabled: z.boolean(),
-	monthlyCapMicros: z.number().int().nullable(),
-	currency: z.string(),
-	/** Whether the current plan sells priced overage at all. */
-	planSellsOverage: z.boolean(),
-	/** Settled overage charges this period, net of applied credit. */
-	monthToDateChargeMicros: z.number().int(),
-	/** Estimated charge held by in-flight reservations this period. */
-	reservedChargeMicros: z.number().int(),
-	capReached: z.boolean(),
-});
-export type BillingOverageSettings = z.infer<
-	typeof BillingOverageSettingsSchema
 >;
 
 export const SetBillingServiceCreditControlsResponseSchema = z.object({
@@ -482,172 +232,224 @@ export const WorkstationCostCoverageSchema = z
 		}
 	});
 
+// =============================================================================
+// TEDIX CREDITS (1 credit = EUR 0.01)
+// =============================================================================
+
+const CreditCountSchema = z.number().int().nonnegative().safe();
+/** Ceiling for one pay-as-you-go monthly cap: EUR 1,000,000. */
+export const PAY_AS_YOU_GO_MONTHLY_CAP_MAX_MICROS = 1_000_000_000_000;
+
+export const BillingPlanSchema = z.object({
+	key: BillingPlanKeySchema,
+	name: z.string(),
+	priceMicros: z.number().int().nonnegative(),
+	currency: z.literal("eur"),
+	includedCredits: CreditCountSchema,
+});
+export type BillingPlan = z.infer<typeof BillingPlanSchema>;
+
+export const BillingTopUpPackSchema = z.object({
+	packKey: z.string().min(1).max(100),
+	credits: z.number().int().positive(),
+	priceMicros: z.number().int().positive(),
+	currency: z.literal("eur"),
+	validMonths: z.literal(12),
+});
+export type BillingTopUpPack = z.infer<typeof BillingTopUpPackSchema>;
+
+export const CreditNoticeSchema = z.object({
+	threshold: z.union([z.literal(80), z.literal(100)]),
+	reachedAt: z.string(),
+});
+
+export const BillingCreditsSchema = z.object({
+	periodStart: z.string(),
+	periodEnd: z.string(),
+	/** Plan value or the operator-set override for this organization. */
+	includedCredits: CreditCountSchema,
+	/** This period, all sources. */
+	usedCredits: CreditCountSchema,
+	remainingIncludedCredits: CreditCountSchema,
+	/** Unexpired purchased or converted credits. */
+	topUpCredits: CreditCountSchema,
+	breakdown: z.object({
+		ai: CreditCountSchema,
+		codeRuns: CreditCountSchema,
+		services: CreditCountSchema,
+	}),
+	notices: z.array(CreditNoticeSchema),
+	payAsYouGo: z.object({
+		enabled: z.boolean(),
+		monthlyCapMicros: z.number().int().nonnegative().nullable(),
+		spentMicros: z.number().int().nonnegative(),
+	}),
+	tedis: z.array(
+		z.object({
+			tediId: z.string(),
+			name: z.string(),
+			usedCredits: CreditCountSchema,
+			monthlyCapCredits: CreditCountSchema.nullable(),
+		}),
+	),
+	members: z.array(
+		z.object({
+			userId: z.string(),
+			name: z.string(),
+			usedCredits: CreditCountSchema,
+			monthlyCapCredits: CreditCountSchema.nullable(),
+		}),
+	),
+});
+export type BillingCredits = z.infer<typeof BillingCreditsSchema>;
+
+export const CreditRefusalCodeSchema = z.enum([
+	"billing_not_configured",
+	"subscription_inactive",
+	"billing_period_inactive",
+	"monthly_credit_limit_reached",
+	"tedi_monthly_credit_cap_reached",
+	"member_monthly_credit_cap_reached",
+]);
+export type CreditRefusalCode = z.infer<typeof CreditRefusalCodeSchema>;
+
+export const CreateTopUpCheckoutInputSchema = z.object({
+	packKey: z.string().min(1).max(100),
+	successUrl: z
+		.string()
+		.url()
+		.optional()
+		.describe(
+			"Optional caller return URL; defaults to the canonical OS billing settings success state.",
+		),
+	cancelUrl: z
+		.string()
+		.url()
+		.optional()
+		.describe(
+			"Optional caller return URL; defaults to the canonical OS billing settings cancellation state.",
+		),
+});
+export type CreateTopUpCheckoutInput = z.infer<
+	typeof CreateTopUpCheckoutInputSchema
+>;
+
+const CreditCapInputSchema = CreditCountSchema.max(1_000_000_000).nullable();
+
+export const SetCreditCapsInputSchema = z
+	.object({
+		tediCaps: z
+			.array(
+				z.object({
+					tediId: z.string().min(1),
+					monthlyCapCredits: CreditCapInputSchema,
+				}),
+			)
+			.max(200)
+			.optional(),
+		memberCaps: z
+			.array(
+				z.object({
+					userId: z.string().min(1),
+					monthlyCapCredits: CreditCapInputSchema,
+				}),
+			)
+			.max(200)
+			.optional(),
+	})
+	.strict();
+export type SetCreditCapsInput = z.infer<typeof SetCreditCapsInputSchema>;
+
+export const SetPayAsYouGoInputSchema = z
+	.object({
+		enabled: z.boolean(),
+		monthlyCapMicros: z
+			.number()
+			.int()
+			.positive()
+			.max(PAY_AS_YOU_GO_MONTHLY_CAP_MAX_MICROS)
+			.nullable()
+			.describe(
+				"Monthly EUR cap for pay-as-you-go credits; required while enabled",
+			),
+	})
+	.strict()
+	.superRefine((value, ctx) => {
+		if (value.enabled && value.monthlyCapMicros === null) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["monthlyCapMicros"],
+				message: "A monthly cap is required when pay-as-you-go is enabled",
+			});
+		}
+	});
+export type SetPayAsYouGoInput = z.infer<typeof SetPayAsYouGoInputSchema>;
+
+export const SetAccountCreditsInputSchema = z
+	.object({
+		organizationId: z.string().min(1),
+		includedCreditsOverride: CreditCountSchema.max(1_000_000_000).nullable(),
+		reason: z.string().min(3).max(500),
+	})
+	.strict();
+export type SetAccountCreditsInput = z.infer<
+	typeof SetAccountCreditsInputSchema
+>;
+
+export const SetAccountCreditsResponseSchema = z.object({
+	organizationId: z.string(),
+	includedCredits: CreditCountSchema,
+	includedCreditsOverride: CreditCountSchema.nullable(),
+	entitlementVersion: z.number().int().positive(),
+});
+export type SetAccountCreditsResponse = z.infer<
+	typeof SetAccountCreditsResponseSchema
+>;
+
+export const GrantTopUpCreditsInputSchema = z
+	.object({
+		organizationId: z.string().min(1),
+		credits: z.number().int().positive().max(100_000_000),
+		idempotencyKey: z.string().min(8).max(300),
+		reason: z.string().min(3).max(500),
+	})
+	.strict();
+export type GrantTopUpCreditsInput = z.infer<
+	typeof GrantTopUpCreditsInputSchema
+>;
+
+export const GrantTopUpCreditsResponseSchema = z.object({
+	topUpId: z.string(),
+	credits: z.number().int().positive(),
+	expiresAt: z.string(),
+});
+
 const BillingOverviewFieldsSchema = z.object({
-	credits: BillingCreditOverviewSchema.optional(),
-	workstationCostCoverage: WorkstationCostCoverageSchema,
-	overage: BillingOverageSettingsSchema,
 	stripeEnvironment: StripeEnvironmentSchema,
-	snapshot: BillingBalanceSnapshotSchema,
-	plan: z.object({
-		name: z.string(),
-		currency: z.string(),
-		monthlyPriceMicros: z.number().int(),
-		annualPriceMicros: z.number().int(),
-		includedMonthlyCreditMicros: z.number().int(),
-		overageUnitTokens: z.number().int(),
-		overageUnitPriceMicros: z.number().int(),
-		maxTedis: z.number().int(),
-		maxCronJobsPerTedi: z.number().int(),
-		maxIterationsPerTask: z.number().int(),
-		defaultDailyTokenLimit: z.number().int(),
-		defaultDailyMessageLimit: z.number().int(),
+	account: z.object({
+		status: z.enum(["trial", "active", "past_due", "cancelled", "suspended"]),
+		billingMode: z.enum(["trial", "stripe", "invoice", "internal"]),
+		periodStart: z.string(),
+		periodEnd: z.string(),
 	}),
-	period: z
-		.object({
-			usedInputTokens: z.number().int(),
-			usedOutputTokens: z.number().int(),
-			meteredOverageTokens: z.number().int(),
-			providerCostMicros: z.number().int(),
-			customerChargeMicros: z.number().int(),
-			creditAppliedMicros: z.number().int(),
-		})
-		.nullable(),
-	inferenceCapacity: z.object({
+	plan: BillingPlanSchema,
+	credits: BillingCreditsSchema,
+	admission: z.object({
 		available: z.boolean(),
-		monthlyMetered: z.boolean(),
-		blockingReason: z
-			.enum([
-				"subscription_inactive",
-				"billing_period_inactive",
-				"monthly_allowance_exhausted",
-				"credit_allowance_exhausted",
-				"pricing_unavailable",
-				"payment_required",
-				"hard_spend_limit",
-				"inference_capacity_exhausted",
-			])
-			.nullable()
-			.describe("Null when every billing and inference-admission gate is open"),
+		blockingReason: CreditRefusalCodeSchema.nullable().describe(
+			"Null when the pool can admit a typical AI call now",
+		),
 		unblockAction: z.enum(["none", "top_up", "upgrade", "manage_payment"]),
-		budgetDay: z.string(),
-		baseDailyTokenLimit: z.number().int().nonnegative(),
-		baseDailySpendLimitMicros: z
-			.number()
-			.int()
-			.nonnegative()
-			.nullable()
-			.describe("Null when no organization daily spend ceiling is configured"),
-		allocatedTokens: z
-			.number()
-			.int()
-			.describe(
-				"Net active ledger adjustment; negative after sponsor transfers or refunds",
-			),
-		allocatedSpendCapacityMicros: z
-			.number()
-			.int()
-			.describe(
-				"Net active spend-capacity adjustment; negative after sponsor transfers or refunds",
-			),
-		sponsoredTokens: z
-			.number()
-			.int()
-			.describe(
-				"The part of allocatedTokens this organization sponsored to embedded customers; negative, same sign as the total",
-			),
-		sponsoredSpendCapacityMicros: z
-			.number()
-			.int()
-			.describe(
-				"The part of allocatedSpendCapacityMicros sponsored to embedded customers; negative, same sign as the total",
-			),
-		usedTokens: z.number().int().nonnegative(),
-		usedSpendMicros: z.number().int().nonnegative(),
-		remainingTokens: z.number().int().nonnegative(),
-		remainingSpendMicros: z
-			.number()
-			.int()
-			.nonnegative()
-			.nullable()
-			.describe("Null when daily spend capacity is unlimited"),
-		expiresAt: z.string().datetime(),
-		packs: z.array(InferenceCapacityPackSchema),
-		allocations: z.array(
-			z.object({
-				id: z.string().uuid(),
-				packVersionId: z
-					.string()
-					.nullable()
-					.describe("Null for a non-catalog adjustment"),
-				packKey: z
-					.string()
-					.nullable()
-					.describe("Null for a non-catalog adjustment"),
-				packVersion: z
-					.number()
-					.int()
-					.nullable()
-					.describe("Null for a non-catalog adjustment"),
-				packName: z
-					.string()
-					.nullable()
-					.describe("Null for a non-catalog adjustment"),
-				budgetDay: z.string(),
-				tokenAmount: z.number().int(),
-				spendAmountMicros: z.number().int(),
-				sourceType: z.string(),
-				sourceRef: z
-					.string()
-					.nullable()
-					.describe("Null when the capacity source has no provider reference"),
-				checkoutSessionId: z
-					.string()
-					.nullable()
-					.describe("Null for entries not created by Stripe Checkout"),
-				paymentIntentId: z
-					.string()
-					.nullable()
-					.describe("Null when Stripe did not issue a payment intent"),
-				stripeEnvironment: StripeEnvironmentSchema,
-				expiresAt: z.string().datetime(),
-				createdAt: z.string(),
-				state: z.enum(["active", "expired", "compensating"]),
-			}),
-		),
-		tediOverflow: z.array(
-			z.object({
-				tediId: z.string().uuid(),
-				displayName: z.string(),
-				usedTokens: z.number().int().nonnegative(),
-				usedSpendMicros: z.number().int().nonnegative(),
-				baseTokenLimit: z
-					.number()
-					.int()
-					.nonnegative()
-					.nullable()
-					.describe("Null when the tedi has no finite token ceiling"),
-				baseSpendLimitMicros: z
-					.number()
-					.int()
-					.nonnegative()
-					.nullable()
-					.describe("Null when the tedi has no finite spend ceiling"),
-				overflowTokens: z.number().int().nonnegative(),
-				overflowSpendMicros: z.number().int().nonnegative(),
-			}),
-		),
 	}),
-	serviceCredits: z.object({
-		seo: BillingServiceCreditSnapshotSchema.nullable(),
-	}),
+	workstationCostCoverage: WorkstationCostCoverageSchema,
 });
 export const BillingOverviewSchema = BillingOverviewFieldsSchema.superRefine(
 	(value, ctx) => {
 		if (
 			Date.parse(value.workstationCostCoverage.periodStart) !==
-				Date.parse(value.snapshot.periodStart) ||
+				Date.parse(value.account.periodStart) ||
 			Date.parse(value.workstationCostCoverage.periodEnd) !==
-				Date.parse(value.snapshot.periodEnd)
+				Date.parse(value.account.periodEnd)
 		)
 			ctx.addIssue({
 				code: "custom",

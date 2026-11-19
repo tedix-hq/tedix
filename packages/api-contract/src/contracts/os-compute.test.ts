@@ -1,7 +1,7 @@
 /**
- * The posture envelope accepts its producer's range: getBillingBalanceSnapshot
- * passes included_monthly_tokens through, including negative unlimited-plan
- * sentinels. Absent billing state remains distinct from a zero allowance.
+ * The posture envelope accepts its producer's range: the budget is copied from
+ * the credit pool in Tedix credits. Absent billing state remains distinct from
+ * a zero allowance, and no credit figure can be negative.
  */
 
 import { describe, expect, it } from "vite-plus/test";
@@ -44,14 +44,13 @@ function posture(overrides: Record<string, unknown> = {}) {
 		provenance: [],
 		budget: {
 			configured: true,
-			includedTokens: 20_000_000,
-			usedTokens: 4_120_000,
-			reservedTokens: 60_000,
-			remainingIncludedTokens: 15_820_000,
-			unlimitedTokenUsage: false,
-			allowOverage: false,
+			includedCredits: 40_000,
+			usedCredits: 4_120,
+			heldCredits: 60,
+			topUpCredits: 0,
+			availableCredits: 35_820,
 			entitlementActive: true,
-			detail: "Copied from the canonical billing balance snapshot.",
+			detail: "Copied from the canonical credit pool.",
 		},
 		routing: {
 			modelRef: "azure-openai/gpt-5.6-luna",
@@ -75,8 +74,7 @@ function posture(overrides: Record<string, unknown> = {}) {
 		},
 		admissionPolicy: {
 			state: "d1_authoritative" as const,
-			desiredDailyTokenLimit: null,
-			desiredDailySpendLimitMicros: null,
+			allowedModelTiers: null,
 			detail: COST_ADMISSION_POLICY_DETAIL,
 		},
 		attribution: {
@@ -92,21 +90,18 @@ function posture(overrides: Record<string, unknown> = {}) {
 }
 
 describe("ComputePostureSchema accepts what the producers emit", () => {
-	// An unlimited plan reports a negative includedTokens sentinel; rejecting
-	// it would 500 the whole read.
-	it("accepts an unlimited plan's negative token sentinel", () => {
-		const parsed = ComputePostureSchema.parse(
-			posture({
-				budget: {
-					...posture().budget,
-					includedTokens: -1,
-					remainingIncludedTokens: -1,
-					unlimitedTokenUsage: true,
-				},
-			}),
-		);
-		expect(parsed.budget.includedTokens).toBe(-1);
-		expect(parsed.budget.remainingIncludedTokens).toBe(-1);
+	it("accepts the ordinary finite-allowance envelope", () => {
+		expect(() => ComputePostureSchema.parse(posture())).not.toThrow();
+	});
+
+	it("rejects a negative credit figure", () => {
+		expect(() =>
+			ComputePostureSchema.parse(
+				posture({
+					budget: { ...posture().budget, includedCredits: -1 },
+				}),
+			),
+		).toThrow();
 	});
 
 	it("accepts an absent billing account without flattening it to zero", () => {
@@ -114,18 +109,17 @@ describe("ComputePostureSchema accepts what the producers emit", () => {
 			posture({
 				budget: {
 					configured: false,
-					includedTokens: null,
-					usedTokens: null,
-					reservedTokens: null,
-					remainingIncludedTokens: null,
-					unlimitedTokenUsage: null,
-					allowOverage: null,
+					includedCredits: null,
+					usedCredits: null,
+					heldCredits: null,
+					topUpCredits: null,
+					availableCredits: null,
 					entitlementActive: null,
 					detail: "No billing account is configured.",
 				},
 			}),
 		);
-		expect(parsed.budget.includedTokens).toBeNull();
+		expect(parsed.budget.includedCredits).toBeNull();
 	});
 
 	// The other half of the same lesson: `selectedBy` is the catalog's own
@@ -149,28 +143,4 @@ describe("ComputePostureSchema accepts what the producers emit", () => {
 		);
 		expect(parsed.routing.selectedBy).toBeNull();
 	});
-});
-
-describe("explicit token usage semantic", () => {
-	it("requires the semantic without an optional legacy fallback", () => {
-		const value = posture();
-		const { unlimitedTokenUsage: _discarded, ...budget } = value.budget;
-		expect(() => ComputePostureSchema.parse({ ...value, budget })).toThrow();
-	});
-	it.each([true, false, null])(
-		"preserves semantic %s independently of zero included allowance",
-		(unlimitedTokenUsage) => {
-			const value = posture();
-			value.budget = {
-				...value.budget,
-				unlimitedTokenUsage,
-				includedTokens: unlimitedTokenUsage === null ? null : 0,
-				remainingIncludedTokens: unlimitedTokenUsage === null ? null : 0,
-				configured: unlimitedTokenUsage !== null,
-			};
-			expect(ComputePostureSchema.parse(value).budget.unlimitedTokenUsage).toBe(
-				unlimitedTokenUsage,
-			);
-		},
-	);
 });

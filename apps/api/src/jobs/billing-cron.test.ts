@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
-	credits: vi.fn(),
 	reservations: vi.fn(),
 	periods: vi.fn(),
 	ingest: vi.fn(),
@@ -13,9 +12,6 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@tedix/db/client", () => ({
 	createDbClient: (binding: unknown) => binding,
-}));
-vi.mock("@tedix/db/queries/billing/credits", () => ({
-	expireBillingCredits: mocks.credits,
 }));
 vi.mock("@tedix/db/queries/billing/reservations", () => ({
 	expireBillingReservations: mocks.reservations,
@@ -53,7 +49,6 @@ beforeEach(() => {
 		{ gatewayId: "gateway", ingested: 3, skipped: 0 },
 	]);
 	mocks.periods.mockResolvedValue({ renewed: 1, suspendedTrials: 0 });
-	mocks.credits.mockResolvedValue(0);
 	mocks.reservations.mockResolvedValue(0);
 	mocks.settle.mockResolvedValue({
 		settled: 1,
@@ -119,7 +114,6 @@ describe("whole billing tick settlement isolation", () => {
 			expect(mocks.health).toHaveBeenCalledOnce();
 			expect(mocks.freshness).toHaveBeenCalledOnce();
 			for (const operation of [
-				mocks.credits,
 				mocks.reservations,
 				mocks.periods,
 				mocks.settle,
@@ -136,7 +130,6 @@ describe("whole billing tick settlement isolation", () => {
 			TEDIX_BILLING_SETTLEMENT_MODE: "managed",
 		} as CloudflareEnv);
 		for (const operation of [
-			mocks.credits,
 			mocks.reservations,
 			mocks.periods,
 			mocks.settle,

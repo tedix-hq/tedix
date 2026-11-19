@@ -24,6 +24,10 @@ import {
 import { createDbClient } from "@tedix/db/client";
 import {
 	billingAccounts,
+	billingCreditCaps,
+	billingCreditTopUps,
+	billingCreditUsageTotals,
+	billingServiceCreditReservations,
 	billingProviderCostEvidenceVersions,
 	billingInferencePolicies,
 	billingPlanVersions,
@@ -115,33 +119,31 @@ function seedPlanAndAccount(organizationId: string) {
 	sqlite
 		.prepare(
 			`INSERT OR IGNORE INTO billing_plan_versions (
-				id, plan_key, version, status, name, included_monthly_tokens,
+				id, plan_key, version, status, name, included_monthly_credits,
 				max_tedis, max_cron_jobs_per_tedi, max_iterations_per_task,
-				default_daily_token_limit, default_daily_message_limit, effective_at,
-				created_at
-			) VALUES ('plan-1', 'growth', 1, 'active', 'Growth', 1000000, 5, 3, 25,
-				100000, 200, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+				effective_at, created_at
+			) VALUES ('plan-1', 'growth', 1, 'active', 'Growth', 15000, 5, 3, 25,
+				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
 		)
 		.run();
 	sqlite
 		.prepare(
 			`INSERT INTO billing_accounts (
 				organization_id, plan_version_id, status, billing_mode, period_start,
-				period_end, credit_balance_micros, created_at, updated_at
-			) VALUES (?, 'plan-1', 'active', 'stripe', ?, ?, 5000000,
+				period_end, created_at, updated_at
+			) VALUES (?, 'plan-1', 'active', 'stripe', ?, ?,
 				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
 		)
 		.run(organizationId, PAST_START, FUTURE);
 	sqlite
 		.prepare(
-			`INSERT INTO billing_usage_periods (
-				id, organization_id, plan_version_id, period_start, period_end,
-				included_tokens, used_input_tokens, used_output_tokens,
-				created_at, updated_at
-			) VALUES (?, ?, 'plan-1', ?, ?, 1000000, 300000, 100000,
-				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+			`INSERT INTO billing_credit_usage_totals (
+				organization_id, period_start, period_end, subject_kind, subject_key,
+				ai_credits, included_credits, updated_at
+			) VALUES (?, ?, ?, 'organization', 'organization', 4000, 4000,
+				'2026-01-01T00:00:00.000Z')`,
 		)
-		.run(`period-${organizationId}`, organizationId, PAST_START, FUTURE);
+		.run(organizationId, PAST_START, FUTURE);
 }
 
 /**
@@ -200,6 +202,10 @@ beforeEach(() => {
 			billingUsageCharges,
 			billingUsagePeriods,
 			billingUsageReservations,
+			billingServiceCreditReservations,
+			billingCreditTopUps,
+			billingCreditUsageTotals,
+			billingCreditCaps,
 			opsAlertState,
 			policyPacks,
 		),
@@ -625,79 +631,27 @@ describe("osCompute.posture — budget", () => {
 		seedOrganization(ORG);
 		const result = await client(ORG).posture({ window: "7d" });
 		expect(result.budget.configured).toBe(false);
-		expect(result.budget.unlimitedTokenUsage).toBeNull();
-		expect(result.budget.remainingIncludedTokens).toBeNull();
-		expect(result.budget.usedTokens).toBeNull();
+		expect(result.budget.includedCredits).toBeNull();
+		expect(result.budget.usedCredits).toBeNull();
+		expect(result.budget.availableCredits).toBeNull();
 		expect(result.budget.detail).toContain("not a zero balance");
 	});
 
-	it("copies the canonical balance snapshot instead of recomputing it", async () => {
+	it("copies the canonical credit pool instead of recomputing it", async () => {
 		seedOrganization(ORG);
 		seedPlanAndAccount(ORG);
 		const result = await client(ORG).posture({ window: "7d" });
-		expect(result.budget.configured).toBe(true);
-		expect(result.budget.includedTokens).toBe(1_000_000);
-		expect(result.budget.unlimitedTokenUsage).toBe(false);
-		expect(result.budget.usedTokens).toBe(400_000);
-		expect(result.budget.remainingIncludedTokens).toBe(600_000);
-	});
-});
-
-describe("osCompute current-plan customer allowance", () => {
-	it.each([
-		[-1, 0, 100, true],
-		[0, 1, 0, true],
-		[0, 1, 100, false],
-		[0, 0, 0, false],
-		[1000000, 1, 0, false],
-	])(
-		"included=%s allowed=%s price=%s unlimited=%s",
-		async (included, allowed, price, expected) => {
-			seedOrganization(ORG);
-			seedPlanAndAccount(ORG);
-			sqlite
-				.prepare(
-					"UPDATE billing_plan_versions SET included_monthly_tokens=?,allow_overage=?,overage_unit_price_micros=? WHERE id='plan-1'",
-				)
-				.run(included, allowed, price);
-			const result = await client(ORG).posture({ window: "7d" });
-			expect(result.budget.unlimitedTokenUsage).toBe(expected);
-			expect(result.budget.includedTokens).toBe(included);
-			expect(result.budget.remainingIncludedTokens).toBe(
-				included! < 0 ? -1 : Math.max(included! - 400000, 0),
-			);
-			expect(result.budget).not.toHaveProperty("overageUnitPriceMicros");
-			expect(result.budget).not.toHaveProperty("availableCreditMicros");
-			expect(result.budget).not.toHaveProperty("hardSpendLimitMicros");
-			seedOrganization("other-org");
-			const other = await client("other-org").posture({ window: "7d" });
-			expect(other.budget.unlimitedTokenUsage).toBeNull();
-		},
-	);
-});
-
-it("keeps different configured tenant plan semantics isolated", async () => {
-	seedOrganization(ORG);
-	seedPlanAndAccount(ORG);
-	seedOrganization("finite-org");
-	seedPlanAndAccount("finite-org");
-	sqlite.exec(
-		"INSERT INTO billing_plan_versions (id,plan_key,version,status,name,included_monthly_tokens,max_tedis,max_cron_jobs_per_tedi,max_iterations_per_task,default_daily_token_limit,default_daily_message_limit,effective_at,created_at) VALUES ('finite-plan','growth',2,'active','Finite',1000000,5,3,25,100000,200,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')",
-	);
-	sqlite.exec(
-		"UPDATE billing_accounts SET plan_version_id='finite-plan' WHERE organization_id='finite-org'",
-	);
-	sqlite.exec(
-		"UPDATE billing_plan_versions SET included_monthly_tokens=0,allow_overage=1,overage_unit_price_micros=0 WHERE id='plan-1'",
-	);
-	expect(
-		(await client(ORG).posture({ window: "7d" })).budget.unlimitedTokenUsage,
-	).toBe(true);
-	expect(
-		(await client("finite-org").posture({ window: "7d" })).budget,
-	).toMatchObject({
-		unlimitedTokenUsage: false,
-		includedTokens: 1000000,
-		remainingIncludedTokens: 600000,
+		expect(result.budget).toMatchObject({
+			configured: true,
+			includedCredits: 15_000,
+			usedCredits: 4_000,
+			heldCredits: 0,
+			topUpCredits: 0,
+			availableCredits: 11_000,
+		});
+		expect(result.budget).not.toHaveProperty("payAsYouGo");
+		seedOrganization("other-org");
+		const other = await client("other-org").posture({ window: "7d" });
+		expect(other.budget.configured).toBe(false);
 	});
 });

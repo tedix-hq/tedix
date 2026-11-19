@@ -1,16 +1,11 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
-import {
-	monetaryInferenceConfig,
-	monetaryCreditOverview,
-	estimateMonetaryInference,
-	verifyMonetaryQuoteReceipt,
-	setMonetaryCreditBudget,
-} from "@tedix/db/queries/billing/monetary-inference";
 import { getWorkstationCostCoverage } from "@tedix/db/queries/billing/provider-usage";
 import { listMonetaryInferenceSpending } from "@tedix/db/queries/billing/spending";
 /**
  * Billing Router
- * Stripe Checkout, Customer Portal, and canonical billing overview
+ * Stripe Checkout, Customer Portal, Tedix credits and the billing overview.
+ * Usage is billed and limited in Tedix credits (1 credit = EUR 0.01) from one
+ * monthly pool per organization.
  */
 
 /// <reference path="../../../worker-configuration.d.ts" />
@@ -18,6 +13,11 @@ import { listMonetaryInferenceSpending } from "@tedix/db/queries/billing/spendin
 import { implement } from "@orpc/server";
 import { checkoutBusinessTermsParams } from "../../lib/checkout-business-terms";
 import { billingContract } from "@tedix/api-contract/contracts/billing";
+import type {
+	BillingCredits,
+	CreditRefusalCode,
+} from "@tedix/api-contract/schemas/billing";
+import { TOP_UP_VALID_MONTHS } from "@tedix/api-contract/utils/credit-pricing";
 import { assignInternalPlan } from "@tedix/db/queries/billing/internal-plan";
 import { getOrganizationFeatures } from "@tedix/db/queries/organizations";
 import {
@@ -30,36 +30,18 @@ import {
 } from "@tedix/db/queries/billing/provider-model-rates";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import {
-	getBillingBalanceSnapshot,
-	grantBillingCredit,
-} from "@tedix/db/queries/billing/credits";
-import {
-	countSponsoredCapacityTransfers,
-	getActiveCapacityAllocationTotals,
-	getInferenceCapacityDailyOverview,
-	getInferenceCapacityLedger,
-	recordCapacityAllocation,
-} from "@tedix/db/queries/billing/capacity-allocations";
-import { getEffectiveInferencePolicies } from "@tedix/db/queries/billing/inference-policies";
-import {
-	billingBlockingReason,
-	incrementalOverageChargeMicros,
-	NOMINAL_TURN_TOKENS,
-	usesMonthlyInferenceCapacity,
-} from "@tedix/db/queries/billing/reservations";
-import {
-	getActiveInferenceCapacityPackByKey,
-	listActiveInferenceCapacityPacks,
-} from "@tedix/db/queries/billing/capacity-packs";
-import {
-	getBillingUsagePeriod,
-	recordBillingProviderReconciliation,
-} from "@tedix/db/queries/billing/health";
-import { setBillingOverageSettings } from "@tedix/db/queries/billing/overage";
-import {
-	listProviderCapacitySponsorships,
-	setProviderCapacitySponsorship,
-} from "@tedix/db/queries/provider-installations";
+	type CreditPoolSnapshot,
+	creditRefusalReason,
+	getCreditPoolSnapshot,
+	grantTopUpCredits,
+	listActiveTopUpPacks,
+	listCreditNotices,
+	listCreditSubjectUsage,
+	setAccountCredits,
+	setCreditCaps,
+	setPayAsYouGo,
+} from "@tedix/db/queries/billing/credit-pool";
+import { recordBillingProviderReconciliation } from "@tedix/db/queries/billing/health";
 import {
 	correctBillingAccountPeriod,
 	getActiveBillingPlanByKey,
@@ -67,20 +49,19 @@ import {
 } from "@tedix/db/queries/billing/plans";
 import {
 	getBillingServiceCreditSnapshot,
-	grantBillingServiceCredits,
 	setBillingServiceCreditControls,
 } from "@tedix/db/queries/billing-service-credits";
-import type { BillingBalanceSnapshot } from "@tedix/db/queries/billing/credits";
-import type { BillingPlanVersion } from "@tedix/db/schema/billing";
-import type { BillingOverageSettings } from "@tedix/api-contract/schemas/billing";
+import { getMembersByOrganization } from "@tedix/db/queries/organization-members";
+import { getTedisByOrganization } from "@tedix/db/queries/tedis";
+import { BILLING_PLAN_KEYS } from "@tedix/db/schema/billing";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { buildBillingSettingsUrl } from "../../lib/billing-urls";
 import { resolveBillingSettlementMode } from "../../lib/billing-settlement-mode";
 import { resolveFleetAuthorityDb } from "../../lib/fleet-authority";
 import { getStripe } from "../../lib/stripe";
 import {
-	planSellsStripeOverage,
-	STRIPE_TOKEN_OVERAGE_LOOKUP_KEY,
+	planSellsPayAsYouGo,
+	STRIPE_CREDIT_PAYG_LOOKUP_KEY,
 	stripeCheckoutIdempotencyKey,
 	stripePlanPriceLookupKey,
 } from "../../lib/stripe-billing";
@@ -89,7 +70,6 @@ import {
 	resolveStripeEnvironment,
 } from "../../lib/stripe-environment";
 import { recordVoiceProviderUsage } from "../../lib/voice-provider-usage";
-import { resolveSponsorshipReadiness } from "./billing-sponsorship-readiness";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -101,7 +81,14 @@ import {
 
 const os = implement(billingContract).$context<BaseContext>();
 
-async function inferenceCapacityCheckoutIdempotencyKey(input: {
+/**
+ * Credits a typical AI turn needs. The overview answers "could a turn run
+ * right now?", not whether one exact request fits, so it asks about one
+ * representative call (EUR 0.50 of credits).
+ */
+const NOMINAL_TURN_CREDITS = 50;
+
+async function topUpCheckoutIdempotencyKey(input: {
 	organizationId: string;
 	packVersionId: string;
 	priceId: string;
@@ -125,7 +112,7 @@ async function inferenceCapacityCheckoutIdempotencyKey(input: {
 			].join("\n"),
 		),
 	);
-	return `tedix:inference-capacity-checkout:${Array.from(new Uint8Array(digest))
+	return `tedix:credit-top-up-checkout:${Array.from(new Uint8Array(digest))
 		.map((byte) => byte.toString(16).padStart(2, "0"))
 		.join("")}`;
 }
@@ -157,13 +144,11 @@ async function requireStripePriceByLookupKey(
 }
 
 /**
- * Platform billing authority mints spending power: it grants credit, grants
- * inference capacity, grants service credits, corrects a billing period and
+ * Platform billing authority mints spending power: it grants top-up credits,
+ * sets an organization's included credits, corrects a billing period and
  * records provider reconciliation. `isPlatformPrincipal` answers true for a
  * TEDI token carrying `platform:admin` in `tediScopes`, which made a second
- * door into the one thing VISION.md says stays owner-held — a tedi could not
- * write its own `budgets` field, but it could grant itself the capacity that
- * the enforcing SQL adds to the very same ceiling.
+ * door into the one thing VISION.md says stays owner-held.
  *
  * A tedi is therefore never platform billing authority, whatever its scopes
  * say. Human, operator API key, M2M and service-binding principals are
@@ -173,7 +158,7 @@ export function requirePlatformBillingAuthority(context: BaseContext): string {
 	if (context.authType === "tedi") {
 		throw baseErrorConstructors.FORBIDDEN({
 			message:
-				"Platform billing authority is never held by a tedi principal; capacity and credit stay owner-held",
+				"Platform billing authority is never held by a tedi principal; credits stay owner-held",
 		});
 	}
 	if (!isPlatformPrincipal(context)) {
@@ -207,6 +192,112 @@ function requireOrganizationBillingAuthority(context: BaseContext): string {
 		context.tediId ??
 		"organization-admin"
 	);
+}
+
+/** The credits section the billing pages show, from one pool snapshot. */
+async function readBillingCredits(
+	context: BaseContext,
+	organizationId: string,
+	snapshot: CreditPoolSnapshot,
+): Promise<BillingCredits> {
+	const [notices, tediUsage, memberUsage, tedis, members] = await Promise.all([
+		listCreditNotices(context.db, {
+			organizationId,
+			periodStart: snapshot.periodStart,
+		}),
+		listCreditSubjectUsage(context.db, {
+			organizationId,
+			periodStart: snapshot.periodStart,
+			subjectKind: "tedi",
+		}),
+		listCreditSubjectUsage(context.db, {
+			organizationId,
+			periodStart: snapshot.periodStart,
+			subjectKind: "member",
+		}),
+		getTedisByOrganization(context.db, organizationId),
+		getMembersByOrganization(context.db, organizationId, { status: "active" }),
+	]);
+	const tediRows = new Map(tediUsage.map((row) => [row.subjectKey, row]));
+	const memberRows = new Map(memberUsage.map((row) => [row.subjectKey, row]));
+	// Members are keyed by their sign-in subject, the identity every caller
+	// carries when it starts a code run or a service operation.
+	const memberNames = new Map(
+		members.map((member) => [
+			member.descopeUserId,
+			member.name?.trim() || member.email,
+		]),
+	);
+	return {
+		periodStart: snapshot.periodStart,
+		periodEnd: snapshot.periodEnd,
+		includedCredits: snapshot.includedCredits,
+		usedCredits: snapshot.usedCredits,
+		remainingIncludedCredits: snapshot.remainingIncludedCredits,
+		topUpCredits: snapshot.topUpCredits,
+		breakdown: snapshot.breakdown,
+		notices,
+		payAsYouGo: {
+			enabled: snapshot.payAsYouGo.enabled,
+			monthlyCapMicros: snapshot.payAsYouGo.monthlyCapMicros,
+			spentMicros: snapshot.payAsYouGo.spentMicros,
+		},
+		tedis: [
+			...tedis.map((tedi) => ({
+				tediId: tedi.id,
+				name: tedi.name,
+				usedCredits: tediRows.get(tedi.id)?.usedCredits ?? 0,
+				monthlyCapCredits: tediRows.get(tedi.id)?.monthlyCapCredits ?? null,
+			})),
+			// Usage of a tedi retired since stays visible under its id.
+			...tediUsage
+				.filter((row) => !tedis.some((tedi) => tedi.id === row.subjectKey))
+				.map((row) => ({
+					tediId: row.subjectKey,
+					name: row.subjectKey,
+					usedCredits: row.usedCredits,
+					monthlyCapCredits: row.monthlyCapCredits,
+				})),
+		],
+		members: [
+			...memberNames.keys(),
+			...memberUsage
+				.map((row) => row.subjectKey)
+				.filter((key) => !memberNames.has(key)),
+		].map((userId) => ({
+			userId,
+			name: memberNames.get(userId) ?? userId,
+			usedCredits: memberRows.get(userId)?.usedCredits ?? 0,
+			monthlyCapCredits: memberRows.get(userId)?.monthlyCapCredits ?? null,
+		})),
+	};
+}
+
+async function requireCreditPool(
+	context: BaseContext,
+	organizationId: string,
+	now: string,
+): Promise<CreditPoolSnapshot> {
+	const snapshot = await getCreditPoolSnapshot(context.db, {
+		organizationId,
+		now,
+	});
+	if (!snapshot) {
+		throw baseErrorConstructors.NOT_FOUND({
+			message: "Billing account is not configured",
+		});
+	}
+	return snapshot;
+}
+
+function unblockAction(
+	reason: CreditRefusalCode | null,
+	snapshot: CreditPoolSnapshot,
+): "none" | "top_up" | "upgrade" | "manage_payment" {
+	if (reason === "monthly_credit_limit_reached")
+		return snapshot.planKey === "starter" ? "upgrade" : "top_up";
+	if (reason === "subscription_inactive") return "manage_payment";
+	return "none";
 }
 
 // =============================================================================
@@ -274,7 +365,8 @@ const createCheckoutContract = os.createCheckout
 			customerParams.customer = entitlement.account.stripeCustomerId;
 		}
 
-		// Build line items: base subscription + metered overage (if tier sells it)
+		// Base subscription, plus the metered pay-as-you-go credit price on a
+		// plan that offers it. Nothing is metered until an admin opts in.
 		const priceId = await requireStripePriceByLookupKey(
 			stripe,
 			stripePlanPriceLookupKey(plan.planKey, input.interval),
@@ -282,14 +374,14 @@ const createCheckoutContract = os.createCheckout
 		const lineItems: Array<{ price: string; quantity?: number }> = [
 			{ price: priceId, quantity: 1 },
 		];
-		const overagePriceId = planSellsStripeOverage(plan)
+		const payAsYouGoPriceId = planSellsPayAsYouGo(plan)
 			? await requireStripePriceByLookupKey(
 					stripe,
-					STRIPE_TOKEN_OVERAGE_LOOKUP_KEY,
+					STRIPE_CREDIT_PAYG_LOOKUP_KEY,
 				)
 			: null;
-		if (overagePriceId) {
-			lineItems.push({ price: overagePriceId });
+		if (payAsYouGoPriceId) {
+			lineItems.push({ price: payAsYouGoPriceId });
 		}
 
 		const checkoutNowMs = Date.now();
@@ -300,7 +392,7 @@ const createCheckoutContract = os.createCheckout
 			organizationId,
 			planVersionId: plan.id,
 			priceId,
-			overagePriceId,
+			payAsYouGoPriceId,
 			interval: input.interval,
 			successUrl,
 			cancelUrl,
@@ -349,142 +441,106 @@ const createCheckoutContract = os.createCheckout
 		};
 	});
 
-const createInferenceCapacityCheckoutContract =
-	os.createInferenceCapacityCheckout
-		.use(withAuth)
-		.use(withFleetAuthority)
-		.use(withAuthorization("billing:manage", "billing:write"))
-		.handler(async ({ context, input }) => {
-			requireManagedSettlement(context);
-			requireOrganizationBillingAuthority(context);
-			const { env, organizationId } = context;
-			if (!organizationId) {
-				throw baseErrorConstructors.FORBIDDEN({
-					message: "No organization",
-				});
-			}
-			const stripeEnvironment = resolveStripeEnvironment(env);
-			const now = new Date();
-			const pack = await getActiveInferenceCapacityPackByKey(context.db, {
-				packKey: input.packKey,
+const createTopUpCheckoutContract = os.createTopUpCheckout
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(withAuthorization("billing:manage", "billing:write"))
+	.handler(async ({ context, input }) => {
+		requireManagedSettlement(context);
+		requireOrganizationBillingAuthority(context);
+		const { env, organizationId } = context;
+		if (!organizationId) {
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
+		}
+		const stripeEnvironment = resolveStripeEnvironment(env);
+		const now = new Date();
+		const pack = (
+			await listActiveTopUpPacks(context.db, {
 				stripeEnvironment,
 				now: now.toISOString(),
+			})
+		).find((candidate) => candidate.packKey === input.packKey);
+		if (!pack) {
+			throw baseErrorConstructors.NOT_FOUND({
+				message: "Credit top-up pack is not available",
 			});
-			if (!pack) {
-				throw baseErrorConstructors.NOT_FOUND({
-					message: "Inference capacity pack is not available",
-				});
-			}
-			const entitlement = await getBillingEntitlement(
-				context.db,
-				organizationId,
-			);
-			if (
-				!entitlement ||
-				!["trial", "active"].includes(entitlement.account.status)
-			) {
-				throw baseErrorConstructors.FORBIDDEN({
-					message:
-						"An active billing entitlement is required for a capacity top-up",
-				});
-			}
-			const balance = await getBillingBalanceSnapshot(
-				context.db,
-				organizationId,
-				now.toISOString(),
-			);
-			if (
-				usesMonthlyInferenceCapacity({
-					status: entitlement.account.status,
-					allowOverage: balance?.allowOverage ?? false,
-					billingMode: entitlement.account.billingMode,
-					isSponsoredCustomer: balance?.isSponsoredCustomer ?? false,
-					stripeCustomerId:
-						entitlement.account.stripeEnvironment === stripeEnvironment
-							? entitlement.account.stripeCustomerId
-							: null,
-				})
-			) {
-				throw baseErrorConstructors.BAD_REQUEST({
-					message:
-						"This account uses monthly metering; a daily capacity pack is unnecessary",
-				});
-			}
-			const stripeConfig = getStripeEnvironmentConfig(env, stripeEnvironment);
-			const stripe = await getStripe(stripeConfig.secretKey);
-			if (!pack.stripeLookupKey) {
-				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
-					message: `Inference capacity pack ${pack.packKey} has no Stripe lookup key`,
-				});
-			}
-			const priceId = await requireStripePriceByLookupKey(
-				stripe,
-				pack.stripeLookupKey,
-			);
-			const successUrl =
-				input.successUrl ??
-				buildBillingSettingsUrl({ osUrl: env.OS_URL, state: "topup-success" });
-			const cancelUrl =
-				input.cancelUrl ??
-				buildBillingSettingsUrl({
-					osUrl: env.OS_URL,
-					state: "topup-cancelled",
-				});
-			const nowMs = now.getTime();
-			const bucket = Math.floor(nowMs / (30 * 60 * 1_000));
-			const customerParams: Record<string, unknown> = {};
-			if (
-				entitlement.account.stripeEnvironment === stripeEnvironment &&
-				entitlement.account.stripeCustomerId
-			) {
-				customerParams.customer = entitlement.account.stripeCustomerId;
-			} else {
-				customerParams.customer_creation = "always";
-			}
-			const idempotencyKey = await inferenceCapacityCheckoutIdempotencyKey({
-				organizationId,
-				packVersionId: pack.id,
-				priceId,
-				stripeEnvironment,
-				successUrl,
-				cancelUrl,
-				nowMs,
+		}
+		const entitlement = await getBillingEntitlement(context.db, organizationId);
+		if (
+			!entitlement ||
+			!["trial", "active"].includes(entitlement.account.status)
+		) {
+			throw baseErrorConstructors.FORBIDDEN({
+				message: "An active billing account is required to buy credits",
 			});
-			const capacityMetadata = {
-				checkoutKind: "inference_capacity",
-				organizationId,
-				packVersionId: pack.id,
-				stripeEnvironment,
-			};
-			const session = await stripe.checkout.sessions.create(
-				{
-					mode: "payment",
-					allowed_payment_method_types: ["card"],
-					...customerParams,
-					...checkoutBusinessTermsParams({
-						hasExistingCustomer: "customer" in customerParams,
-					}),
-					client_reference_id: organizationId,
-					line_items: [{ price: priceId, quantity: 1 }],
-					success_url: successUrl,
-					cancel_url: cancelUrl,
-					expires_at: (bucket + 2) * 30 * 60,
-					metadata: capacityMetadata,
-					payment_intent_data: { metadata: capacityMetadata },
-				},
-				{ idempotencyKey },
-			);
-			if (!session.url) {
-				throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
-					message: "Failed to create inference capacity checkout session",
-				});
-			}
-			return {
-				checkoutUrl: session.url,
-				sessionId: session.id,
-				stripeEnvironment,
-			};
+		}
+		const stripeConfig = getStripeEnvironmentConfig(env, stripeEnvironment);
+		const stripe = await getStripe(stripeConfig.secretKey);
+		const priceId = await requireStripePriceByLookupKey(
+			stripe,
+			pack.stripeLookupKey,
+		);
+		const successUrl =
+			input.successUrl ??
+			buildBillingSettingsUrl({ osUrl: env.OS_URL, state: "topup-success" });
+		const cancelUrl =
+			input.cancelUrl ??
+			buildBillingSettingsUrl({ osUrl: env.OS_URL, state: "topup-cancelled" });
+		const nowMs = now.getTime();
+		const bucket = Math.floor(nowMs / (30 * 60 * 1_000));
+		const customerParams: Record<string, unknown> = {};
+		if (
+			entitlement.account.stripeEnvironment === stripeEnvironment &&
+			entitlement.account.stripeCustomerId
+		) {
+			customerParams.customer = entitlement.account.stripeCustomerId;
+		} else {
+			customerParams.customer_creation = "always";
+		}
+		const idempotencyKey = await topUpCheckoutIdempotencyKey({
+			organizationId,
+			packVersionId: pack.id,
+			priceId,
+			stripeEnvironment,
+			successUrl,
+			cancelUrl,
+			nowMs,
 		});
+		const topUpMetadata = {
+			checkoutKind: "credit_top_up",
+			organizationId,
+			packVersionId: pack.id,
+			stripeEnvironment,
+		};
+		const session = await stripe.checkout.sessions.create(
+			{
+				mode: "payment",
+				allowed_payment_method_types: ["card"],
+				...customerParams,
+				...checkoutBusinessTermsParams({
+					hasExistingCustomer: "customer" in customerParams,
+				}),
+				client_reference_id: organizationId,
+				line_items: [{ price: priceId, quantity: 1 }],
+				success_url: successUrl,
+				cancel_url: cancelUrl,
+				expires_at: (bucket + 2) * 30 * 60,
+				metadata: topUpMetadata,
+				payment_intent_data: { metadata: topUpMetadata },
+			},
+			{ idempotencyKey },
+		);
+		if (!session.url) {
+			throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
+				message: "Failed to create credit top-up checkout session",
+			});
+		}
+		return {
+			checkoutUrl: session.url,
+			sessionId: session.id,
+			stripeEnvironment,
+		};
+	});
 
 // =============================================================================
 // CREATE CUSTOMER PORTAL SESSION
@@ -526,201 +582,9 @@ const createPortalContract = os.createPortal
 		return { portalUrl: portalSession.url, stripeEnvironment };
 	});
 
-const listProviderCapacitySponsorshipsContract =
-	os.listProviderCapacitySponsorships
-		.use(withAuth)
-		.use(withFleetAuthority)
-		.use(withAuthorization("billing:read", "billing:read"))
-		.handler(async ({ context }) => {
-			if (!context.organizationId) {
-				throw baseErrorConstructors.FORBIDDEN({
-					message: "No organization",
-				});
-			}
-			const now = new Date().toISOString();
-			const sponsorships = await listProviderCapacitySponsorships(
-				context.db,
-				context.organizationId,
-			);
-			const stripeEnvironment = resolveStripeEnvironment(context.env);
-			const [provider, providerPolicies] = await Promise.all([
-				getInferenceCapacityDailyOverview(context.db, {
-					organizationId: context.organizationId,
-					stripeEnvironment,
-					now,
-				}),
-				getEffectiveInferencePolicies(context.db, context.organizationId),
-			]);
-			return {
-				data: await Promise.all(
-					sponsorships.map(async (sponsorship) => {
-						const customer = await getInferenceCapacityDailyOverview(
-							context.db,
-							{
-								organizationId: sponsorship.customerOrganizationId,
-								stripeEnvironment,
-								now,
-							},
-						);
-						const transfersUsed = sponsorship.policy
-							? await countSponsoredCapacityTransfers(context.db, {
-									customerOrganizationId: sponsorship.customerOrganizationId,
-									providerInstallationId: sponsorship.installationId,
-									budgetRevision: sponsorship.policy.budgetRevision,
-									budgetDay: customer.budgetDay,
-									stripeEnvironment,
-								})
-							: 0;
-						return {
-							...sponsorship,
-							readiness: resolveSponsorshipReadiness({
-								policy: sponsorship.policy,
-								provider,
-								customer,
-								providerPolicyAvailable: providerPolicies !== null,
-								providerDailyTokenLimit:
-									providerPolicies?.organization.dailyTokenLimit ?? null,
-								providerDailySpendLimitMicros:
-									providerPolicies?.organization.dailySpendLimitMicros ?? null,
-								transfersUsed,
-							}),
-						};
-					}),
-				),
-			};
-		});
-
-const setProviderCapacitySponsorshipContract = os.setProviderCapacitySponsorship
-	.use(withAuth)
-	.use(withFleetAuthority)
-	.use(withAuthorization("billing:manage", "billing:write"))
-	.handler(async ({ context, input }) => {
-		if (!context.organizationId) {
-			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
-		}
-		requireOrganizationBillingAuthority(context);
-		const sponsorship = await setProviderCapacitySponsorship(context.db, {
-			providerOrganizationId: context.organizationId,
-			installationId: input.installationId,
-			policy: input.policy,
-		});
-		if (!sponsorship) {
-			throw baseErrorConstructors.NOT_FOUND({
-				message: "Provider installation not found",
-			});
-		}
-		return sponsorship;
-	});
-
-/**
- * The admin-facing overage state. `capReached` mirrors the admission gate's
- * `hard_spend_limit` rule: settled plus held charge has consumed the cap.
- */
-function billingOverageSettings(
-	snapshot: BillingBalanceSnapshot,
-	plan: Pick<
-		BillingPlanVersion,
-		"currency" | "allowOverage" | "overageUnitPriceMicros"
-	>,
-): BillingOverageSettings {
-	const planSellsOverage = planSellsStripeOverage(plan);
-	const monthlyCapMicros = snapshot.hardSpendLimitMicros;
-	return {
-		enabled: snapshot.overageEnabled,
-		monthlyCapMicros,
-		currency: plan.currency,
-		planSellsOverage,
-		monthToDateChargeMicros: snapshot.customerChargeMicros,
-		reservedChargeMicros: snapshot.reservedChargeMicros,
-		capReached:
-			planSellsOverage &&
-			snapshot.overageEnabled &&
-			monthlyCapMicros !== null &&
-			snapshot.customerChargeMicros + snapshot.reservedChargeMicros >=
-				monthlyCapMicros,
-	};
-}
-
-async function readBillingOverageSettings(
-	context: BaseContext,
-	organizationId: string,
-): Promise<BillingOverageSettings> {
-	const now = new Date().toISOString();
-	const [entitlement, snapshot] = await Promise.all([
-		getBillingEntitlement(context.db, organizationId),
-		getBillingBalanceSnapshot(context.db, organizationId, now),
-	]);
-	if (!entitlement || !snapshot) {
-		throw baseErrorConstructors.NOT_FOUND({
-			message: "Billing account is not configured",
-		});
-	}
-	return billingOverageSettings(snapshot, entitlement.plan);
-}
-
-const getOverageSettingsContract = os.getOverageSettings
-	.use(withAuth)
-	.use(withAuthorization("billing:read", "billing:read"))
-	.handler(async ({ context }) => {
-		const { organizationId } = context;
-		if (!organizationId) {
-			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
-		}
-		return readBillingOverageSettings(context, organizationId);
-	});
-
-const setOverageSettingsContract = os.setOverageSettings
-	.use(withAuth)
-	.use(withAuthorization("billing:manage", "billing:write"))
-	.handler(async ({ context, input }) => {
-		const { organizationId } = context;
-		if (!organizationId) {
-			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
-		}
-		requireOrganizationBillingAuthority(context);
-		const updated = await setBillingOverageSettings(context.db, {
-			organizationId,
-			enabled: input.enabled,
-			monthlyCapMicros: input.monthlyCapMicros,
-			now: new Date().toISOString(),
-		});
-		if (!updated) {
-			throw baseErrorConstructors.NOT_FOUND({
-				message: "Billing account is not configured",
-			});
-		}
-		return readBillingOverageSettings(context, organizationId);
-	});
-
-const setCreditBudgetContract = os.setCreditBudget
-	.use(withAuth)
-	.use(withFleetAuthority)
-	.use(withAuthorization("billing:manage", "billing:write"))
-	.handler(async ({ context, input }) => {
-		requireOrganizationBillingAuthority(context);
-		const organizationId = context.organizationId;
-		if (!organizationId)
-			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
-		const now = new Date().toISOString();
-		const updated = await setMonetaryCreditBudget(context.db, {
-			organizationId,
-			monthlyCapMicros: input.monthlyCapMicros,
-			now,
-		});
-		if (!updated.length)
-			throw baseErrorConstructors.BAD_REQUEST({
-				message: "Credit budgets require an active monetary credit plan",
-			});
-		const [entitlement, snapshot] = await Promise.all([
-			getBillingEntitlement(context.db, organizationId),
-			getBillingBalanceSnapshot(context.db, organizationId, now),
-		]);
-		if (!entitlement || !snapshot)
-			throw baseErrorConstructors.NOT_FOUND({
-				message: "Billing account is not configured",
-			});
-		return monetaryCreditOverview(entitlement.plan, snapshot, null)!;
-	});
+// =============================================================================
+// CREDITS
+// =============================================================================
 
 const getOverviewContract = os.getOverview
 	.use(withAuth)
@@ -733,260 +597,42 @@ const getOverviewContract = os.getOverview
 			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
 		}
 		const now = new Date().toISOString();
-		const stripeEnvironment = resolveStripeEnvironment(env);
-		const [entitlement, snapshot, seoCredits, policy, capacity, packs] =
-			await Promise.all([
-				getBillingEntitlement(context.db, organizationId),
-				getBillingBalanceSnapshot(context.db, organizationId, now),
-				getBillingServiceCreditSnapshot(context.db, organizationId, "seo", now),
-				getEffectiveInferencePolicies(context.db, organizationId),
-				getInferenceCapacityDailyOverview(context.db, {
-					organizationId,
-					stripeEnvironment,
-					now,
-				}),
-				listActiveInferenceCapacityPacks(context.db, {
-					stripeEnvironment,
-					now,
-				}),
-			]);
-		if (!entitlement || !snapshot || !policy) {
-			throw baseErrorConstructors.NOT_FOUND({
-				message: "Billing account is not configured",
-			});
-		}
-		const workstationCostCoverage = await getWorkstationCostCoverage(
-			context.db,
-			{
+		const snapshot = await requireCreditPool(context, organizationId, now);
+		const [credits, workstationCostCoverage] = await Promise.all([
+			readBillingCredits(context, organizationId, snapshot),
+			getWorkstationCostCoverage(context.db, {
 				organizationId,
 				periodStart: snapshot.periodStart,
 				periodEnd: snapshot.periodEnd,
-			},
-		);
-		const period = await getBillingUsagePeriod(
-			context.db,
-			organizationId,
-			snapshot.periodStart,
-		);
-		const baseDailyTokenLimit = Math.max(
-			0,
-			policy.organization.dailyTokenLimit ??
-				entitlement.plan.defaultDailyTokenLimit,
-		);
-		const baseDailySpendLimitMicros =
-			policy.organization.dailySpendLimitMicros === undefined
-				? null
-				: Math.max(0, policy.organization.dailySpendLimitMicros);
-		const capacityLedger = await getInferenceCapacityLedger(context.db, {
-			organizationId,
-			stripeEnvironment,
-			now,
-			baseDailyTokenLimit,
-			baseDailySpendLimitMicros,
-		});
-		const effectiveTokens = baseDailyTokenLimit + capacity.allocatedTokens;
-		const effectiveSpend =
-			baseDailySpendLimitMicros === null
-				? null
-				: baseDailySpendLimitMicros + capacity.allocatedSpendMicros;
-		const credits = monetaryCreditOverview(entitlement.plan, snapshot, period);
-		const monthlyMetered =
-			!!credits ||
-			usesMonthlyInferenceCapacity({
-				status: snapshot.status,
-				allowOverage: snapshot.allowOverage,
-				billingMode: snapshot.billingMode,
-				isSponsoredCustomer: snapshot.isSponsoredCustomer,
-				stripeCustomerId:
-					entitlement.account.stripeEnvironment === stripeEnvironment
-						? snapshot.stripeCustomerId
-						: null,
-			});
-		// Same rule as the admission gate: a second copy of the rules drifted and
-		// reported `available: true` for an organization the gate denied.
-		let blockingReason:
-			| ReturnType<typeof billingBlockingReason>
-			| "pricing_unavailable"
-			| "credit_allowance_exhausted" = billingBlockingReason({
-			status: snapshot.status,
-			now,
-			periodStart: snapshot.periodStart,
-			periodEnd: snapshot.periodEnd,
-			allowOverage: snapshot.allowOverage,
-			remainingIncludedTokens: snapshot.remainingIncludedTokens,
-			billingMode: snapshot.billingMode,
-			isSponsoredCustomer: snapshot.isSponsoredCustomer,
-			stripeCustomerId:
-				entitlement.account.stripeEnvironment === stripeEnvironment
-					? snapshot.stripeCustomerId
-					: null,
-			availableCreditMicros: snapshot.availableCreditMicros,
-			hardSpendLimitMicros: snapshot.hardSpendLimitMicros,
-			customerChargeMicros: snapshot.customerChargeMicros,
-			reservedChargeMicros: snapshot.reservedChargeMicros,
-			estimatedChargeMicros: incrementalOverageChargeMicros({
-				includedTokens: snapshot.includedTokens,
-				usedTokens: snapshot.usedTokens,
-				reservedTokens: snapshot.reservedTokens,
-				estimatedTokens: NOMINAL_TURN_TOKENS,
-				overageUnitTokens: entitlement.plan.overageUnitTokens,
-				overageUnitPriceMicros: entitlement.plan.overageUnitPriceMicros,
 			}),
-			effectiveDailyTokens: effectiveTokens,
-			effectiveDailySpendMicros: effectiveSpend,
-			usedDailyTokens: capacity.usedTokens,
-			usedDailySpendMicros: capacity.usedSpendMicros,
-			// The console answers "could a turn run right now?", not "may this
-			// exact request proceed", so it asks about a representative turn.
-			estimatedTokens: NOMINAL_TURN_TOKENS,
+		]);
+		// Same rule as the admission gate, asked about one typical turn.
+		const blockingReason = creditRefusalReason(snapshot, {
+			now,
+			credits: NOMINAL_TURN_CREDITS,
 		});
-		if (credits) {
-			try {
-				const config = monetaryInferenceConfig(entitlement.plan)!;
-				const rate = config.rates[0]!;
-				const quote = estimateMonetaryInference(config, {
-					provider: rate.provider,
-					model: rate.model,
-					estimatedInputTokens: Math.max(rate.inputTokenMin, 10000),
-					estimatedOutputTokens: 4096,
-					now,
-				});
-				await verifyMonetaryQuoteReceipt(context.db, quote);
-				blockingReason = billingBlockingReason({
-					status: snapshot.status,
-					now,
-					periodStart: snapshot.periodStart,
-					periodEnd: snapshot.periodEnd,
-					allowOverage: true,
-					remainingIncludedTokens: 0,
-					billingMode: "internal",
-					stripeCustomerId: null,
-					availableCreditMicros: snapshot.availableCreditMicros,
-					hardSpendLimitMicros: snapshot.hardSpendLimitMicros,
-					customerChargeMicros: credits.spentMicros,
-					reservedChargeMicros: snapshot.reservedChargeMicros,
-					estimatedChargeMicros: quote.customerChargeMicros,
-					effectiveDailyTokens: Number.MAX_SAFE_INTEGER,
-					effectiveDailySpendMicros: effectiveSpend,
-					usedDailyTokens: 0,
-					usedDailySpendMicros: capacity.usedSpendMicros,
-					estimatedTokens: 0,
-				});
-				if (
-					!blockingReason &&
-					snapshot.availableCreditMicros < quote.customerChargeMicros
-				)
-					blockingReason = "credit_allowance_exhausted";
-				if (
-					!blockingReason &&
-					effectiveSpend !== null &&
-					capacity.usedSpendMicros +
-						snapshot.reservedChargeMicros +
-						quote.customerChargeMicros >
-						effectiveSpend
-				)
-					blockingReason = "inference_capacity_exhausted";
-			} catch {
-				blockingReason = "pricing_unavailable";
-			}
-		}
-		const unblockAction =
-			blockingReason === "inference_capacity_exhausted" && packs.length > 0
-				? ("top_up" as const)
-				: blockingReason === "monthly_allowance_exhausted"
-					? ("upgrade" as const)
-					: blockingReason === "subscription_inactive" ||
-						  blockingReason === "payment_required"
-						? ("manage_payment" as const)
-						: ("none" as const);
-		const nextMidnight = new Date(`${capacity.budgetDay}T00:00:00.000Z`);
-		nextMidnight.setUTCDate(nextMidnight.getUTCDate() + 1);
 		return {
-			stripeEnvironment,
-			workstationCostCoverage,
-			credits,
-			overage: billingOverageSettings(snapshot, entitlement.plan),
-			snapshot: {
+			stripeEnvironment: resolveStripeEnvironment(env),
+			account: {
 				status: snapshot.status,
 				billingMode: snapshot.billingMode,
-				planKey: snapshot.planKey,
-				planVersion: snapshot.planVersion,
 				periodStart: snapshot.periodStart,
 				periodEnd: snapshot.periodEnd,
-				includedTokens: snapshot.includedTokens,
-				usedTokens: snapshot.usedTokens,
-				reservedTokens: snapshot.reservedTokens,
-				remainingIncludedTokens: snapshot.remainingIncludedTokens,
-				creditBalanceMicros: snapshot.creditBalanceMicros,
-				reservedChargeMicros: snapshot.reservedChargeMicros,
-				availableCreditMicros: snapshot.availableCreditMicros,
-				customerChargeMicros: snapshot.customerChargeMicros,
-				hardSpendLimitMicros: snapshot.hardSpendLimitMicros,
-				allowOverage: snapshot.allowOverage,
-				stripeCustomerId:
-					entitlement.account.stripeEnvironment === stripeEnvironment
-						? snapshot.stripeCustomerId
-						: null,
 			},
 			plan: {
-				name: entitlement.plan.name,
-				currency: entitlement.plan.currency,
-				monthlyPriceMicros: entitlement.plan.monthlyPriceMicros,
-				annualPriceMicros: entitlement.plan.annualPriceMicros,
-				includedMonthlyCreditMicros:
-					entitlement.plan.includedMonthlyCreditMicros,
-				overageUnitTokens: entitlement.plan.overageUnitTokens,
-				overageUnitPriceMicros: entitlement.plan.overageUnitPriceMicros,
-				maxTedis: entitlement.plan.maxTedis,
-				maxCronJobsPerTedi: entitlement.plan.maxCronJobsPerTedi,
-				maxIterationsPerTask: entitlement.plan.maxIterationsPerTask,
-				defaultDailyTokenLimit: entitlement.plan.defaultDailyTokenLimit,
-				defaultDailyMessageLimit: entitlement.plan.defaultDailyMessageLimit,
+				key: snapshot.planKey,
+				name: snapshot.planName,
+				priceMicros: snapshot.planPriceMicros,
+				currency: "eur" as const,
+				includedCredits: snapshot.includedCredits,
 			},
-			period: period
-				? {
-						usedInputTokens: period.usedInputTokens,
-						usedOutputTokens: period.usedOutputTokens,
-						meteredOverageTokens: period.meteredOverageTokens,
-						providerCostMicros: period.providerCostMicros,
-						customerChargeMicros: period.customerChargeMicros,
-						creditAppliedMicros: period.creditAppliedMicros,
-					}
-				: null,
-			inferenceCapacity: {
+			credits,
+			admission: {
 				available: blockingReason === null,
-				monthlyMetered,
 				blockingReason,
-				unblockAction,
-				budgetDay: capacity.budgetDay,
-				baseDailyTokenLimit,
-				baseDailySpendLimitMicros,
-				allocatedTokens: capacity.allocatedTokens,
-				allocatedSpendCapacityMicros: capacity.allocatedSpendMicros,
-				sponsoredTokens: capacity.sponsoredTokens,
-				sponsoredSpendCapacityMicros: capacity.sponsoredSpendMicros,
-				usedTokens: capacity.usedTokens,
-				usedSpendMicros: capacity.usedSpendMicros,
-				remainingTokens: Math.max(0, effectiveTokens - capacity.usedTokens),
-				remainingSpendMicros:
-					effectiveSpend === null
-						? null
-						: Math.max(0, effectiveSpend - capacity.usedSpendMicros),
-				expiresAt: capacity.earliestExpiryAt ?? nextMidnight.toISOString(),
-				allocations: capacityLedger.allocations,
-				tediOverflow: capacityLedger.tediOverflow,
-				packs: (monthlyMetered ? [] : packs).map((pack) => ({
-					packKey: pack.packKey,
-					name: pack.name,
-					tokens: pack.tokenAmount,
-					spendCapacityMicros: pack.spendAmountMicros,
-					priceMicros: pack.priceMicros,
-					currency: pack.currency,
-				})),
+				unblockAction: unblockAction(blockingReason, snapshot),
 			},
-			serviceCredits: {
-				seo: seoCredits,
-			},
+			workstationCostCoverage,
 		};
 	});
 
@@ -1004,35 +650,196 @@ const listPlansContract = os.listPlans
 	)
 	.handler(async ({ context }) => {
 		requireManagedSettlement(context);
-		const stripeEnvironment = resolveStripeEnvironment(context.env);
 		const now = new Date().toISOString();
 		const plans = await Promise.all(
-			(["growth", "business", "enterprise"] as const).map((planKey) =>
+			BILLING_PLAN_KEYS.map((planKey) =>
 				getActiveBillingPlanByKey(context.db, planKey, now),
 			),
 		);
-		return {
-			stripeEnvironment,
-			plans: plans.flatMap((plan) =>
-				plan
-					? [
-							{
-								planKey: plan.planKey as "growth" | "business" | "enterprise",
-								version: plan.version,
-								name: plan.name,
-								currency: plan.currency,
-								monthlyPriceMicros: plan.monthlyPriceMicros,
-								annualPriceMicros: plan.annualPriceMicros,
-								includedMonthlyTokens: plan.includedMonthlyTokens,
-								overageUnitTokens: plan.overageUnitTokens,
-								overageUnitPriceMicros: plan.overageUnitPriceMicros,
-								maxTedis: plan.maxTedis,
-								maxCronJobsPerTedi: plan.maxCronJobsPerTedi,
-								maxIterationsPerTask: plan.maxIterationsPerTask,
-							},
-						]
-					: [],
+		return plans.flatMap((plan) =>
+			plan
+				? [
+						{
+							key: plan.planKey,
+							name: plan.name,
+							priceMicros: plan.monthlyPriceMicros,
+							currency: "eur" as const,
+							includedCredits: plan.includedMonthlyCredits,
+						},
+					]
+				: [],
+		);
+	});
+
+const listTopUpPacksContract = os.listTopUpPacks
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"The top-up catalog is readable by every organization member",
+			},
+			"billing:read",
+		),
+	)
+	.handler(async ({ context }) => {
+		requireManagedSettlement(context);
+		const packs = await listActiveTopUpPacks(context.db, {
+			stripeEnvironment: resolveStripeEnvironment(context.env),
+			now: new Date().toISOString(),
+		});
+		return packs.map((pack) => ({
+			packKey: pack.packKey,
+			credits: pack.credits,
+			priceMicros: pack.priceMicros,
+			currency: "eur" as const,
+			validMonths: TOP_UP_VALID_MONTHS as 12,
+		}));
+	});
+
+const setCreditCapsContract = os.setCreditCaps
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(withAuthorization("billing:manage", "billing:write"))
+	.handler(async ({ context, input }) => {
+		const { organizationId } = context;
+		if (!organizationId) {
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
+		}
+		const actor = requireOrganizationBillingAuthority(context);
+		const tedis = new Set(
+			(await getTedisByOrganization(context.db, organizationId)).map(
+				(tedi) => tedi.id,
 			),
+		);
+		const unknownTedi = (input.tediCaps ?? []).find(
+			(cap) => !tedis.has(cap.tediId),
+		);
+		if (unknownTedi) {
+			throw baseErrorConstructors.NOT_FOUND({
+				message: `Tedi ${unknownTedi.tediId} is not part of this organization`,
+			});
+		}
+		const now = new Date().toISOString();
+		await setCreditCaps(context.db, {
+			organizationId,
+			caps: [
+				...(input.tediCaps ?? []).map((cap) => ({
+					subjectKind: "tedi" as const,
+					subjectKey: cap.tediId,
+					monthlyCapCredits: cap.monthlyCapCredits,
+				})),
+				...(input.memberCaps ?? []).map((cap) => ({
+					subjectKind: "member" as const,
+					subjectKey: cap.userId,
+					monthlyCapCredits: cap.monthlyCapCredits,
+				})),
+			],
+			updatedBy: actor,
+			now,
+		});
+		return readBillingCredits(
+			context,
+			organizationId,
+			await requireCreditPool(context, organizationId, now),
+		);
+	});
+
+const setPayAsYouGoContract = os.setPayAsYouGo
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(withAuthorization("billing:manage", "billing:write"))
+	.handler(async ({ context, input }) => {
+		const { organizationId } = context;
+		if (!organizationId) {
+			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
+		}
+		requireOrganizationBillingAuthority(context);
+		const now = new Date().toISOString();
+		const before = await requireCreditPool(context, organizationId, now);
+		if (input.enabled && !before.payAsYouGo.allowed) {
+			throw baseErrorConstructors.BAD_REQUEST({
+				message: `The ${before.planName} plan does not offer pay-as-you-go`,
+			});
+		}
+		await setPayAsYouGo(context.db, {
+			organizationId,
+			enabled: input.enabled,
+			monthlyCapMicros: input.monthlyCapMicros,
+			now,
+		});
+		return readBillingCredits(
+			context,
+			organizationId,
+			await requireCreditPool(context, organizationId, now),
+		);
+	});
+
+const setAccountCreditsContract = os.setAccountCredits
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
+	.handler(async ({ context, input }) => {
+		const actor = requirePlatformBillingAuthority(context);
+		const now = new Date().toISOString();
+		let result: Awaited<ReturnType<typeof setAccountCredits>>;
+		try {
+			result = await setAccountCredits(context.db, {
+				organizationId: input.organizationId,
+				includedCreditsOverride: input.includedCreditsOverride,
+				reason: input.reason,
+				actor: { id: actor, type: context.authType ?? "user" },
+				now,
+			});
+		} catch (error) {
+			throw baseErrorConstructors.CONFLICT({
+				message:
+					error instanceof Error ? error.message : "Credit override failed",
+			});
+		}
+		if (!result) {
+			throw baseErrorConstructors.NOT_FOUND({
+				message: "Billing account is not configured",
+			});
+		}
+		const snapshot = await requireCreditPool(
+			context,
+			input.organizationId,
+			now,
+		);
+		return {
+			organizationId: input.organizationId,
+			includedCredits: snapshot.includedCredits,
+			includedCreditsOverride: snapshot.includedCreditsOverride,
+			entitlementVersion: result.entitlementVersion,
+		};
+	});
+
+const grantTopUpCreditsContract = os.grantTopUpCredits
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
+	.handler(async ({ context, input }) => {
+		const actor = requirePlatformBillingAuthority(context);
+		const now = new Date();
+		const expires = new Date(now);
+		expires.setUTCMonth(expires.getUTCMonth() + TOP_UP_VALID_MONTHS);
+		const topUp = await grantTopUpCredits(context.db, {
+			id: crypto.randomUUID(),
+			organizationId: input.organizationId,
+			credits: input.credits,
+			sourceType: "operator_grant",
+			sourceRef: actor,
+			idempotencyKey: `operator-top-up:${input.organizationId}:${input.idempotencyKey}`,
+			expiresAt: expires.toISOString(),
+			metadata: { actor, reason: input.reason },
+			now: now.toISOString(),
+		});
+		return {
+			topUpId: topUp.id,
+			credits: topUp.credits,
+			expiresAt: topUp.expiresAt,
 		};
 	});
 
@@ -1099,115 +906,6 @@ const assignInternalPlanContract = os.assignInternalPlan
 			active: runtimeEntitlementIsActive(runtime, Date.parse(now)),
 			settlementMode: resolveBillingSettlementMode(context.env),
 			allowOverage: entitlement.plan.allowOverage,
-			overageUnitPriceMicros: entitlement.plan.overageUnitPriceMicros,
-		};
-	});
-
-const grantCreditContract = os.grantCredit
-	.use(withAuth)
-	.use(withFleetAuthority)
-	.use(AUTHZ.platformAdmin)
-	.handler(async ({ context, input }) => {
-		const actor = requirePlatformBillingAuthority(context);
-		const now = new Date().toISOString();
-		const entry = await grantBillingCredit(context.db, {
-			id: crypto.randomUUID(),
-			organizationId: input.organizationId,
-			amountMicros: input.amountMicros,
-			sourceType: "operator_grant",
-			sourceRef: input.sourceRef,
-			idempotencyKey: input.idempotencyKey,
-			expiresAt: input.expiresAt,
-			description: input.description,
-			metadata: { actor },
-			createdAt: now,
-		});
-		const snapshot = await getBillingBalanceSnapshot(
-			context.db,
-			input.organizationId,
-			now,
-		);
-		if (!snapshot) {
-			throw baseErrorConstructors.NOT_FOUND({
-				message: "Billing account is not configured",
-			});
-		}
-		return {
-			entryId: entry.id,
-			creditBalanceMicros: snapshot.creditBalanceMicros,
-		};
-	});
-
-const restoreDailyCapacityContract = os.restoreDailyCapacity
-	.use(withAuth)
-	.use(
-		withAuthorization(
-			{
-				handlerOwnedUserAuthorization:
-					"Owner/admin billing authority is checked in the handler",
-			},
-			"billing:write",
-		),
-	)
-	.handler(async ({ context }) => {
-		const { organizationId } = context;
-		if (!organizationId) {
-			throw baseErrorConstructors.FORBIDDEN({ message: "No organization" });
-		}
-		const actor = requireOrganizationBillingAuthority(context);
-		const now = new Date().toISOString();
-		const budgetDay = now.slice(0, 10);
-		const stripeEnvironment = resolveStripeEnvironment(context.env);
-		const totals = await getActiveCapacityAllocationTotals(context.db, {
-			organizationId,
-			budgetDay,
-			stripeEnvironment,
-			now,
-		});
-		// Only ever cancels a debit. A day already at or above base restores
-		// nothing, so this can never lift a ceiling past what the plan includes.
-		const restoredTokens = Math.max(0, -totals.tokenAmount);
-		const restoredSpendMicros = Math.max(0, -totals.spendAmountMicros);
-		if (restoredTokens === 0 && restoredSpendMicros === 0) {
-			return {
-				budgetDay,
-				restoredTokens: 0,
-				restoredSpendMicros: 0,
-				allocationId: null,
-			};
-		}
-		const expiresAt = new Date(
-			Date.parse(`${budgetDay}T00:00:00.000Z`) + 86_400_000,
-		).toISOString();
-		const allocation = await recordCapacityAllocation(context.db, {
-			id: crypto.randomUUID(),
-			organizationId,
-			budgetDay,
-			tokenAmount: restoredTokens,
-			spendAmountMicros: restoredSpendMicros,
-			sourceType: "self_service_restore",
-			sourceRef: actor,
-			// One restore per organization per day: a second call is the same
-			// request, not a second grant.
-			idempotencyKey: `restore:${organizationId}:${budgetDay}`,
-			stripeEnvironment,
-			expiresAt,
-			metadata: {
-				actor,
-				restoredFrom: {
-					tokenAmount: totals.tokenAmount,
-					spendAmountMicros: totals.spendAmountMicros,
-					sponsoredTokenAmount: totals.sponsoredTokenAmount,
-					sponsoredSpendAmountMicros: totals.sponsoredSpendAmountMicros,
-				},
-			},
-			createdAt: now,
-		});
-		return {
-			budgetDay,
-			restoredTokens,
-			restoredSpendMicros,
-			allocationId: allocation.id,
 		};
 	});
 
@@ -1230,74 +928,6 @@ const correctBillingPeriodContract = os.correctBillingPeriod
 			periodEnd: account.periodEnd,
 			entitlementVersion: account.entitlementVersion,
 		};
-	});
-
-const grantInferenceCapacityContract = os.grantInferenceCapacity
-	.use(withAuth)
-	.use(withFleetAuthority)
-	.use(AUTHZ.platformAdmin)
-	.handler(async ({ context, input }) => {
-		const actor = requirePlatformBillingAuthority(context);
-		const now = new Date().toISOString();
-		const stripeEnvironment = resolveStripeEnvironment(context.env);
-		const budgetDay = now.slice(0, 10);
-		const expiresAt = new Date(
-			Date.parse(`${budgetDay}T00:00:00.000Z`) + 86_400_000,
-		).toISOString();
-		const allocation = await recordCapacityAllocation(context.db, {
-			id: crypto.randomUUID(),
-			organizationId: input.organizationId,
-			budgetDay,
-			tokenAmount: input.tokenAmount,
-			spendAmountMicros: input.spendAmountMicros,
-			sourceType: "operator_grant",
-			sourceRef: actor,
-			idempotencyKey: input.idempotencyKey,
-			stripeEnvironment,
-			expiresAt,
-			metadata: { actor, description: input.description },
-			createdAt: now,
-		});
-		return {
-			allocationId: allocation.id,
-			budgetDay: allocation.budgetDay,
-			expiresAt: allocation.expiresAt,
-			stripeEnvironment: allocation.stripeEnvironment,
-		};
-	});
-
-const grantServiceCreditsContract = os.grantServiceCredits
-	.use(withAuth)
-	.use(withFleetAuthority)
-	.use(AUTHZ.platformAdmin)
-	.handler(async ({ context, input }) => {
-		const actor = requirePlatformBillingAuthority(context);
-		const now = new Date().toISOString();
-		const entry = await grantBillingServiceCredits(context.db, {
-			id: crypto.randomUUID(),
-			organizationId: input.organizationId,
-			serviceKey: input.serviceKey,
-			amountCredits: input.amountCredits,
-			sourceType: "operator_grant",
-			sourceRef: input.sourceRef,
-			idempotencyKey: input.idempotencyKey,
-			expiresAt: input.expiresAt,
-			description: input.description,
-			metadata: { actor },
-			createdAt: now,
-		});
-		const snapshot = await getBillingServiceCreditSnapshot(
-			context.db,
-			input.organizationId,
-			input.serviceKey,
-			now,
-		);
-		if (!snapshot) {
-			throw baseErrorConstructors.NOT_FOUND({
-				message: "Service credit entitlement is not configured",
-			});
-		}
-		return { entryId: entry.id, snapshot };
 	});
 
 const setServiceCreditControlsContract = os.setServiceCreditControls
@@ -1465,26 +1095,6 @@ const revokeHistoricalFreshExecutionContract = os.revokeHistoricalFreshExecution
 			await import("./billing/historical-exposure")
 		).revokeHistoricalFreshExecutionHandler(context, input),
 	);
-const configureCreditBillingContract = os.configureCreditBilling
-	.use(withAuth)
-	.use(withFleetAuthority)
-	.use(AUTHZ.platformAdmin)
-	.handler(async ({ context, input }) => {
-		const actor = requirePlatformBillingAuthority(context);
-		return (
-			await import("./billing/credit-activation")
-		).configureCreditBillingHandler(context, input, actor);
-	});
-const repriceCreditBillingContract = os.repriceCreditBilling
-	.use(withAuth)
-	.use(withFleetAuthority)
-	.use(AUTHZ.platformAdmin)
-	.handler(async ({ context, input }) => {
-		const actor = requirePlatformBillingAuthority(context);
-		return (
-			await import("./billing/credit-activation")
-		).repriceCreditBillingHandler(context, input, actor);
-	});
 export const billingContractRouter = os.router({
 	getInferenceSpending: os.getInferenceSpending
 		.use(withAuth)
@@ -1508,8 +1118,6 @@ export const billingContractRouter = os.router({
 				})),
 			};
 		}),
-	configureCreditBilling: configureCreditBillingContract,
-	repriceCreditBilling: repriceCreditBillingContract,
 	revokeHistoricalFreshExecution: revokeHistoricalFreshExecutionContract,
 	listHistoricalExposures: listHistoricalExposuresContract,
 	recordHistoricalFreshDecision: recordHistoricalFreshDecisionContract,
@@ -1517,22 +1125,18 @@ export const billingContractRouter = os.router({
 	listProviderModelRates: listProviderModelRatesContract,
 	publishProviderModelRate: publishProviderModelRateContract,
 	createCheckout: createCheckoutContract,
-	createInferenceCapacityCheckout: createInferenceCapacityCheckoutContract,
-	listProviderCapacitySponsorships: listProviderCapacitySponsorshipsContract,
-	setProviderCapacitySponsorship: setProviderCapacitySponsorshipContract,
+	createTopUpCheckout: createTopUpCheckoutContract,
 	createPortal: createPortalContract,
 	getOverview: getOverviewContract,
-	getOverageSettings: getOverageSettingsContract,
-	setOverageSettings: setOverageSettingsContract,
-	setCreditBudget: setCreditBudgetContract,
 	listPlans: listPlansContract,
+	listTopUpPacks: listTopUpPacksContract,
+	setCreditCaps: setCreditCapsContract,
+	setPayAsYouGo: setPayAsYouGoContract,
+	setAccountCredits: setAccountCreditsContract,
 	recordVoiceProviderUsage: recordVoiceProviderUsageContract,
-	grantCredit: grantCreditContract,
+	grantTopUpCredits: grantTopUpCreditsContract,
 	assignInternalPlan: assignInternalPlanContract,
 	correctBillingPeriod: correctBillingPeriodContract,
-	restoreDailyCapacity: restoreDailyCapacityContract,
-	grantInferenceCapacity: grantInferenceCapacityContract,
-	grantServiceCredits: grantServiceCreditsContract,
 	setServiceCreditControls: setServiceCreditControlsContract,
 	recordProviderCostEvidence: recordProviderCostEvidenceContract,
 	recordProviderReconciliation: recordProviderReconciliationContract,

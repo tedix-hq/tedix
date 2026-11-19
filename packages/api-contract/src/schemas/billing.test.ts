@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vite-plus/test";
 import {
-	BillingOverviewSchema,
-	WorkstationCostCoverageSchema,
-	CreateInferenceCapacityCheckoutInputSchema,
-	InferenceCapacityPackSchema,
+	BillingCreditsSchema,
+	BillingTopUpPackSchema,
 	RecordVoiceProviderUsageInputSchema,
+	SetAccountCreditsInputSchema,
+	SetCreditCapsInputSchema,
+	SetPayAsYouGoInputSchema,
+	WorkstationCostCoverageSchema,
 } from "./billing";
 
 const base = {
@@ -33,195 +35,107 @@ describe("RecordVoiceProviderUsageInputSchema", () => {
 	});
 });
 
-describe("daily inference capacity schemas", () => {
-	test("accepts a catalog pack with token and spend capacity", () => {
-		expect(
-			InferenceCapacityPackSchema.parse({
-				packKey: "daily-boost-small",
-				name: "Daily boost",
-				tokens: 1_000_000,
-				spendCapacityMicros: 5_000_000,
-				priceMicros: 6_000_000,
-				currency: "usd",
-			}),
-		).toMatchObject({ tokens: 1_000_000, spendCapacityMicros: 5_000_000 });
-	});
-
-	test("rejects zero-capacity packs and invalid checkout URLs", () => {
-		expect(() =>
-			InferenceCapacityPackSchema.parse({
-				packKey: "empty",
-				name: "Empty",
-				tokens: 0,
-				spendCapacityMicros: 0,
-				priceMicros: 1,
-				currency: "usd",
-			}),
-		).toThrow();
-		expect(() =>
-			CreateInferenceCapacityCheckoutInputSchema.parse({
-				packKey: "daily-boost-small",
-				successUrl: "/admin/billing",
-			}),
-		).toThrow();
-	});
-
-	test("preserves signed sponsor debits while keeping usage and remaining capacity nonnegative", () => {
-		const schema = BillingOverviewSchema.shape.inferenceCapacity;
-		const capacity = {
-			available: true,
-			monthlyMetered: false,
-			blockingReason: null,
-			unblockAction: "none",
-			budgetDay: "2026-09-05",
-			baseDailyTokenLimit: 5_000_000,
-			baseDailySpendLimitMicros: 25_000_000,
-			allocatedTokens: -4_000_000,
-			allocatedSpendCapacityMicros: -20_000_000,
-			sponsoredTokens: -3_000_000,
-			sponsoredSpendCapacityMicros: -15_000_000,
-			usedTokens: 14_081,
-			usedSpendMicros: 22_090,
-			remainingTokens: 985_919,
-			remainingSpendMicros: 4_977_910,
-			expiresAt: "2026-09-06T00:00:00.000Z",
-			allocations: [],
-			tediOverflow: [],
-			packs: [],
-		};
-		expect(schema.parse(capacity)).toEqual(capacity);
-		const { monthlyMetered: _omittedMetering, ...withoutMetering } = capacity;
-		expect(schema.safeParse(withoutMetering).success).toBe(false);
-		for (const key of [
-			"usedTokens",
-			"usedSpendMicros",
-			"remainingTokens",
-			"remainingSpendMicros",
-		]) {
-			expect(schema.safeParse({ ...capacity, [key]: -1 }).success).toBe(false);
-		}
-		expect(
-			schema.safeParse({ ...capacity, allocatedTokens: -0.5 }).success,
-		).toBe(false);
-		// The sponsored pair is the part of the allocation transferred to embedded
-		// customers: signed like the total, and integral like every other counter.
-		for (const key of ["sponsoredTokens", "sponsoredSpendCapacityMicros"]) {
-			expect(schema.safeParse({ ...capacity, [key]: -0.5 }).success).toBe(
-				false,
-			);
-			expect(schema.safeParse({ ...capacity, [key]: 0 }).success).toBe(true);
-			const { [key]: _omitted, ...withoutSponsorField } = capacity;
-			expect(schema.safeParse(withoutSponsorField).success).toBe(false);
-		}
-	});
-
-	test("projects one UTC budget day without conflating per-tedi policy", () => {
-		const result = BillingOverviewSchema.safeParse({
-			stripeEnvironment: "test",
-			workstationCostCoverage: {
-				periodStart: "2026-08-01T00:00:00.000Z",
-				periodEnd: "2026-09-01T00:00:00.000Z",
-				observedAt: "2026-09-20T00:00:00.000Z",
-				unit: "compute_seconds",
-				basis: "recorded_lease_end_wall_clock",
-				status: "partial",
-				knownAttributedCostMicros: 2000000,
-				total: { rowCount: 3, leaseSeconds: 300 },
-				reconciled: { rowCount: 1, leaseSeconds: 100 },
-				pending: { rowCount: 1, leaseSeconds: 100 },
-				unproven: { rowCount: 1, leaseSeconds: 100 },
-			},
-			overage: {
-				enabled: false,
-				monthlyCapMicros: null,
-				currency: "usd",
-				planSellsOverage: true,
-				monthToDateChargeMicros: 0,
-				reservedChargeMicros: 0,
-				capReached: false,
-			},
-			snapshot: {
-				status: "active",
-				billingMode: "stripe",
-				planKey: "growth",
-				planVersion: 1,
-				periodStart: "2026-08-01T00:00:00.000Z",
-				periodEnd: "2026-09-01T00:00:00.000Z",
-				includedTokens: 1,
-				usedTokens: 0,
-				reservedTokens: 0,
-				remainingIncludedTokens: 1,
-				creditBalanceMicros: 0,
-				reservedChargeMicros: 0,
-				availableCreditMicros: 0,
-				customerChargeMicros: 0,
-				hardSpendLimitMicros: null,
-				allowOverage: true,
-				stripeCustomerId: null,
-			},
-			plan: {
-				name: "Growth",
-				currency: "usd",
-				monthlyPriceMicros: 1,
-				annualPriceMicros: 1,
-				includedMonthlyCreditMicros: 0,
-				overageUnitTokens: 1,
-				overageUnitPriceMicros: 1,
-				maxTedis: 1,
-				maxCronJobsPerTedi: 1,
-				maxIterationsPerTask: 1,
-				defaultDailyTokenLimit: 1,
-				defaultDailyMessageLimit: 1,
-			},
-			period: null,
-			inferenceCapacity: {
-				available: true,
-				monthlyMetered: false,
-				blockingReason: null,
-				unblockAction: "none",
-				budgetDay: "2026-08-22",
-				baseDailyTokenLimit: 10_000_000,
-				baseDailySpendLimitMicros: 80_000_000,
-				allocatedTokens: 1_000_000,
-				allocatedSpendCapacityMicros: 5_000_000,
-				sponsoredTokens: 0,
-				sponsoredSpendCapacityMicros: 0,
-				usedTokens: 10_500_000,
-				usedSpendMicros: 82_000_000,
-				remainingTokens: 500_000,
-				remainingSpendMicros: 3_000_000,
-				expiresAt: "2026-08-23T00:00:00.000Z",
-				allocations: [],
-				tediOverflow: [],
-				packs: [],
-			},
-			serviceCredits: { seo: null },
-		});
-		expect(result.success).toBe(true);
-		if (result.success) {
-			const { workstationCostCoverage: _coverage, ...withoutCoverage } =
-				result.data;
-			expect(BillingOverviewSchema.safeParse(withoutCoverage).success).toBe(
-				false,
-			);
-			expect(
-				BillingOverviewSchema.safeParse({
-					...result.data,
-					workstationCostCoverage: {
-						...result.data.workstationCostCoverage,
-						periodStart: "2026-07-01T00:00:00.000Z",
-					},
-				}).success,
-			).toBe(false);
-		}
-	});
-});
-
 import {
 	HistoricalExposureInputSchema,
 	HistoricalExposureSchema,
 	HistoricalFreshDecisionInputSchema,
 } from "./billing";
+describe("Tedix credit schemas", () => {
+	const credits = {
+		periodStart: "2026-11-01T00:00:00.000Z",
+		periodEnd: "2026-12-01T00:00:00.000Z",
+		includedCredits: 15_000,
+		usedCredits: 12_000,
+		remainingIncludedCredits: 3_000,
+		topUpCredits: 1_000,
+		breakdown: { ai: 11_000, codeRuns: 500, services: 500 },
+		notices: [{ threshold: 80, reachedAt: "2026-11-20T00:00:00.000Z" }],
+		payAsYouGo: { enabled: false, monthlyCapMicros: null, spentMicros: 0 },
+		tedis: [
+			{
+				tediId: "tedi-1",
+				name: "Research",
+				usedCredits: 9_000,
+				monthlyCapCredits: 10_000,
+			},
+		],
+		members: [
+			{
+				userId: "user-1",
+				name: "Admin",
+				usedCredits: 3_000,
+				monthlyCapCredits: null,
+			},
+		],
+	};
+
+	test("accepts the credits section and rejects negative or token figures", () => {
+		expect(BillingCreditsSchema.parse(credits)).toEqual(credits);
+		expect(() =>
+			BillingCreditsSchema.parse({ ...credits, includedCredits: -1 }),
+		).toThrow();
+		expect(() =>
+			BillingCreditsSchema.parse({
+				...credits,
+				notices: [{ threshold: 90, reachedAt: credits.periodStart }],
+			}),
+		).toThrow();
+	});
+
+	test("sells only 12-month EUR top-up packs", () => {
+		expect(
+			BillingTopUpPackSchema.parse({
+				packKey: "credits-1000",
+				credits: 1_000,
+				priceMicros: 10_000_000,
+				currency: "eur",
+				validMonths: 12,
+			}),
+		).toMatchObject({ credits: 1_000 });
+		expect(() =>
+			BillingTopUpPackSchema.parse({
+				packKey: "credits-1000",
+				credits: 1_000,
+				priceMicros: 10_000_000,
+				currency: "eur",
+				validMonths: 1,
+			}),
+		).toThrow();
+	});
+
+	test("requires a monthly cap to turn on pay-as-you-go", () => {
+		expect(() =>
+			SetPayAsYouGoInputSchema.parse({ enabled: true, monthlyCapMicros: null }),
+		).toThrow();
+		expect(
+			SetPayAsYouGoInputSchema.parse({
+				enabled: false,
+				monthlyCapMicros: null,
+			}),
+		).toEqual({ enabled: false, monthlyCapMicros: null });
+	});
+
+	test("caps are non-negative or null and overrides need a reason", () => {
+		expect(() =>
+			SetCreditCapsInputSchema.parse({
+				tediCaps: [{ tediId: "tedi-1", monthlyCapCredits: -1 }],
+			}),
+		).toThrow();
+		expect(
+			SetCreditCapsInputSchema.parse({
+				memberCaps: [{ userId: "user-1", monthlyCapCredits: null }],
+			}),
+		).toMatchObject({ memberCaps: [{ monthlyCapCredits: null }] });
+		expect(() =>
+			SetAccountCreditsInputSchema.parse({
+				organizationId: "org-1",
+				includedCreditsOverride: 1_000_000,
+				reason: "",
+			}),
+		).toThrow();
+	});
+});
+
 describe("historical record strict inputs", () => {
 	const input = {
 		tediId: "00000000-0000-4000-8000-000000000001",

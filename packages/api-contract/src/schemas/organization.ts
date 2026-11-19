@@ -12,7 +12,6 @@ import {
 	EmbeddedTediSelectionPolicySchema,
 	EmbeddedTurnQuotaPolicySchema,
 } from "./embedded-widget-access";
-import { ProviderCapacityPolicySchema } from "./billing";
 import { OrganizationOsThemeSchema } from "./os-theme";
 import { JsonValueSchema } from "./common";
 import { OrganizationPermissionSchema } from "./user-settings";
@@ -342,7 +341,7 @@ export type SsoStatus = z.infer<typeof SsoStatusSchema>;
  */
 export const OrganizationFeaturesSchema = z.object({
 	maxApps: z.number().optional(),
-	maxCmsSites: z.number().int().min(-1).optional(),
+	maxCmsSites: z.number().int().min(0).optional(),
 	maxTeamMembers: z.number().optional(),
 	customDomain: z.boolean().optional(),
 	sso: z.boolean().optional(),
@@ -376,7 +375,6 @@ export const ProviderOnboardingSchema = z.object({
 	ownerUserId: z.string().min(1),
 	ownerEmail: z.email(),
 	billingPlanKey: z.enum(["growth", "business", "enterprise"]),
-	sponsoredCapacity: ProviderCapacityPolicySchema,
 	language: z
 		.string()
 		.min(2)

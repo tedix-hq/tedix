@@ -218,7 +218,7 @@ describe("reviewed RPC endpoint scopes", () => {
 			"organizations/cancel",
 			"organizations/listWidgetQuotaStatus",
 			"tediEmail/listAddressRequests",
-			"billing/grantCredit",
+			"billing/grantTopUpCredits",
 			"billing/assignInternalPlan",
 			// Decrypted secret reads.
 			"secrets/get",

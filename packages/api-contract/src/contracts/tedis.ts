@@ -11,7 +11,6 @@ import {
 	EmbeddedContactCompanySchema,
 } from "../schemas/embedded-contact";
 import { ProviderOnboardingSchema } from "../schemas/organization";
-import { ProviderCapacityPolicySchema } from "../schemas/billing";
 import {
 	EmbeddedWidgetAccessPolicySchema,
 	EmbeddedWidgetAccessConfigurationSchema,
@@ -1693,7 +1692,6 @@ export const tedisContract = oc
 									.max(10000)
 									.optional()
 									.describe("Omit to use the standard worker instructions."),
-								sponsoredCapacity: ProviderCapacityPolicySchema,
 							})
 							.optional()
 							.describe(
