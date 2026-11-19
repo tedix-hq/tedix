@@ -62,7 +62,7 @@ export function checkR2SqlOrgScope(
  */
 export interface R2SqlIntrospection {
 	/** Only the configured tenant analytics resource may be described. */
-	action: "list_tables" | "describe_columns";
+	action: "describe_columns";
 	/** Required for `describe_columns`. Defaults to the analytics table. */
 	table?: string;
 }
@@ -126,20 +126,11 @@ function quoteColumnExpr(expr: string): string | null {
 	return null;
 }
 
-/**
- * Compose a DESCRIBE for the configured resource. The deprecated list action
- * fails closed so older callers cannot enumerate platform-wide tables.
- */
+/** Compose a DESCRIBE for the configured resource. */
 export function buildR2SqlIntrospection(
 	request: R2SqlIntrospection,
 	defaultTable: string,
 ): { ok: true; sql: string } | { ok: false; error: string } {
-	if (request.action === "list_tables") {
-		return {
-			ok: false,
-			error: "warehouse catalog discovery is not available to tenant runtimes",
-		};
-	}
 	if (request.action === "describe_columns") {
 		const table = request.table ?? defaultTable;
 		if (!SQL_DOTTED.test(table)) {

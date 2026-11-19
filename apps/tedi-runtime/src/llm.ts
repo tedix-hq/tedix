@@ -71,11 +71,6 @@ export interface AzureChatEnv {
 	 * public HTTPS. Listing `azure-openai` routes isolate chat over the binding.
 	 */
 	AI_GATEWAY_BINDING_PROVIDERS?: string;
-	/**
-	 * TEMPORARY Azure-outage kill-switch. When `"true"`, the isolate builds its
-	 * model from the token-free Cloudflare Workers AI binding instead of Azure
-	 * (see `workers-ai-client.ts`). Clear it to return to Azure.
-	 */
 	/** Workers AI model id for the fallback; defaults to Llama 3.3 70B fp8-fast. */
 	TEDI_WORKERS_AI_MODEL?: string;
 	/**
@@ -85,13 +80,6 @@ export interface AzureChatEnv {
 	 * calibration and sealed verdict identity cannot silently change together.
 	 */
 	TEDI_JUDGE_MODEL_REF?: string;
-	/**
-	 * When `"true"`, MCP `run_tedi_turn` runs its chat turn on the durable
-	 * CHAT_TURN_WORKFLOW with a bounded in-band settle await instead of the
-	 * inline AI-SDK call, so a DO eviction / deploy / hung provider mid-turn
-	 * no longer loses the reply (see `durable-messages-send.ts`). Any other
-	 * value ⇒ legacy inline path.
-	 */
 	/**
 	 * Workers-AI BYOK API token (CF token with Workers AI access). When present
 	 * alongside the AI Gateway vars, the Workers AI transport routes through the

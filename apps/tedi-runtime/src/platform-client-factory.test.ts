@@ -13,11 +13,57 @@ import {
 	findMissingRuntimeApiScopes,
 	isMissingDescopeAccessKeySecretError,
 	loadTediSecrets,
+	makePlatformClient,
 	MissingTediSecretError,
 	resolveBrainBridgePlatformClient,
 	TEDI_RUNTIME_SERVICE_BINDING_SCOPES,
 	tediRuntimeServiceBindingHeaders,
 } from "./platform-client-factory";
+
+await assert.rejects(
+	() =>
+		makePlatformClient(
+			{ API_URL: "https://api.example.test" } as Cloudflare.Env,
+			"tedi-example",
+			"org-example",
+		),
+	/API_SERVICE missing from Worker env/,
+	"missing service binding fails before secret lookup or public transport",
+);
+
+{
+	let bindingCalls = 0;
+	const binding = {
+		async fetch(_input: RequestInfo | URL, init?: RequestInit) {
+			assert.equal(this, binding, "service binding retains its receiver");
+			bindingCalls++;
+			const headers = new Headers(init?.headers);
+			assert.equal(headers.get("X-Service-Binding"), "true");
+			assert.equal(headers.get("X-Tedix-Tedi-Id"), "tedi-example");
+			assert.equal(headers.get("X-Tedix-Org-Id"), "org-example");
+			assert.equal(
+				headers.get("X-Tedix-Tedi-Scopes"),
+				TEDI_RUNTIME_SERVICE_BINDING_SCOPES.join(" "),
+			);
+			return Response.json({ json: { entries: [] } });
+		},
+	};
+	const client = await makePlatformClient(
+		{
+			API_URL: "https://api.example.test",
+			API_SERVICE: binding,
+		} as unknown as Cloudflare.Env,
+		"tedi-example",
+		"org-example",
+	);
+	assert.equal(bindingCalls, 0, "construction does not dispatch");
+	await client.getTurnMemory([]);
+	assert.equal(
+		bindingCalls,
+		1,
+		"runtime requests use the service binding without secrets",
+	);
+}
 
 assert.deepEqual(
 	tediRuntimeServiceBindingHeaders("tedi-acme", "apps:read", "org-acme"),

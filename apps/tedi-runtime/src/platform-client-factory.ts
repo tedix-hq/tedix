@@ -356,8 +356,11 @@ export async function makePlatformClient(
 	if (!env.API_URL) {
 		throw new Error("API_URL missing from Worker env");
 	}
+	if (!env.API_SERVICE) {
+		throw new Error("API_SERVICE missing from Worker env");
+	}
 
-	// Service-binding transport (preferred): route brain/skills/rationale RPC over
+	// Service-binding transport: route brain/skills/rationale RPC over
 	// the in-account `API_SERVICE` binding instead of the public edge. This keeps
 	// internal post-turn traffic (~5-8 /rpc/* calls per turn) off the public
 	// `API_RATE_LIMITER` (100 req/60s per `tedi:{id}`), which otherwise throttles
@@ -370,30 +373,13 @@ export async function makePlatformClient(
 	// `X-Tedix-Org-Id` headers — write handlers attribute from `input.tediId`,
 	// org-scoped by `X-Tedix-Org-Id`. This mirrors how the kernel/MCP already call
 	// apps/api over service-binding.
-	if (env.API_SERVICE) {
-		return new HttpPlatformClient({
-			apiBaseUrl: env.API_URL,
-			apiAuthMode: "service-binding",
-			fetch: env.API_SERVICE.fetch.bind(env.API_SERVICE),
-			tediId,
-			organizationId: orgId || undefined,
-			serviceBindingScopes: TEDI_RUNTIME_SERVICE_BINDING_SCOPES,
-		});
-	}
-
-	// Fallback: no service binding available (e.g. misconfigured env). Use the
-	// Descope-authenticated public-edge path. Subject to the public rate limiter.
-	const { descopeAccessKey } = await loadTediSecrets(env, tediId);
-	if (!env.DESCOPE_PROJECT_ID) {
-		throw new Error("DESCOPE_PROJECT_ID missing from Worker env");
-	}
 	return new HttpPlatformClient({
 		apiBaseUrl: env.API_URL,
-		descopeAccessKey,
-		descopeProjectId: env.DESCOPE_PROJECT_ID,
-		descopeBaseUrl: env.DESCOPE_BASE_URL,
+		apiAuthMode: "service-binding",
+		fetch: env.API_SERVICE.fetch.bind(env.API_SERVICE),
 		tediId,
 		organizationId: orgId || undefined,
+		serviceBindingScopes: TEDI_RUNTIME_SERVICE_BINDING_SCOPES,
 	});
 }
 
