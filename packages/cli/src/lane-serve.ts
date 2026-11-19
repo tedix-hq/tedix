@@ -97,6 +97,7 @@ import {
 import { createDevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import {
+	laneProcessIdentity,
 	reapLaneProcess,
 	waitForLaneProcessIdentity,
 } from "./lane-process-recovery";
@@ -2416,6 +2417,7 @@ export class LaneDispatcher {
 	private identityReads = new Set<Promise<void>>();
 	private preparing = new Set<string>();
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
+	private terminalRetainedAttempts = new WeakMap<Receipt, string>();
 	private cleanupCursor = 0;
 	private orphanCursor = 0;
 	private reconciliationCursor = 0;
@@ -2527,20 +2529,30 @@ export class LaneDispatcher {
 	holdAdmissions(version?: string) {
 		this.admissionsHeld = `Waiting to restart onto ${version ? `Tedix CLI ${version}` : "an updated Tedix CLI"}`;
 	}
-	/**
-	 * True when a restart would interrupt nothing: no Work in preparation or
-	 * running here, no retained run whose agent process is alive, and none
-	 * between admission and settlement.
-	 */
+	private holdsRestart(row: Receipt): boolean {
+		if (hasSettledOutcome(row)) return false;
+		const terminal =
+			!!row.attemptId &&
+			this.terminalRetainedAttempts.get(row) === row.attemptId;
+		if (!terminal && (row.phase === "admitted" || row.phase === "running"))
+			return true;
+		if (!row.pid || !alive(row.pid)) return false;
+		if (!row.processIdentity) return !terminal;
+		const cwd = row.processIdentity.startsWith("v2:") ? row.repo : undefined;
+		if (!row.session || (row.processIdentity.startsWith("v2:") && !cwd))
+			return true;
+		return (
+			laneProcessIdentity(row.pid, row.session, cwd) === row.processIdentity
+		);
+	}
+
+	/** True when a restart would interrupt neither local nor retained Work. */
 	quiet(): boolean {
 		if (this.running.size || this.preparing.size || this.maintenance.size)
 			return false;
 		try {
-			return !readLaneReceipts(this.directory, this.receipts).some(
-				(row) =>
-					!hasSettledOutcome(row) &&
-					((row.pid && alive(row.pid)) ||
-						["admitted", "running"].includes(row.phase)),
+			return !readLaneReceipts(this.directory, this.receipts).some((row) =>
+				this.holdsRestart(row),
 			);
 		} catch {
 			return false;
@@ -2895,18 +2907,6 @@ export class LaneDispatcher {
 				undefined,
 				`${this.admissionsHeld}; new Work is paused while draining: ${this.running.size} running, ${this.preparing.size} preparing, ${this.maintenance.size} maintenance tasks`,
 			);
-			for (const row of retained) {
-				if (
-					!hasSettledOutcome(row) &&
-					((row.pid && alive(row.pid)) ||
-						["admitted", "running"].includes(row.phase))
-				)
-					this.log(
-						"restart-held",
-						row.itemId,
-						`Work revision ${row.version}, phase ${row.phase}, Attempt ${row.attemptId ?? "unknown"}, session ${row.session ?? "unknown"}, PID ${row.pid ?? "unknown"}: retained process or unsettled Attempt prevents restart; PID liveness alone does not verify the agent identity`,
-					);
-			}
 		}
 		for (const row of retained) {
 			if (hasSettledOutcome(row)) continue;
@@ -2954,6 +2954,8 @@ export class LaneDispatcher {
 					orphanKey,
 					leaseEnds > Date.now() ? leaseEnds : undefined,
 				);
+				if (attempt?.externalSessionKey === row.session && attempt.outcome)
+					this.terminalRetainedAttempts.set(row, attempt.id);
 				if (
 					history.nextCursor === null &&
 					attempt?.externalSessionKey === row.session &&
@@ -2989,6 +2991,16 @@ export class LaneDispatcher {
 						);
 					}
 				}
+			}
+		}
+		if (this.admissionsHeld) {
+			for (const row of retained) {
+				if (this.holdsRestart(row))
+					this.log(
+						"restart-held",
+						row.itemId,
+						`Work revision ${row.version}, phase ${row.phase}, Attempt ${row.attemptId ?? "unknown"}, session ${row.session ?? "unknown"}, PID ${row.pid ?? "unknown"}: retained process or unsettled Attempt prevents restart; PID liveness alone does not verify the agent identity`,
+					);
 			}
 		}
 		// Every ready Work Item this runner may take starts; leases, claims and

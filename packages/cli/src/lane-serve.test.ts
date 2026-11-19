@@ -3108,43 +3108,43 @@ describe("dispatcher admission", () => {
 			["-e", "setInterval(() => {}, 1000)", nativeId],
 			{ cwd: repo, detached: true, stdio: "ignore" },
 		);
-		await once(child, "spawn");
 		const exited = once(child, "exit");
-		// Bun emits "spawn" before exec finishes; on Linux /proc/<pid>/cmdline
-		// can still be empty, which leaves no identity to reap the orphan by.
-		let processIdentity: string | undefined;
-		await until(
-			() =>
-				(processIdentity = laneProcessIdentity(child.pid!, session, repo)) !==
-				undefined,
-		);
-		writeFileSync(
-			path,
-			JSON.stringify({
-				itemId: item().id,
-				version: 2,
-				phase: "running",
-				admissionState: "admitted",
-				attemptId,
-				session,
-				executorKey: "local-acme",
-				pid: child.pid,
-				processIdentity,
-				repo,
-				retryDeadlineAt: Date.now() + 30 * 60_000,
-			}),
-		);
-		f.control.history.data = [
-			{
-				id: attemptId,
-				externalSessionKey: session,
-				outcome: "expired",
-				metadata: { dispatchVersion: 2 },
-			},
-		];
 		try {
+			await once(child, "spawn");
+			// Bun emits "spawn" before exec finishes; on Linux /proc/<pid>/cmdline
+			// can still be empty, which leaves no identity to reap the orphan by.
+			let processIdentity: string | undefined;
+			await until(
+				() =>
+					(processIdentity = laneProcessIdentity(child.pid!, session, repo)) !==
+					undefined,
+			);
+			writeFileSync(
+				path,
+				JSON.stringify({
+					itemId: item().id,
+					version: 2,
+					phase: "running",
+					admissionState: "admitted",
+					attemptId,
+					session,
+					executorKey: "local-acme",
+					pid: child.pid,
+					processIdentity,
+					repo,
+					retryDeadlineAt: Date.now() + 30 * 60_000,
+				}),
+			);
+			f.control.history.data = [
+				{
+					id: attemptId,
+					externalSessionKey: session,
+					outcome: "expired",
+					metadata: { dispatchVersion: 2 },
+				},
+			];
 			await f.dispatcher.tick();
-			await exited;
+			await until(() => child.exitCode !== null || child.signalCode !== null);
 			const recovered = JSON.parse(readFileSync(path, "utf8"));
 			expect(recovered).toMatchObject({
 				phase: "deferred",
@@ -3166,7 +3166,9 @@ describe("dispatcher admission", () => {
 			await f.dispatcher.drain();
 		} finally {
 			if (child.exitCode === null && child.signalCode === null)
-				process.kill(-child.pid!, "SIGKILL");
+				child.kill("SIGKILL");
+			await exited;
+			expect(() => process.kill(child.pid!, 0)).toThrow();
 		}
 	});
 
@@ -3525,37 +3527,44 @@ describe("dispatcher admission", () => {
 				stdio: "ignore",
 			},
 		);
-		await once(child, "spawn");
-		writeFileSync(
-			path,
-			JSON.stringify({
-				itemId: item().id,
-				version: 2,
-				phase: "running",
-				admissionState: "admitted",
-				attemptId,
-				session,
-				executorKey: "local-acme",
-				pid: child.pid,
-			}),
-		);
-		f.control.history.data = [
-			{
-				id: attemptId,
-				externalSessionKey: session,
-				outcome: "expired",
-				metadata: { dispatchVersion: 2 },
-			},
-		];
+		const exited = once(child, "exit");
 		try {
+			await once(child, "spawn");
+			writeFileSync(
+				path,
+				JSON.stringify({
+					itemId: item().id,
+					version: 2,
+					phase: "running",
+					admissionState: "admitted",
+					attemptId,
+					session,
+					executorKey: "local-acme",
+					pid: child.pid,
+				}),
+			);
+			f.control.history.data = [
+				{
+					id: attemptId,
+					externalSessionKey: session,
+					outcome: "expired",
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			f.dispatcher.holdAdmissions();
+			expect(f.dispatcher.quiet()).toBe(false);
 			await f.dispatcher.tick();
+			await f.dispatcher.drain();
+			expect(f.dispatcher.quiet()).toBe(true);
 			expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
 				`No process identity was recorded for process ${child.pid} at launch; not stopped`,
 			);
 			expect(child.exitCode).toBeNull();
 			expect(child.signalCode).toBeNull();
 		} finally {
-			process.kill(-child.pid!, "SIGKILL");
+			child.kill("SIGKILL");
+			await exited;
+			expect(() => process.kill(child.pid!, 0)).toThrow();
 		}
 	});
 	it("recovers an undeclared result from the session's result comment", async () => {
@@ -5504,50 +5513,69 @@ describe("dispatcher admission", () => {
 		expect(settle).toHaveLength(1);
 		expect(settle[0]!.args).toContain("cancelled");
 	});
-	it("explains an idle opencode update drain blocked by an expired receipt with a live PID", async () => {
-		const f = fixture({ executor: "opencode" });
-		f.items.splice(1);
-		Object.assign(f.items[0]!, { priority: "high" });
-		// Liveness probes the process group, so the receipt needs a group leader.
-		// This test process leads its group on a terminal but not on a CI runner.
-		const agent = spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
-		const pid = agent.pid!;
-		try {
-			writeFileSync(
-				join(f.dir, `${item(99).id}-2.json`),
-				JSON.stringify({
-					itemId: item(99).id,
-					version: 2,
-					phase: "deferred",
-					outcome: "expired",
-					admissionState: "admitted",
-					attemptId: "historical-attempt",
-					session: "opencode:historical-session",
-					pid,
-				}),
-			);
-			f.dispatcher.holdAdmissions("0.23.0");
-			expect(f.dispatcher.quiet()).toBe(false);
-			await f.dispatcher.tick();
-			await f.dispatcher.drain();
-			expect(f.events.some((event) => event.verb === "dispatch-list")).toBe(
-				false,
-			);
-			expect(f.releases).toHaveLength(0);
-			const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
-			expect(log).toContain('"event":"admissions-held"');
-			expect(log).toContain("Waiting to restart onto Tedix CLI 0.23.0");
-			expect(log).toContain("0 running, 0 preparing");
-			expect(log).toContain('"event":"restart-held"');
-			expect(log).toContain(`PID ${pid}`);
-			expect(log).toContain("phase deferred, Attempt historical-attempt");
-			expect(log).toContain(
-				"PID liveness alone does not verify the agent identity",
-			);
-		} finally {
-			agent.kill("SIGKILL");
-		}
-	});
+	it.each(["unrecorded", "matched", "mismatched"])(
+		"checks a retained live PID during an update drain (identity %s)",
+		async (identity) => {
+			const f = fixture({ executor: "opencode" });
+			f.items.splice(1);
+			Object.assign(f.items[0]!, { priority: "high" });
+			// Liveness probes the process group, so the receipt needs a group leader.
+			// This test process leads its group on a terminal but not on a CI runner.
+			const agent = spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
+			const exited = once(agent, "exit");
+			const pid = agent.pid!;
+			try {
+				const session = "opencode:30";
+				const mismatch = identity === "mismatched";
+				let processIdentity = mismatch
+					? "recorded-before-pid-reuse"
+					: undefined;
+				if (identity === "matched")
+					await until(
+						() =>
+							(processIdentity = laneProcessIdentity(pid, session)) !==
+							undefined,
+					);
+				writeFileSync(
+					join(f.dir, `${item(99).id}-2.json`),
+					JSON.stringify({
+						itemId: item(99).id,
+						version: 2,
+						phase: "deferred",
+						outcome: "expired",
+						admissionState: "admitted",
+						attemptId: "historical-attempt",
+						session,
+						pid,
+						processIdentity,
+					}),
+				);
+				f.dispatcher.holdAdmissions("0.23.0");
+				expect(f.dispatcher.quiet()).toBe(mismatch);
+				await f.dispatcher.tick();
+				await f.dispatcher.drain();
+				expect(f.dispatcher.quiet()).toBe(mismatch);
+				expect(f.events.some((event) => event.verb === "dispatch-list")).toBe(
+					false,
+				);
+				expect(f.releases).toHaveLength(0);
+				const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
+				expect(log).toContain('"event":"admissions-held"');
+				expect(log).toContain("Waiting to restart onto Tedix CLI 0.23.0");
+				expect(log).toContain("0 running, 0 preparing");
+				expect(log.includes('"event":"restart-held"')).toBe(!mismatch);
+				if (!mismatch) {
+					expect(log).toContain(`PID ${pid}`);
+					expect(log).toContain("phase deferred, Attempt historical-attempt");
+				}
+				expect(agent.signalCode).toBeNull();
+				expect(agent.exitCode).toBeNull();
+			} finally {
+				agent.kill("SIGKILL");
+				await exited;
+			}
+		},
+	);
 	it("holding admissions for an update launches Work already admitted, cancels nothing and admits nothing new", async () => {
 		const f = fixture();
 		const waiting = f.items.splice(1);
