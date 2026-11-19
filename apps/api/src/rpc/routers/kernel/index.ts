@@ -610,6 +610,8 @@ export async function runKernel(args: {
 			import("./gateway-attribution").KernelGatewayContext["executionAttempts"]
 		>,
 		organizationId,
+		// Member caps follow the person who sent this turn; none for autonomous runs.
+		...(descopeUserId ? { userId: descopeUserId } : {}),
 		runId,
 		workItemId,
 		sessionKey: conversationId,

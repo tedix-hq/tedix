@@ -165,6 +165,52 @@ describe("runtime entitlement inference admission", () => {
 		);
 	});
 
+	it.each([
+		["a member started the turn", "user-1", "user-1"],
+		["no member (scheduled or autonomous)", undefined, undefined],
+	] as const)(
+		"reserves against the member cap only when %s",
+		async (_label, userId, expected) => {
+			mocks.reserveBillingUsage.mockResolvedValueOnce({
+				allowed: true,
+				reservation: { id: "reservation-1", expiresAt: null, credits: 2 },
+			});
+			await authorizeRuntimeBudget({
+				db: {} as never,
+				env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
+				request: {
+					...request("managed"),
+					tediId: "tedi-1",
+					...(userId ? { userId } : {}),
+				},
+				nowMs,
+			});
+			expect(mocks.reserveBillingUsage).toHaveBeenCalledWith(
+				{},
+				expect.objectContaining({ tediId: "tedi-1", userId: expected }),
+			);
+		},
+	);
+
+	it.each([
+		"member_monthly_credit_cap_reached",
+		"tedi_monthly_credit_cap_reached",
+		"monthly_credit_limit_reached",
+	] as const)("refuses with the standard code %s", async (code) => {
+		mocks.reserveBillingUsage.mockResolvedValueOnce({
+			allowed: false,
+			code,
+			snapshot: null,
+		});
+		const result = await authorizeRuntimeBudget({
+			db: {} as never,
+			env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
+			request: { ...request("managed"), userId: "user-1" },
+			nowMs,
+		});
+		expect(result).toMatchObject({ allowed: false, code });
+	});
+
 	it("fails closed on missing or mismatched deployment mode", async () => {
 		await expect(
 			authorizeRuntimeBudget({

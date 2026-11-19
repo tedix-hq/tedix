@@ -154,6 +154,7 @@ export async function reserveKernelBilling(
 		request: {
 			organizationId: context.organizationId,
 			tediId: context.tediId ?? null,
+			userId: context.userId ?? null,
 			settlementMode,
 			source: input.source ?? "kernel",
 			execution: input.execution,

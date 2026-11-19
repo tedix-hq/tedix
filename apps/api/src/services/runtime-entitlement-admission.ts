@@ -50,7 +50,9 @@ export async function authorizeRuntimeInference(
 	} & (
 		| { plane: "remote_runtime"; request: AuthorizeRuntimeInferenceInput }
 		| {
-				plane: "organization_kernel";
+				// Trusted server planes: the in-API kernel and the workspace object,
+				// which reaches apps/api only over its service binding.
+				plane: "organization_kernel" | "workspace_object";
 				request: Omit<AuthorizeRuntimeInferenceInput, "originToken">;
 		  }
 	) & {
@@ -68,7 +70,7 @@ export async function authorizeRuntimeInference(
 		phase = next;
 	};
 	const context: {
-		plane?: "remote_runtime" | "organization_kernel";
+		plane?: "remote_runtime" | "organization_kernel" | "workspace_object";
 		settlementMode?: "managed" | "external" | "disabled";
 		originKind?: "accepted_native" | "unselected_native";
 		rootClass?: "AgentTediDO";
@@ -81,7 +83,8 @@ export async function authorizeRuntimeInference(
 	try {
 		if (
 			input.plane !== "remote_runtime" &&
-			input.plane !== "organization_kernel"
+			input.plane !== "organization_kernel" &&
+			input.plane !== "workspace_object"
 		)
 			throw new Error("Inference requires a server-owned caller plane");
 		context.plane = input.plane;

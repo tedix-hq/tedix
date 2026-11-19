@@ -29,6 +29,11 @@ const CLOCK_SKEW_SECONDS = 5;
 export const NativeInferenceRequestProjectionSchema = z.strictObject({
 	organizationId: z.string().min(1),
 	tediId: z.string().min(1).nullable().default(null),
+	/**
+	 * Member who started the turn. Optional with no default, so a request
+	 * without a member hashes exactly as it did before the field existed.
+	 */
+	userId: z.string().min(1).max(300).optional(),
 	settlementMode: BillingSettlementModeSchema,
 	source: RuntimeEntitlementUsageSourceSchema,
 	execution: ProviderExecutionIdentitySchema,

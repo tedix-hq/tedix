@@ -60,11 +60,28 @@ export const RuntimeEntitlementUsageSourceSchema = z.enum([
 	"gadget",
 ]);
 
+/**
+ * The member whose action started this inference: their sign-in subject
+ * (Descope user id). Member credit caps and member usage totals key on it.
+ * Absent when no person started the work (scheduled or autonomous runs);
+ * then only the organization and tedi limits apply.
+ */
+export const ActingMemberSubjectSchema = z
+	.string()
+	.min(1)
+	.max(300)
+	.nullable()
+	.optional()
+	.describe(
+		"Sign-in subject of the member who started this work; absent for scheduled or autonomous runs.",
+	);
+
 export const AuthorizeRuntimeInferenceInputSchema = z
 	.strictObject({
 		originToken: z.string().min(1).max(16_384),
 		organizationId: z.string().min(1),
 		tediId: z.string().min(1).nullable().optional(),
+		userId: ActingMemberSubjectSchema,
 		settlementMode: BillingSettlementModeSchema,
 		source: RuntimeEntitlementUsageSourceSchema,
 		execution: ProviderExecutionIdentitySchema,
@@ -223,3 +240,39 @@ export const AuthorizeRuntimeInferenceResponseSchema = z
 export type AuthorizeRuntimeInferenceResponse = z.infer<
 	typeof AuthorizeRuntimeInferenceResponseSchema
 >;
+
+/**
+ * Admission for one workspace chat model call. The workspace object names the
+ * turn and who acts in it; apps/api reserves credits through the same path as
+ * the kernel and the tedi runtime, and the AI Gateway log of the call settles
+ * the reservation on the actual cost.
+ */
+export const AuthorizeWorkspaceInferenceInputSchema = z.strictObject({
+	organizationId: z.string().min(1),
+	workspaceId: z.string().min(1).max(300),
+	turnId: z.string().min(1).max(300),
+	/** Set when the turn runs as a guest tedi; its tedi cap applies. */
+	tediId: z.string().min(1).nullable().optional(),
+	userId: ActingMemberSubjectSchema,
+	execution: ProviderExecutionIdentitySchema,
+	estimatedInputTokens: z.number().int().min(0).max(10_000_000),
+	estimatedOutputTokens: z.number().int().min(0).max(2_000_000),
+	idempotencyKey: z.string().min(8).max(300),
+});
+export type AuthorizeWorkspaceInferenceInput = z.infer<
+	typeof AuthorizeWorkspaceInferenceInputSchema
+>;
+
+/** Return a reservation whose provider call was never sent or was refused. */
+export const ReleaseInferenceReservationInputSchema = z.strictObject({
+	organizationId: z.string().min(1),
+	reservationId: z.string().min(1).max(300),
+	reason: z.enum(["provider_request_not_sent", "provider_request_failed"]),
+});
+export type ReleaseInferenceReservationInput = z.infer<
+	typeof ReleaseInferenceReservationInputSchema
+>;
+
+export const ReleaseInferenceReservationResponseSchema = z.object({
+	released: z.boolean(),
+});

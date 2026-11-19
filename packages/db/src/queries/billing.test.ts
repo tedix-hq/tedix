@@ -523,6 +523,66 @@ describe("organization credit pool", () => {
 		sqlite.close();
 	});
 
+	it("applies the member cap to AI calls a member starts, and only org and tedi limits without one", async () => {
+		const { db, sqlite, now } = setup();
+		await setCreditCaps(db, {
+			organizationId: "org-1",
+			caps: [
+				{ subjectKind: "member", subjectKey: "user-1", monthlyCapCredits: 3 },
+			],
+			updatedBy: "admin",
+			now,
+		});
+		// 2 credits held for user-1; another 2 would pass the member's cap of 3.
+		expect(
+			await reserve(db, { id: "m1", now, tediId: "tedi-1", userId: "user-1" }),
+		).toMatchObject({ allowed: true, reservation: { credits: 2 } });
+		expect(
+			await reserve(db, { id: "m2", now, tediId: "tedi-1", userId: "user-1" }),
+		).toMatchObject({
+			allowed: false,
+			code: "member_monthly_credit_cap_reached",
+		});
+		// Scheduled work has no member: only the pool and tedi limits apply.
+		expect(
+			await reserve(db, { id: "s1", now, tediId: "tedi-1" }),
+		).toMatchObject({ allowed: true });
+		// Another member is not held to user-1's cap.
+		expect(
+			await reserve(db, { id: "o1", now, userId: "user-2" }),
+		).toMatchObject({ allowed: true });
+		// Settlement adds the actual cost to the member's running total.
+		await settle(db, {
+			id: "mc1",
+			reservationId: "m1",
+			costMicros: 10_000,
+			now,
+		});
+		await settle(db, {
+			id: "sc1",
+			reservationId: "s1",
+			costMicros: 10_000,
+			now,
+		});
+		expect(
+			await listCreditSubjectUsage(db, {
+				organizationId: "org-1",
+				periodStart: PERIOD_START,
+				subjectKind: "member",
+			}),
+		).toEqual([{ subjectKey: "user-1", usedCredits: 2, monthlyCapCredits: 3 }]);
+		expect(
+			(
+				await getCreditPoolSnapshot(db, {
+					organizationId: "org-1",
+					now,
+					subject: { userId: "user-1" },
+				})
+			)?.memberUsedCredits,
+		).toBe(2);
+		sqlite.close();
+	});
+
 	it("lets an operator override included credits with an audited entitlement bump", async () => {
 		const { db, sqlite, now } = setup();
 		const result = await setAccountCredits(db, {
