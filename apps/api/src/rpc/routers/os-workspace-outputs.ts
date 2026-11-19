@@ -1,3 +1,4 @@
+import { requireSavableText } from "../../lib/savable-text";
 import { continuesOutputAutosaveBurst } from "@tedix/api-contract/utils/os-output-autosave";
 import {
 	OS_OUTPUT_AUTOSAVE_NOTE,
@@ -342,6 +343,7 @@ function normalizeOutputBody(input: OsOutputContent | string): OsOutputContent {
 
 const outputsCreate = authorOs.outputs.create.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		let mark = performance.now();
 		const lap = (name: string) => {
 			const now = performance.now();
@@ -598,6 +600,7 @@ async function publishOutputMetadataChange(
 
 const outputsRename = authorOs.outputs.rename.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		const output = await requireOutput(context, input.outputId);
 		const row = await updateOsOutput(
 			queryDb(context),
@@ -687,6 +690,7 @@ function copyTitle(title: string): string {
 
 const outputsDuplicate = authorOs.outputs.duplicate.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		const source = await requireOutput(context, input.outputId);
 		const workspace = source.workspaceId
 			? await requireWorkspace(context, source.workspaceId)
@@ -756,6 +760,7 @@ const outputsDuplicate = authorOs.outputs.duplicate.handler(
 
 const outputsRevise = authorOs.outputs.revise.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		const output = await requireOutput(context, input.outputId);
 		if (
 			input.expectedWorkspaceId !== undefined &&
@@ -991,6 +996,7 @@ async function persistEditedOutputRevision(
 
 const outputsPatch = authorOs.outputs.patch.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		const output = await requireOutput(context, input.outputId);
 		if (
 			input.expectedWorkspaceId !== undefined &&
@@ -1036,6 +1042,7 @@ const outputsChanges = readOs.outputs.changes.handler(
 
 const outputsPatchSlides = authorOs.outputs.patchSlides.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		const output = await requireOutput(context, input.outputId);
 		if (output.kind !== "presentation") {
 			throw createError(
@@ -1078,6 +1085,7 @@ const outputsPatchSlides = authorOs.outputs.patchSlides.handler(
 
 const outputsPatchDocument = authorOs.outputs.patchDocument.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		const output = await requireOutput(context, input.outputId);
 		if (output.kind !== "document") {
 			throw createError(
@@ -1120,6 +1128,7 @@ const outputsPatchDocument = authorOs.outputs.patchDocument.handler(
 
 const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		const output = await requireOutput(context, input.outputId);
 		if (output.kind !== "sheet") {
 			throw createError(

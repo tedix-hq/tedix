@@ -12,7 +12,12 @@ import {
 import { unzipSync } from "fflate";
 import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
-import { osOutputRevisions } from "@tedix/db/schema/os-workspaces";
+import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import {
+	osOutputRevisions,
+	osCollaborationProposals,
+} from "@tedix/db/schema/os-workspaces";
 import {
 	workspaceActivity,
 	workspaceFeedLedger,
@@ -3636,6 +3641,262 @@ describe("app proposal stale acceptance", () => {
 					files: { ...newerFiles, "client.js": "render(2)" },
 				});
 			}
+		},
+	);
+});
+
+describe("saving whole characters", () => {
+	it("refuses a malformed legacy proposal at merge without changing its status or file", async () => {
+		const c = clients();
+		const workspaceId = await homeWorkspaceId(c.env);
+		const made = await c.org1.outputs.create({
+			workspaceId,
+			kind: "document",
+			title: "Whole",
+			content: "😀",
+		});
+		const { proposal } = await c.machineAgent.collaboration.create({
+			workspaceId,
+			documentType: "output",
+			documentId: made.output.id,
+			sourceKind: "agent_session",
+			sourceId: "codex:session-1",
+			content: { kind: "document", blocks: [] },
+		});
+		await c.org1.collaboration.accept({
+			proposalId: proposal.id,
+			expectedSequence: 0,
+			rationale: "Reviewed",
+		});
+		await createDbClient(c.env.DB)
+			.update(osCollaborationProposals)
+			.set({
+				content: JSON.stringify({
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "\uD800" }],
+				}),
+			})
+			.where(eq(osCollaborationProposals.id, proposal.id));
+		await expect(
+			c.org1.collaboration.merge({
+				proposalId: proposal.id,
+				expectedSequence: 0,
+				rationale: "Save",
+			}),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining(
+				"content.blocks[0].text holds half of a character",
+			),
+		});
+		expect(
+			(await c.org1.collaboration.get({ proposalId: proposal.id })).proposal
+				.status,
+		).toBe("accepted");
+		expect(
+			(await c.org1.outputs.get({ outputId: made.output.id })).currentRevision,
+		).toMatchObject({ id: made.revision.id, content: made.revision.content });
+		expect(
+			(await c.org1.outputs.history({ outputId: made.output.id })).revisions,
+		).toHaveLength(1);
+	});
+
+	let c: ReturnType<typeof clients>;
+	beforeEach(async () => {
+		c = clients();
+		await c.env.DB.exec(schemaDdl(learningInteractionEvents));
+	});
+	const body = (kind: "document" | "sheet" | "presentation", text: string) =>
+		kind === "document"
+			? { kind, blocks: [{ type: "paragraph" as const, text }] }
+			: kind === "sheet"
+				? { kind, columns: ["Name"], rows: [[text]] }
+				: { kind, slides: [{ title: text }] };
+	const refusal = (field: string) => ({
+		code: "BAD_REQUEST",
+		message: `Nothing was changed: ${field} holds half of a character, usually an emoji cut in two (an unpaired UTF-16 surrogate), which cannot be saved. Send whole characters and make the call again.`,
+	});
+	const field = (kind: string) =>
+		kind === "document"
+			? "content.blocks[0].text"
+			: kind === "sheet"
+				? "content.rows[0][0]"
+				: "content.slides[0].title";
+
+	it.each(["document", "sheet", "presentation"] as const)(
+		"refuses %s create and revise without storing a file or revision",
+		async (kind) => {
+			const workspaceId = await homeWorkspaceId(c.env);
+			for (const half of ["\uD800", "\uDC00"]) {
+				await expect(
+					c.org1.outputs.create({
+						workspaceId,
+						kind,
+						title: "Whole",
+						content: body(kind, half),
+					}),
+				).rejects.toMatchObject(refusal(field(kind)));
+			}
+			expect((await c.org1.outputs.list({ workspaceId })).items).toHaveLength(
+				0,
+			);
+			const made = await c.org1.outputs.create({
+				workspaceId,
+				kind,
+				title: "Whole",
+				content: body(kind, "😀"),
+			});
+			for (const half of ["\uD800", "\uDC00"]) {
+				await expect(
+					c.org1.outputs.revise({
+						outputId: made.output.id,
+						content: body(kind, half),
+					}),
+				).rejects.toMatchObject(refusal(field(kind)));
+			}
+			expect(
+				(await c.org1.outputs.get({ outputId: made.output.id }))
+					.currentRevision,
+			).toMatchObject({ id: made.revision.id, content: made.revision.content });
+			expect(
+				(await c.org1.outputs.history({ outputId: made.output.id })).revisions,
+			).toHaveLength(1);
+		},
+	);
+
+	it("refuses malformed Markdown and metadata before normalization or storage", async () => {
+		const workspaceId = await homeWorkspaceId(c.env);
+		for (const [input, path] of [
+			[{ content: "# \uD800" }, "content"],
+			[{ title: "\uDC00" }, "title"],
+			[{ note: "\uD800" }, "note"],
+		] as const) {
+			await expect(
+				c.org1.outputs.create({
+					workspaceId,
+					kind: "document",
+					title: "Whole",
+					...input,
+				}),
+			).rejects.toMatchObject(refusal(path));
+		}
+		expect((await c.org1.outputs.list({ workspaceId })).items).toHaveLength(0);
+	});
+
+	it.each(["document", "sheet", "presentation"] as const)(
+		"refuses %s granular and editor patches atomically",
+		async (kind) => {
+			const made = await c.org1.outputs.create({
+				workspaceId: await homeWorkspaceId(c.env),
+				kind,
+				title: "Whole",
+				content: body(kind, "😀"),
+			});
+			const outputId = made.output.id;
+			for (const half of ["\uD800", "\uDC00"]) {
+				if (kind === "document")
+					await expect(
+						c.org1.outputs.patchDocument({
+							outputId,
+							ops: [
+								{
+									op: "replace",
+									index: 0,
+									block: { type: "paragraph", text: half },
+								},
+							],
+						}),
+					).rejects.toMatchObject(refusal("ops[0].block.text"));
+				else if (kind === "presentation")
+					await expect(
+						c.org1.outputs.patchSlides({
+							outputId,
+							ops: [{ op: "replace", index: 0, slide: { title: half } }],
+						}),
+					).rejects.toMatchObject(refusal("ops[0].slide.title"));
+				else
+					await expect(
+						c.org1.outputs.setSheetRange({
+							outputId,
+							startRow: 0,
+							startColumn: 0,
+							cells: [[half]],
+						}),
+					).rejects.toMatchObject(refusal("cells[0][0]"));
+				await expect(
+					c.org1.outputs.patch({
+						outputId,
+						baseRevision: 1,
+						patch: {
+							kind,
+							ops: [
+								{
+									op: "set",
+									path:
+										kind === "sheet"
+											? ["rows", 0, 0]
+											: kind === "document"
+												? ["richText", "content", 0, "content", 0, "text"]
+												: ["slides", 0, "title"],
+									value: half,
+								},
+							],
+						},
+					}),
+				).rejects.toMatchObject(refusal("patch.ops[0].value"));
+			}
+			expect(
+				(await c.org1.outputs.get({ outputId })).currentRevision,
+			).toMatchObject({ id: made.revision.id, content: made.revision.content });
+			expect(
+				(await c.org1.outputs.history({ outputId })).revisions,
+			).toHaveLength(1);
+		},
+	);
+
+	it.each(["document", "sheet", "presentation"] as const)(
+		"refuses %s collaboration create and preview without storing changes",
+		async (kind) => {
+			const workspaceId = await homeWorkspaceId(c.env);
+			const made = await c.org1.outputs.create({
+				workspaceId,
+				kind,
+				title: "Whole",
+				content: body(kind, "😀"),
+			});
+			const input = {
+				workspaceId,
+				documentType: "output" as const,
+				documentId: made.output.id,
+				sourceKind: "agent_session" as const,
+				sourceId: "codex:session-1",
+			};
+			await expect(
+				c.machineAgent.collaboration.create({
+					...input,
+					content: body(kind, "\uD800"),
+				}),
+			).rejects.toMatchObject(refusal(field(kind)));
+			expect(
+				(await c.org1.collaboration.list({ workspaceId })).items,
+			).toHaveLength(0);
+			const { proposal } = await c.machineAgent.collaboration.create({
+				...input,
+				content: body(kind, "😀"),
+			});
+			await expect(
+				c.machineAgent.collaboration.updatePreview({
+					proposalId: proposal.id,
+					expectedSequence: 0,
+					content: body(kind, "\uDC00"),
+				}),
+			).rejects.toMatchObject(refusal(field(kind)));
+			expect(
+				(await c.org1.collaboration.get({ proposalId: proposal.id })).proposal,
+			).toMatchObject({ sequence: 0, content: proposal.content });
+			expect(
+				(await c.org1.outputs.history({ outputId: made.output.id })).revisions,
+			).toHaveLength(1);
 		},
 	);
 });

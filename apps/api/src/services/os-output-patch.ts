@@ -1,3 +1,4 @@
+import { requireSavableText } from "../lib/savable-text";
 /**
  * Save part of a file as its next revision. One routine serves a signed-in
  * member and a share-link visitor allowed to edit: the caller says who is
@@ -90,6 +91,7 @@ export async function saveOsOutputPatch(
 	db: DbQueryClient,
 	input: OsOutputPatchSave,
 ) {
+	requireSavableText({ patch: input.patch, note: input.note });
 	let output = input.output;
 	const { creator, producer, accessEnvelope } = input;
 	const conflict = (currentRevision: number | null, parts?: string[]) =>

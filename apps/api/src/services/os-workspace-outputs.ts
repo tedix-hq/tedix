@@ -1,3 +1,4 @@
+import { requireSavableText } from "../lib/savable-text";
 import { confirmWorkspaceFileResource } from "./workspace-resource-storage";
 import {
 	createInitializedWorkspace,
@@ -57,6 +58,14 @@ async function storeRevisionBody(
 	bucket: OutputStorageBucket,
 	revision: { organizationId: string; outputId: string; content: string },
 ) {
+	let decoded: unknown = revision.content;
+	try {
+		decoded = JSON.parse(revision.content);
+	} catch {
+		// Existing callers also store plain text bodies.
+	}
+	// JSON escapes preserve lone surrogates; inspect before any body or asset write.
+	requireSavableText({ content: decoded });
 	const content = await externalizeOutputAssets(
 		{ organizationId: revision.organizationId, outputId: revision.outputId },
 		revision.content,

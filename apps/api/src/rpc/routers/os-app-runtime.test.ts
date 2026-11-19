@@ -1143,6 +1143,68 @@ describe("workspace app runtime API under attack", () => {
 		args: null,
 	});
 
+	it.each(["outputs.write", "outputs.patch"] as const)(
+		"refuses half characters in signed-in editor %s without a revision",
+		async (operation) => {
+			const f = await fixture();
+			await grantAll(f.db);
+			if (operation === "outputs.patch") {
+				const [row] = await f.db
+					.select()
+					.from(osGadgetRevisions)
+					.where(eq(osGadgetRevisions.id, revisionId));
+				const manifest = JSON.parse(row!.manifest);
+				manifest.resourceGrants[0].operations.push("outputs.patch");
+				await f.db
+					.update(osGadgetRevisions)
+					.set({ manifest: JSON.stringify(manifest) })
+					.where(eq(osGadgetRevisions.id, revisionId));
+			}
+			await seedOutput(f.db);
+			const { session } = await f.client.open(scope);
+			const internal = internalClient(f);
+			for (const half of ["\uD800", "\uDC00"]) {
+				const args =
+					operation === "outputs.write"
+						? {
+								content: {
+									kind: "document",
+									blocks: [{ type: "paragraph", text: half }],
+								},
+								expectedRevision: 1,
+							}
+						: {
+								kind: "document",
+								expectedRevision: 1,
+								ops: [
+									{
+										op: "replace",
+										index: 0,
+										block: { type: "paragraph", text: half },
+									},
+								],
+							};
+				await expect(
+					internal.capability({ session, operation, slot: "sheet", args }),
+				).rejects.toMatchObject({
+					code: "BAD_REQUEST",
+					message: expect.stringContaining(
+						`${operation === "outputs.write" ? "content.blocks[0].text" : "ops[0].block.text"} holds half of a character`,
+					),
+				});
+			}
+			expect(await internal.capability(read(session))).toMatchObject({
+				revision: { id: outputRevisionId, revision: 1, content: document },
+			});
+			expect(
+				await outputDb(f.db)
+					.select()
+					.from(osOutputRevisions)
+					.where(eq(osOutputRevisions.outputId, outputId)),
+			).toHaveLength(1);
+		},
+	);
+
 	it("recomputes access on every call and capability after a member leaves", async () => {
 		const f = await fixture();
 		await seedOutput(f.db);

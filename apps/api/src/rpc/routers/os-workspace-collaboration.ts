@@ -1,3 +1,4 @@
+import { requireSavableText } from "../../lib/savable-text";
 import { validateAppSource } from "../../services/os-app-validation";
 import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
 import { serviceBindingFetch } from "@tedix/api-client/internal";
@@ -91,6 +92,7 @@ async function validateProposalContent(
 	>,
 	content: JsonValue,
 ): Promise<unknown> {
+	requireSavableText({ content });
 	if (proposal.documentType === "gadget") {
 		await requireGadget(context, proposal.workspaceId, proposal.documentId);
 		// A runtime app's draft carries its files beside the manifest; every
@@ -168,6 +170,7 @@ const collaborationGet = readOs.collaboration.get.handler(
 
 const collaborationCreate = authorOs.collaboration.create.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		await requireWorkspace(context, input.workspaceId);
 		const content = await validateProposalContent(
 			context,
@@ -242,6 +245,7 @@ const collaborationCreate = authorOs.collaboration.create.handler(
 
 const collaborationUpdatePreview = authorOs.collaboration.updatePreview.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		const proposal = await requireCollaborationProposal(
 			context,
 			input.proposalId,
@@ -402,6 +406,7 @@ const collaborationReject = authorOs.collaboration.reject.handler(
 
 const collaborationMerge = authorOs.collaboration.merge.handler(
 	async ({ input, context }) => {
+		requireSavableText(input);
 		const proposal = await requireCollaborationProposal(
 			context,
 			input.proposalId,

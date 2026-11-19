@@ -1726,6 +1726,34 @@ describe("a link that lets invited people edit", () => {
 		return { ...h, linkId: seeded.id, sessionToken, save, revisions };
 	}
 
+	it("refuses half characters in an invited editor save without storing a revision", async () => {
+		const { save, revisions, db, sessionToken } = await visitor();
+		for (const half of ["\uD800", "\uDC00"]) {
+			const response = await save({
+				patch: {
+					kind: "sheet",
+					ops: [{ op: "set", path: ["rows", 0, 0], value: half }],
+				},
+			});
+			expect(response.status).toBe(400);
+			expect(await response.json()).toMatchObject({
+				code: "BAD_REQUEST",
+				message: expect.stringContaining(
+					"patch.ops[0].value holds half of a character",
+				),
+			});
+		}
+		expect(await revisions()).toHaveLength(1);
+		expect(
+			await (
+				await handleGuestAppRevision(db, {
+					sessionToken,
+					slot: "opportunities",
+				})
+			).json(),
+		).toMatchObject({ revision: { revision: 1, content: { rows: [[1]] } } });
+	});
+
 	it("saves an invited visitor's change under their share session, and the app's own code stays read-only", async () => {
 		const { db, env, sessionToken, save, revisions } = await visitor();
 		const opened = (await (
