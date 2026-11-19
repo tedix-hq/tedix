@@ -6,6 +6,10 @@ import type { ServerContext } from "./server-context";
 import { buildMcpServer, type CachedAppData } from "./server-factory";
 import { clientSupportsMcpApps } from "./client-apps-capability";
 
+vi.mock("./code-run-admission", () => ({
+	admitCodeModeRun: vi.fn(async () => ({ allowed: true })),
+}));
+
 vi.mock("../lib/api-client", () => ({
 	getApiClient: () => ({
 		skills: { listByApp: async () => ({ skills: [] }) },

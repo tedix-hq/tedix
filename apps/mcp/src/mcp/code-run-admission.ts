@@ -1,0 +1,65 @@
+/**
+ * Code runs cost one Tedix credit each. Every Code Mode program and every
+ * stored code-transport tool runs in a dynamic Worker; before one starts, the
+ * organization credit pool must admit it. The execution id keys the charge, so
+ * a retried execution is charged once.
+ */
+
+import { CODE_RUN_CREDITS } from "@tedix/api-contract/utils/credit-pricing";
+import { createDbClient } from "@tedix/db/client";
+import { admitCodeRun } from "@tedix/db/queries/billing/credit-pool";
+import type { CallerIdentity } from "./caller-identity";
+
+export type CodeRunAdmission =
+	| { allowed: true }
+	| { allowed: false; code: string; message: string };
+
+const REFUSAL_MESSAGES: Record<string, string> = {
+	billing_not_configured:
+		"Code runs are unavailable: billing is not configured for this organization.",
+	subscription_inactive:
+		"Code runs are paused: the organization's subscription needs attention.",
+	billing_period_inactive:
+		"Code runs are paused: the organization's billing period needs to be renewed.",
+	monthly_credit_limit_reached:
+		"This month's Tedix credits are used up. An admin can buy a top-up or turn on pay-as-you-go.",
+	tedi_monthly_credit_cap_reached:
+		"This tedi reached the monthly credit cap an admin set for it.",
+	member_monthly_credit_cap_reached:
+		"You reached the monthly credit cap an admin set for you.",
+};
+
+export function codeRunRefusalMessage(code: string): string {
+	return `${REFUSAL_MESSAGES[code] ?? "This code run was not admitted."} (${code})`;
+}
+
+/** Admit and charge one code run before its dynamic Worker starts. */
+export async function admitCodeModeRun(input: {
+	env: { DB?: D1Database };
+	organizationId: string | null | undefined;
+	executionId: string;
+	caller: CallerIdentity | undefined;
+	nowMs?: number;
+}): Promise<CodeRunAdmission> {
+	const organizationId =
+		input.organizationId ?? input.caller?.organizationId ?? null;
+	const refuse = (code: string): CodeRunAdmission => ({
+		allowed: false,
+		code,
+		message: codeRunRefusalMessage(code),
+	});
+	if (!organizationId || !input.env.DB) return refuse("billing_not_configured");
+	const caller = input.caller;
+	const tediId = caller?.authType === "tedi" ? (caller.tediId ?? null) : null;
+	const userId =
+		caller && caller.authType !== "tedi" ? (caller.userId ?? null) : null;
+	const decision = await admitCodeRun(createDbClient(input.env.DB), {
+		organizationId,
+		executionId: input.executionId,
+		tediId,
+		userId,
+		credits: CODE_RUN_CREDITS,
+		now: new Date(input.nowMs ?? Date.now()).toISOString(),
+	});
+	return decision.allowed ? { allowed: true } : refuse(decision.code);
+}

@@ -1,6 +1,7 @@
 import { type ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { isCodeModeAvailable } from "@tedix/mcp-shared/codemode";
 import { withModelAuthoredCodeIsolation } from "@tedix/tedi-codemode-core/model-authored-code-loader";
+import { admitCodeModeRun } from "./code-run-admission";
 import { getByPath } from "./handlers/path-utils";
 import type { ToolExecutionContext, RpcToolResult } from "./handler";
 
@@ -22,6 +23,20 @@ export async function executeCodeTransport(
 				error: "Code transport requires LOADER binding (Dynamic Workers)",
 			},
 			status: 501,
+		};
+	}
+
+	// Each stored-code run starts a dynamic Worker and costs one credit.
+	const admission = await admitCodeModeRun({
+		env: ctx.env,
+		organizationId: ctx.app.organizationId,
+		executionId: ctx.executionId ?? ctx.requestId,
+		caller: ctx.callerIdentity,
+	});
+	if (!admission.allowed) {
+		return {
+			data: { error: admission.message, code: admission.code },
+			status: 402,
 		};
 	}
 

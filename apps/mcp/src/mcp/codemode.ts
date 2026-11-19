@@ -19,6 +19,7 @@ import {
 	type McpServer,
 	type ServerContext as McpCtx,
 } from "@modelcontextprotocol/server";
+import { admitCodeModeRun } from "./code-run-admission";
 import { type ServerContext } from "./server-context";
 import {
 	isCodeModeAvailable,
@@ -722,6 +723,33 @@ export async function registerCodeModeTools(
 				executionRefs.skillWorkflowRunIds.clear();
 				executionRefs.readObservations = [];
 				executionRefs.collectionReads = [];
+				// A program runs in a dynamic Worker and costs one credit; a
+				// structured read calls one tool directly and starts no Worker.
+				if (!structuredRead) {
+					const admission = await admitCodeModeRun({
+						env: serverCtx.env,
+						organizationId,
+						executionId,
+						caller: serverCtx.callerIdentity,
+					});
+					if (!admission.allowed) {
+						emitExecTelemetry(false, admission.message);
+						return {
+							content: [
+								{
+									type: "text" as const,
+									text: `Execution error: ${admission.message}`,
+								},
+							],
+							isError: true,
+							structuredContent: {
+								executionId,
+								error: admission.message,
+								code: admission.code,
+							},
+						};
+					}
+				}
 				// Workers custom spans are beta: diagnostic timing only, never an
 				// SLO gate or proof artifact. IDs identify the execution; code and
 				// returned values stay out of span attributes.
