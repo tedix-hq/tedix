@@ -38,13 +38,10 @@ describe("runtime entitlements", () => {
 			version: 7,
 			status: "active",
 			name: "Developer",
-			includedMonthlyTokens: 100_000,
-			overageUnitPriceMicros: 50_000,
+			includedMonthlyCredits: 500,
 			maxTedis: 2,
 			maxCronJobsPerTedi: 5,
 			maxIterationsPerTask: 12,
-			defaultDailyTokenLimit: 20_000,
-			defaultDailyMessageLimit: 50,
 			effectiveAt: START,
 			createdAt: START,
 		});
@@ -75,12 +72,10 @@ describe("runtime entitlements", () => {
 			effectivePeriod: { startsAt: START, endsAt: END },
 			profile: { key: "starter", name: "Developer" },
 			limits: {
-				includedMonthlyTokens: 100_000,
+				includedMonthlyCredits: 500,
 				maxTedis: 2,
 				maxCronJobsPerTedi: 5,
 				maxIterationsPerTask: 12,
-				defaultDailyTokenLimit: 20_000,
-				defaultDailyMessageLimit: 50,
 			},
 			grants: [
 				{ key: "browser-runtime", status: "active", source: "operator" },

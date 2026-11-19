@@ -14,9 +14,9 @@
  *
  * Two consequences of batching, both deliberate:
  *
- * - The entitlement's `defaultDailyTokenLimit` already comes from the plan
- *   version, so the policy resolver's own read of those rows is not just
- *   serialized here, it is redundant. It is gone rather than batched.
+ * - The entitlement read already proves the billing account exists, so the
+ *   policy resolver's own account read is redundant here. It is gone rather
+ *   than batched.
  * - Reads that the serial version would have skipped now always run: an
  *   organization with no billing account still reads its policy row, and a tedi
  *   that fails the ownership check still reads its policy row. Those are the
@@ -119,10 +119,7 @@ export async function getInferenceAdmissionReads(
 	const entitlement = runtimeEntitlementFromRow(entitlementRows[0]);
 	if (!entitlement) return { entitlement: null, policies: null, ...preflight };
 
-	const organization = organizationInferencePolicy(
-		entitlement.limits.defaultDailyTokenLimit,
-		organizationRows[0],
-	);
+	const organization = organizationInferencePolicy(organizationRows[0]);
 	if (tediId == null)
 		return {
 			entitlement,

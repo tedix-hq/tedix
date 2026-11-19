@@ -173,10 +173,6 @@ export const tenancyRelations = defineRelationsPart(schema, (r) => ({
 			from: r.organizations.id,
 			to: r.billingServiceCreditControls.organizationId,
 		}),
-		billingServiceCreditEntries: r.many.billingServiceCreditEntries({
-			from: r.organizations.id,
-			to: r.billingServiceCreditEntries.organizationId,
-		}),
 		billingServiceCreditReservations: r.many.billingServiceCreditReservations({
 			from: r.organizations.id,
 			to: r.billingServiceCreditReservations.organizationId,

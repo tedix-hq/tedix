@@ -45,8 +45,6 @@ export async function assignInternalPlan(
 		throw new Error("Internal assignment refuses externally billed accounts");
 	}
 	const plan = await requireActiveBillingPlan(db, input.planKey, now);
-	if (plan.overageUnitPriceMicros !== 0 || plan.metadata.monetaryInference)
-		throw new Error("Internal assignment requires a zero-priced overage plan");
 	const end = new Date(now);
 	end.setUTCMonth(end.getUTCMonth() + 1);
 	const metadata = {

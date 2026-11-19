@@ -1,80 +1,57 @@
-import type { CoreStoreBinding } from "../postgres/core-store";
-import type { PgQueryClient } from "../../pg/query-client";
-import {
-	buildProviderExecutionInsertStatement,
-	providerExecutionGuardPredicate,
-	providerExecutionRetryPredicate,
-	type ProviderExecutionAdmissionGuard,
-} from "../provider-executions";
-import type { NewProviderExecutionAttemptRow } from "../../schema/provider-executions";
-/** Canonical billing reservations queries. */
+/**
+ * AI admission against the organization credit pool.
+ *
+ * Before a provider call, the estimated provider cost (governed provider
+ * rates, USD) is converted to EUR at the plan's pinned reference rate and
+ * doubled: credits = ceil(cost in EUR x 2 / EUR 0.01). Those credits are held
+ * on the reservation until settlement replaces them with the actual cost.
+ */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	autoRoutedPricingIdentity,
 	readProviderExecutionIdentity,
 } from "@tedix/api-contract/schemas/provider-execution";
-import {
-	and,
-	asc,
-	desc,
-	eq,
-	inArray,
-	lte,
-	type SQL,
-	type SQLWrapper,
-	sql,
-} from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { aiCreditsForProviderCost } from "@tedix/api-contract/utils/credit-pricing";
+import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
-	type BillingAccountStatus,
-	type BillingPlanVersion,
 	type BillingReservationStatus,
 	type BillingUsageReservation,
 	type BillingUsageSource,
 	anyBillingReservation,
-	billingUsageReservations,
-	billingPlanVersions,
 	billingAccounts,
-	billingCapacityAllocations,
-	billingUsageCharges,
-	billingUsagePeriods,
+	billingPlanVersions,
+	billingUsageReservations,
 } from "../../schema/billing";
-
+import type { NewProviderExecutionAttemptRow } from "../../schema/provider-executions";
+import { computeCostMicros } from "../../utils/model-pricing";
 import {
-	type BillingBalanceSnapshot,
-	getBillingBalanceSnapshot,
-} from "./credits";
-import { effectiveAllowOverageSql } from "./overage";
-import { reservationUsedTokensSql } from "./usage-tokens";
-import { liveAtSql, sameUtcDaySql } from "./usage-window";
+	buildProviderExecutionInsertStatement,
+	type ProviderExecutionAdmissionGuard,
+	providerExecutionGuardPredicate,
+	providerExecutionRetryPredicate,
+} from "../provider-executions";
 import {
-	estimateMonetaryInference,
-	monetaryInferenceConfig,
-	monetaryPeriodSpendSql,
-	verifyMonetaryQuoteReceipt,
-} from "./monetary-inference";
-
-const ACTIVE_BILLING_STATUSES: BillingAccountStatus[] = ["trial", "active"];
+	type CreditPoolSnapshot,
+	type CreditRefusalCode,
+	buildCreditCapacitySelect,
+	buildCreditPoolSelect,
+	creditAdmissionPredicate,
+	creditRefusalReason,
+	getCreditPoolSnapshot,
+	parseCreditFx,
+} from "./credit-pool";
+import { findProviderModelRates } from "./provider-model-rates";
 
 export async function listBillingUsageReservations(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	params: {
 		organizationId: string;
 		status?: BillingReservationStatus;
-		monetaryCurrency?: string;
 		limit?: number;
 	},
 ): Promise<BillingUsageReservation[]> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing-reservations")
-			).listBillingUsageReservations(db.db, params);
-		db = db.db;
-	}
-
 	return db
 		.select()
 		.from(billingUsageReservations)
@@ -84,247 +61,10 @@ export async function listBillingUsageReservations(
 				params.status
 					? eq(billingUsageReservations.status, params.status)
 					: undefined,
-				params.monetaryCurrency
-					? sql`json_extract(${billingUsageReservations.metadata}, '$.monetaryQuote.rateSnapshot.customerCurrency') = ${params.monetaryCurrency}`
-					: undefined,
 			),
 		)
 		.orderBy(desc(billingUsageReservations.createdAt))
 		.limit(params.limit ?? 100);
-}
-
-/** Monthly metering is the paid account's capacity authority. */
-export function usesMonthlyInferenceCapacity(input: {
-	status: string;
-	allowOverage: boolean;
-	billingMode: string;
-	stripeCustomerId: string | null;
-	isSponsoredCustomer?: boolean;
-}): boolean {
-	return (
-		input.status === "active" &&
-		input.allowOverage &&
-		((input.billingMode === "internal" && !input.isSponsoredCustomer) ||
-			input.billingMode === "invoice" ||
-			(input.billingMode === "stripe" && input.stripeCustomerId !== null))
-	);
-}
-
-async function aiGatewayLimitExceeded(
-	db: DbClient,
-	input: {
-		organizationId: string;
-		tediId?: string | null;
-		now: string;
-		estimatedTokens: number;
-		limits: NonNullable<
-			Parameters<typeof reserveBillingUsage>[1]["aiGatewayLimits"]
-		>;
-		stripeEnvironment: "test" | "live";
-		monthlyFirst: boolean;
-	},
-): Promise<boolean> {
-	const account = alias(billingAccounts, "account");
-	const plan = alias(billingPlanVersions, "plan");
-	const period = alias(billingUsagePeriods, "period");
-	const reservation = alias(billingUsageReservations, "reservation");
-	const tediId = input.tediId ?? null;
-	/** Sum of one scalar subquery, or 0 when it matches no rows. */
-	const total = (subquery: SQLWrapper) => sql<number>`COALESCE(${subquery}, 0)`;
-	const dayTokens = (tediFilter?: SQL) =>
-		db
-			.select({ tokens: sql`SUM(${reservationUsedTokensSql("reservation")})` })
-			.from(reservation)
-			.where(
-				and(
-					eq(reservation.organizationId, account.organizationId),
-					tediFilter,
-					sameUtcDaySql("reservation.created_at", input.now),
-					sql`${reservation.status} IN ('reserved', 'settled')`,
-					sql`(${reservation.status} = 'settled' OR ${liveAtSql("reservation.expires_at", input.now)})`,
-				),
-			);
-	const daySpend = (alias: string, tediFilter: boolean) => {
-		const spend = db
-			.select({
-				spendMicros:
-					sql<number>`${billingUsageReservations.estimatedChargeMicros}`.as(
-						"spend_micros",
-					),
-			})
-			.from(billingUsageReservations)
-			.where(
-				and(
-					eq(billingUsageReservations.organizationId, account.organizationId),
-					tediFilter
-						? sql`${billingUsageReservations.tediId} = ${tediId}`
-						: undefined,
-					sameUtcDaySql("created_at", input.now),
-					sql`${billingUsageReservations.status} = 'reserved'`,
-					liveAtSql("expires_at", input.now),
-				),
-			)
-			.unionAll(
-				db
-					.select({
-						spendMicros:
-							sql<number>`${billingUsageCharges.providerCostMicros}`.as(
-								"spend_micros",
-							),
-					})
-					.from(billingUsageCharges)
-					.where(
-						and(
-							eq(billingUsageCharges.organizationId, account.organizationId),
-							tediFilter
-								? sql`${billingUsageCharges.tediId} = ${tediId}`
-								: undefined,
-							sameUtcDaySql("occurred_at", input.now),
-						),
-					),
-			)
-			.as(alias);
-		return db.select({ total: sql`SUM(${spend.spendMicros})` }).from(spend);
-	};
-	const dayCapacity = (amount: SQL) =>
-		db
-			.select({ total: sql`SUM(${amount})` })
-			.from(billingCapacityAllocations)
-			.where(
-				and(
-					eq(billingCapacityAllocations.organizationId, account.organizationId),
-					sql`${billingCapacityAllocations.budgetDay} = substr(${input.now}, 1, 10)`,
-					eq(
-						billingCapacityAllocations.stripeEnvironment,
-						input.stripeEnvironment,
-					),
-					liveAtSql("expires_at", input.now),
-				),
-			);
-	const usage = db.$with("usage").as(
-		db
-			.select({
-				organizationId: account.organizationId,
-				includedMonthlyTokens: plan.includedMonthlyTokens,
-				overageUnitTokens: plan.overageUnitTokens,
-				overageUnitPriceMicros: plan.overageUnitPriceMicros,
-				usedTokens:
-					sql<number>`COALESCE(${period.usedInputTokens} + ${period.usedOutputTokens}, 0)`.as(
-						"used_tokens",
-					),
-				reservedTokens: total(
-					db
-						.select({
-							tokens: sql`SUM(${billingUsageReservations.estimatedInputTokens} + ${billingUsageReservations.estimatedOutputTokens})`,
-						})
-						.from(billingUsageReservations)
-						.where(
-							and(
-								eq(
-									billingUsageReservations.organizationId,
-									account.organizationId,
-								),
-								sql`${billingUsageReservations.status} = 'reserved'`,
-								liveAtSql("expires_at", input.now),
-								eq(billingUsageReservations.periodStart, account.periodStart),
-								eq(billingUsageReservations.periodEnd, account.periodEnd),
-							),
-						),
-				).as("reserved_tokens"),
-				organizationDayTokens: total(dayTokens()).as("organization_day_tokens"),
-				organizationDaySpendMicros: total(
-					daySpend("organization_spend", false),
-				).as("organization_day_spend_micros"),
-				organizationDayCapacityTokens: total(
-					dayCapacity(sql`${billingCapacityAllocations.tokenAmount}`),
-				).as("organization_day_capacity_tokens"),
-				organizationDayCapacitySpendMicros: total(
-					dayCapacity(sql`${billingCapacityAllocations.spendAmountMicros}`),
-				).as("organization_day_capacity_spend_micros"),
-				tediDayTokens: total(
-					dayTokens(sql`${reservation.tediId} = ${tediId}`),
-				).as("tedi_day_tokens"),
-				tediDaySpendMicros: total(daySpend("tedi_spend", true)).as(
-					"tedi_day_spend_micros",
-				),
-			})
-			.from(account)
-			.innerJoin(plan, eq(plan.id, account.planVersionId))
-			.leftJoin(
-				period,
-				and(
-					eq(period.organizationId, account.organizationId),
-					eq(period.periodStart, account.periodStart),
-					eq(period.periodEnd, account.periodEnd),
-				),
-			)
-			.where(eq(account.organizationId, input.organizationId)),
-	);
-	const projected = sql`${usage.usedTokens} + ${usage.reservedTokens} + ${input.estimatedTokens}`;
-	const [row] = await db
-		.with(usage)
-		.select({
-			organizationDayTokens: usage.organizationDayTokens,
-			organizationDaySpendMicros: usage.organizationDaySpendMicros,
-			organizationDayCapacityTokens: usage.organizationDayCapacityTokens,
-			organizationDayCapacitySpendMicros:
-				usage.organizationDayCapacitySpendMicros,
-			tediDayTokens: usage.tediDayTokens,
-			tediDaySpendMicros: usage.tediDaySpendMicros,
-			estimatedChargeMicros: sql<number>`CASE
-				WHEN ${usage.includedMonthlyTokens} < 0 OR
-					${projected} <= ${usage.includedMonthlyTokens}
-					THEN 0
-				WHEN ${usage.overageUnitPriceMicros} <= 0 THEN 0
-				ELSE (
-					CAST((MAX(${projected} - ${usage.includedMonthlyTokens}, 0) + ${usage.overageUnitTokens} - 1) / ${usage.overageUnitTokens} AS INTEGER) -
-					CAST((MAX(${usage.usedTokens} + ${usage.reservedTokens} - ${usage.includedMonthlyTokens}, 0) + ${usage.overageUnitTokens} - 1) / ${usage.overageUnitTokens} AS INTEGER)
-				) * ${usage.overageUnitPriceMicros}
-			END`,
-		})
-		.from(usage);
-	if (!row) return false;
-	const limitExceeded = (usage: number, increment: number, limit?: number) =>
-		limit !== undefined && usage + increment > limit;
-	return (
-		(!input.monthlyFirst &&
-			limitExceeded(
-				Number(row.organizationDayTokens),
-				input.estimatedTokens,
-				input.limits.organizationDailyTokenLimit === undefined
-					? undefined
-					: input.limits.organizationDailyTokenLimit +
-							Number(row.organizationDayCapacityTokens),
-			)) ||
-		(!input.monthlyFirst &&
-			limitExceeded(
-				Number(row.organizationDaySpendMicros),
-				Number(row.estimatedChargeMicros),
-				input.limits.organizationDailySpendLimitMicros === undefined
-					? undefined
-					: input.limits.organizationDailySpendLimitMicros +
-							Number(row.organizationDayCapacitySpendMicros),
-			)) ||
-		// Mirrors the INSERT deliberately: org capacity may raise a tedi ceiling,
-		// never lower it. Both copies used to apply it signed, so a negative
-		// org allocation lowered every tedi limit with it.
-		limitExceeded(
-			Number(row.tediDayTokens),
-			input.estimatedTokens,
-			input.limits.tediDailyTokenLimit === undefined
-				? undefined
-				: input.limits.tediDailyTokenLimit +
-						Math.max(0, Number(row.organizationDayCapacityTokens)),
-		) ||
-		limitExceeded(
-			Number(row.tediDaySpendMicros),
-			Number(row.estimatedChargeMicros),
-			input.limits.tediDailySpendLimitMicros === undefined
-				? undefined
-				: input.limits.tediDailySpendLimitMicros +
-						Math.max(0, Number(row.organizationDayCapacitySpendMicros)),
-		)
-	);
 }
 
 export type BillingReservationDecision =
@@ -332,23 +72,13 @@ export type BillingReservationDecision =
 			allowed: true;
 			reservation: Pick<
 				BillingUsageReservation,
-				"id" | "planVersionId" | "expiresAt" | "estimatedChargeMicros"
+				"id" | "planVersionId" | "expiresAt" | "credits"
 			>;
 	  }
 	| {
 			allowed: false;
-			code:
-				| "billing_not_configured"
-				| "subscription_inactive"
-				| "billing_period_inactive"
-				| "monthly_allowance_exhausted"
-				| "payment_required"
-				| "hard_spend_limit"
-				| "inference_capacity_exhausted"
-				| "pricing_unavailable"
-				| "credit_allowance_exhausted";
-			// Monetary plans never fall back to token-priced admission.
-			snapshot: BillingBalanceSnapshot | null;
+			code: CreditRefusalCode | "pricing_unavailable";
+			snapshot: CreditPoolSnapshot | null;
 	  };
 
 export interface BillingReservationFreshness {
@@ -362,21 +92,12 @@ export interface BillingReservationFreshness {
  * the Gateway ledger should subsequently advance. Rejected admission creates
  * no row and therefore cannot produce a false metering-dark signal.
  *
- * Reads one row: the last entry of idx_billing_reservation_newest. The check
- * needs the newest reservation and whether there is one at all, not how many.
+ * Reads one row: the last entry of idx_billing_reservation_newest.
  */
 export async function getBillingReservationFreshness(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	nowMs: number,
 ): Promise<BillingReservationFreshness> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing-reservations")
-			).getBillingReservationFreshness(db.db, nowMs);
-		db = db.db;
-	}
-
 	const iso30d = new Date(nowMs - 30 * 24 * 60 * 60 * 1000).toISOString();
 	const rows = await db
 		.select({ maxCreatedAt: billingUsageReservations.createdAt })
@@ -400,7 +121,7 @@ export interface BillingReservationPreflightInput {
 
 export interface BillingReservationPreflight extends BillingReservationPreflightInput {
 	existing: BillingUsageReservation | undefined;
-	plan: Pick<BillingPlanVersion, "id" | "currency" | "metadata"> | undefined;
+	plan: { id: string; creditFx: unknown } | undefined;
 }
 
 /** Compose fresh replay and pricing reads into the caller's admission batch. */
@@ -408,15 +129,8 @@ export function buildBillingReservationPreflightStatements(
 	db: DbClient,
 	input: BillingReservationPreflightInput,
 ) {
-	// Scoped by organization as well as key. `uniq_billing_reservation_idempotency`
-	// is global, so today every caller builds a key that already implies one org
-	// (`seo:{orgId}:…`, `kernel-inference:{uuid}`) and a collision cannot happen —
-	// this is defence in depth, not a live hole. It matters because of the failure
-	// mode if that ever stops holding: an unscoped read would hand org A org B's
-	// reservation row and return `allowed: true` WITHOUT reserving anything
-	// against A's balance — a silent cross-tenant billing bypass. With the org
-	// pinned, the same collision instead falls through to the insert and trips the
-	// unique index, which fails loudly rather than granting free usage.
+	// Scoped by organization as well as key: an unscoped read could hand one
+	// organization another's reservation and admit without reserving anything.
 	const existingStatement = db
 		.select()
 		.from(billingUsageReservations)
@@ -435,8 +149,7 @@ export function buildBillingReservationPreflightStatements(
 	const planStatement = db
 		.select({
 			id: billingPlanVersions.id,
-			currency: billingPlanVersions.currency,
-			metadata: billingPlanVersions.metadata,
+			creditFx: billingPlanVersions.creditFx,
 		})
 		.from(billingAccounts)
 		.innerJoin(
@@ -448,17 +161,98 @@ export function buildBillingReservationPreflightStatements(
 	return [existingStatement, planStatement] as const;
 }
 
-/** Atomically checks current capacity and reserves one provider inference. */
+/**
+ * Estimated provider cost of one call in USD micros from the one governed
+ * rate that applies. Input tokens are priced at the dearer of uncached input
+ * and cache write until the provider reports the real split.
+ */
+export async function estimateProviderCostMicros(
+	db: DbClient,
+	input: {
+		provider: string;
+		modelId: string;
+		deploymentScope: string;
+		estimatedInputTokens: number;
+		estimatedOutputTokens: number;
+		now: string;
+	},
+): Promise<number> {
+	const rates = await findProviderModelRates(db, {
+		provider: input.provider,
+		modelId: input.modelId,
+		deploymentScope: input.deploymentScope,
+		occurredAt: input.now,
+		inputTokens: input.estimatedInputTokens,
+	});
+	if (rates.length !== 1)
+		throw new Error("Provider pricing is unavailable or ambiguous");
+	const rate = rates[0]!;
+	const cost = computeCostMicros(rate, {
+		inputTokens: input.estimatedInputTokens,
+		outputTokens: input.estimatedOutputTokens,
+		cacheReadTokens: 0,
+		cacheWriteTokens:
+			rate.cacheWriteMicrousdPerMillion > rate.inputMicrousdPerMillion
+				? input.estimatedInputTokens
+				: 0,
+	});
+	if (cost === null) throw new Error("Provider cost estimate is invalid");
+	return Number(cost);
+}
+
+/** Credits to hold for one AI call, or null when it cannot be priced. */
+export async function estimateAiCredits(
+	db: DbClient,
+	input: {
+		creditFx: unknown;
+		provider: string;
+		model: string;
+		execution?: NewProviderExecutionAttemptRow;
+		deploymentScope?: string;
+		estimatedInputTokens: number;
+		estimatedOutputTokens: number;
+		now: string;
+	},
+): Promise<number | null> {
+	try {
+		const fx = parseCreditFx(input.creditFx);
+		if (!fx) return null;
+		const autoRouted = input.execution
+			? autoRoutedPricingIdentity(
+					readProviderExecutionIdentity(input.execution),
+				)
+			: null;
+		if (input.model === "cloudflare/auto" && !autoRouted) return null;
+		const deploymentScope =
+			autoRouted?.deploymentScope ??
+			input.execution?.deploymentScope ??
+			input.deploymentScope;
+		if (!deploymentScope) return null;
+		const cost = await estimateProviderCostMicros(db, {
+			provider: input.provider,
+			modelId: autoRouted?.modelId ?? input.model,
+			deploymentScope,
+			estimatedInputTokens: input.estimatedInputTokens,
+			estimatedOutputTokens: input.estimatedOutputTokens,
+			now: input.now,
+		});
+		return aiCreditsForProviderCost(cost, fx.microUsdPerEur);
+	} catch {
+		return null;
+	}
+}
+
+/** Atomically checks the credit pool and reserves one provider inference. */
 export async function reserveBillingUsage(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		execution?: NewProviderExecutionAttemptRow;
 		executionGuard?: ProviderExecutionAdmissionGuard;
 		preflight?: BillingReservationPreflight;
-		stripeEnvironment?: "test" | "live";
 		id: string;
 		organizationId: string;
 		tediId?: string | null;
+		userId?: string | null;
 		source: BillingUsageSource;
 		provider: string;
 		model: string;
@@ -471,22 +265,10 @@ export async function reserveBillingUsage(
 		expiresAt: string;
 		metadata?: Record<string, JsonValue>;
 		now: string;
-		aiGatewayLimits?: {
-			organizationDailyTokenLimit?: number;
-			organizationDailySpendLimitMicros?: number;
-			tediDailyTokenLimit?: number;
-			tediDailySpendLimitMicros?: number;
-		};
+		/** Credits the caller already priced; otherwise priced here from the plan's rate. */
+		credits?: number;
 	},
 ): Promise<BillingReservationDecision> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing-reservations")
-			).reserveBillingUsage(db.db, input);
-		db = db.db;
-	}
-
 	if (
 		input.execution &&
 		(input.execution.billingReservationId !== input.id ||
@@ -512,9 +294,8 @@ export async function reserveBillingUsage(
 		estimatedTokens <= 0 ||
 		input.estimatedInputTokens < 0 ||
 		input.estimatedOutputTokens < 0
-	) {
+	)
 		throw new Error("Estimated billing tokens must be positive safe integers");
-	}
 
 	const preflight = input.preflight;
 	if (
@@ -529,6 +310,13 @@ export async function reserveBillingUsage(
 		? [[preflight.existing], [preflight.plan]]
 		: await db.batch(buildBillingReservationPreflightStatements(db, input));
 	const plan = plans[0];
+	const subject = { tediId: input.tediId, userId: input.userId };
+	const snapshot = () =>
+		getCreditPoolSnapshot(db, {
+			organizationId: input.organizationId,
+			now: input.now,
+			subject,
+		});
 	if (existing[0]) {
 		return (existing[0].status === "reserved" &&
 			existing[0].expiresAt > input.now) ||
@@ -536,361 +324,75 @@ export async function reserveBillingUsage(
 			? { allowed: true, reservation: existing[0] }
 			: {
 					allowed: false,
-					code: "monthly_allowance_exhausted",
-					snapshot: await getBillingBalanceSnapshot(
-						db,
-						input.organizationId,
-						input.now,
-					),
+					code: "monthly_credit_limit_reached",
+					snapshot: await snapshot(),
 				};
 	}
+	if (!plan && input.credits === undefined)
+		return { allowed: false, code: "billing_not_configured", snapshot: null };
 
-	let monetaryQuote: ReturnType<typeof estimateMonetaryInference> | null = null;
-	try {
-		const config = plan ? monetaryInferenceConfig(plan) : null;
-		if (config) {
-			if (config.perRunBudgetMicros !== undefined && !input.runId)
-				return {
-					allowed: false,
-					code: "hard_spend_limit",
-					snapshot: await getBillingBalanceSnapshot(
-						db,
-						input.organizationId,
-						input.now,
-					),
-				};
-			monetaryQuote = estimateMonetaryInference(config, input);
-			const autoRouted = input.execution
-				? autoRoutedPricingIdentity(
-						readProviderExecutionIdentity(input.execution),
-					)
-				: null;
-			// An Auto Router alias is priced only when its admitted routing can
-			// land on the one model whose receipt the wallet bound to it.
-			if (
-				input.model === "cloudflare/auto" &&
-				autoRouted?.modelId !== monetaryQuote.rateSnapshot.model
-			)
-				throw new Error("Auto routing can reach an unpriced model");
-			const deploymentScope =
-				autoRouted?.deploymentScope ??
-				input.execution?.deploymentScope ??
-				input.deploymentScope;
-			if (!deploymentScope)
-				throw new Error(
-					"Monetary inference requires exact execution deployment scope",
-				);
-			await verifyMonetaryQuoteReceipt(db, monetaryQuote, deploymentScope);
-		}
-	} catch {
+	const credits =
+		input.credits ??
+		(await estimateAiCredits(db, {
+			creditFx: plan?.creditFx ?? null,
+			provider: input.provider,
+			model: input.model,
+			execution: input.execution,
+			deploymentScope: input.deploymentScope,
+			estimatedInputTokens: input.estimatedInputTokens,
+			estimatedOutputTokens: input.estimatedOutputTokens,
+			now: input.now,
+		}));
+	if (credits === null || !Number.isSafeInteger(credits) || credits < 0)
 		return {
 			allowed: false,
 			code: "pricing_unavailable",
-			snapshot: await getBillingBalanceSnapshot(
-				db,
-				input.organizationId,
-				input.now,
-			),
+			snapshot: await snapshot(),
 		};
-	}
-	const reservationMetadata = {
-		...input.metadata,
-		...(monetaryQuote ? { monetaryQuote } : {}),
-	};
-	// Raw: the eligibility CTE is AS MATERIALIZED, which Drizzle $with cannot emit,
-	// and the admission CAS reads its SELECT * chain verbatim (plan-tested).
+
+	const poolQuery = buildCreditPoolSelect(db, {
+		organizationId: input.organizationId,
+		now: input.now,
+		subject,
+	});
+	const pool = db.$with("pool").as(poolQuery);
+	const capacityQuery = buildCreditCapacitySelect(db, pool, {
+		now: input.now,
+		subject,
+	});
+	const capacity = db.$with("capacity").as(capacityQuery);
+	// Raw: the eligibility CTE is AS MATERIALIZED, which Drizzle $with cannot
+	// emit; the pool and capacity CTEs are the shared credit-admission builders.
 	const reservationStatement = db.all(sql`
-		WITH ${eligibility} snapshot AS (
-			SELECT
-				account.organization_id,
-				plan.id AS plan_version_id,
-				(json_extract(plan.metadata, '$.monetaryInference.version') = 1) AS is_monetary,
-				json_extract(plan.metadata, '$.monetaryInference.perRunBudgetMicros') AS run_budget_micros,
-				COALESCE((
-					SELECT SUM(charge.credit_applied_micros)
-					FROM billing_usage_charges AS charge
-					JOIN billing_usage_reservations AS held ON held.id = charge.reservation_id
-					WHERE held.organization_id = ${input.organizationId}
-						AND held.run_id = ${input.runId ?? null}
-						AND json_extract(charge.metadata, '$.monetaryQuote.schemaVersion') = 1
-				), 0) AS run_spent_micros,
-				COALESCE((
-					SELECT SUM(held.estimated_charge_micros)
-					FROM billing_usage_reservations AS held
-					WHERE held.organization_id = ${input.organizationId}
-						AND held.run_id = ${input.runId ?? null}
-						AND held.status = 'reserved' AND held.expires_at > ${input.now}
-				), 0) AS run_reserved_micros,
-				account.status,
-				account.billing_mode,
-				(json_extract(account.metadata, '$.providerCustomerKey') IS NOT NULL
-					OR EXISTS (
-						SELECT 1 FROM organizations AS customer_org
-						WHERE customer_org.id = account.organization_id
-							AND json_extract(customer_org.metadata, '$.providerCustomerKey') IS NOT NULL
-					)) AS is_sponsored_customer,
-				account.stripe_environment AS account_stripe_environment,
-				account.period_start,
-				account.period_end,
-				account.hard_spend_limit_micros,
-				account.credit_balance_micros,
-				account.stripe_customer_id,
-				account.stripe_environment,
-				plan.included_monthly_tokens,
-				${effectiveAllowOverageSql("plan", "account")} AS allow_overage,
-				plan.overage_unit_tokens,
-				plan.overage_unit_price_micros,
-				COALESCE(period.used_input_tokens + period.used_output_tokens, 0)
-					AS used_tokens,
-				CASE WHEN json_extract(plan.metadata, '$.monetaryInference.version') = 1 THEN ${monetaryPeriodSpendSql()} ELSE COALESCE(period.customer_charge_micros, 0) END AS charged_micros,
-				COALESCE((
-					SELECT SUM(
-						reservation.estimated_input_tokens +
-						reservation.estimated_output_tokens
-					)
-					FROM billing_usage_reservations AS reservation
-					WHERE reservation.organization_id = account.organization_id
-						AND reservation.status = 'reserved'
-						AND ${liveAtSql("reservation.expires_at", input.now)}
-						AND reservation.period_start = account.period_start
-						AND reservation.period_end = account.period_end
-				), 0) AS reserved_tokens,
-				COALESCE((
-					SELECT SUM(reservation.estimated_charge_micros)
-					FROM billing_usage_reservations AS reservation
-					WHERE reservation.organization_id = account.organization_id
-						AND reservation.status = 'reserved'
-						AND ${liveAtSql("reservation.expires_at", input.now)}
-						AND reservation.period_start = account.period_start
-						AND reservation.period_end = account.period_end
-				), 0) AS reserved_charge_micros
-				, COALESCE((
-					SELECT SUM(${reservationUsedTokensSql("reservation")})
-					FROM billing_usage_reservations AS reservation
-					WHERE reservation.organization_id = account.organization_id
-						AND ${sameUtcDaySql("reservation.created_at", input.now)}
-						AND reservation.status IN ('reserved', 'settled')
-						AND (reservation.status = 'settled' OR ${liveAtSql("reservation.expires_at", input.now)})
-				), 0) AS organization_day_tokens
-				, COALESCE((
-					SELECT SUM(spend_micros)
-					FROM (
-						SELECT reservation.estimated_charge_micros AS spend_micros
-						FROM billing_usage_reservations AS reservation
-						WHERE reservation.organization_id = account.organization_id
-							AND ${sameUtcDaySql("reservation.created_at", input.now)}
-							AND reservation.status = 'reserved'
-							AND ${liveAtSql("reservation.expires_at", input.now)}
-						UNION ALL
-						SELECT charge.provider_cost_micros AS spend_micros
-						FROM billing_usage_charges AS charge
-						WHERE charge.organization_id = account.organization_id
-							AND ${sameUtcDaySql("charge.occurred_at", input.now)}
-					)
-				), 0) AS organization_day_spend_micros
-				, COALESCE((
-					SELECT SUM(allocation_row.token_amount)
-					FROM billing_capacity_allocations AS allocation_row
-					WHERE allocation_row.organization_id = account.organization_id
-						AND allocation_row.budget_day = substr(${input.now}, 1, 10)
-						AND allocation_row.stripe_environment = ${input.stripeEnvironment ?? "live"}
-						AND ${liveAtSql("allocation_row.expires_at", input.now)}
-				), 0) AS organization_day_capacity_tokens
-				, COALESCE((
-					SELECT SUM(allocation_row.spend_amount_micros)
-					FROM billing_capacity_allocations AS allocation_row
-					WHERE allocation_row.organization_id = account.organization_id
-						AND allocation_row.budget_day = substr(${input.now}, 1, 10)
-						AND allocation_row.stripe_environment = ${input.stripeEnvironment ?? "live"}
-						AND ${liveAtSql("allocation_row.expires_at", input.now)}
-				), 0) AS organization_day_capacity_spend_micros
-				, COALESCE((
-					SELECT SUM(${reservationUsedTokensSql("reservation")})
-					FROM billing_usage_reservations AS reservation
-					WHERE reservation.organization_id = account.organization_id
-						AND reservation.tedi_id = ${input.tediId ?? null}
-						AND ${sameUtcDaySql("reservation.created_at", input.now)}
-						AND reservation.status IN ('reserved', 'settled')
-						AND (reservation.status = 'settled' OR ${liveAtSql("reservation.expires_at", input.now)})
-				), 0) AS tedi_day_tokens
-				, COALESCE((
-					SELECT SUM(spend_micros)
-					FROM (
-						SELECT estimated_charge_micros AS spend_micros
-						FROM billing_usage_reservations
-						WHERE organization_id = account.organization_id
-							AND tedi_id = ${input.tediId ?? null}
-							AND ${sameUtcDaySql("created_at", input.now)}
-							AND status = 'reserved'
-							AND ${liveAtSql("expires_at", input.now)}
-						UNION ALL
-						SELECT provider_cost_micros AS spend_micros
-						FROM billing_usage_charges
-						WHERE organization_id = account.organization_id
-							AND tedi_id = ${input.tediId ?? null}
-							AND ${sameUtcDaySql("occurred_at", input.now)}
-					)
-				), 0) AS tedi_day_spend_micros
-			FROM billing_accounts AS account
-			INNER JOIN billing_plan_versions AS plan
-				ON plan.id = account.plan_version_id
-				AND plan.status IN ('active', 'retired')
-			LEFT JOIN billing_usage_periods AS period
-				ON period.organization_id = account.organization_id
-				AND period.period_start = account.period_start
-				AND period.period_end = account.period_end
-			WHERE account.organization_id = ${input.organizationId}
-		),
-		priced AS (
-			SELECT
-				*,
-				CASE
-					WHEN included_monthly_tokens < 0 THEN 0
-					ELSE MAX(
-						used_tokens + reserved_tokens + ${estimatedTokens} -
-						included_monthly_tokens,
-						0
-					) - MAX(
-						used_tokens + reserved_tokens - included_monthly_tokens,
-						0
-					)
-				END AS incremental_overage_tokens
-			FROM snapshot
-		),
-		admission AS (
-			SELECT
-				*,
-				CASE
-					WHEN is_monetary = 1 THEN ${monetaryQuote?.customerChargeMicros ?? 0}
-					WHEN incremental_overage_tokens <= 0 THEN 0
-					WHEN overage_unit_price_micros <= 0 THEN 0
-					ELSE (
-						CAST((
-							MAX(
-								used_tokens + reserved_tokens + ${estimatedTokens} -
-									included_monthly_tokens,
-								0
-							) + overage_unit_tokens - 1
-						) / overage_unit_tokens AS INTEGER) -
-						CAST((
-							MAX(
-								used_tokens + reserved_tokens -
-									included_monthly_tokens,
-								0
-							) + overage_unit_tokens - 1
-						) / overage_unit_tokens AS INTEGER)
-					) * overage_unit_price_micros
-				END AS estimated_charge_micros
-			FROM priced
-		)
+		WITH ${eligibility} pool AS ${poolQuery},
+		capacity AS ${capacityQuery}
 		INSERT INTO billing_usage_reservations (
-			id, organization_id, plan_version_id, tedi_id, status, source,
-			provider, model,
-			estimated_input_tokens, estimated_output_tokens,
-			estimated_charge_micros, period_start, period_end, run_id, trace_id,
-			idempotency_key, rejection_code, expires_at, metadata, created_at,
-			updated_at
+			id, organization_id, plan_version_id, tedi_id, user_id, status, source,
+			provider, model, estimated_input_tokens, estimated_output_tokens,
+			estimated_charge_micros, credits, period_start, period_end, run_id,
+			trace_id, idempotency_key, rejection_code, expires_at, metadata,
+			created_at, updated_at
 		)
 		SELECT
-			${input.id}, organization_id, plan_version_id,
-			${input.tediId ?? null}, 'reserved',
+			${input.id}, capacity.organization_id, capacity.plan_version_id,
+			${input.tediId ?? null}, ${input.userId ?? null}, 'reserved',
 			${input.source}, ${input.provider}, ${input.model},
 			${input.estimatedInputTokens}, ${input.estimatedOutputTokens},
-			estimated_charge_micros, period_start, period_end,
+			0, ${credits}, capacity.period_start, capacity.period_end,
 			${input.runId ?? null}, ${input.traceId ?? null},
 			${input.idempotencyKey}, NULL, ${input.expiresAt},
-			${JSON.stringify(reservationMetadata)}, ${input.now}, ${input.now}
-		FROM admission
-		WHERE plan_version_id = ${plan?.id ?? null}
-			AND (COALESCE(is_monetary,0) = 0 OR ${monetaryQuote !== null ? 1 : 0} = 1)
-			AND (
-				COALESCE(is_monetary, 0) = 0 OR run_budget_micros IS NULL
-				OR run_spent_micros + run_reserved_micros + estimated_charge_micros <= run_budget_micros
-			)
-			AND datetime(${input.expiresAt}) > datetime(${input.now})
-			AND status IN ('trial', 'active')
-			AND (
-				billing_mode <> 'stripe'
-				OR account_stripe_environment = ${input.stripeEnvironment ?? "live"}
-			)
-			AND datetime(${input.now}) >= datetime(period_start)
-			AND datetime(${input.now}) < datetime(period_end)
-			AND (
-				(is_monetary = 1 AND credit_balance_micros - reserved_charge_micros >= estimated_charge_micros)
-				OR (COALESCE(is_monetary,0) = 0 AND (incremental_overage_tokens <= 0
-				OR (
-					allow_overage = 1
-					AND (
-						billing_mode IN ('invoice', 'internal')
-						OR (
-							billing_mode = 'stripe'
-							AND stripe_customer_id IS NOT NULL
-							AND stripe_environment = ${input.stripeEnvironment ?? "live"}
-						)
-						OR credit_balance_micros - reserved_charge_micros
-							>= estimated_charge_micros
-					)
-				)))
-			)
-			AND (
-				hard_spend_limit_micros IS NULL
-				OR charged_micros + reserved_charge_micros +
-					estimated_charge_micros <= hard_spend_limit_micros
-			)
-			AND (
-				-- Active funded overage accounts are governed by the monthly
-				-- allowance/charge and hard spend predicates above. Their old UTC
-				-- daily ceiling remains ledger history, not an admission gate.
-				(COALESCE(is_monetary,0) = 0 AND status = 'active' AND allow_overage = 1 AND (
-					billing_mode = 'invoice' OR
-					(billing_mode = 'internal' AND is_sponsored_customer = 0) OR
-					(billing_mode = 'stripe' AND stripe_customer_id IS NOT NULL
-						AND stripe_environment = ${input.stripeEnvironment ?? "live"})
-				)) OR
-				is_monetary = 1 OR ${input.aiGatewayLimits?.organizationDailyTokenLimit ?? null} IS NULL
-				OR organization_day_tokens + ${estimatedTokens} <=
-					${input.aiGatewayLimits?.organizationDailyTokenLimit ?? null} +
-					organization_day_capacity_tokens
-			)
-			AND (
-				(COALESCE(is_monetary,0) = 0 AND status = 'active' AND allow_overage = 1 AND (
-					billing_mode = 'invoice' OR
-					(billing_mode = 'internal' AND is_sponsored_customer = 0) OR
-					(billing_mode = 'stripe' AND stripe_customer_id IS NOT NULL
-						AND stripe_environment = ${input.stripeEnvironment ?? "live"})
-				)) OR
-				${input.aiGatewayLimits?.organizationDailySpendLimitMicros ?? null} IS NULL
-				OR organization_day_spend_micros + estimated_charge_micros <=
-					${input.aiGatewayLimits?.organizationDailySpendLimitMicros ?? null} +
-					organization_day_capacity_spend_micros
-			)
-			-- Organization capacity may RAISE a tedi ceiling but never lower it.
-			-- Purchased capacity lifting a tedi that is at its budget is
-			-- deliberate. Applying the same number when it is NEGATIVE was not:
-			-- a provider sponsoring customers is debited org capacity, and that
-			-- negative balance silently took the same amount off every one of its
-			-- tedis — headroom they were never granted and are not charged for.
-			-- The debit belongs to the organization conditions above, which still
-			-- carry it in full.
-			AND (
-				is_monetary = 1 OR ${input.aiGatewayLimits?.tediDailyTokenLimit ?? null} IS NULL
-				OR tedi_day_tokens + ${estimatedTokens} <=
-					${input.aiGatewayLimits?.tediDailyTokenLimit ?? null} +
-					MAX(organization_day_capacity_tokens, 0)
-			)
-			AND (
-				${input.aiGatewayLimits?.tediDailySpendLimitMicros ?? null} IS NULL
-				OR tedi_day_spend_micros + estimated_charge_micros <=
-					${input.aiGatewayLimits?.tediDailySpendLimitMicros ?? null} +
-					MAX(organization_day_capacity_spend_micros, 0)
-			)
+			${JSON.stringify(input.metadata ?? {})}, ${input.now}, ${input.now}
+		FROM capacity
+		WHERE capacity.plan_version_id = ${plan?.id ?? null}
+			AND ${input.expiresAt} > ${input.now}
+			AND ${creditAdmissionPredicate(capacity, { now: input.now, credits })}
 			AND ${executionPredicate}
 		ON CONFLICT(idempotency_key) DO NOTHING
 		RETURNING
 			id,
 			plan_version_id AS planVersionId,
 			expires_at AS expiresAt,
-			estimated_charge_micros AS estimatedChargeMicros
+			credits
 	`);
 	const inserted = (
 		input.execution
@@ -908,251 +410,46 @@ export async function reserveBillingUsage(
 	) as Array<
 		Pick<
 			BillingUsageReservation,
-			"id" | "planVersionId" | "expiresAt" | "estimatedChargeMicros"
+			"id" | "planVersionId" | "expiresAt" | "credits"
 		>
 	>;
 	if (inserted[0]) return { allowed: true, reservation: inserted[0] };
 
-	const snapshot = await getBillingBalanceSnapshot(
-		db,
-		input.organizationId,
-		input.now,
-	);
-	if (!snapshot) {
-		return { allowed: false, code: "billing_not_configured", snapshot: null };
-	}
-	if (!ACTIVE_BILLING_STATUSES.includes(snapshot.status)) {
-		return { allowed: false, code: "subscription_inactive", snapshot };
-	}
-	if (
-		Date.parse(input.now) < Date.parse(snapshot.periodStart) ||
-		Date.parse(input.now) >= Date.parse(snapshot.periodEnd)
-	) {
-		return { allowed: false, code: "billing_period_inactive", snapshot };
-	}
-	if (monetaryQuote) {
-		if (snapshot.availableCreditMicros < monetaryQuote.customerChargeMicros)
-			return { allowed: false, code: "credit_allowance_exhausted", snapshot };
-		if (
-			snapshot.hardSpendLimitMicros !== null &&
-			(snapshot.monetarySpentMicros ?? 0) +
-				snapshot.reservedChargeMicros +
-				monetaryQuote.customerChargeMicros >
-				snapshot.hardSpendLimitMicros
-		)
-			return { allowed: false, code: "hard_spend_limit", snapshot };
-		return { allowed: false, code: "inference_capacity_exhausted", snapshot };
-	}
-	if (
-		!snapshot.allowOverage &&
-		snapshot.remainingIncludedTokens < estimatedTokens
-	) {
-		return {
-			allowed: false,
-			code: "monthly_allowance_exhausted",
-			snapshot,
-		};
-	}
-	// Same arithmetic as the INSERT's hard-spend predicate: the request's own
-	// incremental charge counts, so a cap hit is named before the ladder falls
-	// through to the `payment_required` guess.
-	if (
-		snapshot.hardSpendLimitMicros !== null &&
-		snapshot.customerChargeMicros +
-			snapshot.reservedChargeMicros +
-			incrementalOverageChargeMicros({
-				includedTokens: snapshot.includedTokens,
-				usedTokens: snapshot.usedTokens,
-				reservedTokens: snapshot.reservedTokens,
-				estimatedTokens,
-				overageUnitTokens: snapshot.overageUnitTokens,
-				overageUnitPriceMicros: snapshot.overageUnitPriceMicros,
-			}) >
-			snapshot.hardSpendLimitMicros
-	) {
-		return { allowed: false, code: "hard_spend_limit", snapshot };
-	}
-	if (
-		input.aiGatewayLimits &&
-		(await aiGatewayLimitExceeded(db, {
-			organizationId: input.organizationId,
-			tediId: input.tediId,
-			now: input.now,
-			estimatedTokens,
-			limits: input.aiGatewayLimits,
-			stripeEnvironment: input.stripeEnvironment ?? "live",
-			monthlyFirst: usesMonthlyInferenceCapacity(snapshot),
-		}))
-	) {
-		return { allowed: false, code: "inference_capacity_exhausted", snapshot };
-	}
-	// Nothing above matched, so the reservation was refused by a condition the
-	// INSERT enforces and this ladder does not model. `payment_required` is the
-	// least-wrong code we can return without a contract change, but it is a
-	// guess — it tells an operator to fix a payment method that may be fine.
-	//
-	// So record the shape instead of swallowing it. Identifiers, booleans and
-	// counts only — never amounts a customer would consider private beyond what
-	// their own billing page already shows them.
-	unclassifiedAdmissionRefusal({
-		organizationId: input.organizationId,
-		tediId: input.tediId ?? null,
-		status: snapshot.status,
-		billingMode: snapshot.billingMode,
-		allowOverage: snapshot.allowOverage,
-		remainingIncludedTokens: snapshot.remainingIncludedTokens,
-		hasStripeCustomer: snapshot.stripeCustomerId !== null,
-		availableCreditMicros: snapshot.availableCreditMicros,
-		hardSpendLimitMicros: snapshot.hardSpendLimitMicros,
-		hadGatewayLimits: Boolean(input.aiGatewayLimits),
-		estimatedTokens,
-	});
-	return { allowed: false, code: "payment_required", snapshot };
+	const current = await snapshot();
+	return {
+		allowed: false,
+		code:
+			creditRefusalReason(current, { now: input.now, credits }) ??
+			unclassifiedRefusal(input.organizationId, credits),
+		snapshot: current,
+	};
 }
 
 /**
- * The reservation was refused and the ladder could not say which rule did it.
- *
- * That is always a defect in this file — the ladder is supposed to mirror the
- * INSERT's WHERE clause — and it reaches a customer as a wrong instruction. The
- * marker names the drift.
+ * The INSERT refused but the pool snapshot admits the credits: a race with
+ * another reservation or an expired hold. Name the pool limit and record the
+ * shape so drift between the two copies stays visible.
  */
-function unclassifiedAdmissionRefusal(shape: Record<string, unknown>): void {
+function unclassifiedRefusal(
+	organizationId: string,
+	credits: number,
+): CreditRefusalCode {
 	try {
 		console.log(
-			JSON.stringify({ _tr: "admission_refusal_unclassified", ...shape }),
+			JSON.stringify({
+				_tr: "admission_refusal_unclassified",
+				organizationId,
+				credits,
+			}),
 		);
 	} catch {
 		/* a diagnostic must never fail an admission decision */
 	}
-}
-
-/**
- * A modest but realistic turn, for callers asking whether inference could run
- * at all rather than admitting one specific request.
- */
-export const NOMINAL_TURN_TOKENS = 20_000;
-
-/** Same started-unit delta used by the atomic reservation for one estimate. */
-export function incrementalOverageChargeMicros(input: {
-	includedTokens: number;
-	usedTokens: number;
-	reservedTokens: number;
-	estimatedTokens: number;
-	overageUnitTokens: number;
-	overageUnitPriceMicros: number;
-}): number {
-	if (input.includedTokens < 0 || input.overageUnitPriceMicros <= 0) return 0;
-	const before = Math.max(
-		0,
-		input.usedTokens + input.reservedTokens - input.includedTokens,
-	);
-	const after = Math.max(
-		0,
-		input.usedTokens +
-			input.reservedTokens +
-			input.estimatedTokens -
-			input.includedTokens,
-	);
-	return (
-		(Math.ceil(after / input.overageUnitTokens) -
-			Math.ceil(before / input.overageUnitTokens)) *
-		input.overageUnitPriceMicros
-	);
-}
-
-/**
- * Why an organization cannot currently be admitted, or null.
- *
- * The console used to answer this with its own copy of the rules in
- * `billing.getBillingOverview`. That made three implementations of one policy
- * — the reservation INSERT, the denial ladder above, and the console — which
- * could disagree: the console reported `available: true` for an organization
- * the gate was denying on every turn.
- *
- * This is the console's source now. It still re-derives rather than asking
- * the INSERT, so there are two copies instead of three, and the two that a
- * human compares agree by construction.
- */
-export function billingBlockingReason(input: {
-	status: string;
-	now: string;
-	periodStart: string;
-	periodEnd: string;
-	allowOverage: boolean;
-	remainingIncludedTokens: number;
-	billingMode: string;
-	stripeCustomerId: string | null;
-	isSponsoredCustomer?: boolean;
-	availableCreditMicros: number;
-	hardSpendLimitMicros: number | null;
-	customerChargeMicros: number;
-	reservedChargeMicros: number;
-	estimatedChargeMicros: number;
-	effectiveDailyTokens: number;
-	effectiveDailySpendMicros: number | null;
-	usedDailyTokens: number;
-	usedDailySpendMicros: number;
-	/**
-	 * Tokens the pending request would consume. The gate passes its real
-	 * estimate; a caller asking the general question "could a turn run right
-	 * now?" passes `NOMINAL_TURN_TOKENS`.
-	 *
-	 * It is not optional-with-a-zero-default on purpose. Ignoring it is what
-	 * made the console call an organization available with 7,586 tokens left in
-	 * its day — true for a one-token request, false for every real turn.
-	 */
-	estimatedTokens: number;
-}):
-	| "subscription_inactive"
-	| "billing_period_inactive"
-	| "monthly_allowance_exhausted"
-	| "payment_required"
-	| "hard_spend_limit"
-	| "inference_capacity_exhausted"
-	| null {
-	if (!ACTIVE_BILLING_STATUSES.includes(input.status as BillingAccountStatus))
-		return "subscription_inactive";
-	if (input.now < input.periodStart || input.now >= input.periodEnd)
-		return "billing_period_inactive";
-	if (
-		!input.allowOverage &&
-		input.remainingIncludedTokens >= 0 &&
-		input.remainingIncludedTokens < input.estimatedTokens
-	)
-		return "monthly_allowance_exhausted";
-	// In overage, the spend has to be fundable by SOMETHING: an invoiced or
-	// internal account, a Stripe customer, or credit on the balance.
-	if (
-		input.allowOverage &&
-		input.estimatedChargeMicros > 0 &&
-		input.billingMode === "stripe" &&
-		input.stripeCustomerId === null &&
-		input.availableCreditMicros < input.estimatedChargeMicros
-	)
-		return "payment_required";
-	if (
-		input.hardSpendLimitMicros !== null &&
-		input.customerChargeMicros +
-			input.reservedChargeMicros +
-			input.estimatedChargeMicros >
-			input.hardSpendLimitMicros
-	)
-		return "hard_spend_limit";
-	if (
-		!usesMonthlyInferenceCapacity(input) &&
-		(input.usedDailyTokens + input.estimatedTokens >
-			input.effectiveDailyTokens ||
-			(input.effectiveDailySpendMicros !== null &&
-				input.usedDailySpendMicros + input.estimatedChargeMicros >
-					input.effectiveDailySpendMicros))
-	)
-		return "inference_capacity_exhausted";
-	return null;
+	return "monthly_credit_limit_reached";
 }
 
 export async function releaseBillingReservation(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		reservationId: string;
 		organizationId: string;
@@ -1160,14 +457,6 @@ export async function releaseBillingReservation(
 		now: string;
 	},
 ): Promise<BillingUsageReservation | null> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing-reservations")
-			).releaseBillingReservation(db.db, input);
-		db = db.db;
-	}
-
 	const [row] = await db
 		.update(billingUsageReservations)
 		.set({
@@ -1188,17 +477,9 @@ export async function releaseBillingReservation(
 }
 
 export async function expireBillingReservations(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	now: string,
 ): Promise<number> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing-reservations")
-			).expireBillingReservations(db.db, now);
-		db = db.db;
-	}
-
 	const rows = await db
 		.update(billingUsageReservations)
 		.set({ status: "expired", updatedAt: now })

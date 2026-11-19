@@ -181,8 +181,6 @@ export type AiGatewayModelTier = z.infer<typeof AiGatewayModelTierSchema>;
 
 export const AiGatewayAdmissionPolicySchema = z.object({
 	allowedModelTiers: z.array(AiGatewayModelTierSchema).min(1).max(3).optional(),
-	dailyTokenLimit: z.number().int().positive().optional(),
-	dailySpendLimitMicros: z.number().int().positive().optional(),
 });
 export type AiGatewayAdmissionPolicy = z.infer<
 	typeof AiGatewayAdmissionPolicySchema
@@ -224,26 +222,10 @@ export const SelfImprovementPolicySchema = z.object({
 });
 export type SelfImprovementPolicy = z.infer<typeof SelfImprovementPolicySchema>;
 
-// Per-tedi runtime ceilings are optional overrides. The defaults use shared
-// organization inference capacity; managed D1 admission still reserves every
-// model call. Positive values opt an individual tedi into a local ceiling.
+// Per-tedi runtime ceilings. Usage limits are monthly Tedix credits from the
+// organization pool; an admin-set monthly credit cap for one tedi lives in
+// billing, not here.
 export const TediBudgetsSchema = z.object({
-	dailyTokenLimit: z
-		.number()
-		.default(-1)
-		.describe(
-			"Daily local token ceiling; -1 uses shared organization capacity without an individual ceiling.",
-		),
-	dailyMessageLimit: z
-		.number()
-		.default(-1)
-		.describe(
-			"Daily local message ceiling; -1 disables the individual message ceiling.",
-		),
-	operatorTokenReserve: z.number().default(400000),
-	operatorMessageReserve: z.number().default(20),
-	governedLearningTokenReserve: z.number().default(400000),
-	governedLearningMessageReserve: z.number().default(80),
 	maxCronJobs: z.number().default(20),
 	maxIterationsPerTask: z.number().default(-1),
 	browserBudgetDaily: z.number().default(50),

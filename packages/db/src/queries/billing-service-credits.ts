@@ -1,120 +1,50 @@
 /**
- * Managed non-token service credits.
+ * Managed service operations (SEO) draw from the organization credit pool.
  *
- * Admission is a plan-period grant plus reservation in one D1 batch.
- * Settlement is a provider receipt, immutable credit debit, and reservation
- * transition in one batch. D1 rejects BEGIN, so do not replace these batches
- * with Drizzle transactions.
+ * Each operation keeps the fixed credit cost of its rate card. Admission is
+ * one guarded reservation INSERT against the shared pool plus the optional
+ * per-service controls (kill switch, lower monthly limits, provider-spend
+ * safety limit). Settlement records the provider receipt and, when the
+ * provider succeeded, draws the reserved credits from the pool in the same
+ * D1 batch. D1 rejects BEGIN, so do not replace these batches with Drizzle
+ * transactions.
  */
 
-import type { CoreStoreBinding } from "./postgres/core-store";
-import type { PgQueryClient } from "../pg/query-client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, exists, type SQL, sql } from "drizzle-orm";
+import {
+	type AnyColumn,
+	and,
+	desc,
+	eq,
+	exists,
+	gt,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import {
 	type BillingServiceCreditControl,
-	type BillingServiceCreditEntry,
 	type BillingServiceCreditReservation,
 	type BillingServiceKey,
 	type BillingServiceOperationKey,
 	type BillingServiceRateCard,
-	billingAccounts,
-	billingPlanServiceAllowances,
 	billingProviderUsage,
 	billingServiceCreditControls,
-	billingServiceCreditEntries,
 	billingServiceCreditReservations,
 	billingServiceRateCards,
 } from "../schema/billing";
-
-const ACTIVE_ACCOUNT_STATUSES = ["trial", "active"] as const;
-
-const serviceAccount = alias(billingAccounts, "account");
-const serviceAllowance = alias(billingPlanServiceAllowances, "allowance");
-const serviceControl = alias(billingServiceCreditControls, "control");
-const entry = billingServiceCreditEntries;
-const held = billingServiceCreditReservations;
-
-/** Debited credits in the account's current period, as a positive number. */
-function usedCreditsInPeriod(
-	db: DbClient,
-	serviceKey: BillingServiceKey,
-	tediId?: string | null,
-) {
-	const debits = db
-		.select({ used: sql`-SUM(${entry.amountCredits})` })
-		.from(entry);
-	const scoped =
-		tediId === undefined
-			? debits
-			: debits.innerJoin(held, eq(held.id, entry.reservationId));
-	return sql<number>`COALESCE(${scoped.where(
-		and(
-			eq(entry.organizationId, serviceAccount.organizationId),
-			eq(entry.serviceKey, serviceKey),
-			sql`${entry.amountCredits} < 0`,
-			tediId === undefined ? undefined : sql`${held.tediId} = ${tediId}`,
-			sql`datetime(${entry.createdAt}) >= datetime(${serviceAccount.periodStart})`,
-			sql`datetime(${entry.createdAt}) < datetime(${serviceAccount.periodEnd})`,
-		),
-	)}, 0)`;
-}
-
-/** Live reservations of the account's current period, summed over `amount`. */
-function reservedInPeriod(
-	db: DbClient,
-	serviceKey: BillingServiceKey,
-	now: string,
-	amount: SQL,
-	tediId?: string | null,
-) {
-	return sql<number>`COALESCE(${db
-		.select({ reserved: sql`SUM(${amount})` })
-		.from(held)
-		.where(
-			and(
-				eq(held.organizationId, serviceAccount.organizationId),
-				eq(held.serviceKey, serviceKey),
-				tediId === undefined ? undefined : sql`${held.tediId} = ${tediId}`,
-				sql`${held.status} = 'reserved'`,
-				sql`datetime(${held.expiresAt}) > datetime(${now})`,
-				eq(held.periodStart, serviceAccount.periodStart),
-				eq(held.periodEnd, serviceAccount.periodEnd),
-			),
-		)}, 0)`;
-}
-
-/** Managed provider cost recorded in the account's current period. */
-function managedProviderCostInPeriod(db: DbClient) {
-	return sql<number>`COALESCE(${db
-		.select({ cost: sql`SUM(${billingProviderUsage.providerCostMicros})` })
-		.from(billingProviderUsage)
-		.where(
-			and(
-				eq(billingProviderUsage.organizationId, serviceAccount.organizationId),
-				sql`${billingProviderUsage.usageKind} = 'seo_data'`,
-				sql`json_extract(${billingProviderUsage.metadata}, '$.credentialMode') = 'managed'`,
-				sql`datetime(${billingProviderUsage.occurredAt}) >= datetime(${serviceAccount.periodStart})`,
-				sql`datetime(${billingProviderUsage.occurredAt}) < datetime(${serviceAccount.periodEnd})`,
-			),
-		)}, 0)`;
-}
-
-function serviceAllowanceJoin(serviceKey: BillingServiceKey) {
-	return and(
-		eq(serviceAllowance.planVersionId, serviceAccount.planVersionId),
-		eq(serviceAllowance.serviceKey, serviceKey),
-	);
-}
-
-function serviceControlJoin(serviceKey: BillingServiceKey) {
-	return and(
-		eq(serviceControl.organizationId, serviceAccount.organizationId),
-		eq(serviceControl.serviceKey, serviceKey),
-	);
-}
+import {
+	type CreditRefusalCode,
+	buildCreditConsumptionStatements,
+	type CreditPoolCte,
+	creditAdmissionPredicate,
+	creditCapacityCte,
+	creditPoolCte,
+	creditRefusalReason,
+	getCreditPoolSnapshot,
+} from "./billing/credit-pool";
 
 export interface BillingServiceCreditSnapshot {
 	serviceKey: BillingServiceKey;
@@ -122,10 +52,10 @@ export interface BillingServiceCreditSnapshot {
 	planVersionId: string;
 	periodStart: string;
 	periodEnd: string;
-	includedCredits: number;
-	grantedCredits: number;
+	/** Credits this service used this period. */
 	usedCredits: number;
 	reservedCredits: number;
+	/** Credits left in the shared organization pool. */
 	availableCredits: number;
 	enabled: boolean;
 	monthlyCreditLimit: number | null;
@@ -134,6 +64,16 @@ export interface BillingServiceCreditSnapshot {
 	providerCostMicros: number;
 	reservedProviderCostMicros: number;
 }
+
+export type BillingServiceCreditDenialCode =
+	| CreditRefusalCode
+	| "service_disabled"
+	| "rate_card_unavailable"
+	| "request_already_reserved"
+	| "request_already_settled"
+	| "service_monthly_credit_limit"
+	| "service_tedi_credit_limit"
+	| "provider_cost_limit";
 
 export type BillingServiceCreditReservationDecision =
 	| {
@@ -145,132 +85,150 @@ export type BillingServiceCreditReservationDecision =
 	  }
 	| {
 			allowed: false;
-			code:
-				| "billing_not_configured"
-				| "subscription_inactive"
-				| "billing_period_inactive"
-				| "service_disabled"
-				| "rate_card_unavailable"
-				| "request_already_reserved"
-				| "request_already_settled"
-				| "credit_allowance_exhausted"
-				| "monthly_credit_limit"
-				| "tedi_credit_limit"
-				| "provider_cost_limit";
+			code: BillingServiceCreditDenialCode;
 			snapshot: BillingServiceCreditSnapshot | null;
 	  };
 
-interface RawServiceCreditSnapshot {
-	serviceKey: BillingServiceKey;
-	status: BillingServiceCreditSnapshot["status"];
-	planVersionId: string;
-	periodStart: string;
-	periodEnd: string;
-	includedCredits: number;
-	grantedCredits: number;
-	usedCredits: number;
-	reservedCredits: number;
-	enabled: number;
-	monthlyCreditLimit: number | null;
-	perTediMonthlyLimit: number | null;
-	monthlyProviderCostLimitMicros: number | null;
-	providerCostMicros: number;
-	reservedProviderCostMicros: number;
-}
+const serviceHeld = alias(billingServiceCreditReservations, "service_held");
+const serviceUsage = alias(billingProviderUsage, "service_usage");
+const serviceControl = alias(billingServiceCreditControls, "service_control");
 
-function normalizeSnapshot(
-	row: RawServiceCreditSnapshot,
-): BillingServiceCreditSnapshot {
-	return {
-		...row,
-		enabled: row.enabled === 1,
-		availableCredits: Math.max(
-			row.grantedCredits - row.usedCredits - row.reservedCredits,
-			0,
-		),
-	};
+/**
+ * Over `pool`: this service's use, holds and controls in the pool's period.
+ * `tediId` scopes the per-tedi figure.
+ */
+function serviceCte(
+	db: DbClient,
+	pool: CreditPoolCte,
+	input: { serviceKey: BillingServiceKey; now: string; tediId: string | null },
+) {
+	const live = and(
+		eq(serviceHeld.status, "reserved"),
+		gt(serviceHeld.expiresAt, input.now),
+	);
+	const held = (amount: SQL | AnyColumn, filter: SQL | undefined) =>
+		sql<number>`COALESCE((${db
+			.select({ total: sql`SUM(${amount})` })
+			.from(serviceHeld)
+			.where(
+				and(
+					sql`${serviceHeld.organizationId} = ${pool.organizationId}`,
+					eq(serviceHeld.serviceKey, input.serviceKey),
+					sql`${serviceHeld.periodStart} = ${pool.periodStart}`,
+					filter,
+				),
+			)}), 0)`;
+	const providerCost = db
+		.select({ total: sql`SUM(${serviceUsage.providerCostMicros})` })
+		.from(serviceUsage)
+		.where(
+			and(
+				sql`${serviceUsage.organizationId} = ${pool.organizationId}`,
+				eq(serviceUsage.usageKind, "seo_data"),
+				sql`json_extract(${serviceUsage.metadata}, '$.credentialMode') = 'managed'`,
+				sql`${serviceUsage.occurredAt} >= ${pool.periodStart}`,
+				sql`${serviceUsage.occurredAt} < ${pool.periodEnd}`,
+			),
+		);
+	return db.$with("service").as(
+		db
+			.select({
+				enabled: sql<number>`COALESCE(${serviceControl.enabled}, 1)`.as(
+					"enabled",
+				),
+				monthlyCreditLimit: sql<
+					number | null
+				>`${serviceControl.monthlyCreditLimit}`.as("monthly_credit_limit"),
+				perTediMonthlyLimit: sql<
+					number | null
+				>`${serviceControl.perTediMonthlyLimit}`.as("per_tedi_monthly_limit"),
+				providerCostLimitMicros: sql<
+					number | null
+				>`${serviceControl.monthlyProviderCostLimitMicros}`.as(
+					"provider_cost_limit_micros",
+				),
+				serviceUsed: held(
+					serviceHeld.creditsReserved,
+					eq(serviceHeld.status, "settled"),
+				).as("service_used"),
+				serviceReserved: held(serviceHeld.creditsReserved, live).as(
+					"service_reserved",
+				),
+				serviceTediUsed: held(
+					serviceHeld.creditsReserved,
+					and(
+						sql`${serviceHeld.tediId} = ${input.tediId}`,
+						or(eq(serviceHeld.status, "settled"), live),
+					),
+				).as("service_tedi_used"),
+				providerCostMicros: sql<number>`COALESCE((${providerCost}), 0)`.as(
+					"provider_cost_micros",
+				),
+				reservedProviderCostMicros: held(
+					serviceHeld.providerCostCeilingMicros,
+					live,
+				).as("reserved_provider_cost_micros"),
+			})
+			.from(pool)
+			.leftJoin(
+				serviceControl,
+				and(
+					sql`${serviceControl.organizationId} = ${pool.organizationId}`,
+					eq(serviceControl.serviceKey, input.serviceKey),
+				),
+			),
+	);
 }
 
 export async function getBillingServiceCreditSnapshot(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 	serviceKey: BillingServiceKey,
 	now: string,
+	tediId: string | null = null,
 ): Promise<BillingServiceCreditSnapshot | null> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../pg/queries/billing-service-credits")
-			).getBillingServiceCreditSnapshot(db.db, organizationId, serviceKey, now);
-		db = db.db;
-	}
-
-	const planGrant = alias(billingServiceCreditEntries, "plan_grant");
-	const rows = (await db
+	const pool = creditPoolCte(db, { organizationId, now });
+	const capacity = creditCapacityCte(db, pool, { now });
+	const service = serviceCte(db, pool, { serviceKey, now, tediId });
+	const [row] = await db
+		.with(pool, capacity, service)
 		.select({
-			serviceKey: sql<BillingServiceKey>`${serviceKey}`,
-			status: serviceAccount.status,
-			planVersionId: serviceAccount.planVersionId,
-			periodStart: serviceAccount.periodStart,
-			periodEnd: serviceAccount.periodEnd,
-			includedCredits: serviceAllowance.includedCredits,
-			grantedCredits: sql<number>`COALESCE(${db
-				.select({ granted: sql`SUM(${entry.amountCredits})` })
-				.from(entry)
-				.where(
-					and(
-						eq(entry.organizationId, serviceAccount.organizationId),
-						eq(entry.serviceKey, serviceKey),
-						sql`${entry.amountCredits} > 0`,
-						sql`(${entry.expiresAt} IS NULL OR datetime(${entry.expiresAt}) > datetime(${now}))`,
-					),
-				)}, 0) + CASE
-				WHEN ${exists(
-					db
-						.select({ one: sql`1` })
-						.from(planGrant)
-						.where(
-							and(
-								eq(planGrant.organizationId, serviceAccount.organizationId),
-								eq(planGrant.serviceKey, serviceKey),
-								sql`${planGrant.kind} = 'grant'`,
-								sql`${planGrant.sourceType} = 'plan_allowance'`,
-								eq(planGrant.sourceRef, serviceAccount.planVersionId),
-								eq(planGrant.expiresAt, serviceAccount.periodEnd),
-							),
-						),
-				)} THEN 0
-				ELSE ${serviceAllowance.includedCredits}
-			END`,
-			usedCredits: usedCreditsInPeriod(db, serviceKey),
-			reservedCredits: reservedInPeriod(
-				db,
-				serviceKey,
-				now,
-				sql`${held.creditsReserved}`,
-			),
-			enabled: sql<number>`COALESCE(${serviceControl.enabled}, 1)`,
-			monthlyCreditLimit: serviceControl.monthlyCreditLimit,
-			perTediMonthlyLimit: sql<
-				number | null
-			>`COALESCE(${serviceControl.perTediMonthlyLimit}, ${serviceAllowance.perTediMonthlyLimit})`,
-			monthlyProviderCostLimitMicros: sql<
-				number | null
-			>`COALESCE(${serviceControl.monthlyProviderCostLimitMicros}, ${serviceAllowance.monthlyProviderCostLimitMicros})`,
-			providerCostMicros: managedProviderCostInPeriod(db),
-			reservedProviderCostMicros: reservedInPeriod(
-				db,
-				serviceKey,
-				now,
-				sql`${held.providerCostCeilingMicros}`,
-			),
+			status: capacity.status,
+			planVersionId: capacity.planVersionId,
+			periodStart: capacity.periodStart,
+			periodEnd: capacity.periodEnd,
+			availableCredits: capacity.availableCredits,
+			enabled: service.enabled,
+			monthlyCreditLimit: service.monthlyCreditLimit,
+			perTediMonthlyLimit: service.perTediMonthlyLimit,
+			providerCostLimitMicros: service.providerCostLimitMicros,
+			serviceUsed: service.serviceUsed,
+			serviceReserved: service.serviceReserved,
+			providerCostMicros: service.providerCostMicros,
+			reservedProviderCostMicros: service.reservedProviderCostMicros,
 		})
-		.from(serviceAccount)
-		.innerJoin(serviceAllowance, serviceAllowanceJoin(serviceKey))
-		.leftJoin(serviceControl, serviceControlJoin(serviceKey))
-		.where(eq(serviceAccount.organizationId, organizationId))
-		.limit(1)) as RawServiceCreditSnapshot[];
-	return rows[0] ? normalizeSnapshot(rows[0]) : null;
+		.from(capacity)
+		.innerJoin(service, sql`1 = 1`)
+		.limit(1);
+	if (!row) return null;
+	const nullable = (value: unknown) =>
+		value === null || value === undefined ? null : Number(value);
+	return {
+		serviceKey,
+		status: row.status,
+		planVersionId: String(row.planVersionId),
+		periodStart: String(row.periodStart),
+		periodEnd: String(row.periodEnd),
+		usedCredits: Number(row.serviceUsed ?? 0),
+		reservedCredits: Number(row.serviceReserved ?? 0),
+		availableCredits: Math.max(Number(row.availableCredits ?? 0), 0),
+		enabled: Number(row.enabled) === 1,
+		monthlyCreditLimit: nullable(row.monthlyCreditLimit),
+		perTediMonthlyLimit: nullable(row.perTediMonthlyLimit),
+		monthlyProviderCostLimitMicros: nullable(row.providerCostLimitMicros),
+		providerCostMicros: Number(row.providerCostMicros ?? 0),
+		reservedProviderCostMicros: Number(row.reservedProviderCostMicros ?? 0),
+	};
 }
 
 async function getActiveRateCard(
@@ -295,30 +253,14 @@ async function getActiveRateCard(
 	return row ?? null;
 }
 
-function planGrantIdempotencyKey(input: {
-	organizationId: string;
-	planVersionId: string;
-	serviceKey: BillingServiceKey;
-	periodStart: string;
-}): string {
-	return [
-		"service-plan-grant",
-		input.organizationId,
-		input.planVersionId,
-		input.serviceKey,
-		input.periodStart,
-	].join(":");
-}
-
-/**
- * Atomically grants the plan-period allowance (once) and reserves credits.
- */
+/** Atomically checks the shared pool and service controls, then reserves credits. */
 export async function reserveBillingServiceCredits(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		id: string;
 		organizationId: string;
 		tediId?: string | null;
+		userId?: string | null;
 		serviceKey: BillingServiceKey;
 		operationKey: BillingServiceOperationKey;
 		idempotencyKey: string;
@@ -327,19 +269,29 @@ export async function reserveBillingServiceCredits(
 		now: string;
 	},
 ): Promise<BillingServiceCreditReservationDecision> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../pg/queries/billing-service-credits")
-			).reserveBillingServiceCredits(db.db, input);
-		db = db.db;
-	}
-
+	const tediId = input.tediId ?? null;
+	const snapshot = () =>
+		getBillingServiceCreditSnapshot(
+			db,
+			input.organizationId,
+			input.serviceKey,
+			input.now,
+			tediId,
+		);
 	const [existing] = await db
 		.select()
 		.from(billingServiceCreditReservations)
 		.where(
-			eq(billingServiceCreditReservations.idempotencyKey, input.idempotencyKey),
+			and(
+				eq(
+					billingServiceCreditReservations.idempotencyKey,
+					input.idempotencyKey,
+				),
+				eq(
+					billingServiceCreditReservations.organizationId,
+					input.organizationId,
+				),
+			),
 		)
 		.limit(1);
 	if (existing) {
@@ -349,29 +301,23 @@ export async function reserveBillingServiceCredits(
 			existing.operationKey,
 			existing.createdAt,
 		);
-		const snapshot = await getBillingServiceCreditSnapshot(
-			db,
-			input.organizationId,
-			input.serviceKey,
-			input.now,
-		);
-		if (rateCard && snapshot && existing.status === "reserved") {
+		const current = await snapshot();
+		if (rateCard && current && existing.status === "reserved")
 			return {
 				allowed: true,
 				replayed: true,
 				reservation: existing,
 				rateCard,
-				snapshot,
+				snapshot: current,
 			};
-		}
-		if (rateCard && snapshot) {
-			return {
-				allowed: false,
-				code: "request_already_settled",
-				snapshot,
-			};
-		}
-		return { allowed: false, code: "credit_allowance_exhausted", snapshot };
+		return {
+			allowed: false,
+			code:
+				existing.status === "settled"
+					? "request_already_settled"
+					: "request_already_reserved",
+			snapshot: current,
+		};
 	}
 
 	const rateCard = await getActiveRateCard(
@@ -380,174 +326,34 @@ export async function reserveBillingServiceCredits(
 		input.operationKey,
 		input.now,
 	);
-	if (!rateCard) {
+	if (!rateCard)
 		return { allowed: false, code: "rate_card_unavailable", snapshot: null };
-	}
 
-	const [account] = await db
-		.select()
-		.from(billingAccounts)
-		.where(eq(billingAccounts.organizationId, input.organizationId))
-		.limit(1);
-	if (!account) {
-		return { allowed: false, code: "billing_not_configured", snapshot: null };
-	}
-	const snapshotBefore = await getBillingServiceCreditSnapshot(
-		db,
-		input.organizationId,
-		input.serviceKey,
-		input.now,
-	);
-	if (!snapshotBefore) {
-		return { allowed: false, code: "billing_not_configured", snapshot: null };
-	}
-	if (
-		!(ACTIVE_ACCOUNT_STATUSES as readonly string[]).includes(account.status)
-	) {
-		return {
-			allowed: false,
-			code: "subscription_inactive",
-			snapshot: snapshotBefore,
-		};
-	}
-	if (
-		Date.parse(input.now) < Date.parse(account.periodStart) ||
-		Date.parse(input.now) >= Date.parse(account.periodEnd)
-	) {
-		return {
-			allowed: false,
-			code: "billing_period_inactive",
-			snapshot: snapshotBefore,
-		};
-	}
-
-	const grantKey = planGrantIdempotencyKey({
+	const subject = { tediId, userId: input.userId };
+	const credits = rateCard.creditCost;
+	const pool = creditPoolCte(db, {
 		organizationId: input.organizationId,
-		planVersionId: account.planVersionId,
-		serviceKey: input.serviceKey,
-		periodStart: account.periodStart,
+		now: input.now,
+		subject,
 	});
-	const grant = db
-		.insert(billingServiceCreditEntries)
-		.select(
-			db
-				.select({
-					id: sql<string>`${crypto.randomUUID()}`.as("id"),
-					organizationId: serviceAccount.organizationId,
-					serviceKey: serviceAllowance.serviceKey,
-					kind: sql<"grant">`'grant'`.as("kind"),
-					amountCredits: serviceAllowance.includedCredits,
-					sourceType: sql<string>`'plan_allowance'`.as("source_type"),
-					sourceRef: serviceAccount.planVersionId,
-					reservationId: sql<null>`NULL`.as("reservation_id"),
-					idempotencyKey: sql<string>`${grantKey}`.as("idempotency_key"),
-					expiresAt: serviceAccount.periodEnd,
-					description: sql<string>`'Included plan service credits'`.as(
-						"description",
-					),
-					metadata: sql<string>`${JSON.stringify({
-						planVersionId: account.planVersionId,
-						periodStart: account.periodStart,
-						periodEnd: account.periodEnd,
-					})}`.as("metadata"),
-					createdAt: sql<string>`${input.now}`.as("created_at"),
-				})
-				.from(serviceAccount)
-				.innerJoin(serviceAllowance, serviceAllowanceJoin(input.serviceKey))
-				.where(
-					and(
-						eq(serviceAccount.organizationId, input.organizationId),
-						sql`${serviceAllowance.includedCredits} > 0`,
-					),
-				),
-		)
-		.onConflictDoNothing({
-			target: billingServiceCreditEntries.idempotencyKey,
-		});
-	const tediId = input.tediId ?? null;
-	const rate = alias(billingServiceRateCards, "rate");
-	const admission = db.$with("snapshot").as(
-		db
-			.select({
-				organizationId: serviceAccount.organizationId,
-				planVersionId: serviceAccount.planVersionId,
-				status: serviceAccount.status,
-				periodStart: serviceAccount.periodStart,
-				periodEnd: serviceAccount.periodEnd,
-				rateCardId: sql<string>`${rate.id}`.as("rate_card_id"),
-				creditCost: rate.creditCost,
-				customerValueMicros: rate.customerValueMicros,
-				providerCostCeilingMicros: rate.providerCostCeilingMicros,
-				enabled: sql<number>`COALESCE(${serviceControl.enabled}, 1)`.as(
-					"enabled",
-				),
-				monthlyCreditLimit: serviceControl.monthlyCreditLimit,
-				perTediMonthlyLimit: sql<
-					number | null
-				>`COALESCE(${serviceControl.perTediMonthlyLimit}, ${serviceAllowance.perTediMonthlyLimit})`.as(
-					"per_tedi_monthly_limit",
-				),
-				providerCostLimitMicros: sql<
-					number | null
-				>`COALESCE(${serviceControl.monthlyProviderCostLimitMicros}, ${serviceAllowance.monthlyProviderCostLimitMicros})`.as(
-					"provider_cost_limit_micros",
-				),
-				creditBalance: sql<number>`COALESCE(${db
-					.select({ balance: sql`SUM(${entry.amountCredits})` })
-					.from(entry)
-					.where(
-						and(
-							eq(entry.organizationId, serviceAccount.organizationId),
-							eq(entry.serviceKey, input.serviceKey),
-							sql`(${entry.expiresAt} IS NULL OR datetime(${entry.expiresAt}) > datetime(${input.now}))`,
-						),
-					)}, 0)`.as("credit_balance"),
-				reservedCredits: reservedInPeriod(
-					db,
-					input.serviceKey,
-					input.now,
-					sql`${held.creditsReserved}`,
-				).as("reserved_credits"),
-				usedCredits: usedCreditsInPeriod(db, input.serviceKey).as(
-					"used_credits",
-				),
-				tediUsedCredits: usedCreditsInPeriod(db, input.serviceKey, tediId).as(
-					"tedi_used_credits",
-				),
-				tediReservedCredits: reservedInPeriod(
-					db,
-					input.serviceKey,
-					input.now,
-					sql`${held.creditsReserved}`,
-					tediId,
-				).as("tedi_reserved_credits"),
-				providerCostMicros: managedProviderCostInPeriod(db).as(
-					"provider_cost_micros",
-				),
-				reservedProviderCostMicros: reservedInPeriod(
-					db,
-					input.serviceKey,
-					input.now,
-					sql`${held.providerCostCeilingMicros}`,
-				).as("reserved_provider_cost_micros"),
-			})
-			.from(serviceAccount)
-			.innerJoin(serviceAllowance, serviceAllowanceJoin(input.serviceKey))
-			.innerJoin(rate, eq(rate.id, rateCard.id))
-			.leftJoin(serviceControl, serviceControlJoin(input.serviceKey))
-			.where(eq(serviceAccount.organizationId, input.organizationId)),
-	);
-	const reserve = db
-		.with(admission)
+	const capacity = creditCapacityCte(db, pool, { now: input.now, subject });
+	const service = serviceCte(db, pool, {
+		serviceKey: input.serviceKey,
+		now: input.now,
+		tediId,
+	});
+	await db
+		.with(pool, capacity, service)
 		.insert(billingServiceCreditReservations)
 		.select(
 			db
 				.select({
 					id: sql<string>`${input.id}`.as("id"),
-					organizationId: admission.organizationId,
-					planVersionId: admission.planVersionId,
-					rateCardId: admission.rateCardId,
+					organizationId: capacity.organizationId,
+					planVersionId: capacity.planVersionId,
+					rateCardId: sql<string>`${rateCard.id}`.as("rate_card_id"),
 					tediId: sql<string | null>`${tediId}`.as("tedi_id"),
+					userId: sql<string | null>`${input.userId ?? null}`.as("user_id"),
 					serviceKey: sql<BillingServiceKey>`${input.serviceKey}`.as(
 						"service_key",
 					),
@@ -556,18 +362,21 @@ export async function reserveBillingServiceCredits(
 							"operation_key",
 						),
 					status: sql<"reserved">`'reserved'`.as("status"),
-					creditsReserved: admission.creditCost,
+					creditsReserved: sql<number>`${credits}`.as("credits_reserved"),
 					customerValueMicros:
-						sql<number>`${admission.customerValueMicros} * ${admission.creditCost}`.as(
+						sql<number>`${rateCard.customerValueMicros * credits}`.as(
 							"customer_value_micros",
 						),
-					providerCostCeilingMicros: admission.providerCostCeilingMicros,
+					providerCostCeilingMicros:
+						sql<number>`${rateCard.providerCostCeilingMicros}`.as(
+							"provider_cost_ceiling_micros",
+						),
 					actualProviderCostMicros: sql<null>`NULL`.as(
 						"actual_provider_cost_micros",
 					),
 					providerUsageId: sql<null>`NULL`.as("provider_usage_id"),
-					periodStart: admission.periodStart,
-					periodEnd: admission.periodEnd,
+					periodStart: capacity.periodStart,
+					periodEnd: capacity.periodEnd,
 					idempotencyKey: sql<string>`${input.idempotencyKey}`.as(
 						"idempotency_key",
 					),
@@ -581,71 +390,81 @@ export async function reserveBillingServiceCredits(
 					createdAt: sql<string>`${input.now}`.as("created_at"),
 					updatedAt: sql<string>`${input.now}`.as("updated_at"),
 				})
-				.from(admission)
+				.from(capacity)
+				.innerJoin(service, sql`1 = 1`)
 				.where(
 					and(
-						sql`${admission.status} IN ('trial', 'active')`,
-						sql`datetime(${input.now}) >= datetime(${admission.periodStart})`,
-						sql`datetime(${input.now}) < datetime(${admission.periodEnd})`,
-						sql`${admission.enabled} = 1`,
-						sql`${admission.creditBalance} - ${admission.reservedCredits} >= ${admission.creditCost}`,
-						sql`(${admission.monthlyCreditLimit} IS NULL OR ${admission.usedCredits} + ${admission.reservedCredits} + ${admission.creditCost} <= ${admission.monthlyCreditLimit})`,
-						sql`(${tediId} IS NULL OR ${admission.perTediMonthlyLimit} IS NULL OR ${admission.tediUsedCredits} + ${admission.tediReservedCredits} + ${admission.creditCost} <= ${admission.perTediMonthlyLimit})`,
-						sql`(${admission.providerCostLimitMicros} IS NULL OR ${admission.providerCostMicros} + ${admission.reservedProviderCostMicros} + ${admission.providerCostCeilingMicros} <= ${admission.providerCostLimitMicros})`,
+						creditAdmissionPredicate(capacity, { now: input.now, credits }),
+						sql`${service.enabled} = 1`,
+						sql`(${service.monthlyCreditLimit} IS NULL
+							OR ${service.serviceUsed} + ${service.serviceReserved} + ${credits} <= ${service.monthlyCreditLimit})`,
+						sql`(${tediId} IS NULL OR ${service.perTediMonthlyLimit} IS NULL
+							OR ${service.serviceTediUsed} + ${credits} <= ${service.perTediMonthlyLimit})`,
+						sql`(${service.providerCostLimitMicros} IS NULL
+							OR ${service.providerCostMicros} + ${service.reservedProviderCostMicros} + ${rateCard.providerCostCeilingMicros} <= ${service.providerCostLimitMicros})`,
 					),
 				),
 		)
 		.onConflictDoNothing({
 			target: billingServiceCreditReservations.idempotencyKey,
 		});
-	await db.batch([grant, reserve]);
 
 	const [reservation] = await db
 		.select()
 		.from(billingServiceCreditReservations)
-		.where(
-			eq(billingServiceCreditReservations.idempotencyKey, input.idempotencyKey),
-		)
+		.where(eq(billingServiceCreditReservations.id, input.id))
 		.limit(1);
-	const snapshot = await getBillingServiceCreditSnapshot(
-		db,
-		input.organizationId,
-		input.serviceKey,
-		input.now,
-	);
-	if (reservation && snapshot) {
-		return { allowed: true, replayed: false, reservation, rateCard, snapshot };
-	}
-	if (!snapshot) {
+	const current = await snapshot();
+	if (reservation && current)
+		return {
+			allowed: true,
+			replayed: false,
+			reservation,
+			rateCard,
+			snapshot: current,
+		};
+	const poolSnapshot = await getCreditPoolSnapshot(db, {
+		organizationId: input.organizationId,
+		now: input.now,
+		subject,
+	});
+	const poolRefusal = creditRefusalReason(poolSnapshot, {
+		now: input.now,
+		credits,
+	});
+	if (poolRefusal)
+		return { allowed: false, code: poolRefusal, snapshot: current };
+	if (!current)
 		return { allowed: false, code: "billing_not_configured", snapshot: null };
-	}
-	if (!snapshot.enabled) {
-		return { allowed: false, code: "service_disabled", snapshot };
-	}
-	if (snapshot.availableCredits < rateCard.creditCost) {
-		return { allowed: false, code: "credit_allowance_exhausted", snapshot };
-	}
+	if (!current.enabled)
+		return { allowed: false, code: "service_disabled", snapshot: current };
 	if (
-		snapshot.monthlyCreditLimit !== null &&
-		snapshot.usedCredits + snapshot.reservedCredits + rateCard.creditCost >
-			snapshot.monthlyCreditLimit
-	) {
-		return { allowed: false, code: "monthly_credit_limit", snapshot };
-	}
+		current.monthlyCreditLimit !== null &&
+		current.usedCredits + current.reservedCredits + credits >
+			current.monthlyCreditLimit
+	)
+		return {
+			allowed: false,
+			code: "service_monthly_credit_limit",
+			snapshot: current,
+		};
 	if (
-		snapshot.monthlyProviderCostLimitMicros !== null &&
-		snapshot.providerCostMicros +
-			snapshot.reservedProviderCostMicros +
+		current.monthlyProviderCostLimitMicros !== null &&
+		current.providerCostMicros +
+			current.reservedProviderCostMicros +
 			rateCard.providerCostCeilingMicros >
-			snapshot.monthlyProviderCostLimitMicros
-	) {
-		return { allowed: false, code: "provider_cost_limit", snapshot };
-	}
-	return { allowed: false, code: "tedi_credit_limit", snapshot };
+			current.monthlyProviderCostLimitMicros
+	)
+		return { allowed: false, code: "provider_cost_limit", snapshot: current };
+	return {
+		allowed: false,
+		code: "service_tedi_credit_limit",
+		snapshot: current,
+	};
 }
 
 export async function releaseBillingServiceCreditReservation(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		reservationId: string;
 		organizationId: string;
@@ -653,14 +472,6 @@ export async function releaseBillingServiceCreditReservation(
 		now: string;
 	},
 ): Promise<BillingServiceCreditReservation | null> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../pg/queries/billing-service-credits")
-			).releaseBillingServiceCreditReservation(db.db, input);
-		db = db.db;
-	}
-
 	const [row] = await db
 		.update(billingServiceCreditReservations)
 		.set({
@@ -700,25 +511,18 @@ export interface SettleBillingServiceCreditUsageInput {
 	providerSucceeded: boolean;
 	occurredAt: string;
 	metadata?: Record<string, JsonValue>;
+	stripeEnvironment?: "test" | "live";
 	now: string;
 }
 
 /**
- * Atomically records provider cost and either debits managed credits or
- * releases them when the provider failed.
+ * Atomically records provider cost and either draws the reserved credits from
+ * the pool or releases them when the provider failed.
  */
 export async function settleBillingServiceCreditUsage(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: SettleBillingServiceCreditUsageInput,
 ): Promise<BillingServiceCreditReservation> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../pg/queries/billing-service-credits")
-			).settleBillingServiceCreditUsage(db.db, input);
-		db = db.db;
-	}
-
 	if (
 		!Number.isSafeInteger(input.providerCostMicros) ||
 		input.providerCostMicros < 0
@@ -784,11 +588,6 @@ export async function settleBillingServiceCreditUsage(
 			createdAt: input.now,
 		})
 		.onConflictDoNothing();
-	// The receipt exists only once its provider usage row landed in this batch.
-	const recorded = and(
-		eq(billingProviderUsage.providerUsageId, input.providerUsageId),
-		eq(billingProviderUsage.reservationId, reservation.id),
-	);
 	const settle = db
 		.update(billingServiceCreditReservations)
 		.set({
@@ -822,46 +621,33 @@ export async function settleBillingServiceCreditUsage(
 			),
 		);
 	if (input.providerSucceeded) {
-		// provider_usage_id is unique, so this selects at most the one receipt row.
-		const debit = db
-			.insert(billingServiceCreditEntries)
-			.select(
-				db
-					.select({
-						id: sql<string>`${crypto.randomUUID()}`.as("id"),
-						organizationId: sql<string>`${input.organizationId}`.as(
-							"organization_id",
+		// The credits are drawn only when this batch settled the reservation.
+		const consume = buildCreditConsumptionStatements(db, {
+			id: crypto.randomUUID(),
+			organizationId: input.organizationId,
+			kind: "service",
+			sourceRef: reservation.id,
+			tediId: reservation.tediId,
+			userId: reservation.userId,
+			periodStart: reservation.periodStart,
+			periodEnd: reservation.periodEnd,
+			credits: db
+				.select({ credits: billingServiceCreditReservations.creditsReserved })
+				.from(billingServiceCreditReservations)
+				.where(
+					and(
+						eq(billingServiceCreditReservations.id, reservation.id),
+						eq(billingServiceCreditReservations.status, "settled"),
+						eq(
+							billingServiceCreditReservations.providerUsageId,
+							input.providerUsageId,
 						),
-						serviceKey: sql<BillingServiceKey>`${reservation.serviceKey}`.as(
-							"service_key",
-						),
-						kind: sql<"debit">`'debit'`.as("kind"),
-						amountCredits: sql<number>`${-reservation.creditsReserved}`.as(
-							"amount_credits",
-						),
-						sourceType: sql<string>`'provider_usage'`.as("source_type"),
-						sourceRef: sql<string>`${input.providerUsageId}`.as("source_ref"),
-						reservationId: sql<string>`${reservation.id}`.as("reservation_id"),
-						idempotencyKey:
-							sql<string>`${`service-debit:${input.providerUsageId}`}`.as(
-								"idempotency_key",
-							),
-						expiresAt: sql<null>`NULL`.as("expires_at"),
-						description:
-							sql<string>`${`${reservation.operationKey} managed usage`}`.as(
-								"description",
-							),
-						metadata: sql<string>`${JSON.stringify(metadata)}`.as("metadata"),
-						createdAt: sql<string>`${input.now}`.as("created_at"),
-					})
-					.from(billingProviderUsage)
-					.where(recorded)
-					.limit(1),
-			)
-			.onConflictDoNothing({
-				target: billingServiceCreditEntries.idempotencyKey,
-			});
-		await db.batch([providerUsage, debit, settle]);
+					),
+				),
+			now: input.now,
+			stripeEnvironment: input.stripeEnvironment,
+		});
+		await db.batch([providerUsage, settle, ...consume]);
 	} else {
 		await db.batch([providerUsage, settle]);
 	}
@@ -877,73 +663,8 @@ export async function settleBillingServiceCreditUsage(
 	return settled;
 }
 
-export async function grantBillingServiceCredits(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
-	input: {
-		id: string;
-		organizationId: string;
-		serviceKey: BillingServiceKey;
-		amountCredits: number;
-		sourceType: string;
-		sourceRef?: string | null;
-		idempotencyKey: string;
-		expiresAt?: string | null;
-		description?: string | null;
-		metadata?: Record<string, JsonValue>;
-		createdAt: string;
-	},
-): Promise<BillingServiceCreditEntry> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../pg/queries/billing-service-credits")
-			).grantBillingServiceCredits(db.db, input);
-		db = db.db;
-	}
-
-	if (!Number.isSafeInteger(input.amountCredits) || input.amountCredits <= 0) {
-		throw new Error("Service credit grants require positive integer credits");
-	}
-	const [account] = await db
-		.select({ organizationId: billingAccounts.organizationId })
-		.from(billingAccounts)
-		.where(eq(billingAccounts.organizationId, input.organizationId))
-		.limit(1);
-	if (!account) {
-		throw new Error(
-			`Billing account not found for organization ${input.organizationId}`,
-		);
-	}
-	await db
-		.insert(billingServiceCreditEntries)
-		.values({
-			id: input.id,
-			organizationId: input.organizationId,
-			serviceKey: input.serviceKey,
-			kind: "grant",
-			amountCredits: input.amountCredits,
-			sourceType: input.sourceType,
-			sourceRef: input.sourceRef ?? null,
-			idempotencyKey: input.idempotencyKey,
-			expiresAt: input.expiresAt ?? null,
-			description: input.description ?? null,
-			metadata: input.metadata ?? {},
-			createdAt: input.createdAt,
-		})
-		.onConflictDoNothing({
-			target: billingServiceCreditEntries.idempotencyKey,
-		});
-	const [entry] = await db
-		.select()
-		.from(billingServiceCreditEntries)
-		.where(eq(billingServiceCreditEntries.idempotencyKey, input.idempotencyKey))
-		.limit(1);
-	if (!entry) throw new Error("Failed to journal service credit grant");
-	return entry;
-}
-
 export async function setBillingServiceCreditControls(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		organizationId: string;
 		serviceKey: BillingServiceKey;
@@ -956,14 +677,6 @@ export async function setBillingServiceCreditControls(
 		now: string;
 	},
 ): Promise<BillingServiceCreditControl> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../pg/queries/billing-service-credits")
-			).setBillingServiceCreditControls(db.db, input);
-		db = db.db;
-	}
-
 	for (const value of [
 		input.monthlyCreditLimit,
 		input.perTediMonthlyLimit,

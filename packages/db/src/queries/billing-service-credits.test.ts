@@ -1,8 +1,24 @@
-import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
+import {
+	billingAccounts,
+	billingCreditCaps,
+	billingCreditConsumptions,
+	billingCreditMeterOutbox,
+	billingCreditNotices,
+	billingCreditTopUps,
+	billingCreditUsageTotals,
+	billingPlanVersions,
+	billingProviderUsage,
+	billingServiceCreditControls,
+	billingServiceCreditReservations,
+	billingServiceRateCards,
+	billingUsageReservations,
+} from "../schema/billing";
 import { createD1Facade } from "../test/d1-facade";
+import { tableDdl } from "../test/schema-ddl";
+import { getCreditPoolSnapshot } from "./billing/credit-pool";
 import {
 	getBillingServiceCreditSnapshot,
 	reserveBillingServiceCredits,
@@ -25,90 +41,43 @@ function setup() {
 			id TEXT PRIMARY KEY,
 			organization_id TEXT NOT NULL
 		);
-		CREATE TABLE billing_plan_versions (
-			id TEXT PRIMARY KEY,
-			plan_key TEXT NOT NULL,
-			version INTEGER NOT NULL,
-			status TEXT NOT NULL,
-			name TEXT NOT NULL,
-			currency TEXT NOT NULL,
-			monthly_price_micros INTEGER NOT NULL,
-			annual_price_micros INTEGER NOT NULL,
-			included_monthly_tokens INTEGER NOT NULL,
-			included_monthly_credit_micros INTEGER NOT NULL,
-			overage_unit_tokens INTEGER NOT NULL,
-			overage_unit_price_micros INTEGER NOT NULL,
-			max_tedis INTEGER NOT NULL,
-			max_cron_jobs_per_tedi INTEGER NOT NULL,
-			max_iterations_per_task INTEGER NOT NULL,
-			default_daily_token_limit INTEGER NOT NULL,
-			default_daily_message_limit INTEGER NOT NULL,
-			allow_overage INTEGER NOT NULL,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			effective_at TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		);
-		CREATE TABLE billing_accounts (
-			organization_id TEXT PRIMARY KEY,
-			plan_version_id TEXT NOT NULL,
-			status TEXT NOT NULL,
-			billing_mode TEXT NOT NULL,
-			stripe_environment TEXT,
-			stripe_customer_id TEXT,
-			stripe_subscription_id TEXT,
-			stripe_cancel_at_period_end INTEGER,
-			period_start TEXT NOT NULL,
-			period_end TEXT NOT NULL,
-			overage_enabled INTEGER NOT NULL DEFAULT 0,
-			hard_spend_limit_micros INTEGER,
-			credit_balance_micros INTEGER NOT NULL DEFAULT 0,
-			grace_ends_at TEXT,
-			entitlement_version INTEGER NOT NULL DEFAULT 1,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		);
-		CREATE TABLE billing_provider_usage (
-			id TEXT PRIMARY KEY,
-			organization_id TEXT,
-			tedi_id TEXT,
-			reservation_id TEXT,
-			gateway_log_id TEXT,
-			provider_usage_id TEXT,
-			provider TEXT NOT NULL,
-			model TEXT NOT NULL,
-			usage_kind TEXT NOT NULL,
-			unit TEXT NOT NULL,
-			quantity INTEGER NOT NULL,
-			provider_cost_micros INTEGER NOT NULL DEFAULT 0,
-			provider_cost_quality TEXT NOT NULL,
-			customer_metering_ready INTEGER NOT NULL DEFAULT 0,
-			occurred_at TEXT NOT NULL,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL
-		);
-		CREATE UNIQUE INDEX uniq_billing_provider_usage_gateway_log
-			ON billing_provider_usage (gateway_log_id)
-			WHERE gateway_log_id IS NOT NULL;
-		CREATE UNIQUE INDEX uniq_billing_provider_usage_provider_id
-			ON billing_provider_usage (provider_usage_id)
-			WHERE provider_usage_id IS NOT NULL;
-		INSERT INTO billing_plan_versions VALUES (
-			'growth-v2', 'growth', 2, 'active', 'Growth', 'usd',
-			249000000, 2399000000, 500000, 0, 1000, 50000,
-			1, 10, 16, 250000, 200, 1,
-			'{}', '2026-07-27T00:00:00.000Z', '${NOW}'
-		);
 	`);
-	const migration = readFileSync(
-		new URL(
-			"../../drizzle/20260730020216_managed_seo_credits/migration.sql",
-			import.meta.url,
-		),
-		"utf8",
-	);
-	sqlite.exec(migration);
+	for (const table of [
+		billingPlanVersions,
+		billingAccounts,
+		billingProviderUsage,
+		billingServiceRateCards,
+		billingServiceCreditControls,
+		billingServiceCreditReservations,
+		billingUsageReservations,
+		billingCreditTopUps,
+		billingCreditConsumptions,
+		billingCreditUsageTotals,
+		billingCreditCaps,
+		billingCreditNotices,
+		billingCreditMeterOutbox,
+	]) {
+		for (const statement of tableDdl(table)) sqlite.exec(statement);
+	}
 	sqlite.exec(`
+		INSERT INTO billing_plan_versions (
+			id, plan_key, version, status, name, currency, monthly_price_micros,
+			annual_price_micros, max_tedis, max_cron_jobs_per_tedi,
+			max_iterations_per_task, allow_overage, included_monthly_credits,
+			metadata, effective_at, created_at
+		) VALUES (
+			'growth-v2', 'growth', 2, 'active', 'Growth', 'eur', 200000000,
+			2000000000, 1, 10, 16, 1, 10, '{}', '2026-07-27T00:00:00.000Z', '${NOW}'
+		);
+		INSERT INTO billing_service_rate_cards (
+			id, service_key, operation_key, version, status, provider,
+			provider_endpoint, credit_cost, customer_value_micros,
+			provider_cost_ceiling_micros, effective_at, metadata, created_at
+		) VALUES (
+			'seo-research-keywords-v1', 'seo', 'research_keywords', 1, 'active',
+			'dataforseo', '/v3/dataforseo_labs/google/keyword_suggestions/live',
+			4, 10000, 30000, '2026-07-30T00:00:00.000Z', '{}', '${NOW}'
+		);
 		INSERT INTO organizations (id) VALUES ('org-1');
 		INSERT INTO tedis (id, organization_id) VALUES ('tedi-1', 'org-1');
 		INSERT INTO billing_accounts (
@@ -143,19 +112,15 @@ async function reserve(
 }
 
 describe("managed service credits", () => {
-	it("atomically grants the plan allowance and reserves a versioned rate", async () => {
-		const { db, sqlite } = setup();
+	it("reserves a versioned rate against the shared credit pool", async () => {
+		const { db } = setup();
 		const before = await getBillingServiceCreditSnapshot(
 			db,
 			"org-1",
 			"seo",
 			NOW,
 		);
-		expect(before).toMatchObject({
-			includedCredits: 500,
-			grantedCredits: 500,
-			availableCredits: 500,
-		});
+		expect(before).toMatchObject({ usedCredits: 0, availableCredits: 10 });
 
 		const first = await reserve(db);
 		const replay = await reserve(db, { id: "reservation-replay" });
@@ -173,21 +138,18 @@ describe("managed service credits", () => {
 			customerValueMicros: 40_000,
 		});
 		expect(replay.reservation.id).toBe(first.reservation.id);
-		expect(
-			sqlite
-				.prepare(
-					"SELECT COUNT(*) AS count FROM billing_service_credit_entries WHERE kind = 'grant'",
-				)
-				.get(),
-		).toEqual({ count: 1 });
 		expect(first.snapshot).toMatchObject({
-			includedCredits: 500,
 			reservedCredits: 4,
-			availableCredits: 496,
+			availableCredits: 6,
 		});
+		// 4 + 4 fits the 10-credit pool; a third reservation does not.
+		await reserve(db, { id: "reservation-2", idempotencyKey: "seo-2" });
+		expect(
+			await reserve(db, { id: "reservation-3", idempotencyKey: "seo-3" }),
+		).toMatchObject({ allowed: false, code: "monthly_credit_limit_reached" });
 	});
 
-	it("settles successful provider usage into one debit and metering-ready receipt", async () => {
+	it("settles successful provider usage into one pool draw and metering-ready receipt", async () => {
 		const { db, sqlite } = setup();
 		const decision = await reserve(db);
 		if (!decision.allowed) throw new Error(decision.code);
@@ -224,11 +186,9 @@ describe("managed service credits", () => {
 		expect(settled.status).toBe("settled");
 		expect(
 			sqlite
-				.prepare(
-					"SELECT amount_credits AS amountCredits FROM billing_service_credit_entries WHERE kind = 'debit'",
-				)
+				.prepare("SELECT kind, credits FROM billing_credit_consumptions")
 				.all(),
-		).toEqual([{ amountCredits: -4 }]);
+		).toEqual([{ kind: "service", credits: 4 }]);
 		expect(
 			sqlite
 				.prepare(
@@ -245,9 +205,13 @@ describe("managed service credits", () => {
 		expect(snapshot).toMatchObject({
 			usedCredits: 4,
 			reservedCredits: 0,
-			availableCredits: 496,
+			availableCredits: 6,
 			providerCostMicros: 12_500,
 		});
+		expect(
+			(await getCreditPoolSnapshot(db, { organizationId: "org-1", now: NOW }))
+				?.breakdown,
+		).toEqual({ ai: 0, codeRuns: 0, services: 4 });
 	});
 
 	it("releases credits and records cost-only evidence when the provider fails", async () => {
@@ -276,9 +240,7 @@ describe("managed service credits", () => {
 		});
 		expect(
 			sqlite
-				.prepare(
-					"SELECT COUNT(*) AS count FROM billing_service_credit_entries WHERE kind = 'debit'",
-				)
+				.prepare("SELECT COUNT(*) AS count FROM billing_credit_consumptions")
 				.get(),
 		).toEqual({ count: 0 });
 		expect(
@@ -339,9 +301,7 @@ describe("managed service credits", () => {
 		).toEqual({ status: "reserved" });
 		expect(
 			sqlite
-				.prepare(
-					"SELECT COUNT(*) AS count FROM billing_service_credit_entries WHERE kind = 'debit'",
-				)
+				.prepare("SELECT COUNT(*) AS count FROM billing_credit_consumptions")
 				.get(),
 		).toEqual({ count: 0 });
 	});
@@ -359,7 +319,7 @@ describe("managed service credits", () => {
 		const limited = await reserve(db);
 		expect(limited).toMatchObject({
 			allowed: false,
-			code: "monthly_credit_limit",
+			code: "service_monthly_credit_limit",
 		});
 
 		await setBillingServiceCreditControls(db, {

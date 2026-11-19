@@ -1,23 +1,38 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
-import { billingUsageReservations } from "../schema/billing";
+import {
+	billingAccounts,
+	billingCreditCaps,
+	billingCreditConsumptions,
+	billingCreditMeterOutbox,
+	billingCreditNotices,
+	billingCreditTopUps,
+	billingCreditUsageTotals,
+	billingPlanVersions,
+	billingProviderReconciliations,
+	billingProviderUsage,
+	billingServiceCreditReservations,
+	billingTopUpPackVersions,
+	billingUsageCharges,
+	billingUsagePeriods,
+	billingUsageQuarantines,
+	billingUsageReservations,
+	stripeWebhookEvents,
+} from "../schema/billing";
 import { createD1Facade } from "../test/d1-facade";
 import { tableDdl } from "../test/schema-ddl";
 import {
-	expireBillingCredits,
-	getBillingBalanceSnapshot,
-	grantBillingCredit,
-} from "./billing/credits";
-import {
-	getInferenceCapacityDailyOverview,
-	recordCapacityAllocation,
-	transferSponsoredCapacity,
-} from "./billing/capacity-allocations";
-import {
-	getActiveInferenceCapacityPackByKey,
-	listActiveInferenceCapacityPacks,
-} from "./billing/capacity-packs";
+	admitCodeRun,
+	getCreditPoolSnapshot,
+	grantTopUpCredits,
+	listActiveTopUpPacks,
+	listCreditNotices,
+	listCreditSubjectUsage,
+	setAccountCredits,
+	setCreditCaps,
+	setPayAsYouGo,
+} from "./billing/credit-pool";
 import { recordBillingProviderReconciliation } from "./billing/health";
 import {
 	claimStripeMeterOutbox,
@@ -25,8 +40,8 @@ import {
 	STRIPE_METER_OUTBOX_MAX_ATTEMPTS,
 } from "./billing/meter-outbox";
 import {
-	getBillingEntitlement,
 	activateProviderCustomerBilling,
+	getBillingEntitlement,
 	getBillingEntitlementByStripeCustomerId,
 	linkBillingAccountStripeCustomerIfUnbound,
 } from "./billing/plans";
@@ -43,6 +58,16 @@ import {
 	markStripeWebhookEventProcessed,
 } from "./billing/stripe-webhooks";
 
+const PERIOD_START = "2026-07-01T00:00:00.000Z";
+const PERIOD_END = "2026-08-01T00:00:00.000Z";
+/** 1 EUR = 1 USD keeps the arithmetic readable: 1 credit = 5,000 USD micros of provider cost. */
+const PARITY_FX = JSON.stringify({
+	microUsdPerEur: 1_000_000,
+	source: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+	asOf: "2026-07-01",
+});
+const DEPLOYMENT_SCOPE = '["azure-openai","test"]';
+
 function setup(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
@@ -55,303 +80,102 @@ function setup(onPrepare?: (query: string) => void) {
 			id TEXT PRIMARY KEY,
 			organization_id TEXT NOT NULL
 		);
-		CREATE TABLE provider_installations (
-			customer_organization_id TEXT NOT NULL
-		);
-		CREATE TABLE billing_plan_versions (
-			id TEXT PRIMARY KEY,
-			plan_key TEXT NOT NULL,
-			version INTEGER NOT NULL,
-			status TEXT NOT NULL,
-			name TEXT NOT NULL,
-			currency TEXT NOT NULL,
-			monthly_price_micros INTEGER NOT NULL,
-			annual_price_micros INTEGER NOT NULL,
-			included_monthly_tokens INTEGER NOT NULL,
-			included_monthly_credit_micros INTEGER NOT NULL,
-			overage_unit_tokens INTEGER NOT NULL,
-			overage_unit_price_micros INTEGER NOT NULL,
-			max_tedis INTEGER NOT NULL,
-			max_cron_jobs_per_tedi INTEGER NOT NULL,
-			max_iterations_per_task INTEGER NOT NULL,
-			default_daily_token_limit INTEGER NOT NULL,
-			default_daily_message_limit INTEGER NOT NULL,
-			allow_overage INTEGER NOT NULL,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			effective_at TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		);
-		CREATE TABLE billing_accounts (
-			organization_id TEXT PRIMARY KEY,
-			plan_version_id TEXT NOT NULL,
-			status TEXT NOT NULL,
-			billing_mode TEXT NOT NULL,
-			stripe_environment TEXT DEFAULT 'live',
-			stripe_customer_id TEXT,
-			stripe_subscription_id TEXT,
-			stripe_cancel_at_period_end INTEGER,
-			period_start TEXT NOT NULL,
-			period_end TEXT NOT NULL,
-			overage_enabled INTEGER NOT NULL DEFAULT 0,
-			hard_spend_limit_micros INTEGER,
-			credit_balance_micros INTEGER NOT NULL DEFAULT 0,
-			grace_ends_at TEXT,
-			entitlement_version INTEGER NOT NULL DEFAULT 1,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		);
-		CREATE TABLE billing_credit_entries (
-			id TEXT PRIMARY KEY,
-			organization_id TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			amount_micros INTEGER NOT NULL,
-			source_type TEXT NOT NULL,
-			source_ref TEXT,
-			usage_charge_id TEXT,
-			idempotency_key TEXT NOT NULL UNIQUE,
-			expires_at TEXT,
-			description TEXT,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL
-		);
-		CREATE TABLE billing_inference_capacity_pack_versions (
-			id TEXT PRIMARY KEY,
-			pack_key TEXT NOT NULL,
-			version INTEGER NOT NULL,
-			status TEXT NOT NULL,
-			name TEXT NOT NULL,
-			currency TEXT NOT NULL,
-			price_micros INTEGER NOT NULL,
-			token_amount INTEGER NOT NULL,
-			spend_amount_micros INTEGER NOT NULL,
-			stripe_environment TEXT NOT NULL,
-			stripe_lookup_key TEXT NOT NULL,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			effective_at TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			UNIQUE(pack_key, version, stripe_environment),
-			UNIQUE(stripe_environment, stripe_lookup_key)
-		);
-		CREATE TABLE billing_capacity_allocations (
-			id TEXT PRIMARY KEY,
-			organization_id TEXT NOT NULL,
-			pack_version_id TEXT,
-			budget_day TEXT NOT NULL,
-			token_amount INTEGER NOT NULL,
-			spend_amount_micros INTEGER NOT NULL,
-			source_type TEXT NOT NULL,
-			source_ref TEXT,
-			idempotency_key TEXT NOT NULL UNIQUE,
-			stripe_environment TEXT NOT NULL,
-			expires_at TEXT NOT NULL,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL
-		);
-		CREATE TRIGGER billing_credit_entries_apply_insert
-		AFTER INSERT ON billing_credit_entries BEGIN
-			UPDATE billing_accounts
-			SET credit_balance_micros = credit_balance_micros + NEW.amount_micros
-			WHERE organization_id = NEW.organization_id;
-		END;
-		CREATE TABLE billing_usage_reservations (
-			id TEXT PRIMARY KEY,
-			organization_id TEXT NOT NULL,
-			plan_version_id TEXT NOT NULL,
-			tedi_id TEXT,
-			status TEXT NOT NULL,
-			source TEXT NOT NULL,
-			provider TEXT NOT NULL,
-			model TEXT NOT NULL,
-			estimated_input_tokens INTEGER NOT NULL,
-			estimated_output_tokens INTEGER NOT NULL,
-			estimated_charge_micros INTEGER NOT NULL,
-			period_start TEXT NOT NULL,
-			period_end TEXT NOT NULL,
-			run_id TEXT,
-			trace_id TEXT,
-			idempotency_key TEXT NOT NULL UNIQUE,
-			rejection_code TEXT,
-			expires_at TEXT NOT NULL,
-			settled_at TEXT,
-			released_at TEXT,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		);
-		CREATE TABLE billing_usage_periods (
-			id TEXT PRIMARY KEY,
-			organization_id TEXT NOT NULL,
-			plan_version_id TEXT NOT NULL,
-			period_start TEXT NOT NULL,
-			period_end TEXT NOT NULL,
-			included_tokens INTEGER NOT NULL,
-			used_input_tokens INTEGER NOT NULL DEFAULT 0,
-			used_output_tokens INTEGER NOT NULL DEFAULT 0,
-			metered_overage_tokens INTEGER NOT NULL DEFAULT 0,
-			provider_cost_micros INTEGER NOT NULL DEFAULT 0,
-			customer_charge_micros INTEGER NOT NULL DEFAULT 0,
-			credit_applied_micros INTEGER NOT NULL DEFAULT 0,
-			settlement_version INTEGER NOT NULL DEFAULT 0,
-			last_settlement_id TEXT,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			UNIQUE(organization_id, period_start, period_end)
-		);
-		CREATE TABLE billing_usage_charges (
-			id TEXT PRIMARY KEY,
-			organization_id TEXT NOT NULL,
-			tedi_id TEXT,
-			reservation_id TEXT,
-			usage_period_id TEXT NOT NULL,
-			gateway_log_id TEXT UNIQUE,
-			provider_usage_id TEXT UNIQUE,
-			provider TEXT NOT NULL,
-			model TEXT NOT NULL,
-			source TEXT NOT NULL,
-			input_tokens INTEGER NOT NULL,
-			output_tokens INTEGER NOT NULL,
-			included_tokens_applied INTEGER NOT NULL,
-			metered_overage_tokens INTEGER NOT NULL,
-			provider_cost_micros INTEGER NOT NULL,
-			customer_charge_micros INTEGER NOT NULL,
-			credit_applied_micros INTEGER NOT NULL,
-			usage_quality TEXT NOT NULL,
-			provider_cost_quality TEXT NOT NULL,
-			metering_ready INTEGER NOT NULL,
-			provider_reconciled_at TEXT,
-			rate_card_version TEXT,
-			occurred_at TEXT NOT NULL,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL
-		);
-		CREATE INDEX idx_billing_charge_monetary_eur ON billing_usage_charges (organization_id, occurred_at) WHERE json_extract(metadata,'$.monetaryQuote.schemaVersion')=1 AND json_extract(metadata,'$.monetaryQuote.rateSnapshot.customerCurrency')='EUR';
-		CREATE TABLE stripe_meter_outbox (
-			id TEXT PRIMARY KEY,
-			organization_id TEXT NOT NULL,
-			usage_charge_id TEXT NOT NULL UNIQUE,
-			stripe_customer_id TEXT NOT NULL,
-			stripe_environment TEXT NOT NULL DEFAULT 'live',
-			event_name TEXT NOT NULL,
-			quantity INTEGER NOT NULL,
-			idempotency_key TEXT NOT NULL UNIQUE,
-			status TEXT NOT NULL,
-			attempt_count INTEGER NOT NULL DEFAULT 0,
-			next_attempt_at TEXT NOT NULL,
-			lease_expires_at TEXT,
-			stripe_event_id TEXT,
-			last_error TEXT,
-			sent_at TEXT,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		);
-		CREATE TABLE billing_usage_quarantines (
-			id TEXT PRIMARY KEY,
-			gateway_log_id TEXT NOT NULL UNIQUE,
-			organization_id TEXT,
-			reason TEXT NOT NULL,
-			source_snapshot_at TEXT NOT NULL,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL
-		);
-		CREATE TABLE billing_provider_usage (
+		CREATE TABLE audit_events (
 			id TEXT PRIMARY KEY,
 			organization_id TEXT,
-			tedi_id TEXT,
-			reservation_id TEXT,
-			gateway_log_id TEXT UNIQUE,
-			provider_usage_id TEXT UNIQUE,
-			provider TEXT NOT NULL,
-			model TEXT NOT NULL,
-			usage_kind TEXT NOT NULL,
-			unit TEXT NOT NULL,
-			quantity INTEGER NOT NULL,
-			provider_cost_micros INTEGER NOT NULL DEFAULT 0,
-			provider_cost_quality TEXT NOT NULL,
-			customer_metering_ready INTEGER NOT NULL DEFAULT 0,
-			occurred_at TEXT NOT NULL,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL
+			actor_id TEXT,
+			actor_type TEXT,
+			action TEXT,
+			resource_type TEXT,
+			resource_id TEXT,
+			metadata TEXT,
+			ip_address TEXT,
+			user_agent TEXT,
+			timestamp INTEGER
 		);
-		CREATE TABLE stripe_webhook_events (
-			event_id TEXT PRIMARY KEY,
-			event_type TEXT NOT NULL,
-			entity_key TEXT NOT NULL,
-			event_created_at INTEGER NOT NULL,
-			status TEXT NOT NULL,
-			attempt_count INTEGER NOT NULL DEFAULT 1,
-			lease_expires_at TEXT,
-			outcome TEXT,
-			last_error TEXT,
-			processed_at TEXT,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		);
-		CREATE TABLE billing_provider_reconciliations (
+		CREATE TABLE provider_model_rate_versions (
 			id TEXT PRIMARY KEY,
 			provider TEXT NOT NULL,
-			provider_resource TEXT NOT NULL DEFAULT '',
-			period_start TEXT NOT NULL,
-			period_end TEXT NOT NULL,
-			ledger_cost_micros INTEGER NOT NULL,
-			provider_cost_micros INTEGER NOT NULL,
-			variance_micros INTEGER NOT NULL,
-			usage_row_count INTEGER NOT NULL DEFAULT 0,
-			status TEXT NOT NULL,
-			evidence_ref TEXT,
-			reconciled_by TEXT,
-			reconciled_at TEXT,
-			metadata TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			UNIQUE(provider, provider_resource, period_start, period_end)
+			model_id TEXT NOT NULL,
+			deployment_scope TEXT NOT NULL,
+			input_token_min INTEGER NOT NULL DEFAULT 0,
+			input_token_max INTEGER,
+			effective_from TEXT NOT NULL,
+			input_microusd_per_million INTEGER NOT NULL,
+			output_microusd_per_million INTEGER NOT NULL,
+			cache_read_microusd_per_million INTEGER NOT NULL,
+			cache_write_microusd_per_million INTEGER NOT NULL,
+			currency TEXT NOT NULL,
+			evidence_uri TEXT NOT NULL,
+			evidence_digest TEXT NOT NULL,
+			verified_at TEXT NOT NULL,
+			published_at TEXT NOT NULL,
+			published_by TEXT NOT NULL,
+			change_reason TEXT NOT NULL,
+			supersedes_rate_version_id TEXT
 		);
 	`);
-	sqlite
-		.prepare(`
-		INSERT INTO billing_inference_capacity_pack_versions (
-			id, pack_key, version, status, name, currency, price_micros,
-			token_amount, spend_amount_micros, stripe_environment,
-			stripe_lookup_key, effective_at, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-		.run(
-			"capacity-pack-daily-5m-test-v1",
-			"daily_5m",
-			1,
-			"active",
-			"5M daily boost",
-			"usd",
-			25_000_000,
-			5_000_000,
-			25_000_000,
-			"test",
-			"tedix_inference_capacity_daily_5m_v1",
-			"2026-07-01T00:00:00.000Z",
-			"2026-07-01T00:00:00.000Z",
-		);
+	for (const table of [
+		billingPlanVersions,
+		billingAccounts,
+		billingUsageReservations,
+		billingUsagePeriods,
+		billingUsageCharges,
+		billingUsageQuarantines,
+		billingProviderUsage,
+		billingServiceCreditReservations,
+		billingTopUpPackVersions,
+		billingCreditTopUps,
+		billingCreditConsumptions,
+		billingCreditUsageTotals,
+		billingCreditCaps,
+		billingCreditNotices,
+		billingCreditMeterOutbox,
+		stripeWebhookEvents,
+		billingProviderReconciliations,
+	]) {
+		for (const statement of tableDdl(table)) sqlite.exec(statement);
+	}
 	const now = "2026-07-27T12:00:00.000Z";
 	sqlite.prepare(`INSERT INTO organizations (id) VALUES (?)`).run("org-1");
 	sqlite
+		.prepare(`INSERT INTO tedis (id, organization_id) VALUES (?, ?)`)
+		.run("tedi-1", "org-1");
+	sqlite
 		.prepare(
-			`INSERT INTO billing_plan_versions VALUES (
-				'growth-v1','growth',1,'active','Growth','usd',
-				249000000,2399000000,1000,0,1000,50000,
-				1,10,16,1000,200,1,
-				'{}','2026-01-01T00:00:00.000Z',?
-			)`,
+			`INSERT INTO billing_plan_versions (
+				id, plan_key, version, status, name, currency, monthly_price_micros,
+				annual_price_micros, max_tedis, max_cron_jobs_per_tedi,
+				max_iterations_per_task, allow_overage, included_monthly_credits,
+				credit_fx, metadata, effective_at, created_at
+			) VALUES ('growth-v1','growth',1,'active','Growth','eur',
+				200000000,2000000000,1,10,16,1,100,?,'{}','2026-01-01T00:00:00.000Z',?)`,
 		)
-		.run(now);
+		.run(PARITY_FX, now);
 	sqlite
 		.prepare(
 			`INSERT INTO billing_accounts (
 				organization_id, plan_version_id, status, billing_mode,
 				stripe_environment, stripe_customer_id, overage_enabled,
 				period_start, period_end, created_at, updated_at
-			) VALUES ('org-1','growth-v1','active','stripe','live','cus_1',1,?,?,?,?)`,
+			) VALUES ('org-1','growth-v1','active','stripe','live','cus_1',0,?,?,?,?)`,
 		)
-		.run("2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z", now, now);
-	sqlite.exec(tableDdl(billingUsageReservations).slice(1).join(";"));
+		.run(PERIOD_START, PERIOD_END, now, now);
+	// 1M input or output tokens cost 1,000,000 USD micros: 1 token = 1 micro.
+	sqlite
+		.prepare(
+			`INSERT INTO provider_model_rate_versions (
+				id, provider, model_id, deployment_scope, effective_from,
+				input_microusd_per_million, output_microusd_per_million,
+				cache_read_microusd_per_million, cache_write_microusd_per_million,
+				currency, evidence_uri, evidence_digest, verified_at, published_at,
+				published_by, change_reason
+			) VALUES ('rate-1','azure-openai','gpt-5.6-terra',?,'2026-01-01T00:00:00.000Z',
+				1000000,1000000,100000,1000000,'USD','https://example.test/rates',
+				'digest','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z',
+				'test','fixture')`,
+		)
+		.run(DEPLOYMENT_SCOPE);
 	return {
 		db: createDbClient(createD1Facade(sqlite, { onPrepare })),
 		sqlite,
@@ -365,8 +189,7 @@ function insertReservation(
 		id: string;
 		status?: "reserved" | "expired" | "settled";
 		tediId?: string;
-		estimatedInputTokens?: number;
-		estimatedOutputTokens?: number;
+		credits?: number;
 		now: string;
 	},
 ) {
@@ -375,341 +198,410 @@ function insertReservation(
 			`INSERT INTO billing_usage_reservations (
 				id, organization_id, plan_version_id, tedi_id, status, source,
 				provider, model, estimated_input_tokens, estimated_output_tokens,
-				estimated_charge_micros, period_start, period_end,
+				estimated_charge_micros, credits, period_start, period_end,
 				idempotency_key, expires_at, created_at, updated_at
 			) VALUES (?, 'org-1', 'growth-v1', ?, ?, 'operator', 'azure-openai',
-				'gpt-5.6-terra', ?, ?, 0, '2026-07-01T00:00:00.000Z',
-				'2026-08-01T00:00:00.000Z', ?, '2026-07-27T12:10:00.000Z', ?, ?)`,
+				'gpt-5.6-terra', 0, 0, 0, ?, ?, ?, ?, '2026-07-27T12:10:00.000Z', ?, ?)`,
 		)
 		.run(
 			input.id,
 			input.tediId ?? null,
 			input.status ?? "reserved",
-			input.estimatedInputTokens ?? 0,
-			input.estimatedOutputTokens ?? 0,
+			input.credits ?? 0,
+			PERIOD_START,
+			PERIOD_END,
 			`test:${input.id}`,
 			input.now,
 			input.now,
 		);
 }
 
-function insertCharge(
-	sqlite: DatabaseSync,
+/** Reserve one AI call through the real admission path. */
+function reserve(
+	db: ReturnType<typeof setup>["db"],
 	input: {
 		id: string;
-		reservationId: string;
-		inputTokens: number;
-		outputTokens: number;
 		now: string;
+		inputTokens?: number;
+		outputTokens?: number;
+		tediId?: string | null;
+		userId?: string | null;
 	},
 ) {
-	sqlite
-		.prepare(
-			`INSERT OR IGNORE INTO billing_usage_periods (
-				id, organization_id, plan_version_id, period_start, period_end,
-				included_tokens, created_at, updated_at
-			) VALUES ('org-1:2026-07-01T00:00:00.000Z', 'org-1', 'growth-v1',
-				'2026-07-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z', 1000, ?, ?)`,
-		)
-		.run(input.now, input.now);
-	sqlite
-		.prepare(
-			`INSERT INTO billing_usage_charges (
-				id, organization_id, reservation_id, usage_period_id,
-				gateway_log_id, provider, model, source, input_tokens,
-				output_tokens, included_tokens_applied, metered_overage_tokens,
-				provider_cost_micros, customer_charge_micros, credit_applied_micros,
-				usage_quality, provider_cost_quality, metering_ready,
-				occurred_at, created_at
-			) VALUES (?, 'org-1', ?, 'org-1:2026-07-01T00:00:00.000Z', ?,
-				'azure-openai', 'gpt-5.6-terra', 'operator', ?, ?, 0, 0, 0, 0, 0,
-				'gateway_reported', 'gateway_reported', 0, ?, ?)`,
-		)
-		.run(
-			input.id,
-			input.reservationId,
-			`gateway:${input.id}`,
-			input.inputTokens,
-			input.outputTokens,
-			input.now,
-			input.now,
-		);
+	return reserveBillingUsage(db, {
+		id: input.id,
+		organizationId: "org-1",
+		tediId: input.tediId ?? null,
+		userId: input.userId ?? null,
+		source: "operator",
+		provider: "azure-openai",
+		model: "gpt-5.6-terra",
+		deploymentScope: DEPLOYMENT_SCOPE,
+		estimatedInputTokens: input.inputTokens ?? 10_000,
+		estimatedOutputTokens: input.outputTokens ?? 0,
+		idempotencyKey: `reserve:${input.id}`,
+		expiresAt: "2026-07-27T12:10:00.000Z",
+		now: input.now,
+	});
 }
 
-describe("inference capacity daily overview used tokens", () => {
-	it("counts settled reservations by their charge, not the 16k estimate", async () => {
-		const { db, sqlite, now } = setup();
-		// (1) settled WITH a charge: the actual tokens win over the estimate.
-		insertReservation(sqlite, {
-			id: "settled-charged",
-			status: "settled",
-			estimatedInputTokens: 10_000,
-			estimatedOutputTokens: 16_000,
-			now,
-		});
-		insertCharge(sqlite, {
-			id: "charge-settled-charged",
-			reservationId: "settled-charged",
-			inputTokens: 8_500,
-			outputTokens: 377,
-			now,
-		});
-		expect(
-			await getInferenceCapacityDailyOverview(db, {
-				organizationId: "org-1",
-				stripeEnvironment: "live",
-				now,
-			}),
-		).toMatchObject({ usedTokens: 8_877 });
-
-		// (2) settled WITHOUT a charge yet: never under-count, keep the estimate.
-		insertReservation(sqlite, {
-			id: "settled-unreconciled",
-			status: "settled",
-			estimatedInputTokens: 2_000,
-			estimatedOutputTokens: 16_000,
-			now,
-		});
-		expect(
-			await getInferenceCapacityDailyOverview(db, {
-				organizationId: "org-1",
-				stripeEnvironment: "live",
-				now,
-			}),
-		).toMatchObject({ usedTokens: 8_877 + 18_000 });
-
-		// (3) reserved (in-flight) rows still count their estimate.
-		insertReservation(sqlite, {
-			id: "in-flight",
-			status: "reserved",
-			estimatedInputTokens: 3_000,
-			estimatedOutputTokens: 16_000,
-			now,
-		});
-		// Expired rows and other days are excluded, as before.
-		insertReservation(sqlite, {
-			id: "expired-row",
-			status: "expired",
-			estimatedInputTokens: 50_000,
-			estimatedOutputTokens: 50_000,
-			now,
-		});
-		insertReservation(sqlite, {
-			id: "yesterday-settled",
-			status: "settled",
-			estimatedInputTokens: 50_000,
-			estimatedOutputTokens: 50_000,
-			now: "2026-07-26T12:00:00.000Z",
-		});
-
-		// (4) the mixed day is the sum of actuals, fallbacks, and estimates.
-		expect(
-			await getInferenceCapacityDailyOverview(db, {
-				organizationId: "org-1",
-				stripeEnvironment: "live",
-				now,
-			}),
-		).toMatchObject({ usedTokens: 8_877 + 18_000 + 19_000 });
+/** Settle a reservation at an actual USD provider cost. */
+function settle(
+	db: ReturnType<typeof setup>["db"],
+	input: { id: string; reservationId: string; costMicros: number; now: string },
+) {
+	return settleBillingUsage(db, {
+		id: input.id,
+		organizationId: "org-1",
+		reservationId: input.reservationId,
+		gatewayLogId: `gateway:${input.id}`,
+		provider: "azure-openai",
+		model: "gpt-5.6-terra",
+		source: "operator",
+		inputTokens: input.costMicros,
+		outputTokens: 0,
+		providerCostMicros: input.costMicros,
+		usageQuality: "gateway_reported",
+		providerCostQuality: "estimated",
+		meteringReady: true,
+		occurredAt: input.now,
+		now: input.now,
 	});
-});
+}
 
-describe("inference admission counts settled reservations by actual tokens", () => {
-	function attempt(
-		id: string,
-		aiGatewayLimits: NonNullable<
-			Parameters<typeof reserveBillingUsage>[1]["aiGatewayLimits"]
-		>,
-	) {
-		return {
-			id,
+describe("organization credit pool", () => {
+	it("reserves ceil(cost in EUR x 2 / EUR 0.01) credits and settles on the actual cost", async () => {
+		const { db, sqlite, now } = setup();
+		// 10,000 input tokens = 10,000 USD micros = EUR 0.01 -> x2 = 2 credits.
+		const decision = await reserve(db, { id: "r1", now });
+		expect(decision).toMatchObject({
+			allowed: true,
+			reservation: { id: "r1", credits: 2 },
+		});
+		expect(
+			(await getCreditPoolSnapshot(db, { organizationId: "org-1", now }))
+				?.heldCredits,
+		).toBe(2);
+		// Actual cost 25,001 USD micros -> ceil(50,002 / 10,000) = 6 credits.
+		await settle(db, {
+			id: "c1",
+			reservationId: "r1",
+			costMicros: 25_001,
+			now,
+		});
+		const snapshot = await getCreditPoolSnapshot(db, {
 			organizationId: "org-1",
-			tediId: "tedi-1",
-			source: "operator" as const,
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 500,
-			estimatedOutputTokens: 500,
-			idempotencyKey: `reserve:${id}`,
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now: "2026-07-27T12:00:00.000Z",
-			stripeEnvironment: "live" as const,
-			aiGatewayLimits,
-		};
-	}
-
-	it("admits under actuals what the estimate alone would deny", async () => {
-		const { db, sqlite, now } = setup();
-		sqlite.exec("UPDATE billing_accounts SET status='trial'");
-		// One settled turn estimated at 16k output but actually ~377.
-		insertReservation(sqlite, {
-			id: "settled-turn",
-			status: "settled",
-			tediId: "tedi-1",
-			estimatedInputTokens: 4_000,
-			estimatedOutputTokens: 16_000,
 			now,
 		});
-		insertCharge(sqlite, {
-			id: "charge-settled-turn",
-			reservationId: "settled-turn",
-			inputTokens: 4_000,
-			outputTokens: 377,
-			now,
+		expect(snapshot).toMatchObject({
+			includedCredits: 100,
+			usedCredits: 6,
+			includedUsedCredits: 6,
+			heldCredits: 0,
+			breakdown: { ai: 6, codeRuns: 0, services: 0 },
+			availableCredits: 94,
 		});
-		// Estimate: 20_000 + 1_000 > 10_000 -> would be denied.
-		// Actual:   4_377 + 1_000 <= 10_000 -> admitted.
-		const orgDay = await reserveBillingUsage(
-			db,
-			attempt("org-day-actuals", { organizationDailyTokenLimit: 10_000 }),
-		);
-		expect(orgDay).toMatchObject({ allowed: true });
-		const tediDay = await reserveBillingUsage(
-			db,
-			attempt("tedi-day-actuals", { tediDailyTokenLimit: 10_000 }),
-		);
-		expect(tediDay).toMatchObject({ allowed: true });
-
-		// Day usage is now 4_377 (actual) + 1_000 + 1_000 (in flight, estimates).
-		// A limit the actuals genuinely exceed still denies on both scopes.
-		const orgDenied = await reserveBillingUsage(
-			db,
-			attempt("org-day-exceeded", { organizationDailyTokenLimit: 7_000 }),
-		);
-		expect(orgDenied).toMatchObject({
-			allowed: false,
-			code: "inference_capacity_exhausted",
-		});
-		const tediDenied = await reserveBillingUsage(
-			db,
-			attempt("tedi-day-exceeded", { tediDailyTokenLimit: 7_000 }),
-		);
-		expect(tediDenied).toMatchObject({
-			allowed: false,
-			code: "inference_capacity_exhausted",
-		});
-		// The boundary is exact: 6_377 + 1_000 = 7_377 fits a 7_377 limit.
 		expect(
-			await reserveBillingUsage(
-				db,
-				attempt("org-day-boundary", { organizationDailyTokenLimit: 7_377 }),
-			),
-		).toMatchObject({ allowed: true });
+			sqlite
+				.prepare("SELECT credits FROM billing_usage_charges WHERE id='c1'")
+				.get(),
+		).toEqual({ credits: 6 });
+		// A replayed settlement draws nothing twice.
+		await settle(db, {
+			id: "c1",
+			reservationId: "r1",
+			costMicros: 25_001,
+			now,
+		});
+		expect(
+			(await getCreditPoolSnapshot(db, { organizationId: "org-1", now }))
+				?.usedCredits,
+		).toBe(6);
+		sqlite.close();
 	});
 
-	it("keeps the estimate for a settled reservation with no charge yet", async () => {
+	it("refuses with monthly_credit_limit_reached when included credits are spent", async () => {
 		const { db, sqlite, now } = setup();
-		sqlite.exec("UPDATE billing_accounts SET status='trial'");
-		insertReservation(sqlite, {
-			id: "settled-unreconciled",
-			status: "settled",
-			tediId: "tedi-1",
-			estimatedInputTokens: 4_000,
-			estimatedOutputTokens: 16_000,
+		// 50,000 tokens -> 10 credits each; 100 included credits allow ten holds.
+		for (let index = 0; index < 10; index++) {
+			expect(
+				await reserve(db, { id: `r${index}`, now, inputTokens: 50_000 }),
+			).toMatchObject({ allowed: true });
+		}
+		expect(
+			await reserve(db, { id: "r-over", now, inputTokens: 50_000 }),
+		).toMatchObject({ allowed: false, code: "monthly_credit_limit_reached" });
+		sqlite.close();
+	});
+
+	it("spends included credits first, then the soonest-expiring top-up, then pay-as-you-go", async () => {
+		const { db, sqlite, now } = setup();
+		await grantTopUpCredits(db, {
+			id: "late",
+			organizationId: "org-1",
+			credits: 30,
+			sourceType: "operator_grant",
+			idempotencyKey: "late",
+			expiresAt: "2027-07-01T00:00:00.000Z",
+			now,
+		});
+		await grantTopUpCredits(db, {
+			id: "early",
+			organizationId: "org-1",
+			credits: 20,
+			sourceType: "operator_grant",
+			idempotencyKey: "early",
+			expiresAt: "2027-01-01T00:00:00.000Z",
+			now,
+		});
+		await setPayAsYouGo(db, {
+			organizationId: "org-1",
+			enabled: true,
+			monthlyCapMicros: 1_000_000,
 			now,
 		});
 		expect(
-			await reserveBillingUsage(
-				db,
-				attempt("org-day-unreconciled", {
-					organizationDailyTokenLimit: 10_000,
-				}),
+			(await getCreditPoolSnapshot(db, { organizationId: "org-1", now }))
+				?.availableCredits,
+		).toBe(100 + 50 + 100);
+		// 140 credits: 100 included, 20 early top-up, 20 of the late top-up.
+		insertReservation(sqlite, { id: "r1", credits: 0, now });
+		await settle(db, {
+			id: "c1",
+			reservationId: "r1",
+			costMicros: 700_000,
+			now,
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT id, consumed_credits AS used FROM billing_credit_top_ups ORDER BY id",
+				)
+				.all(),
+		).toEqual([
+			{ id: "early", used: 20 },
+			{ id: "late", used: 20 },
+		]);
+		// 20 more: 10 late top-up, 10 pay-as-you-go at EUR 0.01.
+		insertReservation(sqlite, { id: "r2", credits: 0, now });
+		await settle(db, {
+			id: "c2",
+			reservationId: "r2",
+			costMicros: 100_000,
+			now,
+		});
+		const snapshot = await getCreditPoolSnapshot(db, {
+			organizationId: "org-1",
+			now,
+		});
+		expect(snapshot).toMatchObject({
+			usedCredits: 160,
+			includedUsedCredits: 100,
+			topUpUsedCredits: 50,
+			topUpCredits: 0,
+			payAsYouGo: { enabled: true, spentMicros: 100_000, usedCredits: 10 },
+			availableCredits: 90,
+		});
+		// The Stripe account meters exactly the pay-as-you-go credits.
+		expect(
+			sqlite
+				.prepare("SELECT quantity, event_name FROM billing_credit_meter_outbox")
+				.all(),
+		).toEqual([{ quantity: 10, event_name: "tedix_credits" }]);
+		sqlite.close();
+	});
+
+	it("raises the 80% and 100% notices once per period", async () => {
+		const { db, sqlite, now } = setup();
+		insertReservation(sqlite, { id: "r1", now });
+		await settle(db, {
+			id: "c1",
+			reservationId: "r1",
+			costMicros: 400_000,
+			now,
+		});
+		expect(
+			await listCreditNotices(db, {
+				organizationId: "org-1",
+				periodStart: PERIOD_START,
+			}),
+		).toEqual([{ threshold: 80, reachedAt: now }]);
+		insertReservation(sqlite, { id: "r2", now });
+		await settle(db, {
+			id: "c2",
+			reservationId: "r2",
+			costMicros: 100_000,
+			now,
+		});
+		insertReservation(sqlite, { id: "r3", now });
+		await settle(db, {
+			id: "c3",
+			reservationId: "r3",
+			costMicros: 5_000,
+			now: "2026-07-28T00:00:00.000Z",
+		});
+		expect(
+			await listCreditNotices(db, {
+				organizationId: "org-1",
+				periodStart: PERIOD_START,
+			}),
+		).toEqual([
+			{ threshold: 80, reachedAt: now },
+			{ threshold: 100, reachedAt: now },
+		]);
+		sqlite.close();
+	});
+
+	it("enforces tedi and member monthly caps and reports their use", async () => {
+		const { db, sqlite, now } = setup();
+		await setCreditCaps(db, {
+			organizationId: "org-1",
+			caps: [
+				{ subjectKind: "tedi", subjectKey: "tedi-1", monthlyCapCredits: 3 },
+				{ subjectKind: "member", subjectKey: "user-1", monthlyCapCredits: 2 },
+			],
+			updatedBy: "admin",
+			now,
+		});
+		expect(
+			await reserve(db, { id: "t1", now, tediId: "tedi-1" }),
+		).toMatchObject({ allowed: true });
+		expect(
+			await reserve(db, { id: "t2", now, tediId: "tedi-1" }),
+		).toMatchObject({
+			allowed: false,
+			code: "tedi_monthly_credit_cap_reached",
+		});
+		expect(
+			await admitCodeRun(db, {
+				organizationId: "org-1",
+				executionId: "run-1",
+				userId: "user-1",
+				credits: 1,
+				now,
+			}),
+		).toMatchObject({ allowed: true, replayed: false });
+		expect(
+			await admitCodeRun(db, {
+				organizationId: "org-1",
+				executionId: "run-1",
+				userId: "user-1",
+				credits: 1,
+				now,
+			}),
+		).toMatchObject({ allowed: true, replayed: true });
+		await admitCodeRun(db, {
+			organizationId: "org-1",
+			executionId: "run-2",
+			userId: "user-1",
+			credits: 1,
+			now,
+		});
+		expect(
+			await admitCodeRun(db, {
+				organizationId: "org-1",
+				executionId: "run-3",
+				userId: "user-1",
+				credits: 1,
+				now,
+			}),
+		).toEqual({ allowed: false, code: "member_monthly_credit_cap_reached" });
+		expect(
+			await listCreditSubjectUsage(db, {
+				organizationId: "org-1",
+				periodStart: PERIOD_START,
+				subjectKind: "member",
+			}),
+		).toEqual([{ subjectKey: "user-1", usedCredits: 2, monthlyCapCredits: 2 }]);
+		expect(
+			(await getCreditPoolSnapshot(db, { organizationId: "org-1", now }))
+				?.breakdown,
+		).toEqual({ ai: 0, codeRuns: 2, services: 0 });
+		sqlite.close();
+	});
+
+	it("lets an operator override included credits with an audited entitlement bump", async () => {
+		const { db, sqlite, now } = setup();
+		const result = await setAccountCredits(db, {
+			organizationId: "org-1",
+			includedCreditsOverride: 1_000_000,
+			reason: "contract",
+			actor: { id: "operator-1", type: "user" },
+			now,
+		});
+		expect(result).toEqual({ entitlementVersion: 2, previous: null });
+		expect(
+			(await getCreditPoolSnapshot(db, { organizationId: "org-1", now }))
+				?.includedCredits,
+		).toBe(1_000_000);
+		expect(
+			sqlite
+				.prepare("SELECT action, resource_id AS resourceId FROM audit_events")
+				.all(),
+		).toEqual([
+			{ action: "billing.included_credits_set", resourceId: "org-1" },
+		]);
+		sqlite.close();
+	});
+
+	it("refuses pricing when no governed rate resolves", async () => {
+		const { db, sqlite, now } = setup();
+		const decision = await reserveBillingUsage(db, {
+			id: "unpriced",
+			organizationId: "org-1",
+			source: "operator",
+			provider: "azure-openai",
+			model: "unknown-model",
+			deploymentScope: DEPLOYMENT_SCOPE,
+			estimatedInputTokens: 1,
+			estimatedOutputTokens: 1,
+			idempotencyKey: "reserve:unpriced",
+			expiresAt: "2026-07-27T12:10:00.000Z",
+			now,
+		});
+		expect(decision).toMatchObject({
+			allowed: false,
+			code: "pricing_unavailable",
+		});
+		sqlite.close();
+	});
+
+	it("lists active top-up packs smallest first", async () => {
+		const { db, sqlite, now } = setup();
+		for (const [credits, version] of [
+			[5000, 1],
+			[1000, 1],
+			[1000, 2],
+		] as const)
+			sqlite
+				.prepare(
+					`INSERT INTO billing_top_up_pack_versions (
+						id, pack_key, version, status, name, currency, price_micros,
+						credits, valid_months, stripe_environment, stripe_lookup_key,
+						effective_at, created_at
+					) VALUES (?, ?, ?, 'active', ?, 'eur', ?, ?, 12, 'live', ?, ?, ?)`,
+				)
+				.run(
+					`pack-${credits}-${version}`,
+					`credits-${credits}`,
+					version,
+					`${credits} credits`,
+					credits * 10_000,
+					credits,
+					`tedix_credits_${credits}_eur_v${version}`,
+					"2026-01-01T00:00:00.000Z",
+					"2026-01-01T00:00:00.000Z",
+				);
+		expect(
+			(await listActiveTopUpPacks(db, { stripeEnvironment: "live", now })).map(
+				(pack) => pack.id,
 			),
-		).toMatchObject({ allowed: false, code: "inference_capacity_exhausted" });
+		).toEqual(["pack-1000-2", "pack-5000-1"]);
+		sqlite.close();
 	});
 });
 
 describe("billing admission and settlement", () => {
-	it("uses monthly metering for active funded overage despite an explicit organization day ceiling", async () => {
-		const { db, sqlite, now } = setup();
-		const request = (id: string, tediDailyTokenLimit?: number) =>
-			reserveBillingUsage(db, {
-				id,
-				organizationId: "org-1",
-				tediId: "tedi-1",
-				source: "operator",
-				provider: "azure-openai",
-				model: "gpt-5.6-terra",
-				estimatedInputTokens: 1_001,
-				estimatedOutputTokens: 0,
-				idempotencyKey: `reserve:${id}`,
-				expiresAt: "2026-07-27T12:10:00.000Z",
-				now,
-				stripeEnvironment: "live",
-				aiGatewayLimits: {
-					organizationDailyTokenLimit: 0,
-					organizationDailySpendLimitMicros: 0,
-					...(tediDailyTokenLimit === undefined ? {} : { tediDailyTokenLimit }),
-				},
-			});
-		expect(await request("monthly-first")).toMatchObject({ allowed: true });
-		expect(await request("tedi-policy-still-applies", 900)).toMatchObject({
-			allowed: false,
-			code: "inference_capacity_exhausted",
-		});
-		sqlite.exec("UPDATE billing_accounts SET hard_spend_limit_micros=0");
-		expect(await request("hard-spend-still-applies")).toMatchObject({
-			allowed: false,
-			code: "hard_spend_limit",
-		});
-	});
-
-	it("monthly-meters an existing internal customer linked to a provider installation", async () => {
-		const { db, sqlite, now } = setup();
-		sqlite.exec(
-			"UPDATE billing_accounts SET billing_mode='internal', stripe_customer_id=NULL",
-		);
-		sqlite.exec(
-			"INSERT INTO provider_installations (customer_organization_id) VALUES ('org-1')",
-		);
-		expect(await getBillingBalanceSnapshot(db, "org-1", now)).toMatchObject({
-			isSponsoredCustomer: false,
-		});
-		const decision = await reserveBillingUsage(db, {
-			id: "linked-existing-customer",
-			organizationId: "org-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1_001,
-			estimatedOutputTokens: 0,
-			idempotencyKey: "reserve:linked-existing-customer",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-			stripeEnvironment: "live",
-			aiGatewayLimits: { organizationDailyTokenLimit: 0 },
-		});
-		expect(decision).toMatchObject({ allowed: true });
-	});
-
-	it("keeps a provider-provisioned internal customer within its sponsored daily grant", async () => {
-		const { db, sqlite, now } = setup();
-		sqlite.exec(
-			"UPDATE billing_accounts SET billing_mode='internal', stripe_customer_id=NULL",
-		);
-		sqlite
-			.prepare("UPDATE organizations SET metadata=? WHERE id='org-1'")
-			.run(JSON.stringify({ providerCustomerKey: "provider-key" }));
-		expect(await getBillingBalanceSnapshot(db, "org-1", now)).toMatchObject({
-			isSponsoredCustomer: true,
-		});
-		expect(
-			await reserveBillingUsage(db, {
-				id: "provider-provisioned-exhausted",
-				organizationId: "org-1",
-				source: "operator",
-				provider: "azure-openai",
-				model: "gpt-5.6-terra",
-				estimatedInputTokens: 1_001,
-				estimatedOutputTokens: 0,
-				idempotencyKey: "reserve:provider-provisioned-exhausted",
-				expiresAt: "2026-07-27T12:10:00.000Z",
-				now,
-				stripeEnvironment: "live",
-				aiGatewayLimits: { organizationDailyTokenLimit: 0 },
-			}),
-		).toMatchObject({ allowed: false, code: "inference_capacity_exhausted" });
-	});
-
 	it("loads the entitlement through declared billing relations", async () => {
 		const { db } = setup();
 		await expect(getBillingEntitlement(db, "org-1")).resolves.toMatchObject({
@@ -746,804 +638,6 @@ describe("billing admission and settlement", () => {
 				now: "2026-07-27T12:02:00.000Z",
 			}),
 		).resolves.toBe(false);
-	});
-
-	it("atomically reserves included allowance and priced overage", async () => {
-		const { db, now } = setup();
-		const first = await reserveBillingUsage(db, {
-			id: "reservation-1",
-			organizationId: "org-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 500,
-			estimatedOutputTokens: 400,
-			idempotencyKey: "reserve:first",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-		});
-		expect(first.allowed).toBe(true);
-
-		const second = await reserveBillingUsage(db, {
-			id: "reservation-2",
-			organizationId: "org-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 500,
-			estimatedOutputTokens: 500,
-			idempotencyKey: "reserve:second",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-		});
-		// Stripe-backed Growth may reserve paid overage.
-		expect(second.allowed).toBe(true);
-		const snapshot = await getBillingBalanceSnapshot(db, "org-1", now);
-		expect(snapshot?.reservedTokens).toBe(1_900);
-		expect(snapshot?.reservedChargeMicros).toBe(50_000);
-	});
-
-	it("honors an active account pinned to a retired plan version", async () => {
-		const { db, sqlite, now } = setup();
-		sqlite
-			.prepare(
-				"UPDATE billing_plan_versions SET status='retired' WHERE id='growth-v1'",
-			)
-			.run();
-		sqlite
-			.prepare(
-				`INSERT INTO billing_plan_versions VALUES (
-					'growth-v2','growth',2,'active','Growth','usd',
-					249000000,2399000000,2000,0,1000,50000,
-					1,10,16,2000,200,1,
-					'{}','2026-07-27T00:00:00.000Z',?
-				)`,
-			)
-			.run(now);
-
-		const decision = await reserveBillingUsage(db, {
-			id: "reservation-retired-plan",
-			organizationId: "org-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 500,
-			estimatedOutputTokens: 400,
-			idempotencyKey: "reserve:retired-plan",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-		});
-
-		expect(decision.allowed).toBe(true);
-		if (!decision.allowed) {
-			throw new Error(`Expected admission, received ${decision.code}`);
-		}
-		expect(decision.reservation).toEqual({
-			id: "reservation-retired-plan",
-			planVersionId: "growth-v1",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			estimatedChargeMicros: 0,
-		});
-
-		sqlite
-			.prepare(
-				"UPDATE billing_plan_versions SET status='draft' WHERE id='growth-v1'",
-			)
-			.run();
-		const draftDecision = await reserveBillingUsage(db, {
-			id: "reservation-draft-plan",
-			organizationId: "org-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1,
-			estimatedOutputTokens: 1,
-			idempotencyKey: "reserve:draft-plan",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-		});
-		expect(draftDecision.allowed).toBe(false);
-	});
-
-	it("absorbs an overshoot instead of metering it while overage is not opted in", async () => {
-		const { db, sqlite, now } = setup();
-		insertReservation(sqlite, { id: "reservation-opt-out", now });
-		sqlite.exec("UPDATE billing_accounts SET overage_enabled=0");
-		const charge = await settleBillingUsage(db, {
-			id: "charge-opt-out",
-			organizationId: "org-1",
-			reservationId: "reservation-opt-out",
-			gatewayLogId: "gateway-opt-out",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			source: "operator",
-			inputTokens: 1_500,
-			outputTokens: 500,
-			providerCostMicros: 2_000,
-			usageQuality: "gateway_reported",
-			providerCostQuality: "estimated",
-			meteringReady: true,
-			occurredAt: now,
-			now,
-		});
-		expect(charge).toMatchObject({
-			includedTokensApplied: 1_000,
-			meteredOverageTokens: 0,
-			customerChargeMicros: 0,
-			creditAppliedMicros: 0,
-		});
-		expect(
-			sqlite.prepare("SELECT COUNT(*) AS n FROM stripe_meter_outbox").get(),
-		).toEqual({ n: 0 });
-	});
-
-	it("applies credits before emitting idempotent Stripe overage", async () => {
-		const { db, sqlite, now } = setup();
-		insertReservation(sqlite, { id: "reservation-credit", now });
-		await grantBillingCredit(db, {
-			id: "credit-1",
-			organizationId: "org-1",
-			amountMicros: 50_000,
-			sourceType: "promotion",
-			idempotencyKey: "promo:1",
-			createdAt: now,
-		});
-		const charge = await settleBillingUsage(db, {
-			id: "charge-1",
-			organizationId: "org-1",
-			reservationId: "reservation-credit",
-			gatewayLogId: "gateway-1",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			source: "operator",
-			inputTokens: 1_500,
-			outputTokens: 500,
-			providerCostMicros: 2_000,
-			usageQuality: "gateway_reported",
-			providerCostQuality: "estimated",
-			meteringReady: true,
-			occurredAt: now,
-			now,
-		});
-		expect(charge.includedTokensApplied).toBe(1_000);
-		expect(charge.creditAppliedMicros).toBe(50_000);
-		expect(charge.meteredOverageTokens).toBe(0);
-
-		const repeated = await settleBillingUsage(db, {
-			id: "charge-duplicate",
-			organizationId: "org-1",
-			reservationId: "reservation-credit",
-			gatewayLogId: "gateway-1",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			source: "operator",
-			inputTokens: 1_500,
-			outputTokens: 500,
-			providerCostMicros: 2_000,
-			usageQuality: "gateway_reported",
-			providerCostQuality: "estimated",
-			meteringReady: true,
-			occurredAt: now,
-			now,
-		});
-		expect(repeated.id).toBe("charge-1");
-		expect(
-			sqlite.prepare("SELECT COUNT(*) AS count FROM stripe_meter_outbox").get(),
-		).toEqual({
-			count: 0,
-		});
-		expect(
-			sqlite
-				.prepare(
-					"SELECT credit_balance_micros AS balance FROM billing_accounts WHERE organization_id='org-1'",
-				)
-				.get(),
-		).toEqual({ balance: 0 });
-	});
-
-	it("fails closed for suspended accounts and unpaid overage", async () => {
-		const suspended = setup();
-		suspended.sqlite
-			.prepare(
-				"UPDATE billing_accounts SET status='suspended' WHERE organization_id='org-1'",
-			)
-			.run();
-		const suspendedDecision = await reserveBillingUsage(suspended.db, {
-			id: "reservation-suspended",
-			organizationId: "org-1",
-			source: "automation",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1,
-			estimatedOutputTokens: 1,
-			idempotencyKey: "reserve:suspended",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now: suspended.now,
-		});
-		expect(suspendedDecision).toMatchObject({
-			allowed: false,
-			code: "subscription_inactive",
-		});
-
-		const unpaid = setup();
-		unpaid.sqlite
-			.prepare(
-				"UPDATE billing_accounts SET billing_mode='trial' WHERE organization_id='org-1'",
-			)
-			.run();
-		unpaid.sqlite
-			.prepare(
-				"UPDATE billing_accounts SET stripe_customer_id=NULL WHERE organization_id='org-1'",
-			)
-			.run();
-		const unpaidDecision = await reserveBillingUsage(unpaid.db, {
-			id: "reservation-unpaid",
-			organizationId: "org-1",
-			source: "automation",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1_001,
-			estimatedOutputTokens: 1,
-			idempotencyKey: "reserve:unpaid",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now: unpaid.now,
-		});
-		expect(unpaidDecision).toMatchObject({
-			allowed: false,
-			code: "payment_required",
-		});
-	});
-
-	it("keeps an internal metered account independent of Stripe environment", async () => {
-		const { db, sqlite, now } = setup();
-		sqlite
-			.prepare(
-				"UPDATE billing_accounts SET billing_mode='internal', stripe_environment='test' WHERE organization_id='org-1'",
-			)
-			.run();
-
-		const decision = await reserveBillingUsage(db, {
-			id: "reservation-internal-cross-environment",
-			organizationId: "org-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1_001,
-			estimatedOutputTokens: 1,
-			idempotencyKey: "reserve:internal-cross-environment",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-			stripeEnvironment: "live",
-		});
-
-		expect(decision).toMatchObject({ allowed: true });
-		expect(
-			sqlite
-				.prepare(
-					"SELECT stripe_environment AS environment, stripe_customer_id AS customer FROM billing_accounts WHERE organization_id='org-1'",
-				)
-				.get(),
-		).toEqual({ environment: "test", customer: "cus_1" });
-	});
-
-	it("enforces a hard customer-spend ceiling before provider inference", async () => {
-		const { db, sqlite, now } = setup();
-		sqlite
-			.prepare(
-				"UPDATE billing_accounts SET hard_spend_limit_micros=50000 WHERE organization_id='org-1'",
-			)
-			.run();
-		const first = await reserveBillingUsage(db, {
-			id: "reservation-cap-1",
-			organizationId: "org-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1_001,
-			estimatedOutputTokens: 0,
-			idempotencyKey: "reserve:cap:1",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-		});
-		expect(first.allowed).toBe(true);
-		const second = await reserveBillingUsage(db, {
-			id: "reservation-cap-2",
-			organizationId: "org-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1,
-			estimatedOutputTokens: 1_000,
-			idempotencyKey: "reserve:cap:2",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-		});
-		expect(second).toMatchObject({
-			allowed: false,
-			code: "hard_spend_limit",
-		});
-	});
-
-	it("enforces D1 daily AI Gateway limits without masking unrelated billing denials", async () => {
-		const limited = setup();
-		const limitedDecision = await reserveBillingUsage(limited.db, {
-			id: "reservation-ai-limit",
-			organizationId: "org-1",
-			tediId: "tedi-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 600,
-			estimatedOutputTokens: 400,
-			idempotencyKey: "reserve:ai-limit",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now: limited.now,
-			aiGatewayLimits: { tediDailyTokenLimit: 900 },
-		});
-		expect(limitedDecision).toMatchObject({
-			allowed: false,
-			code: "inference_capacity_exhausted",
-		});
-
-		const unpaid = setup();
-		unpaid.sqlite
-			.prepare(
-				"UPDATE billing_accounts SET billing_mode='trial' WHERE organization_id='org-1'",
-			)
-			.run();
-		unpaid.sqlite
-			.prepare(
-				"UPDATE billing_accounts SET stripe_customer_id=NULL WHERE organization_id='org-1'",
-			)
-			.run();
-		const paymentDecision = await reserveBillingUsage(unpaid.db, {
-			id: "reservation-payment-with-ai-policy",
-			organizationId: "org-1",
-			tediId: "tedi-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1_001,
-			estimatedOutputTokens: 1,
-			idempotencyKey: "reserve:payment-with-ai-policy",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now: unpaid.now,
-			aiGatewayLimits: { tediDailyTokenLimit: 100_000 },
-		});
-		expect(paymentDecision).toMatchObject({
-			allowed: false,
-			code: "payment_required",
-		});
-	});
-
-	it("resolves the environment-scoped inference capacity pack catalog", async () => {
-		const { db, now } = setup();
-		const packs = await listActiveInferenceCapacityPacks(db, {
-			stripeEnvironment: "test",
-			now,
-		});
-		expect(packs).toHaveLength(1);
-		expect(packs[0]).toMatchObject({
-			packKey: "daily_5m",
-			tokenAmount: 5_000_000,
-			spendAmountMicros: 25_000_000,
-		});
-		expect(
-			await getActiveInferenceCapacityPackByKey(db, {
-				packKey: "daily_5m",
-				stripeEnvironment: "live",
-				now,
-			}),
-		).toBeNull();
-	});
-
-	it("unblocks exhausted inference only after an idempotent same-day Stripe allocation", async () => {
-		const { db, sqlite, now } = setup();
-		// Trial accounts retain finite daily capacity and pack history.
-		sqlite.exec("UPDATE billing_accounts SET status='trial'");
-		sqlite
-			.prepare(`
-			INSERT INTO billing_inference_capacity_pack_versions (
-				id, pack_key, version, status, name, currency, price_micros,
-				token_amount, spend_amount_micros, stripe_environment,
-				stripe_lookup_key, effective_at, created_at
-			) VALUES (?, ?, 1, 'active', ?, 'usd', ?, ?, ?, 'live', ?, ?, ?)
-		`)
-			.run(
-				"capacity-pack-daily-5m-live-v1",
-				"daily_5m",
-				"5M daily boost",
-				25_000_000,
-				5_000_000,
-				25_000_000,
-				"tedix_inference_capacity_daily_5m_v1",
-				now,
-				now,
-			);
-		const exhausted = await reserveBillingUsage(db, {
-			id: "reservation-before-capacity-grant",
-			organizationId: "org-1",
-			tediId: "tedi-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 600,
-			estimatedOutputTokens: 400,
-			idempotencyKey: "reserve:before-capacity-grant",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-			stripeEnvironment: "live",
-			aiGatewayLimits: {
-				organizationDailyTokenLimit: 900,
-				organizationDailySpendLimitMicros: 0,
-				tediDailyTokenLimit: 1_000,
-			},
-		});
-		expect(exhausted).toMatchObject({
-			allowed: false,
-			code: "inference_capacity_exhausted",
-		});
-
-		const grant = await recordCapacityAllocation(db, {
-			id: "capacity-grant-1",
-			organizationId: "org-1",
-			packVersionId: "capacity-pack-daily-5m-live-v1",
-			budgetDay: "2026-07-27",
-			tokenAmount: 5_000_000,
-			spendAmountMicros: 25_000_000,
-			sourceType: "stripe_checkout",
-			sourceRef: "cs_capacity_1",
-			idempotencyKey: "stripe-capacity:live:cs_capacity_1",
-			stripeEnvironment: "live",
-			expiresAt: "2026-07-28T00:00:00.000Z",
-			createdAt: now,
-		});
-		expect(grant.tokenAmount).toBe(5_000_000);
-		const duplicate = await recordCapacityAllocation(db, {
-			...grant,
-			id: "capacity-grant-racing-duplicate",
-			createdAt: now,
-		});
-		expect(duplicate.id).toBe("capacity-grant-1");
-
-		const admitted = await reserveBillingUsage(db, {
-			id: "reservation-capacity-grant",
-			organizationId: "org-1",
-			tediId: "tedi-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 600,
-			estimatedOutputTokens: 400,
-			idempotencyKey: "reserve:capacity-grant",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-			stripeEnvironment: "live",
-			aiGatewayLimits: {
-				organizationDailyTokenLimit: 900,
-				organizationDailySpendLimitMicros: 0,
-				tediDailyTokenLimit: 1_000,
-			},
-		});
-		expect(admitted.allowed).toBe(true);
-		await settleBillingUsage(db, {
-			id: "charge-capacity-grant",
-			organizationId: "org-1",
-			tediId: "tedi-1",
-			reservationId: "reservation-capacity-grant",
-			gatewayLogId: "gateway-capacity-grant",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			source: "operator",
-			inputTokens: 600,
-			outputTokens: 400,
-			providerCostMicros: 1_234,
-			usageQuality: "gateway_reported",
-			providerCostQuality: "gateway_reported",
-			meteringReady: false,
-			occurredAt: now,
-			now,
-		});
-		const overview = await getInferenceCapacityDailyOverview(db, {
-			organizationId: "org-1",
-			stripeEnvironment: "live",
-			now,
-		});
-		expect(overview).toEqual({
-			budgetDay: "2026-07-27",
-			usedTokens: 1_000,
-			usedSpendMicros: 1_234,
-			allocatedTokens: 5_000_000,
-			allocatedSpendMicros: 25_000_000,
-			// A Stripe capacity purchase, not a sponsorship transfer.
-			sponsoredTokens: 0,
-			sponsoredSpendMicros: 0,
-			earliestExpiryAt: "2026-07-28T00:00:00.000Z",
-		});
-		const providerSpendLimited = await reserveBillingUsage(db, {
-			id: "reservation-provider-spend-limit",
-			organizationId: "org-1",
-			tediId: "tedi-2",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1,
-			estimatedOutputTokens: 1,
-			idempotencyKey: "reserve:provider-spend-limit",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-			stripeEnvironment: "test",
-			aiGatewayLimits: {
-				organizationDailyTokenLimit: 10_000,
-				organizationDailySpendLimitMicros: 1_000,
-			},
-		});
-		expect(providerSpendLimited).toMatchObject({
-			allowed: false,
-			code: "inference_capacity_exhausted",
-		});
-
-		const tediCapacityOverflow = await reserveBillingUsage(db, {
-			id: "reservation-capacity-tedi-limit",
-			organizationId: "org-1",
-			tediId: "tedi-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1,
-			estimatedOutputTokens: 1,
-			idempotencyKey: "reserve:capacity-tedi-limit",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-			stripeEnvironment: "live",
-			aiGatewayLimits: {
-				organizationDailyTokenLimit: 900,
-				tediDailyTokenLimit: 1_000,
-			},
-		});
-		expect(tediCapacityOverflow).toMatchObject({ allowed: true });
-
-		const afterExpiry = "2026-07-28T00:00:00.000Z";
-		await expect(
-			getInferenceCapacityDailyOverview(db, {
-				organizationId: "org-1",
-				stripeEnvironment: "live",
-				now: afterExpiry,
-			}),
-		).resolves.toMatchObject({
-			budgetDay: "2026-07-28",
-			allocatedTokens: 0,
-			allocatedSpendMicros: 0,
-			earliestExpiryAt: null,
-		});
-		const expiredCapacity = await reserveBillingUsage(db, {
-			id: "reservation-expired-capacity",
-			organizationId: "org-1",
-			tediId: "tedi-2",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1,
-			estimatedOutputTokens: 0,
-			idempotencyKey: "reserve:expired-capacity",
-			expiresAt: "2026-07-28T00:10:00.000Z",
-			now: afterExpiry,
-			stripeEnvironment: "live",
-			aiGatewayLimits: {
-				organizationDailyTokenLimit: 0,
-				organizationDailySpendLimitMicros: 0,
-			},
-		});
-		expect(expiredCapacity).toMatchObject({
-			allowed: false,
-			code: "inference_capacity_exhausted",
-		});
-	});
-
-	it("atomically transfers recurring sponsored capacity and refuses an overdraw", async () => {
-		const { db, sqlite, now } = setup();
-		insertReservation(sqlite, { id: "provider-base-usage", now });
-		sqlite
-			.prepare(
-				`UPDATE billing_usage_reservations
-				 SET estimated_input_tokens = 2500, estimated_output_tokens = 2500
-				 WHERE id = 'provider-base-usage'`,
-			)
-			.run();
-		sqlite.prepare(`INSERT INTO organizations (id) VALUES (?)`).run("org-2");
-		sqlite
-			.prepare(
-				`INSERT INTO billing_accounts (
-					organization_id, plan_version_id, status, billing_mode,
-					stripe_environment, period_start, period_end, created_at, updated_at
-				) VALUES ('org-2','growth-v1','active','manual','live',?,?,?,?)`,
-			)
-			.run("2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z", now, now);
-		const input = {
-			transferId: "installation-1:2026-07-27",
-			sponsorOrganizationId: "org-1",
-			customerOrganizationId: "org-2",
-			providerInstallationId: "installation-1",
-			budgetRevision: 1,
-			budgetDay: "2026-07-27",
-			tokenAmount: 4_000,
-			spendAmountMicros: 20_000,
-			customerLowWatermarkTokens: 1_000,
-			customerLowWatermarkSpendMicros: 5_000,
-			sponsorDailyTokenLimit: 10_000,
-			sponsorDailySpendLimitMicros: 50_000,
-			stripeEnvironment: "live" as const,
-			expiresAt: "2026-07-28T00:00:00.000Z",
-			createdAt: now,
-		};
-		const first = await transferSponsoredCapacity(db, input);
-		const retry = await transferSponsoredCapacity(db, input);
-		expect(retry.sponsorAllocation.id).toBe(first.sponsorAllocation.id);
-		expect(retry.customerAllocation.id).toBe(first.customerAllocation.id);
-		const providerAfterTransfer = await reserveBillingUsage(db, {
-			id: "provider-after-sponsored-transfer",
-			organizationId: "org-1",
-			source: "operator",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			estimatedInputTokens: 1_001,
-			estimatedOutputTokens: 0,
-			idempotencyKey: "reserve:provider-after-sponsored-transfer",
-			expiresAt: "2026-07-27T12:10:00.000Z",
-			now,
-			stripeEnvironment: "live",
-			aiGatewayLimits: { organizationDailyTokenLimit: 10_000 },
-		});
-		// The funded provider's own inference is monthly-metered; the next
-		// sponsorship transfer is still bounded by its finite daily grant.
-		expect(providerAfterTransfer).toMatchObject({ allowed: true });
-		expect(
-			await getInferenceCapacityDailyOverview(db, {
-				organizationId: "org-1",
-				stripeEnvironment: "live",
-				now,
-			}),
-		).toMatchObject({
-			allocatedTokens: -4_000,
-			allocatedSpendMicros: -20_000,
-		});
-		expect(
-			await getInferenceCapacityDailyOverview(db, {
-				organizationId: "org-2",
-				stripeEnvironment: "live",
-				now,
-			}),
-		).toMatchObject({ allocatedTokens: 4_000, allocatedSpendMicros: 20_000 });
-		await expect(
-			transferSponsoredCapacity(db, {
-				...input,
-				transferId: "installation-concurrent:2026-07-27",
-			}),
-		).rejects.toThrow(/insufficient active inference capacity/);
-		await expect(
-			transferSponsoredCapacity(db, {
-				...input,
-				transferId: "installation-2:2026-07-27",
-				tokenAmount: 7_000,
-				customerLowWatermarkTokens: 10_000,
-			}),
-		).rejects.toThrow(/insufficient active inference capacity/);
-		const partial = sqlite
-			.prepare(
-				`SELECT COUNT(*) AS count FROM billing_capacity_allocations WHERE source_ref = ?`,
-			)
-			.get("installation-2:2026-07-27") as { count: number };
-		expect(partial.count).toBe(0);
-	});
-
-	it("creates exactly one durable Stripe event for uncovered overage", async () => {
-		const { db, sqlite, now } = setup();
-		insertReservation(sqlite, { id: "reservation-stripe", now });
-		const charge = await settleBillingUsage(db, {
-			id: "charge-stripe",
-			organizationId: "org-1",
-			reservationId: "reservation-stripe",
-			gatewayLogId: "gateway-stripe",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			source: "operator",
-			inputTokens: 1_500,
-			outputTokens: 500,
-			providerCostMicros: 2_000,
-			usageQuality: "gateway_reported",
-			providerCostQuality: "estimated",
-			meteringReady: true,
-			occurredAt: now,
-			now,
-		});
-		expect(charge.customerChargeMicros).toBe(50_000);
-		expect(charge.meteredOverageTokens).toBe(1_000);
-		expect(
-			sqlite
-				.prepare(
-					"SELECT quantity, status FROM stripe_meter_outbox WHERE usage_charge_id='charge-stripe'",
-				)
-				.get(),
-		).toEqual({ quantity: 1_000, status: "pending" });
-
-		await settleBillingUsage(db, {
-			id: "charge-stripe-duplicate",
-			organizationId: "org-1",
-			reservationId: "reservation-stripe",
-			gatewayLogId: "gateway-stripe",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			source: "operator",
-			inputTokens: 1_500,
-			outputTokens: 500,
-			providerCostMicros: 2_000,
-			usageQuality: "gateway_reported",
-			providerCostQuality: "estimated",
-			meteringReady: true,
-			occurredAt: now,
-			now,
-		});
-		expect(
-			sqlite.prepare("SELECT COUNT(*) AS count FROM stripe_meter_outbox").get(),
-		).toEqual({
-			count: 1,
-		});
-	});
-
-	it("rounds customer units across the period, not once per inference", async () => {
-		const { db, sqlite, now } = setup();
-		insertReservation(sqlite, { id: "reservation-small-1", now });
-		insertReservation(sqlite, { id: "reservation-small-2", now });
-		const first = await settleBillingUsage(db, {
-			id: "charge-small-1",
-			organizationId: "org-1",
-			reservationId: "reservation-small-1",
-			gatewayLogId: "gateway-small-1",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			source: "operator",
-			inputTokens: 1_001,
-			outputTokens: 0,
-			providerCostMicros: 100,
-			usageQuality: "gateway_reported",
-			providerCostQuality: "estimated",
-			meteringReady: true,
-			occurredAt: now,
-			now,
-		});
-		const second = await settleBillingUsage(db, {
-			id: "charge-small-2",
-			organizationId: "org-1",
-			reservationId: "reservation-small-2",
-			gatewayLogId: "gateway-small-2",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			source: "operator",
-			inputTokens: 999,
-			outputTokens: 0,
-			providerCostMicros: 100,
-			usageQuality: "gateway_reported",
-			providerCostQuality: "estimated",
-			meteringReady: true,
-			occurredAt: now,
-			now,
-		});
-		expect(first.customerChargeMicros).toBe(50_000);
-		expect(second.customerChargeMicros).toBe(0);
-		expect(first.meteredOverageTokens).toBe(1);
-		expect(second.meteredOverageTokens).toBe(999);
-		expect(
-			sqlite
-				.prepare("SELECT SUM(quantity) AS quantity FROM stripe_meter_outbox")
-				.get(),
-		).toEqual({ quantity: 1_000 });
-		expect(
-			sqlite
-				.prepare(
-					"SELECT customer_charge_micros AS charge, metered_overage_tokens AS tokens FROM billing_usage_periods",
-				)
-				.get(),
-		).toEqual({ charge: 50_000, tokens: 1_000 });
 	});
 
 	it("records provider-authoritative variance without relabeling estimated rows", async () => {
@@ -1594,40 +688,6 @@ describe("billing admission and settlement", () => {
 		).toEqual({ quality: "estimated", reconciledAt: now });
 	});
 
-	it("settles a matching successful usage row after its reservation TTL expired", async () => {
-		const { db, sqlite, now } = setup();
-		insertReservation(sqlite, {
-			id: "reservation-expired",
-			status: "expired",
-			now,
-		});
-		const charge = await settleBillingUsage(db, {
-			id: "charge-expired",
-			organizationId: "org-1",
-			reservationId: "reservation-expired",
-			gatewayLogId: "gateway-expired",
-			provider: "azure-openai",
-			model: "gpt-5.6-terra",
-			source: "automation",
-			inputTokens: 100,
-			outputTokens: 10,
-			providerCostMicros: 200,
-			usageQuality: "gateway_reported",
-			providerCostQuality: "estimated",
-			meteringReady: true,
-			occurredAt: now,
-			now,
-		});
-		expect(charge.id).toBe("charge-expired");
-		expect(
-			sqlite
-				.prepare(
-					"SELECT status, settled_at AS settledAt FROM billing_usage_reservations WHERE id='reservation-expired'",
-				)
-				.get(),
-		).toEqual({ status: "settled", settledAt: now });
-	});
-
 	it.each([
 		[-10, 20],
 		[20, -10],
@@ -1667,8 +727,8 @@ describe("billing admission and settlement", () => {
 			for (const table of [
 				"billing_usage_periods",
 				"billing_usage_charges",
-				"billing_credit_entries",
-				"stripe_meter_outbox",
+				"billing_credit_consumptions",
+				"billing_credit_meter_outbox",
 			]) {
 				expect(
 					sqlite.prepare(`SELECT count(*) AS count FROM ${table}`).get(),
@@ -1698,139 +758,6 @@ describe("billing admission and settlement", () => {
 		).rejects.toThrow(
 			"billingReservationId is required for customer usage settlement",
 		);
-	});
-
-	it("rolls back every financial write when one D1 batch statement fails", async () => {
-		const { db, sqlite, now } = setup();
-		insertReservation(sqlite, { id: "reservation-rollback", now });
-		await grantBillingCredit(db, {
-			id: "credit-rollback",
-			organizationId: "org-1",
-			amountMicros: 50_000,
-			sourceType: "test",
-			idempotencyKey: "credit:rollback",
-			createdAt: now,
-		});
-		sqlite.exec(`
-			CREATE TRIGGER reject_test_charge
-			BEFORE INSERT ON billing_usage_charges
-			WHEN NEW.id = 'charge-rollback'
-			BEGIN
-				SELECT RAISE(ABORT, 'forced charge failure');
-			END;
-		`);
-
-		await expect(
-			settleBillingUsage(db, {
-				id: "charge-rollback",
-				organizationId: "org-1",
-				reservationId: "reservation-rollback",
-				gatewayLogId: "gateway-rollback",
-				provider: "azure-openai",
-				model: "gpt-5.6-terra",
-				source: "operator",
-				inputTokens: 1_500,
-				outputTokens: 500,
-				providerCostMicros: 2_000,
-				usageQuality: "gateway_reported",
-				providerCostQuality: "estimated",
-				meteringReady: true,
-				occurredAt: now,
-				now,
-			}),
-		).rejects.toThrow("forced charge failure");
-
-		expect(
-			sqlite
-				.prepare(
-					`SELECT used_input_tokens AS input, used_output_tokens AS output,
-						settlement_version AS version
-					 FROM billing_usage_periods`,
-				)
-				.get(),
-		).toEqual({ input: 0, output: 0, version: 0 });
-		expect(
-			sqlite
-				.prepare(
-					"SELECT status FROM billing_usage_reservations WHERE id='reservation-rollback'",
-				)
-				.get(),
-		).toEqual({ status: "reserved" });
-		expect(
-			sqlite
-				.prepare(
-					"SELECT credit_balance_micros AS balance FROM billing_accounts WHERE organization_id='org-1'",
-				)
-				.get(),
-		).toEqual({ balance: 50_000 });
-		expect(
-			sqlite.prepare("SELECT COUNT(*) AS count FROM stripe_meter_outbox").get(),
-		).toEqual({
-			count: 0,
-		});
-	});
-
-	it("retries a stale period pre-read without inserting an unaccounted charge", async () => {
-		const { db, sqlite, now } = setup();
-		insertReservation(sqlite, { id: "reservation-race-1", now });
-		insertReservation(sqlite, { id: "reservation-race-2", now });
-
-		const [first, second] = await Promise.all([
-			settleBillingUsage(db, {
-				id: "charge-race-1",
-				organizationId: "org-1",
-				reservationId: "reservation-race-1",
-				gatewayLogId: "gateway-race-1",
-				provider: "azure-openai",
-				model: "gpt-5.6-terra",
-				source: "operator",
-				inputTokens: 600,
-				outputTokens: 0,
-				providerCostMicros: 100,
-				usageQuality: "gateway_reported",
-				providerCostQuality: "estimated",
-				meteringReady: true,
-				occurredAt: now,
-				now,
-			}),
-			settleBillingUsage(db, {
-				id: "charge-race-2",
-				organizationId: "org-1",
-				reservationId: "reservation-race-2",
-				gatewayLogId: "gateway-race-2",
-				provider: "azure-openai",
-				model: "gpt-5.6-terra",
-				source: "operator",
-				inputTokens: 600,
-				outputTokens: 0,
-				providerCostMicros: 100,
-				usageQuality: "gateway_reported",
-				providerCostQuality: "estimated",
-				meteringReady: true,
-				occurredAt: now,
-				now,
-			}),
-		]);
-
-		expect(new Set([first.id, second.id])).toEqual(
-			new Set(["charge-race-1", "charge-race-2"]),
-		);
-		expect(
-			sqlite
-				.prepare(
-					`SELECT used_input_tokens AS input, provider_cost_micros AS cost,
-						settlement_version AS version
-					 FROM billing_usage_periods`,
-				)
-				.get(),
-		).toEqual({ input: 1_200, cost: 200, version: 2 });
-		expect(
-			sqlite
-				.prepare("SELECT COUNT(*) AS count FROM billing_usage_charges")
-				.get(),
-		).toEqual({
-			count: 2,
-		});
 	});
 
 	it("records provider-specific units without enabling customer metering", async () => {
@@ -1938,91 +865,6 @@ describe("billing admission and settlement", () => {
 	});
 });
 
-describe("billing credit journal on real D1 semantics", () => {
-	it("replays a grant idempotently without interactive transactions", async () => {
-		const { db, now } = setup();
-		const first = await grantBillingCredit(db, {
-			id: "credit-a",
-			organizationId: "org-1",
-			amountMicros: 30_000,
-			sourceType: "promotion",
-			idempotencyKey: "promo:replay",
-			createdAt: now,
-		});
-		const replay = await grantBillingCredit(db, {
-			id: "credit-a-dup",
-			organizationId: "org-1",
-			amountMicros: 30_000,
-			sourceType: "promotion",
-			idempotencyKey: "promo:replay",
-			createdAt: now,
-		});
-		// The unique idempotency index keeps the first journal row; the replay
-		// returns it instead of double-granting.
-		expect(replay.id).toBe(first.id);
-	});
-
-	it("expires a grant via one atomic compensating adjustment", async () => {
-		const { db, sqlite, now } = setup();
-		await grantBillingCredit(db, {
-			id: "credit-exp",
-			organizationId: "org-1",
-			amountMicros: 30_000,
-			sourceType: "promotion",
-			idempotencyKey: "promo:expiring",
-			expiresAt: "2026-01-01T00:00:00.000Z",
-			createdAt: now,
-		});
-		const expired = await expireBillingCredits(db, now);
-		expect(expired).toBe(1);
-		const account = sqlite
-			.prepare(
-				"SELECT credit_balance_micros AS balance FROM billing_accounts WHERE organization_id = 'org-1'",
-			)
-			.get() as { balance: number };
-		expect(account.balance).toBe(0);
-		const adjustment = sqlite
-			.prepare(
-				"SELECT kind, amount_micros AS amount, source_ref AS ref FROM billing_credit_entries WHERE idempotency_key = 'credit-expiry:credit-exp'",
-			)
-			.get() as { kind: string; amount: number; ref: string };
-		expect(adjustment).toMatchObject({
-			kind: "adjustment",
-			amount: -30_000,
-			ref: "credit-exp",
-		});
-		// Re-running is a no-op: the expiry idempotency key already exists.
-		expect(await expireBillingCredits(db, now)).toBe(0);
-	});
-
-	it("expires only up to the remaining balance after partial consumption", async () => {
-		const { db, sqlite, now } = setup();
-		await grantBillingCredit(db, {
-			id: "credit-partial",
-			organizationId: "org-1",
-			amountMicros: 50_000,
-			sourceType: "promotion",
-			idempotencyKey: "promo:partial",
-			expiresAt: "2026-01-01T00:00:00.000Z",
-			createdAt: now,
-		});
-		// Simulate consumption of most of the balance before expiry runs.
-		sqlite
-			.prepare(
-				"INSERT INTO billing_credit_entries (id, organization_id, kind, amount_micros, source_type, idempotency_key, metadata, created_at) VALUES ('debit-1', 'org-1', 'usage_debit', -45000, 'usage', 'debit:1', '{}', ?)",
-			)
-			.run(now);
-		expect(await expireBillingCredits(db, now)).toBe(1);
-		const account = sqlite
-			.prepare(
-				"SELECT credit_balance_micros AS balance FROM billing_accounts WHERE organization_id = 'org-1'",
-			)
-			.get() as { balance: number };
-		// Only the remaining 5,000 micros can expire — never negative.
-		expect(account.balance).toBe(0);
-	});
-});
-
 describe("stripe meter outbox dead-letter", () => {
 	function seedOutboxRow(
 		sqlite: DatabaseSync,
@@ -2032,13 +874,23 @@ describe("stripe meter outbox dead-letter", () => {
 	) {
 		sqlite
 			.prepare(
-				`INSERT INTO stripe_meter_outbox (
-					id, organization_id, usage_charge_id, stripe_customer_id,
+				`INSERT INTO billing_credit_consumptions (
+					id, organization_id, kind, source_ref, period_start, period_end,
+					credits, included_credits, top_up_credits, payg_credits,
+					payg_charge_micros, created_at
+				) VALUES ('consumption-x', 'org-1', 'code_run', 'run-x', ?, ?,
+					10, 0, 0, 10, 100000, ?)`,
+			)
+			.run(PERIOD_START, PERIOD_END, now);
+		sqlite
+			.prepare(
+				`INSERT INTO billing_credit_meter_outbox (
+					id, organization_id, consumption_id, stripe_customer_id,
 					stripe_environment, event_name,
 					quantity, idempotency_key, status, attempt_count, next_attempt_at,
 					created_at, updated_at
-				) VALUES ('outbox-1', 'org-1', 'charge-x', 'cus_1', ?, 'token_usage',
-					1000, 'meter:charge-x', 'pending', ?, ?, ?, ?)`,
+				) VALUES ('outbox-1', 'org-1', 'consumption-x', 'cus_1', ?, 'tedix_credits',
+					10, 'credit-meter:consumption-x', 'pending', ?, ?, ?, ?)`,
 			)
 			.run(stripeEnvironment, attemptCount, now, now, now);
 	}
@@ -2046,7 +898,7 @@ describe("stripe meter outbox dead-letter", () => {
 	function outboxRow(sqlite: DatabaseSync) {
 		return sqlite
 			.prepare(
-				"SELECT status, attempt_count AS attempts FROM stripe_meter_outbox WHERE id = 'outbox-1'",
+				"SELECT status, attempt_count AS attempts FROM billing_credit_meter_outbox WHERE id = 'outbox-1'",
 			)
 			.get() as { status: string; attempts: number };
 	}
@@ -2153,39 +1005,6 @@ it("automatic customer billing activation is fenced and preserves period and usa
 	expect(account.entitlementVersion).toBe(2);
 });
 
-describe("canonical token allowance semantics", () => {
-	it.each([
-		[-1, 0, 100, true],
-		[0, 1, 0, true],
-		[0, 1, 100, false],
-		[0, 0, 0, false],
-		[1000, 1, 0, false],
-	])(
-		"included=%s permitted=%s price=%s unlimited=%s",
-		async (included, allowed, price, unlimited) => {
-			const { db, sqlite, now } = setup();
-			sqlite
-				.prepare(
-					"UPDATE billing_plan_versions SET included_monthly_tokens=?,allow_overage=?,overage_unit_price_micros=? WHERE id='growth-v1'",
-				)
-				.run(included, allowed, price);
-			const before = sqlite.prepare("SELECT total_changes() AS n").get()!.n;
-			const snapshot = await getBillingBalanceSnapshot(db, "org-1", now);
-			expect(snapshot).toMatchObject({
-				includedTokens: included,
-				allowOverage: Boolean(allowed),
-				unlimitedTokenUsage: unlimited,
-				remainingIncludedTokens: included! < 0 ? -1 : included,
-			});
-			expect(sqlite.prepare("SELECT total_changes() AS n").get()!.n).toBe(
-				before,
-			);
-			expect(await getBillingBalanceSnapshot(db, "other-org", now)).toBeNull();
-			sqlite.close();
-		},
-	);
-});
-
 describe("billing reservation query budgets", () => {
 	it.each([
 		"2026-07-01T00:00:00.000Z",
@@ -2203,15 +1022,10 @@ describe("billing reservation query budgets", () => {
 			["prior-period", second + 1000, "reserved", "2026-06-01", "2026-08-01"],
 			["next-period", second + 1000, "reserved", "2026-07-01", "2026-09-01"],
 		] as const) {
-			insertReservation(sqlite, {
-				id,
-				now,
-				estimatedInputTokens: 100,
-				estimatedOutputTokens: 50,
-			});
+			insertReservation(sqlite, { id, now, credits: 25 });
 			sqlite
 				.prepare(`UPDATE billing_usage_reservations SET expires_at=?, status=?,
-				period_start=?, period_end=?, estimated_charge_micros=25 WHERE id=?`)
+				period_start=?, period_end=? WHERE id=?`)
 				.run(
 					new Date(expiry).toISOString(),
 					status,
@@ -2220,22 +1034,16 @@ describe("billing reservation query budgets", () => {
 					id,
 				);
 		}
-		sqlite.exec("UPDATE billing_accounts SET credit_balance_micros=200");
 		const legacy = sqlite
-			.prepare(`SELECT
-			SUM(estimated_input_tokens + estimated_output_tokens) AS tokens,
-			SUM(estimated_charge_micros) AS charge
+			.prepare(`SELECT SUM(credits) AS credits
 			FROM billing_usage_reservations WHERE organization_id='org-1' AND status='reserved'
 			AND datetime(expires_at)>datetime(?)
 			AND period_start='2026-07-01T00:00:00.000Z' AND period_end='2026-08-01T00:00:00.000Z'`)
 			.get(at)!;
-		expect(legacy).toMatchObject({ tokens: 300, charge: 50 });
-		expect(await getBillingBalanceSnapshot(db, "org-1", at)).toMatchObject({
-			reservedTokens: legacy.tokens,
-			reservedChargeMicros: legacy.charge,
-			remainingIncludedTokens: 700,
-			availableCreditMicros: 150,
-		});
+		expect(legacy).toMatchObject({ credits: 50 });
+		expect(
+			await getCreditPoolSnapshot(db, { organizationId: "org-1", now: at }),
+		).toMatchObject({ heldCredits: 50, availableCredits: 50 });
 		sqlite.close();
 	});
 
@@ -2244,23 +1052,25 @@ describe("billing reservation query budgets", () => {
 		const { db, sqlite, now } = setup((sql) => {
 			query = sql;
 		});
-		await getBillingBalanceSnapshot(db, "org-1", now);
+		await getCreditPoolSnapshot(db, { organizationId: "org-1", now });
 		const plan = sqlite
 			.prepare(`EXPLAIN QUERY PLAN ${query}`)
 			.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
 			.map((row) => String(row.detail));
 		const searches = plan.filter((line) =>
-			/SEARCH (?:reservation|billing_usage_reservations) USING INDEX idx_billing_reservation_org_status/.test(
+			/SEARCH (?:held_ai|billing_usage_reservations) USING INDEX idx_billing_reservation_org_status/.test(
 				line,
 			),
 		);
-		expect(searches).toHaveLength(1);
-		expect(searches[0]).toMatch(
-			/organization_id=\? AND status=\? AND expires_at>\?/,
-		);
+		// The pool hold, plus the tedi and member holds read only under a cap.
+		expect(searches.length).toBeGreaterThanOrEqual(1);
+		for (const search of searches)
+			expect(search).toMatch(
+				/organization_id=\? AND status=\? AND expires_at>\?/,
+			);
 		expect(
 			plan.some((line) =>
-				/SCAN (?:reservation\b|billing_usage_reservations\b)/.test(line),
+				/SCAN (?:held_ai\b|billing_usage_reservations\b)/.test(line),
 			),
 		).toBe(false);
 		sqlite.close();

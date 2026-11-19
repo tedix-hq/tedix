@@ -35,13 +35,12 @@ function setup(
 	sqlite.exec(`
 		INSERT INTO organizations (id, name, slug) VALUES ('org-1', 'Org', 'org');
 		INSERT INTO billing_plan_versions (
-			id, plan_key, version, status, name, included_monthly_tokens,
+			id, plan_key, version, status, name, included_monthly_credits,
 			max_tedis, max_cron_jobs_per_tedi, max_iterations_per_task,
-			default_daily_token_limit, default_daily_message_limit, effective_at,
-			created_at
+			effective_at, created_at
 		) VALUES (
-			'plan-1', 'business', 3, 'active', 'Business', 2000000, 5, 5, 50,
-			5000000, 100, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+			'plan-1', 'business', 3, 'active', 'Business', 40000, 5, 5, 50,
+			'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
 		);
 		INSERT INTO billing_accounts (
 			organization_id, plan_version_id, status, billing_mode, period_start,

@@ -436,9 +436,6 @@ export function buildAppendProviderCostEvidenceStatement(
 	AND (source.cost_basis = 'unknown' OR source.data_quality = 'quarantined_no_pricing')
 	AND NOT EXISTS (SELECT 1 FROM billing_usage_charges charge WHERE charge.organization_id = source.org_id AND
 	(charge.gateway_log_id = source.gateway_log_id OR charge.reservation_id = source.billing_reservation_id OR charge.provider_usage_id = source.id))
-	AND NOT EXISTS (SELECT 1 FROM billing_credit_entries credit WHERE credit.organization_id = source.org_id AND
-	(credit.source_ref IN (source.id, source.gateway_log_id, source.billing_reservation_id) OR EXISTS
-	(SELECT 1 FROM billing_usage_charges charge WHERE charge.id = credit.usage_charge_id AND (charge.gateway_log_id = source.gateway_log_id OR charge.reservation_id = source.billing_reservation_id))))
 	AND NOT EXISTS (SELECT 1 FROM billing_provider_reconciliations reconciliation WHERE reconciliation.provider = source.provider
 	AND reconciliation.provider_resource = coalesce(source.provider_resource, '') AND reconciliation.period_start <= source.snapshot_at
 	AND reconciliation.period_end > source.snapshot_at AND reconciliation.status IN ('matched','approved')))

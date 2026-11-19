@@ -30,13 +30,12 @@ function setup() {
 	sqlite.exec(`
 		INSERT INTO organizations (id, name, slug) VALUES ('org-1', 'Org', 'org');
 		INSERT INTO billing_plan_versions (
-			id, plan_key, version, status, name, included_monthly_tokens,
+			id, plan_key, version, status, name, included_monthly_credits,
 			max_tedis, max_cron_jobs_per_tedi, max_iterations_per_task,
-			default_daily_token_limit, default_daily_message_limit, effective_at,
-			created_at
+			effective_at, created_at
 		) VALUES (
-			'plan-1', 'growth', 1, 'active', 'Growth', 500000, 5, 5, 50,
-			100000, 100, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+			'plan-1', 'growth', 1, 'active', 'Growth', 15000, 5, 5, 50,
+			'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
 		);
 		INSERT INTO billing_accounts (
 			organization_id, plan_version_id, status, billing_mode, period_start,
@@ -56,36 +55,37 @@ function setup() {
 }
 
 describe("effective inference policies", () => {
-	it("creates and updates the canonical tedi admission policy", async () => {
+	it("creates and updates the canonical tedi model-tier policy", async () => {
 		const { db } = setup();
 		await upsertTediInferencePolicy(db, {
 			organizationId: "org-1",
 			tediId: "tedi-1",
-			policy: { dailyTokenLimit: 50_000, dailySpendLimitMicros: 2_000_000 },
+			policy: { allowedModelTiers: ["economy", "balanced"] },
 		});
 		await expect(
 			getEffectiveInferencePolicies(db, "org-1", "tedi-1"),
 		).resolves.toMatchObject({
-			tedi: { dailyTokenLimit: 50_000, dailySpendLimitMicros: 2_000_000 },
+			tedi: { allowedModelTiers: ["economy", "balanced"] },
 		});
 
 		await upsertTediInferencePolicy(db, {
 			organizationId: "org-1",
 			tediId: "tedi-1",
-			policy: { dailyTokenLimit: 75_000 },
+			policy: { allowedModelTiers: ["economy"] },
 		});
 		await expect(
 			getEffectiveInferencePolicies(db, "org-1", "tedi-1"),
 		).resolves.toEqual({
-			organization: { dailyTokenLimit: 100_000 },
-			tedi: { dailyTokenLimit: 75_000 },
+			organization: {},
+			tedi: { allowedModelTiers: ["economy"] },
 			tediFound: true,
 		});
 	});
-	it("uses the pinned plan default when no override exists", async () => {
+
+	it("has no plan default and no daily limit", async () => {
 		const { db } = setup();
 		await expect(getEffectiveInferencePolicies(db, "org-1")).resolves.toEqual({
-			organization: { dailyTokenLimit: 100_000 },
+			organization: {},
 			tediFound: true,
 		});
 	});
@@ -95,23 +95,19 @@ describe("effective inference policies", () => {
 		sqlite.exec(`
 			INSERT INTO billing_inference_policies (
 				id, organization_id, scope, subject_key, tedi_id,
-				allowed_model_tiers, daily_spend_limit_micros, created_at, updated_at
+				allowed_model_tiers, created_at, updated_at
 			) VALUES
 				('org-policy', 'org-1', 'organization', 'organization', NULL,
-				 '["economy","balanced"]', 5000000,
+				 '["economy","balanced"]',
 				 '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
 				('tedi-policy', 'org-1', 'tedi', 'tedi-1', 'tedi-1',
-				 '["economy"]', NULL,
+				 '["economy"]',
 				 '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
 		`);
 		await expect(
 			getEffectiveInferencePolicies(db, "org-1", "tedi-1"),
 		).resolves.toEqual({
-			organization: {
-				allowedModelTiers: ["economy", "balanced"],
-				dailyTokenLimit: 100_000,
-				dailySpendLimitMicros: 5_000_000,
-			},
+			organization: { allowedModelTiers: ["economy", "balanced"] },
 			tedi: { allowedModelTiers: ["economy"] },
 			tediFound: true,
 		});

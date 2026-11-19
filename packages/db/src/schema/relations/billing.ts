@@ -24,10 +24,6 @@ export const billingRelations = defineRelationsPart(schema, (r) => ({
 			from: r.billingPlanVersions.id,
 			to: r.billingUsageReservations.planVersionId,
 		}),
-		serviceAllowances: r.many.billingPlanServiceAllowances({
-			from: r.billingPlanVersions.id,
-			to: r.billingPlanServiceAllowances.planVersionId,
-		}),
 		serviceCreditReservations: r.many.billingServiceCreditReservations({
 			from: r.billingPlanVersions.id,
 			to: r.billingServiceCreditReservations.planVersionId,
@@ -46,19 +42,6 @@ export const billingRelations = defineRelationsPart(schema, (r) => ({
 		}),
 	},
 
-	billingCreditEntries: {
-		organization: r.one.organizations({
-			from: r.billingCreditEntries.organizationId,
-			to: r.organizations.id,
-		}),
-		// Debit entries carry the charge they consumed. ORM-level only: the
-		// journal is append-only and deliberately holds no db FK to a charge.
-		usageCharge: r.one.billingUsageCharges({
-			from: r.billingCreditEntries.usageChargeId,
-			to: r.billingUsageCharges.id,
-		}),
-	},
-
 	billingServiceRateCards: {
 		reservations: r.many.billingServiceCreditReservations({
 			from: r.billingServiceRateCards.id,
@@ -66,28 +49,10 @@ export const billingRelations = defineRelationsPart(schema, (r) => ({
 		}),
 	},
 
-	billingPlanServiceAllowances: {
-		planVersion: r.one.billingPlanVersions({
-			from: r.billingPlanServiceAllowances.planVersionId,
-			to: r.billingPlanVersions.id,
-		}),
-	},
-
 	billingServiceCreditControls: {
 		organization: r.one.organizations({
 			from: r.billingServiceCreditControls.organizationId,
 			to: r.organizations.id,
-		}),
-	},
-
-	billingServiceCreditEntries: {
-		organization: r.one.organizations({
-			from: r.billingServiceCreditEntries.organizationId,
-			to: r.organizations.id,
-		}),
-		reservation: r.one.billingServiceCreditReservations({
-			from: r.billingServiceCreditEntries.reservationId,
-			to: r.billingServiceCreditReservations.id,
 		}),
 	},
 
@@ -107,10 +72,6 @@ export const billingRelations = defineRelationsPart(schema, (r) => ({
 		tedi: r.one.tedis({
 			from: r.billingServiceCreditReservations.tediId,
 			to: r.tedis.id,
-		}),
-		creditEntries: r.many.billingServiceCreditEntries({
-			from: r.billingServiceCreditReservations.id,
-			to: r.billingServiceCreditEntries.reservationId,
 		}),
 	},
 
@@ -168,10 +129,6 @@ export const billingRelations = defineRelationsPart(schema, (r) => ({
 			from: r.billingUsageCharges.usagePeriodId,
 			to: r.billingUsagePeriods.id,
 			alias: "periodCharge",
-		}),
-		creditEntries: r.many.billingCreditEntries({
-			from: r.billingUsageCharges.id,
-			to: r.billingCreditEntries.usageChargeId,
 		}),
 	},
 }));

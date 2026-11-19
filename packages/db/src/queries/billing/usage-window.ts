@@ -1,5 +1,5 @@
 /**
- * Index-friendly time predicates for the inference capacity gates.
+ * Index-friendly time predicates for credit admission.
  *
  * Writers persist UTC ISO milliseconds (`YYYY-MM-DDTHH:MM:SS.sssZ`), so plain
  * text comparison orders these columns correctly. Wrapping a column in
@@ -17,17 +17,6 @@ import { type SQL, sql } from "drizzle-orm";
  */
 export function liveAtSql(column: string, now: string): SQL {
 	return sql`${columnRef(column)} >= strftime('%Y-%m-%dT%H:%M:%fZ', datetime(${now}, '+1 second'))`;
-}
-
-/**
- * `column` falls on the same UTC calendar day as `now`: the half-open range
- * `[day, next day)` that `substr(column, 1, 10) = substr(now, 1, 10)` used to
- * compute per row.
- */
-export function sameUtcDaySql(column: string, now: string): SQL {
-	const day = sql`substr(${now}, 1, 10)`;
-	const ref = columnRef(column);
-	return sql`${ref} >= ${day} AND ${ref} < date(${day}, '+1 day')`;
 }
 
 /** `column` or `alias.column` as quoted identifiers. */

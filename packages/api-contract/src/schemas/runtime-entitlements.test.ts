@@ -99,7 +99,7 @@ it("never admits a regional key without its regional execution identity", () => 
 		sendBefore: "2099-01-01T00:00:00.000Z",
 		reservationId: null,
 		expiresAt: null,
-		estimatedChargeMicros: null,
+		estimatedCredits: null,
 	};
 	expect(
 		AuthorizeRuntimeInferenceResponseSchema.safeParse(admitted).success,
