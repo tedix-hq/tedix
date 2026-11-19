@@ -336,6 +336,11 @@ describe("work board scope resolution", () => {
 			["list_work_item_attempts", "mcp:work.read"],
 			["list_work_item_evidence", "mcp:work.read"],
 			["list_work_item_events", "mcp:work.read"],
+			// "request" and "claim" match neither verb regex either.
+			["list_machines", "mcp:work.read"],
+			["read_machine_tool_call", "mcp:work.read"],
+			["request_machine_tool", "mcp:work.write"],
+			["claim_machine_tool_calls", "mcp:work.write"],
 		] as const) {
 			expect(resolve(tool)).toEqual([scope]);
 		}

@@ -38,6 +38,7 @@ import { controlPlaneContract } from "./control-plane";
 import { descopeAihContract } from "./descope-aih";
 import { directoryContract } from "./directory";
 import { dispatcherHealthContract } from "./dispatcher-health";
+import { machinesContract } from "./machines";
 import { workMapContract } from "./work-map";
 import { docsContract } from "./docs";
 import { osComputeContract } from "./os-compute";
@@ -365,6 +366,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	// Control plane (runtime profiles, policy packs, workspace template sets)
 	controlPlane: controlPlaneContract,
 	dispatcherHealth: dispatcherHealthContract,
+	machines: machinesContract,
 	workMap: workMapContract,
 
 	// Image uploads (org logos, app logos, tedi avatars)

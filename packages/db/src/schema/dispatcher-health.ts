@@ -26,6 +26,15 @@ export const dispatcherHealthReports = sqliteTable(
 		topReason: text("top_reason"),
 		topReasonCount: integer("top_reason_count"),
 		duty: text("duty", { mode: "json" }).$type<SupervisorDutyHealth>(),
+		/** The readable name of the machine this runner is on. */
+		machineName: text("machine_name"),
+		/** The read-only machine tools this machine accepts. */
+		machineTools: text("machine_tools", { mode: "json" }).$type<string[]>(),
+		/**
+		 * The account that sent this report, such as `user:<id>`. Only the same
+		 * account may claim the machine's tool calls under this reporter id.
+		 */
+		reportedBy: text("reported_by"),
 	},
 	(table) => [
 		primaryKey({

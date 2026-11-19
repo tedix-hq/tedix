@@ -143,7 +143,9 @@ export function DispatcherLaneHealth() {
 									tone="strong"
 									className="break-all"
 								>
-									{machine}
+									{health.data?.data.find(
+										(lane) => lane.reporterId === machine && lane.machineName,
+									)?.machineName ?? machine}
 								</Text>
 								<Table
 									aria-label={`Duties on ${machine}`}
