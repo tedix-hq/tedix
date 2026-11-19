@@ -110,7 +110,12 @@ Two config rules fail without an error at review time:
 
 ## Verification
 
-`bun run type-check` (includes `snapshot:check` and `cf workers types`) and
-`bun run test:run`.
-For plugin or template changes, also run root `cms:plugin-trust:validate`
-and `bun apps/cms/scripts/build-templates.ts` from the repository root.
+Use `bun run type-check` for changes affecting Worker types or the template
+snapshot. For plugin or template changes, run root `cms:plugin-trust:validate`
+and build the affected template with
+`bun apps/cms/scripts/build-templates.ts --template <slug>` from the repo root.
+
+Prefer checking the rendered page or editor flow for visual or copy changes.
+Add a focused case when it catches consequential behavior, such as a publish
+or restore failure. Remove build fixtures or snapshot assertions that repeat
+the same behavior. The full `test:run` suite is available on demand.

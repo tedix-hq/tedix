@@ -282,10 +282,12 @@ upgrade.
 
 ## Validation and deployment
 
-`test:ci` runs browser and workerd suites; `build` performs a production Vite
-build of the SPA and the Worker (`build:local` builds the isolated `bun dev`
-lane). Main verify runs the OS type check on affected pushes. Run browser or Worker
-tests only when they help verify the change.
+Main verify runs the OS type check on affected pushes. Check visual and
+interaction changes in the affected screen and viewport. Add a browser case
+only when browser behavior matters to a consequential regression. Prefer one
+representative scenario and reuse an existing spec. Remove copied assertions
+about markup, styling, and text, and collapse browser, theme, or viewport
+matrices whose configurations exercise the same behavior.
 
 Managed deployment runs through the guarded workflow in `tedix-hq/tedix-cloud-ops`,
 not an app-local deploy command. OS owns the SQLite `CollabRoom`
@@ -299,9 +301,10 @@ reconciliation, lazy route chunks, and OS-owned canonical links.
 
 ## Gates
 
-`bun run test:run` runs Vitest and the workerd suite. `bun run build` builds
-once and reports Vite's normal output sizes. No bundle-size ceiling blocks work;
-keep lazy routes and investigate actual loading regressions.
+Select a focused unit, workerd, or browser check when it exercises the
+changed behavior. `test:run` and `test:ci` are broad suites available on
+demand. `build` produces the SPA and Worker and reports Vite's output sizes.
+Keep lazy routes and investigate actual loading regressions.
 
 ## Before proposing a framework change
 

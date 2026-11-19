@@ -114,17 +114,13 @@ None of these announce themselves when broken.
 
 ## Validation
 
-`test:run` (`scripts/run-tests.ts`) iterates `src/*.test.ts` with
-`bun run <file>`, using `node:assert`, then runs the `src/brain/` bun:test
-suites and the email and provider Vitest lanes. Run the individual file you
-touched first — the loop stops at the first failure, so one unrelated red test
-hides every result after it. `test:related <file>...` runs only the named
-files; the pre-push gate passes it the test files whose import graph reaches
-the changed files.
+Use `test:related <file>...` when existing cases exercise the changed path.
+`test:run` runs the broad suite on demand.
 
-`test:workers` runs the isolated native Pi recovery and boundary suites under Vitest/workerd;
-`type-check:workers` checks its fixture. Run both when changing Pi lifecycle,
-accounting, recovery, or cancellation behavior. The fixture uses local DO storage
-and scripted model responses, with no production bindings.
+Choose a workerd check when the failure depends on real Durable Object
+storage or Worker behavior, such as losing a turn during recovery or
+cancelling the wrong run. The native Pi fixture uses local storage and
+scripted model responses. `type-check:workers` checks its types. Reuse these
+fixtures before adding another harness or another test of a mock's call order.
 
 Never use bare `bun test` here; it ignores the Workers aliases.

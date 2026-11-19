@@ -8,14 +8,17 @@ on Tedix as a product, use `AGENT-REVIEW.md` instead.
 1. **Does it do what the Work Item asks?** Read the item's accepted outcome,
    then the diff. A change that passes every check but misses the outcome is
    the most expensive defect to find later.
-2. **Did the checks run?** Ask for the output of `bun run lint:repo`,
-   `bun run --cwd <workspace> type-check` and the workspace's `test:run`.
-   Do not re-derive by reading what a gate already proves.
+2. **What verifies the change?** Check the targeted evidence and the
+   applicable static checks. Ask for broader validation only when the change
+   has a concrete risk the current evidence leaves open.
 3. **Who can call it?** New or changed API procedures need both permission
    and API-key scope guards, and a record fetched by a caller-supplied id must
    be bound to the caller's organization. `scripts/lint-authz.ts` checks the
    common shapes; review anything it lists as hand-rolled or exempt.
-4. **Is new behavior tested?** Look for a test that fails without the change.
+4. **Does each added test earn its cost?** Ask what consequential failure it
+   catches, why existing checks miss it, and whether a narrower case or an
+   existing test file would suffice. Missing tests are actionable when they
+   leave a named risk without adequate verification.
 
 ## Rules with one enforcement point
 

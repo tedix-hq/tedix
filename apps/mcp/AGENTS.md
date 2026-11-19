@@ -166,5 +166,9 @@ approvals. Other transports, credentials and request transforms stay blocked.
 
 ## Verification
 
-`bun run test:run` (never `bun test` — Workers aliases). Check live MCP
-changes with a discovery call through the `tedix` CLI.
+Use a scoped discovery or tool call to check the changed behavior when
+appropriate. Reserve new regression cases for gaps such as scope enforcement,
+tool routing, or a wire contract that can break callers. Avoid tests that
+duplicate tool names, descriptions, or annotations without exercising an
+independent consumer. Select relevant existing cases through the workspace
+runner. Bare `bun test` ignores Workers aliases.
