@@ -78,8 +78,6 @@ export function workMapFixture(now = new Date()): WorkMap {
 				reportedAt: ago(0.1),
 				ageSeconds: 360,
 				downAfterSeconds: 45,
-				slotsInUse: 0,
-				slotsTotal: 0,
 				heartbeat: true,
 			},
 		],

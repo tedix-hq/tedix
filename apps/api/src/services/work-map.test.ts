@@ -20,8 +20,6 @@ function heartbeat(
 		observedAt: at(secondsAgo),
 		reportedAt: at(secondsAgo),
 		lastAdmissionAt: null,
-		slotsInUse: 0,
-		slotsTotal: 2,
 		topReason: null,
 		topReasonCount: null,
 		duty: null,

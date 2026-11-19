@@ -43,7 +43,7 @@ function fixture() {
 		fromExecutor: "codex",
 		unavailableSince: "2026-11-07T21:45:00.000Z",
 		minimumIdleMinutes: 15,
-		reason: "busy" as const,
+		reason: "unreachable" as const,
 		now,
 	};
 	const attempt = (n: number, outcome: string | null = "failed", version = 3) =>
@@ -80,7 +80,7 @@ it("reassigns at the threshold with one visible reason while preserving revision
 			[
 				{
 					body: expect.stringContaining(
-						"Reassigned from codex to opencode: assigned runner busy",
+						"Reassigned from codex to opencode: assigned runner unreachable",
 					),
 				},
 			],

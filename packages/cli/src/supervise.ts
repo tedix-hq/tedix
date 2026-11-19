@@ -1304,7 +1304,6 @@ export function listRunners(env: NodeJS.ProcessEnv): number {
 			runner: runnerKey(runner),
 			executor: runner.executor,
 			organization: runner.organization,
-			slots: runner.max,
 			enabled: runner.enabled,
 			running: pid !== null,
 			pid,

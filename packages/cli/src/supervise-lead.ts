@@ -415,8 +415,6 @@ export class LeadDuty {
 								running: true,
 								observedAt: new Date(this.now()).toISOString(),
 								lastAdmissionAt: null,
-								slotsInUse: 0,
-								slotsTotal: 1,
 								topReason: { reason, count: 1 },
 								duty: latestDuty
 									? supervisorDutyHealth(latestDuty, this.now())

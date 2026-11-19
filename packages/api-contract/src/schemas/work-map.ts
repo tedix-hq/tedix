@@ -89,8 +89,6 @@ export const WorkMapLaneSchema = z.object({
 	reportedAt: z.iso.datetime().nullable(),
 	ageSeconds: z.number().int().min(0).nullable(),
 	downAfterSeconds: z.number().int().positive(),
-	slotsInUse: z.number().int().min(0),
-	slotsTotal: z.number().int().min(0),
 	/** False when inferred from runner reports by a CLI without its own heartbeat. */
 	heartbeat: z.boolean(),
 });

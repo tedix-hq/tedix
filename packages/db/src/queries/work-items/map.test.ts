@@ -40,9 +40,9 @@ describe("readWorkMapSnapshot", () => {
 				('e2','org','c2','comment','user','u','{}','${T1}');
 			INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,created_at) VALUES
 				('k1','org','c2','external_agent','lane','Dispatcher execution held: tests fail','${T1}');
-			INSERT INTO dispatcher_health_reports(org_id,reporter_id,executor,lane,running,observed_at,reported_at,slots_in_use,slots_total) VALUES
-				('org','mac','supervisor','supervisor',1,'${T1}','${T1}',0,0),
-				('other','mac','supervisor','supervisor',1,'${T1}','${T1}',0,0);
+			INSERT INTO dispatcher_health_reports(org_id,reporter_id,executor,lane,running,observed_at,reported_at) VALUES
+				('org','mac','supervisor','supervisor',1,'${T1}','${T1}'),
+				('other','mac','supervisor','supervisor',1,'${T1}','${T1}');
 		`);
 		const db = createDbQueryClient(createD1Facade(sqlite));
 

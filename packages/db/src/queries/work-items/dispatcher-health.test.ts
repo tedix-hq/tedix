@@ -114,8 +114,6 @@ describe("dispatcher health queries", () => {
 			observedAt: T1,
 			reportedAt: T1,
 			lastAdmissionAt: null,
-			slotsInUse: 0,
-			slotsTotal: 1,
 		};
 		await upsertDispatcherHealthReport(db, { ...report, duty });
 		expect((await listDispatcherHealthReports(db, "busy"))[0]?.duty).toEqual(
@@ -140,8 +138,6 @@ describe("dispatcher health queries", () => {
 			observedAt: T0,
 			reportedAt: T0,
 			lastAdmissionAt: null,
-			slotsInUse: 1,
-			slotsTotal: 2,
 			topReason: null,
 			topReasonCount: null,
 		};
@@ -151,7 +147,6 @@ describe("dispatcher health queries", () => {
 			running: false,
 			observedAt: T1,
 			reportedAt: T1,
-			slotsInUse: 0,
 			topReason: "session label clash",
 			topReasonCount: 4,
 		});

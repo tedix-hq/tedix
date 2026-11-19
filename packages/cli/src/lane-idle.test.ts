@@ -53,18 +53,18 @@ const report: LocalDispatcherHealth = {
 	running: true,
 	observedAt: "2026-11-07T22:00:00Z",
 	lastAdmissionAt: null,
-	slotsInUse: 1,
-	slotsTotal: 1,
 	topReason: null,
 };
-it("requires continuous unavailable capacity and resets when a runner has a free slot", () => {
-	const start = observeUnavailableRunners([report], new Map(), scope, 1000);
+it("requires a continuously unreachable donor and resets when any of its runners runs", () => {
+	const stopped = { ...report, running: false };
+	const start = observeUnavailableRunners([stopped], new Map(), scope, 1000);
 	expect(
-		observeUnavailableRunners([report], start, scope, 901000).get("codex"),
-	).toEqual({ since: 1000, reason: "busy" });
+		observeUnavailableRunners([stopped], start, scope, 901000).get("codex"),
+	).toEqual({ since: 1000, reason: "unreachable" });
+	expect(observeUnavailableRunners([report], start, scope, 2000).size).toBe(0);
 	expect(
 		observeUnavailableRunners(
-			[report, { ...report, lane: "other", slotsInUse: 0 }],
+			[stopped, { ...report, lane: "other" }],
 			start,
 			scope,
 			2000,
@@ -80,12 +80,7 @@ it("requires continuous unavailable capacity and resets when a runner has a free
 		).size,
 	).toBe(0);
 	expect(
-		observeUnavailableRunners(
-			[{ ...report, running: false }],
-			start,
-			scope,
-			2000,
-		).get("codex"),
+		observeUnavailableRunners([stopped], new Map(), scope, 2000).get("codex"),
 	).toEqual({ since: 2000, reason: "unreachable" });
 });
 it("distinguishes held, person and coordinator skips", () => {
@@ -105,7 +100,6 @@ it("reports no-coordinator items without widening admission reads, and samples o
 	try {
 		const options = {
 			executor: "codex" as const,
-			max: 1,
 			coordinated: true,
 			acceptProposed: false,
 			rules: "rules",
@@ -166,118 +160,112 @@ it("reports no-coordinator items without widening admission reads, and samples o
 	}
 });
 
-it.each([
-	"busy",
-	"unreachable",
-	"held",
-	"retained worktree",
-	"quota",
-	"free donor",
-])("takes eligible donor Work only after 15 minutes: %s", async (state) => {
-	const directory = mkdtempSync(join(tmpdir(), "lane-idle-"));
-	let now = Date.parse("2026-11-07T22:00:00.000Z");
-	const clock = spyOn(Date, "now").mockImplementation(() => now);
-	try {
-		const own = join(directory, "recipient");
-		mkdirSync(own);
-		const donor = {
-			...report,
-			running: state !== "unreachable",
-			slotsInUse: state === "free donor" ? 0 : 1,
-		};
-		const item: DispatchItem = {
-			id: "11111111-1111-4111-8111-111111111111",
-			version: 3,
-			title: "Fix widget",
-			description: "Correct sizing",
-			workKind: "coding",
-			disposition: "accepted",
-			projectId: "22222222-2222-4222-8222-222222222222",
-			startAt: null,
-			acceptanceContract: { version: 1, doneLooksLike: "Sizing corrected" },
-			metadata: { executor: "codex", laneDispatch: { state: "ready" } },
-			accountableOwnerType: null,
-			accountableOwnerId: null,
-		};
-		if (state === "held" || state === "retained worktree") {
-			mkdirSync(join(directory, "lane"));
-			writeFileSync(
-				join(directory, "lane", `${item.id}-3.json`),
-				JSON.stringify({
-					held: state === "held",
-					repo: state === "retained worktree" ? directory : undefined,
-				}),
-			);
-		}
-		const assignments: unknown[] = [];
-		const dispatcher = new LaneDispatcher(
-			{
-				executor: "opencode",
-				max: 1,
-				coordinated: true,
-				acceptProposed: false,
-				rules: "rules",
-				repo: own,
-				scope: ["--workspace", "acme", "--organization", "org-acme"],
-				once: true,
-				install: false,
-			},
-			own,
-			{
-				darkWake: () => false,
-				health: () => [donor],
-				devinAvailability: () => ({ available: true }),
-				available: () => ({ available: true }),
-				freeDiskBytes: () => 100 * 1024 ** 3,
-				budgets: () =>
-					state === "quota"
-						? {
-								opencode: {
-									source: "native",
-									observedAt: now,
-									remainingPercent: 1,
-								},
-							}
-						: {},
-				cli: async <T>(args: string[]): Promise<T> => {
-					const verb = args[5];
-					const inputAt = args.indexOf("--input");
-					const input = inputAt < 0 ? {} : JSON.parse(args[inputAt + 1]!);
-					if (verb === "dispatch-list")
-						return {
-							data: input.executor === "codex" ? [item] : [],
-							pagination: { hasMore: false },
-						} as T;
-					if (verb === "dispatch-reassign") {
-						assignments.push(input);
-						return item as T;
-					}
-					return {} as T;
-				},
-			},
-		);
-		await dispatcher.tick();
-		expect(assignments).toHaveLength(0);
-		now += 14 * 60_000;
-		await dispatcher.tick();
-		expect(assignments).toHaveLength(0);
-		now += 60_000;
-		await dispatcher.tick();
-		if (state === "busy" || state === "unreachable")
-			expect(assignments).toEqual([
-				expect.objectContaining({
-					executorReference: { type: "external_agent", id: "opencode" },
-					expectedWorkItemVersion: 3,
-					idleReassignment: expect.objectContaining({
-						fromExecutor: "codex",
-						reason: state,
-						minimumIdleMinutes: 15,
+it.each(["unreachable", "held", "retained worktree", "quota", "free donor"])(
+	"takes eligible donor Work only after 15 minutes: %s",
+	async (state) => {
+		const directory = mkdtempSync(join(tmpdir(), "lane-idle-"));
+		let now = Date.parse("2026-11-07T22:00:00.000Z");
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		try {
+			const own = join(directory, "recipient");
+			mkdirSync(own);
+			const donor = {
+				...report,
+				running: state === "free donor",
+			};
+			const item: DispatchItem = {
+				id: "11111111-1111-4111-8111-111111111111",
+				version: 3,
+				title: "Fix widget",
+				description: "Correct sizing",
+				workKind: "coding",
+				disposition: "accepted",
+				projectId: "22222222-2222-4222-8222-222222222222",
+				startAt: null,
+				acceptanceContract: { version: 1, doneLooksLike: "Sizing corrected" },
+				metadata: { executor: "codex", laneDispatch: { state: "ready" } },
+				accountableOwnerType: null,
+				accountableOwnerId: null,
+			};
+			if (state === "held" || state === "retained worktree") {
+				mkdirSync(join(directory, "lane"));
+				writeFileSync(
+					join(directory, "lane", `${item.id}-3.json`),
+					JSON.stringify({
+						held: state === "held",
+						repo: state === "retained worktree" ? directory : undefined,
 					}),
-				}),
-			]);
-		else expect(assignments).toHaveLength(0);
-	} finally {
-		clock.mockRestore();
-		rmSync(directory, { recursive: true, force: true });
-	}
-});
+				);
+			}
+			const assignments: unknown[] = [];
+			const dispatcher = new LaneDispatcher(
+				{
+					executor: "opencode",
+					coordinated: true,
+					acceptProposed: false,
+					rules: "rules",
+					repo: own,
+					scope: ["--workspace", "acme", "--organization", "org-acme"],
+					once: true,
+					install: false,
+				},
+				own,
+				{
+					darkWake: () => false,
+					health: () => [donor],
+					devinAvailability: () => ({ available: true }),
+					available: () => ({ available: true }),
+					freeDiskBytes: () => 100 * 1024 ** 3,
+					budgets: () =>
+						state === "quota"
+							? {
+									opencode: {
+										source: "native",
+										observedAt: now,
+										remainingPercent: 1,
+									},
+								}
+							: {},
+					cli: async <T>(args: string[]): Promise<T> => {
+						const verb = args[5];
+						const inputAt = args.indexOf("--input");
+						const input = inputAt < 0 ? {} : JSON.parse(args[inputAt + 1]!);
+						if (verb === "dispatch-list")
+							return {
+								data: input.executor === "codex" ? [item] : [],
+								pagination: { hasMore: false },
+							} as T;
+						if (verb === "dispatch-reassign") {
+							assignments.push(input);
+							return item as T;
+						}
+						return {} as T;
+					},
+				},
+			);
+			await dispatcher.tick();
+			expect(assignments).toHaveLength(0);
+			now += 14 * 60_000;
+			await dispatcher.tick();
+			expect(assignments).toHaveLength(0);
+			now += 60_000;
+			await dispatcher.tick();
+			if (state === "unreachable")
+				expect(assignments).toEqual([
+					expect.objectContaining({
+						executorReference: { type: "external_agent", id: "opencode" },
+						expectedWorkItemVersion: 3,
+						idleReassignment: expect.objectContaining({
+							fromExecutor: "codex",
+							reason: state,
+							minimumIdleMinutes: 15,
+						}),
+					}),
+				]);
+			else expect(assignments).toHaveLength(0);
+		} finally {
+			clock.mockRestore();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	},
+);

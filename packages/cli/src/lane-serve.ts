@@ -132,7 +132,6 @@ import {
 	collectDispatcherHealth,
 	recordDispatcherCompletion,
 	recordDispatcherNextCheck,
-	recordDispatcherPreparing,
 	recordDispatcherReliability,
 	writeDispatcherHealthSource,
 	type LocalDispatcherHealth,
@@ -516,7 +515,6 @@ export interface ServeOptions {
 	executor: LocalExecutor | "any-local";
 	coordinated: boolean;
 	acceptProposed: boolean;
-	max: number;
 	project?: string;
 	routingConfig?: string;
 	idleTakeoverMinutes?: number;
@@ -546,7 +544,6 @@ export function parseServeOptions(
 		executor: "codex",
 		coordinated: false,
 		acceptProposed: false,
-		max: 5,
 		rules: "lane-rules",
 		repo: process.cwd(),
 		scope: [],
@@ -585,7 +582,6 @@ export function parseServeOptions(
 		if (
 			![
 				"--executor",
-				"--max",
 				"--routing-config",
 				"--idle-takeover-minutes",
 				"--checkout-cap-gb",
@@ -614,7 +610,6 @@ export function parseServeOptions(
 				);
 			result.executor = value;
 		}
-		if (key === "--max") result.max = Number(value);
 		if (key === "--idle-takeover-minutes")
 			result.idleTakeoverMinutes = Number(value);
 		if (key === "--checkout-cap-gb")
@@ -633,8 +628,6 @@ export function parseServeOptions(
 		throw new Error(
 			"--executor codex|claude-code|opencode|devin|any-local is required",
 		);
-	if (!Number.isSafeInteger(result.max) || result.max < 1 || result.max > 100)
-		throw new Error("--max must be an integer from 1 to 100");
 	if (result.acceptProposed && !result.project)
 		throw new Error("--accept-proposed requires --project");
 	if (
@@ -2252,8 +2245,6 @@ export class LaneDispatcher {
 	private delegationRequests = new Map<string, string>();
 	/** When a still-waiting item or orphan may next cost a per-item read. */
 	private recheckAfter = new Map<string, number>();
-	/** Ended Attempts whose recorded pid is now a different process. */
-	private foreignOrphans = new Set<string>();
 	/** Work revisions whose owner delegation comment was already read. */
 	private delegated = new Set<string>();
 	private unavailable = new Map<LocalExecutor, UnavailableRunner>();
@@ -2478,8 +2469,7 @@ export class LaneDispatcher {
 			});
 	}
 	private finishPreparation(itemId: string) {
-		if (this.preparing.delete(itemId))
-			recordDispatcherPreparing(this.directory, this.preparing.size);
+		this.preparing.delete(itemId);
 	}
 	private call<T = unknown>(
 		args: string[],
@@ -2517,14 +2507,14 @@ export class LaneDispatcher {
 			safe
 				? retryRead((timeoutMs) => invoke(args, timeoutMs), {
 						operation: `work.${args[1]}`,
-						budgetMs: readBudgetMs(READ_BUDGET_MS, this.options.max),
+						budgetMs: readBudgetMs(READ_BUDGET_MS, this.running.size),
 						attemptMs: READ_BUDGET_MS / 3,
 						log: (line) => this.log("read-budget", args[2], line),
 					})
 				: invoke(
 						args,
 						args[0] === "work" && args[1] === "start"
-							? readBudgetMs(READ_BUDGET_MS, this.options.max)
+							? readBudgetMs(READ_BUDGET_MS, this.running.size)
 							: undefined,
 					);
 		// A slow read or another run's renewal must not hold an Attempt's lease.
@@ -2779,10 +2769,6 @@ export class LaneDispatcher {
 					} else {
 						// Never stop a process we cannot prove is this run's, but say so:
 						// a silent skip leaves an expired run alive with no trace.
-						if (row.processIdentity) {
-							if (this.foreignOrphans.size > 2048) this.foreignOrphans.clear();
-							this.foreignOrphans.add(orphanKey);
-						}
 						this.log(
 							"orphan-unverified",
 							row.itemId,
@@ -2794,21 +2780,9 @@ export class LaneDispatcher {
 				}
 			}
 		}
-		const orphaned = retained.filter(
-			(row) =>
-				!hasSettledOutcome(row) &&
-				row.pid &&
-				alive(row.pid) &&
-				// An ended Attempt whose pid now belongs to another process holds no slot.
-				!this.foreignOrphans.has(`orphan:${row.itemId}:${row.attemptId}`) &&
-				!this.running.has(row.itemId),
-		).length;
-		while (
-			!this.stopping &&
-			!this.admissionsHeld &&
-			!diskLow &&
-			this.running.size + orphaned < this.options.max
-		) {
+		// Every ready Work Item this runner may take starts; leases, claims and
+		// per-item receipts, not a slot count, keep each item to one run.
+		while (!this.stopping && !this.admissionsHeld && !diskLow) {
 			const page = await this.call<{
 				data: DispatchItem[];
 				pagination: { hasMore: boolean };
@@ -2833,8 +2807,7 @@ export class LaneDispatcher {
 			)
 				throw new Error("Malformed dispatch page");
 			for (const item of page.data) {
-				if (this.stopping || this.running.size + orphaned >= this.options.max)
-					break;
+				if (this.stopping) break;
 				let reason = dispatchSkip(
 					item,
 					[],
@@ -3104,8 +3077,7 @@ export class LaneDispatcher {
 			break;
 		}
 		if (!this.maintenance.size) this.reclaimOrphanRun(retained);
-		const hasCapacity =
-			!this.preparing.size && this.running.size + orphaned < this.options.max;
+		const hasCapacity = !this.preparing.size;
 		const idle = {
 			observedAt: new Date().toISOString(),
 			held: 0,
@@ -3180,12 +3152,7 @@ export class LaneDispatcher {
 		}
 		for (const reason of this.idleItems.values()) idle[reason]++;
 		recordDispatcherIdle(this.directory, idle);
-		if (
-			!diskLow &&
-			!this.preparing.size &&
-			this.running.size + orphaned < this.options.max
-		)
-			await this.takeIdleWork();
+		if (!diskLow && !this.preparing.size) await this.takeIdleWork();
 	}
 	private async takeIdleWork() {
 		const executor = this.options.executor;
@@ -4009,7 +3976,6 @@ export class LaneDispatcher {
 		let killTimer: ReturnType<typeof setTimeout> | undefined;
 		try {
 			this.preparing.add(candidate.id);
-			recordDispatcherPreparing(this.directory, this.preparing.size);
 			const detail = await this.call<{
 				workItem: DispatchItem;
 				comments: WorkItemComment[];
@@ -6401,7 +6367,7 @@ export async function runLaneServe(
 ): Promise<number> {
 	if (args.includes("--help")) {
 		console.log(
-			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--max 5] [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install] [--once]",
+			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install] [--once]",
 		);
 		return 0;
 	}

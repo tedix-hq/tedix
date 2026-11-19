@@ -24,7 +24,7 @@ export async function reassignIdleWork(
 		fromExecutor: string;
 		unavailableSince: string;
 		minimumIdleMinutes: number;
-		reason: "busy" | "unreachable";
+		reason: "unreachable";
 		now?: string;
 	},
 ) {
