@@ -8,7 +8,11 @@ import {
 import { declaredToolClass } from "@tedix/api-contract/utils/tool-declared-class";
 import { serializeException } from "@tedix/worker-kit/logger";
 import { createMcpLogger } from "../log";
-import { redactRateLimitKey } from "../middleware/rate-limit";
+import {
+	MCP_PRINCIPAL_LIMIT,
+	redactRateLimitKey,
+	type RateLimiter,
+} from "../middleware/rate-limit";
 import { normalizeCallerIdentity } from "./caller-identity";
 import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
 import type { AppTool, ServerContext } from "./server-context";
@@ -138,25 +142,6 @@ const RISK_TIER_BUDGETS: Record<
 	external_side_effect: HIGH_RISK_BUDGET,
 };
 
-type RiskRateLimiter = {
-	limit(options: { key: string }): Promise<{ success: boolean }>;
-};
-
-function limiterForTier(
-	env: CloudflareEnv,
-	tier: ToolOperationalRiskTier,
-): RiskRateLimiter | undefined {
-	const bindings = env as CloudflareEnv & {
-		MCP_WRITE_RATE_LIMITER?: RiskRateLimiter;
-		MCP_HIGH_RISK_RATE_LIMITER?: RiskRateLimiter;
-	};
-	return tier === "bounded_write"
-		? bindings.MCP_WRITE_RATE_LIMITER
-		: tier === "high_impact_write" || tier === "external_side_effect"
-			? bindings.MCP_HIGH_RISK_RATE_LIMITER
-			: undefined;
-}
-
 export async function enforceToolRiskRateLimit(
 	agent: ServerContext,
 	tool: AppTool,
@@ -167,7 +152,23 @@ export async function enforceToolRiskRateLimit(
 } | null> {
 	const policy = resolveToolRiskPolicy(tool);
 	if (!policy || policy.riskTier === "read") return null;
-	const limiter = limiterForTier(agent.env, policy.riskTier);
+	const bindings = agent.env as CloudflareEnv & {
+		MCP_PRINCIPAL_RATE_LIMITER?: RateLimiter;
+		MCP_WRITE_RATE_LIMITER?: RateLimiter;
+		MCP_HIGH_RISK_RATE_LIMITER?: RateLimiter;
+	};
+	const runnerLimiter =
+		policy.riskTier === "bounded_write" &&
+		tool.config?.transport === "rpc" &&
+		(tool.config.endpoint === "workItems/appendAttemptSteps" ||
+			tool.config.endpoint === "machines/claimToolCalls")
+			? bindings.MCP_PRINCIPAL_RATE_LIMITER
+			: undefined;
+	const limiter =
+		runnerLimiter ??
+		(policy.riskTier === "bounded_write"
+			? bindings.MCP_WRITE_RATE_LIMITER
+			: bindings.MCP_HIGH_RISK_RATE_LIMITER);
 	if (!limiter) return null;
 
 	const caller = normalizeCallerIdentity(
@@ -175,6 +176,8 @@ export async function enforceToolRiskRateLimit(
 	);
 	const actorId = caller.actorId ?? "anonymous";
 	const key = [
+		// This binding also serves request ceilings, with different keys.
+		...(runnerLimiter ? ["tool-risk"] : []),
 		agent.app?.organizationId ?? "unknown-org",
 		actorId,
 		agent.appSlug ?? "unknown-app",
@@ -196,12 +199,17 @@ export async function enforceToolRiskRateLimit(
 		return null;
 	}
 
-	const budget = RISK_TIER_BUDGETS[policy.riskTier];
+	const budget = runnerLimiter
+		? {
+				limit: MCP_PRINCIPAL_LIMIT.requestsPerMinute,
+				windowSeconds: MCP_PRINCIPAL_LIMIT.windowSeconds,
+			}
+		: RISK_TIER_BUDGETS[policy.riskTier];
 	return {
 		content: [
 			{
 				type: "text",
-				text: `Tool rate limit exceeded for ${policy.riskTier}: each ${policy.riskTier} tool allows ${budget.limit} calls per ${budget.windowSeconds} seconds for one caller in this organization (per-tool risk limiter, keyed by organization, caller, app and tool). No side effect was executed for this call. Wait ${budget.windowSeconds} seconds (retryAfter: ${budget.windowSeconds}) before calling ${tool.toolId} again and retry only the calls that did not succeed; other tools have their own budgets.`,
+				text: `Tool rate limit exceeded for ${policy.riskTier}: ${tool.toolId} allows ${budget.limit} calls per ${budget.windowSeconds} seconds for one caller in this organization (per-tool risk limiter, keyed by organization, caller, app and tool). No side effect was executed for this call. Wait ${budget.windowSeconds} seconds (retryAfter: ${budget.windowSeconds}) before calling ${tool.toolId} again and retry only the calls that did not succeed; other tools have their own budgets.`,
 			},
 		],
 		isError: true,

@@ -7,9 +7,15 @@ import {
 	toolRiskAuditMetadata,
 } from "./tool-risk-policy";
 
-function tool(riskTier?: string, blastRadius?: string) {
+function tool(
+	riskTier?: string,
+	blastRadius?: string,
+	toolId = "update_customer",
+	endpoint?: string,
+) {
 	return {
-		toolId: "update_customer",
+		toolId,
+		config: endpoint ? { transport: "rpc", endpoint } : null,
 		meta:
 			riskTier && blastRadius
 				? {
@@ -19,9 +25,13 @@ function tool(riskTier?: string, blastRadius?: string) {
 	} as never;
 }
 
-function context(limit: ReturnType<typeof vi.fn>) {
+function context(
+	limit: ReturnType<typeof vi.fn>,
+	runnerLimit?: ReturnType<typeof vi.fn>,
+) {
 	return {
 		env: {
+			MCP_PRINCIPAL_RATE_LIMITER: runnerLimit && { limit: runnerLimit },
 			MCP_WRITE_RATE_LIMITER: { limit },
 			MCP_HIGH_RISK_RATE_LIMITER: { limit },
 		},
@@ -82,6 +92,28 @@ describe("tool risk policy", () => {
 			"Wait 60 seconds (retryAfter: 60) before calling update_customer",
 		);
 		expect(text).toContain("retry only the calls that did not succeed");
+	});
+
+	it("gives runner steps and machine claims separate higher-rate buckets", async () => {
+		const writeLimit = vi.fn().mockResolvedValue({ success: false });
+		const runnerLimit = vi.fn().mockResolvedValue({ success: true });
+		const agent = context(writeLimit, runnerLimit);
+
+		for (const [toolId, endpoint] of [
+			["append_work_attempt_steps", "workItems/appendAttemptSteps"],
+			["claim_machine_tool_calls", "machines/claimToolCalls"],
+		]) {
+			expect(
+				await enforceToolRiskRateLimit(
+					agent,
+					tool("bounded_write", "single_resource", toolId, endpoint),
+				),
+			).toBeNull();
+			expect(runnerLimit).toHaveBeenLastCalledWith({
+				key: `tool-risk:org-1:user-1:crm:${toolId}`,
+			});
+		}
+		expect(writeLimit).not.toHaveBeenCalled();
 	});
 
 	it("states the tighter budget for high-impact writes", async () => {
