@@ -203,19 +203,11 @@ export function provenanceFloor(
 	return COST_PROVENANCE_ORDER[floorIndex] ?? null;
 }
 
-/** Per-label rollup. `costUsd` for a quarantined bucket is held-out value. */
+/** Per-label rollup of calls; never a money figure. */
 export const CostProvenanceBucketSchema = z.object({
 	provenance: CostProvenanceSchema,
 	rowCount: z.number().int().min(0),
 	totalTokens: z.number().int().min(0),
-	costUsd: z
-		.number()
-		.min(0)
-		.nullable()
-		.describe(
-			"Null when contributing cost evidence is incomplete; known subtotal remains separate and explicit zero is preserved.",
-		),
-	knownSubtotalUsd: z.number().min(0),
 });
 export type CostProvenanceBucket = z.infer<typeof CostProvenanceBucketSchema>;
 
@@ -467,15 +459,10 @@ export const COST_ADMISSION_POLICY_DETAIL =
  * a floor, never a total, and the surface must say so.
  */
 export const CostAttributionGapSchema = z.object({
-	unattributedCostUsd: z.number().min(0),
 	unattributedTokens: z.number().int().min(0),
-	/**
-	 * Rows that CONTRIBUTED to the amount above. Quarantined unattributed rows
-	 * are counted separately, so dividing cost by this count yields a per-call
-	 * rate every contributing row actually supports.
-	 */
+	/** Unattributed rows that passed ingestion; quarantined ones are counted apart. */
 	unattributedRowCount: z.number().int().min(0),
-	/** Unattributed rows held out of the amount above, counted but never priced. */
+	/** Unattributed rows held out by ingestion, counted but never priced. */
 	unattributedQuarantinedRowCount: z.number().int().min(0),
 	orphanedRowsVisible: z.literal(false),
 	detail: z.string(),
@@ -483,7 +470,7 @@ export const CostAttributionGapSchema = z.object({
 export type CostAttributionGap = z.infer<typeof CostAttributionGapSchema>;
 
 export const COST_ATTRIBUTION_GAP_DETAIL =
-	"Unattributed rows that still carry this organization. Rows with no organization at all are invisible to every org-scoped read, so this is a floor on unattributed spend, never a total.";
+	"Unattributed rows that still carry this organization. Rows with no organization at all are invisible to every org-scoped read, so this is a floor on unattributed calls, never a total.";
 
 export const ReviewedProviderCostSummarySchema = CostSummarySchema.extend({
 	reviewedEstimateRowCount: z.number().int().nonnegative(),

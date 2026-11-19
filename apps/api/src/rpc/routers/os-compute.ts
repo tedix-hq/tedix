@@ -12,6 +12,11 @@
  * routing — so the surface can never disagree with the gate that actually
  * blocks inference. Nothing is recomputed here.
  *
+ * It returns no money figure: provider cost is recorded in USD, and showing it
+ * to a customer would reveal the margin over the Tedix credits they pay.
+ * Usage is call and token counts; what the organization used is the credit
+ * budget.
+ *
  * Every value it returns is labeled, and two of them are labeled as gaps:
  * model-provider health is `unknown` (no durable store), and unattributed cost
  * is a floor (NULL-org rows are invisible to an
@@ -64,11 +69,8 @@ export function provenanceBuckets(
 ): CostProvenanceBucket[] {
 	const buckets = new Map<CostProvenance, CostProvenanceBucket>();
 	for (const group of groups) {
-		// The group's SUMs are not the classifier's inputs — the classifier asks
-		// only whether a price landed and whether tokens were spent, and the group
-		// is keyed on exactly those two booleans, so every row inside it classifies
-		// identically. Pass the booleans through as 1/0 rather than the sums, which
-		// would let a group of small nonzero rows read as one large one.
+		// The classifier asks only whether a price landed, and the group is keyed
+		// on that boolean, so every row inside it classifies identically.
 		const provenance = ledgerRowProvenance({
 			costBasis: group.costBasis,
 			dataQuality: group.dataQuality,
@@ -78,28 +80,19 @@ export function provenanceBuckets(
 			provenance,
 			rowCount: 0,
 			totalTokens: 0,
-			costUsd: 0 as number | null,
-			knownSubtotalUsd: 0,
 		};
 		existing.rowCount += group.rowCount;
 		existing.totalTokens += group.totalTokens;
-		existing.knownSubtotalUsd += group.costUsd;
-		existing.costUsd =
-			existing.costUsd === null || !group.hasCost
-				? null
-				: existing.costUsd + group.costUsd;
 		buckets.set(provenance, existing);
 	}
-	return [...buckets.values()].sort(
-		(a, b) => b.knownSubtotalUsd - a.knownSubtotalUsd,
-	);
+	return [...buckets.values()].sort((a, b) => b.rowCount - a.rowCount);
 }
 
 /**
- * Split the window into spend and held-out value.
+ * Split the window into contributing and held-out calls.
  *
- * Quarantined cost is reported BESIDE spend and never inside it — the same rule
- * `getCallCostTotals` enforces in SQL. `provenanceFloor` covers only the rows
+ * Quarantined calls are reported BESIDE spend and never inside it — the same
+ * rule `getCallCostTotals` enforces in SQL. `provenanceFloor` covers only the rows
  * that contributed to spend: a window whose only rows are quarantined has no
  * spend provenance at all, and returns null rather than claiming "quarantined
  * spend".
@@ -110,9 +103,6 @@ export function spendTotals(buckets: readonly CostProvenanceBucket[]) {
 	let unpricedTokens = 0;
 	let rowCount = 0;
 	let totalTokens = 0;
-	let costUsd = 0;
-	let quarantinedCostUsd: number | null = 0;
-	let quarantinedKnownSubtotalUsd = 0;
 	let quarantinedTokens = 0;
 	let quarantinedRowCount = 0;
 	const contributing: CostProvenance[] = [];
@@ -128,22 +118,14 @@ export function spendTotals(buckets: readonly CostProvenanceBucket[]) {
 		if (bucket.provenance === "quarantined") {
 			quarantinedRowCount += bucket.rowCount;
 			quarantinedTokens += bucket.totalTokens;
-			quarantinedKnownSubtotalUsd += bucket.knownSubtotalUsd;
-			quarantinedCostUsd =
-				quarantinedCostUsd === null || bucket.costUsd === null
-					? null
-					: quarantinedCostUsd + bucket.costUsd;
 			continue;
 		}
 		totalTokens += bucket.totalTokens;
-		costUsd += bucket.knownSubtotalUsd;
 		contributing.push(bucket.provenance);
 	}
 	return {
 		rowCount,
 		totalTokens,
-		costUsd: pricedRowCount > 0 && unpricedRowCount === 0 ? costUsd : null,
-		knownSubtotalUsd: costUsd,
 		pricedRowCount,
 		unpricedRowCount,
 		unpricedTokens,
@@ -153,8 +135,6 @@ export function spendTotals(buckets: readonly CostProvenanceBucket[]) {
 				: unpricedRowCount > 0
 					? ("partial" as const)
 					: ("complete" as const),
-		quarantinedCostUsd,
-		quarantinedKnownSubtotalUsd,
 		quarantinedTokens,
 		quarantinedRowCount,
 		provenanceFloor: provenanceFloor(contributing),
@@ -162,42 +142,33 @@ export function spendTotals(buckets: readonly CostProvenanceBucket[]) {
 }
 
 /**
- * Unattributed cost that still carries this organization.
+ * Unattributed calls that still carry this organization.
  *
  * A FLOOR, never a total: the `require_org_id_for_attributed_calls` trigger
  * permits a NULL `org_id` only on `unattributed` rows, and every org-scoped
- * read filters on `org_id`, so genuinely orphaned spend cannot appear here.
- * Quarantined unattributed rows are excluded from the dollar figure for the
- * same reason they are excluded from spend.
+ * read filters on `org_id`, so genuinely orphaned calls cannot appear here.
+ * Quarantined unattributed rows are counted apart, as they are for spend.
  */
 export function attributionGap(groups: readonly OrgCallCostProvenanceGroup[]): {
-	unattributedCostUsd: number;
 	unattributedTokens: number;
 	unattributedRowCount: number;
 	unattributedQuarantinedRowCount: number;
 	orphanedRowsVisible: false;
 	detail: string;
 } {
-	let unattributedCostUsd = 0;
 	let unattributedTokens = 0;
 	let unattributedRowCount = 0;
 	let unattributedQuarantinedRowCount = 0;
 	for (const group of groups) {
 		if (group.sessionType !== "unattributed") continue;
-		// Counted apart from the contributing rows, not folded in with them: the
-		// row count is rendered BESIDE the dollar figure, so including rows that
-		// contributed nothing to it invited the reader to divide one by the other
-		// and read a per-call rate that no row supports.
 		if (group.dataQuality !== "ok") {
 			unattributedQuarantinedRowCount += group.rowCount;
 			continue;
 		}
 		unattributedRowCount += group.rowCount;
 		unattributedTokens += group.totalTokens;
-		unattributedCostUsd += group.costUsd;
 	}
 	return {
-		unattributedCostUsd,
 		unattributedTokens,
 		unattributedRowCount,
 		unattributedQuarantinedRowCount,
