@@ -907,7 +907,6 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"userProfile/confirmAvatarUpload": "mcp:settings.write",
 	"userProfile/deleteAvatar": "mcp:settings.admin",
 	"userProfile/getMine": "mcp:settings.read",
-	"userProfile/getWelcomeState": "mcp:settings.read",
 	"userProfile/requestAvatarUpload": "mcp:settings.write",
 	"userProfile/updateMine": "mcp:settings.write",
 	"userSettings/getBrowserMcpAuthorization": "mcp:settings.read",

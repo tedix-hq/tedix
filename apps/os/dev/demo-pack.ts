@@ -980,6 +980,9 @@ export function applyDemoPack(
 	h["tediApprovals/list"] = () => page([]);
 	h["members/listMembers"] = () => page(members);
 	h["userProfile/getMine"] = () => ({
+		welcomeCompleted: true,
+		revision: 1,
+		updatedAt: stamp(),
 		id: "dev-operator",
 		name: owner.name,
 		displayName: owner.name,

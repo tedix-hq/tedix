@@ -11,6 +11,7 @@ describe("Work workspace app", () => {
 			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 		});
 		client.setQueryData(userProfileQueryOptions().queryKey, {
+			welcomeCompleted: true,
 			id: "fictional-owner",
 			email: "owner@example.invalid",
 			name: null,

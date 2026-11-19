@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { userProfileQueryOptions } from "@/lib/os-query-options";
 import { Kbd } from "@/components/kumo/kbd";
 import { OsSettingsFrame } from "@/components/os-settings-frame";
 import { useOsLocale } from "@/lib/use-os-locale";
@@ -312,6 +314,7 @@ function MobileNavigationTrigger() {
 }
 
 export function OsShell() {
+	const profile = useQuery(userProfileQueryOptions());
 	useOsLocale();
 	const phone = useMediaQuery("(max-width: 819px)");
 	const mainContent = useRef<HTMLElement>(null);
@@ -363,7 +366,7 @@ export function OsShell() {
 		<SharedDeckInboxProvider>
 			<Suspense fallback={null}>
 				<WorkspaceToasts />
-				<FirstRunWelcome />
+				{profile.data?.welcomeCompleted === false ? <FirstRunWelcome /> : null}
 			</Suspense>
 			<OsTopbarMenuContext.Provider
 				value={

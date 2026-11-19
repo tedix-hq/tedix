@@ -41,7 +41,10 @@ export function requireHumanUserId(context: BaseContext): string {
 	);
 }
 
-function profileOutput(user: Awaited<ReturnType<typeof getUserById>>) {
+async function profileOutput(
+	context: BaseContext,
+	user: Awaited<ReturnType<typeof getUserById>>,
+) {
 	if (!user) {
 		throw createError(ErrorCodes.NOT_FOUND, "User profile not found");
 	}
@@ -62,6 +65,10 @@ function profileOutput(user: Awaited<ReturnType<typeof getUserById>>) {
 		avatarUrl,
 		revision: user.profileRevision,
 		updatedAt: user.updatedAt ?? null,
+		welcomeCompleted: accountIsNewSince(user.createdAt, WELCOME_SINCE)
+			? (await getUserConfig(context.db, welcomeKey(user.id)))?.value
+					.completed === true
+			: true,
 	};
 }
 
@@ -105,7 +112,7 @@ const getMine = authed.getMine
 	)
 	.handler(async ({ context }) => {
 		const userId = requireHumanUserId(context);
-		return profileOutput(await getUserById(context.db, userId));
+		return profileOutput(context, await getUserById(context.db, userId));
 	});
 
 const updateMine = authed.updateMine
@@ -136,7 +143,7 @@ const updateMine = authed.updateMine
 				},
 			});
 		}
-		return profileOutput(updated);
+		return profileOutput(context, updated);
 	});
 
 const requestAvatarUpload = authed.requestAvatarUpload
@@ -270,26 +277,6 @@ const welcomeKey = (userId: string) => ({
 	key: "account",
 });
 
-const getWelcomeState = authed.getWelcomeState
-	.use(
-		withAuthorization(
-			{
-				handlerOwnedUserAuthorization:
-					"Only the credential-resolved human can read or complete their own welcome.",
-			},
-			"apps:read",
-		),
-	)
-	.handler(async ({ context }) => {
-		const userId = requireHumanUserId(context);
-		const row = await getUserConfig(context.db, welcomeKey(userId));
-		if (row) return { completed: row.value.completed === true };
-		// The welcome is for a new account. Someone who was here before it
-		// existed, or whose account record cannot be read, never sees it.
-		const user = await getUserById(context.db, userId);
-		return { completed: !accountIsNewSince(user?.createdAt, WELCOME_SINCE) };
-	});
-
 const completeWelcome = authed.completeWelcome
 	.use(
 		withAuthorization(
@@ -309,7 +296,6 @@ const completeWelcome = authed.completeWelcome
 	});
 
 export const userProfileContractRouter = os.router({
-	getWelcomeState,
 	completeWelcome,
 	getMine,
 	updateMine,

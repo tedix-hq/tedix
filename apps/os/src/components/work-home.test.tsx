@@ -50,6 +50,7 @@ function render(
 		},
 	);
 	client.setQueryData(userProfileQueryOptions().queryKey, {
+		welcomeCompleted: true,
 		id: "morgan",
 		email: "morgan@example.com",
 		name: "Morgan",

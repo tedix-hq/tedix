@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { modelsForNewSelection } from "@/lib/model-selection";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
@@ -17,7 +17,6 @@ import type { AppRuntimeHostResult } from "@/lib/app-runtime-protocol";
 import {
 	modelCatalogQueryOptions,
 	operationalContextQueryOptions,
-	osQuery,
 	userPreferencesQueryOptions,
 	userProfileQueryOptions,
 } from "@/lib/os-query-options";
@@ -29,18 +28,15 @@ const html = buildAppRuntimeDocument({ "client.js": `${kit}\n${client}` });
 export function FirstRunWelcome() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
-	const options = osQuery.userProfile.getWelcomeState.queryOptions({
-		input: {},
-	});
-	const state = useQuery(options);
 	const complete = useMutation({
 		mutationFn: () => osApi.userProfile.completeWelcome({}),
 		onSuccess: async (next) => {
-			queryClient.setQueryData(options.queryKey, next);
+			queryClient.setQueryData(userProfileQueryOptions().queryKey, (profile) =>
+				profile ? { ...profile, welcomeCompleted: next.completed } : profile,
+			);
 			await navigate({ to: "/chat", search: {}, replace: true });
 		},
 	});
-	if (state.data?.completed !== false) return null;
 
 	const onCall = async (
 		method: unknown,

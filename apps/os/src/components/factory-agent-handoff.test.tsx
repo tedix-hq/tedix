@@ -65,6 +65,7 @@ function render(
 		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 	});
 	client.setQueryData(userProfileQueryOptions().queryKey, {
+		welcomeCompleted: true,
 		id: "river",
 		email: "river@example.test",
 		name: null,

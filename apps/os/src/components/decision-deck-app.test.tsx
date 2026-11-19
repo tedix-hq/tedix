@@ -268,6 +268,7 @@ async function mount(
 			},
 		);
 	client.setQueryData(userProfileQueryOptions().queryKey, {
+		welcomeCompleted: true,
 		id: "fictional-acme-user",
 		email: "morgan@example.com",
 		name: "Morgan",

@@ -94,9 +94,6 @@ describe("self-service user profile", () => {
 		await expect(client.getMine({})).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
-		await expect(client.getWelcomeState({})).rejects.toMatchObject({
-			code: "FORBIDDEN",
-		});
 		await expect(client.completeWelcome({})).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
@@ -110,11 +107,11 @@ describe("self-service user profile", () => {
 		// Both people joined after the welcome shipped.
 		f.sqlite
 			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
-			.run("2026-11-19T08:00:00.000Z", USER_ID);
+			.run("2026-11-19T00:00:00.000Z", USER_ID);
 		const context = userContext({ db: f.db, env: f.env });
 		const first = createRouterClient(userProfileContractRouter, { context });
-		await expect(first.getWelcomeState({})).resolves.toEqual({
-			completed: false,
+		await expect(first.getMine({})).resolves.toMatchObject({
+			welcomeCompleted: false,
 		});
 		await expect(first.completeWelcome({})).resolves.toEqual({
 			completed: true,
@@ -125,8 +122,8 @@ describe("self-service user profile", () => {
 		const anotherOrganization = createRouterClient(userProfileContractRouter, {
 			context: { ...context, organizationId: "org-2" },
 		});
-		await expect(anotherOrganization.getWelcomeState({})).resolves.toEqual({
-			completed: true,
+		await expect(anotherOrganization.getMine({})).resolves.toMatchObject({
+			welcomeCompleted: true,
 		});
 		f.sqlite
 			.prepare(
@@ -143,8 +140,8 @@ describe("self-service user profile", () => {
 		const anotherPerson = createRouterClient(userProfileContractRouter, {
 			context: { ...context, userId: "another-person" },
 		});
-		await expect(anotherPerson.getWelcomeState({})).resolves.toEqual({
-			completed: false,
+		await expect(anotherPerson.getMine({})).resolves.toMatchObject({
+			welcomeCompleted: false,
 		});
 		expect(
 			f.sqlite.prepare("SELECT COUNT(*) AS count FROM user_configs").get(),
@@ -160,23 +157,25 @@ describe("self-service user profile", () => {
 			"2026-11-18T23:59:59.000Z",
 			"2026-03-01 08:00:00",
 			"not a date",
+			"",
+			null,
 		]) {
 			f.sqlite
 				.prepare("UPDATE users SET created_at = ? WHERE id = ?")
 				.run(createdAt, USER_ID);
-			await expect(client.getWelcomeState({})).resolves.toEqual({
-				completed: true,
+			await expect(client.getMine({})).resolves.toMatchObject({
+				welcomeCompleted: true,
 			});
 		}
-		// No account record at all is not a new account either.
+		// A missing profile cannot open the welcome.
 		const unknown = createRouterClient(userProfileContractRouter, {
 			context: {
 				...userContext({ db: f.db, env: f.env }),
 				userId: "no-such-person",
 			},
 		});
-		await expect(unknown.getWelcomeState({})).resolves.toEqual({
-			completed: true,
+		await expect(unknown.getMine({})).rejects.toMatchObject({
+			code: "NOT_FOUND",
 		});
 		expect(
 			f.sqlite.prepare("SELECT COUNT(*) AS count FROM user_configs").get(),

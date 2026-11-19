@@ -44,7 +44,15 @@ import { localCustomDomain, setLocalCustomDomain } from "./sharing";
 import { state } from "./state";
 
 export const organizationHandlers: Record<string, (input: never) => unknown> = {
-	"userProfile/getWelcomeState": () => ({ completed: true }),
+	"userProfile/getMine": () => ({
+		id: "local-owner",
+		name: "Local Owner",
+		email: "owner@localhost.invalid",
+		avatarUrl: null,
+		revision: 1,
+		updatedAt: T0,
+		welcomeCompleted: true,
+	}),
 	"userProfile/completeWelcome": () => ({ completed: true }),
 	"mcpGovernance/listTenantToolPolicies": () => ({ items: localPolicyRows }),
 	"mcpGovernance/listDeletedTenantPolicyFences": () => ({ items: [] }),
