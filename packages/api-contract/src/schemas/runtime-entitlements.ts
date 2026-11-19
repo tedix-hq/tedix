@@ -38,12 +38,10 @@ export const RuntimeEntitlementSchema = z.object({
 		name: z.string().min(1),
 	}),
 	limits: z.object({
-		includedMonthlyTokens: z.number().int(),
+		includedMonthlyCredits: z.number().int().nonnegative(),
 		maxTedis: z.number().int(),
 		maxCronJobsPerTedi: z.number().int(),
 		maxIterationsPerTask: z.number().int(),
-		defaultDailyTokenLimit: z.number().int(),
-		defaultDailyMessageLimit: z.number().int(),
 	}),
 	grants: z.array(RuntimeEntitlementGrantSchema),
 	source: z.enum(["installation", "managed-plan", "external", "operator"]),
@@ -105,12 +103,10 @@ export const RuntimeEntitlementDenialCodeSchema = z.enum([
 	"billing_not_configured",
 	"subscription_inactive",
 	"billing_period_inactive",
-	"monthly_allowance_exhausted",
-	"credit_allowance_exhausted",
+	"monthly_credit_limit_reached",
+	"tedi_monthly_credit_cap_reached",
+	"member_monthly_credit_cap_reached",
 	"pricing_unavailable",
-	"payment_required",
-	"hard_spend_limit",
-	"inference_capacity_exhausted",
 	"model_tier_not_allowed",
 ]);
 
@@ -133,13 +129,13 @@ const RUNTIME_INFERENCE_DENIAL_REASONS: Record<
 	billing_not_configured: "Billing is not configured.",
 	subscription_inactive: "Your subscription needs attention.",
 	billing_period_inactive: "Your billing period needs to be renewed.",
-	monthly_allowance_exhausted: "The included allowance is exhausted.",
-	credit_allowance_exhausted:
-		"There are not enough usage credits for this request.",
+	monthly_credit_limit_reached:
+		"This month's Tedix credits are used up. Buy a top-up or turn on pay-as-you-go.",
+	tedi_monthly_credit_cap_reached:
+		"This tedi reached the monthly credit cap an admin set for it.",
+	member_monthly_credit_cap_reached:
+		"You reached the monthly credit cap an admin set for you.",
 	pricing_unavailable: "Model pricing is not available yet.",
-	payment_required: "The wallet needs more credits.",
-	hard_spend_limit: "This request exceeds a configured spending limit.",
-	inference_capacity_exhausted: "Today's usage limit has been reached.",
 	model_tier_not_allowed: "This model tier is not allowed by the current plan.",
 };
 
@@ -185,7 +181,7 @@ export const AuthorizeRuntimeInferenceResponseSchema = z
 			providerRate: AdmittedProviderRateSchema.optional(),
 			reservationId: z.string().nullable(),
 			expiresAt: z.string().nullable(),
-			estimatedChargeMicros: z.number().int().nonnegative().nullable(),
+			estimatedCredits: z.number().int().nonnegative().nullable(),
 		}),
 		z.object({
 			allowed: z.literal(false),
@@ -213,11 +209,11 @@ export const AuthorizeRuntimeInferenceResponseSchema = z
 			decision.reservationId.trim().length > 0 &&
 			decision.expiresAt !== null &&
 			Number.isFinite(Date.parse(decision.expiresAt)) &&
-			decision.estimatedChargeMicros !== null;
+			decision.estimatedCredits !== null;
 		const empty =
 			decision.reservationId === null &&
 			decision.expiresAt === null &&
-			decision.estimatedChargeMicros === null;
+			decision.estimatedCredits === null;
 		if (managed ? !financial : !empty)
 			ctx.addIssue({
 				code: "custom",

@@ -1,7 +1,6 @@
 {
 	"packages/db/src/queries/approval-simulations.ts": 1,
 	"packages/db/src/queries/billing/cost-rollups.ts": 1,
-	"packages/db/src/queries/billing/credits.ts": 1,
 	"packages/db/src/queries/billing/historical-exposure.ts": 4,
 	"packages/db/src/queries/billing/provider-cost-evidence.ts": 4,
 	"packages/db/src/queries/billing/provider-model-rates.ts": 1,

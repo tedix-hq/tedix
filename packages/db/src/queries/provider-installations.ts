@@ -31,22 +31,6 @@ export async function hasProviderInstallationForWorkspace(
 	return row !== undefined;
 }
 
-export interface ProviderCapacitySponsorship {
-	installationId: string;
-	providerAppId: string;
-	externalTenantId: string;
-	customerOrganizationId: string;
-	policy: {
-		enabled: boolean;
-		budgetRevision: number;
-		maxTransfersPerBudgetDay: number;
-		lowWatermarkTokens: number;
-		lowWatermarkSpendMicros: number;
-		transferTokens: number;
-		transferSpendMicros: number;
-	} | null;
-}
-
 export interface PortableWebMcpProfileRevision {
 	revision: number;
 	profile: PortableWebMcpProfile;
@@ -165,94 +149,6 @@ export async function publishProviderPortableWebMcpProfile(
 		)
 		.returning();
 	return updated ? readPortableWebMcpConfiguration(updated) : "conflict";
-}
-
-function readCapacityPolicy(provenance: Record<string, JsonValue> | null) {
-	const raw = provenance?.sponsoredCapacity;
-	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-	const value = raw as Record<string, JsonValue>;
-	const budgetRevision = value.budgetRevision ?? 1;
-	const maxTransfersPerBudgetDay = value.maxTransfersPerBudgetDay ?? 1;
-	const numbers = [
-		budgetRevision,
-		maxTransfersPerBudgetDay,
-		value.lowWatermarkTokens,
-		value.lowWatermarkSpendMicros,
-		value.transferTokens,
-		value.transferSpendMicros,
-	];
-	if (
-		!numbers.every((entry) => Number.isSafeInteger(entry) && Number(entry) >= 0)
-	)
-		return null;
-	return {
-		enabled: value.enabled === true,
-		budgetRevision: Number(budgetRevision),
-		maxTransfersPerBudgetDay: Number(maxTransfersPerBudgetDay),
-		lowWatermarkTokens: Number(value.lowWatermarkTokens),
-		lowWatermarkSpendMicros: Number(value.lowWatermarkSpendMicros),
-		transferTokens: Number(value.transferTokens),
-		transferSpendMicros: Number(value.transferSpendMicros),
-	};
-}
-
-export async function listProviderCapacitySponsorships(
-	db: DbClient,
-	providerOrganizationId: string,
-): Promise<ProviderCapacitySponsorship[]> {
-	const rows = await db
-		.select()
-		.from(providerInstallations)
-		.where(
-			eq(providerInstallations.providerOrganizationId, providerOrganizationId),
-		);
-	return rows.map((row) => ({
-		installationId: row.id,
-		providerAppId: row.providerAppId,
-		externalTenantId: row.externalTenantId,
-		customerOrganizationId: row.customerOrganizationId,
-		policy: readCapacityPolicy(row.provenance),
-	}));
-}
-
-export async function setProviderCapacitySponsorship(
-	db: DbClient,
-	input: {
-		providerOrganizationId: string;
-		installationId: string;
-		policy: NonNullable<ProviderCapacitySponsorship["policy"]>;
-	},
-): Promise<ProviderCapacitySponsorship | null> {
-	const existing = await getProviderInstallationById(db, {
-		organizationId: input.providerOrganizationId,
-		installationId: input.installationId,
-	});
-	if (!existing) return null;
-	const provenance = {
-		...(existing.provenance ?? {}),
-		sponsoredCapacity: input.policy,
-	};
-	const [updated] = await db
-		.update(providerInstallations)
-		.set({ provenance, updatedAt: new Date().toISOString() })
-		.where(
-			and(
-				eq(providerInstallations.id, input.installationId),
-				eq(
-					providerInstallations.providerOrganizationId,
-					input.providerOrganizationId,
-				),
-			),
-		)
-		.returning();
-	if (!updated) return null;
-	return {
-		installationId: updated.id,
-		providerAppId: updated.providerAppId,
-		externalTenantId: updated.externalTenantId,
-		customerOrganizationId: updated.customerOrganizationId,
-		policy: readCapacityPolicy(updated.provenance),
-	};
 }
 
 export async function provisionProviderInstallation(

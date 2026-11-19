@@ -1,4 +1,5 @@
 import { providerExecutionAttempts } from "../../schema/provider-executions";
+import { providerModelRateVersions } from "../../schema/provider-model-rates";
 import {
 	prepareProviderExecutionAdmission,
 	buildProviderExecutionInsertStatement,
@@ -25,7 +26,12 @@ import {
 	billingUsageReservations,
 	billingUsagePeriods,
 	billingUsageCharges,
-	billingCapacityAllocations,
+	billingServiceCreditReservations,
+	billingCreditTopUps,
+	billingCreditConsumptions,
+	billingCreditUsageTotals,
+	billingCreditCaps,
+	billingCreditNotices,
 } from "../../schema/billing";
 import {
 	FiniteExecutionAuthorizationSchema,
@@ -87,12 +93,9 @@ async function setup() {
 		version: 1,
 		status: "active",
 		name: "Starter",
-		includedMonthlyTokens: 1,
 		maxTedis: 1,
 		maxCronJobsPerTedi: 1,
 		maxIterationsPerTask: 1,
-		defaultDailyTokenLimit: 1,
-		defaultDailyMessageLimit: 1,
 		effectiveAt: start,
 	});
 	await db.insert(billingAccounts).values({
@@ -196,7 +199,7 @@ describe("append-only UNKNOWN historical exposure and human records", () => {
 				.prepare("SELECT COUNT(*) AS n FROM billing_historical_decisions")
 				.get()!.n,
 		).toBe(0);
-		expect(before[0]!.credit_balance_micros).toBe(0);
+		expect(before[0]!.included_credits_override).toBeNull();
 	});
 	it("fences immutable exposure retries and changed canonical membership/custody at INSERT", async () => {
 		const f = await setup();
@@ -1247,7 +1250,13 @@ async function finiteProviderFixture(
 			billingUsageReservations,
 			billingUsagePeriods,
 			billingUsageCharges,
-			billingCapacityAllocations,
+			billingServiceCreditReservations,
+			billingCreditTopUps,
+			billingCreditConsumptions,
+			billingCreditUsageTotals,
+			billingCreditCaps,
+			billingCreditNotices,
+			providerModelRateVersions,
 		),
 	);
 	f.sqlite.exec(
@@ -1315,8 +1324,26 @@ async function finiteProviderFixture(
 		executionGuard: prepared.guard,
 	};
 	f.sqlite.exec(
-		"UPDATE billing_plan_versions SET included_monthly_tokens=100000",
+		`UPDATE billing_plan_versions SET included_monthly_credits=100000, credit_fx='{"microUsdPerEur":1000000,"source":"https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml","asOf":"2026-01-01"}'`,
 	);
+	await f.db.insert(providerModelRateVersions).values({
+		id: "rate-test",
+		provider: "workers-ai",
+		modelId: "@cf/test",
+		deploymentScope: providerDeploymentScope(identity),
+		effectiveFrom: iso(-86400000),
+		inputMicrousdPerMillion: 1_000_000,
+		outputMicrousdPerMillion: 1_000_000,
+		cacheReadMicrousdPerMillion: 0,
+		cacheWriteMicrousdPerMillion: 0,
+		currency: "USD",
+		evidenceUri: "https://example.test/rate",
+		evidenceDigest: "digest",
+		verifiedAt: iso(-86400000),
+		publishedAt: iso(-86400000),
+		publishedBy: "test",
+		changeReason: "fixture",
+	});
 	const insert = () =>
 		mode === "managed"
 			? reserveBillingUsage(f.db, inputReservation)

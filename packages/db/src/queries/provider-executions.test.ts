@@ -103,12 +103,10 @@ async function setup() {
 		version: 1,
 		status: "active",
 		name: "Plan",
-		includedMonthlyTokens: 100000,
+		includedMonthlyCredits: 1_000,
 		maxTedis: 10,
 		maxCronJobsPerTedi: 10,
 		maxIterationsPerTask: 10,
-		defaultDailyTokenLimit: 100000,
-		defaultDailyMessageLimit: 1000,
 		effectiveAt: now,
 	});
 	await db.insert(billing.billingAccounts).values({
@@ -189,6 +187,7 @@ describe("immutable provider execution admission", () => {
 			billingReservationId: "reservation",
 		});
 		const result = await reserveBillingUsage(db, {
+			credits: 1,
 			id: "reservation",
 			organizationId: "org",
 			source: "kernel",
@@ -218,6 +217,7 @@ describe("immutable provider execution admission", () => {
 		});
 		await expect(
 			reserveBillingUsage(db, {
+				credits: 1,
 				id: "reservation",
 				organizationId: "org",
 				source: "kernel",
@@ -395,6 +395,7 @@ describe("populated canonical cost migration", () => {
 it("does not attach a receipt to a reservation for a different model", async () => {
 	const { db } = await setup();
 	await reserveBillingUsage(db, {
+		credits: 1,
 		id: "reservation",
 		organizationId: "org",
 		source: "kernel",
@@ -650,6 +651,7 @@ it("fails a second managed guard inside the batch and rolls back its first reser
 			now: p.execution.authorizedAt,
 			execution: p.execution,
 			executionGuard: p.guard,
+			credits: 1,
 		}),
 	).rejects.toThrow();
 	expect(
@@ -698,6 +700,7 @@ it.each(["reserved", "settled"] as const)(
 			now: p.execution.authorizedAt,
 			execution: p.execution,
 			executionGuard: p.guard,
+			credits: 1,
 		};
 		expect((await reserveBillingUsage(f.db, input)).allowed).toBe(true);
 		f.sqlite
@@ -1043,6 +1046,7 @@ it.each(["gen0", "root", "leaf"] as const)(
 		);
 		await expect(
 			reserveBillingUsage(client, {
+				credits: 1,
 				id: "reservation",
 				organizationId: p.execution.organizationId,
 				tediId: p.execution.tediId!,
@@ -1062,11 +1066,13 @@ it.each(["gen0", "root", "leaf"] as const)(
 		// Includes the pricing-mode lookup added before reserving funds. Every
 		// captured statement below is still prepared under D1's depth limit.
 		expect(queries).toHaveLength(5);
+		// The pricing preflight reads the plan once; the reservation's credit
+		// pool joins it again inside the admitting INSERT.
 		expect(
 			queries.filter((query) =>
 				/inner join "billing_plan_versions"/i.test(query.sql),
 			),
-		).toHaveLength(1);
+		).toHaveLength(2);
 		const schema = fixture.sqlite
 			.prepare(
 				"SELECT sql FROM sqlite_master WHERE type IN ('table','index') AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END",

@@ -35,13 +35,12 @@ function setup() {
 	sqlite.exec(`
 		INSERT INTO organizations (id, name, slug) VALUES ('org-1', 'Org', 'org');
 		INSERT INTO billing_plan_versions (
-			id, plan_key, version, status, name, included_monthly_tokens,
+			id, plan_key, version, status, name, included_monthly_credits,
 			max_tedis, max_cron_jobs_per_tedi, max_iterations_per_task,
-			default_daily_token_limit, default_daily_message_limit, effective_at,
-			created_at
+			effective_at, created_at
 		) VALUES (
-			'plan-1', 'growth', 1, 'active', 'Growth', 500000, 5, 5, 50,
-			100000, 100, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+			'plan-1', 'growth', 1, 'active', 'Growth', 15000, 5, 5, 50,
+			'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
 		);
 		INSERT INTO billing_accounts (
 			organization_id, plan_version_id, status, billing_mode, period_start,
@@ -68,7 +67,7 @@ describe("batched inference admission reads", () => {
 			organizationId: "org-1",
 			idempotencyKey: "new-inference",
 			existing: undefined,
-			plan: { id: "plan-1", currency: "usd", metadata: {} },
+			plan: { id: "plan-1", creditFx: null },
 		});
 		expect(batch).toHaveBeenCalledOnce();
 		expect(batch.mock.calls[0]![0]).toHaveLength(4);
@@ -94,7 +93,7 @@ describe("batched inference admission reads", () => {
 			profile: { key: "growth" },
 		});
 		expect(reads.policies).toEqual({
-			organization: { dailyTokenLimit: 100_000 },
+			organization: {},
 			tedi: undefined,
 			tediFound: true,
 		});
@@ -104,17 +103,17 @@ describe("batched inference admission reads", () => {
 		const { db, sqlite } = setup();
 		sqlite.exec(`
 			INSERT INTO billing_inference_policies (
-				id, organization_id, scope, subject_key, daily_token_limit,
+				id, organization_id, scope, subject_key, allowed_model_tiers,
 				created_at, updated_at
 			) VALUES (
-				'pol-org', 'org-1', 'organization', 'organization', 80000,
+				'pol-org', 'org-1', 'organization', 'organization', '["economy","balanced"]',
 				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
 			);
 			INSERT INTO billing_inference_policies (
-				id, organization_id, scope, subject_key, tedi_id, daily_token_limit,
+				id, organization_id, scope, subject_key, tedi_id, allowed_model_tiers,
 				created_at, updated_at
 			) VALUES (
-				'pol-tedi', 'org-1', 'tedi', 'tedi-1', 'tedi-1', 40000,
+				'pol-tedi', 'org-1', 'tedi', 'tedi-1', 'tedi-1', '["economy"]',
 				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
 			);
 		`);
@@ -146,8 +145,7 @@ describe("batched inference admission reads", () => {
 		const planReads = statements.filter((sql) =>
 			sql.includes("billing_plan_versions"),
 		);
-		// One join for the entitlement, and no second read of the same rows just
-		// to recover `default_daily_token_limit`.
+		// One join for the entitlement, and no second read of the same rows.
 		expect(planReads).toHaveLength(1);
 	});
 });

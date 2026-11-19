@@ -3,18 +3,22 @@
  *
  * D1 is the financial control-plane source of truth. Provider ledgers and
  * Stripe are projections: provider rows settle reservations, while a durable
- * outbox exports customer overage without making either vendor authoritative.
+ * outbox exports pay-as-you-go credits without making either vendor
+ * authoritative.
  *
- * Monetary values are integer USD micros (1 USD = 1_000_000 micros). Tokens
- * remain integer usage units. Never combine provider cost and customer charge.
+ * Customers are billed and limited in Tedix credits (1 credit = EUR 0.01)
+ * from one monthly pool per organization. Provider cost stays in USD micros
+ * and token counts stay as cost evidence; neither is a customer limit.
  */
 
+import type { CreditFxRate } from "@tedix/api-contract/schemas/billing";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { sql } from "drizzle-orm";
 import {
 	check,
 	index,
 	integer,
+	primaryKey,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -46,20 +50,15 @@ export const billingPlanVersions = sqliteTable(
 		currency: text("currency").notNull().default("usd"),
 		monthlyPriceMicros: integer("monthly_price_micros").notNull().default(0),
 		annualPriceMicros: integer("annual_price_micros").notNull().default(0),
-		includedMonthlyTokens: integer("included_monthly_tokens").notNull(),
-		includedMonthlyCreditMicros: integer("included_monthly_credit_micros")
+		/** Tedix credits included each billing period (1 credit = EUR 0.01). */
+		includedMonthlyCredits: integer("included_monthly_credits")
 			.notNull()
 			.default(0),
-		/** Customer overage unit, distinct from provider model cost. */
-		overageUnitTokens: integer("overage_unit_tokens").notNull().default(1_000),
-		overageUnitPriceMicros: integer("overage_unit_price_micros")
-			.notNull()
-			.default(0),
+		/** ECB reference rate pinned for converting USD provider cost to EUR credits. */
+		creditFx: text("credit_fx", { mode: "json" }).$type<CreditFxRate>(),
 		maxTedis: integer("max_tedis").notNull(),
 		maxCronJobsPerTedi: integer("max_cron_jobs_per_tedi").notNull(),
 		maxIterationsPerTask: integer("max_iterations_per_task").notNull(),
-		defaultDailyTokenLimit: integer("default_daily_token_limit").notNull(),
-		defaultDailyMessageLimit: integer("default_daily_message_limit").notNull(),
 		allowOverage: integer("allow_overage", { mode: "boolean" })
 			.notNull()
 			.default(false),
@@ -138,11 +137,8 @@ export const billingAccounts = sqliteTable(
 			.notNull()
 			.default(false),
 		hardSpendLimitMicros: integer("hard_spend_limit_micros"),
-		/**
-		 * Materialized balance backed by billing_credit_entries. Migration-owned
-		 * triggers update it in the journal insert transaction.
-		 */
-		creditBalanceMicros: integer("credit_balance_micros").notNull().default(0),
+		/** Operator-set included credits per period; null uses the plan value. */
+		includedCreditsOverride: integer("included_credits_override"),
 		graceEndsAt: text("grace_ends_at"),
 		entitlementVersion: integer("entitlement_version").notNull().default(1),
 		metadata: text("metadata", { mode: "json" })
@@ -166,55 +162,6 @@ export const billingAccounts = sqliteTable(
 			.on(table.stripeEnvironment, table.stripeSubscriptionId)
 			.where(sql`${table.stripeSubscriptionId} IS NOT NULL`),
 		index("idx_billing_account_plan").on(table.planVersionId),
-	],
-);
-
-export const BILLING_CREDIT_ENTRY_KINDS = [
-	"grant",
-	"debit",
-	"refund",
-	"adjustment",
-] as const;
-export type BillingCreditEntryKind =
-	(typeof BILLING_CREDIT_ENTRY_KINDS)[number];
-
-/**
- * Immutable monetary-credit journal. Positive entries add balance; negative
- * entries consume it. Expired positive grants stop contributing to balance.
- */
-export const billingCreditEntries = sqliteTable(
-	"billing_credit_entries",
-	{
-		id: text("id").primaryKey(),
-		organizationId: text("organization_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		kind: text("kind", { enum: BILLING_CREDIT_ENTRY_KINDS }).notNull(),
-		amountMicros: integer("amount_micros").notNull(),
-		sourceType: text("source_type").notNull(),
-		sourceRef: text("source_ref"),
-		usageChargeId: text("usage_charge_id"),
-		idempotencyKey: text("idempotency_key").notNull(),
-		expiresAt: text("expires_at"),
-		description: text("description"),
-		metadata: text("metadata", { mode: "json" })
-			.$type<Record<string, JsonValue>>()
-			.notNull()
-			.default({}),
-		createdAt: text("created_at")
-			.notNull()
-			.default(sql`(CURRENT_TIMESTAMP)`),
-	},
-	(table) => [
-		uniqueIndex("uniq_billing_credit_idempotency").on(table.idempotencyKey),
-		index("idx_billing_credit_org_created").on(
-			table.organizationId,
-			table.createdAt,
-		),
-		index("idx_billing_credit_expiry").on(
-			table.organizationId,
-			table.expiresAt,
-		),
 	],
 );
 
@@ -245,8 +192,6 @@ export const billingInferencePolicies = sqliteTable(
 		allowedModelTiers: text("allowed_model_tiers", { mode: "json" }).$type<
 			Array<"economy" | "balanced" | "frontier">
 		>(),
-		dailyTokenLimit: integer("daily_token_limit"),
-		dailySpendLimitMicros: integer("daily_spend_limit_micros"),
 		createdAt: text("created_at")
 			.notNull()
 			.default(sql`(CURRENT_TIMESTAMP)`),
@@ -264,122 +209,6 @@ export const billingInferencePolicies = sqliteTable(
 		check(
 			"chk_billing_inference_policy_subject",
 			sql`(${table.scope} = 'organization' AND ${table.subjectKey} = 'organization' AND ${table.tediId} IS NULL) OR (${table.scope} = 'tedi' AND ${table.subjectKey} = ${table.tediId} AND ${table.tediId} IS NOT NULL)`,
-		),
-		check(
-			"chk_billing_inference_policy_limits",
-			sql`(${table.dailyTokenLimit} IS NULL OR ${table.dailyTokenLimit} >= 0) AND (${table.dailySpendLimitMicros} IS NULL OR ${table.dailySpendLimitMicros} >= 0)`,
-		),
-	],
-);
-
-export const INFERENCE_CAPACITY_PACK_STATUSES = [
-	"draft",
-	"active",
-	"retired",
-] as const;
-export type InferenceCapacityPackStatus =
-	(typeof INFERENCE_CAPACITY_PACK_STATUSES)[number];
-
-/** Immutable commercial version of one daily top-up. */
-export const billingInferenceCapacityPackVersions = sqliteTable(
-	"billing_inference_capacity_pack_versions",
-	{
-		id: text("id").primaryKey(),
-		packKey: text("pack_key").notNull(),
-		version: integer("version").notNull(),
-		status: text("status", { enum: INFERENCE_CAPACITY_PACK_STATUSES })
-			.notNull()
-			.default("draft"),
-		name: text("name").notNull(),
-		currency: text("currency").notNull().default("usd"),
-		priceMicros: integer("price_micros").notNull(),
-		tokenAmount: integer("token_amount").notNull(),
-		spendAmountMicros: integer("spend_amount_micros").notNull(),
-		stripeEnvironment: text("stripe_environment", {
-			enum: ["test", "live"],
-		}).notNull(),
-		stripeLookupKey: text("stripe_lookup_key").notNull(),
-		metadata: text("metadata", { mode: "json" })
-			.$type<Record<string, JsonValue>>()
-			.notNull()
-			.default({}),
-		effectiveAt: text("effective_at").notNull(),
-		createdAt: text("created_at")
-			.notNull()
-			.default(sql`(CURRENT_TIMESTAMP)`),
-	},
-	(table) => [
-		uniqueIndex("uniq_inference_capacity_pack_version").on(
-			table.packKey,
-			table.version,
-			table.stripeEnvironment,
-		),
-		uniqueIndex("uniq_inference_capacity_pack_lookup").on(
-			table.stripeEnvironment,
-			table.stripeLookupKey,
-		),
-		index("idx_inference_capacity_pack_active").on(
-			table.stripeEnvironment,
-			table.status,
-			table.effectiveAt,
-		),
-		check(
-			"chk_inference_capacity_pack_positive",
-			sql`${table.priceMicros} > 0 AND ${table.tokenAmount} > 0 AND ${table.spendAmountMicros} > 0`,
-		),
-	],
-);
-
-/**
- * Append-only capacity purchased for one UTC AI Gateway budget day.
- * Reservations remain the consumption ledger; these rows only enlarge that
- * day's organization-level admission ceiling until their explicit expiry.
- */
-export const billingCapacityAllocations = sqliteTable(
-	"billing_capacity_allocations",
-	{
-		id: text("id").primaryKey(),
-		organizationId: text("organization_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		packVersionId: text("pack_version_id").references(
-			() => billingInferenceCapacityPackVersions.id,
-		),
-		budgetDay: text("budget_day").notNull(),
-		tokenAmount: integer("token_amount").notNull().default(0),
-		spendAmountMicros: integer("spend_amount_micros").notNull().default(0),
-		sourceType: text("source_type").notNull(),
-		sourceRef: text("source_ref"),
-		idempotencyKey: text("idempotency_key").notNull(),
-		stripeEnvironment: text("stripe_environment", {
-			enum: ["test", "live"],
-		}).notNull(),
-		expiresAt: text("expires_at").notNull(),
-		metadata: text("metadata", { mode: "json" })
-			.$type<Record<string, JsonValue>>()
-			.notNull()
-			.default({}),
-		createdAt: text("created_at")
-			.notNull()
-			.default(sql`(CURRENT_TIMESTAMP)`),
-	},
-	(table) => [
-		uniqueIndex("uniq_billing_capacity_allocation_idempotency").on(
-			table.idempotencyKey,
-		),
-		index("idx_billing_capacity_allocation_active").on(
-			table.organizationId,
-			table.stripeEnvironment,
-			table.budgetDay,
-			table.expiresAt,
-		),
-		check(
-			"chk_billing_capacity_allocation_direction",
-			sql`(${table.tokenAmount} > 0 OR ${table.spendAmountMicros} > 0) OR (${table.tokenAmount} < 0 OR ${table.spendAmountMicros} < 0)`,
-		),
-		check(
-			"chk_billing_capacity_allocation_same_direction",
-			sql`(${table.tokenAmount} >= 0 AND ${table.spendAmountMicros} >= 0) OR (${table.tokenAmount} <= 0 AND ${table.spendAmountMicros} <= 0)`,
 		),
 	],
 );
@@ -449,6 +278,10 @@ export const billingUsageReservations = sqliteTable(
 		estimatedChargeMicros: integer("estimated_charge_micros")
 			.notNull()
 			.default(0),
+		/** Credits held from the pool until the call settles. */
+		credits: integer("credits").notNull().default(0),
+		/** Member who started the work, for per-member monthly caps. */
+		userId: text("user_id"),
 		periodStart: text("period_start").notNull(),
 		periodEnd: text("period_end").notNull(),
 		runId: text("run_id"),
@@ -509,8 +342,8 @@ export const billingUsageReservations = sqliteTable(
 );
 
 /**
- * One usage period per org. Included and overage tokens are updated when a
- * provider usage row settles, not when a request is merely reserved.
+ * One usage period per org: token counts and provider cost of settled AI
+ * calls, kept as cost evidence. Credits live in billing_credit_usage_totals.
  */
 export const billingUsagePeriods = sqliteTable(
 	"billing_usage_periods",
@@ -524,17 +357,9 @@ export const billingUsagePeriods = sqliteTable(
 			.references(() => billingPlanVersions.id),
 		periodStart: text("period_start").notNull(),
 		periodEnd: text("period_end").notNull(),
-		includedTokens: integer("included_tokens").notNull(),
 		usedInputTokens: integer("used_input_tokens").notNull().default(0),
 		usedOutputTokens: integer("used_output_tokens").notNull().default(0),
-		meteredOverageTokens: integer("metered_overage_tokens")
-			.notNull()
-			.default(0),
 		providerCostMicros: integer("provider_cost_micros").notNull().default(0),
-		customerChargeMicros: integer("customer_charge_micros")
-			.notNull()
-			.default(0),
-		creditAppliedMicros: integer("credit_applied_micros").notNull().default(0),
 		/**
 		 * Optimistic settlement fence. D1 batches are atomic, while this version
 		 * prevents a pre-read calculation from applying after another settlement
@@ -612,6 +437,8 @@ export const billingUsageCharges = sqliteTable(
 			.notNull()
 			.default(0),
 		creditAppliedMicros: integer("credit_applied_micros").notNull().default(0),
+		/** Credits drawn from the pool for this call, from its provider cost. */
+		credits: integer("credits").notNull().default(0),
 		usageQuality: text("usage_quality", { enum: BILLING_USAGE_QUALITIES })
 			.notNull()
 			.default("gateway_reported"),
@@ -875,32 +702,6 @@ export const billingServiceRateCards = sqliteTable(
 	],
 );
 
-/** Included service credits attached to an immutable billing plan version. */
-export const billingPlanServiceAllowances = sqliteTable(
-	"billing_plan_service_allowances",
-	{
-		id: text("id").primaryKey(),
-		planVersionId: text("plan_version_id")
-			.notNull()
-			.references(() => billingPlanVersions.id),
-		serviceKey: text("service_key", { enum: BILLING_SERVICE_KEYS }).notNull(),
-		includedCredits: integer("included_credits").notNull(),
-		perTediMonthlyLimit: integer("per_tedi_monthly_limit"),
-		monthlyProviderCostLimitMicros: integer(
-			"monthly_provider_cost_limit_micros",
-		),
-		createdAt: text("created_at")
-			.notNull()
-			.default(sql`(CURRENT_TIMESTAMP)`),
-	},
-	(table) => [
-		uniqueIndex("uniq_billing_plan_service_allowance").on(
-			table.planVersionId,
-			table.serviceKey,
-		),
-	],
-);
-
 /**
  * Optional tenant-owned lower ceilings and kill switch. Null means inherit the
  * plan allowance. A control can reduce access but never mint credits.
@@ -938,59 +739,6 @@ export const billingServiceCreditControls = sqliteTable(
 	],
 );
 
-export const BILLING_SERVICE_CREDIT_ENTRY_KINDS = [
-	"grant",
-	"debit",
-	"refund",
-	"adjustment",
-] as const;
-export type BillingServiceCreditEntryKind =
-	(typeof BILLING_SERVICE_CREDIT_ENTRY_KINDS)[number];
-
-/** Immutable integer service-credit journal. */
-export const billingServiceCreditEntries = sqliteTable(
-	"billing_service_credit_entries",
-	{
-		id: text("id").primaryKey(),
-		organizationId: text("organization_id")
-			.notNull()
-			.references(() => organizations.id, { onDelete: "cascade" }),
-		serviceKey: text("service_key", { enum: BILLING_SERVICE_KEYS }).notNull(),
-		kind: text("kind", {
-			enum: BILLING_SERVICE_CREDIT_ENTRY_KINDS,
-		}).notNull(),
-		amountCredits: integer("amount_credits").notNull(),
-		sourceType: text("source_type").notNull(),
-		sourceRef: text("source_ref"),
-		reservationId: text("reservation_id"),
-		idempotencyKey: text("idempotency_key").notNull(),
-		expiresAt: text("expires_at"),
-		description: text("description"),
-		metadata: text("metadata", { mode: "json" })
-			.$type<Record<string, JsonValue>>()
-			.notNull()
-			.default({}),
-		createdAt: text("created_at")
-			.notNull()
-			.default(sql`(CURRENT_TIMESTAMP)`),
-	},
-	(table) => [
-		uniqueIndex("uniq_billing_service_credit_idempotency").on(
-			table.idempotencyKey,
-		),
-		index("idx_billing_service_credit_org_service_created").on(
-			table.organizationId,
-			table.serviceKey,
-			table.createdAt,
-		),
-		index("idx_billing_service_credit_expiry").on(
-			table.organizationId,
-			table.serviceKey,
-			table.expiresAt,
-		),
-	],
-);
-
 export const BILLING_SERVICE_CREDIT_RESERVATION_STATUSES = [
 	"reserved",
 	"settled",
@@ -1018,6 +766,8 @@ export const billingServiceCreditReservations = sqliteTable(
 		tediId: text("tedi_id").references(() => tedis.id, {
 			onDelete: "set null",
 		}),
+		/** Member who started the operation, for per-member monthly caps. */
+		userId: text("user_id"),
 		serviceKey: text("service_key", { enum: BILLING_SERVICE_KEYS }).notNull(),
 		operationKey: text("operation_key", {
 			enum: BILLING_SERVICE_OPERATION_KEYS,
@@ -1085,23 +835,283 @@ export const STRIPE_METER_OUTBOX_STATUSES = [
 export type StripeMeterOutboxStatus =
 	(typeof STRIPE_METER_OUTBOX_STATUSES)[number];
 
-/** Durable, idempotent projection of settled overage to Stripe. */
-export const stripeMeterOutbox = sqliteTable(
-	"stripe_meter_outbox",
+export const BILLING_TOP_UP_PACK_STATUSES = [
+	"draft",
+	"active",
+	"retired",
+] as const;
+export type BillingTopUpPackStatus =
+	(typeof BILLING_TOP_UP_PACK_STATUSES)[number];
+
+/** Immutable commercial version of one one-time credit top-up pack. */
+export const billingTopUpPackVersions = sqliteTable(
+	"billing_top_up_pack_versions",
+	{
+		id: text("id").primaryKey(),
+		packKey: text("pack_key").notNull(),
+		version: integer("version").notNull(),
+		status: text("status", { enum: BILLING_TOP_UP_PACK_STATUSES })
+			.notNull()
+			.default("draft"),
+		name: text("name").notNull(),
+		currency: text("currency").notNull().default("eur"),
+		priceMicros: integer("price_micros").notNull(),
+		credits: integer("credits").notNull(),
+		validMonths: integer("valid_months").notNull(),
+		stripeEnvironment: text("stripe_environment", {
+			enum: ["test", "live"],
+		}).notNull(),
+		stripeLookupKey: text("stripe_lookup_key").notNull(),
+		effectiveAt: text("effective_at").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+	},
+	(table) => [
+		uniqueIndex("uniq_billing_top_up_pack_version").on(
+			table.packKey,
+			table.version,
+			table.stripeEnvironment,
+		),
+		uniqueIndex("uniq_billing_top_up_pack_lookup").on(
+			table.stripeEnvironment,
+			table.stripeLookupKey,
+		),
+		index("idx_billing_top_up_pack_active").on(
+			table.stripeEnvironment,
+			table.status,
+			table.effectiveAt,
+		),
+		check(
+			"chk_billing_top_up_pack_positive",
+			sql`${table.priceMicros} > 0 AND ${table.credits} > 0 AND ${table.validMonths} > 0`,
+		),
+	],
+);
+
+export const BILLING_TOP_UP_SOURCES = [
+	"stripe_checkout",
+	"operator_grant",
+	"wallet_conversion",
+	"service_credit_conversion",
+] as const;
+export type BillingTopUpSource = (typeof BILLING_TOP_UP_SOURCES)[number];
+
+/**
+ * Purchased or granted credits that outlive one billing period. Included
+ * credits are spent first, then the top-up that expires soonest.
+ */
+export const billingCreditTopUps = sqliteTable(
+	"billing_credit_top_ups",
 	{
 		id: text("id").primaryKey(),
 		organizationId: text("organization_id")
 			.notNull()
 			.references(() => organizations.id, { onDelete: "cascade" }),
-		usageChargeId: text("usage_charge_id")
+		credits: integer("credits").notNull(),
+		consumedCredits: integer("consumed_credits").notNull().default(0),
+		sourceType: text("source_type", { enum: BILLING_TOP_UP_SOURCES }).notNull(),
+		sourceRef: text("source_ref"),
+		packVersionId: text("pack_version_id").references(
+			() => billingTopUpPackVersions.id,
+		),
+		idempotencyKey: text("idempotency_key").notNull(),
+		expiresAt: text("expires_at").notNull(),
+		metadata: text("metadata", { mode: "json" })
+			.$type<Record<string, JsonValue>>()
 			.notNull()
-			.references(() => billingUsageCharges.id, { onDelete: "cascade" }),
+			.default({}),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+		updatedAt: text("updated_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+	},
+	(table) => [
+		uniqueIndex("uniq_billing_credit_top_up_idempotency").on(
+			table.idempotencyKey,
+		),
+		index("idx_billing_credit_top_up_org_expiry").on(
+			table.organizationId,
+			table.expiresAt,
+		),
+		check(
+			"chk_billing_credit_top_up_amounts",
+			sql`${table.credits} > 0 AND ${table.consumedCredits} >= 0 AND ${table.consumedCredits} <= ${table.credits}`,
+		),
+	],
+);
+
+export const BILLING_CREDIT_KINDS = ["ai", "code_run", "service"] as const;
+export type BillingCreditKind = (typeof BILLING_CREDIT_KINDS)[number];
+
+/**
+ * Immutable record of credits drawn from the pool: one row per settled AI
+ * call, code run, or service operation, split into the included, top-up and
+ * pay-as-you-go parts it consumed.
+ */
+export const billingCreditConsumptions = sqliteTable(
+	"billing_credit_consumptions",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		tediId: text("tedi_id").references(() => tedis.id, {
+			onDelete: "set null",
+		}),
+		userId: text("user_id"),
+		kind: text("kind", { enum: BILLING_CREDIT_KINDS }).notNull(),
+		/** Charge, code-run or service reservation id; unique per kind. */
+		sourceRef: text("source_ref").notNull(),
+		periodStart: text("period_start").notNull(),
+		periodEnd: text("period_end").notNull(),
+		credits: integer("credits").notNull(),
+		includedCredits: integer("included_credits").notNull(),
+		topUpCredits: integer("top_up_credits").notNull(),
+		paygCredits: integer("payg_credits").notNull(),
+		/** EUR micros owed for pay-as-you-go credits; zero when not opted in. */
+		paygChargeMicros: integer("payg_charge_micros").notNull(),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [
+		uniqueIndex("uniq_billing_credit_consumption_source").on(
+			table.kind,
+			table.sourceRef,
+		),
+		index("idx_billing_credit_consumption_org_period").on(
+			table.organizationId,
+			table.periodStart,
+		),
+		check(
+			"chk_billing_credit_consumption_split",
+			sql`${table.credits} >= 0 AND ${table.includedCredits} >= 0 AND ${table.topUpCredits} >= 0 AND ${table.paygCredits} >= 0 AND ${table.includedCredits} + ${table.topUpCredits} + ${table.paygCredits} = ${table.credits} AND ${table.paygChargeMicros} >= 0`,
+		),
+	],
+);
+
+export const BILLING_CREDIT_SUBJECT_KINDS = [
+	"organization",
+	"tedi",
+	"member",
+] as const;
+export type BillingCreditSubjectKind =
+	(typeof BILLING_CREDIT_SUBJECT_KINDS)[number];
+
+/**
+ * Running credit totals per billing period for the organization, each tedi
+ * and each member. Admission reads one row per subject instead of summing
+ * the period's consumptions.
+ */
+export const billingCreditUsageTotals = sqliteTable(
+	"billing_credit_usage_totals",
+	{
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		periodStart: text("period_start").notNull(),
+		periodEnd: text("period_end").notNull(),
+		subjectKind: text("subject_kind", {
+			enum: BILLING_CREDIT_SUBJECT_KINDS,
+		}).notNull(),
+		/** `organization`, the tedi id, or the member user id. */
+		subjectKey: text("subject_key").notNull(),
+		aiCredits: integer("ai_credits").notNull().default(0),
+		codeRunCredits: integer("code_run_credits").notNull().default(0),
+		serviceCredits: integer("service_credits").notNull().default(0),
+		includedCredits: integer("included_credits").notNull().default(0),
+		topUpCredits: integer("top_up_credits").notNull().default(0),
+		paygCredits: integer("payg_credits").notNull().default(0),
+		paygChargeMicros: integer("payg_charge_micros").notNull().default(0),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(table) => [
+		primaryKey({
+			columns: [
+				table.organizationId,
+				table.periodStart,
+				table.subjectKind,
+				table.subjectKey,
+			],
+		}),
+	],
+);
+
+export const BILLING_CREDIT_CAP_SUBJECT_KINDS = ["tedi", "member"] as const;
+export type BillingCreditCapSubjectKind =
+	(typeof BILLING_CREDIT_CAP_SUBJECT_KINDS)[number];
+
+/** Admin-set monthly credit caps for one tedi or member; no row means no cap. */
+export const billingCreditCaps = sqliteTable(
+	"billing_credit_caps",
+	{
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		subjectKind: text("subject_kind", {
+			enum: BILLING_CREDIT_CAP_SUBJECT_KINDS,
+		}).notNull(),
+		subjectKey: text("subject_key").notNull(),
+		monthlyCapCredits: integer("monthly_cap_credits").notNull(),
+		updatedBy: text("updated_by"),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+		updatedAt: text("updated_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.organizationId, table.subjectKind, table.subjectKey],
+		}),
+		check(
+			"chk_billing_credit_cap_nonnegative",
+			sql`${table.monthlyCapCredits} >= 0`,
+		),
+	],
+);
+
+/** The 80% and 100% usage notices, raised once per billing period. */
+export const billingCreditNotices = sqliteTable(
+	"billing_credit_notices",
+	{
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		periodStart: text("period_start").notNull(),
+		threshold: integer("threshold").notNull(),
+		reachedAt: text("reached_at").notNull(),
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.organizationId, table.periodStart, table.threshold],
+		}),
+		check(
+			"chk_billing_credit_notice_threshold",
+			sql`${table.threshold} IN (80, 100)`,
+		),
+	],
+);
+
+/** Durable, idempotent export of pay-as-you-go credits to the Stripe meter. */
+export const billingCreditMeterOutbox = sqliteTable(
+	"billing_credit_meter_outbox",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		consumptionId: text("consumption_id")
+			.notNull()
+			.references(() => billingCreditConsumptions.id, {
+				onDelete: "cascade",
+			}),
 		stripeCustomerId: text("stripe_customer_id").notNull(),
 		stripeEnvironment: text("stripe_environment", {
 			enum: ["test", "live"],
-		})
-			.notNull()
-			.default("live"),
+		}).notNull(),
 		eventName: text("event_name").notNull(),
 		quantity: integer("quantity").notNull(),
 		idempotencyKey: text("idempotency_key").notNull(),
@@ -1122,11 +1132,13 @@ export const stripeMeterOutbox = sqliteTable(
 			.default(sql`(CURRENT_TIMESTAMP)`),
 	},
 	(table) => [
-		uniqueIndex("uniq_stripe_meter_outbox_idempotency").on(
+		uniqueIndex("uniq_billing_credit_meter_outbox_idempotency").on(
 			table.idempotencyKey,
 		),
-		uniqueIndex("uniq_stripe_meter_outbox_charge").on(table.usageChargeId),
-		index("idx_stripe_meter_outbox_retry").on(
+		uniqueIndex("uniq_billing_credit_meter_outbox_consumption").on(
+			table.consumptionId,
+		),
+		index("idx_billing_credit_meter_outbox_retry").on(
 			table.stripeEnvironment,
 			table.status,
 			table.nextAttemptAt,
@@ -1239,24 +1251,23 @@ export const billingProviderReconciliations = sqliteTable(
 	],
 );
 
+export type BillingTopUpPackVersion =
+	typeof billingTopUpPackVersions.$inferSelect;
+export type BillingCreditTopUp = typeof billingCreditTopUps.$inferSelect;
+export type BillingCreditConsumption =
+	typeof billingCreditConsumptions.$inferSelect;
+export type BillingCreditUsageTotal =
+	typeof billingCreditUsageTotals.$inferSelect;
+export type BillingCreditCap = typeof billingCreditCaps.$inferSelect;
+export type BillingCreditNotice = typeof billingCreditNotices.$inferSelect;
 export type BillingPlanVersion = typeof billingPlanVersions.$inferSelect;
 export type NewBillingPlanVersion = typeof billingPlanVersions.$inferInsert;
 export type BillingAccount = typeof billingAccounts.$inferSelect;
 export type NewBillingAccount = typeof billingAccounts.$inferInsert;
-export type BillingCreditEntry = typeof billingCreditEntries.$inferSelect;
-export type NewBillingCreditEntry = typeof billingCreditEntries.$inferInsert;
-export type BillingInferenceCapacityPackVersion =
-	typeof billingInferenceCapacityPackVersions.$inferSelect;
-export type NewBillingInferenceCapacityPackVersion =
-	typeof billingInferenceCapacityPackVersions.$inferInsert;
 export type BillingInferencePolicy =
 	typeof billingInferencePolicies.$inferSelect;
 export type NewBillingInferencePolicy =
 	typeof billingInferencePolicies.$inferInsert;
-export type BillingCapacityAllocation =
-	typeof billingCapacityAllocations.$inferSelect;
-export type NewBillingCapacityAllocation =
-	typeof billingCapacityAllocations.$inferInsert;
 export type BillingUsageReservation =
 	typeof billingUsageReservations.$inferSelect;
 export type NewBillingUsageReservation =
@@ -1273,26 +1284,16 @@ export type BillingServiceRateCard =
 	typeof billingServiceRateCards.$inferSelect;
 export type NewBillingServiceRateCard =
 	typeof billingServiceRateCards.$inferInsert;
-export type BillingPlanServiceAllowance =
-	typeof billingPlanServiceAllowances.$inferSelect;
-export type NewBillingPlanServiceAllowance =
-	typeof billingPlanServiceAllowances.$inferInsert;
 export type BillingServiceCreditControl =
 	typeof billingServiceCreditControls.$inferSelect;
 export type NewBillingServiceCreditControl =
 	typeof billingServiceCreditControls.$inferInsert;
-export type BillingServiceCreditEntry =
-	typeof billingServiceCreditEntries.$inferSelect;
-export type NewBillingServiceCreditEntry =
-	typeof billingServiceCreditEntries.$inferInsert;
 export type BillingServiceCreditReservation =
 	typeof billingServiceCreditReservations.$inferSelect;
 export type NewBillingServiceCreditReservation =
 	typeof billingServiceCreditReservations.$inferInsert;
 export type BillingUsageCharge = typeof billingUsageCharges.$inferSelect;
 export type NewBillingUsageCharge = typeof billingUsageCharges.$inferInsert;
-export type StripeMeterOutboxRow = typeof stripeMeterOutbox.$inferSelect;
-export type NewStripeMeterOutboxRow = typeof stripeMeterOutbox.$inferInsert;
 export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;
 export type NewStripeWebhookEvent = typeof stripeWebhookEvents.$inferInsert;
 export type BillingProviderReconciliation =

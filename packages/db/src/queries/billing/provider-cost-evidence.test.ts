@@ -27,7 +27,6 @@ import {
 	billingUsageReservations,
 	billingUsageQuarantines,
 	billingUsageCharges,
-	billingCreditEntries,
 	billingProviderReconciliations,
 } from "../../schema/billing";
 import { getCallCosts, getDailySpendRate } from "../tedi-usage";
@@ -316,7 +315,6 @@ async function authorityFixture() {
 		billingUsageReservations,
 		billingUsageQuarantines,
 		billingUsageCharges,
-		billingCreditEntries,
 		billingProviderReconciliations,
 	];
 	sqlite.exec(schemaDdl(...tables));
@@ -573,7 +571,7 @@ describe("atomic source and authority fences", () => {
 			).toBeNull();
 		}
 	});
-	it.each(["charge", "credit", "reconciliation", "quarantine"])(
+	it.each(["charge", "reconciliation", "quarantine"])(
 		"refuses newly linked financial state without mutating it: %s",
 		async (kind) => {
 			const { db, sqlite, params, seed } = await authorityFixture();
@@ -584,12 +582,6 @@ describe("atomic source and authority fences", () => {
 					organizationId: "org",
 					gatewayLogId: "log",
 					metadata: {},
-				});
-			if (kind === "credit")
-				seed(billingCreditEntries, {
-					id: "credit",
-					organizationId: "org",
-					sourceRef: "call",
 				});
 			if (kind === "reconciliation")
 				seed(billingProviderReconciliations, {

@@ -1,64 +1,58 @@
-/** Canonical billing meter-outbox queries. */
+/** Pay-as-you-go credit meter outbox queries. */
 
-import type { CoreStoreBinding } from "../postgres/core-store";
-import type { PgQueryClient } from "../../pg/query-client";
 import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { chunkForBoundParams } from "../../utils/batch";
-import {
-	type StripeMeterOutboxRow,
-	stripeMeterOutbox,
-} from "../../schema/billing";
+import { billingCreditMeterOutbox } from "../../schema/billing";
+
+/** One queued export of pay-as-you-go credits to the Stripe meter. */
+export type CreditMeterOutboxRow = typeof billingCreditMeterOutbox.$inferSelect;
 
 export async function claimStripeMeterOutbox(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		stripeEnvironment?: "test" | "live";
 		now: string;
 		leaseExpiresAt: string;
 		limit: number;
 	},
-): Promise<StripeMeterOutboxRow[]> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/meter-outbox")
-			).claimStripeMeterOutbox(db.db, input);
-		db = db.db;
-	}
-
+): Promise<CreditMeterOutboxRow[]> {
 	const candidates = await db
-		.select({ id: stripeMeterOutbox.id })
-		.from(stripeMeterOutbox)
+		.select({ id: billingCreditMeterOutbox.id })
+		.from(billingCreditMeterOutbox)
 		.where(
 			and(
 				eq(
-					stripeMeterOutbox.stripeEnvironment,
+					billingCreditMeterOutbox.stripeEnvironment,
 					input.stripeEnvironment ?? "live",
 				),
-				inArray(stripeMeterOutbox.status, ["pending", "failed", "sending"]),
-				lte(stripeMeterOutbox.nextAttemptAt, input.now),
+				inArray(billingCreditMeterOutbox.status, [
+					"pending",
+					"failed",
+					"sending",
+				]),
+				lte(billingCreditMeterOutbox.nextAttemptAt, input.now),
 				or(
-					eq(stripeMeterOutbox.status, "pending"),
-					eq(stripeMeterOutbox.status, "failed"),
-					lte(stripeMeterOutbox.leaseExpiresAt, input.now),
+					eq(billingCreditMeterOutbox.status, "pending"),
+					eq(billingCreditMeterOutbox.status, "failed"),
+					lte(billingCreditMeterOutbox.leaseExpiresAt, input.now),
 				),
 			),
 		)
-		.orderBy(asc(stripeMeterOutbox.createdAt))
+		.orderBy(asc(billingCreditMeterOutbox.createdAt))
 		.limit(input.limit);
 	if (candidates.length === 0) return [];
 	// D1 caps bound parameters at 100 per statement; the drain batch is 100
 	// rows and the guard predicates bind params of their own, so the claim
 	// UPDATE is issued in id chunks. Each row's claim stays row-atomic.
-	const claimed: (typeof stripeMeterOutbox.$inferSelect)[] = [];
+	const claimed: (typeof billingCreditMeterOutbox.$inferSelect)[] = [];
 	for (const chunk of chunkForBoundParams(
 		candidates.map((row) => row.id),
 		50,
 	)) {
 		claimed.push(
 			...(await db
-				.update(stripeMeterOutbox)
+				.update(billingCreditMeterOutbox)
 				.set({
 					status: "sending",
 					leaseExpiresAt: input.leaseExpiresAt,
@@ -67,15 +61,19 @@ export async function claimStripeMeterOutbox(
 				.where(
 					and(
 						eq(
-							stripeMeterOutbox.stripeEnvironment,
+							billingCreditMeterOutbox.stripeEnvironment,
 							input.stripeEnvironment ?? "live",
 						),
-						inArray(stripeMeterOutbox.id, chunk),
-						inArray(stripeMeterOutbox.status, ["pending", "failed", "sending"]),
+						inArray(billingCreditMeterOutbox.id, chunk),
+						inArray(billingCreditMeterOutbox.status, [
+							"pending",
+							"failed",
+							"sending",
+						]),
 						or(
-							eq(stripeMeterOutbox.status, "pending"),
-							eq(stripeMeterOutbox.status, "failed"),
-							lte(stripeMeterOutbox.leaseExpiresAt, input.now),
+							eq(billingCreditMeterOutbox.status, "pending"),
+							eq(billingCreditMeterOutbox.status, "failed"),
+							lte(billingCreditMeterOutbox.leaseExpiresAt, input.now),
 						),
 					),
 				)
@@ -86,23 +84,15 @@ export async function claimStripeMeterOutbox(
 }
 
 export async function markStripeMeterOutboxSent(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		id: string;
 		stripeEventId: string;
 		now: string;
 	},
 ): Promise<void> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/meter-outbox")
-			).markStripeMeterOutboxSent(db.db, input);
-		db = db.db;
-	}
-
 	await db
-		.update(stripeMeterOutbox)
+		.update(billingCreditMeterOutbox)
 		.set({
 			status: "sent",
 			stripeEventId: input.stripeEventId,
@@ -113,8 +103,8 @@ export async function markStripeMeterOutboxSent(
 		})
 		.where(
 			and(
-				eq(stripeMeterOutbox.id, input.id),
-				eq(stripeMeterOutbox.status, "sending"),
+				eq(billingCreditMeterOutbox.id, input.id),
+				eq(billingCreditMeterOutbox.status, "sending"),
 			),
 		);
 }
@@ -128,7 +118,7 @@ export async function markStripeMeterOutboxSent(
 export const STRIPE_METER_OUTBOX_MAX_ATTEMPTS = 20;
 
 export async function markStripeMeterOutboxFailed(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		id: string;
 		error: string;
@@ -137,20 +127,12 @@ export async function markStripeMeterOutboxFailed(
 		maxAttempts?: number;
 	},
 ): Promise<void> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/meter-outbox")
-			).markStripeMeterOutboxFailed(db.db, input);
-		db = db.db;
-	}
-
 	const maxAttempts = input.maxAttempts ?? STRIPE_METER_OUTBOX_MAX_ATTEMPTS;
 	await db
-		.update(stripeMeterOutbox)
+		.update(billingCreditMeterOutbox)
 		.set({
-			status: sql`CASE WHEN ${stripeMeterOutbox.attemptCount} + 1 >= ${maxAttempts} THEN 'dead' ELSE 'failed' END`,
-			attemptCount: sql`${stripeMeterOutbox.attemptCount} + 1`,
+			status: sql`CASE WHEN ${billingCreditMeterOutbox.attemptCount} + 1 >= ${maxAttempts} THEN 'dead' ELSE 'failed' END`,
+			attemptCount: sql`${billingCreditMeterOutbox.attemptCount} + 1`,
 			nextAttemptAt: input.nextAttemptAt,
 			leaseExpiresAt: null,
 			lastError: input.error.slice(0, 2_000),
@@ -158,8 +140,8 @@ export async function markStripeMeterOutboxFailed(
 		})
 		.where(
 			and(
-				eq(stripeMeterOutbox.id, input.id),
-				eq(stripeMeterOutbox.status, "sending"),
+				eq(billingCreditMeterOutbox.id, input.id),
+				eq(billingCreditMeterOutbox.status, "sending"),
 			),
 		);
 }

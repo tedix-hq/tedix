@@ -1,5 +1,5 @@
 import type { RuntimeEntitlementGrant } from "@tedix/api-contract/schemas/runtime-entitlements";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { billingAccounts, billingPlanVersions } from "../schema/billing";
 
@@ -9,12 +9,10 @@ export interface RuntimeEntitlementResult {
 	effectivePeriod: { startsAt: string; endsAt: string };
 	profile: { key: string; name: string };
 	limits: {
-		includedMonthlyTokens: number;
+		includedMonthlyCredits: number;
 		maxTedis: number;
 		maxCronJobsPerTedi: number;
 		maxIterationsPerTask: number;
-		defaultDailyTokenLimit: number;
-		defaultDailyMessageLimit: number;
 	};
 	grants: RuntimeEntitlementGrant[];
 	source: "installation" | "managed-plan" | "external" | "operator";
@@ -69,12 +67,13 @@ export const runtimeEntitlementColumns = {
 	entitlementMetadata: billingAccounts.metadata,
 	profileKey: billingPlanVersions.planKey,
 	profileName: billingPlanVersions.name,
-	includedMonthlyTokens: billingPlanVersions.includedMonthlyTokens,
+	includedMonthlyCredits:
+		sql<number>`COALESCE(${billingAccounts.includedCreditsOverride}, ${billingPlanVersions.includedMonthlyCredits})`.as(
+			"included_monthly_credits",
+		),
 	maxTedis: billingPlanVersions.maxTedis,
 	maxCronJobsPerTedi: billingPlanVersions.maxCronJobsPerTedi,
 	maxIterationsPerTask: billingPlanVersions.maxIterationsPerTask,
-	defaultDailyTokenLimit: billingPlanVersions.defaultDailyTokenLimit,
-	defaultDailyMessageLimit: billingPlanVersions.defaultDailyMessageLimit,
 } as const;
 
 /** The entitlement read as one composable statement. */
@@ -110,12 +109,10 @@ export function runtimeEntitlementFromRow(
 		},
 		profile: { key: row.profileKey, name: row.profileName },
 		limits: {
-			includedMonthlyTokens: row.includedMonthlyTokens,
+			includedMonthlyCredits: Number(row.includedMonthlyCredits),
 			maxTedis: row.maxTedis,
 			maxCronJobsPerTedi: row.maxCronJobsPerTedi,
 			maxIterationsPerTask: row.maxIterationsPerTask,
-			defaultDailyTokenLimit: row.defaultDailyTokenLimit,
-			defaultDailyMessageLimit: row.defaultDailyMessageLimit,
 		},
 		grants: metadata.grants,
 		source: metadata.source,

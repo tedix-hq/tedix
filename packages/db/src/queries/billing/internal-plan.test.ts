@@ -18,7 +18,6 @@ import {
 } from "../runtime-entitlements";
 import { assignInternalPlan } from "./internal-plan";
 import { getBillingEntitlement, rollBillingPeriods } from "./plans";
-import { billingBlockingReason } from "./reservations";
 
 const actor = { id: "operator", type: "user" };
 const now = "2026-10-18T12:00:00.000Z";
@@ -44,8 +43,8 @@ function setup(account = true) {
 	);
 	sqlite.exec(`
 		INSERT INTO organizations (id, name, slug, features) VALUES ('org-1', 'Example', 'example', '{"os":true,"maxTeamMembers":2}');
-		INSERT INTO billing_plan_versions (id, plan_key, version, status, name, included_monthly_tokens, max_tedis, max_cron_jobs_per_tedi, max_iterations_per_task, default_daily_token_limit, default_daily_message_limit, allow_overage, effective_at, created_at)
-		VALUES ('enterprise-1', 'enterprise', 1, 'active', 'Enterprise', 0, -1, -1, 64, -1, -1, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+		INSERT INTO billing_plan_versions (id, plan_key, version, status, name, included_monthly_credits, max_tedis, max_cron_jobs_per_tedi, max_iterations_per_task, allow_overage, effective_at, created_at)
+		VALUES ('enterprise-1', 'enterprise', 1, 'active', 'Enterprise', 100000, -1, -1, 64, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
 		INSERT INTO organization_members (id, organization_id, descope_user_id, email, role, status) VALUES ('invite-1', 'org-1', 'pending:invite-1', 'admin@example.test', 'admin', 'invited');
 	`);
 	if (account)
@@ -67,9 +66,9 @@ describe("complimentary internal plan assignment", () => {
 			expect(
 				await getOrganizationFeatures(db, input.organizationId),
 			).toMatchObject({
-				maxTeamMembers: -1,
-				maxApps: -1,
-				maxCmsSites: -1,
+				maxTeamMembers: 50,
+				maxApps: 50,
+				maxCmsSites: 25,
 				os: true,
 			});
 			const entitlement = (await getBillingEntitlement(
@@ -86,28 +85,6 @@ describe("complimentary internal plan assignment", () => {
 			const runtime = (await getRuntimeEntitlement(db, input.organizationId))!;
 			expect(runtime.profile.key).toBe("enterprise");
 			expect(runtimeEntitlementIsActive(runtime, Date.parse(now))).toBe(true);
-			expect(
-				billingBlockingReason({
-					status: runtime.status,
-					now,
-					periodStart: runtime.effectivePeriod.startsAt,
-					periodEnd: runtime.effectivePeriod.endsAt,
-					allowOverage: true,
-					remainingIncludedTokens: 0,
-					billingMode: "internal",
-					stripeCustomerId: null,
-					availableCreditMicros: 0,
-					hardSpendLimitMicros: null,
-					customerChargeMicros: 0,
-					reservedChargeMicros: 0,
-					estimatedChargeMicros: 0,
-					effectiveDailyTokens: -1,
-					effectiveDailySpendMicros: null,
-					usedDailyTokens: 0,
-					usedDailySpendMicros: 0,
-					estimatedTokens: 10000000,
-				}),
-			).toBeNull();
 			expect(
 				sqlite
 					.prepare("SELECT email, role, status FROM organization_members")

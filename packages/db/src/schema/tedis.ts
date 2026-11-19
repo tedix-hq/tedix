@@ -119,15 +119,9 @@ export interface SelfImprovementPolicy {
 	configChange?: "auto" | "approval-required";
 }
 
-/** Daily/operational budget caps */
+/** Operational ceilings; usage limits are monthly credits in billing. */
 export interface TediBudgets {
 	aiGatewayPolicy?: AiGatewayAdmissionPolicy;
-	dailyTokenLimit?: number;
-	dailyMessageLimit?: number;
-	operatorTokenReserve?: number;
-	operatorMessageReserve?: number;
-	governedLearningTokenReserve?: number;
-	governedLearningMessageReserve?: number;
 	maxCronJobs?: number;
 	maxIterationsPerTask?: number;
 	browserBudgetDaily?: number;

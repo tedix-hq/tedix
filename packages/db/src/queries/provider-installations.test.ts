@@ -11,12 +11,10 @@ import {
 	updateProviderWidgetAccess,
 	listProviderPortableWebMcpConfigurations,
 	publishProviderPortableWebMcpProfile,
-	listProviderCapacitySponsorships,
 	provisionProviderInstallation,
 	resolveActiveProviderInstallation,
 	resolveActiveProviderInstallationForOutcome,
 	setProviderInstallationPaused,
-	setProviderCapacitySponsorship,
 } from "./provider-installations";
 
 function fixture() {
@@ -139,49 +137,6 @@ describe("provider installations", () => {
 			status: "active",
 			primaryTediId: "globex-operator",
 		});
-	});
-
-	it("lets a provider configure only its own installation sponsorship", async () => {
-		const db = fixture();
-		await provisionProviderInstallation(db, installation());
-		const policy = {
-			enabled: true,
-			budgetRevision: 1,
-			maxTransfersPerBudgetDay: 2,
-			lowWatermarkTokens: 250_000,
-			lowWatermarkSpendMicros: 1_000_000,
-			transferTokens: 1_000_000,
-			transferSpendMicros: 5_000_000,
-		};
-		await expect(
-			setProviderCapacitySponsorship(db, {
-				providerOrganizationId: "foreign-org",
-				installationId: "installation-1",
-				policy,
-			}),
-		).resolves.toBeNull();
-		await expect(
-			setProviderCapacitySponsorship(db, {
-				providerOrganizationId: "acme-org",
-				installationId: "installation-1",
-				policy,
-			}),
-		).resolves.toMatchObject({
-			externalTenantId: "1",
-			customerOrganizationId: "globex-org",
-			policy,
-		});
-		await expect(
-			listProviderCapacitySponsorships(db, "acme-org"),
-		).resolves.toEqual([
-			expect.objectContaining({
-				installationId: "installation-1",
-				policy,
-			}),
-		]);
-		await expect(
-			listProviderCapacitySponsorships(db, "foreign-org"),
-		).resolves.toEqual([]);
 	});
 
 	it("publishes tenant-scoped profile revisions with compare-and-swap history", async () => {

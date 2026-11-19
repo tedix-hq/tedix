@@ -1648,6 +1648,18 @@
 		{
 			"name": "20261119154006_gateway_change_record_seals/migration.sql",
 			"sha256": "cacea72fb1109f6052e521d832cee472f5e98ab09c601a6a49e476aab6c072ef"
+		},
+		{
+			"name": "20261119162925_tedix_credits_pool/migration.sql",
+			"sha256": "84994f64e508420a0c262a51d8cd7ab94478706956aa23727a2a2f47ced74328"
+		},
+		{
+			"name": "20261119162932_backfill-tedix-credits/migration.sql",
+			"sha256": "da999b9429bddddf6ba5dbbc8d364a0b034d77cf7cbb36547f5a5f7ae241b057"
+		},
+		{
+			"name": "20261119162941_drop-token-plans-and-daily-limits/migration.sql",
+			"sha256": "6f88abb2da69b3dbdbe8dee665747d13568d4ea39561abcce65b4bac9e060dbb"
 		}
 	]
 }

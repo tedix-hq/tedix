@@ -6,7 +6,6 @@ import type { DbClient } from "../../client";
 import {
 	billingAccounts,
 	billingInferencePolicies,
-	billingPlanVersions,
 } from "../../schema/billing";
 import { tedis } from "../../schema/tedis";
 
@@ -35,8 +34,6 @@ export async function upsertTediInferencePolicy(
 		subjectKey: params.tediId,
 		tediId: params.tediId,
 		allowedModelTiers: params.policy.allowedModelTiers ?? null,
-		dailyTokenLimit: params.policy.dailyTokenLimit ?? null,
-		dailySpendLimitMicros: params.policy.dailySpendLimitMicros ?? null,
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -52,8 +49,6 @@ export async function upsertTediInferencePolicy(
 			],
 			set: {
 				allowedModelTiers: values.allowedModelTiers,
-				dailyTokenLimit: values.dailyTokenLimit,
-				dailySpendLimitMicros: values.dailySpendLimitMicros,
 				updatedAt: sql`CURRENT_TIMESTAMP`,
 			},
 		});
@@ -81,12 +76,6 @@ function policyFromRow(
 		...(row.allowedModelTiers === null
 			? {}
 			: { allowedModelTiers: row.allowedModelTiers }),
-		...(row.dailyTokenLimit === null
-			? {}
-			: { dailyTokenLimit: row.dailyTokenLimit }),
-		...(row.dailySpendLimitMicros === null
-			? {}
-			: { dailySpendLimitMicros: row.dailySpendLimitMicros }),
 	};
 }
 
@@ -125,26 +114,11 @@ export function tediOwnershipQuery(
 		.limit(1);
 }
 
-/**
- * Merge the plan default with an explicit organization policy row.
- *
- * Kept separate from the reads so the batched admission path composes the same
- * precedence rather than a second copy of it.
- */
+/** The organization-scope policy: model tiers only, no plan default. */
 export function organizationInferencePolicy(
-	defaultDailyTokenLimit: number,
 	organizationPolicy: InferencePolicyRow | undefined,
 ): AiGatewayAdmissionPolicy {
-	const explicit = policyFromRow(organizationPolicy);
-	return {
-		dailyTokenLimit: explicit?.dailyTokenLimit ?? defaultDailyTokenLimit,
-		...(explicit?.dailySpendLimitMicros === undefined
-			? {}
-			: { dailySpendLimitMicros: explicit.dailySpendLimitMicros }),
-		...(explicit?.allowedModelTiers === undefined
-			? {}
-			: { allowedModelTiers: explicit.allowedModelTiers }),
-	};
+	return policyFromRow(organizationPolicy) ?? {};
 }
 
 /** Shape the tedi-scope policy, which has no plan default behind it. */
@@ -154,24 +128,18 @@ export function tediInferencePolicy(
 	return policyFromRow(tediPolicy);
 }
 
-/** Resolve plan defaults plus explicit organization/tedi policy rows. */
+/** Resolve explicit organization/tedi policy rows for a billed organization. */
 export async function getEffectiveInferencePolicies(
 	db: DbClient,
 	organizationId: string,
 	tediId?: string | null,
 ): Promise<EffectiveInferencePolicies | null> {
-	const [entitlement] = await db
-		.select({
-			defaultDailyTokenLimit: billingPlanVersions.defaultDailyTokenLimit,
-		})
+	const [account] = await db
+		.select({ organizationId: billingAccounts.organizationId })
 		.from(billingAccounts)
-		.innerJoin(
-			billingPlanVersions,
-			eq(billingAccounts.planVersionId, billingPlanVersions.id),
-		)
 		.where(eq(billingAccounts.organizationId, organizationId))
 		.limit(1);
-	if (!entitlement) return null;
+	if (!account) return null;
 
 	const [organizationPolicy] = await inferencePolicyQuery(
 		db,
@@ -179,10 +147,7 @@ export async function getEffectiveInferencePolicies(
 		"organization",
 		"organization",
 	);
-	const organization = organizationInferencePolicy(
-		entitlement.defaultDailyTokenLimit,
-		organizationPolicy,
-	);
+	const organization = organizationInferencePolicy(organizationPolicy);
 
 	if (tediId == null) return { organization, tediFound: true };
 	const [tedi] = await tediOwnershipQuery(db, organizationId, tediId);

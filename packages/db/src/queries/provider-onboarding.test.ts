@@ -18,15 +18,6 @@ const config: NonNullable<OrganizationMetadata["providerOnboarding"]> = {
 	ownerUserId: "owner",
 	ownerEmail: "owner@example.com",
 	billingPlanKey: "business",
-	sponsoredCapacity: {
-		enabled: false,
-		budgetRevision: 1,
-		maxTransfersPerBudgetDay: 1,
-		lowWatermarkTokens: 0,
-		lowWatermarkSpendMicros: 0,
-		transferTokens: 0,
-		transferSpendMicros: 0,
-	},
 };
 describe("provider onboarding metadata", () => {
 	it("updates only the target's protected metadata path and preserves unrelated data", async () => {

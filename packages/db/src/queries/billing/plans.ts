@@ -1,11 +1,8 @@
 /** Canonical billing plans queries. */
 
-import type { CoreStoreBinding } from "../postgres/core-store";
-import type { PgQueryClient } from "../../pg/query-client";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
-import { buildIncludedCreditPeriodGrant } from "./credit-periods";
 import {
 	type BillingAccount,
 	type BillingAccountStatus,
@@ -21,18 +18,10 @@ export interface BillingEntitlement {
 }
 
 export async function getActiveBillingPlanByKey(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	planKey: BillingPlanVersion["planKey"],
 	now: string,
 ): Promise<BillingPlanVersion | null> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/plans")
-			).getActiveBillingPlanByKey(db.db, planKey, now);
-		db = db.db;
-	}
-
 	const [plan] = await db
 		.select()
 		.from(billingPlanVersions)
@@ -49,17 +38,9 @@ export async function getActiveBillingPlanByKey(
 }
 
 export async function getBillingEntitlement(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	organizationId: string,
 ): Promise<BillingEntitlement | null> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/plans")
-			).getBillingEntitlement(db.db, organizationId);
-		db = db.db;
-	}
-
 	const row = await db.query.billingAccounts.findFirst({
 		where: { organizationId },
 		with: { planVersion: true },
@@ -71,22 +52,10 @@ export async function getBillingEntitlement(
 }
 
 export async function getBillingEntitlementByStripeCustomerId(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	stripeCustomerId: string,
 	stripeEnvironment: "test" | "live",
 ): Promise<BillingEntitlement | null> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/plans")
-			).getBillingEntitlementByStripeCustomerId(
-				db.db,
-				stripeCustomerId,
-				stripeEnvironment,
-			);
-		db = db.db;
-	}
-
 	const row = await db.query.billingAccounts.findFirst({
 		where: { stripeCustomerId, stripeEnvironment },
 		with: { planVersion: true },
@@ -103,7 +72,7 @@ export async function getBillingEntitlementByStripeCustomerId(
  * identity wins; this helper never overwrites it.
  */
 export async function linkBillingAccountStripeCustomerIfUnbound(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		organizationId: string;
 		stripeCustomerId: string;
@@ -111,14 +80,6 @@ export async function linkBillingAccountStripeCustomerIfUnbound(
 		now: string;
 	},
 ): Promise<boolean> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/plans")
-			).linkBillingAccountStripeCustomerIfUnbound(db.db, input);
-		db = db.db;
-	}
-
 	const [account] = await db
 		.update(billingAccounts)
 		.set({
@@ -171,12 +132,6 @@ export function buildProvisionBillingAccountStatement(
 		metadata?: Record<string, JsonValue>;
 	},
 ) {
-	// Preserve a concurrently activated private tariff at the upsert boundary,
-	// rather than trusting a read that may precede activation.
-	const keepPrivatePlan = sql`EXISTS (SELECT 1 FROM billing_plan_versions current_plan
-  JOIN billing_plan_versions projected_plan ON projected_plan.id = ${input.planVersionId}
-  WHERE current_plan.id = billing_accounts.plan_version_id AND current_plan.plan_key = projected_plan.plan_key
-  AND json_type(current_plan.metadata, '$.monetaryInference') = 'object')`;
 	return db
 		.insert(billingAccounts)
 		.values({
@@ -197,7 +152,7 @@ export function buildProvisionBillingAccountStatement(
 		.onConflictDoUpdate({
 			target: billingAccounts.organizationId,
 			set: {
-				planVersionId: sql`CASE WHEN ${keepPrivatePlan} THEN billing_accounts.plan_version_id ELSE ${input.planVersionId} END`,
+				planVersionId: input.planVersionId,
 				status: input.status,
 				billingMode: input.billingMode,
 				stripeEnvironment: input.stripeEnvironment ?? null,
@@ -213,7 +168,7 @@ export function buildProvisionBillingAccountStatement(
 				periodStart: input.periodStart,
 				periodEnd: input.periodEnd,
 				entitlementVersion: sql`${billingAccounts.entitlementVersion} + 1`,
-				metadata: sql`CASE WHEN ${keepPrivatePlan} THEN json_patch(billing_accounts.metadata, ${JSON.stringify(input.metadata ?? {})}) ELSE ${JSON.stringify(input.metadata ?? {})} END`,
+				metadata: input.metadata ?? {},
 				updatedAt: input.now,
 			},
 		})
@@ -222,18 +177,10 @@ export function buildProvisionBillingAccountStatement(
 
 /** Resolve the active plan for `planKey` or throw with the key that missed. */
 export async function requireActiveBillingPlan(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	planKey: BillingPlanVersion["planKey"],
 	now: string,
 ): Promise<BillingPlanVersion> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/plans")
-			).requireActiveBillingPlan(db.db, planKey, now);
-		db = db.db;
-	}
-
 	const plan = await getActiveBillingPlanByKey(db, planKey, now);
 	if (!plan) {
 		throw new Error(`Active billing plan not found: ${planKey}`);
@@ -242,7 +189,7 @@ export async function requireActiveBillingPlan(
 }
 
 export async function provisionBillingAccount(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		organizationId: string;
 		planKey: BillingPlanVersion["planKey"];
@@ -258,29 +205,9 @@ export async function provisionBillingAccount(
 		metadata?: Record<string, JsonValue>;
 	},
 ): Promise<BillingAccount> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/plans")
-			).provisionBillingAccount(db.db, input);
-		db = db.db;
-	}
-
-	const current = await getBillingEntitlement(db, input.organizationId);
-	// A private opt-in tariff remains pinned while Stripe renews the same product.
-	// A product change/cancellation resolves the catalog normally.
-	const preserveCreditPlan = Boolean(
-		current?.plan.metadata.monetaryInference &&
-		current.plan.planKey === input.planKey,
-	);
-	const plan = preserveCreditPlan
-		? current!.plan
-		: await requireActiveBillingPlan(db, input.planKey, input.now);
+	const plan = await requireActiveBillingPlan(db, input.planKey, input.now);
 	const [account] = await buildProvisionBillingAccountStatement(db, {
 		...input,
-		metadata: preserveCreditPlan
-			? { ...current!.account.metadata, ...input.metadata }
-			: input.metadata,
 		planVersionId: plan.id,
 	});
 	if (!account) throw new Error("Failed to provision billing account");
@@ -316,7 +243,7 @@ export async function provisionBillingAccount(
  * span that has already closed would pull in usage from periods before it.
  */
 export async function correctBillingAccountPeriod(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		organizationId: string;
 		periodStart: string;
@@ -326,14 +253,6 @@ export async function correctBillingAccountPeriod(
 		reason: string;
 	},
 ): Promise<BillingAccount> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/plans")
-			).correctBillingAccountPeriod(db.db, input);
-		db = db.db;
-	}
-
 	if (!input.reason.trim())
 		throw new Error("A billing period correction must record a reason");
 	if (Date.parse(input.periodEnd) <= Date.parse(input.periodStart))
@@ -399,17 +318,9 @@ export async function correctBillingAccountPeriod(
 }
 
 export async function rollBillingPeriods(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	now: string,
 ): Promise<{ renewed: number; suspendedTrials: number }> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/plans")
-			).rollBillingPeriods(db.db, now);
-		db = db.db;
-	}
-
 	const expired = await db
 		.select()
 		.from(billingAccounts)
@@ -443,7 +354,9 @@ export async function rollBillingPeriods(
 		const nextStart = account.periodEnd;
 		const nextEndDate = new Date(nextStart);
 		nextEndDate.setUTCMonth(nextEndDate.getUTCMonth() + 1);
-		const advance = db
+		// Included credits belong to their period: advancing the window starts
+		// a fresh allowance. Top-up credits keep their own expiry.
+		await db
 			.update(billingAccounts)
 			.set({
 				periodStart: nextStart,
@@ -457,39 +370,6 @@ export async function rollBillingPeriods(
 					eq(billingAccounts.entitlementVersion, account.entitlementVersion),
 				),
 			);
-		const entitlement = await getBillingEntitlement(db, account.organizationId);
-		// Stripe grants only on a paid invoice. Internal and invoice-billed accounts
-		// are settled outside Stripe and renew their funded allowance atomically;
-		// purchased balances are never reset or expired.
-		const coverage = account.metadata.paidCreditCoverage as
-			| { subscriptionId?: string; periodStart?: string; periodEnd?: string }
-			| undefined;
-		const coveredStripePeriod =
-			account.billingMode === "stripe" &&
-			coverage?.subscriptionId === account.stripeSubscriptionId &&
-			typeof coverage.periodStart === "string" &&
-			typeof coverage.periodEnd === "string" &&
-			coverage.periodStart <= nextStart &&
-			coverage.periodEnd >= nextEndDate.toISOString();
-		if (
-			(account.billingMode === "internal" ||
-				account.billingMode === "invoice" ||
-				coveredStripePeriod) &&
-			entitlement?.plan.metadata.monetaryInference &&
-			entitlement.plan.includedMonthlyCreditMicros > 0
-		) {
-			await db.batch([
-				advance,
-				buildIncludedCreditPeriodGrant(db, {
-					organizationId: account.organizationId,
-					planVersionId: entitlement.plan.id,
-					periodStart: nextStart,
-					periodEnd: nextEndDate.toISOString(),
-					amountMicros: entitlement.plan.includedMonthlyCreditMicros,
-					now,
-				}),
-			]);
-		} else await advance;
 
 		renewed++;
 	}
@@ -498,7 +378,7 @@ export async function rollBillingPeriods(
 
 /** Upgrade only the unmodified starter trial created by automatic onboarding. */
 export async function activateProviderCustomerBilling(
-	db: DbClient | CoreStoreBinding<PgQueryClient>,
+	db: DbClient,
 	input: {
 		organizationId: string;
 		entitlementVersion: number;
@@ -507,14 +387,6 @@ export async function activateProviderCustomerBilling(
 		now: string;
 	},
 ): Promise<void> {
-	if ("plane" in db) {
-		if (db.plane === "postgres")
-			return (
-				await import("../../pg/queries/billing/plans")
-			).activateProviderCustomerBilling(db.db, input);
-		db = db.db;
-	}
-
 	await db
 		.update(billingAccounts)
 		.set({
