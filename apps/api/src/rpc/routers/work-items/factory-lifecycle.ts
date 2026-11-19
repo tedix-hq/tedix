@@ -1192,6 +1192,17 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				costMicros: input.costMicros,
 				settledAt,
 			});
+			const { notifyAgentRunEnded } =
+				await import("../../../services/agent-run-ended-notice");
+			// The settle is recorded; reporting it to the chat must not delay or
+			// fail the runner's response.
+			const notice = notifyAgentRunEnded(
+				context,
+				settled.workItem,
+				settled.attempt,
+			);
+			if (context.waitUntil) context.waitUntil(notice);
+			else await notice;
 			if (!agentNextStep) return settled;
 			const ask = await routeLaneNextStepToAgent(context.db, {
 				work: settled.workItem,

@@ -12,6 +12,8 @@ import {
 	workAttemptCallerMetadata,
 	recordWorkAttemptRepositoryCandidatePublication,
 	claimWorkAttemptRepositoryCandidatePublication,
+	claimWorkAttemptConversationNotice,
+	releaseWorkAttemptConversationNotice,
 } from "./attempts";
 
 const NOW = "2026-10-01T00:00:00.000Z";
@@ -514,5 +516,55 @@ describe("latest Attempt seek plan", () => {
 			expect(plan).not.toContain("TEMP B-TREE");
 		}
 		sqlite.close();
+	});
+});
+
+describe("conversation notice mark", () => {
+	const scope = {
+		orgId: "org",
+		workItemId: IDS.workItemId,
+		attemptId: IDS.attemptId,
+	};
+	const metadata = (sqlite: DatabaseSync) =>
+		JSON.parse(
+			(
+				sqlite
+					.prepare("SELECT metadata FROM work_attempts WHERE id=?")
+					.get(IDS.attemptId) as { metadata: string }
+			).metadata,
+		);
+
+	it("is won once per settled Attempt and can be released", async () => {
+		const { sqlite, db } = fixture();
+		expect(await claimWorkAttemptConversationNotice(db, scope)).toBe(false);
+		sqlite.exec(
+			"UPDATE work_attempts SET runtime_state='finished', outcome='succeeded'",
+		);
+		expect(
+			await claimWorkAttemptConversationNotice(db, {
+				...scope,
+				orgId: "other",
+			}),
+		).toBe(false);
+		expect(
+			await claimWorkAttemptConversationNotice(db, { ...scope, at: NOW }),
+		).toBe(true);
+		expect(await claimWorkAttemptConversationNotice(db, scope)).toBe(false);
+		expect(metadata(sqlite)).toEqual({
+			caller: "kept",
+			conversationNotice: { claimedAt: NOW },
+		});
+		await releaseWorkAttemptConversationNotice(db, scope);
+		expect(metadata(sqlite)).toEqual({ caller: "kept" });
+		expect(await claimWorkAttemptConversationNotice(db, scope)).toBe(true);
+	});
+
+	it("cannot be set by the caller's own metadata", () => {
+		expect(
+			workAttemptCallerMetadata({
+				conversationNotice: { claimedAt: NOW },
+				kept: true,
+			}),
+		).toEqual({ kept: true });
 	});
 });
