@@ -1,5 +1,0 @@
----
-"@tedix/cli": minor
----
-
-A tedi can now change files and run commands on your machine, when you switch it on. It is off by default. To allow it, add `"machineWriteMode": "allow"` to the runner's entry in `~/.tedix/supervisor-runners.json` (the entry that answers machine tools: the Codex runner if you have one, otherwise the first in the list) and restart the runners. The tedi then works in its own checkout of the repository under `~/.tedix/machine-workspaces/`, never in your working folders: it opens a workspace, writes and edits files in it, and runs shell commands there with a timeout. A command that runs too long is stopped together with everything it started, and long output keeps its start and its end. The runner refuses `sudo`, a direct `git push`, signing in or out, and anything that touches its own settings or credential files. Commits in a workspace that were not pushed are kept under `refs/tedix/machine-workspaces/` when it is closed; a workspace unused for a day is removed.
