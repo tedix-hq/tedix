@@ -341,7 +341,7 @@ describe("owner-granted external-agent Work management", () => {
 		const { db, item, update, context } = await fixture();
 		await update({
 			id,
-			executor: "codex",
+			executorReference: { type: "external_agent", id: "codex" },
 			description: "Failure confirmed",
 			expectedWorkItemVersion: item.version,
 		});
@@ -374,7 +374,12 @@ describe("owner-granted external-agent Work management", () => {
 		await expect(
 			update({ id, description: "Progress" }),
 		).resolves.toBeDefined();
-		await expect(update({ id, executor: "codex" })).rejects.toMatchObject({
+		await expect(
+			update({
+				id,
+				executorReference: { type: "external_agent", id: "codex" },
+			}),
+		).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
 		await expect(update({ id, riskLevel: "low" })).rejects.toMatchObject({

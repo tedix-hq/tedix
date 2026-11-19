@@ -1,3 +1,4 @@
+import { workExecutorReference } from "@tedix/api-contract/schemas/work-items";
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../../orpc";
 const mocks = vi.hoisted(() => ({
@@ -31,7 +32,12 @@ function select(
 	steward: { stewardType?: "tedi" | null; stewardId?: string | null } = {},
 ) {
 	return updateSpecificationProcedure["~orpc"].handler!({
-		input: { id: item.id, executor, expectedWorkItemVersion, ...steward },
+		input: {
+			id: item.id,
+			executorReference: workExecutorReference(executor),
+			expectedWorkItemVersion,
+			...steward,
+		},
 		context: { db: {} } as BaseContext,
 		path: ["workItems", "updateSpecification"],
 		procedure: updateSpecificationProcedure,
@@ -56,7 +62,7 @@ it("passes an owner selection through the current Work version fence", async () 
 		{},
 		expect.objectContaining({
 			orgId: "org-acme",
-			executor: "codex",
+			executorReference: { type: "external_agent", id: "codex" },
 			expectedWorkItemVersion: 2,
 		}),
 	);
@@ -70,7 +76,10 @@ it("lets a verified tedi steward assign an executor without changing reserved fi
 	await select(2, "human");
 	expect(mocks.update).toHaveBeenCalledWith(
 		{},
-		expect.objectContaining({ executor: "human", expectedWorkItemVersion: 2 }),
+		expect.objectContaining({
+			executorReference: { type: "human", id: "human" },
+			expectedWorkItemVersion: 2,
+		}),
 	);
 });
 
@@ -123,7 +132,7 @@ it("preserves an owner's explicit removal of stewardship", async () => {
 	);
 });
 
-it("readies owner-assigned code in a coordinated project", async () => {
+it("passes owner-assigned code to the dispatch planner in a coordinated project", async () => {
 	mocks.actor.mockResolvedValue({ type: "user", id: "acme-owner" });
 	mocks.access.mockResolvedValue({
 		...item,
@@ -139,8 +148,8 @@ it("readies owner-assigned code in a coordinated project", async () => {
 	expect(mocks.update).toHaveBeenCalledWith(
 		{},
 		expect.objectContaining({
-			executor: "codex",
-			laneDispatch: { state: "ready" },
+			executorReference: { type: "external_agent", id: "codex" },
+			laneDispatch: undefined,
 			stewardId: undefined,
 		}),
 	);
@@ -162,7 +171,7 @@ it("lets an admitted tedi steward publish a selection without granting an execut
 	expect(mocks.update).toHaveBeenCalledWith(
 		{},
 		expect.objectContaining({
-			executor: undefined,
+			executorReference: undefined,
 			laneDispatch: { state: "ready", score: 80 },
 		}),
 	);
