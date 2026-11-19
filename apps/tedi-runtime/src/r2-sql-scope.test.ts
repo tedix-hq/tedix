@@ -187,6 +187,7 @@ assert.ok(
 // statement stays within the SHOW/DESCRIBE set the fail-closed gate allows and
 // never returns tenant rows.
 {
+	// @ts-expect-error Retired actions are rejected at the type and runtime boundaries.
 	const tables = buildR2SqlIntrospection({ action: "list_tables" }, TABLE);
 	assert.equal(
 		tables.ok,
