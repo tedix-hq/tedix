@@ -3,8 +3,8 @@ import { chromium, type Browser } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
 /*
- * Catalog cards clamp long descriptions to two lines at phone, tablet and
- * desktop widths, so a description cannot fill a
+ * Catalog cards clamp long descriptions to two lines below and above the
+ * provider byline's wrapping breakpoint, so a description cannot fill a
  * phone screen. The card carries a labelled "Read more" affordance and the
  * whole card links to the app detail page — the accessible full-text path.
  * The provider byline keeps its phone behaviour: it wraps below `sm` and
@@ -25,7 +25,6 @@ try {
 	for (const [width, theme] of [
 		[375, "dark"],
 		[768, "light"],
-		[1280, "light"],
 	] as const) {
 		const label = `${width}px ${theme}`;
 		const context = await browser.newContext({

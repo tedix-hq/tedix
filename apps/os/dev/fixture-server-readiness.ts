@@ -103,23 +103,31 @@ export async function waitForFixtureBrowser(
 export async function warmFixtureModuleGraph(
 	origin: string,
 	entries: readonly string[],
-	{ pageTimeoutMs = 15_000, budgetMs = 90_000 } = {},
+	{ pageTimeoutMs = 15_000, budgetMs = 90_000, parallelPages = 1 } = {},
 ) {
 	if (entries.length === 0) return;
 	const browser = await chromium.launch({ timeout: budgetMs });
 	try {
-		const page = await browser.newPage();
+		const context = await browser.newContext();
 		const deadline = performance.now() + budgetMs;
-		for (const entry of entries) {
-			const remaining = deadline - performance.now();
-			if (remaining <= 0) break;
-			await page
-				.goto(`${origin}${entry}`, {
-					waitUntil: "load",
-					timeout: Math.min(pageTimeoutMs, remaining),
-				})
-				.catch(() => {});
+		let nextEntry = 0;
+		async function warmPage() {
+			const page = await context.newPage();
+			while (nextEntry < entries.length) {
+				const remaining = deadline - performance.now();
+				if (remaining <= 0) return;
+				const entry = entries[nextEntry++];
+				await page
+					.goto(`${origin}${entry}`, {
+						waitUntil: "load",
+						timeout: Math.min(pageTimeoutMs, remaining),
+					})
+					.catch(() => {});
+			}
 		}
+		await Promise.all(
+			Array.from({ length: Math.min(parallelPages, entries.length) }, warmPage),
+		);
 	} finally {
 		await browser.close();
 	}

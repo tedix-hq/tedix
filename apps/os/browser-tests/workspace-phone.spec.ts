@@ -83,16 +83,11 @@ try {
 	await page.goto(`${server.origin}${workspace}`, {
 		waitUntil: "domcontentloaded",
 	});
-	await page.getByRole("group", { name: "Canvas pane" }).waitFor();
-	await page.waitForTimeout(1500);
-	assert.equal(
-		await page.evaluate(
-			() =>
-				document.querySelector<HTMLElement>(".canvas-surface")?.dataset
-					.mobilePane,
-		),
-		"chat",
-	);
+	await page
+		.locator(
+			'.canvas-surface[data-canvas-transition="true"][data-mobile-pane="chat"]',
+		)
+		.waitFor();
 	assert.doesNotMatch(page.url(), /workpiece=/);
 	await noSidewaysScroll("chat");
 
@@ -106,9 +101,9 @@ try {
 					return Promise.resolve();
 				},
 			});
-			window.dispatchEvent(event);
+			return !window.dispatchEvent(event);
 		});
-	await offerInstall();
+	assert(await offerInstall(), "the app captures the browser's install offer");
 	const notice = page.getByText("Add Tedix to your Home Screen");
 	await notice.waitFor();
 	await page.getByRole("button", { name: "Install", exact: true }).click();
@@ -118,10 +113,11 @@ try {
 	await notice.waitFor({ state: "hidden" });
 
 	// It was shown once; a later offer on a later visit says nothing.
+	await page.clock.install();
 	await page.reload({ waitUntil: "domcontentloaded" });
 	await page.getByRole("group", { name: "Canvas pane" }).waitFor();
-	await offerInstall();
-	await page.waitForTimeout(1000);
+	assert(await offerInstall(), "the app captures the later install offer");
+	await page.clock.fastForward(4_001);
 	assert.equal(await notice.count(), 0, "the notice is not shown again");
 
 	await context.close();

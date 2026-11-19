@@ -34,27 +34,19 @@ try {
 	});
 	const files = page.locator(".canvas-resource-outputs");
 	const triggers = files.getByRole("button", { name: /^Actions for / });
-	await triggers.first().waitFor();
-	assert(
-		(await triggers.count()) >= 2,
-		"the workspace has two files to act on",
-	);
-	const titleOf = async (index: number) =>
-		((await triggers.nth(index).getAttribute("aria-label")) ?? "").replace(
-			"Actions for ",
-			"",
-		);
-	const first = await titleOf(0);
-	const second = await titleOf(1);
+	const first = triggers.first();
+	await first.waitFor();
+	const originalLabel = await first.getAttribute("aria-label");
+	assert(originalLabel);
 
 	// The button is a thumb-sized target and opens the full set of actions.
-	await triggers.first().scrollIntoViewIfNeeded();
-	const target = await triggers.first().boundingBox();
+	await first.scrollIntoViewIfNeeded();
+	const target = await first.boundingBox();
 	assert(
 		target && target.width >= 44 && target.height >= 44,
 		`the "…" button is at least 44px: ${JSON.stringify(target)}`,
 	);
-	await triggers.first().tap();
+	await first.tap();
 	const menu = page.getByRole("menu");
 	await menu.waitFor();
 	const items = menu.getByRole("menuitem");
@@ -86,46 +78,49 @@ try {
 	await renamed.waitFor();
 	assert.equal(
 		await files
-			.getByRole("button", { name: `Actions for ${first}`, exact: true })
+			.getByRole("button", { name: originalLabel, exact: true })
 			.count(),
 		0,
 		"the old name is gone",
 	);
 	await noSidewaysScroll("after rename");
 
-	// Archive, after a confirmation.
+	// A refusal keeps the file in the list. The same dialog can retry.
+	await page.route(
+		"**/api/rpc/osWorkspaces/outputs/archive*",
+		(route) =>
+			route.fulfill({
+				status: 403,
+				json: {
+					json: {
+						defined: false,
+						code: "FORBIDDEN",
+						status: 403,
+						message: "You cannot archive this file",
+					},
+				},
+			}),
+		{ times: 1 },
+	);
 	await renamed.tap();
 	await page.getByRole("menuitem", { name: "Archive" }).tap();
 	const confirm = page.getByRole("alertdialog");
-	await confirm.getByRole("button", { name: "Archive", exact: true }).tap();
-	await renamed.waitFor({ state: "detached" });
-
-	// A refused archive leaves the file where it was and says why.
-	await page.route("**/api/rpc/osWorkspaces/outputs/archive*", (route) =>
-		route.fulfill({
-			status: 403,
-			json: {
-				json: {
-					defined: false,
-					code: "FORBIDDEN",
-					status: 403,
-					message: "You cannot archive this file",
-				},
-			},
-		}),
-	);
-	const kept = files.getByRole("button", {
-		name: `Actions for ${second}`,
-		exact: true,
-	});
-	await kept.tap();
-	await page.getByRole("menuitem", { name: "Archive" }).tap();
-	await confirm.getByRole("button", { name: "Archive", exact: true }).tap();
+	const archive = confirm.getByRole("button", { name: "Archive", exact: true });
+	await archive.tap();
 	await confirm.locator("[data-confirm-error]").waitFor();
-	await confirm.getByRole("button", { name: "Cancel" }).tap();
-	await confirm.waitFor({ state: "hidden" });
-	await kept.waitFor();
+	assert.equal(
+		await files
+			.getByRole("button", {
+				name: "Actions for Renamed on a phone",
+				includeHidden: true,
+			})
+			.count(),
+		1,
+	);
 	await noSidewaysScroll("after a refusal");
+	await archive.tap();
+	await confirm.waitFor({ state: "hidden" });
+	await renamed.waitFor({ state: "detached" });
 
 	await context.close();
 	console.log(

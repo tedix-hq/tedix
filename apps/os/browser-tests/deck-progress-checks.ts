@@ -1,4 +1,5 @@
 import { startFixtureServer } from "./fixture-server";
+import { settleAnimations } from "./deck-controls";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import assert from "node:assert/strict";
 import { chromium, type Page, type Browser } from "playwright";
@@ -9,13 +10,15 @@ const { origin } = server;
 const uuid = (n: number) =>
 	`10000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const at = new Date().toISOString();
+const cardCount = 10;
+const reviewCount = 4;
 const manifest = {
 	entry: "tedix:app/decision-deck",
 	navigation: { work: "deck", workDefault: true },
 	config: DecisionDeckConfigSchema.parse({
 		version: 1,
 		factorySources: [],
-		dailyAttentionBudget: 20,
+		dailyAttentionBudget: cardCount,
 	}),
 };
 const installed = {
@@ -58,7 +61,7 @@ function request(n: number) {
 		caseId: null,
 		projectId: null,
 		kind: "question",
-		subject: `${n <= 7 ? "Review" : "Planning"} card ${n}`,
+		subject: `${n <= reviewCount ? "Review" : "Planning"} card ${n}`,
 		prompt: `Choose card ${n}.`,
 		requestedFromType: "user",
 		requestedFromId: "dev-operator",
@@ -74,7 +77,7 @@ function request(n: number) {
 		metadata: {
 			decisionDeck: {
 				...DECISION_DECK_EXAMPLES[4],
-				proposal: `${n <= 7 ? "Review" : "Planning"} card ${n}`,
+				proposal: `${n <= reviewCount ? "Review" : "Planning"} card ${n}`,
 				classId: "speed",
 				protectedEffects: [],
 				reversibility: "two_way",
@@ -84,10 +87,10 @@ function request(n: number) {
 }
 async function fixture(
 	page: Page,
-	options: { failure?: boolean; loading?: Promise<void> } = {},
+	options: { failedSave?: Promise<void>; loading?: Promise<void> } = {},
 ) {
 	const decided = new Set<string>();
-	const requests = Array.from({ length: 20 }, (_, i) => request(i + 1));
+	const requests = Array.from({ length: cardCount }, (_, i) => request(i + 1));
 	await page.route("**/api/rpc/**", async (route) => {
 		const url = new URL(route.request().url()),
 			path = url.pathname;
@@ -174,8 +177,8 @@ async function fixture(
 				responses: { data: [], nextCursor: null, hasMore: false },
 			});
 		if (path.endsWith("/workInteractions/respond")) {
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			if (options.failure)
+			if (options.failedSave) {
+				await options.failedSave;
 				return json(
 					{
 						defined: false,
@@ -184,6 +187,7 @@ async function fixture(
 					},
 					409,
 				);
+			}
 			decided.add(input.requestId);
 			return json({
 				request: {
@@ -256,17 +260,47 @@ try {
 			});
 			const page = await context.newPage();
 			page.setDefaultTimeout(PAGE_TIMEOUT_MS);
-			await fixture(page);
-			await page.goto(`${origin}/work?view=deck`);
+			// Hold the first inbox read until the skeleton is visible.
+			const inbox = Promise.withResolvers<void>();
+			const skeleton = page.locator(
+				'[data-workspace-app-entry="decision-deck"] [data-slot="skeleton"]',
+			);
+			try {
+				await fixture(page, { loading: inbox.promise });
+				await page.goto(`${origin}/work?view=deck`);
+				await skeleton.waitFor();
+				assert.equal(
+					await skeleton.count(),
+					1,
+					"one placeholder in the card region",
+				);
+				assert(
+					!/Loading decisions…|Loading approval…/.test(
+						await page.locator("body").innerText(),
+					),
+					"no stacked loading labels",
+				);
+				const bounds = await skeleton.boundingBox();
+				assert(
+					bounds && bounds.x >= 0 && bounds.width > 0,
+					"placeholder's leading edge stays visible",
+				);
+				await assertNoOverflow(page, `${width} ${colorScheme} loading`);
+				if (screenshots)
+					await page.screenshot({
+						path: `${screenshots}/deck-progress-loading-${width}-${colorScheme}.png`,
+					});
+			} finally {
+				inbox.resolve();
+			}
+			await skeleton.waitFor({ state: "hidden" });
 			await page
 				.getByRole("region", { name: "Review card 1?", exact: true })
 				.waitFor();
 			const progress = page.locator("[data-deck-progress]");
 			const tab = page.getByRole("link", { name: /^Decisions/ });
 			const checkState = async (state: string) => {
-				await page.waitForTimeout(
-					screenshots && state === "finished" ? 5000 : 250,
-				);
+				await settleAnimations(page, "[data-deck-progress]");
 				assert(
 					await progress.locator("p").evaluate((element) => {
 						const range = document.createRange();
@@ -284,7 +318,10 @@ try {
 						path: `${screenshots}/deck-progress-${state}-${width}-${colorScheme}.png`,
 					});
 			};
-			assert.equal(await progress.locator("p").innerText(), "1 of 20");
+			assert.equal(
+				await progress.locator("p").innerText(),
+				`1 of ${cardCount}`,
+			);
 			/** Work bar total and card progress read one count of undecided cards. */
 			const assertCountsAgree = async (state: string) => {
 				const bar = page.getByRole("progressbar", {
@@ -316,7 +353,7 @@ try {
 				.waitFor();
 			assert.equal(
 				await progress.locator("p").innerText(),
-				"3 of 20",
+				`3 of ${cardCount}`,
 				"optimistic progress keeps its denominator",
 			);
 			assert.equal(
@@ -329,7 +366,7 @@ try {
 				await page
 					.getByRole("progressbar", { name: "Decision progress" })
 					.getAttribute("aria-valuemax"),
-				"20",
+				String(cardCount),
 			);
 			await assertCountsAgree("mid-deck");
 			await checkState("mid-deck");
@@ -341,25 +378,23 @@ try {
 					.click();
 			await search.fill("Review");
 			if (width < 640) await page.keyboard.press("Escape");
-			await page.waitForTimeout(650);
+			await progress
+				.getByText(`3 of ${reviewCount} · filtered`, { exact: true })
+				.waitFor();
 			assert.equal(
-				await progress.locator("p").innerText(),
-				"3 of 7 · filtered",
-			);
-			assert.match(
-				await tab.innerText(),
-				/18/,
+				(await tab.innerText()).match(/\d+/)?.[0],
+				String(cardCount - 2),
 				"filter does not change the toolbar total",
 			);
 			await checkState("filtered");
-			for (let n = 3; n <= 7; n++)
+			for (let n = 3; n <= reviewCount; n++)
 				await page
 					.getByRole("region", { name: `Review card ${n}?`, exact: true })
 					.getByRole("button", { name: /^Approve/ })
 					.click();
 			await page
 				.getByRole("heading", {
-					name: "All 7 done in this filter — nice.",
+					name: `All ${reviewCount} done in this filter — nice.`,
 					exact: true,
 				})
 				.waitFor();
@@ -368,16 +403,22 @@ try {
 				.getByRole("button", { name: "Clear filters", exact: true })
 				.click();
 			await page
-				.getByRole("region", { name: "Planning card 8?", exact: true })
+				.getByRole("region", {
+					name: `Planning card ${reviewCount + 1}?`,
+					exact: true,
+				})
 				.waitFor();
 			await checkState("filters-cleared");
-			for (let n = 8; n <= 20; n++)
+			for (let n = reviewCount + 1; n <= cardCount; n++)
 				await page
 					.getByRole("region", { name: `Planning card ${n}?`, exact: true })
 					.getByRole("button", { name: /^Approve/ })
 					.click();
 			await page
-				.getByRole("heading", { name: "All 20 done — nice.", exact: true })
+				.getByRole("heading", {
+					name: `All ${cardCount} done — nice.`,
+					exact: true,
+				})
 				.waitFor();
 			assert.equal(
 				await page
@@ -387,59 +428,13 @@ try {
 			);
 			await checkState("finished");
 			await context.close();
-			const loading = await browser.newContext({
-				viewport: { width, height },
-				colorScheme,
-			});
-			const loadingPage = await loading.newPage();
-			loadingPage.setDefaultTimeout(PAGE_TIMEOUT_MS);
-			// Prefetch can finish before the lazy Deck mounts on a slow runner.
-			// Keep the inbox pending until its loading state has been checked.
-			const inbox = Promise.withResolvers<void>();
-			try {
-				await fixture(loadingPage, { loading: inbox.promise });
-				await loadingPage.goto(`${origin}/work?view=deck`);
-				const skeleton = loadingPage.locator(
-					'[data-workspace-app-entry="decision-deck"] [data-slot="skeleton"]',
-				);
-				await skeleton.waitFor();
-				assert.equal(
-					await skeleton.count(),
-					1,
-					"one placeholder in the card region",
-				);
-				assert(
-					!/Loading decisions…|Loading approval…/.test(
-						await loadingPage.locator("body").innerText(),
-					),
-					"no stacked loading labels",
-				);
-				const bounds = await skeleton.boundingBox();
-				assert(
-					bounds && bounds.x >= 0 && bounds.width > 0,
-					"placeholder's leading edge stays visible",
-				);
-				await assertNoOverflow(loadingPage, `${width} ${colorScheme} loading`);
-				if (screenshots)
-					await loadingPage.screenshot({
-						path: `${screenshots}/deck-progress-loading-${width}-${colorScheme}.png`,
-					});
-				inbox.resolve();
-				await loadingPage
-					.getByRole("region", { name: "Review card 1?", exact: true })
-					.waitFor();
-				await skeleton.waitFor({ state: "hidden" });
-			} finally {
-				inbox.resolve();
-				await loadingPage.unrouteAll({ behavior: "wait" });
-				await loading.close();
-			}
 			console.log(`Deck progress: ${width} ${colorScheme} passed`);
 		}
 	if (!selectedWidth || (selectedWidth === 1280 && selectedTheme === "dark")) {
 		const page = await browser.newPage();
 		page.setDefaultTimeout(PAGE_TIMEOUT_MS);
-		await fixture(page, { failure: true });
+		const save = Promise.withResolvers<void>();
+		await fixture(page, { failedSave: save.promise });
 		await page.goto(`${origin}/work?view=deck`);
 		const first = page.getByRole("region", {
 			name: "Review card 1?",
@@ -447,11 +442,15 @@ try {
 		});
 		const original = await first.elementHandle();
 		await first.getByRole("button", { name: /^Approve/ }).click();
-		assert.equal(
-			await page.locator("[data-deck-progress] p").innerText(),
-			"1 of 20",
-			"pending saves keep the deciding card mounted",
-		);
+		try {
+			assert.equal(
+				await page.locator("[data-deck-progress] p").innerText(),
+				`1 of ${cardCount}`,
+				"pending saves keep the deciding card mounted",
+			);
+		} finally {
+			save.resolve();
+		}
 		await page
 			// The card states the failure inline, with its next step.
 			.getByText(/Fictional save failed/)
@@ -460,7 +459,7 @@ try {
 		await first.waitFor();
 		assert.equal(
 			await page.locator("[data-deck-progress] p").innerText(),
-			"1 of 20",
+			`1 of ${cardCount}`,
 			"failed save preserves progress and card",
 		);
 		assert(

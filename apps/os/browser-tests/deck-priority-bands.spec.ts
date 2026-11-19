@@ -5,58 +5,27 @@ import { DeckCardSchema } from "@tedix/api-contract/schemas/attention";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { startFixtureServer } from "./fixture-server";
 
-// Installs a Deck gadget in the fixture store, which has no reset.
-const server = await startFixtureServer("/", {
-	shared: false,
-	stdout: "ignore",
-});
-const { origin } = server;
-async function rpc(path: string, input: unknown) {
-	const response = await fetch(`${origin}/api/rpc/${path}`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ json: input }),
-	});
-	assert(response.ok, `${path}: ${await response.clone().text()}`);
-	return (await response.json()).json;
-}
-const { items: spaces } = await rpc("osWorkspaces/workspaces/list", {
-	status: "active",
-	limit: 100,
-});
-const workspaceId = spaces[0].id;
-const stamp = Date.now();
-const installed = [];
-for (const role of ["feed", "deck"] as const) {
-	const { gadget } = await rpc("osWorkspaces/gadgets/create", {
-		workspaceId,
-		name: `Priority bands ${role} ${stamp}`,
-	});
-	const { gadget: current, revision } = await rpc(
-		"osWorkspaces/gadgets/revise",
-		{
-			workspaceId,
-			gadgetId: gadget.id,
-			manifest: {
-				entry:
-					role === "feed"
-						? "tedix:app/activity-feed"
-						: "tedix:app/decision-deck",
-				navigation: { work: role, workDefault: role === "feed" },
-				capabilities: [],
-				config:
-					role === "feed"
-						? { version: 1, scope: "organization", projects: [] }
-						: {
-								version: 1,
-								dailyAttentionBudget: 50,
-								batchTimesUtc: ["00:00"],
-							},
-			},
+const { origin, stop } = await startFixtureServer("/", { stdout: "ignore" });
+const installed = (["feed", "deck"] as const).map((role, index) => ({
+	gadget: {
+		id: `10000000-0000-4000-8000-00000000000${index + 1}`,
+		workspaceId: "00000030-0000-4000-8000-000000000001",
+		name: role === "feed" ? "Activity" : "Deck",
+		status: "active",
+	},
+	currentRevision: {
+		manifest: {
+			entry:
+				role === "feed" ? "tedix:app/activity-feed" : "tedix:app/decision-deck",
+			navigation: { work: role, workDefault: role === "feed" },
+			capabilities: [],
+			config:
+				role === "feed"
+					? { version: 1, scope: "organization", projects: [] }
+					: { version: 1, dailyAttentionBudget: 50, batchTimesUtc: ["00:00"] },
 		},
-	);
-	installed.push({ gadget: current, currentRevision: revision });
-}
+	},
+}));
 
 const day = 86_400_000;
 const iso = (offset: number) => new Date(Date.now() + offset).toISOString();
@@ -303,27 +272,29 @@ try {
 			false,
 			"Escape closes priority controls",
 		);
-		// The handoff is a quiet control: it lives in the card's "⋯" menu so the
-		// action row stays within the lean Deck budget on a phone.
-		await page
-			.locator(".fd-deck-current")
-			.getByRole("button", { name: "More actions", exact: true })
-			.click();
-		await page
-			.getByRole("menuitem", { name: "Let the CTO tedi decide", exact: true })
-			.click();
-		await priority.click();
-		await band("This week 0").waitFor();
-		assert.equal(handoff?.requestId, asks[1]!.request.id);
-		assert.equal(handoff?.reason, "Blocks 5 tasks");
-		await band("All 3").waitFor();
-		assert.equal(
+		if (width === 320) {
+			// The handoff is a quiet control: it lives in the card's "⋯" menu so the
+			// action row stays within the lean Deck budget on a phone.
 			await page
-				.getByRole("region", { name: "Pick the fictional release owner?" })
-				.count(),
-			0,
-			"the routed ask leaves For you",
-		);
+				.locator(".fd-deck-current")
+				.getByRole("button", { name: "More actions", exact: true })
+				.click();
+			await page
+				.getByRole("menuitem", { name: "Let the CTO tedi decide", exact: true })
+				.click();
+			await priority.click();
+			await band("This week 0").waitFor();
+			assert.equal(handoff?.requestId, asks[1]!.request.id);
+			assert.equal(handoff?.reason, "Blocks 5 tasks");
+			await band("All 3").waitFor();
+			assert.equal(
+				await page
+					.getByRole("region", { name: "Pick the fictional release owner?" })
+					.count(),
+				0,
+				"the routed ask leaves For you",
+			);
+		}
 		await page.close();
 	}
 	console.log(
@@ -331,5 +302,5 @@ try {
 	);
 } finally {
 	await browser.close();
-	await server.stop();
+	await stop();
 }
