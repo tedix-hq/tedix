@@ -207,6 +207,13 @@ export default defineConfig(({ mode }) => {
 				),
 				// Resolves base-domain MCP requests to this app slug in local runs.
 				DEFAULT_APP_SLUG: bindings.text(""),
+				// managed, external or disabled, matching the API. Only managed
+				// installations charge a credit per code run.
+				TEDIX_BILLING_SETTLEMENT_MODE: bindings.text(
+					local
+						? "disabled"
+						: live.vars("mcp", "TEDIX_BILLING_SETTLEMENT_MODE", PLACEHOLDER),
+				),
 				// Opts out of the Skybridge runtime's telemetry counter.
 				DO_NOT_TRACK: bindings.text(
 					live.vars("mcp", "DO_NOT_TRACK", PLACEHOLDER),

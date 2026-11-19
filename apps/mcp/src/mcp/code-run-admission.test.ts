@@ -7,7 +7,10 @@ vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 const { admitCodeModeRun, codeRunRefusalMessage } =
 	await import("./code-run-admission");
 
-const env = { DB: {} as D1Database };
+const env = {
+	DB: {} as D1Database,
+	TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+};
 
 describe("code run admission", () => {
 	beforeEach(() => admitCodeRun.mockReset());
@@ -77,7 +80,7 @@ describe("code run admission", () => {
 	it("fails closed without an organization or database", async () => {
 		await expect(
 			admitCodeModeRun({
-				env: {},
+				env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
 				organizationId: "org-1",
 				executionId: "exec-4",
 				caller: undefined,
@@ -97,6 +100,38 @@ describe("code run admission", () => {
 			allowed: false,
 			code: "billing_not_configured",
 		});
+		expect(admitCodeRun).not.toHaveBeenCalled();
+	});
+
+	it("starts runs without admission when the installation does not settle billing", async () => {
+		for (const mode of ["external", "disabled"]) {
+			await expect(
+				admitCodeModeRun({
+					// A self-hosted installation may have no billing account at all.
+					env: { TEDIX_BILLING_SETTLEMENT_MODE: mode },
+					organizationId: null,
+					executionId: `exec-${mode}`,
+					caller: undefined,
+				}),
+			).resolves.toEqual({ allowed: true });
+		}
+		expect(admitCodeRun).not.toHaveBeenCalled();
+	});
+
+	it("fails closed when the settlement mode is missing or unknown", async () => {
+		for (const mode of [undefined, "", "configured-via-private-overlay"]) {
+			await expect(
+				admitCodeModeRun({
+					env: { DB: env.DB, TEDIX_BILLING_SETTLEMENT_MODE: mode },
+					organizationId: "org-1",
+					executionId: "exec-6",
+					caller: { authType: "user", userId: "user-1" },
+				}),
+			).resolves.toMatchObject({
+				allowed: false,
+				code: "billing_settlement_mode_missing",
+			});
+		}
 		expect(admitCodeRun).not.toHaveBeenCalled();
 	});
 });
