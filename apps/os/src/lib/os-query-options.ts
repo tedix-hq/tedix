@@ -1,5 +1,7 @@
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { osApi } from "@/lib/api";
+import { readWorkRunSteps, WORK_RUN_STEP_PAGE } from "@/lib/work-run-steps";
 import {
 	loadAppRuntimeCode,
 	type AppRuntimeLoadedCode,
@@ -715,45 +717,29 @@ export const workItemAttemptsQueryOptions = (
 		},
 	});
 
-/** The most steps one read returns; the contract's upper limit. */
-const WORK_RUN_STEP_PAGE = 500;
-/** Reads stop here, so a very long run cannot grow one poll without bound. */
-const WORK_RUN_STEP_PAGES = 10;
-
 /**
- * The steps and messages of the newest run on a Work Item. The contract
- * returns steps oldest first, so a run longer than one page is read to its
- * end: the page shows the newest step, not the 500th.
+ * The steps and messages of the newest run on a Work Item. The first read
+ * loads the whole run; every later read asks only for the steps after the
+ * last one in the cache and adds them (see `readWorkRunSteps`).
  */
-export const workItemRunStepsQueryOptions = (id: string) => ({
-	...osQuery.workItems.listAttemptSteps.queryOptions({
+export const workItemRunStepsQueryOptions = (id: string) => {
+	const options = osQuery.workItems.listAttemptSteps.queryOptions({
 		input: { id, limit: WORK_RUN_STEP_PAGE },
-	}),
-	queryFn: async () => {
-		const first = await osApi.workItems.listAttemptSteps({
-			id,
-			limit: WORK_RUN_STEP_PAGE,
-		});
-		let latest = first;
-		const steps = [...first.steps];
-		for (
-			let page = 1;
-			page < WORK_RUN_STEP_PAGES &&
-			latest.steps.length === WORK_RUN_STEP_PAGE &&
-			first.attemptId;
-			page++
-		) {
-			latest = await osApi.workItems.listAttemptSteps({
-				id,
-				attemptId: first.attemptId,
-				afterSeq: steps[steps.length - 1]!.seq,
-				limit: WORK_RUN_STEP_PAGE,
-			});
-			steps.push(...latest.steps);
-		}
-		return { ...latest, attemptId: first.attemptId, steps };
-	},
-});
+	});
+	return {
+		...options,
+		queryFn: ({ client }: { client: QueryClient }) =>
+			readWorkRunSteps(
+				(page) =>
+					osApi.workItems.listAttemptSteps({
+						id,
+						limit: WORK_RUN_STEP_PAGE,
+						...page,
+					}),
+				client.getQueryData(options.queryKey),
+			),
+	};
+};
 
 export const repositoryCandidateQueryOptions = (
 	id: string,

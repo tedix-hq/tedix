@@ -5,7 +5,14 @@ import type {
 	WorkAttemptStepKind,
 } from "@tedix/api-contract/schemas/work-attempt-steps";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	memo,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/kumo/button";
 import { Label } from "@/components/kumo/label";
@@ -24,6 +31,7 @@ import { osLocale, osTimeZone, useOsFormattingPreferences } from "@/lib/format";
 import { errorMessage } from "@/lib/orpc-error";
 import {
 	osQuery,
+	userProfileQueryOptions,
 	workItemAttemptsQueryOptions,
 	workItemRunStepsQueryOptions,
 } from "@/lib/os-query-options";
@@ -108,8 +116,13 @@ function senderLabel(
 	message: WorkAttemptMessage,
 	ownMessageIds: ReadonlySet<string>,
 	names?: ReadonlyMap<string, string>,
+	viewerId?: string,
 ): string {
-	if (ownMessageIds.has(message.id)) return "You";
+	if (
+		ownMessageIds.has(message.id) ||
+		(message.senderType === "user" && message.senderId === viewerId)
+	)
+		return "You";
 	const known = names?.get(`${message.senderType}:${message.senderId}`);
 	if (known) return known;
 	if (message.senderType === "user") return "Team member";
@@ -143,29 +156,38 @@ export function workRunStatus(
 	return `Stopped reporting${lastUpdate ? `, last update ${relativeTime(lastUpdate, now)}` : ""}`;
 }
 
-function RunEntryRow({
-	entry,
+/**
+ * Memoized on the step or message itself, which a refresh keeps as the same
+ * object: a refresh that adds a step leaves the rows above it alone.
+ */
+const RunEntryRow = memo(function RunEntryRow({
+	at,
+	step,
+	message,
 	live,
 	ownMessageIds,
 	names,
+	viewerId,
 }: {
-	entry: RunEntry;
+	at: number;
+	step?: WorkAttemptStep;
+	message?: WorkAttemptMessage;
 	live: boolean;
 	ownMessageIds: ReadonlySet<string>;
 	names?: ReadonlyMap<string, string>;
+	viewerId?: string;
 }) {
 	const time = (
 		<Text as="span" role="label" tone="mono-secondary" className="pt-0.5">
 			<time
-				dateTime={new Date(entry.at).toISOString()}
-				title={absoluteTime(new Date(entry.at).toISOString())}
+				dateTime={new Date(at).toISOString()}
+				title={absoluteTime(new Date(at).toISOString())}
 			>
-				{clockTime(entry.at)}
+				{clockTime(at)}
 			</time>
 		</Text>
 	);
-	if ("step" in entry) {
-		const { step } = entry;
+	if (step) {
 		return (
 			<li
 				className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3"
@@ -194,8 +216,8 @@ function RunEntryRow({
 			</li>
 		);
 	}
-	const { message } = entry;
-	const sender = senderLabel(message, ownMessageIds, names);
+	if (!message) return null;
+	const sender = senderLabel(message, ownMessageIds, names, viewerId);
 	const waiting =
 		message.kind === "follow_up" && message.appliedAt === null
 			? live
@@ -227,7 +249,9 @@ function RunEntryRow({
 			</div>
 		</li>
 	);
-}
+});
+
+const NO_OWN_MESSAGES: ReadonlySet<string> = new Set();
 
 /**
  * The newest run of a task: what the agent did, oldest first, with the
@@ -238,7 +262,8 @@ export function WorkItemRunView({
 	run,
 	attempt,
 	names,
-	ownMessageIds = new Set(),
+	viewerId,
+	ownMessageIds = NO_OWN_MESSAGES,
 	onSend,
 	sending = false,
 	sendError,
@@ -250,7 +275,9 @@ export function WorkItemRunView({
 	attempt?: WorkRunAttempt;
 	/** `type:id` to display name. */
 	names?: ReadonlyMap<string, string>;
-	/** Messages this reader sent from this page; they read as "You". */
+	/** The signed-in person; their own messages read as "You". */
+	viewerId?: string;
+	/** Messages sent from this page; "You" before the profile has loaded. */
 	ownMessageIds?: ReadonlySet<string>;
 	/** Resolves once the follow-up is stored; the draft is cleared then. */
 	onSend?: (body: string) => Promise<unknown>;
@@ -265,7 +292,11 @@ export function WorkItemRunView({
 	const [confirmStop, setConfirmStop] = useState(false);
 	const list = useRef<HTMLUListElement>(null);
 	const followNewest = useRef(true);
-	const entries = workRunEntries(run);
+	const { steps, messages } = run;
+	const entries = useMemo(
+		() => workRunEntries({ steps, messages }),
+		[steps, messages],
+	);
 	const stopRequested = run.messages.some((message) => message.kind === "stop");
 	const fieldId = `work-run-follow-up-${run.attemptId ?? "none"}`;
 
@@ -302,10 +333,13 @@ export function WorkItemRunView({
 					{entries.map((entry) => (
 						<RunEntryRow
 							key={entry.key}
-							entry={entry}
+							at={entry.at}
+							step={"step" in entry ? entry.step : undefined}
+							message={"message" in entry ? entry.message : undefined}
 							live={run.live}
 							ownMessageIds={ownMessageIds}
 							names={names}
+							viewerId={viewerId}
 						/>
 					))}
 				</Collection>
@@ -382,8 +416,9 @@ export function WorkItemRunView({
 
 /**
  * The Run section of the task page. It appears once the newest Attempt has
- * reported a step or is in progress, refreshes every few seconds while the
- * run is in progress, and reads once more when the run ends.
+ * reported a step or is in progress. While the run is in progress it asks
+ * every few seconds for the steps after the last one shown, and it reads
+ * once more when the run ends.
  */
 export function WorkItemRunSection({
 	itemId,
@@ -400,6 +435,8 @@ export function WorkItemRunSection({
 			query.state.data?.live ? RUN_REFRESH_MS : false,
 	});
 	const attempts = useQuery(workItemAttemptsQueryOptions(itemId));
+	// Already loaded by the shell; this adds a reader, not a request.
+	const viewer = useQuery(userProfileQueryOptions());
 	const [ownMessageIds, setOwnMessageIds] = useState<ReadonlySet<string>>(
 		() => new Set(),
 	);
@@ -447,6 +484,7 @@ export function WorkItemRunSection({
 				(run.data.attemptId ? undefined : newest?.[0])
 			}
 			names={names}
+			viewerId={viewer.data?.id}
 			ownMessageIds={ownMessageIds}
 			onSend={(body) => send.mutateAsync(body)}
 			sending={send.isPending}

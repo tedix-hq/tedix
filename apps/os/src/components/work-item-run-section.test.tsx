@@ -43,10 +43,8 @@ const page = (element: React.ReactElement) =>
 describe("WorkItemRunView", () => {
 	it("lists steps oldest first with the follow-up where it was sent", () => {
 		const doc = page(
-			<WorkItemRunView
-				run={run()}
-				ownMessageIds={new Set(["55555555-5555-4555-8555-555555555555"])}
-			/>,
+			// The viewer's id alone names their follow-up, as after a reload.
+			<WorkItemRunView run={run()} viewerId="user-1" />,
 		);
 		const rows = [...doc.querySelectorAll("[aria-label='Run steps'] > li")].map(
 			(row) => row.textContent ?? "",
@@ -92,6 +90,7 @@ describe("WorkItemRunView", () => {
 						},
 					],
 				}}
+				viewerId="user-2"
 			/>,
 		);
 		const text = doc.body.textContent ?? "";
