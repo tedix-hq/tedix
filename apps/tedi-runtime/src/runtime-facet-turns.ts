@@ -176,6 +176,7 @@ import { createWebSearchAiTools } from "./web-search-tool";
 import { withTimeout } from "./with-timeout";
 import { createWorkApprovalAiTools as workAiTools } from "./work-approval-tools";
 import { delegatedWorkTools } from "./delegated-work-tools";
+import { agentRunTools } from "./agent-run-tools";
 import {
 	RuntimeAdmissionDO,
 	readStoredRuntimeAdmission,
@@ -1195,6 +1196,16 @@ export const runtimeFacetTurns = {
 			...this.workspaceAiTools(computerScope, computerTurnContext),
 			...(mcpRuntime ? tedixMcpAITools(mcpRuntime, turnBinding) : {}),
 			...workAiTools(() => this.getPlatformClient()),
+			// A delegated child works on the task Home gave it; only a tedi in its
+			// own conversation starts and steers agent runs.
+			...(supervised
+				? {}
+				: agentRunTools({
+						getPlatform: () => this.getPlatformClient(),
+						sessionKey: input.sessionKey,
+						conversationId: input.conversationId,
+						runId: input.runId,
+					})),
 			...(supervised &&
 			this.state.tediId &&
 			this.state.orgId &&

@@ -12,7 +12,8 @@ import {
 	type StewardCloseoutTargets,
 } from "@tedix/api-contract/schemas/work-items";
 
-function safeFailureReason(error: unknown): string {
+/** The server's own reason when it gave one, bounded and scrubbed. */
+export function safeFailureReason(error: unknown): string {
 	let message = "Work API is unavailable";
 	if (error instanceof RpcCallError) {
 		message = `Work API rejected the request (HTTP ${error.status})`;
