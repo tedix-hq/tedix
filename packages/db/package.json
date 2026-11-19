@@ -535,7 +535,6 @@
 		"./pg/queries/organization-members": "./src/pg/queries/organization-members.ts",
 		"./pg/queries/principal-identities": "./src/pg/queries/principal-identities.ts",
 		"./pg/queries/work-items": "./src/pg/queries/work-items.ts",
-		"./pg/queries/billing/spending": "./src/pg/queries/billing/spending.ts",
 		"./pg/queries/billing/stripe-webhooks": "./src/pg/queries/billing/stripe-webhooks.ts",
 		"./pg/queries/billing/usage-window": "./src/pg/queries/billing/usage-window.ts",
 		"./pg/queries/billing-service-credits": "./src/pg/queries/billing-service-credits.ts",

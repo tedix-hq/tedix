@@ -416,13 +416,12 @@ export const HomeRunUsageSchema = z.object({
 export type HomeRunUsage = z.infer<typeof HomeRunUsageSchema>;
 
 /**
- * Settled EUR credit charges recorded for one delegated run's own model calls.
- * Omitted until settlement has recorded a charge for the child run; absent is
- * never a known zero.
+ * Tedix credits recorded for one delegated run's own model calls. Omitted
+ * until settlement has recorded a credit consumption for the child run; absent
+ * is never a known zero.
  */
 export const HomeRunSettledChargeSchema = z.object({
-	currency: z.literal("eur"),
-	chargedMicros: z.number().int().nonnegative().safe(),
+	credits: z.number().int().nonnegative().safe(),
 	chargeCount: z.number().int().positive(),
 });
 export type HomeRunSettledCharge = z.infer<typeof HomeRunSettledChargeSchema>;
@@ -456,7 +455,7 @@ export const HomeRunSchema = z.object({
 	 * (delegated/queued runs, fail-soft turns, or pre-migration run rows).
 	 */
 	usage: HomeRunUsageSchema.optional(),
-	/** The delegated child run's own settled EUR charges, once any have settled. */
+	/** The delegated child run's own Tedix credits, once any have settled. */
 	settledCharge: HomeRunSettledChargeSchema.optional(),
 	metadata: RuntimeMetadataSchema.optional(),
 });
@@ -582,14 +581,13 @@ export const ReadHomeConversationChargesInputSchema = z.object({
 });
 
 /**
- * Settled EUR credit charges for a conversation's runs (and their delegated
- * child runs). Credits are EUR-native, so this is what the conversation cost
- * the organization, not a provider USD estimate. Unsettled or token-plan
- * usage is not counted; `chargeCount` 0 means nothing has settled yet.
+ * Tedix credits recorded for a conversation's runs (and their delegated child
+ * runs): what the conversation used from the organization's credit pool.
+ * Unsettled usage is not counted; `chargeCount` 0 means nothing has settled
+ * yet.
  */
 export const HomeConversationChargesSchema = z.object({
-	currency: z.literal("eur"),
-	chargedMicros: z.number().int().nonnegative().safe(),
+	credits: z.number().int().nonnegative().safe(),
 	chargeCount: z.number().int().nonnegative(),
 	runCount: z.number().int().nonnegative(),
 });
