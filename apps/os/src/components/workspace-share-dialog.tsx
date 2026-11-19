@@ -221,6 +221,8 @@ function knockOnText(
 type PendingRemoval = {
 	target: OsCollaboratorTarget;
 	label: string;
+	/** A tedi is "it"; a person, or the people behind a link, are "they". */
+	tedi?: boolean;
 	affected: OsAffectedCollaborator[];
 	keep: Set<string>;
 };
@@ -756,7 +758,11 @@ function WorkspaceAccess(props: {
 				} catch (error) {
 					result.failed.push({
 						email: address,
-						message: inviteFailureText(address, error),
+						// A tedi is chosen by name; its id means nothing to a person.
+						message: inviteFailureText(
+							tedi ? personLabel(tedi) : address,
+							error,
+						),
 					});
 				}
 			}
@@ -874,6 +880,7 @@ function WorkspaceAccess(props: {
 		mutationFn: async (input: {
 			target: OsCollaboratorTarget;
 			label: string;
+			tedi?: boolean;
 		}) => {
 			const { affected } = await osApi.osCollaborators.previewRemove({
 				workspaceId,
@@ -1022,6 +1029,11 @@ function WorkspaceAccess(props: {
 	const roleOptions: OsCollaboratorRole[] = canGrantBuild
 		? ["use", "build"]
 		: ["use"];
+	const added = invited?.added ?? [];
+	const addedNames = nameList(added.map(personLabel));
+	const addedTedis = added.filter(
+		(person) => person.principalKind === "tedi",
+	).length;
 
 	return (
 		<>
@@ -1074,7 +1086,7 @@ function WorkspaceAccess(props: {
 						autoComplete="off"
 						autoCapitalize="off"
 						spellCheck={false}
-						placeholder="Names or email addresses, separated by commas"
+						placeholder="Names or emails, separated by commas"
 						value={email}
 						onChange={(event) => setEmail(event.target.value)}
 						onKeyDown={(event) => {
@@ -1146,14 +1158,24 @@ function WorkspaceAccess(props: {
 							))}
 						</ul>
 					) : null}
-					{invited?.added.length ? (
+					{added.length === 0 ? null : addedTedis === added.length ? (
+						// A tedi gets no notice and opens no link: it has access now.
+						<Text
+							role="label"
+							tone="secondary"
+							className="m-0"
+							data-invited-tedis
+						>
+							{`Added ${addedNames}. ${addedTedis === 1 ? "It has" : "They have"} access to this workspace now.`}
+						</Text>
+					) : (
 						<div data-invited-link>
 							<FreshLink
-								title={`Added ${nameList(invited.added.map(personLabel))}. Tedix tells them; you can also send this link`}
+								title={`Added ${addedNames}. Tedix tells ${addedTedis ? "the people" : "them"}; you can also send this link`}
 								url={workspaceAddress(origin, workspaceId)}
 							/>
 						</div>
-					) : null}
+					)}
 				</div>
 			</form>
 
@@ -1231,6 +1253,7 @@ function WorkspaceAccess(props: {
 														preview.mutate({
 															target: { kind: "user", userId: person.userId },
 															label: personLabel(person),
+															tedi: person.principalKind === "tedi",
 														})
 													}
 												>
@@ -1752,7 +1775,9 @@ function RemovalConfirm(props: {
 				<p className="m-0">
 					{isLink
 						? "The link stops working. People who joined only through it lose access."
-						: "They lose the access you gave them."}
+						: pending.tedi
+							? "It loses the access you gave it."
+							: "They lose the access you gave them."}
 				</p>
 				{removed.length > 0 ? (
 					<p className="m-0">

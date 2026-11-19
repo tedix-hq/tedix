@@ -591,6 +591,11 @@ describe("WorkspaceShareDialog", () => {
 				role: "use",
 			});
 			expect(chips(container)).toEqual([]);
+			// A tedi is not told and opens no link, so none is offered to send.
+			expect(container.querySelector("[data-invited-link]")).toBeNull();
+			expect(container.querySelector("[data-invited-tedis]")?.textContent).toBe(
+				"Added Research helper. It has access to this workspace now.",
+			);
 			collaborators.list.mockResolvedValue({
 				role: "build",
 				isOwner: false,
@@ -605,6 +610,34 @@ describe("WorkspaceShareDialog", () => {
 					?.textContent,
 			).toContain("Tedi");
 			expect(listed.querySelector('[aria-label="Tedi"]')).not.toBeNull();
+		});
+
+		it("names a tedi that could not be added, never its id", async () => {
+			const helper = {
+				userId: "12345678-1234-4234-8234-123456789abc",
+				email: "",
+				name: "Research helper",
+				principalKind: "tedi",
+			};
+			collaborators.suggestPeople.mockResolvedValue({ people: [helper] });
+			collaborators.add.mockRejectedValue(
+				new Error("No active tedi in this workspace's organization"),
+			);
+			const container = renderDialog();
+			await flush();
+			const field = emailField(container);
+			setValue(field, "Research");
+			await settleSearch();
+			press(field, "Enter");
+			await act(async () => button(container, "Invite").click());
+			await flush();
+			const failures = container.querySelector("[data-invite-failures]");
+			expect(failures?.textContent).toBe(
+				"Research helper: No active tedi in this workspace's organization",
+			);
+			expect(container.textContent).not.toContain(helper.userId);
+			// It stays chosen, to try again or remove.
+			expect(chips(container)).toEqual(["Remove Research helper · Tedi"]);
 		});
 
 		it("suggests colleagues for part of a name and turns the chosen one into a chip", async () => {
