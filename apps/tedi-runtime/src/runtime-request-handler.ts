@@ -119,6 +119,7 @@ import {
 	handleEmbeddedWarmRequest,
 } from "./embedded-internal-routes";
 import { embeddedTurnQuotaFromPayload } from "./embedded-turn-quota";
+import { personChatConversationForInject } from "./agent-run-tools";
 import { trustedInstructionOriginForInject } from "./inference-guardrails";
 import { buildRunId, buildWorkflowInstanceId } from "./ledger-mirror";
 import { recordDirectMcpAuditEvent } from "./mcp-audit";
@@ -909,6 +910,10 @@ export async function handleRuntimeRequest(
 						metadata.homeRunId.trim().length > 0
 							? metadata.homeRunId.trim()
 							: undefined;
+					const personChatConversationId = personChatConversationForInject(
+						metadata,
+						callerTrust,
+					);
 					const parsedExecutionSurface = ExecutionSurfaceSchema.safeParse(
 						metadata?.executionSurface,
 					);
@@ -1074,6 +1079,9 @@ export async function handleRuntimeRequest(
 								executionRestriction,
 								workItemId,
 								homeRunId,
+								...(personChatConversationId
+									? { personChatConversationId }
+									: {}),
 								personalRequest: metadata?.personalRequest === true,
 								executionSurface,
 								repositoryMode,

@@ -7,6 +7,7 @@ import { workAttempts } from "@tedix/db/schema/work-items";
 import { createWorkItem } from "@tedix/db/queries/work-items/crud";
 import type { BaseContext } from "../rpc/orpc";
 import {
+	agentRunEndedHomeMessage,
 	agentRunEndedMessage,
 	notifyAgentRunEnded,
 } from "./agent-run-ended-notice";
@@ -155,6 +156,74 @@ describe("agent run ended notice", () => {
 		await expect(
 			notifyAgentRunEnded(context, work, attempt, enqueue),
 		).resolves.toBe("failed");
+		expect(enqueue).not.toHaveBeenCalled();
+	});
+
+	it("reports once to Home in the person's chat when a tedi picked there started the run", async () => {
+		const { db, work, attempt, context, enqueue } = await fixture({
+			sourceSessionKey: "home:os:chat-7",
+		});
+		const enqueueHome = vi.fn(async () => ({ status: "queued" }));
+		await expect(
+			notifyAgentRunEnded(context, work, attempt, enqueue, enqueueHome),
+		).resolves.toBe("sent");
+		await expect(
+			notifyAgentRunEnded(context, work, attempt, enqueue, enqueueHome),
+		).resolves.toBe("skipped");
+		expect(enqueue).not.toHaveBeenCalled();
+		expect(enqueueHome).toHaveBeenCalledTimes(1);
+		const [sentContext, message] = enqueueHome.mock.calls[0] as unknown as [
+			BaseContext,
+			unknown,
+		];
+		expect(message).toEqual({
+			organizationId: "org",
+			conversationId: "home:os:chat-7",
+			idempotencyKey: "agent-run-ended-attempt-1",
+			content: `[System: an agent run that a tedi started from this chat has ended. Tell the person the result. Do not start new work.] The run for "Rename the button" ended: succeeded. Changed the label. Tests pass. Task: /work/items/${workItemId}`,
+		});
+		expect(sentContext).toMatchObject({
+			authType: "service-binding",
+			organizationId: "org",
+		});
+		expect(sentContext.userId).toBeUndefined();
+		const [row] = await db.select().from(workAttempts);
+		expect(row!.metadata).not.toEqual({});
+	});
+
+	it.each([
+		["no tedi steward", { steward: false }],
+		["a tedi executor", { executorType: "tedi" as const }],
+	])(
+		"sends nothing to the person's chat for Work with %s",
+		async (_name, options) => {
+			const { work, attempt, context, enqueue } = await fixture({
+				sourceSessionKey: "home:os:chat-7",
+				...options,
+			});
+			const enqueueHome = vi.fn(async () => ({ status: "queued" }));
+			expect(agentRunEndedHomeMessage(work, attempt)).toBeNull();
+			await expect(
+				notifyAgentRunEnded(context, work, attempt, enqueue, enqueueHome),
+			).resolves.toBe("skipped");
+			expect(enqueueHome).not.toHaveBeenCalled();
+		},
+	);
+
+	it("does not throw when Home refuses the message, and a later report can send", async () => {
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const { work, attempt, context, enqueue } = await fixture({
+			sourceSessionKey: "home:os:chat-7",
+		});
+		const enqueueHome = vi.fn(async () => ({ status: "queued" }));
+		await expect(
+			notifyAgentRunEnded(context, work, attempt, enqueue, async () => {
+				throw new Error("Access denied to Home conversation");
+			}),
+		).resolves.toBe("failed");
+		await expect(
+			notifyAgentRunEnded(context, work, attempt, enqueue, enqueueHome),
+		).resolves.toBe("sent");
 		expect(enqueue).not.toHaveBeenCalled();
 	});
 

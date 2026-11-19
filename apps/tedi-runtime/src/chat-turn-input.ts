@@ -52,6 +52,11 @@ export interface ChatTurnParams {
 	/** Parent Home run that owns this delegated turn, when present. */
 	homeRunId?: string;
 	/**
+	 * The person's chat conversation, set only when a signed-in person picked
+	 * this tedi in the chat. Such a delegated turn is offered the agent-run tools.
+	 */
+	personChatConversationId?: string;
+	/**
 	 * Trusted skill-run identity for AI Gateway cost attribution. This is set
 	 * only from the authenticated MCP workflow provenance header; the tedi run
 	 * id remains the durable execution and idempotency identity.

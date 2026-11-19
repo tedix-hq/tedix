@@ -2,8 +2,14 @@ import "./__tests__/kernel-runtime-work-mocks";
 import { describe, expect, it, vi } from "vite-plus/test";
 import * as eventQueries from "@tedix/db/queries/kernel-runtime-events";
 import type { BaseContext } from "../orpc";
-import { kernelRuntimeTestHooks } from "./kernel-runtime/policy-normalization";
 import {
+	delegationMetadataForPick,
+	kernelRuntimeTestHooks,
+} from "./kernel-runtime/policy-normalization";
+import { enqueueHomeMessage } from "../../services/agent-run-ended-notice";
+import { buildInternalServiceBindingContext } from "./kernel/runtime-shared";
+import {
+	ORG_ID,
 	createKernelRuntimeDb,
 	createContext,
 	createKernelRuntimeClient,
@@ -67,6 +73,120 @@ describe("kernel runtime router: delegation", () => {
 				risk: "low",
 			},
 		});
+	});
+
+	it("marks the dispatch as picked by a person only for a signed-in person in Tedix OS", async () => {
+		const dispatches: Array<{
+			pickedByPerson?: boolean;
+			metadata: Record<string, unknown>;
+		}> = [];
+		kernelRuntimeTestHooks.setDelegateRunnerForTest(async (input) => {
+			dispatches.push(input);
+			return {
+				childConversationId: "agent:main:main",
+				childRunId: input.childRunId,
+				status: "queued",
+			};
+		});
+		const person = (headers = new Headers()) => ({
+			...createContext(createKernelRuntimeDb(), { userSub: "operator-1" }),
+			apiKey: undefined,
+			authType: "user" as const,
+			userRole: "owner",
+			headers,
+		});
+		const send = (context: BaseContext, idempotencyKey: string) =>
+			createKernelRuntimeClient(context).enqueueMessage({
+				conversationId: "home:os:chat-7",
+				content: "Ask the CPO to validate the deploy plan",
+				delegateToTediId: "tedi-cpo",
+				idempotencyKey,
+				// A caller cannot claim the pick through request metadata.
+				metadata: { pickedByPerson: true },
+			});
+
+		await send(person(), "home-pick-person");
+		// The same person's credential replayed through the MCP gateway, and an
+		// API key, are programmatic callers.
+		await send(
+			person(new Headers({ "X-Tedix-Mcp-Tool-Id": "ask" })),
+			"home-pick-mcp",
+		);
+		await send(createContext(createKernelRuntimeDb()), "home-pick-apikey");
+
+		expect(dispatches.map((dispatch) => dispatch.pickedByPerson)).toEqual([
+			true,
+			false,
+			false,
+		]);
+		for (const dispatch of dispatches) {
+			expect(dispatch.metadata).not.toHaveProperty("pickedByPerson");
+			expect(dispatch.metadata).toMatchObject({
+				source: "kernelRuntime.delegate",
+				homeConversationId: "home:os:chat-7",
+			});
+		}
+	});
+
+	it("carries the pick to the tedi only from the dispatch's own argument", () => {
+		const supplied = { pickedByPerson: true, homeRunId: "home-1" };
+		expect(delegationMetadataForPick(supplied, true)).toEqual({
+			pickedByPerson: true,
+			homeRunId: "home-1",
+		});
+		expect(delegationMetadataForPick(supplied, false)).toEqual({
+			homeRunId: "home-1",
+		});
+		expect(delegationMetadataForPick(supplied, undefined)).toEqual({
+			homeRunId: "home-1",
+		});
+	});
+
+	it("takes the report of a finished agent run as a Home turn in the person's chat", async () => {
+		const db = createKernelRuntimeDb();
+		const dispatch = vi.fn();
+		kernelRuntimeTestHooks.setDelegateRunnerForTest(dispatch);
+		const kernel = vi.fn(async () => ({
+			assistantContent: "The run for the button ended and succeeded.",
+			route: {
+				routeKind: "answer_in_home" as const,
+				rationale: "A report to pass on.",
+				risk: "low" as const,
+				confidence: 0.9,
+			},
+		}));
+		kernelRuntimeTestHooks.setKernelForTest(
+			kernel as unknown as Parameters<
+				typeof kernelRuntimeTestHooks.setKernelForTest
+			>[0],
+		);
+		const result = await enqueueHomeMessage(
+			buildInternalServiceBindingContext(createContext(db), ORG_ID),
+			{
+				organizationId: ORG_ID,
+				conversationId: "home:os:chat-7",
+				idempotencyKey: "agent-run-ended-attempt-1",
+				content: 'The run for "Rename the button" ended: succeeded.',
+			},
+		);
+		kernelRuntimeTestHooks.setKernelForTest(null);
+		expect(kernel).toHaveBeenCalledTimes(1);
+		expect(result).toMatchObject({
+			status: "completed",
+			conversationId: "home:os:chat-7",
+			assistantMessage: {
+				content: "The run for the button ended and succeeded.",
+			},
+		});
+		expect(
+			db.events.filter(
+				(event) =>
+					event.kind === "message.received" &&
+					event.conversationId === "home:os:chat-7" &&
+					event.runId === "agent-run-ended-attempt-1",
+			),
+		).toHaveLength(1);
+		expect(dispatch).not.toHaveBeenCalled();
 	});
 
 	it("settles the delegated isolate dispatch before returning the Home receipt", async () => {

@@ -52,7 +52,10 @@ import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtim
 import { type VoiceSttEnv, resolveVoiceMessageContent } from "@tedix/voice/stt";
 import { buildDelegationWorkOrder } from "../kernel/delegation-dispatch";
 import { classifyWorkstationDispatch } from "../kernel/dispatch-policy";
-import { defaultHomeConversationIdForCaller } from "../kernel/conversation-origin";
+import {
+	defaultHomeConversationIdForCaller,
+	resolveKernelConversationOrigin,
+} from "../kernel/conversation-origin";
 import { deriveEmbodiedCapability } from "../kernel/tedi-capabilities";
 import {
 	ensureWorkstationAttachApprovalRequest,
@@ -367,6 +370,9 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			...nonNullRecord(input.metadata),
 		};
 		delete metadata.chatApprovalReply;
+		// Only this route decides whether a person picked the tedi; see the
+		// delegate dispatch below.
+		delete metadata.pickedByPerson;
 		const allowWorkflowConfirmation =
 			context.authType !== "user" ||
 			userHoldsPermission(context, "tedis:update");
@@ -1334,6 +1340,12 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					content: delegateDispatchContent,
 					delegateToTediId: delegatedTediId,
 					attachments,
+					// A person signed in to Tedix OS chose this tedi for this
+					// message. Agents, API keys and calls through the MCP gateway
+					// are not a person picking a tedi in the chat.
+					pickedByPerson:
+						context.authType === "user" &&
+						resolveKernelConversationOrigin(context) === "human",
 					metadata: {
 						...turnMetadata,
 						source: "kernelRuntime.delegate",

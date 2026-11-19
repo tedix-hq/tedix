@@ -3747,6 +3747,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		traceId?: string;
 		workItemId?: string;
 		homeRunId?: string;
+		personChatConversationId?: string;
 		personalRequest?: boolean;
 		executionSurface?: ExecutionSurface;
 		repositoryMode?: RepositoryMode;
