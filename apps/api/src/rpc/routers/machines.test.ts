@@ -6,6 +6,7 @@
  */
 
 import { createRouterClient } from "@orpc/server";
+import { hashValue } from "@tedix/agent-governance/hash";
 import {
 	MACHINES_USE_SCOPE,
 	MACHINES_WRITE_SCOPE,
@@ -587,5 +588,130 @@ describe("machine change records", () => {
 			f.sqlite.prepare("SELECT count(*) AS n FROM machine_tool_calls").get(),
 		).toEqual({ n: 0 });
 		expect((await runner.machines.claimToolCalls(claim)).calls).toEqual([]);
+	});
+});
+
+describe("listing machine tool calls", () => {
+	const SECRET = "sentinel-91c4-result-text";
+	const writeTools = { machineTools: ["read_file", "run_command"] };
+	const command = {
+		machine: "Studio",
+		tool: "run_command" as const,
+		input: { workspace: "fix-0a1b2c3d", command: "bun test" },
+	};
+
+	it("lists calls with their input to an owner or admin only, never the result", async () => {
+		const f = fixture();
+		f.sqlite.exec(
+			`INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,role,status) VALUES('m5','${ORG}','admin-subject','admin','admin@example.test','admin','active')`,
+		);
+		const runner = f.person("member-subject");
+		await f.report(runner, writeTools);
+		const { callId } = await f
+			.runtime("tedi-1")
+			.machines.requestToolCall(command);
+		await runner.machines.requestToolCall({
+			machine: "Studio",
+			tool: "read_file",
+			input: { path: "README.md" },
+		});
+		await runner.machines.claimToolCalls(claim);
+		await runner.machines.claimToolCalls({
+			...claim,
+			results: [{ callId, ok: true, result: `${SECRET} passed` }],
+		});
+
+		for (const subject of ["owner-subject", "admin-subject"]) {
+			const listed = await f.person(subject).machines.listToolCalls({});
+			expect(listed.calls).toEqual([
+				expect.objectContaining({
+					callId,
+					machine: "Studio",
+					tool: "run_command",
+					input: command.input,
+					status: "done",
+					requestedBy: { type: "tedi", id: "tedi-1" },
+					resultChars: `${SECRET} passed`.length,
+				}),
+			]);
+			expect(listed.nextCursor).toBeNull();
+			expect(JSON.stringify(listed)).not.toContain(SECRET);
+		}
+		const all = await f
+			.person("owner-subject")
+			.machines.listToolCalls({ writesOnly: false, machine: "Studio" });
+		expect(all.calls.map((call) => call.tool).sort()).toEqual([
+			"read_file",
+			"run_command",
+		]);
+		expect(JSON.stringify(all)).not.toContain(SECRET);
+
+		for (const client of [
+			f.person("member-subject"),
+			f.person("owner-subject", ORG, { externalAgentPrincipalId: AGENT }),
+			f.runtime("tedi-1"),
+		])
+			await expect(client.machines.listToolCalls({})).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+		// Another organization's owner sees only their own, empty, list.
+		expect(
+			(
+				await f
+					.person("outsider-subject", OTHER_ORG)
+					.machines.listToolCalls({ writesOnly: false })
+			).calls,
+		).toEqual([]);
+		// A range longer than 7 days is refused rather than scanned.
+		await expect(
+			f.person("owner-subject").machines.listToolCalls({
+				from: "2026-11-01T00:00:00.000Z",
+				until: "2026-11-09T00:00:00.000Z",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	it("pages through every call exactly once, ties included", async () => {
+		const f = fixture();
+		await f.report(f.person("member-subject"), writeTools);
+		const queued = [];
+		for (let i = 0; i < 5; i++)
+			queued.push(
+				(await f.runtime("tedi-1").machines.requestToolCall(command)).callId,
+			);
+		// Three calls share one instant, so the cursor must break ties by id.
+		f.sqlite.exec(
+			`UPDATE machine_tool_calls SET created_at = '${new Date(Date.now() - 60_000).toISOString()}' WHERE id IN ('${queued.slice(0, 3).join("','")}')`,
+		);
+		const owner = f.person("owner-subject");
+		const seen: string[] = [];
+		let cursor: { at: string; id: string } | undefined;
+		for (let page = 0; page < 5; page++) {
+			const listed = await owner.machines.listToolCalls({ limit: 2, cursor });
+			seen.push(...listed.calls.map((call) => call.callId));
+			if (!listed.nextCursor) break;
+			cursor = listed.nextCursor;
+		}
+		expect(seen).toHaveLength(5);
+		expect([...seen].sort()).toEqual([...queued].sort());
+	});
+
+	it("returns an input whose hash is the argsHash of the call's queued record", async () => {
+		const f = fixture();
+		await f.report(f.person("member-subject"), writeTools);
+		const { callId } = await f
+			.runtime("tedi-1")
+			.machines.requestToolCall(command);
+		const [call] = (await f.person("owner-subject").machines.listToolCalls({}))
+			.calls;
+		const queued = f
+			.records()
+			.find(
+				(record) =>
+					record.source.traceId === callId &&
+					record.decision.reason === "queued",
+			);
+		expect(queued).toBeDefined();
+		expect(await hashValue(call?.input)).toBe(queued?.argsHash);
 	});
 });
