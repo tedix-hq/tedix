@@ -75,7 +75,10 @@ describe("presentation parity", () => {
 			expect(markup).toContain(`gap:${compact ? 8 : 10}px`);
 		}
 	});
-	it("draws arbitrary endpoint arrows with labels, dash patterns, color and width", () => {
+	it("draws default and positioned arrows with the selected style", () => {
+		expect(slideArrowPath({ ...element, width: 200, height: 40 })).toBe(
+			"M 2 20 H 198 M 180 2 L 198 20 L 180 38",
+		);
 		const arrow = {
 			...element,
 			type: "arrow" as const,

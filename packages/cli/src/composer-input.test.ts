@@ -1,22 +1,7 @@
 /**
- * Regression tests for the burst-data-loss fix in composer-input.tsx.
- *
- * These render the REAL ComposerInput through ink's REAL reconciler and
- * REAL `useInput` pipeline (via `ink-testing-library`, verified compatible
- * with the installed ink@8.0.0 — see itl-smoke.test.ts), and drive it
- * through a fake stdin whose `.write()` call is fed to ink's real
- * `input-parser.js` exactly the way a real stdin `readable` event would be.
- * ink's own parser splits a chunk containing backspace bytes into MULTIPLE
- * keypress events that `App.js#handleReadable` loops over and dispatches
- * SYNCHRONOUSLY, in one JS tick, before React ever gets a chance to
- * re-render; two back-to-back `.write()` calls with no `await` between them
- * are likewise both fully processed before any re-render (React's scheduler
- * defers actual flushing to a later tick) — i.e. this is the real batching
- * behavior the bug depends on, not an idealized one-event-per-call
- * simulation. A test that only called `applyComposerKey` directly (see
- * composer-editor.test.ts) would NOT catch this class of bug: the reducer
- * itself was always correct per-call, the bug was in the wrapper reading a
- * stale prop/state closure across multiple calls in the same tick.
+ * Ink delivers all input events in a stdin burst before React re-renders.
+ * Render the real composer and write to stdin to catch stale state across
+ * those events, including text and backspaces delivered in one chunk.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -148,20 +133,6 @@ describe("composer-input — burst data-loss regression", () => {
 		expect(calls).toEqual([expected]);
 		// The pre-fix bug would submit the stale pre-burst value here too.
 		expect(calls).not.toEqual(["/"]);
-	});
-
-	// A burst that nets back to a no-op (type 10 chars, backspace 10 times) is
-	// a degenerate case worth calling out explicitly: the mathematically
-	// correct post-edit value and the pre-fix stale value are BOTH "/" here,
-	// so this specific shape can't distinguish buggy from fixed code on its
-	// own. It's included only to document why the two tests above
-	// deliberately avoid a 1:1 insert/delete count — the net-zero case adds
-	// no coverage a passing implementation couldn't fake.
-	test("degenerate net-zero burst (10 chars + 10 backspaces) submits the unedited value — not a regression signal by itself", () => {
-		const { onSubmit, calls } = submitSpy();
-		const { stdin } = render(el({ value: "/", onSubmit }));
-		stdin.write(`workspaces${"\x7F".repeat(10)}\r`);
-		expect(calls).toEqual(["/"]);
 	});
 
 	test("burst ending in a bare \\r (no key.return) also submits the fully-chained edit", () => {

@@ -1,17 +1,22 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { createDbClient } from "../../client";
-import { appCatalog, appCatalogMcpTools } from "../../schema/catalog";
+import {
+	appCatalog,
+	appCatalogMcpTools,
+	appCatalogToolTests,
+} from "../../schema/catalog";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
-import { getToolsNeedingTest } from "./tool-tests";
+import { getToolsNeedingTest, insertToolTest } from "./tool-tests";
 
 const STAMP = "2026-08-01T00:00:00.000Z";
 
 function realDb() {
 	const sqlite = new DatabaseSync(":memory:");
+	onTestFinished(() => sqlite.close());
 	sqlite.exec("PRAGMA foreign_keys = ON;");
-	sqlite.exec(schemaDdl(appCatalog, appCatalogMcpTools));
+	sqlite.exec(schemaDdl(appCatalog, appCatalogMcpTools, appCatalogToolTests));
 	return createDbClient(createD1Facade(sqlite));
 }
 
@@ -82,5 +87,32 @@ describe("getToolsNeedingTest", () => {
 			],
 		});
 		expect(targeted.map((tool) => tool.id)).toEqual(["target-low-success"]);
+	});
+});
+
+it("stores a bounded JSON preview only for oversized tool output", async () => {
+	const db = realDb();
+	await seed(db);
+	const input = {
+		catalogAppId: "target-app",
+		toolName: "target_tool",
+		testType: "programmatic",
+		inputSource: "manual",
+		success: true,
+	} as const;
+	const small = { ok: true };
+	const large = { data: "x".repeat(12_000) };
+	expect(
+		(await insertToolTest(db, { ...input, outputReceived: small }))
+			.outputReceived,
+	).toEqual(small);
+	const oversized = await insertToolTest(db, {
+		...input,
+		outputReceived: large,
+	});
+	expect(oversized.outputReceived).toEqual({
+		_truncated: true,
+		_originalLength: JSON.stringify(large).length,
+		_preview: JSON.stringify(large).slice(0, 10_000),
 	});
 });

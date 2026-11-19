@@ -150,11 +150,6 @@ function turnStyle(speaker: string): {
 	);
 }
 
-/** Slash commands are controls; only their result belongs in the transcript. */
-export function shouldEchoSubmittedLine(line: string): boolean {
-	return !line.startsWith("/");
-}
-
 /**
  * A committed conversational turn, Claude-Code style: the body's FIRST line
  * shares the marker line (`› what can you do?` / `● Here's what…`), with
@@ -1022,7 +1017,7 @@ export function InkRepl({
 			// Echo conversational input into scrollback. Slash commands are controls:
 			// their result is the useful transcript item, and echoing the command first
 			// forces an avoidable second composer relocation around every operation.
-			if (shouldEchoSubmittedLine(dispatchLine)) {
+			if (!dispatchLine.startsWith("/")) {
 				setRenderState((previous) => ({
 					...previous,
 					transcript: [

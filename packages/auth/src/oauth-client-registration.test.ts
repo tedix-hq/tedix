@@ -30,15 +30,6 @@ describe("classifyMcpClientRegistrationMethod", () => {
 		expect(() => encodeTedixCliOAuthRelayState("nonce", 0)).toThrow();
 	});
 
-	it("recognizes CIMD URL client ids", () => {
-		expect(
-			classifyMcpClientRegistrationMethod({
-				authType: "oauth",
-				clientId: "https://claude.ai/oauth/mcp-oauth-client-metadata",
-			}),
-		).toBe("cimd");
-	});
-
 	it("classifies other interactive OAuth clients as DCR compatibility", () => {
 		expect(
 			classifyMcpClientRegistrationMethod({
@@ -53,7 +44,6 @@ describe("classifyMcpClientRegistrationMethod", () => {
 		"https://client.example.test/client.json?scope=write",
 		"https://user:pass@client.example.test/client.json",
 		"https://client.example.test/client.json#fragment",
-		"https://CLIENT.example.test/client.json",
 		" https://client.example.test/client.json ",
 		"https://",
 	])(

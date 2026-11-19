@@ -17,8 +17,10 @@ import {
 	reviewPlan,
 	scriptBrowsers,
 	sourceBrowsers,
+	testScriptShards,
 	workspaceMatrix,
 } from "./full-suite-hourly.mjs";
+import { isPrimaryTestShard } from "./test-shard";
 
 function fixtureTree(files: Record<string, string>) {
 	const root = mkdtempSync(join(tmpdir(), "hourly-browsers-"));
@@ -273,6 +275,89 @@ describe("hourly full suite", () => {
 		}
 	});
 });
+
+test("expands complete script chains, preserving order and repeated checks", () => {
+	expect(
+		testScriptShards(
+			{
+				ci: "bun run all && bun run browser",
+				all: "bun run unit && bun run workers",
+				unit: "vp test run",
+				workers: "bun run unit",
+				browser: "bun browser/a.ts && bun browser/b.ts",
+			},
+			"ci",
+		),
+	).toEqual(["unit", "unit", "browser"]);
+});
+
+test("retains complex and unknown command chains intact and rejects cycles", () => {
+	for (const command of [
+		"bun run unit && echo done",
+		"bun run missing",
+		"CI=1 bun run unit",
+		"bun run unit --coverage",
+	])
+		expect(
+			testScriptShards({ ci: command, unit: "vp test run" }, "ci"),
+		).toEqual(["ci"]);
+	expect(() =>
+		testScriptShards({ a: "bun run b", b: "bun run a" }, "a"),
+	).toThrow("Cyclic");
+});
+
+test("runs the boundary check in shard 1 and unsharded runs only", () => {
+	expect(isPrimaryTestShard([])).toBe(true);
+	expect(isPrimaryTestShard(["src/x.test.ts"])).toBe(true);
+	expect(isPrimaryTestShard(["--shard", "1/4"])).toBe(true);
+	expect(isPrimaryTestShard(["--shard=1/4"])).toBe(true);
+	for (const shard of ["2/4", "3/4", "4/4", "2/2"])
+		expect(isPrimaryTestShard(["--shard", shard])).toBe(false);
+	expect(isPrimaryTestShard(["--shard=3/4"])).toBe(false);
+});
+
+type MatrixJob = {
+	workspace: string;
+	test: boolean;
+	testScript?: string;
+	shard?: string;
+	browsers?: string;
+	types: boolean;
+};
+
+test("slow workspaces publish complete non-overlapping shard sets on the real manifests", () => {
+	const root = join(import.meta.dir, "../..");
+	const matrix = workspaceMatrix(root).include as MatrixJob[];
+	const jobsOf = (workspace: string, testScript: string) =>
+		matrix.filter(
+			(job) => job.workspace === workspace && job.testScript === testScript,
+		);
+	expect(jobsOf("packages/db", "test:postgres")).toEqual([
+		{
+			workspace: "packages/db",
+			test: true,
+			testScript: "test:postgres",
+			types: false,
+		},
+	]);
+	const groups = new Map<string, MatrixJob[]>();
+	for (const job of matrix) {
+		const key = `${job.workspace}:${job.testScript ?? ""}`;
+		const group = groups.get(key);
+		if (group) group.push(job);
+		else groups.set(key, [job]);
+	}
+	for (const entries of groups.values()) {
+		const shards = entries
+			.map((job) => job.shard?.split("/").map(Number))
+			.filter((shard): shard is number[] => shard !== undefined);
+		if (!shards.length) continue;
+		const count = shards[0]![1]!;
+		expect(shards.map(([index]) => index ?? 0).sort((a, b) => a - b)).toEqual(
+			[...Array(count).keys()].map((index) => index + 1),
+		);
+	}
+}, 20_000);
 
 describe("advisory review planning", () => {
 	test("uses the pushed range independently of wider certification", () => {

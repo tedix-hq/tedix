@@ -1214,8 +1214,12 @@ describe("Ink slash-command transitions", () => {
 			await settleRender(instance);
 			const output = takeRaw();
 			expect(output).toContain("No in-flight runs.");
-			expect(output).not.toContain("› /runs");
+			expect(stripVTControlCharacters(output)).not.toContain("› /runs");
 			expect(output.match(/Send a message/g) ?? []).toHaveLength(1);
+
+			stdin.write("hello\r");
+			await settleRender(instance);
+			expect(stripVTControlCharacters(takeRaw())).toContain("› hello");
 		} finally {
 			instance.unmount();
 			await instance.waitUntilExit();

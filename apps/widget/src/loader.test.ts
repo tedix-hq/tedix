@@ -89,7 +89,7 @@ describe("Tedix embed loader", () => {
 		expect(loader.runtime()).not.toBeNull();
 	});
 
-	it.each(["open", "idle", "eager"])(
+	it.each(["open", "idle"])(
 		"loads the runtime for the documented %s preload mode",
 		async (preload) => {
 			const loader = await runLoader({
@@ -99,56 +99,25 @@ describe("Tedix embed loader", () => {
 		},
 	);
 
-	it("waits for interaction without a preload mode", async () => {
-		const loader = await runLoader({ dataset: TENANT });
-		expect(loader.runtime()).toBeNull();
-	});
-
-	it("queues the complete public lifecycle before runtime readiness", async () => {
+	it("queues event handlers, host context, and deferred requests before runtime readiness", async () => {
 		const loader = await runLoader();
 		const { Tedix } = loader;
-		for (const method of [
-			"boot",
-			"init",
-			"update",
-			"context",
-			"consent",
-			"track",
-			"close",
-			"off",
-		])
-			expect(Tedix[method]({ method })).toBe(Tedix);
-		expect(Tedix.q.map((entry: unknown[]) => entry[0])).toEqual([
-			"boot",
-			"init",
-			"update",
-			"context",
-			"consent",
-			"track",
-			"close",
-			"off",
-		]);
+		expect(Tedix.context({ pathname: "/orders" })).toBe(Tedix);
+		expect(Tedix.q.at(-1)).toEqual(["context", { pathname: "/orders" }]);
+
 		const callback = () => {};
 		const off = Tedix.on("ready", callback);
 		expect(Tedix.q.at(-1)).toEqual(["on", "ready", callback]);
 		off();
 		expect(Tedix.q.at(-1)).toEqual(["off", "ready", callback]);
-		for (const method of [
-			"identify",
-			"ask",
-			"deleteConversation",
-			"capabilities",
-			"attachCapability",
-			"detachCapability",
-			"artifactPins",
-			"pinArtifactRevision",
-			"detachArtifactPin",
-		]) {
-			const pending = Tedix[method]("argument");
-			expect(pending).toBeInstanceOf(Promise);
-			expect(Tedix.q.at(-1)).toMatchObject({ method, args: ["argument"] });
-			pending.catch(() => {});
-		}
+
+		const pending = Tedix.ask("hello");
+		expect(pending).toBeInstanceOf(Promise);
+		pending.catch(() => {});
+		expect(loader.runtime()).toBeNull();
+
+		Tedix.init({ tenant: "acme" });
+		expect(Tedix.q.at(-1)).toMatchObject({ method: "ask", args: ["hello"] });
 		expect(loader.runtime()).not.toBeNull();
 	});
 

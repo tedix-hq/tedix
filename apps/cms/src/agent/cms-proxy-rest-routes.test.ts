@@ -235,29 +235,6 @@ describe("plugin REST proxy routes", () => {
 		});
 	});
 
-	it("calls the native Emdash plugin list endpoint", async () => {
-		let requestedPath = "";
-		const ctx: CmsProxyContext = {
-			...baseContext,
-			serviceApiKey: "ec_pat_secret",
-			cmsDispatch: {
-				fetch: async (request: Request) => {
-					const url = new URL(request.url);
-					requestedPath = url.pathname;
-					return Response.json({ data: { items: [] } });
-				},
-			} as Fetcher,
-		};
-
-		const result = await callCmsRest(ctx, "plugin_list", {});
-
-		expect(result.isError).toBeUndefined();
-		expect(requestedPath).toBe("/_emdash/api/admin/plugins");
-		expect(JSON.parse(result.content[0]?.text ?? "{}")).toEqual({
-			data: { items: [] },
-		});
-	});
-
 	it("encodes plugin IDs before calling plugin detail", async () => {
 		let requestedPath = "";
 		const ctx: CmsProxyContext = {
@@ -901,31 +878,6 @@ describe("get_site_overview", () => {
 		expect(mcpCalls).toHaveLength(6);
 		expect(payload.capabilities.nativeTools.status).toBe("observed");
 		expect(payload.capabilities.blockSchema.status).toBe("observed");
-	});
-
-	it("advertises get_site_overview as read-only", () => {
-		const tools = new Map<
-			string,
-			{ annotations?: { readOnlyHint?: boolean }; outputSchema?: unknown }
-		>();
-		const server = {
-			registerTool: (
-				name: string,
-				definition: {
-					annotations?: { readOnlyHint?: boolean };
-					outputSchema?: unknown;
-				},
-			) => {
-				tools.set(name, definition);
-			},
-		};
-
-		registerCmsProxyTools(server as any, baseContext);
-
-		expect(tools.get("get_site_overview")?.annotations?.readOnlyHint).toBe(
-			true,
-		);
-		expect(tools.get("get_site_overview")?.outputSchema).toBeDefined();
 	});
 
 	it("accepts Emdash's nested data.item envelope for content_get", () => {

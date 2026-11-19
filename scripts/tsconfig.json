@@ -56,7 +56,7 @@
 		"ci/browser-quarantine.test.ts",
 		"ci/full-suite-hourly.mjs",
 		"ci/full-suite-hourly.test.ts",
-		"ci/full-suite-shards.test.ts",
+		"ci/test-shard.ts",
 		"ci/affected-suite.test.ts",
 		"ci/shard-rerun.test.ts",
 		"ci/backfill-commit-watch.mjs",
