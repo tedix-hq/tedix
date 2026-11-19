@@ -120,6 +120,7 @@ import {
 	readRunnerDuties,
 } from "./supervise-runners";
 import { machineToolsIdentity } from "./lane-machine-tools";
+import { MachineToolsDuty } from "./supervise-machine-tools";
 import { LeadDuty, type LeadRun } from "./supervise-lead";
 import { readDutyStatuses } from "./supervise-duty-status";
 import { laneProcessIdentity } from "./lane-process-recovery";
@@ -1210,6 +1211,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		return once ? 0 : 1;
 	}
 	const runners = once ? undefined : new RunnerDuties({ env });
+	const machineTools = once ? undefined : new MachineToolsDuty({ env });
 	const supervisor = new Supervisor({
 		env,
 		read: supervisorRead,
@@ -1237,6 +1239,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		const checkRunners = () => {
 			try {
 				runners?.tick();
+				machineTools?.tick();
 			} catch (error) {
 				supervisorLog(
 					env,
@@ -1263,6 +1266,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		clearInterval(runnerTimer);
 		clearInterval(beatTimer);
 		runners?.stop();
+		machineTools?.stop();
 		releaseAwake();
 		supervisorLog(env, "supervisor stopped");
 		return 0;

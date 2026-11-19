@@ -70,7 +70,7 @@ export const RUNNER_UPDATE_EXIT_CODE = 75;
 /** A longer gap between checks means this machine slept; passes restart from waking. */
 const CHECK_GAP_MS = 90_000;
 /** Exits older than this no longer lengthen the backoff. */
-const EXIT_WINDOW_MS = 60 * 60_000;
+export const EXIT_WINDOW_MS = 60 * 60_000;
 
 const text = z.string().trim().min(1);
 const runnerSchema = z.object({

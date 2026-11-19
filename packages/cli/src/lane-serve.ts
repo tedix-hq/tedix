@@ -114,7 +114,7 @@ import { inDarkWake } from "./oauth-provider";
 import { lastLaneOutputTurn } from "./lane-output";
 import { runLaneProcess, reportLaneObservation } from "./lane-run";
 import { createLaneHeartbeat, createLaneStepSender } from "./lane-heartbeat";
-import { startLaneMachineTools } from "./lane-machine-tools";
+import { serveMachineTools } from "./lane-machine-tools";
 import {
 	createRunStepLog,
 	RUN_STEP_FLUSH_MS,
@@ -537,6 +537,8 @@ export interface ServeOptions {
 	scope: string[];
 	install: boolean;
 	once: boolean;
+	/** Answer machine tool calls only; the supervisor starts one per machine. */
+	machineToolsOnly?: boolean;
 }
 
 /** Parses a `--checkout-cap-gb` value or its environment fallback. */
@@ -579,6 +581,10 @@ export function parseServeOptions(
 		}
 		if (key === "--once") {
 			result.once = true;
+			continue;
+		}
+		if (key === "--machine-tools-only") {
+			result.machineToolsOnly = true;
 			continue;
 		}
 		if (key === "--coordinated") {
@@ -7358,12 +7364,14 @@ export async function runLaneServe(
 ): Promise<number> {
 	if (args.includes("--help")) {
 		console.log(
-			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install] [--once]",
+			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install] [--once]\n  --machine-tools-only   answer a tedi's machine tool calls and run no Work; the supervisor starts one per machine",
 		);
 		return 0;
 	}
 	const options = parseServeOptions(args);
 	if (options.install) return installLaneService(options);
+	if (options.machineToolsOnly)
+		return serveMachineTools(options, installedVersion);
 	const org = options.scope[options.scope.indexOf("--organization") + 1]!;
 	// An any-local runner limited to a project or a repo serves only that slice
 	// of Work; it keys, locks and reports under its scope so it runs beside the
@@ -7418,7 +7426,6 @@ export async function runLaneServe(
 		}
 		writeDispatcherHealthSource(directory, options);
 		dispatcher = new LaneDispatcher(options, directory);
-		if (!options.once) startLaneMachineTools(options, directory);
 		do {
 			try {
 				await dispatcher.tick();
