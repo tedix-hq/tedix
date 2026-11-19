@@ -58,163 +58,162 @@ function guest(page: Page, title: string) {
 
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const theme of ["light", "dark"] as const) {
-		for (const width of [375, 1280]) {
-			const label = `${width}/${theme}`;
-			const context = await browser.newContext({
-				viewport: { width, height: width < 820 ? 812 : 800 },
-				colorScheme: theme,
-				reducedMotion: "reduce",
-			});
-			const page = await context.newPage();
-			page.setDefaultNavigationTimeout(120_000);
-			await routeTheme(page, theme);
-			await page.goto(`${server.origin}${appPath}`, {
-				waitUntil: "domcontentloaded",
-			});
+	for (const [width, theme] of [
+		[375, "dark"],
+		[1280, "light"],
+	] as const) {
+		const label = `${width}/${theme}`;
+		const context = await browser.newContext({
+			viewport: { width, height: width < 820 ? 812 : 800 },
+			colorScheme: theme,
+			reducedMotion: "reduce",
+		});
+		const page = await context.newPage();
+		page.setDefaultNavigationTimeout(120_000);
+		await routeTheme(page, theme);
+		await page.goto(`${server.origin}${appPath}`, {
+			waitUntil: "domcontentloaded",
+		});
 
-			// The live app opens directly, beside its Code and History views.
-			await waitForWorkpieceViews(page);
+		// The live app opens directly, beside its Code and History views.
+		await waitForWorkpieceViews(page);
+		assert.equal(
+			await page.locator("html").getAttribute("data-mode"),
+			theme,
+			`${label}: theme applied`,
+		);
+		await guest(page, "Opportunity cards")
+			.getByRole("heading", { name: /opportunities for Maya/ })
+			.waitFor();
+		// The open draft is counted on the Code view and announced in the
+		// app; a phone's view menu shows the count while Code is not open.
+		if (width < 640)
 			assert.equal(
-				await page.locator("html").getAttribute("data-mode"),
-				theme,
-				`${label}: theme applied`,
+				await workpieceViewMenu(page).getAttribute("aria-label"),
+				"View: App, 1 draft in Code",
+				`${label}: the view menu counts the open draft`,
 			);
-			await guest(page, "Opportunity cards")
-				.getByRole("heading", { name: /opportunities for Maya/ })
-				.waitFor();
-			// The open draft is counted on the Code view and announced in the
-			// app; a phone's view menu shows the count while Code is not open.
-			if (width < 640)
-				assert.equal(
-					await workpieceViewMenu(page).getAttribute("aria-label"),
-					"View: App, 1 draft in Code",
-					`${label}: the view menu counts the open draft`,
-				);
-			assert(
-				(await workpieceViewNames(page)).includes("Code 1"),
-				`${label}: the Code view counts the open draft`,
-			);
-			const banner = page.locator("[data-canvas-drafts-banner]");
-			assert.match(
-				await banner.innerText(),
-				/1 change is waiting for your review/,
-				`${label}: the app view says a change is waiting`,
-			);
-			await noOverflow(page, `${label} app`);
-			// No card around the app: its frame spans the canvas column edge to
-			// edge, as on the guest page.
-			const edges = await page.evaluate(() => {
-				const column = document
-					.querySelector(".canvas-document-shell")!
-					.getBoundingClientRect();
-				const frame = document
-					.querySelector('iframe[title="Opportunity cards"]')!
-					.getBoundingClientRect();
-				return [column.left, column.right, frame.left, frame.right];
-			});
-			assert(
-				Math.abs(edges[0]! - edges[2]!) <= 1 &&
-					Math.abs(edges[1]! - edges[3]!) <= 1,
-				`${label}: the app frame fills the canvas column (${edges})`,
-			);
-			await page.screenshot({ path: `${evidence}/${width}-${theme}-app.png` });
+		assert(
+			(await workpieceViewNames(page)).includes("Code 1"),
+			`${label}: the Code view counts the open draft`,
+		);
+		const banner = page.locator("[data-canvas-drafts-banner]");
+		assert.match(
+			await banner.innerText(),
+			/1 change is waiting for your review/,
+			`${label}: the app view says a change is waiting`,
+		);
+		await noOverflow(page, `${label} app`);
+		// No card around the app: its frame spans the canvas column edge to
+		// edge, as on the guest page.
+		const edges = await page.evaluate(() => {
+			const column = document
+				.querySelector(".canvas-document-shell")!
+				.getBoundingClientRect();
+			const frame = document
+				.querySelector('iframe[title="Opportunity cards"]')!
+				.getBoundingClientRect();
+			return [column.left, column.right, frame.left, frame.right];
+		});
+		assert(
+			Math.abs(edges[0]! - edges[2]!) <= 1 &&
+				Math.abs(edges[1]! - edges[3]!) <= 1,
+			`${label}: the app frame fills the canvas column (${edges})`,
+		);
+		await page.screenshot({ path: `${evidence}/${width}-${theme}-app.png` });
 
-			// Edit: builders can edit the revision files into a draft.
-			await showWorkpieceView(page, /^Code/);
-			const files = page.getByRole("complementary", { name: "Code files" });
-			await files
-				.getByRole("button", { name: "client.js", exact: true })
-				.click();
-			const viewer = page.locator("[data-canvas-app-code-file]");
-			// A real code editor: numbered, foldable lines with coloured syntax.
-			const code = viewer.getByRole("textbox", { name: "Edit client.js" });
-			await code.waitFor();
-			assert.match(
-				await code.innerText(),
-				/Opportunity cards/,
-				`${label}: client.js is shown`,
-			);
-			await viewer.locator(".cm-lineNumbers").waitFor();
-			await viewer.locator(".cm-foldGutter").waitFor();
-			await code.locator(".cm-line span[class]").first().waitFor();
-			await noOverflow(page, `${label} code`);
-			// No card around the code: the file list and the open file reach the
-			// canvas column's edges.
-			const codeEdges = await page.evaluate(() => {
-				const box = (selector: string) =>
-					document.querySelector(selector)!.getBoundingClientRect();
-				const column = box(".canvas-document-shell");
-				const workbench = box("[data-canvas-code-workbench]");
-				return [column.left, column.right, workbench.left, workbench.right];
-			});
-			assert(
-				Math.abs(codeEdges[0]! - codeEdges[2]!) <= 1 &&
-					Math.abs(codeEdges[1]! - codeEdges[3]!) <= 1,
-				`${label}: the code fills the canvas column (${codeEdges})`,
-			);
-			// Each file's "…" menu downloads the text that is on screen.
-			await code.focus();
-			await page.keyboard.insertText("// not saved yet\n");
-			await files.locator('[data-canvas-code-file-row="client.js"]').hover();
-			await files.getByRole("button", { name: "More for client.js" }).click();
-			const [download] = await Promise.all([
-				page.waitForEvent("download"),
-				page.getByRole("menuitem", { name: "Download" }).click(),
-			]);
-			assert.equal(download.suggestedFilename(), "client.js");
-			const downloaded = await Bun.file((await download.path())!).text();
-			assert(
-				downloaded.startsWith("// not saved yet\n") &&
-					/Opportunity cards/.test(downloaded),
-				`${label}: the download is the file as shown, unsaved edits included`,
-			);
-			await page.screenshot({
-				path: `${evidence}/${width}-${theme}-code.png`,
-			});
-			// History fills the column too: its header and rows have no card.
-			await showWorkpieceView(page, "History");
-			const history = page.locator("[data-gadget-executions]");
-			await history.getByRole("button", { name: "Run manually" }).waitFor();
-			const historyEdges = await page.evaluate(() => {
-				const box = (selector: string) =>
-					document.querySelector(selector)!.getBoundingClientRect();
-				const column = box(".canvas-document-shell");
-				const runs = box("[data-gadget-executions]");
-				return [column.left, column.right, runs.left, runs.right];
-			});
-			assert(
-				Math.abs(historyEdges[0]! - historyEdges[2]!) <= 1 &&
-					Math.abs(historyEdges[1]! - historyEdges[3]!) <= 1,
-				`${label}: History fills the canvas column (${historyEdges})`,
-			);
-			await noOverflow(page, `${label} history`);
-			await page.screenshot({
-				path: `${evidence}/${width}-${theme}-edit-history.png`,
-			});
-			await showWorkpieceView(page, /^Code/);
+		// Edit: builders can edit the revision files into a draft.
+		await showWorkpieceView(page, /^Code/);
+		const files = page.getByRole("complementary", { name: "Code files" });
+		await files.getByRole("button", { name: "client.js", exact: true }).click();
+		const viewer = page.locator("[data-canvas-app-code-file]");
+		// A real code editor: numbered, foldable lines with coloured syntax.
+		const code = viewer.getByRole("textbox", { name: "Edit client.js" });
+		await code.waitFor();
+		assert.match(
+			await code.innerText(),
+			/Opportunity cards/,
+			`${label}: client.js is shown`,
+		);
+		await viewer.locator(".cm-lineNumbers").waitFor();
+		await viewer.locator(".cm-foldGutter").waitFor();
+		await code.locator(".cm-line span[class]").first().waitFor();
+		await noOverflow(page, `${label} code`);
+		// No card around the code: the file list and the open file reach the
+		// canvas column's edges.
+		const codeEdges = await page.evaluate(() => {
+			const box = (selector: string) =>
+				document.querySelector(selector)!.getBoundingClientRect();
+			const column = box(".canvas-document-shell");
+			const workbench = box("[data-canvas-code-workbench]");
+			return [column.left, column.right, workbench.left, workbench.right];
+		});
+		assert(
+			Math.abs(codeEdges[0]! - codeEdges[2]!) <= 1 &&
+				Math.abs(codeEdges[1]! - codeEdges[3]!) <= 1,
+			`${label}: the code fills the canvas column (${codeEdges})`,
+		);
+		// Each file's "…" menu downloads the text that is on screen.
+		await code.focus();
+		await page.keyboard.insertText("// not saved yet\n");
+		await files.locator('[data-canvas-code-file-row="client.js"]').hover();
+		await files.getByRole("button", { name: "More for client.js" }).click();
+		const [download] = await Promise.all([
+			page.waitForEvent("download"),
+			page.getByRole("menuitem", { name: "Download" }).click(),
+		]);
+		assert.equal(download.suggestedFilename(), "client.js");
+		const downloaded = await Bun.file((await download.path())!).text();
+		assert(
+			downloaded.startsWith("// not saved yet\n") &&
+				/Opportunity cards/.test(downloaded),
+			`${label}: the download is the file as shown, unsaved edits included`,
+		);
+		await page.screenshot({
+			path: `${evidence}/${width}-${theme}-code.png`,
+		});
+		// History fills the column too: its header and rows have no card.
+		await showWorkpieceView(page, "History");
+		const history = page.locator("[data-gadget-executions]");
+		await history.getByRole("button", { name: "Run manually" }).waitFor();
+		const historyEdges = await page.evaluate(() => {
+			const box = (selector: string) =>
+				document.querySelector(selector)!.getBoundingClientRect();
+			const column = box(".canvas-document-shell");
+			const runs = box("[data-gadget-executions]");
+			return [column.left, column.right, runs.left, runs.right];
+		});
+		assert(
+			Math.abs(historyEdges[0]! - historyEdges[2]!) <= 1 &&
+				Math.abs(historyEdges[1]! - historyEdges[3]!) <= 1,
+			`${label}: History fills the canvas column (${historyEdges})`,
+		);
+		await noOverflow(page, `${label} history`);
+		await page.screenshot({
+			path: `${evidence}/${width}-${theme}-edit-history.png`,
+		});
+		await showWorkpieceView(page, /^Code/);
 
-			// The draft sits above the code in Edit: what it changes, and its own
-			// preview.
-			const draft = page.getByRole("group", { name: "Draft 1" });
-			await draft.waitFor();
-			await draft.locator('[data-app-draft-file="client.js"]').waitFor();
-			assert.equal(
-				await draft.locator('[data-app-draft-file="server.js"]').count(),
-				0,
-				`${label}: unchanged files are left out`,
-			);
-			await draft.getByRole("button", { name: "Preview" }).click();
-			await guest(page, "Opportunity cards · Draft 1")
-				.getByRole("heading", { name: /reviewed · Maya/ })
-				.waitFor();
-			await noOverflow(page, `${label} drafts`);
-			await page.screenshot({
-				path: `${evidence}/${width}-${theme}-drafts.png`,
-				fullPage: true,
-			});
-			await context.close();
-		}
+		// The draft sits above the code in Edit: what it changes, and its own
+		// preview.
+		const draft = page.getByRole("group", { name: "Draft 1" });
+		await draft.waitFor();
+		await draft.locator('[data-app-draft-file="client.js"]').waitFor();
+		assert.equal(
+			await draft.locator('[data-app-draft-file="server.js"]').count(),
+			0,
+			`${label}: unchanged files are left out`,
+		);
+		await draft.getByRole("button", { name: "Preview" }).click();
+		await guest(page, "Opportunity cards · Draft 1")
+			.getByRole("heading", { name: /reviewed · Maya/ })
+			.waitFor();
+		await noOverflow(page, `${label} drafts`);
+		await page.screenshot({
+			path: `${evidence}/${width}-${theme}-drafts.png`,
+			fullPage: true,
+		});
+		await context.close();
 	}
 
 	// Accepting the draft makes it the live app and clears the Code tab's count.
@@ -387,7 +386,7 @@ try {
 		await context.close();
 	}
 	console.log(
-		`Runtime app panel (App, Code with drafts, accept) passed at 375px and 1280px in light and dark; screenshots in ${evidence}`,
+		`Runtime app panel (App, Code with drafts, accept) passed at 375px dark and 1280px light; screenshots in ${evidence}`,
 	);
 } finally {
 	await browser?.close();

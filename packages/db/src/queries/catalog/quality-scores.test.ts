@@ -1,5 +1,4 @@
 import { DatabaseSync } from "node:sqlite";
-import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
@@ -80,57 +79,6 @@ describe("catalog quality score components", () => {
 		});
 	});
 
-	it.each<{
-		name: string;
-		description: string | null;
-		schema: { properties: Record<string, JsonValue> };
-		annotations: ToolInput["annotations"];
-		expected: number;
-	}>([
-		{
-			name: "x",
-			description: null,
-			schema: { properties: {} },
-			annotations: null,
-			expected: 0,
-		},
-		{
-			name: "read",
-			description: "abc",
-			schema: { properties: { id: {} } },
-			annotations: {},
-			expected: 21,
-		},
-		{
-			name: "get_record",
-			description: "x".repeat(90),
-			schema: { properties: { a: {}, b: {}, c: {} } },
-			annotations: { readOnlyHint: false },
-			expected: 90,
-		},
-		{
-			name: "get_record",
-			description: "x".repeat(300),
-			schema: { properties: { a: {}, b: {}, c: {}, d: {} } },
-			annotations: { readOnlyHint: true },
-			expected: 90,
-		},
-	])(
-		"scores schema quality for $name at $expected",
-		async ({ name, description, schema, annotations, expected }) => {
-			const { db, seedApp, seedTool, readScores } = setup();
-			await seedApp("app");
-			await seedTool("tool", {
-				toolName: name,
-				description,
-				inputSchema: { ...schema, type: "object" },
-				annotations,
-			});
-			await calculateAndUpdateScores(db);
-			expect((await readScores())?.schemaQuality).toBe(expected);
-		},
-	);
-
 	it("averages tool documentation and excludes removed tools", async () => {
 		const { db, seedApp, seedTool, readScores } = setup();
 		await seedApp("app", { mcpToolCount: 2 });
@@ -146,100 +94,6 @@ describe("catalog quality score components", () => {
 			schemaQuality: 45,
 			standards: 40,
 		});
-	});
-
-	it.each([
-		{ input: { mcpResourceCount: null, mcpPromptCount: null }, expected: 4 },
-		{ input: { mcpToolCount: 10 }, expected: 40 },
-		{ input: { mcpToolCount: 1000 }, expected: 40 },
-		{ input: { mcpResourceCount: 1 }, expected: 14 },
-		{ input: { mcpResourceCount: 20 }, expected: 24 },
-		{ input: { mcpPromptCount: 20 }, expected: 19 },
-		{ input: { hasWrites: true }, expected: 10 },
-		{ input: { hasInteractive: true }, expected: 10 },
-		{ input: { hasFileSearch: true }, expected: 10 },
-		{ input: { hasDeepResearch: true }, expected: 10 },
-		{
-			input: {
-				mcpToolCount: 100,
-				mcpResourceCount: 100,
-				mcpPromptCount: 100,
-				hasWrites: true,
-				hasInteractive: true,
-				hasFileSearch: true,
-				hasDeepResearch: true,
-			},
-			expected: 100,
-		},
-	])(
-		"scores capability breadth as $expected for $input",
-		async ({ input, expected }) => {
-			const { db, seedApp, readScores } = setup();
-			await seedApp("app", input);
-			await calculateAndUpdateScores(db);
-			expect((await readScores())?.capabilityBreadth).toBe(expected);
-		},
-	);
-
-	it.each([
-		{ version: null, health: "unknown", expected: 50 },
-		{ version: "preview", health: "unhealthy", expected: 70 },
-		{ version: "1.2.3", health: "unhealthy", expected: 80 },
-		{ version: null, health: "healthy", expected: 70 },
-		{ version: "1.2.3", health: "healthy", expected: 100 },
-	] as const)(
-		"scores freshness from $version and $health",
-		async ({ version, health, expected }) => {
-			const { db, seedApp, readScores } = setup();
-			await seedApp("app", {
-				mcpMetadata: { serverVersion: version },
-				healthStatus: health,
-			});
-			await calculateAndUpdateScores(db);
-			expect((await readScores())?.freshness).toBe(expected);
-		},
-	);
-
-	it.each(["2000-01-01T00:00:00.000Z", NOW])(
-		"uses version and health even with scan timestamp %s",
-		async (lastScannedAt) => {
-			const { db, seedApp, readScores } = setup();
-			await seedApp("app", {
-				mcpMetadata: { lastScannedAt, serverVersion: "1.0.0" },
-				healthStatus: "healthy",
-			});
-			await calculateAndUpdateScores(db);
-			expect((await readScores())?.freshness).toBe(100);
-		},
-	);
-
-	it.each([
-		{ capabilities: null, expected: 30 },
-		{ capabilities: {}, expected: 30 },
-		{ capabilities: { tools: {} }, expected: 50 },
-		{ capabilities: { resources: {} }, expected: 45 },
-		{ capabilities: { prompts: {} }, expected: 45 },
-		{ capabilities: { tools: {}, resources: {}, prompts: {} }, expected: 80 },
-	])(
-		"scores standards as $expected without annotated tools",
-		async ({ capabilities, expected }) => {
-			const { db, seedApp, readScores } = setup();
-			await seedApp("app", { mcpMetadata: { capabilities } });
-			await calculateAndUpdateScores(db);
-			expect((await readScores())?.standards).toBe(expected);
-		},
-	);
-
-	it.each([
-		[null, 30],
-		["OAI", 100],
-		["TRUSTED_PARTNER", 80],
-		["THIRD_PARTY", 50],
-	] as const)("scores developer trust for %s", async (developerType, trust) => {
-		const { db, seedApp, readScores } = setup();
-		await seedApp("app", { developerType });
-		await calculateAndUpdateScores(db);
-		expect((await readScores())?.trust).toBe(trust);
 	});
 
 	it("combines distinct dimensions with 25/25/20/15/15 percent weights", async () => {

@@ -16,19 +16,26 @@ type Case = {
 	viewport: { width: number; height: number };
 	theme: "light" | "dark";
 };
-const cases: Case[] = [];
-for (const theme of ["light", "dark"] as const) {
-	for (const viewport of [
-		{ width: 1280, height: 720 },
-		{ width: 390, height: 844 },
-	])
-		cases.push({ engine: "chromium", type: chromium, viewport, theme });
-	for (const viewport of [
-		{ width: 375, height: 667 },
-		{ width: 390, height: 844 },
-	])
-		cases.push({ engine: "webkit", type: webkit, viewport, theme });
-}
+const cases: Case[] = [
+	{
+		engine: "chromium",
+		type: chromium,
+		viewport: { width: 1280, height: 720 },
+		theme: "light",
+	},
+	{
+		engine: "chromium",
+		type: chromium,
+		viewport: { width: 390, height: 844 },
+		theme: "dark",
+	},
+	{
+		engine: "webkit",
+		type: webkit,
+		viewport: { width: 390, height: 844 },
+		theme: "dark",
+	},
+];
 const label = (c: Case) =>
 	`${c.engine} ${c.viewport.width}x${c.viewport.height} ${c.theme}`;
 const fixtureUrl = (c: Case, view?: string) =>

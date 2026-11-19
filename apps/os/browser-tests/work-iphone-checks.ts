@@ -479,74 +479,69 @@ export async function runWorkIphone(
 
 		if (part === "routes") {
 			for (const [path, ready] of PAGES) await check(path, ready);
-			if (viewport.width === 375) {
-				await check(PROJECT, '[aria-label="Work queue"]');
-				const metadata = page.locator('[aria-label="Work queue"] dd');
-				assert(
-					(await metadata.count()) > 0,
-					`${label} ${PROJECT}: no phone metadata`,
+			await check(PROJECT, '[aria-label="Work queue"]');
+			const metadata = page.locator('[aria-label="Work queue"] dd');
+			assert(
+				(await metadata.count()) > 0,
+				`${label} ${PROJECT}: no phone metadata`,
+			);
+			const overflow = await metadata.evaluateAll((cells) =>
+				cells.some((cell) => cell.scrollWidth > cell.clientWidth + 1),
+			);
+			if (overflow)
+				failures.push(`${PROJECT}: Work queue phone metadata scrolls sideways`);
+			// Fixture owner names are short; force a pathological identity to
+			// prove the label cannot widen its row and the title keeps the
+			// complete value discoverable.
+			const owners = page.locator(
+				'[aria-label="Work queue"] dd[title^="Owner:"]',
+			);
+			assert(
+				(await owners.count()) > 0,
+				`${label} ${PROJECT}: no phone owner metadata`,
+			);
+			const longOwner =
+				"SolsticeLongitudinalOperationsCoordinatorWithoutAnyBreaks";
+			const ownerCell = await owners.first().evaluate((cell, name) => {
+				const row = cell.closest("li")!;
+				// Keep the app's wrapping span and metadata separator intact.
+				cell.querySelector("span:last-child")!.textContent = name;
+				cell.setAttribute("title", `Owner: ${name}`);
+				return {
+					page: document.documentElement.scrollWidth,
+					viewport: document.documentElement.clientWidth,
+					cellRight: cell.getBoundingClientRect().right,
+					rowRight: row.getBoundingClientRect().right,
+					cellScroll: cell.scrollWidth,
+					cellClient: cell.clientWidth,
+					title: cell.getAttribute("title"),
+				};
+			}, longOwner);
+			if (ownerCell.page > ownerCell.viewport + 1)
+				failures.push(
+					`${PROJECT}: a long owner widened the page to ${ownerCell.page}px`,
 				);
-				const overflow = await metadata.evaluateAll((cells) =>
-					cells.some((cell) => cell.scrollWidth > cell.clientWidth + 1),
+			if (ownerCell.cellRight > ownerCell.rowRight + 1)
+				failures.push(`${PROJECT}: owner label runs past its row`);
+			if (ownerCell.cellScroll > ownerCell.cellClient + 1)
+				failures.push(`${PROJECT}: owner label scrolls sideways`);
+			if (ownerCell.title !== `Owner: ${longOwner}`)
+				failures.push(`${PROJECT}: owner title lost the complete value`);
+
+			await check("/work/capacity", "[data-slot=card] strong");
+			const holder = page
+				.locator("[data-slot=card] p")
+				.filter({ hasText: "fictional west warehouse" })
+				.first();
+			assert.equal(await holder.count(), 1, `${label}: no capacity holder`);
+			const holderOverflow = await holder.evaluate((node) => ({
+				clientWidth: node.clientWidth,
+				scrollWidth: node.scrollWidth,
+			}));
+			if (holderOverflow.scrollWidth > holderOverflow.clientWidth + 1)
+				failures.push(
+					`/work/capacity: holder details are ${holderOverflow.scrollWidth}px wide in a ${holderOverflow.clientWidth}px row`,
 				);
-				if (overflow)
-					failures.push(
-						`${PROJECT}: Work queue phone metadata scrolls sideways`,
-					);
-				// Fixture owner names are short; force a pathological identity to
-				// prove the label cannot widen its row and the title keeps the
-				// complete value discoverable.
-				const owners = page.locator(
-					'[aria-label="Work queue"] dd[title^="Owner:"]',
-				);
-				assert(
-					(await owners.count()) > 0,
-					`${label} ${PROJECT}: no phone owner metadata`,
-				);
-				const longOwner =
-					"SolsticeLongitudinalOperationsCoordinatorWithoutAnyBreaks";
-				const ownerCell = await owners.first().evaluate((cell, name) => {
-					const row = cell.closest("li")!;
-					// Keep the app's wrapping span and metadata separator intact.
-					cell.querySelector("span:last-child")!.textContent = name;
-					cell.setAttribute("title", `Owner: ${name}`);
-					return {
-						page: document.documentElement.scrollWidth,
-						viewport: document.documentElement.clientWidth,
-						cellRight: cell.getBoundingClientRect().right,
-						rowRight: row.getBoundingClientRect().right,
-						cellScroll: cell.scrollWidth,
-						cellClient: cell.clientWidth,
-						title: cell.getAttribute("title"),
-					};
-				}, longOwner);
-				if (ownerCell.page > ownerCell.viewport + 1)
-					failures.push(
-						`${PROJECT}: a long owner widened the page to ${ownerCell.page}px`,
-					);
-				if (ownerCell.cellRight > ownerCell.rowRight + 1)
-					failures.push(`${PROJECT}: owner label runs past its row`);
-				if (ownerCell.cellScroll > ownerCell.cellClient + 1)
-					failures.push(`${PROJECT}: owner label scrolls sideways`);
-				if (ownerCell.title !== `Owner: ${longOwner}`)
-					failures.push(`${PROJECT}: owner title lost the complete value`);
-			}
-			if (viewport.width === 390) {
-				await check("/work/capacity", "[data-slot=card] strong");
-				const holder = page
-					.locator("[data-slot=card] p")
-					.filter({ hasText: "fictional west warehouse" })
-					.first();
-				assert.equal(await holder.count(), 1, `${label}: no capacity holder`);
-				const holderOverflow = await holder.evaluate((node) => ({
-					clientWidth: node.clientWidth,
-					scrollWidth: node.scrollWidth,
-				}));
-				if (holderOverflow.scrollWidth > holderOverflow.clientWidth + 1)
-					failures.push(
-						`/work/capacity: holder details are ${holderOverflow.scrollWidth}px wide in a ${holderOverflow.clientWidth}px row`,
-					);
-			}
 		} else if (part === "controls") {
 			for (const path of [
 				"/work?app=agents",

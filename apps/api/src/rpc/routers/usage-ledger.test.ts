@@ -388,28 +388,15 @@ describe("usage ledger drilldown", () => {
  * both sides read 0, so it could never fire).
  */
 describe("usage ledger — an EMPTY ledger is not a CLEAN ledger", () => {
-	const empty = () => buildCostDrilldown({ rows: [], period: "7d", days: 7 });
-
-	test("zero rows do NOT score as healthy", () => {
-		const d = empty();
+	test("an empty ledger requires investigation before invoicing", () => {
+		const d = buildCostDrilldown({ rows: [], period: "7d", days: 7 });
 		expect(d.dataQuality.rowCount).toBe(0);
 		expect(d.dataQuality.level).not.toBe("ok");
 		expect(d.dataQuality.score).toBe(0);
-	});
-
-	test("zero rows raise an explicit empty_ledger issue", () => {
-		const codes = empty().dataQuality.issues.map((i) => i.code);
-		expect(codes).toContain("empty_ledger");
-	});
-
-	test("an empty ledger is never invoice-ready (never bill $0 off a broken pipeline)", () => {
-		expect(empty().billing.invoiceReady).toBe(false);
-	});
-
-	test("the recommendation points at the ingestion cron, not at 'clean'", () => {
-		const recs = empty().dataQuality.recommendations.join(" ");
-		expect(recs).toMatch(/ingestion/i);
-		expect(recs).not.toMatch(/clean/i);
+		expect(d.dataQuality.issues).toContainEqual(
+			expect.objectContaining({ code: "empty_ledger" }),
+		);
+		expect(d.billing.invoiceReady).toBe(false);
 	});
 
 	test("a NON-empty clean ledger still reports ok/1 (no false alarm)", () => {

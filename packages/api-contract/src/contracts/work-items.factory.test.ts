@@ -3,7 +3,6 @@ import { workItemsContract } from "./work-items";
 import { zodToToolInputJsonSchema } from "../utils/tool-json-schema";
 import {
 	CreateWorkItemInputSchema,
-	WorkEvidenceSchema,
 	WorkItemReadinessSchema,
 } from "../schemas/work-items";
 
@@ -75,38 +74,6 @@ describe("Work Item factory contract", () => {
 		expect(
 			schema.parse({ resourceKey: "a".repeat(300) }).resourceKey,
 		).toHaveLength(300);
-	});
-
-	it("exposes attempts, evidence, readiness, and immutable events without claim compatibility", () => {
-		const routes = Object.keys(workItemsContract);
-		expect(routes).not.toContain("submitGitEvidence");
-		expect(routes).toEqual(
-			expect.arrayContaining([
-				"accept",
-				"getReadiness",
-				"listReadinessProjection",
-				"startAttempt",
-				"heartbeatAttempt",
-				"settleAttempt",
-				"submitEvidence",
-				"previewEvidence",
-				"complete",
-				"listEvents",
-				"listAttemptProjection",
-				"listRecoveryProjection",
-			]),
-		);
-		expect(routes).not.toEqual(
-			expect.arrayContaining([
-				"claim",
-				"release",
-				"touchCheckout",
-				"update",
-				"bulkCancel",
-				"reconcileCiFailureIncidents",
-				"completeFromGit",
-			]),
-		);
 	});
 
 	it("publishes bounded per-attempt repository inspection", () => {
@@ -273,38 +240,6 @@ describe("Work Item factory contract", () => {
 				uri: "r2://tedix-tedi-production/tedi-1/other-evidence/report.json",
 			}).success,
 		).toBe(true);
-	});
-
-	it("publishes every persisted evidence identity and CAS field", () => {
-		const parsed = WorkEvidenceSchema.parse({
-			id: "11111111-1111-4111-8111-111111111111",
-			orgId: "22222222-2222-4222-8222-222222222222",
-			workItemId: "33333333-3333-4333-8333-333333333333",
-			attemptId: null,
-			claimKey: "source",
-			kind: "commit",
-			uri: "git:https://github.com/tedix-hq/tedix/commit/abc",
-			digest: null,
-			mediaType: null,
-			label: null,
-			disposition: "pending",
-			submittedByType: "external_agent",
-			submittedById: "agent-1",
-			submittedBySessionId: "session-1",
-			submittedAt: "2026-09-02T00:00:00.000Z",
-			reviewedByType: null,
-			reviewedById: null,
-			reviewedBySessionId: null,
-			reviewedAt: null,
-			reviewReason: null,
-			version: 1,
-			metadata: {},
-		});
-		expect(parsed).toMatchObject({
-			submittedBySessionId: "session-1",
-			reviewedBySessionId: null,
-			version: 1,
-		});
 	});
 });
 

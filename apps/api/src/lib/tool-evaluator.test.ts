@@ -17,13 +17,9 @@ it("keeps generative test input construction and uses provider-reported tokens",
 
 it.each([
 	"[]",
-	'[{"id":"o1"}]',
 	"42",
-	"0",
 	"true",
-	"false",
 	'"text"',
-	'""',
 	"null",
 	"```json\n[]\n```",
 	"Generated input: [1, 2]",

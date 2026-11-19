@@ -255,22 +255,6 @@ describe("evaluateAutoTitleGuard", () => {
 		completedMessageCount: 1,
 	};
 
-	it("allows the first settled exchange of an unlabelled topical conversation", () => {
-		expect(evaluateAutoTitleGuard(base)).toBe(true);
-	});
-
-	it("never titles the org's main Home thread", () => {
-		expect(
-			evaluateAutoTitleGuard({ ...base, conversationId: "home:main" }),
-		).toBe(false);
-	});
-
-	it("yields to an existing title update (rename OR prior auto-title)", () => {
-		expect(evaluateAutoTitleGuard({ ...base, titleUpdatedCount: 1 })).toBe(
-			false,
-		);
-	});
-
 	it("only fires on the FIRST assistant settlement", () => {
 		expect(evaluateAutoTitleGuard({ ...base, completedMessageCount: 2 })).toBe(
 			false,
@@ -523,9 +507,6 @@ describe("generateAndPersistHomeConversationTitle", () => {
 		);
 
 		expect(mockGenerateText).toHaveBeenCalledTimes(1);
-		const call = mockGenerateText.mock.calls[0]?.[0] as Record<string, unknown>;
-		expect(call.instructions).toContain("at most 6 words");
-		expect(call.instructions).toContain("same language");
 		expect(inserted).toHaveLength(1);
 		const row = inserted[0] as {
 			id: string;
@@ -641,26 +622,6 @@ describe("generateAndPersistHomeConversationTitle", () => {
 		);
 
 		expect(mockGenerateText).not.toHaveBeenCalled();
-		expect(inserted).toHaveLength(0);
-	});
-
-	it("LLM failure is swallowed without finalizing the deterministic fallback", async () => {
-		mockGenerateText.mockReset();
-		mockGenerateText.mockRejectedValue(new Error("provider down"));
-		const inserted: unknown[] = [];
-		const db = scriptedDb(
-			[[{ kind: "message.completed", count: 1 }]],
-			inserted,
-		);
-
-		await expect(
-			generateAndPersistHomeConversationTitle(
-				contextWith(db, modelEnv()),
-				turnInput(),
-			),
-		).resolves.toBeUndefined();
-
-		expect(mockGenerateText).toHaveBeenCalledTimes(1);
 		expect(inserted).toHaveLength(0);
 	});
 

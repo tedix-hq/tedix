@@ -5,9 +5,7 @@ import { startFixtureServer } from "./fixture-server";
 
 /*
  * Settings section rail checks. They run as the b9-settings-anchor-*.spec.ts
- * files (part of `test:browser:settings`), one per engine, viewport and theme,
- * so CI can shard them. Uses the actual fixture app; neither component markup
- * nor geometry is mocked.
+ * files (part of `test:browser:settings`). Uses the real fixture app.
  */
 
 export type Viewport = { width: number; height: number };

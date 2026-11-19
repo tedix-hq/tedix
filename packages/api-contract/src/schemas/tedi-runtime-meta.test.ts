@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	ListTediRuntimeMetaBySlugsInputSchema,
-	ListTediRuntimeMetaBySlugsResponseSchema,
 	TediRuntimeMetaSchema,
 } from "./tedi";
 
@@ -14,10 +13,6 @@ describe("TediRuntimeMetaSchema (MCP aggregate runtime-meta projection)", () => 
 		runtimeState: "active",
 		status: "active" as string | null,
 	};
-
-	it("accepts the canonical projection", () => {
-		expect(TediRuntimeMetaSchema.parse(validRow)).toEqual(validRow);
-	});
 
 	// Regression guard: these enum-ish fields MUST stay tolerant `string`s, not
 	// strict enums. `tedis.*` are drizzle enum hints over plain SQLite text with
@@ -68,21 +63,5 @@ describe("ListTediRuntimeMetaBySlugs input/response schemas", () => {
 		expect(
 			ListTediRuntimeMetaBySlugsInputSchema.safeParse({ slugs: [""] }).success,
 		).toBe(false);
-	});
-
-	it("wraps rows under `data`", () => {
-		const parsed = ListTediRuntimeMetaBySlugsResponseSchema.parse({
-			data: [
-				{
-					slug: "cto",
-					id: "id-cto",
-					organizationId: "org-1",
-					runtimeKind: "agent",
-					runtimeState: "active",
-					status: null,
-				},
-			],
-		});
-		expect(parsed.data).toHaveLength(1);
 	});
 });

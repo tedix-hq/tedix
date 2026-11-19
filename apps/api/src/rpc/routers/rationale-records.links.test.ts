@@ -1,12 +1,9 @@
 /**
  * decision↔execution coupling tests.
  *
- * Verifies the two hard invariants on the rationale write path:
- * 1. `create` (write_rationale) REJECTS records with no execution link
- *    (runId / workItemId / toolCallRefs) with a typed BAD_REQUEST.
- * 2. `complete` (complete_rationale) maps a proof-less `success` claim to
- *    `unverified`, never `success` — and keeps `success` when a
- *    span-checkable proofRef is provided.
+ * Covers typed rejection, persisted execution links, completion replay, and
+ * proof derived from the execution link when a record is created and closed
+ * together. The DB suite covers outcome status and proof validation.
  *
  * Runs the real contract router against an in-memory sqlite D1 facade
  * (same harness as work-items.test.ts); integrations are stubbed.
@@ -143,14 +140,6 @@ describe("write_rationale execution-link invariant", () => {
 		expect(row.run_id).toBe(`${TEDI_ID}:mcp:171`);
 		expect(JSON.parse(row.tool_call_refs)).toHaveLength(1);
 	});
-
-	it("accepts a workItemId-only link", async () => {
-		const record = await client.create({
-			...baseCreateInput(),
-			workItemId: "55555555-5555-4555-8555-555555555555",
-		});
-		expect(record.workItemId).toBe("55555555-5555-4555-8555-555555555555");
-	});
 });
 
 describe("proof-gated complete_rationale", () => {
@@ -160,32 +149,6 @@ describe("proof-gated complete_rationale", () => {
 			runId: `${TEDI_ID}:mcp:200`,
 		});
 	}
-
-	it("maps a proof-less success claim to unverified", async () => {
-		const record = await createLinked();
-		const completed = await client.complete({
-			id: record.id,
-			outcome: "It worked, trust me",
-			outcomeStatus: "success",
-		});
-		expect(completed.outcomeStatus).toBe("unverified");
-		expect(completed.proofRef).toBeNull();
-	});
-
-	it("keeps success when a span-checkable proofRef is provided", async () => {
-		const record = await createLinked();
-		const completed = await client.complete({
-			id: record.id,
-			outcome: "Deploy verified via run ledger",
-			outcomeStatus: "success",
-			proofRef: { kind: "run", ref: `${TEDI_ID}:mcp:200` },
-		});
-		expect(completed.outcomeStatus).toBe("success");
-		expect(completed.proofRef).toEqual({
-			kind: "run",
-			ref: `${TEDI_ID}:mcp:200`,
-		});
-	});
 
 	it("treats a replayed proof-less success claim as idempotent", async () => {
 		const record = await createLinked();
@@ -200,16 +163,6 @@ describe("proof-gated complete_rationale", () => {
 			outcomeStatus: "success",
 		});
 		expect(replay.outcomeStatus).toBe("unverified");
-	});
-
-	it("failure needs no proof and stays failure", async () => {
-		const record = await createLinked();
-		const completed = await client.complete({
-			id: record.id,
-			outcome: "Deploy failed on smoke test",
-			outcomeStatus: "failure",
-		});
-		expect(completed.outcomeStatus).toBe("failure");
 	});
 
 	it("write+close success uses the execution link as the proof span", async () => {

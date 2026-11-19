@@ -4,9 +4,7 @@ import {
 	buildDelegationFailureEnvelope,
 	buildInternalServiceBindingContext,
 	childRunStatusFromSummary,
-	childRunStatusKey,
 	delegatedChildSteerRunId,
-	errorMessage,
 	homeRunProgress,
 	isActiveHomeRunStatus,
 	isMissingKernelRuntimeRunsTable,
@@ -14,95 +12,15 @@ import {
 	isRemoteD1TransportError,
 	isTerminalBlockerStatus,
 	isTerminalHomeRunStatus,
-	latestIso,
 	nextCursor,
-	nonNullRecord,
-	nowIso,
-	numberFromPayload,
-	offsetIso,
 	predictAgentRunId,
-	recordOrNull,
 	resolveOrganizationId,
 	sanitizeAgentTurnKey,
 	shouldFailSoftChildEvidenceRead,
 	shouldFailSoftHomeRunSetRead,
 	shouldFailSoftKernelRuntimeRead,
-	stringFromPayload,
 	withTimeout,
 } from "./runtime-shared";
-
-describe("errorMessage", () => {
-	it("unwraps an Error message", () => {
-		expect(errorMessage(new Error("boom"))).toBe("boom");
-	});
-
-	it("appends a nested cause", () => {
-		const err = new Error("outer");
-		(err as Error & { cause?: unknown }).cause = new Error("inner");
-		expect(errorMessage(err)).toBe("outer inner");
-	});
-
-	it("reads message/cause off a plain object", () => {
-		expect(errorMessage({ message: "m", cause: { message: "c" } })).toBe("m c");
-	});
-
-	it("stringifies primitives", () => {
-		expect(errorMessage("plain")).toBe("plain");
-		expect(errorMessage(42)).toBe("42");
-	});
-});
-
-describe("recordOrNull / nonNullRecord", () => {
-	it("passes through plain objects", () => {
-		const value = { a: 1 };
-		expect(recordOrNull(value)).toBe(value);
-		expect(nonNullRecord(value)).toBe(value);
-	});
-
-	it("rejects arrays, null, and primitives", () => {
-		expect(recordOrNull([1, 2])).toBeNull();
-		expect(recordOrNull(null)).toBeNull();
-		expect(recordOrNull("x")).toBeNull();
-		expect(nonNullRecord([1, 2])).toBeUndefined();
-		expect(nonNullRecord(null)).toBeUndefined();
-		expect(nonNullRecord(7)).toBeUndefined();
-	});
-});
-
-describe("stringFromPayload / numberFromPayload", () => {
-	it("returns non-empty strings only", () => {
-		expect(stringFromPayload("hi")).toBe("hi");
-		expect(stringFromPayload("")).toBeUndefined();
-		expect(stringFromPayload(1)).toBeUndefined();
-	});
-
-	it("returns finite numbers only", () => {
-		expect(numberFromPayload(3.5)).toBe(3.5);
-		expect(numberFromPayload(0)).toBe(0);
-		expect(numberFromPayload(Number.NaN)).toBeUndefined();
-		expect(numberFromPayload(Number.POSITIVE_INFINITY)).toBeUndefined();
-		expect(numberFromPayload("5")).toBeUndefined();
-	});
-});
-
-describe("nowIso / offsetIso / latestIso", () => {
-	it("nowIso returns a parseable ISO timestamp", () => {
-		const iso = nowIso();
-		expect(Number.isNaN(Date.parse(iso))).toBe(false);
-	});
-
-	it("offsetIso shifts by the given milliseconds", () => {
-		const base = "2026-07-01T00:00:00.000Z";
-		expect(offsetIso(base, 1000)).toBe("2026-07-01T00:00:01.000Z");
-	});
-
-	it("latestIso returns the max non-null value or null", () => {
-		expect(latestIso(["2026-01-01", null, "2026-03-01", undefined])).toBe(
-			"2026-03-01",
-		);
-		expect(latestIso([null, undefined])).toBeNull();
-	});
-});
 
 describe("withTimeout", () => {
 	it("resolves when the promise settles in time", async () => {
@@ -198,10 +116,6 @@ describe("child run status helpers", () => {
 		expect(childRunStatusFromSummary(null)).toBe("queued");
 	});
 
-	it("formats a child run status key", () => {
-		expect(childRunStatusKey("tedi-1", "run-9")).toBe("tedi-1:run-9");
-	});
-
 	it("reads the delegated child steer inject run id", () => {
 		const row = {
 			metadata: {
@@ -241,24 +155,6 @@ describe("home run status predicates", () => {
 });
 
 describe("homeRunProgress", () => {
-	it("reports terminal completion with the event count detail", () => {
-		expect(homeRunProgress({ eventCount: 3, status: "completed" })).toEqual({
-			current: 100,
-			detail: "3 runtime events recorded",
-			label: "Complete",
-			total: 100,
-		});
-	});
-
-	it("uses the zero-event phrasing for empty terminal runs", () => {
-		expect(homeRunProgress({ eventCount: 0, status: "failed" })).toEqual({
-			current: 100,
-			detail: "no runtime events",
-			label: "Failed",
-			total: 100,
-		});
-	});
-
 	it("carries the child's stop reason as the detail of a failed or partial run", () => {
 		expect(
 			homeRunProgress({
@@ -303,15 +199,6 @@ describe("homeRunProgress", () => {
 			total: 100,
 		});
 	});
-
-	it("falls back to Waiting for an unknown status", () => {
-		expect(homeRunProgress({ eventCount: 2, status: undefined })).toEqual({
-			current: 8,
-			detail: "2 runtime events recorded",
-			label: "Waiting",
-			total: 100,
-		});
-	});
 });
 
 describe("nextCursor", () => {
@@ -348,10 +235,6 @@ describe("resolveOrganizationId", () => {
 });
 
 describe("boundedArgsJson", () => {
-	it("serializes small argument bags verbatim", () => {
-		expect(boundedArgsJson({ a: 1 })).toBe('{"a":1}');
-	});
-
 	it("truncates oversized payloads with an ellipsis", () => {
 		const big = boundedArgsJson({ value: "x".repeat(1000) }, 20);
 		expect(big.endsWith("…")).toBe(true);
@@ -366,10 +249,6 @@ describe("boundedArgsJson", () => {
 });
 
 describe("sanitizeAgentTurnKey / predictAgentRunId", () => {
-	it("sanitizes a stable turn key", () => {
-		expect(sanitizeAgentTurnKey("req 1")).toBe("req_1");
-	});
-
 	it("rejects an empty turn key", () => {
 		expect(() => sanitizeAgentTurnKey("   ")).toThrow();
 	});

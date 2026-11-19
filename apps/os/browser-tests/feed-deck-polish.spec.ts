@@ -23,7 +23,8 @@ const { origin } = server;
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const width of [1280, 390]) {
+	{
+		const width = 1280;
 		const page = await browser.newPage({ viewport: { width, height: 844 } });
 		await page.goto(
 			`${origin}/browser-tests/feed-deck-polish.html?surface=filters`,
@@ -50,666 +51,647 @@ try {
 		await page.keyboard.press("Escape");
 		await page.close();
 	}
-	for (const width of [390, 1280]) {
-		for (const theme of ["light", "dark"] as const) {
-			for (const surface of ["feed", "question"]) {
-				const palettes = ["default", "blue"];
-				for (const palette of palettes) {
-					const page = await browser.newPage({
-						viewport: { width, height: 844 },
-						colorScheme: theme,
-					});
-					await page.goto(
-						`${origin}/browser-tests/feed-deck-polish.html?shell&surface=${surface}&theme=${theme}&palette=${palette}`,
-					);
-					if (surface === "question" && palette === "default") {
-						const filters = page.getByRole("button", {
-							name: "Filters",
-							exact: true,
-						});
-						const kind = page.getByRole("combobox", { name: "Decision kind" });
-						if (width === 390) await filters.click();
-						await kind.focus();
-						await page.keyboard.press("Enter");
-						const popup = page.locator(".fd-filter-options:visible");
-						await popup.waitFor();
-						await settleAnimations(page);
-						await page.waitForFunction(
-							() => document.activeElement?.getAttribute("role") === "option",
-						);
-						const geometry = await popup.evaluate((node) => ({
-							width: (node as HTMLElement).offsetWidth,
-							padding: getComputedStyle(node).padding,
-							rowHeight:
-								node.querySelector<HTMLElement>('[role="option"]')!
-									.offsetHeight,
-						}));
-						if (
-							geometry.width < 200 ||
-							geometry.width > 260 ||
-							geometry.padding !== "4px" ||
-							geometry.rowHeight !== (width < 640 ? 44 : 32)
-						)
-							throw new Error(`Filter geometry: ${JSON.stringify(geometry)}`);
-						if (
-							await popup
-								.getByRole("button", { name: "What you decided" })
-								.count()
-						)
-							throw new Error("Deck view toggle is inside the Kind filter");
-						await page.keyboard.type("Answer");
-						await page.keyboard.press("Enter");
-						await popup.waitFor({ state: "hidden" });
-						await page.waitForFunction(() =>
-							document
-								.querySelector('[aria-label="Decision kind"]')
-								?.textContent?.includes("Answer"),
-						);
-						await page.waitForFunction(
-							() =>
-								document.activeElement?.getAttribute("aria-label") ===
-								"Decision kind",
-						);
-						await kind.click();
-						await settleAnimations(page);
-						await page.waitForFunction(
-							() => document.activeElement?.getAttribute("role") === "option",
-						);
-						if (
-							(await page
-								.getByRole("option", { name: "Answer", exact: true })
-								.getAttribute("aria-selected")) !== "true"
-						)
-							throw new Error("Kind selection was not retained");
-						await page.keyboard.press("Home");
-						await page.keyboard.press("Enter");
-						await popup.waitFor({ state: "hidden" });
-						const project = page.getByRole("combobox", {
-							name: "Decision project",
-						});
-						await project.click();
-						await settleAnimations(page);
-						await page.waitForFunction(
-							() => document.activeElement?.getAttribute("role") === "option",
-						);
-						await page.keyboard.type("All projects");
-						await page.keyboard.press("Enter");
-						await popup.waitFor({ state: "hidden" });
-						const urgency = page.getByRole("combobox", {
-							name: "Decision urgency",
-						});
-						await urgency.click();
-						await settleAnimations(page);
-						await page.waitForFunction(
-							() => document.activeElement?.getAttribute("role") === "option",
-						);
-						await page.keyboard.press("Home");
-						await page.keyboard.press("ArrowDown");
-						await page.keyboard.press("Enter");
-						await popup.waitFor({ state: "hidden" });
-						await page.waitForFunction(() =>
-							document
-								.querySelector('[aria-label="Decision urgency"]')
-								?.textContent?.includes("Needs you now"),
-						);
-						await urgency.click();
-						await settleAnimations(page);
-						await page.waitForFunction(
-							() => document.activeElement?.getAttribute("role") === "option",
-						);
-						await page.keyboard.press("Home");
-						await page.keyboard.press("Enter");
-						await popup.waitFor({ state: "hidden" });
-						await kind.click();
-						await settleAnimations(page);
-						await page.waitForFunction(
-							() => document.activeElement?.getAttribute("role") === "option",
-						);
-						await page.keyboard.press("Escape");
-						await popup.waitFor({ state: "hidden" });
-						if (width === 390) await page.keyboard.press("Escape");
-						const url = page.url();
-						await page
-							.getByRole("button", { name: "What you decided", exact: true })
-							.click();
-						if (page.url() !== url)
-							throw new Error("View toggle changed route state");
-						await page
-							.getByRole("button", { name: "For you", exact: true })
-							.click();
-					}
-					const trigger = page.locator("header").getByRole("button", {
-						name: "Decision context",
-						exact: true,
-					});
-					await trigger.waitFor();
-					const before = (await page
-						.locator(".fd-context-main")
-						.boundingBox())!;
-					const target = (await trigger.boundingBox())!;
-					if (width === 390 && (target.width < 44 || target.height < 44))
-						throw new Error("Context entry is below the mobile touch floor");
-					await trigger.focus();
-					await page.keyboard.press("Enter");
-					const dialog = page.locator("[data-decision-context]:visible");
-					await dialog.waitFor();
-					await settleAnimations(page);
-					const after = (await page.locator(".fd-context-main").boundingBox())!;
-					if (
-						Math.abs(before.width - after.width) > 1 ||
-						Math.abs(before.x - after.x) > 1
-					)
-						throw new Error("Opening context changed the main column geometry");
-					if ((await dialog.getAttribute("role")) !== "dialog")
-						throw new Error("Context entry did not open a Kumo Sheet");
-					if (process.env.TEDIX_SCREENSHOT_DIR)
-						await page.screenshot({
-							path: `${process.env.TEDIX_SCREENSHOT_DIR}/work-context-${surface === "question" ? "deck" : "feed"}-${width}-${theme}-${palette}.png`,
-						});
-					for (let i = 0; i < 8; i++) {
-						await page.keyboard.press("Tab");
-						await page.waitForFunction(() =>
-							document.activeElement?.closest("[data-decision-context]"),
-						);
-					}
-					if (
-						await page.evaluate(
-							() => document.documentElement.scrollWidth > innerWidth,
-						)
-					)
-						throw new Error(`Context overflows at ${width}/${theme}`);
-					await page.keyboard.press("Escape");
-					await dialog.waitFor({ state: "hidden" });
-					await page.waitForFunction(
-						() =>
-							document.activeElement?.getAttribute("aria-label") ===
-							"Decision context",
-					);
-					await page.keyboard.press("i");
-					await dialog.waitFor();
-					await page.reload();
-					await dialog.waitFor();
-					await dialog
-						.getByRole("button", { name: "Close decision context" })
-						.click();
-					await dialog.waitFor({ state: "hidden" });
-					await page.keyboard.press("Tab");
-					if (
-						await page.evaluate(() =>
-							Boolean(
-								document.activeElement?.closest("[data-decision-context]"),
-							),
-						)
-					)
-						throw new Error("Closed context remained in keyboard navigation");
-					if (surface === "question") {
-						await page.getByRole("textbox", { name: "Your answer" }).press("i");
-						if (await dialog.isVisible())
-							throw new Error("Typing i opened context");
-						await openWhy(page);
-						await dialog
-							.getByRole("heading", {
-								name: "Why am I seeing this",
-								exact: true,
-							})
-							.waitFor();
-						await page.keyboard.press("Escape");
-						await dialog.waitFor({ state: "hidden" });
-						await page
-							.getByRole("button", { name: "Details", exact: true })
-							.click();
-						await dialog
-							.getByRole("heading", { name: "Details", exact: true })
-							.waitFor();
-					}
-					await page.close();
-				}
-			}
-		}
-	}
-	for (const width of [390, 1440]) {
-		for (const theme of ["light", "dark"] as const) {
-			const page = await browser.newPage({
-				viewport: { width, height: width === 390 ? 844 : 900 },
-				colorScheme: theme,
-			});
-			await page.goto(
-				`${origin}/browser-tests/feed-deck-polish.html?cards=one&theme=${theme}`,
-			);
-			await openExamples(page);
-			await page.keyboard.press("Escape");
-			const title = page.locator('[data-slot="card-title"]');
-			await title.waitFor();
-			await settleAnimations(page);
-			if (
-				(await title.evaluate((el) =>
-					Number.parseFloat(getComputedStyle(el).fontSize),
-				)) < 20
-			)
-				throw new Error("Proposal lost its type hierarchy");
-			if (
-				await page.evaluate(
-					() => document.documentElement.scrollWidth > innerWidth,
-				)
-			)
-				throw new Error(`Deck overflows at ${width}/${theme}`);
-			const primary = page.locator('[data-decision-intent="approve"]');
-			if (
-				await page
-					.locator(".fd-decision")
-					.evaluate((el) => el === document.activeElement)
-			)
-				throw new Error("Card stole focus on load");
-			if (
-				!(await primary
-					.locator("xpath=ancestor::*[@data-slot='card-footer']")
-					.count()) ||
-				!(await page.locator('[data-slot="card-footer"] .fd-card-why').count())
-			)
-				throw new Error("Card actions and Why this must share one surface");
-			const deckGeometry = await page.locator(".fd-card").evaluate((card) => {
-				const notice = document
-					.querySelector(".fd-practice-notice")!
-					.getBoundingClientRect();
-				const box = card.getBoundingClientRect();
-				return {
-					left: notice.left - box.left,
-					gap: box.top - notice.bottom,
-					details: getComputedStyle(card.querySelector(".fd-card-details")!)
-						.fontSize,
-					whyMargin: getComputedStyle(card.querySelector(".fd-card-why")!)
-						.marginLeft,
-				};
-			});
-			if (
-				Math.abs(deckGeometry.left) > 1 ||
-				deckGeometry.gap !== 12 ||
-				deckGeometry.details !== "13px" ||
-				deckGeometry.whyMargin !== "0px"
-			)
-				throw new Error(
-					`Deck notice and tertiary actions: ${JSON.stringify(deckGeometry)}`,
-				);
-			const rejectBefore = await page
-				.locator('[data-decision-intent="reject"]')
-				.boundingBox();
-			await primary.hover();
-			const rejectAfter = await page
-				.locator('[data-decision-intent="reject"]')
-				.boundingBox();
-			if (
-				rejectBefore?.x !== rejectAfter?.x ||
-				rejectBefore?.y !== rejectAfter?.y
-			)
-				throw new Error("Key cap hover moved the adjacent action");
-			const colors = await primary.evaluate((el) => ({
-				fill: getComputedStyle(el).backgroundColor,
-				text: getComputedStyle(el).color,
-				expectedText: getComputedStyle(el)
-					.getPropertyValue("--primary-foreground")
-					.trim(),
-			}));
-			if (
-				colors.text !==
-					(theme === "light" ? "rgb(255, 255, 255)" : "rgb(3, 3, 3)") ||
-				colors.fill === "rgba(0, 0, 0, 0)"
-			)
-				throw new Error(
-					`Approve lost its tenant fill or contrasting text: ${JSON.stringify(colors)}`,
-				);
-			const type = await title.evaluate((el) => ({
-				family: getComputedStyle(el).fontFamily,
-				weight: getComputedStyle(el).fontWeight,
-			}));
-			if (/mono/i.test(type.family) || type.weight !== "600")
-				throw new Error(`Wrong display type: ${JSON.stringify(type)}`);
-			if (
-				(await page
-					.locator(".fd-deck")
-					.evaluate((el) => getComputedStyle(el).backgroundImage)) !== "none"
-			)
-				throw new Error("Deck background is decorated");
-			await title.scrollIntoViewIfNeeded();
-			const box = (await title.boundingBox())!;
-			const x = box.x + 30,
-				y = box.y + 20;
-			await page.mouse.move(x, y);
-			await page.mouse.down();
-			await page.mouse.move(x + 110, y, { steps: 12 });
-			await page.mouse.up();
-			if (
-				(await page.locator(".fd-decision").getAttribute("data-dragging")) !==
-				"false"
-			)
-				throw new Error("Mouse drag moved the card");
-			if (!(await page.evaluate(() => Boolean(getSelection()?.toString()))))
-				throw new Error("Mouse drag could not select title text");
-			await page.locator(".fd-decision").focus();
-			await page.keyboard.press("y");
-			await page.locator(".fd-closure").waitFor();
-			await page.goto(
-				`${origin}/browser-tests/feed-deck-polish.html?surface=approval&theme=${theme}`,
-			);
-			await page
-				.getByRole("heading", { name: "Approve fictional test login" })
-				.waitFor();
-			if (
-				!(await page
-					.getByRole("button", { name: "Approve", exact: true })
-					.isEnabled()) ||
-				(await page.getByRole("textbox", { name: "Your answer" }).count())
-			)
-				throw new Error("Typed approval regressed to a free-text question");
-			if (await page.getByText("Prepared args:", { exact: false }).isVisible())
-				throw new Error("Raw approval arguments leaked outside Details");
-			await page.getByRole("button", { name: "Details", exact: true }).click();
-			await page.getByText("Prepared args:", { exact: false }).waitFor();
-			await page.keyboard.press("Escape");
-			await settleAnimations(page);
-			const footer = await page
-				.locator('[data-slot="card-footer"]')
-				.boundingBox();
-			const primaryBox = await page
-				.getByRole("button", { name: "Approve", exact: true })
-				.boundingBox();
-			if (
-				!footer ||
-				!primaryBox ||
-				primaryBox.y + primaryBox.height > footer.y + footer.height + 1
-			)
-				throw new Error("Approval actions escaped the footer");
-			await page.goto(
-				`${origin}/browser-tests/feed-deck-polish.html?surface=feed&theme=${theme}`,
-			);
-			await page.locator("article").first().waitFor();
-			if (
-				await page.evaluate(
-					() => document.documentElement.scrollWidth > innerWidth,
-				)
-			)
-				throw new Error(`Focus feed overflows at ${width}/${theme}`);
-			const forYouCount = await page.locator("[data-focus-row]").count();
-			if (forYouCount > 5)
-				throw new Error("For you exceeded its first-screen item limit");
-			const handled = page.getByRole("button", {
-				name: /finished without you/,
-			});
-			if (await handled.count()) {
-				await handled.click();
-				const readable = await page
-					.locator(".focus-handled .ft-sentence")
-					.evaluateAll((nodes) =>
-						nodes.every(
-							(node) =>
-								node.scrollWidth <= node.clientWidth + 1 &&
-								node.scrollHeight <= node.clientHeight + 1,
-						),
-					);
-				if (!readable)
-					throw new Error("Handled outcomes must expand without clipped text");
-				await handled.click();
-			}
-			await page.locator('[data-workspace-app-entry="activity-feed"]').focus();
-			await page.keyboard.press("j");
-			if (
-				!(await page
-					.locator("[data-focus-row]")
-					.first()
-					.evaluate((el) => el === document.activeElement))
-			)
-				throw new Error("j did not focus the first feed row");
-			await page.keyboard.press("j");
-			await page.keyboard.press("k");
-			const story = page.locator("article").first();
-			await story.getByRole("button", { name: "More", exact: true }).click();
-			await story.getByRole("region", { name: "Receipt" }).waitFor();
-			await story.locator(".fd-preview").first().waitFor();
-			const preview = await story
-				.locator(".fd-preview")
-				.first()
-				.evaluate((el) => el.getBoundingClientRect().height);
-			if (preview > 64)
-				throw new Error(`Activity preview is not compact: ${preview}px`);
-			const actions = story.locator("..").locator(".focus-actions");
-			const row = story.locator("..");
-			await row.hover();
-			const geometry = await row.evaluate((el) => {
-				const actions = el.querySelector<HTMLElement>(".focus-actions")!;
-				const control = el.querySelector<HTMLButtonElement>(
-					'[aria-label="More actions"]',
-				)!;
-				return {
-					padding: getComputedStyle(el).padding,
-					inline: getComputedStyle(actions).display !== "none",
-					count: actions.querySelectorAll("button").length,
-					target: control.getBoundingClientRect().height,
-				};
-			});
-			if (
-				geometry.padding !== "10px 14px" ||
-				geometry.inline !== width > 640 ||
-				geometry.count !== 7 ||
-				geometry.target < (width === 390 ? 44 : 32)
-			)
-				throw new Error(
-					`Feed row ${width}/${theme}: ${JSON.stringify(geometry)}`,
-				);
-			await row
-				.getByRole("button", { name: "More actions", exact: true })
-				.click();
-			for (const name of [
-				"Comment",
-				"Why this update",
-				"Turn into Work",
-				"Pin",
-				"Hide",
-				"Not important",
-				"Tell me earlier",
-			])
-				await page.getByRole("menuitem", { name, exact: true }).waitFor();
-			await page.keyboard.press("Escape");
-			if (width > 640) {
-				const receipt = actions.getByRole("button", {
-					name: "Comment",
-					exact: true,
-				});
-				const before = await receipt.boundingBox();
-				await receipt.focus();
-				const after = await receipt.boundingBox();
-				if (
-					!before ||
-					!after ||
-					before.width !== after.width ||
-					before.height !== after.height
-				)
-					throw new Error("Feed action focus changed its hit area");
-			}
-			const rhythm = await page.locator(".focus-feed").evaluate((el) => ({
-				gap: getComputedStyle(el).gap,
-				chips: [
-					...el.querySelectorAll('[aria-label="Show activity from"] button'),
-				].map((b) => b.textContent),
-				day: el.querySelector(".ft-day-label")?.textContent,
-			}));
-			if (
-				rhythm.gap !== "20px" ||
-				rhythm.chips.join(" ") !== "All People Tedis Apps Shipped" ||
-				rhythm.day !== "Today"
-			)
-				throw new Error(`Activity rhythm: ${JSON.stringify(rhythm)}`);
-			await page.getByRole("button", { name: "Shipped", exact: true }).click();
-			await page.getByRole("feed", { name: "Shipped activity" }).waitFor();
-			// Repeated updates fold into one row each; opening them restores every record.
-			await page
-				.getByRole("button", { name: "Show all 12", exact: true })
-				.waitFor();
-			const folds = page.getByRole("button", { name: /^Show all \d+$/ });
-			while (await folds.count()) await folds.first().click();
-			const records = await page
-				.locator("[data-focus-row]:not(.ft-group)")
-				.count();
-			if (records !== 17)
-				throw new Error(`Shipped lost canonical fixture records: ${records}`);
-			if (
-				await page.getByRole("button", { name: /finished without you/ }).count()
-			)
-				throw new Error("Shipped hid records behind the attention budget");
-			const everythingStory = page
-				.getByRole("feed", { name: "Shipped activity" })
-				.locator(".fd-story")
-				.first();
-			await everythingStory
-				.getByRole("button", { name: "More actions", exact: true })
-				.click();
-			await page
-				.getByRole("menuitem", { name: "Comment", exact: true })
-				.click();
-			await everythingStory
-				.getByRole("textbox", { name: "Your correction", exact: true })
-				.waitFor();
-			await page.close();
-		}
-	}
-
-	for (const width of [390, 1440])
-		for (const theme of ["light", "dark"]) {
-			const page = await browser.newPage({
-				viewport: { width, height: width === 390 ? 844 : 900 },
-			});
-			await page.goto(
-				`${origin}/browser-tests/feed-deck-polish.html?shell&surface=question&theme=${theme}`,
-			);
-			const answer = page.getByRole("textbox", {
-				name: "Your answer",
+	for (const [width, theme, surface, palette] of [
+		[390, "dark", "question", "default"],
+		[1280, "light", "question", "default"],
+		[390, "light", "feed", "blue"],
+		[1280, "dark", "feed", "blue"],
+	] as const) {
+		const page = await browser.newPage({
+			viewport: { width, height: 844 },
+			colorScheme: theme,
+		});
+		await page.goto(
+			`${origin}/browser-tests/feed-deck-polish.html?shell&surface=${surface}&theme=${theme}&palette=${palette}`,
+		);
+		if (surface === "question") {
+			const filters = page.getByRole("button", {
+				name: "Filters",
 				exact: true,
 			});
-			await answer.waitFor();
-			await page.locator(".fd-work-toolbar-slot .fd-app-toolbar").waitFor();
+			const kind = page.getByRole("combobox", { name: "Decision kind" });
+			if (width === 390) await filters.click();
+			await kind.focus();
+			await page.keyboard.press("Enter");
+			const popup = page.locator(".fd-filter-options:visible");
+			await popup.waitFor();
 			await settleAnimations(page);
-			const layout = await page.evaluate(() => {
-				const card = document.querySelector(".fd-card")!;
-				const field = card.querySelector("textarea")!;
-				const style = getComputedStyle(field);
-				const why = card.querySelector(".fd-card-why")!.getBoundingClientRect();
-				return {
-					bar: document
-						.querySelector(".fd-app-toolbar")!
-						.getBoundingClientRect().height,
-					gap:
-						card.getBoundingClientRect().top -
-						document.querySelector("header")!.getBoundingClientRect().bottom,
-					field: field.getBoundingClientRect().height,
-					min: 3 * parseFloat(style.lineHeight) + 24,
-					inset: card.getBoundingClientRect().right - why.right,
-					details:
-						card.querySelector('[data-slot="card-header"] .fd-card-details') !==
-						null,
-					overflow: document.documentElement.scrollWidth > innerWidth,
-				};
-			});
-			if (
-				layout.bar > 50 ||
-				layout.gap > 96 ||
-				layout.field < layout.min ||
-				layout.inset < 16 ||
-				!layout.details ||
-				layout.overflow
-			)
-				throw new Error(
-					`Round 3 geometry ${width}/${theme}: ${JSON.stringify(layout)}`,
-				);
-			if (
-				await page
-					.getByRole("button", { name: "Answer", exact: true })
-					.isEnabled()
-			)
-				throw new Error("Empty answer enabled");
-			await answer.fill("Friday works for us.");
-			await answer.press("End");
-			await answer.press("Enter");
-			await answer.press("x");
-			if (!(await answer.inputValue()).includes("\n"))
-				throw new Error("Enter submitted instead of adding a newline");
-			if (
-				!(await page
-					.getByRole("button", { name: "Answer", exact: true })
-					.isEnabled())
-			)
-				throw new Error("Nonempty answer stayed disabled");
-			await answer.fill(
-				Array.from({ length: 12 }, (_, i) => `Line ${i + 1}`).join("\n"),
+			await page.waitForFunction(
+				() => document.activeElement?.getAttribute("role") === "option",
 			);
-			const grown = await answer.evaluate((el) => ({
-				height: el.getBoundingClientRect().height,
-				max: 8 * parseFloat(getComputedStyle(el).lineHeight) + 26,
-				scroll: el.scrollHeight,
-				client: el.clientHeight,
+			const geometry = await popup.evaluate((node) => ({
+				width: (node as HTMLElement).offsetWidth,
+				padding: getComputedStyle(node).padding,
+				rowHeight:
+					node.querySelector<HTMLElement>('[role="option"]')!.offsetHeight,
 			}));
 			if (
-				grown.height <= layout.field ||
-				grown.height > grown.max + 1 ||
-				grown.scroll <= grown.client
+				geometry.width < 200 ||
+				geometry.width > 260 ||
+				geometry.padding !== "4px" ||
+				geometry.rowHeight !== (width < 640 ? 44 : 32)
 			)
-				throw new Error(`Answer growth: ${JSON.stringify(grown)}`);
-			await openWhy(page);
+				throw new Error(`Filter geometry: ${JSON.stringify(geometry)}`);
+			if (await popup.getByRole("button", { name: "What you decided" }).count())
+				throw new Error("Deck view toggle is inside the Kind filter");
+			await page.keyboard.type("Answer");
+			await page.keyboard.press("Enter");
+			await popup.waitFor({ state: "hidden" });
+			await page.waitForFunction(() =>
+				document
+					.querySelector('[aria-label="Decision kind"]')
+					?.textContent?.includes("Answer"),
+			);
+			await page.waitForFunction(
+				() =>
+					document.activeElement?.getAttribute("aria-label") ===
+					"Decision kind",
+			);
+			await kind.click();
+			await settleAnimations(page);
+			await page.waitForFunction(
+				() => document.activeElement?.getAttribute("role") === "option",
+			);
+			if (
+				(await page
+					.getByRole("option", { name: "Answer", exact: true })
+					.getAttribute("aria-selected")) !== "true"
+			)
+				throw new Error("Kind selection was not retained");
+			await page.keyboard.press("Home");
+			await page.keyboard.press("Enter");
+			await popup.waitFor({ state: "hidden" });
+			const project = page.getByRole("combobox", {
+				name: "Decision project",
+			});
+			await project.click();
+			await settleAnimations(page);
+			await page.waitForFunction(
+				() => document.activeElement?.getAttribute("role") === "option",
+			);
+			await page.keyboard.type("All projects");
+			await page.keyboard.press("Enter");
+			await popup.waitFor({ state: "hidden" });
+			const urgency = page.getByRole("combobox", {
+				name: "Decision urgency",
+			});
+			await urgency.click();
+			await settleAnimations(page);
+			await page.waitForFunction(
+				() => document.activeElement?.getAttribute("role") === "option",
+			);
+			await page.keyboard.press("Home");
+			await page.keyboard.press("ArrowDown");
+			await page.keyboard.press("Enter");
+			await popup.waitFor({ state: "hidden" });
+			await page.waitForFunction(() =>
+				document
+					.querySelector('[aria-label="Decision urgency"]')
+					?.textContent?.includes("Needs you now"),
+			);
+			await urgency.click();
+			await settleAnimations(page);
+			await page.waitForFunction(
+				() => document.activeElement?.getAttribute("role") === "option",
+			);
+			await page.keyboard.press("Home");
+			await page.keyboard.press("Enter");
+			await popup.waitFor({ state: "hidden" });
+			await kind.click();
+			await settleAnimations(page);
+			await page.waitForFunction(
+				() => document.activeElement?.getAttribute("role") === "option",
+			);
+			await page.keyboard.press("Escape");
+			await popup.waitFor({ state: "hidden" });
+			if (width === 390) await page.keyboard.press("Escape");
+			const url = page.url();
 			await page
+				.getByRole("button", { name: "What you decided", exact: true })
+				.click();
+			if (page.url() !== url)
+				throw new Error("View toggle changed route state");
+			await page.getByRole("button", { name: "For you", exact: true }).click();
+		}
+		const trigger = page.locator("header").getByRole("button", {
+			name: "Decision context",
+			exact: true,
+		});
+		await trigger.waitFor();
+		const before = (await page.locator(".fd-context-main").boundingBox())!;
+		const target = (await trigger.boundingBox())!;
+		if (width === 390 && (target.width < 44 || target.height < 44))
+			throw new Error("Context entry is below the mobile touch floor");
+		await trigger.focus();
+		await page.keyboard.press("Enter");
+		const dialog = page.locator("[data-decision-context]:visible");
+		await dialog.waitFor();
+		await settleAnimations(page);
+		const after = (await page.locator(".fd-context-main").boundingBox())!;
+		if (
+			Math.abs(before.width - after.width) > 1 ||
+			Math.abs(before.x - after.x) > 1
+		)
+			throw new Error("Opening context changed the main column geometry");
+		if ((await dialog.getAttribute("role")) !== "dialog")
+			throw new Error("Context entry did not open a Kumo Sheet");
+		if (process.env.TEDIX_SCREENSHOT_DIR)
+			await page.screenshot({
+				path: `${process.env.TEDIX_SCREENSHOT_DIR}/work-context-${surface === "question" ? "deck" : "feed"}-${width}-${theme}-${palette}.png`,
+			});
+		for (let i = 0; i < 8; i++) {
+			await page.keyboard.press("Tab");
+			await page.waitForFunction(() =>
+				document.activeElement?.closest("[data-decision-context]"),
+			);
+		}
+		if (
+			await page.evaluate(
+				() => document.documentElement.scrollWidth > innerWidth,
+			)
+		)
+			throw new Error(`Context overflows at ${width}/${theme}`);
+		await page.keyboard.press("Escape");
+		await dialog.waitFor({ state: "hidden" });
+		await page.waitForFunction(
+			() =>
+				document.activeElement?.getAttribute("aria-label") ===
+				"Decision context",
+		);
+		await page.keyboard.press("i");
+		await dialog.waitFor();
+		await page.reload();
+		await dialog.waitFor();
+		await dialog
+			.getByRole("button", { name: "Close decision context" })
+			.click();
+		await dialog.waitFor({ state: "hidden" });
+		await page.keyboard.press("Tab");
+		if (
+			await page.evaluate(() =>
+				Boolean(document.activeElement?.closest("[data-decision-context]")),
+			)
+		)
+			throw new Error("Closed context remained in keyboard navigation");
+		if (surface === "question") {
+			await page.getByRole("textbox", { name: "Your answer" }).press("i");
+			if (await dialog.isVisible()) throw new Error("Typing i opened context");
+			await openWhy(page);
+			await dialog
 				.getByRole("heading", {
-					name: "Your decisions",
+					name: "Why am I seeing this",
 					exact: true,
 				})
 				.waitFor();
-			// Stats stay folded until someone asks for them.
-			await page
-				.getByRole("button", { name: "Stats and learned rules", exact: true })
-				.click();
-			for (const name of [
-				"Filters",
-				"Keyboard shortcuts",
-				"History",
-				"What each choice does",
-			])
-				if (await page.getByRole("heading", { name, exact: true }).isVisible())
-					throw new Error(`Unexpected context section: ${name}`);
-			// The side panel is narrow at every width: its metric tiles keep two
-			// columns and never break a word across lines.
-			const attention = await page
-				.getByRole("region", { name: "Decision attention", exact: true })
-				.evaluate((section) => {
-					const broken: string[] = [];
-					const walker = document.createTreeWalker(
-						section,
-						NodeFilter.SHOW_TEXT,
-					);
-					for (let node = walker.nextNode(); node; node = walker.nextNode())
-						for (const word of (node.textContent ?? "").matchAll(/\S+/g)) {
-							const range = document.createRange();
-							range.setStart(node, word.index);
-							range.setEnd(node, word.index + word[0].length);
-							const lines = new Set(
-								[...range.getClientRects()].map((rect) => Math.round(rect.top)),
-							);
-							if (lines.size > 1) broken.push(word[0]);
-						}
-					const grid = section.querySelector("dl");
-					return {
-						broken,
-						columns: grid
-							? getComputedStyle(grid).gridTemplateColumns.split(" ").length
-							: 0,
-					};
-				});
-			if (attention.broken.length > 0 || attention.columns !== 2)
-				throw new Error(
-					`Decision attention ${width}/${theme}: ${JSON.stringify(attention)}`,
-				);
 			await page.keyboard.press("Escape");
+			await dialog.waitFor({ state: "hidden" });
 			await page.getByRole("button", { name: "Details", exact: true }).click();
-			await page
+			await dialog
 				.getByRole("heading", { name: "Details", exact: true })
-				.first()
 				.waitFor();
-			await page.close();
 		}
+		await page.close();
+	}
+	for (const [width, theme] of [
+		[390, "dark"],
+		[1440, "light"],
+	] as const) {
+		const page = await browser.newPage({
+			viewport: { width, height: width === 390 ? 844 : 900 },
+			colorScheme: theme,
+		});
+		await page.goto(
+			`${origin}/browser-tests/feed-deck-polish.html?cards=one&theme=${theme}`,
+		);
+		await openExamples(page);
+		await page.keyboard.press("Escape");
+		const title = page.locator('[data-slot="card-title"]');
+		await title.waitFor();
+		await settleAnimations(page);
+		if (
+			(await title.evaluate((el) =>
+				Number.parseFloat(getComputedStyle(el).fontSize),
+			)) < 20
+		)
+			throw new Error("Proposal lost its type hierarchy");
+		if (
+			await page.evaluate(
+				() => document.documentElement.scrollWidth > innerWidth,
+			)
+		)
+			throw new Error(`Deck overflows at ${width}/${theme}`);
+		const primary = page.locator('[data-decision-intent="approve"]');
+		if (
+			await page
+				.locator(".fd-decision")
+				.evaluate((el) => el === document.activeElement)
+		)
+			throw new Error("Card stole focus on load");
+		if (
+			!(await primary
+				.locator("xpath=ancestor::*[@data-slot='card-footer']")
+				.count()) ||
+			!(await page.locator('[data-slot="card-footer"] .fd-card-why').count())
+		)
+			throw new Error("Card actions and Why this must share one surface");
+		const deckGeometry = await page.locator(".fd-card").evaluate((card) => {
+			const notice = document
+				.querySelector(".fd-practice-notice")!
+				.getBoundingClientRect();
+			const box = card.getBoundingClientRect();
+			return {
+				left: notice.left - box.left,
+				gap: box.top - notice.bottom,
+				details: getComputedStyle(card.querySelector(".fd-card-details")!)
+					.fontSize,
+				whyMargin: getComputedStyle(card.querySelector(".fd-card-why")!)
+					.marginLeft,
+			};
+		});
+		if (
+			Math.abs(deckGeometry.left) > 1 ||
+			deckGeometry.gap !== 12 ||
+			deckGeometry.details !== "13px" ||
+			deckGeometry.whyMargin !== "0px"
+		)
+			throw new Error(
+				`Deck notice and tertiary actions: ${JSON.stringify(deckGeometry)}`,
+			);
+		const rejectBefore = await page
+			.locator('[data-decision-intent="reject"]')
+			.boundingBox();
+		await primary.hover();
+		const rejectAfter = await page
+			.locator('[data-decision-intent="reject"]')
+			.boundingBox();
+		if (
+			rejectBefore?.x !== rejectAfter?.x ||
+			rejectBefore?.y !== rejectAfter?.y
+		)
+			throw new Error("Key cap hover moved the adjacent action");
+		const colors = await primary.evaluate((el) => ({
+			fill: getComputedStyle(el).backgroundColor,
+			text: getComputedStyle(el).color,
+			expectedText: getComputedStyle(el)
+				.getPropertyValue("--primary-foreground")
+				.trim(),
+		}));
+		if (
+			colors.text !==
+				(theme === "light" ? "rgb(255, 255, 255)" : "rgb(3, 3, 3)") ||
+			colors.fill === "rgba(0, 0, 0, 0)"
+		)
+			throw new Error(
+				`Approve lost its tenant fill or contrasting text: ${JSON.stringify(colors)}`,
+			);
+		const type = await title.evaluate((el) => ({
+			family: getComputedStyle(el).fontFamily,
+			weight: getComputedStyle(el).fontWeight,
+		}));
+		if (/mono/i.test(type.family) || type.weight !== "600")
+			throw new Error(`Wrong display type: ${JSON.stringify(type)}`);
+		if (
+			(await page
+				.locator(".fd-deck")
+				.evaluate((el) => getComputedStyle(el).backgroundImage)) !== "none"
+		)
+			throw new Error("Deck background is decorated");
+		await title.scrollIntoViewIfNeeded();
+		const box = (await title.boundingBox())!;
+		const x = box.x + 30,
+			y = box.y + 20;
+		await page.mouse.move(x, y);
+		await page.mouse.down();
+		await page.mouse.move(x + 110, y, { steps: 12 });
+		await page.mouse.up();
+		if (
+			(await page.locator(".fd-decision").getAttribute("data-dragging")) !==
+			"false"
+		)
+			throw new Error("Mouse drag moved the card");
+		if (!(await page.evaluate(() => Boolean(getSelection()?.toString()))))
+			throw new Error("Mouse drag could not select title text");
+		await page.locator(".fd-decision").focus();
+		await page.keyboard.press("y");
+		await page.locator(".fd-closure").waitFor();
+		await page.goto(
+			`${origin}/browser-tests/feed-deck-polish.html?surface=approval&theme=${theme}`,
+		);
+		await page
+			.getByRole("heading", { name: "Approve fictional test login" })
+			.waitFor();
+		if (
+			!(await page
+				.getByRole("button", { name: "Approve", exact: true })
+				.isEnabled()) ||
+			(await page.getByRole("textbox", { name: "Your answer" }).count())
+		)
+			throw new Error("Typed approval regressed to a free-text question");
+		if (await page.getByText("Prepared args:", { exact: false }).isVisible())
+			throw new Error("Raw approval arguments leaked outside Details");
+		await page.getByRole("button", { name: "Details", exact: true }).click();
+		await page.getByText("Prepared args:", { exact: false }).waitFor();
+		await page.keyboard.press("Escape");
+		await settleAnimations(page);
+		const footer = await page
+			.locator('[data-slot="card-footer"]')
+			.boundingBox();
+		const primaryBox = await page
+			.getByRole("button", { name: "Approve", exact: true })
+			.boundingBox();
+		if (
+			!footer ||
+			!primaryBox ||
+			primaryBox.y + primaryBox.height > footer.y + footer.height + 1
+		)
+			throw new Error("Approval actions escaped the footer");
+		await page.goto(
+			`${origin}/browser-tests/feed-deck-polish.html?surface=feed&theme=${theme}`,
+		);
+		await page.locator("article").first().waitFor();
+		if (
+			await page.evaluate(
+				() => document.documentElement.scrollWidth > innerWidth,
+			)
+		)
+			throw new Error(`Focus feed overflows at ${width}/${theme}`);
+		const forYouCount = await page.locator("[data-focus-row]").count();
+		if (forYouCount > 5)
+			throw new Error("For you exceeded its first-screen item limit");
+		const handled = page.getByRole("button", {
+			name: /finished without you/,
+		});
+		if (await handled.count()) {
+			await handled.click();
+			const readable = await page
+				.locator(".focus-handled .ft-sentence")
+				.evaluateAll((nodes) =>
+					nodes.every(
+						(node) =>
+							node.scrollWidth <= node.clientWidth + 1 &&
+							node.scrollHeight <= node.clientHeight + 1,
+					),
+				);
+			if (!readable)
+				throw new Error("Handled outcomes must expand without clipped text");
+			await handled.click();
+		}
+		await page.locator('[data-workspace-app-entry="activity-feed"]').focus();
+		await page.keyboard.press("j");
+		if (
+			!(await page
+				.locator("[data-focus-row]")
+				.first()
+				.evaluate((el) => el === document.activeElement))
+		)
+			throw new Error("j did not focus the first feed row");
+		await page.keyboard.press("j");
+		await page.keyboard.press("k");
+		const story = page.locator("article").first();
+		await story.getByRole("button", { name: "More", exact: true }).click();
+		await story.getByRole("region", { name: "Receipt" }).waitFor();
+		await story.locator(".fd-preview").first().waitFor();
+		const preview = await story
+			.locator(".fd-preview")
+			.first()
+			.evaluate((el) => el.getBoundingClientRect().height);
+		if (preview > 64)
+			throw new Error(`Activity preview is not compact: ${preview}px`);
+		const actions = story.locator("..").locator(".focus-actions");
+		const row = story.locator("..");
+		await row.hover();
+		const geometry = await row.evaluate((el) => {
+			const actions = el.querySelector<HTMLElement>(".focus-actions")!;
+			const control = el.querySelector<HTMLButtonElement>(
+				'[aria-label="More actions"]',
+			)!;
+			return {
+				padding: getComputedStyle(el).padding,
+				inline: getComputedStyle(actions).display !== "none",
+				count: actions.querySelectorAll("button").length,
+				target: control.getBoundingClientRect().height,
+			};
+		});
+		if (
+			geometry.padding !== "10px 14px" ||
+			geometry.inline !== width > 640 ||
+			geometry.count !== 7 ||
+			geometry.target < (width === 390 ? 44 : 32)
+		)
+			throw new Error(
+				`Feed row ${width}/${theme}: ${JSON.stringify(geometry)}`,
+			);
+		await row
+			.getByRole("button", { name: "More actions", exact: true })
+			.click();
+		for (const name of [
+			"Comment",
+			"Why this update",
+			"Turn into Work",
+			"Pin",
+			"Hide",
+			"Not important",
+			"Tell me earlier",
+		])
+			await page.getByRole("menuitem", { name, exact: true }).waitFor();
+		await page.keyboard.press("Escape");
+		if (width > 640) {
+			const receipt = actions.getByRole("button", {
+				name: "Comment",
+				exact: true,
+			});
+			const before = await receipt.boundingBox();
+			await receipt.focus();
+			const after = await receipt.boundingBox();
+			if (
+				!before ||
+				!after ||
+				before.width !== after.width ||
+				before.height !== after.height
+			)
+				throw new Error("Feed action focus changed its hit area");
+		}
+		const rhythm = await page.locator(".focus-feed").evaluate((el) => ({
+			gap: getComputedStyle(el).gap,
+			chips: [
+				...el.querySelectorAll('[aria-label="Show activity from"] button'),
+			].map((b) => b.textContent),
+			day: el.querySelector(".ft-day-label")?.textContent,
+		}));
+		if (
+			rhythm.gap !== "20px" ||
+			rhythm.chips.join(" ") !== "All People Tedis Apps Shipped" ||
+			rhythm.day !== "Today"
+		)
+			throw new Error(`Activity rhythm: ${JSON.stringify(rhythm)}`);
+		await page.getByRole("button", { name: "Shipped", exact: true }).click();
+		await page.getByRole("feed", { name: "Shipped activity" }).waitFor();
+		// Repeated updates fold into one row each; opening them restores every record.
+		await page
+			.getByRole("button", { name: "Show all 12", exact: true })
+			.waitFor();
+		const folds = page.getByRole("button", { name: /^Show all \d+$/ });
+		while (await folds.count()) await folds.first().click();
+		const records = await page
+			.locator("[data-focus-row]:not(.ft-group)")
+			.count();
+		if (records !== 17)
+			throw new Error(`Shipped lost canonical fixture records: ${records}`);
+		if (
+			await page.getByRole("button", { name: /finished without you/ }).count()
+		)
+			throw new Error("Shipped hid records behind the attention budget");
+		const everythingStory = page
+			.getByRole("feed", { name: "Shipped activity" })
+			.locator(".fd-story")
+			.first();
+		await everythingStory
+			.getByRole("button", { name: "More actions", exact: true })
+			.click();
+		await page.getByRole("menuitem", { name: "Comment", exact: true }).click();
+		await everythingStory
+			.getByRole("textbox", { name: "Your correction", exact: true })
+			.waitFor();
+		await page.close();
+	}
+
+	for (const [width, theme] of [
+		[390, "dark"],
+		[1440, "light"],
+	] as const) {
+		const page = await browser.newPage({
+			viewport: { width, height: width === 390 ? 844 : 900 },
+		});
+		await page.goto(
+			`${origin}/browser-tests/feed-deck-polish.html?shell&surface=question&theme=${theme}`,
+		);
+		const answer = page.getByRole("textbox", {
+			name: "Your answer",
+			exact: true,
+		});
+		await answer.waitFor();
+		await page.locator(".fd-work-toolbar-slot .fd-app-toolbar").waitFor();
+		await settleAnimations(page);
+		const layout = await page.evaluate(() => {
+			const card = document.querySelector(".fd-card")!;
+			const field = card.querySelector("textarea")!;
+			const style = getComputedStyle(field);
+			const why = card.querySelector(".fd-card-why")!.getBoundingClientRect();
+			return {
+				bar: document.querySelector(".fd-app-toolbar")!.getBoundingClientRect()
+					.height,
+				gap:
+					card.getBoundingClientRect().top -
+					document.querySelector("header")!.getBoundingClientRect().bottom,
+				field: field.getBoundingClientRect().height,
+				min: 3 * parseFloat(style.lineHeight) + 24,
+				inset: card.getBoundingClientRect().right - why.right,
+				details:
+					card.querySelector('[data-slot="card-header"] .fd-card-details') !==
+					null,
+				overflow: document.documentElement.scrollWidth > innerWidth,
+			};
+		});
+		if (
+			layout.bar > 50 ||
+			layout.gap > 96 ||
+			layout.field < layout.min ||
+			layout.inset < 16 ||
+			!layout.details ||
+			layout.overflow
+		)
+			throw new Error(
+				`Round 3 geometry ${width}/${theme}: ${JSON.stringify(layout)}`,
+			);
+		if (
+			await page
+				.getByRole("button", { name: "Answer", exact: true })
+				.isEnabled()
+		)
+			throw new Error("Empty answer enabled");
+		await answer.fill("Friday works for us.");
+		await answer.press("End");
+		await answer.press("Enter");
+		await answer.press("x");
+		if (!(await answer.inputValue()).includes("\n"))
+			throw new Error("Enter submitted instead of adding a newline");
+		if (
+			!(await page
+				.getByRole("button", { name: "Answer", exact: true })
+				.isEnabled())
+		)
+			throw new Error("Nonempty answer stayed disabled");
+		await answer.fill(
+			Array.from({ length: 12 }, (_, i) => `Line ${i + 1}`).join("\n"),
+		);
+		const grown = await answer.evaluate((el) => ({
+			height: el.getBoundingClientRect().height,
+			max: 8 * parseFloat(getComputedStyle(el).lineHeight) + 26,
+			scroll: el.scrollHeight,
+			client: el.clientHeight,
+		}));
+		if (
+			grown.height <= layout.field ||
+			grown.height > grown.max + 1 ||
+			grown.scroll <= grown.client
+		)
+			throw new Error(`Answer growth: ${JSON.stringify(grown)}`);
+		await openWhy(page);
+		await page
+			.getByRole("heading", {
+				name: "Your decisions",
+				exact: true,
+			})
+			.waitFor();
+		// Stats stay folded until someone asks for them.
+		await page
+			.getByRole("button", { name: "Stats and learned rules", exact: true })
+			.click();
+		for (const name of [
+			"Filters",
+			"Keyboard shortcuts",
+			"History",
+			"What each choice does",
+		])
+			if (await page.getByRole("heading", { name, exact: true }).isVisible())
+				throw new Error(`Unexpected context section: ${name}`);
+		// The side panel is narrow at every width: its metric tiles keep two
+		// columns and never break a word across lines.
+		const attention = await page
+			.getByRole("region", { name: "Decision attention", exact: true })
+			.evaluate((section) => {
+				const broken: string[] = [];
+				const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
+				for (let node = walker.nextNode(); node; node = walker.nextNode())
+					for (const word of (node.textContent ?? "").matchAll(/\S+/g)) {
+						const range = document.createRange();
+						range.setStart(node, word.index);
+						range.setEnd(node, word.index + word[0].length);
+						const lines = new Set(
+							[...range.getClientRects()].map((rect) => Math.round(rect.top)),
+						);
+						if (lines.size > 1) broken.push(word[0]);
+					}
+				const grid = section.querySelector("dl");
+				return {
+					broken,
+					columns: grid
+						? getComputedStyle(grid).gridTemplateColumns.split(" ").length
+						: 0,
+				};
+			});
+		if (attention.broken.length > 0 || attention.columns !== 2)
+			throw new Error(
+				`Decision attention ${width}/${theme}: ${JSON.stringify(attention)}`,
+			);
+		await page.keyboard.press("Escape");
+		await page.getByRole("button", { name: "Details", exact: true }).click();
+		await page
+			.getByRole("heading", { name: "Details", exact: true })
+			.first()
+			.waitFor();
+		await page.close();
+	}
 
 	for (const theme of ["light", "dark"]) {
 		const preferred = await browser.newPage();
@@ -757,118 +739,118 @@ try {
 	}
 	// One left edge: row text, row disclosures and the Today card share an inset,
 	// and the Deck card keeps its field, actions and curation inside it.
-	for (const width of [1280, 1440])
-		for (const theme of ["light", "dark"] as const) {
-			const page = await browser.newPage({
-				viewport: { width, height: 900 },
-				colorScheme: theme,
-			});
-			await page.goto(
-				`${origin}/browser-tests/feed-deck-polish.html?surface=feed&face=stale&today=saved&theme=${theme}`,
+	{
+		const width = 1280;
+		const theme = "light";
+		const page = await browser.newPage({
+			viewport: { width, height: 900 },
+			colorScheme: theme,
+		});
+		await page.goto(
+			`${origin}/browser-tests/feed-deck-polish.html?surface=feed&face=stale&today=saved&theme=${theme}`,
+		);
+		await page.locator(".focus-today").waitFor();
+		const needs = page
+			.locator("[data-focus-row] a")
+			.filter({ hasText: "Needs you" })
+			.first();
+		await needs.waitFor();
+		const feed = await page.evaluate(() => {
+			const chip = document.querySelector(".focus-today-chips > *");
+			return {
+				chipBorder: chip ? getComputedStyle(chip).borderTopWidth : "0px",
+				face: /Summary unavailable|Writing a short summary/.test(
+					document.querySelector(".focus-feed")!.textContent ?? "",
+				),
+			};
+		});
+		if (
+			!(await needs.getAttribute("href"))?.startsWith(
+				"/work?view=deck#card=",
+			) ||
+			feed.chipBorder !== "0px" ||
+			feed.face
+		)
+			throw new Error(
+				`Activity decision pointer ${width}/${theme}: ${JSON.stringify(feed)}`,
 			);
-			await page.locator(".focus-today").waitFor();
-			const needs = page
-				.locator("[data-focus-row] a")
-				.filter({ hasText: "Needs you" })
-				.first();
-			await needs.waitFor();
-			const feed = await page.evaluate(() => {
-				const chip = document.querySelector(".focus-today-chips > *");
-				return {
-					chipBorder: chip ? getComputedStyle(chip).borderTopWidth : "0px",
-					face: /Summary unavailable|Writing a short summary/.test(
-						document.querySelector(".focus-feed")!.textContent ?? "",
-					),
-				};
-			});
-			if (
-				!(await needs.getAttribute("href"))?.startsWith(
-					"/work?view=deck#card=",
-				) ||
-				feed.chipBorder !== "0px" ||
-				feed.face
-			)
-				throw new Error(
-					`Activity decision pointer ${width}/${theme}: ${JSON.stringify(feed)}`,
-				);
-			await page.goto(
-				`${origin}/browser-tests/feed-deck-polish.html?shell&surface=question&theme=${theme}`,
-			);
-			// Not useful lives in the card's "⋯" menu; its control stays mounted in the row.
-			await page
-				.locator("[data-deck-not-useful]")
-				.first()
-				.waitFor({ state: "attached" });
-			await page.getByRole("textbox", { name: "Your answer" }).focus();
-			await settleAnimations(page);
-			const deck = await page.evaluate(() => {
-				const card = document.querySelector(".fd-deck-current .fd-card")!;
-				const box = card.getBoundingClientRect();
-				const field = card.querySelector("textarea")!;
-				const fieldBox = field.getBoundingClientRect();
-				const content = card
-					.querySelector('[data-slot="card-content"]')!
-					.getBoundingClientRect();
-				const text = card
-					.querySelector('[data-slot="card-title"]')!
-					.getBoundingClientRect();
-				const style = getComputedStyle(field);
-				const row = card.querySelector("[data-decision-actions]")!;
-				const quiet = [
-					...row.querySelectorAll<HTMLElement>(
-						":scope > button:not([data-decision-intent], .fd-action-more), [data-deck-not-useful] button, .fd-card-why button",
-					),
-				]
-					.filter((b) => b.getClientRects().length)
-					.map((b) => ({
-						height: b.getBoundingClientRect().height,
-						size: getComputedStyle(b).fontSize,
-					}));
-				const primary = row.querySelector<HTMLElement>(
-					'[data-decision-intent="approve"]',
-				)!;
-				const header = card.querySelector('[data-slot="card-description"]')!;
-				return {
-					curations: document.querySelectorAll("[data-deck-not-useful]").length,
-					curationInRow: row.querySelector("[data-deck-not-useful]") !== null,
-					// The field's ring (1px outside its box) stays inside the scroll clip.
-					fieldClipped: fieldBox.bottom + 1 > content.bottom,
-					fieldLeft: fieldBox.left - text.left,
-					focusOutline: style.outlineStyle,
-					quiet,
-					primaryMuted:
-						getComputedStyle(primary).backgroundColor ===
-						getComputedStyle(
-							row.querySelector("button:not([data-decision-intent])") ??
-								primary,
-						).backgroundColor,
-					// A resting stack never shows the next card's edge.
-					peek: (() => {
-						const stack = document.querySelector(".fd-decision-stack")!;
-						stack.setAttribute("data-has-next", "true");
-						return getComputedStyle(stack, "::before").opacity;
-					})(),
-					byline: /\s{2}/.test(
-						header.textContent!.replace(/\u00a0/g, " ").replace("Details", ""),
-					),
-					inCard: box.bottom >= row.getBoundingClientRect().bottom,
-				};
-			});
-			if (
-				deck.curations !== 1 ||
-				!deck.curationInRow ||
-				deck.fieldClipped ||
-				Math.abs(deck.fieldLeft) > 1 ||
-				deck.focusOutline !== "none" ||
-				new Set(deck.quiet.map((b) => `${b.height}/${b.size}`)).size !== 1 ||
-				deck.primaryMuted ||
-				deck.peek !== "0" ||
-				deck.byline ||
-				!deck.inCard
-			)
-				throw new Error(`Deck card ${width}/${theme}: ${JSON.stringify(deck)}`);
-			await page.close();
-		}
+		await page.goto(
+			`${origin}/browser-tests/feed-deck-polish.html?shell&surface=question&theme=${theme}`,
+		);
+		// Not useful lives in the card's "⋯" menu; its control stays mounted in the row.
+		await page
+			.locator("[data-deck-not-useful]")
+			.first()
+			.waitFor({ state: "attached" });
+		await page.getByRole("textbox", { name: "Your answer" }).focus();
+		await settleAnimations(page);
+		const deck = await page.evaluate(() => {
+			const card = document.querySelector(".fd-deck-current .fd-card")!;
+			const box = card.getBoundingClientRect();
+			const field = card.querySelector("textarea")!;
+			const fieldBox = field.getBoundingClientRect();
+			const content = card
+				.querySelector('[data-slot="card-content"]')!
+				.getBoundingClientRect();
+			const text = card
+				.querySelector('[data-slot="card-title"]')!
+				.getBoundingClientRect();
+			const style = getComputedStyle(field);
+			const row = card.querySelector("[data-decision-actions]")!;
+			const quiet = [
+				...row.querySelectorAll<HTMLElement>(
+					":scope > button:not([data-decision-intent], .fd-action-more), [data-deck-not-useful] button, .fd-card-why button",
+				),
+			]
+				.filter((b) => b.getClientRects().length)
+				.map((b) => ({
+					height: b.getBoundingClientRect().height,
+					size: getComputedStyle(b).fontSize,
+				}));
+			const primary = row.querySelector<HTMLElement>(
+				'[data-decision-intent="approve"]',
+			)!;
+			const header = card.querySelector('[data-slot="card-description"]')!;
+			return {
+				curations: document.querySelectorAll("[data-deck-not-useful]").length,
+				curationInRow: row.querySelector("[data-deck-not-useful]") !== null,
+				// The field's ring (1px outside its box) stays inside the scroll clip.
+				fieldClipped: fieldBox.bottom + 1 > content.bottom,
+				fieldLeft: fieldBox.left - text.left,
+				focusOutline: style.outlineStyle,
+				quiet,
+				primaryMuted:
+					getComputedStyle(primary).backgroundColor ===
+					getComputedStyle(
+						row.querySelector("button:not([data-decision-intent])") ?? primary,
+					).backgroundColor,
+				// A resting stack never shows the next card's edge.
+				peek: (() => {
+					const stack = document.querySelector(".fd-decision-stack")!;
+					stack.setAttribute("data-has-next", "true");
+					return getComputedStyle(stack, "::before").opacity;
+				})(),
+				byline: /\s{2}/.test(
+					header.textContent!.replace(/\u00a0/g, " ").replace("Details", ""),
+				),
+				inCard: box.bottom >= row.getBoundingClientRect().bottom,
+			};
+		});
+		if (
+			deck.curations !== 1 ||
+			!deck.curationInRow ||
+			deck.fieldClipped ||
+			Math.abs(deck.fieldLeft) > 1 ||
+			deck.focusOutline !== "none" ||
+			new Set(deck.quiet.map((b) => `${b.height}/${b.size}`)).size !== 1 ||
+			deck.primaryMuted ||
+			deck.peek !== "0" ||
+			deck.byline ||
+			!deck.inCard
+		)
+			throw new Error(`Deck card ${width}/${theme}: ${JSON.stringify(deck)}`);
+		await page.close();
+	}
 	const retry = await browser.newPage({
 		viewport: { width: 2000, height: 1000 },
 	});

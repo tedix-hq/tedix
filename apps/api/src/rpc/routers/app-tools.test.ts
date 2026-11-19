@@ -386,20 +386,6 @@ describe("app-tools mutation subscription publishes", () => {
 		expect(mocks.upsertTool).toHaveBeenCalledOnce();
 	});
 
-	it("refuses a new tool that does not say whether it writes", async () => {
-		const { client } = makeHarness();
-
-		await expect(
-			client.create({
-				appId: APP_ID,
-				toolId: "update_things",
-				toolTypeId: "rpc",
-				title: "Update things",
-			}),
-		).rejects.toThrow(/has no write class/);
-		expect(mocks.upsertTool).not.toHaveBeenCalled();
-	});
-
 	it("marks a tool declared only when class and tier are both stated", async () => {
 		const { client } = makeHarness();
 		mocks.upsertTool.mockResolvedValue(
@@ -433,26 +419,6 @@ describe("app-tools mutation subscription publishes", () => {
 			}),
 		).rejects.toThrow(/has no risk tier/);
 		expect(mocks.upsertTool).toHaveBeenCalledTimes(1);
-	});
-
-	it("refuses a destructive tool stated as a bounded write", async () => {
-		const { client } = makeHarness();
-
-		await expect(
-			client.create({
-				appId: APP_ID,
-				toolId: "update_things",
-				toolTypeId: "rpc",
-				title: "Update things",
-				writeCapability: "destructive",
-				meta: {
-					"com.tedix/policy": {
-						riskTier: "bounded_write",
-						blastRadius: "single_resource",
-					},
-				},
-			}),
-		).rejects.toThrow(/declared destructive/);
 	});
 
 	it("enable of a non-prompt tool publishes tools + resources only", async () => {

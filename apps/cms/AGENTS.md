@@ -115,7 +115,4 @@ snapshot. For plugin or template changes, run root `cms:plugin-trust:validate`
 and build the affected template with
 `bun apps/cms/scripts/build-templates.ts --template <slug>` from the repo root.
 
-Prefer checking the rendered page or editor flow for visual or copy changes.
-Add a focused case when it catches consequential behavior, such as a publish
-or restore failure. Remove build fixtures or snapshot assertions that repeat
-the same behavior. The full `test:run` suite is available on demand.
+Check visual or copy changes in the rendered page or editor flow.

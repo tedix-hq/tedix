@@ -166,9 +166,6 @@ approvals. Other transports, credentials and request transforms stay blocked.
 
 ## Verification
 
-Use a scoped discovery or tool call to check the changed behavior when
-appropriate. Reserve new regression cases for gaps such as scope enforcement,
-tool routing, or a wire contract that can break callers. Avoid tests that
-duplicate tool names, descriptions, or annotations without exercising an
-independent consumer. Select relevant existing cases through the workspace
-runner. Bare `bun test` ignores Workers aliases.
+Verify discovery changes with a scoped discovery request. For tool routing or
+wire behavior, exercise the tool call with the relevant scope. Use the workspace
+runner for Vitest cases. Bare `bun test` ignores Workers aliases.

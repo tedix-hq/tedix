@@ -114,13 +114,11 @@ None of these announce themselves when broken.
 
 ## Validation
 
-Use `test:related <file>...` when existing cases exercise the changed path.
-`test:run` runs the broad suite on demand.
+Use `test:related <file>...` to run cases related to specific files.
 
 Choose a workerd check when the failure depends on real Durable Object
 storage or Worker behavior, such as losing a turn during recovery or
 cancelling the wrong run. The native Pi fixture uses local storage and
-scripted model responses. `type-check:workers` checks its types. Reuse these
-fixtures before adding another harness or another test of a mock's call order.
+scripted model responses. `type-check:workers` checks its types.
 
 Never use bare `bun test` here; it ignores the Workers aliases.

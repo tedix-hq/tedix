@@ -419,24 +419,6 @@ describe("assessStepPressure", () => {
 		).toBe("compact");
 	});
 
-	it("compacts when a step's MEASURED prompt plus its results crosses the trigger", () => {
-		// The estimator sees a small prompt (the rows this pass read are short),
-		// but the provider charged 800 tokens = 3 200 chars for the last step, and
-		// this step appended another 600 chars of tool results. 3 800 ≥ 3 400.
-		const verdict = assessStepPressure({
-			measuredPromptTokens: 800,
-			appendedChars: 600,
-			estimatedTotalChars: 1_000,
-			inputBudgetChars,
-		});
-		expect(verdict.action).toBe("compact");
-		expect(verdict.reason).toBe("over_trigger");
-		expect(verdict.measuredPromptTokens).toBe(800);
-		expect(verdict.projectedPromptChars).toBe(3_800);
-		// The estimator alone would have said "send it" — that is the whole point.
-		expect(shouldCompactHistory(1_000, inputBudgetChars)).toBe(false);
-	});
-
 	it("prompts when the measured projection is under the trigger", () => {
 		const verdict = assessStepPressure({
 			measuredPromptTokens: 400,

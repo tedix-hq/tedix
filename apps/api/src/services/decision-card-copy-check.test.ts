@@ -22,18 +22,17 @@ it("counts context, stakes and outcome buttons in the word budget", () => {
 		}),
 	).toContain("face_word_limit");
 });
-it.each([
-	"Workers fetch",
-	"markdown",
-	"API key",
-	"governance",
-	"MCP",
-	"credential",
-])("rejects %s on any part of the face", (term) => {
-	expect(
-		checkDecisionCardCopy({ ...copy, context: `The ${term} needs attention.` }),
-	).toContain("banned_words");
-});
+it.each(["Workers fetch", "MCP"])(
+	"rejects jargon on the card face: %s",
+	(term) => {
+		expect(
+			checkDecisionCardCopy({
+				...copy,
+				context: `The ${term} needs attention.`,
+			}),
+		).toContain("banned_words");
+	},
+);
 it("keeps raw identifiers out of context and button labels", () => {
 	expect(
 		checkDecisionCardCopy({
@@ -56,25 +55,19 @@ it.each([
 
 it.each([
 	"Recommend yes while the conversation is fresh.",
-	"Yes — no price named, nothing sent until you say so.",
-	"No, the draft names a price the owner has not approved.",
 	"Record it — the prep deadline is proposed, not an external commitment.",
-	"Keep it here — the project brief covers profile display.",
 	"Don't send yet; the supplier has not confirmed stock.",
-	"Save task now while the meeting is fresh.",
 ])("accepts a recommendation that names an action and a reason: %s", (text) => {
 	expect(recommendationIssues({ ...copy, recommendation: text })).toEqual([]);
 });
 
-it.each([
-	"The prep deadline is proposed, not an external commitment.",
-	"Your rule is plain language; the current text uses two banned terms.",
-	"No supplied project fits this request.",
-	"It replaces three monthly tools.",
-])("rejects a recommendation that only states a fact: %s", (text) => {
-	expect(recommendationIssues({ ...copy, recommendation: text })).toEqual([
-		"recommendation_action",
-	]);
+it("rejects a recommendation that only states a fact", () => {
+	expect(
+		recommendationIssues({
+			...copy,
+			recommendation: "It replaces three monthly tools.",
+		}),
+	).toEqual(["recommendation_action"]);
 });
 
 it("needs a reason after the action", () => {

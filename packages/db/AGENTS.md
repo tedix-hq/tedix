@@ -82,11 +82,9 @@ owning schema, query module and tests before changing persistence behavior.
   verify the target ledger and schema. Never infer a database target from an
   example or use a direct apply to bypass the release procedure.
 
-Choose the applicable type and repository checks. For a consequential query
-change, prefer a focused case that executes the real query using the
-existing database fixture. Look for tenant leaks, lost or duplicated writes,
-or ordering failures. Avoid cases that only restate the Drizzle mapping or
-assert which mock was called. The full workspace suite is available on demand.
+Use the existing database fixture to exercise queries whose behavior
+depends on tenant scope, write semantics, or result ordering. Use the D1
+facade for batch behavior.
 
 For schema changes also run `bun run db:migrate:generate -- --name <change>`,
 review the generated SQL, and run `bun run db:migrate:check`.

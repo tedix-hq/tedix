@@ -12,12 +12,8 @@
  * that error 10021 measures" — had the fact right and the conclusion backwards:
  * first-request CPU is per isolate, and it was costing seconds.)
  *
- * Full RPC-path resolution is covered once for every namespace by
- * `lazy-namespace-isolation.test.ts`. This file keeps the governance-specific
- * OpenAPI parity guarantee without repeating that expensive exhaustive matcher
- * walk. The REST side is asserted through the generated spec since the effective
- * REST path is the router prefix joined with the procedure path and the spec is
- * what actually publishes it.
+ * `contract-parity.test.ts` covers the full RPC procedure inventory. This file
+ * checks governance REST paths through the OpenAPI spec that publishes them.
  */
 
 import { OpenAPIGenerator } from "@orpc/openapi";

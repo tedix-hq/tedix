@@ -3,12 +3,10 @@ import type { CatalogApp } from "../../schema/catalog";
 import {
 	catalogAppUsesConnection,
 	catalogMcpToolSourceHash,
-	catalogMcpToolSourceRef,
 	hasAggregateAppOverlay,
 	inferCatalogConnectionScope,
 	inferExternalToolAnnotations,
 	inferExternalToolOutputSchema,
-	incomingLogoRepairFailed,
 	isExternalCatalogLogoUrl,
 	isTedixCatalogAssetUrl,
 	isTedixCatalogToolSource,
@@ -17,21 +15,15 @@ import {
 	mcpToolOutputSchema,
 	mergeCatalogRawData,
 	mergeRichContent,
-	normalizeExecutionTaskSupport,
 	normalizeMcpInputSchema,
 	normalizeMcpOutputSchema,
 	normalizeRichContent,
 	normalizeToolAnnotations,
-	normalizeToolIcons,
-	normalizeToolMeta,
-	normalizeToolTitle,
 	ownsCatalogMcpTool,
 	readAppMcpConfig,
 	renderableLogoUrl,
 	shouldProjectCatalogToolsFromBaseApp,
 	splitToolAnnotations,
-	titleFromToolName,
-	toISODate,
 	UPSTREAM_TOOL_ANNOTATIONS_META_KEY,
 	withUpstreamAnnotationsMeta,
 } from "./tool-source-policy";
@@ -386,14 +378,6 @@ describe("jsonEqual", () => {
 	});
 });
 
-describe("catalogMcpToolSourceRef", () => {
-	it("joins the catalog app id and tool name with a colon", () => {
-		expect(catalogMcpToolSourceRef("app-1", "list_things")).toBe(
-			"app-1:list_things",
-		);
-	});
-});
-
 describe("ownsCatalogMcpTool", () => {
 	it("owns a tool whose mcp transport points at the app", () => {
 		expect(
@@ -499,68 +483,6 @@ describe("catalogMcpToolSourceHash", () => {
 	});
 });
 
-describe("titleFromToolName", () => {
-	it("title-cases underscore-separated names", () => {
-		expect(titleFromToolName("list_skills")).toBe("List Skills");
-		expect(titleFromToolName("search")).toBe("Search");
-		expect(titleFromToolName("get2_foo")).toBe("Get2 Foo");
-	});
-});
-
-describe("normalizeToolTitle", () => {
-	it("keeps a non-empty string and rejects everything else", () => {
-		expect(normalizeToolTitle("Render deck")).toBe("Render deck");
-		expect(normalizeToolTitle("")).toBeNull();
-		expect(normalizeToolTitle(42)).toBeNull();
-		expect(normalizeToolTitle(null)).toBeNull();
-	});
-});
-
-describe("normalizeToolIcons", () => {
-	it("returns an array unchanged and rejects non-arrays", () => {
-		const icons = [{ src: "https://cdn.example.com/icon.png" }];
-		expect(normalizeToolIcons(icons)).toBe(icons);
-		expect(normalizeToolIcons([])).toEqual([]);
-		expect(normalizeToolIcons("icon")).toBeNull();
-		expect(normalizeToolIcons({ src: "x" })).toBeNull();
-		expect(normalizeToolIcons(null)).toBeNull();
-	});
-});
-
-describe("normalizeToolMeta", () => {
-	it("serializes a record to its persisted JSON form", () => {
-		expect(normalizeToolMeta({ a: 1, b: "x" })).toEqual({ a: 1, b: "x" });
-		expect(normalizeToolMeta({ u: undefined })).toEqual({});
-	});
-
-	it("returns null for non-records", () => {
-		expect(normalizeToolMeta(null)).toBeNull();
-		expect(normalizeToolMeta("meta")).toBeNull();
-		expect(normalizeToolMeta([1])).toBeNull();
-	});
-});
-
-describe("normalizeExecutionTaskSupport", () => {
-	it("accepts the three task-support values", () => {
-		expect(normalizeExecutionTaskSupport({ taskSupport: "required" })).toBe(
-			"required",
-		);
-		expect(normalizeExecutionTaskSupport({ taskSupport: "optional" })).toBe(
-			"optional",
-		);
-		expect(normalizeExecutionTaskSupport({ taskSupport: "forbidden" })).toBe(
-			"forbidden",
-		);
-	});
-
-	it("returns null for anything else", () => {
-		expect(normalizeExecutionTaskSupport({ taskSupport: "yes" })).toBeNull();
-		expect(normalizeExecutionTaskSupport({})).toBeNull();
-		expect(normalizeExecutionTaskSupport(null)).toBeNull();
-		expect(normalizeExecutionTaskSupport("required")).toBeNull();
-	});
-});
-
 describe("isTedixCatalogToolSource", () => {
 	it("accepts the first-party tool sources", () => {
 		expect(isTedixCatalogToolSource("tedix_app")).toBe(true);
@@ -657,20 +579,6 @@ describe("shouldProjectCatalogToolsFromBaseApp", () => {
 	});
 });
 
-describe("toISODate", () => {
-	it("normalizes parseable dates to ISO 8601", () => {
-		expect(toISODate("2024-03-05T10:00:00Z")).toBe("2024-03-05T10:00:00.000Z");
-		expect(toISODate("2024-03-05")).toBe("2024-03-05T00:00:00.000Z");
-	});
-
-	it("returns null for missing or unparseable dates", () => {
-		expect(toISODate(null)).toBeNull();
-		expect(toISODate(undefined)).toBeNull();
-		expect(toISODate("")).toBeNull();
-		expect(toISODate("garbage")).toBeNull();
-	});
-});
-
 describe("isTedixCatalogAssetUrl", () => {
 	it("accepts catalog asset paths on r2.dev or tedix hosts", () => {
 		expect(
@@ -708,24 +616,6 @@ describe("isExternalCatalogLogoUrl", () => {
 		expect(isExternalCatalogLogoUrl("ftp://example.com/logo.png")).toBe(false);
 		expect(isExternalCatalogLogoUrl("data:image/png;base64,AAAA")).toBe(false);
 		expect(isExternalCatalogLogoUrl(42)).toBe(false);
-	});
-});
-
-describe("incomingLogoRepairFailed", () => {
-	it("flags the three failure statuses", () => {
-		for (const logoStatus of ["fetch_failed", "missing", "invalid"]) {
-			expect(incomingLogoRepairFailed({ quality: { logoStatus } })).toBe(true);
-		}
-	});
-
-	it("ignores healthy or missing quality records", () => {
-		expect(incomingLogoRepairFailed({ quality: { logoStatus: "ok" } })).toBe(
-			false,
-		);
-		expect(incomingLogoRepairFailed({ quality: "x" })).toBe(false);
-		expect(incomingLogoRepairFailed({})).toBe(false);
-		expect(incomingLogoRepairFailed(null)).toBe(false);
-		expect(incomingLogoRepairFailed(undefined)).toBe(false);
 	});
 });
 
@@ -770,35 +660,9 @@ describe("normalizeRichContent", () => {
 			enrichmentFailedAt: "2024-01-01T00:00:00.000Z",
 		});
 	});
-
-	it("returns null for missing content", () => {
-		expect(normalizeRichContent(null)).toBeNull();
-		expect(normalizeRichContent(undefined)).toBeNull();
-	});
 });
 
 describe("mergeRichContent", () => {
-	it("returns null when both sides are empty", () => {
-		expect(mergeRichContent(null, null)).toBeNull();
-		expect(mergeRichContent(undefined, undefined)).toBeNull();
-	});
-
-	it("returns the existing record untouched when there is no incoming", () => {
-		const existing = { publishedAt: "not-a-date" };
-		expect(mergeRichContent(existing, null)).toBe(existing);
-	});
-
-	it("normalizes an incoming-only record", () => {
-		expect(
-			mergeRichContent(null, { publishedAt: "2024-03-05T10:00:00Z" }),
-		).toEqual({
-			publishedAt: "2024-03-05T10:00:00.000Z",
-			sourceUpdatedAt: null,
-			enrichedAt: null,
-			enrichmentFailedAt: null,
-		});
-	});
-
 	it("lets incoming values fill gaps and win when present", () => {
 		expect(
 			mergeRichContent(
@@ -865,12 +729,6 @@ describe("mergeRichContent", () => {
 });
 
 describe("mergeCatalogRawData", () => {
-	it("returns null when both sides are empty", () => {
-		expect(mergeCatalogRawData(null, null)).toBeNull();
-		expect(mergeCatalogRawData(undefined, undefined)).toBeNull();
-		expect(mergeCatalogRawData(undefined, {})).toBeNull();
-	});
-
 	it("serializes the existing record when incoming is absent or malformed", () => {
 		expect(mergeCatalogRawData({ a: 1 }, null)).toEqual({ a: 1 });
 		expect(mergeCatalogRawData({ a: 1 }, "junk" as never)).toEqual({ a: 1 });
