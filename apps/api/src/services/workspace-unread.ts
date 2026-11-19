@@ -29,7 +29,9 @@ function chatKind(
 	outcome: string,
 ): WorkspaceUnreadKind | null {
 	if (operation === "turn.started")
-		return row.actorKind === "user" ? "message" : null;
+		return row.actorKind === "user" || row.actorKind === "tedi"
+			? "message"
+			: null;
 	if (operation === "turn.finished")
 		return outcome === "applied" ? "agent_reply" : "agent_stopped";
 	if (operation === "approval.requested") return "needs_decision";
@@ -108,7 +110,7 @@ export function unreadFromFeed(
 		chat.push({
 			id: String(row.seq),
 			kind,
-			byAgent: kind !== "message",
+			byAgent: byAgent || kind !== "message",
 			actorId: row.actorId,
 			occurredAt: row.occurredAt,
 			...(conversationId ? { conversationId } : {}),

@@ -72,11 +72,29 @@ describe("unreadFromFeed", () => {
 			["agent_stopped", true],
 			["agent_reply", true],
 			["message", false],
+			["message", true],
 		]);
 		expect(unread.chat[3]).toMatchObject({
 			conversationId: "chat-1",
 			turnId: "turn-5",
 		});
+	});
+
+	it("applies chat follows and read markers to tedi messages", () => {
+		const rows = [run(4, "turn.started", { actorKind: "tedi" })];
+		const marker = { floor: 0, chat: 0, chats: {}, files: {} };
+		for (const state of [undefined, "off"] as const)
+			expect(
+				unreadFromFeed(rows, marker, new Map(state ? [["chat-1", state]] : []))
+					.chat,
+			).toEqual([]);
+		expect(
+			unreadFromFeed(rows, { ...marker, chats: { "chat-1": 4 } }, TOOK_PART)
+				.chat,
+		).toEqual([]);
+		expect(unreadFromFeed(rows, marker, TOOK_PART).chat).toMatchObject([
+			{ kind: "message", byAgent: true, actorId: "person-b" },
+		]);
 	});
 
 	it("keeps chat and each file read separately above the floor", () => {

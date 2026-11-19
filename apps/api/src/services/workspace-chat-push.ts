@@ -1,5 +1,5 @@
 /**
- * Push for workspace chat: when a person posts, tell the people who get
+ * Push for workspace chat: when a person or tedi posts, tell the people who get
  * notifications for that conversation and do not have the workspace open:
  * those who took part in it, were mentioned in it or turned it on. Someone
  * who turned the conversation off is not told, even when mentioned. A person
@@ -9,6 +9,7 @@
  * The poster's browser asks for this after sending, but nothing it says is
  * trusted beyond who is mentioned: the post is looked up in the workspace
  * activity feed under the caller's own identity, and each post notifies once.
+ * Tedi posts are picked up by the workspace notification sweep.
  */
 
 import { WorkspaceChangeSummarySchema } from "@tedix/api-contract/schemas/workspace-feed";
@@ -21,6 +22,7 @@ import {
 	getMemberByUserId,
 } from "@tedix/db/queries/organization-members";
 import { isOsWorkspaceVisibleTo } from "@tedix/db/queries/os-workspaces/workspaces";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import {
 	hasVisiblePushConversation,
 	listPushConfigs,
@@ -51,7 +53,11 @@ export function workspacePushVisibilityKey(workspaceId: string): string {
 
 /** The conversation a chat post row belongs to; null for any other row. */
 function postedIn(row: WorkspaceUnreadFeedRow): string | null {
-	if (row.kind !== "run" || row.actorKind !== "user" || !row.runSummary)
+	if (
+		row.kind !== "run" ||
+		(row.actorKind !== "user" && row.actorKind !== "tedi") ||
+		!row.runSummary
+	)
 		return null;
 	try {
 		const summary = WorkspaceChangeSummarySchema.safeParse(
@@ -70,7 +76,7 @@ function postedIn(row: WorkspaceUnreadFeedRow): string | null {
 }
 
 export async function notifyWorkspaceChat(
-	context: BaseContext,
+	context: Pick<BaseContext, "db" | "env">,
 	db: DbQueryClient,
 	input: {
 		caller: { organizationId: string; userId: string };
@@ -125,16 +131,25 @@ export async function notifyWorkspaceChat(
 	for (const [userId, state] of followers)
 		if (state !== "off") candidates.add(userId);
 	for (const row of others)
-		if (postedIn(row) === input.conversationId) candidates.add(row.actorId);
+		if (row.actorKind === "user" && postedIn(row) === input.conversationId)
+			candidates.add(row.actorId);
 
 	const sender =
-		(
-			await getMemberByCanonicalUserId(
-				context.db,
-				organizationId,
-				caller.userId,
-			)
-		)?.name ?? "Someone";
+		post.actorKind === "tedi"
+			? ((
+					await getTediByIdForOrganization(
+						context.db,
+						post.actorId,
+						organizationId,
+					)
+				)?.name ?? "Tedi")
+			: ((
+					await getMemberByCanonicalUserId(
+						context.db,
+						organizationId,
+						caller.userId,
+					)
+				)?.name ?? "Someone");
 	const seen = new Set<string>();
 	let notified = 0;
 	for (const id of [...candidates].slice(0, RECIPIENT_LIMIT)) {
@@ -197,4 +212,46 @@ export async function notifyWorkspaceChat(
 		notified += 1;
 	}
 	return { status: notified > 0 ? "sent" : "none", notified };
+}
+
+/** Tedi callers have no browser to ask for chat push after posting. */
+export async function notifyWorkspaceTediChats(
+	context: Pick<BaseContext, "db" | "env">,
+	db: DbQueryClient,
+	workspace: OsWorkspaceRow,
+	rows: readonly WorkspaceUnreadFeedRow[],
+	since: string,
+): Promise<number> {
+	const posts = new Map<
+		string,
+		{ row: WorkspaceUnreadFeedRow; conversationId: string }
+	>();
+	for (const row of rows) {
+		if (row.actorKind !== "tedi" || row.occurredAt < since) continue;
+		const conversationId = postedIn(row);
+		if (!conversationId) continue;
+		const key = JSON.stringify([row.actorId, conversationId]);
+		if (!posts.has(key)) posts.set(key, { row, conversationId });
+	}
+	let notified = 0;
+	// Each sender's cursor covers the workspace, so claim conversations oldest first.
+	for (const { row, conversationId } of [...posts.values()].sort(
+		(a, b) => a.row.seq - b.row.seq,
+	)) {
+		const tedi = await getTediByIdForOrganization(
+			context.db,
+			row.actorId,
+			workspace.organizationId,
+		);
+		if (!tedi) continue;
+		const result = await notifyWorkspaceChat(context, db, {
+			caller: { organizationId: workspace.organizationId, userId: tedi.id },
+			callerIds: [tedi.id],
+			workspace,
+			conversationId,
+			mentionedUserIds: [],
+		});
+		notified += result.notified;
+	}
+	return notified;
 }
