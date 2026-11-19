@@ -932,6 +932,7 @@ async function requireCurrentOutputRevision(
 	const revision = output.currentRevisionId
 		? await getOsOutputRevision(queryDb(context), {
 				organizationId: output.organizationId,
+				workspaceId: output.workspaceId ?? undefined,
 				revisionId: output.currentRevisionId,
 			})
 		: undefined;

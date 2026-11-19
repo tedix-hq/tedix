@@ -880,6 +880,36 @@ describe("workspace output storage authority", () => {
 		expect(indexed.map((row) => row.revision).sort()).toEqual([1, 2]);
 	});
 
+	it("reads a just-saved revision before the feed has indexed it", async () => {
+		const { core, output, revision } = await fixture();
+		await storage.createOsOutput(core, scope, output, revision);
+		// The save returns before its feed publish lands.
+		config.env.WORKSPACE_RUNTIME!.refreshOutputProjection = async () => {};
+		expect(
+			(
+				await storage.createOsOutputRevision(core, {
+					...revision,
+					id: "revision-2",
+					contentSha256: "b".repeat(64),
+					expectedRevision: 1,
+				})
+			).ok,
+		).toBe(true);
+		const params = {
+			organizationId: scope.organizationId,
+			revisionId: "revision-2",
+		};
+		expect(await storage.getOsOutputRevision(core, params)).toBeUndefined();
+		expect(
+			(
+				await storage.getOsOutputRevision(core, {
+					...params,
+					workspaceId: scope.workspaceId,
+				})
+			)?.revision,
+		).toBe(2);
+	});
+
 	it("returns the committed object write when projection publication fails", async () => {
 		const { core, tenant, output, revision } = await fixture();
 		await core.$client.exec("DROP TABLE workspace_feed_ledger");
