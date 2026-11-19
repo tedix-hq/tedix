@@ -1,11 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { WorkspaceChat } from "../src/components/workspace-chat";
-import { WorkActorOwnerContext } from "../src/components/work-actor-avatar";
+import {
+	WorkActorDirectoryContext,
+	WorkActorOwnerContext,
+} from "../src/components/work-actor-avatar";
 import {
 	canvasOutputsQueryOptions,
 	tediNamesQueryOptions,
 	tediRosterQueryOptions,
+	workspacePresenceQueryOptions,
 } from "../src/lib/os-query-options";
 import "../src/styles.css";
 
@@ -35,7 +39,7 @@ const tedis = {
 			displayName: "Personal Tedi",
 			scope: "personal",
 			status: "active",
-			ownerUserId: "person",
+			ownerUserId: "person-subject",
 		},
 		{
 			id: "tedi-other",
@@ -51,17 +55,29 @@ client.setQueryData<unknown>(
 	tediRosterQueryOptions(100, { status: "active" }).queryKey,
 	tedis,
 );
+client.setQueryData<unknown>(
+	workspacePresenceQueryOptions("fictional-workspace").queryKey,
+	{
+		workspaceId: "fictional-workspace",
+		userId: "person-subject",
+		displayName: "Ada Member",
+		role: "owner",
+	},
+);
+const directory = new Map([["user:person-subject", { name: "Ada Member" }]]);
 createRoot(document.getElementById("root")!).render(
 	<QueryClientProvider client={client}>
-		<WorkActorOwnerContext.Provider value="person">
-			<WorkspaceChat
-				workspaceId="fictional-workspace"
-				conversationId="c1"
-				listOpen={false}
-				onOpenList={() => {}}
-				onSelectConversation={() => {}}
-				onBrowseResources={() => {}}
-			/>
+		<WorkActorOwnerContext.Provider value="person-profile">
+			<WorkActorDirectoryContext.Provider value={directory}>
+				<WorkspaceChat
+					workspaceId="fictional-workspace"
+					conversationId="c1"
+					listOpen={false}
+					onOpenList={() => {}}
+					onSelectConversation={() => {}}
+					onBrowseResources={() => {}}
+				/>
+			</WorkActorDirectoryContext.Provider>
 		</WorkActorOwnerContext.Provider>
 	</QueryClientProvider>,
 );

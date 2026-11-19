@@ -115,7 +115,7 @@ try {
 											revisionId: "r2",
 										},
 									],
-									authorId: "person",
+									authorId: "person-subject",
 									authorKind: "person",
 								},
 								{
@@ -227,6 +227,8 @@ return focusClipAudit();
 			await page.getByRole("button", { name: "Send", exact: true }).click();
 			// A finished answer has no line under it; its time holds the details.
 			await page.getByText("Here is your answer.").waitFor();
+			const turn = page.getByTestId("workspace-chat-turn");
+			await turn.getByText("Ada Member", { exact: true }).waitFor();
 			assert.equal(
 				await page.locator(".workspace-chat-turn-footer").count(),
 				0,

@@ -2112,6 +2112,7 @@ describe("WorkspaceDO", () => {
 	});
 
 	test("a chat sees and decides a request another conversation raised", async () => {
+		await seedCore();
 		const ws = workspace();
 		const TRIM = (title: string) => `export default async (env) => {
 			const doc = await env.outputs.create({ title: "${title}", content: { kind: "document", blocks: [{ type: "paragraph", text: "Keep" }, { type: "paragraph", text: "Remove" }] } });
@@ -2189,6 +2190,7 @@ describe("WorkspaceDO", () => {
 			expect(waitingNow()).toMatchObject([
 				{
 					approvalId: here.requested.approvalId,
+					requester: { id: "u1", kind: "person" },
 					conversationId: here.conversationId,
 					title: here.requested.title,
 					target: here.requested.target,
@@ -2203,6 +2205,7 @@ describe("WorkspaceDO", () => {
 				type: "approval.requested",
 				approvalId: elsewhere.requested.approvalId,
 				conversationId: elsewhere.conversationId,
+				requester: { id: "u1", kind: "person" },
 			});
 			// Nothing else of the other conversation reaches this chat.
 			expect(
@@ -3401,6 +3404,7 @@ describe("WorkspaceDO", () => {
 		expect(startedEvent).toMatchObject({
 			authorId: "u1",
 			authorKind: "person",
+			respondingTediId: "tedi1",
 		});
 		const done = replayed.find((event) => event.type === "assistant.done");
 		expect(done?.type === "assistant.done" && done.text).toBe(

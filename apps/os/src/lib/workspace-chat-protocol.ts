@@ -103,8 +103,14 @@ export type WorkspaceChatClientMessage =
 	  }
 	| { type: "ping" };
 
+type WorkspaceChatAuthorIdentity = {
+	id: string;
+	kind: "person" | "tedi";
+};
+
 /** A request waiting for a person, as its `approval.requested` event told it. */
 export type WaitingApprovalSummary = {
+	requester?: WorkspaceChatAuthorIdentity;
 	approvalId: string;
 	conversationId: string;
 	turnId: string;
@@ -206,6 +212,7 @@ export type WorkspaceChatLedgerEvent =
 				revisionId: string;
 			}>;
 			text: string;
+			respondingTediId?: string | null;
 			authorId: string;
 			authorKind: "person" | "tedi";
 	  })
@@ -252,6 +259,7 @@ export type WorkspaceChatLedgerEvent =
 	  })
 	| (Stamped & {
 			type: "approval.requested";
+			requester?: WorkspaceChatAuthorIdentity;
 			turnId: string;
 			stepId: string;
 			approvalId: string;

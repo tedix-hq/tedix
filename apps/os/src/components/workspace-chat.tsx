@@ -70,10 +70,7 @@ import {
 	appEditRequestFrom,
 	publishPendingAppEdits,
 } from "@/lib/app-edit-approval";
-import {
-	WorkActorDirectoryContext,
-	WorkActorOwnerContext,
-} from "@/components/work-actor-avatar";
+import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { ReplyApprovalActions } from "@/components/workspace-chat-reply-actions";
@@ -93,6 +90,7 @@ import {
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
 	tediRosterQueryOptions,
+	workspacePresenceQueryOptions,
 } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
 import { useTediNames } from "@/lib/use-tedi-names";
@@ -1548,13 +1546,20 @@ function Composer({
 	const draftKey = `tedix.workspace-chat.draft.${workspaceId}.${client?.getConversationId() ?? "new"}`;
 	const [draft, setDraftText] = useState(() => readDraft(draftKey));
 	const [pickedTediId, setPickedTediId] = useState<string | null>(null);
-	const ownerId = useContext(WorkActorOwnerContext);
 	const tedis = useQuery({
 		...tediRosterQueryOptions(100, { status: "active" }),
 		enabled: disabledReason === null,
 		staleTime: 60_000,
 	});
-	const recipients = (tedis.data?.data ?? [])
+	const roster = tedis.data?.data ?? [];
+	const presence = useQuery({
+		...workspacePresenceQueryOptions(workspaceId),
+		enabled:
+			disabledReason === null &&
+			roster.some((tedi) => tedi.scope === "personal"),
+	});
+	const ownerId = presence.data?.userId;
+	const recipients = roster
 		.filter(
 			(tedi) =>
 				tedi.status === "active" &&
