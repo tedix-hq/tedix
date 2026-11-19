@@ -628,7 +628,7 @@ export const billingProviderUsage = sqliteTable(
 	],
 );
 
-export const BILLING_SERVICE_KEYS = ["seo"] as const;
+export const BILLING_SERVICE_KEYS = ["seo", "web_search"] as const;
 export type BillingServiceKey = (typeof BILLING_SERVICE_KEYS)[number];
 
 export const BILLING_SERVICE_OPERATION_KEYS = [
@@ -636,6 +636,7 @@ export const BILLING_SERVICE_OPERATION_KEYS = [
 	"get_serp_results",
 	"get_domain_overview",
 	"get_backlinks_overview",
+	"search",
 ] as const;
 export type BillingServiceOperationKey =
 	(typeof BILLING_SERVICE_OPERATION_KEYS)[number];

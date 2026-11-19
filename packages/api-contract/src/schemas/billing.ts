@@ -139,7 +139,7 @@ export type ProviderReconciliationResponse = z.infer<
 >;
 
 export const BillingServiceCreditSnapshotSchema = z.object({
-	serviceKey: z.literal("seo"),
+	serviceKey: z.enum(["seo", "web_search"]),
 	status: z.enum(["trial", "active", "past_due", "cancelled", "suspended"]),
 	planVersionId: z.string(),
 	periodStart: z.string(),
