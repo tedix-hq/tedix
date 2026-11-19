@@ -430,6 +430,7 @@
 		"./utils/tedi-routing": "./src/utils/tedi-routing.ts",
 		"./utils/model-pricing": "./src/utils/model-pricing.ts",
 		"./utils/provider-pricing": "./src/utils/provider-pricing.ts",
+		"./utils/workers-ai-neuron-pricing": "./src/utils/workers-ai-neuron-pricing.ts",
 		"./utils/d1-retry": "./src/utils/d1-retry.ts",
 		"./utils/json": "./src/utils/json.ts",
 		"./utils/os-output-access-envelope": "./src/utils/os-output-access-envelope.ts",

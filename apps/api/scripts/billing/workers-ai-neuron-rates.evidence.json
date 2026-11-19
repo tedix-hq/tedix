@@ -1,0 +1,78 @@
+{
+	"title": "Workers AI token rates derived from Cloudflare's published Neuron table",
+	"source": {
+		"url": "https://developers.cloudflare.com/workers-ai/platform/pricing/",
+		"retrievedAt": "2026-11-19T13:07:09Z",
+		"retrievedWith": "firecrawl scrape (markdown)",
+		"markdownSha256": "e6fa49b7e927b7c1b14e1f8a51f864d887d527f676845867a389a90318177a97",
+		"usdPerThousandNeurons": 0.011,
+		"freeNeuronsPerDay": 10000,
+		"freeAllocationNote": "The daily free allocation is an account-level discount on Cloudflare's invoice. It is not part of any per-call rate, so governed rates price every Neuron."
+	},
+	"derivation": "microusd per million tokens = neurons per million tokens x 11, because $0.011 per 1,000 Neurons is exactly 11 USD micros per Neuron. Cached input uses the listed cached-input Neurons, or the input Neurons when Cloudflare lists no cached price. Cloudflare has no cache-write charge, so cache-write tokens are priced as input.",
+	"models": [
+		{
+			"modelId": "@cf/moonshotai/kimi-k2.7-code",
+			"pricingRow": "@cf/moonshotai/kimi-k2.7-code",
+			"inputNeuronsPerMillion": 86364,
+			"cachedInputNeuronsPerMillion": 17273,
+			"outputNeuronsPerMillion": 363636,
+			"listedUsdPerMillion": {
+				"input": 0.95,
+				"cachedInput": 0.19,
+				"output": 4.0
+			},
+			"publish": "correction",
+			"note": "Same-start correction of the current token-list rate (950000 / 190000 / 4000000, cache write 0). Neuron-exact values differ by at most 0.0005%; the correction records the Neuron basis and prices cache writes as input."
+		},
+		{
+			"modelId": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+			"pricingRow": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+			"inputNeuronsPerMillion": 26668,
+			"cachedInputNeuronsPerMillion": null,
+			"outputNeuronsPerMillion": 204805,
+			"listedUsdPerMillion": { "input": 0.293, "output": 2.253 },
+			"publish": "initial",
+			"note": "No governed rate in the current account scope; calls were priced from AI Gateway's reported cost, which matches these Neurons exactly for 5-19 Nov 2026 (13,550,335 input + 937,819 output tokens = $6.0877)."
+		},
+		{
+			"modelId": "@cf/meta/llama-3.1-8b-instruct-fast",
+			"pricingRow": "@cf/meta/llama-3.1-8b-instruct-fp8-fast",
+			"inputNeuronsPerMillion": 4119,
+			"cachedInputNeuronsPerMillion": null,
+			"outputNeuronsPerMillion": 34868,
+			"listedUsdPerMillion": { "input": 0.045, "output": 0.384 },
+			"publish": "initial",
+			"note": "The pricing page has no row named -fast; the -fp8-fast row is used. AI Gateway's reported cost for 5-19 Nov 2026 matches it exactly (1,598,965 input + 74,081 output tokens = $0.1009)."
+		},
+		{
+			"modelId": "@cf/openai/gpt-oss-120b",
+			"pricingRow": "@cf/openai/gpt-oss-120b",
+			"inputNeuronsPerMillion": 31818,
+			"cachedInputNeuronsPerMillion": null,
+			"outputNeuronsPerMillion": 68182,
+			"listedUsdPerMillion": { "input": 0.35, "output": 0.75 },
+			"publish": "initial",
+			"note": "AI Gateway's reported cost for 5-19 Nov 2026 matches these Neurons exactly (114,865 input + 91,136 output tokens = $0.1086)."
+		},
+		{
+			"modelId": "@cf/cloudflare/clef-flash",
+			"pricingRow": "@cf/cloudflare/clef-flash",
+			"inputNeuronsPerMillion": 3455,
+			"cachedInputNeuronsPerMillion": null,
+			"outputNeuronsPerMillion": 0,
+			"listedUsdPerMillion": { "input": 0.038 },
+			"publish": "none",
+			"note": "Not published: AI Gateway reports zero tokens for clef-flash calls (2,030 calls, $0.0922 reported cost for 5-19 Nov 2026), so a token rate would price them at zero. Keep AI Gateway's reported cost until token counts arrive."
+		}
+	],
+	"reconciliation": {
+		"window": "2026-11-06..2026-11-17 (UTC charge days present in Cloudflare billable usage for the current account)",
+		"cloudflareNeurons": 9501283,
+		"cloudflareBilledUsd": 101.112,
+		"ledgerNeuronsFromCallTokens": 9507687,
+		"ledgerNeuronsNote": "All Workers AI calls in tedi_call_costs (every model above except clef-flash), recomputed from their input, cached-input and output tokens with these Neuron rows. Within 0.07% of Cloudflare.",
+		"billedUsdNote": "Cloudflare's $101.11 is 9.19M billable Neurons x $0.011 / 1,000, after the free allocation; 6 Nov shows 224,356 Neurons billed at $0.",
+		"gapExplanation": "The ledger's larger 5-19 Nov total is not over-counting. Cloudflare's billable usage has no 5 Nov row for this account and had not yet posted 18-19 Nov ($98.85 in the ledger) when the $101.11 was read."
+	}
+}
