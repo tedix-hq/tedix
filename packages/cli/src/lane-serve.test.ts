@@ -27,6 +27,7 @@ import {
 	laneLandingBrief,
 	provisionLaneWorktree,
 	landedLaneCommits,
+	landedDeployments,
 	mainLaneCommits,
 	existingLaneCommits,
 	retainedLaneWorktree,
@@ -165,6 +166,8 @@ function fixture({
 		installError: undefined as Error | undefined,
 		installed: [] as string[],
 		commits: [] as string[],
+		deployments: [] as { url: string; sha: string }[],
+		deploymentChecks: [] as string[][],
 		repositoryChecks: [] as string[],
 		existingRefusal: undefined as string | undefined,
 		existingChecks: [] as string[][],
@@ -255,6 +258,12 @@ function fixture({
 			return control.commits;
 		},
 		mainCommits: (_repo, commits) => commits,
+		landedDeployments: async (_repo, commits) => {
+			control.deploymentChecks.push(commits);
+			if (!control.deployments.length)
+				throw new Error("The live surface does not contain the landed commit");
+			return control.deployments;
+		},
 		existingCommits: async (_repo, cited) => {
 			if (control.proofError) throw control.proofError;
 			control.existingChecks.push(cited);
@@ -336,8 +345,11 @@ function fixture({
 					),
 					pagination: { hasMore: false },
 				};
-			else if (verb === "dispatch-hold") {
-				// Like the server: planning a hold is a new Work version.
+			else if (
+				verb === "dispatch-hold" ||
+				(verb === "dispatch-reassign" && input.laneDispatch)
+			) {
+				// Like the server: changing the dispatch plan creates a Work version.
 				const row = items.find((row) => row.id === args[6])!;
 				row.version++;
 				if (input.laneDispatch)
@@ -392,7 +404,9 @@ function fixture({
 				const attempt = {
 					id: isDevin
 						? "88888888-8888-4888-8888-888888888888"
-						: "fictional-attempt",
+						: input.metadata?.verificationRound
+							? `fictional-verification-${workItem.version}`
+							: "fictional-attempt",
 					orgId: devinOrgId,
 					workItemId: args[6],
 					executorId: "local-acme",
@@ -425,7 +439,15 @@ function fixture({
 				throw new Error("Transient settlement failure");
 			else if (verb === "complete" && control.completeError)
 				throw control.completeError;
-			else if (verb === "heartbeat" && control.heartbeatError)
+			else if (
+				verb === "complete" &&
+				input === undefined &&
+				control.deployments.length
+			) {
+				const work = items.find((row) => row.id === args[6])!;
+				work.disposition = "completed";
+				response = { ...work, completedAt: new Date().toISOString() };
+			} else if (verb === "heartbeat" && control.heartbeatError)
 				throw control.heartbeatError;
 			else if (verb === "heartbeat" && control.heartbeatExpiry)
 				response = { expiresAt: new Date(Date.now() + 300_000).toISOString() };
@@ -443,10 +465,10 @@ function fixture({
 							: "codex";
 			const brief = readFileSync(args[args.indexOf("--brief") + 1]!, "utf8");
 			briefs.push(brief);
-			expect(deps?.label).toBe(
-				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!
-					.title,
-			);
+			const work = items.find(
+				(row) => row.id === args[args.indexOf("--work-item") + 1],
+			)!;
+			expect(deps?.label).toBe(work.title);
 			expect(deps?.cwd).toBe(
 				join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
 			);
@@ -455,7 +477,9 @@ function fixture({
 					dirname(args[args.indexOf("--brief") + 1]!),
 					nativeExecutor === "devin"
 						? "88888888-8888-4888-8888-888888888888"
-						: "fictional-attempt",
+						: brief.includes("Verify-only Attempt.")
+							? `fictional-verification-${work.version}`
+							: "fictional-attempt",
 				),
 			);
 			expect(args.slice(args.indexOf("--") + 1)).toEqual(
@@ -508,14 +532,16 @@ function fixture({
 			)
 				expect(brief).toContain("--evidence-kind skill_revision");
 			else expect(brief).not.toContain("--evidence-kind skill_revision");
-			// One trailer paragraph with this lane's exact ids, so the pre-push
-			// secret scan accepts the lane's commits.
-			expect(brief).toMatch(
-				new RegExp(
-					`\\nWork-Item: [0-9a-f-]{36}\\nAgent-Session: ${nativeExecutor}:\\S+\\n`,
-				),
-			);
-			expect(brief).toContain("Do not pass one -m per trailer");
+			if (!brief.includes("Verify-only Attempt.")) {
+				// One trailer paragraph with this lane's exact ids, so the pre-push
+				// secret scan accepts the lane's commits.
+				expect(brief).toMatch(
+					new RegExp(
+						`\\nWork-Item: [0-9a-f-]{36}\\nAgent-Session: ${nativeExecutor}:\\S+\\n`,
+					),
+				);
+				expect(brief).toContain("Do not pass one -m per trailer");
+			}
 			expect(deps?.forwardSignals).toBe(false);
 			deps?.onSpawn?.(control.spawnPid ?? 2_000_000_000);
 			const completed = completedResult(
@@ -3702,52 +3728,98 @@ describe("dispatcher admission", () => {
 		expect(settle.args).toContain("a".repeat(40));
 		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
 	});
-	it("settles a landed but unconfirmed result as succeeded, holds the Work and asks its owner once", async () => {
-		const f = fixture();
-		f.items.splice(1);
-		f.items[0]!.workKind = "coding";
-		const sha = "a".repeat(40);
-		f.control.commits = [sha];
-		f.control.finalMessage = `Pushed\nTEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(), outcome: "landed_unverified", unverified: "The deploy could not be read" })}`;
-		await f.dispatcher.tick();
-		await until(() => f.releases.length === 1);
-		f.releases[0]!();
-		await f.dispatcher.drain();
-		const settle = f.events.find((event) => event.verb === "settle")!;
-		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
-		expect(settle.args).toContain(sha);
-		expect(settle.input?.metadata).toMatchObject({
-			laneResult: { outcome: "landed_unverified" },
-		});
-		for (let pass = 0; pass < 3; pass++) await f.restart().tick();
-		expect(f.releases).toHaveLength(1);
-		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
-		const holds = f.events.filter((e) => e.verb === "dispatch-hold");
-		expect(holds).toHaveLength(1);
-		expect(holds[0]!.input).toEqual({
-			expectedWorkItemVersion: 2,
-			laneDispatch: {
-				state: "held",
-				reason:
-					"The change is on main, but the agent could not confirm the result. A person checks it and completes the task.",
-				note: "The deploy could not be read",
-			},
-		});
-		const requests = f.events.filter((e) => e.verb === "interaction-create");
-		expect(requests).toHaveLength(1);
-		expect(requests[0]!.input).toMatchObject({
-			subject: 'Check the result of "Summarize the guide"',
-			requestedFrom: { type: "user", id: "fictional-owner" },
-			metadata: {
-				source: "lane-dispatch-blocker",
-				laneBlocker: { kind: "result_unverified", workVersion: 3 },
-			},
-		});
-		expect(requests[0]!.input!.prompt).toContain("aaaaaaaaaaaa");
-		expect(requests[0]!.input!.prompt).toContain(
-			"Not confirmed: The deploy could not be read",
-		);
-	});
+	it.each(["verified", "refuted", "inconclusive"] as const)(
+		"dispatches a verify-only Attempt after deploy and handles a %s result without asking the owner",
+		async (verdict) => {
+			const f = fixture();
+			f.items.splice(1);
+			const work = f.items[0]!;
+			work.workKind = "coding";
+			const sha = "a".repeat(40);
+			f.control.commits = [sha];
+			f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(work), outcome: "landed_unverified", unverified: "Live readback remains open" })}`;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(settle.args).toContain(sha);
+			expect(settle.input?.metadata).toMatchObject({
+				laneResult: { outcome: "landed_unverified" },
+			});
+
+			await f.restart().tick();
+			expect(f.control.deploymentChecks).toEqual([[sha]]);
+			expect(work.version).toBe(2);
+			expect(f.releases).toHaveLength(1);
+
+			f.control.deployments = [
+				{ url: "https://live.example.test/health", sha: "b".repeat(40) },
+			];
+			await f.restart().tick();
+			expect(work.version).toBe(3);
+			expect(f.releases).toHaveLength(1);
+			const rounds = verdict === "inconclusive" ? 3 : 1;
+			for (let round = 1; round <= rounds; round++) {
+				const verifier = f.restart();
+				await verifier.tick();
+				await until(() => f.releases.length === round + 1);
+				expect(f.briefs[round]).toContain("Verify-only Attempt");
+				expect(f.briefs[round]).toContain("https://live.example.test/health");
+				expect(f.briefs[round]).not.toContain("To land a change");
+				const attempt = JSON.parse(
+					readFileSync(join(f.dir, `${work.id}-${work.version}.json`), "utf8"),
+				).attemptId;
+				const evidence = {
+					id: "verification-report",
+					attemptId: verdict === "inconclusive" ? "fictional-attempt" : attempt,
+					kind: "test_report",
+					claimKey: "verification",
+					uri: "https://live.example.test/report",
+				};
+				f.control.evidence.data = [evidence];
+				const evidenceRefs = [evidence.id];
+				f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({
+					...completedResult(work),
+					evidenceRefs,
+					...(verdict === "refuted"
+						? {
+								outcome: "incomplete",
+								remaining: "The live row is still absent",
+							}
+						: {}),
+				})}`;
+				f.releases[round]!();
+				await verifier.drain();
+				if (verdict !== "verified") await f.restart().tick();
+			}
+			expect(
+				f.events.filter((event) => event.verb === "complete"),
+			).toHaveLength(verdict === "verified" ? 1 : 0);
+			expect(work.disposition).toBe(
+				verdict === "verified" ? "completed" : "accepted",
+			);
+			if (verdict === "refuted") {
+				expect(work.metadata?.laneDispatch).toEqual({
+					state: "ready",
+					reason: "Repair after agent verification round 1",
+					note: "The live row is still absent",
+				});
+				expect(
+					f.events.filter((event) => event.verb === "settle").at(-1)?.args,
+				).toContain("rejected");
+			}
+			if (verdict === "inconclusive")
+				expect(work.metadata?.laneDispatch).toMatchObject({
+					state: "held",
+					reason: "Agent verification stopped after round 3",
+					note: expect.stringContaining("did not cite a live test report"),
+				});
+			expect(
+				f.events.filter((event) => event.verb === "interaction-create"),
+			).toHaveLength(0);
+		},
+	);
 	it("fails a landed but unconfirmed result that has no commit on main", async () => {
 		const f = fixture();
 		f.items.splice(1);
@@ -3821,12 +3893,12 @@ describe("dispatcher admission", () => {
 			},
 		});
 		for (let pass = 0; pass < 3; pass++) await f.restart().tick();
-		// The run is not started again; its owner gets one request to check.
+		expect(f.control.deploymentChecks[0]).toEqual(cited);
 		expect(f.releases).toHaveLength(1);
 		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
-		const requests = f.events.filter((e) => e.verb === "interaction-create");
-		expect(requests).toHaveLength(1);
-		expect(requests[0]!.input!.prompt).toContain("bbbbbbbbbbbb");
+		expect(f.events.some((event) => event.verb === "interaction-create")).toBe(
+			false,
+		);
 	});
 	it("fails a result that cites existing commits the checkout cannot prove", async () => {
 		const f = fixture();
@@ -6283,6 +6355,37 @@ function gitFixture(withOrigin = false, autoCleanup = true) {
 	}
 	return { root, repo, git };
 }
+
+it("requires the deployed revision to contain every landed commit", async () => {
+	const { repo, git } = gitFixture(true);
+	const previous = git(["rev-parse", "HEAD"]);
+	const commit = (message: string) => {
+		git([
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"--allow-empty",
+			"-m",
+			message,
+		]);
+		return git(["rev-parse", "HEAD"]);
+	};
+	const first = commit("first landed commit");
+	const second = commit("second landed commit");
+	const descendant = commit("deployed descendant");
+	git(["push", "origin", "main"]);
+	const url = "https://live.example.test/health";
+	const check = (deployedSha: string) =>
+		landedDeployments(repo, [first, second], undefined, [url], async () =>
+			Response.json({ deployedSha }),
+		);
+	await expect(
+		landedDeployments(repo, [first, second], undefined, []),
+	).rejects.toThrow("Set TEDIX_LANE_VERIFY_HEALTH_URLS");
+	await expect(check(previous)).rejects.toThrow("does not prove deployment");
+	await expect(check(first)).rejects.toThrow(second);
+	await expect(check(descendant)).resolves.toEqual([{ url, sha: descendant }]);
+});
 
 it("renews ten runs during slow Git preparation, cleanup and proof inspection", async () => {
 	const { root, repo, git } = gitFixture(true);
