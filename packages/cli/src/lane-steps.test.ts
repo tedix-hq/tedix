@@ -184,6 +184,90 @@ describe("run step log", () => {
 		expect(sizes).toEqual(Array(10).fill(50));
 	});
 
+	it("sends new steps every 5 seconds and asks for messages every 15 when idle", async () => {
+		let at = 0;
+		const sentAt: number[] = [];
+		const log = createRunStepLog({
+			send: async (steps) => {
+				sentAt.push(at);
+				return { accepted: steps.length, pending: [] };
+			},
+			onMessage: () => {},
+			log: () => {},
+			now: () => at,
+		});
+		log.add("started", "Started");
+		for (; at <= 60_000; at += 5_000) {
+			if (at === 20_000 || at === 25_000) log.add("message", "Working");
+			await log.tick();
+		}
+		expect(sentAt).toEqual([0, 15_000, 20_000, 25_000, 40_000, 55_000]);
+	});
+
+	it("spreads sends so several runs stay under the shared call budget", async () => {
+		let at = 0;
+		let sends = 0;
+		const logs = Array.from({ length: 5 }, () =>
+			createRunStepLog({
+				send: async (steps) => {
+					sends++;
+					return { accepted: steps.length, pending: [] };
+				},
+				onMessage: () => {},
+				log: () => {},
+				runs: () => 5,
+				now: () => at,
+			}),
+		);
+		for (; at < 60_000; at += 5_000)
+			for (const log of logs) {
+				log.add("message", "Working");
+				await log.tick();
+			}
+		expect(sends).toBe(20);
+	});
+
+	it("backs off when rate limited, logs once per wait and resets on success", async () => {
+		let at = 0;
+		let limited = true;
+		const sentAt: number[] = [];
+		const logged: Array<{ at: number; event: string }> = [];
+		const log = createRunStepLog({
+			send: async (steps) => {
+				sentAt.push(at);
+				if (limited)
+					throw new Error(
+						"MCP tool error: Tool rate limit exceeded for bounded_write",
+					);
+				return { accepted: steps.length, pending: [] };
+			},
+			onMessage: () => {},
+			log: (event) => logged.push({ at, event }),
+			now: () => at,
+		});
+		log.add("started", "Started");
+		for (; at < 240_000; at += 5_000) {
+			// A turn-end send inside a wait is tried but not logged again.
+			if (at === 15_000) await log.flush(true);
+			if (at === 230_000) limited = false;
+			await log.tick();
+		}
+		expect(sentAt).toEqual([
+			0, 10_000, 15_000, 55_000, 115_000, 175_000, 235_000,
+		]);
+		expect(logged).toEqual(
+			[0, 10_000, 55_000, 115_000, 175_000].map((at) => ({
+				at,
+				event: "run-steps-failed",
+			})),
+		);
+		// After the success the run is back to one send every 5 seconds.
+		log.add("message", "Working");
+		at = 240_000;
+		await log.tick();
+		expect(sentAt.at(-1)).toBe(240_000);
+	});
+
 	it("stops sending for the run once the server has no step tool", async () => {
 		let calls = 0;
 		const logged: string[] = [];
