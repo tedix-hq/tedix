@@ -112,6 +112,12 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 	sendTurn(scope: WorkspaceScope, input: TurnRequest) {
 		return stubFor(this.env, scope).sendTurn(scope, input);
 	}
+	appendAgentRunNotice(
+		scope: WorkspaceScope,
+		input: { conversationId: string; attemptId: string; content: string },
+	) {
+		return stubFor(this.env, scope).appendAgentRunNotice(scope, input);
+	}
 	cancelTurn(scope: WorkspaceScope, turnId: string) {
 		return stubFor(this.env, scope).cancelTurn(scope, turnId);
 	}

@@ -59,7 +59,14 @@ import { osShareLinks, osReviewBatches } from "@tedix/db/schema/os-shares";
 import { osCollaborationProposals } from "@tedix/db/schema/os-workspaces";
 import { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
 import { workEvidence } from "@tedix/db/schema/work-items";
-import { workEvents, workItems } from "@tedix/db/schema/work-items";
+import {
+	workAttemptMessages,
+	workAttemptSteps,
+	workAttempts,
+	workEvents,
+	workItemComments,
+	workItems,
+} from "@tedix/db/schema/work-items";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
@@ -2957,6 +2964,177 @@ describe("WorkspaceDO", () => {
 		await testEnv.DB.prepare("DELETE FROM work_items WHERE id = ?")
 			.bind(rows[0]?.id)
 			.run();
+	});
+
+	test("a builder starts and steers a run in the linked project, and the chat stores one result notice", async () => {
+		await seedCore();
+		await testEnv.DB.batch(
+			[
+				workAttempts,
+				workAttemptSteps,
+				workAttemptMessages,
+				workItemComments,
+			].map((table) => testEnv.DB.prepare(ddl(table))),
+		);
+		const ws = workspace();
+		const start =
+			'export default async (env) => env.work.startRun({ title: "Fix paging", brief: "Handle an empty page", doneWhen: "Paging tests pass", executor: "codex" })';
+		await ws.scriptModel(scope, [{ code: start }, { text: "Run requested." }]);
+		const sent = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Start the paging fix",
+		});
+		await ws.awaitTurn(scope, sent.turnId, 20_000);
+		const { conversationId } = sent;
+		const startStep = (await ws.readEvents(scope, { conversationId })).find(
+			(event) =>
+				event.type === "step.finished" && event.tool === "work.startRun",
+		);
+		expect(startStep).toMatchObject({ status: "ok" });
+		const { workItemId } = JSON.parse(
+			startStep?.type === "step.finished" ? (startStep.result ?? "{}") : "{}",
+		);
+		expect(
+			await testEnv.DB.prepare(
+				"SELECT project_id, work_class, accountable_owner_id, disposition, executor_id, dispatch_state, source_session_key FROM work_items WHERE id = ?",
+			)
+				.bind(workItemId)
+				.first(),
+		).toMatchObject({
+			project_id: "proj1",
+			work_class: "objective",
+			accountable_owner_id: "u1",
+			disposition: "accepted",
+			executor_id: "codex",
+			dispatch_state: "ready",
+			source_session_key: ["workspace", scope.workspaceId, conversationId].join(
+				":",
+			),
+		});
+
+		const attemptId = crypto.randomUUID();
+		const now = new Date().toISOString();
+		await testEnv.DB.batch([
+			testEnv.DB.prepare(
+				"INSERT INTO work_attempts (id, work_item_id, org_id, executor_type, executor_id, runtime_state, attempt_number, started_at, heartbeat_at, expires_at, metadata) VALUES (?, ?, ?, 'external_agent', 'codex', 'running', 1, ?, ?, ?, '{}')",
+			).bind(
+				attemptId,
+				workItemId,
+				scope.organizationId,
+				now,
+				now,
+				new Date(Date.now() + 60_000).toISOString(),
+			),
+			testEnv.DB.prepare(
+				"INSERT INTO work_attempt_steps (id, org_id, work_item_id, attempt_id, seq, at, kind, text) VALUES (?, ?, ?, ?, 1, ?, 'started', 'Reading the files')",
+			).bind(
+				crypto.randomUUID(),
+				scope.organizationId,
+				workItemId,
+				attemptId,
+				Date.now(),
+			),
+		]);
+		await ws.scriptModel(scope, [
+			{
+				code:
+					"export default async (env) => { const workItemId = " +
+					JSON.stringify(workItemId) +
+					'; await env.work.readRun({workItemId}); await env.work.sendRunMessage({workItemId, message: "Include empty pages"}); return env.work.stopRun({workItemId}) }',
+			},
+			{ text: "Sent." },
+		]);
+		const follow = await ws.sendTurn(scope, {
+			conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "Include empty pages, then stop",
+		});
+		await ws.awaitTurn(scope, follow.turnId, 20_000);
+		const runSteps = (await ws.readEvents(scope, { conversationId })).filter(
+			(event) =>
+				event.type === "step.finished" && event.turnId === follow.turnId,
+		);
+		expect(runSteps).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					result: expect.stringContaining('"kind":"agent_run_steps"'),
+				}),
+				expect.objectContaining({
+					result: expect.stringContaining('"kind":"agent_run_message"'),
+				}),
+				expect.objectContaining({
+					result: expect.stringContaining('"kind":"agent_run_stop"'),
+				}),
+			]),
+		);
+		expect(
+			(
+				await testEnv.DB.prepare(
+					"SELECT kind, body, sender_type, sender_id FROM work_attempt_messages WHERE attempt_id = ? ORDER BY rowid",
+				)
+					.bind(attemptId)
+					.all()
+			).results,
+		).toEqual([
+			{
+				kind: "follow_up",
+				body: "Include empty pages",
+				sender_type: "user",
+				sender_id: "u1",
+			},
+			{ kind: "stop", body: "", sender_type: "user", sender_id: "u1" },
+		]);
+
+		const content = 'The run for "Fix paging" ended: cancelled.';
+		await ws.appendAgentRunNotice(scope, {
+			conversationId,
+			attemptId,
+			content,
+		});
+		await ws.appendAgentRunNotice(scope, {
+			conversationId,
+			attemptId,
+			content,
+		});
+		expect(
+			(await ws.readLedger(scope, conversationId)).filter(
+				(event) => event.type === "agent_run.ended",
+			),
+		).toEqual([expect.objectContaining({ text: content })]);
+
+		await testEnv.DB.prepare(
+			"INSERT INTO organization_members (id, organization_id, descope_user_id, email, role, status, kind) VALUES ('fixture-use-only', ?, 'use-only', 'viewer@example.test', 'viewer', 'active', 'human')",
+		)
+			.bind(scope.organizationId)
+			.run();
+		for (const [actorKind, actorId] of [
+			["user", "use-only"],
+			["tedi", "tedi1"],
+			["service", "schedule"],
+		] as const) {
+			await ws.scriptModel(scope, [{ code: start }, { text: "Refused." }]);
+			const denied = await ws.sendTurn(scope, {
+				actorId,
+				actorKind,
+				text: "Start the paging fix",
+			});
+			await ws.awaitTurn(scope, denied.turnId, 20_000);
+			expect(
+				await ws.readEvents(scope, { conversationId: denied.conversationId }),
+			).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "step.finished",
+						status: "error",
+						error: expect.stringContaining(
+							"A person with build access must request this in workspace chat",
+						),
+					}),
+				]),
+			);
+		}
 	});
 
 	test("a stale edit fails inside the turn, the model is told and nothing is left waiting", async () => {

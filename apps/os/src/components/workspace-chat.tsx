@@ -72,6 +72,8 @@ import {
 } from "@/lib/app-edit-approval";
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
+import { AgentRunCard } from "@/components/agent-run-card";
+import { agentRunFromToolResult } from "@/lib/agent-run-result";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { ReplyApprovalActions } from "@/components/workspace-chat-reply-actions";
 import { ConnectionRequestCard } from "@/components/workspace-chat-connect-card";
@@ -815,6 +817,13 @@ function TurnView({
 	const running = turn.status === "running";
 	const startedAt = Date.parse(turn.startedAt);
 	const waiting = turn.approvals.find((approval) => approval.decision === null);
+	const agentRuns = new Map(
+		turn.steps.flatMap((step) => {
+			if (step.tool !== "work.startRun" || step.status !== "ok") return [];
+			const run = agentRunFromToolResult(step.result);
+			return run ? [[run.workItemId, run] as const] : [];
+		}),
+	);
 	const now = useNow(running && !waiting);
 	const [approvingAll, setApprovingAll] = useState<readonly string[]>([]);
 	const quiet =
@@ -889,11 +898,22 @@ function TurnView({
 						className="workspace-chat-prose"
 						data-streaming={!turn.replyDone}
 					>
-						<ChatMarkdown content={turn.reply} />
+						{turn.plainNotice ? (
+							<p>{turn.reply}</p>
+						) : (
+							<ChatMarkdown content={turn.reply} />
+						)}
 					</div>
 				) : null}
 				{turn.reply && turn.replyDone ? (
 					<ReplyCopy text={turn.reply} latest={latest} />
+				) : null}
+				{agentRuns.size > 0 ? (
+					<ul className="m-0 grid list-none gap-2 p-0" aria-label="Coding runs">
+						{[...agentRuns.values()].map((run) => (
+							<AgentRunCard key={run.workItemId} agentRun={run} />
+						))}
+					</ul>
 				) : null}
 				{turn.connectionRequests?.map((request) => (
 					<ConnectionRequestCard request={request} key={request.requestId} />

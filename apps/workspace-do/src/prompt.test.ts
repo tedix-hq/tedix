@@ -121,7 +121,7 @@ describe("prompt", () => {
 			"undo it from your reply or from version history",
 		);
 		expect(STATIC_RULES).toContain(
-			"Removing content from a file, deleting, sharing, a new app, a web page and a Work Item wait for the person",
+			"Removing content from a file, deleting, sharing, a new app, a web page and filing a proposed Work Item wait for the person",
 		);
 		const prefix = staticPromptPrefix();
 		expect(prefix).not.toContain("workspace rule");

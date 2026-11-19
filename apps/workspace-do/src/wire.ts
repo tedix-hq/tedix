@@ -81,6 +81,7 @@ export type WireEventBody =
 			/** The turn was stopped first: no turn read the message. */
 			type: "message.returned";
 	  } & QueuedMessageBody)
+	| { type: "agent_run.ended"; turnId: string; text: string }
 	| { type: "turn.model"; turnId: string; model: string }
 	| { type: "turn.usage"; turnId: string; usage: TurnUsage }
 	| { type: "assistant.delta"; turnId: string; messageId: string; text: string }
@@ -105,6 +106,7 @@ export type WireEventBody =
 			type: "step.finished";
 			turnId: string;
 			stepId: string;
+			tool?: string;
 			status: "ok" | "error";
 			summary?: string;
 			durationMs: number;
@@ -405,10 +407,16 @@ export function stepLabel(
 			list: "Reading Work items",
 			listOpen: "Reading open Work items",
 			create: "Filing a Work Item",
+			startRun: "Starting a coding run",
+			readRun: "Reading a coding run",
+			sendRunMessage: "Sending a follow-up to the run",
+			stopRun: "Stopping a coding run",
 		},
 	};
 	const write =
 		(binding === "apps" && ["editFile", "writeFile"].includes(method)) ||
+		(binding === "work" &&
+			["startRun", "sendRunMessage", "stopRun"].includes(method)) ||
 		method === "create" ||
 		method === "revise" ||
 		(["documents", "sheets", "presentations"].includes(binding) &&

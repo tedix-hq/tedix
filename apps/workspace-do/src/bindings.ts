@@ -42,6 +42,7 @@ import type {
 	OutputDetail,
 	OutputSummary,
 	WorkspaceDataPort,
+	WorkspaceRunPort,
 } from "./data-port";
 
 const OPEN_DISPOSITIONS = new Set([
@@ -54,6 +55,7 @@ const OPEN_DISPOSITIONS = new Set([
 
 export interface BindingDeps {
 	data: WorkspaceDataPort;
+	runs?: WorkspaceRunPort;
 	compliance: ComplianceAdapter;
 	accountability: AccountabilityAdapter;
 	memory?: MemoryAdapter;
@@ -352,6 +354,11 @@ export function buildWorkspaceBindings(
 			};
 		},
 	};
+	const runPort = () => {
+		if (!deps.runs)
+			throw new Error("Coding runs are available in workspace chat");
+		return deps.runs;
+	};
 	const work = {
 		list: (options?: { disposition?: string; limit?: number }) =>
 			data.listWork(options),
@@ -367,6 +374,15 @@ export function buildWorkspaceBindings(
 				})),
 		create: (input: CreateWorkInput) =>
 			data.createWork({ ...input, actorId: deps.actor.id }),
+		startRun: (input: Parameters<WorkspaceRunPort["startRun"]>[0]) =>
+			runPort().startRun(input),
+		readRun: (input: Parameters<WorkspaceRunPort["readRun"]>[0]) =>
+			runPort().readRun(input),
+		sendRunMessage: (
+			input: Parameters<WorkspaceRunPort["sendRunMessage"]>[0],
+		) => runPort().sendRunMessage(input),
+		stopRun: (input: Parameters<WorkspaceRunPort["stopRun"]>[0]) =>
+			runPort().stopRun(input),
 	};
 
 	// The first page from a domain in a conversation holds for approval. The
@@ -525,6 +541,13 @@ export function buildWorkspaceBindings(
 			methods: {
 				list: { riskTier: "read", blastRadius: "none" },
 				listOpen: { riskTier: "read", blastRadius: "none" },
+				startRun: { riskTier: "bounded_write", blastRadius: "single_resource" },
+				readRun: { riskTier: "read", blastRadius: "none" },
+				sendRunMessage: {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
+				stopRun: { riskTier: "bounded_write", blastRadius: "single_resource" },
 				create: { riskTier: "bounded_write", blastRadius: "single_resource" },
 			},
 		}),

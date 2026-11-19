@@ -1,4 +1,5 @@
 import { createRouterClient } from "@orpc/server";
+import { z } from "zod";
 import type { WorkAttempt, WorkItem } from "@tedix/db/schema/work-items";
 import {
 	claimWorkAttemptConversationNotice,
@@ -79,15 +80,11 @@ export const enqueueHomeMessage = async (
 	return client.enqueueMessage({ ...message, metadata });
 };
 
-/**
- * The sentence that reports a finished run, or null when the Work Item was
- * not started by a tedi or the Attempt was not run by an external agent.
- */
+/** The sentence that reports a settled external agent run. */
 function runEndedSentence(
 	work: NoticeWork,
 	attempt: NoticeAttempt,
 ): string | null {
-	if (work.stewardType !== "tedi" || !work.stewardId) return null;
 	if (attempt.executorType !== "external_agent" || !attempt.outcome)
 		return null;
 	const outcome =
@@ -114,6 +111,7 @@ export function agentRunEndedMessage(
 ): AgentRunEndedMessage | null {
 	const conversationId = work.sourceSessionKey?.trim();
 	if (!conversationId?.toLowerCase().startsWith("agent:")) return null;
+	if (work.stewardType !== "tedi" || !work.stewardId) return null;
 	const content = runEndedSentence(work, attempt);
 	if (!content || !work.stewardId) return null;
 	return {
@@ -136,6 +134,7 @@ export function agentRunEndedHomeMessage(
 ): AgentRunEndedHomeMessage | null {
 	const conversationId = work.sourceSessionKey?.trim();
 	if (!conversationId?.startsWith("home:")) return null;
+	if (work.stewardType !== "tedi" || !work.stewardId) return null;
 	const sentence = runEndedSentence(work, attempt);
 	if (!sentence) return null;
 	return {
@@ -146,11 +145,57 @@ export function agentRunEndedHomeMessage(
 	};
 }
 
+async function enqueueWorkspaceRunNotice(
+	context: BaseContext,
+	work: NoticeWork,
+	attempt: NoticeAttempt,
+	content: string,
+	workspaceId: string,
+	conversationId: string,
+): Promise<{ status: string; error?: string }> {
+	const runtime = context.env.WORKSPACE_RUNTIME as unknown as {
+		appendAgentRunNotice(
+			scope: { organizationId: string; workspaceId: string },
+			input: { conversationId: string; attemptId: string; content: string },
+		): Promise<void>;
+	};
+	await runtime.appendAgentRunNotice(
+		{ organizationId: work.orgId, workspaceId },
+		{ conversationId, attemptId: attempt.id, content },
+	);
+	return { status: "sent" };
+}
+
+function workspaceRunNotice(work: NoticeWork, attempt: NoticeAttempt) {
+	const [prefix, workspaceId, conversationId, ...extra] =
+		work.sourceSessionKey?.split(":") ?? [];
+	const uuid = z.uuid();
+	if (
+		prefix !== "workspace" ||
+		extra.length ||
+		!workspaceId ||
+		!conversationId ||
+		!uuid.safeParse(workspaceId).success ||
+		!uuid.safeParse(conversationId).success
+	)
+		return null;
+	const content = runEndedSentence(work, attempt);
+	return content
+		? (context: BaseContext) =>
+				enqueueWorkspaceRunNotice(
+					context,
+					work,
+					attempt,
+					content,
+					workspaceId,
+					conversationId,
+				)
+		: null;
+}
+
 /**
- * Reports in the chat that started an agent run that the run ended: to the
- * tedi in its own chat, or to Home in the person's chat when the person
- * picked the tedi there. Sends at most one message per Attempt and never
- * throws: the settle that calls this has already been recorded.
+ * Reports the end of a run in the chat that started it. Sends at most one
+ * message per Attempt and never throws after settlement has been recorded.
  */
 export async function notifyAgentRunEnded(
 	context: BaseContext,
@@ -167,7 +212,7 @@ export async function notifyAgentRunEnded(
 		? (internal: BaseContext) => enqueue(internal, tediMessage)
 		: homeMessage
 			? (internal: BaseContext) => enqueueHome(internal, homeMessage)
-			: null;
+			: workspaceRunNotice(work, attempt);
 	if (!send) return "skipped";
 	const scope = {
 		orgId: work.orgId,

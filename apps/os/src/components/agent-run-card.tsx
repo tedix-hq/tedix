@@ -230,7 +230,7 @@ export function AgentRunCardView({
 /** The run card with its own data: reads the run and keeps it current. */
 export function AgentRunCard({ agentRun }: { agentRun: AgentRunRef }) {
 	const { run, failed, attempt, viewerId, ownMessageIds, send, stop } =
-		useWorkItemRun(agentRun.workItemId);
+		useWorkItemRun(agentRun.workItemId, true);
 	return (
 		<AgentRunCardView
 			agentRun={agentRun}

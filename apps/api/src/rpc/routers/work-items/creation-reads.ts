@@ -95,6 +95,15 @@ function rethrowWorkItemContextError(error: unknown): never {
 export const createProcedure = authOs.create.handler(
 	async ({ input, context }) => {
 		const orgId = requireOrgId(context);
+		if (
+			[input.sourceSessionKey, input.sourceIntentId].some((key) =>
+				key?.startsWith("workspace:"),
+			)
+		)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Workspace chat sets its own conversation keys",
+			);
 		const callerInput = input;
 		input = await prepareFactoryCycle(context.db, orgId, input);
 		if (input.factoryCard) {

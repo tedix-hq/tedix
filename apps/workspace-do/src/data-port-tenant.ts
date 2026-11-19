@@ -53,9 +53,24 @@ import {
 	type ToolConfig,
 } from "@tedix/api-contract/schemas/tools";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { operationAllowed } from "@tedix/api-contract/schemas/os-collaborators";
+import { readWorkspaceRuntimeRole } from "@tedix/db/queries/os-workspace-access";
+import {
+	ListWorkAttemptStepsInputSchema,
+	SendWorkAttemptMessageInputSchema,
+	StopWorkAttemptInputSchema,
+} from "@tedix/api-contract/schemas/work-attempt-steps";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
+import {
+	listWorkAttemptSteps,
+	sendWorkAttemptMessage,
+} from "@tedix/db/queries/work-items/attempt-steps";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
 import {
+	acceptWorkItem,
 	createWorkItem,
+	getWorkItemById,
+	getWorkItemBySourceIntentId,
 	listWorkItems,
 } from "@tedix/db/queries/work-items/crud";
 import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
@@ -90,6 +105,8 @@ import type {
 	WorkItemSummary,
 	WorkspaceDataPort,
 	WorkspaceSnapshot,
+	StartRunInput,
+	WorkspaceRunPort,
 } from "./data-port";
 import {
 	WorkspaceFileTextSchema,
@@ -179,6 +196,14 @@ export interface TenantDataPortDeps {
 	) => Promise<void>;
 }
 
+const StartRunInputSchema = z.strictObject({
+	title: z.string().trim().min(1).max(500),
+	brief: z.string().trim().min(1).max(10_000),
+	doneWhen: z.string().trim().min(1).max(2_000),
+	executor: z.enum(["codex", "claude-code"]),
+	projectId: z.uuid().optional(),
+});
+
 const APP_NAME_TAKEN = "An app with this name already exists in this workspace";
 
 /** The same name and description limits the API applies to a new app. */
@@ -205,7 +230,7 @@ function readableInputError(error: unknown): never {
 	throw error;
 }
 
-export class TenantDataPort implements WorkspaceDataPort {
+export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 	constructor(private readonly deps: TenantDataPortDeps) {}
 
 	private get scope() {
@@ -832,23 +857,7 @@ export class TenantDataPort implements WorkspaceDataPort {
 		const priority = input.priority ?? "medium";
 		if (!(WORK_ITEM_PRIORITY_VALUES as readonly string[]).includes(priority))
 			throw new Error(`Unknown Work priority ${priority}`);
-		const { projectIds } = await this.workspace();
-		const projectId =
-			input.projectId ?? (projectIds.length === 1 ? projectIds[0] : undefined);
-		if (!projectId)
-			throw new Error(
-				projectIds.length === 0
-					? "This workspace is not linked to a project, so it cannot file Work"
-					: `Choose a projectId: ${projectIds.join(", ")}`,
-			);
-		if (!projectIds.includes(projectId))
-			throw new Error("That project is not linked to this workspace");
-		const project = await getProjectByIdForOrganization(
-			this.deps.core,
-			this.deps.organizationId,
-			projectId,
-		);
-		if (!project) throw new Error("Project not found");
+		const project = await this.#workProject(input.projectId);
 		const now = new Date();
 		const actorType =
 			this.deps.actorKind === "service" ? "system" : this.deps.actorKind;
@@ -862,7 +871,7 @@ export class TenantDataPort implements WorkspaceDataPort {
 				: {}),
 			workKind: workKind as WorkItemKind,
 			priority: priority as WorkItemPriority,
-			projectId,
+			projectId: project.id,
 			...(this.deps.actorKind === "user"
 				? { stewardType: "user" as const, stewardId: input.actorId }
 				: {}),
@@ -879,6 +888,253 @@ export class TenantDataPort implements WorkspaceDataPort {
 			createdAt: now.toISOString(),
 		});
 		return workSummary(item);
+	}
+
+	async #workProject(requestedProjectId?: string) {
+		const { projectIds } = await this.workspace();
+		const projectId =
+			requestedProjectId ??
+			(projectIds.length === 1 ? projectIds[0] : undefined);
+		if (!projectId)
+			throw new Error(
+				projectIds.length === 0
+					? "This workspace is not linked to a project, so it cannot file Work"
+					: `Choose a projectId: ${projectIds.join(", ")}`,
+			);
+		if (!projectIds.includes(projectId))
+			throw new Error("That project is not linked to this workspace");
+		const project = await getProjectByIdForOrganization(
+			this.deps.core,
+			this.deps.organizationId,
+			projectId,
+		);
+		if (!project) throw new Error("Project not found");
+		return project;
+	}
+
+	async #runActor() {
+		const { actingUserId, conversationId, agentTurnId } = this.deps;
+		if (
+			!actingUserId ||
+			!conversationId ||
+			!agentTurnId ||
+			!operationAllowed(
+				await readWorkspaceRuntimeRole(this.deps.core, this.deps, {
+					actorKind: "user",
+					actorId: actingUserId,
+				}),
+				"app.chat",
+			)
+		)
+			throw new Error(
+				"A person with build access must request this in workspace chat",
+			);
+		return {
+			actor: { type: "user" as const, id: actingUserId },
+			sourceSessionKey:
+				"workspace:" + this.deps.workspaceId + ":" + conversationId,
+			agentTurnId,
+		};
+	}
+
+	async startRun(input: StartRunInput) {
+		const { actor, sourceSessionKey, agentTurnId } = await this.#runActor();
+		const { title, brief, doneWhen, executor, projectId } =
+			StartRunInputSchema.parse(input);
+		const project = await this.#workProject(projectId);
+		const { core, organizationId: orgId, workspaceId } = this.deps;
+		const now = new Date();
+		const intent = {
+			orgId,
+			sourceIntentId: sourceSessionKey + ":" + agentTurnId,
+		};
+		const item = await createWorkItem(core, {
+			id: crypto.randomUUID(),
+			orgId,
+			createdBy: actor,
+			accountableOwnerType: actor.type,
+			accountableOwnerId: actor.id,
+			stewardType: actor.type,
+			stewardId: actor.id,
+			title,
+			description: brief,
+			workKind: "coding",
+			projectId: project.id,
+			...(project.objectiveId
+				? { objectiveId: project.objectiveId, workClass: "objective" as const }
+				: workItemPurposeFor({ workClass: "maintenance", now })),
+			executorType: "external_agent",
+			executorId: executor,
+			sourceSessionKey,
+			sourceIntentId: intent.sourceIntentId,
+			provenance: { source: "os.workspace.chat", workspaceId },
+			createdAt: now.toISOString(),
+		}).catch(async (error: unknown) => {
+			const existing = await getWorkItemBySourceIntentId(core, intent);
+			if (!existing) throw error;
+			if (
+				existing.sourceSessionKey !== sourceSessionKey ||
+				existing.accountableOwnerId !== actor.id ||
+				existing.title !== title ||
+				existing.description !== brief ||
+				existing.executorId !== executor ||
+				existing.projectId !== project.id ||
+				(existing.acceptanceContract &&
+					existing.acceptanceContract.doneLooksLike !== doneWhen)
+			)
+				throw new Error(
+					"A different coding task was already filed by this message",
+				);
+			return existing;
+		});
+		try {
+			if (item.disposition === "proposed") {
+				await acceptWorkItem(core, {
+					orgId,
+					workItemId: item.id,
+					acceptanceContract: { version: 1, doneLooksLike: doneWhen },
+					actor,
+				});
+			}
+		} catch (error) {
+			const current = await getWorkItemById(core, item.id, orgId);
+			if (current?.acceptanceContract?.doneLooksLike !== doneWhen)
+				throw new Error(
+					"Task /work/items/" +
+						item.id +
+						" was filed but could not be accepted: " +
+						(error instanceof Error ? error.message : String(error)),
+				);
+		}
+		return {
+			kind: "agent_run" as const,
+			workItemId: item.id,
+			title,
+			executor,
+			url: "/work/items/" + item.id,
+		};
+	}
+
+	async #runInConversation(workItemId: string) {
+		const { actor, sourceSessionKey } = await this.#runActor();
+		const item = await getWorkItemById(
+			this.deps.core,
+			workItemId,
+			this.deps.organizationId,
+		);
+		if (
+			!item ||
+			item.executorType !== "external_agent" ||
+			item.sourceSessionKey !== sourceSessionKey
+		)
+			throw new Error("This run was not started in this conversation");
+		return { item, actor };
+	}
+
+	async readRun(input: { workItemId: string; afterSeq?: number }) {
+		const { id: workItemId, afterSeq } = ListWorkAttemptStepsInputSchema.parse({
+			id: input.workItemId,
+			afterSeq: input.afterSeq,
+		});
+		const { item } = await this.#runInConversation(workItemId);
+		const params = { orgId: item.orgId, workItemId, afterSeq, limit: 500 };
+		let page = await listWorkAttemptSteps(this.deps.core, params);
+		let steps = page.steps.slice(-40);
+		// Keep the newest 40 even when the run's log spans several pages.
+		for (
+			let pages = 1;
+			pages < 4 && page.attemptId && page.steps.length === params.limit;
+			pages++
+		) {
+			page = await listWorkAttemptSteps(this.deps.core, {
+				...params,
+				attemptId: page.attemptId,
+				afterSeq: page.steps.at(-1)!.seq,
+			});
+			steps = [...steps, ...page.steps].slice(-40);
+		}
+		return {
+			kind: "agent_run_steps" as const,
+			workItemId,
+			live: page.live,
+			steps: steps.map(({ seq, at, kind, text }) => ({
+				seq,
+				at,
+				kind,
+				text: wrapUntrustedInput(text, "agent_run"),
+			})),
+			messages: page.messages.map(
+				({
+					id,
+					kind,
+					body,
+					senderType,
+					senderId,
+					interrupt,
+					createdAt,
+					deliveredAt,
+					appliedAt,
+				}) => ({
+					id,
+					kind,
+					body: wrapUntrustedInput(body, "agent_run"),
+					senderType,
+					senderId,
+					interrupt,
+					createdAt,
+					deliveredAt,
+					appliedAt,
+				}),
+			),
+		};
+	}
+
+	async #steerRun(
+		workItemId: string,
+		kind: "follow_up" | "stop",
+		body: string,
+	) {
+		const { item, actor } = await this.#runInConversation(workItemId);
+		if (
+			item.accountableOwnerType !== actor.type ||
+			item.accountableOwnerId !== actor.id
+		)
+			throw new Error("The person who owns this task can steer its run");
+		const message = await sendWorkAttemptMessage(this.deps.core, {
+			orgId: item.orgId,
+			workItemId,
+			kind,
+			body,
+			sender: actor,
+		});
+		if (!message)
+			throw new Error(
+				kind === "stop"
+					? "No run is in progress"
+					: "This run no longer accepts a message",
+			);
+		return message;
+	}
+
+	async sendRunMessage(input: { workItemId: string; message: string }) {
+		const { id: workItemId, body } = SendWorkAttemptMessageInputSchema.parse({
+			id: input.workItemId,
+			body: input.message,
+		});
+		const message = await this.#steerRun(workItemId, "follow_up", body);
+		return {
+			kind: "agent_run_message" as const,
+			workItemId,
+			messageId: message.id,
+		};
+	}
+
+	async stopRun(input: { workItemId: string }) {
+		const { id: workItemId } = StopWorkAttemptInputSchema.parse({
+			id: input.workItemId,
+		});
+		await this.#steerRun(workItemId, "stop", "");
+		return { kind: "agent_run_stop" as const, workItemId };
 	}
 }
 

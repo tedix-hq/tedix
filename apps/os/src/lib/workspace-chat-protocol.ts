@@ -233,6 +233,11 @@ export type WorkspaceChatLedgerEvent =
 			model?: string;
 	  })
 	| (Stamped & {
+			type: "agent_run.ended";
+			turnId: string;
+			text: string;
+	  })
+	| (Stamped & {
 			type: "step.started";
 			turnId: string;
 			stepId: string;
@@ -245,6 +250,7 @@ export type WorkspaceChatLedgerEvent =
 			type: "step.finished";
 			turnId: string;
 			stepId: string;
+			tool?: string;
 			status: "ok" | "error";
 			summary?: string;
 			durationMs: number;
@@ -415,6 +421,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"turn.usage",
 	"assistant.delta",
 	"assistant.done",
+	"agent_run.ended",
 	"step.started",
 	"step.finished",
 	"conversation.summarized",

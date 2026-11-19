@@ -110,12 +110,46 @@ export interface CreateWorkInput {
 	priority?: string;
 }
 
+export interface StartRunInput {
+	title: string;
+	brief: string;
+	doneWhen: string;
+	executor: "codex" | "claude-code";
+	projectId?: string;
+}
+
 export interface WorkspaceSnapshot {
 	id: string;
 	name: string;
 	description: string | null;
 	organizationId: string;
 	projectIds: string[];
+}
+
+export interface WorkspaceRunPort {
+	startRun(input: StartRunInput): Promise<{
+		kind: "agent_run";
+		workItemId: string;
+		title: string;
+		executor: StartRunInput["executor"];
+		url: string;
+	}>;
+	readRun(input: { workItemId: string; afterSeq?: number }): Promise<{
+		kind: "agent_run_steps";
+		workItemId: string;
+		live: boolean;
+		steps: Array<{ seq: number; at: number; kind: string; text: string }>;
+		messages: import("@tedix/api-contract/schemas/work-attempt-steps").WorkAttemptMessage[];
+	}>;
+	sendRunMessage(input: { workItemId: string; message: string }): Promise<{
+		kind: "agent_run_message";
+		workItemId: string;
+		messageId: string;
+	}>;
+	stopRun(input: { workItemId: string }): Promise<{
+		kind: "agent_run_stop";
+		workItemId: string;
+	}>;
 }
 
 export interface WorkspaceDataPort {
