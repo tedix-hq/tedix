@@ -133,11 +133,7 @@ import {
 	awaitRebuiltFacetRegistry,
 	FACET_REGISTRY_REBUILD_WAIT_MS,
 } from "./facet-registry-rebuild";
-import {
-	facetTurnBudgetClass,
-	inferenceBudgetAdmissionClass,
-	inferenceSource,
-} from "./inference-guardrails";
+import { facetTurnBudgetClass, inferenceSource } from "./inference-guardrails";
 import { JudgeSessionFacet } from "./judge-session-facet";
 import {
 	buildRunId,
@@ -307,13 +303,11 @@ export interface RuntimeFacetTurnsHost {
 	state: AgentTediDO["state"];
 	acceptRuntimeTurn: AgentTediDO["acceptRuntimeTurn"];
 	subAgent: AgentTediDO["subAgent"];
-	admitInferenceTurn: AgentTediDO["admitInferenceTurn"];
 	tediAigMetadata: AgentTediDO["tediAigMetadata"];
 	observerBeforeDispatch: AgentTediDO["observerBeforeDispatch"];
 	sessionHarness: AgentTediDO["sessionHarness"];
 	emitFacetTurnDatapoint: AgentTediDO["emitFacetTurnDatapoint"];
 	modelOverrideForTurn: AgentTediDO["modelOverrideForTurn"];
-	settleCumulativeInferenceTokens: AgentTediDO["settleCumulativeInferenceTokens"];
 	assertChatTurnActive: AgentTediDO["assertChatTurnActive"];
 	facetDispatchJournal: AgentTediDO["facetDispatchJournal"];
 	ctx: AgentTediDO["ctx"];
@@ -457,8 +451,7 @@ export const runtimeFacetTurns = {
 				observerCompletion({
 					env: this.env,
 					beforeDispatch: this.observerBeforeDispatch(),
-					// Billing needs the turn's run: a per-run budget refuses a
-					// run-less call as hard_spend_limit.
+					// Billing attributes the call's credits to the turn's run.
 					metadata: this.tediAigMetadata("chat:image-description", turn),
 					modelRef: `azure-openai/${deployment}`,
 					messages,
@@ -537,10 +530,6 @@ export const runtimeFacetTurns = {
 		try {
 			const facet = await this.subAgent(JudgeSessionFacet, facetName);
 			const source = inferenceSource(input.sessionKey, "judge");
-			this.admitInferenceTurn(runId, [
-				this.state.systemPrompt,
-				input.guardedUserText,
-			]);
 			const { priorTurnCount } = await facet.configureJudgeTurn({
 				runId,
 				sessionKey: input.sessionKey,
@@ -642,7 +631,6 @@ export const runtimeFacetTurns = {
 		try {
 			const facet = await this.subAgent(SynthesisSessionFacet, facetName);
 			const source = inferenceSource(input.sessionKey, "mcp");
-			this.admitInferenceTurn(input.runId, [system, input.guardedUserText]);
 			await facet.configureSynthesisTurn({
 				evaluation: input.evaluation,
 				...(input.evaluation
@@ -667,10 +655,6 @@ export const runtimeFacetTurns = {
 			const result = await facet.runSynthesisTurn({
 				text: input.guardedUserText,
 			});
-			this.settleCumulativeInferenceTokens(
-				input.runId,
-				result.usage?.totalTokens,
-			);
 			console.log("[synthesis-facet] turn complete", {
 				facetName,
 				modelIdentity: result.modelIdentity,
@@ -1408,8 +1392,6 @@ export const runtimeFacetTurns = {
 			workItemId?: string;
 			/** Trusted skill-run id for gateway cost attribution only. */
 			gatewayAttributionRunId?: string;
-			/** Budget lane. Authenticated cron turns are background; user/Home work is operator. */
-			admissionClass?: "background" | "governed_learning" | "operator";
 			/**
 			 * Cron turns rebuild continuity from canonical Tedix state and must not
 			 * replay the prior fire's derived Pi transcript.
@@ -1492,11 +1474,6 @@ export const runtimeFacetTurns = {
 			);
 			const source =
 				input.source ?? inferenceSource(input.sessionKey, input.surface);
-			this.admitInferenceTurn(
-				input.runId,
-				[input.system, input.guardedUserText, toolDescriptors],
-				input.admissionClass,
-			);
 			const modelSurface = input.modelSurface ?? "chat";
 			const modelOverride = input.turnModel
 				? { modelRef: input.turnModel.modelRef }
@@ -1579,10 +1556,6 @@ export const runtimeFacetTurns = {
 			const { priorTurnCount, result } = output;
 			console.log("[runtime-adapter] turn returned", receipt);
 			firstFacetTurn = priorTurnCount === 0;
-			this.settleCumulativeInferenceTokens(
-				input.runId,
-				result.usage?.totalTokens,
-			);
 			if (result.stopReason) {
 				logTediFacetBudgetStop("conversation", result.stopReason);
 			}
@@ -1748,11 +1721,6 @@ export const runtimeFacetTurns = {
 			);
 			const source =
 				input.source ?? inferenceSource(input.sessionKey, "operator");
-			this.admitInferenceTurn(input.runId, [
-				input.system,
-				input.userText,
-				toolDescriptors,
-			]);
 			const imageRefs = input.images?.length
 				? await this.prepareNativeConversationImages({
 						runId: input.runId,
@@ -1888,10 +1856,6 @@ export const runtimeFacetTurns = {
 			}
 			const settled: Extract<FacetStreamFrame, { kind: "done" }> = done;
 			firstFacetTurn = settled.turnCount === 1;
-			this.settleCumulativeInferenceTokens(
-				input.runId,
-				settled.usage?.totalTokens,
-			);
 			if (settled.stopReason) {
 				logTediFacetBudgetStop("sse", settled.stopReason);
 			}
@@ -2677,7 +2641,6 @@ export const runtimeFacetTurns = {
 		};
 		try {
 			facetTurn = await this.runConversationFacetTurn({
-				admissionClass: inferenceBudgetAdmissionClass(input),
 				freshHistory: isCronTurn,
 				durableSubmissionId: `${input.runId}:segment:${input.computerContinuation ?? 0}`,
 				executionRestriction: input.executionRestriction,

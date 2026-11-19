@@ -3,7 +3,7 @@ import {
 	TediBudgetsSchema,
 } from "@tedix/api-contract/schemas/tedi";
 
-/** Resolve stored overrides; missing individual ceilings use organization capacity. */
+/** Resolve stored overrides; usage limits are monthly credits held by billing. */
 export function resolveTediBudgets(stored: unknown): TediBudgets {
 	const record =
 		stored && typeof stored === "object" && !Array.isArray(stored)
@@ -20,7 +20,7 @@ export function resolveTediBudgets(stored: unknown): TediBudgets {
  * per-tedi budget) is a ceiling, bounded by the runtime's own
  * `hardMaxSteps` backstop. A negative entitlement means "unlimited" and an
  * absent one means "not governed"; both leave the turn bounded only by wall
- * clock and the daily budget. The harness version keeps the loop-policy
+ * clock and the credit pool. The harness version keeps the loop-policy
  * descriptor for audit only; it never supplies a ceiling of its own.
  */
 export function resolveGovernedStepCeiling(input: {

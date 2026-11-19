@@ -1,31 +1,4 @@
-import { GOVERNED_LEARNING_SCHEDULES } from "@tedix/api-contract/utils/governed-learning";
-import type { CallerTrustTier } from "@tedix/mcp-shared/auth/caller-trust";
-import type { InferenceBudgetAdmissionClass } from "./inference-budget-store-do";
-
 const MAX_GATEWAY_SOURCE_CHARS = 96;
-
-/**
- * Declared cognitive schedule names that can also be launched through the
- * deterministic skill-workflow adapter. That adapter historically supplied a
- * server-generated `<schedule>:<uuid>` session key without the cron trust bit,
- * so classifying only `trustedInstructionOrigin` let autonomous review work
- * consume the operator reserve.
- *
- * The UUID suffix is load-bearing: a human conversation that merely uses one
- * of these words stays in the operator lane.
- */
-const escapeRegExp = (value: string): string =>
-	value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const GOVERNED_LEARNING_SESSION_NAMES = GOVERNED_LEARNING_SCHEDULES.map(
-	(template) => escapeRegExp(template.name),
-);
-
-const UUID_SUFFIX =
-	"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
-const GOVERNED_LEARNING_SESSION_RE = new RegExp(
-	`(?:^|:)(?:${GOVERNED_LEARNING_SESSION_NAMES.join("|")})(?::|_)${UUID_SUFFIX}$`,
-	"i",
-);
 
 function compactSource(value: string): string {
 	return value
@@ -90,31 +63,9 @@ export function inferenceSource(
 export type TrustedInstructionOrigin = "computer_execution" | "cron";
 
 /**
- * Preserve nested capacity for governed learning and human/Work-Item labor.
- * Canonical learning sessions receive the governed-learning class, other
- * runtime-authored turns remain background, and inbound chat, Home
- * delegation, email, and verification remain operator work.
- */
-export function inferenceBudgetAdmissionClass(input: {
-	trustedInstructionOrigin?: TrustedInstructionOrigin;
-	sessionKey?: string | null;
-	callerTrust?: CallerTrustTier;
-}): InferenceBudgetAdmissionClass {
-	const sessionKey = input.sessionKey?.trim() ?? "";
-	if (GOVERNED_LEARNING_SESSION_RE.test(sessionKey)) {
-		return "governed_learning";
-	}
-	// Nobody in the organization is waiting on a foreign caller's turn.
-	if (input.callerTrust === "foreign") return "background";
-	// Every runtime-authored origin is unattended work and draws the background
-	// lane; only a turn somebody is waiting on draws the operator reserve.
-	return input.trustedInstructionOrigin ? "background" : "operator";
-}
-
-/**
  * Convert only the server-owned assignment-inbox inject source into trusted
  * scheduler provenance. `/hooks/inject` is service-binding-only; arbitrary
- * chat text and ordinary inject metadata must never select a budget lane.
+ * chat text and ordinary inject metadata must never claim that provenance.
  */
 export function trustedInstructionOriginForInject(
 	metadata: Record<string, unknown> | null | undefined,
@@ -123,13 +74,10 @@ export function trustedInstructionOriginForInject(
 }
 
 /**
- * What a turn's origin implies for its ROUND BUDGET and TOOL SURFACE — kept
- * separate from {@link inferenceBudgetAdmissionClass}, which answers the
- * different question of which spend lane it draws from.
+ * What a turn's origin implies for its ROUND BUDGET and TOOL SURFACE.
  *
- * Conflating them breaks assignment wakes: an assignment wake sets
- * `trustedInstructionOrigin: "cron"` only to reach the background spend lane,
- * and must not inherit the maintenance cycle's 4-round cap and single-tool
+ * An assignment wake sets `trustedInstructionOrigin: "cron"` to mark it as
+ * runtime-authored, and must not inherit the maintenance cycle's 4-round cap and single-tool
  * projection, or it runs with zero tool calls because the Work Item needs
  * repo, workspace, or browser tools that projection removes.
  */

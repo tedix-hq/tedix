@@ -446,17 +446,13 @@ describe("deleteTediProcedure does not destroy the tedi's memory", () => {
 
 describe("new tedi entitlement budgets", () => {
 	const limits = {
-		includedMonthlyTokens: 100_000,
+		includedMonthlyCredits: 15_000,
 		maxTedis: 1,
 		maxCronJobsPerTedi: 2,
 		maxIterationsPerTask: 8,
-		defaultDailyTokenLimit: 50_000,
-		defaultDailyMessageLimit: 50,
 	};
-	it("uses shared inference capacity while preserving the plan cron limit", () => {
+	it("draws from the credit pool while preserving the plan cron limit", () => {
 		expect(resolveNewTediBudgets(limits)).toEqual({
-			dailyTokenLimit: -1,
-			dailyMessageLimit: -1,
 			maxCronJobs: 2,
 			maxIterationsPerTask: -1,
 		});

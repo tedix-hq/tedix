@@ -32,11 +32,7 @@ import {
 	withCognitiveCronDefaults,
 	writeConversationalSchedule,
 } from "./cron";
-import {
-	type CronBudgetSuppression,
-	type CronBudgetSuppressionSnapshot,
-	cronBudgetSuppressionSnapshot,
-} from "./cron-budget-control";
+import { type CronBudgetSuppression } from "./cron-budget-control";
 import {
 	formatScheduledTaskPrompt,
 	type ScheduledTaskRecurrence,
@@ -60,7 +56,6 @@ export type CronFireOutcome =
 			fireKey: string;
 			reason: string;
 			resumesAt: string;
-			budget: CronBudgetSuppressionSnapshot;
 	  }
 	| {
 			status: "skipped";
@@ -882,17 +877,16 @@ export async function onCronFire(
 		payload,
 		schedule: row,
 	});
-	// A budget rejection is a deterministic governance stop for the current
-	// UTC accounting window, not a transient failure. Skip before opening a run
-	// or execution stamp; the Agents-SDK schedule remains installed and will
-	// resume automatically after reset (or after an operator raises the limit).
+	// A billing-policy denial (credits used up, inactive subscription) pauses
+	// scheduled fires until the next UTC day instead of starting turns that
+	// fail the same way. Skip before opening a run or execution stamp; the
+	// Agents-SDK schedule remains installed and resumes automatically.
 	try {
 		const suppression = await host.cronBudgetSuppression();
 		if (suppression) {
 			const resumesAt = new Date(suppression.resetAtMs).toISOString();
-			const budget = cronBudgetSuppressionSnapshot(suppression);
 			console.warn(
-				`[isolate.cron] budget-suppressed fire name=${payload?.name ?? "?"} id=${row?.id ?? "?"} tokens=${budget.usedTokens}/${budget.tokenLimit} messages=${budget.usedMessages}/${budget.messageLimit} resumes=${resumesAt}`,
+				`[isolate.cron] billing-suppressed fire name=${payload?.name ?? "?"} id=${row?.id ?? "?"} resumes=${resumesAt}`,
 			);
 			try {
 				host.env.RUNTIME_ANALYTICS?.writeDataPoint(
@@ -902,12 +896,6 @@ export async function onCronFire(
 						jobName: payload?.name ?? "",
 						scheduleId: row?.id ?? "",
 						suppressedForMs: Math.max(0, suppression.resetAtMs - Date.now()),
-						usedTokens: budget.usedTokens,
-						tokenLimit: budget.tokenLimit,
-						remainingTokens: budget.remainingTokens,
-						usedMessages: budget.usedMessages,
-						messageLimit: budget.messageLimit,
-						remainingMessages: budget.remainingMessages,
 					}),
 				);
 			} catch {
@@ -918,14 +906,13 @@ export async function onCronFire(
 				fireKey,
 				reason: suppression.reason,
 				resumesAt,
-				budget,
 			};
 		}
 	} catch (err) {
-		// The provider-side atomic admission guard still fails closed. Let one
+		// Provider admission against the credit pool still fails closed. Let one
 		// turn reach it rather than silently disabling valid scheduled work.
 		console.warn(
-			"[isolate.cron] budget suppression check failed (falling through to provider admission)",
+			"[isolate.cron] cron suppression check failed (falling through to provider admission)",
 			{ exception: exceptionTopology(err) },
 		);
 	}

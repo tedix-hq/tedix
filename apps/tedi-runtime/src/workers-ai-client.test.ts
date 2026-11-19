@@ -48,7 +48,7 @@ const admission = (
 			sendBefore,
 			reservationId: null,
 			expiresAt: null,
-			estimatedChargeMicros: null,
+			estimatedCredits: null,
 		},
 	});
 for (const route of ["run", "binding", "https"] as const) {

@@ -88,8 +88,8 @@ function fixture() {
 		)
 		.run(KEY, ORG);
 	sqlite.exec(`
-  INSERT INTO billing_plan_versions(id,plan_key,version,status,name,currency,included_monthly_tokens,max_tedis,max_cron_jobs_per_tedi,max_iterations_per_task,default_daily_token_limit,default_daily_message_limit,effective_at,created_at)
-  VALUES('test-plan','example',1,'active','Example','eur',1000,5,5,20,100,10,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z');
+  INSERT INTO billing_plan_versions(id,plan_key,version,status,name,currency,included_monthly_credits,max_tedis,max_cron_jobs_per_tedi,max_iterations_per_task,effective_at,created_at)
+  VALUES('test-plan','example',1,'active','Example','eur',1000,5,5,20,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z');
  `);
 	sqlite
 		.prepare(

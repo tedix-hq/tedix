@@ -94,11 +94,6 @@ import {
 } from "./computer-workspace-scope";
 import { ConversationFacet } from "./conversation-facet";
 import { type AdminScheduleSnapshot, scheduleToAdminSchedule } from "./cron";
-import {
-	isAdmissionBudgetExhausted,
-	isBackgroundBudgetHardExhausted,
-	nextUtcDayStartMs,
-} from "./cron-budget-control";
 import { DoCrystallizationStateStore } from "./crystallization-store-do";
 import { type FacetWorkflowTurnInput } from "./delegated-work-lease";
 import {
@@ -124,7 +119,6 @@ import {
 	handleEmbeddedWarmRequest,
 } from "./embedded-internal-routes";
 import { embeddedTurnQuotaFromPayload } from "./embedded-turn-quota";
-import { DoInferenceBudgetStore } from "./inference-budget-store-do";
 import { trustedInstructionOriginForInject } from "./inference-guardrails";
 import { buildRunId, buildWorkflowInstanceId } from "./ledger-mirror";
 import { recordDirectMcpAuditEvent } from "./mcp-audit";
@@ -438,15 +432,6 @@ export interface RuntimeRequestHost {
 	brainDigest: BrainDigest | null;
 	ensureDirectivesLoaded: () => Promise<void>;
 	compiledDirectives: CompiledDirective[];
-	getInferenceBudgetStore: () => DoInferenceBudgetStore;
-	inferenceBudgetLimits: () => {
-		dailyMessageLimit: number;
-		dailyTokenLimit: number;
-		operatorMessageReserve: number;
-		operatorTokenReserve: number;
-		governedLearningMessageReserve: number;
-		governedLearningTokenReserve: number;
-	};
 	prepareCompaction: (
 		sessionKey: string,
 		opts?: { keepRecentTokens?: number },
@@ -2653,64 +2638,6 @@ export async function handleRuntimeRequest(
 				{ status: 500 },
 			);
 		}
-	}
-
-	// ----- Admin: background inference budget status (read-only) -----
-	// `/__admin/budget-status` (GET) reports whether THIS tedi's background
-	// inference lane is hard-exhausted for the current UTC accounting day. The
-	// platform skill-scheduler (`apps/api` dispatchDueSkillSchedules) reads it
-	// before dispatching a scheduled cognitive skill so it can suppress fires
-	// that would only be rejected at provider admission — closing the wasteful
-	// scheduler-retry loop that lived OUTSIDE the DO `onCronFire` budget gate
-	// (the cognitive crons dispatch as platform skill-schedules, not DO alarms).
-	// PURE READ: unlike `cronBudgetSuppression()` it never writes the suppression
-	// marker, so a probe cannot mutate scheduling state. Shares the EXACT
-	// operator-only `/__admin/*` guard (service-binding trust shape OR master
-	// key) every sibling route uses; the edge forwards `/__admin/*` unchanged.
-	if (url.pathname === "/__admin/budget-status") {
-		if (!(await adminAuthorized())) {
-			return new Response(
-				JSON.stringify({ error: "Forbidden", message: "Admin endpoint" }),
-				{ status: 403, headers: { "Content-Type": "application/json" } },
-			);
-		}
-		if (request.method !== "GET") {
-			return new Response("Method Not Allowed", { status: 405 });
-		}
-		await host.ensureIdentity(hints);
-		const requestedClass =
-			url.searchParams.get("admissionClass") === "governed_learning"
-				? "governed_learning"
-				: "background";
-		const usage = host
-			.getInferenceBudgetStore()
-			.status(host.inferenceBudgetLimits(), new Date(), requestedClass);
-		return Response.json({
-			ok: true,
-			tediId: host.state.tediId ?? null,
-			slug: host.state.slug || host.name || null,
-			day: usage.day,
-			admissionClass: requestedClass,
-			exhausted: isAdmissionBudgetExhausted(usage),
-			backgroundExhausted: isBackgroundBudgetHardExhausted(usage),
-			resetAtMs: nextUtcDayStartMs(Date.now()),
-			resetAt: new Date(nextUtcDayStartMs(Date.now())).toISOString(),
-			reason: isAdmissionBudgetExhausted(usage)
-				? `${requestedClass} inference budget exhausted for ${usage.day}`
-				: null,
-			usage: {
-				usedTokens: usage.usedTokens,
-				usedMessages: usage.usedMessages,
-				backgroundTokenLimit: usage.backgroundTokenLimit,
-				backgroundMessageLimit: usage.backgroundMessageLimit,
-				governedLearningTokenLimit: usage.governedLearningTokenLimit,
-				governedLearningMessageLimit: usage.governedLearningMessageLimit,
-				admissionTokenLimit: usage.admissionTokenLimit,
-				admissionMessageLimit: usage.admissionMessageLimit,
-				remainingTokens: usage.remainingTokens,
-				remainingMessages: usage.remainingMessages,
-			},
-		});
 	}
 
 	// ----- Admin: FORCE compaction (proof hook) -----

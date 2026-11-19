@@ -476,7 +476,6 @@ export class ComputerTurnFixture extends ConversationFacet {
 				recordPiStep: async () => {},
 				reconcileFacetToolEffect: async () => null,
 				recordFacetModelStep: async () => {},
-				checkFacetTurnBudget: async () => ({ abort: false }),
 				executeFacetTool: async (input: {
 					tool: string;
 					args: unknown;

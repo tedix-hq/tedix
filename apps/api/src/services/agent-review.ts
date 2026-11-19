@@ -4,6 +4,7 @@ import {
 } from "@tedix/api-contract/schemas/agent-review";
 import { PersonalAgentFeedbackSchema } from "@tedix/api-contract/schemas/personal-agent-session";
 import type { DbClient } from "@tedix/db/client";
+import { getCreditPoolSnapshot } from "@tedix/db/queries/billing/credit-pool";
 import { getProjectById } from "@tedix/db/queries/projects";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { addWorkItemCommentIfAbsent } from "@tedix/db/queries/work-items/comments";
@@ -289,14 +290,17 @@ export async function wakeAgentReview(
 		tedi.toolPolicy.mcpEndpoints.some(
 			(endpoint) => !endpoints.includes(endpoint),
 		) ||
-		tedi.mcpCapabilityProfile !== "standard" ||
-		!(tedi.budgets?.dailyTokenLimit && tedi.budgets.dailyTokenLimit > 0) ||
-		!(
-			tedi.budgets?.aiGatewayPolicy?.dailySpendLimitMicros &&
-			tedi.budgets.aiGatewayPolicy.dailySpendLimitMicros > 0
-		)
+		tedi.mcpCapabilityProfile !== "standard"
 	)
 		return;
+	// The triage tedi reads untrusted reports, so it only runs under an
+	// admin-set monthly credit cap of its own.
+	const credits = await getCreditPoolSnapshot(db, {
+		organizationId: project.orgId,
+		now: new Date().toISOString(),
+		subject: { tediId: tedi.id },
+	});
+	if (!credits?.tediCap || credits.tediCap <= 0) return;
 	if (url) {
 		const review = await getWorkItemById(db, item.id, project.orgId);
 		if (

@@ -142,7 +142,7 @@ try {
 							sendBefore: "2099-01-01T00:00:00.000Z",
 							reservationId: null,
 							expiresAt: null,
-							estimatedChargeMicros: null,
+							estimatedCredits: null,
 						},
 					}),
 			},

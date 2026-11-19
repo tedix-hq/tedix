@@ -2,7 +2,7 @@
  * Per-visitor and per-origin turn quota for embedded (widget) sessions.
  *
  * A host backend can mint any number of embedded sessions, so the per-session
- * limiter in `@tedix/chat-transport` and the tedi's daily inference budget
+ * limiter in `@tedix/chat-transport` and the organization credit pool
  * together still let one visitor or one origin drain a tedi. This counter
  * lives in the tedi's own Durable Object storage, so the count is durable per
  * tedi and shared by every session the host opens.

@@ -5,7 +5,6 @@ import {
 } from "../../src/conversation-facet";
 import { ActionReceiptJournal } from "../../src/action-receipts";
 import { responsesFixtureModel } from "./responses-recovery-fixture";
-import { DoInferenceBudgetStore } from "../../src/inference-budget-store-do";
 import { assertTediChatNotCanceled } from "../../src/pi-recovery";
 import {
 	PiTurnAccounting,
@@ -18,7 +17,9 @@ export interface PiStorageSnapshot {
 	requests: Array<Record<string, unknown>>;
 	sdkOptions: Array<Record<string, unknown>>;
 	effects: number;
-	budget: ReturnType<DoInferenceBudgetStore["status"]>;
+	/** Tokens charged by the step journal: each reserved attempt's estimate
+	 * until its receipt replaces it with the provider-reported usage. */
+	budget: { usedTokens: number };
 	checkpoint: PiAccountingCheckpoint;
 	submission: unknown;
 	restrictionReceipts: Array<Record<string, unknown>>;
@@ -26,18 +27,11 @@ export interface PiStorageSnapshot {
 	compactionEnabled: boolean;
 }
 
-const limits = {
-	dailyMessageLimit: 10,
-	dailyTokenLimit: 100_000,
-	operatorMessageReserve: 0,
-	operatorTokenReserve: 0,
-	governedLearningMessageReserve: 0,
-	governedLearningTokenReserve: 0,
-};
+type FixtureStep = { estimatedTokens: number; actualTokens: number | null };
+const STEP_PREFIX = "fixture:step:";
 
 /** Real native Pi, provider SDK and SQLite journal; only external RPC/network are scripted. */
 export class PiStorageFixture extends ConversationFacet {
-	private readonly budget = new DoInferenceBudgetStore(this);
 	private readonly actionReceipts = new ActionReceiptJournal(this.ctx.storage);
 	private fixtureToolName = "receipt";
 	private forcedRestrictedToolCall = false;
@@ -57,23 +51,38 @@ export class PiStorageFixture extends ConversationFacet {
 						runId,
 						async (id) => (await this.ctx.storage.get(`cancel:${id}`)) === true,
 					),
-				reservePiStep: async (input: PiStepReservation) =>
-					this.budget.reserveStep(
-						input.runId,
-						input.stepId,
-						input.estimatedTokens,
-						limits,
-					),
-				recordPiStep: async (input: PiStepReceipt) =>
-					this.budget.recordStep(
-						input.runId,
-						input.stepId,
-						input.actualTokens,
-						limits,
-					),
+				reservePiStep: async (input: PiStepReservation) => {
+					const key = `${STEP_PREFIX}${input.runId}:${input.stepId}`;
+					const previous = await this.ctx.storage.get<FixtureStep>(key);
+					if (previous) {
+						if (previous.estimatedTokens !== input.estimatedTokens)
+							throw new Error("Conflicting inference step reservation");
+						return;
+					}
+					await this.ctx.storage.put<FixtureStep>(key, {
+						estimatedTokens: input.estimatedTokens,
+						actualTokens: null,
+					});
+				},
+				recordPiStep: async (input: PiStepReceipt) => {
+					const key = `${STEP_PREFIX}${input.runId}:${input.stepId}`;
+					const step = await this.ctx.storage.get<FixtureStep>(key);
+					if (!step)
+						throw new Error("Inference receipt has no reserved attempt");
+					if (
+						step.actualTokens !== null &&
+						input.actualTokens !== null &&
+						step.actualTokens !== input.actualTokens
+					)
+						throw new Error("Conflicting inference step receipt");
+					if (input.actualTokens !== null && step.actualTokens === null)
+						await this.ctx.storage.put<FixtureStep>(key, {
+							...step,
+							actualTokens: input.actualTokens,
+						});
+				},
 				reconcileFacetToolEffect: async () => null,
 				recordFacetModelStep: async () => {},
-				checkFacetTurnBudget: async () => ({ abort: false }),
 				executeFacetTool: async () => {
 					if (this.holdSteeringTool)
 						await new Promise<void>((resolve) => {
@@ -179,7 +188,6 @@ export class PiStorageFixture extends ConversationFacet {
 	}
 	async turn(id: string, toolName = "receipt", restricted = false) {
 		this.fixtureToolName = toolName;
-		this.budget.admit(id, limits, 20);
 		const completed = await this.runConfiguredConversationTurn(
 			this.configuredTurn(id, toolName, restricted),
 		);
@@ -321,7 +329,16 @@ export class PiStorageFixture extends ConversationFacet {
 			],
 			facetToolCount: this.state.toolDescriptors.length,
 			compactionEnabled: this.piSettings().compaction.enabled,
-			budget: this.budget.status(limits),
+			budget: {
+				usedTokens: [
+					...(
+						await this.ctx.storage.list<FixtureStep>({ prefix: STEP_PREFIX })
+					).values(),
+				].reduce(
+					(total, step) => total + (step.actualTokens ?? step.estimatedTokens),
+					0,
+				),
+			},
 			checkpoint: await new PiTurnAccounting(this.ctx.storage, {
 				assertActive: async () => {},
 				reserveStep: async () => {},

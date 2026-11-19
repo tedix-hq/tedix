@@ -34,7 +34,7 @@ const admission = {
 	sendBefore: "2099-01-01T00:00:00.000Z",
 	reservationId: null,
 	expiresAt: null,
-	estimatedChargeMicros: null,
+	estimatedCredits: null,
 } as const;
 await assert.rejects(
 	authorizeInferenceEntitlement(
@@ -108,7 +108,7 @@ const managed = applyAuthorizedInferenceAttribution(attributed, {
 	settlementMode: "managed",
 	reservationId: "reservation",
 	expiresAt: admission.sendBefore,
-	estimatedChargeMicros: 0,
+	estimatedCredits: 0,
 });
 assert.equal(
 	decodeAiGatewayAttribution(managed.attribution)?.billingReservationId,
@@ -146,15 +146,15 @@ for (const invalid of [
 
 const local = billingPolicyDeniedWorkflowResult(
 	new BillingAdmissionError(
-		"payment_required",
-		"Inference blocked by billing policy: payment_required",
+		"monthly_credit_limit_reached",
+		"Inference blocked by billing policy: monthly_credit_limit_reached",
 	),
 );
 assert.deepEqual(local, {
-	text: "I couldn't complete that turn. The wallet needs more credits. (payment_required) An organization owner can review Billing at /admin/billing.",
+	text: "I couldn't complete that turn. This month's Tedix credits are used up. Buy a top-up or turn on pay-as-you-go. (monthly_credit_limit_reached) An organization owner can review Billing at /admin/billing.",
 	stopReason: "billing_policy_denied",
-	error: "Inference blocked by billing policy: payment_required",
-	billingCode: "payment_required",
+	error: "Inference blocked by billing policy: monthly_credit_limit_reached",
+	billingCode: "monthly_credit_limit_reached",
 });
 assert.equal(isBillingPolicyDeniedWorkflowResult(local), true);
 
@@ -177,10 +177,10 @@ for (const code of RuntimeEntitlementDenialCodeSchema.options) {
 
 const serialized = billingPolicyDeniedWorkflowResult(
 	new Error(
-		"remote RPC failure: Inference blocked by billing policy: hard_spend_limit",
+		"remote RPC failure: Inference blocked by billing policy: tedi_monthly_credit_cap_reached",
 	),
 );
-assert.equal(serialized?.billingCode, "hard_spend_limit");
+assert.equal(serialized?.billingCode, "tedi_monthly_credit_cap_reached");
 assert.equal(isBillingPolicyDeniedWorkflowResult(serialized), true);
 
 for (const transient of [
@@ -399,10 +399,9 @@ console.log(
 	"PASS signed original root projection, preserved correlation, immutable receipt and narrow API window at actual wire",
 );
 
-// An unselected turn bills against its own run. A monetary plan with a
-// per-run budget refuses a runless call as hard_spend_limit, which blocked
-// every ordinary tedi turn on the credit wallet. A `system:` fallback stays
-// runless so unrelated calls never share one run budget.
+// An unselected turn bills against its own run, so its credits are
+// attributed to it. A `system:` fallback stays runless so unrelated calls
+// never share one run.
 {
 	const { encodeAiGatewayAttribution } =
 		await import("@tedix/api-contract/schemas/ai-gateway-attribution");
@@ -538,7 +537,7 @@ for (const status of [500, 503]) {
 									settlementMode: "managed",
 									reservationId: "fictional-reservation",
 									expiresAt: admission.sendBefore,
-									estimatedChargeMicros: 0,
+									estimatedCredits: 0,
 								},
 							});
 				},
@@ -595,7 +594,7 @@ for (const [status, code, expectedCalls, cancel] of [
 	assert.equal(calls, expectedCalls);
 }
 for (const code of [
-	"payment_required",
+	"monthly_credit_limit_reached",
 	"residency_policy_unavailable",
 ] as const) {
 	let calls = 0;
