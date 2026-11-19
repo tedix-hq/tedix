@@ -1616,6 +1616,10 @@
 		{
 			"name": "20261118193301_gateway_change_records/migration.sql",
 			"sha256": "ebd47a4c808c9fa95af41cc378a18528257348bd4530f5278eea4af67efb265a"
+		},
+		{
+			"name": "20261119021139_backfill-tedi-control-plane-refs/migration.sql",
+			"sha256": "7c7052997defd2d2cd76f81bc8953981d95050d549cf5623dca61812229137f3"
 		}
 	]
 }
