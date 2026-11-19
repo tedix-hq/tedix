@@ -101,9 +101,7 @@ const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 /**
  * Structural view of the parts of wrangler's resolved `Config` this lint
- * reads. Wrangler's own `Config` type degrades to `any` here because its
- * declaration imports `@cloudflare/workers-utils` types that are bundled (not
- * installed), so a narrow local type keeps the script strictly typed.
+ * reads, including dynamically named binding sections.
  */
 export interface ResolvedWranglerConfig {
 	[key: string]: unknown;
@@ -275,10 +273,9 @@ function readResolvedConfig(
 	configPath: string,
 	env?: string,
 ): ResolvedWranglerConfig {
-	return unstable_readConfig(
-		{ config: configPath, env },
-		{ hideWarnings: true },
-	) as ResolvedWranglerConfig;
+	return {
+		...unstable_readConfig({ config: configPath, env }, { hideWarnings: true }),
+	};
 }
 
 function entryKey(entry: unknown): string {

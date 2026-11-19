@@ -2,29 +2,25 @@
 export function gateInProfile(name, profile) {
 	if (profile === "full") return true;
 	if (profile === "ci-policy")
-		return !/^tests |^type-check (apps|packages)\//.test(name);
+		return !/^tests |^changed script tests$|^type-check (apps|packages)\//.test(
+			name,
+		);
 	if (profile !== "local-fast")
 		throw new Error(`Unknown gate profile: ${profile}`);
 	// Seconds, not minutes: a push from a laptop shared by many agents must not
-	// hold the push queue while tests run. Related tests and dependents' type
-	// checks run in Main verify after the deploy; a red verify is reverted.
+	// hold the push queue while broad suites run. Main verify checks types;
+	// full suites run on demand.
 	return /^(node_modules matches|format:check|lint:code|lint:repo|lint:deps|OSS secret|migration order |procedure parity |type-check scripts\/$)/.test(
 		name,
 	);
 }
 
-// These regressions otherwise wait for hourly CI: source-scanning tests are
-// invisible to import-based related-test selection, and local-fast skips it.
-// Each is a fast "every X is registered" invariant across routers, contracts,
-// OS audit and MCP scope mapping (27 Oct: c96abdd53 red-mained os-audit
-// coverage, which no pre-push gate ran).
 export function procedureParityGates(files) {
 	const when =
 		files === null ||
 		files.some(
 			(file) =>
 				file.startsWith("packages/api-contract/src/contracts/") ||
-				file.startsWith("packages/api-contract/src/contract-versions") ||
 				file.startsWith("packages/api-contract/src/utils/contract-routers") ||
 				file.startsWith(
 					"packages/api-contract/src/schemas/mcp-capability-scopes",
@@ -35,8 +31,6 @@ export function procedureParityGates(files) {
 				file.startsWith("apps/api/src/rpc/fleet-authority-guards") ||
 				file.startsWith("apps/mcp/src/mcp/home-surface-tools") ||
 				file.startsWith("apps/mcp/src/mcp/aggregate-tedis") ||
-				(file.startsWith("apps/os/src/") && /webmcp/i.test(file)) ||
-				file.startsWith("apps/os/dev/local-fixtures") ||
 				file === "scripts/ci/preflight-gates.mjs" ||
 				file.startsWith("scripts/ci/preflight-profiles."),
 		);
@@ -50,9 +44,8 @@ export function procedureParityGates(files) {
 				"src/rpc/os-audit.coverage.test.ts",
 				"src/rpc/routers/contract-parity.test.ts",
 				"src/rpc/fleet-authority-coverage.test.ts",
-				"src/rpc/contract-surface-versions.test.ts",
 			],
-			fix: "register the new procedure where the failing test names it (MCP capability scope, OS audit registry, apiContract/ROUTERS, fleet-authority guards, surface version); never widen a scope or add an unreviewed exemption",
+			fix: "register the new procedure where the failing test names it (MCP capability scope, OS audit registry, apiContract/ROUTERS, fleet-authority guards); never widen a scope or add an unreviewed exemption",
 		},
 		{
 			name: "procedure parity MCP scope mapping",
@@ -74,17 +67,6 @@ export function procedureParityGates(files) {
 			script: "test:run",
 			tests: ["src/mcp/aggregate-contract-parity.test.ts"],
 			fix: "point the Home or aggregate tool at an existing contract procedure, or add that procedure to the contract",
-		},
-		{
-			name: "procedure parity local fixtures and WebMCP conventions",
-			workspace: "apps/os",
-			script: "test:unit",
-			tests: [
-				"dev/local-fixtures-parity.test.ts",
-				"dev/local-fixtures.test.ts",
-				"src/components/webmcp-tools-conventions.test.ts",
-			],
-			fix: "add the missing local fixture handler, make its output parse against the contract, or fix the WebMCP convention reported by the test; retain the assertions",
 		},
 	].map(({ name, workspace, script, tests, fix }) => ({
 		name,

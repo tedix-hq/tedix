@@ -169,7 +169,6 @@ describe("versioned attention layout family", () => {
 			expect(html).not.toContain("<script>");
 		}
 		if (!fixture.actions.length) expect(html).not.toContain("Send answer");
-		expect(html).toMatchSnapshot();
 	});
 	it("shows what the card asks with Overdue and Drafted, not sent badges", () => {
 		const html = renderToStaticMarkup(

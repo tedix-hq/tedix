@@ -8,12 +8,7 @@
  * aggressively refactorable: stable public contracts need versions and
  * deprecation windows even while internal implementation keeps changing.
  *
- * Enforcement: `apps/api/src/rpc/contract-surface-versions.test.ts` asserts
- * that `PUBLIC_REST_NAMESPACE_VERSIONS` covers exactly the `apiContract`
- * namespaces the public OpenAPI filter (`isPublicProcedure`) exposes. Adding a
- * `REST`-tagged procedure to a new namespace therefore fails closed until the
- * namespace is versioned here; deleting the last public procedure of a
- * namespace fails until its entry is removed (a recorded removal decision).
+ * Keep the public REST namespaces here in sync with the OpenAPI filter.
  *
  * Version semantics per policy:
  * - `stable-release-window`: MAJOR.MINOR.PATCH. Breaking change = announce
@@ -170,8 +165,7 @@ export const PUBLIC_REST_NAMESPACE_VERSIONS = {
 export const PLATFORM_SURFACE_VERSIONS = {
 	/**
 	 * The generated public OpenAPI document (`/openapi.json`). Must equal
-	 * `OPENAPI_SPEC_BASE.info.version`; asserted by
-	 * `contract-surface-versions.test.ts`.
+	 * `OPENAPI_SPEC_BASE.info.version`.
 	 */
 	"openapi-document": {
 		surface: "openapi-document",

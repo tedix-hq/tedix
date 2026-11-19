@@ -288,20 +288,15 @@ test("diff includes all uncertified commits, ignores current run and newer pendi
 	).toBeNull();
 });
 
-test("verify inherits executed test lanes, never a policy gate or a skipped verify", async () => {
+test("verify inherits a successful aggregate from its own workflow", async () => {
 	const head = "a".repeat(40),
 		base = "b".repeat(40);
 	for (const jobs of [
 		[{ name: "Main CI", conclusion: "success" }],
+		[{ name: "Main verify", conclusion: "failure" }],
 		[
 			{ name: "Main verify", conclusion: "success" },
-			{ name: "repository (scripts)", conclusion: "skipped" },
-			{ name: "Workspace packages/db", conclusion: "skipped" },
-		],
-		[
-			{ name: "Main verify", conclusion: "success" },
-			{ name: "repository (scripts)", conclusion: "success" },
-			{ name: "Workspace packages/db", conclusion: "success" },
+			{ name: "Types packages/db", conclusion: "success" },
 		],
 	]) {
 		const paths: string[] = [];

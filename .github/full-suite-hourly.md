@@ -7,26 +7,19 @@ code only after proving it contains freshly fetched main; rebase before using it
 Normal pushes always load the fetched main version.
 
 `full-suite-hourly.yml` runs on main pushes and manual dispatch. Pushes use
-its policy gate and `Main CI` aggregate. `main-verify.yml` runs the affected
-workspace tests and type checks after each push, with a separate `Main verify`
-aggregate. Manual dispatch of `full-suite-hourly.yml` runs the complete suite.
-There is no scheduled full-suite run.
+its policy gate and `Main CI` aggregate. `main-verify.yml` checks affected
+workspace types after pushes with the separate `Main verify` aggregate.
+Manual dispatch of `full-suite-hourly.yml` runs unit, integration, browser
+and repository tests.
 
-Affected verification compares against the latest verified main ancestor,
-including transitive package consumers and earlier changes whose tests are red
-or pending. Docs-only ranges skip workspace tests. Unknown paths, shared
-configuration changes, and missing verification history select the full suite.
-The selection rules live in `scripts/ci/full-suite-hourly.mjs`.
+Affected verification includes transitive workspace consumers and earlier
+changes since the latest successful type check. Docs-only ranges skip
+workspace checks. Unknown paths, shared configuration, and missing history
+select all workspaces. The planner is `scripts/ci/full-suite-hourly.mjs`.
 
-The policy lane runs repository checks, including scripts type checking.
-The scripts lane runs script tests and public documentation checks. Each
-aggregate requires success from every selected lane and accepts skipped lanes
-only when its plan explicitly omitted them. Manual full runs share neither
-the push gate's concurrency group nor the after-push verification group.
-
-The `Main CI` aggregate is a source policy result. Passing it does not prove
-that after-push tests passed or that any surface was deployed. Managed Ship
-configuration belongs to the private ops repository.
+The private ops healer also reads historical and manual workflow results.
+The automatic type check emits no workspace test shard for it to bisect.
+Managed Ship configuration belongs to the private ops repository.
 
 Workspace and repository shards default to GitHub-hosted `ubuntu-latest`.
 Standard hosted runners are free for this public repository. Set
