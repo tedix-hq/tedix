@@ -62,6 +62,36 @@ export async function listDeclaredActionToolsForOrganization(
 		.limit(501);
 }
 
+/** Resolve an exact tool name within the resource's tenant and connection route.
+ * Two matches are enough to refuse an ambiguous name without loading an inventory.
+ */
+export async function findWorkspaceConnectionTool(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		toolName: string;
+		providerId: string;
+		connectionInstanceId: string;
+		connectionScope: "user" | "tenant";
+	},
+) {
+	const rows = await db
+		.select({ appId: appTools.appId, toolId: appTools.toolId })
+		.from(appTools)
+		.innerJoin(apps, eq(apps.id, appTools.appId))
+		.where(
+			and(
+				eq(apps.organizationId, input.organizationId),
+				eq(appTools.toolId, input.toolName),
+				sql`json_extract(${apps.metadata}, '$.mcpConfig.connectionProviderId') = ${input.providerId}`,
+				sql`json_extract(${apps.metadata}, '$.mcpConfig.connectionInstanceId') = ${input.connectionInstanceId}`,
+				sql`json_extract(${apps.metadata}, '$.mcpConfig.connectionScope') = ${input.connectionScope}`,
+			),
+		)
+		.limit(2);
+	return rows.length === 1 ? rows[0] : undefined;
+}
+
 /** Composer opt-in is stored in config; discovery grants no execution authority. */
 export async function listComposerToolsForOrganization(
 	db: DbClient,

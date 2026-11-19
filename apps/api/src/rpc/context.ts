@@ -90,6 +90,11 @@ export interface BaseContext {
 	db: ReturnType<typeof createDbClient>;
 	/** Set from matched contract metadata before the first database access. */
 	dbReadOnly?: boolean;
+	/** Set in-process only after the shared workspace resource checks, never from input or headers. */
+	workspaceConnectionRead?: {
+		actor: import("@tedix/api-contract/schemas/workspace-connection-read").WorkspaceConnectionActor;
+		toolRowId: string;
+	};
 	/**
 	 * The D1 bookmark for this request's session, or null before any query ran.
 	 * Echo it on the response in `x-d1-bookmark` so a caller can chain sequential
