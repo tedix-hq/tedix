@@ -1991,8 +1991,9 @@ describe("dispatcher admission", () => {
 			}
 		},
 	);
-	it("records an interrupted commit and path before settlement", async () => {
+	it("posts recovery details for interrupted commits before settlement", async () => {
 		const f = fixture();
+		f.config.repo = "/fictional/runner's source repo";
 		f.items.splice(1);
 		f.items[0]!.workKind = "coding";
 		f.control.telemetryOutcome = "stopped";
@@ -2011,7 +2012,12 @@ describe("dispatcher admission", () => {
 				event.args.some((arg) => arg.includes("Unpushed commits retained")),
 		);
 		expect(commentAt).toBeGreaterThanOrEqual(0);
-		expect(f.events[commentAt]!.args.join(" ")).toContain(receipt.repo);
+		const comment = f.events[commentAt]!.args.join(" ");
+		expect(comment).toContain(receipt.repo);
+		expect(comment).toContain(f.control.unpushedCommits[0]!);
+		expect(comment).toContain(
+			`git fetch '/fictional/runner'\\''s source repo' 'refs/lane-evicted/${item().id}-2/repo'`,
+		);
 		expect(commentAt).toBeLessThan(
 			f.events.findIndex((event) => event.verb === "settle"),
 		);
