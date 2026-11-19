@@ -7,6 +7,11 @@ import * as executionBindings from "./codemode-execution";
 
 vi.mock("../lib/api-client", () => ({ getApiClient: () => ({}) }));
 
+// Code-run credit admission has its own tests; these exercise the sandbox.
+vi.mock("./code-run-admission", () => ({
+	admitCodeModeRun: vi.fn(async () => ({ allowed: true })),
+}));
+
 it("keeps discovery SDK bindings bounded on a 15,922-tool aggregate", async () => {
 	const tools = Array.from(
 		{ length: 15_922 },
