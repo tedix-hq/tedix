@@ -155,6 +155,8 @@ export interface TedixHomeClientOptions {
 	url: string;
 	/** Reuse a recent `server/discover` answer across CLI processes. */
 	discoveryCache?: DiscoveryCache;
+	/** Lease renewal can skip the cross-process cooldown and honor its own Retry-After. */
+	skipSharedGatewayCooldown?: boolean;
 }
 
 export interface McpCallOptions {
@@ -301,6 +303,7 @@ export class TedixHomeClient {
 						return fetcher(input, { ...init, headers });
 					}
 				: fetcher,
+			options.skipSharedGatewayCooldown ? { cooldown: null } : undefined,
 		);
 		this.#discoveryCache = options.discoveryCache;
 		this.#oauthProvider = options.oauthProvider;

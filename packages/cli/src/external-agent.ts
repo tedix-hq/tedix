@@ -1177,15 +1177,18 @@ function sessionProfile(
 	return { slot, profile: readExternalAgentProfile(slot) };
 }
 
-function currentSessionContext(workspace: string): {
+function currentSessionContext(
+	workspace: string,
+	sessionKey?: string,
+): {
 	slot: string;
 	profile: StoredExternalAgentProfile;
 	session: StoredExternalAgentSession;
 } {
-	const current = resolveExplicitAgentSession();
+	const current = resolveExplicitAgentSession(sessionKey);
 	const { slot, profile, session } = sessionProfile(workspace, current.session);
 	if (!profile) throw new Error("No external-agent profile is configured.");
-	if (!session) {
+	if (!session || (sessionKey && session.externalSessionKey !== sessionKey)) {
 		throw new Error(`Agent-Session "${current.session}" has not been started.`);
 	}
 	return { slot, profile, session };
@@ -1195,6 +1198,8 @@ export async function resolveExternalAgentAuth(options: {
 	workspace: string;
 	organization?: string;
 	selector: string;
+	/** Full admitted Agent-Session key for callers that host multiple sessions. */
+	sessionKey?: string;
 	fetch?: FetchLike;
 	/** Overall credential-exchange deadline, including retries and response body. */
 	sessionExchangeTimeoutMs?: number;
@@ -1206,7 +1211,10 @@ export async function resolveExternalAgentAuth(options: {
 			pending = undefined;
 		}));
 	const credential = await resolveExternalAgentCredential(options);
-	const { slot, profile, session } = currentSessionContext(options.workspace);
+	const { slot, profile, session } = currentSessionContext(
+		options.workspace,
+		options.sessionKey,
+	);
 	return {
 		headers: credential,
 		credentialProvider,
@@ -1232,7 +1240,7 @@ async function resolveExternalAgentCredential(
 		slot,
 		profile,
 		session: stored,
-	} = currentSessionContext(options.workspace);
+	} = currentSessionContext(options.workspace, options.sessionKey);
 	if (
 		options.organization &&
 		!profileNamesOrganization(profile, options.organization)

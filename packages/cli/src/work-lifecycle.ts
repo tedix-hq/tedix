@@ -32,7 +32,7 @@ import {
 import type { WorkContext } from "./work";
 
 /** Renew a revoked machine credential once, keeping the same Attempt. */
-function isHeartbeatCredentialRejected(error: {
+export function isHeartbeatCredentialRejected(error: {
 	code?: string;
 	message: string;
 }): boolean {
