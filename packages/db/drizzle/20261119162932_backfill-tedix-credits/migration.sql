@@ -102,7 +102,7 @@ UPDATE billing_accounts
 SET included_credits_override = 1000000,
 	entitlement_version = entitlement_version + 1,
 	updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-WHERE organization_id = '00000000-0000-4000-8000-000000000000';
+WHERE organization_id = (SELECT id FROM organizations WHERE slug = 'tedix');
 --> statement-breakpoint
 -- A remaining EUR wallet balance becomes top-up credits at EUR 0.01 each,
 -- rounded up, valid for 12 months.

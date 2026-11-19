@@ -168,15 +168,15 @@ capacity; skill schedules record `budget_blocked`.
 Spend is bounded below the prompt layer; instructions and tools cannot override
 it.
 
-| Guard              | Enforcement                                                                                          |
-| ------------------ | ---------------------------------------------------------------------------------------------------- |
-| Monthly credits    | Every provider call reserves Tedix credits from the organization pool before dispatch (API admission) |
-| Per-turn ceilings  | Provider-call step ceiling and delegation budget per facet turn (`src/conversation-facet.ts`)        |
-| Entitlement        | `runtimeEntitlements.authorizeInference`; missing `TEDIX_BILLING_SETTLEMENT_MODE` fails closed       |
-| Request size       | Bodies over `TEDI_MAX_AI_REQUEST_BYTES` fail before the gateway fetch                                |
-| Context growth     | Native Pi compaction; provider overflow enters `CompactionTask` recovery (`src/context-overflow.ts`) |
-| Delegated context  | Cron sees only Code Mode; Home-delegated children get an execution-only surface                      |
-| Attribution        | `cf-aig-metadata` carries tedi, org, and a server-derived `source` (`tedi_call_costs.source`)        |
+| Guard             | Enforcement                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| Monthly credits   | Every provider call reserves Tedix credits from the organization pool before dispatch (API admission) |
+| Per-turn ceilings | Provider-call step ceiling and delegation budget per facet turn (`src/conversation-facet.ts`)         |
+| Entitlement       | `runtimeEntitlements.authorizeInference`; missing `TEDIX_BILLING_SETTLEMENT_MODE` fails closed        |
+| Request size      | Bodies over `TEDI_MAX_AI_REQUEST_BYTES` fail before the gateway fetch                                 |
+| Context growth    | Native Pi compaction; provider overflow enters `CompactionTask` recovery (`src/context-overflow.ts`)  |
+| Delegated context | Cron sees only Code Mode; Home-delegated children get an execution-only surface                       |
+| Attribution       | `cf-aig-metadata` carries tedi, org, and a server-derived `source` (`tedi_call_costs.source`)         |
 
 Per-tedi daily limits default to `-1` (shared org capacity); zero denies.
 Admission uses a character estimate, so one request can settle above the
