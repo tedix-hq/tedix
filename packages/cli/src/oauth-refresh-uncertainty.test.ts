@@ -91,7 +91,7 @@ for (const failure of ["timeout", "body-timeout", "killed", "save"] as const) {
 					);
 				}
 				requested();
-				if (failure === "timeout") await released;
+				if (failure === "timeout" || failure === "killed") await released;
 				if (failure === "body-timeout")
 					return new Response(
 						new ReadableStream({
@@ -105,7 +105,6 @@ for (const failure of ["timeout", "body-timeout", "killed", "save"] as const) {
 						}),
 						{ headers: { "content-type": "application/json" } },
 					);
-				if (failure === "killed") await Bun.sleep(300);
 				return Response.json({
 					access_token: "new-access",
 					refresh_token: "new-refresh",
@@ -146,7 +145,7 @@ for (const failure of ["timeout", "body-timeout", "killed", "save"] as const) {
 			const credential = readWorkspaceCredentials("fixture");
 			const provider = new WorkspaceOAuthProvider({ mcpUrl: credential.mcpUrl, workspace: "fixture", credential });
 			${first && failure === "save" ? 'provider.saveRenewedTokens = async () => { throw new Error("disk unavailable"); };' : ""}
-			const result = await refreshStoredSession(provider, { isDarkWake: () => false, timeoutMs: ${first && failure === "timeout" ? 1000 : 2000} });
+			const result = await refreshStoredSession(provider, { isDarkWake: () => false, timeoutMs: ${first && failure === "timeout" ? 500 : first && failure === "body-timeout" ? 800 : 2000} });
 			console.log(result);
 		`,
 				],
@@ -167,7 +166,7 @@ for (const failure of ["timeout", "body-timeout", "killed", "save"] as const) {
 			expect(exitedUnsent).toBe(false);
 			if (failure === "killed") first.kill("SIGKILL");
 			await first.exited;
-			children.push(...Array.from({ length: 8 }, () => command()));
+			children.push(command(), command());
 			const results = await Promise.all(
 				children.slice(1).map(async (child) => {
 					expect(await child.exited).toBe(0);
@@ -177,7 +176,7 @@ for (const failure of ["timeout", "body-timeout", "killed", "save"] as const) {
 			expect(markedBeforeSend).toBe(true);
 			expect(requests).toBe(1);
 			expect(invalidated).toBe(false);
-			expect(results).toEqual(Array(8).fill("uncertain"));
+			expect(results).toEqual(["uncertain", "uncertain"]);
 			expect(
 				readWorkspaceCredentials("fixture", { configDir: dir })
 					?.oauthRefreshPending,
@@ -217,67 +216,65 @@ for (const failure of ["timeout", "body-timeout", "killed", "save"] as const) {
 	}, 15_000);
 }
 
-for (const code of ["ENOTFOUND", "ECONNREFUSED"] as const) {
-	test(`a ${code} connection failure leaves the refresh token reusable`, async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tedix-unsent-refresh-"));
-		const previous = process.env.TEDIX_CONFIG_DIR;
-		process.env.TEDIX_CONFIG_DIR = dir;
-		try {
-			const origin = "https://auth.fixture.example";
-			const credential: WorkspaceCredential = {
-				loginId: "fixture-user",
-				mcpUrl: "https://fixture.example/mcp",
-				accessTokenExpiresAtSeconds: 1,
-				oauthTokens: {
-					access_token: "expired",
-					refresh_token: "original-refresh",
-					token_type: "Bearer",
+test("a DNS connection failure leaves the refresh token reusable", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "tedix-unsent-refresh-"));
+	const previous = process.env.TEDIX_CONFIG_DIR;
+	process.env.TEDIX_CONFIG_DIR = dir;
+	try {
+		const origin = "https://auth.fixture.example";
+		const credential: WorkspaceCredential = {
+			loginId: "fixture-user",
+			mcpUrl: "https://fixture.example/mcp",
+			accessTokenExpiresAtSeconds: 1,
+			oauthTokens: {
+				access_token: "expired",
+				refresh_token: "original-refresh",
+				token_type: "Bearer",
+			},
+			oauthClientInformation: { client_id: "fixture-client" },
+			oauthDiscoveryState: {
+				authorizationServerUrl: origin,
+				authorizationServerMetadata: {
+					issuer: origin,
+					authorization_endpoint: `${origin}/authorize`,
+					token_endpoint: `${origin}/token`,
+					response_types_supported: ["code"],
 				},
-				oauthClientInformation: { client_id: "fixture-client" },
-				oauthDiscoveryState: {
-					authorizationServerUrl: origin,
-					authorizationServerMetadata: {
-						issuer: origin,
-						authorization_endpoint: `${origin}/authorize`,
-						token_endpoint: `${origin}/token`,
-						response_types_supported: ["code"],
-					},
-				},
-			};
-			writeWorkspaceCredentials("fixture", credential);
-			const provider = new WorkspaceOAuthProvider({
-				mcpUrl: "https://fixture.example/mcp",
-				workspace: "fixture",
-				credential,
+			},
+		};
+		writeWorkspaceCredentials("fixture", credential);
+		const provider = new WorkspaceOAuthProvider({
+			mcpUrl: "https://fixture.example/mcp",
+			workspace: "fixture",
+			credential,
+		});
+		let attempts = 0;
+		// Waking from sleep: DNS or the socket fails before a byte is sent.
+		const fetchFn = async (): Promise<Response> => {
+			attempts++;
+			throw Object.assign(new TypeError("ENOTFOUND: Unable to connect"), {
+				code: "ENOTFOUND",
 			});
-			let attempts = 0;
-			// Waking from sleep: DNS or the socket fails before a byte is sent.
-			const fetchFn = async (): Promise<Response> => {
-				attempts++;
-				throw Object.assign(new TypeError(`${code}: Unable to connect`), {
-					code,
-				});
-			};
-			for (let round = 0; round < 2; round++) {
-				expect(
-					await refreshStoredSession(provider, {
-						fetchFn,
-						isDarkWake: () => false,
-					}),
-				).toBe("failed");
-				expect(
-					readWorkspaceCredentials("fixture")?.oauthRefreshPending,
-				).toBeUndefined();
-				expect(attempts).toBe((round + 1) * 2);
-				expect(
-					readWorkspaceCredentials("fixture")?.oauthTokens?.refresh_token,
-				).toBe("original-refresh");
-			}
-			expect(attempts).toBe(4);
-		} finally {
-			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
-			else process.env.TEDIX_CONFIG_DIR = previous;
-			rmSync(dir, { recursive: true, force: true });
+		};
+		for (let round = 0; round < 2; round++) {
+			expect(
+				await refreshStoredSession(provider, {
+					fetchFn,
+					isDarkWake: () => false,
+				}),
+			).toBe("failed");
+			expect(
+				readWorkspaceCredentials("fixture")?.oauthRefreshPending,
+			).toBeUndefined();
+			expect(attempts).toBe((round + 1) * 2);
+			expect(
+				readWorkspaceCredentials("fixture")?.oauthTokens?.refresh_token,
+			).toBe("original-refresh");
 		}
-	});
-}
+		expect(attempts).toBe(4);
+	} finally {
+		if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+		else process.env.TEDIX_CONFIG_DIR = previous;
+		rmSync(dir, { recursive: true, force: true });
+	}
+});

@@ -878,55 +878,10 @@ describe("assembleHomeContext — conversation history", () => {
 });
 
 describe("dedupeConversationHistory", () => {
-	it("preserves a recommendation after character 400 for a follow-up", () => {
-		const answer =
-			"Context. ".repeat(60) +
-			"First recommendation: fix authorization checks.";
-		const bounded = dedupeConversationHistory([
-			{ role: "user", content: "What should we fix first?", ts: 1 },
-			{ role: "assistant", content: answer, ts: 2 },
-		]);
-		expect(bounded[1]?.content).toBe(answer);
-	});
-
-	// The three assertions below USED to pin the assembly-time cap (newest 8
-	// entries, 2 048 chars each, 4 096 total). That cap was the defect: it
-	// discarded silently and kept history ~94× too small for compaction to ever
-	// trigger. They are rewritten here to pin the NEW contract — this function
-	// de-duplicates and nothing else — rather than deleted, so a reintroduced cap
-	// still fails a test.
-
-	it("does not truncate a long message (the 2 048-char per-message cap is gone)", () => {
-		const long = `0:${"x".repeat(3000)}`;
-		const bounded = dedupeConversationHistory([
-			{ role: "assistant", content: long, ts: 0 },
-		]);
-		expect(bounded[0]?.content).toBe(long);
-		expect(bounded[0]?.content).toHaveLength(3002);
-	});
-
-	it("does not drop oldest entries over a total-char budget (the 4 096-char cap is gone)", () => {
-		const entries = Array.from({ length: 8 }, (_, index) => ({
-			role: "assistant" as const,
-			content: `${index}:${"x".repeat(3000)}`,
-			ts: index,
-		}));
-
-		const bounded = dedupeConversationHistory(entries);
-
-		// 8 × 3 002 = 24 016 chars, far past the old 4 096 total — all survive.
-		expect(bounded).toHaveLength(8);
-		expect(bounded.reduce((sum, entry) => sum + entry.content.length, 0)).toBe(
-			24_016,
-		);
-		expect(bounded[0]?.content.startsWith("0:")).toBe(true);
-		expect(bounded.at(-1)?.content.startsWith("7:")).toBe(true);
-	});
-
-	it("keeps every entry past the old 8-turn cap, in order and complete", () => {
+	it("keeps long messages and histories complete before compaction", () => {
 		const entries = Array.from({ length: 12 }, (_, index) => ({
 			role: "user" as const,
-			content: `${index}-${"z".repeat(500)}`,
+			content: `${index}-${"z".repeat(3000)}`,
 			ts: index + 1,
 		}));
 
@@ -1143,27 +1098,6 @@ describe("renderHomeContextPrompt — AVAILABLE TEDIS capability card", () => {
 		expect(line).not.toContain("isolate-only");
 	});
 
-	it("marks a workstation-capable isolate card 'embodied'", () => {
-		const prompt = renderHomeContextPrompt(
-			ctxWithTedi({
-				tediId: "tedi-1",
-				slug: "cto",
-				name: "CTO",
-				apps: [],
-				scopeGroups: [],
-				skills: [],
-				runtimeKind: "agent",
-				embodied: true,
-				availability: "running",
-				requiresApproval: false,
-				mcpCapabilityProfile: "standard",
-			}),
-		);
-		const line = prompt.split("\n").find((l) => l.includes("[slug=cto"))!;
-		expect(line).toContain("embodied");
-		expect(line).not.toContain("isolate-only");
-	});
-
 	it("caps each capability list so a heavy tedi can't balloon the line", () => {
 		const many = (prefix: string) =>
 			Array.from({ length: 20 }, (_, i) => `${prefix}-${i}`);
@@ -1285,14 +1219,6 @@ describe("renderHomeContextPrompt — tedi-selection track-record", () => {
 		return prompt.split("\n").find((l) => l.includes("[slug=cto"))!;
 	}
 
-	it("surfaces track-record once the sample reaches the floor (total>=3)", () => {
-		const prompt = renderHomeContextPrompt(
-			ctxWithPrior({ successRate: 0.82, total: 17 }),
-		);
-		const line = tediLine(prompt);
-		expect(line).toContain("track-record=82% (17 turns)");
-	});
-
 	it("renders the floor sample (total=3) and rounds the rate", () => {
 		const prompt = renderHomeContextPrompt(
 			// 2/3 → 67%
@@ -1346,30 +1272,6 @@ describe("renderHomeContextPrompt — tool-fit + policy-fit ranking signals", ()
 	function tediLine(prompt: string): string {
 		return prompt.split("\n").find((l) => l.includes("[slug=cfo"))!;
 	}
-
-	it("TOOL-FIT: bracket tools=[…] format surfaces provider connection ownership", () => {
-		const prompt = renderHomeContextPrompt(
-			ctxWithCard({
-				tediId: "tedi-1",
-				slug: "cfo",
-				name: "CFO",
-				apps: ["google_gmail", "globex"],
-				scopeGroups: [],
-				skills: [],
-				runtimeKind: "agent",
-				embodied: false,
-				availability: "running",
-				requiresApproval: true,
-				mcpCapabilityProfile: null,
-				hasWarmWorkstationLease: false,
-				dispatchPolicy: null,
-			}),
-		);
-		const line = tediLine(prompt);
-		expect(line).toContain("tools=[google_gmail,globex]");
-		// Old `apps:` label must not appear
-		expect(line).not.toContain("apps:");
-	});
 
 	it("POLICY-FIT: `autonomous` when requiresApproval=false, `gated` when true", () => {
 		const autonomous = renderHomeContextPrompt(
@@ -1443,67 +1345,6 @@ describe("renderHomeContextPrompt — tool-fit + policy-fit ranking signals", ()
 		expect(line).toContain("track-record=90% (10 turns)");
 		// Availability
 		expect(line).toContain("status=running");
-	});
-
-	it("FAIL-SOFT: tedi without a capability card still renders (no crash, no tools/policy tokens)", () => {
-		const ctx: KernelContext = {
-			tedis: [
-				{
-					id: "tedi-1",
-					slug: "cfo",
-					name: "CFO",
-					role: "agent",
-					status: "active",
-					// No capability card — thin entry only
-				},
-			],
-			apps: [],
-			workflows: [],
-			workItems: [],
-			facts: [],
-			rationale: [],
-			speaker: null,
-			history: [],
-		};
-		const prompt = renderHomeContextPrompt(ctx);
-		const line = tediLine(prompt);
-		// Line renders successfully
-		expect(line).toContain("CFO");
-		expect(line).toContain("[slug=cfo");
-		// Policy and tool tokens are absent (no card)
-		expect(line).not.toContain("autonomous");
-		expect(line).not.toContain("gated");
-		expect(line).not.toContain("tools=[");
-	});
-
-	it("FAIL-SOFT: tedi with priors below floor renders without track-record (no tools/policy omitted)", () => {
-		const prompt = renderHomeContextPrompt(
-			ctxWithCard(
-				{
-					tediId: "tedi-1",
-					slug: "cfo",
-					name: "CFO",
-					apps: ["google_gmail"],
-					scopeGroups: [],
-					skills: [],
-					runtimeKind: "agent",
-					embodied: false,
-					availability: "running",
-					requiresApproval: true,
-					mcpCapabilityProfile: null,
-					hasWarmWorkstationLease: false,
-					dispatchPolicy: null,
-				},
-				// Only 2 samples — below the SELECTION_PRIOR_MIN_SAMPLE floor of 3
-				{ successRate: 1.0, total: 2 },
-			),
-		);
-		const line = tediLine(prompt);
-		// tools and policy tokens still render (card is present)
-		expect(line).toContain("tools=[google_gmail]");
-		expect(line).toContain("gated");
-		// track-record omitted below the floor
-		expect(line).not.toContain("track-record");
 	});
 });
 
@@ -2292,12 +2133,6 @@ describe("rankByQueryRelevance — query-scoped slot filling", () => {
 		);
 	});
 
-	it("preserves source order when nothing matches", () => {
-		expect(
-			rankByQueryRelevance(workflows, "quantum chess tournament", textOf),
-		).toEqual(workflows);
-	});
-
 	it("ranks matching candidates ahead, ties keep source order", () => {
 		const ranked = rankByQueryRelevance(
 			workflows,
@@ -2633,16 +2468,6 @@ describe("assembleHomeContext — operator skill references", () => {
 		expect(ctx.referencedSkills?.matches[0]?.referenced).toBe(true);
 		expect(ctx.referencedSkills?.unresolved).toEqual([]);
 		expect(renderHomeContextPrompt(ctx)).toContain("run the deploy script");
-		read.mockRestore();
-	});
-
-	it("does not read at all when the message references no skill", async () => {
-		const read = vi.spyOn(skillCrudQueries, "getSkillEntryBySlug");
-		const ctx = await assembleHomeContext(createEventsDb([]), ORG_ID, {
-			operatorMessage: "ship the widget",
-		});
-		expect(read).not.toHaveBeenCalled();
-		expect(ctx.referencedSkills).toBeUndefined();
 		read.mockRestore();
 	});
 

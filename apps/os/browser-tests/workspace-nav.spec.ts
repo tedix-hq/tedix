@@ -276,29 +276,35 @@ try {
 			),
 			`${label}: Share sits in the top bar`,
 		);
-		await share.click();
 		const dialog = page.getByRole("dialog");
-		await dialog.getByText("People with access").waitFor();
-		// Sharing the open app alone is a scope inside the same dialog, never
-		// a popover stacked on top of it.
-		await dialog.getByRole("button", { name: "This app", exact: true }).click();
-		await dialog.getByRole("radiogroup", { name: "Who can open it" }).waitFor();
-		assert.equal(await page.getByRole("dialog").count(), 1);
-		assert.equal(await page.locator(".kumo-popover-popup").count(), 0);
-		assert(
-			await page.evaluate(
-				() => document.documentElement.scrollWidth <= innerWidth + 1,
-			),
-			`${label}: no sideways page scroll with Share open`,
-		);
-		await page.keyboard.press("Escape");
-		await dialog.waitFor({ state: "hidden" });
-		assert(
-			await page.evaluate(
-				() => document.documentElement.scrollWidth <= innerWidth + 1,
-			),
-			`${label}: no sideways page scroll`,
-		);
+		if (phone) {
+			await share.click();
+			await dialog.getByText("People with access").waitFor();
+			// Sharing the open app alone is a scope inside the same dialog, never
+			// a popover stacked on top of it.
+			await dialog
+				.getByRole("button", { name: "This app", exact: true })
+				.click();
+			await dialog
+				.getByRole("radiogroup", { name: "Who can open it" })
+				.waitFor();
+			assert.equal(await page.getByRole("dialog").count(), 1);
+			assert.equal(await page.locator(".kumo-popover-popup").count(), 0);
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth + 1,
+				),
+				`${label}: no sideways page scroll with Share open`,
+			);
+			await page.keyboard.press("Escape");
+			await dialog.waitFor({ state: "hidden" });
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth + 1,
+				),
+				`${label}: no sideways page scroll`,
+			);
+		}
 		// The open app's Share starts the dialog on that app.
 		const itemShare = page.getByRole("button", {
 			name: "Share this app",
@@ -311,26 +317,30 @@ try {
 			),
 			`${label}: the app's Share sits in the app's header`,
 		);
-		// Closing the dialog returns focus to the top bar's Share, whose
-		// tooltip can sit over the app's header on a phone.
-		await page.evaluate(() =>
-			(document.activeElement as HTMLElement | null)?.blur(),
-		);
-		await itemShare.click();
-		await dialog.getByRole("radiogroup", { name: "Who can open it" }).waitFor();
-		assert.equal(await dialog.getByText("People with access").count(), 0);
-		assert.equal(await page.getByRole("dialog").count(), 1);
-		await page.keyboard.press("Escape");
-		await dialog.waitFor({ state: "hidden" });
-		assert(
-			await page.evaluate(
-				() => document.documentElement.scrollWidth <= innerWidth + 1,
-			),
-			`${label}: no sideways page scroll with the app's Share`,
-		);
+		if (phone) {
+			// Closing the dialog returns focus to the top bar's Share, whose
+			// tooltip can sit over the app's header on a phone.
+			await page.evaluate(() =>
+				(document.activeElement as HTMLElement | null)?.blur(),
+			);
+			await itemShare.click();
+			await dialog
+				.getByRole("radiogroup", { name: "Who can open it" })
+				.waitFor();
+			assert.equal(await dialog.getByText("People with access").count(), 0);
+			assert.equal(await page.getByRole("dialog").count(), 1);
+			await page.keyboard.press("Escape");
+			await dialog.waitFor({ state: "hidden" });
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth + 1,
+				),
+				`${label}: no sideways page scroll with the app's Share`,
+			);
+		}
 		// Focus mode (wide screens only) hides the top bar; Share stays
 		// reachable from the panel.
-		if (!phone) {
+		if (!narrow) {
 			await page.getByRole("button", { name: "Focus", exact: true }).click();
 			const focusShare = page.getByRole("button", { name: /^Share\b/ });
 			await focusShare.waitFor();

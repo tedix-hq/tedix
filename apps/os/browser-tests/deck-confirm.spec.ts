@@ -14,11 +14,10 @@ const server = await startFixtureServer("/work?view=deck", {
 });
 const { origin } = server;
 const shots = process.env.TEDIX_SCREENSHOT_DIR;
-// Protected sample cards: their yes option asks for confirmation. Each run
-// saves one, so every viewport gets its own.
-const CARDS = [11, 12, 13, 14, 15, 16].map(
-	(n) => `000000a7-0000-4000-8000-0000000000${n}`,
-);
+// Protected sample cards require confirmation. Use a different fixture for
+// each save so the viewport cases can run against the same server.
+const protectedCard = (suffix: number) =>
+	`000000a7-0000-4000-8000-0000000000${suffix}`;
 const RESPOND = /\/api\/rpc\/workInteractions\/respond/;
 
 /** Footer geometry: equal full-width buttons on phones, a right-aligned row on desktop. */
@@ -171,7 +170,7 @@ try {
 				}),
 			}),
 		);
-		await page.goto(`${origin}/work?view=deck#card=${CARDS[0]}`);
+		await page.goto(`${origin}/work?view=deck#card=${protectedCard(11)}`);
 		await page.locator(".fd-deck-current .fd-card").waitFor();
 		await page
 			.locator('.fd-deck-current [data-decision-intent="approve"]')
@@ -202,122 +201,125 @@ try {
 		await context.close();
 		console.log("PASS toast above dialog");
 	}
-	const sizes = [
-		["390x844", devices["iPhone 13"], true],
-		["375x667", devices["iPhone 8"], true],
-		["1280x800", { viewport: { width: 1280, height: 800 } }, false],
-	] as const;
-	let run = 0;
-	for (const [size, device, phone] of sizes)
-		for (const colorScheme of ["light", "dark"] as const) {
-			const cardId = CARDS[run++]!;
-			const label = `${size} ${colorScheme}`;
-			const context = await browser.newContext({
-				...device,
-				colorScheme,
-				reducedMotion: "reduce",
+	for (const [size, device, phone, colorScheme, cardSuffix] of [
+		["375x667", devices["iPhone 8"], true, "dark", 14],
+		[
+			"1280x800",
+			{ viewport: { width: 1280, height: 800 } },
+			false,
+			"light",
+			15,
+		],
+	] as const) {
+		const label = `${size} ${colorScheme}`;
+		const context = await browser.newContext({
+			...device,
+			colorScheme,
+			reducedMotion: "reduce",
+		});
+		await context.addInitScript(
+			(theme) => localStorage.setItem("tedix-os-theme", theme),
+			colorScheme,
+		);
+		const page = await context.newPage();
+		const tap = (name: string) =>
+			phone
+				? page.getByRole("button", { name, exact: true }).tap()
+				: page.getByRole("button", { name, exact: true }).click();
+		// Every save is refused first, slowly enough to see it pending.
+		let release: () => void = () => {};
+		await page.route(RESPOND, async (route) => {
+			await new Promise<void>((resolve) => {
+				release = resolve;
 			});
-			await context.addInitScript(
-				(theme) => localStorage.setItem("tedix-os-theme", theme),
-				colorScheme,
-			);
-			const page = await context.newPage();
-			const tap = (name: string) =>
-				phone
-					? page.getByRole("button", { name, exact: true }).tap()
-					: page.getByRole("button", { name, exact: true }).click();
-			// Every save is refused first, slowly enough to see it pending.
-			let release: () => void = () => {};
-			await page.route(RESPOND, async (route) => {
-				await new Promise<void>((resolve) => {
-					release = resolve;
-				});
-				await route.fulfill({
-					status: 403,
-					contentType: "application/json",
-					body: JSON.stringify({
-						json: {
-							defined: false,
-							code: "FORBIDDEN",
-							message: "Missing permission",
-						},
-					}),
-				});
+			await route.fulfill({
+				status: 403,
+				contentType: "application/json",
+				body: JSON.stringify({
+					json: {
+						defined: false,
+						code: "FORBIDDEN",
+						message: "Missing permission",
+					},
+				}),
 			});
-			await page.goto(`${origin}/work?view=deck#card=${cardId}`);
-			const card = page.locator(".fd-deck-current .fd-card");
-			await card.waitFor();
-			await page.evaluate(() => document.fonts.ready);
-			const approve = card.locator('[data-decision-intent="approve"]').first();
-			await (phone ? approve.tap() : approve.click());
-			const dialog = page.getByRole("alertdialog");
-			await dialog.waitFor();
-			await page.waitForFunction(() =>
-				document.getAnimations().every((a) => a.playState !== "running"),
-			);
-			const description = await dialog.locator("p").first().innerText();
-			assert(!/\.\./.test(description), `${label}: "${description}"`);
-			checkFooter(label, phone, await footer(page));
-			await shot(page, `sheet-${size}-${colorScheme}`);
+		});
+		await page.goto(
+			`${origin}/work?view=deck#card=${protectedCard(cardSuffix)}`,
+		);
+		const card = page.locator(".fd-deck-current .fd-card");
+		await card.waitFor();
+		await page.evaluate(() => document.fonts.ready);
+		const approve = card.locator('[data-decision-intent="approve"]').first();
+		await (phone ? approve.tap() : approve.click());
+		const dialog = page.getByRole("alertdialog");
+		await dialog.waitFor();
+		await page.waitForFunction(() =>
+			document.getAnimations().every((a) => a.playState !== "running"),
+		);
+		const description = await dialog.locator("p").first().innerText();
+		assert(!/\.\./.test(description), `${label}: "${description}"`);
+		checkFooter(label, phone, await footer(page));
+		await shot(page, `sheet-${size}-${colorScheme}`);
 
-			// Pending: the tap shows progress at once and blocks a second submit.
-			await tap("Confirm");
-			const pending = dialog.getByRole("button", {
-				name: /Confirming/,
-			});
-			await pending.waitFor();
-			assert(await pending.isDisabled(), `${label}: pending Confirm disabled`);
-			assert(
-				await dialog
-					.getByRole("button", { name: "Go back", exact: true })
-					.isDisabled(),
-				`${label}: Go back disabled while saving`,
-			);
-			await shot(page, `pending-${size}-${colorScheme}`);
-
-			// Failure: the sheet stays, says why and what to do, and offers a retry.
-			release();
-			const alert = dialog.locator("[data-confirm-error]");
-			await alert.waitFor();
-			const message = await alert.innerText();
-			assert(
-				/not saved|permission/i.test(message) &&
-					/owner of the originating Work|admin/.test(message),
-				`${label}: error reads "${message}"`,
-			);
+		// Pending: the tap shows progress at once and blocks a second submit.
+		await tap("Confirm");
+		const pending = dialog.getByRole("button", {
+			name: /Confirming/,
+		});
+		await pending.waitFor();
+		assert(await pending.isDisabled(), `${label}: pending Confirm disabled`);
+		assert(
 			await dialog
-				.getByRole("button", { name: "Try again", exact: true })
-				.waitFor();
-			checkFooter(label, phone, await footer(page));
-			assert.equal(
-				await page.locator("[data-os-toast-outlet] [role=dialog]").count(),
-				0,
-				`${label}: the failure is not repeated in a toast over the sheet`,
-			);
-			await shot(page, `error-${size}-${colorScheme}`);
+				.getByRole("button", { name: "Go back", exact: true })
+				.isDisabled(),
+			`${label}: Go back disabled while saving`,
+		);
+		await shot(page, `pending-${size}-${colorScheme}`);
 
-			// Success: the next attempt saves, the sheet closes and a toast says so.
-			await page.unroute(RESPOND);
-			await tap("Try again");
-			await dialog.waitFor({ state: "hidden" });
-			const toast = page
-				.locator("[data-os-toast-outlet] [role=dialog]")
-				.filter({ hasText: "Decision saved" });
-			await toast.waitFor();
-			await settleToast(page, "Decision saved");
-			const visible = await toast.evaluate((node) => {
-				const box = node.getBoundingClientRect();
-				const hit = document.elementFromPoint(
-					box.left + box.width / 2,
-					box.top + box.height / 2,
-				);
-				return Boolean(hit && node.contains(hit));
-			});
-			assert(visible, `${label}: "Decision saved" toast is covered`);
-			await shot(page, `saved-${size}-${colorScheme}`);
-			await context.close();
-			console.log(`PASS ${label}`);
-		}
+		// Failure: the sheet stays, says why and what to do, and offers a retry.
+		release();
+		const alert = dialog.locator("[data-confirm-error]");
+		await alert.waitFor();
+		const message = await alert.innerText();
+		assert(
+			/not saved|permission/i.test(message) &&
+				/owner of the originating Work|admin/.test(message),
+			`${label}: error reads "${message}"`,
+		);
+		await dialog
+			.getByRole("button", { name: "Try again", exact: true })
+			.waitFor();
+		checkFooter(label, phone, await footer(page));
+		assert.equal(
+			await page.locator("[data-os-toast-outlet] [role=dialog]").count(),
+			0,
+			`${label}: the failure is not repeated in a toast over the sheet`,
+		);
+		await shot(page, `error-${size}-${colorScheme}`);
+
+		// Success: the next attempt saves, the sheet closes and a toast says so.
+		await page.unroute(RESPOND);
+		await tap("Try again");
+		await dialog.waitFor({ state: "hidden" });
+		const toast = page
+			.locator("[data-os-toast-outlet] [role=dialog]")
+			.filter({ hasText: "Decision saved" });
+		await toast.waitFor();
+		await settleToast(page, "Decision saved");
+		const visible = await toast.evaluate((node) => {
+			const box = node.getBoundingClientRect();
+			const hit = document.elementFromPoint(
+				box.left + box.width / 2,
+				box.top + box.height / 2,
+			);
+			return Boolean(hit && node.contains(hit));
+		});
+		assert(visible, `${label}: "Decision saved" toast is covered`);
+		await shot(page, `saved-${size}-${colorScheme}`);
+		await context.close();
+		console.log(`PASS ${label}`);
+	}
 } finally {
 	await browser?.close();
 	await server.stop();

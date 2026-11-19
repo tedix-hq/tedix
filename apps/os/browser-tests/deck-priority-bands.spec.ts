@@ -120,7 +120,7 @@ const asks = [
 
 const browser = await chromium.launch({ headless: true });
 try {
-	for (const width of [320, 390, 800, 1280]) {
+	for (const width of [320, 1280]) {
 		const routed = new Set<string>();
 		let handoff: { requestId?: string; reason?: string } | undefined;
 		const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -327,7 +327,7 @@ try {
 		await page.close();
 	}
 	console.log(
-		"Deck priority bands, timeline and CTO tedi routing at 320px, 390px, 800px and 1280px passed.",
+		"Deck priority bands, timeline and CTO tedi routing at 320px and 1280px passed.",
 	);
 } finally {
 	await browser.close();

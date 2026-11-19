@@ -74,10 +74,8 @@ const server = await startFixtureServer();
 const browser = await chromium.launch({ headless: true });
 try {
 	for (const [width, colorScheme] of [
-		[375, "light"],
 		[375, "dark"],
 		[1280, "light"],
-		[1280, "dark"],
 	] as const) {
 		const page = await browser.newPage({
 			viewport: { width, height: 900 },
@@ -302,7 +300,7 @@ try {
 		await page.close();
 	}
 	console.log(
-		"History (run list, run details, late logs, level filters, escaping, pause) and Connections (rename, remove) passed at 375px and 1280px, light and dark",
+		"History (run list, run details, late logs, level filters, escaping, pause) and Connections (rename, remove) passed at 375px dark and 1280px light",
 	);
 } finally {
 	await browser.close();

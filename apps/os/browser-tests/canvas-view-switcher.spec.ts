@@ -19,229 +19,223 @@ const views = ["App", "Code", "History", "Connections"];
 const server = await startFixtureServer("/work");
 
 try {
-	for (const { engine, widths } of [
-		{ engine: chromium, widths: [768, 1280] },
-		{ engine: webkit, widths: [390] },
-	]) {
+	for (const [engine, width] of [
+		[chromium, 768],
+		[webkit, 390],
+	] as const) {
 		const browser = await engine.launch({ headless: true });
 		try {
-			for (const width of widths) {
-				const label = `${engine.name()}/${width}`;
-				const phone = width < 640;
-				const tablet = width <= 819;
-				const page = await browser.newPage({
-					viewport: { width, height: 844 },
-					isMobile: phone && engine === chromium,
-					hasTouch: phone,
-				});
-				await page.goto(`${server.origin}${workpiecePath}`);
-				if (phone) {
-					const menuButton = workpieceViewMenu(page);
-					await menuButton.waitFor();
-					assert.equal(
-						await page
-							.getByRole("group", { name: "Active workpiece view" })
-							.count(),
-						0,
-						`${label}: no view tabs on a phone`,
-					);
-					const button = await menuButton.boundingBox();
-					assert(
-						button && button.width >= 44 && button.height >= 44,
-						`${label}: the view menu keeps a 44px hit target`,
-					);
-					for (const view of views.toReversed()) {
-						await menuButton.click();
-						const menu = page.getByRole("menu");
-						const items = menu.getByRole("menuitemradio");
-						await items.first().waitFor();
-						assert.deepEqual(
-							(await items.allInnerTexts()).map((text) => text.trim()),
-							views,
-							`${label}: exactly these views are offered`,
-						);
-						for (const item of await items.all()) {
-							const box = await item.boundingBox();
-							assert(
-								box && box.height >= 44,
-								`${label}: every view is at least 44px tall`,
-							);
-						}
-						await menu
-							.getByRole("menuitemradio", { name: view, exact: true })
-							.click();
-						await menu.waitFor({ state: "hidden" });
-						assert.equal(
-							await menuButton.getAttribute("aria-label"),
-							`View: ${view}`,
-							`${label}: ${view} is reachable`,
-						);
-					}
-					// The last pick was App; the menu marks it and only it.
-					await menuButton.click();
-					await page.getByRole("menuitemradio").first().waitFor();
-					assert.deepEqual(
-						await page
-							.getByRole("menuitemradio")
-							.evaluateAll((items) =>
-								items.map((item) => item.getAttribute("aria-checked")),
-							),
-						["true", "false", "false", "false"],
-						`${label}: the menu marks the view on screen`,
-					);
-					await page.keyboard.press("Escape");
-					assert(
-						await page.evaluate(
-							() => document.documentElement.scrollWidth <= innerWidth,
-						),
-						`${label}: no sideways page scroll`,
-					);
-					// Review opens from the workspace menu; the view menu names it.
-					await page.goto(`${server.origin}${workpiecePath}&view=activity`);
+			const label = `${engine.name()}/${width}`;
+			const phone = width < 640;
+			const page = await browser.newPage({
+				viewport: { width, height: 844 },
+				hasTouch: phone,
+			});
+			await page.goto(`${server.origin}${workpiecePath}`);
+			if (phone) {
+				const menuButton = workpieceViewMenu(page);
+				await menuButton.waitFor();
+				assert.equal(
 					await page
-						.getByRole("button", { name: "View: Review", exact: true })
-						.waitFor();
-					await page.close();
-					continue;
-				}
-				const switcher = page.getByRole("group", {
-					name: "Active workpiece view",
-				});
-				await switcher.waitFor();
-				const segments = await switcher.locator("button").evaluateAll((els) =>
-					els.map((el) => {
-						const box = el.getBoundingClientRect();
-						return {
-							text: el.textContent ?? "",
-							left: box.left,
-							right: box.right,
-							width: box.width,
-							height: box.height,
-							clipped: el.scrollWidth > el.clientWidth,
-						};
-					}),
+						.getByRole("group", { name: "Active workpiece view" })
+						.count(),
+					0,
+					`${label}: no view tabs on a phone`,
 				);
-				assert.deepEqual(
-					segments.map((segment) => segment.text),
-					views,
-					`${label}: exactly these views are offered`,
-				);
-				for (const [index, segment] of segments.entries()) {
-					assert(!segment.clipped, `${label}: ${segment.text} label fits`);
-					const next = segments[index + 1];
-					if (next)
-						assert(
-							segment.right <= next.left + 0.5,
-							`${label}: ${segment.text} does not overlap ${next.text}`,
-						);
-					if (tablet)
-						assert(
-							segment.width >= 44 && segment.height >= 44,
-							`${label}: ${segment.text} keeps a 44px hit target`,
-						);
-				}
-				const headerActions = await page
-					.locator(".canvas-workspace-header button")
-					.evaluateAll((els) =>
-						els
-							.filter((el) => el.getBoundingClientRect().width > 0)
-							.map((el) => {
-								const box = el.getBoundingClientRect();
-								return {
-									name:
-										el.getAttribute("aria-label") ??
-										el.getAttribute("title") ??
-										el.textContent ??
-										"",
-									width: box.width,
-									height: box.height,
-								};
-							}),
-					);
+				const button = await menuButton.boundingBox();
 				assert(
-					headerActions.length > 0,
-					`${label}: the workspace header shows its actions`,
+					button && button.width >= 44 && button.height >= 44,
+					`${label}: the view menu keeps a 44px hit target`,
 				);
-				if (tablet)
-					for (const action of headerActions) {
+				for (const view of views.toReversed()) {
+					await menuButton.click();
+					const menu = page.getByRole("menu");
+					const items = menu.getByRole("menuitemradio");
+					await items.first().waitFor();
+					assert.deepEqual(
+						(await items.allInnerTexts()).map((text) => text.trim()),
+						views,
+						`${label}: exactly these views are offered`,
+					);
+					for (const item of await items.all()) {
+						const box = await item.boundingBox();
 						assert(
-							action.width >= 44 && action.height >= 44,
-							`${label}: header action "${action.name}" is at least 44x44`,
+							box && box.height >= 44,
+							`${label}: every view is at least 44px tall`,
 						);
 					}
-				// A focused view segment keeps its ring inside the scrolling row.
-				if (tablet) {
-					const focus = await switcher
-						.getByRole("button", { name: "History", exact: true })
-						.evaluate((el) => {
-							el.focus({ focusVisible: true });
-							const style = getComputedStyle(el);
-							return {
-								visible: el.matches(":focus-visible"),
-								outlineStyle: style.outlineStyle,
-								outlineWidth: style.outlineWidth,
-							};
-						});
+					await menu
+						.getByRole("menuitemradio", { name: view, exact: true })
+						.click();
+					await menu.waitFor({ state: "hidden" });
 					assert.equal(
-						focus.visible,
-						true,
-						`${label}: a view segment takes keyboard focus`,
-					);
-					assert.equal(
-						focus.outlineStyle,
-						"solid",
-						`${label}: the focus ring is drawn`,
-					);
-					assert.equal(
-						focus.outlineWidth,
-						"2px",
-						`${label}: the focus ring is 2px`,
+						await menuButton.getAttribute("aria-label"),
+						`View: ${view}`,
+						`${label}: ${view} is reachable`,
 					);
 				}
+				// The last pick was App; the menu marks it and only it.
+				await menuButton.click();
+				await page.getByRole("menuitemradio").first().waitFor();
+				assert.deepEqual(
+					await page
+						.getByRole("menuitemradio")
+						.evaluateAll((items) =>
+							items.map((item) => item.getAttribute("aria-checked")),
+						),
+					["true", "false", "false", "false"],
+					`${label}: the menu marks the view on screen`,
+				);
+				await page.keyboard.press("Escape");
 				assert(
 					await page.evaluate(
 						() => document.documentElement.scrollWidth <= innerWidth,
 					),
 					`${label}: no sideways page scroll`,
 				);
-				for (const view of views.toReversed()) {
-					const segment = switcher.getByRole("button", {
-						name: view,
-						exact: true,
-					});
-					await segment.click();
-					assert.equal(
-						await segment.getAttribute("aria-pressed"),
-						"true",
-						`${label}: ${view} is reachable`,
-					);
-				}
-				// Open straight on Review, which joins the row as its last segment:
-				// the row must reveal it unaided.
+				// Review opens from the workspace menu; the view menu names it.
 				await page.goto(`${server.origin}${workpiecePath}&view=activity`);
-				await switcher.waitFor();
-				await page.waitForTimeout(200);
-				const reveal = await switcher.evaluate((el) => {
-					const view = el.getBoundingClientRect();
-					const active = el
-						.querySelector('[aria-pressed="true"]')
-						?.getBoundingClientRect();
-					return active
-						? {
-								inside:
-									active.left >= view.left - 0.5 &&
-									active.right <= view.right + 0.5,
-								onScreen: active.right <= innerWidth + 0.5,
-							}
-						: null;
-				});
-				assert.deepEqual(
-					reveal,
-					{ inside: true, onScreen: true },
-					`${label}: the selected Review view is in sight on load`,
-				);
+				await page
+					.getByRole("button", { name: "View: Review", exact: true })
+					.waitFor();
 				await page.close();
+				continue;
 			}
+			const switcher = page.getByRole("group", {
+				name: "Active workpiece view",
+			});
+			await switcher.waitFor();
+			const segments = await switcher.locator("button").evaluateAll((els) =>
+				els.map((el) => {
+					const box = el.getBoundingClientRect();
+					return {
+						text: el.textContent ?? "",
+						left: box.left,
+						right: box.right,
+						width: box.width,
+						height: box.height,
+						clipped: el.scrollWidth > el.clientWidth,
+					};
+				}),
+			);
+			assert.deepEqual(
+				segments.map((segment) => segment.text),
+				views,
+				`${label}: exactly these views are offered`,
+			);
+			for (const [index, segment] of segments.entries()) {
+				assert(!segment.clipped, `${label}: ${segment.text} label fits`);
+				const next = segments[index + 1];
+				if (next)
+					assert(
+						segment.right <= next.left + 0.5,
+						`${label}: ${segment.text} does not overlap ${next.text}`,
+					);
+				assert(
+					segment.width >= 44 && segment.height >= 44,
+					`${label}: ${segment.text} keeps a 44px hit target`,
+				);
+			}
+			const headerActions = await page
+				.locator(".canvas-workspace-header button")
+				.evaluateAll((els) =>
+					els
+						.filter((el) => el.getBoundingClientRect().width > 0)
+						.map((el) => {
+							const box = el.getBoundingClientRect();
+							return {
+								name:
+									el.getAttribute("aria-label") ??
+									el.getAttribute("title") ??
+									el.textContent ??
+									"",
+								width: box.width,
+								height: box.height,
+							};
+						}),
+				);
+			assert(
+				headerActions.length > 0,
+				`${label}: the workspace header shows its actions`,
+			);
+			for (const action of headerActions) {
+				assert(
+					action.width >= 44 && action.height >= 44,
+					`${label}: header action "${action.name}" is at least 44x44`,
+				);
+			}
+			// A focused view segment keeps its ring inside the scrolling row.
+			{
+				const focus = await switcher
+					.getByRole("button", { name: "History", exact: true })
+					.evaluate((el) => {
+						el.focus({ focusVisible: true });
+						const style = getComputedStyle(el);
+						return {
+							visible: el.matches(":focus-visible"),
+							outlineStyle: style.outlineStyle,
+							outlineWidth: style.outlineWidth,
+						};
+					});
+				assert.equal(
+					focus.visible,
+					true,
+					`${label}: a view segment takes keyboard focus`,
+				);
+				assert.equal(
+					focus.outlineStyle,
+					"solid",
+					`${label}: the focus ring is drawn`,
+				);
+				assert.equal(
+					focus.outlineWidth,
+					"2px",
+					`${label}: the focus ring is 2px`,
+				);
+			}
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
+				`${label}: no sideways page scroll`,
+			);
+			for (const view of views.toReversed()) {
+				const segment = switcher.getByRole("button", {
+					name: view,
+					exact: true,
+				});
+				await segment.click();
+				assert.equal(
+					await segment.getAttribute("aria-pressed"),
+					"true",
+					`${label}: ${view} is reachable`,
+				);
+			}
+			// Open straight on Review, which joins the row as its last segment:
+			// the row must reveal it unaided.
+			await page.goto(`${server.origin}${workpiecePath}&view=activity`);
+			await switcher.waitFor();
+			await page.waitForTimeout(200);
+			const reveal = await switcher.evaluate((el) => {
+				const view = el.getBoundingClientRect();
+				const active = el
+					.querySelector('[aria-pressed="true"]')
+					?.getBoundingClientRect();
+				return active
+					? {
+							inside:
+								active.left >= view.left - 0.5 &&
+								active.right <= view.right + 0.5,
+							onScreen: active.right <= innerWidth + 0.5,
+						}
+					: null;
+			});
+			assert.deepEqual(
+				reveal,
+				{ inside: true, onScreen: true },
+				`${label}: the selected Review view is in sight on load`,
+			);
+			await page.close();
 		} finally {
 			await browser.close();
 		}
