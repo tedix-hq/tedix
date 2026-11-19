@@ -1620,6 +1620,10 @@
 		{
 			"name": "20261119021139_backfill-tedi-control-plane-refs/migration.sql",
 			"sha256": "7c7052997defd2d2cd76f81bc8953981d95050d549cf5623dca61812229137f3"
+		},
+		{
+			"name": "20261119030150_backfill-explicit-approval-policy/migration.sql",
+			"sha256": "bc6c15359f4c44c04836c33c6aca43480e3911aeeec927c45745f3dd037731aa"
 		}
 	]
 }
