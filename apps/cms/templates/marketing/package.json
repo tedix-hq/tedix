@@ -13,7 +13,7 @@
 		"@astrojs/cloudflare": "^14.4.9",
 		"@astrojs/react": "^7.1.9",
 		"@cloudflare/kumo": "^2.19.0",
-		"@cloudflare/vite-plugin": "1.70.0",
+		"@cloudflare/vite-plugin": "1.70.1",
 		"@emdash-cms/auth": "1.5.0",
 		"@emdash-cms/cloudflare": "1.5.0",
 		"@emdash-cms/plugin-embeds": "^0.1.59",

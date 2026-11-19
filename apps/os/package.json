@@ -77,7 +77,7 @@
 		"@orpc/tanstack-query": "catalog:",
 		"@phosphor-icons/react": "2.1.10",
 		"@tanstack/react-form": "^1.33.5",
-		"@tanstack/react-query": "^5.108.0",
+		"@tanstack/react-query": "^5.108.1",
 		"@tanstack/react-router": "1.170.46",
 		"@tedix/api-client": "workspace:*",
 		"@tedix/api-contract": "workspace:*",
