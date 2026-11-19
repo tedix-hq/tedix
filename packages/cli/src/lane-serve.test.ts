@@ -4266,7 +4266,10 @@ describe("dispatcher admission", () => {
 				phase: "settling",
 				outcome: "succeeded",
 				attemptId: "fictional-attempt",
-				pendingCommitProof: `Result recorded in OS.\nTEDIX_LANE_RESULT ${JSON.stringify(completedResult())}`,
+				// A Codex run also keeps its structured result file after the final message.
+				pendingCommitProof: expect.stringContaining(
+					`Result recorded in OS.\nTEDIX_LANE_RESULT ${JSON.stringify(completedResult())}\n{`,
+				),
 			});
 			expect(events.filter((e) => e.verb === "settle")).toHaveLength(0);
 			expect(control.cleanups).toBe(0);
