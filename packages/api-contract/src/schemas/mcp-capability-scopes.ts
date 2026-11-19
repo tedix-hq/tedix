@@ -161,6 +161,9 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	request_machine_tool: "mcp:work",
 	read_machine_tool_call: "mcp:work",
 	claim_machine_tool_calls: "mcp:work",
+	// The owner's or admin's audit read of calls with their input sits with
+	// the change ledger read it is checked against.
+	list_machine_tool_calls: "mcp:observe",
 	get_work_item_checkpoint: "mcp:work",
 	list_work_attempt_cli_rows: "mcp:work",
 	list_work_evidence_cli_rows: "mcp:work",

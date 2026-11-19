@@ -346,3 +346,67 @@ export const ClaimMachineToolCallsResultSchema = z.object({
 		)
 		.max(10),
 });
+
+/** A list of machine tool calls reaches this far back when no start is given. */
+export const MACHINE_TOOL_CALL_LIST_DEFAULT_RANGE_MS = 24 * 60 * 60_000;
+/** The longest time range one list of machine tool calls may cover. */
+export const MACHINE_TOOL_CALL_LIST_MAX_RANGE_MS = 7 * 24 * 60 * 60_000;
+
+const MachineToolCallListTimestampSchema = z.iso
+	.datetime({ offset: true })
+	.transform((value) => new Date(value).toISOString());
+
+/** Where the next page starts: the last call of this page. */
+export const MachineToolCallListCursorSchema = z.strictObject({
+	at: z.iso.datetime(),
+	id: MachineToolCallIdSchema,
+});
+
+export const ListMachineToolCallsInputSchema = z.strictObject({
+	machine: MachineNameSchema.optional().describe(
+		"Only calls for this machine, named exactly as `list_machines` returns it",
+	),
+	from: MachineToolCallListTimestampSchema.optional().describe(
+		"Inclusive start of the time the calls were made; defaults to 24 hours before `until`",
+	),
+	until: MachineToolCallListTimestampSchema.optional().describe(
+		"Exclusive end of the time the calls were made; defaults to now. The range may cover at most 7 days",
+	),
+	writesOnly: z
+		.boolean()
+		.default(true)
+		.describe(
+			"Only calls that change a workspace or run a command (the default); false includes the read tools",
+		),
+	cursor: MachineToolCallListCursorSchema.optional().describe(
+		"nextCursor from the previous page; keep the same machine, range and writesOnly",
+	),
+	limit: z.number().int().min(1).max(100).default(50),
+});
+
+export const ListedMachineToolCallSchema = z.object({
+	callId: MachineToolCallIdSchema,
+	machine: z.string(),
+	tool: MachineToolNameSchema,
+	/** The checked input exactly as it was stored for the machine. */
+	input: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+	status: MachineToolCallStatusSchema,
+	requestedBy: z.object({
+		type: z.enum(["user", "tedi"]),
+		id: z.string(),
+	}),
+	createdAt: z.iso.datetime(),
+	claimedAt: z.iso.datetime().optional(),
+	finishedAt: z.iso.datetime().optional(),
+	error: z.string().max(MACHINE_TOOL_ERROR_MAX_CHARS).optional(),
+	/** The length of the stored result; the result itself is never listed. */
+	resultChars: z.number().int().nonnegative().optional(),
+});
+export type ListedMachineToolCall = z.infer<typeof ListedMachineToolCallSchema>;
+
+export const ListMachineToolCallsResultSchema = z.object({
+	from: z.iso.datetime(),
+	until: z.iso.datetime(),
+	calls: z.array(ListedMachineToolCallSchema).max(100),
+	nextCursor: MachineToolCallListCursorSchema.nullable(),
+});

@@ -341,6 +341,8 @@ describe("work board scope resolution", () => {
 			["read_machine_tool_call", "mcp:work.read"],
 			["request_machine_tool", "mcp:work.write"],
 			["claim_machine_tool_calls", "mcp:work.write"],
+			// Calls with their input are an audit read, beside the change ledger.
+			["list_machine_tool_calls", "mcp:observe.read"],
 		] as const) {
 			expect(resolve(tool)).toEqual([scope]);
 		}

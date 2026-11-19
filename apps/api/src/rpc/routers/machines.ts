@@ -10,6 +10,8 @@ import { implement } from "@orpc/server";
 import { machinesContract } from "@tedix/api-contract/contracts/machines";
 import {
 	isMachineWriteTool,
+	MACHINE_TOOL_CALL_LIST_DEFAULT_RANGE_MS,
+	MACHINE_TOOL_CALL_LIST_MAX_RANGE_MS,
 	MACHINES_USE_SCOPE,
 	MACHINES_WRITE_SCOPE,
 	type MachineToolCall,
@@ -20,6 +22,7 @@ import {
 	claimMachineToolCalls,
 	createMachineToolCall,
 	isMachineReporter,
+	listMachineToolCallsInRange,
 	listMachines,
 	readMachineToolCall,
 } from "@tedix/db/queries/machines";
@@ -30,7 +33,8 @@ import {
 	writeMachineToolRefusedRecord,
 	writeMachineToolResultRecords,
 } from "../../services/machine-change-records";
-import { requireOrgId } from "../org-scope";
+import { isActiveOwnerOrAdmin } from "../org-membership";
+import { requireOrgId, withOrg } from "../org-scope";
 import {
 	type BaseContext,
 	createError,
@@ -248,6 +252,87 @@ const readToolCallProcedure = os.readToolCall
 		return toCall(call);
 	});
 
+/**
+ * An owner's or admin's list of the organization's calls, with their input,
+ * so each can be checked against its hash in the change ledger. A person
+ * only: a tedi or an external agent is refused.
+ */
+const listToolCallsProcedure = os.listToolCalls
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"The handler lets only a signed-in active owner or admin of the organization list calls with their input",
+			},
+			"mcp:observe.read",
+		),
+	)
+	.use(withOrg)
+	.handler(async ({ input, context }) => {
+		// The same reader as the change ledger: the signed-in person, also
+		// when the gateway forwards their call.
+		const subject =
+			context.authType === "user" ? context.user?.sub : context.descopeUserId;
+		if (
+			context.tediId ||
+			context.externalAgentPrincipalId ||
+			typeof subject !== "string" ||
+			!(await isActiveOwnerOrAdmin(context, context.organizationId, subject))
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only a signed-in active owner or admin of the organization can list machine tool calls",
+			);
+		// `until` is exclusive: by default it is just past now, so a call made
+		// in this very millisecond is listed too.
+		const until = input.until ?? new Date(Date.now() + 1).toISOString();
+		const from =
+			input.from ??
+			new Date(
+				Date.parse(until) - MACHINE_TOOL_CALL_LIST_DEFAULT_RANGE_MS,
+			).toISOString();
+		const span = Date.parse(until) - Date.parse(from);
+		if (span <= 0 || span > MACHINE_TOOL_CALL_LIST_MAX_RANGE_MS)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"from must precede until, and the range may cover at most 7 days",
+			);
+		const rows = await listMachineToolCallsInRange(context.db, {
+			orgId: context.organizationId,
+			from,
+			until,
+			...(input.machine === undefined ? {} : { machineName: input.machine }),
+			writesOnly: input.writesOnly,
+			...(input.cursor === undefined
+				? {}
+				: { after: { createdAt: input.cursor.at, id: input.cursor.id } }),
+			limit: input.limit + 1,
+		});
+		const page = rows.slice(0, input.limit);
+		const last = page.at(-1);
+		return {
+			from,
+			until,
+			calls: page.map((row) => ({
+				callId: row.id,
+				machine: row.machineName,
+				tool: row.tool,
+				input: JSON.parse(row.input) as MachineToolInput,
+				status: row.status,
+				requestedBy: { type: row.requestedByType, id: row.requestedById },
+				createdAt: row.createdAt,
+				...(row.claimedAt === null ? {} : { claimedAt: row.claimedAt }),
+				...(row.finishedAt === null ? {} : { finishedAt: row.finishedAt }),
+				...(row.error === null ? {} : { error: row.error }),
+				...(row.resultChars === null ? {} : { resultChars: row.resultChars }),
+			})),
+			nextCursor:
+				rows.length > input.limit && last
+					? { at: last.createdAt, id: last.id }
+					: null,
+		};
+	});
+
 const claimToolCallsProcedure = os.claimToolCalls
 	.use(
 		withAuthorization(
@@ -299,5 +384,6 @@ export const machinesContractRouter = os.router({
 	list: listProcedure,
 	requestToolCall: requestToolCallProcedure,
 	readToolCall: readToolCallProcedure,
+	listToolCalls: listToolCallsProcedure,
 	claimToolCalls: claimToolCallsProcedure,
 });

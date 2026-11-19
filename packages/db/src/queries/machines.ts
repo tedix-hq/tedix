@@ -9,8 +9,10 @@ import {
 	asc,
 	eq,
 	gt,
+	gte,
 	inArray,
 	isNotNull,
+	lt,
 	lte,
 	or,
 	sql,
@@ -21,10 +23,12 @@ import {
 	MACHINE_ONLINE_WINDOW_MS,
 	MACHINE_TOOL_CALL_ANSWER_WINDOW_MS,
 	MACHINE_TOOL_CALL_CLAIM_WINDOW_MS,
+	MACHINE_TOOL_CALL_STATUS_VALUES,
 	MACHINE_TOOL_CALL_TIMEOUT_ERROR,
 	MACHINE_TOOL_ERROR_MAX_CHARS,
 	MACHINE_TOOL_NAMES,
 	MACHINE_TOOL_RESULT_MAX_CHARS,
+	MACHINE_WRITE_TOOL_NAMES,
 	type MachineToolName,
 } from "@tedix/api-contract/schemas/machines";
 import type { DbQueryClient } from "../query-client";
@@ -450,4 +454,93 @@ export async function claimMachineToolCalls(
 				a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
 		),
 	};
+}
+
+/** A listed call: everything but the result, of which only the length. */
+export interface ListedMachineToolCallRow {
+	id: string;
+	machineName: string;
+	tool: MachineToolName;
+	input: string;
+	status: MachineToolCallRow["status"];
+	requestedByType: MachineToolCallRequesterType;
+	requestedById: string;
+	createdAt: string;
+	claimedAt: string | null;
+	finishedAt: string | null;
+	error: string | null;
+	resultChars: number | null;
+}
+
+/**
+ * Calls of exactly one organization made in `[from, until)`, oldest first
+ * (created_at, then id), after `after` when given. The result text is never
+ * read, only its length.
+ *
+ * Listing every status lets the `(org_id, machine_name, status, created_at)`
+ * index seek the time range for a named machine. Without a machine the index
+ * narrows to the organization only, and its rows are filtered by time; the
+ * caller bounds the range.
+ */
+export async function listMachineToolCallsInRange(
+	db: DbQueryClient,
+	params: {
+		orgId: string;
+		from: string;
+		until: string;
+		machineName?: string;
+		/** Only the tools that change a workspace or run a command. */
+		writesOnly: boolean;
+		after?: { createdAt: string; id: string };
+		limit: number;
+	},
+): Promise<ListedMachineToolCallRow[]> {
+	const { after } = params;
+	return db
+		.select({
+			id: machineToolCalls.id,
+			machineName: machineToolCalls.machineName,
+			tool: machineToolCalls.tool,
+			input: machineToolCalls.input,
+			status: machineToolCalls.status,
+			requestedByType: machineToolCalls.requestedByType,
+			requestedById: machineToolCalls.requestedById,
+			createdAt: machineToolCalls.createdAt,
+			claimedAt: machineToolCalls.claimedAt,
+			finishedAt: machineToolCalls.finishedAt,
+			error: machineToolCalls.error,
+			resultChars: sql<number | null>`length(${machineToolCalls.result})`.as(
+				"result_chars",
+			),
+		})
+		.from(machineToolCalls)
+		.where(
+			and(
+				eq(machineToolCalls.orgId, params.orgId),
+				params.machineName === undefined
+					? undefined
+					: and(
+							eq(machineToolCalls.machineName, params.machineName),
+							inArray(machineToolCalls.status, [
+								...MACHINE_TOOL_CALL_STATUS_VALUES,
+							]),
+						),
+				gte(machineToolCalls.createdAt, params.from),
+				lt(machineToolCalls.createdAt, params.until),
+				params.writesOnly
+					? inArray(machineToolCalls.tool, [...MACHINE_WRITE_TOOL_NAMES])
+					: undefined,
+				after === undefined
+					? undefined
+					: or(
+							gt(machineToolCalls.createdAt, after.createdAt),
+							and(
+								eq(machineToolCalls.createdAt, after.createdAt),
+								gt(machineToolCalls.id, after.id),
+							),
+						),
+			),
+		)
+		.orderBy(asc(machineToolCalls.createdAt), asc(machineToolCalls.id))
+		.limit(Math.min(Math.max(1, Math.trunc(params.limit)), 101));
 }
