@@ -107,6 +107,10 @@ describe("self-service user profile", () => {
 
 	it("persists welcome completion across sessions and organizations, isolated per person", async () => {
 		const f = fixture();
+		// Both people joined after the welcome shipped.
+		f.sqlite
+			.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+			.run("2026-11-19T08:00:00.000Z", USER_ID);
 		const context = userContext({ db: f.db, env: f.env });
 		const first = createRouterClient(userProfileContractRouter, { context });
 		await expect(first.getWelcomeState({})).resolves.toEqual({
@@ -124,6 +128,18 @@ describe("self-service user profile", () => {
 		await expect(anotherOrganization.getWelcomeState({})).resolves.toEqual({
 			completed: true,
 		});
+		f.sqlite
+			.prepare(
+				"INSERT INTO users (id,email,name,profile_revision,updated_at,created_at) VALUES (?,?,?,?,?,?)",
+			)
+			.run(
+				"another-person",
+				"another@example.com",
+				"Another",
+				1,
+				"2026-11-19T09:00:00.000Z",
+				"2026-11-19 09:00:00",
+			);
 		const anotherPerson = createRouterClient(userProfileContractRouter, {
 			context: { ...context, userId: "another-person" },
 		});
@@ -133,6 +149,38 @@ describe("self-service user profile", () => {
 		expect(
 			f.sqlite.prepare("SELECT COUNT(*) AS count FROM user_configs").get(),
 		).toEqual({ count: 1 });
+	});
+
+	it("never welcomes an account that existed before the welcome did", async () => {
+		const f = fixture();
+		const client = createRouterClient(userProfileContractRouter, {
+			context: userContext({ db: f.db, env: f.env }),
+		});
+		for (const createdAt of [
+			"2026-11-18T23:59:59.000Z",
+			"2026-03-01 08:00:00",
+			"not a date",
+		]) {
+			f.sqlite
+				.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+				.run(createdAt, USER_ID);
+			await expect(client.getWelcomeState({})).resolves.toEqual({
+				completed: true,
+			});
+		}
+		// No account record at all is not a new account either.
+		const unknown = createRouterClient(userProfileContractRouter, {
+			context: {
+				...userContext({ db: f.db, env: f.env }),
+				userId: "no-such-person",
+			},
+		});
+		await expect(unknown.getWelcomeState({})).resolves.toEqual({
+			completed: true,
+		});
+		expect(
+			f.sqlite.prepare("SELECT COUNT(*) AS count FROM user_configs").get(),
+		).toEqual({ count: 0 });
 	});
 
 	it("normalizes malformed legacy avatar values at the profile boundary", async () => {

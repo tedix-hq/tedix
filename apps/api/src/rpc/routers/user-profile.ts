@@ -248,6 +248,21 @@ const deleteAvatar = authed.deleteAvatar
 		return { success: true as const, revision: updated.profileRevision };
 	});
 
+/** The day the welcome shipped: accounts created before it are not new. */
+const WELCOME_SINCE = Date.parse("2026-11-19T00:00:00.000Z");
+
+/** `created_at` is ISO, or SQLite's `YYYY-MM-DD HH:MM:SS` in UTC. */
+function accountIsNewSince(
+	createdAt: string | null | undefined,
+	since: number,
+): boolean {
+	if (!createdAt) return false;
+	const at = Date.parse(
+		createdAt.includes("T") ? createdAt : `${createdAt.replace(" ", "T")}Z`,
+	);
+	return Number.isFinite(at) && at >= since;
+}
+
 // Account-wide: moving to another organization must not restart the welcome.
 const welcomeKey = (userId: string) => ({
 	userId,
@@ -266,11 +281,13 @@ const getWelcomeState = authed.getWelcomeState
 		),
 	)
 	.handler(async ({ context }) => {
-		const row = await getUserConfig(
-			context.db,
-			welcomeKey(requireHumanUserId(context)),
-		);
-		return { completed: row?.value.completed === true };
+		const userId = requireHumanUserId(context);
+		const row = await getUserConfig(context.db, welcomeKey(userId));
+		if (row) return { completed: row.value.completed === true };
+		// The welcome is for a new account. Someone who was here before it
+		// existed, or whose account record cannot be read, never sees it.
+		const user = await getUserById(context.db, userId);
+		return { completed: !accountIsNewSince(user?.createdAt, WELCOME_SINCE) };
 	});
 
 const completeWelcome = authed.completeWelcome
