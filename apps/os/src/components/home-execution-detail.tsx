@@ -72,7 +72,7 @@ import {
 	delegationLiveState,
 	shortAge,
 } from "@/lib/delegation-activity";
-import { formatSettledEurMicros } from "@/lib/billing-price";
+import { useCreditShare } from "@/lib/use-credit-share";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 
 const DIGITAL_WORKER = "Digital worker";
@@ -459,6 +459,8 @@ export function HomeExecutionDetailView({
 }) {
 	useOsFormattingPreferences();
 	const now = useNow(isActiveRunStatus(run.status));
+	// Outside Billing › Usage a charge is a share of this month's credits.
+	const chargeShare = useCreditShare(run.settledCharge?.credits);
 	const selectedBranch = branchId
 		? (trace.branches.find((branch) => branch.childRunId === branchId) ??
 			runBranch(run, branchId))
@@ -544,11 +546,11 @@ export function HomeExecutionDetailView({
 										Finished <strong>{absoluteTime(run.completedAt)}</strong>
 									</li>
 								) : null}
-								{run.settledCharge ? (
+								{chargeShare ? (
 									<li>
-										Delegated run cost{" "}
+										Delegated run used{" "}
 										<strong>
-											{formatSettledEurMicros(run.settledCharge.chargedMicros)}
+											{chargeShare.label} of this month&apos;s credits
 										</strong>
 									</li>
 								) : null}
@@ -594,7 +596,9 @@ export function HomeExecutionDetailView({
 					<dt className="text-kumo-subtle">Cost</dt>
 					<dd>
 						{run.settledCharge
-							? `${formatSettledEurMicros(run.settledCharge.chargedMicros)} settled for the delegated run`
+							? chargeShare
+								? `${chargeShare.label} of this month's credits, settled for the delegated run`
+								: "Settled for the delegated run"
 							: run.usage?.costUsd != null
 								? `$${run.usage.costUsd.toFixed(4)} (Home only)`
 								: isActiveRunStatus(run.status)

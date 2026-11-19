@@ -1,14 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
-import type { CreditUsage } from "@/lib/billing-credits";
+import { allowanceShare, type CreditUsage } from "@/lib/billing-credits";
 import {
 	billingOverviewQueryOptions,
 	homeConversationChargesQueryOptions,
 } from "@/lib/os-query-options";
 import {
 	ConversationUsageLine,
-	conversationUsage,
 	conversationUsageText,
 } from "./chat-usage-line";
 
@@ -27,7 +26,7 @@ const credits: CreditUsage = {
 };
 
 function render(
-	data?: { chargedMicros: number; chargeCount: number } | undefined,
+	data?: { credits: number; chargeCount: number } | undefined,
 	withCredits = true,
 ) {
 	const client = new QueryClient({
@@ -36,7 +35,7 @@ function render(
 	if (data)
 		client.setQueryData(
 			homeConversationChargesQueryOptions("home:fictional").queryKey,
-			{ currency: "eur", runCount: 3, ...data },
+			{ runCount: 3, ...data },
 		);
 	if (withCredits)
 		client.setQueryData(billingOverviewQueryOptions().queryKey, {
@@ -54,12 +53,12 @@ function render(
 
 describe("ConversationUsageLine", () => {
 	it("states the conversation's share of this month's credits, not a count", () => {
-		const usage = conversationUsage(1_250_000, credits);
+		const usage = allowanceShare(credits, 125);
 		expect(usage).toEqual({ percent: 12, label: "12%" });
 		expect(conversationUsageText(usage)).toBe(
 			"12% of this month's credits used in this conversation",
 		);
-		const html = render({ chargedMicros: 1_250_000, chargeCount: 4 });
+		const html = render({ credits: 125, chargeCount: 4 });
 		expect(html).toContain(
 			"12% of this month&#x27;s credits used in this conversation",
 		);
@@ -69,12 +68,14 @@ describe("ConversationUsageLine", () => {
 	});
 
 	it("shows <1% for a small charge rather than zero", () => {
-		expect(conversationUsage(4_200, credits).label).toBe("<1%");
+		expect(render({ credits: 1, chargeCount: 1 })).toContain(
+			"&lt;1% of this month",
+		);
 	});
 
 	it("stays silent while loading, before anything has settled, or without billing access", () => {
 		expect(render()).toBe("");
-		expect(render({ chargedMicros: 0, chargeCount: 0 })).toBe("");
-		expect(render({ chargedMicros: 4_200, chargeCount: 1 }, false)).toBe("");
+		expect(render({ credits: 0, chargeCount: 0 })).toBe("");
+		expect(render({ credits: 1, chargeCount: 1 }, false)).toBe("");
 	});
 });
