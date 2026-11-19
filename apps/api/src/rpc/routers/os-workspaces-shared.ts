@@ -1,3 +1,5 @@
+import { grantOsWorkspaceAccess } from "@tedix/db/queries/os-collaborators";
+import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
 import type { ORPCError } from "@orpc/server";
 import type { OsBlueprintWithVisibility } from "@tedix/api-contract/contracts/os-workspaces";
 import {
@@ -746,6 +748,32 @@ export async function ensureWorkspaceSkillDependencyLinks(
 			params.organizationId,
 		);
 		if (tedi) {
+			const access = await requireWorkspaceCollaboratorAccess(
+				context,
+				params.workspaceId,
+				"sharing.write",
+			);
+			if (!access.rows.edges.some((edge) => edge.targetUserId === tedi.id)) {
+				await grantOsWorkspaceAccess(createDbQueryClient(context.env.DB), {
+					...scope,
+					now: new Date().toISOString(),
+					edges: [
+						{
+							kind: "tedi",
+							targetUserId: tedi.id,
+							targetEmail: null,
+							targetName: tedi.displayName ?? tedi.name,
+							sharerUserId:
+								tedi.id === access.callerId &&
+								tedi.scope === "personal" &&
+								tedi.ownerUserId
+									? tedi.ownerUserId
+									: access.callerId,
+							role: "build",
+						},
+					],
+				});
+			}
 			const link = await ensureWorkspaceTenantLink(context, {
 				...scope,
 				...WORKSPACE_TEDI_RESOURCE,

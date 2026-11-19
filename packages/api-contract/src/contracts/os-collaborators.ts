@@ -156,9 +156,9 @@ export const osCollaboratorsContract = oc
 			.route({
 				method: "GET",
 				path: "/people",
-				summary: "Find people in your organization to invite",
+				summary: "Find people and tedis in your organization to invite",
 				description:
-					"Matches part of a name or email among the active people in your own organization. Never returns anyone from another organization.",
+					"Matches active people by name or email and tedis by name in your own organization. Never returns anyone from another organization.",
 			})
 			.input(
 				z
@@ -173,18 +173,23 @@ export const osCollaboratorsContract = oc
 			.route({
 				method: "POST",
 				path: "/workspaces/{workspaceId}/collaborators",
-				summary: "Add a Tedix user by email",
+				summary: "Add a person or tedi",
 				description:
-					"Grants an existing Tedix user access at a role no higher than your own. No notification is sent.",
+					"Grants a person by email or a tedi by its own id access at a role no higher than your own. A tedi must belong to the workspace's organization.",
 			})
 			.input(
 				z
 					.object({
 						workspaceId,
-						email: z.string().trim().email().max(320),
+						email: z.string().trim().email().max(320).optional(),
+						tediId: z.string().uuid().optional(),
 						role: OsCollaboratorRoleSchema,
 					})
-					.strict(),
+					.strict()
+					.refine(
+						(input) => Boolean(input.email) !== Boolean(input.tediId),
+						"Choose one person or tedi",
+					),
 			)
 			.output(z.object({ collaborator: OsCollaboratorSchema })),
 		createLink: oc
