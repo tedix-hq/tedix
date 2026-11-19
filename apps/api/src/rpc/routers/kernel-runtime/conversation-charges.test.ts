@@ -19,8 +19,8 @@ vi.mock("@tedix/db/queries/kernel-runtime-runs", async (importOriginal) => ({
 	listKernelRuntimeRuns: mocks.listRuns,
 }));
 vi.mock("@tedix/db/queries/billing/spending", () => ({
-	sumRunInferenceCharges: mocks.sumCharges,
-	sumRunInferenceChargesByRun: mocks.sumChargesByRun,
+	sumRunCredits: mocks.sumCharges,
+	sumRunCreditsByRun: mocks.sumChargesByRun,
 }));
 // Terminal delegated rows otherwise repair their completion message through
 // the database; this file only tests what the run set reads.
@@ -95,19 +95,19 @@ const delegatedRow = (id: string, childRunId: string | null) => ({
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.access.mockResolvedValue(undefined);
-	mocks.sumCharges.mockResolvedValue({ chargedMicros: 1234, chargeCount: 3 });
+	mocks.sumCharges.mockResolvedValue({ credits: 12, chargeCount: 3 });
 	mocks.sumChargesByRun.mockResolvedValue(new Map());
 });
 
 describe("readRunSet settled delegated charges", () => {
-	it("attaches each delegated run's own settled EUR charge by its child run", async () => {
+	it("attaches each delegated run's own credits by its child run", async () => {
 		mocks.listRuns.mockResolvedValueOnce([
 			delegatedRow("run-1", "tedi:child-1"),
 			delegatedRow("run-2", "tedi:child-2"),
 			delegatedRow("run-3", null),
 		]);
 		mocks.sumChargesByRun.mockResolvedValueOnce(
-			new Map([["tedi:child-1", { chargedMicros: 40_000, chargeCount: 2 }]]),
+			new Map([["tedi:child-1", { credits: 4, chargeCount: 2 }]]),
 		);
 		const result = await client().readRunSet({
 			conversationId: "home:fictional",
@@ -117,7 +117,7 @@ describe("readRunSet settled delegated charges", () => {
 			runIds: ["tedi:child-1", "tedi:child-2"],
 		});
 		expect(result.runSet.runs.map((run) => run.settledCharge)).toEqual([
-			{ currency: "eur", chargedMicros: 40_000, chargeCount: 2 },
+			{ credits: 4, chargeCount: 2 },
 			undefined,
 			undefined,
 		]);
@@ -139,7 +139,7 @@ describe("readRunSet settled delegated charges", () => {
 });
 
 describe("readConversationCharges", () => {
-	it("sums settled EUR charges over the conversation's runs and delegated child runs", async () => {
+	it("sums credits over the conversation's runs and delegated child runs", async () => {
 		mocks.listRuns.mockResolvedValueOnce([
 			run("run-1", "tedi:child-1"),
 			run("run-2"),
@@ -148,8 +148,7 @@ describe("readConversationCharges", () => {
 			conversationId: "home:fictional",
 		});
 		expect(result).toEqual({
-			currency: "eur",
-			chargedMicros: 1234,
+			credits: 12,
 			chargeCount: 3,
 			runCount: 2,
 		});

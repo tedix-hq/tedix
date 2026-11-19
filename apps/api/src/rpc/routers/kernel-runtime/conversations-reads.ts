@@ -51,8 +51,8 @@ import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import { getOrganizationTedi } from "@tedix/db/queries/kernel-runtime-support";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import {
-	sumRunInferenceCharges,
-	sumRunInferenceChargesByRun,
+	sumRunCredits,
+	sumRunCreditsByRun,
 } from "@tedix/db/queries/billing/spending";
 import { listActiveKernelApprovalMirrors } from "@tedix/db/queries/kernel-approval-mirrors";
 import {
@@ -1008,7 +1008,7 @@ export const readRunSetRoute = authed.readRunSet
 	});
 
 /**
- * Attach each delegated run's own settled EUR charges. Delegated work reserves
+ * Attach each delegated run's own Tedix credits. Delegated work reserves
  * credits under the child run, so that id is the charge key. Fail-soft: a
  * charge read failure leaves `settledCharge` absent instead of failing the set.
  */
@@ -1021,9 +1021,9 @@ async function withDelegatedRunSettledCharges(
 		run.childRunId ? [run.childRunId] : [],
 	);
 	if (!childRunIds.length) return runs;
-	let byRun: Awaited<ReturnType<typeof sumRunInferenceChargesByRun>>;
+	let byRun: Awaited<ReturnType<typeof sumRunCreditsByRun>>;
 	try {
-		byRun = await sumRunInferenceChargesByRun(context.db, {
+		byRun = await sumRunCreditsByRun(context.db, {
 			organizationId,
 			runIds: childRunIds,
 		});
@@ -1037,7 +1037,7 @@ async function withDelegatedRunSettledCharges(
 	return runs.map((run) => {
 		const charge = run.childRunId ? byRun.get(run.childRunId) : undefined;
 		return charge && charge.chargeCount > 0
-			? { ...run, settledCharge: { currency: "eur" as const, ...charge } }
+			? { ...run, settledCharge: charge }
 			: run;
 	});
 }
@@ -1073,11 +1073,11 @@ export const readConversationChargesRoute = authed.readConversationCharges
 			}
 			if (rows.length < CONVERSATION_CHARGE_RUN_PAGE) break;
 		}
-		const charges = await sumRunInferenceCharges(context.db, {
+		const credits = await sumRunCredits(context.db, {
 			organizationId,
 			runIds,
 		});
-		return { currency: "eur" as const, runCount, ...charges };
+		return { runCount, ...credits };
 	});
 
 /** Show every held delegation's review window, stamped or derived from the org TTL. */

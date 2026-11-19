@@ -5,8 +5,6 @@ import { tedis as sqliteTedis } from "../schema/tedis";
 import { tedis as pgTedis } from "./schema/tedis";
 import { apps as sqliteApps } from "../schema/apps";
 import { apps as pgApps } from "./schema/apps";
-import { sumRunInferenceCharges as sumSqliteSpending } from "../queries/billing/spending";
-import { sumRunInferenceCharges as sumPostgresSpending } from "./queries/billing/spending";
 
 import { PGlite } from "@electric-sql/pglite";
 import { readdir, readFile } from "node:fs/promises";
