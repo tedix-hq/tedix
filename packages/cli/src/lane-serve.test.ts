@@ -215,6 +215,7 @@ function fixture({
 			| undefined,
 	};
 	let threadNumber = 0;
+	let attemptNumber = 0;
 	let cleaning = false;
 	const config = {
 		...options,
@@ -319,7 +320,7 @@ function fixture({
 			return {
 				thread: {
 					id:
-						resume ??
+						(control.uniqueAttempts ? resume : undefined) ??
 						`33333333-3333-4333-8333-${String(++threadNumber).padStart(12, "0")}`,
 					cliVersion: "1.2.3",
 					path: "/fictional/transcript",
@@ -412,7 +413,7 @@ function fixture({
 						: input.metadata?.verificationRound
 							? `fictional-verification-${workItem.version}`
 							: control.uniqueAttempts
-								? `fictional-attempt-${events.filter((event) => event.verb === "start" && event.input).length}`
+								? `fictional-attempt-${++attemptNumber}`
 								: "fictional-attempt",
 					orgId: devinOrgId,
 					workItemId: args[6],
@@ -487,7 +488,7 @@ function fixture({
 						: brief.includes("Verify-only Attempt.")
 							? `fictional-verification-${work.version}`
 							: control.uniqueAttempts
-								? `fictional-attempt-${events.filter((event) => event.verb === "start" && event.input).length}`
+								? `fictional-attempt-${attemptNumber}`
 								: "fictional-attempt",
 				),
 			);
@@ -8170,6 +8171,33 @@ it.each([
 				"socket hang up",
 				"connection reset by peer",
 			].entries()) {
+				if (index === 1 && executor !== "codex") {
+					f.control.startError =
+						executor === "claude-code"
+							? new Error("Admission response lost")
+							: new CliReadError(
+									"Admission refused: resource capacity",
+									"CONFLICT",
+								);
+					const retry = f.restart();
+					await retry.tick();
+					await retry.drain();
+					const pending = JSON.parse(readFileSync(path, "utf8"));
+					expect(pending.session).toBe(session!);
+					expect(pending.attemptId).toBeUndefined();
+					expect(pending.retainedAttemptId).toBe("fictional-attempt-1");
+					expect(pending.nativeResumeCount ?? 0).toBe(0);
+					expect(launch).toHaveBeenCalledTimes(1);
+					f.control.startError = undefined;
+					now = pending.retryAt + 1;
+					if (executor === "claude-code") {
+						await retry.tick();
+						await retry.drain();
+						const reconciled = JSON.parse(readFileSync(path, "utf8"));
+						expect(reconciled.admissionState).toBe("not_sent");
+						expect(reconciled.attemptId).toBeUndefined();
+					}
+				}
 				f.control.finalMessage =
 					outcome === "expired"
 						? `Lease lost during turn ${index + 1}`
