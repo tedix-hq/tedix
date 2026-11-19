@@ -141,7 +141,7 @@ export type NewPgOrganizationMember = typeof organizationMembers.$inferInsert;
 export interface OrganizationFeatures {
 	/** Maximum number of AI apps this org can create */
 	maxApps?: number;
-	/** Maximum CMS sites (-1 = unlimited); paused sites still occupy a slot. */
+	/** Maximum CMS sites; paused sites still occupy a slot. */
 	maxCmsSites?: number;
 	/** Maximum team members */
 	maxTeamMembers?: number;
@@ -157,10 +157,6 @@ export interface OrganizationFeatures {
 	advancedAnalytics?: boolean;
 	/** White-label (remove Tedix branding) */
 	whiteLabel?: boolean;
-	/** Maximum tokens per month (-1 = unlimited) */
-	maxTokensPerMonth?: number;
-	/** Maximum tedis (-1 = unlimited) */
-	maxTedis?: number;
 	/** Tedix OS provisioned: `{slug}.os.tedix.dev` resolves to the OS shell */
 	os?: boolean;
 }
@@ -263,8 +259,6 @@ export const DEFAULT_ORGANIZATION_FEATURES_BY_PLAN: Record<
 		prioritySupport: false,
 		advancedAnalytics: false,
 		whiteLabel: false,
-		maxTokensPerMonth: 100_000,
-		maxTedis: 1,
 	},
 	growth: {
 		maxApps: 5,
@@ -276,8 +270,6 @@ export const DEFAULT_ORGANIZATION_FEATURES_BY_PLAN: Record<
 		prioritySupport: false,
 		advancedAnalytics: true,
 		whiteLabel: false,
-		maxTokensPerMonth: 500_000,
-		maxTedis: 1,
 	},
 	business: {
 		maxApps: 15,
@@ -289,20 +281,16 @@ export const DEFAULT_ORGANIZATION_FEATURES_BY_PLAN: Record<
 		prioritySupport: false,
 		advancedAnalytics: true,
 		whiteLabel: false,
-		maxTokensPerMonth: 2_000_000,
-		maxTedis: 3,
 	},
 	enterprise: {
-		maxApps: -1, // unlimited
-		maxCmsSites: -1, // unlimited
-		maxTeamMembers: -1, // unlimited
+		maxApps: 50,
+		maxCmsSites: 25,
+		maxTeamMembers: 50,
 		customDomain: true,
 		sso: true,
 		apiAccess: true,
 		prioritySupport: true,
 		advancedAnalytics: true,
 		whiteLabel: true,
-		maxTokensPerMonth: -1, // unlimited
-		maxTedis: -1, // unlimited
 	},
 };
