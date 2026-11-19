@@ -91,46 +91,29 @@ export async function getCatalogStats(
 }> {
 	const baseCondition = includeUntrusted ? undefined : publicCatalogCondition;
 
-	const [
-		totalResult,
-		mcpResult,
-		interactiveResult,
-		writesResult,
-		sourceResult,
-	] = await Promise.all([
+	const [totalResult, capabilityResult, sourceResult] = await db.batch([
 		includeUntrusted
 			? db.select({ count: count() }).from(appCatalog)
 			: db
 					.select({ count: appCatalogBrowseTotals.total })
 					.from(appCatalogBrowseTotals)
 					.where(eq(appCatalogBrowseTotals.id, "public")),
-		// Get MCP count
 		db
-			.select({ count: count() })
+			.select({
+				mcp: sql<number>`count(*) filter (where ${eq(appCatalog.connectorType, "MCP")})`.as(
+					"mcp",
+				),
+				withInteractive:
+					sql<number>`count(*) filter (where ${eq(appCatalog.hasInteractive, true)})`.as(
+						"with_interactive",
+					),
+				withWrites:
+					sql<number>`count(*) filter (where ${eq(appCatalog.hasWrites, true)})`.as(
+						"with_writes",
+					),
+			})
 			.from(appCatalog)
-			.where(
-				baseCondition
-					? and(baseCondition, eq(appCatalog.connectorType, "MCP"))
-					: eq(appCatalog.connectorType, "MCP"),
-			),
-		// Get interactive count
-		db
-			.select({ count: count() })
-			.from(appCatalog)
-			.where(
-				baseCondition
-					? and(baseCondition, eq(appCatalog.hasInteractive, true))
-					: eq(appCatalog.hasInteractive, true),
-			),
-		// Get writes count
-		db
-			.select({ count: count() })
-			.from(appCatalog)
-			.where(
-				baseCondition
-					? and(baseCondition, eq(appCatalog.hasWrites, true))
-					: eq(appCatalog.hasWrites, true),
-			),
+			.where(baseCondition),
 		// Get per-source counts from store listings
 		db
 			.select({
@@ -152,9 +135,9 @@ export async function getCatalogStats(
 
 	return {
 		total: totalResult[0]?.count ?? 0,
-		mcp: mcpResult[0]?.count ?? 0,
-		withInteractive: interactiveResult[0]?.count ?? 0,
-		withWrites: writesResult[0]?.count ?? 0,
+		mcp: capabilityResult[0]?.mcp ?? 0,
+		withInteractive: capabilityResult[0]?.withInteractive ?? 0,
+		withWrites: capabilityResult[0]?.withWrites ?? 0,
 		sourceBreakdown: sourceResult.map((r) => ({
 			source: r.source,
 			count: r.count,
