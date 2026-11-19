@@ -764,9 +764,10 @@ export const workItemsContract = oc
 						.describe(
 							"Owner/admin dispatcher reassignment. Preserves the Work revision and failure hold; cannot accompany specification edits.",
 						),
-					executorReference: WorkExecutorReferenceSchema.optional().describe(
-						"The executor's type and ID. Owners, admins and the Work's tedi steward may set it. External agents codex and claude-code queue a fresh session on accepted Work.",
+					executor: WorkExecutorSchema.optional().describe(
+						"codex or claude-code on accepted Work queues a fresh session that a connected Mac starts and that claims its own Attempt. Owners, admins and the Work's tedi steward may set it.",
 					),
+					executorReference: WorkExecutorReferenceSchema.optional(),
 					laneDispatch: LaneDispatchPlanSchema.optional(),
 					delegationDepth: z
 						.number()

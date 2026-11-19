@@ -149,7 +149,7 @@ describe("approval freshness through lane planning", () => {
 
 		// Repeating the current executor is planning, not a reassignment.
 		const ready = await update({
-			executorReference: { type: "external_agent", id: "codex" },
+			executor: "codex",
 			laneDispatch: { state: "ready" },
 			riskLevel: "high",
 		});
@@ -184,15 +184,7 @@ describe("approval freshness through lane planning", () => {
 	});
 
 	it.each([
-		[
-			"a reassignment",
-			{
-				executorReference: {
-					type: "external_agent" as const,
-					id: "claude-code",
-				},
-			},
-		],
+		["a reassignment", { executor: "claude-code" }],
 		["a risk change", { riskLevel: "critical" as const }],
 		["a capability change", { requiredCapabilities: ["deploy"] }],
 		["an authority change", { requiredAuthorities: ["finance:approve"] }],
