@@ -63,6 +63,7 @@ import {
 import { resolveWorkEvidenceRow } from "../../../services/work-evidence-resolution";
 import { requireOrgId } from "../../org-scope";
 import { ErrorCodes, createError } from "../../orpc";
+import { canShowWorkItemCompletion } from "./operator-policy";
 import {
 	assertOwnerSetLaneExecution,
 	assertWorkItemAccess,
@@ -376,6 +377,11 @@ export const getByIdProcedure = authOs.getById.handler(
 			]);
 		return {
 			workItem,
+			canComplete: await canShowWorkItemCompletion(
+				context,
+				workItem,
+				project ?? null,
+			),
 			project:
 				project && project.orgId === workItem.orgId
 					? {

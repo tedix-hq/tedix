@@ -1,7 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
+import { GetWorkItemResultSchema } from "@tedix/api-contract/schemas/work-items";
 import { createDbClient } from "@tedix/db/client";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
-import { workEvents } from "@tedix/db/schema/work-items";
+import {
+	workEvents,
+	workEvidence,
+	workItemProjections,
+} from "@tedix/db/schema/work-items";
 import { workInteractions } from "@tedix/db/schema/work-factory";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -12,6 +17,7 @@ import {
 import type { BaseContext } from "../../orpc";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { assertWorkOperatorGrant } from "./operator-policy";
+import { getByIdProcedure } from "./creation-reads";
 import {
 	workItemAcceptanceActor,
 	workItemStewardActor,
@@ -46,7 +52,13 @@ async function fixture() {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
 		canonicalWorkFactoryDdl() +
-			schemaDdl(organizationMembers, workEvents, workInteractions),
+			schemaDdl(
+				organizationMembers,
+				workEvents,
+				workInteractions,
+				workEvidence,
+				workItemProjections,
+			),
 	);
 	sqlite.exec(`INSERT INTO organizations(id,name,slug) VALUES('org','Org','org');
 		INSERT INTO projects(id,org_id,key,name,metadata,created_at) VALUES('project','org','P','Project','{}','2026-10-19');
@@ -157,6 +169,44 @@ describe("project member Work operators", () => {
 			).resolves.toMatchObject({ id: "member" });
 		},
 	);
+	it("projects completion permission only for an eligible person on accepted Work", async () => {
+		const { context, sqlite, setGrant } = await fixture();
+		const permissionSchema = GetWorkItemResultSchema.pick({
+			canComplete: true,
+		});
+		const canComplete = async (caller = context) =>
+			permissionSchema.parse(
+				await getByIdProcedure["~orpc"].handler!({
+					context: caller,
+					input: { id },
+					path: [],
+					procedure: getByIdProcedure,
+					signal: undefined,
+					lastEventId: undefined,
+				}),
+			).canComplete;
+		setGrant();
+		await expect(canComplete()).resolves.toBe(false);
+		sqlite.exec("UPDATE work_items SET disposition='accepted'");
+		await expect(canComplete()).resolves.toBe(true);
+		setGrant({ ...grant, actions: ["acceptance"] });
+		await expect(canComplete()).resolves.toBe(false);
+		setGrant({ ...grant, actions: ["*"] });
+		await expect(canComplete()).resolves.toBe(false);
+
+		for (const role of ["owner", "admin"]) {
+			sqlite.prepare("UPDATE organization_members SET role=?").run(role);
+			await expect(canComplete()).resolves.toBe(true);
+		}
+		await expect(
+			canComplete({ ...context, ownerHostSessionId: "owner-host" }),
+		).resolves.toBe(false);
+		await expect(canComplete({ ...context, authType: "apikey" })).resolves.toBe(
+			false,
+		);
+		sqlite.exec("UPDATE organization_members SET status='deactivated'");
+		await expect(canComplete()).resolves.toBe(false);
+	});
 	it("does not delegate specification governance, factory mutation or grant management", async () => {
 		const { context, item, setGrant } = await fixture();
 		setGrant();
