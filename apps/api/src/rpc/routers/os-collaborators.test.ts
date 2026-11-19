@@ -31,6 +31,7 @@ import {
 	osGadgets,
 	osOutputs,
 	osWorkspaceSummaries,
+	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { tedis } from "@tedix/db/schema/tedis";
@@ -48,6 +49,10 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
+import { readWorkspaceRuntimeRole } from "@tedix/db/queries/os-workspace-access";
+import { ensureWorkspaceSkillDependencyLinks } from "./os-workspaces-shared";
+import { assertOsWorkspaceVisible } from "../../services/os-workspace-visibility";
+import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
 import { osCollaboratorsContractRouter } from "./os-collaborators";
 import { osWorkspacesContractRouter } from "./os-workspaces";
 
@@ -76,6 +81,7 @@ function createEnv() {
 			kernelRuntimeEvents,
 			osWorkspaces,
 			osWorkspaceSummaries,
+			osWorkspaceResources,
 			osOutputs,
 			providerInstallations,
 			osCollaborationProposals,
@@ -165,6 +171,125 @@ const DENIED = {
 };
 
 describe("workspace collaborators", () => {
+	it("gives a linked skill's tedi a durable build edge and preserves an existing use grant", async () => {
+		const { env, sqlite, workspaceId } = await seed();
+		const tediId = "12345678-1234-4234-8234-123456789abc";
+		sqlite
+			.prepare(
+				"INSERT INTO tedis (id, organization_id, name, slug, status, scope) VALUES (?, 'org-1', 'Research helper', 'research', 'active', 'organization')",
+			)
+			.run(tediId);
+		const ctx = context(env, ROBIN);
+		const input = {
+			organizationId: "org-1",
+			workspaceId,
+			skill: { tediId, content: "", files: null },
+		};
+		await ensureWorkspaceSkillDependencyLinks(ctx, input);
+		const role = () =>
+			readWorkspaceRuntimeRole(
+				ctx.db,
+				{ organizationId: "org-1", workspaceId },
+				{ actorId: tediId, actorKind: "tedi" },
+			);
+		expect(await role()).toBe("build");
+		await as(env, ROBIN).setRole({ workspaceId, userId: tediId, role: "use" });
+		await ensureWorkspaceSkillDependencyLinks(ctx, input);
+		expect(await role()).toBe("use");
+	});
+
+	it.each(["private", "org"] as const)(
+		"invites and removes a tedi principal in a %s workspace",
+		async (visibility) => {
+			const { env, sqlite, workspaceId } = await seed();
+			const tediId = "12345678-1234-4234-8234-123456789abc";
+			sqlite
+				.prepare("UPDATE os_workspaces SET visibility = ? WHERE id = ?")
+				.run(visibility, workspaceId);
+			sqlite
+				.prepare(
+					"INSERT INTO tedis (id, organization_id, name, slug, status, scope) VALUES (?, 'org-1', 'Research helper', 'research', 'active', 'organization')",
+				)
+				.run(tediId);
+			const tediContext = {
+				...context(env, ROBIN),
+				authType: "tedi",
+				user: undefined,
+				tediId,
+			} as BaseContext;
+			const workspace = (
+				await context(env, ROBIN).db.select().from(osWorkspaces)
+			)[0]!;
+			const role = () =>
+				readWorkspaceRuntimeRole(
+					tediContext.db,
+					{ organizationId: "org-1", workspaceId },
+					{ actorId: tediId, actorKind: "tedi" },
+				);
+			expect(await role()).toBeNull();
+			await expect(
+				assertOsWorkspaceVisible(tediContext, workspace),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			const { collaborator } = await as(env, ROBIN).add({
+				workspaceId,
+				tediId,
+				role: "use",
+			});
+			expect(collaborator).toMatchObject({
+				userId: tediId,
+				principalKind: "tedi",
+				role: "use",
+			});
+			expect(await role()).toBe("use");
+			await expect(
+				requireWorkspaceCollaboratorAccess(
+					tediContext,
+					workspaceId,
+					"metadata.read",
+				),
+			).resolves.toMatchObject({ role: "use" });
+			await expect(
+				assertOsWorkspaceVisible(tediContext, workspace),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			await as(env, ROBIN).add({ workspaceId, tediId, role: "build" });
+			expect(await role()).toBe("build");
+			await expect(
+				assertOsWorkspaceVisible(tediContext, workspace),
+			).resolves.toBeUndefined();
+			expect(
+				(await as(env, ROBIN).list({ workspaceId })).collaborators,
+			).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						userId: tediId,
+						principalKind: "tedi",
+						canRemove: true,
+					}),
+				]),
+			);
+			await as(env, ROBIN).remove({
+				workspaceId,
+				target: { kind: "user", userId: tediId },
+			});
+			expect(await role()).toBeNull();
+			await expect(
+				assertOsWorkspaceVisible(tediContext, workspace),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
+		},
+	);
+	it("refuses inviting a tedi from another organization", async () => {
+		const { env, sqlite, workspaceId } = await seed();
+		const tediId = "12345678-1234-4234-8234-123456789abc";
+		sqlite
+			.prepare(
+				"INSERT INTO tedis (id, organization_id, name, slug, status, scope) VALUES (?, 'org-2', 'Other helper', 'other', 'active', 'organization')",
+			)
+			.run(tediId);
+		await expect(
+			as(env, ROBIN).add({ workspaceId, tediId, role: "build" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+
 	it.each([
 		"open",
 		"accepted",
@@ -599,6 +724,7 @@ describe("workspace collaborators", () => {
 		});
 		expect(preview.affected).toEqual([
 			{
+				principalKind: "user",
 				userId: LEE,
 				email: "lee@example.test",
 				name: "Lee",
@@ -1479,7 +1605,12 @@ describe("people suggestions for invites", () => {
 		const robin = teamReader(env, ROBIN, ["team:read"]);
 		// A name match, case-insensitive: only active people, never agents, never org-2.
 		expect((await robin.suggestPeople({ query: "KAI" })).people).toEqual([
-			{ userId: KAI, email: "kai@example.test", name: "Kai" },
+			{
+				userId: KAI,
+				email: "kai@example.test",
+				name: "Kai",
+				principalKind: "user",
+			},
 		]);
 		// An email match.
 		expect(
@@ -1498,6 +1629,7 @@ describe("people suggestions for invites", () => {
 			).people,
 		).toEqual([
 			{
+				principalKind: "user",
 				userId: "member-kay",
 				email: "kay@example.test",
 				name: "Kai Elsewhere",
