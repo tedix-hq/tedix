@@ -102,10 +102,7 @@ const listProcedure = os.list
 		const machines = await listMachines(context.db, {
 			orgId: requireOrgId(context),
 		});
-		return {
-			// Runners do not report their version yet.
-			machines: machines.map((machine) => ({ ...machine, cliVersion: null })),
-		};
+		return { machines };
 	});
 
 const requestToolCallProcedure = os.requestToolCall

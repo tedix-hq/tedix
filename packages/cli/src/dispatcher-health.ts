@@ -87,6 +87,7 @@ export interface LocalDispatcherHealth {
 	lastAdmissionAt: string | null;
 	topReason: { reason: string; count: number } | null;
 	duty?: SupervisorDutyHealth;
+	cliVersion?: string;
 	/** The name a tedi uses for this machine. */
 	machineName?: string;
 	/** The machine tools this machine accepts for this organization. */
@@ -596,6 +597,7 @@ export function collectDispatcherHealth(
 				reporterId,
 				executor: source.executor,
 				lane: basename(directory),
+				cliVersion: source.cliVersion,
 				running,
 				observedAt,
 				lastAdmissionAt:

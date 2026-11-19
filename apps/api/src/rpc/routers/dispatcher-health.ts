@@ -32,6 +32,7 @@ function toReport(row: DispatcherHealthReportRow, now: Date) {
 		lastAdmissionAt: row.lastAdmissionAt,
 		duty: row.duty ?? null,
 		machineName: row.machineName ?? null,
+		cliVersion: row.cliVersion,
 		topReason:
 			row.topReason === null || row.topReasonCount === null
 				? null
@@ -66,6 +67,7 @@ const reportProcedure = os.report
 			topReasonCount: input.topReason?.count ?? null,
 			duty: input.duty ?? null,
 			machineName: input.machineName ?? null,
+			cliVersion: input.cliVersion ?? null,
 			machineTools: input.machineTools ?? null,
 			reportedBy,
 		});

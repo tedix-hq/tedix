@@ -88,6 +88,7 @@ describe("machines", () => {
 				machineName: "laptop",
 				executors: ["codex"],
 				lastSeenAt: after(-600),
+				cliVersion: null,
 				machineTools: [],
 				online: false,
 			},
@@ -95,6 +96,7 @@ describe("machines", () => {
 				machineName: "studio",
 				executors: ["claude", "codex"],
 				lastSeenAt: T0,
+				cliVersion: null,
 				// A tool name this server does not know is dropped.
 				machineTools: ["read_file", "read_runner_state"],
 				online: true,

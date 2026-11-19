@@ -1700,6 +1700,10 @@
 		{
 			"name": "20261119213322_machine_tool_call_write_input/migration.sql",
 			"sha256": "6803e63defc9126d4d18938c736ec175c9e99bc1c5577638b23be17ce26c2c05"
+		},
+		{
+			"name": "20261119223228_dispatcher_health_cli_version/migration.sql",
+			"sha256": "f43978100400b2d8bcf258bbfa982d1aadcc82837245d9057650ce445a5f6cdb"
 		}
 	]
 }

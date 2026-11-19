@@ -168,7 +168,9 @@ const claim = { reporterId: "reporter-1", machineName: "Studio", limit: 5 };
 describe("machines", () => {
 	it("lists the machines of the caller's organization only", async () => {
 		const f = fixture();
-		await f.report(f.person("member-subject"));
+		const member = f.person("member-subject");
+		await f.report(member, { cliVersion: "0.24.0" });
+		await f.report(member, { cliVersion: "0.24.1" });
 		await f.report(f.person("outsider-subject", OTHER_ORG), {
 			machineName: "Elsewhere",
 		});
@@ -177,7 +179,7 @@ describe("machines", () => {
 			expect.objectContaining({
 				machineName: "Studio",
 				executors: ["codex"],
-				cliVersion: null,
+				cliVersion: "0.24.1",
 				machineTools: ["read_file", "read_runner_state"],
 				online: true,
 			}),

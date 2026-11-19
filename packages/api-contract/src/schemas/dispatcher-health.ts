@@ -116,6 +116,8 @@ export const DispatcherHealthTopReasonSchema = z.object({
 	count: z.number().int().min(1).max(1_000_000),
 });
 
+const CliVersionSchema = z.string().trim().min(1).max(64).nullable().optional();
+
 export const ReportDispatcherHealthInputSchema = z.object({
 	reporterId: BoundedIdSchema,
 	executor: z.string().trim().min(1).max(64),
@@ -125,6 +127,7 @@ export const ReportDispatcherHealthInputSchema = z.object({
 	lastAdmissionAt: z.iso.datetime().nullable(),
 	topReason: DispatcherHealthTopReasonSchema.nullable(),
 	duty: SupervisorDutyHealthSchema.nullable().optional(),
+	cliVersion: CliVersionSchema,
 	/** The readable name of the machine this runner is on. */
 	machineName: MachineNameSchema.nullable().optional(),
 	/** The read-only machine tools this machine accepts; empty switches them off. */
@@ -142,6 +145,7 @@ export const DispatcherHealthReportSchema = z.object({
 	topReason: DispatcherHealthTopReasonSchema.nullable(),
 	duty: SupervisorDutyHealthSchema.nullable().optional(),
 	machineName: MachineNameSchema.nullable().optional(),
+	cliVersion: CliVersionSchema,
 	ageSeconds: z.number().int().nonnegative(),
 	staleAfterSeconds: z.number().int().positive(),
 	stale: z.boolean(),
