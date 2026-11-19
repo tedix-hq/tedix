@@ -601,6 +601,79 @@ describe("kernel runtime router: delegation", () => {
 		},
 	);
 
+	it("shows only the picked tedi’s answer and keeps its outcome on the run", async () => {
+		const db = createKernelRuntimeDb();
+		const client = createKernelRuntimeClient({
+			...createContext(db, { userSub: "operator-1" }),
+			apiKey: undefined,
+			authType: "user",
+			userRole: "owner",
+			headers: new Headers(),
+		});
+		const conversationId = "home:os:chat-7";
+		const childRunId = "tedi-cpo:mcp:home-pick-reply_delegate_tedi-cpo";
+		kernelRuntimeTestHooks.setDelegateRunnerForTest(async () => ({
+			childConversationId: "agent:main:main",
+			childRunId,
+			status: "queued",
+		}));
+
+		const queued = await client.enqueueMessage({
+			conversationId,
+			content: "What remains on the deploy plan?",
+			delegateToTediId: "tedi-cpo",
+			idempotencyKey: "home-pick-reply",
+		});
+		expect(queued.assistantMessage).toMatchObject({
+			content: "",
+			metadata: { metadata: { homeNarration: "delegation_ack" } },
+		});
+
+		const answer = "The deploy plan still needs a rollback step.";
+		db.runtimeEvents.push(
+			childRuntimeEvent({
+				createdAt: "2026-06-06T08:01:00.000Z",
+				id: "picked-tedi-answer",
+				kind: "message.completed",
+				payload: {
+					role: "assistant",
+					content: `Outcome: needs_follow_up — ${answer}`,
+				},
+				runId: childRunId,
+				tediId: "tedi-cpo",
+			}),
+			childRuntimeEvent({
+				createdAt: "2026-06-06T08:01:01.000Z",
+				id: "picked-tedi-completed",
+				kind: "run.completed",
+				payload: { status: "completed" },
+				runId: childRunId,
+				tediId: "tedi-cpo",
+			}),
+		);
+
+		await client.readRunSet({ conversationId, limit: 10 });
+		const { messages } = await client.readMessages({
+			conversationId,
+			limit: 10,
+		});
+		expect(
+			messages
+				.filter((message) => message.role === "assistant")
+				.map((message) => message.content),
+		).toEqual([answer]);
+		const { runSet } = await client.readRunSet({ conversationId, limit: 10 });
+		expect(runSet.runs).toContainEqual(
+			expect.objectContaining({
+				id: queued.run.id,
+				metadata: expect.objectContaining({
+					childRunPreview: answer,
+					childTaskOutcome: "needs_follow_up",
+				}),
+			}),
+		);
+	});
+
 	it("enriches delegated Home messages with child runtime status", async () => {
 		const db = createKernelRuntimeDb();
 		const client = createKernelRuntimeClient(createContext(db));

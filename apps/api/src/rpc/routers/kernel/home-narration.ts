@@ -13,11 +13,8 @@
  * and never rewritten: the writer stamps a structural class on
  * `payload.metadata.homeNarration`, and the READ path
  * (`readMessages` → {@link collapseHomeDelegationNarration}) decides what
- * renders. Classification is by EMISSION SITE and run structure only — never
- * by matching message text. Four of five turns that "looked like" machine
- * narration in the live thread were the operator's own words, and the prose
- * templates are model-adjacent enough that any regex over them is a
- * data-loss bug waiting to happen.
+ * renders. New rows are classified at the emission site. Older explicit
+ * dispatches are recognized by their fixed receipt and child run metadata.
  *
  * Precedent: `isHomeMessageEvent` (kernel-runtime/run-reads-streams.ts)
  * already hides two classes of kernel machinery from the rendered transcript
@@ -32,6 +29,9 @@
  */
 
 import { nonNullRecord, stringFromPayload } from "./runtime-shared";
+
+export const EXPLICIT_DELEGATION_ACK =
+	"I delegated this Home turn to the selected tedi and linked the child run back to Home.";
 
 /**
  * Why a Home assistant turn's prose is redundant with its delegation receipt.
@@ -80,7 +80,17 @@ export function homeNarrationMetadata(narrationClass: HomeNarrationClass): {
 export function readHomeNarrationClass(
 	payload: unknown,
 ): HomeNarrationClass | null {
-	const metadata = nonNullRecord(nonNullRecord(payload)?.metadata);
+	const message = nonNullRecord(payload);
+	const metadata = nonNullRecord(message?.metadata);
+	// Older explicit dispatches predate the narration stamp.
+	if (
+		message?.role === "assistant" &&
+		message.content === EXPLICIT_DELEGATION_ACK &&
+		metadata?.homeSubject === true &&
+		typeof metadata.childRunId === "string"
+	) {
+		return "delegation_ack";
+	}
 	const value = stringFromPayload(metadata?.homeNarration);
 	return HOME_NARRATION_CLASSES.includes(value as HomeNarrationClass)
 		? (value as HomeNarrationClass)

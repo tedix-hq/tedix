@@ -4,6 +4,7 @@ import {
 	readChatStarterSet,
 	rememberNextChatStarterSet,
 } from "@/components/chat-composer-options";
+import { asRecord } from "@tedix/api-contract/utils/is-record";
 import { BrowserAgentSeatSchema } from "@tedix/api-contract/schemas/browser-agent-seat";
 import { isLocalWorkersAi } from "@/lib/local-inference";
 import {
@@ -145,7 +146,8 @@ export function ChatMessageBubble({
 	if (
 		!isUser &&
 		!decoded.content &&
-		message.metadata?.homeNarration !== undefined &&
+		(message.metadata?.homeNarration ??
+			asRecord(message.metadata?.metadata)?.homeNarration) != null &&
 		!message.attachments?.length &&
 		structuredResult === null &&
 		!readFailure &&

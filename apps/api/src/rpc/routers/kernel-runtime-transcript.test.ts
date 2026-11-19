@@ -379,11 +379,12 @@ describe("kernel runtime router: transcript", () => {
 				childRunId: "child-relay",
 				payload: {
 					role: "assistant",
-					content: "On it — delegating to CPO now.",
+					content:
+						"I delegated this Home turn to the selected tedi and linked the child run back to Home.",
 					metadata: {
 						childRunId: "child-relay",
 						delegatedTediId: "tedi-cpo",
-						homeNarration: "delegation_ack",
+						homeSubject: true,
 					},
 				},
 				createdAt: "2026-06-06T08:00:30.000Z",
@@ -421,7 +422,12 @@ describe("kernel runtime router: transcript", () => {
 		const completion = messages.messages.find(
 			(message) => message.id === "home-run-relay:async-completion:assistant",
 		);
-		expect(completion?.content).toContain("Outcome: succeeded");
+		expect(completion?.content).toBe("The migration shipped as repo_commit …");
+		expect(
+			messages.messages.some(
+				(message) => message.id === "home-run-relay:assistant",
+			),
+		).toBe(false);
 	});
 
 	it("hides kernel-internal inbox-wake prompts from the Home transcript", async () => {

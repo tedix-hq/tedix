@@ -91,6 +91,10 @@ import { resolveApprovalTtlHours } from "@tedix/api-contract/utils/approval-poli
 import { unresolvedSkillReferences } from "../kernel/context-assembly";
 import { verificationRequirementLines } from "../kernel/delegated-stop";
 import {
+	EXPLICIT_DELEGATION_ACK,
+	homeNarrationMetadata,
+} from "../kernel/home-narration";
+import {
 	KernelDelegateRunnerOutput,
 	activeTranscribeAudio,
 	authed,
@@ -313,6 +317,10 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// otherwise it degrades to the native isolate-delegate path.
 		const isolateDelegation = delegateTarget !== null && !workstationNeeded;
 		const workstationAttach = Boolean(delegateTarget) && workstationNeeded;
+		const pickedByPerson =
+			isolateDelegation &&
+			context.authType === "user" &&
+			resolveKernelConversationOrigin(context) === "human";
 		const userMessageId = `${runId}:input`;
 		const assistantMessageId = `${runId}:assistant`;
 		const delegateClientRequestId =
@@ -1343,9 +1351,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					// A person signed in to Tedix OS chose this tedi for this
 					// message. Agents, API keys and calls through the MCP gateway
 					// are not a person picking a tedi in the chat.
-					pickedByPerson:
-						context.authType === "user" &&
-						resolveKernelConversationOrigin(context) === "human",
+					pickedByPerson,
 					metadata: {
 						...turnMetadata,
 						source: "kernelRuntime.delegate",
@@ -1444,6 +1450,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				: input.delegateToTediId
 					? "queued"
 					: "needs_delegation";
+		const hideDispatchAck = pickedByPerson && !delegationFailed;
 		const assistantContent = delegationFailed
 			? `I recorded this Home turn, but delegated execution failed: ${delegatedRun?.error ?? "unknown error"}`
 			: workstationAttach
@@ -1453,7 +1460,9 @@ export const enqueueMessageRoute = authed.enqueueMessage
 						: "Low-risk workstation attachment: the dispatch policy auto-approved this workstation work order (explicit delegation to a running workstation adapter). It is queued for certified dispatch."
 					: "I drafted a workstation attachment work order. It is not dispatched yet; the selected workstation adapter needs the certified attachment path with progress events, timeout semantics, and commit/ack."
 				: input.delegateToTediId
-					? "I delegated this Home turn to the selected tedi and linked the child run back to Home."
+					? hideDispatchAck
+						? ""
+						: EXPLICIT_DELEGATION_ACK
 					: homePlan
 						? kernelPlanAssistantContent(homePlan)
 						: // Structurally unreachable: kernel-eligible turns (no
@@ -1478,6 +1487,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				channel: "home",
 				metadata: {
 					homeSubject: true,
+					...(hideDispatchAck ? homeNarrationMetadata("delegation_ack") : {}),
 					approvalRequestId,
 					delegatedTediId: input.delegateToTediId ?? null,
 					childConversationId: delegatedRun?.childConversationId ?? null,

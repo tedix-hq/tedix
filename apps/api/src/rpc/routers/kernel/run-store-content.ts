@@ -2,6 +2,7 @@ import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtim
 import {
 	type DelegatedStopClassification,
 	hasDelegatedOutput,
+	stripDelegationOutcome,
 	stripSyntheticMarkers,
 } from "./delegated-stop";
 import { type DelegationAttemptResult } from "./delegation-work-item";
@@ -253,7 +254,7 @@ export function homeDelegationCompletionContent(input: {
 		return "I stopped before I had a result to share. Want me to try again?";
 	}
 	const finalMessage = input.finalMessage
-		? stripSyntheticMarkers(input.finalMessage)
+		? stripDelegationOutcome(stripSyntheticMarkers(input.finalMessage))
 		: null;
 	// A runtime failure notice carries the real reason after "Reason:"; the
 	// operator reads it once, in plain English, with the one next step.

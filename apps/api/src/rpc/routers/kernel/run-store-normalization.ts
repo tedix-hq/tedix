@@ -5,7 +5,10 @@ import type {
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import { type KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { extractRunUsage } from "../../../kernel/kernel-state";
-import { delegatedStopFromSummary } from "./delegated-stop";
+import {
+	delegatedStopFromSummary,
+	stripDelegationOutcome,
+} from "./delegated-stop";
 import {
 	childRunStatusFromSummary,
 	childRunStatusKey,
@@ -261,7 +264,10 @@ export function normalizeHomeRunRecord(
 				childRunStatus?.childRunLatestEventAt ?? row.latestEventAt ?? null,
 			childRunLatestEventKind:
 				childRunStatus?.childRunLatestEventKind ?? row.latestEventKind ?? null,
-			childRunPreview: classified.preview,
+			childRunPreview:
+				row.childRunId && classified.preview
+					? stripDelegationOutcome(classified.preview)
+					: classified.preview,
 			childRunStatus: hasChildStatus ? childStatus : status,
 			childTaskOutcome: childRunStatus?.childTaskOutcome ?? null,
 			...(childRunStatus?.childRunTerminalEventKind
