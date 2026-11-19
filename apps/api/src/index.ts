@@ -111,6 +111,14 @@ async function serveFetch(
 export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	override fetch(request: Request): Promise<Response> {
 		if (
+			new URL(request.url).pathname === "/__internal/identity-cache/invalidate"
+		) {
+			return import("./services/identity-cache-invalidation").then(
+				({ invalidateIdentityCache }) =>
+					invalidateIdentityCache(request, this.env),
+			);
+		}
+		if (
 			new URL(request.url).pathname ===
 			"/__internal/repository-candidate-access"
 		) {

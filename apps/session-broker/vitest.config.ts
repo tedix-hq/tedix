@@ -8,8 +8,12 @@ export default defineConfig({
 			remoteBindings: false,
 			miniflare: {
 				serviceBindings: {
-					API_SERVICE: async () =>
-						new Response("Unavailable in tests", { status: 503 }),
+					API_SERVICE: async (request) =>
+						new URL(request.url).pathname ===
+							"/__internal/identity-cache/invalidate" &&
+						request.method === "POST"
+							? new Response(null, { status: 204 })
+							: new Response("Unavailable in tests", { status: 503 }),
 				},
 				// The config binds both classes by this Worker's name. The pool runs the
 				// Worker under its own runner name, so bind them as local classes.

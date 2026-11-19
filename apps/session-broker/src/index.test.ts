@@ -1254,6 +1254,43 @@ describe("public Worker isolation", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
+	it("requires API cache invalidation before granting logout", async () => {
+		for (const status of [503, 204]) {
+			const intentId = crypto.randomUUID().replaceAll("-", "").padEnd(43, "c");
+			const intent = brokerIntent(intentId, {
+				operation: "logout",
+				tenantId: null,
+			});
+			const owner = env.SESSION_INTENTS.getByName(intentId);
+			await owner.initialize(intent);
+			const invalidate = vi.fn(
+				async (_request: Request) => new Response(null, { status }),
+			);
+			const execution = brokerWorker.fetch(
+				new Request(
+					`https://auth.tedix.dev/tedix/session/authorize?intent=${intentId}`,
+					{ headers: { "Sec-Fetch-Dest": "document" } },
+				),
+				{ ...env, API_SERVICE: { fetch: invalidate } } as unknown as BrokerEnv,
+			);
+			if (status === 503) {
+				await expect(execution).rejects.toThrow(
+					"Identity cache invalidation failed",
+				);
+			} else {
+				const response = await execution;
+				expect(
+					new URL(response.headers.get("Location")!).searchParams.has("code"),
+				).toBe(true);
+			}
+			expect(invalidate).toHaveBeenCalledTimes(1);
+			expect(invalidate.mock.calls[0]![0].method).toBe("POST");
+			expect(new URL(invalidate.mock.calls[0]![0].url).pathname).toBe(
+				"/__internal/identity-cache/invalidate",
+			);
+		}
+	});
+
 	it("sends one refresh recovery to central login, expires ambiguous cookies, and then fails closed", async () => {
 		const intentId = crypto.randomUUID().replaceAll("-", "").padEnd(43, "b");
 		const intent = brokerIntent(intentId);

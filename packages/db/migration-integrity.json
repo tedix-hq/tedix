@@ -1624,6 +1624,10 @@
 		{
 			"name": "20261119030150_backfill-explicit-approval-policy/migration.sql",
 			"sha256": "bc6c15359f4c44c04836c33c6aca43480e3911aeeec927c45745f3dd037731aa"
+		},
+		{
+			"name": "20261119100738_auth_context_cache/migration.sql",
+			"sha256": "56712e7f3a286a08b7cd2a8b4531cd9439602192266a5528c338c52afd13dc5d"
 		}
 	]
 }
