@@ -39,16 +39,12 @@ import {
 	buildCronBudgetSuppression,
 	CRON_BUDGET_SUPPRESSION_STORAGE_KEY,
 	type CronBudgetSuppression,
-	isBackgroundBudgetHardExhausted,
 	shouldSuppressCronForBudget,
 } from "./cron-budget-control";
 import { type FacetWorkflowTurnInput } from "./delegated-work-lease";
 import type { AgentTediDO } from "./do";
 import { type DurableCodePause } from "./durable-codemode-lifecycle";
-import {
-	estimateInferenceTokens,
-	inferenceSource,
-} from "./inference-guardrails";
+import { inferenceSource } from "./inference-guardrails";
 import {
 	buildRunId,
 	isEphemeralSession,
@@ -178,8 +174,6 @@ export interface RuntimeParentTurnsHost {
 	runtimeConfigCache: AgentTediDO["runtimeConfigCache"];
 	activeTurnBinding: AgentTediDO["activeTurnBinding"];
 	assertChatTurnActive: AgentTediDO["assertChatTurnActive"];
-	getInferenceBudgetStore: AgentTediDO["getInferenceBudgetStore"];
-	inferenceBudgetLimits: AgentTediDO["inferenceBudgetLimits"];
 	runtimeAdmission: AgentTediDO["runtimeAdmission"];
 	platformClient: AgentTediDO["platformClient"];
 	setState: AgentTediDO["setState"];
@@ -190,7 +184,6 @@ export interface RuntimeParentTurnsHost {
 	resolveIdentityFromD1: AgentTediDO["resolveIdentityFromD1"];
 	mcpRuntime: AgentTediDO["mcpRuntime"];
 	loadTelegramChannel: AgentTediDO["loadTelegramChannel"];
-	backgroundInferenceBudgetUsage: AgentTediDO["backgroundInferenceBudgetUsage"];
 	modelOverrideForSurface: AgentTediDO["modelOverrideForSurface"];
 	ensureModelPolicy: AgentTediDO["ensureModelPolicy"];
 	parentServiceRunId: AgentTediDO["parentServiceRunId"];
@@ -399,26 +392,17 @@ export const runtimeParentTurns = {
 		this.activeTurnBinding?.platform.setEpisodeTrace(null);
 		this.activeTurnBinding = null;
 	},
-	/** Facets reserve each provider attempt through the parent's shared budget. */
+	/**
+	 * Facets fence each provider attempt on the live turn. Spend is admitted
+	 * per call by the API against the organization's monthly credit pool.
+	 */
 	async reservePiStep(this: RuntimeParentTurnsHost, input: PiStepReservation) {
 		await this.assertChatTurnActive(input.runId);
-		return this.getInferenceBudgetStore().reserveStep(
-			input.runId,
-			input.stepId,
-			input.estimatedTokens,
-			this.inferenceBudgetLimits(),
-		);
 	},
-	/** Already-incurred usage remains accountable after cancellation or midnight. */
+	/** A receipt still proves the original claim after cancellation. */
 	async recordPiStep(this: RuntimeParentTurnsHost, input: PiStepReceipt) {
 		const admission = this.runtimeAdmission();
 		if (admission) await admission.assertOriginalClaim({ runId: input.runId });
-		return this.getInferenceBudgetStore().recordStep(
-			input.runId,
-			input.stepId,
-			input.actualTokens,
-			this.inferenceBudgetLimits(),
-		);
 	},
 	resolveIdentityFromD1(this: RuntimeParentTurnsHost): Promise<{
 		tediId: string;
@@ -748,164 +732,24 @@ export const runtimeParentTurns = {
 			}),
 		};
 	},
-	inferenceBudgetLimits(this: RuntimeParentTurnsHost): {
-		dailyMessageLimit: number;
-		dailyTokenLimit: number;
-		operatorMessageReserve: number;
-		operatorTokenReserve: number;
-		governedLearningMessageReserve: number;
-		governedLearningTokenReserve: number;
-	} {
-		const defaults = TediBudgetsSchema.parse({});
-		return {
-			dailyMessageLimit:
-				this.state.budgets?.dailyMessageLimit ?? defaults.dailyMessageLimit,
-			dailyTokenLimit:
-				this.state.budgets?.dailyTokenLimit ?? defaults.dailyTokenLimit,
-			operatorMessageReserve:
-				this.state.budgets?.operatorMessageReserve ??
-				defaults.operatorMessageReserve,
-			operatorTokenReserve:
-				this.state.budgets?.operatorTokenReserve ??
-				defaults.operatorTokenReserve,
-			governedLearningMessageReserve:
-				this.state.budgets?.governedLearningMessageReserve ??
-				defaults.governedLearningMessageReserve,
-			governedLearningTokenReserve:
-				this.state.budgets?.governedLearningTokenReserve ??
-				defaults.governedLearningTokenReserve,
-		};
-	},
-	/** Atomic admission before provider work. The existing tedi budgets are now
-	 * an enforcement contract instead of dashboard-only configuration. */
-	admitInferenceTurn(
-		this: RuntimeParentTurnsHost,
-		turnId: string,
-		modelVisible: readonly unknown[],
-		admissionClass:
-			| "background"
-			| "governed_learning"
-			| "operator" = "operator",
-	): void {
-		this.getInferenceBudgetStore().admit(
-			turnId,
-			this.inferenceBudgetLimits(),
-			estimateInferenceTokens(...modelVisible),
-			new Date(),
-			admissionClass,
-		);
-	},
-	recordInferenceTokens(
-		this: RuntimeParentTurnsHost,
-		turnId: string,
-		tokens: number | null | undefined,
-	): void {
-		if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens <= 0)
-			return;
-		this.getInferenceBudgetStore().recordTokens(turnId, tokens);
-	},
 	/**
-	 * Settle a facet turn's CUMULATIVE token total into the budget ledger.
-	 * Facet turns feed the same cumulative figure through the mid-turn checks
-	 * (`checkFacetTurnBudget`), so settlement must be idempotent-on-cumulative
-	 * (`checkMidTurn`'s max-ratchet) — the additive `recordTokens` would double
-	 * count every token the mid-turn gate already recorded.
-	 */
-	settleCumulativeInferenceTokens(
-		this: RuntimeParentTurnsHost,
-		turnId: string,
-		tokens: number | null | undefined,
-	): void {
-		if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens <= 0)
-			return;
-		this.getInferenceBudgetStore().checkMidTurn(
-			turnId,
-			this.inferenceBudgetLimits(),
-			tokens,
-		);
-	},
-	/** Mid-turn budget probe; storage failures propagate to the accounting fence. */
-	async checkFacetTurnBudget(
-		this: RuntimeParentTurnsHost,
-		input: {
-			runId: string;
-			cumulativeTokens: number;
-			stepCount: number;
-		},
-	): Promise<{ abort: boolean; reason: string | null }> {
-		const tokens =
-			typeof input.cumulativeTokens === "number" &&
-			Number.isFinite(input.cumulativeTokens)
-				? Math.max(0, input.cumulativeTokens)
-				: 0;
-		const verdict = this.getInferenceBudgetStore().checkMidTurn(
-			input.runId,
-			this.inferenceBudgetLimits(),
-			tokens,
-		);
-		if (!verdict.exhausted) return { abort: false, reason: null };
-		const { usage } = verdict;
-		console.error(
-			JSON.stringify({
-				_tr: "budget.mid_turn_abort",
-				tediId: this.state.tediId || null,
-				runId: input.runId,
-				stepCount: input.stepCount,
-				cumulativeTokens: tokens,
-				usedTokens: usage.usedTokens,
-				dailyTokenLimit: usage.dailyTokenLimit,
-				admissionClass: usage.admissionClass,
-				day: usage.day,
-			}),
-		);
-		return {
-			abort: true,
-			reason:
-				`daily inference token budget exhausted mid-turn ` +
-				`(${usage.usedTokens}/${usage.dailyTokenLimit} tokens for ${usage.day}, ` +
-				`${usage.admissionClass} class)`,
-		};
-	},
-	backgroundInferenceBudgetUsage(this: RuntimeParentTurnsHost) {
-		return this.getInferenceBudgetStore().status(
-			this.inferenceBudgetLimits(),
-			new Date(),
-			"background",
-		);
-	},
-	/**
-	 * Decide whether a cron fire is in the daily budget cooling window. The
-	 * marker is durable across hibernation, expires at the next UTC accounting
-	 * day, and is invalidated immediately when an operator raises a background
-	 * ceiling or a usage correction releases capacity.
+	 * Whether scheduled turns are paused after a billing-policy denial. The
+	 * marker is durable across hibernation and lapses at the next UTC day.
 	 */
 	async cronBudgetSuppression(
 		this: RuntimeParentTurnsHost,
 	): Promise<CronBudgetSuppression | null> {
-		const nowMs = Date.now();
-		const usage = this.backgroundInferenceBudgetUsage();
 		const stored = await this.ctx.storage
 			.get<CronBudgetSuppression>(CRON_BUDGET_SUPPRESSION_STORAGE_KEY)
 			.catch(() => undefined);
-		if (stored && shouldSuppressCronForBudget(stored, usage, nowMs)) {
+		if (stored && shouldSuppressCronForBudget(stored, Date.now()))
 			return stored;
-		}
 		if (stored) {
 			await this.ctx.storage
 				.delete(CRON_BUDGET_SUPPRESSION_STORAGE_KEY)
 				.catch(() => {});
 		}
-		if (!isBackgroundBudgetHardExhausted(usage)) return null;
-		const suppression = buildCronBudgetSuppression(
-			usage,
-			"background inference budget has no remaining capacity",
-			nowMs,
-		);
-		await this.ctx.storage.put(
-			CRON_BUDGET_SUPPRESSION_STORAGE_KEY,
-			suppression,
-		);
-		return suppression;
+		return null;
 	},
 	async suppressCronAfterBudgetFailure(
 		this: RuntimeParentTurnsHost,
@@ -916,11 +760,7 @@ export const runtimeParentTurns = {
 			.get<WorkflowDispatchContext>(`wfctx:${workflowId}`)
 			.catch(() => undefined);
 		if (!dispatch?.cron) return;
-		const suppression = buildCronBudgetSuppression(
-			this.backgroundInferenceBudgetUsage(),
-			reason,
-			Date.now(),
-		);
+		const suppression = buildCronBudgetSuppression(reason, Date.now());
 		await this.ctx.storage.put(
 			CRON_BUDGET_SUPPRESSION_STORAGE_KEY,
 			suppression,
@@ -1527,10 +1367,7 @@ export const runtimeParentTurns = {
 		if (!runId || (await this.ctx.storage.get(`wfcancel:${runId}`)))
 			return false;
 		await this.assertChatTurnActive(runId);
-		return this.getInferenceBudgetStore().canRecoverTurn(
-			runId,
-			this.inferenceBudgetLimits(),
-		);
+		return true;
 	},
 	async recordAlarmMemoryLimitResetTelemetry(
 		this: RuntimeParentTurnsHost,

@@ -642,7 +642,6 @@ export function facetRunnerProbe(
 	const calls: string[] = [];
 	const configs: Array<Record<string, unknown>> = [];
 	const facetNames: string[] = [];
-	const settled: Array<[string, unknown]> = [];
 	const datapoints: Array<Record<string, unknown>> = [];
 	let registryDuringTurn: unknown;
 	const result = () => {
@@ -725,7 +724,6 @@ export function facetRunnerProbe(
 			facetNames.push(name);
 			return facet;
 		},
-		admitInferenceTurn() {},
 		tediAigMetadata: (source: string, correlation: unknown) => ({
 			orgId: agent.state.orgId,
 			tediId: agent.state.tediId,
@@ -739,9 +737,6 @@ export function facetRunnerProbe(
 				return [{ role: "user", content: "earlier question", ts: 0 }];
 			},
 		},
-		settleCumulativeInferenceTokens(runId: string, tokens: unknown) {
-			settled.push([runId, tokens]);
-		},
 		emitFacetTurnDatapoint(event: Record<string, unknown>) {
 			datapoints.push(event);
 		},
@@ -752,7 +747,6 @@ export function facetRunnerProbe(
 		calls,
 		configs,
 		facetNames,
-		settled,
 		datapoints,
 		registryDuringTurn: () => registryDuringTurn,
 	};
@@ -779,7 +773,6 @@ export function wsTurnProbe(fields: Record<string, unknown> = {}) {
 		messengerSessionKey: () => null,
 		getMessengerContext: () => null,
 		async assertChatTurnActive() {},
-		admitInferenceTurn() {},
 		sessionHarness: {
 			appendTurn: async () => true,
 			buildContext: async () => [],

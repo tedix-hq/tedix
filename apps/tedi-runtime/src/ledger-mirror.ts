@@ -449,9 +449,7 @@ export async function mirrorTurnToLedger(opts: MirrorTurnOpts): Promise<void> {
 	const runCompletedPayload: Record<string, unknown> = {
 		...(tokensUsed != null ? { tokensUsed } : {}),
 		...(usage ? { usage } : {}),
-		...(["budget_exhausted", "step_ceiling", "provider_error"].includes(
-			opts.stopReason ?? "",
-		)
+		...(["step_ceiling", "provider_error"].includes(opts.stopReason ?? "")
 			? { stopReason: opts.stopReason }
 			: {}),
 	};

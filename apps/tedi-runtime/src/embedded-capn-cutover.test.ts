@@ -451,7 +451,6 @@ async function configuredReasoning(
 				},
 			};
 		},
-		admitInferenceTurn() {},
 		tediAigMetadata: () => ({}),
 		modelOverrideForTurn: () => null,
 		emitFacetTurnDatapoint() {},

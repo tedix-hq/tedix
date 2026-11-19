@@ -14,14 +14,9 @@ assert.equal(
 	"an explicit per-tedi iteration override must remain authoritative",
 );
 assert.equal(
-	resolveTediBudgets(null).dailyTokenLimit,
-	-1,
-	"missing budgets must use shared organization token capacity",
-);
-assert.equal(
-	resolveTediBudgets(null).dailyMessageLimit,
-	-1,
-	"missing budgets must not impose an individual message ceiling",
+	"dailyTokenLimit" in resolveTediBudgets({ dailyTokenLimit: 5 }),
+	false,
+	"a stored daily token limit is dropped; usage limits are monthly credits",
 );
 
 assert.equal(

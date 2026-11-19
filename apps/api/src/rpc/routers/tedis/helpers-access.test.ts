@@ -114,7 +114,7 @@ describe("Tedi access uses canonical platform authority", () => {
 			);
 			expect(
 				agentUnreachableCapabilityFieldsTouched(authType, {
-					budgets: { dailyTokenLimit: 1_000_000, dailyMessageLimit: 500 },
+					budgets: { maxCronJobs: 5, browserBudgetDaily: 50 },
 				}),
 			).toEqual(["budgets"]);
 		},
@@ -143,7 +143,7 @@ it("rejects an actual cross-org platform tedi budget update before persistence",
 	await expect(
 		client.update({
 			tediId: "00000000-0000-4000-8000-000000000001",
-			budgets: { dailyTokenLimit: 1_000_000, dailyMessageLimit: 500 },
+			budgets: { maxCronJobs: 5, browserBudgetDaily: 50 },
 		}),
 	).rejects.toThrow(
 		/Capability\/policy field.*budgets.*require a human operator/,

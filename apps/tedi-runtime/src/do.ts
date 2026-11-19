@@ -97,7 +97,7 @@ import {
 //     splits in two; its second half carries a `(resumed)` banner.
 //   - cognition addenda: directives, brain digest, skill guidance/retrieval
 //   - Code Mode + MCP runtime: `getMcpRuntime`, `*DurableCode*`, approvals
-//   - budgets/model policy: `inferenceBudgetLimits` … `modelOverrideForSurface`, `getSystemPrompt`
+//   - budgets/model policy: cron suppression … `modelOverrideForSurface`, `getSystemPrompt`
 //   - tool groups: workstation, computer wake, artifact/workspace/object store,
 //     repo/git/commit gates, R2 SQL, browser takeover, `getTools`
 //   - Native transport: ACP protocol, durable Telegram replies, recurring maintenance
@@ -272,7 +272,6 @@ import {
 import { type DurableCodePause } from "./durable-codemode-lifecycle";
 import { KeyedFacetTurnGate } from "./facet-turn-gate";
 import { FacetTurnAdmission } from "./facet-turn-admission";
-import { DoInferenceBudgetStore } from "./inference-budget-store-do";
 import {
 	type PiStepReceipt,
 	type PiStepReservation,
@@ -415,9 +414,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				parent.activeTurnBinding = value;
 			},
 			assertChatTurnActive: (...args) => parent.assertChatTurnActive(...args),
-			getInferenceBudgetStore: (...args) =>
-				parent.getInferenceBudgetStore(...args),
-			inferenceBudgetLimits: (...args) => parent.inferenceBudgetLimits(...args),
 			runtimeAdmission: (...args) => parent.runtimeAdmission(...args),
 			get platformClient() {
 				return parent.platformClient;
@@ -442,8 +438,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				parent.mcpRuntime = value;
 			},
 			loadTelegramChannel: (...args) => parent.loadTelegramChannel(...args),
-			backgroundInferenceBudgetUsage: (...args) =>
-				parent.backgroundInferenceBudgetUsage(...args),
 			modelOverrideForSurface: (...args) =>
 				parent.modelOverrideForSurface(...args),
 			ensureModelPolicy: (...args) => parent.ensureModelPolicy(...args),
@@ -793,7 +787,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			get subAgent() {
 				return parent.subAgent.bind(parent);
 			},
-			admitInferenceTurn: (...args) => parent.admitInferenceTurn(...args),
 			tediAigMetadata: (...args) => parent.tediAigMetadata(...args),
 			observerBeforeDispatch: (...args) =>
 				parent.observerBeforeDispatch(...args),
@@ -803,8 +796,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			emitFacetTurnDatapoint: (...args) =>
 				parent.emitFacetTurnDatapoint(...args),
 			modelOverrideForTurn: (...args) => parent.modelOverrideForTurn(...args),
-			settleCumulativeInferenceTokens: (...args) =>
-				parent.settleCumulativeInferenceTokens(...args),
 			assertChatTurnActive: (...args) => parent.assertChatTurnActive(...args),
 			get facetDispatchJournal() {
 				return parent.facetDispatchJournal;
@@ -1016,9 +1007,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				parent.recordWorkflowRetryOwnership(...args),
 			schedule: (...args) => parent.schedule(...args),
 			assertChatTurnActive: (...args) => parent.assertChatTurnActive(...args),
-			getInferenceBudgetStore: (...args) =>
-				parent.getInferenceBudgetStore(...args),
-			inferenceBudgetLimits: (...args) => parent.inferenceBudgetLimits(...args),
 			restartWorkflow: (...args) => parent.restartWorkflow(...args),
 			isWorkflowRunCanceled: (...args) => parent.isWorkflowRunCanceled(...args),
 			computerEnvironment: (...args) => parent.computerEnvironment(...args),
@@ -1484,9 +1472,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			get compiledDirectives() {
 				return parent.compiledDirectives;
 			},
-			getInferenceBudgetStore: (...args) =>
-				parent.getInferenceBudgetStore(...args),
-			inferenceBudgetLimits: (...args) => parent.inferenceBudgetLimits(...args),
 			prepareCompaction: (...args) => parent.prepareCompaction(...args),
 			runCompaction: (...args) => parent.runCompaction(...args),
 			agentMemoryProfile: (...args) => parent.agentMemoryProfile(...args),
@@ -1723,9 +1708,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	});
 	/** Cached browser session so tools and operator takeover share one session store. */
 	private browserSession: TediBrowserSession | null = null;
-	/** Cached DO-SQLite-backed atomic model-inference daily budget store. */
-	private inferenceBudgetStore: DoInferenceBudgetStore | null = null;
-
 	/** Cached DO-SQLite-backed rationale state store. */
 	private rationaleStore: DoRationaleStateStore | null = null;
 	/** Cached DO-SQLite-backed crystallization (auto-skill) state store. */
@@ -1934,15 +1916,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			this.browserBudgetStore = new DoBrowserBudgetStore(this.getSqlRunner());
 		}
 		return this.browserBudgetStore;
-	}
-
-	private getInferenceBudgetStore(): DoInferenceBudgetStore {
-		if (!this.inferenceBudgetStore) {
-			this.inferenceBudgetStore = new DoInferenceBudgetStore(
-				this.getSqlRunner(),
-			);
-		}
-		return this.inferenceBudgetStore;
 	}
 
 	async reservePiStep(input: PiStepReservation) {
@@ -2415,74 +2388,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	// ===========================================================================
 	// Budgets / model policy
 	// ===========================================================================
-
-	private inferenceBudgetLimits(): {
-		dailyMessageLimit: number;
-		dailyTokenLimit: number;
-		operatorMessageReserve: number;
-		operatorTokenReserve: number;
-		governedLearningMessageReserve: number;
-		governedLearningTokenReserve: number;
-	} {
-		return runtimeParentTurns.inferenceBudgetLimits.call(
-			this.parentTurnsHost(),
-		);
-	}
-
-	private admitInferenceTurn(
-		turnId: string,
-		modelVisible: readonly unknown[],
-		admissionClass:
-			| "background"
-			| "governed_learning"
-			| "operator" = "operator",
-	): void {
-		return runtimeParentTurns.admitInferenceTurn.call(
-			this.parentTurnsHost(),
-			turnId,
-			modelVisible,
-			admissionClass,
-		);
-	}
-
-	private recordInferenceTokens(
-		turnId: string,
-		tokens: number | null | undefined,
-	): void {
-		return runtimeParentTurns.recordInferenceTokens.call(
-			this.parentTurnsHost(),
-			turnId,
-			tokens,
-		);
-	}
-
-	private settleCumulativeInferenceTokens(
-		turnId: string,
-		tokens: number | null | undefined,
-	): void {
-		return runtimeParentTurns.settleCumulativeInferenceTokens.call(
-			this.parentTurnsHost(),
-			turnId,
-			tokens,
-		);
-	}
-
-	async checkFacetTurnBudget(input: {
-		runId: string;
-		cumulativeTokens: number;
-		stepCount: number;
-	}): Promise<{ abort: boolean; reason: string | null }> {
-		return runtimeParentTurns.checkFacetTurnBudget.call(
-			this.parentTurnsHost(),
-			input,
-		);
-	}
-
-	private backgroundInferenceBudgetUsage() {
-		return runtimeParentTurns.backgroundInferenceBudgetUsage.call(
-			this.parentTurnsHost(),
-		);
-	}
 
 	private async cronBudgetSuppression(): Promise<CronBudgetSuppression | null> {
 		return runtimeParentTurns.cronBudgetSuppression.call(
@@ -3890,8 +3795,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		workItemId?: string;
 		/** Trusted skill-run id for gateway cost attribution only. */
 		gatewayAttributionRunId?: string;
-		/** Budget lane. Authenticated cron turns are background; user/Home work is operator. */
-		admissionClass?: "background" | "governed_learning" | "operator";
 		/**
 		 * Cron turns rebuild continuity from canonical Tedix state and must not
 		 * replay the prior fire's derived Pi transcript.

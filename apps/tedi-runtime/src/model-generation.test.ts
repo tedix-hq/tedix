@@ -97,7 +97,7 @@ const env = {
 					sendBefore: "2099-01-01T00:00:00.000Z",
 					reservationId: null,
 					expiresAt: null,
-					estimatedChargeMicros: null,
+					estimatedCredits: null,
 				},
 			});
 		},
@@ -537,7 +537,7 @@ await assert.rejects(
 						Response.json({
 							json: {
 								allowed: false,
-								code: "payment_required",
+								code: "monthly_credit_limit_reached",
 								entitlement: null,
 								settlementMode: "disabled",
 								attributionVersion: 3,
@@ -545,7 +545,7 @@ await assert.rejects(
 								sendBefore: "2099-01-01T00:00:00.000Z",
 								reservationId: null,
 								expiresAt: null,
-								estimatedChargeMicros: null,
+								estimatedCredits: null,
 							},
 						}),
 				},

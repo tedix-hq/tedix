@@ -140,13 +140,11 @@ async function workflowTurn(input: Record<string, unknown>) {
 		learningMode: "normal",
 	});
 	assert.equal(foreign.prepared.trust, "untrusted");
-	assert.equal(foreign.facet.admissionClass, "background");
 	assert.equal(foreign.commit.learningMode, "disabled");
 	assert.equal(foreign.commit.dailyLog, false);
 
 	const tedi = await workflowTurn({ callerTrust: "tedi" });
 	assert.equal(tedi.prepared.trust, "trusted");
-	assert.equal(tedi.facet.admissionClass, "operator");
 	assert.equal(tedi.commit.learningMode, undefined);
 	assert.equal(tedi.commit.dailyLog, undefined);
 
@@ -155,13 +153,11 @@ async function workflowTurn(input: Record<string, unknown>) {
 		learningMode: "disabled",
 	});
 	assert.equal(member.prepared.trust, "trusted");
-	assert.equal(member.facet.admissionClass, "operator");
 	assert.equal(member.commit.learningMode, "disabled");
 	assert.equal(member.commit.dailyLog, undefined);
 
 	const legacy = await workflowTurn({});
 	assert.equal(legacy.prepared.trust, "trusted");
-	assert.equal(legacy.facet.admissionClass, "operator");
 
 	const delegated = await workflowTurn({
 		callerTrust: "foreign",

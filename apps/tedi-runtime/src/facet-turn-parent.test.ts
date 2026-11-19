@@ -2,8 +2,8 @@
  * Parent-side contract for facet-per-conversation turns (the facet itself is
  * covered by conversation-facet.test.ts). Every MCP, workflow and SSE turn runs
  * on its conversation's facet; the parent owns the runId dedup contract, the
- * canonical harness appends, the per-runId tool registry, budget settlement,
- * and the ledger mirror.
+ * canonical harness appends, the per-runId tool registry, and the ledger
+ * mirror.
  */
 import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
@@ -165,7 +165,6 @@ for (const stream of [false, true]) {
 	assert.equal(probe.agent.activeFacetTurnTools.size, 0);
 	assert.equal(probe.agent.activeFacetTurnConversations.size, 0);
 	assert.deepEqual(probe.calls, ["configure", "run:hello"]);
-	assert.deepEqual(probe.settled, [["run-1", 42]], "cumulative settlement");
 	assert.ok(probe.configs[0]);
 	assert.deepEqual(
 		(probe.configs[0].aigMetadata as { correlation: unknown }).correlation,
@@ -298,7 +297,6 @@ for (const stream of [false, true]) {
 	});
 	assert.equal(result.assistantText, "answer");
 	assert.deepEqual(deltas, ["ans"]);
-	assert.deepEqual(probe.settled, [["run-1", 7]]);
 	assert.equal(probe.registryDuringTurn(), facetInput.tools);
 	assert.equal(probe.agent.activeFacetTurnTools.size, 0);
 }
@@ -1410,54 +1408,6 @@ async function mirror(options: {
 		mirror({ stepTokens: null, unsettled: true }),
 		/Original run ledger delivery is unsettled/,
 	);
-}
-
-// ── mid-turn budget probe and cumulative settlement share one store ─────────
-{
-	const checks: Array<[string, number]> = [];
-	let exhausted = false;
-	const agent = tediDo({
-		state: { tediId: "tedi-1", orgId: "org-1" },
-		inferenceBudgetLimits: () => ({}),
-		getInferenceBudgetStore: () => ({
-			checkMidTurn(runId: string, _limits: unknown, tokens: number) {
-				checks.push([runId, tokens]);
-				return exhausted
-					? {
-							exhausted: true,
-							usage: {
-								usedTokens: 100,
-								dailyTokenLimit: 100,
-								admissionClass: "operator",
-								day: "2026-09-28",
-							},
-						}
-					: { exhausted: false };
-			},
-		}),
-	});
-	assert.deepEqual(
-		await agent.checkFacetTurnBudget({
-			runId: "run-1",
-			cumulativeTokens: 40,
-			stepCount: 1,
-		}),
-		{ abort: false, reason: null },
-	);
-	exhausted = true;
-	const verdict = await agent.checkFacetTurnBudget({
-		runId: "run-1",
-		cumulativeTokens: 100,
-		stepCount: 2,
-	});
-	assert.equal(verdict.abort, true);
-	agent.settleCumulativeInferenceTokens("run-1", 120);
-	agent.settleCumulativeInferenceTokens("run-1", undefined);
-	assert.deepEqual(checks, [
-		["run-1", 40],
-		["run-1", 100],
-		["run-1", 120],
-	]);
 }
 
 // The parent has one cognition dispatch surface: ConversationFacet. Native

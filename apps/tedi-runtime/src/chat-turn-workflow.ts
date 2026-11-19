@@ -69,10 +69,6 @@ import {
 	buildFacetWorkflowTurnInput,
 	buildFacetComputerExecutionsInput,
 } from "./chat-turn-input";
-import {
-	budgetExhaustedWorkflowResult,
-	isInferenceBudgetExhaustedError,
-} from "./cron-budget-control";
 import type { AgentTediDO } from "./do";
 import {
 	recoverDurableObjectDeploymentReset,
@@ -210,12 +206,9 @@ export class ChatTurnWorkflow extends AgentWorkflow<
 						throw new NonRetryableError(error.message);
 					const runtimeTerminal = runtimeErrorWorkflowResult(error);
 					if (runtimeTerminal) return JSON.stringify(runtimeTerminal);
-					// Daily-budget admission is deterministic for the current UTC
-					// window. Return a typed terminal result so Workflow does not burn
+					// A credit-pool or billing denial is deterministic for this
+					// request. Return a typed terminal result so Workflow does not burn
 					// its five transient-error retries on the same rejected request.
-					if (isInferenceBudgetExhaustedError(error)) {
-						return JSON.stringify(budgetExhaustedWorkflowResult(error));
-					}
 					const billingDenied = billingPolicyDeniedWorkflowResult(error);
 					if (billingDenied) return JSON.stringify(billingDenied);
 					// Third member of the same family: a DEFINITELY non-retryable

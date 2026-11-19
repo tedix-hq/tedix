@@ -20,10 +20,7 @@ import {
 	ScopedComputerWorkspace,
 } from "./computer-workspace-scope";
 import { summarizeCronTurnTransitions } from "./cron";
-import {
-	cronSuppressionReason,
-	isBudgetExhaustedWorkflowResult,
-} from "./cron-budget-control";
+import { cronSuppressionReason } from "./cron-budget-control";
 import {
 	delegatedWorkLeaseTerminalKey,
 	type FacetWorkflowTurnInput,
@@ -34,7 +31,6 @@ import type { State } from "./runtime-state";
 import { type RecoverableCodemodeRuntimeHandle } from "./durable-codemode-recovery";
 import { isTransientWorkflowRedriveError } from "./durable-object-recovery";
 import { turnRetryDelaySeconds } from "./facet-turn-admission";
-import { DoInferenceBudgetStore } from "./inference-budget-store-do";
 import {
 	buildRunId,
 	buildWorkflowInstanceId,
@@ -139,15 +135,6 @@ export interface RuntimeWorkflowHost {
 	): Promise<void>;
 	schedule: AgentTediDO["schedule"];
 	assertChatTurnActive(runId: string | null | undefined): Promise<void>;
-	getInferenceBudgetStore(): DoInferenceBudgetStore;
-	inferenceBudgetLimits(): {
-		dailyMessageLimit: number;
-		dailyTokenLimit: number;
-		operatorMessageReserve: number;
-		operatorTokenReserve: number;
-		governedLearningMessageReserve: number;
-		governedLearningTokenReserve: number;
-	};
 	restartWorkflow: AgentTediDO["restartWorkflow"];
 	isWorkflowRunCanceled(runId: string): Promise<boolean>;
 	computerEnvironment(
@@ -256,10 +243,6 @@ export const runtimeWorkflow = {
 					{ exception: exceptionTopology(error) },
 				);
 			}
-		}
-		if (isBudgetExhaustedWorkflowResult(result)) {
-			await this.settleWorkflowFailure(workflowId, result.error);
-			return;
 		}
 		if (isTerminalFailureWorkflowResult(result)) {
 			await this.settleWorkflowFailure(workflowId, result.error, {
@@ -542,13 +525,6 @@ export const runtimeWorkflow = {
 		}
 		try {
 			await this.assertChatTurnActive(context.runId);
-			if (
-				!(await this.getInferenceBudgetStore().canRecoverTurn(
-					context.runId,
-					this.inferenceBudgetLimits(),
-				))
-			)
-				throw new Error("Original workflow accounting remains unresolved");
 			const now = Date.now();
 			const notBefore =
 				context.redriveNotBefore ??
@@ -782,13 +758,6 @@ export const runtimeWorkflow = {
 		});
 		try {
 			await this.assertChatTurnActive(context.runId);
-			if (
-				!(await this.getInferenceBudgetStore().canRecoverTurn(
-					context.runId,
-					this.inferenceBudgetLimits(),
-				))
-			)
-				throw new Error("Original workflow accounting remains unresolved");
 			await this.restartWorkflow(input.workflowInstanceId, {
 				resetTracking: false,
 			});

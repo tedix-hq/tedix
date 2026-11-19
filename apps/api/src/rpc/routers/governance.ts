@@ -296,7 +296,7 @@ export function buildDecisionRightsMatrix(): DecisionRightsRow[] {
 			controls: [
 				{
 					surface:
-						"Tedi budget values (tedis.update `budgets`: dailyTokenLimit, dailyMessageLimit, operatorTokenReserve, operatorMessageReserve, governedLearningTokenReserve, governedLearningMessageReserve, maxCronJobs, browserBudgetDaily)",
+						"Tedi budget values (tedis.update `budgets`: maxCronJobs, maxIterationsPerTask, browserBudgetDaily, aiGatewayPolicy model tiers)",
 					decide: ["human", "apikey"],
 					propose: ["tedi:any"],
 					enforcedBy:

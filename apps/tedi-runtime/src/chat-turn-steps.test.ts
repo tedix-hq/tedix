@@ -234,7 +234,8 @@ function makeHarness() {
 // ── Billing policy stop: preserve the denial code for Agent-side settlement ──
 {
 	const h = makeHarness();
-	const error = "Inference blocked by billing policy: payment_required";
+	const error =
+		"Inference blocked by billing policy: monthly_credit_limit_reached";
 	const result = await driveChatTurnSteps(h.step, {
 		markStarted: async () => {},
 		runFacetTurn: async () =>
@@ -242,14 +243,14 @@ function makeHarness() {
 				text: "Billing policy blocked this turn.",
 				stopReason: "billing_policy_denied",
 				error,
-				billingCode: "payment_required",
+				billingCode: "monthly_credit_limit_reached",
 			}),
 	});
 	assert.deepEqual(result, {
 		text: "Billing policy blocked this turn.",
 		stopReason: "billing_policy_denied",
 		error,
-		billingCode: "payment_required",
+		billingCode: "monthly_credit_limit_reached",
 		toolCalls: [],
 	});
 	assert.deepEqual(

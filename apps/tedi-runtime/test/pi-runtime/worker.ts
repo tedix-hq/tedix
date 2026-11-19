@@ -273,7 +273,6 @@ import {
 	type ConversationParentPort,
 	type ConversationTurnConfiguration,
 } from "../../src/conversation-facet";
-import { DoInferenceBudgetStore } from "../../src/inference-budget-store-do";
 import { FacetDispatchJournal } from "../../src/facet-dispatch-journal";
 export interface ConversationStats {
 	requests: number;
@@ -502,16 +501,7 @@ export class PiConversationFixture extends ProductionConversationFacet {
 	): Promise<import("../../src/pi-agent").FacetAdmissionResponse> {
 		return { enabled: false as const };
 	}
-	private readonly budget = new DoInferenceBudgetStore(this);
 	private readonly dispatch = new FacetDispatchJournal(this.ctx.storage);
-	private readonly limits = {
-		dailyMessageLimit: -1,
-		dailyTokenLimit: -1,
-		operatorMessageReserve: 0,
-		operatorTokenReserve: 0,
-		governedLearningMessageReserve: 0,
-		governedLearningTokenReserve: 0,
-	};
 	private async stats() {
 		return (
 			(await this.ctx.storage.get<ConversationStats>("fixture:stats")) ??
@@ -532,37 +522,22 @@ export class PiConversationFixture extends ProductionConversationFacet {
 					throw new Error("fixture authority cancelled");
 			},
 			enrollFacetDispatchRun: async (runId) => {
-				this.budget.admit(runId, this.limits, 1);
 				await this.dispatch.enroll(runId);
 			},
 			reservePiStep: async (input) => {
 				const stats = await this.stats();
 				if (stats.cancelled) throw new Error("fixture authority cancelled");
-				const receipt = this.budget.reserveStep(
-					input.runId,
-					input.stepId,
-					input.estimatedTokens,
-					this.limits,
-				);
 				await this.ctx.storage.put("fixture:stats", {
 					...stats,
 					reservations: stats.reservations + 1,
 				});
-				return receipt;
 			},
 			recordPiStep: async (input) => {
-				const result = this.budget.recordStep(
-					input.runId,
-					input.stepId,
-					input.actualTokens,
-					this.limits,
-				);
 				const stats = await this.stats();
 				await this.ctx.storage.put("fixture:stats", {
 					...stats,
 					receipts: stats.receipts + 1,
 				});
-				return result;
 			},
 			reconcileFacetToolEffect: async (runId, toolCallId) =>
 				this.dispatch.returned(runId, toolCallId),
@@ -586,7 +561,6 @@ export class PiConversationFixture extends ProductionConversationFacet {
 				await this.dispatch.markReturned(input, "completed");
 				return { ok: true };
 			},
-			checkFacetTurnBudget: async () => ({ abort: false, reason: null }),
 		};
 	}
 	protected selectModelForTurn() {
@@ -1313,17 +1287,8 @@ async function toolFreeStats(
 		}
 	);
 }
-const toolFreeLimits = {
-	dailyMessageLimit: -1,
-	dailyTokenLimit: -1,
-	operatorMessageReserve: 0,
-	operatorTokenReserve: 0,
-	governedLearningMessageReserve: 0,
-	governedLearningTokenReserve: 0,
-};
 function toolFreeParent(
 	storage: DurableObjectStorage,
-	budget: DoInferenceBudgetStore,
 ): JudgeParentPort & SynthesisParentPort {
 	return {
 		recordEvaluationContext: async (input) => {
@@ -1382,36 +1347,22 @@ function toolFreeParent(
 			if (await storage.get("tool-free:cancel:" + runId))
 				throw new Error("tool-free authority cancelled");
 			if (!runId) throw new Error("tool-free run missing");
-			budget.admit(runId, toolFreeLimits, 1);
 		},
 		reservePiStep: async (input) => {
 			const stats = await toolFreeStats(storage);
 			if (!stats.reservations.includes(input.stepId))
 				stats.reservations.push(input.stepId);
 			await storage.put("tool-free:stats", stats);
-			return budget.reserveStep(
-				input.runId,
-				input.stepId,
-				input.estimatedTokens,
-				toolFreeLimits,
-			);
 		},
 		recordPiStep: async (input) => {
 			const stats = await toolFreeStats(storage);
 			if (!stats.receipts.includes(input.stepId))
 				stats.receipts.push(input.stepId);
 			await storage.put("tool-free:stats", stats);
-			const result = budget.recordStep(
-				input.runId,
-				input.stepId,
-				input.actualTokens,
-				toolFreeLimits,
-			);
 			if (await storage.get("tool-free:hold-budget-receipt")) {
 				await storage.put("tool-free:budget-receipt-held", true);
 				await new Promise<void>(() => {});
 			}
-			return result;
 		},
 	};
 }
@@ -1491,7 +1442,7 @@ export class PiJudgeFixture extends JudgeSessionFacet {
 		return { enabled: false as const };
 	}
 	protected async parent(): Promise<JudgeParentPort> {
-		return toolFreeParent(this.ctx.storage, new DoInferenceBudgetStore(this));
+		return toolFreeParent(this.ctx.storage);
 	}
 	protected selected() {
 		return {
@@ -1581,7 +1532,7 @@ export class PiSynthesisFixture extends SynthesisSessionFacet {
 		return { enabled: false as const };
 	}
 	protected async parent(): Promise<SynthesisParentPort> {
-		return toolFreeParent(this.ctx.storage, new DoInferenceBudgetStore(this));
+		return toolFreeParent(this.ctx.storage);
 	}
 	protected selected() {
 		return {

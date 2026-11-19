@@ -1,55 +1,25 @@
 import assert from "node:assert/strict";
 import { memoryStorage, tediDo } from "../test/tedi-do";
 
-// Cancellation/storage failures must stop recovery before budget authority runs.
+// Cancellation/storage failures stop recovery before the turn is re-checked.
 {
-	let budgetChecks = 0;
+	let activeChecks = 0;
 	const agent = tediDo({
 		ctx: { storage: { get: async () => true } },
-		getInferenceBudgetStore: () => {
-			budgetChecks++;
-			assert.fail("canceled recovery checked budget");
+		async assertChatTurnActive() {
+			activeChecks++;
 		},
 	});
 	assert.equal(await agent.canRecoverChatTurn("canceled-run"), false);
-	assert.equal(budgetChecks, 0);
+	assert.equal(activeChecks, 0);
 	agent.ctx.storage.get = async () => {
 		throw new Error("storage unavailable");
 	};
 	await assert.rejects(agent.canRecoverChatTurn("run"), /storage unavailable/);
-	assert.equal(budgetChecks, 0);
-}
-
-// Mid-turn accounting normalizes malformed totals and settles cumulatively.
-{
-	const checks: unknown[][] = [];
-	const limits = { dailyTokenLimit: 100 };
-	const agent = tediDo({
-		state: {},
-		inferenceBudgetLimits: () => limits,
-		getInferenceBudgetStore: () => ({
-			checkMidTurn: (...args: unknown[]) => {
-				checks.push(args);
-				return { exhausted: false };
-			},
-		}),
-	});
-	assert.deepEqual(
-		await agent.checkFacetTurnBudget({
-			runId: "run",
-			cumulativeTokens: NaN,
-			stepCount: 1,
-		}),
-		{ abort: false, reason: null },
-	);
-	agent.settleCumulativeInferenceTokens("run", 12);
-	agent.settleCumulativeInferenceTokens("run", 12);
-	agent.settleCumulativeInferenceTokens("run", NaN);
-	assert.deepEqual(checks, [
-		["run", limits, 0],
-		["run", limits, 12],
-		["run", limits, 12],
-	]);
+	assert.equal(activeChecks, 0);
+	agent.ctx.storage.get = async () => undefined;
+	assert.equal(await agent.canRecoverChatTurn("run"), true);
+	assert.equal(activeChecks, 1);
 }
 
 // A recorded dispatch is acknowledged without repeating the workflow effect.

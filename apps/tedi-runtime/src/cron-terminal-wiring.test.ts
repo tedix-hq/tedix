@@ -1,7 +1,6 @@
 /** Every pre-dispatch branch that must seal an opened named-cron row, and the
  * terminal settlement, redrive, budget-suppression and orphan paths around it. */
 import assert from "node:assert/strict";
-import { Database } from "bun:sqlite";
 import { deriveIdempotencyKey } from "@tedix/tedi-session/session-repo";
 import { facetWorkflowTurnProbe, memoryStorage, tediDo } from "../test/tedi-do";
 import {
@@ -9,13 +8,9 @@ import {
 	billingPolicyDeniedWorkflowResult,
 } from "./billing-reservation-client";
 import { ChatTurnWorkflow } from "./chat-turn-workflow";
-import {
-	budgetExhaustedWorkflowResult,
-	CRON_BUDGET_SUPPRESSION_STORAGE_KEY,
-} from "./cron-budget-control";
+import { CRON_BUDGET_SUPPRESSION_STORAGE_KEY } from "./cron-budget-control";
 import { cronTurnMaxSteps } from "./cron-turn-outcome";
 import { WORKFLOW_TERMINAL_MAX_REDRIVES } from "./workflow-terminal-reconciliation";
-import { DoInferenceBudgetStore } from "./inference-budget-store-do";
 
 const payload = { name: "reflect", message: "Run the reflection cycle." };
 const row = { id: "schedule-1", time: 1_700_000_000 };
@@ -36,7 +31,6 @@ function cronFireProbe(fields: Record<string, unknown> = {}) {
 			return { orphaned: false };
 		},
 		async ensureIdentity() {},
-		backgroundInferenceBudgetUsage: () => ({}),
 		async cronBudgetSuppression() {
 			return null;
 		},
@@ -163,16 +157,11 @@ const finished = (stamps: Stamp[]) =>
 }
 
 // --- a suppressed fire stops before opening a run or execution stamp and
-//     reports the budget snapshot ---
+//     reports why and when it resumes ---
 {
 	const suppression = {
-		day: "2026-09-28",
 		resetAtMs: Date.now() + 3_600_000,
-		backgroundMessageLimit: 10,
-		backgroundTokenLimit: 1000,
-		usedMessages: 10,
-		usedTokens: 1000,
-		reason: "background inference budget has no remaining capacity",
+		reason: "Inference blocked by billing policy: monthly_credit_limit_reached",
 	};
 	const probe = cronFireProbe({
 		async cronBudgetSuppression() {
@@ -181,9 +170,13 @@ const finished = (stamps: Stamp[]) =>
 	});
 	const outcome = await probe.agent.onCronFire(payload, row);
 	assert.equal(outcome.status, "suppressed");
-	assert.equal(outcome.budget.usedTokens, 1000);
-	assert.equal(outcome.budget.tokenLimit, 1000);
-	assert.equal(outcome.budget.messageLimit, 10);
+	if (outcome.status === "suppressed") {
+		assert.equal(outcome.reason, suppression.reason);
+		assert.equal(
+			outcome.resumesAt,
+			new Date(suppression.resetAtMs).toISOString(),
+		);
+	}
 	assert.deepEqual(probe.stamps, []);
 	assert.equal(probe.dispatched.length, 0);
 }
@@ -364,44 +357,18 @@ for (const [label, execute, expected] of [
 async function reconcileProbe(
 	context: Record<string, unknown>,
 	status: unknown,
-	options: { admitted?: boolean; exhausted?: boolean } = {},
+	options: { admitted?: boolean } = {},
 ) {
 	const calls: string[] = [];
 	const storage = memoryStorage({ "wfctx:wf-1": context });
-	// Keep the original durable inference admission real; a process-local active
-	// map or a reset error alone is not proof that another attempt is permitted.
-	const db = new Database(":memory:");
-	const budget = new DoInferenceBudgetStore({
-		sql<T>(
-			strings: TemplateStringsArray,
-			...values: (string | number | boolean | null)[]
-		): T[] {
-			const query = strings.reduce(
-				(text, part, index) => text + part + (index < values.length ? "?" : ""),
-				"",
-			);
-			return db.query(query).all(...values) as T[];
-		},
-	});
-	const limits = {
-		dailyMessageLimit: 2,
-		dailyTokenLimit: 100,
-		operatorMessageReserve: 0,
-		operatorTokenReserve: 0,
-		governedLearningMessageReserve: 0,
-		governedLearningTokenReserve: 0,
-	};
-	if (options.admitted !== false)
-		budget.admit(String(context.runId), limits, 1);
-	if (options.exhausted) limits.dailyTokenLimit = 0;
+	// Keep the original durable turn admission real; a process-local active map
+	// or a reset error alone is not proof that another attempt is permitted.
 	const agent = tediDo({
 		ctx: { storage },
 		workflowTerminalReconciliations: new Map<string, Promise<boolean>>(),
 		async getPlatformClient() {
 			return { listRuntimeEvents: async () => ({ events: [] }) };
 		},
-		getInferenceBudgetStore: () => budget,
-		inferenceBudgetLimits: () => limits,
 		async getWorkflowStatus() {
 			return status;
 		},
@@ -428,7 +395,7 @@ async function reconcileProbe(
 		});
 	return { agent, calls, storage };
 }
-for (const options of [{ exhausted: true }, { admitted: false }]) {
+for (const options of [{ admitted: false }]) {
 	const probe = await reconcileProbe(
 		{ runId: "run-1", sessionKey: "main" },
 		{
@@ -444,7 +411,7 @@ for (const options of [{ exhausted: true }, { admitted: false }]) {
 	assert.deepEqual(
 		probe.calls,
 		["fail:wf-1:Durable Object reset because its code was updated"],
-		"exhausted or absent original admission must not restart or rearm",
+		"an absent original admission must not restart or rearm",
 	);
 }
 {
@@ -646,15 +613,15 @@ for (const options of [{ exhausted: true }, { admitted: false }]) {
 	assert.deepEqual(probe.calls, ["fail:wf-1:model refused"]);
 }
 
-// --- budget and billing stops: suppress later fires, settle the run failed
-//     with the assistant fallback, never as success ---
-const budgetStop = budgetExhaustedWorkflowResult(
-	new Error("Inference daily budget exhausted for tedi-1"),
-);
+// --- billing stops: suppress later fires, settle the run failed with the
+//     assistant fallback, never as success ---
 const billingStop = billingPolicyDeniedWorkflowResult(
-	new BillingAdmissionError("hard_spend_limit", "spend limit reached"),
+	new BillingAdmissionError(
+		"monthly_credit_limit_reached",
+		"monthly credits used up",
+	),
 )!;
-for (const result of [budgetStop, billingStop]) {
+for (const result of [billingStop]) {
 	const settled: unknown[][] = [];
 	const storage = memoryStorage({
 		"wfctx:wf-1": {
@@ -664,28 +631,28 @@ for (const result of [budgetStop, billingStop]) {
 	});
 	const agent = tediDo({
 		ctx: { storage },
-		backgroundInferenceBudgetUsage: () => ({}),
 		async settleWorkflowFailure(...args: unknown[]) {
 			settled.push(args);
 		},
 		async settleWorkflowSuccess() {
-			throw new Error("a budget or billing stop is not success");
+			throw new Error("a billing stop is not success");
 		},
 	});
 	await agent.onWorkflowComplete("CHAT_TURN_WORKFLOW", "wf-1", result);
 	assert.ok(storage.data.has(CRON_BUDGET_SUPPRESSION_STORAGE_KEY));
 	assert.equal(settled.length, 1);
 	assert.equal(settled[0]?.[1], result.error);
-	if (result === billingStop)
-		assert.deepEqual(settled[0]?.[2], { assistantText: billingStop.text });
+	assert.deepEqual(settled[0]?.[2], { assistantText: billingStop.text });
 }
 
-// --- the Workflow converts a deterministic budget or billing rejection into
-//     a typed terminal result instead of burning transient retries ---
+// --- the Workflow converts a deterministic billing rejection into a typed
+//     terminal result instead of burning transient retries ---
 for (const [error, expected] of [
-	[new Error("Inference daily budget exhausted for tedi-1"), budgetStop],
 	[
-		new BillingAdmissionError("hard_spend_limit", "spend limit reached"),
+		new BillingAdmissionError(
+			"monthly_credit_limit_reached",
+			"monthly credits used up",
+		),
 		billingStop,
 	],
 ] as const) {

@@ -24,7 +24,6 @@ import {
 	nativeToolActionContent,
 	nativeToolAutonomyRisk,
 } from "@tedix/api-contract/utils/approval-policy";
-import { recoverDurableObjectDeploymentReset } from "./durable-object-recovery";
 import { classifyTediContextOverflow } from "./context-overflow";
 import { resolveModelInputBudgetTokens } from "./model-input-budget";
 import type { ModelGenerationSettings } from "@tedix/api-contract/schemas/model-generation";
@@ -179,11 +178,8 @@ export interface ConversationFacetState {
 	imageRefs?: WorkflowImageRef[];
 }
 
-/** Why a facet turn's loop was stopped early by the mid-turn budget gate. */
-export type FacetBudgetStopReason =
-	| "budget_exhausted"
-	| "step_ceiling"
-	| "delegation_budget";
+/** Why a facet turn's loop was stopped early by a per-turn ceiling. */
+export type FacetBudgetStopReason = "step_ceiling" | "delegation_budget";
 
 export interface ConversationFacetTurnResult {
 	assistantText: string;
@@ -305,7 +301,6 @@ export type ConversationParentPort = Pick<
 	| "recordFacetModelStep"
 	| "executeFacetTool"
 	| "facetToolApprovalDecision"
-	| "checkFacetTurnBudget"
 >;
 
 export class ConversationFacet extends PiAgent<
@@ -1324,8 +1319,8 @@ export class ConversationFacet extends PiAgent<
 			],
 		};
 	}
-	/** Retry only the idempotent parent probe across one deployment reset.
-	 * The effect and local journal reads are outside that retry boundary. */
+	/** Per-turn provider-call and delegation ceilings; spend is admitted per call
+	 * against the organization's monthly credit pool. */
 	private async checkNativeToolBudget(): Promise<boolean> {
 		if (this.state.budgetStop) return true;
 		if (await this.checkDelegationBudget()) return true;
@@ -1347,24 +1342,7 @@ export class ConversationFacet extends PiAgent<
 				});
 				return true;
 			}
-			const cumulativeTokens = (await this.accounting.usage()).totalTokens ?? 0;
-			const verdict = await recoverDurableObjectDeploymentReset(async () =>
-				(await this.parent()).checkFacetTurnBudget({
-					runId,
-					cumulativeTokens,
-					stepCount,
-				}),
-			);
-			if (!verdict.abort) return false;
-			this.setState({
-				...this.state,
-				budgetStop: {
-					kind: "budget_exhausted",
-					reason: verdict.reason ?? "daily inference budget exhausted",
-				},
-				recoveryBlockedRunId: runId,
-			});
-			return true;
+			return false;
 		} catch (error) {
 			console.error("[tedi.pi.budget] native tool budget check failed", {
 				exception: exceptionTopology(error),

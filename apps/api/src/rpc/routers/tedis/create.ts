@@ -74,11 +74,12 @@ export function resolveNewTediDefaultPolicyPack(
 	return pack;
 }
 
-/** New tedis share organization inference capacity unless explicitly capped. */
+/**
+ * New tedis draw from the organization's monthly credit pool; an admin can
+ * set a monthly credit cap for one tedi in billing.
+ */
 export function resolveNewTediBudgets(limits: RuntimeEntitlement["limits"]) {
 	return {
-		dailyTokenLimit: -1,
-		dailyMessageLimit: -1,
 		maxCronJobs: limits.maxCronJobsPerTedi,
 		maxIterationsPerTask: -1,
 	};

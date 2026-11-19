@@ -29,7 +29,7 @@ import {
 
 /**
  * Terminal disposition for a provider fault. Joins the existing partial/terminal
- * stop-reason set (`budget_exhausted`, `step_ceiling`) so the
+ * stop-reason set (`step_ceiling`) so the
  * ledger carries it on `run.completed.payload.stopReason` and the kernel
  * run-set renders a real disposition instead of an empty completion.
  */

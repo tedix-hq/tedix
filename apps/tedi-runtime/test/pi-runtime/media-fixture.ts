@@ -68,7 +68,6 @@ export class PiFacetMediaFixture extends ConversationFacet {
 				recordPiStep: async () => {},
 				reconcileFacetToolEffect: async () => null,
 				recordFacetModelStep: async () => {},
-				checkFacetTurnBudget: async () => ({ abort: false }),
 			}),
 			generationSettings: () => ({
 				requested: {},

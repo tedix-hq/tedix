@@ -40,10 +40,8 @@ export class TurnAdmissionFixture extends DurableObject<FixtureEnv> {
 		return {
 			ctx: this.ctx,
 			state: { tediId: "fixture", systemPrompt: "fixture persona" },
-			admitInferenceTurn: () => {},
 			tediAigMetadata: () => ({}),
 			modelOverrideForSurface: () => null,
-			settleCumulativeInferenceTokens: () => {},
 			emitFacetTurnDatapoint: () => {},
 			subAgent: async () => ({
 				configureSynthesisTurn: async () => {},

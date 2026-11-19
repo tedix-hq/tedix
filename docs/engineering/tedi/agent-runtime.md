@@ -170,8 +170,8 @@ it.
 
 | Guard              | Enforcement                                                                                          |
 | ------------------ | ---------------------------------------------------------------------------------------------------- |
-| Daily tokens/turns | Reserved atomically in the parent DO before a provider call (`src/inference-budget-store-do.ts`)     |
-| Reserve lanes      | Background work stops first; operator turns may use the full ceiling (`src/inference-guardrails.ts`) |
+| Monthly credits    | Every provider call reserves Tedix credits from the organization pool before dispatch (API admission) |
+| Per-turn ceilings  | Provider-call step ceiling and delegation budget per facet turn (`src/conversation-facet.ts`)        |
 | Entitlement        | `runtimeEntitlements.authorizeInference`; missing `TEDIX_BILLING_SETTLEMENT_MODE` fails closed       |
 | Request size       | Bodies over `TEDI_MAX_AI_REQUEST_BYTES` fail before the gateway fetch                                |
 | Context growth     | Native Pi compaction; provider overflow enters `CompactionTask` recovery (`src/context-overflow.ts`) |
