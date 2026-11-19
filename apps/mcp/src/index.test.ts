@@ -1369,6 +1369,8 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 	it("uses original OAuth context and owning native handlers with zero loader diagnostics", async () => {
 		const { validateAuth } = await import("./auth-helpers");
 		const factory = await import("./mcp/server-factory");
+		const organizationId = "native-ingress-org";
+		const descopeTenantId = "personal_local-demo-owner";
 		// No stored catalog rows: the gateway builds the pair the CLI resolves Work with.
 		const search = NATIVE_CATALOG_TOOLS[0]!;
 		const describeRow = NATIVE_CATALOG_TOOLS[1]!;
@@ -1395,7 +1397,7 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 				id: "native-app",
 				slug: "fictional-native",
 				name: "Native fixture",
-				organizationId: "org-id",
+				organizationId,
 				visibility: "public",
 			},
 			metadata: {
@@ -1412,7 +1414,7 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 		const context = vi.spyOn(factory, "getAppContext").mockResolvedValue({
 			...app,
 			capabilities: {},
-			organizationId: "org-id",
+			organizationId,
 			expiresAt: Date.now() + 60000,
 			catalogMcp: null,
 			catalogResources: [],
@@ -1428,7 +1430,11 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 		const logs = vi.spyOn(console, "log");
 		const ledger = createGatewayLedgerApi();
 		const api = vi.fn(async (request: Request) => {
-			if (new URL(request.url).pathname.endsWith("/audit/appendChangeRecord")) {
+			const path = new URL(request.url).pathname;
+			if (path === "/rpc/organizations/get") {
+				return Response.json({ json: { descopeTenantId } });
+			}
+			if (path === "/rpc/audit/appendChangeRecord") {
 				const body = (await request.json()) as {
 					json: Parameters<typeof ledger.appendChangeRecord>[0];
 				};
@@ -1438,6 +1444,10 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 			}
 			return Response.json({ json: { data: [], total: 0 } });
 		});
+		const workDispatches = () =>
+			api.mock.calls.filter(
+				([request]) => new URL(request.url).pathname === "/rpc/workItems/list",
+			);
 		const env = createEnv({
 			ENVIRONMENT: "development",
 			MCP_URL: "http://localhost:3000",
@@ -1454,17 +1464,18 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 			vi.mocked(validateAuth).mockResolvedValueOnce({
 				type: "oauth",
 				userId: "local-demo-owner",
-				organizationId: "org-id",
+				organizationId,
 				scopes,
 				localDemo: true,
 				payload: {
 					sub: "local-demo-owner",
-					dct: "personal_local-demo-owner",
+					dct: descopeTenantId,
 					exp: 2000000000,
 					iss: "fixture",
 				},
 			});
-			return worker.fetch(
+			const pending: Promise<unknown>[] = [];
+			const response = await worker.fetch(
 				new Request("http://localhost:3000/mcp?appSlug=fictional-native", {
 					method: "POST",
 					headers: {
@@ -1497,10 +1508,12 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 				env,
 				{
 					waitUntil: (p: Promise<unknown>) => {
-						void p.catch(() => {});
+						pending.push(p);
 					},
 				} as ExecutionContext,
 			);
+			await Promise.all(pending);
+			return response;
 		};
 		try {
 			const bootstrap = await invoke("get_info", {});
@@ -1523,7 +1536,7 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 			).toMatchObject({
 				nativeContext: {
 					actor: { authType: "oauth" },
-					organizationId: "org-id",
+					organizationId,
 					appId: "native-app",
 				},
 				nativeCatalog: {
@@ -1577,7 +1590,7 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 				api.mock.calls
 					.slice(before)
 					.map(([request]) => new URL(request.url).pathname),
-			).toEqual(["/rpc/audit/appendChangeRecord"]);
+			).toEqual(["/rpc/audit/appendChangeRecord", "/rpc/audit/createEvent"]);
 			expect((await ledger.listChangeRecords({})).at(-1)).toMatchObject({
 				operation: work.toolId,
 				outcome: "denied",
@@ -1594,9 +1607,9 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 				((await forgedArguments.json()) as { result: { isError?: boolean } })
 					.result.isError,
 			).not.toBe(true);
-			expect(
-				(api.mock.calls.at(-1)![0] as Request).headers.get("X-Tedix-Org-Id"),
-			).toBe("org-id");
+			expect(workDispatches().at(-1)?.[0].headers.get("X-Tedix-Org-Id")).toBe(
+				organizationId,
+			);
 			const forcedBootstrap = await invoke(
 				"get_info",
 				{},
@@ -1620,12 +1633,6 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 			expect(await forcedCall.json()).toMatchObject({
 				error: expect.anything(),
 			});
-			const workDispatches = () =>
-				api.mock.calls.filter((args) =>
-					new URL((args[0] as Request).url).pathname.endsWith(
-						"/workItems/list",
-					),
-				);
 			const priorApi = workDispatches().length;
 			delete (work.config as { nativeDirect?: boolean }).nativeDirect;
 			const notOpted = await invoke(work.toolId, { nativeDirect: true });
