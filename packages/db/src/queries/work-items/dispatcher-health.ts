@@ -99,6 +99,7 @@ export async function upsertDispatcherHealthReport(
 				topReasonCount: params.topReasonCount ?? null,
 				duty: params.duty ?? null,
 				machineName: params.machineName ?? null,
+				cliVersion: params.cliVersion ?? null,
 				machineTools: params.machineTools ?? null,
 				reportedBy: params.reportedBy ?? null,
 			},

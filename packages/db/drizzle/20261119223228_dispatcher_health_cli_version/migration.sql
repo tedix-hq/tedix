@@ -1,0 +1,1 @@
+ALTER TABLE `dispatcher_health_reports` ADD `cli_version` text;

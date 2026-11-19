@@ -28,6 +28,7 @@ export const dispatcherHealthReports = sqliteTable(
 		duty: text("duty", { mode: "json" }).$type<SupervisorDutyHealth>(),
 		/** The readable name of the machine this runner is on. */
 		machineName: text("machine_name"),
+		cliVersion: text("cli_version"),
 		/** The read-only machine tools this machine accepts. */
 		machineTools: text("machine_tools", { mode: "json" }).$type<string[]>(),
 		/**

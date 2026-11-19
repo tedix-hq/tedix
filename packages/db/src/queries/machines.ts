@@ -29,6 +29,7 @@ export interface ListMachinesResult {
 	machineName: string;
 	executors: string[];
 	lastSeenAt: string;
+	cliVersion: string | null;
 	machineTools: MachineToolName[];
 	online: boolean;
 }
@@ -49,6 +50,7 @@ export async function listMachines(
 			machineName: dispatcherHealthReports.machineName,
 			executor: dispatcherHealthReports.executor,
 			reportedAt: dispatcherHealthReports.reportedAt,
+			cliVersion: dispatcherHealthReports.cliVersion,
 			machineTools: dispatcherHealthReports.machineTools,
 		})
 		.from(dispatcherHealthReports)
@@ -68,12 +70,14 @@ export async function listMachines(
 			machineName: row.machineName,
 			executors: [],
 			lastSeenAt: row.reportedAt,
+			cliVersion: null,
 			machineTools: [],
 			online: false,
 		};
 		// Rows arrive oldest first, so the newest report wins.
 		machine.machineName = row.machineName;
 		machine.lastSeenAt = row.reportedAt;
+		machine.cliVersion = row.cliVersion ?? machine.cliVersion;
 		if (Array.isArray(row.machineTools))
 			machine.machineTools = [
 				...new Set(row.machineTools.filter((tool) => KNOWN_TOOLS.has(tool))),
