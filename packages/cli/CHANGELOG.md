@@ -3,7 +3,15 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.23.0 — 2026-11-19
+
+### Minor Changes
+
+- `tedix lane serve` has no slot limit any more: it starts every ready Work Item it may take, and the `--max` option is removed. Saved runners and old LaunchAgents drop the value automatically. This version needs a Tedix server that no longer expects slot counts in a runner's health report.
+
 ## 0.22.2 — 2026-11-19
+
+Not published on its own: its build failed on five out-of-date tests, so these changes first shipped in 0.23.0.
 
 ### Patch Changes
 
