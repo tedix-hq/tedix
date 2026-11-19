@@ -85,13 +85,20 @@ export const MachineToolCallStatusSchema = z.enum(
 );
 export type MachineToolCallStatus = z.infer<typeof MachineToolCallStatusSchema>;
 
-/** The readable name a runner reports for its machine. */
+/**
+ * The readable name a runner reports for its machine. The pattern is published
+ * in the tool's JSON schema, where readers compile it without the `u` flag, so
+ * it lists the control characters as code points instead of `\p{Cc}`.
+ */
 export const MachineNameSchema = z
 	.string()
 	.trim()
 	.min(1)
 	.max(100)
-	.regex(/^[^\p{Cc}]+$/u, "A machine name cannot hold control characters");
+	.regex(
+		/^[^\u0000-\u001f\u007f-\u009f]+$/,
+		"A machine name cannot hold control characters",
+	);
 
 /** What a health report may list; names this server does not know are ignored on read. */
 export const ReportedMachineToolsSchema = z
