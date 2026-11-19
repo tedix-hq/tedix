@@ -1,21 +1,33 @@
 import {
+	WorkspaceConnectionActorSchema,
+	WorkspaceConnectionDecisionInputSchema,
+	type WorkspaceConnectionDecisionResult,
 	WorkspaceConnectionReadInputSchema,
 	WorkspaceConnectionReadResultSchema,
 	type WorkspaceConnectionReadResult,
 } from "@tedix/api-contract/schemas/workspace-connection-read";
+import {
+	resolveRuntimeApprovalTimeout,
+	runtimeApprovalAuditAction,
+} from "@tedix/api-contract/utils/approval-policy";
+import {
+	getApprovalRequestById,
+	resolveApprovalRequest,
+} from "@tedix/db/queries/approvals";
+import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { getMemberAccessByUserId } from "@tedix/db/queries/organization-members";
 import {
 	readWorkspaceRuntimeRole,
 	readWorkspaceSessionRole,
 } from "@tedix/db/queries/os-workspace-access";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
-import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import { findWorkspaceConnectionTool } from "@tedix/db/queries/tools";
 import { createContext } from "../rpc/context";
 import {
 	callWorkspaceResourceConnection,
 	WorkspaceConnectionNotConnected,
 } from "./os-app-connection";
+import { workspaceDocumentRuntime } from "./workspace-document-owner";
 
 /** Called only by the dedicated WorkerEntrypoint. Identities are assertions from
  * the workspace store; membership, role, resource and tool authority are live reads.
@@ -79,9 +91,12 @@ export async function readLinkedWorkspaceAccount(
 						"This tedi needs build access to read connected accounts in this workspace.",
 				};
 		}
-		const resource = await getOsWorkspaceResource(context.db, {
-			...scope,
-			resourceId: request.resourceId,
+		const resource = await workspaceDocumentRuntime().outputQuery(scope, {
+			op: "resources",
+			query: {
+				operation: "get",
+				params: { ...scope, resourceId: request.resourceId },
+			},
 		});
 		if (!resource)
 			return {
@@ -116,7 +131,11 @@ export async function readLinkedWorkspaceAccount(
 					actor: request.actor,
 				},
 				resource,
-				{ ...tool, arguments: request.args },
+				{
+					...tool,
+					arguments: request.args,
+					approvalRequestId: request.approvalRequestId,
+				},
 			);
 			if (
 				result &&
@@ -130,11 +149,20 @@ export async function readLinkedWorkspaceAccount(
 					typeof approval === "object" &&
 					!Array.isArray(approval) &&
 					typeof approval.approvalRequestId === "string"
-				)
-					return WorkspaceConnectionReadResultSchema.parse({
-						status: "approval_required",
-						approvalId: approval.approvalRequestId,
-					});
+				) {
+					if (approval.status === "pending")
+						return WorkspaceConnectionReadResultSchema.parse({
+							status: "approval_required",
+							approvalId: approval.approvalRequestId,
+						});
+					return {
+						status: "refused",
+						message:
+							approval.status === "rejected"
+								? "The connection read was denied."
+								: "This approval can no longer be used for the connection read.",
+					};
+				}
 			}
 			return { status: "ok", result };
 		} catch (error) {
@@ -165,6 +193,104 @@ export async function readLinkedWorkspaceAccount(
 			status: "refused",
 			message:
 				"The connection read could not be completed. Check the linked resource and try again.",
+		};
+	}
+}
+
+/** The workspace store supplies the authenticated person who clicked the tray decision. */
+export async function decideLinkedWorkspaceAccountApproval(
+	env: CloudflareEnv,
+	input: unknown,
+): Promise<WorkspaceConnectionDecisionResult> {
+	const parsed = WorkspaceConnectionDecisionInputSchema.safeParse(input);
+	if (!parsed.success)
+		return {
+			status: "refused",
+			message: "The connection decision is invalid.",
+		};
+	const {
+		organizationId,
+		workspaceId,
+		conversationId,
+		approvalRequestId,
+		by,
+		decision,
+	} = parsed.data;
+	const context = createContext(
+		new Request("https://api.internal/workspace-connection-decision"),
+		env,
+	);
+	try {
+		const { db } = context;
+		const workspace = await getOsWorkspace(db, { organizationId, workspaceId });
+		if (workspace?.status !== "active")
+			return { status: "refused", message: "This workspace is unavailable." };
+		const member = await getMemberAccessByUserId(db, organizationId, by);
+		const role = await readWorkspaceSessionRole(db, workspaceId, by);
+		// Match the live owner/admin requirement that governance applies on replay.
+		if (
+			member?.status !== "active" ||
+			!["owner", "admin"].includes(member.role) ||
+			role !== "build"
+		)
+			return {
+				status: "refused",
+				message:
+					"An active organization owner or admin with workspace build access must decide this read.",
+			};
+
+		const approval = await getApprovalRequestById(
+			db,
+			approvalRequestId,
+			organizationId,
+		);
+		const target = approval?.payload.target;
+		if (
+			approval?.actionType !== "mcp.tool_call" ||
+			approval.status !== "pending" ||
+			resolveRuntimeApprovalTimeout(approval).expired ||
+			approval.payload.kind !== "mcp_tool_call" ||
+			typeof approval.payload.fingerprint !== "string" ||
+			!target ||
+			typeof target !== "object" ||
+			Array.isArray(target) ||
+			target.workspaceId !== workspaceId ||
+			target.conversationId !== conversationId ||
+			typeof target.resourceHash !== "string" ||
+			typeof target.accountHash !== "string" ||
+			!WorkspaceConnectionActorSchema.safeParse(target.actor).success ||
+			"gadgetId" in target
+		)
+			return {
+				status: "refused",
+				message:
+					"No pending connection read matches this workspace and conversation.",
+			};
+
+		const status = decision === "approve" ? "approved" : "rejected";
+		const resolvedBy = `user:${by}`;
+		const resolved = await resolveApprovalRequest(db, approval.id, {
+			status,
+			resolvedBy,
+		});
+		if (!resolved)
+			return {
+				status: "refused",
+				message: "This connection read is no longer pending or is blocked.",
+			};
+		await insertAuditEvent(db, {
+			organizationId,
+			actorId: resolvedBy,
+			actorType: "user",
+			action: runtimeApprovalAuditAction({ status }),
+			resourceType: "approval_request",
+			resourceId: approval.id,
+		});
+		return { status: decision === "approve" ? "approved" : "denied" };
+	} catch {
+		return {
+			status: "refused",
+			message: "The connection decision could not be recorded.",
 		};
 	}
 }

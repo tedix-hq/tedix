@@ -191,6 +191,17 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 			request: ReleaseInferenceReservationInputSchema.parse(input),
 		});
 	}
+
+	/** Record a person's tray decision on a held linked-account read. */
+	async decideLinkedAccountApproval(
+		input: import("@tedix/api-contract/schemas/workspace-connection-read").WorkspaceConnectionDecisionInput,
+	): Promise<
+		import("@tedix/api-contract/schemas/workspace-connection-read").WorkspaceConnectionDecisionResult
+	> {
+		const { decideLinkedWorkspaceAccountApproval } =
+			await import("./services/workspace-connection-read");
+		return decideLinkedWorkspaceAccountApproval(this.env, input);
+	}
 }
 
 /** Only the MCP Worker is configured to bind this service capability. */

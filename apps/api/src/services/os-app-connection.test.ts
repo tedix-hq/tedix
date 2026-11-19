@@ -28,12 +28,22 @@ const mocks = vi.hoisted(() => ({
 	settle: vi.fn(),
 	workspace: vi.fn(),
 	resource: vi.fn(),
+	outputQuery: vi.fn(),
+	resolveApproval: vi.fn(),
+	audit: vi.fn(),
 	role: vi.fn(),
 	runtimeRole: vi.fn(),
 	membership: vi.fn(),
 	findTool: vi.fn(),
 	approvalTool: vi.fn(),
 	tediProfile: vi.fn(),
+}));
+vi.mock("./workspace-document-owner", () => ({
+	workspaceDocumentRuntime: () => ({ outputQuery: mocks.outputQuery }),
+}));
+vi.mock("@tedix/db/queries/audit", async (load) => ({
+	...(await load<object>()),
+	insertAuditEvent: mocks.audit,
 }));
 vi.mock("@tedix/db/queries/tedis", async (load) => ({
 	...(await load<object>()),
@@ -91,6 +101,7 @@ vi.mock("@tedix/db/queries/approvals", async (load) => ({
 	...(await load<object>()),
 	createApprovalRequestWithAudit: mocks.create,
 	getApprovalRequestById: mocks.get,
+	resolveApprovalRequest: mocks.resolveApproval,
 	consumeOwnerToolApproval: mocks.consume,
 	findPendingOwnerToolApproval: mocks.pending,
 	getApprovalAnchor: mocks.anchor,
@@ -99,7 +110,10 @@ vi.mock("../lib/first-party-mcp", () => ({
 	requestFirstPartyMcp: mocks.gateway,
 }));
 import { callWorkspaceAppConnection } from "./os-app-connection";
-import { readLinkedWorkspaceAccount } from "./workspace-connection-read";
+import {
+	decideLinkedWorkspaceAccountApproval,
+	readLinkedWorkspaceAccount,
+} from "./workspace-connection-read";
 
 const resource = {
 	id: "resource-1",
@@ -926,7 +940,7 @@ describe("workspace agent linked account reads", () => {
 			organizationId: "org-1",
 			status: "active",
 		});
-		mocks.resource.mockResolvedValue({ ...resource });
+		mocks.outputQuery.mockResolvedValue({ ...resource });
 		mocks.membership.mockResolvedValue({ status: "active", role: "member" });
 		mocks.member.mockResolvedValue({ status: "active", role: "member" });
 		mocks.role.mockResolvedValue("build");
@@ -946,7 +960,7 @@ describe("workspace agent linked account reads", () => {
 		return readLinkedWorkspaceAccount(env(), { ...request, ...overrides });
 	}
 	function tenant() {
-		mocks.resource.mockResolvedValue({
+		mocks.outputQuery.mockResolvedValue({
 			...resource,
 			connectionScope: "tenant",
 			personalOwnerUserId: null,
@@ -970,11 +984,20 @@ describe("workspace agent linked account reads", () => {
 			"workspace-1",
 			"user-2",
 		);
-		expect(mocks.resource).toHaveBeenCalledWith(expect.anything(), {
-			organizationId: "org-1",
-			workspaceId: "workspace-1",
-			resourceId: "resource-1",
-		});
+		expect(mocks.outputQuery).toHaveBeenCalledWith(
+			{ organizationId: "org-1", workspaceId: "workspace-1" },
+			{
+				op: "resources",
+				query: {
+					operation: "get",
+					params: {
+						organizationId: "org-1",
+						workspaceId: "workspace-1",
+						resourceId: "resource-1",
+					},
+				},
+			},
+		);
 		expect(mocks.account).not.toHaveBeenCalled();
 		expect(mocks.gateway).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -1058,7 +1081,7 @@ describe("workspace agent linked account reads", () => {
 				status: "refused",
 				message: expect.stringContaining("needs build access"),
 			});
-			expect(mocks.resource).not.toHaveBeenCalled();
+			expect(mocks.outputQuery).not.toHaveBeenCalled();
 			expect(mocks.gateway).not.toHaveBeenCalled();
 		},
 	);
@@ -1100,7 +1123,19 @@ describe("workspace agent linked account reads", () => {
 		});
 		expect(mocks.gateway).not.toHaveBeenCalled();
 	});
-	it("returns a bound owner approval when the tool has an approval rule", async () => {
+	it("refuses a resource that survives only in the core index", async () => {
+		mocks.resource.mockResolvedValue(resource);
+		mocks.outputQuery.mockResolvedValue(undefined);
+		expect(await read()).toEqual({
+			status: "refused",
+			message: "The linked resource was not found in this workspace.",
+		});
+		expect(mocks.resource).not.toHaveBeenCalled();
+		expect(mocks.findTool).not.toHaveBeenCalled();
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+
+	async function pendingRead() {
 		mocks.approvalTool.mockResolvedValue({
 			...surface().tools[0],
 			config: { ...surface().tools[0]!.config, approvalPolicy: "always" },
@@ -1111,6 +1146,35 @@ describe("workspace agent linked account reads", () => {
 			approvalId: expect.any(String),
 		});
 		expect(mocks.gateway).not.toHaveBeenCalled();
+		const row = { ...mocks.create.mock.calls[0]![1], status: "pending" };
+		mocks.get.mockResolvedValue(row);
+		mocks.resolveApproval.mockImplementation(async (_db, id, data) => {
+			expect(id).toBe(row.id);
+			Object.assign(row, data);
+			return row;
+		});
+		return {
+			replay: { approvalRequestId: row.id as string },
+			tray: {
+				organizationId: request.organizationId,
+				workspaceId: request.workspaceId,
+				conversationId: request.conversationId,
+				approvalRequestId: row.id as string,
+				by: "admin-1",
+			},
+		};
+	}
+
+	function allowTrayApprover() {
+		const member = { status: "active", role: "admin" };
+		mocks.membership.mockResolvedValue(member);
+		mocks.member.mockImplementation(async (_db, _org, id) =>
+			id === "admin-1" ? member : { status: "active", role: "member" },
+		);
+	}
+
+	it("returns a bound owner approval when the tool has an approval rule", async () => {
+		await pendingRead();
 		const target = mocks.create.mock.calls[0]![1].payload.target;
 		expect(target).toMatchObject({
 			workspaceId: "workspace-1",
@@ -1124,6 +1188,114 @@ describe("workspace agent linked account reads", () => {
 		expect(target).not.toHaveProperty("revisionId");
 		expect(target).not.toHaveProperty("slot");
 	});
+	it("records an authorized tray approval and replays as the original actor", async () => {
+		const { tray, replay } = await pendingRead();
+		allowTrayApprover();
+		expect(await read(replay)).toEqual({
+			status: "approval_required",
+			approvalId: replay.approvalRequestId,
+		});
+		await expect(
+			decideLinkedWorkspaceAccountApproval(env(), {
+				...tray,
+				decision: "approve",
+			}),
+		).resolves.toEqual({ status: "approved" });
+		expect(mocks.resolveApproval).toHaveBeenCalledWith(
+			expect.anything(),
+			tray.approvalRequestId,
+			{ status: "approved", resolvedBy: "user:admin-1" },
+		);
+		expect(mocks.audit).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				actorId: "user:admin-1",
+				action: "approval.approved",
+			}),
+		);
+		expect(mocks.gateway).not.toHaveBeenCalled();
+		expect(await read(replay)).toMatchObject({ status: "ok" });
+		expect(mocks.gateway.mock.calls[0]![0].headers).toMatchObject({
+			"X-Tedix-Acting-User": "user-2",
+		});
+		expect(mocks.consume).toHaveBeenCalledTimes(1);
+	});
+
+	it("records a denial and refuses replay even if the rule is later removed", async () => {
+		const { tray, replay } = await pendingRead();
+		allowTrayApprover();
+		await expect(
+			decideLinkedWorkspaceAccountApproval(env(), {
+				...tray,
+				decision: "deny",
+			}),
+		).resolves.toEqual({ status: "denied" });
+		mocks.approvalTool.mockResolvedValue(surface().tools[0]);
+		expect(await read(replay)).toEqual({
+			status: "refused",
+			message: "The connection read was denied.",
+		});
+		expect(mocks.consume).not.toHaveBeenCalled();
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+
+	it("refuses a tray decision without current authority or the original conversation", async () => {
+		const { tray } = await pendingRead();
+		const decide = (overrides = {}) =>
+			decideLinkedWorkspaceAccountApproval(env(), {
+				...tray,
+				decision: "approve",
+				...overrides,
+			});
+		expect(await decide()).toMatchObject({ status: "refused" });
+		allowTrayApprover();
+		mocks.role.mockResolvedValue("use");
+		expect(await decide()).toMatchObject({ status: "refused" });
+		mocks.role.mockResolvedValue("build");
+		expect(await decide({ conversationId: "other-chat" })).toMatchObject({
+			status: "refused",
+		});
+		expect(mocks.resolveApproval).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["actor", { actor: { kind: "user", id: "user-3" } }],
+		["arguments", { args: { ...request.args, limit: 10 } }],
+		["conversation", { conversationId: "other-chat" }],
+		["workspace", { workspaceId: "other-workspace" }],
+		["resource", { resourceId: "other-resource" }],
+		["account", {}],
+	])("refuses replay with a changed %s", async (binding, overrides) => {
+		const { tray, replay } = await pendingRead();
+		allowTrayApprover();
+		expect(
+			await decideLinkedWorkspaceAccountApproval(env(), {
+				...tray,
+				decision: "approve",
+			}),
+		).toEqual({ status: "approved" });
+		if (binding === "workspace")
+			mocks.outputQuery.mockResolvedValue({
+				...resource,
+				workspaceId: "other-workspace",
+			});
+		if (binding === "resource")
+			mocks.outputQuery.mockResolvedValue({
+				...resource,
+				id: "other-resource",
+			});
+		if (binding === "account")
+			mocks.ownAccounts.mockResolvedValue([
+				{ ...ownAccount, id: "replacement-account" },
+			]);
+		expect(await read({ ...replay, ...overrides })).toMatchObject({
+			status: "refused",
+			message: expect.stringContaining("different call"),
+		});
+		expect(mocks.consume).not.toHaveBeenCalled();
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+
 	it.each([
 		{
 			actor: schedule,
@@ -1217,7 +1389,7 @@ describe("workspace agent linked account reads", () => {
 		},
 	);
 	it("refuses missing resources and ambiguous tool names", async () => {
-		mocks.resource.mockResolvedValueOnce(undefined);
+		mocks.outputQuery.mockResolvedValueOnce(undefined);
 		expect(await read()).toMatchObject({ status: "refused" });
 		mocks.findTool.mockResolvedValue(undefined);
 		expect(await read()).toMatchObject({ status: "refused" });
@@ -1236,7 +1408,7 @@ describe("workspace agent linked account reads", () => {
 		{ resourceType: "other" },
 		{ providerResourceId: "other" },
 	])("shares the resource refusal checks: %j", async (change) => {
-		mocks.resource.mockResolvedValue({ ...resource, ...change });
+		mocks.outputQuery.mockResolvedValue({ ...resource, ...change });
 		expect(await read()).toMatchObject({ status: "refused" });
 		expect(mocks.gateway).not.toHaveBeenCalled();
 	});
