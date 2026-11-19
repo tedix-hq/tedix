@@ -3215,7 +3215,7 @@ export class LaneDispatcher {
 						item.id,
 						"--input",
 						JSON.stringify({
-							executor,
+							executorReference: { type: "external_agent", id: executor },
 							expectedWorkItemVersion: item.version,
 							idleReassignment: {
 								fromExecutor: donor,

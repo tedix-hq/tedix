@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	WorkExecutorSchema,
+	workExecutorReference,
 	type WorkExecutor,
 	type WorkItem,
 } from "@tedix/api-contract/schemas/work-items";
@@ -126,7 +127,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 			osApi.workItems.updateSpecification({
 				id: item.id,
 				expectedWorkItemVersion: item.version,
-				executor: host,
+				executorReference: workExecutorReference(host),
 				laneDispatch: { state: "ready" },
 				...(brief === (item.description ?? "") ? {} : { description: brief }),
 			}),
@@ -142,7 +143,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 			osApi.workItems.updateSpecification({
 				id: item.id,
 				expectedWorkItemVersion: item.version,
-				executor: value,
+				executorReference: workExecutorReference(value),
 			}),
 		onSuccess: () =>
 			client.invalidateQueries({
@@ -321,7 +322,7 @@ export function WorkDispatchApp({ projectId }: { projectId: string }) {
 			return osApi.workItems.create({
 				title: title.trim(),
 				description,
-				executor,
+				executorReference: workExecutorReference(executor),
 				projectId,
 				accountableOwnerType: "user",
 				accountableOwnerId: viewer.data.id,
