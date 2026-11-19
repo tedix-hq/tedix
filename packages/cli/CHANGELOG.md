@@ -3,6 +3,20 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.25.0 — 2026-11-19
+
+### Minor Changes
+
+- A follow-up sent to a run with "Send now" no longer waits for the agent's current turn to end. The runner stops the turn of a Codex or Claude Code run and starts the next turn on the same session with the follow-up. Other agents, and a turn that does not stop in time, take the follow-up when the turn ends, and the run's log says so.
+- An agent run can ask the person who owns its task a question, with up to five offered answers, and wait. The question shows in the run's log; the run stays alive for up to 30 minutes, and the person's answer reaches the agent as its next turn on the same session. With no answer in time the run ends as deferred, with the question recorded.
+
+### Patch Changes
+
+- A follow-up, a "Send now" message or an answer no longer fails the run when its turn starts. Each turn of a run writes to its own output files, also after the runner restarts. If a follow-up turn still cannot start, the run ends with the result of the turn before it and its log says the follow-up was not applied.
+- Runners send run steps less often, so several runs at once stay under the server's call limit. A run with nothing new asks for messages every 15 seconds, runs share one budget, and a run that is told to slow down waits longer before it tries again.
+- A runner can restart onto a new CLI when a process number it remembered now belongs to another process, or when an ended attempt has no recorded process.
+- The runner's comment about unpushed commits names where they are saved after the checkout is removed and gives the command to fetch them.
+
 ## 0.24.1 — 2026-11-19
 
 ### Patch Changes
