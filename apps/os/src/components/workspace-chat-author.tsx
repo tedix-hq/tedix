@@ -27,7 +27,7 @@ export function WorkspaceChatAuthor({
 				kind={kind}
 				name={name}
 				image={profile?.image}
-				className="size-5"
+				className="size-6"
 			/>
 			<Text as="span" role="caption" tone="secondary">
 				{name}
