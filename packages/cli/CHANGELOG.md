@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.26.0 — 2026-11-19
+
+### Minor Changes
+
+- A runner can answer read-only questions about its machine for a tedi: read a file, search the code, list and read commits, read CI runs and the failure lines of a CI job, and report the state of the runners on the machine. Files and history are read from the runner's own copy of main, never from your working folders. Every answer is masked for secret shapes and cut to 20,000 characters. The runner reports a machine name (the short hostname, or `machineName` in its saved settings).
+- A tedi can change files and run commands on your machine when you switch it on. It is off by default. To allow it, add `"machineWriteMode": "allow"` to the runner's entry in `~/.tedix/supervisor-runners.json` (the entry that answers machine tools: the Codex runner if you have one, otherwise the first in the list) and restart the runners. The tedi works in its own checkout of the repository under `~/.tedix/machine-workspaces/`, never in your working folders. Sign-in, consent and MFA steps, payments, deleting data, messages to outside people, force-pushes, `sudo` and credential files are refused.
+
 ## 0.25.0 — 2026-11-19
 
 ### Minor Changes
