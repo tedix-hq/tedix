@@ -830,7 +830,7 @@ a variable is missing. The frame also sets `color-scheme`, so browser controls
 match. Tedix's own fonts are not loaded inside the frame; the font variable
 falls back to the device's system font.
 
-The bridge has three methods:
+Use the bridge to call the host:
 
 ```js
 const { workspaceId, gadget, role, settings, grants } =
@@ -944,6 +944,43 @@ and nothing is saved. `await tedix.call("outputs.changes", { slot,
 sinceRevision })` returns only what changed since a revision, so an open app
 catches up without reading the whole file again. Outside the browser the same
 save is `patch_os_output`; its description lists the patch operations.
+
+### Offer file downloads
+
+To add an **Export** menu to a workspace app, list its formats in
+`config.exports` in the manifest. Each entry has a `name` shown in the menu,
+a file type (`mimeType`), and a `handler` that names the function to run.
+
+```json
+{
+	"version": 1,
+	"exports": [
+		{ "name": "CSV", "mimeType": "text/csv", "handler": "downloadCsv" },
+		{
+			"name": "Markdown",
+			"mimeType": "text/markdown",
+			"handler": "downloadMarkdown"
+		}
+	]
+}
+```
+
+In `client.js`, register each function with the matching name. Return the
+contents as text or a promise for text.
+
+```js
+tedix.registerExport("downloadCsv", () => "Month,Count\nJanuary,42\n");
+tedix.registerExport("downloadMarkdown", () => "# January\nCount: 42\n");
+```
+
+Use up to 10 different menu names. The menu supports CSV (`text/csv`) and
+Markdown (`text/markdown`). Each file can be up to 8 MB of UTF-8 text. The
+download uses the app name and the file extension.
+Leave the list out or empty to hide the menu.
+
+The function runs in the open app with the access of the person who clicks
+**Export**. It can use what they can see and call the host with their usual
+permissions.
 
 ### Run app methods after an interaction, schedule, webhook or skill result
 

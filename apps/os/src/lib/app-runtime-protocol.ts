@@ -1,4 +1,6 @@
 export const APP_RUNTIME_CALL_METHOD = "tedix/call";
+export const APP_RUNTIME_EXPORT_METHOD = "tedix/export";
+export const APP_RUNTIME_EXPORT_RESULT_METHOD = "tedix/export-result";
 export const APP_RUNTIME_OUTPUTS_CHANGED_METHOD = "tedix/outputs-changed";
 export const APP_RUNTIME_TRANSLATE_TEXT_METHOD = "tedix/translate-text";
 export const APP_RUNTIME_TRANSLATION_METHOD = "tedix/translation";

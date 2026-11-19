@@ -1,5 +1,9 @@
 import {
 	APP_RUNTIME_CLIENT_MODULE,
+	APP_RUNTIME_DOWNLOAD_EXTENSIONS,
+	APP_RUNTIME_DOWNLOAD_MAX_TEXT_LENGTH,
+	AppRuntimeDownloadTypeSchema,
+	type AppRuntimeExportFormat,
 	AppRuntimeMethodSchema,
 	AppRuntimeArgumentsSchema,
 	type AppRuntimeFiles,
@@ -40,6 +44,8 @@ import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	APP_RUNTIME_CALL_METHOD,
 	APP_RUNTIME_ERROR_METHOD,
+	APP_RUNTIME_EXPORT_METHOD,
+	APP_RUNTIME_EXPORT_RESULT_METHOD,
 	APP_RUNTIME_MAX_ERROR_BYTES,
 	APP_RUNTIME_MAX_ERROR_REPORTS,
 	APP_RUNTIME_LANGUAGE_METHOD,
@@ -204,6 +210,97 @@ function slotOutputId(deps: AppRuntimeHostDeps, slot: string): string | null {
 			(row) => row.workspaceId === deps.context.workspaceId,
 		),
 		slot,
+	);
+}
+
+function isAppDownloadText(text: unknown): text is string {
+	return (
+		typeof text === "string" &&
+		text.length <= APP_RUNTIME_DOWNLOAD_MAX_TEXT_LENGTH
+	);
+}
+
+function downloadAppText(
+	filename: string,
+	mimeType: keyof typeof APP_RUNTIME_DOWNLOAD_EXTENSIONS,
+	text: string,
+): string {
+	// oxlint-disable-next-line no-control-regex
+	const safeFilename = filename.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_");
+	const url = URL.createObjectURL(
+		new Blob([text], { type: `${mimeType};charset=utf-8` }),
+	);
+	const link = document.createElement("a");
+	link.href = url;
+	link.download = safeFilename;
+	document.body.append(link);
+	link.click();
+	link.remove();
+	setTimeout(() => URL.revokeObjectURL(url), 1000);
+	return safeFilename;
+}
+
+/** Request a download from the already running app, through its own sandbox proxy. */
+export async function requestAppRuntimeExport(
+	proxy: Window,
+	format: AppRuntimeExportFormat,
+	appName: string,
+	signal: AbortSignal,
+): Promise<void> {
+	const text = await new Promise<string>((resolve, reject) => {
+		const id = crypto.randomUUID();
+		const origin = window.location.origin;
+		const finish = () => {
+			clearTimeout(timeout);
+			window.removeEventListener("message", receive);
+			signal.removeEventListener("abort", cancel);
+		};
+		const cancel = () => {
+			finish();
+			reject(new Error("The app could not finish the export."));
+		};
+		const receive = (event: MessageEvent) => {
+			if (event.source !== proxy || event.origin !== origin) return;
+			const data = event.data;
+			if (
+				!isRecord(data) ||
+				data.jsonrpc !== "2.0" ||
+				data.method !== APP_RUNTIME_EXPORT_RESULT_METHOD ||
+				!isRecord(data.params) ||
+				data.params.id !== id
+			)
+				return;
+			finish();
+			const { text } = data.params;
+			if (
+				typeof text !== "string" ||
+				text.length > OS_OUTPUT_CONTENT_MAX_BYTES ||
+				new TextEncoder().encode(text).length > OS_OUTPUT_CONTENT_MAX_BYTES
+			) {
+				reject(new Error("The app did not return a supported file."));
+				return;
+			}
+			resolve(text);
+		};
+		const timeout = setTimeout(cancel, 30_000);
+		if (signal.aborted) return cancel();
+		signal.addEventListener("abort", cancel, { once: true });
+		window.addEventListener("message", receive);
+		proxy.postMessage(
+			{
+				jsonrpc: "2.0",
+				method: APP_RUNTIME_EXPORT_METHOD,
+				params: { id, handler: format.handler },
+			},
+			origin,
+		);
+	});
+	signal.throwIfAborted();
+	const extension = APP_RUNTIME_DOWNLOAD_EXTENSIONS[format.mimeType];
+	downloadAppText(
+		`${appName.slice(0, 190)}.${extension}`,
+		format.mimeType,
+		text,
 	);
 }
 
@@ -631,34 +728,21 @@ export async function handleAppRuntimeCall(
 				typeof args.filename !== "string" ||
 				!args.filename ||
 				args.filename.length > 200 ||
-				typeof args.text !== "string" ||
-				args.text.length > 8_000_000 ||
+				!isAppDownloadText(args.text) ||
 				typeof args.mimeType !== "string"
 			)
 				return { ok: false, error: "bad_arguments" };
-			const mimeType = args.mimeType.split(";")[0]?.trim().toLowerCase();
-			if (
-				!mimeType ||
-				![
-					"text/plain",
-					"text/markdown",
-					"text/csv",
-					"application/json",
-				].includes(mimeType)
-			)
-				return { ok: false, error: "bad_arguments", detail: "mimeType" };
-			const filename = args.filename.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_");
-			const url = URL.createObjectURL(
-				new Blob([args.text], { type: `${mimeType};charset=utf-8` }),
+			const mimeType = AppRuntimeDownloadTypeSchema.safeParse(
+				args.mimeType.split(";")[0]?.trim().toLowerCase(),
 			);
-			const link = document.createElement("a");
-			link.href = url;
-			link.download = filename;
-			document.body.append(link);
-			link.click();
-			link.remove();
-			setTimeout(() => URL.revokeObjectURL(url), 1000);
-			return { ok: true, value: { filename } };
+			if (!mimeType.success)
+				return { ok: false, error: "bad_arguments", detail: "mimeType" };
+			return {
+				ok: true,
+				value: {
+					filename: downloadAppText(args.filename, mimeType.data, args.text),
+				},
+			};
 		}
 		case "outputs.read": {
 			if (!isRecord(args) || typeof args.slot !== "string")
@@ -981,13 +1065,28 @@ ${APP_RUNTIME_THEME_PLACEHOLDER}
 <div id="app"></div>
 <script>
 (function(){
-	var pending=new Map();var seq=0;
+	var pending=new Map();var exports=new Map();var seq=0;
 	window.addEventListener("message",function(event){
 		var data=event.data;
 		if(!data||typeof data!=="object"||data.jsonrpc!=="2.0")return;
 		if(event.source===window.parent&&data.method===${JSON.stringify(APP_RUNTIME_THEME_METHOD)}&&data.params&&typeof data.params.css==="string"){
 			var theme=document.getElementById(${JSON.stringify(APP_RUNTIME_THEME_STYLE_ID)});
 			if(theme)theme.textContent=data.params.css;
+			return;
+		}
+		if(event.source===window.parent&&data.method===${JSON.stringify(APP_RUNTIME_EXPORT_METHOD)}&&data.params){
+			var request=data.params;
+			var reply=function(text){
+				window.parent.postMessage({jsonrpc:"2.0",method:${JSON.stringify(APP_RUNTIME_EXPORT_RESULT_METHOD)},params:{id:request.id,text:text}},"*");
+			};
+			Promise.resolve().then(function(){
+				var handler=exports.get(request.handler);
+				if(handler)return handler();
+			}).then(function(text){
+				var fits=typeof text==="string"&&text.length<=${OS_OUTPUT_CONTENT_MAX_BYTES}&&
+					new TextEncoder().encode(text).length<=${OS_OUTPUT_CONTENT_MAX_BYTES};
+				reply(fits?text:null);
+			},function(){reply(null);});
 			return;
 		}
 		if(data.id===undefined)return;
@@ -1003,6 +1102,7 @@ ${APP_RUNTIME_THEME_PLACEHOLDER}
 				window.parent.postMessage({jsonrpc:"2.0",id:id,method:${JSON.stringify(APP_RUNTIME_CALL_METHOD)},params:{method:method,args:args===undefined?null:args}},"*");
 			});
 		},
+		registerExport:function(name,handler){exports.set(name,handler);},
 		resize:function(height){window.parent.postMessage({jsonrpc:"2.0",method:"tedix/resize",params:{height:height}},"*");},
 		present:function(active){window.parent.postMessage({jsonrpc:"2.0",method:"tedix/present",params:{active:active===true}},"*");}
 	};
