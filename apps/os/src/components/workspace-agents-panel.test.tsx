@@ -108,6 +108,7 @@ async function mount(
 	conversations: ConversationSummary[],
 	settled: () => boolean,
 	onOpenConversation = vi.fn(),
+	onMessageTedi = vi.fn(),
 ) {
 	await act(async () => {
 		root.render(
@@ -123,6 +124,7 @@ async function mount(
 						workspaceId={WORKSPACE_ID}
 						conversations={conversations}
 						onOpenConversation={onOpenConversation}
+						onMessageTedi={onMessageTedi}
 					/>
 				</WorkActorDirectoryContext.Provider>
 			</QueryClientProvider>,
@@ -134,7 +136,7 @@ async function mount(
 		await act(async () => {
 			await new Promise((resolve) => setTimeout(resolve, 10));
 		});
-	return onOpenConversation;
+	return Object.assign(onOpenConversation, { onMessageTedi });
 }
 
 const agentRow = (key: string) =>
@@ -190,7 +192,7 @@ describe("WorkspaceAgentsPanel", () => {
 				.querySelector<HTMLButtonElement>('[aria-label="Message Ops Tedi"]')!
 				.click(),
 		);
-		expect(onOpen).toHaveBeenCalledWith("", "tedi-ops");
+		expect(onOpen.onMessageTedi).toHaveBeenCalledWith("tedi-ops");
 		const links = [
 			...agentRow("tedi:tedi-ops").querySelectorAll<HTMLAnchorElement>("a"),
 		].map((link) => [link.textContent, link.getAttribute("href")]);
