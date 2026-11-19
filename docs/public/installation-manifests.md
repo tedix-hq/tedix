@@ -37,12 +37,11 @@ matching `TEDIX_STRIPE_MODE`) needs an active EUR price for each key:
 - plans: `tedix_growth_month_v4`, `tedix_growth_year_v4`,
   `tedix_business_month_v4`, `tedix_business_year_v4`,
   `tedix_enterprise_month_v4`, `tedix_enterprise_year_v4`;
-- metered overage: `tedix_token_overage_v4`;
-- capacity packs: `tedix_inference_capacity_daily_1m_v2`,
-  `tedix_inference_capacity_daily_5m_v2`,
-  `tedix_inference_capacity_daily_10m_v2`,
-  `tedix_inference_capacity_daily_25m_v2`,
-  `tedix_inference_capacity_daily_50m_v2`.
+- pay-as-you-go credits (metered, EUR 0.01 per credit):
+  `tedix_credits_payg_eur_v1`;
+- one-time credit packs: `tedix_credits_1000_eur_v1`,
+  `tedix_credits_5000_eur_v1`, `tedix_credits_10000_eur_v1`,
+  `tedix_credits_25000_eur_v1`, `tedix_credits_50000_eur_v1`.
 
 The reconciler requires an operator-owned JSON catalog: run
 `apps/api/scripts/billing/reconcile-stripe.ts --catalog /private/billing.json`
@@ -56,9 +55,9 @@ them from your billing configuration. The strict schema lives in
 keys must match the installation's runtime billing contract. Moving the catalog
 does not change existing products, prices, or subscriptions.
 
-The overage price is metered only for
-organizations whose owner or admin has turned overage on with a monthly cap;
-see [Usage limits and overage](./self-hosted-boundary.md#usage-limits-and-overage).
+The pay-as-you-go price is metered only for organizations whose owner or admin
+has turned pay-as-you-go on with a monthly cap; see
+[Usage limits and pay-as-you-go](./self-hosted-boundary.md#usage-limits-and-pay-as-you-go).
 
 `fleetAuthority.mode` is also required and is emitted as
 `TEDIX_FLEET_AUTHORITY_MODE`. The sanitized developer/OSS manifest uses
