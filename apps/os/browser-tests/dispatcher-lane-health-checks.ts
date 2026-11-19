@@ -71,9 +71,9 @@ export async function runLaneStates() {
 					await section.locator(`[data-lane-state="${state}"]`).count(),
 					count,
 				);
-			const skipDetails = section.locator(
-				'[data-lane-state="Running"] [data-lane-details]',
-			);
+			const skipDetails = section
+				.locator('[data-lane-state="Running"] [data-lane-details]')
+				.filter({ hasText: "Approval required" });
 			const skip = skipDetails.getByText(
 				"Most reported problem (30 min): Approval required · 2 observations",
 				{
