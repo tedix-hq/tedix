@@ -226,10 +226,18 @@ describe("workspace collaborators", () => {
 					{ organizationId: "org-1", workspaceId },
 					{ actorId: tediId, actorKind: "tedi" },
 				);
+			// Without a role of its own a tedi keeps what it had before: an
+			// organization workspace stays open to it, a private one stays hidden.
+			const withoutRole = () =>
+				visibility === "private"
+					? expect(
+							assertOsWorkspaceVisible(tediContext, workspace),
+						).rejects.toMatchObject({ code: "NOT_FOUND" })
+					: expect(
+							assertOsWorkspaceVisible(tediContext, workspace),
+						).resolves.toBeUndefined();
 			expect(await role()).toBeNull();
-			await expect(
-				assertOsWorkspaceVisible(tediContext, workspace),
-			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			await withoutRole();
 			const { collaborator } = await as(env, ROBIN).add({
 				workspaceId,
 				tediId,
@@ -248,9 +256,6 @@ describe("workspace collaborators", () => {
 					"metadata.read",
 				),
 			).resolves.toMatchObject({ role: "use" });
-			await expect(
-				assertOsWorkspaceVisible(tediContext, workspace),
-			).rejects.toMatchObject({ code: "NOT_FOUND" });
 			await as(env, ROBIN).add({ workspaceId, tediId, role: "build" });
 			expect(await role()).toBe("build");
 			await expect(
@@ -272,9 +277,7 @@ describe("workspace collaborators", () => {
 				target: { kind: "user", userId: tediId },
 			});
 			expect(await role()).toBeNull();
-			await expect(
-				assertOsWorkspaceVisible(tediContext, workspace),
-			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			await withoutRole();
 		},
 	);
 	it("refuses inviting a tedi from another organization", async () => {
