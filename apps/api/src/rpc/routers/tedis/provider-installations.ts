@@ -15,14 +15,6 @@ import { getApiKeyById } from "@tedix/db/queries/api-keys";
 import type { PortableWebMcpProfile } from "@tedix/api-contract/schemas/portable-webmcp";
 import { getPortableWebMcpToolAdmissions } from "@tedix/db/queries/app-gating";
 import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
-import {
-	countSponsoredCapacityTransfers,
-	getInferenceCapacityDailyOverview,
-	transferSponsoredCapacity,
-} from "@tedix/db/queries/billing/capacity-allocations";
-import { getBillingBalanceSnapshot } from "@tedix/db/queries/billing/credits";
-import { getEffectiveInferencePolicies } from "@tedix/db/queries/billing/inference-policies";
-import { usesMonthlyInferenceCapacity } from "@tedix/db/queries/billing/reservations";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { trackWidgetEvent } from "@tedix/db/queries/analytics";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
@@ -38,7 +30,6 @@ import {
 } from "@tedix/db/queries/provider-installations";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { withExactApiKeyScope } from "../../orpc";
-import { resolveStripeEnvironment } from "../../../lib/stripe-environment";
 import { issueEmbeddedSession } from "./gateway";
 import {
 	admitPortableWebMcpProfile,
@@ -52,189 +43,7 @@ const exchangeEmbeddedInstallation =
 		withExactApiKeyScope("embedded:session"),
 	);
 
-interface SponsoredCapacityPolicy {
-	budgetRevision: number;
-	maxTransfersPerBudgetDay: number;
-	lowWatermarkTokens: number;
-	lowWatermarkSpendMicros: number;
-	transferTokens: number;
-	transferSpendMicros: number;
-}
-
-function sponsoredCapacityPolicy(
-	provenance: Record<string, unknown> | null | undefined,
-): SponsoredCapacityPolicy | null {
-	const value = provenance?.sponsoredCapacity;
-	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-	const policy = value as Record<string, unknown>;
-	if (policy.enabled !== true) return null;
-	const budgetRevision = policy.budgetRevision ?? 1;
-	const maxTransfersPerBudgetDay = policy.maxTransfersPerBudgetDay ?? 1;
-	const integers = [
-		budgetRevision,
-		maxTransfersPerBudgetDay,
-		policy.lowWatermarkTokens,
-		policy.lowWatermarkSpendMicros,
-		policy.transferTokens,
-		policy.transferSpendMicros,
-	];
-	if (
-		!integers.every((item) => Number.isSafeInteger(item) && Number(item) >= 0)
-	)
-		throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
-			message: "Provider installation sponsored-capacity policy is invalid",
-		});
-	if (
-		Number(budgetRevision) < 1 ||
-		Number(maxTransfersPerBudgetDay) < 1 ||
-		(Number(policy.transferTokens) === 0 &&
-			Number(policy.transferSpendMicros) === 0)
-	)
-		throw baseErrorConstructors.INTERNAL_SERVER_ERROR({
-			message: "Provider installation sponsored-capacity transfer is empty",
-		});
-	return {
-		budgetRevision: Number(budgetRevision),
-		maxTransfersPerBudgetDay: Number(maxTransfersPerBudgetDay),
-		lowWatermarkTokens: Number(policy.lowWatermarkTokens),
-		lowWatermarkSpendMicros: Number(policy.lowWatermarkSpendMicros),
-		transferTokens: Number(policy.transferTokens),
-		transferSpendMicros: Number(policy.transferSpendMicros),
-	};
-}
-
-async function replenishSponsoredCapacity(
-	context: Parameters<typeof issueEmbeddedSession>[0],
-	installation: Awaited<
-		ReturnType<typeof resolveActiveProviderInstallation>
-	> & {},
-): Promise<void> {
-	const rawPolicy = installation.provenance?.sponsoredCapacity;
-	if (
-		!rawPolicy ||
-		typeof rawPolicy !== "object" ||
-		Array.isArray(rawPolicy) ||
-		(rawPolicy as Record<string, unknown>).enabled !== true
-	)
-		return;
-	const now = new Date().toISOString();
-	const stripeEnvironment = resolveStripeEnvironment(context.env);
-	const balance = await getBillingBalanceSnapshot(
-		context.db,
-		installation.customerOrganizationId,
-		now,
-	);
-	// An existing customer may embed a provider's tedi while funding its own
-	// monthly inference. Skip even stale sponsorship policies before parsing
-	// them, so they cannot consume provider funds or block a session.
-	if (
-		balance &&
-		usesMonthlyInferenceCapacity({
-			status: balance.status,
-			allowOverage: balance.allowOverage,
-			billingMode: balance.billingMode,
-			isSponsoredCustomer: balance.isSponsoredCustomer,
-			stripeCustomerId:
-				balance.stripeEnvironment === stripeEnvironment
-					? balance.stripeCustomerId
-					: null,
-		})
-	)
-		return;
-	const policy = sponsoredCapacityPolicy(installation.provenance);
-	if (!policy) return;
-	const [overview, sponsorPolicies] = await Promise.all([
-		getInferenceCapacityDailyOverview(context.db, {
-			organizationId: installation.customerOrganizationId,
-			stripeEnvironment,
-			now,
-		}),
-		getEffectiveInferencePolicies(
-			context.db,
-			installation.providerOrganizationId,
-		),
-	]);
-	if (!sponsorPolicies)
-		throw baseErrorConstructors.SERVICE_UNAVAILABLE({
-			message: "Provider billing account is unavailable",
-		});
-	const remainingTokens = overview.allocatedTokens - overview.usedTokens;
-	const remainingSpendMicros =
-		overview.allocatedSpendMicros - overview.usedSpendMicros;
-	if (
-		remainingTokens > 0 &&
-		remainingSpendMicros > 0 &&
-		remainingTokens >= policy.lowWatermarkTokens &&
-		remainingSpendMicros >= policy.lowWatermarkSpendMicros
-	)
-		return;
-	const expiresAt = new Date(
-		Date.parse(`${overview.budgetDay}T00:00:00.000Z`) + 86_400_000,
-	).toISOString();
-	const priorTransfers = await countSponsoredCapacityTransfers(context.db, {
-		customerOrganizationId: installation.customerOrganizationId,
-		providerInstallationId: installation.id,
-		budgetRevision: policy.budgetRevision,
-		budgetDay: overview.budgetDay,
-		stripeEnvironment,
-	});
-	// Watermarks trigger an optional refill, not session admission. Existing
-	// credit remains usable; runtime reservations enforce each turn's cost.
-	if (priorTransfers >= policy.maxTransfersPerBudgetDay) {
-		const refreshed = await getInferenceCapacityDailyOverview(context.db, {
-			organizationId: installation.customerOrganizationId,
-			stripeEnvironment,
-			now: new Date().toISOString(),
-		});
-		if (
-			refreshed.allocatedTokens - refreshed.usedTokens > 0 &&
-			refreshed.allocatedSpendMicros - refreshed.usedSpendMicros > 0
-		)
-			return;
-		throw baseErrorConstructors.TOO_MANY_REQUESTS({
-			message: "Provider-sponsored inference allowance is exhausted",
-		});
-	}
-	try {
-		await transferSponsoredCapacity(context.db, {
-			transferId: `${installation.id}:${overview.budgetDay}:r${policy.budgetRevision}:${priorTransfers + 1}`,
-			sponsorOrganizationId: installation.providerOrganizationId,
-			customerOrganizationId: installation.customerOrganizationId,
-			providerInstallationId: installation.id,
-			budgetRevision: policy.budgetRevision,
-			budgetDay: overview.budgetDay,
-			tokenAmount: policy.transferTokens,
-			spendAmountMicros: policy.transferSpendMicros,
-			customerLowWatermarkTokens: policy.lowWatermarkTokens,
-			customerLowWatermarkSpendMicros: policy.lowWatermarkSpendMicros,
-			sponsorDailyTokenLimit:
-				sponsorPolicies.organization.dailyTokenLimit ?? null,
-			sponsorDailySpendLimitMicros:
-				sponsorPolicies.organization.dailySpendLimitMicros ?? null,
-			stripeEnvironment,
-			expiresAt,
-			createdAt: now,
-		});
-	} catch (error) {
-		console.error("Embedded sponsored-capacity transfer failed", {
-			installationId: installation.id,
-			exception: safeExceptionTopology(error),
-		});
-		const refreshed = await getInferenceCapacityDailyOverview(context.db, {
-			organizationId: installation.customerOrganizationId,
-			stripeEnvironment,
-			now: new Date().toISOString(),
-		});
-		if (
-			refreshed.allocatedTokens - refreshed.usedTokens > 0 &&
-			refreshed.allocatedSpendMicros - refreshed.usedSpendMicros > 0
-		)
-			return;
-		throw error;
-	}
-}
-
-// Read-only host bootstrap: no session, capacity transfer, or usage event.
+// Read-only host bootstrap: no session or usage event.
 export const getEmbeddedProviderAvailabilityProcedure =
 	authedTedisOs.getEmbeddedProviderAvailability
 		.use(withExactApiKeyScope("embedded:session"))
@@ -379,19 +188,6 @@ export const createEmbeddedProviderSessionProcedure =
 				data: { reason: "worker_unavailable", retryable: true },
 			});
 		}
-		try {
-			await replenishSponsoredCapacity(context, installation);
-		} catch (error) {
-			console.error("Embedded sponsored-capacity replenishment failed", {
-				installationId: installation.id,
-				exception: safeExceptionTopology(error),
-			});
-			throw baseErrorConstructors.SERVICE_UNAVAILABLE({
-				message: "Provider-sponsored inference capacity is unavailable",
-				data: { reason: "capacity_unavailable", retryable: true },
-			});
-		}
-
 		const session = await issueEmbeddedSession(context, tedi, {
 			allowedOrigin: installation.allowedOrigin,
 			conversationId: input.conversationId,
@@ -725,12 +521,7 @@ export async function provisionInstallation(
 		...input,
 		...resources,
 		provisionedBy: principalLabel(context),
-		provenance: input.customer
-			? {
-					...input.provenance,
-					sponsoredCapacity: input.customer.sponsoredCapacity,
-				}
-			: (input.provenance ?? null),
+		provenance: input.provenance ?? null,
 	});
 	const { ensureProviderInstallationGateway } =
 		await import("../../../services/provider-installation-gateway");

@@ -10,28 +10,6 @@ export interface EffectiveAiGatewayAdmissionPolicy {
 	tedi?: AiGatewayAdmissionPolicy;
 }
 
-export interface AiGatewayReservationLimits {
-	organizationDailyTokenLimit?: number;
-	organizationDailySpendLimitMicros?: number;
-	tediDailyTokenLimit?: number;
-	tediDailySpendLimitMicros?: number;
-}
-
-export function aiGatewayReservationLimits(
-	policy: EffectiveAiGatewayAdmissionPolicy,
-): AiGatewayReservationLimits | undefined {
-	const limits: AiGatewayReservationLimits = {
-		organizationDailyTokenLimit: policy.organization?.dailyTokenLimit,
-		organizationDailySpendLimitMicros:
-			policy.organization?.dailySpendLimitMicros,
-		tediDailyTokenLimit: policy.tedi?.dailyTokenLimit,
-		tediDailySpendLimitMicros: policy.tedi?.dailySpendLimitMicros,
-	};
-	return Object.values(limits).some((value) => value !== undefined)
-		? limits
-		: undefined;
-}
-
 export function resolveAiGatewayAdmissionPolicy(input: {
 	organization: AiGatewayAdmissionPolicy;
 	tedi?: AiGatewayAdmissionPolicy;

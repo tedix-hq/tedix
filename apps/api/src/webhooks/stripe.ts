@@ -11,14 +11,12 @@
  */
 
 import { createDbClient } from "@tedix/db/client";
-import { grantBillingCredit } from "@tedix/db/queries/billing/credits";
-import { recordPaidCreditCoverage } from "@tedix/db/queries/billing/credit-activation";
 import {
-	findCapacityAllocationByPaymentIntent,
-	reconcileCapacityRefund,
-	recordCapacityAllocation,
-} from "@tedix/db/queries/billing/capacity-allocations";
-import { getInferenceCapacityPackVersionById } from "@tedix/db/queries/billing/capacity-packs";
+	forfeitRefundedTopUp,
+	getTopUpPackVersion,
+	grantTopUpCredits,
+} from "@tedix/db/queries/billing/credit-pool";
+import { TOP_UP_VALID_MONTHS } from "@tedix/api-contract/utils/credit-pricing";
 import {
 	getActiveBillingPlanByKey,
 	getBillingEntitlement,
@@ -41,7 +39,6 @@ import {
 	resolveFleetAuthorityBinding,
 } from "../lib/fleet-authority";
 import { getStripe } from "../lib/stripe";
-import { stripeCreditCoverage } from "../lib/stripe-credit-coverage";
 import {
 	getStripeEnvironmentConfig,
 	resolveStripeEnvironment,
@@ -99,8 +96,8 @@ export function stripeEventEntityKey(event: Stripe.Event): string {
 	const object = event.data.object as { id?: string };
 	if (event.type === "checkout.session.completed") {
 		const session = event.data.object as Stripe.Checkout.Session;
-		if (session.metadata?.checkoutKind === "inference_capacity") {
-			return `capacity:${session.id}`;
+		if (session.metadata?.checkoutKind === "credit_top_up") {
+			return `top-up:${session.id}`;
 		}
 		const subscriptionId =
 			typeof session.subscription === "string"
@@ -116,7 +113,7 @@ export function stripeEventEntityKey(event: Stripe.Event): string {
 		return `invoice:${invoice.id}`;
 	}
 	if (event.type === "charge.refunded") {
-		return `capacity-refund:${(event.data.object as Stripe.Charge).id}`;
+		return `top-up-refund:${(event.data.object as Stripe.Charge).id}`;
 	}
 	return object.id ?? event.id;
 }
@@ -230,8 +227,8 @@ export async function handleStripeWebhook(
 		switch (event.type) {
 			case "checkout.session.completed": {
 				const session = event.data.object as Stripe.Checkout.Session;
-				if (session.metadata?.checkoutKind === "inference_capacity") {
-					await handleInferenceCapacityCheckoutCompleted(
+				if (session.metadata?.checkoutKind === "credit_top_up") {
+					await handleCreditTopUpCheckoutCompleted(
 						db,
 						stripe,
 						session,
@@ -248,28 +245,16 @@ export async function handleStripeWebhook(
 					typeof charge.payment_intent === "string"
 						? charge.payment_intent
 						: charge.payment_intent?.id;
-				if (!paymentIntentId) {
-					outcome = "ignored_non_capacity_refund";
-					break;
-				}
-				const allocation = await findCapacityAllocationByPaymentIntent(db, {
-					paymentIntentId,
-					stripeEnvironment,
-				});
-				if (!allocation) {
-					outcome = "ignored_non_capacity_refund";
-					break;
-				}
-				await reconcileCapacityRefund(db, {
-					organizationId: allocation.organizationId,
-					allocation,
-					chargeId: charge.id,
-					paymentIntentId,
-					amount: charge.amount,
-					amountRefunded: charge.amount_refunded,
-					eventId: receipt.event.eventId,
-					createdAt: new Date().toISOString(),
-				});
+				if (
+					!paymentIntentId ||
+					!(await forfeitRefundedTopUp(db, {
+						paymentIntentId,
+						amount: charge.amount,
+						amountRefunded: charge.amount_refunded,
+						now: new Date().toISOString(),
+					}))
+				)
+					outcome = "ignored_non_top_up_refund";
 				break;
 			}
 			case "customer.subscription.created":
@@ -345,7 +330,7 @@ export async function handleStripeWebhook(
 // EVENT HANDLERS
 // =============================================================================
 
-export function assertInferenceCapacityCheckoutPayment(input: {
+export function assertTopUpCheckoutPayment(input: {
 	session: Stripe.Checkout.Session;
 	pack: {
 		priceMicros: number;
@@ -364,12 +349,10 @@ export function assertInferenceCapacityCheckoutPayment(input: {
 		!Number.isSafeInteger(input.pack.priceMicros) ||
 		input.pack.priceMicros < 0
 	) {
-		throw new Error("Inference capacity pack has an invalid price");
+		throw new Error("Credit top-up pack has an invalid price");
 	}
 	if (input.pack.priceMicros % 10_000 !== 0) {
-		throw new Error(
-			"Inference capacity pack price must resolve to whole cents",
-		);
+		throw new Error("Credit top-up pack price must resolve to whole cents");
 	}
 	const expectedAmount = input.pack.priceMicros / 10_000;
 	if (
@@ -398,7 +381,7 @@ export function assertInferenceCapacityCheckoutPayment(input: {
 	}
 }
 
-async function handleInferenceCapacityCheckoutCompleted(
+async function handleCreditTopUpCheckoutCompleted(
 	db: ReturnType<typeof createDbClient>,
 	stripe: Stripe,
 	session: Stripe.Checkout.Session,
@@ -408,13 +391,13 @@ async function handleInferenceCapacityCheckoutCompleted(
 	const packVersionId = session.metadata?.packVersionId;
 	if (!organizationId || !packVersionId) {
 		throw new Error(
-			`Checkout session ${session.id} is missing capacity metadata`,
+			`Checkout session ${session.id} is missing top-up metadata`,
 		);
 	}
 	if (session.metadata?.stripeEnvironment !== stripeEnvironment) {
 		throw new Error(`Checkout session ${session.id} environment mismatch`);
 	}
-	const pack = await getInferenceCapacityPackVersionById(db, {
+	const pack = await getTopUpPackVersion(db, {
 		id: packVersionId,
 		stripeEnvironment,
 	});
@@ -426,39 +409,30 @@ async function handleInferenceCapacityCheckoutCompleted(
 	const lineItems = await stripe.checkout.sessions.listLineItems(session.id, {
 		limit: 2,
 	});
-	assertInferenceCapacityCheckoutPayment({
-		session,
-		pack,
-		lineItems,
-	});
+	assertTopUpCheckoutPayment({ session, pack, lineItems });
 	const now = new Date();
-	const budgetDay = now.toISOString().slice(0, 10);
-	const expiresAt = new Date(
-		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
-	).toISOString();
+	const expiresAt = new Date(now);
+	expiresAt.setUTCMonth(expiresAt.getUTCMonth() + TOP_UP_VALID_MONTHS);
 	const paymentIntent =
 		typeof session.payment_intent === "string"
 			? session.payment_intent
 			: session.payment_intent?.id;
-	await recordCapacityAllocation(db, {
+	await grantTopUpCredits(db, {
 		id: crypto.randomUUID(),
 		organizationId,
-		packVersionId: pack.id,
-		budgetDay,
-		tokenAmount: pack.tokenAmount,
-		spendAmountMicros: pack.spendAmountMicros,
+		credits: pack.credits,
 		sourceType: "stripe_checkout",
 		sourceRef: session.id,
-		idempotencyKey: `stripe-inference-capacity:${stripeEnvironment}:${session.id}`,
-		stripeEnvironment,
-		expiresAt,
+		packVersionId: pack.id,
+		idempotencyKey: `stripe-credit-top-up:${stripeEnvironment}:${session.id}`,
+		expiresAt: expiresAt.toISOString(),
 		metadata: {
 			checkoutSessionId: session.id,
-			...(paymentIntent ? { paymentIntentId: paymentIntent } : {}),
+			paymentIntentId: paymentIntent ?? null,
 			amountPaid: session.amount_total ?? pack.priceMicros / 10_000,
 			currency: session.currency ?? pack.currency,
 		},
-		createdAt: now.toISOString(),
+		now: now.toISOString(),
 	});
 	const customerId =
 		typeof session.customer === "string"
@@ -794,7 +768,9 @@ async function handleInvoicePaid(
 		throw new Error(`Paid Tedix invoice ${invoice.id} has no Tedix plan price`);
 	}
 	const tier = resolved.plan.planKey;
-	const organizationId = await syncSubscriptionState(
+	// Included credits come with the active period itself; a paid invoice
+	// only keeps the subscription state current.
+	await syncSubscriptionState(
 		db,
 		subscription,
 		tier,
@@ -802,34 +778,4 @@ async function handleInvoicePaid(
 		stripeEnvironment,
 		subscription.metadata.organizationId,
 	);
-	if (!organizationId) return;
-	const entitlement = await getBillingEntitlement(db, organizationId);
-	const includedCredits = entitlement?.plan.includedMonthlyCreditMicros ?? 0;
-	if (includedCredits > 0 && entitlement?.plan.metadata.monetaryInference) {
-		const coverage = stripeCreditCoverage(
-			invoice,
-			subscription.id,
-			resolved.item.id,
-		);
-		if (coverage)
-			await recordPaidCreditCoverage(
-				db,
-				organizationId,
-				coverage,
-				new Date().toISOString(),
-			);
-	} else if (includedCredits > 0) {
-		await grantBillingCredit(db, {
-			id: crypto.randomUUID(),
-			organizationId,
-			amountMicros: includedCredits,
-			sourceType: "plan_period",
-			sourceRef: invoice.id,
-			idempotencyKey: `stripe-invoice-credit:${invoice.id}`,
-			expiresAt: entitlement?.account.periodEnd,
-			description: `${tier} included monthly credits`,
-			metadata: { stripeInvoiceId: invoice.id, stripeEnvironment },
-			createdAt: new Date().toISOString(),
-		});
-	}
 }

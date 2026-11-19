@@ -451,12 +451,13 @@ const TENANT_OPERATOR_TOOL_SCOPE_OVERRIDES: Record<string, string> = {
 	// The overview only reads the authenticated organization's billing state.
 	// Its API guard enforces billing:read on both user and machine principals.
 	get_billing_overview: "mcp:settings",
-	// Provider sponsorship is own-org billing configuration. The API handlers
-	// require billing RBAC, scope the installation lookup to the caller's provider
-	// organization, and never accept a customer organization id. Keep these two
-	// procedures off the mixed billing namespace's platform-admin fallback.
-	list_provider_capacity_sponsorships: "mcp:settings",
-	set_provider_capacity_sponsorship: "mcp:settings",
+	// Credit caps and pay-as-you-go are own-org billing configuration. The API
+	// handlers require owner/admin billing RBAC and only touch the caller's
+	// organization. Keep them off the mixed billing namespace's platform-admin
+	// fallback; included-credit overrides and top-up grants stay operator-only.
+	set_credit_caps: "mcp:settings",
+	set_pay_as_you_go: "mcp:settings",
+	list_top_up_packs: "mcp:settings",
 	// Resource and budget configuration retain owner/admin API checks and
 	// destructive annotations, but only govern the caller's organization.
 	put_work_resource_pool: "mcp:settings",

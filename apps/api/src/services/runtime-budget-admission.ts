@@ -1,7 +1,8 @@
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
-import { getBillingEntitlement } from "@tedix/db/queries/billing/plans";
-import { getBillingBalanceSnapshot } from "@tedix/db/queries/billing/credits";
-import { preflightMonetaryInference } from "@tedix/db/queries/billing/monetary-inference";
+import {
+	creditRefusalReason,
+	getCreditPoolSnapshot,
+} from "@tedix/db/queries/billing/credit-pool";
 import type {
 	AuthorizeRuntimeInferenceInput,
 	AuthorizeRuntimeInferenceResponse,
@@ -10,14 +11,15 @@ import type { ProviderExecutionAdmissionGuard } from "@tedix/db/queries/provider
 import type { NewProviderExecutionAttemptRow } from "@tedix/db/schema/provider-executions";
 import type { DbClient } from "@tedix/db/client";
 import { getInferenceAdmissionReads } from "@tedix/db/queries/billing/inference-admission";
-import { reserveBillingUsage } from "@tedix/db/queries/billing/reservations";
+import {
+	estimateAiCredits,
+	reserveBillingUsage,
+} from "@tedix/db/queries/billing/reservations";
 import { runtimeEntitlementIsActive } from "@tedix/db/queries/runtime-entitlements";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { resolveBillingSettlementMode } from "../lib/billing-settlement-mode";
-import { resolveStripeEnvironment } from "../lib/stripe-environment";
 import {
 	aiGatewayModelTierAllowed,
-	aiGatewayReservationLimits,
 	resolveAiGatewayAdmissionPolicy,
 } from "./ai-gateway-admission-policy";
 
@@ -46,7 +48,6 @@ function markAdmission(input: {
 	mode: string;
 	outcome: string;
 	readMs: number;
-	stripeMs: number;
 	reserveMs: number;
 	totalMs: number;
 }): void {
@@ -81,7 +82,6 @@ export async function authorizeRuntimeBudget(input: {
 	const nowMs = input.nowMs ?? Date.now();
 	const admissionAt = Date.now();
 	let readMs = 0;
-	let stripeMs = 0;
 	let reserveMs = 0;
 	const done = (outcome: string) =>
 		markAdmission({
@@ -90,7 +90,6 @@ export async function authorizeRuntimeBudget(input: {
 			mode,
 			outcome,
 			readMs,
-			stripeMs,
 			reserveMs,
 			totalMs: Date.now() - admissionAt,
 		});
@@ -167,49 +166,41 @@ export async function authorizeRuntimeBudget(input: {
 
 			reservationId: null,
 			expiresAt: null,
-			estimatedChargeMicros: null,
+			estimatedCredits: null,
 		};
 	}
 
 	if (input.preflightOnly) {
-		const [billing, balance] = await Promise.all([
-			getBillingEntitlement(input.db, input.request.organizationId),
-			getBillingBalanceSnapshot(
-				input.db,
-				input.request.organizationId,
-				new Date(nowMs).toISOString(),
-			),
-		]);
-		if (billing && balance) {
-			const readiness = await preflightMonetaryInference(
-				input.db,
-				billing.plan,
-				balance,
-				{
-					provider: input.request.provider,
-					model: input.request.model,
-					estimatedInputTokens: input.request.estimatedInputTokens,
-					estimatedOutputTokens: input.request.estimatedOutputTokens,
-					now: new Date(nowMs).toISOString(),
-				},
-			);
-			if (readiness) {
-				if (!readiness.allowed) return { ...readiness, entitlement };
-				return {
-					allowed: true,
-					settlementMode: mode,
-					reservationId: null,
-					expiresAt: null,
-					estimatedChargeMicros: readiness.estimatedChargeMicros,
-				};
-			}
-		}
+		// Dispatch readiness only: the paid call still reserves its own credits.
+		const now = new Date(nowMs).toISOString();
+		const snapshot = await getCreditPoolSnapshot(input.db, {
+			organizationId: input.request.organizationId,
+			now,
+			subject: { tediId: input.request.tediId },
+		});
+		const credits = await estimateAiCredits(input.db, {
+			creditFx: snapshot?.creditFx ?? null,
+			provider: input.request.provider,
+			model: input.request.model,
+			execution: input.execution,
+			estimatedInputTokens: input.request.estimatedInputTokens,
+			estimatedOutputTokens: input.request.estimatedOutputTokens,
+			now,
+		});
+		const refusal = creditRefusalReason(snapshot, {
+			now,
+			credits: credits ?? 1,
+		});
+		done(refusal ?? "allowed_preflight");
+		if (refusal) return { allowed: false, code: refusal, entitlement };
+		return {
+			allowed: true,
+			settlementMode: mode,
+			reservationId: null,
+			expiresAt: null,
+			estimatedCredits: credits ?? 0,
+		};
 	}
-	const stripeAt = Date.now();
-	const stripeEnvironment = resolveStripeEnvironment(
-		input.env as Parameters<typeof resolveStripeEnvironment>[0],
-	);
-	stripeMs = Date.now() - stripeAt;
 	const reserveAt = Date.now();
 	const decision = await reserveBillingUsage(input.db, {
 		id: input.execution?.billingReservationId ?? crypto.randomUUID(),
@@ -234,8 +225,6 @@ export async function authorizeRuntimeBudget(input: {
 				? undefined
 				: toJsonRecord(input.request.metadata),
 		now: new Date(nowMs).toISOString(),
-		stripeEnvironment,
-		aiGatewayLimits: aiGatewayReservationLimits(aiGatewayPolicy),
 	});
 	reserveMs = Date.now() - reserveAt;
 	if (!decision.allowed) {
@@ -249,7 +238,7 @@ export async function authorizeRuntimeBudget(input: {
 
 		reservationId: decision.reservation.id,
 		expiresAt: decision.reservation.expiresAt,
-		estimatedChargeMicros: decision.reservation.estimatedChargeMicros,
+		estimatedCredits: decision.reservation.credits,
 	};
 }
 

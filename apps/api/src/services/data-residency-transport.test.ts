@@ -100,7 +100,7 @@ beforeEach(() => {
 		settlementMode: "external",
 		reservationId: null,
 		expiresAt: null,
-		estimatedChargeMicros: null,
+		estimatedCredits: null,
 	});
 	mocks.sent.mockResolvedValue(new Response("{}"));
 	mocks.rate.mockResolvedValue({ status: "unpriced", reason: "missing_rate" });

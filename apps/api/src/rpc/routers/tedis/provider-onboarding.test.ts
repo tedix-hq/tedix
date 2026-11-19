@@ -33,15 +33,6 @@ const defaults = {
 	ownerUserId: "configured-owner",
 	ownerEmail: "owner@example.com",
 	billingPlanKey: "business" as const,
-	sponsoredCapacity: {
-		enabled: true,
-		budgetRevision: 1,
-		maxTransfersPerBudgetDay: 1,
-		lowWatermarkTokens: 100,
-		lowWatermarkSpendMicros: 100,
-		transferTokens: 1000,
-		transferSpendMicros: 1000,
-	},
 };
 function context(): BaseContext {
 	return {
@@ -102,7 +93,6 @@ describe("provider console customer setup", () => {
 					ownerUserId: "configured-owner",
 					ownerEmail: "owner@example.com",
 					billingPlanKey: "business",
-					sponsoredCapacity: defaults.sponsoredCapacity,
 				}),
 				provenance: {
 					widgetAccess: expect.objectContaining({

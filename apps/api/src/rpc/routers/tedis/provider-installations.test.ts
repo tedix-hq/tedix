@@ -8,11 +8,6 @@ const mocks = vi.hoisted(() => ({
 	getWorkspace: vi.fn(),
 	getTedi: vi.fn(),
 	issue: vi.fn(),
-	capacityOverview: vi.fn(),
-	billingBalance: vi.fn(),
-	countTransfers: vi.fn(),
-	transferCapacity: vi.fn(),
-	getPolicies: vi.fn(),
 	getOrganization: vi.fn(),
 	trackWidgetEvent: vi.fn(),
 	getInstallation: vi.fn(),
@@ -50,21 +45,6 @@ vi.mock("@tedix/db/queries/analytics", () => ({
 
 vi.mock("@tedix/db/queries/organizations", () => ({
 	getOrganizationById: mocks.getOrganization,
-}));
-
-vi.mock("@tedix/db/queries/billing/capacity-allocations", () => ({
-	countSponsoredCapacityTransfers: mocks.countTransfers,
-	getInferenceCapacityDailyOverview: mocks.capacityOverview,
-	transferSponsoredCapacity: mocks.transferCapacity,
-}));
-vi.mock("@tedix/db/queries/billing/credits", () => ({
-	getBillingBalanceSnapshot: mocks.billingBalance,
-}));
-vi.mock("@tedix/db/queries/billing/inference-policies", () => ({
-	getEffectiveInferencePolicies: mocks.getPolicies,
-}));
-vi.mock("../../../lib/stripe-environment", () => ({
-	resolveStripeEnvironment: vi.fn().mockReturnValue("live"),
 }));
 
 vi.mock("@tedix/db/queries/provider-installations", () => ({
@@ -269,7 +249,6 @@ describe("provider embedded session exchange", () => {
 			externalTenantId: "1",
 		});
 		expect(mocks.issue).not.toHaveBeenCalled();
-		expect(mocks.transferCapacity).not.toHaveBeenCalled();
 		mocks.resolve.mockResolvedValue(null);
 		await expect(
 			client.getEmbeddedProviderAvailability({
@@ -319,7 +298,6 @@ describe("provider embedded session exchange", () => {
 			client.createEmbeddedProviderSession(input()),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		expect(mocks.issue).not.toHaveBeenCalled();
-		expect(mocks.transferCapacity).not.toHaveBeenCalled();
 	});
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -356,31 +334,6 @@ describe("provider embedded session exchange", () => {
 			sessionKey: "embed:session",
 			streamUrl: "https://globex-operator.tedi.tedix.dev/chat/stream",
 		});
-		mocks.capacityOverview.mockResolvedValue({
-			budgetDay: "2026-08-31",
-			usedTokens: 0,
-			usedSpendMicros: 0,
-			allocatedTokens: 0,
-			allocatedSpendMicros: 0,
-			earliestExpiryAt: null,
-		});
-		mocks.billingBalance.mockResolvedValue({
-			status: "active",
-			allowOverage: true,
-			billingMode: "internal",
-			isSponsoredCustomer: true,
-			stripeEnvironment: "live",
-			stripeCustomerId: null,
-		});
-		mocks.countTransfers.mockResolvedValue(0);
-		mocks.getPolicies.mockResolvedValue({
-			organization: {
-				dailyTokenLimit: 5_000_000,
-				dailySpendLimitMicros: 25_000_000,
-			},
-			tediFound: true,
-		});
-		mocks.transferCapacity.mockResolvedValue({});
 		mocks.trackWidgetEvent.mockResolvedValue(undefined);
 		mocks.portableAdmissions.mockResolvedValue([]);
 		mocks.getInstallation.mockResolvedValue({
@@ -447,7 +400,6 @@ describe("provider embedded session exchange", () => {
 				}),
 			}),
 		);
-		expect(mocks.billingBalance).not.toHaveBeenCalled();
 	});
 
 	it("forwards a valid installation turn quota and drops a malformed one", async () => {
@@ -690,250 +642,6 @@ describe("provider embedded session exchange", () => {
 			profile: portableProfile,
 		});
 	});
-
-	it("replenishes a configured customer from the resolved provider before issuing a session", async () => {
-		mocks.resolve.mockResolvedValueOnce({
-			...(await mocks.resolve.getMockImplementation()?.()),
-			id: INSTALLATION,
-			providerOrganizationId: PROVIDER_ORG,
-			providerApiKeyId: "66666666-6666-4666-8666-666666666666",
-			providerAppId: "88888888-8888-4888-8888-888888888888",
-			externalTenantId: "1",
-			customerOrganizationId: CUSTOMER_ORG,
-			primaryWorkspaceId: WORKSPACE,
-			primaryTediId: TEDI,
-			allowedOrigin: "https://staging.acme.example",
-			hostTenantArgument: "companyId",
-			hostTenantNamespace: "acme_staging",
-			status: "active",
-			provenance: {
-				sponsoredCapacity: {
-					enabled: true,
-					budgetRevision: 2,
-					maxTransfersPerBudgetDay: 3,
-					lowWatermarkTokens: 10_000,
-					lowWatermarkSpendMicros: 50_000,
-					transferTokens: 100_000,
-					transferSpendMicros: 500_000,
-				},
-			},
-		});
-		const client = createRouterClient(router, { context: context() });
-		await client.createEmbeddedProviderSession(input());
-		expect(mocks.transferCapacity).toHaveBeenCalledWith(expect.anything(), {
-			transferId: `${INSTALLATION}:2026-08-31:r2:1`,
-			sponsorOrganizationId: PROVIDER_ORG,
-			customerOrganizationId: CUSTOMER_ORG,
-			providerInstallationId: INSTALLATION,
-			budgetRevision: 2,
-			budgetDay: "2026-08-31",
-			tokenAmount: 100_000,
-			spendAmountMicros: 500_000,
-			customerLowWatermarkTokens: 10_000,
-			customerLowWatermarkSpendMicros: 50_000,
-			sponsorDailyTokenLimit: 5_000_000,
-			sponsorDailySpendLimitMicros: 25_000_000,
-			stripeEnvironment: "live",
-			expiresAt: "2026-09-01T00:00:00.000Z",
-			createdAt: expect.any(String),
-		});
-		expect(mocks.transferCapacity.mock.invocationCallOrder[0]).toBeLessThan(
-			mocks.issue.mock.invocationCallOrder[0]!,
-		);
-	});
-
-	it("skips obsolete sponsorship for a self-funded embedded customer before parsing policy", async () => {
-		mocks.billingBalance.mockResolvedValueOnce({
-			status: "active",
-			allowOverage: true,
-			billingMode: "internal",
-			isSponsoredCustomer: false,
-			stripeEnvironment: "live",
-			stripeCustomerId: null,
-		});
-		mocks.resolve.mockResolvedValueOnce({
-			...(await mocks.resolve.getMockImplementation()?.()),
-			provenance: {
-				sponsoredCapacity: { enabled: true, budgetRevision: -1 },
-			},
-		});
-		const client = createRouterClient(router, { context: context() });
-		await client.createEmbeddedProviderSession(input());
-		expect(mocks.issue).toHaveBeenCalledOnce();
-		expect(mocks.capacityOverview).not.toHaveBeenCalled();
-		expect(mocks.transferCapacity).not.toHaveBeenCalled();
-	});
-
-	it("fails closed after the bounded daily allowance is exhausted", async () => {
-		mocks.resolve.mockResolvedValueOnce({
-			...(await mocks.resolve.getMockImplementation()?.()),
-			provenance: {
-				sponsoredCapacity: {
-					enabled: true,
-					budgetRevision: 4,
-					maxTransfersPerBudgetDay: 2,
-					lowWatermarkTokens: 10_000,
-					lowWatermarkSpendMicros: 50_000,
-					transferTokens: 100_000,
-					transferSpendMicros: 500_000,
-				},
-			},
-		});
-		mocks.countTransfers.mockResolvedValueOnce(2);
-		const client = createRouterClient(router, { context: context() });
-		await expect(
-			client.createEmbeddedProviderSession(input()),
-		).rejects.toMatchObject({
-			code: "SERVICE_UNAVAILABLE",
-			message: "Provider-sponsored inference capacity is unavailable",
-			data: { reason: "capacity_unavailable", retryable: true },
-		});
-		expect(mocks.countTransfers).toHaveBeenCalledWith(expect.anything(), {
-			customerOrganizationId: CUSTOMER_ORG,
-			providerInstallationId: INSTALLATION,
-			budgetRevision: 4,
-			budgetDay: "2026-08-31",
-			stripeEnvironment: "live",
-		});
-		expect(mocks.transferCapacity).not.toHaveBeenCalled();
-		expect(mocks.issue).not.toHaveBeenCalled();
-	});
-
-	it.each(["allowance exhausted", "transfer failed"])(
-		"uses remaining credit below refill watermarks when %s",
-		async (failure) => {
-			mocks.resolve.mockResolvedValueOnce({
-				...(await mocks.resolve.getMockImplementation()?.()),
-				provenance: {
-					sponsoredCapacity: {
-						enabled: true,
-						budgetRevision: 1,
-						maxTransfersPerBudgetDay: 1,
-						lowWatermarkTokens: 250_000,
-						lowWatermarkSpendMicros: 1_000_000,
-						transferTokens: 1_000_000,
-						transferSpendMicros: 5_000_000,
-					},
-				},
-			});
-			mocks.capacityOverview.mockResolvedValue({
-				budgetDay: "2026-08-31",
-				allocatedTokens: 1_000_000,
-				usedTokens: 755_848,
-				allocatedSpendMicros: 5_000_000,
-				usedSpendMicros: 444_317,
-				earliestExpiryAt: null,
-			});
-			mocks.countTransfers.mockResolvedValue(
-				failure === "allowance exhausted" ? 1 : 0,
-			);
-			mocks.transferCapacity.mockRejectedValue(
-				new Error("Sponsor has insufficient active inference capacity"),
-			);
-			const log = vi.spyOn(console, "error").mockImplementation(() => {});
-			try {
-				const client = createRouterClient(router, { context: context() });
-				await expect(
-					client.createEmbeddedProviderSession(input()),
-				).resolves.toMatchObject({ sessionKey: "embed:session" });
-				expect(mocks.issue).toHaveBeenCalledOnce();
-				expect(mocks.capacityOverview).toHaveBeenCalledTimes(2);
-				if (failure === "allowance exhausted")
-					expect(mocks.transferCapacity).not.toHaveBeenCalled();
-				else
-					expect(log).toHaveBeenCalledWith(
-						"Embedded sponsored-capacity transfer failed",
-						expect.objectContaining({ installationId: INSTALLATION }),
-					);
-			} finally {
-				log.mockRestore();
-			}
-		},
-	);
-
-	it.each([
-		[0, 100],
-		[-1, 100],
-		[100, 0],
-		[100, -1],
-	])(
-		"denies unavailable capacity even with zero refill thresholds (%s tokens, %s spend)",
-		async (tokens, spend) => {
-			mocks.resolve.mockResolvedValueOnce({
-				...(await mocks.resolve.getMockImplementation()?.()),
-				provenance: {
-					sponsoredCapacity: {
-						enabled: true,
-						budgetRevision: 1,
-						maxTransfersPerBudgetDay: 1,
-						lowWatermarkTokens: 0,
-						lowWatermarkSpendMicros: 0,
-						transferTokens: 1_000_000,
-						transferSpendMicros: 5_000_000,
-					},
-				},
-			});
-			mocks.capacityOverview.mockResolvedValue({
-				budgetDay: "2026-08-31",
-				allocatedTokens: 100,
-				usedTokens: 100 - tokens,
-				allocatedSpendMicros: 100,
-				usedSpendMicros: 100 - spend,
-				earliestExpiryAt: null,
-			});
-			mocks.countTransfers.mockResolvedValue(1);
-			const client = createRouterClient(router, { context: context() });
-			await expect(
-				client.createEmbeddedProviderSession(input()),
-			).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
-			expect(mocks.issue).not.toHaveBeenCalled();
-			expect(mocks.transferCapacity).not.toHaveBeenCalled();
-		},
-	);
-
-	it("uses capacity replenished by a concurrent session at the transfer limit", async () => {
-		mocks.resolve.mockResolvedValueOnce({
-			...(await mocks.resolve.getMockImplementation()?.()),
-			provenance: {
-				sponsoredCapacity: {
-					enabled: true,
-					budgetRevision: 5,
-					maxTransfersPerBudgetDay: 1,
-					lowWatermarkTokens: 10_000,
-					lowWatermarkSpendMicros: 50_000,
-					transferTokens: 100_000,
-					transferSpendMicros: 500_000,
-				},
-			},
-		});
-		mocks.countTransfers.mockResolvedValueOnce(1);
-		mocks.capacityOverview
-			.mockResolvedValueOnce({
-				budgetDay: "2026-08-31",
-				usedTokens: 0,
-				usedSpendMicros: 0,
-				allocatedTokens: 0,
-				allocatedSpendMicros: 0,
-				earliestExpiryAt: null,
-			})
-			.mockResolvedValueOnce({
-				budgetDay: "2026-08-31",
-				usedTokens: 0,
-				usedSpendMicros: 0,
-				allocatedTokens: 100_000,
-				allocatedSpendMicros: 500_000,
-				earliestExpiryAt: "2026-09-01T00:00:00.000Z",
-			});
-		const client = createRouterClient(router, { context: context() });
-		await expect(
-			client.createEmbeddedProviderSession(input()),
-		).resolves.toEqual(
-			expect.objectContaining({ sessionKey: "embed:session" }),
-		);
-		expect(mocks.capacityOverview).toHaveBeenCalledTimes(2);
-		expect(mocks.transferCapacity).not.toHaveBeenCalled();
-		expect(mocks.issue).toHaveBeenCalledOnce();
-	});
 });
 
 describe("automatic installation admission", () => {
@@ -948,15 +656,6 @@ describe("automatic installation admission", () => {
 		customer: {
 			name: "Garage",
 			billingPlanKey: "business" as const,
-			sponsoredCapacity: {
-				enabled: true,
-				budgetRevision: 1,
-				maxTransfersPerBudgetDay: 1,
-				lowWatermarkTokens: 250000,
-				lowWatermarkSpendMicros: 1000000,
-				transferTokens: 1000000,
-				transferSpendMicros: 5000000,
-			},
 		},
 	};
 	beforeEach(() => {

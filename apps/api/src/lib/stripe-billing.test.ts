@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	planKeyFromStripePriceLookupKey,
-	planSellsStripeOverage,
+	planSellsPayAsYouGo,
 	resolveStripeSubscriptionPlan,
 	stripeCheckoutIdempotencyKey,
 	stripeInvoiceSubscriptionId,
@@ -55,24 +55,9 @@ describe("Stripe billing helpers", () => {
 		expect(planKeyFromStripePriceLookupKey(null)).toBeNull();
 	});
 
-	it("sells overage only on plans that allow and price it", () => {
-		// Seeded rows: growth/business carry a paid unit price; enterprise v4
-		// allows zero-priced internal overage; starter allows none.
-		expect(
-			planSellsStripeOverage({
-				allowOverage: true,
-				overageUnitPriceMicros: 50_000,
-			}),
-		).toBe(true);
-		expect(
-			planSellsStripeOverage({ allowOverage: true, overageUnitPriceMicros: 0 }),
-		).toBe(false);
-		expect(
-			planSellsStripeOverage({
-				allowOverage: false,
-				overageUnitPriceMicros: 0,
-			}),
-		).toBe(false);
+	it("offers pay-as-you-go only on plans that allow it", () => {
+		expect(planSellsPayAsYouGo({ allowOverage: true })).toBe(true);
+		expect(planSellsPayAsYouGo({ allowOverage: false })).toBe(false);
 	});
 
 	it("uses the resolved plan item's period", () => {
@@ -99,7 +84,7 @@ describe("Stripe billing helpers", () => {
 			organizationId: "org-1",
 			planVersionId: "growth-v2",
 			priceId: "price_monthly",
-			overagePriceId: "price_overage",
+			payAsYouGoPriceId: "price_payg",
 			interval: "month" as const,
 			successUrl: "https://acme.os.tedix.dev/success",
 			cancelUrl: "https://acme.os.tedix.dev/cancel",

@@ -91,7 +91,7 @@ describe("reserveKernelBilling", () => {
 			executionId: "12345678-1234-4123-8123-123456789abc",
 			sendBefore: "2099-01-01T00:00:00.000Z",
 			expiresAt: "2099-01-01T00:00:00.000Z",
-			estimatedChargeMicros: 1,
+			estimatedCredits: 1,
 			reservationId: "res-1",
 		});
 		const result = await reserveKernelBilling(env, input());
@@ -127,7 +127,7 @@ describe("reserveKernelBilling", () => {
 			executionId: "12345678-1234-4123-8123-123456789abc",
 			sendBefore: "2099-01-01T00:00:00.000Z",
 			expiresAt: null,
-			estimatedChargeMicros: null,
+			estimatedCredits: null,
 			reservationId: null,
 		});
 		const result = await reserveKernelBilling(
@@ -160,7 +160,7 @@ describe("reserveKernelBilling", () => {
 				executionId: "12345678-1234-4123-8123-123456789abc",
 				sendBefore: "2099-01-01T00:00:00.000Z",
 				expiresAt: null,
-				estimatedChargeMicros: null,
+				estimatedCredits: null,
 				reservationId: null,
 				...invalid,
 			});

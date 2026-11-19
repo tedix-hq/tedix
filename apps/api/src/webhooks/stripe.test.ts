@@ -12,7 +12,7 @@
 import type Stripe from "stripe";
 import { describe, expect, it } from "vite-plus/test";
 import {
-	assertInferenceCapacityCheckoutPayment,
+	assertTopUpCheckoutPayment,
 	handleStripeWebhook,
 	stripeEventEntityKey,
 	stripeSubscriptionHasActiveEntitlement,
@@ -26,7 +26,7 @@ function paidCapacityCheckout(
 		mode: "payment",
 		payment_status: "paid",
 		amount_total: 2_500,
-		currency: "usd",
+		currency: "eur",
 		...overrides,
 	} as Stripe.Checkout.Session;
 }
@@ -46,7 +46,7 @@ function capacityLineItems(
 				amount_total: 2_500,
 				price: {
 					id: "price_capacity",
-					lookup_key: "tedix_inference_capacity_daily_5m_v1",
+					lookup_key: "tedix_credits_2500_eur_v1",
 				} as Stripe.Price,
 				...overrides,
 			} as Stripe.LineItem,
@@ -54,16 +54,16 @@ function capacityLineItems(
 	};
 }
 
-describe("inference capacity checkout verification", () => {
+describe("credit top-up checkout verification", () => {
 	const pack = {
 		priceMicros: 25_000_000,
-		currency: "usd",
-		stripeLookupKey: "tedix_inference_capacity_daily_5m_v1",
+		currency: "eur",
+		stripeLookupKey: "tedix_credits_2500_eur_v1",
 	};
 
 	it("accepts a paid pack whose price carries its lookup key", () => {
 		expect(() =>
-			assertInferenceCapacityCheckoutPayment({
+			assertTopUpCheckoutPayment({
 				session: paidCapacityCheckout(),
 				pack,
 				lineItems: capacityLineItems(),
@@ -73,21 +73,21 @@ describe("inference capacity checkout verification", () => {
 
 	it("rejects unpaid, amount-mismatched, and wrong-price sessions", () => {
 		expect(() =>
-			assertInferenceCapacityCheckoutPayment({
+			assertTopUpCheckoutPayment({
 				session: paidCapacityCheckout({ payment_status: "unpaid" }),
 				pack,
 				lineItems: capacityLineItems(),
 			}),
 		).toThrow(/not paid/);
 		expect(() =>
-			assertInferenceCapacityCheckoutPayment({
+			assertTopUpCheckoutPayment({
 				session: paidCapacityCheckout({ amount_total: 2_499 }),
 				pack,
 				lineItems: capacityLineItems(),
 			}),
 		).toThrow(/amount mismatch/);
 		expect(() =>
-			assertInferenceCapacityCheckoutPayment({
+			assertTopUpCheckoutPayment({
 				session: paidCapacityCheckout(),
 				pack,
 				lineItems: capacityLineItems({
@@ -102,7 +102,7 @@ describe("inference capacity checkout verification", () => {
 
 	it("matches the pack by lookup key, not by price id", () => {
 		expect(() =>
-			assertInferenceCapacityCheckoutPayment({
+			assertTopUpCheckoutPayment({
 				session: paidCapacityCheckout(),
 				pack,
 				lineItems: capacityLineItems({
@@ -211,14 +211,14 @@ describe("stripeEventEntityKey", () => {
 	it("isolates one-time inference-capacity checkout from subscription streams", () => {
 		const checkout = event("checkout.session.completed", {
 			id: "cs_capacity",
-			metadata: { checkoutKind: "inference_capacity" },
+			metadata: { checkoutKind: "credit_top_up" },
 		});
-		expect(stripeEventEntityKey(checkout)).toBe("capacity:cs_capacity");
+		expect(stripeEventEntityKey(checkout)).toBe("top-up:cs_capacity");
 	});
 
 	it("serializes capacity refunds by Stripe charge", () => {
 		const refunded = event("charge.refunded", { id: "ch_capacity" });
-		expect(stripeEventEntityKey(refunded)).toBe("capacity-refund:ch_capacity");
+		expect(stripeEventEntityKey(refunded)).toBe("top-up-refund:ch_capacity");
 	});
 
 	it("uses the object id for unmapped event types", () => {

@@ -22,5 +22,4 @@ export const AssignInternalPlanResponseSchema = z.object({
 	active: z.boolean(),
 	settlementMode: BillingSettlementModeSchema,
 	allowOverage: z.boolean(),
-	overageUnitPriceMicros: z.number().int(),
 });

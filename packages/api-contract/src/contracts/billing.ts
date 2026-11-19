@@ -20,7 +20,6 @@ import {
 	PublishProviderModelRateInputSchema,
 } from "../schemas/provider-model-pricing";
 import { baseErrors } from "../errors";
-import { creditBillingActivationContract } from "./credit-billing-activation";
 import {
 	BillingInferenceSpendingInputSchema,
 	BillingInferenceSpendingSchema,
@@ -33,61 +32,27 @@ import {
 	HistoricalFreshDecisionInputSchema,
 	HistoricalFreshRevocationInputSchema,
 	HistoricalFreshDecisionSchema,
-	ProviderCapacityPolicySchema,
-	BillingOverageSettingsSchema,
+	BillingCreditsSchema,
 	BillingOverviewSchema,
-	BillingCreditOverviewSchema,
-	BillingPlanCatalogSchema,
+	BillingPlanSchema,
+	BillingTopUpPackSchema,
 	CheckoutInputSchema,
 	CheckoutResponseSchema,
-	CreateInferenceCapacityCheckoutInputSchema,
-	GrantBillingCreditInputSchema,
-	GrantBillingCreditResponseSchema,
-	GrantBillingServiceCreditsInputSchema,
-	GrantBillingServiceCreditsResponseSchema,
+	CreateTopUpCheckoutInputSchema,
+	GrantTopUpCreditsInputSchema,
+	GrantTopUpCreditsResponseSchema,
 	PortalResponseSchema,
 	ProviderReconciliationInputSchema,
 	ProviderReconciliationResponseSchema,
 	RecordVoiceProviderUsageInputSchema,
 	RecordVoiceProviderUsageResponseSchema,
-	SetBillingOverageSettingsInputSchema,
+	SetAccountCreditsInputSchema,
+	SetAccountCreditsResponseSchema,
 	SetBillingServiceCreditControlsInputSchema,
 	SetBillingServiceCreditControlsResponseSchema,
+	SetCreditCapsInputSchema,
+	SetPayAsYouGoInputSchema,
 } from "../schemas/billing";
-
-const ProviderCapacitySponsorshipSchema = z.object({
-	installationId: z.uuid(),
-	providerAppId: z.uuid(),
-	externalTenantId: z.string(),
-	customerOrganizationId: z.uuid(),
-	policy: ProviderCapacityPolicySchema.nullable().describe(
-		"Null until the provider organization explicitly enables or disables sponsorship for this installation.",
-	),
-});
-
-const ProviderCapacitySponsorshipReadinessSchema =
-	ProviderCapacitySponsorshipSchema.extend({
-		readiness: z
-			.object({
-				budgetDay: z.string(),
-				status: z.enum([
-					"disabled",
-					"customer_funded",
-					"ready",
-					"allowance_exhausted",
-					"provider_capacity_insufficient",
-				]),
-				transfersUsed: z.number().int().nonnegative(),
-				transfersRemaining: z.number().int().nonnegative(),
-				resetsAt: z
-					.string()
-					.datetime()
-					.describe("UTC boundary when daily provider capacity resets."),
-			})
-			.describe(
-				"Current UTC-day readiness. A configured policy is not necessarily funded for another transfer.",
-			),
-	});
 
 // =============================================================================
 // Contract
@@ -97,7 +62,6 @@ export const billingContract = oc
 	.route({ tags: ["billing"], prefix: "/billing" })
 	.errors(baseErrors)
 	.router({
-		...creditBillingActivationContract,
 		assignInternalPlan: oc
 			.route({
 				method: "POST",
@@ -196,58 +160,17 @@ export const billingContract = oc
 			.input(CheckoutInputSchema)
 			.output(CheckoutResponseSchema),
 
-		createInferenceCapacityCheckout: oc
+		createTopUpCheckout: oc
 			.route({
 				tags: ["REST"],
 				method: "POST",
-				path: "/inference-capacity/checkout",
-				summary: "Create an inference capacity checkout session",
+				path: "/top-ups/checkout",
+				summary: "Buy a credit top-up",
 				description:
-					"Create an idempotent one-time Stripe Checkout session for a catalog capacity pack that expires at the next UTC midnight.",
+					"Create an idempotent one-time Stripe Checkout session for a Tedix credit top-up pack. Top-up credits stay valid for 12 months and are spent after the month's included credits.",
 			})
-			.input(CreateInferenceCapacityCheckoutInputSchema)
+			.input(CreateTopUpCheckoutInputSchema)
 			.output(CheckoutResponseSchema),
-
-		listProviderCapacitySponsorships: oc
-			.route({
-				tags: ["REST"],
-				method: "GET",
-				path: "/inference-capacity/sponsorships",
-				summary: "List provider capacity sponsorships",
-				description:
-					"List only the authenticated provider organization's embedded installations and their automatic inference-capacity policies.",
-			})
-			.output(
-				z.object({ data: z.array(ProviderCapacitySponsorshipReadinessSchema) }),
-			),
-
-		setProviderCapacitySponsorship: oc
-			.route({
-				tags: ["REST"],
-				method: "PUT",
-				path: "/inference-capacity/sponsorships/{installationId}",
-				summary: "Configure provider capacity sponsorship",
-				description:
-					"Configure a bounded automatic allowance for one embedded installation owned by the authenticated provider organization. Increment budgetRevision to reset the installation allowance without deleting prior usage or transfers. The caller cannot select or replace the customer organization.",
-			})
-			.input(
-				z
-					.object({
-						installationId: z.uuid(),
-						policy: ProviderCapacityPolicySchema,
-					})
-					.refine(
-						(input) =>
-							!input.policy.enabled ||
-							input.policy.transferTokens > 0 ||
-							input.policy.transferSpendMicros > 0,
-						{
-							message: "An enabled sponsorship must transfer capacity",
-							path: ["policy"],
-						},
-					),
-			)
-			.output(ProviderCapacitySponsorshipSchema),
 
 		/**
 		 * Create a Stripe Customer Portal session
@@ -276,9 +199,20 @@ export const billingContract = oc
 				path: "/plans",
 				summary: "List available billing plans",
 				description:
-					"List the active Growth, Business, and Enterprise plan versions with their prices, token allowances, overage rates, and operating limits.",
+					"List the active Starter, Growth, Business, and Enterprise plans with their monthly price and included Tedix credits (1 credit = EUR 0.01).",
 			})
-			.output(BillingPlanCatalogSchema),
+			.output(z.array(BillingPlanSchema)),
+
+		listTopUpPacks: oc
+			.route({
+				tags: ["REST"],
+				method: "GET",
+				path: "/top-ups",
+				summary: "List credit top-up packs",
+				description:
+					"List the one-time Tedix credit top-up packs on sale. Each pack stays valid for 12 months.",
+			})
+			.output(z.array(BillingTopUpPackSchema)),
 
 		getOverview: oc
 			.route({
@@ -287,51 +221,43 @@ export const billingContract = oc
 				path: "/overview",
 				summary: "Get the billing overview",
 				description:
-					"Return the authenticated organization's current entitlement, balance, usage-period totals, plan limits, and SEO service-credit state.",
+					"Return the organization's plan, Tedix credits used and remaining this month, top-up credits, pay-as-you-go state, usage by tedi and member, and the 80% and 100% notices.",
 			})
 			.output(BillingOverviewSchema),
 
-		getOverageSettings: oc
-			.route({
-				method: "GET",
-				path: "/overage",
-				summary: "Get overage settings",
-				description:
-					"Return the authenticated organization's overage opt-in, monthly cap, and month-to-date overage charge.",
-			})
-			.output(BillingOverageSettingsSchema),
-
-		setOverageSettings: oc
+		setCreditCaps: oc
 			.route({
 				method: "PUT",
-				path: "/overage",
-				summary: "Set overage settings",
+				path: "/credit-caps",
+				summary: "Set monthly credit caps",
 				description:
-					"Organization owner/admin: enable priced overage with a hard monthly cap, or disable it. Inference stops at the included allowance while disabled and at the cap while enabled.",
+					"Organization owner/admin: set or clear a monthly credit cap for individual tedis and members. A cap only narrows what one tedi or member may use from the organization's credits; null removes it.",
 			})
-			.input(SetBillingOverageSettingsInputSchema)
-			.output(BillingOverageSettingsSchema),
+			.input(SetCreditCapsInputSchema)
+			.output(BillingCreditsSchema),
 
-		/** Internal direct ledger path for Gateway-blind voice provider units. */
-		setCreditBudget: oc
+		setPayAsYouGo: oc
 			.route({
 				method: "PUT",
-				path: "/credit-budget",
-				summary: "Set monthly credit spending cap",
+				path: "/pay-as-you-go",
+				summary: "Set pay-as-you-go",
 				description:
-					"Set an opt-in monetary wallet's monthly spending cap without enabling cash overage.",
+					"Organization owner/admin: keep work running past the month's credits at EUR 0.01 per credit, up to a monthly EUR cap, or turn it off so usage stops at the limit.",
 			})
-			.input(
-				z.object({
-					monthlyCapMicros: z
-						.number()
-						.int()
-						.positive()
-						.max(1_000_000_000_000)
-						.nullable(),
-				}),
-			)
-			.output(BillingCreditOverviewSchema),
+			.input(SetPayAsYouGoInputSchema)
+			.output(BillingCreditsSchema),
+
+		setAccountCredits: oc
+			.route({
+				method: "PUT",
+				path: "/account-credits",
+				tags: ["internal"],
+				summary: "Set an organization's included credits",
+				description:
+					"Tedix operator only: set or clear an organization's monthly included credits (null uses the plan value). Bumps the entitlement version and writes an audit record.",
+			})
+			.input(SetAccountCreditsInputSchema)
+			.output(SetAccountCreditsResponseSchema),
 
 		recordVoiceProviderUsage: oc
 			.route({
@@ -345,47 +271,18 @@ export const billingContract = oc
 			.input(RecordVoiceProviderUsageInputSchema)
 			.output(RecordVoiceProviderUsageResponseSchema),
 
-		/** Platform-admin immutable credit grant. */
-		grantCredit: oc
+		/** Platform-admin idempotent top-up credit grant. */
+		grantTopUpCredits: oc
 			.route({
 				method: "POST",
-				path: "/credits/grant",
+				path: "/top-ups/grant",
 				tags: ["internal"],
-				summary: "Grant billing credit",
+				summary: "Grant top-up credits",
 				description:
-					"Platform billing authority: append an immutable, idempotent credit grant to an organization's general billing ledger and return the resulting balance.",
+					"Platform billing authority: add idempotent top-up credits to an organization, valid for 12 months.",
 			})
-			.input(GrantBillingCreditInputSchema)
-			.output(GrantBillingCreditResponseSchema),
-
-		/** An organization restoring its own day to the base its plan includes. */
-		restoreDailyCapacity: oc
-			.route({
-				method: "POST",
-				path: "/inference-capacity/restore",
-				tags: ["internal"],
-				summary: "Restore today's capacity to the plan base",
-				description:
-					"Return this organization's capacity for the current UTC day to the base its plan already includes, cancelling negative allocations such as the debits a provider takes on for sponsoring its embedded customers. It can only cancel a debit — it never raises a ceiling above the plan base, grants nothing the plan did not include, and costs nothing. Uses the organization's own billing authority, deliberately not platform authority: an organization that has been drained must be able to unblock itself. Idempotent for the day.",
-			})
-			.input(z.object({}))
-			.output(
-				z.object({
-					budgetDay: z.string(),
-					restoredTokens: z
-						.number()
-						.int()
-						.nonnegative()
-						.describe("0 when the day was already at or above base"),
-					restoredSpendMicros: z.number().int().nonnegative(),
-					allocationId: z
-						.string()
-						.nullable()
-						.describe(
-							"Null when nothing was restored: the day was already at or above the plan base, so no allocation was written. A restore that changes nothing writes nothing.",
-						),
-				}),
-			),
+			.input(GrantTopUpCreditsInputSchema)
+			.output(GrantTopUpCreditsResponseSchema),
 
 		/** Platform-admin correction of a wrong billing-period window. */
 		correctBillingPeriod: oc
@@ -413,58 +310,6 @@ export const billingContract = oc
 					entitlementVersion: z.number().int(),
 				}),
 			),
-
-		/** Platform-admin immutable daily inference-capacity grant. */
-		grantInferenceCapacity: oc
-			.route({
-				method: "POST",
-				path: "/inference-capacity/grant",
-				tags: ["internal"],
-				summary: "Grant daily inference capacity",
-				description:
-					"Platform billing authority: append an immutable, idempotent token and spend-capacity grant for one organization and UTC budget day. This is an operator adjustment, not a purchase or mutable balance reset.",
-			})
-			.input(
-				z
-					.object({
-						organizationId: z.uuid(),
-						tokenAmount: z.number().int().nonnegative().max(1_000_000_000),
-						spendAmountMicros: z
-							.number()
-							.int()
-							.nonnegative()
-							.max(1_000_000_000_000),
-						idempotencyKey: z.string().trim().min(1).max(300),
-						description: z.string().trim().min(1).max(500),
-					})
-					.refine(
-						(input) => input.tokenAmount > 0 || input.spendAmountMicros > 0,
-						{
-							message: "A capacity grant must provide tokens or spend",
-						},
-					),
-			)
-			.output(
-				z.object({
-					allocationId: z.uuid(),
-					budgetDay: z.string(),
-					expiresAt: z.string(),
-					stripeEnvironment: z.enum(["test", "live"]),
-				}),
-			),
-
-		/** Platform-admin immutable managed-service credit grant. */
-		grantServiceCredits: oc
-			.route({
-				method: "POST",
-				path: "/service-credits/grant",
-				tags: ["internal"],
-				summary: "Grant service credits",
-				description:
-					"Platform billing authority: append an immutable, idempotent SEO service-credit grant and return the resulting entitlement snapshot.",
-			})
-			.input(GrantBillingServiceCreditsInputSchema)
-			.output(GrantBillingServiceCreditsResponseSchema),
 
 		/** Organization owner/admin lower ceilings and kill switch. */
 		setServiceCreditControls: oc
@@ -509,28 +354,14 @@ export type BillingContract = typeof billingContract;
 export {
 	type BillingInterval,
 	BillingIntervalSchema,
-	type BillingOverageSettings,
-	BillingOverageSettingsSchema,
 	type BillingOverview,
 	BillingOverviewSchema,
-	type BillingPlanCatalog,
-	type BillingPlanCatalogItem,
-	BillingPlanCatalogItemSchema,
-	BillingPlanCatalogSchema,
 	type BillingServiceCreditSnapshot,
 	BillingServiceCreditSnapshotSchema,
 	type CheckoutInput,
 	CheckoutInputSchema,
 	type CheckoutResponse,
 	CheckoutResponseSchema,
-	type GrantBillingCreditInput,
-	GrantBillingCreditInputSchema,
-	type GrantBillingCreditResponse,
-	GrantBillingCreditResponseSchema,
-	type GrantBillingServiceCreditsInput,
-	GrantBillingServiceCreditsInputSchema,
-	type GrantBillingServiceCreditsResponse,
-	GrantBillingServiceCreditsResponseSchema,
 	type PortalResponse,
 	PortalResponseSchema,
 	type ProviderReconciliationInput,
@@ -541,10 +372,10 @@ export {
 	RecordVoiceProviderUsageInputSchema,
 	type RecordVoiceProviderUsageResponse,
 	RecordVoiceProviderUsageResponseSchema,
-	type SetBillingOverageSettingsInput,
-	SetBillingOverageSettingsInputSchema,
 	type SetBillingServiceCreditControlsInput,
 	SetBillingServiceCreditControlsInputSchema,
 	type SetBillingServiceCreditControlsResponse,
 	SetBillingServiceCreditControlsResponseSchema,
+	SetCreditCapsInputSchema,
+	SetPayAsYouGoInputSchema,
 } from "../schemas/billing";

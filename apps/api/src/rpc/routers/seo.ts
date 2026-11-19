@@ -26,6 +26,7 @@ import { recordBillingProviderUsage } from "@tedix/db/queries/billing/provider-u
 import {
 	getBillingServiceCreditSnapshot,
 	releaseBillingServiceCreditReservation,
+	type BillingServiceCreditDenialCode,
 	reserveBillingServiceCredits,
 	settleBillingServiceCreditUsage,
 } from "@tedix/db/queries/billing-service-credits";
@@ -527,39 +528,32 @@ function seoReservationIdempotencyKey(
 	].join(":");
 }
 
-function mapCreditDenial(
-	code:
-		| "billing_not_configured"
-		| "subscription_inactive"
-		| "billing_period_inactive"
-		| "service_disabled"
-		| "rate_card_unavailable"
-		| "request_already_reserved"
-		| "request_already_settled"
-		| "credit_allowance_exhausted"
-		| "monthly_credit_limit"
-		| "tedi_credit_limit"
-		| "provider_cost_limit",
-): never {
-	const messages = {
-		billing_not_configured: "SEO credits are not configured for this tenant.",
+function mapCreditDenial(code: BillingServiceCreditDenialCode): never {
+	const messages: Record<BillingServiceCreditDenialCode, string> = {
+		billing_not_configured: "Billing is not configured for this tenant.",
 		subscription_inactive:
 			"SEO research is unavailable because the tenant subscription is inactive.",
 		billing_period_inactive:
 			"SEO research is unavailable outside the active billing period.",
+		monthly_credit_limit_reached:
+			"This month's Tedix credits are used up. An admin can buy a top-up or turn on pay-as-you-go.",
+		tedi_monthly_credit_cap_reached:
+			"This tedi reached the monthly credit cap an admin set for it.",
+		member_monthly_credit_cap_reached:
+			"You reached the monthly credit cap an admin set for you.",
 		service_disabled: "SEO research is disabled for this tenant.",
 		rate_card_unavailable: "SEO research pricing is temporarily unavailable.",
 		request_already_reserved:
 			"This SEO request is already in progress. Reuse the original result instead of submitting it again.",
 		request_already_settled:
 			"This SEO request was already completed. Reuse the original result instead of submitting it again.",
-		credit_allowance_exhausted:
-			"The tenant's SEO credit allowance is exhausted.",
-		monthly_credit_limit: "The tenant's monthly SEO credit limit was reached.",
-		tedi_credit_limit: "This tedi's monthly SEO credit limit was reached.",
+		service_monthly_credit_limit:
+			"The tenant's monthly SEO credit limit was reached.",
+		service_tedi_credit_limit:
+			"This tedi's monthly SEO credit limit was reached.",
 		provider_cost_limit:
 			"The tenant's managed SEO provider-spend safety limit was reached.",
-	} as const;
+	};
 	throw createError(
 		code === "rate_card_unavailable"
 			? ErrorCodes.SERVICE_UNAVAILABLE
@@ -567,7 +561,7 @@ function mapCreditDenial(
 				  code === "request_already_settled"
 				? ErrorCodes.CONFLICT
 				: ErrorCodes.FORBIDDEN,
-		messages[code],
+		`${messages[code]} (${code})`,
 	);
 }
 
@@ -607,6 +601,7 @@ async function runSeoResearch<T>(
 		id: crypto.randomUUID(),
 		organizationId,
 		tediId: context.tediId ?? null,
+		userId: context.authType === "tedi" ? null : (context.user?.sub ?? null),
 		serviceKey: "seo",
 		operationKey,
 		idempotencyKey: seoReservationIdempotencyKey(

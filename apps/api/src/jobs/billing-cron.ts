@@ -36,24 +36,18 @@ export async function runBillingAndGatewayCostTick(
 		const affected = {
 			periodsRenewed: 0,
 			trialsSuspended: 0,
-			creditsExpired: 0,
 			reservationsExpired: 0,
 		};
 		if (settlementMode === "managed") {
-			const [
-				{ expireBillingCredits },
-				{ expireBillingReservations },
-				{ rollBillingPeriods },
-			] = await Promise.all([
-				import("@tedix/db/queries/billing/credits"),
-				import("@tedix/db/queries/billing/reservations"),
-				import("@tedix/db/queries/billing/plans"),
-			]);
+			// Top-up credits need no expiry job: the pool reads only unexpired
+			// top-ups, and included credits end with their period.
+			const [{ expireBillingReservations }, { rollBillingPeriods }] =
+				await Promise.all([
+					import("@tedix/db/queries/billing/reservations"),
+					import("@tedix/db/queries/billing/plans"),
+				]);
 			const periods = await measurePhase("period_rollover", () =>
 				rollBillingPeriods(db, billingNow),
-			);
-			const expiredCredits = await measurePhase("credit_expiry", () =>
-				expireBillingCredits(db, billingNow),
 			);
 			const expiredReservations = await measurePhase("reservation_expiry", () =>
 				expireBillingReservations(db, billingNow),
@@ -61,17 +55,15 @@ export async function runBillingAndGatewayCostTick(
 			if (
 				periods.renewed > 0 ||
 				periods.suspendedTrials > 0 ||
-				expiredCredits > 0 ||
 				expiredReservations > 0
 			) {
 				console.log(
-					`[Scheduled] Billing maintenance: renewed=${periods.renewed} suspendedTrials=${periods.suspendedTrials} expiredCredits=${expiredCredits} expiredReservations=${expiredReservations}`,
+					`[Scheduled] Billing maintenance: renewed=${periods.renewed} suspendedTrials=${periods.suspendedTrials} expiredReservations=${expiredReservations}`,
 				);
 			}
 			Object.assign(affected, {
 				periodsRenewed: periods.renewed,
 				trialsSuspended: periods.suspendedTrials,
-				creditsExpired: expiredCredits,
 				reservationsExpired: expiredReservations,
 			});
 		}

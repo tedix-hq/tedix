@@ -69,13 +69,13 @@ vi.mock("@tedix/db/queries/tedis", async (original) => ({
 	...(await original<typeof import("@tedix/db/queries/tedis")>()),
 	getTedisByOrganization: async () => [],
 }));
-vi.mock("@tedix/db/queries/billing/credits", async (original) => ({
-	...(await original<typeof import("@tedix/db/queries/billing/credits")>()),
-	getBillingBalanceSnapshot: async () => ({
+vi.mock("@tedix/db/queries/billing/credit-pool", async (original) => ({
+	...(await original<typeof import("@tedix/db/queries/billing/credit-pool")>()),
+	getCreditPoolSnapshot: async () => ({
 		planKey: "growth",
 		status: "active",
-		includedTokens: 1_000_000,
-		usedTokens: 1_000,
+		includedCredits: 15_000,
+		usedCredits: 1_000,
 	}),
 }));
 vi.mock("@tedix/db/queries/runtime-entitlements", async (original) => ({

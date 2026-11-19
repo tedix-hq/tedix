@@ -2,25 +2,30 @@ import { createRouterClient } from "@orpc/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 
-const activationStorage = vi.hoisted(() => vi.fn());
 const internalPlanStorage = vi.hoisted(() => vi.fn());
 vi.mock("@tedix/db/queries/billing/internal-plan", () => ({
 	assignInternalPlan: internalPlanStorage,
 }));
-const repricingStorage = vi.hoisted(() => vi.fn());
-vi.mock("./billing/credit-activation", () => ({
-	configureCreditBillingHandler: activationStorage,
-	repriceCreditBillingHandler: repricingStorage,
+const creditStorage = vi.hoisted(() => ({
+	setAccountCredits: vi.fn(),
+	setPayAsYouGo: vi.fn(),
+	setCreditCaps: vi.fn(),
+	getCreditPoolSnapshot: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/billing/credit-pool", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("@tedix/db/queries/billing/credit-pool")
+	>()),
+	setAccountCredits: creditStorage.setAccountCredits,
+	setPayAsYouGo: creditStorage.setPayAsYouGo,
+	setCreditCaps: creditStorage.setCreditCaps,
+	getCreditPoolSnapshot: creditStorage.getCreditPoolSnapshot,
 }));
 
 const rateStorage = vi.hoisted(() => ({ list: vi.fn(), publish: vi.fn() }));
 vi.mock("@tedix/db/queries/billing/provider-model-rates", () => ({
 	listProviderModelRates: rateStorage.list,
 	publishProviderModelRate: rateStorage.publish,
-}));
-const overageStorage = vi.hoisted(() => ({ set: vi.fn() }));
-vi.mock("@tedix/db/queries/billing/overage", () => ({
-	setBillingOverageSettings: overageStorage.set,
 }));
 const resolveEnvironment = vi.hoisted(() => vi.fn());
 vi.mock("../../lib/stripe-environment", async (importOriginal) => ({
@@ -56,7 +61,8 @@ function context(scopes: string[], human = false): BaseContext {
 describe("own-organization billing authorization", () => {
 	beforeEach(() => {
 		resolveEnvironment.mockReset();
-		resolveEnvironment.mockImplementation(() => {
+		creditStorage.getCreditPoolSnapshot.mockReset();
+		creditStorage.getCreditPoolSnapshot.mockImplementation(() => {
 			throw new Error("authorized read reached storage");
 		});
 	});
@@ -68,7 +74,7 @@ describe("own-organization billing authorization", () => {
 			await expect(client.getOverview()).rejects.toMatchObject({
 				code: "FORBIDDEN",
 			});
-			expect(resolveEnvironment).not.toHaveBeenCalled();
+			expect(creditStorage.getCreditPoolSnapshot).not.toHaveBeenCalled();
 		});
 		it(`admits own-org reads without platform admin (human=${human})`, async () => {
 			const ctx = context(["billing:read"], human);
@@ -78,20 +84,22 @@ describe("own-organization billing authorization", () => {
 			await expect(client.getOverview()).rejects.toThrow(
 				"authorized read reached storage",
 			);
-			expect(resolveEnvironment).toHaveBeenCalledWith(ctx.env);
+			expect(creditStorage.getCreditPoolSnapshot).toHaveBeenCalledWith(
+				ctx.db,
+				expect.objectContaining({ organizationId }),
+			);
 		});
 	}
-	it("does not let a tenant owner mint capacity", async () => {
+	it("does not let a tenant owner mint credits", async () => {
 		const client = createRouterClient(billingContractRouter, {
 			context: context(["billing:read", "billing:manage"], true),
 		});
 		await expect(
-			client.grantInferenceCapacity({
+			client.grantTopUpCredits({
 				organizationId,
-				tokenAmount: 1,
-				spendAmountMicros: 0,
-				idempotencyKey: "denied",
-				description: "must not mint capacity",
+				credits: 1,
+				idempotencyKey: "denied-top-up",
+				reason: "must not mint credits",
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		expect(resolveEnvironment).not.toHaveBeenCalled();
@@ -148,42 +156,25 @@ describe("checkout and customer portal authority", () => {
 	});
 });
 
-describe("credit activation authority", () => {
+describe("included credit override authority", () => {
 	const input = {
 		organizationId,
-		expectedEntitlementVersion: 1,
-		idempotencyKey: "activation-authority",
-		reason: "authorized test",
-		includedMonthlyCreditMicros: 100000000,
-		monthlyCapMicros: 100000000,
-		perRunBudgetMicros: 5000000,
-		fx: {
-			microUsdPerEur: 1_084_300,
-			source: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
-			asOf: "2026-10-09",
-		},
-		rateBindings: [
-			{
-				rateVersionId: "published",
-				inputConvention: "inclusive" as const,
-				requestModelAliases: [],
-			},
-		],
+		includedCreditsOverride: 1_000_000,
+		reason: "contracted volume",
 	};
 	beforeEach(() => {
-		activationStorage.mockReset();
-		activationStorage.mockResolvedValue({
-			organizationId,
-			planVersionId: "private-plan",
+		creditStorage.setAccountCredits.mockReset();
+		creditStorage.setAccountCredits.mockResolvedValue({
 			entitlementVersion: 2,
-			creditBalanceMicros: 100000000,
-			periodStart: "2026-10-01T00:00:00.000Z",
-			periodEnd: "2026-11-01T00:00:00.000Z",
-			includedCreditCarryForward: true,
-			alreadyConfigured: false,
+			previous: null,
+		});
+		creditStorage.getCreditPoolSnapshot.mockReset();
+		creditStorage.getCreditPoolSnapshot.mockResolvedValue({
+			includedCredits: 1_000_000,
+			includedCreditsOverride: 1_000_000,
 		});
 	});
-	it("accepts platform OAuth scope on a human JWT without tenant permissions", async () => {
+	it("accepts platform OAuth scope on a human JWT and records the actor", async () => {
 		const ctx = context([], true);
 		ctx.user = {
 			sub: "platform-human",
@@ -191,40 +182,39 @@ describe("credit activation authority", () => {
 			permissions: [],
 			roles: [],
 		};
-		await createRouterClient(billingContractRouter, {
-			context: ctx,
-		}).configureCreditBilling(input);
-		expect(activationStorage).toHaveBeenCalledExactlyOnceWith(
-			expect.objectContaining({ authType: "user", user: ctx.user }),
-			input,
-			"platform-human",
+		await expect(
+			createRouterClient(billingContractRouter, {
+				context: ctx,
+			}).setAccountCredits(input),
+		).resolves.toEqual({
+			organizationId,
+			includedCredits: 1_000_000,
+			includedCreditsOverride: 1_000_000,
+			entitlementVersion: 2,
+		});
+		expect(creditStorage.setAccountCredits).toHaveBeenCalledExactlyOnceWith(
+			expect.anything(),
+			expect.objectContaining({
+				organizationId,
+				includedCreditsOverride: 1_000_000,
+				reason: "contracted volume",
+				actor: { id: "platform-human", type: "user" },
+			}),
 		);
 	});
 	it("refuses tenant owners even when they manage their own billing", async () => {
 		await expect(
 			createRouterClient(billingContractRouter, {
 				context: context(["billing:manage"], true),
-			}).configureCreditBilling(input),
+			}).setAccountCredits(input),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
-		expect(activationStorage).not.toHaveBeenCalled();
-	});
-	it("accepts an operator API key with platform authority", async () => {
-		const ctx = context(["platform:admin"]);
-		await createRouterClient(billingContractRouter, {
-			context: ctx,
-		}).configureCreditBilling(input);
-		expect(activationStorage).toHaveBeenCalledExactlyOnceWith(
-			expect.objectContaining({ authType: "apikey" }),
-			input,
-			"key",
-		);
+		expect(creditStorage.setAccountCredits).not.toHaveBeenCalled();
 	});
 	it("refuses a tedi even when its token carries platform authority", async () => {
 		const ctx = {
 			...context([]),
 			authType: "tedi",
 			apiKey: undefined,
-			// Already-authenticated context fixture; its principal type remains tedi.
 			user: {
 				sub: "tedi-principal",
 				scopes: ["platform:admin"],
@@ -237,121 +227,45 @@ describe("credit activation authority", () => {
 		await expect(
 			createRouterClient(billingContractRouter, {
 				context: ctx,
-			}).configureCreditBilling(input),
-		).rejects.toMatchObject({
-			code: "FORBIDDEN",
-			message: expect.stringContaining("never held by a tedi principal"),
-		});
-		expect(activationStorage).not.toHaveBeenCalled();
-	});
-	it("holds live wallet repricing to platform billing authority", async () => {
-		const rest = {
-			organizationId: input.organizationId,
-			expectedEntitlementVersion: input.expectedEntitlementVersion,
-			idempotencyKey: input.idempotencyKey,
-			reason: input.reason,
-			fx: input.fx,
-			rateBindings: input.rateBindings,
-		};
-		repricingStorage.mockReset();
-		repricingStorage.mockResolvedValue({
-			organizationId,
-			planVersionId: "private-plan-2",
-			previousPlanVersionId: "private-plan",
-			entitlementVersion: 3,
-			creditBalanceMicros: 100000000,
-			rateVersionIds: ["published"],
-			alreadyRepriced: false,
-		});
-		await expect(
-			createRouterClient(billingContractRouter, {
-				context: context(["billing:manage"], true),
-			}).repriceCreditBilling(rest),
+			}).setAccountCredits(input),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
-		expect(repricingStorage).not.toHaveBeenCalled();
-		await createRouterClient(billingContractRouter, {
-			context: context(["platform:admin"]),
-		}).repriceCreditBilling(rest);
-		expect(repricingStorage).toHaveBeenCalledExactlyOnceWith(
-			expect.objectContaining({ authType: "apikey" }),
-			rest,
-			"key",
-		);
+		expect(creditStorage.setAccountCredits).not.toHaveBeenCalled();
 	});
 });
 
-describe("credit budget authority", () => {
+describe("pay-as-you-go and credit cap authority", () => {
+	beforeEach(() => {
+		creditStorage.setPayAsYouGo.mockReset();
+		creditStorage.setCreditCaps.mockReset();
+	});
 	for (const ctx of [
 		context(["billing:read"]),
 		{ ...context(["billing:manage"], true), userRole: "member" },
 	]) {
-		it(`denies credit budget writes for ${ctx.authType}/${ctx.userRole}`, async () => {
+		it(`denies writes for ${ctx.authType}/${ctx.userRole}`, async () => {
 			const client = createRouterClient(billingContractRouter, {
 				context: ctx as BaseContext,
 			});
 			await expect(
-				client.setCreditBudget({ monthlyCapMicros: 10000 }),
+				client.setPayAsYouGo({ enabled: true, monthlyCapMicros: 1 }),
 			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				client.setCreditCaps({
+					memberCaps: [{ userId: "user-1", monthlyCapCredits: 10 }],
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(creditStorage.setPayAsYouGo).not.toHaveBeenCalled();
+			expect(creditStorage.setCreditCaps).not.toHaveBeenCalled();
 		});
 	}
-});
-
-describe("overage opt-in authority", () => {
-	beforeEach(() => {
-		overageStorage.set.mockReset();
-	});
-	it("refuses a member without billing:manage", async () => {
-		const ctx = { ...context(["billing:manage"], true), userRole: "member" };
-		const client = createRouterClient(billingContractRouter, {
-			context: ctx as BaseContext,
-		});
-		await expect(
-			client.setOverageSettings({ enabled: true, monthlyCapMicros: 1 }),
-		).rejects.toMatchObject({ code: "FORBIDDEN" });
-		expect(overageStorage.set).not.toHaveBeenCalled();
-	});
-	it("refuses an API key without billing:write", async () => {
-		const client = createRouterClient(billingContractRouter, {
-			context: context(["billing:read"]),
-		});
-		await expect(
-			client.setOverageSettings({ enabled: true, monthlyCapMicros: 1 }),
-		).rejects.toMatchObject({ code: "FORBIDDEN" });
-		expect(overageStorage.set).not.toHaveBeenCalled();
-	});
-	it("refuses reading overage settings without billing:read", async () => {
-		const client = createRouterClient(billingContractRouter, {
-			context: context([]),
-		});
-		await expect(client.getOverageSettings()).rejects.toMatchObject({
-			code: "FORBIDDEN",
-		});
-	});
-	it("rejects enabling without a cap before touching storage", async () => {
+	it("rejects enabling pay-as-you-go without a cap before touching storage", async () => {
 		const client = createRouterClient(billingContractRouter, {
 			context: context(["billing:manage"], true),
 		});
 		await expect(
-			client.setOverageSettings({ enabled: true, monthlyCapMicros: null }),
+			client.setPayAsYouGo({ enabled: true, monthlyCapMicros: null }),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
-		expect(overageStorage.set).not.toHaveBeenCalled();
-	});
-	it("reports an unconfigured billing account for an owner", async () => {
-		overageStorage.set.mockResolvedValue(false);
-		const client = createRouterClient(billingContractRouter, {
-			context: context(["billing:manage"], true),
-		});
-		await expect(
-			client.setOverageSettings({ enabled: true, monthlyCapMicros: 5 }),
-		).rejects.toMatchObject({ code: "NOT_FOUND" });
-		expect(overageStorage.set).toHaveBeenCalledWith(
-			expect.anything(),
-			expect.objectContaining({
-				organizationId,
-				enabled: true,
-				monthlyCapMicros: 5,
-			}),
-		);
+		expect(creditStorage.setPayAsYouGo).not.toHaveBeenCalled();
 	});
 });
 

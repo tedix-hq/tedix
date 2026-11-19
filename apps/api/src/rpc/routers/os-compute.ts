@@ -7,7 +7,7 @@
  * administrative billing plane.
  *
  * Like `runtimeEntitlements.get` and `modelCatalog.list`, this handler reuses the
- * exact canonical readers the ENFORCING paths use — `getBillingBalanceSnapshot`
+ * exact canonical readers the ENFORCING paths use — `getCreditPoolSnapshot`
  * and `getRuntimeEntitlement` for budget, `buildModelCatalogProjection` for
  * routing — so the surface can never disagree with the gate that actually
  * blocks inference. Nothing is recomputed here.
@@ -31,7 +31,7 @@ import {
 	provenanceFloor,
 } from "@tedix/api-contract/schemas/cost-provenance";
 import { osComputeContract } from "@tedix/api-contract/contracts/os-compute";
-import { getBillingBalanceSnapshot } from "@tedix/db/queries/billing/credits";
+import { getCreditPoolSnapshot } from "@tedix/db/queries/billing/credit-pool";
 import { getEffectiveInferencePolicies } from "@tedix/db/queries/billing/inference-policies";
 import { getAlertState } from "@tedix/db/queries/ops-alert-state";
 import {
@@ -244,11 +244,10 @@ const posture = os.posture
 			await Promise.all([
 				getOrgCostLedgerFreshness(context.db, organizationId, nowMs),
 				getOrgCallCostProvenanceGroups(context.db, organizationId, from),
-				getBillingBalanceSnapshot(
-					context.db,
+				getCreditPoolSnapshot(context.db, {
 					organizationId,
-					now.toISOString(),
-				),
+					now: now.toISOString(),
+				}),
 				getRuntimeEntitlement(context.db, organizationId),
 				getEffectiveInferencePolicies(context.db, organizationId, null),
 				getAlertState(context.db, CLOUDFLARE_CREDENTIAL_CONDITION_KEY),
@@ -294,27 +293,25 @@ const posture = os.posture
 			budget: balance
 				? {
 						configured: true,
-						unlimitedTokenUsage: balance.unlimitedTokenUsage,
-						includedTokens: balance.includedTokens,
-						usedTokens: balance.usedTokens,
-						reservedTokens: balance.reservedTokens,
-						remainingIncludedTokens: balance.remainingIncludedTokens,
-						allowOverage: balance.allowOverage,
+						includedCredits: balance.includedCredits,
+						usedCredits: balance.usedCredits,
+						heldCredits: balance.heldCredits,
+						topUpCredits: balance.topUpCredits,
+						availableCredits: balance.availableCredits,
 						entitlementActive:
 							entitlement === null
 								? null
 								: runtimeEntitlementIsActive(entitlement, nowMs),
 						detail:
-							"Copied from the canonical billing balance snapshot the admission path reads; remaining already nets out live reservations.",
+							"Copied from the canonical credit pool the admission path reads; available credits already net out calls in flight.",
 					}
 				: {
 						configured: false,
-						unlimitedTokenUsage: null,
-						includedTokens: null,
-						usedTokens: null,
-						reservedTokens: null,
-						remainingIncludedTokens: null,
-						allowOverage: null,
+						includedCredits: null,
+						usedCredits: null,
+						heldCredits: null,
+						topUpCredits: null,
+						availableCredits: null,
 						entitlementActive:
 							entitlement === null
 								? null
@@ -347,8 +344,7 @@ const posture = os.posture
 			},
 			admissionPolicy: {
 				state: "d1_authoritative" as const,
-				desiredDailyTokenLimit: orgPolicy?.dailyTokenLimit ?? null,
-				desiredDailySpendLimitMicros: orgPolicy?.dailySpendLimitMicros ?? null,
+				allowedModelTiers: orgPolicy?.allowedModelTiers ?? null,
 				detail: COST_ADMISSION_POLICY_DETAIL,
 			},
 			attribution: attributionGap(groups),

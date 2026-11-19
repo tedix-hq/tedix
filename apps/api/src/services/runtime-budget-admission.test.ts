@@ -52,12 +52,9 @@ const entitlement = {
 	},
 	profile: { key: "starter", name: "Developer" },
 	limits: {
-		includedMonthlyTokens: 100_000,
 		maxTedis: 1,
 		maxCronJobsPerTedi: 5,
 		maxIterationsPerTask: 12,
-		defaultDailyTokenLimit: 20_000,
-		defaultDailyMessageLimit: 50,
 	},
 	grants: [],
 	source: "installation",
