@@ -1,3 +1,4 @@
+import { readWorkspaceRuntimeRole } from "@tedix/db/queries/os-workspace-access";
 import {
 	getOsWorkspace,
 	isOsWorkspaceVisibleTo,
@@ -123,6 +124,40 @@ export async function assertOsWorkspaceVisible(
 	message = "OS workspace not found",
 	options: { ownerOnly?: boolean } = {},
 ): Promise<void> {
+	if (
+		(context.authType === "tedi" || context.authType === "service-binding") &&
+		context.tediId
+	) {
+		if (
+			context.authType === "service-binding" &&
+			context.descopeUserId &&
+			workspace.organizationId
+		) {
+			const tedi = await getTediByIdForOrganization(
+				context.db,
+				context.tediId,
+				workspace.organizationId,
+			);
+			if (
+				!tedi ||
+				(tedi.ownerUserId !== context.descopeUserId &&
+					tedi.descopeUserId !== context.descopeUserId)
+			)
+				throw createError(ErrorCodes.NOT_FOUND, message);
+		}
+		if (
+			!options.ownerOnly &&
+			workspace.organizationId &&
+			workspace.organizationId === context.organizationId &&
+			(await readWorkspaceRuntimeRole(
+				context.db,
+				{ organizationId: workspace.organizationId, workspaceId: workspace.id },
+				{ actorKind: "tedi", actorId: context.tediId },
+			)) === "build"
+		)
+			return;
+		throw createError(ErrorCodes.NOT_FOUND, message);
+	}
 	if (workspace.visibility !== "private") return;
 	if (
 		isOsWorkspaceVisibleTo(workspace, await resolveOsWorkspaceViewer(context))

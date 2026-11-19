@@ -24,6 +24,7 @@ import {
 	createOsWorkspaceShareLink,
 	dismissOsSharedWorkspace,
 	findTedixPersonByEmail,
+	findWorkspaceTedi,
 	getActiveOsWorkspaceShareLinkByKeyHash,
 	getOsWorkspaceForCollaboration,
 	grantOsWorkspaceAccess,
@@ -103,12 +104,18 @@ function db(context: BaseContext): DbQueryClient {
 	return createDbQueryClient(context.env.DB);
 }
 
-/** Collaborators act only as themselves: a signed-in human. */
+/** People and authenticated tedis act under their own principal id. */
 export function requireCollaboratorIdentity(context: BaseContext): string {
 	if (context.authType === "user" && context.user?.sub) return context.user.sub;
+	if (
+		(context.authType === "tedi" || context.authType === "service-binding") &&
+		context.tediId &&
+		context.organizationId
+	)
+		return context.tediId;
 	throw createError(
 		ErrorCodes.FORBIDDEN,
-		"Sharing needs a signed-in Tedix user",
+		"Sharing needs a signed-in Tedix participant",
 	);
 }
 
@@ -177,7 +184,13 @@ export async function requireWorkspaceCollaboratorAccess(
 		database,
 		await findWorkspace(database, workspaceId),
 		callerId,
+		context.authType === "user" ? "user" : "tedi",
 	);
+	if (
+		context.authType !== "user" &&
+		access.workspace.organizationId !== context.organizationId
+	)
+		throw createError(ErrorCodes.FORBIDDEN, ACCESS_DENIED);
 	if (!access.role) throw createError(ErrorCodes.FORBIDDEN, ACCESS_DENIED);
 	if (!operationAllowed(access.role, operation))
 		throw createError(
@@ -277,7 +290,12 @@ export async function openWorkspaceAsCollaborator(
 			keyHash: await hashWorkspaceShareKey(input.shareKey),
 		});
 		if (link) {
-			const pre = await loadWorkspaceAccess(database, workspace, callerId);
+			const pre = await loadWorkspaceAccess(
+				database,
+				workspace,
+				callerId,
+				context.authType === "user" ? "user" : "tedi",
+			);
 			if (!pre.isRoot) {
 				const [person] = await listTedixPeople(database, [callerId]);
 				await grantOsWorkspaceAccess(database, {
@@ -287,6 +305,7 @@ export async function openWorkspaceAsCollaborator(
 					edges: [
 						{
 							kind: "link",
+							targetKind: context.authType === "user" ? "user" : "tedi",
 							linkId: link.id,
 							targetUserId: callerId,
 							targetEmail: person?.email ?? context.user?.email ?? null,
@@ -297,7 +316,17 @@ export async function openWorkspaceAsCollaborator(
 			}
 		}
 	}
-	const access = await loadWorkspaceAccess(database, workspace, callerId);
+	const access = await loadWorkspaceAccess(
+		database,
+		workspace,
+		callerId,
+		context.authType === "user" ? "user" : "tedi",
+	);
+	if (
+		context.authType !== "user" &&
+		access.workspace.organizationId !== context.organizationId
+	)
+		throw createError(ErrorCodes.FORBIDDEN, ACCESS_DENIED);
 	if (!access.role) throw createError(ErrorCodes.FORBIDDEN, ACCESS_DENIED);
 	if (input.appId) {
 		const gadget = await getOsGadget(database, {
@@ -373,6 +402,7 @@ async function people(
 			userId: row.userId,
 			email: row.email ?? "",
 			name: row.name,
+			principalKind: row.principalKind,
 		});
 	const missing = userIds.filter((id) => !known.has(id));
 	for (const person of await listTedixPeople(database, missing))
@@ -384,6 +414,7 @@ function personView(directory: Map<string, TedixPersonResult>, userId: string) {
 	const person = directory.get(userId);
 	return {
 		userId,
+		principalKind: person?.principalKind ?? "user",
 		email: person?.email || null,
 		name: person?.name ?? null,
 	};
@@ -392,7 +423,7 @@ function personView(directory: Map<string, TedixPersonResult>, userId: string) {
 function callerHasOwnEdge(access: WorkspaceAccess, targetId: string): boolean {
 	return access.rows.edges.some(
 		(edge) =>
-			edge.kind === "user" &&
+			edge.kind !== "link" &&
 			edge.targetUserId === targetId &&
 			edge.sharerUserId === access.callerId,
 	);
@@ -427,7 +458,7 @@ export async function listWorkspaceSharing(
 			const addedBy = access.rows.edges
 				.filter((edge) => edge.targetUserId === row.userId)
 				.map((edge) => {
-					if (edge.kind === "user" && edge.sharerUserId)
+					if (edge.kind !== "link" && edge.sharerUserId)
 						return access.roles.has(edge.sharerUserId)
 							? label(edge.sharerUserId)
 							: null;
@@ -481,7 +512,12 @@ function requireGrantable(
 
 export async function addWorkspaceCollaborator(
 	context: BaseContext,
-	input: { workspaceId: string; email: string; role: OsCollaboratorRole },
+	input: {
+		workspaceId: string;
+		email?: string;
+		tediId?: string;
+		role: OsCollaboratorRole;
+	},
 ): Promise<OsCollaborator> {
 	const access = await requireWorkspaceCollaboratorAccess(
 		context,
@@ -490,11 +526,20 @@ export async function addWorkspaceCollaborator(
 	);
 	requireGrantable(access, input.role);
 	const database = db(context);
-	const person = await findTedixPersonByEmail(database, input.email);
+	const person = input.tediId
+		? await findWorkspaceTedi(database, {
+				organizationId: access.workspace.organizationId,
+				tediId: input.tediId,
+			})
+		: input.email
+			? await findTedixPersonByEmail(database, input.email)
+			: undefined;
 	if (!person)
 		throw createError(
 			ErrorCodes.NOT_FOUND,
-			"No Tedix account uses that email. Send them a share link instead.",
+			input.tediId
+				? "No active tedi in this workspace's organization"
+				: "No Tedix account uses that email. Send them a share link instead.",
 		);
 	if (
 		person.userId === access.callerId ||
@@ -510,7 +555,7 @@ export async function addWorkspaceCollaborator(
 		now: new Date().toISOString(),
 		edges: [
 			{
-				kind: "user",
+				kind: person.principalKind === "tedi" ? "tedi" : "user",
 				targetUserId: person.userId,
 				targetEmail: person.email,
 				targetName: person.name,
@@ -523,12 +568,17 @@ export async function addWorkspaceCollaborator(
 		database,
 		access.workspace,
 		access.callerId,
+		context.authType === "user" ? "user" : "tedi",
 	);
 	const [sharer] = await listTedixPeople(database, [access.callerId]);
 	// Tell the person only when this call is what gave them access: not when
 	// it changed the role of someone who already had it, and not when the
 	// stored grant gives them no role after all.
-	if (!access.roles.has(person.userId) && after.roles.has(person.userId))
+	if (
+		person.principalKind !== "tedi" &&
+		!access.roles.has(person.userId) &&
+		after.roles.has(person.userId)
+	)
 		await tellPersonAboutShare(context, database, {
 			workspace: access.workspace,
 			inviteeUserId: person.userId,
@@ -537,6 +587,7 @@ export async function addWorkspaceCollaborator(
 		});
 	return {
 		userId: person.userId,
+		principalKind: person.principalKind ?? "user",
 		email: person.email,
 		name: person.name,
 		role: after.roles.get(person.userId) ?? input.role,
@@ -661,6 +712,7 @@ export async function createWorkspaceShareLink(
 			role: link.role,
 			label: link.label,
 			createdBy: {
+				principalKind: context.authType === "user" ? "user" : "tedi",
 				userId: access.callerId,
 				email: creator?.email ?? null,
 				name: creator?.name ?? null,
@@ -849,7 +901,7 @@ export async function removeWorkspaceAccess(
 					(c) => c.userId === edge.targetId,
 				);
 				return {
-					kind: "user",
+					kind: row?.principalKind === "tedi" ? "tedi" : "user",
 					targetUserId: edge.targetId,
 					targetEmail: row?.email ?? null,
 					targetName: row?.name ?? null,
@@ -881,6 +933,7 @@ export async function removeWorkspaceAccess(
 		database,
 		access.workspace,
 		access.callerId,
+		context.authType === "user" ? "user" : "tedi",
 	);
 	const fell = diffRoles(access.roles, after.roles);
 	// Anyone whose role fell may still hold a signed app session or be inside
@@ -932,6 +985,7 @@ async function applyAccessChange(
 		database,
 		access.workspace,
 		access.callerId,
+		context.authType === "user" ? "user" : "tedi",
 	);
 	const fell = diffRoles(access.roles, after.roles);
 	await cutWorkspaceAppSessions(context.env, {
@@ -975,7 +1029,7 @@ export async function setWorkspaceCollaboratorRole(
 			now: new Date().toISOString(),
 			keepEdges: [
 				{
-					kind: "user",
+					kind: row.principalKind === "tedi" ? "tedi" : "user",
 					targetUserId: input.userId,
 					targetEmail: row.email,
 					targetName: row.name,
