@@ -77,12 +77,9 @@ async function seedStarterAccount(db: DbClient, organizationId: string) {
 		version: 1,
 		status: "active",
 		name: "Starter",
-		includedMonthlyTokens: 0,
 		maxTedis: 1,
 		maxCronJobsPerTedi: 1,
 		maxIterationsPerTask: 1,
-		defaultDailyTokenLimit: 1,
-		defaultDailyMessageLimit: 1,
 		effectiveAt: PAST,
 		createdAt: PAST,
 	});

@@ -7,7 +7,6 @@ import {
 	isNotNull,
 	isNull,
 	notExists,
-	or,
 	sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -492,8 +491,8 @@ export async function registerCmsSiteWithinQuota(
 	input: NewCmsSite,
 	maxCmsSites: number,
 ): Promise<CmsSite | null> {
-	if (!Number.isSafeInteger(maxCmsSites) || maxCmsSites < -1)
-		throw new Error("CMS site quota must be -1 or a non-negative integer");
+	if (!Number.isSafeInteger(maxCmsSites) || maxCmsSites < 0)
+		throw new Error("CMS site quota must be a non-negative integer");
 	// COUNT(*) without GROUP BY yields exactly one row, so the insert reads one
 	// candidate row that the quota predicate keeps or drops.
 	const quota = db
@@ -528,12 +527,7 @@ export async function registerCmsSiteWithinQuota(
 					status: sql<string>`${input.status ?? "active"}`.as("status"),
 				})
 				.from(quota)
-				.where(
-					or(
-						sql`${maxCmsSites} = -1`,
-						sql`${quota.siteCount} < ${maxCmsSites}`,
-					),
-				),
+				.where(sql`${quota.siteCount} < ${maxCmsSites}`),
 		)
 		.onConflictDoNothing({ target: cmsSites.slug })
 		.returning({ id: cmsSites.id });

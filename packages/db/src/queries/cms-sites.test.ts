@@ -209,9 +209,16 @@ describe("CMS site create on D1", () => {
 			await registerCmsSiteWithinQuota(
 				db,
 				{ ...site, id: "site-four", slug: "third" },
-				-1,
+				2,
 			),
 		).toMatchObject({ slug: "third" });
+		await expect(
+			registerCmsSiteWithinQuota(
+				db,
+				{ ...site, id: "site-five", slug: "fourth" },
+				-1,
+			),
+		).rejects.toThrow("CMS site quota must be a non-negative integer");
 	});
 
 	it("activates only the exact provisioned site if no fence or teardown receipt exists", async () => {

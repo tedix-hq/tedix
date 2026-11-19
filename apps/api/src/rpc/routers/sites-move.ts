@@ -77,7 +77,6 @@ export const moveCmsSiteProcedure = authedSitesOs.moveCms
 				DEFAULT_ORGANIZATION_FEATURES_BY_PLAN.starter.maxCmsSites ??
 				1;
 			if (
-				maxCmsSites !== -1 &&
 				(await listCmsSitesByOrganization(db, targetId)).length >= maxCmsSites
 			)
 				throw createError(

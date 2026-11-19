@@ -59,12 +59,9 @@ async function seedPlan(db: DbClient, planKey: BillingPlanKey) {
 		version: 1,
 		status: "active",
 		name: planKey,
-		includedMonthlyTokens: 0,
 		maxTedis: 1,
 		maxCronJobsPerTedi: 1,
 		maxIterationsPerTask: 1,
-		defaultDailyTokenLimit: 1,
-		defaultDailyMessageLimit: 1,
 		effectiveAt: PAST,
 		createdAt: PAST,
 	});
@@ -228,21 +225,21 @@ describe("canCreateApp", () => {
 		});
 	});
 
-	it("treats maxApps = -1 as unlimited", async () => {
+	it("enforces the finite Enterprise app limit", async () => {
 		const db = setup();
 		const plan = await seedPlan(db, "starter");
 		await seedOrganization(db, {
-			id: "org-unlimited",
-			appsCount: 10_000,
-			features: { maxApps: -1 },
+			id: "org-enterprise",
+			appsCount: 50,
+			features: { maxApps: 50 },
 		});
 		await seedBillingAccount(db, {
-			organizationId: "org-unlimited",
+			organizationId: "org-enterprise",
 			planVersionId: plan,
 			status: "active",
 		});
-		expect(await canCreateApp(db, "org-unlimited")).toEqual({
-			allowed: true,
+		expect(await canCreateApp(db, "org-enterprise")).toMatchObject({
+			allowed: false,
 		});
 	});
 
