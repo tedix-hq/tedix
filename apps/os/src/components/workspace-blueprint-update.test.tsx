@@ -1,5 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
+import type {
+	OsGadget,
+	OsWorkspace,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -8,12 +11,17 @@ const api = vi.hoisted(() => ({
 	getBlueprint: vi.fn(),
 	preview: vi.fn(),
 	decide: vi.fn(),
+	createAppUpdate: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		osWorkspaces: {
 			blueprints: { get: api.getBlueprint },
+			collaboration: {
+				createBlueprintAppUpdate: api.createAppUpdate,
+				list: vi.fn(),
+			},
 			workspaces: {
 				previewBlueprintUpgrade: api.preview,
 				decideBlueprintUpgrade: api.decide,
@@ -23,6 +31,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import {
+	BlueprintAppUpdateDialog,
 	BlueprintUpdateButton,
 	BlueprintUpdateDialog,
 	blueprintUpdateCandidate,
@@ -154,7 +163,7 @@ describe("blueprint update marker", () => {
 		});
 	}
 
-	async function render() {
+	async function render(view = <UpdateMarker />) {
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
@@ -163,9 +172,7 @@ describe("blueprint update marker", () => {
 		const root = createRoot(container);
 		act(() =>
 			root.render(
-				<QueryClientProvider client={client}>
-					<UpdateMarker />
-				</QueryClientProvider>,
+				<QueryClientProvider client={client}>{view}</QueryClientProvider>,
 			),
 		);
 		cleanups.push(() => {
@@ -242,5 +249,42 @@ describe("blueprint update marker", () => {
 		expect(api.decide).toHaveBeenCalledWith(
 			expect.objectContaining({ decision: "stay_pinned" }),
 		);
+	});
+
+	it("offers only keeping the app or reviewing a replacement when its original version is missing", async () => {
+		const gadget = { id: "app", name: "Plan" } as OsGadget;
+		const close = vi.fn();
+		const onDraftCreated = vi.fn();
+		const proposal = { status: "open", documentId: gadget.id };
+		api.createAppUpdate.mockResolvedValue({ status: "created", proposal });
+		const root = await render(
+			<BlueprintAppUpdateDialog
+				workspaceId={WORKSPACE_ID}
+				gadget={gadget}
+				update={{
+					status: "base_missing",
+					appRevisionId: PINNED_ID,
+					releaseId: NEXT_ID,
+					conflicts: [],
+				}}
+				onClose={close}
+				onDraftCreated={onDraftCreated}
+			/>,
+		);
+		expect(root.textContent).toContain("couldn't find the version");
+		act(() => button(root, "Keep my app").click());
+		expect(close).toHaveBeenCalledOnce();
+		expect(api.createAppUpdate).not.toHaveBeenCalled();
+
+		act(() => button(root, "Review replacement").click());
+		await settle();
+		expect(api.createAppUpdate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				workspaceId: WORKSPACE_ID,
+				gadgetId: gadget.id,
+				mode: "replace",
+			}),
+		);
+		expect(onDraftCreated).toHaveBeenCalledWith(proposal);
 	});
 });
