@@ -470,6 +470,31 @@ test("a failed later request retains available usage as partial", async () => {
 	});
 });
 
+test("a refused credit admission ends the turn with the refusal, not the SDK error", async () => {
+	const refusal =
+		"You reached the monthly credit cap an admin set for you. (member_monthly_credit_cap_reached)";
+	const model = {
+		...measuredModel([
+			fauxAssistantMessage("", {
+				stopReason: "error",
+				errorMessage: "Connection error.",
+			}),
+		]),
+		admissionRefusal: () => refusal,
+	};
+	await expect(
+		runTurn(
+			{
+				model,
+				runCode: async () => ({ ok: true, logs: [], durationMs: 0 }),
+				emit: () => {},
+				summarize: async () => ({ summary: "", usage: null }),
+			},
+			{ turnId: "refused", systemPrompt: "sys", history: [], userText: "Hi" },
+		),
+	).rejects.toThrow(refusal);
+});
+
 test("model transparency preserves the tool-step and output-token limits", async () => {
 	const model = measuredModel(
 		Array.from({ length: 24 }, () => ({

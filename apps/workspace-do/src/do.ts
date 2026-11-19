@@ -118,6 +118,7 @@ import {
 	type WorkspaceSession,
 } from "./session-access";
 import { workspaceLog, type WorkspaceLogFields } from "./log";
+import { apiInferenceAdmission } from "./admission";
 import { handleMcpRequest } from "./mcp";
 import {
 	catalogWorkspaceModels,
@@ -444,10 +445,40 @@ export interface TurnPlan {
 	conversationId: string;
 	actor: Actor;
 	actorKind: ActorKind;
+	/** The guest tedi the turn runs as; its monthly credit cap applies. */
+	tediId?: string;
+	/**
+	 * Sign-in subject of the member who sent the turn; their monthly credit
+	 * cap applies. Absent when a tedi, an agent or a service sent it.
+	 */
+	memberId?: string;
 	systemPrompt: string;
 	history: Message[];
 	userText: string;
 	modelId?: string;
+}
+
+/**
+ * The turn's model, with every call admitted against the organization's
+ * credits and the tedi and member caps before it is sent.
+ */
+function admittedTurnModel(env: WorkspaceEnv, plan: TurnPlan): ModelPort {
+	if (!env.API_SERVICE)
+		throw new Error(
+			"Workspace chat cannot reserve credits: the API service binding is missing",
+		);
+	return createWorkspaceModel(
+		env,
+		{
+			organizationId: plan.scope.organizationId,
+			workspaceId: plan.scope.workspaceId,
+			turnId: plan.turnId,
+			tediId: plan.tediId ?? null,
+			userId: plan.memberId ?? null,
+		},
+		apiInferenceAdmission(env.API_SERVICE),
+		plan.modelId,
+	);
 }
 
 /** What the loop reports while it runs; the object turns it into wire events. */
@@ -4114,6 +4145,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				organizationId: scope.organizationId,
 			},
 			actorKind,
+			...(input.tediId ? { tediId: input.tediId } : {}),
+			...(input.actorKind === "user" ? { memberId: input.actorId } : {}),
 			modelId: input.modelId,
 			systemPrompt,
 			history,
@@ -4153,17 +4186,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	/** The model a turn streams from; a test subclass returns a scripted one. */
-	protected modelFor(
-		scope: WorkspaceScope,
-		turnId: string,
-		actorId: string,
-		modelId?: string,
-	): ModelPort {
-		return createWorkspaceModel(
-			this.env,
-			{ workspaceId: scope.workspaceId, turnId, actorId },
-			modelId,
-		);
+	protected modelFor(plan: TurnPlan): ModelPort {
+		return admittedTurnModel(this.env, plan);
 	}
 
 	async #execute(
@@ -4196,7 +4220,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				? await this.#runIsolated(plan, controller.signal)
 				: await executeTurn(plan, {
 						env: this.env,
-						model: this.modelFor(scope, turnId, plan.actor.id, plan.modelId),
+						model: this.modelFor(plan),
 						codeRuns: {
 							env: (runId) =>
 								loopbackEnv(this.ctx.exports.WorkspaceBindingLoopback, {
@@ -4650,15 +4674,7 @@ export class TurnFacet extends DurableObject<WorkspaceEnv> {
 
 	/** The model this facet streams from; a test subclass returns a scripted one. */
 	protected async modelFor(plan: TurnPlan): Promise<ModelPort> {
-		return createWorkspaceModel(
-			this.env,
-			{
-				workspaceId: plan.scope.workspaceId,
-				turnId: plan.turnId,
-				actorId: plan.actor.id,
-			},
-			plan.modelId,
-		);
+		return admittedTurnModel(this.env, plan);
 	}
 
 	async run(plan: TurnPlan, objectName: string): Promise<TurnResult> {

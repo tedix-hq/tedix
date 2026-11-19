@@ -115,6 +115,12 @@ export interface AigMetadata {
 	/** Versioned JSON string containing run id and work-item id (or explicit
 	 * system purpose). */
 	attribution?: string;
+	/**
+	 * Sign-in subject of the member whose request started this turn. Admission
+	 * reads it so member credit caps apply; it is never sent to AI Gateway.
+	 * Absent for scheduled and autonomous turns.
+	 */
+	actingUserId?: string;
 }
 
 /** OpenAI-shaped token usage (final SSE chunk / JSON body). */
@@ -253,7 +259,8 @@ export function aigMetadataRecord(
 	metadata?: AigMetadata,
 ): Record<string, string> | null {
 	if (!metadata) return null;
-	const entries = Object.entries(metadata).filter(
+	const { actingUserId: _admissionOnly, ...gatewayMetadata } = metadata;
+	const entries = Object.entries(gatewayMetadata).filter(
 		([, v]) => typeof v === "string" && v.length > 0,
 	);
 	if (entries.length > 5) {

@@ -114,7 +114,11 @@ export function selectChatModelForTurn(
 	);
 	const model = useAuto
 		? cloudflareAutoRouterModel(
-				workersAiClient(env as unknown as WorkersAiEnv, beforeDispatch),
+				workersAiClient(
+					env as unknown as WorkersAiEnv,
+					beforeDispatch,
+					metadata?.actingUserId,
+				),
 				{
 					gatewayId: env.AI_GATEWAY_LLM_ID?.trim() ?? "",
 					...(metadata

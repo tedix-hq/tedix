@@ -274,6 +274,24 @@ function resolveActor(caller: CallerIdentity): {
 	};
 }
 
+/**
+ * Sign-in subject of the member a call acts for: a person signed in directly,
+ * or Home acting for the person who sent the turn. Tedis, clients, API keys
+ * and external agents act for no member, so member credit caps do not apply.
+ */
+export function actingMemberSubject(
+	caller: CallerIdentity | undefined,
+): string | undefined {
+	if (!caller?.userId) return undefined;
+	// Home is bound to the person's primary tedi yet still acts for that person.
+	if (caller.authType === "service")
+		return caller.kernel ? caller.userId : undefined;
+	return (caller.authType === "user" || caller.authType === "oauth") &&
+		!caller.tediId
+		? caller.userId
+		: undefined;
+}
+
 export function normalizeCallerIdentity(
 	caller: CallerIdentity,
 ): NormalizedCallerIdentity {

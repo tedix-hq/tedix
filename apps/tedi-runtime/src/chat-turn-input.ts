@@ -86,6 +86,13 @@ export interface ChatTurnParams {
 	 */
 	turnModel?: TurnModelSelection;
 	/**
+	 * Sign-in subject of the member whose request started this turn, taken
+	 * only from a trusted hop (`actingMemberForRequest`). Persisted with the
+	 * workflow so every retry reserves credits against the same member cap.
+	 * Absent for scheduled and autonomous turns.
+	 */
+	actingUserId?: string;
+	/**
 	 * Original client request id from the inbound `chat.send` frame / MCP send.
 	 * It is the turnKey source for `runId`, and is also echoed on broadcast
 	 * deltas so clients can correlate. Required for a stable runId.

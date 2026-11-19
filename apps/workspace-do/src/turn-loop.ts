@@ -325,8 +325,12 @@ export async function runTurn(
 		const message = await stream.result();
 		recordUsage(message.usage);
 		if (message.stopReason === "error" || message.stopReason === "aborted") {
+			// A credit refusal reads as the provider SDK's connection error;
+			// the person sees why the call was refused instead.
 			throw new Error(
-				message.errorMessage ?? `model stopped with ${message.stopReason}`,
+				ports.model.admissionRefusal?.() ??
+					message.errorMessage ??
+					`model stopped with ${message.stopReason}`,
 			);
 		}
 		await keep(message);

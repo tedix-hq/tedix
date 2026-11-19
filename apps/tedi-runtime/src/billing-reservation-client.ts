@@ -328,6 +328,10 @@ export async function authorizeInferenceEntitlement(
 		organizationId,
 		settlementMode: settlementMode.data,
 		tediId: input.metadata?.tediId ?? null,
+		// Member caps apply only when a person started this turn.
+		...(input.metadata?.actingUserId
+			? { userId: input.metadata.actingUserId }
+			: {}),
 		source: sourceFromMetadata(input.metadata?.source),
 		execution: input.execution,
 		workItemId: attribution?.workItemId ?? null,

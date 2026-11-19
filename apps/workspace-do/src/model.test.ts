@@ -1,6 +1,13 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
 import { modelCatalogEntry } from "@tedix/api-contract/test/model-catalog";
+import { decodeAiGatewayAttribution } from "@tedix/api-contract/schemas/ai-gateway-attribution";
+import type {
+	AuthorizeRuntimeInferenceResponse,
+	AuthorizeWorkspaceInferenceInput,
+	ReleaseInferenceReservationInput,
+} from "@tedix/api-contract/schemas/runtime-entitlements";
+import type { InferenceAdmissionPort } from "./admission";
 import {
 	catalogWorkspaceModels,
 	configuredWorkspaceModels,
@@ -8,6 +15,47 @@ import {
 	createWorkspaceModel,
 	type WorkspaceModelEnv,
 } from "./model";
+
+const EXECUTION_ID = "00000000-0000-4000-8000-000000000001";
+
+/** Admission that records each call and answers with `decide`. */
+function admission(
+	decide: (
+		input: AuthorizeWorkspaceInferenceInput,
+	) => AuthorizeRuntimeInferenceResponse = () => allowed(),
+) {
+	const authorized: AuthorizeWorkspaceInferenceInput[] = [];
+	const released: ReleaseInferenceReservationInput[] = [];
+	const port: InferenceAdmissionPort = {
+		async authorize(input) {
+			authorized.push(input);
+			return decide(input);
+		},
+		async release(input) {
+			released.push(input);
+		},
+	};
+	return { port, authorized, released };
+}
+
+function allowed(
+	extra: Partial<
+		Extract<AuthorizeRuntimeInferenceResponse, { allowed: true }>
+	> = {},
+): AuthorizeRuntimeInferenceResponse {
+	const later = new Date(Date.now() + 60_000).toISOString();
+	return {
+		allowed: true,
+		settlementMode: "managed",
+		attributionVersion: 3,
+		executionId: EXECUTION_ID,
+		sendBefore: later,
+		reservationId: "reservation-1",
+		expiresAt: later,
+		estimatedCredits: 3,
+		...extra,
+	};
+}
 
 afterEach(() => {
 	spyOn(globalThis, "fetch").mockRestore();
@@ -86,6 +134,7 @@ test.each(["azure", "workers"] as const)(
 		const model = createWorkspaceModel(
 			provider === "azure" ? configuredEnv : workersEnv,
 			attribution,
+			admission().port,
 		);
 		for (let turn = 0; turn < 2; turn++)
 			expect((await model.stream(history).result()).stopReason).toBe("stop");
@@ -117,11 +166,8 @@ test.each(["v1", "2025-03-01-preview"])(
 				);
 			},
 		);
-		const metadata = {
-			workspaceId: "fixture-workspace",
-			turnId: "fixture-turn",
-			actorId: "fixture-user",
-		};
+		const metadata = attribution;
+		const admitted = admission();
 		const model = createAzureGatewayModel(
 			{
 				AZURE_OPENAI_RESOURCE: "fixture-resource",
@@ -132,6 +178,7 @@ test.each(["v1", "2025-03-01-preview"])(
 				CF_AI_GATEWAY_TOKEN: "fixture-token",
 			},
 			metadata,
+			admitted.port,
 		);
 		await model
 			.stream(
@@ -158,10 +205,32 @@ test.each(["v1", "2025-03-01-preview"])(
 			"Bearer fixture-token",
 		);
 		expect(request.headers.get("cf-aig-no-wholesale")).toBe("true");
-		expect(JSON.parse(request.headers.get("cf-aig-metadata")!)).toEqual({
+		const gatewayMetadata = JSON.parse(request.headers.get("cf-aig-metadata")!);
+		expect(gatewayMetadata).toMatchObject({
 			surface: "workspace_object",
-			...metadata,
+			workspaceId: metadata.workspaceId,
+			orgId: metadata.organizationId,
 		});
+		expect(decodeAiGatewayAttribution(gatewayMetadata.attribution)).toEqual({
+			runId: metadata.turnId,
+			workItemId: "system:workspace_chat",
+			executionId: EXECUTION_ID,
+			billingReservationId: "reservation-1",
+		});
+		expect(admitted.authorized[0]?.execution).toMatchObject({
+			provider: "azure-openai",
+			apiKind: "azure-responses",
+			requestModel: "fixture-model",
+			providerResource: "fixture-resource",
+		});
+		// The provider refused the request, so its hold goes back at once.
+		expect(admitted.released).toEqual([
+			{
+				organizationId: metadata.organizationId,
+				reservationId: "reservation-1",
+				reason: "provider_request_failed",
+			},
+		]);
 		const body = (await request.json()) as { model: string; stream: boolean };
 		expect(body.model).toBe("fixture-model");
 		expect(body.stream).toBe(true);
@@ -220,11 +289,11 @@ test.each([true, false])(
 				headers: { "Content-Type": "text/event-stream" },
 			});
 		});
-		const model = createAzureGatewayModel(configuredEnv, {
-			workspaceId: "ws",
-			turnId: "turn",
-			actorId: "user",
-		});
+		const model = createAzureGatewayModel(
+			configuredEnv,
+			attribution,
+			admission().port,
+		);
 		const message = await model
 			.stream({ messages: [{ role: "user", content: "Hi", timestamp: 0 }] })
 			.result();
@@ -249,9 +318,10 @@ const workersEnv = {
 	AI_GATEWAY_AUTO_ALLOWED_MODELS: fixtureModelId,
 };
 const attribution = {
+	organizationId: "fixture-org",
 	workspaceId: "fixture-workspace",
 	turnId: "fixture-turn",
-	actorId: "fixture-user",
+	userId: "fixture-user",
 };
 const context = {
 	systemPrompt: "Answer the question",
@@ -312,18 +382,25 @@ test("Workers AI selection requires both explicit exact models and an executable
 		{ id: fixtureModelId, label: `Workers AI: ${fixtureModelId}` },
 		{ id: "@cf/fixture/model-two", label: "Workers AI: @cf/fixture/model-two" },
 	]);
-	expect(createWorkspaceModel(workersEnv, attribution).id).toBe(fixtureModelId);
 	expect(
-		createWorkspaceModel({ ...configuredEnv, ...workersEnv }, attribution).id,
+		createWorkspaceModel(workersEnv, attribution, admission().port).id,
+	).toBe(fixtureModelId);
+	expect(
+		createWorkspaceModel(
+			{ ...configuredEnv, ...workersEnv },
+			attribution,
+			admission().port,
+		).id,
 	).toBe("azure-openai/fixture-deployment");
 	expect(
 		createWorkspaceModel(
 			{ ...configuredEnv, ...workersEnv },
 			attribution,
+			admission().port,
 			fixtureModelId,
 		).id,
 	).toBe(fixtureModelId);
-	expect(() => createWorkspaceModel({}, attribution)).toThrow(
+	expect(() => createWorkspaceModel({}, attribution, admission().port)).toThrow(
 		"No model is configured",
 	);
 	for (const modelId of [
@@ -333,7 +410,7 @@ test("Workers AI selection requires both explicit exact models and an executable
 		"auto",
 	])
 		expect(() =>
-			createWorkspaceModel(workersEnv, attribution, modelId),
+			createWorkspaceModel(workersEnv, attribution, admission().port, modelId),
 		).toThrow("not configured");
 });
 
@@ -375,13 +452,20 @@ test.each(["https", "binding"] as const)(
 						AI: { fetch: send } as unknown as NonNullable<
 							WorkspaceModelEnv["AI"]
 						>,
+						AI_GATEWAY_ACCOUNT_ID: "fixture-account",
 						AI_GATEWAY_LLM_ID: "fixture-gateway",
 						AI_GATEWAY_BINDING_PROVIDERS: "workers-ai",
 						AI_GATEWAY_AUTO_ALLOWED_MODELS: fixtureModelId,
 					}
 				: workersEnv;
 		const controller = new AbortController();
-		const model = createWorkspaceModel(env, attribution, fixtureModelId);
+		const admitted = admission();
+		const model = createWorkspaceModel(
+			env,
+			attribution,
+			admitted.port,
+			fixtureModelId,
+		);
 		const message = await model
 			.stream(context, { signal: controller.signal, maxTokens: 99 })
 			.result();
@@ -409,10 +493,24 @@ test.each(["https", "binding"] as const)(
 			`Bearer ${kind === "binding" ? "cloudflare-gateway-binding" : "fixture-token"}`,
 		);
 		expect(request.headers.get("cf-aig-no-wholesale")).toBe("true");
-		expect(JSON.parse(request.headers.get("cf-aig-metadata")!)).toEqual({
+		expect(JSON.parse(request.headers.get("cf-aig-metadata")!)).toMatchObject({
 			surface: "workspace_object",
-			...attribution,
+			workspaceId: attribution.workspaceId,
+			orgId: attribution.organizationId,
 		});
+		expect(admitted.authorized).toHaveLength(1);
+		expect(admitted.authorized[0]).toMatchObject({
+			organizationId: attribution.organizationId,
+			turnId: attribution.turnId,
+			userId: attribution.userId,
+			estimatedOutputTokens: 99,
+			execution: {
+				provider: "workers-ai",
+				requestModel: fixtureModelId,
+				transportKind: kind === "binding" ? "gateway-binding" : "gateway-https",
+			},
+		});
+		expect(admitted.released).toEqual([]);
 		expect(request.signal.aborted).toBe(false);
 		const body = (await request.json()) as {
 			model: string;
@@ -448,7 +546,12 @@ test.each([
 		spyOn(globalThis, "fetch").mockImplementation(async () =>
 			completion(usage, inChoice),
 		);
-		const model = createWorkspaceModel(workersEnv, attribution, fixtureModelId);
+		const model = createWorkspaceModel(
+			workersEnv,
+			attribution,
+			admission().port,
+			fixtureModelId,
+		);
 		await model.stream(context).result();
 		expect(model.responseMetadata?.()).toEqual({
 			model: "fixture-provider-snapshot",
@@ -496,47 +599,132 @@ test("the workspace chat offers the published catalog in its order and names", (
 });
 
 test.each([true, false])(
-	"Azure chat requests carry the governed AI Gateway price (rate published=%s)",
-	async (published) => {
-		const { DatabaseSync } = await import("node:sqlite");
-		const { createD1Facade } = await import("@tedix/db/test/d1-facade");
-		const sqlite = new DatabaseSync(":memory:");
-		sqlite.exec(`CREATE TABLE provider_model_rate_versions (
-			id TEXT PRIMARY KEY, provider TEXT NOT NULL, model_id TEXT NOT NULL,
-			deployment_scope TEXT NOT NULL, input_token_min INTEGER NOT NULL,
-			input_token_max INTEGER, effective_from TEXT NOT NULL,
-			input_microusd_per_million INTEGER NOT NULL, output_microusd_per_million INTEGER NOT NULL,
-			cache_read_microusd_per_million INTEGER NOT NULL, cache_write_microusd_per_million INTEGER NOT NULL,
-			currency TEXT NOT NULL, evidence_uri TEXT NOT NULL, evidence_digest TEXT NOT NULL,
-			verified_at TEXT NOT NULL, published_at TEXT NOT NULL, published_by TEXT NOT NULL,
-			change_reason TEXT NOT NULL, supersedes_rate_version_id TEXT)`);
-		const deployment = published ? "priced-deployment" : "unpriced-deployment";
-		if (published)
-			sqlite.exec(`INSERT INTO provider_model_rate_versions VALUES ('rate-1', 'azure-openai',
-				'priced-deployment', '["azure-openai","fixture-account","fixture-gateway","https://fixture-resource.openai.azure.com","priced-deployment"]',
-				0, 272001, '2026-01-01T00:00:00.000Z', 1000000, 5000000, 50000, 1250000, 'USD',
-				'https://example.com/evidence', '${"a".repeat(64)}', '2026-01-01T00:00:00.000Z',
-				'2026-01-01T00:00:00.000Z', 'fixture', 'fixture', NULL)`);
+	"Azure chat requests carry the admitted AI Gateway price (rate resolved=%s)",
+	async (resolved) => {
 		const requests: Request[] = [];
 		spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
 			requests.push(new Request(input as RequestInfo, init));
 			return Response.json({ error: { message: "stop" } }, { status: 400 });
 		});
 		const model = createAzureGatewayModel(
-			{
-				...configuredEnv,
-				AZURE_CHAT_DEPLOYMENT: deployment,
-				DB: createD1Facade(sqlite) as unknown as D1Database,
-			},
-			{ workspaceId: "w", turnId: "t", actorId: "a" },
+			configuredEnv,
+			attribution,
+			admission(() =>
+				allowed(
+					resolved
+						? {
+								providerRate: {
+									rateVersionId: "rate-1",
+									inputMicrousdPerMillion: 1_000_000,
+									outputMicrousdPerMillion: 5_000_000,
+									cacheReadMicrousdPerMillion: 50_000,
+									cacheWriteMicrousdPerMillion: 1_250_000,
+								},
+							}
+						: {},
+				),
+			).port,
 		);
 		await model
 			.stream({ messages: [{ role: "user", content: "Hi", timestamp: 0 }] })
 			.result();
 		expect(requests[0]!.headers.get("cf-aig-custom-cost")).toBe(
-			published
+			resolved
 				? '{"per_token_in":0.000001,"per_token_out":0.000005,"per_cache_read_token":0.00000005,"per_cache_write_token":0.00000025}'
 				: null,
 		);
 	},
 );
+
+test.each([
+	["monthly_credit_limit_reached", "This month's Tedix credits are used up"],
+	[
+		"tedi_monthly_credit_cap_reached",
+		"This tedi reached the monthly credit cap",
+	],
+	["member_monthly_credit_cap_reached", "You reached the monthly credit cap"],
+] as const)(
+	"a refused call (%s) never reaches the provider and says why",
+	async (code, reason) => {
+		const network = spyOn(globalThis, "fetch").mockImplementation(async () =>
+			completion(),
+		);
+		const admitted = admission(() => ({
+			allowed: false,
+			code,
+			entitlement: null,
+		}));
+		const model = createWorkspaceModel(
+			workersEnv,
+			attribution,
+			admitted.port,
+			fixtureModelId,
+		);
+		const message = await model.stream(context).result();
+		expect(message.stopReason).toBe("error");
+		expect(network).not.toHaveBeenCalled();
+		// The SDK may retry a failed fetch; the refusal is asked for only once.
+		expect(admitted.authorized).toHaveLength(1);
+		expect(admitted.released).toEqual([]);
+		expect(model.admissionRefusal?.()).toContain(reason);
+		expect(model.admissionRefusal?.()).toContain(`(${code})`);
+		// The next stream asks again; an admitted call clears the refusal.
+		const next = createWorkspaceModel(
+			workersEnv,
+			attribution,
+			admission().port,
+			fixtureModelId,
+		);
+		await next.stream(context).result();
+		expect(next.admissionRefusal?.()).toBeNull();
+	},
+);
+
+test("a call that never reaches the provider releases its hold", async () => {
+	spyOn(globalThis, "fetch").mockImplementation(async () => {
+		throw new TypeError("network down");
+	});
+	const admitted = admission();
+	const model = createWorkspaceModel(
+		workersEnv,
+		attribution,
+		admitted.port,
+		fixtureModelId,
+	);
+	const message = await model.stream(context).result();
+	expect(message.stopReason).toBe("error");
+	expect(model.admissionRefusal?.()).toBeNull();
+	expect(admitted.released.length).toBeGreaterThan(0);
+	expect(admitted.released[0]).toEqual({
+		organizationId: attribution.organizationId,
+		reservationId: "reservation-1",
+		reason: "provider_request_not_sent",
+	});
+});
+
+test("a guest tedi turn names the tedi to admission and the gateway", async () => {
+	const requests: Request[] = [];
+	spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+		requests.push(new Request(input as RequestInfo, init));
+		return completion();
+	});
+	const admitted = admission();
+	const call = { ...attribution, tediId: "fixture-tedi", userId: null };
+	const model = createWorkspaceModel(
+		workersEnv,
+		call,
+		admitted.port,
+		fixtureModelId,
+	);
+	await model.stream(context).result();
+	expect(admitted.authorized[0]).toMatchObject({
+		tediId: "fixture-tedi",
+		userId: null,
+	});
+	expect(
+		JSON.parse(requests[0]!.headers.get("cf-aig-metadata")!),
+	).toMatchObject({
+		tediId: "fixture-tedi",
+		orgId: attribution.organizationId,
+	});
+});

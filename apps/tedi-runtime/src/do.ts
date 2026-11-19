@@ -2376,6 +2376,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			runId?: string;
 			sessionKey?: string;
 			workItemId?: string;
+			actingUserId?: string;
 		},
 	): AigMetadata {
 		return runtimeParentTurns.tediAigMetadata.call(
@@ -3602,6 +3603,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 
 	private async runJudgeFacetTurn(input: {
 		runId: string;
+		actingUserId?: string;
 		sessionKey: string;
 		guardedUserText: string;
 		userTs: number;
@@ -3617,6 +3619,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 
 	private async runSynthesisFacetTurn(input: {
+		actingUserId?: string;
 		evaluation?: import("./evaluation-context").EvaluationAdmission;
 		sessionKey: string;
 		guardedUserText: string;
@@ -3766,6 +3769,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 
 	private async runConversationFacetTurn(input: {
+		actingUserId?: string;
 		sessionKey: string;
 		guardedUserText: string;
 		userTs: number;
@@ -3896,6 +3900,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		 * learning_mode); absent ⇒ derived from the resolved user text. */
 		learningMode?: AdaptiveLearningMode;
 		callerTrust?: CallerTrustTier;
+		actingUserId?: string;
 	}): Promise<{
 		ok: true;
 		run_id: string;

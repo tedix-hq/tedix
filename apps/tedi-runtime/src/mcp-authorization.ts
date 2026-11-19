@@ -2,6 +2,7 @@ import {
 	hasScope,
 	requiredTediMcpToolScope,
 } from "@tedix/mcp-shared/auth/scopes";
+import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 
 export const TEDI_MCP_AUTH_CONTEXT_HEADER = "X-Tedix-Mcp-Auth-Context";
 
@@ -46,6 +47,29 @@ export function decodeTediMcpCaller(request: Request): TediMcpCaller | null {
 	} catch {
 		return null;
 	}
+}
+
+/** The member a trusted platform hop names as the person behind a request. */
+export const ACTING_USER_HEADER = "X-Tedix-Acting-User";
+
+/**
+ * Sign-in subject of the member whose request starts this turn, so their
+ * monthly credit cap applies to its model calls. Only edge-derived identity
+ * counts: a person authenticated directly at the tedi edge, or the member a
+ * service-binding hop (the MCP gateway or apps/api) names. Tedis, API keys,
+ * clients and scheduled work have no member, so only the organization and
+ * tedi limits apply to them.
+ */
+export function actingMemberForRequest(request: Request): string | undefined {
+	const caller = decodeTediMcpCaller(request);
+	const named = () =>
+		isServiceBinding(request.headers)
+			? request.headers.get(ACTING_USER_HEADER)?.trim().slice(0, 300) ||
+				undefined
+			: undefined;
+	if (!caller) return named();
+	if (caller.method === "service") return named();
+	return caller.principalType === "user" ? caller.principalId : undefined;
 }
 
 /**

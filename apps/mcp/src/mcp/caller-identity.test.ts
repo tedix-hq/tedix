@@ -1,10 +1,29 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	actingMemberSubject,
 	buildCallerAuditMetadata,
 	isDirectHomeKernelCall,
 	normalizeCallerIdentity,
 	shouldBypassCodeModeForCaller,
 } from "./caller-identity";
+
+describe("acting member for credit caps", () => {
+	it.each([
+		["a signed-in person", { authType: "user", userId: "u-1" }, "u-1"],
+		["an OAuth person", { authType: "oauth", userId: "u-1" }, "u-1"],
+		[
+			"Home acting for its sender",
+			{ authType: "service", kernel: true, userId: "u-1", tediId: "t-1" },
+			"u-1",
+		],
+		["a tedi", { authType: "tedi", userId: "u-1", tediId: "t-1" }, undefined],
+		["a plain service", { authType: "service", userId: "u-1" }, undefined],
+		["an M2M client", { authType: "m2m", userId: "u-1" }, undefined],
+		["Home with no sender", { authType: "service", kernel: true }, undefined],
+	] as const)("%s", (_label, caller, expected) => {
+		expect(actingMemberSubject(caller)).toBe(expected);
+	});
+});
 
 describe("configured direct transport eligibility", () => {
 	it.each([
