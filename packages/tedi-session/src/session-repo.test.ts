@@ -11,6 +11,7 @@
  * unchanged over this backend.
  */
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import type {
 	TediSessionContextEntry,
 	TediSessionDurableCompaction,
@@ -58,8 +59,6 @@ function createFakeSql(): {
 } {
 	const rows: FakeRow[] = [];
 	const queries: string[] = [];
-	// Track which phase-2 columns have been "added" so a re-ALTER throws like
-	// SQLite's "duplicate column name" — proving the repo's idempotent try/catch.
 	const addedColumns = new Set<string>();
 	const sql: SessionRepoSql = (<T>(
 		strings: TemplateStringsArray,
@@ -67,6 +66,19 @@ function createFakeSql(): {
 	): T[] => {
 		const text = strings.join("?").replace(/\s+/g, " ").trim();
 		queries.push(text);
+		if (text === "PRAGMA table_info(session_entries)") {
+			return [...addedColumns].map((name) => ({ name })) as T[];
+		}
+		if (text.startsWith("CREATE TABLE IF NOT EXISTS session_entries")) {
+			for (const name of [
+				"first_kept_entry_id",
+				"tokens_before",
+				"model_provider",
+				"model_id",
+			]) {
+				if (text.includes(name)) addedColumns.add(name);
+			}
+		}
 
 		if (
 			text.startsWith("CREATE TABLE") ||
@@ -76,8 +88,6 @@ function createFakeSql(): {
 			return [] as T[];
 		}
 
-		// Phase-2: idempotent ALTER TABLE ADD COLUMN. Second add of the same column
-		// throws (SQLite "duplicate column name"); the repo swallows it in tryAlter.
 		if (text.startsWith("ALTER TABLE session_entries ADD COLUMN")) {
 			const col = /ADD COLUMN (\w+)/.exec(text)?.[1] ?? "";
 			if (addedColumns.has(col)) {
@@ -310,6 +320,143 @@ function durableState(
 
 const noDurable = async (): Promise<TediSessionDurableState> =>
 	durableState([]);
+
+// Real SQLite covers every interrupted column-add boundary and cold restart.
+for (let existingColumns = 0; existingColumns <= 4; existingColumns++) {
+	const db = new DatabaseSync(":memory:");
+	try {
+		db.exec(`CREATE TABLE session_entries (
+			id TEXT PRIMARY KEY, session_key TEXT NOT NULL, parent_id TEXT,
+			type TEXT NOT NULL DEFAULT 'message', role TEXT NOT NULL,
+			content TEXT NOT NULL, idempotency_key TEXT, ts INTEGER NOT NULL)`);
+		const definitions = [
+			"first_kept_entry_id TEXT",
+			"tokens_before INTEGER",
+			"model_provider TEXT",
+			"model_id TEXT",
+		];
+		for (const definition of definitions.slice(0, existingColumns))
+			db.exec(`ALTER TABLE session_entries ADD COLUMN ${definition}`);
+		db.exec(`INSERT INTO session_entries
+			(id, session_key, type, role, content, idempotency_key, ts)
+			VALUES ('original', 'chat:old', 'message', 'user', 'Keep this message', 'old:1', 1)`);
+		if (existingColumns >= 2)
+			db.exec(`INSERT INTO session_entries
+				(id, session_key, parent_id, type, role, content, ts, first_kept_entry_id, tokens_before)
+				VALUES ('summary', 'chat:old', 'original', 'compaction', 'assistant', 'Keep this summary', 2, 'original', 100)`);
+		const before = db
+			.prepare("SELECT * FROM session_entries ORDER BY ts")
+			.all();
+		const queries: string[] = [];
+		const sql: SessionRepoSql = <T>(
+			strings: TemplateStringsArray,
+			...values: (string | number | boolean | null)[]
+		): T[] => {
+			const query = strings.join("?");
+			queries.push(query);
+			return db
+				.prepare(query)
+				.all(
+					...values.map((v) => (typeof v === "boolean" ? Number(v) : v)),
+				) as T[];
+		};
+		new TediSessionRepo({ sql, readDurable: noDurable }).listTurns();
+		assert.equal(
+			queries.filter((q) => q.startsWith("ALTER TABLE")).length,
+			4 - existingColumns,
+		);
+		assert.deepEqual(
+			db
+				.prepare(`SELECT name FROM pragma_table_info('session_entries')
+			WHERE name IN ('first_kept_entry_id', 'tokens_before', 'model_provider', 'model_id')`)
+				.all().length,
+			4,
+		);
+		const after = db.prepare("SELECT * FROM session_entries ORDER BY ts").all();
+		assert.equal(after.length, before.length);
+		for (let row = 0; row < before.length; row++) {
+			for (const [key, value] of Object.entries(before[row]!))
+				assert.equal(
+					after[row]![key],
+					value,
+					`preserves ${key} with ${existingColumns} columns`,
+				);
+		}
+		queries.length = 0;
+		new TediSessionRepo({ sql, readDurable: noDurable }).listTurns();
+		assert.equal(
+			queries.filter((q) => q.startsWith("ALTER TABLE")).length,
+			0,
+			"restart never re-adds columns",
+		);
+	} finally {
+		db.close();
+	}
+}
+
+// A real migration failure propagates; retry adds only the remaining columns.
+for (const failedStatement of [
+	"PRAGMA table_info(session_entries)",
+	"ADD COLUMN first_kept_entry_id",
+	"ADD COLUMN tokens_before",
+	"ADD COLUMN model_provider",
+	"ADD COLUMN model_id",
+]) {
+	const db = new DatabaseSync(":memory:");
+	try {
+		db.exec(`CREATE TABLE session_entries (
+			id TEXT PRIMARY KEY, session_key TEXT NOT NULL, parent_id TEXT,
+			type TEXT NOT NULL DEFAULT 'message', role TEXT NOT NULL,
+			content TEXT NOT NULL, idempotency_key TEXT, ts INTEGER NOT NULL)`);
+		let failAlter = true;
+		const sql: SessionRepoSql = <T>(
+			strings: TemplateStringsArray,
+			...values: (string | number | boolean | null)[]
+		): T[] => {
+			const query = strings.join("?");
+			if (failAlter && query.includes(failedStatement))
+				throw new Error("injected storage failure");
+			return db
+				.prepare(query)
+				.all(
+					...values.map((v) => (typeof v === "boolean" ? Number(v) : v)),
+				) as T[];
+		};
+		const repo = new TediSessionRepo({ sql, readDurable: noDurable });
+		assert.throws(() => repo.listTurns(), /injected storage failure/);
+		failAlter = false;
+		assert.deepEqual(repo.listTurns(), []);
+	} finally {
+		db.close();
+	}
+}
+
+{
+	const db = new DatabaseSync(":memory:");
+	try {
+		const sql: SessionRepoSql = <T>(
+			strings: TemplateStringsArray,
+			...values: (string | number | boolean | null)[]
+		): T[] => {
+			const query = strings.join("?");
+			assert.ok(
+				!query.startsWith("ALTER TABLE"),
+				"fresh stores use the current schema",
+			);
+			return db
+				.prepare(query)
+				.all(
+					...values.map((v) => (typeof v === "boolean" ? Number(v) : v)),
+				) as T[];
+		};
+		assert.deepEqual(
+			new TediSessionRepo({ sql, readDurable: noDurable }).listTurns(),
+			[],
+		);
+	} finally {
+		db.close();
+	}
+}
 
 // ── Pure: deriveIdempotencyKey follows the ledger {runId}:{seq} scheme ────────
 {

@@ -460,8 +460,6 @@ export class TediSessionRepo implements SessionHarnessBackend {
 
 	private ensureSchema(): void {
 		if (this.schemaReady) return;
-		// Base schema. Normal turns are `message` rows; compaction uses the
-		// same append-only table with metadata columns added below.
 		// `idempotency_key` is nullable: the partial unique index only constrains
 		// keyed appends for ledger-mirrored turns.
 		this.sql`
@@ -473,7 +471,11 @@ export class TediSessionRepo implements SessionHarnessBackend {
 				role TEXT NOT NULL,
 				content TEXT NOT NULL,
 				idempotency_key TEXT,
-				ts INTEGER NOT NULL
+				ts INTEGER NOT NULL,
+				first_kept_entry_id TEXT,
+				tokens_before INTEGER,
+				model_provider TEXT,
+				model_id TEXT
 			)
 		`;
 		this.sql`
@@ -485,48 +487,25 @@ export class TediSessionRepo implements SessionHarnessBackend {
 				ON session_entries (session_key, idempotency_key)
 				WHERE idempotency_key IS NOT NULL
 		`;
-		this.ensurePhase2Columns();
+		this.migrateSessionColumns();
 		this.schemaReady = true;
 	}
 
-	/**
-	 * Phase-2 additive migration. The phase-1 `CREATE TABLE` above is left byte-
-	 * identical (the concurrent do.ts integrator and the offline fake-sql matcher
-	 * both pin those exact statements), so the compaction-metadata columns are
-	 * added with idempotent `ALTER TABLE ADD COLUMN`. SQLite has no
-	 * `ADD COLUMN IF NOT EXISTS`, and a re-add throws "duplicate column name" — so
-	 * each ALTER is wrapped in try/catch: first run adds it, later runs no-op.
-	 * Existing phase-1 rows get these columns as null (they are message rows;
-	 * only `compaction` rows ever populate them). On a brand-new DB the columns
-	 * are added here on first `ensureSchema` just the same.
-	 */
-	private ensurePhase2Columns(): void {
-		this.tryAlter`
-			ALTER TABLE session_entries ADD COLUMN first_kept_entry_id TEXT
-		`;
-		this.tryAlter`
-			ALTER TABLE session_entries ADD COLUMN tokens_before INTEGER
-		`;
-		this.tryAlter`
-			ALTER TABLE session_entries ADD COLUMN model_provider TEXT
-		`;
-		this.tryAlter`
-			ALTER TABLE session_entries ADD COLUMN model_id TEXT
-		`;
-	}
-
-	/** Run one `ALTER TABLE ADD COLUMN`, swallowing the duplicate-column error so
-	 * the migration is idempotent across DOs that already ran it. */
-	private tryAlter(
-		strings: TemplateStringsArray,
-		...values: (string | number | boolean | null)[]
-	): void {
-		try {
-			this.sql(strings, ...values);
-		} catch {
-			// Column already exists (duplicate column name) — additive migration is
-			// idempotent; nothing else can fail in an add column of a nullable column.
-		}
+	/** Add missing columns without changing rows; a failed ALTER must stop initialization. */
+	private migrateSessionColumns(): void {
+		const columns = new Set(
+			this.sql<{ name: string }>`PRAGMA table_info(session_entries)`.map(
+				(column) => column.name,
+			),
+		);
+		if (!columns.has("first_kept_entry_id"))
+			this.sql`ALTER TABLE session_entries ADD COLUMN first_kept_entry_id TEXT`;
+		if (!columns.has("tokens_before"))
+			this.sql`ALTER TABLE session_entries ADD COLUMN tokens_before INTEGER`;
+		if (!columns.has("model_provider"))
+			this.sql`ALTER TABLE session_entries ADD COLUMN model_provider TEXT`;
+		if (!columns.has("model_id"))
+			this.sql`ALTER TABLE session_entries ADD COLUMN model_id TEXT`;
 	}
 
 	// ── SessionHarnessBackend ──────────────────────────────────────────────────
