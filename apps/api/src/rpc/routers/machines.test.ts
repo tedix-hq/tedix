@@ -16,6 +16,8 @@ import {
 	externalAgentPrincipals,
 	externalAgentSessions,
 } from "@tedix/db/schema/external-agent-identity";
+import { GatewayChangeRecordSchema } from "@tedix/api-contract/schemas/audit";
+import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { machineToolCalls } from "@tedix/db/schema/machines";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { organizations } from "@tedix/db/schema/organizations";
@@ -25,6 +27,7 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { TEDI_RUNTIME_SERVICE_BINDING_SCOPES } from "../../../../tedi-runtime/src/platform-client-factory";
+import { writeMachineToolResultRecords } from "../../services/machine-change-records";
 import type { BaseContext } from "../orpc";
 import { dispatcherHealthContractRouter } from "./dispatcher-health";
 import { machinesContractRouter } from "./machines";
@@ -56,6 +59,7 @@ function fixture() {
 			externalAgentSessions,
 			dispatcherHealthReports,
 			machineToolCalls,
+			gatewayChangeRecords,
 		),
 	);
 	sqlite.exec(`INSERT INTO organizations(id,name,slug) VALUES('${ORG}','Example','example'),('${OTHER_ORG}','Other','other');
@@ -132,7 +136,31 @@ function fixture() {
 			machineTools: ["read_file", "read_runner_state"],
 			...overrides,
 		});
-	return { sqlite, person, runtime, report };
+	/** The change ledger's rows, each checked against the published record schema. */
+	const records = () =>
+		(
+			sqlite
+				.prepare(
+					"SELECT id, sequence, recorded_at, organization_id, record FROM gateway_change_records ORDER BY sequence",
+				)
+				.all() as {
+				id: string;
+				sequence: number;
+				recorded_at: string;
+				organization_id: string;
+				record: string;
+			}[]
+		).map((row) => ({
+			organizationId: row.organization_id,
+			raw: row.record,
+			...GatewayChangeRecordSchema.parse({
+				...JSON.parse(row.record),
+				id: row.id,
+				sequence: row.sequence,
+				recordedAt: row.recorded_at,
+			}),
+		}));
+	return { sqlite, db: base.db, person, runtime, report, records };
 }
 
 const claim = { reporterId: "reporter-1", machineName: "Studio", limit: 5 };
@@ -403,5 +431,158 @@ describe("machines", () => {
 				.prepare("SELECT reported_by FROM dispatcher_health_reports")
 				.get(),
 		).toEqual({ reported_by: null });
+	});
+});
+
+describe("machine change records", () => {
+	// Text that must never reach the ledger: command, file content, output.
+	const SECRET = "sentinel-7f3a-do-not-store";
+	const writeTools = { machineTools: ["read_file", "run_command"] };
+	const command = {
+		machine: "Studio",
+		tool: "run_command" as const,
+		input: { workspace: "fix-0a1b2c3d", command: `echo ${SECRET}` },
+	};
+
+	it("records a tedi's write call when queued and when its result is stored, never a read", async () => {
+		const f = fixture();
+		const runner = f.person("member-subject");
+		await f.report(runner, writeTools);
+		await f.runtime("tedi-1").machines.requestToolCall({
+			machine: "Studio",
+			tool: "read_file",
+			input: { path: "README.md" },
+		});
+		expect(f.records()).toEqual([]);
+
+		const { callId } = await f
+			.runtime("tedi-1")
+			.machines.requestToolCall(command);
+		expect(f.records()).toEqual([
+			expect.objectContaining({
+				organizationId: ORG,
+				resource: "machine:Studio",
+				operation: "run_command",
+				actor: { id: "tedi-1", kind: "tedi", organizationId: ORG },
+				source: { surface: "api", traceId: callId },
+				decision: expect.objectContaining({
+					verdict: "allow",
+					reason: "queued",
+					riskTier: "high_impact_write",
+				}),
+				outcome: "unknown",
+			}),
+		]);
+
+		await runner.machines.claimToolCalls(claim);
+		// Another runner of the same account never claimed the call.
+		await f.report(runner, { ...writeTools, reporterId: "reporter-2" });
+		const result = { callId, ok: true, result: `${SECRET} done` };
+		await runner.machines.claimToolCalls({
+			...claim,
+			reporterId: "reporter-2",
+			results: [result],
+		});
+		expect(f.records()).toHaveLength(1);
+		await runner.machines.claimToolCalls({ ...claim, results: [result] });
+		// A repeated result is not stored again, so it is not recorded again.
+		await runner.machines.claimToolCalls({ ...claim, results: [result] });
+		const records = f.records();
+		expect(records).toHaveLength(2);
+		expect(records[1]).toMatchObject({
+			resource: "machine:Studio",
+			operation: "run_command",
+			actor: { id: "tedi-1", kind: "tedi" },
+			source: { traceId: callId },
+			decision: { reason: "result_stored reporter:reporter-1" },
+			outcome: "applied",
+		});
+		for (const record of records) expect(record.raw).not.toContain(SECRET);
+
+		// Record ids come from the call id, so writing the same one again
+		// (a retried request) stores no second row.
+		await writeMachineToolResultRecords(f.db, {
+			orgId: ORG,
+			reporterId: "reporter-1",
+			calls: [
+				{
+					id: callId,
+					machineName: "Studio",
+					tool: "run_command",
+					requestedByType: "tedi",
+					requestedById: "tedi-1",
+					status: "done",
+					result: "x",
+					error: null,
+				},
+			],
+		});
+		expect(f.records()).toHaveLength(2);
+	});
+
+	it("records a refusal once the requester is known, for read tools too", async () => {
+		const f = fixture();
+		const member = f.person("member-subject");
+		await f.report(member, writeTools);
+		await expect(
+			f
+				.runtime(
+					"tedi-1",
+					TEDI_RUNTIME_SERVICE_BINDING_SCOPES.filter(
+						(scope) => scope !== MACHINES_WRITE_SCOPE,
+					),
+				)
+				.machines.requestToolCall(command),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			member.machines.requestToolCall({ ...command, machine: "Nowhere" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			member.machines.requestToolCall({
+				machine: "Studio",
+				tool: "read_file",
+				input: { path: "a", command: SECRET },
+			} as never),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		// A requester that cannot be identified leaves no record.
+		await expect(
+			f
+				.runtime(
+					"tedi-1",
+					TEDI_RUNTIME_SERVICE_BINDING_SCOPES.filter(
+						(scope) => scope !== MACHINES_USE_SCOPE,
+					),
+				)
+				.machines.requestToolCall(command),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+		const records = f.records();
+		expect(
+			records.map((record) => [
+				record.actor.id,
+				record.resource,
+				record.decision.reason,
+				record.outcome,
+			]),
+		).toEqual([
+			["tedi-1", "machine:Studio", "write_scope_missing", "denied"],
+			["member", "machine:Nowhere", "unknown_machine", "denied"],
+			["member", "machine:Studio", "invalid_input", "denied"],
+		]);
+		for (const record of records) expect(record.raw).not.toContain(SECRET);
+	});
+
+	it("queues nothing when the queued record cannot be written", async () => {
+		const f = fixture();
+		const runner = f.person("member-subject");
+		await f.report(runner, writeTools);
+		f.sqlite.exec("DROP TABLE gateway_change_records");
+		await expect(
+			f.runtime("tedi-1").machines.requestToolCall(command),
+		).rejects.toThrow();
+		expect(
+			f.sqlite.prepare("SELECT count(*) AS n FROM machine_tool_calls").get(),
+		).toEqual({ n: 0 });
+		expect((await runner.machines.claimToolCalls(claim)).calls).toEqual([]);
 	});
 });
