@@ -44,12 +44,14 @@ export function WorkspaceAgentsPanel({
 	workspaceId,
 	conversations,
 	onOpenConversation,
+	onMessageTedi,
 }: {
 	workspaceId: string;
 	/** The workspace chat's conversations; the agent-started ones are runs. */
 	conversations: readonly ConversationSummary[];
-	/** Message passes an empty conversation id and the selected tedi id. */
-	onOpenConversation: (conversationId: string, tediId?: string) => void;
+	onOpenConversation: (conversationId: string) => void;
+	/** Starts a conversation addressed to a tedi; without it no Message button shows. */
+	onMessageTedi?: (tediId: string) => void;
 }) {
 	const schedules = useQuery(workspaceSchedulesQueryOptions(workspaceId));
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
@@ -116,7 +118,9 @@ export function WorkspaceAgentsPanel({
 						? profile.scope === "organization"
 							? "Belongs to the organization"
 							: profile.ownerUserId
-								? `Owned by ${owner ?? profile.ownerUserId}`
+								? owner
+									? `Owned by ${owner}`
+									: "Owned by a member"
 								: "Owner unavailable"
 						: "Owner unavailable",
 				},
@@ -189,6 +193,7 @@ export function WorkspaceAgentsPanel({
 								expanded={open.has(agent.key)}
 								now={now}
 								onOpenConversation={onOpenConversation}
+								onMessageTedi={onMessageTedi}
 								onToggle={() =>
 									setOpen((current) => {
 										const next = new Set(current);
@@ -222,13 +227,15 @@ function AgentRow({
 	expanded,
 	now,
 	onOpenConversation,
+	onMessageTedi,
 	onToggle,
 }: {
 	agent: WorkspaceAgent;
 	countsUnknown: boolean;
 	expanded: boolean;
 	now: Date;
-	onOpenConversation: (conversationId: string, tediId?: string) => void;
+	onOpenConversation: (conversationId: string) => void;
+	onMessageTedi?: (tediId: string) => void;
 	onToggle: () => void;
 }) {
 	const runsId = `workspace-agent-runs-${agent.key}`;
@@ -299,14 +306,16 @@ function AgentRow({
 					>
 						View profile
 					</Link>
-					<Button
-						size="sm"
-						variant="secondary"
-						aria-label={`Message ${agent.name}`}
-						onClick={() => onOpenConversation("", agent.tediId!)}
-					>
-						Message
-					</Button>
+					{onMessageTedi ? (
+						<Button
+							size="sm"
+							variant="secondary"
+							aria-label={`Message ${agent.name}`}
+							onClick={() => onMessageTedi(agent.tediId!)}
+						>
+							Message
+						</Button>
+					) : null}
 				</div>
 			) : null}
 			{expanded ? (
@@ -358,7 +367,7 @@ function RunRow({
 }: {
 	run: WorkspaceAgentRun;
 	now: Date;
-	onOpenConversation: (conversationId: string, tediId?: string) => void;
+	onOpenConversation: (conversationId: string) => void;
 }) {
 	// A run that waits for a person opens where its request can be answered.
 	const action = run.state === "needs_you" ? "Review" : "Open";
