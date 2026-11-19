@@ -436,6 +436,12 @@ export const ToolPolicyMetadataSchema = z
 			.describe(
 				"Wire-only copy of app_tools.write_capability, sent with `declared`. Stored rows use the column; this key is removed from stored and upstream metadata.",
 			),
+		skipAppliedChangeRecord: z
+			.literal(true)
+			.optional()
+			.describe(
+				"Liveness or status report: an allowed call that applied needs no gateway change record. Honoured only for bounded_write; refused and failed calls are always recorded.",
+			),
 		sensitivity: z.enum(TOOL_POLICY_SENSITIVITY_VALUES).optional(),
 		evidenceHash: Sha256DigestSchema.optional(),
 		attestationHash: Sha256DigestSchema.optional(),

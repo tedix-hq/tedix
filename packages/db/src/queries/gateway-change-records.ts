@@ -1,7 +1,15 @@
 import type { GatewayChangeRecordInput } from "@tedix/api-contract/schemas/audit";
-import { and, asc, count, eq, gt, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, gte, lt, min, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { gatewayChangeRecords } from "../schema/gateway-change-records";
+import { getAffectedRows } from "../utils/d1-result";
+
+/**
+ * Gateway change records are kept for 90 days, then deleted by the daily
+ * retention job (`pruneGatewayChangeRecords`). One platform-wide window; there
+ * is no per-organization setting yet.
+ */
+export const GATEWAY_CHANGE_RECORD_RETENTION_DAYS = 90;
 
 function toRecord(row: typeof gatewayChangeRecords.$inferSelect) {
 	return {
@@ -100,19 +108,18 @@ export interface GatewayChangeRecordRangeParams {
 }
 
 /**
- * `recorded_at` in the millisecond form the range bounds use, so a stored
- * timestamp without fractional seconds compares by time, not by text.
+ * Plain text comparisons on `recorded_at`, so the organization/recorded-at
+ * index is used. Correct because the column and both bounds are always in
+ * `Date.prototype.toISOString()` form (the API normalizes them).
  */
-const recordedAtMillis = sql<string>`strftime('%Y-%m-%dT%H:%M:%fZ', ${gatewayChangeRecords.recordedAt})`;
-
 function inRange(
 	organizationId: string,
 	range: GatewayChangeRecordRangeParams,
 ) {
 	return and(
 		eq(gatewayChangeRecords.organizationId, organizationId),
-		sql`${recordedAtMillis} >= ${range.from}`,
-		sql`${recordedAtMillis} < ${range.until}`,
+		gte(gatewayChangeRecords.recordedAt, range.from),
+		lt(gatewayChangeRecords.recordedAt, range.until),
 		range.resource === undefined
 			? undefined
 			: eq(gatewayChangeRecords.resource, range.resource),
@@ -156,4 +163,59 @@ export async function countGatewayChangeRecordsInRange(
 		.from(gatewayChangeRecords)
 		.where(inRange(organizationId, range));
 	return row?.total ?? 0;
+}
+
+export interface PruneGatewayChangeRecordsParams {
+	/** Delete records with `recorded_at` before this ISO timestamp. */
+	before: string;
+	/** Rows per DELETE statement. */
+	batchSize: number;
+	/** DELETE statements per run, at most. */
+	maxBatches: number;
+}
+
+/**
+ * Delete records older than `before`, oldest first, in bounded statements so
+ * no single write holds the database for long. Stops at the first short
+ * batch. Safe to repeat, and costs one index probe when nothing is old enough.
+ * Returns the number of rows deleted.
+ */
+export async function pruneGatewayChangeRecords(
+	db: DbQueryClient,
+	params: PruneGatewayChangeRecordsParams,
+): Promise<number> {
+	let removed = 0;
+	for (let batch = 0; batch < params.maxBatches; batch += 1) {
+		// D1 has no `DELETE ... LIMIT`; the sub-select walks the recorded-at
+		// index and binds two values whatever the batch size.
+		const result = await db.delete(gatewayChangeRecords).where(
+			sql`${gatewayChangeRecords.sequence} in (
+				select ${gatewayChangeRecords.sequence}
+				  from ${gatewayChangeRecords}
+				 where ${gatewayChangeRecords.recordedAt} < ${params.before}
+				 order by ${gatewayChangeRecords.recordedAt}
+				 limit ${params.batchSize}
+			)`,
+		);
+		const deleted = getAffectedRows(result);
+		removed += deleted;
+		if (deleted < params.batchSize) break;
+	}
+	return removed;
+}
+
+/** Table size for the retention log: every organization's rows. */
+export async function getGatewayChangeRecordStats(
+	db: DbQueryClient,
+): Promise<{ rows: number; oldestRecordedAt: string | null }> {
+	const [row] = await db
+		.select({
+			rows: count(),
+			oldestRecordedAt: min(gatewayChangeRecords.recordedAt),
+		})
+		.from(gatewayChangeRecords);
+	return {
+		rows: row?.rows ?? 0,
+		oldestRecordedAt: row?.oldestRecordedAt ?? null,
+	};
 }

@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { tediCallCosts } from "@tedix/db/schema/tedis";
 import { appCatalogHealthHistory } from "@tedix/db/schema/catalog";
+import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { kernelToolResults } from "@tedix/db/schema/cognitive-runtime";
 import { organizations } from "@tedix/db/schema/organizations";
 import { sweepAbandonedSkillImprovements } from "@tedix/db/queries/cognitive/skill-improvement-cleanup";
@@ -137,6 +138,7 @@ describe("scheduled usage evidence retention", () => {
 					kernelToolResults,
 					tediCallCosts,
 					appCatalogHealthHistory,
+					gatewayChangeRecords,
 				),
 			);
 			const old = new Date(Date.now() - 60 * 86_400_000).toISOString();
@@ -176,12 +178,24 @@ describe("scheduled usage evidence retention", () => {
 					)
 					.run(id, timestamp);
 			}
+			// The run is at 2026-09-21T03:00Z, so the 90-day cutoff is
+			// 2026-06-23T03:00:00.000Z, exclusive.
+			for (const [id, recordedAt] of [
+				["expired", "2026-06-23T02:59:59.999Z"],
+				["at-cutoff", "2026-06-23T03:00:00.000Z"],
+				["recent", "2026-09-20T12:00:00.000Z"],
+			])
+				sqlite
+					.prepare(
+						"INSERT INTO gateway_change_records (id, organization_id, resource, actor_id, recorded_at, record) VALUES (?, 'org', 'tool:x', 'user', ?, '{}')",
+					)
+					.run(id, recordedAt);
 			const before = sqlite
 				.prepare("SELECT * FROM tedi_call_costs ORDER BY id")
 				.all();
 			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 			const error = vi.spyOn(console, "error").mockImplementation(() => {});
-			vi.spyOn(console, "log").mockImplementation(() => {});
+			const log = vi.spyOn(console, "log").mockImplementation(() => {});
 			const env = {
 				DB: createD1Facade(sqlite),
 				R2_BUCKET: emptyBucket(),
@@ -202,6 +216,23 @@ describe("scheduled usage evidence retention", () => {
 					.all(),
 			).toEqual([{ id: "recent" }]);
 			expect(result.healthHistoryDeleted).toBe(1);
+			expect(result.gatewayChangeRecordsDeleted).toBe(1);
+			expect(
+				sqlite
+					.prepare("SELECT id FROM gateway_change_records ORDER BY sequence")
+					.all(),
+			).toEqual([{ id: "at-cutoff" }, { id: "recent" }]);
+			const retentionLine = log.mock.calls
+				.map(([line]) => String(line))
+				.find((line) => line.includes("gateway_change_records.retention.run"));
+			expect(JSON.parse(retentionLine ?? "{}")).toEqual({
+				event: "gateway_change_records.retention.run",
+				before: "2026-06-23T03:00:00.000Z",
+				deletedRows: 1,
+				reachedRunCap: false,
+				rows: 2,
+				oldestRecordedAt: "2026-06-23T03:00:00.000Z",
+			});
 			expect(result.removedSkillImprovementCopies).toBe(1);
 			expect(sweepAbandonedSkillImprovements).toHaveBeenCalledWith(
 				expect.anything(),
@@ -242,6 +273,7 @@ it("logs 3am maintenance failures without returned or thrown text", async () => 
 				kernelToolResults,
 				tediCallCosts,
 				appCatalogHealthHistory,
+				gatewayChangeRecords,
 			),
 		);
 		const { backfillCatalogBaseAppAutoSync } =

@@ -8,9 +8,11 @@
  * response is kept on the adapter so callers return the message clients and
  * tests already know.
  *
- * `append` stores one ChangeRecord per call, allowed or refused, through the
- * API (one insert, no read). It holds arguments only as `argsHash`. The
- * gateway picks the record's `id` and `recordedAt`.
+ * `append` stores one ChangeRecord per call that changed something or was
+ * refused, through the API (one insert, no read); `needsChangeRecord` in
+ * `change-record-policy.ts` decides. An applied read or liveness report is
+ * returned unstored (`sequence` 0) and writes nothing. A record holds
+ * arguments only as `argsHash`. The gateway picks its `id` and `recordedAt`.
  *
  * A refused call waits for its record. A call that was allowed and has run
  * does not: the write is handed to `ctx.waitUntil` and the response returns
@@ -57,6 +59,10 @@ import {
 	stripDestructiveApprovalArgs,
 	type DestructiveApprovalOptions,
 } from "./governance";
+import {
+	declaresSkipAppliedChangeRecord,
+	needsChangeRecord,
+} from "./change-record-policy";
 import { INPUT_REQUIRED_META_KEY } from "./mrtr";
 import type { AppTool, ServerContext } from "./server-context";
 import {
@@ -263,8 +269,16 @@ function readRetryAfter(result: CallToolResult): number | undefined {
 export const UNSTORED_SEQUENCE = 0;
 const LEDGER_WRITE_TIMEOUT_MS = 3000;
 
+export interface GatewayLedgerOptions {
+	/** The called tool declares `skipAppliedChangeRecord` in its policy. */
+	skipAppliedChangeRecord?: boolean;
+}
+
 export class GatewayAccountabilityAdapter implements AccountabilityAdapter {
-	constructor(private readonly agent: LedgerContext) {}
+	constructor(
+		private readonly agent: LedgerContext,
+		private readonly options: GatewayLedgerOptions = {},
+	) {}
 
 	private get client() {
 		if (!this.agent.apiClient) {
@@ -288,7 +302,15 @@ export class GatewayAccountabilityAdapter implements AccountabilityAdapter {
 			input.outcome === "denied" || input.outcome === "needs_approval";
 		const context = this.agent.ctx;
 		let record: ChangeRecord;
-		if (!refused && context) {
+		if (
+			!needsChangeRecord({
+				outcome: input.outcome,
+				riskTier: input.decision.riskTier,
+				skipAppliedChangeRecord: this.options.skipAppliedChangeRecord === true,
+			})
+		) {
+			record = Object.freeze(unstored);
+		} else if (!refused && context) {
 			context.waitUntil(this.store(unstored).catch(() => undefined));
 			record = Object.freeze(unstored);
 		} else {
@@ -426,6 +448,14 @@ export async function recordGatewayRefusal(
 	});
 }
 
+function ledgerOptions(gates: GatewayCallGates): GatewayLedgerOptions {
+	return {
+		skipAppliedChangeRecord: declaresSkipAppliedChangeRecord(
+			gates.tool.meta as Record<string, unknown> | null | undefined,
+		),
+	};
+}
+
 export interface GuardedGatewayCall {
 	/** The gate response to return to the client when the call was refused. */
 	failure: CallToolResult | null;
@@ -449,7 +479,10 @@ export async function guardGatewayCall(
 	) => Promise<CallToolResult>,
 ): Promise<GuardedGatewayCall> {
 	const compliance = new GatewayComplianceAdapter(gates);
-	const accountability = new GatewayAccountabilityAdapter(gates.agent);
+	const accountability = new GatewayAccountabilityAdapter(
+		gates.agent,
+		ledgerOptions(gates),
+	);
 	const call = describeGatewayCall(gates);
 	const executionArgs = stripDestructiveApprovalArgs(gates.tool, gates.args);
 	try {
@@ -503,7 +536,10 @@ export async function admitGatewayCall(
 	gates: GatewayCallGates,
 ): Promise<AdmittedGatewayCall> {
 	const compliance = new GatewayComplianceAdapter(gates);
-	const accountability = new GatewayAccountabilityAdapter(gates.agent);
+	const accountability = new GatewayAccountabilityAdapter(
+		gates.agent,
+		ledgerOptions(gates),
+	);
 	const call = describeGatewayCall(gates);
 	const executionArgs = stripDestructiveApprovalArgs(gates.tool, gates.args);
 	const argsHash = await hashValue(call.args);

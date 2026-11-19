@@ -167,6 +167,16 @@ export const GatewayChangeRecordBodySchema = z.object({
 	argsHash: z.string(),
 });
 /**
+ * A timestamp in the one form `recorded_at` is stored and compared in:
+ * `Date.prototype.toISOString()` (UTC, milliseconds). Range reads compare the
+ * column as text so its index is used, which is only correct in this form.
+ */
+const GatewayChangeRecordTimestampSchema = z
+	.string()
+	.datetime({ offset: true })
+	.transform((value) => new Date(value).toISOString());
+
+/**
  * The gateway names the record (`id`, `recordedAt`) so it can answer a call
  * before the write lands. Appending an `id` that is already stored for the
  * organization stores nothing new.
@@ -174,7 +184,7 @@ export const GatewayChangeRecordBodySchema = z.object({
 export const GatewayChangeRecordInputSchema =
 	GatewayChangeRecordBodySchema.extend({
 		id: z.uuid().optional(),
-		recordedAt: z.string().datetime().optional(),
+		recordedAt: GatewayChangeRecordTimestampSchema.optional(),
 	});
 export const GatewayChangeRecordSchema = GatewayChangeRecordBodySchema.extend({
 	id: z.uuid(),
@@ -187,11 +197,6 @@ export const GatewayLedgerQuerySchema = z.strictObject({
 	afterSequence: z.number().int().nonnegative().optional(),
 	limit: z.number().int().min(1).max(1000).default(1000),
 });
-const GatewayChangeRecordTimestampSchema = z
-	.string()
-	.datetime({ offset: true })
-	.transform((value) => new Date(value).toISOString());
-
 /** An owner's or admin's read of their own organization's gateway records. */
 export const GatewayChangeRecordsInputSchema = z
 	.strictObject({

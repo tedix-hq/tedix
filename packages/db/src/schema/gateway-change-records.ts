@@ -8,9 +8,12 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 /**
- * One row per tool call through the MCP gateway, allowed or refused.
- * Append-only: rows are inserted and read, never updated or deleted.
+ * One row per MCP gateway tool call that changed something or was refused.
+ * Append-only: rows are inserted and read, never updated. The daily
+ * retention job deletes rows older than the retention window.
  * `sequence` orders the ledger; readers always filter by organization.
+ * `recorded_at` is always `Date.prototype.toISOString()`, so text order is
+ * time order and range reads use the indexes below.
  */
 export const gatewayChangeRecords = sqliteTable(
 	"gateway_change_records",
@@ -31,5 +34,12 @@ export const gatewayChangeRecords = sqliteTable(
 			t.organizationId,
 			t.sequence,
 		),
+		// Time-range reads of one organization.
+		index("idx_gateway_change_records_org_recorded_at").on(
+			t.organizationId,
+			t.recordedAt,
+		),
+		// Retention deletes the oldest rows across all organizations.
+		index("idx_gateway_change_records_recorded_at").on(t.recordedAt),
 	],
 );

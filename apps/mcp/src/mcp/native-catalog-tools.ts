@@ -9,6 +9,7 @@ import {
 	CatalogueDescribeInputJsonSchema,
 	CatalogueSearchInputJsonSchema,
 	type CatalogueTransportConfig,
+	TEDIX_TOOL_POLICY_META_KEY,
 	ToolInputJsonSchemaSchema,
 } from "@tedix/api-contract/schemas/tools";
 import type { AppTool } from "./server-context";
@@ -67,7 +68,11 @@ function buildNativeCatalogTool(spec: {
 		},
 		writeCapability: "read",
 		authRequired: true,
-		meta: null,
+		// Discovery only reads the catalog. Without a policy the gateway would
+		// call it unclassified and keep a change record for every search.
+		meta: {
+			[TEDIX_TOOL_POLICY_META_KEY]: { riskTier: "read", blastRadius: "none" },
+		},
 		icons: null,
 		executionTaskSupport: null,
 		invocationStatus: null,

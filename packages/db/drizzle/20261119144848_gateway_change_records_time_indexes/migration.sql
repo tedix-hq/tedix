@@ -1,0 +1,2 @@
+CREATE INDEX `idx_gateway_change_records_org_recorded_at` ON `gateway_change_records` (`organization_id`,`recorded_at`);--> statement-breakpoint
+CREATE INDEX `idx_gateway_change_records_recorded_at` ON `gateway_change_records` (`recorded_at`);
