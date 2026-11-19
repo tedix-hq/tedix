@@ -1,3 +1,4 @@
+import { workExecutorReference } from "@tedix/api-contract/schemas/work-items";
 import { setTimeout as sleep } from "node:timers/promises";
 import { resolveCommitFlag } from "./local-context";
 import { dim, errorText, green } from "./format";
@@ -404,7 +405,7 @@ export async function workAccept(
 			"work.update_work_item_specification",
 			{
 				id,
-				executor,
+				executorReference: workExecutorReference(executor),
 			},
 		);
 		if (assignment.error)
