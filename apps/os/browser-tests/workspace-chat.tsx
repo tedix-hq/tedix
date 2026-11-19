@@ -1,4 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	createMemoryHistory,
+	createRootRoute,
+	createRouter,
+	RouterProvider,
+} from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { WorkspaceChat } from "../src/components/workspace-chat";
 import {
@@ -10,6 +16,7 @@ import {
 	tediNamesQueryOptions,
 	tediRosterQueryOptions,
 	workspacePresenceQueryOptions,
+	workItemRunStepsQueryOptions,
 } from "../src/lib/os-query-options";
 import "../src/styles.css";
 
@@ -65,19 +72,41 @@ client.setQueryData<unknown>(
 	},
 );
 const directory = new Map([["user:person-subject", { name: "Ada Member" }]]);
+client.setQueryData(workItemRunStepsQueryOptions("fixture-run-task").queryKey, {
+	attemptId: "fixture-attempt",
+	live: true,
+	steps: [
+		{
+			seq: 1,
+			at: Date.now(),
+			kind: "started",
+			text: "Reading the project files",
+		},
+	],
+	messages: [],
+});
+const root = createRootRoute({
+	component: () => (
+		<QueryClientProvider client={client}>
+			<WorkActorOwnerContext.Provider value="person-profile">
+				<WorkActorDirectoryContext.Provider value={directory}>
+					<WorkspaceChat
+						workspaceId="fictional-workspace"
+						conversationId="c1"
+						listOpen={false}
+						onOpenList={() => {}}
+						onSelectConversation={() => {}}
+						onBrowseResources={() => {}}
+					/>
+				</WorkActorDirectoryContext.Provider>
+			</WorkActorOwnerContext.Provider>
+		</QueryClientProvider>
+	),
+});
+const router = createRouter({
+	routeTree: root,
+	history: createMemoryHistory(),
+});
 createRoot(document.getElementById("root")!).render(
-	<QueryClientProvider client={client}>
-		<WorkActorOwnerContext.Provider value="person-profile">
-			<WorkActorDirectoryContext.Provider value={directory}>
-				<WorkspaceChat
-					workspaceId="fictional-workspace"
-					conversationId="c1"
-					listOpen={false}
-					onOpenList={() => {}}
-					onSelectConversation={() => {}}
-					onBrowseResources={() => {}}
-				/>
-			</WorkActorDirectoryContext.Provider>
-		</WorkActorOwnerContext.Provider>
-	</QueryClientProvider>,
+	<RouterProvider router={router} />,
 );

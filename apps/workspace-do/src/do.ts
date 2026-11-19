@@ -1709,6 +1709,28 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#waiters.delete(turn.turn_id);
 	}
 
+	appendAgentRunNotice(
+		scope: WorkspaceScope,
+		input: { conversationId: string; attemptId: string; content: string },
+	): void {
+		this.bindScope(scope);
+		const noticeId = "agent-run-ended:" + input.attemptId;
+		this.ctx.storage.transactionSync(() => {
+			if (this.#store.get(noticeId)) return;
+			this.#ensureConversation(
+				input.conversationId,
+				"",
+				new Date().toISOString(),
+			);
+			this.#events.append(input.conversationId, {
+				type: "agent_run.ended",
+				turnId: noticeId,
+				text: input.content,
+			});
+			this.#store.put(noticeId, true);
+		});
+	}
+
 	/** Live replay: events after a cursor, one conversation or the whole object. */
 	readEvents(
 		scope: WorkspaceScope,
@@ -3838,6 +3860,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return buildWorkspaceBindings({
 			memory: this.#memory,
 			data,
+			runs: data,
 			accountActor,
 			accounts:
 				accountActor &&
@@ -3923,6 +3946,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				...args,
 			);
 			const json = value === undefined ? "null" : JSON.stringify(value);
+			const startedRun = binding === "work" && method === "startRun";
 			this.#events.append(turn.conversationId, {
 				type: "step.finished",
 				turnId: turn.turnId,
@@ -3931,7 +3955,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				durationMs: Date.now() - started,
 				...(value === undefined
 					? {}
-					: { result: boundedEventText(json, EVENT_INPUT_CHARS) }),
+					: {
+							result: startedRun
+								? json
+								: boundedEventText(json, EVENT_INPUT_CHARS),
+						}),
+				...(startedRun ? { tool: "work.startRun" } : {}),
 			});
 			return { ok: true, value: JSON.parse(json) };
 		} catch (error: unknown) {
@@ -4646,6 +4675,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 /** The RPC surface other workers call; typed by hand so callers avoid deep stub inference. */
 export interface WorkspaceRpc extends DocumentTransferRuntime {
+	appendAgentRunNotice(
+		scope: WorkspaceScope,
+		input: { conversationId: string; attemptId: string; content: string },
+	): Promise<void>;
 	transferOutput(
 		scope: WorkspaceScope,
 		outputId: string,
@@ -5036,6 +5069,18 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	listOpen(...args: unknown[]) {
 		return this.#call("listOpen", args);
+	}
+	startRun(...args: unknown[]) {
+		return this.#call("startRun", args);
+	}
+	readRun(...args: unknown[]) {
+		return this.#call("readRun", args);
+	}
+	sendRunMessage(...args: unknown[]) {
+		return this.#call("sendRunMessage", args);
+	}
+	stopRun(...args: unknown[]) {
+		return this.#call("stopRun", args);
 	}
 	write(...args: unknown[]) {
 		return this.#call("write", args);

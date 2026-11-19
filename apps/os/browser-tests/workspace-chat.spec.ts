@@ -452,6 +452,65 @@ return focusClipAudit();
 			await page.close();
 		}
 	}
+	const runPage = await browser.newPage();
+	try {
+		await runPage.routeWebSocket(
+			"**/workspace/fictional-workspace/chat",
+			(socket) => {
+				socket.onMessage((raw) => {
+					if (JSON.parse(String(raw)).type !== "subscribe") return;
+					const send = (value: unknown) => socket.send(JSON.stringify(value));
+					const at = new Date().toISOString();
+					const turn = { at, conversationId: "c1", turnId: "coding-turn" };
+					send({
+						type: "hello",
+						waiting: [],
+						cursor: 0,
+						serverTime: at,
+						conversations: [],
+					});
+					send({
+						...turn,
+						type: "turn.started",
+						seq: 1,
+						text: "Fix the paging",
+						authorId: "person-subject",
+						authorKind: "person",
+					});
+					send({
+						...turn,
+						type: "step.finished",
+						seq: 2,
+						stepId: "start-run",
+						tool: "work.startRun",
+						status: "ok",
+						durationMs: 10,
+						result: JSON.stringify({
+							kind: "agent_run",
+							workItemId: "fixture-run-task",
+							title: "Fix the paging",
+							executor: "codex",
+							url: "/work/items/fixture-run-task",
+						}),
+					});
+					send({ ...turn, type: "turn.finished", seq: 3, status: "done" });
+					send({ type: "caught_up", conversationId: "c1" });
+				});
+			},
+		);
+		await runPage.goto(server.origin + "/browser-tests/workspace-chat.html");
+		const card = runPage.locator('[data-slot="agent-run-card"]');
+		await card.getByText("Reading the project files").waitFor();
+		await runPage.reload();
+		await card.getByText("Reading the project files").waitFor();
+		assert.equal(await card.count(), 1);
+		assert.equal(
+			await card.getByRole("link", { name: "Open task" }).getAttribute("href"),
+			"/work/items/fixture-run-task",
+		);
+	} finally {
+		await runPage.close();
+	}
 } finally {
 	await browser.close();
 	await server.stop();

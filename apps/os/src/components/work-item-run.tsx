@@ -388,12 +388,13 @@ export function WorkRunStopConfirm({
  * asks every few seconds for the steps after the last one shown, and it reads
  * once more when the run ends. Also sends a follow-up and a request to stop.
  */
-export function useWorkItemRun(itemId: string) {
+export function useWorkItemRun(itemId: string, waitForStart = false) {
 	const client = useQueryClient();
 	const options = workItemRunStepsQueryOptions(itemId);
 	const run = useQuery({
 		...options,
 		refetchInterval: (query) =>
+			(waitForStart && query.state.data?.attemptId === null) ||
 			query.state.data?.live ||
 			query.state.data?.questionOpen ||
 			query.state.data?.steps.at(-1)?.kind === "question"

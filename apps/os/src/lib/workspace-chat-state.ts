@@ -108,6 +108,7 @@ export type ChatTurn = {
 	reply: string;
 	replyDeltas?: Array<{ seq: number; text: string }>;
 	replyMessageId: string | null;
+	plainNotice?: true;
 	replyDone: boolean;
 	steps: ChatStep[];
 	approvals: ChatApproval[];
@@ -550,6 +551,17 @@ export function applyWorkspaceChatEvent(
 				};
 			});
 			break;
+		case "agent_run.ended":
+			turns = place(event.turnId)((turn) => ({
+				...turn,
+				reply: event.text,
+				replyMessageId: event.turnId,
+				replyDone: true,
+				plainNotice: true,
+				status: "done",
+				finishedAt: at,
+			}));
+			break;
 		case "assistant.done":
 			turns = place(event.turnId)((turn) => ({
 				...turn,
@@ -647,6 +659,7 @@ export function applyWorkspaceChatEvent(
 							step.stepId === event.stepId
 								? {
 										...step,
+										tool: event.tool ?? step.tool,
 										finishedAt: event.at,
 										status: event.status,
 										summary: event.summary,
@@ -662,6 +675,7 @@ export function applyWorkspaceChatEvent(
 								stepId: event.stepId,
 								label: event.summary ?? "Step",
 								kind: "tool" as const,
+								tool: event.tool,
 								startedAt: event.at,
 								finishedAt: event.at,
 								status: event.status,

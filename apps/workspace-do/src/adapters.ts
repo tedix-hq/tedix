@@ -187,6 +187,16 @@ export class SqlComplianceAdapter implements ComplianceAdapter {
 			!call.destructive
 		)
 			return "not_required";
+		// These chat methods check the initiating person's current build access.
+		// Steering also checks ownership of the run before sending anything.
+		if (
+			call.resource === "work" &&
+			["startRun", "sendRunMessage", "stopRun"].includes(call.operation) &&
+			call.riskTier === "bounded_write" &&
+			call.blastRadius === "single_resource" &&
+			!call.destructive
+		)
+			return "not_required";
 		if (!call.riskTier || call.riskTier === "read") return "not_required";
 		if (!this.policy.writesNeedApproval && !call.destructive)
 			return "not_required";

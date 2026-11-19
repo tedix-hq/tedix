@@ -73,6 +73,36 @@ async function fixture({
 }
 
 describe("agent run ended notice", () => {
+	it("appends a plain result to the workspace conversation once for this Attempt", async () => {
+		const workspaceId = "22222222-2222-4222-8222-222222222222";
+		const conversationId = "33333333-3333-4333-8333-333333333333";
+		const { work, attempt, context, enqueue } = await fixture({
+			sourceSessionKey: `workspace:${workspaceId}:${conversationId}`,
+			steward: false,
+			outcome: "cancelled",
+		});
+		const appendAgentRunNotice = vi.fn(async () => {});
+		const workspaceContext = {
+			...context,
+			env: { WORKSPACE_RUNTIME: { appendAgentRunNotice } },
+		} as unknown as BaseContext;
+		await expect(
+			notifyAgentRunEnded(workspaceContext, work, attempt, enqueue),
+		).resolves.toBe("sent");
+		await expect(
+			notifyAgentRunEnded(workspaceContext, work, attempt, enqueue),
+		).resolves.toBe("skipped");
+		expect(enqueue).not.toHaveBeenCalled();
+		expect(appendAgentRunNotice).toHaveBeenCalledExactlyOnceWith(
+			{ organizationId: "org", workspaceId },
+			{
+				conversationId,
+				attemptId: attempt.id,
+				content: `The run for "Rename the button" ended: cancelled. Changed the label. Tests pass. Task: /work/items/${workItemId}`,
+			},
+		);
+	});
+
 	it.each([
 		["succeeded", "succeeded"],
 		["failed", "failed"],
