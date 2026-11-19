@@ -52,6 +52,11 @@ export const gatewayChangeRecords = sqliteTable(
 		index("idx_gateway_change_records_unsealed")
 			.on(t.organizationId, t.sequence)
 			.where(sql`chain_hash is null`),
+		// The sealer's last-sealed guard: only sealed rows, so the check does
+		// not walk the unsealed backlog for every row it seals.
+		index("idx_gateway_change_records_sealed")
+			.on(t.organizationId, t.sequence)
+			.where(sql`chain_hash is not null`),
 	],
 );
 

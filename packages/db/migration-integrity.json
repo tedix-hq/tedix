@@ -1672,6 +1672,10 @@
 		{
 			"name": "20261119182503_auth_cache_organization_fields/migration.sql",
 			"sha256": "1a767200981d98a28157931ce6efd5bba3f8e126c166a7364ddb3726e0f031ef"
+		},
+		{
+			"name": "20261119200532_gateway_change_records_sealed_index/migration.sql",
+			"sha256": "845acdcf627c3c23299fda276493204d8e236bedf0bd2c08be485cb1b4eafc73"
 		}
 	]
 }
