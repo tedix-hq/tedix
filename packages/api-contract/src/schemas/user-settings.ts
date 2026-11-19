@@ -426,3 +426,5 @@ export const BrowserMcpAuthorizationSchema = z.object({
 export type BrowserMcpAuthorization = z.infer<
 	typeof BrowserMcpAuthorizationSchema
 >;
+
+export const UserWelcomeStateSchema = z.object({ completed: z.boolean() });

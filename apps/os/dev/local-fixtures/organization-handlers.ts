@@ -44,6 +44,8 @@ import { localCustomDomain, setLocalCustomDomain } from "./sharing";
 import { state } from "./state";
 
 export const organizationHandlers: Record<string, (input: never) => unknown> = {
+	"userProfile/getWelcomeState": () => ({ completed: true }),
+	"userProfile/completeWelcome": () => ({ completed: true }),
 	"mcpGovernance/listTenantToolPolicies": () => ({ items: localPolicyRows }),
 	"mcpGovernance/listDeletedTenantPolicyFences": () => ({ items: [] }),
 	"mcpGovernance/listLegacyActionTypeInventory": () => ({

@@ -71,6 +71,12 @@ import {
 	useOsOrganizationTheme,
 } from "@/lib/use-os-preferences";
 
+const FirstRunWelcome = lazy(() =>
+	import("@/components/first-run-welcome").then((module) => ({
+		default: module.FirstRunWelcome,
+	})),
+);
+
 const OsCommandPalette = lazy(() =>
 	import("@/components/os-command-palette").then((module) => ({
 		default: module.OsCommandPalette,
@@ -357,6 +363,7 @@ export function OsShell() {
 		<SharedDeckInboxProvider>
 			<Suspense fallback={null}>
 				<WorkspaceToasts />
+				<FirstRunWelcome />
 			</Suspense>
 			<OsTopbarMenuContext.Provider
 				value={

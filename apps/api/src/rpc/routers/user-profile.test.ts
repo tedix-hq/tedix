@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { userConfigs } from "@tedix/db/schema/user-configs";
 import { users } from "@tedix/db/schema/users";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -16,7 +17,7 @@ const NEW_IMAGE_ID = "22222222-2222-4222-8222-222222222222";
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
-	sqlite.exec(schemaDdl(users, organizationMembers));
+	sqlite.exec(schemaDdl(users, organizationMembers, userConfigs));
 	sqlite.exec(`
 		CREATE TRIGGER sync_user_profile_to_memberships
 		AFTER UPDATE OF name, avatar_url ON users
@@ -93,9 +94,45 @@ describe("self-service user profile", () => {
 		await expect(client.getMine({})).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
+		await expect(client.getWelcomeState({})).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(client.completeWelcome({})).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
 		await expect(client.requestAvatarUpload({})).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
+	});
+
+	it("persists welcome completion across sessions and organizations, isolated per person", async () => {
+		const f = fixture();
+		const context = userContext({ db: f.db, env: f.env });
+		const first = createRouterClient(userProfileContractRouter, { context });
+		await expect(first.getWelcomeState({})).resolves.toEqual({
+			completed: false,
+		});
+		await expect(first.completeWelcome({})).resolves.toEqual({
+			completed: true,
+		});
+		await expect(first.completeWelcome({})).resolves.toEqual({
+			completed: true,
+		});
+		const anotherOrganization = createRouterClient(userProfileContractRouter, {
+			context: { ...context, organizationId: "org-2" },
+		});
+		await expect(anotherOrganization.getWelcomeState({})).resolves.toEqual({
+			completed: true,
+		});
+		const anotherPerson = createRouterClient(userProfileContractRouter, {
+			context: { ...context, userId: "another-person" },
+		});
+		await expect(anotherPerson.getWelcomeState({})).resolves.toEqual({
+			completed: false,
+		});
+		expect(
+			f.sqlite.prepare("SELECT COUNT(*) AS count FROM user_configs").get(),
+		).toEqual({ count: 1 });
 	});
 
 	it("normalizes malformed legacy avatar values at the profile boundary", async () => {
