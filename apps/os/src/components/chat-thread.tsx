@@ -110,6 +110,7 @@ import {
 } from "@/lib/use-capn-chat";
 import { WorkspaceFileUpload } from "./workspace-file-upload";
 import { AgentRunCard } from "@/components/agent-run-card";
+import { MachineActivity } from "@/components/machine-activity";
 import { LiveDelegationCard } from "@/components/delegation-live-card";
 import { useChatAgentRuns } from "@/lib/use-chat-agent-runs";
 import { useActiveTedis, useTediNames } from "@/lib/use-tedi-names";
@@ -2136,6 +2137,11 @@ export function ChatThread({
 													/>
 												) : null;
 											})()}
+											<MachineActivity
+												actions={agentRuns.machineActions.forMessage(
+													message.id,
+												)}
+											/>
 											{agentRuns.forMessage(message.id).map((agentRun) => (
 												<AgentRunCard
 													key={agentRun.workItemId}
@@ -2202,6 +2208,10 @@ export function ChatThread({
 											<WorkTraceCard tools={tools} />
 										) : null;
 									})()}
+									<MachineActivity
+										actions={agentRuns.machineActions.fromStream}
+										defaultOpen
+									/>
 									{agentRuns.fromStream.map((agentRun) => (
 										<AgentRunCard
 											key={agentRun.workItemId}
@@ -2224,6 +2234,12 @@ export function ChatThread({
 												onRetry={() =>
 													restartDelegation.mutate({ runId: work.runId })
 												}
+											/>
+											<MachineActivity
+												actions={agentRuns.machineActions.forActive(
+													work.childRunId,
+												)}
+												defaultOpen
 											/>
 											{agentRuns.forActive(work.childRunId).map((agentRun) => (
 												<AgentRunCard
