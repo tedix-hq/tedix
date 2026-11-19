@@ -22,6 +22,7 @@ export const WorkAttemptStepKindSchema = z.enum([
 	"file_change",
 	"error",
 	"follow_up",
+	"question",
 	"stopped",
 	"finished",
 ]);
@@ -45,6 +46,14 @@ export const WorkAttemptStepSchema = z.object({
 		.string()
 		.max(500)
 		.describe("Short summary of the step. Never tool output or file contents."),
+	choices: z
+		.array(z.string().trim().min(1).max(100))
+		.min(2)
+		.max(5)
+		.optional()
+		.describe(
+			"Only on a question step: the short answers the agent offers. The person may also answer in their own words.",
+		),
 });
 export type WorkAttemptStep = z.infer<typeof WorkAttemptStepSchema>;
 

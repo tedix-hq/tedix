@@ -36,6 +36,7 @@ const STEP_LABEL: Record<WorkAttemptStepKind, string> = {
 	file_change: "File change",
 	error: "Error",
 	follow_up: "Follow-up",
+	question: "Question",
 	stopped: "Stopped",
 	finished: "Finished",
 };

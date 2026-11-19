@@ -77,7 +77,7 @@ describe("run steps and steering messages", () => {
 		const steps = Array.from({ length: 30 }, (_, index) => step(index));
 		await expect(
 			appendWorkAttemptSteps(db, { ...runner, steps }),
-		).resolves.toEqual({ accepted: 30, pending: [] });
+		).resolves.toMatchObject({ accepted: 30, pending: [] });
 		await expect(
 			appendWorkAttemptSteps(db, {
 				...runner,
@@ -147,7 +147,7 @@ describe("run steps and steering messages", () => {
 			appliedMessageIds: [stop!.id],
 			at: "2026-10-01T00:02:30.000Z",
 		});
-		expect(third).toEqual({ accepted: 0, pending: [] });
+		expect(third).toEqual({ accepted: 0, acceptedSeqs: [], pending: [] });
 		const { messages } = await listWorkAttemptSteps(db, {
 			orgId: "org",
 			workItemId: "work",
@@ -222,7 +222,7 @@ describe("run steps and steering messages", () => {
 		await successor("resumed", "codex:session", 2);
 		await expect(
 			appendWorkAttemptSteps(db, { ...resumed, steps: [] }),
-		).resolves.toEqual({ accepted: 0, pending: [] });
+		).resolves.toEqual({ accepted: 0, acceptedSeqs: [], pending: [] });
 
 		// An interrupted run does, to the same agent session only.
 		sqlite.exec(
@@ -237,7 +237,7 @@ describe("run steps and steering messages", () => {
 				externalSessionKey: "codex:other-session",
 				steps: [],
 			}),
-		).resolves.toEqual({ accepted: 0, pending: [] });
+		).resolves.toEqual({ accepted: 0, acceptedSeqs: [], pending: [] });
 		end("other", "failed");
 		await successor("again", "codex:session", 4);
 		const again = { ...runner, attemptId: "again" };
@@ -253,7 +253,7 @@ describe("run steps and steering messages", () => {
 				steps: [],
 				appliedMessageIds: [waiting!.id, unseen!.id],
 			}),
-		).resolves.toEqual({ accepted: 0, pending: [] });
+		).resolves.toEqual({ accepted: 0, acceptedSeqs: [], pending: [] });
 		expect(
 			(await db.select().from(workAttemptMessages)).filter(
 				(message) => message.appliedAt === null,

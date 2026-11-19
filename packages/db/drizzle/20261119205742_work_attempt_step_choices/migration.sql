@@ -1,0 +1,1 @@
+ALTER TABLE `work_attempt_steps` ADD `choices` text;
