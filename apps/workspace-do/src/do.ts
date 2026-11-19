@@ -1533,8 +1533,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			input.actorKind,
 			input.tediId ?? null,
 		);
-		const started = this.#events.append(conversationId, {
-			type: "turn.started",
+		const startEvent = {
+			type: "turn.started" as const,
 			turnId,
 			text,
 			...(displayText ? { displayText } : {}),
@@ -1542,7 +1542,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				? { attachments: selected.attachments }
 				: {}),
 			...author,
-		});
+			respondingTediId:
+				input.tediId ?? (input.actorKind === "tedi" ? input.actorId : null),
+		};
+		const started = this.#events.append(conversationId, startEvent);
 		this.#store.run(
 			"UPDATE turns SET first_seq = ? WHERE turn_id = ?",
 			started.seq,
@@ -1614,11 +1617,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		} = {},
 	): WireEvent[] {
 		this.bindScope(scope);
-		return this.#events.replay(
-			input.after ?? 0,
-			input.conversationId ?? null,
-			input.limit,
-		);
+		return this.#events
+			.replay(input.after ?? 0, input.conversationId ?? null, input.limit)
+			.map((event) => this.#withTurnAuthors(event));
 	}
 
 	/** History paging for one conversation: the newest events before a cursor. */
@@ -1628,11 +1629,23 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		input: { before?: number | null; limit?: number } = {},
 	): WireEvent[] {
 		this.bindScope(scope);
-		return this.#events.history(
-			conversationId,
-			input.before ?? null,
-			input.limit,
-		);
+		return this.#events
+			.history(conversationId, input.before ?? null, input.limit)
+			.map((event) => this.#withTurnAuthors(event));
+	}
+
+	#withTurnAuthors(event: WireEvent): WireEvent {
+		if (event.type !== "turn.started") return event;
+		const turn = this.#turn(event.turnId);
+		if (!turn) return event;
+		const authors = {
+			authorId: turn.actor_id,
+			authorKind:
+				turn.actor_kind === "tedi" ? ("tedi" as const) : ("person" as const),
+			respondingTediId:
+				turn.tedi_id ?? (turn.actor_kind === "tedi" ? turn.actor_id : null),
+		};
+		return { ...event, ...authors };
 	}
 
 	listConversations(scope: WorkspaceScope): ConversationSummary[] {
@@ -2840,7 +2853,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					this.#control(ws, {
 						type: "ledger.page",
 						conversationId: frame.conversationId,
-						events: page.events,
+						events: page.events.map((event) => this.#withTurnAuthors(event)),
 						hasMore: page.more,
 					});
 					return;
@@ -3503,7 +3516,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		let replayEvents = 0;
 		let replayBytes = 0;
 		for (const event of page.events) {
-			const frame = JSON.stringify(event);
+			const frame = JSON.stringify(this.#withTurnAuthors(event));
 			replayEvents += 1;
 			replayBytes += frame.length;
 			ws.send(frame);
@@ -3914,8 +3927,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 								.getOutput(outputId)
 								.catch(() => null)
 						: null;
-				this.#events.append(turn.conversationId, {
-					type: "approval.requested",
+				const approvalEvent = {
+					type: "approval.requested" as const,
+					requester: {
+						id: turn.actor.id,
+						kind: turn.actor.kind === "tedi" ? "tedi" : "person",
+					},
 					turnId: turn.turnId,
 					stepId,
 					approvalId,
@@ -3933,7 +3950,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					),
 					...(target ? { target: { id: target.id, title: target.title } } : {}),
 					...(appliesNow ? { automatic: true as const } : {}),
-				});
+				};
+				this.#events.append(turn.conversationId, approvalEvent);
 				const [held] = appliesNow
 					? this.#store.exec<ApprovalRow>(
 							"SELECT * FROM approvals WHERE approval_id = ?",
@@ -4143,7 +4161,19 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						...(event.input === undefined ? {} : { input: event.input }),
 						...(event.target ? { target: event.target } : {}),
 					});
-		return rows.flatMap((row) => announced.get(row.approval_id) ?? []);
+		return rows.flatMap((row) => {
+			const request = announced.get(row.approval_id);
+			if (!request) return [];
+			return [
+				{
+					...request,
+					requester: {
+						id: row.tedi_id ?? row.actor_id,
+						kind: row.tedi_id || row.actor_kind === "tedi" ? "tedi" : "person",
+					},
+				},
+			];
+		});
 	}
 
 	/**
