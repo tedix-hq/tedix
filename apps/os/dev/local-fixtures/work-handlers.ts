@@ -71,6 +71,7 @@ type LocalRunMessage = {
 	body: string;
 	senderType: "user";
 	senderId: string;
+	interrupt: boolean;
 	createdAt: string;
 	deliveredAt: string | null;
 	appliedAt: string | null;
@@ -154,6 +155,7 @@ export const sendLocalRunMessage = (
 	kind: "follow_up" | "stop",
 	body: string,
 	senderId: string,
+	interrupt = false,
 ) => {
 	const attempt = localLiveRun(workItem);
 	if (!attempt) throw new RpcError("CONFLICT", "No run is in progress");
@@ -164,6 +166,7 @@ export const sendLocalRunMessage = (
 		body,
 		senderType: "user",
 		senderId,
+		interrupt,
 		createdAt: new Date().toISOString(),
 		deliveredAt: null,
 		appliedAt: null,
@@ -805,6 +808,7 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 			body: "Also keep the old export column, the finance sheet still reads it.",
 			senderType: "user" as const,
 			senderId: LOCAL_RUN_USER,
+			interrupt: false,
 			createdAt: new Date(minutesAgo(1)).toISOString(),
 			deliveredAt: new Date(minutesAgo(0.9)).toISOString(),
 			appliedAt: null,

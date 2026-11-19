@@ -120,6 +120,15 @@ try {
 		await page.reload();
 		await steps.getByText(`You: ${followUp}`).waitFor();
 
+		// "Send now" marks the follow-up as one that stops the current step.
+		const urgent = `Use the other branch (${theme})`;
+		await run.getByLabel("Send a follow-up").fill(urgent);
+		await run.getByRole("button", { name: "Send now" }).click();
+		await steps
+			.locator("li", { hasText: `You: ${urgent}` })
+			.getByText("Stopping the current step to apply this")
+			.waitFor();
+
 		// Stopping asks first; declining leaves the run as it was.
 		await run.getByRole("button", { name: "Stop run" }).click();
 		const dialog = page.getByRole("alertdialog", { name: "Stop this run?" });

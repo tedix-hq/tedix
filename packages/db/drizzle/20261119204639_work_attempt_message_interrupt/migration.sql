@@ -1,0 +1,1 @@
+ALTER TABLE `work_attempt_messages` ADD `interrupt` integer DEFAULT false NOT NULL;

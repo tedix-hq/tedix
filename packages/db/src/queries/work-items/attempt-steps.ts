@@ -274,6 +274,8 @@ export interface SendWorkAttemptMessageParams {
 	kind: WorkAttemptMessageKind;
 	body: string;
 	sender: { type: WorkAttemptMessageSenderType; id: string };
+	/** A follow-up that stops the agent's current turn instead of waiting for it. */
+	interrupt?: boolean;
 	at?: string;
 }
 
@@ -300,6 +302,7 @@ export async function sendWorkAttemptMessage(
 			body: params.body,
 			senderType: params.sender.type,
 			senderId: params.sender.id,
+			interrupt: params.kind === "follow_up" && params.interrupt === true,
 			createdAt: at,
 		})
 		.returning();

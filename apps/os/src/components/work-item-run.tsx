@@ -208,7 +208,9 @@ export const WorkRunEntryRow = memo(function WorkRunEntryRow({
 	const waiting =
 		message.kind === "follow_up" && message.appliedAt === null
 			? live
-				? "Waiting for the current step to finish"
+				? message.interrupt
+					? "Stopping the current step to apply this"
+					: "Waiting for the current step to finish"
 				: "Not applied: the run ended first"
 			: null;
 	return (
@@ -298,8 +300,12 @@ export function useWorkItemRun(itemId: string) {
 	const refreshRun = () =>
 		client.invalidateQueries({ queryKey: options.queryKey });
 	const send = useMutation({
-		mutationFn: (body: string) =>
-			osApi.workItems.sendAttemptMessage({ id: itemId, body }),
+		mutationFn: (followUp: { body: string; interrupt?: boolean }) =>
+			osApi.workItems.sendAttemptMessage({
+				id: itemId,
+				body: followUp.body,
+				...(followUp.interrupt ? { interrupt: true } : {}),
+			}),
 		onSuccess: (message) => {
 			setOwnMessageIds((ids) => new Set(ids).add(message.id));
 			return refreshRun();

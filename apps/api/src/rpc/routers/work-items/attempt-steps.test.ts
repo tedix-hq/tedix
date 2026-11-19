@@ -140,6 +140,7 @@ describe("run log and steering", () => {
 					body: "Also update the guide",
 					senderType: "user",
 					senderId: "owner",
+					interrupt: false,
 					createdAt: sent.createdAt,
 				},
 			],
@@ -162,6 +163,28 @@ describe("run log and steering", () => {
 			{ id: sent.id, deliveredAt: log.messages[0]!.deliveredAt },
 		]);
 		expect(after.messages[0]?.appliedAt).not.toBeNull();
+	});
+
+	it("tells the runner which follow-up should interrupt the current turn", async () => {
+		const { person, tedi } = fixture();
+		const urgent = await call(
+			sendAttemptMessageProcedure,
+			person("owner-subject"),
+			{ id: work, body: "Stop, use the other branch", interrupt: true },
+		);
+		const stop = await call(stopAttemptProcedure, person("owner-subject"), {
+			id: work,
+		});
+		expect(urgent.interrupt).toBe(true);
+		const report = await call(appendAttemptStepsProcedure, tedi("runner"), {
+			id: work,
+			attemptId: attempt,
+			steps: [],
+		});
+		expect(report.pending).toMatchObject([
+			{ id: urgent.id, kind: "follow_up", interrupt: true },
+			{ id: stop.id, kind: "stop", interrupt: false },
+		]);
 	});
 
 	it("lets only the Work Item's owner or steward send or stop", async () => {
