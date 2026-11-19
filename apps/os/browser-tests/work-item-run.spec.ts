@@ -4,8 +4,10 @@ import { startFixtureServer } from "./fixture-server";
 
 /**
  * The Run section of a task page: a run in progress lists its steps with the
- * waiting follow-up, takes a new follow-up and asks before stopping; a
- * finished run shows its steps and no controls. Desktop light and phone dark.
+ * waiting follow-up, refreshes by asking only for the steps after the last
+ * one shown without moving a reader who scrolled up, takes a new follow-up
+ * that still reads "You" after a reload, and asks before stopping; a finished
+ * run shows its steps and no controls. Desktop light and phone dark.
  */
 const LIVE = "/work/items/00000070-0000-4000-8000-000000000001";
 const FINISHED = "/work/items/00000070-0000-4000-8000-000000000004";
@@ -25,6 +27,17 @@ try {
 		});
 		const overflow = () =>
 			page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+
+		const stepReads: { afterSeq?: number }[] = [];
+		page.on("request", (request) => {
+			const url = new URL(request.url());
+			if (!url.pathname.endsWith("/workItems/listAttemptSteps")) return;
+			const data =
+				request.method() === "GET"
+					? JSON.parse(url.searchParams.get("data") ?? "{}")
+					: request.postDataJSON();
+			stepReads.push(data?.json ?? data);
+		});
 
 		await page.goto(`${origin}${LIVE}`);
 		const run = page.getByRole("region", { name: "Run", exact: true });
@@ -68,11 +81,44 @@ try {
 			});
 		}
 
+		// A refresh asks only for steps after the last one shown, and leaves a
+		// reader who scrolled up, and the rows already drawn, where they were.
+		assert.equal(stepReads[0]?.afterSeq, undefined);
+		await steps.evaluate((list) => {
+			list.scrollTop = 0;
+			list.firstElementChild!.setAttribute("data-kept", "");
+		});
+		const before = stepReads.length;
+		await page.waitForRequest(
+			(request) => request.url().includes("/workItems/listAttemptSteps"),
+			{ timeout: 10_000 },
+		);
+		await page.waitForRequest(
+			(request) => request.url().includes("/workItems/listAttemptSteps"),
+			{ timeout: 10_000 },
+		);
+		assert.ok(stepReads.length > before);
+		assert.deepEqual(
+			stepReads.slice(1).map((read) => read.afterSeq),
+			stepReads.slice(1).map(() => 7),
+			"every refresh reads only after the last step shown",
+		);
+		assert.deepEqual(
+			await steps.evaluate((list) => [
+				list.scrollTop,
+				list.firstElementChild!.hasAttribute("data-kept"),
+			]),
+			[0, true],
+			"a refresh with nothing new leaves the list where the reader was",
+		);
+
 		const followUp = `Add a test for the last page (${theme})`;
 		await run.getByLabel("Send a follow-up").fill(followUp);
 		await run.getByRole("button", { name: "Send", exact: true }).click();
 		await steps.getByText(`You: ${followUp}`).waitFor();
 		assert.equal(await run.getByLabel("Send a follow-up").inputValue(), "");
+		await page.reload();
+		await steps.getByText(`You: ${followUp}`).waitFor();
 
 		// Stopping asks first; declining leaves the run as it was.
 		await run.getByRole("button", { name: "Stop run" }).click();

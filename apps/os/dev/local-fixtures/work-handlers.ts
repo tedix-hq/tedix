@@ -148,10 +148,12 @@ const localLiveRun = (workItem: string) => {
 	);
 	return attempt && attempt.outcome === null && !stopped ? attempt : undefined;
 };
-const sendLocalRunMessage = (
+/** `senderId` is the signed-in person of the sample data in use. */
+export const sendLocalRunMessage = (
 	workItem: string,
 	kind: "follow_up" | "stop",
 	body: string,
+	senderId: string,
 ) => {
 	const attempt = localLiveRun(workItem);
 	if (!attempt) throw new RpcError("CONFLICT", "No run is in progress");
@@ -161,7 +163,7 @@ const sendLocalRunMessage = (
 		kind,
 		body,
 		senderType: "user",
-		senderId: LOCAL_RUN_USER,
+		senderId,
 		createdAt: new Date().toISOString(),
 		deliveredAt: null,
 		appliedAt: null,
@@ -818,10 +820,6 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 				.map(({ attemptId: _attemptId, ...message }) => message),
 		};
 	},
-	"workItems/sendAttemptMessage": (input: { id: string; body: string }) =>
-		sendLocalRunMessage(input.id, "follow_up", input.body),
-	"workItems/stopAttempt": (input: { id: string }) =>
-		sendLocalRunMessage(input.id, "stop", ""),
 	"workItems/initializeRepositoryCandidate": () => {
 		throw new RpcError(
 			"FORBIDDEN",

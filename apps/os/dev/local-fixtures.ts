@@ -108,6 +108,7 @@ import { skillHandlers } from "./local-fixtures/skills-handlers";
 import {
 	workHandlers,
 	localExternalAgentPrincipal,
+	sendLocalRunMessage,
 } from "./local-fixtures/work-handlers";
 import { workspaceHandlers } from "./local-fixtures/workspaces-handlers";
 
@@ -124,7 +125,15 @@ const handlers: Record<string, (input: never) => unknown> = {
 	...appHandlers,
 	...organizationHandlers,
 	...billingHandlers,
+	// Sent by whoever `userProfile/getMine` says is signed in, which the
+	// sample company replaces, so the sender's own messages read as "You".
+	"workItems/sendAttemptMessage": (input: { id: string; body: string }) =>
+		sendLocalRunMessage(input.id, "follow_up", input.body, localViewerId()),
+	"workItems/stopAttempt": (input: { id: string }) =>
+		sendLocalRunMessage(input.id, "stop", "", localViewerId()),
 };
+const localViewerId = () =>
+	(handlers["userProfile/getMine"] as () => { id: string })().id;
 
 /** Set once by the dev server: the sample company replaces the classic fixtures. */
 let demoPackBuiltAt: number | null = null;
