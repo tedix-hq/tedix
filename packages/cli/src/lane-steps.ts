@@ -15,6 +15,8 @@ export interface RunMessage {
 	body: string;
 	senderType: string;
 	senderId: string;
+	/** A follow-up that should stop the turn in progress instead of waiting for it. */
+	interrupt?: boolean;
 	createdAt?: string;
 }
 
@@ -228,6 +230,9 @@ export function createRunStepLog(options: {
 							: "unknown",
 					senderId:
 						typeof message.senderId === "string" ? message.senderId : "",
+					...(message.kind === "follow_up" && message.interrupt === true
+						? { interrupt: true }
+						: {}),
 					...(typeof message.createdAt === "string"
 						? { createdAt: message.createdAt }
 						: {}),

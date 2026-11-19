@@ -10395,6 +10395,130 @@ describe("watching and steering a run", () => {
 		);
 	});
 
+	const flushNow = () => {
+		let sendNow!: () => void;
+		const timer = spyOn(globalThis, "setInterval").mockImplementation(((
+			callback: () => void,
+			ms: number,
+		) => {
+			if (ms === 5000) sendNow = callback;
+			return setTimeout(() => {}, 60_000);
+		}) as typeof setInterval);
+		return { send: () => sendNow(), restore: () => timer.mockRestore() };
+	};
+
+	it("stops the turn in progress for an urgent follow-up and applies it on the same session", async () => {
+		const flush = flushNow();
+		const kill = spyOn(process, "kill").mockReturnValue(true);
+		const f = fixture();
+		f.items.splice(1);
+		f.control.spawnPid = 999999;
+		const sessions: string[] = [];
+		f.control.duringTurn = (turn) => {
+			sessions.push(turn.args[turn.args.indexOf("resume") + 1]!);
+			// Only the first turn is cut short; the next one ends by itself.
+			f.control.exitCode = turn.number === 1 ? 1 : 0;
+			f.control.finalMessage = `Result of turn ${turn.number}.`;
+		};
+		try {
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.control.stepReplies = [
+				[
+					{
+						...fromOwner("message-1", "Use the other branch."),
+						interrupt: true,
+					},
+				],
+			];
+			flush.send();
+			await until(() =>
+				kill.mock.calls.some(
+					([pid, signal]) => pid === -999999 && signal === "SIGINT",
+				),
+			);
+			// The agent ends its turn early, with no result.
+			f.releases[0]!();
+			await until(() => f.releases.length === 2);
+			f.releases[1]!();
+			await f.dispatcher.drain();
+			expect(kill.mock.calls.map(([, signal]) => signal)).not.toContain(
+				"SIGTERM",
+			);
+			expect(sessions[1]).toBe(sessions[0]!);
+			expect(f.briefs[1]).toContain("Your previous turn was stopped");
+			expect(f.briefs[1]).toContain(
+				"From user fictional-owner:\nUse the other branch.",
+			);
+			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
+				"succeeded",
+			);
+			const note = settle.args[settle.args.indexOf("--note") + 1]!;
+			expect(note).toContain("Result of turn 2.");
+			expect(note).not.toContain("Result of turn 1.");
+			expect(sentSteps(f).map((step) => [step.kind, step.text])).toEqual([
+				["started", "Started codex with model test-model"],
+				["follow_up", "Use the other branch."],
+				[
+					"stopped",
+					"The turn was stopped to apply a follow-up; the run goes on",
+				],
+				["finished", "Agent run ended: succeeded"],
+			]);
+			expect(f.control.stepCalls.flatMap((call) => call.applied)).toEqual([
+				"message-1",
+			]);
+		} finally {
+			flush.restore();
+			kill.mockRestore();
+		}
+	});
+
+	it("leaves the turn running when its agent has no clean stop, and applies the follow-up after it", async () => {
+		const flush = flushNow();
+		const kill = spyOn(process, "kill").mockReturnValue(true);
+		const f = fixture({ executor: "opencode" });
+		f.items.splice(1);
+		f.control.spawnPid = 999999;
+		try {
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.control.stepReplies = [
+				[
+					{
+						...fromOwner("message-1", "Use the other branch."),
+						interrupt: true,
+					},
+				],
+			];
+			flush.send();
+			await until(() =>
+				f.control.stepCalls.some((call) =>
+					call.steps.some((step) => step.kind === "error"),
+				),
+			);
+			// Signal 0 is only a liveness probe.
+			expect(kill.mock.calls.filter(([, signal]) => signal)).toEqual([]);
+			f.releases[0]!();
+			await until(() => f.releases.length === 2);
+			f.releases[1]!();
+			await f.dispatcher.drain();
+			expect(f.briefs[1]).not.toContain("Your previous turn was stopped");
+			expect(f.briefs[1]).toContain("Use the other branch.");
+			expect(
+				sentSteps(f)
+					.filter((step) => step.kind === "error")
+					.map((step) => step.text),
+			).toEqual([
+				"This agent's turn cannot be stopped midway; the follow-up is applied when the turn ends",
+			]);
+		} finally {
+			flush.restore();
+			kill.mockRestore();
+		}
+	});
+
 	it("stops the agent on request, settles cancelled and does not start that version again", async () => {
 		let sendNow!: () => void;
 		const timer = spyOn(globalThis, "setInterval").mockImplementation(((
