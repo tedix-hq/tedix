@@ -160,6 +160,9 @@
 		"release/version.test.ts",
 		"run-local.ts",
 		"run-local.test.ts",
+		"local-workspace-seed.ts",
+		"local-workspace-seed.test.ts",
+		"local-file-acceptance.ts",
 		"secrets/rotate-master-key.ts",
 		"vite/task-config.ts",
 		"vite/test-capacity.test.ts"

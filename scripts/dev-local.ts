@@ -322,6 +322,14 @@ export function createLocalWranglerConfig(configPath: string): JsonObject {
 	alignLocalServiceIdentities(config);
 	// Service identities have been normalized to the local Worker names.
 	const isApi = config.name === LOCAL_API_WORKER_NAME;
+	if (config.name === LOCAL_WORKSPACE_WORKER_NAME) {
+		const vars: JsonObject = isObject(config.vars) ? config.vars : {};
+		config.vars = vars;
+		delete vars.MIGRATE_WORKSPACES_TOKEN;
+		if (process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN)
+			vars.MIGRATE_WORKSPACES_TOKEN =
+				process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN;
+	}
 	if (isApi) {
 		const vars: JsonObject = isObject(config.vars) ? config.vars : {};
 		config.vars = vars;
@@ -475,7 +483,9 @@ async function run(): Promise<void> {
 			? process.env.TEDIX_LOCAL_OS_PORT
 			: process.cwd().endsWith("/apps/mcp")
 				? process.env.TEDIX_LOCAL_MCP_PORT
-				: undefined;
+				: process.cwd().endsWith("/apps/workspace-do")
+					? process.env.TEDIX_LOCAL_WORKSPACE_PORT
+					: undefined;
 	if (portIndex >= 0 && portOverride) {
 		if (
 			!/^\d+$/.test(portOverride) ||

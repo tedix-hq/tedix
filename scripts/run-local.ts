@@ -9,7 +9,8 @@ import {
 	rmSync,
 	statSync,
 } from "node:fs";
-import { createConnection } from "node:net";
+import { createConnection, createServer } from "node:net";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { LOCAL_OS_BUILD_SENTINELS } from "../apps/os/dev/build-config";
@@ -439,6 +440,23 @@ async function main(): Promise<void> {
 		...inferenceEnvironment,
 		TEDIX_LOCAL_PERSIST_TO: statePath,
 		TEDIX_LOCAL_RUN_MODE: options.demo ? "demo" : "start",
+		...(options.demo
+			? {
+					TEDIX_LOCAL_WORKSPACE_PORT: String(
+						await new Promise<number>((resolvePort, reject) => {
+							const server = createServer();
+							server.once("error", reject);
+							server.listen(0, "localhost", () => {
+								const port = (server.address() as { port: number }).port;
+								server.close((error) =>
+									error ? reject(error) : resolvePort(port),
+								);
+							});
+						}),
+					),
+					TEDIX_LOCAL_WORKSPACE_SEED_TOKEN: randomBytes(32).toString("hex"),
+				}
+			: {}),
 	};
 	if (options.inference === "workers-ai") {
 		console.warn(
@@ -571,6 +589,36 @@ async function main(): Promise<void> {
 		await readyBeforeExit(waitForLocalApi(readyDeadline - Date.now()));
 		startStage(gatewayAndOsStage);
 		await readyBeforeExit(waitForLocalDemo(readyDeadline - Date.now()));
+		if (options.demo) {
+			await readyBeforeExit(
+				waitUntilReady(
+					async (signal) => {
+						try {
+							const response = await fetch(
+								`http://localhost:${localEnvironment.TEDIX_LOCAL_WORKSPACE_PORT}/health`,
+								{ signal },
+							);
+							return (
+								response.ok &&
+								((await response.json()) as { service?: string }).service ===
+									"workspace-do"
+							);
+						} catch {
+							return false;
+						}
+					},
+					readyDeadline - Date.now(),
+					"Local workspace storage",
+				),
+			);
+			console.log("→ Provisioning seeded workspace file storage");
+			await run(
+				"bun",
+				["scripts/local-workspace-seed.ts"],
+				true,
+				localEnvironment,
+			);
+		}
 		console.log(`\n✓ Tedix OS: ${LOCAL_OS_URL}`);
 		console.log(`✓ API health: ${LOCAL_API_URL}/health`);
 		console.log(LOCAL_LOOPBACK_MESSAGE);
