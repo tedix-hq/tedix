@@ -586,27 +586,23 @@ describe("shares.update", () => {
 			const outputId = await seedOutput(h);
 			const { share } = await h.org1.shares.create(outputShareInput(outputId));
 			const db = createDbQueryClient(h.env.DB);
-			await db
-				.insert(organizationMembers)
-				.values({
-					id: "viewer",
-					organizationId: "org-1",
-					descopeUserId: "viewer",
-					email: "viewer@example.test",
-					role: "viewer",
-					status: "active",
-				});
-			await db
-				.insert(tedis)
-				.values({
-					id: "tedi-viewer",
-					organizationId: "org-1",
-					name: "Viewer",
-					slug: "viewer",
-					scope: "personal",
-					ownerUserId: "viewer",
-					status: "active",
-				});
+			await db.insert(organizationMembers).values({
+				id: "viewer",
+				organizationId: "org-1",
+				descopeUserId: "viewer",
+				email: "viewer@example.test",
+				role: "viewer",
+				status: "active",
+			});
+			await db.insert(tedis).values({
+				id: "tedi-viewer",
+				organizationId: "org-1",
+				name: "Viewer",
+				slug: "viewer",
+				scope: "personal",
+				ownerUserId: "viewer",
+				status: "active",
+			});
 			const context = apiKeyContext({ env: h.env });
 			if (kind === "tedi") {
 				context.authType = "tedi";

@@ -39,7 +39,6 @@ import { osCollaborationProcedures } from "./os-workspace-collaboration";
 import { organizations } from "@tedix/db/schema/organizations";
 import { tedis } from "@tedix/db/schema/tedis";
 import { projects } from "@tedix/db/schema/projects";
-import { tedis } from "@tedix/db/schema/tedis";
 import { workAttempts, workItems } from "@tedix/db/schema/work-items";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
@@ -116,7 +115,6 @@ async function fixture(manifestOverrides: Record<string, unknown> = {}) {
 			osWorkspaceShareLinks,
 			osWorkspaceShareKeys,
 			projects,
-			tedis,
 			workItems,
 			workAttempts,
 		),
