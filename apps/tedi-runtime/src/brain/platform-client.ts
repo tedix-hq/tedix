@@ -42,12 +42,17 @@ import type {
 	WorkAttemptOutcomeSchema,
 	WorkAttemptSchema,
 	WorkEvidenceSchema,
+	WorkExecutorReference,
 	WorkItem,
 	WorkItemAcceptanceContractSchema,
 	NativeStewardCloseoutProof,
 	GetWorkItemResult,
 	ListWorkItemAttemptsResult,
 } from "@tedix/api-contract/schemas/work-items";
+import type {
+	ListWorkAttemptStepsResult,
+	WorkAttemptMessage,
+} from "@tedix/api-contract/schemas/work-attempt-steps";
 import { TEDI_TASK_PURPOSE_CONTEXT } from "@tedix/api-contract/schemas/work-purpose-context";
 import { DescopeAccessKeyExchange } from "@tedix/auth/access-key-exchange";
 
@@ -435,6 +440,7 @@ export interface PlatformClient {
 		sourceIntentId?: string;
 		dueDate?: string;
 		deadline?: string;
+		executorReference?: WorkExecutorReference;
 		provenance?: Record<string, unknown>;
 		metadata?: Record<string, unknown>;
 	}): Promise<WorkItemForContext>;
@@ -450,6 +456,18 @@ export interface PlatformClient {
 		workItemId: string;
 		acceptanceContract: WorkItemAcceptanceContract;
 	}): Promise<WorkItemForContext>;
+	/** Steps of the newest run on a Work Item, oldest first, and its messages. */
+	listWorkAttemptSteps(params: {
+		workItemId: string;
+		afterSeq?: number;
+		limit?: number;
+	}): Promise<ListWorkAttemptStepsResult>;
+	/** Follow-up for the run in progress; the server needs its owner or steward. */
+	sendWorkAttemptMessage(params: {
+		workItemId: string;
+		body: string;
+	}): Promise<WorkAttemptMessage>;
+	stopWorkAttempt(params: { workItemId: string }): Promise<WorkAttemptMessage>;
 	listWorkApprovalInbox(params?: {
 		proposalId?: string;
 		workItemId?: string;
@@ -969,6 +987,7 @@ export class HttpPlatformClient implements PlatformClient {
 		sourceIntentId?: string;
 		dueDate?: string;
 		deadline?: string;
+		executorReference?: WorkExecutorReference;
 		provenance?: Record<string, unknown>;
 		metadata?: Record<string, unknown>;
 	}): Promise<WorkItemForContext> {
@@ -1002,6 +1021,7 @@ export class HttpPlatformClient implements PlatformClient {
 			sourceIntentId: params.sourceIntentId,
 			dueDate: params.dueDate,
 			deadline: params.deadline,
+			executorReference: params.executorReference,
 			provenance: params.provenance,
 			metadata: {
 				...params.metadata,
@@ -1038,6 +1058,34 @@ export class HttpPlatformClient implements PlatformClient {
 			id: params.workItemId,
 			acceptanceContract: params.acceptanceContract,
 		});
+	}
+
+	async listWorkAttemptSteps(params: {
+		workItemId: string;
+		afterSeq?: number;
+		limit?: number;
+	}): Promise<ListWorkAttemptStepsResult> {
+		return this.rpc("workItems", "listAttemptSteps", {
+			id: params.workItemId,
+			afterSeq: params.afterSeq,
+			limit: params.limit,
+		});
+	}
+
+	async sendWorkAttemptMessage(params: {
+		workItemId: string;
+		body: string;
+	}): Promise<WorkAttemptMessage> {
+		return this.rpc("workItems", "sendAttemptMessage", {
+			id: params.workItemId,
+			body: params.body,
+		});
+	}
+
+	async stopWorkAttempt(params: {
+		workItemId: string;
+	}): Promise<WorkAttemptMessage> {
+		return this.rpc("workItems", "stopAttempt", { id: params.workItemId });
 	}
 
 	async listWorkApprovalInbox(
