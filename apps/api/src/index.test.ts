@@ -318,7 +318,7 @@ describe("WorkspaceConnectionsEntrypoint", () => {
 			toolName: "list_events",
 			args: {},
 			conversationId: "conversation-1",
-			actor: { kind: "unattended" as const, startedBy: "schedule" as const },
+			actor: { kind: "schedule" as const },
 		};
 		h.connectionRead.mockResolvedValueOnce({
 			status: "refused",
