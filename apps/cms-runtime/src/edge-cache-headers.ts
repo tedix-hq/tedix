@@ -10,6 +10,14 @@ export const EDGE_CACHE_EXCLUDED_PREFIXES = [
 	"/api/",
 ];
 
+export function isSitemapXml(pathname: string, headers: Headers): boolean {
+	const type = headers.get("Content-Type")?.split(";")[0]?.trim().toLowerCase();
+	return (
+		/^\/sitemap(?:-[a-z0-9-]+)?\.xml$/.test(pathname) &&
+		(type === "application/xml" || type === "text/xml")
+	);
+}
+
 /**
  * Only the explicit tenant page cache may share HTML. Other CDN caches lack
  * its tenant, bundle, restore epoch and content revision key, so they must
@@ -70,9 +78,18 @@ export function applyEdgeCacheHeaders(
 		response.status === 200 &&
 		!headers.has("Set-Cookie") &&
 		(headers.get("Content-Type") ?? "").startsWith("text/html");
+	const sitemapPolicy =
+		publicPage &&
+		response.status === 200 &&
+		!headers.has("Set-Cookie") &&
+		isSitemapXml(pathname, headers) &&
+		headers.get("Cache-Control");
 	headers.set(
 		"Cache-Control",
-		shareable ? "public, max-age=0, must-revalidate" : DISABLED_CACHE_CONTROL,
+		sitemapPolicy ||
+			(shareable
+				? "public, max-age=0, must-revalidate"
+				: DISABLED_CACHE_CONTROL),
 	);
 	headers.set("CDN-Cache-Control", "no-store");
 	headers.set("Cloudflare-CDN-Cache-Control", "no-store");

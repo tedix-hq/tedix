@@ -1,5 +1,8 @@
 import { publicAssetCacheEligible } from "./tenant-public-cache";
-import { EDGE_CACHE_EXCLUDED_PREFIXES } from "./edge-cache-headers";
+import {
+	EDGE_CACHE_EXCLUDED_PREFIXES,
+	isSitemapXml,
+} from "./edge-cache-headers";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 
 /**
@@ -33,6 +36,7 @@ export const PAGE_CACHE_REASON_HEADER = "X-Tedix-Page-Cache-Reason";
 
 const CACHED_AT_HEADER = "X-Tedix-Page-Cached-At";
 const FRESH_FOR_HEADER = "X-Tedix-Page-Fresh-For";
+const ORIGINAL_POLICY_HEADER = "X-Tedix-Page-Original-Cache-Control";
 export const PAGE_CACHE_STATUS_HEADER = "X-Tedix-Page-Cache";
 
 const REFRESH_RESERVATION_MS = 60_000;
@@ -154,9 +158,11 @@ function directiveSeconds(
 export function pageCachePolicy(
 	response: Response,
 	templateSlug: string,
+	pathname = "",
 ): PageCachePolicy | null {
 	if (response.status !== 200) return null;
 	if (
+		!isSitemapXml(pathname, response.headers) &&
 		!["text/html", "text/plain"].some((type) =>
 			(response.headers.get("content-type") ?? "").startsWith(type),
 		)
@@ -197,8 +203,13 @@ export function pageCacheEntry(
 	response: Response,
 	policy: PageCachePolicy,
 	now: number,
+	pathname = "",
 ): Response {
 	const headers = new Headers(response.headers);
+	headers.delete(ORIGINAL_POLICY_HEADER);
+	const declared = headers.get("Cache-Control");
+	if (declared && isSitemapXml(pathname, headers))
+		headers.set(ORIGINAL_POLICY_HEADER, declared);
 	headers.set(
 		"Cache-Control",
 		`public, max-age=${policy.freshSeconds + policy.staleSeconds}`,
@@ -226,6 +237,9 @@ export function pageCacheHit(
 	headers.delete(CACHED_AT_HEADER);
 	headers.delete(FRESH_FOR_HEADER);
 	headers.delete("Cache-Control");
+	const declared = headers.get(ORIGINAL_POLICY_HEADER);
+	headers.delete(ORIGINAL_POLICY_HEADER);
+	if (declared) headers.set("Cache-Control", declared);
 	headers.delete("cf-cache-status");
 	headers.set(PAGE_CACHE_STATUS_HEADER, fresh ? "HIT" : "STALE");
 	headers.set(PAGE_CACHE_REASON_HEADER, fresh ? "fresh" : "stale-refresh");
@@ -244,14 +258,16 @@ export async function cachedTenantPage(args: {
 	cache: Cache;
 	key: Request;
 	templateSlug: string;
+	pathname: string;
 	waitUntil: (promise: Promise<unknown>) => void;
 	render: () => Promise<Response>;
 	now?: () => number;
 }): Promise<Response> {
 	const now = args.now ?? Date.now;
 	const store = async (rendered: Response) => {
-		const policy = pageCachePolicy(rendered, args.templateSlug);
+		const policy = pageCachePolicy(rendered, args.templateSlug, args.pathname);
 		const headers = new Headers(rendered.headers);
+		headers.delete(ORIGINAL_POLICY_HEADER);
 		headers.set(PAGE_CACHE_STATUS_HEADER, policy ? "MISS" : "BYPASS");
 		headers.set(
 			PAGE_CACHE_REASON_HEADER,
@@ -274,6 +290,7 @@ export async function cachedTenantPage(args: {
 					new Response(stored, { status: 200, headers: rendered.headers }),
 					policy,
 					now(),
+					args.pathname,
 				),
 			)
 			.then(

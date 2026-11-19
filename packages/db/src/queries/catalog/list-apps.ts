@@ -7,7 +7,17 @@ import {
 	getCatalogCategoryAliases,
 	normalizeCatalogCategory,
 } from "@tedix/api-contract/utils/catalog-categories";
-import { and, asc, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	inArray,
+	ne,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import {
 	appCatalog,
 	appCatalogBrowseTotals,
@@ -424,6 +434,24 @@ export async function listCatalogApps(
 		.offset(offset);
 
 	return { apps, total };
+}
+
+export async function listPublicCatalogSitemapSlugs(
+	db: Database,
+): Promise<string[]> {
+	const rows = await db
+		.select({ slug: sql<string>`${appCatalog.slug}`.as("slug") })
+		.from(sql`${appCatalog} INDEXED BY app_catalog_explore_name_idx`)
+		.where(
+			and(
+				...catalogVisibilityConditions(appCatalog),
+				buildHideShadowedVariantsCondition(db),
+				ne(appCatalog.connectorType, "FIRST_PARTY_ECOSYSTEM"),
+				ne(appCatalog.slug, ""),
+			),
+		)
+		.orderBy(asc(appCatalog.name));
+	return rows.map(({ slug }) => slug);
 }
 
 async function getPublicBrowseTotal(

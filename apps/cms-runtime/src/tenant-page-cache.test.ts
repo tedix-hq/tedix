@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { applyEdgeCacheHeaders } from "./edge-cache-headers";
 import {
 	anonymousPageRequest,
 	cachedTenantPage,
@@ -46,12 +47,14 @@ async function serve(
 	render: () => Promise<Response>,
 	now: number,
 	templateSlug = "marketing",
+	pathname = "/blog",
 ): Promise<{ response: Response; background: Promise<unknown>[] }> {
 	const background: Promise<unknown>[] = [];
 	const response = await cachedTenantPage({
 		cache: cache as unknown as Cache,
 		key,
 		templateSlug,
+		pathname,
 		waitUntil: (promise) => background.push(promise),
 		render,
 		now: () => now,
@@ -239,6 +242,52 @@ describe("tenant page cache eligibility and policy", () => {
 describe("cachedTenantPage", () => {
 	const key = new Request("https://acme.example/_tedix/page-cache/acme/k");
 
+	it("keeps an explicit sitemap policy on a miss and a cache hit", async () => {
+		const cache = new MemoryCache();
+		const pathname = "/sitemap-apps.xml";
+		const policy = "public, s-maxage=3600, stale-while-revalidate=7200";
+		const render = vi.fn(
+			async () =>
+				new Response("<urlset/>", {
+					headers: {
+						"Content-Type": "application/xml",
+						"Cache-Control": policy,
+					},
+				}),
+		);
+		for (const [now, status] of [
+			[0, "MISS"],
+			[1000, "HIT"],
+		] as const) {
+			const { response } = await serve(
+				cache,
+				key,
+				render,
+				now,
+				"marketing",
+				pathname,
+			);
+			const outgoing = applyEdgeCacheHeaders(response, "GET", pathname, true);
+			expect(outgoing.headers.get(PAGE_CACHE_STATUS_HEADER)).toBe(status);
+			expect(outgoing.headers.get("Cache-Control")).toBe(policy);
+			expect(outgoing.headers.get("CDN-Cache-Control")).toBe("no-store");
+			expect(outgoing.headers.has("X-Tedix-Page-Original-Cache-Control")).toBe(
+				false,
+			);
+			expect(await outgoing.text()).toBe("<urlset/>");
+		}
+		expect(render).toHaveBeenCalledTimes(1);
+		expect(
+			pageCachePolicy(
+				new Response("<urlset/>", {
+					headers: { "Content-Type": "application/xml" },
+				}),
+				"marketing",
+				pathname,
+			),
+		).toBeNull();
+	});
+
 	it("caches declared llms text and exposes the decision reason", async () => {
 		const cache = new MemoryCache();
 		const render = vi.fn(
@@ -328,6 +377,7 @@ describe("cachedTenantPage on the workerd Cache API", () => {
 			cache,
 			key,
 			templateSlug: "marketing",
+			pathname: "/blog",
 			waitUntil: (promise: Promise<unknown>) => background.push(promise),
 			render,
 		};
@@ -361,6 +411,7 @@ function startRefresh(
 		cache: cache as unknown as Cache,
 		key,
 		templateSlug: "marketing",
+		pathname: "/blog",
 		render,
 		now: () => now,
 		waitUntil: (promise) => background.push(promise),
