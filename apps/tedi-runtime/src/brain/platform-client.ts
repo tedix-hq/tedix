@@ -467,6 +467,8 @@ export interface PlatformClient {
 	sendWorkAttemptMessage(params: {
 		workItemId: string;
 		body: string;
+		/** Stop the agent's current turn and apply the follow-up right away. */
+		interrupt?: boolean;
 	}): Promise<WorkAttemptMessage>;
 	stopWorkAttempt(params: { workItemId: string }): Promise<WorkAttemptMessage>;
 	/** The agent runs this tedi started, newest first, with their real state. */
@@ -1081,10 +1083,12 @@ export class HttpPlatformClient implements PlatformClient {
 	async sendWorkAttemptMessage(params: {
 		workItemId: string;
 		body: string;
+		interrupt?: boolean;
 	}): Promise<WorkAttemptMessage> {
 		return this.rpc("workItems", "sendAttemptMessage", {
 			id: params.workItemId,
 			body: params.body,
+			...(params.interrupt ? { interrupt: true } : {}),
 		});
 	}
 

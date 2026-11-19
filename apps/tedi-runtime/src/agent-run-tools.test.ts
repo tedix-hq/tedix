@@ -188,6 +188,7 @@ assert.deepEqual(Object.keys(build({}).tools), [
 		body: "Also update the changelog",
 		senderType: "tedi" as const,
 		senderId: "fictional-tedi",
+		interrupt: false,
 		createdAt: "2026-11-19T10:00:00.000Z",
 		deliveredAt: null,
 		appliedAt: null,
@@ -355,6 +356,11 @@ assert.deepEqual(Object.keys(build({}).tools), [
 			messageId: "55555555-5555-4555-8555-555555555555",
 		},
 	);
+	await run("send_agent_run_message", {
+		workItemId: item,
+		message: "Stop, wrong branch",
+		interrupt: true,
+	});
 	assert.deepEqual(await run("stop_agent_run", { workItemId: item }), {
 		kind: "agent_run_error",
 		workItemId: item,
@@ -363,6 +369,7 @@ assert.deepEqual(Object.keys(build({}).tools), [
 	});
 	assert.deepEqual(sent, [
 		{ workItemId: item, body: "Also update the changelog" },
+		{ workItemId: item, body: "Stop, wrong branch", interrupt: true },
 		{ workItemId: item },
 	]);
 }
