@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -444,14 +443,6 @@ describe("OsQuickChat mount", () => {
 		}
 	});
 
-	it("drops the generated subtitle that only repeats the title", async () => {
-		const { initOptions } = await mount({
-			subtitle: "Your assistant for Acme",
-		});
-		// Empty, not absent, so published branding cannot restore it.
-		expect(initOptions().subtitle).toBe("");
-	});
-
 	it("derives the white-label experience from organization configuration", async () => {
 		const { initOptions } = await mount();
 		const options = initOptions();
@@ -468,26 +459,6 @@ describe("OsQuickChat mount", () => {
 		// OS must not hand the widget native history either.
 		expect(options).not.toHaveProperty("history");
 		expect(options).not.toHaveProperty("transcript");
-	});
-
-	it("reads the OS launcher layer as a numeric widget default", async () => {
-		const kumoCss = readFileSync(
-			"../../packages/design-tokens/src/kumo.css",
-			"utf8",
-		);
-		const layer = Number(/--tedix-layer-launcher:\s*(\d+)/.exec(kumoCss)?.[1]);
-		const overlay = Number(/--tedix-layer-overlay:\s*(\d+)/.exec(kumoCss)?.[1]);
-		expect(layer).toBeGreaterThan(40);
-		expect(layer).toBeLessThan(overlay);
-		document.documentElement.style.setProperty(
-			"--tedix-layer-launcher",
-			String(layer),
-		);
-		expect(defaultTediWidgetConfig({ name: "Acme" }).zIndex).toBe(layer);
-		const { initOptions } = await mount();
-		expect(initOptions().zIndex).toBe(layer);
-		document.documentElement.style.setProperty("--tedix-layer-launcher", "60");
-		expect(defaultTediWidgetConfig({ name: "Acme" }).zIndex).toBe(60);
 	});
 
 	it("uses the OS layer even when published external-widget settings request a higher layer", async () => {

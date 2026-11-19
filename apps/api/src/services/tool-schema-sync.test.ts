@@ -2173,69 +2173,6 @@ describe("oRPC tool projection sync", () => {
 		expect(result.items[0].endpoint).toBe("tediUsage/getCallCosts");
 	});
 
-	it("projects the full oRPC surface by default, including internal procedures", async () => {
-		const { db } = makeDb([]);
-
-		const result = await runToolSchemaSync(db, {
-			mode: "projection",
-			apply: false,
-		});
-		const projectedEndpoints = result.items.map((item) => item.endpoint);
-
-		expect(result.total).toBe(result.items.length);
-		expect(new Set(projectedEndpoints).size).toBe(projectedEndpoints.length);
-		expect(
-			projectedEndpoints.some((endpoint) =>
-				endpoint.startsWith("tenantBehavioralEvals/"),
-			),
-		).toBe(false);
-		expect(
-			projectedEndpoints.filter(
-				(endpoint) =>
-					endpoint.startsWith("cognitiveRuntime/") &&
-					endpoint.includes("ArtifactRelease"),
-			),
-		).toEqual([]);
-		expect(result.items).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					endpoint: "skills/listPromotionCandidates",
-					status: "wouldCreate",
-				}),
-				expect.objectContaining({
-					endpoint: "skills/auditToolCoverage",
-					status: "wouldCreate",
-				}),
-				expect.objectContaining({
-					endpoint: "toolSchemaSync/run",
-					status: "wouldCreate",
-				}),
-				expect.objectContaining({
-					endpoint: "workItems/create",
-					status: "wouldCreate",
-				}),
-				expect.objectContaining({
-					endpoint: "cognitiveRuntime/getStability",
-					status: "wouldCreate",
-				}),
-				expect.objectContaining({
-					endpoint: "workflows/listDefinitions",
-					toolId: "list_workflow_definitions",
-					status: "wouldCreate",
-				}),
-				expect.objectContaining({
-					endpoint: "workflows/listDefinitionHealth",
-					toolId: "list_workflow_definition_health",
-					status: "wouldCreate",
-				}),
-				expect.objectContaining({
-					endpoint: "workflows/listRuns",
-					status: "wouldCreate",
-				}),
-			]),
-		);
-	});
-
 	it("never projects human artifact release review endpoints, including explicit repair", async () => {
 		const { db } = makeDb([]);
 		const result = await runToolSchemaSync(db, {

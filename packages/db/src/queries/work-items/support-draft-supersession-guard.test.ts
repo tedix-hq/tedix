@@ -1,5 +1,4 @@
 import { DatabaseSync } from "node:sqlite";
-import { readdirSync, readFileSync } from "node:fs";
 import { expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { organizationMembers } from "../../schema/organization-members";
@@ -10,6 +9,7 @@ import {
 	workInteractionResponses,
 } from "../../schema/work-factory";
 import { createD1Facade } from "../../test/d1-facade";
+import { deployedWorkInteractionGuards } from "../../test/work-interaction-guards";
 import { canonicalWorkFactoryDdl, schemaDdl } from "../../test/schema-ddl";
 import { sweepSupersededSupportDraftInteractions } from "./interactions";
 
@@ -59,34 +59,11 @@ function fixture(
 				JSON.stringify(metadata),
 			);
 	}
-	// Exercise the effective migration guards, including later replacements.
-	const migrations = new URL("../../../drizzle/", import.meta.url);
-	const guards = new Map<string, string>();
-	for (const name of readdirSync(migrations).sort()) {
-		if (!/^\d+_/.test(name)) continue;
-		const sql = readFileSync(
-			new URL(`${name}/migration.sql`, migrations),
-			"utf8",
-		);
-		for (const statement of sql.split("--> statement-breakpoint")) {
-			const drop = statement.match(
-				/DROP TRIGGER(?: IF EXISTS)?\s+[`"]?([\w]+)[`"]?/i,
-			);
-			if (drop) guards.delete(drop[1]!);
-			const create = statement.match(
-				/CREATE TRIGGER\s+[`"]?([\w]+)[`"]?[\s\S]*?\bEND;/i,
-			);
-			if (
-				create &&
-				/BEFORE UPDATE ON\s+[`"]?work_interactions[`"]?(?:\s|$)/i.test(
-					create[0],
-				)
-			)
-				guards.set(create[1]!, create[0]);
-		}
-	}
-	expect(guards.has("work_interaction_delegation_guard")).toBe(true);
-	for (const sql of guards.values()) sqlite.exec(sql);
+	const guards = deployedWorkInteractionGuards("update");
+	expect(
+		guards.some((guard) => guard.includes("work_interaction_delegation_guard")),
+	).toBe(true);
+	for (const guard of guards) sqlite.exec(guard);
 	return sqlite;
 }
 

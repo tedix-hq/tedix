@@ -12,36 +12,18 @@
  * edit that swaps the guard back to any tenant-reachable plane fails here.
  */
 
-import { Procedure, unlazyRouter } from "@orpc/server";
+import { Procedure, unlazy } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
 import { AUTHZ } from "../orpc";
 import { apiRouter } from "./index";
 
-async function middlewaresOf(
-	namespace: string,
-	name: string,
-): Promise<unknown[]> {
-	const flat = (await unlazyRouter(apiRouter)) as Record<
-		string,
-		Record<string, unknown>
-	>;
-	const procedure = flat[namespace]?.[name];
-	if (!(procedure instanceof Procedure)) {
-		throw new Error(`${namespace}.${name} is not a procedure`);
-	}
-	const internal = (
-		procedure as unknown as {
-			"~orpc": { orderedMiddlewares?: Array<{ middleware: unknown }> };
-		}
-	)["~orpc"];
-	return (internal.orderedMiddlewares ?? []).map((entry) => entry.middleware);
-}
-
 describe("platform cron health authority", () => {
 	it("is guarded by platform authority, not a tenant permission", async () => {
-		const middlewares = await middlewaresOf(
-			"controlPlane",
-			"listPlatformCronHealth",
+		const { default: controlPlane } = await unlazy(apiRouter.controlPlane);
+		const procedure = controlPlane.listPlatformCronHealth;
+		expect(procedure).toBeInstanceOf(Procedure);
+		const middlewares = procedure["~orpc"].orderedMiddlewares.map(
+			(entry) => entry.middleware,
 		);
 
 		expect(middlewares).toContain(AUTHZ.platformAdmin);

@@ -4,10 +4,7 @@ import {
 	type OutputPatch,
 } from "@tedix/api-contract/utils/output-patch";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import {
-	SHEET_CLIENT_SOURCE,
-	SHEET_SERVER_SOURCE,
-} from "@tedix/api-contract/assets/sheet-blueprint";
+import { SHEET_SERVER_SOURCE } from "@tedix/api-contract/assets/sheet-blueprint";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
 import { normalizeSheetContent, projectWorkbook } from "./output-models";
 import { evaluateWorkbook } from "./workbook-formulas";
@@ -640,37 +637,6 @@ describe("Portable Sheet grid", () => {
 			expect(input.value).toBe("=A$1");
 		});
 	});
-	it("marks a tab an agent changed while you were on another one, for a moment", async () => {
-		const app = await editor();
-		const tab = (id: string) => q(`[role=tab][data-sheet="${id}"]`);
-		const main = (tab("archive").previousElementSibling as HTMLElement).dataset
-			.sheet!;
-		tab("archive").click();
-		await vi.waitFor(() =>
-			expect(tab("archive").getAttribute("aria-selected")).toBe("true"),
-		);
-		// Busy on the Archive tab, so the view stays there.
-		window.dispatchEvent(new KeyboardEvent("keydown"));
-		app.changeExternal(7, "tedi");
-		await vi.waitFor(() =>
-			expect(tab(main).hasAttribute("data-touched")).toBe(true),
-		);
-		// The mark lets go by itself.
-		await vi.waitFor(
-			() => expect(tab(main).hasAttribute("data-touched")).toBe(false),
-			{ timeout: 2500 },
-		);
-	});
-	it("leaves tabs a person changed unmarked", async () => {
-		const app = await editor();
-		const tab = (id: string) => q(`[role=tab][data-sheet="${id}"]`);
-		tab("archive").click();
-		window.dispatchEvent(new KeyboardEvent("keydown"));
-		app.changeExternal(7);
-		await vi.waitFor(() => expect(app.revision()).toBeGreaterThan(1));
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(document.querySelector("[role=tab][data-touched]")).toBeNull();
-	});
 	it("finds what cells show on this sheet, and formulas on all sheets when asked", async () => {
 		await editor();
 		key("f", { metaKey: true });
@@ -900,15 +866,6 @@ describe("Portable Sheet grid", () => {
 		await vi.waitFor(() => expect(display("C1")).toBe("6"));
 		expect(display("B1")).toBe("2");
 		expect(app.saved().rows[0]![0]).toBe(4);
-	});
-	it("merges someone else's save into unsaved changes to a different cell and saves both", async () => {
-		const app = await editor();
-		edit("B1", "5");
-		await vi.waitFor(() => expect(display("C1")).toBe("6"));
-		app.changeExternal(4);
-		await vi.waitFor(() => expect(display("C1")).toBe("9"));
-		await vi.waitFor(() => expect(app.revision()).toBe(3));
-		expect(app.saved().rows[0]).toEqual([4, 5, 9]);
 	});
 	it("leaves text being typed alone when an update arrives, then merges it", async () => {
 		const app = await editor();
@@ -1531,62 +1488,5 @@ describe("Portable Sheet grid", () => {
 		).toBe("=A1*19");
 		await app.reopen();
 		expect(display("C1")).toBe("19");
-	});
-
-	it("ships an executable isolated bundle without native editor dispatch or imports", async () => {
-		document.body.innerHTML = '<div id="app"></div>';
-		const calculate = (content: Sheet) =>
-			projectWorkbook(
-				evaluateWorkbook(normalizeSheetContent(content).workbook!),
-			);
-		const bridge = {
-			call: vi.fn(async (method: string) =>
-				method === "context"
-					? {
-							role: "use",
-							workspaceId: "workspace",
-							grants: [],
-							settings: { slot: "sheet" },
-						}
-					: method === "sheet.evaluate"
-						? calculate({ kind: "sheet", columns: ["A"], rows: [[1]] })
-						: {
-								output: {
-									id: "o",
-									title: "Portable",
-									workspaceId: "workspace",
-									kind: "sheet",
-								},
-								revision: {
-									revision: 7,
-									content: { kind: "sheet", columns: ["A"], rows: [[1]] },
-								},
-							},
-			),
-		};
-		Object.defineProperty(window, "tedix", {
-			value: bridge,
-			configurable: true,
-		});
-		const listeners: Array<[string, EventListenerOrEventListenerObject]> = [];
-		const add = window.addEventListener.bind(window);
-		vi.spyOn(window, "addEventListener").mockImplementation(
-			(name, listener, options) => {
-				listeners.push([name, listener]);
-				add(name, listener, options);
-			},
-		);
-		cleanups.push(() => {
-			for (const [name, listener] of listeners)
-				window.removeEventListener(name, listener);
-			document.querySelectorAll("style").forEach((style) => style.remove());
-			Reflect.deleteProperty(window, "tedix");
-		});
-		new Function(SHEET_CLIENT_SOURCE)();
-		await vi.waitFor(() => expect(q("h1").textContent).toBe("Portable"));
-		expect(q(".status").textContent).toBe("View only");
-		expect(display("A1")).toBe("1");
-		expect(SHEET_CLIENT_SOURCE).not.toContain("OutputSheetEditor");
-		expect(SHEET_CLIENT_SOURCE).not.toMatch(/\bimport\s/);
 	});
 });

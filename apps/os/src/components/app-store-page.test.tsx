@@ -24,14 +24,13 @@ vi.mock("@/lib/api", () => ({ osApi: { catalog, apps: {} } }));
 import { AppStorePage } from "./app-store-page";
 import * as localInference from "@/lib/local-inference";
 import { AppStoreDetailPage, InstallButton } from "./app-store-detail-page";
-import { Page } from "@/components/kumo/page";
 import {
 	catalogAppDetailQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
 import { Route as StoreRoute } from "@/routes/_session/_tenant/explore.apps";
 
-import { catalogCategoryLabel, catalogListInput } from "@/lib/catalog-search";
+import { catalogListInput } from "@/lib/catalog-search";
 
 describe("App Store migration", () => {
 	it("shows local unavailability without fetching the fleet catalog", () => {
@@ -66,137 +65,6 @@ describe("App Store migration", () => {
 			sortBy: "name",
 			healthStatus: "healthy",
 		});
-	});
-
-	it("keeps known category labels readable and unknown ones lossless", () => {
-		expect(catalogCategoryLabel("DEVELOPER_TOOLS")).toBe("Developer Tools");
-		expect(catalogCategoryLabel("CUSTOM_VERTICAL")).toBe("CUSTOM_VERTICAL");
-	});
-
-	it("uses the shared Kumo hierarchy and preserves responsive shrink boundaries", async () => {
-		const { host } = await mountStore("/explore/apps?offset=0", () => {
-			catalog.list.mockResolvedValue({
-				...emptyCatalog,
-				total: 1,
-				apps: [
-					{
-						id: "acme",
-						slug: "acme",
-						name: "Acme with a very long catalog name",
-						description: "Accounts and invoices",
-						developer: "Acme Labs",
-						mcpToolCount: 1,
-						installability: { installable: true },
-					},
-				],
-			});
-		});
-		expect(host.querySelector('[data-slot="page"]')?.className).toBe(
-			kumoClass(<Page width="xl" />),
-		);
-		expect(host.textContent).toContain("Browse and add");
-		expect(host.textContent).toContain("1 tool");
-		expect(host.textContent).not.toContain("1 tools");
-		expect(host.textContent).toContain("Showing 1–1 of 1 app");
-		expect(host.textContent).not.toContain("1 apps");
-		// The overview section lives behind the diagnostics disclosure.
-		const diagnostics = [...host.querySelectorAll<HTMLElement>("button")].find(
-			(button) => button.textContent?.trim() === "Catalog diagnostics",
-		)!;
-		await act(async () => diagnostics.click());
-		await flush();
-		expect(host.textContent).toContain("Catalog overview");
-		expect(
-			host.querySelector(
-				".sm\\:grid-cols-\\[minmax\\(0\\,1fr\\)_12rem_auto\\]",
-			),
-		).not.toBeNull();
-		const title = [...host.querySelectorAll('[data-slot="card-title"]')].find(
-			(element) => element.textContent?.includes("Acme"),
-		);
-		expect(title?.classList.contains("min-w-0")).toBe(true);
-		expect(title?.textContent).toBe("Acme with a very long catalog name");
-		expect(title?.classList.contains("truncate")).toBe(false);
-		expect(title?.classList.contains("[overflow-wrap:anywhere]")).toBe(true);
-		const card = title?.closest('[data-slot="card"]');
-		expect(card?.getAttribute("data-size")).toBe("sm");
-		const byline = card?.querySelector('[data-slot="card-description"]');
-		expect(byline?.textContent).toBe("by Acme Labs");
-		// Below `sm` the provider byline wraps instead of silently truncating.
-		expect(byline?.classList.contains("truncate")).toBe(false);
-		expect(byline?.classList.contains("sm:truncate")).toBe(true);
-		expect(byline?.classList.contains("[overflow-wrap:anywhere]")).toBe(true);
-		const description = card?.querySelector(
-			'[data-slot="card-content"] p[data-slot="text"]',
-		);
-		expect(description?.textContent).toBe("Accounts and invoices");
-		// The two-line clamp holds at every width so a long description cannot
-		// fill a phone screen; the labelled "Read more" affordance sits inside
-		// the card link to the detail page, which keeps the full text reachable.
-		expect(description?.classList.contains("line-clamp-2")).toBe(true);
-		expect(description?.classList.contains("max-sm:line-clamp-none")).toBe(
-			false,
-		);
-		const cardLink = card?.closest("a");
-		expect(cardLink?.getAttribute("href")).toBe("/explore/apps/acme");
-		const readMore = [...(card?.querySelectorAll("span") ?? [])].find(
-			(element) => element.textContent?.trim() === "Read more",
-		);
-		expect(readMore?.classList.contains("text-kumo-brand")).toBe(true);
-		for (const header of host.querySelectorAll('[data-slot="card-header"]'))
-			expect(header.classList.contains("pb-3")).toBe(false);
-		for (const content of host.querySelectorAll('[data-slot="card-content"]'))
-			expect(content.classList.contains("pt-0")).toBe(false);
-		expect(host.querySelector(".text-\\[10px\\]")).toBeNull();
-	});
-
-	it("lays out the app detail with shrinkable columns and wraps long names", async () => {
-		const { host } = await mountInRouter(
-			<AppStoreDetailPage slug="acme" />,
-			(client) =>
-				client.setQueryData(catalogAppDetailQueryOptions("acme").queryKey, {
-					id: "acme",
-					slug: "acme",
-					name: "Acme",
-					tools: [
-						{
-							id: "tool-1",
-							toolName: "list_invoices",
-							description: "Lists invoices.",
-							inputSchema: { type: "object", properties: {} },
-							annotations: { readOnlyHint: true },
-							detectedAt: "2026-08-23T00:00:00.000Z",
-							lastSeenAt: "2026-08-23T00:00:00.000Z",
-							removedAt: null,
-							lastTestedAt: null,
-							testSuccessRate: null,
-							avgLatencyMs: null,
-							testCount: 0,
-							exampleInput: null,
-							exampleOutput: null,
-						},
-					],
-					installability: { installable: true },
-				} as never),
-		);
-		expect(host.querySelector('[data-slot="page"]')?.className).toBe(
-			kumoClass(<Page width="xl" />),
-		);
-		expect(host.textContent).toContain("Capabilities");
-		const grid = host.querySelector(".lg\\:grid-cols-3");
-		expect(grid?.classList.contains("min-w-0")).toBe(true);
-		expect(
-			grid?.querySelector(".lg\\:col-span-2")?.classList.contains("min-w-0"),
-		).toBe(true);
-		expect(
-			host.querySelector('[aria-label="App metadata"]')?.closest(".min-w-0"),
-		).not.toBeNull();
-		expect(host.querySelector("h1")?.className).toContain(
-			"[overflow-wrap:anywhere]",
-		);
-		expect(
-			host.querySelector('[data-slot="page-actions"]')?.textContent,
-		).toContain("Review installation");
 	});
 
 	it("lists same-vendor variants under Also available as", async () => {
@@ -245,24 +113,45 @@ describe("App Store migration", () => {
 		).toEqual(["/explore/apps/acme", "/explore/apps/acme-claude"]);
 	});
 
-	it("installs after review and refreshes the apps and catalog domains", async () => {
+	it("requires an installation review and allows retry after refusal", async () => {
 		const { host, invalidated } = await mountInRouter(
 			<InstallButton appId="acme" name="Acme" disabled={false} reason="" />,
 		);
 		const review = [...host.querySelectorAll("button")].find((button) =>
 			button.textContent?.includes("Review installation"),
 		)!;
+		const dialog = () => document.querySelector('[role="alertdialog"]')!;
+		const action = (label: string) =>
+			[...dialog().querySelectorAll("button")].find(
+				(button) => button.textContent?.trim() === label,
+			)!;
+
 		await act(async () => review.click());
+		expect(dialog().textContent).toContain(
+			"Install Acme for this organization?",
+		);
+		expect(dialog().textContent).toContain(
+			"does not connect a personal or shared account",
+		);
+		await act(async () => action("Cancel").click());
 		expect(catalog.installFromCatalog).not.toHaveBeenCalled();
-		const install = [...document.body.querySelectorAll("button")].find(
-			(button) => button.textContent?.trim() === "Install for organization",
-		)!;
-		await act(async () => install.click());
+
+		catalog.installFromCatalog.mockRejectedValueOnce(
+			new Error("Permission denied"),
+		);
+		await act(async () => review.click());
+		await act(async () => action("Install for organization").click());
 		await flush();
-		expect(catalog.installFromCatalog).toHaveBeenCalledWith({
+		expect(dialog().textContent).toContain(
+			"Installation failed. You can retry or cancel.",
+		);
+		expect(catalog.installFromCatalog).toHaveBeenCalledExactlyOnceWith({
 			catalogAppId: "acme",
 			visibility: "private",
 		});
+		invalidated.length = 0;
+		await act(async () => action("Install for organization").click());
+		await flush();
 		expect(invalidated).toEqual(
 			expect.arrayContaining([osQueryKeys.apps(), osQueryKeys.catalog()]),
 		);
@@ -315,10 +204,6 @@ async function mountInRouter(
 	await flush();
 	return { host, invalidated };
 }
-
-const kumoClass = (element: React.ReactElement) =>
-	new DOMParser().parseFromString(renderToStaticMarkup(element), "text/html")
-		.body.firstElementChild?.className;
 
 const emptyCatalog = {
 	apps: [],

@@ -7,7 +7,6 @@ import { auditEvents } from "../../schema/audit-events";
 import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
 import { parseKernelGovernancePolicy } from "@tedix/api-contract/utils/approval-policy";
 import { DatabaseSync } from "node:sqlite";
-import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import {
@@ -25,6 +24,7 @@ import {
 	workInteractions,
 } from "../../schema/work-factory";
 import { createD1Facade } from "../../test/d1-facade";
+import { deployedWorkInteractionGuards } from "../../test/work-interaction-guards";
 import { canonicalWorkFactoryDdl, schemaDdl } from "../../test/schema-ddl";
 import { settleRecoveredRepositoryCiObservations } from "../repository-observer";
 import {
@@ -44,41 +44,12 @@ import {
 
 const NOW = "2026-08-21T12:00:00.000Z";
 
-/** Deployed interaction guards, latest definition each. */
-function deployedInteractionGuards(includeInsert = false) {
-	const migrations = new URL("../../../drizzle/", import.meta.url);
-	const guards = new Map<string, string>();
-	for (const name of readdirSync(migrations).sort()) {
-		if (!/^\d+_/.test(name)) continue;
-		const text = readFileSync(
-			new URL(`${name}/migration.sql`, migrations),
-			"utf8",
-		);
-		for (const statement of text.split("--> statement-breakpoint")) {
-			const drop = statement.match(
-				/DROP TRIGGER(?: IF EXISTS)?\s+[`"]?([\w]+)[`"]?/i,
-			);
-			if (drop) guards.delete(drop[1]!);
-			const create = statement.match(
-				/CREATE TRIGGER\s+[`"]?([\w]+)[`"]?[\s\S]*?\bEND;/i,
-			);
-			if (
-				create &&
-				/BEFORE (?:UPDATE|INSERT) ON\s+[`"]?work_interactions[`"]?(?:\s|$)/i.test(
-					create[0],
-				) &&
-				(includeInsert || /BEFORE UPDATE ON/i.test(create[0]))
-			)
-				guards.set(create[1]!, create[0]);
-		}
-	}
-	return [...guards.values()];
-}
 const armed = new WeakSet<DatabaseSync>();
 /** Install the deployed update guards once, after a test's setup writes. */
 function armInteractionGuards(sqlite: DatabaseSync) {
 	if (armed.has(sqlite)) return;
-	for (const guard of deployedInteractionGuards()) sqlite.exec(guard);
+	for (const guard of deployedWorkInteractionGuards("update"))
+		sqlite.exec(guard);
 	armed.add(sqlite);
 }
 
@@ -1162,9 +1133,7 @@ describe("obsolete Work interactions", () => {
 			await tick(f, 1);
 			const receipt = (await listInteractionExpiryReceipts(f.db, "org"))[0]!;
 			f.sqlite.exec(schemaDdl(externalAgentPrincipals, externalAgentSessions));
-			for (const guard of deployedInteractionGuards(true).filter((guard) =>
-				/BEFORE INSERT ON/i.test(guard),
-			))
+			for (const guard of deployedWorkInteractionGuards("insert"))
 				f.sqlite.exec(guard);
 			const restored = await createWorkInteraction(f.db, {
 				id: crypto.randomUUID(),

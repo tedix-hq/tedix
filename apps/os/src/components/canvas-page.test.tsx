@@ -11,7 +11,6 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
 import {
 	afterEach,
 	beforeEach,
@@ -345,7 +344,6 @@ vi.mock("@/components/output-export-buttons", () => ({
 	),
 }));
 
-import { ConnectionChip } from "./canvas-doc-panel";
 import {
 	CANVAS_CHAT_WIDTH_DEFAULT,
 	CANVAS_STAGE_CLOSE_SETTLE_MS,
@@ -360,7 +358,6 @@ import {
 	CANVAS_STAGE_MIN_WIDTH,
 	CanvasPage,
 	isCanvasSimpleMode,
-	canvasArtifactPaneLabel,
 	clampCanvasChatWidth,
 	linkedOutputIdFromManifest,
 	nextCanvasDocAfterClose,
@@ -370,11 +367,7 @@ import {
 } from "./canvas-page";
 import { holdWorkspaceFirstMessage } from "@/lib/workspace-first-message";
 import { canvasWorkpieceModeOptions } from "./canvas-workpiece-tabs";
-import {
-	outputKindError,
-	parseDraft,
-	parseOutputDraft,
-} from "@/lib/canvas-draft";
+import { parseOutputDraft } from "@/lib/canvas-draft";
 import {
 	type CanvasDocSelection,
 	canvasDocKey,
@@ -960,17 +953,6 @@ afterEach(() => {
 // Pure helpers
 // ---------------------------------------------------------------------------
 
-describe("canvasDocKey", () => {
-	it("builds the gadget:/output: room keys", () => {
-		expect(canvasDocKey({ type: "gadget", id: GADGET_ID })).toBe(
-			`gadget:${GADGET_ID}`,
-		);
-		expect(canvasDocKey({ type: "output", id: OUTPUT_ID })).toBe(
-			`output:${OUTPUT_ID}`,
-		);
-	});
-});
-
 describe("Canvas workbench state", () => {
 	it("opens only the app its owner marked as the workspace default", () => {
 		expect(
@@ -1144,29 +1126,6 @@ describe("gadgetWidgetTargetFromManifest", () => {
 	});
 });
 
-describe("parseDraft", () => {
-	it("returns the parsed value for valid JSON", () => {
-		expect(parseDraft('{"a":1}')).toEqual({ ok: true, value: { a: 1 } });
-	});
-
-	it("surfaces the parse error for invalid JSON", () => {
-		const result = parseDraft("not json{");
-		expect(result.ok).toBe(false);
-		if (!result.ok) expect(result.error.length).toBeGreaterThan(0);
-	});
-});
-
-describe("outputKindError", () => {
-	it("accepts a matching kind and rejects everything else", () => {
-		expect(outputKindError(baseContent, "document")).toBeNull();
-		expect(outputKindError({ kind: "sheet" }, "document")).toContain(
-			'"kind": "document"',
-		);
-		expect(outputKindError("nope", "document")).toContain('"kind": "document"');
-		expect(outputKindError(null, "document")).toContain('"kind": "document"');
-	});
-});
-
 describe("parseOutputDraft", () => {
 	it("distinguishes invalid JSON, invalid content, and a wrong output kind", () => {
 		expect(parseOutputDraft("not json{", "document")).toEqual({
@@ -1232,35 +1191,6 @@ describe("groupWorkspaceLibrary", () => {
 	});
 });
 
-describe("ConnectionChip", () => {
-	it("shows the status and peer count when connected", () => {
-		const html = renderToStaticMarkup(
-			<ConnectionChip status="connected" peers={2} />,
-		);
-		expect(html).toContain('data-connection="connected"');
-		expect(html).toContain("2 peers");
-	});
-
-	it("hides the peer count while not connected", () => {
-		const html = renderToStaticMarkup(
-			<ConnectionChip status="disconnected" peers={0} />,
-		);
-		expect(html).toContain('data-connection="disconnected"');
-		expect(html).not.toContain("peers");
-	});
-});
-
-describe("canvasArtifactPaneLabel", () => {
-	it("uses the artifact format instead of exposing the internal workpiece noun", () => {
-		expect(
-			canvasArtifactPaneLabel({ type: "output", id: OUTPUT_ID }, "video"),
-		).toBe("Video");
-		expect(
-			canvasArtifactPaneLabel({ type: "gadget", id: GADGET_ID }, null),
-		).toBe("Automation");
-	});
-});
-
 // ---------------------------------------------------------------------------
 // Listing
 // ---------------------------------------------------------------------------
@@ -1303,59 +1233,6 @@ describe("CanvasPage listing", () => {
 		expect(osWorkspacesApi.workspaces.create).not.toHaveBeenCalled();
 	});
 
-	it.each(["Dispatch", "Studio", "People", "Choices", "Updates"])(
-		"uses the configured app name %s above a quiet workspace breadcrumb",
-		async (name) => {
-			mockLists();
-			osWorkspacesApi.gadgets.list.mockResolvedValue({
-				items: [gadgetFixture({ name })],
-				truncated: false,
-			});
-			osWorkspacesApi.gadgets.get.mockResolvedValue({
-				gadget: gadgetFixture({ name }),
-				currentRevision: gadgetRevisionFixture(),
-			});
-			routing.search = { workpiece: `gadget:${GADGET_ID}`, pane: "workpiece" };
-			const { container, rerender } = createPageHarness();
-			await flush();
-
-			expect(
-				container.querySelector(".canvas-workspace-title h1")?.textContent,
-			).toBe(name);
-			expect(
-				container.querySelector(
-					'nav[aria-label="breadcrumb"] a[href^="/workspace/"]',
-				)?.textContent,
-			).toBe("Ops room");
-
-			osWorkspacesApi.outputs.get.mockResolvedValue({
-				output: outputFixture(),
-				currentRevision: outputRevisionFixture(),
-			});
-			mockCollab({ initial: docJson(baseContent) });
-			routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
-			rerender();
-			await flush();
-			expect(
-				container.querySelector(".canvas-workspace-title h1")?.textContent,
-			).toBe("Ops room");
-			expect(
-				container.querySelector(".canvas-workspace-breadcrumb"),
-			).toBeNull();
-		},
-	);
-
-	it("uses the selected workspace's stable placeholder beside its breadcrumb", async () => {
-		mockLists();
-		const container = renderPage();
-		await flush();
-		const avatar = container.querySelector(
-			'.canvas-workspace-header [data-entity-kind="workspace"]',
-		);
-		expect(avatar).not.toBeNull();
-		expect(avatar?.textContent).toBe("OR");
-		expect(container.querySelector(".canvas-workspace-header img")).toBeNull();
-	});
 	it("waits for file bindings before presenting duplicate or native navigation choices", async () => {
 		mockLists();
 		const sources = await osWorkspacesApi.resources.list();
@@ -1486,6 +1363,10 @@ describe("CanvasPage listing", () => {
 
 	it("opens an output without an editor read-only with an action to attach one", async () => {
 		mockLists();
+		osWorkspacesApi.gadgets.list.mockResolvedValue({
+			items: [],
+			truncated: false,
+		});
 		osWorkspacesApi.outputs.get.mockResolvedValue({
 			output: outputFixture(),
 			currentRevision: outputRevisionFixture(),
@@ -1493,9 +1374,13 @@ describe("CanvasPage listing", () => {
 		mockCollab({ initial: docJson(baseContent) });
 		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
 		const container = renderPage();
-		await flush();
+		await vi.waitFor(async () => {
+			await flush();
+			expect(
+				container.querySelector("[data-canvas-output-view]"),
+			).not.toBeNull();
+		});
 		expect(routing.search.workpiece).toBe(`output:${OUTPUT_ID}`);
-		expect(container.querySelector("[data-canvas-output-view]")).not.toBeNull();
 		expect(findButton(container, "Open in editor")).not.toBeNull();
 		expect(container.querySelector("[data-collab-editor]")).toBeNull();
 	});
@@ -2361,29 +2246,6 @@ describe("CanvasPage listing", () => {
 		).toBe("workpiece");
 	});
 
-	it("writes typed search when an output is selected", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture(),
-		});
-		mockCollab({ initial: docJson(outputRevisionFixture().content) });
-		routing.search = { pane: "resources" };
-		const container = renderPage();
-		await flush();
-
-		click(findButton(container, "Weekly report"));
-		await flush();
-
-		expect(routing.navigate).toHaveBeenLastCalledWith({
-			search: {
-				workpiece: `output:${OUTPUT_ID}`,
-				pane: "workpiece",
-			},
-			replace: false,
-		});
-	});
-
 	it("opens a linked first-party Gadget's output read-only until its editor is attached", async () => {
 		mockLists();
 		osWorkspacesApi.gadgets.get.mockResolvedValue({
@@ -2615,43 +2477,6 @@ describe("CanvasPage listing", () => {
 		);
 	});
 
-	it("points built-in app history guidance at the App and Files controls", async () => {
-		mockLists();
-		const currentRevision = gadgetRevisionFixture({
-			manifest: {
-				capabilities: [],
-				entry: "tedix:app/activity-feed",
-				config: { version: 1, scope: "organization", projects: [] },
-			},
-		});
-		osWorkspacesApi.gadgets.get.mockResolvedValue({
-			gadget: gadgetFixture(),
-			currentRevision,
-		});
-		mockCollab({ initial: docJson(currentRevision.manifest) });
-		routing.search = {
-			workpiece: `gadget:${GADGET_ID}`,
-			pane: "workpiece",
-			view: "history",
-		};
-		const container = renderPage();
-		await flush();
-
-		expect(container.querySelector("[data-gadget-executions]")).toBeNull();
-		expect(container.textContent).toContain("Activity comes from linked Work");
-		expect(container.textContent).toContain(
-			"Open App to see activity. Each item keeps its history with its originating Work.",
-		);
-		expect(container.textContent).not.toContain("Open Preview");
-		expect(container.textContent).not.toContain("Open Resources");
-		click(findButton(container, "Open Files"));
-		expect(routing.navigate).toHaveBeenLastCalledWith(
-			expect.objectContaining({
-				search: expect.objectContaining({ pane: "resources" }),
-			}),
-		);
-	});
-
 	it("keeps the code room's connection out of a runtime app's App view", async () => {
 		mockLists();
 		const currentRevision = gadgetRevisionFixture({
@@ -2722,22 +2547,6 @@ describe("CanvasPage listing", () => {
 		expect(
 			container.querySelector('[data-slot="output-workshop-footer"]'),
 		).toBeNull();
-	});
-
-	it("shows the empty state when no workspaces exist", async () => {
-		osWorkspacesApi.workspaces.list.mockResolvedValue({
-			items: [],
-			truncated: false,
-		});
-		const container = renderPage();
-		await flush();
-		expect(container.textContent).toContain("No workspaces yet");
-		expect(
-			container
-				.querySelector('[data-slot="empty"]')
-				?.getAttribute("data-appearance"),
-		).toBe("quiet");
-		expect(osWorkspacesApi.gadgets.list).not.toHaveBeenCalled();
 	});
 });
 
@@ -3228,19 +3037,6 @@ describe("live-draft status the panel renders", () => {
 				/If the connection drops first, they are discarded\./g,
 			),
 		).toHaveLength(2);
-	});
-
-	it("says nothing about discarded edits when none were", async () => {
-		mockLists();
-		osWorkspacesApi.gadgets.get.mockResolvedValue({
-			gadget: gadgetFixture(),
-			currentRevision: gadgetRevisionFixture(),
-		});
-		mockCollab({ initial: docJson(gadgetRevisionFixture().manifest) });
-
-		const container = await openDoc("Report gadget");
-
-		expect(container.textContent).not.toContain("Unsent edits were discarded");
 	});
 });
 

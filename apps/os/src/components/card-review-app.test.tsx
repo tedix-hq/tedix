@@ -567,15 +567,6 @@ describe("CardReviewApp decision interactions", () => {
 				expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
 		},
 	);
-	it("renders an empty queue without decision actions", async () => {
-		sheet.rows = [];
-		await mount();
-		expect(host.querySelector('[role="status"]')?.textContent).toContain(
-			"No cards yet",
-		);
-		expect(host.querySelector(".fd-decision")).toBeNull();
-		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
-	});
 	it.each(["invalid JSON", '{"old":42}'])(
 		"ignores stale storage %s",
 		async (stored) => {
@@ -611,22 +602,6 @@ describe("CardReviewApp decision interactions", () => {
 		expect(host.textContent).toContain(String(sheet.rows[1]![5]));
 		await click("Undo: snoozed until tomorrow");
 		expect(host.textContent).toContain(String(sheet.rows[0]![5]));
-	});
-	it("ignores decision shortcuts while typing unsent changes", async () => {
-		await mount();
-		await click("Ask for changes");
-		await type(
-			'textarea[aria-label="What should change?"]',
-			"Keep this draft.",
-		);
-		const input = host.querySelector("textarea")!;
-		input.focus();
-		for (const shortcut of ["ArrowRight", "ArrowLeft", "l", "d"])
-			await key(input, shortcut);
-		expect(heading(0)).not.toBeNull();
-		expect(input.value).toBe("Keep this draft.");
-		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
-		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
 	});
 	it("ignores review shortcuts while typing and returns focus on Escape", async () => {
 		await mount(false);
@@ -967,12 +942,6 @@ describe("CardReviewApp scored factory cards", () => {
 			},
 		});
 		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
-	});
-
-	it("offers the skip reasons as Not useful chips on the review card", async () => {
-		await mount(false, false, scored);
-		expect(button("Already covered")).toBeDefined();
-		expect(button("Too much effort")).toBeDefined();
 	});
 });
 

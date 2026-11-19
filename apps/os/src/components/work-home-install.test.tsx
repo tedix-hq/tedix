@@ -1,6 +1,10 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	notifyManager,
+	QueryClient,
+	QueryClientProvider,
+} from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { WorkHome } from "./work-home";
 import { osQuery } from "@/lib/os-query-options";
@@ -95,17 +99,25 @@ it("installs the defaults with one button, prevents duplicate clicks and refresh
 		button.querySelector('[role="status"]')?.getAttribute("aria-label"),
 	).toBe("Loading");
 	expect(button.textContent).toBe("Setting up Activity and Decisions…");
-	const succeeded = mutationDispatched(client, "success");
-	await act(async () => {
-		finish({ workspaceId: "11111111-1111-4111-8111-111111111111" });
-		await succeeded;
-		await new Promise((resolve) => setTimeout(resolve, 0));
-	});
-	expect(invalidate).toHaveBeenCalledWith({
-		queryKey: osQuery.osWorkspaces.key(),
-	});
-	expect(button.querySelector('[role="status"]')).toBeNull();
-	await act(async () => root.unmount());
+	// Hold the observer notification until after the success reaches the cache.
+	const notifications: Array<() => void> = [];
+	notifyManager.setScheduler((callback) => notifications.push(callback));
+	try {
+		const succeeded = mutationDispatched(client, "success");
+		await act(async () => {
+			finish({ workspaceId: "11111111-1111-4111-8111-111111111111" });
+			await succeeded;
+			expect(button.querySelector('[role="status"]')).not.toBeNull();
+			for (const notify of notifications) notify();
+		});
+		expect(invalidate).toHaveBeenCalledWith({
+			queryKey: osQuery.osWorkspaces.key(),
+		});
+		expect(button.querySelector('[role="status"]')).toBeNull();
+	} finally {
+		notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+		await act(async () => root.unmount());
+	}
 });
 
 it("shows an installation failure and leaves the button available for retry", async () => {
