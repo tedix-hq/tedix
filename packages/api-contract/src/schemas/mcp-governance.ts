@@ -250,6 +250,7 @@ export type ResolveWorkItemAuthorizationResponse = z.infer<
 export const AgentLifecycleEndpointSchema = z.enum([
 	"workItems/addComment",
 	"workItems/heartbeatAttempt",
+	"workItems/appendAttemptSteps",
 	"workItems/settleAttempt",
 	"externalAgentIdentity/recordKnowledgeCheckpoint",
 	"osWorkspaces/outputs/create",

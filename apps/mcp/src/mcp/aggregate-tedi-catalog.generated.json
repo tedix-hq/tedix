@@ -7706,6 +7706,98 @@
 			"includeTediIdParam": false
 		},
 		{
+			"name": "list_work_attempt_steps",
+			"remoteName": "list_work_attempt_steps",
+			"description": "Watch a run on a Work Item: read its steps, oldest first, and the messages sent to it. Without attemptId it reads the newest run; `live` says whether the run is still in progress.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					},
+					"attemptId": {
+						"description": "Omit to read the newest run of the Work Item.",
+						"type": "string",
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					},
+					"afterSeq": {
+						"description": "Return only steps after this seq.",
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 9007199254740991
+					},
+					"limit": {
+						"default": 200,
+						"type": "integer",
+						"minimum": 1,
+						"maximum": 500
+					}
+				},
+				"required": ["id"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": true
+			},
+			"rpcEndpoint": "workItems/listAttemptSteps",
+			"includeTediIdParam": false
+		},
+		{
+			"name": "send_work_attempt_message",
+			"remoteName": "send_work_attempt_message",
+			"description": "Send a follow-up to the run in progress on a Work Item you own or steward. The agent applies it after its current turn ends. Fails when no run is in progress.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					},
+					"body": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4000,
+						"description": "The follow-up for the agent. It is applied after the agent's current turn ends."
+					}
+				},
+				"required": ["id", "body"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "workItems/sendAttemptMessage",
+			"includeTediIdParam": false,
+			"credentialDerivedTediActor": true
+		},
+		{
+			"name": "stop_work_attempt",
+			"remoteName": "stop_work_attempt",
+			"description": "Stop the run in progress on a Work Item you own or steward. The runner ends the agent and settles the Attempt as cancelled. Fails when no run is in progress.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+					}
+				},
+				"required": ["id"],
+				"additionalProperties": false
+			},
+			"annotations": {
+				"readOnlyHint": false
+			},
+			"rpcEndpoint": "workItems/stopAttempt",
+			"includeTediIdParam": false,
+			"credentialDerivedTediActor": true
+		},
+		{
 			"name": "submit_work_evidence",
 			"remoteName": "submit_work_evidence",
 			"description": "Submit typed evidence from the exact active attempt against one acceptance claim.",

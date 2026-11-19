@@ -192,6 +192,7 @@ describe("liveness declaration", () => {
 			});
 		}
 		expect([...projected.keys()].sort()).toEqual([
+			"append_work_attempt_steps",
 			"heartbeat_work_item_attempt",
 			"report_dispatcher_health",
 			"report_work_agent_session_status",

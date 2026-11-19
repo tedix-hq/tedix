@@ -42,6 +42,12 @@ import {
 	snoozeProcedure,
 } from "./work-items/triage";
 import {
+	appendAttemptStepsProcedure,
+	listAttemptStepsProcedure,
+	sendAttemptMessageProcedure,
+	stopAttemptProcedure,
+} from "./work-items/attempt-steps";
+import {
 	acceptProcedure,
 	cancelFactoryWorkItemProcedure,
 	completeProcedure,
@@ -151,6 +157,10 @@ export const workItemsContractRouter = workItemsOs.router({
 	addRelation: addRelationProcedure,
 	startAttempt: startAttemptProcedure,
 	heartbeatAttempt: heartbeatAttemptProcedure,
+	appendAttemptSteps: appendAttemptStepsProcedure,
+	listAttemptSteps: listAttemptStepsProcedure,
+	sendAttemptMessage: sendAttemptMessageProcedure,
+	stopAttempt: stopAttemptProcedure,
 	settleAttempt: settleAttemptProcedure,
 	listAttempts: listAttemptsProcedure,
 	inspectAttemptRepository: inspectAttemptRepositoryProcedure,

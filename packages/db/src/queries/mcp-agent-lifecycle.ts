@@ -23,6 +23,7 @@ export async function resolveAgentLifecycleAuthorization(
 	const comment = endpoint === "workItems/addComment";
 	const attempt =
 		endpoint === "workItems/heartbeatAttempt" ||
+		endpoint === "workItems/appendAttemptSteps" ||
 		endpoint === "workItems/settleAttempt";
 	const checkpoint =
 		endpoint === "externalAgentIdentity/recordKnowledgeCheckpoint";

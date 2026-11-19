@@ -1664,6 +1664,10 @@
 		{
 			"name": "20261119164404_web-search-rate-card/migration.sql",
 			"sha256": "bdd10c69175c88d38908993c1c3000cf932ee0c734e5b5216fe1da85fa28685f"
+		},
+		{
+			"name": "20261119182301_work_attempt_steps/migration.sql",
+			"sha256": "6f2612dd4e5f8225033b45dfb481a335665ec8742bf7e8f5f1791564ca28fe38"
 		}
 	]
 }

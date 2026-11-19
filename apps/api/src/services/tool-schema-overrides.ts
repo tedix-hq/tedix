@@ -848,6 +848,10 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workItems/startAttempt": "start_work_item_attempt",
 	"workItems/heartbeatAttempt": "heartbeat_work_item_attempt",
 	"workItems/settleAttempt": "settle_work_item_attempt",
+	"workItems/appendAttemptSteps": "append_work_attempt_steps",
+	"workItems/listAttemptSteps": "list_work_attempt_steps",
+	"workItems/sendAttemptMessage": "send_work_attempt_message",
+	"workItems/stopAttempt": "stop_work_attempt",
 	"workItems/listAttempts": "list_work_item_attempts",
 	"workItems/initializeRepositoryCandidate": "initialize_repository_candidate",
 	"workItems/readRepositoryCandidate": "read_repository_candidate",
@@ -979,6 +983,10 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"workItems/startAttempt": "write",
 	"workItems/heartbeatAttempt": "write",
 	"workItems/settleAttempt": "write",
+	"workItems/appendAttemptSteps": "write",
+	"workItems/listAttemptSteps": "read",
+	"workItems/sendAttemptMessage": "write",
+	"workItems/stopAttempt": "write",
 	"workItems/listAttempts": "read",
 	"workItems/initializeRepositoryCandidate": "write",
 	"workItems/readRepositoryCandidate": "read",
@@ -1165,6 +1173,7 @@ export const ORG_INJECT_ROUTERS = new Set<string>(["members"]);
  */
 export const LIVENESS_REPORT_ENDPOINTS = new Set<string>([
 	"workItems/heartbeatAttempt",
+	"workItems/appendAttemptSteps",
 	"workAgentSessions/report",
 	"dispatcherHealth/report",
 ]);

@@ -746,6 +746,12 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	start_work_item_attempt: "write",
 	heartbeat_work_item_attempt: "write",
 	settle_work_item_attempt: "write",
+	// Run log and steering. "append" and "stop" match neither verb regex and
+	// would fall to the admin tier; the API procedure decides who may call.
+	append_work_attempt_steps: "write",
+	list_work_attempt_steps: "read",
+	send_work_attempt_message: "write",
+	stop_work_attempt: "write",
 	submit_work_item_evidence: "write",
 	review_work_item_evidence: "write",
 	// "link"/"unlink" match neither the write nor read verb regexes and would

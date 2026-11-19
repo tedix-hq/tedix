@@ -24,6 +24,15 @@ import {
 	ListWorkEvidenceCliProjectionResultSchema,
 	ListWorkEventCliProjectionResultSchema,
 } from "../schemas/work-items";
+import {
+	AppendWorkAttemptStepsInputSchema,
+	AppendWorkAttemptStepsResultSchema,
+	ListWorkAttemptStepsInputSchema,
+	ListWorkAttemptStepsResultSchema,
+	SendWorkAttemptMessageInputSchema,
+	StopWorkAttemptInputSchema,
+	WorkAttemptMessageSchema,
+} from "../schemas/work-attempt-steps";
 import "@orpc/openapi/extensions/route";
 /**
  * Work Items Contract
@@ -1335,6 +1344,50 @@ export const workItemsContract = oc
 				}),
 			)
 			.output(WorkAttemptSchema),
+
+		appendAttemptSteps: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempts/{attemptId}/steps",
+				summary: "Report run steps",
+				description:
+					"Called by the runner holding the Attempt. Stores the new steps of its run and returns the follow-ups or stop waiting for it. A stale Attempt, or one held by another runner, is refused.",
+			})
+			.input(AppendWorkAttemptStepsInputSchema)
+			.output(AppendWorkAttemptStepsResultSchema),
+
+		listAttemptSteps: oc
+			.route({
+				method: "GET",
+				path: "/{id}/attempt-steps",
+				summary: "List run steps",
+				description:
+					"Read the steps of a run on a Work Item, oldest first, with the messages sent to it. Without attemptId it reads the newest run.",
+			})
+			.input(ListWorkAttemptStepsInputSchema)
+			.output(ListWorkAttemptStepsResultSchema),
+
+		sendAttemptMessage: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempt-messages",
+				summary: "Send a follow-up to a run",
+				description:
+					"Send a follow-up to the run in progress on a Work Item. The agent applies it after its current turn ends. Needs a run in progress; only the Work Item's owner or steward may send one.",
+			})
+			.input(SendWorkAttemptMessageInputSchema)
+			.output(WorkAttemptMessageSchema),
+
+		stopAttempt: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempt-stop",
+				summary: "Stop a run",
+				description:
+					"Ask the run in progress on a Work Item to stop. The runner ends the agent and settles the Attempt as cancelled. Needs a run in progress; only the Work Item's owner or steward may stop it.",
+			})
+			.input(StopWorkAttemptInputSchema)
+			.output(WorkAttemptMessageSchema),
 
 		settleAttempt: oc
 			.route({

@@ -353,6 +353,7 @@
 		"./schemas/factory-blueprints": "./src/schemas/factory-blueprints.ts",
 		"./schemas/factories": "./src/schemas/factories.ts",
 		"./schemas/work-items": "./src/schemas/work-items.ts",
+		"./schemas/work-attempt-steps": "./src/schemas/work-attempt-steps.ts",
 		"./schemas/work-purpose-context": "./src/schemas/work-purpose-context.ts",
 		"./schemas/web-search": "./src/schemas/web-search.ts",
 		"./schemas/token-exchange": "./src/schemas/token-exchange.ts",

@@ -32,6 +32,7 @@ it("binds lifecycle writes to the exact live Attempt and external session", asyn
 	for (const endpoint of [
 		"workItems/addComment",
 		"workItems/heartbeatAttempt",
+		"workItems/appendAttemptSteps",
 		"workItems/settleAttempt",
 		"externalAgentIdentity/recordKnowledgeCheckpoint",
 	]) {
