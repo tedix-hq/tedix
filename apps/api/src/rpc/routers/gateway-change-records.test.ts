@@ -2,9 +2,10 @@ import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { auditContractRouter } from "./audit";
 
@@ -128,4 +129,256 @@ it("stores gateway change records under the gateway's organization only", async 
 	} finally {
 		sqlite.close();
 	}
+});
+
+describe("owner and admin read of gateway change records", () => {
+	const DAY = { from: "2026-11-18T00:00:00Z", until: "2026-11-19T00:00:00Z" };
+
+	async function ledger() {
+		// The member table's organization reference is not under test here.
+		const sqlite = new DatabaseSync(":memory:", {
+			enableForeignKeyConstraints: false,
+		});
+		sqlite.exec(schemaDdl(gatewayChangeRecords));
+		sqlite.exec(schemaDdl(organizationMembers));
+		const db = createDbClient(createD1Facade(sqlite));
+		await db.insert(organizationMembers).values(
+			(
+				[
+					[ORG_A, "owner-a", "owner", "active"],
+					[ORG_A, "admin-a", "admin", "active"],
+					[ORG_A, "member-a", "member", "active"],
+					[ORG_A, "viewer-a", "viewer", "active"],
+					[ORG_A, "former-admin-a", "admin", "suspended"],
+					[ORG_B, "owner-b", "owner", "active"],
+				] as const
+			).map(([organizationId, descopeUserId, role, status]) => ({
+				id: `${organizationId}:${descopeUserId}`,
+				organizationId,
+				descopeUserId,
+				email: `${descopeUserId}@example.test`,
+				role,
+				status,
+			})),
+		);
+		const rows = [
+			[ORG_A, "2026-11-17T23:59:59.999Z", "tool:get_example", "user-1"],
+			[ORG_A, "2026-11-18T00:00:00.000Z", "tool:get_example", "user-1"],
+			[ORG_B, "2026-11-18T09:00:00.000Z", "tool:get_example", "user-1"],
+			[ORG_A, "2026-11-18T10:00:00.000Z", "tool:send_example", "user-1"],
+			[ORG_A, "2026-11-18T11:00:00.000Z", "tool:get_example", "user-2"],
+			[ORG_A, "2026-11-18T23:59:59.999Z", "tool:get_example", "user-1"],
+			// Stored without milliseconds: still exactly the exclusive end.
+			[ORG_A, "2026-11-19T00:00:00Z", "tool:get_example", "user-1"],
+			[ORG_A, "2026-11-19T00:00:00.000Z", "tool:get_example", "user-1"],
+		] as const;
+		await db.insert(gatewayChangeRecords).values(
+			rows.map(([organizationId, recordedAt, resource, actorId], index) => ({
+				id: `00000000-0000-4000-8000-00000000000${index}`,
+				organizationId,
+				resource,
+				actorId,
+				recordedAt,
+				record: {
+					resource,
+					operation: resource.slice("tool:".length),
+					actor: { id: actorId, kind: "user", organizationId },
+					source: { surface: "mcp_gateway" },
+					decision: {
+						verdict: "allow",
+						gate: "tool_scope",
+						reason: "allowed",
+						riskTier: "read",
+						blastRadius: "none",
+					},
+					outcome: "applied",
+					argsHash: `hash-${index}`,
+				} as (typeof gatewayChangeRecords.$inferInsert)["record"],
+			})),
+		);
+		const call = (context: Partial<BaseContext>) =>
+			createRouterClient(auditContractRouter, {
+				context: {
+					db,
+					env: { ENVIRONMENT: "test" },
+					headers: new Headers(),
+					url: new URL("https://api.tedix.test/rpc/audit"),
+					...context,
+				} as BaseContext,
+			}).listGatewayChangeRecords;
+		const member = (
+			organizationId: string,
+			sub: string,
+			permissions = ["analytics:read"],
+		) =>
+			call({
+				authType: "user",
+				organizationId,
+				user: { sub, permissions, roles: [] } as unknown as BaseContext["user"],
+			});
+		const machine = (scopes: string[], actingFor?: string) =>
+			call({
+				authType: "apikey",
+				organizationId: ORG_A,
+				descopeUserId: actingFor,
+				apiKey: {
+					id: "key",
+					organizationId: ORG_A,
+					name: "machine-key",
+					scopes,
+				} as BaseContext["apiKey"],
+			});
+		return { sqlite, member, machine };
+	}
+
+	it("returns only the caller's organization's records", async () => {
+		const { sqlite, member } = await ledger();
+		try {
+			const own = await member(ORG_A, "owner-a")(DAY);
+			expect(own).toMatchObject({
+				from: "2026-11-18T00:00:00.000Z",
+				until: "2026-11-19T00:00:00.000Z",
+				count: 4,
+				nextAfterSequence: null,
+			});
+			expect(own.records.map((record) => record.sequence)).toEqual([
+				2, 4, 5, 6,
+			]);
+			expect(
+				own.records.every((record) => record.actor.organizationId === ORG_A),
+			).toBe(true);
+			expect(own.records[0]).toMatchObject({ argsHash: "hash-1" });
+			expect((await member(ORG_A, "admin-a")(DAY)).count).toBe(4);
+
+			const other = await member(ORG_B, "owner-b")(DAY);
+			expect(other.count).toBe(1);
+			expect(other.records.map((record) => record.sequence)).toEqual([3]);
+
+			// No input names an organization, and membership of one organization
+			// gives nothing in another.
+			await expect(
+				member(
+					ORG_A,
+					"owner-a",
+				)({ ...DAY, organizationId: ORG_B } as typeof DAY),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			await expect(member(ORG_B, "owner-a")(DAY)).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+			await expect(member(ORG_A, "owner-b")(DAY)).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("refuses everyone but an active owner or admin", async () => {
+		const { sqlite, member, machine } = await ledger();
+		try {
+			for (const sub of ["member-a", "viewer-a", "former-admin-a", "stranger"])
+				await expect(member(ORG_A, sub)(DAY)).rejects.toMatchObject({
+					code: "FORBIDDEN",
+				});
+			await expect(member(ORG_A, "owner-a", [])(DAY)).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+
+			// A machine caller needs the read scope and a member to act for.
+			for (const refused of [
+				machine(["analytics:read"]),
+				machine(["analytics:read"], ""),
+				machine(["analytics:read"], "member-a"),
+				machine(["analytics:read"], "owner-b"),
+				machine(["apps:read"], "owner-a"),
+			])
+				await expect(refused(DAY)).rejects.toMatchObject({
+					code: "FORBIDDEN",
+				});
+			expect((await machine(["analytics:read"], "owner-a")(DAY)).count).toBe(4);
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("counts the whole range whatever the page, and ends the range before until", async () => {
+		const { sqlite, member } = await ledger();
+		try {
+			const read = member(ORG_A, "owner-a");
+			const first = await read({ ...DAY, limit: 3 });
+			expect(first.count).toBe(4);
+			expect(first.records.map((record) => record.sequence)).toEqual([2, 4, 5]);
+			expect(first.nextAfterSequence).toBe(5);
+			const second = await read({
+				...DAY,
+				limit: 3,
+				afterSequence: first.nextAfterSequence ?? undefined,
+			});
+			expect(second.count).toBe(4);
+			expect(second.records.map((record) => record.sequence)).toEqual([6]);
+			expect(second.nextAfterSequence).toBeNull();
+			expect((await read({ ...DAY, afterSequence: 6 })).count).toBe(4);
+
+			// Moving `until` onto a record leaves it out; one millisecond later
+			// takes it in.
+			expect(
+				(
+					await read({ from: DAY.from, until: "2026-11-18T10:00:00Z" })
+				).records.map((record) => record.sequence),
+			).toEqual([2]);
+			expect(
+				(
+					await read({ from: DAY.from, until: "2026-11-18T10:00:00.001Z" })
+				).records.map((record) => record.sequence),
+			).toEqual([2, 4]);
+			// An offset names the same instant.
+			expect(
+				(await read({ from: "2026-11-18T01:00:00+01:00", until: DAY.until }))
+					.count,
+			).toBe(4);
+			for (const range of [
+				{ from: DAY.until, until: DAY.from },
+				{ from: DAY.from, until: DAY.from },
+				{ from: "yesterday", until: DAY.until },
+				{ ...DAY, limit: 201 },
+			])
+				await expect(read(range)).rejects.toMatchObject({
+					code: "BAD_REQUEST",
+				});
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("filters by resource and actor, in the count as well as the page", async () => {
+		const { sqlite, member } = await ledger();
+		try {
+			const read = member(ORG_A, "owner-a");
+			const byResource = await read({ ...DAY, resource: "tool:send_example" });
+			expect(byResource.count).toBe(1);
+			expect(byResource.records.map((record) => record.sequence)).toEqual([4]);
+			const byActor = await read({ ...DAY, actorId: "user-1", limit: 1 });
+			expect(byActor.count).toBe(3);
+			expect(byActor.records.map((record) => record.sequence)).toEqual([2]);
+			expect(byActor.nextAfterSequence).toBe(2);
+			const both = await read({
+				...DAY,
+				resource: "tool:get_example",
+				actorId: "user-2",
+			});
+			expect(both.count).toBe(1);
+			expect(both.records.map((record) => record.sequence)).toEqual([5]);
+			expect(
+				(
+					await read({
+						...DAY,
+						resource: "tool:send_example",
+						actorId: "user-2",
+					})
+				).count,
+			).toBe(0);
+		} finally {
+			sqlite.close();
+		}
+	});
 });

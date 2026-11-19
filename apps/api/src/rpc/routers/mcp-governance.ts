@@ -149,7 +149,7 @@ import {
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { requireOrgId } from "../org-scope";
-import { getRequestOrganizationMembership } from "../org-membership";
+import { isActiveOwnerOrAdmin } from "../org-membership";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -179,21 +179,6 @@ async function assertGatewayOrganization(
 			ErrorCodes.FORBIDDEN,
 			"Approval organization does not match the gateway context",
 		);
-}
-
-async function isActiveOwnerOrAdmin(
-	context: BaseContext,
-	organizationId: string,
-	userId: string,
-): Promise<boolean> {
-	const member = await getRequestOrganizationMembership(
-		context,
-		organizationId,
-		userId,
-	);
-	return (
-		member?.status === "active" && ["owner", "admin"].includes(member.role)
-	);
 }
 
 function hasVerifiedUserScope(context: BaseContext, scope: string): boolean {

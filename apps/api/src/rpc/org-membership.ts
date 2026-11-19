@@ -45,3 +45,19 @@ export async function getRequestOrganizationMembership(
 	}
 	return getMemberByUserId(context.db, organizationId, subject);
 }
+
+/** True only for a live membership row whose role is owner or admin. */
+export async function isActiveOwnerOrAdmin(
+	context: BaseContext,
+	organizationId: string,
+	userId: string,
+): Promise<boolean> {
+	const member = await getRequestOrganizationMembership(
+		context,
+		organizationId,
+		userId,
+	);
+	return (
+		member?.status === "active" && ["owner", "admin"].includes(member.role)
+	);
+}
