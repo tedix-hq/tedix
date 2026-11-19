@@ -29,6 +29,8 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { TEDI_RUNTIME_SERVICE_BINDING_SCOPES } from "../../../../tedi-runtime/src/platform-client-factory";
 import { writeMachineToolResultRecords } from "../../services/machine-change-records";
+import { MachineConnectionDO } from "../../services/machine-connection-do";
+import { verifyMachineConnectionTicket } from "../../services/machine-connections";
 import type { BaseContext } from "../orpc";
 import { dispatcherHealthContractRouter } from "./dispatcher-health";
 import { machinesContractRouter } from "./machines";
@@ -162,7 +164,15 @@ function fixture() {
 				recordedAt: row.recorded_at,
 			}),
 		}));
-	return { sqlite, db: base.db, person, runtime, report, records };
+	return {
+		sqlite,
+		db: base.db,
+		env: base.env,
+		person,
+		runtime,
+		report,
+		records,
+	};
 }
 
 const claim = { reporterId: "reporter-1", machineName: "Studio", limit: 5 };
@@ -202,6 +212,75 @@ describe("machines", () => {
 				)
 				.machines.list(),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("pushes a call over the machine's open connection and stores the answer sent back on it", async () => {
+		const f = fixture();
+		const sockets: {
+			sent: string[];
+			send(text: string): void;
+			deserializeAttachment(): unknown;
+		}[] = [];
+		const connection = new MachineConnectionDO(
+			{
+				getWebSockets: () => sockets,
+				getWebSocketAutoResponseTimestamp: () => null,
+			} as never,
+			f.env,
+		);
+		const env = {
+			...f.env,
+			MACHINE_CONNECTIONS: { getByName: () => connection },
+			PLATFORM_SERVICE_TOKEN: "test-signing-secret",
+			API_URL: "https://api.tedix.test",
+		} as unknown as CloudflareEnv;
+		const member = f.person("member-subject", ORG, { env });
+		await f.report(member);
+
+		// The claim that proves who the machine is returns the ticket for it.
+		const claimed = await member.machines.claimToolCalls(claim);
+		expect(claimed.connection?.url).toBe(
+			"wss://api.tedix.test/machines/connect",
+		);
+		const identity = await verifyMachineConnectionTicket(
+			env,
+			claimed.connection!.ticket,
+		);
+		expect(identity).toEqual({
+			orgId: ORG,
+			machineName: "Studio",
+			reporterId: "reporter-1",
+		});
+		const socket = {
+			sent: [] as string[],
+			send(text: string) {
+				this.sent.push(text);
+			},
+			deserializeAttachment: () => ({ ...identity, openedAt: Date.now() }),
+		};
+		sockets.push(socket);
+
+		const { callId } = await f
+			.person("second-subject", ORG, { env })
+			.machines.requestToolCall({
+				machine: "Studio",
+				tool: "read_file",
+				input: { path: "README.md" },
+			});
+		expect(socket.sent.map((text) => JSON.parse(text))).toEqual([
+			{ callId, tool: "read_file", input: { path: "README.md" } },
+		]);
+
+		await connection.webSocketMessage(
+			socket as never,
+			JSON.stringify({ callId, ok: true, result: "# Example" }),
+		);
+		expect(JSON.parse(socket.sent[1]!)).toEqual({ answered: callId });
+		expect(
+			await f
+				.person("second-subject", ORG, { env })
+				.machines.readToolCall({ callId }),
+		).toMatchObject({ status: "done", result: "# Example" });
 	});
 
 	it("queues a call only for a known, online machine and a tool it accepts", async () => {

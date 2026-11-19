@@ -86,6 +86,9 @@ vi.mock("./worker-app", async () => {
 // under vitest. These tests only exercise the default fetch export.
 vi.mock("./kernel/kernel-do", () => ({ KernelDOv4: class {} }));
 vi.mock("./kernel/kernel-voice-do", () => ({ KernelVoiceDO: class {} }));
+vi.mock("./services/machine-connection-do", () => ({
+	MachineConnectionDO: class {},
+}));
 vi.mock("./kernel/kernel-voice-input-do", () => ({
 	KernelVoiceInputDO: class {},
 }));

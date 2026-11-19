@@ -19,7 +19,6 @@ import {
 	parseMachineToolInput,
 } from "@tedix/api-contract/schemas/machines";
 import {
-	claimMachineToolCalls,
 	createMachineToolCall,
 	isMachineReporter,
 	listMachineToolCallsInRange,
@@ -31,8 +30,13 @@ import {
 	type MachineToolRefusal,
 	writeMachineToolQueuedRecord,
 	writeMachineToolRefusedRecord,
-	writeMachineToolResultRecords,
 } from "../../services/machine-change-records";
+import { runMachineClaimRound } from "../../services/machine-claim-round";
+import {
+	machineConnected,
+	mintMachineConnectionTicket,
+	pushMachineToolCalls,
+} from "../../services/machine-connections";
 import { isActiveOwnerOrAdmin } from "../org-membership";
 import { requireOrgId, withOrg } from "../org-scope";
 import {
@@ -103,10 +107,24 @@ function toCall(row: MachineToolCallRow): MachineToolCall {
 const listProcedure = os.list
 	.use(withAuthorization("tedis:read", "mcp:work.read", MACHINES_USE_SCOPE))
 	.handler(async ({ context }) => {
-		const machines = await listMachines(context.db, {
-			orgId: requireOrgId(context),
-		});
-		return { machines };
+		const orgId = requireOrgId(context);
+		const machines = await listMachines(context.db, { orgId });
+		// A machine with an open connection is online, whatever its last report.
+		return {
+			machines: await Promise.all(
+				machines.map(async (machine) =>
+					machine.online
+						? machine
+						: {
+								...machine,
+								online: await machineConnected(context.env, {
+									orgId,
+									machineName: machine.machineName,
+								}),
+							},
+				),
+			),
+		};
 	});
 
 const requestToolCallProcedure = os.requestToolCall
@@ -166,7 +184,13 @@ const requestToolCallProcedure = os.requestToolCall
 					`No machine named "${input.machine}" reports to this organization`,
 				),
 			);
-		if (!machine.online)
+		if (
+			!machine.online &&
+			!(await machineConnected(context.env, {
+				orgId,
+				machineName: machine.machineName,
+			}))
+		)
 			throw await refuse(
 				"machine_offline",
 				createError(
@@ -222,6 +246,11 @@ const requestToolCallProcedure = os.requestToolCall
 				),
 				machine.machineName,
 			);
+		// With an open connection the machine gets the call now; else at its next poll.
+		await pushMachineToolCalls(context.env, {
+			orgId,
+			machineName: machine.machineName,
+		});
 		return { callId: call.id, status: call.status };
 	});
 
@@ -359,25 +388,20 @@ const claimToolCallsProcedure = os.claimToolCalls
 				ErrorCodes.FORBIDDEN,
 				"Only the runner that reports this machine's health may claim its calls. Send a health report with this machine name from the same sign-in first",
 			);
-		const { calls, storedCalls } = await claimMachineToolCalls(context.db, {
+		const identity = {
 			orgId,
 			machineName: input.machineName,
 			reporterId: input.reporterId,
-			limit: input.limit,
-			results: input.results,
-		});
-		await writeMachineToolResultRecords(context.db, {
-			orgId,
-			reporterId: input.reporterId,
-			calls: storedCalls,
-		});
-		return {
-			calls: calls.map((call) => ({
-				callId: call.id,
-				tool: call.tool,
-				input: JSON.parse(call.input) as MachineToolInput,
-			})),
 		};
+		const [calls, connection] = await Promise.all([
+			runMachineClaimRound(context.db, {
+				...identity,
+				limit: input.limit,
+				results: input.results,
+			}),
+			mintMachineConnectionTicket(context.env, identity),
+		]);
+		return { calls, ...(connection ? { connection } : {}) };
 	});
 
 export const machinesContractRouter = os.router({

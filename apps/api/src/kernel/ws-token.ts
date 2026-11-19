@@ -124,19 +124,14 @@ export async function mintKernelWsToken(input: {
 }
 
 /**
- * Verify a kernel WS token. Returns the trusted payload, or `null` on ANY
- * failure (malformed shape, bad signature, wrong scope/version, expired) —
- * callers treat `null` as "not a kernel WS token" and fall through to the
- * Descope session JWT path. Never throws on untrusted input.
- *
- * Signature check runs FIRST (constant-time inside `crypto.subtle.verify`),
- * so claim contents are only interpreted once authenticity is established.
+ * The payload of a token this module signed, or null when the shape or the
+ * signature is wrong. The caller checks the claims: every kind of token names
+ * its own `scope`, so one kind is never accepted as another.
  */
-export async function verifyKernelWsToken(
+export async function verifySignedTokenPayload(
 	token: string,
 	platformServiceToken: string,
-	now: number = Date.now(),
-): Promise<KernelWsTokenPayload | null> {
+): Promise<Record<string, unknown> | null> {
 	if (!platformServiceToken) return null;
 	const segments = token.split(".");
 	if (segments.length !== 2) return null;
@@ -168,7 +163,25 @@ export async function verifyKernelWsToken(
 		return null;
 	}
 	if (typeof parsed !== "object" || parsed === null) return null;
-	const candidate = parsed as Record<string, unknown>;
+	return parsed as Record<string, unknown>;
+}
+
+/**
+ * Verify a kernel WS token. Returns the trusted payload, or `null` on ANY
+ * failure (malformed shape, bad signature, wrong scope/version, expired) —
+ * callers treat `null` as "not a kernel WS token" and fall through to the
+ * Descope session JWT path. Never throws on untrusted input.
+ *
+ * Signature check runs FIRST (constant-time inside `crypto.subtle.verify`),
+ * so claim contents are only interpreted once authenticity is established.
+ */
+export async function verifyKernelWsToken(
+	token: string,
+	platformServiceToken: string,
+	now: number = Date.now(),
+): Promise<KernelWsTokenPayload | null> {
+	const candidate = await verifySignedTokenPayload(token, platformServiceToken);
+	if (!candidate) return null;
 	if (candidate.v !== KERNEL_WS_TOKEN_VERSION) return null;
 	if (candidate.scope !== KERNEL_WS_TOKEN_SCOPE) return null;
 	if (

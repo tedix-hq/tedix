@@ -37,7 +37,9 @@ import type { NativeToolContext } from "./work";
 /**
  * Machine tools: a tedi asks a named machine to read something, the call is
  * queued on the server, and the one runner on that machine that serves machine
- * tools claims it, answers it and sends the answer with its next claim.
+ * tools claims it, answers it and sends the answer with its next claim. Where
+ * the server offers it, the machine keeps one connection open instead, and
+ * calls and answers travel over it without waiting for a poll.
  *
  * Each tool is a handler in `machineToolHandlers`. A handler runs a fixed
  * argument list as an asynchronous child process with a deadline, never a
@@ -59,6 +61,15 @@ const ACTIVE_WINDOW_MS = 120_000;
 /** How long it stops asking after the server said it has no such tool. */
 export const MACHINE_TOOL_UNAVAILABLE_MS = 3_600_000;
 export const MACHINE_TOOL_FAILURE_LOG_MS = 60_000;
+/**
+ * With a connection open, calls arrive over it. The machine still asks once a
+ * minute, which picks up a call the server could not push.
+ */
+export const MACHINE_TOOL_CONNECTED_MS = 60_000;
+export const MACHINE_CONNECTION_PING_MS = 30_000;
+/** This many pings in a row without an answer mean the connection is dead. */
+const MACHINE_CONNECTION_MISSED_PINGS = 3;
+const MACHINE_CONNECTION_RETRY_MAX_MS = 60_000;
 const FILE_LINE_LIMIT = 400;
 const LINE_LIMIT = 300;
 const FETCH_INTERVAL_MS = 60_000;
@@ -697,9 +708,30 @@ export function createMachineToolClaimer(scope: string[]) {
 	};
 }
 
+/** The part of a WebSocket the machine's connection uses. */
+export interface MachineSocket {
+	send(text: string): void;
+	close(): void;
+	addEventListener(
+		type: "open" | "message" | "close" | "error",
+		listener: (event: { data?: unknown }) => void,
+	): void;
+}
+
+/** Opens the connection with the ticket as the offered protocol. */
+export const openMachineSocket = (url: string, ticket: string): MachineSocket =>
+	new WebSocket(url, [`bearer-${ticket}`]) as unknown as MachineSocket;
+
+type MachineToolOutcome = NonNullable<MachineToolClaimInput["results"]>[number];
+
 /**
  * The claim-and-answer loop. `cycle` does one round and returns how long to
  * wait before the next; nothing it does can fail a run.
+ *
+ * When a claim's answer offers a connection, the loop opens it: calls then
+ * arrive over the socket and are answered on it. While no connection is open
+ * (the server offers none, or it dropped) the loop polls as it always has,
+ * and each poll that offers a connection is a chance to open it again.
  */
 export function createMachineToolsLoop(options: {
 	reporterId: string;
@@ -708,12 +740,124 @@ export function createMachineToolsLoop(options: {
 	handlers: Partial<Record<string, MachineToolHandler>>;
 	/** Tool name and outcome only: never an input or an answer. */
 	log: (event: string, reason: string) => void;
+	/** Opens the connection; without it the loop only polls. */
+	openSocket?: (url: string, ticket: string) => MachineSocket;
+	/** Called when the connection closes, so the next poll need not wait. */
+	onConnectionClosed?: () => void;
 }) {
 	const running = new Set<Promise<void>>();
-	let finished: NonNullable<MachineToolClaimInput["results"]> = [];
+	let finished: MachineToolOutcome[] = [];
 	let lastCallAt = Number.NEGATIVE_INFINITY;
 	let failures = 0;
 	let failureLoggedAt = Number.NEGATIVE_INFINITY;
+	/** The socket being opened or open, and whether it is open. */
+	let socket: MachineSocket | undefined;
+	let connected = false;
+	/** Answers sent on the socket that the server has not confirmed yet. */
+	const unconfirmed = new Map<string, MachineToolOutcome>();
+	let dialFailures = 0;
+	let nextDialAt = Number.NEGATIVE_INFINITY;
+
+	function answer(call: Record<string, unknown>, callId: string) {
+		lastCallAt = Date.now();
+		const work = answerMachineToolCall(
+			options.handlers,
+			String(call.tool),
+			call.input,
+		).then((outcome) => {
+			const result = { callId, ...outcome };
+			if (connected && socket) {
+				unconfirmed.set(callId, result);
+				try {
+					socket.send(JSON.stringify(result));
+				} catch {
+					// The close that follows moves it to the next claim.
+				}
+			} else finished.push(result);
+			options.log(
+				"machine-tool-answered",
+				`${String(call.tool).slice(0, 40)} ${outcome.ok ? "ok" : "failed"}`,
+			);
+			running.delete(work);
+		});
+		running.add(work);
+	}
+
+	function dial(url: string, ticket: string) {
+		let opened: MachineSocket;
+		try {
+			opened = options.openSocket!(url, ticket);
+		} catch {
+			dialFailed();
+			return;
+		}
+		socket = opened;
+		let unansweredPings = 0;
+		let pinging: ReturnType<typeof setInterval> | undefined;
+		let closed = false;
+		const close = () => {
+			if (closed) return;
+			closed = true;
+			clearInterval(pinging);
+			try {
+				opened.close();
+			} catch {
+				// Already closed.
+			}
+			if (socket !== opened) return;
+			socket = undefined;
+			// An answer the server never confirmed goes with the next claim.
+			finished.push(...unconfirmed.values());
+			unconfirmed.clear();
+			dialFailed();
+			if (!connected) return;
+			connected = false;
+			options.log("machine-connection-closed", "polling");
+			options.onConnectionClosed?.();
+		};
+		opened.addEventListener("open", () => {
+			connected = true;
+			dialFailures = 0;
+			options.log("machine-connection-open", options.machineName);
+			pinging = setInterval(() => {
+				// Counted in pings, not seconds, so a machine that slept is not
+				// taken for a dead connection before it had a chance to answer.
+				if (unansweredPings >= MACHINE_CONNECTION_MISSED_PINGS) return close();
+				unansweredPings += 1;
+				try {
+					opened.send("ping");
+				} catch {
+					close();
+				}
+			}, MACHINE_CONNECTION_PING_MS);
+		});
+		opened.addEventListener("message", ({ data }) => {
+			if (data === "pong") {
+				unansweredPings = 0;
+				return;
+			}
+			const message = typeof data === "string" ? parseJson(data) : undefined;
+			if (!isRecord(message)) return;
+			if (typeof message.answered === "string")
+				unconfirmed.delete(message.answered);
+			else if (typeof message.callId === "string")
+				answer(message, message.callId);
+		});
+		opened.addEventListener("close", close);
+		opened.addEventListener("error", close);
+	}
+
+	/** Waits longer after each failure, at a random point of the wait. */
+	function dialFailed() {
+		dialFailures += 1;
+		nextDialAt =
+			Date.now() +
+			Math.min(
+				MACHINE_CONNECTION_RETRY_MAX_MS,
+				1_000 * 2 ** Math.min(dialFailures - 1, 10),
+			) *
+				(0.5 + Math.random() / 2);
+	}
 
 	async function cycle(): Promise<number> {
 		const sending = finished.slice(0, 20);
@@ -753,22 +897,19 @@ export function createMachineToolsLoop(options: {
 			? value.calls
 			: []) {
 			if (!isRecord(call) || typeof call.callId !== "string") continue;
-			const { callId } = call;
-			lastCallAt = Date.now();
-			const work = answerMachineToolCall(
-				options.handlers,
-				String(call.tool),
-				call.input,
-			).then((outcome) => {
-				finished.push({ callId, ...outcome });
-				options.log(
-					"machine-tool-answered",
-					`${String(call.tool).slice(0, 40)} ${outcome.ok ? "ok" : "failed"}`,
-				);
-				running.delete(work);
-			});
-			running.add(work);
+			answer(call, call.callId);
 		}
+		const offered = isRecord(value) ? value.connection : undefined;
+		if (
+			options.openSocket &&
+			!socket &&
+			Date.now() >= nextDialAt &&
+			isRecord(offered) &&
+			typeof offered.url === "string" &&
+			typeof offered.ticket === "string"
+		)
+			dial(offered.url, offered.ticket);
+		if (connected) return MACHINE_TOOL_CONNECTED_MS;
 		return Date.now() - lastCallAt < ACTIVE_WINDOW_MS
 			? MACHINE_TOOL_ACTIVE_MS
 			: MACHINE_TOOL_IDLE_MS;
@@ -778,7 +919,10 @@ export function createMachineToolsLoop(options: {
 		cycle,
 		inFlight: () => Promise.all(running),
 		/** True when no call is being answered and no answer waits to be sent. */
-		idle: () => running.size === 0 && finished.length === 0,
+		idle: () =>
+			running.size === 0 && finished.length === 0 && unconfirmed.size === 0,
+		/** Closes the connection; the loop is not used afterwards. */
+		close: () => socket?.close(),
 	};
 }
 
@@ -823,6 +967,8 @@ export async function serveMachineTools(
 			write: identity.write,
 		}),
 		log,
+		openSocket: openMachineSocket,
+		onConnectionClosed: () => wake(),
 	});
 	let stopping = false;
 	let wake = () => {};
@@ -858,6 +1004,7 @@ export async function serveMachineTools(
 	} finally {
 		process.off("SIGTERM", stop);
 		process.off("SIGINT", stop);
+		loop.close();
 		lock.release();
 	}
 }
