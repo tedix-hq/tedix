@@ -39,7 +39,7 @@ console.log(
 );
 // Cold fixture entries discover dependencies while a neighbor spec runs: the
 // shared server then re-bundles and stalls or reloads pages it does not own.
-// Discover them now, while only this warmup page is connected.
+// Discover them before any spec pages connect.
 const warmed = performance.now();
 const fixtureEntries = [
 	// These split SPA routes have no HTML entry. Warm them before the
@@ -52,12 +52,14 @@ const fixtureEntries = [
 		.sort()
 		.map((name) => `/browser-tests/${name}`),
 ];
-await warmFixtureModuleGraph(server.origin, fixtureEntries);
-console.log(
-	`[run-specs] warmed ${fixtureEntries.length} fixture entries in ${seconds(warmed)}`,
-);
 let results: Awaited<ReturnType<typeof runSharedFixtureSpecs>>;
 try {
+	await warmFixtureModuleGraph(server.origin, fixtureEntries, {
+		parallelPages: 2,
+	});
+	console.log(
+		`[run-specs] warmed ${fixtureEntries.length} fixture entries in ${seconds(warmed)}`,
+	);
 	results = await runSharedFixtureSpecs(
 		specs,
 		server,

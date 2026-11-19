@@ -93,8 +93,9 @@ try {
 			});
 			const menuButton = workpieceViewMenu(page);
 			await menuButton.waitFor();
-			// Let the open item's own actions (Share) join the row.
-			await page.waitForTimeout(1500);
+			await page
+				.getByRole("button", { name: /^Share this (?:app|file)$/ })
+				.waitFor();
 
 			const layout = await chrome(page);
 			assert.equal(

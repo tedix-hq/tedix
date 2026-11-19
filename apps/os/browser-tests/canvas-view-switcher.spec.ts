@@ -50,20 +50,6 @@ try {
 				for (const view of views.toReversed()) {
 					await menuButton.click();
 					const menu = page.getByRole("menu");
-					const items = menu.getByRole("menuitemradio");
-					await items.first().waitFor();
-					assert.deepEqual(
-						(await items.allInnerTexts()).map((text) => text.trim()),
-						views,
-						`${label}: exactly these views are offered`,
-					);
-					for (const item of await items.all()) {
-						const box = await item.boundingBox();
-						assert(
-							box && box.height >= 44,
-							`${label}: every view is at least 44px tall`,
-						);
-					}
 					await menu
 						.getByRole("menuitemradio", { name: view, exact: true })
 						.click();
@@ -74,17 +60,20 @@ try {
 						`${label}: ${view} is reachable`,
 					);
 				}
-				// The last pick was App; the menu marks it and only it.
+				// Check the menu's geometry, options and selection once.
 				await menuButton.click();
-				await page.getByRole("menuitemradio").first().waitFor();
+				const items = page.getByRole("menuitemradio");
+				await items.first().waitFor();
 				assert.deepEqual(
-					await page
-						.getByRole("menuitemradio")
-						.evaluateAll((items) =>
-							items.map((item) => item.getAttribute("aria-checked")),
-						),
-					["true", "false", "false", "false"],
-					`${label}: the menu marks the view on screen`,
+					await items.evaluateAll((rows) =>
+						rows.map((row) => [
+							row.textContent?.trim(),
+							row.getAttribute("aria-checked"),
+							row.getBoundingClientRect().height >= 44,
+						]),
+					),
+					views.map((view) => [view, String(view === "App"), true]),
+					`${label}: every view has a 44px target and only App is selected`,
 				);
 				await page.keyboard.press("Escape");
 				assert(
@@ -214,26 +203,27 @@ try {
 			// Open straight on Review, which joins the row as its last segment:
 			// the row must reveal it unaided.
 			await page.goto(`${server.origin}${workpiecePath}&view=activity`);
-			await switcher.waitFor();
-			await page.waitForTimeout(200);
-			const reveal = await switcher.evaluate((el) => {
+			await page.waitForFunction(() => {
+				const el = document.querySelector(
+					'[aria-label="Active workpiece view"]',
+				);
+				if (!el) return false;
 				const view = el.getBoundingClientRect();
 				const active = el
 					.querySelector('[aria-pressed="true"]')
 					?.getBoundingClientRect();
-				return active
-					? {
-							inside:
-								active.left >= view.left - 0.5 &&
-								active.right <= view.right + 0.5,
-							onScreen: active.right <= innerWidth + 0.5,
-						}
-					: null;
+				return (
+					active &&
+					active.left >= view.left - 0.5 &&
+					active.right <= view.right + 0.5 &&
+					active.right <= innerWidth + 0.5
+				);
 			});
-			assert.deepEqual(
-				reveal,
-				{ inside: true, onScreen: true },
-				`${label}: the selected Review view is in sight on load`,
+			assert.equal(
+				await switcher
+					.getByRole("button", { name: "Review", exact: true })
+					.getAttribute("aria-pressed"),
+				"true",
 			);
 			await page.close();
 		} finally {

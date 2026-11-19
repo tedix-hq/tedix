@@ -36,7 +36,14 @@ const wait = (ms: number, signal?: AbortSignal) =>
 		});
 	});
 const follow = async (run: StoredRun, signal?: AbortSignal) => {
-	await wait(run.dueAt - Date.now(), signal);
+	if (params.has("controlled")) {
+		const response = await fetch("/browser-tests/quick-chat-complete", {
+			signal,
+		});
+		if (!response.ok) throw new Error("Fixture completion failed.");
+	} else {
+		await wait(run.dueAt - Date.now(), signal);
+	}
 	if (run.status === "failed") throw new Error("Home could not answer.");
 	writeRuns(
 		readRuns().map((item) =>

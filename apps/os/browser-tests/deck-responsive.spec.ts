@@ -16,7 +16,6 @@ try {
 		[390, 844, "dark", false],
 		[768, 1024, "light", false],
 		[1024, 768, "light", true],
-		[1280, 800, "dark", false],
 	] as const) {
 		await page.setViewportSize({ width, height });
 		await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });

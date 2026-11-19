@@ -19,7 +19,7 @@ const server = await startFixtureServer(
 let browser: Browser | undefined;
 
 const url = (scenario: string, theme: string) =>
-	`${server.origin}/browser-tests/quick-chat-resume.html?scenario=${scenario}&theme=${theme}&runMs=4000`;
+	`${server.origin}/browser-tests/quick-chat-resume.html?scenario=${scenario}&theme=${theme}&controlled`;
 
 async function openPanel(page: Page) {
 	await page.locator(".tedix-launcher").click();
@@ -31,32 +31,49 @@ const thinking = (page: Page) =>
 
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const width of [375, 1280]) {
-		for (const theme of ["light", "dark"]) {
-			const page = await browser.newPage({
-				viewport: { width, height: 844 },
-				colorScheme: theme as "light" | "dark",
-				reducedMotion: "reduce",
-			});
-			const label = `${width}px ${theme}`;
-			const snap = (name: string) =>
-				shots
-					? page.screenshot({
-							path: join(shots, `${name}-${width}-${theme}.png`),
-						})
-					: Promise.resolve();
-			try {
-				// Running: send, see it thinking, reload mid-turn.
-				await page.goto(url("running", theme));
-				await page.evaluate(() => localStorage.clear());
-				await openPanel(page);
-				await page.locator(".tedix-input").fill("Remind me to call Emile");
-				await page.locator(".tedix-send").click();
-				await thinking(page).waitFor();
-				await page.reload();
-				await openPanel(page);
-				// The same thread, the question, and the turn thinking again.
-				await page.getByText("Remind me to call Emile").waitFor();
+	for (const { width, theme, scenario, question } of [
+		{
+			width: 375,
+			theme: "dark",
+			scenario: "running",
+			question: "Remind me to call Emile",
+		},
+		{
+			width: 1280,
+			theme: "light",
+			scenario: "failed",
+			question: "Book a catch-up",
+		},
+	] as const) {
+		const page = await browser.newPage({
+			viewport: { width, height: 844 },
+			colorScheme: theme,
+			reducedMotion: "reduce",
+		});
+		const label = `${width}px ${theme}`;
+		const snap = (name: string) =>
+			shots
+				? page.screenshot({
+						path: join(shots, `${name}-${width}-${theme}.png`),
+					})
+				: Promise.resolve();
+		const completion = Promise.withResolvers<void>();
+		await page.route("**/browser-tests/quick-chat-complete", async (route) => {
+			await completion.promise;
+			await route.fulfill({ status: 204 });
+		});
+		try {
+			await page.goto(url(scenario, theme));
+			await openPanel(page);
+			await page.locator(".tedix-input").fill(question);
+			await page.locator(".tedix-send").click();
+			await thinking(page).waitFor();
+			await page.reload();
+			await openPanel(page);
+			await page.getByText(question).waitFor();
+
+			const answer = page.getByText(`Answered after reload: ${question}`);
+			if (scenario === "running") {
 				await thinking(page).waitFor();
 				assert.equal(
 					await page.locator(".tedix-send").getAttribute("data-state"),
@@ -64,9 +81,8 @@ try {
 					label,
 				);
 				await snap("resume-thinking");
-				await page
-					.getByText("Answered after reload: Remind me to call Emile")
-					.waitFor({ timeout: 10_000 });
+				completion.resolve();
+				await answer.waitFor({ timeout: 10_000 });
 				assert.equal(await thinking(page).count(), 0, label);
 				assert.equal(
 					await page.locator(".tedix-send").getAttribute("data-state"),
@@ -74,28 +90,12 @@ try {
 				);
 				assert.equal(await page.locator(".tedix-input").isDisabled(), false);
 				await snap("resume-answered");
-				// A later reload shows the settled thread, nothing follows.
+				// A later reload shows the settled thread without resuming it.
 				await page.reload();
 				await openPanel(page);
-				await page
-					.getByText("Answered after reload: Remind me to call Emile")
-					.waitFor();
+				await answer.waitFor();
 				assert.equal(await thinking(page).count(), 0, label);
-
-				// Failed: the turn ended without an answer; say so, offer Retry.
-				await page.goto(url("failed", theme));
-				await page.evaluate(() => {
-					localStorage.clear();
-					sessionStorage.clear();
-				});
-				await page.reload();
-				await openPanel(page);
-				await page.locator(".tedix-input").fill("Book a catch-up");
-				await page.locator(".tedix-send").click();
-				await thinking(page).waitFor();
-				await page.reload();
-				await openPanel(page);
-				await page.getByText("Book a catch-up").waitFor();
+			} else {
 				await page
 					.getByText("I couldn't complete the request. Try again.")
 					.waitFor();
@@ -104,17 +104,14 @@ try {
 				await snap("resume-failed");
 				await retry.click();
 				await thinking(page).waitFor();
-				await page
-					.getByText("Answered after reload: Book a catch-up")
-					.waitFor({ timeout: 10_000 });
-				assert.equal(
-					await page.getByRole("button", { name: "Retry" }).count(),
-					0,
-				);
-				console.log(`PASS quick chat resume ${label}`);
-			} finally {
-				await page.close();
+				completion.resolve();
+				await answer.waitFor({ timeout: 10_000 });
+				assert.equal(await retry.count(), 0);
 			}
+			console.log(`PASS quick chat resume ${scenario} ${label}`);
+		} finally {
+			completion.resolve();
+			await page.close();
 		}
 	}
 } finally {

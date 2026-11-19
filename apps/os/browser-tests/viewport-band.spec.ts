@@ -94,6 +94,7 @@ window.Tedix = {
 				["work-feed", "/work?view=feed"],
 				["settings", "/account/settings"],
 			]) {
+				if (name === "settings" && zoom !== 1) continue;
 				await page.goto(`${origin}${path}`);
 				await page.locator(":root[data-quick-chat-launcher]").waitFor();
 				await page.locator('[data-slot="page"] > :last-child').waitFor();

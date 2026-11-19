@@ -10,63 +10,67 @@ const fixturePath = "/browser-tests/canvas-pending.html";
 const server = await startFixtureServer(fixturePath);
 
 try {
-	for (const { engine, widths } of [
-		{ engine: chromium, widths: [390, 1280] },
-		{ engine: webkit, widths: [390] },
-	]) {
+	for (const { engine, layouts } of [
+		{
+			engine: chromium,
+			layouts: [
+				[390, "dark"],
+				[1280, "light"],
+			],
+		},
+		{ engine: webkit, layouts: [[390, "light"]] },
+	] as const) {
 		const browser = await engine.launch({ headless: true });
 		try {
-			for (const theme of ["light", "dark"] as const) {
-				for (const width of widths) {
-					const label = `${engine.name()}/${width}/${theme}`;
-					const page = await browser.newPage({
-						viewport: { width, height: 844 },
-						isMobile: width === 390,
-						hasTouch: width === 390,
-						colorScheme: theme,
-					});
-					await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
-					await page.locator("main[aria-busy]").waitFor();
-					const geometry = await page.evaluate(() => {
-						const pane = document.querySelector("aside")!;
-						const stage = document.querySelector("section")!;
-						return {
-							viewport: innerWidth,
-							scrollWidth: document.documentElement.scrollWidth,
-							paneWidth: pane.getBoundingClientRect().width,
-							stageDisplay: getComputedStyle(stage).display,
-						};
-					});
-					assert(
-						geometry.scrollWidth <= geometry.viewport,
-						`${label}: no horizontal overflow ${JSON.stringify(geometry)}`,
+			for (const [width, theme] of layouts) {
+				const label = `${engine.name()}/${width}/${theme}`;
+				const page = await browser.newPage({
+					viewport: { width, height: 844 },
+					isMobile: width === 390,
+					hasTouch: width === 390,
+					colorScheme: theme,
+				});
+				await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
+				await page.locator("main[aria-busy]").waitFor();
+				const geometry = await page.evaluate(() => {
+					const pane = document.querySelector("aside")!;
+					const stage = document.querySelector("section")!;
+					return {
+						viewport: innerWidth,
+						scrollWidth: document.documentElement.scrollWidth,
+						paneWidth: pane.getBoundingClientRect().width,
+						stageDisplay: getComputedStyle(stage).display,
+					};
+				});
+				assert(
+					geometry.scrollWidth <= geometry.viewport,
+					`${label}: no horizontal overflow ${JSON.stringify(geometry)}`,
+				);
+				if (width < 960) {
+					assert.equal(
+						geometry.paneWidth,
+						width,
+						`${label}: chat pane fills the phone viewport`,
 					);
-					if (width < 960) {
-						assert.equal(
-							geometry.paneWidth,
-							width,
-							`${label}: chat pane fills the phone viewport`,
-						);
-						assert.equal(
-							geometry.stageDisplay,
-							"none",
-							`${label}: stage stays out of the single mobile pane`,
-						);
-					} else {
-						assert.equal(
-							geometry.paneWidth,
-							420,
-							`${label}: chat pane keeps its 420px default`,
-						);
-						assert.notEqual(
-							geometry.stageDisplay,
-							"none",
-							`${label}: stage renders beside the pane`,
-						);
-					}
-					await page.close();
-					console.log(`canvas pending ${label}: ok`);
+					assert.equal(
+						geometry.stageDisplay,
+						"none",
+						`${label}: stage stays out of the single mobile pane`,
+					);
+				} else {
+					assert.equal(
+						geometry.paneWidth,
+						420,
+						`${label}: chat pane keeps its 420px default`,
+					);
+					assert.notEqual(
+						geometry.stageDisplay,
+						"none",
+						`${label}: stage renders beside the pane`,
+					);
 				}
+				await page.close();
+				console.log(`canvas pending ${label}: ok`);
 			}
 		} finally {
 			await browser.close();

@@ -157,50 +157,6 @@ async function settleToast(page: Page, title: string) {
 let browser: Browser | undefined;
 try {
 	browser = await webkit.launch({ headless: true });
-	// A toast raised while any dialog is open paints above that dialog.
-	{
-		const context = await browser.newContext({ ...devices["iPhone 13"] });
-		const page = await context.newPage();
-		await page.route(RESPOND, (route) =>
-			route.fulfill({
-				status: 403,
-				contentType: "application/json",
-				body: JSON.stringify({
-					json: { defined: false, code: "FORBIDDEN", message: "Nope" },
-				}),
-			}),
-		);
-		await page.goto(`${origin}/work?view=deck#card=${protectedCard(11)}`);
-		await page.locator(".fd-deck-current .fd-card").waitFor();
-		await page
-			.locator('.fd-deck-current [data-decision-intent="approve"]')
-			.first()
-			.tap();
-		await page.getByRole("alertdialog").waitFor();
-		await page.evaluate(async () => {
-			const { toast } = await import("/src/components/kumo/toast.tsx");
-			// Keep the layering probe alive across separate browser calls on busy runners.
-			toast.message("Layer check", { duration: 0 });
-		});
-		await settleToast(page, "Layer check");
-		const above = await page.evaluate(() => {
-			const node = [
-				...document.querySelectorAll<HTMLElement>(
-					"[data-os-toast-outlet] [role=dialog]",
-				),
-			].find((element) => element.innerText.includes("Layer check"));
-			if (!node) return "no toast";
-			const box = node.getBoundingClientRect();
-			const hit = document.elementFromPoint(
-				box.left + box.width / 2,
-				box.top + box.height / 2,
-			);
-			return hit && node.contains(hit) ? "above" : "covered";
-		});
-		assert.equal(above, "above", "toast paints above an open dialog");
-		await context.close();
-		console.log("PASS toast above dialog");
-	}
 	for (const [size, device, phone, colorScheme, cardSuffix] of [
 		["375x667", devices["iPhone 8"], true, "dark", 14],
 		[
@@ -261,6 +217,37 @@ try {
 		assert(!/\.\./.test(description), `${label}: "${description}"`);
 		checkFooter(label, phone, await footer(page));
 		await shot(page, `sheet-${size}-${colorScheme}`);
+
+		if (phone) {
+			await page.evaluate(async () => {
+				const { toast } = await import("/src/components/kumo/toast.tsx");
+				// Keep the layering probe alive across separate browser calls on busy runners.
+				toast.message("Layer check", { id: "layer-check", duration: 0 });
+			});
+			await settleToast(page, "Layer check");
+			const above = await page.evaluate(() => {
+				const node = [
+					...document.querySelectorAll<HTMLElement>(
+						"[data-os-toast-outlet] [role=dialog]",
+					),
+				].find((element) => element.innerText.includes("Layer check"));
+				if (!node) return "no toast";
+				const box = node.getBoundingClientRect();
+				const hit = document.elementFromPoint(
+					box.left + box.width / 2,
+					box.top + box.height / 2,
+				);
+				return hit && node.contains(hit) ? "above" : "covered";
+			});
+			assert.equal(above, "above", "toast paints above an open dialog");
+			await page.evaluate(async () => {
+				const { toast } = await import("/src/components/kumo/toast.tsx");
+				toast.dismiss("layer-check");
+			});
+			await page
+				.getByText("Layer check", { exact: true })
+				.waitFor({ state: "hidden" });
+		}
 
 		// Pending: the tap shows progress at once and blocks a second submit.
 		await tap("Confirm");

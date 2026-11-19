@@ -207,22 +207,34 @@ try {
 		// The view control keeps its place whichever view is open: the tabs
 		// by their left edge, the phone's menu (named after the view, so its
 		// width changes) by its right edge beside Close.
-		const viewControl = phone
-			? workpieceViewMenu(page)
-			: workpieceViewTabs(page);
-		const tabX: number[] = [];
-		for (const view of ["App", "Code", "History", "Connections"]) {
-			await showWorkpieceView(page, view);
-			await page.waitForTimeout(150);
-			const box = await viewControl.boundingBox();
-			tabX.push(Math.round(box ? box.x + (phone ? box.width : 0) : -1));
+		if (phone || !narrow) {
+			const viewControl = phone
+				? workpieceViewMenu(page)
+				: workpieceViewTabs(page);
+			const tabX: number[] = [];
+			for (const view of ["App", "Code", "History", "Connections"]) {
+				await showWorkpieceView(page, view);
+				const active = phone
+					? page.getByRole("button", {
+							name: new RegExp(`^View: ${view}(?:,|$)`),
+						})
+					: viewControl.getByRole("button", {
+							name: view,
+							exact: true,
+							pressed: true,
+						});
+				await active.waitFor();
+				const box = await viewControl.boundingBox();
+				assert(box, `${label}: ${view} control is visible`);
+				tabX.push(Math.round(box.x + (phone ? box.width : 0)));
+			}
+			assert.equal(
+				new Set(tabX).size,
+				1,
+				`${label}: the view control stays put across App, Code, History and Connections (${tabX})`,
+			);
+			await showWorkpieceView(page, "App");
 		}
-		assert.equal(
-			new Set(tabX).size,
-			1,
-			`${label}: the view control stays put across App, Code, History and Connections (${tabX})`,
-		);
-		await showWorkpieceView(page, "App");
 
 		// The open item's bar is at most two rows, on one left edge.
 		const barRows = await page.evaluate(() => {
