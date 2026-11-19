@@ -345,6 +345,18 @@ export const ClaimMachineToolCallsResultSchema = z.object({
 			}),
 		)
 		.max(10),
+	/**
+	 * Present when the server can hold an open connection to the machine: where
+	 * to open it and the ticket that opens it, valid for a minute. Over the
+	 * connection calls arrive at once; without it the machine keeps polling.
+	 */
+	connection: z
+		.object({
+			url: z.string().max(500),
+			ticket: z.string().max(2_000),
+			expiresAt: z.iso.datetime(),
+		})
+		.optional(),
 });
 
 /** A list of machine tool calls reaches this far back when no start is given. */

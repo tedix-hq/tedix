@@ -17,6 +17,7 @@ import {
 	answerMachineToolCall,
 	createMachineToolsLoop,
 	MACHINE_TOOL_ACTIVE_MS,
+	MACHINE_TOOL_CONNECTED_MS,
 	MACHINE_TOOL_IDLE_MS,
 	machineToolHandlers,
 	type MachineToolClaimInput,
@@ -109,6 +110,70 @@ test("a runner claims calls, answers them from main and sends the answers with i
 	// An answer is sent once.
 	expect(claims[2]!.results).toBeUndefined();
 }, 60_000);
+
+test("a machine answers calls over its connection while it is open and polls when it is not", async () => {
+	const listeners = new Map<string, (event: { data?: unknown }) => void>();
+	const sent: string[] = [];
+	const dialed: string[][] = [];
+	const claims: MachineToolClaimInput[] = [];
+	const events: string[] = [];
+	const loop = createMachineToolsLoop({
+		reporterId: "reporter-1",
+		machineName: "studio",
+		claim: async (input) => {
+			claims.push(input);
+			return {
+				calls: [],
+				connection: {
+					url: "wss://api.tedix.test/machines/connect",
+					ticket: "t",
+				},
+			};
+		},
+		handlers: { read_runner_state: async () => "No runners here" },
+		log: (event) => events.push(event),
+		openSocket: (url, ticket) => {
+			dialed.push([url, ticket]);
+			return {
+				send: (text) => sent.push(text),
+				close: () => listeners.get("close")?.({}),
+				addEventListener: (type, listener) => listeners.set(type, listener),
+			};
+		},
+	});
+
+	// Until the connection is open the machine polls at its usual pace.
+	expect(await loop.cycle()).toBe(MACHINE_TOOL_IDLE_MS);
+	expect(dialed).toEqual([["wss://api.tedix.test/machines/connect", "t"]]);
+	listeners.get("open")!({});
+	expect(await loop.cycle()).toBe(MACHINE_TOOL_CONNECTED_MS);
+	expect(dialed).toHaveLength(1);
+
+	// A pushed call is answered on the connection, not with the next claim.
+	const call = { callId: "call-1", tool: "read_runner_state", input: {} };
+	listeners.get("message")!({ data: JSON.stringify(call) });
+	await loop.inFlight();
+	expect(sent.map((text) => JSON.parse(text))).toEqual([
+		{ callId: "call-1", ok: true, result: "No runners here" },
+	]);
+	listeners.get("message")!({ data: JSON.stringify({ answered: "call-1" }) });
+	expect(loop.idle()).toBe(true);
+
+	// An answer the server did not confirm before the connection dropped is
+	// sent with the next claim, and the machine is back to polling.
+	listeners.get("message")!({
+		data: JSON.stringify({ ...call, callId: "call-2" }),
+	});
+	await loop.inFlight();
+	listeners.get("close")!({});
+	expect(await loop.cycle()).toBe(MACHINE_TOOL_ACTIVE_MS);
+	expect(claims.at(-1)!.results).toEqual([
+		{ callId: "call-2", ok: true, result: "No runners here" },
+	]);
+	expect(
+		events.filter((event) => event.startsWith("machine-connection-")),
+	).toEqual(["machine-connection-open", "machine-connection-closed"]);
+});
 
 test("with the write tools on, a tedi edits files and runs commands in its own workspace", async () => {
 	const root = mkdtempSync(join(tmpdir(), "tedix-machine-write-"));

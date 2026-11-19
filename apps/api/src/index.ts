@@ -33,6 +33,9 @@ import {
 export { KernelDOv4 } from "./kernel/kernel-do";
 export { KernelVoiceDO } from "./kernel/kernel-voice-do";
 export { KernelVoiceInputDO } from "./kernel/kernel-voice-input-do";
+// Bound as MACHINE_CONNECTIONS where an installation has the connection
+// service; without the binding the class is exported and never used.
+export { MachineConnectionDO } from "./services/machine-connection-do";
 // Export router type for typed client generation
 export type { ApiRouter } from "./rpc/routers/index";
 
