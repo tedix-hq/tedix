@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
+import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
 import {
@@ -37,6 +38,7 @@ function fixture() {
 				tedis,
 				workAttemptSteps,
 				workAttemptMessages,
+				gatewayChangeRecords,
 			),
 	);
 	const expiresAt = new Date(Date.now() + 300_000).toISOString();
@@ -245,6 +247,47 @@ describe("run log and steering", () => {
 			senderType: "tedi",
 			senderId: "steward",
 		});
+	});
+
+	it("records a tedi's steering in the change ledger, without the message", async () => {
+		const { sqlite, person, tedi } = fixture();
+		const secret = "sentinel-7f3a-do-not-store";
+		const followUp = await call(sendAttemptMessageProcedure, tedi("steward"), {
+			id: work,
+			body: secret,
+			interrupt: true,
+		});
+		const stop = await call(stopAttemptProcedure, tedi("steward"), {
+			id: work,
+		});
+		// A member's steering is not recorded here.
+		await call(sendAttemptMessageProcedure, person("owner-subject"), {
+			id: work,
+			body: "Hi",
+		});
+		const rows = sqlite
+			.prepare(
+				"SELECT organization_id, record FROM gateway_change_records ORDER BY sequence",
+			)
+			.all() as { organization_id: string; record: string }[];
+		for (const row of rows) expect(row.record).not.toContain(secret);
+		expect(
+			rows.map((row) => ({
+				org: row.organization_id,
+				...JSON.parse(row.record),
+			})),
+		).toMatchObject([
+			{
+				org,
+				resource: `work_item:${work}`,
+				operation: "steer_run",
+				actor: { id: "steward", kind: "tedi", organizationId: org },
+				source: { traceId: followUp.id },
+				decision: { verdict: "allow", reason: "interrupt" },
+				outcome: "applied",
+			},
+			{ source: { traceId: stop.id }, decision: { reason: "stop" } },
+		]);
 	});
 
 	it("refuses steps from an executor that does not hold the Attempt", async () => {

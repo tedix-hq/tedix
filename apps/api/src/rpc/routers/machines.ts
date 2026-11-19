@@ -24,6 +24,12 @@ import {
 	readMachineToolCall,
 } from "@tedix/db/queries/machines";
 import type { MachineToolCallRow } from "@tedix/db/schema/machines";
+import {
+	type MachineToolRefusal,
+	writeMachineToolQueuedRecord,
+	writeMachineToolRefusedRecord,
+	writeMachineToolResultRecords,
+} from "../../services/machine-change-records";
 import { requireOrgId } from "../org-scope";
 import {
 	type BaseContext,
@@ -116,42 +122,90 @@ const requestToolCallProcedure = os.requestToolCall
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 		const requester = await machineToolRequester(context, orgId);
+		const callId = crypto.randomUUID();
+		// Every refusal past this point is recorded in the change ledger; a
+		// failed record write is logged and the original error still thrown.
+		const refuse = async (
+			reason: MachineToolRefusal,
+			error: Error,
+			machineName = input.machine,
+		) => {
+			await writeMachineToolRefusedRecord(context.db, {
+				orgId,
+				callId,
+				machineName,
+				tool: input.tool,
+				input: input.input,
+				requester,
+				reason,
+			});
+			return error;
+		};
 		if (
 			requester.type === "tedi" &&
 			isMachineWriteTool(input.tool) &&
 			!context.tediScopes?.includes(MACHINES_WRITE_SCOPE)
 		)
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"A tedi can change files or run commands on a machine only from a chat with a signed-in person",
+			throw await refuse(
+				"write_scope_missing",
+				createError(
+					ErrorCodes.FORBIDDEN,
+					"A tedi can change files or run commands on a machine only from a chat with a signed-in person",
+				),
 			);
 		const wanted = input.machine.toLowerCase();
 		const machine = (await listMachines(context.db, { orgId })).find(
 			(candidate) => candidate.machineName.toLowerCase() === wanted,
 		);
 		if (!machine)
-			throw createError(
-				ErrorCodes.NOT_FOUND,
-				`No machine named "${input.machine}" reports to this organization`,
+			throw await refuse(
+				"unknown_machine",
+				createError(
+					ErrorCodes.NOT_FOUND,
+					`No machine named "${input.machine}" reports to this organization`,
+				),
 			);
 		if (!machine.online)
-			throw createError(
-				ErrorCodes.CONFLICT,
-				`${machine.machineName} is offline: its runner last reported at ${machine.lastSeenAt}`,
+			throw await refuse(
+				"machine_offline",
+				createError(
+					ErrorCodes.CONFLICT,
+					`${machine.machineName} is offline: its runner last reported at ${machine.lastSeenAt}`,
+				),
+				machine.machineName,
 			);
 		if (!machine.machineTools.includes(input.tool))
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				`${machine.machineName} does not accept ${input.tool}`,
+			throw await refuse(
+				"tool_not_accepted",
+				createError(
+					ErrorCodes.BAD_REQUEST,
+					`${machine.machineName} does not accept ${input.tool}`,
+				),
+				machine.machineName,
 			);
 		const checked = parseMachineToolInput(input.tool, input.input);
 		if (!checked.ok)
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				`${input.tool}: ${checked.message}`,
+			throw await refuse(
+				"invalid_input",
+				createError(
+					ErrorCodes.BAD_REQUEST,
+					`${input.tool}: ${checked.message}`,
+				),
+				machine.machineName,
 			);
+		// A write tool's record is written before the call exists: if the
+		// write fails, the request fails and nothing is queued for the
+		// machine. Its outcome stays "unknown" until the result record.
+		await writeMachineToolQueuedRecord(context.db, {
+			orgId,
+			callId,
+			machineName: machine.machineName,
+			tool: input.tool,
+			input: checked.input,
+			requester,
+		});
 		const call = await createMachineToolCall(context.db, {
-			id: crypto.randomUUID(),
+			id: callId,
 			orgId,
 			machineName: machine.machineName,
 			tool: input.tool,
@@ -159,9 +213,13 @@ const requestToolCallProcedure = os.requestToolCall
 			requestedBy: { type: requester.type, id: requester.id },
 		});
 		if (!call)
-			throw createError(
-				ErrorCodes.CONFLICT,
-				`Too many calls are waiting for ${machine.machineName}; try again in a minute`,
+			throw await refuse(
+				"queue_full",
+				createError(
+					ErrorCodes.CONFLICT,
+					`Too many calls are waiting for ${machine.machineName}; try again in a minute`,
+				),
+				machine.machineName,
 			);
 		return { callId: call.id, status: call.status };
 	});
@@ -219,12 +277,17 @@ const claimToolCallsProcedure = os.claimToolCalls
 				ErrorCodes.FORBIDDEN,
 				"Only the runner that reports this machine's health may claim its calls. Send a health report with this machine name from the same sign-in first",
 			);
-		const { calls } = await claimMachineToolCalls(context.db, {
+		const { calls, storedCalls } = await claimMachineToolCalls(context.db, {
 			orgId,
 			machineName: input.machineName,
 			reporterId: input.reporterId,
 			limit: input.limit,
 			results: input.results,
+		});
+		await writeMachineToolResultRecords(context.db, {
+			orgId,
+			reporterId: input.reporterId,
+			calls: storedCalls,
 		});
 		return {
 			calls: calls.map((call) => ({

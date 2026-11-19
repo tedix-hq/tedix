@@ -275,9 +275,23 @@ export interface ClaimMachineToolCallsParams {
 	at?: string;
 }
 
+/** A result this round trip stored, with what the change ledger needs. */
+export interface StoredMachineToolCallResult {
+	id: string;
+	machineName: string;
+	tool: MachineToolName;
+	requestedByType: MachineToolCallRequesterType;
+	requestedById: string;
+	status: "done" | "failed";
+	result: string | null;
+	error: string | null;
+}
+
 export interface ClaimMachineToolCallsResult {
 	/** How many of the sent results were stored. */
 	stored: number;
+	/** The results that were stored: only calls this reporter had claimed. */
+	storedCalls: StoredMachineToolCallResult[];
 	calls: MachineToolCallRow[];
 }
 
@@ -325,7 +339,16 @@ export async function claimMachineToolCalls(
 					eq(machineToolCalls.claimedByReporterId, params.reporterId),
 				),
 			)
-			.returning({ storedId: machineToolCalls.id }),
+			.returning({
+				id: machineToolCalls.id,
+				machineName: machineToolCalls.machineName,
+				tool: machineToolCalls.tool,
+				requestedByType: machineToolCalls.requestedByType,
+				requestedById: machineToolCalls.requestedById,
+				status: machineToolCalls.status,
+				result: machineToolCalls.result,
+				error: machineToolCalls.error,
+			}),
 	);
 	const next = alias(machineToolCalls, "next");
 	const claim = db
@@ -370,9 +393,13 @@ export async function claimMachineToolCalls(
 			scope: { machineName: params.machineName },
 		}),
 	]);
-	const stored = rest.slice(0, stores.length) as { storedId: string }[][];
+	// A store sets the status to "done" or "failed" only.
+	const storedCalls = (
+		rest.slice(0, stores.length) as StoredMachineToolCallResult[][]
+	).flat();
 	return {
-		stored: stored.reduce((sum, rows) => sum + rows.length, 0),
+		stored: storedCalls.length,
+		storedCalls,
 		calls: [...claimed].sort(
 			(a, b) =>
 				a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),

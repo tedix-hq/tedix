@@ -11,6 +11,7 @@ import {
 } from "@tedix/db/queries/work-items/attempt-steps";
 import { WORK_RUN_STEER_SCOPE } from "@tedix/api-contract/schemas/work-attempt-steps";
 import type { WorkAttemptMessageRow } from "@tedix/db/schema/work-items";
+import { writeRunSteeringRecord } from "../../../services/machine-change-records";
 import {
 	type BaseContext,
 	createError,
@@ -178,6 +179,20 @@ async function steerRun(
 		interrupt: params.interrupt,
 	});
 	if (!message) throw createError(ErrorCodes.CONFLICT, "No run is in progress");
+	// A tedi steers over the tedi runtime's service binding, which the MCP
+	// gateway never sees, so its steering is recorded here. A member steering
+	// through the gateway is recorded there; one steering from the app is not
+	// recorded yet.
+	if (actor.type === "tedi")
+		await writeRunSteeringRecord(context.db, {
+			orgId: workItem.orgId,
+			workItemId: workItem.id,
+			messageId: message.id,
+			tediId: actor.id,
+			kind: params.kind,
+			interrupt: message.interrupt,
+			body: params.body,
+		});
 	return storedMessage(message);
 }
 
