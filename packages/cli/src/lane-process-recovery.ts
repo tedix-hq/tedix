@@ -2,6 +2,7 @@ import { laneCommand } from "./lane-command";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
+import { CODEX_LANE_CONFIG_ARG } from "./codex-lane-thread";
 import { kernelProcessCwd, kernelProcessFacts } from "./process-facts";
 
 export interface LaneProcessFacts {
@@ -154,10 +155,16 @@ function identityFromFacts(
 	facts: LaneProcessFacts | undefined,
 	processCwd: string | undefined,
 ): string | undefined {
+	if (!facts || facts.pgid !== pid) return;
+	const nativeId = session.slice(session.indexOf(":") + 1);
 	if (
-		!facts ||
-		facts.pgid !== pid ||
-		!facts.argv.includes(session.slice(session.indexOf(":") + 1))
+		!facts.argv.includes(nativeId) &&
+		!(
+			cwd &&
+			session.startsWith("codex:") &&
+			facts.argv.includes("app-server") &&
+			facts.argv.includes(CODEX_LANE_CONFIG_ARG)
+		)
 	)
 		return;
 	if (!cwd)

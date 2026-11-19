@@ -6,6 +6,7 @@ import {
 	readFileSync,
 	readdirSync,
 	writeFileSync,
+	writeSync,
 	rmSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -15,6 +16,7 @@ import {
 	LaneTelemetryInputSchema,
 } from "@tedix/api-contract/schemas/work-agent-sessions";
 import type { NativeProviderActivity } from "@tedix/api-contract/schemas/dispatcher-health";
+import type { CodexLaneServer } from "./codex-lane-thread";
 import type { DevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import type { LaneObservation } from "./lane-telemetry";
@@ -183,7 +185,15 @@ async function runLaneProcessWithReporter(
 			storeDir: string;
 		}) => Promise<unknown>;
 		deliverWorkNote?: (note: string) => Promise<void>;
-		onSpawn?: (pid: number) => void;
+		codex?: {
+			server: CodexLaneServer;
+			onUnavailable: () => void;
+			outputSchema: object;
+			outputPath: string;
+			onTurnStarted: () => void;
+		};
+		canStart?: () => boolean;
+		onSpawn?: (pid: number, awaitingTurn?: boolean) => void;
 		onAgentEvent?: (observedAt: number) => void;
 		/** A bounded summary of what the agent just did, for the run's log. */
 		onAgentStep?: (step: LaneStep) => void;
@@ -604,26 +614,49 @@ async function runLaneProcessWithReporter(
 			: undefined;
 		const stdout = output?.stdout;
 		const stderr = output?.stderr;
-		const child = spawn(command[0]!, command.slice(1), {
-			env,
-			cwd: deps.cwd,
-			detached: deps.detachedChild,
-			stdio: [
-				"pipe",
-				stdout?.fd ??
-					(codexJson || claudeJson || opencode || devin ? "pipe" : "inherit"),
-				stderr?.fd ?? "pipe",
-			],
-		});
+		let child: ReturnType<typeof spawn> | undefined;
+		let appServer: CodexLaneServer | undefined;
 		let turnClosed = false;
 		let stallKillTimer: ReturnType<typeof setTimeout> | undefined;
-		if (child.pid) deps.onSpawn?.(child.pid);
 		function receiveStderr(chunk: Buffer) {
 			process.stderr.write(chunk);
 			devinStderr = (devinStderr + chunk.toString()).slice(-24000);
 		}
-		child.stderr?.on("data", receiveStderr);
-		child.stdin?.end(devin ? undefined : readFileSync(options.get("--brief")!));
+		const receiveAppServerStderr = (chunk: Buffer) => {
+			if (stderr) {
+				try {
+					writeSync(stderr.fd, chunk);
+					return;
+				} catch {
+					// Keep the error available when the local log cannot be written.
+				}
+			}
+			receiveStderr(chunk);
+		};
+		const launchExec = () =>
+			new Promise<[number, NodeJS.Signals | null]>((resolve, reject) => {
+				const worker = (child = spawn(command[0]!, command.slice(1), {
+					env,
+					cwd: deps.cwd,
+					detached: deps.detachedChild,
+					stdio: [
+						"pipe",
+						stdout?.fd ??
+							(codexJson || claudeJson || opencode || devin
+								? "pipe"
+								: "inherit"),
+						stderr?.fd ?? "pipe",
+					],
+				}));
+				worker.once("error", reject);
+				worker.once("close", (code, sig) => resolve([code ?? 1, sig]));
+				if (worker.pid) deps.onSpawn?.(worker.pid);
+				worker.stderr?.on("data", receiveStderr);
+				worker.stdout?.on("data", receiveStdout);
+				worker.stdin?.end(
+					devin ? undefined : readFileSync(options.get("--brief")!),
+				);
+			});
 		function receiveStdout(chunk: Buffer) {
 			process.stdout.write(chunk);
 			if (devin) {
@@ -669,7 +702,7 @@ async function runLaneProcessWithReporter(
 							nativeId = event.sessionID;
 							if (nativeId !== sessionKey) {
 								identityMismatch = true;
-								child.kill("SIGTERM");
+								child?.kill("SIGTERM");
 							}
 						}
 						if (event.type === "text" && !streamError) {
@@ -721,13 +754,12 @@ async function runLaneProcessWithReporter(
 						nativeId = codexJson ? event.thread_id : event.session_id;
 						if (deps.sessionKey && nativeId !== deps.sessionKey) {
 							identityMismatch = true;
-							child.kill("SIGTERM");
+							child?.kill("SIGTERM");
 						}
 					}
 				} catch {}
 			}
 		}
-		child.stdout?.on("data", receiveStdout);
 		const timer = setInterval(() => {
 			if (heartbeat) return;
 			heartbeat = report(sessionKey, {
@@ -743,8 +775,8 @@ async function runLaneProcessWithReporter(
 		}, deps.heartbeatMs ?? LANE_HEARTBEAT_MS);
 		const forward = (signal: NodeJS.Signals) => {
 			try {
-				if (deps.detachedChild && child.pid) process.kill(-child.pid, signal);
-				else child.kill(signal);
+				if (deps.detachedChild && child?.pid) process.kill(-child.pid, signal);
+				else child?.kill(signal);
 			} catch {
 				/* The child may have just exited. */
 			}
@@ -807,17 +839,54 @@ async function runLaneProcessWithReporter(
 			process.on("SIGTERM", terminate);
 		}
 		try {
-			[exitCode, signal] = await new Promise<[number, NodeJS.Signals | null]>(
-				(resolve, reject) => {
-					child.once("error", reject);
-					child.once("close", (code, sig) => resolve([code ?? 1, sig]));
-				},
-			);
+			const codex = codexJson && deps.admitted && deps.sessionKey && deps.codex;
+			let nativeTurn;
+			const canStart = deps.canStart ?? (() => true);
+			if (codex && canStart()) {
+				appServer = codex.server;
+				child = appServer.child;
+				appServer.child.stderr.on("data", receiveAppServerStderr);
+				if (child.pid) deps.onSpawn?.(child.pid, true);
+				nativeTurn = await appServer.turn(
+					readFileSync(options.get("--brief")!, "utf8"),
+					codex.outputSchema,
+					() => {
+						nativeId = sessionKey;
+						codex.onTurnStarted();
+					},
+					(method, params) => {
+						deps.onAgentEvent?.(Date.now());
+						for (const step of laneAgentSteps("codex", {
+							...params,
+							type: method,
+						}))
+							deps.onAgentStep?.(step);
+					},
+				);
+				if (!nativeTurn) {
+					appServer.close();
+					codex.onUnavailable();
+					appServer.child.stderr.off("data", receiveAppServerStderr);
+				}
+			}
+			if (nativeTurn && codex) {
+				exitCode = 1;
+				if (nativeTurn.status === "completed" && nativeTurn.message) {
+					writeFileSync(codex.outputPath, nativeTurn.message, { mode: 0o600 });
+					exitCode = 0;
+				} else if (nativeTurn.error) {
+					streamFailureMessage = JSON.stringify(nativeTurn.error).slice(-24000);
+				}
+			} else if (canStart()) {
+				[exitCode, signal] = await launchExec();
+			}
 		} catch (error) {
+			appServer?.close();
 			exitCode = 1;
 			signal = null;
 			telemetry.finalMessage = String(error);
 		} finally {
+			appServer?.child.stderr.off("data", receiveAppServerStderr);
 			turnClosed = true;
 			clearInterval(timer);
 			if (credentialTimer) clearInterval(credentialTimer);
