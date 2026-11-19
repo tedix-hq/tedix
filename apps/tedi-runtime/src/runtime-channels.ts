@@ -42,6 +42,7 @@ import { logTediRuntimeFailure } from "./runtime-failure-log";
 import { WORKSPACE_TOOLS_NOTE } from "./runtime-tool-guidance";
 import { parseLastEventId } from "./sse-resume";
 import { type FacetTurnUsage } from "./step-telemetry";
+import { coreMemoryPromptBlock, tediMemoryTools } from "./tedi-memory-tools";
 import {
 	selectTrustedTurnTools,
 	trustedTurnMemoryEffects,
@@ -682,6 +683,10 @@ export const runtimeChannels = {
 								...this.workstationAiTool(computerScope, turnBinding),
 								...this.objectStoreAiTools(turnBinding),
 								...this.r2SqlAiTool(),
+								...tediMemoryTools({
+									tediId: this.state.tediId,
+									getPlatform: () => this.getPlatformClient(),
+								}),
 								...createWebSearchAiTools({
 									ai: this.env.AI,
 									organizationWebSearch: this.state.organizationWebSearch,
@@ -712,9 +717,21 @@ export const runtimeChannels = {
 						full: fullTools,
 						extra: pageTools,
 					});
-					const addenda = contextPolicy.cognitiveAddenda
-						? await this.cognitiveAddenda(sessionKey, userMessage, turnBinding)
-						: "";
+					// The embedded assistant answers for a host page; it does not
+					// carry the tedi's own memory.
+					const [addenda, coreMemory] = await Promise.all([
+						contextPolicy.cognitiveAddenda
+							? this.cognitiveAddenda(sessionKey, userMessage, turnBinding)
+							: "",
+						contextPolicy.cognitiveAddenda && !input.toolArgumentConstraints
+							? coreMemoryPromptBlock({
+									trust,
+									sessionKey,
+									tediId: this.state.tediId,
+									getPlatform: () => this.getPlatformClient(),
+								})
+							: "",
+					]);
 					const toolsNote = input.toolArgumentConstraints
 						? ""
 						: WORKSPACE_TOOLS_NOTE;
@@ -733,6 +750,7 @@ export const runtimeChannels = {
 						],
 						// Per turn: a page offers tools only while it is on screen.
 						[
+							coreMemory,
 							addenda,
 							embeddedFit ?? "",
 							offersPageTools ? PAGE_TOOLS_SYSTEM_NOTE : "",

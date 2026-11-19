@@ -42,6 +42,7 @@ import { directoryContract } from "../contracts/directory";
 import { dispatcherHealthContract } from "../contracts/dispatcher-health";
 import { machinesContract } from "../contracts/machines";
 import { workMapContract } from "../contracts/work-map";
+import { tediMemoryContract } from "../contracts/tedi-memory";
 import { docsContract } from "../contracts/docs";
 import { earnedDelegationContract } from "../contracts/earned-delegation";
 import { externalAgentIdentityContract } from "../contracts/external-agent-identity";
@@ -154,6 +155,7 @@ export const ROUTERS: Record<string, unknown> = {
 	dispatcherHealth: dispatcherHealthContract,
 	machines: machinesContract,
 	workMap: workMapContract,
+	tediMemory: tediMemoryContract,
 	docs: docsContract,
 	flywheelHealth: flywheelHealthContract,
 	graphRetrievalBenchmarks: graphRetrievalBenchmarksContract,

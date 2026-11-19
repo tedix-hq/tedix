@@ -40,6 +40,7 @@ import { directoryContract } from "./directory";
 import { dispatcherHealthContract } from "./dispatcher-health";
 import { machinesContract } from "./machines";
 import { workMapContract } from "./work-map";
+import { tediMemoryContract } from "./tedi-memory";
 import { docsContract } from "./docs";
 import { osComputeContract } from "./os-compute";
 import { osTenantContract } from "./os-tenant";
@@ -368,6 +369,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	dispatcherHealth: dispatcherHealthContract,
 	machines: machinesContract,
 	workMap: workMapContract,
+	tediMemory: tediMemoryContract,
 
 	// Image uploads (org logos, app logos, tedi avatars)
 	images: imagesContract,

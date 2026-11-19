@@ -1692,6 +1692,10 @@
 		{
 			"name": "20261119212445_credit_notice_deliveries/migration.sql",
 			"sha256": "57817d0cb04fbba17a3d6b3889715569e52a50409fc2ba125b112f28271b5b9a"
+		},
+		{
+			"name": "20261119212658_tedi_memory_documents/migration.sql",
+			"sha256": "df23de98e90512384372e7add25e2110d08eddadf3fe2e789a65c0833144f7f5"
 		}
 	]
 }

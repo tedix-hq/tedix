@@ -357,6 +357,8 @@
 		"./queries/tedi-email/trusted-recipients": "./src/queries/tedi-email/trusted-recipients.ts",
 		"./schema/tedi-objectives": "./src/schema/tedi-objectives.ts",
 		"./queries/tedi-objectives": "./src/queries/tedi-objectives.ts",
+		"./schema/tedi-memory": "./src/schema/tedi-memory.ts",
+		"./queries/tedi-memory": "./src/queries/tedi-memory.ts",
 		"./schema/capabilities": "./src/schema/capabilities.ts",
 		"./queries/capabilities": "./src/queries/capabilities.ts",
 		"./schema/projects": "./src/schema/projects.ts",

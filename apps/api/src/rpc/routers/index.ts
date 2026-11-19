@@ -192,6 +192,9 @@ export const apiRouter = {
 	workMap: lazyRouter(() =>
 		import("./work-map").then((m) => m.workMapContractRouter),
 	),
+	tediMemory: lazyRouter(() =>
+		import("./tedi-memory").then((m) => m.tediMemoryContractRouter),
+	),
 	repositoryObserver: lazyRouter(() =>
 		import("./repository-observer").then(
 			(m) => m.repositoryObserverContractRouter,
