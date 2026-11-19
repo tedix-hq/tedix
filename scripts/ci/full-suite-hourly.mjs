@@ -414,10 +414,8 @@ function selectSuite(root, { eventName, files }) {
 // only what cannot be healed after a deploy: the policy check (migration order,
 // D1 schema and destructive DDL), because Ship refuses to roll a schema back.
 // Every test lane, unit, workerd, type checks and browser suites, runs in the
-// verify lane on the same push after the deploy; the developer's pre-push
-// already ran the related tests and type checks locally. A red verify files
-// the incident and hands Red main heal the culprit. Scheduled and
-// hand-started runs stay full.
+// verify lane on the same push. A red verify files the incident and hands
+// Red main heal the culprit. Manual full runs keep all lanes.
 export const SUITE_LANES = ["full", "gate", "verify"];
 export const REPOSITORY_CHECKS = ["onboarding", "scripts", "policy"];
 export function laneSelection(plan, lane = "full") {

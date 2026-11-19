@@ -169,7 +169,7 @@ exit 0
 	});
 });
 
-test("fast local checks retain source safety and owner types while CI retains every other gate", () => {
+test("fast pre-push leaves workspace type checking to Main verify", () => {
 	const local = [
 		"node_modules matches the lockfile",
 		"format:check (Oxfmt)",
@@ -177,7 +177,6 @@ test("fast local checks retain source safety and owner types while CI retains ev
 		"lint:repo (architecture boundaries)",
 		"lint:deps (Sherif)",
 		"OSS secret and customer-identity scan",
-		"type-check apps/api",
 		"type-check scripts/",
 		"migration order against the push base",
 	];
@@ -203,7 +202,12 @@ test("fast local checks retain source safety and owner types while CI retains ev
 		if (!name.startsWith("tests "))
 			expect(gateInProfile(name, "ci-policy")).toBe(true);
 	}
-	expect(gateInProfile("type-check apps/api", "ci-policy")).toBe(false);
+	for (const workspace of ["apps/cms", "packages/db"]) {
+		const gate = `type-check ${workspace}`;
+		expect(gateInProfile(gate, "local-fast")).toBe(false);
+		expect(gateInProfile(gate, "ci-policy")).toBe(false);
+		expect(gateInProfile(gate, "full")).toBe(true);
+	}
 	expect(
 		gateInProfile("type-check:workers apps/tedi-runtime", "ci-policy"),
 	).toBe(true);

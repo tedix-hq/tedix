@@ -35,10 +35,8 @@ A self-hosted Cloudflare pool is a later optimization, not a rollout dependency.
 This workflow replaces the old scoped push CI; release and pull-request
 certification remain in `oss-public-ci.yml`.
 
-The local hook defaults to owner types, changed formatting, Oxlint,
-architecture/dependency lint, and the fail-closed private secret scan. Operators
-must enforce green-only deployment before enabling this default. During initial
-cutover, keep Ship paused until the first full certification passes.
+The local hook checks changed formatting, lint, secrets, scripts types and
+selected policy invariants. Main verify runs workspace type checks.
 `git config tedix.pushGateProfile full` retains
 complete local proof; unsetting it restores the fast default.
 The other checks stay in CI. `bun run verify` retains the complete profile;
