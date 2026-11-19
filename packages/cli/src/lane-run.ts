@@ -18,7 +18,7 @@ import type { NativeProviderActivity } from "@tedix/api-contract/schemas/dispatc
 import type { DevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import type { LaneObservation } from "./lane-telemetry";
-import { laneOutput } from "./lane-output";
+import { laneTurnOutput } from "./lane-output";
 import { laneAgentSteps, type LaneStep } from "./lane-steps";
 import { transientReadFailure } from "./read-retry";
 
@@ -593,16 +593,17 @@ async function runLaneProcessWithReporter(
 		const credentialTimer = laneAgent
 			? setInterval(() => void renewLaneAgent(), LANE_CREDENTIAL_RENEW_MS)
 			: undefined;
-		const stdout = deps.detachedChild
-			? laneOutput(join(outputDirectory, `stdout-${turn}.log`), (chunk) =>
-					receiveStdout(chunk),
+		// Numbered after the files already in the folder, not by this loop: a
+		// follow-up or resumed turn is a new call for the same Attempt.
+		const output = deps.detachedChild
+			? laneTurnOutput(
+					outputDirectory,
+					(chunk) => receiveStdout(chunk),
+					(chunk) => receiveStderr(chunk),
 				)
 			: undefined;
-		const stderr = deps.detachedChild
-			? laneOutput(join(outputDirectory, `stderr-${turn}.log`), (chunk) =>
-					receiveStderr(chunk),
-				)
-			: undefined;
+		const stdout = output?.stdout;
+		const stderr = output?.stderr;
 		const child = spawn(command[0]!, command.slice(1), {
 			env,
 			cwd: deps.cwd,

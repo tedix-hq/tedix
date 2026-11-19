@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
+	mkdirSync,
 	mkdtempSync,
 	writeFileSync,
 	readFileSync,
@@ -45,6 +46,38 @@ function fixture() {
 	return { args, out };
 }
 describe("lane launcher", () => {
+	it("gives every launch into one Attempt's folder its own output files", async () => {
+		const { args, out } = fixture();
+		const output = join(out, "..", "attempt");
+		mkdirSync(output);
+		writeFileSync(
+			args.at(-1)!,
+			`console.log('out ' + process.argv[2]); console.error('err ' + process.argv[2]);`,
+		);
+		const turn = (name: string) =>
+			runLaneProcess([...args, name], {
+				detachedChild: true,
+				detachedOutputDirectory: output,
+				forwardSignals: false,
+				admitted: true,
+				report: async () => ({}),
+			});
+		const read = (file: string) => readFileSync(join(output, file), "utf8");
+		// The first turn, then a follow-up turn of the same Attempt.
+		expect(await turn("first")).toBe(0);
+		expect(await turn("second")).toBe(0);
+		expect(read("stdout-0.log")).toBe("out first\n");
+		expect(read("stderr-0.log")).toBe("err first\n");
+		expect(read("stdout-1.log")).toBe("out second\n");
+		expect(read("stderr-1.log")).toBe("err second\n");
+		// After a restart the folder may hold a file from a turn that broke off.
+		writeFileSync(join(output, "stderr-6.log"), "left by an earlier runner");
+		expect(await turn("resumed")).toBe(0);
+		expect(read("stdout-7.log")).toBe("out resumed\n");
+		expect(read("stderr-6.log")).toBe("left by an earlier runner");
+		expect(read("stdout-0.log")).toBe("out first\n");
+	});
+
 	it("detached worker keeps writing after its runner parent is killed", async () => {
 		const { args, out } = fixture();
 		const progress = `${out}.progress`;
