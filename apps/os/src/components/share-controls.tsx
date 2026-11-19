@@ -1154,7 +1154,6 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 		resourceType === "gadget" && guestRefusal?.reason !== "not_runtime_app"
 			? guestRefusal
 			: null;
-	const cannotCreateAppLink = !link && Boolean(appRefusal);
 	const linkOff = link !== null && shareStatus(link) === "off";
 	const defaultRole: OsShareRole = resourceType === "output" ? "viewer" : "use";
 	const noun = RESOURCE_NOUN[resourceType];
@@ -1409,9 +1408,8 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					{recipientAccounts.length ? (
 						<>
 							<Text as="p" role="label" tone="secondary" className="m-0">
-								{appRefusal
-									? "This app uses these personal accounts."
-									: "People need to connect their own accounts for these services."}
+								People you share this app with need to connect their own
+								accounts for these services.
 							</Text>
 							<ul className="m-0 pl-5 text-sm">
 								{recipientAccounts.map((name) => (
@@ -1426,9 +1424,11 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					)}
 				</section>
 			) : null}
-			{appRefusal ? (
+			{/* Only a link that needs no sign-in is affected: a colleague can
+			    connect their own account, someone without one cannot. */}
+			{appRefusal && access === "anyone_with_link" ? (
 				<Alert variant="warning" data-guest-refusal={appRefusal.reason}>
-					People opening this link can't use the app because{" "}
+					People who open this link without signing in can't use the app because{" "}
 					{appRefusal.reason === "connection_grant"
 						? "it needs access to accounts or services they can't use."
 						: "they can't read the files it needs."}
@@ -1593,9 +1593,7 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 						</div>
 					) : null}
 				</section>
-			) : shares.isSuccess &&
-			  !cannotCreateAppLink &&
-			  formMode.kind === "closed" ? (
+			) : shares.isSuccess && formMode.kind === "closed" ? (
 				<div className="flex flex-wrap gap-2">
 					<Button
 						size="sm"
@@ -1720,7 +1718,7 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					</ul>
 				</section>
 			) : null}
-			{(formMode.kind === "create" && !cannotCreateAppLink) || editing ? (
+			{formMode.kind === "create" || editing ? (
 				<LinkForm
 					key={editing?.id ?? "create"}
 					resourceType={resourceType}

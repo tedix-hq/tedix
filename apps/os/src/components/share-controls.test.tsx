@@ -781,7 +781,7 @@ describe("ShareControls", () => {
 		{ accounts: ["Calendar Service", "Mail Service"], blocked: true },
 		{ accounts: [], blocked: false },
 	])(
-		"shows the recipient account requirements and blocks a broken link (%j)",
+		"lists the accounts a recipient must connect and still lets a link be made (%j)",
 		async ({ accounts, blocked }) => {
 			sharesApi.list.mockResolvedValue({
 				items: [],
@@ -798,17 +798,13 @@ describe("ShareControls", () => {
 			expect(
 				[...section.querySelectorAll("li")].map((item) => item.textContent),
 			).toEqual(accounts);
-			if (blocked) {
-				expect(container.textContent).toContain(
-					"People opening this link can't use the app",
-				);
-				expect(() => findButton(container, "Create link")).toThrow();
-			} else {
-				expect(section.textContent).toContain(
-					"People don't need to connect any accounts of their own.",
-				);
-				expect(findButton(container, "Create link").disabled).toBe(false);
-			}
+			expect(section.textContent).toContain(
+				blocked
+					? "need to connect their own"
+					: "People don't need to connect any accounts of their own.",
+			);
+			// A colleague can connect their own account, so sharing stays possible.
+			expect(findButton(container, "Create link").disabled).toBe(false);
 		},
 	);
 
