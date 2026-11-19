@@ -33,6 +33,11 @@ const mocks = vi.hoisted(() => ({
 	membership: vi.fn(),
 	findTool: vi.fn(),
 	approvalTool: vi.fn(),
+	tediProfile: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/tedis", async (load) => ({
+	...(await load<object>()),
+	getTediByIdForOrganization: mocks.tediProfile,
 }));
 vi.mock("@tedix/db/queries/os-workspaces/workspaces", async (load) => ({
 	...(await load<object>()),
@@ -1130,6 +1135,7 @@ describe("workspace agent linked account reads", () => {
 		"records the $actor.kind identity in the approval",
 		async ({ actor, actorType, actorId }) => {
 			tenant();
+			mocks.tediProfile.mockResolvedValue({ name: "Ops Tedi" });
 			mocks.approvalTool.mockResolvedValue({
 				...surface().tools[0],
 				config: { ...surface().tools[0]!.config, approvalPolicy: "once" },
@@ -1138,6 +1144,13 @@ describe("workspace agent linked account reads", () => {
 				status: "approval_required",
 			});
 			const [, approval, audit] = mocks.create.mock.calls[0]!;
+			// The request people read names the tedi, never its id.
+			if (actor.kind === "tedi") {
+				expect(JSON.stringify(approval)).toContain("Ops Tedi");
+				expect(approval.summary ?? approval.description ?? "").not.toContain(
+					actor.tediId,
+				);
+			}
 			expect(approval.payload).toMatchObject({
 				workspaceReadActor: actor,
 				target: { actor },

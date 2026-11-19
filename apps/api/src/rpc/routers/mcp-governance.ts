@@ -1843,8 +1843,16 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				workspaceReadActor?.kind === "tedi"
 					? workspaceReadActor.tediId
 					: undefined;
+			// People read this in the approval; name the tedi, never show its id.
+			const workspaceTedi = workspaceTediId
+				? await getTediByIdForOrganization(
+						context.db,
+						workspaceTediId,
+						input.organizationId,
+					)
+				: undefined;
 			const requestedFor = workspaceTediId
-				? `tedi ${workspaceTediId}`
+				? workspaceTedi?.displayName || workspaceTedi?.name || "a tedi"
 				: workspaceReadActor?.kind === "schedule"
 					? "a scheduled workspace read"
 					: requester?.name || "the requesting organization member";
