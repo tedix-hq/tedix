@@ -20,6 +20,7 @@ import {
 	billingUsageReservations,
 	stripeWebhookEvents,
 } from "../schema/billing";
+import type { NewProviderExecutionAttemptRow } from "../schema/provider-executions";
 import { createD1Facade } from "../test/d1-facade";
 import { tableDdl } from "../test/schema-ddl";
 import {
@@ -47,8 +48,10 @@ import {
 } from "./billing/plans";
 import { recordBillingProviderUsage } from "./billing/provider-usage";
 import {
+	estimateAiCredits,
 	expireBillingReservations,
 	reserveBillingUsage,
+	UNPRICED_WORKERS_AI_HOLD_CREDITS,
 } from "./billing/reservations";
 import { settleBillingUsage } from "./billing/settlement";
 import {
@@ -564,6 +567,195 @@ describe("organization credit pool", () => {
 			code: "pricing_unavailable",
 		});
 		sqlite.close();
+	});
+
+	describe("Workers AI calls without a governed rate", () => {
+		const WORKERS_AI_SCOPE = '["workers-ai","account-1"]';
+		function publishWorkersAiRate(
+			sqlite: DatabaseSync,
+			input: {
+				id: string;
+				modelId: string;
+				effectiveFrom: string;
+				microUsdPerMillion: number;
+			},
+		) {
+			sqlite
+				.prepare(
+					`INSERT INTO provider_model_rate_versions (
+						id, provider, model_id, deployment_scope, effective_from,
+						input_microusd_per_million, output_microusd_per_million,
+						cache_read_microusd_per_million, cache_write_microusd_per_million,
+						currency, evidence_uri, evidence_digest, verified_at, published_at,
+						published_by, change_reason
+					) VALUES (?, 'workers-ai', ?, ?, ?, ?, ?, ?, ?, 'USD',
+						'https://example.test/rates', 'digest', '2026-01-01T00:00:00.000Z',
+						'2026-01-01T00:00:00.000Z', 'test', 'fixture')`,
+				)
+				.run(
+					input.id,
+					input.modelId,
+					WORKERS_AI_SCOPE,
+					input.effectiveFrom,
+					input.microUsdPerMillion,
+					input.microUsdPerMillion,
+					input.microUsdPerMillion,
+					input.microUsdPerMillion,
+				);
+		}
+		function reserveWorkersAi(
+			db: ReturnType<typeof setup>["db"],
+			input: { id: string; model: string; now: string },
+		) {
+			return reserveBillingUsage(db, {
+				id: input.id,
+				organizationId: "org-1",
+				source: "operator",
+				provider: "workers-ai",
+				model: input.model,
+				deploymentScope: WORKERS_AI_SCOPE,
+				estimatedInputTokens: 10_000,
+				estimatedOutputTokens: 0,
+				idempotencyKey: `reserve:${input.id}`,
+				expiresAt: new Date(Date.parse(input.now) + 600_000).toISOString(),
+				now: input.now,
+			});
+		}
+		function autoExecution(allowedModels: string[]) {
+			return {
+				provider: "workers-ai",
+				requestModel: "cloudflare/auto",
+				autoRouting: {
+					version: 1,
+					modality: "text",
+					mode: "restricted",
+					allowedProviders: ["workers-ai"],
+					allowedModels,
+				},
+				gatewayAccountId: "account-1",
+				gatewayId: "gateway-1",
+				transportKind: "gateway-https",
+				apiKind: "workers-ai-chat",
+			} as unknown as NewProviderExecutionAttemptRow;
+		}
+
+		// clef-flash has no rate and the Gateway reports 0 tokens for it: a
+		// token rate cannot price it, but the Gateway-reported cost settles it.
+		it("admits a model with no rate on a small hold instead of refusing it", async () => {
+			const { db, sqlite, now } = setup();
+			const decision = await reserveWorkersAi(db, {
+				id: "clef-flash",
+				model: "@cf/cloudflare/clef-flash",
+				now,
+			});
+			expect(decision).toMatchObject({
+				allowed: true,
+				reservation: { credits: UNPRICED_WORKERS_AI_HOLD_CREDITS },
+			});
+			sqlite.close();
+		});
+
+		// A rate published for a future date does not apply yet: until then the
+		// call is held like an unpriced one, afterwards the rate prices it.
+		it("holds a model whose rate takes effect later, then prices it once it applies", async () => {
+			const { db, sqlite, now } = setup();
+			publishWorkersAiRate(sqlite, {
+				id: "llama-future",
+				modelId: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+				effectiveFrom: "2026-07-28T00:00:00.000Z",
+				microUsdPerMillion: 10_000_000,
+			});
+			expect(
+				await reserveWorkersAi(db, {
+					id: "llama-before",
+					model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+					now,
+				}),
+			).toMatchObject({
+				allowed: true,
+				reservation: { credits: UNPRICED_WORKERS_AI_HOLD_CREDITS },
+			});
+			// 10,000 tokens x 10 USD micros = 100,000 USD micros = EUR 0.10 -> x2 = 20.
+			expect(
+				await reserveWorkersAi(db, {
+					id: "llama-after",
+					model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+					now: "2026-07-28T12:00:00.000Z",
+				}),
+			).toMatchObject({ allowed: true, reservation: { credits: 20 } });
+			sqlite.close();
+		});
+
+		it("still refuses another provider's model that has no rate", async () => {
+			const { db, sqlite, now } = setup();
+			expect(
+				await estimateAiCredits(db, {
+					creditFx: PARITY_FX,
+					provider: "azure-openai",
+					model: "unknown-model",
+					deploymentScope: DEPLOYMENT_SCOPE,
+					estimatedInputTokens: 10_000,
+					estimatedOutputTokens: 0,
+					now,
+				}),
+			).toBeNull();
+			sqlite.close();
+		});
+
+		// Auto Router admission happens before it picks a model, so the hold
+		// covers the dearest model the admitted routing allows.
+		it("prices the Auto Router at its most expensive allowed model", async () => {
+			const { db, sqlite, now } = setup();
+			publishWorkersAiRate(sqlite, {
+				id: "kimi",
+				modelId: "@cf/moonshotai/kimi-k2.7-code",
+				effectiveFrom: "2026-01-01T00:00:00.000Z",
+				microUsdPerMillion: 4_000_000,
+			});
+			publishWorkersAiRate(sqlite, {
+				id: "llama-small",
+				modelId: "@cf/meta/llama-3.1-8b-instruct-fast",
+				effectiveFrom: "2026-01-01T00:00:00.000Z",
+				microUsdPerMillion: 500_000,
+			});
+			const estimate = (allowedModels: string[]) =>
+				estimateAiCredits(db, {
+					creditFx: PARITY_FX,
+					provider: "workers-ai",
+					model: "cloudflare/auto",
+					execution: autoExecution(allowedModels),
+					estimatedInputTokens: 10_000,
+					estimatedOutputTokens: 0,
+					now,
+				});
+			// kimi: 40,000 USD micros = EUR 0.04 -> 8 credits; llama: 1 credit.
+			expect(await estimate(["@cf/moonshotai/kimi-k2.7-code"])).toBe(8);
+			expect(
+				await estimate([
+					"@cf/meta/llama-3.1-8b-instruct-fast",
+					"@cf/moonshotai/kimi-k2.7-code",
+				]),
+			).toBe(8);
+			// An allowed model with no rate counts at the unpriced hold.
+			expect(
+				await estimate([
+					"@cf/meta/llama-3.1-8b-instruct-fast",
+					"@cf/cloudflare/clef-flash",
+				]),
+			).toBe(UNPRICED_WORKERS_AI_HOLD_CREDITS);
+			// No routing evidence: still admitted on the unpriced hold.
+			expect(
+				await estimateAiCredits(db, {
+					creditFx: PARITY_FX,
+					provider: "workers-ai",
+					model: "cloudflare/auto",
+					estimatedInputTokens: 10_000,
+					estimatedOutputTokens: 0,
+					now,
+				}),
+			).toBe(UNPRICED_WORKERS_AI_HOLD_CREDITS);
+			sqlite.close();
+		});
 	});
 
 	it("lists active top-up packs smallest first", async () => {
