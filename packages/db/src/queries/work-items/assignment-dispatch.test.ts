@@ -52,6 +52,7 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 		executor: "codex",
 		expectedWorkItemVersion: accepted.version,
 	});
+	expect(changed.dispatchState).toBe("ready");
 	expect(changed.executorId).toBe("codex");
 	expect(changed.executorType).toBe("external_agent");
 	await expect(
@@ -68,6 +69,34 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 		2,
 	);
 	sqlite.close();
+});
+
+it("dispatches previously unassigned accepted Work to a human or tedi", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		sqlite.exec("PRAGMA foreign_keys=OFF");
+		sqlite.exec(
+			schemaDdl(workItems, workEvents, workAttempts, workItemComments),
+		);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		for (const executor of ["human", "tedi"] as const) {
+			sqlite
+				.prepare(
+					"INSERT INTO work_items(id,org_id,title,disposition,created_at,metadata) VALUES(?,'org','T','accepted','2026-10-18T00:00:00.000Z','{}')",
+				)
+				.run(executor);
+			const updated = await updateWorkItemSpecification(db, {
+				orgId: "org",
+				workItemId: executor,
+				actor: { type: "user", id: "owner" },
+				executor,
+			});
+			expect(updated.dispatchState).toBe("ready");
+			expect(updated.executorId).toBe(executor);
+		}
+	} finally {
+		sqlite.close();
+	}
 });
 
 it("a runner's hold stays until the Work is revised, and the revision makes it ready again", async () => {

@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { signMediaUrl } from "../lib/skill-media-url";
-import { registerSkillMediaRoutes } from "./skill-media-routes";
+import {
+	registerSkillMediaRoutes,
+	skillMediaSecurityHeaders,
+} from "./skill-media-routes";
 
 const { getRunArtifact, resolveRunArtifactTenantScope } = vi.hoisted(() => ({
 	getRunArtifact: vi.fn(),
@@ -133,5 +136,36 @@ describe("malformed stored MIME metadata", () => {
 			},
 		} as CloudflareEnv);
 		expect(response.status).toBe(415);
+	});
+});
+
+describe("skill media response headers", () => {
+	it("never lets the browser second-guess the declared type", () => {
+		expect(
+			skillMediaSecurityHeaders("image/png")["X-Content-Type-Options"],
+		).toBe("nosniff");
+	});
+
+	it("sandboxes every type that can carry script", () => {
+		for (const type of [
+			"IMAGE/SVG+XML; charset=utf-8",
+			"text/html",
+			"application/xhtml+xml",
+			"image/unknown-future-type",
+		]) {
+			expect(
+				skillMediaSecurityHeaders(type)["Content-Security-Policy"],
+				type,
+			).toBe("default-src 'none'; sandbox");
+		}
+	});
+
+	it("leaves plain pictures, audio and video playable", () => {
+		for (const type of ["image/png", "audio/mpeg", "video/mp4"]) {
+			expect(
+				skillMediaSecurityHeaders(type)["Content-Security-Policy"],
+				type,
+			).toBeUndefined();
+		}
 	});
 });

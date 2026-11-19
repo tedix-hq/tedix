@@ -66,10 +66,14 @@ function fixture() {
 	return { client };
 }
 
-describe("private review portfolio visibility", () => {
-	it("returns a member's public portfolio without disclosing the private project or weakening direct guards", async () => {
+describe("private review project visibility", () => {
+	it("keeps the private project out of a member's list, count, and portfolio", async () => {
 		const { client } = fixture();
-		const result = await client("member").getPortfolio({});
+		const member = client("member");
+		const page = await member.list({ limit: 1 });
+		expect(page.data.map((project) => project.id)).toEqual([PUBLIC]);
+		expect(page.pagination).toMatchObject({ total: 1, hasMore: false });
+		const result = await member.getPortfolio({});
 		expect(result.data.map((row) => row.project.id)).toEqual([PUBLIC]);
 		expect(result.data[0]).toMatchObject({
 			total: 1,
@@ -77,7 +81,7 @@ describe("private review portfolio visibility", () => {
 			next: { id: "public-item", title: "Orchard research task" },
 		});
 		expect(JSON.stringify(result)).not.toContain("Private review");
-		await expect(client("member").get({ id: PRIVATE })).rejects.toMatchObject({
+		await expect(member.get({ id: PRIVATE })).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
 	});

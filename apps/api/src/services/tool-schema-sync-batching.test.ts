@@ -163,17 +163,13 @@ describe("projection plan determinism", () => {
 		expect(second.toolIds).toEqual(first.toolIds);
 	});
 
-	it("orders endpoints by codepoint so batch N is the same set on every run", () => {
+	it("covers the whole surface once in deterministic, bounded batches", () => {
 		const { endpoints } = planToolSchemaSyncProjection({}, TEDIX_ADMIN_APP_ID);
 		const sorted = [...endpoints].sort((left, right) =>
 			left < right ? -1 : left > right ? 1 : 0,
 		);
 		expect(endpoints).toEqual(sorted);
 		expect(new Set(endpoints).size).toBe(endpoints.length);
-	});
-
-	it("splits the plan into batches that cover the surface exactly once", () => {
-		const { endpoints } = planToolSchemaSyncProjection({}, TEDIX_ADMIN_APP_ID);
 		const batches = splitIntoSyncBatches(
 			endpoints,
 			TOOL_SCHEMA_SYNC_BATCH_SIZE,

@@ -308,9 +308,19 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 
 		it("rechecks auto-link bytes and fences the audit", async () => {
 			const { db, auditDb, add } = fixture(plane);
-			await add("a");
-			await add("b");
-			await add("foreign", { organizationId: "fictional-other" });
+			const search =
+				"The workspace migration finished after the scheduled maintenance window";
+			const prefix =
+				"skill://org/fictional-grove/receivables-reconciliation/runs/2026-10-11";
+			await add("a", { content: search, source: `${prefix}/step-1` });
+			await add("b", {
+				summary: search.toUpperCase(),
+				source: `other://${prefix}`,
+			});
+			await add("foreign", {
+				organizationId: "fictional-other",
+				content: search,
+			});
 			const facts = await listAutoLinkFacts(db, {
 				organizationId: scope.organizationId,
 			});
@@ -328,16 +338,22 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 					},
 				),
 			).toBe(true);
-			const audit = await auditMemoryGraph(
-				{
-					db: auditDb,
-					organizationId: scope.organizationId,
-					tediId: scope.tediId,
-				},
-				{ scope: "org" },
-			);
+			const auditScope = {
+				db: auditDb,
+				organizationId: scope.organizationId,
+				tediId: scope.tediId,
+			};
+			const audit = await auditMemoryGraph(auditScope, {
+				scope: "org",
+				search,
+			});
 			expect(audit.counts.total).toBe(2);
 			expect(audit.facts.map((row) => row.id).sort()).toEqual(["a", "b"]);
+			const sourced = await auditMemoryGraph(auditScope, {
+				scope: "org",
+				source_prefix: prefix,
+			});
+			expect(sourced.facts.map((row) => row.id)).toEqual(["a"]);
 		});
 
 		it("rolls back the complete batch on failure", async () => {

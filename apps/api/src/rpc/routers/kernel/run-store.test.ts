@@ -996,14 +996,48 @@ describe("homeDelegationVerdictMetadata — output-contract task mode", () => {
 		).toEqual({});
 	});
 
-	it("silent on output-contract success (no affirmation key)", () => {
+	it("accepts a valid whole-message JSON output without adding a verdict", () => {
 		expect(
 			homeDelegationVerdictMetadata({
 				status: "completed",
 				outputSchema: schema,
-				validatedContent: 'All set.\n```json\n{"status":"ok"}\n```',
+				validatedContent: '{"status":"ok"}',
 			}),
 		).toEqual({});
+	});
+
+	it("checks nested output against the last JSON block and reports each invalid field", () => {
+		const verdict = homeDelegationVerdictMetadata({
+			status: "completed",
+			outputSchema: {
+				type: "object",
+				required: ["results", "total"],
+				properties: {
+					results: {
+						type: "array",
+						items: {
+							type: "object",
+							properties: {
+								status: { enum: ["ready"] },
+								count: { type: ["integer", "null"] },
+							},
+						},
+					},
+				},
+			},
+			validatedContent: [
+				'```json\n{"results": [], "total": 0}\n```',
+				'```json\n{"results": [{"status": "unknown", "count": 1.5}]}\n```',
+			].join("\n"),
+		});
+		expect(verdict.outputContract).toMatchObject({
+			met: false,
+			errors: [
+				expect.stringContaining("root.total:"),
+				expect.stringContaining("root.results[0].status:"),
+				expect.stringContaining("root.results[0].count:"),
+			],
+		});
 	});
 
 	it("outputContract verdict on validation failure, body untouched", () => {

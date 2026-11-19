@@ -1,14 +1,12 @@
 /**
- * Golden cases for the pure projection helpers. Every expected value below was
- * captured from the unsplit `tool-schema-sync.ts` before the projection band
- * moved into its own module, so a passing run proves the split changed no
- * output. The contract hashes are the strongest check: they cover the
- * generated JSON Schemas, tool id, title, description, config, annotations,
- * meta and widget columns of one endpoint at once. The endpoints are
- * synthetic so a real contract change cannot move these hashes; a projector
- * change must bump them deliberately.
+ * Synthetic golden fixtures cover generated schemas, tool identity, and
+ * persisted metadata. Real contract endpoints cover gateway policy overrides.
  */
-import type { ResolvedContractEndpoint } from "@tedix/api-contract/utils/contract-routers";
+import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
+import {
+	resolveContractEndpoint,
+	type ResolvedContractEndpoint,
+} from "@tedix/api-contract/utils/contract-routers";
 import type { AppTool } from "@tedix/db/schema";
 import { describe, expect, it } from "vite-plus/test";
 import * as z from "zod";
@@ -26,6 +24,9 @@ import {
 import {
 	AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES,
 	LIVENESS_REPORT_ENDPOINTS,
+	OS_TOOL_ID_OVERRIDES,
+	OS_KIND_OVERRIDES,
+	SKILL_WORKFLOW_KIND_OVERRIDES,
 	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
 	WORK_HIERARCHY_KIND_OVERRIDES,
 } from "./tool-schema-overrides";
@@ -534,4 +535,136 @@ describe("projectionContractHash", () => {
 			"807148237a360a093558f8beeb23634289a9730cf9bbbfa11bd66d7b049c3aa2",
 		);
 	});
+});
+
+it("projects the workspace change record export as one read-only gateway tool", async () => {
+	const endpoint = resolveContractEndpoint(
+		"osWorkspaces/workspaces/changeRecords",
+	);
+	if (!endpoint) throw new Error("Missing change record contract endpoint");
+	const { tool } = await buildProjectedTool(
+		"fixture-app",
+		endpoint,
+		undefined,
+		{ toolIdOverrides: OS_TOOL_ID_OVERRIDES, kindOverrides: OS_KIND_OVERRIDES },
+	);
+	expect(tool.toolId).toBe("list_os_workspace_change_records");
+	expect(tool.writeCapability).toBe("read");
+	expect(parseToolPolicyMetadata(tool.meta)).toMatchObject({
+		riskTier: "read",
+		blastRadius: "none",
+	});
+	expect(tool.config?.transport).toBe("rpc");
+});
+
+describe("workspace draft tool risk projection", () => {
+	it.each([
+		["getWorkspaceDraftGrant", "read", "read", "none"],
+		["getWorkspaceDraftProposal", "read", "read", "none"],
+		["listWorkspaceDraftProposals", "read", "read", "none"],
+		["proposeWorkspaceRevision", "write", "bounded_write", "single_resource"],
+		[
+			"withdrawWorkspaceDraftProposal",
+			"write",
+			"bounded_write",
+			"single_resource",
+		],
+		["setWorkspaceDraftGrant", "destructive", "high_impact_write", "tenant"],
+	] as const)(
+		"keeps %s in its own operational policy tier",
+		async (operation, capability, riskTier, blastRadius) => {
+			const endpoint = resolveContractEndpoint(`skills/${operation}`);
+			if (!endpoint) throw new Error("Missing draft contract endpoint");
+			const { tool } = await buildProjectedTool(
+				"fixture-app",
+				endpoint,
+				undefined,
+				{ kindOverrides: SKILL_WORKFLOW_KIND_OVERRIDES },
+			);
+			expect(tool.writeCapability).toBe(capability);
+			expect(parseToolPolicyMetadata(tool.meta)).toMatchObject({
+				riskTier,
+				blastRadius,
+			});
+			expect(tool.config?.transport).toBe("rpc");
+		},
+	);
+});
+
+describe("repository candidate native tool projection", () => {
+	it.each([
+		[
+			"initializeRepositoryCandidate",
+			"initialize_repository_candidate",
+			"write",
+		],
+		["readRepositoryCandidate", "read_repository_candidate", "read"],
+		["submitRepositoryCandidate", "submit_repository_candidate", "write"],
+		["sealRepositoryCandidate", "seal_repository_candidate", "write"],
+		["applyRepositoryCandidate", "apply_repository_candidate", "write"],
+		["reconcileRepositoryCandidate", "reconcile_repository_candidate", "write"],
+	] as const)(
+		"projects %s without inferring publication authority",
+		async (operation, name, kind) => {
+			const endpoint = resolveContractEndpoint(`workItems/${operation}`);
+			if (!endpoint) throw new Error("Missing repository candidate endpoint");
+			const { tool } = await buildProjectedTool(
+				"fixture-app",
+				endpoint,
+				undefined,
+				{
+					kindOverrides: WORK_HIERARCHY_KIND_OVERRIDES,
+					toolIdOverrides: WORK_HIERARCHY_TOOL_ID_OVERRIDES,
+				},
+			);
+			expect(tool.toolId).toBe(name);
+			expect(tool.writeCapability).toBe(kind);
+			expect(tool.config?.transport).toBe("rpc");
+		},
+	);
+});
+
+it("projects the gateway change record read as one read-only gateway tool", async () => {
+	const endpoint = resolveContractEndpoint("audit/listGatewayChangeRecords");
+	if (!endpoint) throw new Error("Missing change record contract endpoint");
+	const { tool } = await buildProjectedTool("fixture-app", endpoint);
+	expect(tool.toolId).toBe("list_gateway_change_records");
+	expect(tool.writeCapability).toBe("read");
+	expect(parseToolPolicyMetadata(tool.meta)).toMatchObject({
+		riskTier: "read",
+		blastRadius: "none",
+	});
+	expect(tool.config?.transport).toBe("rpc");
+	expect(
+		Object.keys(
+			(tool.inputSchema as { properties: Record<string, unknown> }).properties,
+		).sort(),
+	).toEqual(["actorId", "afterSequence", "from", "limit", "resource", "until"]);
+});
+
+it("projects the checkpoint read as one read-only gateway tool", async () => {
+	const endpoint = resolveContractEndpoint(
+		"audit/listGatewayChangeRecordCheckpoints",
+	);
+	if (!endpoint) throw new Error("Missing checkpoint contract endpoint");
+	const { tool } = await buildProjectedTool("fixture-app", endpoint);
+	expect(tool.toolId).toBe("list_gateway_change_record_checkpoints");
+	expect(tool.writeCapability).toBe("read");
+	expect(parseToolPolicyMetadata(tool.meta)).toMatchObject({
+		riskTier: "read",
+		blastRadius: "none",
+	});
+	expect(tool.config?.transport).toBe("rpc");
+	expect(
+		Object.keys(
+			(tool.inputSchema as { properties: Record<string, unknown> }).properties,
+		).sort(),
+	).toEqual([
+		"afterLastSequence",
+		"from",
+		"fromSequence",
+		"limit",
+		"until",
+		"untilSequence",
+	]);
 });

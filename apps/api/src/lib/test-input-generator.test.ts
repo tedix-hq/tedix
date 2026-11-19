@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
-import { generateTestInput, type JSONSchema } from "./test-input-generator";
+import {
+	generateTestInput,
+	truncateOutput,
+	validateToolOutput,
+	type JSONSchema,
+} from "./test-input-generator";
 
 describe("generateTestInput name defaults", () => {
 	it.each([
 		["count", { type: "string" }, expect.any(String)],
-		["name", { type: "array", items: { type: "integer" } }, [50]],
 		[
 			"name",
 			{
@@ -222,5 +226,155 @@ describe("generateTestInput example prompts", () => {
 				prompts("Look up the latest headlines"),
 			),
 		).toEqual({ q: "news" });
+	});
+});
+
+describe("generateTestInput array cardinality", () => {
+	it.each([
+		[{ items: { type: "integer" }, minItems: 2, maxItems: 4 }, 2],
+		[{ items: { type: "integer" }, minItems: 3 }, 3],
+		[{ items: { type: "integer" }, maxItems: 0 }, 0],
+		[{ items: { type: "integer" } }, 1],
+		[{ minItems: 2, maxItems: 3 }, 2],
+		[{}, 0],
+	] satisfies Array<[NonNullable<JSONSchema["properties"]>[string], number]>)(
+		"generates %j with length %i",
+		(bounds, length) => {
+			const { values } = generateTestInput({
+				properties: { values: { type: "array", ...bounds } },
+				required: ["values"],
+			});
+			expect(values).toHaveLength(length);
+			if ("items" in bounds) {
+				expect(values).toEqual(Array.from({ length }, () => 50));
+			}
+		},
+	);
+
+	it("generates independent objects with nested required arrays", () => {
+		const { groups } = generateTestInput({
+			properties: {
+				groups: {
+					type: "array",
+					minItems: 2,
+					maxItems: 2,
+					items: {
+						type: "object",
+						properties: {
+							values: {
+								type: "array",
+								minItems: 3,
+								maxItems: 3,
+								items: { type: "boolean" },
+							},
+						},
+						required: ["values"],
+					},
+				},
+			},
+			required: ["groups"],
+		});
+		expect(groups).toEqual([
+			{ values: [true, true, true] },
+			{ values: [true, true, true] },
+		]);
+		const [first, second] = groups as Array<{ values: boolean[] }>;
+		expect(first).not.toBe(second);
+		expect(first?.values).not.toBe(second?.values);
+	});
+});
+
+describe("validateToolOutput", () => {
+	it("rejects MCP isError results even when their content is non-empty", () => {
+		expect(
+			validateToolOutput({
+				isError: true,
+				content: [{ type: "text", text: "The upstream rejected the call" }],
+			}),
+		).toEqual({ valid: false, issues: ["Output is an MCP tool error"] });
+	});
+});
+
+function persistedBytes(value: unknown): number {
+	return new TextEncoder().encode(
+		JSON.stringify(
+			typeof value === "object" && value !== null && !Array.isArray(value)
+				? value
+				: { value },
+		),
+	).byteLength;
+}
+
+describe("truncateOutput", () => {
+	it("preserves the original reference when its serialized output fits", () => {
+		const output = { result: "ready" };
+
+		expect(truncateOutput(output, persistedBytes(output))).toBe(output);
+	});
+
+	it("bounds Unicode output by persisted UTF-8 bytes", () => {
+		const output = "😀";
+		const truncated = truncateOutput(output, 15);
+
+		expect(truncated).not.toBe(output);
+		expect(persistedBytes(truncated)).toBeLessThanOrEqual(15);
+	});
+
+	it("accounts for serialization escaping and preserves Unicode boundaries", () => {
+		const output = `${'😀"\\\n'.repeat(20)}end`;
+		const truncated = truncateOutput(output, 100);
+
+		expect(typeof truncated).toBe("string");
+		expect(truncated).toContain(
+			`[TRUNCATED, original size: ${persistedBytes(output)} bytes]`,
+		);
+		expect(persistedBytes(truncated)).toBeLessThanOrEqual(100);
+		expect(truncated).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+	});
+
+	it.each([
+		"ascii",
+		"漢字",
+		"😀",
+		"e\u0301",
+		'"\\\n',
+		["漢字", "😀"],
+		{ text: "漢字😀" },
+	])("preserves exact boundaries and bounds truncation for %j", (output) => {
+		const bytes = persistedBytes(output);
+		expect(truncateOutput(output, bytes)).toBe(output);
+		for (let budget = 12; budget < bytes; budget++) {
+			expect(
+				persistedBytes(truncateOutput(output, budget)),
+			).toBeLessThanOrEqual(budget);
+		}
+	});
+
+	it.each(["漢字😀e\u0301", '"\\\n', ["漢字"], { text: "😀" }])(
+		"keeps the marker and original persisted size for large %j output",
+		(value) => {
+			const output = Array(100).fill(value);
+			const truncated = truncateOutput(output, 150);
+			expect(truncated).toContain(
+				`[TRUNCATED, original size: ${persistedBytes(output)} bytes]`,
+			);
+			expect(persistedBytes(truncated)).toBeLessThanOrEqual(150);
+		},
+	);
+
+	it("preserves unsupported JSON compatibility", () => {
+		for (const value of [null, undefined, () => {}, Symbol("test")]) {
+			expect(truncateOutput(value)).toBe(value);
+		}
+		expect(() => truncateOutput(1n)).toThrow(TypeError);
+		const circular: { self?: unknown } = {};
+		circular.self = circular;
+		expect(() => truncateOutput(circular)).toThrow(TypeError);
+	});
+
+	it("returns a deterministic smallest representation for tiny budgets", () => {
+		expect(truncateOutput("output", 0)).toBe("");
+		expect(truncateOutput("output", 1)).toBe("");
+		expect(truncateOutput("output", 13)).toBe(".");
 	});
 });

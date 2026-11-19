@@ -119,7 +119,7 @@ describe("tedi runtime event identity", () => {
 		expect(rows[0]?.payload).toMatchObject({ name: "open_computer" });
 	});
 
-	it("enumerates every distinct id a long turn writes", async () => {
+	it("enumerates and pages distinct event IDs from a long turn", async () => {
 		const db = fixture();
 		const calls = 60;
 		for (let call = 0; call < calls; call += 1) {
@@ -150,14 +150,35 @@ describe("tedi runtime event identity", () => {
 			calls,
 		);
 
-		// The read path itself imposes no per-run ceiling below its `limit`.
-		const kindOnly = await listTediRuntimeEventsForRouter(db, {
+		for (const [id, other] of [
+			["other-tedi", { tediId: "tedi-2" }],
+			["other-conversation", { conversationId: "conversation-2" }],
+			["other-run", { runId: "run-2" }],
+		] as const) {
+			await insertTediRuntimeEvent(db, toolEvent(`z-${id}`, other));
+		}
+
+		const filters = {
 			organizationId: "org-1",
 			tediId: TEDI_ID,
+			conversationId: "cto:agent:main:delegation-1",
 			runId: RUN_ID,
 			kind: "tool.started",
-			limit: 500,
+			order: "desc",
+			limit: calls / 2,
+		} as const;
+		const first = await listTediRuntimeEventsForRouter(db, filters);
+		const last = first.at(-1)!;
+		const second = await listTediRuntimeEventsForRouter(db, {
+			...filters,
+			before: { createdAt: last.createdAt, id: last.id },
 		});
-		expect(kindOnly).toHaveLength(calls);
+		expect([...first, ...second].map((row) => row.id)).toEqual(
+			rows
+				.filter((row) => row.kind === "tool.started")
+				.map((row) => row.id)
+				.sort()
+				.reverse(),
+		);
 	});
 });

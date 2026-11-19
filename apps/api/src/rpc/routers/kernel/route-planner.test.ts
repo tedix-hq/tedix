@@ -2467,6 +2467,13 @@ describe("prompt prefix order", () => {
 			context: {
 				...EMPTY_CONTEXT,
 				tedis: [{ id: "t1", slug: "cto", name: "CTO", status: "running" }],
+				inventorySnapshot: {
+					version: 1,
+					hash: "fixture",
+					takenAt: "2026-10-08T00:00:00.000Z",
+					text: "AVAILABLE TEDIS\nCTO was on standby",
+				},
+				inventoryChangeNote: "CTO is now running",
 				workItems: [
 					{
 						id: "w1",
@@ -2486,6 +2493,10 @@ describe("prompt prefix order", () => {
 			return index;
 		};
 		expect(at("AVAILABLE TEDIS")).toBeLessThan(at("<conversation_history>"));
+		expect(at("CTO was on standby")).toBeLessThan(at("<conversation_history>"));
+		expect(at("CTO is now running")).toBeGreaterThan(
+			at("</conversation_history>"),
+		);
 		expect(at("</conversation_history>")).toBeLessThan(at("ACTIVE WORK ITEMS"));
 		expect(at("ACTIVE WORK ITEMS")).toBeLessThan(at("TOP FACTS"));
 		expect(at("TOP FACTS")).toBeLessThan(at("OPERATOR MESSAGE:"));
