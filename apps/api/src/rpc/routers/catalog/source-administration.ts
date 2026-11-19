@@ -54,11 +54,10 @@ import {
 import { requireCatalogOperatorAccess } from "../catalog-operator-access";
 import { resolveDriftReport } from "@tedix/db/queries/catalog/drift-reports";
 import {
-	getManagedCatalogScanEndpoint,
-	createManagedCatalogScanFetch,
-	resolveTedixInternalScanHeaders as resolveFirstPartyScanHeaders,
+	createCatalogScanFetch,
+	externalCatalogScanHeaders,
+	resolveCatalogBuilderSite,
 } from "../../../lib/catalog-internal-scan";
-import { getInstallationTrustPolicy } from "@tedix/db/queries/installation-trust";
 import { syncCatalogAppFromStore } from "@tedix/db/queries/catalog/upsert-sync";
 import {
 	createCatalogVectorClient,
@@ -539,20 +538,17 @@ export const createFromEndpointCatalog = fleetCatalogOs.createFromEndpoint
 			);
 		}
 
-		// Resolve auth headers from Descope AIH Token Vault if connectionId provided.
-		// Resolution chain: caller user credential → tenant credential.
-		const installationTrust = await getInstallationTrustPolicy(context.db);
-		const firstPartyAuthHeaders = resolveFirstPartyScanHeaders({
-			policy: installationTrust,
-			endpoint: mcpEndpointUrl,
-			platformServiceToken: (
-				context.env as CloudflareEnv & {
-					PLATFORM_SERVICE_TOKEN?: string;
-				}
-			).PLATFORM_SERVICE_TOKEN,
-		});
-		let authHeaders = rawAuthHeaders ?? firstPartyAuthHeaders;
-		if (connectionId && !authHeaders && context.organizationId) {
+		const fetchFn = createCatalogScanFetch(mcpEndpointUrl, context.env, () =>
+			resolveCatalogBuilderSite(db, { organizationId: context.organizationId }),
+		);
+		let authHeaders = fetchFn
+			? undefined
+			: externalCatalogScanHeaders(
+					rawAuthHeaders,
+					context.env.PLATFORM_SERVICE_TOKEN,
+				);
+		// Resolve the caller's credential, then the tenant credential.
+		if (!fetchFn && connectionId && !authHeaders && context.organizationId) {
 			let resolvedToken: string | undefined;
 			let resolvedVia = "";
 			if (context.env.DESCOPE_MANAGEMENT_KEY) {
@@ -604,9 +600,10 @@ export const createFromEndpointCatalog = fleetCatalogOs.createFromEndpoint
 			if (resolvedToken) {
 				const header = connectionHeader || "Authorization";
 				const template = connectionTemplate || "{token}";
-				authHeaders = {
-					[header]: template.replace("{token}", resolvedToken),
-				};
+				authHeaders = externalCatalogScanHeaders(
+					{ [header]: template.replace("{token}", resolvedToken) },
+					context.env.PLATFORM_SERVICE_TOKEN,
+				);
 				console.log(
 					`[Catalog] Resolved connectionId="${connectionId}" via ${resolvedVia}, header=${header}`,
 				);
@@ -621,16 +618,6 @@ export const createFromEndpointCatalog = fleetCatalogOs.createFromEndpoint
 			}
 		}
 
-		const managedEndpoint = getManagedCatalogScanEndpoint(
-			mcpEndpointUrl,
-			installationTrust,
-		);
-		const fetchFn = managedEndpoint
-			? createManagedCatalogScanFetch(managedEndpoint, {
-					mcp: context.env.MCP_SERVICE,
-					cms: context.env.CMS,
-				})
-			: undefined;
 		const connectionResult = await connectMcpServer(mcpEndpointUrl, {
 			timeout: 30000,
 			fetchFn,
@@ -813,11 +800,7 @@ export const createFromEndpointCatalog = fleetCatalogOs.createFromEndpoint
 		});
 
 		// 7. Persist encrypted auth headers for periodic re-scans
-		if (
-			authHeaders &&
-			authHeaders !== firstPartyAuthHeaders &&
-			Object.keys(authHeaders).length > 0
-		) {
+		if (authHeaders && Object.keys(authHeaders).length > 0) {
 			const masterKey = context.env.SECRETS_MASTER_KEY;
 			if (masterKey) {
 				const { encryptCatalogAppSecret } =
@@ -835,7 +818,7 @@ export const createFromEndpointCatalog = fleetCatalogOs.createFromEndpoint
 
 		// 8. Persist vault connection reference for fresh token resolution during periodic scans.
 		// This survives token expiry — the scan workflow resolves a fresh token each time.
-		if (connectionId && context.organizationId) {
+		if (!fetchFn && connectionId && context.organizationId) {
 			const { updateCatalogAppScanConnection } =
 				await import("@tedix/db/queries/catalog/get-app");
 			await updateCatalogAppScanConnection(db, catalogApp.id, {

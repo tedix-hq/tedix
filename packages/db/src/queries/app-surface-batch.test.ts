@@ -524,7 +524,6 @@ describe("getAppsBySlugsWithTools with id-linked entries", () => {
 							sharedSourceOrganizationIds: ["org-platform"],
 							aggregateHostOrganizationIds: ["org-platform"],
 						},
-						catalogScan: { endpoints: [] },
 					},
 				}),
 			);

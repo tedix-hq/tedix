@@ -52,7 +52,6 @@ function realDb() {
 						sharedSourceOrganizationIds: [PLATFORM_ORG],
 						aggregateHostOrganizationIds: [PLATFORM_ORG],
 					},
-					catalogScan: { endpoints: [] },
 				},
 			}),
 		);

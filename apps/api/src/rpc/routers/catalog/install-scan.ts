@@ -1,4 +1,3 @@
-import type { InstallationTrustPolicy } from "@tedix/api-contract/schemas/installation-trust";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { guardedFetch } from "@tedix/ssrf-guard";
 import { loadCatalogMaintenancePolicy } from "../../../lib/catalog-sync-source";
@@ -43,12 +42,10 @@ import {
 	saveDriftReport,
 } from "@tedix/db/queries/catalog/drift-reports";
 import {
-	getManagedCatalogScanEndpoint,
-	catalogScanSnapshotHeaders,
-	createManagedCatalogScanFetch,
-	resolveTedixInternalScanHeaders as resolveFirstPartyScanHeaders,
+	createCatalogScanFetch,
+	externalCatalogScanHeaders,
+	resolveCatalogBuilderSite,
 } from "../../../lib/catalog-internal-scan";
-import { getInstallationTrustPolicy } from "@tedix/db/queries/installation-trust";
 import {
 	syncCatalogMcpPrompts,
 	syncCatalogMcpResourceTemplates,
@@ -1086,50 +1083,9 @@ function propagationChangedAppIds(
  * and inherit through aggregateApps.
  */
 
-export async function resolveTedixInternalScanHeaders(
-	catalogApp: CatalogAppRecord,
-	context: BaseContext,
-	endpointOverride?: string | null,
-	installationTrust?: InstallationTrustPolicy | null,
-): Promise<Record<string, string> | undefined> {
-	const endpoint =
-		endpointOverride ?? catalogApp.mcpEndpointNormalized ?? catalogApp.baseUrl;
-	return resolveFirstPartyScanHeaders({
-		endpoint,
-		platformServiceToken: context.env.PLATFORM_SERVICE_TOKEN,
-		policy:
-			installationTrust === undefined
-				? await getInstallationTrustPolicy(context.db)
-				: installationTrust,
-	});
-}
-
-export async function resolveCatalogScanFetchFn(
-	context: BaseContext,
-	endpoint: string,
-	installationTrust?: InstallationTrustPolicy | null,
-): Promise<
-	((url: string, init?: RequestInit) => Promise<Response>) | undefined
-> {
-	const grant = getManagedCatalogScanEndpoint(
-		endpoint,
-		installationTrust === undefined
-			? await getInstallationTrustPolicy(context.db)
-			: installationTrust,
-	);
-	return grant
-		? createManagedCatalogScanFetch(grant, {
-				mcp: context.env.MCP_SERVICE,
-				cms: context.env.CMS,
-			})
-		: undefined;
-}
-
 export async function resolveCatalogScanHeaders(
 	context: BaseContext,
 	catalogApp: CatalogAppRecord,
-	endpointOverride?: string | null,
-	installationTrust?: InstallationTrustPolicy | null,
 ): Promise<Record<string, string> | undefined> {
 	const { db } = context;
 	let lookupFailure: ConnectionTokenLookupError | undefined;
@@ -1204,9 +1160,11 @@ export async function resolveCatalogScanHeaders(
 			}
 		}
 		if (resolvedToken) {
-			return {
-				[header]: template.replace("{token}", resolvedToken),
-			};
+			const headers = externalCatalogScanHeaders(
+				{ [header]: template.replace("{token}", resolvedToken) },
+				context.env.PLATFORM_SERVICE_TOKEN,
+			);
+			if (headers) return headers;
 		}
 	}
 	if (catalogApp.scanAuthHeaders && context.env.SECRETS_MASTER_KEY) {
@@ -1218,7 +1176,7 @@ export async function resolveCatalogScanHeaders(
 				catalogApp.id,
 				catalogApp.scanAuthHeaders,
 			);
-			const headers = catalogScanSnapshotHeaders(
+			const headers = externalCatalogScanHeaders(
 				JSON.parse(decrypted) as Record<string, string>,
 				context.env.PLATFORM_SERVICE_TOKEN,
 			);
@@ -1230,13 +1188,6 @@ export async function resolveCatalogScanHeaders(
 			);
 		}
 	}
-	const internalHeaders = await resolveTedixInternalScanHeaders(
-		catalogApp,
-		context,
-		endpointOverride,
-		installationTrust,
-	);
-	if (internalHeaders) return internalHeaders;
 	if (lookupFailure)
 		throw createError(ErrorCodes.SERVICE_UNAVAILABLE, lookupFailure.message);
 	return undefined;
@@ -1262,21 +1213,19 @@ export async function scanUpstreamCatalogAppNow(
 		await import("@tedix/db/queries/catalog/health-history");
 	const { updateCatalogAppScanAuth } =
 		await import("@tedix/db/queries/catalog/get-app");
-	const installationTrust = await getInstallationTrustPolicy(db);
-	const headers = await resolveCatalogScanHeaders(
-		context,
-		catalogApp,
-		mcpServerUrl,
-		installationTrust,
+	const fetchFn = createCatalogScanFetch(mcpServerUrl, context.env, () =>
+		resolveCatalogBuilderSite(db, {
+			catalogAppId: catalogApp.id,
+			organizationId: catalogApp.scanOrganizationId,
+		}),
 	);
+	const headers = fetchFn
+		? undefined
+		: await resolveCatalogScanHeaders(context, catalogApp);
 	const result = await connectMcpServer(mcpServerUrl, {
 		timeout: 30000,
 		headers,
-		fetchFn: await resolveCatalogScanFetchFn(
-			context,
-			mcpServerUrl,
-			installationTrust,
-		),
+		fetchFn,
 	});
 	const now = new Date().toISOString();
 	const serverInfo = result.serverInfo;

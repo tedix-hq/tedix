@@ -180,7 +180,6 @@ it("resolves shared source tools through the aggregate ownership rule and refuse
 					sharedSourceOrganizationIds: ["platform"],
 					aggregateHostOrganizationIds: [],
 				},
-				catalogScan: { endpoints: [] },
 			},
 		},
 	});

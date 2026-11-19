@@ -17,15 +17,6 @@ const policy = {
 		sharedSourceOrganizationIds: ["org-publisher"],
 		aggregateHostOrganizationIds: ["org-host"],
 	},
-	catalogScan: {
-		endpoints: [
-			{
-				url: "https://tools.example/mcp",
-				transport: "mcp",
-				headers: {},
-			},
-		],
-	},
 };
 
 function fixture() {
@@ -96,35 +87,31 @@ describe("installation trust authority", () => {
 		}
 	});
 
-	it("rejects malformed endpoint grants and secret header injection", async () => {
-		for (const endpoint of [
-			{ url: "http://tools.example/mcp", transport: "mcp", headers: {} },
-			{
-				url: "https://user:password@tools.example/mcp",
-				transport: "mcp",
-				headers: {},
-			},
-			{
-				url: "https://tools.example/mcp#fragment",
-				transport: "mcp",
-				headers: {},
-			},
-			{
-				url: "https://tools.example/mcp",
-				transport: "mcp",
-				headers: { Authorization: "secret" },
-			},
-		]) {
-			const { db, insert } = fixture();
-			await insert({
-				definition: {
-					installationTrust: {
-						...policy,
-						catalogScan: { endpoints: [endpoint] },
+	it("keeps reading aggregate authority from published revisions with retired scan data", async () => {
+		const { db, insert } = fixture();
+		await insert({
+			definition: {
+				installationTrust: {
+					...policy,
+					catalogScan: {
+						endpoints: [{ url: "https://old-tools.example/mcp" }],
 					},
 				},
-			});
-			expect(await getInstallationTrustPolicy(db)).toBeNull();
-		}
+			},
+		});
+		expect(await getInstallationTrustPolicy(db)).toEqual(policy);
+	});
+
+	it("still rejects unexpected aggregate authority fields", async () => {
+		const { db, insert } = fixture();
+		await insert({
+			definition: {
+				installationTrust: {
+					...policy,
+					aggregate: { ...policy.aggregate, unexpectedAuthority: true },
+				},
+			},
+		});
+		expect(await getInstallationTrustPolicy(db)).toBeNull();
 	});
 });
