@@ -161,7 +161,7 @@ export function deriveWorkspaceAgents(input: {
 					name: tedi?.name ?? "Tedi profile unavailable",
 					avatar: tedi?.avatar ?? null,
 					detail: tedi?.owner ?? "Owner unavailable",
-					profileHref: `/tedis/${encodeURIComponent(id)}`,
+					profileHref: `/team/${encodeURIComponent(id)}`,
 					skills: [],
 				},
 				[],

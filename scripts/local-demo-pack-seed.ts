@@ -94,6 +94,8 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 		`INSERT OR IGNORE INTO os_outputs (id, organization_id, workspace_id, kind, title, current_revision_id, created_by_kind, created_by_id) VALUES (${q(sheetId)}, ${q(ORG)}, ${q(appWorkspace)}, 'sheet', 'Opportunities', ${q(sheetRevision)}, 'user', 'local-demo-owner');`,
 		`INSERT OR IGNORE INTO os_output_revisions (id, organization_id, output_id, revision, content, access_envelope, created_by_kind, created_by_id) VALUES (${q(sheetRevision)}, ${q(ORG)}, ${q(sheetId)}, 1, ${json(sheet)}, ${json({ version: 1, sources: [] })}, 'user', 'local-demo-owner');`,
 		`INSERT OR IGNORE INTO os_workspace_resources (id, organization_id, workspace_id, slot, provider_id, connection_scope, resource_type, provider_resource_id, name, created_by_kind, created_by_id) VALUES (${q(uid(70, 1))}, ${q(ORG)}, ${q(appWorkspace)}, 'opportunities', 'tedix', 'tenant', 'output', ${q(sheetId)}, 'Opportunities sheet', 'user', 'local-demo-owner');`,
+		// The sample tedi works in this workspace, so its Agents view has a row.
+		`INSERT OR IGNORE INTO os_workspace_resources (id, organization_id, workspace_id, provider_id, connection_scope, resource_type, provider_resource_id, name, created_by_kind, created_by_id) VALUES (${q(uid(70, 2))}, ${q(ORG)}, ${q(appWorkspace)}, 'tedix', 'tenant', 'tedi', ${q(TEDI)}, 'Local Tedi', 'user', 'local-demo-owner');`,
 	);
 	blueprint.gadgets.forEach((gadget, i) => {
 		const id = uid(49, 10 + i);
