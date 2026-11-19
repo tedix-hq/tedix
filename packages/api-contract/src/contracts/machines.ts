@@ -32,7 +32,7 @@ export const machinesContract = oc
 				path: "/tool-calls",
 				summary: "Queue a tool call for a machine",
 				description:
-					"Queue one tool call for a named machine: read a file, search code, list or read commits, read CI runs or a CI job log, or read the state of its runners. A machine whose owner switched the write tools on also accepts: open or close a workspace (its own checkout of the repository), write or edit a file in it, and run a command in it. Refused when the machine is unknown, offline or does not accept the tool. Read the result with read_machine_tool_call.",
+					"Queue one tool call for a named machine: read a file, search code, list or read commits, read CI runs or a CI job log, read the state of its runners, or wake a runner to check one Work Item. A machine whose owner switched the write tools on also accepts: open or close a workspace (its own checkout of the repository), write or edit a file in it, and run a command in it. Refused when the machine is unknown, offline or does not accept the tool. Read the result with read_machine_tool_call.",
 			})
 			.input(RequestMachineToolCallInputSchema)
 			.output(RequestMachineToolCallResultSchema),

@@ -80,6 +80,32 @@ assert.deepEqual(Object.keys(build({}).tools), [
 				ReturnType<PlatformClient["acceptWorkItem"]>
 			>;
 		},
+		listMachines: async () => ({
+			machines: [
+				{
+					machineName: "build-machine",
+					online: true,
+					executors: ["codex"],
+					machineTools: ["dispatch_work_item"],
+					lastSeenAt: "2026-11-19T12:00:00.000Z",
+					cliVersion: null,
+				},
+			],
+		}),
+		requestMachineToolCall: async (params) => {
+			calls.push(["wake", params]);
+			return { callId: item, status: "pending" };
+		},
+		readMachineToolCall: async (params) => {
+			calls.push(["read wake", params]);
+			return {
+				callId: item,
+				machine: "build-machine",
+				tool: "dispatch_work_item",
+				status: "done",
+				createdAt: "2026-11-19T12:00:00.000Z",
+			};
+		},
 	});
 	assert.deepEqual(await run("start_agent_run", start), {
 		kind: "agent_run",
@@ -117,6 +143,15 @@ assert.deepEqual(Object.keys(build({}).tools), [
 				acceptanceContract: { version: 1, doneLooksLike: start.doneWhen },
 			},
 		],
+		[
+			"wake",
+			{
+				machine: "build-machine",
+				tool: "dispatch_work_item",
+				input: { workItemId: item, projectId: project, executor: "codex" },
+			},
+		],
+		["read wake", { callId: item }],
 	]);
 }
 

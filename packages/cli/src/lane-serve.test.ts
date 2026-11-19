@@ -52,12 +52,21 @@ import {
 	runnerDutyFromServeOptions,
 	runnerKey,
 	runnerServeArgs,
+	writeRunnerDuty,
 } from "./supervise-runners";
 import {
 	dispatcherNextCheckAt,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 import { laneChildEnv } from "./lane-child-env";
+import {
+	dispatchRequestsDirectory,
+	waitForDispatchRequest,
+} from "./lane-dispatch-wake";
+import {
+	answerMachineToolCall,
+	machineToolHandlers,
+} from "./lane-machine-tools";
 import { writeWorkspaceCredentials } from "./credential-store";
 import { parseOptions } from "./options";
 import { CliReadError } from "./hooks/hook-io";
@@ -390,7 +399,8 @@ function fixture({
 					data: items.filter(
 						(row) =>
 							(row.metadata?.laneDispatch as { state?: string })?.state !==
-							"held",
+								"held" &&
+							(!input.idPrefix || row.id === input.idPrefix),
 					),
 					pagination: { hasMore: false },
 				};
@@ -697,8 +707,8 @@ function fixture({
 		},
 	};
 	const dispatchers: LaneDispatcher[] = [];
-	const restart = () => {
-		const dispatcher = new LaneDispatcher(config, dir, deps);
+	const restart = (directory = dir) => {
+		const dispatcher = new LaneDispatcher(config, directory, deps);
 		dispatchers.push(dispatcher);
 		return dispatcher;
 	};
@@ -1099,6 +1109,48 @@ describe("dispatcher log", () => {
 });
 
 describe("dispatcher admission", () => {
+	it("wakes a waiting dispatcher and admits only the Work Item in the machine call", async () => {
+		const f = fixture();
+		const target = f.items[1]!;
+		const duty = runnerDutyFromServeOptions(f.config);
+		const env = { TEDIX_CONFIG_DIR: f.dir };
+		writeRunnerDuty(env, duty);
+		const directory = join(f.dir, "dispatchers", runnerKey(duty));
+		const requests = dispatchRequestsDirectory(directory);
+		mkdirSync(requests, { recursive: true });
+
+		const lane = f.restart(directory);
+		const waiting = waitForDispatchRequest(
+			requests,
+			1_000,
+			new AbortController().signal,
+		);
+		const answer = await answerMachineToolCall(
+			machineToolHandlers({
+				checkout: duty.repo,
+				configDir: f.dir,
+				organization: duty.organization,
+				env,
+			}),
+			"dispatch_work_item",
+			{ workItemId: target.id, projectId, executor: "codex" },
+		);
+		expect(answer.ok).toBe(true);
+		const request = await waiting;
+		expect(request).toBe(target.id);
+
+		await lane.tick(request);
+		await until(() => f.releases.length === 1);
+		expect(
+			f.events
+				.filter((event) => event.verb === "start" && event.args[4] === "work")
+				.map((event) => event.args[6]),
+		).toEqual([target.id]);
+		expect(f.control.turnFiles).toHaveLength(1);
+		f.releases[0]!();
+		await lane.drain();
+	});
+
 	it("drains a delayed process identity read before fixture teardown", async () => {
 		const f = fixture();
 		f.items.splice(1);
