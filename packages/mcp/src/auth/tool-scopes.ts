@@ -68,6 +68,8 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"tediMemory/readCore": "mcp:memory.read",
 	"tediMemory/editCore": "mcp:memory.write",
 	"tediMemory/listCoreVersions": "mcp:memory.read",
+	"tediMemory/readNote": "mcp:memory.read",
+	"tediMemory/writeNote": "mcp:memory.write",
 	"tediMemory/restoreCoreVersion": "mcp:memory.write",
 	"workItems/listCliProjection": "mcp:work.read",
 	"workItems/getCheckpointProjection": "mcp:work.read",

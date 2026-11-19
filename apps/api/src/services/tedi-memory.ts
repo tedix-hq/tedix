@@ -9,6 +9,10 @@ import {
 	TEDI_CORE_MEMORY_LIMIT,
 	TEDI_CORE_MEMORY_SECTIONS,
 	TEDI_CORE_MEMORY_VERSIONS_KEPT,
+	TEDI_MEMORY_NOTE_COUNT_LIMIT,
+	TEDI_MEMORY_NOTE_VERSIONS_KEPT,
+	type TediMemoryNote,
+	type WriteTediMemoryNoteOutput,
 	type EditTediCoreMemoryOutput,
 	type TediCoreMemory,
 	type TediCoreMemorySectionKey,
@@ -18,6 +22,7 @@ import {
 	appendTediMemoryDocumentVersion,
 	getCurrentTediMemoryDocument,
 	getTediMemoryDocumentVersion,
+	listCurrentTediMemoryNotes,
 	TEDI_CORE_MEMORY_NAME,
 } from "@tedix/db/queries/tedi-memory";
 import type { DbQueryClient } from "@tedix/db/query-client";
@@ -101,10 +106,85 @@ export async function readTediCoreMemory(
 	db: DbQueryClient,
 	scope: TediMemoryScope,
 ): Promise<TediCoreMemory> {
-	return coreMemoryView(
-		scope.tediId,
-		await getCurrentTediMemoryDocument(db, coreDocument(scope)),
-	);
+	const [core, notes] = await Promise.all([
+		getCurrentTediMemoryDocument(db, coreDocument(scope)),
+		listCurrentTediMemoryNotes(db, scope),
+	]);
+	return {
+		...coreMemoryView(scope.tediId, core),
+		notes: notes.map(({ name, description }) => ({ name, description })),
+	};
+}
+
+/** One note as it is now, or null when there is none under that name. */
+export async function readTediMemoryNote(
+	db: DbQueryClient,
+	scope: TediMemoryScope,
+	name: string,
+): Promise<TediMemoryNote | null> {
+	const row = await getCurrentTediMemoryDocument(db, {
+		...scope,
+		kind: "note",
+		name,
+	});
+	if (!row || row.removed) return null;
+	return {
+		name,
+		description: row.description ?? "",
+		content: row.content ?? "",
+		version: row.version,
+		updatedAt: row.createdAt,
+	};
+}
+
+/** Writes a note's whole text as its next version; empty text removes it. */
+export async function writeTediMemoryNote(
+	db: DbQueryClient,
+	scope: TediMemoryScope,
+	author: TediMemoryAuthor,
+	note: { name: string; description: string; content: string },
+): Promise<WriteTediMemoryNoteOutput> {
+	const content = tidy(note.content);
+	const description = note.description.replace(/\s+/g, " ").trim();
+	const refused = memoryTextRefusal(content) ?? memoryTextRefusal(description);
+	if (refused) return { status: "refused", reason: refused };
+	const document = { ...scope, kind: "note" as const, name: note.name };
+	const [current, notes] = await Promise.all([
+		getCurrentTediMemoryDocument(db, document),
+		listCurrentTediMemoryNotes(db, scope),
+	]);
+	const exists = Boolean(current && !current.removed);
+	if (!content && !exists)
+		return { status: "refused", reason: "There is no note under that name." };
+	if (content && !exists && notes.length >= TEDI_MEMORY_NOTE_COUNT_LIMIT)
+		return {
+			status: "refused",
+			reason: `You already keep ${TEDI_MEMORY_NOTE_COUNT_LIMIT} notes, the most allowed. Remove or merge one first.`,
+		};
+	const stored = await appendTediMemoryDocumentVersion(db, {
+		...document,
+		id: crypto.randomUUID(),
+		baseVersion: current?.version ?? 0,
+		description: content ? description : null,
+		content: content || null,
+		removed: !content,
+		charCount: content.length,
+		authorType: author.type,
+		authorId: author.id,
+		changeSummary: content
+			? exists
+				? "Rewrote the note"
+				: "Wrote the note"
+			: "Removed the note",
+		createdAt: new Date().toISOString(),
+		keepVersions: TEDI_MEMORY_NOTE_VERSIONS_KEPT,
+	});
+	if (!stored)
+		return {
+			status: "refused",
+			reason: "The note was being changed at the same time. Try again.",
+		};
+	return { status: content ? "saved" : "removed" };
 }
 
 const SECTION_TITLE = Object.fromEntries(

@@ -16,6 +16,8 @@ import {
 	coreMemoryView,
 	editTediCoreMemory,
 	readTediCoreMemory,
+	readTediMemoryNote,
+	writeTediMemoryNote,
 	restoreTediCoreMemoryVersion,
 	type TediMemoryAuthor,
 	type TediMemoryScope,
@@ -94,6 +96,27 @@ const editCore = writeOs.editCore.handler(async ({ input, context }) => {
 	);
 });
 
+const readNote = readOs.readNote.handler(async ({ input, context }) => {
+	const { organizationId, tediId } = await memoryScope(context, input.tediId);
+	const note = await readTediMemoryNote(
+		context.db,
+		{ organizationId, tediId },
+		input.name,
+	);
+	if (!note) throw createError(ErrorCodes.NOT_FOUND, "No note with that name");
+	return note;
+});
+
+const writeNote = writeOs.writeNote.handler(async ({ input, context }) => {
+	const { organizationId, tediId } = await memoryScope(context, input.tediId);
+	return writeTediMemoryNote(
+		context.db,
+		{ organizationId, tediId },
+		author(context, input.origin),
+		input,
+	);
+});
+
 const listCoreVersions = ownerOs.listCoreVersions.handler(
 	async ({ input, context }) => {
 		personOnly(context);
@@ -141,6 +164,8 @@ const restoreCoreVersion = ownerOs.restoreCoreVersion.handler(
 export const tediMemoryContractRouter = os.router({
 	readCore,
 	editCore,
+	readNote,
+	writeNote,
 	listCoreVersions,
 	restoreCoreVersion,
 });

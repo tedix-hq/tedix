@@ -11,6 +11,8 @@ import type { TurnMemory } from "@tedix/api-contract/schemas/turn-memory";
 import type {
 	EditTediCoreMemoryOutput,
 	TediCoreMemory,
+	TediMemoryNote,
+	WriteTediMemoryNoteOutput,
 	TediCoreMemorySectionKey,
 } from "@tedix/api-contract/schemas/tedi-memory";
 import type { MemorySourceEvidence } from "@tedix/api-contract/schemas/memory-graph";
@@ -524,6 +526,17 @@ export interface PlatformClient {
 		text: string;
 		origin?: "conversation" | "reflection";
 	}): Promise<EditTediCoreMemoryOutput>;
+	readTediMemoryNote(params: {
+		tediId: string;
+		name: string;
+	}): Promise<TediMemoryNote>;
+	writeTediMemoryNote(params: {
+		tediId: string;
+		name: string;
+		description: string;
+		content: string;
+		origin?: "conversation" | "reflection";
+	}): Promise<WriteTediMemoryNoteOutput>;
 	/** Public web search through the deployment's model gateway. */
 	searchWeb(params: WebSearchInput): Promise<WebSearchOutput>;
 
@@ -1158,6 +1171,23 @@ export class HttpPlatformClient implements PlatformClient {
 		origin?: "conversation" | "reflection";
 	}): Promise<EditTediCoreMemoryOutput> {
 		return this.rpc("tediMemory", "editCore", params);
+	}
+
+	async readTediMemoryNote(params: {
+		tediId: string;
+		name: string;
+	}): Promise<TediMemoryNote> {
+		return this.rpc("tediMemory", "readNote", params);
+	}
+
+	async writeTediMemoryNote(params: {
+		tediId: string;
+		name: string;
+		description: string;
+		content: string;
+		origin?: "conversation" | "reflection";
+	}): Promise<WriteTediMemoryNoteOutput> {
+		return this.rpc("tediMemory", "writeNote", params);
 	}
 
 	async listAgentRuns(

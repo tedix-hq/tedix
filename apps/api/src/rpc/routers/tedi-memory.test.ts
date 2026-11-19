@@ -226,4 +226,42 @@ describe("tedi core memory", () => {
 			person("owner").restoreCoreVersion({ tediId: "mine", version: 9 }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
+
+	it("lets a tedi write, open and remove its notes and shows only their names in the read", async () => {
+		const { runtime } = fixture();
+		const mine = runtime("mine");
+		const note = {
+			tediId: "mine",
+			name: "deploy-steps",
+			description: "How a release goes out, step by step",
+			content: "Release from main after the checks pass.",
+		};
+		await expect(mine.writeNote(note)).resolves.toEqual({ status: "saved" });
+		await expect(mine.readCore({ tediId: "mine" })).resolves.toMatchObject({
+			notes: [{ name: "deploy-steps", description: note.description }],
+		});
+		await expect(
+			mine.readNote({ tediId: "mine", name: "deploy-steps" }),
+		).resolves.toMatchObject({ content: note.content, version: 1 });
+		// Another tedi neither reads it nor sees it listed.
+		await expect(
+			runtime("colleague").readNote({ tediId: "mine", name: "deploy-steps" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(
+			(await runtime("colleague").readCore({ tediId: "colleague" })).notes,
+		).toEqual([]);
+
+		await expect(
+			mine.writeNote({
+				...note,
+				content: "token: sk-proj-abcdefghijklmnopqrstuvwxyz012345",
+			}),
+		).resolves.toMatchObject({ status: "refused" });
+		await expect(mine.writeNote({ ...note, content: "" })).resolves.toEqual({
+			status: "removed",
+		});
+		await expect(
+			mine.readNote({ tediId: "mine", name: "deploy-steps" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
 });

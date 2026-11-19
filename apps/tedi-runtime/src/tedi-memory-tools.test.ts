@@ -49,8 +49,18 @@ const platformWith = (over: Partial<PlatformClient>) =>
 		empty: empty.length,
 		full: full.length,
 	});
-	assert.ok(empty.length < 1_200, `fixed text is ${empty.length} characters`);
-	assert.ok(full.length <= TEDI_CORE_MEMORY_LIMIT + 1_200);
+	assert.ok(empty.length < 1_500, `fixed text is ${empty.length} characters`);
+	assert.ok(full.length <= TEDI_CORE_MEMORY_LIMIT + 1_500);
+	// Notes add one line each: their name and description, never their text.
+	const withNotes = renderCoreMemoryBlock({
+		...memory(),
+		notes: Array.from({ length: 20 }, (_, index) => ({
+			name: `note-${index}`.padEnd(48, "x"),
+			description: "d".repeat(120),
+		})),
+	});
+	console.log("core memory block chars with 20 full notes", withNotes.length);
+	assert.ok(withNotes.length - empty.length <= 20 * (48 + 120 + 5));
 	assert.match(full, /6000 of 6000 characters used/);
 	// A stored line cannot pose as a prompt heading.
 	assert.doesNotMatch(
