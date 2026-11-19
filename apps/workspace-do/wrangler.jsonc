@@ -88,6 +88,13 @@
 	],
 	"services": [
 		{
+			// Reads from connected accounts go through the API, which checks who
+			// asks and which linked resource; the store never calls the gateway.
+			"binding": "API_SERVICE",
+			"service": "public-installation-api",
+			"entrypoint": "WorkspaceConnectionsEntrypoint",
+		},
+		{
 			"binding": "MCP_SERVICE",
 			"service": "public-installation-mcp",
 		},
@@ -152,6 +159,11 @@
 				},
 			],
 			"services": [
+				{
+					"binding": "API_SERVICE",
+					"service": "public-installation-api",
+					"entrypoint": "WorkspaceConnectionsEntrypoint",
+				},
 				{
 					"binding": "MCP_SERVICE",
 					"service": "public-installation-mcp",
