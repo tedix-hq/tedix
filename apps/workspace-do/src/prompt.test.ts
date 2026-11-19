@@ -37,7 +37,7 @@ describe("prompt", () => {
 		expect(STATIC_RULES).toContain("client.js");
 	});
 
-	test("the agent is told what it can see of a connected source and that it cannot use one yet", () => {
+	test("the agent can discover read tools and ask for a missing connection", () => {
 		expect(stepLabel("resources", "requestConnection")).toEqual({
 			label: "Asking for a connected account",
 			kind: "read",
@@ -56,7 +56,8 @@ describe("prompt", () => {
 		expect(declared).toContain("requestConnection(input: { resourceId");
 		expect(declared).not.toContain("personalOwnerUserId");
 		expect(STATIC_RULES).toContain("env.resources.requestConnection");
-		expect(STATIC_RULES).toContain("you cannot read from it or write to it");
+		expect(STATIC_RULES).toContain("env.accounts.describe(resourceId)");
+		expect(describeBinding("accounts")).toContain("interface Accounts");
 	});
 
 	test("static prefix is identical across turns and carries every binding", () => {

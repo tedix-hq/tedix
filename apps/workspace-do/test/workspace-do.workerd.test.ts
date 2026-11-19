@@ -34,6 +34,13 @@ import {
 } from "@tedix/db/queries/os-workspaces/summaries";
 import { connectionInstances } from "@tedix/db/schema/connection-instances";
 import { connectionProviders } from "@tedix/db/schema/connection-providers";
+import { apps } from "@tedix/db/schema/apps";
+import { appTools } from "@tedix/db/schema/tools";
+import type {
+	WorkspaceConnectionDecisionInput,
+	WorkspaceConnectionReadInput,
+	WorkspaceConnectionReadResult,
+} from "@tedix/api-contract/schemas/workspace-connection-read";
 import { tedis } from "@tedix/db/schema/tedis";
 import { organizations } from "@tedix/db/schema/organizations";
 import {
@@ -113,6 +120,17 @@ type Stub = DurableObjectStub &
 		scriptModel(scope: WorkspaceScope, steps: ScriptStep[]): Promise<void>;
 		limitCodeRuns(scope: WorkspaceScope, ms: number): Promise<void>;
 		webFetchCount(scope: WorkspaceScope): Promise<number>;
+		scriptAccountReads(
+			scope: WorkspaceScope,
+			responses: WorkspaceConnectionReadResult[],
+		): Promise<void>;
+		readAccountCalls(
+			scope: WorkspaceScope,
+		): Promise<
+			Array<WorkspaceConnectionReadInput | WorkspaceConnectionDecisionInput>
+		>;
+		readSystemPrompts(scope: WorkspaceScope): Promise<string[]>;
+		readModelCalls(scope: WorkspaceScope): Promise<string[][]>;
 		importRows(
 			scope: WorkspaceScope,
 			batch: {
@@ -2504,6 +2522,311 @@ describe("WorkspaceDO", () => {
 			events.filter((event) => event.type.startsWith("approval.")),
 		).toEqual([]);
 	});
+
+	test("linked account reads use the person who started the turn and replay a held read through the tray", async () => {
+		await seedCore();
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([own]);
+		await testEnv.DB.batch([
+			...[connectionInstances, connectionProviders, apps, appTools].map(
+				(table) => testEnv.DB.prepare(ddl(table)),
+			),
+			testEnv.DB.prepare(
+				"CREATE TABLE IF NOT EXISTS app_tool_csp_domains (id TEXT PRIMARY KEY, app_tool_id TEXT, domain_type TEXT, domain_url TEXT, active INTEGER, created_at TEXT)",
+			),
+		]);
+		const now = "2026-11-19T10:00:00.000Z";
+		const db = createDbQueryClient(testEnv.DB);
+		const resource = {
+			...own,
+			id: crypto.randomUUID(),
+			name: "Planning folder",
+			providerId: "fixture-storage",
+			connectionScope: "user" as const,
+			personalOwnerUserId: "u1",
+			resourceType: "folder",
+			providerResourceId: "provider-folder-42",
+			createdByKind: "user" as const,
+			createdById: "u1",
+			createdAt: now,
+			updatedAt: now,
+		};
+		const accountId = crypto.randomUUID();
+		await testEnv.DB.batch([
+			testEnv.DB.prepare(
+				"INSERT INTO connection_providers (id, name, description, icon, category, type, recommended_scope, supported_scopes, required_scopes) VALUES (?, 'Fixture Storage', '', '', 'storage', 'oauth', 'user', '[]', '[]')",
+			).bind(resource.providerId),
+			testEnv.DB.prepare(
+				"INSERT INTO connection_instances (id, owner_user_id, provider_id, label, token_ids, token_sub, created_at, updated_at) VALUES (?, 'u1', ?, 'Storage', '[\"grant\"]', 'subject', ?, ?)",
+			).bind(accountId, resource.providerId, now, now),
+		]);
+		await db.insert(osWorkspaceResources).values([
+			{ ...resource, connectionInstanceId: accountId },
+			{
+				...resource,
+				id: "missing-account",
+				name: "Other folder",
+				connectionInstanceId: "missing",
+				providerResourceId: "other",
+			},
+			{
+				...resource,
+				id: "internal-file",
+				name: "Internal file",
+				providerId: "tedix",
+				providerResourceId: "file",
+			},
+		]);
+		const appId = crypto.randomUUID();
+		await db.insert(apps).values({
+			id: appId,
+			organizationId: own.organizationId,
+			slug: "fixture-reader",
+			name: "Fixture reader",
+			metadata: {
+				mcpConfig: {
+					connectionProviderId: resource.providerId,
+					connectionInstanceId: accountId,
+					connectionScope: "user",
+				},
+			},
+		});
+		const tool = {
+			appId,
+			toolTypeId: "rpc",
+			title: "Read folder",
+			enabled: true,
+			inputSchema: {
+				type: "object" as const,
+				properties: { folderKey: { type: "string" as const } },
+				required: ["folderKey"],
+			},
+			config: {
+				transport: "external",
+				connectionReadOnly: true,
+				auth: { type: "connection", connectionId: resource.providerId },
+				personalResourceBinding: {
+					operation: "read",
+					resourceType: "folder",
+					paths: [["folderKey"]],
+				},
+			},
+		};
+		await db.insert(appTools).values([
+			{
+				...tool,
+				id: "fixture-read",
+				toolId: "read_folder",
+				annotations: { readOnlyHint: true },
+			},
+			{
+				...tool,
+				id: "fixture-write",
+				toolId: "write_folder",
+				annotations: { readOnlyHint: false },
+			},
+		]);
+		const ws = workspace(own);
+		const approvalId = crypto.randomUUID();
+		const denyId = crypto.randomUUID();
+		expect(await ws.outputQuery(own, { op: "claim" })).toBe("object");
+		await ws.outputQuery(own, {
+			op: "resources",
+			query: { operation: "get", params: { ...own, resourceId: resource.id } },
+		});
+		await ws.scriptAccountReads(own, [
+			{ status: "ok", result: { count: 42 } },
+			{
+				status: "not_connected",
+				providerId: resource.providerId,
+				scope: "user",
+				connectPath: "/account/connections",
+			},
+			{ status: "refused", message: "Access to this folder was refused." },
+			{ status: "approval_required", approvalId },
+			{ status: "approval_required", approvalId },
+			{ status: "approval_required", approvalId: denyId },
+			{ status: "ok", result: { count: 43 } },
+		]);
+		await ws.scriptModel(own, [
+			{
+				code: `export default async ({accounts}) => {
+				const list = await accounts.list();
+				const description = await accounts.describe(list[0].resourceId);
+				const read = (id, args) => accounts.read(id, description.tools[0].name, args, "sandbox-cannot-supply-an-approval");
+				const args = { folderKey: description.providerResourceId };
+				return {
+					list, description,
+					ok: await read(list[0].resourceId, args),
+					connect: await read("missing-account", args).catch(e => e.message),
+					refused: await read(list[0].resourceId, args).catch(e => e.message),
+					held: await read(list[0].resourceId, args).catch(e => e.message),
+					repeated: await read(list[0].resourceId, args).catch(e => e.message),
+					denied: await read(list[0].resourceId, { ...args, limit: 2 }).catch(e => e.message)
+				};
+			}`,
+			},
+			{ text: "The rest of the turn still runs." },
+		]);
+		const { turnId, conversationId } = await ws.sendTurn(own, {
+			actorKind: "user",
+			actorId: "u1",
+			tediId: "tedi1",
+			text: "Read my planning folder.",
+		});
+		expect(await ws.awaitTurn(own, turnId, 20_000)).toMatchObject({
+			status: "finished",
+			text: "The rest of the turn still runs.",
+		});
+		const events = await ws.readEvents(own, { conversationId });
+		const result = events.find(
+			(event) =>
+				event.type === "step.finished" &&
+				event.result?.includes('"description"'),
+		);
+		expect(result).toMatchObject({
+			result: expect.stringContaining('"count": 42'),
+		});
+		expect(result).toMatchObject({
+			result: expect.stringContaining('"folderKey"'),
+		});
+		expect(result).toMatchObject({
+			result: expect.stringContaining("Access to this folder was refused."),
+		});
+		expect(JSON.stringify(result)).not.toContain("write_folder");
+		expect(
+			events.filter((event) => event.type === "connection.requested"),
+		).toEqual([
+			expect.objectContaining({
+				resourceId: "missing-account",
+				service: "Fixture Storage",
+				connectionScope: "personal",
+			}),
+		]);
+		expect(
+			events
+				.filter((event) => event.type === "approval.requested")
+				.map((event) => event.approvalId),
+		).toEqual([approvalId, denyId]);
+		const prompt = (await ws.readSystemPrompts(own))[0]!;
+		expect(prompt).toContain('"Planning folder" ("Fixture Storage")');
+		expect(prompt).not.toContain("Other folder");
+		expect(prompt).not.toContain("folderKey");
+		expect(prompt).not.toContain("provider-folder-42");
+		const initial = {
+			...own,
+			conversationId,
+			actor: { kind: "user", id: "u1" },
+			resourceId: resource.id,
+			toolName: "read_folder",
+			args: { folderKey: "provider-folder-42" },
+		};
+		expect((await ws.readAccountCalls(own))[0]).toEqual(initial);
+		expect(
+			await ws.decideApproval(own, {
+				approvalId,
+				by: "u1",
+				decision: "approve",
+			}),
+		).toEqual({
+			applied: false,
+			stopped: { reason: "failed", error: "Only the approver can decide." },
+		});
+		await ws.scriptModel(own, [{ text: "Read continued." }]);
+		const decided = await ws.decideApproval(own, {
+			approvalId,
+			by: "approver",
+			decision: "approve",
+		});
+		expect(decided).toMatchObject({ applied: true });
+		await ws.awaitTurn(own, decided.turnId!, 20_000);
+		expect((await ws.readAccountCalls(own)).at(-1)).toEqual({
+			...initial,
+			approvalRequestId: approvalId,
+		});
+		expect((await ws.readModelCalls(own)).at(-1)?.join("\n")).toContain(
+			'{"count":43}',
+		);
+		expect(
+			await ws.decideApproval(own, {
+				approvalId,
+				by: "approver",
+				decision: "approve",
+			}),
+		).toMatchObject({ alreadyDecided: true });
+		await ws.scriptModel(own, [{ text: "Read denied." }]);
+		const denied = await ws.decideApproval(own, {
+			approvalId: denyId,
+			by: "approver",
+			decision: "deny",
+		});
+		expect(denied.applied).toBe(false);
+		await ws.awaitTurn(own, denied.turnId!, 20_000);
+		expect((await ws.readAccountCalls(own)).slice(-3)).toEqual([
+			{
+				...own,
+				conversationId,
+				approvalRequestId: approvalId,
+				by: "approver",
+				decision: "approve",
+			},
+			{ ...initial, approvalRequestId: approvalId },
+			{
+				...own,
+				conversationId,
+				approvalRequestId: denyId,
+				by: "approver",
+				decision: "deny",
+			},
+		]);
+		const ledger = await ws.readChangeRecords(own, {
+			resource: "connected_account",
+		});
+		expect(ledger).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					operation: "read",
+					actor: expect.objectContaining({ id: "u1", kind: "user" }),
+				}),
+			]),
+		);
+	});
+
+	test.each(["tedi", "service"] as const)(
+		"a %s-started turn cannot use connected accounts",
+		async (actorKind) => {
+			await seedCore();
+			const own = { ...scope, workspaceId: crypto.randomUUID() };
+			await seedWorkspaceRows([own]);
+			const ws = workspace(own);
+			await ws.scriptModel(own, [
+				{
+					code: `export default async ({accounts}) => await Promise.all([
+				accounts.list(), accounts.describe("any"), accounts.read("any", "read", {})
+			].map(call => call.catch(e => e.message)))`,
+				},
+				{ text: "Connected accounts are unavailable in this turn." },
+			]);
+			const { turnId, conversationId } = await ws.sendTurn(own, {
+				actorKind,
+				actorId: actorKind === "tedi" ? "tedi1" : "schedule",
+				text: "Read a linked account.",
+			});
+			expect(await ws.awaitTurn(own, turnId, 20_000)).toMatchObject({
+				status: "finished",
+			});
+			const events = await ws.readEvents(own, { conversationId });
+			const message =
+				"Connected accounts are not available to tedi-started or scheduled turns yet.";
+			expect(
+				events.filter(
+					(event) => event.type === "step.finished" && event.error === message,
+				),
+			).toHaveLength(3);
+			expect((await ws.readSystemPrompts(own))[0]).toContain(message);
+			expect(await ws.readAccountCalls(own)).toEqual([]);
+		},
+	);
 
 	test("reading a web page asks once per domain and returns the page as text", async () => {
 		const ws = workspace();

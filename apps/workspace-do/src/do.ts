@@ -81,8 +81,15 @@ import type {
 	Source,
 } from "@tedix/agent-governance/types";
 import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
+import { hashArguments } from "@tedix/agent-governance/hash";
 import { SqlAccountabilityAdapter, SqlComplianceAdapter } from "./adapters";
-import { buildWorkspaceBindings } from "./bindings";
+import { buildWorkspaceBindings, type ConnectionRequest } from "./bindings";
+import {
+	AccountReadHeld,
+	listLinkedAccounts,
+	workspaceAccounts,
+	type AccountService,
+} from "./accounts";
 import { SqlMemoryAdapter } from "./memory-adapter";
 import { callFailureText, unsavableTextError } from "./call-failure";
 import type { WorkspaceSnapshot } from "./data-port";
@@ -1862,6 +1869,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				});
 				continue;
 			}
+			if (outcome.refusal) {
+				stopped = true;
+				results.push({
+					applied: false,
+					stopped: { reason: "failed", error: outcome.refusal },
+				});
+				continue;
+			}
 			const conversation = decided.get(approval.conversation_id) ?? {
 				first: approval,
 				settled: [],
@@ -2315,11 +2330,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	/**
 	 * Record one decision and, on approve, run the held call.
 	 *
-	 * The request is taken first: its row is read again and marked decided
-	 * with nothing awaited in between, so no other call can run between the
-	 * check and the mark. Running the held call takes time and other calls are
-	 * handled meanwhile; one of them deciding the same request finds it taken
-	 * and gets `null`, so a change is never applied twice.
+	 * Take the request before awaiting anything. Other decisions wait for the
+	 * first caller, including while the API authorizes an account read decision.
 	 */
 	async #settleApproval(
 		scope: WorkspaceScope,
@@ -2334,9 +2346,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	): Promise<{
 		applied: boolean;
 		summary: string;
+		refusal?: string;
 		outcome?: { ok: true; value: unknown } | { ok: false; error: string };
 	} | null> {
 		const approvalId = approval.approval_id;
+		while (this.#deciding.has(approvalId)) await this.#deciding.get(approvalId);
 		const [current] = this.#store.exec<{ status: ApprovalRow["status"] }>(
 			"SELECT status FROM approvals WHERE approval_id = ?",
 			approvalId,
@@ -2352,6 +2366,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			}),
 		);
 		try {
+			if (approval.binding === "accounts" && approval.method === "read") {
+				const decision =
+					await this.accountService().decideLinkedAccountApproval({
+						...scope,
+						conversationId: approval.conversation_id,
+						approvalRequestId: approvalId,
+						by: input.by,
+						decision: input.decision,
+					});
+				if (decision.status === "refused")
+					return { applied: false, summary: "", refusal: decision.message };
+			}
 			return await this.#applyDecision(scope, approval, input, state, now);
 		} finally {
 			this.#deciding.delete(approvalId);
@@ -2376,11 +2402,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		outcome?: { ok: true; value: unknown } | { ok: false; error: string };
 	}> {
 		const approvalId = approval.approval_id;
-		this.#compliance.recordApproval(approvalId, state, input.by, {
-			resource: approval.resource,
-			operation: approval.method,
-			argsHash: approval.args_hash,
-		});
+		if (approval.binding !== "accounts")
+			this.#compliance.recordApproval(approvalId, state, input.by, {
+				resource: approval.resource,
+				operation: approval.method,
+				argsHash: approval.args_hash,
+			});
 		this.#store.run(
 			"UPDATE approvals SET status = ?, decided_by = ?, decided_at = ? WHERE approval_id = ?",
 			state,
@@ -2416,6 +2443,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				approval.binding,
 				approval.method,
 				JSON.parse(approval.args) as unknown[],
+				approval.binding === "accounts" ? approvalId : undefined,
 			).catch((error: unknown) => ({
 				ok: false as const,
 				error: error instanceof Error ? error.message : String(error),
@@ -2430,8 +2458,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			);
 			const createsApp =
 				approval.binding === "apps" && approval.method === "create";
+			const accountRead = approval.binding === "accounts";
 			const output =
-				outcome.ok && !createsApp ? changedOutput(outcome.value) : null;
+				outcome.ok && !createsApp && !accountRead
+					? changedOutput(outcome.value)
+					: null;
 			const app = outcome.ok && createsApp ? createdApp(outcome.value) : null;
 			this.#events.append(approval.conversation_id, {
 				type: "approval.executed",
@@ -2441,8 +2472,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				...(output ? { output } : {}),
 				...(app ? { app } : {}),
 			});
+			const resultText = outcome.ok ? JSON.stringify(outcome.value) : "";
 			summary = outcome.ok
-				? `Approved by ${input.by}; ${approval.binding}.${approval.method} applied: ${JSON.stringify(outcome.value).slice(0, 2_000)}`
+				? accountRead
+					? `The approved connected account read returned:\n${wrapUntrustedInput(resultText, "connected_account")}`
+					: `Approved by ${input.by}; ${approval.binding}.${approval.method} applied: ${resultText.slice(0, 2_000)}`
 				: `Approved by ${input.by} but ${approval.binding}.${approval.method} failed: ${outcome.error}`;
 		} else {
 			summary = `Denied by ${input.by}${input.note ? `: ${input.note}` : ""}. Do not retry this action.`;
@@ -3657,6 +3691,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			conversationId: string;
 			actor: { id: string; kind: ActorKind };
 		},
+		approvalRequestId?: string,
 	) {
 		const source: Source = {
 			surface: "workspace_object",
@@ -3667,9 +3702,39 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			kind: turn.actor.kind === "external_agent" ? "agent" : turn.actor.kind,
 			organizationId: scope.organizationId,
 		};
+		const data = this.#dataPort(scope, turn.actor.kind, turn);
+		const started = this.#turn(turn.turnId);
+		const accountActor: Actor | undefined =
+			started?.actor_kind === "user"
+				? {
+						id: started.actor_id,
+						kind: "user",
+						organizationId: scope.organizationId,
+					}
+				: undefined;
+		// One id per source and turn, so a repeated ask shows one card.
+		const requestConnection = (request: ConnectionRequest) =>
+			void this.#events.append(turn.conversationId, {
+				type: "connection.requested",
+				turnId: turn.turnId,
+				requestId: `${turn.turnId}:${request.resourceId}`,
+				...request,
+			});
 		return buildWorkspaceBindings({
 			memory: this.#memory,
-			data: this.#dataPort(scope, turn.actor.kind, turn),
+			data,
+			accountActor,
+			accounts:
+				accountActor &&
+				workspaceAccounts({
+					scope,
+					conversationId: turn.conversationId,
+					userId: accountActor.id,
+					data,
+					api: this.accountService(),
+					requestConnection,
+					approvalRequestId,
+				}),
 			compliance: this.#compliance,
 			accountability: {
 				append: async (input) => {
@@ -3697,14 +3762,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					...view,
 				});
 			},
-			// One id per source and turn, so a repeated ask shows one card.
-			requestConnection: (request) =>
-				void this.#events.append(turn.conversationId, {
-					type: "connection.requested",
-					turnId: turn.turnId,
-					requestId: `${turn.turnId}:${request.resourceId}`,
-					...request,
-				}),
+			requestConnection,
 		});
 	}
 
@@ -3719,10 +3777,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		binding: string,
 		method: string,
 		args: unknown[],
+		approvalRequestId?: string,
 	): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> {
 		if (!(BINDING_NAMES as readonly string[]).includes(binding))
 			return { ok: false, error: `Unknown binding ${binding}` };
-		const target = this.#bindings(scope, turn)[
+		const target = this.#bindings(scope, turn, approvalRequestId)[
 			binding as BindingName
 		] as Record<string, unknown>;
 		const fn = target[method];
@@ -3762,6 +3821,38 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			return { ok: true, value: JSON.parse(json) };
 		} catch (error: unknown) {
 			let message = callFailureText(error);
+			if (error instanceof AccountReadHeld) {
+				const requestArgs = args.slice(0, 3);
+				const [inserted] = this.#store.exec<{ approval_id: string }>(
+					"INSERT OR IGNORE INTO approvals (approval_id, turn_id, conversation_id, step_id, binding, method, args, resource, args_hash, actor_id, actor_kind, tedi_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending') RETURNING approval_id",
+					error.approvalId,
+					turn.turnId,
+					turn.conversationId,
+					stepId,
+					binding,
+					method,
+					JSON.stringify(requestArgs),
+					"connected_account",
+					await hashArguments(requestArgs),
+					turn.actor.id,
+					turn.actor.kind,
+					turn.tediId ?? null,
+				);
+				if (inserted)
+					this.#events.append(turn.conversationId, {
+						type: "approval.requested",
+						turnId: turn.turnId,
+						stepId,
+						approvalId: error.approvalId,
+						title: label,
+						reason:
+							"An active organization owner or admin with workspace build access must decide this read.",
+						input: boundedEventInput({
+							resourceId: args[0],
+							toolName: args[1],
+						}),
+					});
+			}
 			if (
 				error instanceof CallRefusedError &&
 				error.decision.verdict === "needs_approval"
@@ -4072,6 +4163,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const data = this.#dataPort(scope, actorKind);
 		return Promise.all(
 			rows.map(async (row) => {
+				const action = stepLabel(row.binding, row.method).label;
+				if (row.binding === "accounts") return { action };
 				const request = (JSON.parse(row.args) as unknown[])[0] as
 					| { title?: unknown; name?: unknown; outputId?: unknown }
 					| string
@@ -4088,7 +4181,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 									? ((await data.getOutput(request.outputId).catch(() => null))
 											?.title ?? null)
 									: null;
-				return { action: stepLabel(row.binding, row.method).label, target };
+				return { action, target };
 			}),
 		);
 	}
@@ -4099,7 +4192,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		conversationId: string,
 		input: TurnRequest,
 	): Promise<TurnPlan> {
-		const data = this.#dataPort(scope, input.actorKind);
+		const data = this.#dataPort(scope, input.actorKind, {
+			conversationId,
+			turnId,
+		});
 		const workspaceRead = this.#workspaceRead ?? data.workspace();
 		this.#workspaceRead = workspaceRead;
 		void workspaceRead.then(
@@ -4110,17 +4206,23 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				if (this.#workspaceRead === workspaceRead) this.#workspaceRead = null;
 			},
 		);
-		const [workspace, guest, referencedSkills, pendingApprovals] =
-			await Promise.all([
-				workspaceRead,
-				input.tediId
-					? this.#guestProfile(scope, input.tediId, input.text)
-					: null,
-				input.actorKind === "user"
-					? this.#referencedSkills(scope, input.text)
-					: [],
-				this.#pendingApprovals(scope, conversationId, input.actorKind),
-			]);
+		const [
+			workspace,
+			guest,
+			referencedSkills,
+			pendingApprovals,
+			linkedAccounts,
+		] = await Promise.all([
+			workspaceRead,
+			input.tediId ? this.#guestProfile(scope, input.tediId, input.text) : null,
+			input.actorKind === "user"
+				? this.#referencedSkills(scope, input.text)
+				: [],
+			this.#pendingApprovals(scope, conversationId, input.actorKind),
+			input.actorKind === "user"
+				? listLinkedAccounts(data).catch(() => [])
+				: null,
+		]);
 		const history = this.#history(conversationId, 200);
 		const systemPrompt = buildSystemPrompt({
 			workspaceName: workspace.name,
@@ -4133,6 +4235,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				this.#store.get<string>(`compaction:${conversationId}`) ?? null,
 			referencedSkills,
 			pendingApprovals,
+			linkedAccounts,
 		});
 		const actorKind: ActorKind = input.tediId ? "tedi" : input.actorKind;
 		return {
@@ -4183,6 +4286,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	/** Outbound fetch for `web.fetch`; a test subclass serves fixed pages. */
 	protected webFetch(): FetchFn | undefined {
 		return undefined;
+	}
+
+	protected accountService(): AccountService {
+		return this.env.API_SERVICE as unknown as AccountService;
 	}
 
 	/** The model a turn streams from; a test subclass returns a scripted one. */
@@ -4833,6 +4940,9 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	read(...args: unknown[]) {
 		return this.#call("read", args);
+	}
+	describe(...args: unknown[]) {
+		return this.#call("describe", args);
 	}
 	replace(...args: unknown[]) {
 		return this.#call("replace", args);

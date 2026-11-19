@@ -394,6 +394,11 @@ export function stepLabel(
 			list: "Listing connected sources",
 			requestConnection: "Asking for a connected account",
 		},
+		accounts: {
+			list: "Listing linked accounts",
+			describe: "Looking up connected account read tools",
+			read: "Reading from a connected account",
+		},
 		views: { show: "Showing a view" },
 		web: { fetch: "Reading a web page" },
 		work: {

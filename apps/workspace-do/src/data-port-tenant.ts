@@ -4,6 +4,7 @@
  * apps and Work items use the core database.
  */
 import type { DbQueryClient } from "@tedix/db/query-client";
+import { createDbClient } from "@tedix/db/client";
 import {
 	createOsOutput,
 	createOsOutputRevision,
@@ -42,6 +43,15 @@ import { listOsWorkspaceProjects } from "@tedix/db/queries/os-workspaces/project
 import { listWorkspaceResourceSummaries } from "@tedix/db/queries/durable-sqlite/workspace-resources";
 import { listConnectedAccounts } from "@tedix/db/queries/connection-instances";
 import { listConnectionProviderNames } from "@tedix/db/queries/connection-providers";
+import { listAppsReferencingConnectionProvider } from "@tedix/db/queries/app-reference-maintenance";
+import { getAppByIdWithToolsForOrganization } from "@tedix/db/queries/app-records";
+import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
+import { findWorkspaceConnectionTool } from "@tedix/db/queries/tools";
+import {
+	PersonalResourceToolBindingSchema,
+	resolveToolAnnotations,
+	type ToolConfig,
+} from "@tedix/api-contract/schemas/tools";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
 import {
@@ -703,6 +713,90 @@ export class TenantDataPort implements WorkspaceDataPort {
 			providerAccess: row.providerAccess ?? null,
 			connectedForYou: connected(row),
 		}));
+	}
+
+	async describeAccount(resourceId: string) {
+		await this.deps.assertWorkspaceAuthority();
+		const resource = await getOsWorkspaceResource(this.deps.tenant, {
+			...this.scope,
+			resourceId,
+		});
+		if (
+			resource?.status !== "active" ||
+			!resource.connectionInstanceId ||
+			!["user", "tenant"].includes(resource.connectionScope) ||
+			resource.providerAccess?.canRead === false
+		)
+			throw new Error("This linked source is unavailable for reads.");
+		const { organizationId } = this.deps;
+		const core = createDbClient(this.deps.core.$client);
+		const { providerId, connectionInstanceId, connectionScope } = resource;
+		const route = {
+			organizationId,
+			providerId,
+			connectionInstanceId,
+			connectionScope,
+		};
+		const candidates = await listAppsReferencingConnectionProvider(
+			core,
+			providerId,
+			{
+				organizationId,
+			},
+		);
+		const scopes = new Set<string>(JSON.parse(resource.requiredScopes));
+		const tools = [];
+		for (const candidate of candidates) {
+			if (candidate.connectionProviderId !== providerId) continue;
+			const surface = await getAppByIdWithToolsForOrganization(
+				core,
+				candidate.id,
+				organizationId,
+			);
+			const routing = surface?.app.metadata?.mcpConfig;
+			if (
+				!surface ||
+				routing?.connectionProviderId !== providerId ||
+				routing.connectionInstanceId !== connectionInstanceId ||
+				routing.connectionScope !== connectionScope
+			)
+				continue;
+			for (const tool of surface.tools) {
+				const config = tool.config as ToolConfig | null;
+				const auth = config?.auth;
+				const annotations = resolveToolAnnotations(tool);
+				const binding = PersonalResourceToolBindingSchema.safeParse(
+					config?.personalResourceBinding,
+				);
+				if (
+					!tool.enabled ||
+					!["external", "mcp"].includes(config?.transport ?? "") ||
+					config?.connectionReadOnly !== true ||
+					annotations?.readOnlyHint !== true ||
+					annotations.destructiveHint === true ||
+					auth?.type !== "connection" ||
+					auth.connectionId !== providerId ||
+					new Set(auth.scopes ?? []).size !== scopes.size ||
+					!(auth.scopes ?? []).every((scope) => scopes.has(scope)) ||
+					!binding.success ||
+					binding.data.resourceType !== resource.resourceType ||
+					binding.data.operation !== "read" ||
+					!("paths" in binding.data)
+				)
+					continue;
+				const resolved = await findWorkspaceConnectionTool(core, {
+					...route,
+					toolName: tool.toolId,
+				});
+				if (resolved?.appId === candidate.id)
+					tools.push({
+						name: tool.toolId,
+						inputSchema: tool.inputSchema,
+						resourcePaths: binding.data.paths,
+					});
+			}
+		}
+		return { providerResourceId: resource.providerResourceId, tools };
 	}
 
 	async listWork(options?: { disposition?: string; limit?: number }) {
