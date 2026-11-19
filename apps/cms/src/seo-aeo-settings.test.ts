@@ -1,3 +1,8 @@
+import {
+	createPublicPageContext,
+	generateBaseSeoContributions,
+	resolvePageMetadata,
+} from "emdash/page";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import seoAeo from "../templates/tedix/src/plugins/tedix-seo-aeo/index";
@@ -56,6 +61,128 @@ describe("Organization metadata", () => {
 			sameAs: ["https://social.example.test/company/garage"],
 		});
 		expect(kvGet).not.toHaveBeenCalled();
+		expect(
+			contributions.some(
+				(entry) => entry.graph?.["@type"] === "SoftwareApplication",
+			),
+		).toBe(false);
+	});
+});
+
+describe("Tedix public structured data", () => {
+	it("renders the same Organization on the homepage, landing pages, blog and posts", async () => {
+		const siteUrl = "https://tedix.dev";
+		const orgId = `${siteUrl}/#organization`;
+		const websiteId = `${siteUrl}/#website`;
+		const description =
+			"Share connections, systems and knowledge across a unified infrastructure layer. Build your AI stack once, and every department and subsidiary can use it.";
+		getSiteSettings.mockResolvedValue({
+			title: "CMS site",
+			url: siteUrl,
+			logo: "/old-logo.png",
+			tagline: "Old description",
+		});
+		const ctx = {
+			content: {
+				get: async () => ({
+					data: {
+						bylines: [
+							{
+								byline: {
+									displayName: "Alex Example",
+									bio: "CEO at Tedix. Building autonomous AI workers for teams.",
+								},
+							},
+						],
+					},
+				}),
+			},
+		};
+		for (const [path, expectedTypes] of [
+			["/", ["Organization", "WebSite", "SoftwareApplication", "WebPage"]],
+			[
+				"/privacy/",
+				["Organization", "WebSite", "SoftwareApplication", "WebPage"],
+			],
+			["/apps/", ["Organization", "WebSite", "SoftwareApplication"]],
+			["/apps/example/", ["Organization", "WebSite"]],
+			["/blog/", ["Organization", "WebSite", "CollectionPage"]],
+			[
+				"/blog/example/",
+				["Organization", "WebSite", "BlogPosting", "BreadcrumbList", "Person"],
+			],
+		] as const) {
+			const isPost = path === "/blog/example/";
+			const page = createPublicPageContext({
+				kind: isPost ? "content" : "custom",
+				url: `${siteUrl}${path}`,
+				canonical: `${siteUrl}${path}`,
+				siteUrl: `${siteUrl}/`,
+				siteName: "CMS site",
+				title: "Example title",
+				description: "Page-specific description",
+				image: "/page.png",
+				...(isPost && {
+					content: { collection: "posts", id: "post-1" },
+					articleMeta: {
+						publishedTime: "2026-11-17T08:10:00+01:00",
+						modifiedTime: "2026-11-18 07:18:01",
+					},
+				}),
+			});
+			const resolved = resolvePageMetadata([
+				...(await seoAeo.hooks["page:metadata"]({ page }, ctx)),
+				...generateBaseSeoContributions(page),
+			]);
+			const graphs = resolved.jsonld.map(({ json }) => JSON.parse(json));
+			expect(
+				graphs.map((graph) => graph["@type"]),
+				path,
+			).toEqual(expectedTypes);
+			expect(graphs[0]).toMatchObject({
+				"@id": orgId,
+				name: "Tedix",
+				logo: {
+					"@type": "ImageObject",
+					url: `${siteUrl}/images/tedi-astronaut-waving.png`,
+				},
+				description,
+			});
+			expect(graphs[1]).toMatchObject({
+				"@id": websiteId,
+				description,
+				publisher: { "@id": orgId },
+				potentialAction: {
+					target: { urlTemplate: `${siteUrl}/apps?q={search_term_string}` },
+				},
+			});
+			if (path === "/" || path === "/privacy/") {
+				expect(graphs[2]).toMatchObject({
+					"@id": `${siteUrl}/#softwareapplication`,
+					description,
+					publisher: { "@id": orgId },
+					provider: { "@id": orgId },
+				});
+				expect(graphs[3]).toMatchObject({
+					"@id": `${siteUrl}${path}#webpage`,
+					description: "Page-specific description",
+					isPartOf: { "@id": websiteId },
+					about: { "@id": orgId },
+					primaryImageOfPage: { url: `${siteUrl}/page.png` },
+				});
+			}
+			if (isPost) {
+				expect(graphs[2]).toMatchObject({
+					publisher: { "@id": orgId },
+					datePublished: "2026-11-17T07:10:00.000Z",
+					dateModified: "2026-11-18T07:18:01.000Z",
+				});
+				expect(graphs[4]).toMatchObject({
+					description: "CEO at Tedix. Building AI agents for teams.",
+					worksFor: { "@id": orgId },
+				});
+			}
+		}
 	});
 });
 
