@@ -1768,6 +1768,7 @@ async function fetchCmsSite(
 							cache: (caches as unknown as { default: Cache }).default,
 							key: pageKey,
 							templateSlug: org.templateSlug,
+							pathname: tenantUrl.pathname,
 							waitUntil: (promise) => ctx.waitUntil(promise),
 							render: () => renderTenant(anonymousPageRequest),
 						})

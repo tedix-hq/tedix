@@ -6,7 +6,7 @@ import { appCatalog } from "../../schema/catalog";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { checkCatalogBrowseTotals, getCatalogStats } from "./categories-stats";
-import { listCatalogApps } from "./list-apps";
+import { listCatalogApps, listPublicCatalogSitemapSlugs } from "./list-apps";
 
 const migration = readFileSync(
 	new URL(
@@ -52,6 +52,26 @@ function expectAccurate(sqlite: DatabaseSync) {
 }
 
 describe("catalog browse totals", () => {
+	it("projects the same public sitemap slugs in catalog order", async () => {
+		const { sqlite, insert, db } = fixture();
+		insert.run("first-party", "First Party", "THIRD_PARTY", 1, "RELEASED", 0);
+		insert.run("second", "Fictional Mail", "THIRD_PARTY", 1, "RELEASED", 0);
+		insert.run("empty", "No Slug", "THIRD_PARTY", 1, "RELEASED", 0);
+		sqlite.exec(`
+			UPDATE app_catalog SET slug = id WHERE id <> 'empty';
+			UPDATE app_catalog SET slug = '' WHERE id = 'empty';
+			UPDATE app_catalog SET connector_type = 'FIRST_PARTY_ECOSYSTEM' WHERE id = 'first-party';
+		`);
+		const { apps } = await listCatalogApps(db, { hideShadowedVariants: true });
+		const expected = apps
+			.filter(
+				(app) => app.slug && app.connectorType !== "FIRST_PARTY_ECOSYSTEM",
+			)
+			.map((app) => app.slug);
+		expect(expected).toEqual(["visible", "second"]);
+		expect(await listPublicCatalogSitemapSlugs(db)).toEqual(expected);
+	});
+
 	it("serves the public stats total from its primary key and detects drift and missing counters", async () => {
 		const { sqlite, insert } = fixture();
 		sqlite.exec(

@@ -1,5 +1,6 @@
 import type { SiteRoutingPolicy } from "@tedix/api-contract/schemas/site-routing";
 import { createDbClient } from "@tedix/db/client";
+import { listPublicCatalogSitemapSlugs } from "@tedix/db/queries/catalog/list-apps";
 import { getSiteRoutingPolicy } from "@tedix/db/queries/site-routing";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
@@ -358,7 +359,8 @@ export async function marketingResponse(
 		env.CLI_DOWNLOAD_HOST,
 	);
 	if (download) return download;
-	const routing = await getSiteRoutingPolicy(createDbClient(env.PLATFORM_DB));
+	const db = createDbClient(env.PLATFORM_DB);
+	const routing = await getSiteRoutingPolicy(db);
 	const retainedMedia = await retainedMediaResponse(request, env, routing);
 	if (retainedMedia) return retainedMedia;
 	const legacyMedia = legacyBlogMediaRedirect(request, url, routing);
@@ -436,9 +438,11 @@ export async function marketingResponse(
 	if (path === "/docs" || path.startsWith("/docs/"))
 		return redirect("https://docs.tedix.dev" + (path.slice(5) || "/"));
 	if (!path.startsWith("/api/catalog/")) return null;
-	const client = getCatalogClient(env);
 	const q = url.searchParams;
 	try {
+		if (path === "/api/catalog/sitemap-slugs")
+			return Response.json({ slugs: await listPublicCatalogSitemapSlugs(db) });
+		const client = getCatalogClient(env);
 		let result: unknown;
 		switch (path) {
 			case "/api/catalog/apps": {
