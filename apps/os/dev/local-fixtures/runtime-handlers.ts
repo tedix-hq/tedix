@@ -9,7 +9,15 @@ import type {
 	ListHomeConversationsInput,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
-import { DELEGATION_WORK_ITEM, nextId, now, ORG_ID, RpcError } from "./core";
+import {
+	CHILD_RUN_AGENT_RUN,
+	DELEGATION_WORK_ITEM,
+	nextId,
+	now,
+	ORG_ID,
+	RpcError,
+} from "./core";
+import { workItemId } from "./work";
 import { CANNED_REPLY, findConversation, findHomeRun } from "./lookups";
 import { runSteeringMessages, state } from "./state";
 import { TOOL_EVENTS } from "./tedis";
@@ -238,6 +246,30 @@ export const runtimeHandlers: Record<string, (input: never) => unknown> = {
 						},
 						createdAt: run.startedAt ?? run.createdAt,
 					},
+					// The event log keeps a tool result as `resultPreview`.
+					...(input.childRunId === CHILD_RUN_AGENT_RUN
+						? [
+								{
+									id: `${input.childRunId}:4`,
+									organizationId: ORG_ID,
+									tediId: input.delegatedTediId,
+									runId: input.childRunId,
+									kind: "tool.completed" as const,
+									payload: {
+										name: "start_agent_run",
+										ok: true,
+										resultPreview: {
+											kind: "agent_run",
+											workItemId: workItemId(1),
+											title: "Fix paging in the churn cohort report",
+											executor: "codex",
+											url: `/work/items/${workItemId(1)}`,
+										},
+									},
+									createdAt: run.completedAt ?? run.createdAt,
+								},
+							]
+						: []),
 				],
 				artifacts: [],
 				control: {

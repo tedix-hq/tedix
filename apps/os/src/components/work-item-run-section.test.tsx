@@ -3,11 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
-import {
-	WorkItemRunView,
-	workRunEntries,
-	workRunStatus,
-} from "./work-item-run-section";
+import { workRunEntries, workRunStatus } from "./work-item-run";
+import { WorkItemRunView } from "./work-item-run-section";
 
 const START = Date.parse("2026-11-19T10:00:00.000Z");
 const ATTEMPT_ID = "44444444-4444-4444-8444-444444444444";

@@ -12,16 +12,19 @@ import {
 } from "../local-output-content";
 import type {
 	HomeConversation,
+	HomeMessage,
 	HomeRun,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	BLUEPRINT_DRAFT,
 	BLUEPRINT_PUBLISHED,
 	BLUEPRINT_SUPPORT,
+	CHILD_RUN_AGENT_RUN,
 	CHILD_RUN_DELEGATED,
 	CHILD_RUN_DELEGATING,
 	COLLAB_PROPOSAL_ACCEPTED,
 	COLLAB_PROPOSAL_OPEN,
+	CONVERSATION_AGENT_RUN,
 	CONVERSATION_DELEGATION,
 	CONVERSATION_HOME,
 	DELEGATION_WORK_ITEM,
@@ -36,6 +39,7 @@ import {
 	GADGET_REV_TRIAGE,
 	GADGET_SYSTEM_MAP,
 	GADGET_TRIAGE,
+	HOME_RUN_AGENT_RUN,
 	HOME_RUN_DELEGATED,
 	HOME_RUN_DELEGATING,
 	HOME_RUN_DONE,
@@ -820,6 +824,7 @@ export const seedState = (): LocalState => ({
 			origin: "human",
 		},
 		delegationConversation(),
+		agentRunChat().conversation,
 	],
 	messages: [
 		{
@@ -862,9 +867,11 @@ export const seedState = (): LocalState => ({
 				"Two of the four flagged accounts renewed after the win-back email; the churn-watch workflow failed on its last run and is queued for retry, so today's cohort view may lag by a day.",
 			createdAt: T5,
 		},
+		...agentRunChat().messages,
 	],
 	homeRuns: [
 		...delegationRuns(),
+		agentRunChat().run,
 		{
 			id: HOME_RUN_DONE,
 			organizationId: ORG_ID,
@@ -1020,6 +1027,68 @@ export function delegationConversation(): HomeConversation {
 		createdAt: T0,
 		updatedAt: T5,
 		origin: "human",
+	};
+}
+
+/** The chat, its two messages and the finished turn of CONVERSATION_AGENT_RUN. */
+export function agentRunChat(): {
+	conversation: HomeConversation;
+	messages: HomeMessage[];
+	run: HomeRun;
+} {
+	const message = {
+		organizationId: ORG_ID,
+		conversationId: CONVERSATION_AGENT_RUN,
+		runId: HOME_RUN_AGENT_RUN,
+		status: "completed" as const,
+	};
+	return {
+		conversation: {
+			id: CONVERSATION_AGENT_RUN,
+			organizationId: ORG_ID,
+			title: "Paging fix for the churn cohort",
+			status: "active",
+			channel: "os",
+			lastMessageAt: T3,
+			messageCount: 2,
+			createdAt: T2,
+			updatedAt: T3,
+			origin: "human",
+		},
+		messages: [
+			{
+				...message,
+				id: fid("61", 11),
+				role: "user",
+				content:
+					"The churn cohort report drops its last page. Can you get that fixed in the code?",
+				createdAt: T2,
+			},
+			{
+				...message,
+				id: fid("61", 12),
+				role: "assistant",
+				delegatedTediId: TEDI_MILES,
+				childRunId: CHILD_RUN_AGENT_RUN,
+				content:
+					"I started a coding task for an agent. You can follow it here, and tell me if it should change course.",
+				createdAt: T3,
+			},
+		],
+		run: {
+			id: HOME_RUN_AGENT_RUN,
+			organizationId: ORG_ID,
+			conversationId: CONVERSATION_AGENT_RUN,
+			status: "completed",
+			inputMessageId: fid("61", 11),
+			outputMessageId: fid("61", 12),
+			delegatedTediId: TEDI_MILES,
+			childRunId: CHILD_RUN_AGENT_RUN,
+			startedAt: T2,
+			completedAt: T3,
+			createdAt: T2,
+			updatedAt: T3,
+		},
 	};
 }
 
