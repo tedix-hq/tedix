@@ -154,6 +154,7 @@ function fixture({
 	const releases: Array<() => void> = [];
 	const control = {
 		spawnPid: undefined as number | undefined,
+		uniqueAttempts: false,
 		deliverNote: undefined as string | undefined,
 		telemetryOutcome: "succeeded" as "succeeded" | "stopped" | "failed",
 		exitCode: 0,
@@ -317,7 +318,9 @@ function fixture({
 			if (executor === "devin") expect(control.installed).toContain(repo);
 			return {
 				thread: {
-					id: `33333333-3333-4333-8333-${String(++threadNumber).padStart(12, "0")}`,
+					id:
+						resume ??
+						`33333333-3333-4333-8333-${String(++threadNumber).padStart(12, "0")}`,
 					cliVersion: "1.2.3",
 					path: "/fictional/transcript",
 				},
@@ -408,7 +411,9 @@ function fixture({
 						? "88888888-8888-4888-8888-888888888888"
 						: input.metadata?.verificationRound
 							? `fictional-verification-${workItem.version}`
-							: "fictional-attempt",
+							: control.uniqueAttempts
+								? `fictional-attempt-${events.filter((event) => event.verb === "start" && event.input).length}`
+								: "fictional-attempt",
 					orgId: devinOrgId,
 					workItemId: args[6],
 					executorId: "local-acme",
@@ -481,7 +486,9 @@ function fixture({
 						? "88888888-8888-4888-8888-888888888888"
 						: brief.includes("Verify-only Attempt.")
 							? `fictional-verification-${work.version}`
-							: "fictional-attempt",
+							: control.uniqueAttempts
+								? `fictional-attempt-${events.filter((event) => event.verb === "start" && event.input).length}`
+								: "fictional-attempt",
 				),
 			);
 			expect(args.slice(args.indexOf("--") + 1)).toEqual(
@@ -505,7 +512,9 @@ function fixture({
 							? [
 									"claude",
 									"-p",
-									"--session-id",
+									control.threadSessions.includes(deps?.sessionKey)
+										? "--resume"
+										: "--session-id",
 									expect.any(String),
 									"--output-format",
 									"stream-json",
@@ -8125,6 +8134,89 @@ it.each([
 					f.events.filter((event) => event.verb === "comment"),
 				).toHaveLength(1);
 			}
+		} finally {
+			clock.mockRestore();
+		}
+	},
+);
+
+it.each([
+	["codex", "resume", "expired"],
+	["claude-code", "--resume", "failed"],
+	["opencode", "--session", "failed"],
+] as const)(
+	"continues the %s thread under new Attempts and holds after two resumes",
+	async (executor, resumeArg, outcome) => {
+		const f = fixture({ executor });
+		f.deps.provision = (_source, destination) => {
+			mkdirSync(destination, { recursive: true });
+			return destination;
+		};
+		const launch = spyOn(f.deps, "launch");
+		const clock = spyOn(Date, "now");
+		let now = Date.now();
+		clock.mockImplementation(() => now);
+		f.items.splice(1);
+		f.control.uniqueAttempts = true;
+		f.control.cleanupRemoves = true;
+		f.control.telemetryOutcome = outcome === "expired" ? "stopped" : "failed";
+		f.control.exitCode = outcome === "expired" ? 0 : 1;
+		f.control.declareCompleted = false;
+		const path = join(f.dir, `${item().id}-2.json`);
+		let session: string | undefined;
+		try {
+			for (const [index, message] of [
+				"stream disconnected before completion",
+				"socket hang up",
+				"connection reset by peer",
+			].entries()) {
+				f.control.finalMessage =
+					outcome === "expired"
+						? `Lease lost during turn ${index + 1}`
+						: message;
+				const dispatcher = f.restart();
+				await dispatcher.tick();
+				await until(() => f.releases.length === index + 1);
+				const active = JSON.parse(readFileSync(path, "utf8"));
+				session ??= active.session;
+				const nativeId = session!.slice(executor.length + 1);
+				expect(active.session).toBe(session!);
+				expect(active.attemptId).toBe(`fictional-attempt-${index + 1}`);
+				expect(active.nativeResumeCount ?? 0).toBe(index);
+				if (index) {
+					expect(f.control.threadSessions.at(-1)).toBe(nativeId);
+					const [args] = launch.mock.calls[index]!;
+					expect(
+						args.slice(args.indexOf(resumeArg), args.indexOf(resumeArg) + 2),
+					).toEqual([resumeArg, nativeId]);
+				}
+				f.releases[index]!();
+				await dispatcher.drain();
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				expect(saved).toMatchObject({
+					phase: "deferred",
+					outcome,
+					held: index === 2,
+				});
+				expect(existsSync(saved.repo)).toBe(true);
+				now = saved.retryDeadlineAt + 1;
+				f.control.history.data.unshift({
+					id: saved.attemptId,
+					externalSessionKey: saved.session,
+					outcome: outcome === "expired" ? null : outcome,
+					expiresAt: new Date(now - 1).toISOString(),
+					metadata: { dispatchVersion: 2 },
+				});
+			}
+			const dispatcher = f.restart();
+			await dispatcher.tick();
+			await dispatcher.drain();
+			expect(launch).toHaveBeenCalledTimes(3);
+			expect(
+				f.events
+					.filter((event) => event.verb === "comment")
+					.map((event) => event.args.at(-1)),
+			).toEqual([expect.stringContaining("Native resume limit (2) reached")]);
 		} finally {
 			clock.mockRestore();
 		}

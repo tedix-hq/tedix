@@ -750,6 +750,7 @@ const CLEANUP_RETRY_CEILING_MS = 2 * 60 * 60_000;
  * measured once and again only when its directory or receipt changes.
  */
 const LIVE_RUN_SIZE_MS = 60 * 60_000;
+const MAX_NATIVE_RESUMES = 2;
 /** Archived run folders kept per runner; the sweep deletes older ones. */
 export const ARCHIVED_RUNS_KEPT = 100;
 /**
@@ -890,6 +891,8 @@ interface Receipt {
 	session?: string;
 	model?: string;
 	interrupted?: boolean;
+	transportInterrupted?: boolean;
+	nativeResumeCount?: number;
 	retryable?: boolean;
 	attemptId?: string;
 	executorKey?: string;
@@ -1046,6 +1049,8 @@ function laneHoldReason(row: Receipt): string | undefined {
 		return "The agent reported the accepted outcome incomplete; running the same brief again would repeat that.";
 	if (row.note?.startsWith("Automatic execution held"))
 		return "Three runs failed or expired on this version of the task.";
+	if ((row.nativeResumeCount ?? 0) >= MAX_NATIVE_RESUMES)
+		return `The agent's session was interrupted and exhausted its ${MAX_NATIVE_RESUMES} resumes on this version of the task.`;
 	if (row.runFailureCounted)
 		return "The agent failed three times in the same way.";
 }
@@ -1105,6 +1110,11 @@ function readLaneReceipts(
 				].includes(row.phase) ||
 				(row.pid !== undefined &&
 					(!Number.isSafeInteger(row.pid) || Number(row.pid) <= 0)) ||
+				(row.nativeResumeCount !== undefined &&
+					(!Number.isSafeInteger(row.nativeResumeCount) ||
+						Number(row.nativeResumeCount) < 0)) ||
+				(row.transportInterrupted !== undefined &&
+					typeof row.transportInterrupted !== "boolean") ||
 				["session", "executorKey", "attemptId", "processIdentity", "repo"].some(
 					(key) =>
 						row[key] !== undefined &&
@@ -1157,7 +1167,9 @@ function hasSettledOutcome(receipt: Receipt): boolean {
 function retainsInterruptedWork(receipt: Receipt): boolean {
 	return (
 		receipt.phase === "deferred" &&
-		receipt.outcome === "expired" &&
+		(receipt.outcome === "expired" ||
+			(receipt.outcome === "failed" &&
+				receipt.transportInterrupted === true)) &&
 		receipt.admissionState === "admitted" &&
 		!!receipt.attemptId &&
 		!!receipt.session &&
@@ -1294,13 +1306,23 @@ export function laneLandingBrief(repo: string): string {
 export function retainedLaneWorktree(
 	directory: string,
 	itemId: string,
-	history: Array<{ id: string; outcome: string | null }>,
+	history: Array<{
+		id: string;
+		outcome: string | null;
+		expiresAt?: string | null;
+		externalSessionKey?: string | null;
+	}>,
 	onMissing?: (repo: string) => void,
 ) {
 	const failed = new Set(
 		history
 			.filter((row) => row.outcome === "failed" || row.outcome === "expired")
 			.map((row) => row.id),
+	);
+	const elapsed = new Map(
+		history
+			.filter((row) => !row.outcome && !leaseMayBeLive(row))
+			.map((row) => [row.id, row.externalSessionKey]),
 	);
 	const receipts = readLaneReceipts(directory);
 	const previous = receipts
@@ -1309,7 +1331,11 @@ export function retainedLaneWorktree(
 			if (
 				row.itemId !== itemId ||
 				!attemptId ||
-				!failed.has(attemptId) ||
+				(!failed.has(attemptId) &&
+					!(
+						retainsInterruptedWork(row) &&
+						elapsed.get(attemptId) === row.session
+					)) ||
 				!row.repo?.startsWith(join(directory, "runs") + sep)
 			)
 				return false;
@@ -4114,6 +4140,7 @@ export class LaneDispatcher {
 					? candidate.metadata.decisionContinuation.responseId
 					: undefined,
 			retries: inRetryWindow ? (previous?.retries ?? 0) : 0,
+			nativeResumeCount: previous?.nativeResumeCount,
 			retryDeadlineAt,
 			failureCommented: previous?.failureCommented,
 			admissionFailure: previous?.admissionFailure,
@@ -4644,6 +4671,15 @@ export class LaneDispatcher {
 			// A stop that arrived during preparation must not start a model turn
 			// the drain deadline would then abandon to the next runner.
 			if (this.stopping) throw new DispatcherStoppingError();
+			if (
+				resumed &&
+				executor !== "devin" &&
+				previousLane?.version === item.version &&
+				retainsInterruptedWork(previousLane)
+			) {
+				receipt.nativeResumeCount = (receipt.nativeResumeCount ?? 0) + 1;
+				this.save(path, receipt);
+			}
 			const exit = await this.deps.launch(
 				[
 					"run",
@@ -4818,13 +4854,15 @@ export class LaneDispatcher {
 			const finalMessage =
 				receipt.telemetry?.finalMessage ||
 				(existsSync(last) ? readFileSync(last, "utf8") : "No final message");
+			receipt.transportInterrupted =
+				exit !== 0 &&
+				executor !== "devin" &&
+				/\b(?:stream disconnected before completion|broken pipe|connection reset by peer|socket hang up|ECONNRESET|EPIPE)\b/i.test(
+					finalMessage,
+				);
 			if (
 				exit !== 0 &&
-				(isMissingNativeState(finalMessage) ||
-					(executor === "codex" &&
-						/\bstream disconnected before completion\b|\bIO error:\s*Broken pipe\b/i.test(
-							finalMessage,
-						)))
+				(receipt.transportInterrupted || isMissingNativeState(finalMessage))
 			)
 				receipt.retryable = true;
 			receipt.note = finalMessage.slice(0, 1800);
@@ -4993,7 +5031,10 @@ export class LaneDispatcher {
 									retryDeadlineAt,
 								);
 				}
-				if (!admissionSent && interrupted) {
+				if (
+					interrupted &&
+					(!admissionSent || receipt.admissionState === "rejected")
+				) {
 					// Keep correlation only; a fresh admission still owns the next lease and PID.
 					Object.assign(receipt, {
 						repo: interrupted.repo,
@@ -5001,8 +5042,10 @@ export class LaneDispatcher {
 						session: interrupted.session,
 						executorKey: interrupted.executorKey,
 						attemptId: interrupted.attemptId,
+						admissionState: interrupted.admissionState,
 						processIdentity: interrupted.processIdentity,
-						outcome: "expired",
+						outcome: interrupted.outcome,
+						transportInterrupted: interrupted.transportInterrupted,
 					});
 				}
 			}
@@ -6458,22 +6501,23 @@ export class LaneDispatcher {
 			Date.now() + 60_000 * 2 ** (receipt.retries - 1),
 			Math.max(receipt.retryDeadlineAt ?? 0, Date.now() + 60_000),
 		);
-		// An elapsed lease with its run's result retained is an interruption,
-		// not an identical execution failure: fresh admission verifies the
-		// retained result again, so expiry alone must not hold the revision
-		// for a human edit.
-		if (receipt.outcome === "expired" && resultRetained) return;
-		// A run that never spawned its lane child ended before the agent turn:
-		// a dispatcher fault (missing checkout, prepare error), not an agent
-		// verdict. It still retries above but never feeds the failure hold.
-		if (receipt.pid === undefined) return;
-		const signature = laneFailureSignature(receipt.note ?? receipt.outcome);
-		receipt.identicalFailures =
-			receipt.runFailureSignature === signature
-				? (receipt.identicalFailures ?? 0) + 1
-				: 1;
-		receipt.runFailureSignature = signature;
-		receipt.held = receipt.identicalFailures >= 3;
+		// A retained result after lease expiry or a failure before spawn does
+		// not feed the identical-failure hold.
+		if (
+			receipt.pid !== undefined &&
+			!(receipt.outcome === "expired" && resultRetained)
+		) {
+			const signature = laneFailureSignature(receipt.note ?? receipt.outcome);
+			receipt.identicalFailures =
+				receipt.runFailureSignature === signature
+					? (receipt.identicalFailures ?? 0) + 1
+					: 1;
+			receipt.runFailureSignature = signature;
+		}
+		const resumeLimitReached =
+			(receipt.nativeResumeCount ?? 0) >= MAX_NATIVE_RESUMES;
+		receipt.held ||=
+			resumeLimitReached || (receipt.identicalFailures ?? 0) >= 3;
 		if (receipt.held && !receipt.failureCommented) {
 			receipt.failureCommented = true;
 			this.save(
@@ -6485,7 +6529,7 @@ export class LaneDispatcher {
 					"work",
 					"comment",
 					receipt.itemId,
-					`Dispatcher execution held for Work revision ${receipt.version}: ${receipt.note}. Three identical failures; held until the Work revision changes.`,
+					`Dispatcher execution held for Work revision ${receipt.version}: ${receipt.note}. ${resumeLimitReached ? `Native resume limit (${MAX_NATIVE_RESUMES}) reached` : "Three identical failures"}; held until the Work revision changes.`,
 				]);
 			} catch (error) {
 				this.log("failure-comment-unconfirmed", receipt.itemId, String(error));
