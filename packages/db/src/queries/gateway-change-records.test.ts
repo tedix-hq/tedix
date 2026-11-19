@@ -269,6 +269,17 @@ describe("gateway change record sealing", () => {
 			.map((row) => String(row.detail));
 		expect(plan.join("\n")).toContain("idx_gateway_change_records_unsealed");
 	});
+
+	it("checks the last-sealed guard through the sealed-only index", () => {
+		const { sqlite } = setup([]);
+		const plan = sqlite
+			.prepare(
+				"EXPLAIN QUERY PLAN SELECT 1 FROM gateway_change_records AS later WHERE later.organization_id = ? AND later.sequence > ? AND later.chain_hash IS NOT NULL",
+			)
+			.all("org-a", 0)
+			.map((row) => String(row.detail));
+		expect(plan.join("\n")).toContain("idx_gateway_change_records_sealed");
+	});
 });
 
 describe("gateway change record time ranges", () => {

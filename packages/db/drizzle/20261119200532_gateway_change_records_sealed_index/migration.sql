@@ -1,0 +1,1 @@
+CREATE INDEX `idx_gateway_change_records_sealed` ON `gateway_change_records` (`organization_id`,`sequence`) WHERE chain_hash is not null;
