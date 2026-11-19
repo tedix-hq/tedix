@@ -15,7 +15,6 @@ import {
 	consumeOidcLogin,
 	deleteOidcSession,
 	getOidcOrganization,
-	resolveOidcSessionContext,
 	insertOidcRecord,
 	resolveOidcMember,
 } from "@tedix/db/queries/oidc-sessions";
@@ -40,10 +39,11 @@ export async function resolveOidcUser(
 	credential: string,
 ) {
 	const identityStartedAt = performance.now();
-	const identity = await resolveOidcSessionContext(
-		context.db,
+	const { resolveCachedOidcIdentity } =
+		await import("./rpc/cached-oidc-identity");
+	const identity = await resolveCachedOidcIdentity(
+		context,
 		await oidcDigest(credential),
-		now(),
 	);
 	(context.serverTiming ??= []).push(
 		`auth-identity;dur=${(performance.now() - identityStartedAt).toFixed(1)}`,

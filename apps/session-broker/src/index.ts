@@ -1133,6 +1133,12 @@ async function authorize(request: Request, env: BrokerEnv): Promise<Response> {
 				traceId,
 			});
 		}
+		const invalidated = await env.API_SERVICE.fetch(
+			new Request("https://api.internal/__internal/identity-cache/invalidate", {
+				method: "POST",
+			}),
+		);
+		if (!invalidated.ok) throw new Error("Identity cache invalidation failed");
 		const code = randomReference();
 		const codeExpiresAt =
 			Math.floor(Date.now() / 1000) + SESSION_BROKER_CODE_TTL_SECONDS;

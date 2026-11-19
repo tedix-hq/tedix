@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./queries/auth-context-cache": "./src/queries/auth-context-cache.ts",
 		"./queries/os-workspace-access": "./src/queries/os-workspace-access.ts",
 		"./queries/personal-agent-sessions": "./src/queries/personal-agent-sessions.ts",
 		"./queries/os-workspaces/install-app": "./src/queries/os-workspaces/install-app.ts",

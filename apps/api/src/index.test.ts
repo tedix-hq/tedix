@@ -29,6 +29,14 @@ const h = vi.hoisted(() => ({
 	evaluations: 0,
 	accessChecks: 0,
 	candidateAccessChecks: 0,
+	identityInvalidations: 0,
+}));
+
+vi.mock("./services/identity-cache-invalidation", () => ({
+	invalidateIdentityCache: async () => {
+		h.identityInvalidations++;
+		return new Response(null, { status: 204 });
+	},
 }));
 
 vi.mock("./services/work-repository-candidate-access", () => ({
@@ -139,6 +147,20 @@ describe("apps/api entrypoint liveness short-circuit", () => {
 });
 
 describe("apps/api service-binding trust boundary", () => {
+	it("permits cache invalidation only through InternalEntrypoint", async () => {
+		const request = () =>
+			new Request("https://api.test/__internal/identity-cache/invalidate", {
+				method: "POST",
+				headers: { "X-Service-Binding": "true" },
+			});
+		const before = h.identityInvalidations;
+		expect((await worker.fetch(request(), env, ctx)).status).toBe(418);
+		expect(h.identityInvalidations).toBe(before);
+		expect(
+			(await new InternalEntrypoint(ctx, env).fetch(request())).status,
+		).toBe(204);
+		expect(h.identityInvalidations).toBe(before + 1);
+	});
 	it("keeps repository candidate access checks behind InternalEntrypoint", async () => {
 		const request = () =>
 			new Request("https://api.test/__internal/repository-candidate-access", {

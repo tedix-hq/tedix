@@ -27,6 +27,7 @@ export default defineConfig({
 	// of re-exporting them through the hot runtime barrel. Drizzle still owns the
 	// complete canonical schema through this explicit source list.
 	schema: [
+		"./src/schema/auth-context-cache.ts",
 		"./src/schema/data-residency.ts",
 		"./src/schema/gateway-change-records.ts",
 		"./src/schema/kernel-requests.ts",
