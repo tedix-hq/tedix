@@ -24,6 +24,12 @@ import { tenantStoreName } from "@tedix/db/tenant-store/router";
 import type { WorkspaceEnv, WorkspaceScope } from "../src/env";
 import type { ModelPort } from "../src/model";
 import { RUN_CODE_TOOL } from "../src/prompt";
+import type { AccountService } from "../src/accounts";
+import type {
+	WorkspaceConnectionDecisionInput,
+	WorkspaceConnectionReadInput,
+	WorkspaceConnectionReadResult,
+} from "@tedix/api-contract/schemas/workspace-connection-read";
 
 export { WorkspaceBindingLoopback } from "../src/do";
 
@@ -155,6 +161,44 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 	}
 
 	protected override async refreshModelCatalog(): Promise<void> {}
+
+	#accountResponses: WorkspaceConnectionReadResult[] = [];
+	#accountCalls: Array<
+		WorkspaceConnectionReadInput | WorkspaceConnectionDecisionInput
+	> = [];
+
+	scriptAccountReads(
+		scope: WorkspaceScope,
+		responses: WorkspaceConnectionReadResult[],
+	) {
+		this.bindScope(scope);
+		this.#accountResponses = responses;
+	}
+
+	readAccountCalls(scope: WorkspaceScope) {
+		this.bindScope(scope);
+		return this.#accountCalls;
+	}
+
+	protected override accountService(): AccountService {
+		return {
+			readLinkedAccount: async (input) => {
+				this.#accountCalls.push(input);
+				const result = this.#accountResponses.shift();
+				if (!result) throw new Error("Unexpected account read");
+				return result;
+			},
+			decideLinkedAccountApproval: async (input) => {
+				this.#accountCalls.push(input);
+				if (input.by !== "approver")
+					return {
+						status: "refused",
+						message: "Only the approver can decide.",
+					};
+				return { status: input.decision === "approve" ? "approved" : "denied" };
+			},
+		};
+	}
 
 	/** Fixed public pages instead of the network; counts what was fetched. */
 	protected override webFetch() {

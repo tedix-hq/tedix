@@ -34,6 +34,8 @@ import { buildSheetBinding } from "./sheet-binding";
 import { buildPresentationBinding } from "./presentation-bindings";
 import { buildView, type ShownView } from "./views";
 import { approvalDomain, checkWebUrl, type WebPort } from "./web";
+import type { workspaceAccounts } from "./accounts";
+import { ACCOUNTS_UNAVAILABLE } from "./prompt";
 import type {
 	CreateAppInput,
 	CreateWorkInput,
@@ -64,6 +66,8 @@ export interface BindingDeps {
 	web?: WebPort;
 	/** Shows a "Connect" card in the running turn's answer; absent outside a chat turn. */
 	requestConnection?: (request: ConnectionRequest) => void;
+	accounts?: ReturnType<typeof workspaceAccounts>;
+	accountActor?: Actor;
 }
 
 /** What the chat needs to show a "Connect" card. It names no person. */
@@ -493,6 +497,23 @@ export function buildWorkspaceBindings(
 				requestConnection: { riskTier: "read", blastRadius: "none" },
 			},
 		}),
+		accounts: wrapBinding(
+			deps.accounts ?? {
+				list: accountsUnavailable,
+				describe: accountsUnavailable,
+				read: accountsUnavailable,
+			},
+			{
+				...common,
+				actor: deps.accountActor ?? common.actor,
+				resource: "connected_account",
+				methods: {
+					list: { riskTier: "read", blastRadius: "none" },
+					describe: { riskTier: "read", blastRadius: "none" },
+					read: { riskTier: "read", blastRadius: "none" },
+				},
+			},
+		),
 		web: wrapBinding(web, {
 			...common,
 			resource: "web",
@@ -508,4 +529,8 @@ export function buildWorkspaceBindings(
 			},
 		}),
 	};
+}
+
+function accountsUnavailable(): never {
+	throw new Error(ACCOUNTS_UNAVAILABLE);
 }

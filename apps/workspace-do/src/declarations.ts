@@ -14,6 +14,7 @@ export const BINDING_NAMES = [
 	"presentations",
 	"apps",
 	"resources",
+	"accounts",
 	"work",
 	"views",
 	"web",
@@ -143,8 +144,7 @@ interface Apps {
 }`.trim(),
 	resources: `
 /**
- * Connected sources (files, folders, calendars, external objects) of this workspace. Read-only:
- * you can see what is connected, but you cannot read from or write to a connected source yet.
+ * The linked sources of this workspace and their connection status.
  */
 interface ConnectedSource {
   id: string; name: string; kind: string; status: string;
@@ -170,6 +170,15 @@ interface Resources {
    * requested: false means no card was shown; message says why.
    */
   requestConnection(input: { resourceId: string; reason?: string }): Promise<{ requested: boolean; message: string }>;
+}`.trim(),
+	accounts: `
+/** Read linked accounts in a turn a person started. */
+interface Accounts {
+  list(): Promise<Array<{ resourceId: string; name: string; service: string }>>;
+  /** Load the reviewed read tools for a source. Set its providerResourceId at each tool's resourcePaths. A "*" path segment means each array entry. */
+  describe(resourceId: string): Promise<{ providerResourceId: string; tools: Array<{ name: string; inputSchema: unknown; resourcePaths: string[][] }> }>;
+  /** Read with the exact tool name and JSON arguments. A held read resumes after approval. */
+  read(resourceId: string, toolName: string, args: Record<string, unknown>): Promise<unknown>;
 }`.trim(),
 	work: `
 /** Work items of the projects this workspace is linked to. */
@@ -208,7 +217,7 @@ export function renderEnvDeclarations(): string {
 	return [
 		SHARED_TYPES,
 		...BINDING_NAMES.map((name) => BINDING_DECLARATIONS[name]),
-		`interface Env { documents: Documents; sheets: Sheets; presentations: Presentations; outputs: Outputs; apps: Apps; resources: Resources; work: Work; views: Views; web: Web; memory: Memory; }`,
+		`interface Env { documents: Documents; sheets: Sheets; presentations: Presentations; outputs: Outputs; apps: Apps; resources: Resources; accounts: Accounts; work: Work; views: Views; web: Web; memory: Memory; }`,
 	].join("\n\n");
 }
 
