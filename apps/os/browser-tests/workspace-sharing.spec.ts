@@ -391,19 +391,16 @@ try {
 			recipientAccounts,
 		);
 		const create = page.getByRole("button", { name: "Create link" });
-		if (recipientAccounts.length) {
-			await page
-				.getByText("People opening this link can't use the app", {
-					exact: false,
-				})
-				.waitFor();
-			assert.equal(await create.count(), 0);
-		} else {
-			await accounts
-				.getByText("People don't need to connect any accounts of their own.")
-				.waitFor();
-			assert(await create.isEnabled());
-		}
+		await accounts
+			.getByText(
+				recipientAccounts.length
+					? "need to connect their own"
+					: "People don't need to connect any accounts of their own.",
+				{ exact: false },
+			)
+			.waitFor();
+		// A colleague can connect their own account, so sharing stays possible.
+		assert(await create.isEnabled());
 		await page.close();
 		cases++;
 	}
