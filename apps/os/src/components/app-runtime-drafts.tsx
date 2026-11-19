@@ -163,7 +163,14 @@ function AppDraftCard({
 	onMerged: (revision: number, revisionId: string) => void;
 }) {
 	const queryClient = useQueryClient();
-	const { proposal, content } = draft;
+	const { content } = draft;
+	// Keep the approval receipt while the proposals query catches up.
+	const [approval, setApproval] = useState<typeof draft.proposal>();
+	const proposal =
+		draft.proposal.status === "open" &&
+		approval?.sequence === draft.proposal.sequence
+			? approval
+			: draft.proposal;
 	const [reason, setReason] = useState("");
 	const [editing, setEditing] = useState(false);
 	const changes = useMemo(
@@ -225,6 +232,7 @@ function AppDraftCard({
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.gadgets() }),
 		]);
 	const accept = useMutation({
+		retry: false,
 		mutationFn: async () => {
 			if (mergeBlockedReason) throw new Error(mergeBlockedReason);
 			const rationale =
@@ -238,17 +246,36 @@ function AppDraftCard({
 					evidenceRefs: [],
 				});
 				sequence = accepted.proposal.sequence;
+				setApproval(accepted.proposal);
 			}
-			return osApi.osWorkspaces.collaboration.merge({
+			const input = {
 				proposalId: proposal.id,
 				expectedSequence: sequence,
 				rationale,
 				evidenceRefs: [],
-			});
+			};
+			const delays = [250, 500];
+			for (const delay of delays) {
+				try {
+					return await osApi.osWorkspaces.collaboration.merge(input);
+				} catch (error) {
+					const failure = error as { code?: string; message?: string } | null;
+					const transient =
+						failure?.code === "SERVICE_UNAVAILABLE" ||
+						(!failure?.code &&
+							failure?.message?.includes("Database temporarily unavailable"));
+					if (!transient) throw error;
+					await new Promise((resolve) => setTimeout(resolve, delay));
+				}
+			}
+			return osApi.osWorkspaces.collaboration.merge(input);
 		},
 		onSuccess: async ({ revision: next }) => {
 			await settle();
 			onMerged(next.revision, next.id);
+		},
+		onError: () => {
+			void settle();
 		},
 	});
 	const reject = useMutation({
@@ -263,6 +290,8 @@ function AppDraftCard({
 	});
 	const busy = accept.isPending || reject.isPending || editing;
 	const error = accept.error ?? reject.error ?? rebase.error;
+	const approved = proposal.status === "accepted";
+	const applyFailed = approved && accept.isError;
 	const title = `Draft ${number}`;
 
 	return (
@@ -419,14 +448,16 @@ function AppDraftCard({
 				</Button>
 				<Button
 					size="sm"
-					disabled={
-						busy ||
-						!!mergeBlockedReason ||
-						(baseMoved && proposal.status === "accepted")
-					}
+					disabled={busy || !!mergeBlockedReason || (baseMoved && approved)}
 					onClick={() => accept.mutate()}
 				>
-					{accept.isPending ? "Accepting…" : "Accept"}
+					{approved
+						? accept.isPending
+							? "Applying…"
+							: "Apply now"
+						: accept.isPending
+							? "Accepting…"
+							: "Accept"}
 				</Button>
 				<Button
 					size="sm"
@@ -439,7 +470,11 @@ function AppDraftCard({
 			</div>
 			{error && (
 				<Alert variant="destructive">
-					<AlertTitle>Could not complete your decision</AlertTitle>
+					<AlertTitle>
+						{applyFailed
+							? "This draft is approved but hasn't been applied yet"
+							: "Could not complete your decision"}
+					</AlertTitle>
 					<AlertDescription>{(error as Error).message}</AlertDescription>
 				</Alert>
 			)}

@@ -1,3 +1,5 @@
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type {
@@ -5,7 +7,18 @@ import type {
 	OsGadget,
 	OsGadgetRevision,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+
+const collaboration = vi.hoisted(() => ({
+	accept: vi.fn(),
+	list: vi.fn(),
+	merge: vi.fn(),
+}));
+
+vi.mock("@/lib/api", () => ({
+	osApi: { osWorkspaces: { collaboration, gadgets: { getCode: vi.fn() } } },
+	osAppRuntimeCall: vi.fn(),
+}));
 
 vi.mock("@/components/app-runtime-panel", () => ({
 	AppRuntimeSandbox: () => null,
@@ -111,4 +124,127 @@ describe("app draft stale status", () => {
 			client.clear();
 		},
 	);
+});
+
+describe("app draft approval and application", () => {
+	let cleanup: (() => void) | undefined;
+	const serviceUnavailable = Object.assign(
+		new Error("Database temporarily unavailable; retry shortly"),
+		{ code: "SERVICE_UNAVAILABLE" },
+	);
+	const next = { revision: { ...revision, revision: 2 } };
+
+	afterEach(() => {
+		cleanup?.();
+		cleanup = undefined;
+		vi.resetAllMocks();
+		vi.useRealTimers();
+		vi.unstubAllGlobals();
+	});
+
+	function mount() {
+		vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+		vi.useFakeTimers();
+		const client = new QueryClient({
+			defaultOptions: { queries: { enabled: false } },
+		});
+		const view = document.createElement("div");
+		const root = createRoot(view);
+		const onMerged = vi.fn();
+		collaboration.accept.mockResolvedValue({
+			proposal: { ...proposal, status: "accepted" },
+		});
+		act(() =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<AppRuntimeDrafts
+						workspaceId={gadget.workspaceId}
+						gadget={gadget}
+						revision={{ ...revision, id: "base", revision: 1 }}
+						drafts={[{ proposal, content }]}
+						onMerged={onMerged}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		cleanup = () => {
+			act(() => root.unmount());
+			client.clear();
+		};
+		const click = async (label: string) => {
+			const button = [...view.querySelectorAll("button")].find(
+				(node) => node.textContent === label,
+			);
+			expect(button?.disabled).toBe(false);
+			await act(async () => button?.click());
+		};
+		return { view, onMerged, click };
+	}
+
+	async function advance(ms: number) {
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(ms);
+		});
+	}
+
+	it("applies with one click after a transient merge failure", async () => {
+		const { click, onMerged } = mount();
+		collaboration.merge
+			.mockRejectedValueOnce(serviceUnavailable)
+			.mockResolvedValueOnce(next);
+
+		await click("Accept");
+		expect(collaboration.merge).toHaveBeenCalledTimes(1);
+		await advance(250);
+
+		expect(collaboration.accept).toHaveBeenCalledTimes(1);
+		expect(collaboration.merge).toHaveBeenCalledTimes(2);
+		expect(collaboration.merge.mock.calls[0]?.[0]).toMatchObject({
+			expectedSequence: proposal.sequence,
+		});
+		expect(collaboration.merge.mock.calls[1]).toEqual(
+			collaboration.merge.mock.calls[0],
+		);
+		expect(onMerged).toHaveBeenCalledWith(
+			next.revision.revision,
+			next.revision.id,
+		);
+	});
+
+	it("offers Apply now after the retries are exhausted without approving again", async () => {
+		const { click, onMerged, view } = mount();
+		collaboration.merge.mockRejectedValue(serviceUnavailable);
+
+		await click("Accept");
+		await advance(751);
+
+		expect(collaboration.merge).toHaveBeenCalledTimes(3);
+		expect(view.querySelector('[role="alert"]')?.textContent).toContain(
+			"This draft is approved but hasn't been applied yet",
+		);
+		collaboration.merge.mockResolvedValueOnce(next);
+		await click("Apply now");
+
+		expect(collaboration.accept).toHaveBeenCalledTimes(1);
+		expect(collaboration.merge).toHaveBeenCalledTimes(4);
+		expect(onMerged).toHaveBeenCalledWith(
+			next.revision.revision,
+			next.revision.id,
+		);
+	});
+
+	it("surfaces a stale-base conflict without retrying the merge", async () => {
+		const { click, view } = mount();
+		collaboration.merge.mockRejectedValue(
+			Object.assign(new Error("The app version changed"), { code: "CONFLICT" }),
+		);
+
+		await click("Accept");
+		await advance(751);
+
+		expect(collaboration.merge).toHaveBeenCalledTimes(1);
+		expect(view.querySelector('[role="alert"]')?.textContent).toContain(
+			"The app version changed",
+		);
+	});
 });
