@@ -29,6 +29,23 @@ export const TEDI_CORE_MEMORY_LIMIT = 6000;
 /** How many versions of the core memory are kept for history and restore. */
 export const TEDI_CORE_MEMORY_VERSIONS_KEPT = 100;
 
+/** A tedi keeps at most this many notes, each at most this long. */
+export const TEDI_MEMORY_NOTE_COUNT_LIMIT = 20;
+export const TEDI_MEMORY_NOTE_LIMIT = 8000;
+export const TEDI_MEMORY_NOTE_DESCRIPTION_LIMIT = 120;
+export const TEDI_MEMORY_NOTE_VERSIONS_KEPT = 10;
+
+/** A short lowercase name such as `deploy-steps`. */
+export const TediMemoryNoteNameSchema = z
+	.string()
+	.trim()
+	.regex(/^[a-z0-9][a-z0-9-]{0,47}$/);
+
+const TediMemoryNoteSummarySchema = z.object({
+	name: z.string(),
+	description: z.string(),
+});
+
 export const TediMemoryAuthorSchema = z.object({
 	type: z.enum(["tedi", "reflection", "user"]),
 	id: z.string(),
@@ -48,6 +65,8 @@ export const TediCoreMemorySchema = z.object({
 	usedChars: z.number().int().min(0),
 	limitChars: z.number().int(),
 	updatedAt: z.string().nullable(),
+	/** The tedi's notes by name, without their text. Present on a read. */
+	notes: z.array(TediMemoryNoteSummarySchema).optional(),
 });
 export type TediCoreMemory = z.infer<typeof TediCoreMemorySchema>;
 
@@ -97,3 +116,34 @@ export const RestoreTediCoreMemoryVersionInputSchema = z.object({
 	tediId: TediIdSchema,
 	version: z.number().int().min(1),
 });
+
+export const ReadTediMemoryNoteInputSchema = z.object({
+	tediId: TediIdSchema,
+	name: TediMemoryNoteNameSchema,
+});
+
+export const TediMemoryNoteSchema = z.object({
+	name: z.string(),
+	description: z.string(),
+	content: z.string(),
+	version: z.number().int(),
+	updatedAt: z.string(),
+});
+export type TediMemoryNote = z.infer<typeof TediMemoryNoteSchema>;
+
+export const WriteTediMemoryNoteInputSchema = z.object({
+	tediId: TediIdSchema,
+	name: TediMemoryNoteNameSchema,
+	description: z.string().trim().max(TEDI_MEMORY_NOTE_DESCRIPTION_LIMIT),
+	/** The note's whole new text. Empty removes the note. */
+	content: z.string().max(TEDI_MEMORY_NOTE_LIMIT),
+	origin: z.enum(["conversation", "reflection"]).optional(),
+});
+
+export const WriteTediMemoryNoteOutputSchema = z.object({
+	status: z.enum(["saved", "removed", "refused"]),
+	reason: z.string().optional(),
+});
+export type WriteTediMemoryNoteOutput = z.infer<
+	typeof WriteTediMemoryNoteOutputSchema
+>;

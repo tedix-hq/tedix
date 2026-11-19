@@ -7,6 +7,10 @@ import {
 	ListTediCoreMemoryVersionsInputSchema,
 	ListTediCoreMemoryVersionsOutputSchema,
 	ReadTediCoreMemoryInputSchema,
+	ReadTediMemoryNoteInputSchema,
+	TediMemoryNoteSchema,
+	WriteTediMemoryNoteInputSchema,
+	WriteTediMemoryNoteOutputSchema,
 	RestoreTediCoreMemoryVersionInputSchema,
 	TediCoreMemorySchema,
 } from "../schemas/tedi-memory";
@@ -33,6 +37,23 @@ export const tediMemoryContract = oc
 			})
 			.input(EditTediCoreMemoryInputSchema)
 			.output(EditTediCoreMemoryOutputSchema),
+		readNote: oc
+			.route({
+				method: "GET",
+				path: "/notes/read",
+				summary: "Read one of a tedi's notes by name",
+			})
+			.input(ReadTediMemoryNoteInputSchema)
+			.output(TediMemoryNoteSchema),
+		writeNote: oc
+			.route({
+				method: "POST",
+				path: "/notes/write",
+				summary:
+					"Write a tedi's note under a name, replacing its text; empty text removes the note. Refused with the reason when it is too long, there are too many notes, or it holds a secret or pasted output",
+			})
+			.input(WriteTediMemoryNoteInputSchema)
+			.output(WriteTediMemoryNoteOutputSchema),
 		listCoreVersions: oc
 			.route({
 				method: "GET",
