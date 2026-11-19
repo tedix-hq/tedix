@@ -40,6 +40,14 @@ export class PublicRestorePermits {
 		},
 	) {}
 
+	private async deleteReservation(
+		db: DbQueryClient,
+		reservation: Reservation,
+	): Promise<void> {
+		if (!(await this.queries.leave(db, reservation.permit)))
+			throw new Error("CMS restore reservation release failed");
+	}
+
 	forRequest(waitUntil: (task: Promise<unknown>) => void) {
 		let borrowed: Reservation | undefined;
 		const release = async (db: DbQueryClient): Promise<boolean> => {
@@ -47,8 +55,11 @@ export class PublicRestorePermits {
 			const reservation = borrowed;
 			borrowed = undefined;
 			reservation.borrowers--;
-			if (reservation.borrowers !== 0 || !reservation.retired) return true;
-			return this.queries.leave(db, reservation.permit);
+			// The final borrower is done. A pending delete still holds the
+			// durable fence, but its result cannot change the completed response.
+			if (reservation.borrowers === 0 && reservation.retired)
+				waitUntil(this.deleteReservation(db, reservation));
+			return true;
 		};
 		return {
 			enter: async (db: DbQueryClient, permit: CmsRestorePermitParams) => {
@@ -58,12 +69,15 @@ export class PublicRestorePermits {
 					permit.restoreEpoch,
 					permit.kind,
 				]);
-				const reservation = this.reservations.get(key);
-				if (reservation && this.clock.now() < reservation.expiresAt) {
+				const borrow = (): boolean => {
+					const reservation = this.reservations.get(key);
+					if (!reservation || this.clock.now() >= reservation.expiresAt)
+						return false;
 					borrowed = reservation;
 					reservation.borrowers++;
 					return true;
-				}
+				};
+				if (borrow()) return true;
 				// Do not share another request's pending D1 I/O. Concurrent cold
 				// requests can each reserve a row, then share the last completed one.
 				// A pooled outer claim must not be reclaimed as an abandoned response;
@@ -72,7 +86,17 @@ export class PublicRestorePermits {
 					permit.kind === "outer"
 						? { ...permit, kind: "nested" as const }
 						: permit;
-				if (!(await this.queries.enter(db, durablePermit))) return false;
+				try {
+					if (!(await this.queries.enter(db, durablePermit))) return false;
+				} catch (error) {
+					// Another request may have confirmed admission in the meantime.
+					if (borrow()) {
+						// This INSERT may also have committed before the error.
+						waitUntil(this.queries.leave(db, durablePermit));
+						return true;
+					}
+					throw error;
+				}
 				borrowed = {
 					permit: durablePermit,
 					expiresAt: this.clock.now() + REUSE_MS,
@@ -80,7 +104,10 @@ export class PublicRestorePermits {
 					retired: false,
 				};
 				const created = borrowed;
-				if (this.reservations.size < MAX_RESERVATIONS || reservation)
+				if (
+					this.reservations.size < MAX_RESERVATIONS ||
+					this.reservations.has(key)
+				)
 					this.reservations.set(key, created);
 				else created.retired = true;
 				if (!created.retired)
@@ -89,13 +116,8 @@ export class PublicRestorePermits {
 							created.retired = true;
 							if (this.reservations.get(key) === created)
 								this.reservations.delete(key);
-							if (
-								created.borrowers === 0 &&
-								!(await this.queries.leave(db, created.permit))
-							)
-								throw new Error(
-									"CMS public restore reservation release failed",
-								);
+							if (created.borrowers === 0)
+								await this.deleteReservation(db, created);
 						}, REUSE_MS),
 					);
 				return true;

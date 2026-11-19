@@ -39,7 +39,6 @@ import {
 	CmsRestoreFenceUnavailableError,
 	cmsRestoreFenceResponse,
 	cmsTemporarilyUnavailableResponse,
-	isTransientUnavailable,
 	type CmsRestoreFenceIdentity,
 	withCmsRestoreResponsePermit,
 	withSharedCmsRestorePermit,
@@ -1797,7 +1796,7 @@ async function fetchCmsSite(
 		} catch (loaderErr) {
 			if (loaderErr instanceof CmsRestoreFenceUnavailableError) {
 				// The site's permit coordinator failed for a moment; a closed fence
-				// is refused before this point. The public handler retries reads.
+				// is refused before this point. The visitor can retry.
 				console.error(`[cms-runtime] restore permit unavailable for ${slug}`);
 				return cmsTemporarilyUnavailableResponse();
 			}
@@ -1954,8 +1953,7 @@ async function fetchCmsSite(
 	}
 }
 
-/** Pauses before each retry of a bodyless public read. A platform database or
- * permit hiccup can last a few seconds; together these ride out about 2.5 s. */
+/** Pauses between failed routing and admission checks for GET and HEAD. */
 const PUBLIC_SERVE_RETRY_DELAYS_MS = [250, 750, 1500];
 const PUBLIC_SERVE_ATTEMPTS = PUBLIC_SERVE_RETRY_DELAYS_MS.length + 1;
 
@@ -2010,8 +2008,8 @@ export default {
 		if (!env.MARKETING_SITE_SLUG && isMarketingHost(url.hostname, env))
 			return cmsRestoreFenceResponse();
 
-		// Site lookups and admission read D1. A single failed read used to turn
-		// into a 503 for visitors; GET and HEAD carry no body, so replay them.
+		// D1 routing and admission can be retried until the request is dispatched.
+		let dispatched = false;
 		const serve = async (): Promise<Response> => {
 			const db = createDbQueryClient(env.PLATFORM_DB);
 			const isPublicAlias =
@@ -2030,7 +2028,10 @@ export default {
 					? { slug: marketingSlug, customDomain: false }
 					: await resolveSlug(env, url.hostname);
 			const slug = alias?.slug ?? marketingSlug ?? resolved?.slug;
-			if (!slug) return fetchCmsSite(request, env, ctx, resolved, alias);
+			if (!slug) {
+				dispatched = true;
+				return fetchCmsSite(request, env, ctx, resolved, alias);
+			}
 			// Both reads stay fresh. Overlap platform metadata I/O before admission;
 			// tenant content and cache bodies still require the restore permit.
 			const [site, bundle] = await Promise.all([
@@ -2072,6 +2073,7 @@ export default {
 				db,
 				identity,
 				async () => {
+					dispatched = true;
 					if (
 						request.method !== "POST" ||
 						!isMarketingContactPath(url.pathname)
@@ -2089,31 +2091,16 @@ export default {
 				undefined,
 				restoreQueries?.(),
 				restoreQueries,
-				request,
 			);
 			return permitted.admitted ? permitted.value : cmsRestoreFenceResponse();
 		};
 		const replayable = request.method === "GET" || request.method === "HEAD";
 		for (let attempt = 1; ; attempt++) {
 			try {
-				const response = await serve();
-				if (
-					replayable &&
-					attempt < PUBLIC_SERVE_ATTEMPTS &&
-					isTransientUnavailable(response)
-				) {
-					console.warn("[cms-runtime] public request unavailable; retrying", {
-						attempt,
-					});
-					await new Promise((resolve) =>
-						setTimeout(resolve, PUBLIC_SERVE_RETRY_DELAYS_MS[attempt - 1]),
-					);
-					continue;
-				}
-				return response;
+				return await serve();
 			} catch (error) {
 				const detail = describePublicServeError(error);
-				if (replayable && attempt < PUBLIC_SERVE_ATTEMPTS) {
+				if (replayable && !dispatched && attempt < PUBLIC_SERVE_ATTEMPTS) {
 					console.warn("[cms-runtime] public request failed; retrying", {
 						attempt,
 						detail,

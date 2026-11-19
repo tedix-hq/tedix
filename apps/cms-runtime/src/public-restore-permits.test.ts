@@ -194,6 +194,31 @@ describe("public restore reservations", () => {
 		expect(queries.leave).toHaveBeenCalledTimes(2);
 	});
 
+	it("uses a concurrently confirmed reservation after a failed admission", async () => {
+		const { queries, forRequest, tasks } = fixture();
+		const admission = Promise.withResolvers<boolean>();
+		queries.enter.mockReturnValueOnce(admission.promise);
+		const first = forRequest();
+		const second = forRequest();
+		const pending = first.enter(db, permit);
+		const secondPermit = { ...permit, permitId: "confirmed" };
+		expect(await second.enter(db, secondPermit)).toBe(true);
+		admission.reject(new Error("D1 unavailable"));
+		expect(await pending).toBe(true);
+		await second.leave(db, secondPermit);
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(queries.leave).toHaveBeenCalledExactlyOnceWith(db, {
+			...permit,
+			kind: "nested",
+		});
+		await first.leave(db, permit);
+		await Promise.all(tasks);
+		expect(queries.leave).toHaveBeenLastCalledWith(db, {
+			...secondPermit,
+			kind: "nested",
+		});
+	});
+
 	it("admits 100 nested borrowers with one INSERT, no re-check and one DELETE", async () => {
 		const { queries, forRequest, tasks } = fixture();
 		const nested = { ...permit, kind: "nested" as const };
@@ -256,6 +281,44 @@ describe("public restore reservations", () => {
 		await vi.advanceTimersByTimeAsync(10_000);
 		await Promise.all(tasks);
 		expect(queries.leave).toHaveBeenCalledOnce();
+	});
+
+	it("returns a buffered page before an expired reservation's delete fails", async () => {
+		const { queries, forRequest, tasks } = fixture();
+		const render = Promise.withResolvers<Response>();
+		const started = Promise.withResolvers<void>();
+		const deletion = Promise.withResolvers<boolean>();
+		queries.leave.mockReturnValueOnce(deletion.promise);
+		const pending = withCmsRestoreResponsePermit(
+			db,
+			identity,
+			() => {
+				started.resolve();
+				return render.promise;
+			},
+			queries,
+			forRequest(),
+		);
+
+		await started.promise;
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(queries.leave).not.toHaveBeenCalled();
+		queries.enter.mockResolvedValueOnce(false);
+		expect(await forRequest().enter(db, permit)).toBe(false);
+
+		render.resolve(
+			new Response("page", { headers: { "Content-Type": "text/html" } }),
+		);
+		const result = await pending;
+		if (!result.admitted) throw new Error("expected admission");
+		expect(await result.value.text()).toBe("page");
+		expect(queries.leave).toHaveBeenCalledExactlyOnceWith(db, {
+			...queries.enter.mock.calls[0]?.[1],
+			kind: "nested",
+		});
+		const cleanup = expect(tasks[1]).rejects.toThrow("D1 unavailable");
+		deletion.reject(new Error("D1 unavailable"));
+		await cleanup;
 	});
 
 	it("does not let expiry clear an active render or admit a new borrower", async () => {
