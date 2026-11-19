@@ -41,6 +41,7 @@ export const PLATFORM_CRON_IDS = [
 	"tedi-mcp-access-health",
 	"daily-billing-and-catalog-maintenance",
 	"cloudflare-billable-usage",
+	"gateway-cost-reconciliation",
 	"retention-cleanup",
 	"output-asset-gc",
 	"memory-reflection-and-enrichment",
@@ -190,6 +191,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	},
 	{
 		id: "cloudflare-billable-usage",
+		cron: "0 2 * * *",
+		intervalMinutes: 1_440,
+		requiresFleet: true,
+	},
+	{
+		id: "gateway-cost-reconciliation",
 		cron: "0 2 * * *",
 		intervalMinutes: 1_440,
 		requiresFleet: true,

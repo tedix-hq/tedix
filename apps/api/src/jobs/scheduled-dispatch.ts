@@ -53,7 +53,8 @@ async function trackPlatformCronPath(
  *   code-like conversation title backfill, plus two
  *   hour-gated paths: platform-health digest (8am UTC) and cost-anomaly check
  *   (9am UTC)
- * - 0 2 * * * (2am UTC) → Legacy billing quarantine + catalog sync log maintenance
+ * - 0 2 * * * (2am UTC) → Legacy billing quarantine + catalog sync log maintenance,
+ *   Cloudflare billable usage, ledger-vs-AI-Gateway cost reconciliation
  * - 0 3 * * * (3am UTC) → Retention cleanup, catalog integrity, Claude registry
  * - 0 4 * * * (4am UTC) → Memory reflection (confidence decay, archive, edge discovery)
  * - 0 6 * * * (6am UTC) → Tool testing and quality scores
@@ -437,6 +438,16 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				await import("./cloudflare-billable-usage");
 			await trackPlatformCronPath(env, event, "cloudflare-billable-usage", () =>
 				runCloudflareBillableUsageTick(env),
+			);
+			// Compares the previous UTC day's ledger with AI Gateway analytics;
+			// the 08:00 health digest alerts on drift.
+			const { runGatewayCostReconciliationTick } =
+				await import("./gateway-cost-reconciliation");
+			await trackPlatformCronPath(
+				env,
+				event,
+				"gateway-cost-reconciliation",
+				() => runGatewayCostReconciliationTick(env, event.scheduledTime),
 			);
 		}
 

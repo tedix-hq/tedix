@@ -23,6 +23,7 @@ import type {
 	getRecentProviderPricingHealth,
 } from "@tedix/db/queries/billing/health";
 import type { DbClient } from "@tedix/db/client";
+import type { BillingGatewayReconciliationRow } from "@tedix/db/schema/billing-gateway-reconciliations";
 import type { listGraphProjectionConsumerHealth } from "@tedix/db/queries/graph-projection";
 import type {
 	NewOpsAlertStateRow,
@@ -160,7 +161,12 @@ export interface HealthDigest {
  */
 export function buildHealthDigest(
 	result: ReconcileResult,
-	opts: { isWeeklyHeartbeat: boolean; nowIso: string },
+	opts: {
+		isWeeklyHeartbeat: boolean;
+		nowIso: string;
+		/** Latest ledger-vs-AI-Gateway reconciliation, appended when a digest goes out. */
+		gatewayReconciliation?: BillingGatewayReconciliationRow[];
+	},
 ): HealthDigest | null {
 	const { newConditions, escalated, resolved, ongoing } = result;
 	const hasChanges =
@@ -233,6 +239,10 @@ export function buildHealthDigest(
 	const header = isPureHeartbeat
 		? "Weekly platform-health heartbeat — no incidents fired in the reporting window. This liveness beat confirms the health digest cron is running."
 		: `Platform-health digest at ${opts.nowIso}.`;
+	const reconciliation = formatGatewayReconciliation(
+		opts.gatewayReconciliation ?? [],
+	);
+	if (reconciliation) sections.push(reconciliation);
 	const body =
 		sections.length > 0 ? `${header}\n\n${sections.join("\n\n")}` : header;
 
@@ -287,6 +297,96 @@ export function billingSettlementHealthConditions(
 			bucketRank:
 				health.quarantined24h >= 100 ? 3 : health.quarantined24h >= 10 ? 2 : 1,
 			detail: `${health.quarantined24h} current billing usage row${health.quarantined24h === 1 ? "" : "s"} quarantined in 24h`,
+		});
+	}
+	return conditions;
+}
+
+function usd(micros: number): string {
+	const sign = micros < 0 ? "-" : "";
+	return `${sign}$${(Math.abs(micros) / 1_000_000).toFixed(2)}`;
+}
+
+/** Provider-day totals of the latest reconciliation, one line each. */
+export function formatGatewayReconciliation(
+	rows: BillingGatewayReconciliationRow[],
+): string | null {
+	const totals = rows.filter((row) => row.model === "");
+	if (totals.length === 0) return null;
+	const day = totals[0]!.day;
+	return `LEDGER VS AI GATEWAY (${day}):\n${totals
+		.map(
+			(row) =>
+				`  • ${row.provider}: ledger ${usd(row.ledgerCostMicros)}, gateway ${usd(row.gatewayCostMicros)}, difference ${usd(row.differenceMicros)} — ${row.status}`,
+		)
+		.join("\n")}`;
+}
+
+export const GATEWAY_RECONCILIATION_CONDITION_PREFIX = "billing-gateway-";
+
+/** Drift buckets by absolute difference: over $5, $50, $500. */
+function driftBucketRank(differenceMicros: number): number {
+	const abs = Math.abs(differenceMicros);
+	return abs >= 500_000_000 ? 3 : abs >= 50_000_000 ? 2 : 1;
+}
+
+/**
+ * Billing health conditions from the latest ledger-vs-Gateway reconciliation.
+ * Drift is judged per provider-day total (`model = ''`); one-sided cost per
+ * model. A reconciliation older than two closed days is itself a condition, so
+ * a stopped job cannot silently resolve an open drift.
+ */
+export function gatewayReconciliationHealthConditions(
+	rows: BillingGatewayReconciliationRow[],
+	nowMs: number,
+): HealthCondition[] {
+	if (rows.length === 0) return [];
+	const day = rows[0]!.day;
+	const ageDays = Math.floor(
+		(nowMs - Date.parse(`${day}T00:00:00.000Z`)) / (24 * 60 * 60 * 1_000),
+	);
+	if (ageDays > 2) {
+		return [
+			{
+				key: `${GATEWAY_RECONCILIATION_CONDITION_PREFIX}reconciliation-stale`,
+				severity: "P2",
+				bucketRank: ageDays > 7 ? 2 : 1,
+				detail: `ledger-vs-AI-Gateway reconciliation stale: latest day ${day}`,
+			},
+		];
+	}
+	const conditions: HealthCondition[] = [];
+	for (const row of rows) {
+		if (row.model !== "" || row.status !== "drift") continue;
+		conditions.push({
+			key: `${GATEWAY_RECONCILIATION_CONDITION_PREFIX}drift:${row.provider}`,
+			severity: "P2",
+			bucketRank: driftBucketRank(row.differenceMicros),
+			detail: `${row.provider} cost drift on ${day}: ledger ${usd(row.ledgerCostMicros)} vs AI Gateway ${usd(row.gatewayCostMicros)} (difference ${usd(row.differenceMicros)})`,
+		});
+	}
+	const oneSided = rows.filter(
+		(row) =>
+			row.model !== "" &&
+			(row.status === "ledger_only" || row.status === "gateway_only"),
+	);
+	if (oneSided.length > 0) {
+		const totalMicros = oneSided.reduce(
+			(sum, row) => sum + Math.abs(row.differenceMicros),
+			0,
+		);
+		const listed = oneSided
+			.slice(0, 5)
+			.map(
+				(row) =>
+					`${row.provider}/${row.model} ${row.status === "ledger_only" ? "ledger" : "gateway"} ${usd(Math.abs(row.differenceMicros))}`,
+			)
+			.join(", ");
+		conditions.push({
+			key: `${GATEWAY_RECONCILIATION_CONDITION_PREFIX}one-sided`,
+			severity: "P2",
+			bucketRank: driftBucketRank(totalMicros),
+			detail: `${oneSided.length} model${oneSided.length === 1 ? "" : "s"} with cost on one side only on ${day}: ${listed}${oneSided.length > 5 ? ", …" : ""}`,
 		});
 	}
 	return conditions;
@@ -809,6 +909,24 @@ export async function runPlatformHealthDigest(
 			},
 		);
 	}
+	let gatewayReconciliation: BillingGatewayReconciliationRow[] = [];
+	let gatewayReconciliationQuerySucceeded = false;
+	try {
+		const { getLatestGatewayReconciliation } =
+			await import("@tedix/db/queries/billing/gateway-reconciliation");
+		gatewayReconciliation = await getLatestGatewayReconciliation(db);
+		conditions.push(
+			...gatewayReconciliationHealthConditions(gatewayReconciliation, nowMs),
+		);
+		gatewayReconciliationQuerySucceeded = true;
+	} catch (error) {
+		console.error("[health-digest] gateway reconciliation query failed", {
+			exception: safeExceptionTopology(error),
+		});
+	}
+	// On a failed read, open reconciliation alerts stay open instead of resolving.
+	const gatewayReconciliationKey = (key: string) =>
+		key.startsWith(GATEWAY_RECONCILIATION_CONDITION_PREFIX);
 	const attributionKey = (key: string) =>
 		ATTRIBUTION_CONDITION_KEYS.some((candidate) => candidate === key);
 	const ownedStates = filterHealthDigestOwnedAlertStates(
@@ -828,7 +946,9 @@ export async function runPlatformHealthDigest(
 			(state) =>
 				(pricingQuerySucceeded ||
 					state.conditionKey !== PRICING_CONDITION_KEY) &&
-				(attributionQuerySucceeded || !attributionKey(state.conditionKey)),
+				(attributionQuerySucceeded || !attributionKey(state.conditionKey)) &&
+				(gatewayReconciliationQuerySucceeded ||
+					!gatewayReconciliationKey(state.conditionKey)),
 		),
 		nowIso,
 	);
@@ -878,7 +998,11 @@ export async function runPlatformHealthDigest(
 		}
 	}
 
-	const digest = buildHealthDigest(result, { isWeeklyHeartbeat, nowIso });
+	const digest = buildHealthDigest(result, {
+		isWeeklyHeartbeat,
+		nowIso,
+		gatewayReconciliation,
+	});
 	let emailed = false;
 	// Deliver via the shared multi-channel egress. Each channel self-gates, so
 	// the webhook backstop fires even when HEALTH_ALERT_EMAIL is empty — the
