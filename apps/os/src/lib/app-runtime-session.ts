@@ -22,9 +22,10 @@ interface RuntimeApi {
 export function createAppRuntimeServerCall(
 	api: RuntimeApi,
 	scope: Scope & { revisionId: string },
+	initialSession?: Session,
 ) {
 	let opening: Promise<Session> | undefined;
-	let session: Session | undefined;
+	let session = initialSession;
 	const ensure = async () => {
 		if (!session || session.expiresAt * 1000 <= Date.now() + 5000) {
 			opening ??= api.open({
