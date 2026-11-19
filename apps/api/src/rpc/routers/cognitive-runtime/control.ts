@@ -1,4 +1,5 @@
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
+import { actingMemberSubject } from "../../../services/acting-member";
 import { admitPersonalRequest } from "../../../services/personal-request-authority";
 import { requireUnrestrictedModelEgress } from "../../../services/unrouted-model-egress";
 import { createVoiceBilling } from "../../../services/voice-billing";
@@ -289,6 +290,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					...(personalRequest === true ? { personalRequest: true } : {}),
 				},
 				async: true,
+				actingUserId: actingMemberSubject(context),
 			}).then((injected) => ({
 				success: injected.success,
 				error: injected.error,

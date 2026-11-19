@@ -150,6 +150,47 @@ export class WorkspaceConnectionsEntrypoint extends WorkerEntrypoint<CloudflareE
 			await import("./services/workspace-connection-read");
 		return readLinkedWorkspaceAccount(this.env, input);
 	}
+
+	/**
+	 * Reserve credits for one workspace chat model call, on the same path the
+	 * kernel and the tedi runtime use. Only the workspace object binds this
+	 * entrypoint.
+	 */
+	async authorizeWorkspaceInference(
+		input: import("@tedix/api-contract/schemas/runtime-entitlements").AuthorizeWorkspaceInferenceInput,
+	): Promise<
+		import("@tedix/api-contract/schemas/runtime-entitlements").AuthorizeRuntimeInferenceResponse
+	> {
+		const [{ AuthorizeWorkspaceInferenceInputSchema }, { createDbClient }] =
+			await Promise.all([
+				import("@tedix/api-contract/schemas/runtime-entitlements"),
+				import("@tedix/db/client"),
+			]);
+		const { authorizeWorkspaceInference } =
+			await import("./services/workspace-inference-admission");
+		return authorizeWorkspaceInference({
+			db: createDbClient(this.env.DB),
+			env: this.env,
+			request: AuthorizeWorkspaceInferenceInputSchema.parse(input),
+		});
+	}
+
+	/** Return the hold of a workspace chat call that never used it. */
+	async releaseInferenceReservation(
+		input: import("@tedix/api-contract/schemas/runtime-entitlements").ReleaseInferenceReservationInput,
+	): Promise<{ released: boolean }> {
+		const [{ ReleaseInferenceReservationInputSchema }, { createDbClient }] =
+			await Promise.all([
+				import("@tedix/api-contract/schemas/runtime-entitlements"),
+				import("@tedix/db/client"),
+			]);
+		const { releaseInferenceReservation } =
+			await import("./services/workspace-inference-admission");
+		return releaseInferenceReservation({
+			db: createDbClient(this.env.DB),
+			request: ReleaseInferenceReservationInputSchema.parse(input),
+		});
+	}
 }
 
 /** Only the MCP Worker is configured to bind this service capability. */

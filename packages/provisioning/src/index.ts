@@ -268,6 +268,11 @@ export async function injectAgentMessage(
 		 * + mesh inject that needs the assistant reply inline.
 		 */
 		async?: boolean;
+		/**
+		 * Sign-in subject of the member whose request this turn serves. Omit
+		 * for scheduled or autonomous work, which no member started.
+		 */
+		actingUserId?: string;
 	},
 ): Promise<{
 	success: boolean;
@@ -293,7 +298,13 @@ export async function injectAgentMessage(
 		// The runtime fails closed on a missing caller-trust tier; the kernel
 		// injects for the organization, so the turn's steering fields
 		// (`learning_mode`, `metadata`) are honoured.
-		headers: { [CALLER_TRUST_HEADER]: "member" },
+		headers: {
+			[CALLER_TRUST_HEADER]: "member",
+			// The tedi applies this member's credit cap to the turn's model calls.
+			...(options.actingUserId
+				? { "X-Tedix-Acting-User": options.actingUserId }
+				: {}),
+		},
 		body: JSON.stringify({
 			text: options.message,
 			...(options.learningMode ? { learning_mode: options.learningMode } : {}),

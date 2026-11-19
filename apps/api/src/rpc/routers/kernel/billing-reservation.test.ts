@@ -105,6 +105,32 @@ describe("reserveKernelBilling", () => {
 		expect(result.organizationId).toBe("org-1");
 	});
 
+	it.each([
+		["the member who sent the Home turn", "user-1", "user-1"],
+		["no member for autonomous work", undefined, null],
+	] as const)("admits against %s", async (_label, userId, expected) => {
+		authorizeRuntimeInference.mockResolvedValue({
+			allowed: false,
+			code: "member_monthly_credit_cap_reached",
+		});
+		const error = await reserveKernelBilling(
+			env,
+			input({
+				context: {
+					organizationId: "org-1",
+					runId: "run-1",
+					...(userId ? { userId } : {}),
+				},
+			}),
+		).catch((e: unknown) => e);
+		expect((error as Error).message).toContain(
+			`${CANONICAL_DENIAL_PREFIX}member_monthly_credit_cap_reached`,
+		);
+		expect(authorizeRuntimeInference.mock.calls[0][0].request.userId).toBe(
+			expected,
+		);
+	});
+
 	it("fails closed without organization attribution (non-policy shape)", async () => {
 		await expect(
 			reserveKernelBilling(env, input({ context: undefined })),

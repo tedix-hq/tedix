@@ -176,7 +176,10 @@ export async function authorizeRuntimeBudget(input: {
 		const snapshot = await getCreditPoolSnapshot(input.db, {
 			organizationId: input.request.organizationId,
 			now,
-			subject: { tediId: input.request.tediId },
+			subject: {
+				tediId: input.request.tediId,
+				userId: input.request.userId,
+			},
 		});
 		const credits = await estimateAiCredits(input.db, {
 			creditFx: snapshot?.creditFx ?? null,
@@ -209,6 +212,7 @@ export async function authorizeRuntimeBudget(input: {
 		preflight: reservationPreflight,
 		organizationId: input.request.organizationId,
 		tediId: input.request.tediId,
+		userId: input.request.userId,
 		source: input.request.source,
 		provider: input.request.provider,
 		model: input.request.model,

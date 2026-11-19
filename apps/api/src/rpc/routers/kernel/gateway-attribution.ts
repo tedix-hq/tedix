@@ -90,6 +90,12 @@ export function captureKernelAttemptUsage(
 export interface KernelGatewayContext {
 	tediId?: string;
 	organizationId?: string;
+	/**
+	 * Sign-in subject of the member who started this Home turn. Admission
+	 * applies their member credit cap; never sent to AI Gateway. Absent when no
+	 * person started the work.
+	 */
+	userId?: string;
 	runId?: string;
 	workItemId?: string;
 	sessionKey?: string;
