@@ -13,6 +13,7 @@
  *   - CollectionPage JSON-LD  (index, post index, tag/category pages)
  *   - BreadcrumbList JSON-LD     (post detail pages, based on page.content)
  *   - Native BlogPosting/WebSite graph enrichment (one primary graph)
+ *   - Tedix landing WebPage and SoftwareApplication JSON-LD
  *   - Person JSON-LD             (article pages with a primary byline)
  *   - <meta property="article:section">         (article + primary category)
  *   - <meta property="article:tag">             (article + each tag)
@@ -89,18 +90,18 @@ interface PlatformBranding {
 	social: Record<string, string | undefined>;
 }
 
-// Neutral defaults — this template ships across many customer orgs, so we
-// must not bake Tedix-specific social handles, logo, or description here.
-// Absent per-org settings means "don't emit" rather than substituting
-// platform values into customer Organization JSON-LD / Twitter metas.
-const THEME_DEFAULTS: {
-	social: Record<string, string | undefined>;
-	logo: string | null;
-	tagline: string | undefined;
-} = {
-	social: {},
-	logo: null,
-	tagline: undefined,
+// Shared by the landing and blog graphs on the public Tedix domain.
+const TEDIX_BRAND = {
+	name: "Tedix",
+	url: "https://tedix.dev",
+	logo: "https://tedix.dev/images/tedi-astronaut-waving.png",
+	description:
+		"Share connections, systems and knowledge across a unified infrastructure layer. Build your AI stack once, and every department and subsidiary can use it.",
+	sameAs: [
+		"https://x.com/tedix_ai",
+		"https://www.linkedin.com/company/tedix-ai",
+		"https://github.com/tedix-hq",
+	],
 };
 
 function readPlatformBranding(
@@ -319,6 +320,19 @@ function firstNonEmptyString(
 	);
 }
 
+function structuredDataDate(value: unknown): string | undefined {
+	const date = stringField(value);
+	if (!date) return undefined;
+	// D1's CURRENT_TIMESTAMP produces UTC timestamps without an offset.
+	const timestamp = date.replace(" ", "T");
+	const zoned = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(timestamp)
+		? timestamp
+		: `${timestamp.includes("T") ? timestamp : `${timestamp}T00:00:00`}Z`;
+	const parsed = new Date(zoned);
+	if (!Number.isFinite(parsed.getTime())) return undefined;
+	return date === zoned && date.endsWith("Z") ? date : parsed.toISOString();
+}
+
 function portableBlockText(block: any): string {
 	if (!block || typeof block !== "object") return "";
 	const children = Array.isArray(block.children) ? block.children : [];
@@ -431,19 +445,7 @@ export default {
 			const settings = (await getSiteSettings()) as SettingsShape;
 			const env = cfEnv as unknown as Record<string, string | undefined>;
 			const platform = readPlatformBranding(env);
-			const identityType =
-				(await ctx.settings?.get("identityType")) === "Person"
-					? "Person"
-					: "Organization";
-
 			// Site title + canonical/origin
-			const siteTitle =
-				firstNonEmptyString(
-					settings.title,
-					page.siteName,
-					env.SITE_TITLE,
-					ctx.site?.name,
-				) ?? "Site";
 			const canonicalOverride = firstNonEmptyString(settings.url);
 			// hostname-only origin (used for internal API paths like /_emdash/api/media/*)
 			const origin = (() => {
@@ -458,41 +460,56 @@ export default {
 			// urlPattern, so this plugin does not need deployment-specific route
 			// prefix logic.
 			const siteBase = page.siteUrl?.replace(/\/+$/, "") || origin;
-			const orgUrl =
-				firstNonEmptyString(platform.homepageUrl, canonicalOverride) ??
-				siteBase;
-			const orgId = `${orgUrl.replace(/\/+$/, "")}#${identityType === "Person" ? "person" : "organization"}`;
+			const isTedix = siteBase === TEDIX_BRAND.url;
+			const identityType =
+				!isTedix && (await ctx.settings?.get("identityType")) === "Person"
+					? "Person"
+					: "Organization";
+			const siteTitle = isTedix
+				? TEDIX_BRAND.name
+				: (firstNonEmptyString(
+						settings.title,
+						page.siteName,
+						env.SITE_TITLE,
+						ctx.site?.name,
+					) ?? "Site");
+			const orgUrl = isTedix
+				? TEDIX_BRAND.url
+				: (firstNonEmptyString(platform.homepageUrl, canonicalOverride) ??
+					siteBase);
+			const orgId = isTedix
+				? `${orgUrl}/#organization`
+				: `${orgUrl.replace(/\/+$/, "")}#${identityType === "Person" ? "person" : "organization"}`;
 			const webSiteId = `${siteBase}/#website`;
 			const path: string = page.path ?? "";
 			const canonicalUrl = page.canonical ?? page.url ?? `${siteBase}${path}`;
 
 			// Social handles + Org sameAs
 			const social: Record<string, string | undefined> = {
-				...THEME_DEFAULTS.social,
 				...platform.social,
 				...((settings.social ?? {}) as Record<string, string | undefined>),
 			};
 			const twitterHandle = social.twitter ?? social.x;
-			const sameAs = buildSameAs(social);
+			const sameAs = isTedix ? TEDIX_BRAND.sameAs : buildSameAs(social);
 
 			// Logo + description
-			const logoUrl =
-				typeof settings.logo === "string"
+			const logoUrl = isTedix
+				? TEDIX_BRAND.logo
+				: typeof settings.logo === "string"
 					? settings.logo
-					: ((settings.logo as { url?: string } | undefined)?.url ??
-						platform.logo ??
-						THEME_DEFAULTS.logo);
+					: (settings.logo?.url ?? platform.logo);
 			const resolvedLogoUrl = logoUrl?.startsWith("http")
 				? logoUrl
 				: logoUrl
 					? withPublicBase(logoUrl, origin || siteBase)
 					: null;
-			const orgDescription = firstNonEmptyString(
-				settings.tagline,
-				settings.description,
-				platform.description,
-				THEME_DEFAULTS.tagline,
-			);
+			const orgDescription = isTedix
+				? TEDIX_BRAND.description
+				: firstNonEmptyString(
+						settings.tagline,
+						settings.description,
+						platform.description,
+					);
 
 			const contributions: any[] = [];
 			const pathKey = normalisePathKey(path || "/");
@@ -534,12 +551,29 @@ export default {
 				graph: orgSchema,
 			});
 
-			const website = buildWebSiteJsonLd(page);
+			const website = buildWebSiteJsonLd(
+				isTedix ? { ...page, siteName: siteTitle, siteUrl: siteBase } : page,
+			);
 			if (website)
 				contributions.push({
 					kind: "jsonld",
 					id: page.pageType === "article" ? "tedix-seo-aeo:website" : "primary",
-					graph: { ...website, "@id": webSiteId, publisher: { "@id": orgId } },
+					graph: {
+						...website,
+						"@id": webSiteId,
+						publisher: { "@id": orgId },
+						...(isTedix && {
+							description: TEDIX_BRAND.description,
+							potentialAction: {
+								"@type": "SearchAction",
+								target: {
+									"@type": "EntryPoint",
+									urlTemplate: `${siteBase}/apps?q={search_term_string}`,
+								},
+								"query-input": "required name=search_term_string",
+							},
+						}),
+					},
 				});
 			const fallbackImage =
 				typeof settings.seo?.defaultOgImage === "string"
@@ -549,45 +583,91 @@ export default {
 				page,
 				fallbackImage ? withPublicBase(fallbackImage, origin) : null,
 			);
-			if (nativeArticle)
+			if (nativeArticle) {
+				const published = structuredDataDate(nativeArticle.datePublished);
+				const modified =
+					structuredDataDate(nativeArticle.dateModified) ?? published;
+				delete nativeArticle.datePublished;
+				delete nativeArticle.dateModified;
 				contributions.push({
 					kind: "jsonld",
 					id: "primary",
 					graph: {
 						...nativeArticle,
+						...(published && { datePublished: published }),
+						...(modified && { dateModified: modified }),
 						"@id": `${canonicalUrl}#article`,
 						isPartOf: { "@id": webSiteId },
 						publisher: { "@id": orgId },
 					},
 				});
+			}
 
-			// ── CollectionPage JSON-LD ──────────────────────────────
-			const isCollectionPage =
-				pathKey === "/" ||
+			const isBlogIndex =
 				pathKey === postsIndexPath ||
-				/^\/[a-z]{2}$/.test(pathKey) ||
-				/^(\/[a-z]{2})?\/(?:tag|category)\/[^/]+$/.test(pathKey);
-			if (isCollectionPage) {
-				const pageDescription = page.seo?.ogDescription || page.description;
+				(isTedix && pathKey === `${localePrefix}/blog`);
+			const isTaxonomy = /^(\/[a-z]{2})?\/(?:tag|category)\/[^/]+$/.test(
+				pathKey,
+			);
+			const isCatalogDetail = pathKey.startsWith("/apps/");
+			const isLandingPage =
+				isTedix && page.pageType !== "article" && !isBlogIndex && !isTaxonomy;
+			if (isLandingPage && !isCatalogDetail) {
+				contributions.push({
+					kind: "jsonld",
+					id: "tedix-seo-aeo:software-application",
+					graph: {
+						"@context": "https://schema.org",
+						"@type": "SoftwareApplication",
+						"@id": `${siteBase}/#softwareapplication`,
+						name: siteTitle,
+						url: siteBase,
+						description: TEDIX_BRAND.description,
+						applicationCategory: "BusinessApplication",
+						operatingSystem: "Web",
+						sameAs: "https://github.com/tedix-hq/tedix",
+						publisher: { "@id": orgId },
+						provider: { "@id": orgId },
+					},
+				});
+			}
+
+			// The app directory and its listings emit their own page entities.
+			const isLandingWebPage =
+				isLandingPage && pathKey !== "/apps" && !isCatalogDetail;
+			const isCollectionPage =
+				isBlogIndex ||
+				isTaxonomy ||
+				(!isTedix && (pathKey === "/" || /^\/[a-z]{2}$/.test(pathKey)));
+			if (isCollectionPage || isLandingWebPage) {
+				const pageDescription =
+					page.seo?.ogDescription ||
+					page.description ||
+					(isLandingWebPage ? TEDIX_BRAND.description : undefined);
 				const pageSchema: Record<string, unknown> = {
 					"@context": "https://schema.org",
-					"@type": "CollectionPage",
+					"@type": isLandingWebPage ? "WebPage" : "CollectionPage",
 					"@id": `${canonicalUrl}#webpage`,
 					url: canonicalUrl,
 					name: page.pageTitle ?? page.title ?? siteTitle,
 					isPartOf: { "@id": webSiteId },
-					publisher: { "@id": orgId },
+					[isLandingWebPage ? "about" : "publisher"]: { "@id": orgId },
 				};
 				if (pageDescription) pageSchema.description = pageDescription;
-				if (page.image) {
+				const image = isLandingWebPage
+					? page.seo?.ogImage || page.image || "/images/tedix-preview.jpg"
+					: page.image;
+				if (image) {
 					pageSchema.primaryImageOfPage = {
 						"@type": "ImageObject",
-						url: page.image,
+						url: isLandingWebPage ? withPublicBase(image, siteBase) : image,
 					};
 				}
 				contributions.push({
 					kind: "jsonld",
-					id: "tedix-seo-aeo:collection-page",
+					id: isLandingWebPage
+						? "tedix-seo-aeo:webpage"
+						: "tedix-seo-aeo:collection-page",
 					graph: pageSchema,
 				});
 			}
@@ -765,7 +845,14 @@ export default {
 							: {}),
 					};
 					if (profileUrl) personGraph.url = profileUrl;
-					if (primaryByline.bio) personGraph.description = primaryByline.bio;
+					if (primaryByline.bio) {
+						personGraph.description = isTedix
+							? primaryByline.bio.replace(
+									/\bautonomous AI workers\b/gi,
+									"AI agents",
+								)
+							: primaryByline.bio;
+					}
 					if (jobTitle) personGraph.jobTitle = jobTitle;
 					if (personSameAs.length > 0) personGraph.sameAs = personSameAs;
 					if (email) personGraph.email = email;
