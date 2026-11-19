@@ -180,7 +180,12 @@ import { agentRunTools } from "./agent-run-tools";
 import { machineTools } from "./machine-tools";
 import { AGENT_RUN_SUPERVISION_SESSION_PREFIX } from "@tedix/api-contract/schemas/work-agent-runs";
 import { tediRepositoryReadTools } from "./repository-read-tools";
-import { coreMemoryPromptBlock, tediMemoryTools } from "./tedi-memory-tools";
+import {
+	coreMemoryPromptBlock,
+	isMemoryReflectionSession,
+	memoryReflectionToolSet,
+	tediMemoryTools,
+} from "./tedi-memory-tools";
 import {
 	RuntimeAdmissionDO,
 	readStoredRuntimeAdmission,
@@ -1245,6 +1250,7 @@ export const runtimeFacetTurns = {
 			this.env,
 			this.state.tediId,
 		);
+		const reflectionTurn = isMemoryReflectionSession(input.sessionKey);
 		// A tedi keeps its own memory in its own conversation or when a person
 		// picked it, never as a delegated child working on someone's task.
 		const memoryTools: ToolSet =
@@ -1253,6 +1259,7 @@ export const runtimeFacetTurns = {
 				: tediMemoryTools({
 						tediId: this.state.tediId,
 						getPlatform: () => this.getPlatformClient(),
+						...(reflectionTurn ? { origin: "reflection" as const } : {}),
 					});
 		const unrestrictedTools: ToolSet = {
 			// Computer owns the durable filesystem and no-network isolate shell;
@@ -1366,15 +1373,18 @@ export const runtimeFacetTurns = {
 			},
 		});
 		const trust = input.trust ?? "trusted";
-		const tools = selectTrustedTurnTools({
-			trust,
-			allowlist: untrustedTurnToolAllowlist("mcp"),
-			full: restrictDelegatedToolSet(
-				capabilityTools,
-				input.authorityEnvelope,
-				input.authorityMode,
-			),
-		});
+		const tools = memoryReflectionToolSet(
+			input.sessionKey,
+			selectTrustedTurnTools({
+				trust,
+				allowlist: untrustedTurnToolAllowlist("mcp"),
+				full: restrictDelegatedToolSet(
+					capabilityTools,
+					input.authorityEnvelope,
+					input.authorityMode,
+				),
+			}),
+		);
 		if (input.toolsOnly)
 			return {
 				tools: input.executionRestriction

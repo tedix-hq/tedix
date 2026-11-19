@@ -151,11 +151,27 @@ describe("recordAgentRunOutcomeLesson", () => {
 		).toBe("stored");
 	});
 
-	it("writes through the memory learn path as the tedi's own private fact", async () => {
+	it("writes through the memory learn path as the tedi's own private fact, then wakes the tedi once to update its memory", async () => {
 		const { sqlite, context } = fixture();
+		const wakes: Record<string, unknown>[] = [];
+		context.env.TEDI_SERVICE = {
+			fetch: async (request: Request) => {
+				wakes.push((await request.json()) as Record<string, unknown>);
+				return Response.json({ accepted: true, run_id: "run" });
+			},
+		} as unknown as CloudflareEnv["TEDI_SERVICE"];
 		expect(await recordAgentRunOutcomeLesson(context, work, attempt)).toBe(
 			"stored",
 		);
+		expect(await recordAgentRunOutcomeLesson(context, work, attempt)).toBe(
+			"skipped",
+		);
+		expect(wakes).toHaveLength(1);
+		expect(wakes[0]).toMatchObject({
+			session_key: `core-memory-reflection:${TEDI}`,
+			client_request_id: `core-memory-reflection:${ORG}:${TEDI}:run:${ATTEMPT}`,
+			text: expect.stringContaining("Outcome: succeeded after 14 min"),
+		});
 		const facts = sqlite
 			.prepare(
 				"SELECT tedi_id, visibility, memory_scope, fact_type, topic_key, source, content FROM memory_facts WHERE organization_id = ?",

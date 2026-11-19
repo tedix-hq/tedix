@@ -12,8 +12,14 @@ import {
 	claimWorkAttemptOutcomeLesson,
 	releaseWorkAttemptOutcomeLesson,
 } from "@tedix/db/queries/work-items/attempts";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type { WorkAttempt, WorkItem } from "@tedix/db/schema/work-items";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
+import {
+	deliverMemoryReflection,
+	memoryReflectionEnabled,
+	reflectionText,
+} from "./tedi-memory-reflection";
 import type { BaseContext } from "../rpc/orpc";
 import { buildInternalServiceBindingContext } from "../rpc/routers/kernel/runtime-shared";
 
@@ -158,6 +164,36 @@ const learnThroughMemoryGraph: Learn = async (context, lesson) => {
 	});
 };
 
+type Reflect = (
+	context: BaseContext,
+	orgId: string,
+	lesson: AgentRunOutcomeLesson,
+) => Promise<unknown>;
+
+/**
+ * Gives the tedi one turn to update its own memory from how the run ended.
+ * It runs inside the once-per-Attempt claim below, so a run end causes at
+ * most one such turn.
+ */
+const reflectOnAgentRun: Reflect = async (context, orgId, lesson) => {
+	const tedi = await getTediByIdForOrganization(
+		context.db,
+		lesson.tediId,
+		orgId,
+	);
+	if (!tedi || !memoryReflectionEnabled(tedi.runtimeOverrides)) return;
+	await deliverMemoryReflection({
+		db: context.db,
+		env: context.env,
+		send: (request) => context.env.TEDI_SERVICE.fetch(request),
+		orgId,
+		tediId: tedi.id,
+		slug: tedi.slug,
+		subject: `run:${lesson.metadata.attemptId}`,
+		text: reflectionText("run", lesson.content),
+	});
+};
+
 /**
  * Stores the lesson once per Attempt and never throws: the settle that calls
  * this has already been recorded.
@@ -167,6 +203,7 @@ export async function recordAgentRunOutcomeLesson(
 	work: LessonWork,
 	attempt: LessonAttempt,
 	learn: Learn = learnThroughMemoryGraph,
+	reflect: Reflect = reflectOnAgentRun,
 ): Promise<"stored" | "skipped" | "failed"> {
 	const lesson = agentRunOutcomeLesson(work, attempt);
 	if (!lesson) return "skipped";
@@ -181,6 +218,12 @@ export async function recordAgentRunOutcomeLesson(
 		await learn(
 			buildInternalServiceBindingContext(context, work.orgId),
 			lesson,
+		);
+		await reflect(context, work.orgId, lesson).catch((error) =>
+			console.warn("[agent-run-outcome] no reflection turn", {
+				attemptId: attempt.id,
+				exception: safeExceptionTopology(error),
+			}),
 		);
 		return "stored";
 	} catch (error) {

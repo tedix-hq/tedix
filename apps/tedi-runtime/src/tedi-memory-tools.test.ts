@@ -232,4 +232,19 @@ const platformWith = (over: Partial<PlatformClient>) =>
 		personChatConversationId: "home:os:chat-7",
 	});
 	for (const name of TEDI_MEMORY_TOOL_NAMES) assert.ok(name in picked.tools);
+
+	// A reflection turn keeps the memory tools and nothing else, and an
+	// untrusted turn in a session with that name still gets none.
+	const reflection = await probe({
+		sessionKey: "core-memory-reflection:tedi-1",
+	});
+	assert.deepEqual(
+		Object.keys(reflection.tools).sort(),
+		[...TEDI_MEMORY_TOOL_NAMES].sort(),
+	);
+	const untrustedReflection = await probe({
+		sessionKey: "core-memory-reflection:tedi-1",
+		trust: "untrusted",
+	});
+	assert.deepEqual(untrustedReflection.tools, {});
 }

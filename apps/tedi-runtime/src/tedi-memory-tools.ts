@@ -15,6 +15,7 @@ import {
 	TEDI_MEMORY_NOTE_COUNT_LIMIT,
 	TEDI_MEMORY_NOTE_DESCRIPTION_LIMIT,
 	TEDI_MEMORY_NOTE_LIMIT,
+	TEDI_MEMORY_REFLECTION_SESSION_PREFIX,
 	type TediCoreMemory,
 	TediMemoryNoteNameSchema,
 } from "@tedix/api-contract/schemas/tedi-memory";
@@ -259,3 +260,25 @@ export const TEDI_MEMORY_TOOL_NAMES = [
 	"read_memory_note",
 	"write_memory_note",
 ] as const;
+
+/** The hidden session in which the tedi looks back on finished work. */
+export function isMemoryReflectionSession(
+	sessionKey: string | null | undefined,
+): boolean {
+	return Boolean(sessionKey?.startsWith(TEDI_MEMORY_REFLECTION_SESSION_PREFIX));
+}
+
+/**
+ * A reflection turn only updates memory: of the tools the turn was allowed,
+ * it keeps the memory tools and nothing else. Other sessions are unchanged.
+ */
+export function memoryReflectionToolSet(
+	sessionKey: string | null | undefined,
+	tools: ToolSet,
+): ToolSet {
+	if (!isMemoryReflectionSession(sessionKey)) return tools;
+	const kept: ToolSet = {};
+	for (const name of TEDI_MEMORY_TOOL_NAMES)
+		if (tools[name]) kept[name] = tools[name];
+	return kept;
+}

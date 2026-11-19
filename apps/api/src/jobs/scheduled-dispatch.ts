@@ -294,6 +294,13 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				await trackPlatformCronPath(env, event, "work-routing", () =>
 					dispatchWorkRouting(env, event.scheduledTime),
 				);
+				// A tedi looks back on each chat that has gone quiet and updates
+				// its memory.
+				const { dispatchTediMemoryReflection } =
+					await import("./tedi-memory-reflection");
+				await trackPlatformCronPath(env, event, "tedi-memory-reflection", () =>
+					dispatchTediMemoryReflection(env, event.scheduledTime),
+				);
 			}
 			const { dispatchCommitmentWakes } = await import("./commitment-wakes");
 			await trackPlatformCronPath(env, event, "commitment-wakes", () =>

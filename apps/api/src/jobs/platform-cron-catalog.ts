@@ -27,6 +27,7 @@ export const PLATFORM_CRON_IDS = [
 	"work-approval-redrive",
 	"commitment-wakes",
 	"agent-run-supervision",
+	"tedi-memory-reflection",
 	"stall-recovery",
 	"repository-observer",
 	"support-maintenance",
@@ -140,6 +141,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		id: "agent-run-supervision",
 		cron: "*/2 * * * *",
 		intervalMinutes: 2,
+		requiresBinding: "TEDI_SERVICE",
+	},
+	{
+		id: "tedi-memory-reflection",
+		cron: "*/2 * * * *",
+		intervalMinutes: 10,
 		requiresBinding: "TEDI_SERVICE",
 	},
 	{
