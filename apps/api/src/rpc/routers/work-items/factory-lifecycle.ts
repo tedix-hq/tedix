@@ -1203,6 +1203,16 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 			);
 			if (context.waitUntil) context.waitUntil(notice);
 			else await notice;
+			const { recordAgentRunOutcomeLesson } =
+				await import("../../../services/agent-run-outcome-lesson");
+			// The tedi that started the run remembers how it ended.
+			const lesson = recordAgentRunOutcomeLesson(
+				context,
+				settled.workItem,
+				settled.attempt,
+			);
+			if (context.waitUntil) context.waitUntil(lesson);
+			else await lesson;
 			if (!agentNextStep) return settled;
 			const ask = await routeLaneNextStepToAgent(context.db, {
 				work: settled.workItem,

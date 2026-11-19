@@ -1311,6 +1311,7 @@ export function workAttemptCallerMetadata(
 		repositoryCandidate: _reservedCandidate,
 		repositoryCandidatePublication: _reservedPublication,
 		conversationNotice: _reservedConversationNotice,
+		outcomeLesson: _reservedOutcomeLesson,
 		...callerMetadata
 	} = metadata ?? {};
 	return callerMetadata;
@@ -1369,6 +1370,48 @@ export async function releaseWorkAttemptConversationNotice(
 			metadata: sql<
 				Record<string, JsonValue>
 			>`json_remove(${workAttempts.metadata}, '$.conversationNotice')`,
+		})
+		.where(and(...conversationNoticeFence(params)));
+}
+
+/**
+ * Marks a settled Attempt as remembered by the tedi that started it. Returns
+ * true only for the one caller that wins the mark, so a repeated settle
+ * stores one lesson per Attempt.
+ */
+export async function claimWorkAttemptOutcomeLesson(
+	db: DbQueryClient,
+	params: ConversationNoticeParams & { at?: string },
+): Promise<boolean> {
+	const at = params.at ?? new Date().toISOString();
+	const rows = await db
+		.update(workAttempts)
+		.set({
+			metadata: sql<
+				Record<string, JsonValue>
+			>`json_set(COALESCE(${workAttempts.metadata}, '{}'), '$.outcomeLesson', json(${JSON.stringify({ claimedAt: at })}))`,
+		})
+		.where(
+			and(
+				...conversationNoticeFence(params),
+				sql`json_extract(${workAttempts.metadata},'$.outcomeLesson') IS NULL`,
+			),
+		)
+		.returning({ id: workAttempts.id });
+	return rows.length === 1;
+}
+
+/** Clears the mark after a failed write so a later settle can store it. */
+export async function releaseWorkAttemptOutcomeLesson(
+	db: DbQueryClient,
+	params: ConversationNoticeParams,
+): Promise<void> {
+	await db
+		.update(workAttempts)
+		.set({
+			metadata: sql<
+				Record<string, JsonValue>
+			>`json_remove(${workAttempts.metadata}, '$.outcomeLesson')`,
 		})
 		.where(and(...conversationNoticeFence(params)));
 }
