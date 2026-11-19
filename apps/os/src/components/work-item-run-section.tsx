@@ -1,19 +1,5 @@
-import type {
-	ListWorkAttemptStepsResult,
-	WorkAttemptMessage,
-	WorkAttemptStep,
-	WorkAttemptStepKind,
-} from "@tedix/api-contract/schemas/work-attempt-steps";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-	memo,
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
-import { ConfirmDialog } from "@/components/confirm-dialog";
+import type { ListWorkAttemptStepsResult } from "@tedix/api-contract/schemas/work-attempt-steps";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Label } from "@/components/kumo/label";
 import {
@@ -24,234 +10,20 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
-import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
-import { osApi } from "@/lib/api";
-import { osLocale, osTimeZone, useOsFormattingPreferences } from "@/lib/format";
-import { errorMessage } from "@/lib/orpc-error";
 import {
-	osQuery,
-	userProfileQueryOptions,
-	workItemAttemptsQueryOptions,
-	workItemRunStepsQueryOptions,
-} from "@/lib/os-query-options";
-import { absoluteTime, relativeTime } from "@/lib/time";
+	useWorkItemRun,
+	type WorkRunAttempt,
+	WorkRunEntryRow,
+	workRunEntries,
+	workRunStatus,
+	WorkRunStopConfirm,
+} from "@/components/work-item-run";
+import { useOsFormattingPreferences } from "@/lib/format";
+import { errorMessage } from "@/lib/orpc-error";
 
-const RUN_REFRESH_MS = 3_000;
 /** How close to the end of the list still counts as reading the newest step. */
 const FOLLOW_NEWEST_WITHIN_PX = 24;
-
-const STEP_LABEL: Record<WorkAttemptStepKind, string> = {
-	started: "Started",
-	message: "Message",
-	command: "Command",
-	tool: "Tool",
-	file_change: "File change",
-	error: "Error",
-	follow_up: "Follow-up",
-	stopped: "Stopped",
-	finished: "Finished",
-};
-
-/** The fields of the newest Attempt the status line reads. */
-export type WorkRunAttempt = {
-	id: string;
-	executorType: string;
-	executorId: string;
-	outcome: string | null;
-	startedAt?: string | null;
-	finishedAt?: string | null;
-	heartbeatAt?: string | null;
-};
-
-type RunEntry =
-	| { key: string; at: number; step: WorkAttemptStep }
-	| { key: string; at: number; message: WorkAttemptMessage };
-
-/**
- * Steps and sent messages in the order they happened. The runner also records
- * a received follow-up as a step; that step is left out when the message that
- * caused it is already listed, so one follow-up reads as one line.
- */
-export function workRunEntries(
-	run: Pick<ListWorkAttemptStepsResult, "steps" | "messages">,
-): RunEntry[] {
-	const followUps = run.messages
-		.filter((message) => message.kind === "follow_up")
-		.map((message) => message.body.trim());
-	const entries: RunEntry[] = [];
-	for (const step of run.steps) {
-		const text = step.text.trim().replace(/(…|\.\.\.)$/, "");
-		if (
-			step.kind === "follow_up" &&
-			text &&
-			followUps.some((body) => body.startsWith(text))
-		)
-			continue;
-		entries.push({ key: `step-${step.seq}`, at: step.at, step });
-	}
-	for (const message of run.messages) {
-		const at = Date.parse(message.createdAt);
-		entries.push({
-			key: `message-${message.id}`,
-			at: Number.isNaN(at) ? 0 : at,
-			message,
-		});
-	}
-	// A stable sort keeps steps in seq order when two share a millisecond.
-	return entries.sort((a, b) => a.at - b.at);
-}
-
-function clockTime(at: number): string {
-	const timeZone = osTimeZone();
-	return new Intl.DateTimeFormat(osLocale(), {
-		hour: "2-digit",
-		minute: "2-digit",
-		hourCycle: "h23",
-		...(timeZone ? { timeZone } : {}),
-	}).format(new Date(at));
-}
-
-function senderLabel(
-	message: WorkAttemptMessage,
-	ownMessageIds: ReadonlySet<string>,
-	names?: ReadonlyMap<string, string>,
-	viewerId?: string,
-): string {
-	if (
-		ownMessageIds.has(message.id) ||
-		(message.senderType === "user" && message.senderId === viewerId)
-	)
-		return "You";
-	const known = names?.get(`${message.senderType}:${message.senderId}`);
-	if (known) return known;
-	if (message.senderType === "user") return "Team member";
-	return message.senderType === "tedi" ? "A tedi" : "An agent";
-}
-
-export function workRunStatus(
-	run: Pick<ListWorkAttemptStepsResult, "live" | "steps">,
-	attempt: WorkRunAttempt | undefined,
-	names?: ReadonlyMap<string, string>,
-	now = new Date(),
-): string {
-	const iso = (at: number | undefined) =>
-		at === undefined ? null : new Date(at).toISOString();
-	const first = iso(run.steps[0]?.at);
-	const last = iso(run.steps.at(-1)?.at);
-	if (run.live) {
-		const executor = attempt
-			? names?.get(`${attempt.executorType}:${attempt.executorId}`)
-			: undefined;
-		const started = attempt?.startedAt ?? first;
-		return `Running${executor ? ` on ${executor}` : ""}${started ? `, started ${relativeTime(started, now)}` : ""}`;
-	}
-	const ended = attempt?.finishedAt ?? last;
-	const when = ended ? ` ${relativeTime(ended, now)}` : "";
-	if (attempt?.outcome === "cancelled") return `Stopped${when}`;
-	if (attempt?.outcome && attempt.outcome !== "expired")
-		return `Finished${when}: ${attempt.outcome}`;
-	if (run.steps.at(-1)?.kind === "finished") return `Finished${when}`;
-	const lastUpdate = attempt?.heartbeatAt ?? last;
-	return `Stopped reporting${lastUpdate ? `, last update ${relativeTime(lastUpdate, now)}` : ""}`;
-}
-
-/**
- * Memoized on the step or message itself, which a refresh keeps as the same
- * object: a refresh that adds a step leaves the rows above it alone.
- */
-const RunEntryRow = memo(function RunEntryRow({
-	at,
-	step,
-	message,
-	live,
-	ownMessageIds,
-	names,
-	viewerId,
-}: {
-	at: number;
-	step?: WorkAttemptStep;
-	message?: WorkAttemptMessage;
-	live: boolean;
-	ownMessageIds: ReadonlySet<string>;
-	names?: ReadonlyMap<string, string>;
-	viewerId?: string;
-}) {
-	const time = (
-		<Text as="span" role="label" tone="mono-secondary" className="pt-0.5">
-			<time
-				dateTime={new Date(at).toISOString()}
-				title={absoluteTime(new Date(at).toISOString())}
-			>
-				{clockTime(at)}
-			</time>
-		</Text>
-	);
-	if (step) {
-		return (
-			<li
-				className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3"
-				data-run-step={step.kind}
-			>
-				{time}
-				<div className="min-w-0">
-					<Text
-						as="span"
-						role="label"
-						tone={step.kind === "error" ? "error" : "secondary"}
-						weight="medium"
-						className="block"
-					>
-						{STEP_LABEL[step.kind]}
-					</Text>
-					{step.text ? (
-						<Text
-							tone={step.kind === "command" ? "mono" : "default"}
-							className="m-0 whitespace-pre-wrap break-words"
-						>
-							{step.text}
-						</Text>
-					) : null}
-				</div>
-			</li>
-		);
-	}
-	if (!message) return null;
-	const sender = senderLabel(message, ownMessageIds, names, viewerId);
-	const waiting =
-		message.kind === "follow_up" && message.appliedAt === null
-			? live
-				? "Waiting for the current step to finish"
-				: "Not applied: the run ended first"
-			: null;
-	return (
-		<li
-			className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3"
-			data-run-message={message.kind}
-		>
-			{time}
-			<div className="min-w-0">
-				{message.kind === "stop" ? (
-					<Text className="m-0">Stop requested by {sender}</Text>
-				) : (
-					<Text className="m-0 whitespace-pre-wrap break-words">
-						<Text as="span" weight="medium">
-							{sender}:
-						</Text>{" "}
-						{message.body}
-					</Text>
-				)}
-				{waiting ? (
-					<Text as="span" role="label" tone="secondary" className="block">
-						{waiting}
-					</Text>
-				) : null}
-			</div>
-		</li>
-	);
-});
-
-const NO_OWN_MESSAGES: ReadonlySet<string> = new Set();
 
 /**
  * The newest run of a task: what the agent did, oldest first, with the
@@ -263,7 +35,7 @@ export function WorkItemRunView({
 	attempt,
 	names,
 	viewerId,
-	ownMessageIds = NO_OWN_MESSAGES,
+	ownMessageIds,
 	onSend,
 	sending = false,
 	sendError,
@@ -331,7 +103,7 @@ export function WorkItemRunView({
 					}}
 				>
 					{entries.map((entry) => (
-						<RunEntryRow
+						<WorkRunEntryRow
 							key={entry.key}
 							at={entry.at}
 							step={"step" in entry ? entry.step : undefined}
@@ -388,25 +160,12 @@ export function WorkItemRunView({
 							{stopRequested ? "Stop requested" : "Stop run"}
 						</Button>
 					</div>
-					<ConfirmDialog
+					<WorkRunStopConfirm
 						open={confirmStop}
 						onOpenChange={setConfirmStop}
-						title="Stop this run?"
-						description="The agent stops working on this task and the run is recorded as cancelled. Work it has already saved stays."
-						confirmLabel="Stop run"
-						pendingLabel="Stopping…"
-						retryLabel="Try again"
-						cancelLabel="Keep running"
-						destructive
-						isPending={stopping}
-						error={stopError}
-						onConfirm={() => {
-							if (!onStop) return;
-							void onStop().then(
-								() => setConfirmStop(false),
-								() => {},
-							);
-						}}
+						onStop={onStop}
+						stopping={stopping}
+						stopError={stopError}
 					/>
 				</form>
 			) : null}
@@ -416,9 +175,7 @@ export function WorkItemRunView({
 
 /**
  * The Run section of the task page. It appears once the newest Attempt has
- * reported a step or is in progress. While the run is in progress it asks
- * every few seconds for the steps after the last one shown, and it reads
- * once more when the run ends.
+ * reported a step or is in progress.
  */
 export function WorkItemRunSection({
 	itemId,
@@ -427,64 +184,15 @@ export function WorkItemRunSection({
 	itemId: string;
 	names?: ReadonlyMap<string, string>;
 }) {
-	const client = useQueryClient();
-	const options = workItemRunStepsQueryOptions(itemId);
-	const run = useQuery({
-		...options,
-		refetchInterval: (query) =>
-			query.state.data?.live ? RUN_REFRESH_MS : false,
-	});
-	const attempts = useQuery(workItemAttemptsQueryOptions(itemId));
-	// Already loaded by the shell; this adds a reader, not a request.
-	const viewer = useQuery(userProfileQueryOptions());
-	const [ownMessageIds, setOwnMessageIds] = useState<ReadonlySet<string>>(
-		() => new Set(),
-	);
-	const refreshRun = () =>
-		client.invalidateQueries({ queryKey: options.queryKey });
-	const send = useMutation({
-		mutationFn: (body: string) =>
-			osApi.workItems.sendAttemptMessage({ id: itemId, body }),
-		onSuccess: (message) => {
-			setOwnMessageIds((ids) => new Set(ids).add(message.id));
-			return refreshRun();
-		},
-		// A refusal because the run just ended should also end the composer.
-		onError: refreshRun,
-	});
-	const stop = useMutation({
-		mutationFn: () => osApi.workItems.stopAttempt({ id: itemId }),
-		onSuccess: (message) => {
-			setOwnMessageIds((ids) => new Set(ids).add(message.id));
-			return refreshRun();
-		},
-		onError: refreshRun,
-	});
-
-	const live = run.data?.live;
-	const wasLive = useRef(false);
-	useEffect(() => {
-		if (wasLive.current && live === false) {
-			// The last steps and the outcome land with the end of the run.
-			void client.invalidateQueries({ queryKey: options.queryKey });
-			void client.invalidateQueries({
-				queryKey: osQuery.workItems.listAttempts.key(),
-			});
-		}
-		if (live !== undefined) wasLive.current = live;
-	}, [live, client, options.queryKey]);
-
-	if (!run.data || (!run.data.live && run.data.steps.length === 0)) return null;
-	const newest = attempts.data?.data;
+	const { run, attempt, viewerId, ownMessageIds, send, stop } =
+		useWorkItemRun(itemId);
+	if (!run || (!run.live && run.steps.length === 0)) return null;
 	return (
 		<WorkItemRunView
-			run={run.data}
-			attempt={
-				newest?.find((attempt) => attempt.id === run.data.attemptId) ??
-				(run.data.attemptId ? undefined : newest?.[0])
-			}
+			run={run}
+			attempt={attempt}
 			names={names}
-			viewerId={viewer.data?.id}
+			viewerId={viewerId}
 			ownMessageIds={ownMessageIds}
 			onSend={(body) => send.mutateAsync(body)}
 			sending={send.isPending}

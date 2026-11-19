@@ -109,7 +109,9 @@ import {
 	useChatTransport,
 } from "@/lib/use-capn-chat";
 import { WorkspaceFileUpload } from "./workspace-file-upload";
+import { AgentRunCard } from "@/components/agent-run-card";
 import { LiveDelegationCard } from "@/components/delegation-live-card";
+import { useChatAgentRuns } from "@/lib/use-chat-agent-runs";
 import { useActiveTedis, useTediNames } from "@/lib/use-tedi-names";
 import type { ConversationStreamStatus } from "@/lib/conversation-stream";
 import { useRealtimeStatus, useRealtimeSurface } from "@/lib/use-realtime";
@@ -1981,6 +1983,14 @@ export function ChatThread({
 		runSet?.runs ?? [],
 		displayMessages,
 	);
+	const liveDelegations = activeDelegations(runSet?.runs ?? []);
+	// Runs a tedi started for an agent: read from the stored events of the
+	// tedi's turn, so the cards are still there after a reload.
+	const agentRuns = useChatAgentRuns({
+		finished: finishedDelegations,
+		active: liveDelegations,
+		streamEvents: [...toolFramesRef.current.values()],
+	});
 	const latestAssistantMessageId = displayMessages.findLast(
 		(message) => message.role === "assistant",
 	)?.id;
@@ -2126,6 +2136,12 @@ export function ChatThread({
 													/>
 												) : null;
 											})()}
+											{agentRuns.forMessage(message.id).map((agentRun) => (
+												<AgentRunCard
+													key={agentRun.workItemId}
+													agentRun={agentRun}
+												/>
+											))}
 										</Fragment>
 									))}
 									{/* Provisional user turns render after every durable row and
@@ -2186,23 +2202,36 @@ export function ChatThread({
 											<WorkTraceCard tools={tools} />
 										) : null;
 									})()}
-									{activeDelegations(runSet?.runs ?? []).map((work) => (
-										<LiveDelegationCard
-											key={work.childRunId ?? work.runId}
-											work={work}
-											tediName={
-												work.delegatedTediId
-													? tediNames[work.delegatedTediId]
-													: null
-											}
-											pending={
-												cancelRun.isPending || restartDelegation.isPending
-											}
-											onStop={() => cancelRun.mutate({ runId: work.runId })}
-											onRetry={() =>
-												restartDelegation.mutate({ runId: work.runId })
-											}
+									{agentRuns.fromStream.map((agentRun) => (
+										<AgentRunCard
+											key={agentRun.workItemId}
+											agentRun={agentRun}
 										/>
+									))}
+									{liveDelegations.map((work) => (
+										<Fragment key={work.childRunId ?? work.runId}>
+											<LiveDelegationCard
+												work={work}
+												tediName={
+													work.delegatedTediId
+														? tediNames[work.delegatedTediId]
+														: null
+												}
+												pending={
+													cancelRun.isPending || restartDelegation.isPending
+												}
+												onStop={() => cancelRun.mutate({ runId: work.runId })}
+												onRetry={() =>
+													restartDelegation.mutate({ runId: work.runId })
+												}
+											/>
+											{agentRuns.forActive(work.childRunId).map((agentRun) => (
+												<AgentRunCard
+													key={agentRun.workItemId}
+													agentRun={agentRun}
+												/>
+											))}
+										</Fragment>
 									))}
 									{restartDelegation.error ? (
 										<li>

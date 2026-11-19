@@ -67,6 +67,7 @@ import {
 	setLocalProfileRows,
 } from "./local-fixtures/policies";
 import {
+	agentRunChat,
 	delegationConversation,
 	delegationRuns,
 	seedState,
@@ -185,6 +186,10 @@ function installDemoPack(): number {
 	} as unknown as Parameters<typeof applyDemoPack>[0]);
 	state.homeRuns.push(...delegationRuns());
 	state.conversations.push(delegationConversation());
+	const agentRun = agentRunChat();
+	state.homeRuns.push(agentRun.run);
+	state.conversations.push(agentRun.conversation);
+	state.messages.push(...agentRun.messages);
 	// The seeded draft improves the classic revenue skill, which the sample company replaces.
 	setLocalSkillDrafts([]);
 	installWorkViewFixtures();

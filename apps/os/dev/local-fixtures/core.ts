@@ -111,6 +111,14 @@ export const CHILD_RUN_DELEGATING = `${fid("63", 2)}:mcp:${HOME_RUN_DELEGATING}`
 export const HOME_RUN_DELEGATED = `revenue-check-home-${fid("62", 3)}`;
 export const CHILD_RUN_DELEGATED = `${fid("63", 3)}:mcp:${HOME_RUN_DELEGATED}`;
 export const DELEGATION_WORK_ITEM = fid("64", 1);
+/**
+ * A chat where Miles started a coding task for an agent: the finished turn's
+ * stored events carry one `start_agent_run` result, so the chat shows the run
+ * card for the first sample task. Open with `/chat?conversation=<id>`.
+ */
+export const CONVERSATION_AGENT_RUN = fid("60", 10);
+export const HOME_RUN_AGENT_RUN = `paging-fix-home-${fid("62", 4)}`;
+export const CHILD_RUN_AGENT_RUN = `${fid("63", 4)}:mcp:${HOME_RUN_AGENT_RUN}`;
 
 export const APP_STOREFRONT = fid("80", 1);
 export const APP_SUPPORT = fid("80", 2);
