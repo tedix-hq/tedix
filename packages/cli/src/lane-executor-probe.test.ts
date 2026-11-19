@@ -7,7 +7,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { cachedExecutorPreflight } from "./lane-executor-preflight";
 import {
 	cachedExecutorProbe,
 	executorBinary,
@@ -168,3 +169,66 @@ it("shares a pending version probe and leaves heartbeat timers free", async () =
 		clearInterval(timer);
 	}
 });
+
+it("uses the Codex network report even when Doctor exits successfully", async () => {
+	const command = fakeBinary(`#!/bin/sh
+[ "$*" = "doctor --network-only --json" ] || exit 1
+echo '{"overallStatus":"fail","checks":{"network.websocket_reachability":{"id":"network.websocket_reachability","status":"fail","summary":"handshake failed"}}}'
+`);
+	const path = process.env.PATH;
+	try {
+		process.env.PATH = `${dirname(command)}:${path}`;
+		const probe = cachedExecutorPreflight(dirname(command), () => {});
+		expect(await probe("codex")).toBe(
+			"network.websocket_reachability: handshake failed",
+		);
+	} finally {
+		process.env.PATH = path;
+	}
+});
+
+it.each([
+	[
+		{ plugin_errors: [{ plugin: "review", type: "load-failed" }] },
+		"Claude reported a plugin error (review: load-failed)",
+	],
+	[
+		{ mcp_server_errors: [{ name: "search", type: "invalid_config" }] },
+		"Claude reported an MCP configuration error (search: invalid_config)",
+	],
+	[
+		{ mcp_servers: [{ name: "search", status: "failed" }] },
+		"Claude MCP server search: failed",
+	],
+	[
+		{ mcp_servers: [{ name: "search", status: "needs-auth" }] },
+		"Claude MCP server search: needs-auth",
+	],
+	[{ mcp_servers: [{ name: "search", status: "pending" }] }, undefined],
+])(
+	"uses Claude's init event to report plugin and MCP failures for %p",
+	async (fields, reason) => {
+		const init = JSON.stringify({
+			type: "system",
+			subtype: "init",
+			mcp_servers: [],
+			...fields,
+		});
+		const command = fakeBinary(
+			`#!/bin/sh
+echo '{"type":"system","subtype":"hook_response"}'
+echo '${init}'
+exec /bin/sleep 60
+`,
+			"claude",
+		);
+		const path = process.env.PATH;
+		try {
+			process.env.PATH = `${dirname(command)}:${path}`;
+			const probe = cachedExecutorPreflight(dirname(command), () => {});
+			expect(await probe("claude-code")).toBe(reason);
+		} finally {
+			process.env.PATH = path;
+		}
+	},
+);

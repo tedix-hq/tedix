@@ -226,6 +226,7 @@ function fixture({
 			return control.cooldownUntil;
 		},
 		available: () => ({ available: true }),
+		preflight: async () => undefined,
 		budgets: () => ({}),
 		devinAvailability: () =>
 			devinReady
@@ -4058,6 +4059,74 @@ describe("dispatcher admission", () => {
 		},
 	);
 
+	it.each([
+		["codex", "network.websocket_reachability: connection refused"],
+		[
+			"claude-code",
+			"Claude reported a plugin error (review-plugin: load-failed)",
+		],
+	] as const)(
+		"pauses %s pickup through pre-flight backoff and resumes after recovery",
+		async (executor, reason) => {
+			const { restart, deps, items, events, releases, dir } = fixture({
+				executor,
+			});
+			items.splice(1);
+			let now = Date.now();
+			let healthy = false;
+			const probe = spyOn(deps, "preflight").mockImplementation(async () =>
+				healthy ? undefined : reason,
+			);
+			const clock = spyOn(Date, "now").mockImplementation(() => now);
+			const dispatcher = restart();
+			const path = join(dir, `${item().id}-2.json`);
+			try {
+				await dispatcher.tick();
+				now += 29_999;
+				await dispatcher.tick();
+				expect(probe.mock.calls).toEqual([[executor, expect.any(String)]]);
+				now++;
+				await dispatcher.tick();
+				now += 59_999;
+				await dispatcher.tick();
+				expect(probe).toHaveBeenCalledTimes(2);
+				expect(
+					events.some((event) =>
+						["dispatch-get", "readiness", "start", "settle"].includes(
+							event.verb,
+						),
+					),
+				).toBe(false);
+				expect(existsSync(path)).toBe(false);
+				const log = readFileSync(join(dir, "dispatcher.log"), "utf8");
+				expect(
+					log.split("\n").filter((line) => line.includes(reason)),
+				).toHaveLength(1);
+				expect(log).toContain("executor-preflight-failed");
+
+				healthy = true;
+				now++;
+				await dispatcher.tick();
+				await until(() => releases.length === 1);
+				releases[0]!();
+				await dispatcher.drain();
+				await dispatcher.tick();
+				expect(probe).toHaveBeenCalledTimes(3);
+				expect(
+					events.filter(
+						(event) => event.verb === "start" && event.args[4] === "work",
+					),
+				).toHaveLength(1);
+				expect(JSON.parse(readFileSync(path, "utf8")).outcome).toBe(
+					"succeeded",
+				);
+			} finally {
+				probe.mockRestore();
+				clock.mockRestore();
+			}
+		},
+	);
+
 	it("waits out a timed-out version probe without a failed run and logs it once", async () => {
 		const { restart, deps, items, events, releases, dir } = fixture();
 		items.splice(1);
@@ -4352,6 +4421,7 @@ describe("dispatcher admission", () => {
 				health: () => [],
 				darkWake: () => false,
 				available: () => ({ available: true }),
+				preflight: async () => undefined,
 				devinAvailability: () => ({ available: true }),
 				budgets: () => ({}),
 				cli: async <T>() =>
@@ -5164,6 +5234,48 @@ describe("dispatcher admission", () => {
 		expect(starts()[0]!.input?.metadata).toMatchObject({ dispatchVersion: 3 });
 		releases[0]!();
 		await dispatcher.drain();
+	});
+	it("does not admit prepared Work after a refreshed pre-flight fails", async () => {
+		const { restart, deps, dir, items, control, events, releases } = fixture();
+		items.splice(1);
+		let now = Date.now();
+		let failure: string | undefined;
+		deps.preflight = async () => failure;
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		const gate = Promise.withResolvers<void>();
+		control.preparationGate = { itemId: item(1).id, open: gate.promise };
+		const dispatcher = restart();
+		const starts = () =>
+			events.filter((e) => e.verb === "start" && e.args[4] === "work");
+		try {
+			await dispatcher.tick();
+			await until(() => control.threadSessions.length === 1);
+			now += 5 * 60_000;
+			failure = "Codex network check failed";
+			await dispatcher.tick();
+			gate.resolve();
+			await dispatcher.drain();
+			expect(starts()).toHaveLength(0);
+			const receipt = JSON.parse(
+				readFileSync(join(dir, `${item(1).id}-2.json`), "utf8"),
+			);
+			expect(receipt).toMatchObject({
+				phase: "deferred",
+				admissionState: "not_sent",
+				retries: 0,
+			});
+
+			now += 30_000;
+			failure = undefined;
+			await dispatcher.tick();
+			await until(() => releases.length === 1);
+			releases[0]!();
+			await dispatcher.drain();
+			expect(starts()).toHaveLength(1);
+		} finally {
+			gate.resolve();
+			clock.mockRestore();
+		}
 	});
 	it("hands Work back without admission when told to stop during preparation", async () => {
 		const { dispatcher, dir, items, control, events } = fixture();

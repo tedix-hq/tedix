@@ -52,6 +52,7 @@ function fixture(configured = true) {
 	};
 	const control = {
 		budgets: {} as ExecutorBudgets,
+		preflightFailures: {} as Partial<Record<LocalExecutor, string>>,
 		message: "Verified",
 		nativeError: undefined as Error | undefined,
 		workError: undefined as Error | undefined,
@@ -69,6 +70,7 @@ function fixture(configured = true) {
 			health: () => [],
 			darkWake: () => false,
 			available: () => ({ available: true }),
+			preflight: async (executor) => control.preflightFailures[executor],
 			devinAvailability: () => ({ available: true }),
 			budgets: () => control.budgets,
 			baseCommit: () => "a".repeat(40),
@@ -188,6 +190,17 @@ it("retains unconfigured automatic Work without native allocation or admission",
 	const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
 	expect(receipt.phase).toBe("deferred");
 	expect(receipt.note).toContain("--routing-config");
+});
+it("uses a healthy route when the first executor fails pre-flight", async () => {
+	const { control, create } = fixture();
+	control.preflightFailures.codex = "network check failed";
+	const dispatcher = create();
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(control.threads.map(({ executor }) => executor)).toEqual([
+		"claude-code",
+	]);
+	expect(control.launches).toHaveLength(1);
 });
 it("routes an any-local Work around a Codex cooldown and Claude allowance reserve and launches native OpenCode after admission", async () => {
 	const { control, create } = fixture();
