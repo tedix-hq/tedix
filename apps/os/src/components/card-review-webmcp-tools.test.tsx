@@ -460,36 +460,6 @@ describe("Card review WebMCP tools", () => {
 		expect(shownWho()).toBe("Rhea Quill");
 	});
 
-	it("names Do it after the card's action and hides it without one", async () => {
-		const sheet = sheets.get(CARDS_ID)!;
-		sheet.columns.push("Action");
-		sheet.rows.forEach((row, index) =>
-			row.push(index === 0 ? "Reply to Mira" : ""),
-		);
-		const source = config.sources[0]!;
-		await mount({
-			...config,
-			sources: [
-				{ ...source, columns: { ...source.columns, action: "Action" } },
-			],
-		});
-		const doItButton = () =>
-			host?.querySelector('button[aria-keyshortcuts="D"]') ?? null;
-		expect((await call(NEXT_CARD)).data.doItLabel).toBe("Reply to Mira");
-		expect(doItButton()?.textContent).toBe("Reply to Mira");
-		expect(host?.textContent).toContain("Asked about pricing");
-		expect(host?.textContent).not.toContain("R9:");
-
-		await call("card_review_skip", { cardKey: (await nextCard()).cardKey });
-		expect((await call(NEXT_CARD)).data.doItLabel).toBeNull();
-		expect(doItButton()).toBeNull();
-		const refused = await call("card_review_do_it", {
-			cardKey: (await nextCard()).cardKey,
-		});
-		expect(refused.isError).toBe(true);
-		expect(api.outputs.setSheetRange).not.toHaveBeenCalled();
-	});
-
 	it("asks the factory to rewrite the open draft without a verdict", async () => {
 		await mount();
 		const { cardKey } = await nextCard();

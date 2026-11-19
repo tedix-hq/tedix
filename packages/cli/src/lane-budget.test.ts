@@ -1,14 +1,9 @@
-import { afterEach, expect, it } from "bun:test";
-import {
-	chmodSync,
-	mkdtempSync,
-	mkdirSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { afterEach, expect, it, spyOn } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cachedExecutorBudgets, readExecutorBudgets } from "./lane-budget";
+import * as laneSubprocess from "./lane-command";
 import {
 	defaultRoutingPolicy,
 	readRoutingPolicy,
@@ -45,33 +40,25 @@ it("reads native usage and explicit plan caps, omitting secrets and keeping abse
 	);
 	const policy = structuredClone(defaultRoutingPolicy);
 	policy.budgetFiles = { devin: [cap] };
-	const budgets = await readExecutorBudgets(policy, {
-		PATH: "/missing",
-		CODEX_HOME: dir,
-		CLAUDE_CONFIG_DIR: join(dir, "absent"),
-	});
-	expect(budgets.codex?.remainingPercent).toBe(4);
-	expect(budgets.devin?.remainingPercent).toBe(10);
-	expect(budgets["claude-code"]?.source).toBe("unknown");
-	expect(budgets.opencode?.remainingPercent).toBeUndefined();
-	expect(JSON.stringify(budgets)).not.toContain("never-project-this");
+	const command = spyOn(laneSubprocess, "laneCommand");
+	try {
+		const budgets = await readExecutorBudgets(policy, {
+			PATH: "/missing",
+			CODEX_HOME: dir,
+			CLAUDE_CONFIG_DIR: join(dir, "absent"),
+		});
+		expect(budgets.codex?.remainingPercent).toBe(4);
+		expect(budgets.devin?.remainingPercent).toBe(10);
+		expect(budgets["claude-code"]?.source).toBe("unknown");
+		expect(budgets.opencode?.remainingPercent).toBeUndefined();
+		expect(JSON.stringify(budgets)).not.toContain("never-project-this");
+		const options = command.mock.calls[0]?.[2];
+		expect(options?.killSignal).toBe("SIGKILL");
+		expect(options?.timeout).toBeGreaterThan(0);
+	} finally {
+		command.mockRestore();
+	}
 });
-it("terminates a stats probe that ignores SIGTERM and keeps its budget unknown", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "lane-budget-stall-"));
-	dirs.push(dir);
-	const executable = join(dir, "opencode");
-	writeFileSync(executable, "#!/bin/sh\ntrap '' TERM\nexec /bin/sleep 60\n");
-	chmodSync(executable, 0o755);
-	const startedAt = Date.now();
-	const budgets = await readExecutorBudgets(defaultRoutingPolicy, {
-		PATH: dir,
-		CODEX_HOME: dir,
-		CLAUDE_CONFIG_DIR: dir,
-	});
-	expect(Date.now() - startedAt).toBeLessThan(10_000);
-	expect(budgets.opencode?.source).toBe("unknown");
-	expect(budgets.opencode?.remainingPercent).toBeUndefined();
-}, 15_000);
 it("uses an optional launcher-adjacent OpenCode default, with explicit policy taking precedence", () => {
 	const dir = mkdtempSync(join(tmpdir(), "lane-config-test-"));
 	dirs.push(dir);

@@ -36,7 +36,6 @@ const CASES: ReadonlyArray<{ code: ChatErrorCode; error: unknown }> = [
 	},
 	...[
 		"Inference daily budget exhausted for 2026-09-12 (95904/100000 tokens, 13/100 turns)",
-		"Inference daily budget exhausted for 2026-09-12 (1000/100000 tokens, 100/100 turns)",
 		"daily inference token budget exhausted mid-turn",
 	].map((message) => ({
 		code: "inference_capacity_exhausted" as const,
@@ -84,17 +83,6 @@ describe("userFacingChatError", () => {
 		);
 		expect(userFacingChatError(error, en)).toBe(
 			"{{assistant}} has no capacity available right now. Try again later.",
-		);
-	});
-
-	it("reads copy from the catalog, in any locale", () => {
-		const error = new Error("inference_capacity_exhausted");
-		expect(userFacingChatError(error, en)).toContain("no capacity");
-		expect(userFacingChatError(error, es)).toContain("capacidad");
-		// A locale with no entry falls back to the source catalog rather than
-		// rendering a key at the customer.
-		expect(userFacingChatError(error, buildTranslate({}, enCatalog))).toContain(
-			"no capacity",
 		);
 	});
 

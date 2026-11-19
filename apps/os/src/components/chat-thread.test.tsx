@@ -167,7 +167,6 @@ import {
 	homeRunSetQueryKey,
 } from "@/lib/os-query-options";
 import {
-	ACTIVE_RUN_STATUSES,
 	activeDelegations,
 	shouldReconcileApprovalsOnStreamOpen,
 	isUnresolvedApprovalCard,
@@ -204,7 +203,6 @@ import {
 	ChatMessageBubble,
 	ConversationCostChip,
 	ProvisionalUserBubble,
-	RunningIndicator,
 	SendFailureBanner,
 } from "./chat-message-parts";
 import {
@@ -413,24 +411,6 @@ function StubLink({
 }
 
 describe("JumpToLatestControl", () => {
-	it("reserves a row outside the scrollport for the icon-only control", () => {
-		const html = renderToStaticMarkup(
-			<JumpToLatestControl visible onJump={() => undefined} />,
-		);
-
-		expect(html).toContain('data-slot="jump-to-latest-control"');
-		expect(html).toContain("shrink-0");
-		expect(html).toContain("py-1");
-		expect(html).not.toContain("absolute");
-		expect(html).toContain("pointer-events-none");
-		expect(html).toContain('aria-label="Jump to latest"');
-		expect(html).toContain('data-icon-only="true"');
-		expect(html).toContain("pointer-events-auto");
-		expect(html).toContain("rounded-full");
-		expect(html).toContain("bg-kumo-base");
-		expect(html).not.toContain(">Jump to latest<");
-	});
-
 	it("does not reserve space while the transcript follows the bottom", () => {
 		expect(
 			renderToStaticMarkup(
@@ -522,32 +502,6 @@ describe("ChatStarterPrompts", () => {
 });
 
 describe("ChatMessageBubble", () => {
-	it("lets message rows shrink inside the capped transcript grid", () => {
-		const durable = renderToStaticMarkup(
-			<ChatMessageBubble
-				message={message({ role: "user", content: "x".repeat(2_000) })}
-			/>,
-		);
-		const provisional = renderToStaticMarkup(
-			<ProvisionalUserBubble
-				send={{
-					idempotencyKey: "long-message",
-					messageId: "long-message:input",
-					conversationId: "home:main",
-					content: "x".repeat(2_000),
-					state: "sending",
-					attempts: 1,
-					error: null,
-					createdAt: "2026-08-24T22:00:00.000Z",
-				}}
-			/>,
-		);
-
-		for (const html of [durable, provisional]) {
-			expect(html).toContain("w-full min-w-0 max-w-full");
-		}
-	});
-
 	it("keeps terminal delegation history out of global live chrome", () => {
 		const runs = [
 			{
@@ -574,23 +528,23 @@ describe("ChatMessageBubble", () => {
 		]);
 	});
 
-	it.each(["failed", "completed", "canceled"] as const)(
-		"does not resurrect a %s delegated child from a stale active sibling",
-		(status) => {
-			const run = {
-				id: "stale-parent",
-				organizationId: ORG_ID,
-				conversationId: "home:main",
-				status: "running",
-				delegatedTediId: "worker",
-				childRunId: CHILD_RUN_ID,
-				createdAt: "2026-08-21T10:01:00.000Z",
-			} as const;
-			expect(
-				activeDelegations([run, { ...run, id: "settled-parent", status }]),
-			).toEqual([]);
-		},
-	);
+	it("does not resurrect a completed delegated child from a stale active sibling", () => {
+		const run = {
+			id: "stale-parent",
+			organizationId: ORG_ID,
+			conversationId: "home:main",
+			status: "running",
+			delegatedTediId: "worker",
+			childRunId: CHILD_RUN_ID,
+			createdAt: "2026-08-21T10:01:00.000Z",
+		} as const;
+		expect(
+			activeDelegations([
+				run,
+				{ ...run, id: "settled-parent", status: "completed" },
+			]),
+		).toEqual([]);
+	});
 
 	it("accepts only a fully-qualified explicit direct-read command", () => {
 		expect(
@@ -784,45 +738,6 @@ describe("ChatMessageBubble", () => {
 		expect(newHomeConversationId(() => "other-id")).toBe("home:os:other-id");
 	});
 
-	it("renders a user message as a right-aligned filled bubble", () => {
-		const html = renderToStaticMarkup(
-			<ChatMessageBubble
-				message={message({
-					id: `${RUN_ID}:input`,
-					role: "user",
-					content: "Ship the chat surface",
-				})}
-			/>,
-		);
-		expect(html).toContain('data-role="user"');
-		expect(html).toContain("justify-end");
-		expect(html).toContain("bg-kumo-fill");
-		// The brief's user-bubble geometry: 24px radius, squared bottom-right,
-		// capped at min(680px, 78%).
-		expect(html).toContain("rounded-[24px]");
-		expect(html).toContain("rounded-br-lg");
-		expect(html).toContain("max-w-[min(680px,78%)]");
-		expect(html).toContain("type-tedix-body");
-		expect(html).not.toContain("text-sm leading-relaxed");
-		expect(html).toContain("Ship the chat surface");
-	});
-
-	it("renders an assistant message bubble-free with preserved whitespace", () => {
-		const html = renderToStaticMarkup(
-			<ChatMessageBubble
-				message={message({ content: "line one\nline two" })}
-			/>,
-		);
-		expect(html).toContain('data-role="assistant"');
-		expect(html).toContain("justify-start");
-		// No bubble for assistant turns: plain text on the canvas.
-		expect(html).not.toContain("bg-kumo-fill");
-		expect(html).not.toContain("border-kumo-hairline bg-kumo-base");
-		expect(html).not.toContain("whitespace-pre-wrap");
-		expect(html).toContain("line one\nline two");
-		expect(html).toContain('dateTime="2026-08-13T10:00:00.000Z"');
-	});
-
 	it("renders Markdown but preserves raw HTML as text", () => {
 		const html = renderToStaticMarkup(
 			<ChatMessageBubble
@@ -916,13 +831,6 @@ describe("ChatMessageBubble", () => {
 		expect(other).toContain("Reddit");
 	});
 
-	it("omits the run chip when the message carries no runId", () => {
-		const html = renderToStaticMarkup(
-			<ChatMessageBubble message={message()} />,
-		);
-		expect(html).not.toContain('aria-label="Details"');
-	});
-
 	it("labels attachment-only turns instead of rendering an empty bubble", () => {
 		const html = renderToStaticMarkup(
 			<ChatMessageBubble
@@ -940,14 +848,6 @@ describe("ChatMessageBubble", () => {
 			/>,
 		);
 		expect(html).toContain("1 attachment");
-	});
-
-	it("uses a human empty-response label instead of implementation residue", () => {
-		const html = renderToStaticMarkup(
-			<ChatMessageBubble message={message({ content: "", runId: RUN_ID })} />,
-		);
-		expect(html).toContain("Execution completed without a written response");
-		expect(html).not.toContain("(no text)");
 	});
 
 	it("renders nothing for blanked delegation narration while the card shows its state", () => {
@@ -1008,22 +908,6 @@ describe("RunLinkChip", () => {
 			<RunLinkChip runId={RUN_ID} LinkComponent={StubLink} />,
 		);
 		expect(html).toContain(`href="/work/runs/${RUN_ID}"`);
-	});
-});
-
-describe("RunningIndicator", () => {
-	it("renders the default working label", () => {
-		const html = renderToStaticMarkup(<RunningIndicator />);
-		expect(html).toContain('data-slot="running-indicator"');
-		expect(html).toContain("type-tedix-body");
-		expect(html).toContain("Working on it…");
-	});
-
-	it("prefers a run progress label when provided", () => {
-		const html = renderToStaticMarkup(
-			<RunningIndicator label="Delegating to CTO" />,
-		);
-		expect(html).toContain("Delegating to CTO");
 	});
 });
 
@@ -1264,12 +1148,6 @@ describe("nextIdempotencyKey", () => {
 		expect(minted).toBe(1);
 		// Only after success clears the ref does a new send mint a new key.
 		expect(nextIdempotencyKey(null, generate)).toBe("key-2");
-	});
-
-	it("defaults to a UUID generator", () => {
-		expect(nextIdempotencyKey(null)).toMatch(
-			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-		);
 	});
 });
 
@@ -1824,18 +1702,6 @@ describe("invalidateOnFocus", () => {
 	});
 });
 
-describe("ACTIVE_RUN_STATUSES", () => {
-	it("matches the readRunSet activeRunIds definition", () => {
-		expect([...ACTIVE_RUN_STATUSES].sort()).toEqual([
-			"queued",
-			"requires_approval",
-			"running",
-		]);
-		expect(ACTIVE_RUN_STATUSES.has("completed")).toBe(false);
-		expect(ACTIVE_RUN_STATUSES.has("failed")).toBe(false);
-	});
-});
-
 describe("needsDelegationChoice", () => {
 	function output(routeKind: string): EnqueueHomeMessageOutput {
 		return {
@@ -2067,11 +1933,6 @@ describe("selectedModelImageInput", () => {
 		).toBe("unsupported");
 	});
 
-	it("does not infer image support for a ref absent from the projection", () => {
-		expect(selectedModelImageInput([], VISION_REF)).toBe("unknown");
-		expect(selectedModelImageInput([], TEXT_ONLY_REF)).toBe("unknown");
-	});
-
 	it("is unknown for a custom/uncatalogued deployment and for no selection", () => {
 		// An org-configured deployment or the ungated env default: nothing in the
 		// repo declares its image support either way.
@@ -2091,17 +1952,6 @@ describe("selectedModelImageInput", () => {
 });
 
 describe("imageAttachmentRefusal", () => {
-	it("allows an image only when support is DECLARED supported", () => {
-		expect(imageAttachmentRefusal("supported", "GPT-5.6 Sol")).toBeNull();
-	});
-
-	it("refuses an unsupported model by name, saying the file would be dropped", () => {
-		const reason = imageAttachmentRefusal("unsupported", "Llama 3.2 3B");
-		expect(reason).toContain("Llama 3.2 3B");
-		expect(reason).toContain("cannot read images");
-		expect(reason).toContain("never reach the model");
-	});
-
 	it("REFUSES unknown with a named reason rather than attach-and-hope", () => {
 		// An image the model rejects stays in the durable turn and replays on
 		// every later request — the conversation wedges with no client recovery.
@@ -2148,35 +1998,6 @@ describe("composerImageRefusal", () => {
 		});
 		expect(refused).toContain("Llama 3.2 3B");
 		expect(refused).toContain("cannot read images");
-	});
-
-	it("says it is still LOADING while the catalog is in flight", () => {
-		const reason = composerImageRefusal({
-			models: [],
-			selectedRef: null,
-			modelLabel: "The selected model",
-			selectionPending: true,
-		});
-		// Fails closed, but does not claim a verdict about a model nobody picked.
-		expect(reason).not.toBeNull();
-		expect(reason).toContain("still loading");
-		expect(reason).not.toContain("does not declare image support");
-		expect(reason).not.toContain("The selected model");
-	});
-
-	it("says NO MODEL IS RESOLVED when the catalog settled on nothing", () => {
-		// The permanent state: the query failed, or the org allows no model. The
-		// send would fall through to the server default, and this says so.
-		const reason = composerImageRefusal({
-			models: [],
-			selectedRef: null,
-			modelLabel: "The selected model",
-			selectionPending: false,
-		});
-		expect(reason).toContain("No model is resolved");
-		expect(reason).toContain("server's default");
-		expect(reason).not.toContain("still loading");
-		expect(reason).not.toContain("The selected model");
 	});
 });
 

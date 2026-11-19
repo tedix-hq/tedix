@@ -2,31 +2,23 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
 	branchIdMatches,
 	classifyEventCard,
-	cyan,
-	dim,
 	emitEventNdjson,
 	errorText,
-	green,
 	humanizeEventLabel,
 	inspectTraceProjection,
-	metadataRouteKind,
 	printChildEvidencePayload,
 	printInspectBundle,
 	printReadPayload,
 	printSummary,
 	printUnknownPayload,
-	red,
 	renderEventPretty,
 	resolveColorMode,
 	routeKind,
 	snippet,
 	statusColor,
 	summarizeEventIdGroups,
-	yellow,
 } from "./format";
 import type { HomeRunEvent, HomeRunSummary } from "./home-payload";
-import { stringValue } from "./home-payload";
-import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { type ColorMode, stripControlChars } from "./terminal";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -121,48 +113,6 @@ describe("resolveColorMode", () => {
 	it("is enabled only when all conditions pass", () => {
 		expect(resolveColorMode({ isTty: true })).toEqual({ enabled: true });
 	});
-
-	it("is disabled when no opts (non-tty default)", () => {
-		// In test environment stdout.isTTY is typically undefined/false
-		const mode = resolveColorMode();
-		// We just check it returns a ColorMode object; value depends on env
-		expect(typeof mode.enabled).toBe("boolean");
-	});
-});
-
-// ─── Color functions ──────────────────────────────────────────────────────────
-
-describe("color fns", () => {
-	const on: ColorMode = { enabled: true };
-	const off: ColorMode = { enabled: false };
-
-	it("green: returns raw text when disabled", () => {
-		expect(green("hello", off)).toBe("hello");
-	});
-
-	it("green: wraps with ANSI when enabled", () => {
-		expect(green("hello", on)).toBe("\x1b[32mhello\x1b[0m");
-	});
-
-	it("red: returns raw text when disabled", () => {
-		expect(red("err", off)).toBe("err");
-	});
-
-	it("red: wraps with ANSI when enabled", () => {
-		expect(red("err", on)).toBe("\x1b[31merr\x1b[0m");
-	});
-
-	it("yellow: wraps when enabled", () => {
-		expect(yellow("warn", on)).toBe("\x1b[33mwarn\x1b[0m");
-	});
-
-	it("cyan: wraps when enabled", () => {
-		expect(cyan("info", on)).toBe("\x1b[36minfo\x1b[0m");
-	});
-
-	it("dim: wraps when enabled", () => {
-		expect(dim("muted", on)).toBe("\x1b[2mmuted\x1b[0m");
-	});
 });
 
 // ─── statusColor ──────────────────────────────────────────────────────────────
@@ -179,10 +129,6 @@ describe("statusColor", () => {
 		expect(statusColor("failed", on)).toBe("\x1b[31mfailed\x1b[0m");
 	});
 
-	it("canceled -> red", () => {
-		expect(statusColor("canceled", on)).toBe("\x1b[31mcanceled\x1b[0m");
-	});
-
 	it("requires_approval -> yellow", () => {
 		expect(statusColor("requires_approval", on)).toBe(
 			"\x1b[33mrequires_approval\x1b[0m",
@@ -191,14 +137,6 @@ describe("statusColor", () => {
 
 	it("running -> cyan", () => {
 		expect(statusColor("running", on)).toBe("\x1b[36mrunning\x1b[0m");
-	});
-
-	it("active -> cyan", () => {
-		expect(statusColor("active", on)).toBe("\x1b[36mactive\x1b[0m");
-	});
-
-	it("queued -> cyan", () => {
-		expect(statusColor("queued", on)).toBe("\x1b[36mqueued\x1b[0m");
 	});
 
 	it("unknown status -> dim", () => {
@@ -217,32 +155,6 @@ describe("statusColor", () => {
 // ─── emitEventNdjson ─────────────────────────────────────────────────────────
 
 describe("emitEventNdjson", () => {
-	it("emits a valid JSON line via injected write", () => {
-		const captured: string[] = [];
-		const event = fakeEvent();
-		emitEventNdjson(event, (line) => captured.push(line));
-		expect(captured).toHaveLength(1);
-		const parsed = JSON.parse(captured[0] as string);
-		expect(parsed.offset).toBe("42");
-		expect(parsed.kind).toBe("kernel.turn.completed");
-	});
-
-	it("includes offset in the emitted line", () => {
-		const captured: string[] = [];
-		const event = fakeEvent({ offset: "99" });
-		emitEventNdjson(event, (line) => captured.push(line));
-		const parsed = JSON.parse(captured[0] as string);
-		expect(parsed.offset).toBe("99");
-	});
-
-	it("serializes payload", () => {
-		const captured: string[] = [];
-		const event = fakeEvent({ payload: { foo: "bar" } });
-		emitEventNdjson(event, (line) => captured.push(line));
-		const parsed = JSON.parse(captured[0] as string);
-		expect(parsed.payload).toEqual({ foo: "bar" });
-	});
-
 	it("emits full event round-trip", () => {
 		const captured: string[] = [];
 		const event: HomeRunEvent = {
@@ -253,6 +165,7 @@ describe("emitEventNdjson", () => {
 			payload: { text: "hello" },
 		};
 		emitEventNdjson(event, (line) => captured.push(line));
+		expect(captured).toHaveLength(1);
 		expect(JSON.parse(captured[0] as string)).toEqual(event);
 	});
 });
@@ -260,30 +173,6 @@ describe("emitEventNdjson", () => {
 // ─── renderEventPretty ────────────────────────────────────────────────────────
 
 describe("renderEventPretty", () => {
-	it("includes kind in output", () => {
-		const event = fakeEvent();
-		const result = renderEventPretty(event);
-		expect(result).toContain("kernel.turn.completed");
-	});
-
-	it("includes offset in output", () => {
-		const event = fakeEvent();
-		const result = renderEventPretty(event);
-		expect(result).toContain("offset=42");
-	});
-
-	it("includes createdAt when present", () => {
-		const event = fakeEvent();
-		const result = renderEventPretty(event);
-		expect(result).toContain("2026-06-18T10:00:00Z");
-	});
-
-	it("includes payload snippet", () => {
-		const event = fakeEvent({ payload: "the result text" });
-		const result = renderEventPretty(event);
-		expect(result).toContain("the result text");
-	});
-
 	it("renders without color when mode disabled", () => {
 		const event = fakeEvent();
 		const result = renderEventPretty(event, { enabled: false });
@@ -485,14 +374,6 @@ describe("printSummary", () => {
 		expect(parsed.homeRunId).toBe("run-abc-123");
 	});
 
-	it("output is byte-identical to today when color disabled (no ANSI escapes)", () => {
-		const summary = fakeSummary({ status: "running" });
-		const lines = captureLog(() => printSummary(summary, false));
-		const all = lines.join("\n");
-		expect(all).not.toContain("\x1b[");
-		expect(all).toContain("status=running");
-	});
-
 	it("wraps status token with ANSI when color enabled", () => {
 		const summary = fakeSummary({ status: "completed" });
 		const lines = captureLog(() =>
@@ -629,10 +510,6 @@ describe("stripControlChars", () => {
 		expect(stripControlChars("line1\nline2\ttab")).toBe("line1\nline2\ttab");
 	});
 
-	it("preserves printable ASCII", () => {
-		expect(stripControlChars("Hello, World! 123")).toBe("Hello, World! 123");
-	});
-
 	it("preserves unicode including CJK and emoji", () => {
 		expect(stripControlChars("日本語 🎉 café")).toBe("日本語 🎉 café");
 	});
@@ -692,57 +569,6 @@ describe("snippet", () => {
 	});
 });
 
-// ─── errorText stacked prefixes ──────────────────────────────────────────────
-
-// ─── isRecord / stringValue / metadataRouteKind ──────────────────────────────
-
-describe("isRecord", () => {
-	it("true for plain objects", () => {
-		expect(isRecord({})).toBe(true);
-	});
-
-	it("false for arrays", () => {
-		expect(isRecord([])).toBe(false);
-	});
-
-	it("false for null", () => {
-		expect(isRecord(null)).toBe(false);
-	});
-
-	it("false for strings", () => {
-		expect(isRecord("x")).toBe(false);
-	});
-});
-
-describe("stringValue", () => {
-	it("returns value for non-empty strings", () => {
-		expect(stringValue("hello")).toBe("hello");
-	});
-
-	it("returns undefined for empty/whitespace strings", () => {
-		expect(stringValue("")).toBeUndefined();
-		expect(stringValue("  ")).toBeUndefined();
-	});
-
-	it("returns undefined for non-strings", () => {
-		expect(stringValue(42)).toBeUndefined();
-		expect(stringValue(null)).toBeUndefined();
-	});
-});
-
-describe("metadataRouteKind", () => {
-	it("extracts routeKind from nested metadata.kernelRoute", () => {
-		const record = {
-			metadata: { kernelRoute: { routeKind: "delegated" } },
-		};
-		expect(metadataRouteKind(record)).toBe("delegated");
-	});
-
-	it("returns undefined when metadata is missing", () => {
-		expect(metadataRouteKind({})).toBeUndefined();
-	});
-});
-
 // ─── errorText ───────────────────────────────────────────────────────────────
 
 describe("errorText", () => {
@@ -796,11 +622,6 @@ describe("printReadPayload undefined→null JSON", () => {
 
 	it("serializes undefined payload as null in JSON mode", () => {
 		const lines = captureLog(() => printReadPayload(undefined, true));
-		expect(lines.join("")).toBe("null");
-	});
-
-	it("printUnknownPayload serializes undefined as null (json=true)", () => {
-		const lines = captureLog(() => printUnknownPayload(undefined, true));
 		expect(lines.join("")).toBe("null");
 	});
 

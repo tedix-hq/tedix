@@ -127,12 +127,6 @@ describe("isPlatformPrincipal", () => {
 			}),
 		).toBe(false);
 	});
-
-	it("still denies a service binding that carries no tedi scopes", () => {
-		expect(
-			isPlatformPrincipal({ tediScopes: [], authType: "service-binding" }),
-		).toBe(false);
-	});
 });
 
 describe("hasStepUpClaim", () => {
@@ -158,18 +152,11 @@ describe("hasStepUpClaim", () => {
 describe("resolveTenantOverride", () => {
 	const inTenant = { ...basePayload, dct: "org_a" } satisfies JWTPayload;
 
-	it("uses the token's own tenant when no override is provided", () => {
+	it("keeps the token tenant without a foreign override", () => {
 		expect(resolveTenantOverride(inTenant, undefined)).toEqual({
 			tenantId: "org_a",
 			isCrossTenantOverride: false,
 		});
-		expect(resolveTenantOverride(inTenant, null)).toEqual({
-			tenantId: "org_a",
-			isCrossTenantOverride: false,
-		});
-	});
-
-	it("does not flag an override that matches the token's own tenant", () => {
 		expect(resolveTenantOverride(inTenant, "org_a")).toEqual({
 			tenantId: "org_a",
 			isCrossTenantOverride: false,

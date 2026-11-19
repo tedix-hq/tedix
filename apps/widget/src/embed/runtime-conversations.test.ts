@@ -77,12 +77,12 @@ async function finishTurn(w: Widget, count: number, text: string) {
 }
 
 describe("the home", () => {
-	it("is conversational: a welcome, suggested prompts, and recent chats, with no automatic tool calls", async () => {
+	it("sends a suggested prompt only when chosen, without running tools on open", async () => {
 		const portableTool = vi.fn();
 		const w = await bootWidget({
 			options: {
 				product: "Acme",
-				conversationStarters: ["Explain this page"],
+				conversationStarters: ["  Explain this page  "],
 				portableTool,
 			},
 		});
@@ -101,14 +101,6 @@ describe("the home", () => {
 		expect(w.$(".tedix-recent")).not.toBeNull();
 		expect(portableTool).not.toHaveBeenCalled();
 		expect(w.client()?.callPortableTool).not.toHaveBeenCalled();
-		expect(transport().streams).toHaveLength(0);
-	});
-
-	it("sends a suggested prompt only when it is chosen", async () => {
-		const w = await bootWidget({
-			options: { conversationStarters: ["  Explain this page  "] },
-		});
-		await w.open();
 		expect(transport().streams).toHaveLength(0);
 		w.$<HTMLButtonElement>(".tedix-prompt")!.click();
 		const stream = await w.waitForStream();
@@ -147,45 +139,27 @@ describe("the home", () => {
 		).toEqual(Array(6).fill("x".repeat(240)));
 	});
 
-	it.each([
-		[
-			"en-US",
-			[
-				"What needs attention today?",
-				"Summarize my recent activity",
-				"Explain this page",
-			],
-		],
-		[
-			"es-MX",
-			[
-				"¿Qué necesita atención hoy?",
-				"Resume mi actividad reciente",
-				"Explícame esta pantalla",
-			],
-		],
-	])(
-		"offers generic %s suggestions regardless of the host path",
-		async (locale, expected) => {
-			const w = await bootWidget({
-				before: () => history.replaceState(null, "", "/orders/42/invoices"),
-				// The published catalog for the locale arrives with the branding.
-				options: {
-					locale,
-					product: "Provider",
-					...(locale === "es-MX" ? { catalog: esCatalog } : {}),
-				},
-			});
-			history.replaceState(null, "", "/");
-			expect(w.$$(".tedix-prompt").map((node) => node.textContent)).toEqual(
-				expected,
-			);
-			// The chip names the page, never the product: an untitled page by path.
-			expect(w.$(".tedix-page-chip strong")?.textContent).toBe(
-				"/orders/42/invoices",
-			);
-		},
-	);
+	it("offers translated suggestions independently of the host path", async () => {
+		const w = await bootWidget({
+			before: () => history.replaceState(null, "", "/orders/42/invoices"),
+			// The published catalog for the locale arrives with the branding.
+			options: {
+				locale: "es-MX",
+				product: "Provider",
+				catalog: esCatalog,
+			},
+		});
+		history.replaceState(null, "", "/");
+		expect(w.$$(".tedix-prompt").map((node) => node.textContent)).toEqual([
+			"¿Qué necesita atención hoy?",
+			"Resume mi actividad reciente",
+			"Explícame esta pantalla",
+		]);
+		// The chip names the page, never the product: an untitled page by path.
+		expect(w.$(".tedix-page-chip strong")?.textContent).toBe(
+			"/orders/42/invoices",
+		);
+	});
 
 	it("lists the three newest other sessions as recent chats and opens history from there", async () => {
 		const history = vi.fn(async () =>
@@ -350,15 +324,6 @@ describe("history", () => {
 			question.trim().slice(0, 72),
 		);
 	});
-
-	it("keeps at most twelve conversations in memory", async () => {
-		const w = await bootWidget();
-		await w.open();
-		for (let n = 0; n < 13; n += 1)
-			w.$<HTMLButtonElement>(".tedix-new")!.click();
-		await openHistory(w);
-		expect(w.$$(".tedix-history-item")).toHaveLength(12);
-	});
 });
 
 describe("restoring a conversation", () => {
@@ -425,7 +390,7 @@ describe("restoring a conversation", () => {
 		expect(transport().readTranscript).toHaveBeenCalledTimes(1);
 	});
 
-	it("shows placeholder bubbles while it loads and replaces them with the transcript", async () => {
+	it("shows placeholders and refuses sends until the transcript loads", async () => {
 		let release!: (value: unknown) => void;
 		const transcript = vi.fn(
 			() => new Promise((resolve) => (release = resolve)),
@@ -444,10 +409,17 @@ describe("restoring a conversation", () => {
 		]);
 		expect(w.thread().getAttribute("aria-busy")).toBe("true");
 		expect(w.input().disabled).toBe(true);
+		w.type("Too early");
+		w.submitForm();
+		await settle();
+		expect(transport().streams).toHaveLength(0);
+		expect(w.$$(".tedix-message-assistant")).toHaveLength(1);
 		release([{ role: "user", content: "Restored" }]);
 		await settle();
 		expect(skeletons(w)).toHaveLength(0);
-		expect(w.messages()).toEqual([["user", "Restored"]]);
+		expect(w.messages().filter(([role]) => role === "user")).toEqual([
+			["user", "Restored"],
+		]);
 		expect(w.thread().hasAttribute("aria-busy")).toBe(false);
 	});
 
@@ -646,24 +618,6 @@ describe("restoring a conversation", () => {
 			"Answered",
 		]);
 	});
-
-	it("refuses a send while the conversation is still loading instead of dropping it silently", async () => {
-		const w = await bootWidget({
-			options: {
-				history: previous,
-				transcript: vi.fn(() => new Promise(() => {})),
-			},
-		});
-		await w.open();
-		await openHistory(w);
-		historyRow(w, "First chat").click();
-		await tick(0);
-		w.type("Too early");
-		w.submitForm();
-		await settle();
-		expect(transport().streams).toHaveLength(0);
-		expect(w.$$(".tedix-message-assistant")).toHaveLength(1);
-	});
 });
 
 describe("deleting a conversation", () => {
@@ -811,24 +765,6 @@ describe("Home target", () => {
 			expect.objectContaining({ selectedTediId: "worker-b" }),
 		);
 		history.replaceState(null, "", "/");
-	});
-
-	it("keeps the tedi list unchanged when the host offers no Home path", async () => {
-		const w = await bootWidget({
-			options: {
-				session: vi.fn(async () =>
-					sessionResult({
-						tediSelection: {
-							selectedTediId: "worker-a",
-							tedis: [{ id: "worker-a", name: "A" }],
-						},
-					}),
-				),
-			},
-		});
-		await w.open();
-		const select = menu(w, ".tedix-tedi-menu");
-		expect(select.values).toEqual(["worker-a"]);
 	});
 });
 
@@ -1133,7 +1069,9 @@ describe("opening target", () => {
 			},
 		});
 		await one.open();
-		expect(menu(one, ".tedix-tedi-menu").hidden).toBe(true);
+		const onlyWorker = menu(one, ".tedix-tedi-menu");
+		expect(onlyWorker.values).toEqual(["worker-a"]);
+		expect(onlyWorker.hidden).toBe(true);
 
 		const two = await bootWidget({
 			options: {

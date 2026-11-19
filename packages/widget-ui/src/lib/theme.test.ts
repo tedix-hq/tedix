@@ -235,7 +235,7 @@ describe("generateBrandThemeCss - contrast correction", () => {
 		backgroundColor: "#FFFFFF",
 	};
 
-	it("corrects a low-contrast brand color instead of warning about it", () => {
+	it("preserves the brand and reports the contrast of the corrected color it emits", () => {
 		const { css, substitutions } = buildBrandTheme(lowContrastBrand);
 		const base = varsFor(css, "base");
 
@@ -248,31 +248,14 @@ describe("generateBrandThemeCss - contrast correction", () => {
 
 		// The correction is in the emitted CSS, not just in the report.
 		expect(base.get("--primary")).not.toBe(base.get("--brand-primary"));
-	});
-
-	it("emits a corrected color that measurably clears 4.5:1", () => {
-		const base = varsFor(generateBrandThemeCss(lowContrastBrand), "base");
-
 		expect(
 			getContrastRatio(emittedHex(base, "--primary"), "#FFFFFF"),
 		).toBeGreaterThanOrEqual(4.5);
-	});
-
-	it("reports the ratio it actually achieved, measured on the emitted color", () => {
-		const [substitution] = getBrandThemeContrastReport(lowContrastBrand);
-
-		expect(substitution.ratio).toBeCloseTo(
-			getContrastRatio(substitution.emitted, substitution.background),
+		expect(substitution?.ratio).toBeCloseTo(
+			getContrastRatio(emittedHex(base, "--primary"), "#FFFFFF"),
 			6,
 		);
-		expect(substitution.ratio).toBeGreaterThanOrEqual(4.5);
-	});
-
-	it("preserves the brand of record while correcting the semantic token", () => {
-		const base = varsFor(generateBrandThemeCss(lowContrastBrand), "base");
-
 		expect(emittedHex(base, "--brand-primary")).toBe("#ffe600");
-		expect(emittedHex(base, "--primary")).not.toBe("#ffe600");
 		// Hue survives the correction: it is the tenant's yellow, just darker.
 		expect(parseOklch(base.get("--primary") ?? "").h).toBeCloseTo(
 			hexToOklch("#FFE600").h,

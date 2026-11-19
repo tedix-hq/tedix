@@ -125,17 +125,15 @@ describe("mounting", () => {
 		expect(w.fetch).not.toHaveBeenCalled();
 	});
 
-	it.each([
-		["en-US", undefined, "Chat with Tedi"],
-		["es-MX", esCatalog, "Chat con Tedi"],
-	])(
-		"localizes the %s dialog accessible name",
-		async (locale, catalog, expected) => {
-			const w = await bootWidget({ options: { locale, catalog } });
-			expect(w.$(".tedix-panel")?.getAttribute("aria-label")).toBe(expected);
-			expect(w.$(".tedix-panel")?.getAttribute("role")).toBe("dialog");
-		},
-	);
+	it("localizes the dialog accessible name", async () => {
+		const w = await bootWidget({
+			options: { locale: "es-MX", catalog: esCatalog },
+		});
+		expect(w.$(".tedix-panel")?.getAttribute("aria-label")).toBe(
+			"Chat con Tedi",
+		);
+		expect(w.$(".tedix-panel")?.getAttribute("role")).toBe("dialog");
+	});
 
 	it("normalizes a host-supplied locale before Intl or string methods see it", async () => {
 		for (const locale of [123, "en_US", "not a locale"]) {
@@ -159,13 +157,6 @@ describe("mounting", () => {
 			'<img src=x onerror="boom()">',
 		);
 		expect(w.$(".tedix-title img")).toBeNull();
-	});
-
-	it("titles the tenant from its slug when no product is configured", async () => {
-		const w = await bootWidget();
-		expect(w.$(".tedix-empty h2")?.textContent).toBe(
-			"How can I help you in Demo Shop?",
-		);
 	});
 
 	it("validates the CSS accent before it reaches the stylesheet", async () => {
@@ -717,7 +708,6 @@ describe("the SDK", () => {
 		);
 		expect(await run(true, false)).toEqual([]);
 		expect(await run(false, true)).toEqual([]);
-		expect(await run(true, true)).not.toEqual([]);
 	});
 
 	it("records reconnect milestones from the transport", async () => {

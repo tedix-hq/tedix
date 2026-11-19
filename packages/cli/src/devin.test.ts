@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
@@ -31,6 +31,7 @@ import {
 } from "./devin-lane-thread";
 import { parseServeOptions } from "./lane-serve";
 import { runLaneProcess } from "./lane-run";
+import * as laneSubprocess from "./lane-command";
 import { parseLaneResult } from "./lane-result";
 import novemberTranscript from "./fixtures/devin-2026-11-05.atif.json";
 import { createDevinWorkBridge } from "./devin-work-bridge";
@@ -131,17 +132,23 @@ test("Devin is an explicit executor; logged-out installations are unavailable", 
 	});
 });
 
-test("Devin accepts a signed-in status command slower than ten seconds", async () => {
+test("Devin accepts a status command that confirms a login", async () => {
 	const binary = join(temporary(), "devin");
 	writeFileSync(
 		binary,
 		`#!${process.execPath}
-setTimeout(() => console.log('Logged in (via Devin).'), 10_500);
+console.log('Logged in (via Devin).');
 `,
 	);
 	chmodSync(binary, 0o700);
-	expect(await devinAvailability(binary)).toEqual({ available: true });
-}, 15_000);
+	const command = spyOn(laneSubprocess, "laneCommand");
+	try {
+		expect(await devinAvailability(binary)).toEqual({ available: true });
+		expect(command.mock.calls[0]?.[2]?.timeout).toBeGreaterThan(10_000);
+	} finally {
+		command.mockRestore();
+	}
+});
 
 test("Devin distinguishes a timed-out probe from logged-out and missing installations", async () => {
 	const dir = temporary();

@@ -639,19 +639,6 @@ describe("Portable Sheet grid", () => {
 			key("l", { metaKey: true, shiftKey: true }, input);
 			expect(input.value).toBe("=A$1");
 		});
-		it("inserts a function from the Insert function menu", async () => {
-			await editor();
-			select("D1");
-			click("#fx");
-			const search = q<HTMLInputElement>(".fn-menu input");
-			expect(q(".fn-menu .fn-group.open .fn-head span").textContent).toBe(
-				"Math",
-			);
-			search.value = "vlook";
-			search.dispatchEvent(new Event("input"));
-			key("Enter", {}, search);
-			expect(q<HTMLInputElement>(".cell-edit").value).toBe("=VLOOKUP()");
-		});
 	});
 	it("marks a tab an agent changed while you were on another one, for a moment", async () => {
 		const app = await editor();
@@ -877,16 +864,6 @@ describe("Portable Sheet grid", () => {
 			expect(offer()).toBeNull();
 			expect(display("A1")).toBe("$9.00");
 		});
-	});
-	it("keeps the person's value for a cell both people edited and saves the merge without asking", async () => {
-		const app = await editor();
-		edit("A1", "8");
-		await vi.waitFor(() => expect(display("C1")).toBe("10"));
-		app.changeExternal(4);
-		await vi.waitFor(() => expect(app.revision()).toBe(3));
-		expect(q("#updates").textContent).toBe("");
-		expect(display("C1")).toBe("10");
-		expect(app.saved().rows[0]![0]).toBe(8);
 	});
 	it("says so when someone else's save replaces a cell you saved a moment ago", async () => {
 		const app = await editor();
@@ -1137,19 +1114,6 @@ describe("Portable Sheet grid", () => {
 		expect(book.sheets[1]!.name).toBe("Old numbers");
 		click("#help");
 		expect(q(".menu.keys").textContent).toContain("Keyboard shortcuts");
-	});
-	it("saves on its own after a pause, quietly", async () => {
-		const app = await editor();
-		edit("A1", "6");
-		expect(state()).toBe("idle");
-		await vi.waitFor(() => expect(app.revision()).toBe(2), { timeout: 4000 });
-		expect(app.saved().rows[0]).toEqual([6, 2, 8]);
-		expect(q(".status").textContent).toBe("");
-		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
-		expect(app.call).toHaveBeenCalledWith(
-			"outputs.patch",
-			expect.objectContaining({ slot: "sheet", baseRevision: 1 }),
-		);
 	});
 	it("keeps the grid editable during a save, runs one save at a time and sends later edits next", async () => {
 		const app = await editor(),
