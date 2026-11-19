@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	browserFlakeCommand,
 	flakyFailure,
 	infrastructureFailure,
 } from "./rerun-on-infrastructure.mjs";
@@ -157,6 +158,35 @@ test("keeps a narrow failure when its rerun also fails", () => {
 
 test("never reruns a broad spec failure", () => {
 	expect(broadFailure).toMatchObject({ status: 1, attempts: 1, summary: "" });
+});
+
+test("retries only failed specs from a direct OS browser command", () => {
+	const command = [
+		"bun",
+		"run",
+		"--cwd",
+		"apps/os",
+		"test:browser:viewport",
+		"--shard",
+		"2/2",
+	];
+	const runner = "browser-tests/run-specs.ts";
+	const passing = "browser-tests/canvas-view-switcher.spec.ts";
+	const failing = "browser-tests/workspace-phone.spec.ts";
+	const recipe = `bun ${runner} ${passing} ${failing}`;
+	expect(
+		browserFlakeCommand(command, [failing], { [command[4]!]: recipe }),
+	).toEqual(["bun", "run", "--cwd", "apps/os", runner, failing]);
+	expect(
+		browserFlakeCommand(command, [failing], {
+			[command[4]!]: `${recipe} && bun other.ts`,
+		}),
+	).toBe(command);
+	expect(
+		browserFlakeCommand(command, ["browser-tests/unknown.spec.ts"], {
+			[command[4]!]: recipe,
+		}),
+	).toBe(command);
 });
 
 test("names one to three failed specs as a possible flake, never a broad failure", () => {
