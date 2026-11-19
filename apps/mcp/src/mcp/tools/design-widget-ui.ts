@@ -10,10 +10,7 @@
 
 import * as z from "zod";
 import type { ToolAuthShape } from "@tedix/mcp-shared/auth/tool-scopes";
-import {
-	LAYOUT_CATALOG_PROMPT,
-	LAYOUT_CATALOG_YAML_PROMPT,
-} from "@tedix/api-contract/generated/layout-catalog-prompt";
+import { LAYOUT_CATALOG_YAML_PROMPT } from "@tedix/api-contract/generated/layout-catalog-prompt";
 import type { ServerContext, AppTool } from "../server-context";
 import { enforceMcpToolScopeAuthorization } from "../codemode-auth";
 import {
