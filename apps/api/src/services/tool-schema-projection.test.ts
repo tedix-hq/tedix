@@ -201,6 +201,7 @@ describe("liveness declaration", () => {
 		);
 		expect([...projected.keys()].sort()).toEqual([
 			"append_work_attempt_steps",
+			"claim_machine_tool_calls",
 			"heartbeat_work_item_attempt",
 			"report_dispatcher_health",
 			"report_work_agent_session_status",

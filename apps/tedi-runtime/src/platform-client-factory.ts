@@ -31,6 +31,7 @@ import {
 } from "@tedix/db/queries/tedi-runtime-bootstrap";
 import { decryptTediSecret } from "@tedix/db/utils/secrets-encryption";
 import { WEB_SEARCH_EXECUTE_SCOPE } from "@tedix/api-contract/schemas/web-search";
+import { MACHINES_USE_SCOPE } from "@tedix/api-contract/schemas/machines";
 import { WORK_RUN_STEER_SCOPE } from "@tedix/api-contract/schemas/work-attempt-steps";
 
 const DESCOPE_ACCESS_KEY_NAME = "DESCOPE_ACCESS_KEY";
@@ -57,6 +58,10 @@ export const TEDI_RUNTIME_SERVICE_BINDING_SCOPES = [
 	// steer a run. The API still limits a follow-up or a stop to the Work Item's
 	// owner or steward tedi. `mcp:work.read` and `mcp:work.write` stay withheld.
 	WORK_RUN_STEER_SCOPE,
+	// The machine tools (`machine-tools.ts`) list machines, queue a read-only
+	// tool call for one and read its result. The API accepts this scope only
+	// for those three procedures.
+	MACHINES_USE_SCOPE,
 ] as const;
 
 /** Exact headers for one trusted runtime -> API service-binding procedure. */

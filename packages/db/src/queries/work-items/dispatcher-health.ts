@@ -98,6 +98,9 @@ export async function upsertDispatcherHealthReport(
 				topReason: params.topReason ?? null,
 				topReasonCount: params.topReasonCount ?? null,
 				duty: params.duty ?? null,
+				machineName: params.machineName ?? null,
+				machineTools: params.machineTools ?? null,
+				reportedBy: params.reportedBy ?? null,
 			},
 		})
 		.returning();

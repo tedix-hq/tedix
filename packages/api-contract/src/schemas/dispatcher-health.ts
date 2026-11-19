@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { MachineNameSchema, ReportedMachineToolsSchema } from "./machines";
 
 const BoundedIdSchema = z.string().trim().min(1).max(128);
 
@@ -124,6 +125,10 @@ export const ReportDispatcherHealthInputSchema = z.object({
 	lastAdmissionAt: z.iso.datetime().nullable(),
 	topReason: DispatcherHealthTopReasonSchema.nullable(),
 	duty: SupervisorDutyHealthSchema.nullable().optional(),
+	/** The readable name of the machine this runner is on. */
+	machineName: MachineNameSchema.nullable().optional(),
+	/** The read-only machine tools this machine accepts; empty switches them off. */
+	machineTools: ReportedMachineToolsSchema.nullable().optional(),
 });
 
 export const DispatcherHealthReportSchema = z.object({
@@ -136,6 +141,7 @@ export const DispatcherHealthReportSchema = z.object({
 	lastAdmissionAt: z.iso.datetime().nullable(),
 	topReason: DispatcherHealthTopReasonSchema.nullable(),
 	duty: SupervisorDutyHealthSchema.nullable().optional(),
+	machineName: MachineNameSchema.nullable().optional(),
 	ageSeconds: z.number().int().nonnegative(),
 	staleAfterSeconds: z.number().int().positive(),
 	stale: z.boolean(),

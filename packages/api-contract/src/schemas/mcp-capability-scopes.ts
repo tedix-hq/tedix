@@ -156,6 +156,11 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	dispatch_repository_repair: "mcp:work",
 	list_repository_observations: "mcp:work",
 	list_work_item_cli_rows: "mcp:work",
+	// Machines and their read-only tool calls.
+	list_machines: "mcp:work",
+	request_machine_tool: "mcp:work",
+	read_machine_tool_call: "mcp:work",
+	claim_machine_tool_calls: "mcp:work",
 	get_work_item_checkpoint: "mcp:work",
 	list_work_attempt_cli_rows: "mcp:work",
 	list_work_evidence_cli_rows: "mcp:work",
@@ -752,6 +757,10 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	list_work_attempt_steps: "read",
 	send_work_attempt_message: "write",
 	stop_work_attempt: "write",
+	// "request" and "claim" match neither verb regex and would fall to the
+	// admin tier; the API procedure decides who may call.
+	request_machine_tool: "write",
+	claim_machine_tool_calls: "write",
 	submit_work_item_evidence: "write",
 	review_work_item_evidence: "write",
 	// "link"/"unlink" match neither the write nor read verb regexes and would

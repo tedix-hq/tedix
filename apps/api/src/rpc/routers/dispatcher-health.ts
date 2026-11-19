@@ -8,6 +8,7 @@ import {
 	upsertDispatcherHealthReport,
 } from "@tedix/db/queries/work-items/dispatcher-health";
 import { requireOrgId } from "../org-scope";
+import { machineReporterAccount } from "./machines-principal";
 import { type BaseContext, withAuth, withAuthorization } from "../orpc";
 
 const DISPATCHER_HEALTH_STALE_AFTER_SECONDS = 300;
@@ -30,6 +31,7 @@ function toReport(row: DispatcherHealthReportRow, now: Date) {
 		reportedAt: row.reportedAt,
 		lastAdmissionAt: row.lastAdmissionAt,
 		duty: row.duty ?? null,
+		machineName: row.machineName ?? null,
 		topReason:
 			row.topReason === null || row.topReasonCount === null
 				? null
@@ -45,6 +47,12 @@ const reportProcedure = os.report
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 		const now = new Date();
+		// A report that names its machine also records the account that sent it:
+		// only that account may later claim the machine's tool calls.
+		// A caller whose account cannot be resolved still reports its health.
+		const reportedBy = input.machineName
+			? await machineReporterAccount(context, orgId).catch(() => null)
+			: null;
 		const row = await upsertDispatcherHealthReport(context.db, {
 			orgId,
 			reporterId: input.reporterId,
@@ -57,6 +65,9 @@ const reportProcedure = os.report
 			topReason: input.topReason?.reason ?? null,
 			topReasonCount: input.topReason?.count ?? null,
 			duty: input.duty ?? null,
+			machineName: input.machineName ?? null,
+			machineTools: input.machineTools ?? null,
+			reportedBy,
 		});
 		return toReport(row, now);
 	});
