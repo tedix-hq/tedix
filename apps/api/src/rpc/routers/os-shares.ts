@@ -622,7 +622,12 @@ async function appRecipientAccounts(
 	const names = await listConnectionProviderNames(
 		db,
 		resources
-			.filter((row) => row.connectionScope === "user" && slots.has(row.slot))
+			.filter(
+				(row) =>
+					row.connectionScope === "user" &&
+					row.slot !== null &&
+					slots.has(row.slot),
+			)
 			.map((row) => row.providerId),
 	);
 	return [...new Set(names.values())].sort((a, b) => a.localeCompare(b));

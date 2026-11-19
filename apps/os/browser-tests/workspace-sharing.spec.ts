@@ -340,7 +340,11 @@ document.querySelector('button').onclick = async () => { const result = await te
 		} else if (endpoint === "listShared") json = { items: [] };
 		// Only an organization workspace asks which organization this is.
 		else if (endpoint === "getContext")
-			json = { organization: { name: "Fictional Org" } };
+			json = {
+				organization: { name: "Fictional Org" },
+				// The app share panel reads the signed-in person's permissions.
+				authority: { role: "member", permissions: ["os:author"] },
+			};
 		// Typing in the invite field looks colleagues up by name; none match here.
 		else if (endpoint === "suggestPeople") json = { people: [] };
 		else throw new Error(`Unexpected request ${endpoint}`);
