@@ -4501,6 +4501,8 @@ export class LaneDispatcher {
 				}, 5000);
 			};
 			let lastLeaseCheck = Date.now();
+			let nextLeaseProbe = 0;
+			let lastAgentEventAt: number | undefined;
 			leaseTimer = setInterval(() => {
 				if (receipt.interrupted) return;
 				if (Date.now() - lastLeaseCheck > 5_000)
@@ -4510,9 +4512,14 @@ export class LaneDispatcher {
 						`Lease check delayed by ${Date.now() - lastLeaseCheck} ms`,
 					);
 				lastLeaseCheck = Date.now();
-				if (Date.now() < leaseExpiry || !receipt.pid || checkingLease) return;
+				if (
+					lastLeaseCheck < Math.max(leaseExpiry, nextLeaseProbe) ||
+					!receipt.pid ||
+					checkingLease
+				)
+					return;
 				// A renewal may have reached the server even when its reply was lost.
-				// This final read cannot queue behind other Work or prolong an outage.
+				// Check directly so queued Work calls cannot delay the decision.
 				checkingLease = this.deps
 					.cli<{ data: WorkAttempt[] }>(
 						[
@@ -4550,7 +4557,11 @@ export class LaneDispatcher {
 					})
 					.catch((error) => {
 						this.log("lease-check-failed", item.id, String(error));
-						if (Date.now() >= leaseExpiry) stopExpiredChild();
+						const now = Date.now();
+						if (now < leaseExpiry) return;
+						const idleAt = (lastAgentEventAt ?? -Infinity) + 60_000;
+						if (now >= idleAt) stopExpiredChild();
+						else nextLeaseProbe = Math.min(now + 10_000, idleAt);
 					})
 					.finally(() => {
 						checkingLease = undefined;
@@ -4777,6 +4788,9 @@ export class LaneDispatcher {
 					onTelemetry: (telemetry) => {
 						receipt.telemetry = telemetry;
 						this.save(path, receipt);
+					},
+					onAgentEvent: (observedAt) => {
+						lastAgentEventAt = observedAt;
 					},
 					onNativeActivity: (activity) => {
 						receipt.nativeActivity = activity;

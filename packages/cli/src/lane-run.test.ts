@@ -320,6 +320,35 @@ it("pins the child's organization and workspace without inheriting a launcher At
 	expect(child.parent).toBeUndefined();
 });
 
+it.each(["codex", "claude"])(
+	"reports typed %s events from detached stdout",
+	async (agent) => {
+		const { args, out } = fixture();
+		const executable = join(out, "..", agent);
+		writeFileSync(
+			executable,
+			`#!${process.execPath}\nconsole.error('{"type":"stderr"}'); console.log('text noise\\n{}\\n{"type":"assistant"}');`,
+		);
+		chmodSync(executable, 0o700);
+		args[2] = agent === "codex" ? "codex" : "claude-code";
+		args.splice(
+			args.indexOf("--") + 1,
+			2,
+			executable,
+			...(agent === "codex" ? ["exec"] : ["--output-format", "stream-json"]),
+		);
+		const events: number[] = [];
+		const before = Date.now();
+		await runLaneProcess(args, {
+			detachedChild: true,
+			onAgentEvent: (observedAt) => events.push(observedAt),
+			report: async () => ({}),
+		});
+		expect(events).toHaveLength(1);
+		expect(events[0]).toBeGreaterThanOrEqual(before);
+	},
+);
+
 it("reconciles Claude output only against the admitted native identity and transcript", async () => {
 	const id = "11111111-1111-4111-8111-111111111111";
 	const foreign = "22222222-2222-4222-8222-222222222222";

@@ -183,6 +183,7 @@ async function runLaneProcessWithReporter(
 		}) => Promise<unknown>;
 		deliverWorkNote?: (note: string) => Promise<void>;
 		onSpawn?: (pid: number) => void;
+		onAgentEvent?: (observedAt: number) => void;
 		onTelemetry?: (value: LaneObservation) => void;
 		onNativeActivity?: (value: NativeProviderActivity) => void;
 		providerStallMs?: number;
@@ -633,6 +634,8 @@ async function runLaneProcessWithReporter(
 			for (const line of lines) {
 				try {
 					const event = JSON.parse(line);
+					if ((codexJson || claudeJson) && typeof event?.type === "string")
+						deps.onAgentEvent?.(Date.now());
 					if (
 						event.type === "error" ||
 						(claudeJson && event.type === "result" && event.is_error)
