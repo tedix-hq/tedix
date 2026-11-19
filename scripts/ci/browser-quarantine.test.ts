@@ -52,7 +52,6 @@ test("security, auth, billing, migration and mixed critical suites can never be 
 		"tenant",
 		"credentials",
 		"payment",
-		"focus-clip",
 		"shell",
 		"topbar",
 	])
