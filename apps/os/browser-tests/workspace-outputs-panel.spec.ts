@@ -301,8 +301,9 @@ try {
 			console.log(`outputs panel ${label}: ok`);
 		}
 
-		// Agents in a workspace that links a skill: one row with its counts,
-		// and its latest runs when opened, wide and narrow.
+		// Agents in a workspace that links a skill: the tedi that owns the
+		// skill is one row with its counts, and shows its latest runs and the
+		// skill's run list when opened, wide and narrow.
 		for (const [width, height] of [
 			[1280, 800],
 			[375, 740],
@@ -321,12 +322,14 @@ try {
 				`${server.origin}/workspace/00000030-0000-4000-8000-000000000001?pane=agents`,
 			);
 			const agents = page.getByRole("region", { name: "Workspace agents" });
-			const row = agents.locator("[data-workspace-agent]").first();
+			const row = agents.locator(
+				'[data-workspace-agent="tedi:00000010-0000-4000-8000-000000000001"]',
+			);
 			await row.waitFor();
 			assert.match(
 				(await row.textContent()) ?? "",
-				/Weekly revenue report/,
-				`${label}: the linked skill is an agent`,
+				/Reddit Scout/,
+				`${label}: the tedi that owns the linked skill is an agent`,
 			);
 			await row
 				.locator("[data-agent-counts]")
@@ -339,7 +342,9 @@ try {
 			);
 			await row.getByRole("button", { expanded: false }).click();
 			await row.locator("[data-agent-run]").first().waitFor();
-			await row.getByRole("link", { name: "See all runs" }).waitFor();
+			await row
+				.getByRole("link", { name: "Weekly revenue report · See all runs" })
+				.waitFor();
 			if (width < 640)
 				await page
 					.getByRole("group", { name: "Canvas pane" })
