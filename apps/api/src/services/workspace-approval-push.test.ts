@@ -9,6 +9,7 @@ import {
 	osWorkspaceShareLinks,
 } from "@tedix/db/schema/os-collaborators";
 import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
+import { tedis } from "@tedix/db/schema/tedis";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import {
 	workspaceActivity,
@@ -66,6 +67,7 @@ async function setup() {
 			osWorkspaceCollaborators,
 			osWorkspaceAccessEdges,
 			osWorkspaceShareLinks,
+			tedis,
 			workspaceActivity,
 			workspaceFeedCursors,
 			workspaceFeedLedger,
@@ -112,6 +114,8 @@ async function setup() {
 		operation: string,
 		options: {
 			by?: string;
+			tedi?: string;
+			conversationId?: string;
 			turn?: string;
 			description?: string;
 			occurredAt?: string;
@@ -126,15 +130,21 @@ async function setup() {
 			kind: "run" as const,
 			entityId: options.turn ?? "turn-1",
 			revision: 1,
-			actorKind: options.by ? ("user" as const) : ("service" as const),
-			actorId: options.by ? `descope-${options.by}` : "workspace_object",
+			actorKind: options.tedi
+				? ("tedi" as const)
+				: options.by
+					? ("user" as const)
+					: ("service" as const),
+			actorId:
+				options.tedi ??
+				(options.by ? `descope-${options.by}` : "workspace_object"),
 			changeRecordId: `workspace-event:${seq}`,
 		};
 		const occurredAt = options.occurredAt ?? at;
 		await db.insert(workspaceFeedLedger).values({
 			...shared,
 			summary: JSON.stringify({
-				conversationId: CHAT,
+				conversationId: options.conversationId ?? CHAT,
 				...(options.description ? { description: options.description } : {}),
 				action: {
 					resource: "conversation",
@@ -182,6 +192,38 @@ async function setup() {
 }
 
 describe("workspace approval push", () => {
+	it("tells a tedi's owner about a waiting change once, subject to current decision permissions", async () => {
+		const { db, record, sweep, people } = await setup();
+		for (const owner of ["ben", "cy"])
+			await db.insert(tedis).values({
+				id: `tedi-${owner}`,
+				organizationId: "org-a",
+				name: "Helper",
+				slug: `helper-${owner}`,
+				ownerUserId: `descope-${owner}`,
+			});
+		await record("turn.started", { tedi: "tedi-ben" });
+		await record("approval.requested", { tedi: "tedi-ben" });
+		await record("approval.requested", { tedi: "tedi-cy", turn: "turn-2" });
+		expect(await sweep()).toEqual({ workspaces: 1, notified: 1 });
+		expect(people()).toEqual(["ben"]);
+		expect(await sweep(NOW + 120_000)).toEqual({ workspaces: 1, notified: 0 });
+	});
+
+	it("does not resolve a tedi owner from another organization", async () => {
+		const { db, record, sweep, people } = await setup();
+		await db.insert(tedis).values({
+			id: "foreign-tedi",
+			organizationId: "org-b",
+			name: "Helper",
+			slug: "helper",
+			ownerUserId: "descope-ben",
+		});
+		await record("approval.requested", { tedi: "foreign-tedi" });
+		expect(await sweep()).toEqual({ workspaces: 1, notified: 0 });
+		expect(people()).toEqual([]);
+	});
+
 	it("tells a person who can decide once, without content, and not someone who cannot", async () => {
 		const { record, sweep, people } = await setup();
 		await record("turn.started", { by: "ben" });

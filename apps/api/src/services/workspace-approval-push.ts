@@ -13,7 +13,8 @@
  * never carries a title, an argument or content.
  *
  * Nothing calls the API when a request starts waiting, so a schedule reads
- * the workspace activity feed for new requests every two minutes.
+ * the workspace activity feed for new requests and tedi chat posts every two
+ * minutes.
  */
 
 import { operationAllowed } from "@tedix/api-contract/schemas/os-collaborators";
@@ -29,6 +30,7 @@ import {
 import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import { readWorkspaceSessionRole } from "@tedix/db/queries/os-workspace-access";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import {
 	hasVisiblePushConversation,
 	listPushConfigs,
@@ -44,7 +46,10 @@ import type { DbQueryClient } from "@tedix/db/query-client";
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import type { BaseContext } from "../rpc/context";
 import { sendPushToDevices, webPushKeys } from "./web-push";
-import { workspacePushVisibilityKey } from "./workspace-chat-push";
+import {
+	notifyWorkspaceTediChats,
+	workspacePushVisibilityKey,
+} from "./workspace-chat-push";
 
 /** A request older than this no longer notifies; the in-app notice remains. */
 export const APPROVAL_PUSH_REQUEST_AGE_MS = 10 * 60_000;
@@ -143,7 +148,8 @@ function messageBody(waiting: WaitingApprovalRequests): string {
 
 /**
  * Tell the people who can decide. They are looked for among the people who
- * acted in the workspace lately, its owner and the people it was shared with;
+ * acted in the workspace lately, their tedis' owners, its owner and the people
+ * it was shared with;
  * each one's role is read now, so someone who lost access is not told.
  */
 async function notifyWaitingApprovals(
@@ -161,8 +167,19 @@ async function notifyWaitingApprovals(
 	const organizationId = workspace.organizationId;
 	const candidates = new Set<string>();
 	// Whoever the agent was working for comes first.
-	for (const row of input.rows)
+	const tediIds = new Set<string>();
+	for (const row of input.rows) {
 		if (row.actorKind === "user") candidates.add(row.actorId);
+		else if (row.actorKind === "tedi") tediIds.add(row.actorId);
+	}
+	for (const tediId of tediIds) {
+		const tedi = await getTediByIdForOrganization(
+			context.db,
+			tediId,
+			organizationId,
+		);
+		if (tedi?.ownerUserId) candidates.add(tedi.ownerUserId);
+	}
 	if (workspace.ownerUserId) candidates.add(workspace.ownerUserId);
 	const shares = await loadOsWorkspacePermissionRows(db, {
 		organizationId,
@@ -263,10 +280,17 @@ export async function pushWaitingWorkspaceApprovals(
 	let notified = 0;
 	for (const [index, entry] of moved.entries()) {
 		const rows = feeds[index] ?? [];
-		const waiting = waitingApprovalRequests(rows, since);
-		if (!waiting) continue;
 		const workspace = await getOsWorkspace(db, entry);
 		if (!workspace || workspace.status !== "active") continue;
+		notified += await notifyWorkspaceTediChats(
+			context,
+			db,
+			workspace,
+			rows,
+			new Date(now - MOVED_WINDOW_MS).toISOString(),
+		);
+		const waiting = waitingApprovalRequests(rows, since);
+		if (!waiting) continue;
 		workspaces += 1;
 		notified += await notifyWaitingApprovals(context, db, keys, {
 			workspace,
