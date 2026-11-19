@@ -46,7 +46,6 @@ import {
 	realpathSync,
 	readdirSync,
 	renameSync,
-	rmSync,
 	statfsSync,
 	statSync,
 	unlinkSync,
@@ -112,6 +111,7 @@ import {
 } from "./supervise-runners";
 import { newerInstalledVersion } from "./update";
 import { inDarkWake } from "./oauth-provider";
+import { lastLaneOutputTurn } from "./lane-output";
 import { runLaneProcess, reportLaneObservation } from "./lane-run";
 import { createLaneHeartbeat, createLaneStepSender } from "./lane-heartbeat";
 import {
@@ -1284,7 +1284,12 @@ function nativePreparationTimedOut(receipt: Receipt): boolean {
 function orphanStopNote(receipt: Receipt): string {
 	let tail = "";
 	if (receipt.repo && receipt.attemptId && UUID_RE.test(receipt.attemptId)) {
-		const path = join(dirname(receipt.repo), receipt.attemptId, "stderr-0.log");
+		const directory = join(dirname(receipt.repo), receipt.attemptId);
+		// The turn that was running is the last one that wrote there.
+		const path = join(
+			directory,
+			`stderr-${lastLaneOutputTurn(directory) ?? 0}.log`,
+		);
 		if (existsSync(path)) {
 			const size = statSync(path).size;
 			const buffer = Buffer.alloc(Math.min(size, 1200));
@@ -4874,10 +4879,21 @@ export class LaneDispatcher {
 			stepLog = steps;
 			stepTimer = setInterval(() => void steps.tick(), RUN_STEP_FLUSH_MS);
 			const brief = join(dir, "brief.txt");
-			const last = join(
-				dir,
-				executor === "codex" ? `${receipt.attemptId}-last.txt` : "last.txt",
-			);
+			// Codex writes each turn's result to a file of its own: the first
+			// free name, so a file left by an earlier turn or by this Attempt
+			// before a runner restart is never read as this turn's result, and
+			// the earlier result stays readable if the next turn cannot start.
+			const resultFile = () => {
+				if (executor !== "codex") return join(dir, "last.txt");
+				for (let turn = 0; ; turn++) {
+					const file = join(
+						dir,
+						`${receipt.attemptId}-last${turn ? `-${turn}` : ""}.txt`,
+					);
+					if (!existsSync(file)) return file;
+				}
+			};
+			let last = resultFile();
 			const resultSchema = join(dir, "result-schema.json");
 			if (executor === "codex")
 				writeFileSync(resultSchema, JSON.stringify(CodexLaneResultJsonSchema), {
@@ -5112,6 +5128,7 @@ export class LaneDispatcher {
 			// no answer turn.
 			let asked: LaneQuestion | undefined;
 			let unanswered: string | undefined;
+			let followUpNotStarted = false;
 			const goesOn = () =>
 				!run.stop &&
 				!receipt.interrupted &&
@@ -5160,20 +5177,46 @@ export class LaneDispatcher {
 						{ mode: 0o600 },
 					);
 					// A stale result file must never stand in for this turn's result.
-					if (executor === "codex") rmSync(last, { force: true });
+					const earlier = { last, telemetry: receipt.telemetry };
+					last = resultFile();
 					this.log(
 						"follow-up",
 						item.id,
 						`Turn ${run.followUpTurns} on ${receipt.session}: ${batch.map((message) => message.id).join(", ")}`,
 					);
 					run.launching = batch.map((message) => message.id);
-					exit = await runTurn(followUpBrief, true);
+					try {
+						exit = await runTurn(followUpBrief, true);
+					} catch (error) {
+						// A turn that started and then broke is this run's failure.
+						if (!run.launching) throw error;
+						// The turn never started, for a reason on this machine. The
+						// earlier turn's result stands and its messages stay unapplied.
+						run.launching = undefined;
+						last = earlier.last;
+						receipt.telemetry = earlier.telemetry;
+						followUpNotStarted = true;
+						const reason = `Follow-up not applied: its turn could not start (${String(error).slice(0, 300)})`;
+						if (asked) unanswered = reason;
+						steps.add(
+							"error",
+							`${reason}; the run ends with the earlier turn's result`,
+						);
+						this.log(
+							"follow-up-not-started",
+							item.id,
+							`${batch.map((message) => message.id).join(", ")}: ${String(error).slice(0, 300)}`,
+						);
+						await steps.flush(true);
+						break;
+					}
 					turnStopped = turnEnded(exit);
 					// A turn that never started leaves its follow-ups unapplied.
 					run.launching = undefined;
 					asked = undefined;
 					await steps.flush(true);
 				}
+				if (followUpNotStarted) break;
 				if (exit !== 0 || !goesOn() || receipt.verification) break;
 				const question = turnQuestion();
 				if (!question) break;

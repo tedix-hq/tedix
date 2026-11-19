@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -13,8 +14,9 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import * as retryTimers from "node:timers/promises";
+import { laneTurnOutputPaths } from "./lane-output";
 import { CodexLaneResultJsonSchema } from "./lane-result";
 import {
 	LaneDispatcher,
@@ -186,9 +188,16 @@ function fixture({
 		stepReplies: [] as Array<Record<string, unknown>[] | Error>,
 		stepCalls: [] as Array<{
 			attemptId?: string;
-			steps: Array<{ seq: number; kind: string; text: string }>;
+			steps: Array<{
+				seq: number;
+				kind: string;
+				text: string;
+				choices?: string[];
+			}>;
 			applied: string[];
 		}>,
+		// The output and result file each launch was given, in launch order.
+		turnFiles: [] as Array<{ output: string; result?: string }>,
 		// Runs inside each agent turn, after it started and before it ends.
 		duringTurn: undefined as
 			| ((turn: {
@@ -592,6 +601,17 @@ function fixture({
 				expect(brief).toContain("Do not pass one -m per trailer");
 			}
 			expect(deps?.forwardSignals).toBe(false);
+			// Like the real launcher, open this turn's output files in the
+			// Attempt's folder before the agent starts.
+			const output = laneTurnOutputPaths(deps!.detachedOutputDirectory!);
+			writeFileSync(output.stdout, "", { flag: "wx" });
+			writeFileSync(output.stderr, "", { flag: "wx" });
+			control.turnFiles.push({
+				output: `stdout-${output.turn}.log`,
+				...(nativeExecutor === "codex"
+					? { result: basename(args[args.indexOf("-o") + 1]!) }
+					: {}),
+			});
 			deps?.onSpawn?.(control.spawnPid ?? 2_000_000_000);
 			control.onAgentEvent = deps?.onAgentEvent;
 			await control.duringTurn?.({
@@ -10146,6 +10166,110 @@ describe("watching and steering a run", () => {
 			JSON.parse(readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"))
 				.stepSeq,
 		).toBe(5);
+		// The second launch of the Attempt writes beside the first, not over it.
+		expect(f.control.turnFiles).toEqual(twoTurnFiles);
+	});
+
+	// A second turn of one Attempt: the next output and result file names.
+	const twoTurnFiles = [
+		{ output: "stdout-0.log", result: "fictional-attempt-last.txt" },
+		{ output: "stdout-1.log", result: "fictional-attempt-last-1.txt" },
+	];
+
+	it("gives a resumed Attempt new file names and keeps the files an earlier runner left", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const run = join(f.dir, "runs", `${item().id}-2`);
+		const stale = join(run, "fictional-attempt-last.txt");
+		f.deps.provision = (_source, destination) => {
+			mkdirSync(join(run, "fictional-attempt"), { recursive: true });
+			mkdirSync(destination, { recursive: true });
+			writeFileSync(join(run, "fictional-attempt", "stdout-0.log"), "old 0");
+			writeFileSync(join(run, "fictional-attempt", "stderr-0.log"), "old e0");
+			writeFileSync(join(run, "fictional-attempt", "stdout-3.log"), "old 3");
+			writeFileSync(stale, "an earlier turn's result");
+			return destination;
+		};
+		let kept: string[] = [];
+		f.control.duringTurn = () => {
+			kept = [
+				readFileSync(join(run, "fictional-attempt", "stdout-0.log"), "utf8"),
+				readFileSync(join(run, "fictional-attempt", "stderr-0.log"), "utf8"),
+				readFileSync(join(run, "fictional-attempt", "stdout-3.log"), "utf8"),
+				readFileSync(stale, "utf8"),
+			];
+		};
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await dispatcher.drain();
+		expect(f.control.turnFiles).toEqual([
+			{ output: "stdout-4.log", result: "fictional-attempt-last-1.txt" },
+		]);
+		expect(kept).toEqual([
+			"old 0",
+			"old e0",
+			"old 3",
+			"an earlier turn's result",
+		]);
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+	});
+
+	it("settles the first turn's result when a follow-up turn cannot start", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		let output: string | undefined;
+		f.control.duringTurn = (turn) => {
+			f.control.finalMessage = `Result of turn ${turn.number}.`;
+			// Nothing more can be created in the Attempt's output folder.
+			output = join(
+				dirname(turn.args[turn.args.indexOf("--brief") + 1]!),
+				"fictional-attempt",
+			);
+			chmodSync(output, 0o500);
+		};
+		f.control.stepReplies = [[fromOwner("message-1", "Also cover pricing.")]];
+		try {
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+		} finally {
+			// The finished run was moved to the archive with its folders.
+			for (const run of [
+				dirname(output!),
+				...readdirSync(join(f.dir, "archive")).map((name) =>
+					join(f.dir, "archive", name),
+				),
+			])
+				if (existsSync(join(run, "fictional-attempt")))
+					chmodSync(join(run, "fictional-attempt"), 0o700);
+		}
+		expect(f.briefs).toHaveLength(2);
+		expect(f.control.turnFiles).toEqual(twoTurnFiles.slice(0, 1));
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
+			"Result of turn 1.",
+		);
+		const steps = sentSteps(f).map((step) => [step.kind, step.text]);
+		expect(steps.map(([kind]) => kind)).toEqual([
+			"started",
+			"follow_up",
+			"error",
+			"finished",
+		]);
+		expect(steps[2]![1]).toMatch(
+			/^Follow-up not applied: its turn could not start \(Error: EACCES.*\); the run ends with the earlier turn's result$/,
+		);
+		expect(steps[3]![1]).toBe("Agent run ended: succeeded");
+		// The message stays unapplied, so a later run still receives it.
+		expect(f.control.stepCalls.flatMap((call) => call.applied)).toEqual([]);
+		expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toMatch(
+			/"event":"follow-up-not-started".*message-1: Error: EACCES/,
+		);
 	});
 
 	it("keeps a run going when a send fails and sends the same steps again", async () => {
@@ -10476,6 +10600,7 @@ describe("watching and steering a run", () => {
 			expect(f.control.stepCalls.flatMap((call) => call.applied)).toEqual([
 				"message-1",
 			]);
+			expect(f.control.turnFiles).toEqual(twoTurnFiles);
 		} finally {
 			flush.restore();
 			kill.mockRestore();
@@ -10548,6 +10673,7 @@ describe("watching and steering a run", () => {
 				["follow_up", "subscriptions", undefined],
 				["finished", "Agent run ended: succeeded", undefined],
 			]);
+			expect(f.control.turnFiles).toEqual(twoTurnFiles);
 		} finally {
 			flush.restore();
 			clock.mockRestore();
