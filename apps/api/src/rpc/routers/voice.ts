@@ -1,4 +1,8 @@
 import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
+import {
+	createVoiceBilling,
+	VoiceCreditRefusal,
+} from "../../services/voice-billing";
 import { implement } from "@orpc/server";
 import { voiceContract } from "@tedix/api-contract/contracts/voice";
 import { getTediById } from "@tedix/db/queries/tedis";
@@ -27,7 +31,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 async function authorizeSpokenReplySubject(
 	context: BaseContext,
 	subject: { type: "kernel" } | { type: "tedi"; tediId: string },
-): Promise<string> {
+): Promise<{ organizationId: string; tediId: string | null }> {
 	if (subject.type === "kernel") {
 		if (!context.organizationId) {
 			throw createError(
@@ -35,7 +39,7 @@ async function authorizeSpokenReplySubject(
 				"Organization context required",
 			);
 		}
-		return context.organizationId;
+		return { organizationId: context.organizationId, tediId: null };
 	}
 
 	const tedi = await getTediById(context.db, subject.tediId);
@@ -54,14 +58,14 @@ async function authorizeSpokenReplySubject(
 	if (!context.organizationId && !context.tediId) {
 		throw createError(ErrorCodes.UNAUTHORIZED, "Organization context required");
 	}
-	return tedi.organizationId;
+	return { organizationId: tedi.organizationId, tediId: tedi.id };
 }
 
 export const voiceContractRouter = voiceOs.router({
 	synthesizeSpokenReply: authed.synthesizeSpokenReply
 		.use(AUTHZ.tedisRead)
 		.handler(async ({ context, input }) => {
-			const organizationId = await authorizeSpokenReplySubject(
+			const { organizationId, tediId } = await authorizeSpokenReplySubject(
 				context,
 				input.subject,
 			);
@@ -77,6 +81,16 @@ export const voiceContractRouter = voiceOs.router({
 					{
 						text: input.text,
 						voice: input.voice,
+						gatewayMetadata: {
+							orgId: organizationId,
+							tediId: tediId ?? undefined,
+						},
+						billing: createVoiceBilling({
+							env: context.env,
+							organizationId,
+							tediId,
+							source: tediId ? "operator" : "kernel",
+						}),
 					},
 				);
 				return {
@@ -85,6 +99,8 @@ export const voiceContractRouter = voiceOs.router({
 					provider: speech.provider,
 				};
 			} catch (error) {
+				if (error instanceof VoiceCreditRefusal)
+					throw createError(ErrorCodes.FORBIDDEN, error.message);
 				throw createError(
 					ErrorCodes.SERVICE_UNAVAILABLE,
 					error instanceof Error ? error.message : "TTS failed",

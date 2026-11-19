@@ -20,6 +20,17 @@ import {
 	type AiGatewayTransport,
 	resolveAiGatewayTransport,
 } from "@tedix/workers-ai/gateway-transport";
+import {
+	admitWithFallback,
+	azureVoiceDeploymentScope,
+	estimateAudioSeconds,
+	releaseVoiceHold,
+	settleVoiceHold,
+	VOICE_GATEWAY_CUSTOM_COST,
+	type VoiceBilling,
+	type VoiceBillingHold,
+	workersAiVoiceDeploymentScope,
+} from "./billing";
 
 /** Hard cap on attachment payload — keeps a runaway upload from blowing the
  * Worker memory/CPU budget. Tedix OS sends the browser's native recording container
@@ -206,6 +217,16 @@ export type VoiceGatewayMetadata = Record<
 	string | number | boolean | undefined
 >;
 
+/**
+ * Gateway usage envelope read by gateway cost ingestion. One transcription is
+ * one unit here; credits are charged from measured seconds at settlement.
+ */
+const STT_USAGE_ENVELOPE = JSON.stringify({ k: "voice_stt", u: "units", q: 1 });
+
+/**
+ * Cloudflare allows five flat metadata entries: `channel`, the package-owned
+ * `usage` envelope, and up to three caller entries (orgId, tediId, ...).
+ */
 function gatewayMetadata(
 	channel: "voice-stt",
 	metadata?: VoiceGatewayMetadata,
@@ -215,13 +236,28 @@ function gatewayMetadata(
 		...Object.entries(metadata ?? {})
 			.filter(
 				(entry): entry is [string, string | number | boolean] =>
+					entry[0] !== "channel" &&
+					entry[0] !== "usage" &&
 					entry[1] !== undefined &&
 					(typeof entry[1] === "string" ||
 						typeof entry[1] === "number" ||
 						typeof entry[1] === "boolean"),
 			)
-			.slice(0, 4),
+			.slice(0, 3),
+		["usage", STT_USAGE_ENVELOPE],
 	]);
+}
+
+/** Audio seconds a provider reported, rounded up, or null when absent. */
+function reportedSeconds(value: unknown): number | null {
+	return typeof value === "number" && Number.isFinite(value) && value > 0
+		? Math.ceil(value)
+		: null;
+}
+
+interface ProviderTranscript {
+	text: string;
+	seconds: number | null;
 }
 
 const DEFAULT_AZURE_STT_DEPLOYMENT = "gpt-transcribe";
@@ -356,7 +392,7 @@ async function transcribeAzure(
 	attachment: AudioAttachment,
 	metadata?: VoiceGatewayMetadata,
 	language?: string,
-): Promise<string> {
+): Promise<ProviderTranscript> {
 	const transport = azureSttTransport(env);
 	if (!transport) {
 		throw new SttError("Azure STT requires authenticated AI Gateway BYOK");
@@ -385,6 +421,9 @@ async function transcribeAzure(
 			// On the binding transport this is the pre-authenticated sentinel.
 			"cf-aig-authorization": `Bearer ${transport.authorization}`,
 			"cf-aig-metadata": JSON.stringify(gatewayMetadata("voice-stt", metadata)),
+			// Missing stored BYOK credentials must fail rather than change the payer.
+			"cf-aig-no-wholesale": "true",
+			"cf-aig-custom-cost": VOICE_GATEWAY_CUSTOM_COST,
 		};
 		res = await transport.fetch(url, {
 			method: "POST",
@@ -408,18 +447,28 @@ async function transcribeAzure(
 			`Azure STT failed (${res.status})${detail ? `: ${detail.slice(0, 300)}` : ""}`,
 		);
 	}
-	const json = (await res.json()) as { text?: unknown };
+	const json = (await res.json()) as {
+		text?: unknown;
+		duration?: unknown;
+		usage?: { type?: unknown; seconds?: unknown };
+	};
 	if (typeof json.text !== "string") {
 		throw new SttError("Azure STT returned no transcript text");
 	}
-	return json.text;
+	return {
+		text: json.text,
+		seconds:
+			(json.usage?.type === "duration"
+				? reportedSeconds(json.usage.seconds)
+				: null) ?? reportedSeconds(json.duration),
+	};
 }
 
 async function transcribeWorkersAi(
 	env: VoiceSttEnv,
 	bytes: Uint8Array,
 	metadata?: VoiceGatewayMetadata,
-): Promise<string> {
+): Promise<ProviderTranscript> {
 	// `@cf/openai/whisper` wants an int array of the raw audio bytes.
 	const audio: number[] = Array.from(bytes);
 	// AI Gateway for Workers AI rides the binding's `gateway` option.
@@ -431,13 +480,58 @@ async function transcribeWorkersAi(
 				},
 			}
 		: undefined;
-	const out = (await env.AI.run("@cf/openai/whisper", { audio }, options)) as {
+	const out = (await env.AI.run(WORKERS_AI_STT_MODEL, { audio }, options)) as {
 		text?: unknown;
+		words?: Array<{ end?: unknown }>;
 	};
 	if (typeof out.text !== "string") {
 		throw new SttError("Workers AI whisper returned no transcript text");
 	}
-	return out.text;
+	// Whisper reports word timings, not the clip length: the last word's end
+	// is the closest measured length it returns.
+	const lastWordEnd = Array.isArray(out.words)
+		? Math.max(
+				0,
+				...out.words.map((word) =>
+					typeof word?.end === "number" && Number.isFinite(word.end)
+						? word.end
+						: 0,
+				),
+			)
+		: 0;
+	return { text: out.text, seconds: reportedSeconds(lastWordEnd) };
+}
+
+const WORKERS_AI_STT_MODEL = "@cf/openai/whisper";
+
+export interface TranscribeOptions {
+	gatewayMetadata?: VoiceGatewayMetadata;
+	language?: string;
+	/** Credit admission for each provider attempt; see `./billing`. */
+	billing?: VoiceBilling;
+}
+
+/** Run one provider attempt inside its credit hold. */
+async function billedAttempt(
+	hold: VoiceBillingHold | undefined,
+	estimatedSeconds: number,
+	call: () => Promise<ProviderTranscript>,
+): Promise<ProviderTranscript> {
+	let result: ProviderTranscript;
+	try {
+		result = await call();
+	} catch (error) {
+		await releaseVoiceHold(hold, "provider_failed", "voice-stt");
+		throw error;
+	}
+	await settleVoiceHold(
+		hold,
+		result.seconds === null
+			? { quantity: estimatedSeconds, measured: false }
+			: { quantity: result.seconds, measured: true },
+		"voice-stt",
+	);
+	return result;
 }
 
 /**
@@ -448,32 +542,72 @@ async function transcribeWorkersAi(
  * Throws {@link SttError} only when BOTH providers fail (or validation fails) —
  * callers fail soft (dispatch the turn with a clear "[audio transcription
  * failed]" note rather than dropping the message).
+ *
+ * With `billing`, each provider attempt is admitted against the organization's
+ * credits first. An organization refusal throws and skips the fallback; an
+ * unpriced Azure deployment falls through to Workers AI.
  */
 export async function transcribeAudioAttachment(
 	env: VoiceSttEnv,
 	attachment: AudioAttachment,
-	options?: { gatewayMetadata?: VoiceGatewayMetadata; language?: string },
+	options?: TranscribeOptions,
 ): Promise<TranscriptionResult> {
 	const bytes = validateAudioAttachment(attachment);
+	const estimatedSeconds = estimateAudioSeconds(bytes.length);
 	if (hasAzureStt(env)) {
-		try {
-			const text = await transcribeAzure(
-				env,
-				bytes,
-				attachment,
-				options?.gatewayMetadata,
-				options?.language,
-			);
-			return { text: text.trim(), provider: "azure" };
-		} catch (azureErr) {
-			const reason =
-				azureErr instanceof Error ? azureErr.message : String(azureErr);
-			console.warn(
-				`[voice-stt] Azure STT failed, falling back to Workers AI whisper: ${reason}`,
-			);
+		const deployment =
+			env.AZURE_OPENAI_STT_DEPLOYMENT ?? DEFAULT_AZURE_STT_DEPLOYMENT;
+		const admitted = await admitWithFallback(
+			options?.billing,
+			{
+				provider: "azure-openai",
+				model: deployment,
+				deploymentScope: azureVoiceDeploymentScope(
+					env,
+					env.AZURE_OPENAI_RESOURCE as string,
+					deployment,
+				),
+				usageKind: "voice_stt",
+				unit: "seconds",
+				estimatedQuantity: estimatedSeconds,
+			},
+			"voice-stt",
+		);
+		if (admitted) {
+			try {
+				const { text } = await billedAttempt(
+					admitted.hold,
+					estimatedSeconds,
+					() =>
+						transcribeAzure(
+							env,
+							bytes,
+							attachment,
+							options?.gatewayMetadata,
+							options?.language,
+						),
+				);
+				return { text: text.trim(), provider: "azure" };
+			} catch (azureErr) {
+				const reason =
+					azureErr instanceof Error ? azureErr.message : String(azureErr);
+				console.warn(
+					`[voice-stt] Azure STT failed, falling back to Workers AI whisper: ${reason}`,
+				);
+			}
 		}
 	}
-	const text = await transcribeWorkersAi(env, bytes, options?.gatewayMetadata);
+	const hold = await options?.billing?.admit({
+		provider: "workers-ai",
+		model: WORKERS_AI_STT_MODEL,
+		deploymentScope: workersAiVoiceDeploymentScope(env),
+		usageKind: "voice_stt",
+		unit: "seconds",
+		estimatedQuantity: estimatedSeconds,
+	});
+	const { text } = await billedAttempt(hold, estimatedSeconds, () =>
+		transcribeWorkersAi(env, bytes, options?.gatewayMetadata),
+	);
 	return { text: text.trim(), provider: "workers-ai" };
 }
 
@@ -538,8 +672,10 @@ export interface ResolveVoiceMessageContentInput {
 	 * existing note. When false/unset, behavior is byte-for-byte unchanged.
 	 */
 	resolveImages?: boolean;
-	/** Flat primitive Gateway metadata, capped with `channel` to five entries. */
+	/** Flat primitive Gateway metadata; up to three entries reach the Gateway. */
 	gatewayMetadata?: VoiceGatewayMetadata;
+	/** Credit admission for the transcription; see `./billing`. */
+	billing?: VoiceBilling;
 }
 
 function buildNonAudioAttachmentNote(
@@ -582,7 +718,7 @@ export async function resolveVoiceMessageContent(
 			const result = await (input.transcribe ?? transcribeAudioAttachment)(
 				input.env,
 				audioAttachment,
-				{ gatewayMetadata: input.gatewayMetadata },
+				{ gatewayMetadata: input.gatewayMetadata, billing: input.billing },
 			);
 			content = buildTranscriptContent(content, result.text);
 			voiceTranscript = {

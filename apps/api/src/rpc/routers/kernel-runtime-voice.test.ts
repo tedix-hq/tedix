@@ -65,6 +65,7 @@ function createContext(db: ReturnType<typeof createVoiceTestDb>): BaseContext {
 		db: db as BaseContext["db"],
 		env: {
 			ENVIRONMENT: "test",
+			TEDIX_BILLING_SETTLEMENT_MODE: "external",
 		} as CloudflareEnv,
 		headers: new Headers(),
 		organizationId: ORG_ID,

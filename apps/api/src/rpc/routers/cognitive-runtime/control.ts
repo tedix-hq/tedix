@@ -1,6 +1,7 @@
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { admitPersonalRequest } from "../../../services/personal-request-authority";
 import { requireUnrestrictedModelEgress } from "../../../services/unrouted-model-egress";
+import { createVoiceBilling } from "../../../services/voice-billing";
 import { AUTHZ, ErrorCodes, createError } from "../../orpc";
 import {
 	ProvisioningHttpError,
@@ -105,12 +106,15 @@ export const enqueueMessageRoute = authed.enqueueMessage
 						orgId: tedi.organizationId,
 						tediId: tedi.id,
 						source: "voice-stt",
-						usage: JSON.stringify({
-							k: "voice_stt",
-							u: "units",
-							q: 1,
-						}),
 					},
+					billing: input.attachments?.some((a) => a.type === "audio")
+						? createVoiceBilling({
+								env: context.env,
+								organizationId: tedi.organizationId,
+								tediId: tedi.id,
+								source: "operator",
+							})
+						: undefined,
 				});
 		const attachments = normalizeMessageAttachments(input.attachments);
 		const turnMetadata = voiceTranscript

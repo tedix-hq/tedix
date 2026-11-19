@@ -3,6 +3,7 @@ import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { admitPersonalRequest } from "../../../services/personal-request-authority";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { requireUnrestrictedModelEgress } from "../../../services/unrouted-model-egress";
+import { createVoiceBilling } from "../../../services/voice-billing";
 import { isLocalDemoProject } from "@tedix/auth/local-demo";
 import { captureHomeKernelRequest } from "../../../kernel/request-home-source";
 import {
@@ -383,15 +384,14 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				attachments: input.attachments,
 				logContext: "kernelRuntime.enqueueMessage",
 				transcribe: activeTranscribeAudio,
-				gatewayMetadata: {
-					orgId: organizationId,
-					source: "voice-stt",
-					usage: JSON.stringify({
-						k: "voice_stt",
-						u: "units",
-						q: 1,
-					}),
-				},
+				gatewayMetadata: { orgId: organizationId, source: "voice-stt" },
+				billing: input.attachments?.some((a) => a.type === "audio")
+					? createVoiceBilling({
+							env: context.env,
+							organizationId,
+							source: "kernel",
+						})
+					: undefined,
 			});
 		const attachments = normalizeMessageAttachments(input.attachments);
 		// Validate private handles before persisting a turn; bytes stay in R2.

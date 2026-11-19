@@ -210,7 +210,11 @@ describe("transcribeAudioAttachment — Azure provider", () => {
 			channel: "voice-stt",
 			orgId: "org-1",
 			source: "voice-stt",
+			usage: '{"k":"voice_stt","u":"units","q":1}',
 		});
+		expect(
+			(init.headers as Record<string, string>)["cf-aig-no-wholesale"],
+		).toBe("true");
 		expect(init.body).toBeInstanceOf(FormData);
 	});
 

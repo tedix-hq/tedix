@@ -35,9 +35,14 @@ beforeEach(async () => {
 	sqlite = new DatabaseSync(":memory:");
 	onTestFinished(() => sqlite.close());
 	sqlite.exec(schemaDdl(organizations, organizationMembers));
+	// Empty governed-rate table: no voice rate is published.
+	sqlite.exec(
+		`CREATE TABLE provider_model_rate_versions (id TEXT PRIMARY KEY, provider TEXT NOT NULL, model_id TEXT NOT NULL, deployment_scope TEXT NOT NULL, input_token_min INTEGER NOT NULL DEFAULT 0, input_token_max INTEGER, effective_from TEXT NOT NULL, input_microusd_per_million INTEGER NOT NULL, output_microusd_per_million INTEGER NOT NULL, cache_read_microusd_per_million INTEGER NOT NULL, cache_write_microusd_per_million INTEGER NOT NULL, currency TEXT NOT NULL, evidence_uri TEXT NOT NULL, evidence_digest TEXT NOT NULL, verified_at TEXT NOT NULL, published_at TEXT NOT NULL, published_by TEXT NOT NULL, change_reason TEXT NOT NULL, supersedes_rate_version_id TEXT)`,
+	);
 	env = {
 		DB: createD1Facade(sqlite),
 		PLATFORM_SERVICE_TOKEN: KEY,
+		TEDIX_BILLING_SETTLEMENT_MODE: "external",
 	} as CloudflareEnv;
 	const db = createDbClient(env.DB);
 	await db.insert(organizations).values({
@@ -141,9 +146,34 @@ describe("voice transcription", () => {
 				mimeType: "audio/webm",
 			}),
 			{
-				gatewayMetadata: { channel: "composer-dictation", organizationId: ORG },
+				gatewayMetadata: { orgId: ORG, source: "composer-dictation" },
+				billing: undefined,
 			},
 		);
+	});
+	it("admits managed dictation against the organization's credits", async () => {
+		env.TEDIX_BILLING_SETTLEMENT_MODE = "managed";
+		transcribe.mockImplementationOnce(async (_env, _audio, options) => {
+			// No governed voice rate is published in this database.
+			await options.billing.admit({
+				provider: "workers-ai",
+				model: "@cf/openai/whisper",
+				deploymentScope: '["workers-ai","acct"]',
+				usageKind: "voice_stt",
+				unit: "seconds",
+				estimatedQuantity: 4,
+			});
+			return { text: "unreachable" };
+		});
+		const response = await handleKernelVoiceTranscription(
+			await upload(new File(["audio"], "clip.webm")),
+			env,
+		);
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({
+			error: "Inference blocked by billing policy: pricing_unavailable",
+			code: "pricing_unavailable",
+		});
 	});
 	it("rejects absent, empty and oversized audio", async () => {
 		for (const file of [
