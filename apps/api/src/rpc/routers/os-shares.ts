@@ -33,7 +33,13 @@ import {
 import { getOsOutput } from "../../services/workspace-output-storage";
 import { getOsOutputRevision } from "../../services/os-workspace-outputs";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
-import { assertOsWorkspaceVisible } from "../../services/os-workspace-visibility";
+import {
+	assertOsWorkspaceVisible,
+	resolveOsWorkspaceOwnerCandidate,
+} from "../../services/os-workspace-visibility";
+import { readWorkspaceSessionRole } from "@tedix/db/queries/os-workspace-access";
+import { getRequestOrganizationMembership } from "../org-membership";
+import { roleImpliesPermission } from "@tedix/auth/rbac";
 import { listWorkspaceAccessHolders } from "../../services/os-workspace-collaborators";
 import { shareAccessChange } from "../../lib/os-share-access-preview";
 import { cutWorkspaceAppSessions } from "../../services/os-app-session-revocation";
@@ -293,13 +299,42 @@ async function requireLink(context: BaseContext, shareId: string) {
  */
 async function requireAudienceLink(context: BaseContext, shareId: string) {
 	const found = await requireLink(context, shareId);
-	if (
-		!found.isPrivate &&
-		context.authType === "user" &&
-		!(["os:admin", "settings:manage"] as const).some((permission) =>
+	const permissions = ["os:admin", "settings:manage"] as const;
+	let allowed = found.isPrivate;
+	if (context.authType === "user") {
+		allowed ||= permissions.some((permission) =>
 			userHoldsPermission(context, permission),
-		)
-	)
+		);
+	} else {
+		const callerId = await resolveOsWorkspaceOwnerCandidate(context);
+		allowed = false;
+		if (callerId) {
+			if (found.isPrivate) {
+				const workspaceId = await linkWorkspaceId(queryDb(context), found.link);
+				allowed =
+					workspaceId !== null &&
+					(await readWorkspaceSessionRole(
+						queryDb(context),
+						workspaceId,
+						callerId,
+					)) === "build";
+			} else {
+				const member = await getRequestOrganizationMembership(
+					context,
+					requireOrgId(context),
+					callerId,
+				);
+				allowed =
+					member?.status === "active" &&
+					permissions.some(
+						(permission) =>
+							roleImpliesPermission([member.role], permission) ||
+							member.customPermissions?.includes(permission),
+					);
+			}
+		}
+	}
+	if (!allowed)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
 			"Only an organization owner or admin can change who this link reaches",
