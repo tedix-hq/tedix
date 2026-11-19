@@ -101,6 +101,43 @@ describe("getCatalogAppsNeedingScan", () => {
 		const [next] = await getCatalogAppsNeedingScan(db, { limit: 1 });
 		expect(next?.id).toBe("first-party");
 	});
+
+	it("rescans apps named by slug or id once each, whatever their age", async () => {
+		const db = setup();
+		const fresh = new Date().toISOString();
+		for (const row of [
+			{ id: "site-builder", slug: "site-builder", endpoint: true },
+			{ id: "other", slug: "other", endpoint: true },
+			{ id: "no-endpoint", slug: "no-endpoint", endpoint: false },
+		]) {
+			await db.insert(appCatalog).values({
+				id: row.id,
+				name: row.id,
+				slug: row.slug,
+				mcpEndpointNormalized: row.endpoint
+					? `https://${row.slug}.example.com/mcp`
+					: null,
+				toolSource: "upstream_mcp",
+				connectorType: "MCP",
+				healthStatus: "healthy",
+				healthData: { lastCheckedAt: fresh },
+				lastSyncedAt: fresh,
+				createdAt: fresh,
+				updatedAt: fresh,
+			});
+		}
+
+		const bySlug = await getCatalogAppsNeedingScan(db, {
+			catalogAppSlugs: ["site-builder", "no-endpoint", "missing"],
+		});
+		expect(bySlug.map((app) => app.id)).toEqual(["site-builder"]);
+
+		const both = await getCatalogAppsNeedingScan(db, {
+			catalogAppIds: ["site-builder"],
+			catalogAppSlugs: ["site-builder", "other"],
+		});
+		expect(both.map((app) => app.id).sort()).toEqual(["other", "site-builder"]);
+	});
 });
 
 async function seed(db: ReturnType<typeof setup>) {

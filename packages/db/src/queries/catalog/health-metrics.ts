@@ -249,28 +249,39 @@ export async function getCatalogAppsNeedingScan(
 		limit?: number;
 		maxAgeHours?: number;
 		catalogAppIds?: string[];
+		/** Targeted rescan by slug, for callers that know an app only by name. */
+		catalogAppSlugs?: string[];
 	} = {},
 ): Promise<CatalogApp[]> {
-	const { limit = 25, maxAgeHours = 24, catalogAppIds } = options;
+	const {
+		limit = 25,
+		maxAgeHours = 24,
+		catalogAppIds,
+		catalogAppSlugs,
+	} = options;
 
 	// Targeted rescan: bypass age filter, just fetch the requested apps.
 	// Chunked: D1 caps bound parameters at 100 per statement.
-	if (catalogAppIds && catalogAppIds.length > 0) {
-		const targeted: CatalogApp[] = [];
-		for (const chunk of chunkForBoundParams([...new Set(catalogAppIds)], 50)) {
-			targeted.push(
-				...(await db
+	if (catalogAppIds?.length || catalogAppSlugs?.length) {
+		const targeted = new Map<string, CatalogApp>();
+		for (const [column, values] of [
+			[appCatalog.id, catalogAppIds ?? []],
+			[appCatalog.slug, catalogAppSlugs ?? []],
+		] as const) {
+			for (const chunk of chunkForBoundParams([...new Set(values)], 50)) {
+				const rows = await db
 					.select()
 					.from(appCatalog)
 					.where(
 						and(
-							inArray(appCatalog.id, chunk),
+							inArray(column, chunk),
 							sql`${appCatalog.mcpEndpointNormalized} IS NOT NULL`,
 						),
-					)),
-			);
+					);
+				for (const row of rows) targeted.set(row.id, row);
+			}
 		}
-		return targeted;
+		return [...targeted.values()];
 	}
 
 	const standardCutoff = new Date(
