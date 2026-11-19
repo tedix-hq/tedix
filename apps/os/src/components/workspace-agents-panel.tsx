@@ -297,8 +297,9 @@ function AgentRow({
 					</Text>
 				) : null}
 			</button>
+			{/* Indented to start under the name, past the caret and avatar. */}
 			{agent.tediId ? (
-				<div className="flex flex-wrap items-center gap-3 px-3 pb-3">
+				<div className="flex flex-wrap items-center gap-3 pr-3 pb-3 pl-19.5">
 					<Link
 						href={agent.profileHref!}
 						variant="navigation"

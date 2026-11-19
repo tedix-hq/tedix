@@ -197,7 +197,7 @@ describe("WorkspaceAgentsPanel", () => {
 			...agentRow("tedi:tedi-ops").querySelectorAll<HTMLAnchorElement>("a"),
 		].map((link) => [link.textContent, link.getAttribute("href")]);
 		expect(links).toEqual([
-			["View profile", "/tedis/tedi-ops"],
+			["View profile", "/team/tedi-ops"],
 			["Review", "/work/runs/run-1"],
 			["Open", "/work/runs/run-2"],
 			["Morning digest · See all runs", "/skills/digest/runs"],

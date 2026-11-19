@@ -266,7 +266,7 @@ describe("deriveWorkspaceAgents", () => {
 			name: "Ops",
 			avatar: "🦉",
 			detail: "Owned by Alex",
-			profileHref: "/tedis/t1",
+			profileHref: "/team/t1",
 			working: 2,
 			needsYou: 1,
 			today: 3,
