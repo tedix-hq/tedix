@@ -38,6 +38,7 @@ import { bindForwardedOwnerHostSession } from "../orpc";
 import { osCollaborationProcedures } from "./os-workspace-collaboration";
 import { organizations } from "@tedix/db/schema/organizations";
 import { projects } from "@tedix/db/schema/projects";
+import { tedis } from "@tedix/db/schema/tedis";
 import { workAttempts, workItems } from "@tedix/db/schema/work-items";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
@@ -113,6 +114,7 @@ async function fixture(manifestOverrides: Record<string, unknown> = {}) {
 			osWorkspaceShareLinks,
 			osWorkspaceShareKeys,
 			projects,
+			tedis,
 			workItems,
 			workAttempts,
 		),
@@ -2689,6 +2691,25 @@ describe("app edits from a delegated tedi", () => {
 	const childRunId = `${tediId}:mcp:${homeRunId}_workstation_${tediId}`;
 	async function delegated(conversationWorkspace: string) {
 		const f = await fixture();
+		// The delegated tedi reaches the workspace through its own builder grant.
+		await f.db.insert(tedis).values({
+			id: tediId,
+			organizationId: "org-1",
+			name: "App fixer",
+			slug: "app-fixer",
+			status: "active",
+			scope: "organization",
+		});
+		await f.db.insert(osWorkspaceAccessEdges).values({
+			id: "edge-delegated-tedi",
+			organizationId: "org-1",
+			workspaceId,
+			targetUserId: tediId,
+			kind: "tedi",
+			edgeKey: "user:user-1",
+			sharerUserId: "user-1",
+			role: "build",
+		});
 		await f.db.insert(kernelConversations).values({
 			id: "org-1:home:os:fix-app",
 			organizationId: "org-1",

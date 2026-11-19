@@ -9,6 +9,10 @@ const mocks = vi.hoisted(() => ({
 	apps: vi.fn(),
 	roles: vi.fn(),
 	management: vi.fn(),
+	workspaceRole: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/os-workspace-access", () => ({
+	readWorkspaceRuntimeRole: mocks.workspaceRole,
 }));
 vi.mock("@tedix/db/query-client", () => ({
 	createDbQueryClient: () => ({}),
@@ -83,8 +87,11 @@ describe("Workspace resource read authority", () => {
 			id: "tedi-1",
 			organizationId: "org-1",
 			descopeUserId: "descope-tedi-1",
+			ownerUserId: "owner-1",
 			retiredAt: null,
 		});
+		// The tedi holds its own builder grant on the Workspace.
+		mocks.workspaceRole.mockReset().mockResolvedValue("build");
 		mocks.apps.mockReset().mockResolvedValue([
 			{
 				id: "drive-app-1",
@@ -136,6 +143,19 @@ describe("Workspace resource read authority", () => {
 			"drive-app-1",
 		]);
 		expect(mocks.apps).toHaveBeenCalledWith({}, "org-1");
+		expect(mocks.workspaceRole).toHaveBeenCalledWith(
+			{},
+			{ organizationId: "org-1", workspaceId },
+			{ actorKind: "tedi", actorId: "tedi-1" },
+		);
+	});
+
+	it("leaves a tedi with no builder grant to the Workspace's ordinary visibility", async () => {
+		// The Workspace here belongs to the organization, which its tedis can see.
+		mocks.workspaceRole.mockResolvedValue(null);
+		await expect(
+			authorizeWorkspaceResourceRead(tediContext, input),
+		).resolves.toMatchObject({ resource: expect.anything() });
 	});
 
 	it.each([
@@ -184,6 +204,7 @@ describe("Workspace resource read authority", () => {
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		mocks.tedi.mockResolvedValue({
 			descopeUserId: "descope-tedi-1",
+			ownerUserId: "owner-1",
 			retiredAt: "2026-09-25T00:00:00Z",
 		});
 		await expect(

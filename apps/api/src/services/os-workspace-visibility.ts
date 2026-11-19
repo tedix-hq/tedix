@@ -124,31 +124,34 @@ export async function assertOsWorkspaceVisible(
 	message = "OS workspace not found",
 	options: { ownerOnly?: boolean } = {},
 ): Promise<void> {
+	// A tedi with its own build role sees the workspace, private ones included.
+	// A tedi without one is judged as before this rule existed: people who reach
+	// Tedix through a connected client act as the organization's tedi, and
+	// scheduled tedis write to organization workspaces, so refusing a role-less
+	// tedi here would lock them out.
 	if (
+		!options.ownerOnly &&
 		(context.authType === "tedi" || context.authType === "service-binding") &&
-		context.tediId
+		context.tediId &&
+		workspace.organizationId &&
+		workspace.organizationId === context.organizationId
 	) {
-		if (
-			context.authType === "service-binding" &&
-			context.descopeUserId &&
-			workspace.organizationId
-		) {
+		// A person acting through a tedi gets the tedi's role only when the tedi
+		// is theirs: a personal tedi inherits its owner's access.
+		let bound = true;
+		if (context.authType === "service-binding" && context.descopeUserId) {
 			const tedi = await getTediByIdForOrganization(
 				context.db,
 				context.tediId,
 				workspace.organizationId,
 			);
-			if (
-				!tedi ||
-				(tedi.ownerUserId !== context.descopeUserId &&
-					tedi.descopeUserId !== context.descopeUserId)
-			)
-				throw createError(ErrorCodes.NOT_FOUND, message);
+			bound =
+				!!tedi &&
+				(tedi.ownerUserId === context.descopeUserId ||
+					tedi.descopeUserId === context.descopeUserId);
 		}
 		if (
-			!options.ownerOnly &&
-			workspace.organizationId &&
-			workspace.organizationId === context.organizationId &&
+			bound &&
 			(await readWorkspaceRuntimeRole(
 				context.db,
 				{ organizationId: workspace.organizationId, workspaceId: workspace.id },
@@ -156,7 +159,6 @@ export async function assertOsWorkspaceVisible(
 			)) === "build"
 		)
 			return;
-		throw createError(ErrorCodes.NOT_FOUND, message);
 	}
 	if (workspace.visibility !== "private") return;
 	if (
