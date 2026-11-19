@@ -177,6 +177,7 @@ import { withTimeout } from "./with-timeout";
 import { createWorkApprovalAiTools as workAiTools } from "./work-approval-tools";
 import { delegatedWorkTools } from "./delegated-work-tools";
 import { agentRunTools } from "./agent-run-tools";
+import { tediRepositoryReadTools } from "./repository-read-tools";
 import {
 	RuntimeAdmissionDO,
 	readStoredRuntimeAdmission,
@@ -1212,6 +1213,10 @@ export const runtimeFacetTurns = {
 						conversationId: input.conversationId,
 						runId: input.runId,
 					});
+		const repositoryTools = tediRepositoryReadTools(
+			this.env,
+			this.state.tediId,
+		);
 		const unrestrictedTools: ToolSet = {
 			// Computer owns the durable filesystem and no-network isolate shell;
 			// native Git and checkpoints share that same workspace substrate.
@@ -1219,6 +1224,7 @@ export const runtimeFacetTurns = {
 			...(mcpRuntime ? tedixMcpAITools(mcpRuntime, turnBinding) : {}),
 			...workAiTools(() => this.getPlatformClient()),
 			...runTools,
+			...repositoryTools,
 			...(supervised &&
 			this.state.tediId &&
 			this.state.orgId &&
@@ -1284,10 +1290,10 @@ export const runtimeFacetTurns = {
 				input.authorityMode === "enforce" || Boolean(input.capabilityPlan),
 				hasOperatorRecordPlan(input.capabilityPlan),
 			),
-			// The delegated surface names none of the agent-run tools; a tedi the
-			// person picked keeps them. A capability plan, an enforced authority
-			// envelope and turn trust below still narrow them.
-			...(pickedInChat ? runTools : {}),
+			// The delegated surface names none of the agent-run or repository read
+			// tools; a tedi the person picked keeps them. A capability plan, an
+			// enforced authority envelope and turn trust below still narrow them.
+			...(pickedInChat ? { ...runTools, ...repositoryTools } : {}),
 		};
 		const capabilityTools = capabilityToolSet({
 			tools: input.capabilityPlan
