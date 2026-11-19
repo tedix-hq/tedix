@@ -4,7 +4,7 @@ import {
 	LAYOUT_CATALOG_ACTIONS,
 	LAYOUT_CATALOG_COMPONENTS,
 	LAYOUT_CATALOG_JSON_SCHEMA,
-	LAYOUT_CATALOG_PROMPT,
+	LAYOUT_CATALOG_YAML_PROMPT,
 } from "@tedix/api-contract/generated/layout-catalog-prompt";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { ServerContext } from "./server-context";
@@ -377,7 +377,7 @@ function codeModeUiCatalog(input: unknown): Record<string, unknown> {
 		)
 		.slice(0, 12)
 		.map((name) =>
-			LAYOUT_CATALOG_PROMPT.split("\n").find((line) =>
+			LAYOUT_CATALOG_YAML_PROMPT.split("\n").find((line) =>
 				line.startsWith(`- ${name}:`),
 			),
 		)

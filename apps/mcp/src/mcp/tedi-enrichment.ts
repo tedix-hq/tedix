@@ -8,7 +8,7 @@
  */
 
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
-import { LAYOUT_CATALOG_PROMPT } from "@tedix/api-contract/generated/layout-catalog-prompt";
+import { LAYOUT_CATALOG_YAML_PROMPT } from "@tedix/api-contract/generated/layout-catalog-prompt";
 import { createMcpLogger } from "../log";
 
 const log = createMcpLogger("mcp.tedi_enrichment");
@@ -136,7 +136,7 @@ export function buildEnrichmentRequest(params: {
 			toolTitle: params.toolTitle,
 			args: params.args,
 			rawResult: params.rawResult,
-			catalogPrompt: params.skipCatalogPrompt ? "" : LAYOUT_CATALOG_PROMPT,
+			catalogPrompt: params.skipCatalogPrompt ? "" : LAYOUT_CATALOG_YAML_PROMPT,
 			appContext: {
 				appSlug: params.appSlug,
 				vertical: params.vertical,

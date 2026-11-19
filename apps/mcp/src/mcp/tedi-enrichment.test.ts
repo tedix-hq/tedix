@@ -1,5 +1,5 @@
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
-import { LAYOUT_CATALOG_PROMPT } from "@tedix/api-contract/generated/layout-catalog-prompt";
+import { LAYOUT_CATALOG_YAML_PROMPT } from "@tedix/api-contract/generated/layout-catalog-prompt";
 import {
 	afterEach,
 	beforeEach,
@@ -86,7 +86,7 @@ describe("buildEnrichmentRequest", () => {
 				toolTitle: "List records",
 				args: before.args,
 				rawResult: before.rawResult,
-				catalogPrompt: LAYOUT_CATALOG_PROMPT,
+				catalogPrompt: LAYOUT_CATALOG_YAML_PROMPT,
 				appContext: { appSlug: "fixture-workspace", vertical: "operations" },
 				callerIdentity: {
 					authType: "oauth",
@@ -127,9 +127,9 @@ describe("buildEnrichmentRequest", () => {
 
 	it.each([false, true])("honors skipCatalogPrompt=%s", (skipCatalogPrompt) => {
 		const request = buildEnrichmentRequest({ ...context(), skipCatalogPrompt });
-		expect(LAYOUT_CATALOG_PROMPT.length).toBeGreaterThan(0);
+		expect(LAYOUT_CATALOG_YAML_PROMPT.length).toBeGreaterThan(0);
 		expect(request.payload.catalogPrompt).toBe(
-			skipCatalogPrompt ? "" : LAYOUT_CATALOG_PROMPT,
+			skipCatalogPrompt ? "" : LAYOUT_CATALOG_YAML_PROMPT,
 		);
 	});
 });
