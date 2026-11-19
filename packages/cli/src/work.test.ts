@@ -21,7 +21,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readDelegations } from "./delegation-ledger";
-import { TedixHomeClient } from "./home-client";
+import { TedixHomeClient, type TedixHomeClientOptions } from "./home-client";
+import { createLaneHeartbeat } from "./lane-heartbeat";
+import { fileGatewayCooldown } from "./gateway-cooldown";
 import { parseOptions } from "./options";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
 import { callConfiguredNativeTool, boardErrorFromValue } from "./work-native";
@@ -3238,36 +3240,109 @@ function modernContext(
 		name?: string;
 		args?: Record<string, unknown>;
 	}> = [];
+	const fetch: NonNullable<TedixHomeClientOptions["fetch"]> = async (
+		_url,
+		init,
+	) => {
+		const request = JSON.parse(String(init?.body));
+		wire.push({
+			method: request.method,
+			name: request.params?.name,
+			args: request.params?.arguments,
+		});
+		const result =
+			request.method === "server/discover"
+				? { supportedVersions: ["2026-07-28"], capabilities: {} }
+				: {
+						resultType: "complete",
+						content: [],
+						structuredContent: await invoke(
+							request.params.name,
+							request.params.arguments,
+							{},
+						),
+					};
+		return Response.json({ jsonrpc: "2.0", id: request.id, result });
+	};
 	const client = new TedixHomeClient({
 		discoveryCache,
 		url: fixture.ctx.mcpUrl!,
 		headers: { Authorization: "Bearer fictional-fixture" },
 		timeoutMs: 60_000,
-		fetch: async (_url, init) => {
-			const request = JSON.parse(String(init?.body));
-			wire.push({
-				method: request.method,
-				name: request.params?.name,
-				args: request.params?.arguments,
-			});
-			const result =
-				request.method === "server/discover"
-					? { supportedVersions: ["2026-07-28"], capabilities: {} }
-					: {
-							resultType: "complete",
-							content: [],
-							structuredContent: await invoke(
-								request.params.name,
-								request.params.arguments,
-								{},
-							),
-						};
-			return Response.json({ jsonrpc: "2.0", id: request.id, result });
-		},
+		fetch,
 	});
 	fixture.ctx.client = client;
-	return { ...fixture, wire, client };
+	return { ...fixture, wire, client, fetch };
 }
+
+test("dispatcher renews the same Attempt in-process during a shared gateway cooldown", async () => {
+	const url = "https://heartbeat.example.test/mcp";
+	const cooldown = fileGatewayCooldown();
+	cooldown.extend(url, Date.now() + 120_000);
+	expect(cooldown.read(url)).toBeGreaterThan(Date.now());
+	const expiry = { expiresAt: new Date(Date.now() + 300_000).toISOString() };
+	const fixture = modernContext({}, () => expiry);
+	const receipt = {
+		attemptId: ATTEMPT,
+		itemId: ITEM,
+		session: fixture.ctx.work.session!,
+		executorKey: "fictional-agent",
+	};
+	let authCalls = 0;
+	const renew = createLaneHeartbeat(
+		["--workspace", "test", "--organization", "org_fixture"],
+		{
+			attemptStore: fixture.attemptStore,
+			auth: async ({ workspace, organization, sessionKey, selector }) => {
+				authCalls++;
+				expect({ workspace, organization, sessionKey, selector }).toEqual({
+					workspace: "test",
+					organization: "org_fixture",
+					sessionKey: receipt.session,
+					selector: receipt.executorKey,
+				});
+				return {
+					headers: { Authorization: "Bearer fictional-dispatcher" },
+					mcpUrl: url,
+					source: "external-agent:fictional-agent",
+				};
+			},
+			fetch: (target, init) => {
+				expect(String(target)).toBe(url);
+				expect(new Headers(init?.headers).get("Authorization")).toBe(
+					"Bearer fictional-dispatcher",
+				);
+				return fixture.fetch(target, init);
+			},
+		},
+	);
+	const first = renew(receipt);
+	expect(renew({ ...receipt })).toBe(first);
+	expect(await first).toEqual(expiry);
+	fileDiscoveryCache().forget(url);
+	expect(await renew(receipt)).toEqual(expiry);
+	expect(cooldown.read(url)).toBeGreaterThan(Date.now());
+	expect(authCalls).toBe(1);
+	expect(
+		fixture.wire.filter((request) => request.method === "server/discover"),
+	).toHaveLength(1);
+	expect(fixture.sources).toEqual(
+		Array(2).fill(
+			`work.heartbeat_work_item_attempt(${JSON.stringify({ id: ITEM, attemptId: ATTEMPT })})`,
+		),
+	);
+	fixture.attemptStore.set(
+		{
+			workspace: "test",
+			actor: "credential",
+			agentSession: receipt.session,
+			workItemId: ITEM,
+		},
+		"replacement",
+	);
+	await expect(renew(receipt)).rejects.toMatchObject({ code: "STALE_ATTEMPT" });
+	expect(fixture.sources).toHaveLength(2);
+});
 
 describe("native Work bootstrap cache", () => {
 	function memoryCache() {

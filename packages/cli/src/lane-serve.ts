@@ -110,6 +110,7 @@ import {
 import { newerInstalledVersion } from "./update";
 import { inDarkWake } from "./oauth-provider";
 import { runLaneProcess, reportLaneObservation } from "./lane-run";
+import { createLaneHeartbeat } from "./lane-heartbeat";
 import type { LaneObservation } from "./lane-telemetry";
 import { CLI_VERSION, selfCommand } from "./shared";
 import {
@@ -2108,6 +2109,7 @@ export async function installLaneDependencies(repo: string) {
 interface DispatcherDeps {
 	health: typeof collectDispatcherHealth;
 	cli: typeof cli;
+	createHeartbeat: typeof createLaneHeartbeat;
 	observe: typeof reportLaneObservation;
 	devinAvailability: () =>
 		| Awaited<ReturnType<typeof devinAvailability>>
@@ -2170,6 +2172,7 @@ interface DispatcherDeps {
 const defaultDeps: DispatcherDeps = {
 	health: collectDispatcherHealth,
 	cli,
+	createHeartbeat: createLaneHeartbeat,
 	observe: reportLaneObservation,
 	confirmLogin: confirmStoredAccess,
 	gatewayCooldownUntil,
@@ -2268,6 +2271,7 @@ export class LaneDispatcher {
 	private ownerEnv = laneChildEnv();
 	private deps: DispatcherDeps;
 	private preflight: ReturnType<typeof cachedExecutorPreflight>;
+	private renewLease: ReturnType<typeof createLaneHeartbeat>;
 	private policy: RoutingPolicy;
 	private budgets: ExecutorBudgets = {};
 	private availability = Object.fromEntries(
@@ -2289,6 +2293,7 @@ export class LaneDispatcher {
 				),
 			deps.preflight,
 		);
+		this.renewLease = this.deps.createHeartbeat(options.scope);
 		this.policy = readRoutingPolicy(options.routingConfig);
 		const budgetPath = join(directory, "budgets.state");
 		if (existsSync(budgetPath))
@@ -2513,7 +2518,7 @@ export class LaneDispatcher {
 			);
 		const safe =
 			args[0] === "work" &&
-			["readiness", "dispatch-get", "dispatch-attempts", "heartbeat"].includes(
+			["readiness", "dispatch-get", "dispatch-attempts"].includes(
 				args[1] ?? "",
 			);
 		this.notePassProgress();
@@ -2531,15 +2536,10 @@ export class LaneDispatcher {
 							? readBudgetMs(READ_BUDGET_MS, this.running.size)
 							: undefined,
 					);
-		// A slow read or another run's renewal must not hold an Attempt's lease.
-		const result =
-			args[0] === "work" && args[1] === "heartbeat"
-				? operation()
-				: this.queue(
-						operation,
-						args[0] === "work" &&
-							["settle", "complete"].includes(args[1] ?? ""),
-					);
+		const result = this.queue(
+			operation,
+			args[0] === "work" && ["settle", "complete"].includes(args[1] ?? ""),
+		);
 		return result.finally(() => this.notePassProgress());
 	}
 	/**
@@ -4389,12 +4389,7 @@ export class LaneDispatcher {
 			}, 1000);
 			timer = setInterval(() => {
 				if (receipt.interrupted || heartbeating) return;
-				heartbeating = this.call<{ expiresAt: string }>(
-					["work", "heartbeat", item.id],
-					receipt.session,
-					receipt.executorKey,
-					receipt.attemptId,
-				)
+				heartbeating = this.renewLease(receipt)
 					.then((renewed) => {
 						const expiry = Date.parse(renewed.expiresAt);
 						if (Number.isFinite(expiry)) leaseExpiry = expiry;
@@ -5541,12 +5536,7 @@ export class LaneDispatcher {
 		const timer = setInterval(() => {
 			if (renewing) return;
 			renewing = true;
-			this.call(
-				["work", "heartbeat", receipt.itemId],
-				receipt.session,
-				receipt.executorKey,
-				receipt.attemptId,
-			)
+			this.renewLease(receipt)
 				.catch((error) =>
 					this.log("heartbeat-failed", receipt.itemId, String(error)),
 				)
@@ -5573,12 +5563,7 @@ export class LaneDispatcher {
 			receipt.retryAt = Date.now() + 60_000;
 			this.save(path, receipt);
 			try {
-				await this.call(
-					["work", "heartbeat", receipt.itemId],
-					receipt.session,
-					receipt.executorKey,
-					receipt.attemptId,
-				);
+				await this.renewLease(receipt);
 			} catch (error) {
 				this.log("proof-heartbeat-retained", receipt.itemId, String(error));
 				return;

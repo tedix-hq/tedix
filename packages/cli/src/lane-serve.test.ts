@@ -219,6 +219,15 @@ function fixture({
 	};
 	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
 		health: () => [],
+		createHeartbeat: (scope) => (receipt) =>
+			deps.cli!<{ expiresAt: string }>(
+				[...scope, "work", "heartbeat", receipt.itemId],
+				{
+					TEDIX_AGENT_SESSION: receipt.session,
+					TEDIX_EXTERNAL_AGENT: receipt.executorKey,
+					TEDIX_CLI_EXPECTED_ATTEMPT_ID: receipt.attemptId,
+				},
+			),
 		waitForIdentity: async () => undefined,
 		darkWake: () => dark,
 		gatewayCooldownUntil: (workspace) => {
@@ -1239,7 +1248,7 @@ describe("dispatcher admission", () => {
 			intervals.mockRestore();
 		}
 	});
-	it("renews the real heartbeat while a pickup read is still blocked", async () => {
+	it("renews through the in-process transport while a pickup read is blocked", async () => {
 		const f = fixture();
 		f.items.splice(1);
 		let heartbeat!: () => void;
@@ -1254,7 +1263,22 @@ describe("dispatcher admission", () => {
 		let blocked = false;
 		let blockNext = false;
 		const cli = f.deps.cli!;
+		f.deps.createHeartbeat = (scope) => async (receipt) => {
+			expect(receipt.itemId).toBe(item().id);
+			expect(receipt.session).toMatch(/^codex:/);
+			expect(receipt.executorKey).toBe("local-acme");
+			expect(receipt.attemptId).toBe("fictional-attempt");
+			return cli<{ expiresAt: string }>(
+				[...scope, "work", "heartbeat", receipt.itemId],
+				{
+					TEDIX_AGENT_SESSION: receipt.session,
+					TEDIX_EXTERNAL_AGENT: receipt.executorKey,
+					TEDIX_CLI_EXPECTED_ATTEMPT_ID: receipt.attemptId,
+				},
+			);
+		};
 		f.deps.cli = async (args, ...rest) => {
+			expect(args[5]).not.toBe("heartbeat");
 			if (args[5] === "dispatch-list" && blockNext && !blocked) {
 				blocked = true;
 				await new Promise<void>((resolve) => {
@@ -1268,11 +1292,18 @@ describe("dispatcher admission", () => {
 			await dispatcher.tick();
 			await until(() => f.releases.length === 1);
 
+			const pickup = () =>
+				dispatcher["call"]([
+					"work",
+					"dispatch-list",
+					"--input",
+					'{"dispatchReadyOnly":true}',
+				]);
 			blockNext = true;
-			const first = dispatcher.tick();
+			const first = pickup();
 			await until(() => Boolean(release));
 			const offset = f.events.length;
-			const second = dispatcher.tick();
+			const second = pickup();
 			heartbeat();
 			await until(() =>
 				f.events.slice(offset).some((event) => event.verb === "heartbeat"),
@@ -1320,11 +1351,9 @@ describe("dispatcher admission", () => {
 		const background = dispatcher["call"](read);
 		const settle = dispatcher["call"](["work", "settle", item().id]);
 		const complete = dispatcher["call"](["work", "complete", item().id]);
-		const heartbeat = dispatcher["call"](["work", "heartbeat", item().id]);
 		release();
-		await Promise.all([current, background, settle, complete, heartbeat]);
+		await Promise.all([current, background, settle, complete]);
 		expect(f.events.map((event) => event.verb)).toEqual([
-			"heartbeat",
 			"dispatch-list",
 			"settle",
 			"complete",
@@ -6036,22 +6065,6 @@ it("takes no slot count and pins selectors without persisting inherited identity
 		}),
 	).toEqual(env);
 });
-it("pins heartbeat auth to the admitted executor despite parent MCP overrides", async () => {
-	const f = fixture();
-	f.dispatcher["ownerEnv"].TEDIX_MCP_BEARER_TOKEN = "owner-token";
-	f.dispatcher["ownerEnv"].TEDIX_MCP_API_KEY = "owner-key";
-	await f.dispatcher["call"](
-		["work", "heartbeat", item().id],
-		"codex:admitted",
-		"admitted-agent",
-	);
-	const heartbeat = f.events.find((event) => event.verb === "heartbeat")!;
-	expect(heartbeat.env.TEDIX_AGENT_SESSION).toBe("codex:admitted");
-	expect(heartbeat.env.TEDIX_EXTERNAL_AGENT).toBe("admitted-agent");
-	expect(heartbeat.env.TEDIX_MCP_BEARER_TOKEN).toBeUndefined();
-	expect(heartbeat.env.TEDIX_MCP_API_KEY).toBeUndefined();
-});
-
 it("runs due heartbeats before queued normal calls without overlapping the current call", async () => {
 	const queue = serialCalls();
 	const events: string[] = [];

@@ -67,6 +67,9 @@ function fixture(configured = true) {
 	let sequence = 0;
 	const create = () =>
 		new LaneDispatcher(options, dir, {
+			createHeartbeat: () => async () => ({
+				expiresAt: new Date(Date.now() + 300_000).toISOString(),
+			}),
 			health: () => [],
 			darkWake: () => false,
 			available: () => ({ available: true }),
