@@ -192,6 +192,13 @@ describe("liveness declaration", () => {
 					: {}),
 			});
 		}
+		// Run steps share the Attempt heartbeat's class, so both get the same
+		// per-tool call limit.
+		expect(
+			projected.get("append_work_attempt_steps")?.["com.tedix/policy"],
+		).toEqual(
+			projected.get("heartbeat_work_item_attempt")?.["com.tedix/policy"],
+		);
 		expect([...projected.keys()].sort()).toEqual([
 			"append_work_attempt_steps",
 			"heartbeat_work_item_attempt",

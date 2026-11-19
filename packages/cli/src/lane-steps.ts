@@ -22,7 +22,18 @@ export const STEP_TEXT_LIMIT = 500;
 const COMMAND_LIMIT = 300;
 const STEP_BATCH = 50;
 const STEP_BUFFER = 500;
+/** How often the runner calls `tick`, and a run with new steps sends them. */
 export const RUN_STEP_FLUSH_MS = 5_000;
+/** How often a run with nothing to send asks for messages. */
+export const RUN_STEP_POLL_MS = 15_000;
+/**
+ * The server allows one caller 30 step calls a minute across all its runs, so
+ * the runs of one runner share 24: each sends at most once per this many
+ * milliseconds times the number of runs.
+ */
+const RUN_STEP_SHARE_MS = 2_500;
+const RUN_STEP_BACKOFF_MAX_MS = 60_000;
+const RATE_LIMITED = /rate limit exceeded|too many requests|\b429\b/i;
 
 /** Step text is masked for secret shapes and bounded; it is never reviewed. */
 export function stepText(value: unknown, limit = STEP_TEXT_LIMIT): string {
@@ -129,18 +140,28 @@ export function createRunStepLog(options: {
 	onSeq?: (seq: number) => void;
 	onMessage: (message: RunMessage) => void;
 	log: (event: string, detail: string) => void;
+	/** How many runs this runner has under way; they share one call budget. */
+	runs?: () => number;
+	now?: () => number;
 }) {
+	const now = options.now ?? Date.now;
 	let seq = options.seq ?? 0;
 	let buffer: Array<LaneStep & { seq: number; at: number }> = [];
 	let applied: string[] = [];
 	let unavailable = false;
 	let failing = false;
+	let sentAt = Number.NEGATIVE_INFINITY;
+	// After a rate-limit refusal: the wait before the next timed send, and
+	// the time before which a send that is refused again is not logged.
+	let backoffMs = 0;
+	let quietUntil = Number.NEGATIVE_INFINITY;
 	let inFlight: Promise<void> | undefined;
 	const seen = new Set<string>();
 	const sendOnce = async (): Promise<boolean> => {
 		const steps = buffer.slice(0, STEP_BATCH);
 		const ids = [...applied];
 		let result: unknown;
+		sentAt = now();
 		try {
 			result = await options.send(steps, ids);
 		} catch (error) {
@@ -161,6 +182,18 @@ export function createRunStepLog(options: {
 					"run-steps-stopped",
 					"The Attempt is stale; this run sends no more steps",
 				);
+			} else if (RATE_LIMITED.test(String(error))) {
+				backoffMs = Math.min(
+					RUN_STEP_BACKOFF_MAX_MS,
+					Math.max(RUN_STEP_FLUSH_MS, backoffMs) * 2,
+				);
+				if (sentAt >= quietUntil) {
+					quietUntil = sentAt + backoffMs;
+					options.log(
+						"run-steps-failed",
+						`Next send in ${backoffMs / 1000} s: ${String(error).slice(0, 400)}`,
+					);
+				}
 			} else if (!failing) {
 				failing = true;
 				options.log("run-steps-failed", String(error).slice(0, 400));
@@ -168,6 +201,8 @@ export function createRunStepLog(options: {
 			return false;
 		}
 		failing = false;
+		backoffMs = 0;
+		quietUntil = Number.NEGATIVE_INFINITY;
 		const sent = new Set(steps.map((step) => step.seq));
 		buffer = buffer.filter((step) => !sent.has(step.seq));
 		applied = applied.filter((id) => !ids.includes(id));
@@ -221,6 +256,24 @@ export function createRunStepLog(options: {
 		},
 		applied(ids: string[]) {
 			if (!unavailable) applied.push(...ids);
+		},
+		/**
+		 * Called on a timer. Sends when a send is due: every 5 seconds while
+		 * there are steps to send, every 15 seconds to read messages when
+		 * there are none, less often when several runs share the budget, and
+		 * after the backoff when the server refused the last send as too many.
+		 */
+		async tick(): Promise<void> {
+			if (unavailable || inFlight) return;
+			const idle = !buffer.length && !applied.length;
+			const shared = Math.max(1, options.runs?.() ?? 1) * RUN_STEP_SHARE_MS;
+			const wait = Math.max(
+				idle ? RUN_STEP_POLL_MS : RUN_STEP_FLUSH_MS,
+				Math.ceil(shared / RUN_STEP_FLUSH_MS) * RUN_STEP_FLUSH_MS,
+				backoffMs,
+			);
+			// Half a tick of slack: a timer that fires a little early still sends.
+			if (now() - sentAt >= wait - RUN_STEP_FLUSH_MS / 2) await this.flush();
 		},
 		/**
 		 * Send what is buffered and read new messages. `fresh` waits for a send

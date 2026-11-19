@@ -4735,6 +4735,7 @@ export class LaneDispatcher {
 					receipt.stepSeq = seq;
 				},
 				log: (event, detail) => this.log(event, item.id, detail),
+				runs: () => this.running.size,
 				onMessage: (message) => {
 					if (message.kind === "stop") {
 						if (run.stop) return;
@@ -4755,7 +4756,7 @@ export class LaneDispatcher {
 				},
 			});
 			stepLog = steps;
-			stepTimer = setInterval(() => void steps.flush(), RUN_STEP_FLUSH_MS);
+			stepTimer = setInterval(() => void steps.tick(), RUN_STEP_FLUSH_MS);
 			const brief = join(dir, "brief.txt");
 			const last = join(
 				dir,
