@@ -159,15 +159,15 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 			],
 			budget: {
 				configured: true,
-				includedTokens: 20_000_000,
-				usedTokens: 4_120_000,
-				reservedTokens: 60_000,
-				remainingIncludedTokens: 15_820_000,
-				unlimitedTokenUsage: false,
-				allowOverage: false,
+				includedCredits: creditUsage.includedCredits,
+				usedCredits: creditUsage.usedCredits,
+				heldCredits: 40,
+				topUpCredits: creditUsage.topUpCredits,
+				availableCredits:
+					creditUsage.remainingIncludedCredits + creditUsage.topUpCredits,
 				entitlementActive: true,
 				detail:
-					"Copied from the canonical billing balance snapshot the admission path reads; remaining already nets out live reservations.",
+					"Copied from the canonical credit pool the admission path reads; available already nets out credits held by calls in flight.",
 			},
 			routing: {
 				modelRef: "azure-openai/gpt-5.6-luna",
@@ -195,8 +195,7 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 			},
 			admissionPolicy: {
 				state: "d1_authoritative" as const,
-				desiredDailyTokenLimit: null,
-				desiredDailySpendLimitMicros: null,
+				allowedModelTiers: null,
 				detail:
 					"D1 is the sole inference-admission authority. Monthly credits are checked atomically with reservations; AI Gateway only records provider usage and cost.",
 			},
@@ -211,13 +210,6 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 			},
 		};
 	},
-	"billing/listProviderCapacitySponsorships": () => ({ data: [] }),
-	"billing/getInferenceSpending": () => ({
-		from: T1,
-		to: T5,
-		hasMore: false,
-		rows: [],
-	}),
 	"billing/listPlans": () => CREDIT_PLANS,
 	"billing/listTopUpPacks": () => CREDIT_TOP_UP_PACKS,
 	"billing/setCreditCaps": (input: {
@@ -236,7 +228,7 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 			if (!row) throw new RpcError("NOT_FOUND", "Member not found");
 			row.monthlyCapCredits = cap.monthlyCapCredits;
 		}
-		return { ok: true as const };
+		return structuredClone(creditUsage);
 	},
 	"billing/setPayAsYouGo": (input: {
 		enabled: boolean;
@@ -247,23 +239,37 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 			enabled: input.enabled,
 			monthlyCapMicros: input.enabled ? input.monthlyCapMicros : null,
 		};
-		return { ok: true as const };
+		return structuredClone(creditUsage);
 	},
 	"billing/getOverview": () => ({
 		stripeEnvironment: "test" as const,
-		snapshot: {
+		account: {
 			status: "active" as const,
 			billingMode: "trial" as const,
-			planKey: "growth" as const,
-			planVersion: 2,
 			periodStart: CREDIT_PERIOD_START,
 			periodEnd: CREDIT_PERIOD_END,
-			hardSpendLimitMicros: null,
-			allowOverage: false,
-			stripeCustomerId: null,
+			hasStripeCustomer: false,
 		},
 		plan: CREDIT_PLANS[1],
 		credits: structuredClone(creditUsage),
+		admission: {
+			available: true,
+			blockingReason: null,
+			unblockAction: "none" as const,
+		},
+		workstationCostCoverage: {
+			periodStart: CREDIT_PERIOD_START,
+			periodEnd: CREDIT_PERIOD_END,
+			observedAt: CREDIT_PERIOD_START,
+			unit: "compute_seconds" as const,
+			basis: "recorded_lease_end_wall_clock" as const,
+			status: "none" as const,
+			knownAttributedCostMicros: null,
+			total: { rowCount: 0, leaseSeconds: 0 },
+			reconciled: { rowCount: 0, leaseSeconds: 0 },
+			pending: { rowCount: 0, leaseSeconds: 0 },
+			unproven: { rowCount: 0, leaseSeconds: 0 },
+		},
 	}),
 	"orgUsage/getOrgUsage": (input: {
 		organizationId: string;
@@ -303,9 +309,9 @@ export const billingHandlers: Record<string, (input: never) => unknown> = {
 				activeTedis: 2,
 			},
 			planLimits: {
-				maxTokensPerMonth: 5_000_000,
-				currentMonthTokens: 1_260_000,
-				usagePct: 0.252,
+				includedCreditsPerMonth: creditUsage.includedCredits,
+				currentMonthCredits: creditUsage.usedCredits,
+				usagePct: creditUsage.usedCredits / creditUsage.includedCredits,
 				maxTedis: 1,
 				currentTedis: 2,
 			},

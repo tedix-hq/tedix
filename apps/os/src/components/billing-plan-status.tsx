@@ -27,9 +27,9 @@ const statusBadgeVariant = {
 };
 
 export function BillingPlanStatus({ overview }: { overview: BillingOverview }) {
-	const tier = overview.snapshot.planKey;
-	const status = overview.snapshot.status;
-	const selectedStripeCustomerId = overview.snapshot.stripeCustomerId;
+	const tier = overview.plan.key;
+	const status = overview.account.status;
+	const hasStripeCustomer = overview.account.hasStripeCustomer;
 	const portalMutation = useMutation({
 		mutationFn: () =>
 			osApi.billing.createPortal({
@@ -39,7 +39,7 @@ export function BillingPlanStatus({ overview }: { overview: BillingOverview }) {
 			window.location.href = data.portalUrl;
 		},
 	});
-	const trialEndsAt = status === "trial" ? overview.snapshot.periodEnd : null;
+	const trialEndsAt = status === "trial" ? overview.account.periodEnd : null;
 
 	const formatDate = (dateString?: string | null) => {
 		if (!dateString) return null;
@@ -89,7 +89,7 @@ export function BillingPlanStatus({ overview }: { overview: BillingOverview }) {
 						</span>
 					}
 					actions={
-						selectedStripeCustomerId ? (
+						hasStripeCustomer ? (
 							<Button
 								loading={portalMutation.isPending}
 								icon={<CreditCard size={16} />}
@@ -149,7 +149,7 @@ export function BillingPlanStatus({ overview }: { overview: BillingOverview }) {
 					</AlertTitle>
 					<AlertDescription>
 						New work that uses credits is paused until billing is restored.{" "}
-						{selectedStripeCustomerId
+						{hasStripeCustomer
 							? "Update your payment method to reactivate."
 							: "Subscribe to reactivate."}
 					</AlertDescription>

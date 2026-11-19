@@ -1,91 +1,38 @@
 /**
  * Tedix credits: the one unit customers see and are limited by.
  *
- * 1 credit = €0.01 = 10,000 EUR micros. Every limit is monthly. The shapes
- * below mirror `billing.getOverview().credits`, `billing.listPlans`,
+ * 1 credit = €0.01 = 10,000 EUR micros. Every limit is monthly. The types
+ * below name the `billing.getOverview().credits`, `billing.listPlans`,
  * `billing.listTopUpPacks`, `billing.setCreditCaps` and
- * `billing.setPayAsYouGo` in `@tedix/api-contract`; components take these
- * props so the screen code stays independent of the rest of the overview.
+ * `billing.setPayAsYouGo` shapes from `@tedix/api-contract`; components take
+ * these props so the screen code stays independent of the rest of the
+ * overview.
  */
 
+import type {
+	BillingCredits,
+	BillingPlan,
+	BillingTopUpPack,
+	SetCreditCapsInput,
+	SetPayAsYouGoInput,
+} from "@tedix/api-contract/schemas/billing";
 import { formatBillingAmount } from "@/lib/billing-price";
 import { formatCount } from "@/lib/format";
 
 export const CREDIT_VALUE_MICROS = 10_000;
 
-export type CreditPlanKey = "starter" | "growth" | "business" | "enterprise";
-export type CreditNoticeThreshold = 80 | 100;
-
-export type CreditBreakdown = {
-	ai: number;
-	codeRuns: number;
-	services: number;
-};
-
-export type CreditNotice = {
-	threshold: CreditNoticeThreshold;
-	reachedAt: string;
-};
-
-export type CreditPayAsYouGo = {
-	enabled: boolean;
-	monthlyCapMicros: number | null;
-	spentMicros: number;
-};
-
-export type CreditTediUsage = {
-	tediId: string;
-	name: string;
-	usedCredits: number;
-	monthlyCapCredits: number | null;
-};
-
-export type CreditMemberUsage = {
-	userId: string;
-	name: string;
-	usedCredits: number;
-	monthlyCapCredits: number | null;
-};
-
-export type CreditUsage = {
-	periodStart: string;
-	periodEnd: string;
-	includedCredits: number;
-	usedCredits: number;
-	remainingIncludedCredits: number;
-	topUpCredits: number;
-	breakdown: CreditBreakdown;
-	notices: CreditNotice[];
-	payAsYouGo: CreditPayAsYouGo;
-	tedis: CreditTediUsage[];
-	members: CreditMemberUsage[];
-};
-
-export type CreditPlan = {
-	key: CreditPlanKey;
-	name: string;
-	priceMicros: number;
-	currency: "eur";
-	includedCredits: number;
-};
-
-export type CreditTopUpPack = {
-	packKey: string;
-	credits: number;
-	priceMicros: number;
-	currency: "eur";
-	validMonths: 12;
-};
-
-export type CreditCapInput = {
-	tediCaps?: Array<{ tediId: string; monthlyCapCredits: number | null }>;
-	memberCaps?: Array<{ userId: string; monthlyCapCredits: number | null }>;
-};
-
-export type PayAsYouGoInput = {
-	enabled: boolean;
-	monthlyCapMicros: number | null;
-};
+export type CreditUsage = BillingCredits;
+export type CreditPlan = BillingPlan;
+export type CreditPlanKey = BillingPlan["key"];
+export type CreditTopUpPack = BillingTopUpPack;
+export type CreditCapInput = SetCreditCapsInput;
+export type PayAsYouGoInput = SetPayAsYouGoInput;
+export type CreditBreakdown = BillingCredits["breakdown"];
+export type CreditNotice = BillingCredits["notices"][number];
+export type CreditNoticeThreshold = CreditNotice["threshold"];
+export type CreditPayAsYouGo = BillingCredits["payAsYouGo"];
+export type CreditTediUsage = BillingCredits["tedis"][number];
+export type CreditMemberUsage = BillingCredits["members"][number];
 
 /** "1,234 credits"; "1 credit". Credits are whole numbers. */
 export function formatCredits(credits: number): string {

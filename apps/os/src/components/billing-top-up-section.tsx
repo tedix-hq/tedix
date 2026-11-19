@@ -32,7 +32,7 @@ export function BillingTopUpSection({ isTest }: { isTest: boolean }) {
 	const packsQuery = useQuery(billingTopUpPacksQueryOptions());
 	const checkoutMutation = useMutation({
 		mutationFn: (packKey: string) =>
-			osApi.billing.createInferenceCapacityCheckout({
+			osApi.billing.createTopUpCheckout({
 				packKey,
 				successUrl: topUpReturnUrl("topup-success"),
 				cancelUrl: topUpReturnUrl("topup-cancelled"),

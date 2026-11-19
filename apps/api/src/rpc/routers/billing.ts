@@ -1,6 +1,5 @@
 import { baseErrorConstructors } from "@tedix/api-contract/errors";
 import { getWorkstationCostCoverage } from "@tedix/db/queries/billing/provider-usage";
-import { listMonetaryInferenceSpending } from "@tedix/db/queries/billing/spending";
 /**
  * Billing Router
  * Stripe Checkout, Customer Portal, Tedix credits and the billing overview.
@@ -618,6 +617,7 @@ const getOverviewContract = os.getOverview
 				billingMode: snapshot.billingMode,
 				periodStart: snapshot.periodStart,
 				periodEnd: snapshot.periodEnd,
+				hasStripeCustomer: snapshot.stripeCustomerId !== null,
 			},
 			plan: {
 				key: snapshot.planKey,
@@ -1096,28 +1096,6 @@ const revokeHistoricalFreshExecutionContract = os.revokeHistoricalFreshExecution
 		).revokeHistoricalFreshExecutionHandler(context, input),
 	);
 export const billingContractRouter = os.router({
-	getInferenceSpending: os.getInferenceSpending
-		.use(withAuth)
-		.use(withFleetAuthority)
-		.use(AUTHZ.billingRead)
-		.handler(async ({ context, input }) => {
-			if (!context.organizationId)
-				throw baseErrorConstructors.FORBIDDEN({
-					message: "No organization",
-				});
-			const to = new Date().toISOString();
-			const from = new Date(Date.parse(to) - 30 * 86_400_000).toISOString();
-			return {
-				from,
-				to,
-				...(await listMonetaryInferenceSpending(context.db, {
-					organizationId: context.organizationId,
-					from,
-					to,
-					limit: input.limit,
-				})),
-			};
-		}),
 	revokeHistoricalFreshExecution: revokeHistoricalFreshExecutionContract,
 	listHistoricalExposures: listHistoricalExposuresContract,
 	recordHistoricalFreshDecision: recordHistoricalFreshDecisionContract,

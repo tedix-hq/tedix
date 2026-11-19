@@ -137,8 +137,8 @@ export function SubscriptionSection() {
 	const plans: CreditPlan[] = plansQuery.data;
 	const overview = overviewQuery.data;
 	const isStripeTestMode = overview.stripeEnvironment === "test";
-	const tier = overview.snapshot.planKey;
-	const status = overview.snapshot.status;
+	const tier = overview.plan.key;
+	const status = overview.account.status;
 
 	return (
 		<SettingsSection>
@@ -297,7 +297,7 @@ export function BillingDocumentsSection() {
 	}
 
 	const overview = overviewQuery.data;
-	const hasStripeCustomer = Boolean(overview.snapshot.stripeCustomerId);
+	const hasStripeCustomer = overview.account.hasStripeCustomer;
 
 	return (
 		<SettingsSection>

@@ -113,15 +113,20 @@ function credits(overrides: Partial<CreditUsage> = {}): CreditUsage {
 function overview(usage: CreditUsage, planKey = "growth") {
 	return {
 		stripeEnvironment: "test" as const,
-		snapshot: {
+		account: {
 			status: "active" as const,
-			planKey,
+			billingMode: "stripe" as const,
 			periodStart: usage.periodStart,
 			periodEnd: usage.periodEnd,
-			stripeCustomerId: null,
+			hasStripeCustomer: false,
 		},
 		plan: PLANS.find((plan) => plan.key === planKey)!,
 		credits: usage,
+		admission: {
+			available: true,
+			blockingReason: null,
+			unblockAction: "none" as const,
+		},
 	};
 }
 

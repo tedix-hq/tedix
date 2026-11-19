@@ -158,7 +158,6 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"billing/createCheckout": "platform:admin",
 	"billing/createPortal": "platform:admin",
 	"billing/createTopUpCheckout": "platform:admin",
-	"billing/getInferenceSpending": "mcp:settings.read",
 	"billing/listHistoricalExposures": "platform:admin",
 	"billing/grantTopUpCredits": "platform:admin",
 	"billing/listPlans": "platform:admin",
