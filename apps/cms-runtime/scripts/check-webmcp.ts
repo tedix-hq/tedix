@@ -13,7 +13,7 @@ import {
 // The fixture site's product hostname is overridable so the check can run
 // against an installation's own domain instead of Tedix Cloud's default.
 const directSiteUrl = (
-	process.env.CHECK_WEBMCP_SITE_URL ?? "https://blog.tedix.dev"
+	process.env.CHECK_WEBMCP_SITE_URL ?? "https://tedix.dev"
 ).replace(/\/+$/, "");
 
 const directOrg: WebMcpOrgInfo = {

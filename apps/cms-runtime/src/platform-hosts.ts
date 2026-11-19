@@ -3,7 +3,7 @@ import { hostSetting } from "@tedix/worker-kit/platform-hosts";
 export interface CmsRuntimePlatformHostEnv {
 	/** Parent host of tenant sites (`{slug}.<suffix>`). Default `cms.tedix.dev`. */
 	CMS_TENANT_HOST_SUFFIX?: string;
-	/** Older blog host that also serves the marketing site. Default `blog.tedix.dev`. */
+	/** Legacy blog hostname that redirects to the public blog. Default `blog.tedix.dev`. */
 	MARKETING_BLOG_HOST?: string;
 }
 

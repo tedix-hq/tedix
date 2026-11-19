@@ -258,6 +258,41 @@ export function isMarketingHost(
 		.includes(host);
 }
 
+export function redirectLegacyMarketingBlog(
+	request: Request,
+	url: URL,
+): Response {
+	if (request.method !== "GET" && request.method !== "HEAD") {
+		return new Response("Method Not Allowed", {
+			status: 405,
+			headers: { Allow: "GET, HEAD" },
+		});
+	}
+
+	const { pathname, search } = url;
+	let targetPath = `/blog${pathname}`;
+	const post = pathname.match(/^\/posts\/([^/]+)\/?$/)?.[1];
+	if (pathname === "/posts" || pathname === "/posts/" || pathname === "/blog") {
+		targetPath = "/blog/";
+	} else if (post) {
+		targetPath = `/blog/${post}`;
+	} else if (pathname.startsWith("/blog/")) {
+		targetPath = pathname.replace(/^(\/blog\/[^/]+)\/$/, "$1");
+	} else if (pathname === "/rss.xml") {
+		targetPath = "/rss.xml";
+	} else if (pathname === "/sitemap.xml" || pathname === "/sitemap-posts.xml") {
+		targetPath = "/sitemap-posts.xml";
+	}
+
+	const target = new URL("https://tedix.dev");
+	target.pathname = targetPath;
+	target.search = search;
+	return new Response(null, {
+		status: 301,
+		headers: { Location: target.href },
+	});
+}
+
 /** RFC 9116. Renew `Expires` before it lapses. */
 const SECURITY_TXT = `Contact: mailto:security@tedix.dev
 Contact: https://github.com/tedix-hq/tedix/security/advisories/new

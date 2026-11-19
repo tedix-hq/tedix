@@ -128,7 +128,7 @@ export interface OrgInfo {
 	descopeTenantId: string;
 	/** Explicit platform-D1 marker for the immutable assertion-aware bundle. */
 	humanAssertionBundleEtag: string | null;
-	/** Custom public hostname (e.g. "blog.tedix.dev") used for routing lookup. */
+	/** Custom public hostname (e.g. "blog.example.com") used for routing lookup. */
 	cmsDomain: string | null;
 	/**
 	 * Public origin/base URL. Collection paths are owned by native Emdash
