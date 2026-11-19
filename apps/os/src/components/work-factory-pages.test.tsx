@@ -12,6 +12,7 @@ import {
 	workItemEvidenceQueryOptions,
 	workItemEventsQueryOptions,
 	workItemReadinessQueryOptions,
+	workItemRunStepsQueryOptions,
 	membersListQueryOptions,
 	tediRosterQueryOptions,
 	workExternalPrincipalsQueryOptions,
@@ -973,12 +974,22 @@ describe("Recorded Work outcomes and activity", () => {
 			events: [],
 			nextSequence: null,
 		});
+		queryClient.setQueryData(workItemRunStepsQueryOptions(item.id).queryKey, {
+			attemptId: attempt.id,
+			live: false,
+			steps: [{ seq: 0, at: 1, kind: "message", text: "Checked the export" }],
+			messages: [],
+		});
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
 				<WorkItemPage itemId={item.id} />
 			</QueryClientProvider>,
 		);
 		expect(html).toContain("Updates");
+		expect(html.indexOf("Checked the export")).toBeGreaterThan(0);
+		expect(html.indexOf("Checked the export")).toBeLessThan(
+			html.indexOf("Progress and questions from people and tedis."),
+		);
 		expect(html.indexOf("Recorded outcome")).toBeLessThan(
 			html.indexOf("Activation pending before release"),
 		);
