@@ -1,13 +1,17 @@
 /**
- * Machines and their read-only tool calls. A runner names its machine in its
- * health reports; a member or a tedi queues a call for that machine; the
- * machine's runner claims the call and returns a bounded result.
+ * Machines and their tool calls. A runner names its machine in its health
+ * reports and lists the tools the machine accepts; a member or a tedi queues
+ * a call for that machine; the machine's runner claims the call and returns a
+ * bounded result. A machine lists the write tools only when its owner switched
+ * them on in the runner's settings on that machine; nothing here can.
  */
 
 import { implement } from "@orpc/server";
 import { machinesContract } from "@tedix/api-contract/contracts/machines";
 import {
+	isMachineWriteTool,
 	MACHINES_USE_SCOPE,
+	MACHINES_WRITE_SCOPE,
 	type MachineToolCall,
 	type MachineToolInput,
 	parseMachineToolInput,
@@ -112,6 +116,15 @@ const requestToolCallProcedure = os.requestToolCall
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 		const requester = await machineToolRequester(context, orgId);
+		if (
+			requester.type === "tedi" &&
+			isMachineWriteTool(input.tool) &&
+			!context.tediScopes?.includes(MACHINES_WRITE_SCOPE)
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"A tedi can change files or run commands on a machine only from a chat with a signed-in person",
+			);
 		const wanted = input.machine.toLowerCase();
 		const machine = (await listMachines(context.db, { orgId })).find(
 			(candidate) => candidate.machineName.toLowerCase() === wanted,

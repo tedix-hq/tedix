@@ -1,5 +1,5 @@
 /**
- * Machines and the queue of read-only tool calls for them. A machine is known
+ * Machines and the queue of tool calls for them. A machine is known
  * by the name its runners send with their health reports; a call is queued for
  * that name, claimed by a runner on the machine and answered once.
  */
@@ -7,6 +7,7 @@
 import { and, asc, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import {
+	MACHINE_COMMAND_ANSWER_WINDOW_MS,
 	MACHINE_ONLINE_WINDOW_MS,
 	MACHINE_TOOL_CALL_ANSWER_WINDOW_MS,
 	MACHINE_TOOL_CALL_CLAIM_WINDOW_MS,
@@ -210,8 +211,12 @@ function buildSettleOverdueStatement(
 	const answerDeadline = new Date(
 		Date.parse(params.at) - MACHINE_TOOL_CALL_ANSWER_WINDOW_MS,
 	).toISOString();
+	// A command may run for its whole timeout before it counts as unanswered.
+	const commandDeadline = new Date(
+		Date.parse(params.at) - MACHINE_COMMAND_ANSWER_WINDOW_MS,
+	).toISOString();
 	const unclaimed = sql`${machineToolCalls.status} = 'pending' AND ${machineToolCalls.expiresAt} <= ${params.at}`;
-	const unanswered = sql`${machineToolCalls.status} = 'claimed' AND ${machineToolCalls.claimedAt} <= ${answerDeadline}`;
+	const unanswered = sql`${machineToolCalls.status} = 'claimed' AND ${machineToolCalls.claimedAt} <= CASE WHEN ${machineToolCalls.tool} = 'run_command' THEN ${commandDeadline} ELSE ${answerDeadline} END`;
 	return db
 		.update(machineToolCalls)
 		.set({

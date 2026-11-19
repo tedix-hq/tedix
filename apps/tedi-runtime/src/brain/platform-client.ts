@@ -498,11 +498,11 @@ export interface PlatformClient {
 	}): Promise<ListAgentRunsResult>;
 	/** The organization's machines that run agents. */
 	listMachines(): Promise<{ machines: Machine[] }>;
-	/** Queue one read-only tool call for a named machine. */
+	/** Queue one tool call for a named machine. */
 	requestMachineToolCall(params: {
 		machine: string;
 		tool: MachineToolName;
-		input: Record<string, string | number>;
+		input: Record<string, string | number | boolean>;
 	}): Promise<{ callId: string; status: MachineToolCall["status"] }>;
 	readMachineToolCall(params: { callId: string }): Promise<MachineToolCall>;
 	listWorkApprovalInbox(params?: {
@@ -1203,7 +1203,7 @@ export class HttpPlatformClient implements PlatformClient {
 	async requestMachineToolCall(params: {
 		machine: string;
 		tool: MachineToolName;
-		input: Record<string, string | number>;
+		input: Record<string, string | number | boolean>;
 	}): Promise<{ callId: string; status: MachineToolCall["status"] }> {
 		return this.rpc("machines", "requestToolCall", params);
 	}

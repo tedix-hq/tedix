@@ -3748,6 +3748,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		workItemId?: string;
 		homeRunId?: string;
 		personChatConversationId?: string;
+		trustedInstructionOrigin?: ChatTurnParams["trustedInstructionOrigin"];
 		personalRequest?: boolean;
 		executionSurface?: ExecutionSurface;
 		repositoryMode?: RepositoryMode;

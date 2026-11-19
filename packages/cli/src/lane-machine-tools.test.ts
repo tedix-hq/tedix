@@ -1,15 +1,20 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { refusedMachineCommand } from "./lane-machine-refused";
+import { runShellCommand } from "./lane-machine-workspaces";
 import {
+	answerMachineToolCall,
 	createMachineToolsLoop,
 	MACHINE_TOOL_ACTIVE_MS,
 	MACHINE_TOOL_IDLE_MS,
@@ -103,4 +108,96 @@ test("a runner claims calls, answers them from main and sends the answers with i
 	expect(results["call-5"]?.result).toContain("+two needle");
 	// An answer is sent once.
 	expect(claims[2]!.results).toBeUndefined();
+}, 60_000);
+
+test("with the write tools on, a tedi edits files and runs commands in its own workspace", async () => {
+	const root = mkdtempSync(join(tmpdir(), "tedix-machine-write-"));
+	roots.push(root);
+	const checkout = join(root, "source");
+	execFileSync("git", ["init", "-q", "-b", "main", checkout]);
+	writeFileSync(join(checkout, "a.txt"), "one\ntwo\n");
+	execFileSync("git", ["-C", checkout, "add", "-A"]);
+	execFileSync(
+		"git",
+		[
+			"-C",
+			checkout,
+			"-c",
+			"user.name=fixture",
+			"-c",
+			"user.email=fixture@example.test",
+			"commit",
+			"-q",
+			"-m",
+			"First commit",
+		],
+		{ stdio: "ignore" },
+	);
+	execFileSync("git", [
+		"-C",
+		checkout,
+		"update-ref",
+		"refs/remotes/origin/main",
+		"HEAD",
+	]);
+	const options = { checkout, configDir: join(root, "config") };
+	const on = machineToolHandlers({ ...options, write: true });
+	const call = (tool: string, input: Record<string, unknown>) =>
+		answerMachineToolCall(on, tool, input);
+
+	// A machine whose owner did not switch them on has no such tool.
+	expect(
+		await answerMachineToolCall(
+			machineToolHandlers(options),
+			"open_workspace",
+			{},
+		),
+	).toEqual({ ok: false, error: "This machine has no open_workspace" });
+
+	const opened = await call("open_workspace", { name: "fix" });
+	const workspace = /^workspace: (fix-[0-9a-f]{8})$/m.exec(
+		opened.ok ? opened.result : "",
+	)?.[1];
+	expect(workspace).toBeDefined();
+	const folder = join(root, "config", "machine-workspaces", workspace!, "repo");
+
+	expect(
+		await call("write_file", { workspace, path: "src/new.txt", content: "x" }),
+	).toEqual({ ok: true, result: "Created src/new.txt (1 characters)" });
+	expect(
+		await call("edit_file", {
+			workspace,
+			path: "a.txt",
+			oldText: "two",
+			newText: "2",
+		}),
+	).toEqual({
+		ok: true,
+		result: "Replaced 1 occurrence in a.txt, the first at line 2",
+	});
+	expect(await call("read_file", { workspace, path: "a.txt" })).toMatchObject({
+		ok: true,
+		result: expect.stringContaining("2\t2"),
+	});
+	// The source checkout is untouched.
+	expect(readFileSync(join(checkout, "a.txt"), "utf8")).toBe("one\ntwo\n");
+
+	expect(
+		await call("run_command", { workspace, command: "cat a.txt; exit 3" }),
+	).toEqual({ ok: true, result: "Exit code 3\none\n2\n" });
+	expect(
+		(await call("run_command", { workspace, command: "sudo ls" })).ok,
+	).toBe(false);
+	expect(refusedMachineCommand("git push --force origin main")).toBeDefined();
+
+	// A command past its timeout is stopped with everything it started.
+	const stopped = await runShellCommand("sleep 30 & sleep 30", {
+		cwd: folder,
+		env: process.env,
+		timeoutMs: 300,
+	});
+	expect(stopped.timedOut).toBe(true);
+
+	expect((await call("close_workspace", { workspace })).ok).toBe(true);
+	expect(existsSync(folder)).toBe(false);
 }, 60_000);
