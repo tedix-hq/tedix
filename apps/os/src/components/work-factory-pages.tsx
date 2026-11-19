@@ -6,10 +6,12 @@ import {
 } from "@/components/work-surface-primitives";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Pagination } from "@/components/kumo/pagination";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { WorkActorAvatar } from "@/components/work-actor-avatar";
 import { workActorReference } from "@/lib/work-actor";
 import { WorkExecutorChoice } from "@/components/work-dispatch-app";
 import type {
+	GetWorkItemResult,
 	WorkItem,
 	WorkItemRelationEdge,
 } from "@tedix/api-contract/schemas/work-items";
@@ -587,6 +589,7 @@ export function WorkItemStatusSummary({
 	principalNames,
 	readiness,
 	acceptAction,
+	completeAction,
 	attemptState,
 }: {
 	/** Runtime state of the newest Attempt, when one is known. */
@@ -601,6 +604,7 @@ export function WorkItemStatusSummary({
 		reasons: Array<{ detail: string }>;
 	};
 	acceptAction?: ReactNode;
+	completeAction?: ReactNode;
 }) {
 	const owner = workOwnerName(
 		accountableOwnerType,
@@ -645,6 +649,7 @@ export function WorkItemStatusSummary({
 					{readiness?.ready ? OS_COPY.work.ready : OS_COPY.work.waitingNextStep}
 				</Text>
 			) : null}
+			{completeAction}
 		</div>
 	);
 }
@@ -684,6 +689,53 @@ export function WorkItemAcceptance({ item }: { item: WorkItem }) {
 					{errorMessage(accept.error, OS_COPY.work.acceptError)}
 				</Text>
 			) : null}
+		</div>
+	);
+}
+
+function WorkItemCompletion({ itemId }: { itemId: string }) {
+	const [open, setOpen] = useState(false);
+	const client = useQueryClient();
+	const complete = useMutation({
+		mutationFn: () => osApi.workItems.complete({ id: itemId }),
+		onSuccess: (workItem) => {
+			setOpen(false);
+			client.setQueryData<GetWorkItemResult>(
+				workItemDetailQueryOptions(itemId).queryKey,
+				(current) =>
+					current && current.workItem.version <= workItem.version
+						? { ...current, workItem, canComplete: false }
+						: current,
+			);
+			return client.invalidateQueries({
+				queryKey: osQuery.workItems.key({ type: "query" }),
+			});
+		},
+	});
+	return (
+		<div>
+			<Button
+				size="sm"
+				variant="outline"
+				disabled={complete.isPending}
+				onClick={() => {
+					complete.reset();
+					setOpen(true);
+				}}
+			>
+				{OS_COPY.work.complete}
+			</Button>
+			<ConfirmDialog
+				open={open}
+				onOpenChange={setOpen}
+				title={OS_COPY.work.completeTitle}
+				description={OS_COPY.work.completeDescription}
+				confirmLabel={OS_COPY.work.complete}
+				pendingLabel={OS_COPY.work.completing}
+				isPending={complete.isPending}
+				error={complete.error}
+				onConfirm={() => complete.mutate()}
+			/>
 		</div>
 	);
 }
@@ -1481,11 +1533,21 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 	);
 	const events = useQuery(workItemEventsQueryOptions(itemId));
 	const item = detail.data?.workItem;
+	const canComplete =
+		item?.disposition === "accepted" && detail.data?.canComplete === true;
 	const principalNames = useWorkPrincipalNames(item?.orgId);
 	const latestAttempts = useQuery({
 		...workItemAttemptsQueryOptions(itemId),
-		enabled: item?.disposition === "completed",
+		enabled: item?.disposition === "completed" || canComplete,
 	});
+	const latestAttempt = latestAttempts.data?.data[0];
+	const hasActiveAttempt =
+		latestAttempt &&
+		["queued", "running", "waiting", "retrying"].includes(
+			latestAttempt.runtimeState,
+		) &&
+		(latestAttempt.expiresAt === null ||
+			Date.parse(latestAttempt.expiresAt) > Date.now());
 	useDocumentTitle(item ? `${item.title} · Work` : "Work item");
 	useWorkItemWebMcpTools(itemId);
 	// Ledger failures must not prevent the task itself from appearing.
@@ -1530,6 +1592,11 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 				principalNames={principalNames}
 				readiness={readiness.data}
 				acceptAction={<WorkItemAcceptance item={item} />}
+				completeAction={
+					canComplete && !hasActiveAttempt ? (
+						<WorkItemCompletion key={item.id} itemId={item.id} />
+					) : null
+				}
 				attemptState={
 					attempts.data?.data.find(
 						(a) =>
@@ -1539,7 +1606,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 			/>
 			{item.disposition === "completed" ? (
 				<WorkRecordedOutcome
-					attempt={latestAttempts.data?.data[0]}
+					attempt={latestAttempt}
 					pending={latestAttempts.isPending}
 					error={latestAttempts.error}
 					onRetry={() => latestAttempts.refetch({ cancelRefetch: false })}

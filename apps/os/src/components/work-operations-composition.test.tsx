@@ -15,6 +15,10 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	workItemAttemptsQueryOptions,
+	workItemDetailQueryOptions,
+} from "@/lib/os-query-options";
 import { workInteractionsSearch } from "@/lib/work-route-search";
 
 (
@@ -70,6 +74,7 @@ const { WorkInteractionsPage, WorkInteractionPage } =
 	await import("./work-interactions-pages");
 const { WorkAdmissionPage } = await import("./work-admission-page");
 const { WorkCapacityPage } = await import("./work-capacity-page");
+const { WorkItemPage } = await import("./work-factory-pages");
 const { Page } = await import("@/components/kumo/page");
 
 afterEach(() => {
@@ -196,6 +201,80 @@ const pageClass = (width: "lg" | "xl") =>
 	).body.firstElementChild?.className;
 const mutations = (path: string) =>
 	api.calls.filter((call) => call.path === path).map((call) => call.input);
+
+it("completes an eligible task only after confirmation and keeps a refusal visible", async () => {
+	viewport(false);
+	const id = "8f14e45f-ceea-4f1b-9b6f-0a4e4d5c0a12";
+	const item = {
+		id,
+		orgId: OWNER,
+		title: "Verify the export",
+		disposition: "accepted",
+		workKind: "operations",
+		priority: "medium",
+		accountableOwnerId: null,
+		version: 2,
+	};
+	const detail = { workItem: item, comments: [], canComplete: false };
+	api.reads["workItems.getById"] = detail;
+	api.reads["workItems.listAttempts"] = { data: [], nextCursor: null };
+	api.reads["externalAgentIdentity.listPrincipals"] = [];
+	const page = await mount(<WorkItemPage itemId={id} />);
+	const status = page.host.querySelector('[aria-label="Work item status"]')!;
+	const complete = () =>
+		[...status.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Mark complete",
+		);
+	expect(complete()).toBeUndefined();
+
+	const attemptsKey = workItemAttemptsQueryOptions(id).queryKey;
+	await act(async () => {
+		page.client.setQueryData<unknown>(attemptsKey, {
+			data: [{ runtimeState: "waiting", expiresAt: null }],
+			nextCursor: null,
+		});
+		page.client.setQueryData<unknown>(workItemDetailQueryOptions(id).queryKey, {
+			...detail,
+			canComplete: true,
+		});
+	});
+	await settle();
+	expect(complete()).toBeUndefined();
+
+	await act(async () => {
+		page.client.setQueryData(attemptsKey, { data: [], nextCursor: null });
+	});
+	await settle();
+	await page.submit("Mark complete");
+	expect(mutations("workItems.complete")).toEqual([]);
+	const dialog = document.querySelector('[role="alertdialog"]')!;
+	expect(dialog.textContent).toContain("Mark this task complete?");
+	const confirm = () =>
+		[...dialog.querySelectorAll("button")].find((button) =>
+			button.textContent?.trim().startsWith("Mark"),
+		)!;
+	const request = Promise.withResolvers<unknown>();
+	api.reads["workItems.complete"] = request.promise;
+	await act(async () => confirm().click());
+	await settle();
+	expect(confirm().disabled).toBe(true);
+	expect(mutations("workItems.complete")).toEqual([{ id }]);
+	await act(async () =>
+		request.reject(new Error("An Attempt is still active.")),
+	);
+	await settle();
+	expect(dialog.textContent).toContain("An Attempt is still active.");
+	expect(status.textContent).toContain("Accepted");
+
+	const completed = { ...item, disposition: "completed", version: 3 };
+	api.reads["workItems.complete"] = completed;
+	api.reads["workItems.getById"] = { ...detail, workItem: completed };
+	await act(async () => confirm().click());
+	await settle();
+	expect(mutations("workItems.complete")).toEqual([{ id }, { id }]);
+	expect(status.textContent).toContain("Completed");
+	expect(complete()).toBeUndefined();
+});
 
 describe("Epics", () => {
 	const asOwner = (element: ReactNode) => (

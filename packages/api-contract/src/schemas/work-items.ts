@@ -2802,6 +2802,12 @@ export const CompleteWorkItemInputSchema = z.union([
 
 export const GetWorkItemResultSchema = z.object({
 	workItem: WorkItemSchema,
+	canComplete: z
+		.boolean()
+		.optional()
+		.describe(
+			"Whether the signed-in user may mark this accepted Work Item complete.",
+		),
 	project: z
 		.object({
 			id: z.string(),
