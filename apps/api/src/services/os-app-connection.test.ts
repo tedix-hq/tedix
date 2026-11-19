@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 	workspace: vi.fn(),
 	resource: vi.fn(),
 	role: vi.fn(),
+	runtimeRole: vi.fn(),
 	membership: vi.fn(),
 	findTool: vi.fn(),
 	approvalTool: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock("@tedix/db/queries/os-workspaces/resources", async (load) => ({
 vi.mock("@tedix/db/queries/os-workspace-access", async (load) => ({
 	...(await load<object>()),
 	readWorkspaceSessionRole: mocks.role,
+	readWorkspaceRuntimeRole: mocks.runtimeRole,
 }));
 vi.mock("@tedix/db/queries/tools", async (load) => ({
 	...(await load<object>()),
@@ -885,6 +887,8 @@ describe("app connection read observations and own-access checks", () => {
 });
 
 describe("workspace agent linked account reads", () => {
+	const tedi = { kind: "tedi", tediId: "tedi-1" } as const;
+	const schedule = { kind: "schedule" } as const;
 	const request = {
 		organizationId: "org-1",
 		workspaceId: "workspace-1",
@@ -921,6 +925,7 @@ describe("workspace agent linked account reads", () => {
 		mocks.membership.mockResolvedValue({ status: "active", role: "member" });
 		mocks.member.mockResolvedValue({ status: "active", role: "member" });
 		mocks.role.mockResolvedValue("build");
+		mocks.runtimeRole.mockResolvedValue("build");
 		mocks.findTool.mockResolvedValue({ appId: "app-1", toolId: "list_events" });
 		mocks.surface.mockResolvedValue({
 			...surface(),
@@ -997,15 +1002,17 @@ describe("workspace agent linked account reads", () => {
 		});
 		expect(mocks.gateway).toHaveBeenCalledTimes(1);
 	});
-	it.each(["schedule", "tedi"] as const)(
-		"allows an unattended %s read only on the organization account without claiming a person",
-		async (startedBy) => {
+	it.each([
+		{
+			actor: schedule,
+			createdByKind: "service",
+			createdById: "workspace-agent:conversation-1",
+		},
+		{ actor: tedi, createdByKind: "tedi", createdById: tedi.tediId },
+	])(
+		"allows a $actor.kind to read the organization account",
+		async ({ actor, createdByKind, createdById }) => {
 			tenant();
-			const actor = {
-				kind: "unattended",
-				startedBy,
-				...(startedBy === "tedi" ? { tediId: "tedi-1" } : {}),
-			};
 			expect(await read({ actor })).toMatchObject({ status: "ok" });
 			expect(mocks.account).toHaveBeenCalledWith(
 				expect.anything(),
@@ -1015,28 +1022,50 @@ describe("workspace agent linked account reads", () => {
 			);
 			expect(mocks.membership).not.toHaveBeenCalled();
 			expect(mocks.role).not.toHaveBeenCalled();
-			expect(mocks.gateway.mock.calls[0]![0].headers).not.toHaveProperty(
-				"X-Tedix-Acting-User",
-			);
-			expect(mocks.receipt.mock.calls[0]![1]).toMatchObject({
-				createdByKind: "service",
-				createdById: "workspace-agent:conversation-1",
+			const headers = mocks.gateway.mock.calls[0]![0].headers;
+			expect(headers).not.toHaveProperty("X-Tedix-Acting-User");
+			expect(headers).toMatchObject({
+				"X-Tedix-Kernel": "true",
+				"X-Tedix-Tedi-Scopes": "connections.read",
 			});
-			expect(JSON.parse(mocks.receipt.mock.calls[0]![1].input)).toMatchObject({
-				actor,
-			});
+			if (actor.kind === "tedi") {
+				expect(mocks.runtimeRole).toHaveBeenCalledWith(
+					expect.anything(),
+					{ organizationId: "org-1", workspaceId: "workspace-1" },
+					{ actorKind: "tedi", actorId: actor.tediId },
+				);
+				expect(headers["X-Tedix-Tedi-Id"]).toBe(actor.tediId);
+			} else {
+				expect(mocks.runtimeRole).not.toHaveBeenCalled();
+				expect(headers).not.toHaveProperty("X-Tedix-Tedi-Id");
+			}
+			const receipt = mocks.receipt.mock.calls[0]![1];
+			expect(receipt).toMatchObject({ createdByKind, createdById });
+			expect(JSON.parse(receipt.input)).toMatchObject({ actor });
 		},
 	);
-	it.each(["schedule", "tedi"] as const)(
-		"refuses personal reads for an unattended %s actor",
-		async (startedBy) => {
-			expect(
-				await read({ actor: { kind: "unattended", startedBy } }),
-			).toMatchObject({
+	it.each([null, "use"])(
+		"refuses a tedi with workspace role %s before reaching the account",
+		async (role) => {
+			tenant();
+			mocks.runtimeRole.mockResolvedValue(role);
+			expect(await read({ actor: tedi })).toMatchObject({
 				status: "refused",
-				message: expect.stringContaining("signed-in person"),
+				message: expect.stringContaining("needs build access"),
+			});
+			expect(mocks.resource).not.toHaveBeenCalled();
+			expect(mocks.gateway).not.toHaveBeenCalled();
+		},
+	);
+	it.each([schedule, tedi])(
+		"refuses personal reads for a $kind",
+		async (actor) => {
+			expect(await read({ actor })).toEqual({
+				status: "refused",
+				message: "Only a signed-in person can read a personal account.",
 			});
 			expect(mocks.account).not.toHaveBeenCalled();
+			expect(mocks.ownAccounts).not.toHaveBeenCalled();
 			expect(mocks.gateway).not.toHaveBeenCalled();
 		},
 	);
@@ -1058,9 +1087,7 @@ describe("workspace agent linked account reads", () => {
 			tokenIds: [],
 			tokenSub: "subject",
 		});
-		expect(
-			await read({ actor: { kind: "unattended", startedBy: "schedule" } }),
-		).toEqual({
+		expect(await read({ actor: schedule })).toEqual({
 			status: "not_connected",
 			providerId: resource.providerId,
 			scope: "tenant",
@@ -1092,23 +1119,55 @@ describe("workspace agent linked account reads", () => {
 		expect(target).not.toHaveProperty("revisionId");
 		expect(target).not.toHaveProperty("slot");
 	});
-	it("records an unattended approval as a service request", async () => {
-		tenant();
-		mocks.approvalTool.mockResolvedValue({
-			...surface().tools[0],
-			config: { ...surface().tools[0]!.config, approvalPolicy: "once" },
-		});
-		expect(
-			await read({ actor: { kind: "unattended", startedBy: "schedule" } }),
-		).toMatchObject({ status: "approval_required" });
-		expect(mocks.create.mock.calls[0]![1].payload).not.toHaveProperty(
-			"initiatedByUserId",
-		);
-		expect(mocks.create.mock.calls[0]![2]).toMatchObject({
+	it.each([
+		{
+			actor: schedule,
 			actorType: "service",
 			actorId: "workspace-agent:conversation-1",
-		});
-	});
+		},
+		{ actor: tedi, actorType: "tedi", actorId: tedi.tediId },
+	])(
+		"records the $actor.kind identity in the approval",
+		async ({ actor, actorType, actorId }) => {
+			tenant();
+			mocks.approvalTool.mockResolvedValue({
+				...surface().tools[0],
+				config: { ...surface().tools[0]!.config, approvalPolicy: "once" },
+			});
+			expect(await read({ actor })).toMatchObject({
+				status: "approval_required",
+			});
+			const [, approval, audit] = mocks.create.mock.calls[0]!;
+			expect(approval.payload).toMatchObject({
+				workspaceReadActor: actor,
+				target: { actor },
+			});
+			expect(approval.payload).not.toHaveProperty("initiatedByUserId");
+			expect(audit).toMatchObject({ actorType, actorId });
+			expect(mocks.gateway).not.toHaveBeenCalled();
+		},
+	);
+	it.each([
+		{ enabled: false },
+		{ annotations: { readOnlyHint: false } },
+		{ config: { ...surface().tools[0]!.config, auth: { type: "none" } } },
+	])(
+		"refuses a tool that fails the approval router recheck: %j",
+		async (change) => {
+			tenant();
+			mocks.approvalTool.mockResolvedValue({
+				...surface().tools[0],
+				...change,
+			});
+			expect(await read({ actor: tedi })).toMatchObject({
+				status: "refused",
+				message:
+					"Only a checked workspace connection read may use this approval path",
+			});
+			expect(mocks.create).not.toHaveBeenCalled();
+			expect(mocks.gateway).not.toHaveBeenCalled();
+		},
+	);
 	it.each([null, "use", "view"])(
 		"refuses a person whose current workspace role is %s",
 		async (role) => {
@@ -1229,7 +1288,7 @@ describe("workspace agent linked account reads", () => {
 		expect(await read({ args })).toMatchObject({ status: "refused" });
 		expect(mocks.gateway).not.toHaveBeenCalled();
 	});
-	it("keeps own-access enforcement for unattended organization reads", async () => {
+	it("keeps own-access enforcement for scheduled organization reads", async () => {
 		tenant();
 		mocks.organization.mockResolvedValue({
 			slug: "fictional",
@@ -1239,9 +1298,7 @@ describe("workspace agent linked account reads", () => {
 				],
 			},
 		});
-		expect(
-			await read({ actor: { kind: "unattended", startedBy: "schedule" } }),
-		).toMatchObject({
+		expect(await read({ actor: schedule })).toMatchObject({
 			status: "refused",
 			message: expect.stringContaining("checks each person's"),
 		});
@@ -1261,6 +1318,8 @@ describe("workspace agent linked account reads", () => {
 	});
 	it.each([
 		{ actor: { kind: "user", id: "user-2", role: "owner" } },
+		{ actor: { kind: "tedi" } },
+		{ actor: { kind: "schedule", tediId: tedi.tediId } },
 		{ resource },
 		{ args: undefined },
 		{ conversationId: "" },

@@ -1603,12 +1603,13 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					ErrorCodes.NOT_FOUND,
 					"Organization OS is unavailable",
 				);
-			if (context.workspaceConnectionRead) {
+			const workspaceRead = context.workspaceConnectionRead;
+			if (workspaceRead) {
 				// Only the internal checked workspace adapter attests these reads. Re-read
 				// the tool so this attestation cannot turn a mutating tool into a free read.
 				const tool = await getToolByIdForOrganization(context.db, {
 					organizationId: input.organizationId,
-					toolId: context.workspaceConnectionRead.toolRowId,
+					toolId: workspaceRead.toolRowId,
 				});
 				const annotations = tool ? resolveToolAnnotations(tool) : undefined;
 				const config = tool?.config as ToolConfig | null | undefined;
@@ -1616,20 +1617,20 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					!tool?.enabled ||
 					tool.toolId !== input.toolId ||
 					config?.connectionReadOnly !== true ||
+					config.auth?.type !== "connection" ||
 					annotations?.readOnlyHint !== true ||
 					annotations.destructiveHint === true ||
 					!["mcp", "external"].includes(config.transport ?? "") ||
 					input.requestingAgent ||
 					input.directUserCall ||
 					egress ||
-					(context.workspaceConnectionRead.actor.kind === "unattended" &&
-						input.userId !== undefined) ||
+					(workspaceRead.actor.kind !== "user" && input.userId !== undefined) ||
 					typeof input.target.workspaceId !== "string" ||
 					typeof input.target.conversationId !== "string" ||
 					typeof input.target.resourceHash !== "string" ||
 					typeof input.target.accountHash !== "string" ||
 					(await canonicalDigest(input.target.actor)) !==
-						(await canonicalDigest(context.workspaceConnectionRead.actor))
+						(await canonicalDigest(workspaceRead.actor))
 				)
 					throw createError(
 						ErrorCodes.FORBIDDEN,
@@ -1837,8 +1838,16 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			);
 			const app = input.appSlug.replace(/[-_]+/g, " ");
 			const organizationName = organization!.name || organization!.slug;
-			const requestedFor =
-				requester?.name || "the requesting organization member";
+			const workspaceReadActor = workspaceRead?.actor;
+			const workspaceTediId =
+				workspaceReadActor?.kind === "tedi"
+					? workspaceReadActor.tediId
+					: undefined;
+			const requestedFor = workspaceTediId
+				? `tedi ${workspaceTediId}`
+				: workspaceReadActor?.kind === "schedule"
+					? "a scheduled workspace read"
+					: requester?.name || "the requesting organization member";
 			// The anchor supplies the existing approval queue's FK, never tedi authority.
 			const anchor = await getApprovalAnchor(context.db, input.organizationId);
 			if (!anchor)
@@ -1861,7 +1870,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						kind: "mcp_tool_call",
 						...(input.userId
 							? { initiatedByUserId: input.userId }
-							: { workspaceReadActor: context.workspaceConnectionRead!.actor }),
+							: { workspaceReadActor: workspaceRead!.actor }),
 						appSlug: input.appSlug,
 						toolId: input.toolId,
 						target: input.target,
@@ -1880,12 +1889,15 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					actorId:
 						input.requestingAgent?.principalId ??
 						input.userId ??
+						workspaceTediId ??
 						`workspace-agent:${input.target.conversationId}`,
 					actorType: input.requestingAgent
 						? "external_agent"
 						: input.userId
 							? "user"
-							: "service",
+							: workspaceTediId
+								? "tedi"
+								: "service",
 					action: "approval.requested",
 					resourceType: "approval_request",
 					resourceId: id,

@@ -4,7 +4,10 @@ import {
 	type WorkspaceConnectionReadResult,
 } from "@tedix/api-contract/schemas/workspace-connection-read";
 import { getMemberAccessByUserId } from "@tedix/db/queries/organization-members";
-import { readWorkspaceSessionRole } from "@tedix/db/queries/os-workspace-access";
+import {
+	readWorkspaceRuntimeRole,
+	readWorkspaceSessionRole,
+} from "@tedix/db/queries/os-workspace-access";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import { findWorkspaceConnectionTool } from "@tedix/db/queries/tools";
@@ -64,6 +67,17 @@ export async function readLinkedWorkspaceAccount(
 					message:
 						"You need build or owner access to read connected accounts in this workspace.",
 				};
+		} else if (request.actor.kind === "tedi") {
+			const role = await readWorkspaceRuntimeRole(context.db, scope, {
+				actorKind: "tedi",
+				actorId: request.actor.tediId,
+			});
+			if (role !== "build")
+				return {
+					status: "refused",
+					message:
+						"This tedi needs build access to read connected accounts in this workspace.",
+				};
 		}
 		const resource = await getOsWorkspaceResource(context.db, {
 			...scope,
@@ -74,14 +88,10 @@ export async function readLinkedWorkspaceAccount(
 				status: "refused",
 				message: "The linked resource was not found in this workspace.",
 			};
-		if (
-			request.actor.kind === "unattended" &&
-			resource.connectionScope !== "tenant"
-		)
+		if (request.actor.kind !== "user" && resource.connectionScope !== "tenant")
 			return {
 				status: "refused",
-				message:
-					"Personal accounts require a turn started by a signed-in person. Scheduled and tedi-started turns may use only organization accounts.",
+				message: "Only a signed-in person can read a personal account.",
 			};
 		const tool = await findWorkspaceConnectionTool(context.db, {
 			organizationId: request.organizationId,

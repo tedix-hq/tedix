@@ -121,7 +121,12 @@ function observationReceipt(
 	context: BaseContext,
 	caller: ConnectionCaller,
 	resource: OsWorkspaceResourceRow,
-	read: { appSlug: string; toolId: string; actingUserId: string | null },
+	read: {
+		appSlug: string;
+		toolId: string;
+		actingUserId: string | null;
+		tediId: string | undefined;
+	},
 	access: OwnAccessEvaluation,
 ) {
 	return {
@@ -171,8 +176,13 @@ function observationReceipt(
 					: []),
 			],
 		}),
-		createdByKind: read.actingUserId ? ("user" as const) : ("service" as const),
+		createdByKind: read.tediId
+			? ("tedi" as const)
+			: read.actingUserId
+				? ("user" as const)
+				: ("service" as const),
 		createdById:
+			read.tediId ??
 			read.actingUserId ??
 			(caller.kind === "agent"
 				? `workspace-agent:${caller.conversationId}`
@@ -231,6 +241,10 @@ export async function callWorkspaceResourceConnection(
 			: caller.actor.kind === "user"
 				? caller.actor.id
 				: null;
+	const tediId =
+		caller.kind === "agent" && caller.actor.kind === "tedi"
+			? caller.actor.tediId
+			: undefined;
 	if (
 		resource.organizationId !== context.organizationId ||
 		resource.workspaceId !== workspaceId ||
@@ -243,7 +257,7 @@ export async function callWorkspaceResourceConnection(
 	if (!actingUserId && resource.connectionScope === "user")
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Personal accounts require a turn started by a signed-in person. Scheduled and tedi-started turns may use only organization accounts.",
+			"Only a signed-in person can read a personal account.",
 		);
 	const surface = await getAppByIdWithToolsForOrganization(
 		context.db,
@@ -332,7 +346,7 @@ export async function callWorkspaceResourceConnection(
 		context,
 		caller,
 		resource,
-		{ appSlug: surface.app.slug, toolId: tool.toolId, actingUserId },
+		{ appSlug: surface.app.slug, toolId: tool.toolId, actingUserId, tediId },
 		access,
 	);
 	const db = createDbQueryClient(context.env.DB);
@@ -418,6 +432,7 @@ export async function callWorkspaceResourceConnection(
 				"X-Tedix-Org-Id": resource.organizationId,
 				"X-Tedix-Host": `${surface.app.slug}.${new URL(MCP_URL).hostname}`,
 				...(actingUserId ? { "X-Tedix-Acting-User": actingUserId } : {}),
+				...(tediId ? { "X-Tedix-Tedi-Id": tediId } : {}),
 				"X-Tedix-Kernel": "true",
 				"X-Tedix-Tedi-Scopes": "connections.read",
 			},

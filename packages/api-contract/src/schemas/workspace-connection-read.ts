@@ -3,11 +3,8 @@ import { JsonValueSchema } from "./common";
 
 export const WorkspaceConnectionActorSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("user"), id: z.string().min(1) }),
-	z.strictObject({
-		kind: z.literal("unattended"),
-		startedBy: z.enum(["schedule", "tedi"]),
-		tediId: z.string().min(1).optional(),
-	}),
+	z.strictObject({ kind: z.literal("tedi"), tediId: z.string().min(1) }),
+	z.strictObject({ kind: z.literal("schedule") }),
 ]);
 
 export const WorkspaceConnectionReadInputSchema = z.strictObject({
