@@ -1153,3 +1153,18 @@ export const EARNED_DELEGATION_KIND_OVERRIDES: Record<
  * every org-path procedure in it targets the caller's own org.
  */
 export const ORG_INJECT_ROUTERS = new Set<string>(["members"]);
+
+/**
+ * Liveness and session reports: heartbeats and status reports that agents
+ * send many times an hour. Session feedback is not here: it creates lessons,
+ * which is a change worth a record. An allowed call that applied
+ * needs no gateway change record, so the projection declares
+ * `skipAppliedChangeRecord` in its `com.tedix/policy`. A refused or failed
+ * call is still recorded. Add an endpoint here only when it reports on a
+ * session or lane rather than changing shared work.
+ */
+export const LIVENESS_REPORT_ENDPOINTS = new Set<string>([
+	"workItems/heartbeatAttempt",
+	"workAgentSessions/report",
+	"dispatcherHealth/report",
+]);

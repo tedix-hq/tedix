@@ -8,7 +8,7 @@ const provenance = {
 	source: { surface: "test" },
 	changeRecordId: "change-1",
 };
-const call: CallDescription = {
+const readCall: CallDescription = {
 	actor,
 	source: provenance.source,
 	resource: "tool:test",
@@ -78,6 +78,13 @@ export function describeGovernanceConformance(
 		});
 		it("records allowed, refused and uncertain calls in an immutable ordered ledger", async () => {
 			const adapters = build();
+			// A write: a ledger may leave out reads that applied.
+			const call = {
+				...readCall,
+				operation: "update",
+				riskTier: "bounded_write" as const,
+				blastRadius: "single_resource" as const,
+			};
 			await guardedCall(call, async () => "ok", adapters);
 			await expect(
 				guardedCall(
@@ -125,7 +132,7 @@ export function describeGovernanceConformance(
 		});
 		it("enforces tier budgets and separates actors", async () => {
 			const adapters = build();
-			const write = { ...call, riskTier: "high_impact_write" as const };
+			const write = { ...readCall, riskTier: "high_impact_write" as const };
 			for (let i = 0; i < 5; i++)
 				expect((await adapters.compliance.check(write)).verdict).toBe("allow");
 			expect(await adapters.compliance.check(write)).toMatchObject({

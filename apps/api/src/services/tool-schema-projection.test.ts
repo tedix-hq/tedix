@@ -24,6 +24,8 @@ import {
 	sha256,
 } from "./tool-schema-projection";
 import {
+	AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES,
+	LIVENESS_REPORT_ENDPOINTS,
 	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
 	WORK_HIERARCHY_KIND_OVERRIDES,
 } from "./tool-schema-overrides";
@@ -156,6 +158,63 @@ describe("generatedToolIdForEndpoint", () => {
 		],
 	])("%o → %s", (candidate, expected) => {
 		expect(generatedToolIdForEndpoint(candidate)).toBe(expected);
+	});
+});
+
+describe("liveness declaration", () => {
+	it("declares skipAppliedChangeRecord on liveness reports only, and clears it when removed", async () => {
+		const options = {
+			toolIdOverrides: {
+				...WORK_HIERARCHY_TOOL_ID_OVERRIDES,
+				...AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES,
+			},
+			kindOverrides: WORK_HIERARCHY_KIND_OVERRIDES,
+		};
+		const candidates = projectionCandidates({
+			endpoints: [...LIVENESS_REPORT_ENDPOINTS, "workItems/settleAttempt"],
+		});
+		expect(candidates).toHaveLength(LIVENESS_REPORT_ENDPOINTS.size + 1);
+		const projected = new Map<string, AppTool["meta"]>();
+		for (const candidate of candidates) {
+			const { tool, endpointPath } = await buildProjectedTool(
+				"app",
+				candidate,
+				undefined,
+				options,
+			);
+			projected.set(tool.toolId, tool.meta);
+			expect(tool.meta?.["com.tedix/policy"]).toEqual({
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+				...(LIVENESS_REPORT_ENDPOINTS.has(endpointPath)
+					? { skipAppliedChangeRecord: true }
+					: {}),
+			});
+		}
+		expect([...projected.keys()].sort()).toEqual([
+			"heartbeat_work_item_attempt",
+			"report_dispatcher_health",
+			"report_work_agent_session_status",
+			"settle_work_item_attempt",
+		]);
+
+		// A stored row keeps no stale declaration once its endpoint leaves the set.
+		const [settle] = projectionCandidates({
+			endpoints: ["workItems/settleAttempt"],
+		});
+		const { tool } = await buildProjectedTool(
+			"app",
+			settle!,
+			{
+				toolId: "settle_work_item_attempt",
+				meta: projected.get("heartbeat_work_item_attempt"),
+			} as AppTool,
+			options,
+		);
+		expect(tool.meta?.["com.tedix/policy"]).toEqual({
+			riskTier: "bounded_write",
+			blastRadius: "single_resource",
+		});
 	});
 });
 

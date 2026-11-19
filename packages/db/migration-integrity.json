@@ -1640,6 +1640,10 @@
 		{
 			"name": "20261119142629_billing_gateway_reconciliations/migration.sql",
 			"sha256": "83c9ea4f42d03fb89436428656685b9dff75b0f1b6a2db5de9986a94efbe1e46"
+		},
+		{
+			"name": "20261119144848_gateway_change_records_time_indexes/migration.sql",
+			"sha256": "7641bbd0125257b93d1bac97b5392ae245447b94885578063f91a2f8d8e52949"
 		}
 	]
 }

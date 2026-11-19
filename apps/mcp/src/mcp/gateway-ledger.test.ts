@@ -399,6 +399,81 @@ describe("durable gateway ledger", () => {
 		).toEqual(records);
 		expect(agent.apiClient.audit.listChangeRecords).toHaveBeenCalledTimes(2);
 	});
+	it("stores no record for an applied read or liveness report, but keeps their failures and refusals", async () => {
+		const { context, sqlite } = setup();
+		const agent = context();
+		const waitUntil = vi.fn();
+		(agent as { ctx: unknown }).ctx = { waitUntil };
+		// No rate limiter bindings: the tier limit is not under test.
+		(agent as { env: unknown }).env = {};
+		const withPolicy = (toolId: string, policy: Record<string, unknown>) =>
+			({
+				toolId,
+				title: toolId,
+				inputSchema: { type: "object" },
+				meta: { "com.tedix/policy": policy },
+			}) as never;
+		const read = withPolicy("list_example", {
+			riskTier: "read",
+			blastRadius: "none",
+		});
+		const liveness = withPolicy("heartbeat_example", {
+			riskTier: "bounded_write",
+			blastRadius: "single_resource",
+			skipAppliedChangeRecord: true,
+		});
+		const write = withPolicy("update_example", {
+			riskTier: "bounded_write",
+			blastRadius: "single_resource",
+		});
+		const failed = { isError: true, content: [{ type: "text", text: "no" }] };
+
+		const appliedRead = await guardGatewayCall(
+			{ agent, tool: read, args: {}, annotations: undefined },
+			async () => ok,
+		);
+		const appliedLiveness = await guardGatewayCall(
+			{ agent, tool: liveness, args: {}, annotations: undefined },
+			async () => ok,
+		);
+		// Unstored, but callers still get a record object.
+		expect(appliedRead.record).toMatchObject({
+			outcome: "applied",
+			sequence: UNSTORED_SEQUENCE,
+		});
+		expect(appliedLiveness.record.sequence).toBe(UNSTORED_SEQUENCE);
+		expect(waitUntil).not.toHaveBeenCalled();
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM gateway_change_records").get(),
+		).toEqual({ n: 0 });
+
+		await guardGatewayCall(
+			{ agent, tool: read, args: {}, annotations: undefined },
+			async () => failed as never,
+		);
+		await guardGatewayCall(
+			{ agent, tool: liveness, args: {}, annotations: undefined },
+			async () => failed as never,
+		);
+		await recordGatewayRefusal(
+			{ agent, tool: read, args: {}, annotations: undefined },
+			"tool_scope",
+			"native_tool_scope_denied",
+		);
+		await guardGatewayCall(
+			{ agent, tool: write, args: {}, annotations: undefined },
+			async () => ok,
+		);
+		const background = waitUntil.mock.calls.map(([work]) => work);
+		await Promise.all(background);
+		const stored = await new GatewayAccountabilityAdapter(context()).list();
+		expect(stored.map((r) => [r.operation, r.outcome])).toEqual([
+			["list_example", "not_applied"],
+			["heartbeat_example", "not_applied"],
+			["list_example", "denied"],
+			["update_example", "applied"],
+		]);
+	});
 });
 
 // The shared contract suite, with the gateway ledger as the accountability

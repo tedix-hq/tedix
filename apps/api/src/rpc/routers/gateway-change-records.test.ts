@@ -107,6 +107,21 @@ it("stores gateway change records under the gateway's organization only", async 
 		await expect(
 			first.appendChangeRecord({ ...namedInput, id: "not-a-uuid" }),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		// `recorded_at` is stored in one form, so range reads can compare text.
+		expect(
+			await first.appendChangeRecord({
+				...namedInput,
+				id: "44444444-4444-4444-8444-444444444444",
+				recordedAt: "2026-11-18T11:00:00+01:00",
+			}),
+		).toMatchObject({ recordedAt: "2026-11-18T10:00:00.000Z" });
+		expect(
+			await first.appendChangeRecord({
+				...namedInput,
+				id: "55555555-5555-4555-8555-555555555555",
+				recordedAt: "2026-11-18T10:00:00Z",
+			}),
+		).toMatchObject({ recordedAt: "2026-11-18T10:00:00.000Z" });
 
 		const other = client(ORG_B);
 		await expect(other.appendChangeRecord(namedInput)).rejects.toThrow();
@@ -168,8 +183,8 @@ describe("owner and admin read of gateway change records", () => {
 			[ORG_A, "2026-11-18T10:00:00.000Z", "tool:send_example", "user-1"],
 			[ORG_A, "2026-11-18T11:00:00.000Z", "tool:get_example", "user-2"],
 			[ORG_A, "2026-11-18T23:59:59.999Z", "tool:get_example", "user-1"],
-			// Stored without milliseconds: still exactly the exclusive end.
-			[ORG_A, "2026-11-19T00:00:00Z", "tool:get_example", "user-1"],
+			// One millisecond after the exclusive end.
+			[ORG_A, "2026-11-19T00:00:00.001Z", "tool:get_example", "user-1"],
 			[ORG_A, "2026-11-19T00:00:00.000Z", "tool:get_example", "user-1"],
 		] as const;
 		await db.insert(gatewayChangeRecords).values(

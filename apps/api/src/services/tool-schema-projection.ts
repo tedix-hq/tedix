@@ -27,6 +27,7 @@ import type { AppTool } from "@tedix/db/schema";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
 	EXTERNAL_AGENT_MCP_ENDPOINTS,
+	LIVENESS_REPORT_ENDPOINTS,
 	OPEN_WORLD_ENDPOINTS,
 	ORG_INJECT_ROUTERS,
 } from "./tool-schema-overrides";
@@ -320,8 +321,14 @@ function mergeGeneratedMeta(
 	// (a read once inferred as a write kept "bounded_write" and stayed a write
 	// on the wire). A policy that any capability would derive is generated, so
 	// it is derived again; a curated policy carries other fields and is kept.
-	const { [TEDIX_TOOL_POLICY_META_KEY]: policy, ...rest } = meta;
-	if (!policy) return meta;
+	const { [TEDIX_TOOL_POLICY_META_KEY]: stored, ...rest } = meta;
+	if (!stored) return meta;
+	// The liveness declaration is code-owned (`withLivenessDeclaration`), so
+	// it does not make a derived policy curated.
+	const { skipAppliedChangeRecord: _liveness, ...policy } =
+		typeof stored === "object" && !Array.isArray(stored)
+			? (stored as Record<string, unknown>)
+			: {};
 	const config = existing?.config ? toJsonRecord(existing.config) : null;
 	const generated = (["read", "write", "destructive"] as const).some(
 		(writeCapability) =>
@@ -334,6 +341,26 @@ function mergeGeneratedMeta(
 			) === JSON.stringify(policy),
 	);
 	return generated ? rest : meta;
+}
+
+/**
+ * Set or clear `skipAppliedChangeRecord` on a projected row's policy from
+ * `LIVENESS_REPORT_ENDPOINTS`, so removing an endpoint there clears it.
+ */
+function withLivenessDeclaration(
+	meta: ReturnType<typeof withDerivedToolOperationalRiskPolicy>,
+	liveness: boolean,
+): ReturnType<typeof withDerivedToolOperationalRiskPolicy> {
+	const raw = meta?.[TEDIX_TOOL_POLICY_META_KEY];
+	if (!meta || !raw || typeof raw !== "object" || Array.isArray(raw))
+		return meta;
+	const { skipAppliedChangeRecord: _previous, ...policy } = raw;
+	return {
+		...meta,
+		[TEDIX_TOOL_POLICY_META_KEY]: liveness
+			? { ...policy, skipAppliedChangeRecord: true }
+			: policy,
+	};
 }
 
 export function mergeGeneratedConfig(
@@ -547,11 +574,14 @@ export async function buildProjectedTool(
 		options.kindOverrides?.[endpointPath],
 	);
 	const writeCapability = deriveToolWriteCapability(annotations);
-	const meta = withDerivedToolOperationalRiskPolicy({
-		meta: toJsonRecord(mergeGeneratedMeta(existing, endpointPath)),
-		config: toJsonRecord(config),
-		writeCapability,
-	});
+	const meta = withLivenessDeclaration(
+		withDerivedToolOperationalRiskPolicy({
+			meta: toJsonRecord(mergeGeneratedMeta(existing, endpointPath)),
+			config: toJsonRecord(config),
+			writeCapability,
+		}),
+		LIVENESS_REPORT_ENDPOINTS.has(endpointPath),
+	);
 	const widgetRoute = widgetOverride ? `/r/${widgetOverride.layoutId}` : null;
 	const widgetKey = widgetOverride ? "render" : (existing?.widgetKey ?? null);
 	const schemaSourceHash = await sha256({

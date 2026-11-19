@@ -22,6 +22,14 @@ export function formatWorkGraphStewardSummary(
 	return `[Scheduled] Work-graph steward: orgs=${summary.orgs} dupLinks=${summary.duplicateLinks} flags=${summary.flags} idleAccepted=${summary.idleAccepted} expiredAttempts=${summary.expiredAttempts} errors=${summary.errors}`;
 }
 
+/**
+ * Gateway change record retention: 500-row deletes, at most 50 a night
+ * (25,000 rows), well above the few thousand change records a day the
+ * gateway writes once reads and liveness reports are left out.
+ */
+export const GATEWAY_CHANGE_RECORD_PRUNE_BATCH_SIZE = 500;
+export const GATEWAY_CHANGE_RECORD_PRUNE_MAX_BATCHES = 50;
+
 export async function runRetentionCleanupCron(
 	env: CloudflareEnv,
 	event: ScheduledController,
@@ -207,13 +215,54 @@ export async function runRetentionCleanupCron(
 		);
 	}
 
+	// The MCP gateway's change ledger. Rows older than the retention window
+	// go in statements of GATEWAY_CHANGE_RECORD_PRUNE_BATCH_SIZE rows, at most
+	// GATEWAY_CHANGE_RECORD_PRUNE_MAX_BATCHES per night; a backlog drains over
+	// several nights. The row count and oldest record are logged every night
+	// so the table's size can be watched.
+	let deletedGatewayChangeRecords = 0;
+	try {
+		const {
+			GATEWAY_CHANGE_RECORD_RETENTION_DAYS,
+			getGatewayChangeRecordStats,
+			pruneGatewayChangeRecords,
+		} = await import("@tedix/db/queries/gateway-change-records");
+		const before = new Date(
+			event.scheduledTime - GATEWAY_CHANGE_RECORD_RETENTION_DAYS * 86_400_000,
+		).toISOString();
+		deletedGatewayChangeRecords = await pruneGatewayChangeRecords(db, {
+			before,
+			batchSize: GATEWAY_CHANGE_RECORD_PRUNE_BATCH_SIZE,
+			maxBatches: GATEWAY_CHANGE_RECORD_PRUNE_MAX_BATCHES,
+		});
+		const stats = await getGatewayChangeRecordStats(db);
+		console.log(
+			JSON.stringify({
+				event: "gateway_change_records.retention.run",
+				before,
+				deletedRows: deletedGatewayChangeRecords,
+				reachedRunCap:
+					deletedGatewayChangeRecords >=
+					GATEWAY_CHANGE_RECORD_PRUNE_BATCH_SIZE *
+						GATEWAY_CHANGE_RECORD_PRUNE_MAX_BATCHES,
+				rows: stats.rows,
+				oldestRecordedAt: stats.oldestRecordedAt,
+			}),
+		);
+	} catch (gatewayChangeRecordRetentionError) {
+		console.error(
+			"[Scheduled] Gateway change record retention failed (non-fatal):",
+			safeExceptionTopology(gatewayChangeRecordRetentionError),
+		);
+	}
+
 	// Clean up old resolved drift reports (30 days)
 	const { deleteOldDriftReports } =
 		await import("@tedix/db/queries/catalog/drift-reports");
 	const deletedDriftReports = await deleteOldDriftReports(db, 30);
 
 	console.log(
-		`[Scheduled] Retention cleanup complete: health=${deletedHealth}, catalogChanges=${deletedCatalogChanges}, tests=${deletedTests}, jobs=${deletedJobs}, snapshots=${deletedSnapshots}, usageEvents=${deletedUsageEvents}, widgetEvents=${deletedWidgetEvents}, driftReports=${deletedDriftReports}, workflowRuns=${deletedWorkflowRuns}, cronExecutions=${deletedCronExecutions}, platformCronExecutions=${deletedPlatformCronExecutions}, skillUsage=${deletedSkillUsage}, runtimeSubmissions=${deletedRuntimeSubmissions}, learningEvents=${deletedLearningEvents}, harnessEvalResults=${deletedHarnessEvalResults}, harnessEvalRuns=${deletedHarnessEvalRuns}, traceBundles=${deletedTraceBundles}, projectionOutbox=${prunedProjectionEvents}`,
+		`[Scheduled] Retention cleanup complete: health=${deletedHealth}, catalogChanges=${deletedCatalogChanges}, tests=${deletedTests}, jobs=${deletedJobs}, snapshots=${deletedSnapshots}, usageEvents=${deletedUsageEvents}, widgetEvents=${deletedWidgetEvents}, driftReports=${deletedDriftReports}, workflowRuns=${deletedWorkflowRuns}, cronExecutions=${deletedCronExecutions}, platformCronExecutions=${deletedPlatformCronExecutions}, skillUsage=${deletedSkillUsage}, runtimeSubmissions=${deletedRuntimeSubmissions}, learningEvents=${deletedLearningEvents}, harnessEvalResults=${deletedHarnessEvalResults}, harnessEvalRuns=${deletedHarnessEvalRuns}, traceBundles=${deletedTraceBundles}, projectionOutbox=${prunedProjectionEvents}, gatewayChangeRecords=${deletedGatewayChangeRecords}`,
 	);
 
 	// Catalog monitoring is diagnostic. It must never suppress the independent
@@ -617,6 +666,7 @@ export async function runRetentionCleanupCron(
 		runtimeSubmissionsDeleted: deletedRuntimeSubmissions,
 		learningEventsDeleted: deletedLearningEvents,
 		projectionEventsDeleted: prunedProjectionEvents,
+		gatewayChangeRecordsDeleted: deletedGatewayChangeRecords,
 		kernelToolResultsDeleted: deletedKernelToolResults,
 		catalogSnapshotsDeleted: deletedCatalogSnapshots,
 		auditExportObjectsWritten,
