@@ -240,8 +240,9 @@ type CreditCap = number | null;
 
 /**
  * A Growth organization past its 80% notice: 12,600 of 15,000 included
- * credits used, with 5,000 top-up credits still unused. Mutable so the cap
- * and pay-as-you-go forms round-trip in the dev lane.
+ * credits used, with 5,000 top-up credits still unused. Outside Billing ›
+ * Usage that reads "63% used this month" (12,600 of 20,000). Mutable so the
+ * cap and pay-as-you-go forms round-trip in the dev lane.
  */
 export const creditUsage = {
 	periodStart: CREDIT_PERIOD_START,

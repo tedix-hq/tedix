@@ -74,6 +74,8 @@ beforeEach(() => {
 	viewer.local = false;
 	billing.query.mockReset().mockResolvedValue({
 		credits: {
+			includedCredits: 100,
+			usedCredits: 70,
 			remainingIncludedCredits: 30,
 			topUpCredits: 20,
 			payAsYouGo: { enabled: false, monthlyCapMicros: null, spentMicros: 0 },
@@ -151,15 +153,19 @@ describe("sidebar account menu", () => {
 		expect(document.querySelector('[role="menu"]')).toBeNull();
 	});
 
-	it("shows Billing and the formatted remaining credit balance to billing managers", async () => {
+	it("shows Billing and the share of this month's credits used to billing managers", async () => {
 		viewer.permissions = ["billing:manage"];
 		const menu = await openMenu();
 		expect(menu.querySelector('[href="/admin/billing"]')?.textContent).toBe(
 			"Billing",
 		);
-		expect(menu.querySelector('[href="/compute"]')?.textContent).toBe(
-			"Usage50 credits left",
-		);
+		const usage = menu.querySelector('[href="/compute"]')!;
+		// 70 of 100 included plus 20 top-up credits, rounded down.
+		expect(usage.textContent).toMatch(/^Usage58% used this month/);
+		expect(usage.textContent).not.toContain("credits");
+		expect(
+			usage.querySelector('[role="meter"]')?.getAttribute("aria-valuenow"),
+		).toBe("58");
 		expect(billing.query).toHaveBeenCalledOnce();
 	});
 

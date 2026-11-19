@@ -28,6 +28,7 @@ import {
 	billingOverviewQueryOptions,
 	connectionsOverviewQueryOptions,
 } from "@/lib/os-query-options";
+import { allowanceUsage } from "@/lib/billing-credits";
 import { OS_SETTINGS_NAVIGATION } from "@/lib/os-navigation";
 import { OS_COPY } from "@/shared/os-copy";
 import { cn } from "@/lib/utils";
@@ -262,7 +263,7 @@ export function AdminPage() {
 							? {
 									label: "Available",
 									variant: "success",
-									detail: `${billing.data.plan.name} plan · Tedix credits available.`,
+									detail: `${billing.data.plan.name} plan · ${allowanceUsage(billing.data.credits).label} of this month's credits used.`,
 								}
 							: {
 									label: "Action needed",

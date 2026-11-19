@@ -22,9 +22,11 @@ import {
 	type CreditCapInput,
 	type CreditUsage,
 	creditLevel,
-	creditPercent,
 	formatCredits,
+	formatUsagePercent,
+	monthlyAllowanceCredits,
 	parseCreditCap,
+	usagePercent,
 } from "@/lib/billing-credits";
 import { errorMessage } from "@/lib/orpc-error";
 import { billingOverviewQueryOptions } from "@/lib/os-query-options";
@@ -38,6 +40,7 @@ type CapRow = {
 
 export function BillingCreditCaps({ credits }: { credits: CreditUsage }) {
 	const maxCap = credits.includedCredits + credits.topUpCredits;
+	const allowance = monthlyAllowanceCredits(credits);
 	return (
 		<SettingsSection>
 			<BillingSectionHeader
@@ -49,6 +52,7 @@ export function BillingCreditCaps({ credits }: { credits: CreditUsage }) {
 					title="Tedis"
 					emptyText="No tedi has used credits this month."
 					maxCap={maxCap}
+					allowance={allowance}
 					rows={credits.tedis.map((tedi) => ({
 						id: tedi.tediId,
 						name: tedi.name,
@@ -63,6 +67,7 @@ export function BillingCreditCaps({ credits }: { credits: CreditUsage }) {
 					title="Members"
 					emptyText="No member has used credits this month."
 					maxCap={maxCap}
+					allowance={allowance}
 					rows={credits.members.map((member) => ({
 						id: member.userId,
 						name: member.name,
@@ -83,12 +88,14 @@ function CapGroup({
 	emptyText,
 	rows,
 	maxCap,
+	allowance,
 	toInput,
 }: {
 	title: string;
 	emptyText: string;
 	rows: CapRow[];
 	maxCap: number;
+	allowance: number;
 	toInput: (id: string, monthlyCapCredits: number | null) => CreditCapInput;
 }) {
 	return (
@@ -102,6 +109,7 @@ function CapGroup({
 						key={`${row.id}:${row.monthlyCapCredits ?? "none"}`}
 						row={row}
 						maxCap={maxCap}
+						allowance={allowance}
 						toInput={toInput}
 					/>
 				))
@@ -113,10 +121,12 @@ function CapGroup({
 function CapRowForm({
 	row,
 	maxCap,
+	allowance,
 	toInput,
 }: {
 	row: CapRow;
 	maxCap: number;
+	allowance: number;
 	toInput: (id: string, monthlyCapCredits: number | null) => CreditCapInput;
 }) {
 	const queryClient = useQueryClient();
@@ -136,10 +146,32 @@ function CapRowForm({
 	});
 	const cap = row.monthlyCapCredits;
 	const level = cap === null ? "ok" : creditLevel(row.usedCredits, cap);
+	// With a cap, the share of the cap; without one, the share of the
+	// organization's credits this month. Exact counts follow.
+	const limit = cap ?? allowance;
+	const share = formatUsagePercent(row.usedCredits, limit);
 	return (
 		<Surface className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)] sm:items-start">
 			<div className="grid min-w-0 gap-1" data-credit-row={row.id}>
-				<Text weight="medium">{row.name}</Text>
+				<div className="flex items-baseline justify-between gap-3">
+					<Text weight="medium">{row.name}</Text>
+					<Text weight="medium" className="tabular-nums" data-credit-percent>
+						{cap === null
+							? `${share} of this month's credits`
+							: `${share} of cap used`}
+					</Text>
+				</div>
+				<Meter
+					label={
+						cap === null
+							? `Share of this month's credits used by ${row.name}`
+							: `${row.name} cap used`
+					}
+					hideLabel
+					value={usagePercent(row.usedCredits, limit)}
+					getAriaValueText={() => share}
+					className="h-2"
+				/>
 				<Text role="label" tone={level === "full" ? "error" : "secondary"}>
 					{cap === null
 						? `${formatCredits(row.usedCredits)} used · no separate cap`
@@ -147,14 +179,6 @@ function CapRowForm({
 							? `${formatCredits(row.usedCredits)} used · cap of ${formatCredits(cap)} reached; paused until next month`
 							: `${formatCredits(row.usedCredits)} of ${formatCredits(cap)} used`}
 				</Text>
-				{cap !== null && (
-					<Meter
-						label={`${row.name} credits used`}
-						hideLabel
-						value={creditPercent(row.usedCredits, cap)}
-						className="h-2"
-					/>
-				)}
 			</div>
 			<form
 				className="grid gap-1"

@@ -175,6 +175,40 @@ describe("AdminPage", () => {
 		await act(async () => root.unmount());
 	});
 
+	it("shows the share of this month's credits used, not a count", async () => {
+		state.context = {
+			isPending: false,
+			isError: false,
+			data: currentContext(),
+			error: null,
+		};
+		state.billing = {
+			isPending: false,
+			isError: false,
+			data: {
+				plan: { name: "Pro" },
+				admission: { available: true },
+				credits: {
+					includedCredits: 1_000,
+					usedCredits: 230,
+					remainingIncludedCredits: 770,
+					topUpCredits: 0,
+					payAsYouGo: {
+						enabled: false,
+						monthlyCapMicros: null,
+						spentMicros: 0,
+					},
+				},
+			},
+		};
+		const root = createRoot(container);
+		await act(async () => root.render(<AdminPage />));
+		expect(container.textContent).toContain(
+			"Pro plan · 23% of this month's credits used.",
+		);
+		await act(async () => root.unmount());
+	});
+
 	it("distinguishes restricted access from available status", async () => {
 		state.context = {
 			isPending: false,
