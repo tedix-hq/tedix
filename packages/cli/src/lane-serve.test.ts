@@ -7004,55 +7004,60 @@ it("sweeps every settled run and keeps each Work item's latest receipt", async (
 	expect(readdirSync(join(dir, "archive"))).toHaveLength(2);
 });
 
-it("deletes only unprotected settled receipts from older Work revisions", async () => {
-	const { dispatcher, dir, items } = fixture();
-	items.splice(0);
-	const protectedRows = [
-		{ pendingCommitProof: "" },
-		{ pendingObservation: {} },
-		{ completionPending: true },
-	];
-	for (let n = 0; n <= protectedRows.length; n++) {
-		const work = item(n + 1);
+it.each(Array.from({ length: 10 }, (_, cursor) => cursor))(
+	"deletes only unprotected settled receipts from older Work revisions (cursor %i)",
+	async (cursor) => {
+		const { dispatcher, dir, items } = fixture();
+		items.splice(0);
+		const protectedRows = [
+			{ pendingCommitProof: "" },
+			// Keep reconciliation from consuming the protection this sweep tests.
+			{ pendingObservation: {}, reportRetryAt: Number.MAX_SAFE_INTEGER },
+			{ completionPending: true, completionRetryAt: Number.MAX_SAFE_INTEGER },
+		];
+		for (let n = 0; n <= protectedRows.length; n++) {
+			const work = item(n + 1);
+			for (const version of [1, 2])
+				writeFileSync(
+					join(dir, `${work.id}-${version}.json`),
+					JSON.stringify({
+						itemId: work.id,
+						version,
+						phase: "settled",
+						outcome: "succeeded",
+						...(version === 1 ? protectedRows[n - 1] : undefined),
+					}),
+				);
+		}
+		const runProtected = item(5);
 		for (const version of [1, 2])
 			writeFileSync(
-				join(dir, `${work.id}-${version}.json`),
+				join(dir, `${runProtected.id}-${version}.json`),
 				JSON.stringify({
-					itemId: work.id,
+					itemId: runProtected.id,
 					version,
 					phase: "settled",
 					outcome: "succeeded",
-					...(version === 1 ? protectedRows[n - 1] : undefined),
 				}),
 			);
-	}
-	const runProtected = item(5);
-	for (const version of [1, 2])
-		writeFileSync(
-			join(dir, `${runProtected.id}-${version}.json`),
-			JSON.stringify({
-				itemId: runProtected.id,
-				version,
-				phase: "settled",
-				outcome: "succeeded",
-			}),
+		mkdirSync(join(dir, "runs", `${runProtected.id}-1`, "repo"), {
+			recursive: true,
+		});
+
+		dispatcher["reconciliationCursor"] = cursor;
+		await dispatcher.tick();
+		await dispatcher.drain();
+
+		expect(existsSync(join(dir, `${item(1).id}-1.json`))).toBe(false);
+		for (let n = 2; n <= 5; n++)
+			expect(existsSync(join(dir, `${item(n).id}-1.json`))).toBe(true);
+		for (let n = 1; n <= 5; n++)
+			expect(existsSync(join(dir, `${item(n).id}-2.json`))).toBe(true);
+		expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+			'"event":"receipts-pruned"',
 		);
-	mkdirSync(join(dir, "runs", `${runProtected.id}-1`, "repo"), {
-		recursive: true,
-	});
-
-	await dispatcher.tick();
-	await dispatcher.drain();
-
-	expect(existsSync(join(dir, `${item(1).id}-1.json`))).toBe(false);
-	for (let n = 2; n <= 5; n++)
-		expect(existsSync(join(dir, `${item(n).id}-1.json`))).toBe(true);
-	for (let n = 1; n <= 5; n++)
-		expect(existsSync(join(dir, `${item(n).id}-2.json`))).toBe(true);
-	expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
-		'"event":"receipts-pruned"',
-	);
-});
+	},
+);
 
 it.each(["settled", "deferred"])(
 	"keeps Work-recorded unpushed commits through %s cleanup and cap pressure",
