@@ -31,10 +31,12 @@ const h = vi.hoisted(() => ({
 	candidateAccessChecks: 0,
 	identityInvalidations: 0,
 	connectionRead: vi.fn(),
+	connectionDecision: vi.fn(),
 }));
 
 vi.mock("./services/workspace-connection-read", () => ({
 	readLinkedWorkspaceAccount: h.connectionRead,
+	decideLinkedWorkspaceAccountApproval: h.connectionDecision,
 }));
 
 vi.mock("./services/identity-cache-invalidation", () => ({
@@ -309,7 +311,7 @@ describe("version-bound public API release manifest", () => {
 });
 
 describe("WorkspaceConnectionsEntrypoint", () => {
-	it("exports a dedicated RPC method without loading the HTTP application", async () => {
+	it("exports dedicated RPC methods without loading the HTTP application", async () => {
 		const before = h.evaluations;
 		const input = {
 			organizationId: "org-1",
@@ -330,6 +332,21 @@ describe("WorkspaceConnectionsEntrypoint", () => {
 			),
 		).toMatchObject({ status: "refused" });
 		expect(h.connectionRead).toHaveBeenCalledWith(env, input);
+		const decision = {
+			organizationId: input.organizationId,
+			workspaceId: input.workspaceId,
+			conversationId: input.conversationId,
+			approvalRequestId: crypto.randomUUID(),
+			by: "user-1",
+			decision: "approve" as const,
+		};
+		h.connectionDecision.mockResolvedValueOnce({ status: "approved" });
+		await expect(
+			new WorkspaceConnectionsEntrypoint(ctx, env).decideLinkedAccountApproval(
+				decision,
+			),
+		).resolves.toEqual({ status: "approved" });
+		expect(h.connectionDecision).toHaveBeenCalledWith(env, decision);
 		expect(h.evaluations).toBe(before);
 	});
 });

@@ -1701,7 +1701,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					config.approvalPolicies?.[`${input.appSlug}:${tool.toolId}`] ??
 					config.approvalPolicy;
 				// The gateway still checks the pinned live configuration and all its rules.
-				if (!policy || policy === "never")
+				if (!input.approvalRequestId && (!policy || policy === "never"))
 					return { approved: true, status: "read_allowed", url: origin };
 			}
 			const requestingUserId = input.userId ?? "";
@@ -1780,7 +1780,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				});
 				if (
 					approval.payload.fingerprint !== fingerprint &&
-					(await canonicalDigest(storedIdentity)) !== callFingerprint
+					(workspaceRead ||
+						(await canonicalDigest(storedIdentity)) !== callFingerprint)
 				) {
 					const differences = ownerToolCallDifferences(
 						storedIdentity,

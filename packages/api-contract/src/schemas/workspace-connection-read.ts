@@ -16,6 +16,7 @@ export const WorkspaceConnectionReadInputSchema = z.strictObject({
 	args: z.record(z.string(), JsonValueSchema),
 	conversationId: z.string().min(1),
 	actor: WorkspaceConnectionActorSchema,
+	approvalRequestId: z.uuid().optional(),
 });
 
 export const WorkspaceConnectionReadResultSchema = z.discriminatedUnion(
@@ -48,3 +49,19 @@ export type WorkspaceConnectionReadInput = z.infer<
 export type WorkspaceConnectionReadResult = z.infer<
 	typeof WorkspaceConnectionReadResultSchema
 >;
+
+export const WorkspaceConnectionDecisionInputSchema = z.strictObject({
+	organizationId: z.string().min(1),
+	workspaceId: z.string().min(1),
+	conversationId: z.string().min(1),
+	approvalRequestId: z.uuid(),
+	by: z.string().min(1),
+	decision: z.enum(["approve", "deny"]),
+});
+
+export type WorkspaceConnectionDecisionInput = z.infer<
+	typeof WorkspaceConnectionDecisionInputSchema
+>;
+export type WorkspaceConnectionDecisionResult =
+	| { status: "approved" | "denied" }
+	| { status: "refused"; message: string };
