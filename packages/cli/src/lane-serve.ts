@@ -1115,7 +1115,14 @@ function readLaneReceipts(
 						Number(row.nativeResumeCount) < 0)) ||
 				(row.transportInterrupted !== undefined &&
 					typeof row.transportInterrupted !== "boolean") ||
-				["session", "executorKey", "attemptId", "processIdentity", "repo"].some(
+				[
+					"session",
+					"executorKey",
+					"attemptId",
+					"retainedAttemptId",
+					"processIdentity",
+					"repo",
+				].some(
 					(key) =>
 						row[key] !== undefined &&
 						(typeof row[key] !== "string" || !row[key]),
@@ -1167,13 +1174,14 @@ function hasSettledOutcome(receipt: Receipt): boolean {
 function retainsInterruptedWork(receipt: Receipt): boolean {
 	return (
 		receipt.phase === "deferred" &&
-		(receipt.outcome === "expired" ||
-			(receipt.outcome === "failed" &&
-				receipt.transportInterrupted === true)) &&
-		receipt.admissionState === "admitted" &&
-		!!receipt.attemptId &&
 		!!receipt.session &&
-		!!receipt.repo
+		!!receipt.repo &&
+		(receipt.attemptId
+			? receipt.admissionState === "admitted" &&
+				(receipt.outcome === "expired" ||
+					(receipt.outcome === "failed" &&
+						receipt.transportInterrupted === true))
+			: !!receipt.retainedAttemptId && receipt.admissionState !== "unknown")
 	);
 }
 function nativePreparationTimedOut(receipt: Receipt): boolean {
@@ -4398,6 +4406,14 @@ export class LaneDispatcher {
 			});
 			if (sessionRecovery) this.log("session-busy", item.id, sessionRecovery);
 			const resumed = thread.thread.id === previousSession;
+			const resumingInterrupted =
+				resumed &&
+				executor !== "devin" &&
+				previousLane?.version === item.version &&
+				retainsInterruptedWork(previousLane);
+			if (resumingInterrupted)
+				receipt.retainedAttemptId =
+					previousLane.attemptId ?? previousLane.retainedAttemptId;
 			if (previousSession && !resumed && !sessionRecovery)
 				this.log(
 					"session-replaced",
@@ -4485,6 +4501,7 @@ export class LaneDispatcher {
 			admitted = true;
 			receipt.admissionState = "admitted";
 			receipt.attemptId = started.attempt.id;
+			delete receipt.retainedAttemptId;
 			receipt.phase = "admitted";
 			this.save(path, receipt);
 			this.finishPreparation(candidate.id);
@@ -4671,12 +4688,7 @@ export class LaneDispatcher {
 			// A stop that arrived during preparation must not start a model turn
 			// the drain deadline would then abandon to the next runner.
 			if (this.stopping) throw new DispatcherStoppingError();
-			if (
-				resumed &&
-				executor !== "devin" &&
-				previousLane?.version === item.version &&
-				retainsInterruptedWork(previousLane)
-			) {
+			if (resumingInterrupted) {
 				receipt.nativeResumeCount = (receipt.nativeResumeCount ?? 0) + 1;
 				this.save(path, receipt);
 			}
@@ -5031,10 +5043,7 @@ export class LaneDispatcher {
 									retryDeadlineAt,
 								);
 				}
-				if (
-					interrupted &&
-					(!admissionSent || receipt.admissionState === "rejected")
-				) {
+				if (!admissionSent && interrupted) {
 					// Keep correlation only; a fresh admission still owns the next lease and PID.
 					Object.assign(receipt, {
 						repo: interrupted.repo,
@@ -5042,6 +5051,7 @@ export class LaneDispatcher {
 						session: interrupted.session,
 						executorKey: interrupted.executorKey,
 						attemptId: interrupted.attemptId,
+						retainedAttemptId: interrupted.retainedAttemptId,
 						admissionState: interrupted.admissionState,
 						processIdentity: interrupted.processIdentity,
 						outcome: interrupted.outcome,
@@ -6568,14 +6578,22 @@ export class LaneDispatcher {
 			return;
 		}
 		delete receipt.admissionCheckFailures;
+		// The ledger is newest first. An earlier Attempt in the same native
+		// thread is not evidence that the retry's admission reached the board.
+		const earlier = receipt.retainedAttemptId
+			? history.data.findIndex(
+					(attempt) => attempt.id === receipt.retainedAttemptId,
+				)
+			: history.data.length;
+		const candidates = history.data.slice(0, Math.max(0, earlier));
 		if (
-			history.data.some(
+			candidates.some(
 				(attempt) =>
 					attempt.externalSessionKey === receipt.session &&
 					attempt.metadata?.dispatchVersion === receipt.version,
 			)
 		) {
-			await this.recoverOrphan(receipt, history);
+			await this.recoverOrphan(receipt, { ...history, data: candidates });
 			return;
 		}
 		receipt.admissionState = "not_sent";
@@ -6645,6 +6663,7 @@ export class LaneDispatcher {
 		}
 		if (!receipt.attemptId) {
 			receipt.attemptId = attempt.id;
+			delete receipt.retainedAttemptId;
 			receipt.admissionState = "admitted";
 			receipt.phase = "admitted";
 			this.save(
