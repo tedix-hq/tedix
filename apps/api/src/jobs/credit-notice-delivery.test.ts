@@ -64,7 +64,7 @@ function seed() {
 	return {
 		sqlite,
 		db: createDbClient(createD1Facade(sqlite)),
-		env: { EMAIL, OS_URL: "https://os.example.test" },
+		env: { EMAIL, OS_URL: "https://os.example.test", SHARE_EMAIL_FROM: "billing@example.test" },
 		sent,
 		failEmailTo: (email: string | null) => {
 			failFor = email;
@@ -175,11 +175,11 @@ describe("credit notice delivery", () => {
 	it("leads the 100% email with the percentage", () => {
 		const email = creditNoticeEmail(
 			{ threshold: 100, organizationName: "Willowbrook" },
-			undefined,
+			"https://os.example.test",
 		);
 		expect(email.subject).toBe(
 			"Willowbrook has used 100% of this month's credits",
 		);
-		expect(email.text).toContain("https://os.tedix.dev/admin/billing");
+		expect(email.text).toContain("https://os.example.test/admin/billing");
 	});
 });
