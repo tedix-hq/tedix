@@ -14,13 +14,22 @@
  * (the Stripe account the projection must live in), TEDIX_API_URL (webhook
  * origin) and TEDIX_OS_URL (billing portal return origin).
  *
- * This script is deliberately idempotent. It adopts the existing Tedix token
- * meter/overage price when their immutable configuration matches, and locates
- * every managed resource by metadata before creating anything.
+ * This script is deliberately idempotent. It locates every managed resource by
+ * metadata before creating anything. Usage is sold in Tedix credits
+ * (1 credit = EUR 0.01): one-time top-up packs, and a pay-as-you-go credit
+ * meter for organizations that opt in. The retired daily-boost packs and the
+ * token overage price/meter are archived, never deleted.
  */
 
 import Stripe from "stripe";
-import { loadBillingCatalog } from "./stripe-catalog";
+import {
+	CREDIT_METER_EVENT_NAME,
+	CREDIT_TOP_UP_PACKS,
+	CREDIT_UNIT_AMOUNT_CENTS,
+	loadBillingCatalog,
+	RETIRED_PRODUCT_KEY_PREFIX,
+	RETIRED_TOKEN_OVERAGE_PRODUCT_KEY,
+} from "./stripe-catalog";
 
 // Validate the complete operator-owned projection before credentials or network.
 const catalogConfig = loadBillingCatalog(process.argv.slice(2), process.env);
@@ -58,7 +67,7 @@ function requiredEnv(name: string): string {
 const apiUrl = requiredEnv("TEDIX_API_URL");
 const webhookUrl = `${apiUrl}/webhooks/stripe${stripeEnvironment === "test" ? "/test" : ""}`;
 const osUrl = requiredEnv("TEDIX_OS_URL");
-const meterEventName = catalogConfig.meter.eventName;
+const meterEventName = CREDIT_METER_EVENT_NAME;
 const expectedStripeAccountId = requiredEnv("STRIPE_EXPECTED_ACCOUNT_ID");
 const catalogVersion = catalogConfig.catalogVersion;
 const planCurrency = catalogConfig.currency;
@@ -66,11 +75,12 @@ const managedMetadata = {
 	tedix_managed: "true",
 	tedix_catalog_version: String(catalogVersion),
 };
-const overageLookupKey = `tedix_token_overage_v${catalogVersion}`;
-const overageUnitAmount = catalogConfig.overage.unitAmount;
-const overageNickname = catalogConfig.overage.nickname;
-const overageMetadata = { ...managedMetadata, tedix_usage: "token_overage" };
+const paygProductKey = "pay_as_you_go_credits";
+const paygLookupKey = "tedix_credits_payg_eur_v1";
+const paygMetadata = { ...managedMetadata, tedix_usage: "credits_payg" };
 const missingPrices: string[] = [];
+/** Resources an apply archives; listed in audit mode. */
+const retirements: string[] = [];
 const requiredWebhookEvents: Stripe.WebhookEndpointCreateParams.EnabledEvent[] =
 	[
 		"checkout.session.completed",
@@ -83,12 +93,6 @@ const requiredWebhookEvents: Stripe.WebhookEndpointCreateParams.EnabledEvent[] =
 	];
 
 const plans = catalogConfig.plans;
-const inferenceCapacityPacks = catalogConfig.inferenceCapacity.packs.map(
-	(pack) => ({
-		...pack,
-		lookupKey: `tedix_inference_capacity_${pack.key}_v${catalogConfig.inferenceCapacity.lookupVersion}`,
-	}),
-);
 
 async function ensureMeter(): Promise<Stripe.Billing.Meter> {
 	const meters = await stripe.billing.meters
@@ -122,10 +126,7 @@ async function ensureProduct(
 		.list({ limit: 100 })
 		.autoPagingToArray({ limit: 10_000 });
 	const existing = products.find(
-		(product) =>
-			product.metadata.tedix_plan_key === key ||
-			(key === "token_overage" &&
-				product.name === catalogConfig.overage.productName),
+		(product) => product.metadata.tedix_plan_key === key,
 	);
 	if (existing) {
 		if (existing.name !== name || existing.metadata.tedix_managed !== "true") {
@@ -197,11 +198,12 @@ async function ensureLicensedPrice(input: {
 	);
 }
 
-async function ensureInferenceCapacityPrice(input: {
+async function ensureTopUpPrice(input: {
 	productId: string;
-	packKey: string;
+	credits: number;
 	lookupKey: string;
 	unitAmount: number;
+	validMonths: number;
 }): Promise<Stripe.Price | null> {
 	const prices = await stripe.prices.list({
 		product: input.productId,
@@ -214,8 +216,9 @@ async function ensureInferenceCapacityPrice(input: {
 	if (
 		existing &&
 		(existing.type !== "one_time" ||
-			existing.currency !== planCurrency ||
-			existing.unit_amount !== input.unitAmount)
+			existing.currency !== "eur" ||
+			existing.unit_amount !== input.unitAmount ||
+			existing.tax_behavior !== "exclusive")
 	) {
 		throw new Error(`Stripe price configuration drift: ${input.lookupKey}`);
 	}
@@ -227,23 +230,25 @@ async function ensureInferenceCapacityPrice(input: {
 	return stripe.prices.create(
 		{
 			product: input.productId,
-			currency: planCurrency,
+			currency: "eur",
 			unit_amount: input.unitAmount,
 			tax_behavior: "exclusive",
 			lookup_key: input.lookupKey,
-			nickname: `${catalogConfig.priceLabel} inference capacity ${input.packKey}`,
+			nickname: `${catalogConfig.priceLabel} ${input.credits} credits`,
 			metadata: {
 				...managedMetadata,
-				tedix_inference_capacity_pack_key: input.packKey,
+				tedix_credit_top_up: "true",
+				credits: String(input.credits),
+				validMonths: String(input.validMonths),
 			},
 		},
 		{
-			idempotencyKey: `tedix:billing:v${catalogVersion}:inference-capacity-price:${input.packKey}`,
+			idempotencyKey: `tedix:billing:credit-top-up-price:${input.lookupKey}`,
 		},
 	);
 }
 
-async function ensureOveragePrice(
+async function ensurePayAsYouGoPrice(
 	productId: string,
 	meterId: string,
 ): Promise<Stripe.Price | null> {
@@ -253,58 +258,74 @@ async function ensureOveragePrice(
 		limit: 100,
 	});
 	const existing = prices.data.find(
-		(price) =>
-			price.currency === planCurrency &&
-			price.unit_amount === overageUnitAmount &&
-			price.recurring?.usage_type === "metered" &&
-			price.recurring.meter === meterId &&
-			price.transform_quantity?.divide_by === catalogConfig.overage.divideBy &&
-			price.transform_quantity.round === "up",
+		(price) => price.lookup_key === paygLookupKey,
 	);
-	if (!existing) {
-		if (!apply) {
-			missingPrices.push(overageLookupKey);
-			return null;
-		}
-		return stripe.prices.create(
-			{
-				product: productId,
-				currency: planCurrency,
-				billing_scheme: "per_unit",
-				unit_amount: overageUnitAmount,
-				tax_behavior: "exclusive",
-				recurring: {
-					interval: "month",
-					meter: meterId,
-					usage_type: "metered",
-				},
-				transform_quantity: {
-					divide_by: catalogConfig.overage.divideBy,
-					round: "up",
-				},
-				nickname: overageNickname,
-				lookup_key: overageLookupKey,
-				metadata: overageMetadata,
-			},
-			{
-				idempotencyKey: `tedix:billing:v${catalogVersion}:price:token_overage`,
-			},
-		);
-	}
 	if (
-		existing.lookup_key !== overageLookupKey ||
-		existing.metadata.tedix_managed !== "true"
+		existing &&
+		(existing.currency !== "eur" ||
+			existing.unit_amount !== CREDIT_UNIT_AMOUNT_CENTS ||
+			existing.recurring?.usage_type !== "metered" ||
+			existing.recurring.meter !== meterId ||
+			existing.tax_behavior !== "exclusive" ||
+			existing.transform_quantity)
 	) {
-		if (!apply) {
-			throw new Error(`Stripe overage price needs metadata: ${existing.id}`);
-		}
-		return stripe.prices.update(existing.id, {
-			nickname: overageNickname,
-			lookup_key: overageLookupKey,
-			metadata: overageMetadata,
-		});
+		throw new Error(`Stripe price configuration drift: ${paygLookupKey}`);
 	}
-	return existing;
+	if (existing) return existing;
+	if (!apply) {
+		missingPrices.push(paygLookupKey);
+		return null;
+	}
+	return stripe.prices.create(
+		{
+			product: productId,
+			currency: "eur",
+			billing_scheme: "per_unit",
+			unit_amount: CREDIT_UNIT_AMOUNT_CENTS,
+			tax_behavior: "exclusive",
+			recurring: { interval: "month", meter: meterId, usage_type: "metered" },
+			nickname: catalogConfig.payAsYouGo.nickname,
+			lookup_key: paygLookupKey,
+			metadata: paygMetadata,
+		},
+		{ idempotencyKey: `tedix:billing:price:${paygLookupKey}` },
+	);
+}
+
+/**
+ * Archive the retired daily-boost packs and the token overage product: their
+ * active prices, then the product. A meter only the token overage price used
+ * is deactivated. Nothing is deleted, so past invoices keep their references.
+ */
+async function retireLegacyCatalog(creditMeterId: string): Promise<void> {
+	const products = await stripe.products
+		.list({ limit: 100, active: true })
+		.autoPagingToArray({ limit: 10_000 });
+	const retired = products.filter((product) => {
+		const key = product.metadata.tedix_plan_key ?? "";
+		return (
+			key.startsWith(RETIRED_PRODUCT_KEY_PREFIX) ||
+			key === RETIRED_TOKEN_OVERAGE_PRODUCT_KEY
+		);
+	});
+	const legacyMeters = new Set<string>();
+	for (const product of retired) {
+		const prices = await stripe.prices
+			.list({ product: product.id, active: true, limit: 100 })
+			.autoPagingToArray({ limit: 10_000 });
+		for (const price of prices) {
+			const meter = price.recurring?.meter;
+			if (meter && meter !== creditMeterId) legacyMeters.add(meter);
+			retirements.push(`price:${price.id}`);
+			if (apply) await stripe.prices.update(price.id, { active: false });
+		}
+		retirements.push(`product:${product.id}`);
+		if (apply) await stripe.products.update(product.id, { active: false });
+	}
+	for (const meterId of legacyMeters) {
+		retirements.push(`meter:${meterId}`);
+		if (apply) await stripe.billing.meters.deactivate(meterId);
+	}
 }
 
 async function ensureWebhook(): Promise<Stripe.WebhookEndpoint> {
@@ -390,11 +411,11 @@ async function main() {
 		);
 	}
 	const meter = await ensureMeter();
-	const overageProduct = await ensureProduct(
-		"token_overage",
-		catalogConfig.overage.productName,
+	const paygProduct = await ensureProduct(
+		paygProductKey,
+		catalogConfig.payAsYouGo.productName,
 	);
-	const overagePrice = await ensureOveragePrice(overageProduct.id, meter.id);
+	const paygPrice = await ensurePayAsYouGoPrice(paygProduct.id, meter.id);
 	const catalog = [];
 	for (const plan of plans) {
 		const product = await ensureProduct(plan.key, plan.name);
@@ -417,25 +438,24 @@ async function main() {
 			annualPriceId: annualPrice?.id ?? null,
 		});
 	}
-	const capacityCatalog = [];
-	for (const pack of inferenceCapacityPacks) {
-		const product = await ensureProduct(
-			`inference_capacity_${pack.key}`,
-			pack.name,
-		);
-		const price = await ensureInferenceCapacityPrice({
+	const topUpCatalog = [];
+	for (const pack of CREDIT_TOP_UP_PACKS) {
+		const product = await ensureProduct(pack.productKey, pack.name);
+		const price = await ensureTopUpPrice({
 			productId: product.id,
-			packKey: pack.key,
+			credits: pack.credits,
 			lookupKey: pack.lookupKey,
 			unitAmount: pack.unitAmount,
+			validMonths: pack.validMonths,
 		});
-		capacityCatalog.push({
-			packKey: pack.key,
+		topUpCatalog.push({
+			credits: pack.credits,
 			productId: product.id,
 			priceId: price?.id ?? null,
 			lookupKey: pack.lookupKey,
 		});
 	}
+	await retireLegacyCatalog(meter.id);
 	const webhook = await ensureWebhook();
 	const portal = await ensurePortalConfiguration();
 
@@ -447,8 +467,8 @@ async function main() {
 				accountId: account.id,
 				catalogVersion,
 				meterId: meter.id,
-				overageProductId: overageProduct.id,
-				overagePriceId: overagePrice?.id ?? null,
+				payAsYouGoProductId: paygProduct.id,
+				payAsYouGoPriceId: paygPrice?.id ?? null,
 				webhook: {
 					id: webhook.id,
 					url: webhook.url,
@@ -456,8 +476,9 @@ async function main() {
 				},
 				portalConfigurationId: portal.id,
 				catalog,
-				capacityCatalog,
+				topUpCatalog,
 				missingPrices,
+				[apply ? "retired" : "toRetire"]: retirements,
 			},
 			null,
 			2,
