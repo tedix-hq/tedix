@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./billing": "./src/billing.ts",
 		"./runtime": "./src/runtime.ts",
 		"./stt": "./src/stt.ts",
 		"./tts": "./src/tts.ts"

@@ -23,6 +23,17 @@ import {
 	type AiGatewayTransport,
 	resolveAiGatewayTransport,
 } from "@tedix/workers-ai/gateway-transport";
+import {
+	admitWithFallback,
+	azureVoiceDeploymentScope,
+	releaseVoiceHold,
+	settleVoiceHold,
+	VOICE_GATEWAY_CUSTOM_COST,
+	type VoiceBilling,
+	type VoiceBillingAttempt,
+	type VoiceBillingHold,
+	workersAiVoiceDeploymentScope,
+} from "./billing";
 
 /** Max characters synthesized per call — TTS providers cap input; keep spoken
  * replies short and bounded. Longer assistant text is truncated at a sentence-ish
@@ -75,8 +86,10 @@ export interface SynthesizeOptions {
 	text: string;
 	/** Override the speaker/voice; defaults to the platform voice per provider. */
 	voice?: string;
-	/** Flat primitive Gateway metadata, capped with `channel` to five entries. */
+	/** Flat primitive Gateway metadata; up to three entries reach the Gateway. */
 	gatewayMetadata?: Record<string, string | number | boolean | undefined>;
+	/** Credit admission for each provider attempt; see `./billing`. */
+	billing?: VoiceBilling;
 }
 
 export class TtsError extends Error {
@@ -122,28 +135,49 @@ function azureSpeechUrl(
 	return `${transport.providerRoot}/${resource}/${deployment}/audio/speech${query}`;
 }
 
+/** Characters billed for one synthesis: Unicode code points of the input. */
+export function ttsCharacterCount(text: string): number {
+	return Array.from(text).length;
+}
+
+type GatewayMetadata = Record<string, string | number | boolean>;
+
+/**
+ * Cloudflare allows five flat metadata entries: `channel`, the package-owned
+ * `usage` envelope (read by gateway cost ingestion), and up to three caller
+ * entries (orgId, tediId, ...).
+ */
 function gatewayMetadata(
-	metadata?: SynthesizeOptions["gatewayMetadata"],
-): Record<string, string | number | boolean> {
+	metadata: SynthesizeOptions["gatewayMetadata"],
+	characters: number,
+): GatewayMetadata {
 	return Object.fromEntries([
 		["channel", "voice-tts"],
 		...Object.entries(metadata ?? {})
 			.filter(
 				(entry): entry is [string, string | number | boolean] =>
+					entry[0] !== "channel" &&
+					entry[0] !== "usage" &&
 					entry[1] !== undefined &&
 					(typeof entry[1] === "string" ||
 						typeof entry[1] === "number" ||
 						typeof entry[1] === "boolean"),
 			)
-			.slice(0, 4),
+			.slice(0, 3),
+		[
+			"usage",
+			JSON.stringify({ k: "voice_tts", u: "characters", q: characters }),
+		],
 	]);
 }
+
+const WORKERS_AI_TTS_MODEL = "@cf/deepgram/aura-1";
 
 async function synthesizeAzure(
 	env: VoiceTtsEnv,
 	text: string,
 	voice: string | undefined,
-	metadata?: SynthesizeOptions["gatewayMetadata"],
+	metadata: GatewayMetadata,
 ): Promise<Uint8Array> {
 	const transport = azureTtsTransport(env);
 	if (!transport) {
@@ -159,7 +193,10 @@ async function synthesizeAzure(
 			headers: {
 				// On the binding transport this is the pre-authenticated sentinel.
 				"cf-aig-authorization": `Bearer ${transport.authorization}`,
-				"cf-aig-metadata": JSON.stringify(gatewayMetadata(metadata)),
+				"cf-aig-metadata": JSON.stringify(metadata),
+				// Missing stored BYOK credentials must fail rather than change the payer.
+				"cf-aig-no-wholesale": "true",
+				"cf-aig-custom-cost": VOICE_GATEWAY_CUSTOM_COST,
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
@@ -211,13 +248,13 @@ async function synthesizeWorkersAi(
 	env: VoiceTtsEnv,
 	text: string,
 	voice: string | undefined,
-	metadata?: SynthesizeOptions["gatewayMetadata"],
+	metadata: GatewayMetadata,
 ): Promise<Uint8Array> {
 	const options = hasAiGateway(env)
 		? {
 				gateway: {
 					id: env.AI_GATEWAY_LLM_ID as string,
-					metadata: gatewayMetadata(metadata),
+					metadata,
 				},
 			}
 		: undefined;
@@ -232,7 +269,7 @@ async function synthesizeWorkersAi(
 		): Promise<unknown>;
 	};
 	const out = await ai.run(
-		"@cf/deepgram/aura-1",
+		WORKERS_AI_TTS_MODEL,
 		{ text, speaker: voice ?? DEFAULT_AURA_SPEAKER },
 		options,
 	);
@@ -247,6 +284,10 @@ async function synthesizeWorkersAi(
  * Synthesize ONE spoken rendition of `text`. Azure is preferred when its creds
  * exist; on an Azure error/timeout we fall back to Workers AI Aura at runtime.
  * Throws {@link TtsError} only when BOTH providers fail — the caller fails soft.
+ *
+ * With `billing`, each provider attempt is admitted against the organization's
+ * credits for its input characters first. An organization refusal throws and
+ * skips the fallback; an unpriced Azure deployment falls through to Aura.
  */
 export async function synthesizeSpeech(
 	env: VoiceTtsEnv,
@@ -254,28 +295,74 @@ export async function synthesizeSpeech(
 ): Promise<SpeechResult> {
 	const text = clampTtsText(opts.text);
 	if (!text) throw new TtsError("text is required");
-	if (hasAzureTts(env)) {
+	const characters = ttsCharacterCount(text);
+	const metadata = gatewayMetadata(opts.gatewayMetadata, characters);
+	const attempt = (
+		billed: Pick<VoiceBillingAttempt, "provider" | "model" | "deploymentScope">,
+	): VoiceBillingAttempt => ({
+		...billed,
+		usageKind: "voice_tts",
+		unit: "characters",
+		estimatedQuantity: characters,
+	});
+	const billedCall = async (
+		hold: VoiceBillingHold | undefined,
+		call: () => Promise<Uint8Array>,
+	): Promise<Uint8Array> => {
+		let audio: Uint8Array;
 		try {
-			const audio = await synthesizeAzure(
-				env,
-				text,
-				opts.voice,
-				opts.gatewayMetadata,
-			);
-			return { audio, mimeType: "audio/mpeg", provider: "azure" };
-		} catch (azureErr) {
-			const reason =
-				azureErr instanceof Error ? azureErr.message : String(azureErr);
-			console.warn(
-				`[voice-tts] Azure TTS failed, falling back to Workers AI Aura: ${reason}`,
-			);
+			audio = await call();
+		} catch (error) {
+			await releaseVoiceHold(hold, "provider_failed", "voice-tts");
+			throw error;
+		}
+		await settleVoiceHold(
+			hold,
+			{ quantity: characters, measured: true },
+			"voice-tts",
+		);
+		return audio;
+	};
+	if (hasAzureTts(env)) {
+		const deployment =
+			env.AZURE_OPENAI_TTS_DEPLOYMENT ?? DEFAULT_AZURE_TTS_DEPLOYMENT;
+		const admitted = await admitWithFallback(
+			opts.billing,
+			attempt({
+				provider: "azure-openai",
+				model: deployment,
+				deploymentScope: azureVoiceDeploymentScope(
+					env,
+					env.AZURE_OPENAI_RESOURCE as string,
+					deployment,
+				),
+			}),
+			"voice-tts",
+		);
+		if (admitted) {
+			try {
+				const audio = await billedCall(admitted.hold, () =>
+					synthesizeAzure(env, text, opts.voice, metadata),
+				);
+				return { audio, mimeType: "audio/mpeg", provider: "azure" };
+			} catch (azureErr) {
+				const reason =
+					azureErr instanceof Error ? azureErr.message : String(azureErr);
+				console.warn(
+					`[voice-tts] Azure TTS failed, falling back to Workers AI Aura: ${reason}`,
+				);
+			}
 		}
 	}
-	const audio = await synthesizeWorkersAi(
-		env,
-		text,
-		opts.voice,
-		opts.gatewayMetadata,
+	const hold = await opts.billing?.admit(
+		attempt({
+			provider: "workers-ai",
+			model: WORKERS_AI_TTS_MODEL,
+			deploymentScope: workersAiVoiceDeploymentScope(env),
+		}),
+	);
+	const audio = await billedCall(hold, () =>
+		synthesizeWorkersAi(env, text, opts.voice, metadata),
 	);
 	return { audio, mimeType: "audio/mpeg", provider: "workers-ai" };
 }

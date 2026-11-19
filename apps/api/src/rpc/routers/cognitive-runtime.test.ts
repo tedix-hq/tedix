@@ -268,6 +268,7 @@ function createContext(db: ReturnType<typeof createRuntimeDb>): BaseContext {
 			API_URL: "https://api.tedix.test",
 			ENVIRONMENT: "test",
 			TEDI_DEV_BASE_URL: "https://runtime.tedix.test",
+			TEDIX_BILLING_SETTLEMENT_MODE: "external",
 		} as CloudflareEnv,
 		headers: new Headers(),
 		organizationId: ORG_ID,

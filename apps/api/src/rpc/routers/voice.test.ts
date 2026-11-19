@@ -10,6 +10,7 @@ const synthesizeSpeech = vi.hoisted(() => vi.fn());
 
 vi.mock("@tedix/voice/tts", () => ({ synthesizeSpeech }));
 
+import { VoiceCreditRefusal } from "../../services/voice-billing";
 import { voiceContractRouter } from "./voice";
 
 function makeContext(): BaseContext {
@@ -22,7 +23,10 @@ function makeContext(): BaseContext {
 		},
 		authType: "apikey",
 		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as unknown as CloudflareEnv,
+		env: {
+			ENVIRONMENT: "test",
+			TEDIX_BILLING_SETTLEMENT_MODE: "external",
+		} as unknown as CloudflareEnv,
 		headers: new Headers(),
 		organizationId: "org-1",
 		rateLimiter: {} as RateLimit,
@@ -54,11 +58,32 @@ describe("voice.synthesizeSpokenReply", () => {
 		expect(synthesizeSpeech).toHaveBeenCalledWith(context.env, {
 			text: "Hello kernel",
 			voice: undefined,
+			gatewayMetadata: { orgId: "org-1", tediId: undefined },
+			billing: undefined,
 		});
 		expect(result).toEqual({
 			audioBase64: "AQID",
 			mimeType: "audio/mpeg",
 			provider: "workers-ai",
+		});
+	});
+
+	it("reports a credit refusal as forbidden with the canonical denial", async () => {
+		synthesizeSpeech.mockRejectedValue(
+			new VoiceCreditRefusal("monthly_credit_limit_reached"),
+		);
+		const client = createRouterClient(voiceContractRouter, {
+			context: makeContext(),
+		});
+		await expect(
+			client.synthesizeSpokenReply({
+				subject: { type: "kernel" },
+				text: "Hello kernel",
+			}),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message:
+				"Inference blocked by billing policy: monthly_credit_limit_reached",
 		});
 	});
 });

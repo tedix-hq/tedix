@@ -1,5 +1,9 @@
 import { createDbClient } from "@tedix/db/client";
 import { requireUnrestrictedModelEgress } from "../services/unrouted-model-egress";
+import {
+	createVoiceBilling,
+	VoiceCreditRefusal,
+} from "../services/voice-billing";
 import { encodeBase64Audio, transcribeAudioAttachment } from "@tedix/voice/stt";
 import { authenticateKernelEdge } from "./edge-auth";
 import { logKernelVoiceFailure } from "./kernel-voice-log";
@@ -42,13 +46,23 @@ export async function handleKernelVoiceTranscription(
 			},
 			{
 				gatewayMetadata: {
-					channel: "composer-dictation",
-					organizationId: auth.identity.organizationId,
+					orgId: auth.identity.organizationId,
+					source: "composer-dictation",
 				},
+				billing: createVoiceBilling({
+					env,
+					organizationId: auth.identity.organizationId,
+					source: "kernel",
+				}),
 			},
 		);
 		return Response.json(result);
 	} catch (error) {
+		if (error instanceof VoiceCreditRefusal)
+			return Response.json(
+				{ error: error.message, code: error.code },
+				{ status: 403 },
+			);
 		logKernelVoiceFailure("voice.transcription_failed", error, {
 			organizationId: auth.identity.organizationId,
 		});
