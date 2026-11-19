@@ -16,6 +16,8 @@ import {
 	type WorkRunAttempt,
 	WorkRunEntryRow,
 	workRunEntries,
+	workRunOpenQuestion,
+	WorkRunQuestion,
 	workRunStatus,
 	WorkRunStopConfirm,
 } from "@/components/work-item-run";
@@ -73,6 +75,7 @@ export function WorkItemRunView({
 		[steps, messages],
 	);
 	const stopRequested = run.messages.some((message) => message.kind === "stop");
+	const question = workRunOpenQuestion(run);
 	const fieldId = `work-run-follow-up-${run.attemptId ?? "none"}`;
 	const sendDraft = (interrupt: boolean) => {
 		const body = draft.trim();
@@ -139,7 +142,18 @@ export function WorkItemRunView({
 						sendDraft(false);
 					}}
 				>
-					<Label htmlFor={fieldId}>Send a follow-up</Label>
+					{question ? (
+						<WorkRunQuestion
+							question={question}
+							onAnswer={onSend ? (answer) => onSend(answer, false) : undefined}
+							sending={sending}
+						/>
+					) : null}
+					<Label htmlFor={fieldId}>
+						{question
+							? "Answer in your own words, or send a follow-up"
+							: "Send a follow-up"}
+					</Label>
 					<Textarea
 						id={fieldId}
 						value={draft}
