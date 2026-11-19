@@ -294,7 +294,6 @@ describe("provenanceBuckets", () => {
 				rowCount: 1,
 				totalTokens: 10,
 				costUsd: 0,
-				knownSubtotalUsd: 0,
 			},
 		]);
 		expect(
@@ -314,17 +313,10 @@ describe("provenanceBuckets", () => {
 				rowCount: 1,
 				totalTokens: 40,
 				costUsd: 0,
-				knownSubtotalUsd: 0,
 			},
 		]);
 		expect(buckets).toEqual([
-			{
-				provenance: "gateway_reported",
-				rowCount: 1,
-				totalTokens: 40,
-				costUsd: 0,
-				knownSubtotalUsd: 0,
-			},
+			{ provenance: "gateway_reported", rowCount: 1, totalTokens: 40 },
 		]);
 	});
 
@@ -334,27 +326,23 @@ describe("provenanceBuckets", () => {
 });
 
 describe("spendTotals", () => {
-	it("reports quarantined value beside spend and never inside it", () => {
+	it("reports quarantined calls beside spend and never inside them", () => {
 		const totals = spendTotals([
 			{
 				provenance: "pricing_table_estimate",
 				rowCount: 2,
 				totalTokens: 200,
-				costUsd: 2,
-				knownSubtotalUsd: 2,
 			},
 			{
 				provenance: "quarantined",
 				rowCount: 5,
 				totalTokens: 500,
-				costUsd: 9,
-				knownSubtotalUsd: 9,
 			},
 		]);
-		expect(totals.costUsd).toBeNull();
-		expect(totals.knownSubtotalUsd).toBe(2);
-		expect(totals.quarantinedCostUsd).toBe(9);
 		expect(totals.rowCount).toBe(7);
+		expect(totals.totalTokens).toBe(200);
+		expect(totals.quarantinedRowCount).toBe(5);
+		expect(totals.quarantinedTokens).toBe(500);
 		expect(totals.provenanceFloor).toBe("pricing_table_estimate");
 	});
 
@@ -364,11 +352,9 @@ describe("spendTotals", () => {
 				provenance: "quarantined",
 				rowCount: 3,
 				totalTokens: 30,
-				costUsd: 4,
-				knownSubtotalUsd: 4,
 			},
 		]);
-		expect(totals.costUsd).toBeNull();
+		expect(totals.costCompleteness).toBe("unknown");
 		expect(totals.provenanceFloor).toBeNull();
 	});
 
@@ -378,15 +364,11 @@ describe("spendTotals", () => {
 				provenance: "gateway_reported",
 				rowCount: 9,
 				totalTokens: 900,
-				costUsd: 9,
-				knownSubtotalUsd: 9,
 			},
 			{
 				provenance: "unknown",
 				rowCount: 1,
 				totalTokens: 1,
-				costUsd: null,
-				knownSubtotalUsd: 0,
 			},
 		]);
 		expect(totals.provenanceFloor).toBe("unknown");
@@ -398,7 +380,7 @@ describe("spendTotals", () => {
 });
 
 describe("attributionGap", () => {
-	it("counts unattributed rows but excludes quarantined value from the dollar figure", () => {
+	it("counts unattributed rows and keeps quarantined ones apart", () => {
 		const gap = attributionGap([
 			{
 				provider: "azure-openai",
@@ -410,7 +392,6 @@ describe("attributionGap", () => {
 				rowCount: 2,
 				totalTokens: 200,
 				costUsd: 3,
-				knownSubtotalUsd: 3,
 			},
 			{
 				provider: "azure-openai",
@@ -422,7 +403,6 @@ describe("attributionGap", () => {
 				rowCount: 4,
 				totalTokens: 0,
 				costUsd: 0,
-				knownSubtotalUsd: 0,
 			},
 			{
 				provider: "azure-openai",
@@ -436,15 +416,10 @@ describe("attributionGap", () => {
 				costUsd: 8,
 			},
 		]);
-		expect(gap.unattributedCostUsd).toBe(3);
-		// The count is of rows that CONTRIBUTED the $3, not of unattributed rows
-		// in general. It previously included the 4 quarantined rows, and the two
-		// numbers render side by side — so a reader dividing one by the other got
-		// $0.50/call when the real contributing rate is $1.50/call. Neither number
-		// was wrong alone; the pair was.
 		expect(gap.unattributedRowCount).toBe(2);
+		expect(gap.unattributedTokens).toBe(200);
 		expect(gap.unattributedQuarantinedRowCount).toBe(4);
-		expect(gap.unattributedCostUsd / gap.unattributedRowCount).toBe(1.5);
+		expect(gap).not.toHaveProperty("unattributedCostUsd");
 		expect(gap.orphanedRowsVisible).toBe(false);
 	});
 });
@@ -508,8 +483,11 @@ describe("osCompute.posture — authz and tenancy", () => {
 			estimatedCostUsd: 999,
 		});
 		const result = await client(ORG).posture({ window: "7d" });
-		expect(result.spend.costUsd).toBe(1);
 		expect(result.spend.rowCount).toBe(1);
+		expect(result.spend.totalTokens).toBe(100);
+		// Provider USD cost never reaches a customer: it would reveal the margin
+		// over the credits they pay.
+		expect(JSON.stringify(result)).not.toMatch(/Usd/);
 
 		// Assert on the ROW too: the response schema strips unknown keys, so a
 		// wire-only assertion cannot prove the other tenant's row still exists

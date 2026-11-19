@@ -1,4 +1,3 @@
-import { CostSummarySchema } from "../schemas/cost-provenance";
 import "@orpc/openapi/extensions/route";
 
 import { oc } from "@orpc/contract";
@@ -27,6 +26,11 @@ import { ModelCatalogSelectionKindSchema } from "../schemas/model-catalog-projec
  * Guarded on the same two planes as the rest of the tenant OS surface
  * (`AUTHZ.osRead`), and org-derived from the caller — there is no
  * `organizationId` input to confuse with an ownership check.
+ *
+ * No money figure leaves this read. Provider cost is recorded in USD, and
+ * showing it to a customer would reveal Tedix's margin over the credits they
+ * pay. Spend is reported as call and token counts with provenance labels; what
+ * the organization used is the credit budget below, in Tedix credits.
  *
  * WHAT THIS DELIBERATELY DOES NOT CLAIM:
  *   - No value is labeled `provider_reported`. Nothing in this deployment reads
@@ -100,26 +104,13 @@ export const CostBudgetSchema = z.object({
 export type CostBudget = z.infer<typeof CostBudgetSchema>;
 
 export const CostSpendTotalsSchema = z.object({
-	...CostSummarySchema.shape,
 	rowCount: z.number().int().min(0),
 	totalTokens: z.number().int().min(0),
-	/** Cost of rows the ingestion job did NOT quarantine. */
-	costUsd: z
-		.number()
-		.min(0)
-		.nullable()
-		.describe(
-			"Null when contributing cost evidence is incomplete; known subtotal remains separate and explicit zero is preserved.",
-		),
-	/** Held-out value, reported beside spend and never summed into it. */
-	quarantinedCostUsd: z
-		.number()
-		.min(0)
-		.nullable()
-		.describe(
-			"Null when any held row has unknown cost; known held subtotal is reported separately.",
-		),
-	quarantinedKnownSubtotalUsd: z.number().min(0),
+	pricedRowCount: z.number().int().min(0),
+	unpricedRowCount: z.number().int().min(0),
+	unpricedTokens: z.number().int().min(0),
+	costCompleteness: z.enum(["complete", "partial", "unknown"]),
+	/** Held-out rows, reported beside spend and never summed into it. */
 	quarantinedTokens: z.number().int().min(0),
 	quarantinedRowCount: z.number().int().min(0),
 	/**
@@ -208,7 +199,7 @@ export const osComputeContract = oc
 				path: "/posture",
 				summary: "Get the organization's compute and models posture",
 				description:
-					"Operator-facing read of runtime spend with explicit provenance: ingestion freshness, per-label cost provenance, budget consumed and remaining from the canonical admission readers, model routing and the one detectable fallback signal, AI Gateway credential health, provider health (always unknown), D1 admission policy, and unattributed/quarantined cost. Every value is labeled; nothing is reported as zero because a read returned nothing.",
+					"Operator-facing read of runtime usage with explicit provenance: ingestion freshness, per-label call counts, the Tedix credit budget consumed and remaining from the canonical admission readers, model routing and the one detectable fallback signal, AI Gateway credential health, provider health (always unknown), D1 admission policy, and unattributed/quarantined calls. No provider cost is returned. Every value is labeled; nothing is reported as zero because a read returned nothing.",
 			})
 			.input(
 				z.object({

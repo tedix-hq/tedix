@@ -27,16 +27,12 @@ function posture(overrides: Record<string, unknown> = {}) {
 			detail: "Ingested within the last 15 minutes.",
 		},
 		spend: {
-			knownSubtotalUsd: 1,
 			pricedRowCount: 1,
 			unpricedRowCount: 0,
 			unpricedTokens: 0,
 			costCompleteness: "complete",
-			quarantinedKnownSubtotalUsd: 0,
 			rowCount: 1,
 			totalTokens: 100,
-			costUsd: 1,
-			quarantinedCostUsd: 0,
 			quarantinedTokens: 0,
 			quarantinedRowCount: 0,
 			provenanceFloor: "pricing_table_estimate" as const,
@@ -78,7 +74,6 @@ function posture(overrides: Record<string, unknown> = {}) {
 			detail: COST_ADMISSION_POLICY_DETAIL,
 		},
 		attribution: {
-			unattributedCostUsd: 0,
 			unattributedTokens: 0,
 			unattributedRowCount: 0,
 			unattributedQuarantinedRowCount: 0,
@@ -92,6 +87,24 @@ function posture(overrides: Record<string, unknown> = {}) {
 describe("ComputePostureSchema accepts what the producers emit", () => {
 	it("accepts the ordinary finite-allowance envelope", () => {
 		expect(() => ComputePostureSchema.parse(posture())).not.toThrow();
+	});
+
+	it("strips provider USD cost a producer might still attach", () => {
+		const parsed = ComputePostureSchema.parse(
+			posture({
+				spend: { ...posture().spend, costUsd: 1, knownSubtotalUsd: 1 },
+				provenance: [
+					{
+						provenance: "pricing_table_estimate",
+						rowCount: 1,
+						totalTokens: 100,
+						costUsd: 1,
+					},
+				],
+				attribution: { ...posture().attribution, unattributedCostUsd: 1 },
+			}),
+		);
+		expect(JSON.stringify(parsed)).not.toMatch(/Usd/);
 	});
 
 	it("rejects a negative credit figure", () => {
