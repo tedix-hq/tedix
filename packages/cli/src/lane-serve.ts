@@ -5802,12 +5802,16 @@ export class LaneDispatcher {
 			this.save(path, receipt);
 			const signature = JSON.stringify([receipt.repo, commits]);
 			if (!commits.length || receipt.unpushedCommented === signature) return;
+			const ref = evictedLaneRef(receipt.repo);
+			const fetchArgs = [this.options.repo, ref]
+				.map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
+				.join(" ");
 			await this.call(
 				[
 					"work",
 					"comment",
 					receipt.itemId,
-					`Unpushed commits retained for Attempt ${receipt.attemptId}: ${commits.join(", ")}. Checkout: ${receipt.repo}. Preserve this checkout and hand these commits to the next Attempt if the run stops before they reach origin/main. Remote tracking ref may be stale; verify origin/main before recovery.`,
+					`Unpushed commits retained for Attempt ${receipt.attemptId}: ${commits.join(", ")}. Checkout: ${receipt.repo}. If the runner removes the checkout while it still holds these commits, it saves them in the dispatcher's source repository at ${ref}. To fetch them:\n\n\`\`\`sh\ngit fetch ${fetchArgs}\n\`\`\``,
 				],
 				receipt.session,
 				receipt.executorKey,
