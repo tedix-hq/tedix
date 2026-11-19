@@ -4,7 +4,7 @@ import { createDbQueryClient } from "../query-client";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import { dispatcherHealthReports } from "../schema/dispatcher-health";
-import { machineToolCalls } from "../schema/machines";
+import { machineToolCalls, machineToolPolls } from "../schema/machines";
 import { upsertDispatcherHealthReport } from "./work-items/dispatcher-health";
 import {
 	claimMachineToolCalls,
@@ -27,7 +27,9 @@ function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	databases.push(sqlite);
 	sqlite.exec("PRAGMA foreign_keys=OFF");
-	sqlite.exec(schemaDdl(dispatcherHealthReports, machineToolCalls));
+	sqlite.exec(
+		schemaDdl(dispatcherHealthReports, machineToolCalls, machineToolPolls),
+	);
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
@@ -103,7 +105,7 @@ describe("machines", () => {
 			},
 		]);
 		expect(
-			(await listMachines(db, { orgId: "org", at: after(181) })).map(
+			(await listMachines(db, { orgId: "org", at: after(601) })).map(
 				(machine) => machine.online,
 			),
 		).toEqual([false, false]);
@@ -130,6 +132,35 @@ describe("machines", () => {
 });
 
 describe("machine tool calls", () => {
+	it("keeps a machine online after an empty poll and throttles refreshes across runners", async () => {
+		const db = fixture();
+		await report(db);
+		await report(db, { reporterId: "reporter-2", machineName: "Studio" });
+		const claim = {
+			orgId: "org",
+			machineName: "studio",
+			reporterId: "reporter-1",
+			limit: 1,
+		};
+
+		expect(
+			(await claimMachineToolCalls(db, { ...claim, at: after(601) })).calls,
+		).toEqual([]);
+		await claimMachineToolCalls(db, {
+			...claim,
+			machineName: "Studio",
+			reporterId: "reporter-2",
+			at: after(660),
+		});
+		expect(
+			await listMachines(db, { orgId: "org", at: after(1201) }),
+		).toMatchObject([{ lastSeenAt: after(601), online: true }]);
+		await claimMachineToolCalls(db, { ...claim, at: after(661) });
+		expect(
+			await listMachines(db, { orgId: "org", at: after(1262) }),
+		).toMatchObject([{ lastSeenAt: after(661), online: false }]);
+	});
+
 	it("hands a machine its own waiting calls, oldest first, once", async () => {
 		const db = fixture();
 		const first = await queue(db);

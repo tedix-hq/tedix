@@ -18,7 +18,7 @@ import {
 } from "@tedix/db/schema/external-agent-identity";
 import { GatewayChangeRecordSchema } from "@tedix/api-contract/schemas/audit";
 import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
-import { machineToolCalls } from "@tedix/db/schema/machines";
+import { machineToolCalls, machineToolPolls } from "@tedix/db/schema/machines";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { organizations } from "@tedix/db/schema/organizations";
 import { tedis } from "@tedix/db/schema/tedis";
@@ -59,6 +59,7 @@ function fixture() {
 			externalAgentSessions,
 			dispatcherHealthReports,
 			machineToolCalls,
+			machineToolPolls,
 			gatewayChangeRecords,
 		),
 	);

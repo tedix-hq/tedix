@@ -1,10 +1,29 @@
 import { sql } from "drizzle-orm";
-import { check, index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+	check,
+	index,
+	primaryKey,
+	sqliteTable,
+	text,
+} from "drizzle-orm/sqlite-core";
 import {
 	MACHINE_TOOL_CALL_STATUS_VALUES,
 	MACHINE_TOOL_NAMES,
 } from "@tedix/api-contract/schemas/machines";
 import { organizations } from "./organizations";
+
+/** Last successful tool-queue poll per machine, keyed by its lowercase name. */
+export const machineToolPolls = sqliteTable(
+	"machine_tool_polls",
+	{
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		machineName: text("machine_name").notNull(),
+		lastPolledAt: text("last_polled_at").notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.orgId, table.machineName] })],
+);
 
 export const MACHINE_TOOL_CALL_REQUESTER_TYPE_VALUES = [
 	"user",

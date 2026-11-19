@@ -24,8 +24,8 @@ export const MACHINES_USE_SCOPE = "machines:use";
  */
 export const MACHINES_WRITE_SCOPE = "machines:write";
 
-/** A machine counts as online while a runner on it reported this recently. */
-export const MACHINE_ONLINE_WINDOW_MS = 3 * 60_000;
+/** A machine counts as online while a runner on it reported health or polled this recently. */
+export const MACHINE_ONLINE_WINDOW_MS = 10 * 60_000;
 /** A queued call that no runner claimed in this time expires. */
 export const MACHINE_TOOL_CALL_CLAIM_WINDOW_MS = 60_000;
 /** A claimed call that has no result after this time fails. */

@@ -4,7 +4,17 @@
  * that name, claimed by a runner on the machine and answered once.
  */
 
-import { and, asc, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	gt,
+	inArray,
+	isNotNull,
+	lte,
+	or,
+	sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import {
 	MACHINE_COMMAND_ANSWER_WINDOW_MS,
@@ -21,6 +31,7 @@ import type { DbQueryClient } from "../query-client";
 import { dispatcherHealthReports } from "../schema/dispatcher-health";
 import {
 	machineToolCalls,
+	machineToolPolls,
 	type MachineToolCallRequesterType,
 	type MachineToolCallRow,
 } from "../schema/machines";
@@ -45,22 +56,31 @@ export async function listMachines(
 	params: { orgId: string; at?: string },
 ): Promise<ListMachinesResult[]> {
 	const now = Date.parse(params.at ?? new Date().toISOString());
-	const rows = await db
-		.select({
-			machineName: dispatcherHealthReports.machineName,
-			executor: dispatcherHealthReports.executor,
-			reportedAt: dispatcherHealthReports.reportedAt,
-			cliVersion: dispatcherHealthReports.cliVersion,
-			machineTools: dispatcherHealthReports.machineTools,
-		})
-		.from(dispatcherHealthReports)
-		.where(
-			and(
-				eq(dispatcherHealthReports.orgId, params.orgId),
-				isNotNull(dispatcherHealthReports.machineName),
-			),
-		)
-		.orderBy(asc(dispatcherHealthReports.reportedAt));
+	const [rows, polls] = await db.batch([
+		db
+			.select({
+				machineName: dispatcherHealthReports.machineName,
+				executor: dispatcherHealthReports.executor,
+				reportedAt: dispatcherHealthReports.reportedAt,
+				cliVersion: dispatcherHealthReports.cliVersion,
+				machineTools: dispatcherHealthReports.machineTools,
+			})
+			.from(dispatcherHealthReports)
+			.where(
+				and(
+					eq(dispatcherHealthReports.orgId, params.orgId),
+					isNotNull(dispatcherHealthReports.machineName),
+				),
+			)
+			.orderBy(asc(dispatcherHealthReports.reportedAt)),
+		db
+			.select({
+				machineName: machineToolPolls.machineName,
+				lastPolledAt: machineToolPolls.lastPolledAt,
+			})
+			.from(machineToolPolls)
+			.where(eq(machineToolPolls.orgId, params.orgId)),
+	]);
 	const machines = new Map<string, ListMachinesResult & { key: string }>();
 	for (const row of rows) {
 		if (!row.machineName) continue;
@@ -89,6 +109,11 @@ export async function listMachines(
 		)
 			machine.executors.push(row.executor);
 		machines.set(key, machine);
+	}
+	for (const poll of polls) {
+		const machine = machines.get(poll.machineName);
+		if (machine && poll.lastPolledAt > machine.lastSeenAt)
+			machine.lastSeenAt = poll.lastPolledAt;
 	}
 	return [...machines.values()]
 		.map(({ key: _key, ...machine }) => ({
@@ -386,6 +411,21 @@ export async function claimMachineToolCalls(
 			),
 		)
 		.returning();
+	const recordPoll = db
+		.insert(machineToolPolls)
+		.values({
+			orgId: params.orgId,
+			machineName: params.machineName.toLowerCase(),
+			lastPolledAt: at,
+		})
+		.onConflictDoUpdate({
+			target: [machineToolPolls.orgId, machineToolPolls.machineName],
+			set: { lastPolledAt: at },
+			setWhere: lte(
+				machineToolPolls.lastPolledAt,
+				new Date(Date.parse(at) - 60_000).toISOString(),
+			),
+		});
 	// Results are stored before overdue calls are settled, so an answer that
 	// arrives late still beats a timeout nobody has seen yet.
 	const [claimed, ...rest] = await db.batch([
@@ -396,6 +436,7 @@ export async function claimMachineToolCalls(
 			at,
 			scope: { machineName: params.machineName },
 		}),
+		recordPoll,
 	]);
 	// A store sets the status to "done" or "failed" only.
 	const storedCalls = (

@@ -1704,6 +1704,10 @@
 		{
 			"name": "20261119223228_dispatcher_health_cli_version/migration.sql",
 			"sha256": "f43978100400b2d8bcf258bbfa982d1aadcc82837245d9057650ce445a5f6cdb"
+		},
+		{
+			"name": "20261119230833_machine_tool_polls/migration.sql",
+			"sha256": "d131d62966f21353ecd0f8a4dfd755274c007ba65914c3e1dd1ce54b4bde858a"
 		}
 	]
 }
