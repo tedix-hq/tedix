@@ -57,6 +57,120 @@ import {
 	workItemSummary,
 } from "./work";
 
+/**
+ * Run logs for the task page: Work Item 1 has a run in progress with one
+ * follow-up still waiting, Work Item 4 has a finished run. Times ride on the
+ * dev server's clock so "started 4m ago" stays true however long it runs.
+ */
+const LOCAL_RUN_USER = "local-user";
+const FINISHED_RUN_ATTEMPT_ID = fid("47", 9);
+type LocalRunMessage = {
+	id: string;
+	attemptId: string;
+	kind: "follow_up" | "stop";
+	body: string;
+	senderType: "user";
+	senderId: string;
+	createdAt: string;
+	deliveredAt: string | null;
+	appliedAt: string | null;
+};
+const localRunMessages: LocalRunMessage[] = [];
+const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
+const localRunSteps = (workItem: string) => {
+	const step = (
+		seq: number,
+		minutes: number,
+		kind:
+			| "started"
+			| "message"
+			| "command"
+			| "tool"
+			| "file_change"
+			| "error"
+			| "finished",
+		text: string,
+	) => ({ seq, at: Math.trunc(minutesAgo(minutes)), kind, text });
+	if (workItem === workItemId(1))
+		return [
+			step(0, 4, "started", "The agent started working on this task."),
+			step(
+				1,
+				3.8,
+				"message",
+				"I will read the cohort query first, then add paging and a test.",
+			),
+			step(2, 3.5, "command", 'rg -n "cohort" packages/reports/src (exit 0)'),
+			step(3, 3, "tool", "reports.read_query"),
+			step(4, 2.2, "file_change", "packages/reports/src/churn-cohort.ts"),
+			step(5, 1.5, "command", "bun test churn-cohort (exit 1)"),
+			step(6, 1.4, "error", "One test failed: the last page came back empty."),
+			step(7, 0.5, "message", "The page size was off by one. Fixing it now."),
+		];
+	if (workItem === workItemId(4))
+		return [
+			step(0, 20, "started", "The agent started working on this task."),
+			step(1, 19, "tool", "sheets.read_range"),
+			step(2, 16, "message", "Week 32 revenue is in. Writing the summary."),
+			step(3, 13, "file_change", "summaries/week-32.md"),
+			step(4, 12, "finished", "Succeeded"),
+		];
+	return [];
+};
+const localRunAttempts = (workItem: string) => [
+	...WORK_ATTEMPTS.filter((attempt) => attempt.workItemId === workItem).map(
+		(attempt) => ({
+			...attempt,
+			startedAt: new Date(minutesAgo(4)).toISOString(),
+			heartbeatAt: new Date(minutesAgo(0.2)).toISOString(),
+		}),
+	),
+	...(workItem === workItemId(4)
+		? [
+				{
+					...WORK_ATTEMPTS[0]!,
+					id: FINISHED_RUN_ATTEMPT_ID,
+					workItemId: workItem,
+					runtimeState: "finished" as const,
+					outcome: "succeeded" as const,
+					startedAt: new Date(minutesAgo(20)).toISOString(),
+					heartbeatAt: new Date(minutesAgo(12)).toISOString(),
+					finishedAt: new Date(minutesAgo(12)).toISOString(),
+					summary: "Published the week-32 revenue summary.",
+				},
+			]
+		: []),
+];
+const localLiveRun = (workItem: string) => {
+	const attempt = localRunAttempts(workItem)[0];
+	const stopped = localRunMessages.some(
+		(message) => message.attemptId === attempt?.id && message.kind === "stop",
+	);
+	return attempt && attempt.outcome === null && !stopped ? attempt : undefined;
+};
+const sendLocalRunMessage = (
+	workItem: string,
+	kind: "follow_up" | "stop",
+	body: string,
+) => {
+	const attempt = localLiveRun(workItem);
+	if (!attempt) throw new RpcError("CONFLICT", "No run is in progress");
+	const message: LocalRunMessage = {
+		id: crypto.randomUUID(),
+		attemptId: attempt.id,
+		kind,
+		body,
+		senderType: "user",
+		senderId: LOCAL_RUN_USER,
+		createdAt: new Date().toISOString(),
+		deliveredAt: null,
+		appliedAt: null,
+	};
+	localRunMessages.push(message);
+	const { attemptId: _attemptId, ...stored } = message;
+	return stored;
+};
+
 export const localExternalAgentPrincipal = {
 	id: fid("ea", 1),
 	organizationId: ORG_ID,
@@ -676,7 +790,38 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 			observedAt: T5,
 		};
 	},
-	"workItems/listAttempts": () => ({ data: [], nextCursor: null }),
+	"workItems/listAttempts": (input: { id: string }) => ({
+		data: localRunAttempts(input.id),
+		nextCursor: null,
+	}),
+	"workItems/listAttemptSteps": (input: { id: string; afterSeq?: number }) => {
+		const attempt = localRunAttempts(input.id)[0];
+		const waiting = {
+			id: fid("48", 1),
+			attemptId: fid("47", 1),
+			kind: "follow_up" as const,
+			body: "Also keep the old export column, the finance sheet still reads it.",
+			senderType: "user" as const,
+			senderId: LOCAL_RUN_USER,
+			createdAt: new Date(minutesAgo(1)).toISOString(),
+			deliveredAt: new Date(minutesAgo(0.9)).toISOString(),
+			appliedAt: null,
+		};
+		return {
+			attemptId: attempt?.id ?? null,
+			live: Boolean(localLiveRun(input.id)),
+			steps: localRunSteps(input.id).filter(
+				(step) => input.afterSeq === undefined || step.seq > input.afterSeq,
+			),
+			messages: [waiting, ...localRunMessages]
+				.filter((message) => message.attemptId === attempt?.id)
+				.map(({ attemptId: _attemptId, ...message }) => message),
+		};
+	},
+	"workItems/sendAttemptMessage": (input: { id: string; body: string }) =>
+		sendLocalRunMessage(input.id, "follow_up", input.body),
+	"workItems/stopAttempt": (input: { id: string }) =>
+		sendLocalRunMessage(input.id, "stop", ""),
 	"workItems/initializeRepositoryCandidate": () => {
 		throw new RpcError(
 			"FORBIDDEN",

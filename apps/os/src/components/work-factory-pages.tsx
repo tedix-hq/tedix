@@ -26,6 +26,7 @@ import { type ReactNode, useState } from "react";
 import * as z from "zod";
 import { WorkItemDescription } from "@/components/work-item-description";
 import { WorkItemCommentComposer } from "@/components/work-item-comment-composer";
+import { WorkItemRunSection } from "@/components/work-item-run-section";
 import { WorkItemSpecificationEditor } from "@/components/work-item-specification-editor";
 import { OS_COPY } from "@/shared/os-copy";
 import {
@@ -1721,6 +1722,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 					<WorkItemCommentComposer key={item.id} itemId={item.id} />
 				</CardContent>
 			</Card>
+			<WorkItemRunSection itemId={item.id} names={principalNames} />
 			<SectionCollection
 				title={OS_COPY.work.activity}
 				description={OS_COPY.work.activityDescription}

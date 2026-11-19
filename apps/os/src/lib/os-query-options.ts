@@ -715,6 +715,46 @@ export const workItemAttemptsQueryOptions = (
 		},
 	});
 
+/** The most steps one read returns; the contract's upper limit. */
+const WORK_RUN_STEP_PAGE = 500;
+/** Reads stop here, so a very long run cannot grow one poll without bound. */
+const WORK_RUN_STEP_PAGES = 10;
+
+/**
+ * The steps and messages of the newest run on a Work Item. The contract
+ * returns steps oldest first, so a run longer than one page is read to its
+ * end: the page shows the newest step, not the 500th.
+ */
+export const workItemRunStepsQueryOptions = (id: string) => ({
+	...osQuery.workItems.listAttemptSteps.queryOptions({
+		input: { id, limit: WORK_RUN_STEP_PAGE },
+	}),
+	queryFn: async () => {
+		const first = await osApi.workItems.listAttemptSteps({
+			id,
+			limit: WORK_RUN_STEP_PAGE,
+		});
+		let latest = first;
+		const steps = [...first.steps];
+		for (
+			let page = 1;
+			page < WORK_RUN_STEP_PAGES &&
+			latest.steps.length === WORK_RUN_STEP_PAGE &&
+			first.attemptId;
+			page++
+		) {
+			latest = await osApi.workItems.listAttemptSteps({
+				id,
+				attemptId: first.attemptId,
+				afterSeq: steps[steps.length - 1]!.seq,
+				limit: WORK_RUN_STEP_PAGE,
+			});
+			steps.push(...latest.steps);
+		}
+		return { ...latest, attemptId: first.attemptId, steps };
+	},
+});
+
 export const repositoryCandidateQueryOptions = (
 	id: string,
 	attemptId: string,
