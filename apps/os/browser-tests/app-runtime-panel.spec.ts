@@ -59,6 +59,109 @@ function guest(page: Page, title: string) {
 try {
 	browser = await chromium.launch({ headless: true });
 	{
+		const context = await browser.newContext();
+		const page = await context.newPage();
+		const sampleName = "Summary";
+		const rpc = async (method: string, input: unknown) => {
+			const response = await page.request.post(
+				`${server.origin}/api/rpc/${method}`,
+				{ data: { json: input } },
+			);
+			assert(response.ok(), `${method}: ${await response.text()}`);
+			return (await response.json()).json;
+		};
+		const { gadget } = await rpc("osWorkspaces/gadgets/create", {
+			workspaceId,
+			name: sampleName,
+		});
+		await rpc("osWorkspaces/gadgets/revise", {
+			workspaceId,
+			gadgetId: gadget.id,
+			manifest: {
+				entry: "tedix:runtime/v1",
+				config: {
+					version: 1,
+					exports: [
+						{ name: "CSV", mimeType: "text/csv", handler: "csv" },
+						{
+							name: "Markdown",
+							mimeType: "text/markdown",
+							handler: "markdown",
+						},
+					],
+				},
+			},
+			files: {
+				"server.js": "export class App { privateData() { return 'private'; } }",
+				"client.js": `
+					const { role } = await tedix.call("context");
+					tedix.registerExport("csv", async () => {
+						try {
+							const value = await tedix.call("app.call", { method: "privateData" });
+							return "access\\n" + value;
+						} catch (error) {
+							return "access\\n" + error.code;
+						}
+					});
+					tedix.registerExport("markdown", () => "# Summary for " + role);
+					tedix.registerExport("extra", () => "Undeclared");
+					document.getElementById("app").textContent = role;
+				`,
+			},
+			expectedRevision: 0,
+		});
+		await page.route("**/osCollaborators/open", (route) =>
+			route.fulfill({
+				status: 403,
+				json: {
+					defined: false,
+					code: "FORBIDDEN",
+					status: 403,
+					message: "The app is view only.",
+				},
+			}),
+		);
+		await page.goto(
+			`${server.origin}/workspace/${workspaceId}?workpiece=gadget%3A${gadget.id}&pane=workpiece`,
+			{ waitUntil: "domcontentloaded" },
+		);
+		await waitForWorkpieceViews(page);
+		const sampleFrame = guest(page, sampleName);
+		try {
+			await sampleFrame.getByText("viewer", { exact: true }).waitFor();
+		} catch (error) {
+			const guestBody = await page
+				.frames()
+				.find((frame) =>
+					frame.parentFrame()?.url().includes("/sandbox_proxy.html"),
+				)
+				?.locator("body")
+				.textContent({ timeout: 1000 })
+				.catch(() => null);
+			throw new Error(
+				`The sample app did not open as a viewer. Frame text: ${guestBody ?? "unavailable"}. Page text: ${(await page.locator("body").innerText()).slice(-1500)}`,
+				{ cause: error },
+			);
+		}
+		const menu = page.getByRole("button", { name: "Export", exact: true });
+		for (const [label, filename, content] of [
+			["CSV", "Summary.csv", "access\nnot_permitted"],
+			["Markdown", "Summary.md", "# Summary for viewer"],
+		] as const) {
+			await menu.click();
+			const items = page.getByRole("menu").getByRole("menuitem");
+			await items.first().waitFor();
+			assert.deepEqual(await items.allTextContents(), ["CSV", "Markdown"]);
+			const [download] = await Promise.all([
+				page.waitForEvent("download"),
+				page.getByRole("menuitem", { name: label, exact: true }).click(),
+			]);
+			assert.equal(download.suggestedFilename(), filename);
+			assert.equal(await Bun.file((await download.path())!).text(), content);
+		}
+		await context.close();
+	}
+	{
 		const width = 375;
 		const theme = "dark";
 		const label = `${width}/${theme}`;
@@ -84,6 +187,10 @@ try {
 		await guest(page, "Opportunity cards")
 			.getByRole("heading", { name: /opportunities for Maya/ })
 			.waitFor();
+		assert.equal(
+			await page.getByRole("button", { name: "Export", exact: true }).count(),
+			0,
+		);
 		// The open draft is counted on the Code view and announced in the
 		// app; a phone's view menu shows the count while Code is not open.
 		assert.equal(

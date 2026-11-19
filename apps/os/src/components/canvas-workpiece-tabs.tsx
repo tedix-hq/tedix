@@ -15,6 +15,7 @@ import {
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuItem,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
 	DropdownMenuRadioItemIndicator,
@@ -29,6 +30,7 @@ import {
 	Table as TableIcon,
 	X,
 } from "@phosphor-icons/react";
+import type { AppRuntimeExportFormat } from "@tedix/api-contract/schemas/os-app-runtime";
 import type { OsOutputKind } from "@tedix/api-contract/schemas/os-workspaces";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -176,6 +178,35 @@ export function CanvasWorkpieceViewMenu({
 						</DropdownMenuRadioItem>
 					))}
 				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+export function CanvasWorkpieceExportMenu({
+	formats,
+	busy,
+	onExport,
+}: {
+	formats: readonly AppRuntimeExportFormat[];
+	busy: boolean;
+	onExport: (format: AppRuntimeExportFormat) => void;
+}) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				disabled={busy}
+				render={<Button size="sm" variant="outline" />}
+			>
+				Export
+				<CaretDown aria-hidden size={12} />
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end">
+				{formats.map((format) => (
+					<DropdownMenuItem key={format.name} onClick={() => onExport(format)}>
+						{format.name}
+					</DropdownMenuItem>
+				))}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

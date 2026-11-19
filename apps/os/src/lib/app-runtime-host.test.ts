@@ -13,10 +13,13 @@ import {
 	appRuntimeContextFromManifest,
 	buildAppRuntimeDocument,
 	handleAppRuntimeCall,
+	requestAppRuntimeExport,
 	type AppRuntimeContext,
 	type AppRuntimeHostDeps,
 	type AppRuntimeDraft,
 } from "./app-runtime-host";
+
+import { APP_RUNTIME_EXPORT_RESULT_METHOD } from "./app-runtime-protocol";
 
 const outputId = "aaaaaaaa-0000-4000-8000-000000000001";
 const resource = {
@@ -656,6 +659,91 @@ describe("app runtime host", () => {
 			vi.restoreAllMocks();
 		}
 	});
+	it("downloads only a matching export reply from the running app", async () => {
+		const iframe = document.createElement("iframe");
+		document.body.append(iframe);
+		const proxy = iframe.contentWindow!;
+		const post = vi.spyOn(proxy, "postMessage").mockImplementation(() => {});
+		const create = vi
+			.spyOn(URL, "createObjectURL")
+			.mockReturnValue("blob:export");
+		const click = vi
+			.spyOn(HTMLAnchorElement.prototype, "click")
+			.mockImplementation(() => {});
+		const format = {
+			name: "CSV",
+			mimeType: "text/csv",
+			handler: "report",
+		} as const;
+		const controller = new AbortController();
+		vi.useFakeTimers();
+
+		function reply(
+			id: string,
+			text: string,
+			source: Window = proxy,
+			origin = window.location.origin,
+		) {
+			window.dispatchEvent(
+				new MessageEvent("message", {
+					source,
+					origin,
+					data: {
+						jsonrpc: "2.0",
+						method: APP_RUNTIME_EXPORT_RESULT_METHOD,
+						params: { id, text },
+					},
+				}),
+			);
+		}
+
+		try {
+			const pending = requestAppRuntimeExport(
+				proxy,
+				format,
+				"My app",
+				controller.signal,
+			);
+			const { id, handler } = post.mock.calls[0]![0].params;
+			expect(handler).toBe("report");
+			reply(id, "wrong frame", window);
+			reply(id, "wrong origin", proxy, "https://different.example");
+			reply("stale", "wrong request");
+			expect(click).not.toHaveBeenCalled();
+			reply(id, "value\n42");
+			await expect(pending).resolves.toBeUndefined();
+			expect(create.mock.calls[0]?.[0]).toMatchObject({
+				type: "text/csv;charset=utf-8",
+			});
+			expect(click.mock.contexts[0]).toMatchObject({ download: "My app.csv" });
+
+			const oversized = requestAppRuntimeExport(
+				proxy,
+				format,
+				"My app",
+				controller.signal,
+			);
+			reply(post.mock.calls[1]![0].params.id, "é".repeat(4_000_001));
+			await expect(oversized).rejects.toThrow("supported file");
+
+			const cancelled = requestAppRuntimeExport(
+				proxy,
+				format,
+				"My app",
+				controller.signal,
+			);
+			controller.abort();
+			reply(post.mock.calls[2]![0].params.id, "too late");
+			await expect(cancelled).rejects.toThrow("finish the export");
+			expect(click).toHaveBeenCalledOnce();
+			await vi.runAllTimersAsync();
+		} finally {
+			iframe.remove();
+			vi.useRealTimers();
+			vi.restoreAllMocks();
+		}
+	});
+
 	describe("app.openLink", () => {
 		const assign = vi.fn();
 		const open = vi.fn();

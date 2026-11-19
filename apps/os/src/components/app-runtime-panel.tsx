@@ -10,9 +10,11 @@ import {
 	Suspense,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
+	type ReactNode,
 } from "react";
 import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
@@ -21,6 +23,7 @@ import { replaceAppRuntimeOutput } from "@/lib/app-runtime-output";
 import { isWorkspaceAccessDenied } from "@/lib/workspace-verification";
 import { subscribeOutputRevisionNotices } from "@/lib/output-revision-notices";
 import { usePresentationAppearance } from "@/lib/presentation-appearance";
+import { CanvasWorkpieceExportMenu } from "@/components/canvas-workpiece-tabs";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import {
 	AppRuntimeErrorBar,
@@ -48,6 +51,7 @@ import {
 	appRuntimeContextFromManifest,
 	buildAppRuntimeDocument,
 	handleAppRuntimeCall,
+	requestAppRuntimeExport,
 	withEditableRichText,
 } from "@/lib/app-runtime-host";
 import {
@@ -59,9 +63,11 @@ import {
 	workspaceOpenQueryOptions,
 	workspaceResourcesQueryOptions,
 } from "@/lib/os-query-options";
-import type {
-	AppRuntimeFiles,
-	AppRuntimeRole,
+import {
+	AppRuntimeConfigSchema,
+	type AppRuntimeExportFormat,
+	type AppRuntimeFiles,
+	type AppRuntimeRole,
 } from "@tedix/api-contract/schemas/os-app-runtime";
 
 const FileOutputView = lazy(async () => ({
@@ -161,6 +167,11 @@ export function AppRuntimePreview({
 			manifest={revision.manifest}
 			revision={revision.revision}
 			revisionId={revision.id}
+			exportFormats={
+				AppRuntimeConfigSchema.shape.exports.safeParse(
+					revision.manifest.config?.exports,
+				).data
+			}
 			files={code.data.code.files}
 			callServer={callServer}
 			layout={layout}
@@ -183,6 +194,7 @@ export function AppRuntimeSandbox({
 	revisionId,
 	files,
 	callServer,
+	exportFormats,
 	title = gadget.name,
 	layout = "fill",
 	translation,
@@ -193,6 +205,7 @@ export function AppRuntimeSandbox({
 	revision: number;
 	revisionId?: string;
 	files: AppRuntimeFiles;
+	exportFormats?: readonly AppRuntimeExportFormat[];
 	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
 	title?: string;
 	layout?: "content" | "fill";
@@ -652,6 +665,42 @@ export function AppRuntimeSandbox({
 		portableDoc && boundContent?.kind === "document"
 			? boundContent.file
 			: undefined;
+	const frame = (
+		<AppRuntimeFrame
+			key={
+				officeEditor
+					? `${workspaceId}:${gadget.id}:${revisionId ?? revision}:${role}`
+					: undefined
+			}
+			html={html}
+			title={title}
+			onCall={onCall}
+			layout={layout}
+			loadingContent={
+				context.settings.readySignal === true &&
+				legacyResource &&
+				boundContent ? (
+					<section
+						aria-label="Saved version while editor opens"
+						aria-busy="true"
+					>
+						<p className="px-4 py-2 text-kumo-subtle">
+							Opening editor… Showing the saved version.
+						</p>
+						<Suspense fallback={<Skeleton className="h-40 w-full" />}>
+							<SavedOutputContentView
+								outputId={legacyResource.providerResourceId}
+								content={boundContent}
+							/>
+						</Suspense>
+					</section>
+				) : undefined
+			}
+			translation={translation}
+			outputRevisions={outputRevisions}
+			onError={officeEditor ? undefined : onAppError}
+		/>
+	);
 	return (
 		<>
 			{attachedFile && (
@@ -691,40 +740,73 @@ export function AppRuntimeSandbox({
 					}
 				/>
 			)}
-			<AppRuntimeFrame
-				key={
-					officeEditor
-						? `${workspaceId}:${gadget.id}:${revisionId ?? revision}:${role}`
-						: undefined
-				}
-				html={html}
-				title={title}
-				onCall={onCall}
-				layout={layout}
-				loadingContent={
-					context.settings.readySignal === true &&
-					legacyResource &&
-					boundContent ? (
-						<section
-							aria-label="Saved version while editor opens"
-							aria-busy="true"
-						>
-							<p className="px-4 py-2 text-kumo-subtle">
-								Opening editor… Showing the saved version.
-							</p>
-							<Suspense fallback={<Skeleton className="h-40 w-full" />}>
-								<SavedOutputContentView
-									outputId={legacyResource.providerResourceId}
-									content={boundContent}
-								/>
-							</Suspense>
-						</section>
-					) : undefined
-				}
-				translation={translation}
-				outputRevisions={outputRevisions}
-				onError={officeEditor ? undefined : onAppError}
-			/>
+			{exportFormats?.length ? (
+				<AppRuntimeExportActions
+					key={role}
+					appName={gadget.name}
+					formats={exportFormats}
+				>
+					{frame}
+				</AppRuntimeExportActions>
+			) : (
+				frame
+			)}
 		</>
+	);
+}
+
+function AppRuntimeExportActions({
+	appName,
+	formats,
+	children,
+}: {
+	appName: string;
+	formats: readonly AppRuntimeExportFormat[];
+	children: ReactNode;
+}) {
+	const frameHolder = useRef<HTMLDivElement>(null);
+	const active = useRef<AbortController | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [failed, setFailed] = useState(false);
+	useLayoutEffect(() => () => active.current?.abort(), []);
+
+	async function exportFile(format: AppRuntimeExportFormat) {
+		if (active.current) return;
+		const proxy = frameHolder.current?.querySelector<HTMLIFrameElement>(
+			':scope > [data-app-runtime-frame][data-state="ready"] iframe',
+		)?.contentWindow;
+		if (!proxy) {
+			setFailed(true);
+			return;
+		}
+		const request = new AbortController();
+		active.current = request;
+		setBusy(true);
+		setFailed(false);
+		try {
+			await requestAppRuntimeExport(proxy, format, appName, request.signal);
+		} catch {
+			if (!request.signal.aborted) setFailed(true);
+		} finally {
+			active.current = null;
+			if (!request.signal.aborted) setBusy(false);
+		}
+	}
+
+	return (
+		<div ref={frameHolder} className="flex min-h-0 min-w-0 flex-1 flex-col">
+			<div className="flex items-center justify-end gap-2 px-4 py-2">
+				{busy && <span role="status">Preparing file…</span>}
+				{failed && (
+					<span role="alert">Could not export the file. Try again.</span>
+				)}
+				<CanvasWorkpieceExportMenu
+					formats={formats}
+					busy={busy}
+					onExport={exportFile}
+				/>
+			</div>
+			{children}
+		</div>
 	);
 }

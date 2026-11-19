@@ -155,6 +155,17 @@ Its classes start with `tx-` and its colours with `--tx-`; reuse them in the
 app's own small `<style>` instead of new colours. The review starter shows
 the kit in use. Add a helper to the kit here, not by editing a copy in one app.
 
+## Offer file downloads
+
+Add formats to `config.exports` to show an **Export** menu on the app. Give
+each entry a unique menu `name`, a `mimeType` of `text/csv` or
+`text/markdown`, and a `handler` name.
+
+In `client.js`, register the handler with
+`tedix.registerExport("handlerName", () => fileText)`. It returns text or a
+promise for text, up to 8 MB of UTF-8 text. It runs with the access of the
+person who chooses the format. Leave the list out or empty to hide the menu.
+
 ## Roles and grants
 
 - `owner` and `build`: `app.call`, Output reads/writes, connection calls,

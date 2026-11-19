@@ -199,9 +199,42 @@ export const AppRuntimeTriggerSchema = z.discriminatedUnion("kind", [
 ]);
 export type AppRuntimeTrigger = z.infer<typeof AppRuntimeTriggerSchema>;
 
+export const APP_RUNTIME_DOWNLOAD_EXTENSIONS = {
+	"text/plain": "txt",
+	"text/markdown": "md",
+	"text/csv": "csv",
+	"application/json": "json",
+} as const;
+export const AppRuntimeDownloadTypeSchema = z.enum(
+	Object.keys(APP_RUNTIME_DOWNLOAD_EXTENSIONS) as Array<
+		keyof typeof APP_RUNTIME_DOWNLOAD_EXTENSIONS
+	>,
+);
+export const APP_RUNTIME_DOWNLOAD_MAX_TEXT_LENGTH = 8_000_000;
+
+const AppRuntimeExportFormatSchema = z.strictObject({
+	name: z.string().trim().min(1).max(80),
+	// These Output export types can be produced as plain text in the app.
+	mimeType: AppRuntimeDownloadTypeSchema.extract(["text/markdown", "text/csv"]),
+	handler: AppRuntimeMethodSchema,
+});
+export type AppRuntimeExportFormat = z.infer<
+	typeof AppRuntimeExportFormatSchema
+>;
+
 /** Non-secret settings of a runtime app; the code reads them as `env.CONFIG`. */
 export const AppRuntimeConfigSchema = z.strictObject({
 	version: z.literal(1),
+	exports: z
+		.array(AppRuntimeExportFormatSchema)
+		.max(10)
+		.refine(
+			(formats) =>
+				new Set(formats.map((format) => format.name)).size === formats.length,
+			"Export names must be unique",
+		)
+		.optional()
+		.describe("File formats offered in the app's Export menu"),
 	recordsGuestInput: z
 		.boolean()
 		.optional()
