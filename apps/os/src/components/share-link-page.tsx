@@ -12,6 +12,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
 import { Text } from "@/components/kumo/text";
+import { LoadingArea } from "@/components/loading-area";
 import { followDeviceTheme } from "@/lib/theme";
 import {
 	type SharePayload,
@@ -38,6 +39,7 @@ type OpenedPage = Opened & { guest?: GuestPageState; from?: string };
 type PageState =
 	| { status: "loading" }
 	| { status: "email" }
+	| { status: "not-invited" }
 	| { status: "unavailable"; signedIn: boolean }
 	| {
 			status: "guest";
@@ -144,9 +146,11 @@ async function openShareLink(
 
 async function openSharePage(
 	id: string,
+	preview: boolean,
 ): Promise<OpenedPage | "sign-in" | "email"> {
 	const opened = await openShareLink(id);
 	if (typeof opened === "string") return opened;
+	if (preview) opened.payload.canManage = false;
 	const { payload, sessionToken } = opened;
 	if (opensAsGuestApp(payload))
 		return { ...opened, guest: await openGuestApp(payload, sessionToken) };
@@ -170,7 +174,18 @@ async function openSharePage(
  * shared app, workspace or file. Links for anyone open without an account;
  * invited links ask for an email code; organization links ask for sign-in.
  */
-export function ShareLinkPage({ id }: { id: string }) {
+export function ShareLinkPage({
+	id,
+	preview = false,
+}: {
+	id: string;
+	/**
+	 * Shown inside the workspace to the person sharing. The link is opened the
+	 * way a recipient opens it, so every read uses the link's access, and the
+	 * address bar, the theme and the Share button are left alone.
+	 */
+	preview?: boolean;
+}) {
 	const [state, setState] = useState<PageState>({ status: "loading" });
 	const [verification, setVerification] = useState(0);
 	// Share redemption and app opening must run together through effect replay.
@@ -187,7 +202,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 		);
 	};
 
-	useEffect(() => followDeviceTheme(), []);
+	useEffect(() => (preview ? undefined : followDeviceTheme()), [preview]);
 
 	// Back from an app returns to the workspace it was opened from.
 	useEffect(() => {
@@ -213,7 +228,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 				ready.sessionToken,
 				appId,
 			);
-			window.history.pushState({ shareApp: appId }, "");
+			if (!preview) window.history.pushState({ shareApp: appId }, "");
 			setState({ status: "guest", guest, from });
 		} catch {
 			// The app stopped running for guests since the list was read; the
@@ -227,8 +242,8 @@ export function ShareLinkPage({ id }: { id: string }) {
 			return;
 		}
 		const url = new URL(window.location.href);
-		const backFromSignIn = url.searchParams.has(SIGN_IN_PARAM);
-		if (backFromSignIn || url.hash)
+		const backFromSignIn = !preview && url.searchParams.has(SIGN_IN_PARAM);
+		if (!preview && (backFromSignIn || url.hash))
 			window.history.replaceState(null, "", shareLinkPath(id));
 		let alive = true;
 		let timer: number | undefined;
@@ -239,19 +254,19 @@ export function ShareLinkPage({ id }: { id: string }) {
 			if (timer !== undefined) window.clearInterval(timer);
 		};
 		if (opening.current?.id !== id)
-			opening.current = { id, promise: openSharePage(id) };
+			opening.current = { id, promise: openSharePage(id, preview) };
 		opening.current.promise
 			.then((result) => {
 				if (!alive) return;
 				if (result === "email") {
 					opening.current = null;
-					setState({ status: "email" });
+					setState({ status: preview ? "not-invited" : "email" });
 					return;
 				}
 				if (result === "sign-in") {
 					opening.current = null;
 					// Signed in and still refused: this account is not on the link.
-					if (backFromSignIn) fail();
+					if (backFromSignIn || preview) fail();
 					else window.location.assign(`${shareLinkPath(id)}?${SIGN_IN_PARAM}`);
 					return;
 				}
@@ -262,7 +277,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 				lastReady.current = opened;
 				// The readable suffix makes the permanent address tell people what
 				// it opens; only the id resolves it.
-				if (opened.payload.share?.slug)
+				if (!preview && opened.payload.share?.slug)
 					window.history.replaceState(
 						null,
 						"",
@@ -284,6 +299,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 								payload: {
 									...keepShownContent(payload, shown),
 									access: opened.payload.access,
+									...(preview ? { canManage: false } : {}),
 								},
 								sessionToken: opened.sessionToken,
 							});
@@ -295,7 +311,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 			alive = false;
 			if (timer !== undefined) window.clearInterval(timer);
 		};
-	}, [id, verification]);
+	}, [id, verification, preview]);
 
 	if (state.status === "email")
 		return (
@@ -309,6 +325,26 @@ export function ShareLinkPage({ id }: { id: string }) {
 			/>
 		);
 
+	if (preview && state.status === "loading")
+		return <LoadingArea label="Loading preview" />;
+	if (
+		state.status === "not-invited" ||
+		(preview && state.status === "unavailable")
+	)
+		return (
+			<Alert variant="warning" data-share-preview-unavailable>
+				<AlertTitle>
+					{state.status === "not-invited"
+						? "Only invited people can open this link"
+						: "This link can't be opened right now"}
+				</AlertTitle>
+				<AlertDescription>
+					{state.status === "not-invited"
+						? "Add your own email to the invite list to see what they see."
+						: "People who open it are told it is unavailable."}
+				</AlertDescription>
+			</Alert>
+		);
 	// Before the link opens, the organization is unknown: the guest's own
 	// browser language picks the words.
 	if (state.status === "loading" || state.status === "unavailable") {
@@ -341,7 +377,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 		const appView = (
 			<GuestAppScreen
 				state={state.guest}
-				embedded={Boolean(state.from)}
+				embedded={preview || Boolean(state.from)}
 				setState={(guest) =>
 					setState({ status: "guest", guest, from: state.from })
 				}
@@ -370,6 +406,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 					)}
 					onOpenApp={(appId) => void openWorkspaceApp(appId)}
 					appView={appView}
+					embedded={preview}
 				/>
 			);
 		return appView;
@@ -381,6 +418,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 			sessionToken={state.sessionToken}
 			subtitle={subtitle(state.payload.access ?? state.payload.share.access)}
 			onOpenApp={(appId) => void openWorkspaceApp(appId)}
+			embedded={preview}
 		/>
 	);
 }

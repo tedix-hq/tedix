@@ -348,13 +348,16 @@ export function GuestAppScreen({
 				embedded={embedded}
 				appName={state.app.app.name}
 				back={
-					back ?? {
-						label:
-							state.app.app.workspaceName ??
-							state.share.organization?.name ??
-							state.app.app.name,
-						onBack: () => window.history.back(),
-					}
+					back ??
+					(embedded
+						? undefined
+						: {
+								label:
+									state.app.app.workspaceName ??
+									state.share.organization?.name ??
+									state.app.app.name,
+								onBack: () => window.history.back(),
+							})
 				}
 				onContinue={async (guestName) => {
 					try {
