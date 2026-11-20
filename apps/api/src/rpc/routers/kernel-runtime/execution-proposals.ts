@@ -250,7 +250,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		let chatModelRef = input.modelRef;
 		let tediChatModelRef: string | undefined;
 		if (input.modelRef || personChat) {
-			const { buildModelCatalogProjection, personChatDefaultModelRef } =
+			const { buildModelCatalogProjection } =
 				await import("../../../services/model-catalog-projection");
 			const project = (tedi: typeof delegateTarget) =>
 				buildModelCatalogProjection({
@@ -279,8 +279,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					"Selected model is not available for this organization",
 				);
 			}
-			chatModelRef ??=
-				(catalog && personChatDefaultModelRef(catalog.models)) ?? undefined;
+			chatModelRef ??= catalog?.personChatModelRef ?? undefined;
 			// Auto on a picked tedi means the tedi's own model, as before.
 			if (
 				chatModelRef !== CLOUDFLARE_AUTO_MODEL_REF &&

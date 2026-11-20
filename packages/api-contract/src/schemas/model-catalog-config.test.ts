@@ -68,6 +68,15 @@ describe("trusted model catalog configuration", () => {
 				defaults: { workersAiModelRef: primary.ref },
 			}).success,
 		).toBe(false);
+		// A chat default must be a model chat still offers.
+		const chatDefault = (entry: typeof primary) =>
+			ModelCatalogConfigSchema.safeParse({
+				...config,
+				entries: [entry],
+				defaults: { personChatModelRef: primary.ref },
+			}).success;
+		expect(chatDefault(primary)).toBe(true);
+		expect(chatDefault({ ...primary, lifecycle: "superseded" })).toBe(false);
 	});
 	it("validates a configured fallback ladder and rejects cycles", () => {
 		const fallback = {

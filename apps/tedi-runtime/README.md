@@ -332,6 +332,12 @@ to keep it resolvable for stored choices while leaving it out of every chat
 model picker; a `superseded` entry is left out the same way. Workspace chat
 shows only the entries its deployment can run.
 
+Set `defaults.personChatModelRef` to the entry a signed-in person's chat turn
+runs on when they picked no model. It must be an entry chat offers. It applies
+only where the organization, and a tedi the person picked, may use that model;
+otherwise the turn keeps the model it would have used. Leave it out for no chat
+default. Scheduled and other unattended turns never use it.
+
 Configure provider credentials separately in your deployment. Environment model
 names must also appear in this catalog. Fallback targets and optional Workers AI
 defaults must reference entries in the same policy. Organization fallback settings
