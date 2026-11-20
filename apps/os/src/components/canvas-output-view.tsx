@@ -146,11 +146,12 @@ export function CanvasOutputView({
 						history stay where they are.
 					</AlertDescription>
 					<Button
+						loading={install.isPending}
 						size="sm"
 						onClick={() => void openEditor().catch(() => undefined)}
 						disabled={install.isPending}
 					>
-						{install.isPending ? "Opening…" : "Open in editor"}
+						Open in editor
 					</Button>
 					{install.isError && (
 						<Text role="body" tone="error">

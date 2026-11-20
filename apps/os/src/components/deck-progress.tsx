@@ -147,10 +147,12 @@ export function DeckCompletion({
 
 export function DeckCardSkeleton() {
 	return (
-		<Skeleton
-			className="h-60 w-full shrink-0"
-			role="status"
-			aria-label="Loading decision"
-		/>
+		<div className="w-full shrink-0 p-4">
+			<Skeleton
+				className="h-60 w-full"
+				role="status"
+				aria-label="Loading decision"
+			/>
+		</div>
 	);
 }

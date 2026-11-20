@@ -664,6 +664,7 @@ export function WorkspaceResourcesPanel({
 							Cancel
 						</Button>
 						<Button
+							loading={startRepositoryWork.isPending}
 							disabled={
 								startRepositoryWork.isPending ||
 								!tediId ||
@@ -673,9 +674,7 @@ export function WorkspaceResourcesPanel({
 							}
 							onClick={() => startRepositoryWork.mutate()}
 						>
-							{startRepositoryWork.isPending
-								? "Starting…"
-								: "Create and dispatch"}
+							Create and dispatch
 						</Button>
 					</DialogFooter>
 				</DialogContent>

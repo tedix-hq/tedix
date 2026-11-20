@@ -124,12 +124,13 @@ export function WorkspaceSkillDrafts({
 						: "An owner can allow draft changes to this skill in this workspace."}
 			</Text>
 			<Button
+				loading={load.isPending}
 				size="sm"
 				variant="outline"
 				disabled={!allowed || load.isPending}
 				onClick={() => load.mutate()}
 			>
-				{load.isPending ? "Loading skill…" : "Propose changes"}
+				Propose changes
 			</Button>
 			{load.isError && (
 				<Text role="label" tone="error">
@@ -406,12 +407,13 @@ function WorkspaceSkillDraftEditor({
 					</Button>
 					{!propose.isSuccess && (
 						<Button
+							loading={propose.isPending}
 							disabled={
 								propose.isPending || !content.trim() || reason.trim().length < 8
 							}
 							onClick={() => propose.mutate()}
 						>
-							{propose.isPending ? "Saving draft…" : "Save draft for review"}
+							Save draft for review
 						</Button>
 					)}
 				</DialogFooter>
@@ -628,12 +630,13 @@ function WorkspaceDraftTestPath({
 	return (
 		<div className="grid gap-1">
 			<Button
+				loading={load.isPending}
 				size="sm"
 				variant="outline"
 				disabled={load.isPending}
 				onClick={() => load.mutate()}
 			>
-				{load.isPending ? "Loading skill…" : "Test and adopt this draft"}
+				Test and adopt this draft
 			</Button>
 			<Text role="label" tone="secondary" className="m-0">
 				Creates a testable draft from this proposal on the skill's Versions
