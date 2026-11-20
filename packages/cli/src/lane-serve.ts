@@ -973,8 +973,6 @@ interface RulesAsset {
 	lifecycleState: string;
 }
 
-/** How often a runner with nothing to admit re-reads its rules skill. */
-const RULES_CHECK_INTERVAL_MS = 86_400_000;
 /** How often the same rules problem is written to the supervisor log. */
 const RULES_WARNING_REPEAT_MS = 600_000;
 
@@ -2844,7 +2842,6 @@ export class LaneDispatcher {
 		}
 		return Boolean(next);
 	}
-	private rulesCheckedAt = 0;
 	private rulesWarnedAt = 0;
 	/**
 	 * Reads the rules skill's state and declares this runner as its user. A
@@ -2857,7 +2854,6 @@ export class LaneDispatcher {
 		);
 		const summary = skill.entry ?? skill;
 		const now = Date.now();
-		this.rulesCheckedAt = now;
 		if (summary.lifecycleState === "active") {
 			recordDispatcherRules(this.directory, { skillId: summary.id });
 			return summary;
@@ -2870,18 +2866,6 @@ export class LaneDispatcher {
 			this.log("rules-inactive", undefined, problem);
 		}
 		throw new Error(problem);
-	}
-	/** At start, then once a day while no Work makes the runner read its rules. */
-	async declareRules(): Promise<void> {
-		if (Date.now() - this.rulesCheckedAt < RULES_CHECK_INTERVAL_MS) return;
-		try {
-			await this.rulesSummary();
-		} catch {
-			// Said in the log above. Look again soon, so a restored skill clears
-			// the warning without waiting for Work to arrive.
-			this.rulesCheckedAt =
-				Date.now() - RULES_CHECK_INTERVAL_MS + RULES_WARNING_REPEAT_MS;
-		}
 	}
 	private log(event: string, itemId?: string, reason?: string) {
 		const now = Date.now();
@@ -7718,7 +7702,6 @@ export async function runLaneServe(
 			);
 		}
 		do {
-			await lane.declareRules();
 			try {
 				await lane.tick();
 			} catch (error) {

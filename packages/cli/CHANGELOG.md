@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.1 — 2026-11-20
+
+### Patch Changes
+
+- A runner now tells Tedix which rules skill it reads when it first starts a task, not in a separate call at start. The call at start made a real request before every pass and delayed the first pass.
+
 ## 0.29.0 — 2026-11-20
 
 ### Minor Changes
