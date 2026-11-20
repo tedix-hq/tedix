@@ -753,6 +753,14 @@ const READ_BUDGET_MS = 60_000;
  * login can be refused again right after one cooldown ends.
  */
 const READ_CEILING_MS = 5 * 60_000;
+/**
+ * How many Work Items one runner prepares for admission at once. It bounds
+ * simultaneous start-ups only, never how many runs are running: every
+ * preparation makes about nine gateway calls through the runner's one call
+ * queue and starts an agent process, and a pass that began dozens at once got
+ * none of them to admission before their process start-ups timed out.
+ */
+export const MAX_PREPARATIONS = 3;
 /** How often an `--accept-proposed` dispatcher sweeps proposals. */
 const PROPOSAL_SWEEP_INTERVAL_MS = 5 * 60_000;
 /**
@@ -2655,6 +2663,10 @@ export class LaneDispatcher {
 	private running = new Map<string, Promise<void>>();
 	private identityReads = new Set<Promise<void>>();
 	private preparing = new Set<string>();
+	/** Starts waiting for one of the MAX_PREPARATIONS places, oldest first. */
+	private preparationWaiters: Array<() => void> = [];
+	private passes = 0;
+	private passRules?: { pass: number; rules: Promise<RunRules> };
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
 	private terminalRetainedAttempts = new WeakMap<Receipt, string>();
 	private cleanupCursor = 0;
@@ -2767,6 +2779,7 @@ export class LaneDispatcher {
 	}
 	stop = () => {
 		this.stopping = true;
+		for (const wake of this.preparationWaiters.splice(0)) wake();
 	};
 	/**
 	 * Stops admitting Work so this runner can empty and restart onto an updated
@@ -2775,6 +2788,7 @@ export class LaneDispatcher {
 	 */
 	holdAdmissions(version?: string) {
 		this.admissionsHeld = `Waiting to restart onto ${version ? `Tedix CLI ${version}` : "an updated Tedix CLI"}`;
+		for (const wake of this.preparationWaiters.splice(0)) wake();
 	}
 	private holdsRestart(row: Receipt): boolean {
 		if (hasSettledOutcome(row)) return false;
@@ -3058,9 +3072,56 @@ export class LaneDispatcher {
 			});
 	}
 	private finishPreparation(itemId: string) {
-		this.preparing.delete(itemId);
+		const held = this.preparing.delete(itemId);
 		const requested = requestedRun.getStore();
 		if (requested) requested.direct = false;
+		if (held) this.preparationWaiters.shift()?.();
+	}
+	/**
+	 * Waits until fewer than MAX_PREPARATIONS Work Items are in preparation,
+	 * then takes a place with no step in between, so starts launched together
+	 * cannot all see the same free place. A start a person asked for does not
+	 * wait. Returns false when the runner stopped or began waiting to restart
+	 * meanwhile: nothing was read or recorded for the item, so the next pass
+	 * or runner starts it.
+	 */
+	private async preparationPlace(itemId: string): Promise<boolean> {
+		let waited = false;
+		while (
+			!requestedRun.getStore()?.direct &&
+			this.preparing.size >= MAX_PREPARATIONS &&
+			!this.stopping &&
+			!this.admissionsHeld
+		) {
+			if (!waited)
+				this.log(
+					"start-waiting",
+					itemId,
+					`${this.preparing.size} starts are in preparation; this one begins when one of them is admitted or fails`,
+				);
+			waited = true;
+			await new Promise<void>((wake) => this.preparationWaiters.push(wake));
+		}
+		if (waited && (this.stopping || this.admissionsHeld)) return false;
+		this.preparing.add(itemId);
+		return true;
+	}
+	/**
+	 * The rules for a run, read at most once per pass: every preparation of a
+	 * pass shares one read instead of making its own three gateway calls.
+	 */
+	private rulesForRun(): Promise<RunRules> {
+		// A requested start skips the call queue, so it does not share a read
+		// that waits in it.
+		if (requestedRun.getStore()?.direct) return this.readRules();
+		if (this.passRules?.pass !== this.passes) {
+			const read = { pass: this.passes, rules: this.readRules() };
+			read.rules.catch(() => {
+				if (this.passRules === read) this.passRules = undefined;
+			});
+			this.passRules = read;
+		}
+		return this.passRules.rules;
 	}
 	private call<T = unknown>(
 		args: string[],
@@ -3158,6 +3219,7 @@ export class LaneDispatcher {
 	}
 	async tick() {
 		this.ticking = true;
+		this.passes++;
 		this.notePassProgress();
 		const skips = new Map<string, DispatcherSkipObservation>();
 		const observedAt = new Date().toISOString();
@@ -4841,8 +4903,8 @@ export class LaneDispatcher {
 		let codexServer: CodexLaneServer | undefined;
 		let stepTimer: ReturnType<typeof setInterval> | undefined;
 		let stopKillTimer: ReturnType<typeof setTimeout> | undefined;
+		if (!(await this.preparationPlace(candidate.id))) return;
 		try {
-			this.preparing.add(candidate.id);
 			const detail = await this.call<{
 				workItem: DispatchItem;
 				comments: WorkItemComment[];
@@ -4962,7 +5024,7 @@ export class LaneDispatcher {
 				);
 			// Retry eligibility is the server's call: admission refuses a revision a
 			// verifier rejected and one whose crash budget is spent.
-			const rules = await this.readRules();
+			const rules = await this.rulesForRun();
 			const dir = join(this.directory, "runs", `${item.id}-${item.version}`);
 			mkdirSync(dir, { recursive: true, mode: 0o700 });
 			// A checkout evicted to free disk left its work under a Git ref.

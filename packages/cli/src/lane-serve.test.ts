@@ -26,6 +26,7 @@ import {
 	ARCHIVED_RUNS_KEPT,
 	DISPATCHER_LOG_CAP_BYTES,
 	MIN_FREE_DISK_BYTES,
+	MAX_PREPARATIONS,
 	cleanupLaneWorktree,
 	installLaneDependencies,
 	laneLandingBrief,
@@ -1202,6 +1203,37 @@ describe("dispatcher admission", () => {
 		);
 		f.releases[0]!();
 		await f.dispatcher.drain();
+	});
+
+	it("prepares at most MAX_PREPARATIONS starts at once and still runs them all", async () => {
+		const f = fixture();
+		for (let n = 4; n <= 12; n++) f.items.push(item(n));
+		let preparing = 0;
+		let most = 0;
+		const thread = f.deps.thread!;
+		f.deps.thread = async (...args) => {
+			most = Math.max(most, ++preparing);
+			await new Promise((done) => setTimeout(done, 5));
+			return thread(...args);
+		};
+		const cli = f.deps.cli!;
+		f.deps.cli = async (args, ...rest) => {
+			try {
+				return await cli(args, ...rest);
+			} finally {
+				if (args[4] === "work" && args[5] === "start") preparing--;
+			}
+		};
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		// The limit is on start-ups: all twelve end up running together.
+		await until(() => f.releases.length === 12, 1000);
+		expect(most).toBe(MAX_PREPARATIONS);
+		expect(
+			f.events.filter((event) => event.verb === "runner-rules").length,
+		).toBeLessThanOrEqual(2);
+		for (const release of f.releases) release();
+		await dispatcher.drain();
 	});
 
 	it("drains a delayed process identity read before fixture teardown", async () => {
