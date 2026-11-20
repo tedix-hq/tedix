@@ -73,8 +73,6 @@ Stop each stack with `Ctrl+C` in its terminal.
 The local API generates its own key for app sessions and stored secrets, saved
 in `apps/api/.wrangler/local-master-key` for reuse after a restart. Keep that file
 with your local data; deleting it invalidates sessions and stored secrets.
-The launcher does not start the app server runtime; app methods that need it
-remain unavailable locally. Opening an app session does not run those methods.
 
 The [Tedix CLI](./cli.md) wraps this launcher: `tedix setup` runs it in a
 checkout, or clones the source release matching your CLI version when one is
@@ -125,8 +123,10 @@ locally.
 Local mode covers onboarding, Tedix OS, workspaces and preferences, the API
 authentication boundary, migrations, and D1 reads and writes. A workspace app
 with server code also runs: the launcher starts the runtime that hosts it, so
-the app opens and its calls answer locally. Local mode does not run
-remote tedis, connect outside providers, or deploy anything.
+the app opens and its calls answer locally. With inference on in the seeded
+demo, a tedi you pick in workspace chat answers, and the views it shows load.
+Local mode does not run remote tedis, connect outside providers, or deploy
+anything.
 
 ### Build configuration
 

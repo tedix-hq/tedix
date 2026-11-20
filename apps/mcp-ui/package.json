@@ -13,6 +13,7 @@
 		"build": "MCP_UI_URL=${MCP_UI_URL:-http://localhost:3001} astro build",
 		"build:production": "CLOUDFLARE_ENV=production astro build",
 		"preview": "astro preview",
+		"dev:local-launcher": "MCP_UI_INSPECTOR_PORT=0 bun ../../scripts/dev-local.ts -- astro dev --port 3001 --ignore-lock",
 		"deploy:production": "bun run build:production && wrangler deploy --var GIT_SHA:${GIT_SHA:-${GITHUB_SHA:-unknown}} --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
 		"types": "bun ../../scripts/generate-worker-types.ts mcp-ui",
 		"types:check": "bun ../../scripts/generate-worker-types.ts --check mcp-ui",

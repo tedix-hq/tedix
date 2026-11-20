@@ -146,3 +146,17 @@ INSERT OR IGNORE INTO billing_accounts (
 	'2026-08-10T00:00:00.000Z',
 	'2026-08-10T00:00:00.000Z'
 );
+
+-- Chat views are addressed to the `tedix-unified` app, which a deployment's
+-- platform provisioning creates. The local run has no platform organization,
+-- so the local organization holds it and the local MCP service serves views.
+INSERT OR IGNORE INTO apps (
+	id, organization_id, name, slug, created_at, updated_at
+) VALUES (
+	'00000000-0000-4000-8000-0000000000a1',
+	'00000000-0000-4000-8000-000000000001',
+	'Tedix views',
+	'tedix-unified',
+	'2026-08-10T00:00:00.000Z',
+	'2026-08-10T00:00:00.000Z'
+);

@@ -11,7 +11,7 @@
 		"types": "bun ../../scripts/generate-worker-types.ts workspace-do",
 		"types:check": "bun ../../scripts/generate-worker-types.ts --check workspace-do",
 		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- wrangler dev",
-		"dev:local-launcher": "bun ../../scripts/dev-local.ts -- wrangler dev --port 0",
+		"dev:local-launcher": "bun ../../scripts/dev-local.ts -- wrangler dev --port 0 --config ../tedi-runtime/wrangler.jsonc",
 		"deploy:production": "bun run types && wrangler deploy --env production --var GIT_SHA:${GIT_SHA:-${GITHUB_SHA:-unknown}} --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
 		"type-check": "tsc --noEmit && tsc --noEmit -p tsconfig.workers-test.json",
 		"test": "bun run test:run",

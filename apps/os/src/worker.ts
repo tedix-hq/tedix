@@ -91,6 +91,7 @@ import {
 import {
 	handleWidgetMcp,
 	handleWidgetResource,
+	type WidgetProxyFetch,
 	type WidgetServiceIdentity,
 } from "./widgets/proxy";
 import { base64UrlEncode } from "@tedix/auth/utils";
@@ -773,6 +774,16 @@ function withLocalDemoAuthorization(
 	return new Request(request, { headers });
 }
 
+/**
+ * Sends a view request meant for an app's MCP host (`https://{app}.mcp.…/mcp`)
+ * to the local MCP service, which names apps as `{app}.localhost`.
+ */
+function localMcpFetch(mcp: FetcherLike): WidgetProxyFetch {
+	const send = serviceBindingFetch(mcp);
+	return (input, init) =>
+		send(`http://${new URL(input).hostname.split(".")[0]}.localhost/mcp`, init);
+}
+
 type WidgetSessionVerifier = typeof validateToken;
 
 /**
@@ -1422,8 +1433,23 @@ export async function handleOsRequest(
 	// Governed widget bridge (docs/engineering/mcp/apps.md): the SPA fetches ui://
 	// resources and relays widget-originated MCP calls through these
 	// same-origin endpoints; the caller's own session rides through and
-	// iframes never see a token. Tenant hosts only: any other host, a local
-	// run included, says so instead of answering with the page shell.
+	// iframes never see a token. Tenant hosts only, apart from a local run;
+	// any other host says so instead of answering with the page shell.
+	if (
+		tenant.kind !== "tenant" &&
+		(url.pathname === "/widgets/resource" || url.pathname === "/widgets/mcp") &&
+		isLocalDemoOrigin(request, env)
+	) {
+		// A local run signs in with the local bearer, like `/collab`, and reaches
+		// the local MCP service instead of an app's public host.
+		const authenticated = withLocalDemoAuthorization(request, env);
+		if (!authenticated || !env.MCP_SERVICE)
+			return refuse(503, "Views are unavailable in this local run.");
+		const mcpFetch = localMcpFetch(env.MCP_SERVICE);
+		return url.pathname === "/widgets/resource"
+			? handleWidgetResource(authenticated, url, mcpFetch)
+			: handleWidgetMcp(authenticated, url, mcpFetch);
+	}
 	if (
 		tenant.kind !== "tenant" &&
 		(url.pathname === "/widgets/resource" || url.pathname === "/widgets/mcp")
