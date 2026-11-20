@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.28.4 — 2026-11-20
+
+### Patch Changes
+
+- A run started from chat is no longer lost when the runner is waiting to restart onto a newer CLI. The start request stays in place for the runner that replaces it, and the runner log says what happened to every request and why.
+- A follow-up the runner could not read at the end of a turn is read again before the run settles, and a follow-up delivered to a turn that is already running now leaves a line in the runner log.
+
 ## 0.28.3 — 2026-11-20
 
 The 0.28.2 build did not publish; this release also carries its changes below.
