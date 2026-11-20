@@ -72,11 +72,13 @@ async function copy(
 ): Promise<{ caughtUp: boolean; tail: number }> {
 	let tail = after;
 	while (Date.now() < deadline && result.recordsCopied < MAX_RECORDS_PER_RUN) {
-		const next = await withOverloadBackoff(() =>
-			listGatewayChangeRecordCheckpoints(db, organizationId, {
-				afterLastSequence: tail,
-				limit: 50,
-			}),
+		const next = await withOverloadBackoff(
+			() =>
+				listGatewayChangeRecordCheckpoints(db, organizationId, {
+					afterLastSequence: tail,
+					limit: 50,
+				}),
+			deadline,
 		);
 		const ready: typeof next = [];
 		let records = 0;
@@ -91,13 +93,15 @@ async function copy(
 			records += checkpoint.recordCount;
 		}
 		if (ready.length === 0) return { caughtUp: next.length === 0, tail };
-		const rows = await withOverloadBackoff(() =>
-			listGatewayChangeRecordsForCheckpoint(db, {
-				organizationId,
-				firstSequence: ready[0]!.firstSequence,
-				lastSequence: ready.at(-1)!.lastSequence,
-				recordCount: records,
-			}),
+		const rows = await withOverloadBackoff(
+			() =>
+				listGatewayChangeRecordsForCheckpoint(db, {
+					organizationId,
+					firstSequence: ready[0]!.firstSequence,
+					lastSequence: ready.at(-1)!.lastSequence,
+					recordCount: records,
+				}),
+			deadline,
 		);
 		const copied = await log.organizationLogImport(organizationId, {
 			records: rows,
