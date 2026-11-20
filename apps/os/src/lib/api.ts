@@ -7,6 +7,7 @@ import {
 	type RouterContractClient,
 } from "@tedix/api-client/client";
 import type { ApiContract } from "@tedix/api-contract/contracts/api";
+import { OS_WORKSPACE_INSPECTION_HEADER } from "@tedix/api-contract/schemas/os-workspace-inspections";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { withWebMcpInvocationHeader } from "@/lib/webmcp/attribution";
 
@@ -128,6 +129,25 @@ export const osChatReadApi: RouterContractClient<ApiContract> =
 		timeoutMs: OS_CHAT_READ_TIMEOUT_MS,
 		getHeaders: osProductHeaders,
 	});
+
+/**
+ * A client whose reads name the workspace an organization admin is
+ * inspecting. The API still requires their recorded inspection, and opens
+ * only a few reads with it; every write is judged as if it were absent.
+ */
+export function createOsInspectionApi(
+	workspaceId: string,
+): RouterContractClient<ApiContract> {
+	return getApiClient<ApiContract>(OS_API_URL, {
+		credentials: "include",
+		bookmarkSession: osBookmarkSession,
+		timeoutMs: OS_API_REQUEST_TIMEOUT_MS,
+		getHeaders: async () => ({
+			...(await osProductHeaders()),
+			[OS_WORKSPACE_INSPECTION_HEADER]: workspaceId,
+		}),
+	});
+}
 
 /**
  * Create a short-lived bearer client for explicit step-up operations.

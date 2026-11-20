@@ -291,6 +291,21 @@ export const OS_PAGES: readonly OsPage[] = [
 		settings: true,
 	},
 	{
+		id: "admin-workspaces",
+		path: "/admin/workspaces",
+		label: "Inspect workspaces",
+		parentId: "admin",
+		palette: true,
+		settings: true,
+	},
+	{
+		id: "admin-workspace-inspection",
+		path: "/admin/workspaces/$workspaceId",
+		label: "Inspection",
+		parentId: "admin-workspaces",
+		settings: true,
+	},
+	{
 		id: "inbox",
 		path: "/inbox",
 		label: "Inbox",

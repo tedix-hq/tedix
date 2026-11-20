@@ -1,4 +1,5 @@
 import { SETTINGS_AUDIT_ACTIONS } from "@tedix/api-contract/schemas/audit-actions";
+import { OS_WORKSPACE_INSPECTION_ACTION } from "@tedix/api-contract/schemas/os-workspace-inspections";
 import {
 	ArrowClockwise,
 	CaretDown,
@@ -144,6 +145,8 @@ const ACTOR_TYPE_LABELS: Partial<Record<AuditActorType, string>> = {
 export function auditActionLabel(action: string): string {
 	if (action === "home.tool_write" || action === "home_tool_write")
 		return "Chat action";
+	if (action === OS_WORKSPACE_INSPECTION_ACTION)
+		return "An organization admin inspected a workspace";
 	if (action.split(".").at(-1)?.toLowerCase() === "createmany")
 		return "Created multiple records";
 	return sentenceCase(action);

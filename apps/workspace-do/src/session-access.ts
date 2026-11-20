@@ -3,6 +3,7 @@ import {
 	isWorkspaceGuestTediAllowed,
 	readWorkspaceRuntimeRole,
 } from "@tedix/db/queries/os-workspace-access";
+import { hasActiveOsWorkspaceInspection } from "@tedix/db/queries/os-workspace-inspections";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	delegatedMachineScopes,
@@ -39,12 +40,18 @@ export async function workspaceSessionAllowed(
 		if (!hasScope(scopes, write ? "apps:write" : "apps:read")) return false;
 	}
 	try {
-		const role = await readWorkspaceRuntimeRole(
-			createDbQueryClient(database),
-			session.scope,
-			session,
+		const db = createDbQueryClient(database);
+		const role = await readWorkspaceRuntimeRole(db, session.scope, session);
+		if (operationAllowed(role, "app.chat")) return true;
+		// An organization admin's recorded inspection reads the chat through the
+		// OS worker's socket and nothing else: no send, approval, cancel, rename,
+		// archive or delete, and never on the MCP lane.
+		return (
+			!write &&
+			session.scopes === null &&
+			session.actorKind === "user" &&
+			(await hasActiveOsWorkspaceInspection(db, session.scope, session.actorId))
 		);
-		return operationAllowed(role, "app.chat");
 	} catch (error) {
 		// Fails closed; the line tells a refused person from a failed read.
 		workspaceLog.warn("Workspace access check failed", {

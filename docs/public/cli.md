@@ -320,7 +320,9 @@ Its proposals arrive in your Tedix inbox (Work > Interactions).
 
 `tedix learn profile` writes "What Tedix knows about you", a document in your
 private Tedix workspace, "<Name> (private)": only you and your own tedis and
-agents can see it, and it cannot be shared. It opens with your week in plain language, then three
+agents can see it, and it cannot be shared. An owner or admin of your
+organization can look at it read-only; each visit is shown in the
+workspace's activity. It opens with your week in plain language, then three
 things it can do for you now: a task handed to a tedi, a factory, or a
 drafted document, chosen by your goals, what is at stake (a customer, a
 deadline, revenue, someone blocked) and how recent it is. Each is a

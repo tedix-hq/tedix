@@ -29,6 +29,7 @@ import {
 } from "@tedix/api-client/internal";
 import { validateToken } from "@tedix/auth/jwt";
 import { releaseManifest } from "@tedix/api-contract/utils/release-manifest";
+import { OS_WORKSPACE_INSPECTION_HEADER } from "@tedix/api-contract/schemas/os-workspace-inspections";
 import { OIDC_SESSION_COOKIE } from "@tedix/auth/oidc-cookies";
 import { handleTediConsole } from "./auth/tedi-console";
 import {
@@ -379,7 +380,8 @@ type CollabOutputDetail = { output: { workspaceId: string | null } };
 type WorkspacePresenceIdentity = {
 	workspaceId: string;
 	displayName: string;
-	role: "owner" | "build" | "use";
+	/** `inspect` only on the chat socket, whose object then refuses every write. */
+	role: "owner" | "build" | "use" | "inspect";
 	/** The signed-in person's id, once the presence read returns it. */
 	userId?: string;
 };
@@ -1396,6 +1398,7 @@ export async function handleOsRequest(
 			hostTenantId,
 			hostOrganizationId,
 			url.searchParams.get("after"),
+			url.searchParams.get("inspect") === "1",
 		);
 	}
 
@@ -1750,6 +1753,8 @@ async function handleWorkspaceChatUpgrade(
 	hostTenantId: string | null,
 	organizationId: string | null,
 	after: string | null,
+	/** An organization admin's read-only inspection; the API decides whether it holds. */
+	inspect = false,
 ): Promise<Response> {
 	const localDemo = isLocalDemoOrigin(request, env);
 	if (tenant.kind !== "tenant" && !localDemo) {
@@ -1799,6 +1804,7 @@ async function handleWorkspaceChatUpgrade(
 	if (authorization) apiHeaders.Authorization = authorization;
 	if (cookie) apiHeaders.Cookie = cookie;
 	if (hostTenantId) apiHeaders["X-Tedix-Tenant-Id"] = hostTenantId;
+	if (inspect) apiHeaders[OS_WORKSPACE_INSPECTION_HEADER] = workspaceId;
 	let presence: WorkspacePresenceIdentity;
 	try {
 		presence = await callRpc<WorkspacePresenceIdentity>(

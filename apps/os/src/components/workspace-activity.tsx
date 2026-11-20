@@ -17,6 +17,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { WorkspaceActivityItem } from "@tedix/api-contract/schemas/workspace-feed";
 import { type ComponentType, useEffect } from "react";
 import { WorkspaceAppTriggers } from "./workspace-app-connections";
+import { WorkspaceInspectionHistory } from "./workspace-inspection-history";
 import { LoadingArea } from "@/components/loading-area";
 import { Button } from "@/components/kumo/button";
 import { IconFrame } from "@/components/kumo/icon-frame";
@@ -504,6 +505,7 @@ export function WorkspaceActivity({ workspaceId }: { workspaceId: string }) {
 			<Text as="h3" role="label">
 				What happened in this workspace
 			</Text>
+			<WorkspaceInspectionHistory workspaceId={workspaceId} />
 			{activity.isError ? (
 				<Text role="label" tone="error">
 					Workspace activity could not be loaded. Try again later.

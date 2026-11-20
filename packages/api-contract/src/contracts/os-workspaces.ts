@@ -20,6 +20,12 @@ import {
 } from "../schemas/blueprint-provisioning";
 import { JsonValueSchema } from "../schemas/common";
 import {
+	OsInspectableWorkspaceSchema,
+	OsWorkspaceInspectionRecordSchema,
+	OsWorkspaceInspectionStartInputSchema,
+	OsWorkspaceInspectionStartSchema,
+} from "../schemas/os-workspace-inspections";
+import {
 	WorkspaceActivityItemSchema,
 	WorkspaceChangeKindSchema,
 } from "../schemas/workspace-feed";
@@ -2581,6 +2587,40 @@ export const osWorkspacesContract = oc
 							}),
 						),
 					}),
+				),
+		}),
+		inspections: oc.router({
+			workspaces: oc
+				.route({
+					method: "GET",
+					path: "/inspections/workspaces",
+					summary: "List the workspaces an organization admin can inspect",
+					description:
+						"Every active workspace of the organization, private ones included, for its active owners and admins. Lists names only; reading one needs a recorded inspection.",
+				})
+				.input(z.object({}).strict())
+				.output(z.object({ items: z.array(OsInspectableWorkspaceSchema) })),
+			start: oc
+				.route({
+					method: "POST",
+					path: "/inspections",
+					summary: "Start a read-only inspection of a workspace",
+					description:
+						"An active owner or admin records an inspection of a workspace, with an optional reason. For the next hour they can read its files, app list, chat history and activity, and change nothing. The record is shown to the workspace's members and in the organization audit log.",
+				})
+				.input(OsWorkspaceInspectionStartInputSchema)
+				.output(OsWorkspaceInspectionStartSchema),
+			history: oc
+				.route({
+					method: "GET",
+					path: "/workspaces/{workspaceId}/inspections",
+					summary: "List the inspections of a workspace",
+					description:
+						"Who among the organization's admins inspected this workspace, and when, newest first.",
+				})
+				.input(z.object({ workspaceId: z.string().uuid() }).strict())
+				.output(
+					z.object({ items: z.array(OsWorkspaceInspectionRecordSchema) }),
 				),
 		}),
 	});

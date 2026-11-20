@@ -117,13 +117,14 @@ describe("AdminPage", () => {
 			"API keys",
 			"Usage",
 			"Payments",
+			"Inspect workspaces",
 		]) {
 			expect(container.textContent).toContain(destination);
 		}
 		const frames = container.querySelectorAll(
 			'[data-slot="icon-frame"][data-appearance="fill"][data-size="sm"]',
 		);
-		expect(frames).toHaveLength(8);
+		expect(frames).toHaveLength(9);
 
 		for (const internalDetail of [
 			"D1 authoritative",

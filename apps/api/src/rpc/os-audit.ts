@@ -987,6 +987,8 @@ export const OS_APPROVAL_RULES_AUDIT: OsAuditRegistry = {
 export const OS_AUDIT_NON_EMITTING: Readonly<Record<string, string>> = {
 	"osWorkspaces.blueprints.previewApply":
 		"read-only provisioning plan; creates no resources",
+	"osWorkspaces.inspections.start":
+		"the handler writes os.workspace.inspected itself and fails when it cannot: that row is the inspection",
 	"osWorkspaces.workspaces.previewArchivedCleanup":
 		"read-only cleanup preview; dryRun is forced and nothing is deleted",
 	"osShares.shares.previewChange":

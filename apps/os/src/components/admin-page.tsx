@@ -1,6 +1,7 @@
 import {
 	Buildings,
 	CaretRight,
+	Eye,
 	Key,
 	Plugs,
 	Wallet,
@@ -65,6 +66,12 @@ const ADMIN_DESTINATIONS: AdminDestination[] = [
 		title: "Payments",
 		description: "Paid tool spend, budget policies, and receipts",
 		icon: Wallet,
+	},
+	{
+		to: "/admin/workspaces",
+		title: "Inspect workspaces",
+		description: "Look inside any workspace read-only; every visit is recorded",
+		icon: Eye,
 	},
 ];
 
