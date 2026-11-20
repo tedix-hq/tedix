@@ -196,9 +196,10 @@ it.each([
 		"Claude reported an MCP configuration error (search: invalid_config)",
 	],
 	[{ mcp_servers: [{ name: "search", status: "needs-auth" }] }, undefined],
+	[{ signedIn: false }, "Claude Code is not signed in; run `claude` and sign in"],
 ])(
-	"uses Claude's init event to report plugin and MCP failures for %p",
-	async (fields, reason) => {
+	"uses Claude's sign-in and init event to report failures for %p",
+	async ({ signedIn = true, ...fields }: Record<string, unknown>, reason) => {
 		const init = JSON.stringify({
 			type: "system",
 			subtype: "init",
@@ -207,6 +208,7 @@ it.each([
 		});
 		const command = fakeBinary(
 			`#!/bin/sh
+if [ "$1" = auth ]; then echo '{"loggedIn":${signedIn}}'; exit 0; fi
 echo '{"type":"system","subtype":"hook_response"}'
 echo '${init}'
 exec /bin/sleep 60
