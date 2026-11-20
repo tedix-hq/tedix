@@ -1135,3 +1135,78 @@ a {
 		);
 	}
 }
+
+/*
+ * Inside the Tedix desktop app (`data-desktop-app`, set in index.html) the
+ * page fills the whole window and the macOS window buttons sit over its
+ * top-left corner, ending 81px from the left and 35px from the top. The top
+ * of the page drags the window: a 28px strip on every page, plus the full
+ * height of the shell's top bars. A drag area takes every click, so controls
+ * are marked as not dragging. A normal browser never sets the attribute.
+ */
+:root[data-desktop-app] {
+	--desktop-window-buttons: 92px;
+}
+:root[data-desktop-app] body::before {
+	position: fixed;
+	z-index: 1;
+	inset: 0 0 auto;
+	height: 28px;
+	content: "";
+	pointer-events: none;
+	-webkit-app-region: drag;
+}
+:root[data-desktop-app]
+	:is(.topbar, [data-sidebar="header"], .canvas-workspace-header) {
+	-webkit-app-region: drag;
+}
+:root[data-desktop-app]
+	:is(
+		a,
+		button,
+		input,
+		select,
+		textarea,
+		summary,
+		[contenteditable],
+		[role="button"],
+		[role="dialog"],
+		[role="listbox"],
+		[role="menu"],
+		[role="tooltip"]
+	) {
+	-webkit-app-region: no-drag;
+}
+/* The organization switcher moves right of the window buttons. */
+:root[data-desktop-app]
+	[data-sidebar="sidebar"]:not([data-state="collapsed"])
+	[data-sidebar="header"] {
+	padding-left: var(--desktop-window-buttons);
+}
+/* The collapsed rail is narrower than the buttons, so its header moves below them. */
+:root[data-desktop-app]
+	[data-sidebar="sidebar"][data-state="collapsed"]
+	[data-sidebar="header"] {
+	height: 84px;
+	padding-top: 28px;
+}
+/*
+ * With no rail beside it (a narrow window, or an open workspace), the page
+ * header starts after the buttons. Beside the collapsed rail it only has to
+ * clear the part of them that reaches past the rail.
+ */
+:root[data-desktop-app] :is(.topbar, .canvas-workspace-header) {
+	padding-left: var(--desktop-window-buttons);
+}
+:root[data-desktop-app]
+	[data-sidebar="sidebar"]:not([data-mobile])
+	~ .os-main
+	.topbar {
+	padding-left: var(--spacing-tedix-gutter);
+}
+:root[data-desktop-app]
+	[data-sidebar="sidebar"][data-state="collapsed"]:not([data-mobile])
+	~ .os-main
+	.topbar {
+	padding-left: calc(var(--desktop-window-buttons) - 56px);
+}

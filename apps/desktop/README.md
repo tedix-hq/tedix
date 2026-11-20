@@ -13,7 +13,8 @@ macOS only.
 
 ## What you can do
 
-- **Chat in Tedix OS.** The window opens `https://tedix.os.tedix.dev/chat`. You
+- **Chat in Tedix OS.** The window opens `https://tedix.os.tedix.dev/chat`. The
+  page fills the whole window; drag the window by the page's top bar. You
   stay signed in between launches. Links to other sites open in your default
   browser.
 - **Sign in with an emailed link.** Start the sign-in in the app and click the
@@ -58,14 +59,13 @@ The build has no signing identity, no notarization and no automatic updates.
 
 ## Where things are
 
-| File                  | What it does                                             |
-| --------------------- | -------------------------------------------------------- |
-| `src/main.ts`         | Windows, menu, and the commands the two local pages call |
-| `src/status.ts`       | Reads the status from the CLI and the files it keeps     |
-| `src/runners-file.ts` | Edits `supervisor-runners.json`                          |
-| `src/shell.ts`        | Finds and runs `tedix`                                   |
-| `strip.html`          | The empty area at the top that drags the window          |
-| `panel.html`          | The This Mac window (`src/panel.ts`)                     |
-| `src/preload.ts`      | The few functions the two local pages may call           |
+| File                  | What it does                                              |
+| --------------------- | --------------------------------------------------------- |
+| `src/main.ts`         | Windows, menu, and the commands the This Mac window calls |
+| `src/status.ts`       | Reads the status from the CLI and the files it keeps      |
+| `src/runners-file.ts` | Edits `supervisor-runners.json`                           |
+| `src/shell.ts`        | Finds and runs `tedix`                                    |
+| `panel.html`          | The This Mac window (`src/panel.ts`)                      |
+| `src/preload.ts`      | The few functions the This Mac window may call            |
 
 The Tedix OS page runs without access to the app or the computer.

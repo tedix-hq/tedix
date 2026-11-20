@@ -67,6 +67,15 @@
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 		<meta name="apple-mobile-web-app-title" content="Tedix" />
+		<!--
+			The Tedix desktop app shows this page under the macOS window buttons
+			and names itself in the user agent. styles.css keys the room for
+			those buttons and the window-drag areas off this one attribute.
+		-->
+		<script>
+			if (navigator.userAgent.includes("TedixDesktop/"))
+				document.documentElement.dataset.desktopApp = "";
+		</script>
 		<!-- Pre-paint theme init: mirrors src/lib/theme.ts (storage key + attribute contract). -->
 		<script>
 			(function () {
