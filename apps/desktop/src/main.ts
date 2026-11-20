@@ -120,9 +120,38 @@ function openAppLink(value: string | undefined): void {
 		startUrl = link;
 		return;
 	}
-	void os.webContents.loadURL(link);
+	finishSignIn(link);
 	mainWindow?.show();
 	mainWindow?.focus();
+}
+
+/**
+ * Opens a sign-in link in a hidden window that shares the main view's
+ * session, so the page that asked for the link stays open and continues by
+ * itself. Loading the link in the main view replaces that page and ends on
+ * "you can close this window". If the main view is still on the sign-in page
+ * afterwards, it reloads Tedix OS with the session the link created.
+ */
+function finishSignIn(link: string): void {
+	const view = os;
+	if (!view) return;
+	const helper = new BrowserWindow({
+		show: false,
+		webPreferences: {
+			partition: "persist:tedix-os",
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: true,
+		},
+	});
+	helper.webContents.setUserAgent(view.webContents.getUserAgent());
+	void helper.loadURL(link);
+	setTimeout(() => {
+		if (!helper.isDestroyed()) helper.destroy();
+		if (view.webContents.isDestroyed()) return;
+		if (URL.parse(view.webContents.getURL())?.pathname === "/login")
+			void view.webContents.loadURL(OS_URL);
+	}, 8000);
 }
 
 /**
@@ -216,7 +245,7 @@ function navigate(action: "back" | "forward" | "reload"): void {
 // in the mail app opens the default browser. This opens a copied link here.
 async function pasteSignInLink(): Promise<void> {
 	const url = (await clipboard.readText()).trim();
-	if (isTedixPage(url)) void os?.webContents.loadURL(url);
+	if (isTedixPage(url)) finishSignIn(url);
 }
 
 function setMenu(): void {
