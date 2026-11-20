@@ -35,6 +35,7 @@
 		"./session-broker": "./src/session-broker.ts",
 		"./product-session-broker": "./src/product-session-broker.ts",
 		"./mount-session-broker": "./src/mount-session-broker.ts",
+		"./desktop-sign-in-code": "./src/desktop-sign-in-code.ts",
 		"./principal": "./src/principal.ts",
 		"./principal-identity": "./src/principal-identity.ts",
 		"./local-demo": "./src/local-demo.ts",

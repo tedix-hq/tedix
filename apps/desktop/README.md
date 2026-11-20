@@ -21,6 +21,10 @@ macOS only.
   emailed link as usual. The page that opens in your browser offers to open
   the Tedix app, and the app window finishes the sign-in. If that does not
   happen, copy the link and choose **Tedix → Paste Sign-in Link**.
+- **Sign in with Google or Apple.** They do not allow sign-in inside an app
+  window, so the app opens your normal browser. Sign in there, confirm, and
+  choose **Open the Tedix app**. You can also start this from **Tedix → Sign
+  In with Browser**. Not yet tried against the live service.
 - **See this computer's status.** Choose **Tedix → This Mac…** (`Cmd+Shift+M`).
   The small window shows how many runners are running, how many runs are
   active, whether the process that answers a tedi's requests on this computer

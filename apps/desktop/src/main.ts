@@ -104,13 +104,111 @@ function isTedixPage(url: string): boolean {
 	);
 }
 
+/** Sign-in pages that refuse to work inside an app window. */
+function refusesAppWindows(url: string): boolean {
+	const host = URL.parse(url)?.hostname;
+	return host === "accounts.google.com" || host === "appleid.apple.com";
+}
+
+/** The private half of the key made for the browser sign-in in progress. */
+let browserSignIn: { key: CryptoKey; expires: number } | undefined;
+
+const base64Url = (bytes: ArrayBuffer) =>
+	Buffer.from(bytes).toString("base64url");
+
+/**
+ * Google and Apple refuse to sign people in inside an app window, so this
+ * opens Tedix OS in the person's normal browser. The browser gets a public
+ * key made here; the code it sends back (`tedix://sign-in?code=…`) is sealed
+ * to that key, so only this running app can read it.
+ */
+async function signInWithBrowser(): Promise<void> {
+	const pair = await crypto.subtle.generateKey(
+		{ name: "ECDH", namedCurve: "P-256" },
+		false,
+		["deriveBits"],
+	);
+	browserSignIn = { key: pair.privateKey, expires: Date.now() + 10 * 60_000 };
+	const page = new URL("/auth/desktop/sign-in", OS_URL);
+	page.searchParams.set(
+		"key",
+		base64Url(await crypto.subtle.exportKey("raw", pair.publicKey)),
+	);
+	await shell.openExternal(page.href);
+}
+
+/**
+ * Opens the code from the browser and loads the one-time sign-in token it
+ * holds in the Tedix OS view. Mirrors `openDesktopSignInCode` in
+ * `packages/auth/src/desktop-sign-in-code.ts`. A code made for another app
+ * instance, or a second use, fails here and changes nothing.
+ */
+async function finishBrowserSignIn(code: string): Promise<void> {
+	const pending = browserSignIn;
+	browserSignIn = undefined;
+	if (!pending || pending.expires < Date.now() || !os) return;
+	try {
+		const bytes = Buffer.from(code, "base64url");
+		const sender = await crypto.subtle.importKey(
+			"raw",
+			bytes.subarray(0, 65),
+			{ name: "ECDH", namedCurve: "P-256" },
+			false,
+			[],
+		);
+		const shared = await crypto.subtle.importKey(
+			"raw",
+			await crypto.subtle.deriveBits(
+				{ name: "ECDH", public: sender },
+				pending.key,
+				256,
+			),
+			"HKDF",
+			false,
+			["deriveKey"],
+		);
+		const key = await crypto.subtle.deriveKey(
+			{
+				name: "HKDF",
+				hash: "SHA-256",
+				salt: new Uint8Array(32),
+				info: new TextEncoder().encode("tedix-desktop-sign-in"),
+			},
+			shared,
+			{ name: "AES-GCM", length: 256 },
+			false,
+			["decrypt"],
+		);
+		const token = new TextDecoder().decode(
+			await crypto.subtle.decrypt(
+				{ name: "AES-GCM", iv: bytes.subarray(65, 77) },
+				key,
+				bytes.subarray(77),
+			),
+		);
+		const finish = new URL("/login", OS_URL);
+		finish.hash = new URLSearchParams({ "desktop-sign-in": token }).toString();
+		void os.webContents.loadURL(finish.href);
+	} catch {
+		// Not a code for this app instance.
+	}
+}
+
 /**
  * `tedix://sign-in?link=<emailed link>`: the Tedix OS sign-in page sends this
  * from the browser so the emailed link finishes in this window instead.
+ * `tedix://sign-in?code=<code>` finishes a sign-in started with the browser.
  */
 function openAppLink(value: string | undefined): void {
 	const target = URL.parse(value ?? "");
 	if (target?.protocol !== "tedix:" || target.host !== "sign-in") return;
+	const code = target.searchParams.get("code");
+	if (code) {
+		void finishBrowserSignIn(code);
+		mainWindow?.show();
+		mainWindow?.focus();
+		return;
+	}
 	const link = target.searchParams.get("link") ?? "";
 	if (!isTedixPage(link)) return;
 	if (!os) {
@@ -191,7 +289,8 @@ function createMainWindow(): void {
 	// opens in the default browser. Redirects inside the page are left alone
 	// so sign-in can leave and come back.
 	view.webContents.setWindowOpenHandler(({ url }) => {
-		if (isTedixPage(url)) void view.webContents.loadURL(url);
+		if (refusesAppWindows(url)) void signInWithBrowser();
+		else if (isTedixPage(url)) void view.webContents.loadURL(url);
 		else if (/^https?:/.test(url)) void shell.openExternal(url);
 		return { action: "deny" };
 	});
@@ -209,6 +308,15 @@ function createMainWindow(): void {
 			})
 			.catch(() => {});
 	});
+	// Google and Apple block sign-in inside an app window: continue in the
+	// person's normal browser instead of showing their refusal page.
+	const leaveForBrowser = (event: Electron.Event, url: string) => {
+		if (!refusesAppWindows(url)) return;
+		event.preventDefault();
+		void signInWithBrowser();
+	};
+	view.webContents.on("will-navigate", leaveForBrowser);
+	view.webContents.on("will-redirect", leaveForBrowser);
 	view.webContents.on("did-navigate", () => void publish());
 	view.webContents.on("did-navigate-in-page", () => void publish());
 	// The added name lets the sign-in page tell this app from a browser.
@@ -272,6 +380,10 @@ function setMenu(): void {
 				submenu: [
 					...(mac ? [{ role: "about" as const }] : []),
 					thisMac,
+					{
+						label: "Sign In with Browser",
+						click: () => void signInWithBrowser(),
+					},
 					{
 						label: "Paste Sign-in Link",
 						accelerator: "CmdOrCtrl+Shift+V",
