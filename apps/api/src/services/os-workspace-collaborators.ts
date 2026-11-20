@@ -155,7 +155,9 @@ export async function listWorkspaceAccessHolders(
 ): Promise<Set<string>> {
 	const [first] = userIds;
 	if (first === undefined) return new Set();
-	const access = await loadWorkspaceAccess(database, workspace, first);
+	const access = await loadWorkspaceAccess(database, workspace, first, "user", {
+		collaborators: false,
+	});
 	const holders = new Set(userIds.filter((id) => access.roles.has(id)));
 	if (workspace.visibility === "private") return holders;
 	const members = await listOsWorkspaceOrganizationMemberRoles(database, {
@@ -211,7 +213,13 @@ export async function isOsWorkspaceBuildCollaborator(
 	userId: string,
 ): Promise<boolean> {
 	try {
-		const access = await loadWorkspaceAccess(db(context), workspace, userId);
+		const access = await loadWorkspaceAccess(
+			db(context),
+			workspace,
+			userId,
+			"user",
+			{ collaborators: false },
+		);
 		return !access.isRoot && access.role === "build";
 	} catch (error) {
 		// Fail closed: this runs only on the path that would otherwise deny.
@@ -658,7 +666,11 @@ export async function listSharedWorkspaces(context: BaseContext) {
 			if (
 				!workspace ||
 				workspace.status !== "active" ||
-				!(await loadWorkspaceAccess(database, workspace, userId)).role
+				!(
+					await loadWorkspaceAccess(database, workspace, userId, "user", {
+						collaborators: false,
+					})
+				).role
 			)
 				continue;
 		}
