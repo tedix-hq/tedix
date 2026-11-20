@@ -2558,6 +2558,7 @@ export function CanvasPage({
 														? () => setFocusShareOpen(true)
 														: undefined
 												}
+												sharesFile={selectedEditedOutputId !== null}
 												onShowResources={showCanvasResources}
 												onWidgetFollowUp={sendWidgetFollowUp}
 											/>

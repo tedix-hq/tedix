@@ -175,6 +175,10 @@ vi.mock("@/components/chat-tedi-thread", () => ({
 	},
 }));
 
+vi.mock("@/lib/use-tedi-names", () => ({
+	useTediProfiles: () => ({}),
+}));
+
 vi.mock("@/components/chat-webmcp-tools", () => ({
 	useChatWebMcpTools: () => undefined,
 }));

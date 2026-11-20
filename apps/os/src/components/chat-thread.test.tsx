@@ -111,7 +111,7 @@ vi.mock("@/lib/api", () => ({
 		skills: skillsApi,
 		apps: appsApi,
 		tedis: tedisApi,
-		osCollaborators: { presence: vi.fn(() => new Promise(() => {})) },
+		userProfile: { getMine: vi.fn(async () => ({ id: "user-1" })) },
 		userSettings: userSettingsApi,
 	},
 	osDirectReadApi: directReadApi,

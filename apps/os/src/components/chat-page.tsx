@@ -27,6 +27,7 @@ import {
 	tediChatListRows,
 } from "@/lib/chat-tedi-conversations";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
+import { useTediProfiles } from "@/lib/use-tedi-names";
 import { useChatWebMcpTools } from "@/components/chat-webmcp-tools";
 import { Button } from "@/components/kumo/button";
 import { LoadError } from "@/components/kumo/alert";
@@ -191,6 +192,7 @@ export function ChatPage() {
 	const [tediConversations, setTediConversations] = useState<
 		readonly ConversationSummary[]
 	>([]);
+	const tediProfiles = useTediProfiles();
 	const tediRows = useMemo(
 		() =>
 			personalWorkspace
@@ -198,9 +200,10 @@ export function ChatPage() {
 						personalWorkspace.id,
 						personalWorkspace.organizationId,
 						tediConversations,
+						tediProfiles,
 					)
 				: [],
-		[personalWorkspace, tediConversations],
+		[personalWorkspace, tediConversations, tediProfiles],
 	);
 	const conversationLookup = useQuery({
 		...osQuery.kernelRuntime.listConversations.queryOptions({
@@ -372,7 +375,6 @@ export function ChatPage() {
 							onPickTediForNewChat={(tediId, draft) =>
 								setNewTediChat({ tediId, draft })
 							}
-							personalWorkspaceId={personalWorkspace?.id}
 							conversationId={activeConversationId}
 							workspaceId={activeConversation?.workspaceId ?? undefined}
 							onConversationCreated={(conversationId, workspaceId) => {

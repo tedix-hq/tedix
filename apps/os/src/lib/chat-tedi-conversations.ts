@@ -25,29 +25,44 @@ export function parseTediChatConversationId(
 		: null;
 }
 
+/** The tedi a /chat list row names. */
+export interface TediChatRowTedi {
+	id: string;
+	name: string;
+	avatar: string | null;
+}
+
+export type TediChatListRow = HomeConversation & { tedi: TediChatRowTedi };
+
 /**
  * The private workspace's conversations with a tedi as rows of the /chat
- * list. Runs an agent started are left out: they are not the person's chats.
+ * list, each naming the tedi that answered last. Runs an agent started are
+ * left out: they are not the person's chats.
  */
 export function tediChatListRows(
 	workspaceId: string,
 	organizationId: string,
 	conversations: readonly ConversationSummary[],
-): HomeConversation[] {
-	return conversations
-		.filter(
-			(conversation) =>
-				conversation.tediId &&
-				!conversation.startedBy &&
-				!conversation.archivedAt,
-		)
-		.map((conversation) => ({
-			id: tediChatConversationId(workspaceId, conversation.id),
-			organizationId,
-			title: conversation.title,
-			status: "active" as const,
-			createdAt: conversation.updatedAt,
-			updatedAt: conversation.lastTurnAt ?? conversation.updatedAt,
-			lastMessageAt: conversation.lastTurnAt,
-		}));
+	tedis: Readonly<Record<string, { name: string; avatar: string | null }>>,
+): TediChatListRow[] {
+	return conversations.flatMap((conversation) =>
+		conversation.tediId && !conversation.startedBy && !conversation.archivedAt
+			? [
+					{
+						id: tediChatConversationId(workspaceId, conversation.id),
+						organizationId,
+						title: conversation.title,
+						status: "active" as const,
+						createdAt: conversation.updatedAt,
+						updatedAt: conversation.lastTurnAt ?? conversation.updatedAt,
+						lastMessageAt: conversation.lastTurnAt,
+						tedi: {
+							id: conversation.tediId,
+							name: tedis[conversation.tediId]?.name ?? "Agent",
+							avatar: tedis[conversation.tediId]?.avatar ?? null,
+						},
+					},
+				]
+			: [],
+	);
 }

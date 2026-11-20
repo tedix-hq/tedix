@@ -49,7 +49,7 @@ export function ChatTediThread({
 	/** Home was picked before the first message. */
 	onPickHome: () => void;
 }) {
-	const tedis = usePickableTedis(workspaceId);
+	const tedis = usePickableTedis();
 	const tediNames = useTediNames();
 	// What was typed for Home becomes this chat's unsent message, before the
 	// message box first reads it.
