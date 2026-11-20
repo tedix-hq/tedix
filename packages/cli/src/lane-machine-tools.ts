@@ -1,4 +1,4 @@
-import { open, readdir, readFile, writeFile } from "node:fs/promises";
+import { open, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import {
@@ -78,6 +78,11 @@ const FILE_LINE_LIMIT = 400;
 const LINE_LIMIT = 300;
 const FETCH_INTERVAL_MS = 60_000;
 const LOG_WINDOW_MS = 15 * 60_000;
+/**
+ * How long a receipt without an agent process still counts as a run being
+ * started: preparation is a few gateway reads of at most five minutes each.
+ */
+const START_WINDOW_MS = 15 * 60_000;
 const LOG_TAIL_BYTES = 256 * 1024;
 /**
  * The runner's own copy of main. A ref of its own, so refreshing it never
@@ -307,7 +312,14 @@ export function machineToolHandlers(options: {
 			if (match && (latest.get(match[1]!)?.version ?? -1) < Number(match[2]))
 				latest.set(match[1]!, { version: Number(match[2]), file });
 		}
-		const live: Array<{ id: string; phase: string; pid?: number }> = [];
+		const runnerAlive = typeof source.pid === "number" && alive(source.pid);
+		const live: Array<{
+			id: string;
+			phase: string;
+			by: string;
+			pid?: number;
+			minutes?: number;
+		}> = [];
 		const held: string[] = [];
 		const entries = [...latest];
 		for (let index = 0; index < entries.length; index += 24)
@@ -317,11 +329,30 @@ export function machineToolHandlers(options: {
 					if (!isRecord(row)) return;
 					const phase = String(row.phase);
 					const pid = typeof row.pid === "number" ? row.pid : undefined;
+					const by = [row.executorKey ?? source.executor, row.model]
+						.filter((part) => typeof part === "string")
+						.join(" ");
+					// A receipt with no agent process is a run only while its runner
+					// is still starting it; one left by a stopped runner or a failed
+					// start stays on disk in the same phase.
+					const age =
+						pid === undefined &&
+						runnerAlive &&
+						(phase === "settling" ||
+							(["preparing", "admitted"].includes(phase) &&
+								row.outcome === undefined))
+							? Date.now() -
+								((await stat(join(directory, file)).catch(() => undefined))
+									?.mtimeMs ?? 0)
+							: undefined;
 					if (
+						pid !== undefined &&
 						["preparing", "admitted", "running", "settling"].includes(phase) &&
-						(pid === undefined ? phase !== "running" : alive(pid))
+						alive(pid)
 					)
-						live.push({ id, phase, pid });
+						live.push({ id, phase, by, pid });
+					else if (age !== undefined && age <= START_WINDOW_MS)
+						live.push({ id, phase, by, minutes: Math.floor(age / 60_000) });
 					else if (row.held === true)
 						held.push(
 							`${id}: ${typeof row.note === "string" ? row.note.replace(/\s+/g, " ").slice(0, 200) : "no reason recorded"}`,
@@ -370,14 +401,12 @@ export function machineToolHandlers(options: {
 				});
 		}
 		return [
-			`Runner ${source.executor} (CLI ${source.cliVersion ?? "unknown"}, ${typeof source.pid === "number" && alive(source.pid) ? "running" : "not running"})`,
+			`Runner ${source.executor} (CLI ${source.cliVersion ?? "unknown"}, ${runnerAlive ? "running" : "not running"})`,
 			`  Live runs: ${live.length}`,
-			...live
-				.slice(0, 20)
-				.map(
-					({ id, phase, pid }) =>
-						`    ${id} ${phase}${pid !== undefined && minutes.has(pid) ? `, ${minutes.get(pid)} min` : ""}`,
-				),
+			...live.slice(0, 20).map(({ id, phase, by, pid, minutes: waited }) => {
+				const spent = pid === undefined ? waited : minutes.get(pid);
+				return `    ${id} ${phase}, ${by}${spent !== undefined ? `, ${spent} min` : ""}`;
+			}),
 			`  Held: ${held.length}`,
 			...held.slice(0, 20).map((line) => `    ${line}`),
 			`  Last 15 minutes: ${
