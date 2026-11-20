@@ -1046,6 +1046,20 @@ describe("gadgets", () => {
 			gadgetId: gadget.id,
 		});
 		expect(archived.gadget.status).toBe("archived");
+		await expect(
+			c.org2.gadgets.restore({ workspaceId, gadgetId: gadget.id }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		const restored = await c.org1.gadgets.restore({
+			workspaceId,
+			gadgetId: gadget.id,
+		});
+		expect(restored.gadget).toMatchObject({
+			...renamed.gadget,
+			updatedAt: expect.any(String),
+		});
+		expect(
+			await c.org1.gadgets.restore({ workspaceId, gadgetId: gadget.id }),
+		).toEqual(restored);
 	});
 
 	it("records a runtime app's files with its revision and reads them back by revision", async () => {

@@ -501,6 +501,11 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceType: "os_gadget",
 		resourceId: ({ output }) => nestedId(output, "gadget"),
 	},
+	"gadgets.restore": {
+		action: "os.gadget.restored",
+		resourceType: "os_gadget",
+		resourceId: ({ output }) => nestedId(output, "gadget"),
+	},
 	"gadgets.rename": {
 		action: "os.gadget.renamed",
 		resourceType: "os_gadget",

@@ -187,6 +187,24 @@ export async function updateOsGadget(
 	return row;
 }
 
+export async function restoreOsGadget(
+	db: DbQueryClient,
+	params: OsGadgetScopeParams,
+): Promise<OsGadgetRow | undefined> {
+	const [row] = await db
+		.update(osGadgets)
+		.set({ status: "active", updatedAt: new Date().toISOString() })
+		.where(
+			and(
+				eq(osGadgets.organizationId, params.organizationId),
+				eq(osGadgets.id, params.gadgetId),
+				eq(osGadgets.status, "archived"),
+			),
+		)
+		.returning();
+	return row ?? getOsGadget(db, params);
+}
+
 export async function deleteOsGadget(
 	db: DbQueryClient,
 	params: OsGadgetScopeParams,

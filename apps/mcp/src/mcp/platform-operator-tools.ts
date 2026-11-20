@@ -234,6 +234,11 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "restore_os_gadget",
+		endpoint: "osWorkspaces/gadgets/restore",
+		kind: "write",
+	},
+	{
 		toolId: "run_os_gadget",
 		endpoint: "osWorkspaces/gadgets/run",
 		kind: "destructive",
