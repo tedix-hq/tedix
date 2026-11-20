@@ -3,6 +3,23 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.29.0 — 2026-11-20
+
+### Minor Changes
+
+- 9712646: The Tedix desktop app can now set up a Mac without a terminal, and `tedix setup agents` installs the published plugin.
+
+  - `tedix setup agents` adds the plugin from `tedix-hq/tedix-plugins` (`tedix@tedix-plugins`) to Claude Code and Codex. An earlier install from `tedix-hq/tedix` counts as installed and keeps updating from there; no second copy is added.
+  - `tedix setup agents --status --json` prints, for Claude Code, Codex and Devin, whether the tool is found and whether Tedix is added to it.
+  - `tedix login` works when the desktop app starts it: it opens the browser and waits. It is still refused in CI and inside a coding agent.
+  - A `tedix` that the desktop app ships and links from `~/.local/bin` leaves updating to the app: `tedix update` and `tedix rollback` say so and change nothing. Separately installed copies update as before.
+  - `tedix setup agents` gives a coding tool up to two minutes to answer and up to 14 minutes to fetch the plugin, so a slow connection no longer fails the install.
+
+### Patch Changes
+
+- fc41c74: A machine whose owner switched the write tools on now lets a tedi list a folder and read a text file under the owner's home folder, such as `~/Downloads`, for a signed-in person. Credential locations, hidden settings folders, app data and anything outside the home folder are refused. A command no longer needs a workspace first: without one it runs in the home folder.
+- 9896502: `tedix lane serve` now tells Tedix which skill it reads as its rules, so the skill shows its runners under "Used by" and cannot be archived by mistake. When that skill is not active, the runner says so in the supervisor log and in its health report ("rules skill lane-rules is archived: no work will be admitted until it is restored") instead of failing each task quietly. `tedix skill show` lists what uses a skill.
+
 ## 0.28.5 — 2026-11-20
 
 ### Patch Changes
