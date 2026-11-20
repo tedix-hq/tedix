@@ -31,7 +31,7 @@
 				]
 			}
 		],
-		"icon": "../os/public/icon-512.png",
+		"icon": "assets/icon.png",
 		"files": [
 			"out/**",
 			"panel.html",
