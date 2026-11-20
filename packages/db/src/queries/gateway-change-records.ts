@@ -602,3 +602,36 @@ export async function setGatewayChangeRecordCheckpointBundle(
 			),
 		);
 }
+
+/**
+ * Organizations with a checkpoint in main, fewest checkpoints first: the
+ * order the organization log cutover takes them in. Reads only the
+ * checkpoint index.
+ */
+export async function listOrganizationsWithGatewayChangeRecordCheckpoints(
+	db: DbQueryClient,
+): Promise<Array<{ organizationId: string; checkpoints: number }>> {
+	const t = gatewayChangeRecordCheckpoints;
+	return db
+		.select({ organizationId: t.organizationId, checkpoints: count() })
+		.from(t)
+		.groupBy(t.organizationId)
+		.orderBy(asc(count()), asc(t.organizationId));
+}
+
+/** The organization's records not sealed yet (partial unsealed index). */
+export async function countUnsealedGatewayChangeRecords(
+	db: DbQueryClient,
+	organizationId: string,
+): Promise<number> {
+	const [row] = await db
+		.select({ total: count() })
+		.from(gatewayChangeRecords)
+		.where(
+			and(
+				eq(gatewayChangeRecords.organizationId, organizationId),
+				isNull(gatewayChangeRecords.chainHash),
+			),
+		);
+	return row?.total ?? 0;
+}

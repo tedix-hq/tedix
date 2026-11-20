@@ -30,7 +30,7 @@ import {
 } from "@tedix/api-contract/schemas/machines";
 import { hashArguments, hashValue } from "@tedix/agent-governance/hash";
 import { CHANGE_RECORD_SCHEMA_VERSION } from "@tedix/agent-governance/types";
-import { appendGatewayChangeRecord as appendRecord } from "@tedix/db/queries/gateway-change-records";
+import { appendChangeRecord as appendRecord } from "./organization-log";
 import type { StoredMachineToolCallResult } from "@tedix/db/queries/machines";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { safeErrorMetadata } from "../lib/safe-log-metadata";

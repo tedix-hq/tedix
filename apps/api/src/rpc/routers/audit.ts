@@ -21,14 +21,7 @@ import {
 	insertAuditEvent,
 	searchAuditEvents as searchAuditEventsQuery,
 } from "@tedix/db/queries/audit";
-import {
-	appendGatewayChangeRecord,
-	countGatewayChangeRecordsInRange,
-	listGatewayChangeRecordCheckpoints,
-	listGatewayChangeRecords,
-	listGatewayChangeRecordsInRange,
-	getGatewayChangeRecord,
-} from "@tedix/db/queries/gateway-change-records";
+import * as organizationLog from "../../services/organization-log";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import type { DsseEnvelope } from "@tedix/agent-governance/seal";
 import { loadChangeRecordSigningKey } from "../../lib/change-record-signing-key";
@@ -325,7 +318,7 @@ const appendChangeRecord = auditOs.appendChangeRecord
 	.use(withServiceAuth)
 	.handler(async ({ input, context }) => {
 		const organizationId = gatewayLedgerOrganizationId(context);
-		return appendGatewayChangeRecord(context.db, organizationId, {
+		return organizationLog.appendChangeRecord(context.db, organizationId, {
 			...input,
 			actor: { ...input.actor, organizationId },
 		});
@@ -334,13 +327,17 @@ const listChangeRecords = auditOs.listChangeRecords
 	.use(withServiceAuth)
 	.handler(async ({ input, context }) => {
 		const organizationId = gatewayLedgerOrganizationId(context);
-		return listGatewayChangeRecords(context.db, organizationId, input);
+		return organizationLog.listChangeRecords(context.db, organizationId, input);
 	});
 const getChangeRecord = auditOs.getChangeRecord
 	.use(withServiceAuth)
 	.handler(async ({ input, context }) => {
 		const organizationId = gatewayLedgerOrganizationId(context);
-		return getGatewayChangeRecord(context.db, organizationId, input.id);
+		return organizationLog.getChangeRecord(
+			context.db,
+			organizationId,
+			input.id,
+		);
 	});
 
 /** Gateway change records and their checkpoints are for owners and admins. */
@@ -371,19 +368,12 @@ const listOrganizationGatewayChangeRecords = authedOs.listGatewayChangeRecords
 	.handler(async ({ input, context }) => {
 		await assertGatewayChangeRecordReader(context, context.organizationId);
 		const { afterSequence, limit, ...range } = input;
-		const [count, records] = await Promise.all([
-			countGatewayChangeRecordsInRange(
-				context.db,
-				context.organizationId,
-				range,
-			),
-			listGatewayChangeRecordsInRange(
-				context.db,
-				context.organizationId,
-				range,
-				{ afterSequence, limit: limit + 1 },
-			),
-		]);
+		const { count, records } = await organizationLog.readChangeRecordRange(
+			context.db,
+			context.organizationId,
+			range,
+			{ afterSequence, limit: limit + 1 },
+		);
 		const page = records.slice(0, limit);
 		return {
 			from: range.from,
@@ -410,7 +400,7 @@ const listOrganizationGatewayChangeRecordCheckpoints =
 		.use(withOrg)
 		.handler(async ({ input, context }) => {
 			await assertGatewayChangeRecordReader(context, context.organizationId);
-			const rows = await listGatewayChangeRecordCheckpoints(
+			const rows = await organizationLog.listChangeRecordCheckpoints(
 				context.db,
 				context.organizationId,
 				{

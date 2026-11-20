@@ -254,6 +254,15 @@ export const GatewayChangeRecordSchema = GatewayChangeRecordBodySchema.extend({
 	sequence: z.number().int().positive(),
 	recordedAt: z.string().datetime(),
 });
+/**
+ * What an append returns: the stored record, or with `sequence` 0 while the
+ * organization's log store holds it unchained during its cutover (minutes).
+ * It is chained and gets its sequence when the cutover finishes.
+ */
+export const GatewayChangeRecordAppendedSchema =
+	GatewayChangeRecordSchema.extend({
+		sequence: z.number().int().nonnegative(),
+	});
 export const GatewayLedgerQuerySchema = z.strictObject({
 	resource: z.string().optional(),
 	actorId: z.string().optional(),

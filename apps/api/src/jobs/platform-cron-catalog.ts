@@ -64,6 +64,7 @@ export const PLATFORM_CRON_IDS = [
 	"capture-health-heartbeat",
 	"dispatcher-health-alarm",
 	"gateway-change-record-sealer",
+	"organization-log-cutover",
 	"work-routing",
 ] as const;
 export type PlatformCronId = (typeof PLATFORM_CRON_IDS)[number];
@@ -96,6 +97,7 @@ const everyTwoMinuteIds = [
 	"interaction-review-dispatch",
 	"dispatcher-health-alarm",
 	"gateway-change-record-sealer",
+	"organization-log-cutover",
 ] as const;
 const everyTwoMinutes = everyTwoMinuteIds.map((id) => ({
 	id,

@@ -226,6 +226,13 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				"gateway-change-record-sealer",
 				() => runGatewayChangeRecordSealer(env, event.scheduledTime),
 			);
+			// Moves one organization's ledger at a time into its log store,
+			// after the sealer so freshly sealed checkpoints can be copied.
+			const { runOrganizationLogCutoverCron } =
+				await import("./organization-log-cutover");
+			await trackPlatformCronPath(env, event, "organization-log-cutover", () =>
+				runOrganizationLogCutoverCron(env, event.scheduledTime),
+			);
 		}
 
 		if (fleetEnabled && cron === "*/2 * * * *") {

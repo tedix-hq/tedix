@@ -15,6 +15,7 @@ import {
 } from "../schemas/common";
 import {
 	AuditActorTypeSchema,
+	GatewayChangeRecordAppendedSchema,
 	GatewayChangeRecordInputSchema,
 	GatewayChangeRecordCheckpointsExportSchema,
 	GatewayChangeRecordCheckpointsInputSchema,
@@ -66,7 +67,7 @@ export const auditContract = oc
 				summary: "Append gateway change record",
 			})
 			.input(GatewayChangeRecordInputSchema)
-			.output(GatewayChangeRecordSchema),
+			.output(GatewayChangeRecordAppendedSchema),
 		listChangeRecords: oc
 			.route({
 				tags: ["internal"],

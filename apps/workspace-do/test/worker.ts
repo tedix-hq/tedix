@@ -39,6 +39,7 @@ import type {
 } from "@tedix/api-contract/schemas/workspace-connection-read";
 
 export { WorkspaceBindingLoopback } from "../src/do";
+export { OrganizationLogStore } from "../src/organization-log";
 
 export type ScriptStep =
 	| { code: string; tokensPerSecond?: number }

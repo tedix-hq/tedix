@@ -21,6 +21,10 @@ export default defineConfig({
 					WORKSPACE: { className: "WorkspaceDO", useSQLite: true },
 					TEDI_AGENT: { className: "TediAgentFixture", useSQLite: true },
 					COLLAB_ROOM: { className: "CollabRoomFixture", useSQLite: true },
+					ORGANIZATION_LOG: {
+						className: "OrganizationLogStore",
+						useSQLite: true,
+					},
 				},
 			},
 		}),

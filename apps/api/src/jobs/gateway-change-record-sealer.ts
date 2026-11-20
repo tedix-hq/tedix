@@ -27,6 +27,11 @@ import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { loadChangeRecordSigningKey } from "../lib/change-record-signing-key";
 import { GatewayChangeRecordSchema } from "@tedix/api-contract/schemas/audit";
 import {
+	EVIDENCE_BUNDLE_FORMAT,
+	type EvidenceBundle,
+	evidenceBundleKey,
+} from "@tedix/agent-governance/evidence";
+import {
 	type CheckpointInput,
 	type DsseEnvelope,
 	importVerifyingKey,
@@ -205,43 +210,8 @@ export async function sealGatewayChangeRecordRuns(
 	};
 }
 
-/** Where evidence bundles live in the EU archive bucket; never deleted. */
-export const EVIDENCE_BUNDLE_PREFIX = "change-record-evidence/v1/";
-/** The bundle's `format`; version 1 holds exactly the fields of `EvidenceBundle`. */
-export const EVIDENCE_BUNDLE_FORMAT =
-	"https://tedix.dev/evidence/change-record-bundle/v1";
 /** Bundles written per run, oldest checkpoint first. */
 export const MAX_BUNDLES_PER_RUN = 25;
-
-export function evidenceBundleKey(checkpoint: {
-	organizationId: string;
-	lastSequence: number;
-	id: string;
-}): string {
-	return `${EVIDENCE_BUNDLE_PREFIX}${encodeURIComponent(checkpoint.organizationId)}/${String(checkpoint.lastSequence).padStart(12, "0")}-${checkpoint.id}.json`;
-}
-
-/**
- * One checkpoint and every record it covers, as one JSON object a researcher
- * can download and check offline:
- * `verifyChain({ records, checkpoints: [checkpoint], publicKey })` from
- * `@tedix/agent-governance/seal`, with the public key obtained out of band.
- * Bundles of consecutive checkpoints verify together the same way.
- */
-export interface EvidenceBundle {
-	format: typeof EVIDENCE_BUNDLE_FORMAT;
-	checkpointId: string;
-	writtenAt: string;
-	checkpoint: CheckpointInput;
-	records: Array<Record<string, unknown>>;
-	/** The key the writer checked the signature with; confirm it elsewhere. */
-	publicKey: { keyId: string; algorithm: "Ed25519"; spki: string } | null;
-	/** What the writer checked before storing the bundle. */
-	verification: {
-		recordsVerified: number;
-		signature: "verified" | "unsigned" | "not_checked";
-	};
-}
 
 export interface BundleWriterKey {
 	keyId: string;
