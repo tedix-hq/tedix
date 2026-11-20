@@ -8,6 +8,7 @@ import {
 	kernelRuntimeRuns,
 } from "../schema/cognitive-runtime";
 import type { DbQueryClient } from "../query-client";
+import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import { workAttempts } from "../schema/work-items";
 import {
 	kernelRequests,
@@ -179,22 +180,30 @@ export async function listDueKernelRequests(
 		.limit(Math.min(50, Math.max(1, p.limit)));
 }
 
+/** A request's history, oldest first; older events may be in the logs database. */
 export async function listKernelRequestEvents(
 	db: DbQueryClient,
 	s: KernelRequestScope,
 ) {
-	return db
-		.select()
-		.from(kernelRequestEvents)
-		.where(
-			and(
-				eq(kernelRequestEvents.organizationId, s.organizationId),
-				eq(kernelRequestEvents.ownerUserId, s.ownerUserId),
-				eq(kernelRequestEvents.requestId, s.id),
-			),
-		)
-		.orderBy(asc(kernelRequestEvents.version))
-		.limit(100);
+	const read = (store: DbQueryClient) =>
+		store
+			.select()
+			.from(kernelRequestEvents)
+			.where(
+				and(
+					eq(kernelRequestEvents.organizationId, s.organizationId),
+					eq(kernelRequestEvents.ownerUserId, s.ownerUserId),
+					eq(kernelRequestEvents.requestId, s.id),
+				),
+			)
+			.orderBy(asc(kernelRequestEvents.version))
+			.limit(100);
+	const pages = await readLogStores(db, read);
+	if (!pages) return read(db);
+	return mergeLogStoreRows(pages, {
+		compare: (a, b) => a.version - b.version,
+		limit: 100,
+	});
 }
 
 /** Internal existing maintenance tick: discover bounded tenant coordinators with overdue state. */

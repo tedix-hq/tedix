@@ -19,7 +19,8 @@ feature flag, no configuration row.
 | Every other audit action                        | Main D1, including rows composed into a main-database batch                 | `move_to_logs_db`                                                      |
 | `tedi_runtime_events`                           | Main D1                                                                     | `move_to_logs_db`                                                      |
 | `kernel_runtime_events`                         | Main D1                                                                     | `move_to_logs_db`                                                      |
-| `kernel_request_events`                         | Main D1                                                                     | Not moved: request CAS and history append share one batch              |
+| `kernel_request_events`                         | Main D1 (inserted from its request row in one batch)                        | `move_to_logs_db`, 30-day floor; `listKernelRequestEvents` merges      |
+| `platform_cron_executions`                      | Main D1                                                                     | `move_to_logs_db`, 90-day floor; finished runs only                    |
 | `skill_run_artifacts`                           | Pointer row in main D1; body in the private artifact bucket when over 4 KiB | `move_to_logs_db`                                                      |
 | `external_agent_attributions`                   | Main D1 (credential-checked insert, unique key)                             | `move_to_logs_db`, 7-day floor, unreviewed `mcp_execution` rows only   |
 | Workflow source snapshots                       | Main D1 `skill_workflow_sources`, one row per skill and SHA-256             | n/a                                                                    |

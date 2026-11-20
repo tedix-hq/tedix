@@ -1760,6 +1760,10 @@
 		{
 			"name": "20261120165740_shorter_attribution_and_cost_retention/migration.sql",
 			"sha256": "1840f6c97009b5c725a1d89f015d723026f1b9a3588a768689deb81c7cdeb239"
+		},
+		{
+			"name": "20261120171755_kernel_request_events_age_index/migration.sql",
+			"sha256": "44efcd7970a1d0111dd9bb4e88581b9c19ed7d7f74728cd3f22fb90a1cdcf883"
 		}
 	]
 }

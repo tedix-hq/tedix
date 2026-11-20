@@ -26,6 +26,11 @@
  *   rows (no organization) past the keep window. Pending settlement and reviewed source rows
  *   stay beside authority in main. The organization ledger merges archives.
  *
+ * - `kernel_request_events`: request history past the keep window. New
+ *   events stay in main, where they are inserted from their request row.
+ * - `platform_cron_executions`: finished cron runs past the keep window;
+ *   running rows stay in main.
+ *
  * Readers merge both stores through `getLogStores()` in `client.ts`. The
  * checked-in DDL under `packages/db/logs-db/migrations` is derived from this
  * list; `scripts/logs-db-schema.test.ts` keeps the two in step.
@@ -37,6 +42,8 @@ import { auditMetadataRefs } from "./audit-metadata-refs";
 import { skillRunArtifacts } from "./cognitive";
 import { kernelRuntimeEvents, tediRuntimeEvents } from "./cognitive-runtime";
 import { externalAgentAttributions } from "./external-agent-identity";
+import { kernelRequestEvents } from "./kernel-requests";
+import { platformCronExecutions } from "./platform-cron-executions";
 import { tediCallCosts } from "./tedis";
 
 /**
@@ -63,6 +70,8 @@ export const LOGS_DB_TABLES: readonly SQLiteTable[] = [
 	skillRunArtifacts,
 	externalAgentAttributions,
 	tediCallCosts,
+	kernelRequestEvents,
+	platformCronExecutions,
 	logPartition,
 ];
 
@@ -115,4 +124,6 @@ export const LOGS_DB_TABLE_NAMES: ReadonlySet<string> = new Set([
 	"skill_run_artifacts",
 	"external_agent_attributions",
 	"tedi_call_costs",
+	"kernel_request_events",
+	"platform_cron_executions",
 ]);
