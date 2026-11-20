@@ -83,8 +83,18 @@ export const gatewayChangeRecordCheckpoints = sqliteTable(
 		sealedAt: text("sealed_at").notNull(),
 		envelope: text("envelope"),
 		keyId: text("key_id"),
+		/**
+		 * R2 key of the checkpoint's evidence bundle (the checkpoint and every
+		 * record it covers, verified before it was written); null until written.
+		 * Retention deletes a checkpoint's records only once this is set.
+		 */
+		evidenceBundleKey: text("evidence_bundle_key"),
 	},
 	(t) => [
+		// The bundle writer's queue: only checkpoints without a bundle.
+		index("idx_gateway_change_record_checkpoints_no_bundle")
+			.on(t.sealedAt)
+			.where(sql`evidence_bundle_key is null`),
 		index("idx_gateway_change_record_checkpoints_org_last_sequence").on(
 			t.organizationId,
 			t.lastSequence,

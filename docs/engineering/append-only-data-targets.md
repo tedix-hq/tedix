@@ -51,16 +51,16 @@ between Postgres and D1 for the main database.
 
 Live counts from 20 Nov 2026, 17:15 UTC.
 
-| Table                         | Rows in main | Target                                                                                                                     | Why                                                                                                                                                      |
-| ----------------------------- | -----------: | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `audit_events`                |        1.72M | Keep the current split: MCP telemetry goes to `LOGS_DB`; everything else stays in main for 90 days, then moves             | Tenant audit search needs exact rows and EU residency. Iceberg is blocked (see above). Next step: lower the 90-day main floor for telemetry actions only |
-| `external_agent_attributions` |        0.52M | Main for 7 days, then `LOGS_DB` + R2 (done 20 Nov)                                                                         | Exact provenance rows; the replay check reads `LOGS_DB`                                                                                                  |
-| `tedi_call_costs`             |        0.93M | Main for 90 days, then `LOGS_DB` + R2 (done 20 Nov). Add an Analytics Engine stream of platform cost totals for dashboards | Billing needs exact, complete rows. Aggregates do not need personal data                                                                                 |
-| `gateway_change_records`      |        0.07M | Main for 90 days, then `LOGS_DB` + R2 instead of today's 90-day delete                                                     | Change evidence must outlive 90 days                                                                                                                     |
-| `platform_cron_executions`    |        0.82M | Main for 90 days, then `LOGS_DB` + R2 instead of today's 90-day delete. Optional Analytics Engine view for run dashboards  | Platform-only, no tenant data. Readers need recent receipts; history is evidence that jobs ran                                                           |
-| `kernel_request_events`       |        0.43M | Main while the request is open, then `LOGS_DB` + R2                                                                        | Today not moved, because the request update and the history append share one batch. Moving finished requests needs a pin like the artifact one           |
-| `tedi_runtime_events`         |        0.16M | Keep as is: 14 days in main, then `LOGS_DB` + R2                                                                           | Already moving                                                                                                                                           |
-| `work_events`                 |        0.13M | Stay in main                                                                                                               | Work history is business state. Heartbeat and read events stopped being recorded (2cc7c06dc)                                                             |
+| Table                         | Rows in main | Target                                                                                                                                   | Why                                                                                                                                                      |
+| ----------------------------- | -----------: | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `audit_events`                |        1.72M | Keep the current split: MCP telemetry goes to `LOGS_DB`; everything else stays in main for 90 days, then moves                           | Tenant audit search needs exact rows and EU residency. Iceberg is blocked (see above). Next step: lower the 90-day main floor for telemetry actions only |
+| `external_agent_attributions` |        0.52M | Main for 7 days, then `LOGS_DB` + R2 (done 20 Nov)                                                                                       | Exact provenance rows; the replay check reads `LOGS_DB`                                                                                                  |
+| `tedi_call_costs`             |        0.93M | Main for 90 days, then `LOGS_DB` + R2 (done 20 Nov). Add an Analytics Engine stream of platform cost totals for dashboards               | Billing needs exact, complete rows. Aggregates do not need personal data                                                                                 |
+| `gateway_change_records`      |        0.07M | Main for 90 days, then `LOGS_DB` + R2 instead of today's 90-day delete. Each checkpoint also gets a verified evidence bundle in R2 first | Change evidence must outlive 90 days                                                                                                                     |
+| `platform_cron_executions`    |        0.82M | Main for 90 days, then `LOGS_DB` + R2 instead of today's 90-day delete. Optional Analytics Engine view for run dashboards                | Platform-only, no tenant data. Readers need recent receipts; history is evidence that jobs ran                                                           |
+| `kernel_request_events`       |        0.43M | Main while the request is open, then `LOGS_DB` + R2                                                                                      | Today not moved, because the request update and the history append share one batch. Moving finished requests needs a pin like the artifact one           |
+| `tedi_runtime_events`         |        0.16M | Keep as is: 14 days in main, then `LOGS_DB` + R2                                                                                         | Already moving                                                                                                                                           |
+| `work_events`                 |        0.13M | Stay in main                                                                                                                             | Work history is business state. Heartbeat and read events stopped being recorded (2cc7c06dc)                                                             |
 
 ## Order
 
@@ -94,6 +94,14 @@ What exists today:
   objects older than 13 months** (`apps/api/src/services/audit-daily-export.ts`).
   Under "keep history" this deletion should go (Work 41949610). The full rows
   are still in the `d1-archive` copy once they leave main.
+
+- Every gateway change record checkpoint gets an evidence bundle in the EU
+  R2 bucket under `change-record-evidence/v1/<org>/<last sequence>-<checkpoint>.json`
+  within minutes of sealing: the checkpoint and its records, checked with
+  `verifyChain` (and the signature, when signed) before writing. A researcher
+  verifies one bundle, or several consecutive ones, offline with
+  `verifyChain`. Retention removes a checkpoint's records from main only
+  after its bundle is stored (`evidence_bundle_key`).
 
 Gaps for evidence use:
 

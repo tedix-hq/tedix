@@ -7,6 +7,7 @@ import {
 	eq,
 	gt,
 	gte,
+	isNotNull,
 	isNull,
 	lt,
 	lte,
@@ -212,7 +213,9 @@ export interface PruneGatewayChangeRecordsParams {
  * record of a checkpoint, whose signed `previous_chain_hash` is the chain
  * hash of the deleted record before it. Checkpoints themselves are kept.
  *
- * A checkpoint is old enough when it was sealed before `before`. The sealer
+ * A checkpoint is old enough when it was sealed before `before` and its
+ * evidence bundle (a verified copy of the checkpoint and its records in R2)
+ * has been written; without a bundle its records stay. The sealer
  * seals only records recorded before its settling cut-off, so every record
  * of such a checkpoint is older than `before` too. Records that are not
  * sealed, and so not covered by a checkpoint, are never deleted.
@@ -265,6 +268,8 @@ export async function pruneGatewayChangeRecords(
 								gte(gatewayChangeRecordCheckpoints.lastSequence, span.low),
 								lte(gatewayChangeRecordCheckpoints.firstSequence, span.high),
 								lt(gatewayChangeRecordCheckpoints.sealedAt, params.before),
+								// Only once a verified copy of the run is in long-term storage.
+								isNotNull(gatewayChangeRecordCheckpoints.evidenceBundleKey),
 							),
 						),
 				),
@@ -539,4 +544,61 @@ export async function listGatewayChangeRecordCheckpoints(
 		)
 		.orderBy(asc(t.lastSequence))
 		.limit(query.limit);
+}
+
+/** Checkpoints whose evidence bundle is not written yet, oldest sealed first. */
+export async function listGatewayChangeRecordCheckpointsWithoutBundle(
+	db: DbQueryClient,
+	limit: number,
+): Promise<GatewayChangeRecordCheckpointRow[]> {
+	const t = gatewayChangeRecordCheckpoints;
+	return db
+		.select()
+		.from(t)
+		.where(isNull(t.evidenceBundleKey))
+		.orderBy(asc(t.sealedAt))
+		.limit(limit);
+}
+
+/**
+ * Every stored record of one checkpoint's range, with seal fields, in
+ * sequence order. At most `recordCount` rows exist in a range.
+ */
+export async function listGatewayChangeRecordsForCheckpoint(
+	db: DbQueryClient,
+	checkpoint: Pick<
+		GatewayChangeRecordCheckpointRow,
+		"organizationId" | "firstSequence" | "lastSequence" | "recordCount"
+	>,
+) {
+	const rows = await db
+		.select()
+		.from(gatewayChangeRecords)
+		.where(
+			and(
+				eq(gatewayChangeRecords.organizationId, checkpoint.organizationId),
+				gte(gatewayChangeRecords.sequence, checkpoint.firstSequence),
+				lte(gatewayChangeRecords.sequence, checkpoint.lastSequence),
+			),
+		)
+		.orderBy(asc(gatewayChangeRecords.sequence))
+		.limit(checkpoint.recordCount + 1);
+	return rows.map(toSealedRecord);
+}
+
+/** Record that a checkpoint's verified evidence bundle is stored at `key`. */
+export async function setGatewayChangeRecordCheckpointBundle(
+	db: DbQueryClient,
+	id: string,
+	key: string,
+): Promise<void> {
+	await db
+		.update(gatewayChangeRecordCheckpoints)
+		.set({ evidenceBundleKey: key })
+		.where(
+			and(
+				eq(gatewayChangeRecordCheckpoints.id, id),
+				isNull(gatewayChangeRecordCheckpoints.evidenceBundleKey),
+			),
+		);
 }

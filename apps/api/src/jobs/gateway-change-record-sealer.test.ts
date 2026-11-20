@@ -21,7 +21,36 @@ import {
 	runGatewayChangeRecordSealer,
 	SETTLING_WINDOW_MS,
 	sealGatewayChangeRecordRuns,
+	type EvidenceBundle,
+	writeGatewayChangeRecordEvidenceBundles,
 } from "./gateway-change-record-sealer";
+
+/** The two R2 calls the bundle writer makes, over a Map. */
+function memoryBucket() {
+	const objects = new Map<
+		string,
+		{ body: string; customMetadata?: Record<string, string> }
+	>();
+	const bucket = {
+		put: async (
+			key: string,
+			body: string,
+			options?: { customMetadata?: Record<string, string> },
+		) => {
+			objects.set(key, { body, customMetadata: options?.customMetadata });
+		},
+		head: async (key: string) => {
+			const object = objects.get(key);
+			return object
+				? {
+						size: new TextEncoder().encode(object.body).byteLength,
+						customMetadata: object.customMetadata,
+					}
+				: null;
+		},
+	};
+	return { objects, bucket: bucket as unknown as R2Bucket };
+}
 
 const NOW = Date.parse("2026-11-19T12:00:00.000Z");
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -232,7 +261,10 @@ describe("gateway change record sealer", () => {
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		await runGatewayChangeRecordSealer(
-			{ DB: facade } as unknown as CloudflareEnv,
+			{
+				DB: facade,
+				R2_BUCKET: memoryBucket().bucket,
+			} as unknown as CloudflareEnv,
 			NOW,
 		);
 		const warnings = warn.mock.calls.map(([line]) => JSON.parse(String(line)));
@@ -263,6 +295,7 @@ describe("gateway change record sealer", () => {
 		await runGatewayChangeRecordSealer(
 			{
 				DB: facade,
+				R2_BUCKET: memoryBucket().bucket,
 				CHANGE_RECORD_SIGNING_KEY: pkcs8,
 			} as unknown as CloudflareEnv,
 			NOW,
@@ -291,5 +324,54 @@ describe("gateway change record sealer", () => {
 				NOW,
 			),
 		).rejects.toThrow(/not a base64 PKCS#8 Ed25519 private key/);
+	});
+
+	it("writes a verified bundle per checkpoint, which alone verifies offline, and skips a tampered one", async () => {
+		quiet();
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		const { sqlite, db, insert, checkpoints } = ledger();
+		const { key } = await throwawayKey();
+		for (let i = 0; i < 3; i++) insert("org-a", ago(120_000));
+		insert("org-b", ago(120_000));
+		await sealGatewayChangeRecordRuns(db, NOW, {
+			privateKey: key.privateKey,
+			keyId: key.fingerprint,
+		});
+		// A record of org-b changes after sealing.
+		sqlite.exec(
+			"UPDATE gateway_change_records SET record = json_set(record, '$.argsHash', 'changed') WHERE organization_id = 'org-b'",
+		);
+		const { objects, bucket } = memoryBucket();
+		const writerKey = {
+			keyId: key.fingerprint,
+			publicKeySpki: key.publicKeySpki,
+		};
+		expect(
+			await writeGatewayChangeRecordEvidenceBundles(db, bucket, writerKey, NOW),
+		).toEqual({ bundlesWritten: 1, bundlesFailed: 1 });
+		const [stored] = await checkpoints("org-a");
+		expect(stored?.evidenceBundleKey).toMatch(
+			/^change-record-evidence\/v1\/org-a\/000000000003-/,
+		);
+		expect((await checkpoints("org-b"))[0]?.evidenceBundleKey).toBeNull();
+
+		const bundle = JSON.parse(
+			objects.get(stored!.evidenceBundleKey!)!.body,
+		) as EvidenceBundle;
+		expect(bundle.verification).toEqual({
+			recordsVerified: 3,
+			signature: "verified",
+		});
+		expect(
+			await verifyChain({
+				records: bundle.records as never,
+				checkpoints: [bundle.checkpoint],
+				publicKey: key.publicKey,
+			}),
+		).toMatchObject({ ok: true, recordsVerified: 3, checkpointsVerified: 1 });
+		// A second run has nothing left that verifies.
+		expect(
+			await writeGatewayChangeRecordEvidenceBundles(db, bucket, writerKey, NOW),
+		).toEqual({ bundlesWritten: 0, bundlesFailed: 1 });
 	});
 });
