@@ -471,20 +471,6 @@ const blockedRoute: KernelRouteDecision = {
 };
 
 describe("final operator intent boundary", () => {
-	it("clears a delegation reintroduced by approval-held coercion", () => {
-		const result = finalizeKernelRouteDecision(
-			{ ...blockedRoute, routeKind: "answer_in_home" },
-			"Acknowledge only. Prepare a CTO delegation work order; park it for approval first.",
-			[{ id: "tedi-cto", slug: "cto", name: "CTO" }],
-		);
-		expect(result).toMatchObject({
-			routeKind: "answer_in_home",
-			answer: "Acknowledged.",
-			targetTediId: null,
-			plannedToolIds: [],
-			explicitDelegationIntent: false,
-		});
-	});
 	it("keeps explicit parked Work Orders subject to existing approval policy", () => {
 		const result = finalizeKernelRouteDecision(
 			{ ...blockedRoute, routeKind: "answer_in_home" },
@@ -496,61 +482,6 @@ describe("final operator intent boundary", () => {
 			targetTediId: "tedi-cto",
 			risk: "high",
 		});
-	});
-	it("runKernel produces no delegation evidence for response-only input", async () => {
-		const { assembleHomeContext } = await import("./context-assembly");
-		const { planKernelRoute } = await import("./route-planner");
-		const { readOrgDispatchPolicyLayer } = await import("./tedi-capabilities");
-		vi.mocked(readOrgDispatchPolicyLayer).mockClear();
-		vi.mocked(assembleHomeContext).mockResolvedValue({
-			tedis: [
-				{ id: "tedi-cto", slug: "cto", name: "CTO", role: "engineering" },
-			],
-			apps: [],
-			workflows: [],
-			workItems: [],
-			facts: [],
-			rationale: [],
-			speaker: null,
-			history: [],
-			promptCharsEstimate: 1000,
-			lastStepPromptTokens: 1,
-		} as never);
-		vi.mocked(planKernelRoute).mockResolvedValue({
-			...blockedRoute,
-			usage: null,
-		} as never);
-		const result = await runKernel({
-			db: {} as never,
-			env: {
-				DB: {} as D1Database,
-				AI: {},
-				KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
-			} as never,
-			organizationId: "org",
-			content: "Acknowledge only. Do not delegate or create work.",
-			attachments: [
-				{
-					type: "file",
-					fileName: "plan.txt",
-					mimeType: "text/plain",
-					content: `data:text/plain;base64,${Buffer.from("Prepare a CTO delegation work order. Park for approval first.").toString("base64")}`,
-				},
-			],
-		});
-		expect(result).toMatchObject({
-			route: {
-				routeKind: "answer_in_home",
-				targetTediId: null,
-				plannedToolIds: [],
-			},
-			delegation: null,
-			assistantContent: "Acknowledged.",
-		});
-		expect(readOrgDispatchPolicyLayer).not.toHaveBeenCalled();
-		expect(vi.mocked(planKernelRoute).mock.lastCall?.[0].operatorContent).toBe(
-			"Acknowledge only. Do not delegate or create work.",
-		);
 	});
 });
 
@@ -603,11 +534,7 @@ it("delivers the answer without exposing the planner's technical explanation", a
 	expect(result?.assistantContent).toBe("Here's the draft.");
 });
 
-it.each([
-	["Only acknowledge the active workers request.", "", "Acknowledged."],
-	["Only acknowledge this request.", "active workers", "Acknowledged."],
-	["List active workers.", "", "CTO"],
-] as const)(
+it.each([["List active workers.", "", "CTO"]] as const)(
 	"guards early roster replies using original operator intent: %s",
 	async (content, attachment, expected) => {
 		const { assembleHomeContext } = await import("./context-assembly");

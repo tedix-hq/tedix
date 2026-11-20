@@ -1,26 +1,18 @@
 /**
- * Kernel — deterministic delegation-intent guard.
+ * Kernel — delegation-intent label and the undispatched-promise check.
  *
- * The route planner is an LLM and drifts toward `delegate_tedi` for reads the
- * kernel can answer from its own assembled context (work items, objectives,
- * tedis, apps, workflows, runs, skills). Delegating such a
- * read ("list my 3 most recently updated work items") mints a Work Item,
- * shows nothing for about a minute, and fails a bounded read the kernel
- * already held.
+ * Nothing here replaces Home's reply or changes its route because of how the
+ * person worded the message.
  *
- * This leaf owns deterministic operator-intent matchers and the guard that
- * combines them:
- *
- *  - {@link hasExplicitDelegationIntent}: the operator ASKED for delegation
+ *  - {@link hasExplicitDelegationIntent}: the person ASKED for delegation
  *    (delegate / assign / have <name> do / create a task / work item / kick
- *    off / start a job / run this as a job), English + Spanish.
- *  - {@link mentionsTedixInternalState}: the message references Tedix-internal
- *    state the kernel already holds in context.
- *  - {@link guardKernelRouteDecision}: downgrades a low-risk, single-read
- *    `delegate_tedi` verdict with no explicit intent and no planned provider
- *    tools to `answer_in_home` (preserving only a direct answer), and stamps
- *    `explicitDelegationIntent` on every decision so the turn body can gate
- *    Work-Item minting on what the operator actually asked for.
+ *    off / start a job / run this as a job), English + Spanish. Used as a
+ *    label on the decision and to keep the output-create shortcut from
+ *    taking a message that asks for a delegation.
+ *  - {@link guardKernelRouteDecision}: stamps `explicitDelegationIntent` on
+ *    every decision, and clears a Home answer that says a delegation will
+ *    happen when no delegation is dispatched. That check reads Home's own
+ *    answer, never the person's message.
  *
  * Pure, synchronous, no imports from the planner runtime.
  */
@@ -34,10 +26,8 @@ const TEDI_TASK_VERBS =
 	"do|handle|take|run|own|build|work|fetch|pull|check|verify|fix|write|draft|prepare|investigate|look";
 // Only after "ask/tell <name> to": "let me read" is not a handoff.
 const ASKED_TEDI_TASK_VERBS = `${TEDI_TASK_VERBS}|read|review|summari[sz]e|research|analy[sz]e`;
-const NAMED_TEDI_TASK_PATTERN =
-	/^(?:please\s+)?(?:coding\s+)?(?:task|trial|goal)\s+for\s+(?:(?:a|an|the)\s+)?(?:[\w-]+\s+){0,3}tedi\b/i;
 const EXPLICIT_DELEGATION_PATTERNS: readonly RegExp[] = [
-	NAMED_TEDI_TASK_PATTERN,
+	/^(?:please\s+)?(?:coding\s+)?(?:task|trial|goal)\s+for\s+(?:(?:a|an|the)\s+)?(?:[\w-]+\s+){0,3}tedi\b/i,
 	/\bdelegat(?:e|es|ed|ing|ion)\b/i,
 	/\bassign(?:s|ed|ing)?\b/i,
 	new RegExp(
@@ -96,67 +86,6 @@ export function hasExplicitDelegationIntent(content: string): boolean {
 	);
 }
 
-// Tedix-internal state the kernel already holds in its assembled context
-// (context-assembly.ts): work items, objectives, tedis, apps, workflows, runs,
-// skills. English + Spanish.
-const INTERNAL_STATE_PATTERN =
-	/\b(?:work\s*items?|objectives?|tedis?|apps?|applications?|workflows?|runs?|skills?|conversations?|delegations?|approvals?|elementos?\s+de\s+trabajo|objetivos?|aplicaci(?:ón|on|ones)|flujos?(?:\s+de\s+trabajo)?|ejecuci(?:ón|on|ones)|habilidades?|conversaci(?:ón|on|ones)|delegaci(?:ón|on|ones)|aprobaci(?:ón|on|ones))\b/i;
-
-// The assembled app context names apps and capabilities, but deliberately does
-// not claim which credentials are connected now. These reads need a live tool.
-const LIVE_CONNECTION_STATE_PATTERN =
-	/\b(?:gateway|connections?|connect(?:ed|ivity)|online|offline)\b/i;
-
-/** True when the message references Tedix-internal state the kernel holds. */
-export function mentionsTedixInternalState(content: string): boolean {
-	return INTERNAL_STATE_PATTERN.test(content);
-}
-
-/** True when answering requires connection state absent from assembled context. */
-export function requiresLiveConnectionState(content: string): boolean {
-	return LIVE_CONNECTION_STATE_PATTERN.test(content);
-}
-
-/** Explicit response-only intent belongs to the operator, never retrieved context. */
-export function requestsAcknowledgmentOnly(content: string): boolean {
-	if (
-		/\backnowledge\b[^.?!;\n]{0,60}\bthen\s+(?:execute|perform|delegate|run|create|prepare|dispatch|do)\b/i.test(
-			content,
-		)
-	)
-		return false;
-	const text = content.replace(
-		/\b(?:do\s+not|don't|never)\s+(?:(?:just|only)\s+(?:acknowledge|acknowledg[e]?ment)|(?:acknowledge|acknowledg[e]?ment)\s+only)\b/gi,
-		" ",
-	);
-	return /\b(?:(?:just|only)\s+(?:acknowledge|acknowledg[e]?ment)|(?:acknowledge|acknowledg[e]?ment)\s+only|(?:reply|respond)\s+(?:only\s+)?with\s+(?:an?\s+)?acknowledg[e]?ment)\b/i.test(
-		text,
-	);
-}
-
-/** A dispatch hold on an explicitly prepared Work Order is not a prohibition. */
-export function prohibitsDelegation(content: string): boolean {
-	if (
-		/\b(?:no\s+delegation|without\s+(?:any\s+)?delegation|never\s+(?:delegate|hand(?:\s+(?:this|it|that))?\s*(?:off|over)))\b/i.test(
-			content,
-		)
-	)
-		return true;
-	const preparedWorkOrder =
-		/\b(?:prepare|draft|create)\s+(?:a\s+|an\s+|the\s+)?[^.?!;\n]{0,60}\bwork\s*order\b/i.test(
-			content,
-		) && /\b(?:approval|approve|sign[ -]?off)\b/i.test(content);
-	const text = preparedWorkOrder
-		? content.replace(
-				/\b(?:do\s+not|don't)\s+delegate\b[^.?!;\n]{0,60}\b(?:yet|before\s+approval|until\s+(?:approval|approved))\b/gi,
-				" ",
-			)
-		: content;
-	return /\b(?:do\s+not|don't|never)\s+(?:(?:use\s+tools|create\s+(?:work|outputs?)|change\s+(?:any\s+)?data)\s*(?:,\s*|or\s+|and\s+))*(?:delegate|hand(?:\s+(?:this|it|that))?\s*(?:off|over))\b/i.test(
-		text,
-	);
-}
-
 /** Answer prose is not an operator request: nouns alone are never promises. */
 const DELEGATION_PROMISE = new RegExp(
 	`\\b(?:I(?:['’]ll|\\s+will|\\s+am\\s+going\\s+to)|we(?:['’]ll|\\s+will|\\s+are\\s+going\\s+to))\\s+(?:delegate|assign|hand\\s*(?:off|over)|(?:have|ask|tell)\\s+(?:the\\s+)?[\\w-]+(?:\\s+tedi)?\\s+(?:to\\s+)?(?:${ASKED_TEDI_TASK_VERBS})|(?:prepare|create|open)\\s+[^.?!\\n]{0,40}\\b(?:work\\s*(?:order|item)|task))\\b`,
@@ -167,26 +96,13 @@ function promisesDelegation(answer: string): boolean {
 }
 
 /**
- * Post-verdict deterministic guard. Applied to EVERY planner decision (all
- * provider results and once more after parked-approval coercion:
+ * Applied to every planner decision.
  *
- *  Explicit acknowledgment-only requests cannot recommend actions. Explicit
- *  no-delegation requests cannot recommend delegation or handoff, regardless
- *  of model-selected risk, effort, or tools. Positive preparation of a parked
- *  Work Order retains its temporal dispatch hold and existing approval policy.
- *
- *  1. Stamps `explicitDelegationIntent` from the operator message.
- *  2. Downgrades `delegate_tedi` → `answer_in_home` when ALL hold:
- *     - no explicit delegation intent in the message,
- *     - the planner classified the route low-risk and single-read (or left
- *       the effort class null),
- *     - the planner selected no provider tools (`plannedToolIds` empty) — a
- *       live provider read still belongs with the owning tedi,
- *     - the message references Tedix-internal state the kernel already holds.
- *     A direct `answer` is preserved; delegation-promising copy is cleared so
- *     the answer pass fills it from context instead of claiming a dispatch
- *     that the guard canceled. Delegation target fields are also cleared so no
- *     downstream reader mistakes the decision for a dispatchable delegation.
+ *  1. Stamps `explicitDelegationIntent` from the person's message. The stamp
+ *     is a label only; it changes neither the route nor the reply.
+ *  2. A Home answer may not say a delegation will happen when no route
+ *     dispatches one. The answer is cleared so the answer pass writes the
+ *     reply from context. This reads Home's own answer, not the message.
  *
  * Every other decision passes through untouched apart from the stamp.
  */
@@ -194,106 +110,16 @@ export function guardKernelRouteDecision<T extends KernelRouteDecision>(
 	content: string,
 	decision: T,
 ): T & { explicitDelegationIntent: boolean } {
-	const acknowledgmentOnly = requestsAcknowledgmentOnly(content);
-	const noDelegation = prohibitsDelegation(content);
-	const explicitDelegationIntent =
-		!acknowledgmentOnly &&
-		!noDelegation &&
-		hasExplicitDelegationIntent(content);
-	if (
-		acknowledgmentOnly ||
-		(noDelegation &&
-			(decision.routeKind === "delegate_tedi" ||
-				decision.routeKind === "suggest_handoff" ||
-				(decision.routeKind === "answer_in_home" &&
-					!!decision.answer &&
-					promisesDelegation(decision.answer))))
-	) {
-		return {
-			...decision,
-			routeKind: "answer_in_home",
-			answer: acknowledgmentOnly
-				? "Acknowledged."
-				: "I’ll respond here without delegating.",
-			rationale: `${decision.rationale} [kernel guard: operator requested a direct response without delegation]`,
-			targetTediId: null,
-			targetTediLabel: null,
-			targetActivityId: null,
-			plannedToolIds: [],
-			toolIntent: null,
-			workflowHint: null,
-			clarifyingQuestion: null,
-			evidenceExpectation: null,
-			explicitDelegationIntent: false,
-		};
-	}
-	const outerRequest = (content.split(/\bBrief:\s*/, 1)[0] ?? content).trim();
-	if (
-		decision.routeKind === "suggest_handoff" &&
-		decision.targetTediId &&
-		explicitDelegationIntent &&
-		NAMED_TEDI_TASK_PATTERN.test(outerRequest) &&
-		/\b(?:implement|refactor|fix|build)\b/i.test(outerRequest) &&
-		!/\b(?:extended|human[ -](?:driven|guided)|interactive)\s+session\b|\b(?:with me|walk me through)\b/i.test(
-			outerRequest,
-		)
-	) {
-		return {
-			...decision,
-			routeKind: "delegate_tedi",
-			answer: null,
-			rationale: `${decision.rationale} [kernel guard: explicitly requested tedi implementation; dispatch policy still applies]`,
-			effortClass: decision.effortClass ?? "embodied",
-			explicitDelegationIntent,
-		};
-	}
-	// A Home answer may not promise a handoff that no route dispatches. When
-	// the operator asked for it and the planner named the tedi, the promise
-	// becomes the delegation (dispatch policy and approval still apply);
-	// otherwise the answer pass rewrites the copy from context.
+	const explicitDelegationIntent = hasExplicitDelegationIntent(content);
 	if (
 		decision.routeKind === "answer_in_home" &&
 		decision.answer &&
 		promisesDelegation(decision.answer)
 	) {
-		if (decision.targetTediId && explicitDelegationIntent)
-			return {
-				...decision,
-				routeKind: "delegate_tedi",
-				answer: null,
-				rationale: `${decision.rationale} [kernel guard: Home answer promised a delegation to the planned tedi; dispatched instead]`,
-				effortClass: decision.effortClass ?? "single_read",
-				explicitDelegationIntent,
-			};
 		return {
 			...decision,
 			answer: null,
 			rationale: `${decision.rationale} [kernel guard: removed an undispatched delegation promise]`,
-			explicitDelegationIntent,
-		};
-	}
-	if (
-		decision.routeKind === "delegate_tedi" &&
-		!explicitDelegationIntent &&
-		decision.risk === "low" &&
-		(decision.effortClass === "single_read" || decision.effortClass === null) &&
-		(decision.plannedToolIds?.length ?? 0) === 0 &&
-		mentionsTedixInternalState(content) &&
-		!requiresLiveConnectionState(content)
-	) {
-		const answer =
-			decision.answer && promisesDelegation(decision.answer)
-				? null
-				: decision.answer;
-		return {
-			...decision,
-			routeKind: "answer_in_home",
-			answer,
-			rationale: `${decision.rationale} [kernel guard: low-risk single read over Tedix-internal state with no explicit delegation intent — answered in Home]`,
-			targetTediId: null,
-			targetTediLabel: null,
-			targetActivityId: null,
-			plannedToolIds: [],
 			explicitDelegationIntent,
 		};
 	}

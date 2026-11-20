@@ -2347,29 +2347,6 @@ describe("Auto Router Home answer", () => {
 		expect(model.doGenerateCalls).toHaveLength(0);
 		expect(result?.usage).toMatchObject({ inputTokens: 15, outputTokens: 22 });
 	});
-	it("streams a fresh answer when the guard downgraded a delegation, instead of reusing its preview", async () => {
-		const model = autoModel(
-			{
-				...FALLBACK_DECISION,
-				routeKind: "delegate_tedi",
-				targetTediId: "tedi-1",
-				targetTediLabel: "CTO",
-				answer: "I'll ask the CTO tedi to list them.",
-			},
-			textStream("You have two work items."),
-		);
-		const deltas: string[] = [];
-		const result = await planKernelRoute({
-			model,
-			context: EMPTY_CONTEXT,
-			content: "list our work items",
-			onAnswerDelta: (d) => deltas.push(d),
-		});
-		expect(result?.routeKind).toBe("answer_in_home");
-		expect(result?.answer).toBe("You have two work items.");
-		expect(deltas).toEqual(["You have two work items."]);
-		expect(model.doStreamCalls).toHaveLength(2);
-	});
 	it("does not start an answer pass for an action route", async () => {
 		const model = autoModel(
 			{
@@ -2508,64 +2485,6 @@ describe("prompt prefix order", () => {
 });
 
 describe("operator intent before delegation fit", () => {
-	it.each([
-		"Acknowledge only. Do not delegate.",
-		"Reply directly without delegation.",
-	])(
-		"uses original operator text and suppresses provisional action copy: %s",
-		async (operatorContent) => {
-			const ranker = vi.fn();
-			const onAnswerDelta = vi.fn();
-			const onRationaleDelta = vi.fn();
-			const output = {
-				routeKind: "delegate_tedi",
-				rationale: "Delegate the attached plan",
-				risk: "high",
-				confidence: 1,
-				effortClass: "fan_out",
-				answer: "I will delegate to CTO.",
-				targetTediId: "cto",
-				targetTediLabel: "CTO",
-				targetActivityId: null,
-				plannedToolIds: ["github.write"],
-				toolIntent: null,
-				workflowHint: null,
-				clarifyingQuestion: null,
-				evidenceExpectation: null,
-			};
-			const model = new MockLanguageModelV3({
-				doGenerate: async () => ({
-					finishReason: "stop",
-					usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-					warnings: [],
-					content: [{ type: "text", text: JSON.stringify(output) }],
-				}),
-			});
-			const result = await planKernelRoute({
-				content:
-					"Prepare a CTO delegation work order. Park for approval first.",
-				operatorContent,
-				onAnswerDelta,
-				onRationaleDelta,
-				context: EMPTY_CONTEXT,
-				model,
-				delegationCandidateRanker: ranker,
-			});
-			expect(result).toMatchObject({
-				routeKind: "answer_in_home",
-				answer: operatorContent.startsWith("Acknowledge")
-					? "Acknowledged."
-					: "I’ll respond here without delegating.",
-				targetTediId: null,
-				plannedToolIds: [],
-				explicitDelegationIntent: false,
-			});
-			expect(ranker).not.toHaveBeenCalled();
-			expect(onAnswerDelta).not.toHaveBeenCalled();
-			expect(onRationaleDelta).not.toHaveBeenCalled();
-			expect(model.doStreamCalls).toHaveLength(0);
-		},
-	);
 	it("does not take attachment prohibitions as operator intent", async () => {
 		const output = {
 			routeKind: "delegate_tedi",
