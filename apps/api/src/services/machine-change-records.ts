@@ -231,6 +231,7 @@ export async function buildRunSteeringRecord(params: {
 			interrupt: params.interrupt,
 			body: params.body,
 		}),
+		subject: { kind: "work_item", id: params.workItemId },
 	};
 }
 

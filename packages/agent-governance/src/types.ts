@@ -252,6 +252,8 @@ export interface ChangeRecord {
 	undo?: UndoPlan;
 	/** Hash of the call arguments, so the row can be matched without storing secrets. */
 	argsHash: string;
+	/** The task the call was about, when known. */
+	subject?: { kind: "work_item"; id: string };
 }
 
 export type ChangeRecordInput = Omit<

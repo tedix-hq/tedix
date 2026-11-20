@@ -100,8 +100,8 @@ export function decodeBase64(value: string): Uint8Array<ArrayBuffer> {
  * removed: every field except `sequence`, `recordDigest` and `chainHash`.
  * For a gateway change record that is the stored change record body
  * (`resource`, `operation`, `actor`, `source`, `decision`, `outcome`,
- * `argsHash`, and `before`, `after`, `approval`, `undo` when present) plus
- * `id` and `recordedAt`. `sequence` is left out because the chain hash binds
+ * `argsHash`, and `before`, `after`, `approval`, `undo`, `subject` when
+ * present) plus `id` and `recordedAt`. `sequence` is left out because the chain hash binds
  * it. The bytes hashed are the UTF-8 of `serializeGovernanceValue(content)`:
  * sorted-key JSON, `undefined` members dropped.
  */

@@ -129,6 +129,8 @@ export interface GatewayChangeRecordRangeParams {
 	until: string;
 	resource?: string;
 	actorId?: string;
+	/** Only records whose `subject.id` is this Work Item id. */
+	subjectId?: string;
 }
 
 /**
@@ -150,6 +152,9 @@ function inRange(
 		range.actorId === undefined
 			? undefined
 			: eq(gatewayChangeRecords.actorId, range.actorId),
+		range.subjectId === undefined
+			? undefined
+			: sql`json_extract(${gatewayChangeRecords.record}, '$.subject.id') = ${range.subjectId}`,
 	);
 }
 

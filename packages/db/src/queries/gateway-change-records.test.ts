@@ -306,6 +306,45 @@ describe("gateway change record time ranges", () => {
 		).toEqual(["record-1", "record-3"]);
 	});
 
+	it("filters by the Work Item a record is about", async () => {
+		const { sqlite, db } = setup([
+			["org-a", "2026-11-18T01:00:00.000Z"],
+			["org-a", "2026-11-18T02:00:00.000Z"],
+			["org-a", "2026-11-18T03:00:00.000Z"],
+		]);
+		const subjectId = "3f2b8c1e-6d4a-4f7b-9a2e-5c1d8e7f6a90";
+		const setSubject = sqlite.prepare(
+			"UPDATE gateway_change_records SET record = ? WHERE id = ?",
+		);
+		setSubject.run(
+			JSON.stringify({ subject: { kind: "work_item", id: subjectId } }),
+			"record-0",
+		);
+		setSubject.run(
+			JSON.stringify({
+				subject: {
+					kind: "work_item",
+					id: "8a1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+				},
+			}),
+			"record-1",
+		);
+		const filtered = { ...range, subjectId };
+		expect(await countGatewayChangeRecordsInRange(db, "org-a", filtered)).toBe(
+			1,
+		);
+		const records = await listGatewayChangeRecordsInRange(
+			db,
+			"org-a",
+			filtered,
+			{ limit: 10 },
+		);
+		expect(records.map((record) => record.id)).toEqual(["record-0"]);
+		expect(records[0]).toMatchObject({
+			subject: { kind: "work_item", id: subjectId },
+		});
+	});
+
 	it("searches the organization/recorded-at index", () => {
 		const { sqlite } = setup([]);
 		const plan = sqlite
