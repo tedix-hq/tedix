@@ -3618,6 +3618,15 @@ describe("<ChatThread> skill picker", () => {
 
 		typeDraft(container, "/");
 		await flush();
+		// A large catalog fills a bounded page with archived skills unless the
+		// server drops them first; then `/` offers nothing.
+		expect(skillsApi.listByOrg).toHaveBeenCalledWith(
+			expect.objectContaining({
+				excludeArchived: true,
+				excludeImprovements: true,
+			}),
+			expect.anything(),
+		);
 		const options = pickerOptions(container);
 		expect(options).toHaveLength(1);
 		expect(options[0]?.textContent).toContain("Deploy runbook");

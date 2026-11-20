@@ -1882,8 +1882,15 @@ export function ChatThread({
 	const skillListboxId = useId();
 	const [skillPickerDismissed, setSkillPickerDismissed] = useState(false);
 	const [skillActiveIndex, setSkillActiveIndex] = useState(-1);
+	// Archived skills and improvement copies are dropped on the server; a
+	// large catalog otherwise fills the bounded page with skills the picker
+	// never offers, and `/` shows nothing.
 	const skillCatalog = useQuery({
-		...skillCatalogQueryOptions(SKILL_CATALOG_LIMIT),
+		...skillCatalogQueryOptions({
+			limit: SKILL_CATALOG_LIMIT,
+			excludeArchived: true,
+			excludeImprovements: true,
+		}),
 		enabled:
 			composerMenuOpen || (skillTrigger !== null && !skillPickerDismissed),
 		// Freshness per open, never per conversation. A catalog cached for the
