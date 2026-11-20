@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { WorkItem } from "@tedix/db/schema/work-items";
 import type { BaseContext } from "../../orpc";
 
-const attempts = vi.hoisted(() => ({ list: vi.fn() }));
+const attempts = vi.hoisted(() => ({ list: vi.fn(), admission: vi.fn() }));
 vi.mock("@tedix/db/queries/work-items/attempts", () => ({
 	listWorkItemAttempts: attempts.list,
+	getWorkAttemptRepositoryAdmission: attempts.admission,
 	getRecordedWorkItemAttempt: vi.fn(),
 }));
 
@@ -26,6 +27,7 @@ function item(overrides: Partial<WorkItem> = {}): WorkItem {
 		disposition: "accepted",
 		workKind: "coding",
 		version: 1,
+		admissionSpecRevision: "current-spec",
 		title: "Fence the provider registration cache",
 		description: "Keep stale loads from refilling scopes.",
 		acceptanceContract: { version: 1, doneLooksLike: DONE },
@@ -57,6 +59,7 @@ function attempt(overrides: Record<string, unknown> = {}) {
 describe("canCompleteOwnSucceededAttempt", () => {
 	beforeEach(() => {
 		attempts.list.mockReset();
+		attempts.admission.mockReset();
 		attempts.list.mockResolvedValue({ data: [attempt()], nextCursor: null });
 	});
 
@@ -81,6 +84,32 @@ describe("canCompleteOwnSucceededAttempt", () => {
 			workItemId: item().id,
 			limit: 1,
 		});
+	});
+
+	it("allows a direct CLI coding settle against the current admission", async () => {
+		const settlement = { mode: "commit", commitSha: SHA };
+		const directAttempt = attempt({ metadata: { settlement } });
+		attempts.list.mockResolvedValue({
+			data: [directAttempt],
+			nextCursor: null,
+		});
+		attempts.admission.mockResolvedValue({
+			workItemVersion: 1,
+			admissionSpecRevision: "current-spec",
+		});
+		await expect(allowed()).resolves.toBe(true);
+		expect(attempts.admission).toHaveBeenCalledWith(context.db, directAttempt);
+		await expect(allowed(item({ version: 2 }))).resolves.toBe(false);
+		await expect(
+			allowed(item({ admissionSpecRevision: "changed-spec" })),
+		).resolves.toBe(false);
+		await expect(allowed(item(), "other-session")).resolves.toBe(false);
+
+		attempts.list.mockResolvedValue({
+			data: [attempt({ metadata: { lane: true, settlement } })],
+			nextCursor: null,
+		});
+		await expect(allowed()).resolves.toBe(false);
 	});
 
 	it.each([
