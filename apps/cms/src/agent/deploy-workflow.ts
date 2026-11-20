@@ -372,6 +372,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 						jobId,
 						...failureDetails,
 						error,
+						errorMessage: errorMessage(error),
 					});
 					await record(
 						name,
@@ -1299,6 +1300,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 				jobId,
 				...failureDetails,
 				error: err,
+				errorMessage: message,
 			});
 			await record("failed", "failed", message, failureDetails).catch(
 				() => undefined,

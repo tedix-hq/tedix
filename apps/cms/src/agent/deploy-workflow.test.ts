@@ -152,6 +152,39 @@ describe("DeployWorkflow exact-site lifecycle", () => {
 		},
 	);
 
+	it("logs the message of remote errors even when JSON omits it", async () => {
+		const { workflow, event } = workflowFixture("site-original");
+		const error = Object.assign(
+			new Error("active-version compare-and-swap failed"),
+			{
+				remote: true,
+				durableObjectId: "remote-object",
+			},
+		);
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const step = {
+				do: vi.fn(async () => {
+					throw error;
+				}),
+			};
+			await expect(workflow.run(event as never, step as never)).rejects.toBe(
+				error,
+			);
+			const entries = log.mock.calls.filter(
+				([name]) => name === "cms.deploy.failed",
+			);
+			expect(entries.length).toBeGreaterThan(0);
+			for (const [, entry] of entries)
+				expect(JSON.parse(JSON.stringify(entry))).toMatchObject({
+					errorMessage: error.message,
+					jobId: event.instanceId,
+				});
+		} finally {
+			log.mockRestore();
+		}
+	});
+
 	it("fails a legacy slug-only replay before writing even the queued receipt", async () => {
 		const { workflow, event, put } = workflowFixture();
 		const step = { do: vi.fn() };
