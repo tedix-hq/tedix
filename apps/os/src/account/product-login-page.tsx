@@ -164,6 +164,22 @@ export function ProductLoginPage() {
 				<FinishDesktopSignIn key={desktopToken} token={desktopToken} />
 			</AccountAuthProvider>
 		);
+	// The app's finish load arrived without its token: say so instead of
+	// quietly showing the sign-in form.
+	if (
+		inDesktopApp() &&
+		new URL(window.location.href).searchParams.has("attempt")
+	)
+		return (
+			<main className="centered-state">
+				<TedixBrandMark />
+				<p role="alert">
+					The Tedix app did not receive the sign-in from your browser. To try
+					again, choose Sign In with Browser in the Tedix menu.
+				</p>
+				<Link href="/">Back to sign-in</Link>
+			</main>
+		);
 	if (!continueHere && isDesktopLinkInBrowser(window.location.href))
 		return <OpenDesktopApp onContinueHere={() => setContinueHere(true)} />;
 	const intent = resolveProductLoginIntent(window.location.href);
