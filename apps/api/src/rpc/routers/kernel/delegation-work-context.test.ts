@@ -17,15 +17,18 @@ describe("original delegation Work context", () => {
 		).toEqual([target]);
 		expect(resolve).toHaveBeenCalledExactlyOnceWith("abcdef01");
 	});
-	it("returns candidates instead of padding or inventing a UUID", async () => {
-		await expect(
-			resolveDelegationWorkContext("Work abcdef01", async () => []),
-		).rejects.toThrow("Never invent a UUID");
-		await expect(
-			resolveDelegationWorkContext("Work abcdef01", async () => [
-				target,
-				{ ...target, id: "abcdef01-0000-4000-8000-000000000002" },
-			]),
-		).rejects.toThrow("candidates: abcdef01-");
+	it("leaves out a reference that names no single Work Item and never fails the send", async () => {
+		const other = { ...target, id: "abcdef02-0000-4000-8000-000000000002" };
+		expect(
+			await resolveDelegationWorkContext(
+				"Work abcdef01, Work abcdef02, Work abcdef03 and Work abcdef04",
+				async (prefix) => {
+					if (prefix === "abcdef01") return [target];
+					if (prefix === "abcdef02") return [];
+					if (prefix === "abcdef03") return [target, other];
+					throw new Error("read failed");
+				},
+			),
+		).toEqual([target]);
 	});
 });

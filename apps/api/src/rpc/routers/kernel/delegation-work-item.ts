@@ -169,6 +169,11 @@ export function isStaleDelegationDispatchRow(row: KernelRuntimeRun): boolean {
  * Dispatch content for a kernel DIRECT delegation (the non-plan analogue of
  * `homePlanAssignmentDispatchContent`). Home owns the linked Work Item below
  * the model; the child executes the request and returns evidence only.
+ *
+ * A message a person sent to a tedi they picked in the chat is not wrapped:
+ * the tedi receives it as written. The conversation, the Home run and the
+ * tracking Work Item travel in the dispatch metadata instead. Only a verify
+ * command the caller passed explicitly is appended.
  */
 export function directDelegationDispatchContent(input: {
 	content: string;
@@ -177,8 +182,18 @@ export function directDelegationDispatchContent(input: {
 	workItemId: string;
 	/** Exact verify command the child must run and quote before it reports. */
 	verifyCommand?: string | null;
+	/** A signed-in person picked this tedi for this message. */
+	pickedByPerson?: boolean;
 }): string {
 	const verifyCommand = input.verifyCommand?.trim() || null;
+	if (input.pickedByPerson)
+		return verifyCommand
+			? [
+					input.content,
+					"",
+					...verificationRequirementLines(verifyCommand),
+				].join("\n")
+			: input.content;
 	return [
 		"Home delegated this request directly to you.",
 		"",

@@ -5,9 +5,9 @@
  * WHY THIS EXISTS. `prompt-composition.ts` MEASURES what went into a prompt.
  * Nothing DECLARED what was allowed in. The rules were real and load-bearing
  * but lived in three unrelated places: an ordering constant in
- * `cognitive-addenda.ts`, a `skipDirectives` boolean the caller computed from
- * `isHomeDelegationWorkOrder(userText)`, and an `isLeanContextSession` session-
- * key predicate. Answering "what does a Home delegation work order actually
+ * `cognitive-addenda.ts`, a boolean the caller computed for a Home delegation
+ * work order (today the `homeWorkOrder` flag the API's dispatch metadata
+ * sets), and an `isLeanContextSession` session-key predicate. Answering "what does a Home delegation work order actually
  * receive?" meant tracing a boolean across two packages.
  *
  * Making it a table means the answer is readable in one place, the withholding

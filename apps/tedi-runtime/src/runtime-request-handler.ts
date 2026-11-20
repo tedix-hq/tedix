@@ -120,6 +120,7 @@ import {
 } from "./embedded-internal-routes";
 import { embeddedTurnQuotaFromPayload } from "./embedded-turn-quota";
 import { personChatConversationForInject } from "./agent-run-tools";
+import { isHomeWorkOrderTurn } from "./cognitive-addenda";
 import { trustedInstructionOriginForInject } from "./inference-guardrails";
 import { buildRunId, buildWorkflowInstanceId } from "./ledger-mirror";
 import { recordDirectMcpAuditEvent } from "./mcp-audit";
@@ -1081,6 +1082,9 @@ export async function handleRuntimeRequest(
 								homeRunId,
 								...(personChatConversationId
 									? { personChatConversationId }
+									: {}),
+								...(isHomeWorkOrderTurn(metadata)
+									? { homeWorkOrder: true }
 									: {}),
 								personalRequest: metadata?.personalRequest === true,
 								executionSurface,

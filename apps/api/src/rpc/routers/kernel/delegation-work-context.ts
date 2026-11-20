@@ -1,5 +1,9 @@
-import { baseErrorConstructors } from "@tedix/api-contract/errors";
-/** Original targets remain separate from the generated dispatch Work's ownership. */
+/**
+ * Work Items a message refers to by id, so the tedi can read them without a
+ * lookup. A reference is a hint: one that names no single Work Item in this
+ * organization, or cannot be read, is left out and the message is still sent.
+ * Original targets remain separate from the generated dispatch Work's ownership.
+ */
 export async function resolveDelegationWorkContext(
 	source: string,
 	resolve: (prefix: string) => Promise<
@@ -20,20 +24,12 @@ export async function resolveDelegationWorkContext(
 				),
 			].map((match) => (match[1] ?? match[2])!.toLowerCase()),
 		),
-	];
-	if (references.length > 8)
-		throw baseErrorConstructors.BAD_REQUEST({
-			message:
-				"Delegation preflight failed: at most eight original Work targets can be hydrated",
-		});
-	return Promise.all(
+	].slice(0, 8);
+	const resolved = await Promise.all(
 		references.map(async (prefix) => {
-			const candidates = await resolve(prefix);
-			if (candidates.length !== 1)
-				throw baseErrorConstructors.BAD_REQUEST({
-					message: `Delegation preflight failed: original Work ${prefix} ${candidates.length ? `is ambiguous; candidates: ${candidates.map((item) => item.id).join(", ")}` : "was not found in this organization"}. Never invent a UUID`,
-				});
-			return candidates[0]!;
+			const candidates = await resolve(prefix).catch(() => []);
+			return candidates.length === 1 ? candidates[0]! : null;
 		}),
 	);
+	return resolved.filter((item) => item !== null);
 }

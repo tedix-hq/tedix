@@ -171,6 +171,7 @@ export interface RuntimeMemoryHost {
 		onRecall?: (report: MemoryRecallReport) => void,
 		sessionKey?: string | null,
 		learningDisabled?: boolean,
+		homeWorkOrder?: boolean,
 	): Promise<string>;
 	skillGuidanceAddendum(): Promise<string>;
 	retrievedSkillsAddendum(
