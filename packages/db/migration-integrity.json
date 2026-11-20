@@ -1768,6 +1768,10 @@
 		{
 			"name": "20261120173019_usage_widget_workflow_retention/migration.sql",
 			"sha256": "f108174ba04c11bcbd9b58e4e061bbe95ccef10f612bb09af352134d401fc130"
+		},
+		{
+			"name": "20261120174703_retention_lower_row_caps/migration.sql",
+			"sha256": "76c3fa6ea9249c0728b9847aafb570241a3ea50123676ef5b5ddb98c2e687e4a"
 		}
 	]
 }

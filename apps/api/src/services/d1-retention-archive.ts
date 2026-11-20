@@ -78,6 +78,12 @@ const DEFAULT_TIME_BUDGET_MS = 60_000;
 const D1_RETENTION_CONFLICT_SAMPLE = 20;
 /** Waits before each retry of a statement D1 refused as overloaded. */
 const OVERLOAD_BACKOFF_MS = [500, 1000, 2000] as const;
+/**
+ * Pause after each moved page (500 rows: logs copy, R2 write, one main
+ * delete). Back-to-back pages overloaded main D1 for live reads (7429) on
+ * 20 Nov 2026.
+ */
+export const D1_RETENTION_PAGE_PAUSE_MS = 1000;
 
 /**
  * The error's message followed by its causes. Drizzle reports "Failed query:
@@ -463,6 +469,7 @@ async function movePages(
 	turn: PolicyTurn,
 	phase: "head" | "sweep",
 	skipsPerSweep: number,
+	pagePauseMs: number,
 ): Promise<void> {
 	const { result } = turn;
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
@@ -605,6 +612,9 @@ async function movePages(
 			if (phase === "sweep" || reachedEnd)
 				result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
 			if (reachedEnd) break;
+			// Leave the main database room for live reads between deletes.
+			if (pagePauseMs > 0 && Date.now() + pagePauseMs < deadline)
+				await new Promise((resolve) => setTimeout(resolve, pagePauseMs));
 		}
 	} catch (error) {
 		result.stoppedBy = "error";
@@ -666,8 +676,11 @@ export async function runD1Retention(params: {
 	timeBudgetMs?: number;
 	/** Default `D1_RETENTION_SKIPS_PER_SWEEP`; 0 reads every page of a sweep. */
 	skipsPerSweep?: number;
+	/** Wait after each moved page; default `D1_RETENTION_PAGE_PAUSE_MS`. */
+	pagePauseMs?: number;
 }): Promise<D1RetentionRunResult> {
 	const skipsPerSweep = params.skipsPerSweep ?? D1_RETENTION_SKIPS_PER_SWEEP;
+	const pagePauseMs = params.pagePauseMs ?? D1_RETENTION_PAGE_PAUSE_MS;
 	const deadline = Date.now() + (params.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS);
 	const policies = await listActiveD1RetentionPolicies(params.db);
 	const shareOf = (remainingTables: number) => {
@@ -730,6 +743,7 @@ export async function runD1Retention(params: {
 				turn,
 				"head",
 				skipsPerSweep,
+				pagePauseMs,
 			);
 		}
 	}
@@ -745,6 +759,7 @@ export async function runD1Retention(params: {
 			turn,
 			"sweep",
 			skipsPerSweep,
+			pagePauseMs,
 		);
 	}
 	const tables = turns.map((turn) => turn.result);
