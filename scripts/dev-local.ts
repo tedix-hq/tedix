@@ -592,7 +592,22 @@ async function run(): Promise<void> {
 				"wrangler command requires wrangler.jsonc; this workspace is configured through cloudflare.config.ts",
 			);
 		}
-		args.push("--config", configPath);
+		// `--config <dir>/wrangler.jsonc` in the command adds a Worker to this
+		// process, after this directory's primary one. The workspace store runs
+		// the tedi runtime beside it: a Durable Object reached through the dev
+		// registry from another process loses its name, and AgentTediDO needs it.
+		const coHosted: string[] = [];
+		for (let index = args.indexOf("--config"); index >= 0;) {
+			const source = args[index + 1];
+			if (!source) throw new Error("--config needs a wrangler.jsonc path");
+			coHosted.push(
+				"--config",
+				writeLocalWranglerConfig(dirname(resolve(source))),
+			);
+			args.splice(index, 2);
+			index = args.indexOf("--config");
+		}
+		args.push("--config", configPath, ...coHosted);
 		if (args[1] === "dev" || args[1] === "d1") {
 			// `--local` disables Wrangler's remote-binding proxy wholesale. Omit it
 			// only for the explicit Workers AI lane: the generated config still marks
