@@ -179,19 +179,20 @@ export function configuredWorkspaceModels(
 	return models;
 }
 
-/** The product default model for a chat with a tedi. */
-const TEDI_CHAT_DEFAULT_MODEL = "gpt-6.1-sol";
-
 /**
  * The model of a turn that names none: the first one offered, or for a turn a
- * picked tedi answers the tedi default when this deployment offers it.
+ * picked tedi answers the administrator's default for a person's chat, when
+ * this deployment offers it. `chatDefaultRef` is a catalog ref.
  */
 export function defaultWorkspaceModelId(
 	offered: readonly WorkspaceModelChoice[],
-	forTedi: boolean,
+	chatDefaultRef: string | undefined,
 ): string | undefined {
-	const preferred = forTedi
-		? offered.find(({ id }) => id.endsWith(TEDI_CHAT_DEFAULT_MODEL))
+	const preferred = chatDefaultRef
+		? offered.find(
+				({ id }) =>
+					id === chatDefaultRef || `workers-ai/${id}` === chatDefaultRef,
+			)
 		: undefined;
 	return (preferred ?? offered[0])?.id;
 }

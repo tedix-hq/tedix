@@ -555,6 +555,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	#workspaceRead: Promise<WorkspaceSnapshot> | null = null;
 	#modelCatalog: {
 		entries: readonly ModelCatalogEntry[];
+		/** The administrator's default model for a person's chat with a tedi. */
+		personChatModelRef: string | undefined;
 		readAt: number;
 	} | null = null;
 	readonly #running = new Map<string, AbortController>();
@@ -1315,7 +1317,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		await this.refreshModelCatalog();
 		const models = this.configuredModels();
 		const modelId =
-			input.modelId ?? defaultWorkspaceModelId(models, Boolean(input.tediId));
+			input.modelId ??
+			defaultWorkspaceModelId(
+				models,
+				input.tediId ? this.#modelCatalog?.personChatModelRef : undefined,
+			);
 		if (!modelId) throw new Error("No model is configured for workspace chat");
 		if (!models.some((model) => model.id === modelId))
 			throw new Error("This model is not configured for workspace chat");
@@ -4282,10 +4288,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		)
 			return;
 		try {
-			const { entries } = await getModelCatalogConfig(
+			const { entries, defaults } = await getModelCatalogConfig(
 				createDbQueryClient(this.env.DB),
 			);
-			this.#modelCatalog = { entries, readAt: Date.now() };
+			this.#modelCatalog = {
+				entries,
+				personChatModelRef: defaults?.personChatModelRef,
+				readAt: Date.now(),
+			};
 		} catch (error) {
 			// A missing or malformed catalog offers no model; never an older list.
 			this.#modelCatalog = null;
