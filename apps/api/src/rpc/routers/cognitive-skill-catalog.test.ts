@@ -6,7 +6,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
-import { skillEntries } from "@tedix/db/schema/cognitive";
+import { skillEntries, skillSchedules } from "@tedix/db/schema/cognitive";
+import { dispatcherHealthReports } from "@tedix/db/schema/dispatcher-health";
+import {
+	osWorkspaceResources,
+	osWorkspaces,
+} from "@tedix/db/schema/os-workspaces";
+import { projects } from "@tedix/db/schema/projects";
+import { tedis } from "@tedix/db/schema/tedis";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it } from "vite-plus/test";
@@ -20,7 +27,17 @@ const OTHER_TEDI_ID = "tedi-other";
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	sqlite.exec(schemaDdl(skillEntries));
+	sqlite.exec(
+		schemaDdl(
+			skillEntries,
+			skillSchedules,
+			dispatcherHealthReports,
+			projects,
+			osWorkspaces,
+			osWorkspaceResources,
+			tedis,
+		),
+	);
 	sqlite
 		.prepare(
 			"INSERT INTO skill_entries (id,organization_id,tedi_id,slug,title,content,visibility) VALUES (?,?,?,?,?,?,?)",

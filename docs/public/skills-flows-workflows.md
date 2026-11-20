@@ -126,6 +126,15 @@ owner or admin. That person can test an existing reviewed draft with
 then activate it before agents, queues, or schedules run it unattended.
 An agent or service cannot use the certification flag as owner authority.
 
+Before you archive a skill, check what depends on it. `tedix skill show
+SKILL_UUID` and the skill's Settings page in Tedix OS list its users under
+"Used by": local runners that read it as their rules, schedules, factories and
+linked Workspaces. A skill that is only read leaves no run history, so a quiet
+skill is not always an unused one. Archiving is refused while a runner,
+schedule or factory still uses the skill; stop those uses first. An archived
+skill whose text has not changed goes back to its earlier state without a new
+certification run.
+
 Use the returned run identifier for readback:
 
 ```bash

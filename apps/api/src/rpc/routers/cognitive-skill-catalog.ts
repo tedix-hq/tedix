@@ -25,6 +25,10 @@ import {
 	computeSkillPromotionBlockers,
 } from "@tedix/db/queries/cognitive/skill-promotion";
 import { auditLowQualitySkills } from "@tedix/db/queries/cognitive/skill-quality";
+import {
+	listSkillUsers,
+	skillUsersBlockingArchive,
+} from "@tedix/db/queries/cognitive/skill-users";
 import { computeSkillRepairs } from "@tedix/db/queries/cognitive/skill-repair";
 import { findSkillForTask } from "@tedix/db/queries/cognitive/skill-search";
 import { resolveToolSlugsForApp } from "@tedix/db/queries/cognitive/skill-tool-metadata";
@@ -81,6 +85,7 @@ import {
 	syncSkillScheduleProjection,
 	scheduledSkillPromotionBlocker,
 	validatedSkillSchedule,
+	assertSkillArchiveAllowed,
 } from "./cognitive-skill-shared";
 import {
 	callerTurnWorkspace,
@@ -147,6 +152,15 @@ export const skillsImprove = authedSkills.improve
 		const orgId = context.organizationId;
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
+		if (
+			input.lifecycleState === "archived" &&
+			existing.lifecycleState !== "archived"
+		)
+			await assertSkillArchiveAllowed(
+				context,
+				existing,
+				input.acknowledgeUsedBy,
+			);
 
 		if (
 			existing.lifecycleState === "draft" &&
@@ -481,7 +495,11 @@ export const skillsGet = authedSkills.get
 	.handler(async ({ input, context }) => {
 		const orgId = context.organizationId;
 		const entry = await getSkillEntry(context.db, input.id, orgId);
-		return { entry: entry ?? null };
+		if (!entry) return { entry: null };
+		return {
+			entry,
+			usedBy: await listSkillUsers(context.db, { orgId, skillId: entry.id }),
+		};
 	});
 
 export const skillsMove = authedSkills.move
@@ -719,10 +737,28 @@ export const skillsAuditLowQuality = authedSkills.auditLowQuality
 			offset: input.offset,
 		});
 
+		// Run history does not show a skill that is only read, so each candidate
+		// is checked against its declared users before it is called unused.
+		const inUse = new Map<string, string[]>();
+		for (let offset = 0; offset < result.candidates.length; offset += 10)
+			await Promise.all(
+				result.candidates.slice(offset, offset + 10).map(async ({ entry }) => {
+					const blocking = skillUsersBlockingArchive(
+						await listSkillUsers(context.db, { orgId, skillId: entry.id }),
+					);
+					if (blocking.length > 0)
+						inUse.set(
+							entry.id,
+							blocking.map((user) => user.label),
+						);
+				}),
+			);
+
 		let archivedCount = 0;
 		if (input.archive) {
 			for (const candidate of result.candidates) {
 				const entry = candidate.entry;
+				if (inUse.has(entry.id)) continue;
 				const existingReasoning = entry.revisionReasoning?.trim();
 				const note = `Archived by audit_low_quality_skills: ${candidate.reasons.map((reason) => reason.code).join(", ")}`;
 				await updateSkillEntry(context.db, entry.id, {
@@ -742,6 +778,7 @@ export const skillsAuditLowQuality = authedSkills.auditLowQuality
 			candidates: result.candidates.map((candidate) => {
 				const entry = candidate.entry;
 				return {
+					...(inUse.has(entry.id) ? { inUse: inUse.get(entry.id) } : {}),
 					id: entry.id,
 					title: entry.title,
 					slug: entry.slug,
@@ -816,7 +853,11 @@ export const skillsGetForMcp = authedSkills.getForMcp
 			...input,
 			tediId: input.tediId ?? context.tediId,
 		});
-		return { entry: entry ?? null };
+		if (!entry) return { entry: null };
+		return {
+			entry,
+			usedBy: await listSkillUsers(context.db, { orgId, skillId: entry.id }),
+		};
 	});
 
 export const skillsUsage = authedSkills.usage

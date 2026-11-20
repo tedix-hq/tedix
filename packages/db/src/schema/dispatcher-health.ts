@@ -36,6 +36,11 @@ export const dispatcherHealthReports = sqliteTable(
 		 * account may claim the machine's tool calls under this reporter id.
 		 */
 		reportedBy: text("reported_by"),
+		/**
+		 * The skill whose text this runner reads as its standing rules on every
+		 * pass. The runner declares it, so the skill can show who depends on it.
+		 */
+		rulesSkillId: text("rules_skill_id"),
 	},
 	(table) => [
 		primaryKey({

@@ -22,6 +22,7 @@ import {
 	MuscleMemoryOriginSchema,
 	MuscleMemorySchema,
 	SkillEntrySchema,
+	SkillUsedBySchema,
 	SkillFolderPathSchema,
 	SkillLifecycleStateSchema,
 	SkillPaceLayerSchema,
@@ -258,8 +259,15 @@ const SkillImproveInputSchema = z.object({
 	audience: z.array(z.string()).optional(),
 	preconditions: SkillPreconditionsSchema.optional(),
 	lifecycleState: SkillLifecycleStateSchema.optional().describe(
-		"Target lifecycle state. Turning a draft back on requires a signed-in active organization owner or admin and restores its manifest schedule.",
+		"Target lifecycle state. Turning a draft back on requires a signed-in active organization owner or admin and restores its manifest schedule. Archiving is refused while the skill has users that would stop working (see usedBy on the skill read); an unchanged archived skill returns to its earlier state without a new certification.",
 	),
+	acknowledgeUsedBy: z
+		.array(z.string().min(1).max(300))
+		.max(50)
+		.optional()
+		.describe(
+			"Only when archiving a skill that is in use: the key of every user that will stop working, exactly as the refusal lists them.",
+		),
 	paceLayer: SkillPaceLayerSchema.optional().describe(
 		"Manual pace-layer override. Auto-derived from lifecycle otherwise; requires force: true and human/operator authority, and is re-derived on the next lifecycle transition.",
 	),
@@ -875,7 +883,12 @@ export const skillsContract = base.route({ tags: ["skills"] }).router({
 			summary: "Get an organization skill for the control plane",
 		})
 		.input(z.object({ id: z.string() }))
-		.output(z.object({ entry: SkillEntrySchema.nullable() })),
+		.output(
+			z.object({
+				entry: SkillEntrySchema.nullable(),
+				usedBy: SkillUsedBySchema,
+			}),
+		),
 
 	move: oc
 		.route({
@@ -1095,7 +1108,7 @@ export const skillsContract = base.route({ tags: ["skills"] }).router({
 			path: "/skills/audit-low-quality",
 			tags: ["cognitive"],
 			summary:
-				"Audit active skills for low-quality crystallization or auto-bridge artifacts.",
+				"Audit active skills for low-quality crystallization or auto-bridge artifacts. A candidate that something still depends on lists its users in inUse and is never archived here.",
 		})
 		.input(
 			z.object({
@@ -1158,6 +1171,12 @@ export const skillsContract = base.route({ tags: ["skills"] }).router({
 				archivedCount: z.number(),
 				candidates: z.array(
 					z.object({
+						inUse: z
+							.array(z.string())
+							.optional()
+							.describe(
+								"Who still depends on this skill. When present, the skill is not unused and was left in place.",
+							),
 						id: z.string(),
 						title: z.string(),
 						slug: z.string().nullable().optional(),
@@ -1248,7 +1267,12 @@ export const skillsContract = base.route({ tags: ["skills"] }).router({
 				tediId: z.string().optional(),
 			}),
 		)
-		.output(z.object({ entry: SkillEntrySchema.nullable() })),
+		.output(
+			z.object({
+				entry: SkillEntrySchema.nullable(),
+				usedBy: SkillUsedBySchema,
+			}),
+		),
 
 	find: oc
 		.route({ method: "POST", path: "/skills/find", tags: ["cognitive"] })

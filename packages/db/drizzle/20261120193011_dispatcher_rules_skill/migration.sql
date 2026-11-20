@@ -1,0 +1,1 @@
+ALTER TABLE `dispatcher_health_reports` ADD `rules_skill_id` text;

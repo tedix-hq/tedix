@@ -6,6 +6,7 @@
  * lifecycle gate as `record_skills`.
  */
 
+import { listSkillUsers } from "@tedix/db/queries/cognitive/skill-users";
 import { factoryApprovalContext } from "../../services/factory-approval";
 import { ensureWorkspaceTediRole } from "../../services/os-workspace-tedi-role";
 import { createRouterClient, implement, ORPCError } from "@orpc/server";
@@ -373,7 +374,17 @@ async function controlFactory(
 	const client = createRouterClient({ improve: skillsImprove }, { context });
 	await client.improve(
 		action === "archived"
-			? { id: skill.id, lifecycleState: "archived" }
+			? {
+					id: skill.id,
+					lifecycleState: "archived",
+					// Retiring the factory is what stops its own schedule and lane;
+					// any other user of the skill still refuses the archive.
+					acknowledgeUsedBy: (
+						await listSkillUsers(context.db, { orgId, skillId: skill.id })
+					)
+						.filter((user) => ["factory", "schedule"].includes(user.kind))
+						.map((user) => user.key),
+				}
 			: {
 					id: skill.id,
 					content: setFactoryScheduleEnabled(

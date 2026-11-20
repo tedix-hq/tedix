@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink, useParams } from "@tanstack/react-router";
-import type { SkillEntry } from "@tedix/api-contract/schemas/cognitive";
+import type {
+	SkillEntry,
+	SkillUser,
+} from "@tedix/api-contract/schemas/cognitive";
 import { useMemo } from "react";
 import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Badge } from "@/components/kumo/badge";
@@ -80,6 +83,7 @@ export function SkillSettingsPage() {
 		<div className="grid min-w-0 gap-8">
 			<SkillSchedulePage />
 			<SkillOwnerSection skill={skill} />
+			<SkillUsedBySection usedBy={detail.data?.usedBy ?? []} />
 			<SkillConnectionsSection skill={skill} />
 			<PageSection aria-labelledby="skill-inputs-title">
 				<SectionHeader>
@@ -132,6 +136,44 @@ function SkillOwnerSection({ skill }: { skill: SkillEntry }) {
 					No single tedi owns this skill; the organization shares it. Each run
 					uses the tedi chosen when it starts.
 				</Text>
+			)}
+		</PageSection>
+	);
+}
+
+/** Who depends on this skill, as each user declared it. */
+function SkillUsedBySection({ usedBy }: { usedBy: readonly SkillUser[] }) {
+	return (
+		<PageSection aria-labelledby="skill-used-by-title">
+			<SectionHeader>
+				<SectionHeading>
+					<SectionTitle id="skill-used-by-title">Used by</SectionTitle>
+					<SectionDescription>
+						What depends on this skill. Archiving it stops the ones marked below
+						from working.
+					</SectionDescription>
+				</SectionHeading>
+			</SectionHeader>
+			{usedBy.length === 0 ? (
+				<Text role="body" tone="secondary" className="m-0">
+					Nothing has said that it uses this skill.
+				</Text>
+			) : (
+				<ul className="m-0 grid list-none gap-2 p-0">
+					{usedBy.map((user) => (
+						<li
+							key={user.key}
+							className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"
+						>
+							<Text role="body" className="wrap-anywhere">
+								{user.label}
+							</Text>
+							{user.blocksArchive ? (
+								<Badge variant="warning">Stops if archived</Badge>
+							) : null}
+						</li>
+					))}
+				</ul>
 			)}
 		</PageSection>
 	);
