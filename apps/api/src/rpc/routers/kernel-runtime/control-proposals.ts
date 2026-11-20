@@ -582,6 +582,7 @@ async function retryDelegationWorkItem(
 				}),
 			delegateToTediId: delegatedTediId,
 			pickedByPerson,
+			chatModelRef: stringFromPayload(homeRunMetadata.modelRef),
 			metadata: {
 				source: "kernelRuntime.retryDelegation",
 				...(pickedByPerson

@@ -165,20 +165,24 @@ export function generationForSurface(
 const TURN_MODEL_SOURCE_PREFIX = "reply-draft:";
 
 /**
- * The per-turn model an inject asks for, honored only on a reply-draft turn
+ * The per-turn model an inject asks for. It is honored on a reply-draft turn
  * (a short drafting turn routed to the question's owner runs on the Drafter's
- * fast model). Any other turn, or a malformed selection, gets `undefined`
- * and keeps the tedi's own policy. The catalog still validates the ref when
- * the turn selects its model.
+ * fast model) and on a message a signed-in person sent to a tedi they picked
+ * in the chat, where the API has already checked the model the chat shows
+ * against what this tedi may use. Any other turn, or a malformed selection,
+ * gets `undefined` and keeps the tedi's own policy. The catalog still
+ * validates the ref when the turn selects its model.
  */
 export function turnModelForInject(
 	metadata: Record<string, unknown> | null | undefined,
+	pickedByPerson = false,
 ): TurnModelSelection | undefined {
 	if (
-		typeof metadata?.source !== "string" ||
-		!metadata.source.startsWith(TURN_MODEL_SOURCE_PREFIX)
+		!pickedByPerson &&
+		(typeof metadata?.source !== "string" ||
+			!metadata.source.startsWith(TURN_MODEL_SOURCE_PREFIX))
 	)
 		return undefined;
-	const parsed = TurnModelSelectionSchema.safeParse(metadata.turnModel);
+	const parsed = TurnModelSelectionSchema.safeParse(metadata?.turnModel);
 	return parsed.success ? parsed.data : undefined;
 }

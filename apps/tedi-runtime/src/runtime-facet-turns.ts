@@ -1572,9 +1572,16 @@ export const runtimeFacetTurns = {
 			const source =
 				input.source ?? inferenceSource(input.sessionKey, input.surface);
 			const modelSurface = input.modelSurface ?? "chat";
+			const surfaceModel = this.modelOverrideForSurface(modelSurface);
 			const modelOverride = input.turnModel
 				? { modelRef: input.turnModel.modelRef }
-				: this.modelOverrideForSurface(modelSurface);
+				: surfaceModel;
+			// A turn model replaces the tedi's generation settings too, unless it
+			// brings none and names the model the tedi would have used anyway.
+			const ownGeneration =
+				!input.turnModel ||
+				(!input.turnModel.generation &&
+					input.turnModel.modelRef === surfaceModel?.modelRef);
 			// Adaptive routing is authority, not a property a model ref grants itself.
 			// Ordinary chat, agent, and background turns use the platform default;
 			// Model routing does not replace deterministic authority or Work admission.
@@ -1595,12 +1602,12 @@ export const runtimeFacetTurns = {
 				)?.modelRef.startsWith("azure-openai/")
 					? this.observerDeploymentForTurn()
 					: null,
-				generation: input.turnModel
-					? (input.turnModel.generation ?? {})
-					: generationForSurface(
+				generation: ownGeneration
+					? generationForSurface(
 							this.runtimeConfigCache.modelPolicy,
 							modelSurface,
-						),
+						)
+					: (input.turnModel?.generation ?? {}),
 				adaptiveRouting,
 				aigMetadata: this.tediAigMetadata(source, {
 					runId: input.gatewayAttributionRunId ?? input.runId,

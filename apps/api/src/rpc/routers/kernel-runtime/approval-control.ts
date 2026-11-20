@@ -783,6 +783,9 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		content: childDispatchContent,
 		delegateToTediId: pending.targetTediId,
 		pickedByPerson,
+		chatModelRef: stringFromPayload(
+			nonNullRecord(input.run.metadata)?.modelRef,
+		),
 		metadata: toJsonRecord({
 			source: "kernelRuntime.respondApproval",
 			homeConversationId: input.run.conversationId,
@@ -1620,6 +1623,9 @@ async function retryKernelRunCore(
 	const retryMetadata = {
 		source: "kernelRuntime.retryRun",
 		...(pickedByPerson ? { pickedByPerson } : {}),
+		...(pickedByPerson && typeof existingMetadata.modelRef === "string"
+			? { modelRef: existingMetadata.modelRef }
+			: {}),
 		contentLength: sourceContent.length,
 		idempotencyKey: newRunId,
 		delegatedTediId,
@@ -1727,6 +1733,7 @@ async function retryKernelRunCore(
 					}),
 			delegateToTediId: delegatedTediId,
 			pickedByPerson,
+			chatModelRef: stringFromPayload(existingMetadata.modelRef),
 			metadata: {
 				source: "kernelRuntime.retryRun",
 				...(runtimeMetadata.requiredProofKind
