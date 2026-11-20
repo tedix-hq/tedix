@@ -11,6 +11,7 @@
 		"types": "bun ../../scripts/generate-worker-types.ts tedi-runtime",
 		"types:check": "bun ../../scripts/generate-worker-types.ts --check tedi-runtime",
 		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- wrangler dev",
+		"dev:local-launcher": "bun ../../scripts/dev-local.ts -- wrangler dev --port 0",
 		"deploy:production": "bun run types && wrangler deploy --env production --var GIT_SHA:${GIT_SHA:-${GITHUB_SHA:-unknown}} --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
 		"type-check": "tsc --noEmit",
 		"test": "bun run test:run",

@@ -239,6 +239,7 @@ const LOCAL_PROCESS_ENV: Record<string, string> = {
 const LOCAL_D1_DATABASE_ID = "00000000-0000-0000-0000-000000000000";
 const LOCAL_API_WORKER_NAME = "public-installation-api";
 const LOCAL_WORKSPACE_WORKER_NAME = "public-installation-workspace-do";
+const LOCAL_RUNTIME_WORKER_NAME = "public-installation-tedi-runtime";
 
 function isObject(value: unknown): value is JsonObject {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -307,7 +308,35 @@ function alignLocalServiceIdentities(config: JsonObject): void {
 		) {
 			service.service = LOCAL_API_WORKER_NAME;
 		}
+		// Workspace app calls leave the API on TEDI_SERVICE. A deployment relays
+		// them through the tedi edge Worker, which does not run locally, so the
+		// local API calls the runtime that hosts the apps directly.
+		if (
+			config.name === LOCAL_API_WORKER_NAME &&
+			isObject(service) &&
+			service.binding === "TEDI_SERVICE"
+		) {
+			service.service = LOCAL_RUNTIME_WORKER_NAME;
+			delete service.entrypoint;
+		}
 	}
+}
+
+// Keep the local key across restarts: it also encrypts stored secrets.
+// Never inherit a deployment's key.
+function localMasterKey(apiDirectory: string): string {
+	const keyPath = join(apiDirectory, ".wrangler/local-master-key");
+	mkdirSync(dirname(keyPath), { recursive: true });
+	try {
+		writeFileSync(keyPath, randomBytes(32).toString("base64"), {
+			flag: "wx",
+			mode: 0o600,
+		});
+	} catch (error) {
+		if (!(error instanceof Error && "code" in error && error.code === "EEXIST"))
+			throw error;
+	}
+	return readFileSync(keyPath, "utf8").trim();
 }
 
 export function createLocalWranglerConfig(configPath: string): JsonObject {
@@ -330,25 +359,18 @@ export function createLocalWranglerConfig(configPath: string): JsonObject {
 			vars.LOCAL_WORKSPACE_SEED_TOKEN =
 				process.env.TEDIX_LOCAL_WORKSPACE_SEED_TOKEN;
 	}
+	if (config.name === LOCAL_RUNTIME_WORKER_NAME) {
+		const vars: JsonObject = isObject(config.vars) ? config.vars : {};
+		config.vars = vars;
+		// The API signs each app session with its key; the runtime checks it.
+		vars.SECRETS_MASTER_KEY = localMasterKey(
+			join(dirname(configPath), "../api"),
+		);
+	}
 	if (isApi) {
 		const vars: JsonObject = isObject(config.vars) ? config.vars : {};
 		config.vars = vars;
-		// Keep the local key across restarts: it also encrypts stored secrets.
-		// Never inherit a deployment's key.
-		const keyPath = join(dirname(configPath), ".wrangler/local-master-key");
-		mkdirSync(dirname(keyPath), { recursive: true });
-		try {
-			writeFileSync(keyPath, randomBytes(32).toString("base64"), {
-				flag: "wx",
-				mode: 0o600,
-			});
-		} catch (error) {
-			if (
-				!(error instanceof Error && "code" in error && error.code === "EEXIST")
-			)
-				throw error;
-		}
-		vars.SECRETS_MASTER_KEY = readFileSync(keyPath, "utf8").trim();
+		vars.SECRETS_MASTER_KEY = localMasterKey(dirname(configPath));
 	}
 	if (localInferenceBackend && isApi) {
 		const vars: JsonObject = isObject(config.vars) ? config.vars : {};
