@@ -22,7 +22,6 @@ import {
 	SNAPSHOT_PART_SIZE,
 	locateSnapshotBatch,
 	snapshotBatchCount,
-	snapshotPartCount,
 	snapshotPartKey,
 } from "./catalog-snapshot-parts";
 /**
@@ -69,7 +68,6 @@ import {
 import { refreshCatalogShadowedVariants } from "@tedix/db/queries/catalog/vendor-variants";
 import {
 	disableOrphanedCatalogApps,
-	getRecentAppCatalogSyncLogs,
 	markStaleFeedStoreListingsAsRemoved,
 	SNAPSHOT_FEED_MARKER,
 	markStoreListingsAsRemoved,
@@ -453,7 +451,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 							);
 							const previous = previousObject
 								? usableFingerprints(await previousObject.json(), provenanceKey)
-								: await this.fingerprintsOfLastImport(db, owner, feed);
+								: {};
 							const fingerprints: ListingFingerprints = {};
 							const sources = new Set<string>();
 							const changed: CatalogSnapshotItem[] = [];
@@ -1644,48 +1642,6 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			} catch {}
 		}
 		return null;
-	}
-
-	/**
-	 * One-time start for a feed that has no fingerprints yet: take them from the
-	 * listings its last finished import stored, all of which that import wrote.
-	 * Without this the first run would write every listing once more. Remove
-	 * once every live feed has a fingerprints file.
-	 */
-	private async fingerprintsOfLastImport(
-		db: ReturnType<typeof createDbClient>,
-		owner: string,
-		feed: string,
-	): Promise<ListingFingerprints> {
-		const fingerprints: ListingFingerprints = {};
-		try {
-			const last = (await getRecentAppCatalogSyncLogs(db, 50)).find(
-				(log) =>
-					log.status === "completed" &&
-					log.details?.source === feed &&
-					log.details?.snapshotOwner === owner &&
-					typeof log.details?.snapshotKey === "string",
-			);
-			const lastKey = last?.details?.snapshotKey;
-			if (typeof lastKey !== "string") return {};
-			const { itemCount } = CatalogSnapshotManifestSchema.parse(
-				(await this.readR2Json(lastKey)).manifest,
-			);
-			for (let part = 0; part < snapshotPartCount(itemCount); part++) {
-				const stored = await this.env.R2_BUCKET.get(
-					snapshotPartKey(lastKey, part),
-				);
-				if (!stored) return {};
-				for (const item of await stored.json<CatalogSnapshotItem[]>())
-					fingerprints[listingKey(item)] = await fingerprintListing(item);
-			}
-			return fingerprints;
-		} catch (error) {
-			console.warn("[App Catalog Sync] No fingerprints from the last import", {
-				exception: safeExceptionTopology(error),
-			});
-			return {};
-		}
 	}
 
 	private async readR2Json(filePath: string): Promise<Record<string, unknown>> {
