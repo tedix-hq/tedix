@@ -20,6 +20,7 @@ import {
 	type OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
+import type { RegisterAppScheduleInput } from "@tedix/api-contract/schemas/os-app-runtime";
 import type { BindingName } from "./declarations";
 import { buildMemoryBinding } from "./memory-binding";
 import {
@@ -68,6 +69,11 @@ export interface BindingDeps {
 	web?: WebPort;
 	/** Shows a "Connect" card in the running turn's answer; absent outside a chat turn. */
 	requestConnection?: (request: ConnectionRequest) => void;
+	scheduleRegistered?: (run: {
+		gadgetId: string;
+		triggerId: string;
+		name: string;
+	}) => void;
 	accounts?: ReturnType<typeof workspaceAccounts>;
 	accountActor?: Actor;
 }
@@ -236,6 +242,18 @@ export function buildWorkspaceBindings(
 		create: async (input: CreateAppInput) => {
 			await data.checkNewApp(input);
 			return appCreateGate.create(input);
+		},
+		registerSchedule: async (input: RegisterAppScheduleInput) => {
+			const run = await data.registerAppSchedule({
+				...input,
+				actorId: deps.actor.id,
+			});
+			deps.scheduleRegistered?.(run);
+			return {
+				...run,
+				enabled: false,
+				message: "The schedule is off until a person turns it on.",
+			};
 		},
 		getCode: (input: { appId: string; revisionId?: string }) =>
 			data.getAppCode(input),
@@ -482,6 +500,10 @@ export function buildWorkspaceBindings(
 			...common,
 			resource: "app",
 			methods: {
+				registerSchedule: {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
 				list: { riskTier: "read", blastRadius: "none" },
 				getCode: { riskTier: "read", blastRadius: "none" },
 				readFile: { riskTier: "read", blastRadius: "none" },

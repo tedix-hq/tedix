@@ -5,6 +5,7 @@
  */
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
+import type { RegisterAppScheduleInput } from "@tedix/api-contract/schemas/os-app-runtime";
 import type { WorkspaceFileText } from "@tedix/api-contract/utils/workspace-file-text";
 
 export interface OutputSummary {
@@ -188,6 +189,9 @@ export interface WorkspaceDataPort {
 	checkNewApp(input: CreateAppInput): Promise<void>;
 	/** Creates an app in this workspace with revision 1. It has no grants. */
 	createApp(input: CreateAppInput & { actorId: string }): Promise<CreatedApp>;
+	registerAppSchedule(
+		input: RegisterAppScheduleInput & { actorId: string },
+	): Promise<{ gadgetId: string; triggerId: string; name: string }>;
 	listResources(): Promise<ResourceSummary[]>;
 	listWork(options?: {
 		disposition?: string;

@@ -199,6 +199,15 @@ export const AppRuntimeTriggerSchema = z.discriminatedUnion("kind", [
 ]);
 export type AppRuntimeTrigger = z.infer<typeof AppRuntimeTriggerSchema>;
 
+export const RegisterAppScheduleInputSchema = z.strictObject({
+	appId: z.string().uuid(),
+	expectedRevisionId: z.string().uuid(),
+	schedule: AppRuntimeTriggerSchema.options[0],
+});
+export type RegisterAppScheduleInput = z.infer<
+	typeof RegisterAppScheduleInputSchema
+>;
+
 export const AppRuntimeTriggerStateSchema = z.object({
 	trigger: AppRuntimeTriggerSchema,
 	enabled: z.boolean(),

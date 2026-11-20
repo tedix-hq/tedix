@@ -1733,6 +1733,69 @@ describe("WorkspaceDO", () => {
 			"applied",
 		]);
 
+		const schedule = {
+			appId: row!.id,
+			expectedRevisionId: code.revisionId,
+			schedule: {
+				id: "morning",
+				kind: "schedule",
+				cron: "0 9 * * *",
+				method: "count",
+			},
+		};
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async env => env.apps.registerSchedule(${JSON.stringify(schedule)})`,
+			},
+		]);
+		const scheduled = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Run the counter every morning",
+		});
+		await ws.awaitTurn(scope, scheduled.turnId, 20000);
+		const scheduleEvents = await ws.readEvents(scope, {
+			conversationId: scheduled.conversationId,
+			after: 0,
+		});
+		const scheduleApproval = scheduleEvents.find(
+			(event) =>
+				event.type === "approval.requested" &&
+				event.title === "Registering a scheduled run",
+		);
+		if (!scheduleApproval || scheduleApproval.type !== "approval.requested")
+			throw new Error("Schedule registration did not request approval");
+		await ws.scriptModel(scope, [
+			{ text: "The schedule is off until you turn it on." },
+		]);
+		const registration = await ws.decideApproval(scope, {
+			approvalId: scheduleApproval.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(registration.applied).toBe(true);
+		if (registration.turnId)
+			await ws.awaitTurn(scope, registration.turnId, 20000);
+		const receipt = (
+			await ws.readEvents(scope, {
+				conversationId: scheduled.conversationId,
+				after: 0,
+			})
+		).find((event) => event.type === "schedule.registered");
+		expect(receipt).toMatchObject({
+			gadgetId: row!.id,
+			triggerId: "morning",
+			name: "Visit counter",
+		});
+		const updated = await data.getAppCode({ appId: row!.id });
+		expect(updated.manifest.config?.triggers).toEqual([schedule.schedule]);
+		const switched = await testEnv.DB.prepare(
+			"SELECT trigger_enabled FROM os_gadgets WHERE id = ?",
+		)
+			.bind(row!.id)
+			.first<{ trigger_enabled: string }>();
+		expect(JSON.parse(switched!.trigger_enabled)).toEqual({ morning: false });
+
 		// A name in use is refused by the check, again without a card.
 		const taken = await ask({ name: "Visit counter", files });
 		expect(

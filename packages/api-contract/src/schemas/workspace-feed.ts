@@ -40,6 +40,12 @@ export const WorkspaceActionSchema = z.strictObject({
 		"needs_approval",
 	]),
 	surface: z.literal("workspace_object"),
+	automaticRun: z
+		.strictObject({
+			gadgetId: z.string().uuid(),
+			triggerId: z.string().min(1).max(80),
+		})
+		.optional(),
 	traceId: z.string().min(1).max(200).optional(),
 	revisionId: z.string().min(1).max(200).optional(),
 });

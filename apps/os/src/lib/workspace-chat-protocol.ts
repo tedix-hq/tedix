@@ -297,6 +297,13 @@ export type WorkspaceChatLedgerEvent =
 			app?: { appId: string; name: string };
 	  })
 	| (Stamped & {
+			type: "schedule.registered";
+			turnId: string;
+			gadgetId: string;
+			triggerId: string;
+			name: string;
+	  })
+	| (Stamped & {
 			/** A live view for the answer, rendered in the sandboxed widget frame. */
 			type: "view.shown";
 			turnId: string;
@@ -429,6 +436,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"approval.decided",
 	"approval.executed",
 	"view.shown",
+	"schedule.registered",
 	"connection.requested",
 	"turn.finished",
 	"conversation.updated",
