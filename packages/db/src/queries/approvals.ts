@@ -1232,10 +1232,11 @@ export async function recordOwnerToolApprovalExecution(
 }
 
 /**
- * An approved Home write authorizes one execution per approved call and
- * credential path: the slot is "<user|tenant>_<args digest>". The tenant slot
- * exists because a user-credential call that found no personal connection
- * reached no provider; its tenant fallback is the same approved call.
+ * An approved, unexpired Home write authorizes one execution per approved
+ * call: the slot is "<user|tenant>_<args digest>". The tenant slot exists
+ * because a user-credential call that found no personal connection reached
+ * no provider; its tenant fallback is the same approved call. Fallback only
+ * runs user to tenant, so a tenant use also spends the user slot.
  */
 export async function consumeHomeToolApprovalCall(
 	db: DbClient,
@@ -1244,10 +1245,11 @@ export async function consumeHomeToolApprovalCall(
 	if (!/^(?:user|tenant)_[0-9a-f]{64}$/.test(input.slot))
 		throw new Error("Invalid Home approval call slot");
 	const path = `$.consumedCalls.${input.slot}`;
+	const userPath = path.replace("tenant_", "user_");
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(${tediApprovalRequests.payload}, ${path}, ${input.now})`,
+			payload: sql`json_insert(json_set(${tediApprovalRequests.payload}, ${path}, ${input.now}), ${userPath}, ${input.now})`,
 		})
 		.where(
 			and(
@@ -1255,6 +1257,7 @@ export async function consumeHomeToolApprovalCall(
 				eq(tediApprovalRequests.orgId, input.organizationId),
 				eq(tediApprovalRequests.status, "approved"),
 				eq(tediApprovalRequests.actionType, "home.tool_write"),
+				gt(tediApprovalRequests.expiresAt, input.now),
 				sql`json_extract(${tediApprovalRequests.payload}, ${path}) IS NULL`,
 			),
 		)

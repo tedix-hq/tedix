@@ -1206,7 +1206,7 @@ describe("exact owner tool approval consumption", () => {
 });
 
 describe("Home write approval call consumption", () => {
-	it("runs each approved call once per credential path", async () => {
+	it("runs each approved call once, falling back only from user to tenant, until it expires", async () => {
 		const { db } = setup();
 		await createApprovalRequest(db, {
 			id: "home-1",
@@ -1256,6 +1256,26 @@ describe("Home write approval call consumption", () => {
 				slot: `user_${"b".repeat(64)}`,
 			}),
 		).toBe(true);
+		// A tenant run spends the user slot: no second run in the other order.
+		expect(
+			await consumeHomeToolApprovalCall(db, {
+				...input,
+				slot: `tenant_${"c".repeat(64)}`,
+			}),
+		).toBe(true);
+		expect(
+			await consumeHomeToolApprovalCall(db, {
+				...input,
+				slot: `user_${"c".repeat(64)}`,
+			}),
+		).toBe(false);
+		expect(
+			await consumeHomeToolApprovalCall(db, {
+				...input,
+				slot: `user_${"d".repeat(64)}`,
+				now: "2099-01-02T00:00:00.000Z",
+			}),
+		).toBe(false);
 		await expect(
 			consumeHomeToolApprovalCall(db, { ...input, slot: "user_x') --" }),
 		).rejects.toThrow("Invalid Home approval call slot");
