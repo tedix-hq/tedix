@@ -801,6 +801,7 @@
       "version": "0.0.2",
       "dependencies": {
         "@babel/parser": "^8.1.2",
+        "@tedix/agent-governance": "workspace:*",
         "@tedix/api-contract": "workspace:*",
         "@tedix/context-core": "workspace:*",
         "@tedix/tenant-directory": "workspace:*",
