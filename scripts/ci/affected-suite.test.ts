@@ -134,7 +134,7 @@ test("only the shared CI, gate, push and hook scripts still force the full suite
 			"scripts/dev/push-queue.ts",
 			"scripts/dev/push-hook-profile.test.ts",
 			".githooks/pre-push",
-			".githooks/pre-push.d/policy",
+			".githooks/pre-push-checks",
 		]) {
 			const plan = suiteSelection(root, { eventName: "push", files: [file] });
 			expect(plan.repository).toBe(true);

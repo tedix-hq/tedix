@@ -39,7 +39,6 @@
 		"ci/shard-rerun.test.ts",
 		"ci/backfill-commit-watch.mjs",
 		"ci/backfill-commit-watch.test.ts",
-		"ci/high-risk-paths.test.ts",
 		"ci/interaction-profile.test.ts",
 		"ci/migration-order.ts",
 		"ci/migration-order.test.ts",

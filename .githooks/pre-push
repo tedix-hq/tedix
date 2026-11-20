@@ -5,11 +5,7 @@
 # sets it up). Git feeds "<localRef> <localSha> <remoteRef> <remoteSha>" lines on
 # stdin, one per ref being pushed.
 #
-# Each executable in .githooks/pre-push.d/ runs first with "<remoteSha>
-# <localSha>" for every pushed ref, then the repo gates run scoped to the
-# pushed range (scripts/ci/preflight-gates.mjs). Without bun the hook does
-# nothing: it must never make the repo unpushable. `git push --no-verify`
-# bypasses it.
+# Runs scripts/ci/preflight-gates.mjs for the pushed ranges when Bun is available.
 set -uo pipefail
 
 command -v bun >/dev/null 2>&1 || exit 0
