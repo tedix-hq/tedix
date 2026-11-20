@@ -258,6 +258,9 @@ export function WorkCapacityPage({
 	);
 	const operational = useOsOperationalContext();
 	const organizationId = operational.data?.organization?.id ?? "";
+	const role = operational.data?.authority.role;
+	const machineOrganizationId =
+		role === "owner" || role === "admin" ? organizationId : undefined;
 	const [poolVersion, setPoolVersion] = useState<number | undefined>();
 	const [budgetVersion, setBudgetVersion] = useState<number | undefined>();
 	const [poolFormOpen, setPoolFormOpen] = useState(false);
@@ -370,7 +373,9 @@ export function WorkCapacityPage({
 						: "Change settings"}{" "}
 				</Button>
 			</div>
-			{view === "resources" ? <DispatcherLaneHealth /> : null}
+			{view === "resources" ? (
+				<DispatcherLaneHealth machineOrganizationId={machineOrganizationId} />
+			) : null}
 			<Collapsible open={poolFormOpen || budgetFormOpen}>
 				<CollapsibleContent keepMounted>
 					<div className="grid gap-3 lg:grid-cols-2">

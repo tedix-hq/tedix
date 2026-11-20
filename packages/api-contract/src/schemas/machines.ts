@@ -396,8 +396,9 @@ export const ListMachineToolCallsInputSchema = z.strictObject({
 		.describe(
 			"Only calls that change a workspace or run a command (the default); false includes the read tools",
 		),
+	order: z.enum(["oldest", "newest"]).default("oldest"),
 	cursor: MachineToolCallListCursorSchema.optional().describe(
-		"nextCursor from the previous page; keep the same machine, range and writesOnly",
+		"nextCursor from the previous page; keep the same machine, range, writesOnly and order",
 	),
 	limit: z.number().int().min(1).max(100).default(50),
 });

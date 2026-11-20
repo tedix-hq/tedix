@@ -30,6 +30,7 @@ import {
 import { dispatcherHealthQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { OS_COPY } from "@/shared/os-copy";
+import { OrganizationMachines } from "./organization-machines";
 
 function skipReasonSummary(reason: string): string {
 	if (
@@ -74,7 +75,11 @@ function isStaleReport(lane: DispatcherHealthReport, now: number): boolean {
 	);
 }
 
-export function DispatcherLaneHealth() {
+export function DispatcherLaneHealth({
+	machineOrganizationId,
+}: {
+	machineOrganizationId?: string;
+}) {
 	const health = useQuery({
 		...dispatcherHealthQueryOptions(),
 		refetchInterval: 30_000,
@@ -84,7 +89,7 @@ export function DispatcherLaneHealth() {
 		const timer = setInterval(() => setNow(Date.now()), 15_000);
 		return () => clearInterval(timer);
 	}, []);
-	return (
+	const localRunners = (
 		<section aria-label="Local runners" className="grid gap-3">
 			<div>
 				<SectionTitle>Local runners</SectionTitle>
@@ -189,6 +194,19 @@ export function DispatcherLaneHealth() {
 				);
 			})}
 		</section>
+	);
+	return (
+		<>
+			{localRunners}
+			{machineOrganizationId ? (
+				<OrganizationMachines
+					organizationId={machineOrganizationId}
+					reports={(health.data?.data ?? []).filter(
+						(report) => report.running && !isStaleReport(report, now),
+					)}
+				/>
+			) : null}
+		</>
 	);
 }
 
