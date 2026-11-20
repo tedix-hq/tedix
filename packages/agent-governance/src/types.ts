@@ -297,6 +297,12 @@ export interface ChangeRecord {
 	/** The task the call was about, when known. */
 	subject?: { kind: "work_item"; id: string };
 	environment?: ChangeEnvironment;
+	/**
+	 * A gap record (a call whose own record was lost) has `outcome` "unknown",
+	 * a `decision.reason` starting with "record_lost:" that says where it was
+	 * recovered from and the original outcome, and `parent.recordId` set to
+	 * the lost record's id.
+	 */
 	parent?: ChangeParent;
 }
 
