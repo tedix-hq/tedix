@@ -19,7 +19,10 @@ import {
 	opensThinkingImplicitly,
 	splitInlineThinking,
 } from "./inline-thinking";
-import { claude55RequestCapabilities } from "./model-capabilities";
+import {
+	claude55RequestCapabilities,
+	meetsStrictSchemaRules,
+} from "./model-capabilities";
 import { authorizedProviderDispatch, type WorkersAiClient } from "./transport";
 
 export { CLOUDFLARE_AUTO_MODEL_REF };
@@ -170,35 +173,6 @@ function autoRouterMessages(prompt: CallOptions["prompt"]): unknown[] {
 		}
 	}
 	return messages;
-}
-
-/**
- * Strict function schemas must list every property as required and forbid
- * extra properties at every level. A provider that enforces this rejects the
- * whole request otherwise, so a tool with an optional parameter is sent
- * without strict mode.
- */
-function meetsStrictSchemaRules(schema: unknown): boolean {
-	if (Array.isArray(schema)) return schema.every(meetsStrictSchemaRules);
-	if (!schema || typeof schema !== "object") return true;
-	const node = schema as Record<string, unknown>;
-	const properties =
-		node.properties && typeof node.properties === "object"
-			? (node.properties as Record<string, unknown>)
-			: null;
-	if (node.type === "object" || properties) {
-		if (node.additionalProperties !== false) return false;
-		const required = Array.isArray(node.required) ? node.required : [];
-		if (Object.keys(properties ?? {}).some((key) => !required.includes(key)))
-			return false;
-	}
-	return [
-		...Object.values(properties ?? {}),
-		...Object.values(node.$defs ?? {}),
-		...Object.values(node.definitions ?? {}),
-		node.items,
-		node.anyOf,
-	].every(meetsStrictSchemaRules);
 }
 
 function autoRouterTools(tools: CallOptions["tools"]): unknown[] | undefined {
