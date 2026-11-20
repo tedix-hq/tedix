@@ -57,12 +57,21 @@ async function wakeAgentRunner(
 	}
 }
 
+/** Dispatches that carry a message to a tedi a person picked in the chat. */
+const PICKED_TURN_SOURCES = new Set([
+	"kernelRuntime.delegate",
+	"kernelRuntime.retryDelegation",
+	"kernelRuntime.retryRun",
+	"kernelRuntime.respondApproval",
+]);
+
 /**
  * The person's chat conversation when this inject is a delegation to a tedi
  * that a signed-in person picked in the chat, otherwise undefined.
  *
- * The API sets `pickedByPerson` only on that dispatch. A delegation Home
- * decides by itself, a scheduled turn and a turn from a caller that is not a
+ * The API sets `pickedByPerson` only on that dispatch, and on its retry or
+ * its resume after an approval. A delegation Home decides by itself, a
+ * scheduled turn and a turn from a caller that is not a
  * member never yield a conversation here, so they are not offered the
  * agent-run tools.
  */
@@ -72,7 +81,11 @@ export function personChatConversationForInject(
 ): string | undefined {
 	if (callerTrust !== "member") return undefined;
 	if (metadata?.pickedByPerson !== true) return undefined;
-	if (metadata.source !== "kernelRuntime.delegate") return undefined;
+	if (
+		typeof metadata.source !== "string" ||
+		!PICKED_TURN_SOURCES.has(metadata.source)
+	)
+		return undefined;
 	const text = (value: unknown) =>
 		typeof value === "string" && value.trim() ? value.trim() : undefined;
 	if (!text(metadata.homeRunId) || !text(metadata.workItemId)) return undefined;

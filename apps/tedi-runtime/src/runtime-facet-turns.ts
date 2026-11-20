@@ -1046,6 +1046,8 @@ export const runtimeFacetTurns = {
 			personChatConversationId?: string;
 			/** Set by the API when this turn is a work order Home wrote. */
 			homeWorkOrder?: boolean;
+			/** Tasks a picked tedi's message names; context beside the message. */
+			taskReference?: string;
 			/** Set for a turn the scheduler or the runtime started, not a person. */
 			trustedInstructionOrigin?: ChatTurnParams["trustedInstructionOrigin"];
 			personalRequest?: boolean;
@@ -1431,7 +1433,7 @@ export const runtimeFacetTurns = {
 				CODE_MODE_BATCHING_NOTE,
 				trust === "untrusted" ? untrustedTurnSystemAddendum("mcp") : "",
 			],
-			[coreMemory, addenda],
+			[coreMemory, addenda, input.taskReference ?? ""],
 		);
 		// Runtime-authored consent block: appended to the
 		// SYSTEM prompt, never the user message, so the one trustworthy consent
@@ -2722,6 +2724,7 @@ export const runtimeFacetTurns = {
 			homeRunId: input.homeRunId,
 			personChatConversationId: input.personChatConversationId,
 			homeWorkOrder: input.homeWorkOrder,
+			taskReference: input.taskReference,
 			trustedInstructionOrigin: input.trustedInstructionOrigin,
 			personalRequest: input.personalRequest,
 			executionSurface: input.executionSurface,

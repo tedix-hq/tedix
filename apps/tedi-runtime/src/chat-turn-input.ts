@@ -62,6 +62,12 @@ export interface ChatTurnParams {
 	 */
 	homeWorkOrder?: boolean;
 	/**
+	 * Tasks the person's message names, as reference data for a tedi a person
+	 * picked in the chat. It joins the tedi's context beside the message; the
+	 * message text itself stays exactly as the person typed it.
+	 */
+	taskReference?: string;
+	/**
 	 * Trusted skill-run identity for AI Gateway cost attribution. This is set
 	 * only from the authenticated MCP workflow provenance header; the tedi run
 	 * id remains the durable execution and idempotency identity.

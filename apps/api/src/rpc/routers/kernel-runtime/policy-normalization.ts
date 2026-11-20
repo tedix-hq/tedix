@@ -100,6 +100,12 @@ export type KernelDelegateRunnerInput = {
 	 * one source of the `pickedByPerson` flag the tedi's turn receives.
 	 */
 	pickedByPerson?: boolean;
+	/**
+	 * A notice about a run that a picked tedi started from this chat. It goes
+	 * into the conversation's tedi session, so the tedi's history holds it, but
+	 * it is not the person's message and never sets `pickedByPerson`.
+	 */
+	conversationNotice?: boolean;
 };
 
 /**
@@ -122,16 +128,20 @@ export function delegationMetadataForPick(
  * replies and its tool results. The session lives inside that tedi, so two
  * tedis picked in one chat never share it. The conversation id is hashed
  * because it is free text and the runtime folds unusual characters together.
- * Every other delegation gets a session of its own.
+ * A retry, a resume after an approval and a notice about a run the tedi
+ * started there continue that same session. Every other delegation gets a
+ * session of its own.
  */
 export async function delegationSessionKeyForDispatch(input: {
 	childRunId: string;
 	pickedByPerson: boolean | undefined;
+	conversationNotice?: boolean;
 	homeConversationId: unknown;
 }): Promise<string> {
 	const chat = stringFromPayload(input.homeConversationId);
-	if (input.pickedByPerson !== true || !chat)
-		return delegationSessionKey(input.childRunId);
+	const inConversation =
+		input.pickedByPerson === true || input.conversationNotice === true;
+	if (!inConversation || !chat) return delegationSessionKey(input.childRunId);
 	return `agent:main:chat-${(await sha256Hex(chat)).slice(0, 32)}`;
 }
 
@@ -300,6 +310,7 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 	attachments,
 	metadata: suppliedMetadata,
 	pickedByPerson,
+	conversationNotice,
 }) => {
 	let metadata = delegationMetadataForPick(suppliedMetadata, pickedByPerson);
 	const organizationId = requireOrgId(context);
@@ -358,6 +369,7 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 		conversationId: await delegationSessionKeyForDispatch({
 			childRunId,
 			pickedByPerson,
+			conversationNotice,
 			homeConversationId: metadata.homeConversationId,
 		}),
 		idempotencyKey: childRunId,

@@ -726,14 +726,20 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		label: "DELEGATION",
 		workOrder: nextWorkOrder,
 	});
-	const childDispatchContent = delegationWorkItemId
-		? directDelegationDispatchContent({
-				content: workOrderDispatchContent,
-				delegateToTediId: pending.targetTediId,
-				homeRunId: input.run.id,
-				workItemId: delegationWorkItemId,
-			})
-		: workOrderDispatchContent;
+	// A run a person started with a tedi they picked resumes inside that
+	// conversation's tedi session, with the person's message as written.
+	const pickedByPerson =
+		nonNullRecord(input.run.metadata)?.pickedByPerson === true;
+	const childDispatchContent = pickedByPerson
+		? sourceContent
+		: delegationWorkItemId
+			? directDelegationDispatchContent({
+					content: workOrderDispatchContent,
+					delegateToTediId: pending.targetTediId,
+					homeRunId: input.run.id,
+					workItemId: delegationWorkItemId,
+				})
+			: workOrderDispatchContent;
 	const internalContext = internalDelegationContext(
 		context,
 		input.organizationId,
@@ -776,6 +782,7 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		childRunId: clientRequestId,
 		content: childDispatchContent,
 		delegateToTediId: pending.targetTediId,
+		pickedByPerson,
 		metadata: toJsonRecord({
 			source: "kernelRuntime.respondApproval",
 			homeConversationId: input.run.conversationId,
@@ -1605,8 +1612,14 @@ async function retryKernelRunCore(
 		clientRequestId: childClientRequestId,
 		tediId: delegatedTediId,
 	});
+	// A run a person started with a tedi they picked is retried inside that
+	// conversation's tedi session, with the person's message as written.
+	const pickedByPerson =
+		existingMetadata.pickedByPerson === true &&
+		typeof delegationWorkOrder.sourceContent === "string";
 	const retryMetadata = {
 		source: "kernelRuntime.retryRun",
+		...(pickedByPerson ? { pickedByPerson } : {}),
 		contentLength: sourceContent.length,
 		idempotencyKey: newRunId,
 		delegatedTediId,
@@ -1704,13 +1717,16 @@ async function retryKernelRunCore(
 		kernelDelegateRunner({
 			context: internalContext,
 			childRunId: childClientRequestId,
-			content: renderDelegationWorkOrderMessage({
-				fallbackContent: sourceContent,
-				fallbackWorkOrderId: `work-order:${newRunId}`,
-				label: "RETRY",
-				workOrder: delegationWorkOrder,
-			}),
+			content: pickedByPerson
+				? sourceContent
+				: renderDelegationWorkOrderMessage({
+						fallbackContent: sourceContent,
+						fallbackWorkOrderId: `work-order:${newRunId}`,
+						label: "RETRY",
+						workOrder: delegationWorkOrder,
+					}),
 			delegateToTediId: delegatedTediId,
+			pickedByPerson,
 			metadata: {
 				source: "kernelRuntime.retryRun",
 				...(runtimeMetadata.requiredProofKind

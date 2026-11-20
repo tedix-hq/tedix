@@ -279,7 +279,8 @@ function runQuestionSentence(
 
 /**
  * Tells the chat that started an agent run that the run is waiting for the
- * person's answer: the tedi in its own chat, or Home in the person's chat.
+ * person's answer: the tedi in its own chat, or the tedi the person picked,
+ * in the person's chat.
  * Called once per stored question step; never throws, because the runner's
  * report that carried the question has already been stored.
  */
@@ -308,6 +309,7 @@ export async function notifyAgentRunQuestion(
 				? await enqueueHome(internal(), {
 						organizationId: work.orgId,
 						conversationId,
+						delegateToTediId: work.stewardId,
 						idempotencyKey: `agent-run-question-${key}`,
 						content: `[System: an agent run that a tedi started from this chat is waiting for the person's answer. Show the person the question; they can answer on the run card or here. Do not answer for them and do not start new work.] ${sentence}`,
 					})
