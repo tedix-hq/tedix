@@ -31,17 +31,9 @@ import {
 	purgeWorkspaceDocuments,
 	adoptWorkspaceDirectory,
 	initializeWorkspaceDirectory,
-	hasWorkspaceOutputAuthority,
-	importOutput,
-	snapshotOutput,
-	type OutputTransferSnapshot,
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import { listAllOsWorkspaceResourceRows } from "@tedix/db/queries/os-workspaces/resources";
-import {
-	getOsWorkspace,
-	hasSharedWorkspaceOutputs,
-	readSharedOutputForAdoption,
-} from "@tedix/db/queries/os-workspaces/workspaces";
+import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getTediById } from "@tedix/db/queries/tedis";
 import {
 	getSkillEntryBySlug,
@@ -50,7 +42,6 @@ import {
 import { parseSkillReferences } from "@tedix/api-contract/utils/skill-reference";
 import {
 	retireWorkspaceOutputIndex,
-	getWorkspaceOutputIndexCurrent,
 	getWorkspaceOutputIndexRevision,
 } from "@tedix/db/queries/workspace-feed/read";
 import {
@@ -71,11 +62,8 @@ import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import {
 	TenantStore,
 	tenantStoreDefinition,
-	type TenantStoreImportBatch,
-	type TenantStoreDeltaBatch,
 	type TenantStoreImportRow,
 } from "@tedix/db/tenant-store/store";
-import type { TenantScope } from "@tedix/db/tenant-scope";
 import { tenantStoreName } from "@tedix/db/tenant-store/router";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
@@ -106,11 +94,7 @@ import {
 	webApprovalTitle,
 } from "./web";
 import { resolveAttachments } from "./attachments";
-import {
-	outputRevisionBodyKey,
-	readOutputBody,
-	TenantDataPort,
-} from "./data-port-tenant";
+import { TenantDataPort } from "./data-port-tenant";
 import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-notice";
 import { BINDING_NAMES, type BindingName } from "./declarations";
 import {
@@ -120,7 +104,6 @@ import {
 	SqlEventLedger,
 	sumUsageTotals,
 } from "./event-ledger";
-import { migrateMovedChat } from "./moved-chat";
 import { SqlActivityRecords } from "./activity-records";
 import type {
 	ActorKind,
@@ -501,13 +484,6 @@ function admittedTurnModel(env: WorkspaceEnv, plan: TurnPlan): ModelPort {
 /** What the loop reports while it runs; the object turns it into wire events. */
 export type LoopEvent = { type: string; data?: Record<string, unknown> };
 
-/** Migration: walk one table in rowid order. */
-export interface ExportRowsInput {
-	table: string;
-	after: string | null;
-	limit: number;
-}
-
 interface PendingOutputTransfer {
 	scope: WorkspaceScope;
 	targetWorkspaceId: string;
@@ -550,7 +526,6 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	>();
 	#activitySerial: Promise<void> = Promise.resolve();
 	#pushSerial: Promise<void> = Promise.resolve();
-	#movedChatReady = false;
 	#workspaceRead: Promise<WorkspaceSnapshot> | null = null;
 	#modelCatalog: {
 		entries: readonly ModelCatalogEntry[];
@@ -653,287 +628,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	// ------------------------------------------------------------------ RPC
 
-	protected override bindScope(scope: TenantScope) {
-		const bound = super.bindScope(scope);
-		if (!this.#movedChatReady) {
-			this.ctx.storage.transactionSync(() =>
-				migrateMovedChat(this.#store, bound),
-			);
-			this.#movedChatReady = true;
-		}
-		return bound;
-	}
-
-	override async importRows(scope: TenantScope, batch: TenantStoreImportBatch) {
-		const bound = this.bindScope(scope);
-		return this.#serializeOutput(async () => {
-			// Resolve pre-upgrade imports and transfer destinations before staging new rows.
-			const owned = await this.#ownsOutputs(bound);
-			const result = this.ctx.storage.transactionSync(() => {
-				const receipt = this.importRowsSync(scope, batch);
-				this.#store.put("output-authority", owned ? "object" : "shared");
-				if (receipt.status === "imported")
-					this.#store.put(
-						"output-import-generation",
-						this.#importGeneration() + 1,
-					);
-				return receipt;
-			});
-			if (batch.table.startsWith("kernel_")) this.#movedChatReady = false;
-			return result;
-		});
-	}
-
-	async adoptSharedOutputs(
-		scope: WorkspaceScope,
-		input: { outputIds: string[]; dryRun: boolean },
-	): Promise<{
-		dryRun: boolean;
-		scope: WorkspaceScope;
-		writes: OutputTransferSnapshot[];
-		unchanged: string[];
-	}> {
-		// A persisted owner has already bound its identity. Preview needs no claim,
-		// directory adoption, or chat migration.
-		if (this.#store.get("output-authority") !== "object")
-			throw new Error(
-				"Adoption requires an initialized or activated workspace store",
-			);
-		super.bindScope(scope);
-		const result = await this.#serializeOutput(async () => {
-			const core = createDbQueryClient(this.env.DB);
-			const target = await getOsWorkspace(core, scope);
-			if (target?.status !== "active" || target.visibility !== "org")
-				throw new Error("Adoption requires an active organization workspace");
-			const db = this.db as TenantStoreDb;
-			const writes: OutputTransferSnapshot[] = [];
-			const unchanged: string[] = [];
-			for (const outputId of input.outputIds) {
-				const source = await readSharedOutputForAdoption(core, {
-					organizationId: scope.organizationId,
-					outputId,
-				});
-				if (!source)
-					throw new Error(
-						`Output ${outputId} is missing from this organization`,
-					);
-				if (source.output.workspaceId !== null || this.#outputMoving(outputId))
-					throw new Error(
-						`Output ${outputId} already has a workspace or is moving`,
-					);
-				const snapshot = {
-					output: { ...source.output, workspaceId: scope.workspaceId },
-					revisions: source.revisions,
-				};
-				if (
-					!snapshot.revisions.some(
-						(row) => row.id === snapshot.output.currentRevisionId,
-					)
-				)
-					throw new Error(
-						`Output ${outputId} has no current revision in the source`,
-					);
-				const current = await getWorkspaceOutputIndexCurrent(core, {
-					organizationId: scope.organizationId,
-					outputId,
-				});
-				const existing = await snapshotOutput(db, { ...scope, outputId });
-				if (current && (current.workspaceId !== scope.workspaceId || !existing))
-					throw new Error(
-						`Output ${outputId} already has a workspace in the index`,
-					);
-				for (const row of snapshot.revisions) {
-					if (
-						row.content !== "" ||
-						!row.contentSha256 ||
-						row.bodyR2Key !==
-							outputRevisionBodyKey(scope.organizationId, row.contentSha256)
-					)
-						throw new Error(
-							`Revision ${row.id} lacks an organization-scoped external body`,
-						);
-					await readOutputBody(this.env.R2_BUCKET, row);
-				}
-				if (!existing) writes.push(snapshot);
-				else if (JSON.stringify(existing) === JSON.stringify(snapshot))
-					unchanged.push(outputId);
-				else
-					throw new Error(`Output ${outputId} conflicts with the destination`);
-			}
-			if (!input.dryRun) {
-				for (const snapshot of writes) {
-					await this.#markOutputPending(scope, snapshot.output.id);
-					await importOutput(db, snapshot);
-				}
-			}
-			return { dryRun: input.dryRun, scope, writes, unchanged };
-		});
-		if (!input.dryRun && result.writes.length) {
-			const outputIds = result.writes.map(({ output }) => output.id);
-			await this.#serializePublish(() =>
-				this.#flushOutputProjections(outputIds),
-			);
-		}
-		return result;
-	}
-
-	async applyImportDelta(
-		scope: WorkspaceScope,
-		input: TenantStoreDeltaBatch & {
-			importGeneration: number;
-			freezeRef: string;
-		},
-	) {
-		this.bindScope(scope);
-		if (
-			!input.freezeRef?.trim() ||
-			!Number.isSafeInteger(input.importGeneration) ||
-			input.importGeneration < 1 ||
-			![
-				"os_workspaces",
-				"os_outputs",
-				"os_output_revisions",
-				"os_workspace_resources",
-				"kernel_conversations",
-				"kernel_runtime_runs",
-				"kernel_runtime_events",
-				"kernel_tool_results",
-				"tedi_artifacts",
-			].includes(input.table)
-		)
-			throw new Error(
-				"Delta requires a staged generation, freeze evidence and workspace table",
-			);
-		return this.#serializeOutput(async () =>
-			this.ctx.storage.transactionSync(() => {
-				if (this.#store.get("output-authority") !== "shared")
-					throw new Error("Delta requires staged shared authority");
-				let rebuildChat = false;
-				const receipt = this.applyImportDeltaSync(scope, input, () => {
-					if (input.importGeneration !== this.#importGeneration())
-						throw new Error("Import changed before delta");
-					rebuildChat = input.table.startsWith("kernel_");
-					if (rebuildChat) {
-						const native = this.#store.exec<{
-							id: string;
-						}>(`SELECT turn_id AS id FROM turns WHERE actor_id != 'workspace_import'
-					UNION ALL SELECT c.id FROM conversations c WHERE NOT EXISTS (
-					 SELECT 1 FROM kernel_conversations k WHERE k.conversation_id = c.id AND k.title IS c.title AND k.deleted_at IS c.archived_at
-					) UNION ALL SELECT k.conversation_id AS id FROM kernel_conversations k WHERE NOT EXISTS (
-					 SELECT 1 FROM conversations c WHERE k.conversation_id = c.id
-					) LIMIT 1`);
-						if (native.length)
-							throw new Error(
-								"Chat delta conflicts with native workspace activity; review the merge",
-							);
-						for (const event of this.#store.exec<{ id: string }>(
-							"SELECT id FROM kernel_runtime_events",
-						))
-							this.#store.delete(`moved-chat-event:${event.id}`);
-						for (const table of [
-							"messages",
-							"events",
-							"turns",
-							"conversations",
-						])
-							this.#store.run(`DELETE FROM ${table}`);
-						this.#store.delete("moved-chat-visible-archives");
-					}
-				});
-				if (receipt.status === "imported") {
-					this.#store.put(
-						"output-import-generation",
-						this.#importGeneration() + 1,
-					);
-					if (rebuildChat) migrateMovedChat(this.#store, scope);
-				}
-				return { ...receipt, importGeneration: this.#importGeneration() };
-			}),
-		);
-	}
-
-	#importGeneration(): number {
-		return this.#store.get<number>("output-import-generation") ?? 0;
-	}
-
-	override describe(scope: TenantScope) {
-		return {
-			...super.describe(scope),
-			outputAuthority:
-				this.#store.get<string>("output-authority") ?? "unresolved",
-			importGeneration: this.#importGeneration(),
-		};
-	}
-
-	/** Operator attestation after reconciliation under a write freeze; never called by import. */
-	async activateOutputAuthority(
-		scope: WorkspaceScope,
-		input: { importGeneration: number; reconciliationRef: string },
-	) {
-		this.bindScope(scope);
-		if (
-			!Number.isSafeInteger(input.importGeneration) ||
-			input.importGeneration < 1 ||
-			typeof input.reconciliationRef !== "string" ||
-			!input.reconciliationRef.trim()
-		)
-			throw new Error(
-				"Activation requires an import generation and reconciliation evidence",
-			);
-		return this.#serializeOutput(async () => {
-			if (input.importGeneration !== this.#importGeneration())
-				throw new Error("Import changed; reconcile again before activation");
-			const previous = this.#store.get<typeof input>("output-activation");
-			if (
-				previous &&
-				previous.importGeneration === input.importGeneration &&
-				previous.reconciliationRef === input.reconciliationRef
-			)
-				return previous;
-			if (this.#store.get("output-authority") !== "shared")
-				throw new Error("Workspace is not staged on shared authority");
-			this.ctx.storage.transactionSync(() => {
-				this.#store.put("output-activation", input);
-				this.#store.put("output-authority", "object");
-			});
-			return input;
-		});
-	}
-
-	async #ownsOutputs(scope: WorkspaceScope): Promise<boolean> {
-		const authority = this.#store.get("output-authority");
-		if (authority === "object" || authority === "shared")
-			return authority === "object";
-		const owned = await hasWorkspaceOutputAuthority(
-			this.db as TenantStoreDb,
-			scope,
-			createDbQueryClient(this.env.DB),
-		);
-		// An import or activation may have committed while the legacy check read D1.
-		const resolved = this.#store.get("output-authority");
-		if (resolved === "object" || resolved === "shared")
-			return resolved === "object";
-		if (owned) this.#store.put("output-authority", "object");
-		return owned;
-	}
-
-	/**
-	 * A workspace that has never been imported and has no files in the shared
-	 * database has nothing to move: it keeps its files here from the start.
-	 */
-	async #claimOutputs(scope: WorkspaceScope): Promise<boolean> {
-		const authority = this.#store.get("output-authority");
-		if (
-			authority !== "object" &&
-			authority !== "shared" &&
-			this.#importGeneration() === 0 &&
-			!(await hasSharedWorkspaceOutputs(
-				createDbQueryClient(this.env.DB),
-				scope,
-			))
-		)
-			this.#store.put("output-authority", "object");
-		return this.#ownsOutputs(scope);
+	/** Set when the store's workspace directory was initialized; it then owns its files. */
+	#ownsOutputs(): boolean {
+		return this.#store.get("output-authority") === "object";
 	}
 
 	/**
@@ -954,6 +651,35 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		});
 	}
 
+	/**
+	 * Local demo only: initialize the store and write the sample company's
+	 * files and resources once. A restart keeps edits made in the demo.
+	 */
+	async seedLocalDemo(
+		scope: WorkspaceScope,
+		tables: Record<string, TenantStoreImportRow[]>,
+	): Promise<{ seeded: boolean }> {
+		if (this.env.ENVIRONMENT !== "development")
+			throw new Error("Demo seeding runs only in local development");
+		if (this.#ownsOutputs()) return { seeded: false };
+		await this.outputQuery(scope, { op: "initialize" });
+		const outputIds = (tables.os_outputs ?? []).map((row) => String(row.id));
+		await this.#serializeOutput(async () => {
+			this.ctx.storage.transactionSync(() => {
+				for (const [table, rows] of Object.entries(tables))
+					this.importRowsSync(scope, {
+						batchId: `local-demo:${table}`,
+						table,
+						rows,
+					});
+			});
+			for (const outputId of outputIds)
+				await this.#markOutputPending(scope, outputId);
+		});
+		await this.#serializePublish(() => this.#flushOutputProjections(outputIds));
+		return { seeded: true };
+	}
+
 	async outputQuery<K extends OutputQuery["op"]>(
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,
@@ -962,7 +688,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const operation = query as OutputQuery;
 		if (operation.op === "purge")
 			return this.#serializeOutput(async () => {
-				if (!(await this.#ownsOutputs(scope)))
+				if (!this.#ownsOutputs())
 					throw new Error("Workspace does not own these documents");
 				this.ctx.storage.transactionSync(() => {
 					purgeWorkspaceDocuments(this.db as TenantStoreDb, scope);
@@ -971,15 +697,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			});
 		if (operation.op === "initialize")
 			return this.#serializeOutput(async () => {
-				if (this.#store.get("output-authority") === "object")
-					return "object" as OutputQueryResult<K>;
-				if (this.#importGeneration() > 0)
-					throw new Error("Staged workspace requires migration activation");
-				const core = createDbQueryClient(this.env.DB);
-				const workspace = await getOsWorkspace(core, scope);
+				if (this.#ownsOutputs()) return "object" as OutputQueryResult<K>;
+				const workspace = await getOsWorkspace(
+					createDbQueryClient(this.env.DB),
+					scope,
+				);
 				if (!workspace) throw new Error("Workspace directory is missing");
-				if (await hasSharedWorkspaceOutputs(core, scope))
-					throw new Error("Workspace still has shared documents");
 				this.ctx.storage.transactionSync(() => {
 					initializeWorkspaceDirectory(this.db as TenantStoreDb, workspace);
 					this.#store.put("output-authority", "object");
@@ -989,7 +712,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			});
 		if (operation.op === "placementPlan")
 			return this.#serializeOutput(async () => {
-				if (!(await this.#ownsOutputs(scope)))
+				if (!this.#ownsOutputs())
 					throw new Error("Document placement requires an object owner");
 				const key = `document-placement:${operation.planId}`;
 				const previous = this.#store.get<DocumentTransfer[]>(key) ?? [];
@@ -1013,20 +736,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			});
 		if (operation.op === "authority")
 			return (
-				(await this.#ownsOutputs(scope)) ? "object" : "shared"
-			) as OutputQueryResult<K>;
-		if (operation.op === "claim")
-			return (
-				(await this.#claimOutputs(scope)) ? "object" : "shared"
+				this.#ownsOutputs() ? "object" : "shared"
 			) as OutputQueryResult<K>;
 		if (operation.op === "resources")
 			return this.#serializeOutput(async () => {
-				if (!(await this.#ownsOutputs(scope)))
+				if (!this.#ownsOutputs())
 					throw new Error("Workspace does not own these resources");
 				await this.#adoptDirectory(scope);
 				return executeOutputQuery(this.db as TenantStoreDb, scope, query);
 			});
-		if (operation.op === "thin" && !(await this.#ownsOutputs(scope)))
+		if (operation.op === "thin" && !this.#ownsOutputs())
 			throw new Error("Workspace does not own these outputs");
 		if (operation.op === "snapshot" || operation.op === "import")
 			throw new Error("Use the output transfer RPC");
@@ -1063,7 +782,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		if (excerptRevisionId)
 			this.#store.put(`output-excerpt:${excerptRevisionId}`, excerpt);
 		const write = async () => {
-			if (operation.op === "mergeProposal" && !(await this.#ownsOutputs(scope)))
+			if (operation.op === "mergeProposal" && !this.#ownsOutputs())
 				throw new Error(
 					"Collaboration output merges require an activated workspace object",
 				);
@@ -1155,7 +874,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	): Promise<DocumentTransferPackage> {
 		this.bindScope(scope);
 		return this.#serializeOutput(async () => {
-			if (!(await this.#ownsOutputs(scope)))
+			if (!this.#ownsOutputs())
 				throw new Error(
 					"Document transfer requires activated workspace objects",
 				);
@@ -1247,7 +966,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	) {
 		this.bindScope(scope);
 		return this.#serializeOutput(async () => {
-			if (!(await this.#ownsOutputs(scope)))
+			if (!this.#ownsOutputs())
 				throw new Error(
 					"Document transfer requires activated workspace objects",
 				);
@@ -1307,7 +1026,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		transfer: DocumentTransfer,
 	) {
 		this.bindScope(scope);
-		if (!(await this.#ownsOutputs(scope)))
+		if (!this.#ownsOutputs())
 			throw new Error("Document transfer requires activated workspace objects");
 		const saved = this.#store.get<DocumentTransferReceipt>(
 			`document-transfer-import:${transfer.transferId}`,
@@ -1328,7 +1047,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		transfer: DocumentTransfer,
 	) {
 		this.bindScope(scope);
-		if (!(await this.#ownsOutputs(scope)))
+		if (!this.#ownsOutputs())
 			throw new Error("Document transfer requires activated workspace objects");
 		const saved = this.#store.get<DocumentTransferPackage>(
 			`document-transfer:${transfer.transferId}`,
@@ -2716,37 +2435,6 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#emitLoopEvent(turn.conversation_id, turnId, event);
 	}
 
-	/** Migration: rows of one tenant table after an opaque cursor (rowid). */
-	exportRows(
-		scope: WorkspaceScope,
-		input: ExportRowsInput,
-	): { rows: Record<string, unknown>[]; next: string | null } {
-		this.bindScope(scope);
-		if (!Object.hasOwn(tenantStoreDefinition.importTables, input.table))
-			throw new Error(`Unknown tenant table ${input.table}`);
-		const limit = Math.min(Math.max(input.limit, 1), 1_000);
-		const after = input.after ? Number(input.after) : 0;
-		const rows = this.#store.exec<Record<string, unknown> & { rowid: number }>(
-			`SELECT rowid AS rowid, * FROM "${input.table}" WHERE rowid > ? ORDER BY rowid ASC LIMIT ?`,
-			Number.isFinite(after) ? after : 0,
-			limit,
-		);
-		const last = rows.at(-1)?.rowid;
-		return {
-			rows: rows.map(({ rowid: _rowid, ...row }) =>
-				Object.fromEntries(
-					Object.entries(row).map(([key, value]) => [
-						key,
-						value instanceof ArrayBuffer
-							? { $b64: btoa(String.fromCharCode(...new Uint8Array(value))) }
-							: value,
-					]),
-				),
-			),
-			next: rows.length === limit && last !== undefined ? String(last) : null,
-		};
-	}
-
 	// ----------------------------------------------------------------- HTTP
 
 	override async fetch(request: Request): Promise<Response> {
@@ -3823,7 +3511,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			validateAppSource: (files, date) =>
 				validateWorkspaceAppSource(this.env.LOADER, files, date),
 			assertWorkspaceAuthority: async () => {
-				if (!(await this.#claimOutputs(scope)))
+				if (!this.#ownsOutputs())
 					throw new Error("Workspace output activation is required");
 			},
 			commitOutput: (outputId, write) =>
@@ -4737,14 +4425,14 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 		scope: WorkspaceScope,
 		outputId: string,
 	): Promise<void>;
-	adoptSharedOutputs(
-		scope: WorkspaceScope,
-		input: { outputIds: string[]; dryRun: boolean },
-	): ReturnType<WorkspaceDO["adoptSharedOutputs"]>;
 	outputQuery<K extends OutputQuery["op"]>(
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,
 	): Promise<OutputQueryResult<K>>;
+	seedLocalDemo(
+		scope: WorkspaceScope,
+		tables: Record<string, TenantStoreImportRow[]>,
+	): Promise<{ seeded: boolean }>;
 	sendTurn(
 		scope: WorkspaceScope,
 		input: TurnRequest,
@@ -4820,26 +4508,7 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 		workspaceId: string;
 		createdAt: string;
 		migrations: string[];
-		outputAuthority: string;
-		importGeneration: number;
 	}>;
-	applyImportDelta(
-		scope: WorkspaceScope,
-		input: TenantStoreDeltaBatch & {
-			importGeneration: number;
-			freezeRef: string;
-		},
-	): Promise<{
-		batchId: string;
-		table: string;
-		rowCount: number;
-		status: "imported" | "duplicate";
-		importGeneration: number;
-	}>;
-	activateOutputAuthority(
-		scope: WorkspaceScope,
-		input: { importGeneration: number; reconciliationRef: string },
-	): Promise<{ importGeneration: number; reconciliationRef: string }>;
 	importRows(
 		scope: WorkspaceScope,
 		batch: { batchId: string; table: string; rows: Record<string, unknown>[] },
@@ -4849,10 +4518,6 @@ export interface WorkspaceRpc extends DocumentTransferRuntime {
 		rowCount: number;
 		status: "imported" | "duplicate";
 	}>;
-	exportRows(
-		scope: WorkspaceScope,
-		input: ExportRowsInput,
-	): Promise<{ rows: Record<string, unknown>[]; next: string | null }>;
 	fetch(request: Request): Promise<Response>;
 }
 

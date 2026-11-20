@@ -351,13 +351,11 @@ For an existing installation:
    separately, and deploy the workspace Worker with its SQLite migration.
    Keep its public routes and `workersDev` disabled; callers use service bindings.
 3. Deploy API, MCP, and OS with `WORKSPACE_RUNTIME` pointing at that Worker.
-   MCP and workspace migration routes need the same operator-held
-   `MIGRATE_WORKSPACES_TOKEN`. Configure model access separately for chat;
-   adding storage does not configure an AI Gateway or choose models.
-4. Before removing old storage, migrate existing workspace data using the
-   import and activation procedure in `scripts/migrate-workspaces/README.md`.
-   Adding a binding does not move data. Verify document reads, saves, and
-   workspace chat against your deployed installation before admitting users.
+   Configure model access separately for chat; adding storage does not
+   configure an AI Gateway or choose models.
+4. Verify document reads, saves, and workspace chat against your deployed
+   installation before admitting users. Each workspace's storage is set up
+   when the workspace is created; there is no import from older storage.
 
 For a new installation, establish the service targets before applying the final
 bindings. MCP calls workspace storage and workspace storage calls MCP; the

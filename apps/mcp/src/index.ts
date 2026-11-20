@@ -138,7 +138,6 @@ import { maybeHandleBootstrapFastMcp } from "./codemode-fast-paths";
 import { enforceMcpAccess } from "./mcp-access";
 
 import { handleMcpRequest, resolvePrimaryTedi } from "./mcp-request";
-import { handleMigrationProxy, isMigrationProxyPath } from "./migration-proxy";
 const log = createMcpLogger("mcp.router");
 
 export { McpSubscriptionDurableObject } from "./subscriptions";
@@ -716,13 +715,6 @@ const worker = {
 
 		const isMcpPath =
 			url.pathname === "/mcp" || url.pathname.startsWith("/mcp/");
-		// The migration proxy authenticates exactly like /mcp and then decides
-		// on this Worker's own view of the caller's scopes (migration-proxy.ts).
-		const isAdminMigrationPath = isMigrationProxyPath(url.pathname);
-		if (isAdminMigrationPath && !hasAnyAuth) {
-			return new Response(null, { status: 403 });
-		}
-
 		// Skill-run provenance the skill-runtime bridge asserts. Captured before the
 		// strip below and re-set only for validated service-binding callers, so an
 		// external caller cannot spoof it — memory_learn trusts x-tedix-skill-run-id
@@ -824,7 +816,7 @@ const worker = {
 			authLast = now;
 		};
 		if (
-			(isMcpPath || isAdminMigrationPath) &&
+			isMcpPath &&
 			hasAnyAuth &&
 			(hostnameInfo.type === "subdomain" || hostnameInfo.type === "custom")
 		) {
@@ -841,7 +833,7 @@ const worker = {
 			}
 		}
 
-		if ((isMcpPath || isAdminMigrationPath) && hasAnyAuth) {
+		if (isMcpPath && hasAnyAuth) {
 			const trustedBrowserBridge = isTrustedBrowserBridge(request.headers);
 			if (!hasAuthHeader && hasApiKeyHeader) {
 				const apiKey = hasApiKeyHeader;
@@ -910,20 +902,6 @@ const worker = {
 					});
 				}
 				return authResult;
-			}
-
-			if (isAdminMigrationPath) {
-				// Only a bearer this Worker verified as a platform administrator passes;
-				// a delegated tedi credential never carries that scope.
-				const scopes =
-					authResult && authResult.type !== "delegated-mcp"
-						? authResult.scopes
-						: undefined;
-				return handleMigrationProxy(
-					request,
-					env as unknown as Parameters<typeof handleMigrationProxy>[1],
-					scopes,
-				);
 			}
 
 			if (authResult) {

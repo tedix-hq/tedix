@@ -157,12 +157,9 @@ again to be read past its start.
   replay and outbound event, closing when access falls. A personal tedi needs
   its active owner binding and the operation's scopes. Guest selection cannot
   impersonate another person's personal tedi.
-- Migration: `/migration/workspaces/{org}/{workspace}` (`GET` describe,
-  `POST /import`, `POST /rows`, separate `POST /activate`) on the worker, guarded by
-  `MIGRATE_WORKSPACES_TOKEN`; see `scripts/migrate-workspaces/README.md`.
-  Organization memory (`memory_*`) never moves: an import of such a table
-  returns 409 on both public and service fetch. The importer proves its
-  snapshot before it sends anything.
+- Local demo only: `POST /local-demo/workspaces/{org}/{workspace}` seeds the
+  sample files once, guarded by the launcher's `LOCAL_WORKSPACE_SEED_TOKEN`.
+  It is not served outside `ENVIRONMENT=development`.
 
 ## Workspace memory
 
@@ -189,21 +186,12 @@ routing and policy checks.
 
 The object extends the tenant store from `@tedix/db/tenant-store/store`:
 its own SQLite with the workspace's output rows (bodies stay in R2 by
-digest), the memory tables, and `importRows` for the one-shot migration.
-Agent output reads and writes and resource listings require workspace
-activation and use object SQLite. Shared or unresolved workspaces receive an
-activation error; approval does not bypass it. Apps and Work items are read
-from the core database.
-
-Copied `kernel_conversations`, `kernel_runtime_runs` and
-`kernel_runtime_events` are converted into the object's chat tables on first
-access after wake or import. Conversion and per-event checkpoints commit
-together, preserving existing chat cursors across retries. Moved archives are
-browsable in workspace chat; deleted conversations stay hidden.
-Chat lists, turn reads and socket replay then use
-only the native tables; the copied rows remain available for reconciliation.
-Imported assistant text is labelled as prior assistant context for subsequent
-model calls, without inventing model or usage receipts.
+digest) and the memory tables. The store is initialized with the workspace's
+directory row when the workspace is created; until then output reads, writes
+and resource listings are refused. Apps and Work items are read from the core
+database. Chat lists, turn reads and socket replay use only the native chat
+tables; `kernel_*` rows copied in by the November 2026 move are kept only
+until their conversation is deleted.
 
 ## Check it
 

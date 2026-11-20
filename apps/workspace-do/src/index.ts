@@ -3,12 +3,10 @@ import type {
 	OsWorkspaceChangeRecordsExport,
 } from "@tedix/api-contract/schemas/os-workspace-change-records";
 import type { ChangeRecordQuery } from "./adapters";
-import type { TenantStoreImportRow } from "@tedix/db/tenant-store/store";
 /**
  * Worker entry. Other workers reach a workspace object through the
  * `InternalEntrypoint` service binding (RPC) or by forwarding an HTTP request
- * (WebSocket subscribe, MCP). The public fetch serves health and the
- * token-guarded migration routes.
+ * (WebSocket subscribe, MCP). The public fetch serves only health.
  */
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type {
@@ -30,7 +28,7 @@ import {
 	type MemoryQuery,
 	type MemoryQueryResult,
 } from "@tedix/db/queries/memory-graph/tenant-rpc";
-import type { ExportRowsInput, WorkspaceRpc } from "./do";
+import type { WorkspaceRpc } from "./do";
 import type { TurnRequest, WorkspaceEnv, WorkspaceScope } from "./env";
 
 export { TurnFacet, WorkspaceBindingLoopback, WorkspaceDO } from "./do";
@@ -174,12 +172,6 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 	}
 	/** WebSocket subscribe and MCP: forwarded with the scope headers set by the caller. */
 	override fetch(request: Request): Promise<Response> {
-		const migration = new URL(request.url).pathname.match(MIGRATION_PATH);
-		if (migration) {
-			return handleMigration(request, this.env, migration).catch(
-				migrationErrorResponse,
-			);
-		}
 		const organizationId = request.headers.get("X-Workspace-Org");
 		const workspaceId = request.headers.get("X-Workspace-Id");
 		if (!organizationId || !workspaceId)
@@ -192,163 +184,44 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 	}
 }
 
-const MIGRATION_PATH =
-	/^\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows|\/activate|\/delta)?$/;
+const LOCAL_SEED_PATH = /^\/local-demo\/workspaces\/([^/]+)\/([^/]+)$/;
 
-/** Blobs travel as `{ "$b64": … }`; everything else is JSON as stored. */
-function decodeRow(row: Record<string, unknown>): TenantStoreImportRow {
-	return Object.fromEntries(
-		Object.entries(row).map(([key, value]) => {
-			if (value && typeof value === "object" && "$b64" in value) {
-				const bytes = Uint8Array.from(
-					atob(String((value as { $b64: string }).$b64)),
-					(c) => c.charCodeAt(0),
-				);
-				return [key, bytes.buffer];
-			}
-			if (
-				value !== null &&
-				typeof value !== "string" &&
-				typeof value !== "number"
-			)
-				throw new Error("Unsupported migration row value");
-			return [key, value];
-		}),
-	);
-}
-
-/** The migration tool's routes, guarded by `MIGRATE_WORKSPACES_TOKEN`. */
-async function handleMigration(
+/** The local demo launcher's seed call; never served outside development. */
+async function seedLocalDemo(
 	request: Request,
 	env: WorkspaceEnv,
 	match: RegExpMatchArray,
 ): Promise<Response> {
-	const token = env.MIGRATE_WORKSPACES_TOKEN?.trim();
+	const token = env.LOCAL_WORKSPACE_SEED_TOKEN?.trim();
 	const presented = request.headers
 		.get("Authorization")
 		?.replace(/^Bearer\s+/i, "")
 		.trim();
-	if (!(await secureEqual(presented, token))) {
+	if (request.method !== "POST" || !(await secureEqual(presented, token)))
 		return new Response("Unauthorized", { status: 401 });
-	}
 	const scope: WorkspaceScope = {
 		organizationId: decodeURIComponent(match[1] ?? ""),
 		workspaceId: decodeURIComponent(match[2] ?? ""),
 	};
-	const route = match[3] ?? "";
-	if (route === "" && request.method === "GET") {
-		const description = await stubFor(env, scope).describe(scope);
-		return Response.json({
-			...description,
-			jurisdiction: readDurableObjectJurisdiction(env) ?? null,
-		});
-	}
-	if (request.method !== "POST")
-		return new Response("Method not allowed", { status: 405 });
-	const body = (await request.json()) as Record<string, unknown>;
-	const stub = () => stubFor(env, scope);
-	if (route === "/activate") {
-		return Response.json(
-			await stub().activateOutputAuthority(scope, {
-				importGeneration: body.importGeneration as number,
-				reconciliationRef: body.reconciliationRef as string,
-			}),
-		);
-	}
-	if (route === "/delta") {
-		if (!Array.isArray(body.changes))
-			throw new Error("Delta changes are required");
-		return Response.json(
-			await stub().applyImportDelta(scope, {
-				batchId: String(body.batchId ?? ""),
-				table: String(body.table ?? ""),
-				importGeneration: Number(body.importGeneration),
-				freezeRef: String(body.freezeRef ?? ""),
-				changes: body.changes.map((value) => {
-					const change = value as {
-						before: Record<string, unknown> | null;
-						after: Record<string, unknown> | null;
-					};
-					return {
-						before: change.before === null ? null : decodeRow(change.before),
-						after: change.after === null ? null : decodeRow(change.after),
-					};
-				}),
-			}),
-		);
-	}
-	if (route === "/import") {
-		if (body.operation === "adopt") {
-			const { outputIds, dryRun } = body;
-			if (
-				typeof dryRun !== "boolean" ||
-				!Array.isArray(outputIds) ||
-				outputIds.length === 0 ||
-				outputIds.some((id) => typeof id !== "string" || !id.trim()) ||
-				new Set(outputIds).size !== outputIds.length
-			)
-				throw new Error(
-					"Adoption requires distinct output ids and an explicit dryRun",
-				);
-			return Response.json(
-				await stub().adoptSharedOutputs(scope, { outputIds, dryRun }),
-			);
-		}
-		const table = String(body.table ?? "");
-		// Organization memory stays in the organization database with its
-		// permissions; no client may move it into a workspace.
-		if (table.startsWith("memory_"))
-			return Response.json(
-				{
-					code: "ORGANIZATION_MEMORY_STAYS",
-					error: `${table} is organization memory and does not move into a workspace`,
-				},
-				{ status: 409 },
-			);
-		const rows = Array.isArray(body.rows)
-			? (body.rows as Record<string, unknown>[])
-			: [];
-		return Response.json(
-			await stub().importRows(scope, {
-				batchId: String(body.batchId ?? ""),
-				table,
-				rows: rows.map(decodeRow),
-			}),
-		);
-	}
-	if (route === "/rows") {
-		const input: ExportRowsInput = {
-			table: String(body.table ?? ""),
-			after: typeof body.after === "string" ? body.after : null,
-			limit: Number(body.limit ?? 500),
-		};
-		return Response.json(await stub().exportRows(scope, input));
-	}
-	return new Response("Not found", { status: 404 });
-}
-
-function migrationErrorResponse(error: unknown): Response {
-	return Response.json(
-		{ error: error instanceof Error ? error.message : String(error) },
-		{ status: 400 },
-	);
+	const tables = (await request.json()) as Record<
+		string,
+		Record<string, string | number | null>[]
+	>;
+	return Response.json(await stubFor(env, scope).seedLocalDemo(scope, tables));
 }
 
 export default {
 	async fetch(request: Request, env: WorkspaceEnv): Promise<Response> {
 		const url = new URL(request.url);
+		const seed = url.pathname.match(LOCAL_SEED_PATH);
+		if (seed && env.ENVIRONMENT === "development")
+			return seedLocalDemo(request, env, seed);
 		if (url.pathname === "/health") {
 			return Response.json({
 				status: "ok",
 				service: "workspace-do",
 				sha: env.GIT_SHA ?? "unknown",
 			});
-		}
-		const migration = url.pathname.match(MIGRATION_PATH);
-		if (migration) {
-			return handleMigration(request, env, migration).catch(
-				migrationErrorResponse,
-			);
 		}
 		return new Response("Not found", { status: 404 });
 	},

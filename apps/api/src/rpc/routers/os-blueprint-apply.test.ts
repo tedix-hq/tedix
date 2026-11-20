@@ -351,22 +351,6 @@ describe("generic blueprint apply", () => {
 		])
 			expect(f.count(table)).toBe(0);
 	});
-	it("refuses staged objects before creating provisioning or its receipt", async () => {
-		const f = fixture();
-		f.state.importGeneration = 1;
-		await expect(f.client.apply(input)).rejects.toThrow(
-			"requires migration activation",
-		);
-		expect(f.count("os_workspaces")).toBe(1);
-		for (const table of [
-			"projects",
-			"work_items",
-			"os_workspace_resources",
-			"os_outputs",
-			"os_output_revisions",
-		])
-			expect(f.count(table)).toBe(0);
-	});
 	it("rolls back a late shared insert failure and reuses retained object documents on retry", async () => {
 		const f = fixture();
 		f.sqlite.exec(

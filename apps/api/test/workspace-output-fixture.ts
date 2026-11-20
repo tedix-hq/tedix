@@ -32,14 +32,8 @@ import {
 } from "@tedix/db/schema/workspace-feed";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 
-import {
-	getOsWorkspace,
-	hasSharedWorkspaceOutputs,
-} from "@tedix/db/queries/os-workspaces/workspaces";
-import {
-	hasWorkspaceOutputAuthority,
-	initializeWorkspaceDirectory,
-} from "@tedix/db/queries/durable-sqlite/os-outputs";
+import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { initializeWorkspaceDirectory } from "@tedix/db/queries/durable-sqlite/os-outputs";
 
 export function workspaceOutputFixture(
 	coreSql: DatabaseSync,
@@ -62,12 +56,17 @@ export function workspaceOutputFixture(
 	);
 	const tenant = createTenantStoreDb(createDurableSqliteFixture(objectSql));
 	const core = createDbQueryClient(createD1Facade(coreSql));
-	const state = { active: true, importGeneration: 0 };
+	const state = { active: true };
 	const owns = async (scope: { organizationId: string; workspaceId: string }) =>
 		state.active &&
-		state.importGeneration === 0 &&
 		(!options.uninitialized ||
-			(await hasWorkspaceOutputAuthority(tenant, scope, core)));
+			Boolean(
+				objectSql
+					.prepare(
+						"SELECT 1 FROM os_workspaces WHERE organization_id = ? AND id = ?",
+					)
+					.get(scope.organizationId, scope.workspaceId),
+			));
 	const plans = new Map<string, DocumentTransfer[]>();
 	const excerpts = new Map<string, string>();
 	const transfers = new Map<string, DocumentTransferPackage>();
@@ -174,12 +173,9 @@ export function workspaceOutputFixture(
 				.prepare("INSERT OR IGNORE INTO organizations VALUES (?)")
 				.run(scope.organizationId);
 			if (query.op === "initialize") {
-				if (!state.active || state.importGeneration > 0)
-					throw new Error("Staged workspace requires migration activation");
+				if (!state.active) throw new Error("Workspace store is unavailable");
 				const workspace = await getOsWorkspace(core, scope);
 				if (!workspace) throw new Error("Workspace directory is missing");
-				if (await hasSharedWorkspaceOutputs(core, scope))
-					throw new Error("Workspace still has shared documents");
 				initializeWorkspaceDirectory(tenant, workspace);
 				return "object" as OutputQueryResult<typeof query.op>;
 			}

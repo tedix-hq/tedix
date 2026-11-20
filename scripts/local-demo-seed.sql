@@ -127,39 +127,6 @@ INSERT OR IGNORE INTO os_workspaces (
 	'2026-08-10T00:00:00.000Z'
 );
 
-INSERT OR IGNORE INTO os_outputs (
-	id, organization_id, workspace_id, kind, title, status,
-	current_revision_id, created_by_kind, created_by_id, created_at, updated_at
-) VALUES (
-	'00000000-0000-4000-8000-000000000008',
-	'00000000-0000-4000-8000-000000000001',
-	'00000000-0000-4000-8000-000000000007',
-	'document',
-	'Local Shared Draft',
-	'active',
-	'00000000-0000-4000-8000-000000000009',
-	'user',
-	'local-demo-owner',
-	'2026-08-10T00:00:00.000Z',
-	'2026-08-10T00:00:00.000Z'
-);
-
-INSERT OR IGNORE INTO os_output_revisions (
-	id, organization_id, output_id, revision, content, access_envelope, note,
-	created_by_kind, created_by_id, created_at
-) VALUES (
-	'00000000-0000-4000-8000-000000000009',
-	'00000000-0000-4000-8000-000000000001',
-	'00000000-0000-4000-8000-000000000008',
-	1,
-	'{"kind":"document","blocks":[{"type":"paragraph","text":"Shared local draft"}]}',
-	'{"version":1,"sources":[]}',
-	'Credential-free collaboration seed',
-	'user',
-	'local-demo-owner',
-	'2026-08-10T00:00:00.000Z'
-);
-
 -- Provider-neutral local entitlement. This admits an operator-supplied model
 -- only when the launcher separately enables its paid inference bridge; the
 -- default credential-free lane still has no model transport.

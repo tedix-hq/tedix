@@ -34,6 +34,7 @@ const ORG = "00000000-0000-4000-8000-000000000001";
 const USER = "00000000-0000-4000-8000-000000000002";
 const TEDI = "00000000-0000-4000-8000-000000000004";
 const WORKSPACE = "00000000-0000-4000-8000-0000000000a0";
+const APP_WORKSPACE = uid(48, 1);
 const PROJECT_KEYS = ["REDDIT", "FINANCE", "ONCALL"];
 const DAY_MS = 86_400_000;
 
@@ -59,7 +60,6 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 	sql.push(
 		`INSERT OR IGNORE INTO os_workspaces (id, organization_id, name, description, status, visibility, created_by_kind, created_by_id, created_at, updated_at) VALUES (${q(WORKSPACE)}, ${q(ORG)}, 'Work', 'Activity and Decisions for the sample company.', 'active', 'org', 'user', 'local-demo-owner', ${q(now)}, ${q(now)});`,
 	);
-	const appWorkspace = uid(48, 1);
 	const appId = uid(49, 14);
 	const appRevision = uid(50, 14);
 	const appFiles = JSON.stringify(opportunityCardsApp);
@@ -68,34 +68,12 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 		(sum, source) => sum + source.length,
 		0,
 	);
-	const sheetId = uid(64, 20);
-	const sheetRevision = uid(65, 20);
-	const sheet = {
-		kind: "sheet",
-		columns: ["#", "Source (link)", "Who", "Why (rule)", "Draft", "Useful?"],
-		rows: cards
-			.filter((card) => card.category === "Reddit")
-			.slice(0, 8)
-			.map((card, index) => [
-				index + 1,
-				`https://reddit.example/r/BuyItForLife/fable-${String(index + 1).padStart(2, "0")}`,
-				card.agent,
-				card.title,
-				card.story,
-				card.status === "decided" ? "yes" : "",
-			]),
-	};
 	sql.push(
-		`INSERT OR IGNORE INTO os_workspaces (id, organization_id, name, description, created_by_kind, created_by_id) VALUES (${q(appWorkspace)}, ${q(ORG)}, ${q(demoPackWorkspaces[0]!.name)}, ${q(demoPackWorkspaces[0]!.description)}, 'user', 'local-demo-owner');`,
-		`INSERT OR IGNORE INTO os_gadgets (id, organization_id, workspace_id, name, current_revision_id, created_by_kind, created_by_id) VALUES (${q(appId)}, ${q(ORG)}, ${q(appWorkspace)}, 'Opportunity cards', ${q(appRevision)}, 'user', 'local-demo-owner');`,
+		`INSERT OR IGNORE INTO os_workspaces (id, organization_id, name, description, created_by_kind, created_by_id) VALUES (${q(APP_WORKSPACE)}, ${q(ORG)}, ${q(demoPackWorkspaces[0]!.name)}, ${q(demoPackWorkspaces[0]!.description)}, 'user', 'local-demo-owner');`,
+		`INSERT OR IGNORE INTO os_gadgets (id, organization_id, workspace_id, name, current_revision_id, created_by_kind, created_by_id) VALUES (${q(appId)}, ${q(ORG)}, ${q(APP_WORKSPACE)}, 'Opportunity cards', ${q(appRevision)}, 'user', 'local-demo-owner');`,
 		`INSERT OR IGNORE INTO os_gadget_revisions (id, organization_id, gadget_id, revision, manifest, created_by_kind, created_by_id) VALUES (${q(appRevision)}, ${q(ORG)}, ${q(appId)}, 1, ${json(opportunityCardsManifest)}, 'user', 'local-demo-owner');`,
 		`INSERT OR IGNORE INTO os_gadget_code_blobs (organization_id, sha256, files, code_length, created_at) VALUES (${q(ORG)}, ${q(appHash)}, ${q(appFiles)}, ${q(codeLength)}, ${q(now)});`,
 		`INSERT OR IGNORE INTO os_gadget_code (revision_id, organization_id, gadget_id, files, code_length, files_sha256, created_at) VALUES (${q(appRevision)}, ${q(ORG)}, ${q(appId)}, '', ${q(codeLength)}, ${q(appHash)}, ${q(now)});`,
-		`INSERT OR IGNORE INTO os_outputs (id, organization_id, workspace_id, kind, title, current_revision_id, created_by_kind, created_by_id) VALUES (${q(sheetId)}, ${q(ORG)}, ${q(appWorkspace)}, 'sheet', 'Opportunities', ${q(sheetRevision)}, 'user', 'local-demo-owner');`,
-		`INSERT OR IGNORE INTO os_output_revisions (id, organization_id, output_id, revision, content, access_envelope, created_by_kind, created_by_id) VALUES (${q(sheetRevision)}, ${q(ORG)}, ${q(sheetId)}, 1, ${json(sheet)}, ${json({ version: 1, sources: [] })}, 'user', 'local-demo-owner');`,
-		`INSERT OR IGNORE INTO os_workspace_resources (id, organization_id, workspace_id, slot, provider_id, connection_scope, resource_type, provider_resource_id, name, created_by_kind, created_by_id) VALUES (${q(uid(70, 1))}, ${q(ORG)}, ${q(appWorkspace)}, 'opportunities', 'tedix', 'tenant', 'output', ${q(sheetId)}, 'Opportunities sheet', 'user', 'local-demo-owner');`,
-		// The sample tedi works in this workspace, so its Agents view has a row.
-		`INSERT OR IGNORE INTO os_workspace_resources (id, organization_id, workspace_id, provider_id, connection_scope, resource_type, provider_resource_id, name, created_by_kind, created_by_id) VALUES (${q(uid(70, 2))}, ${q(ORG)}, ${q(appWorkspace)}, 'tedix', 'tenant', 'tedi', ${q(TEDI)}, 'Local Tedi', 'user', 'local-demo-owner');`,
 	);
 	blueprint.gadgets.forEach((gadget, i) => {
 		const id = uid(49, 10 + i);
@@ -105,10 +83,6 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 			`INSERT OR IGNORE INTO os_gadget_revisions (id, organization_id, gadget_id, revision, manifest, created_by_kind, created_by_id, created_at) VALUES (${q(revision)}, ${q(ORG)}, ${q(id)}, 1, ${json(gadget.manifest.navigation.work === "feed" ? { ...gadget.manifest, config: { ...gadget.manifest.config, today: demoTodayConfig(TEDI, USER) } } : gadget.manifest)}, 'user', 'local-demo-owner', ${q(now)});`,
 		);
 	});
-	sql.push(
-		`INSERT OR IGNORE INTO os_outputs (id, organization_id, workspace_id, kind, title, status, current_revision_id, created_by_kind, created_by_id, created_at, updated_at) VALUES (${q(demoTodayId)}, ${q(ORG)}, ${q(WORKSPACE)}, 'document', 'PricePilot Today', 'active', ${q(uid(177, 1))}, 'user', 'local-demo-owner', ${q(now)}, ${q(now)});`,
-		`INSERT OR IGNORE INTO os_output_revisions (id, organization_id, output_id, revision, content, access_envelope, created_by_kind, created_by_id, created_at) VALUES (${q(uid(177, 1))}, ${q(ORG)}, ${q(demoTodayId)}, 1, ${json(demoTodayContent(nowMs))}, ${json({ version: 1, sources: [] })}, 'user', 'local-demo-owner', ${q(now)});`,
-	);
 	for (const [i, event] of demoPackFeed(nowMs).entries()) {
 		const group =
 			event.agent === "Reconciler" ? 1 : event.agent === "On-call" ? 2 : 0;
@@ -142,6 +116,120 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 			);
 	}
 	return `${sql.join("\n")}\n`;
+}
+
+type Row = Record<string, string | number | null>;
+const ENVELOPE = JSON.stringify({ version: 1, sources: [] });
+const owner = { created_by_kind: "user", created_by_id: "local-demo-owner" };
+
+/** The sample company's files and resources, written into each workspace's own store. */
+export function demoPackWorkspaceFiles(
+	nowMs: number = Date.now(),
+): Array<{ workspaceId: string; tables: Record<string, Row[]> }> {
+	const now = new Date(nowMs).toISOString();
+	const sheetId = uid(64, 20);
+	const sheetRevision = uid(65, 20);
+	const sheet = {
+		kind: "sheet",
+		columns: ["#", "Source (link)", "Who", "Why (rule)", "Draft", "Useful?"],
+		rows: cards
+			.filter((card) => card.category === "Reddit")
+			.slice(0, 8)
+			.map((card, index) => [
+				index + 1,
+				`https://reddit.example/r/BuyItForLife/fable-${String(index + 1).padStart(2, "0")}`,
+				card.agent,
+				card.title,
+				card.story,
+				card.status === "decided" ? "yes" : "",
+			]),
+	};
+	return [
+		{
+			workspaceId: APP_WORKSPACE,
+			tables: {
+				os_outputs: [
+					{
+						id: sheetId,
+						organization_id: ORG,
+						workspace_id: APP_WORKSPACE,
+						kind: "sheet",
+						title: "Opportunities",
+						current_revision_id: sheetRevision,
+						...owner,
+					},
+				],
+				os_output_revisions: [
+					{
+						id: sheetRevision,
+						organization_id: ORG,
+						output_id: sheetId,
+						revision: 1,
+						content: JSON.stringify(sheet),
+						access_envelope: ENVELOPE,
+						...owner,
+					},
+				],
+				os_workspace_resources: [
+					{
+						id: uid(70, 1),
+						organization_id: ORG,
+						workspace_id: APP_WORKSPACE,
+						slot: "opportunities",
+						provider_id: "tedix",
+						connection_scope: "tenant",
+						resource_type: "output",
+						provider_resource_id: sheetId,
+						name: "Opportunities sheet",
+						...owner,
+					},
+					// The sample tedi works in this workspace, so its Agents view has a row.
+					{
+						id: uid(70, 2),
+						organization_id: ORG,
+						workspace_id: APP_WORKSPACE,
+						provider_id: "tedix",
+						connection_scope: "tenant",
+						resource_type: "tedi",
+						provider_resource_id: TEDI,
+						name: "Local Tedi",
+						...owner,
+					},
+				],
+			},
+		},
+		{
+			workspaceId: WORKSPACE,
+			tables: {
+				os_outputs: [
+					{
+						id: demoTodayId,
+						organization_id: ORG,
+						workspace_id: WORKSPACE,
+						kind: "document",
+						title: "PricePilot Today",
+						status: "active",
+						current_revision_id: uid(177, 1),
+						...owner,
+						created_at: now,
+						updated_at: now,
+					},
+				],
+				os_output_revisions: [
+					{
+						id: uid(177, 1),
+						organization_id: ORG,
+						output_id: demoTodayId,
+						revision: 1,
+						content: JSON.stringify(demoTodayContent(nowMs)),
+						access_envelope: ENVELOPE,
+						...owner,
+						created_at: now,
+					},
+				],
+			},
+		},
+	];
 }
 
 if (import.meta.main) {

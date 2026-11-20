@@ -56,8 +56,6 @@ export interface OutputQueryInputs {
 	resources: { query: ResourceQuery };
 	purge: unknown;
 	authority: unknown;
-	/** Like authority, but a workspace with no files anywhere becomes owned by its object. */
-	claim: unknown;
 	initialize: unknown;
 	placementPlan: { planId: string; documents: DocumentTransfer[] };
 	snapshot: { outputId: string };
@@ -95,7 +93,6 @@ export interface OutputQueryResults {
 	resources: ResourceQueryResult;
 	purge: void;
 	authority: "object" | "shared";
-	claim: "object" | "shared";
 	initialize: "object";
 	placementPlan: DocumentTransfer[];
 	snapshot: Awaited<ReturnType<typeof outputs.snapshotOutput>>;
@@ -177,7 +174,6 @@ async function execute(
 		case "placementPlan":
 		case "initialize":
 		case "authority":
-		case "claim":
 			throw new Error("Workspace authority requires the shared inventory");
 		case "snapshot":
 			if (!(await owned(query.outputId))) return undefined;

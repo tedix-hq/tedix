@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -16,7 +17,6 @@ import {
 	type OutputQuery,
 	type OutputQueryResult,
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
-import { hasWorkspaceOutputAuthority } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import {
 	createOsCollaborationProposal,
 	mergeOsCollaborationProposal,
@@ -101,9 +101,13 @@ async function fixture(moved = true) {
 			bound: typeof scope,
 			query: OutputQuery<K>,
 		) => {
-			if (query.op === "authority" || query.op === "claim")
+			if (query.op === "authority")
 				return (
-					(await hasWorkspaceOutputAuthority(tenant, bound, core))
+					tenant
+						.select({ id: osWorkspaces.id })
+						.from(osWorkspaces)
+						.where(eq(osWorkspaces.id, bound.workspaceId))
+						.get()
 						? "object"
 						: "shared"
 				) as OutputQueryResult<K>;
