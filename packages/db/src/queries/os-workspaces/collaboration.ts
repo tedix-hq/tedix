@@ -915,6 +915,8 @@ export async function proposeOsAppFileEdits(
 		baseRevision: number;
 		content: OsAppDraftContent;
 		edits: Array<{ path: string; before?: string; after: string }>;
+		/** The complete file set the draft starts from, such as an earlier version's. */
+		replaceFiles?: Record<string, string>;
 		createdByKind: OsCollaborationProposalRow["createdByKind"];
 		createdById: string;
 	},
@@ -937,7 +939,7 @@ export async function proposeOsAppFileEdits(
 	const content = pending
 		? OsAppDraftContentSchema.parse(JSON.parse(pending.content))
 		: input.content;
-	const files = { ...content.files };
+	const files = { ...(input.replaceFiles ?? content.files) };
 	for (const edit of input.edits) {
 		if (edit.before !== undefined) {
 			const text = Object.hasOwn(files, edit.path)

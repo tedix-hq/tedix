@@ -182,7 +182,7 @@ export class SqlComplianceAdapter implements ComplianceAdapter {
 		// File tools only stage a proposal. Publishing still requires the draft decision.
 		if (
 			call.resource === "app_draft" &&
-			["editFile", "writeFile"].includes(call.operation) &&
+			["editFile", "writeFile", "restoreVersion"].includes(call.operation) &&
 			call.riskTier === "bounded_write" &&
 			!call.destructive
 		)

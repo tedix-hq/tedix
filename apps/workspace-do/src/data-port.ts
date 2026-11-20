@@ -45,12 +45,22 @@ export interface AppCode {
 	sequence?: number;
 }
 
+export interface AppVersion {
+	revision: number;
+	revisionId: string;
+	current: boolean;
+	savedAt: string;
+	savedBy: "person" | "agent" | "automation";
+}
+
 export interface EditAppFilesInput {
 	proposalId?: string;
 	expectedSequence?: number;
 	appId: string;
 	expectedRevisionId: string;
 	edits: Array<{ path: string; before?: string; after: string }>;
+	/** Start the draft from this earlier revision's files instead; edits may then be empty. */
+	restoreRevisionId?: string;
 }
 
 export interface CreateAppInput {
@@ -194,6 +204,8 @@ export interface WorkspaceDataPort {
 	}): Promise<OutputDetail>;
 	listApps(): Promise<AppSummary[]>;
 	getAppCode(input: { appId: string; revisionId?: string }): Promise<AppCode>;
+	/** Saved versions of an app, newest first. */
+	listAppVersions(input: { appId: string }): Promise<AppVersion[]>;
 	editAppFiles(
 		input: EditAppFilesInput & { actorId: string },
 	): Promise<AppCode>;

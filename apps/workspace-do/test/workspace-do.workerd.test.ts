@@ -1219,6 +1219,49 @@ describe("WorkspaceDO", () => {
 				validateWorkspaceAppSource(testEnv.LOADER, broken, undefined),
 			).rejects.toThrow();
 		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(2);
+		// Going back stages version 1's whole file set: the README added in
+		// version 2 is gone, and accepting saves version 3.
+		const restoring = await requestEdit(`export default async env => {
+   const versions = await env.apps.versions({appId:"editable"});
+   const now = versions.find(v => v.current);
+   const first = versions.find(v => v.revision === 1);
+   return env.apps.restoreVersion({appId:"editable",revisionId:first.revisionId,expectedRevisionId:now.revisionId});
+  }`);
+		expect(JSON.parse(restoring.content).files).toEqual(files);
+		expect(
+			(
+				await mergeOsCollaborationProposal(db, {
+					...decision,
+					proposalId: restoring.id,
+					expectedSequence: restoring.sequence,
+					revisionId: "app-restored",
+				})
+			).ok,
+		).toBe(false);
+		await decideOsCollaborationProposal(db, {
+			organizationId: scope.organizationId,
+			proposalId: restoring.id,
+			expectedSequence: restoring.sequence,
+			decision: "accepted",
+			rationale: "Accept",
+			evidenceRefs: "[]",
+			decidedByKind: "user",
+			decidedById: "u1",
+		});
+		expect(
+			(
+				await mergeOsCollaborationProposal(db, {
+					...decision,
+					proposalId: restoring.id,
+					expectedSequence: restoring.sequence,
+					revisionId: "app-restored",
+				})
+			).ok,
+		).toBe(true);
+		const restored = await data.getAppCode({ appId: "editable" });
+		expect(restored.revision).toBe(3);
+		expect(restored.files).toEqual(files);
+		expect((await data.listAppVersions({ appId: "editable" })).length).toBe(3);
 		await testEnv.DB.prepare(
 			"UPDATE os_gadgets SET workspace_id = 'another-workspace' WHERE id = 'editable'",
 		).run();
