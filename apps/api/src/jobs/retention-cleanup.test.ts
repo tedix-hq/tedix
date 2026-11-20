@@ -238,30 +238,18 @@ describe("scheduled usage evidence retention", () => {
 					.all(),
 			).toEqual([{ id: "recent" }]);
 			expect(result.healthHistoryDeleted).toBe(1);
-			expect(result.gatewayChangeRecordsDeleted).toBe(1);
+			// Change records are evidence: the nightly job no longer deletes any.
+			expect(result.gatewayChangeRecordsDeleted).toBeUndefined();
 			expect(
 				sqlite
 					.prepare("SELECT id FROM gateway_change_records ORDER BY sequence")
 					.all(),
-			).toEqual([{ id: "at-cutoff" }, { id: "unsealed" }, { id: "recent" }]);
-			expect(
-				sqlite
-					.prepare(
-						"SELECT id FROM gateway_change_record_checkpoints ORDER BY id",
-					)
-					.all(),
-			).toEqual([{ id: "checkpoint-at-cutoff" }, { id: "checkpoint-expired" }]);
-			const retentionLine = log.mock.calls
-				.map(([line]) => String(line))
-				.find((line) => line.includes("gateway_change_records.retention.run"));
-			expect(JSON.parse(retentionLine ?? "{}")).toEqual({
-				event: "gateway_change_records.retention.run",
-				before: "2026-06-23T03:00:00.000Z",
-				deletedRows: 1,
-				reachedRunCap: false,
-				rows: 3,
-				oldestRecordedAt: "2026-06-01T00:00:00.000Z",
-			});
+			).toEqual([
+				{ id: "expired" },
+				{ id: "at-cutoff" },
+				{ id: "unsealed" },
+				{ id: "recent" },
+			]);
 			expect(result.removedSkillImprovementCopies).toBe(1);
 			expect(sweepAbandonedSkillImprovements).toHaveBeenCalledWith(
 				expect.anything(),
