@@ -439,6 +439,11 @@ export function stepLabel(
 		},
 		views: { show: "Showing a view" },
 		web: { fetch: "Reading a web page" },
+		machine: {
+			list: "Listing machines",
+			call: "Using a machine",
+			read: "Reading a machine's answer",
+		},
 		work: {
 			list: "Reading Work items",
 			listOpen: "Reading open Work items",

@@ -83,6 +83,7 @@ import {
 	workspaceAccounts,
 	type AccountService,
 } from "./accounts";
+import { type MachineService, workspaceMachine } from "./machine";
 import { SqlMemoryAdapter } from "./memory-adapter";
 import { callFailureText, unsavableTextError } from "./call-failure";
 import type { WorkspaceSnapshot } from "./data-port";
@@ -3659,6 +3660,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					requestConnection,
 					approvalRequestId,
 				}),
+			machine:
+				accountActor &&
+				workspaceMachine({
+					scope,
+					userId: accountActor.id,
+					tediId: started?.tedi_id,
+					api: this.machineService(),
+				}),
 			compliance: this.#compliance,
 			accountability: {
 				append: async (input) => {
@@ -4270,6 +4279,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	protected accountService(): AccountService {
 		return this.env.API_SERVICE as unknown as AccountService;
+	}
+
+	protected machineService(): MachineService {
+		return this.env.API_SERVICE as unknown as MachineService;
 	}
 
 	/** The model a turn streams from; a test subclass returns a scripted one. */
@@ -4942,5 +4955,9 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	requestConnection(...args: unknown[]) {
 		return this.#call("requestConnection", args);
+	}
+	/** `machine.call`. */
+	call(...args: unknown[]) {
+		return this.#call("call", args);
 	}
 }

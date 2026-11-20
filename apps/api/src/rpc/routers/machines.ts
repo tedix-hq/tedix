@@ -9,34 +9,23 @@
 import { implement } from "@orpc/server";
 import { machinesContract } from "@tedix/api-contract/contracts/machines";
 import {
-	isMachineWriteTool,
 	MACHINE_TOOL_CALL_LIST_DEFAULT_RANGE_MS,
 	MACHINE_TOOL_CALL_LIST_MAX_RANGE_MS,
 	MACHINES_USE_SCOPE,
 	MACHINES_WRITE_SCOPE,
-	type MachineToolCall,
 	type MachineToolInput,
-	parseMachineToolInput,
 } from "@tedix/api-contract/schemas/machines";
 import {
-	createMachineToolCall,
 	isMachineReporter,
 	listMachineToolCallsInRange,
-	listMachines,
-	readMachineToolCall,
 } from "@tedix/db/queries/machines";
-import type { MachineToolCallRow } from "@tedix/db/schema/machines";
-import {
-	type MachineToolRefusal,
-	writeMachineToolQueuedRecord,
-	writeMachineToolRefusedRecord,
-} from "../../services/machine-change-records";
 import { runMachineClaimRound } from "../../services/machine-claim-round";
+import { mintMachineConnectionTicket } from "../../services/machine-connections";
 import {
-	machineConnected,
-	mintMachineConnectionTicket,
-	pushMachineToolCalls,
-} from "../../services/machine-connections";
+	listOrganizationMachines,
+	queueMachineToolCall,
+	readMachineToolCallFor,
+} from "../../services/machine-tool-calls";
 import { isActiveOwnerOrAdmin } from "../org-membership";
 import { withOrg } from "../org-scope";
 import {
@@ -91,42 +80,12 @@ async function machineToolRequester(context: BaseContext, orgId: string) {
 	);
 }
 
-function toCall(row: MachineToolCallRow): MachineToolCall {
-	return {
-		callId: row.id,
-		machine: row.machineName,
-		tool: row.tool,
-		status: row.status,
-		...(row.result === null ? {} : { result: row.result }),
-		...(row.error === null ? {} : { error: row.error }),
-		createdAt: row.createdAt,
-		...(row.finishedAt === null ? {} : { finishedAt: row.finishedAt }),
-	};
-}
-
 const listProcedure = os.list
 	.use(withAuthorization("tedis:read", "mcp:work.read", MACHINES_USE_SCOPE))
 	.use(withOrg)
-	.handler(async ({ context }) => {
-		const orgId = context.organizationId;
-		const machines = await listMachines(context.db, { orgId });
-		// A machine with an open connection is online, whatever its last report.
-		return {
-			machines: await Promise.all(
-				machines.map(async (machine) =>
-					machine.online
-						? machine
-						: {
-								...machine,
-								online: await machineConnected(context.env, {
-									orgId,
-									machineName: machine.machineName,
-								}),
-							},
-				),
-			),
-		};
-	});
+	.handler(async ({ context }) => ({
+		machines: await listOrganizationMachines(context, context.organizationId),
+	}));
 
 const requestToolCallProcedure = os.requestToolCall
 	.use(
@@ -143,117 +102,12 @@ const requestToolCallProcedure = os.requestToolCall
 	.handler(async ({ input, context }) => {
 		const orgId = context.organizationId;
 		const requester = await machineToolRequester(context, orgId);
-		const callId = crypto.randomUUID();
-		// Every refusal past this point is recorded in the change ledger; a
-		// failed record write is logged and the original error still thrown.
-		const refuse = async (
-			reason: MachineToolRefusal,
-			error: Error,
-			machineName = input.machine,
-		) => {
-			await writeMachineToolRefusedRecord(context.db, {
-				orgId,
-				callId,
-				machineName,
-				tool: input.tool,
-				input: input.input,
-				requester,
-				reason,
-			});
-			return error;
-		};
-		if (
-			requester.type === "tedi" &&
-			isMachineWriteTool(input.tool) &&
-			!context.tediScopes?.includes(MACHINES_WRITE_SCOPE)
-		)
-			throw await refuse(
-				"write_scope_missing",
-				createError(
-					ErrorCodes.FORBIDDEN,
-					"A tedi can change files or run commands on a machine only from a chat with a signed-in person",
-				),
-			);
-		const wanted = input.machine.toLowerCase();
-		const machine = (await listMachines(context.db, { orgId })).find(
-			(candidate) => candidate.machineName.toLowerCase() === wanted,
-		);
-		if (!machine)
-			throw await refuse(
-				"unknown_machine",
-				createError(
-					ErrorCodes.NOT_FOUND,
-					`No machine named "${input.machine}" reports to this organization`,
-				),
-			);
-		if (
-			!machine.online &&
-			!(await machineConnected(context.env, {
-				orgId,
-				machineName: machine.machineName,
-			}))
-		)
-			throw await refuse(
-				"machine_offline",
-				createError(
-					ErrorCodes.CONFLICT,
-					`${machine.machineName} is offline: its runner last reported at ${machine.lastSeenAt}`,
-				),
-				machine.machineName,
-			);
-		if (!machine.machineTools.includes(input.tool))
-			throw await refuse(
-				"tool_not_accepted",
-				createError(
-					ErrorCodes.BAD_REQUEST,
-					`${machine.machineName} does not accept ${input.tool}`,
-				),
-				machine.machineName,
-			);
-		const checked = parseMachineToolInput(input.tool, input.input);
-		if (!checked.ok)
-			throw await refuse(
-				"invalid_input",
-				createError(
-					ErrorCodes.BAD_REQUEST,
-					`${input.tool}: ${checked.message}`,
-				),
-				machine.machineName,
-			);
-		// A write tool's record is written before the call exists: if the
-		// write fails, the request fails and nothing is queued for the
-		// machine. Its outcome stays "unknown" until the result record.
-		await writeMachineToolQueuedRecord(context.db, {
+		return queueMachineToolCall(context, {
 			orgId,
-			callId,
-			machineName: machine.machineName,
-			tool: input.tool,
-			input: checked.input,
 			requester,
+			tediMayWrite: context.tediScopes?.includes(MACHINES_WRITE_SCOPE) ?? false,
+			input,
 		});
-		const call = await createMachineToolCall(context.db, {
-			id: callId,
-			orgId,
-			machineName: machine.machineName,
-			tool: input.tool,
-			input: JSON.stringify(checked.input),
-			requestedBy: { type: requester.type, id: requester.id },
-		});
-		if (!call)
-			throw await refuse(
-				"queue_full",
-				createError(
-					ErrorCodes.CONFLICT,
-					`Too many calls are waiting for ${machine.machineName}; try again in a minute`,
-				),
-				machine.machineName,
-			);
-		// With an open connection the machine gets the call now; else at its next poll.
-		await pushMachineToolCalls(context.env, {
-			orgId,
-			machineName: machine.machineName,
-		});
-		return { callId: call.id, status: call.status };
 	});
 
 const readToolCallProcedure = os.readToolCall
@@ -271,17 +125,11 @@ const readToolCallProcedure = os.readToolCall
 	.handler(async ({ input, context }) => {
 		const orgId = context.organizationId;
 		const requester = await machineToolRequester(context, orgId);
-		const call = await readMachineToolCall(context.db, {
+		return readMachineToolCallFor(context, {
 			orgId,
-			id: input.callId,
+			requester,
+			callId: input.callId,
 		});
-		const own =
-			call?.requestedByType === requester.type &&
-			call.requestedById === requester.id;
-		// One answer for "no such call" and "not yours": a call id tells nothing.
-		if (!call || (!own && !requester.admin))
-			throw createError(ErrorCodes.NOT_FOUND, "Machine tool call not found");
-		return toCall(call);
 	});
 
 /**
