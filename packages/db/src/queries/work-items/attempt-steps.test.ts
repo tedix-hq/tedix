@@ -12,6 +12,7 @@ import {
 import {
 	appendWorkAttemptSteps,
 	listWorkAttemptSteps,
+	queueWorkItemFollowUp,
 	sendWorkAttemptMessage,
 } from "./attempt-steps";
 
@@ -93,6 +94,53 @@ describe("run steps and steering messages", () => {
 		expect(listed.steps.map(({ seq, text }) => [seq, text])).toEqual([
 			[29, "step 29"],
 			[30, "step 30"],
+		]);
+	});
+
+	it("hands a follow-up sent before the first Attempt to the runner that starts the run", async () => {
+		const { db, sqlite } = await fixture();
+		sqlite.exec("DELETE FROM work_attempts");
+		const waiting = await queueWorkItemFollowUp(db, {
+			orgId: "org",
+			workItemId: "work",
+			body: "Also cover page zero",
+			sender: owner,
+			at: start,
+		});
+		expect(waiting).toMatchObject({ attemptId: "", deliveredAt: null });
+		await expect(
+			listWorkAttemptSteps(db, { orgId: "org", workItemId: "work" }),
+		).resolves.toMatchObject({
+			attemptId: null,
+			messages: [{ id: waiting!.id }],
+		});
+
+		await db.insert(workAttempts).values({
+			id: "attempt",
+			orgId: "org",
+			workItemId: "work",
+			executorType: "external_agent",
+			executorId: "agent",
+			executorSessionId: "session",
+			externalSessionKey: "codex:session",
+			runtimeState: "running",
+			attemptNumber: 1,
+			startedAt: start,
+			heartbeatAt: start,
+			expiresAt: expiry,
+		});
+		// Once a run exists, a follow-up goes to it instead.
+		await expect(
+			queueWorkItemFollowUp(db, {
+				orgId: "org",
+				workItemId: "work",
+				body: "late",
+				sender: owner,
+			}),
+		).resolves.toBeNull();
+		const report = await appendWorkAttemptSteps(db, { ...runner, steps: [] });
+		expect(report.pending).toMatchObject([
+			{ id: waiting!.id, attemptId: "attempt", deliveredAt: during },
 		]);
 	});
 
@@ -436,6 +484,7 @@ describe("run steps and steering messages", () => {
 		).resolves.toEqual({
 			attemptId: null,
 			live: false,
+			outcome: null,
 			steps: [],
 			messages: [],
 		});

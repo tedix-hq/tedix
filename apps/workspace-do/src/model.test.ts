@@ -14,6 +14,7 @@ import {
 	createAzureGatewayModel,
 	createWorkspaceModel,
 	defaultWorkspaceModelId,
+	turnPricingIdentity,
 	type WorkspaceModelEnv,
 } from "./model";
 
@@ -747,4 +748,46 @@ test("a guest tedi turn names the tedi to admission and the gateway", async () =
 		tediId: "fixture-tedi",
 		orgId: attribution.organizationId,
 	});
+});
+
+test("offers every Azure entry of the catalog and runs a tedi turn on the chat default's own deployment", async () => {
+	const offered = catalogWorkspaceModels(configuredEnv, [
+		modelCatalogEntry("azure-openai/fixture-deployment", { label: "First" }),
+		modelCatalogEntry("azure-openai/fixture-second", { label: "Second" }),
+	]);
+	expect(offered).toEqual([
+		{ id: "azure-openai/fixture-deployment", label: "First" },
+		{ id: "azure-openai/fixture-second", label: "Second" },
+	]);
+	// A turn that names no model, answered by a picked tedi.
+	const modelId = defaultWorkspaceModelId(
+		offered,
+		"azure-openai/fixture-second",
+	);
+	expect(modelId).toBe("azure-openai/fixture-second");
+
+	const bodies: Array<{ model?: string }> = [];
+	spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+		bodies.push(await new Request(input as RequestInfo, init).json());
+		return new Response("data: {}\n\n", {
+			headers: { "Content-Type": "text/event-stream" },
+		});
+	});
+	const admitted = admission();
+	const model = createWorkspaceModel(
+		configuredEnv,
+		attribution,
+		admitted.port,
+		modelId,
+	);
+	expect(model.id).toBe("azure-openai/fixture-second");
+	await model.stream(context).result();
+	expect(bodies[0]?.model).toBe("fixture-second");
+	expect(admitted.authorized[0]?.execution).toMatchObject({
+		provider: "azure-openai",
+		requestModel: "fixture-second",
+	});
+	expect(
+		turnPricingIdentity(configuredEnv, "azure-openai/fixture-second"),
+	).toMatchObject({ modelId: "fixture-second" });
 });

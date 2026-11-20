@@ -22,6 +22,11 @@ import {
 /** Nine bound values per step row; D1 allows 100 per statement. */
 const STEP_INSERT_CHUNK = 11;
 const MESSAGE_LIST_LIMIT = 200;
+/**
+ * `attempt_id` of a follow-up sent before the Work Item's first Attempt. The
+ * first runner to report steps takes these rows over as its own.
+ */
+const BEFORE_FIRST_ATTEMPT = "";
 
 export interface AppendWorkAttemptStepsParams {
 	orgId: string;
@@ -74,7 +79,8 @@ export function isWorkAttemptLive(
  * restarted runner gets it again, and the runner tells them apart by id. The
  * first hand-over sets `delivered_at`. When the same agent session resumes
  * under a fresh Attempt after an interruption, the unapplied messages of its
- * expired or failed Attempts on this Work Item come along.
+ * expired or failed Attempts on this Work Item come along. Follow-ups sent
+ * before the Work Item had an Attempt become this Attempt's messages here.
  */
 export async function appendWorkAttemptSteps(
 	db: DbQueryClient,
@@ -163,6 +169,17 @@ export async function appendWorkAttemptSteps(
 				)
 			: eq(workAttemptMessages.attemptId, params.attemptId),
 	);
+	// Runs first, so the statements below see these rows as this Attempt's.
+	const adoptWaiting = db
+		.update(workAttemptMessages)
+		.set({ attemptId: params.attemptId })
+		.where(
+			and(
+				eq(workAttemptMessages.orgId, params.orgId),
+				eq(workAttemptMessages.workItemId, params.workItemId),
+				eq(workAttemptMessages.attemptId, BEFORE_FIRST_ATTEMPT),
+			),
+		);
 	const appliedIds = [...new Set(params.appliedMessageIds ?? [])];
 	const markApplied = db
 		.update(workAttemptMessages)
@@ -187,7 +204,8 @@ export async function appendWorkAttemptSteps(
 		.where(and(attemptMessages, isNull(workAttemptMessages.appliedAt)))
 		.returning();
 
-	const [, pending, ...inserted] = await db.batch([
+	const [, , pending, ...inserted] = await db.batch([
+		adoptWaiting,
 		markApplied,
 		handOver,
 		...inserts,
@@ -237,6 +255,8 @@ export interface ListWorkAttemptStepsParams {
 export interface ListWorkAttemptStepsResult {
 	attemptId: string | null;
 	live: boolean;
+	/** How the Attempt ended; null while it has not, or when there is none. */
+	outcome: WorkAttempt["outcome"];
 	questionVersion?: number;
 	steps: WorkAttemptStepRow[];
 	messages: WorkAttemptMessageRow[];
@@ -255,7 +275,25 @@ export async function listWorkAttemptSteps(
 				"NOT_FOUND",
 				`Attempt ${params.attemptId} was not found on this Work Item`,
 			);
-		return { attemptId: null, live: false, steps: [], messages: [] };
+		const messages = await db
+			.select()
+			.from(workAttemptMessages)
+			.where(
+				and(
+					eq(workAttemptMessages.attemptId, BEFORE_FIRST_ATTEMPT),
+					eq(workAttemptMessages.orgId, params.orgId),
+					eq(workAttemptMessages.workItemId, params.workItemId),
+				),
+			)
+			.orderBy(asc(workAttemptMessages.createdAt), asc(workAttemptMessages.id))
+			.limit(MESSAGE_LIST_LIMIT);
+		return {
+			attemptId: null,
+			live: false,
+			outcome: null,
+			steps: [],
+			messages,
+		};
 	}
 	const limit = Math.min(Math.max(1, Math.trunc(params.limit ?? 200)), 500);
 	const [steps, messages] = await db.batch([
@@ -290,6 +328,7 @@ export async function listWorkAttemptSteps(
 	return {
 		attemptId: attempt.id,
 		live: isWorkAttemptLive(attempt, at),
+		outcome: attempt.outcome,
 		questionVersion:
 			attempt.outcome === "cancelled" &&
 			typeof attempt.metadata.runQuestion === "object" &&
@@ -312,6 +351,59 @@ export interface SendWorkAttemptMessageParams {
 	/** A follow-up that stops the agent's current turn instead of waiting for it. */
 	interrupt?: boolean;
 	at?: string;
+}
+
+/**
+ * Store a follow-up for an accepted Work Item that has no Attempt yet. The
+ * runner receives it with its first step report. Null when the Work Item is
+ * not accepted or already has an Attempt.
+ */
+export async function queueWorkItemFollowUp(
+	db: DbQueryClient,
+	params: Pick<
+		SendWorkAttemptMessageParams,
+		"orgId" | "workItemId" | "body" | "sender" | "at"
+	>,
+): Promise<WorkAttemptMessageRow | null> {
+	const [message] = await db
+		.insert(workAttemptMessages)
+		.select(
+			db
+				.select({
+					id: sql<string>`${crypto.randomUUID()}`.as("message_id"),
+					orgId: workItems.orgId,
+					workItemId: workItems.id,
+					attemptId: sql<string>`${BEFORE_FIRST_ATTEMPT}`.as("attempt_id"),
+					kind: sql<WorkAttemptMessageKind>`'follow_up'`.as("message_kind"),
+					body: sql<string>`${params.body}`.as("message_body"),
+					senderType:
+						sql<WorkAttemptMessageSenderType>`${params.sender.type}`.as(
+							"sender_type",
+						),
+					senderId: sql<string>`${params.sender.id}`.as("sender_id"),
+					interrupt: sql<boolean>`0`.as("interrupt"),
+					createdAt: sql<string>`${params.at ?? new Date().toISOString()}`.as(
+						"message_created_at",
+					),
+					deliveredAt: sql<null>`NULL`.as("delivered_at"),
+					appliedAt: sql<null>`NULL`.as("applied_at"),
+				})
+				.from(workItems)
+				.where(
+					and(
+						eq(workItems.id, params.workItemId),
+						eq(workItems.orgId, params.orgId),
+						eq(workItems.disposition, "accepted"),
+						sql`NOT EXISTS (
+							SELECT 1 FROM work_attempts first
+							WHERE first.work_item_id = ${workItems.id}
+							AND first.org_id = ${workItems.orgId}
+						)`,
+					),
+				),
+		)
+		.returning();
+	return message ?? null;
 }
 
 /** Queue steering on the newest run or answer its outstanding question. */

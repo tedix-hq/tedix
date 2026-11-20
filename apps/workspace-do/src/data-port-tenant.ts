@@ -77,6 +77,7 @@ import {
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import {
 	listWorkAttemptSteps,
+	queueWorkItemFollowUp,
 	sendWorkAttemptMessage,
 } from "@tedix/db/queries/work-items/attempt-steps";
 import {
@@ -1498,13 +1499,47 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			body,
 			sender: actor,
 		});
-		if (!message)
+		if (message) return message;
+		// No run took it: say whether the run has not started or how it ended.
+		const { attemptId, outcome } = await listWorkAttemptSteps(this.deps.core, {
+			orgId: item.orgId,
+			workItemId,
+			limit: 1,
+		});
+		if (item.disposition === "completed")
+			throw new Error("This run has finished");
+		if (item.disposition === "cancelled")
+			throw new Error("This run was cancelled");
+		if (!attemptId) {
+			const waiting =
+				kind === "follow_up"
+					? await queueWorkItemFollowUp(this.deps.core, {
+							orgId: item.orgId,
+							workItemId,
+							body,
+							sender: actor,
+						})
+					: null;
+			if (waiting) return waiting;
 			throw new Error(
 				kind === "stop"
-					? "No run is in progress"
-					: "This run no longer accepts a message",
+					? "This run has not started yet, so there is nothing to stop"
+					: "This run is just starting. Send the follow-up again in a moment",
 			);
-		return message;
+		}
+		throw new Error(
+			outcome === "succeeded"
+				? "This run has finished"
+				: outcome === "cancelled"
+					? "This run was stopped"
+					: outcome === "failed" || outcome === "rejected"
+						? "This run failed"
+						: outcome === "expired"
+							? "This run was interrupted and is not running now"
+							: kind === "stop"
+								? "No run is in progress"
+								: "This run is stopping or waiting to resume, so it cannot take a follow-up right now",
+		);
 	}
 
 	async sendRunMessage(input: { workItemId: string; message: string }) {
@@ -1517,6 +1552,12 @@ export class TenantDataPort implements WorkspaceDataPort, WorkspaceRunPort {
 			kind: "agent_run_message" as const,
 			workItemId,
 			messageId: message.id,
+			delivery: message.attemptId
+				? ("to_running_agent" as const)
+				: ("when_run_starts" as const),
+			note: message.attemptId
+				? "Saved for the run. The agent gets it after its current step."
+				: "Saved. The run has not started yet; the agent gets this follow-up when it starts.",
 		};
 	}
 
