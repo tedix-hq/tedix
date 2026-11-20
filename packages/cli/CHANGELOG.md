@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.28.3 — 2026-11-20
+
+The 0.28.2 build did not publish; this release also carries its changes below.
+
+### Patch Changes
+
+- A runner over its checkout space limit now frees old checkouts whose only leftovers are ignored files, such as generated local config. It used to keep them forever.
+
 ## 0.28.2 — 2026-11-20
 
 ### Patch Changes
