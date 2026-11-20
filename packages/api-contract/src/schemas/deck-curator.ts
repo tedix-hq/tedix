@@ -5,7 +5,7 @@ import ranker from "../assets/deck-ranker.v1.json";
 export const DeckCuratorRankerConfigSchema = z.strictObject({
 	version: z.literal(1).default(1),
 	enabled: z.boolean().default(false),
-	model: z.string().min(1).max(200).default("@cf/qwen/qwen3-30b-a3b-fp8"),
+	model: z.string().min(1).max(200).default("@cf/qwen/qwen3.8-27b"),
 	instructions: z.string().trim().min(1).max(8000).default(ranker.instructions),
 	threshold: z.number().min(0).max(1).default(0.5),
 	noisePenalty: z.number().nonnegative().max(100).default(10),
