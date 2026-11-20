@@ -687,7 +687,10 @@ const createBlueprintAppUpdate =
 					? { sourceKind: "user" as const, sourceId: creator.id }
 					: resolveCollaborationSource(context)),
 				sourceAttestationVersion: 1,
-				content: JSON.stringify(validated),
+				content: JSON.stringify({
+					...OsAppDraftContentSchema.parse(validated),
+					sourceBlueprintRevisionId: input.releaseId,
+				}),
 				sequence: 0,
 				createdByKind: creator.kind,
 				createdById: creator.id,

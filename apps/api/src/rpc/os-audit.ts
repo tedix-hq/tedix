@@ -637,6 +637,17 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			documentId: fields(output.proposal).documentId,
 		}),
 	},
+	"collaboration.createBlueprintAppUpdate": {
+		action: "os.collaboration_proposal.created",
+		resourceType: "os_collaboration_proposal",
+		resourceId: ({ output }) =>
+			output.status === "created" ? nestedId(output, "proposal") : [],
+		metadata: ({ input }) => ({
+			workspaceId: input.workspaceId,
+			documentId: input.gadgetId,
+			blueprintRevisionId: input.releaseId,
+		}),
+	},
 	"collaboration.accept": {
 		action: "os.collaboration_proposal.accepted",
 		resourceType: "os_collaboration_proposal",

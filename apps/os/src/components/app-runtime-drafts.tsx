@@ -32,6 +32,7 @@ import {
 	appRuntimeCodeQueryOptions,
 	collaborationProposalsQueryOptions,
 	osQueryKeys,
+	osQuery,
 } from "@/lib/os-query-options";
 
 const DRAFT_LIST_LIMIT = 20;
@@ -230,6 +231,10 @@ function AppDraftCard({
 				queryKey: osQueryKeys.collaborationProposals(),
 			}),
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.gadgets() }),
+			queryClient.invalidateQueries({
+				queryKey:
+					osQuery.osWorkspaces.collaboration.previewBlueprintAppUpdate.key(),
+			}),
 		]);
 	const accept = useMutation({
 		retry: false,

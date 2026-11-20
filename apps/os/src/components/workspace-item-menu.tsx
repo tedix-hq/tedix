@@ -4,7 +4,7 @@ import {
 	DotsThree,
 	PencilSimple,
 } from "@phosphor-icons/react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	type ReactElement,
 	type ReactNode,
@@ -12,6 +12,11 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	BlueprintAppUpdateDialog,
+	useBlueprintAppUpdate,
+} from "@/components/workspace-blueprint-update";
+import { Badge } from "@/components/kumo/badge";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/kumo/button";
 import {
@@ -136,6 +141,7 @@ export function WorkspaceItemMenu({
 	item,
 	onOpen,
 	onArchived,
+	onDraftCreated,
 	children,
 }: {
 	workspaceId: string;
@@ -143,9 +149,17 @@ export function WorkspaceItemMenu({
 	onOpen: () => void;
 	/** The item left the workspace; close whatever was showing it. */
 	onArchived?: () => void;
+	onDraftCreated?: (gadgetId: string) => void;
 	children: ReactElement;
 }) {
 	const { rename, archive } = useWorkspaceItemActions(workspaceId, item);
+	const gadgets = useQuery({
+		...canvasGadgetsQueryOptions(workspaceId),
+		enabled: Boolean(item.gadgetId),
+	});
+	const gadget = gadgets.data?.items.find((app) => app.id === item.gadgetId);
+	const update = useBlueprintAppUpdate(workspaceId, gadget);
+	const [updateOpen, setUpdateOpen] = useState(false);
 	const file = useOutputFileActions(
 		{ outputId: item.outputId ?? "", title: item.title, workspaceId },
 		{ onMoved: onArchived },
@@ -191,6 +205,11 @@ export function WorkspaceItemMenu({
 			<Item onClick={onOpen}>
 				<ArrowSquareOut size={14} /> Open
 			</Item>
+			{update && (
+				<Item onClick={() => setUpdateOpen(true)}>
+					Update from blueprint <Badge variant="info">Update available</Badge>
+				</Item>
+			)}
 			<Item onClick={startRename}>
 				<PencilSimple size={14} /> Rename
 			</Item>
@@ -236,6 +255,7 @@ export function WorkspaceItemMenu({
 					) : (
 						<>
 							{children}
+							{update && <Badge variant="info">Update available</Badge>}
 							<DropdownMenu>
 								<DropdownMenuTrigger
 									render={
@@ -268,6 +288,15 @@ export function WorkspaceItemMenu({
 				<p className="workspace-outputs-note" role="alert">
 					The name could not be saved. Try again.
 				</p>
+			)}
+			{updateOpen && update && gadget && (
+				<BlueprintAppUpdateDialog
+					workspaceId={workspaceId}
+					gadget={gadget}
+					update={update}
+					onClose={() => setUpdateOpen(false)}
+					onDraftCreated={() => onDraftCreated?.(gadget.id)}
+				/>
 			)}
 			{item.outputId && file.dialogs}
 			<ConfirmDialog
