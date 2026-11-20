@@ -681,15 +681,23 @@ test.each([
 	},
 );
 
-test("a turn with a picked tedi and no model named gets the tedi default when it is offered", () => {
+test("a turn with a picked tedi and no model named gets the configured chat default when it is offered", () => {
 	const offered = [
 		{ id: "@cf/fixture/model-two", label: "Model Two" },
 		{ id: "azure-openai/gpt-6.1-sol", label: "Sol" },
 	];
-	expect(defaultWorkspaceModelId(offered, true)).toBe(
+	expect(defaultWorkspaceModelId(offered, "azure-openai/gpt-6.1-sol")).toBe(
 		"azure-openai/gpt-6.1-sol",
 	);
-	expect(defaultWorkspaceModelId(offered, false)).toBe("@cf/fixture/model-two");
+	expect(
+		defaultWorkspaceModelId(offered, "workers-ai/@cf/fixture/model-two"),
+	).toBe("@cf/fixture/model-two");
+	expect(defaultWorkspaceModelId(offered, "azure-openai/not-offered")).toBe(
+		"@cf/fixture/model-two",
+	);
+	expect(defaultWorkspaceModelId(offered, undefined)).toBe(
+		"@cf/fixture/model-two",
+	);
 });
 
 test("a call that never reaches the provider releases its hold", async () => {

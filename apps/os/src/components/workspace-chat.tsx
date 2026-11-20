@@ -91,6 +91,7 @@ import {
 } from "@/components/workspace-chat-attach";
 import { isImeComposing } from "@/lib/keyboard";
 import {
+	modelCatalogQueryOptions,
 	osQueryKeys,
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
@@ -103,7 +104,6 @@ import { WorkspaceChatAuthor } from "./workspace-chat-author";
 import {
 	refForWorkspaceModelId,
 	useChatModelPreference,
-	tediChatDefaultModelId,
 	workspaceChatModelId,
 	workspaceModelIdForRef,
 } from "@/lib/use-chat-model-preference";
@@ -257,6 +257,12 @@ export function WorkspaceChat({
 	}, [onConversations, state.conversations]);
 	const tediNames = useTediNames();
 	const modelPreference = useChatModelPreference();
+	// The administrator's default model for a person's chat with a tedi.
+	const modelCatalog = useQuery({
+		...modelCatalogQueryOptions(),
+		staleTime: 60_000,
+		enabled: Boolean(pinnedTediId),
+	});
 	const [pickedModel, setPickedModel] = useState<{
 		conversationId: string | null;
 		id: string;
@@ -276,9 +282,11 @@ export function WorkspaceChat({
 		pickedHere:
 			pickedModel?.conversationId === conversationId ? pickedModel.id : null,
 		lastAnswered: state.turns.findLast((turn) => turn.model)?.model ?? null,
-		remembered: pinnedTediId
-			? tediChatDefaultModelId(state.models)
-			: workspaceModelIdForRef(modelPreference.modelRef),
+		remembered: workspaceModelIdForRef(
+			pinnedTediId
+				? (modelCatalog.data?.personChatModelRef ?? null)
+				: modelPreference.modelRef,
+		),
 	});
 	const selectedModel = state.models.find((model) => model.id === modelId);
 	const modelControl = state.models.length ? (

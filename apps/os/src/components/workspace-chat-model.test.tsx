@@ -58,6 +58,17 @@ vi.mock("@/lib/api", async (original) => {
 		}),
 	};
 });
+// The administrator's default for a person's chat with a tedi.
+vi.mock("@/lib/os-query-options", async (original) => ({
+	...(await original<typeof import("@/lib/os-query-options")>()),
+	modelCatalogQueryOptions: () => ({
+		queryKey: ["test", "model-catalog"],
+		queryFn: async () => ({
+			models: [],
+			personChatModelRef: "azure-openai/gpt-6.1-sol",
+		}),
+	}),
+}));
 import { WorkspaceChat } from "./workspace-chat";
 
 (
@@ -269,7 +280,7 @@ it("keeps a chat on the model that last answered in it, and starts a new chat on
 	expect(earlierChat.chosen()).toBe("Llama");
 });
 
-it("starts a chat with a tedi on the tedi default, sends every message to the tedi, and leaves the remembered model alone", async () => {
+it("starts a chat with a tedi on the configured chat default, sends every message to the tedi, and leaves the remembered model alone", async () => {
 	server.rows.set("ana", {
 		preferences: {
 			...DEFAULT_OS_USER_PREFERENCES,
