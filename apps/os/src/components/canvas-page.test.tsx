@@ -34,6 +34,7 @@ vi.mock("@/components/canvas-repository-workpiece", () => ({
 	),
 }));
 
+const signedIn = vi.hoisted(() => ({ permissions: [] as string[] }));
 const osWorkspacesApi = vi.hoisted(() => ({
 	workspaces: {
 		list: vi.fn(),
@@ -190,7 +191,9 @@ vi.mock("@/lib/api", () => ({
 		connections: { listProviders: vi.fn(async () => ({ data: [] })) },
 		// The Review tab asks who is signed in before offering review rounds.
 		userSettings: {
-			getContext: vi.fn(async () => ({ authority: { role: "member" } })),
+			getContext: vi.fn(async () => ({
+				authority: { role: "member", permissions: signedIn.permissions },
+			})),
 		},
 	},
 }));
@@ -1368,7 +1371,42 @@ describe("CanvasPage listing", () => {
 		);
 	});
 
-	it("opens an output without an editor read-only with an action to attach one", async () => {
+	it("attaches the editor and opens it when someone who can build opens a file without one", async () => {
+		signedIn.permissions = ["os:author"];
+		mockLists();
+		osWorkspacesApi.gadgets.list.mockResolvedValue({
+			items: [],
+			truncated: false,
+		});
+		osWorkspacesApi.outputs.get.mockResolvedValue({
+			output: outputFixture(),
+			currentRevision: outputRevisionFixture(),
+		});
+		osWorkspacesApi.gadgets.installOutputEditor.mockResolvedValue({
+			gadget: gadgetFixture(),
+		});
+		mockCollab({ initial: docJson(baseContent) });
+		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
+		const container = renderPage();
+		await flush();
+		signedIn.permissions = [];
+		await vi.waitFor(() => {
+			expect(routing.navigate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					search: expect.objectContaining({
+						workpiece: `gadget:${GADGET_ID}`,
+					}),
+					replace: true,
+				}),
+			);
+		});
+		expect(osWorkspacesApi.gadgets.installOutputEditor).toHaveBeenCalledTimes(
+			1,
+		);
+		expect(container.querySelector("[data-canvas-output-view]")).toBeNull();
+	});
+
+	it("opens an output without an editor read-only for someone who cannot attach one", async () => {
 		mockLists();
 		osWorkspacesApi.gadgets.list.mockResolvedValue({
 			items: [],

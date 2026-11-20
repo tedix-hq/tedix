@@ -10,22 +10,18 @@ import { OutputExportButtons } from "@/components/output-export-buttons";
 import { ShareButton } from "@/components/share-controls";
 import { SavedOutputContentView } from "@/components/output-content";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
+import { outputDetailQueryOptions } from "@/lib/os-query-options";
 import {
-	appRuntimeCodeQueryOptions,
-	canvasGadgetDetailQueryOptions,
-	outputDetailQueryOptions,
-	osQuery,
-	osQueryKeys,
-	workspaceResourcesQueryOptions,
-	workspaceOpenQueryOptions,
-} from "@/lib/os-query-options";
+	attachOutputEditor,
+	outputEditorKind,
+} from "@/lib/output-editor-attach";
 import { LoadingArea } from "@/components/loading-area";
 
 /**
- * An output opened in a Workspace without an editor app. Doc, Sheet and
- * Slides are edited only in their workspace gadget, so this view reads the
- * saved version and offers to attach the editor. Attaching is idempotent: an
- * output that already has an editor returns that same app.
+ * An output opened in a Workspace by someone who cannot attach its editor
+ * app, or whose editor could not be attached. Doc, Sheet and Slides are
+ * edited only in their workspace gadget, so this view reads the saved
+ * version and offers to attach the editor.
  */
 export function CanvasOutputView({
 	workspaceId,
@@ -45,9 +41,10 @@ export function CanvasOutputView({
 }) {
 	const queryClient = useQueryClient();
 	const detail = useQuery(outputDetailQueryOptions(outputId));
-	const install = useMutation(
-		osQuery.osWorkspaces.gadgets.installOutputEditor.mutationOptions(),
-	);
+	const install = useMutation({
+		mutationFn: (kind: "document" | "sheet" | "presentation") =>
+			attachOutputEditor(queryClient, workspaceId, outputId, kind),
+	});
 	if (detail.isError)
 		return (
 			<Alert variant="warning">
@@ -63,42 +60,11 @@ export function CanvasOutputView({
 	if (!detail.data)
 		return <LoadingArea className="h-64" label="Loading document" />;
 	const { output, currentRevision } = detail.data;
-	const editable =
-		output.status === "active" &&
-		output.kind !== "video" &&
-		!(
-			currentRevision.content.kind === "document" &&
-			currentRevision.content.file
-		);
+	const editorKind = outputEditorKind(detail.data);
 	const kind = output.kind;
 	const openEditor = async () => {
-		if (kind === "video") return;
-		const { gadget } = await install.mutateAsync({
-			workspaceId,
-			outputId,
-			kind,
-		});
-		void queryClient.prefetchQuery(
-			canvasGadgetDetailQueryOptions(workspaceId, gadget.id),
-		);
-		void queryClient.prefetchQuery(
-			workspaceOpenQueryOptions(workspaceId, gadget.id),
-		);
-		if (gadget.currentRevisionId)
-			void queryClient.prefetchQuery(
-				appRuntimeCodeQueryOptions(
-					workspaceId,
-					gadget.id,
-					gadget.currentRevisionId,
-				),
-			);
-		await Promise.all([
-			queryClient.invalidateQueries({ queryKey: osQueryKeys.gadgets() }),
-			queryClient.invalidateQueries({
-				queryKey: workspaceResourcesQueryOptions(workspaceId).queryKey,
-			}),
-		]);
-		onOpenEditor(gadget.id);
+		if (!editorKind) return;
+		onOpenEditor(await install.mutateAsync(editorKind));
 	};
 	return (
 		<div className="grid gap-3" data-canvas-output-view="">
@@ -138,7 +104,7 @@ export function CanvasOutputView({
 					)}
 				</div>
 			</div>
-			{editable && (
+			{editorKind && (
 				<Alert className="mx-4 w-auto">
 					<AlertTitle>To make changes, open it in its editor</AlertTitle>
 					<AlertDescription>
