@@ -196,7 +196,10 @@ it.each([
 		"Claude reported an MCP configuration error (search: invalid_config)",
 	],
 	[{ mcp_servers: [{ name: "search", status: "needs-auth" }] }, undefined],
-	[{ signedIn: false }, "Claude Code is not signed in; run `claude` and sign in"],
+	[
+		{ signedIn: false },
+		"Claude Code is not signed in; run `claude` and sign in",
+	],
 ])(
 	"uses Claude's sign-in and init event to report failures for %p",
 	async ({ signedIn = true, ...fields }: Record<string, unknown>, reason) => {
