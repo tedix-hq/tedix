@@ -49,6 +49,10 @@
 				"eval/**/*.{ts,js}!"
 			]
 		},
+		"apps/desktop": {
+			"entry": ["src/{main,preload,panel,strip}.ts!"],
+			"project": ["src/**/*.ts!"]
+		},
 		"apps/api": {
 			"entry": [
 				"src/worker-app.ts!",
