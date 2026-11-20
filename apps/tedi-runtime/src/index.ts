@@ -176,8 +176,8 @@ function rawAi(env: Cloudflare.Env): AiRunner | null {
 
 async function probeVoiceSttWebSocket(
 	env: Cloudflare.Env,
-	model: "@cf/deepgram/flux" | "@cf/deepgram/nova-3",
 ): Promise<Record<string, unknown>> {
+	const model = "@cf/deepgram/flux";
 	const ai = rawAi(env);
 	if (!ai) return { model, ok: false, error: "AI binding unavailable" };
 	const startedAt = Date.now();
@@ -187,17 +187,6 @@ async function probeVoiceSttWebSocket(
 			{
 				encoding: "linear16",
 				sample_rate: "16000",
-				...(model === "@cf/deepgram/nova-3"
-					? {
-							language: "en",
-							interim_results: "true",
-							vad_events: "true",
-							endpointing: "300",
-							utterance_end_ms: "1000",
-							smart_format: "true",
-							punctuate: "true",
-						}
-					: {}),
 			},
 			{ websocket: true },
 		)) as { webSocket?: WebSocket };
@@ -273,13 +262,12 @@ async function probeVoiceTts(
 }
 
 async function probeVoiceProviders(env: Cloudflare.Env): Promise<Response> {
-	const [flux, nova, ttsRaw, ttsGateway] = await Promise.all([
-		probeVoiceSttWebSocket(env, "@cf/deepgram/flux"),
-		probeVoiceSttWebSocket(env, "@cf/deepgram/nova-3"),
+	const [flux, ttsRaw, ttsGateway] = await Promise.all([
+		probeVoiceSttWebSocket(env),
 		probeVoiceTts(env, false),
 		probeVoiceTts(env, true),
 	]);
-	const sttOk = Boolean(flux.ok && nova.ok);
+	const sttOk = Boolean(flux.ok);
 	const ttsOk = Boolean(ttsRaw.ok && ttsGateway.ok);
 	const environment =
 		(env as { ENVIRONMENT?: string }).ENVIRONMENT ?? "unknown";
@@ -294,7 +282,7 @@ async function probeVoiceProviders(env: Cloudflare.Env): Promise<Response> {
 			: sttOk
 				? "streaming STT and TTS providers are reachable"
 				: "streaming STT provider did not return a WebSocket",
-		stt: { flux, nova },
+		stt: { flux },
 		tts: { raw: ttsRaw, gateway: ttsGateway },
 	});
 }
