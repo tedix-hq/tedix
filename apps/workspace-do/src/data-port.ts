@@ -198,9 +198,7 @@ export interface WorkspaceDataPort {
 	/** The titles of the files `reads` names, each active and in this workspace. */
 	readableFileTitles(reads: unknown): Promise<string[]>;
 	/** Lets an existing app read more files of this workspace, as a new revision. */
-	allowAppRead(
-		input: AllowAppReadInput & { actorId: string },
-	): Promise<{
+	allowAppRead(input: AllowAppReadInput & { actorId: string }): Promise<{
 		id: string;
 		name: string;
 		revision: number;
