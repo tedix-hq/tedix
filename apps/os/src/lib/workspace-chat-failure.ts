@@ -32,7 +32,11 @@ export function turnFailure(error: string | undefined): {
 	const text = error.toLowerCase();
 	const says = (pattern: RegExp) => pattern.test(text);
 	let message: string;
-	if (error === "interrupted" || text.includes("no live executor"))
+	// The model's reply had no text and no step, e.g. it spent its whole output
+	// budget reasoning.
+	if (text.startsWith("model returned no answer"))
+		message = "The model returned no answer. Try again, or pick another model.";
+	else if (error === "interrupted" || text.includes("no live executor"))
 		message =
 			"This reply was cut off before it finished. Continue to pick up where it stopped.";
 	// Tedix's own storage or services, not the model.
