@@ -117,6 +117,8 @@ export function GetStartedChecklist({ onClose }: { onClose: () => void }) {
 			onClose();
 		},
 	});
+	// Reopening continues at the first step that still needs action.
+	const next = steps?.find((step) => !step.done);
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
 			<DialogContent>
@@ -124,8 +126,8 @@ export function GetStartedChecklist({ onClose }: { onClose: () => void }) {
 					<DialogTitle>Get started</DialogTitle>
 					<DialogDescription>
 						{steps
-							? "Do these in any order. Each one is ticked once Tedix sees it is done."
-							: "You have finished every step."}
+							? "Each step is ticked once it is done. Pick up where you left off."
+							: "You're ready. Every step is done."}
 					</DialogDescription>
 				</DialogHeader>
 				<ul className="m-0 grid list-none gap-1 p-0">
@@ -163,7 +165,9 @@ export function GetStartedChecklist({ onClose }: { onClose: () => void }) {
 					))}
 				</ul>
 				{hide.isError ? (
-					<p role="alert">The list could not be hidden. Please try again.</p>
+					<p role="alert">
+						The list was not hidden. Check your connection and try again.
+					</p>
 				) : null}
 				<DialogFooter>
 					<Button
@@ -173,7 +177,13 @@ export function GetStartedChecklist({ onClose }: { onClose: () => void }) {
 					>
 						Hide this list
 					</Button>
-					<Button onClick={onClose}>Close</Button>
+					{next ? (
+						<Button onClick={onClose} render={<OsRouterLink to={next.to} />}>
+							Continue: {next.title}
+						</Button>
+					) : (
+						<Button onClick={onClose}>Close</Button>
+					)}
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
