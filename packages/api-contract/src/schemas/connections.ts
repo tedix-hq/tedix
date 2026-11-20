@@ -6,6 +6,7 @@
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
 import { TOOL_OPERATIONAL_RISK_TIER_VALUES } from "./tools";
+import { OS_OUTPUT_CONTENT_MAX_BYTES } from "../utils/os-output-limits";
 
 /** Identity of the vault selection, never the credential or its secret.
  * An absent instance ID alone does not identify a stable external account.
@@ -689,3 +690,43 @@ export const ConnectionAccessRequestSchema = z.object({
 export type ConnectionAccessRequest = z.infer<
 	typeof ConnectionAccessRequestSchema
 >;
+
+/** Drives an exported file can be saved to. Only Google Drive has a connection that can create files today. */
+export const DriveSaveProviderSchema = z.enum(["google-drive"]);
+export type DriveSaveProvider = z.infer<typeof DriveSaveProviderSchema>;
+
+/** One exported file, saved by the signed-in person to their own drive. */
+export const SaveExportToDriveInputSchema = z.strictObject({
+	provider: DriveSaveProviderSchema,
+	/** The signed-in person's own account for that provider. */
+	connectionInstanceId: z.uuid(),
+	fileName: z.string().trim().min(1).max(255),
+	mimeType: z
+		.string()
+		.max(200)
+		.regex(/^[\w.+-]+\/[\w.+-]+$/, "Use a plain file type such as text/csv"),
+	/** Text as written, or file bytes as base64; either up to the export size limit. */
+	content: z.discriminatedUnion("encoding", [
+		z.strictObject({
+			encoding: z.literal("text"),
+			text: z.string().max(OS_OUTPUT_CONTENT_MAX_BYTES),
+		}),
+		z.strictObject({
+			encoding: z.literal("base64"),
+			data: z
+				.string()
+				.max(Math.ceil(OS_OUTPUT_CONTENT_MAX_BYTES / 3) * 4)
+				.regex(/^[A-Za-z0-9+/]*={0,2}$/),
+		}),
+	]),
+});
+export type SaveExportToDriveInput = z.infer<
+	typeof SaveExportToDriveInputSchema
+>;
+
+export const SaveExportToDriveOutputSchema = z.object({
+	fileId: z.string(),
+	name: z.string(),
+	/** Where the person can open the saved file. */
+	url: z.url(),
+});

@@ -210,6 +210,7 @@ function OutputDetailActions({
 			) : null}
 			<OutputExportButtons
 				outputId={output.id}
+				title={output.title}
 				kind={output.kind}
 				content={currentRevision.content}
 				phoneOverflow

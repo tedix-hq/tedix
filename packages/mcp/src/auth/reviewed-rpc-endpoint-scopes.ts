@@ -243,6 +243,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"connections/preparePersonalConnection": "mcp:settings.write",
 	"connections/redeemConnectTicket": "mcp:settings.write",
 	"connections/renameConnectionInstance": "mcp:settings.write",
+	// Saves to the caller's own drive; the procedure refuses anyone but a signed-in person.
+	"connections/saveExportToDrive": "mcp:settings.write",
 	"connections/setConnectionAccessCheck": "mcp:settings.write",
 	"connections/setAllowedResources": "mcp:settings.admin",
 	"connections/setConsumerGrants": "mcp:settings.admin",

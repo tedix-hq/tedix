@@ -1,4 +1,5 @@
 import {
+	Fragment,
 	type KeyboardEvent,
 	type ReactNode,
 	useEffect,
@@ -15,10 +16,13 @@ import {
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuGroup,
 	DropdownMenuItem,
+	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
 	DropdownMenuRadioItemIndicator,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import {
@@ -36,6 +40,7 @@ import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
+import type { DriveSaveTarget } from "@/components/save-to-drive";
 import {
 	type CanvasWorkpieceSelection,
 	type CanvasWorkpieceMode,
@@ -187,11 +192,20 @@ export function CanvasWorkpieceExportMenu({
 	formats,
 	busy,
 	onExport,
+	driveTargets = [],
+	onSaveToDrive,
 }: {
 	formats: readonly AppRuntimeExportFormat[];
 	busy: boolean;
 	onExport: (format: AppRuntimeExportFormat) => void;
+	/** The person's own connected drives; each gets its own group of formats. */
+	driveTargets?: readonly DriveSaveTarget[];
+	onSaveToDrive?: (
+		format: AppRuntimeExportFormat,
+		target: DriveSaveTarget,
+	) => void;
 }) {
+	const drives = onSaveToDrive ? driveTargets : [];
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
@@ -202,10 +216,34 @@ export function CanvasWorkpieceExportMenu({
 				<CaretDown aria-hidden size={12} />
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end">
-				{formats.map((format) => (
-					<DropdownMenuItem key={format.name} onClick={() => onExport(format)}>
-						{format.name}
-					</DropdownMenuItem>
+				<DropdownMenuGroup>
+					{drives.length ? (
+						<DropdownMenuLabel>Download</DropdownMenuLabel>
+					) : null}
+					{formats.map((format) => (
+						<DropdownMenuItem
+							key={format.name}
+							onClick={() => onExport(format)}
+						>
+							{format.name}
+						</DropdownMenuItem>
+					))}
+				</DropdownMenuGroup>
+				{drives.map((target) => (
+					<Fragment key={target.provider}>
+						<DropdownMenuSeparator />
+						<DropdownMenuGroup>
+							<DropdownMenuLabel>{target.label}</DropdownMenuLabel>
+							{formats.map((format) => (
+								<DropdownMenuItem
+									key={format.name}
+									onClick={() => onSaveToDrive?.(format, target)}
+								>
+									{format.name}
+								</DropdownMenuItem>
+							))}
+						</DropdownMenuGroup>
+					</Fragment>
 				))}
 			</DropdownMenuContent>
 		</DropdownMenu>

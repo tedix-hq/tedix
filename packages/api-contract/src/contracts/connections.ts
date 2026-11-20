@@ -25,6 +25,8 @@ import {
 	CreateProviderFromMcpOutputSchema,
 	RecordProviderRegistrationInputSchema,
 	RecordProviderRegistrationOutputSchema,
+	SaveExportToDriveInputSchema,
+	SaveExportToDriveOutputSchema,
 	SelectedConnectionCredentialSchema,
 	UserConnectionSchema,
 } from "../schemas/connections";
@@ -136,6 +138,16 @@ export const connectionsContract = oc
 				}),
 			)
 			.output(z.object({ success: z.literal(true) })),
+		saveExportToDrive: oc
+			.route({
+				method: "POST",
+				path: "/drive-exports",
+				summary: "Save an export to your drive",
+				description:
+					"Save one exported file to the signed-in person's own connected drive, in its top folder. Never uses an organization account.",
+			})
+			.input(SaveExportToDriveInputSchema)
+			.output(SaveExportToDriveOutputSchema),
 		setConnectionAccessCheck: oc
 			.route({
 				method: "PUT",

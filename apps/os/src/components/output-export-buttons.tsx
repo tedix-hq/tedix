@@ -13,7 +13,15 @@ import {
 	DropdownMenuTrigger,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
 } from "@/components/kumo/dropdown-menu";
+import {
+	blobToBase64,
+	type DriveSaveTarget,
+	saveExportToDrive,
+	useDriveSaveTargets,
+} from "@/components/save-to-drive";
+import { OS_OUTPUT_CONTENT_MAX_BYTES } from "@tedix/api-contract/utils/os-output-limits";
 import { osApi, OS_API_URL } from "@/lib/api";
 
 /**
@@ -36,8 +44,46 @@ type ExportRequest = {
 	revisionHeader?: boolean;
 };
 
+/** The format a file opens in on a drive: its office format. */
+const DRIVE_FORMATS: Partial<Record<OsOutputKind, OsOutputExportFormat>> = {
+	document: "docx",
+	sheet: "xlsx",
+	presentation: "pptx",
+};
+
+/** Export the file on the server, read it back, and save it to the person's drive. */
+async function saveOutputToDrive(
+	output: { id: string; title?: string },
+	format: OsOutputExportFormat,
+	target: DriveSaveTarget,
+) {
+	const result = await osApi.osWorkspaces.outputs.export({
+		outputId: output.id,
+		format,
+	});
+	const exportUrl = new URL(result.url);
+	const exportName = exportUrl.pathname.split("/").pop() || `export.${format}`;
+	const extension = exportName.slice(exportName.lastIndexOf("."));
+	const response = await fetch(
+		`${OS_API_URL}${exportUrl.pathname}${exportUrl.search}`,
+		{ credentials: "include" },
+	);
+	if (!response.ok) throw new Error("The exported file could not be read.");
+	const blob = await response.blob();
+	if (blob.size > OS_OUTPUT_CONTENT_MAX_BYTES)
+		throw new Error("This file is too large to save to a drive.");
+	await saveExportToDrive(target, {
+		fileName: output.title?.trim()
+			? `${output.title.trim().slice(0, 200)}${extension}`
+			: exportName,
+		mimeType: blob.type.split(";")[0] || "application/octet-stream",
+		content: { encoding: "base64", data: await blobToBase64(blob) },
+	});
+}
+
 export function OutputExportButtons({
 	outputId,
+	title,
 	kind,
 	content,
 	compact = false,
@@ -45,6 +91,8 @@ export function OutputExportButtons({
 	phoneActions,
 }: {
 	outputId: string;
+	/** The file's name, used for the copy saved to a drive. */
+	title?: string;
 	/**
 	 * The output's kind. Every call site renders inside its own loaded output
 	 * detail, so the kind is always known by the time these buttons exist and
@@ -73,9 +121,17 @@ export function OutputExportButtons({
 			download.click();
 		},
 	});
+	const driveTargets = useDriveSaveTargets();
+	const driveFormat = DRIVE_FORMATS[kind];
+	const saveToDrive = useMutation({
+		mutationFn: (target: DriveSaveTarget) =>
+			saveOutputToDrive({ id: outputId, title }, driveFormat!, target),
+	});
 	const activeFormat = exportOutput.isPending
 		? exportOutput.variables?.format
-		: null;
+		: saveToDrive.isPending
+			? driveFormat
+			: null;
 	const formats: OsOutputExportFormat[] = osOutputExportFormatsForKind(kind);
 	const sheets =
 		content?.kind === "sheet" ? content.workbook?.sheets : undefined;
@@ -88,7 +144,7 @@ export function OutputExportButtons({
 							size="sm"
 							className={phoneOverflow ? "output-detail-overflow" : undefined}
 							variant="secondary"
-							disabled={exportOutput.isPending}
+							disabled={exportOutput.isPending || saveToDrive.isPending}
 							aria-label={
 								activeFormat
 									? `Exporting ${activeFormat.toUpperCase()}`
@@ -151,6 +207,20 @@ export function OutputExportButtons({
 								</DropdownMenuItem>
 							))
 						: null}
+					{driveFormat && driveTargets.length ? (
+						<>
+							<DropdownMenuSeparator />
+							{driveTargets.map((target) => (
+								<DropdownMenuItem
+									key={target.provider}
+									disabled={exportOutput.isPending || saveToDrive.isPending}
+									onClick={() => saveToDrive.mutate(target)}
+								>
+									{target.label} ({FORMAT_LABELS[driveFormat]})
+								</DropdownMenuItem>
+							))}
+						</>
+					) : null}
 				</DropdownMenuContent>
 			</DropdownMenu>
 			{activeFormat ? (
@@ -168,6 +238,18 @@ export function OutputExportButtons({
 					role="alert"
 				>
 					Export failed: {(exportOutput.error as Error).message}
+				</span>
+			) : null}
+			{saveToDrive.isError ? (
+				<span
+					className={
+						compact
+							? "min-w-0 max-w-48 text-xs text-kumo-danger [overflow-wrap:anywhere]"
+							: "min-w-0 max-w-full text-sm text-kumo-danger [overflow-wrap:anywhere]"
+					}
+					role="alert"
+				>
+					Could not save to the drive: {saveToDrive.error.message}
 				</span>
 			) : null}
 		</div>

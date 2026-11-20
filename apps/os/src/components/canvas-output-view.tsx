@@ -78,6 +78,7 @@ export function CanvasOutputView({
 				<div className="flex items-center gap-2">
 					<OutputExportButtons
 						outputId={output.id}
+						title={output.title}
 						kind={kind}
 						content={currentRevision.content}
 						compact

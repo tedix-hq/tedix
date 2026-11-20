@@ -7,7 +7,10 @@ const exportsApi = vi.hoisted(() => ({ export: vi.fn(), get: vi.fn() }));
 
 vi.mock("@/lib/api", () => ({
 	OS_API_URL: "http://localhost:3030/api",
-	osApi: { osWorkspaces: { outputs: exportsApi } },
+	osApi: {
+		osWorkspaces: { outputs: exportsApi },
+		connections: { getConnectionsOverview: async () => ({ rows: [] }) },
+	},
 }));
 
 import type {
