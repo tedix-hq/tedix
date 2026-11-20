@@ -36,8 +36,10 @@ storybook-static/
 .vscode/
 *.swp
 
-# Per-machine agent settings, rewritten by the desktop app during a session
+# Per-machine agent state
 .claude/settings.local.json
+.claude/lane-logs/
+.claude/scheduled_tasks.lock
 
 # Local agent worktrees are separate checkouts, never sources
 .claude/worktrees/
