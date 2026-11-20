@@ -1,9 +1,13 @@
 import { Link } from "@/components/kumo/link";
-import { useEffect, useState } from "react";
+import { useDescope } from "@descope/react-sdk/flows";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { clearStoredAppFiles } from "@/shared/app-files-cache";
 import { resolveProductLoginIntent } from "@/account/product-login-routing";
-import { isDescopeFlowContinuation } from "@/shared/session-status";
+import {
+	buildBrokerStartPath,
+	isDescopeFlowContinuation,
+} from "@/shared/session-status";
 import { BrokerLoginPage } from "@/account/account-login";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import {
@@ -48,6 +52,54 @@ function isDesktopLinkInBrowser(href: string): boolean {
 	);
 }
 
+/**
+ * The desktop app loads `/login#desktop-sign-in=<token>` after the person
+ * signed in in their normal browser. The token is a one-time Descope sign-in
+ * token; verifying it here starts this window's own session.
+ */
+function desktopSignInToken(): string | null {
+	if (!inDesktopApp()) return null;
+	return new URLSearchParams(window.location.hash.slice(1)).get(
+		"desktop-sign-in",
+	);
+}
+
+function FinishDesktopSignIn({ token }: { token: string }) {
+	const descope = useDescope();
+	const started = useRef(false);
+	const [failed, setFailed] = useState(false);
+	useEffect(() => {
+		if (started.current) return;
+		started.current = true;
+		// The token must not stay in the address or the history.
+		window.history.replaceState(null, "", "/login");
+		void descope.magicLink.verify(token).then(
+			(result) => {
+				if (!result.ok || !result.data?.sessionJwt) return setFailed(true);
+				window.location.replace(
+					buildBrokerStartPath("/auth/session-broker", { redirectTo: "/" }),
+				);
+			},
+			() => setFailed(true),
+		);
+	}, [descope, token]);
+	return (
+		<main className="centered-state" aria-busy={failed ? undefined : true}>
+			<TedixBrandMark />
+			{failed ? (
+				<>
+					<p role="alert">
+						That sign-in could not be finished. It may have expired.
+					</p>
+					<Link href="/">Sign in again</Link>
+				</>
+			) : (
+				<p>Finishing your Tedix sign-in…</p>
+			)}
+		</main>
+	);
+}
+
 let appOpenTried = false;
 
 /**
@@ -82,6 +134,13 @@ export function ProductLoginPage() {
 	// session left on this device.
 	useEffect(() => void clearStoredAppFiles(), []);
 	const [continueHere, setContinueHere] = useState(false);
+	const [desktopToken] = useState(desktopSignInToken);
+	if (desktopToken)
+		return (
+			<AccountAuthProvider>
+				<FinishDesktopSignIn token={desktopToken} />
+			</AccountAuthProvider>
+		);
 	if (!continueHere && isDesktopLinkInBrowser(window.location.href))
 		return <OpenDesktopApp onContinueHere={() => setContinueHere(true)} />;
 	const intent = resolveProductLoginIntent(window.location.href);

@@ -130,6 +130,11 @@ export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 					repositoryCandidateAccess(request, this.env),
 			);
 		}
+		if (new URL(request.url).pathname === "/__internal/desktop-sign-in-code") {
+			return import("./services/desktop-sign-in-code").then(
+				({ desktopSignInCode }) => desktopSignInCode(request, this.env),
+			);
+		}
 		if (
 			new URL(request.url).pathname === "/__internal/workspace-session-access"
 		) {

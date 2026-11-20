@@ -1204,6 +1204,12 @@ export async function handleOsRequest(
 			await proxyOidcProtocol(request, env.API_SERVICE, hostTenantId),
 		);
 	}
+	// authz: public — desktop app sign-in: the handler itself verifies the browser's own product session and a same-origin confirmation before it asks for a code.
+	if (url.pathname === "/auth/desktop/sign-in") {
+		const { handleDesktopSignIn } = await import("./auth/desktop-sign-in");
+		const desktopSignIn = await handleDesktopSignIn(request, env);
+		if (desktopSignIn) return withSecurityHeaders(desktopSignIn);
+	}
 	const brokerResponse = await handleOsSessionBroker(
 		request,
 		env,
