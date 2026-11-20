@@ -5,7 +5,12 @@ import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
 import { externalAgentPrincipals } from "@tedix/db/schema/external-agent-identity";
-import { workAttempts, workEvents } from "@tedix/db/schema/work-items";
+import {
+	workAttempts,
+	workEvents,
+	workAttemptSteps,
+	workAttemptMessages,
+} from "@tedix/db/schema/work-items";
 import {
 	workResourceReservations,
 	workBudgetReservations,
@@ -54,6 +59,8 @@ async function fixture({
 			schemaDdl(
 				externalAgentPrincipals,
 				workEvents,
+				workAttemptSteps,
+				workAttemptMessages,
 				workResourceReservations,
 				workBudgetReservations,
 				workInteractions,

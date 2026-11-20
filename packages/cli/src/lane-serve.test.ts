@@ -10121,13 +10121,55 @@ describe("watching and steering a run", () => {
 		f.releases[0]!();
 		await f.dispatcher.drain();
 		expect(f.control.stepCalls.map((call) => call.steps.length)).toEqual([
-			1, 2,
+			1, 1, 1,
 		]);
-		expect(f.control.stepCalls[1]!.steps.map((step) => step.seq)).toEqual([
-			0, 1,
-		]);
+		expect(
+			f.control.stepCalls.slice(0, 2).map((call) => call.steps[0]!.seq),
+		).toEqual([0, 0]);
+		expect(sentSteps(f).map((step) => step.seq)).toEqual([0, 1]);
 		expect(f.events.find((event) => event.verb === "settle")!.args).toContain(
 			"succeeded",
+		);
+	});
+
+	it("retries a failed turn-end read before applying the follow-up and settling", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.stepReplies = [
+			new Error("Native call deadline elapsed"),
+			[fromOwner("message-1", "Also cover pricing.")],
+		];
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await until(() => f.releases.length === 2);
+		expect(f.events.some((event) => event.verb === "settle")).toBe(false);
+		f.releases[1]!();
+		await f.dispatcher.drain();
+		expect(f.briefs[1]).toContain("Also cover pricing.");
+		expect(f.control.stepCalls.flatMap((call) => call.applied)).toContain(
+			"message-1",
+		);
+		expect(f.events.find((event) => event.verb === "settle")!.args).toContain(
+			"succeeded",
+		);
+	});
+
+	it("cannot settle succeeded when all turn-end reads fail", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.stepReplies = Array.from(
+			{ length: 3 },
+			() => new Error("Native call deadline elapsed"),
+		);
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args).toContain("failed");
+		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
+			"Could not read follow-ups at turn end after three tries",
 		);
 	});
 
@@ -10377,6 +10419,55 @@ describe("watching and steering a run", () => {
 		}) as typeof setInterval);
 		return { send: () => sendNow(), restore: () => timer.mockRestore() };
 	};
+
+	it("logs a live-steered follow-up and applies it without another turn", async () => {
+		const flush = flushNow();
+		const f = fixture();
+		f.items.splice(1);
+		const child = spawn(process.execPath, ["-e", ""]);
+		const thread = f.deps.thread!;
+		const steered: string[] = [];
+		f.deps.thread = async (...args) => ({
+			...(await thread(...args)),
+			codexServer: {
+				child,
+				close: () => {
+					child.kill();
+				},
+				steer: async (text) => {
+					steered.push(text);
+					return true;
+				},
+				interrupt: () => undefined,
+				turn: async () => undefined,
+			},
+		});
+		const dispatcher = f.restart();
+		try {
+			await dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.control.stepReplies = [
+				[fromOwner("message-live", "Also check pricing.")],
+			];
+			flush.send();
+			await until(() =>
+				f.control.stepCalls.some((call) =>
+					call.applied.includes("message-live"),
+				),
+			);
+			expect(steered).toHaveLength(1);
+			expect(steered[0]).toContain("Also check pricing.");
+			expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toMatch(
+				/"event":"follow-up-steered".*message-live/,
+			);
+			f.releases[0]!();
+			await dispatcher.drain();
+			expect(f.briefs).toHaveLength(1);
+		} finally {
+			flush.restore();
+			child.kill();
+		}
+	});
 
 	it("stops the turn in progress for an urgent follow-up and applies it on the same session", async () => {
 		const flush = flushNow();

@@ -23,6 +23,7 @@ import {
 	type WorkAttemptOutcome,
 	type WorkAttemptRuntimeState,
 	type WorkItem,
+	workAttemptMessages,
 	workAttemptSteps,
 	workAttempts,
 	workEvents,
@@ -1341,12 +1342,48 @@ export async function settleWorkItemAttempt(
 							target: [workAttemptSteps.attemptId, workAttemptSteps.seq],
 						})
 				: undefined;
+		// A message insert checks the live Attempt atomically. In this same
+		// settlement batch, account for follow-ups accepted after the final read.
+		// A parked question stays last so its answer can resume the session.
+		const refuseLateFollowUps = !persistQuestion
+			? db.insert(workAttemptSteps).select(
+					db
+						.select({
+							id: sql<string>`${crypto.randomUUID()}`.as("step_id"),
+							orgId: workAttempts.orgId,
+							workItemId: workAttempts.workItemId,
+							attemptId: workAttempts.id,
+							seq: sql<number>`(SELECT coalesce(max(step.seq), -1) + 1 FROM work_attempt_steps step WHERE step.attempt_id = ${params.attemptId})`.as(
+								"step_seq",
+							),
+							at: sql<number>`${Date.parse(settledAt)}`.as("step_at"),
+							kind: sql<"error">`'error'`.as("step_kind"),
+							text: sql<string>`'Follow-up not applied: the run ended before another turn could start.'`.as(
+								"step_text",
+							),
+							choices: sql<null>`NULL`.as("step_choices"),
+						})
+						.from(workAttempts)
+						.where(
+							and(
+								eq(workAttempts.id, params.attemptId),
+								eq(workAttempts.orgId, params.orgId),
+								eq(workAttempts.workItemId, params.workItemId),
+								eq(workAttempts.version, prior.version + 1),
+								eq(workAttempts.finishedAt, settledAt),
+								eq(workAttempts.outcome, params.outcome),
+								sql`EXISTS (SELECT 1 FROM ${workAttemptMessages} WHERE ${workAttemptMessages.attemptId} = ${workAttempts.id} AND ${workAttemptMessages.orgId} = ${workAttempts.orgId} AND ${workAttemptMessages.workItemId} = ${workAttempts.workItemId} AND ${workAttemptMessages.kind} = 'follow_up' AND ${workAttemptMessages.appliedAt} IS NULL)`,
+							),
+						),
+				)
+			: undefined;
 		const [settledRows] = await db.batch([
 			settleMutation,
 			releaseResources,
 			consumeBudgets,
 			settleEvent,
 			...(persistQuestion ? [persistQuestion] : []),
+			...(refuseLateFollowUps ? [refuseLateFollowUps] : []),
 			...(handoff && work
 				? laneHandoffStatements(db, {
 						work,

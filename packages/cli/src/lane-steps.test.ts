@@ -166,6 +166,29 @@ describe("run step log", () => {
 		expect(logged).toEqual(["run-steps-failed"]);
 	});
 
+	it("reports a timed-out flush and waits for the in-flight send before reading again", async () => {
+		let release!: (value: unknown) => void;
+		let sends = 0;
+		const received: RunMessage[] = [];
+		const log = createRunStepLog({
+			send: async () => {
+				if (++sends === 1)
+					return new Promise((done) => {
+						release = done;
+					});
+				return { pending: [message("m2")] };
+			},
+			onMessage: (row) => received.push(row),
+			log: () => {},
+		});
+		expect(await log.flush(true, 1)).toBe(false);
+		const retry = log.endTurn();
+		expect(sends).toBe(1);
+		release({ pending: [message("m1")] });
+		await retry;
+		expect(received.map((row) => row.id)).toEqual(["m1", "m2"]);
+	});
+
 	it("drops the oldest steps past 500 and sends at most 50 at a time", async () => {
 		const sizes: number[] = [];
 		let first: number | undefined;

@@ -7,6 +7,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade, type D1FacadeOptions } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
+import { organizations } from "../../schema/organizations";
+import { workAttemptSteps, workAttemptMessages } from "../../schema/work-items";
 import { workInteractions } from "../../schema/work-factory";
 import { policyPacks } from "../../schema/control-plane";
 import { tedis } from "../../schema/tedis";
@@ -96,7 +98,15 @@ function fixture(options?: D1FacadeOptions) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
 	sqlite.exec(
-		schemaDdl(workInteractions, organizationMembers, policyPacks, tedis),
+		schemaDdl(
+			organizations,
+			workInteractions,
+			organizationMembers,
+			policyPacks,
+			tedis,
+			workAttemptSteps,
+			workAttemptMessages,
+		),
 	);
 	sqlite.exec(
 		"CREATE TABLE work_item_comments (id TEXT PRIMARY KEY,work_item_id TEXT NOT NULL,org_id TEXT NOT NULL,author_type TEXT NOT NULL,author_id TEXT,body TEXT NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)",

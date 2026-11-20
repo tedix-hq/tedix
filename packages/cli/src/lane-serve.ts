@@ -5167,6 +5167,7 @@ ${message.body}`,
 							if (accepted) {
 								followUps.shift();
 								steps.applied([message.id]);
+								this.log("follow-up-steered", item.id, message.id);
 								void steps.flush();
 							} else {
 								steerUnavailable = true;
@@ -5494,7 +5495,7 @@ ${firstBrief}`;
 			// A stop that arrived during preparation starts no turn at all.
 			let exit = run.stop ? 1 : await runTurn(brief, resumed);
 			let turnStopped = await turnEnded(exit);
-			await steps.flush(true);
+			await steps.endTurn();
 			// Follow-ups run as further turns on this thread. A question in
 			// the final result ends this Attempt and waits for fresh admission.
 			while (
@@ -5549,7 +5550,7 @@ ${firstBrief}`;
 				turnStopped = await turnEnded(exit);
 				// A turn that never started leaves its follow-ups unapplied.
 				run.launching = undefined;
-				await steps.flush(true);
+				await steps.endTurn();
 			}
 			codexServer?.close();
 			codexServer = undefined;
