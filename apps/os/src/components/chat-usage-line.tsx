@@ -1,6 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { Meter } from "@/components/kumo/meter";
+import { Button } from "@/components/kumo/button";
+import { Link } from "@/components/kumo/link";
+import {
+	PopoverContent,
+	PopoverDescription,
+	PopoverRoot,
+	PopoverTitle,
+	PopoverTrigger,
+} from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
 import type { AllowanceUsage } from "@/lib/billing-credits";
 import {
@@ -9,19 +17,19 @@ import {
 } from "@/lib/os-query-options";
 import { useCanReadBilling, useCreditShare } from "@/lib/use-credit-share";
 
-/** The quiet line's words, exported for tests. */
+/** The usage words, exported for tests. */
 export function conversationUsageText(usage: AllowanceUsage): string {
 	return `${usage.label} of this month's credits used in this conversation`;
 }
 
 /**
- * A muted line under the composer: what this conversation's settled runs
- * used, as a share of the organization's credits this month. Exact credit
- * counts stay on Billing › Usage. It needs billing read access for the
- * monthly total, stays silent until something has settled, and never shows a
- * guess while a read is pending or failed.
+ * A small ring in the composer toolbar: what this conversation's settled runs
+ * used, as a share of the organization's credits this month. The popover says
+ * it in words; exact credit counts stay on Billing. It needs billing read
+ * access for the monthly total, stays hidden until something has settled, and
+ * never shows a guess while a read is pending or failed.
  */
-export function ConversationUsageLine({
+export function ConversationUsageRing({
 	conversationId,
 	settledRunCount,
 	workspaceId,
@@ -66,23 +74,63 @@ export function ConversationUsageLine({
 
 	if (!usage) return null;
 	return (
-		<div
-			className="chat-usage-line mx-auto flex w-full max-w-3xl items-center justify-end gap-2 px-4 pt-1.5"
-			title="Completed charges; pending usage appears once settled."
-			data-credit-percent={usage.percent}
-		>
-			<Text as="p" role="label" tone="secondary" className="m-0 tabular-nums">
-				{conversationUsageText(usage)}
-			</Text>
-			<Meter
-				aria-label="Share of this month's credits used in this conversation"
-				label=""
-				hideLabel
-				value={usage.percent}
-				getAriaValueText={() => usage.label}
-				className="w-16 shrink-0 gap-0"
-				trackClassName="h-1"
+		<PopoverRoot>
+			<PopoverTrigger
+				render={
+					<Button
+						aria-label={`Usage: ${conversationUsageText(usage)}`}
+						className="chat-usage-ring"
+						data-credit-percent={usage.percent}
+						size="icon-sm"
+						title={conversationUsageText(usage)}
+						type="button"
+						variant="ghost"
+					>
+						<UsageRing percent={usage.percent} />
+					</Button>
+				}
 			/>
-		</div>
+			<PopoverContent side="top" align="end" className="w-64 p-3">
+				<PopoverTitle className="text-sm font-medium">Usage</PopoverTitle>
+				<PopoverDescription className="mt-1 text-sm">
+					{conversationUsageText(usage)}.
+				</PopoverDescription>
+				<Text as="p" role="label" tone="secondary" className="m-0 mt-2">
+					Counts settled replies; new ones appear within a few minutes.{" "}
+					<Link href="/admin/billing">See billing</Link>
+				</Text>
+			</PopoverContent>
+		</PopoverRoot>
+	);
+}
+
+/** A 16 px doughnut; any use shows at least a sliver so it never reads as empty. */
+function UsageRing({ percent }: { percent: number }) {
+	const radius = 6;
+	const circumference = 2 * Math.PI * radius;
+	const shown = percent > 0 ? Math.min(100, Math.max(percent, 4)) : 0;
+	return (
+		<svg aria-hidden width={16} height={16} viewBox="0 0 16 16">
+			<circle
+				cx={8}
+				cy={8}
+				r={radius}
+				fill="none"
+				stroke="currentColor"
+				strokeOpacity={0.25}
+				strokeWidth={2.5}
+			/>
+			<circle
+				cx={8}
+				cy={8}
+				r={radius}
+				fill="none"
+				stroke="currentColor"
+				strokeWidth={2.5}
+				strokeLinecap="round"
+				strokeDasharray={`${(shown / 100) * circumference} ${circumference}`}
+				transform="rotate(-90 8 8)"
+			/>
+		</svg>
 	);
 }
