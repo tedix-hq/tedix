@@ -1764,6 +1764,10 @@
 		{
 			"name": "20261120171755_kernel_request_events_age_index/migration.sql",
 			"sha256": "44efcd7970a1d0111dd9bb4e88581b9c19ed7d7f74728cd3f22fb90a1cdcf883"
+		},
+		{
+			"name": "20261120173019_usage_widget_workflow_retention/migration.sql",
+			"sha256": "f108174ba04c11bcbd9b58e4e061bbe95ccef10f612bb09af352134d401fc130"
 		}
 	]
 }

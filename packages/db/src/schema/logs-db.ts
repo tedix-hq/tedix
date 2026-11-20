@@ -30,6 +30,9 @@
  *   events stay in main, where they are inserted from their request row.
  * - `platform_cron_executions`: finished cron runs past the keep window;
  *   running rows stay in main.
+ * - `tedi_usage_events`, `widget_events`, `workflow_run_ledger`: rows the
+ *   nightly cleanup used to delete (30, 30 and 90 days); unfinished workflow
+ *   runs stay in main.
  *
  * Readers merge both stores through `getLogStores()` in `client.ts`. The
  * checked-in DDL under `packages/db/logs-db/migrations` is derived from this
@@ -44,7 +47,9 @@ import { kernelRuntimeEvents, tediRuntimeEvents } from "./cognitive-runtime";
 import { externalAgentAttributions } from "./external-agent-identity";
 import { kernelRequestEvents } from "./kernel-requests";
 import { platformCronExecutions } from "./platform-cron-executions";
-import { tediCallCosts } from "./tedis";
+import { tediCallCosts, tediUsageEvents } from "./tedis";
+import { widgetEvents } from "./analytics";
+import { workflowRunLedger } from "./workflow-runs";
 
 /**
  * Logs-local directory, never part of the main migration chain. Apply the logs
@@ -72,6 +77,9 @@ export const LOGS_DB_TABLES: readonly SQLiteTable[] = [
 	tediCallCosts,
 	kernelRequestEvents,
 	platformCronExecutions,
+	tediUsageEvents,
+	workflowRunLedger,
+	widgetEvents,
 	logPartition,
 ];
 
@@ -126,4 +134,7 @@ export const LOGS_DB_TABLE_NAMES: ReadonlySet<string> = new Set([
 	"tedi_call_costs",
 	"kernel_request_events",
 	"platform_cron_executions",
+	"tedi_usage_events",
+	"workflow_run_ledger",
+	"widget_events",
 ]);

@@ -596,6 +596,8 @@ export const tediUsageEvents = sqliteTable(
 	},
 	(table) => [
 		index("idx_tedi_usage_events_window").on(table.tediId, table.startedAt),
+		// Age probe for the retention move to the logs database.
+		index("idx_tedi_usage_events_created").on(table.createdAt),
 	],
 );
 

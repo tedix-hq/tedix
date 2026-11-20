@@ -36,6 +36,8 @@ export const workflowRunLedger = sqliteTable(
 			table.startedAt,
 		),
 		index("workflow_run_ledger_workflow_id_idx").on(table.workflowId),
+		// Age probe for the retention move to the logs database.
+		index("workflow_run_ledger_started_idx").on(table.startedAt),
 	],
 );
 
