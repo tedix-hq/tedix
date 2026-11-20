@@ -16,6 +16,9 @@ import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { schemaDdl } from "../../test/schema-ddl";
+import { organizations } from "../../schema/organizations";
+import { workAttemptSteps, workAttemptMessages } from "../../schema/work-items";
 import {
 	replaceWorkAdmissionSpecification,
 	WorkAdmissionSpecificationError,
@@ -184,6 +187,7 @@ async function envelope() {
 beforeEach(() => {
 	sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
+	sqlite.exec(schemaDdl(organizations, workAttemptSteps, workAttemptMessages));
 	db = createDbQueryClient(createD1Facade(sqlite));
 	seedItemWithEnvelope();
 });

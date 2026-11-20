@@ -3,7 +3,13 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
-import { workAttempts, workEvents, workItems } from "../../schema/work-items";
+import {
+	workAttempts,
+	workEvents,
+	workItems,
+	workAttemptSteps,
+	workAttemptMessages,
+} from "../../schema/work-items";
 import {
 	workBudgetReservations,
 	workResourceReservations,
@@ -11,6 +17,11 @@ import {
 } from "../../schema/work-factory";
 import { heartbeatWorkItemAttempt, settleWorkItemAttempt } from "./attempts";
 import { completeWorkItem } from "./crud";
+import {
+	appendWorkAttemptSteps,
+	listWorkAttemptSteps,
+	sendWorkAttemptMessage,
+} from "./attempt-steps";
 
 const start = "2026-10-01T00:00:00.000Z";
 const expiry = "2026-10-01T00:05:00.000Z";
@@ -34,6 +45,8 @@ async function fixture() {
 		schemaDdl(
 			workItems,
 			workAttempts,
+			workAttemptSteps,
+			workAttemptMessages,
 			workEvents,
 			workBudgetReservations,
 			workResourceReservations,
@@ -90,6 +103,106 @@ async function fixture() {
 }
 
 describe("Attempt lease write fences", () => {
+	it.each(["unread", "delivered", "applied", "failed"])(
+		"accounts for a %s follow-up when settlement wins the race with another turn",
+		async (state) => {
+			const { db } = await fixture();
+			const at = "2026-10-01T00:01:00.000Z";
+			await appendWorkAttemptSteps(db, {
+				...caller,
+				steps: [
+					{ seq: 7, at: Date.parse(at), kind: "message", text: "Final answer" },
+				],
+				at,
+			});
+			const message = await sendWorkAttemptMessage(db, {
+				orgId: caller.orgId,
+				workItemId: caller.workItemId,
+				kind: "follow_up",
+				body: "Also check pricing",
+				sender: { type: "user", id: "owner" },
+				at,
+			});
+			expect(message).not.toBeNull();
+			if (state !== "unread")
+				await appendWorkAttemptSteps(db, {
+					...caller,
+					steps: [],
+					...(state === "applied" ? { appliedMessageIds: [message!.id] } : {}),
+					at,
+				});
+			await settleWorkItemAttempt(db, {
+				...caller,
+				outcome: state === "failed" ? "failed" : "succeeded",
+				settledAt: at,
+			});
+			const log = await listWorkAttemptSteps(db, {
+				orgId: caller.orgId,
+				workItemId: caller.workItemId,
+				at,
+			});
+			expect(log.live).toBe(false);
+			expect(log.steps.map((step) => [step.seq, step.kind, step.text])).toEqual(
+				[
+					[7, "message", "Final answer"],
+					...(state === "applied"
+						? []
+						: [
+								[
+									8,
+									"error",
+									"Follow-up not applied: the run ended before another turn could start.",
+								],
+							]),
+				],
+			);
+			expect(log.messages[0]?.appliedAt !== null).toBe(state === "applied");
+			expect(
+				await sendWorkAttemptMessage(db, {
+					orgId: caller.orgId,
+					workItemId: caller.workItemId,
+					kind: "follow_up",
+					body: "Too late",
+					sender: { type: "user", id: "owner" },
+					at,
+				}),
+			).toBeNull();
+		},
+	);
+
+	it("keeps a parked question last so a late answer can resume its session", async () => {
+		const { db } = await fixture();
+		const at = "2026-10-01T00:01:00.000Z";
+		const question = {
+			seq: 0,
+			at: Date.parse(at),
+			kind: "question" as const,
+			text: "Which table?",
+		};
+		await settleWorkItemAttempt(db, {
+			...caller,
+			outcome: "cancelled",
+			metadata: { dispatchVersion: 1, runQuestion: question },
+			settledAt: at,
+		});
+		expect(
+			await sendWorkAttemptMessage(db, {
+				orgId: caller.orgId,
+				workItemId: caller.workItemId,
+				kind: "follow_up",
+				body: "Pricing",
+				sender: { type: "user", id: "owner" },
+				at,
+			}),
+		).not.toBeNull();
+		const log = await listWorkAttemptSteps(db, {
+			orgId: caller.orgId,
+			workItemId: caller.workItemId,
+			at,
+		});
+		expect(log.steps.map((step) => step.kind)).toEqual(["question"]);
+	});
+
 	it.each(["at expiry", "after expiry", "superseded", "wrong session"])(
 		"rejects heartbeat, settle and complete: %s",
 		async (scenario) => {

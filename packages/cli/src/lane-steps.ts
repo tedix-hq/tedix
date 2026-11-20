@@ -148,9 +148,9 @@ export type SendRunSteps = (
 /**
  * Buffers one run's steps and sends them in order. Each send also returns the
  * messages people sent to the run. The server returns a message again until
- * this run reports it applied, so each one is passed on once, by id. Sending
- * never throws into the run: a failed send keeps its steps and its applied
- * ids for the next one.
+ * this run reports it applied, so each one is passed on once, by id. A failed
+ * send keeps its steps and applied ids for retry. Timed sends never throw;
+ * endTurn refuses to finish when it cannot check for follow-ups after retrying.
  */
 export function createRunStepLog(options: {
 	seq?: number;
@@ -173,7 +173,7 @@ export function createRunStepLog(options: {
 	// the time before which a send that is refused again is not logged.
 	let backoffMs = 0;
 	let quietUntil = Number.NEGATIVE_INFINITY;
-	let inFlight: Promise<void> | undefined;
+	let inFlight: Promise<boolean> | undefined;
 	const seen = new Set<string>();
 	const sendOnce = async (): Promise<boolean> => {
 		const steps = buffer.slice(0, STEP_BATCH);
@@ -261,8 +261,11 @@ export function createRunStepLog(options: {
 	};
 	const round = () =>
 		(inFlight ??= (async () => {
-			for (let sends = 0; sends < 10; sends++)
-				if (!(await sendOnce()) || (!buffer.length && !applied.length)) return;
+			for (let sends = 0; sends < 10; sends++) {
+				if (!(await sendOnce())) return false;
+				if (!buffer.length && !applied.length) return true;
+			}
+			return false;
 		})().finally(() => {
 			inFlight = undefined;
 		}));
@@ -313,22 +316,32 @@ export function createRunStepLog(options: {
 		/**
 		 * Send what is buffered and read new messages. `fresh` waits for a send
 		 * already under way and then sends again, so the answer is no older than
-		 * the call. Waits at most `waitMs`; the send itself goes on.
+		 * the call. Waits at most `waitMs`; the send itself goes on. False means
+		 * the send failed, timed out or left buffered steps or applied ids.
 		 */
-		async flush(fresh = false, waitMs = 10_000): Promise<void> {
-			if (unavailable) return;
+		async flush(fresh = false, waitMs = 10_000): Promise<boolean> {
+			if (unavailable) return true;
 			let timer: ReturnType<typeof setTimeout> | undefined;
 			const work = (async () => {
 				if (fresh && inFlight) await inFlight;
-				if (!unavailable) await round();
+				return unavailable || (await round());
 			})();
-			await Promise.race([
+			const sent = await Promise.race([
 				work,
-				new Promise<void>((done) => {
-					timer = setTimeout(done, waitMs);
+				new Promise<false>((done) => {
+					timer = setTimeout(() => done(false), waitMs);
 				}),
 			]);
 			if (timer) clearTimeout(timer);
+			return sent;
+		},
+		async endTurn(): Promise<void> {
+			for (let tries = 0; tries < 3; tries++) {
+				if (await this.flush(true)) return;
+			}
+			throw new Error(
+				"Could not read follow-ups at turn end after three tries",
+			);
 		},
 	};
 }
