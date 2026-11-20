@@ -38,7 +38,7 @@ import {
 	pushMachineToolCalls,
 } from "../../services/machine-connections";
 import { isActiveOwnerOrAdmin } from "../org-membership";
-import { requireOrgId, withOrg } from "../org-scope";
+import { withOrg } from "../org-scope";
 import {
 	type BaseContext,
 	createError,
@@ -106,8 +106,9 @@ function toCall(row: MachineToolCallRow): MachineToolCall {
 
 const listProcedure = os.list
 	.use(withAuthorization("tedis:read", "mcp:work.read", MACHINES_USE_SCOPE))
+	.use(withOrg)
 	.handler(async ({ context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const machines = await listMachines(context.db, { orgId });
 		// A machine with an open connection is online, whatever its last report.
 		return {
@@ -138,8 +139,9 @@ const requestToolCallProcedure = os.requestToolCall
 			MACHINES_USE_SCOPE,
 		),
 	)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const requester = await machineToolRequester(context, orgId);
 		const callId = crypto.randomUUID();
 		// Every refusal past this point is recorded in the change ledger; a
@@ -265,8 +267,9 @@ const readToolCallProcedure = os.readToolCall
 			MACHINES_USE_SCOPE,
 		),
 	)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const requester = await machineToolRequester(context, orgId);
 		const call = await readMachineToolCall(context.db, {
 			orgId,
@@ -373,8 +376,9 @@ const claimToolCallsProcedure = os.claimToolCalls
 			"mcp:work.write",
 		),
 	)
+	.use(withOrg)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const orgId = context.organizationId;
 		const account = await machineReporterAccount(context, orgId);
 		if (
 			!account ||
