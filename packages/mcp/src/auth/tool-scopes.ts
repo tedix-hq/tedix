@@ -120,6 +120,8 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 
 	"osWorkspaces/workspaces/list": "mcp:apps.read",
 	"osWorkspaces/workspaces/get": "mcp:apps.read",
+	// Settled conversation charges require the API's billing:read capability.
+	"osWorkspaces/workspaces/conversationCharges": "mcp:settings.read",
 	"osWorkspaces/outputs/list": "mcp:apps.read",
 	"osWorkspaces/outputs/get": "mcp:apps.read",
 	"osWorkspaces/outputs/history": "mcp:apps.read",
