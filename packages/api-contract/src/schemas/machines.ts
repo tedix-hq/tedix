@@ -56,7 +56,13 @@ export const MACHINE_READ_TOOL_NAMES = [
 	"read_runner_state",
 	"dispatch_work_item",
 ] as const;
-/** Tools that change a workspace on the machine or run a command in it. */
+/**
+ * Read tools that reach the home folder of the machine's owner, outside the
+ * repository. A machine lists them only when its owner switched the write
+ * tools on, and a tedi may use them only for a signed-in person.
+ */
+export const MACHINE_HOME_TOOL_NAMES = ["list_folder"] as const;
+/** Tools that change a workspace on the machine or run a command on it. */
 export const MACHINE_WRITE_TOOL_NAMES = [
 	"open_workspace",
 	"close_workspace",
@@ -66,12 +72,32 @@ export const MACHINE_WRITE_TOOL_NAMES = [
 ] as const;
 export const MACHINE_TOOL_NAMES = [
 	...MACHINE_READ_TOOL_NAMES,
+	...MACHINE_HOME_TOOL_NAMES,
 	...MACHINE_WRITE_TOOL_NAMES,
 ] as const;
 export const MachineToolNameSchema = z.enum(MACHINE_TOOL_NAMES);
 export type MachineToolName = z.infer<typeof MachineToolNameSchema>;
 export function isMachineWriteTool(tool: string): boolean {
 	return (MACHINE_WRITE_TOOL_NAMES as readonly string[]).includes(tool);
+}
+/** A path under the owner's home folder, written from `~`: `~/Downloads`. */
+export function isMachineHomePath(path: string): boolean {
+	return path === "~" || path.startsWith("~/");
+}
+/**
+ * True for a call that reaches past the repository: a write tool, or a read
+ * under the owner's home folder. A tedi makes such a call only in a chat with
+ * a signed-in person.
+ */
+export function machineCallNeedsPerson(tool: string, input: unknown): boolean {
+	if (isMachineWriteTool(tool)) return true;
+	if ((MACHINE_HOME_TOOL_NAMES as readonly string[]).includes(tool))
+		return true;
+	const path =
+		tool === "read_file" && typeof input === "object" && input !== null
+			? (input as { path?: unknown }).path
+			: undefined;
+	return typeof path === "string" && isMachineHomePath(path);
 }
 
 export const MACHINE_TOOL_CALL_STATUS_VALUES = [
@@ -125,6 +151,44 @@ const RepositoryPathSchema = z
 		{ message: "Use a path inside the repository, without `..`" },
 	);
 
+const cleanPath = (path: string) =>
+	!/[\\\p{Cc}]/u.test(path) && !path.split("/").includes("..");
+/**
+ * Hidden entries at the top of a home folder hold settings and sign-ins
+ * (`~/.ssh`, `~/.aws`, `~/.config`). The machine refuses them and more; the
+ * server refuses these before a call is queued.
+ */
+const HOME_PATH_HINT =
+	"a path under the home folder is written from ~, such as ~/Downloads, without `..`; hidden folders at the top of the home folder are not read";
+const homePath = (path: string) =>
+	isMachineHomePath(path) && cleanPath(path) && !/^~\/+\./.test(path);
+
+/**
+ * A folder or file under the home folder of the machine's owner, written from
+ * `~`, such as `~/Downloads`. The machine resolves it, follows links, and
+ * refuses anything outside the home folder and the places that hold credentials.
+ */
+const HomePathSchema = z
+	.string({ error: "Give a path such as ~/Downloads" })
+	.min(1)
+	.max(1_000)
+	.refine(homePath, { message: `Not readable: ${HOME_PATH_HINT}` });
+
+/** A file in the repository, or a file under the owner's home folder. */
+const ReadFilePathSchema = z
+	.string({ error: "Give the file's path" })
+	.min(1)
+	.max(1_000)
+	.refine(
+		(path) =>
+			path.startsWith("~")
+				? homePath(path)
+				: cleanPath(path) && !path.startsWith("/") && !/^[A-Za-z]:/.test(path),
+		{
+			message: `Use a path inside the repository, without \`..\`. Outside the repository, ${HOME_PATH_HINT}`,
+		},
+	);
+
 const CommitShaSchema = z
 	.string()
 	.regex(/^[0-9a-fA-F]{7,40}$/, "Use 7 to 40 hexadecimal characters");
@@ -134,7 +198,7 @@ const CommitShaSchema = z
  * for the caller with `open_workspace`, apart from every other checkout.
  */
 const WorkspaceIdSchema = z
-	.string()
+	.string({ error: "Give the workspace id open_workspace returned" })
 	.regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "Use the id open_workspace returned");
 
 export const MACHINE_READ_FILE_MAX_LINES = 400;
@@ -142,12 +206,20 @@ export const MACHINE_READ_FILE_MAX_LINES = 400;
 export const MACHINE_TOOL_INPUT_SCHEMAS = {
 	read_file: z
 		.strictObject({
-			path: RepositoryPathSchema,
+			path: ReadFilePathSchema,
 			startLine: z.number().int().min(1).max(10_000_000).optional(),
 			endLine: z.number().int().min(1).max(10_000_000).optional(),
 			/** Read the file as it is in this workspace, not on the main branch. */
 			workspace: WorkspaceIdSchema.optional(),
 		})
+		.refine(
+			(input) =>
+				input.workspace === undefined || !isMachineHomePath(input.path),
+			{
+				message:
+					"A path under the home folder takes no workspace; use a path inside the repository with a workspace",
+			},
+		)
 		.refine(
 			(input) =>
 				input.endLine === undefined ||
@@ -181,6 +253,7 @@ export const MACHINE_TOOL_INPUT_SCHEMAS = {
 		jobId: z.string().regex(/^\d{1,20}$/, "Use the job's number"),
 	}),
 	read_runner_state: z.strictObject({}),
+	list_folder: z.strictObject({ path: HomePathSchema }),
 	dispatch_work_item: z.strictObject({
 		workItemId: z.uuid().transform((id) => id.toLowerCase()),
 		projectId: z.uuid(),
@@ -214,7 +287,8 @@ export const MACHINE_TOOL_INPUT_SCHEMAS = {
 		replaceAll: z.boolean().optional(),
 	}),
 	run_command: z.strictObject({
-		workspace: WorkspaceIdSchema,
+		/** Run in this workspace's checkout; in the owner's home folder when omitted. */
+		workspace: WorkspaceIdSchema.optional(),
 		command: z
 			.string()
 			.min(1)
@@ -244,11 +318,12 @@ export function parseMachineToolInput(
 		return {
 			ok: false,
 			message: parsed.error.issues
-				.map((issue) =>
-					issue.path.length
-						? `${issue.path.join(".")}: ${issue.message}`
-						: issue.message,
-				)
+				.map((issue) => {
+					const field = issue.path.join(".");
+					if (field && /received undefined$/.test(issue.message))
+						return `${field} is missing`;
+					return field ? `${field}: ${issue.message}` : issue.message;
+				})
 				.join("; ")
 				.slice(0, 500),
 		};
@@ -288,7 +363,7 @@ export const RequestMachineToolCallInputSchema = z.object({
 		.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
 		.default({})
 		.describe(
-			"The tool's input: read_file {path, startLine?, endLine?, workspace?}; search_code {pattern, pathPrefix?, maxResults?, workspace?}; list_commits {path?, limit?}; read_commit {sha}; read_ci_runs {sha?, limit?}; read_ci_job_log {jobId}; read_runner_state {}; dispatch_work_item {workItemId, projectId, executor} wakes the runner to check one Work Item. On a machine that accepts the write tools: open_workspace {name?, base?}; close_workspace {workspace}; write_file {workspace, path, content}; edit_file {workspace, path, oldText, newText, replaceAll?}; run_command {workspace, command, timeoutSeconds?}",
+			"The tool's input: read_file {path, startLine?, endLine?, workspace?}; search_code {pattern, pathPrefix?, maxResults?, workspace?}; list_commits {path?, limit?}; read_commit {sha}; read_ci_runs {sha?, limit?}; read_ci_job_log {jobId}; read_runner_state {}; dispatch_work_item {workItemId, projectId, executor} wakes the runner to check one Work Item. On a machine that accepts the write tools: list_folder {path} lists a folder under the owner's home folder, such as ~/Downloads, and read_file also takes such a path; open_workspace {name?, base?}; close_workspace {workspace}; write_file {workspace, path, content}; edit_file {workspace, path, oldText, newText, replaceAll?}; run_command {command, workspace?, timeoutSeconds?} runs in the home folder unless a workspace is given",
 		),
 });
 
