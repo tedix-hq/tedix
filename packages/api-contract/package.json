@@ -154,6 +154,7 @@
 		"./schemas/os-work-map": "./src/schemas/os-work-map.ts",
 		"./schemas/work-map": "./src/schemas/work-map.ts",
 		"./schemas/tedi-memory": "./src/schemas/tedi-memory.ts",
+		"./schemas/tedi-guest-turn": "./src/schemas/tedi-guest-turn.ts",
 		"./schemas/os-workspace-schedules": "./src/schemas/os-workspace-schedules.ts",
 		"./constants/enums": "./src/constants/enums.ts",
 		"./constants/workflow-definition-keys": "./src/constants/workflow-definition-keys.ts",
