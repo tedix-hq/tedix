@@ -1123,7 +1123,7 @@ describe("dispatcher admission", () => {
 		const lane = f.restart(directory);
 		const waiting = waitForDispatchRequest(
 			requests,
-			1_000,
+			15_000,
 			new AbortController().signal,
 		);
 		const answer = await answerMachineToolCall(

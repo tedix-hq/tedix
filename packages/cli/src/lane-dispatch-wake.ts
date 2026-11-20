@@ -20,6 +20,7 @@ export function waitForDispatchRequest(
 		let watcher: ReturnType<typeof watch> | undefined;
 		const finish = (id?: string) => {
 			clearTimeout(timer);
+			clearInterval(poll);
 			watcher?.close();
 			signal.removeEventListener("abort", abort);
 			resolve(id);
@@ -38,6 +39,9 @@ export function waitForDispatchRequest(
 			}
 		};
 		const timer = setTimeout(finish, delay);
+		// The watcher can miss a file written while it is still being set up
+		// or while the machine is busy, so the directory is also read on a timer.
+		const poll = setInterval(check, 250);
 		signal.addEventListener("abort", abort, { once: true });
 		try {
 			watcher = watch(directory, check);
