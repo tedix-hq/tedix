@@ -1,8 +1,9 @@
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	app,
 	BrowserWindow,
-	clipboard,
+	dialog,
 	ipcMain,
 	type IpcMainInvokeEvent,
 	Menu,
@@ -12,9 +13,19 @@ import {
 	WebContentsView,
 } from "electron";
 import type { PanelAction, PanelState, RunnerField } from "./api";
+import { log } from "./log";
 import { setRunnerField } from "./runners-file";
 import { findTedix, lastLine, run } from "./shell";
 import { loadStatus, type Status, summary } from "./status";
+import { checkForUpdate, readyVersion, restartToUpdate } from "./update";
+
+// The copy run from source keeps its own name and data folder and leaves the
+// `tedix://` link type to the installed app, so the two never share a session
+// or take each other's sign-in links.
+if (!app.isPackaged) {
+	app.setName("Tedix Dev");
+	app.setPath("userData", join(app.getPath("appData"), "Tedix Dev"));
+}
 
 const OS_URL = "https://tedix.os.tedix.dev/chat";
 /** The app folder: this package in dev, the packed app otherwise. */
@@ -38,8 +49,8 @@ let panel: BrowserWindow | undefined;
 let status: Status | undefined;
 let lastOutput = "";
 let busy = false;
-/** A sign-in link that arrived before the window existed. */
-let startUrl: string | undefined;
+/** A `tedix://` link that arrived before the window existed. */
+let startLink: string | undefined;
 
 async function state(): Promise<PanelState> {
 	status ??= await loadStatus(powerMonitor.isOnBatteryPower());
@@ -48,7 +59,6 @@ async function state(): Promise<PanelState> {
 		summary: summary(status),
 		lastOutput,
 		busy,
-		host: URL.parse(os?.webContents.getURL() ?? "")?.host ?? "",
 		openAtLogin: app.isPackaged
 			? app.getLoginItemSettings().openAtLogin
 			: undefined,
@@ -110,87 +120,179 @@ function refusesAppWindows(url: string): boolean {
 	return host === "accounts.google.com" || host === "appleid.apple.com";
 }
 
-/** The private half of the key made for the browser sign-in in progress. */
-let browserSignIn: { key: CryptoKey; expires: number } | undefined;
+/** Tells the person what happened; `detail` says what to do next. */
+async function tell(message: string, detail: string, buttons = ["OK"]) {
+	await app.whenReady();
+	const options = {
+		type: "info" as const,
+		message,
+		detail,
+		buttons,
+		defaultId: 0,
+		cancelId: buttons.length - 1,
+	};
+	const window = mainWindow?.isDestroyed() ? undefined : mainWindow;
+	const { response } = window
+		? await dialog.showMessageBox(window, options)
+		: await dialog.showMessageBox(options);
+	return response;
+}
 
-const base64Url = (bytes: ArrayBuffer) =>
-	Buffer.from(bytes).toString("base64url");
+/**
+ * The browser sign-in in progress: the key pair made for it. It is kept in a
+ * file in the app's own data folder, next to the session it leads to, so
+ * quitting the app between the two steps does not lose it.
+ */
+interface BrowserSignIn {
+	privateKey: JsonWebKey;
+	publicKey: string;
+	expires: number;
+}
+const SIGN_IN_WAIT_MS = 30 * 60_000;
+const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
+const browserSignInFile = () =>
+	join(app.getPath("userData"), "browser-sign-in.json");
+
+function pendingBrowserSignIn(): BrowserSignIn | undefined {
+	try {
+		const pending = JSON.parse(
+			readFileSync(browserSignInFile(), "utf8"),
+		) as BrowserSignIn;
+		return pending.expires > Date.now() ? pending : undefined;
+	} catch {
+		return undefined;
+	}
+}
 
 /**
  * Google and Apple refuse to sign people in inside an app window, so this
  * opens Tedix OS in the person's normal browser. The browser gets a public
  * key made here; the code it sends back (`tedix://sign-in?code=…`) is sealed
- * to that key, so only this running app can read it.
+ * to that key, so only this app can read it. Choosing this again while a
+ * sign-in is waiting reuses its key, so every open browser tab still works.
  */
 async function signInWithBrowser(): Promise<void> {
-	const pair = await crypto.subtle.generateKey(
-		{ name: "ECDH", namedCurve: "P-256" },
-		false,
-		["deriveBits"],
-	);
-	browserSignIn = { key: pair.privateKey, expires: Date.now() + 10 * 60_000 };
+	let pending = pendingBrowserSignIn();
+	log(`sign-in: opening the browser (${pending ? "same" : "new"} request)`);
+	if (!pending) {
+		const pair = await crypto.subtle.generateKey(ECDH, true, ["deriveBits"]);
+		pending = {
+			privateKey: await crypto.subtle.exportKey("jwk", pair.privateKey),
+			publicKey: Buffer.from(
+				await crypto.subtle.exportKey("raw", pair.publicKey),
+			).toString("base64url"),
+			expires: 0,
+		};
+	}
+	pending.expires = Date.now() + SIGN_IN_WAIT_MS;
+	writeFileSync(browserSignInFile(), JSON.stringify(pending), { mode: 0o600 });
 	const page = new URL("/auth/desktop/sign-in", OS_URL);
-	page.searchParams.set(
-		"key",
-		base64Url(await crypto.subtle.exportKey("raw", pair.publicKey)),
-	);
+	page.searchParams.set("key", pending.publicKey);
 	await shell.openExternal(page.href);
 }
 
+/** Says why the sign-in did not finish and offers to start it again. */
+async function signInFailed(reason: string, what: string): Promise<void> {
+	log(`sign-in: failed (${reason})`);
+	const again = await tell(
+		"Sign-in did not finish",
+		`${what} Choose Sign In with Browser again.`,
+		["Sign In with Browser", "Cancel"],
+	);
+	if (again === 0) await signInWithBrowser();
+}
+
 /**
- * Opens the code from the browser and loads the one-time sign-in token it
- * holds in the Tedix OS view. Mirrors `openDesktopSignInCode` in
- * `packages/auth/src/desktop-sign-in-code.ts`. A code made for another app
- * instance, or a second use, fails here and changes nothing.
+ * Opens the code with the steps of `openDesktopSignInCode` in
+ * `packages/auth/src/desktop-sign-in-code.ts`. Throws when the code was made
+ * for another request.
+ */
+async function openSignInCode(
+	privateKey: JsonWebKey,
+	code: string,
+): Promise<string> {
+	const bytes = Buffer.from(code, "base64url");
+	if (bytes.length < 78) throw new Error("Too short");
+	const sender = await crypto.subtle.importKey(
+		"raw",
+		bytes.subarray(0, 65),
+		ECDH,
+		false,
+		[],
+	);
+	const shared = await crypto.subtle.importKey(
+		"raw",
+		await crypto.subtle.deriveBits(
+			{ name: "ECDH", public: sender },
+			await crypto.subtle.importKey("jwk", privateKey, ECDH, false, [
+				"deriveBits",
+			]),
+			256,
+		),
+		"HKDF",
+		false,
+		["deriveKey"],
+	);
+	const key = await crypto.subtle.deriveKey(
+		{
+			name: "HKDF",
+			hash: "SHA-256",
+			salt: new Uint8Array(32),
+			info: new TextEncoder().encode("tedix-desktop-sign-in"),
+		},
+		shared,
+		{ name: "AES-GCM", length: 256 },
+		false,
+		["decrypt"],
+	);
+	return new TextDecoder().decode(
+		await crypto.subtle.decrypt(
+			{ name: "AES-GCM", iv: bytes.subarray(65, 77) },
+			key,
+			bytes.subarray(77),
+		),
+	);
+}
+
+/**
+ * Finishes a sign-in started with the browser: opens the code and loads the
+ * one-time sign-in token it holds in the Tedix OS view. Every way this can
+ * fail tells the person and is logged.
  */
 async function finishBrowserSignIn(code: string): Promise<void> {
-	const pending = browserSignIn;
-	browserSignIn = undefined;
-	if (!pending || pending.expires < Date.now() || !os) return;
+	const view = os;
+	if (!view) return;
+	const pending = pendingBrowserSignIn();
+	if (!pending)
+		return signInFailed(
+			"no request waiting",
+			"This app was not waiting for a sign-in, or it waited longer than 30 minutes.",
+		);
+	let token: string;
 	try {
-		const bytes = Buffer.from(code, "base64url");
-		const sender = await crypto.subtle.importKey(
-			"raw",
-			bytes.subarray(0, 65),
-			{ name: "ECDH", namedCurve: "P-256" },
-			false,
-			[],
-		);
-		const shared = await crypto.subtle.importKey(
-			"raw",
-			await crypto.subtle.deriveBits(
-				{ name: "ECDH", public: sender },
-				pending.key,
-				256,
-			),
-			"HKDF",
-			false,
-			["deriveKey"],
-		);
-		const key = await crypto.subtle.deriveKey(
-			{
-				name: "HKDF",
-				hash: "SHA-256",
-				salt: new Uint8Array(32),
-				info: new TextEncoder().encode("tedix-desktop-sign-in"),
-			},
-			shared,
-			{ name: "AES-GCM", length: 256 },
-			false,
-			["decrypt"],
-		);
-		const token = new TextDecoder().decode(
-			await crypto.subtle.decrypt(
-				{ name: "AES-GCM", iv: bytes.subarray(65, 77) },
-				key,
-				bytes.subarray(77),
-			),
-		);
-		const finish = new URL("/login", OS_URL);
-		finish.hash = new URLSearchParams({ "desktop-sign-in": token }).toString();
-		void os.webContents.loadURL(finish.href);
+		token = await openSignInCode(pending.privateKey, code);
 	} catch {
-		// Not a code for this app instance.
+		return signInFailed(
+			"code is for another request",
+			"The browser page belonged to an earlier sign-in or to another copy of the app.",
+		);
+	}
+	rmSync(browserSignInFile(), { force: true });
+	log("sign-in: code opened, loading the finish page");
+	const finish = new URL("/login", OS_URL);
+	// The changing value makes this a full page load even when the view is
+	// already on `/login`; a change of only the part after `#` loads nothing.
+	finish.searchParams.set("attempt", String(Date.now()));
+	finish.hash = new URLSearchParams({ "desktop-sign-in": token }).toString();
+	try {
+		await view.webContents.loadURL(finish.href);
+	} catch (error) {
+		// The page moving on before it finished loading is the sign-in working.
+		if ((error as { code?: string }).code === "ERR_ABORTED") return;
+		return signInFailed(
+			"finish page did not load",
+			"Tedix OS could not be reached. Check your connection.",
+		);
 	}
 }
 
@@ -202,22 +304,22 @@ async function finishBrowserSignIn(code: string): Promise<void> {
 function openAppLink(value: string | undefined): void {
 	const target = URL.parse(value ?? "");
 	if (target?.protocol !== "tedix:" || target.host !== "sign-in") return;
+	if (!os) {
+		startLink = value;
+		return;
+	}
+	mainWindow?.show();
+	mainWindow?.focus();
 	const code = target.searchParams.get("code");
 	if (code) {
+		log("link: sign-in code received");
 		void finishBrowserSignIn(code);
-		mainWindow?.show();
-		mainWindow?.focus();
 		return;
 	}
 	const link = target.searchParams.get("link") ?? "";
-	if (!isTedixPage(link)) return;
-	if (!os) {
-		startUrl = link;
-		return;
-	}
+	if (!isTedixPage(link)) return log("link: ignored, not a Tedix sign-in link");
+	log("link: emailed sign-in link received");
 	finishSignIn(link);
-	mainWindow?.show();
-	mainWindow?.focus();
 }
 
 /**
@@ -317,13 +419,16 @@ function createMainWindow(): void {
 	};
 	view.webContents.on("will-navigate", leaveForBrowser);
 	view.webContents.on("will-redirect", leaveForBrowser);
-	view.webContents.on("did-navigate", () => void publish());
-	view.webContents.on("did-navigate-in-page", () => void publish());
+	// Page addresses without anything after `?` or `#`, to trace a sign-in.
+	view.webContents.on("did-navigate", (_event, url, status) => {
+		const page = URL.parse(url);
+		log(`page: ${page?.host}${page?.pathname} (${status})`);
+	});
 	// The added name lets the sign-in page tell this app from a browser.
 	view.webContents.setUserAgent(
 		`${view.webContents.getUserAgent()} TedixDesktop/${app.getVersion()}`,
 	);
-	void view.webContents.loadURL(startUrl ?? OS_URL);
+	void view.webContents.loadURL(OS_URL);
 	view.webContents.focus();
 }
 
@@ -359,11 +464,39 @@ function navigate(action: "back" | "forward" | "reload"): void {
 	else contents?.reload();
 }
 
-// An emailed sign-in link only signs in the window that opens it, and a click
-// in the mail app opens the default browser. This opens a copied link here.
-async function pasteSignInLink(): Promise<void> {
-	const url = (await clipboard.readText()).trim();
-	if (isTedixPage(url)) finishSignIn(url);
+/**
+ * Looks for a newer app. When one is downloaded and checked it offers the
+ * restart: once per version by itself, and every time the person asks.
+ */
+let offeredVersion: string | undefined;
+async function checkForUpdates(asked: boolean): Promise<void> {
+	try {
+		const result = await checkForUpdate();
+		if (result.kind === "ready") {
+			setMenu();
+			if (!asked && offeredVersion === result.version) return;
+			offeredVersion = result.version;
+			const restart = await tell(
+				`Tedix ${result.version} is ready`,
+				"Restart to update now, or choose Tedix → Restart to Update later.",
+				["Restart to Update", "Later"],
+			);
+			if (restart === 0) restartToUpdate();
+		} else if (asked)
+			await tell(
+				result.kind === "current"
+					? "Tedix is up to date"
+					: "Tedix cannot update itself here",
+				result.kind === "current"
+					? `You have version ${app.getVersion()}.`
+					: result.reason,
+			);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		log(`update: check failed (${message})`);
+		if (asked)
+			await tell("Could not check for updates", `${message}. Try again later.`);
+	}
 }
 
 function setMenu(): void {
@@ -385,10 +518,12 @@ function setMenu(): void {
 						click: () => void signInWithBrowser(),
 					},
 					{
-						label: "Paste Sign-in Link",
-						accelerator: "CmdOrCtrl+Shift+V",
-						click: () => void pasteSignInLink(),
+						label: "Check for Updates…",
+						click: () => void checkForUpdates(true),
 					},
+					...(readyVersion()
+						? [{ label: "Restart to Update", click: restartToUpdate }]
+						: []),
 					{ type: "separator" },
 					...(mac ? [{ role: "hide" as const }] : []),
 					{ role: "quit" },
@@ -425,9 +560,7 @@ const appLink = (args: string[]) =>
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-	// In dev the program is Electron itself, so the link type names this folder.
 	if (app.isPackaged) app.setAsDefaultProtocolClient("tedix");
-	else app.setAsDefaultProtocolClient("tedix", process.execPath, [root]);
 	// macOS hands a clicked link over here; other systems pass it as an argument.
 	app.on("open-url", (event, url) => {
 		event.preventDefault();
@@ -435,8 +568,10 @@ else {
 	});
 	openAppLink(appLink(process.argv));
 	void app.whenReady().then(() => {
+		log(`start: version ${app.getVersion()}`);
 		setMenu();
 		createMainWindow();
+		openAppLink(startLink);
 
 		ipcMain.handle("state", (event) => {
 			fromLocalPage(event);
@@ -467,9 +602,6 @@ else {
 			if (name === "login") return tedix(["-w", "connect", "login"]);
 			if (name === "update") return tedix(["update"]);
 			if (name === "restart") return restartRunners();
-			if (name === "open-panel") return openPanel();
-			if (name === "back" || name === "forward" || name === "reload")
-				return navigate(name);
 		});
 		ipcMain.handle("open-at-login", (event, on: boolean) => {
 			fromLocalPage(event);
@@ -486,6 +618,8 @@ else {
 		powerMonitor.on("on-battery", () => void refresh());
 		powerMonitor.on("on-ac", () => void refresh());
 		setInterval(() => void refresh(), 5000);
+		setTimeout(() => void checkForUpdates(false), 10_000);
+		setInterval(() => void checkForUpdates(false), 4 * 60 * 60_000);
 		void refresh();
 	});
 }

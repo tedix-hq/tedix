@@ -50,7 +50,7 @@
 			]
 		},
 		"apps/desktop": {
-			"entry": ["src/{main,preload,panel,strip}.ts!"],
+			"entry": ["src/{main,preload,panel}.ts!"],
 			"project": ["src/**/*.ts!"]
 		},
 		"apps/api": {
