@@ -82,7 +82,10 @@ function fakeData(): WorkspaceDataPort {
 			throw new Error("unused");
 		},
 		listResources: async () => [],
-		listWork: async () => work,
+		listWork: async (options) =>
+			options?.open
+				? work.filter((item) => item.disposition !== "completed")
+				: work,
 		createWork: async (input) => ({
 			id: "new",
 			title: input.title,

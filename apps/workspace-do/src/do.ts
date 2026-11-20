@@ -3865,6 +3865,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		scope: WorkspaceScope,
 		actorKind: ActorKind,
 		turn?: { conversationId: string; turnId: string },
+		policy?: TurnPolicy,
 	) {
 		// The person who started the turn, also when a guest tedi answers it.
 		const started = turn ? this.#turn(turn.turnId) : undefined;
@@ -3875,6 +3876,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			bucket: this.env.R2_BUCKET,
 			actorKind,
 			actingUserId: started?.actor_kind === "user" ? started.actor_id : null,
+			// The person sent it and nobody else can open the workspace.
+			personScope: policy ? !policy.shared : false,
+			answeringTediId: started?.tedi_id ?? null,
 			conversationId: turn?.conversationId,
 			agentTurnId: turn?.turnId,
 			validateAppSource: (files, date) =>
@@ -3919,7 +3923,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			kind: turn.actor.kind === "external_agent" ? "agent" : turn.actor.kind,
 			organizationId: scope.organizationId,
 		};
-		const data = this.#dataPort(scope, turn.actor.kind, turn);
+		const data = this.#dataPort(scope, turn.actor.kind, turn, policy);
 		const started = this.#turn(turn.turnId);
 		const accountActor: Actor | undefined =
 			started?.actor_kind === "user"
@@ -5025,6 +5029,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			machineUnavailable:
 				policy.personSent && !policy.machineAccess ? COMPUTER_ACCESS_OFF : null,
 			readOnly: policy.mode === "read_only",
+			capabilities: {
+				mode: policy.mode,
+				organizationWork: !policy.shared,
+				computer: policy.personSent && policy.machineAccess,
+				tedi: Boolean(tediCatalog),
+			},
 		});
 		const actorKind: ActorKind = input.tediId ? "tedi" : input.actorKind;
 		return {
@@ -5772,6 +5782,15 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	stopRun(...args: unknown[]) {
 		return this.#call("stopRun", args);
+	}
+	runs(...args: unknown[]) {
+		return this.#call("runs", args);
+	}
+	comment(...args: unknown[]) {
+		return this.#call("comment", args);
+	}
+	accept(...args: unknown[]) {
+		return this.#call("accept", args);
 	}
 	write(...args: unknown[]) {
 		return this.#call("write", args);

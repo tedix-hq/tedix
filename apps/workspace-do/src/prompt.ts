@@ -7,6 +7,7 @@
 import type { Message } from "@earendil-works/pi-ai";
 import { OS_SCREENS_PROMPT } from "@tedix/api-contract/utils/os-screens-prompt";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
+import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { renderEnvDeclarations } from "./declarations";
 
 export const RUN_CODE_TOOL = "run_code";
@@ -65,6 +66,53 @@ export interface DynamicPromptInput {
 	machineUnavailable?: string | null;
 	/** The person picked Read only for this chat. */
 	readOnly?: boolean;
+	/** What the one answering may do in this turn; see `capabilitiesBlock`. */
+	capabilities?: AnswererCapabilities | null;
+}
+
+/** What one answerer may do in one turn, for the prompt's self-description. */
+export interface AnswererCapabilities {
+	mode: ApprovalMode;
+	/** Work reaches every project of the organization, not only linked ones. */
+	organizationWork: boolean;
+	/** The person's computer can be used in this turn. */
+	computer: boolean;
+	/** A tedi answers with its own skills and tool groups. */
+	tedi: boolean;
+}
+
+/** Each approval mode as the person's picker explains it. */
+const MODE_LINES: Record<ApprovalMode, string> = {
+	read_only:
+		"Read only: you only read; anything that would change something is refused.",
+	ask_every_time:
+		"Ask every time: changes, commands and reading a new web site wait for the person's approval; edits to this workspace's files apply at once and can be undone.",
+	ask_for_changes:
+		"Ask for changes: reading runs without asking, new web sites included; changes and commands wait for the person's approval.",
+	auto: "Auto: you decide; messages to outside people, money, deleting data and steps only a person may take still wait for the person.",
+};
+
+/**
+ * A few fixed lines that say what the one answering can do here, so "what
+ * can you do" or "which tools and servers do you have" costs no tool call.
+ */
+export function capabilitiesBlock(input: AnswererCapabilities): string {
+	return [
+		'What you can do here. Answer "what can you do", "what tools do you have" or "which servers or connections do you have" from these lines and the list after them, without calling a tool:',
+		"- Files: read, create and edit this workspace's documents, sheets and presentations (env.outputs, env.documents, env.sheets, env.presentations); build and change its apps (env.apps); show tables and charts under an answer (env.views).",
+		"- Sources: this workspace's linked sources and the person's connected accounts (env.resources, env.accounts); public web pages by address (env.web).",
+		`- Work: list, find, read, comment on and accept Work items in ${input.organizationWork ? "every project of the organization" : "the projects linked to this workspace"} (env.work); env.work.runs() says what is running right now; start, follow up and stop agent runs on the person's machines (env.work.startRun, sendRunMessage, stopRun).`,
+		input.computer
+			? "- Computer: read files and run commands on the person's connected computer (env.machine)."
+			: "- Computer: not available in this turn.",
+		"- People: what the person's own tedis remember about them (env.person); hand the conversation to another tedi (env.chat).",
+		...(input.tedi
+			? [
+					"- Your own skills and connected tool groups (one group per connected service) are listed next; use them through env.tedi. You have no other servers or tools.",
+				]
+			: []),
+		`- Approval mode ${MODE_LINES[input.mode]} A call that waits comes back with "Approval required".`,
+	].join("\n");
 }
 
 export const READ_ONLY_CONTEXT =
@@ -114,6 +162,7 @@ export function dynamicPromptSuffix(input: DynamicPromptInput): string {
 					"linked_accounts",
 				),
 		);
+	if (input.capabilities) parts.push(capabilitiesBlock(input.capabilities));
 	if (input.tediCatalog) parts.push(input.tediCatalog);
 	for (const skill of input.referencedSkills ?? [])
 		parts.push(
