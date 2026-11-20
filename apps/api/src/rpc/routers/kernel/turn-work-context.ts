@@ -309,12 +309,11 @@ export interface KernelTurnWorkDeps {
 		delegatedTediId: string;
 	}) => string;
 	/**
-	 * Optional workflow-confirm dispatcher. When the previous turn produced a
-	 * `run_workflow` route (the kernel prompted "Want me to start it?") and the
-	 * current turn is a clear affirmative, this dispatches the named skill workflow.
-	 * Absent ⇒ the turn falls through to normal kernel planning (safe — operator
-	 * sees the LLM re-confirm or re-route). Fail-soft: a dispatch failure is a
-	 * normal error reply, never a turn crash.
+	 * Optional workflow-confirm dispatcher. When the previous turn offered a
+	 * workflow (`run_workflow` route) and this turn carries the offer's Start
+	 * button (`startOfferedWorkflow`), this starts the named skill workflow.
+	 * Absent ⇒ the turn goes to normal kernel planning. Fail-soft: a dispatch
+	 * failure is a normal error reply, never a turn crash.
 	 */
 	dispatchWorkflowConfirm?: WorkflowConfirmDispatcher;
 	/** Audit-first execution while the admitted turn still owns its running row. */
@@ -524,8 +523,11 @@ export interface KernelTurnWorkInput {
 	descopeUserId?: string;
 	/** Gateway-verified external agent principal that started the turn. */
 	externalAgentPrincipalId?: string;
-	/** Ingress-owned control decision, retained through DO execution and redrive. */
-	allowWorkflowConfirmation?: boolean;
+	/**
+	 * Slug from the Start button on a workflow offer, kept only when the caller
+	 * may start workflows. Retained through DO execution and redrive.
+	 */
+	startOfferedWorkflow?: string;
 	createdAt: string;
 	assistantAt: string;
 	completedAt: string;

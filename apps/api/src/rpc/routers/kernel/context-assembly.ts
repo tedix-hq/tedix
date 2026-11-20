@@ -99,6 +99,11 @@ import {
 // Public types
 // ============================================================================
 
+/**
+ * Chooses which of the person's own records Home reads before answering
+ * (saved day, calendar, recent people, conversations, open requests). It
+ * never changes the route, the tedi list or the reply.
+ */
 export function asksPersonalRecall(
 	message: string | undefined,
 	memberName?: string | null,
@@ -121,7 +126,6 @@ export function asksPersonalRecall(
 }
 
 export interface KernelContext {
-	personalRecall?: boolean;
 	operatorUserId?: string;
 	/** Installation capability, independent of a worker's standby/running state. */
 	delegationAvailable?: boolean;
@@ -784,16 +788,15 @@ export async function assembleHomeContext(
 				)
 			: null,
 	);
-	const visibleTediRowsPromise = Promise.all([
-		tediRowsPromise,
-		personalRecallPromise,
-	]).then(([rows, personalRecall]) =>
+	// A person never sees another member's personal tedi in Home, whatever
+	// they typed.
+	const visibleTediRowsPromise = tediRowsPromise.then((rows) =>
 		rows.filter(
 			(tedi) =>
 				isKernelVisibleTedi(tedi) &&
-				(!personalRecall ||
+				(!descopeUserId ||
 					tedi.scope !== "personal" ||
-					Boolean(descopeUserId && tedi.ownerUserId === descopeUserId)),
+					tedi.ownerUserId === descopeUserId),
 		),
 	);
 
@@ -1289,7 +1292,6 @@ export async function assembleHomeContext(
 			)
 		: null;
 	const draftCtx: KernelContext = {
-		personalRecall: await personalRecallPromise,
 		...(member?.status === "active" && descopeUserId
 			? { operatorUserId: descopeUserId }
 			: {}),
@@ -1297,13 +1299,7 @@ export async function assembleHomeContext(
 		personalCalendar: await personalCalendarPromise,
 		delegationAvailable: opts?.delegationAvailable,
 		...(cacheTrace ? { cache: cacheTrace } : {}),
-		tedis: (await personalRecallPromise)
-			? [...rankedTedis].sort(
-					(a, b) =>
-						Number(b.scope === "personal" && b.ownerUserId === descopeUserId) -
-						Number(a.scope === "personal" && a.ownerUserId === descopeUserId),
-				)
-			: rankedTedis,
+		tedis: rankedTedis,
 		apps,
 		workflows: rankedWorkflows,
 		conversationCapabilities,

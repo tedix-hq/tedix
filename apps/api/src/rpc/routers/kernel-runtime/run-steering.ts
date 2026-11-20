@@ -96,6 +96,9 @@ export async function controlHomeRunSteering(
 		...command,
 		runId: run.id,
 		sessionKey: run.conversationId,
+		...(command.action === "enqueue"
+			? { sentByPerson: steeringSentByPerson(context) }
+			: {}),
 	};
 	return durableObjectStubByName(
 		kernel,

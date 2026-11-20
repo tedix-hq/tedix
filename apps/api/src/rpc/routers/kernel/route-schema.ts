@@ -177,20 +177,8 @@ export function normalizeRouteDecisionCandidate(value: unknown): unknown {
 	return out;
 }
 
-/**
- * The validated planner decision plus one SERVER-STAMPED field:
- * `explicitDelegationIntent` — whether the operator message itself asked for
- * delegation / a task / a background job (`delegation-intent.ts`). Deliberately
- * NOT in {@link KernelRouteDecisionSchema}: that schema is the model-facing
- * contract (strict structured output would ask the model to produce it), and
- * the router-version hash is computed over the schema shape, so keeping the
- * stamp out of the schema keeps the hash stable across the stamp's presence.
- * Optional on the type so hand-built decisions (tests, deterministic roster
- * routes) remain assignable; the planner guard stamps it on every decision it
- * returns, and the turn body treats absence as `false`.
- */
+/** The validated planner decision plus the route judgment the server attaches. */
 export type KernelRouteDecision = z.infer<typeof KernelRouteDecisionSchema> & {
-	explicitDelegationIntent?: boolean;
 	routeDecision?: import("./route-decision").RouteDecisionObservation;
 };
 export type HomeEffortClass = (typeof HOME_EFFORT_CLASSES)[number];

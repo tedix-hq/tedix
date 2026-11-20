@@ -6,6 +6,7 @@ import {
 	CaretRight,
 	Check,
 	Info,
+	Play,
 	ShieldWarning,
 	StopCircle,
 	TreeStructure,
@@ -1724,6 +1725,66 @@ export function ApprovalCard({
 						) : null}
 					</span>
 				) : null}
+			</div>
+		</li>
+	);
+}
+
+// ---------------------------------------------------------------------------
+// <WorkflowOfferCard/>
+// ---------------------------------------------------------------------------
+
+/**
+ * The workflow Home offered in its latest reply. The offer stands only while
+ * that reply is the newest run in the conversation; any later turn retires it.
+ */
+export function offeredWorkflowFromRuns(
+	runs: readonly HomeRun[],
+): { runId: string; slug: string } | null {
+	const latest = [...runs].sort(
+		(a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+	)[0];
+	if (!latest || latest.status !== "completed") return null;
+	const route = asRecord(asRecord(latest.metadata)?.kernelRoute);
+	const slug = asString(route?.workflowHint)?.trim();
+	return route?.routeKind === "run_workflow" && slug
+		? { runId: latest.id, slug }
+		: null;
+}
+
+/** Start button for a workflow Home offered; typed replies never start it. */
+export function WorkflowOfferCard({
+	slug,
+	canStart,
+	starting = false,
+	onStart,
+}: {
+	slug: string;
+	canStart: boolean;
+	starting?: boolean;
+	onStart: () => void;
+}) {
+	return (
+		<li data-slot="workflow-offer-card" className="flex w-full justify-start">
+			<div className="flex w-full min-w-0 max-w-[860px] flex-wrap items-center gap-3 rounded-xl border border-kumo-hairline bg-kumo-base px-3.5 py-2.5">
+				<Text as="span" className="min-w-0 flex-1 break-words">
+					Start the {sanitizeUntrustedText(slug)} workflow
+				</Text>
+				{canStart ? (
+					<Button
+						size="sm"
+						icon={<Play size={14} />}
+						loading={starting}
+						disabled={starting}
+						onClick={onStart}
+					>
+						Start
+					</Button>
+				) : (
+					<Text as="span" role="label" tone="secondary">
+						Your account cannot start workflows.
+					</Text>
+				)}
 			</div>
 		</li>
 	);

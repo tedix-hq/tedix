@@ -12,8 +12,9 @@ describe("Home steering between rounds", () => {
 		};
 		const queue = new HomeRunSteering(storage);
 		const base = { runId: "run", sessionKey: "home:fixture" };
-		queue.control({ ...base, action: "enqueue", id: "a", content: "First" });
-		queue.control({ ...base, action: "enqueue", id: "a", content: "First" });
+		const person = { ...base, sentByPerson: true };
+		queue.control({ ...person, action: "enqueue", id: "a", content: "First" });
+		queue.control({ ...person, action: "enqueue", id: "a", content: "First" });
 		expect(() =>
 			queue.control({
 				...base,
@@ -37,5 +38,10 @@ describe("Home steering between rounds", () => {
 		expect(queue.control({ ...base, action: "withdraw" })).toEqual([]);
 		expect(queue.read("run")).toEqual([]);
 		expect(queue.read("another-run")).toEqual([]);
+		// Only a signed-in person's follow-up is delivered as written.
+		queue.control({ ...base, action: "enqueue", id: "d", content: "Fourth" });
+		expect(queue.read("run")).toEqual([
+			expect.stringMatching(/^<<<external_operator_steering>>>\nFourth\n/),
+		]);
 	});
 });

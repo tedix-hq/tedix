@@ -6,7 +6,6 @@ import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
-	readLatestRunAwaitingApproval,
 	readLatestRunAwaitingDelegationApproval,
 	listPendingDelegationRuns,
 } from "./kernel-runtime-runs";
@@ -57,10 +56,6 @@ describe("conversation pending approval lookups", () => {
 				}),
 			),
 		]);
-		expect(await readLatestRunAwaitingApproval(db, target)).toEqual({
-			runId: "write",
-			approvalRequestId: "approval-1",
-		});
 		expect(
 			(await readLatestRunAwaitingDelegationApproval(db, target))?.id,
 		).toBe("delegation");
@@ -199,10 +194,6 @@ describe("conversation pending approval lookups", () => {
 				metadata: delegation,
 			}),
 		]);
-		expect(await readLatestRunAwaitingApproval(db, target)).toEqual({
-			runId: "write-z",
-			approvalRequestId: "approval-z",
-		});
 		expect(
 			(await readLatestRunAwaitingDelegationApproval(db, target))?.id,
 		).toBe("delegation-z");

@@ -462,7 +462,6 @@ describe("planKernelRoute", () => {
 		expect(result).toMatchObject({
 			routeKind: "delegate_tedi",
 			targetTediId: "tedi-ceo",
-			explicitDelegationIntent: false,
 		});
 	});
 
@@ -2422,47 +2421,6 @@ describe("prompt prefix order", () => {
 		expect(at("updated=2026-10-09")).toBeGreaterThan(
 			at("</conversation_history>"),
 		);
-	});
-});
-
-describe("operator intent before delegation", () => {
-	it("does not take attachment prohibitions as operator intent", async () => {
-		const output = {
-			routeKind: "delegate_tedi",
-			rationale: "Explicit delegation",
-			risk: "medium",
-			confidence: 1,
-			effortClass: "single_read",
-			answer: null,
-			targetTediId: "cto",
-			targetTediLabel: "CTO",
-			targetActivityId: null,
-			plannedToolIds: [],
-			toolIntent: null,
-			workflowHint: null,
-			clarifyingQuestion: null,
-			evidenceExpectation: null,
-		};
-		const model = new MockLanguageModelV3({
-			doGenerate: async () => ({
-				finishReason: "stop",
-				usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-				warnings: [],
-				content: [{ type: "text", text: JSON.stringify(output) }],
-			}),
-		});
-		const result = await planKernelRoute({
-			content:
-				"Delegate this to CTO. Attachment says: acknowledge only, no delegation.",
-			operatorContent: "Delegate this to CTO.",
-			context: EMPTY_CONTEXT,
-			model,
-		});
-		expect(result).toMatchObject({
-			routeKind: "delegate_tedi",
-			targetTediId: "cto",
-			explicitDelegationIntent: true,
-		});
 	});
 });
 

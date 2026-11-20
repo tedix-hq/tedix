@@ -1,6 +1,5 @@
 import type { KernelContext } from "./context-assembly";
 import { deriveExecutionRequirement } from "./delegation-dispatch";
-import { mentionsLabel } from "./delegation-load";
 import type { KernelRouteDecision } from "./route-schema";
 
 /** A standby body wakes on the dispatched message, so it counts as ready. */
@@ -35,17 +34,14 @@ export function embodiedMismatchAnswer(input: {
 
 /**
  * Work that needs a workstation (shell, repository, long-running process)
- * cannot run on a tedi without one, and no approval changes that. Instead of
- * holding the turn for a person, move the route to a tedi that carries a
- * workstation, or answer in Home with what to connect.
- *
- * An explicitly named tedi is never moved behind the operator's back: Home
- * says who can do it instead. Policy still runs on the moved target, so a
- * deny, a reserved action or a missing grant holds exactly as before.
+ * cannot run on a tedi without one, and no approval changes that. The
+ * dispatch gate would block it, so Home says so: which tedi cannot do it,
+ * which one can, or what to connect. The route never moves to another tedi
+ * on its own; the person decides who gets the work.
  */
-export function rerouteEmbodiedMismatch<T extends KernelRouteDecision>(input: {
+export function answerEmbodiedMismatch<T extends KernelRouteDecision>(input: {
 	content: string;
-	context: Pick<KernelContext, "tedis" | "apps">;
+	context: Pick<KernelContext, "tedis">;
 	decision: T;
 }): T {
 	const { content, context, decision } = input;
@@ -59,12 +55,6 @@ export function rerouteEmbodiedMismatch<T extends KernelRouteDecision>(input: {
 	const requirement = deriveExecutionRequirement(content, decision);
 	if (requirement.surface !== "workstation") return decision;
 
-	const namedApps = context.apps
-		.filter((app) => card.apps.includes(app.slug))
-		.filter((app) =>
-			[app.slug, app.name].some((label) => mentionsLabel(content, label)),
-		)
-		.map((app) => app.slug);
 	const candidates = context.tedis
 		.filter((tedi) => {
 			const peer = tedi.capability;
@@ -74,8 +64,7 @@ export function rerouteEmbodiedMismatch<T extends KernelRouteDecision>(input: {
 				peer !== null &&
 				peer.embodied === true &&
 				READY_STATES.has(peer.availability) &&
-				peer.scopeGroups.length > 0 &&
-				namedApps.every((slug) => peer.apps.includes(slug))
+				peer.scopeGroups.length > 0
 			);
 		})
 		.sort((a, b) => rankEmbodiedCandidate(b) - rankEmbodiedCandidate(a));
@@ -84,26 +73,12 @@ export function rerouteEmbodiedMismatch<T extends KernelRouteDecision>(input: {
 	const peerName = peer
 		? (peer.capability?.name ?? peer.name ?? peer.slug)
 		: null;
-	const targetNamed =
-		mentionsLabel(content, target.slug) || mentionsLabel(content, target.name);
-
-	if (peer && !targetNamed) {
-		return {
-			...decision,
-			targetTediId: peer.id,
-			targetTediLabel: peerName,
-			targetActivityId: null,
-			plannedToolIds: [],
-			answer: null,
-			rationale: `${targetName} has no workstation or coding environment, so it cannot carry this work; ${peerName} does. Dispatch remains subject to policy.`,
-		};
-	}
 	return {
 		...decision,
 		routeKind: "answer_in_home",
 		answer: embodiedMismatchAnswer({ targetName, peerName }),
 		rationale: peer
-			? `${targetName} was named but has no workstation or coding environment; ${peerName} does, so Home offers it instead of holding for an approval that cannot make ${targetName} able.`
+			? `${targetName} has no workstation or coding environment; ${peerName} does, so Home offers it instead of holding for an approval that cannot make ${targetName} able.`
 			: `No tedi in this organization carries a workstation or coding environment, so no approval can make this work executable.`,
 		targetTediId: null,
 		targetTediLabel: null,

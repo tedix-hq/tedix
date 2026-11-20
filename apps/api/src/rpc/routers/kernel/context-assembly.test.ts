@@ -2896,10 +2896,10 @@ describe("member personal recall context", () => {
 				rankingBudgetMs: 0,
 				readPersonalCalendar: async () => "2026-10-24: met Ada",
 			});
-			expect(result.personalRecall).toBe(true);
-			expect(result.tedis.map((tedi) => tedi.id)).toEqual([
-				"own",
+			// Another member's personal tedi is never listed.
+			expect(result.tedis.map((tedi) => tedi.id).sort()).toEqual([
 				"organization",
+				"own",
 			]);
 			expect(renderHomeTurnContext(result)).toContain("2026-10-24: met Ada");
 			expect(result.savedToday).toContain("Friday");
@@ -2933,7 +2933,6 @@ describe("member personal recall context", () => {
 				descopeUserId: "alex",
 				operatorMessage: "Explain D1 batches",
 			});
-			expect(result.personalRecall).toBe(false);
 			expect(today).not.toHaveBeenCalled();
 			expect(requests).not.toHaveBeenCalled();
 			expect(recent).not.toHaveBeenCalled();

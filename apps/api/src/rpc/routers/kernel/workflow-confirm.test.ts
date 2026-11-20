@@ -1,8 +1,7 @@
 /**
- * Pure-function unit tests for the kernel workflow confirm→dispatch helpers:
- *   - classifyAffirmative(content): conservative affirmative detection.
- *   - readPendingWorkflowHint(db, …): reads a pending `run_workflow` hint from the
- *     most-recent prior run in the conversation (excluding the current run).
+ * Unit tests for readPendingWorkflowHint(db, …): reads a pending `run_workflow`
+ * hint from the most-recent prior run in the conversation (excluding the
+ * current run).
  *
  * The end-to-end dispatch path through `runKernelTurnWork` is pinned separately
  * in turn-work.test.ts ("workflow confirm→dispatch intercept").
@@ -10,57 +9,7 @@
 
 import type { DbClient } from "@tedix/db/client";
 import { describe, expect, it } from "vite-plus/test";
-import {
-	classifyAffirmative,
-	readPendingWorkflowHint,
-} from "./workflow-confirm";
-
-describe("classifyAffirmative", () => {
-	it("accepts clear, unambiguous affirmatives", () => {
-		for (const yes of [
-			"yes",
-			"Yes",
-			"YES",
-			"yes please",
-			"yep",
-			"go ahead",
-			"start it",
-			"do it",
-			"run it",
-			"yes start it",
-			"ok go ahead",
-			"let's do it",
-			"confirm",
-			"proceed",
-			"yes.",
-			"go ahead!",
-			"yes, go ahead", // internal comma
-			"yes, start it",
-			"yes, please",
-		]) {
-			expect(classifyAffirmative(yes), yes).toBe(true);
-		}
-	});
-
-	it("rejects anything ambiguous, negative, or request-shaped", () => {
-		for (const no of [
-			"",
-			"   ",
-			"no",
-			"not yet",
-			"maybe later",
-			"yes?", // question → different intent
-			"yes but skip the email step", // qualified → re-routing
-			"actually run the offboarding workflow instead", // new request
-			"why would you do that", // 5 words, not in set
-			"start the customer onboarding workflow for acme corp now", // 8+ words
-			"hmm",
-			"ok", // bare "ok" alone is NOT in the affirmative set (too weak)
-		]) {
-			expect(classifyAffirmative(no), JSON.stringify(no)).toBe(false);
-		}
-	});
-});
+import { readPendingWorkflowHint } from "./workflow-confirm";
 
 /**
  * Minimal db stub: resolves the chained select to a fixed set of rows. Only the
