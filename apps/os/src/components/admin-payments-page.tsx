@@ -14,6 +14,7 @@
  * check, mirroring (not replacing) the API's guards.
  */
 
+import { LoadingArea } from "@/components/loading-area";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { ResponsiveFormSurface } from "@/components/kumo/responsive-form-surface";
 import { RestrictedNotice } from "@/components/restricted-notice";
@@ -323,7 +324,7 @@ function AdminPaymentsBody({
 					</SheetHeader>
 					<div className="space-y-4 px-6 pb-6">
 						{receiptQuery.isLoading ? (
-							<Skeleton className="h-64 w-full" />
+							<LoadingArea className="h-64" label="Loading receipt" />
 						) : receiptQuery.isError ? (
 							<LoadError
 								title="Could not load the receipt"

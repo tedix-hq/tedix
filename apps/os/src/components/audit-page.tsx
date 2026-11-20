@@ -790,12 +790,10 @@ export function AuditPage({
 					<Button
 						variant="outline"
 						disabled={activeQuery.isFetching}
+						icon={<ArrowClockwise size={14} />}
+						loading={activeQuery.isFetching}
 						onClick={() => void activeQuery.refetch()}
 					>
-						<ArrowClockwise
-							size={14}
-							className={activeQuery.isFetching ? "animate-spin" : undefined}
-						/>
 						Refresh
 					</Button>
 					<AuditExportButton search={search} />

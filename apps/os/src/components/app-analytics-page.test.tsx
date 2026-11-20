@@ -750,7 +750,9 @@ describe("AppAnalyticsPage", () => {
 			),
 		);
 		const text = container.textContent ?? "";
-		expect(text).toContain("Loading event volume...");
+		expect(
+			container.querySelector('[aria-label="Loading event volume"]'),
+		).not.toBeNull();
 		// A failure is not presented as an empty period.
 		expect(text).not.toContain("No tool breakdown in this period.");
 		// Successful siblings stay available.

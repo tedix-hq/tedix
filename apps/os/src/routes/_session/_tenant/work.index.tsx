@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { prefetchWorkDeck } from "@/lib/prefetch-work-deck";
@@ -31,7 +32,7 @@ function WorkLanding() {
 	const navigate = Route.useNavigate();
 	if (search.view === "items")
 		return (
-			<Suspense fallback={null}>
+			<Suspense fallback={<LoadingArea className="h-64" />}>
 				<WorkItemsView
 					filters={search}
 					onFiltersChange={(filters) =>
@@ -45,7 +46,7 @@ function WorkLanding() {
 		);
 	if (search.view === "triage")
 		return (
-			<Suspense fallback={null}>
+			<Suspense fallback={<LoadingArea className="h-64" />}>
 				<WorkTriageView
 					project={search.project}
 					onProjectChange={(project) =>

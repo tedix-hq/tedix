@@ -52,6 +52,7 @@ import {
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
+import { LoadingArea } from "@/components/loading-area";
 
 declare const __LOCAL_DEMO_ENABLED__: boolean;
 
@@ -1621,9 +1622,7 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 				</div>
 			) : null}
 			{shares.isPending && (
-				<Text role="label" tone="secondary" className="m-0">
-					Loading link…
-				</Text>
+				<LoadingArea className="h-10" size="base" label="Loading link" />
 			)}
 			{shares.isError && (
 				<Text role="label" tone="error" className="m-0">

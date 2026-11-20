@@ -5,8 +5,8 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { LoadingArea } from "@/components/loading-area";
 import { LoadError } from "@/components/kumo/alert";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { BillingCreditCaps } from "@/components/billing-credit-caps";
 import { BillingCreditUsage } from "@/components/billing-credit-usage";
@@ -22,12 +22,7 @@ export function BillingUsageOverview() {
 	});
 
 	if (overviewQuery.isPending) {
-		return (
-			<div className="space-y-4" aria-busy="true" aria-label="Loading usage">
-				<Skeleton className="h-24 w-full" />
-				<Skeleton className="h-64 w-full" />
-			</div>
-		);
+		return <LoadingArea className="h-64" label="Loading usage" />;
 	}
 
 	if (overviewQuery.isError) {

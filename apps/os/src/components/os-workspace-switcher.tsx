@@ -1,3 +1,4 @@
+import { Loader } from "@/components/kumo/loader";
 import type { ReactElement, ReactNode } from "react";
 import { CaretUpDown, GearSix, Plus } from "@phosphor-icons/react";
 import type {
@@ -118,6 +119,7 @@ export function OrganizationSwitcherMenu({
 						</DropdownMenuLabel>
 						{isLoading ? (
 							<DropdownMenuItem disabled>
+								<Loader size="sm" />
 								Loading organizations…
 							</DropdownMenuItem>
 						) : null}

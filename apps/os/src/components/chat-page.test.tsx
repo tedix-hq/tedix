@@ -359,7 +359,9 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 			}),
 		);
 		const host = await mountPage();
-		expect(host.textContent).toContain("Loading conversation");
+		expect(
+			host.querySelector('[aria-label="Loading conversation"]'),
+		).not.toBeNull();
 		expect(host.querySelector("[data-chat-thread]")).toBeNull();
 		await act(async () =>
 			resolve({

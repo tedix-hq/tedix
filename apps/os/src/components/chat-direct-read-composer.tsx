@@ -39,6 +39,7 @@ import {
 	readConnectionLabel,
 	readToolFields,
 } from "@/components/chat-direct-read";
+import { LoadingArea } from "@/components/loading-area";
 
 function DirectReadComposer({
 	apps,
@@ -357,9 +358,11 @@ export function DirectReadPanel({
 }) {
 	return catalog.isLoading ? (
 		<Surface tier="panel" className="mx-auto mb-2 w-full max-w-3xl p-4">
-			<Text role="body" tone="secondary" className="m-0">
-				Loading connected app reads…
-			</Text>
+			<LoadingArea
+				className="h-10"
+				size="base"
+				label="Loading connected app reads"
+			/>
 		</Surface>
 	) : catalog.isError ? (
 		<LoadError

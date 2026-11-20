@@ -15,6 +15,7 @@ import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { ChartBar, Clock, Wrench } from "@phosphor-icons/react";
 import { lazy, type ReactNode, Suspense, useMemo } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Card,
@@ -29,7 +30,6 @@ import {
 	AppTabLoading,
 } from "./app-detail-tab-shared";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
 	appAnalyticsRange,
@@ -331,7 +331,9 @@ export function AppAnalyticsPage() {
 			>
 				{(series) => (
 					<>
-						<Suspense fallback={<Skeleton className="h-60" />}>
+						<Suspense
+							fallback={<LoadingArea className="h-60" label="Loading chart" />}
+						>
 							<EventVolumeChart buckets={series.buckets} />
 						</Suspense>
 						<EventVolumeTable buckets={series.buckets} />

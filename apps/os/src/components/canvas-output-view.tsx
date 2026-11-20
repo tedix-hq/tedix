@@ -3,7 +3,6 @@ import { ArrowsIn } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
-import { ListSkeleton } from "@/components/list-skeleton";
 import { Text } from "@/components/kumo/text";
 import { CanvasOutputTitle } from "@/components/canvas-output-title";
 import { CanvasProposals } from "@/components/canvas-proposals";
@@ -20,6 +19,7 @@ import {
 	workspaceResourcesQueryOptions,
 	workspaceOpenQueryOptions,
 } from "@/lib/os-query-options";
+import { LoadingArea } from "@/components/loading-area";
 
 /**
  * An output opened in a Workspace without an editor app. Doc, Sheet and
@@ -60,7 +60,8 @@ export function CanvasOutputView({
 				</Button>
 			</Alert>
 		);
-	if (!detail.data) return <ListSkeleton rows={1} rowClassName="h-64" />;
+	if (!detail.data)
+		return <LoadingArea className="h-64" label="Loading document" />;
 	const { output, currentRevision } = detail.data;
 	const editable =
 		output.status === "active" &&

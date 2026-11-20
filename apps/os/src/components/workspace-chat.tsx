@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { ConversationUsageLine } from "@/components/chat-usage-line";
 import "./workspace-chat.css";
 import {
@@ -701,9 +702,10 @@ function Thread({
 				</Button>
 			) : null}
 			{catchingUp ? (
-				<Text role="caption" tone="secondary">
-					Loading the conversation…
-				</Text>
+				<LoadingArea
+					className="min-h-40 flex-1"
+					label="Loading the conversation"
+				/>
 			) : null}
 			{turns.length === 0 && !pendingSend && !catchingUp ? (
 				<div className="workspace-chat-empty">
@@ -894,7 +896,9 @@ function TurnView({
 						data-testid="workspace-chat-view"
 						key={view.viewId}
 					>
-						<Suspense fallback={<Text role="label">Opening view…</Text>}>
+						<Suspense
+							fallback={<LoadingArea className="h-24" label="Opening view" />}
+						>
 							<WidgetFrame
 								appSlug={view.appSlug}
 								resourceUri={view.resourceUri}

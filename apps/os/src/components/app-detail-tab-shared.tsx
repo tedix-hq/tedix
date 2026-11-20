@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { LoadError } from "@/components/kumo/alert";
 import {
 	Empty,
@@ -22,7 +23,6 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/kumo/table";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
@@ -64,18 +64,7 @@ export function AppTabSection({
 }
 
 export function AppTabLoading({ label }: { label: string }) {
-	return (
-		<div
-			aria-busy="true"
-			aria-label={label}
-			role="status"
-			className="grid gap-4"
-		>
-			<Skeleton className="h-24 w-full" />
-			<Skeleton className="h-24 w-full" />
-			<Skeleton className="h-24 w-full" />
-		</div>
-	);
+	return <LoadingArea label={label} />;
 }
 
 export function AppTabEmpty({

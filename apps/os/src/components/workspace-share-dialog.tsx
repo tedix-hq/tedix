@@ -37,6 +37,7 @@ import {
 	AlertDescription,
 	AlertTitle,
 } from "@/components/kumo/alert";
+import { LoadingArea } from "@/components/loading-area";
 import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -483,9 +484,7 @@ function ItemLinks(props: {
 					currentRevisionId={output.data.currentRevision.id}
 				/>
 			) : (
-				<Text role="label" tone="secondary" className="m-0">
-					Loading…
-				</Text>
+				<LoadingArea className="h-16" size="base" />
 			)}
 			<ItemAccess
 				workspaceId={props.workspaceId}

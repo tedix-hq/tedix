@@ -1,3 +1,4 @@
+import { Loader } from "@/components/kumo/loader";
 import { Link } from "@/components/kumo/link";
 import { useDescope } from "@descope/react-sdk/flows";
 import { useEffect, useRef, useState } from "react";
@@ -26,6 +27,7 @@ function IntentlessLoginRedirect() {
 	return (
 		<main className="centered-state" aria-busy="true">
 			<TedixBrandMark />
+			<Loader size="base" />
 			<p>Taking you to the Tedix OS sign-in…</p>
 			<Link href="/">Return to Tedix OS</Link>
 		</main>
@@ -94,7 +96,10 @@ function FinishDesktopSignIn({ token }: { token: string }) {
 					<Link href="/">Sign in again</Link>
 				</>
 			) : (
-				<p>Finishing your Tedix sign-in…</p>
+				<>
+					<Loader size="base" />
+					<p>Finishing your Tedix sign-in…</p>
+				</>
 			)}
 		</main>
 	);

@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { useQuery } from "@tanstack/react-query";
 import type {
 	SkillWorkflowRunTimeline,
@@ -46,7 +47,6 @@ import {
 	SheetTitle,
 	SheetDescription,
 } from "@/components/kumo/sheet";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Slider } from "@/components/kumo/slider";
 import { Text } from "@/components/kumo/text";
 import {
@@ -113,7 +113,9 @@ export function RunTimeline({ runId }: { runId: string }) {
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
-			{timeline.isPending && <Skeleton className="h-48" />}
+			{timeline.isPending && (
+				<LoadingArea className="h-48" label="Loading timeline" />
+			)}
 			{timeline.isError && (
 				<LoadError
 					title="Timeline unavailable"
@@ -802,11 +804,11 @@ export function RunTimelineStep({
 					</Text>
 				</section>
 			)}
-			{receipt.isPending && <Skeleton className="h-20" />}
+			{receipt.isPending && (
+				<LoadingArea className="h-20" label="Loading step details" />
+			)}
 			{parentUnavailable && parentReceipt.isFetching && (
-				<Text as="p" tone="secondary">
-					Loading parent step details…
-				</Text>
+				<LoadingArea className="h-20" label="Loading parent step details" />
 			)}
 			{parentUnavailable && parentReceipt.isError && (
 				<LoadError
@@ -851,7 +853,9 @@ export function RunTimelineStep({
 				<Text as="h3" role="label" weight="medium">
 					Result
 				</Text>
-				{output.isFetching && <Skeleton className="h-20" />}
+				{output.isFetching && (
+					<LoadingArea className="h-20" label="Loading result" />
+				)}
 				{output.isError && (
 					<LoadError
 						title="Output unavailable"

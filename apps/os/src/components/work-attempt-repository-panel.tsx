@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import type { WorkAttemptRepository } from "@tedix/api-contract/schemas/work-items";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -143,7 +144,7 @@ export function WorkAttemptRepositoryPanel({
 							{repository.mode === "fork" ? "fork" : "created"} snapshot
 						</Text>
 						{log.isPending ? (
-							<Text role="label">Loading history…</Text>
+							<LoadingArea className="h-20" label="Loading history" />
 						) : log.isError ? (
 							<Text role="label" tone="secondary">
 								Repository history unavailable.
@@ -202,7 +203,7 @@ export function WorkAttemptRepositoryPanel({
 									) : null}
 								</div>
 								{tree.isPending ? (
-									<Text role="label">Loading files…</Text>
+									<LoadingArea className="h-20" label="Loading files" />
 								) : tree.isError ? (
 									<Text role="label" tone="secondary">
 										File listing unavailable.
@@ -246,7 +247,9 @@ export function WorkAttemptRepositoryPanel({
 								) : null}
 							</div>
 						) : null}
-						{file.isPending ? <Text role="label">Loading file…</Text> : null}
+						{file.isPending ? (
+							<LoadingArea className="h-20" label="Loading file" />
+						) : null}
 						{file.isError ? (
 							<Text role="label">File read unavailable.</Text>
 						) : null}

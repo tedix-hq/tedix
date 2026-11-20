@@ -11,6 +11,7 @@ import type {
 import { ArrowDown, ArrowUp, Pulse, Users } from "@phosphor-icons/react";
 import { useMemo } from "react";
 import type { z } from "zod";
+import { LoadingArea } from "@/components/loading-area";
 import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import {
@@ -67,9 +68,10 @@ export function AnalyticsQueryState({
 		<Card>
 			<CardContent>
 				{state === "loading" ? (
-					<p role="status" className="m-0 text-kumo-subtle type-tedix-body">
-						{`Loading ${label.toLowerCase()}...`}
-					</p>
+					<LoadingArea
+						className="h-24"
+						label={`Loading ${label.toLowerCase()}`}
+					/>
 				) : state === "error" || state === "stale" ? (
 					<LoadError
 						error={query?.error}

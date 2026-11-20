@@ -1,3 +1,4 @@
+import { ListSkeleton } from "@/components/list-skeleton";
 import { FileUnreadDot } from "@/components/unread-badge";
 import { NewResourceMenu } from "./create-document-dialog";
 import { OS_COPY } from "@/shared/os-copy";
@@ -22,7 +23,6 @@ import type {
 import type { ReactElement } from "react";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
-import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
@@ -297,9 +297,7 @@ export function WorkspaceOutputsList({
 		<div className="workspace-outputs-body">
 			{loading ? (
 				<div className="workspace-outputs-skeleton" aria-hidden>
-					<Skeleton className="h-7" />
-					<Skeleton className="h-7" />
-					<Skeleton className="h-7" />
+					<ListSkeleton rows={3} rowClassName="h-7" />
 				</div>
 			) : error ? (
 				<p className="workspace-outputs-note" role="status">

@@ -17,6 +17,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import type { App } from "@tedix/api-contract/schemas/app";
 import { Key, Trash } from "@phosphor-icons/react";
 import { lazy, Suspense, useState, type ReactNode } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { toast } from "@/components/kumo/toast";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
@@ -59,7 +60,6 @@ import {
 import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { SelectItem } from "@/components/kumo/select";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { SettingsSectionNavigation } from "@/components/settings-section-navigation";
 import { TypedConfirmDialog } from "@/components/typed-confirm-dialog";
@@ -175,7 +175,7 @@ export function AppSettingsPage() {
 			</div>
 			<div id="app-settings-mcp" className="scroll-mt-24 space-y-6">
 				<McpConfigDisplay app={app} />
-				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+				<Suspense fallback={<LoadingArea className="h-24" />}>
 					<McpOAuthSettings
 						appId={appId}
 						mcpConfig={app.metadata?.mcpConfig}
@@ -186,11 +186,11 @@ export function AppSettingsPage() {
 				</Suspense>
 			</div>
 			<div id="app-settings-tedis" className="scroll-mt-24 space-y-6">
-				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+				<Suspense fallback={<LoadingArea className="h-24" />}>
 					<AppTediAssignments appId={appId} />
 				</Suspense>
 				{isGatewayApp(app) ? (
-					<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+					<Suspense fallback={<LoadingArea className="h-24" />}>
 						<AppAggregatedTedis app={app} canManage={canManage} />
 					</Suspense>
 				) : null}

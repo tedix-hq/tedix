@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
@@ -41,7 +42,9 @@ export function LegacyActionGrants({ canChange }: { canChange: boolean }) {
 				promise that every tool can run automatically; it excludes shared and
 				mounted tools and may be incomplete.
 			</Text>
-			{inventory.isLoading ? <p>Loading legacy grants…</p> : null}
+			{inventory.isLoading ? (
+				<LoadingArea className="h-24" label="Loading legacy grants" />
+			) : null}
 			{inventory.isError ? (
 				<p role="alert">Could not load legacy grants.</p>
 			) : null}

@@ -17,13 +17,14 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/kumo/dialog";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { SavedOutputContentView } from "@/components/output-content";
 import { osApi } from "@/lib/api";
 import { fileActionRefusal } from "@/lib/file-action-refusal";
 import { osQuery } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
+import { ListSkeleton } from "@/components/list-skeleton";
+import { LoadingArea } from "@/components/loading-area";
 
 interface VersionRow {
 	revision: number;
@@ -79,8 +80,7 @@ function VersionView({
 		}),
 	);
 	const content = version.data?.revisions[0]?.content;
-	if (version.isPending)
-		return <Skeleton className="h-40 rounded-xl" aria-busy="true" />;
+	if (version.isPending) return <LoadingArea label="Loading version" />;
 	if (version.isError || !content)
 		return (
 			<Alert variant="destructive">
@@ -179,10 +179,7 @@ export function OutputVersionHistoryDialog({
 						<VersionView outputId={outputId} revision={viewing} />
 					</>
 				) : history.isPending ? (
-					<div className="grid gap-2" aria-busy="true">
-						<Skeleton className="h-12 rounded-lg" />
-						<Skeleton className="h-12 rounded-lg" />
-					</div>
+					<ListSkeleton rows={2} rowClassName="h-12" />
 				) : history.isError ? (
 					<Alert variant="destructive">
 						<AlertDescription>

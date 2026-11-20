@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type {
@@ -22,7 +23,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { OfficeReadError } from "@/components/office-read-error";
 import { officeOperationsQueryOptions } from "@/lib/os-query-options";
@@ -288,10 +288,7 @@ export function OfficeActivityTimeline() {
 				</>
 			)}
 			{query.isPending && (
-				<Skeleton
-					className="h-24 w-full"
-					aria-label="Loading Office activity"
-				/>
+				<LoadingArea className="h-24" label="Loading Office activity" />
 			)}
 			{query.data && (
 				<>

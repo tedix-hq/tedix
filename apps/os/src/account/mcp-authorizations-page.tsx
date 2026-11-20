@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
@@ -165,7 +166,7 @@ export function McpAuthorizationsPage() {
 					</Button>
 				</CardContent>
 			</Card>
-			{query.isPending ? <Text>Loading applications…</Text> : null}
+			{query.isPending ? <LoadingArea label="Loading applications" /> : null}
 			{query.isError ? (
 				<Text tone="error">Could not load your applications.</Text>
 			) : null}

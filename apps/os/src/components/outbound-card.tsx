@@ -48,6 +48,7 @@ import {
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { errorMessage } from "@/lib/orpc-error";
+import { LoadingArea } from "@/components/loading-area";
 
 type OutboundCardNavigation = {
 	autoFocus?: boolean;
@@ -94,7 +95,7 @@ export function OutboundCard({
 		/>
 	);
 	if (!record)
-		return failed ? notice : <Text role="body">Loading outbound draft…</Text>;
+		return failed ? notice : <LoadingArea label="Loading outbound draft" />;
 	return (
 		<>
 			{notice}
@@ -412,7 +413,11 @@ export function OutboundStyleProfile() {
 				{query.isError ? (
 					<Text role="body">{errorMessage(query.error)}</Text>
 				) : query.isPending ? (
-					<Text role="body">{OS_COPY.outboundProfile.loading}</Text>
+					<LoadingArea
+						className="h-16"
+						size="base"
+						label={OS_COPY.outboundProfile.loading}
+					/>
 				) : (
 					<>
 						{query.data ? (

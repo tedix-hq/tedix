@@ -54,7 +54,6 @@ import {
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Input } from "@/components/kumo/input";
 import { Kbd } from "@/components/kumo/kbd";
 import { Progress } from "@/components/kumo/progress";
@@ -118,6 +117,7 @@ import { DeckClosure } from "@/components/feed-deck-primitives";
 import { OS_COPY } from "@/shared/os-copy";
 import { cn } from "@/lib/utils";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
+import { LoadingArea } from "@/components/loading-area";
 
 type Cell = string | number | boolean | null;
 type SheetState = { body: SheetBody; revision: number };
@@ -1420,9 +1420,7 @@ export function CardReviewApp({
 			{failed ? (
 				readFailure
 			) : loading && cards.length === 0 ? (
-				<Skeleton className="h-80 rounded-2xl" role="status">
-					<span className="sr-only">{decisionText("Loading cards…")}</span>
-				</Skeleton>
+				<LoadingArea className="h-80" label={decisionText("Loading cards…")} />
 			) : browsing ? (
 				<WaitingList
 					queue={queue}

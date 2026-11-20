@@ -19,7 +19,7 @@ import {
 	useState,
 } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Skeleton } from "@/components/kumo/skeleton";
+import { LoadingArea } from "@/components/loading-area";
 import { Text } from "@/components/kumo/text";
 import { reportOsIssue } from "@/lib/error-reporting/install";
 import { resolveThemeMode, useOsTheme } from "@/lib/theme";
@@ -432,12 +432,7 @@ function WidgetFrameInner({
 	}, []);
 
 	if (mount.status === "loading") {
-		return (
-			<div aria-busy="true" className="flex flex-col gap-2">
-				<Skeleton className="h-4 w-1/3" />
-				<Skeleton className="h-40 w-full" />
-			</div>
-		);
+		return <LoadingArea className="h-44" />;
 	}
 
 	if (mount.status === "unavailable") {

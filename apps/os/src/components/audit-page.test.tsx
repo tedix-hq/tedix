@@ -403,7 +403,11 @@ describe("AuditFilters", () => {
 			button.textContent?.includes("Refresh"),
 		);
 		expect(refresh?.className).toBe(
-			kumoClass(<Button variant="outline">Refresh</Button>),
+			kumoClass(
+				<Button variant="outline" icon={<span />}>
+					Refresh
+				</Button>,
+			),
 		);
 	});
 });

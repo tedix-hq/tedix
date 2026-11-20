@@ -1,10 +1,9 @@
 import type { CSSProperties } from "react";
-import { Loader } from "@/components/kumo/loader";
-import { cn } from "@/lib/utils";
+import { LoadingArea } from "@/components/loading-area";
 
 /** What an app shows while it starts: a centered spinner, not a grey block. */
 export function AppLoading({
-	className = "h-40",
+	className,
 	style,
 	label = "Loading app",
 }: {
@@ -12,15 +11,5 @@ export function AppLoading({
 	style?: CSSProperties;
 	label?: string;
 }) {
-	return (
-		<div
-			role="status"
-			aria-busy="true"
-			aria-label={label}
-			className={cn("flex w-full items-center justify-center", className)}
-			style={style}
-		>
-			<Loader size="lg" />
-		</div>
-	);
+	return <LoadingArea className={className} style={style} label={label} />;
 }

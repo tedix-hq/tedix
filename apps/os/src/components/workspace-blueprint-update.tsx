@@ -8,6 +8,7 @@ import type {
 	OsGadget,
 	OsWorkspace,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { LoadingArea } from "@/components/loading-area";
 import { AppDraftEditor } from "@/components/app-draft-editor";
 import {
 	LoadError,
@@ -188,9 +189,7 @@ export function BlueprintUpdateDialog({
 				</DialogHeader>
 				<div className="grid gap-3" data-blueprint-update-preview>
 					{preview.isPending ? (
-						<Text role="label" tone="secondary" className="m-0">
-							Checking what changes…
-						</Text>
+						<LoadingArea className="h-24" label="Checking what changes" />
 					) : preview.isError ? (
 						<LoadError
 							title="Couldn't check this update"

@@ -27,6 +27,7 @@ import { Textarea } from "@/components/kumo/textarea";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
 import { cardRevisionDiff } from "@/lib/card-revision-diff";
+import { LoadingArea } from "@/components/loading-area";
 
 /** True when the card's draft can be rewritten by its source's writing skill. */
 export function canReviseFactoryCard(
@@ -276,7 +277,11 @@ export function FactoryCardRevisionPanel({
 				</CollapsibleDefaultTrigger>
 				<CollapsibleDefaultContent keepMounted>
 					{bodies.some((body) => body.isFetching) && (
-						<p role="status">Loading versions…</p>
+						<LoadingArea
+							className="h-16"
+							size="base"
+							label="Loading versions"
+						/>
 					)}
 					<div className="grid gap-4 pt-3">
 						{versions.map((version) => (

@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { LedgerRow, RelativeTime } from "@/components/work-ledger-row";
 import { OfficeActivityTimeline } from "@/components/office-activity-timeline";
 import { WeeklyDecisionDigest } from "@/components/weekly-decision-digest";
@@ -276,7 +277,7 @@ function TodayTiles({ since }: { since: string }) {
 		totals.acceptance.isPending ||
 		totals.urgent.isPending
 	)
-		return <Skeleton className="h-24 w-full" aria-label="Loading today" />;
+		return <LoadingArea className="h-24" label="Loading today" />;
 	return (
 		<div className="grid gap-2">
 			<TodayMetrics
@@ -410,7 +411,7 @@ function Knocks({ since }: { since: string }) {
 		tedis.isPending ||
 		details.some((query) => query.isPending)
 	)
-		return <Skeleton className="h-24 w-full" aria-label="Loading requests" />;
+		return <LoadingArea className="h-24" label="Loading requests" />;
 	const items = rows.map((row, index) => {
 		const summary = decisionCaptureSummary(row.request.metadata);
 		const draft = latestDraftOf(details[index]?.data);
@@ -818,7 +819,7 @@ function Notebook({ since }: { since: string }) {
 				</SectionHeading>
 			</SectionHeader>
 			{lessons.isPending ? (
-				<Skeleton className="h-24 w-full" />
+				<LoadingArea className="h-24" label="Loading notebook" />
 			) : lessons.isError ? (
 				<OfficeReadError resource="notebook" error={lessons.error} />
 			) : groups.length === 0 ? (

@@ -12,6 +12,7 @@
  * generated key namespace.
  */
 
+import { LoadingArea } from "@/components/loading-area";
 import { SettingsRow, SettingsRows } from "@/components/settings-row";
 import { errorMessage } from "@/lib/orpc-error";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -32,7 +33,6 @@ import {
 	CardTitle,
 } from "@/components/kumo/card";
 import { Label } from "@/components/kumo/label";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Surface } from "@/components/kumo/surface";
 import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
@@ -153,7 +153,7 @@ export function SsoSection({
 	if (statusQuery.isPending) {
 		return (
 			<SsoCard>
-				<Skeleton className="h-24 w-full" />
+				<LoadingArea className="h-24" label="Loading single sign-on" />
 			</SsoCard>
 		);
 	}

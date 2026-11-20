@@ -22,7 +22,7 @@ import {
 	AlertTitle,
 } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
-import { ListSkeleton } from "@/components/list-skeleton";
+import { Loader } from "@/components/kumo/loader";
 import { myWorkspacesDirectoryQueryOptions } from "@/lib/os-query-options";
 import { TedixBrandLogo, TedixBrandMark } from "@/shared/tedix-brand";
 import { useDocumentTitle } from "@/lib/use-document-title";
@@ -105,10 +105,8 @@ function AccountOrganizationsRoute() {
 			// launcher card, so the two onboarding loaders read as one screen.
 			<main className="centered-state" aria-busy="true">
 				<TedixBrandLogo />
+				<Loader size="base" />
 				<p>Opening your Tedix OS workspace…</p>
-				<div className="centered-state-skeleton">
-					<ListSkeleton />
-				</div>
 			</main>
 		);
 	}

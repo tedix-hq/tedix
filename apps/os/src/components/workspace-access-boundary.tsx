@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, type ReactNode } from "react";
 import { disposeOsCapabilities } from "@/lib/capability-lifecycle";
+import { LoadingArea } from "@/components/loading-area";
 import { Text } from "@/components/kumo/text";
 import { Button } from "@/components/kumo/button";
 import {
@@ -84,7 +85,11 @@ export function WorkspaceAccessBoundary({
 	}, [denied, verified, workspaceId]);
 	if (denied || (!verified && refusedWorkspace.current === workspaceId))
 		return (
-			<Suspense fallback={<div role="status">Opening shared workspace…</div>}>
+			<Suspense
+				fallback={
+					<LoadingArea className="h-60" label="Opening shared workspace" />
+				}
+			>
 				<SharedWorkspacePage workspaceId={workspaceId} />
 			</Suspense>
 		);

@@ -16,7 +16,6 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@/components/kumo/sheet";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { HomeRunIdentity } from "@/components/home-run-identity";
 import {
 	Tooltip,
@@ -24,6 +23,7 @@ import {
 	TooltipTrigger,
 } from "@/components/kumo/tooltip";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { LoadingArea } from "@/components/loading-area";
 
 const ExecutionDetails = lazy(async () => {
 	const module = await import("@/components/home-execution-detail");
@@ -68,7 +68,7 @@ function ChatExecutionSheet({
 					</div>
 				</SheetHeader>
 				{runId ? (
-					<Suspense fallback={<Skeleton className="mx-4 h-32 sm:mx-6" />}>
+					<Suspense fallback={<LoadingArea className="h-32" />}>
 						<ExecutionDetails runId={runId} branchId={branchId} embedded />
 					</Suspense>
 				) : null}

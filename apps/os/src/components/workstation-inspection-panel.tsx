@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -141,7 +142,7 @@ export function WorkstationInspectionPanel({
 			<CollapsibleContent>
 				<div className="min-w-0">
 					{status.isPending ? (
-						<Text role="label">Loading changes…</Text>
+						<LoadingArea className="h-20" label="Loading changes" />
 					) : status.isError ? (
 						<Text role="label" tone="secondary">
 							Changes unavailable.
@@ -195,7 +196,9 @@ export function WorkstationInspectionPanel({
 							Refresh changes
 						</Button>
 					) : null}
-					{content.isPending ? <Text role="label">Loading file…</Text> : null}
+					{content.isPending ? (
+						<LoadingArea className="h-20" label="Loading file" />
+					) : null}
 					{content.isError ? (
 						<Text role="label">File inspection unavailable.</Text>
 					) : null}

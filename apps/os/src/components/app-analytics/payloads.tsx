@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ToolCallPayload } from "@tedix/api-contract/schemas/analytics";
 import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { useState } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { CodeBlock } from "@/components/kumo/code";
@@ -10,7 +11,6 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { toolCallPayloadsQueryOptions } from "@/lib/os-query-options";
@@ -86,7 +86,13 @@ export function ToolCallPayloadRow({
 			</CollapsibleTrigger>
 			<CollapsibleContent>
 				<div className="space-y-2 pl-6">
-					{isPending && <Skeleton className="h-16" />}
+					{isPending && (
+						<LoadingArea
+							className="h-16"
+							label="Loading payload details"
+							size="base"
+						/>
+					)}
 					{isError && <LoadError title="Payload details could not be loaded" />}
 					{!isPending && data && data.configured === false && (
 						<Text as="p" role="label" tone="secondary" className="m-0">

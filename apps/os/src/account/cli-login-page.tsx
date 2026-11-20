@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { OrganizationMark } from "@/shared/organization-mark";
 import { buildBrokerStartPath } from "@/shared/session-status";
 import { useQuery } from "@tanstack/react-query";
@@ -277,7 +278,7 @@ export function CliLoginPage() {
 				description="Tedix Identity is checking your account and organization memberships."
 				loading
 			>
-				<ListSkeleton />
+				<LoadingArea className="h-24" label="Preparing your workspace" />
 			</IdentityJourneyFrame>
 		);
 	}

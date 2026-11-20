@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { LoadingArea } from "@/components/loading-area";
 import { LoadError } from "@/components/kumo/alert";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { PortfolioApp } from "@/components/work-portfolio-page";
 import { OrganizationPortfolioForm } from "@/components/organization-portfolio-form";
 import { organizationDetailQueryOptions } from "@/lib/os-query-options";
@@ -32,8 +32,7 @@ function OrganizationPortfolio({
 				retrying={context.isFetching || detail.isFetching}
 			/>
 		);
-	if (!context.data || !detail.data)
-		return <Skeleton className="h-24 w-full" />;
+	if (!context.data || !detail.data) return <LoadingArea className="h-24" />;
 	const isOwner = context.data.authority.role === "owner";
 	const buckets =
 		detail.data.metadata?.portfolioBuckets ?? OS_COPY.portfolio.defaults;

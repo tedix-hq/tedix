@@ -7,6 +7,7 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUpRight } from "@phosphor-icons/react";
+import { LoadingArea } from "@/components/loading-area";
 import { BillingSectionHeader } from "@/components/billing-section-header";
 import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
@@ -15,7 +16,6 @@ import {
 	SettingsSection,
 	SettingsSectionContent,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
@@ -51,7 +51,7 @@ export function BillingTopUpSection({ isTest }: { isTest: boolean }) {
 			/>
 			<SettingsSectionContent className="space-y-4">
 				{packsQuery.isPending ? (
-					<Skeleton className="h-28 w-full" />
+					<LoadingArea className="h-28" label="Loading credit packs" />
 				) : packsQuery.isError ? (
 					<LoadError
 						title="Credit packs are unavailable"

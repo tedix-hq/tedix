@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import {
 	Collapsible,
 	CollapsibleDefaultTrigger,
@@ -74,9 +75,7 @@ function ApprovalHistoryRequests() {
 					help="Past requests could not be loaded."
 				/>
 			) : !query.data ? (
-				<Text as="p" role="body">
-					Loading approval history…
-				</Text>
+				<LoadingArea className="h-24" label="Loading approval history" />
 			) : query.data.data.length === 0 ? (
 				<Text as="p" role="body">
 					No {page.status} requests in this page.
@@ -191,9 +190,7 @@ function ApprovalProvenanceDetails({
 		);
 	if (!query.data)
 		return (
-			<Text as="p" role="body">
-				Loading provenance…
-			</Text>
+			<LoadingArea className="h-16" label="Loading provenance" size="base" />
 		);
 	const { simulations, executionReceipts } = query.data;
 	return (

@@ -1,5 +1,6 @@
 import type { OsBlueprintPublicPage } from "@tedix/api-contract/contracts/os-workspaces";
 import { useEffect, useState } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -195,13 +196,8 @@ export function BlueprintLandingPage({ blueprintId }: { blueprintId: string }) {
 
 	if (state.status === "loading")
 		return (
-			<main
-				className="mx-auto grid min-h-dvh w-full max-w-2xl place-items-center p-4"
-				aria-busy
-			>
-				<Text as="p" role="body" tone="secondary" className="m-0">
-					Loading the blueprint…
-				</Text>
+			<main className="mx-auto w-full max-w-2xl p-4">
+				<LoadingArea className="min-h-dvh" label="Loading the blueprint" />
 			</main>
 		);
 	if (state.status === "unavailable")

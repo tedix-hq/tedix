@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { LoadingArea } from "@/components/loading-area";
 import { ProposalDiff } from "@/components/canvas-proposals";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -66,9 +67,11 @@ export function AppEditDiff({
 	);
 	if (!changes)
 		return (
-			<Text as="p" role="label" tone="secondary" className="m-0">
-				Loading what this changes…
-			</Text>
+			<LoadingArea
+				className="h-16"
+				label="Loading what this changes"
+				size="base"
+			/>
 		);
 	if (changes.length === 0)
 		return (

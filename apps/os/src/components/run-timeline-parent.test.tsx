@@ -208,7 +208,9 @@ describe("parent step receipt access", () => {
 					}),
 		);
 		await mount();
-		expect(host.textContent).toContain("Loading parent step details");
+		expect(
+			host.querySelector('[aria-label="Loading parent step details"]'),
+		).not.toBeNull();
 		expect(host.textContent).not.toContain("private child result");
 		expect(host.textContent).not.toContain("linked activity");
 		await act(async () => resolveParent?.({ content: JSON.stringify(parent) }));

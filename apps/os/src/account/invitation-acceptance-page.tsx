@@ -1,3 +1,4 @@
+import { Loader } from "@/components/kumo/loader";
 import { IDENTITY_JOURNEY_COPY } from "@/shared/identity-journey-copy";
 import { buildBrokerStartPath } from "@/shared/session-status";
 import { useDescope } from "@descope/react-sdk/flows";
@@ -169,7 +170,10 @@ function InvitationAcceptanceContent() {
 			{error ? (
 				<p role="alert">{error}</p>
 			) : (
-				<p>Securely signing you in to your workspace…</p>
+				<>
+					<Loader size="base" />
+					<p>Securely signing you in to your workspace…</p>
+				</>
 			)}
 		</main>
 	);

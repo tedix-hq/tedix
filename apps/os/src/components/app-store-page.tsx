@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { CapabilityNavigation } from "@/components/capability-navigation";
 import { AppLogo } from "@/components/app-logo";
 import {
@@ -538,7 +539,7 @@ function CatalogDiagnostics() {
 			</Text>
 		);
 	if (!statsQuery.data || !healthQuery.data)
-		return <Text>Loading catalog diagnostics…</Text>;
+		return <LoadingArea label="Loading catalog diagnostics" />;
 	const stats = statsQuery.data;
 	const health = healthQuery.data;
 	return (

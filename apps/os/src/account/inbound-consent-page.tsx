@@ -1,3 +1,5 @@
+import { LoadingArea } from "@/components/loading-area";
+import { Loader } from "@/components/kumo/loader";
 import {
 	CONSENT_PROTOCOL_SCOPES,
 	isReadOnlyConsentSelection,
@@ -881,6 +883,7 @@ function GroupedConsentScreen({
 								<Button
 									variant="outline"
 									disabled={Boolean(submitting)}
+									loading={submitting === "cancel"}
 									onClick={() =>
 										void continueFlow(
 											"cancel",
@@ -932,9 +935,11 @@ function GroupedConsentScreen({
 								Organizations you join later are not included.
 							</Text>
 							{organizationsLoading || directoryLoading ? (
-								<Text role="body" tone="secondary">
-									Loading your organizations…
-								</Text>
+								<LoadingArea
+									className="h-20"
+									size="base"
+									label="Loading your organizations"
+								/>
 							) : null}
 							{organizationsError || directoryError ? (
 								<Text role="body" tone="error">
@@ -1053,6 +1058,7 @@ function GroupedConsentScreen({
 								<Button
 									variant="outline"
 									disabled={Boolean(submitting)}
+									loading={submitting === "cancel"}
 									onClick={() =>
 										void continueFlow(
 											"cancel",
@@ -1069,6 +1075,7 @@ function GroupedConsentScreen({
 										selectedTenantIds.length === 0 ||
 										!selectedOrganizationsValid
 									}
+									loading={submitting === "authorize"}
 									onClick={() =>
 										void continueFlow(
 											"authorize",
@@ -1453,6 +1460,7 @@ function SessionReadyInboundConsent() {
 		return (
 			<main className="centered-state" aria-busy="true">
 				<TedixBrandMark />
+				<Loader size="base" />
 				<p>Preparing your Tedix workspace authorization…</p>
 			</main>
 		);

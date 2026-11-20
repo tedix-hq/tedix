@@ -15,6 +15,7 @@ import {
 	type InboundClientInventoryItem,
 	type McpInboundClientPolicy,
 } from "@tedix/api-contract/schemas/mcp-grant";
+import { LoadingArea } from "@/components/loading-area";
 import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -114,9 +115,7 @@ export function OrganizationInboundClientsSection({
 					<SectionTitle>Outside apps</SectionTitle>
 				</SectionHeader>
 				<SettingsSectionContent>
-					<Text role="label" tone="secondary">
-						Loading outside apps…
-					</Text>
+					<LoadingArea className="h-24" label="Loading outside apps" />
 				</SettingsSectionContent>
 			</SettingsSection>
 		);

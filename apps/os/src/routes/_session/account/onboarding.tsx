@@ -1,3 +1,4 @@
+import { Loader } from "@/components/kumo/loader";
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { OrganizationOnboardingForm } from "@/account/organization-launcher-page";
@@ -42,8 +43,9 @@ function AccountOnboardingRoute() {
 
 	if (isLoading) {
 		return (
-			<main className="centered-state" aria-busy="true" role="status">
+			<main className="centered-state" aria-busy="true">
 				<TedixBrandMark />
+				<Loader size="base" />
 				<p>Preparing your workspace…</p>
 			</main>
 		);

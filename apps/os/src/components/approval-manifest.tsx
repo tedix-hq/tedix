@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import {
 	Collapsible,
 	CollapsibleDefaultTrigger,
@@ -289,9 +290,7 @@ export function ApprovalManifestReview({
 				a choice stay pending.
 			</Text>
 			{query.isPending ? (
-				<Text as="p" role="body">
-					Loading exact requests…
-				</Text>
+				<LoadingArea className="h-24" label="Loading exact requests" />
 			) : null}
 			{query.error ? (
 				<LoadError

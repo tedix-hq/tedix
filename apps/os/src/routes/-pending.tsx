@@ -1,3 +1,4 @@
+import { LoadingArea } from "@/components/loading-area";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Page, PageHeader } from "@/components/kumo/page";
@@ -27,7 +28,7 @@ export function CanvasPending() {
 						</div>
 					</aside>
 					<section className="hidden min-w-0 flex-1 p-4 min-[960px]:block">
-						<Skeleton className="h-full min-h-64" />
+						<LoadingArea className="h-full min-h-64" />
 					</section>
 				</div>
 			</div>
@@ -41,11 +42,7 @@ export function CanvasPending() {
  * then, so this fills the workpiece area alone.
  */
 export function CanvasStagePending() {
-	return (
-		<div aria-busy className="h-full min-h-0 w-full p-4">
-			<Skeleton className="h-full min-h-64" />
-		</div>
-	);
+	return <LoadingArea className="h-full min-h-64" />;
 }
 
 export function DetailPending() {

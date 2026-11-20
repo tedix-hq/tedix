@@ -1,3 +1,4 @@
+import { ListSkeleton } from "@/components/list-skeleton";
 import type { ComponentProps, ReactNode } from "react";
 import { LoadError } from "@/components/kumo/alert";
 import {
@@ -13,7 +14,6 @@ import {
 	PageHeading,
 	PageTitle,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 
 import { errorMessage } from "@/lib/orpc-error";
 import { useDocumentTitle } from "@/lib/use-document-title";
@@ -47,10 +47,8 @@ export function WorkListSkeleton({
 	label?: string;
 }) {
 	return (
-		<div className="grid gap-2" aria-label={label}>
-			{Array.from({ length: rows }, (_, index) => (
-				<Skeleton key={index} className="h-11 w-full" />
-			))}
+		<div role="status" aria-busy="true" aria-label={label}>
+			<ListSkeleton rows={rows} rowClassName="h-11" />
 		</div>
 	);
 }
