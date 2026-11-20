@@ -1720,6 +1720,10 @@
 		{
 			"name": "20261120121043_workspace_output_index_lookups/migration.sql",
 			"sha256": "5022848e585f9ea50df960bea696519cf75501224ef87d0d5f500919b557b025"
+		},
+		{
+			"name": "20261120121114_workspace_feed_ledger_change_lookup/migration.sql",
+			"sha256": "3d44a30a4af0c2e9332a73f7e0df0b4585a490b465a17af0b69ab93663d38e6e"
 		}
 	]
 }

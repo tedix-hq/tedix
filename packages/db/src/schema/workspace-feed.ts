@@ -82,6 +82,12 @@ export const workspaceFeedLedger = sqliteTable(
 			table.seq,
 		),
 		index("workspace_feed_ledger_org_idx").on(table.organizationId),
+		// The entry that recorded one change. Without this the lookup walked
+		// the organization's ledger (about 1,200 rows per call, 20 Nov 2026).
+		index("workspace_feed_ledger_workspace_change_idx").on(
+			table.workspaceId,
+			table.changeRecordId,
+		),
 	],
 );
 
