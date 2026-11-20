@@ -1882,6 +1882,7 @@ function Composer({
 							onBrowseResources={onBrowseResources}
 							messageBox={textarea}
 							selectedIds={selected.map((file) => file.outputId)}
+							onUploadFiles={uploads.addFiles}
 							onSelect={(file) =>
 								setSelected((files) =>
 									files.some((item) => item.outputId === file.outputId) ||
