@@ -20,8 +20,6 @@ import {
 	osGadgetRevisions,
 	osGadgetCode,
 	osGadgetCodeBlobs,
-	osOutputs,
-	osOutputRevisions,
 	osWorkspaceProjects,
 	osWorkspaceResources,
 	osWorkspaceSummaries,
@@ -245,8 +243,6 @@ async function seedCore() {
 		osWorkspaceAccessEdges,
 		osWorkspaceShareLinks,
 		osWorkspaces,
-		osOutputs,
-		osOutputRevisions,
 		workspaceFeedLedger,
 		workspaceFeedCursors,
 		workspaceActivity,
@@ -630,11 +626,6 @@ describe("WorkspaceDO", () => {
 			createdById: "u1",
 			createdAt: now,
 		};
-		const core = createDbQueryClient(testEnv.DB);
-		await core.batch([
-			core.insert(osOutputs).values(output),
-			core.insert(osOutputRevisions).values(revision),
-		]);
 		await ws.outputQuery(scope, { op: "initialize" });
 		await ws.outputQuery(scope, { op: "create", output, revision });
 		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");

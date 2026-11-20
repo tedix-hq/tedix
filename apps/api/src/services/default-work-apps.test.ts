@@ -16,13 +16,15 @@ import {
 import { getOsBlueprintRevision } from "@tedix/db/queries/os-workspaces/blueprints";
 import {
 	osWorkspaces,
-	osOutputs,
-	osOutputRevisions,
 	osGadgets,
 	osGadgetRevisions,
 	osBlueprints,
 	osBlueprintRevisions,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputs,
+	osOutputRevisions,
+} from "@tedix/db/tenant-store/outputs-schema";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it } from "vite-plus/test";

@@ -19,11 +19,13 @@ import {
 	osShareSessions,
 } from "@tedix/db/schema/os-shares";
 import {
-	osOutputRevisions,
-	osOutputs,
 	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputRevisions,
+	osOutputs,
+} from "@tedix/db/tenant-store/outputs-schema";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it } from "vite-plus/test";

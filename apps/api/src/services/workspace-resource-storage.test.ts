@@ -6,10 +6,12 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
 	osGadgets,
 	osWorkspaces,
-	osOutputs,
-	osOutputRevisions,
 	osWorkspaceResources,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputs,
+	osOutputRevisions,
+} from "@tedix/db/tenant-store/outputs-schema";
 import { listWorkspaceResourceSummaries } from "@tedix/db/queries/durable-sqlite/workspace-resources";
 import { executeOutputQuery } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import { workspaceOutputFixture } from "../../test/workspace-output-fixture";

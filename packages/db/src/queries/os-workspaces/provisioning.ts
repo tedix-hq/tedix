@@ -6,11 +6,13 @@ import { workItems, workItemRelations } from "../../schema/work-items";
 import { workCaseItems, workCases } from "../../schema/work-factory";
 import { skillSchedules } from "../../schema/cognitive";
 import {
-	type osOutputs,
-	type osOutputRevisions,
 	osWorkspaceProjects,
 	osWorkspaceResources,
 } from "../../schema/os-workspaces";
+import {
+	type osOutputs,
+	type osOutputRevisions,
+} from "../../tenant-store/outputs-schema";
 
 export interface BlueprintProvisioningRows {
 	projects: (typeof projects.$inferInsert)[];

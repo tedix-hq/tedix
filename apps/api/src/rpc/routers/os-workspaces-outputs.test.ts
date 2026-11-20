@@ -14,10 +14,8 @@ import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import {
-	osOutputRevisions,
-	osCollaborationProposals,
-} from "@tedix/db/schema/os-workspaces";
+import { osCollaborationProposals } from "@tedix/db/schema/os-workspaces";
+import { osOutputRevisions } from "@tedix/db/tenant-store/outputs-schema";
 import {
 	workspaceActivity,
 	workspaceFeedLedger,

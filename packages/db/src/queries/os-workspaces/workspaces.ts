@@ -20,9 +20,11 @@ import {
 	type NewOsWorkspaceRow,
 	type OsWorkspaceRow,
 	osWorkspaces,
+} from "../../schema/os-workspaces";
+import {
 	osOutputs,
 	osOutputRevisions,
-} from "../../schema/os-workspaces";
+} from "../../tenant-store/outputs-schema";
 import {
 	osWorkspaceAccessEdges,
 	osWorkspaceCollaborators,

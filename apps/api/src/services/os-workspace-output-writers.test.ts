@@ -6,10 +6,12 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
 	osWorkspaces,
-	osOutputs,
-	osOutputRevisions,
 	osWorkspaceResources,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputs,
+	osOutputRevisions,
+} from "@tedix/db/tenant-store/outputs-schema";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
 	confirmOsWorkspaceFile,
@@ -150,7 +152,7 @@ describe.each(["file", "blueprint", "provisioning"])(
 			await expect(write(path, f)).rejects.toThrow(
 				path === "file"
 					? "activated workspace object"
-					: "Staged workspace requires migration activation",
+					: "Workspace store is unavailable",
 			);
 			expect(f.sqlite.prepare("SELECT id FROM os_workspaces").all()).toEqual(
 				path === "file" ? [] : [{ id: workspace.id }],

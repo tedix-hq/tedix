@@ -8,7 +8,7 @@ import type { OsWorkspaceScopeParams } from "../os-workspaces/workspaces";
 import type {
 	NewOsOutputRow,
 	NewOsOutputRevisionRow,
-} from "../../schema/os-workspaces";
+} from "../../tenant-store/outputs-schema";
 import type { TenantStoreImportBatch } from "../../tenant-store/store";
 import type { TenantStoreDb } from "./tenant-store";
 import * as outputs from "./os-outputs";

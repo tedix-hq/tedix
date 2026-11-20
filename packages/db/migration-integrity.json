@@ -1744,6 +1744,10 @@
 		{
 			"name": "20261120123126_memory_facts_confirmed_lessons_index/migration.sql",
 			"sha256": "a603846c56c304fa6eb990fe9e7fbea7e8284442232ddd60c8063ef984e761b7"
+		},
+		{
+			"name": "20261120125139_drop_shared_os_outputs/migration.sql",
+			"sha256": "f99b890386952ccfcf4ee3bfcc783b615e10997841f9f61413764e4287c1f6f0"
 		}
 	]
 }

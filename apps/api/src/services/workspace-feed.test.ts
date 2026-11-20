@@ -4,11 +4,11 @@ import { expect, it, onTestFinished } from "vite-plus/test";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import {
-	osWorkspaces,
 	osOutputs,
 	osOutputRevisions,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 import { workspaceOutputIndex } from "@tedix/db/schema/workspace-feed";
 import { workspaceOutputFixture } from "../../test/workspace-output-fixture";
 import {

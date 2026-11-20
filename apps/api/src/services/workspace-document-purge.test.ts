@@ -5,11 +5,13 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
 	osWorkspaces,
-	osOutputs,
-	osOutputRevisions,
 	osWorkspaceResources,
 	osCollaborationProposals,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputs,
+	osOutputRevisions,
+} from "@tedix/db/tenant-store/outputs-schema";
 import {
 	osWorkspaceCollaborators,
 	osWorkspaceAccessEdges,

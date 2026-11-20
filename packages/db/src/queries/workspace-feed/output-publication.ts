@@ -2,7 +2,7 @@ import type { DbQueryClient } from "../../query-client";
 import type {
 	OsOutputRow,
 	OsOutputRevisionRow,
-} from "../../schema/os-workspaces";
+} from "../../tenant-store/outputs-schema";
 import { appendWorkspaceFeedLedger, listWorkspaceFeedLedger } from "./ledger";
 import {
 	applyWorkspaceChangeEvents,

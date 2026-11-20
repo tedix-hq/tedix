@@ -29,11 +29,11 @@ import {
 	osCollaborationProposals,
 	osGadgetRevisions,
 	osGadgets,
-	osOutputs,
 	osWorkspaceSummaries,
 	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
+import { osOutputs } from "@tedix/db/tenant-store/outputs-schema";
 import { tedis } from "@tedix/db/schema/tedis";
 import { providerInstallations } from "@tedix/db/schema/provider-installations";
 import { userConfigs } from "@tedix/db/schema/user-configs";

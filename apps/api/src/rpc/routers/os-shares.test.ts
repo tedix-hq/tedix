@@ -21,11 +21,13 @@ import {
 	osGadgetRevisions,
 	osGadgets,
 	osCollaborationProposals,
-	osOutputRevisions,
-	osOutputs,
 	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputRevisions,
+	osOutputs,
+} from "@tedix/db/tenant-store/outputs-schema";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { eq } from "drizzle-orm";
 import { createD1Facade } from "@tedix/db/test/d1-facade";

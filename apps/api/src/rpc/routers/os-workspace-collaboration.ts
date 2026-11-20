@@ -40,8 +40,8 @@ import { listOsOutputRevisions } from "../../services/workspace-output-storage";
 import type {
 	OsCollaborationProposalRow,
 	OsGadgetRevisionRow,
-	OsOutputRevisionRow,
 } from "@tedix/db/schema/os-workspaces";
+import type { OsOutputRevisionRow } from "@tedix/db/tenant-store/outputs-schema";
 import {
 	mapOsOutputRevisionRow,
 	mapOsOutputRow,

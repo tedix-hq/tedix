@@ -10,7 +10,10 @@ import {
 	type DocumentTransferRuntime,
 	type DocumentTransferPackage,
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
-import { osOutputs, osOutputRevisions } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputs,
+	osOutputRevisions,
+} from "@tedix/db/tenant-store/outputs-schema";
 import { workspaceOutputIndex } from "@tedix/db/schema/workspace-feed";
 import { transferWorkspaceDocument } from "./workspace-document-transfer";
 

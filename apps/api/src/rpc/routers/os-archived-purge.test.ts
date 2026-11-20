@@ -22,7 +22,8 @@ import {
 } from "@tedix/db/schema";
 import { harnessSubjectTraceBundles } from "@tedix/db/schema/harness-versions";
 import { osShareLinks } from "@tedix/db/schema/os-shares";
-import { osOutputs, osWorkspaces } from "@tedix/db/schema/os-workspaces";
+import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
+import { osOutputs } from "@tedix/db/tenant-store/outputs-schema";
 import { runtimeSubmissions } from "@tedix/db/schema/runtime-submissions";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vite-plus/test";

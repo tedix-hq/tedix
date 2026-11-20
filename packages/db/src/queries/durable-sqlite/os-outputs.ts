@@ -4,17 +4,19 @@ import { and, desc, eq, getColumns, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import type { CommitCollaborationOutputParams } from "../os-workspaces/collaboration";
 import {
+	type OsWorkspaceResourceRow,
+	type OsWorkspaceRow,
+	osWorkspaces,
+	osWorkspaceResources,
+} from "../../schema/os-workspaces";
+import {
 	type NewOsOutputRevisionRow,
 	type NewOsOutputRow,
 	type OsOutputRevisionRow,
 	type OsOutputRow,
-	type OsWorkspaceResourceRow,
-	type OsWorkspaceRow,
 	osOutputRevisions,
 	osOutputs,
-	osWorkspaces,
-	osWorkspaceResources,
-} from "../../schema/os-workspaces";
+} from "../../tenant-store/outputs-schema";
 import { prefixedColumns } from "../../utils/select";
 import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envelope";
 import {

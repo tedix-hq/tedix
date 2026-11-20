@@ -2,9 +2,11 @@ import type { DbQueryClient } from "../../query-client";
 import {
 	osWorkspaceResources,
 	type NewOsWorkspaceResourceRow,
+} from "../../schema/os-workspaces";
+import {
 	type NewOsOutputRow,
 	type NewOsOutputRevisionRow,
-} from "../../schema/os-workspaces";
+} from "../../tenant-store/outputs-schema";
 
 /** Resource metadata stays in shared D1; document rows belong to the workspace object. */
 export async function confirmOsWorkspaceFile(

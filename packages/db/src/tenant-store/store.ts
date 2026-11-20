@@ -65,8 +65,8 @@ import {
 	tenantTediArtifacts,
 } from "./chat-schema";
 import {
-	tenantOsOutputRevisions,
-	tenantOsOutputs,
+	osOutputRevisions,
+	osOutputs,
 	tenantOsWorkspaceResources,
 	tenantOsWorkspaces,
 } from "./outputs-schema";
@@ -117,8 +117,8 @@ export const tenantStoreDefinition: TenantStoreDefinition = {
 	migrations: tenantStoreMigrations,
 	importTables: {
 		os_workspaces: tenantOsWorkspaces,
-		os_outputs: tenantOsOutputs,
-		os_output_revisions: tenantOsOutputRevisions,
+		os_outputs: osOutputs,
+		os_output_revisions: osOutputRevisions,
 		os_workspace_resources: tenantOsWorkspaceResources,
 		kernel_conversations: tenantKernelConversations,
 		kernel_runtime_runs: tenantKernelRuntimeRuns,

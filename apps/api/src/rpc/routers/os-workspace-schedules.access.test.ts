@@ -22,8 +22,8 @@ import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
 	osWorkspaceResources,
 	osWorkspaces,
-	osOutputs,
 } from "@tedix/db/schema/os-workspaces";
+import { osOutputs } from "@tedix/db/tenant-store/outputs-schema";
 import { personalResourceDelegations } from "@tedix/db/schema/personal-resource-delegations";
 import { tedis } from "@tedix/db/schema/tedis";
 import { userConfigs } from "@tedix/db/schema/user-configs";

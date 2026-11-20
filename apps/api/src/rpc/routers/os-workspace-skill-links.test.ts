@@ -21,12 +21,14 @@ import {
 } from "@tedix/db/schema/cognitive";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
-	osOutputRevisions,
-	osOutputs,
 	osWorkspaceProjects,
 	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputRevisions,
+	osOutputs,
+} from "@tedix/db/tenant-store/outputs-schema";
 import {
 	osWorkspaceAccessEdges,
 	osWorkspaceCollaborators,

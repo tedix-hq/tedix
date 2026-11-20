@@ -49,7 +49,7 @@ import {
 	saveOsOutputPatch,
 } from "../services/os-output-patch";
 import { getOsOutputRevisionByNumber } from "../services/os-workspace-outputs";
-import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
+import type { OsOutputRevisionRow } from "@tedix/db/tenant-store/outputs-schema";
 import type {
 	OsShareLinkRow,
 	OsShareSessionRow,

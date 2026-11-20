@@ -8,9 +8,11 @@ import {
 	osGadgets,
 	osWorkspaces,
 	osWorkspaceResources,
+} from "../../schema/os-workspaces";
+import {
 	osOutputs,
 	osOutputRevisions,
-} from "../../schema/os-workspaces";
+} from "../../tenant-store/outputs-schema";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {

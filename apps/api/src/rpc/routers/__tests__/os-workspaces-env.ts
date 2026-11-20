@@ -42,13 +42,15 @@ import {
 	osGadgetExecutions,
 	osGadgetRevisions,
 	osGadgets,
-	osOutputRevisions,
-	osOutputs,
 	osWorkspaceProjects,
 	osWorkspaceResources,
 	osWorkspaces,
 	osWorkspaceSummaries,
 } from "@tedix/db/schema/os-workspaces";
+import {
+	osOutputRevisions,
+	osOutputs,
+} from "@tedix/db/tenant-store/outputs-schema";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import {
 	workspaceActivity,

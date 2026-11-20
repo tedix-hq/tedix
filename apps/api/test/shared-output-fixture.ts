@@ -8,7 +8,7 @@ import {
 	type OsOutputRevisionRow,
 	osOutputs,
 	osOutputRevisions,
-} from "@tedix/db/schema/os-workspaces";
+} from "@tedix/db/tenant-store/outputs-schema";
 
 type OsOutputScopeParams = TenantScope & { outputId: string };
 

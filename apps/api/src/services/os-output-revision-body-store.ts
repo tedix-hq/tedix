@@ -1,6 +1,6 @@
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { env } from "cloudflare:workers";
-import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
+import type { OsOutputRevisionRow } from "@tedix/db/tenant-store/outputs-schema";
 
 export interface OutputBodyBucket {
 	get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;

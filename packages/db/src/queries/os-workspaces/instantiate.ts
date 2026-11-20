@@ -32,9 +32,11 @@ import {
 	osGadgets,
 	osWorkspaces,
 	osWorkspaceResources,
+} from "../../schema/os-workspaces";
+import {
 	type osOutputs,
 	type osOutputRevisions,
-} from "../../schema/os-workspaces";
+} from "../../tenant-store/outputs-schema";
 
 /**
  * A gallery import's blueprint copy, materialized in the SAME batch as the

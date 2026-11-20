@@ -57,11 +57,11 @@ import type {
 	OsGadgetExecutionRow,
 	OsGadgetRevisionRow,
 	OsGadgetRow,
-	OsOutputRow,
 	OsWorkspaceProjectRow,
 	OsWorkspaceRow,
 	OsWorkspaceSummaryRow,
 } from "@tedix/db/schema/os-workspaces";
+import type { OsOutputRow } from "@tedix/db/tenant-store/outputs-schema";
 import { parseBlueprintLineage } from "../../services/os-blueprint-portability";
 import {
 	assertOsWorkspaceChildVisible,

@@ -1,4 +1,4 @@
-import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
+import type { OsOutputRevisionRow } from "@tedix/db/tenant-store/outputs-schema";
 import { requireSavableText } from "../lib/savable-text";
 import { confirmWorkspaceFileResource } from "./workspace-resource-storage";
 import {

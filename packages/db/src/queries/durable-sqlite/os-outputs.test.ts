@@ -2,11 +2,11 @@ import { DatabaseSync } from "node:sqlite";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
+import { osWorkspaces } from "../../schema/os-workspaces";
 import {
 	osOutputRevisions,
 	osOutputs,
-	osWorkspaces,
-} from "../../schema/os-workspaces";
+} from "../../tenant-store/outputs-schema";
 import { createD1Facade } from "../../test/d1-facade";
 import { createDurableSqliteFixture } from "../../test/durable-sqlite-fixture";
 import { schemaDdl } from "../../test/schema-ddl";
