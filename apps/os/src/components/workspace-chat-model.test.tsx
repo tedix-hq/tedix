@@ -19,6 +19,7 @@ const server = vi.hoisted(() => ({
 vi.mock("@/lib/api", async (original) => {
 	const actual = await original<typeof import("@/lib/api")>();
 	const userSettings = {
+		getContext: async () => ({ authority: { permissions: [] } }),
 		getPreferences: async () => {
 			const row = server.rows.get(server.signedIn);
 			return row
