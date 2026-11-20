@@ -25,7 +25,7 @@ import {
 
 const repoRoot = resolve(import.meta.dir, "..");
 // The isolated local launcher has an explicit bootstrap model, not a managed registry default.
-const LOCAL_WORKERS_AI_BOOTSTRAP_MODEL = "@cf/moonshotai/kimi-k2.7-code";
+const LOCAL_WORKERS_AI_BOOTSTRAP_MODEL = "@cf/zai-org/glm-5.3";
 
 /** Every `apps/<dir>` that ships a package.json, with its scripts block. */
 function appScripts(): Array<[string, Record<string, string>]> {

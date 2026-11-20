@@ -116,7 +116,7 @@ it("retains all cards, pins policy cards, retrieves eight personal examples and 
 	expect(mocks.reserve).toHaveBeenCalledTimes(1);
 	expect(mocks.model).toHaveBeenCalledTimes(1);
 	expect(mocks.model.mock.calls[0]![2]).toMatchObject({
-		model: "@cf/qwen/qwen3-30b-a3b-fp8",
+		model: "@cf/qwen/qwen3.8-27b",
 		source: "deck_curator_rank",
 		maxTokens: 128,
 	});

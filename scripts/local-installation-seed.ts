@@ -20,7 +20,7 @@ export function localModelCatalog() {
 				ref: LOCAL_WORKERS_AI_MODEL_REF,
 				provider: "workers-ai",
 				modelId: LOCAL_WORKERS_AI_MODEL,
-				label: "Kimi K2.7 Code",
+				label: "GLM 5.3",
 				reasoning: true,
 				tier: "balanced",
 				imageInput: "unsupported",
@@ -67,7 +67,11 @@ export function localInstallationSeedSql(
 		(options.workersAi
 			? systemPack("model-catalog", "Local model catalog", {
 					modelCatalog: localModelCatalog(),
-				})
+				}) +
+				// Keep the launcher's own catalog on the current local model, so a
+				// retired model does not leave an existing install without chat.
+				`UPDATE policy_packs SET definition=${q(JSON.stringify({ modelCatalog: localModelCatalog() }))}
+ WHERE scope='system' AND slug='model-catalog' AND published_by='local-development' AND name='Local model catalog';\n`
 			: "")
 	);
 }
