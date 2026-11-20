@@ -1044,6 +1044,8 @@ export const runtimeFacetTurns = {
 			homeRunId?: string;
 			/** Set only when a person picked this tedi in the chat. */
 			personChatConversationId?: string;
+			/** Set by the API when this turn is a work order Home wrote. */
+			homeWorkOrder?: boolean;
 			/** Set for a turn the scheduler or the runtime started, not a person. */
 			trustedInstructionOrigin?: ChatTurnParams["trustedInstructionOrigin"];
 			personalRequest?: boolean;
@@ -1177,6 +1179,7 @@ export const runtimeFacetTurns = {
 					input.userMessage,
 					turnBinding,
 					Boolean(input.executionRestriction),
+					input.homeWorkOrder === true,
 				);
 		addendaPromise?.catch(() => undefined);
 		// Read beside the addenda so it adds no wait of its own. Trusted turns
@@ -2701,6 +2704,7 @@ export const runtimeFacetTurns = {
 			workItemId: input.workItemId,
 			homeRunId: input.homeRunId,
 			personChatConversationId: input.personChatConversationId,
+			homeWorkOrder: input.homeWorkOrder,
 			trustedInstructionOrigin: input.trustedInstructionOrigin,
 			personalRequest: input.personalRequest,
 			executionSurface: input.executionSurface,

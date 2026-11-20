@@ -57,6 +57,11 @@ export interface ChatTurnParams {
 	 */
 	personChatConversationId?: string;
 	/**
+	 * Set when the API dispatched this turn as a work order Home wrote. Read
+	 * from the dispatch metadata, never from the wording of the message.
+	 */
+	homeWorkOrder?: boolean;
+	/**
 	 * Trusted skill-run identity for AI Gateway cost attribution. This is set
 	 * only from the authenticated MCP workflow provenance header; the tedi run
 	 * id remains the durable execution and idempotency identity.

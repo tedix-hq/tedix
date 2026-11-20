@@ -454,6 +454,7 @@ for (const cached of [null, "Available cached guidance"]) {
 async function recall(
 	disabled: boolean,
 	userText = "Find scoped remembered workflow evidence",
+	homeWorkOrder = false,
 ) {
 	const calls: unknown[][] = [];
 	const agent = tediDo({
@@ -486,6 +487,7 @@ async function recall(
 			undefined,
 			"main",
 			disabled,
+			homeWorkOrder,
 		),
 		calls,
 	};
@@ -508,6 +510,7 @@ Objective: answer the memory check
 Source request:
 Which clients have unpaid invoices?
 [END HOME DELEGATION WORK ORDER]`,
+	true,
 );
 assert.deepEqual(delegatedRecall.calls, [
 	["Which clients have unpaid invoices?", 12, { recordAccess: false }],

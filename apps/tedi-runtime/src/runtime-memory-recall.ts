@@ -8,7 +8,6 @@ import { serializeBrainDigest } from "./brain/brain-digest";
 import type { SkillSearchEntry } from "./brain/platform-client";
 import {
 	composeCognitiveAddenda,
-	isHomeDelegationWorkOrder,
 	memoryRecallQuery,
 } from "./cognitive-addenda";
 import { logTediSourceFailure } from "./context-failure-log";
@@ -412,10 +411,11 @@ export async function brainDigestAddendum(
 	onRecall?: (report: MemoryRecallReport) => void,
 	sessionKey?: string | null,
 	learningDisabled = false,
+	homeWorkOrder = false,
 ): Promise<string> {
 	const recallPromise = recallLongTermMemoryBlock({
-		userText: memoryRecallQuery(userText),
-		...(isHomeDelegationWorkOrder(userText)
+		userText: memoryRecallQuery(userText, homeWorkOrder),
+		...(homeWorkOrder
 			? {
 					budgetMs: DELEGATED_MEMORY_RECALL_BUDGET_MS,
 					limit: DELEGATED_MEMORY_RECALL_LIMIT,
@@ -480,6 +480,8 @@ export async function cognitiveAddenda(
 	userText: string,
 	telemetryBinding?: ActiveTurnBinding | null,
 	learningDisabled?: boolean,
+	/** Set by the API on the turn; see `isHomeWorkOrderTurn`. */
+	homeWorkOrder = false,
 ): Promise<string> {
 	let memoryRecall: MemoryRecallReport | null = null;
 	let readOnlyCatalog: Promise<SkillSearchEntry[] | null> | undefined;
@@ -541,7 +543,7 @@ export async function cognitiveAddenda(
 	return await composeCognitiveAddenda({
 		sessionKey,
 		runId: telemetryBinding?.runId ?? this.activeTurnBinding?.runId ?? null,
-		skipDirectives: isHomeDelegationWorkOrder(userText),
+		homeWorkOrder,
 		// Report cognitive addenda against the shared configured context window.
 		contextWindowTokens: TEDI_CONTEXT_WINDOW_TOKENS,
 		sources: {
@@ -559,6 +561,7 @@ export async function cognitiveAddenda(
 					},
 					sessionKey,
 					learningDisabled,
+					homeWorkOrder,
 				),
 			// Cached block into this turn, rebuild behind it (and one blocking
 			// build on a cold cache) — see {@link skillGuidanceAddendum}.

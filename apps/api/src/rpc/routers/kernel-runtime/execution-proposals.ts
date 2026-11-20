@@ -1330,7 +1330,8 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			// Step 6 — agent contract: when a Work Item tracks this delegation,
 			// dispatch the work-item-aware content (the tedi OWNS Work Item {id},
 			// must leave durable progress + a proof-backed disposition). Otherwise
-			// fall back to the raw turn content.
+			// fall back to the raw turn content. A tedi a person picked gets the
+			// message as written; its context rides in the metadata below.
 			const verifyCommand = input.verifyCommand?.trim() || null;
 			const delegateDispatchContent = delegationWorkItemId
 				? directDelegationDispatchContent({
@@ -1339,6 +1340,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 						homeRunId: runId,
 						workItemId: delegationWorkItemId,
 						verifyCommand,
+						pickedByPerson,
 					})
 				: verifyCommand
 					? [

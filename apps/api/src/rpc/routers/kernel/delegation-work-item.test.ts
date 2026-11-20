@@ -250,6 +250,19 @@ describe("directDelegationDispatchContent", () => {
 		expect(content).toContain("Verification output:");
 		expect(content).toContain("treated as partial by Home");
 	});
+
+	it("sends a person's message to the tedi they picked as written", () => {
+		const written = "  can you look at Work abcdef01?\n";
+		expect(
+			directDelegationDispatchContent({
+				content: written,
+				delegateToTediId: "tedi-cto",
+				homeRunId: "home-run-9",
+				workItemId: "wi-42",
+				pickedByPerson: true,
+			}),
+		).toBe(written);
+	});
 });
 
 describe("delegation Work Item heartbeats", () => {

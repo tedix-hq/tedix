@@ -2137,6 +2137,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		onRecall?: (report: MemoryRecallReport) => void,
 		sessionKey?: string | null,
 		learningDisabled?: boolean,
+		homeWorkOrder?: boolean,
 	): Promise<string> {
 		return runtimeMemory.brainDigestAddendum.call(
 			this.memoryHost(),
@@ -2144,6 +2145,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			onRecall,
 			sessionKey,
 			learningDisabled,
+			homeWorkOrder,
 		);
 	}
 	private async cognitiveAddenda(
@@ -2151,6 +2153,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		userText: string,
 		telemetryBinding?: ActiveTurnBinding | null,
 		learningDisabled?: boolean,
+		homeWorkOrder?: boolean,
 	): Promise<string> {
 		return runtimeMemory.cognitiveAddenda.call(
 			this.memoryHost(),
@@ -2158,6 +2161,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			userText,
 			telemetryBinding,
 			learningDisabled,
+			homeWorkOrder,
 		);
 	}
 	private async recordDirectiveUsage(
@@ -3765,6 +3769,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		workItemId?: string;
 		homeRunId?: string;
 		personChatConversationId?: string;
+		homeWorkOrder?: boolean;
 		trustedInstructionOrigin?: ChatTurnParams["trustedInstructionOrigin"];
 		personalRequest?: boolean;
 		executionSurface?: ExecutionSurface;

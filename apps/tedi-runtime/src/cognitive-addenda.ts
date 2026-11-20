@@ -40,27 +40,34 @@ export interface CognitiveAddendaSources {
 	retrievedSkills: () => Promise<string>;
 }
 
-const HOME_DELEGATION_WORK_ORDER_PREFIX = "[HOME DELEGATION WORK ORDER ";
-/** A direct delegation wraps the same work order in one introductory line. */
-const DIRECT_DELEGATION_WORK_ORDER =
-	/^Home delegated this request directly to you\.\s+Request: \[HOME DELEGATION WORK ORDER /;
-
 /**
- * Home delegation envelopes are explicit, bounded operator work orders. They
- * keep tedi identity, personal memory, and operational skill guidance, but a
+ * True when the API dispatched this turn as a work order Home wrote: the
+ * dispatch carries the structured work order in its metadata. Such a turn
+ * keeps tedi identity, personal memory, and operational skill guidance, but a
  * loosely matching learned preference must not redirect the work order.
+ *
+ * Decided from what the API set on the turn, never from the wording of the
+ * message, so nothing a person types can switch it on. A message a person
+ * sent to a tedi they picked in the chat is never a work order.
  */
-export function isHomeDelegationWorkOrder(userText: string): boolean {
-	const text = userText.trimStart();
-	return (
-		text.startsWith(HOME_DELEGATION_WORK_ORDER_PREFIX) ||
-		DIRECT_DELEGATION_WORK_ORDER.test(text)
-	);
+export function isHomeWorkOrderTurn(
+	metadata: Record<string, unknown> | null | undefined,
+): boolean {
+	if (metadata?.pickedByPerson === true) return false;
+	const order = metadata?.delegationWorkOrder;
+	return typeof order === "object" && order !== null && !Array.isArray(order);
 }
 
-/** Search the task rather than Home's procedural wrapper; keep ambiguous envelopes intact. */
-export function memoryRecallQuery(userText: string): string {
-	if (!isHomeDelegationWorkOrder(userText)) return userText;
+/**
+ * For a Home work order, search memory for the task rather than Home's
+ * procedural wrapper; keep ambiguous envelopes intact. Any other turn searches
+ * the message as written.
+ */
+export function memoryRecallQuery(
+	userText: string,
+	homeWorkOrder: boolean,
+): string {
+	if (!homeWorkOrder) return userText;
 	const sourceMarker = "\nSource request:\n";
 	const endMarker = "\n[END HOME DELEGATION WORK ORDER]";
 	const start = userText.indexOf(sourceMarker);
@@ -108,8 +115,8 @@ export async function composeCognitiveAddenda(input: {
 	sessionKey: string | null | undefined;
 	runId?: string | null;
 	sources: CognitiveAddendaSources;
-	/** Suppress learned preferences for an explicit delegated work order. */
-	skipDirectives?: boolean;
+	/** The API dispatched this turn as a Home work order: no learned preferences. */
+	homeWorkOrder?: boolean;
 	/** Fail-soft sink; defaults to a content-free structured failure event. */
 	onError?: (block: AddendumName, error: unknown) => void;
 	/**
@@ -132,7 +139,7 @@ export async function composeCognitiveAddenda(input: {
 		});
 	const turnKind = classifyContextTurn({
 		isLeanContextSession: isLeanContextSession(input.sessionKey),
-		isHomeDelegationWorkOrder: input.skipDirectives === true,
+		isHomeDelegationWorkOrder: input.homeWorkOrder === true,
 	});
 	const blocks = contextSegmentsForTurn(turnKind);
 	type BuiltBlock = {
