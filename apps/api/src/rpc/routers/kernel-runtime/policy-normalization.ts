@@ -1,4 +1,5 @@
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { firstNonSkillReferenceLine } from "@tedix/api-contract/utils/skill-reference";
 import { controlHomeRunSteering } from "./run-steering";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
@@ -112,6 +113,26 @@ export function delegationMetadataForPick(
 ): Record<string, unknown> {
 	const { pickedByPerson: _supplied, ...rest } = metadata;
 	return pickedByPerson === true ? { ...rest, pickedByPerson: true } : rest;
+}
+
+/**
+ * The tedi's runtime session for a delegation. A tedi a person picked in the
+ * chat keeps one session per Home conversation, so each new message continues
+ * the same tedi conversation: it sees the person's earlier messages, its own
+ * replies and its tool results. The session lives inside that tedi, so two
+ * tedis picked in one chat never share it. The conversation id is hashed
+ * because it is free text and the runtime folds unusual characters together.
+ * Every other delegation gets a session of its own.
+ */
+export async function delegationSessionKeyForDispatch(input: {
+	childRunId: string;
+	pickedByPerson: boolean | undefined;
+	homeConversationId: unknown;
+}): Promise<string> {
+	const chat = stringFromPayload(input.homeConversationId);
+	if (input.pickedByPerson !== true || !chat)
+		return delegationSessionKey(input.childRunId);
+	return `agent:main:chat-${(await sha256Hex(chat)).slice(0, 32)}`;
 }
 
 export type KernelDelegateRunnerOutput = {
@@ -334,7 +355,11 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 	const result = await client.enqueueMessage({
 		tediId: delegateToTediId,
 		content: attachmentHandoff.content,
-		conversationId: delegationSessionKey(childRunId),
+		conversationId: await delegationSessionKeyForDispatch({
+			childRunId,
+			pickedByPerson,
+			homeConversationId: metadata.homeConversationId,
+		}),
 		idempotencyKey: childRunId,
 		attachments: attachmentHandoff.attachments,
 		// Home supervises every delegation via run-set reconciliation (terminal
