@@ -138,6 +138,10 @@ try {
 			.waitFor();
 		await guest.getByRole("button", { name: "Next", exact: true }).click();
 		await guest
+			.getByRole("heading", { name: "Set up this computer" })
+			.waitFor();
+		await guest.getByRole("button", { name: "Next", exact: true }).click();
+		await guest
 			.getByRole("heading", { name: "Start with a question" })
 			.waitFor();
 		await guest

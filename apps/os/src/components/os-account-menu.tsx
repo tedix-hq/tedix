@@ -2,6 +2,7 @@ import { OsRouterLink } from "@/components/kumo/link-provider";
 import {
 	Coins,
 	GearSix,
+	Desktop,
 	SidebarSimple,
 	SignOut,
 	UserCircle,
@@ -162,7 +163,7 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 							<DropdownMenuLinkItem
 								closeOnClick
 								render={<OsRouterLink to="/install" />}
-								icon={UserCircle}
+								icon={Desktop}
 							>
 								{OS_COPY.navigation.install}
 							</DropdownMenuLinkItem>

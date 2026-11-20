@@ -24,6 +24,10 @@ export const UserProfileSchema = z.object({
 		.nullable()
 		.describe("Null when the human has no managed Tedix avatar"),
 	welcomeCompleted: z.boolean(),
+	getStartedHidden: z
+		.boolean()
+		.optional()
+		.describe("True once the human hid the Get started list"),
 	revision: z.number().int().min(1),
 	updatedAt: z
 		.string()
@@ -63,7 +67,14 @@ export const userProfileContract = oc
 				path: "/welcome/complete",
 				summary: "Finish or skip the human's welcome",
 			})
-			.input(z.object({}))
+			.input(
+				z.object({
+					hideChecklist: z
+						.boolean()
+						.optional()
+						.describe("Also hide the Get started list for this account"),
+				}),
+			)
 			.output(UserWelcomeStateSchema),
 
 		getMine: oc

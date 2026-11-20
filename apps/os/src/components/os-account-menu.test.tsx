@@ -132,7 +132,7 @@ describe("sidebar account menu", () => {
 		).toEqual([
 			["Usage", "/usage"],
 			["Personal settings", "/account/settings"],
-			["Install apps", "/install"],
+			["Set up this computer", "/install"],
 			["Sign out", OS_LOGOUT_PATH],
 		]);
 		expect(billing.query).not.toHaveBeenCalled();

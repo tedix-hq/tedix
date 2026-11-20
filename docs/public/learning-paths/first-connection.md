@@ -21,6 +21,24 @@ call to that organization's live MCP gateway. It does not run a tedi, call a
 model, or change organization data. This is the CLI route; if you are not a
 developer, [use Tedix in ChatGPT, Codex and Claude](./first-plugin.md) instead.
 
+## On a Mac: use the Tedix app, no terminal
+
+The Tedix app for Mac does the steps on this page for you.
+
+1. Sign in to your organization in a browser, open the account menu and choose
+   **Set up this computer**.
+2. Choose **Download the Tedix app for Mac**, open the downloaded file, move
+   Tedix to Applications and open it. The app is not yet signed by Apple, so
+   the first time macOS asks you to confirm: go to **System Settings → Privacy
+   & Security** and choose **Open Anyway**.
+3. Sign in, then choose **Set up this Mac**. It installs the `tedix`
+   command-line tool, signs you in on this Mac, finds Claude Code, Codex, Devin
+   and OpenCode, adds the Tedix plugin to each, and lets Tedix run tasks on
+   this Mac. A window shows each step before it runs.
+
+**Expected result:** **Set up this computer** is ticked under **Get started**
+in Tedix. On Linux, or if you prefer a terminal, continue below.
+
 [Release status](../release-status.md) says who can use Tedix Cloud today. To
 evaluate the local product without a Cloud account, follow [Getting started
 locally](../getting-started.md).

@@ -44,6 +44,11 @@ https://connect.mcp.tedix.dev/mcp
 
 ## 1. Pick your host
 
+On a Mac, the Tedix app can add the plugin to Claude Code, Codex, Devin and
+OpenCode for you, with no terminal: see [On a Mac: use the Tedix
+app](./first-connection.md#on-a-mac-use-the-tedix-app-no-terminal). The
+commands below do the same by hand.
+
 ### Claude chat and Cowork
 
 Open Claude's settings, go to **Connectors**, add a custom connector named

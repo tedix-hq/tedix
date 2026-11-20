@@ -58,6 +58,7 @@ async function profileOutput(
 			return null;
 		}
 	})();
+	const welcome = (await getUserConfig(context.db, welcomeKey(user.id)))?.value;
 	return {
 		id: user.id,
 		email: user.email,
@@ -66,9 +67,9 @@ async function profileOutput(
 		revision: user.profileRevision,
 		updatedAt: user.updatedAt ?? null,
 		welcomeCompleted: accountIsNewSince(user.createdAt, WELCOME_SINCE)
-			? (await getUserConfig(context.db, welcomeKey(user.id)))?.value
-					.completed === true
+			? welcome?.completed === true
 			: true,
+		getStartedHidden: welcome?.checklistHidden === true,
 	};
 }
 
@@ -287,10 +288,16 @@ const completeWelcome = authed.completeWelcome
 			"apps:read",
 		),
 	)
-	.handler(async ({ context }) => {
+	.handler(async ({ context, input }) => {
+		const key = welcomeKey(requireHumanUserId(context));
+		const current = (await getUserConfig(context.db, key))?.value;
 		await upsertUserConfig(context.db, {
-			...welcomeKey(requireHumanUserId(context)),
-			value: { completed: true },
+			...key,
+			value: {
+				...current,
+				completed: true,
+				...(input.hideChecklist ? { checklistHidden: true } : {}),
+			},
 		});
 		return { completed: true };
 	});

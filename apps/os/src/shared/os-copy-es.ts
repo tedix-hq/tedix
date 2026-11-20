@@ -26,7 +26,7 @@ export const SPANISH_FEED_DECK_COPY = {
 		audit: "Consulta qué ocurrió y quién hizo cada cambio.",
 		widget: "Añade un asistente de chat a tu sitio web.",
 		compute: "Revisa tu uso, gastos y plan.",
-		install: "Conecta Tedix con las apps que usas.",
+		install: "Deja que Tedix trabaje con los agentes de código de este equipo.",
 	},
 	navigation: {
 		work: "Trabajo",
@@ -42,7 +42,7 @@ export const SPANISH_FEED_DECK_COPY = {
 		widget: "Chat del sitio web",
 		audit: "Registro de actividad",
 		compute: "Uso y facturación",
-		install: "Instalar apps",
+		install: "Configurar este equipo",
 		settings: "Configuración",
 		usage: "Uso",
 		billing: "Facturación",

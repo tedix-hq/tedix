@@ -74,6 +74,9 @@ vi.mock("@/components/kumo/link-provider", () => ({
 vi.mock("@/components/os-command-palette", () => ({
 	OsCommandPalette: () => null,
 }));
+vi.mock("@/components/get-started", () => ({
+	GetStartedEntry: () => null,
+}));
 vi.mock("@/components/approval-notifications", () => ({
 	ApprovalNotifications: () => null,
 }));
