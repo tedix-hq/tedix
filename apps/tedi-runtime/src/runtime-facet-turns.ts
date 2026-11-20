@@ -1182,6 +1182,7 @@ export const runtimeFacetTurns = {
 					turnBinding,
 					Boolean(input.executionRestriction),
 					input.homeWorkOrder === true,
+					Boolean(input.personChatConversationId),
 				);
 		addendaPromise?.catch(() => undefined);
 		// Read beside the addenda so it adds no wait of its own. Trusted turns

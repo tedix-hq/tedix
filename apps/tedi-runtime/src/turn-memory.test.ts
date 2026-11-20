@@ -203,3 +203,51 @@ assert.equal(
 	true,
 	"a concrete Work reference cannot become a durable preference by relabeling it",
 );
+
+// A person's chat follow-up reuses the previous turn's recall and one capped
+// task-state read instead of searching and reading again.
+{
+	const { personChatMemoryAddendum, PERSON_CHAT_REFERENCE_CAP } =
+		await import("./person-chat-recall");
+	const stored = new Map<string, unknown>();
+	const calls = { search: 0, taskState: [] as string[][] };
+	const host = {
+		ctx: {
+			storage: {
+				kv: {
+					get: (key: string) => stored.get(key),
+					put: (key: string, value: unknown) => void stored.set(key, value),
+				},
+			},
+		},
+		brainDigest: null,
+		async ensureBrainDigestLoaded() {},
+		messagesForSession: () => [{ text: references.join(" ") }],
+		getPlatformClient: async () => ({
+			memorySearch: async () => {
+				calls.search++;
+				return { results: [{ fact: { content: "Remembered fact" } }] };
+			},
+			getTurnMemory: async (batch: string[]) => {
+				calls.taskState.push(batch);
+				return {
+					checkedAt: "2026-10-17T10:00:00Z",
+					preferences: [],
+					tasks: [],
+					unresolvedReferences: [],
+					truncated: false,
+				};
+			},
+		}),
+	};
+	const turn = (userText: string) =>
+		personChatMemoryAddendum.call(host as never, {
+			userText,
+			sessionKey: "home:os:conversation",
+		});
+	const first = await turn("What is the status of the sample report?");
+	assert.ok(first.includes("Remembered fact"));
+	assert.equal(calls.taskState[0]?.length, PERSON_CHAT_REFERENCE_CAP);
+	assert.equal(await turn("And who owns it?"), first);
+	assert.deepEqual([calls.search, calls.taskState.length], [1, 1]);
+}

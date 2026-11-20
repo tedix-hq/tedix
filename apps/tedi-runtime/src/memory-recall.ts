@@ -25,7 +25,9 @@ export type MemoryRecallOutcome =
 	| "unavailable"
 	| "timed_out"
 	| "failed"
-	| "completed";
+	| "completed"
+	/** A person's chat follow-up reused the previous turn's recall. */
+	| "reused";
 
 export interface MemoryRecallReport {
 	outcome: MemoryRecallOutcome;
