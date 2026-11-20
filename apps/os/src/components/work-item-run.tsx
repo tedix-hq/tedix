@@ -400,6 +400,9 @@ export function useWorkItemRun(itemId: string, waitForStart = false) {
 			query.state.data?.steps.at(-1)?.kind === "question"
 				? RUN_REFRESH_MS
 				: false,
+		// A run goes on while the person looks at another window; the card and
+		// the task page must be current when they look back, not a poll later.
+		refetchIntervalInBackground: true,
 	});
 	const attempts = useQuery(workItemAttemptsQueryOptions(itemId));
 	// Already loaded by the shell; this adds a reader, not a request.

@@ -1,4 +1,4 @@
-import { homeChatModelRef } from "@/lib/home-chat-model";
+import { homeChatModelRef, homeChatPickedTediId } from "@/lib/home-chat-model";
 import "./canvas-page.css";
 import { usePushConversation } from "@/lib/use-push-conversation";
 import {
@@ -343,10 +343,12 @@ export function ChatThread({
 	const activeTedis = useActiveTedis();
 	// Null sends to Home, which routes the message itself. A picked tedi is
 	// sent as an explicit delegation, like the embedded widget's switcher.
-	const [selectedTediId, setSelectedTediId] = useState<string | null>(null);
-	const selectedTediName = selectedTediId
-		? (activeTedis.find((tedi) => tedi.id === selectedTediId)?.name ?? null)
-		: null;
+	// A pick made in this composer wins; otherwise the conversation keeps the
+	// tedi of the person's latest message (resolved below, once its runs load).
+	const [pickedTedi, setPickedTedi] = useState<{
+		conversationId: string | null;
+		tediId: string | null;
+	} | null>(null);
 	const localAiUnavailable = isLocalAiUnavailable();
 	const localWorkersAi = isLocalWorkersAi();
 
@@ -497,7 +499,7 @@ export function ChatThread({
 			conversationId === null ? newHomeConversationId() : null;
 		sendTargetRef.current = conversationId ?? newConversationIdRef.current;
 		setPickedModel(null);
-		setSelectedTediId(null);
+		setPickedTedi(null);
 		cacheRef.current = new Map();
 		knownOutputIdsRef.current = null;
 		cursorInitializedRef.current = false;
@@ -572,6 +574,13 @@ export function ChatThread({
 		realtimeDegraded,
 		realtimeSurface.status === "open",
 	);
+	const selectedTediId =
+		pickedTedi?.conversationId === conversationId
+			? pickedTedi.tediId
+			: homeChatPickedTediId(conversationId, runSet?.runs ?? []);
+	const selectedTediName = selectedTediId
+		? (activeTedis.find((tedi) => tedi.id === selectedTediId)?.name ?? null)
+		: null;
 	const [pickedModel, setPickedModel] = useState<{
 		conversationId: string | null;
 		ref: string;
@@ -2871,13 +2880,19 @@ export function ChatThread({
 										}
 									/>
 									<DropdownMenuContent>
-										<DropdownMenuItem onClick={() => setSelectedTediId(null)}>
+										<DropdownMenuItem
+											onClick={() =>
+												setPickedTedi({ conversationId, tediId: null })
+											}
+										>
 											Home (picks for you)
 										</DropdownMenuItem>
 										{activeTedis.map((tedi) => (
 											<DropdownMenuItem
 												key={tedi.id}
-												onClick={() => setSelectedTediId(tedi.id)}
+												onClick={() =>
+													setPickedTedi({ conversationId, tediId: tedi.id })
+												}
 											>
 												{tedi.name}
 											</DropdownMenuItem>
