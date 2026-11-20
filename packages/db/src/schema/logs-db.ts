@@ -91,6 +91,20 @@ export const LOGS_DB_INDEXES: readonly {
 		table: "audit_events",
 		ddl: `CREATE INDEX "idx_audit_events_org_actor_timestamp" ON "audit_events" ("organization_id", "actor_id", "timestamp");`,
 	},
+	// Dropped from main on 20 Nov 2026 to free space; the logs databases
+	// keep them, so their applied migrations stay unchanged.
+	{
+		table: "tedi_runtime_events",
+		ddl: `CREATE INDEX "idx_tedi_runtime_events_artifact" ON "tedi_runtime_events" ("artifact_id");`,
+	},
+	{
+		table: "tedi_call_costs",
+		ddl: `CREATE INDEX "idx_call_costs_source" ON "tedi_call_costs" ("tedi_id", "source", "snapshot_at");`,
+	},
+	{
+		table: "external_agent_attributions",
+		ddl: `CREATE INDEX "idx_external_agent_attribution_session" ON "external_agent_attributions" ("organization_id", "session_id", "occurred_at");`,
+	},
 ];
 
 /** Movable log tables for retention policy checks; excludes directory metadata. */

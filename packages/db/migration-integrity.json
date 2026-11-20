@@ -1748,6 +1748,10 @@
 		{
 			"name": "20261120125139_drop_shared_os_outputs/migration.sql",
 			"sha256": "f99b890386952ccfcf4ee3bfcc783b615e10997841f9f61413764e4287c1f6f0"
+		},
+		{
+			"name": "20261120162614_drop-unused-tier1-indexes/migration.sql",
+			"sha256": "40549fb2555bddc3358470d36bc1a967aa2576d68cff38e4fc461d10f2302097"
 		}
 	]
 }
