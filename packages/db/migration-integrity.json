@@ -1776,6 +1776,10 @@
 		{
 			"name": "20261120174959_change_record_evidence_bundles/migration.sql",
 			"sha256": "c6dc9714601a81b06c834bfa3e031c81260b8c1c38d0a88e5cbb1988a880b752"
+		},
+		{
+			"name": "20261120175447_gateway_change_records_retention/migration.sql",
+			"sha256": "1e97feb8d3b55ee190c13cb757f4df055b067405eed9ad80640ea8ea31a7c1b0"
 		}
 	]
 }

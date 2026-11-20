@@ -489,7 +489,12 @@ describe("external agent attribution retention", () => {
 		// A review in another organization does not pin this row.
 		review("review-2", "other-org-review", "org-other");
 		const page = await readD1RetentionPage(db, spec, -1);
-		const filtered = await filterD1RetentionReferencedRows(db, spec, page);
+		const filtered = await filterD1RetentionReferencedRows(
+			db,
+			spec,
+			page,
+			"9999-12-31",
+		);
 		expect(filtered.rows.map((row) => row.id)).toEqual([
 			"free",
 			"late-review",
@@ -585,7 +590,12 @@ describe("artifact retention references", () => {
 		evidence("evidence");
 		evidence("other-org", "org-other");
 		const page = await readD1RetentionPage(db, spec, -1);
-		const filtered = await filterD1RetentionReferencedRows(db, spec, page);
+		const filtered = await filterD1RetentionReferencedRows(
+			db,
+			spec,
+			page,
+			"9999-12-31",
+		);
 		expect(filtered.rows.map((row) => row.id)).toEqual([
 			"free",
 			"prefix",
@@ -612,7 +622,8 @@ describe("artifact retention references", () => {
 		seed("late-fact");
 		const page = await readD1RetentionPage(db, spec, -1);
 		expect(
-			(await filterD1RetentionReferencedRows(db, spec, page)).referencedRows,
+			(await filterD1RetentionReferencedRows(db, spec, page, "9999-12-31"))
+				.referencedRows,
 		).toBe(0);
 		fact("late-fact", "skill://runs/late-fact");
 		expect(
@@ -649,7 +660,12 @@ describe("artifact retention references", () => {
 				);
 			if (id !== "unreferenced") evidence(`registered-${id}`);
 		}
-		const filtered = await filterD1RetentionReferencedRows(db, spec, page);
+		const filtered = await filterD1RetentionReferencedRows(
+			db,
+			spec,
+			page,
+			"9999-12-31",
+		);
 		expect(filtered.rows.map((row) => row.id)).toEqual([
 			"unreferenced",
 			"other-org",
@@ -687,9 +703,9 @@ describe("artifact retention references", () => {
 		}
 		const page = await readD1RetentionPage(db, spec, -1);
 		expect(
-			(await filterD1RetentionReferencedRows(db, spec, page)).rows.map(
-				(row) => row.id,
-			),
+			(
+				await filterD1RetentionReferencedRows(db, spec, page, "9999-12-31")
+			).rows.map((row) => row.id),
 		).toEqual(["foreign-producer"]);
 		expect(
 			await deleteD1RetentionRows(
@@ -711,7 +727,9 @@ describe("artifact retention references", () => {
 			(id, work_item_id, org_id, claim_key, kind, uri, submitted_by_type, submitted_by_id, submitted_at, metadata)
 			VALUES ('encoded-evidence', 'work-example', 'org-example', 'result', 'artifact', 'artifact://registry%2Fid', 'user', 'user-example', '2026-10-01', '{"_tedixEvidence":{"artifactId":"registry/id"}}')`);
 		const page = await readD1RetentionPage(db, spec, -1);
-		expect(await filterD1RetentionReferencedRows(db, spec, page)).toEqual({
+		expect(
+			await filterD1RetentionReferencedRows(db, spec, page, "9999-12-31"),
+		).toEqual({
 			rows: [],
 			referencedRows: 1,
 		});
@@ -731,7 +749,9 @@ describe("artifact retention references", () => {
 		seed("movable");
 		fact("pinned", "skill://runs/pinned");
 		const page = await readD1RetentionPage(db, spec, -1, 1);
-		expect(await filterD1RetentionReferencedRows(db, spec, page)).toEqual({
+		expect(
+			await filterD1RetentionReferencedRows(db, spec, page, "9999-12-31"),
+		).toEqual({
 			rows: [],
 			referencedRows: 1,
 		});
@@ -754,7 +774,14 @@ describe("artifact retention references", () => {
 		);
 		const page = await readD1RetentionPage(db, spec, -1);
 		expect(
-			(await filterD1RetentionReferencedRows(observed, spec, page)).rows,
+			(
+				await filterD1RetentionReferencedRows(
+					observed,
+					spec,
+					page,
+					"9999-12-31",
+				)
+			).rows,
 		).toHaveLength(1);
 		const query = queries.find((query) => query.includes("tedi_artifacts"))!;
 		const plan = sqlite

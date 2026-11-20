@@ -235,11 +235,13 @@ describe("generated immutable evidence constraints", () => {
 		const spec = getD1RetentionTableSpec("tedi_call_costs")!;
 		const page = await readD1RetentionPage(db, spec, -1);
 		expect(
-			(await filterD1RetentionReferencedRows(db, spec, page)).rows,
+			(await filterD1RetentionReferencedRows(db, spec, page, "9999-12-31"))
+				.rows,
 		).toHaveLength(1);
 		await db.insert(evidence).values(row());
 		expect(
-			(await filterD1RetentionReferencedRows(db, spec, page)).referencedRows,
+			(await filterD1RetentionReferencedRows(db, spec, page, "9999-12-31"))
+				.referencedRows,
 		).toBe(1);
 		expect(
 			await deleteD1RetentionRows(
