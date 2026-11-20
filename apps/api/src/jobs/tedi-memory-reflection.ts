@@ -45,6 +45,9 @@ export async function reflectOnQuietConversations(input: {
 				organizationId: tedi.orgId,
 				tediId: tedi.tediId,
 				kinds: ["message.received", "message.completed"],
+				// Older messages cannot make a chat quiet-but-recent; without the
+				// bound the read walked ~12k of the tedi's events per call.
+				since: new Date(now - REFLECTION_LOOKBACK_MS).toISOString(),
 				order: "desc",
 				limit: EVENTS_PER_TEDI,
 			});

@@ -292,6 +292,8 @@ export async function listTediRuntimeEventsForRouter(
 		kind?: TediRuntimeEventKind;
 		kinds?: TediRuntimeEventKind[];
 		before?: TediRuntimeEventCursor;
+		/** Only events created at or after this ISO time; bounds the index scan. */
+		since?: string;
 		order?: "asc" | "desc";
 		limit?: number;
 	} & TenantScope,
@@ -302,7 +304,7 @@ export async function listTediRuntimeEventsForRouter(
 	const pages = await readLogStores(
 		db,
 		(store) => listTediRuntimeEventsForRouter(store, input),
-		{ to: input.before?.createdAt },
+		{ to: input.before?.createdAt, from: input.since },
 	);
 	if (pages)
 		return mergeLogStoreRows(pages, {
@@ -359,6 +361,7 @@ export async function listTediRuntimeEventsForRouter(
 							inArray(tediRuntimeEvents.kind, input.kinds),
 				]
 			: []),
+		...(input.since ? [gte(tediRuntimeEvents.createdAt, input.since)] : []),
 		...(input.before
 			? [
 					or(
