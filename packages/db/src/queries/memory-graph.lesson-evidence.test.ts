@@ -8,11 +8,12 @@ import { schemaDdl } from "../test/schema-ddl";
 import {
 	decisionLessonEvidence,
 	filterEvidenceBackedLessons,
+	holdLessonForRedistillation,
 	listApprovedAgentLessons,
 } from "./memory-graph/agent-lessons";
 
 const ORG = "fictional-orchard";
-function setup(plans: string[] = []) {
+function setup(plans: string[] = [], queries: string[] = []) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	for (const table of [memoryFacts, memoryEdges, learningInteractionEvents])
@@ -21,6 +22,7 @@ function setup(plans: string[] = []) {
 		createD1Facade(
 			{
 				prepare(query) {
+					queries.push(query);
 					plans.push(
 						...sqlite
 							.prepare(`EXPLAIN QUERY PLAN ${query}`)
@@ -85,6 +87,66 @@ function setup(plans: string[] = []) {
 }
 
 describe("lesson evidence lifecycle", () => {
+	it("withholds held lessons on repeated reads without sending more updates", async () => {
+		const queries: string[] = [];
+		const { lesson, read } = setup([], queries);
+		lesson([{ kind: "fact", id: "missing", quote: "Use batches." }]);
+		expect(await read()).toEqual([]);
+		expect(
+			queries.filter((q) => q.startsWith('update "memory_facts"')),
+		).toHaveLength(1);
+		queries.length = 0;
+		expect(await read()).toEqual([]);
+		expect(await read()).toEqual([]);
+		expect(
+			queries.filter((q) => q.startsWith('update "memory_facts"')),
+		).toEqual([]);
+	});
+	it.each([undefined, null])(
+		"repairs a held lesson with request time %s only once",
+		async (redistillRequestedAt) => {
+			const queries: string[] = [];
+			const { db, sqlite, fact, read } = setup([], queries);
+			const metadata = {
+				learningFeed: { evidence: { state: "held", redistillRequestedAt } },
+			};
+			fact("lesson", "Use batches.", metadata, ORG, "learning-feed:database");
+			expect(await read()).toEqual([]);
+			const stored = JSON.parse(
+				String(
+					sqlite
+						.prepare("SELECT metadata FROM memory_facts WHERE id = 'lesson'")
+						.get()?.metadata,
+				),
+			);
+			expect(stored.learningFeed.evidence.redistillRequestedAt).toEqual(
+				expect.any(String),
+			);
+			queries.length = 0;
+			expect(await read()).toEqual([]);
+			await holdLessonForRedistillation(
+				db,
+				{ organizationId: ORG },
+				"lesson",
+				stored,
+			);
+			expect(
+				queries.filter((q) => q.startsWith('update "memory_facts"')),
+			).toEqual([]);
+		},
+	);
+	it("does not hold a lesson changed since the caller read its metadata", async () => {
+		const { db, sqlite, fact } = setup();
+		fact("lesson", "Use batches.", { revision: 2 });
+		await holdLessonForRedistillation(db, { organizationId: ORG }, "lesson", {
+			revision: 1,
+		});
+		expect(
+			sqlite
+				.prepare("SELECT metadata FROM memory_facts WHERE id = 'lesson'")
+				.get()?.metadata,
+		).toBe('{"revision":2}');
+	});
 	it("validates a shared event once for the whole lesson request", async () => {
 		const plans: string[] = [];
 		const { db, event } = setup(plans);

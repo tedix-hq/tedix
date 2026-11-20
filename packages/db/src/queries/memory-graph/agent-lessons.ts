@@ -427,6 +427,21 @@ function buildHoldLessonForRedistillationStatement(
 		);
 }
 
+function lessonRedistillationIsQueued(
+	metadata: Record<string, JsonValue> | null | undefined,
+): boolean {
+	const feed = metadata?.learningFeed;
+	if (!feed || typeof feed !== "object" || Array.isArray(feed)) return false;
+	const evidence = feed.evidence;
+	return (
+		!!evidence &&
+		typeof evidence === "object" &&
+		!Array.isArray(evidence) &&
+		evidence.state === "held" &&
+		evidence.redistillRequestedAt != null
+	);
+}
+
 export async function holdLessonForRedistillation(
 	db: DbQueryClient,
 	tenantScope: TenantScope,
@@ -434,6 +449,7 @@ export async function holdLessonForRedistillation(
 	expectedMetadata?: Record<string, JsonValue> | null,
 ): Promise<void> {
 	tenantScope = normalizeTenantScope(tenantScope);
+	if (lessonRedistillationIsQueued(expectedMetadata)) return;
 	await buildHoldLessonForRedistillationStatement(
 		db,
 		tenantScope,
@@ -576,7 +592,7 @@ export async function filterEvidenceBackedLessons<
 		}
 		if (parsed.success && evidenceIsLive(parsed.data, sourceState))
 			live.push(row);
-		else held.push(row);
+		else if (!lessonRedistillationIsQueued(row.metadata)) held.push(row);
 	}
 	for (let offset = 0; offset < held.length; offset += 50) {
 		await db.batch(
