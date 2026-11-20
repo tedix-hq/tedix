@@ -23,6 +23,7 @@ import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { OrganizationLogRuntime } from "@tedix/db/queries/durable-sqlite/organization-log-rpc";
 import {
 	countUnsealedGatewayChangeRecords,
+	hasGatewayChangeRecordsAfter,
 	listGatewayChangeRecordCheckpoints,
 	listGatewayChangeRecordsForCheckpoint,
 	listOrganizationsWithGatewayChangeRecordCheckpoints,
@@ -49,6 +50,7 @@ export interface CutoverResult extends Record<string, number> {
 	cutoversBegun: number;
 	cutoversFinished: number;
 	organizationsLive: number;
+	orphansInMain: number;
 }
 
 /** Copy pages after the store's tail until caught up or out of time. */
@@ -124,6 +126,7 @@ export async function runOrganizationLogCutover(
 		cutoversBegun: 0,
 		cutoversFinished: 0,
 		organizationsLive: 0,
+		orphansInMain: 0,
 	};
 	const allowed = await getOrganizationLogCutoverAllowlist(db);
 	if (allowed !== "all" && allowed.size === 0) return result;
@@ -136,6 +139,25 @@ export async function runOrganizationLogCutover(
 		if (!status.available) return result;
 		if (status.state === "live") {
 			result.organizationsLive++;
+			// A write that reached main after the move would be outside the
+			// store's chain. It must never happen; report it if it does.
+			if (
+				status.mainTailSequence !== null &&
+				(await hasGatewayChangeRecordsAfter(
+					db,
+					organizationId,
+					status.mainTailSequence,
+				))
+			) {
+				result.orphansInMain++;
+				console.error(
+					JSON.stringify({
+						event: "organization_log.orphan_in_main",
+						organizationId,
+						mainTailSequence: status.mainTailSequence,
+					}),
+				);
+			}
 			continue;
 		}
 		try {

@@ -132,6 +132,7 @@ export class InternalEntrypoint
 					pending: 0,
 					oldestPendingAt: null,
 					cutoverStartedAt: null,
+					mainTailSequence: null,
 				};
 	}
 	async organizationLogImport(

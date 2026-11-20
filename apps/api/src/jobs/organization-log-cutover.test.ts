@@ -39,6 +39,7 @@ function stubStore() {
 			pending: 0,
 			oldestPendingAt: null,
 			cutoverStartedAt,
+			mainTailSequence: state === "live" ? 3 : null,
 		}),
 		organizationLogImport: async (
 			_org: string,

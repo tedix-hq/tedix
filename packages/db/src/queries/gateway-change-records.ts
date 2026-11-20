@@ -635,3 +635,22 @@ export async function countUnsealedGatewayChangeRecords(
 		);
 	return row?.total ?? 0;
 }
+
+/** Whether main holds any row of the organization above `sequence`. */
+export async function hasGatewayChangeRecordsAfter(
+	db: DbQueryClient,
+	organizationId: string,
+	sequence: number,
+): Promise<boolean> {
+	const [row] = await db
+		.select({ sequence: gatewayChangeRecords.sequence })
+		.from(gatewayChangeRecords)
+		.where(
+			and(
+				eq(gatewayChangeRecords.organizationId, organizationId),
+				gt(gatewayChangeRecords.sequence, sequence),
+			),
+		)
+		.limit(1);
+	return row !== undefined;
+}
