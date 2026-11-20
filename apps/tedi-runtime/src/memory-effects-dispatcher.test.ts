@@ -154,11 +154,16 @@ for (const [sessionKey, expected] of [
 	await sse.run({ sessionKey, text: "hello" });
 	assert.equal(bridged(sse.queued), expected, `SSE ${sessionKey}`);
 
-	// Durable workflow commit (awaits the bridge instead of queueing it).
+	// Durable workflow commit (runs the bridge in the background after publishing).
 	let awaited = false;
+	const background: Promise<unknown>[] = [];
 	const commit = tediDo({
 		...realDispatcher,
-		ctx: { storage: memoryStorage() },
+		ctx: {
+			storage: memoryStorage(),
+			waitUntil: (task: Promise<unknown>) => background.push(task),
+		},
+		keepAliveWhile: (run: () => Promise<unknown>) => run(),
 		mcpRuntime: null,
 		async ensureIdentity() {},
 		sessionHarness: { appendTurn: async () => true },
@@ -179,6 +184,7 @@ for (const [sessionKey, expected] of [
 		stopReason: "stop",
 		toolCalls: [],
 	});
+	await Promise.all(background);
 	assert.equal(awaited, expected, `workflow commit ${sessionKey}`);
 }
 

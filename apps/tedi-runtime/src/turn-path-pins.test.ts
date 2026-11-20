@@ -224,7 +224,8 @@ function durableProbe(
 
 	const mirrored: Array<Record<string, unknown>> = [];
 	const commit = tediDo({
-		ctx: { storage: memoryStorage() },
+		ctx: { storage: memoryStorage(), waitUntil() {} },
+		keepAliveWhile: (run: () => Promise<unknown>) => run(),
 		mcpRuntime: null,
 		async ensureIdentity() {},
 		sessionHarness: { appendTurn: async () => true },
