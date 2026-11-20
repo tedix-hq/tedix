@@ -76,6 +76,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"workItems/listAttemptCliProjection": "mcp:work.read",
 	"workItems/listEvidenceCliProjection": "mcp:work.read",
 	"workItems/listEventCliProjection": "mcp:work.read",
+	"workItems/wait": "mcp:work.read",
 	"workInteractions/listCliInboxProjection": "mcp:messaging.read",
 
 	// Reviewed platform-only endpoints (service-binding-only, platform guards,

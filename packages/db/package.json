@@ -476,6 +476,7 @@
 		"./queries/work-items/idle-reassignment": "./src/queries/work-items/idle-reassignment.ts",
 		"./queries/work-items/specification-access": "./src/queries/work-items/specification-access.ts",
 		"./queries/work-items/evidence": "./src/queries/work-items/evidence.ts",
+		"./queries/work-items/wait": "./src/queries/work-items/wait.ts",
 		"./queries/work-items/events": "./src/queries/work-items/events.ts",
 		"./queries/work-items/commitment-changes": "./src/queries/work-items/commitment-changes.ts",
 		"./queries/work-items/stall-recovery": "./src/queries/work-items/stall-recovery.ts",

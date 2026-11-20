@@ -135,6 +135,7 @@ describe("delegated MCP token", () => {
 		],
 		["list_work_item_evidence", "list_work_evidence", "workItems/listEvidence"],
 		["list_work_item_events", "list_work_events", "workItems/listEvents"],
+		["wait_work_item", "wait_work_item", "workItems/wait"],
 	])(
 		"allows the exact %s read without admitting mutation aliases",
 		(canonical, alias, endpoint) => {

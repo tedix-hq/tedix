@@ -58,6 +58,7 @@
 		"workItems/listCliProjection",
 		"workItems/listEventCliProjection",
 		"workItems/listEvents",
+		"workItems/wait",
 		"workItems/listEvidence",
 		"workItems/listEvidenceCliProjection",
 		"workItems/listResourcePools",

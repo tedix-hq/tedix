@@ -17,6 +17,8 @@ const BROWSER_QUICK_ACTION_ENDPOINTS = new Set([
 ]);
 
 const INTERNAL_TIMEOUT_FLOORS_MS: Record<string, number> = {
+	// Work waits hold for up to 25s before returning a timeout cursor.
+	"workItems/wait": 40_000,
 	// Starting CMS cleanup is durable, but a cold API and workflow enqueue may
 	// exceed the generic 15s transport deadline before returning the receipt.
 	"sites/deprovision": 30_000,

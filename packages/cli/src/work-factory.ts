@@ -19,6 +19,12 @@ interface StructuredFactoryVerb {
 }
 
 export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
+	wait: {
+		tool: "wait_work_item",
+		write: false,
+		pathField: "id",
+		defaultInput: () => ({}),
+	},
 	"dispatch-reassign": {
 		tool: "update_work_item_specification",
 		write: true,

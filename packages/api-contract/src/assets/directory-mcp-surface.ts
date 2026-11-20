@@ -54,6 +54,7 @@ export const DIRECTORY_MCP_SURFACE = {
 				list_work_items: ["mcp:work.read"],
 				get_work_item: ["mcp:work.read"],
 				list_work_item_events: ["mcp:work.read"],
+				wait_work_item: ["mcp:work.read"],
 				list_work_item_evidence: ["mcp:work.read"],
 				list_workspaces: ["mcp:content.read"],
 				get_workspace_output: ["mcp:content.read"],
@@ -120,6 +121,36 @@ export const DIRECTORY_MCP_SURFACE = {
 					id: {
 						type: "string",
 						pattern: "^[a-fA-F0-9]{8}(?:[a-fA-F0-9-]{0,27})$",
+					},
+				},
+				required: ["id"],
+				additionalProperties: false,
+			},
+			annotations: readAnnotations,
+			writeCapability: "read",
+			scope: "mcp:work.read",
+		},
+		{
+			toolId: "wait_work_item",
+			title: "Wait for Work changes",
+			description:
+				"Wait up to 25 seconds for new Work events, run messages or answers. Omit cursor to start from now. Preserve the returned cursor for the next wait; read changed record IDs for canonical content. A timeout returns reason timeout.",
+			endpoint: "workItems/wait",
+			inputSchema: {
+				type: "object",
+				properties: {
+					id: uuid,
+					timeoutMs: { type: "integer", minimum: 0, maximum: 25000 },
+					cursor: {
+						type: "object",
+						properties: {
+							workItemId: uuid,
+							event: { type: "integer", minimum: 0 },
+							message: { type: "integer", minimum: 0 },
+							response: { type: "integer", minimum: 0 },
+						},
+						required: ["workItemId", "event", "message", "response"],
+						additionalProperties: false,
 					},
 				},
 				required: ["id"],
