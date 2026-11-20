@@ -61,7 +61,7 @@ import {
 import { laneChildEnv } from "./lane-child-env";
 import {
 	dispatchRequestsDirectory,
-	waitForDispatchRequest,
+	serveDispatchRequests,
 } from "./lane-dispatch-wake";
 import {
 	answerMachineToolCall,
@@ -1109,7 +1109,7 @@ describe("dispatcher log", () => {
 });
 
 describe("dispatcher admission", () => {
-	it("admits the Work Item in the machine call when its request arrives, without a pass", async () => {
+	it("keeps a start request while the runner waits to restart, and the next runner starts it without a pass", async () => {
 		const f = fixture();
 		const target = f.items[1]!;
 		const duty = runnerDutyFromServeOptions(f.config);
@@ -1119,11 +1119,11 @@ describe("dispatcher admission", () => {
 		const requests = dispatchRequestsDirectory(directory);
 		mkdirSync(requests, { recursive: true });
 
-		const lane = f.restart(directory);
-		const waiting = waitForDispatchRequest(
-			requests,
-			15_000,
-			new AbortController().signal,
+		const leaving = f.restart(directory);
+		leaving.holdAdmissions("9.9.9");
+		const stopLeaving = new AbortController();
+		void serveDispatchRequests(requests, stopLeaving.signal, (id) =>
+			leaving.startRequested(id),
 		);
 		const answer = await answerMachineToolCall(
 			machineToolHandlers({
@@ -1136,17 +1136,27 @@ describe("dispatcher admission", () => {
 			{ workItemId: target.id, projectId, executor: "codex" },
 		);
 		expect(answer.ok).toBe(true);
-		const request = await waiting;
-		expect(request).toBe(target.id);
+		const log = () => readFileSync(join(directory, "dispatcher.log"), "utf8");
+		// The folder is read every 250 ms when the watcher misses the file.
+		await until(() => existsSync(join(directory, "dispatcher.log")), 1000);
+		expect(log()).toContain('"event":"request-held"');
+		expect(readdirSync(requests)).toEqual([target.id]);
+		stopLeaving.abort();
 
-		await lane.startRequested(request!);
-		await until(() => f.releases.length === 1);
+		const lane = f.restart(directory);
+		const stopLane = new AbortController();
+		void serveDispatchRequests(requests, stopLane.signal, (id) =>
+			lane.startRequested(id),
+		);
+		await until(() => f.releases.length === 1, 1000);
 		expect(
 			f.events
 				.filter((event) => event.verb === "start" && event.args[4] === "work")
 				.map((event) => event.args[6]),
 		).toEqual([target.id]);
 		expect(f.control.turnFiles).toHaveLength(1);
+		await until(() => readdirSync(requests).length === 0);
+		stopLane.abort();
 		f.releases[0]!();
 		await lane.drain();
 	});
