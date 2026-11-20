@@ -38,6 +38,7 @@ function fixture(options: D1FacadeOptions = {}) {
 			description TEXT,
 			status TEXT NOT NULL DEFAULT 'active',
 			current_revision_id TEXT,
+			trigger_enabled TEXT NOT NULL DEFAULT '{}',
 			source_blueprint_revision_id TEXT,
 			created_by_kind TEXT NOT NULL,
 			created_by_id TEXT NOT NULL,

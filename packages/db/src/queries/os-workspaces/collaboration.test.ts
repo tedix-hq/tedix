@@ -80,6 +80,7 @@ function fixture() {
 			description TEXT,
 			status TEXT NOT NULL DEFAULT 'active',
 			current_revision_id TEXT,
+			trigger_enabled TEXT NOT NULL DEFAULT '{}',
 			created_by_kind TEXT NOT NULL,
 			created_by_id TEXT NOT NULL,
 			created_at TEXT NOT NULL,
@@ -198,7 +199,7 @@ function fixture() {
 			'user', 'u-1', '2026-08-17T10:00:00.000Z',
 			NULL, NULL, '{"version":1,"sources":[]}'
 		);
-		INSERT INTO os_gadgets VALUES (
+		INSERT INTO os_gadgets (id, organization_id, workspace_id, name, description, status, current_revision_id, created_by_kind, created_by_id, created_at, updated_at) VALUES (
 			'gadget-1', 'org-1', 'ws-1', 'Report', NULL, 'active', 'gadget-rev-1',
 			'user', 'u-1', '2026-08-17T10:00:00.000Z', '2026-08-17T10:00:00.000Z'
 		);
