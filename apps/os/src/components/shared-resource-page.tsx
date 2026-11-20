@@ -303,11 +303,14 @@ export function SharedResourceView({
 	subtitle = "Shared with you · opened with your own Tedix sign-in",
 	onOpenApp,
 	appView,
+	embedded = false,
 }: {
 	payload: SharePayload;
 	sessionToken: string;
 	subtitle?: string;
 	appView?: ReactNode;
+	/** Inside a dialog: the surrounding surface sets the size and scrolls. */
+	embedded?: boolean;
 	/** Opens one of a shared workspace's apps in the guest sandbox. */
 	onOpenApp?: (appId: string) => void;
 }) {
@@ -353,7 +356,13 @@ export function SharedResourceView({
 		// Desktop is a full-height app whose panes scroll on their own; on small
 		// screens the page scrolls normally. The content is full width below the
 		// header, like a shared artifact.
-		<main className="flex min-h-dvh w-full flex-col gap-3 px-3 py-3 sm:px-6 sm:py-4 lg:h-dvh lg:overflow-hidden">
+		<main
+			className={
+				embedded
+					? "flex w-full min-w-0 flex-col gap-3"
+					: "flex min-h-dvh w-full flex-col gap-3 px-3 py-3 sm:px-6 sm:py-4 lg:h-dvh lg:overflow-hidden"
+			}
+		>
 			<header className="flex shrink-0 flex-wrap items-start gap-3 border-b border-kumo-line pb-3">
 				<OrganizationMark
 					name={payload.organization?.name ?? "Tedix"}

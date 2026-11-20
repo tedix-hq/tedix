@@ -1058,6 +1058,77 @@ describe("ShareControls", () => {
 			"The link could not be made right now",
 		);
 	});
+
+	it("previews the link as a recipient opens it, without leaving the page", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [
+				shareFixture({
+					resourceType: "workspace",
+					resourceId: GADGET_ID,
+					role: "use",
+				}),
+			],
+		});
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						organization: { name: "Acme Fictional", logoUrl: null },
+						access: "anyone_with_link",
+						share: {
+							id: SHARE_ID,
+							resourceType: "workspace",
+							role: "use",
+							effectiveRole: "use",
+							revisionMode: "living",
+							note: null,
+							expiresAt: null,
+							policyReason: null,
+						},
+						resource: {
+							type: "workspace",
+							workspace: {
+								id: GADGET_ID,
+								name: "Launch room",
+								description: null,
+							},
+							gadgets: [],
+							openPath: null,
+						},
+						// The sharer manages the link; the preview must not show that.
+						canManage: true,
+						sessionToken: "b".repeat(43),
+					}),
+				),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const before = window.location.href;
+		try {
+			const container = await openDialog({
+				resourceType: "workspace",
+				resourceId: GADGET_ID,
+			});
+			click(findButton(container, "Preview what people see"));
+			// The recipient's page is loaded on demand.
+			for (let tries = 0; tries < 200 && !fetchMock.mock.calls.length; tries++)
+				await flush();
+			await flush();
+			const preview = container.querySelector<HTMLElement>(
+				"[data-share-preview-dialog]",
+			);
+			expect(fetchMock.mock.calls[0]).toEqual([
+				"/api/os-shared/open",
+				expect.objectContaining({ body: JSON.stringify({ id: PUBLIC_ID }) }),
+			]);
+			expect(preview?.textContent).toContain("Launch room");
+			expect(preview?.textContent).toContain("You can use apps and read files");
+			expect(preview?.querySelector("[data-share-button]")).toBeNull();
+			expect(window.location.href).toBe(before);
+		} finally {
+			window.sessionStorage.clear();
+			vi.unstubAllGlobals();
+		}
+	});
 });
 
 describe("ShareControls review entry", () => {

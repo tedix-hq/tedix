@@ -5,6 +5,7 @@ import {
 	Copy,
 	ArrowsClockwise,
 	DotsThree,
+	Eye,
 	Globe,
 	LinkSimple,
 	Lock,
@@ -23,7 +24,14 @@ import {
 	type OsShareRole,
 } from "@tedix/api-contract/contracts/os-shares";
 import { resolveOsTenant } from "@/shared/os-tenant";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+	lazy,
+	type ReactNode,
+	Suspense,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -55,6 +63,14 @@ import { absoluteTime, relativeTime } from "@/lib/time";
 import { LoadingArea } from "@/components/loading-area";
 
 declare const __LOCAL_DEMO_ENABLED__: boolean;
+
+// The recipient's page shows this panel to people who manage the link, so it
+// is loaded on demand to keep the two modules from importing each other.
+const ShareLinkPage = lazy(() =>
+	import("@/components/share-link-page").then((module) => ({
+		default: module.ShareLinkPage,
+	})),
+);
 
 export type ShareLinkStatus = "active" | "off" | "expired" | "revoked";
 
@@ -1135,6 +1151,7 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 	} | null>(null);
 	/** A change to the main link, waiting for the person to confirm it. */
 	const [pending, setPending] = useState<PendingLinkChange | null>(null);
+	const [previewing, setPreviewing] = useState(false);
 	const queryClient = useQueryClient();
 	const sharesQuery = osSharesQueryOptions({ resourceType, resourceId });
 	const shares = useQuery(sharesQuery);
@@ -1572,6 +1589,38 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 							</DropdownMenuContent>
 						</DropdownMenu>
 					</div>
+					{linkOff ? null : (
+						<div>
+							<Button
+								size="sm"
+								variant="secondary"
+								onClick={() => setPreviewing(true)}
+								data-share-preview
+							>
+								<Eye size={14} aria-hidden /> Preview what people see
+							</Button>
+						</div>
+					)}
+					<Dialog open={previewing} onOpenChange={setPreviewing}>
+						<DialogContent
+							size="xl"
+							className="sm:max-w-[min(96vw,80rem)]"
+							data-share-preview-dialog
+						>
+							<DialogHeader>
+								<DialogTitle>What people with this link see</DialogTitle>
+								<Text as="p" role="label" tone="secondary" className="m-0">
+									Opened with the link's access ({ROLE_LABEL[link.role]}), not
+									your own.
+								</Text>
+							</DialogHeader>
+							{previewing ? (
+								<Suspense fallback={<LoadingArea label="Loading preview" />}>
+									<ShareLinkPage id={link.publicId} preview />
+								</Suspense>
+							) : null}
+						</DialogContent>
+					</Dialog>
 					{linkOff ? (
 						<div className="flex flex-wrap items-center gap-2">
 							<Button
