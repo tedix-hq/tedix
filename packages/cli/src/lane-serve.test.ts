@@ -1172,6 +1172,38 @@ describe("dispatcher admission", () => {
 		await lane.drain();
 	});
 
+	it("a start request retries a start that failed before any Attempt, and leaves a record with an Attempt alone", async () => {
+		const f = fixture();
+		const [retried, kept] = f.items;
+		const record = (row: typeof retried, extra: object) =>
+			writeFileSync(
+				join(f.dir, `${row!.id}-${row!.version}.json`),
+				JSON.stringify({
+					itemId: row!.id,
+					version: row!.version,
+					phase: "deferred",
+					outcome: "failed",
+					note: "Error: Tedix CLI read deadline elapsed",
+					...extra,
+				}),
+			);
+		record(retried, { admissionState: "not_sent" });
+		record(kept, { admissionState: "admitted", attemptId: "a".repeat(8) });
+		await f.dispatcher.startRequested(kept!.id);
+		await f.dispatcher.startRequested(retried!.id);
+		await until(() => f.releases.length === 1, 1000);
+		expect(
+			f.events
+				.filter((event) => event.verb === "start" && event.args[4] === "work")
+				.map((event) => event.args[6]),
+		).toEqual([retried!.id]);
+		expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+			"This runner already has a record of this revision",
+		);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+	});
+
 	it("drains a delayed process identity read before fixture teardown", async () => {
 		const f = fixture();
 		f.items.splice(1);
