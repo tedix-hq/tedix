@@ -1,5 +1,5 @@
-import { FileText, Plus } from "@phosphor-icons/react";
-import { useState, type RefObject } from "react";
+import { FileText, Plus, UploadSimple } from "@phosphor-icons/react";
+import { useRef, useState, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { canvasOutputsQueryOptions } from "@/lib/os-query-options";
 import { LoadingArea } from "@/components/loading-area";
@@ -12,24 +12,27 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@/components/kumo/popover";
-import { WorkspaceFileUpload } from "@/components/workspace-file-upload";
 
 /** Workspace resources remain subject to their existing access rules. */
 export function WorkspaceChatResources({
 	workspaceId,
 	onBrowseResources,
 	onSelect,
+	onUploadFiles,
 	selectedIds,
 	messageBox,
 }: {
 	workspaceId: string;
 	onBrowseResources: () => void;
 	onSelect: (file: { outputId: string; title: string }) => void;
+	/** Files picked from the computer; saved to the workspace and added like a drop. */
+	onUploadFiles: (files: File[]) => void;
 	selectedIds: string[];
 	/** Typing continues here once a file is added or the panel closes. */
 	messageBox?: RefObject<HTMLTextAreaElement | null>;
 }) {
 	const [open, setOpen] = useState(false);
+	const picker = useRef<HTMLInputElement>(null);
 	const outputs = useQuery({
 		...canvasOutputsQueryOptions(workspaceId),
 		enabled: open,
@@ -56,10 +59,11 @@ export function WorkspaceChatResources({
 			>
 				<PopoverTitle>Add to your message</PopoverTitle>
 				<PopoverDescription>
-					Pick up to 5 documents, sheets or slides from this workspace for the
-					assistant to read. A file you upload is saved to the workspace and
-					added to this message. The assistant can read spreadsheets, CSV, Word
-					and PowerPoint files; for other files it sees only the name.
+					Add up to 5 files from this workspace or from your computer. Files
+					from your computer are saved to this workspace. The assistant can read
+					text, Markdown, code, PDF, spreadsheet, CSV, Word and PowerPoint
+					files; for other files it sees only the name. You can also drop or
+					paste files into the chat.
 				</PopoverDescription>
 				{outputs.isError ? (
 					<Text role="caption" tone="error">
@@ -98,14 +102,29 @@ export function WorkspaceChatResources({
 						) : null}
 					</div>
 				)}
-				<WorkspaceFileUpload
-					workspaceId={workspaceId}
-					onUploaded={(file) => {
-						if (selectedIds.length < 5)
-							onSelect({ outputId: file.outputId, title: file.name });
+				<input
+					ref={picker}
+					type="file"
+					multiple
+					className="hidden"
+					aria-label="Choose files from your computer"
+					onChange={(event) => {
+						const files = Array.from(event.currentTarget.files ?? []);
+						event.currentTarget.value = "";
+						if (files.length === 0) return;
+						onUploadFiles(files);
 						setOpen(false);
 					}}
 				/>
+				<Button
+					onClick={() => picker.current?.click()}
+					size="sm"
+					variant="outline"
+					disabled={selectedIds.length >= 5}
+					icon={<UploadSimple size={14} aria-hidden />}
+				>
+					Choose from your computer
+				</Button>
 				<Button
 					onClick={() => {
 						setOpen(false);

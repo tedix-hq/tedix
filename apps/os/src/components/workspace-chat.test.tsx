@@ -467,7 +467,7 @@ describe("WorkspaceChat", () => {
 
 		await openPanel();
 		const picker = document.querySelector<HTMLInputElement>(
-			'input[aria-label="Upload workspace file"]',
+			'input[aria-label="Choose files from your computer"]',
 		)!;
 		Object.defineProperty(picker, "files", {
 			configurable: true,
@@ -573,9 +573,7 @@ describe("WorkspaceChat", () => {
 		);
 		expect(trigger).not.toBeNull();
 		await act(async () => trigger?.click());
-		expect(document.body.textContent).toContain(
-			"The assistant can read spreadsheets, CSV,",
-		);
+		expect(document.body.textContent).toContain("Add to your message");
 		const browseButton = [...document.querySelectorAll("button")].find(
 			(button) => button.textContent === "Browse all files",
 		);
