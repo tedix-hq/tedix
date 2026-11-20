@@ -490,10 +490,9 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 					}),
 				};
 			});
-			const { runRetentionCleanupCron } = await import("./retention-cleanup");
-			await trackPlatformCronPath(env, event, "retention-cleanup", () =>
-				runRetentionCleanupCron(env, event, runId),
-			);
+			// The two short checks run before retention cleanup: when cleanup
+			// outlives the scheduled run it is cut off, and anything after it
+			// never started (16-20 Nov 2026).
 			const { runMachineScopeDriftTick } =
 				await import("./machine-scope-drift");
 			await trackPlatformCronPath(env, event, "machine-scope-drift", () =>
@@ -503,6 +502,10 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				await import("./tedi-access-key-rotation");
 			await trackPlatformCronPath(env, event, "tedi-access-key-rotation", () =>
 				runTediAccessKeyRotationTick(env, runId),
+			);
+			const { runRetentionCleanupCron } = await import("./retention-cleanup");
+			await trackPlatformCronPath(env, event, "retention-cleanup", () =>
+				runRetentionCleanupCron(env, event, runId),
 			);
 		}
 
