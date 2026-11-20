@@ -11,8 +11,10 @@ import {
 import { parse } from "jsonc-parser";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { createServer } from "node:net";
 import {
 	createLocalWranglerConfig,
+	removeDeadRegistrations,
 	resolveLocalPersistPath,
 	resolveShellVarOverrides,
 } from "./dev-local";
@@ -867,4 +869,32 @@ describe("shell var overrides", () => {
 			).toEqual({ [name]: "value" });
 		}
 	});
+});
+
+test("a restart drops the registrations of Workers that are gone, not live ones", async () => {
+	const registry = mkdtempSync(join(tmpdir(), "tedix-registry-"));
+	const listen = () =>
+		new Promise<ReturnType<typeof createServer>>((ready) => {
+			const server = createServer();
+			server.listen(0, "127.0.0.1", () => ready(server));
+		});
+	const portOf = (server: ReturnType<typeof createServer>) =>
+		(server.address() as { port: number }).port;
+	const live = await listen();
+	const gone = await listen();
+	const gonePort = portOf(gone);
+	await new Promise((closed) => gone.close(closed));
+	const register = (name: string, port: number) =>
+		writeFileSync(
+			join(registry, name),
+			JSON.stringify({ debugPortAddress: `127.0.0.1:${port}` }),
+		);
+	register("live-worker", portOf(live));
+	register("killed-worker", gonePort);
+	try {
+		await removeDeadRegistrations(registry);
+		expect(readdirSync(registry)).toEqual(["live-worker"]);
+	} finally {
+		live.close();
+	}
 });

@@ -2,7 +2,15 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { connect } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 import { parse, type ParseError } from "jsonc-parser";
 import { LOCAL_WORKERS_AI_MODEL } from "./lib/local-workers-ai-model";
@@ -474,6 +482,60 @@ export function resolveLocalRegistryPath(cwd = process.cwd()): string {
 		: resolve(cwd, "../../.wrangler/registry");
 }
 
+function readRegistration(file: string): string | undefined {
+	try {
+		return readFileSync(file, "utf8");
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Remove the registrations of Workers that are no longer running.
+ *
+ * A Worker deletes its registry file when it shuts down cleanly. One that was
+ * killed (a closed terminal, a crash, the launcher's two-second stop) leaves
+ * the file behind, and for the next 90 seconds the registry treats that name
+ * as taken: the restarted Worker is not registered, so every service binding
+ * to it fails with `Worker "<name>" not found`. A registration names the
+ * Worker's debug port; when nothing listens there, the Worker is gone.
+ */
+export async function removeDeadRegistrations(
+	registryPath = resolveLocalRegistryPath(),
+): Promise<void> {
+	if (!existsSync(registryPath)) return;
+	await Promise.all(
+		readdirSync(registryPath).map(async (name) => {
+			const file = join(registryPath, name);
+			const registration = readRegistration(file);
+			let address: unknown;
+			try {
+				address = JSON.parse(registration ?? "").debugPortAddress;
+			} catch {
+				return;
+			}
+			if (typeof address !== "string") return;
+			const separator = address.lastIndexOf(":");
+			const host = address.slice(0, separator).replace(/^\[|\]$/g, "");
+			const port = Number(address.slice(separator + 1));
+			if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return;
+			const listening = await new Promise<boolean>((settle) => {
+				const socket = connect({ host, port });
+				const finish = (answer: boolean) => {
+					socket.destroy();
+					settle(answer);
+				};
+				socket.setTimeout(1_000, () => finish(true));
+				socket.once("connect", () => finish(true));
+				socket.once("error", () => finish(false));
+			});
+			// A Worker that started meanwhile has replaced the file: keep its entry.
+			if (!listening && readRegistration(file) === registration)
+				rmSync(file, { force: true });
+		}),
+	);
+}
+
 export function resolveLocalPersistPath(
 	cwd = process.cwd(),
 	explicitPath = explicitLocalPersistTo,
@@ -548,6 +610,7 @@ async function run(): Promise<void> {
 		}
 	}
 
+	await removeDeadRegistrations();
 	const child = spawn(executable, args, {
 		cwd: process.cwd(),
 		env: {
