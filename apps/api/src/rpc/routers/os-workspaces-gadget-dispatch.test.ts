@@ -36,6 +36,11 @@ const mocks = vi.hoisted(() => ({
 	getWorkItemById: vi.fn(),
 	resolveWorkItemExecutionPreflight: vi.fn(),
 	authorizeDerivedOutputSources: vi.fn().mockResolvedValue(true),
+	ensureWorkspaceTediRole: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock("../../services/os-workspace-tedi-role", () => ({
+	ensureWorkspaceTediRole: mocks.ensureWorkspaceTediRole,
 }));
 
 vi.mock(
@@ -311,6 +316,13 @@ describe("governed gadget dispatch", () => {
 					estimatedInputTokens: 1,
 					estimatedOutputTokens: 4096,
 				}),
+			}),
+		);
+		expect(mocks.ensureWorkspaceTediRole).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				workspaceId: seeded.workspaceId,
+				tediId: TEDI_ID,
 			}),
 		);
 	});
@@ -1009,5 +1021,7 @@ describe("governed gadget dispatch", () => {
 		expect(dispatches).toHaveLength(0);
 		expect(mocks.resolveWorkItemExecutionPreflight).toHaveBeenCalledOnce();
 		expect(mocks.authorizeRuntimeBudget).not.toHaveBeenCalled();
+		// A parked run gives the tedi no Workspace role.
+		expect(mocks.ensureWorkspaceTediRole).not.toHaveBeenCalled();
 	});
 });

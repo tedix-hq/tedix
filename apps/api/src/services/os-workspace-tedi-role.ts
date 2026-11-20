@@ -1,5 +1,4 @@
 import {
-	findOsWorkspaceOrganizationSharer,
 	grantOsWorkspaceAccess,
 	loadOsWorkspacePermissionRows,
 } from "@tedix/db/queries/os-collaborators";
@@ -15,12 +14,12 @@ import type { BaseContext } from "../rpc/orpc";
  * (a linked skill, a factory lane, an applied blueprint, an app run, a
  * calendar configuration). Call it only after the flow itself was allowed.
  *
- * The role is an ordinary grant edge, so it needs a person who holds `build`
- * as its sharer: the signed-in caller; otherwise a personal tedi's owner;
- * otherwise the workspace's own root (a private workspace's owner, or the
- * organization's first owner, admin or member). A tedi that already has an
- * edge keeps it. Recording is best effort and never fails the flow: a tedi
- * without a role is still judged by the older rules.
+ * The role is an ordinary grant edge shared by the caller, so only a
+ * signed-in person who holds `build` in the workspace records one. Any other
+ * caller (a tedi, an API key, a service) records nothing: it may not share
+ * the workspace in someone else's name. A tedi that already has an edge keeps
+ * it. Recording is best effort and never fails the flow: a tedi without a
+ * role is still judged by the older rules.
  */
 export async function ensureWorkspaceTediRole(
 	context: BaseContext,
@@ -31,6 +30,16 @@ export async function ensureWorkspaceTediRole(
 		note: string;
 	},
 ): Promise<boolean> {
+	const sharerUserId =
+		context.authType === "user" ? context.user?.sub : undefined;
+	if (!sharerUserId) {
+		console.debug("os_workspace_tedi_role_skipped", {
+			workspaceId: params.workspaceId,
+			tediId: params.tediId,
+			authType: context.authType,
+		});
+		return false;
+	}
 	try {
 		const scope = {
 			organizationId: params.organizationId,
@@ -51,19 +60,7 @@ export async function ensureWorkspaceTediRole(
 			collaborators: false,
 		});
 		if (edges.some((edge) => edge.targetUserId === tedi.id)) return false;
-		const sharerUserId =
-			context.authType === "user"
-				? context.user?.sub
-				: tedi.scope === "personal" && tedi.ownerUserId
-					? tedi.ownerUserId
-					: workspace.visibility === "private"
-						? workspace.ownerUserId
-						: await findOsWorkspaceOrganizationSharer(
-								db,
-								params.organizationId,
-							);
 		if (
-			!sharerUserId ||
 			(await readWorkspaceRuntimeRole(db, scope, {
 				actorKind: "user",
 				actorId: sharerUserId,
