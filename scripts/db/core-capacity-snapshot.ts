@@ -15,7 +15,7 @@
  * other D1_ERROR events per Worker.
  *
  *   bun scripts/db/core-capacity-snapshot.ts --database-id <uuid> \
- *     [--out-dir ~/.tedix/core-capacity] [--sheet <outputId> --tedix-profile connect]
+ *     [--out-dir ~/.tedix/core-capacity] [--sheet <outputId> --tedix-profile connect --tedix-organization <slug>]
  *
  * --sheet appends one row per group to a Tedix sheet Output (columns below).
  * --from-file <snapshot.json> --sheet <outputId> re-sends a saved snapshot.
@@ -551,6 +551,7 @@ async function appendToSheet(
 	snapshot: Snapshot,
 	outputId: string,
 	profile: string,
+	organization: string,
 ) {
 	const rows = sheetRows(snapshot);
 	// Read the sheet, then write below its last row against that revision.
@@ -567,7 +568,16 @@ async function appendToSheet(
 	// The gateway answers "retry shortly" during deploys and index refreshes.
 	for (let attempt = 1; ; attempt++) {
 		const proc = Bun.spawn(
-			["tedix", "-w", profile, "code", program, "--json"],
+			[
+				"tedix",
+				"-w",
+				profile,
+				"--organization",
+				organization,
+				"code",
+				program,
+				"--json",
+			],
 			{
 				stdout: "pipe",
 				stderr: "pipe",
@@ -580,7 +590,11 @@ async function appendToSheet(
 			proc.exited,
 		]);
 		if (code === 0 && !/^\s*\{"error"/.test(out)) return out.trim();
-		if (attempt >= 5) throw new Error(`sheet append failed: ${err || out}`);
+		if (
+			attempt >= 5 ||
+			!/retry|unavailable|rate.?limit|refreshing/i.test(out + err)
+		)
+			throw new Error(`sheet append failed: ${err || out}`);
 		await sleep(60_000 * attempt);
 	}
 }
@@ -614,6 +628,12 @@ interface Snapshot {
 	})[];
 }
 
+function required(name: string): string {
+	const value = arg(name);
+	if (!value) throw new Error(`Pass --${name}`);
+	return value;
+}
+
 function arg(name: string): string | undefined {
 	const index = process.argv.indexOf(`--${name}`);
 	return index >= 0 ? process.argv[index + 1] : undefined;
@@ -627,7 +647,12 @@ async function main() {
 		if (!sheet) throw new Error("--from-file needs --sheet");
 		const saved = JSON.parse(await Bun.file(fromFile).text()) as Snapshot;
 		console.log(
-			await appendToSheet(saved, sheet, arg("tedix-profile") ?? "connect"),
+			await appendToSheet(
+				saved,
+				sheet,
+				arg("tedix-profile") ?? "connect",
+				required("tedix-organization"),
+			),
 		);
 		return;
 	}
@@ -733,7 +758,12 @@ async function main() {
 	);
 	if (sheet)
 		console.log(
-			await appendToSheet(snapshot, sheet, arg("tedix-profile") ?? "connect"),
+			await appendToSheet(
+				snapshot,
+				sheet,
+				arg("tedix-profile") ?? "connect",
+				required("tedix-organization"),
+			),
 		);
 }
 
