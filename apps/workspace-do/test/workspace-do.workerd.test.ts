@@ -310,7 +310,7 @@ async function seedCore() {
 			`INSERT OR REPLACE INTO projects (id, org_id, key, name, objective_id, created_at, updated_at) VALUES ('proj1', ?, 'PRG', 'Programme', 'obj1', ?, ?)`,
 		).bind(scope.organizationId, now, now),
 		testEnv.DB.prepare(
-			`INSERT OR REPLACE INTO tedis (id, organization_id, name, slug, isolate_agent_id, created_at, updated_at) VALUES ('tedi1', ?, 'Guest', 'guest', 'tedi-object-1', ?, ?)`,
+			`INSERT OR REPLACE INTO tedis (id, organization_id, name, slug, scope, isolate_agent_id, created_at, updated_at) VALUES ('tedi1', ?, 'Guest', 'guest', 'organization', 'tedi-object-1', ?, ?)`,
 		).bind(scope.organizationId, now, now),
 	]);
 }
