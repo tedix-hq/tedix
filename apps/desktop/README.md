@@ -1,19 +1,22 @@
 # Tedix desktop app
 
-A small desktop app that opens the Tedix OS chat in its own window and shows
-what the Tedix CLI is doing on this computer.
+A small desktop app that opens the Tedix OS chat in its own window, sets up
+this Mac for Tedix without a terminal, and shows what the Tedix CLI is doing
+on this computer.
 
-For runners and the CLI's own sign-in and updates, the app only runs the
-`tedix` command it finds on your `PATH` or in `~/.local/bin`; it does not
-include a CLI. The Tedix OS page runs without access to the app or the
-computer.
+The app includes the `tedix` command-line tool. It copies it to
+`cli/tedix` in its own data folder and links `~/.local/bin/tedix` to that
+copy, so coding tools find it on your shell's `PATH`. The Tedix OS page runs
+without access to the app or the computer.
 
 The app is not signed or notarized yet and has been run on macOS only.
 
 ## What you can do
 
-- **Chat in Tedix OS.** The window opens `https://tedix.os.tedix.dev/chat`. You
-  stay signed in between launches. Links to other sites open in your default
+- **Chat in Tedix OS.** The window opens the organization you used last
+  (`https://<organization>.os.tedix.dev/chat`), or `https://os.tedix.dev`,
+  where the sign-in picks the organization. You stay signed in between
+  launches. Links to other sites open in your default
   browser. Back, forward and reload are in the **View** menu.
 - **Sign in with an emailed link.** Start the sign-in in the app and click the
   emailed link as usual. The page that opens in your browser offers to open
@@ -23,14 +26,29 @@ The app is not signed or notarized yet and has been run on macOS only.
   with Browser**. Sign in there, confirm, and choose **Open the Tedix app**.
   The app waits 30 minutes for this, also across a restart. If the sign-in
   cannot finish, the app says why and offers to start again.
+- **Set up this Mac.** **Tedix → Set Up This Mac…** opens by itself until
+  this Mac is signed in, and from a `tedix://setup` link. One step per
+  screen: sign in on this Mac (`tedix -w connect login`, started by the app),
+  the command-line tool, adding Tedix to the coding tools it finds (Claude
+  Code, Codex, Devin; OpenCode is only detected), the one manual step for the
+  Claude and ChatGPT apps, and which coding tools Tedix may start here. Every
+  action shows its latest output line, and on failure the reason, Retry and
+  Copy details. It changes other tools only through `tedix setup agents` and
+  the tool's own commands.
+- **The command-line tool.** With no `tedix` installed, the app links its own
+  copy and adds `~/.local/bin` to your shell profile if it is missing. A
+  separate install is left alone until you choose **Let the app manage it**:
+  the app keeps your file as `~/.local/bin/tedix.before-app`, links its copy
+  and restarts the background service. **Use the separate install again**
+  reverses it. The linked copy leaves updating to the app: `tedix update`
+  and `tedix rollback` say so and change nothing.
 - **See and change this computer's status.** **Tedix → This Mac…**
   (`Cmd+Shift+M`) shows the runners, active runs, whether the process that
   answers a tedi's requests on this computer is up, and the CLI version. It
   has a switch for each runner, the machine name, "Let tedis edit files and
-  run commands on this Mac", and buttons for `tedix -w connect login`,
-  `tedix update` and restarting the runners. The switches edit
-  `~/.tedix/supervisor-runners.json` and then restart the runners, which
-  stops runs in progress.
+  run commands on this Mac", and a button that restarts the runners. The
+  switches edit `~/.tedix/supervisor-runners.json` and then restart the
+  runners, which stops runs in progress.
 - **Update the app.** The app looks for a newer version when it starts and
   every four hours, and from **Tedix → Check for Updates…**. It downloads the
   new version, checks it, and asks before it restarts (**Restart to Update**).
@@ -40,7 +58,7 @@ supervisor owns them.
 
 ## When something goes wrong
 
-The app writes one line per sign-in and update step to
+The app writes one line per sign-in, setup and update step to
 `~/Library/Logs/@tedix/desktop/tedix.log` (`~/Library/Logs/Tedix Dev/` for the
 copy run from source). It holds page addresses without anything after `?` or
 `#`, and no tokens, codes or keys.
@@ -55,7 +73,9 @@ bun run --cwd apps/desktop dev
 
 This copy is called Tedix Dev. It keeps its own data folder
 (`~/Library/Application Support/Tedix Dev`), so it has its own sign-in, and it
-does not take `tedix://` links: those always go to the installed app. To finish
+does not take `tedix://` links: those always go to the installed app. It has
+a command-line tool inside only after `bun scripts/fetch-cli.ts arm64` (or
+`x64`); without that it uses the `tedix` already on this Mac. To finish
 a browser sign-in in Tedix Dev, copy the address of the **Open the Tedix app**
 button and pass it on:
 
@@ -112,10 +132,18 @@ The app reads `version` from `latest.json`, and `version` and each asset's
 `name` and `sha256` from the manifest. It builds the download address itself
 from the version and its processor (`arm64` or `x64`).
 
-Build the files on a Mac, from `apps/desktop`:
+Build the files on a Mac, from `apps/desktop`. `scripts/fetch-cli.ts` puts the
+command-line tool for one processor type in `cli/<arch>/tedix`, where the
+build picks it up as `Contents/Resources/cli/tedix`. It downloads the latest
+published CLI from `downloads.tedix.dev` and refuses it unless its SHA-256 is
+the one in that release's `SHA256SUMS`; add a version to pin one
+(`bun scripts/fetch-cli.ts arm64 0.29.0`). Publish the CLI release the app
+needs first. A build without these two steps has no command-line tool inside.
 
 ```sh
 bun install --frozen-lockfile
+bun scripts/fetch-cli.ts arm64
+bun scripts/fetch-cli.ts x64
 bun run compile
 node_modules/.bin/electron-builder --dir --publish never --mac --arm64 --x64 -c.extraMetadata.version=X.Y.Z
 ditto -c -k --keepParent dist/mac-arm64/Tedix.app Tedix-X.Y.Z-darwin-arm64.zip
@@ -128,13 +156,17 @@ to, such as Applications. The first install is still by hand.
 
 ## Where things are
 
-| File                  | What it does                                               |
-| --------------------- | ---------------------------------------------------------- |
-| `src/main.ts`         | Windows, menu, sign-in, and the This Mac window's commands |
-| `src/update.ts`       | Finds, checks and installs a newer app                     |
-| `src/log.ts`          | Writes the log file                                        |
-| `src/status.ts`       | Reads the status from the CLI and the files it keeps       |
-| `src/runners-file.ts` | Edits `supervisor-runners.json`                            |
-| `src/shell.ts`        | Finds and runs `tedix`                                     |
-| `panel.html`          | The This Mac window (`src/panel.ts`)                       |
-| `src/preload.ts`      | The few functions the This Mac window may call             |
+| File                   | What it does                                          |
+| ---------------------- | ----------------------------------------------------- |
+| `src/main.ts`          | Windows, menu, sign-in, and the two windows' commands |
+| `src/setup.ts`         | The setup steps: coding tools, sign-in, running tasks |
+| `src/cli.ts`           | Copies and links the command-line tool inside the app |
+| `setup.html`           | The Set up this Mac window (`src/onboarding.ts`)      |
+| `scripts/fetch-cli.ts` | Fetches the command-line tool for a build             |
+| `src/update.ts`        | Finds, checks and installs a newer app                |
+| `src/log.ts`           | Writes the log file                                   |
+| `src/status.ts`        | Reads the status from the CLI and the files it keeps  |
+| `src/runners-file.ts`  | Edits `supervisor-runners.json`                       |
+| `src/shell.ts`         | Finds and runs `tedix`                                |
+| `panel.html`           | The This Mac window (`src/panel.ts`)                  |
+| `src/preload.ts`       | The few functions the app's own two windows may call  |
