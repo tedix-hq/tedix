@@ -3424,6 +3424,21 @@ describe("WorkspaceDO", () => {
 		);
 		const history = await ws.readLedger(scope, conversationId, { limit: 10 });
 		expect(history.map((event) => event.type)).toContain("turn.started");
+		// Its own prompt leads; the next turn's agent is told who wrote the reply.
+		expect((await ws.readSystemPrompts(scope)).at(-1)).toMatch(
+			/^You are tedi tedi1\.\n\nRecall for: Say hello\n\nYou are answering in the chat/,
+		);
+		await ws.scriptModel(scope, [{ text: "Hello from the agent." }]);
+		const next = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "And you?",
+			conversationId,
+		});
+		await ws.awaitTurn(scope, next.turnId, 20_000);
+		expect((await ws.readSystemPrompts(scope)).at(-1)).toContain(
+			"were written by Guest, not by you",
+		);
 	});
 
 	test("a retried socket send keeps one turn and conversation", async () => {

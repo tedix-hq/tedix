@@ -54,16 +54,21 @@ type DecideAll = (approvalIds: string[], decision: ApprovalDecision) => void;
 function Requester({
 	id,
 	kind,
+	actingTediId,
 	tediNames,
 }: {
 	id: string;
 	kind: "person" | "tedi";
+	/** The tedi the person addressed; it applies the change once approved. */
+	actingTediId?: string;
 	tediNames: Record<string, string>;
 }) {
 	const { name } = useWorkspaceChatAuthor(id, kind, tediNames);
+	const acting = useWorkspaceChatAuthor(actingTediId ?? "", "tedi", tediNames);
 	return (
 		<Text as="span" role="caption" tone="secondary">
 			Asked by {name}
+			{actingTediId ? `. ${acting.name} will apply it.` : null}
 		</Text>
 	);
 }
@@ -186,7 +191,11 @@ export function ApprovalTray({
 					</Text>
 				) : null}
 				{request.requester ? (
-					<Requester {...request.requester} tediNames={tediNames} />
+					<Requester
+						{...request.requester}
+						actingTediId={request.actingTediId}
+						tediNames={tediNames}
+					/>
 				) : null}
 				{alone && !here ? (
 					<Text as="span" role="caption" tone="secondary">

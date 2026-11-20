@@ -43,8 +43,10 @@ export type ChatApproval = {
 	input?: unknown;
 	requestedAt: string;
 	target?: { id: string; title: string };
-	/** Who asked: the person or tedi whose turn proposed the change. */
+	/** Who asked: the person or tedi who sent the turn that proposed the change. */
 	requester?: { id: string; kind: "person" | "tedi" };
+	/** The tedi that applies the change, when a person addressed one. */
+	actingTediId?: string;
 	decision: ApprovalDecision | null;
 	decidedBy?: string;
 	decidedAt?: string;
@@ -741,6 +743,7 @@ export function applyWorkspaceChatEvent(
 									requestedAt: event.at,
 									target: event.target,
 									requester: event.requester,
+									actingTediId: event.actingTediId,
 									// A change that applies at once never waits for a person,
 									// even before its decision arrives.
 									...(event.automatic
@@ -942,6 +945,7 @@ function foldWaiting(
 				input: event.input,
 				target: event.target,
 				requester: event.requester,
+				actingTediId: event.actingTediId,
 				at: event.at,
 			}),
 		],
@@ -960,6 +964,7 @@ function waitingApproval(summary: WaitingApprovalSummary): WaitingApproval {
 		requestedAt: summary.at,
 		target: summary.target,
 		requester: summary.requester,
+		actingTediId: summary.actingTediId,
 		decision: null,
 	};
 }

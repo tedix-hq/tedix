@@ -121,6 +121,10 @@ export type WireEventBody =
 	  }
 	| {
 			type: "approval.requested";
+			/** Who sent the turn that asked. */
+			requester?: { id: string; kind: AuthorKind };
+			/** The tedi that applies the change, when a person addressed one. */
+			actingTediId?: string;
 			turnId: string;
 			stepId: string;
 			approvalId: string;
@@ -327,6 +331,8 @@ export type ClientFrame =
 
 /** A request waiting for a person, as its `approval.requested` event told it. */
 export interface WaitingApproval {
+	requester?: { id: string; kind: AuthorKind };
+	actingTediId?: string;
 	approvalId: string;
 	conversationId: string;
 	turnId: string;
