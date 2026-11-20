@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.28.5 — 2026-11-20
+
+### Patch Changes
+
+- A Claude Code runner now pauses when Claude Code is signed out, instead of taking tasks that each fail before starting. Sign in with `claude` and it resumes.
+
 ## 0.28.4 — 2026-11-20
 
 ### Patch Changes
