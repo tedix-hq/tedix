@@ -1387,11 +1387,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		}
 		await this.refreshModelCatalog();
 		const models = this.configuredModels();
+		// A person's chat with a tedi, or in their own private workspace, starts
+		// on the administrator's default for a person's chat.
+		const personChat =
+			!input.modelId &&
+			(Boolean(input.tediId) ||
+				(input.actorKind === "user" &&
+					(await this.#privateTo(scope, input.actorId))));
 		const modelId =
 			input.modelId ??
 			defaultWorkspaceModelId(
 				models,
-				input.tediId ? this.#modelCatalog?.personChatModelRef : undefined,
+				personChat ? this.#modelCatalog?.personChatModelRef : undefined,
 			);
 		if (!modelId) throw new Error("No model is configured for workspace chat");
 		if (!models.some((model) => model.id === modelId))
@@ -4830,6 +4837,19 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	protected personService(): PersonService {
 		return this.env.API_SERVICE as unknown as PersonService;
+	}
+
+	/** Whether this is the person's own private workspace; unreadable counts as no. */
+	async #privateTo(scope: WorkspaceScope, userId: string) {
+		const workspace = await getOsWorkspace(
+			createDbQueryClient(this.env.DB),
+			scope,
+		).catch(() => undefined);
+		return (
+			workspace?.status === "active" &&
+			workspace.visibility === "private" &&
+			workspace.ownerUserId === userId
+		);
 	}
 
 	/** Whether nobody but this person can open the workspace, read live. */

@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import {
+	osQuery,
+	tediDetailQueryOptions,
 	tediNamesQueryOptions,
-	userProfileQueryOptions,
 } from "@/lib/os-query-options";
 import { mayPickWorkspaceTedi } from "@/lib/workspace-guest-tedi";
 
@@ -44,15 +45,22 @@ export function useActiveTedis(): { id: string; name: string }[] {
 
 /**
  * The tedis this person may pick to answer in a workspace chat: exactly the
- * ones the workspace accepts. The person's id comes from the signed-in
- * profile, so their personal tedis are offered before any workspace exists.
+ * ones the workspace accepts. A personal tedi's owner is recorded under the
+ * person's sign-in id, not the account profile's id, so the person's id is
+ * the owner of their own private workspace, the same id the workspace checks.
  */
 export function usePickableTedis(): { id: string; name: string }[] {
 	const tedis = useQuery({
 		...tediNamesQueryOptions(),
 		staleTime: 60_000,
 	});
-	const userId = useQuery(userProfileQueryOptions()).data?.id;
+	const userId =
+		useQuery({
+			...osQuery.osWorkspaces.workspaces.personal.queryOptions({
+				input: { create: false },
+			}),
+			staleTime: Number.POSITIVE_INFINITY,
+		}).data?.workspace?.ownerUserId ?? undefined;
 	return useMemo(
 		() =>
 			(tedis.data?.data ?? [])
@@ -82,6 +90,25 @@ export function useTediProfiles(): Record<
 		}
 		return profiles;
 	}, [tedis.data]);
+}
+
+/**
+ * One tedi's name: from the shared roster page, or read by its id when the
+ * tedi is not on that page. Undefined while it is unknown.
+ */
+export function useTediName(tediId: string | null): string | undefined {
+	const names = useTediNames();
+	const roster = useQuery({ ...tediNamesQueryOptions(), staleTime: 60_000 });
+	const listed = tediId ? names[tediId] : undefined;
+	const read = useQuery({
+		...tediDetailQueryOptions(tediId ?? ""),
+		enabled: tediId !== null && roster.isSuccess && listed === undefined,
+		staleTime: 60_000,
+	});
+	return (
+		listed ??
+		(read.data ? (read.data.displayName ?? read.data.name) : undefined)
+	);
 }
 
 /** True until the first read of the organization's tedis has answered. */

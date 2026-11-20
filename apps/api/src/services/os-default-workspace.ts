@@ -34,13 +34,13 @@ async function createOrReuseByName(
 	db: DbQueryClient,
 	row: Omit<Parameters<typeof createOsWorkspace>[1], "id" | "name">,
 	names: readonly string[],
-	isUsable: (existing: OsWorkspaceRow) => boolean,
+	isUsable: (existing: OsWorkspaceRow) => boolean | Promise<boolean>,
 ): Promise<OsWorkspaceRow | null> {
 	for (const name of names) {
 		const lookup = { organizationId: row.organizationId, name };
 		const existing = await getOsWorkspaceByName(db, lookup);
 		if (existing) {
-			if (isUsable(existing)) return existing;
+			if (await isUsable(existing)) return existing;
 			continue;
 		}
 		try {
@@ -53,7 +53,7 @@ async function createOrReuseByName(
 			// A concurrent first use created it; names are unique per organization.
 			const raced = await getOsWorkspaceByName(db, lookup);
 			if (!raced) throw error;
-			if (isUsable(raced)) return raced;
+			if (await isUsable(raced)) return raced;
 		}
 	}
 	return null;
@@ -91,14 +91,24 @@ export async function ensureDefaultOsWorkspace(
 				ownerUserId,
 			});
 			if (personal) return personal;
+			// A workspace of that name is reused only when it is a personal
+			// space too (a concurrent first use made it); one the member shared
+			// is not, so the next name is tried.
 			return createOrReuseByName(
 				db,
 				{ ...base, visibility: "private", ownerUserId },
-				[PERSONAL_OS_WORKSPACE_NAME, personalNameFallback(ownerUserId)],
-				(existing) =>
-					existing.status === "active" &&
-					existing.visibility === "private" &&
-					existing.ownerUserId === ownerUserId,
+				[
+					PERSONAL_OS_WORKSPACE_NAME,
+					personalNameFallback(ownerUserId),
+					`${PERSONAL_OS_WORKSPACE_NAME} · ${crypto.randomUUID().slice(0, 8)}`,
+				],
+				async (existing) =>
+					(
+						await getPersonalOsWorkspace(db, {
+							organizationId: input.organizationId,
+							ownerUserId,
+						})
+					)?.id === existing.id,
 			);
 		}
 		return createOrReuseByName(

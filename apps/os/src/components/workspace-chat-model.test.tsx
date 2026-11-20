@@ -107,6 +107,7 @@ async function openBrowser(
 		conversationId: string | null;
 		answeredBy?: string;
 		tediId?: string;
+		modelDefault?: "personChat";
 	} = {
 		conversationId: "c1",
 	},
@@ -171,6 +172,7 @@ async function openBrowser(
 					onOpenList={() => {}}
 					onSelectConversation={() => {}}
 					tediId={chat.tediId}
+					modelDefault={chat.modelDefault}
 					workspaceId={workspaceId}
 				/>
 			</QueryClientProvider>,
@@ -310,6 +312,22 @@ it("starts a chat with a tedi on the configured chat default, sends every messag
 	expect(server.rows.get("ana")?.preferences).toMatchObject({
 		conversationModelRef: `workers-ai/${WORKERS.id}`,
 	});
+});
+
+it("starts a chat in the person's private workspace on the chat default with nobody picked, naming no model", async () => {
+	server.rows.set("ana", {
+		preferences: {
+			...DEFAULT_OS_USER_PREFERENCES,
+			conversationModelRef: `workers-ai/${WORKERS.id}`,
+		},
+		revision: 1,
+	});
+	const privateChat = await openBrowser("ws-1", {
+		conversationId: null,
+		modelDefault: "personChat",
+	});
+	expect(privateChat.chosen()).toBe("Sol 6.1");
+	expect(privateChat.send("Hello")).toEqual({ text: "Hello" });
 });
 
 it("falls back to the remembered model when the one that answered is no longer offered", async () => {

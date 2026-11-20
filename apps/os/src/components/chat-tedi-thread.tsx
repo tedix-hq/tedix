@@ -9,7 +9,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import { WorkspaceChat } from "@/components/workspace-chat";
-import { usePickableTedis, useTediNames } from "@/lib/use-tedi-names";
+import { usePickableTedis, useTediName } from "@/lib/use-tedi-names";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 
@@ -37,7 +37,6 @@ export function ChatTediThread({
 	onConversations: (conversations: readonly ConversationSummary[]) => void;
 }) {
 	const tedis = usePickableTedis();
-	const tediNames = useTediNames();
 	// What the person picked here; until then an opened chat keeps the tedi
 	// that answered it last, as its list row says.
 	const [picked, setPicked] = useState<{ tediId: string | null } | null>(null);
@@ -52,7 +51,9 @@ export function ChatTediThread({
 		},
 		[conversationId, onConversations],
 	);
-	const name = tediId ? tediNames[tediId] : undefined;
+	// A tedi answers: never label it as the workspace agent, also while its
+	// name is still being read.
+	const name = useTediName(tediId) ?? (tediId ? "Tedi" : undefined);
 	return (
 		<div className="chat-tedi-thread" data-testid="chat-tedi-thread">
 			<WorkspaceChat
@@ -66,6 +67,8 @@ export function ChatTediThread({
 				autoFocusComposer
 				embedded
 				tediId={tediId}
+				// The person's own private workspace: their chat default model.
+				modelDefault="personChat"
 				placeholder={chatComposerPlaceholder(conversationId !== null)}
 				emptyText="Ask a question, or ask for a doc, sheet or deck."
 				// With no tedi pinned, the workspace chat offers its own choice of

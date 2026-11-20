@@ -5,6 +5,10 @@ import { createDbQueryClient } from "@tedix/db/query-client";
 import { listOsWorkspaces } from "@tedix/db/queries/os-workspaces/workspaces";
 import { osWorkspaces } from "@tedix/db/schema/os-workspaces";
 import {
+	osWorkspaceAccessEdges,
+	osWorkspaceShareLinks,
+} from "@tedix/db/schema/os-collaborators";
+import {
 	osOutputs,
 	osOutputRevisions,
 } from "@tedix/db/tenant-store/outputs-schema";
@@ -19,7 +23,15 @@ import {
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
-	sqlite.exec(schemaDdl(osWorkspaces, osOutputs, osOutputRevisions));
+	sqlite.exec(
+		schemaDdl(
+			osWorkspaces,
+			osWorkspaceAccessEdges,
+			osWorkspaceShareLinks,
+			osOutputs,
+			osOutputRevisions,
+		),
+	);
 	workspaceOutputFixture(sqlite, { uninitialized: true });
 	return createDbQueryClient(createD1Facade(sqlite));
 }

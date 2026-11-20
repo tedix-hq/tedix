@@ -1,6 +1,7 @@
 import { useContext } from "react";
 import { Text } from "@/components/kumo/text";
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
+import { useTediName } from "@/lib/use-tedi-names";
 import { EntityAvatar } from "@/shared/entity-avatar";
 
 /** The name and picture of a person or tedi who wrote in a workspace chat. */
@@ -14,10 +15,16 @@ export function useWorkspaceChatAuthor(
 		kind === "tedi"
 			? directory.get(`tedi:${id}`)
 			: (directory.get(`user:${id}`) ?? directory.get(`external_agent:${id}`));
+	// A tedi outside the roster page is read by its id.
+	const tediName = useTediName(
+		kind === "tedi" && !profile?.name && !tediNames[id] ? id : null,
+	);
 	return {
 		name:
 			profile?.name ??
-			(kind === "tedi" ? (tediNames[id] ?? "Tedi") : "Workspace member"),
+			(kind === "tedi"
+				? (tediNames[id] ?? tediName ?? "Tedi")
+				: "Workspace member"),
 		image: profile?.image,
 	};
 }

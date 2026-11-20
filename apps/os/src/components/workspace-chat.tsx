@@ -97,6 +97,7 @@ import {
 	osQueryKeys,
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
+	tediDetailQueryOptions,
 	tediRosterQueryOptions,
 	workspaceDetailQueryOptions,
 	workspacePresenceQueryOptions,
@@ -210,6 +211,12 @@ export type WorkspaceChatProps = {
 	 * model.
 	 */
 	tediId?: string | null;
+	/**
+	 * `personChat`: this is the person's own private workspace, so a new chat
+	 * starts on the administrator's default for a person's chat, as a chat
+	 * with a tedi does, and the workspace applies it until the person picks.
+	 */
+	modelDefault?: "personChat";
 	/** Shown in the composer row, where the choice of who replies sits. */
 	composerSlot?: ReactNode;
 	/**
@@ -260,6 +267,7 @@ export function WorkspaceChat({
 	onConversations,
 	onOpenAgents,
 	tediId: pinnedTediId = null,
+	modelDefault,
 	composerSlot,
 	embedded = false,
 	placeholder,
@@ -283,11 +291,13 @@ export function WorkspaceChat({
 	}, [onConversations, state.conversations]);
 	const tediNames = useTediNames();
 	const modelPreference = useChatModelPreference();
-	// The administrator's default model for a person's chat with a tedi.
+	// A chat with a tedi, or in the person's own private workspace, starts on
+	// the administrator's default model for a person's chat.
+	const personChat = Boolean(pinnedTediId) || modelDefault === "personChat";
 	const modelCatalog = useQuery({
 		...modelCatalogQueryOptions(),
 		staleTime: 60_000,
-		enabled: Boolean(pinnedTediId),
+		enabled: personChat,
 	});
 	const [pickedModel, setPickedModel] = useState<{
 		conversationId: string | null;
@@ -297,11 +307,11 @@ export function WorkspaceChat({
 	const selectModel = useCallback(
 		(value: string) => {
 			setPickedModel({ conversationId, id: value });
-			// A pick in a chat with a tedi stays in that chat: the remembered
+			// A pick in a person's chat stays in that chat: the remembered
 			// model belongs to the ordinary workspace chats.
-			if (!pinnedTediId) saveModelPreference(refForWorkspaceModelId(value));
+			if (!personChat) saveModelPreference(refForWorkspaceModelId(value));
 		},
-		[conversationId, pinnedTediId, saveModelPreference],
+		[conversationId, personChat, saveModelPreference],
 	);
 	const pickedHere =
 		pickedModel?.conversationId === conversationId ? pickedModel.id : null;
@@ -312,15 +322,15 @@ export function WorkspaceChat({
 		pickedHere,
 		lastAnswered,
 		remembered: workspaceModelIdForRef(
-			pinnedTediId
+			personChat
 				? (modelCatalog.data?.personChatModelRef ?? null)
 				: modelPreference.modelRef,
 		),
 	});
-	// A chat with a tedi names a model only when the person picked one here or
+	// A person's chat names a model only when the person picked one here or
 	// the conversation already has one. Otherwise the workspace applies the
 	// administrator's default, also when this page has not loaded it yet.
-	const sentModelId = pinnedTediId
+	const sentModelId = personChat
 		? workspaceChatModelId({
 				offered: state.models.filter(
 					({ id }) => id === pickedHere || id === lastAnswered,
@@ -330,12 +340,10 @@ export function WorkspaceChat({
 				remembered: null,
 			})
 		: modelId;
-	// Until the default is known, the picker of a chat with a tedi shows no
+	// Until the default is known, the picker of a person's chat shows no
 	// model instead of the first offered one.
 	const shownModelId =
-		pinnedTediId && !sentModelId && modelCatalog.isPending
-			? undefined
-			: modelId;
+		personChat && !sentModelId && modelCatalog.isPending ? undefined : modelId;
 	const selectedModel = state.models.find((model) => model.id === shownModelId);
 	const modelControl = state.models.length ? (
 		<Select
@@ -1787,7 +1795,29 @@ function Composer({
 		enabled: disabledReason === null && !pinnedTediId,
 		staleTime: 60_000,
 	});
-	const roster = tedis.data?.data ?? [];
+	const workspaceDetail = useQuery({
+		...workspaceDetailQueryOptions(workspaceId),
+		enabled: disabledReason === null && !pinnedTediId,
+		staleTime: 60_000,
+	});
+	const defaultTediId = workspaceDetail.data?.workspace.defaultTediId ?? null;
+	const listed = tedis.data?.data ?? [];
+	// The roster is one page; a default tedi outside it is read by its id, so
+	// the picker names the tedi that actually answers.
+	const defaultTediRead = useQuery({
+		...tediDetailQueryOptions(defaultTediId ?? ""),
+		enabled:
+			defaultTediId !== null &&
+			tedis.isSuccess &&
+			!listed.some((tedi) => tedi.id === defaultTediId),
+		staleTime: 60_000,
+	});
+	const roster =
+		defaultTediRead.data && !listed.some((tedi) => tedi.id === defaultTediId)
+			? [...listed, defaultTediRead.data]
+			: listed;
+	// A personal tedi's owner is recorded under the sign-in id, the one the
+	// presence read returns, never the account profile's id.
 	const presence = useQuery({
 		...workspacePresenceQueryOptions(workspaceId),
 		enabled:
@@ -1798,15 +1828,8 @@ function Composer({
 	const recipients = roster
 		.filter((tedi) => mayPickWorkspaceTedi(tedi, ownerId))
 		.map((tedi) => ({ id: tedi.id, name: tedi.displayName ?? tedi.name }));
-	const workspaceDetail = useQuery({
-		...workspaceDetailQueryOptions(workspaceId),
-		enabled: disabledReason === null && !pinnedTediId,
-		staleTime: 60_000,
-	});
 	// Answers when nobody is picked; offered only when this person may pick it.
-	const defaultTedi = recipients.find(
-		(tedi) => tedi.id === workspaceDetail.data?.workspace.defaultTediId,
-	);
+	const defaultTedi = recipients.find((tedi) => tedi.id === defaultTediId);
 	const pickedTedi =
 		pickedTediId === null
 			? defaultTedi

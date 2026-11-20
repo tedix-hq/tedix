@@ -5,6 +5,8 @@ import {
 	inArray,
 	isNotNull,
 	isNull,
+	ne,
+	notExists,
 	notInArray,
 	or,
 	sql,
@@ -174,7 +176,12 @@ export async function getOsWorkspaceByName(
 	return row;
 }
 
-/** The member's oldest active private workspace: their personal space. */
+/**
+ * The member's personal space: their oldest active private workspace that
+ * nobody else can open. One they shared with a person or a tedi, or with a
+ * share link that is not revoked, is skipped: the rule `workspaceOnlyOpenableBy`
+ * applies before personal memory is read in it.
+ */
 export async function getPersonalOsWorkspace(
 	db: DbQueryClient,
 	params: { organizationId: string; ownerUserId: string },
@@ -188,6 +195,33 @@ export async function getPersonalOsWorkspace(
 				eq(osWorkspaces.visibility, "private"),
 				eq(osWorkspaces.ownerUserId, params.ownerUserId),
 				eq(osWorkspaces.status, "active"),
+				notExists(
+					db
+						.select({ id: osWorkspaceAccessEdges.id })
+						.from(osWorkspaceAccessEdges)
+						.where(
+							and(
+								eq(
+									osWorkspaceAccessEdges.organizationId,
+									params.organizationId,
+								),
+								eq(osWorkspaceAccessEdges.workspaceId, osWorkspaces.id),
+								ne(osWorkspaceAccessEdges.targetUserId, params.ownerUserId),
+							),
+						),
+				),
+				notExists(
+					db
+						.select({ id: osWorkspaceShareLinks.id })
+						.from(osWorkspaceShareLinks)
+						.where(
+							and(
+								eq(osWorkspaceShareLinks.organizationId, params.organizationId),
+								eq(osWorkspaceShareLinks.workspaceId, osWorkspaces.id),
+								isNull(osWorkspaceShareLinks.revokedAt),
+							),
+						),
+				),
 			),
 		)
 		.orderBy(asc(osWorkspaces.createdAt), asc(osWorkspaces.id))
