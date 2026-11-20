@@ -12,8 +12,15 @@ export interface PanelState {
 	openAtLogin?: boolean;
 }
 
-/** `setup-window` opens the Set up this Mac window; `close-setup` closes it and shows Tedix. */
-export type PanelAction = "restart" | "setup-window" | "close-setup";
+/**
+ * `setup-window` opens the Set up this Mac window; `close-setup` closes it
+ * and shows Tedix; `done-setup` only closes it.
+ */
+export type PanelAction =
+	| "restart"
+	| "setup-window"
+	| "close-setup"
+	| "done-setup";
 export type RunnerField = "enabled" | "machineName" | "machineWriteMode";
 /** The pages the chat-app rows may open in the browser. */
 export type PanelLink = "claude-connectors";

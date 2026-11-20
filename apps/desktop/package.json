@@ -36,6 +36,7 @@
 			"out/**",
 			"panel.html",
 			"setup.html",
+			"ui.css",
 			"assets/icon.png",
 			"package.json"
 		],

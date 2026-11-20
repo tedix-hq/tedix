@@ -9,6 +9,7 @@ import {
 	type IpcMainInvokeEvent,
 	Menu,
 	type MenuItemConstructorOptions,
+	nativeTheme,
 	powerMonitor,
 	shell,
 	WebContentsView,
@@ -18,9 +19,11 @@ import { restartSupervisor } from "./cli";
 import { log } from "./log";
 import { setRunnerField } from "./runners-file";
 import {
+	type AppSignIn,
 	onSetupChange,
 	refreshSetup,
 	saveSettings,
+	setAppSignIn,
 	type SetupAction,
 	settings,
 	setupAction,
@@ -180,14 +183,72 @@ const browserSignInFile = () =>
 	join(app.getPath("userData"), "browser-sign-in.json");
 
 function pendingBrowserSignIn(): BrowserSignIn | undefined {
+	let pending: BrowserSignIn;
 	try {
-		const pending = JSON.parse(
+		pending = JSON.parse(
 			readFileSync(browserSignInFile(), "utf8"),
 		) as BrowserSignIn;
-		return pending.expires > Date.now() ? pending : undefined;
 	} catch {
 		return undefined;
 	}
+	if (pending.expires > Date.now()) return pending;
+	rmSync(browserSignInFile(), { force: true });
+	log("sign-in: nobody finished the browser sign-in in 30 minutes");
+	return undefined;
+}
+
+/**
+ * Who is signed in to Tedix in this app's window. The Tedix OS page asks its
+ * own server and hands back the name and email; the app never sees the
+ * session itself. An answer that is neither yes nor no keeps the last one.
+ */
+let appSignIn: AppSignIn = {
+	state: "unknown",
+	name: "",
+	email: "",
+	waiting: false,
+};
+async function readAppSignIn(): Promise<void> {
+	const view = os;
+	if (!view || view.webContents.isDestroyed()) return;
+	const next = { ...appSignIn };
+	try {
+		// Only a Tedix OS page can ask; on any other page the last answer stays.
+		if (!isOsHost(URL.parse(view.webContents.getURL())?.host ?? ""))
+			throw new Error("not on Tedix OS");
+		const answer = (await view.webContents.executeJavaScript(
+			`fetch("/auth/session-broker/status", { cache: "no-store" }).then(
+				async (response) => ({ status: response.status, ...(await response.json()) }),
+			)`,
+		)) as {
+			status: number;
+			authenticated?: boolean;
+			renewalRequired?: boolean;
+			user?: { name?: string; email?: string };
+		};
+		if (answer.authenticated === true) {
+			next.state = "in";
+			next.email = String(answer.user?.email ?? "");
+			next.name = String(answer.user?.name ?? "");
+		} else if (!answer.renewalRequired && answer.status < 500)
+			next.state = "out";
+	} catch {
+		/* Offline or Tedix OS did not answer: keep what was known. */
+	}
+	if (next.state === "in" && pendingBrowserSignIn()) {
+		// Signed in another way while the browser sign-in was still waiting.
+		rmSync(browserSignInFile(), { force: true });
+	}
+	next.waiting = next.state !== "in" && Boolean(pendingBrowserSignIn());
+	if (next.state !== appSignIn.state)
+		log(
+			`sign-in: ${next.state === "in" ? "signed in to Tedix in this app" : next.state === "out" ? "not signed in to Tedix in this app" : "could not tell"}`,
+		);
+	const menuChanged =
+		next.state !== appSignIn.state || next.name !== appSignIn.name;
+	appSignIn = next;
+	setAppSignIn(next);
+	if (menuChanged) setMenu();
 }
 
 /**
@@ -219,6 +280,7 @@ async function signInWithBrowser(): Promise<void> {
 	const page = new URL("/auth/desktop/sign-in", pending.origin);
 	page.searchParams.set("key", pending.publicKey);
 	await shell.openExternal(page.href);
+	void readAppSignIn();
 }
 
 /** Says why the sign-in did not finish and offers to start it again. */
@@ -309,6 +371,8 @@ async function finishBrowserSignIn(code: string): Promise<void> {
 	}
 	rmSync(browserSignInFile(), { force: true });
 	log("sign-in: code opened, loading the finish page");
+	// The page signs in a moment after it loads.
+	setTimeout(() => void readAppSignIn(), 4000);
 	const finish = new URL("/login", pending.origin ?? osOrigin());
 	// The changing value makes this a full page load even when the view is
 	// already on `/login`; a change of only the part after `#` loads nothing.
@@ -466,6 +530,7 @@ function createMainWindow(): void {
 		// Remembered so the next launch opens the same organization.
 		if (page?.protocol === "https:" && isOsHost(page.host) && status < 400)
 			if (settings().host !== page.host) saveSettings({ host: page.host });
+		void readAppSignIn();
 	});
 	// The added name lets the sign-in page tell this app from a browser.
 	view.webContents.setUserAgent(
@@ -475,13 +540,18 @@ function createMainWindow(): void {
 	view.webContents.focus();
 }
 
+/** The background of the app's own two windows, so they do not flash while loading. */
+const windowColour = () =>
+	nativeTheme.shouldUseDarkColors ? "#0b0b0c" : "#fafafa";
+
 /** The small This Mac window: status and the day-to-day switches. */
 function openPanel(): void {
 	if (panel && !panel.isDestroyed()) return panel.show();
 	panel = new BrowserWindow({
-		width: 380,
-		height: 600,
+		width: 400,
+		height: 640,
 		title: "This Mac",
+		backgroundColor: windowColour(),
 		parent: mainWindow,
 		minimizable: false,
 		maximizable: false,
@@ -503,8 +573,8 @@ function openPanel(): void {
 function openSetup(): void {
 	if (setupWindow && !setupWindow.isDestroyed()) return setupWindow.show();
 	const window = new BrowserWindow({
-		width: 760,
-		height: 560,
+		width: 840,
+		height: 620,
 		title: "Set up this Mac",
 		parent: mainWindow,
 		resizable: false,
@@ -512,7 +582,7 @@ function openSetup(): void {
 		maximizable: false,
 		fullscreenable: false,
 		titleBarStyle: "hiddenInset",
-		backgroundColor: "#030303",
+		backgroundColor: windowColour(),
 		webPreferences: localPage,
 	});
 	setupWindow = window;
@@ -520,7 +590,10 @@ function openSetup(): void {
 	window.webContents.on("will-navigate", (event) => event.preventDefault());
 	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	// Coming back from the browser shows the new state at once.
-	window.on("focus", () => void refreshSetup(false));
+	window.on("focus", () => {
+		void refreshSetup(false);
+		void readAppSignIn();
+	});
 	void window.loadFile(join(root, "setup.html"));
 	void refresh();
 	void refreshSetup(true);
@@ -598,10 +671,20 @@ function setMenu(): void {
 					...(mac ? [{ role: "about" as const }] : []),
 					thisMac,
 					setUp,
-					{
-						label: "Sign In with Browser",
-						click: () => void signInWithBrowser(),
-					},
+					// Offered only while it is needed: signing in again when already
+					// signed in opens a browser page that leads nowhere.
+					appSignIn.state === "in"
+						? {
+								label: `Signed In as ${appSignIn.name || appSignIn.email || "you"}`,
+								enabled: false,
+							}
+						: {
+								label: "Sign In with Browser",
+								click: () => {
+									log("sign-in: chosen from the menu");
+									void signInWithBrowser();
+								},
+							},
 					{
 						label: "Check for Updates…",
 						click: () => void checkForUpdates(true),
@@ -686,21 +769,28 @@ else {
 			fromLocalPage(event);
 			if (name === "restart") return restartRunners();
 			if (name === "setup-window") return openSetup();
-			if (name === "close-setup") {
+			if (name === "close-setup" || name === "done-setup") {
 				setupWindow?.close();
+				if (name === "done-setup") return;
 				mainWindow?.show();
 				mainWindow?.focus();
 			}
 		});
 		ipcMain.handle("setup", async (event, action: SetupAction, id: unknown) => {
 			const asking = fromLocalPage(event);
-			await setupAction(action, typeof id === "string" ? id : "", async () => {
-				const options = {
-					message: "Choose the project folder Tedix should work in",
-					properties: ["openDirectory" as const],
-				};
-				const chosen = await dialog.showOpenDialog(asking, options);
-				return chosen.canceled ? undefined : chosen.filePaths[0];
+			await setupAction(action, typeof id === "string" ? id : "", {
+				chooseFolder: async () => {
+					const options = {
+						message: "Choose the project folder Tedix should work in",
+						properties: ["openDirectory" as const],
+					};
+					const chosen = await dialog.showOpenDialog(asking, options);
+					return chosen.canceled ? undefined : chosen.filePaths[0];
+				},
+				appSignIn: () => {
+					log("sign-in: chosen in Set up this Mac");
+					return signInWithBrowser();
+				},
 			});
 			await refresh();
 		});
@@ -727,7 +817,11 @@ else {
 		app.on("window-all-closed", () => app.quit());
 		powerMonitor.on("on-battery", () => void refresh());
 		powerMonitor.on("on-ac", () => void refresh());
-		setInterval(() => void refresh(), 5000);
+		setInterval(() => {
+			void refresh();
+			// While a browser sign-in is waiting, notice when it ends.
+			if (appSignIn.waiting) void readAppSignIn();
+		}, 5000);
 		// The checklist opens by itself while the command-line tool or the
 		// sign-in on this Mac is still to do.
 		onSetupChange(() => void publish());
