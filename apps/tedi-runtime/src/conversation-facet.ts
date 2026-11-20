@@ -336,7 +336,7 @@ export class ConversationFacet extends PiAgent<
 				throw new Error("Run is no longer running");
 			return pending.submissionId;
 		},
-		submit: async (operationId, content) => {
+		submit: async (operationId, content, sentByPerson) => {
 			const pending = await this.ctx.storage.get<PendingFacetSubmission>(
 				"pi-facet-pending-submission",
 			);
@@ -346,7 +346,7 @@ export class ConversationFacet extends PiAgent<
 				pending.configuration.delegated === true;
 			await (
 				await this.nativePiSession()
-			).steer(steeringTextForRun({ delegated, content }), {
+			).steer(steeringTextForRun({ delegated, sentByPerson, content }), {
 				operationId,
 				whenIdle: "reject",
 			});
@@ -1485,7 +1485,12 @@ export class ConversationFacet extends PiAgent<
 		if (this.state.sessionKey !== input.sessionKey)
 			throw new Error("Steering conversation mismatch");
 		if (input.action === "enqueue")
-			return this.runSteering.enqueue(input.runId, input.id, input.content);
+			return this.runSteering.enqueue(
+				input.runId,
+				input.id,
+				input.content,
+				input.sentByPerson === true,
+			);
 		if (input.action === "withdraw")
 			return this.runSteering.withdraw(input.runId);
 		return this.runSteering.inspect(input.runId);
