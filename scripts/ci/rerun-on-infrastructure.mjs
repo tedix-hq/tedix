@@ -66,9 +66,10 @@ export function browserFlakeCommand(command, specs, scripts) {
 		return command;
 	const runner = "browser-tests/run-specs.ts";
 	const [program, path, ...listed] = (scripts[script] ?? "").split(/\s+/);
-	const warm = /^--warm=\/[a-z\d/.,-]+$/.test(listed[0] ?? "")
-		? listed.splice(0, 1)
-		: [];
+	const warm = /^--warm=(?:(\d+\/\d+):)?(\/[a-z\d/.,?=%-]+)$/i.exec(
+		listed[0] ?? "",
+	);
+	if (warm) listed.shift();
 	if (
 		program !== "bun" ||
 		path !== runner ||
@@ -78,7 +79,13 @@ export function browserFlakeCommand(command, specs, scripts) {
 		!specs.every((spec) => listed.includes(spec))
 	)
 		return command;
-	return [bun, run, cwd, workspace, runner, ...warm, ...specs];
+	const shardFlag = command.indexOf("--shard", 5);
+	const shard = shardFlag < 0 ? "1/1" : command[shardFlag + 1];
+	// The retry already lists only the failed specs, so carry the matching
+	// warmup without reapplying the original shard selection.
+	const retryWarm =
+		warm && (!warm[1] || warm[1] === shard) ? [`--warm=${warm[2]}`] : [];
+	return [bun, run, cwd, workspace, runner, ...retryWarm, ...specs];
 }
 
 function run(command) {
