@@ -78,7 +78,7 @@ describe("Home write approval summary", () => {
 			});
 			const [summary, details] = content.split("### Details");
 			expect(summary).toContain("Update cells B2 in “Budget”.");
-			expect(summary).toContain("Reply “approve” or “yes”");
+			expect(summary).toContain("Use the Approve or Reject button to decide.");
 			expect(summary).not.toContain(id);
 			expect(summary).not.toContain("{");
 			expect(details).toContain(id);

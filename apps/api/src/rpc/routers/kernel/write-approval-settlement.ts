@@ -479,7 +479,7 @@ export function kernelWriteCardContent(input: {
 			? [input.proposal.reasoning]
 			: []),
 		"The write runs with your connection, or your organization’s connection if you have none.",
-		"Nothing has been executed. Reply “approve” or “yes” to proceed, or “reject” to cancel.",
+		"Nothing has been executed. Use the Approve or Reject button to decide.",
 		"### Details",
 		`Tool: \`${toolName}\` on ${input.proposal.appSlug}`,
 		`Request: ${input.approvalRequestId}`,

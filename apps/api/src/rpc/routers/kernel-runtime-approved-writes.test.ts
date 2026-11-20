@@ -1200,7 +1200,7 @@ describe("home approved-write layer (v1)", () => {
 		expect(result.status).toBe("requires_approval");
 		expect(result.run.status).toBe("requires_approval");
 		expect(result.assistantMessage.content).toContain(
-			"Nothing has been executed. Reply “approve” or “yes” to proceed",
+			"Nothing has been executed. Use the Approve or Reject button to decide.",
 		);
 		expect(result.assistantMessage.content).not.toContain("Executed");
 		expect(db.approvals[0]?.status).toBe("pending");
