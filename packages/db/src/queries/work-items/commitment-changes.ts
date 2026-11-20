@@ -76,7 +76,7 @@ export async function getCommitmentFollowupTarget(
 					eq(t.organizationId, i.orgId),
 					eq(t.scope, "personal"),
 					eq(t.status, "active"),
-					eq(t.ownerUserId, m.descopeUserId),
+					eq(t.ownerUserId, m.userId),
 				),
 			)
 			.where(
@@ -152,7 +152,7 @@ export async function getCommitmentFollowupTarget(
 				eq(t.organizationId, w.orgId),
 				eq(t.status, "active"),
 				eq(t.scope, "personal"),
-				eq(t.ownerUserId, m.descopeUserId),
+				eq(t.ownerUserId, m.userId),
 			),
 		)
 		.where(
@@ -312,7 +312,7 @@ export async function listCommitmentChanges(
 				'interaction', i.id, 'overdue', i.due_at
 			FROM overdue_interactions i JOIN tedis t ON t.organization_id = i.org_id AND t.status = 'active'
 				AND ((i.creator_type = 'tedi' AND i.creator_id = t.id) OR
-					(t.scope = 'personal' AND i.target_type = 'user' AND EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id=i.org_id AND m.user_id=i.target_id AND m.status='active' AND m.descope_user_id=t.owner_user_id)))
+					(t.scope = 'personal' AND i.target_type = 'user' AND EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id=i.org_id AND m.user_id=i.target_id AND m.status='active' AND m.user_id=t.owner_user_id)))
 			WHERE i.status = 'open' AND i.due_at > ${after} AND i.due_at <= ${through}
 				AND (i.expires_at IS NULL OR i.expires_at > ${through})
 				AND (i.work_item_id IS NULL OR EXISTS (SELECT 1 FROM work_items w WHERE w.id = i.work_item_id AND w.org_id = i.org_id AND w.disposition NOT IN ('completed', 'cancelled')))
@@ -355,7 +355,7 @@ export async function listCommitmentChanges(
 	const m = organizationMembers;
 	const personalMembers = and(
 		eq(m.organizationId, t.organizationId),
-		eq(m.descopeUserId, t.ownerUserId),
+		eq(m.userId, t.ownerUserId),
 		eq(m.status, "active"),
 	);
 	const memberWork = sql`${workItems} INDEXED BY idx_work_items_accountable_owner`;

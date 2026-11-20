@@ -409,11 +409,35 @@ export async function getTediBySlug(
 // Write Operations
 // ============================================================================
 
-/**
- * Create a new tedi
- */
+async function canonicalTediOwner(
+	db: DbClient,
+	organizationId: string,
+	ownerUserId: string,
+): Promise<string> {
+	// Prefer the canonical id if it also happens to be another member's subject.
+	const member =
+		(await db.query.organizationMembers.findFirst({
+			where: { organizationId, userId: ownerUserId },
+		})) ??
+		(await db.query.organizationMembers.findFirst({
+			where: { organizationId, descopeUserId: ownerUserId },
+		}));
+	if (!member?.userId)
+		throw new Error(
+			"Tedi owner must have a canonical organization member user id",
+		);
+	return member.userId;
+}
+
 export async function createTedi(db: DbClient, data: NewTedi): Promise<Tedi> {
-	const results = await db.insert(tedis).values(data).returning();
+	const ownerUserId =
+		data.ownerUserId == null
+			? null
+			: await canonicalTediOwner(db, data.organizationId, data.ownerUserId);
+	const results = await db
+		.insert(tedis)
+		.values({ ...data, ownerUserId })
+		.returning();
 	return results[0]!;
 }
 
@@ -425,6 +449,18 @@ export async function updateTedi(
 	tediId: string,
 	data: Partial<Omit<NewTedi, "id" | "organizationId">>,
 ): Promise<Tedi | undefined> {
+	if (data.ownerUserId != null) {
+		const existing = await getTediById(db, tediId);
+		if (!existing) return undefined;
+		data = {
+			...data,
+			ownerUserId: await canonicalTediOwner(
+				db,
+				existing.organizationId,
+				data.ownerUserId,
+			),
+		};
+	}
 	const results = await db
 		.update(tedis)
 		.set({

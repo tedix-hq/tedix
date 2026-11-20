@@ -246,7 +246,7 @@ export const tedis = sqliteTable(
 			.references(() => organizations.id, { onDelete: "cascade" }),
 
 		// Ownership
-		ownerUserId: text("owner_user_id"), // Descope user ID for personal tedis
+		ownerUserId: text("owner_user_id"), // Canonical organization member user id
 		ownerTeam: text("owner_team"),
 		justification: text("justification"),
 		dataSensitivity:

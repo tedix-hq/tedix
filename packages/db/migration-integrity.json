@@ -1812,6 +1812,10 @@
 		{
 			"name": "20261120193011_dispatcher_rules_skill/migration.sql",
 			"sha256": "4d5f5ed7acc9790da7d495e15fe734ad62e78e017740d529bc94a9c97922125c"
+		},
+		{
+			"name": "20261120220607_canonical_tedi_owner/migration.sql",
+			"sha256": "a68c485d8b0156c7aecdfa261ac39ba7a0090d7a47ad8d3531d1f25a73c6fce3"
 		}
 	]
 }

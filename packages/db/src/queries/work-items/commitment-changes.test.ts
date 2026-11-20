@@ -49,7 +49,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(`
 		INSERT INTO tedis(id,organization_id,name,slug,status,scope,owner_user_id)
-		VALUES ('personal','org-one','Personal','personal','active','personal','provider-user');
+		VALUES ('personal','org-one','Personal','personal','active','personal','human');
 		INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status)
 		VALUES ('member','org-one','human','provider-user','human@example.test','active');
 		INSERT INTO work_items(id,org_id,title,created_at,accepted_at,disposition,accountable_owner_type,accountable_owner_id)
