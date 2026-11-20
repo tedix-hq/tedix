@@ -37,3 +37,11 @@ export function useActiveTedis(): { id: string; name: string }[] {
 		[tedis.data],
 	);
 }
+
+/** True until the first read of the organization's tedis has answered. */
+export function useTediRosterPending(): boolean {
+	return useQuery({
+		...tediNamesQueryOptions(),
+		staleTime: 60_000,
+	}).isPending;
+}
