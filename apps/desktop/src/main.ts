@@ -15,7 +15,7 @@ import {
 	WebContentsView,
 } from "electron";
 import type { PanelAction, PanelLink, PanelState, RunnerField } from "./api";
-import { restartSupervisor } from "./cli";
+import { restartSupervisor, updateCli } from "./cli";
 import { log } from "./log";
 import { setRunnerField } from "./runners-file";
 import {
@@ -131,6 +131,11 @@ async function restartRunners(): Promise<void> {
 	}
 	lastOutput = "Restart `tedix supervise` yourself on this system";
 	await publish();
+}
+
+/** Looks for a newer command-line tool and shows each step in both windows. */
+function updateCommandLineTool(asked: boolean): Promise<void> {
+	return updateCli(asked, () => void refreshSetup(false).then(refresh));
 }
 
 function isTedixPage(url: string): boolean {
@@ -768,6 +773,7 @@ else {
 		ipcMain.handle("action", (event, name: PanelAction) => {
 			fromLocalPage(event);
 			if (name === "restart") return restartRunners();
+			if (name === "cli-update") return void updateCommandLineTool(true);
 			if (name === "setup-window") return openSetup();
 			if (name === "close-setup" || name === "done-setup") {
 				setupWindow?.close();
@@ -830,6 +836,9 @@ else {
 		});
 		setTimeout(() => void checkForUpdates(false), 10_000);
 		setInterval(() => void checkForUpdates(false), 4 * 60 * 60_000);
+		// The command-line tool has its own releases, more often than the app.
+		setTimeout(() => void updateCommandLineTool(false), 20_000);
+		setInterval(() => void updateCommandLineTool(false), 4 * 60 * 60_000);
 		void refresh();
 	});
 }

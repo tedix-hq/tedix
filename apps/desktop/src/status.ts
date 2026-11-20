@@ -65,6 +65,15 @@ async function activeRuns(folder: string): Promise<number> {
 	return count;
 }
 
+/** Tasks running on this Mac now, over every runner's folder. */
+export async function activeRunCount(): Promise<number> {
+	const root = join(configDir(), "dispatchers");
+	let count = 0;
+	for (const name of await readdir(root).catch(() => []))
+		count += await activeRuns(join(root, name));
+	return count;
+}
+
 async function machineToolsEvent(): Promise<string> {
 	try {
 		const file = await open(join(configDir(), "dev.tedix.machine-tools.log"));

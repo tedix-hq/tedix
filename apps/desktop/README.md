@@ -46,8 +46,18 @@ The app is not signed or notarized yet and has been run on macOS only.
   separate install is left alone until you choose **Let the app manage it**:
   the app keeps your file as `~/.local/bin/tedix.before-app`, links its copy
   and restarts the background service. **Use the separate install again**
-  reverses it. The linked copy leaves updating to the app: `tedix update`
-  and `tedix rollback` say so and change nothing.
+  reverses it.
+- **Keep the command-line tool current.** The command-line tool has its own
+  releases, more often than the app. The app looks for a newer one when it
+  starts and every four hours, downloads it, checks it, puts it in place of
+  its copy and restarts the background service so the runners use it. That
+  restart stops tasks that are running, so the app first waits for a moment
+  without any, for up to 30 minutes. **Tedix → This Mac…** and the
+  command-line tool step of **Set Up This Mac…** show the version in use
+  and what the app last did, or why an update did not apply, and have
+  **Check for command-line tool update**. `tedix update` and
+  `tedix rollback` in a terminal work on the app's copy too and restart the
+  background service themselves.
 - **See and change this computer's status.** **Tedix → This Mac…**
   (`Cmd+Shift+M`) shows the runners, active runs, whether the process that
   answers a tedi's requests on this computer is up, and the CLI version. It
@@ -146,6 +156,25 @@ the one in that release's `SHA256SUMS`; add a version to pin one
 (`bun scripts/fetch-cli.ts arm64 0.29.0`). Publish the CLI release the app
 needs first. A build without these two steps has no command-line tool inside.
 
+The copy inside the app is only the starting point. A CLI release reaches
+installed apps without an app release:
+
+- The app reads `https://downloads.tedix.dev/latest.json` and, when that
+  version is newer than its copy in `cli/tedix` in its data folder, downloads
+  `releases/<version>/tedix-<version>-darwin-<arm64|x64>` and refuses it
+  unless its SHA-256 is the one in that release's `SHA256SUMS`. Same rules
+  as the app's own update: https from that host only, no redirects.
+- The new file is written beside the copy, signed the same way, started once
+  to check its version, and renamed over the copy. The copy before is kept
+  as `cli/tedix.previous-app`. `tedix update` keeps its own `cli/tedix.previous`,
+  which `tedix rollback` puts back.
+- The app never replaces its copy with an older one. After an app update, the
+  copy inside the new app is used only when it is newer than the copy in the
+  data folder. So an app release does not need the newest CLI inside; it
+  needs one that is new enough for a first install.
+- To hold installed apps on a CLI version, do not move `latest.json` past it;
+  the app follows `latest.json` and has no pin of its own.
+
 ```sh
 bun install --frozen-lockfile
 bun scripts/fetch-cli.ts arm64
@@ -166,7 +195,7 @@ to, such as Applications. The first install is still by hand.
 | ---------------------- | ----------------------------------------------------- |
 | `src/main.ts`          | Windows, menu, sign-in, and the two windows' commands |
 | `src/setup.ts`         | The setup steps: coding tools, sign-in, running tasks |
-| `src/cli.ts`           | Copies and links the command-line tool inside the app |
+| `src/cli.ts`           | Copies, links and updates the app's command-line tool |
 | `setup.html`           | The Set up this Mac window (`src/onboarding.ts`)      |
 | `ui.css`               | Colours, buttons, switches and cards of both windows  |
 | `src/icons.ts`         | The small drawings both windows use                   |

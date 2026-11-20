@@ -1,4 +1,4 @@
-import type { PanelApi, PanelState } from "./api";
+import { cliUpdateLine, type PanelApi, type PanelState } from "./api";
 import { icon } from "./icons";
 
 /** The This Mac window: what runs here now, and the day-to-day switches. */
@@ -207,14 +207,25 @@ function draw(state: PanelState) {
 	if (options.length)
 		nodes.push(el("div", "section", "This Mac"), el("div", "card", ...options));
 
-	const notes = [...status.notes, ...serviceLines(state), lastOutput].filter(
-		Boolean,
-	);
+	const { cli } = state.setup;
+	const notes = [
+		...status.notes,
+		...serviceLines(state),
+		cliUpdateLine(cli),
+		lastOutput,
+	].filter(Boolean);
 	nodes.push(
 		el(
 			"div",
 			"buttons",
 			button("Restart runners", busy, () => void tedixShell.action("restart")),
+			button(
+				cli.update?.ok === false
+					? "Retry command-line tool update"
+					: "Check for command-line tool update",
+				busy || !!cli.updating,
+				() => void tedixShell.action("cli-update"),
+			),
 			button(
 				"Set up this Mac…",
 				false,
