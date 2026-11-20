@@ -5,7 +5,6 @@ import {
 import { DESKTOP_SIGN_IN_KEY_PATTERN } from "@tedix/auth/desktop-sign-in-code";
 import { validateToken } from "@tedix/auth/jwt";
 import { resolveProductSession } from "@tedix/auth/product-session-broker";
-import { hasStepUpClaim } from "@tedix/auth/types";
 import { OS_BROKER_SESSION_COOKIE } from "./session-broker";
 
 export const DESKTOP_SIGN_IN_PATH = "/auth/desktop/sign-in";
@@ -65,13 +64,13 @@ ${body}
  * in here and confirms, the page hands the app a one-time code that only that
  * app instance can read (`tedix://sign-in?code=…`).
  *
- * The code starts a lasting desktop session, so being signed in here is not
- * enough. Continue on the confirm page first asks the person to sign in again
- * (Descope's step-up flow) and posts the token that flow returns. This handler
- * and the API both refuse a token without the step-up claim, and this one also
- * refuses a token for anyone but the person signed in here. Loading the page
- * makes nothing. The code works once, for two minutes, and only the app that
- * made the key can read it.
+ * A person already signed in here does not sign in again. Loading the page
+ * makes nothing: the code is made only when the person clicks Continue on the
+ * confirm page, which posts from this origin. The code works once, for two
+ * minutes, and only the app that made the key can read it.
+ *
+ * Decided 20 Nov 2026: no second sign-in or fresh identity check here. It was
+ * added twice and taken out twice; do not add it again.
  */
 export async function handleDesktopSignIn(
 	request: Request,
@@ -94,7 +93,6 @@ export async function handleDesktopSignIn(
 	const body = posting
 		? ((await request.json().catch(() => null)) as {
 				key?: unknown;
-				steppedUpToken?: unknown;
 			} | null)
 		: null;
 	const key = posting ? body?.key : url.searchParams.get("key");
@@ -126,36 +124,12 @@ export async function handleDesktopSignIn(
 	if (posting) {
 		if (!session || !payload?.sub)
 			return json({ error: "Sign in to Tedix OS again, then retry." }, 401);
-		const steppedUpToken =
-			typeof body?.steppedUpToken === "string" &&
-			body.steppedUpToken.length <= 16_384
-				? body.steppedUpToken
-				: null;
-		const steppedUp = steppedUpToken
-			? await validateToken(steppedUpToken, {
-					projectId: env.DESCOPE_PROJECT_ID,
-					auditClaims: {
-						surface: "os:desktop-sign-in",
-						expected: [env.DESCOPE_PROJECT_ID],
-					},
-				}).catch(() => null)
-			: null;
-		if (
-			!hasStepUpClaim(steppedUp ?? undefined) ||
-			steppedUp?.sub !== payload.sub
-		)
-			return json(
-				{
-					error: "Confirm it is you by signing in again, then press Continue.",
-				},
-				403,
-			);
 		const response = await serviceBindingFetch(env.API_SERVICE)(
 			"https://api/__internal/desktop-sign-in-code",
 			{
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ session: steppedUpToken, key }),
+				body: JSON.stringify({ session, key }),
 				signal: AbortSignal.timeout(10_000),
 			},
 		).catch(() => null);
