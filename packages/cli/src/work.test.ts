@@ -1760,16 +1760,43 @@ describe("canonical ID and title resolution", () => {
 	const FULL_A = "aaaaaa11-2222-4333-8444-555555555555";
 	const FULL_B = "aaaaaa22-2222-4333-8444-555555555555";
 
-	test("a full UUID takes the direct context fast path", async () => {
-		const { ctx, sources } = makeContext({}, undefined, () => ({
-			workItem: { id: FULL_A, title: "Alpha" },
-			comments: [],
-			projections: [],
-		}));
-		expect((await capture(`context ${FULL_A}`, ctx)).code).toBe(0);
-		expect(sources).toHaveLength(1);
+	test("a full UUID reads context and the latest Attempt without a prefix lookup", async () => {
+		const { ctx, sources } = makeContext({}, undefined, (source) =>
+			source.includes("list_work_attempt_cli_rows")
+				? {
+						data: [
+							{
+								id: ATTEMPT,
+								attemptNumber: 1,
+								runtimeState: "failed",
+								outcome: "failed",
+								executorType: "external_agent",
+								executorId: "codex-7f3a9b12",
+								startedAt: "2026-08-28T18:00:00.000Z",
+								heartbeatAt: "2026-08-28T18:40:00.000Z",
+								summary: "Failed: no commit",
+							},
+						],
+					}
+				: {
+						workItem: { id: FULL_A, title: "Alpha" },
+						comments: [],
+						projections: [],
+					},
+		);
+		const result = await capture(`context ${FULL_A}`, ctx);
+		expect(result.code).toBe(0);
+		expect(sources).toHaveLength(2);
 		expect(sources[0]).toContain("get_work_items_by_id");
-		expect(sources[0]).not.toContain("list_work_item_cli_rows");
+		expect(sources[0]).toContain(`"id":"${FULL_A}"`);
+		expect(sources[1]).toContain("list_work_attempt_cli_rows");
+		expect(sources[1]).toContain(`"id":"${FULL_A}"`);
+		expect(sources[1]).toContain('"limit":1');
+		expect(sources.join("\n")).not.toContain("list_work_item_cli_rows");
+		expect(JSON.parse(result.out[0]!).lastAttempt).toEqual({
+			outcome: "failed",
+			summary: "Failed: no commit",
+		});
 	});
 
 	test("a unique mixed-case prefix resolves server-side before context", async () => {
