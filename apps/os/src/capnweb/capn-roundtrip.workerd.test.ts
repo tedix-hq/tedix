@@ -58,7 +58,10 @@ function apiService(handler: RpcHandler) {
 			const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
 			const body = (await request.json()) as { json?: unknown };
 			calls.push({ path, input: body.json });
-			return Response.json({ json: await handler(path, body.json) });
+			const result = await handler(path, body.json);
+			return result instanceof Response
+				? result
+				: Response.json({ json: result });
 		},
 	};
 	return { service, calls };
@@ -600,6 +603,32 @@ describe("/capn client↔Worker roundtrip over a real WebSocket", () => {
 		await expect(
 			conversation.enqueue({ content: "hi" }, "k"),
 		).rejects.not.toThrow(/internal-token-abc/);
+	});
+
+	it("carries the API's reason for refusing a message, with its code", async () => {
+		const { root } = await openRealSession((path) => {
+			if (path === "kernelRuntime/readRunSet") return runSet(["run-1"]);
+			if (path === "kernelRuntime/enqueueMessage")
+				return Response.json(
+					{
+						json: {
+							defined: true,
+							code: "FORBIDDEN",
+							message: "This delegation requires a human approval.",
+						},
+					},
+					{ status: 403 },
+				);
+			return HEAD();
+		});
+		const conversation = await root.openConversation(CONVERSATION_ID);
+		// The composer reads `code` to say "Message not sent" with this reason.
+		await expect(
+			conversation.enqueue({ content: "hi" }, "k"),
+		).rejects.toMatchObject({
+			message: "This delegation requires a human approval.",
+			code: "FORBIDDEN",
+		});
 	});
 
 	it("stops the server-side pump when the client closes", async () => {

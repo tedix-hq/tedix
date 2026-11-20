@@ -493,7 +493,9 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
-				"This delegation requires a human approval. Submit this task through Home without delegateToTediId so Home can prepare its approval card. Nothing was dispatched.",
+				pickedByPerson
+					? "This message asks for something that needs approval first, such as a message to someone outside, a payment or a deletion. Pick Home in the composer and send it again so Home can prepare the approval. Nothing was started."
+					: "This delegation requires a human approval. Submit this task through Home without delegateToTediId so Home can prepare its approval card. Nothing was dispatched.",
 			);
 		}
 		// Org standing consent can replace the human click for non-critical work.
