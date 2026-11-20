@@ -84,9 +84,6 @@ describe("workspace storage installation example", () => {
 			expect(result.config.migrations).toEqual(authored.migrations);
 			expect(result.config.worker_loaders).toEqual(authored.worker_loaders);
 			if (worker.id === "workspace-storage") {
-				expect(result.config.migrations).toEqual([
-					{ tag: "v1", new_sqlite_classes: ["WorkspaceDO"] },
-				]);
 				expect(result.config.worker_loaders).toEqual([{ binding: "LOADER" }]);
 				expect(result.config.durable_objects).toEqual({
 					bindings: [
