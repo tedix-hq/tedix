@@ -5,10 +5,18 @@ import {
 import { DESKTOP_SIGN_IN_KEY_PATTERN } from "@tedix/auth/desktop-sign-in-code";
 import { validateToken } from "@tedix/auth/jwt";
 import { resolveProductSession } from "@tedix/auth/product-session-broker";
-import { escapeHtml } from "@tedix/chat-transport/escape-html";
 import { OS_BROKER_SESSION_COOKIE } from "./session-broker";
 
 export const DESKTOP_SIGN_IN_PATH = "/auth/desktop/sign-in";
+/** The Tedix OS page where the person confirms who they are again. */
+export const DESKTOP_SIGN_IN_CONFIRM_PATH = "/desktop-sign-in";
+
+function json(body: Record<string, string>, status = 200): Response {
+	return Response.json(body, {
+		status,
+		headers: { "Cache-Control": "no-store" },
+	});
+}
 
 function page(body: string, status = 200): Response {
 	return new Response(
@@ -26,7 +34,6 @@ body { margin: 0; background: light-dark(#fbfbfb, #171320); color: light-dark(#1
 main { display: grid; min-height: 100dvh; grid-template-columns: minmax(0, 28rem); align-content: safe center; justify-content: center; justify-items: center; gap: 16px; padding: 24px; text-align: center; overflow-wrap: anywhere; }
 p { margin: 0; line-height: 1.5; }
 a { color: inherit; text-underline-offset: 3px; }
-button, a.button { font: inherit; padding: 10px 18px; border-radius: 8px; border: 0; background: light-dark(#171717, #f5f3ff); color: light-dark(#fbfbfb, #171320); cursor: pointer; text-decoration: none; }
 </style>
 </head>
 <body>
@@ -56,6 +63,10 @@ ${body}
  * person's normal browser with a key it just made. Once the person is signed
  * in here and confirms, the page hands the app a one-time code that only that
  * app instance can read (`tedix://sign-in?code=…`).
+ *
+ * Being signed in here is not enough to get that code. The confirm page in
+ * Tedix OS first asks the person to confirm who they are again and posts the
+ * token that proves it; the API issues nothing without it.
  */
 export async function handleDesktopSignIn(
 	request: Request,
@@ -75,16 +86,24 @@ export async function handleDesktopSignIn(
 			status: 403,
 			headers: { "Cache-Control": "no-store" },
 		});
-	const key = posting
-		? (await request.formData().catch(() => null))?.get("key")
-		: url.searchParams.get("key");
+	const body = posting
+		? ((await request.json().catch(() => null)) as {
+				key?: unknown;
+				proof?: unknown;
+			} | null)
+		: null;
+	const key = posting ? body?.key : url.searchParams.get("key");
 	if (typeof key !== "string" || !DESKTOP_SIGN_IN_KEY_PATTERN.test(key))
-		return page(
-			"<p>This sign-in link is incomplete. Start again from the Tedix app.</p>",
-			400,
-		);
+		return posting
+			? json({ error: "This sign-in link is incomplete." }, 400)
+			: page(
+					"<p>This sign-in link is incomplete. Start again from the Tedix app.</p>",
+					400,
+				);
 	if (!env.API_SERVICE || !env.DESCOPE_PROJECT_ID)
-		return page("<p>Sign-in is not available right now.</p>", 503);
+		return posting
+			? json({ error: "Sign-in is not available right now." }, 503)
+			: page("<p>Sign-in is not available right now.</p>", 503);
 
 	const session = resolveProductSession(
 		request.headers.get("Cookie"),
@@ -99,48 +118,44 @@ export async function handleDesktopSignIn(
 				},
 			}).catch(() => null)
 		: null;
-	const here = `${DESKTOP_SIGN_IN_PATH}?key=${key}`;
-	if (!session || !payload?.sub) {
-		// Not signed in in this browser yet: sign in the usual way, then return.
-		return new Response(null, {
-			status: 302,
-			headers: {
-				"Cache-Control": "no-store",
-				Location: `/auth/session-broker/continue?redirect_to=${encodeURIComponent(here)}`,
+	if (posting) {
+		if (!session || !payload?.sub)
+			return json({ error: "Sign in to Tedix OS again, then retry." }, 401);
+		const proof = body?.proof;
+		if (typeof proof !== "string" || !proof)
+			return json({ error: "Confirm who you are first." }, 403);
+		const response = await serviceBindingFetch(env.API_SERVICE)(
+			"https://api/__internal/desktop-sign-in-code",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ session, key, proof }),
+				signal: AbortSignal.timeout(10_000),
 			},
-		});
+		).catch(() => null);
+		if (response?.status === 403)
+			return json(
+				{ error: "We could not confirm it was you. Confirm again." },
+				403,
+			);
+		const code = response?.ok
+			? ((await response.json().catch(() => null)) as { code?: unknown } | null)
+					?.code
+			: undefined;
+		if (typeof code !== "string" || !/^[A-Za-z0-9_-]+$/.test(code))
+			return json({ error: "We could not prepare the sign-in." }, 503);
+		return json({ code });
 	}
-	if (!posting) {
-		const who =
-			typeof payload.email === "string" && payload.email
-				? ` as ${escapeHtml(payload.email)}`
-				: "";
-		return page(`<p>Sign in to the Tedix app on this computer${who}?</p>
-<p>Continue only if you just chose to sign in from the Tedix app.</p>
-<form method="post" action="${DESKTOP_SIGN_IN_PATH}">
-<input type="hidden" name="key" value="${key}">
-<button type="submit">Continue</button>
-</form>`);
-	}
-	const response = await serviceBindingFetch(env.API_SERVICE)(
-		"https://api/__internal/desktop-sign-in-code",
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ session, key }),
-			signal: AbortSignal.timeout(10_000),
+	// Not signed in in this browser yet: sign in the usual way, then return.
+	// Signed in: Tedix OS asks the person to confirm who they are again.
+	return new Response(null, {
+		status: 302,
+		headers: {
+			"Cache-Control": "no-store",
+			Location:
+				session && payload?.sub
+					? `${DESKTOP_SIGN_IN_CONFIRM_PATH}?key=${key}`
+					: `/auth/session-broker/continue?redirect_to=${encodeURIComponent(`${DESKTOP_SIGN_IN_PATH}?key=${key}`)}`,
 		},
-	).catch(() => null);
-	const code = response?.ok
-		? ((await response.json().catch(() => null)) as { code?: unknown } | null)
-				?.code
-		: undefined;
-	if (typeof code !== "string" || !/^[A-Za-z0-9_-]+$/.test(code))
-		return page(
-			`<p>We could not prepare the sign-in. <a href="${here}">Try again</a>.</p>`,
-			503,
-		);
-	return page(`<p>You are signed in. Open the Tedix app to finish.</p>
-<a class="button" href="tedix://sign-in?code=${code}">Open the Tedix app</a>
-<p>The button works once, for two minutes, and only in the app that asked.</p>`);
+	});
 }

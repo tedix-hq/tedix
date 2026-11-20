@@ -22,6 +22,7 @@ import { Route as BlueprintBlueprintIdRouteImport } from './routes/blueprint.$bl
 import { Route as SIdRouteImport } from './routes/s.$id'
 import { Route as AuthOauthConsentRouteImport } from './routes/_auth.oauth.consent'
 import { Route as CliSessionCliLoginRouteImport } from './routes/_cli-session/cli/login'
+import { Route as SessionChromeFreeDesktopSignInRouteImport } from './routes/_session/_chrome-free/desktop-sign-in'
 import { Route as SessionChromeFreeSharedRouteImport } from './routes/_session/_chrome-free/shared'
 import { Route as SessionTenantIndexRouteImport } from './routes/_session/_tenant/index'
 import { Route as SessionTenantAdminRouteImport } from './routes/_session/_tenant/admin'
@@ -154,6 +155,12 @@ const CliSessionCliLoginRoute = CliSessionCliLoginRouteImport.update({
   path: '/cli/login',
   getParentRoute: () => CliSessionRoute,
 } as any)
+const SessionChromeFreeDesktopSignInRoute =
+  SessionChromeFreeDesktopSignInRouteImport.update({
+    id: '/desktop-sign-in',
+    path: '/desktop-sign-in',
+    getParentRoute: () => SessionChromeFreeRoute,
+  } as any)
 const SessionChromeFreeSharedRoute = SessionChromeFreeSharedRouteImport.update({
   id: '/shared',
   path: '/shared',
@@ -565,6 +572,7 @@ export interface FileRoutesByFullPath {
   '/s/$id': typeof SIdRouteWithChildren
   '/oauth/consent': typeof AuthOauthConsentRoute
   '/cli/login': typeof CliSessionCliLoginRoute
+  '/desktop-sign-in': typeof SessionChromeFreeDesktopSignInRoute
   '/shared': typeof SessionChromeFreeSharedRoute
   '/admin': typeof SessionTenantAdminRouteWithChildren
   '/apps': typeof SessionTenantAppsRoute
@@ -646,6 +654,7 @@ export interface FileRoutesByTo {
   '/s/$id': typeof SIdRouteWithChildren
   '/oauth/consent': typeof AuthOauthConsentRoute
   '/cli/login': typeof CliSessionCliLoginRoute
+  '/desktop-sign-in': typeof SessionChromeFreeDesktopSignInRoute
   '/shared': typeof SessionChromeFreeSharedRoute
   '/apps': typeof SessionTenantAppsRoute
   '/audit': typeof SessionTenantAuditRoute
@@ -726,6 +735,7 @@ export interface FileRoutesById {
   '/s/$id': typeof SIdRouteWithChildren
   '/_auth/oauth/consent': typeof AuthOauthConsentRoute
   '/_cli-session/cli/login': typeof CliSessionCliLoginRoute
+  '/_session/_chrome-free/desktop-sign-in': typeof SessionChromeFreeDesktopSignInRoute
   '/_session/_chrome-free/shared': typeof SessionChromeFreeSharedRoute
   '/_session/_tenant/admin': typeof SessionTenantAdminRouteWithChildren
   '/_session/_tenant/apps': typeof SessionTenantAppsRoute
@@ -810,6 +820,7 @@ export interface FileRouteTypes {
     | '/s/$id'
     | '/oauth/consent'
     | '/cli/login'
+    | '/desktop-sign-in'
     | '/shared'
     | '/admin'
     | '/apps'
@@ -891,6 +902,7 @@ export interface FileRouteTypes {
     | '/s/$id'
     | '/oauth/consent'
     | '/cli/login'
+    | '/desktop-sign-in'
     | '/shared'
     | '/apps'
     | '/audit'
@@ -970,6 +982,7 @@ export interface FileRouteTypes {
     | '/s/$id'
     | '/_auth/oauth/consent'
     | '/_cli-session/cli/login'
+    | '/_session/_chrome-free/desktop-sign-in'
     | '/_session/_chrome-free/shared'
     | '/_session/_tenant/admin'
     | '/_session/_tenant/apps'
@@ -1144,6 +1157,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/cli/login'
       preLoaderRoute: typeof CliSessionCliLoginRouteImport
       parentRoute: typeof CliSessionRoute
+    }
+    '/_session/_chrome-free/desktop-sign-in': {
+      id: '/_session/_chrome-free/desktop-sign-in'
+      path: '/desktop-sign-in'
+      fullPath: '/desktop-sign-in'
+      preLoaderRoute: typeof SessionChromeFreeDesktopSignInRouteImport
+      parentRoute: typeof SessionChromeFreeRoute
     }
     '/_session/_chrome-free/shared': {
       id: '/_session/_chrome-free/shared'
@@ -1672,6 +1692,7 @@ const CliSessionRouteWithChildren = CliSessionRoute._addFileChildren(
 )
 
 interface SessionChromeFreeRouteChildren {
+  SessionChromeFreeDesktopSignInRoute: typeof SessionChromeFreeDesktopSignInRoute
   SessionChromeFreeSharedRoute: typeof SessionChromeFreeSharedRoute
   SessionChromeFreeOauthCallbackRoute: typeof SessionChromeFreeOauthCallbackRoute
   SessionChromeFreeWorkspaceWorkspaceIdRoute: typeof SessionChromeFreeWorkspaceWorkspaceIdRoute
@@ -1679,6 +1700,7 @@ interface SessionChromeFreeRouteChildren {
 }
 
 const SessionChromeFreeRouteChildren: SessionChromeFreeRouteChildren = {
+  SessionChromeFreeDesktopSignInRoute: SessionChromeFreeDesktopSignInRoute,
   SessionChromeFreeSharedRoute: SessionChromeFreeSharedRoute,
   SessionChromeFreeOauthCallbackRoute: SessionChromeFreeOauthCallbackRoute,
   SessionChromeFreeWorkspaceWorkspaceIdRoute:
