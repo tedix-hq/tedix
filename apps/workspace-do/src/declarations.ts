@@ -242,7 +242,7 @@ interface Web {
 }`.trim(),
 	machine: `
 /**
- * Use one of the organization's machines for the person who sent this turn: read a file, search code,
+ * Use one of the organization's machines for the person who sent this turn (only from the chat of a private workspace): read a file, search code,
  * read commits or CI runs on it. Works only in a turn a signed-in person with build access sent themself.
  * A machine whose owner switched the write tools on also accepts open_workspace, close_workspace,
  * write_file, edit_file and run_command; each of those waits for the person's approval first.

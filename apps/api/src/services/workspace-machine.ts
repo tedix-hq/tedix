@@ -49,6 +49,13 @@ export async function useWorkspaceMachine(
 		const workspace = await getOsWorkspace(deps.db, request);
 		if (!workspace || workspace.status !== "active")
 			return refused("This workspace is unavailable.");
+		// A shared workspace holds other people's files and messages, and a
+		// machine read is not held for approval, so only a private workspace's
+		// chat reaches a machine.
+		if (workspace.visibility !== "private")
+			return refused(
+				"A machine can be used only from the chat of a private workspace.",
+			);
 		const member = await getMemberByUserId(deps.db, orgId, request.userId);
 		if (member?.status !== "active" || !member.userId)
 			return refused("An active organization membership is required.");
