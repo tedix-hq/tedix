@@ -10,8 +10,10 @@ import {
 } from "@tedix/api-contract/schemas/audit";
 import {
 	appendGatewayChangeRecord,
+	countGatewayChangeRecordsInRange,
 	getGatewayChangeRecord,
 	listGatewayChangeRecords,
+	listGatewayChangeRecordsInRange,
 } from "@tedix/db/queries/gateway-change-records";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { gatewayChangeRecords } from "@tedix/db/schema/gateway-change-records";
@@ -20,6 +22,7 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
+	type GatewayCallGates,
 	GatewayAccountabilityAdapter,
 	UNSTORED_SEQUENCE,
 	admitGatewayCall,
@@ -79,6 +82,98 @@ const tool = {
 const ok = { content: [{ type: "text" as const, text: "ok" }] };
 
 describe("durable gateway ledger", () => {
+	it.each(["native", "code_mode"])(
+		"counts every Work read and liveness call through %s, queryable per tool and UTC day",
+		async (surface) => {
+			const { context, sqlite } = setup();
+			const agent = context();
+			const pending: Promise<unknown>[] = [];
+			Object.assign(agent, {
+				env: {},
+				ctx: {
+					waitUntil: (promise: Promise<unknown>) => pending.push(promise),
+				},
+			});
+			const calls = [
+				["get_work_case", "workItems/getCase"],
+				["get_work_case", "workItems/getCase"],
+				["list_work_cases", "workItems/listCases"],
+				["heartbeat_work_attempt", "workItems/heartbeatAttempt"],
+				["list_work_approvals", "workApprovals/listInbox"],
+				["list_work_interactions", "workInteractions/listInbox"],
+				["list_work_agent_sessions", "workAgentSessions/list"],
+				["get_work_fleet", "workFleet/get"],
+				["get_work_scheduler", "workScheduler/get"],
+				["read_work_map", "workMap/read"],
+			] as const;
+			for (const [toolId, endpoint] of calls) {
+				const heartbeat = endpoint.endsWith("/heartbeatAttempt");
+				const gates: GatewayCallGates = {
+					agent,
+					tool: {
+						toolId,
+						title: toolId,
+						inputSchema: { type: "object", properties: {} },
+						config: { transport: "rpc", endpoint, _aggregateNamespace: "cto" },
+						meta: {
+							"com.tedix/policy": {
+								riskTier: heartbeat ? "bounded_write" : "read",
+								blastRadius: heartbeat ? "single_resource" : "none",
+								...(heartbeat ? { skipAppliedChangeRecord: true } : {}),
+							},
+						},
+					},
+					args: { privateValue: "do-not-store" },
+					annotations: undefined,
+					toolName: surface === "native" ? toolId : `cto.${toolId}`,
+				};
+				if (surface === "native") await guardGatewayCall(gates, async () => ok);
+				else {
+					const admission = await admitGatewayCall(gates);
+					await admission.settle({ status: "applied" });
+					await admission.settle({ status: "applied" });
+				}
+			}
+			await Promise.all(pending);
+			const records = await new GatewayAccountabilityAdapter(context()).list();
+			expect(records).toHaveLength(calls.length);
+			expect(records.every((record) => record.outcome === "applied")).toBe(
+				true,
+			);
+			expect(records.map((record) => record.operation)).toEqual(
+				calls.map(([name]) => (surface === "native" ? name : `cto.${name}`)),
+			);
+			expect(JSON.stringify(records)).not.toContain("do-not-store");
+			const from = `${records[0]!.recordedAt.slice(0, 10)}T00:00:00.000Z`;
+			const until = new Date(Date.parse(from) + 86_400_000).toISOString();
+			const db = createDbQueryClient(createD1Facade(sqlite));
+			const range = { from, until, resource: "tool:get_work_case" };
+			expect(await countGatewayChangeRecordsInRange(db, "org-a", range)).toBe(
+				2,
+			);
+			expect(await countGatewayChangeRecordsInRange(db, "org-b", range)).toBe(
+				0,
+			);
+			expect(
+				await countGatewayChangeRecordsInRange(db, "org-a", {
+					...range,
+					from: until,
+					until: new Date(Date.parse(until) + 86_400_000).toISOString(),
+				}),
+			).toBe(0);
+			const page = await listGatewayChangeRecordsInRange(db, "org-a", range, {
+				limit: 1,
+			});
+			expect(page).toHaveLength(1);
+			expect(
+				await listGatewayChangeRecordsInRange(db, "org-a", range, {
+					limit: 1,
+					afterSequence: page[0]!.sequence,
+				}),
+			).toHaveLength(1);
+		},
+	);
+
 	it("stores allowed and refused calls once and reads them through a new request", async () => {
 		const { context } = setup();
 		const execute = vi.fn(async () => ok);
