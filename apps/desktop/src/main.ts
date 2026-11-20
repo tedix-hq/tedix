@@ -780,7 +780,7 @@ function openPanel(): void {
 function openSetup(): void {
 	if (setupWindow && !setupWindow.isDestroyed()) return setupWindow.show();
 	const window = new BrowserWindow({
-		width: 840,
+		width: 960,
 		height: 620,
 		title: "Set up this Mac",
 		parent: mainWindow,

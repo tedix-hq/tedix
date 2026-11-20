@@ -60,14 +60,11 @@ function button(title: string, disabled: boolean, click: () => void) {
 	return node;
 }
 
-const fact = (value: string, label: string) =>
-	el("div", "fact", el("b", "", value), el("small", "", label));
+const fact = (label: string, value: string) =>
+	el("div", "line", el("span", "", label), el("b", "", value));
 
-/**
- * Which version the background service runs, and a plain line when that is
- * not the version `~/.local/bin/tedix` now is.
- */
-function serviceLines({ status, setup }: PanelState): string[] {
+/** One line when the background service runs another version than the one in use. */
+function serviceLine({ status, setup }: PanelState): string {
 	const running = [
 		...new Set(
 			status.runners
@@ -75,15 +72,10 @@ function serviceLines({ status, setup }: PanelState): string[] {
 				.map((runner) => runner.version!),
 		),
 	];
-	const { version, other } = setup.cli;
-	const lines = other
-		? [`Command-line tool ${version} is in use; version ${other} is kept.`]
-		: [];
-	if (version && running.some((runs) => runs !== version))
-		lines.push(
-			`The background service still runs version ${running.join(", ")}; the command-line tool is now ${version}. Choose Restart runners to use it; that stops runs in progress.`,
-		);
-	return lines;
+	const { version } = setup.cli;
+	return version && running.some((runs) => runs !== version)
+		? `The background service still runs ${running.join(", ")}. Restart runners to use ${version}.`
+		: "";
 }
 
 function draw(state: PanelState) {
@@ -118,13 +110,18 @@ function draw(state: PanelState) {
 		),
 		el(
 			"div",
-			"facts",
-			fact(`${running}/${enabled.length}`, "runners running"),
+			"card",
+			fact("Runners", `${running} of ${enabled.length} running`),
+			fact("Active runs", String(status.activeRuns)),
 			fact(
-				String(status.activeRuns),
-				status.activeRuns === 1 ? "active run" : "active runs",
+				"Command-line tool",
+				[
+					status.cliVersion || "–",
+					state.setup.cli.other && `${state.setup.cli.other} kept`,
+				]
+					.filter(Boolean)
+					.join(" · "),
 			),
-			fact(status.cliVersion || "–", "command-line tool"),
 		),
 	];
 
@@ -173,11 +170,7 @@ function draw(state: PanelState) {
 						),
 					),
 				)
-			: el(
-					"p",
-					"note",
-					"Tedix does not run tasks on this Mac yet. Choose Set up this Mac… to turn it on.",
-				),
+			: el("p", "note", "No runners yet."),
 	);
 
 	const serving = status.servingIndex;
@@ -203,7 +196,7 @@ function draw(state: PanelState) {
 			el("label", "field", el("span", "", "Machine name"), name),
 			switchRow(
 				"Let tedis edit files and run commands",
-				`A tedi is a Tedix agent. Its requests are ${status.machineToolsUp ? "being answered" : "not being answered"} on this Mac.`,
+				status.machineToolsUp ? "Answering requests" : "Not answering requests",
 				status.machineWrite,
 				(on) =>
 					void tedixShell.set(
@@ -229,7 +222,7 @@ function draw(state: PanelState) {
 	const { cli } = state.setup;
 	const notes = [
 		...status.notes,
-		...serviceLines(state),
+		serviceLine(state),
 		cliUpdateLine(cli),
 		lastOutput,
 	].filter(Boolean);

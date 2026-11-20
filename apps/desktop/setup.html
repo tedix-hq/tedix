@@ -9,10 +9,36 @@
 		<title>Set up this Mac</title>
 		<link rel="stylesheet" href="ui.css" />
 		<style>
+			/*
+			 * The whole window is the screen: no rail, no panels. Two shapes,
+			 * a centred mark with a headline and a headline beside a plain
+			 * list of rows, over one soft glow.
+			 */
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--glow-strength: 13%;
+					--background: #08080a;
+				}
+			}
 			body {
 				display: grid;
-				grid-template-columns: 224px 1fr;
+				grid-template-rows: 1fr auto;
 				overflow: hidden;
+				font-size: 14px;
+				background:
+					radial-gradient(
+						560px 380px at var(--glow, 50% 40%),
+						color-mix(
+							in srgb,
+							var(--primary) var(--glow-strength, 7%),
+							transparent
+						),
+						transparent 72%
+					),
+					var(--background);
+			}
+			body:has(.split) {
+				--glow: 18% 46%;
 			}
 			.drag {
 				position: fixed;
@@ -20,292 +46,320 @@
 				height: 44px;
 				-webkit-app-region: drag;
 			}
-
-			/* The step rail. */
-			nav {
-				background: var(--rail);
-				border-right: 1px solid var(--border);
-				padding: 56px 12px 16px;
-				display: flex;
-				flex-direction: column;
-				gap: 2px;
-			}
-			.brand {
-				display: flex;
-				align-items: center;
-				gap: 8px;
-				font-weight: 600;
-				margin: 0 8px 16px;
-			}
-			.brand img {
-				width: 24px;
-				height: 24px;
-				border-radius: 6px;
-			}
-			nav button {
-				all: unset;
-				display: grid;
-				grid-template-columns: 24px 1fr 16px;
-				align-items: center;
-				gap: 8px;
-				height: 34px;
-				padding: 0 8px;
-				border-radius: var(--radius-small);
-				color: var(--muted-foreground);
-				font-size: 13px;
-				transition:
-					background 120ms,
-					color 120ms;
-			}
-			nav button:hover {
-				background: color-mix(in srgb, var(--muted) 60%, transparent);
-				color: var(--foreground);
-			}
-			nav button:focus-visible {
-				outline: 2px solid var(--primary);
-				outline-offset: -2px;
-			}
-			nav button[aria-current="step"] {
-				background: var(--card);
-				box-shadow:
-					var(--shadow),
-					0 0 0 1px var(--border);
-				color: var(--foreground);
-				font-weight: 550;
-			}
-			nav button[aria-current="step"] .glyph {
-				color: var(--primary);
-			}
-			nav .glyph {
-				display: grid;
-				place-items: center;
-			}
-			nav .status {
-				display: grid;
-				place-items: center;
-			}
-			nav .status.done {
-				color: var(--good);
-			}
-			nav .status.attention::after {
-				content: "";
-				width: 7px;
-				height: 7px;
-				border-radius: 50%;
-				background: var(--warn);
-			}
-			nav .foot {
-				margin: auto 8px 0;
-				font-size: 11.5px;
-				color: var(--faint);
-			}
-
-			/* One screen. */
 			main {
-				display: grid;
-				grid-template-rows: auto 1fr auto;
 				min-height: 0;
-				padding: 52px 32px 16px;
-			}
-			.eyebrow {
-				font-size: 11.5px;
-				font-weight: 600;
-				letter-spacing: 0.04em;
-				text-transform: uppercase;
-				color: var(--faint);
-				margin-bottom: 4px;
+				padding: 56px 56px 0;
+				display: grid;
 			}
 			h1 {
-				font-size: 22px;
-				line-height: 1.2;
-				font-weight: 650;
-				letter-spacing: -0.015em;
-				margin: 0 0 8px;
+				margin: 0;
+				font-weight: 500;
+				letter-spacing: -0.02em;
+				line-height: 1.15;
 			}
-			.lead {
+			.pill {
+				justify-self: start;
+				display: inline-flex;
+				align-items: center;
+				height: 24px;
+				padding: 0 10px;
+				border-radius: 12px;
+				background: var(--primary-soft);
+				color: var(--primary);
+				font-size: 12px;
+				font-weight: 550;
+			}
+
+			/* Shape A: centred. */
+			.centre {
+				align-self: center;
+				justify-self: center;
+				display: grid;
+				justify-items: center;
+				text-align: center;
+				gap: 12px;
+				padding-bottom: 32px;
+			}
+			.centre .mark {
+				margin-bottom: 20px;
+			}
+			.centre .mark img {
+				display: block;
+				width: 120px;
+				height: 120px;
+				border-radius: 27px;
+				box-shadow: 0 16px 48px rgb(80 40 200 / 28%);
+			}
+			.centre h1 {
+				font-size: 34px;
+			}
+			.centre p {
+				margin: 0;
 				color: var(--muted-foreground);
-				margin: 0 0 16px;
-				max-width: 60ch;
+				font-size: 15px;
 			}
-			.content {
-				overflow-y: auto;
+			.who {
+				display: inline-flex;
+				align-items: center;
+				gap: 8px;
+				margin-top: 12px;
+				color: var(--muted-foreground);
+				font-size: 13px;
+			}
+			.avatar {
+				width: 22px;
+				height: 22px;
+				border-radius: 50%;
+				display: grid;
+				place-items: center;
+				background: var(--primary-soft);
+				color: var(--primary);
+				font-size: 11.5px;
+				font-weight: 600;
+			}
+			.check {
+				width: 120px;
+				height: 120px;
+				border-radius: 50%;
+				display: grid;
+				place-items: center;
+				background: var(--good-soft);
+				color: var(--good);
+			}
+			.check path {
+				stroke-dasharray: 24;
+				animation: draw 400ms 160ms ease-out both;
+			}
+
+			/* Shape B: a headline on the left, rows on the right. */
+			.split {
+				display: grid;
+				grid-template-columns: 1fr 2fr;
+				gap: 64px;
 				min-height: 0;
-				margin: 0 -8px;
-				padding: 2px 8px 8px;
 			}
-			.enter {
-				animation: enter 180ms ease-out;
+			.side {
+				align-self: center;
+				display: grid;
+				gap: 16px;
+				padding-bottom: 32px;
 			}
-			.enter.back {
-				animation-name: enter-back;
+			.side h1 {
+				font-size: 30px;
+				text-wrap: balance;
 			}
-			@keyframes enter {
-				from {
-					opacity: 0;
-					transform: translateX(10px);
-				}
+			.side p {
+				margin: 0;
+				color: var(--muted-foreground);
 			}
-			@keyframes enter-back {
-				from {
-					opacity: 0;
-					transform: translateX(-10px);
-				}
+			.rows {
+				align-self: center;
+				max-height: 100%;
+				overflow-y: auto;
+				padding: 0 4px;
 			}
+			.r {
+				display: grid;
+				grid-template-columns: 32px 1fr auto;
+				column-gap: 16px;
+				align-items: center;
+				min-height: 80px;
+				padding: 16px 0;
+			}
+			.r + .r {
+				border-top: 1px solid var(--border);
+			}
+			.r .glyph {
+				display: grid;
+				place-items: center;
+				height: 32px;
+				color: var(--muted-foreground);
+			}
+			.r .text {
+				min-width: 0;
+			}
+			.r .title {
+				font-weight: 500;
+			}
+			.r .sub {
+				display: flex;
+				gap: 8px;
+				align-items: baseline;
+				color: var(--muted-foreground);
+				font-size: 13px;
+			}
+			.r .sub span {
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+			.r .sub .link {
+				flex: none;
+				color: var(--faint);
+				font-weight: 400;
+			}
+			.r .sub .link:hover {
+				color: var(--foreground);
+			}
+			#primary:focus-visible {
+				outline: 1.5px solid color-mix(in srgb, var(--primary) 45%, transparent);
+				outline-offset: 3px;
+			}
+			.r .control {
+				display: flex;
+				align-items: center;
+			}
+			.r label.switch {
+				display: block;
+				min-height: 0;
+				padding: 0;
+			}
+			.r .fail,
+			.r .details {
+				grid-column: 2 / -1;
+				font-size: 12.5px;
+				margin-top: 8px;
+			}
+			.r .fail {
+				display: flex;
+				gap: 8px;
+				align-items: baseline;
+				color: color-mix(in srgb, var(--bad) 80%, var(--muted-foreground));
+			}
+			.r .fail span {
+				user-select: text;
+				overflow-wrap: anywhere;
+			}
+			.r .fail .link {
+				flex: none;
+			}
+			.r .details {
+				display: grid;
+				gap: 4px;
+				justify-items: start;
+				color: var(--muted-foreground);
+				white-space: pre-wrap;
+				user-select: text;
+				overflow-wrap: anywhere;
+			}
+			.r .details p {
+				margin: 0;
+			}
+			.done {
+				display: inline-flex;
+				align-items: center;
+				gap: 4px;
+				color: var(--muted-foreground);
+				font-size: 13px;
+			}
+			.done svg {
+				color: var(--good);
+			}
+			.none {
+				margin: 0;
+				padding: 28px 0;
+				color: var(--muted-foreground);
+			}
+			.none + .r {
+				border-top: 1px solid var(--border);
+			}
+
+			/* The footer: Back, the progress dashes, and one button. */
 			footer {
 				display: flex;
 				align-items: center;
-				gap: 8px;
-				padding-top: 12px;
-				border-top: 1px solid var(--border);
+				gap: 12px;
+				height: 76px;
+				padding: 0 32px;
 			}
 			footer .space {
 				flex: 1;
 			}
-
-			/* Welcome. */
-			.hero {
+			.back {
+				all: unset;
+				width: 28px;
+				height: 28px;
+				border-radius: 50%;
 				display: grid;
-				justify-items: center;
-				text-align: center;
-				gap: 8px;
-				padding: 8px 0 24px;
-			}
-			.hero img {
-				width: 88px;
-				height: 88px;
-				border-radius: 20px;
-				box-shadow: 0 10px 30px rgb(80 40 200 / 22%);
-				margin-bottom: 8px;
-			}
-			.hero.compact {
-				padding: 0 0 16px;
-				gap: 4px;
-			}
-			.hero.compact img {
-				width: 56px;
-				height: 56px;
-				border-radius: 13px;
-			}
-			.hero h1 {
-				font-size: 26px;
-				margin: 0;
-			}
-			.hero p {
-				margin: 0;
+				place-items: center;
 				color: var(--muted-foreground);
-				max-width: 46ch;
+				background: color-mix(in srgb, var(--muted) 70%, transparent);
+				transition:
+					background 120ms,
+					transform 100ms;
 			}
-			.chip {
-				display: inline-flex;
-				align-items: center;
-				gap: 6px;
-				height: 24px;
-				padding: 0 10px;
-				border-radius: 12px;
+			.back[hidden] {
+				display: grid;
+				visibility: hidden;
+			}
+			.back:hover {
 				background: var(--muted);
-				color: var(--muted-foreground);
-				font-size: 12px;
-				margin-top: 4px;
+				color: var(--foreground);
 			}
-			.chip.good {
-				background: var(--good-soft);
-				color: var(--good);
-			}
-			ul.points {
-				list-style: none;
-				margin: 0 auto;
-				padding: 0;
-				display: grid;
-				gap: 12px;
-				max-width: 440px;
-			}
-			ul.points li {
-				display: grid;
-				grid-template-columns: 36px 1fr;
-				gap: 12px;
-				align-items: center;
-			}
-			ul.points .tile {
-				background: var(--primary-soft);
-				color: var(--primary);
-			}
-			ul.points b {
-				font-weight: 550;
-			}
-			ul.points small {
-				display: block;
-			}
-
-			/* The summary table. */
-			table.summary,
-			table.summary tbody {
-				display: block;
-			}
-			table.summary tr {
-				display: grid;
-				grid-template-columns: 148px 1fr auto;
-				align-items: center;
-				gap: 12px;
-				min-height: 40px;
-				padding: 6px 12px;
-				border-top: 1px solid var(--border);
-			}
-			table.summary tr:first-child {
-				border-top: 0;
-			}
-			table.summary td {
-				padding: 0;
-			}
-			table.summary td.what {
-				font-weight: 500;
-			}
-			table.summary td.detail {
-				color: var(--muted-foreground);
-				font-size: 12.5px;
-			}
-			table.summary td.end {
+			.dashes,
+			.actions {
 				display: flex;
 				align-items: center;
-				gap: 12px;
-				white-space: nowrap;
+				gap: 8px;
 			}
-			.pill {
-				display: inline-flex;
-				align-items: center;
-				gap: 4px;
-				height: 22px;
-				padding: 0 8px 0 6px;
-				border-radius: 11px;
-				font-size: 12px;
-				font-weight: 500;
-				background: var(--muted);
-				color: var(--muted-foreground);
+			.dashes {
+				gap: 0;
 			}
-			.pill.done {
-				background: var(--good-soft);
-				color: var(--good);
+			.dash {
+				all: unset;
+				padding: 12px 3px;
 			}
-			.pill.attention {
-				background: var(--warn-soft);
-				color: var(--warn);
+			.dash::before {
+				content: "";
+				display: block;
+				width: 14px;
+				height: 4px;
+				border-radius: 2px;
+				background: var(--input);
+				transition:
+					width 220ms ease,
+					background 220ms;
 			}
-			.section {
-				font-size: 11.5px;
-				font-weight: 600;
-				letter-spacing: 0.04em;
-				text-transform: uppercase;
-				color: var(--faint);
-				margin: 16px 4px 8px;
+			.dash[aria-current]::before {
+				width: 50px;
+				background: var(--primary);
 			}
-			.section:first-child {
-				margin-top: 0;
+			.dash:hover:not([aria-current])::before {
+				background: var(--faint);
+			}
+			.back:focus-visible,
+			.dash:focus-visible {
+				outline: 2px solid var(--primary);
+				outline-offset: 2px;
+			}
+			button.btn {
+				transition:
+					background 120ms,
+					transform 100ms;
+			}
+			button.btn:active:not(:disabled),
+			.back:active {
+				transform: scale(0.96);
+			}
+
+			/* A new screen: fade and slide, the left column first, then each row. */
+			.in {
+				animation: rise 220ms ease-out both;
+				animation-delay: calc(var(--i, 0) * 40ms);
+			}
+			@keyframes rise {
+				from {
+					opacity: 0;
+					transform: translateY(12px);
+				}
 			}
 		</style>
 	</head>
 	<body>
 		<div class="drag"></div>
-		<nav id="rail" aria-label="Setup steps"></nav>
 		<main id="screen"></main>
+		<footer id="foot"></footer>
 		<script src="out/onboarding.js"></script>
 	</body>
 </html>

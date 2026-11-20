@@ -28,19 +28,26 @@ The app is not signed or notarized yet and has been run on macOS only.
   cannot finish, the app says why and offers to start again. Once you are
   signed in, the menu shows who is signed in instead.
 - **Set up this Mac.** **Tedix → Set Up This Mac…** opens by itself until
-  this Mac is signed in, and from a `tedix://setup` link. One step per
-  screen: the two sign-ins, shown apart (Tedix in this app, and this Mac's
-  command-line tool with `tedix -w connect login`, started by the app), the
-  command-line tool, adding Tedix to the coding tools it finds (Claude Code,
-  Codex, Devin; OpenCode is only detected), the one manual step for the
-  Claude and ChatGPT apps, and which coding tools Tedix may start here. Each
-  coding tool is asked whether its own Tedix connection is signed in, and
-  gets a **Sign in** button only when the tool has a command for it. The
-  last screen lists every item as done, skipped or needing attention, with
-  one live check that the command-line tool reaches Tedix. Every action
-  shows its latest output line, and on failure the reason, Retry and Copy
-  details. It changes other tools only through `tedix setup agents` and the
-  tool's own commands.
+  this Mac is signed in, and from a `tedix://setup` link. Five short
+  screens, with dashes at the bottom left to move between them:
+  - **Welcome.**
+  - **This Mac:** the sign-in (first Tedix in this app, then this Mac's
+    command-line tool with `tedix -w connect login`, started by the app),
+    the command-line tool and its version, and opening at login.
+  - **Coding tools:** one row per tool found (Claude Code, Codex, Devin)
+    with **Add**, then **Sign in** when the tool has a command for it, then
+    **Ready**; and the one manual step for the Claude and ChatGPT apps.
+  - **Run tasks:** a switch per tool Tedix may start here, whether Tedix
+    may edit files and run commands, and the project folder.
+  - **Ready:** one line on what is connected after one live check that the
+    command-line tool reaches Tedix, or the one thing that still needs you
+    with a link to its screen.
+
+  A row shows one short line and one control. Versions, places and what a
+  failure said are behind **Details**; a failed step shows its reason and
+  **Retry** under the row. The window changes other tools only through
+  `tedix setup agents` and the tool's own commands.
+
 - **The command-line tool.** With no `tedix` installed, the app links its own
   copy and adds `~/.local/bin` to your shell profile if it is missing. A
   separate install is left alone until you choose **Let the app manage it**:

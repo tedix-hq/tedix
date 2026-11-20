@@ -68,6 +68,7 @@ const PATHS = {
 	download: ["M12 4v10.5", "M7.5 10.5l4.5 4.5 4.5-4.5", "M5 19.5h14"],
 	refresh: ["M20 12a8 8 0 1 1-2.6-5.9", "M20 4v4.5h-4.5"],
 	arrow: ["M5 12h14", "M13 6l6 6-6 6"],
+	back: ["M19 12H5", "M11 6l-6 6 6 6"],
 } as const;
 
 export type IconName = keyof typeof PATHS;
