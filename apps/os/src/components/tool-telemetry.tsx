@@ -11,13 +11,6 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/kumo/empty";
-import {
-	EvidenceRow,
-	EvidenceRowContent,
-	EvidenceRowDetail,
-	EvidenceRowSignal,
-	EvidenceRowStatus,
-} from "@/components/kumo/evidence-row";
 import { Meter } from "@/components/kumo/meter";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import {
@@ -171,12 +164,13 @@ export function ToolEventRow({ event }: { event: TediToolEvent }) {
 	useOsFormattingPreferences();
 	const latency = formatDurationMs(event.latencyMs);
 	return (
-		<EvidenceRow
-			as="li"
+		<li
+			data-slot="evidence-row"
 			data-success={event.success === null ? "unknown" : String(event.success)}
-			className="gap-y-0.5 rounded-lg px-3 py-2"
+			className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-0.5 rounded-lg px-3 py-2"
 		>
-			<EvidenceRowSignal
+			<div
+				data-slot="evidence-row-signal"
 				aria-hidden
 				className={cn(
 					"mt-1.5 size-2 shrink-0 rounded-full bg-kumo-interact",
@@ -184,10 +178,13 @@ export function ToolEventRow({ event }: { event: TediToolEvent }) {
 					event.success === false && "bg-kumo-danger",
 				)}
 			/>
-			<EvidenceRowContent className="truncate font-medium text-kumo-strong text-sm">
+			<div
+				data-slot="evidence-row-content"
+				className="min-w-0 truncate font-medium text-kumo-strong text-sm"
+			>
 				{toolLabel(event.toolName)}
-			</EvidenceRowContent>
-			<EvidenceRowStatus>
+			</div>
+			<div data-slot="evidence-row-status" className="min-w-0">
 				<Badge
 					variant={
 						event.success === false
@@ -203,20 +200,26 @@ export function ToolEventRow({ event }: { event: TediToolEvent }) {
 							? "Succeeded"
 							: "Unknown"}
 				</Badge>
-			</EvidenceRowStatus>
+			</div>
 			{event.error ? (
-				<EvidenceRowDetail className="text-kumo-danger text-xs">
+				<div
+					data-slot="evidence-row-detail"
+					className="col-span-2 col-start-2 min-w-0 text-kumo-danger text-xs"
+				>
 					{event.error}
-				</EvidenceRowDetail>
+				</div>
 			) : null}
-			<EvidenceRowDetail className="text-kumo-subtle text-xs tabular-nums">
+			<div
+				data-slot="evidence-row-detail"
+				className="col-span-2 col-start-2 min-w-0 text-kumo-subtle text-xs tabular-nums"
+			>
 				<time dateTime={event.createdAt} title={absoluteTime(event.createdAt)}>
 					{relativeTime(event.createdAt)}
 				</time>
 				{latency ? ` · ${latency}` : ""}
 				{event.runId ? ` · run ${event.runId.slice(0, 8)}` : ""}
-			</EvidenceRowDetail>
-		</EvidenceRow>
+			</div>
+		</li>
 	);
 }
 
