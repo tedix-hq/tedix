@@ -136,6 +136,17 @@ export async function checkMcpRequestRateLimit(
 		(await checkRateLimit(limiter, key)).allowed
 			? ({ allowed: true } as const)
 			: ({ allowed: false, scope: bucketScope(key), ...limit } as const);
+	// One login runs every hook, dispatcher and agent session on its machine,
+	// and each CLI call is several requests. At 100 a minute a busy Mac was
+	// refused about every four minutes (20 Nov 2026); each refusal pauses every
+	// process on that login for the Retry-After. A user gets the same ceiling
+	// as one external-agent principal across its sessions.
+	if (
+		!ceiling &&
+		bucketScope(request) === "user" &&
+		env.MCP_PRINCIPAL_RATE_LIMITER
+	)
+		return charge(env.MCP_PRINCIPAL_RATE_LIMITER, request, MCP_PRINCIPAL_LIMIT);
 	if (!ceiling) return charge(env.MCP_RATE_LIMITER, request, MCP_REQUEST_LIMIT);
 	if (!env.MCP_PRINCIPAL_RATE_LIMITER) {
 		return charge(env.MCP_RATE_LIMITER, ceiling, MCP_REQUEST_LIMIT);
