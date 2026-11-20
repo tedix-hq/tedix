@@ -138,6 +138,8 @@ export function writeDispatcherHealthSource(
 	) {
 		source.lastAdmissionAt = previous.lastAdmissionAt;
 		source.lastCompleted = previous.lastCompleted;
+		// A restarted runner stays a declared user of its rules skill.
+		source.rulesSkillId = previous.rulesSkillId;
 		const journal = ReliabilityJournalSchema.safeParse(previous.reliability);
 		if (journal.success) source.reliability = journal.data;
 	}

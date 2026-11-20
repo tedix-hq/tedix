@@ -79,6 +79,7 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	report_work_agent_session_status: "workAgentSessions/report",
 	report_dispatcher_health: "dispatcherHealth/report",
 	list_dispatcher_health: "dispatcherHealth/list",
+	get_runner_rules: "dispatcherHealth/getRunnerRules",
 	list_work_item_cli_rows: "workItems/listCliProjection",
 	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",
@@ -4499,7 +4500,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(70);
+		expect(covered).toHaveLength(71);
 	});
 });
 

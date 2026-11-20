@@ -840,6 +840,12 @@ accept `--input '{"metadata":{...}}'` for bounded execution receipts, while thei
 normal identity and Attempt fences remain mandatory.
 `work dispatcher-health-list` reads the current organization-scoped reports;
 `dispatcher-health-record --input <json>` is the supervisor's reporting path.
+`work runner-rules` reads the rules every runner inherits from the installation.
+A runner gives each run those rules, followed by the organization's own rules
+skill when `lane serve --rules <skill>` names one that is active. A named skill
+that is missing or archived is reported in the runner's log and health report,
+and runs go on with the inherited rules. Without the inherited rules the runner
+admits no Work and says so.
 
 ### Controlled remote email jobs
 
