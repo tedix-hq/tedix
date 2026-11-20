@@ -67,6 +67,11 @@ function fixture(ask = false) {
 		},
 		listResources: async () => [],
 		listWork: async () => [],
+		listOpenWork: async () => ({
+			covers: "linked_projects",
+			items: [],
+			projects: [],
+		}),
 		createWork: async () => {
 			throw new Error("unused");
 		},

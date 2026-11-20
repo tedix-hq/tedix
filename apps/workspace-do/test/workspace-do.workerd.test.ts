@@ -473,7 +473,7 @@ const READ_ONLY_CODE = `export default async (env) => {
 	const challenges = sheet.content.rows.filter((r) => r[0] !== "Problem statement").length;
 	const priorities = doc.content.blocks.find((b) => b.type === "list").items;
 	const open = await env.work.listOpen();
-	return { challenges, priorities, openWork: open.length };
+	return { challenges, priorities, openWork: open.items.length };
 }`;
 
 describe("WorkspaceDO", () => {
@@ -3431,7 +3431,7 @@ describe("WorkspaceDO", () => {
 			).bind(itemId, scope.organizationId, projectId, now, now),
 		]);
 		const code = `export default async (env) => ({
-			found: (await env.work.listOpen({ query: "elsewhere" })).map((item) => item.id),
+			found: (await env.work.listOpen({ query: "elsewhere" })).items.map((item) => item.id),
 			accept: await env.work.accept({ workItemId: ${JSON.stringify(itemId)}, doneWhen: "Done" }).then(() => "accepted", (error) => error.message),
 		})`;
 		const ask = async (workspaceScope: WorkspaceScope) => {
@@ -3476,6 +3476,111 @@ describe("WorkspaceDO", () => {
 		await testEnv.DB.prepare("DELETE FROM work_items WHERE id = ?")
 			.bind(itemId)
 			.run();
+	});
+
+	test("with a tedi answering in the person's own workspace, the board covers every active project it leads and a run needs a named project", async () => {
+		await seedCore();
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([own]);
+		await privateTo(own, "u1");
+		const now = new Date().toISOString();
+		const [first, second, archived] = ["active", "active", "archived"].map(
+			(status, index) => ({
+				id: crypto.randomUUID(),
+				key: `L${index}${crypto.randomUUID().slice(0, 4)}`,
+				status,
+			}),
+		);
+		const items = [first, second, archived].map((project) => ({
+			id: crypto.randomUUID(),
+			projectId: project!.id,
+		}));
+		await testEnv.DB.batch([
+			...[first, second, archived].map((project, index) =>
+				testEnv.DB.prepare(
+					"INSERT INTO projects (id, org_id, key, name, status, lead_tedi_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'tedi1', ?, ?)",
+				).bind(
+					project!.id,
+					scope.organizationId,
+					project!.key,
+					`Led ${index}`,
+					project!.status,
+					now,
+					now,
+				),
+			),
+			...items.map((item) =>
+				testEnv.DB.prepare(
+					"INSERT INTO work_items (id, org_id, project_id, title, disposition, work_kind, created_at, updated_at) VALUES (?, ?, ?, 'Led task', 'proposed', 'coding', ?, ?)",
+				).bind(item.id, scope.organizationId, item.projectId, now, now),
+			),
+		]);
+		const ws = workspace(own);
+		await ws.setApprovalMode(own, { userId: "u1", mode: "auto" });
+		await ws.scriptModel(own, [
+			{
+				code: `export default async (env) => ({
+					board: await env.work.listOpen(),
+					run: await env.work.startRun({ title: "Fix it", brief: "Fix it", doneWhen: "Fixed", executor: "codex" }).then(() => "started", (error) => error.message),
+				})`,
+			},
+			{ text: "Done." },
+		]);
+		const sent = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			tediId: "tedi1",
+			text: "Check the work board and start a fix.",
+		});
+		await ws.awaitTurn(own, sent.turnId, 20_000);
+		const finished = (
+			await ws.readEvents(own, { conversationId: sent.conversationId })
+		).find(
+			(event) =>
+				event.type === "step.finished" && event.stepId.startsWith("tool:"),
+		);
+		const { board, run } = JSON.parse(
+			finished?.type === "step.finished"
+				? (finished.result ?? "").replace("return value:\n", "")
+				: "{}",
+		) as {
+			board: {
+				covers: string;
+				items: Array<{ id: string; projectKey: string; projectName: string }>;
+				projects: Array<{ key: string; open: number }>;
+			};
+			run: string;
+		};
+		expect(board.covers).toBe("led_projects");
+		expect(board.items.map((item) => item.id).sort()).toEqual(
+			[items[0]!.id, items[1]!.id].sort(),
+		);
+		expect(board.items).toContainEqual(
+			expect.objectContaining({
+				id: items[0]!.id,
+				projectKey: first!.key,
+				projectName: "Led 0",
+			}),
+		);
+		expect(board.projects.map(({ key, open }) => ({ key, open }))).toEqual(
+			expect.arrayContaining([
+				{ key: first!.key, open: 1 },
+				{ key: second!.key, open: 1 },
+			]),
+		);
+		expect(board.projects).toHaveLength(2);
+		expect(run).toContain("Which project is this for?");
+		expect(run).toContain(`${first!.key} Led 0`);
+		expect(run).toContain(`${second!.key} Led 1`);
+		expect(run).not.toContain(archived!.key);
+		await testEnv.DB.batch([
+			testEnv.DB.prepare(
+				`DELETE FROM work_items WHERE id IN (${items.map(() => "?").join(", ")})`,
+			).bind(...items.map((item) => item.id)),
+			testEnv.DB.prepare(
+				"UPDATE projects SET lead_tedi_id = NULL WHERE lead_tedi_id = 'tedi1'",
+			),
+		]);
 	});
 
 	test("a stale edit fails inside the turn, the model is told and nothing is left waiting", async () => {
