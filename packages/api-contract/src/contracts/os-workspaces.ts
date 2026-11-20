@@ -465,6 +465,22 @@ export const osWorkspacesContract = oc
 					}),
 				)
 				.output(z.object({ workspace: OsWorkspaceSchema })),
+			personal: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/personal",
+					summary: "Read or create the calling member's own private workspace",
+					description:
+						"Returns the member's private workspace, where their chats with a tedi run and where outputs of chats without a workspace go. With create true it is made once when the member has none; otherwise a member without one gets null.",
+				})
+				.input(z.object({ create: z.boolean().default(false) }))
+				.output(
+					z.object({
+						workspace: OsWorkspaceSchema.nullable(),
+						/** True when this call made the workspace. */
+						created: z.boolean(),
+					}),
+				),
 			createFromConversation: oc
 				.route({
 					method: "POST",

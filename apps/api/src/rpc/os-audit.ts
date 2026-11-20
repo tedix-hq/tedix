@@ -210,6 +210,13 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceId: ({ output }) => nestedId(output, "workspace"),
 		metadata: ({ output }) => ({ name: fields(output.workspace).name }),
 	},
+	"workspaces.personal": {
+		action: "os.workspace.created",
+		resourceType: "os_workspace",
+		resourceId: ({ output }) =>
+			output.created === true ? nestedId(output, "workspace") : [],
+		metadata: ({ output }) => ({ name: fields(output.workspace).name }),
+	},
 	"workspaces.createFromConversation": {
 		action: "os.workspace.created",
 		resourceType: "os_workspace",

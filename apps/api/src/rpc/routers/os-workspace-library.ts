@@ -65,7 +65,10 @@ import {
 	resolveOsWorkspaceViewer,
 } from "../../services/os-workspace-visibility";
 import { resolveKernelConversationAccess } from "../../kernel/conversation-access";
-import { DEFAULT_OS_WORKSPACE_NAME } from "../../services/os-default-workspace";
+import {
+	DEFAULT_OS_WORKSPACE_NAME,
+	ensureDefaultOsWorkspace,
+} from "../../services/os-default-workspace";
 import { scheduleOsWorkspaceSummaryPublish } from "../../services/workspace-summaries";
 import { purgeArchivedOsItems } from "../../services/os-archived-purge";
 
@@ -292,6 +295,43 @@ const create = authorOs.workspaces.create.handler(
 		} catch (error) {
 			rethrowNameConflict(error);
 		}
+	},
+);
+
+/**
+ * The calling member's own private workspace. Chats with a picked tedi run
+ * in it, so the chat page asks for it before it opens the connection.
+ */
+const personal = authorOs.workspaces.personal.handler(
+	async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const db = queryDb(context);
+		const ownerUserId = input.create
+			? await requirePrivateOwner(context)
+			: await resolveOsWorkspaceOwnerCandidate(context);
+		if (!ownerUserId) return { workspace: null, created: false };
+		const existing = await getPersonalOsWorkspace(db, {
+			organizationId,
+			ownerUserId,
+		});
+		if (existing || !input.create)
+			return {
+				workspace: existing ? mapWorkspace(existing) : null,
+				created: false,
+			};
+		const accountable = creator(context);
+		const workspace = await ensureDefaultOsWorkspace(db, {
+			organizationId,
+			ownerUserId,
+			createdByKind: accountable.kind,
+			createdById: accountable.id,
+		});
+		if (!workspace)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Your private workspace could not be created",
+			);
+		return { workspace: mapWorkspace(workspace), created: true };
 	},
 );
 
@@ -768,6 +808,7 @@ export const osWorkspaceProcedures = {
 	list,
 	create,
 	createFromConversation,
+	personal,
 	get,
 	update,
 	setIcon,

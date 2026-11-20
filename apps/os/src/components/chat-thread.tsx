@@ -300,6 +300,7 @@ export function ChatThread({
 	detailsActions,
 	detailsOpen = false,
 	onStartWorkspace,
+	onPickTediForNewChat,
 }: {
 	/** `null` = fresh conversation not yet created; the first send creates it. */
 	conversationId: string | null;
@@ -344,6 +345,12 @@ export function ChatThread({
 	 * opens it. A rejection keeps the draft and shows its message.
 	 */
 	onStartWorkspace?: (question: string) => Promise<void>;
+	/**
+	 * A tedi was picked before the first message. The host then runs the chat
+	 * with that tedi itself, so its replies stream at once; this thread is
+	 * replaced; the host gets what was typed so far to carry it over.
+	 */
+	onPickTediForNewChat?: (tediId: string, draft: string) => void;
 }) {
 	const pushVisibilityRef = usePushConversation(
 		composerOnly ? null : conversationId,
@@ -595,6 +602,15 @@ export function ChatThread({
 		? tediTarget.known && selectedTediId === null
 		: tediTarget.known || activeTedis.length === 0;
 	const pickTedi = (tediId: string | null) => {
+		if (tediId && conversationId === null && onPickTediForNewChat) {
+			try {
+				window.localStorage.removeItem(chatDraftKey(null));
+			} catch {
+				// The draft then also stays for the next Home chat.
+			}
+			onPickTediForNewChat(tediId, draft);
+			return;
+		}
 		const target = conversationId ?? newConversationIdRef.current;
 		if (target === null) return;
 		rememberComposerTediPick(target, tediId);

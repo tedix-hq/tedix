@@ -1,0 +1,46 @@
+/*
+ * The workspace chat inside /chat: the same column width as a Home thread, no
+ * second "back" on wide screens (the list is beside it), and the tedi picker
+ * in place of the workspace's own "Replying agent" choice.
+ */
+.chat-tedi-thread {
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+}
+
+.chat-tedi-thread .workspace-chat-thread > *,
+.chat-tedi-thread .workspace-chat-composer,
+.chat-tedi-thread .workspace-chat-tray,
+.chat-tedi-thread .workspace-chat-tray-notice,
+.chat-tedi-thread .workspace-chat-error,
+.chat-tedi-thread .workspace-chat-unavailable {
+	width: 100%;
+	max-width: 48rem;
+	box-sizing: border-box;
+	margin-inline: auto;
+}
+
+.chat-tedi-thread [aria-label="Replying agent"] {
+	display: none;
+}
+
+/* The empty thread's line speaks of a workspace; a chat here shows none. */
+.chat-tedi-thread .workspace-chat-empty {
+	visibility: hidden;
+}
+
+.chat-tedi-thread .chat-tedi-picker {
+	order: -1;
+}
+
+@media (min-width: 768px) {
+	.chat-tedi-thread .workspace-chat-header > [aria-label="All conversations"] {
+		display: none;
+	}
+	.chat-tedi-thread .workspace-chat-header {
+		padding-left: 16px;
+	}
+}

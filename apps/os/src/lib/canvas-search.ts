@@ -1,5 +1,6 @@
 import { optionalUuidSearchParam } from "@/lib/os-route-loaders";
 import { cardSourceSearch } from "./card-source-filter";
+import { parseTediChatConversationId } from "./chat-tedi-conversations";
 
 export type CanvasDocSelection =
 	| { type: "gadget"; id: string }
@@ -182,7 +183,13 @@ function optionalRunIdSearchParam(value: unknown): string | undefined {
 export function validateChatSearch(
 	search: Record<string, unknown>,
 ): ChatSearch {
-	const conversation = canvasConversationFromSearch(search.conversation);
+	// A chat with a picked tedi lives in the person's private workspace.
+	const conversation =
+		canvasConversationFromSearch(search.conversation) ??
+		(typeof search.conversation === "string" &&
+		parseTediChatConversationId(search.conversation)
+			? search.conversation
+			: undefined);
 	const details = optionalRunIdSearchParam(search.details);
 	const branch = details ? optionalRunIdSearchParam(search.branch) : undefined;
 	return {
