@@ -252,7 +252,11 @@ function mount(
 describe("WorkspaceChat", () => {
 	it("offers organization skills for a slash and sends the picked reference", async () => {
 		queryClient.setQueryData<unknown>(
-			skillCatalogQueryOptions(SKILL_CATALOG_LIMIT).queryKey,
+			skillCatalogQueryOptions({
+				limit: SKILL_CATALOG_LIMIT,
+				excludeArchived: true,
+				excludeImprovements: true,
+			}).queryKey,
 			{
 				entries: [
 					{
