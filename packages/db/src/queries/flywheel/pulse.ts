@@ -140,25 +140,36 @@ export async function getLastFact(
 	db: DbClient,
 	access: FlywheelAccess,
 ): Promise<LastFact[]> {
-	return db
-		.select({
-			id: memoryFacts.id,
-			summary: memoryFacts.summary,
-			factType: memoryFacts.factType,
-			confidence: memoryFacts.confidence,
-			source: memoryFacts.source,
-			createdAt: memoryFacts.createdAt,
-		})
-		.from(memoryFacts)
-		.where(
-			and(
-				eq(memoryFacts.organizationId, access.orgId),
-				or(eq(memoryFacts.tediId, access.tediId), isNull(memoryFacts.tediId)),
-				isNull(memoryFacts.archivedAt),
-			),
-		)
-		.orderBy(desc(memoryFacts.createdAt))
-		.limit(1);
+	// Two seeks on idx_memory_facts_flywheel_created, one for the tedi and one
+	// for organization-wide facts. A single `tedi_id = ? OR tedi_id IS NULL`
+	// read could not use that index and walked ~42k rows per call (20 Nov 2026).
+	const newest = (tedi: ReturnType<typeof eq> | ReturnType<typeof isNull>) =>
+		db
+			.select({
+				id: memoryFacts.id,
+				summary: memoryFacts.summary,
+				factType: memoryFacts.factType,
+				confidence: memoryFacts.confidence,
+				source: memoryFacts.source,
+				createdAt: memoryFacts.createdAt,
+			})
+			.from(memoryFacts)
+			.where(
+				and(
+					eq(memoryFacts.organizationId, access.orgId),
+					tedi,
+					isNull(memoryFacts.archivedAt),
+				),
+			)
+			.orderBy(desc(memoryFacts.createdAt))
+			.limit(1);
+	const [own, shared] = await Promise.all([
+		newest(eq(memoryFacts.tediId, access.tediId)),
+		newest(isNull(memoryFacts.tediId)),
+	]);
+	return [...own, ...shared]
+		.sort((a, b) => ((a.createdAt ?? "") < (b.createdAt ?? "") ? 1 : -1))
+		.slice(0, 1);
 }
 
 /**
