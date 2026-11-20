@@ -425,6 +425,16 @@ describe("Auto Router lossless request and result handling", () => {
 						],
 					},
 				],
+				tools: ["path", "offset"].map((optional) => ({
+					type: "function",
+					name: `read_${optional}`,
+					inputSchema: {
+						type: "object",
+						properties: { path: { type: "string" }, [optional]: {} },
+						required: ["path"],
+						additionalProperties: false,
+					},
+				})),
 				temperature: 0.3,
 				providerOptions: { cloudflareAutoRouter: { reasoningEffort: "high" } },
 			};
@@ -432,6 +442,13 @@ describe("Auto Router lossless request and result handling", () => {
 			const sent = JSON.parse(
 				(fetchMock.mock.calls[0]![1] as RequestInit).body as string,
 			);
+			// A tool with an optional parameter must not be sent as strict: a
+			// strict provider rejects the whole request for it.
+			expect(
+				sent.tools.map(
+					(tool: { function: { strict?: boolean } }) => tool.function.strict,
+				),
+			).toEqual([true, undefined]);
 			expect(sent.messages[0].content).toEqual([
 				{ type: "text", text: "inspect" },
 				{
