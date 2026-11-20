@@ -91,6 +91,7 @@
 		"./schema/tools": "./src/schema/tools.ts",
 		"./schema/graph-projection": "./src/schema/graph-projection.ts",
 		"./schema/memory-graph": "./src/schema/memory-graph.ts",
+		"./schema/memory-fact-citations": "./src/schema/memory-fact-citations.ts",
 		"./schema/graph-retrieval-benchmarks": "./src/schema/graph-retrieval-benchmarks.ts",
 		"./schema/learning-feedback": "./src/schema/learning-feedback.ts",
 		"./schema/plugins": "./src/schema/plugins.ts",

@@ -63,12 +63,12 @@ export async function readWorkspacePersonMemory(
 				"Personal memory can be read only in your own private workspace that nobody else can open.",
 			);
 		const member = await getMemberByUserId(db, organizationId, request.userId);
-		if (member?.status !== "active")
+		if (member?.status !== "active" || !member.userId)
 			return refused("An active organization membership is required.");
 		const tediIds = await listPersonalTediIdsOwnedBy(
 			db,
 			organizationId,
-			request.userId,
+			member.userId,
 			PERSONAL_TEDI_LIMIT,
 		);
 		const candidates = (
