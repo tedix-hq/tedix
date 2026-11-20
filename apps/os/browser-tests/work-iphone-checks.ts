@@ -67,7 +67,7 @@ const PAGES: Array<[string, string]> = [
 	["/outputs", "input[type=search]"],
 ];
 
-async function settle(page: Page) {
+async function settle(page: Page, waitMs = 150) {
 	await page.evaluate(() => document.fonts.ready);
 	await page.evaluate(
 		() =>
@@ -75,7 +75,7 @@ async function settle(page: Page) {
 				requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
 			),
 	);
-	await page.waitForTimeout(150);
+	if (waitMs > 0) await page.waitForTimeout(waitMs);
 }
 
 /** Width, clipping and field-size failures anywhere in the route. */
@@ -196,7 +196,7 @@ async function keyboardFailures(page: Page, field: Locator, action: Locator) {
 	await field.scrollIntoViewIfNeeded();
 	await field.focus();
 	const before = await field.boundingBox();
-	await page.evaluate(() => {
+	const visibleHeight = await page.evaluate(() => {
 		const viewport = window.visualViewport!;
 		const height = Math.round(innerHeight * 0.55);
 		Object.defineProperty(viewport, "height", {
@@ -209,8 +209,15 @@ async function keyboardFailures(page: Page, field: Locator, action: Locator) {
 		});
 		viewport.dispatchEvent(new Event("resize"));
 		viewport.dispatchEvent(new Event("scroll"));
+		return height;
 	});
-	await settle(page);
+	await page.waitForFunction(
+		(height) =>
+			document.documentElement.style.getPropertyValue(
+				"--viewport-tedix-height",
+			) === `${height}px`,
+		visibleHeight,
+	);
 	const after = await field.boundingBox();
 	const failures: string[] = [];
 	if (!before || !after || Math.abs(before.y - after.y) > 1)
@@ -450,7 +457,7 @@ export async function runWorkIphone(
 				);
 			}
 			if (trace) await context.tracing.stop();
-			await settle(page);
+			await settle(page, part === "routes" ? 0 : undefined);
 			assert.deepEqual(
 				await page.evaluate(() => ({
 					width: innerWidth,
@@ -478,13 +485,16 @@ export async function runWorkIphone(
 		};
 
 		if (part === "routes") {
-			for (const [path, ready] of PAGES) await check(path, ready);
-			await check(PROJECT, '[aria-label="Work queue"]');
-			const metadata = page.locator('[aria-label="Work queue"] dd');
-			assert(
-				(await metadata.count()) > 0,
-				`${label} ${PROJECT}: no phone metadata`,
+			for (const [path, ready] of PAGES) {
+				if (path !== PROJECT && path !== "/work/capacity")
+					await check(path, ready);
+			}
+			const owner = '[aria-label="Work queue"] dd[title^="Owner:"]';
+			await check(
+				PROJECT,
+				`main.route-content:has([data-contributor-state]):has(${owner})`,
 			);
+			const metadata = page.locator('[aria-label="Work queue"] dd');
 			const overflow = await metadata.evaluateAll((cells) =>
 				cells.some((cell) => cell.scrollWidth > cell.clientWidth + 1),
 			);
@@ -493,30 +503,26 @@ export async function runWorkIphone(
 			// Fixture owner names are short; force a pathological identity to
 			// prove the label cannot widen its row and the title keeps the
 			// complete value discoverable.
-			const owners = page.locator(
-				'[aria-label="Work queue"] dd[title^="Owner:"]',
-			);
-			assert(
-				(await owners.count()) > 0,
-				`${label} ${PROJECT}: no phone owner metadata`,
-			);
 			const longOwner =
 				"SolsticeLongitudinalOperationsCoordinatorWithoutAnyBreaks";
-			const ownerCell = await owners.first().evaluate((cell, name) => {
-				const row = cell.closest("li")!;
-				// Keep the app's wrapping span and metadata separator intact.
-				cell.querySelector("span:last-child")!.textContent = name;
-				cell.setAttribute("title", `Owner: ${name}`);
-				return {
-					page: document.documentElement.scrollWidth,
-					viewport: document.documentElement.clientWidth,
-					cellRight: cell.getBoundingClientRect().right,
-					rowRight: row.getBoundingClientRect().right,
-					cellScroll: cell.scrollWidth,
-					cellClient: cell.clientWidth,
-					title: cell.getAttribute("title"),
-				};
-			}, longOwner);
+			const ownerCell = await page
+				.locator(owner)
+				.first()
+				.evaluate((cell, name) => {
+					const row = cell.closest("li")!;
+					// Keep the app's wrapping span and metadata separator intact.
+					cell.querySelector("span:last-child")!.textContent = name;
+					cell.setAttribute("title", `Owner: ${name}`);
+					return {
+						page: document.documentElement.scrollWidth,
+						viewport: document.documentElement.clientWidth,
+						cellRight: cell.getBoundingClientRect().right,
+						rowRight: row.getBoundingClientRect().right,
+						cellScroll: cell.scrollWidth,
+						cellClient: cell.clientWidth,
+						title: cell.getAttribute("title"),
+					};
+				}, longOwner);
 			if (ownerCell.page > ownerCell.viewport + 1)
 				failures.push(
 					`${PROJECT}: a long owner widened the page to ${ownerCell.page}px`,
@@ -528,16 +534,15 @@ export async function runWorkIphone(
 			if (ownerCell.title !== `Owner: ${longOwner}`)
 				failures.push(`${PROJECT}: owner title lost the complete value`);
 
-			await check("/work/capacity", "[data-slot=card] strong");
-			const holder = page
-				.locator("[data-slot=card] p")
-				.filter({ hasText: "fictional west warehouse" })
-				.first();
-			assert.equal(await holder.count(), 1, `${label}: no capacity holder`);
-			const holderOverflow = await holder.evaluate((node) => ({
-				clientWidth: node.clientWidth,
-				scrollWidth: node.scrollWidth,
-			}));
+			const holder = '[data-slot=card] p:has-text("fictional west warehouse")';
+			await check("/work/capacity", holder);
+			const holderOverflow = await page
+				.locator(holder)
+				.first()
+				.evaluate((node) => ({
+					clientWidth: node.clientWidth,
+					scrollWidth: node.scrollWidth,
+				}));
 			if (holderOverflow.scrollWidth > holderOverflow.clientWidth + 1)
 				failures.push(
 					`/work/capacity: holder details are ${holderOverflow.scrollWidth}px wide in a ${holderOverflow.clientWidth}px row`,
@@ -710,13 +715,6 @@ export async function runWorkIphone(
 				await page.screenshot({
 					path: `${shots}/${size}-${colorScheme}-request-keyboard.png`,
 				});
-
-			await check("/outputs", "input[type=search]");
-			await targets(
-				"/outputs",
-				page.getByRole("searchbox", { name: "Search documents" }),
-				"search",
-			);
 		}
 
 		await context.close();

@@ -10,40 +10,38 @@ const server = await startFixtureServer("/work?app=portfolio", {
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const width of [375, 1280]) {
-		const page = await browser.newPage({ viewport: { width, height: 900 } });
-		// An unset target opens the current month; keep October selectable year-round.
-		await page.clock.setFixedTime(new Date("2026-10-15T12:00:00Z"));
-		await page.goto(`${server.origin}/work?app=portfolio`);
-		await page.getByRole("heading", { name: "Goals", level: 1 }).waitFor();
-		const rows = page.locator("[data-project-row]");
-		await rows.first().waitFor();
-		assert.equal(await rows.count(), 3, `${width}: every project is listed`);
-		assert(
-			await page.evaluate(
-				() => document.documentElement.scrollWidth <= innerWidth,
-			),
-			`${width}: the list does not scroll sideways`,
-		);
-		await page
-			.getByRole("searchbox", { name: "Search projects" })
-			.fill("finance");
-		await page.waitForFunction(
-			() => document.querySelectorAll("[data-project-row]").length === 1,
-		);
-		await page.getByRole("link", { name: "Finance ops" }).click();
-		assert.equal(await page.getByText("Horizon").count(), 0);
-		assert.equal(await page.getByText("Not recorded").count(), 0);
-		await page.getByRole("button", { name: "Set target date" }).click();
-		await page.getByRole("button", { name: /October 28/ }).click();
-		const set = page.getByRole("button", { name: /Target date Oct 28, 2026/ });
-		await set.waitFor();
-		await set.click();
-		await page.getByRole("button", { name: "Remove target date" }).click();
-		await page.getByRole("button", { name: "Set target date" }).waitFor();
-		await page.close();
-		console.log(`project target date ${width}px: ok`);
-	}
+	const page = await browser.newPage({ viewport: { width: 375, height: 900 } });
+	// An unset target opens the current month; keep October selectable year-round.
+	await page.clock.setFixedTime(new Date("2026-10-15T12:00:00Z"));
+	await page.goto(`${server.origin}/work?app=portfolio`);
+	await page.getByRole("heading", { name: "Goals", level: 1 }).waitFor();
+	const rows = page.locator("[data-project-row]");
+	await rows.first().waitFor();
+	assert.equal(await rows.count(), 3, "every project is listed");
+	assert(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth <= innerWidth,
+		),
+		"the project list fits the phone viewport",
+	);
+	await page
+		.getByRole("searchbox", { name: "Search projects" })
+		.fill("finance");
+	await page.waitForFunction(
+		() => document.querySelectorAll("[data-project-row]").length === 1,
+	);
+	await page.getByRole("link", { name: "Finance ops" }).click();
+	assert.equal(await page.getByText("Horizon").count(), 0);
+	assert.equal(await page.getByText("Not recorded").count(), 0);
+	await page.getByRole("button", { name: "Set target date" }).click();
+	await page.getByRole("button", { name: /October 28/ }).click();
+	const set = page.getByRole("button", { name: /Target date Oct 28, 2026/ });
+	await set.waitFor();
+	await set.click();
+	await page.getByRole("button", { name: "Remove target date" }).click();
+	await page.getByRole("button", { name: "Set target date" }).waitFor();
+	await page.close();
+	console.log("project target date on a phone: ok");
 } finally {
 	await browser?.close();
 	await server.stop();

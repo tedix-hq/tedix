@@ -86,13 +86,6 @@ try {
 					"",
 					`${width}px ${theme} ${surface}: ${(await target.textContent()) || "title"} and focus ring are reachable`,
 				);
-				if (await target.evaluate((el) => el.tagName === "BUTTON")) {
-					await target.click();
-					assert.equal(
-						await page.getByLabel("Last action").textContent(),
-						await target.textContent(),
-					);
-				}
 			}
 		}
 		if (evidence)

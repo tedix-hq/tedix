@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "../src/components/kumo/button";
 import { Input } from "../src/components/kumo/input";
@@ -19,7 +18,6 @@ document.documentElement.dataset.mode = theme;
 document.documentElement.dataset.theme = "tedix";
 
 function Fixture() {
-	const [action, setAction] = useState("");
 	return (
 		<main className="grid gap-8 bg-kumo-base p-4 text-kumo-default">
 			{["standalone", "workspace"].map((surface) => (
@@ -65,7 +63,7 @@ function Fixture() {
 								? ["Save version", "Export", "Share", "Resources", "Focus"]
 								: ["Export", "Share"]
 							).map((label) => (
-								<Button key={label} size="sm" onClick={() => setAction(label)}>
+								<Button key={label} size="sm">
 									{label}
 								</Button>
 							))}
@@ -73,7 +71,6 @@ function Fixture() {
 					</OutputWorkshopCommandBar>
 				</section>
 			))}
-			<output aria-label="Last action">{action}</output>
 		</main>
 	);
 }

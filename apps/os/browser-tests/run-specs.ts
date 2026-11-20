@@ -1,4 +1,5 @@
 import { readdirSync } from "node:fs";
+import { takeBrowserWarmup } from "../../../scripts/ci/browser-warmup.mjs";
 import { warmFixtureModuleGraph } from "../dev/fixture-server-readiness";
 import { startFixtureServer } from "./fixture-server";
 import { runSharedFixtureSpecs } from "./shared-fixture-specs";
@@ -11,20 +12,15 @@ import { shardSpecs } from "./spec-shards";
  * any failed.
  * `--shard i/n` runs only every n-th spec, as assigned by the CI matrix.
  * A leading `--warm=/path,/other` limits warmup to the suite's fixture pages.
- * Use `--warm=i/n:/path,/other` to apply the list to one shard.
+ * Repeat `--warm=i/n:/path,/other` to configure lists for individual shards.
  *
  *   bun browser-tests/run-specs.ts browser-tests/deck.spec.ts ...
  */
 const args = process.argv.slice(2);
-const warm = /^--warm=(?:(\d+\/\d+):)?(\/[a-z\d/.,?=%-]+)$/i.exec(
-	args[0] ?? "",
-);
-if (warm) args.shift();
 const shardFlag = args.indexOf("--shard");
 const shard = shardFlag < 0 ? "1/1" : (args[shardFlag + 1] ?? "");
 if (shardFlag >= 0) args.splice(shardFlag, 2);
-const warmEntries =
-	warm && (!warm[1] || warm[1] === shard) ? warm[2]!.split(",") : undefined;
+const warmEntries = takeBrowserWarmup(args, shard)?.split(",");
 const specs = shardSpecs(args, shard);
 if (specs.length === 0) {
 	console.error(
