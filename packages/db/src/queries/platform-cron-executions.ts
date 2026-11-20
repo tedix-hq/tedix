@@ -1,7 +1,10 @@
 import { eq, getColumns, sql } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
-import { platformCronExecutions } from "../schema/platform-cron-executions";
+import {
+	platformCronCheckpoints,
+	platformCronExecutions,
+} from "../schema/platform-cron-executions";
 import { getAffectedRows } from "../utils/d1-result";
 
 export const PLATFORM_CRON_RECEIPT_RETENTION_DAYS = 90;
@@ -216,4 +219,31 @@ export async function prunePlatformCronExecutions(
 		if (rows < batchSize) break;
 	}
 	return deleted;
+}
+
+/** Read a named progress marker kept apart from the receipts and their retention. */
+export async function getPlatformCronCheckpoint(
+	db: DbClient,
+	scheduleId: string,
+): Promise<string | null> {
+	const [row] = await db
+		.select({ through: platformCronCheckpoints.through })
+		.from(platformCronCheckpoints)
+		.where(eq(platformCronCheckpoints.scheduleId, scheduleId))
+		.limit(1);
+	return row?.through ?? null;
+}
+
+export async function putPlatformCronCheckpoint(
+	db: DbClient,
+	scheduleId: string,
+	through: string,
+): Promise<void> {
+	await db
+		.insert(platformCronCheckpoints)
+		.values({ scheduleId, through })
+		.onConflictDoUpdate({
+			target: platformCronCheckpoints.scheduleId,
+			set: { through },
+		});
 }
