@@ -98,7 +98,6 @@ import {
 	createCodexLaneThread,
 	type CodexLaneServer,
 } from "./codex-lane-thread";
-import { BOOTSTRAP_AWAITING_APPROVAL } from "./external-agent";
 import { UUID_RE } from "./work-identity";
 import { createClaudeLaneThread } from "./claude-lane-thread";
 import {
@@ -797,7 +796,6 @@ const CLEANUP_RETRY_CEILING_MS = 2 * 60 * 60_000;
  * measured once and again only when its directory or receipt changes.
  */
 const LIVE_RUN_SIZE_MS = 60 * 60_000;
-const MAX_NATIVE_RESUMES = 2;
 /** How many follow-up turns one Attempt takes on its thread. */
 export const MAX_FOLLOW_UP_TURNS = 5;
 /**
@@ -1034,21 +1032,13 @@ interface Receipt {
 	nativeResumeCount?: number;
 	/** The next step number of this run's log. */
 	stepSeq?: number;
-	retryable?: boolean;
 	attemptId?: string;
 	executorKey?: string;
 	outcome?: string;
 	note?: string;
 	telemetry?: LaneObservation;
-	retries?: number;
-	retryAt?: number;
-	retryDeadlineAt?: number;
-	failureCommented?: boolean;
-	admissionFailure?: string;
-	admissionFailureSignature?: string;
-	runFailureSignature?: string;
-	runFailureCounted?: boolean;
-	runRetryAt?: number;
+	/** Next reconciliation of an uncertain admission, settlement, or declared wait. */
+	recheckAt?: number;
 	settlementRetries?: number;
 	settlementCheckFailures?: number;
 	admissionCheckFailures?: number;
@@ -1089,7 +1079,6 @@ interface Receipt {
 	skillRevisionArtifact?: { skillId: string; skillRevision: number };
 	runtimeAppArtifact?: RuntimeAppArtifact;
 	localBranchArtifact?: LocalBranchArtifact;
-	identicalFailures?: number;
 	held?: boolean;
 	holdRecorded?: boolean;
 	notBeforeRecorded?: boolean;
@@ -1189,14 +1178,47 @@ function laneHoldReason(row: Receipt): string | undefined {
 		return "Someone stopped this run, so no agent starts this version of the task again.";
 	if (row.note?.startsWith("Admission held:"))
 		return "An earlier run already recorded a result for this version of the task, so no agent starts it again.";
-	if (row.note?.startsWith("Automatic execution held after Attempt"))
-		return "The agent reported the accepted outcome incomplete; running the same brief again would repeat that.";
-	if (row.note?.startsWith("Automatic execution held"))
-		return "Three runs failed or expired on this version of the task.";
-	if ((row.nativeResumeCount ?? 0) >= MAX_NATIVE_RESUMES)
-		return `The agent's session was interrupted and exhausted its ${MAX_NATIVE_RESUMES} resumes on this version of the task.`;
-	if (row.runFailureCounted)
-		return "The agent failed three times in the same way.";
+}
+
+function readReceipt(path: string): Receipt {
+	const row = JSON.parse(readFileSync(path, "utf8"));
+	if (isRecord(row)) {
+		// Old client budgets must not prevent the server from evaluating admission.
+		if (
+			(row.identicalFailures !== undefined ||
+				(typeof row.note === "string" &&
+					row.note.startsWith("Automatic execution held"))) &&
+			row.held &&
+			!(
+				typeof row.note === "string" &&
+				/^(Stopped by |Admission held:)/.test(row.note)
+			)
+		)
+			row.held = false;
+		if (
+			row.retryAt !== undefined &&
+			row.recheckAt === undefined &&
+			(row.phase === "settling" ||
+				row.admissionState === "unknown" ||
+				(isRecord(row.laneResult) && row.laneResult.outcome === "deferred"))
+		)
+			row.recheckAt = row.retryAt;
+		for (const key of [
+			"retries",
+			"retryAt",
+			"retryDeadlineAt",
+			"admissionFailure",
+			"admissionFailureSignature",
+			"runFailureSignature",
+			"runFailureCounted",
+			"runRetryAt",
+			"identicalFailures",
+			"retryable",
+			"failureCommented",
+		])
+			delete row[key];
+	}
+	return row as Receipt;
 }
 
 function readLaneReceipts(
@@ -1215,7 +1237,7 @@ function readLaneReceipts(
 				receipts.push(cached.row);
 				continue;
 			}
-			const row: unknown = JSON.parse(readFileSync(path, "utf8"));
+			const row: unknown = readReceipt(path);
 			const named = /^([0-9a-f-]{36})-(\d+)\.json$/.exec(file);
 			if (
 				isRecord(row) &&
@@ -2112,13 +2134,6 @@ export function laneCommitTrailers(itemId: string, session: string): string {
 	return `End every commit message with one trailer paragraph, with no blank line inside it and exactly one Work-Item:\nWork-Item: ${itemId}\nAgent-Session: ${session}\nCo-Authored-By lines may follow in the same paragraph. Do not pass one -m per trailer (that separates them); write the message to a file and use git commit -F, or use git commit --trailer.\n`;
 }
 
-/** The executor's `tedix agent start` is waiting for an owner approval. */
-export function awaitsOwnerApproval(error: unknown): boolean {
-	return (error instanceof Error ? error.message : String(error)).includes(
-		BOOTSTRAP_AWAITING_APPROVAL,
-	);
-}
-
 /**
  * A cancelled Attempt that carries no verdict on the Work: the agent declared
  * a wait, or the runner cancelled it before the agent turn started (a runner
@@ -2149,39 +2164,6 @@ export function cancelledWithoutVerdict(
 			previous.waitResponseId !== undefined ||
 			previous.waitReleasedAt !== undefined)
 	);
-}
-
-export function laneFailureSignature(error: unknown): string {
-	const message = (error instanceof Error ? error.message : String(error))
-		.replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, "<uuid>")
-		.replace(
-			/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/g,
-			"<time>",
-		)
-		.replace(
-			/\b((?:request|trace|span)[_-]?id|traceparent)(["']?\s*[:=]\s*["']?)[a-z0-9._:/-]+/gi,
-			"$1$2<id>",
-		)
-		.replace(/\b[0-9a-f]{16}(?:[0-9a-f]{16})?\b/gi, "<trace>")
-		.replace(
-			/\b(timestamp|attempt|pid|retry after)(["']?\s*[:=#]?\s*["']?)\d+(?:\.\d+)?\b/gi,
-			"$1$2<number>",
-		)
-		.replace(
-			/\b\d+(?:\.\d+)?(?=\s*(?:ms|milliseconds?|seconds?)\b)/gi,
-			"<duration>",
-		)
-		.replace(/\s+/g, " ")
-		.trim();
-	const code = error instanceof Error && "code" in error ? error.code : null;
-	const status =
-		error instanceof Error && "status" in error ? error.status : null;
-	return JSON.stringify([
-		error instanceof Error ? error.constructor.name : typeof error,
-		code ?? null,
-		status ?? null,
-		message,
-	]);
 }
 
 export class LaneCommitFetchError extends Error {}
@@ -3382,20 +3364,21 @@ export class LaneDispatcher {
 					continue;
 				}
 				const previous = existsSync(this.path(item))
-					? (JSON.parse(readFileSync(this.path(item), "utf8")) as Receipt)
+					? readReceipt(this.path(item))
 					: undefined;
 				if (
 					previous?.phase === "settling" &&
 					!this.running.has(item.id) &&
 					!this.maintenance.has(item.id) &&
 					(!previous.pid || !alive(previous.pid)) &&
-					Date.now() >= (previous.retryAt ?? 0)
+					Date.now() >= (previous.recheckAt ?? 0)
 				) {
 					// The retained-receipt sweep yields to every preparation, so a busy
 					// lane never reaches it. Retry settlement before the skip check so
 					// a terminal Attempt defers and this revision can be re-admitted.
 					this.settlementChecked.add(this.path(item));
 					await this.retrySettlement(previous);
+					continue;
 				}
 				if (
 					previous?.phase === "settled" &&
@@ -3424,7 +3407,7 @@ export class LaneDispatcher {
 						observeSkip(item, "Waiting for an answer to the run's question");
 						continue;
 					}
-					previous.retryAt = 0;
+					previous.recheckAt = 0;
 				}
 				if (
 					previous?.phase === "deferred" &&
@@ -3435,25 +3418,8 @@ export class LaneDispatcher {
 					UUID_RE.test(decision.responseId) &&
 					decision.responseId !== previous.decisionResponseId
 				) {
-					previous.retryAt = 0;
+					previous.recheckAt = 0;
 					this.save(this.path(item), previous);
-				}
-				if (
-					previous?.phase === "deferred" &&
-					previous.held &&
-					!previous.verification &&
-					previous.admissionFailure &&
-					previous.admissionState !== "unknown" &&
-					!previous.attemptId &&
-					(!previous.pid || !alive(previous.pid)) &&
-					previous.retryDeadlineAt !== undefined &&
-					Date.now() >= previous.retryDeadlineAt
-				) {
-					// Admission facts can change without a Work revision. A new
-					// retry window still checks readiness and obtains a fresh fence,
-					// once: the same failure again holds it for the next window.
-					previous.held = false;
-					previous.identicalFailures = 2;
 				}
 				if (
 					previous?.phase === "settled" &&
@@ -3479,12 +3445,10 @@ export class LaneDispatcher {
 						(previous.attemptId && previous.phase !== "deferred") ||
 						!["deferred", "failed", "preparing"].includes(previous.phase) ||
 						(previous.pid && alive(previous.pid) && !previousProcessFinished) ||
-						Date.now() < (previous.retryAt ?? 0) ||
-						((previous.retries ?? 0) >= 5 &&
-							Date.now() < (previous.retryDeadlineAt ?? 0)))
+						Date.now() < (previous.recheckAt ?? 0))
 				) {
 					const reason =
-						"This Work revision has a retained receipt or retry deadline";
+						"This Work revision has a retained receipt or pending reconciliation";
 					observeSkip(item, reason);
 					this.log(
 						"skipped",
@@ -4355,7 +4319,7 @@ export class LaneDispatcher {
 			// newer Work revision each end this receipt's hold on dispatch.
 			row.waitReleasedAt = Date.now();
 			row.phase = "deferred";
-			row.retryAt = 0;
+			row.recheckAt = 0;
 			this.save(this.path({ id: row.itemId, version: row.version }), row);
 		}
 		return true;
@@ -4372,7 +4336,7 @@ export class LaneDispatcher {
 			row.session &&
 			row.executorKey
 		) {
-			if (Date.now() < (row.retryAt ?? 0)) return false;
+			if (Date.now() < (row.recheckAt ?? 0)) return false;
 			await this.resolveUnknownAdmission(row);
 			return true;
 		}
@@ -4394,7 +4358,7 @@ export class LaneDispatcher {
 				this.path({ id: row.itemId, version: row.version }),
 			) &&
 			(!row.pid || !alive(row.pid)) &&
-			Date.now() >= (row.retryAt ?? 0)
+			Date.now() >= (row.recheckAt ?? 0)
 		) {
 			await this.retrySettlement(row);
 			return true;
@@ -4492,10 +4456,6 @@ export class LaneDispatcher {
 			resolve(previous.repo).startsWith(resolve(this.directory, "runs") + sep)
 				? previous
 				: undefined;
-		const inRetryWindow = Date.now() < (previous?.retryDeadlineAt ?? 0);
-		const retryDeadlineAt = inRetryWindow
-			? previous!.retryDeadlineAt!
-			: Date.now() + 30 * 60_000;
 		const receipt: Receipt = {
 			itemId: candidate.id,
 			version: candidate.version,
@@ -4506,14 +4466,8 @@ export class LaneDispatcher {
 				typeof candidate.metadata.decisionContinuation.responseId === "string"
 					? candidate.metadata.decisionContinuation.responseId
 					: undefined,
-			retries: inRetryWindow ? (previous?.retries ?? 0) : 0,
 			nativeResumeCount: previous?.nativeResumeCount,
-			retryDeadlineAt,
-			failureCommented: previous?.failureCommented,
-			admissionFailure: previous?.admissionFailure,
-			runFailureSignature: previous?.runFailureSignature,
 			admissionState: previous?.admissionState ?? "not_sent",
-			identicalFailures: previous?.identicalFailures ?? 0,
 			...retainedCheckout(this.directory, candidate, previous),
 		};
 		let admitted = false;
@@ -4633,7 +4587,6 @@ export class LaneDispatcher {
 				// A recorded result for this revision stays recorded, so reading
 				// the history again cannot admit it: hold until the Work changes.
 				receipt.held = true;
-				delete receipt.admissionFailure;
 				receipt.note = `Admission held: Attempt ${result.id} already recorded a ${result.outcome} result for Work revision ${item.version}. A new Work revision is dispatched again.`;
 				this.save(path, receipt);
 				this.log("execution-held", item.id, receipt.note);
@@ -5483,13 +5436,8 @@ ${firstBrief}`;
 			// The agent is no longer running: the stop has been carried out.
 			if (run.stop) steps.applied([run.stop.id]);
 			childFinished = true;
-			receipt.retryable =
-				exit !== 0 &&
-				(!!receipt.providerRecovery ||
-					this.recordLimit(executor, receipt.telemetry?.finalMessage ?? ""));
-			// The runner stopped the last turn itself and no turn followed (it is
-			// shutting down): the agent did not fail, so the session resumes.
-			if (turnStopped) receipt.retryable = true;
+			if (exit !== 0 && !receipt.providerRecovery)
+				this.recordLimit(executor, receipt.telemetry?.finalMessage ?? "");
 			receipt.outcome =
 				exit === 0 && receipt.telemetry?.outcome === "succeeded"
 					? "succeeded"
@@ -5506,11 +5454,6 @@ ${firstBrief}`;
 				/\b(?:stream disconnected before completion|broken pipe|connection reset by peer|socket hang up|ECONNRESET|EPIPE)\b/i.test(
 					finalMessage,
 				);
-			if (
-				exit !== 0 &&
-				(receipt.transportInterrupted || isMissingNativeState(finalMessage))
-			)
-				receipt.retryable = true;
 			receipt.note = finalMessage.slice(0, 1800);
 			if (receipt.outcome !== "expired")
 				receipt.pendingCommitProof = finalMessage;
@@ -5518,7 +5461,6 @@ ${firstBrief}`;
 				// A stop is the person's verdict on this version of the task: no
 				// result is read and the runner does not start it again.
 				receipt.outcome = "cancelled";
-				receipt.retryable = false;
 				receipt.transportInterrupted = false;
 				receipt.held = true;
 				receipt.note = `Stopped by ${sentBy(run.stop)}`;
@@ -5624,25 +5566,6 @@ ${firstBrief}`;
 			)
 				receipt.admissionState = "rejected";
 			receipt.note = String(error).slice(0, 1800);
-			// A stop is no verdict: the next runner admits this revision again.
-			if (error instanceof DispatcherStoppingError) receipt.retryable = true;
-			if (!admitted) {
-				const signature = laneFailureSignature(error);
-				receipt.identicalFailures =
-					previous?.admissionFailureSignature === signature
-						? (previous.identicalFailures ?? 0) + 1
-						: 1;
-				receipt.admissionFailureSignature = signature;
-				receipt.admissionFailure = receipt.note;
-				// A bootstrap parked on an owner decision changes outcome without a
-				// new Work revision, so it defers instead of holding.
-				receipt.held =
-					receipt.identicalFailures >= 3 &&
-					!(error instanceof LocalExecutorCapacityError) &&
-					!(error instanceof DispatcherStoppingError) &&
-					!awaitsOwnerApproval(error) &&
-					!nativePreparationTimedOut(receipt);
-			}
 			this.log(
 				error instanceof WorkRevisedDuringPreparationError ||
 					error instanceof DispatcherStoppingError
@@ -5651,25 +5574,6 @@ ${firstBrief}`;
 				candidate.id,
 				receipt.note,
 			);
-			if (!admitted && receipt.held && !receipt.failureCommented) {
-				// Persist before sending: an uncertain comment response must not cause duplicates.
-				receipt.failureCommented = true;
-				this.save(path, receipt);
-				try {
-					await this.call([
-						"work",
-						"comment",
-						candidate.id,
-						`Dispatcher admission held for Work revision ${candidate.version}: ${receipt.note}. Three identical failures; held until the retry window expires or the Work revision changes. No execution launched.`,
-					]);
-				} catch (commentError) {
-					this.log(
-						"failure-comment-unconfirmed",
-						candidate.id,
-						String(commentError),
-					);
-				}
-			}
 		} finally {
 			codexServer?.close();
 			childFinished = true;
@@ -5703,16 +5607,6 @@ ${firstBrief}`;
 				(!preflightPaused || receipt.session)
 			) {
 				receipt.phase = "deferred";
-				if (!preflightPaused) {
-					receipt.retries = (receipt.retries ?? 0) + 1;
-					receipt.retryAt =
-						receipt.retries >= 5
-							? retryDeadlineAt
-							: Math.min(
-									Date.now() + 60_000 * 2 ** (receipt.retries - 1),
-									retryDeadlineAt,
-								);
-				}
 				if (!admissionSent && interrupted) {
 					// Keep correlation only; a fresh admission still owns the next lease and PID.
 					Object.assign(receipt, {
@@ -6693,7 +6587,7 @@ ${firstBrief}`;
 			`${receipt.itemId}-${receipt.version}.json`,
 		);
 		if (receipt.pendingCommitProof !== undefined) {
-			receipt.retryAt = Date.now() + 60_000;
+			receipt.recheckAt = Date.now() + 60_000;
 			this.save(path, receipt);
 			try {
 				await this.renewLease(receipt);
@@ -6892,10 +6786,10 @@ ${firstBrief}`;
 			}
 			delete receipt.pendingCommitProof;
 		}
-		await this.recordRunFailure(receipt);
+
 		const unlanded = recordUnlandedCommits(receipt);
 		receipt.settlementRetries = (receipt.settlementRetries ?? 0) + 1;
-		receipt.retryAt =
+		receipt.recheckAt =
 			Date.now() + (receipt.settlementRetries >= 5 ? 15 * 60_000 : 60_000);
 		this.save(path, receipt);
 		// A renewal already waiting is sent before the settlement; none follows it.
@@ -7000,14 +6894,16 @@ ${firstBrief}`;
 			);
 			receipt.phase =
 				!receipt.verification &&
-				(receipt.outcome === "expired" ||
-					receipt.retryable ||
+				(["failed", "expired"].includes(receipt.outcome ?? "") ||
+					(receipt.outcome === "cancelled" &&
+						!receipt.laneResult &&
+						!receipt.held) ||
 					receipt.laneResult?.outcome === "deferred")
 					? "deferred"
 					: "settled";
 			if (!receipt.verification && receipt.laneResult?.outcome === "deferred")
-				receipt.retryAt = laneDeferralAt(receipt.laneResult);
-			if (receipt.runFailureCounted) receipt.retryAt = receipt.runRetryAt;
+				receipt.recheckAt = laneDeferralAt(receipt.laneResult);
+			else delete receipt.recheckAt;
 			this.log("settled", receipt.itemId, receipt.outcome);
 			if (receipt.outcome === "succeeded") {
 				await this.complete(receipt, !!receipt.existingProof);
@@ -7175,53 +7071,6 @@ ${firstBrief}`;
 			receipt,
 		);
 	}
-	private async recordRunFailure(receipt: Receipt, resultRetained = false) {
-		if (
-			receipt.runFailureCounted ||
-			!["failed", "expired"].includes(receipt.outcome ?? "")
-		)
-			return;
-		receipt.runFailureCounted = true;
-		receipt.retries = (receipt.retries ?? 0) + 1;
-		receipt.runRetryAt = Math.min(
-			Date.now() + 60_000 * 2 ** (receipt.retries - 1),
-			Math.max(receipt.retryDeadlineAt ?? 0, Date.now() + 60_000),
-		);
-		// A retained result after lease expiry or a failure before spawn does
-		// not feed the identical-failure hold.
-		if (
-			receipt.pid !== undefined &&
-			!(receipt.outcome === "expired" && resultRetained)
-		) {
-			const signature = laneFailureSignature(receipt.note ?? receipt.outcome);
-			receipt.identicalFailures =
-				receipt.runFailureSignature === signature
-					? (receipt.identicalFailures ?? 0) + 1
-					: 1;
-			receipt.runFailureSignature = signature;
-		}
-		const resumeLimitReached =
-			(receipt.nativeResumeCount ?? 0) >= MAX_NATIVE_RESUMES;
-		receipt.held ||=
-			resumeLimitReached || (receipt.identicalFailures ?? 0) >= 3;
-		if (receipt.held && !receipt.failureCommented) {
-			receipt.failureCommented = true;
-			this.save(
-				this.path({ id: receipt.itemId, version: receipt.version }),
-				receipt,
-			);
-			try {
-				await this.call([
-					"work",
-					"comment",
-					receipt.itemId,
-					`Dispatcher execution held for Work revision ${receipt.version}: ${receipt.note}. ${resumeLimitReached ? `Native resume limit (${MAX_NATIVE_RESUMES}) reached` : "Three identical failures"}; held until the Work revision changes.`,
-				]);
-			} catch (error) {
-				this.log("failure-comment-unconfirmed", receipt.itemId, String(error));
-			}
-		}
-	}
 	/**
 	 * A lost admission response leaves the receipt "unknown". Canonical
 	 * Attempts decide it: adopt this session's Attempt, or re-admit when none
@@ -7243,7 +7092,7 @@ ${firstBrief}`;
 		} catch (error) {
 			receipt.admissionCheckFailures =
 				(receipt.admissionCheckFailures ?? 0) + 1;
-			receipt.retryAt =
+			receipt.recheckAt =
 				Date.now() +
 				Math.min(
 					15 * 60_000,
@@ -7273,6 +7122,7 @@ ${firstBrief}`;
 			return;
 		}
 		receipt.admissionState = "not_sent";
+		delete receipt.recheckAt;
 		this.save(path, receipt);
 		this.log(
 			"admission-not-recorded",
@@ -7320,10 +7170,9 @@ ${firstBrief}`;
 			// write under that fence again, so release it for fresh admission
 			// instead of holding the revision until someone deletes the receipt.
 			receipt.phase = "deferred";
+			delete receipt.recheckAt;
 			receipt.outcome = attempt?.outcome ?? "expired";
 			await this.recordUnpushedCommits(receipt);
-			await this.recordRunFailure(receipt);
-			receipt.retryAt = Math.max(receipt.retryAt ?? 0, receipt.runRetryAt ?? 0);
 			this.save(
 				this.path({ id: receipt.itemId, version: receipt.version }),
 				receipt,
@@ -7364,10 +7213,9 @@ ${firstBrief}`;
 			return;
 		}
 		receipt.phase = "deferred";
+		delete receipt.recheckAt;
 		receipt.outcome = attempt.outcome ?? "expired";
 		await this.recordUnpushedCommits(receipt);
-		await this.recordRunFailure(receipt);
-		receipt.retryAt = Math.max(receipt.retryAt ?? 0, receipt.runRetryAt ?? 0);
 		this.save(
 			this.path({ id: receipt.itemId, version: receipt.version }),
 			receipt,
@@ -7381,7 +7229,7 @@ ${firstBrief}`;
 		} catch (error) {
 			receipt.settlementCheckFailures =
 				(receipt.settlementCheckFailures ?? 0) + 1;
-			receipt.retryAt =
+			receipt.recheckAt =
 				Date.now() +
 				Math.min(
 					15 * 60_000,
@@ -7395,7 +7243,8 @@ ${firstBrief}`;
 		}
 	}
 	private async recoverSettlement(receipt: Receipt) {
-		if (receipt.phase === "failed") receipt.retryAt = Date.now() + 15 * 60_000;
+		if (receipt.phase === "failed")
+			receipt.recheckAt = Date.now() + 15 * 60_000;
 		const path = this.path({ id: receipt.itemId, version: receipt.version });
 		// A Work that already ended has nothing left to settle; reconcile the
 		// receipt once instead of retrying a write that can never land.
@@ -7438,9 +7287,8 @@ ${firstBrief}`;
 			// release the revision for fresh admission like an elapsed lease.
 			receipt.outcome = attempt?.outcome ?? "expired";
 			receipt.phase = "deferred";
+			delete receipt.recheckAt;
 			await this.recordUnpushedCommits(receipt);
-			await this.recordRunFailure(receipt, true);
-			receipt.retryAt = receipt.runRetryAt;
 			this.save(path, receipt);
 			this.log(
 				"settlement-expired",
@@ -7463,9 +7311,8 @@ ${firstBrief}`;
 		) {
 			receipt.outcome = "expired";
 			receipt.phase = receipt.verification ? "settled" : "deferred";
+			delete receipt.recheckAt;
 			await this.recordUnpushedCommits(receipt);
-			await this.recordRunFailure(receipt, true);
-			receipt.retryAt = receipt.runRetryAt;
 			this.save(path, receipt);
 			this.log(
 				"settlement-expired",
@@ -7481,20 +7328,22 @@ ${firstBrief}`;
 				attempt.outcome !== receipt.outcome &&
 				!(attempt.outcome === "rejected" && receipt.verificationRefuted);
 			if (mismatched) receipt.outcome = attempt.outcome;
-			await this.recordRunFailure(receipt);
-			receipt.retryAt = Math.max(receipt.retryAt ?? 0, receipt.runRetryAt ?? 0);
+
 			receipt.phase =
 				!receipt.verification &&
-				(mismatched
-					? ["failed", "expired"].includes(attempt.outcome)
-					: receipt.retryable || receipt.laneResult?.outcome === "deferred")
+				(["failed", "expired"].includes(attempt.outcome) ||
+					(attempt.outcome === "cancelled" &&
+						!receipt.laneResult &&
+						!receipt.held) ||
+					(!mismatched && receipt.laneResult?.outcome === "deferred"))
 					? "deferred"
 					: "settled";
 			if (
 				receipt.phase === "deferred" &&
 				receipt.laneResult?.outcome === "deferred"
 			)
-				receipt.retryAt = laneDeferralAt(receipt.laneResult);
+				receipt.recheckAt = laneDeferralAt(receipt.laneResult);
+			else delete receipt.recheckAt;
 			this.save(path, receipt);
 			this.log("settlement-reconciled", receipt.itemId, attempt.outcome);
 			await this.complete(receipt, true);
@@ -7505,8 +7354,8 @@ ${firstBrief}`;
 			await this.settle(receipt);
 			this.scheduleCleanup(receipt);
 		} else {
-			receipt.retryAt = Math.max(
-				receipt.retryAt ?? 0,
+			receipt.recheckAt = Math.max(
+				receipt.recheckAt ?? 0,
 				Date.now() + 15 * 60_000,
 			);
 			this.save(path, receipt);
