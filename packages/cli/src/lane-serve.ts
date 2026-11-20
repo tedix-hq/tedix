@@ -124,6 +124,11 @@ import { inDarkWake } from "./oauth-provider";
 import { lastLaneOutputTurn } from "./lane-output";
 import { runLaneProcess, reportLaneObservation } from "./lane-run";
 import { createLaneHeartbeat, createLaneStepSender } from "./lane-heartbeat";
+import {
+	childLeaseWatch,
+	createLeaseWatch,
+	serveLeaseWatches,
+} from "./lane-leases";
 import { serveMachineTools } from "./lane-machine-tools";
 import {
 	createRunStepLog,
@@ -917,6 +922,32 @@ async function cli<T>(
 			maxTimeoutMs: readLimit ?? READ_CEILING_MS,
 		},
 	)) as T;
+}
+
+function latestLeaseAttempt(
+	scope: string[],
+	env: NodeJS.ProcessEnv,
+	read: typeof cli,
+) {
+	return async (id: string) => {
+		const { data } = await read<{ data: WorkAttempt[] }>(
+			[...scope, "work", "dispatch-attempts", id, "--input", '{"limit":1}'],
+			env,
+			undefined,
+			undefined,
+			10_000,
+		);
+		return data[0];
+	};
+}
+
+export function runLaneLeaseWorker(scope: string[]) {
+	serveLeaseWatches(
+		createLeaseWatch(
+			createLaneHeartbeat(scope),
+			latestLeaseAttempt(scope, laneChildEnv(), cli),
+		),
+	);
 }
 
 /** When the shared cooldown for this workspace's gateway ends (0: none). */
@@ -2566,6 +2597,7 @@ export class LaneDispatcher {
 	private deps: DispatcherDeps;
 	private preflight: ReturnType<typeof cachedExecutorPreflight>;
 	private renewLease: ReturnType<typeof createLaneHeartbeat>;
+	private watchLease: ReturnType<typeof createLeaseWatch>;
 	private sendSteps: ReturnType<typeof createLaneStepSender>;
 	private policy: RoutingPolicy;
 	private budgets: ExecutorBudgets = {};
@@ -2589,6 +2621,12 @@ export class LaneDispatcher {
 			deps.preflight,
 		);
 		this.renewLease = this.deps.createHeartbeat(options.scope);
+		this.watchLease = deps.createHeartbeat
+			? createLeaseWatch(
+					this.renewLease,
+					latestLeaseAttempt(options.scope, this.ownerEnv, this.deps.cli),
+				)
+			: childLeaseWatch(options.scope, this.ownerEnv);
 		this.sendSteps = this.deps.createStepSender(options.scope);
 		this.policy = readRoutingPolicy(options.routingConfig);
 		const budgetPath = join(directory, "budgets.state");
@@ -4419,12 +4457,9 @@ export class LaneDispatcher {
 		let admitted = false;
 		let admissionSent = false;
 		let preflightPaused = false;
-		let heartbeating: Promise<unknown> | undefined;
-		let checkingLease: Promise<void> | undefined;
 		let childFinished = false;
 		let recordingCommits: Promise<void> | undefined;
-		let timer: ReturnType<typeof setInterval> | undefined;
-		let leaseTimer: ReturnType<typeof setInterval> | undefined;
+		let lease: ReturnType<typeof this.watchLease> | undefined;
 		let killTimer: ReturnType<typeof setTimeout> | undefined;
 		let stepLog: ReturnType<typeof createRunStepLog> | undefined;
 		let codexServer: CodexLaneServer | undefined;
@@ -4809,7 +4844,7 @@ export class LaneDispatcher {
 					item.version,
 					started.workItem.version,
 				);
-			let leaseExpiry = Date.parse(started.attempt.expiresAt);
+			const leaseExpiry = Date.parse(started.attempt.expiresAt);
 			if (!Number.isFinite(leaseExpiry) || leaseExpiry <= Date.now())
 				throw new Error("Admission returned no live lease");
 			const stopExpiredChild = () => {
@@ -4817,8 +4852,7 @@ export class LaneDispatcher {
 				receipt.interrupted = true;
 				receipt.outcome = "expired";
 				this.save(path, receipt);
-				if (leaseTimer) clearInterval(leaseTimer);
-				if (timer) clearInterval(timer);
+				lease?.stop();
 				this.log(
 					"lease-expired",
 					item.id,
@@ -4843,103 +4877,27 @@ export class LaneDispatcher {
 					} catch {}
 				}, 5000);
 			};
-			let lastLeaseCheck = Date.now();
-			let nextLeaseProbe = 0;
 			let lastAgentEventAt: number | undefined;
-			leaseTimer = setInterval(() => {
-				if (receipt.interrupted) return;
-				if (Date.now() - lastLeaseCheck > 5_000)
-					this.log(
-						"lease-check-delayed",
-						item.id,
-						`Lease check delayed by ${Date.now() - lastLeaseCheck} ms`,
-					);
-				lastLeaseCheck = Date.now();
-				if (
-					lastLeaseCheck < Math.max(leaseExpiry, nextLeaseProbe) ||
-					!receipt.pid ||
-					checkingLease
-				)
-					return;
-				// A renewal may have reached the server even when its reply was lost.
-				// Check directly so queued Work calls cannot delay the decision.
-				checkingLease = this.deps
-					.cli<{ data: WorkAttempt[] }>(
-						[
-							...this.options.scope,
-							"work",
-							"dispatch-attempts",
+			lease = this.watchLease(
+				{ receipt: this.leaseIdentity(receipt), expiry: leaseExpiry },
+				(event) => {
+					if (event.kind === "lost") stopExpiredChild();
+					else if (event.kind === "log")
+						this.log(event.event, item.id, event.detail);
+					else if (event.kind === "confirmed")
+						this.log(
+							"lease-confirmed",
 							item.id,
-							"--input",
-							'{"limit":1}',
-						],
-						this.ownerEnv,
-						undefined,
-						undefined,
-						10_000,
-					)
-					.then(({ data }) => {
-						const latest = data[0];
-						const expiry = Date.parse(latest?.expiresAt ?? "");
-						if (
-							latest &&
-							latest.id === receipt.attemptId &&
-							latest.externalSessionKey === receipt.session &&
-							["queued", "running", "waiting", "retrying"].includes(
-								latest.runtimeState,
-							) &&
-							expiry > Date.now()
-						) {
-							leaseExpiry = expiry;
-							this.log(
-								"lease-confirmed",
-								item.id,
-								`Lease live until ${latest.expiresAt}`,
-							);
-						} else stopExpiredChild();
-					})
-					.catch((error) => {
-						this.log("lease-check-failed", item.id, String(error));
-						const now = Date.now();
-						if (now < leaseExpiry) return;
-						const idleAt = (lastAgentEventAt ?? -Infinity) + 60_000;
-						if (now >= idleAt) stopExpiredChild();
-						else nextLeaseProbe = Math.min(now + 10_000, idleAt);
-					})
-					.finally(() => {
-						checkingLease = undefined;
-					});
-			}, 1000);
-			timer = setInterval(() => {
-				if (receipt.interrupted || heartbeating) return;
-				heartbeating = this.renewLease(receipt)
-					.then((renewed) => {
-						const expiry = Date.parse(renewed.expiresAt);
-						if (Number.isFinite(expiry)) leaseExpiry = expiry;
-						// Git and Work evidence must not hold up the next lease renewal.
-						if (!recordingCommits)
-							recordingCommits = this.recordUnpushedCommits(receipt).finally(
-								() => {
-									recordingCommits = undefined;
-								},
-							);
-					})
-					.catch((error) => {
-						this.log("heartbeat-failed", item.id, String(error));
-						if (
-							error instanceof CliReadError &&
-							(["STALE_ATTEMPT", "NOT_FOUND", "INVALID_LEASE"].includes(
-								error.code ?? "",
-							) ||
-								(error.code === "CONFLICT" &&
-									error.message.includes("STALE_ATTEMPT")))
-						)
-							stopExpiredChild();
-					})
-					.finally(() => {
-						heartbeating = undefined;
-					});
-			}, 60_000);
+							`Lease live until ${new Date(event.expiry).toISOString()}`,
+						);
+					else if (!childFinished && !recordingCommits)
+						recordingCommits = this.recordUnpushedCommits(receipt).finally(
+							() => {
+								recordingCommits = undefined;
+							},
+						);
+				},
+			);
 			// People watch this run and steer it through its step log: every
 			// send carries the new steps and returns what they sent meanwhile.
 			const run = {
@@ -5360,6 +5318,7 @@ ${firstBrief}`;
 								this.captureIdentityLater(path, receipt, pid, repo);
 							}
 							receipt.phase = "running";
+							lease?.update({ spawned: true, lastAgentEventAt });
 							run.turnRunning = true;
 							this.save(path, receipt);
 							if (!awaitingTurn) onTurnStarted();
@@ -5371,7 +5330,9 @@ ${firstBrief}`;
 							this.save(path, receipt);
 						},
 						onAgentEvent: (observedAt) => {
+							if (observedAt - (lastAgentEventAt ?? -Infinity) < 1000) return;
 							lastAgentEventAt = observedAt;
+							lease?.update({ spawned: !!receipt.pid, lastAgentEventAt });
 						},
 						onNativeActivity: (activity) => {
 							receipt.nativeActivity = activity;
@@ -5651,27 +5612,25 @@ ${firstBrief}`;
 			codexServer?.close();
 			childFinished = true;
 			this.finishPreparation(candidate.id);
-			if (timer) clearInterval(timer);
-			if (leaseTimer) clearInterval(leaseTimer);
+			lease?.update({ spawned: false });
 			if (killTimer) clearTimeout(killTimer);
 			if (stepTimer) clearInterval(stepTimer);
 			if (stopKillTimer) clearTimeout(stopKillTimer);
-			if (admitted && stepLog) {
-				if (!receipt.runQuestion)
-					stepLog.add("finished", `Agent run ended: ${receipt.outcome}`);
-				await stepLog.flush(true);
-			}
-			await heartbeating;
-			await checkingLease;
-			await recordingCommits;
-			if (admitted) {
-				// The comment below waits its turn like any other call.
-				const stop = receipt.interrupted ? undefined : this.keepLease(receipt);
-				try {
-					await this.recordUnpushedCommits(receipt);
-				} finally {
-					stop?.();
+			const stop =
+				lease?.stop ??
+				(admitted && !receipt.interrupted
+					? this.keepLease(receipt)
+					: undefined);
+			try {
+				if (admitted && stepLog) {
+					if (!receipt.runQuestion)
+						stepLog.add("finished", `Agent run ended: ${receipt.outcome}`);
+					await stepLog.flush(true);
 				}
+				await recordingCommits;
+				if (admitted) await this.recordUnpushedCommits(receipt);
+			} finally {
+				stop?.();
 			}
 			if (admitted) {
 				receipt.phase = "settling";
@@ -6575,19 +6534,16 @@ ${firstBrief}`;
 	 * off the ready list.
 	 */
 	private keepLease(receipt: Receipt): () => void {
-		let renewing = false;
-		const timer = setInterval(() => {
-			if (renewing) return;
-			renewing = true;
-			this.renewLease(receipt)
-				.catch((error) =>
-					this.log("heartbeat-failed", receipt.itemId, String(error)),
-				)
-				.finally(() => {
-					renewing = false;
-				});
-		}, 60_000);
-		return () => clearInterval(timer);
+		return this.watchLease(
+			{ receipt: this.leaseIdentity(receipt) },
+			(event) => {
+				if (event.kind === "log")
+					this.log(event.event, receipt.itemId, event.detail);
+			},
+		).stop;
+	}
+	private leaseIdentity({ itemId, attemptId, session, executorKey }: Receipt) {
+		return { itemId, attemptId, session, executorKey };
 	}
 	private async checkVerificationResult(receipt: Receipt) {
 		const result = receipt.laneResult;

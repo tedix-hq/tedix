@@ -46,6 +46,7 @@ import {
 	type DispatchItem,
 	type ServeOptions,
 } from "./lane-serve";
+import { childLeaseWatch } from "./lane-leases";
 import { RunStepsUnavailableError } from "./lane-steps";
 import {
 	runnerDutyFromPlist,
@@ -1374,6 +1375,52 @@ describe("dispatcher admission", () => {
 			);
 		},
 	);
+	it("checks and renews a live Attempt in a child process", async () => {
+		const confirmed = Date.now() + 60_000;
+		const renewed = confirmed + 60_000;
+		const watch = childLeaseWatch([], process.env, () => [
+			process.execPath,
+			[
+				"-e",
+				`
+				import { createLeaseWatch, serveLeaseWatches } from ${JSON.stringify(new URL("./lane-leases.ts", import.meta.url).pathname)};
+				globalThis.setInterval = (callback) => setTimeout(callback, 0);
+				serveLeaseWatches(createLeaseWatch(
+					async () => ({ expiresAt: new Date(${renewed}).toISOString() }),
+					async () => ({
+						id: "attempt", externalSessionKey: "codex:test",
+						runtimeState: "running", expiresAt: new Date(${confirmed}).toISOString(),
+					}),
+				));
+				`,
+			],
+		]);
+		const events: Array<{ kind: string; expiry: number }> = [];
+		const lease = watch(
+			{
+				receipt: {
+					itemId: item().id,
+					attemptId: "attempt",
+					session: "codex:test",
+				},
+				expiry: Date.now(),
+			},
+			(event) => {
+				if (event.kind === "confirmed" || event.kind === "renewed")
+					events.push(event);
+			},
+		);
+		try {
+			lease.update({ spawned: true });
+			await until(() => events.length === 2, 1200);
+			expect(events.slice(0, 2)).toEqual([
+				{ kind: "confirmed", expiry: confirmed },
+				{ kind: "renewed", expiry: renewed },
+			]);
+		} finally {
+			lease.stop();
+		}
+	});
 	it("renews the real heartbeat while an executor child-process probe is pending", async () => {
 		const f = fixture();
 		f.items.splice(1);
@@ -1407,7 +1454,7 @@ describe("dispatcher admission", () => {
 			intervals.mockRestore();
 		}
 	});
-	it("renews through the in-process transport while a pickup read is blocked", async () => {
+	it("renews while a pickup read is blocked", async () => {
 		const f = fixture();
 		f.items.splice(1);
 		let heartbeat!: () => void;

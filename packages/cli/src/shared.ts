@@ -11,6 +11,8 @@ import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type { InspectViewOptions } from "./format";
 import type { InteractiveOAuthScopeProfile } from "./oauth-provider";
 
+export const LEASE_WORKER_ENV = "TEDIX_INTERNAL_LEASE_WORKER";
+
 declare const __TEDIX_CLI_VERSION__: string | undefined;
 
 /** True only for the self-contained binary produced by build:standalone. */
