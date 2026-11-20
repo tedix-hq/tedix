@@ -30,6 +30,10 @@
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["WorkspaceDO"]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["OrganizationLogStore"]
 		}
 	],
 	"account_id": "example-cloudflare-account",

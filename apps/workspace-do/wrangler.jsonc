@@ -63,12 +63,21 @@
 				"name": "COLLAB_ROOM",
 				"script_name": "public-installation-os-development",
 			},
+			// One log store per organization: its signed change ledger.
+			{
+				"class_name": "OrganizationLogStore",
+				"name": "ORGANIZATION_LOG",
+			},
 		],
 	},
 	"migrations": [
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["WorkspaceDO"],
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["OrganizationLogStore"],
 		},
 	],
 	"r2_buckets": [
@@ -136,12 +145,20 @@
 						"name": "COLLAB_ROOM",
 						"script_name": "public-installation-os",
 					},
+					{
+						"class_name": "OrganizationLogStore",
+						"name": "ORGANIZATION_LOG",
+					},
 				],
 			},
 			"migrations": [
 				{
 					"tag": "v1",
 					"new_sqlite_classes": ["WorkspaceDO"],
+				},
+				{
+					"tag": "v2",
+					"new_sqlite_classes": ["OrganizationLogStore"],
 				},
 			],
 			"r2_buckets": [
