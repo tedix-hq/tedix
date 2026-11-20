@@ -47,11 +47,9 @@ export interface State {
 	 */
 	ledgerConversationsSeen: string[];
 	/**
-	 * Buffered daily-log entries pending an R2 flush. Drained by
-	 * {@link AgentTediDO.onDailyLogFlush} which runs on a 5-minute
-	 * `scheduleEvery` cadence or eagerly when the buffer crosses
-	 * {@link DAILY_LOG_FLUSH_THRESHOLD}. Persisted via Agent state so a DO
-	 * eviction between turns doesn't drop pending log entries.
+	 * Buffered daily-log entries pending a commit to the per-tedi Artifacts repo.
+	 * {@link AgentTediDO.onDailyLogFlush} drains the durable queue in bounded
+	 * batches under an admitted maintenance operation.
 	 */
 	pendingDailyEntries: DailyLogEntry[];
 	/**

@@ -6,7 +6,7 @@ import type {
 /**
  * Workspace I/O for isolate tedis.
  *
- * Two backends:
+ * Per-tedi Artifacts files:
  *   - SOUL.md / IDENTITY.md / USER.md / AGENTS.md / TOOLS.md / MEMORY.md
  *     →  Cloudflare Artifacts per-tedi repo. Reads use a short-lived read
  *     token and never create a repo as a side effect; missing files are
@@ -14,8 +14,7 @@ import type {
  *   - Daily logs (`workspace/daily/YYYY-MM-DD.md`)  →  Cloudflare Artifacts
  *     per-tedi repo (`tedix-prod` namespace, repo name = tediId). Committed
  *     via `isomorphic-git` from `artifacts-git.ts` so isolate writes land in
- *     one git history per tedi. Older R2 daily-log entries are left in place
- *     (not migrated, not deleted).
+ *     one git history per tedi.
  */
 
 import {
@@ -271,13 +270,11 @@ export type DailyLogBatch = DailyLogArtifactBatch;
  *   2. Shallow-clone `main` into an in-memory tree (or `git.init` on first
  *      ever flush for a brand-new repo).
  *   3. For each date in the batch: read the existing file (if any), append
- *      the new entries with the same `## ISO  role  turnId` block format
- *      the R2 path used, write back.
+ *      the new entries as `## ISO  role  turnId` blocks, write back.
  *   4. Single commit with N file changes, push to `main`.
  *
- * Concurrency hazard: identical to the old R2 path. Two simultaneous flushes
- * would race the read-modify-write. The AgentTediDO holds `dailyLogWriteLock`
- * around this call so the alarm-tick and threshold-eager paths serialize.
+ * Two simultaneous flushes would race the read-modify-write.
+ * The AgentTediDO holds `dailyLogWriteLock` around this call to serialize them.
  */
 export async function commitDailyLogEntries(
 	artifacts: Artifacts,
