@@ -4,13 +4,11 @@ import {
 	sealDesktopSignInCode,
 } from "@tedix/auth/desktop-sign-in-code";
 import { validateToken } from "@tedix/auth/jwt";
-import { hasStepUpClaim } from "@tedix/auth/types";
 import { z } from "zod";
 
 const inputSchema = z
 	.object({
 		session: z.string().min(1).max(16_384),
-		proof: z.string().min(1).max(16_384),
 		key: z.string().regex(DESKTOP_SIGN_IN_KEY_PATTERN),
 	})
 	.strict();
@@ -24,13 +22,12 @@ const CODE_LIFETIME_SECONDS = 120;
  * for the person who owns `session`, sealed to the key the desktop app made.
  * Descope accepts the token once and only for two minutes.
  *
- * A signed-in browser is not enough: the code becomes a lasting session in
- * the app, so `proof` must be the token the person just got by confirming who
- * they are again (the step-up claim, see `hasStepUpClaim`), for the same
- * person as `session`.
+ * The person does not sign in a second time. What protects the hand-over is
+ * that the code is readable only by the app instance that made the key, works
+ * once, and is made only when the person clicks Continue on the confirm page.
  *
- * Only InternalEntrypoint routes here. Tedix OS calls it from a confirmed,
- * same-origin request and passes the browser's own session, which is checked
+ * Only InternalEntrypoint routes here. Tedix OS calls it from that click, a
+ * same-origin request, and passes the browser's own session, which is checked
  * again here; nothing is logged.
  */
 export async function desktopSignInCode(
@@ -47,23 +44,16 @@ export async function desktopSignInCode(
 	if (!parsed.success) return new Response(null, { status: 400, headers });
 	if (!env.DESCOPE_PROJECT_ID || !env.DESCOPE_MANAGEMENT_KEY)
 		return new Response(null, { status: 503, headers });
-	const validate = (token: string) =>
-		validateToken(token, {
-			baseUrl: env.DESCOPE_BASE_URL,
-			projectId: env.DESCOPE_PROJECT_ID,
-			auditClaims: {
-				surface: "api:desktop-sign-in",
-				expected: [env.DESCOPE_PROJECT_ID as string],
-			},
-		}).catch(() => undefined);
-	const [payload, proof] = await Promise.all([
-		validate(parsed.data.session),
-		validate(parsed.data.proof),
-	]);
+	const payload = await validateToken(parsed.data.session, {
+		baseUrl: env.DESCOPE_BASE_URL,
+		projectId: env.DESCOPE_PROJECT_ID,
+		auditClaims: {
+			surface: "api:desktop-sign-in",
+			expected: [env.DESCOPE_PROJECT_ID],
+		},
+	}).catch(() => undefined);
 	const userId = typeof payload?.sub === "string" ? payload.sub : undefined;
 	if (!userId) return new Response(null, { status: 401, headers });
-	if (!hasStepUpClaim(proof) || proof?.sub !== userId)
-		return new Response(null, { status: 403, headers });
 	const descope = getManagementClient(env).management.user;
 	const user = await descope.loadByUserId(userId);
 	const loginId = user.ok ? user.data?.loginIds?.[0] : undefined;

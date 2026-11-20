@@ -8,7 +8,7 @@ import { resolveProductSession } from "@tedix/auth/product-session-broker";
 import { OS_BROKER_SESSION_COOKIE } from "./session-broker";
 
 export const DESKTOP_SIGN_IN_PATH = "/auth/desktop/sign-in";
-/** The Tedix OS page where the person confirms who they are again. */
+/** The Tedix OS page that asks the person to confirm. */
 export const DESKTOP_SIGN_IN_CONFIRM_PATH = "/desktop-sign-in";
 
 function json(body: Record<string, string>, status = 200): Response {
@@ -64,9 +64,10 @@ ${body}
  * in here and confirms, the page hands the app a one-time code that only that
  * app instance can read (`tedix://sign-in?code=…`).
  *
- * Being signed in here is not enough to get that code. The confirm page in
- * Tedix OS first asks the person to confirm who they are again and posts the
- * token that proves it; the API issues nothing without it.
+ * A person already signed in here does not sign in again. Loading the page
+ * makes nothing: the code is made only when the person clicks Continue on the
+ * confirm page, which posts from this origin. The code works once, for two
+ * minutes, and only the app that made the key can read it.
  */
 export async function handleDesktopSignIn(
 	request: Request,
@@ -89,7 +90,6 @@ export async function handleDesktopSignIn(
 	const body = posting
 		? ((await request.json().catch(() => null)) as {
 				key?: unknown;
-				proof?: unknown;
 			} | null)
 		: null;
 	const key = posting ? body?.key : url.searchParams.get("key");
@@ -121,23 +121,15 @@ export async function handleDesktopSignIn(
 	if (posting) {
 		if (!session || !payload?.sub)
 			return json({ error: "Sign in to Tedix OS again, then retry." }, 401);
-		const proof = body?.proof;
-		if (typeof proof !== "string" || !proof)
-			return json({ error: "Confirm who you are first." }, 403);
 		const response = await serviceBindingFetch(env.API_SERVICE)(
 			"https://api/__internal/desktop-sign-in-code",
 			{
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ session, key, proof }),
+				body: JSON.stringify({ session, key }),
 				signal: AbortSignal.timeout(10_000),
 			},
 		).catch(() => null);
-		if (response?.status === 403)
-			return json(
-				{ error: "We could not confirm it was you. Confirm again." },
-				403,
-			);
 		const code = response?.ok
 			? ((await response.json().catch(() => null)) as { code?: unknown } | null)
 					?.code
@@ -147,7 +139,7 @@ export async function handleDesktopSignIn(
 		return json({ code });
 	}
 	// Not signed in in this browser yet: sign in the usual way, then return.
-	// Signed in: Tedix OS asks the person to confirm who they are again.
+	// Signed in: Tedix OS asks the person to confirm with one click.
 	return new Response(null, {
 		status: 302,
 		headers: {
