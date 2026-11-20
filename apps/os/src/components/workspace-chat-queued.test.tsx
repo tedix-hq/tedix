@@ -61,6 +61,7 @@ function fakeClient(conversationId: string) {
 			return `sent-${sends}`;
 		},
 		decideApproval() {},
+		setApprovalMode() {},
 		dismissApprovalNotice() {},
 		decideApprovals() {},
 		cancelTurn(turnId) {

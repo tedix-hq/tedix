@@ -19,6 +19,7 @@ import {
 	BlueprintApplyReceiptSchema,
 } from "../schemas/blueprint-provisioning";
 import { JsonValueSchema } from "../schemas/common";
+import { ApprovalModeSchema } from "../schemas/workspace-agent-access";
 import {
 	OsInspectableWorkspaceSchema,
 	OsWorkspaceInspectionRecordSchema,
@@ -580,6 +581,31 @@ export const osWorkspacesContract = oc
 							.max(200)
 							.nullable()
 							.describe("The tedi to answer by default; null clears it"),
+					}),
+				)
+				.output(z.object({ workspace: OsWorkspaceSchema })),
+			setAgentAccess: oc
+				.route({
+					method: "PUT",
+					path: "/workspaces/{workspaceId}/agent-access",
+					summary: "Set what the agent and tedis may do in a workspace",
+					description:
+						"Sets whether the agent and tedis may use the computer of the person who sent a chat message, and the loosest approval mode members may pick in the workspace's chat. Leave a field out to keep it; null returns it to the default, which follows the workspace's visibility. Needs build access to the workspace.",
+				})
+				.input(
+					workspaceIdInput.extend({
+						machineAccess: z
+							.boolean()
+							.nullable()
+							.optional()
+							.describe(
+								"Let the agent and tedis use the sender's computer; null for the default",
+							),
+						highestApprovalMode: ApprovalModeSchema.nullable()
+							.optional()
+							.describe(
+								"The loosest mode members may pick; null for the default",
+							),
 					}),
 				)
 				.output(z.object({ workspace: OsWorkspaceSchema })),

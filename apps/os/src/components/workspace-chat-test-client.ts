@@ -29,8 +29,15 @@ export function fakeWorkspaceChatClient(conversationId: string | null) {
 			calls.push(["sendTurn", input]);
 			return "client-turn";
 		},
-		decideApproval(approvalId, decision) {
-			calls.push(["decideApproval", approvalId, decision]);
+		decideApproval(approvalId, decision, options) {
+			calls.push(
+				options
+					? ["decideApproval", approvalId, decision, options]
+					: ["decideApproval", approvalId, decision],
+			);
+		},
+		setApprovalMode(mode) {
+			calls.push(["setApprovalMode", mode]);
 		},
 		decideApprovals(approvalIds, decision) {
 			calls.push(["decideApprovals", approvalIds, decision]);

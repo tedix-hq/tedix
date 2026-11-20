@@ -42,6 +42,7 @@ import type { workspaceAccounts } from "./accounts";
 import { ACCOUNTS_UNAVAILABLE } from "./prompt";
 import { isMachineWriteTool } from "@tedix/api-contract/schemas/machines";
 import { MACHINE_UNAVAILABLE, type workspaceMachine } from "./machine";
+import { COMPUTER_READ_RESOURCE } from "./approval-modes";
 import { PERSON_UNAVAILABLE, type workspacePerson } from "./person";
 import { TEDI_UNAVAILABLE, type workspaceTedi } from "./tedi";
 import { CHAT_UNAVAILABLE, type workspaceChat } from "./chat";
@@ -86,6 +87,12 @@ export interface BindingDeps {
 	accountActor?: Actor;
 	/** Absent unless a signed-in person sent the turn themself. */
 	machine?: ReturnType<typeof workspaceMachine>;
+	/** Why `machine` is absent, when it is not the default reason. */
+	machineUnavailable?: string;
+	/** Other people can open the workspace: a computer read waits for the sender. */
+	computerReadsAsk?: boolean;
+	/** The turn runs in Read only: nothing that changes anything runs. */
+	readOnly?: boolean;
 	/** Absent unless a signed-in person sent the turn themself. */
 	person?: ReturnType<typeof workspacePerson>;
 	/** Absent unless a signed-in person sent the turn to a guest tedi. */
@@ -489,7 +496,8 @@ export function buildWorkspaceBindings(
 	};
 
 	const machinePort = () => {
-		if (!deps.machine) throw new Error(MACHINE_UNAVAILABLE);
+		if (!deps.machine)
+			throw new Error(deps.machineUnavailable ?? MACHINE_UNAVAILABLE);
 		return deps.machine;
 	};
 	type MachineCall = Parameters<ReturnType<typeof workspaceMachine>["call"]>[0];
@@ -508,15 +516,25 @@ export function buildWorkspaceBindings(
 			},
 		},
 	);
+	// Reading a computer waits for the sender where other people can open the
+	// workspace; the approval mode decides it, like every other held call.
+	const machineReadGate = wrapBinding(
+		{ call: (input: MachineCall) => machinePort().call(input) },
+		{
+			...common,
+			resource: COMPUTER_READ_RESOURCE,
+			methods: { call: { riskTier: "read", blastRadius: "none" } },
+		},
+	);
 	const machine = {
 		list: () => machinePort().list(),
 		call: async (input: MachineCall) => {
 			const port = machinePort();
-			if (typeof input?.tool !== "string" || !isMachineWriteTool(input.tool))
-				return port.call(input);
+			const write =
+				typeof input?.tool === "string" && isMachineWriteTool(input.tool);
 			// A call that cannot run is refused here, before anyone is asked.
-			await port.assertCanRun(input);
-			return machineWriteGate.call(input);
+			if (write || deps.computerReadsAsk) await port.assertCanRun(input);
+			return write ? machineWriteGate.call(input) : machineReadGate.call(input);
 		},
 		read: (input: { callId?: unknown }) => machinePort().read(input),
 	};
@@ -532,10 +550,31 @@ export function buildWorkspaceBindings(
 		if (!deps.tedi) throw new Error(TEDI_UNAVAILABLE);
 		return deps.tedi;
 	};
+	type TediCall = { tool?: unknown; args?: unknown };
+	// The tedi's own object asks for what it holds. In Read only, a tool not
+	// marked read-only goes through this gate, which the mode refuses.
+	const tediWriteGate = wrapBinding(
+		{ call: (input: TediCall) => tediPort().call(input) },
+		{
+			...common,
+			resource: "tedi_tool",
+			methods: {
+				call: { riskTier: "bounded_write", blastRadius: "external_system" },
+			},
+		},
+	);
 	const tedi = {
 		list: (input?: { query?: unknown }) => tediPort().list(input),
 		describe: (input: { tool?: unknown }) => tediPort().describe(input),
-		call: (input: { tool?: unknown; args?: unknown }) => tediPort().call(input),
+		call: async (input: TediCall) => {
+			if (!deps.readOnly) return tediPort().call(input);
+			const tool = await tediPort()
+				.describe(input)
+				.catch(() => null);
+			return tool?.readOnly
+				? tediPort().call(input)
+				: tediWriteGate.call(input);
+		},
 	};
 
 	const chat = {

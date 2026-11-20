@@ -310,6 +310,19 @@ export const workspaceHandlers: Record<string, (input: never) => unknown> = {
 		workspace.updatedAt = now();
 		return { workspace };
 	},
+	"osWorkspaces/workspaces/setAgentAccess": (input: {
+		workspaceId: string;
+		machineAccess?: boolean | null;
+		highestApprovalMode?: OsWorkspace["highestApprovalMode"];
+	}) => {
+		const workspace = findWorkspace(input.workspaceId);
+		if (input.machineAccess !== undefined)
+			workspace.machineAccess = input.machineAccess;
+		if (input.highestApprovalMode !== undefined)
+			workspace.highestApprovalMode = input.highestApprovalMode;
+		workspace.updatedAt = now();
+		return { workspace };
+	},
 	"osWorkspaces/workspaces/archive": (input: { workspaceId: string }) => {
 		const workspace = findWorkspace(input.workspaceId);
 		workspace.status = "archived";

@@ -263,6 +263,15 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceId: ({ input }) => text(input.workspaceId),
 		metadata: ({ input }) => ({ tediId: text(input.tediId) }),
 	},
+	"workspaces.setAgentAccess": {
+		action: "os.workspace.agent_access_set",
+		resourceType: "os_workspace",
+		resourceId: ({ input }) => text(input.workspaceId),
+		metadata: ({ input }) => ({
+			machineAccess: input.machineAccess,
+			highestApprovalMode: input.highestApprovalMode,
+		}),
+	},
 	"workspaces.archive": {
 		action: "os.workspace.archived",
 		resourceType: "os_workspace",

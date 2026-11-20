@@ -284,6 +284,7 @@ export class InternalEntrypoint
 			decision: "approve" | "deny";
 			by: string;
 			note?: string;
+			likeThis?: boolean;
 		},
 	) {
 		return stubFor(this.env, scope).decideApproval(scope, input);

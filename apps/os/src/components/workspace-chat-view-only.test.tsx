@@ -136,12 +136,13 @@ describe("workspace chat for a person with view-only access", () => {
 			fake.set({
 				state: markSendFailed(fake.client.getSnapshot().state, {
 					code: "access_denied",
-					message: "Workspace access denied",
+					message:
+						"Your message was not sent: you can view this workspace but not change it.",
 				}),
 			});
 		});
 		expect(host.textContent).toContain("Earlier question");
-		expect(host.textContent).not.toContain("Workspace access denied");
+		expect(host.textContent).not.toContain("Your message was not sent");
 		const labels = [...host.querySelectorAll("button")].map(
 			(button) => button.textContent,
 		);

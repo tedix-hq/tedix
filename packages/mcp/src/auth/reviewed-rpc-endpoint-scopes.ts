@@ -695,6 +695,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/workspaces/removeIcon": "mcp:apps.write",
 	"osWorkspaces/workspaces/setIcon": "mcp:apps.write",
 	"osWorkspaces/workspaces/setDefaultTedi": "mcp:apps.write",
+	"osWorkspaces/workspaces/setAgentAccess": "mcp:apps.write",
 	"osWorkspaces/workspaces/update": "mcp:apps.write",
 	"personalResourceDelegations/create": "mcp:settings.admin",
 	"personalResourceDelegations/list": "mcp:settings.read",

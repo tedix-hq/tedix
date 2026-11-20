@@ -4,7 +4,14 @@ import {
 	type WorkspaceMachineResult,
 } from "@tedix/api-contract/schemas/workspace-machine";
 import { createDbClient } from "@tedix/db/client";
+import {
+	COMPUTER_ACCESS_OFF,
+	workspaceMachineAccess,
+} from "@tedix/api-contract/schemas/workspace-agent-access";
+import { workspaceOnlyOpenableBy } from "@tedix/api-contract/utils/os-collaborator-graph";
+import { listMachineOwners } from "@tedix/db/queries/machines";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { loadOsWorkspacePermissionRows } from "@tedix/db/queries/os-collaborators";
 import {
 	isWorkspaceGuestTediAllowed,
 	readWorkspaceSessionRole,
@@ -29,6 +36,10 @@ const refused = (message: string): WorkspaceMachineResult => ({
  * the guest tedi are read live here on every call, and the machine and tool
  * rules are the ones every other caller gets.
  *
+ * The workspace's computer access setting must be on. Where other people can
+ * open the workspace, only a machine whose runners all sign in as the sender
+ * is listed or called; a machine nobody is known to own is refused there.
+ *
  * A call made while the person addressed a tedi is queued under that tedi,
  * like the calls a tedi makes from its own chat. The person is signed in and
  * sent the turn, so the tedi may use the write tools a machine accepts.
@@ -49,13 +60,7 @@ export async function useWorkspaceMachine(
 		const workspace = await getOsWorkspace(deps.db, request);
 		if (!workspace || workspace.status !== "active")
 			return refused("This workspace is unavailable.");
-		// A shared workspace holds other people's files and messages, and a
-		// machine read is not held for approval, so only a private workspace's
-		// chat reaches a machine.
-		if (workspace.visibility !== "private")
-			return refused(
-				"A machine can be used only from the chat of a private workspace.",
-			);
+		if (!workspaceMachineAccess(workspace)) return refused(COMPUTER_ACCESS_OFF);
 		const member = await getMemberByUserId(deps.db, orgId, request.userId);
 		if (member?.status !== "active" || !member.userId)
 			return refused("An active organization membership is required.");
@@ -88,13 +93,41 @@ export async function useWorkspaceMachine(
 				return refused("This tedi cannot act for you in this workspace.");
 			requester = { type: "tedi", id: request.tediId, admin: false };
 		}
+		// Where other people can open the chat, only the sender's own computer
+		// is ever used: the one their runner reports from under their sign-in.
+		const permissions = await loadOsWorkspacePermissionRows(deps.db, {
+			...request,
+			collaborators: false,
+		});
+		const shared = !workspaceOnlyOpenableBy({
+			userId: request.userId,
+			workspace,
+			edges: permissions.edges,
+			links: permissions.links,
+		});
+		const owners = shared
+			? await listMachineOwners(deps.db, { orgId })
+			: new Map<string, string | null>();
+		const yours = (machineName: string) =>
+			owners.get(machineName.toLowerCase()) === `user:${member.userId}`;
 		switch (request.op) {
-			case "list":
+			case "list": {
+				const machines = await listOrganizationMachines(deps, orgId);
 				return {
 					status: "machines",
-					machines: await listOrganizationMachines(deps, orgId),
+					machines: shared
+						? machines.filter((machine) => yours(machine.machineName))
+						: machines,
 				};
+			}
 			case "call": {
+				const name = request.call.machine;
+				if (shared && owners.has(name.toLowerCase()) && !yours(name))
+					return refused(
+						owners.get(name.toLowerCase()) === null
+							? `Tedix does not know whose computer ${name} is, so it cannot be used from a workspace other people can open. Its owner can sign in again on it, or use their private workspace.`
+							: `${name} is another person's computer. In a workspace other people can open, only the computer of the person who sent the message can be used.`,
+					);
 				const queued = await queueMachineToolCall(deps, {
 					orgId,
 					requester,

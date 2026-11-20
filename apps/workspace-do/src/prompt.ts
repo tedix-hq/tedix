@@ -61,7 +61,14 @@ export interface DynamicPromptInput {
 	otherReplyAuthors?: string[];
 	/** The answering tedi's own skills and tool groups, already rendered. */
 	tediCatalog?: string | null;
+	/** Why `env.machine` cannot be used in this turn, when that is the case. */
+	machineUnavailable?: string | null;
+	/** The person picked Read only for this chat. */
+	readOnly?: boolean;
 }
+
+export const READ_ONLY_CONTEXT =
+	"Read only is on for this chat: read and answer, and change nothing. A call that would change something is refused.";
 
 export interface PendingApproval {
 	/** What the change does, e.g. "Saving a document revision". */
@@ -91,6 +98,8 @@ export function dynamicPromptSuffix(input: DynamicPromptInput): string {
 		parts.push(
 			`Earlier replies in this conversation that start with a "[Reply from ...]" line were written by ${input.otherReplyAuthors.join(", ")}, not by you. Never start a reply of your own with such a line.`,
 		);
+	if (input.machineUnavailable) parts.push(input.machineUnavailable);
+	if (input.readOnly) parts.push(READ_ONLY_CONTEXT);
 	if (input.linkedAccounts === null) parts.push(ACCOUNTS_UNAVAILABLE);
 	else if (input.linkedAccounts?.length)
 		parts.push(

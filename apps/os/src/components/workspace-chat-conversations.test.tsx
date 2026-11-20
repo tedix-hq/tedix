@@ -541,6 +541,7 @@ describe("WorkspaceChat conversation management", () => {
 			},
 			sendTurn: () => "client-turn",
 			decideApproval() {},
+			setApprovalMode() {},
 			dismissApprovalNotice() {},
 			decideApprovals() {},
 			cancelTurn() {},

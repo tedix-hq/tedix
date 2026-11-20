@@ -84,6 +84,7 @@ function fakeClient(conversationId: string | null) {
 			calls.push(["decideApproval", approvalId, decision]);
 		},
 		dismissApprovalNotice() {},
+		setApprovalMode() {},
 		decideApprovals(approvalIds, decision) {
 			calls.push(["decideApprovals", approvalIds, decision]);
 		},

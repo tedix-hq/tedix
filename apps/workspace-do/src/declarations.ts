@@ -303,12 +303,15 @@ interface Web {
 }`.trim(),
 	machine: `
 /**
- * Use one of the organization's machines for the person who sent this turn (only from the chat of a private workspace): read a file, search code,
- * read commits or CI runs on it. Works only in a turn a signed-in person with build access sent themself.
+ * Use the computer of the person who sent this turn: read a file, search code, read commits or CI runs on it.
+ * Works only in a turn a signed-in person with build access sent themself, and only while computer access
+ * is on for this workspace (the context says when it is off; then say so, never that no computer exists).
+ * Where other people can open the workspace, only the sender's own computer is listed, and every call,
+ * reads included, waits for the sender's approval.
  * A machine whose owner switched the write tools on (its tools list them) also accepts:
  * - list_folder and read_file with a path under the person's home folder, such as "~/Downloads". Use these when
  *   the person asks to look at, list or read a folder or file on their computer. They are reads and need no
- *   approval. The machine refuses credential locations and anything outside the home folder. Do not use
+ *   approval in a private workspace. The machine refuses credential locations and anything outside the home folder. Do not use
  *   run_command for this.
  * - run_command: one shell command. It waits for the person's approval. Without a workspace it runs in the
  *   person's home folder; no open_workspace is needed first.

@@ -22,6 +22,7 @@ import { Text } from "@/components/kumo/text";
 import { WorkspaceEffectList } from "@/components/workspace-delete-dialog";
 import { WorkspaceIconField } from "@/components/workspace-icon-field";
 import { WorkspaceDefaultTediField } from "@/components/workspace-default-tedi-field";
+import { WorkspaceAgentAccessField } from "@/components/workspace-agent-access-field";
 import { useWorkspaceMuteState } from "@/components/workspace-muted-icon";
 import { osApi } from "@/lib/api";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
@@ -158,6 +159,7 @@ export function WorkspaceFormDialog({
 						<>
 							<WorkspaceIconField workspace={workspace} />
 							<WorkspaceDefaultTediField workspace={workspace} />
+							<WorkspaceAgentAccessField workspace={workspace} />
 						</>
 					) : null}
 					{mutation.isError && (

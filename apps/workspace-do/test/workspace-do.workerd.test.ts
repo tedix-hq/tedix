@@ -45,6 +45,7 @@ import type {
 	WorkspaceMachineInput,
 	WorkspaceMachineResult,
 } from "@tedix/api-contract/schemas/workspace-machine";
+import { COMPUTER_ACCESS_OFF } from "@tedix/api-contract/schemas/workspace-agent-access";
 import { tedis } from "@tedix/db/schema/tedis";
 import { organizations } from "@tedix/db/schema/organizations";
 import {
@@ -347,6 +348,15 @@ async function seedWorkspaceRows(scopes: WorkspaceScope[]) {
 			),
 		),
 	);
+}
+
+/** Makes a seeded workspace private to one person. */
+async function privateTo(workspaceScope: WorkspaceScope, userId: string) {
+	await testEnv.DB.prepare(
+		"UPDATE os_workspaces SET visibility = 'private', owner_user_id = ? WHERE id = ?",
+	)
+		.bind(userId, workspaceScope.workspaceId)
+		.run();
 }
 
 async function seedOutputs(ws: Stub, outputScope = scope) {
@@ -2738,6 +2748,7 @@ describe("WorkspaceDO", () => {
 		await seedCore();
 		const own = { ...scope, workspaceId: crypto.randomUUID() };
 		await seedWorkspaceRows([own]);
+		await privateTo(own, "u1");
 		const ws = workspace(own);
 		const callId = crypto.randomUUID();
 		await ws.scriptMachine(own, [
@@ -6437,7 +6448,7 @@ describe("workspace transport authorization", () => {
 			);
 			expect((await denied).at(-1)).toMatchObject({
 				type: "error",
-				message: "Tedi access denied",
+				message: expect.stringContaining("cannot pick that tedi"),
 			});
 			expect(await ws.listConversations(privateScope)).toEqual([]);
 		} finally {
@@ -8243,4 +8254,201 @@ test("sandbox memory uses SQL revisions, trusted provenance, review approval and
 			(record) => record.operation === "write" && record.outcome === "applied",
 		)?.after?.revisionId,
 	).toBe(pending!.revisionId);
+});
+
+describe("approval modes and computer access", () => {
+	const WRITE = `env.memory.write({ key: "plan", value: "draft" })`;
+	const setup = async (visibility: "org" | "private") => {
+		await seedCore();
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([own]);
+		if (visibility === "private") await privateTo(own, "u1");
+		return { own, ws: workspace(own) };
+	};
+	const run = async (
+		ws: Stub,
+		own: WorkspaceScope,
+		code: string,
+		turn: {
+			actorId?: string;
+			actorKind?: "user" | "service";
+			fromAppId?: string;
+		} = {},
+	) => {
+		await ws.scriptModel(own, [{ code }, { text: "Done." }]);
+		const { turnId, conversationId } = await ws.sendTurn(own, {
+			actorId: turn.actorId ?? "u1",
+			actorKind: turn.actorKind ?? "user",
+			text: "Go ahead.",
+			...(turn.fromAppId ? { fromAppId: turn.fromAppId } : {}),
+		});
+		await ws.awaitTurn(own, turnId, 20_000);
+		const events = await ws.readEvents(own, { conversationId });
+		return {
+			held: events.filter((event) => event.type === "approval.requested"),
+			text: JSON.stringify(events),
+		};
+	};
+
+	test('"Ask for changes" runs a read without asking and holds a change', async () => {
+		const { own, ws } = await setup("org");
+		// Auto is looser than this shared workspace allows, so it is capped.
+		expect(
+			await ws.setApprovalMode(own, { userId: "u1", mode: "auto" }),
+		).toEqual({ mode: "ask_for_changes", highest: "ask_for_changes" });
+		const { held } = await run(
+			ws,
+			own,
+			`export default async (env) => { await env.web.fetch("https://example.com/prices"); return ${WRITE}.catch(e => e.message); }`,
+		);
+		expect(await ws.webFetchCount(own)).toBe(1);
+		expect(held).toEqual([expect.objectContaining({ title: "memory.write" })]);
+	});
+
+	test('"Auto" still holds what Tedix always asks for', async () => {
+		const { own, ws } = await setup("private");
+		await ws.setApprovalMode(own, { userId: "u1", mode: "auto" });
+		const { held } = await run(
+			ws,
+			own,
+			`export default async (env) => { await ${WRITE}; return env.memory.review({ revisionId: "r1", decision: "approve" }).catch(e => e.message); }`,
+		);
+		expect(held).toEqual([expect.objectContaining({ title: "memory.review" })]);
+		expect(held[0]).not.toHaveProperty("approveAllInTurn");
+		const records = await ws.readChangeRecords(own, { resource: "memory" });
+		expect(
+			records.find((record) => record.operation === "write")?.outcome,
+		).toBe("applied");
+	});
+
+	test("app-started and scheduled turns ask whatever mode the person picked", async () => {
+		const { own, ws } = await setup("private");
+		await ws.setApprovalMode(own, { userId: "u1", mode: "auto" });
+		const code = `export default async (env) => ${WRITE}.catch(e => e.message)`;
+		expect((await run(ws, own, code)).held).toHaveLength(0);
+		expect(
+			(
+				await run(ws, own, code, {
+					fromAppId: "dddddddd-0000-4000-8000-000000000001",
+				})
+			).held,
+		).toHaveLength(1);
+		expect(
+			(await run(ws, own, code, { actorKind: "service", actorId: "schedule" }))
+				.held,
+		).toHaveLength(1);
+	});
+
+	test('"Approve all like this" covers the same action later in that turn only', async () => {
+		const { own, ws } = await setup("org");
+		await ws.scriptModel(own, [
+			{
+				code: `export default async (env) => {
+					const first = await ${WRITE}.then(() => "applied", e => e.message);
+					await new Promise((resolve) => setTimeout(resolve, 4000));
+					const second = await ${WRITE}.then(() => "applied", e => e.message);
+					return { first, second };
+				}`,
+			},
+			{ text: "Done." },
+			{ text: "Noted." },
+		]);
+		const { turnId, conversationId } = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Save the plan twice.",
+		});
+		const card = await vi.waitFor(async () => {
+			const found = (await ws.readEvents(own, { conversationId })).find(
+				(event) => event.type === "approval.requested",
+			);
+			if (found?.type !== "approval.requested") throw new Error("no card yet");
+			return found;
+		});
+		expect(card.approveAllInTurn).toBe(true);
+		await ws.decideApproval(own, {
+			approvalId: card.approvalId,
+			decision: "approve",
+			by: "u1",
+			likeThis: true,
+		});
+		await ws.awaitTurn(own, turnId, 20_000);
+		const events = await ws.readEvents(own, { conversationId });
+		expect(
+			events.filter((event) => event.type === "approval.requested"),
+		).toHaveLength(1);
+		expect(
+			events.find(
+				(event) =>
+					event.type === "step.finished" && event.result?.includes("second"),
+			),
+		).toMatchObject({ result: expect.stringContaining('"second": "applied"') });
+		// The reply to the decision finishes before the next message.
+		await vi.waitFor(async () => {
+			const all = await ws.readEvents(own, { conversationId });
+			if (all.filter((event) => event.type === "turn.finished").length < 2)
+				throw new Error("decision reply still running");
+		}, 10_000);
+		const next = await run(
+			ws,
+			own,
+			`export default async (env) => ${WRITE}.catch(e => e.message)`,
+		);
+		expect(next.held).toHaveLength(1);
+	});
+
+	test("computer access: off says so plainly; on where others can open, a read waits for the sender", async () => {
+		const off = await setup("org");
+		const refused = await run(
+			off.ws,
+			off.own,
+			`export default async (env) => env.machine.list().catch(e => e.message)`,
+		);
+		expect(refused.text).toContain(COMPUTER_ACCESS_OFF);
+		expect((await off.ws.readSystemPrompts(off.own))[0]).toContain(
+			COMPUTER_ACCESS_OFF,
+		);
+		expect(await off.ws.readMachineCalls(off.own)).toEqual([]);
+
+		const on = await setup("org");
+		await testEnv.DB.prepare(
+			"UPDATE os_workspaces SET machine_access = 1 WHERE id = ?",
+		)
+			.bind(on.own.workspaceId)
+			.run();
+		await on.ws.scriptMachine(on.own, [
+			{
+				status: "machines",
+				machines: [
+					{
+						machineName: "Studio",
+						executors: [],
+						lastSeenAt: "2026-11-20T10:00:00.000Z",
+						cliVersion: null,
+						machineTools: ["read_file"],
+						online: true,
+					},
+				],
+			},
+		]);
+		const { held } = await run(
+			on.ws,
+			on.own,
+			`export default async (env) => env.machine.call({ machine: "Studio", tool: "read_file", input: { path: "README.md" } }).catch(e => e.message)`,
+		);
+		expect(held).toHaveLength(1);
+		// Only the check ran; nothing was read from the computer yet.
+		expect(
+			(await on.ws.readMachineCalls(on.own)).map((call) => call.op),
+		).toEqual(["list"]);
+		const card = held[0];
+		if (card?.type !== "approval.requested") throw new Error("no card");
+		await expect(() =>
+			on.ws.decideApproval(on.own, {
+				approvalId: card.approvalId,
+				decision: "approve",
+				by: "u2",
+			}),
+		).rejects.toThrow("only the person who sent the message");
+	});
 });

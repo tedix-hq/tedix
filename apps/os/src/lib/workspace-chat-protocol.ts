@@ -15,6 +15,8 @@
  * ends together.
  */
 
+import type { ApprovalMode } from "@tedix/api-contract/schemas/workspace-agent-access";
+
 export const WORKSPACE_CHAT_PATH_PREFIX = "/workspace/";
 export const WORKSPACE_CHAT_PATH_SUFFIX = "/chat";
 
@@ -77,6 +79,8 @@ export type WorkspaceChatClientMessage =
 			note?: string;
 			/** Echoed in the `approvals.decided` answer. */
 			runId?: string;
+			/** Also approve what the same turn asks for of the same kind. */
+			likeThis?: true;
 	  }
 	| {
 			/**
@@ -105,7 +109,11 @@ export type WorkspaceChatClientMessage =
 			before: number;
 			limit: number;
 	  }
+	| { type: "set_approval_mode"; mode: ApprovalMode }
 	| { type: "ping" };
+
+/** The person's approval mode in this workspace and the loosest they may pick. */
+export type ApprovalModeState = { mode: ApprovalMode; highest: ApprovalMode };
 
 type WorkspaceChatAuthorIdentity = {
 	id: string;
@@ -292,6 +300,8 @@ export type WorkspaceChatLedgerEvent =
 			target?: { id: string; title: string };
 			/** The change applies at once; it is not waiting for anyone. */
 			automatic?: true;
+			/** The card may offer "Approve all like this in this turn". */
+			approveAllInTurn?: true;
 	  })
 	| (Stamped & {
 			type: "approval.decided";
@@ -393,7 +403,13 @@ export type WorkspaceChatControlMessage =
 			models?: Array<{ id: string; label: string }>;
 			/** The whole workspace, archived conversations included, up to `cursor`. */
 			usage?: UsageTotals;
+			/** The person's approval mode here. */
+			approvalMode?: ApprovalModeState;
 	  }
+	| ({
+			/** The answer to `set_approval_mode`. */
+			type: "approval_mode";
+	  } & ApprovalModeState)
 	| {
 			/** A conversation and everything in it is gone; every open chat gets it. */
 			type: "conversation.deleted";
@@ -483,6 +499,7 @@ const CONTROL_TYPES = new Set<WorkspaceChatControlMessage["type"]>([
 	"turn.accepted",
 	"ledger.page",
 	"approvals.decided",
+	"approval_mode",
 	"pong",
 	"error",
 ]);
