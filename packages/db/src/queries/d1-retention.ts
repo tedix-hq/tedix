@@ -96,7 +96,7 @@ function spec(
  * database before inserting a row at least this old (minus a day of clock
  * slack), so a replay of a moved row is answered from its copy.
  */
-export const EXTERNAL_AGENT_ATTRIBUTION_MIN_KEEP_DAYS = 30;
+export const EXTERNAL_AGENT_ATTRIBUTION_MIN_KEEP_DAYS = 7;
 
 /**
  * Tables the engine may touch. A table belongs here only when nothing
@@ -140,10 +140,10 @@ export const D1_RETENTION_TABLES: Readonly<
 		tediCallCosts,
 		tediCallCosts.createdAt,
 		"text",
-		// Settlement, reviewed evidence and historical rollup rebuilds join main
-		// authority tables. Keep the existing financial window until those
-		// batch readers can resolve archived sources in the same snapshot.
-		400,
+		// Every main-only call-cost reader looks back at most 45 days
+		// (billable usage 45, rollup rebuilds 35, health and usage 30).
+		// Unsettled and reviewed rows stay pinned (`callCostIsMovable`).
+		90,
 	),
 	// Provenance: only verified-copy moves, and only `mcp_execution` rows that
 	// no review evidence cites (`attributionIsMovable`).
@@ -330,6 +330,9 @@ export async function nextD1RetentionOldRowid(
 		: Number(row.nextRowid);
 }
 
+/** Archive owner for platform call costs, which no organization owns. */
+export const D1_RETENTION_PLATFORM_ARCHIVE_OWNER = "_platform";
+
 /** Resolve indirect tenant ownership without changing the raw archive/copy rows. */
 export async function groupD1RetentionArchiveRows(
 	db: DbQueryClient,
@@ -352,7 +355,7 @@ export async function groupD1RetentionArchiveRows(
 			tableSpec.tableName === "skill_run_artifacts"
 				? runOrganizations.get(String(row.run_id))
 				: tableSpec.tableName === "tedi_call_costs"
-					? row.org_id
+					? (row.org_id ?? D1_RETENTION_PLATFORM_ARCHIVE_OWNER)
 					: row.organization_id;
 		if (typeof org !== "string" || !org)
 			throw new Error("Archive row has no valid organization");
@@ -606,10 +609,12 @@ async function movableAttributionRowids(
 	return movable;
 }
 
-/** Pending settlement and reviewed evidence must remain beside main authority. */
+/**
+ * Pending settlement and reviewed evidence must remain beside main authority.
+ * Platform calls (no organization) are never charged; they move once expired.
+ */
 function callCostIsMovable(): SQL {
-	return sql`${tediCallCosts.orgId} IS NOT NULL
-		AND NOT EXISTS (SELECT 1 FROM ${billingProviderCostEvidenceVersions}
+	return sql`(${tediCallCosts.orgId} IS NULL OR (NOT EXISTS (SELECT 1 FROM ${billingProviderCostEvidenceVersions}
 			WHERE ${billingProviderCostEvidenceVersions.originalOrgId} = ${tediCallCosts.orgId}
 			AND ${billingProviderCostEvidenceVersions.sourceCallId} = ${tediCallCosts.id})
 		AND (${tediCallCosts.success} = 0
@@ -620,7 +625,7 @@ function callCostIsMovable(): SQL {
 				WHERE ${billingUsageCharges.gatewayLogId} = ${tediCallCosts.gatewayLogId}))
 			OR (${tediCallCosts.usageKind} IS NOT NULL AND EXISTS
 				(SELECT 1 FROM ${billingProviderUsage}
-				WHERE ${billingProviderUsage.gatewayLogId} = ${tediCallCosts.gatewayLogId})))`;
+				WHERE ${billingProviderUsage.gatewayLogId} = ${tediCallCosts.gatewayLogId})))))`;
 }
 
 /**

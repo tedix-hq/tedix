@@ -13,18 +13,18 @@ feature flag, no configuration row.
 
 ## Where each class goes
 
-| Class                                           | New rows                                                                    | Rows past the keep window                                             |
-| ----------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Known MCP execution telemetry                   | `LOGS_DB.audit_events` (`queries/audit.ts`), metadata over 4 KiB in R2      | `move_to_logs_db`                                                     |
-| Every other audit action                        | Main D1, including rows composed into a main-database batch                 | `move_to_logs_db`                                                     |
-| `tedi_runtime_events`                           | Main D1                                                                     | `move_to_logs_db`                                                     |
-| `kernel_runtime_events`                         | Main D1                                                                     | `move_to_logs_db`                                                     |
-| `kernel_request_events`                         | Main D1                                                                     | Not moved: request CAS and history append share one batch             |
-| `skill_run_artifacts`                           | Pointer row in main D1; body in the private artifact bucket when over 4 KiB | `move_to_logs_db`                                                     |
-| `external_agent_attributions`                   | Main D1 (credential-checked insert, unique key)                             | `move_to_logs_db`, 30-day floor, unreviewed `mcp_execution` rows only |
-| Workflow source snapshots                       | Main D1 `skill_workflow_sources`, one row per skill and SHA-256             | n/a                                                                   |
-| `tedi_call_costs`                               | Main D1                                                                     | `move_to_logs_db`, 400-day floor; settled or quarantined rows only    |
-| Other financial ledgers, security audit, grants | Main D1                                                                     | Not moved by these policies                                           |
+| Class                                           | New rows                                                                    | Rows past the keep window                                              |
+| ----------------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Known MCP execution telemetry                   | `LOGS_DB.audit_events` (`queries/audit.ts`), metadata over 4 KiB in R2      | `move_to_logs_db`                                                      |
+| Every other audit action                        | Main D1, including rows composed into a main-database batch                 | `move_to_logs_db`                                                      |
+| `tedi_runtime_events`                           | Main D1                                                                     | `move_to_logs_db`                                                      |
+| `kernel_runtime_events`                         | Main D1                                                                     | `move_to_logs_db`                                                      |
+| `kernel_request_events`                         | Main D1                                                                     | Not moved: request CAS and history append share one batch              |
+| `skill_run_artifacts`                           | Pointer row in main D1; body in the private artifact bucket when over 4 KiB | `move_to_logs_db`                                                      |
+| `external_agent_attributions`                   | Main D1 (credential-checked insert, unique key)                             | `move_to_logs_db`, 7-day floor, unreviewed `mcp_execution` rows only   |
+| Workflow source snapshots                       | Main D1 `skill_workflow_sources`, one row per skill and SHA-256             | n/a                                                                    |
+| `tedi_call_costs`                               | Main D1                                                                     | `move_to_logs_db`, 90-day floor; settled, quarantined or platform rows |
+| Other financial ledgers, security audit, grants | Main D1                                                                     | Not moved by these policies                                            |
 
 The execution telemetry allowlist covers `mcp.tool.execute`, `mcp.tool.error`,
 `mcp.code.execute`, `mcp.code.error`, `mcp.prompt.execute`, `mcp.prompt.error`,
@@ -225,7 +225,8 @@ the writer past 6 GB:
 
 ## Call-cost reader boundary
 
-The 400-day main floor is retained because billing still joins source calls to
+The main floor is 90 days (20 Nov 2026; it was 400). Every main-only reader
+below looks back at most 45 days, and billing still joins source calls to
 main-only authority in a single statement or batch:
 
 - `platform-job-storage.ts` scans insertion-order settlement watermarks and
@@ -244,13 +245,13 @@ main-only authority in a single statement or batch:
   usage ledger; its mention of call costs is explanatory. `tedis.ts` and
   `catalog/change-tracking.ts` mention the table only in comments.
 
-The engine additionally pins successful calls without a charge, provider-usage
-receipt or quarantine, all reviewed source calls, and calls without an
-organization (the archive requires tenant ownership). These pins are checked
-before copying and again when deleting. The 400-day floor is not a promise
-that an unresolved call is safe to move on day 401. A shorter main window needs
-partition-aware settlement and historical batch rebuilds first; retaining this
-floor may produce no immediate call-cost reduction if all source rows are newer.
+The engine additionally pins organization calls that succeeded without a
+charge, provider-usage receipt or quarantine, and all reviewed source calls.
+These pins are checked before copying and again when deleting, so an
+unresolved call never moves. Platform calls (no organization; about half the
+table, never charged) move once expired and are archived under the
+`_platform` owner in R2. A session report older than 90 days loses its cost
+rows in `work-agent-sessions.ts`, which reads main D1 only.
 
 ## Capacity
 
