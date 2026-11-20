@@ -39,6 +39,8 @@ let panel: BrowserWindow | undefined;
 let status: Status | undefined;
 let lastOutput = "";
 let busy = false;
+/** A sign-in link that arrived before the window existed. */
+let startUrl: string | undefined;
 
 async function state(): Promise<PanelState> {
 	status ??= await loadStatus(powerMonitor.isOnBatteryPower());
@@ -106,6 +108,24 @@ function isTedixPage(url: string): boolean {
 }
 
 /**
+ * `tedix://sign-in?link=<emailed link>`: the Tedix OS sign-in page sends this
+ * from the browser so the emailed link finishes in this window instead.
+ */
+function openAppLink(value: string | undefined): void {
+	const target = URL.parse(value ?? "");
+	if (target?.protocol !== "tedix:" || target.host !== "sign-in") return;
+	const link = target.searchParams.get("link") ?? "";
+	if (!isTedixPage(link)) return;
+	if (!os) {
+		startUrl = link;
+		return;
+	}
+	void os.webContents.loadURL(link);
+	mainWindow?.show();
+	mainWindow?.focus();
+}
+
+/**
  * The main window: the Tedix OS chat with a thin local status strip under it.
  * The Tedix OS page gets no access to this app or the computer; its sign-in
  * lives in a session kept between launches.
@@ -149,7 +169,11 @@ function createMainWindow(): void {
 	});
 	view.webContents.on("did-navigate", () => void publish());
 	view.webContents.on("did-navigate-in-page", () => void publish());
-	void view.webContents.loadURL(OS_URL);
+	// The added name lets the sign-in page tell this app from a browser.
+	view.webContents.setUserAgent(
+		`${view.webContents.getUserAgent()} TedixDesktop/${app.getVersion()}`,
+	);
+	void view.webContents.loadURL(startUrl ?? OS_URL);
 	view.webContents.focus();
 }
 
@@ -245,8 +269,20 @@ function setMenu(): void {
 	);
 }
 
+const appLink = (args: string[]) =>
+	args.find((arg) => arg.startsWith("tedix://"));
+
 if (!app.requestSingleInstanceLock()) app.quit();
-else
+else {
+	// In dev the program is Electron itself, so the link type names this folder.
+	if (app.isPackaged) app.setAsDefaultProtocolClient("tedix");
+	else app.setAsDefaultProtocolClient("tedix", process.execPath, [root]);
+	// macOS hands a clicked link over here; other systems pass it as an argument.
+	app.on("open-url", (event, url) => {
+		event.preventDefault();
+		openAppLink(url);
+	});
+	openAppLink(appLink(process.argv));
 	void app.whenReady().then(() => {
 		setMenu();
 		createMainWindow();
@@ -290,7 +326,10 @@ else
 			return publish();
 		});
 
-		app.on("second-instance", () => mainWindow?.show());
+		app.on("second-instance", (_event, args) => {
+			mainWindow?.show();
+			openAppLink(appLink(args));
+		});
 		// Closing the window quits the app; the supervisor keeps the runners running.
 		app.on("window-all-closed", () => app.quit());
 		powerMonitor.on("on-battery", () => void refresh());
@@ -298,3 +337,4 @@ else
 		setInterval(() => void refresh(), 5000);
 		void refresh();
 	});
+}

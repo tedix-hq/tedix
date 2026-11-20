@@ -1,5 +1,6 @@
 import { Link } from "@/components/kumo/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/kumo/button";
 import { clearStoredAppFiles } from "@/shared/app-files-cache";
 import { resolveProductLoginIntent } from "@/account/product-login-routing";
 import { isDescopeFlowContinuation } from "@/shared/session-status";
@@ -27,11 +28,62 @@ function IntentlessLoginRedirect() {
 	);
 }
 
+/** The Tedix desktop app adds this name to its browser identification. */
+const inDesktopApp = () => navigator.userAgent.includes("TedixDesktop/");
+
+/** A sign-in started in the desktop app marks the link it emails. */
+function emailedLinkTarget(href: string): string {
+	if (!inDesktopApp()) return href;
+	const url = new URL(href);
+	url.searchParams.set("desktop", "1");
+	return url.href;
+}
+
+/** An emailed link that the desktop app asked for, opened in a browser. */
+function isDesktopLinkInBrowser(href: string): boolean {
+	return (
+		!inDesktopApp() &&
+		isDescopeFlowContinuation(href) &&
+		new URL(href).searchParams.get("desktop") === "1"
+	);
+}
+
+let appOpenTried = false;
+
+/**
+ * An emailed link signs in only the window that opens it. The sign-in flow is
+ * not mounted here, so the link stays unused until the app or this browser
+ * finishes it.
+ */
+function OpenDesktopApp({ onContinueHere }: { onContinueHere: () => void }) {
+	const appLink = `tedix://sign-in?link=${encodeURIComponent(window.location.href)}`;
+	useEffect(() => {
+		if (appOpenTried) return;
+		appOpenTried = true;
+		window.location.assign(appLink);
+	}, [appLink]);
+	return (
+		<main className="centered-state">
+			<TedixBrandMark />
+			<p>Open the Tedix app to finish signing in.</p>
+			<Button onClick={() => window.location.assign(appLink)}>
+				Open the Tedix app
+			</Button>
+			<Button variant="link" onClick={onContinueHere}>
+				Continue in this browser instead
+			</Button>
+		</main>
+	);
+}
+
 export function ProductLoginPage() {
 	useDocumentTitle("Sign in");
 	// Whoever signs in here next does not start with app files the previous
 	// session left on this device.
 	useEffect(() => void clearStoredAppFiles(), []);
+	const [continueHere, setContinueHere] = useState(false);
+	if (!continueHere && isDesktopLinkInBrowser(window.location.href))
+		return <OpenDesktopApp onContinueHere={() => setContinueHere(true)} />;
 	const intent = resolveProductLoginIntent(window.location.href);
 	if (!intent) {
 		// A magic-link email lands on the static `/login` with only the
@@ -54,7 +106,7 @@ export function ProductLoginPage() {
 			<CredentialPostLoginScreen
 				title="Sign in"
 				description="Continue securely to the product and organization you opened. Tedix Cloud is in private beta, by invitation."
-				redirectUrl={window.location.href}
+				redirectUrl={emailedLinkTarget(window.location.href)}
 				prepareOrganization={!intent.skipOrganizationPreparation}
 				buildAction={() => intent.authorizeUrl}
 			/>

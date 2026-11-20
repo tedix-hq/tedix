@@ -16,6 +16,10 @@ macOS only.
 - **Chat in Tedix OS.** The window opens `https://tedix.os.tedix.dev/chat`. You
   stay signed in between launches. Links to other sites open in your default
   browser.
+- **Sign in with an emailed link.** Start the sign-in in the app and click the
+  emailed link as usual. The page that opens in your browser offers to open
+  the Tedix app, and the app window finishes the sign-in. If that does not
+  happen, copy the link and choose **Tedix → Paste Sign-in Link**.
 - **See this computer's status.** The strip under the page shows one line: how
   many runners are running, how many runs are active, whether the process that
   answers a tedi's requests on this computer is up, and the CLI version. On

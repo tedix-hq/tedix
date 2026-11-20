@@ -79,6 +79,34 @@ describe("ProductLoginPage central-login provider", () => {
 	});
 });
 
+describe("ProductLoginPage link requested from the desktop app", () => {
+	it("offers the app and leaves the link unused in a browser", () => {
+		window.history.replaceState(
+			{},
+			"",
+			"/login?intent=request_1234567890abcdefghij&descope-login-flow=a&t=b&desktop=1",
+		);
+		const assign = vi
+			.spyOn(window.location, "assign")
+			.mockImplementation(() => undefined);
+		act(() => {
+			root.render(<ProductLoginPage />);
+		});
+
+		expect(descope.flowProps).toBeNull();
+		expect(assign).toHaveBeenCalledWith(
+			`tedix://sign-in?link=${encodeURIComponent(window.location.href)}`,
+		);
+		assign.mockRestore();
+
+		const here = [...container.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Continue in this browser"),
+		);
+		act(() => here?.click());
+		expect(descope.flowProps).not.toBeNull();
+	});
+});
+
 describe("ProductLoginPage no-flash rendering", () => {
 	it("hides the panel behind a branded loading state until the flow is ready", () => {
 		act(() => {
