@@ -12,8 +12,8 @@ import { assistantMessageText } from "./facet-submission-result";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { RunSteering } from "./run-steering";
+import { steeringTextForRun } from "./turn-trust";
 import {
 	RuntimeRunSteeringInputSchema,
 	type RuntimeRunSteeringInput,
@@ -222,6 +222,11 @@ export interface ConversationTurnConfiguration {
 	reasoning?: ModelGenerationSettings["reasoningEffort"] | null;
 	generation?: ModelGenerationSettings;
 	toolDescriptors: FacetToolDescriptor[];
+	/**
+	 * Home delegated this turn for a signed-in person. Its message arrives as
+	 * an instruction, and so does a follow-up they send while it runs.
+	 */
+	delegated?: boolean;
 }
 
 export interface ConfiguredConversationTurn {
@@ -332,9 +337,16 @@ export class ConversationFacet extends PiAgent<
 			return pending.submissionId;
 		},
 		submit: async (operationId, content) => {
+			const pending = await this.ctx.storage.get<PendingFacetSubmission>(
+				"pi-facet-pending-submission",
+			);
+			const delegated =
+				pending !== undefined &&
+				operationId.startsWith(`${pending.submissionId}:steer:`) &&
+				pending.configuration.delegated === true;
 			await (
 				await this.nativePiSession()
-			).steer(wrapUntrustedInput(content, "operator_steering"), {
+			).steer(steeringTextForRun({ delegated, content }), {
 				operationId,
 				whenIdle: "reject",
 			});

@@ -1581,6 +1581,7 @@ export const runtimeFacetTurns = {
 			const turnConfiguration = {
 				executionRestriction: executionRestriction ?? null,
 				delegationBudget: input.delegationBudget,
+				delegated: input.delegated === true,
 				observerModelRef:
 					this.modelOverrideForSurface("observer")?.modelRef ?? null,
 				observerDeployment: this.modelOverrideForSurface(

@@ -86,6 +86,31 @@ describe("native Pi provider and durable storage", () => {
 		]);
 		expect((await inspect(reopened, input.runId)).requests).toHaveLength(2);
 	});
+	it("delivers a person's follow-up on a delegated run as written and fences it on any other run", async () => {
+		const content = "Use the updated evidence.";
+		const steered = async (delegated: boolean) => {
+			const agent = await fixture(crypto.randomUUID());
+			await agent.beginHeldTurn("steering-run", delegated);
+			try {
+				await agent.controlRunSteering({
+					action: "enqueue",
+					runId: "steering-run",
+					sessionKey: "fixture",
+					id: "steer-1",
+					content,
+				});
+			} finally {
+				await agent.releaseTool();
+			}
+			await agent.finishHeldTurn();
+			return JSON.stringify((await inspect(agent, "steering-run")).requests[1]);
+		};
+		const fence = "<<<external_operator_steering>>>";
+		const delegated = await steered(true);
+		expect(delegated).toContain(content);
+		expect(delegated).not.toContain(fence);
+		expect(await steered(false)).toContain(fence);
+	});
 	it("withdraws queued steering without aborting or returning already consumed input", async () => {
 		const agent = await fixture(crypto.randomUUID());
 		await agent.beginHeldTurn("withdraw-run");
