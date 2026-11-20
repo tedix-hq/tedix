@@ -1380,8 +1380,8 @@ describe("CanvasPage listing", () => {
 		mockCollab({ initial: docJson(baseContent) });
 		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
 		const container = renderPage();
-		await vi.waitFor(async () => {
-			await flush();
+		await flush();
+		await vi.waitFor(() => {
 			expect(
 				container.querySelector("[data-canvas-output-view]"),
 			).not.toBeNull();

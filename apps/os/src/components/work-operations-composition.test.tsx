@@ -856,6 +856,7 @@ describe("Work admission and capacity", () => {
 
 	it("uses schema-backed resource and budget forms that close on phones after saving", async () => {
 		viewport(true);
+		asApprover();
 		api.reads["workItems.listResourcePools"] = {
 			data: [
 				{
