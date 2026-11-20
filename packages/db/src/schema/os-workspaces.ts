@@ -90,7 +90,9 @@ export const osWorkspaces = sqliteTable(
 		/**
 		 * `org`: every member of the organization can see the workspace.
 		 * `private`: only `owner_user_id` and that member's own personal tedis
-		 * can see it or anything in it; no organization role overrides this.
+		 * can see it or anything in it; no organization role overrides this,
+		 * except an owner's or admin's recorded, read-only inspection
+		 * (`queries/os-workspace-inspections.ts`).
 		 * Declared last because `ALTER TABLE ADD COLUMN` appends.
 		 */
 		visibility: text("visibility", { enum: ["org", "private"] })

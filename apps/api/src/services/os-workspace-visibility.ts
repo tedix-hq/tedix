@@ -10,6 +10,7 @@ import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
 import { isOsWorkspaceBuildCollaborator } from "./os-workspace-collaborators";
+import { inspectedWorkspaceId } from "./os-workspace-inspection";
 
 /**
  * Private workspaces belong to one member. The member sees them as:
@@ -25,8 +26,10 @@ import { isOsWorkspaceBuildCollaborator } from "./os-workspace-collaborators";
  * run (on the trusted service binding) sees the private workspaces whose
  * "Skills and schedules" resource links its skill, and nothing else of the
  * owner's.
- * No organization role, API key or service principal sees them; this follows
- * the owner-only policy of personal resource delegations.
+ * An organization owner or admin who recorded an inspection sees one for an
+ * hour, through a few named reads only (`os-workspace-inspection.ts`).
+ * No other organization role, API key or service principal sees them; this
+ * follows the owner-only policy of personal resource delegations.
  */
 const viewers = new WeakMap<BaseContext, Promise<OsWorkspaceViewer>>();
 
@@ -43,7 +46,11 @@ export function resolveOsWorkspaceViewer(
 
 async function computeViewer(context: BaseContext): Promise<OsWorkspaceViewer> {
 	const viewer = await computeMemberViewer(context);
-	const workspaceIds = await linkedRunWorkspaceIds(context);
+	const inspected = await inspectedWorkspaceId(context);
+	const workspaceIds = [
+		...(await linkedRunWorkspaceIds(context)),
+		...(inspected ? [inspected] : []),
+	];
 	return workspaceIds.length ? { ...viewer, workspaceIds } : viewer;
 }
 

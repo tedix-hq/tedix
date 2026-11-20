@@ -111,6 +111,41 @@ describe("workspace chat organization routing", () => {
 		},
 	);
 
+	it("asks the API about an inspection only when the browser opens one", async () => {
+		const { env, apiRequests, objectRequests } = chatEnv("inspect");
+		const request = new Request(
+			`https://acme.os.tedix.dev/workspace/${workspaceId}/chat?inspect=1`,
+			{
+				headers: {
+					Upgrade: "websocket",
+					Authorization: "Bearer fictional-session",
+				},
+			},
+		);
+		const response = await handleOsRequest(request, env, async () => ({
+			provisioned: true,
+			organizationId,
+			descopeTenantId: "auth-tenant-acme",
+		}));
+		await expect(response.text()).resolves.toBe("object-upgrade");
+		expect(apiRequests[0]?.headers.get("X-Tedix-Workspace-Inspection")).toBe(
+			workspaceId,
+		);
+		expect(objectRequests[0]?.headers.get("X-Tedix-Workspace-Role")).toBe(
+			"inspect",
+		);
+
+		const plain = chatEnv();
+		await handleOsRequest(chatRequest(), plain.env, async () => ({
+			provisioned: true,
+			organizationId,
+			descopeTenantId: "auth-tenant-acme",
+		}));
+		expect(
+			plain.apiRequests[0]?.headers.has("X-Tedix-Workspace-Inspection"),
+		).toBe(false);
+	});
+
 	it("addresses the local demo organization on a loopback local run", async () => {
 		const chat = chatEnv("owner");
 		const env: OsRouterEnv = {

@@ -1,5 +1,6 @@
 import { grantOsWorkspaceAccess } from "@tedix/db/queries/os-collaborators";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { auditEvents } from "@tedix/db/schema/audit-events";
 import {
 	osWorkspaceCollaborators,
 	osWorkspaceAccessEdges,
@@ -5938,6 +5939,65 @@ describe("workspace transport authorization", () => {
 			}
 		},
 	);
+	test("an admin's recorded inspection reads the chat and sends nothing", async () => {
+		const { ws, privateScope } = await fixture();
+		await testEnv.DB.batch([
+			testEnv.DB.prepare(ddl(auditEvents)),
+			testEnv.DB.prepare(
+				"INSERT OR REPLACE INTO organization_members (id, organization_id, descope_user_id, email, role, status, kind) VALUES ('fixture-admin', ?, 'fictional-admin', 'admin@example.test', 'admin', 'active', 'human')",
+			).bind(privateScope.organizationId),
+			testEnv.DB.prepare(
+				"INSERT INTO audit_events (id, organization_id, actor_id, actor_type, action, resource_type, resource_id, timestamp) VALUES (?, ?, 'fictional-admin', 'user', 'os.workspace.inspected', 'os_workspace', ?, ?)",
+			).bind(
+				crypto.randomUUID(),
+				privateScope.organizationId,
+				privateScope.workspaceId,
+				Math.floor(Date.now() / 1000),
+			),
+		]);
+		await ws.scriptModel(privateScope, [{ text: "Fictional answer" }]);
+		const started = await ws.sendTurn(privateScope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "A fictional question",
+		});
+		await ws.awaitTurn(privateScope, started.turnId, 20_000);
+		const socket = await open(ws, privateScope, "fictional-admin");
+		try {
+			const replay = socketFramesUntil(
+				socket,
+				(frame) => frame.type === "caught_up",
+			);
+			socket.send(
+				JSON.stringify({ type: "subscribe", conversationId: null, cursor: 0 }),
+			);
+			expect(
+				(await replay).some((frame) => frame.type === "turn.started"),
+			).toBe(true);
+			const refused = socketFramesUntil(
+				socket,
+				(frame) => frame.type === "error",
+			);
+			socket.send(
+				JSON.stringify({
+					type: "send_turn",
+					clientTurnId: "inspector-turn",
+					conversationId: started.conversationId,
+					text: "Planted",
+				}),
+			);
+			expect((await refused).at(-1)).toMatchObject({ code: "access_denied" });
+		} finally {
+			socket.close(1000, "test complete");
+		}
+		expect(
+			(
+				await ws.readEvents(privateScope, {
+					conversationId: started.conversationId,
+				})
+			).filter((event) => event.type === "turn.started"),
+		).toHaveLength(1);
+	});
 	test.each(["u1", "fictional-builder"])(
 		"current owner/build %s can approve a held removal on an existing socket",
 		async (actorId) => {

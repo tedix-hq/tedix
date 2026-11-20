@@ -56,6 +56,7 @@ import { Route as SessionTenantAdminBillingRouteImport } from './routes/_session
 import { Route as SessionTenantAdminConnectionsRouteImport } from './routes/_session/_tenant/admin.connections'
 import { Route as SessionTenantAdminOrganizationRouteImport } from './routes/_session/_tenant/admin.organization'
 import { Route as SessionTenantAdminPaymentsRouteImport } from './routes/_session/_tenant/admin.payments'
+import { Route as SessionTenantAdminWorkspacesRouteImport } from './routes/_session/_tenant/admin.workspaces'
 import { Route as SessionTenantAppsAppIdRouteImport } from './routes/_session/_tenant/apps_.$appId'
 import { Route as SessionTenantExploreAppsRouteImport } from './routes/_session/_tenant/explore.apps'
 import { Route as SessionTenantOutputsOutputIdRouteImport } from './routes/_session/_tenant/outputs_.$outputId'
@@ -70,6 +71,7 @@ import { Route as SessionTenantWorkCapacityRouteImport } from './routes/_session
 import { Route as SessionTenantWorkCasesRouteImport } from './routes/_session/_tenant/work.cases'
 import { Route as SessionTenantWorkInteractionsRouteImport } from './routes/_session/_tenant/work.interactions'
 import { Route as SessionChromeFreeSharedWorkspaceWorkspaceIdRouteImport } from './routes/_session/_chrome-free/shared_.workspace.$workspaceId'
+import { Route as SessionTenantAdminWorkspacesWorkspaceIdRouteImport } from './routes/_session/_tenant/admin.workspaces_.$workspaceId'
 import { Route as SessionTenantAppsAppIdIndexRouteImport } from './routes/_session/_tenant/apps_.$appId.index'
 import { Route as SessionTenantAppsAppIdAnalyticsRouteImport } from './routes/_session/_tenant/apps_.$appId.analytics'
 import { Route as SessionTenantAppsAppIdContentRouteImport } from './routes/_session/_tenant/apps_.$appId.content'
@@ -338,6 +340,12 @@ const SessionTenantAdminPaymentsRoute =
     path: '/payments',
     getParentRoute: () => SessionTenantAdminRoute,
   } as any)
+const SessionTenantAdminWorkspacesRoute =
+  SessionTenantAdminWorkspacesRouteImport.update({
+    id: '/workspaces',
+    path: '/workspaces',
+    getParentRoute: () => SessionTenantAdminRoute,
+  } as any)
 const SessionTenantAppsAppIdRoute = SessionTenantAppsAppIdRouteImport.update({
   id: '/apps_/$appId',
   path: '/apps/$appId',
@@ -416,6 +424,12 @@ const SessionChromeFreeSharedWorkspaceWorkspaceIdRoute =
     id: '/shared_/workspace/$workspaceId',
     path: '/shared/workspace/$workspaceId',
     getParentRoute: () => SessionChromeFreeRoute,
+  } as any)
+const SessionTenantAdminWorkspacesWorkspaceIdRoute =
+  SessionTenantAdminWorkspacesWorkspaceIdRouteImport.update({
+    id: '/workspaces_/$workspaceId',
+    path: '/workspaces/$workspaceId',
+    getParentRoute: () => SessionTenantAdminRoute,
   } as any)
 const SessionTenantAppsAppIdIndexRoute =
   SessionTenantAppsAppIdIndexRouteImport.update({
@@ -604,6 +618,7 @@ export interface FileRoutesByFullPath {
   '/admin/connections': typeof SessionTenantAdminConnectionsRoute
   '/admin/organization': typeof SessionTenantAdminOrganizationRoute
   '/admin/payments': typeof SessionTenantAdminPaymentsRoute
+  '/admin/workspaces': typeof SessionTenantAdminWorkspacesRoute
   '/apps/$appId': typeof SessionTenantAppsAppIdRouteWithChildren
   '/explore/apps': typeof SessionTenantExploreAppsRoute
   '/outputs/$outputId': typeof SessionTenantOutputsOutputIdRoute
@@ -619,6 +634,7 @@ export interface FileRoutesByFullPath {
   '/skills/': typeof SessionTenantSkillsIndexRoute
   '/work/': typeof SessionTenantWorkIndexRoute
   '/shared/workspace/$workspaceId': typeof SessionChromeFreeSharedWorkspaceWorkspaceIdRoute
+  '/admin/workspaces/$workspaceId': typeof SessionTenantAdminWorkspacesWorkspaceIdRoute
   '/apps/$appId/analytics': typeof SessionTenantAppsAppIdAnalyticsRoute
   '/apps/$appId/content': typeof SessionTenantAppsAppIdContentRoute
   '/apps/$appId/settings': typeof SessionTenantAppsAppIdSettingsRoute
@@ -683,6 +699,7 @@ export interface FileRoutesByTo {
   '/admin/connections': typeof SessionTenantAdminConnectionsRoute
   '/admin/organization': typeof SessionTenantAdminOrganizationRoute
   '/admin/payments': typeof SessionTenantAdminPaymentsRoute
+  '/admin/workspaces': typeof SessionTenantAdminWorkspacesRoute
   '/explore/apps': typeof SessionTenantExploreAppsRoute
   '/outputs/$outputId': typeof SessionTenantOutputsOutputIdRoute
   '/team/new': typeof SessionTenantTeamNewRoute
@@ -695,6 +712,7 @@ export interface FileRoutesByTo {
   '/skills': typeof SessionTenantSkillsIndexRoute
   '/work': typeof SessionTenantWorkIndexRoute
   '/shared/workspace/$workspaceId': typeof SessionChromeFreeSharedWorkspaceWorkspaceIdRoute
+  '/admin/workspaces/$workspaceId': typeof SessionTenantAdminWorkspacesWorkspaceIdRoute
   '/apps/$appId/analytics': typeof SessionTenantAppsAppIdAnalyticsRoute
   '/apps/$appId/content': typeof SessionTenantAppsAppIdContentRoute
   '/apps/$appId/settings': typeof SessionTenantAppsAppIdSettingsRoute
@@ -768,6 +786,7 @@ export interface FileRoutesById {
   '/_session/_tenant/admin/connections': typeof SessionTenantAdminConnectionsRoute
   '/_session/_tenant/admin/organization': typeof SessionTenantAdminOrganizationRoute
   '/_session/_tenant/admin/payments': typeof SessionTenantAdminPaymentsRoute
+  '/_session/_tenant/admin/workspaces': typeof SessionTenantAdminWorkspacesRoute
   '/_session/_tenant/apps_/$appId': typeof SessionTenantAppsAppIdRouteWithChildren
   '/_session/_tenant/explore/apps': typeof SessionTenantExploreAppsRoute
   '/_session/_tenant/outputs_/$outputId': typeof SessionTenantOutputsOutputIdRoute
@@ -783,6 +802,7 @@ export interface FileRoutesById {
   '/_session/_tenant/skills/': typeof SessionTenantSkillsIndexRoute
   '/_session/_tenant/work/': typeof SessionTenantWorkIndexRoute
   '/_session/_chrome-free/shared_/workspace/$workspaceId': typeof SessionChromeFreeSharedWorkspaceWorkspaceIdRoute
+  '/_session/_tenant/admin/workspaces_/$workspaceId': typeof SessionTenantAdminWorkspacesWorkspaceIdRoute
   '/_session/_tenant/apps_/$appId/analytics': typeof SessionTenantAppsAppIdAnalyticsRoute
   '/_session/_tenant/apps_/$appId/content': typeof SessionTenantAppsAppIdContentRoute
   '/_session/_tenant/apps_/$appId/settings': typeof SessionTenantAppsAppIdSettingsRoute
@@ -852,6 +872,7 @@ export interface FileRouteTypes {
     | '/admin/connections'
     | '/admin/organization'
     | '/admin/payments'
+    | '/admin/workspaces'
     | '/apps/$appId'
     | '/explore/apps'
     | '/outputs/$outputId'
@@ -867,6 +888,7 @@ export interface FileRouteTypes {
     | '/skills/'
     | '/work/'
     | '/shared/workspace/$workspaceId'
+    | '/admin/workspaces/$workspaceId'
     | '/apps/$appId/analytics'
     | '/apps/$appId/content'
     | '/apps/$appId/settings'
@@ -931,6 +953,7 @@ export interface FileRouteTypes {
     | '/admin/connections'
     | '/admin/organization'
     | '/admin/payments'
+    | '/admin/workspaces'
     | '/explore/apps'
     | '/outputs/$outputId'
     | '/team/new'
@@ -943,6 +966,7 @@ export interface FileRouteTypes {
     | '/skills'
     | '/work'
     | '/shared/workspace/$workspaceId'
+    | '/admin/workspaces/$workspaceId'
     | '/apps/$appId/analytics'
     | '/apps/$appId/content'
     | '/apps/$appId/settings'
@@ -1015,6 +1039,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant/admin/connections'
     | '/_session/_tenant/admin/organization'
     | '/_session/_tenant/admin/payments'
+    | '/_session/_tenant/admin/workspaces'
     | '/_session/_tenant/apps_/$appId'
     | '/_session/_tenant/explore/apps'
     | '/_session/_tenant/outputs_/$outputId'
@@ -1030,6 +1055,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant/skills/'
     | '/_session/_tenant/work/'
     | '/_session/_chrome-free/shared_/workspace/$workspaceId'
+    | '/_session/_tenant/admin/workspaces_/$workspaceId'
     | '/_session/_tenant/apps_/$appId/analytics'
     | '/_session/_tenant/apps_/$appId/content'
     | '/_session/_tenant/apps_/$appId/settings'
@@ -1396,6 +1422,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantAdminPaymentsRouteImport
       parentRoute: typeof SessionTenantAdminRoute
     }
+    '/_session/_tenant/admin/workspaces': {
+      id: '/_session/_tenant/admin/workspaces'
+      path: '/workspaces'
+      fullPath: '/admin/workspaces'
+      preLoaderRoute: typeof SessionTenantAdminWorkspacesRouteImport
+      parentRoute: typeof SessionTenantAdminRoute
+    }
     '/_session/_tenant/apps_/$appId': {
       id: '/_session/_tenant/apps_/$appId'
       path: '/apps/$appId'
@@ -1493,6 +1526,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/shared/workspace/$workspaceId'
       preLoaderRoute: typeof SessionChromeFreeSharedWorkspaceWorkspaceIdRouteImport
       parentRoute: typeof SessionChromeFreeRoute
+    }
+    '/_session/_tenant/admin/workspaces_/$workspaceId': {
+      id: '/_session/_tenant/admin/workspaces_/$workspaceId'
+      path: '/workspaces/$workspaceId'
+      fullPath: '/admin/workspaces/$workspaceId'
+      preLoaderRoute: typeof SessionTenantAdminWorkspacesWorkspaceIdRouteImport
+      parentRoute: typeof SessionTenantAdminRoute
     }
     '/_session/_tenant/apps_/$appId/': {
       id: '/_session/_tenant/apps_/$appId/'
@@ -1718,7 +1758,9 @@ interface SessionTenantAdminRouteChildren {
   SessionTenantAdminConnectionsRoute: typeof SessionTenantAdminConnectionsRoute
   SessionTenantAdminOrganizationRoute: typeof SessionTenantAdminOrganizationRoute
   SessionTenantAdminPaymentsRoute: typeof SessionTenantAdminPaymentsRoute
+  SessionTenantAdminWorkspacesRoute: typeof SessionTenantAdminWorkspacesRoute
   SessionTenantAdminIndexRoute: typeof SessionTenantAdminIndexRoute
+  SessionTenantAdminWorkspacesWorkspaceIdRoute: typeof SessionTenantAdminWorkspacesWorkspaceIdRoute
 }
 
 const SessionTenantAdminRouteChildren: SessionTenantAdminRouteChildren = {
@@ -1727,7 +1769,10 @@ const SessionTenantAdminRouteChildren: SessionTenantAdminRouteChildren = {
   SessionTenantAdminConnectionsRoute: SessionTenantAdminConnectionsRoute,
   SessionTenantAdminOrganizationRoute: SessionTenantAdminOrganizationRoute,
   SessionTenantAdminPaymentsRoute: SessionTenantAdminPaymentsRoute,
+  SessionTenantAdminWorkspacesRoute: SessionTenantAdminWorkspacesRoute,
   SessionTenantAdminIndexRoute: SessionTenantAdminIndexRoute,
+  SessionTenantAdminWorkspacesWorkspaceIdRoute:
+    SessionTenantAdminWorkspacesWorkspaceIdRoute,
 }
 
 const SessionTenantAdminRouteWithChildren =

@@ -90,6 +90,8 @@ export interface BaseContext {
 	db: ReturnType<typeof createDbClient>;
 	/** Set from matched contract metadata before the first database access. */
 	dbReadOnly?: boolean;
+	/** The matched procedure's dotted path, set by the HTTP handlers; never from input. */
+	procedurePath?: string;
 	/** Set in-process only after the shared workspace resource checks, never from input or headers. */
 	workspaceConnectionRead?: {
 		actor: import("@tedix/api-contract/schemas/workspace-connection-read").WorkspaceConnectionActor;

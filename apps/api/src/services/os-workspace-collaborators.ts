@@ -53,6 +53,7 @@ import {
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
 import { cutWorkspaceAppSessions } from "./os-app-session-revocation";
+import { inspectedWorkspaceId } from "./os-workspace-inspection";
 import { notifyWorkspaceShared } from "./workspace-share-push";
 import {
 	computeEffectiveRoles,
@@ -381,6 +382,18 @@ export async function getWorkspacePresenceIdentity(
 	context: BaseContext,
 	workspaceId: string,
 ) {
+	// An inspector's chat socket is read-only; the workspace object refuses
+	// every frame that would change something.
+	if ((await inspectedWorkspaceId(context)) === workspaceId) {
+		const userId = context.user!.sub!;
+		const [person] = await listTedixPeople(db(context), [userId]);
+		return {
+			workspaceId,
+			userId,
+			displayName: person?.name?.trim() || "Organization admin",
+			role: "inspect" as const,
+		};
+	}
 	const access = await requireWorkspaceCollaboratorAccess(
 		context,
 		workspaceId,

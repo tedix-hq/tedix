@@ -506,10 +506,10 @@ export function WorkspaceChat({
 		)?.title ?? null;
 	const changeConversation = useMemo(
 		() =>
-			client && connected
+			client && connected && !viewOnly
 				? (change: ConversationChange) => client.changeConversation(change)
 				: null,
-		[client, connected],
+		[client, connected, viewOnly],
 	);
 	// The open conversation was deleted, here or by someone else.
 	const deleted = state.lastError?.code === "conversation_deleted";
@@ -623,12 +623,12 @@ export function WorkspaceChat({
 				}
 				hasEarlier={state.hasEarlier}
 				onLoadEarlier={() => client?.loadEarlier()}
-				onDecide={(approvalId, decision) =>
-					client?.decideApproval(approvalId, decision)
-				}
-				onApproveAll={(approvalIds) =>
-					client?.decideApprovals(approvalIds, "approve")
-				}
+				onDecide={(approvalId, decision) => {
+					if (!viewOnly) client?.decideApproval(approvalId, decision);
+				}}
+				onApproveAll={(approvalIds) => {
+					if (!viewOnly) client?.decideApprovals(approvalIds, "approve");
+				}}
 				onContinue={
 					viewOnly || running || state.pendingSend
 						? null
@@ -661,23 +661,25 @@ export function WorkspaceChat({
 					</Text>
 				</div>
 			) : null}
-			<ApprovalTray
-				key={conversationId ?? "new"}
-				approvals={waiting}
-				// The object names a new chat before the pane's own id follows.
-				conversationId={state.conversationId ?? conversationId}
-				run={state.approvalRun}
-				notice={state.approvalNotice}
-				tediNames={tediNames}
-				onDecide={(approvalId, decision) =>
-					client?.decideApproval(approvalId, decision)
-				}
-				onDecideAll={(approvalIds, decision) =>
-					client?.decideApprovals(approvalIds, decision)
-				}
-				onDismissNotice={() => client?.dismissApprovalNotice()}
-				onOpenConversation={onSelectConversation}
-			/>
+			{viewOnly ? null : (
+				<ApprovalTray
+					key={conversationId ?? "new"}
+					approvals={waiting}
+					// The object names a new chat before the pane's own id follows.
+					conversationId={state.conversationId ?? conversationId}
+					run={state.approvalRun}
+					notice={state.approvalNotice}
+					tediNames={tediNames}
+					onDecide={(approvalId, decision) =>
+						client?.decideApproval(approvalId, decision)
+					}
+					onDecideAll={(approvalIds, decision) =>
+						client?.decideApprovals(approvalIds, decision)
+					}
+					onDismissNotice={() => client?.dismissApprovalNotice()}
+					onOpenConversation={onSelectConversation}
+				/>
+			)}
 			{viewOnlyNote}
 			<Composer
 				key="composer"
@@ -700,7 +702,9 @@ export function WorkspaceChat({
 				autoFocus={autoFocusComposer}
 				busy={running !== null || state.pendingSend !== null}
 				onStop={
-					running && client ? () => client.cancelTurn(running.turnId) : null
+					running && client && !viewOnly
+						? () => client.cancelTurn(running.turnId)
+						: null
 				}
 				usage={
 					state.conversationId && (

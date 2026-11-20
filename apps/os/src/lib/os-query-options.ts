@@ -1,6 +1,6 @@
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import type { QueryClient } from "@tanstack/react-query";
-import { osApi } from "@/lib/api";
+import { createOsInspectionApi, osApi } from "@/lib/api";
 import { readWorkRunSteps, WORK_RUN_STEP_PAGE } from "@/lib/work-run-steps";
 import {
 	loadAppRuntimeCode,
@@ -16,6 +16,27 @@ import type { ListCatalogAppsInput } from "@tedix/api-contract/schemas/catalog";
  * projection stores instead of masquerading as API requests.
  */
 export const osQuery = createTanstackQueryUtils(osApi);
+
+const inspectionQueries = new Map<
+	string,
+	ReturnType<typeof createTanstackQueryUtils<typeof osApi>>
+>();
+
+/**
+ * Reads of a workspace an organization admin is inspecting. Their keys sit
+ * under their own `inspection` prefix, so they never share a cache entry with
+ * the same read made without an inspection.
+ */
+export function workspaceInspectionQuery(workspaceId: string) {
+	let utils = inspectionQueries.get(workspaceId);
+	if (!utils) {
+		utils = createTanstackQueryUtils(createOsInspectionApi(workspaceId), {
+			path: ["inspection", workspaceId],
+		});
+		inspectionQueries.set(workspaceId, utils);
+	}
+	return utils;
+}
 
 /**
  * The validated input a contract procedure accepts, mirrored from the client

@@ -8,8 +8,9 @@ import { publishWorkspaceAction } from "@tedix/db/queries/workspace-feed/action-
 import { publishOutputProjection } from "@tedix/db/queries/workspace-feed/output-publication";
 /**
  * Private workspaces: one member owns one; nobody else in the organization can
- * list, read, search, export or share it or its outputs. There is no admin
- * override (the same owner-only rule as personal resource delegations).
+ * list, read, search, export or share it or its outputs. An admin's role is
+ * no override (the same owner-only rule as personal resource delegations);
+ * only their recorded, read-only inspection is.
  */
 
 import { DatabaseSync } from "node:sqlite";
@@ -62,6 +63,8 @@ import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
 import { isOsWorkspaceVisibleTo } from "@tedix/db/queries/os-workspaces/workspaces";
 import { resolveOsWorkspaceViewer } from "../../services/os-workspace-visibility";
 import type { BaseContext } from "../orpc";
+import { OS_WORKSPACE_INSPECTION_HEADER } from "@tedix/api-contract/schemas/os-workspace-inspections";
+import { withD1ReadRouting } from "../d1-read-routing";
 import { osSharesContractRouter } from "./os-shares";
 import { osWorkspacesContractRouter } from "./os-workspaces";
 
@@ -289,6 +292,67 @@ describe("private OS workspaces", () => {
 			).rejects.toMatchObject(notFound);
 		},
 	);
+
+	it("open to an admin's recorded inspection for reads only", async () => {
+		const env = createEnv();
+		const { workspace, output } = await seed(env);
+		// Each call gets a fresh request context and the HTTP handler's
+		// procedure identity, as in production.
+		const inspector = (sub: string, inspecting: boolean) =>
+			createRouterClient(osWorkspacesContractRouter, {
+				path: ["osWorkspaces"],
+				interceptors: [withD1ReadRouting],
+				context: () => {
+					const value = context(env, sub, {
+						permissions: ["settings:manage"],
+					});
+					if (inspecting)
+						value.headers.set(OS_WORKSPACE_INSPECTION_HEADER, workspace.id);
+					return value;
+				},
+			});
+		const admin = inspector(ADMIN, true);
+		await expect(
+			admin.workspaces.get({ workspaceId: workspace.id }),
+		).rejects.toMatchObject(notFound);
+		await expect(
+			inspector(OTHER, true).inspections.start({ workspaceId: workspace.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+		await admin.inspections.start({
+			workspaceId: workspace.id,
+			reason: "Support request",
+		});
+		await expect(
+			admin.workspaces.get({ workspaceId: workspace.id }),
+		).resolves.toMatchObject({ workspace: { id: workspace.id } });
+		await expect(
+			admin.outputs.get({ outputId: output.id }),
+		).resolves.toMatchObject({ output: { id: output.id } });
+		await expect(
+			admin.workspaces.update({ workspaceId: workspace.id, name: "Taken" }),
+		).rejects.toMatchObject(notFound);
+		await expect(
+			admin.outputs.rename({ outputId: output.id, title: "Taken" }),
+		).rejects.toMatchObject(notFound);
+		await expect(
+			inspector(ADMIN, false).workspaces.get({ workspaceId: workspace.id }),
+		).rejects.toMatchObject(notFound);
+
+		const history = await member(env, OWNER).inspections.history({
+			workspaceId: workspace.id,
+		});
+		expect(history.items).toHaveLength(1);
+		const [record] = await createDbQueryClient(env.DB)
+			.select()
+			.from(auditEvents)
+			.where(eq(auditEvents.action, "os.workspace.inspected"));
+		expect(record).toMatchObject({
+			actorId: ADMIN,
+			resourceId: workspace.id,
+			metadata: expect.objectContaining({ reason: "Support request" }),
+		});
+	});
 
 	it("ignores an acting-user header sent by an external member request", async () => {
 		const env = createEnv();

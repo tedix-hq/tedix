@@ -771,6 +771,11 @@ const UNPROJECTABLE_ENDPOINTS = new Set([
 	"mcpEvents/deleteWebhookSubscription",
 	"mcpEvents/claimDueWebhookSubscriptions",
 	"mcpEvents/recordWebhookDelivery",
+	// Workspace inspection is for a signed-in owner or admin in Tedix OS; the
+	// handlers refuse every agent and machine caller.
+	"osWorkspaces/inspections/workspaces",
+	"osWorkspaces/inspections/start",
+	"osWorkspaces/inspections/history",
 ]);
 
 function isProjectableEndpoint(endpoint: ResolvedContractEndpoint): boolean {

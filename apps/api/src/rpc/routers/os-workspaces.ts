@@ -125,6 +125,7 @@ import { resolveWorkspaceResourceAvailability } from "../../services/os-workspac
 import * as collaborationProcedures from "./os-workspace-collaboration";
 import * as workspaceLibrary from "./os-workspace-library";
 import * as workspaceActivity from "./os-workspace-activity";
+import * as workspaceInspections from "./os-workspace-inspections";
 import * as workspaceResources from "./os-workspace-resources";
 import * as workspaceFiles from "./os-workspace-files";
 import * as workspaceSchedules from "./os-workspace-schedules";
@@ -2538,4 +2539,5 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		setFeatured: blueprintsSetFeatured,
 		instantiateFromGallery: blueprintsInstantiateFromGallery,
 	},
+	inspections: workspaceInspections.osWorkspaceInspectionProcedures,
 });
