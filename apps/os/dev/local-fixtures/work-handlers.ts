@@ -4,6 +4,10 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type {
+	ListedMachineToolCall,
+	Machine,
+} from "@tedix/api-contract/schemas/machines";
 import type * as z from "zod";
 import type { ExternalAgentWorkManagementGrantSchema } from "@tedix/api-contract/schemas/external-agent-identity";
 
@@ -340,10 +344,97 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 		LOCAL_CASE_EDGES.push(row);
 		return row;
 	},
+	"machines/list": () => ({
+		machines: [
+			{
+				machineName: "studio-mac",
+				online: true,
+				cliVersion: "0.28.0",
+				executors: ["codex", "opencode", "devin"],
+				machineTools: ["read_file", "edit_file", "run_command"],
+				lastSeenAt: new Date(minutesAgo(1)).toISOString(),
+			},
+			{
+				machineName: "build-box",
+				online: false,
+				cliVersion: null,
+				executors: ["codex"],
+				machineTools: ["read_file"],
+				lastSeenAt: new Date(minutesAgo(60)).toISOString(),
+			},
+		] satisfies Machine[],
+	}),
+	"machines/listToolCalls": (input: {
+		order?: string;
+		writesOnly?: boolean;
+		limit?: number;
+	}) => {
+		const calls: ListedMachineToolCall[] = [
+			{
+				callId: fid("65", 3),
+				machine: "studio-mac",
+				tool: "read_file",
+				input: { path: "docs/reports/churn-cohort.md" },
+				requestedBy: { type: "tedi", id: TEDIS[0]!.id },
+				status: "done",
+				createdAt: new Date(minutesAgo(12)).toISOString(),
+			},
+			{
+				callId: fid("65", 4),
+				machine: "studio-mac",
+				tool: "run_command",
+				input: { workspace: "paging-fix", command: "bun test paging.test.ts" },
+				requestedBy: { type: "tedi", id: TEDIS[0]!.id },
+				status: "done",
+				createdAt: new Date(minutesAgo(4)).toISOString(),
+			},
+		];
+		const included = input.writesOnly === false ? calls : calls.slice(1);
+		return {
+			from: new Date(minutesAgo(24 * 60)).toISOString(),
+			until: new Date().toISOString(),
+			calls: (input.order === "newest" ? included.reverse() : included).slice(
+				0,
+				input.limit ?? 50,
+			),
+			nextCursor: null,
+		};
+	},
 	"dispatcherHealth/list": () => ({
 		reportedAt: new Date().toISOString(),
 		data: ["codex", "opencode", "devin"].map((executor, index) => ({
 			reporterId: "workstation",
+			machineName: "studio-mac",
+			duty:
+				index === 0
+					? {
+							id: executor,
+							kind: "service",
+							state: "running",
+							observedAt: new Date(minutesAgo(0)).toISOString(),
+							lastRunAt: null,
+							lastExitAt: null,
+							lastExitCode: null,
+							lastExecutor: executor,
+							restartsLastHour: 0,
+							retryAt: null,
+							lastProblem: null,
+							activity: {
+								current: [
+									{
+										id: workItemId(1),
+										title: WORK_ITEMS.find((item) => item.id === workItemId(1))
+											?.title,
+										phase: "working",
+									},
+								],
+								currentCount: 1,
+								waiting: [],
+								nextCheckAt: null,
+								lastCompleted: null,
+							},
+						}
+					: null,
 			lane: executor,
 			executor,
 			running: true,

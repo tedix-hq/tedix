@@ -7,6 +7,7 @@
 import {
 	and,
 	asc,
+	desc,
 	eq,
 	gt,
 	gte,
@@ -473,8 +474,8 @@ export interface ListedMachineToolCallRow {
 }
 
 /**
- * Calls of exactly one organization made in `[from, until)`, oldest first
- * (created_at, then id), after `after` when given. The result text is never
+ * Calls of exactly one organization made in `[from, until)`, ordered by
+ * creation time and id, starting after the cursor when given. The result text is never
  * read, only its length.
  *
  * Listing every status lets the `(org_id, machine_name, status, created_at)`
@@ -491,11 +492,14 @@ export async function listMachineToolCallsInRange(
 		machineName?: string;
 		/** Only the tools that change a workspace or run a command. */
 		writesOnly: boolean;
+		order: "oldest" | "newest";
 		after?: { createdAt: string; id: string };
 		limit: number;
 	},
 ): Promise<ListedMachineToolCallRow[]> {
 	const { after } = params;
+	const orderBy = params.order === "newest" ? desc : asc;
+	const beyondCursor = params.order === "newest" ? lt : gt;
 	return db
 		.select({
 			id: machineToolCalls.id,
@@ -533,14 +537,14 @@ export async function listMachineToolCallsInRange(
 				after === undefined
 					? undefined
 					: or(
-							gt(machineToolCalls.createdAt, after.createdAt),
+							beyondCursor(machineToolCalls.createdAt, after.createdAt),
 							and(
 								eq(machineToolCalls.createdAt, after.createdAt),
-								gt(machineToolCalls.id, after.id),
+								beyondCursor(machineToolCalls.id, after.id),
 							),
 						),
 			),
 		)
-		.orderBy(asc(machineToolCalls.createdAt), asc(machineToolCalls.id))
+		.orderBy(orderBy(machineToolCalls.createdAt), orderBy(machineToolCalls.id))
 		.limit(Math.min(Math.max(1, Math.trunc(params.limit)), 101));
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
+import sampleTedis from "../dev/demo-pack/tedis.json";
 import { startFixtureServer } from "./fixture-server";
 
 /*
@@ -33,6 +34,43 @@ export async function runLaneStates() {
 		for (const width of [375, 1280]) {
 			const page = await browser.newPage({ viewport: { width, height: 900 } });
 			await page.goto(`${origin}/work/capacity`);
+			const machines = page.getByRole("region", {
+				name: "Machines",
+				exact: true,
+			});
+			const inventory = machines.getByRole("table", {
+				name: "Machine inventory",
+			});
+			const studio = inventory
+				.getByRole("row")
+				.filter({ hasText: "studio-mac" });
+			await studio
+				.getByRole("link", {
+					name: "Rebuild the churn cohort query with paging",
+				})
+				.waitFor();
+			assert.match(await studio.innerText(), /Online/);
+			assert.match(await studio.innerText(), /0\.28\.0/);
+			assert.equal(await studio.getByText("Yes", { exact: true }).count(), 2);
+			const offline = inventory
+				.getByRole("row")
+				.filter({ hasText: "build-box" });
+			await offline.getByText("Offline", { exact: true }).waitFor();
+			assert.equal(await offline.getByText("No", { exact: true }).count(), 2);
+			const calls = machines.getByRole("table", {
+				name: "Latest machine tool calls",
+			});
+			const latest = calls.locator("tbody > tr").first();
+			await latest.getByText("run_command", { exact: true }).waitFor();
+			const requester =
+				process.env.TEDIX_OS_FIXTURE_PACK === "classic"
+					? "Nova"
+					: sampleTedis[0]!.name;
+			await latest.getByText(requester, { exact: true }).waitFor();
+			await latest.getByRole("button", { name: "View input" }).click();
+			await latest
+				.getByText("bun test paging.test.ts", { exact: false })
+				.waitFor();
 			const section = page.getByRole("region", { name: "Local runners" });
 			await section.getByText("Running", { exact: true }).first().waitFor();
 			assert.equal(
@@ -64,7 +102,8 @@ export async function runLaneStates() {
 				true,
 			);
 			for (const [state, count] of [
-				["Running", 2],
+				["Running", 1],
+				["Working", 1],
 				["Unknown · stale", 1],
 			] as const)
 				assert.equal(

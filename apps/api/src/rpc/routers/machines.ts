@@ -332,6 +332,7 @@ const listToolCallsProcedure = os.listToolCalls
 			until,
 			...(input.machine === undefined ? {} : { machineName: input.machine }),
 			writesOnly: input.writesOnly,
+			order: input.order,
 			...(input.cursor === undefined
 				? {}
 				: { after: { createdAt: input.cursor.at, id: input.cursor.id } }),

@@ -763,16 +763,25 @@ describe("listing machine tool calls", () => {
 			`UPDATE machine_tool_calls SET created_at = '${new Date(Date.now() - 60_000).toISOString()}' WHERE id IN ('${queued.slice(0, 3).join("','")}')`,
 		);
 		const owner = f.person("owner-subject");
-		const seen: string[] = [];
-		let cursor: { at: string; id: string } | undefined;
-		for (let page = 0; page < 5; page++) {
-			const listed = await owner.machines.listToolCalls({ limit: 2, cursor });
-			seen.push(...listed.calls.map((call) => call.callId));
-			if (!listed.nextCursor) break;
-			cursor = listed.nextCursor;
-		}
-		expect(seen).toHaveLength(5);
-		expect([...seen].sort()).toEqual([...queued].sort());
+		const readPages = async (order?: "newest") => {
+			const seen: string[] = [];
+			let cursor: { at: string; id: string } | undefined;
+			for (let page = 0; page < 5; page++) {
+				const listed = await owner.machines.listToolCalls({
+					limit: 2,
+					cursor,
+					order,
+				});
+				seen.push(...listed.calls.map((call) => call.callId));
+				if (!listed.nextCursor) break;
+				cursor = listed.nextCursor;
+			}
+			return seen;
+		};
+		const oldestFirst = await readPages();
+		expect(oldestFirst).toHaveLength(5);
+		expect([...oldestFirst].sort()).toEqual([...queued].sort());
+		expect(await readPages("newest")).toEqual([...oldestFirst].reverse());
 	});
 
 	it("returns an input whose hash is the argsHash of the call's queued record", async () => {

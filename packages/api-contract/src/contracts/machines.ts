@@ -52,7 +52,7 @@ export const machinesContract = oc
 				path: "/tool-calls",
 				summary: "List machine tool calls with their input",
 				description:
-					"List the tool calls that members and agents asked this organization's machines to make, oldest first, with each call's input: the command, file path or file content sent to the machine. By default it lists only calls that change a workspace or run a command, made in the last 24 hours; a range may cover at most 7 days. The machine's answer is never listed, only its length. Follow nextCursor with the same filters to read the next page. To check a call against the change record, hash its input: it equals the argsHash of the record whose traceId is the call id. Only an active owner or admin of the organization can call it.",
+					"List the tool calls that members and agents asked this organization's machines to make, oldest first by default, with each call's input: the command, file path or file content sent to the machine. By default it lists only calls that change a workspace or run a command, made in the last 24 hours; a range may cover at most 7 days. The machine's answer is never listed, only its length. Follow nextCursor with the same filters to read the next page. To check a call against the change record, hash its input: it equals the argsHash of the record whose traceId is the call id. Only an active owner or admin of the organization can call it.",
 			})
 			.input(ListMachineToolCallsInputSchema)
 			.output(ListMachineToolCallsResultSchema),
